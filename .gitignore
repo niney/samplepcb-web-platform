@@ -1,7 +1,9 @@
 # 단일 repo (Option B):
 #   samplepcb-web         = gnuboard5 subtree (git subtree)
 #   samplepcb-web-mono-app= 일반 서브폴더(Vue+Node 모노레포)
-# 각 서브폴더의 자체 .gitignore 도 함께 적용된다.
+# 이 루트 파일이 모노레포 포함 전체를 커버한다(아래 **/ 글롭).
+# 단, samplepcb-web/ 의 .gitignore 는 gnuboard 업스트림 소유(subtree)라
+# 손대지 않는다 — 삭제/수정 시 subtree pull 충돌. (코어 비수정 원칙)
 
 # 의존성/빌드/생성물
 **/node_modules/
