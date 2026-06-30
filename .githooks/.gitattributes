@@ -1,0 +1,2 @@
+# 훅은 sh 스크립트 — 윈도우에서도 LF 줄바꿈 강제(CRLF면 shebang 깨짐)
+* text eol=lf

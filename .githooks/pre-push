@@ -1,0 +1,20 @@
+#!/bin/sh
+# 단일 repo: gnuboard subtree 소스를 공식 upstream(gnuboard5)으로 실수 push 하는 것을 차단.
+# push 는 origin(niney/samplepcb-web-platform)으로만.
+# git 인자:  $1 = remote 이름,  $2 = remote push URL
+remote_name="$1"
+remote_url="$2"
+
+case "$remote_url" in
+  *gnuboard/gnuboard5*|*gnuboard/youngcart5*|*no_push*)
+    echo ""                                                              1>&2
+    echo "✋ 차단됨: 공식 gnuboard 로는 push 할 수 없습니다."             1>&2
+    echo "   remote = $remote_name"                                      1>&2
+    echo "   url    = $remote_url"                                       1>&2
+    echo "   → push 는 origin 으로만:  git push origin <branch>"          1>&2
+    echo "   → 그누보드 패치는 'git subtree pull' 로 받습니다(push 아님)." 1>&2
+    echo ""                                                              1>&2
+    exit 1
+    ;;
+esac
+exit 0

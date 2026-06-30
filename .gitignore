@@ -1,0 +1,27 @@
+# 단일 repo (Option B):
+#   samplepcb-web         = gnuboard5 subtree (git subtree)
+#   samplepcb-web-mono-app= 일반 서브폴더(Vue+Node 모노레포)
+# 각 서브폴더의 자체 .gitignore 도 함께 적용된다.
+
+# 의존성/빌드/생성물
+**/node_modules/
+**/dist/
+**/build/
+**/.turbo/
+*.tsbuildinfo
+
+# 비밀/환경
+**/.env
+**/.env.*
+!**/.env.example
+**/data/dbconfig.php
+
+# 로컬 prisma DB
+*.db
+*.db-journal
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,21 @@
+// Node 전용 DB(samplepcb_app) 스키마. 모든 테이블은 sp_ 접두.
+// 그누보드 g5_* 는 Node 가 소유/수정하지 않는다(인증은 JWT 클레임으로만).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Quote {
+  id        Int      @id @default(autoincrement())
+  mbId      String
+  title     String
+  qty       Int
+  createdAt DateTime @default(now())
+
+  @@map("sp_quote")
+}
