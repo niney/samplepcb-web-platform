@@ -9,8 +9,9 @@ export const Me = z.object({
 });
 export type MeType = z.infer<typeof Me>;
 
+// iat/exp 필수 — exp 없는 토큰(만료되지 않는 토큰)은 검증 단계에서 거부한다.
 export const JwtClaims = Me.extend({
-  iat: z.number().optional(),
-  exp: z.number().optional(),
+  iat: z.number().int(),
+  exp: z.number().int(),
 });
 export type JwtClaimsType = z.infer<typeof JwtClaims>;
