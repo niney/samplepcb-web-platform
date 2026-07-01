@@ -17,7 +17,7 @@ $sp_ft = array(
     <h2 class="sound_only">사이트 정보</h2>
     <div class="sp-inner">
         <ul class="sp-footer__links">
-            <li><a href="<?php echo get_pretty_url('content', 'company'); ?>">회사소개</a></li>
+            <li><a href="<?php echo G5_URL ?>/about">회사소개</a></li>
             <li><a href="<?php echo get_pretty_url('content', 'provision'); ?>">서비스이용약관</a></li>
             <li><a href="<?php echo get_pretty_url('content', 'privacy'); ?>"><b>개인정보처리방침</b></a></li>
         </ul>
