@@ -35,15 +35,44 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
   - 근거: 웹 경로(URL)는 소문자-하이픈이 업계 표준(Google이 `_` 비권장)이고, npm 패키지명 컨벤션과도 일치.
 - **예외**: PSR-4 오토로딩 PHP 클래스를 도입하면 그 디렉토리/파일만 `PascalCase`(현재 미사용). 모노레포 TS/JS 파일명은 각 도구 관례를 따름(폴더 규칙과 분리).
 
-## 런타임 통합 — 같은 도메인 라우팅
+## 프로젝트 호칭 (별칭)
+
+세 프로젝트를 부르는 **별칭**. 폴더·경로·패키지명은 **바꾸지 않는다** — 사람·에이전트가 문서·이슈·커밋·대화에서 안 헷갈리도록 통일한 호칭일 뿐(`@sp` 스코프·kebab-case 규칙과 일관).
+
+| 별칭 | 정체 | 폴더 (불변) | 라우트 | 정밀 구분 |
+|---|---|---|---|---|
+| **`sp-php`** | 그누보드5/영카트 (PHP) | `samplepcb-web/` | `/` | `g5` · `youngcart` |
+| **`sp-vue`** | Vue SPA 프런트 | `samplepcb-web-mono-app/apps/web` | `/app` | `@sp` 스코프 |
+| **`sp-node`** | Node/Fastify 백엔드 | `samplepcb-web-mono-app/apps/api` | `/api` | Fastify · `@sp` 스코프 |
+
+- **"web"은 호칭으로 쓰지 않는다** — `samplepcb-web/`(PHP)와 `apps/web`(Vue) 양쪽에 걸쳐 혼동을 부르기 때문. 위 세 별칭으로 대체.
+- 빠른 대화에선 `php`/`vue`/`node`로 줄여도 1:1로 통함. **문서·커밋엔 `sp-` 접두형 권장.**
+- `sp-node`는 런타임 기준 이름. 라우트/계약(`/api`, `@sp/api-contract`)을 콕 집을 땐 "sp-node의 api".
+
+## 런타임 통합 — 같은 도메인 라우팅 (nginx 443 리버스프록시)
+
+**통합 호스트 `local-web.samplepcb.co.kr`** — 한 도메인에서 PHP·Vue·Node를 경로로 분기. 구체 경로(`/api`·`/app`)를 먼저, catch-all `/`를 마지막에 둔다:
 
 ```
-/        → Apache 8888 (PHP, samplepcb-web)
-/app/    → Vue (Vite 5173 dev | 빌드 static)   ← samplepcb-web-mono-app/apps/web
-/api/    → Node (Fastify 3000)                 ← samplepcb-web-mono-app/apps/api
+/api/  → 127.0.0.1:3000  Node (Fastify)      ← samplepcb-web-mono-app/apps/api
+/app/  → 127.0.0.1:5173  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/web (base:'/app/')
+/      → 127.0.0.1:8888  PHP (XAMPP Apache)  ← samplepcb-web (그누보드/영카트)  ← 루트=PHP
 ```
-- **`/app`·`/api`는 그누보드 예약 경로**(그누보드가 점유하지 않음). Vue 빌드 `base:'/app/'`.
-- 설정: `ops/nginx/local-web.conf`.
+- **`/app`·`/api`는 그누보드 예약 경로**(그누보드가 점유 안 함). `/spcb`(인증 브리지)는 별도 location이 없어 catch-all `/`로 흘러 PHP가 처리.
+
+**설정 파일 위치 (중요)**
+- 실제 구동 = **`D:\nginx\conf\nginx.conf`** (repo **밖**, 로컬 머신).
+- **`ops/nginx/local-web.conf`** = repo가 추적하는 **통합 호스트 레퍼런스 스니펫**(위 3개 location). 라이브와 동일 구조(라이브 `/app`엔 `X-Forwarded-Proto` 한 줄이 더 있음).
+
+**라이브 nginx의 다른 호스트 (개발 편의용, repo 미추적)**
+
+| server_name | `/` 라우팅 | 용도 |
+|---|---|---|
+| `local-web.samplepcb.co.kr` | 통합(위 표) | **정식 통합 라우팅** |
+| `local.samplepcb.co.kr` · `local-www.samplepcb.co.kr` | 전체 → 5173 | Vue 단독 프리뷰 |
+| `local2 / local3.samplepcb.co.kr` | 5174 / 5175 | git worktree 병렬 dev |
+
+→ 통합 라우팅(PHP `/` + `/api` + `/app`)이 살아있는 건 `local-web` **하나뿐**. 나머지는 `/` 전체가 Vue다.
 
 ## 인증 브리지 (그누보드 = IdP)
 
