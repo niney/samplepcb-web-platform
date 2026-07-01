@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+/* 기본 글꼴을 Pretendard 로. Tailwind v4 는 --font-sans 가 곧 본문 기본 폰트. */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji";
+}
