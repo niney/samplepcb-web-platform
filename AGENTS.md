@@ -74,11 +74,15 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 
 → 통합 라우팅(PHP `/` + `/api` + `/app`)이 살아있는 건 `local-web` **하나뿐**. 나머지는 `/` 전체가 Vue다.
 
-## 인증 브리지 (그누보드 = IdP)
+## 인증 브리지 (그누보드 = IdP) — 단일 설명원본
+
+**이 절이 인증 브리지의 단일 설명원본** — 다른 문서(HANDOFF·모노레포 AGENTS.md)는 여기로 링크만 한다. 구현 완료.
 
 - 같은 도메인이라 PHPSESSID 공유. Node는 PHP 세션 직접 못 읽음 →
-- 그누보드 `/spcb/api/me.php`(common.php 부트스트랩 → `$member` + **서명 JWT**, 시크릿 `extend/`) → Vue가 `/api` 호출 시 `Bearer` → **Fastify는 공유 시크릿으로 JWT만 검증**.
+- 그누보드 `GET /spcb/api/me`(무확장 — `spcb/.htaccess`. common.php 부트스트랩 → `$member` 기반 **서명 HS256 JWT**, TTL 10분) → Vue가 `/api` 호출 시 `Bearer` → **Fastify는 공유 시크릿으로 JWT만 검증**(`JwtClaims` — `iat`/`exp` 필수).
+- **시크릿**: `samplepcb-web/spcb/lib/secret.php`(gitignore) ↔ `apps/api/.env`의 `JWT_SECRET` — **같은 값 수동 동기화**.
 - Node DB = 별도 `samplepcb_app` + `sp_*`(Prisma 소유). 회원 식별=JWT 클레임(그누보드 스키마 결합 회피).
+- 구현 위치: `samplepcb-web/spcb/`(me.php·jwt.php) · `apps/api/src/plugins/auth.ts`(검증) · `packages/shared/src/auth.ts`(bootstrap).
 
 ## HTTPS / 도메인
 

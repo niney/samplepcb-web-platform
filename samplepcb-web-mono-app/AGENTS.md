@@ -40,9 +40,10 @@ apps/
 
 ## 그누보드 연동 (인증 브리지)
 
-- 같은 도메인이라 PHPSESSID 공유. Node는 PHP 세션 직접 못 읽음 →
-- 그누보드 `/spcb/api/me.php`가 `$member` 기반 **서명 JWT**(공유 시크릿, `extend/`) 발급 → Vue가 `/api` 호출 시 `Bearer` → **Fastify는 JWT만 검증**(`@fastify/jwt`).
-- Node는 자기 DB(`sp_*`)만 소유. 회원 식별은 JWT 클레임(`mb_id`/`mb_nick`/`level`). 그누보드 스키마 직접 결합 금지.
+전체 흐름·시크릿 위치는 **상위 [`../AGENTS.md`](../AGENTS.md) "인증 브리지"가 단일 설명원본**. 모노레포에서 지킬 것만 요약:
+
+- Fastify는 그누보드가 발급한 JWT를 **검증만** 한다(`@fastify/jwt`, `apps/api/.env`의 `JWT_SECRET`은 그누보드 쪽 시크릿과 동일 값).
+- 회원 식별은 JWT 클레임(`@sp/api-contract`의 `JwtClaims` — `iat`/`exp` 필수). Node는 자기 DB(`sp_*`)만 소유, 그누보드 스키마 직접 결합 금지.
 
 ## 규칙
 
