@@ -10,9 +10,15 @@ export default defineConfig({
   base: '/app/',
   server: {
     port: 5173,
+    // IPv4 루프백에 바인딩. 기본값 'localhost'는 Windows에서 IPv6(::1)로만 열려
+    // nginx의 proxy_pass http://127.0.0.1:5173 (IPv4)가 502(connection refused)가 된다.
+    host: '127.0.0.1',
+    // nginx(443)가 같은 도메인으로 /app 을 프록시 → Host: local-web.samplepcb.co.kr.
+    // Vite 는 기본적으로 비허용 Host 를 403 차단하므로 명시 허용한다.
+    allowedHosts: ['local-web.samplepcb.co.kr'],
     proxy: {
-      '/api': 'http://localhost:3000',
-      '/spcb': 'http://localhost:8888',
+      '/api': 'http://127.0.0.1:3000',
+      '/spcb': 'http://127.0.0.1:8888',
     },
   },
 });

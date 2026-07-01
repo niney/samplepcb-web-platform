@@ -25,7 +25,11 @@ await app.register(healthRoutes, { prefix: '/api' });
 await app.register(meRoutes, { prefix: '/api' });
 
 try {
-  await app.listen({ port: Number(process.env.PORT ?? 3000), host: '0.0.0.0' });
+  // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로
+  // 0.0.0.0(외부/인터넷 노출)은 불필요하다. 컨테이너 등 외부 바인딩이 필요하면
+  // 환경변수 HOST=0.0.0.0 으로 override.
+  const host = process.env.HOST ?? '127.0.0.1';
+  await app.listen({ port: Number(process.env.PORT ?? 3000), host });
 } catch (err) {
   app.log.error(err);
   process.exit(1);
