@@ -88,7 +88,7 @@ if (defined('_SHOP_')) {
 }
 add_javascript('<script src="'.G5_JS_URL.'/common.js?ver='.G5_JS_VER.'"></script>', 0);
 add_javascript('<script src="'.G5_JS_URL.'/wrest.js?ver='.G5_JS_VER.'"></script>', 0);
-add_javascript('<script src="'.G5_JS_URL.'/placeholders.min.js"></script>', 0);
+// sp-lite: placeholders.min.js 제거 (IE9 이하 placeholder 폴리필 — 모던 브라우저는 네이티브 지원)
 add_stylesheet('<link rel="stylesheet" href="'.G5_JS_URL.'/font-awesome/css/font-awesome.min.css">', 0);
 
 if(G5_IS_MOBILE) {
