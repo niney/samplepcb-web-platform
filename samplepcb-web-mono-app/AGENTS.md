@@ -13,6 +13,12 @@ samplepcb 신규 프런트/API **모노레포**(pnpm + Turborepo). 상위 우산
 | DB | MariaDB(별도 DB `samplepcb_app`) + **Prisma**, 테이블 접두 **`sp_`** |
 | 검증/계약 | **Zod** (FE/BE 단일 진실원본 = `@sp/api-contract`) |
 
+## UI/디자인 상태 — 프로토타입
+
+- **현재 sp-vue(web)의 UI·레이아웃·스타일(헤더·관리자 사이드바·색상·컴포넌트)은 전부 프로토타입(placeholder)이다.** 구조·흐름 검증용 임시 디자인일 뿐 최종 디자인이 아님 — 자유롭게 교체/재작성해도 된다.
+- 라벨은 i18n 키(`@sp` `i18n/locales`)로 두어 다국어에 대비(현재 `ko` 실서비스, `en` 스텁). 다국어 스위처 UI는 미구현(준비만).
+- 확정 디자인/디자인시스템 도입 시 이 문구를 갱신할 것.
+
 ## 타입 강성 — "매우 강함" (반드시 유지)
 
 - tsconfig: `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes` + `noUnusedLocals/Parameters` + `noImplicitReturns` + `noFallthroughCasesInSwitch` + `verbatimModuleSyntax`. (`@sp/config/tsconfig/*`)

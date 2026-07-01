@@ -23,7 +23,7 @@ const demoPrice = formatPrice(1234567);
 
 <template>
   <div class="space-y-6">
-    <h1 class="text-2xl font-bold">samplePCB 신규 프런트</h1>
+    <h1 class="text-2xl font-bold">SAMPLEPCB 신규 프런트</h1>
 
     <!-- API 헬스체크 -->
     <section class="rounded-lg border border-gray-200 bg-white p-4">

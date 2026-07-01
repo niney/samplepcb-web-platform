@@ -4,6 +4,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query';
 import { useAuthStore } from '@sp/shared';
 import App from './App.vue';
 import { router } from './router';
+import { i18n } from './i18n';
 import 'pretendard/dist/web/variable/pretendardvariable.css'; // 기본 폰트(전 굵기 커버 variable)
 import './style.css';
 
@@ -12,6 +13,7 @@ async function bootstrap(): Promise<void> {
   const pinia = createPinia();
 
   app.use(pinia);
+  app.use(i18n);
   app.use(VueQueryPlugin);
   app.use(router);
 
