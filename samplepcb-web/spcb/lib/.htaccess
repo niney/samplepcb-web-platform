@@ -1,0 +1,2 @@
+# lib/ 는 include 전용 — 직접 웹 접근 전면 차단 (Apache 2.4)
+Require all denied

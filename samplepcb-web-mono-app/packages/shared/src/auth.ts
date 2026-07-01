@@ -7,7 +7,7 @@ interface AuthState {
   me: MeType | null;
 }
 
-// 그누보드 /spcb/api/me.php 응답: { token: 서명 JWT, member: Me }
+// 그누보드 /spcb/api/me 응답: { token: 서명 JWT, member: Me }
 const MeEndpointResponse = z.object({
   token: z.string(),
   member: Me,
@@ -26,7 +26,7 @@ export const useAuthStore = defineStore('auth', {
     // 실패하면(비로그인·네트워크·검증 실패) 익명 상태를 유지한다.
     async bootstrap(): Promise<void> {
       try {
-        const res = await fetch('/spcb/api/me.php', { credentials: 'same-origin' });
+        const res = await fetch('/spcb/api/me', { credentials: 'same-origin' });
         if (!res.ok) return;
 
         const body: unknown = await res.json();

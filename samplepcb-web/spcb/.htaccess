@@ -1,0 +1,17 @@
+# samplepcb 커스텀 PHP 엔드포인트 루트(/spcb) — 무확장 URL 라우팅
+# 예) /spcb/api/me → me.php  (실제 파일이 없고 같은 이름 .php 가 있을 때만)
+# ※ 이 리라이트는 Apache(XAMPP mod_php)에서 처리된다. nginx·그누보드 코어와 무관.
+#   전제: vhost AllowOverride All + mod_rewrite 활성.
+
+Options -Indexes
+
+RewriteEngine On
+
+# 1) 이미 존재하는 파일/디렉터리는 그대로 서빙(리라이트 안 함)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# 2) 확장자 없는 요청 & 같은 이름 .php 가 존재하면 그걸로 내부 리라이트(쿼리 보존)
+RewriteCond %{REQUEST_FILENAME}\.php -f
+RewriteRule ^(.+?)/?$ $1.php [L,QSA]
