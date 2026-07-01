@@ -4,7 +4,8 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 // 테마가 지원하는 장치 설정 pc, mobile
 // 선언하지 않거나 값을 지정하지 않으면 그누보드5의 설정을 따른다.
 // G5_SET_DEVICE 상수 설정 보다 우선 적용됨
-// sp-lite: PC 전용 테마(mobile 폴더 미포함) → 모바일 접속은 그누보드 기본 모바일로 폴백
+// sp-lite: 'pc' 설정 시 모바일 기기에서도 PC 화면이 보여짐(common.php 기기설정 참조)
+//          → 모든 기기가 이 테마 하나를 사용하며, 반응형은 CSS로 처리. 모바일 테마/스킨 불필요.
 if(! defined('G5_THEME_DEVICE')) define('G5_THEME_DEVICE', 'pc');
 
 $theme_config = array();
