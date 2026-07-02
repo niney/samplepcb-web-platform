@@ -1,5 +1,6 @@
 // Node 전용 DB(samplepcb_app) 스키마. 모든 테이블은 sp_ 접두.
-// 그누보드 g5_* 는 Node 가 소유/수정하지 않는다(인증은 JWT 클레임으로만).
+// 그누보드 g5_* 는 Node 가 소유/수정하지 않는다 — 단 g5_shop_cart INSERT 는
+// 담기 API 의 한정 예외(HANDOFF 결정 로그 #6)로 Prisma 가 아닌 mysql2 로 수행.
 
 generator client {
   provider = "prisma-client-js"
@@ -10,12 +11,64 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Quote {
-  id        Int      @id @default(autoincrement())
-  mbId      String
-  title     String
-  qty       Int
-  createdAt DateTime @default(now())
+// 견적 스냅샷 — 담기 시 가격 재검증의 단일 진실원본.
+// quoteId 는 DB 저장 방식(서명 토큰 기각 — rfq 기록·감사·일괄 무효화 필요, HANDOFF 결정).
+model SpQuote {
+  id            String   @id @default(uuid()) // = quoteId
+  category      String // 제품군: standard|metalMask|advance|flexible…
+  orderCategory String // sample|mass
+  qty           Int
+  specJson      Json // 계산 입력 스냅샷
+  specHash      String // 담기 시 변조 대조용 (spec 정규화 JSON 의 sha256)
+  autoPrice     Int? // null = 자동견적 불가(rfq)
+  eta           String? // 계산 시점 도착예정일 (표시용)
+  priceVersion  String // 가격표 버전 (일괄 무효화용)
+  expiresAt     DateTime // 발급 +72h
+  createdAt     DateTime @default(now())
 
   @@map("sp_quote")
+}
+
+// 주문의 실체(= PCB 프로젝트). 영카트 상품/카트에는 스냅샷만 가고 사양은 여기 산다.
+// cart 와의 관계(담김/주문됨)는 저장하지 않고 ct_id 조인으로 파생(HANDOFF 3장).
+model SpOrderSpec {
+  id            BigInt    @id @default(autoincrement()) // = projectId
+  mbId          String?   @db.VarChar(20) // 비회원 null (목록 미노출)
+  quoteId       String // sp_quote 연결
+  ctId          Int? // g5_shop_cart 연결 (파생 조회 키)
+  projectName   String
+  category      String
+  orderCategory String
+  qty           Int
+  message       String?   @db.Text
+  specJson      Json
+  status        String    @default("active") // active|deleted|archived
+  quoteStatus   String // priced|rfq|quoted
+  finalPrice    Int? // 관리자 확정가 (quoted)
+  pricedBy      String?   @db.VarChar(20)
+  pricedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([mbId, status])
+  @@index([quoteId])
+  @@map("sp_order_spec")
+}
+
+// 파일 연결(폴리모픽) — 기존 운영 sp_file 스키마 준수(uploaded_by 는 varchar(20) 확정).
+// 실파일은 file.samplepcb.kr 파일서버, 여기엔 pathToken 만.
+model SpFile {
+  id             BigInt   @id @default(autoincrement())
+  refType        String   @map("ref_type") @db.VarChar(50) // 'sp_order_spec'
+  refId          BigInt   @map("ref_id")
+  uploadFileName String   @map("upload_file_name") @db.VarChar(255)
+  originFileName String   @map("origin_file_name") @db.VarChar(255)
+  pathToken      String   @map("path_token") @db.VarChar(500)
+  size           BigInt   @default(0)
+  writeDate      DateTime @map("write_date")
+  fileType       String?  @map("file_type") @db.VarChar(50) // gerber|thumbnail|bom|drawing
+  uploadedBy     String?  @map("uploaded_by") @db.VarChar(20) // ADMIN|PARTNER|…
+
+  @@index([refType, refId], map: "idx_sp_file_ref")
+  @@map("sp_file")
 }
