@@ -1,11 +1,13 @@
 import Fastify from 'fastify';
 import fastifyCors from '@fastify/cors';
+import fastifyMultipart from '@fastify/multipart';
 import fastifySensible from '@fastify/sensible';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import authPlugin from './plugins/auth';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
+import { pcbProjectRoutes } from './routes/pcb-projects';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -16,6 +18,8 @@ app.setSerializerCompiler(serializerCompiler);
 // httpErrors/assert 등 유틸. 개발 시 web(:5173)과 api(:3000)는 다른 origin 이라 CORS 허용.
 await app.register(fastifySensible);
 await app.register(fastifyCors, { origin: true });
+// 거버 zip 업로드 수신 (pcb-projects). 거버 최대 크기 여유 있게 100MB.
+await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024 } });
 
 // 그누보드 발급 JWT 검증(데코레이터 authenticate 등록).
 await app.register(authPlugin);
@@ -23,6 +27,7 @@ await app.register(authPlugin);
 // nginx 가 /api → 이 서버로 프록시. 라우트 prefix '/api'.
 await app.register(healthRoutes, { prefix: '/api' });
 await app.register(meRoutes, { prefix: '/api' });
+await app.register(pcbProjectRoutes, { prefix: '/api' });
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로
