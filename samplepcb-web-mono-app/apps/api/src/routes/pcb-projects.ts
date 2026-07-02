@@ -6,14 +6,16 @@ import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
 import { uploadToFileServer } from '../lib/file-server';
 import type { UploadTarget } from '../lib/file-server';
+import { getTemplateItem, insertCartRow } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
 
 // ── POST /api/pcb-projects — 거버 담기 API (단일 multipart 호출) ────────────
 // 거버 뷰어가 FormData(gerber + thumbnail + payload JSON)를 보내면:
 //   ① payload Zod 검증  ② 견적 계산 + sp_quote 저장(가격은 서버만 계산)
 //   ③ 파일서버 업로드 대행(pathToken 클라이언트 미노출)  ④ sp_order_spec + sp_file 저장
-// g5_shop_cart 삽입은 미구현 — cart 의 od_id 가 PHP 세션(ss_cart_id)이라 sp-node 가
-// 알 수 없어 "클레임" 설계(PHP 1-UPDATE 접점)가 필요하다. HANDOFF 참고. cartAdded=false.
+//   ⑤ flow=order & 가격 확정이면 g5_shop_cart INSERT — od_id 는 인증 브리지 JWT 의
+//      cartId(= PHP 세션 ss_cart_id) 클레임 사용. cart.php 는 무변경으로 행이 보인다.
+// 인증: 회원 전용(JWT 필수). 비회원 주문은 현재 미사용 — 확장 시 HANDOFF "비회원" 참고.
 
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'https://local-web.samplepcb.co.kr';
 const FILE_SERVICE_TYPE = process.env.FILE_SERVICE_TYPE ?? 'gerber';
@@ -71,14 +73,15 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     const payload = parsed.data;
     const unknownSpecKeys = findUnknownSpecKeys(payload.spec);
 
-    // ── 회원 식별(선택) — JWT 있으면 mbId 귀속, 없으면 비회원(null) ──
-    let mbId: string | null = null;
+    // ── 회원 인증(필수) — 비회원 미사용 결정(2026-07-02). 거버는 제출 전
+    //    GET /spcb/api/me 로 토큰을 받아 Authorization 헤더로 전달한다.
     try {
       await request.jwtVerify();
-      mbId = request.user.mbId;
     } catch {
-      mbId = null;
+      return reply.unauthorized('로그인이 필요합니다');
     }
+    const mbId = request.user.mbId;
+    const cartId = request.user.cartId;
 
     // ── 견적 계산 (가격은 서버 재계산이 유일한 진실 — 클라이언트 가격 미수신) ──
     const quote = calculateQuote({
@@ -149,8 +152,58 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       return { quote: q, spec };
     });
 
+    // ── g5_shop_cart INSERT (flow=order & 가격 확정일 때만) ──
+    // od_id = JWT cartId. 실패해도 프로젝트는 유효("견적 보관 중")하므로 요청을 죽이지 않고
+    // cartAdded=false 로 알린다 — 파생 상태 설계 덕에 데이터 오염이 없다(HANDOFF 2장).
+    let cartAdded = false;
+    if (payload.flow === 'order' && quote.listPrice !== null) {
+      if (cartId === undefined || cartId === '') {
+        request.log.error({ mbId }, 'JWT 에 cartId 클레임이 없음 — me.php 브리지 확인 필요');
+      } else {
+        try {
+          const item = await getTemplateItem(payload.category);
+          if (item === null) {
+            request.log.error({ category: payload.category }, '템플릿 상품 없음 — seed-template-items 실행 필요');
+          } else {
+            const spec = payload.spec;
+            const optionSummary = [
+              String(spec.material ?? spec.kindPcb ?? ''),
+              spec.layers !== undefined ? `${String(spec.layers)}L` : '',
+              spec.width !== undefined && spec.length !== undefined
+                ? `${String(spec.width)}x${String(spec.length)}mm`
+                : '',
+              `${String(payload.qty)}pcs`,
+            ]
+              .filter((s) => s !== '')
+              .join(' / ');
+            const ctId = await insertCartRow({
+              odId: cartId,
+              mbId,
+              item,
+              itemName: `${item.itName} · ${payload.projectName}`,
+              price: quote.listPrice,
+              qty: payload.qty,
+              option: optionSummary,
+              ip: request.ip,
+            });
+            await prisma.spOrderSpec.update({ where: { id: project.spec.id }, data: { ctId } });
+            cartAdded = true;
+          }
+        } catch (err) {
+          request.log.error({ err }, 'g5_shop_cart INSERT 실패 — 프로젝트는 견적 보관 상태로 유지');
+        }
+      }
+    }
+
     request.log.info(
-      { projectId: Number(project.spec.id), quoteId: project.quote.id, quoteStatus, price: quote.listPrice, mbId },
+      {
+        projectId: Number(project.spec.id),
+        quoteId: project.quote.id,
+        quoteStatus,
+        price: quote.listPrice,
+        mbId,
+        cartAdded,
+      },
       'pcb-project created',
     );
 
@@ -162,9 +215,9 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         quoteStatus,
         price: quote.listPrice,
         eta: quote.eta,
-        // cart(od_id=PHP 세션) 바인딩 미구현 — 장바구니 페이지 준비 전까지 홈으로
-        cartAdded: false,
-        redirectUrl: `${WEB_BASE_URL}/`,
+        cartAdded,
+        // 담기 성공 → 장바구니, 그 외(rfq/실패)는 홈 ("내 PCB 프로젝트" 페이지 생기면 교체)
+        redirectUrl: cartAdded ? `${WEB_BASE_URL}/shop/cart.php` : `${WEB_BASE_URL}/`,
         ...(unknownSpecKeys.length > 0 ? { unknownSpecKeys } : {}),
       },
     };
