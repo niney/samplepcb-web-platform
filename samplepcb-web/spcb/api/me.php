@@ -11,6 +11,19 @@ include_once __DIR__ . '/../lib/jwt.php';    // spcb_jwt_encode(), SPCB_JWT_SECR
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
+// CORS: *.samplepcb.co.kr 서브도메인(https)만 허용 — 다른 서브도메인(local-gerber 등)에서
+// 세션 쿠키를 실어 토큰을 받아갈 수 있게 한다(same-site 라 쿠키는 브라우저가 전달).
+// credentialed 요청은 와일드카드(*) 불가 → 패턴 검사 후 오리진 반사.
+// 접미사 위조(evil-samplepcb.co.kr) 방지를 위해 정규식을 도메인 경계에 고정한다.
+if (isset($_SERVER['HTTP_ORIGIN'])) {
+    $origin = $_SERVER['HTTP_ORIGIN'];
+    if (preg_match('/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.samplepcb\.co\.kr(:\d+)?$/i', $origin)) {
+        header('Access-Control-Allow-Origin: ' . $origin);
+        header('Access-Control-Allow-Credentials: true');
+        header('Vary: Origin');
+    }
+}
+
 // 비로그인 → 401. sp-vue 는 이 응답을 받으면 익명 상태를 유지한다.
 if (empty($is_member) || empty($member['mb_id'])) {
     http_response_code(401);
