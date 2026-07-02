@@ -10,7 +10,7 @@ samplepcb 신규 프런트/API **모노레포**(pnpm + Turborepo). 상위 우산
 | 언어/런타임 | TypeScript / Node 22 LTS |
 | web | Vite + **Vue 3** (Vue Router · Pinia · @tanstack/vue-query · Tailwind v4) |
 | api | **Fastify 5** + `fastify-type-provider-zod` |
-| DB | MariaDB(별도 DB `samplepcb_app`) + **Prisma**, 테이블 접두 **`sp_`** |
+| DB | 그누보드 공유 DB(`samplepcb`)의 `sp_` 테이블 + **Prisma** (⚠ `migrate reset` 금지 — g5_* 드랍됨) |
 | 검증/계약 | **Zod** (FE/BE 단일 진실원본 = `@sp/api-contract`) |
 
 ## UI/디자인 상태 — 프로토타입

@@ -40,7 +40,7 @@
   src/lib/g5-db.ts         g5_shop_cart 접근(한정 예외 모듈)
       │
 [저장소]
-  samplepcb_app DB (Prisma 소유): sp_quote · sp_order_spec · sp_file
+  samplepcb DB 공유(sp_* 는 Prisma 소유): sp_quote · sp_order_spec · sp_file
   그누보드 DB:                    g5_shop_cart (INSERT만) · g5_shop_item (템플릿 SELECT만)
   file.samplepcb.kr:              실파일 (pathToken 발급)
 ```
@@ -89,7 +89,7 @@
      advance·flexible류 / 양산(mass) / 가격 0 → rfq (자동견적 불가)
 4. 파일서버 업로드 대행 ── file.samplepcb.kr (서버-to-서버, pathToken 클라이언트 미노출)
      실패 시 여기서 중단 — 파일 없는 프로젝트를 만들지 않는다
-5. 저장 (Prisma 단일 트랜잭션, samplepcb_app DB)
+5. 저장 (Prisma 단일 트랜잭션, sp_* 테이블)
      sp_quote      견적 스냅샷 (specHash·가격표버전·72h 만료) — 감사·재검증의 진실원본
      sp_order_spec 프로젝트 실체 (mbId·사양 JSON·quoteStatus)
      sp_file       pathToken 연결 (ref_type='sp_order_spec')

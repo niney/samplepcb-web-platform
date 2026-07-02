@@ -1,6 +1,10 @@
-// Node 전용 DB(samplepcb_app) 스키마. 모든 테이블은 sp_ 접두.
-// 그누보드 g5_* 는 Node 가 소유/수정하지 않는다 — 단 g5_shop_cart INSERT 는
+// sp-node 소유 테이블(sp_ 접두) 스키마 — 그누보드와 **같은 DB(samplepcb)를 공유**한다
+// (2026-07-03 통합: 백업 정합성·조인 단순화. DB 공유 ≠ 스키마 결합 — 소유권 규칙 유지).
+// 그누보드 g5_* 는 Node 가 소유/수정하지 않는다 — 단 g5_shop_cart/옵션 행은
 // 담기 API 의 한정 예외(HANDOFF 결정 로그 #6)로 Prisma 가 아닌 mysql2 로 수행.
+//
+// ⚠⚠ 공유 DB 이므로 `prisma migrate reset` **절대 금지** — 대상 DB 의 모든 테이블
+// (그누보드 g5_* 포함)을 드랍한다. migrate dev/deploy 만 사용할 것.
 
 generator client {
   provider = "prisma-client-js"
