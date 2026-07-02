@@ -238,8 +238,8 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         price: quote.listPrice,
         eta: quote.eta,
         cartAdded,
-        // 담기 성공 → 장바구니, 그 외(rfq/실패)는 견적관리(/quotes)
-        redirectUrl: cartAdded ? `${WEB_BASE_URL}/shop/cart.php` : `${WEB_BASE_URL}/quotes`,
+        // 담기 성공 → 장바구니, 그 외(rfq/실패)는 견적관리(/shop/quotes)
+        redirectUrl: cartAdded ? `${WEB_BASE_URL}/shop/cart.php` : `${WEB_BASE_URL}/shop/quotes`,
         ...(unknownSpecKeys.length > 0 ? { unknownSpecKeys } : {}),
       },
     };

@@ -14,3 +14,7 @@ RewriteRule ^ - [L]
 # 2) 최상위 한 단계 슬러그(소문자·숫자·하이픈)이고 spcb/pages/{슬러그}.php 가 있으면 내부 리라이트
 RewriteCond %{DOCUMENT_ROOT}/spcb/pages/$1.php -f
 RewriteRule ^([a-z0-9-]+)/?$ /spcb/pages/$1.php [L,QSA]
+
+# 3) 쇼핑 도메인 소속 커스텀 페이지 — 정식 URL 은 /shop/quotes (cart.php 와 같은 네임스페이스).
+#    파일은 shop/(코어 subtree)이 아닌 spcb/pages/ 에 둔다. /quotes 는 2)번 규칙의 별칭으로 유지.
+RewriteRule ^shop/quotes/?$ /spcb/pages/quotes.php [L,QSA]

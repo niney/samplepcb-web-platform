@@ -1,6 +1,6 @@
 <?php
 // samplepcb 견적관리 — 거버 PCB 프로젝트(견적) 목록·수량수정·주문
-// URL: /quotes (루트 .htaccess 가 /spcb/pages/quotes.php 로 내부 리라이트)
+// URL: /shop/quotes (정식, 루트 .htaccess 3번 규칙) · /quotes (2번 규칙 별칭)
 //
 // 구조(뼈대): 이 페이지는 셸(테마 레이아웃 + 인증 유도)만 담당하고,
 // 데이터는 브라우저 JS 가 같은 도메인의 sp-node API(/api/pcb-projects)를 호출한다.
@@ -13,7 +13,7 @@
 include_once __DIR__ . '/../../common.php'; // 그누보드 부트스트랩 → $is_member, 테마 상수
 
 if (empty($is_member)) {
-    goto_url(G5_BBS_URL . '/login.php?url=' . urlencode(G5_URL . '/quotes'));
+    goto_url(G5_BBS_URL . '/login.php?url=' . urlencode(G5_URL . '/shop/quotes'));
 }
 
 $g5['title'] = '견적관리';

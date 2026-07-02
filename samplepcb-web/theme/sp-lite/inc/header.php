@@ -58,7 +58,7 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
                 <?php } ?>
                 <?php if (defined('G5_USE_SHOP') && G5_USE_SHOP && function_exists('get_boxcart_datas_count')) { ?>
                 <li class="sp-util__quotes">
-                    <a href="<?php echo G5_URL; ?>/quotes">
+                    <a href="<?php echo G5_URL; ?>/shop/quotes">
                         <i class="fa fa-file-text-o" aria-hidden="true"></i><span class="sound_only">견적관리</span>
                     </a>
                 </li>
