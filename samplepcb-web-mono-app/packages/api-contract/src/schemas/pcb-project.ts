@@ -138,6 +138,16 @@ export const PcbProjectQtyPatchResponse = z.object({
 });
 export type PcbProjectQtyPatchResponseType = z.infer<typeof PcbProjectQtyPatchResponse>;
 
+// 삭제 — 소프트(status='deleted'). 보관함("지난 견적")에서 재견적 가능, 파일 보존.
+export const PcbProjectDeleteResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    projectId: z.number(),
+    status: z.literal('deleted'),
+  }),
+});
+export type PcbProjectDeleteResponseType = z.infer<typeof PcbProjectDeleteResponse>;
+
 export const PcbProjectCreateResponse = z.object({
   result: z.literal(true),
   data: z.object({

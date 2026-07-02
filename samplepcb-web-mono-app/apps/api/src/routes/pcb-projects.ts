@@ -536,5 +536,39 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
+  // ── DELETE /api/pcb-projects/:id — 견적 삭제(소프트) ────────────────────────
+  // status='deleted' 로만 전환 — 보관함("지난 견적")에서 재견적/복귀 예정이라
+  // sp_file(거버 파일)·sp_quote·옵션 행은 보존한다(실삭제는 정리 배치의 archived 단계).
+  // 담김(cart)은 장바구니에서 먼저 삭제, 주문됨(ordered)은 주문 기록 연결이라 거부.
+  fastify.delete(
+    '/pcb-projects/:id',
+    { schema: { params: ProjectIdParams } },
+    async (request, reply) => {
+      try {
+        await request.jwtVerify();
+      } catch {
+        return reply.unauthorized('로그인이 필요합니다');
+      }
+      const spec = await prisma.spOrderSpec.findFirst({
+        where: { id: BigInt(request.params.id), mbId: request.user.mbId, status: 'active' },
+      });
+      if (spec === null) return reply.notFound('프로젝트가 없습니다');
+      if (spec.ctId !== null) {
+        const state = (await getCartStates([spec.ctId])).get(spec.ctId);
+        if (state === 'cart') {
+          return reply.status(409).send({ result: false, error: 'IN_CART' });
+        }
+        if (state === 'ordered') {
+          return reply.status(409).send({ result: false, error: 'ALREADY_ORDERED' });
+        }
+      }
+      await prisma.spOrderSpec.update({ where: { id: spec.id }, data: { status: 'deleted' } });
+      return {
+        result: true as const,
+        data: { projectId: Number(spec.id), status: 'deleted' as const },
+      };
+    },
+  );
+
   done();
 };
