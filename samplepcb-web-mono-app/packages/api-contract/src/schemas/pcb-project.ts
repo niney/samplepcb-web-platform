@@ -73,6 +73,53 @@ export const PcbProjectPayload = z.object({
 });
 export type PcbProjectPayloadType = z.infer<typeof PcbProjectPayload>;
 
+// ── 견적관리(/quotes, sp-php) 목록·액션 계약 ────────────────────────────────
+// cartState 는 저장하지 않는 파생 상태(HANDOFF 3장): ct_id → g5_shop_cart 조인.
+export const PcbProjectListItem = z.object({
+  projectId: z.number(),
+  quoteId: z.string(),
+  projectName: z.string(),
+  category: z.string(),
+  orderCategory: z.enum(['sample', 'mass']),
+  qty: z.number(),
+  message: z.string().nullable(),
+  quoteStatus: z.enum(['priced', 'rfq', 'quoted']),
+  price: z.number().nullable(), // finalPrice(관리자 확정) ?? autoPrice ?? null
+  eta: z.string().nullable(),
+  cartState: z.enum(['none', 'cart', 'ordered']), // none=견적 보관, cart=담김('쇼핑'), ordered=주문됨
+  createdAt: z.string(), // ISO
+});
+export type PcbProjectListItemType = z.infer<typeof PcbProjectListItem>;
+
+export const PcbProjectListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ items: z.array(PcbProjectListItem) }),
+});
+export type PcbProjectListResponseType = z.infer<typeof PcbProjectListResponse>;
+
+// [주문하기] — 확정가/자동견적가 있는 프로젝트를 장바구니에 담는다.
+export const PcbProjectCartAddResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ ctId: z.number(), redirectUrl: z.string() }),
+});
+export type PcbProjectCartAddResponseType = z.infer<typeof PcbProjectCartAddResponse>;
+
+// 수량 수정 — 서버 재견적(가격은 항상 서버 계산). 관리자 확정(quoted)·담김 상태는 거부.
+export const PcbProjectQtyPatch = z.object({ qty: z.number().int().positive() });
+export type PcbProjectQtyPatchType = z.infer<typeof PcbProjectQtyPatch>;
+
+export const PcbProjectQtyPatchResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    qty: z.number(),
+    quoteId: z.string(), // 재견적으로 새 quoteId 발급
+    quoteStatus: z.enum(['priced', 'rfq']),
+    price: z.number().nullable(),
+    eta: z.string().nullable(),
+  }),
+});
+export type PcbProjectQtyPatchResponseType = z.infer<typeof PcbProjectQtyPatchResponse>;
+
 export const PcbProjectCreateResponse = z.object({
   result: z.literal(true),
   data: z.object({

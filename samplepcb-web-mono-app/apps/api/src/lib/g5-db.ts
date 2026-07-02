@@ -100,15 +100,19 @@ export async function deleteQuoteOption(itId: string, quoteId: string): Promise<
 // ── 장바구니 INSERT ─────────────────────────────────────────────────────────
 // cartupdate.php:291 의 스냅샷 INSERT 를 재현. od_id = JWT cartId(= PHP 세션 ss_cart_id).
 // io_id/io_price 는 위 insertQuoteOption 으로 먼저 등록한 견적 옵션 행과 짝을 이룬다.
+//
+// ⚠ ct_qty 는 항상 1 — 견적가(io_price)가 이미 "해당 수량 전체의 총액"이라서
+//   ct_qty=수량 으로 넣으면 코어 합계식 (가격×ct_qty)이 총액을 수량배 뻥튀기한다.
+//   레거시도 동일하게 ct_qty=1 고정(gerber_cart.js:202), PCB 수량은 사양 정보
+//   (ct_option 요약 · sp_order_spec.qty)로만 다룬다.
 export interface CartInsert {
   odId: string; // JWT cartId (숫자 문자열)
   mbId: string;
   item: TemplateItem;
   itemName: string; // 스냅샷 표시명 (예: "Standard PCB · mood.zip")
   ioId: string; // 견적 옵션 io_id (= quoteId)
-  price: number; // 서버 계산 견적가 (= 옵션 행 io_price 와 동일해야 함)
-  qty: number;
-  option: string; // 사양 요약 (cart 화면 표시용)
+  price: number; // 서버 계산 견적 총액 (= 옵션 행 io_price 와 동일해야 함)
+  option: string; // 사양 요약 (cart 화면 표시용, 수량 포함)
   ip: string;
 }
 
@@ -132,7 +136,7 @@ export async function insertCartRow(c: CartInsert): Promise<number> {
       c.item.scMinimum,
       c.item.scQty,
       c.option,
-      c.qty,
+      1, // ct_qty — 항상 1 (위 주석 참조)
       c.item.notax,
       c.ioId,
       c.price, // → io_price (위 주석 참조)
@@ -140,6 +144,25 @@ export async function insertCartRow(c: CartInsert): Promise<number> {
     ],
   );
   return result.insertId; // = ct_id
+}
+
+// ── 카트 파생 상태 SELECT ───────────────────────────────────────────────────
+// HANDOFF 3장: cart 관계는 저장하지 않고 ct_id 조인으로 파생.
+//   '쇼핑' = 담김(cart) · 그 외 상태 행 존재 = 주문됨(ordered) · 행 없음 = 견적 보관(none)
+//   ※ 운영 커스텀 ct_status(생산완료 등) 매핑은 나중 결정(기록됨) — 현재는 ≠'쇼핑' → ordered.
+export type CartState = 'none' | 'cart' | 'ordered';
+
+export async function getCartStates(ctIds: number[]): Promise<Map<number, CartState>> {
+  const states = new Map<number, CartState>();
+  if (ctIds.length === 0) return states;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT ct_id, ct_status FROM g5_shop_cart WHERE ct_id IN (${ctIds.map(() => '?').join(',')})`,
+    ctIds,
+  );
+  for (const row of rows) {
+    states.set(Number(row.ct_id), String(row.ct_status) === '쇼핑' ? 'cart' : 'ordered');
+  }
+  return states;
 }
 
 export async function closeG5Pool(): Promise<void> {
