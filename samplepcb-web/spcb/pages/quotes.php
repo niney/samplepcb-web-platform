@@ -2,13 +2,15 @@
 // samplepcb 견적관리 — 거버 PCB 프로젝트(견적) 목록·수량수정·주문
 // URL: /shop/quotes (정식, 루트 .htaccess 3번 규칙) · /quotes (2번 규칙 별칭)
 //
-// 구조(뼈대): 이 페이지는 셸(테마 레이아웃 + 인증 유도)만 담당하고,
+// 구조: 이 페이지는 셸(테마 레이아웃 + 인증 유도)만 담당하고,
 // 데이터는 브라우저 JS 가 같은 도메인의 sp-node API(/api/pcb-projects)를 호출한다.
 //   인증: GET /spcb/api/me (세션→JWT 브리지) → Authorization: Bearer
-//   주문: POST /api/pcb-projects/{id}/cart → g5_shop_cart 담김 → /shop/cart.php
+//   바로 주문: POST /api/pcb-projects/order (배치 담기+ct_select 선택) → /shop/orderform.php
 //   수량: PATCH /api/pcb-projects/{id} (서버 재견적; 확정/담김 상태는 거부)
-// ⚠ 디자인 미적용 상태 — 마크업 클래스(sp-quotes__*)만 잡아둠. cart.php 디자인과
-//   같은 시각 문법으로 입힐 것.
+//
+// 디자인: cart.php(테마 오버라이드)와 같은 시각 문법 — 카드 목록(.sp-cart-item)과
+// 주문요약(.sp-cart-summary) 클래스를 재사용(비쇼핑 부트스트랩이라 default_shop.css 직접 링크),
+// 견적 전용 변형은 default_shop.css 의 "견적관리" 섹션(sp-quotes__*) 참조.
 
 include_once __DIR__ . '/../../common.php'; // 그누보드 부트스트랩 → $is_member, 테마 상수
 
@@ -20,35 +22,62 @@ $g5['title'] = '견적관리';
 include_once(G5_THEME_PATH . '/head.php');
 ?>
 
+<link rel="stylesheet" href="<?php echo G5_THEME_CSS_URL; ?>/default_shop.css?ver=<?php echo G5_CSS_VER; ?>">
+
 <div class="sp-quotes">
-    <h1 class="sp-quotes__title">견적관리</h1>
     <p class="sp-quotes__desc">
         거버 업로드로 접수한 PCB 프로젝트 목록입니다.
-        견적이 확정된 프로젝트는 선택하여 주문(장바구니 담기)할 수 있습니다.
+        견적가가 있는 프로젝트를 선택해 바로 주문할 수 있습니다.
     </p>
 
     <p class="sp-quotes__status" id="sp-quotes-status">불러오는 중…</p>
 
-    <form class="sp-quotes__form" id="sp-quotes-form" onsubmit="return false;" hidden>
-        <table class="sp-quotes__table">
-            <thead>
-                <tr>
-                    <th><input type="checkbox" id="sp-quotes-check-all" title="전체 선택"></th>
-                    <th>프로젝트</th>
-                    <th>제품군</th>
-                    <th>구분</th>
-                    <th>수량</th>
-                    <th>상태</th>
-                    <th>견적가</th>
-                    <th>출고예정</th>
-                    <th>접수일</th>
-                </tr>
-            </thead>
-            <tbody id="sp-quotes-rows"></tbody>
-        </table>
+    <div class="sp-cart-empty sp-quotes__empty" id="sp-quotes-empty" hidden>
+        <i class="fa fa-file-text-o" aria-hidden="true"></i>
+        <p>접수된 견적이 없습니다.</p>
+        <span class="sp-cart-empty-sub">거버 파일을 업로드하면 자동 견적을 받아볼 수 있습니다.</span>
+    </div>
 
-        <div class="sp-quotes__actions">
-            <button type="button" class="sp-quotes__order-btn" id="sp-quotes-order">선택 주문 (장바구니 담기)</button>
+    <form class="sp-quotes__form" id="sp-quotes-form" onsubmit="return false;" hidden>
+        <div class="sp-cart-body">
+
+            <!-- 견적 목록 -->
+            <section class="sp-cart-list">
+                <h2 class="sound_only">견적 목록</h2>
+
+                <div class="sp-cart-toolbar">
+                    <span class="sp-chk">
+                        <input type="checkbox" id="sp-quotes-check-all" class="selec_chk">
+                        <label for="sp-quotes-check-all"><span></span>전체선택 <em id="sp_sel_cnt">0/0</em></label>
+                    </span>
+                </div>
+
+                <ul class="sp-cart-items" id="sp-quotes-rows"></ul>
+            </section>
+
+            <!-- 주문 요약 -->
+            <aside class="sp-cart-side">
+                <div class="sp-cart-summary">
+                    <h2>주문 요약</h2>
+                    <dl class="sp-cart-summary-row">
+                        <dt>선택 견적</dt>
+                        <dd><span id="sp-quotes-count">0</span>건</dd>
+                    </dl>
+                    <dl class="sp-cart-summary-row sp-cart-summary-total">
+                        <dt>선택 견적가 합계</dt>
+                        <dd><strong id="sp-quotes-total">0</strong>원</dd>
+                    </dl>
+                    <p class="sp-cart-summary-note">
+                        배송비는 주문서에서 계산됩니다.
+                        선택한 견적만 주문서에 담기며, 수량을 바꾸면 서버가 다시 견적합니다(확정·담김 상태 제외).
+                    </p>
+                </div>
+
+                <div class="sp-cart-act">
+                    <button type="button" class="sp-btn sp-btn-primary btn_submit" id="sp-quotes-direct">바로 주문</button>
+                </div>
+            </aside>
+
         </div>
     </form>
 </div>
@@ -59,6 +88,7 @@ include_once(G5_THEME_PATH . '/head.php');
 
     var API_BASE = '/api/pcb-projects';
     var statusEl = document.getElementById('sp-quotes-status');
+    var emptyEl = document.getElementById('sp-quotes-empty');
     var formEl = document.getElementById('sp-quotes-form');
     var rowsEl = document.getElementById('sp-quotes-rows');
     var token = null;
@@ -68,12 +98,15 @@ include_once(G5_THEME_PATH . '/head.php');
     var ERROR_MSG = {
         QUOTE_FINALIZED: '확정된 견적은 수량을 변경할 수 없습니다. 재견적이 필요하면 문의해 주세요.',
         IN_CART: '장바구니에 담긴 프로젝트입니다. 장바구니에서 삭제한 뒤 수정해 주세요.',
-        ALREADY_IN_CART: '이미 장바구니에 담긴 프로젝트입니다.',
         ALREADY_ORDERED: '이미 주문된 프로젝트입니다.',
-        NOT_PRICED: '견적가가 아직 없습니다. 견적 확정 후 주문할 수 있습니다.'
+        NOT_PRICED: '견적가가 아직 없습니다. 견적 확정 후 주문할 수 있습니다.',
+        NOT_FOUND: '프로젝트를 찾을 수 없습니다.',
+        NO_ORDERABLE_ITEMS: '주문 가능한 항목이 없습니다.',
+        CART_INSERT_FAILED: '장바구니 담기에 실패했습니다.',
+        TEMPLATE_ITEM_MISSING: '상품 설정 오류입니다. 관리자에게 문의해 주세요.'
     };
 
-    function fmtPrice(n) { return n === null ? '-' : n.toLocaleString('ko-KR') + '원'; }
+    function fmtNum(n) { return n.toLocaleString('ko-KR'); }
     function fmtDate(iso) { return iso ? iso.slice(0, 10) : '-'; }
     function errMsg(body) {
         return (body && ERROR_MSG[body.error]) || (body && (body.message || body.error)) || '요청에 실패했습니다.';
@@ -100,35 +133,75 @@ include_once(G5_THEME_PATH . '/head.php');
         }).then(function (me) { token = me.token; });
     }
 
+    function badge(label, cls) {
+        return label ? '<span class="sp-badge sp-badge--' + cls + '">' + label + '</span>' : '';
+    }
+
     function render(items) {
         rowsEl.innerHTML = '';
         if (items.length === 0) {
-            statusEl.textContent = '접수된 견적이 없습니다.';
+            statusEl.textContent = '';
+            emptyEl.hidden = false;
             formEl.hidden = true;
             return;
         }
         statusEl.textContent = '';
+        emptyEl.hidden = true;
         formEl.hidden = false;
 
         items.forEach(function (it) {
-            var orderable = it.price !== null && it.cartState === 'none';
+            // 담김(cart) 카드도 바로 주문 대상 — 서버가 기존 cart 행을 재사용한다
+            var orderable = it.price !== null && it.cartState !== 'ordered';
             var qtyEditable = it.quoteStatus !== 'quoted' && it.cartState === 'none';
+            var chkId = 'sp-quotes-check-' + it.projectId;
 
-            var tr = document.createElement('tr');
-            tr.className = 'sp-quotes__row';
-            tr.innerHTML =
-                '<td><input type="checkbox" class="sp-quotes__check" value="' + it.projectId + '"' + (orderable ? '' : ' disabled') + '></td>' +
-                '<td class="sp-quotes__name"></td>' +
-                '<td>' + it.category + '</td>' +
-                '<td>' + (it.orderCategory === 'mass' ? '양산' : '샘플') + '</td>' +
-                '<td><input type="number" class="sp-quotes__qty" min="1" value="' + it.qty + '"' + (qtyEditable ? '' : ' disabled') + ' data-id="' + it.projectId + '" data-prev="' + it.qty + '"></td>' +
-                '<td class="sp-quotes__state">' + QUOTE_LABEL[it.quoteStatus] + (CART_LABEL[it.cartState] ? ' · ' + CART_LABEL[it.cartState] : '') + '</td>' +
-                '<td class="sp-quotes__price">' + fmtPrice(it.price) + '</td>' +
-                '<td>' + (it.eta || '-') + '</td>' +
-                '<td>' + fmtDate(it.createdAt) + '</td>';
-            tr.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
-            rowsEl.appendChild(tr);
+            var li = document.createElement('li');
+            li.className = 'sp-cart-item sp-quotes__item' + (orderable ? '' : ' sp-quotes__item--locked');
+            li.innerHTML =
+                '<span class="sp-chk sp-cart-item-chk">' +
+                    '<input type="checkbox" class="sp-quotes__check selec_chk" id="' + chkId + '" value="' + it.projectId + '" data-price="' + (it.price === null ? '' : it.price) + '"' + (orderable ? '' : ' disabled') + '>' +
+                    '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
+                '</span>' +
+                '<div class="sp-cart-info">' +
+                    '<span class="prd_name"><b class="sp-quotes__name"></b></span>' +
+                    '<div class="sp-cart-meta">' +
+                        '<span class="sp-quotes__cat"></span>' +
+                        '<span>' + (it.orderCategory === 'mass' ? '양산' : '샘플') + '</span>' +
+                        (it.eta ? '<span>출고예정 ' + it.eta + '</span>' : '') +
+                        '<span>접수 ' + fmtDate(it.createdAt) + '</span>' +
+                    '</div>' +
+                    '<div class="sp-quotes__badges">' +
+                        badge(QUOTE_LABEL[it.quoteStatus], it.quoteStatus) +
+                        badge(CART_LABEL[it.cartState], 'cart') +
+                    '</div>' +
+                '</div>' +
+                '<div class="sp-cart-calc">' +
+                    '<span class="sp-cart-qty sp-quotes__qty-label">수량' +
+                        '<input type="number" class="sp-quotes__qty" min="1" value="' + it.qty + '"' + (qtyEditable ? '' : ' disabled') + ' data-id="' + it.projectId + '" data-prev="' + it.qty + '">' +
+                    '</span>' +
+                    (it.price === null
+                        ? '<span class="sp-quotes__pending">견적 대기</span>'
+                        : '<strong class="sp-cart-sum">' + fmtNum(it.price) + '원</strong>') +
+                '</div>';
+            li.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
+            li.querySelector('.sp-quotes__cat').textContent = it.category;
+            rowsEl.appendChild(li);
         });
+
+        updateSummary();
+    }
+
+    // 선택 변경 → 요약 패널(건수·합계)·전체선택 동기화
+    function updateSummary() {
+        var all = rowsEl.querySelectorAll('.sp-quotes__check:not(:disabled)');
+        var checked = rowsEl.querySelectorAll('.sp-quotes__check:checked');
+        var total = 0;
+        checked.forEach(function (cb) { total += parseInt(cb.dataset.price || '0', 10); });
+
+        document.getElementById('sp-quotes-count').textContent = String(checked.length);
+        document.getElementById('sp-quotes-total').textContent = fmtNum(total);
+        document.getElementById('sp_sel_cnt').textContent = checked.length + '/' + all.length;
+        document.getElementById('sp-quotes-check-all').checked = all.length > 0 && all.length === checked.length;
     }
 
     function load() {
@@ -166,31 +239,47 @@ include_once(G5_THEME_PATH . '/head.php');
         rowsEl.querySelectorAll('.sp-quotes__check:not(:disabled)').forEach(function (cb) {
             cb.checked = ev.target.checked;
         });
+        updateSummary();
     });
 
-    // 선택 주문 — 순차 담기 후 장바구니로 이동
-    document.getElementById('sp-quotes-order').addEventListener('click', function () {
-        var ids = Array.prototype.map.call(
+    // 개별 선택 → 요약 갱신
+    rowsEl.addEventListener('change', function (ev) {
+        if (!ev.target.classList.contains('sp-quotes__check')) { return; }
+        updateSummary();
+    });
+
+    function selectedIds() {
+        return Array.prototype.map.call(
             rowsEl.querySelectorAll('.sp-quotes__check:checked'),
-            function (cb) { return cb.value; }
+            function (cb) { return parseInt(cb.value, 10); }
         );
+    }
+
+    function failedMsgs(failed) {
+        return (failed || []).map(function (f) {
+            return '프로젝트 ' + f.projectId + ': ' + (ERROR_MSG[f.error] || f.error);
+        }).join('\n');
+    }
+
+    // 바로 주문 — 배치 담기 + 행 단위 주문 선택(ct_select) 후 주문서로 직행
+    document.getElementById('sp-quotes-direct').addEventListener('click', function () {
+        var ids = selectedIds();
         if (ids.length === 0) { alert('주문할 프로젝트를 선택해 주세요.'); return; }
 
         refreshToken().then(function () {
-            var failed = [];
-            return ids.reduce(function (chain, id) {
-                return chain.then(function () {
-                    return api('POST', '/' + id + '/cart').then(function (r) {
-                        if (!r.ok) { failed.push(errMsg(r.json)); }
-                    });
-                });
-            }, Promise.resolve()).then(function () {
-                if (failed.length > 0) {
-                    alert('일부 항목을 담지 못했습니다:\n' + failed.join('\n'));
-                    if (failed.length === ids.length) { load(); return; }
-                }
-                location.href = '/shop/cart.php';
-            });
+            return api('POST', '/order', { ids: ids });
+        }).then(function (r) {
+            if (!r.ok) {
+                var detail = failedMsgs(r.json && r.json.failed);
+                alert(errMsg(r.json) + (detail ? '\n' + detail : ''));
+                load();
+                return;
+            }
+            var failed = r.json.data.failed;
+            if (failed && failed.length > 0) {
+                alert('일부 항목은 주문에서 제외되었습니다:\n' + failedMsgs(failed));
+            }
+            location.href = r.json.data.redirectUrl;
         });
     });
 

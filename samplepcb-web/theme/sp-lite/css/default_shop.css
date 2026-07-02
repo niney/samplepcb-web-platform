@@ -111,6 +111,16 @@
     outline-offset: 2px;
 }
 
+.sp-chk .selec_chk:disabled,
+.sp-chk .selec_chk:disabled + label {
+    cursor: not-allowed;
+}
+
+.sp-chk .selec_chk:disabled + label span {
+    background: var(--sp-bg-soft);
+    border-color: var(--sp-line);
+}
+
 /* ==========================================================================
    장바구니 (theme/sp-lite/shop/cart.php)
    ========================================================================== */
@@ -614,4 +624,103 @@
     }
 
     .sp-cart-toolbar { padding: 12px 16px; }
+}
+
+/* ==========================================================================
+   견적관리 (spcb/pages/quotes.php)
+   장바구니와 같은 시각 문법 — 카드 목록(.sp-cart-item)·주문요약(.sp-cart-summary)
+   클래스를 재사용하고, 견적 전용 변형만 sp-quotes__* 로 추가한다.
+   ========================================================================== */
+.sp-quotes { margin: 0 0 48px; }
+
+/* 페이지 제목은 테마 head.php 의 #container_title 이 출력 — 여기선 설명만 */
+.sp-quotes__desc {
+    margin: -12px 0 24px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--sp-muted);
+}
+
+/* 로딩·오류 상태줄 */
+.sp-quotes__status {
+    margin: 0 0 16px;
+    padding: 48px 20px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: var(--sp-bg);
+    text-align: center;
+    font-size: 14px;
+    color: var(--sp-muted);
+}
+
+.sp-quotes__status:empty { display: none; }
+
+/* display:flex(.sp-cart-empty) 가 hidden 속성을 덮지 않도록 */
+.sp-quotes__empty[hidden] { display: none; }
+
+/* 견적 카드 — 썸네일이 없어 체크박스 오프셋을 카드에 맞춤 */
+.sp-quotes__item .sp-cart-item-chk { margin-top: 4px; }
+
+/* 상태 배지 */
+.sp-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.sp-badge + .sp-badge { margin-left: 4px; }
+
+.sp-badge--rfq    { background: #fef3c7; color: #b45309; } /* 견적 대기 */
+.sp-badge--priced { background: var(--sp-primary-soft); color: var(--sp-primary); } /* 자동견적 */
+.sp-badge--quoted { background: #dcfce7; color: #15803d; } /* 견적 확정 */
+.sp-badge--cart   { background: var(--sp-bg-soft); color: #4b5563; } /* 담김·주문됨 */
+
+.sp-quotes__badges { margin: 8px 0 0; }
+
+/* 주문 불가(주문됨) 카드 */
+.sp-quotes__item--locked .prd_name { color: var(--sp-muted); }
+
+/* 카드 우측 — 수량(인라인 재견적) */
+.sp-quotes__qty-label {
+    font-size: 13px;
+    color: var(--sp-muted);
+}
+
+.sp-quotes__qty {
+    width: 76px;
+    height: 34px;
+    padding: 0 8px;
+    margin-left: 6px;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    text-align: center;
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.sp-quotes__qty:focus {
+    outline: none;
+    border-color: var(--sp-primary);
+}
+
+.sp-quotes__qty:disabled {
+    border-color: transparent;
+    background: none;
+    color: var(--sp-ink);
+    font-weight: 600;
+}
+
+/* 가격 자리 — rfq(가격 없음)는 금액 대신 대기 문구 */
+.sp-quotes__pending {
+    font-size: 14px;
+    font-weight: 600;
+    color: #b45309;
+}
+
+@media (max-width: 640px) {
+    .sp-quotes__item .sp-cart-item-chk { margin-top: 2px; }
 }
