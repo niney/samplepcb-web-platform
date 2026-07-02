@@ -21,6 +21,15 @@ if (empty($is_member) || empty($member['mb_id'])) {
 // isAdmin: 우선 최고관리자(cf_admin)만 true. 그룹/게시판 관리자는 추후 확장.
 $is_admin = (isset($config['cf_admin']) && $member['mb_id'] === $config['cf_admin']);
 
+// cartId: 영카트 장바구니 버킷 키(세션 ss_cart_id, cart 행의 od_id).
+// sp-node 담기 API 가 g5_shop_cart INSERT 시 od_id 로 사용해야 cart.php 에 보인다.
+// 세션에 없으면 영카트 표준 함수로 생성(로그인 상태이므로 회원 경로).
+$cart_id = '';
+if (function_exists('set_cart_id')) {
+    set_cart_id('');
+    $cart_id = (string) get_session('ss_cart_id');
+}
+
 // sp-node @sp/api-contract 의 Me 스키마와 필드·타입을 정확히 맞춘다.
 $now    = time();
 $claims = array(
@@ -28,6 +37,7 @@ $claims = array(
     'mbNick'  => (string) $member['mb_nick'],
     'level'   => (int) $member['mb_level'],
     'isAdmin' => (bool) $is_admin,
+    'cartId'  => $cart_id,
     'iat'     => $now,
     'exp'     => $now + 600,   // 10분
 );
