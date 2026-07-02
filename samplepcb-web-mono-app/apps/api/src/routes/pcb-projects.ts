@@ -1,29 +1,27 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
+import type { Prisma } from '@prisma/client';
 import { KNOWN_SPEC_KEYS, PcbProjectPayload } from '@sp/api-contract';
 import type { PcbProjectPayloadType } from '@sp/api-contract';
+import { calculateQuote } from '../pricing/engine';
+import { uploadToFileServer } from '../lib/file-server';
+import type { UploadTarget } from '../lib/file-server';
+import { prisma } from '../lib/prisma';
 
-// ── 검증 스텁 ──────────────────────────────────────────────────────────────
-// POST /api/pcb-projects 의 "수신 계약 검증" 스텁. 거버 뷰어 어댑터(toProjectPayload)가
-// 매핑표(.tmp/gerber-project-migration-prompt.md 3장)대로 보내는지 확인하는 용도로,
-// 본 구현(가격 엔진·파일서버 업로드·sp_quote/sp_order_spec/g5 cart) 전에 계약을 확정한다.
-// 수신 내용 전체를 덤프 파일로 남기고 고정 응답을 반환한다. 본 구현 시 이 파일을 대체.
+// ── POST /api/pcb-projects — 거버 담기 API (단일 multipart 호출) ────────────
+// 거버 뷰어가 FormData(gerber + thumbnail + payload JSON)를 보내면:
+//   ① payload Zod 검증  ② 견적 계산 + sp_quote 저장(가격은 서버만 계산)
+//   ③ 파일서버 업로드 대행(pathToken 클라이언트 미노출)  ④ sp_order_spec + sp_file 저장
+// g5_shop_cart 삽입은 미구현 — cart 의 od_id 가 PHP 세션(ss_cart_id)이라 sp-node 가
+// 알 수 없어 "클레임" 설계(PHP 1-UPDATE 접점)가 필요하다. HANDOFF 참고. cartAdded=false.
 
-interface ReceivedFile {
-  field: string;
-  filename: string;
-  mimetype: string;
-  bytes: number;
-}
-
-// 덤프 위치: 플랫폼 루트 .tmp/received (env PCB_DUMP_DIR 로 override).
-// dev 실행 cwd = apps/api → ../../.. = samplepcb-web-platform.
-const DUMP_DIR =
-  process.env.PCB_DUMP_DIR ?? path.resolve(process.cwd(), '..', '..', '..', '.tmp', 'received');
-
-// 리다이렉트 기준 도메인. 거버 뷰어(dev)와 sp-node 가 다른 오리진이므로 절대 URL 로 내려준다.
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'https://local-web.samplepcb.co.kr';
+const FILE_SERVICE_TYPE = process.env.FILE_SERVICE_TYPE ?? 'gerber';
+const QUOTE_TTL_HOURS = 72;
+
+interface ReceivedFile extends UploadTarget {
+  field: string;
+}
 
 const findUnknownSpecKeys = (spec: PcbProjectPayloadType['spec']): string[] => {
   const known = new Set<string>(KNOWN_SPEC_KEYS);
@@ -36,70 +34,138 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       return reply.badRequest('multipart/form-data 요청이어야 합니다');
     }
 
+    // ── multipart 수신 ──
     const files: ReceivedFile[] = [];
     let rawPayload: string | undefined;
-
     for await (const part of request.parts()) {
       if (part.type === 'file') {
-        const buffer = await part.toBuffer();
         files.push({
           field: part.fieldname,
           filename: part.filename,
           mimetype: part.mimetype,
-          bytes: buffer.byteLength,
+          buffer: await part.toBuffer(),
         });
       } else if (part.fieldname === 'payload' && typeof part.value === 'string') {
         rawPayload = part.value;
       }
     }
+    const gerber = files.find((f) => f.field === 'gerber');
+    if (rawPayload === undefined) return reply.badRequest('payload 파트가 없습니다');
+    if (gerber === undefined) return reply.badRequest('gerber 파일 파트가 없습니다');
 
-    if (rawPayload === undefined) {
-      return reply.badRequest('payload 파트가 없습니다');
-    }
-
+    // ── payload 검증 ──
     let payloadJson: unknown;
     try {
       payloadJson = JSON.parse(rawPayload);
     } catch {
       return reply.badRequest('payload 가 유효한 JSON 이 아닙니다');
     }
-
     const parsed = PcbProjectPayload.safeParse(payloadJson);
     if (!parsed.success) {
-      // 어떤 키가 계약 위반인지 그대로 돌려줘 거버 쪽에서 바로 확인 가능하게.
       return reply.status(400).send({
         result: false,
         error: 'PAYLOAD_SCHEMA_MISMATCH',
         issues: parsed.error.issues,
       });
     }
-
     const payload = parsed.data;
     const unknownSpecKeys = findUnknownSpecKeys(payload.spec);
 
-    await mkdir(DUMP_DIR, { recursive: true });
-    const dumpFile = path.join(
-      DUMP_DIR,
-      `pcb-project-${String(Date.now())}-${payload.category}.json`,
-    );
-    await writeFile(
-      dumpFile,
-      JSON.stringify({ receivedAt: new Date().toISOString(), payload, files, unknownSpecKeys }, null, 2),
-      'utf-8',
-    );
-    request.log.info({ dumpFile, unknownSpecKeys, files }, 'pcb-project stub received');
+    // ── 회원 식별(선택) — JWT 있으면 mbId 귀속, 없으면 비회원(null) ──
+    let mbId: string | null = null;
+    try {
+      await request.jwtVerify();
+      mbId = request.user.mbId;
+    } catch {
+      mbId = null;
+    }
 
-    // 고정 응답 — 거버 쪽 redirectUrl 이동 동작까지 검증 가능하게 실제 형태로.
+    // ── 견적 계산 (가격은 서버 재계산이 유일한 진실 — 클라이언트 가격 미수신) ──
+    const quote = calculateQuote({
+      category: payload.category,
+      orderCategory: payload.orderCategory,
+      qty: payload.qty,
+      spec: payload.spec,
+    });
+    const quoteStatus = payload.flow === 'rfq' || quote.listPrice === null ? 'rfq' : 'priced';
+
+    // ── 파일서버 업로드 대행 — 실패 시 프로젝트를 만들지 않고 중단 ──
+    const targets: UploadTarget[] = files.map((f) => ({
+      buffer: f.buffer,
+      filename: f.filename,
+      mimetype: f.mimetype,
+    }));
+    let uploaded;
+    try {
+      uploaded = await uploadToFileServer(targets, FILE_SERVICE_TYPE);
+    } catch (err) {
+      request.log.error({ err }, 'file server upload failed');
+      return reply.status(502).send({ result: false, error: 'FILE_UPLOAD_FAILED' });
+    }
+
+    // ── sp_quote + sp_order_spec + sp_file 저장 (한 트랜잭션) ──
+    const specJson = payload.spec as Prisma.InputJsonValue;
+    const specHash = createHash('sha256').update(JSON.stringify(payload.spec)).digest('hex');
+    const now = new Date();
+    const project = await prisma.$transaction(async (tx) => {
+      const q = await tx.spQuote.create({
+        data: {
+          category: payload.category,
+          orderCategory: payload.orderCategory,
+          qty: payload.qty,
+          specJson,
+          specHash,
+          autoPrice: quote.listPrice,
+          eta: quote.eta === '' ? null : quote.eta,
+          priceVersion: quote.priceVersion,
+          expiresAt: new Date(now.getTime() + QUOTE_TTL_HOURS * 3600 * 1000),
+        },
+      });
+      const spec = await tx.spOrderSpec.create({
+        data: {
+          mbId,
+          quoteId: q.id,
+          projectName: payload.projectName,
+          category: payload.category,
+          orderCategory: payload.orderCategory,
+          qty: payload.qty,
+          message: payload.message === '' ? null : payload.message,
+          specJson,
+          quoteStatus,
+        },
+      });
+      await tx.spFile.createMany({
+        data: uploaded.map((u, i) => ({
+          refType: 'sp_order_spec',
+          refId: spec.id,
+          uploadFileName: u.uploadFileName,
+          originFileName: u.originFileName,
+          pathToken: u.pathToken,
+          size: BigInt(u.size),
+          writeDate: now,
+          fileType: files[i]?.field ?? null, // gerber | thumbnail
+        })),
+      });
+      return { quote: q, spec };
+    });
+
+    request.log.info(
+      { projectId: Number(project.spec.id), quoteId: project.quote.id, quoteStatus, price: quote.listPrice, mbId },
+      'pcb-project created',
+    );
+
     return {
       result: true as const,
       data: {
-        projectId: 0,
-        quoteStatus: payload.flow === 'rfq' ? ('rfq' as const) : ('priced' as const),
+        projectId: Number(project.spec.id),
+        quoteId: project.quote.id,
+        quoteStatus,
+        price: quote.listPrice,
+        eta: quote.eta,
+        // cart(od_id=PHP 세션) 바인딩 미구현 — 장바구니 페이지 준비 전까지 홈으로
         cartAdded: false,
-        // 장바구니(견적용) 페이지가 아직 없어 임시로 홈으로. 페이지 생기면 flow 별 분기 복원:
-        // order → /shop/cart.php · rfq → 내 PCB 프로젝트(추후 Vue 라우트)
         redirectUrl: `${WEB_BASE_URL}/`,
-        stub: { dumpFile, unknownSpecKeys, files },
+        ...(unknownSpecKeys.length > 0 ? { unknownSpecKeys } : {}),
       },
     };
   });

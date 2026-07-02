@@ -77,19 +77,14 @@ export const PcbProjectCreateResponse = z.object({
   result: z.literal(true),
   data: z.object({
     projectId: z.number(),
+    quoteId: z.string(),
     quoteStatus: z.enum(['priced', 'rfq']),
+    price: z.number().nullable(), // null = rfq(자동견적 불가/양산)
+    eta: z.string(), // 'YYYY.MM.DD' 또는 ''
     cartAdded: z.boolean(),
     redirectUrl: z.string(),
-    // 스텁 전용 검증 리포트 — 본 구현에서 제거 예정.
-    stub: z
-      .object({
-        dumpFile: z.string(),
-        unknownSpecKeys: z.array(z.string()),
-        files: z.array(
-          z.object({ field: z.string(), filename: z.string(), bytes: z.number() }),
-        ),
-      })
-      .optional(),
+    // 개발 검증용(옵션) — 어댑터가 보낸 미지 spec 키 보고
+    unknownSpecKeys: z.array(z.string()).optional(),
   }),
 });
 export type PcbProjectCreateResponseType = z.infer<typeof PcbProjectCreateResponse>;
