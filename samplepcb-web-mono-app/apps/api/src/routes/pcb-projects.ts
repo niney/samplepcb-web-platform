@@ -1,8 +1,14 @@
 import { createHash } from 'node:crypto';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, SpOrderSpec } from '@prisma/client';
+import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
-import { KNOWN_SPEC_KEYS, PcbProjectPayload, PcbProjectQtyPatch } from '@sp/api-contract';
+import {
+  KNOWN_SPEC_KEYS,
+  PcbProjectOrderRequest,
+  PcbProjectPayload,
+  PcbProjectQtyPatch,
+} from '@sp/api-contract';
 import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
 import { uploadToFileServer } from '../lib/file-server';
@@ -13,6 +19,7 @@ import {
   getTemplateItem,
   insertCartRow,
   insertQuoteOption,
+  selectCartRows,
 } from '../lib/g5-db';
 import type { CartState } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
@@ -52,6 +59,44 @@ const buildOptionSummary = (spec: PcbProjectPayloadType['spec'], qty: number): s
     .join(' / ');
 
 const ProjectIdParams = z.object({ id: z.string().regex(/^\d+$/) });
+
+// spec 을 장바구니에 담는 공통 경로(옵션 행 실등록 + cart INSERT + spec.ctId 갱신).
+// /:id/cart(장바구니 담기)와 /order(바로 주문)가 공유한다.
+const addSpecToCart = async (
+  spec: SpOrderSpec,
+  price: number,
+  cartId: string,
+  ip: string,
+  log: FastifyBaseLogger,
+): Promise<{ ctId: number } | { error: 'TEMPLATE_ITEM_MISSING' | 'CART_INSERT_FAILED' }> => {
+  const item = await getTemplateItem(spec.category);
+  if (item === null) {
+    log.error({ category: spec.category }, '템플릿 상품 없음 — seed-template-items 실행 필요');
+    return { error: 'TEMPLATE_ITEM_MISSING' };
+  }
+  // 이전 담기의 잔존 옵션 행이 있을 수 있어(카트 행만 삭제된 경우) 선삭제로 멱등 보장
+  await deleteQuoteOption(item.itId, spec.quoteId);
+  await insertQuoteOption(item.itId, spec.quoteId, price);
+  let ctId: number;
+  try {
+    ctId = await insertCartRow({
+      odId: cartId,
+      mbId: spec.mbId ?? '',
+      item,
+      itemName: `${item.itName} · ${spec.projectName}`,
+      ioId: spec.quoteId,
+      price,
+      option: buildOptionSummary(spec.specJson as PcbProjectPayloadType['spec'], spec.qty),
+      ip,
+    });
+  } catch (err) {
+    await deleteQuoteOption(item.itId, spec.quoteId).catch(() => undefined);
+    log.error({ err }, 'g5_shop_cart INSERT 실패 (견적관리 담기)');
+    return { error: 'CART_INSERT_FAILED' };
+  }
+  await prisma.spOrderSpec.update({ where: { id: spec.id }, data: { ctId } });
+  return { ctId };
+};
 
 export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.post('/pcb-projects', async (request, reply) => {
@@ -343,34 +388,81 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           return reply.status(409).send({ result: false, error: 'ALREADY_ORDERED' });
         }
       }
-      const item = await getTemplateItem(spec.category);
-      if (item === null) {
-        return reply.status(500).send({ result: false, error: 'TEMPLATE_ITEM_MISSING' });
+      const added = await addSpecToCart(spec, price, cartId, request.ip, request.log);
+      if ('error' in added) {
+        const status = added.error === 'TEMPLATE_ITEM_MISSING' ? 500 : 502;
+        return reply.status(status).send({ result: false, error: added.error });
       }
-      // 이전 담기의 잔존 옵션 행이 있을 수 있어(카트 행만 삭제된 경우) 선삭제로 멱등 보장
-      await deleteQuoteOption(item.itId, spec.quoteId);
-      await insertQuoteOption(item.itId, spec.quoteId, price);
-      let ctId: number;
-      try {
-        ctId = await insertCartRow({
-          odId: cartId,
-          mbId: request.user.mbId,
-          item,
-          itemName: `${item.itName} · ${spec.projectName}`,
-          ioId: spec.quoteId,
-          price,
-          option: buildOptionSummary(spec.specJson as PcbProjectPayloadType['spec'], spec.qty),
-          ip: request.ip,
-        });
-      } catch (err) {
-        await deleteQuoteOption(item.itId, spec.quoteId).catch(() => undefined);
-        request.log.error({ err }, 'g5_shop_cart INSERT 실패 (견적관리 담기)');
-        return reply.status(502).send({ result: false, error: 'CART_INSERT_FAILED' });
-      }
-      await prisma.spOrderSpec.update({ where: { id: spec.id }, data: { ctId } });
       return {
         result: true as const,
-        data: { ctId, redirectUrl: `${WEB_BASE_URL}/shop/cart.php` },
+        data: { ctId: added.ctId, redirectUrl: `${WEB_BASE_URL}/shop/cart.php` },
+      };
+    },
+  );
+
+  // ── POST /api/pcb-projects/order — [바로 주문] 담기+선택 후 주문서 직행 ─────
+  // 코어 "주문하기"(cartupdate act=buy: ct_select 세팅 → orderform.php)를 행 단위로
+  // 재현한다. 이미 담긴 건은 그 행을 재사용하고, 부분 실패는 failed 로 보고하며 진행.
+  fastify.post(
+    '/pcb-projects/order',
+    { schema: { body: PcbProjectOrderRequest } },
+    async (request, reply) => {
+      try {
+        await request.jwtVerify();
+      } catch {
+        return reply.unauthorized('로그인이 필요합니다');
+      }
+      const cartId = request.user.cartId;
+      if (cartId === undefined || cartId === '') {
+        return reply.status(409).send({ result: false, error: 'NO_CART_ID' });
+      }
+
+      const failed: { projectId: number; error: string }[] = [];
+      const ctIds: number[] = [];
+      for (const id of request.body.ids) {
+        const spec = await prisma.spOrderSpec.findFirst({
+          where: { id: BigInt(id), mbId: request.user.mbId, status: 'active' },
+        });
+        if (spec === null) {
+          failed.push({ projectId: id, error: 'NOT_FOUND' });
+          continue;
+        }
+        const quote = await prisma.spQuote.findUnique({ where: { id: spec.quoteId } });
+        const price = spec.finalPrice ?? quote?.autoPrice ?? null;
+        if (price === null) {
+          failed.push({ projectId: id, error: 'NOT_PRICED' });
+          continue;
+        }
+        if (spec.ctId !== null) {
+          const state = (await getCartStates([spec.ctId])).get(spec.ctId);
+          if (state === 'ordered') {
+            failed.push({ projectId: id, error: 'ALREADY_ORDERED' });
+            continue;
+          }
+          if (state === 'cart') {
+            ctIds.push(spec.ctId); // 이미 담긴 행 재사용
+            continue;
+          }
+        }
+        const added = await addSpecToCart(spec, price, cartId, request.ip, request.log);
+        if ('error' in added) {
+          failed.push({ projectId: id, error: added.error });
+          continue;
+        }
+        ctIds.push(added.ctId);
+      }
+
+      if (ctIds.length === 0) {
+        return reply.status(409).send({ result: false, error: 'NO_ORDERABLE_ITEMS', failed });
+      }
+      await selectCartRows(cartId, ctIds);
+      return {
+        result: true as const,
+        data: {
+          orderedCtIds: ctIds,
+          redirectUrl: `${WEB_BASE_URL}/shop/orderform.php`,
+          ...(failed.length > 0 ? { failed } : {}),
+        },
       };
     },
   );

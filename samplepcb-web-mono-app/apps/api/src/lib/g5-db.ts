@@ -2,7 +2,8 @@
 //
 // "그누보드 스키마 직접 결합 금지" 원칙의 **한정 예외**(HANDOFF 결정 로그 #6):
 // 허용 범위는 ① g5_shop_cart INSERT ② g5_shop_item_option INSERT(견적 옵션 행)
-// ③ 템플릿 상품/카트 파생 SELECT 뿐이다.
+// ③ 템플릿 상품/카트 파생 SELECT ④ g5_shop_cart ct_select/ct_select_time
+// UPDATE(주문 선택 플래그 — 바로 주문) 뿐이다.
 // 그 외 g5_* 접근은 금지 — 범위를 넓히려면 HANDOFF 결정을 먼저 갱신할 것.
 //
 // LEGACY_DATABASE_URL(운영 읽기 전용, 검증 스크립트용)과 반드시 구분한다.
@@ -163,6 +164,25 @@ export async function getCartStates(ctIds: number[]): Promise<Map<number, CartSt
     states.set(Number(row.ct_id), String(row.ct_status) === '쇼핑' ? 'cart' : 'ordered');
   }
   return states;
+}
+
+// ── 주문 선택 플래그 UPDATE ─────────────────────────────────────────────────
+// 코어 "주문하기"(cartupdate.php act=buy)를 행 단위로 재현: 버킷 선택 초기화(:45) 후
+// 이번 주문 행만 ct_select=1. orderform.sub.php 는 ct_select='1' 행만 주문서에 올린다.
+// 코어 경로는 it_id 단위 선택이라 공유 템플릿 상품에서는 견적 행이 뭉텅이로 선택됨 →
+// ct_id 단위 정밀 선택이 필요해 sp-node 가 직접 수행(한정 예외 ④).
+export async function selectCartRows(odId: string, ctIds: number[]): Promise<void> {
+  if (ctIds.length === 0) return;
+  const pool = getG5Pool();
+  await pool.query(
+    `UPDATE g5_shop_cart SET ct_select = '0', ct_select_time = '0000-00-00 00:00:00' WHERE od_id = ?`,
+    [odId],
+  );
+  await pool.query(
+    `UPDATE g5_shop_cart SET ct_select = '1', ct_select_time = NOW()
+      WHERE ct_id IN (${ctIds.map(() => '?').join(',')})`,
+    ctIds,
+  );
 }
 
 export async function closeG5Pool(): Promise<void> {

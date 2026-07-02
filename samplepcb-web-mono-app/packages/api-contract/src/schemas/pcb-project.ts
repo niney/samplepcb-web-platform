@@ -104,6 +104,24 @@ export const PcbProjectCartAddResponse = z.object({
 });
 export type PcbProjectCartAddResponseType = z.infer<typeof PcbProjectCartAddResponse>;
 
+// [바로 주문] — 선택 프로젝트들을 담고(ct_select 행 단위 선택) 주문서로 직행.
+// 코어 cartupdate act=buy 는 it_id 단위 선택이라 공유 템플릿에서 부정확 → sp-node 가 수행.
+export const PcbProjectOrderRequest = z.object({
+  ids: z.array(z.number().int().positive()).min(1),
+});
+export type PcbProjectOrderRequestType = z.infer<typeof PcbProjectOrderRequest>;
+
+export const PcbProjectOrderResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    orderedCtIds: z.array(z.number()),
+    redirectUrl: z.string(), // /shop/orderform.php
+    // 일부 실패 시에만 존재 — projectId 별 실패 사유 코드
+    failed: z.array(z.object({ projectId: z.number(), error: z.string() })).optional(),
+  }),
+});
+export type PcbProjectOrderResponseType = z.infer<typeof PcbProjectOrderResponse>;
+
 // 수량 수정 — 서버 재견적(가격은 항상 서버 계산). 관리자 확정(quoted)·담김 상태는 거부.
 export const PcbProjectQtyPatch = z.object({ qty: z.number().int().positive() });
 export type PcbProjectQtyPatchType = z.infer<typeof PcbProjectQtyPatch>;
