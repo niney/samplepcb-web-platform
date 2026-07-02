@@ -123,7 +123,7 @@
 |---|---|---|
 | 1 | 상품이 미리 있어야 담긴다 | **템플릿 상품 4종**(카테고리 앵커, `sp-pcb-std` 등) — 가격·사양은 읽지 않고 존재만 시킨다. 주문 실체는 `sp_order_spec` |
 | 2 | cart 는 담는 시점 값을 복사(스냅샷) | 이를 **역이용** — `cartupdate.php` 를 우회해 직접 INSERT 하며 행마다 다른 `it_name`("템플릿명 · 파일명")·사양요약(`ct_option`)·가격 주입 |
-| 3 | `before_check_cart_price` 가 조회마다 `ct_price`≠상품가면 **상품가로 덮어씀** (`lib/shop.lib.php:2582`) | 견적가를 **`io_price`(옵션가)** 에 싣는다 — `ct_price=0(=템플릿가)`, `io_id='sp-quote'`(옵션테이블 미등록이라 재검증 스킵). 합계 = (ct_price+io_price)×qty, 표준 계산식 그대로 |
+| 3 | `before_check_cart_price` 가 조회마다 `ct_price`≠상품가면 **상품가로 덮어씀**, 옵션가도 옵션표와 대조 (`lib/shop.lib.php:2582`) | 견적가를 **`io_price`(옵션가)** 에 싣는다 — `ct_price=0(=템플릿가)`, 견적마다 `g5_shop_item_option` 에 **옵션 행을 실등록**(`io_id=quoteId`, `io_price=견적가`)해 코어 재검증을 정당하게 통과. 합계 = (ct_price+io_price)×qty, 표준 계산식 그대로. (미등록 io_id 로 스킵시키는 초기안은 PHP 8 null 경고로 폐기) |
 | 4 | 장바구니 키 `od_id` = PHP 세션 `ss_cart_id` — 외부 서버는 알 수 없음 | **인증 브리지 확장** — `me.php`(커스텀 영역) JWT 에 `cartId` 클레임 추가. cart.php 무수정 |
 | 5 | `cartupdate.php:276` 이 같은 `it_id` 재담기 시 기존 행 전부 삭제 | 템플릿 상품을 **일반 목록/상세에 노출 금지** — 표준 담기 경로 자체를 차단 |
 | 6 | 가격 로직이 PHP 에 있음 | **골든 테스트 이식** — 레거시 PHP 를 CLI 로 직접 실행한 기대값과 대조하는 테스트로 TS 이식(버그까지 충실 재현, 개선은 별도 결정) |
@@ -136,6 +136,7 @@
 | 사양·파일연결·견적 (`sp_quote`/`sp_order_spec`/`sp_file`) | **sp-node (Prisma)** | 그누보드/PHP 는 접근하지 않음 |
 | 실파일 | file.samplepcb.kr | sp-node 가 업로드 대행, pathToken 만 보관 (다운로드 보안은 추후 과제) |
 | `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT + 파생 SELECT 만** (한정 예외, `lib/g5-db.ts` 에 명시) |
+| `g5_shop_item_option` (견적 옵션 행) | 영카트 코어 | sp-node 는 견적 옵션 행(io_id=quoteId) **INSERT + 보상 DELETE 만** (한정 예외 확장, 기법 #3) |
 | `g5_shop_item` (템플릿) | 영카트 코어 | sp-node 는 SELECT 만 (배송정책 스냅샷용) |
 | 회원/세션 | 그누보드 | sp-node 는 JWT 클레임으로만 식별 (DB 직접 결합 없음) |
 | cart↔spec 관계 | **저장하지 않음** | `spec.ctId → g5_shop_cart` 조회 시점 조인으로 파생 — 동기화 로직 자체가 없어 불일치 불가능 |
