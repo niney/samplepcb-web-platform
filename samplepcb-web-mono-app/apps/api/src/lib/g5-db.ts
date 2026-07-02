@@ -70,8 +70,14 @@ export async function getTemplateItem(category: string): Promise<TemplateItem | 
 }
 
 // ── 장바구니 INSERT ─────────────────────────────────────────────────────────
-// cartupdate.php:291 의 스냅샷 INSERT 를 재현하되, 가격(ct_price)은 상품이 아닌
-// 서버 계산 견적가를 주입한다. od_id = 인증 브리지 JWT 의 cartId(= PHP 세션 ss_cart_id).
+// cartupdate.php:291 의 스냅샷 INSERT 를 재현. od_id = JWT cartId(= PHP 세션 ss_cart_id).
+//
+// ⚠ 가격은 ct_price 가 아닌 **io_price(옵션가)** 에 싣는다:
+//   영카트 코어 before_check_cart_price(cart.php:22 등)가 매 조회마다
+//   ct_price ≠ it_price 면 상품가로 덮어쓴다(레거시는 주문마다 상품을 만들며
+//   it_price=견적가로 통과시켰음). io_price 는 옵션 행이 g5_shop_item_option 에
+//   실존할 때만 재검증하므로, 미등록 io_id 를 쓰면 견적가가 보존된다.
+//   행 합계 = (ct_price 0 + io_price 견적가) × ct_qty — 영카트 표준 계산식 그대로.
 export interface CartInsert {
   odId: string; // JWT cartId (숫자 문자열)
   mbId: string;
@@ -90,8 +96,8 @@ export async function insertCartRow(c: CartInsert): Promise<number> {
         ct_status, ct_price, ct_point, ct_point_use, ct_stock_use, ct_option, ct_qty, ct_notax,
         io_id, io_type, io_price, ct_time, ct_ip, ct_send_cost, ct_direct, ct_select, ct_select_time)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
-             '쇼핑', ?, 0, 0, 0, ?, ?, ?,
-             '', 0, 0, NOW(), ?, 0, 0, 0, '0000-00-00 00:00:00')`,
+             '쇼핑', 0, 0, 0, 0, ?, ?, ?,
+             'sp-quote', 0, ?, NOW(), ?, 0, 0, 0, '0000-00-00 00:00:00')`,
     [
       c.odId,
       c.mbId,
@@ -102,10 +108,10 @@ export async function insertCartRow(c: CartInsert): Promise<number> {
       c.item.scPrice,
       c.item.scMinimum,
       c.item.scQty,
-      c.price,
       c.option,
       c.qty,
       c.item.notax,
+      c.price, // → io_price (위 주석 참조)
       c.ip,
     ],
   );

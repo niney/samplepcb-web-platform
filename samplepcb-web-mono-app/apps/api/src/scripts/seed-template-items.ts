@@ -29,9 +29,10 @@ for (const [itId, caId, itName] of rows) {
     console.log(`skip (exists): ${String(itId)}`);
     continue;
   }
+  // it_stock_qty: 재고 차감 검증에 걸리지 않게 사실상 무제한
   await pool.query(
-    `INSERT INTO g5_shop_item (it_id, ca_id, it_name, it_price, it_use, it_soldout, it_time, it_update_time)
-     VALUES (?, ?, ?, 0, 1, 0, NOW(), NOW())`,
+    `INSERT INTO g5_shop_item (it_id, ca_id, it_name, it_price, it_use, it_soldout, it_stock_qty, it_time, it_update_time)
+     VALUES (?, ?, ?, 0, 1, 0, 9999999, NOW(), NOW())`,
     [itId, caId, itName],
   );
   console.log(`seeded: ${String(itId)} (${String(itName)})`);
