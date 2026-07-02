@@ -661,44 +661,6 @@
 /* 견적 카드 — 썸네일이 없어 체크박스 오프셋을 카드에 맞춤 */
 .sp-quotes__item .sp-cart-item-chk { margin-top: 4px; }
 
-/* 카드 삭제 버튼(소프트 삭제 → "지난 견적" 보관함) — 카드 우상단.
-   우측 수량/가격 열과 겹치지 않게 카드 우측 여백만 넓힌다 */
-.sp-quotes__item {
-    position: relative;
-    padding-right: 48px;
-}
-
-.sp-quotes__del {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--sp-muted);
-    font-size: 14px;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.sp-quotes__del:hover {
-    background: var(--sp-bg-soft);
-    color: var(--sp-ink);
-}
-
-.sp-quotes__del:disabled {
-    opacity: .35;
-    cursor: not-allowed;
-}
-
-.sp-quotes__del:disabled:hover {
-    background: transparent;
-    color: var(--sp-muted);
-}
-
 /* 상태 배지 */
 .sp-badge {
     display: inline-flex;

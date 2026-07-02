@@ -8,6 +8,7 @@
 //   바로 주문: POST /api/pcb-projects/order (배치 담기+ct_select 선택) → /shop/orderform.php
 //   수량: PATCH /api/pcb-projects/{id} (서버 재견적; 확정/담김 상태는 거부)
 //   삭제: DELETE /api/pcb-projects/{id} (소프트 삭제 → "지난 견적" 보관함; 담김/주문됨 거부)
+//         — UI 는 cart.php 와 동일한 툴바 [선택삭제]/[비우기] (체크박스 선택 방식)
 //
 // 디자인: cart.php(테마 오버라이드)와 같은 시각 문법 — 카드 목록(.sp-cart-item)과
 // 주문요약(.sp-cart-summary) 클래스를 재사용(비쇼핑 부트스트랩이라 default_shop.css 직접 링크),
@@ -51,6 +52,10 @@ include_once(G5_THEME_PATH . '/head.php');
                         <input type="checkbox" id="sp-quotes-check-all" class="selec_chk">
                         <label for="sp-quotes-check-all"><span></span>전체선택 <em id="sp_sel_cnt">0/0</em></label>
                     </span>
+                    <div class="sp-cart-toolbar-btns btn_cart_del">
+                        <button type="button" id="sp-quotes-del-sel">선택삭제</button>
+                        <button type="button" id="sp-quotes-del-all">비우기</button>
+                    </div>
                 </div>
 
                 <ul class="sp-cart-items" id="sp-quotes-rows"></ul>
@@ -62,7 +67,7 @@ include_once(G5_THEME_PATH . '/head.php');
                     <h2>주문 요약</h2>
                     <dl class="sp-cart-summary-row">
                         <dt>선택 견적</dt>
-                        <dd><span id="sp-quotes-count">0</span>건</dd>
+                        <dd><span id="sp-quotes-count">0건</span></dd>
                     </dl>
                     <dl class="sp-cart-summary-row sp-cart-summary-total">
                         <dt>선택 견적가 합계</dt>
@@ -151,20 +156,17 @@ include_once(G5_THEME_PATH . '/head.php');
         formEl.hidden = false;
 
         items.forEach(function (it) {
-            // 담김(cart) 카드도 바로 주문 대상 — 서버가 기존 cart 행을 재사용한다
-            var orderable = it.price !== null && it.cartState !== 'ordered';
+            // 체크박스는 cart.php 와 동일하게 "선택" 범용(주문·삭제 공용) — 주문됨만 잠금.
+            // 주문/삭제 가능 여부는 버튼 동작에서 항목별로 거른다(담김 카드는 주문 시 행 재사용).
+            var selectable = it.cartState !== 'ordered';
             var qtyEditable = it.quoteStatus !== 'quoted' && it.cartState === 'none';
-            // 삭제는 보관(none) 상태만 — 담김/주문됨은 서버도 409 로 거부(수량 수정과 동일 정책)
-            var deletable = it.cartState === 'none';
-            var delTitle = deletable ? '삭제'
-                : (it.cartState === 'cart' ? '장바구니에서 먼저 삭제해 주세요' : '주문된 견적은 삭제할 수 없습니다');
             var chkId = 'sp-quotes-check-' + it.projectId;
 
             var li = document.createElement('li');
-            li.className = 'sp-cart-item sp-quotes__item' + (orderable ? '' : ' sp-quotes__item--locked');
+            li.className = 'sp-cart-item sp-quotes__item' + (selectable ? '' : ' sp-quotes__item--locked');
             li.innerHTML =
                 '<span class="sp-chk sp-cart-item-chk">' +
-                    '<input type="checkbox" class="sp-quotes__check selec_chk" id="' + chkId + '" value="' + it.projectId + '" data-price="' + (it.price === null ? '' : it.price) + '"' + (orderable ? '' : ' disabled') + '>' +
+                    '<input type="checkbox" class="sp-quotes__check selec_chk" id="' + chkId + '" value="' + it.projectId + '" data-price="' + (it.price === null ? '' : it.price) + '" data-cartstate="' + it.cartState + '"' + (selectable ? '' : ' disabled') + '>' +
                     '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
                 '</span>' +
                 '<div class="sp-cart-info">' +
@@ -187,10 +189,7 @@ include_once(G5_THEME_PATH . '/head.php');
                     (it.price === null
                         ? '<span class="sp-quotes__pending">견적 대기</span>'
                         : '<strong class="sp-cart-sum">' + fmtNum(it.price) + '원</strong>') +
-                '</div>' +
-                '<button type="button" class="sp-quotes__del" data-id="' + it.projectId + '"' + (deletable ? '' : ' disabled') + ' title="' + delTitle + '">' +
-                    '<i class="fa fa-times" aria-hidden="true"></i><span class="sound_only">견적 삭제</span>' +
-                '</button>';
+                '</div>';
             li.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
             li.querySelector('.sp-quotes__cat').textContent = it.category;
             rowsEl.appendChild(li);
@@ -199,14 +198,23 @@ include_once(G5_THEME_PATH . '/head.php');
         updateSummary();
     }
 
-    // 선택 변경 → 요약 패널(건수·합계)·전체선택 동기화
+    // 선택 변경 → 요약 패널(건수·합계)·전체선택 동기화.
+    // 체크는 주문·삭제 공용이라 가격 없는(rfq) 항목도 섞일 수 있음 —
+    // 합계는 가격 있는 항목만 합산하고, 건수는 "선택 n건 (주문 가능 m건)" 으로 구분 표기.
     function updateSummary() {
         var all = rowsEl.querySelectorAll('.sp-quotes__check:not(:disabled)');
         var checked = rowsEl.querySelectorAll('.sp-quotes__check:checked');
         var total = 0;
-        checked.forEach(function (cb) { total += parseInt(cb.dataset.price || '0', 10); });
+        var orderableCnt = 0;
+        checked.forEach(function (cb) {
+            if (cb.dataset.price !== '') {
+                total += parseInt(cb.dataset.price, 10);
+                orderableCnt++;
+            }
+        });
 
-        document.getElementById('sp-quotes-count').textContent = String(checked.length);
+        document.getElementById('sp-quotes-count').textContent =
+            checked.length + '건' + (orderableCnt < checked.length ? ' (주문 가능 ' + orderableCnt + '건)' : '');
         document.getElementById('sp-quotes-total').textContent = fmtNum(total);
         document.getElementById('sp_sel_cnt').textContent = checked.length + '/' + all.length;
         document.getElementById('sp-quotes-check-all').checked = all.length > 0 && all.length === checked.length;
@@ -242,17 +250,52 @@ include_once(G5_THEME_PATH . '/head.php');
             });
     });
 
-    // 견적 삭제 — 소프트 삭제(status='deleted' → "지난 견적" 보관함), 목록에서만 사라짐
-    rowsEl.addEventListener('click', function (ev) {
-        var btn = ev.target.closest ? ev.target.closest('.sp-quotes__del') : null;
-        if (!btn || btn.disabled) { return; }
-        if (!confirm('삭제한 견적은 "지난 견적" 보관함으로 이동됩니다. 삭제할까요?')) { return; }
-        refreshToken()
-            .then(function () { return api('DELETE', '/' + btn.dataset.id); })
-            .then(function (r) {
-                if (!r.ok) { alert(errMsg(r.json)); return; }
+    // 견적 삭제 — cart.php 와 동일한 툴바 [선택삭제]/[비우기] 방식.
+    // 소프트 삭제(status='deleted' → "지난 견적" 보관함). 삭제 가능 = 보관(none) 상태만 —
+    // 담김(cart)은 대상에서 제외하고 안내(서버 409 는 백스톱), 주문됨은 체크 자체가 잠김.
+    function deleteQuotes(checkboxes, emptyMsg) {
+        var targets = [];
+        var excludedCart = 0;
+        Array.prototype.forEach.call(checkboxes, function (cb) {
+            if (cb.dataset.cartstate === 'none') { targets.push(parseInt(cb.value, 10)); }
+            else if (cb.dataset.cartstate === 'cart') { excludedCart++; }
+        });
+        var excludeNote = excludedCart > 0 ? '장바구니에 담긴 항목 ' + excludedCart + '건은 제외되었습니다.' : '';
+        if (targets.length === 0) {
+            alert(excludeNote || emptyMsg);
+            return;
+        }
+        if (!confirm('삭제한 견적은 "지난 견적" 보관함으로 이동됩니다. ' + targets.length + '건을 삭제할까요?')) { return; }
+        refreshToken().then(function () {
+            var failed = [];
+            return targets.reduce(function (chain, id) {
+                return chain.then(function () {
+                    return api('DELETE', '/' + id).then(function (r) {
+                        if (!r.ok) { failed.push({ projectId: id, error: (r.json && r.json.error) || '' }); }
+                    });
+                });
+            }, Promise.resolve()).then(function () {
+                var notes = [];
+                if (excludeNote) { notes.push(excludeNote); }
+                if (failed.length > 0) { notes.push('일부 항목을 삭제하지 못했습니다:\n' + failedMsgs(failed)); }
+                if (notes.length > 0) { alert(notes.join('\n')); }
                 load();
             });
+        });
+    }
+
+    document.getElementById('sp-quotes-del-sel').addEventListener('click', function () {
+        deleteQuotes(
+            rowsEl.querySelectorAll('.sp-quotes__check:checked'),
+            '삭제하실 견적을 하나 이상 선택해 주십시오.'
+        );
+    });
+
+    document.getElementById('sp-quotes-del-all').addEventListener('click', function () {
+        deleteQuotes(
+            rowsEl.querySelectorAll('.sp-quotes__check:not(:disabled)'),
+            '삭제할 수 있는 견적이 없습니다.'
+        );
     });
 
     // 전체 선택
@@ -282,10 +325,19 @@ include_once(G5_THEME_PATH . '/head.php');
         }).join('\n');
     }
 
-    // 바로 주문 — 배치 담기 + 행 단위 주문 선택(ct_select) 후 주문서로 직행
+    // 바로 주문 — 배치 담기 + 행 단위 주문 선택(ct_select) 후 주문서로 직행.
+    // 체크가 주문·삭제 공용이라 가격 없는(rfq) 항목은 여기서 걸러 안내 후 진행.
     document.getElementById('sp-quotes-direct').addEventListener('click', function () {
-        var ids = selectedIds();
-        if (ids.length === 0) { alert('주문할 프로젝트를 선택해 주세요.'); return; }
+        if (selectedIds().length === 0) { alert('주문할 프로젝트를 선택해 주세요.'); return; }
+        var checked = rowsEl.querySelectorAll('.sp-quotes__check:checked');
+        var ids = [];
+        var pendingCnt = 0;
+        Array.prototype.forEach.call(checked, function (cb) {
+            if (cb.dataset.price !== '') { ids.push(parseInt(cb.value, 10)); }
+            else { pendingCnt++; }
+        });
+        if (ids.length === 0) { alert('주문 가능한 항목이 없습니다.'); return; }
+        if (pendingCnt > 0 && !confirm('견적 대기 항목 ' + pendingCnt + '건은 주문에서 제외됩니다. 계속할까요?')) { return; }
 
         refreshToken().then(function () {
             return api('POST', '/order', { ids: ids });
