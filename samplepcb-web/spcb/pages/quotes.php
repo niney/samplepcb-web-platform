@@ -7,6 +7,7 @@
 //   인증: GET /spcb/api/me (세션→JWT 브리지) → Authorization: Bearer
 //   바로 주문: POST /api/pcb-projects/order (배치 담기+ct_select 선택) → /shop/orderform.php
 //   수량: PATCH /api/pcb-projects/{id} (서버 재견적; 확정/담김 상태는 거부)
+//   삭제: DELETE /api/pcb-projects/{id} (소프트 삭제 → "지난 견적" 보관함; 담김/주문됨 거부)
 //
 // 디자인: cart.php(테마 오버라이드)와 같은 시각 문법 — 카드 목록(.sp-cart-item)과
 // 주문요약(.sp-cart-summary) 클래스를 재사용(비쇼핑 부트스트랩이라 default_shop.css 직접 링크),
@@ -97,7 +98,7 @@ include_once(G5_THEME_PATH . '/head.php');
     var CART_LABEL = { none: '', cart: '장바구니 담김', ordered: '주문됨' };
     var ERROR_MSG = {
         QUOTE_FINALIZED: '확정된 견적은 수량을 변경할 수 없습니다. 재견적이 필요하면 문의해 주세요.',
-        IN_CART: '장바구니에 담긴 프로젝트입니다. 장바구니에서 삭제한 뒤 수정해 주세요.',
+        IN_CART: '장바구니에 담긴 프로젝트입니다. 장바구니에서 삭제한 뒤 다시 시도해 주세요.',
         ALREADY_ORDERED: '이미 주문된 프로젝트입니다.',
         NOT_PRICED: '견적가가 아직 없습니다. 견적 확정 후 주문할 수 있습니다.',
         NOT_FOUND: '프로젝트를 찾을 수 없습니다.',
@@ -153,6 +154,10 @@ include_once(G5_THEME_PATH . '/head.php');
             // 담김(cart) 카드도 바로 주문 대상 — 서버가 기존 cart 행을 재사용한다
             var orderable = it.price !== null && it.cartState !== 'ordered';
             var qtyEditable = it.quoteStatus !== 'quoted' && it.cartState === 'none';
+            // 삭제는 보관(none) 상태만 — 담김/주문됨은 서버도 409 로 거부(수량 수정과 동일 정책)
+            var deletable = it.cartState === 'none';
+            var delTitle = deletable ? '삭제'
+                : (it.cartState === 'cart' ? '장바구니에서 먼저 삭제해 주세요' : '주문된 견적은 삭제할 수 없습니다');
             var chkId = 'sp-quotes-check-' + it.projectId;
 
             var li = document.createElement('li');
@@ -182,7 +187,10 @@ include_once(G5_THEME_PATH . '/head.php');
                     (it.price === null
                         ? '<span class="sp-quotes__pending">견적 대기</span>'
                         : '<strong class="sp-cart-sum">' + fmtNum(it.price) + '원</strong>') +
-                '</div>';
+                '</div>' +
+                '<button type="button" class="sp-quotes__del" data-id="' + it.projectId + '"' + (deletable ? '' : ' disabled') + ' title="' + delTitle + '">' +
+                    '<i class="fa fa-times" aria-hidden="true"></i><span class="sound_only">견적 삭제</span>' +
+                '</button>';
             li.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
             li.querySelector('.sp-quotes__cat').textContent = it.category;
             rowsEl.appendChild(li);
@@ -231,6 +239,19 @@ include_once(G5_THEME_PATH . '/head.php');
                     return;
                 }
                 load(); // 가격·상태가 함께 바뀌므로 목록 재조회
+            });
+    });
+
+    // 견적 삭제 — 소프트 삭제(status='deleted' → "지난 견적" 보관함), 목록에서만 사라짐
+    rowsEl.addEventListener('click', function (ev) {
+        var btn = ev.target.closest ? ev.target.closest('.sp-quotes__del') : null;
+        if (!btn || btn.disabled) { return; }
+        if (!confirm('삭제한 견적은 "지난 견적" 보관함으로 이동됩니다. 삭제할까요?')) { return; }
+        refreshToken()
+            .then(function () { return api('DELETE', '/' + btn.dataset.id); })
+            .then(function (r) {
+                if (!r.ok) { alert(errMsg(r.json)); return; }
+                load();
             });
     });
 
