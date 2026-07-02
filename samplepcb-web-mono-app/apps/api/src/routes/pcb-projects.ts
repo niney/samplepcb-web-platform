@@ -6,7 +6,7 @@ import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
 import { uploadToFileServer } from '../lib/file-server';
 import type { UploadTarget } from '../lib/file-server';
-import { getTemplateItem, insertCartRow } from '../lib/g5-db';
+import { deleteQuoteOption, getTemplateItem, insertCartRow, insertQuoteOption } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
 
 // ── POST /api/pcb-projects — 거버 담기 API (단일 multipart 호출) ────────────
@@ -176,16 +176,27 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             ]
               .filter((s) => s !== '')
               .join(' / ');
-            const ctId = await insertCartRow({
-              odId: cartId,
-              mbId,
-              item,
-              itemName: `${item.itName} · ${payload.projectName}`,
-              price: quote.listPrice,
-              qty: payload.qty,
-              option: optionSummary,
-              ip: request.ip,
-            });
+            // 견적 옵션 행을 먼저 등록해야 코어 before_check_cart_price 의
+            // 옵션가 재검증(shop.lib.php:2616~)이 정당하게 통과한다(g5-db.ts 참조).
+            await insertQuoteOption(item.itId, project.quote.id, quote.listPrice);
+            let ctId: number;
+            try {
+              ctId = await insertCartRow({
+                odId: cartId,
+                mbId,
+                item,
+                itemName: `${item.itName} · ${payload.projectName}`,
+                ioId: project.quote.id,
+                price: quote.listPrice,
+                qty: payload.qty,
+                option: optionSummary,
+                ip: request.ip,
+              });
+            } catch (err) {
+              // 카트 실패 시 고아 옵션 행 보상 삭제(실패해도 정리 배치가 수거)
+              await deleteQuoteOption(item.itId, project.quote.id).catch(() => undefined);
+              throw err;
+            }
             await prisma.spOrderSpec.update({ where: { id: project.spec.id }, data: { ctId } });
             cartAdded = true;
           }
