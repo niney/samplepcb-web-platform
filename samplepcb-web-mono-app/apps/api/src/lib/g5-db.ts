@@ -3,7 +3,8 @@
 // "그누보드 스키마 직접 결합 금지" 원칙의 **한정 예외**(HANDOFF 결정 로그 #6):
 // 허용 범위는 ① g5_shop_cart INSERT ② g5_shop_item_option INSERT(견적 옵션 행)
 // ③ 템플릿 상품/카트 파생 SELECT ④ g5_shop_cart ct_select/ct_select_time
-// UPDATE(주문 선택 플래그 — 바로 주문) 뿐이다.
+// UPDATE(주문 선택 플래그 — 바로 주문) ⑤ g5_member read-only SELECT(관리자
+// 견적 관리의 신청자 표시용 — 최소 컬럼, 쓰기 절대 금지) 뿐이다.
 // 그 외 g5_* 접근은 금지 — 범위를 넓히려면 HANDOFF 결정을 먼저 갱신할 것.
 //
 // LEGACY_DATABASE_URL(운영 읽기 전용, 검증 스크립트용)과 반드시 구분한다.
@@ -164,6 +165,42 @@ export async function getCartStates(ctIds: number[]): Promise<Map<number, CartSt
     states.set(Number(row.ct_id), String(row.ct_status) === '쇼핑' ? 'cart' : 'ordered');
   }
   return states;
+}
+
+// ── 회원 표시 정보 SELECT (한정 예외 ⑤) ─────────────────────────────────────
+// 관리자 견적 관리에서 신청자(이름·연락처·이메일)를 보여주기 위한 read-only 조회.
+// sp_order_spec.mbId(JWT 클레임 유래)와 표시 시점에만 조인하며, 이 최소 컬럼
+// SELECT 이상으로 스키마 결합을 넓히지 않는다.
+export interface G5Member {
+  mbId: string;
+  name: string;
+  nick: string;
+  email: string;
+  hp: string;
+  tel: string;
+}
+
+export async function getMembersByIds(mbIds: string[]): Promise<Map<string, G5Member>> {
+  const map = new Map<string, G5Member>();
+  const ids = [...new Set(mbIds)].filter((id) => id !== '');
+  if (ids.length === 0) return map;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT mb_id, mb_name, mb_nick, mb_email, mb_hp, mb_tel
+       FROM g5_member WHERE mb_id IN (${ids.map(() => '?').join(',')})`,
+    ids,
+  );
+  for (const row of rows) {
+    const mbId = String(row.mb_id);
+    map.set(mbId, {
+      mbId,
+      name: String(row.mb_name),
+      nick: String(row.mb_nick),
+      email: String(row.mb_email),
+      hp: String(row.mb_hp),
+      tel: String(row.mb_tel),
+    });
+  }
+  return map;
 }
 
 // ── 주문 선택 플래그 UPDATE ─────────────────────────────────────────────────

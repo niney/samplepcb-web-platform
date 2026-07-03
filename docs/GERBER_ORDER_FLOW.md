@@ -30,6 +30,7 @@
 ```
 [브라우저]
   거버 뷰어 (React) ── local-gerber.samplepcb.co.kr (dev) / www…/gerberview (prod)
+  관리자 견적 관리 (Vue, sp-vue) ── /app/admin/quotes — 전 사용자 견적 목록·가격 확정
       │
 [PHP — 그누보드/영카트, 코어 무수정]
   spcb/api/me.php                인증 브리지(커스텀): 세션 → JWT 발급 (mbId + cartId 클레임)
@@ -43,6 +44,10 @@
   POST  /api/pcb-projects/order  바로 주문: 배치 담기 + ct_select 행 단위 선택 → orderform 직행
   PATCH /api/pcb-projects/:id    수량 수정 = 서버 재견적(새 quoteId 발급)
   DELETE /api/pcb-projects/:id   active→소프트 삭제(보관함) / deleted→하드 삭제(파일 포함 파기)
+  GET   /api/admin/pcb-projects       관리자 목록(전 사용자·탭·검색·기간·페이지네이션) — requireAdmin
+  GET   /api/admin/pcb-projects/:id   관리자 상세(사양 전체·파일·회원·견적 스냅샷)
+  PATCH /api/admin/pcb-projects/:id/price  가격 확정 rfq→quoted (finalPrice/pricedBy/pricedAt 기록)
+  GET   /api/admin/pcb-files/:fileId  관리자 원본 다운로드(거버 등 — Bearer, pathToken 미노출)
   src/pricing/engine.ts          가격 엔진(레거시 PHP 이식, 라이브 실측 패리티 검증)
   src/lib/file-server.ts         파일서버 업로드·삭제 대행
   src/lib/g5-db.ts               g5 접근(한정 예외 모듈: cart INSERT·옵션 행·ct_select·파생 SELECT)
@@ -171,7 +176,8 @@
 | `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT + 파생 SELECT 만** (한정 예외, `lib/g5-db.ts` 에 명시) |
 | `g5_shop_item_option` (견적 옵션 행) | 영카트 코어 | sp-node 는 견적 옵션 행(io_id=quoteId) **INSERT + 보상 DELETE 만** (한정 예외 확장, 기법 #3) |
 | `g5_shop_item` (템플릿) | 영카트 코어 | sp-node 는 SELECT 만 (배송정책 스냅샷용) |
-| 회원/세션 | 그누보드 | sp-node 는 JWT 클레임으로만 식별 (DB 직접 결합 없음) |
+| `g5_member` (회원 표시 정보) | 그누보드 | sp-node 는 **관리자 API 한정 read-only SELECT** — mb_name/mb_nick/mb_email/mb_hp/mb_tel 최소 컬럼, 신청자 표시용 (한정 예외 ⑤, `lib/g5-db.ts` `getMembersByIds`) |
+| 회원/세션 | 그누보드 | sp-node 는 JWT 클레임으로만 **식별** (DB 직접 결합 없음 — 표시용 read-only 예외는 위 `g5_member` 행) |
 | cart↔spec 관계 | **저장하지 않음** | `spec.ctId → g5_shop_cart` 조회 시점 조인으로 파생 — 동기화 로직 자체가 없어 불일치 불가능 |
 
 ## 6. 왜 이 구조인가 (요약된 결정 근거)
@@ -207,10 +213,21 @@ cart.php 에 "Standard PCB · <파일명>" 행 + 견적가 표시.
   cart 견적 행의 [선택사항수정] 선형 곱 버그는 테마 스킨 분기로 차단(기법 #8)
 - **지난 견적 보관함** — `/shop/quotes/archive` + 독립 모델(3장 ⑤): 장바구니 삭제는
   lazy reconcile 로 수거, 보관함 [영구 삭제]는 실파일 선삭제 → DB 파기(멱등 재시도)
+- **관리자 견적 관리** — `/app/admin/quotes` (sp-vue 첫 실기능, 기존 "남은 것 ②③" 구현):
+  전 사용자 목록(상태 탭+카운트·회원ID/프로젝트명 검색·기간·카테고리·보관함 토글·오프셋
+  페이지네이션) + 상세 드로어(사양 전체·거버 원본 다운로드·견적 스냅샷·신청자) +
+  **가격 확정 rfq→quoted**(priced 수동 조정·quoted 재확정 포함 — `finalPrice`/`pricedBy`/
+  `pricedAt` 기록, 담김(cart)·주문됨(ordered)은 409 거부). 서버 경계는 신규 `requireAdmin`
+  데코레이터(JWT `isAdmin` 클레임 — 첫 사용). 확정가는 기존 `finalPrice ?? autoPrice`
+  우선순위를 타고 사용자 견적관리·담기·주문 금액에 즉시 반영된다. 신청자 표시를 위해
+  g5 한정 예외에 ⑤ `g5_member` read-only SELECT 추가(5장). rfq 대기 수 뱃지는 관리자
+  **사이드바**에 구현. 관리자 목록 GET 은 lazy reconcile 을 하지 않는다(읽기가 타 사용자
+  데이터를 변경하지 않도록 — 유령 건은 가격 확정 시도 시점에 정리·409).
 
-남은 것(우선순위): ① 전 메뉴 실전송 검증(standard 만 완료) ② 관리자 가격 확정(rfq→quoted)
-+quoted 재확정 플로우 ③ rfq 대기 수 헤더 뱃지 ④ 파일 삭제 API 접근 제한(5장 ⚠)
-⑤ 운영 전환(거버 prod 분기·운영 nginx `/api`) — 상세 체크리스트는 `HANDOFF.md` 7장.
+남은 것(우선순위): ① 전 메뉴 실전송 검증(standard 만 완료) ② rfq 대기 수 **사용자측**
+sp-php 헤더 뱃지(관리자 사이드바 뱃지는 구현됨) + quoted 견적의 사용자발 재견적 요청
+플로우 ③ 파일 삭제 API 접근 제한(5장 ⚠) ④ 운영 전환(거버 prod 분기·운영 nginx `/api`)
+— 상세 체크리스트는 `HANDOFF.md` 7장.
 
 ## 8. 관련 파일 색인
 
@@ -227,7 +244,10 @@ cart.php 에 "Standard PCB · <파일명>" 행 + 견적가 표시.
 | 거버 payload 어댑터 | `samplepcb_gerber/apps/view/src/ResultPanel/toProjectPayload.ts` (별도 repo) |
 | 파일서버 클라이언트 | `…/apps/api/src/lib/file-server.ts` |
 | g5 접근(한정 예외) | `…/apps/api/src/lib/g5-db.ts` |
+| 관리자 견적 관리 API | `…/apps/api/src/routes/admin-pcb-projects.ts` (가드: `plugins/auth.ts` `requireAdmin`) |
+| 관리자 견적 관리 화면 | `…/apps/web/src/pages/admin/AdminQuotes.vue` · `components/admin/*` · `admin/useAdminQuotes.ts` |
+| 사양 요약 공용 헬퍼 | `…/apps/api/src/lib/option-summary.ts` (`buildOptionSummary` — cart·사용자·관리자 표기 통일) |
 | DB 스키마 | `…/apps/api/prisma/schema.prisma` (sp_quote/sp_order_spec/sp_file) |
-| 요청 계약 | `…/packages/api-contract/src/schemas/pcb-project.ts` · `auth.ts` |
+| 요청 계약 | `…/packages/api-contract/src/schemas/pcb-project.ts` · `auth.ts` · `admin.ts`(관리자) |
 | 템플릿 상품 시드 | `…/apps/api/src/scripts/seed-template-items.ts` |
 | 거버 제출부 | `samplepcb_gerber/apps/view/src/ResultPanel/submit.tsx` (별도 repo) |

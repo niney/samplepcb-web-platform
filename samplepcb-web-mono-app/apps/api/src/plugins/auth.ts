@@ -8,6 +8,7 @@ import { JwtClaims, type JwtClaimsType } from '@sp/api-contract';
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
@@ -40,4 +41,15 @@ export default fp(async (app: FastifyInstance) => {
   };
 
   app.decorate('authenticate', authenticate);
+
+  // 관리자 전용 가드 — authenticate 를 내부 호출로 조합해 라우트에 이것 하나만 건다
+  // (preHandler 배열식은 authenticate 누락 사고 여지). isAdmin 판정은 그누보드
+  // me.php(cf_admin 1인)가 하며 여기서는 서명된 클레임만 신뢰한다.
+  const requireAdmin: FastifyInstance['requireAdmin'] = async (request, reply) => {
+    await authenticate(request, reply);
+    if (!request.user.isAdmin) {
+      throw app.httpErrors.forbidden('관리자 권한이 필요합니다');
+    }
+  };
+  app.decorate('requireAdmin', requireAdmin);
 });

@@ -4,16 +4,18 @@ import DefaultLayout from './layouts/DefaultLayout.vue';
 import AdminLayout from './layouts/AdminLayout.vue';
 import Home from './pages/Home.vue';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
-import AdminPlaceholder from './pages/admin/AdminPlaceholder.vue';
+import AdminQuotes from './pages/admin/AdminQuotes.vue';
 
 // 라우트 meta 타입 보강
 declare module 'vue-router' {
   interface RouteMeta {
     requiresAdmin?: boolean;
-    titleKey?: string;
   }
 }
 
+// sp-vue 는 사실상 관리자 앱 — 고객 대면 화면은 sp-php(`/`) 담당이라 /admin 하위가
+// 실질 본문이다. 미구현 메뉴(주문/상품/통계/설정)는 placeholder 로 두지 않고 제거,
+// 기능이 생길 때 라우트·메뉴·i18n 을 함께 추가한다.
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
@@ -26,36 +28,7 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAdmin: true },
     children: [
       { path: '', name: 'admin', component: AdminDashboard },
-      {
-        path: 'quotes',
-        name: 'admin-quotes',
-        component: AdminPlaceholder,
-        meta: { titleKey: 'admin.menu.quotes' },
-      },
-      {
-        path: 'orders',
-        name: 'admin-orders',
-        component: AdminPlaceholder,
-        meta: { titleKey: 'admin.menu.orders' },
-      },
-      {
-        path: 'products',
-        name: 'admin-products',
-        component: AdminPlaceholder,
-        meta: { titleKey: 'admin.menu.products' },
-      },
-      {
-        path: 'stats',
-        name: 'admin-stats',
-        component: AdminPlaceholder,
-        meta: { titleKey: 'admin.menu.stats' },
-      },
-      {
-        path: 'settings',
-        name: 'admin-settings',
-        component: AdminPlaceholder,
-        meta: { titleKey: 'admin.menu.settings' },
-      },
+      { path: 'quotes', name: 'admin-quotes', component: AdminQuotes },
     ],
   },
 ];

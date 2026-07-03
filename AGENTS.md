@@ -48,6 +48,7 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 | **`sp-vue`** | Vue SPA 프런트 | `samplepcb-web-mono-app/apps/web` | `/app` | `@sp` 스코프 |
 | **`sp-node`** | Node/Fastify 백엔드 | `samplepcb-web-mono-app/apps/api` | `/api` | Fastify · `@sp` 스코프 |
 
+- **sp-vue `/app`의 실질 기본 용도는 관리자(`/app/admin`)다** — 고객 대면 신규 화면(견적관리 등)은 sp-php(`spcb/pages/`)에 우선 구현하는 플랫폼 결정에 따라, `/app` 루트 홈은 최소 셸이고 관리자 화면이 본문이다.
 - **"web"은 호칭으로 쓰지 않는다** — `samplepcb-web/`(PHP)와 `apps/web`(Vue) 양쪽에 걸쳐 혼동을 부르기 때문. 위 세 별칭으로 대체.
 - 빠른 대화에선 `php`/`vue`/`node`로 줄여도 1:1로 통함. **문서·커밋엔 `sp-` 접두형 권장.**
 - `sp-node`는 런타임 기준 이름. 라우트/계약(`/api`, `@sp/api-contract`)을 콕 집을 땐 "sp-node의 api".

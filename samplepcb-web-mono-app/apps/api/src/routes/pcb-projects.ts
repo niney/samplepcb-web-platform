@@ -11,6 +11,7 @@ import {
 } from '@sp/api-contract';
 import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
+import { buildOptionSummary } from '../lib/option-summary';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadTarget } from '../lib/file-server';
 import {
@@ -46,19 +47,6 @@ const findUnknownSpecKeys = (spec: PcbProjectPayloadType['spec']): string[] => {
   const known = new Set<string>(KNOWN_SPEC_KEYS);
   return Object.keys(spec).filter((key) => !known.has(key));
 };
-
-// cart 화면(ct_option) 사양 요약 — ct_qty=1 고정이라 수량은 여기에 담아 보여준다
-const buildOptionSummary = (spec: PcbProjectPayloadType['spec'], qty: number): string =>
-  [
-    String(spec.material ?? spec.kindPcb ?? ''),
-    spec.layers !== undefined ? `${String(spec.layers)}L` : '',
-    spec.width !== undefined && spec.length !== undefined
-      ? `${String(spec.width)}x${String(spec.length)}mm`
-      : '',
-    `${String(qty)}pcs`,
-  ]
-    .filter((s) => s !== '')
-    .join(' / ');
 
 const ProjectIdParams = z.object({ id: z.string().regex(/^\d+$/) });
 

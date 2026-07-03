@@ -9,6 +9,7 @@ import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
 import { pcbProjectRoutes } from './routes/pcb-projects';
 import { pcbThumbRoutes } from './routes/pcb-thumbs';
+import { adminPcbProjectRoutes } from './routes/admin-pcb-projects';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -30,6 +31,8 @@ await app.register(healthRoutes, { prefix: '/api' });
 await app.register(meRoutes, { prefix: '/api' });
 await app.register(pcbProjectRoutes, { prefix: '/api' });
 await app.register(pcbThumbRoutes, { prefix: '/api' });
+// 관리자 전용(requireAdmin) — 견적 관리 목록·상세·가격 확정·원본 다운로드
+await app.register(adminPcbProjectRoutes, { prefix: '/api/admin' });
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로
