@@ -1,0 +1,40 @@
+{
+  "last_compiled": "2026-07-03",
+  "topics": [
+    "sp-node-api",
+    "sp-vue-web",
+    "api-contract",
+    "shared-packages",
+    "spcb-bridge",
+    "theme-sp-lite",
+    "gnuboard-integration",
+    "infrastructure",
+    "docs-knowledge"
+  ],
+  "concepts": [
+    "core-nonmodification",
+    "server-single-truth",
+    "manual-sync-drift"
+  ],
+  "source_locations": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/GERBER_ORDER_FLOW.md",
+    "docs/LEGACY_SITE.md",
+    "docs/UPSTREAM_SYNC.md",
+    "docs/pricing-engine-parity.md",
+    "docs/samplepcb-pricing-api-body-cases.md",
+    "ops/README.md",
+    "ops/nginx/local-web.conf",
+    "samplepcb-web/.htaccess",
+    "samplepcb-web/README.md",
+    "samplepcb-web/extend/.htaccess",
+    "samplepcb-web/spcb/.htaccess",
+    "samplepcb-web/spcb/lib/.htaccess",
+    "samplepcb-web-mono-app/AGENTS.md",
+    "samplepcb-web-mono-app/apps/api/.env.example",
+    "samplepcb-web-mono-app/apps/api/prisma/schema.prisma"
+  ],
+  "total_sources_scanned": 18
+}

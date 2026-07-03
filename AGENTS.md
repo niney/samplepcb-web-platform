@@ -9,8 +9,11 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 ├── samplepcb-web/               ← 그누보드5/영카트 PHP  = gnuboard5 subtree
 ├── samplepcb-web-mono-app/      ← Vue + Node 모노레포 (일반 서브폴더)
 ├── ops/                         ← nginx · docker-compose · scripts
-└── docs/                        ← 절차·기록 문서 (UPSTREAM_SYNC · GERBER_ORDER_FLOW · pricing-engine-parity 등)
+├── docs/                        ← 절차·기록 문서 (UPSTREAM_SYNC · GERBER_ORDER_FLOW · pricing-engine-parity 등)
+└── samplepcb-web-platform-wiki/ ← 컴파일된 코드베이스 위키 (토픽·개념 아티클, /wiki-compile 로 갱신)
 ```
+
+> **📚 위키 먼저**: 코드베이스 파악이 필요하면 원시 파일 스캔 전에 **`samplepcb-web-platform-wiki/CONTEXT.md`**(사용법) → `samplepcb-web-platform-wiki/INDEX.md`(토픽 지도)를 읽어라. coverage 태그가 high 인 섹션은 원본 확인 없이 신뢰 가능.
 
 - **리모트**: `origin`(push 대상) + `gnuboard`(=gnuboard/gnuboard5, subtree 소스, **push 차단**).
 - 그누보드 코어 최신화는 **`git subtree pull --prefix=samplepcb-web gnuboard master --squash`** (push 아님). 상세 `docs/UPSTREAM_SYNC.md`.

@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "mode": "codebase",
+  "name": "samplepcb-web-platform",
+  "sources": [
+    {
+      "path": "./",
+      "exclude": [
+        "node_modules/",
+        "dist/",
+        ".git/",
+        "samplepcb-web-platform-wiki/",
+        "vendor/",
+        "__pycache__/",
+        ".build/",
+        "target/",
+        ".next/",
+        "coverage/",
+        ".tmp/",
+        "samplepcb-web/data/",
+        "samplepcb-web/install/",
+        "samplepcb-web/plugin/",
+        "HANDOFF.md"
+      ]
+    }
+  ],
+  "output": "samplepcb-web-platform-wiki/",
+  "service_discovery": "auto",
+  "knowledge_files": [
+    "README.md", "CLAUDE.md", "AGENTS.md", "ARCHITECTURE.md", "CONTRIBUTING.md",
+    "*.proto", "*.graphql", "openapi.yaml", "openapi.json",
+    "ADR-*.md", "docs/adr/*.md", "docs/*.md",
+    "docker-compose.yml", "Dockerfile",
+    ".env.example", "CHANGELOG.md",
+    "prisma/schema.prisma", "ops/nginx/*.conf", ".htaccess"
+  ],
+  "deep_scan": false,
+  "auto_update": "prompt",
+  "topic_hints": [
+    { "topic": "sp-node-api", "paths": ["samplepcb-web-mono-app/apps/api/"] },
+    { "topic": "sp-vue-web", "paths": ["samplepcb-web-mono-app/apps/web/"] },
+    { "topic": "api-contract", "paths": ["samplepcb-web-mono-app/packages/api-contract/"] },
+    { "topic": "shared-packages", "paths": ["samplepcb-web-mono-app/packages/config/", "samplepcb-web-mono-app/packages/shared/", "samplepcb-web-mono-app/packages/utils/"] },
+    { "topic": "spcb-bridge", "paths": ["samplepcb-web/spcb/"] },
+    { "topic": "theme-sp-lite", "paths": ["samplepcb-web/theme/sp-lite/"] },
+    { "topic": "gnuboard-integration", "paths": ["samplepcb-web/extend/", "samplepcb-web/.htaccess", "docs/UPSTREAM_SYNC.md"] },
+    { "topic": "infrastructure", "paths": ["ops/"] },
+    { "topic": "docs-knowledge", "paths": ["docs/"] }
+  ],
+  "article_sections": [
+    { "name": "Purpose", "description": "What this module/service does and who depends on it", "required": true },
+    { "name": "Architecture", "description": "Key files, structure, entry points" },
+    { "name": "Talks To", "description": "Dependencies, communication patterns, inter-service calls" },
+    { "name": "API Surface", "description": "Endpoints, exported functions, or interfaces exposed" },
+    { "name": "Data", "description": "Tables, collections, queues, caches, state owned" },
+    { "name": "Key Decisions", "description": "Why it was built this way, from ADRs and READMEs" },
+    { "name": "Gotchas", "description": "Known issues, edge cases, failure modes" },
+    { "name": "Sources", "description": "Backlinks to all contributing files", "required": true }
+  ],
+  "link_style": "markdown"
+}
