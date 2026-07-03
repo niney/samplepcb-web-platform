@@ -71,3 +71,30 @@ export const uploadToFileServer = async (
   }
   return uploaded;
 };
+
+const DeleteResponse = z.object({
+  result: z.boolean(),
+  message: z.string().optional(),
+});
+
+/**
+ * GET /api/delete/:pathToken — 실파일 삭제. 404(이미 없음)는 성공으로 취급해
+ * 재시도가 멱등이 되게 한다. 그 외 실패는 throw — 호출측은 DB 를 지우기 **전에**
+ * 이걸 호출해야 실패 시 pathToken 이 남아 재시도가 가능하다(고아 파일 방지).
+ * ⚠ 이 API 는 pathToken 만으로 삭제되는 GET — 노출 범위 제한은 미처리 과제
+ *   (docs/GERBER_ORDER_FLOW.md 보안 메모 참조).
+ */
+export const deleteFromFileServer = async (pathToken: string): Promise<void> => {
+  const res = await fetch(`${FILE_SERVER_URL}/api/delete/${encodeURIComponent(pathToken)}`);
+  if (res.status === 404) return;
+  if (!res.ok) {
+    throw new Error(`file server delete HTTP ${String(res.status)}`);
+  }
+  const parsed = DeleteResponse.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new Error('file server delete: invalid response');
+  }
+  if (!parsed.data.result) {
+    throw new Error(`file server delete failed: ${parsed.data.message ?? 'unknown'}`);
+  }
+};

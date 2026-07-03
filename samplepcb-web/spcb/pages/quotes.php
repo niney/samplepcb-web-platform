@@ -10,6 +10,11 @@
 //   삭제: DELETE /api/pcb-projects/{id} (소프트 삭제 → "지난 견적" 보관함; 담김/주문됨 거부)
 //         — UI 는 cart.php 와 동일한 툴바 [선택삭제]/[비우기] (체크박스 선택 방식)
 //
+// 독립 모델(장바구니와 분리): 목록 API 가 순수 견적(ctId 없음)만 내려준다.
+// 장바구니에 담긴/주문된 건은 이 화면에 나오지 않고, 장바구니에서 삭제하면
+// 서버가 지연 반영으로 보관함(/shop/quotes/archive)에 넣는다. 아래 JS 의
+// cartState 분기(담김 배지·삭제 제외)는 하위호환 백스톱으로만 남아 있다.
+//
 // 디자인: cart.php(테마 오버라이드)와 같은 시각 문법 — 카드 목록(.sp-cart-item)과
 // 주문요약(.sp-cart-summary) 클래스를 재사용(비쇼핑 부트스트랩이라 default_shop.css 직접 링크),
 // 견적 전용 변형은 default_shop.css 의 "견적관리" 섹션(sp-quotes__*) 참조.
@@ -40,17 +45,17 @@ foreach (array(
 <link rel="stylesheet" href="<?php echo G5_THEME_CSS_URL; ?>/default_shop.css?ver=<?php echo G5_CSS_VER; ?>">
 
 <div class="sp-quotes">
-    <p class="sp-quotes__desc">
-        거버 업로드로 접수한 PCB 프로젝트 목록입니다.
-        견적가가 있는 프로젝트를 선택해 바로 주문할 수 있습니다.
-    </p>
-
     <p class="sp-quotes__status" id="sp-quotes-status">불러오는 중…</p>
 
     <div class="sp-cart-empty sp-quotes__empty" id="sp-quotes-empty" hidden>
         <i class="fa fa-file-text-o" aria-hidden="true"></i>
         <p>접수된 견적이 없습니다.</p>
         <span class="sp-cart-empty-sub">거버 파일을 업로드하면 자동 견적을 받아볼 수 있습니다.</span>
+        <?php /* [비우기]로 다 지운 직후가 보관함을 찾는 순간 — 빈 상태에도 경로 제공 */ ?>
+        <span class="sp-cart-empty-sub">
+            장바구니에 담은 견적은 <a href="<?php echo G5_SHOP_URL; ?>/cart.php">장바구니</a>에서,
+            삭제한 견적은 <a href="<?php echo G5_URL; ?>/shop/quotes/archive" class="sp-link-archive">지난 견적 보관함</a>에서 확인할 수 있습니다.
+        </span>
     </div>
 
     <form class="sp-quotes__form" id="sp-quotes-form" onsubmit="return false;" hidden>

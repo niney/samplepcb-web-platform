@@ -437,6 +437,14 @@
     color: var(--sp-muted);
 }
 
+/* 빈 화면 안내문 인라인 링크 — 1차 목적지(견적관리·장바구니)는 강조색 */
+.sp-cart-empty-sub a { text-decoration: underline; text-underline-offset: 2px; }
+.sp-cart-empty-sub a:not(.sp-link-archive) { color: var(--sp-primary); }
+
+/* 지난 견적 보관함 = 삭제·과거 견적 보관용 보조 목적지 — 톤을 낮춰 1차 링크와 다른 느낌 */
+.sp-link-archive { color: var(--sp-muted); text-decoration: underline; text-underline-offset: 2px; }
+.sp-link-archive:hover { color: var(--sp-ink); }
+
 .sp-cart-empty .sp-btn {
     margin-top: 16px;
     min-width: 180px;
@@ -737,3 +745,87 @@
     color: #b45309;
 }
 
+
+/* ==========================================================================
+   지난 견적 보관함 (spcb/pages/quotes-archive.php)
+   영구 삭제 확인 레이어(.sp-modal) + 위험 버튼 — alert 대체, 복구 불가 경고 명시
+   ========================================================================== */
+.sp-btn-danger {
+    background: #dc2626;
+    color: #fff;
+}
+
+.sp-btn-danger:hover,
+.sp-btn-danger:focus {
+    background: #b91c1c;
+    color: #fff;
+}
+
+.sp-modal[hidden] { display: none; }
+
+.sp-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.sp-modal__dim {
+    position: absolute;
+    inset: 0;
+    background: rgba(17, 24, 39, .55);
+}
+
+.sp-modal__box {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    padding: 28px 24px 24px;
+    border-radius: var(--sp-radius);
+    background: #fff;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, .25);
+}
+
+.sp-modal__title {
+    margin: 0 0 12px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #b91c1c;
+}
+
+.sp-modal__title .fa { margin-right: 4px; }
+
+.sp-modal__desc {
+    margin: 0 0 8px;
+    font-size: 15px;
+    color: var(--sp-ink);
+}
+
+.sp-modal__warn {
+    margin: 0 0 20px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--sp-muted);
+}
+
+.sp-modal__warn strong { color: #b91c1c; }
+
+.sp-modal__btns {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.sp-modal__cancel {
+    background: #fff;
+    border-color: var(--sp-line);
+    color: var(--sp-ink);
+}
+
+.sp-modal__cancel:hover,
+.sp-modal__cancel:focus {
+    border-color: var(--sp-muted);
+}

@@ -11,9 +11,10 @@ import {
 } from '@sp/api-contract';
 import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
-import { uploadToFileServer } from '../lib/file-server';
+import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadTarget } from '../lib/file-server';
 import {
+  TEMPLATE_ITEMS,
   deleteQuoteOption,
   getCartStates,
   getTemplateItem,
@@ -290,13 +291,25 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     };
   });
 
-  // ── GET /api/pcb-projects — 견적관리(/quotes, sp-php) 목록 ──────────────────
+  // ── GET /api/pcb-projects — 견적관리(/quotes)·보관함(/quotes-archive) 목록 ──
   // 본인(mbId) 프로젝트만. cartState 는 저장 안 하고 ct_id 조인 파생(HANDOFF 3장).
+  //
+  // 독립 모델: 한 건은 한 화면에만 보인다.
+  //   ctId 없음(active)          → 견적관리
+  //   cart 행 존재(쇼핑/주문)     → 장바구니·주문내역 소관 (견적관리 미노출)
+  //   status='deleted'           → 보관함(지난 견적)
+  // ctId 가 찍혔는데 cart 행이 없다 = 사용자가 코어 cartupdate 로 장바구니에서 삭제한 것
+  // → 목록 조회 시점에 status='deleted' 로 지연 반영(lazy reconcile)해 보관함으로 보낸다.
+  // (PHP 코어는 비수정 — 파생 조회가 삭제 신호를 겸하므로 훅이 필요 없다.)
+  // ※ 주문 완료 건의 cart 행은 코어가 주문 아이템으로 보존하므로 여기 걸리는 건
+  //   사용자 삭제가 전부다. 운영자가 주문 cart 행을 지우는 예외가 있어도 소실되지 않고
+  //   보관함에 남는다.
   fastify.get(
     '/pcb-projects',
     {
       schema: {
         querystring: z.object({
+          status: z.enum(['active', 'deleted']).default('active'),
           quoteStatus: z.enum(['priced', 'rfq', 'quoted']).optional(),
         }),
       },
@@ -310,25 +323,40 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const specs = await prisma.spOrderSpec.findMany({
         where: {
           mbId: request.user.mbId,
-          status: 'active',
+          status: request.query.status,
           ...(request.query.quoteStatus !== undefined
             ? { quoteStatus: request.query.quoteStatus }
             : {}),
         },
         orderBy: { id: 'desc' },
       });
-      const quotes = await prisma.spQuote.findMany({
-        where: { id: { in: specs.map((s) => s.quoteId) } },
-        select: { id: true, autoPrice: true, eta: true },
-      });
-      const quoteById = new Map(quotes.map((q) => [q.id, q]));
       const cartStates = await getCartStates(
         specs.map((s) => s.ctId).filter((id): id is number => id !== null),
       );
+
+      let visible = specs;
+      if (request.query.status === 'active') {
+        // 장바구니에서 삭제된 건 → 보관함으로 지연 반영 (ctId 는 이력으로 보존)
+        const removedFromCart = specs.filter((s) => s.ctId !== null && !cartStates.has(s.ctId));
+        if (removedFromCart.length > 0) {
+          await prisma.spOrderSpec.updateMany({
+            where: { id: { in: removedFromCart.map((s) => s.id) } },
+            data: { status: 'deleted' },
+          });
+        }
+        // 견적관리에는 순수 견적(ctId 없음)만 — 담김/주문됨은 장바구니·주문내역에서
+        visible = specs.filter((s) => s.ctId === null);
+      }
+
+      const quotes = await prisma.spQuote.findMany({
+        where: { id: { in: visible.map((s) => s.quoteId) } },
+        select: { id: true, autoPrice: true, eta: true },
+      });
+      const quoteById = new Map(quotes.map((q) => [q.id, q]));
       return {
         result: true as const,
         data: {
-          items: specs.map((s) => {
+          items: visible.map((s) => {
             const quote = quoteById.get(s.quoteId);
             const cartState: CartState =
               s.ctId !== null ? (cartStates.get(s.ctId) ?? 'none') : 'none';
@@ -540,10 +568,14 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
-  // ── DELETE /api/pcb-projects/:id — 견적 삭제(소프트) ────────────────────────
-  // status='deleted' 로만 전환 — 보관함("지난 견적")에서 재견적/복귀 예정이라
-  // sp_file(거버 파일)·sp_quote·옵션 행은 보존한다(실삭제는 정리 배치의 archived 단계).
-  // 담김(cart)은 장바구니에서 먼저 삭제, 주문됨(ordered)은 주문 기록 연결이라 거부.
+  // ── DELETE /api/pcb-projects/:id — 견적 삭제 (2단계) ────────────────────────
+  // active  → 소프트: status='deleted' 전환만. 데이터·파일 보존, 보관함("지난 견적")에 노출.
+  //           담김(cart)은 장바구니에서 먼저 삭제, 주문됨(ordered)은 주문 기록 연결이라 거부.
+  // deleted → 하드(보관함 [영구 삭제], 복원 없음): 관련 데이터 전부 파기.
+  //           순서가 핵심 — 실파일(파일서버) 먼저, 전부 성공했을 때만 DB 삭제.
+  //           반대로 하면 실패 시 pathToken 이 사라져 고아 파일이 영구히 남는다.
+  //           실패 시 spec 을 건드리지 않고 502 → 사용자가 다시 누르면 그대로 재시도(멱등).
+  //           과거 재견적 sp_quote 스냅샷은 역참조가 없어 여기서 못 지운다(만료분 정리는 별도 과제).
   fastify.delete(
     '/pcb-projects/:id',
     { schema: { params: ProjectIdParams } },
@@ -554,22 +586,58 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         return reply.unauthorized('로그인이 필요합니다');
       }
       const spec = await prisma.spOrderSpec.findFirst({
-        where: { id: BigInt(request.params.id), mbId: request.user.mbId, status: 'active' },
+        where: {
+          id: BigInt(request.params.id),
+          mbId: request.user.mbId,
+          status: { in: ['active', 'deleted'] },
+        },
       });
       if (spec === null) return reply.notFound('프로젝트가 없습니다');
-      if (spec.ctId !== null) {
-        const state = (await getCartStates([spec.ctId])).get(spec.ctId);
-        if (state === 'cart') {
-          return reply.status(409).send({ result: false, error: 'IN_CART' });
+
+      if (spec.status === 'active') {
+        if (spec.ctId !== null) {
+          const state = (await getCartStates([spec.ctId])).get(spec.ctId);
+          if (state === 'cart') {
+            return reply.status(409).send({ result: false, error: 'IN_CART' });
+          }
+          if (state === 'ordered') {
+            return reply.status(409).send({ result: false, error: 'ALREADY_ORDERED' });
+          }
         }
-        if (state === 'ordered') {
-          return reply.status(409).send({ result: false, error: 'ALREADY_ORDERED' });
-        }
+        await prisma.spOrderSpec.update({ where: { id: spec.id }, data: { status: 'deleted' } });
+        return {
+          result: true as const,
+          data: { projectId: Number(spec.id), status: 'deleted' as const },
+        };
       }
-      await prisma.spOrderSpec.update({ where: { id: spec.id }, data: { status: 'deleted' } });
+
+      // 하드 삭제 — 삭제 대상 4종: 실파일+sp_file(거버·썸네일), 잔여 견적 옵션 행,
+      // 현재 sp_quote, sp_order_spec 본체
+      const files = await prisma.spFile.findMany({
+        where: { refType: 'sp_order_spec', refId: spec.id },
+        select: { pathToken: true },
+      });
+      try {
+        for (const f of files) {
+          await deleteFromFileServer(f.pathToken);
+        }
+        // 코어 cartupdate 삭제 경로는 deleteQuoteOption 을 타지 않아 옵션 행이 남는다
+        const itId = TEMPLATE_ITEMS[spec.category.toLowerCase()];
+        if (itId !== undefined) {
+          await deleteQuoteOption(itId, spec.quoteId);
+        }
+      } catch (err) {
+        request.log.error({ err, projectId: Number(spec.id) }, '영구 삭제 실패 — spec 보존(재시도 가능)');
+        return reply.status(502).send({ result: false, error: 'FILE_DELETE_FAILED' });
+      }
+      await prisma.$transaction([
+        prisma.spFile.deleteMany({ where: { refType: 'sp_order_spec', refId: spec.id } }),
+        prisma.spQuote.deleteMany({ where: { id: spec.quoteId } }),
+        prisma.spOrderSpec.delete({ where: { id: spec.id } }),
+      ]);
       return {
         result: true as const,
-        data: { projectId: Number(spec.id), status: 'deleted' as const },
+        data: { projectId: Number(spec.id), status: 'purged' as const },
       };
     },
   );

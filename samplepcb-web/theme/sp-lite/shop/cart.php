@@ -108,8 +108,12 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
     <div class="sp-cart-empty">
         <i class="fa fa-shopping-cart" aria-hidden="true"></i>
         <p>장바구니에 담긴 상품이 없습니다.</p>
-        <span class="sp-cart-empty-sub">원하는 상품을 담고 한 번에 주문해 보세요.</span>
-        <a href="<?php echo G5_SHOP_URL; ?>/" class="sp-btn sp-btn-primary">쇼핑 계속하기</a>
+        <span class="sp-cart-empty-sub">원하는 상품을 담아 한 번에 주문할 수 있습니다.</span>
+        <?php /* 견적 행을 지워 비워진 직후가 보관함을 찾는 순간 — 빈 상태에도 경로 제공 */ ?>
+        <span class="sp-cart-empty-sub">
+            PCB 견적은 <a href="<?php echo G5_URL; ?>/shop/quotes">견적관리</a>에서,
+            삭제한 견적은 <a href="<?php echo G5_URL; ?>/shop/quotes/archive" class="sp-link-archive">지난 견적 보관함</a>에서 확인할 수 있습니다.
+        </span>
     </div>
 
     <?php } else { ?>
@@ -162,6 +166,9 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                             <?php if ($item['ct_price'] > 0) { ?><span>판매가 <?php echo number_format($item['ct_price']); ?>원</span><?php } ?>
                             <?php if ($item['point'] > 0) { ?><span>포인트 <?php echo number_format($item['point']); ?>점</span><?php } ?>
                             <span>배송비 <?php echo $item['send_label']; ?></span>
+                            <?php if ($item['is_quote']) { /* 코어 cartupdate 삭제 → 서버 지연 반영으로 보관함 이동 */ ?>
+                            <span>삭제 시 <a href="<?php echo G5_URL; ?>/shop/quotes/archive" class="sp-link-archive">지난 견적 보관함</a>으로 이동</span>
+                            <?php } ?>
                         </div>
                     </div>
 
