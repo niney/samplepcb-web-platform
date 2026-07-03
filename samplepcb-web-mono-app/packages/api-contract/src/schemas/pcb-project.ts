@@ -83,6 +83,7 @@ export const PcbProjectListItem = z.object({
   orderCategory: z.enum(['sample', 'mass']),
   qty: z.number(),
   optionSummary: z.string(), // cart 의 ct_option 과 같은 사양 요약 문자열 — 두 화면 표기 통일용
+  thumbnailUrl: z.string().nullable(), // 거버 썸네일 서명 프록시 URL(만료 있음) — 없으면 템플릿 이미지 폴백
   message: z.string().nullable(),
   quoteStatus: z.enum(['priced', 'rfq', 'quoted']),
   price: z.number().nullable(), // finalPrice(관리자 확정) ?? autoPrice ?? null

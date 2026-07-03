@@ -24,6 +24,7 @@ import {
 } from '../lib/g5-db';
 import type { CartState } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
+import { signedThumbUrl } from '../lib/thumb-url';
 
 // ── POST /api/pcb-projects — 거버 담기 API (단일 multipart 호출) ────────────
 // 거버 뷰어가 FormData(gerber + thumbnail + payload JSON)를 보내면:
@@ -353,6 +354,20 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         select: { id: true, autoPrice: true, eta: true },
       });
       const quoteById = new Map(quotes.map((q) => [q.id, q]));
+      // 거버 썸네일 — pathToken 미노출 원칙에 따라 서명 프록시 URL 로 발급(lib/thumb-url.ts)
+      const thumbs = await prisma.spFile.findMany({
+        where: {
+          refType: 'sp_order_spec',
+          refId: { in: visible.map((s) => s.id) },
+          fileType: 'thumbnail',
+        },
+        orderBy: { id: 'asc' },
+        select: { id: true, refId: true },
+      });
+      const thumbByRef = new Map<string, bigint>();
+      for (const t of thumbs) {
+        if (!thumbByRef.has(t.refId.toString())) thumbByRef.set(t.refId.toString(), t.id);
+      }
       return {
         result: true as const,
         data: {
@@ -360,7 +375,9 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             const quote = quoteById.get(s.quoteId);
             const cartState: CartState =
               s.ctId !== null ? (cartStates.get(s.ctId) ?? 'none') : 'none';
+            const thumbId = thumbByRef.get(s.id.toString());
             return {
+              thumbnailUrl: thumbId !== undefined ? signedThumbUrl(thumbId) : null,
               projectId: Number(s.id),
               quoteId: s.quoteId,
               projectName: s.projectName,
@@ -383,6 +400,49 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       };
     },
   );
+
+  // ── GET /api/pcb-projects/cart-thumbs — 장바구니 카드 대표 썸네일 ───────────
+  // cart.php 는 GROUP BY it_id 집계 카드(코어 삭제/수정이 it_id 단위라 못 푼다)여서
+  // 견적과 1:1 매핑이 없다 → 템플릿(it_id)별 첫 담김 견적(ctId 오름차순)의 거버
+  // 썸네일을 대표로 내려주고, cart.php 의 JS 가 템플릿 이미지를 이걸로 교체한다.
+  // (Fastify 는 정적 세그먼트가 :id 파라미터 라우트보다 우선 매칭된다.)
+  fastify.get('/pcb-projects/cart-thumbs', async (request, reply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.unauthorized('로그인이 필요합니다');
+    }
+    const specs = await prisma.spOrderSpec.findMany({
+      where: { mbId: request.user.mbId, status: 'active', ctId: { not: null } },
+      orderBy: { ctId: 'asc' },
+      select: { id: true, ctId: true, category: true },
+    });
+    const states = await getCartStates(
+      specs.map((s) => s.ctId).filter((id): id is number => id !== null),
+    );
+    const inCart = specs.filter((s) => s.ctId !== null && states.get(s.ctId) === 'cart');
+    const thumbs = await prisma.spFile.findMany({
+      where: {
+        refType: 'sp_order_spec',
+        refId: { in: inCart.map((s) => s.id) },
+        fileType: 'thumbnail',
+      },
+      orderBy: { id: 'asc' },
+      select: { id: true, refId: true },
+    });
+    const thumbByRef = new Map<string, bigint>();
+    for (const t of thumbs) {
+      if (!thumbByRef.has(t.refId.toString())) thumbByRef.set(t.refId.toString(), t.id);
+    }
+    const byItId: Record<string, string> = {};
+    for (const s of inCart) {
+      const itId = TEMPLATE_ITEMS[s.category.toLowerCase()];
+      if (itId === undefined || byItId[itId] !== undefined) continue;
+      const thumbId = thumbByRef.get(s.id.toString());
+      if (thumbId !== undefined) byItId[itId] = signedThumbUrl(thumbId);
+    }
+    return { result: true as const, data: { thumbs: byItId } };
+  });
 
   // ── POST /api/pcb-projects/:id/cart — [주문하기] 장바구니 담기 ──────────────
   // 가격 있는 프로젝트(자동견적 priced / 관리자 확정 quoted)만. 거버 직주문과 같은

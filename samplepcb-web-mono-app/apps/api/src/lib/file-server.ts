@@ -72,6 +72,27 @@ export const uploadToFileServer = async (
   return uploaded;
 };
 
+export interface DownloadedFile {
+  buffer: Buffer;
+  contentType: string;
+}
+
+/**
+ * GET /api/download/:pathToken — 실파일 다운로드(썸네일 프록시용). 404 는 null.
+ * 파일서버가 content-type 을 안 주면 octet-stream 으로 두고 호출측에서 보정한다.
+ */
+export const downloadFromFileServer = async (pathToken: string): Promise<DownloadedFile | null> => {
+  const res = await fetch(`${FILE_SERVER_URL}/api/download/${encodeURIComponent(pathToken)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`file server download HTTP ${String(res.status)}`);
+  }
+  return {
+    buffer: Buffer.from(await res.arrayBuffer()),
+    contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+  };
+};
+
 const DeleteResponse = z.object({
   result: z.boolean(),
   message: z.string().optional(),

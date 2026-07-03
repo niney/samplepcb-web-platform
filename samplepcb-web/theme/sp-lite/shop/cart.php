@@ -143,7 +143,8 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                         <label for="ct_chk_<?php echo $idx; ?>"><span></span><b class="sound_only">상품 선택</b></label>
                     </span>
 
-                    <a href="<?php echo $item['it_url']; ?>" class="sp-cart-thumb"><?php echo $item['image']; ?></a>
+                    <?php /* 견적 카드는 data-itid 마킹 — 하단 JS 가 대표 거버 썸네일로 교체 */ ?>
+                    <a href="<?php echo $item['it_url']; ?>" class="sp-cart-thumb"<?php if ($item['is_quote']) { ?> data-itid="<?php echo $item['it_id']; ?>"<?php } ?>><?php echo $item['image']; ?></a>
 
                     <div class="sp-cart-info">
                         <input type="hidden" name="it_id[<?php echo $idx; ?>]" value="<?php echo $item['it_id']; ?>">
@@ -321,6 +322,37 @@ function form_check(act) {
 
     return true;
 }
+
+// 견적 카드 썸네일 교체 — 템플릿 이미지 → 대표 거버 썸네일(서명 프록시 URL).
+// cart 는 GROUP BY it_id 집계 카드라 sp-node 가 it_id 별 첫 담김 견적의 썸네일을
+// 내려준다(GET /api/pcb-projects/cart-thumbs). 실패하면 템플릿 이미지 그대로 둔다.
+(function () {
+    var thumbs = document.querySelectorAll('.sp-cart-thumb[data-itid]');
+    if (thumbs.length === 0) { return; }
+    fetch('/spcb/api/me', { credentials: 'include' })
+        .then(function (res) {
+            if (!res.ok) { throw new Error('not authenticated'); }
+            return res.json();
+        })
+        .then(function (me) {
+            return fetch('/api/pcb-projects/cart-thumbs', {
+                headers: { 'Authorization': 'Bearer ' + me.token }
+            });
+        })
+        .then(function (res) {
+            if (!res.ok) { throw new Error('request failed'); }
+            return res.json();
+        })
+        .then(function (json) {
+            var map = (json.data && json.data.thumbs) || {};
+            Array.prototype.forEach.call(thumbs, function (a) {
+                var url = map[a.getAttribute('data-itid')];
+                var img = a.querySelector('img');
+                if (url && img) { img.src = url; }
+            });
+        })
+        .catch(function () { /* 템플릿 이미지 유지 */ });
+})();
 </script>
 <!-- } 장바구니 끝 -->
 

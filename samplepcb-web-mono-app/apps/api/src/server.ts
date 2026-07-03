@@ -8,6 +8,7 @@ import authPlugin from './plugins/auth';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
 import { pcbProjectRoutes } from './routes/pcb-projects';
+import { pcbThumbRoutes } from './routes/pcb-thumbs';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -28,6 +29,7 @@ await app.register(authPlugin);
 await app.register(healthRoutes, { prefix: '/api' });
 await app.register(meRoutes, { prefix: '/api' });
 await app.register(pcbProjectRoutes, { prefix: '/api' });
+await app.register(pcbThumbRoutes, { prefix: '/api' });
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로

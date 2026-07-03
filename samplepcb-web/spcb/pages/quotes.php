@@ -190,8 +190,10 @@ foreach (array(
                     '<input type="checkbox" class="sp-quotes__check selec_chk" id="' + chkId + '" value="' + it.projectId + '" data-price="' + (it.price === null ? '' : it.price) + '" data-cartstate="' + it.cartState + '"' + (selectable ? '' : ' disabled') + '>' +
                     '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
                 '</span>' +
-                // cart.php 견적 행과 동일한 템플릿 상품 이미지(서버 생성 HTML — 신뢰 가능)
-                '<span class="sp-cart-thumb">' + (THUMBS[String(it.category).toLowerCase()] || '') + '</span>' +
+                // 거버 썸네일(서명 프록시 URL — sp-node 발급이라 신뢰 가능), 없으면 템플릿 이미지 폴백
+                '<span class="sp-cart-thumb">' + (it.thumbnailUrl
+                    ? '<img src="' + it.thumbnailUrl + '" alt="">'
+                    : (THUMBS[String(it.category).toLowerCase()] || '')) + '</span>' +
                 '<div class="sp-cart-info">' +
                     '<span class="prd_name"><b class="sp-quotes__name"></b></span>' +
                     // cart 의 sod_opt(ct_option)와 같은 사양 요약 — 서버 optionSummary 그대로
