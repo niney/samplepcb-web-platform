@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { calEta, calculateQuote } from './engine';
 
-// ── PHP 골든 값 ─────────────────────────────────────────────────────────────
-// 레거시 pcb_price*.lib.php 를 PHP 8.2 CLI 로 직접 실행해 얻은 기대값(2026-07-02).
-// 재생성 절차: 레거시 lib + pricing_data.json 복사 → 하드코딩 경로/그누보드 세션/
-// 휴일 API 의존만 패치 → harness 로 케이스 실행. 값이 다르면 이식 버그다.
+// ── 골든 값 ─────────────────────────────────────────────────────────────────
+// 기대값은 라이브 레거시 API(samplepcb_pricing_api.php) 실측(2026-07-03 캡처,
+// __fixtures__/legacy-pricing-goldens.json 의 g-c* 케이스)이다. 값이 다르면 이식 버그.
+// 가격표(pricing-data.json)를 재동기화하면 `pnpm pricing:capture` 로 골든도 재캡처할 것.
+// 전 케이스 매트릭스 대조는 legacy-parity.test.ts 가 담당하고, 여기는 대표 케이스만 둔다.
 const NOW = new Date('2026-07-02T09:00:00+09:00');
 
-describe('calculateQuote — Standard (PHP 골든 대조)', () => {
+describe('calculateQuote — Standard (레거시 실측 골든)', () => {
   it('c1: 소형 고정가 70.2x70.2 2L qty5 → 35,000원 (int 캐스팅 70 포함)', () => {
     const r = calculateQuote({
       category: 'standard',
@@ -26,18 +27,18 @@ describe('calculateQuote — Standard (PHP 골든 대조)', () => {
         minHole: '0.3mm',
         halfHole: 'no',
         goldFingers: 'no',
-        diffDesign: '1',
+        differentDesign: '1',
         edgeRail: 'no',
       },
     });
     expect(r.listPrice).toBe(35_000);
     expect(r.buildTimeDays).toBe(4);
     expect(r.weightKg).toBe('0.08');
-    expect(r.eta).toBe('2026.07.13');
+    expect(r.eta).toBe('2026.07.09');
     expect(r.placeOfOrigin).toBe('중국');
   });
 
-  it('c2: 150x150 2L qty20 panel 2x2(실수량 80) 옵션다수 → 547,000원', () => {
+  it('c2: 150x150 2L qty20 panel 2x2(실수량 80) 옵션다수 + differentDesign 3 → 643,000원', () => {
     const r = calculateQuote({
       category: 'standard',
       orderCategory: 'sample',
@@ -56,16 +57,17 @@ describe('calculateQuote — Standard (PHP 골든 대조)', () => {
         minHole: '0.25mm',
         halfHole: 'yes',
         goldFingers: 'yes',
-        diffDesign: '3',
+        differentDesign: '3',
         edgeRail: 'yes',
+        cutting: 'Single', // 캡처 케이스(g-c2)와 동일 — 새 표는 컷팅에도 옵션가(+2 USD)가 있다
       },
     });
-    expect(r.listPrice).toBe(547_000);
+    expect(r.listPrice).toBe(643_000);
     expect(r.buildTimeDays).toBe(6);
     expect(r.weightKg).toBe('5.94');
   });
 
-  it('c3: 4층 소형 고정가 87,000 + 옵션(내부동박 포함) → 257,000원', () => {
+  it('c3: 4층 소형 고정가 87,000 + 옵션(내부동박 포함) + differentDesign 2 → 280,000원', () => {
     const r = calculateQuote({
       category: 'standard',
       orderCategory: 'sample',
@@ -82,15 +84,44 @@ describe('calculateQuote — Standard (PHP 골든 대조)', () => {
         minTraceSpacing: '4/4mil',
         minHole: '0.2mm',
         finishedCopperAdvance: '2oz',
-        diffDesign: '2',
+        differentDesign: '2',
       },
     });
-    expect(r.listPrice).toBe(257_000);
+    expect(r.listPrice).toBe(280_000);
     expect(r.buildTimeDays).toBe(6);
     expect(r.weightKg).toBe('0.12');
   });
 
-  it('c4: diffDesign 부재 → 레거시 버그 재현으로 가격 0원 = rfq(null)', () => {
+  it('differentDesign 가산금: N개 디자인 → 1개 대비 개당 25,000 × (N-1) 만큼만 증가', () => {
+    const base = {
+      category: 'standard' as const,
+      orderCategory: 'sample' as const,
+      qty: 20,
+      now: NOW,
+      spec: {
+        layers: '2',
+        width: '150',
+        length: '150',
+        panel: '2x2',
+        pcbThickness: '1.6',
+        surfaceFinish: 'enig',
+        copperWeights: '1oz',
+        solderMask: 'blue',
+        minTraceSpacing: '5/5mil',
+        minHole: '0.25mm',
+        halfHole: 'yes',
+        goldFingers: 'yes',
+        edgeRail: 'yes',
+      },
+    };
+    const one = calculateQuote({ ...base, spec: { ...base.spec, differentDesign: '1' } });
+    const three = calculateQuote({ ...base, spec: { ...base.spec, differentDesign: '3' } });
+    expect(one.listPrice).not.toBeNull();
+    expect(three.listPrice).not.toBeNull();
+    expect((three.listPrice ?? 0) - (one.listPrice ?? 0)).toBe(25_000 * (3 - 1));
+  });
+
+  it('c4: differentDesign 부재 → 가격 0원 = rfq(null) (주문버튼 숨김 → 견적요청 유도)', () => {
     const r = calculateQuote({
       category: 'standard',
       orderCategory: 'sample',
@@ -110,8 +141,26 @@ describe('calculateQuote — Standard (PHP 골든 대조)', () => {
       },
     });
     expect(r.listPrice).toBeNull();
-    expect(r.buildTimeDays).toBe(10);
+    expect(r.buildTimeDays).toBe(14);
     expect(r.weightKg).toBe('8.25');
+  });
+
+  it('panel 과도기 값("yes")은 레거시 getPanel 재현으로 수량 0 → 무게 0', () => {
+    const r = calculateQuote({
+      category: 'standard',
+      orderCategory: 'sample',
+      qty: 5,
+      now: NOW,
+      spec: {
+        layers: '2',
+        width: '160',
+        length: '156',
+        panel: 'yes',
+        edgeRail: '7mm',
+        differentDesign: '1',
+      },
+    });
+    expect(r.weightKg).toBe('0');
   });
 
   it('양산(mass)은 가격 미표시 → rfq(null)', () => {
@@ -120,13 +169,13 @@ describe('calculateQuote — Standard (PHP 골든 대조)', () => {
       orderCategory: 'mass',
       qty: 1000,
       now: NOW,
-      spec: { layers: '2', width: '100', length: '100', diffDesign: '1' },
+      spec: { layers: '2', width: '100', length: '100', differentDesign: '1' },
     });
     expect(r.listPrice).toBeNull();
   });
 });
 
-describe('calculateQuote — MetalMask 국내가 (PHP 골든 대조)', () => {
+describe('calculateQuote — MetalMask 국내가 (레거시 실측 골든)', () => {
   it('c5: framework 400x320 + Both Side, qty2 → 220,000원 (국내, 1일)', () => {
     const r = calculateQuote({
       category: 'metalMask',
@@ -137,7 +186,7 @@ describe('calculateQuote — MetalMask 국내가 (PHP 골든 대조)', () => {
     });
     expect(r.listPrice).toBe(220_000);
     expect(r.buildTimeDays).toBe(1);
-    expect(r.eta).toBe('2026.07.08');
+    expect(r.eta).toBe('2026.07.06');
     expect(r.placeOfOrigin).toBe('국내');
   });
 
@@ -167,11 +216,15 @@ describe('calculateQuote — 미지원 메뉴는 rfq', () => {
   });
 });
 
-describe('calEta — 주말 스킵 (제작일 + 배송 3일)', () => {
-  it('수요일 기준 4+3 영업일 → 다다음주 월요일', () => {
-    expect(calEta(4, NOW)).toBe('2026.07.13');
+// 레거시 EtaLib 실동작: 달력일로 (제작일+배송 3일) 가산, 종료일이 토요일이면 +2 / 일요일이면 +1.
+describe('calEta — 달력일 가산 + 종료일 주말 보정', () => {
+  it('평일 종료면 보정 없음 (목 + 4+3일 → 다음주 목요일)', () => {
+    expect(calEta(4, NOW)).toBe('2026.07.09');
   });
-  it('금요일 시작이면 주말 건너뜀 (1+3 영업일 → 목요일)', () => {
-    expect(calEta(1, new Date('2026-07-03T09:00:00+09:00'))).toBe('2026.07.09');
+  it('토요일 종료면 +2일 → 월요일', () => {
+    expect(calEta(6, NOW)).toBe('2026.07.13'); // 07-11(토) → 07-13(월)
+  });
+  it('일요일 종료면 +1일 → 월요일', () => {
+    expect(calEta(7, NOW)).toBe('2026.07.13'); // 07-12(일) → 07-13(월)
   });
 });

@@ -9,7 +9,7 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 ├── samplepcb-web/               ← 그누보드5/영카트 PHP  = gnuboard5 subtree
 ├── samplepcb-web-mono-app/      ← Vue + Node 모노레포 (일반 서브폴더)
 ├── ops/                         ← nginx · docker-compose · scripts
-└── docs/UPSTREAM_SYNC.md        ← subtree 패치 절차
+└── docs/                        ← 절차·기록 문서 (UPSTREAM_SYNC · GERBER_ORDER_FLOW · pricing-engine-parity 등)
 ```
 
 - **리모트**: `origin`(push 대상) + `gnuboard`(=gnuboard/gnuboard5, subtree 소스, **push 차단**).

@@ -19,7 +19,7 @@ export const KNOWN_SPEC_KEYS = [
   'kindPcb',
   'goldFingers',
   'finishedCopperAdvance',
-  'diffDesign',
+  'differentDesign', // 파일 개수 — 레거시 DB EAV(it_25 subj)의 'diffDesign' 은 별칭으로만 취급
   'impedance',
   'etest',
   'halfHole',

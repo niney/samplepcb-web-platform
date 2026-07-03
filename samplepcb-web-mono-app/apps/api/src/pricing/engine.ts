@@ -5,10 +5,12 @@
 //
 // 레거시와 의도적으로 다른 점(단순화):
 // - 파트너 할인(setDiscountPartner): 그누보드 세션 의존 → 미이식 (추후 JWT 클레임 기반)
-// - eta 공휴일: 공공데이터 API 의존 → 주말만 스킵 (TODO: 휴일 API)
 import pricingDataJson from './pricing-data.json';
 
-// ── 가격표(pricing_data.json — 레거시 원본 그대로) ─────────────────────────
+// ── 가격표(pricing-data.json) ───────────────────────────────────────────────
+// 라이브 gerber_api/pricing_data.json 스냅샷. scripts/sync-pricing-data.ts 로 동기화하며,
+// 정규화는 단 한 건: 사어(死語) diffDesign 표 삭제(레거시 어디서도 읽지 않음 —
+// 가격 lib 가 실제 읽는 표는 differentDesign. docs 의 키 지도 참고).
 interface RangeBracket {
   gt?: string;
   lt?: string;
@@ -34,7 +36,7 @@ interface PricingData {
 const pricingData = pricingDataJson as unknown as PricingData;
 
 // 가격표 버전 — 표를 갈아끼우면 올린다(sp_quote.priceVersion, 기존 견적 일괄 무효화 기준).
-export const PRICE_VERSION = 'legacy-2026-07';
+export const PRICE_VERSION = 'live-2026-07-03';
 
 // ── 입출력 ──────────────────────────────────────────────────────────────────
 // 입력은 신규 정규화 spec(camelCase). 레거시 가격표 키와의 매핑은 엔진 내부에서만.
@@ -85,17 +87,16 @@ const inRange = (b: RangeBracket, v: number): boolean => {
   return gtOk && ltOk;
 };
 
-// ── eta: 제작일 + 배송 3일, 주말 스킵 ───────────────────────────────────────
+// ── eta: 제작일 + 기본배송 3일을 "달력일"로 가산, 종료일이 주말이면 월요일로 ──
+// 레거시 EtaLib.calDayHolidayWeekEnd 재현 — 공휴일/주말 "카운트"는 레거시 자체에서
+// 주석 처리돼 있고, 실동작은 단순 달력일 가산 + 종료일 토(+2)/일(+1) 보정뿐이다.
 export const calEta = (buildTimeDays: number, now: Date): string => {
   if (pricingData.eta !== undefined && pricingData.eta !== '') return pricingData.eta;
-  const days = buildTimeDays + 3;
   const d = new Date(now);
-  let added = 0;
-  while (added < days) {
-    d.setDate(d.getDate() + 1);
-    const w = d.getDay(); // 0=일, 6=토
-    if (w !== 0 && w !== 6) added += 1;
-  }
+  d.setDate(d.getDate() + buildTimeDays + 3);
+  const w = d.getDay(); // 0=일, 6=토
+  if (w === 6) d.setDate(d.getDate() + 2);
+  if (w === 0) d.setDate(d.getDate() + 1);
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${String(d.getFullYear())}.${mm}.${dd}`;
@@ -130,11 +131,12 @@ const calcStandard = (input: QuoteInput, menu: MenuPricing): QuoteResult => {
   const panel = str(spec.panel);
   const edgerail = str(spec.edgeRail);
 
-  // calQty: 패널(x*y)이면 수량 배수
+  // calQty: 패널(x*y)이면 수량 배수 — 레거시 getPanel 은 'x' 분해가 정확히 2조각이
+  // 아니면 (0,0)을 반환하므로, 'yes' 같은 과도기 값은 수량 0(→ 가격 0원 = rfq)이 된다.
   let qty = input.qty;
   if (panel !== '' && panel.toLowerCase() !== 'no') {
     const p = panel.split('x');
-    if (p.length >= 2) qty = qty * phpInt(p[0]) * phpInt(p[1]);
+    qty = p.length === 2 ? qty * phpInt(p[0]) * phpInt(p[1]) : 0;
   }
 
   // calUsdNetPrice: 면적식 원가
@@ -198,20 +200,21 @@ const calcStandard = (input: QuoteInput, menu: MenuPricing): QuoteResult => {
     }
   }
 
-  // calDifferentDesign — ⚠ 레거시 버그 2건 충실 재현:
-  //  ① diffDesign 이 비면 가격 전체가 0 (0원 → 주문버튼 숨김 → 견적요청 유도로 동작해 왔음)
-  //  ② 개당 가산금을 가격표에 없는 'differentDesign' 키로 조회 → 항상 0원 (가산 미적용)
-  //     (표의 실제 키는 'diffDesign' — 골든 c2/c3 로 확인된 동작)
-  const applyDiffDesign = (total: number): number => {
-    const diff = phpInt(spec.diffDesign);
-    if (str(spec.diffDesign) === '' || diff === 0) return 0;
+  // calDifferentDesign:
+  //  - differentDesign(파일 개수)이 비면 가격 전체가 0 (0원 → 주문버튼 숨김 → 견적요청 유도)
+  //  - 2개 이상이면 개당 가산금(표 differentDesign.more1, 원화)을 (개수-1)만큼 가산
+  //  ⚠ METAL/ROGERS 레거시 프론트는 이 값을 개수가 아닌 'no'/'yes' 로 보냈다 —
+  //    phpInt('no')=0 → 가격 0원. advance 계열은 어차피 rfq 라 현재 실영향 없음.
+  const applyDifferentDesign = (total: number): number => {
+    const diff = phpInt(spec.differentDesign);
+    if (str(spec.differentDesign) === '' || diff === 0) return 0;
     if (diff > 1) {
-      const per = optionPrice(menu, 'differentDesign', 'more1'); // 항상 0 (버그 ②)
+      const per = optionPrice(menu, 'differentDesign', 'more1'); // 개당 가산금 (원화)
       return total + per * (diff - 1);
     }
     return total;
   };
-  listPrice = applyDiffDesign(listPrice);
+  listPrice = applyDifferentDesign(listPrice);
 
   // 소형 고정가 override
   const fixed = ((): number | null => {
@@ -225,7 +228,7 @@ const calcStandard = (input: QuoteInput, menu: MenuPricing): QuoteResult => {
   if (fixed !== null) {
     const cuttingUsd = optionPrice(menu, 'cutting', str(spec.cutting));
     listPrice = fixed + Math.round((optionUsd + edgerailCost - cuttingUsd) * rate);
-    listPrice = applyDiffDesign(listPrice);
+    listPrice = applyDifferentDesign(listPrice);
     listPrice = Math.ceil(listPrice / 1000) * 1000;
   }
 

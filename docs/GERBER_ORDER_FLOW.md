@@ -5,6 +5,7 @@
 > 동적 주문을 구현한 과정의 기록. 설계 결정의 배경은 `HANDOFF.md`, 플랫폼 전반은 `AGENTS.md` 참조.
 >
 > 작성 2026-07-02 · 실브라우저 end-to-end 검증 완료 시점 기준
+> 갱신 2026-07-03 · 가격 엔진 라이브 패리티 체계 + spec 키 differentDesign 통일 반영
 
 ---
 
@@ -35,7 +36,7 @@
       │
 [Node — sp-node (Fastify), samplepcb-web-mono-app/apps/api]
   POST /api/pcb-projects   담기 API: 검증→견적→파일→저장→cart INSERT
-  src/pricing/engine.ts    가격 엔진(레거시 PHP 이식, 골든 테스트 검증)
+  src/pricing/engine.ts    가격 엔진(레거시 PHP 이식, 라이브 실측 패리티 검증)
   src/lib/file-server.ts   파일서버 업로드 대행
   src/lib/g5-db.ts         g5_shop_cart 접근(한정 예외 모듈)
       │
@@ -87,6 +88,8 @@
 3. 견적 재계산 ── pricing/engine.ts (레거시 pcb_price*.lib.php 충실 이식)
      standard → 면적식+옵션표+마진브래킷+소형고정가 / metalMask → 국내가표
      advance·flexible류 / 양산(mass) / 가격 0 → rfq (자동견적 불가)
+     가격표 = 라이브 pricing_data.json 스냅샷(관리자가 수시 조정 — 동기화·재캡처 절차는
+     docs/pricing-engine-parity.md). spec 의 파일 개수 키는 differentDesign (2026-07-03 통일)
 4. 파일서버 업로드 대행 ── file.samplepcb.kr (서버-to-서버, pathToken 클라이언트 미노출)
      실패 시 여기서 중단 — 파일 없는 프로젝트를 만들지 않는다
 5. 저장 (Prisma 단일 트랜잭션, sp_* 테이블)
@@ -126,7 +129,7 @@
 | 3 | `before_check_cart_price` 가 조회마다 `ct_price`≠상품가면 **상품가로 덮어씀**, 옵션가도 옵션표와 대조 (`lib/shop.lib.php:2582`) | 견적가를 **`io_price`(옵션가)** 에 싣는다 — `ct_price=0(=템플릿가)`, 견적마다 `g5_shop_item_option` 에 **옵션 행을 실등록**(`io_id=quoteId`, `io_price=견적가`)해 코어 재검증을 정당하게 통과. 합계 = (ct_price+io_price)×qty, 표준 계산식 그대로. (미등록 io_id 로 스킵시키는 초기안은 PHP 8 null 경고로 폐기) |
 | 4 | 장바구니 키 `od_id` = PHP 세션 `ss_cart_id` — 외부 서버는 알 수 없음 | **인증 브리지 확장** — `me.php`(커스텀 영역) JWT 에 `cartId` 클레임 추가. cart.php 무수정 |
 | 5 | `cartupdate.php:276` 이 같은 `it_id` 재담기 시 기존 행 전부 삭제 | 템플릿 상품을 **일반 목록/상세에 노출 금지** — 표준 담기 경로 자체를 차단 |
-| 6 | 가격 로직이 PHP 에 있음 | **골든 테스트 이식** — 레거시 PHP 를 CLI 로 직접 실행한 기대값과 대조하는 테스트로 TS 이식(버그까지 충실 재현, 개선은 별도 결정) |
+| 6 | 가격 로직이 PHP 에 있음 | **실측 패리티 이식** — 라이브 레거시 API 에 실캡처 body 46케이스를 재생한 fixture 와 대조(`legacy-parity.test.ts`, 판매가·제작일·무게·eta 전항목). 가격표는 서버 라이브 파일이 정본이라 스냅샷 동기화 절차가 필수(`pnpm pricing:sync` → PRICE_VERSION bump → `pnpm pricing:capture`). 상세 `docs/pricing-engine-parity.md` |
 | 7 | 사양이 EAV(`it_1~it_50`) 50슬롯 제한 | `sp_order_spec.spec_json` — 슬롯 제한 없음(레거시에서 유실되던 `gusset` 등도 수용) |
 
 ## 5. 데이터 소유권 지도
@@ -158,7 +161,15 @@
 **동작 검증 완료 (2026-07-02, 실브라우저)**: 로그인 → 거버 업로드 → [주문하기] →
 cart.php 에 "Standard PCB · <파일명>" 행 + 견적가 표시.
 
-남은 것(우선순위): ① 견적함 페이지(rfq 목적지) ② 전 메뉴 실전송 검증(standard 만 완료)
+**2026-07-03 갱신**:
+- 가격 엔진 **라이브 패리티 확립** — 가격 불일치의 원인이 가격표 스냅샷 드리프트로 판명
+  (라이브는 관리자가 수시 조정). 라이브 표 동기화 + 실측 47케이스 패리티 테스트로 판매가·
+  제작일·무게·eta 전항목 일치. eta 도 레거시 실동작(달력일+주말보정)으로 정정
+- spec 파일 개수 키 **differentDesign 통일** — 거버 어댑터(`toProjectPayload.ts`)의
+  `differentDesign→diffDesign` 역행 매핑 제거. ⚠ 이 키가 빠지면 "0원 → rfq(견적 대기)"로
+  빠진다(실사고 있었음 — `docs/pricing-engine-parity.md` 증상 노트)
+
+남은 것(우선순위): ① 견적관리 후속(1차 뼈대 완료 — 디자인·뱃지) ② 전 메뉴 실전송 검증(standard 만 완료)
 ③ 관리자 가격 확정(rfq→quoted)+담기 ④ 운영 전환(거버 prod 분기·운영 nginx `/api`) —
 상세 체크리스트는 `HANDOFF.md` 7장.
 
@@ -169,6 +180,9 @@ cart.php 에 "Standard PCB · <파일명>" 행 + 견적가 표시.
 | 인증 브리지 | `samplepcb-web/spcb/api/me.php` |
 | 담기 API | `samplepcb-web-mono-app/apps/api/src/routes/pcb-projects.ts` |
 | 가격 엔진 (+골든 테스트) | `…/apps/api/src/pricing/engine.ts` · `engine.test.ts` · `pricing-data.json` |
+| 가격 패리티 (실측 대조) | `…/apps/api/src/pricing/legacy-parity.test.ts` · `__fixtures__/legacy-pricing-goldens.json` · `docs/pricing-engine-parity.md` |
+| 가격표 동기화·캡처 | `…/apps/api/src/scripts/sync-pricing-data.ts` · `capture-legacy-pricing-goldens.ts` (`pnpm pricing:sync` / `pricing:capture`) |
+| 거버 payload 어댑터 | `samplepcb_gerber/apps/view/src/ResultPanel/toProjectPayload.ts` (별도 repo) |
 | 파일서버 클라이언트 | `…/apps/api/src/lib/file-server.ts` |
 | g5 접근(한정 예외) | `…/apps/api/src/lib/g5-db.ts` |
 | DB 스키마 | `…/apps/api/prisma/schema.prisma` (sp_quote/sp_order_spec/sp_file) |
