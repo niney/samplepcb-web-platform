@@ -10,6 +10,11 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 $g5['title'] = '장바구니';
 include_once('./_head.php');
 
+// 거버 견적 행(템플릿 상품) — sp-node g5-db.ts TEMPLATE_ITEMS 와 동일하게 유지.
+// 견적 행은 ct_qty=1 고정(가격이 io_price 총액)이라 [선택사항수정] 팝업의 수량 변경이
+// 잘못된 선형 계산(총액×수량)이 되므로 버튼을 숨기고 견적관리로 안내한다.
+$sp_quote_it_ids = array('sp-pcb-std', 'sp-mask', 'sp-pcb-adv', 'sp-pcb-flex');
+
 // 장바구니 목록 수집 (쿼리·계산은 코어와 동일)
 $cart_items = array();
 $tot_point = 0;
@@ -62,10 +67,14 @@ for ($i=0; $row=sql_fetch_array($result); $i++)
             $ct_send_cost = '무료';
     }
 
+    $is_quote = in_array($row['it_id'], $sp_quote_it_ids);
+
     $cart_items[] = array(
         'it_id'      => $row['it_id'],
+        'is_quote'   => $is_quote,
         'it_name'    => stripslashes($row['it_name']),
-        'it_url'     => shop_item_url($row['it_id']),
+        // 견적 행은 템플릿 상품 상세로 보내지 않고 견적관리로 안내
+        'it_url'     => $is_quote ? G5_URL.'/shop/quotes' : shop_item_url($row['it_id']),
         'image'      => get_it_image($row['it_id'], 96, 96),
         'options'    => print_item_options($row['it_id'], $s_cart_id),
         'qty'        => $sum['qty'],
@@ -141,7 +150,11 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                         <?php if ($item['options']) { ?>
                         <div class="sod_opt"><?php echo $item['options']; ?></div>
                         <div class="sod_option_btn">
+                            <?php if ($item['is_quote']) { ?>
+                            <a href="<?php echo G5_URL; ?>/shop/quotes" class="sp-cart-quote-link"><i class="fa fa-pencil" aria-hidden="true"></i> 수량 변경은 견적관리에서</a>
+                            <?php } else { ?>
                             <button type="button" class="mod_options"><i class="fa fa-pencil" aria-hidden="true"></i> 선택사항수정</button>
+                            <?php } ?>
                         </div>
                         <?php } ?>
 
@@ -153,7 +166,11 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                     </div>
 
                     <div class="sp-cart-calc">
+                        <?php if ($item['is_quote']) { /* 견적 행은 ct_qty=1 — 실수량은 사양 요약(ct_option)에, 카드 수치는 견적 건수 */ ?>
+                        <span class="sp-cart-qty">견적 <strong><?php echo number_format($item['qty']); ?></strong>건</span>
+                        <?php } else { ?>
                         <span class="sp-cart-qty">수량 <strong><?php echo number_format($item['qty']); ?></strong>개</span>
+                        <?php } ?>
                         <strong class="sp-cart-sum"><span id="sell_price_<?php echo $idx; ?>" class="total_prc"><?php echo number_format($item['sell_price']); ?></span>원</strong>
                     </div>
                 </li>

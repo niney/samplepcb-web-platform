@@ -22,6 +22,19 @@ if (empty($is_member)) {
 
 $g5['title'] = '견적관리';
 include_once(G5_THEME_PATH . '/head.php');
+
+// 카드 썸네일 — cart.php 의 견적 행과 같은 그림이 나오도록 동일한 템플릿 상품
+// 이미지(get_it_image)를 재사용한다. category → it_id 매핑은 sp-node
+// g5-db.ts TEMPLATE_ITEMS 와 동일하게 유지할 것.
+$sp_quote_thumbs = array();
+foreach (array(
+    'standard'  => 'sp-pcb-std',
+    'metalmask' => 'sp-mask',
+    'advance'   => 'sp-pcb-adv',
+    'flexible'  => 'sp-pcb-flex',
+) as $sp_cat => $sp_it_id) {
+    $sp_quote_thumbs[$sp_cat] = get_it_image($sp_it_id, 96, 96);
+}
 ?>
 
 <link rel="stylesheet" href="<?php echo G5_THEME_CSS_URL; ?>/default_shop.css?ver=<?php echo G5_CSS_VER; ?>">
@@ -99,6 +112,9 @@ include_once(G5_THEME_PATH . '/head.php');
     var rowsEl = document.getElementById('sp-quotes-rows');
     var token = null;
 
+    // category(소문자) → 템플릿 상품 썸네일 HTML — cart.php 견적 행과 동일한 이미지
+    var THUMBS = <?php echo json_encode(array_map('strval', $sp_quote_thumbs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+
     var QUOTE_LABEL = { rfq: '견적 대기', priced: '자동견적', quoted: '견적 확정' };
     var CART_LABEL = { none: '', cart: '장바구니 담김', ordered: '주문됨' };
     var ERROR_MSG = {
@@ -169,8 +185,12 @@ include_once(G5_THEME_PATH . '/head.php');
                     '<input type="checkbox" class="sp-quotes__check selec_chk" id="' + chkId + '" value="' + it.projectId + '" data-price="' + (it.price === null ? '' : it.price) + '" data-cartstate="' + it.cartState + '"' + (selectable ? '' : ' disabled') + '>' +
                     '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
                 '</span>' +
+                // cart.php 견적 행과 동일한 템플릿 상품 이미지(서버 생성 HTML — 신뢰 가능)
+                '<span class="sp-cart-thumb">' + (THUMBS[String(it.category).toLowerCase()] || '') + '</span>' +
                 '<div class="sp-cart-info">' +
                     '<span class="prd_name"><b class="sp-quotes__name"></b></span>' +
+                    // cart 의 sod_opt(ct_option)와 같은 사양 요약 — 서버 optionSummary 그대로
+                    '<div class="sod_opt"><ul><li class="sp-quotes__opt"></li></ul></div>' +
                     '<div class="sp-cart-meta">' +
                         '<span class="sp-quotes__cat"></span>' +
                         '<span>' + (it.orderCategory === 'mass' ? '양산' : '샘플') + '</span>' +
@@ -192,6 +212,7 @@ include_once(G5_THEME_PATH . '/head.php');
                 '</div>';
             li.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
             li.querySelector('.sp-quotes__cat').textContent = it.category;
+            li.querySelector('.sp-quotes__opt').textContent = it.optionSummary || '';
             rowsEl.appendChild(li);
         });
 

@@ -339,6 +339,10 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               category: s.category,
               orderCategory: s.orderCategory,
               qty: s.qty,
+              optionSummary: buildOptionSummary(
+                s.specJson as PcbProjectPayloadType['spec'],
+                s.qty,
+              ),
               message: s.message,
               quoteStatus: s.quoteStatus,
               price: s.finalPrice ?? quote?.autoPrice ?? null,
