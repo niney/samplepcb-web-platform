@@ -6,6 +6,7 @@
 >
 > 작성 2026-07-02 · 실브라우저 end-to-end 검증 완료 시점 기준
 > 갱신 2026-07-03 · 가격 엔진 라이브 패리티 체계 + spec 키 differentDesign 통일 반영
+> 갱신 2026-07-03 · 견적관리(/shop/quotes)·지난 견적 보관함(/shop/quotes/archive) — 장바구니와 독립 모델 확립
 
 ---
 
@@ -31,14 +32,20 @@
   거버 뷰어 (React) ── local-gerber.samplepcb.co.kr (dev) / www…/gerberview (prod)
       │
 [PHP — 그누보드/영카트, 코어 무수정]
-  spcb/api/me.php      인증 브리지(커스텀): 세션 → JWT 발급 (mbId + cartId 클레임)
-  shop/cart.php        장바구니(코어 그대로): 세션 ss_cart_id 로 조회만
+  spcb/api/me.php                인증 브리지(커스텀): 세션 → JWT 발급 (mbId + cartId 클레임)
+  shop/cart.php                  장바구니(코어 + 테마 스킨 오버라이드): 세션 ss_cart_id 로 조회
+  spcb/pages/quotes.php          견적관리 /shop/quotes (커스텀): 순수 견적 목록·수량 재견적·바로 주문·삭제
+  spcb/pages/quotes-archive.php  지난 견적 보관함 /shop/quotes/archive (커스텀): 삭제된 견적 목록·영구 삭제
       │
 [Node — sp-node (Fastify), samplepcb-web-mono-app/apps/api]
-  POST /api/pcb-projects   담기 API: 검증→견적→파일→저장→cart INSERT
-  src/pricing/engine.ts    가격 엔진(레거시 PHP 이식, 라이브 실측 패리티 검증)
-  src/lib/file-server.ts   파일서버 업로드 대행
-  src/lib/g5-db.ts         g5_shop_cart 접근(한정 예외 모듈)
+  POST  /api/pcb-projects        담기 API: 검증→견적→파일→저장→cart INSERT
+  GET   /api/pcb-projects        목록(?status=active|deleted) — cart 삭제 지연 반영(lazy reconcile) 겸함
+  POST  /api/pcb-projects/order  바로 주문: 배치 담기 + ct_select 행 단위 선택 → orderform 직행
+  PATCH /api/pcb-projects/:id    수량 수정 = 서버 재견적(새 quoteId 발급)
+  DELETE /api/pcb-projects/:id   active→소프트 삭제(보관함) / deleted→하드 삭제(파일 포함 파기)
+  src/pricing/engine.ts          가격 엔진(레거시 PHP 이식, 라이브 실측 패리티 검증)
+  src/lib/file-server.ts         파일서버 업로드·삭제 대행
+  src/lib/g5-db.ts               g5 접근(한정 예외 모듈: cart INSERT·옵션 행·ct_select·파생 SELECT)
       │
 [저장소]
   samplepcb DB 공유(sp_* 는 Prisma 소유): sp_quote · sp_order_spec · sp_file
@@ -113,10 +120,29 @@
 
 ### ④ 장바구니: 코어가 "그냥" 보여준다
 
-- 거버는 `redirectUrl`로 이동만 한다 (rfq 는 견적함 — 페이지 준비 전 임시 홈)
-- cart.php 는 **한 줄도 안 고쳤다** — 자기 세션의 `ss_cart_id`로 조회했더니 행이 있을 뿐.
+- 거버는 `redirectUrl`로 이동만 한다 (order+가격 확정 → cart.php / rfq → 견적관리 `/shop/quotes`)
+- cart.php 코어는 **한 줄도 안 고쳤다** — 자기 세션의 `ss_cart_id`로 조회했더니 행이 있을 뿐.
   ①에서 그 세션 값을 JWT로 배달했고 ⑥에서 od_id 로 꽂았으므로 순환이 닫힌다
+  (표현은 테마 스킨 오버라이드 — 견적 행은 [선택사항수정] 숨김·"견적 N건" 표기, 아래 기법 #8)
 - 이후 주문서(orderform)→PG 결제→관리자 주문관리는 영카트 표준 흐름 그대로
+
+### ⑤ 견적관리와 보관함: 한 건은 한 화면에만 (독립 모델, 2026-07-03)
+
+```
+견적관리 /shop/quotes        순수 견적 (ctId 없음, status='active')
+장바구니·주문내역 (영카트)     담긴/주문된 건 (cart 행 존재) — 견적관리에 미노출
+보관함 /shop/quotes/archive   삭제된 건 (status='deleted') — 영구 삭제만 가능
+```
+
+- **견적관리**: cart.php 와 같은 카드 문법(체크|썸네일|이름+사양요약+메타|수량+가격) +
+  툴바 [선택삭제]/[비우기]. 수량 인라인 수정 = PATCH 서버 재견적(새 quoteId, 비선형 브래킷),
+  [바로 주문] = POST /order (배치 담기 + `ct_select` 행 단위 선택 → orderform 직행).
+  목록 API 의 `optionSummary` 가 cart 의 `ct_option` 과 같은 문자열이라 두 화면 표기가 항상 일치
+- **장바구니에서 삭제하면**: 코어 cartupdate 가 cart 행만 지운다. sp-node 는 훅 없이
+  **목록 조회 시점에 "ctId 는 있는데 cart 행이 없다"를 감지해 status='deleted' 로 지연 반영**
+  (lazy reconcile) — 보관함으로 이동. 주문 완료 건의 cart 행은 코어가 보존하므로 오탐 없음
+- **보관함**: 보기 전용 + [영구 삭제](복원 없음). 하드 삭제 순서가 핵심 — 실파일(파일서버) 먼저,
+  전부 성공했을 때만 DB 파기. 실패 시 spec 보존 → 재클릭이 곧 재시도(멱등)
 
 ## 4. 코어 무수정을 지킨 기법 카탈로그
 
@@ -131,6 +157,9 @@
 | 5 | `cartupdate.php:276` 이 같은 `it_id` 재담기 시 기존 행 전부 삭제 | 템플릿 상품을 **일반 목록/상세에 노출 금지** — 표준 담기 경로 자체를 차단 |
 | 6 | 가격 로직이 PHP 에 있음 | **실측 패리티 이식** — 라이브 레거시 API 에 실캡처 body 46케이스를 재생한 fixture 와 대조(`legacy-parity.test.ts`, 판매가·제작일·무게·eta 전항목). 가격표는 서버 라이브 파일이 정본이라 스냅샷 동기화 절차가 필수(`pnpm pricing:sync` → PRICE_VERSION bump → `pnpm pricing:capture`). 상세 `docs/pricing-engine-parity.md` |
 | 7 | 사양이 EAV(`it_1~it_50`) 50슬롯 제한 | `sp_order_spec.spec_json` — 슬롯 제한 없음(레거시에서 유실되던 `gusset` 등도 수용) |
+| 8 | [선택사항수정] 팝업이 수량을 옵션표 `io_price`×수량으로 재계산 — 견적 행은 io_price 가 **총액**이라 선형 곱 오류(+스냅샷 리셋) | **테마 cart 스킨 분기** — 견적 행(템플릿 4종 it_id)만 버튼을 숨기고 "수량 변경은 견적관리에서" 링크로 대체. ct_qty=1 고정이라 수량 표기도 "견적 N건"으로 |
+| 9 | 코어 "주문하기"(cartupdate act=buy)의 `ct_select` 선택이 **it_id 단위** — 템플릿 공유 시 다른 견적까지 함께 선택됨 | sp-node 가 `ct_select`/`ct_select_time` 을 **행(ct_id) 단위로 직접 UPDATE** 후 orderform 으로 직행 (한정 예외 ④) |
+| 10 | 장바구니에서 삭제(cartupdate)해도 sp-node 는 알 수 없음 — 훅·트리거는 코어 수정 | **지연 반영(lazy reconcile)** — 관계를 저장하지 않고 파생하는 구조를 역이용, 목록 조회 때 "ctId 있음 + cart 행 없음"이면 status='deleted' 전환. 삭제 신호를 조회가 겸하므로 훅이 필요 없다 |
 
 ## 5. 데이터 소유권 지도
 
@@ -138,6 +167,7 @@
 |---|---|---|
 | 사양·파일연결·견적 (`sp_quote`/`sp_order_spec`/`sp_file`) | **sp-node (Prisma)** | 그누보드/PHP 는 접근하지 않음 |
 | 실파일 | file.samplepcb.kr | sp-node 가 업로드 대행, pathToken 만 보관 (다운로드 보안은 추후 과제) |
+| 실파일 삭제 | file.samplepcb.kr | 보관함 영구 삭제 시 sp-node 가 `GET /api/delete/:pathToken` 호출. ⚠ **보안 미처리 과제**: 이 API 는 인증 없이 pathToken 만으로 삭제되는 GET — pathToken 유출 시 임의 파일 삭제 가능. 내부망 제한 또는 서버 간 인증 추가 필요(2026-07 결정: 기능 먼저, 접근 제한은 인프라 트랙에서 후속 처리) |
 | `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT + 파생 SELECT 만** (한정 예외, `lib/g5-db.ts` 에 명시) |
 | `g5_shop_item_option` (견적 옵션 행) | 영카트 코어 | sp-node 는 견적 옵션 행(io_id=quoteId) **INSERT + 보상 DELETE 만** (한정 예외 확장, 기법 #3) |
 | `g5_shop_item` (템플릿) | 영카트 코어 | sp-node 는 SELECT 만 (배송정책 스냅샷용) |
@@ -149,11 +179,15 @@
 - **스냅샷 모델이 열쇠**: 영카트 cart/order 는 담는 시점 값을 복사하고 이후 상품을 다시 보지 않는다
   (`shop/cartupdate.php:291`). 그래서 "임의 가격의 행"을 밀어 넣어도 결제·정산·취소가 전부 정상 —
   인쇄·명함 등 주문제작형 영카트 사이트들의 검증된 패턴
-- **cart 삭제 동기화가 필요 없는 이유**: cart 행은 주문되면 삭제가 아니라 `ct_status='주문'` 이 된다.
-  관계를 저장하지 않고 파생하므로, 사용자가 cart 에서 지워도 스펙은 그대로("결제 대기열에서 뺀 것")
-- **주문/견적 화면 분리**: 주문(priced)은 cart.php 로 이미 완결. rfq 만 갈 곳이 없으므로
-  **견적함**(sp-vue) 을 신규로 만든다 — 레거시 `estimate_*` 는 코어가 아닌 레거시 커스텀이라
-  subtree 에 없고, EAV 전제라 이식 가치도 없음
+- **cart 삭제는 훅 없이 흡수**: cart 행은 주문되면 삭제가 아니라 `ct_status='주문'` 이 된다.
+  관계를 저장하지 않고 파생하므로 동기화 로직이 없고, 사용자가 cart 에서 지운 경우만
+  조회 시점 지연 반영으로 보관함에 수거된다(기법 #10) — "삭제해도 견적은 유실되지 않는다"
+- **한 건은 한 화면에만 (독립 모델)**: 견적관리 = 순수 견적, 장바구니·주문내역 = 담긴 이후,
+  보관함 = 삭제분. 같은 건이 두 화면에 겹쳐 보이면 상태 동기화 문제가 UI 로 번지므로
+  소속을 배타적으로 갈랐다. 두 화면의 카드 표현은 통일(공통 해부 + 뱃지/가격 자리만 상태 표현)
+- **견적관리는 sp-php**: 사용자 노출 페이지는 결제 연계(세션·orderform)가 있는 PHP 영역이
+  자연스러워 sp-vue 안을 폐기하고 `spcb/pages/`(코어 밖 커스텀)로 구현 — 레거시 `estimate_*` 는
+  코어가 아닌 레거시 커스텀이라 subtree 에 없고, EAV 전제라 이식 가치도 없음
 - 전체 결정 이력(폐기안 포함)은 `HANDOFF.md` 6장 결정 로그
 
 ## 7. 현재 상태와 남은 것
@@ -168,17 +202,25 @@ cart.php 에 "Standard PCB · <파일명>" 행 + 견적가 표시.
 - spec 파일 개수 키 **differentDesign 통일** — 거버 어댑터(`toProjectPayload.ts`)의
   `differentDesign→diffDesign` 역행 매핑 제거. ⚠ 이 키가 빠지면 "0원 → rfq(견적 대기)"로
   빠진다(실사고 있었음 — `docs/pricing-engine-parity.md` 증상 노트)
+- **견적관리 완성** — `/shop/quotes`: cart 카드 문법 통일(썸네일·사양요약 `optionSummary`),
+  수량 인라인 재견적, [바로 주문](행 단위 `ct_select`), 툴바 [선택삭제]/[비우기].
+  cart 견적 행의 [선택사항수정] 선형 곱 버그는 테마 스킨 분기로 차단(기법 #8)
+- **지난 견적 보관함** — `/shop/quotes/archive` + 독립 모델(3장 ⑤): 장바구니 삭제는
+  lazy reconcile 로 수거, 보관함 [영구 삭제]는 실파일 선삭제 → DB 파기(멱등 재시도)
 
-남은 것(우선순위): ① 견적관리 후속(1차 뼈대 완료 — 디자인·뱃지) ② 전 메뉴 실전송 검증(standard 만 완료)
-③ 관리자 가격 확정(rfq→quoted)+담기 ④ 운영 전환(거버 prod 분기·운영 nginx `/api`) —
-상세 체크리스트는 `HANDOFF.md` 7장.
+남은 것(우선순위): ① 전 메뉴 실전송 검증(standard 만 완료) ② 관리자 가격 확정(rfq→quoted)
++quoted 재확정 플로우 ③ rfq 대기 수 헤더 뱃지 ④ 파일 삭제 API 접근 제한(5장 ⚠)
+⑤ 운영 전환(거버 prod 분기·운영 nginx `/api`) — 상세 체크리스트는 `HANDOFF.md` 7장.
 
 ## 8. 관련 파일 색인
 
 | 역할 | 위치 |
 |---|---|
 | 인증 브리지 | `samplepcb-web/spcb/api/me.php` |
-| 담기 API | `samplepcb-web-mono-app/apps/api/src/routes/pcb-projects.ts` |
+| 담기·목록·주문·재견적·삭제 API | `samplepcb-web-mono-app/apps/api/src/routes/pcb-projects.ts` |
+| 견적관리 페이지 | `samplepcb-web/spcb/pages/quotes.php` (`/shop/quotes` — 루트 `.htaccess` 라우팅) |
+| 지난 견적 보관함 | `samplepcb-web/spcb/pages/quotes-archive.php` (`/shop/quotes/archive`) |
+| 장바구니 테마 스킨 | `samplepcb-web/theme/sp-lite/shop/cart.php` (견적 행 분기) · `css/default_shop.css` |
 | 가격 엔진 (+골든 테스트) | `…/apps/api/src/pricing/engine.ts` · `engine.test.ts` · `pricing-data.json` |
 | 가격 패리티 (실측 대조) | `…/apps/api/src/pricing/legacy-parity.test.ts` · `__fixtures__/legacy-pricing-goldens.json` · `docs/pricing-engine-parity.md` |
 | 가격표 동기화·캡처 | `…/apps/api/src/scripts/sync-pricing-data.ts` · `capture-legacy-pricing-goldens.ts` (`pnpm pricing:sync` / `pricing:capture`) |
