@@ -12,11 +12,10 @@ import {
 import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
 import { buildOptionSummary } from '../lib/option-summary';
-import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
+import { uploadToFileServer } from '../lib/file-server';
 import type { UploadTarget } from '../lib/file-server';
 import {
   TEMPLATE_ITEMS,
-  deleteCartRow,
   deleteQuoteOption,
   getCartStates,
   getTemplateItem,
@@ -27,6 +26,7 @@ import {
 } from '../lib/g5-db';
 import type { CartState } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
+import { purgeQuoteData, removeCartRow } from '../lib/quote-delete';
 import { signedThumbUrl } from '../lib/thumb-url';
 
 // ── POST /api/pcb-projects — 거버 담기 API (단일 multipart 호출) ────────────
@@ -748,10 +748,8 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           }
           if (state === 'cart') {
             // 장바구니에서 빼기 = cart 행·옵션 행 제거(ct_id 단위) 후 보관함으로.
-            const itId = TEMPLATE_ITEMS[spec.category.toLowerCase()];
             try {
-              await deleteCartRow(spec.ctId);
-              if (itId !== undefined) await deleteQuoteOption(itId, spec.quoteId);
+              await removeCartRow(spec);
             } catch (err) {
               request.log.error({ err, projectId: Number(spec.id) }, '장바구니 견적 행 삭제 실패');
               return reply.status(502).send({ result: false, error: 'CART_DELETE_FAILED' });
@@ -765,30 +763,13 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         };
       }
 
-      // 하드 삭제 — 삭제 대상 4종: 실파일+sp_file(거버·썸네일), 잔여 견적 옵션 행,
-      // 현재 sp_quote, sp_order_spec 본체
-      const files = await prisma.spFile.findMany({
-        where: { refType: 'sp_order_spec', refId: spec.id },
-        select: { pathToken: true },
-      });
+      // 하드 삭제 — 실파일 먼저 → 전부 성공 시에만 DB(순서 불변식은 purgeQuoteData 캡슐화).
       try {
-        for (const f of files) {
-          await deleteFromFileServer(f.pathToken);
-        }
-        // 코어 cartupdate 삭제 경로는 deleteQuoteOption 을 타지 않아 옵션 행이 남는다
-        const itId = TEMPLATE_ITEMS[spec.category.toLowerCase()];
-        if (itId !== undefined) {
-          await deleteQuoteOption(itId, spec.quoteId);
-        }
+        await purgeQuoteData(spec);
       } catch (err) {
         request.log.error({ err, projectId: Number(spec.id) }, '영구 삭제 실패 — spec 보존(재시도 가능)');
         return reply.status(502).send({ result: false, error: 'FILE_DELETE_FAILED' });
       }
-      await prisma.$transaction([
-        prisma.spFile.deleteMany({ where: { refType: 'sp_order_spec', refId: spec.id } }),
-        prisma.spQuote.deleteMany({ where: { id: spec.quoteId } }),
-        prisma.spOrderSpec.delete({ where: { id: spec.id } }),
-      ]);
       return {
         result: true as const,
         data: { projectId: Number(spec.id), status: 'purged' as const },

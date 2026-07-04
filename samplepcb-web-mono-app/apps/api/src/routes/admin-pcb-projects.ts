@@ -6,19 +6,32 @@ import {
   AdminCompanyNameResponse,
   AdminConfirmPriceBody,
   AdminConfirmPriceResponse,
+  AdminDeletePreviewResponse,
+  AdminDeleteResponse,
   AdminEstimateResponse,
   AdminQuoteDetailResponse,
   AdminQuoteListQuery,
   AdminQuoteListResponse,
   ApiError,
 } from '@sp/api-contract';
-import type { AdminApplicantType, PcbProjectPayloadType } from '@sp/api-contract';
+import type {
+  AdminApplicantType,
+  AdminDeletePreviewOrderType,
+  PcbProjectPayloadType,
+} from '@sp/api-contract';
 import { buildOptionSummary } from '../lib/option-summary';
 import { downloadFromFileServer } from '../lib/file-server';
-import { getCartStates, getMembersByIds, getShopEstimateProfile } from '../lib/g5-db';
+import {
+  deleteUnpaidOrder,
+  getCartStates,
+  getMembersByIds,
+  getOrderInfoByCtId,
+  getShopEstimateProfile,
+} from '../lib/g5-db';
 import type { CartState, G5Member } from '../lib/g5-db';
 import { kstDateStr } from '../lib/kst';
 import { prisma } from '../lib/prisma';
+import { purgeQuoteData, removeCartRow } from '../lib/quote-delete';
 import { signedThumbUrl } from '../lib/thumb-url';
 
 // ── /api/admin/pcb-projects — 관리자 견적 관리 (sp-vue /app/admin/quotes) ────
@@ -510,6 +523,176 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         data: {
           projectId: Number(spec.id),
           companyName: resolveCompanyName(snapshot, spec.mbId, memberProfile),
+        },
+      };
+    },
+  );
+
+  // ── GET /api/admin/pcb-projects/:id/delete-preview — 완전삭제 영향 프리뷰 ──
+  // 삭제 전 "무엇이 함께 지워지는지"를 집계해 danger 모달에 보여준다. 견적↔주문은 1:N
+  // 이라 주문됨 견적은 같은 주문에 묶인 다른 견적명도 노출한다. 결제완료(isPaid) 주문이
+  // 묶이면 deletable=false(차단, 사유 PAID_ORDER). 상태 무관(active/deleted). read-only.
+  fastify.get(
+    '/pcb-projects/:id/delete-preview',
+    {
+      schema: {
+        params: ProjectIdParams,
+        response: { 200: AdminDeletePreviewResponse },
+      },
+    },
+    async (request, reply) => {
+      const spec = await prisma.spOrderSpec.findFirst({
+        where: { id: BigInt(request.params.id) },
+      });
+      if (spec === null) return reply.notFound('프로젝트가 없습니다');
+
+      const [fileCount, cartStates] = await Promise.all([
+        prisma.spFile.count({ where: { refType: 'sp_order_spec', refId: spec.id } }),
+        spec.ctId !== null
+          ? getCartStates([spec.ctId])
+          : Promise.resolve(new Map<number, CartState>()),
+      ]);
+      const cartState: CartState =
+        spec.ctId !== null ? (cartStates.get(spec.ctId) ?? 'none') : 'none';
+
+      let order: AdminDeletePreviewOrderType | null = null;
+      if (cartState === 'ordered' && spec.ctId !== null) {
+        const info = await getOrderInfoByCtId(spec.ctId);
+        if (info !== null) {
+          // 같은 주문에 묶인 다른 견적명 — io_id(=quoteId)로 sp_order_spec 매핑, 실패 시 상품명
+          const ioIds = info.siblingCarts.map((s) => s.ioId);
+          const siblingSpecs =
+            ioIds.length > 0
+              ? await prisma.spOrderSpec.findMany({
+                  where: { quoteId: { in: ioIds } },
+                  select: { quoteId: true, projectName: true },
+                })
+              : [];
+          const nameByQuoteId = new Map(siblingSpecs.map((s) => [s.quoteId, s.projectName]));
+          order = {
+            odId: info.odId,
+            odStatus: info.odStatus,
+            isPaid: info.isPaid,
+            receiptPrice: info.receiptPrice,
+            cartPrice: info.cartPrice,
+            settleCase: info.settleCase,
+            hasPgTransaction: info.hasPgTransaction,
+            pg: info.pg,
+            misu: info.misu,
+            siblings: info.siblingCarts.map((s) => nameByQuoteId.get(s.ioId) ?? s.itName),
+          };
+        }
+      }
+
+      const deletable = !(order?.isPaid ?? false);
+      return {
+        result: true as const,
+        data: {
+          projectId: Number(spec.id),
+          projectName: spec.projectName,
+          cartState,
+          fileCount,
+          deletable,
+          blockReason: deletable ? null : ('PAID_ORDER' as const),
+          removesCartRow: cartState === 'cart',
+          deletesOrder: cartState === 'ordered' && order !== null && !order.isPaid,
+          order,
+        },
+      };
+    },
+  );
+
+  // ── DELETE /api/admin/pcb-projects/:id — 견적 완전삭제(1단계 즉시) ─────────
+  // 소유권 없이 임의 견적 삭제(관리자 전용). 순서: g5(미입금 주문/장바구니) 먼저 →
+  // sp_(파일→DB, purgeQuoteData) 나중 — 중간 실패 시 sp_ 가 남아 재시도가 멱등하다
+  // (그 반대는 sp_ 소실로 주문 고아 발생). 결제완료 주문은 409(PAID_ORDER)로 거부하고,
+  // 되돌릴 수 없는 삭제라 감사 로그(누가·무엇을·주문/수납액)를 남긴다.
+  fastify.delete(
+    '/pcb-projects/:id',
+    {
+      schema: {
+        params: ProjectIdParams,
+        response: { 200: AdminDeleteResponse, 409: ApiError, 502: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const spec = await prisma.spOrderSpec.findFirst({
+        where: { id: BigInt(request.params.id) },
+      });
+      if (spec === null) return reply.notFound('프로젝트가 없습니다');
+
+      const cartState: CartState =
+        spec.ctId !== null
+          ? ((await getCartStates([spec.ctId])).get(spec.ctId) ?? 'none')
+          : 'none';
+
+      let orderDeleted = false;
+      let cartRemoved = false;
+      let auditOdId: string | null = null;
+      let auditReceipt = 0;
+      try {
+        if (cartState === 'ordered' && spec.ctId !== null) {
+          const info = await getOrderInfoByCtId(spec.ctId);
+          if (info !== null) {
+            if (info.isPaid) {
+              return await reply.status(409).send({
+                error: 'PAID_ORDER',
+                message: '결제완료 주문이 묶인 견적입니다. 환불은 쇼핑몰 주문취소로 처리하세요.',
+              });
+            }
+            auditOdId = info.odId;
+            auditReceipt = info.receiptPrice;
+            const outcome = await deleteUnpaidOrder(info.odId, request.user.mbId, request.ip);
+            if (outcome === 'paid') {
+              return await reply.status(409).send({
+                error: 'PAID_ORDER',
+                message: '삭제 직전 결제가 확인되었습니다. 환불은 쇼핑몰 주문취소로 처리하세요.',
+              });
+            }
+            orderDeleted = outcome === 'deleted';
+          } else {
+            // 고아 ordered(주문 헤더 없음) — cart 행만 물리 정리
+            await removeCartRow(spec);
+            cartRemoved = true;
+          }
+        } else if (cartState === 'cart') {
+          await removeCartRow(spec);
+          cartRemoved = true;
+        }
+        await purgeQuoteData(spec);
+      } catch (err) {
+        request.log.error(
+          { err, projectId: Number(spec.id) },
+          '관리자 견적 완전삭제 실패 — 일부만 반영됐을 수 있음(재시도 멱등)',
+        );
+        return reply.status(502).send({
+          error: 'DELETE_FAILED',
+          message: '삭제 중 오류가 발생했습니다. 다시 시도해 주세요.',
+        });
+      }
+
+      // 감사 로그 — 되돌릴 수 없는 삭제. 누가·무엇을·주문/수납액까지 남긴다.
+      request.log.warn(
+        {
+          audit: 'admin_quote_delete',
+          actor: request.user.mbId,
+          projectId: Number(spec.id),
+          mbId: spec.mbId,
+          odId: auditOdId,
+          receiptPrice: auditReceipt,
+          orderDeleted,
+          cartRemoved,
+        },
+        '관리자 견적 완전삭제',
+      );
+
+      return {
+        result: true as const,
+        data: {
+          projectId: Number(spec.id),
+          purged: true as const,
+          cartRemoved,
+          orderDeleted,
         },
       };
     },

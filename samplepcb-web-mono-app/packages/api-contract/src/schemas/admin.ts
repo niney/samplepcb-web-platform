@@ -212,3 +212,55 @@ export const AdminEstimateResponse = z.object({
   data: AdminEstimate,
 });
 export type AdminEstimateResponseType = z.infer<typeof AdminEstimateResponse>;
+
+// ── 관리자 견적 완전삭제 계약 ───────────────────────────────────────────────
+// "경고만 주고 관련 데이터 모두 삭제"(1단계 즉시 완전삭제). 되돌릴 수 없어 삭제 전
+// GET .../delete-preview 로 무엇이 지워지는지 집계해 danger 모달에 보여준 뒤 실행한다.
+// 결제완료(입금/배송/완료) 주문이 묶인 견적은 PG환불 포함 취소 도메인이라 삭제 차단
+// (deletable=false) — 프리뷰가 사유를 노출하고 삭제 API 는 409 로 거부한다.
+
+// 주문됨(ordered) 견적일 때 함께 걸리는 주문 정보(삭제 프리뷰 표시용).
+export const AdminDeletePreviewOrder = z.object({
+  odId: z.string(),
+  odStatus: z.string(), // '주문'(미입금)|'입금'|'배송'|'완료'…
+  isPaid: z.boolean(), // od_status ≠ '주문' — 결제완료(삭제 차단)
+  receiptPrice: z.number(), // 수납액
+  cartPrice: z.number(), // 주문 상품 합계
+  settleCase: z.string(), // 결제수단
+  hasPgTransaction: z.boolean(), // PG 거래번호(od_tno) 존재 — 대사 근거
+  pg: z.string(),
+  misu: z.number(), // 미수금
+  siblings: z.array(z.string()), // 같은 주문에 묶인 다른 견적명(매칭 실패 시 상품명) — 함께 영향
+});
+export type AdminDeletePreviewOrderType = z.infer<typeof AdminDeletePreviewOrder>;
+
+export const AdminDeletePreview = z.object({
+  projectId: z.number(),
+  projectName: z.string(),
+  cartState: z.enum(['none', 'cart', 'ordered']),
+  fileCount: z.number(), // 삭제될 sp_file(거버·썸네일) 수 = 파일서버 실파일 수
+  deletable: z.boolean(), // false = 결제완료 주문이라 삭제 불가(차단)
+  blockReason: z.enum(['PAID_ORDER']).nullable(), // deletable=false 사유
+  removesCartRow: z.boolean(), // 담김(cart) → 장바구니 행 제거 동반
+  deletesOrder: z.boolean(), // 미입금 주문 → 주문(g5_shop_order)까지 삭제 동반
+  order: AdminDeletePreviewOrder.nullable(), // 주문됨일 때만
+});
+export type AdminDeletePreviewType = z.infer<typeof AdminDeletePreview>;
+
+export const AdminDeletePreviewResponse = z.object({
+  result: z.literal(true),
+  data: AdminDeletePreview,
+});
+export type AdminDeletePreviewResponseType = z.infer<typeof AdminDeletePreviewResponse>;
+
+// 완전삭제 결과 — 무엇을 실제로 지웠는지. 차단(결제완료)·미존재는 라우트가 409/404(ApiError).
+export const AdminDeleteResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    projectId: z.number(),
+    purged: z.literal(true), // sp_ 완전삭제(sp_file·sp_quote·sp_order_spec + 실파일) 완료
+    cartRemoved: z.boolean(), // 담김 장바구니 행 제거됨
+    orderDeleted: z.boolean(), // 미입금 주문(g5_shop_order)까지 삭제됨
+  }),
+});
+export type AdminDeleteResponseType = z.infer<typeof AdminDeleteResponse>;

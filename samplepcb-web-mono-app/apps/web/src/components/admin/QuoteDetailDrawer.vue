@@ -10,6 +10,7 @@ import {
 } from '../../admin/useAdminQuotes';
 import { formatBytes, formatDate, formatDateTime, formatKrw } from '../../lib/format';
 import UiBadge from '../ui/UiBadge.vue';
+import DeleteQuoteModal from './DeleteQuoteModal.vue';
 import EstimateModal from './EstimateModal.vue';
 
 // 견적 상세 드로어 — 우측 슬라이드 오버. 파일 다운로드와 가격 확정(rfq 확정·priced
@@ -151,10 +152,18 @@ const onDownload = async (fileId: number, fileName: string): Promise<void> => {
   }
 };
 
+// 완전삭제 모달 — 삭제 버튼으로 열고, 삭제 성공 시 드로어까지 닫는다(항목이 사라짐).
+const deleteProjectId = ref<number | null>(null);
+const onDeleted = (): void => {
+  deleteProjectId.value = null;
+  emit('close');
+};
+
 const onKeydown = (e: KeyboardEvent): void => {
-  // 견적서 모달이 위에 떠 있으면 ESC 는 모달(자체 리스너)이 처리 — 드로어까지
-  // 한꺼번에 닫히는 이중 닫힘을 막는다.
-  if (e.key === 'Escape' && estimateProjectId.value === null) emit('close');
+  // 위에 뜬 모달(견적서/삭제)이 ESC 를 처리 — 드로어까지 이중으로 닫히는 것을 막는다.
+  if (e.key === 'Escape' && estimateProjectId.value === null && deleteProjectId.value === null) {
+    emit('close');
+  }
 };
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
@@ -459,6 +468,17 @@ onBeforeUnmount(() => {
                 {{ t('admin.quotes.drawer.requestedAt') }}: {{ formatDateTime(detail.createdAt) }}
               </p>
             </section>
+
+            <!-- 완전삭제 (danger) -->
+            <section class="mt-6 border-t border-red-100 pt-4">
+              <button
+                type="button"
+                class="w-full rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                @click="deleteProjectId = detail.projectId"
+              >
+                {{ t('admin.quotes.drawer.delete') }}
+              </button>
+            </section>
           </template>
         </div>
       </aside>
@@ -466,6 +486,12 @@ onBeforeUnmount(() => {
         v-if="estimateProjectId !== null"
         :project-id="estimateProjectId"
         @close="estimateProjectId = null"
+      />
+      <DeleteQuoteModal
+        v-if="deleteProjectId !== null"
+        :project-id="deleteProjectId"
+        @close="deleteProjectId = null"
+        @deleted="onDeleted"
       />
     </div>
   </Teleport>

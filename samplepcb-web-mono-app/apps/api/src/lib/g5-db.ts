@@ -30,6 +30,13 @@
 // 공격 벡터가 아니라 차등). 코어 정합성(adm/member_form_update.php): 닉/이메일/hp 중복
 // 거부·hp 하이픈 정규화·zip 3+2 분해·주소 변경 시 mb_addr_jibeon 초기화·mb_nick_date
 // 미갱신. 화이트리스트(updateMemberInfo 맵) 밖 컬럼 쓰기 금지.
+// ⑩ g5_shop_order·g5_shop_cart read-only SELECT(관리자 견적 삭제 프리뷰 — 주문됨 견적이
+// 묶인 주문의 결제상태·수납액·PG거래·같은 주문의 다른 견적 파악: od_status·od_receipt_price·
+// od_cart_price·od_settle_case·od_tno·od_pg·od_misu + cart od_id/it_name/io_id, 쓰기 없음).
+// ⑪ g5_shop_order 미입금 주문 삭제(관리자 견적 완전삭제 — 코어 adm/shop_admin/orderlistdelete.php
+// 이식: od_status='주문'만, g5_shop_order_delete 백업(serialize) → g5_shop_cart ct_status='삭제'
+// → g5_shop_order DELETE. 결제완료(od_status≠'주문')는 PG환불 취소 도메인이라 차단. 포인트/쿠폰
+// 환급 불필요=미입금 부수효과 없음). 코어 정합성(규율 3): 미입금만·백업·cart 소프트 그대로 재현.
 // 운영 전용 커스텀 컬럼(mb_partner_auth, mb_11~mb_20)은 로컬 신설 DB 에 없어 참조 금지.
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
@@ -216,6 +223,121 @@ export async function getCartStates(ctIds: number[]): Promise<Map<number, CartSt
     states.set(Number(row.ct_id), String(row.ct_status) === '쇼핑' ? 'cart' : 'ordered');
   }
   return states;
+}
+
+// ── 주문 삭제 프리뷰용 조회 (한정 예외 ⑩) ───────────────────────────────────
+// 관리자 견적 완전삭제 프리뷰 — 주문됨(ordered) 견적이 묶인 주문의 결제상태·수납액·
+// PG거래 유무와, 같은 주문(od_id)에 함께 묶인 다른 cart 행(다른 견적)을 파악한다.
+// 견적↔주문은 1:N(영카트는 order_item 없이 cart 행이 주문 라인) — 이 조회로 "이 견적을
+// 지우면 함께 걸리는 것"을 프리뷰가 정직하게 노출한다. isPaid(od_status≠'주문')는 삭제
+// 차단(결제완료=PG환불 취소 도메인) 판정에 쓰인다. read-only.
+export interface OrderInfo {
+  odId: string;
+  odStatus: string; // '주문'(미입금)|'입금'|'배송'|'완료'…
+  isPaid: boolean; // od_status !== '주문' — 결제완료(삭제 차단 대상) 판정
+  receiptPrice: number; // od_receipt_price 수납액
+  cartPrice: number; // od_cart_price 주문 상품 합계
+  settleCase: string; // od_settle_case 결제수단
+  hasPgTransaction: boolean; // od_tno 유무 — PG 거래(대사 근거) 존재 신호
+  pg: string; // od_pg PG사
+  misu: number; // od_misu 미수금
+  siblingCarts: { ctId: number; itName: string; ioId: string }[]; // 같은 주문의 다른 cart 행
+}
+
+export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null> {
+  const pool = getG5Pool();
+  const [cartRows] = await pool.query<RowDataPacket[]>(
+    `SELECT od_id FROM g5_shop_cart WHERE ct_id = ?`,
+    [ctId],
+  );
+  const cart = cartRows[0];
+  if (cart === undefined) return null;
+  const odId = String(cart.od_id);
+  const [orderRows] = await pool.query<RowDataPacket[]>(
+    `SELECT od_status, od_receipt_price, od_cart_price, od_settle_case, od_tno, od_pg, od_misu
+       FROM g5_shop_order WHERE od_id = ?`,
+    [odId],
+  );
+  const order = orderRows[0];
+  if (order === undefined) return null; // 주문 헤더 없음 = 아직 담김(임시 cart_id)
+  const [siblings] = await pool.query<RowDataPacket[]>(
+    `SELECT ct_id, it_name, io_id FROM g5_shop_cart WHERE od_id = ? AND ct_id <> ?`,
+    [odId, ctId],
+  );
+  return {
+    odId,
+    odStatus: String(order.od_status),
+    isPaid: String(order.od_status) !== '주문',
+    receiptPrice: Number(order.od_receipt_price ?? 0),
+    cartPrice: Number(order.od_cart_price ?? 0),
+    settleCase: String(order.od_settle_case ?? ''),
+    hasPgTransaction: String(order.od_tno ?? '') !== '',
+    pg: String(order.od_pg ?? ''),
+    misu: Number(order.od_misu ?? 0),
+    siblingCarts: siblings.map((s) => ({
+      ctId: Number(s.ct_id),
+      itName: String(s.it_name),
+      ioId: String(s.io_id),
+    })),
+  };
+}
+
+// ── 미입금 주문 삭제 (한정 예외 ⑪) ─────────────────────────────────────────
+// 관리자 견적 완전삭제가 주문됨 견적을 지울 때, 코어 adm/shop_admin/orderlistdelete.php
+// (:29-45)를 그대로 이식한다. 미입금(od_status='주문')만 대상 — 결제완료는 PG환불 포함
+// 취소 도메인이라 여기서 삭제하지 않는다(반환 'paid' 로 호출부가 차단). 순서(코어 동일):
+//   ① g5_shop_order_delete 백업(serialize($od) 형식) ② g5_shop_cart ct_status='삭제'
+//   (그 주문의 '주문' 행 전부 — 물리삭제 아님) ③ g5_shop_order DELETE.
+// 포인트/쿠폰 환급은 코어도 하지 않는다(미입금이라 결제 부수효과가 없음).
+// ⚠ 견적↔주문 1:N — 이 od_id 에 묶인 다른 견적의 cart 행도 함께 '삭제' 처리된다(프리뷰 고지).
+export type OrderDeleteOutcome = 'deleted' | 'paid' | 'not_found';
+
+export async function deleteUnpaidOrder(
+  odId: string,
+  actorMbId: string,
+  ip: string,
+): Promise<OrderDeleteOutcome> {
+  const pool = getG5Pool();
+  // 백업 정확도를 위해 모든 컬럼을 DB 문자열 표현 그대로 받는다(PHP sql_fetch 와 동일 —
+  // datetime 도 'Y-m-d H:i:s' 문자열). serialize 바이트가 코어와 일치해 복원 UI 와 호환.
+  const [rows] = await pool.query<RowDataPacket[]>(
+    {
+      sql: `SELECT * FROM g5_shop_order WHERE od_id = ?`,
+      typeCast: (field: { string: () => string | null }) => field.string(),
+    },
+    [odId],
+  );
+  const od = rows[0];
+  if (od === undefined) return 'not_found';
+  if (String(od.od_status) !== '주문') return 'paid'; // 결제완료 — 삭제 금지(호출부 차단)
+
+  const deData = phpSerializeAssoc(od);
+  await pool.query(
+    `INSERT INTO g5_shop_order_delete
+       SET de_key = ?, de_data = ?, mb_id = ?, de_ip = ?, de_datetime = NOW()`,
+    [odId, deData, actorMbId, ip],
+  );
+  await pool.query(
+    `UPDATE g5_shop_cart SET ct_status = '삭제' WHERE od_id = ? AND ct_status = '주문'`,
+    [odId],
+  );
+  await pool.query(`DELETE FROM g5_shop_order WHERE od_id = ?`, [odId]);
+  return 'deleted';
+}
+
+// PHP serialize() 재현 — g5_shop_order 백업을 코어(orderlistdelete.php)와 동일 형식으로
+// 저장하기 위한 최소 구현. 입력은 전 컬럼이 문자열(or NULL)인 assoc(위 typeCast 로 보장).
+// 문자열 길이는 PHP strlen 과 같이 UTF-8 바이트 기준.
+function phpSerializeAssoc(row: Record<string, string | null>): string {
+  const entries = Object.entries(row);
+  const phpStr = (s: string): string => `s:${String(Buffer.byteLength(s, 'utf8'))}:"${s}";`;
+  let out = `a:${String(entries.length)}:{`;
+  for (const [key, val] of entries) {
+    out += phpStr(key);
+    out += val === null ? 'N;' : phpStr(val);
+  }
+  out += '}';
+  return out;
 }
 
 // ── 회원 표시 정보 SELECT (한정 예외 ⑤) ─────────────────────────────────────
