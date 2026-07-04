@@ -829,3 +829,566 @@
 .sp-modal__cancel:focus {
     border-color: var(--sp-muted);
 }
+
+/* ==========================================================================
+   주문서 작성 (shop/orderform.sub.php — 코어 영카트 마크업)
+   코어 파일이라 마크업을 못 바꿔, 영카트 클래스를 #sod_frm 하위로 타겟해
+   장바구니와 같은 시각 문법(흰 카드·토큰·sticky 요약)을 재현한다.
+   모든 규칙을 #sod_frm 로 스코프 — 장바구니와 공유하는 클래스
+   (#sod_bsk_tot·.btn_submit·.btn01·.btn_frmline·.frm_input·.sod_opt·.total_price)의 누수 차단.
+   ========================================================================== */
+
+/* --- 레이아웃: 상품표 전폭 상단 + 좌(입력폼)·우(요약/결제 sticky) --- */
+#sod_frm {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-areas:
+        "prd  prd"
+        "left right";
+    gap: 24px;
+    align-items: start;
+    margin: 0 0 48px;
+}
+
+#sod_frm > .od_prd_list { grid-area: prd; margin: 0; }
+#sod_frm > .sod_left    { grid-area: left; min-width: 0; }
+#sod_frm > .sod_right   { grid-area: right; }
+
+#sod_frm .sod_right {
+    position: sticky;
+    top: calc(var(--sp-header-h) + 24px);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* --- 섹션 카드 (주문하시는 분·받으시는 분·결제정보) --- */
+#sod_frm section {
+    padding: 24px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: var(--sp-bg);
+}
+
+#sod_frm .sod_left section + section { margin-top: 16px; }
+
+#sod_frm section > h2 {
+    margin: 0 0 16px;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--sp-ink);
+}
+
+/* ==== 주문상품 목록 (#sod_list) ==== */
+#sod_frm .od_prd_list {
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    overflow-x: auto;
+    background: var(--sp-bg);
+}
+
+#sod_frm #sod_list {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+#sod_frm #sod_list thead th {
+    padding: 14px 16px;
+    background: var(--sp-bg-soft);
+    border-bottom: 1px solid var(--sp-line);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sp-muted);
+    text-align: center;
+    white-space: nowrap;
+}
+
+#sod_frm #sod_list thead th:first-child { text-align: left; }
+
+#sod_frm #sod_list tbody td {
+    padding: 16px;
+    border-bottom: 1px solid var(--sp-line);
+    text-align: center;
+    vertical-align: middle;
+    color: var(--sp-ink);
+    white-space: nowrap;
+}
+
+#sod_frm #sod_list tbody tr:last-child td { border-bottom: 0; }
+
+#sod_frm #sod_list .td_prd { text-align: left; white-space: normal; }
+#sod_frm .td_prd::after { content: ""; display: block; clear: both; }
+
+#sod_frm .sod_img { float: left; width: 64px; margin-right: 12px; }
+#sod_frm .sod_img img {
+    display: block;
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    background: var(--sp-bg-soft);
+}
+
+#sod_frm .sod_name {
+    overflow: hidden;
+    padding-top: 2px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--sp-ink);
+}
+
+#sod_frm .sod_name a { color: inherit; }
+
+#sod_frm .sod_name .sod_opt {
+    margin-top: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--sp-muted);
+    line-height: 1.5;
+}
+
+#sod_frm .sod_name .sod_opt ul { margin: 0; padding: 0; list-style: none; }
+#sod_frm .sod_name .sod_opt li { line-height: 1.5; }
+
+#sod_frm .td_numbig .total_price { font-weight: 700; }
+#sod_frm .td_dvr { color: var(--sp-muted); }
+
+/* ==== 입력 폼 (tbl_frm01 — 주문자·받는분) ==== */
+#sod_frm .tbl_frm01 table { width: 100%; border-collapse: collapse; }
+
+#sod_frm .tbl_frm01 tr { border-bottom: 1px solid var(--sp-line); }
+#sod_frm .tbl_frm01 tr:last-child { border-bottom: 0; }
+
+#sod_frm .tbl_frm01 th {
+    width: 120px;
+    padding: 18px 12px 18px 0;
+    text-align: left;
+    vertical-align: top;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sp-ink);
+    white-space: nowrap;
+}
+
+#sod_frm .tbl_frm01 td {
+    padding: 14px 0;
+    vertical-align: top;
+}
+
+#sod_frm .frm_input {
+    width: 100%;
+    max-width: 320px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 14px;
+    color: var(--sp-ink);
+    vertical-align: top;
+}
+
+#sod_frm .frm_input:focus {
+    outline: none;
+    border-color: var(--sp-primary);
+    box-shadow: 0 0 0 3px var(--sp-primary-soft);
+}
+
+#sod_frm .frm_address { max-width: 420px; margin-bottom: 6px; }
+
+#sod_frm #od_zip,
+#sod_frm #od_b_zip { width: 140px; display: inline-block; }
+
+#sod_frm .frm_info {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--sp-muted);
+}
+
+#sod_frm textarea {
+    width: 100%;
+    max-width: 480px;
+    min-height: 92px;
+    padding: 10px 12px;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 14px;
+    color: var(--sp-ink);
+    line-height: 1.5;
+    resize: vertical;
+}
+
+#sod_frm textarea:focus {
+    outline: none;
+    border-color: var(--sp-primary);
+    box-shadow: 0 0 0 3px var(--sp-primary-soft);
+}
+
+/* 보조 버튼 (주소 검색·쿠폰적용·배송지목록) */
+#sod_frm .btn_address,
+#sod_frm .btn_frmline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 14px;
+    margin-left: 6px;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--sp-ink);
+    line-height: 1;
+    cursor: pointer;
+    vertical-align: top;
+    text-decoration: none;
+}
+
+#sod_frm .btn_frmline { min-height: 36px; }
+
+#sod_frm .btn_address:hover,
+#sod_frm .btn_frmline:hover {
+    border-color: var(--sp-primary);
+    color: var(--sp-primary);
+}
+
+/* 배송지 선택 라디오 → 칩 */
+#sod_frm .order_choice_place {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+#sod_frm .order_choice_place input { position: absolute; left: -9999px; }
+
+#sod_frm .order_choice_place label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--sp-line);
+    border-radius: 999px;
+    background: #fff;
+    font-size: 13px;
+    color: var(--sp-muted);
+    cursor: pointer;
+    transition: border-color .15s, background-color .15s, color .15s;
+}
+
+#sod_frm .order_choice_place input:checked + label {
+    border-color: var(--sp-primary);
+    background: var(--sp-primary-soft);
+    color: var(--sp-primary);
+    font-weight: 600;
+}
+
+#sod_frm .order_choice_place input:focus-visible + label {
+    outline: 2px solid var(--sp-primary);
+    outline-offset: 2px;
+}
+
+/* 배송지명 행의 기본배송지 체크박스 */
+#sod_frm #ad_default { margin: 0 6px 0 14px; vertical-align: middle; }
+
+/* ==== 우측: 주문상품 합계 (#sod_bsk_tot) ==== */
+#sod_frm #sod_bsk_tot {
+    padding: 20px 24px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: var(--sp-bg);
+}
+
+#sod_frm #sod_bsk_tot ul { margin: 0; padding: 0; list-style: none; }
+
+#sod_frm #sod_bsk_tot li {
+    display: flex;
+    align-items: baseline;
+    margin: 0 0 10px;
+    font-size: 14px;
+    color: var(--sp-ink);
+}
+
+#sod_frm #sod_bsk_tot li span { flex: 1 1 auto; color: var(--sp-muted); }
+#sod_frm #sod_bsk_tot li strong { font-weight: 600; }
+
+#sod_frm #sod_bsk_tot .sod_bsk_cnt {
+    margin: 12px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--sp-line);
+    font-size: 15px;
+}
+
+#sod_frm #sod_bsk_tot .sod_bsk_cnt span { color: var(--sp-ink); font-weight: 600; }
+
+#sod_frm #sod_bsk_tot .sod_bsk_cnt strong {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--sp-primary);
+    letter-spacing: -.02em;
+}
+
+/* ==== 결제정보 (#sod_frm_pay) ==== */
+#sod_frm .pay_tbl table { width: 100%; border-collapse: collapse; }
+
+#sod_frm .pay_tbl th {
+    padding: 8px 0;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--sp-muted);
+    white-space: nowrap;
+}
+
+#sod_frm .pay_tbl td {
+    padding: 8px 0;
+    text-align: right;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--sp-ink);
+}
+
+#sod_frm .pay_tbl td strong { font-weight: 700; }
+#sod_frm .pay_tbl .btn_frmline { min-height: 32px; margin-left: 8px; }
+
+/* 총 주문금액 하이라이트 */
+#sod_frm #od_tot_price {
+    display: flex;
+    align-items: baseline;
+    margin: 16px 0 0;
+    padding: 16px 20px;
+    border-radius: var(--sp-radius);
+    background: var(--sp-primary-soft);
+}
+
+#sod_frm #od_tot_price span {
+    flex: 1 1 auto;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sp-ink);
+}
+
+#sod_frm #od_tot_price .print_price {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--sp-primary);
+    letter-spacing: -.02em;
+}
+
+/* 결제수단 선택 */
+#sod_frm #od_pay_sl { margin-top: 20px; }
+
+#sod_frm #od_pay_sl h3 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sp-ink);
+}
+
+#sod_frm #sod_frm_pt_alert {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--sp-bg-soft);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--sp-muted);
+}
+
+#sod_frm #sod_frm_pt_alert strong { color: var(--sp-ink); }
+
+#sod_frm #sod_frm_paysel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+#sod_frm #sod_frm_paysel legend {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+}
+
+#sod_frm #sod_frm_paysel input[type="radio"] { position: absolute; left: -9999px; }
+
+#sod_frm #sod_frm_paysel label.lb_icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    padding: 0 18px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sp-ink);
+    cursor: pointer;
+    transition: border-color .15s, background-color .15s, color .15s;
+}
+
+#sod_frm #sod_frm_paysel input[type="radio"]:checked + label.lb_icon {
+    border-color: var(--sp-primary);
+    background: var(--sp-primary-soft);
+    color: var(--sp-primary);
+    font-weight: 600;
+}
+
+#sod_frm #sod_frm_paysel input[type="radio"]:focus-visible + label.lb_icon {
+    outline: 2px solid var(--sp-primary);
+    outline-offset: 2px;
+}
+
+/* 포인트 사용 */
+#sod_frm .sod_frm_point {
+    margin-top: 14px;
+    padding: 16px;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    background: var(--sp-bg-soft);
+}
+
+#sod_frm .sod_frm_point > div:first-child {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--sp-ink);
+}
+
+#sod_frm #od_temp_point {
+    width: 120px;
+    min-height: 38px;
+    padding: 0 10px;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    background: #fff;
+    text-align: right;
+    font-size: 14px;
+}
+
+#sod_frm #sod_frm_pt {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--sp-muted);
+}
+
+#sod_frm #sod_frm_pt strong { margin-right: 6px; color: var(--sp-ink); font-weight: 600; }
+
+/* 무통장입금 계좌 */
+#sod_frm #settle_bank {
+    margin-top: 14px;
+    padding: 16px;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    background: var(--sp-bg-soft);
+    font-size: 13px;
+    color: var(--sp-ink);
+}
+
+#sod_frm #settle_bank select,
+#sod_frm #settle_bank input[type="text"] {
+    min-height: 40px;
+    margin-top: 6px;
+    padding: 0 10px;
+    border: 1px solid var(--sp-line);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 14px;
+}
+
+/* ==== 주문(결제) 버튼 ==== */
+#sod_frm #display_pay_button {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#sod_frm #display_pay_button .btn_submit {
+    width: 100%;
+    min-height: 54px;
+    border: 0;
+    border-radius: var(--sp-radius);
+    background: var(--sp-primary);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color .15s;
+}
+
+#sod_frm #display_pay_button .btn_submit:hover { background: var(--sp-primary-dark); }
+
+#sod_frm #display_pay_button .btn01 {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 46px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: #fff;
+    font-size: 14px;
+    color: var(--sp-ink);
+    text-decoration: none;
+}
+
+#sod_frm #display_pay_button .btn01:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
+
+#sod_frm #display_pay_process { text-align: center; font-size: 13px; color: var(--sp-muted); }
+#sod_frm #display_pay_process img { max-width: 100%; }
+
+/* --- 반응형 --- */
+@media (max-width: 960px) {
+    #sod_frm {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+            "prd"
+            "left"
+            "right";
+    }
+
+    #sod_frm .sod_right { position: static; }
+}
+
+@media (max-width: 640px) {
+    #sod_frm { gap: 16px; }
+    #sod_frm section { padding: 18px 16px; }
+
+    #sod_frm .tbl_frm01 table,
+    #sod_frm .tbl_frm01 tbody,
+    #sod_frm .tbl_frm01 tr,
+    #sod_frm .tbl_frm01 th,
+    #sod_frm .tbl_frm01 td {
+        display: block;
+        width: auto;
+    }
+
+    #sod_frm .tbl_frm01 tr { padding: 10px 0; }
+    #sod_frm .tbl_frm01 th { padding: 0 0 6px; }
+    #sod_frm .tbl_frm01 td { padding: 0; }
+
+    #sod_frm .frm_input,
+    #sod_frm .frm_address,
+    #sod_frm textarea { max-width: 100%; }
+
+    #sod_frm #od_zip,
+    #sod_frm #od_b_zip { width: 140px; }
+
+    #sod_frm #sod_list { min-width: 620px; }
+    #sod_frm .td_prd { min-width: 220px; }
+}

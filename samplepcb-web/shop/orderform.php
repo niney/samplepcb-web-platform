@@ -10,7 +10,9 @@ add_javascript('<script src="'.G5_JS_URL.'/shop.order.js"></script>', 0);
 $sw_direct = isset($_REQUEST['sw_direct']) ? preg_replace('/[^a-z0-9_]/i', '', $_REQUEST['sw_direct']) : '';
 
 // 모바일 주문인지
-$is_mobile_order = is_mobile();
+// sp-lite 커스텀: 테마 device(pc) 강제와 일치시켜 전 기기가 pc 주문폼(sod_frm_pc)+반응형 CSS 사용.
+// 원본은 raw is_mobile()(순수 UA)라 실제 폰이 mobile sub로 갈라졌음. 아래 _head/_tail(42·61행)의 G5_IS_MOBILE 과 통일.
+$is_mobile_order = G5_IS_MOBILE;
 
 set_session("ss_direct", $sw_direct);
 // 장바구니가 비어있는가?
