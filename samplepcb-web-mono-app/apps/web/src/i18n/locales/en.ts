@@ -244,8 +244,6 @@ export const en = {
         notAgreed: 'No',
         emailCertifiedAt: 'Email verified',
         companyName: 'Company',
-        companyNameHint:
-          'Member profile company. Clearing removes it; legacy value (mb_2) shows as fallback if present.',
         save: 'Save',
         companySaveSuccess: 'Company saved. Reflected in estimates and quotes.',
         companySaveFailed: 'Failed to save the company. Try again shortly.',

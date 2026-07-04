@@ -247,8 +247,6 @@ export const ko = {
         notAgreed: '미동의',
         emailCertifiedAt: '이메일 인증일',
         companyName: '회사명',
-        companyNameHint:
-          '회원 프로필 회사명입니다. 비우면 삭제되고, 레거시 값(mb_2)이 있으면 대체 표시됩니다.',
         save: '저장',
         companySaveSuccess: '회사명을 저장했습니다. 견적서·견적 관리에 반영됩니다.',
         companySaveFailed: '회사명 저장에 실패했습니다. 잠시 후 다시 시도하세요.',

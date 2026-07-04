@@ -618,35 +618,33 @@ onBeforeUnmount(() => {
               </p>
             </section>
 
-            <!-- 회사명(sp 프로필층) 편집+저장 -->
-            <section class="mt-5 rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <!-- 회사명(sp 프로필층) 편집+저장 — 관리자 메모와 동일 스타일 -->
+            <section class="mt-5">
               <h3 class="text-sm font-semibold text-gray-800">
                 {{ t('admin.members.drawer.companyName') }}
               </h3>
-              <div class="mt-2 flex items-center gap-2">
-                <input
-                  v-model="companyNameInput"
-                  type="text"
-                  class="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                  :placeholder="detail.companyName ?? ''"
-                  @keydown.enter="submitCompanyName"
-                >
+              <input
+                v-model="companyNameInput"
+                type="text"
+                class="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                @keydown.enter="submitCompanyName"
+              >
+              <div class="mt-1 flex items-center gap-2">
                 <button
                   type="button"
-                  class="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                   :disabled="!companyNameChanged || profilePending"
                   @click="submitCompanyName"
                 >
                   {{ t('admin.members.drawer.save') }}
                 </button>
+                <span v-if="profileFailed" class="text-xs text-red-600">
+                  {{ t('admin.members.drawer.companySaveFailed') }}
+                </span>
+                <span v-else-if="profileSaved" class="text-xs text-green-700">
+                  {{ t('admin.members.drawer.companySaveSuccess') }}
+                </span>
               </div>
-              <p class="mt-1 text-xs text-gray-400">{{ t('admin.members.drawer.companyNameHint') }}</p>
-              <p v-if="profileFailed" class="mt-1 text-xs text-red-600">
-                {{ t('admin.members.drawer.companySaveFailed') }}
-              </p>
-              <p v-else-if="profileSaved" class="mt-1 text-xs text-green-700">
-                {{ t('admin.members.drawer.companySaveSuccess') }}
-              </p>
             </section>
 
             <!-- 레거시 사업자 정보 (값 있을 때만) -->
