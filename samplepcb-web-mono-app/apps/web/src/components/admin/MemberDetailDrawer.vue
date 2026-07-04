@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
+import type { AdminMemberInfoBodyType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
+import { useDaumPostcode } from '../../lib/useDaumPostcode';
+import type { DaumPostcodeData } from '../../lib/useDaumPostcode';
 import {
   useAdminMemberDetail,
   useSaveMemberProfile,
   useSetIntercept,
   useSetLevel,
+  useUpdateMemberInfo,
+  useUpdateMemberMemo,
 } from '../../admin/useAdminMembers';
 import { formatDate, formatKrw } from '../../lib/format';
 import UiBadge from '../ui/UiBadge.vue';
@@ -46,12 +51,72 @@ const {
   isError: profileFailed,
   reset: resetProfile,
 } = useSaveMemberProfile();
+const { mutate: updateInfo, isPending: infoPending, error: infoErr, reset: resetInfo } =
+  useUpdateMemberInfo();
+const {
+  mutate: updateMemo,
+  isPending: memoPending,
+  isSuccess: memoSaved,
+  isError: memoFailed,
+  reset: resetMemo,
+} = useUpdateMemberMemo();
 
 // 프로젝트(회원) 전환 시에만 입력 리필 — 편집 중 값을 덮어쓰지 않는다.
 const companyNameInput = ref('');
 const levelInput = ref(1);
 const interceptConfirm = ref(false);
 const filledFor = ref<string | null>(null);
+
+// 연락/주소 편집 폼 — [수정] 클릭 시 현재 detail 로 리필(startEditing), dirty 필드만 전송.
+interface EditForm {
+  name: string;
+  nick: string;
+  email: string;
+  hp: string;
+  tel: string;
+  zip: string;
+  addr1: string;
+  addr2: string;
+  addr3: string;
+}
+const emptyEditForm = (): EditForm => ({
+  name: '',
+  nick: '',
+  email: '',
+  hp: '',
+  tel: '',
+  zip: '',
+  addr1: '',
+  addr2: '',
+  addr3: '',
+});
+const editing = ref(false);
+const editForm = ref<EditForm>(emptyEditForm());
+const memoInput = ref('');
+
+// 주소 검색(Daum) — [수정] 폼 안에서 embed 패널을 토글. 스크립트 로드 실패는 버튼 옆 문구.
+const { embed: embedPostcode } = useDaumPostcode();
+const postcodeOpen = ref(false);
+const postcodeFailed = ref(false);
+const postcodePanel = ref<HTMLElement | null>(null);
+// 이번 편집에서 주소 검색이 적용됐는지 + 선택 타입('R' 도로명/'J' 지번 — 코어 win_zip 이
+// mb_addr_jibeon 에 저장하는 플래그와 동일). ''=검색 미적용. 적용됐으면 dirty 여부와 무관하게
+// 전송한다 — 기존 플래그가 같은 값('R'→'R' 재검색)이어도 서버의 "미제공=미상 초기화"에
+// 휩쓸리지 않게(감사에서 발견한 전송 누락 경로).
+const appliedAddrType = ref<'' | 'R' | 'J'>('');
+
+// detail → 편집 폼 초기값. zip 은 표시용 조합("062-34")에서 하이픈을 떼어 5자리로 복원.
+const editFormFromDetail = (d: NonNullable<typeof detail.value>): EditForm => ({
+  name: d.name,
+  nick: d.nick,
+  email: d.email ?? '',
+  hp: d.hp,
+  tel: d.tel,
+  zip: (d.addr?.zip ?? '').replace(/-/g, ''),
+  addr1: d.addr?.addr1 ?? '',
+  addr2: d.addr?.addr2 ?? '',
+  addr3: d.addr?.addr3 ?? '',
+});
 
 watch(detail, (d) => {
   if (d !== null && filledFor.value !== d.mbId) {
@@ -61,9 +126,16 @@ watch(detail, (d) => {
     companyNameInput.value = d.profileCompanyName ?? '';
     levelInput.value = d.level;
     interceptConfirm.value = false;
+    // 편집 폼은 [수정] 클릭 시 리필하므로 여기선 닫기만. 메모는 항상 표시라 리필.
+    editing.value = false;
+    postcodeOpen.value = false;
+    postcodeFailed.value = false;
+    memoInput.value = d.memo ?? '';
     resetIntercept();
     resetLevel();
     resetProfile();
+    resetInfo();
+    resetMemo();
   }
 });
 
@@ -115,6 +187,108 @@ const mapError = (err: unknown): string | null => {
 };
 const interceptError = computed<string | null>(() => mapError(interceptErr.value));
 const levelError = computed<string | null>(() => mapError(levelErr.value));
+const infoError = computed<string | null>(() => mapError(infoErr.value));
+
+// 연락/주소 편집 — [수정] 클릭 시 현재 detail 로 폼 리필
+const startEditing = (): void => {
+  const d = detail.value;
+  if (d === null) return;
+  editForm.value = editFormFromDetail(d);
+  resetInfo();
+  postcodeOpen.value = false;
+  postcodeFailed.value = false;
+  appliedAddrType.value = '';
+  editing.value = true;
+};
+
+// 편집 취소/종료 — 폼과 주소 검색 패널을 함께 닫는다.
+const closeEditing = (): void => {
+  editing.value = false;
+  postcodeOpen.value = false;
+  postcodeFailed.value = false;
+};
+
+// 주소 검색 열기 — embed 패널 렌더 후 Daum UI 를 끼워 넣는다. 로드 실패 시 문구 노출.
+const openPostcode = (): void => {
+  postcodeFailed.value = false;
+  postcodeOpen.value = true;
+  void nextTick(() => {
+    const el = postcodePanel.value;
+    if (el === null) return;
+    embedPostcode(el, applyPostcode).catch(() => {
+      postcodeFailed.value = true;
+      postcodeOpen.value = false;
+    });
+  });
+};
+
+// 선택 완료 → 편집 폼 채움. 매핑은 그누보드 win_zip(js/common.js) 이식:
+// zip=우편번호, addr1=도로명(R)/지번(J), addr3=도로명일 때 참고항목(법정동·건물명 조합),
+// addrJibeon=선택 타입 플래그('R'/'J' — 코어 win_zip 동일), addr2 는 비우고 상세주소 입력 유도.
+const applyPostcode = (data: DaumPostcodeData): void => {
+  const isRoad = data.userSelectedType === 'R';
+  let extra = '';
+  if (isRoad) {
+    if (data.bname !== '') extra += data.bname;
+    if (data.buildingName !== '') {
+      extra += extra !== '' ? `, ${data.buildingName}` : data.buildingName;
+    }
+    extra = extra !== '' ? `(${extra})` : '';
+  }
+  editForm.value.zip = data.zonecode;
+  editForm.value.addr1 = isRoad ? data.roadAddress : data.jibunAddress;
+  editForm.value.addr3 = extra;
+  editForm.value.addr2 = '';
+  appliedAddrType.value = data.userSelectedType;
+  postcodeOpen.value = false;
+};
+
+// dirty 필드만 PATCH(부분 갱신). 변경 없으면 닫기, 성공 시 닫기.
+const submitInfo = (): void => {
+  const d = detail.value;
+  if (d === null) return;
+  const f = editForm.value;
+  const orig = editFormFromDetail(d);
+  const patch: AdminMemberInfoBodyType = {};
+  if (f.name !== orig.name) patch.name = f.name;
+  if (f.nick !== orig.nick) patch.nick = f.nick;
+  if (f.email !== orig.email) patch.email = f.email;
+  if (f.hp !== orig.hp) patch.hp = f.hp;
+  if (f.tel !== orig.tel) patch.tel = f.tel;
+  if (f.zip !== orig.zip) patch.zip = f.zip;
+  if (f.addr1 !== orig.addr1) patch.addr1 = f.addr1;
+  if (f.addr2 !== orig.addr2) patch.addr2 = f.addr2;
+  if (f.addr3 !== orig.addr3) patch.addr3 = f.addr3;
+  // 주소 형식 플래그는 검색이 적용됐을 때 항상 전송(dirty 무관 — 상단 appliedAddrType 주석).
+  // 검색 미적용이면 미전송 → 서버가 addr1 수동 변경 시에만 '' 초기화.
+  if (appliedAddrType.value !== '') patch.addrJibeon = appliedAddrType.value;
+  if (Object.keys(patch).length === 0) {
+    closeEditing();
+    return;
+  }
+  resetInfo();
+  updateInfo(
+    { mbId: d.mbId, ...patch },
+    {
+      onSuccess: () => {
+        closeEditing();
+      },
+    },
+  );
+};
+
+// 메모 — 변경 시에만 저장 활성(회사명 저장 UI 관례)
+const memoChanged = computed<boolean>(() => {
+  const d = detail.value;
+  if (d === null) return false;
+  return memoInput.value !== (d.memo ?? '');
+});
+const submitMemo = (): void => {
+  const d = detail.value;
+  if (d === null || !memoChanged.value) return;
+  resetMemo();
+  updateMemo({ mbId: d.mbId, memo: memoInput.value });
+};
 
 // 레거시 사업자 정보 — 값 있는 필드만 표시(라벨 복원)
 const businessRows = computed<{ label: string; value: string }[]>(() => {
@@ -229,12 +403,24 @@ onBeforeUnmount(() => {
               </div>
             </dl>
 
-            <!-- 연락/주소 -->
+            <!-- 연락/주소 (표시 ↔ 편집 토글) -->
             <section class="mt-5">
-              <h3 class="text-sm font-semibold text-gray-800">
-                {{ t('admin.members.drawer.contact') }}
-              </h3>
-              <dl class="mt-2 space-y-1 text-sm">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-gray-800">
+                  {{ t('admin.members.drawer.contact') }}
+                </h3>
+                <button
+                  v-if="detail.status !== 'left' && !editing"
+                  type="button"
+                  class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                  @click="startEditing"
+                >
+                  {{ t('admin.members.drawer.edit.button') }}
+                </button>
+              </div>
+
+              <!-- 표시 모드 -->
+              <dl v-if="!editing" class="mt-2 space-y-1 text-sm">
                 <div class="flex gap-2">
                   <dt class="w-20 shrink-0 text-gray-400">{{ t('admin.members.drawer.email') }}</dt>
                   <dd class="min-w-0 break-all text-gray-800">{{ detail.email ?? '-' }}</dd>
@@ -258,6 +444,154 @@ onBeforeUnmount(() => {
                   </dd>
                 </div>
               </dl>
+
+              <!-- 편집 모드 (dirty 필드만 전송) -->
+              <div v-else class="mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                  <label class="block">
+                    <span class="text-xs text-gray-400">
+                      {{ t('admin.members.drawer.edit.name') }}
+                    </span>
+                    <input
+                      v-model="editForm.name"
+                      type="text"
+                      class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                  </label>
+                  <label class="block">
+                    <span class="text-xs text-gray-400">
+                      {{ t('admin.members.drawer.edit.nick') }}
+                    </span>
+                    <input
+                      v-model="editForm.nick"
+                      type="text"
+                      class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                  </label>
+                </div>
+                <label class="block">
+                  <span class="text-xs text-gray-400">
+                    {{ t('admin.members.drawer.edit.email') }}
+                  </span>
+                  <input
+                    v-model="editForm.email"
+                    type="email"
+                    class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                </label>
+                <div class="grid grid-cols-2 gap-2">
+                  <label class="block">
+                    <span class="text-xs text-gray-400">
+                      {{ t('admin.members.drawer.edit.hp') }}
+                    </span>
+                    <input
+                      v-model="editForm.hp"
+                      type="text"
+                      class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                  </label>
+                  <label class="block">
+                    <span class="text-xs text-gray-400">
+                      {{ t('admin.members.drawer.edit.tel') }}
+                    </span>
+                    <input
+                      v-model="editForm.tel"
+                      type="text"
+                      class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                  </label>
+                </div>
+                <div>
+                  <span class="text-xs text-gray-400">
+                    {{ t('admin.members.drawer.edit.zip') }}
+                  </span>
+                  <div class="mt-0.5 flex items-center gap-2">
+                    <input
+                      v-model="editForm.zip"
+                      type="text"
+                      inputmode="numeric"
+                      maxlength="5"
+                      :placeholder="t('admin.members.drawer.edit.zipPlaceholder')"
+                      class="w-28 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                    <button
+                      type="button"
+                      class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                      @click="openPostcode"
+                    >
+                      {{ t('admin.members.drawer.edit.addrSearch') }}
+                    </button>
+                  </div>
+                  <p v-if="postcodeFailed" class="mt-1 text-xs text-red-600">
+                    {{ t('admin.members.drawer.edit.addrSearchFailed') }}
+                  </p>
+                </div>
+                <!-- 주소 검색(Daum) embed 패널 — [주소 검색] 버튼 바로 아래(코어 win_zip 도
+                     addr1 앞에 삽입). 선택 완료 시 아래 우편번호·주소 필드를 채운다 -->
+                <div v-if="postcodeOpen" class="overflow-hidden rounded-md border border-gray-300">
+                  <div class="flex items-center justify-between border-b border-gray-200 px-2 py-1">
+                    <span class="text-xs text-gray-500">
+                      {{ t('admin.members.drawer.edit.addrSearch') }}
+                    </span>
+                    <button
+                      type="button"
+                      class="rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100"
+                      @click="postcodeOpen = false"
+                    >
+                      {{ t('admin.members.drawer.edit.addrSearchClose') }}
+                    </button>
+                  </div>
+                  <div ref="postcodePanel" class="h-[300px] w-full" />
+                </div>
+                <label class="block">
+                  <span class="text-xs text-gray-400">
+                    {{ t('admin.members.drawer.edit.addr1') }}
+                  </span>
+                  <input
+                    v-model="editForm.addr1"
+                    type="text"
+                    class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                </label>
+                <label class="block">
+                  <span class="text-xs text-gray-400">
+                    {{ t('admin.members.drawer.edit.addr2') }}
+                  </span>
+                  <input
+                    v-model="editForm.addr2"
+                    type="text"
+                    class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                </label>
+                <label class="block">
+                  <span class="text-xs text-gray-400">
+                    {{ t('admin.members.drawer.edit.addr3') }}
+                  </span>
+                  <input
+                    v-model="editForm.addr3"
+                    type="text"
+                    class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                </label>
+                <div class="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    :disabled="infoPending"
+                    @click="submitInfo"
+                  >
+                    {{ t('admin.members.drawer.edit.save') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-md px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100"
+                    @click="closeEditing"
+                  >
+                    {{ t('admin.members.drawer.edit.cancel') }}
+                  </button>
+                  <span v-if="infoError !== null" class="text-xs text-red-600">{{ infoError }}</span>
+                </div>
+              </div>
             </section>
 
             <!-- 수신동의 -->
@@ -332,14 +666,41 @@ onBeforeUnmount(() => {
               </dl>
             </section>
 
-            <!-- 관리자 메모 (있을 때만, read-only) -->
-            <section v-if="detail.memo !== null" class="mt-5">
+            <!-- 관리자 메모 (항상 표시 — 탈퇴 회원은 read-only) -->
+            <section class="mt-5">
               <h3 class="text-sm font-semibold text-gray-800">
                 {{ t('admin.members.drawer.memo') }}
               </h3>
-              <p class="mt-2 whitespace-pre-wrap rounded-md bg-gray-50 p-3 text-sm text-gray-700">
-                {{ detail.memo }}
+              <p
+                v-if="detail.status === 'left'"
+                class="mt-2 whitespace-pre-wrap rounded-md bg-gray-50 p-3 text-sm text-gray-700"
+              >
+                {{ detail.memo ?? '-' }}
               </p>
+              <template v-else>
+                <textarea
+                  v-model="memoInput"
+                  rows="3"
+                  :placeholder="t('admin.members.drawer.memoEdit.placeholder')"
+                  class="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+                <div class="mt-1 flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    :disabled="!memoChanged || memoPending"
+                    @click="submitMemo"
+                  >
+                    {{ t('admin.members.drawer.memoEdit.save') }}
+                  </button>
+                  <span v-if="memoFailed" class="text-xs text-red-600">
+                    {{ t('admin.members.drawer.memoEdit.failed') }}
+                  </span>
+                  <span v-else-if="memoSaved" class="text-xs text-green-700">
+                    {{ t('admin.members.drawer.memoEdit.success') }}
+                  </span>
+                </div>
+              </template>
             </section>
 
             <!-- 최근 견적 -->

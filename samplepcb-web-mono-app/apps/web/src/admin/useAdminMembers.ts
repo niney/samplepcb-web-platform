@@ -2,12 +2,15 @@ import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   AdminMemberDetailResponse,
+  AdminMemberInfoResponse,
   AdminMemberInterceptResponse,
   AdminMemberLevelResponse,
   AdminMemberListResponse,
+  AdminMemberMemoResponse,
   AdminMemberProfileResponse,
   apiRoutes,
 } from '@sp/api-contract';
+import type { AdminMemberInfoBodyType } from '@sp/api-contract';
 import { apiGet, apiSend } from '@sp/shared';
 
 // 관리자 회원 관리(/admin/members) 서버 상태 훅 모음. 계약은 @sp/api-contract(members.ts),
@@ -105,6 +108,42 @@ export function useSaveMemberProfile() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
       await queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] });
+    },
+  });
+}
+
+// 회원 정보 부분 편집 — dirty 필드만 전송. 이름·이메일·전화는 견적 관리 신청자 카드에도
+// 표시되므로(getMembersByIds 경유) ['admin','members'] + ['admin','quotes'] 양쪽 무효화.
+export function useUpdateMemberInfo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mbId, ...body }: { mbId: string } & AdminMemberInfoBodyType) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminMembers}/${encodeURIComponent(mbId)}/info`,
+        body,
+        AdminMemberInfoResponse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] });
+    },
+  });
+}
+
+// 관리자 메모 편집 — 견적 관리와 무관하므로 members 만 무효화.
+export function useUpdateMemberMemo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mbId, memo }: { mbId: string; memo: string }) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminMembers}/${encodeURIComponent(mbId)}/memo`,
+        { memo },
+        AdminMemberMemoResponse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
     },
   });
 }

@@ -2,25 +2,35 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   AdminMemberDetailResponse,
+  AdminMemberInfoBody,
+  AdminMemberInfoResponse,
   AdminMemberInterceptBody,
   AdminMemberInterceptResponse,
   AdminMemberLevelBody,
   AdminMemberLevelResponse,
   AdminMemberListQuery,
   AdminMemberListResponse,
+  AdminMemberMemoBody,
+  AdminMemberMemoResponse,
   AdminMemberProfileBody,
   AdminMemberProfileResponse,
   ApiError,
 } from '@sp/api-contract';
 import type { AdminMemberListItemType, AdminMemberStatusType } from '@sp/api-contract';
 import {
+  existsMemberEmail,
+  existsMemberHp,
+  existsMemberNick,
   getCfAdminId,
   getMemberDetailRow,
+  hyphenHpNumber,
   searchMembers,
   setMemberIntercept,
   setMemberLevel,
+  updateMemberInfo,
+  updateMemberMemo,
 } from '../lib/g5-db';
-import type { MemberListRow } from '../lib/g5-db';
+import type { MemberInfoFields, MemberListRow } from '../lib/g5-db';
 import { kstTodayYmd } from '../lib/kst';
 import { prisma } from '../lib/prisma';
 
@@ -183,7 +193,11 @@ export const adminMemberRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         result: true as const,
         data: {
           ...toMemberListItem(row, profile?.companyName ?? null, projectCount),
-          addr: addrEmpty ? null : { zip, addr1: row.addr1, addr2: row.addr2, addr3: row.addr3 },
+          hp: row.hp, // 편집 폼 프리필용 원본(목록 phone 은 hp||tel 합성)
+          tel: row.tel,
+          addr: addrEmpty
+            ? null
+            : { zip, addr1: row.addr1, addr2: row.addr2, addr3: row.addr3, jibeon: row.addrJibeon },
           emailCertifiedAt: row.emailCertifiedAt,
           mailAgree: row.mailling === 1,
           smsAgree: row.sms === 1,
@@ -317,6 +331,111 @@ export const adminMemberRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           mbId: row.mbId,
           companyName: resolveMemberCompany(stored, row.legacyCompany),
         },
+      };
+    },
+  );
+
+  // ── PATCH /api/admin/members/:mbId/info — 회원 정보 부분 편집 (카탈로그 ⑨-b) ──
+  // 가드 차등: 차단/레벨과 달리 self·cf_admin **허용**(권한 공격 벡터가 아니고 관리자가
+  // 자기 연락처를 고치는 게 자연스럽다). 미존재 404 + 탈퇴 409 LEFT_MEMBER 2종만.
+  // 코어(adm/member_form_update.php) 정합성: email→nick→hp 순 중복 409, hp 하이픈 정규화,
+  // zip 3+2 분해, 주소 계열 변경 시 mb_addr_jibeon 초기화, mb_nick_date 미갱신. 보낸 필드만 UPDATE.
+  fastify.patch(
+    '/members/:mbId/info',
+    {
+      schema: {
+        params: MbIdParams,
+        body: AdminMemberInfoBody,
+        response: { 200: AdminMemberInfoResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const { mbId } = request.params;
+      const row = await getMemberDetailRow(mbId);
+      if (row === null) return reply.notFound('회원이 없습니다');
+      if (row.leaveDate !== '') {
+        return reply.status(409).send({ error: 'LEFT_MEMBER', message: '탈퇴한 회원입니다' });
+      }
+
+      const body = request.body;
+      // 중복 검사 순서 email → nick → hp, 첫 충돌 409(코어 동일 `= ? AND mb_id <> ?`)
+      if (body.email !== undefined && (await existsMemberEmail(body.email, mbId))) {
+        return reply
+          .status(409)
+          .send({ error: 'EMAIL_DUPLICATE', message: '이미 사용 중인 이메일입니다' });
+      }
+      if (body.nick !== undefined && (await existsMemberNick(body.nick, mbId))) {
+        return reply
+          .status(409)
+          .send({ error: 'NICK_DUPLICATE', message: '이미 사용 중인 닉네임입니다' });
+      }
+      // hp 는 하이픈 정규화 후 저장·중복 검사. 빈 값(비움)은 중복 검사 통과(코어 exist_mb_hp 동일).
+      const normalizedHp = body.hp !== undefined ? hyphenHpNumber(body.hp) : undefined;
+      if (
+        normalizedHp !== undefined &&
+        normalizedHp !== '' &&
+        (await existsMemberHp(normalizedHp, mbId))
+      ) {
+        return reply
+          .status(409)
+          .send({ error: 'HP_DUPLICATE', message: '이미 사용 중인 휴대폰 번호입니다' });
+      }
+
+      // 화이트리스트 fields 조립 — 보낸 필드만. mb_nick_date 는 갱신하지 않는다(코어 동일).
+      const fields: MemberInfoFields = {};
+      if (body.name !== undefined) fields.mb_name = body.name;
+      if (body.nick !== undefined) fields.mb_nick = body.nick;
+      if (body.email !== undefined) fields.mb_email = body.email;
+      if (normalizedHp !== undefined) fields.mb_hp = normalizedHp;
+      if (body.tel !== undefined) fields.mb_tel = body.tel;
+      if (body.zip !== undefined) {
+        // 5자리→zip1(3)+zip2(2), '' → 둘 다 '' (코어 substr(0,3)/substr(3))
+        fields.mb_zip1 = body.zip.slice(0, 3);
+        fields.mb_zip2 = body.zip.slice(3);
+      }
+      if (body.addr1 !== undefined) fields.mb_addr1 = body.addr1;
+      if (body.addr2 !== undefined) fields.mb_addr2 = body.addr2;
+      if (body.addr3 !== undefined) fields.mb_addr3 = body.addr3;
+      // mb_addr_jibeon: 코어 win_zip 과 동일하게 주소 형식 플래그('R' 도로명/'J' 지번)를
+      // 저장한다 — print_address 도 이 컬럼을 플래그로 해석(감사 판정: 지번주소 문자열안 폐기).
+      // 검색이 채운 addrJibeon 제공 시 그 값(우선). 미제공이면 **기본주소(addr1) 수동 변경 시에만**
+      // 형식 미상으로 '' 초기화 — 플래그는 addr1 의 형식을 서술하므로 zip·상세(addr2)·참고항목
+      // (addr3)만 바뀔 땐 유지한다(코어는 hidden 으로 항상 유지 — 우리는 addr1 변경만 미상 처리).
+      if (body.addrJibeon !== undefined) {
+        fields.mb_addr_jibeon = body.addrJibeon;
+      } else if (body.addr1 !== undefined) {
+        fields.mb_addr_jibeon = '';
+      }
+
+      await updateMemberInfo(mbId, fields);
+      // 부분 갱신이라 에코 대신 FE 가 invalidate/refetch (계약 주석)
+      return { result: true as const, data: { mbId } };
+    },
+  );
+
+  // ── PATCH /api/admin/members/:mbId/memo — 관리자 메모 편집 (카탈로그 ⑨-b) ────
+  // info 와 동일한 2종 가드(self·cf_admin 허용). 평문 저장, 부수효과 없음. '' = 비움.
+  // 탈퇴 회원의 '삭제함' 마커는 LEFT_MEMBER 가드가 편집 자체를 막아 보존된다.
+  fastify.patch(
+    '/members/:mbId/memo',
+    {
+      schema: {
+        params: MbIdParams,
+        body: AdminMemberMemoBody,
+        response: { 200: AdminMemberMemoResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const { mbId } = request.params;
+      const row = await getMemberDetailRow(mbId);
+      if (row === null) return reply.notFound('회원이 없습니다');
+      if (row.leaveDate !== '') {
+        return reply.status(409).send({ error: 'LEFT_MEMBER', message: '탈퇴한 회원입니다' });
+      }
+      await updateMemberMemo(mbId, request.body.memo);
+      return {
+        result: true as const,
+        data: { mbId, memo: request.body.memo === '' ? null : request.body.memo },
       };
     },
   );

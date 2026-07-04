@@ -22,9 +22,14 @@
 // 결제계좌 컬럼만, 쓰기 절대 금지) ⑧ g5_member·g5_config read-only SELECT(관리자
 // 회원 관리의 목록/검색/카운트/상세 — 컬럼 화이트리스트만; mb_password·mb_dupinfo·
 // mb_lost_certify·mb_certify·mb_email_certify2 등 인증·비밀번호 컬럼은 SELECT 목록에서도
-// 절대 제외, g5_config 는 cf_admin 1컬럼만) ⑨ g5_member UPDATE — mb_intercept_date·
-// mb_level 2컬럼 한정(차단/해제·레벨 변경. 그 외 컬럼 쓰기 절대 금지. 가드 3종 필수:
-// 탈퇴 회원 409 / 자기 자신 409 / cf_admin 계정 409 — 라우트가 강제).
+// 절대 제외, g5_config 는 cf_admin 1컬럼만. 회원 정보 편집의 중복 검사(mb_email·mb_nick·
+// mb_hp COUNT)도 ⑧ 범위) ⑨ g5_member UPDATE — (a) 차단/레벨: mb_intercept_date·mb_level
+// (가드 3종: 탈퇴 409 / 자기 자신 409 / cf_admin 계정 409) · (b) 회원 정보/메모 편집:
+// mb_name·mb_nick·mb_email·mb_hp·mb_tel·mb_zip1·mb_zip2·mb_addr1·mb_addr2·mb_addr3·
+// mb_addr_jibeon·mb_memo (가드 2종: 미존재 404 + 탈퇴 409 만 — self·cf_admin 허용, 권한
+// 공격 벡터가 아니라 차등). 코어 정합성(adm/member_form_update.php): 닉/이메일/hp 중복
+// 거부·hp 하이픈 정규화·zip 3+2 분해·주소 변경 시 mb_addr_jibeon 초기화·mb_nick_date
+// 미갱신. 화이트리스트(updateMemberInfo 맵) 밖 컬럼 쓰기 금지.
 // 운영 전용 커스텀 컬럼(mb_partner_auth, mb_11~mb_20)은 로컬 신설 DB 에 없어 참조 금지.
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
@@ -463,6 +468,7 @@ export interface MemberDetailRow extends MemberListRow {
   addr1: string;
   addr2: string;
   addr3: string;
+  addrJibeon: string; // mb_addr_jibeon (지번 주소 — 주소 검색이 채운 값, '' 가능)
   emailCertifiedAt: string | null; // mb_email_certify, zero-date→null
   mailling: number; // mb_mailling
   sms: number; // mb_sms
@@ -480,7 +486,7 @@ export interface MemberDetailRow extends MemberListRow {
 export async function getMemberDetailRow(mbId: string): Promise<MemberDetailRow | null> {
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
     `SELECT ${MEMBER_LIST_COLUMNS},
-            mb_zip1, mb_zip2, mb_addr1, mb_addr2, mb_addr3,
+            mb_zip1, mb_zip2, mb_addr1, mb_addr2, mb_addr3, mb_addr_jibeon,
             DATE_FORMAT(NULLIF(mb_email_certify, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i') AS email_certified_at,
             mb_mailling, mb_sms, mb_marketing_agree, mb_memo,
             mb_3, mb_4, mb_5, mb_6, mb_7, mb_8, mb_9
@@ -496,6 +502,7 @@ export async function getMemberDetailRow(mbId: string): Promise<MemberDetailRow 
     addr1: String(row.mb_addr1),
     addr2: String(row.mb_addr2),
     addr3: String(row.mb_addr3),
+    addrJibeon: String(row.mb_addr_jibeon),
     emailCertifiedAt: row.email_certified_at === null ? null : String(row.email_certified_at),
     mailling: Number(row.mb_mailling),
     sms: Number(row.mb_sms),
@@ -538,6 +545,98 @@ export async function setMemberLevel(mbId: string, level: number): Promise<numbe
   const [result] = await getG5Pool().query<ResultSetHeader>(
     `UPDATE g5_member SET mb_level = ? WHERE mb_id = ?`,
     [level, mbId],
+  );
+  return result.affectedRows;
+}
+
+// ── 회원 정보/메모 편집 UPDATE (카탈로그 ⑨-b) ────────────────────────────────
+// 코어(adm/member_form_update.php) 정합성 이식. 가드 2종(미존재 404·탈퇴 409)은 라우트가
+// 강제하며 self·cf_admin 은 허용(차단/레벨과 차등). affectedRows 는 반환만(멱등, ⑨-a 관례).
+
+// 휴대폰 하이픈 정규화 — 코어 hyphen_hp_number(lib/common.lib.php:3419) 취지 이식.
+// 숫자만 추출 후 (02|01X|3자리)-(가운데)-(끝 4자리) 하이픈. 휴대폰(01X 10~11자리)은 코어와
+// 결과 100% 동일. 단 02 국번은 코어(끝 기준 3-N-4 → "021-234-…")와 달리 02- 로 분리 —
+// mb_hp 는 휴대폰 필드라 실사용 무영향이고 오입력엔 우리 쪽이 정확(의도적 미세 개선).
+export function hyphenHpNumber(hp: string): string {
+  if (hp === '') return '';
+  const digits = hp.replace(/[^0-9]/g, '');
+  return digits.replace(/(^02.{0}|^01.{1}|[0-9]{3})([0-9]+)([0-9]{4})/, '$1-$2-$3');
+}
+
+// 중복 검사(카탈로그 ⑧) — 코어 exist_mb_* 와 동일하게 `= ? AND mb_id <> ?`(utf8 ci).
+async function existsMemberColumn(
+  column: 'mb_email' | 'mb_nick' | 'mb_hp',
+  value: string,
+  excludeMbId: string,
+): Promise<boolean> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS n FROM g5_member WHERE ${column} = ? AND mb_id <> ?`,
+    [value, excludeMbId],
+  );
+  return Number(rows[0]?.n ?? 0) > 0;
+}
+export const existsMemberEmail = (email: string, excludeMbId: string): Promise<boolean> =>
+  existsMemberColumn('mb_email', email, excludeMbId);
+export const existsMemberNick = (nick: string, excludeMbId: string): Promise<boolean> =>
+  existsMemberColumn('mb_nick', nick, excludeMbId);
+export const existsMemberHp = (hp: string, excludeMbId: string): Promise<boolean> =>
+  existsMemberColumn('mb_hp', hp, excludeMbId);
+
+// 회원 정보 부분 갱신 — 컬럼 화이트리스트 맵으로 동적 SET(맵 밖 키는 타입 차원에서 불가).
+// zip 3+2 분해·주소 변경 시 mb_addr_jibeon 초기화·hp 하이픈 정규화는 라우트가 결정해
+// fields 로 전달한다(도메인 판단은 라우트, 이 함수는 화이트리스트 UPDATE 만).
+export interface MemberInfoFields {
+  mb_name?: string;
+  mb_nick?: string;
+  mb_email?: string;
+  mb_hp?: string;
+  mb_tel?: string;
+  mb_zip1?: string;
+  mb_zip2?: string;
+  mb_addr1?: string;
+  mb_addr2?: string;
+  mb_addr3?: string;
+  mb_addr_jibeon?: string;
+}
+
+const MEMBER_INFO_COLUMNS = [
+  'mb_name',
+  'mb_nick',
+  'mb_email',
+  'mb_hp',
+  'mb_tel',
+  'mb_zip1',
+  'mb_zip2',
+  'mb_addr1',
+  'mb_addr2',
+  'mb_addr3',
+  'mb_addr_jibeon',
+] as const;
+
+export async function updateMemberInfo(mbId: string, fields: MemberInfoFields): Promise<number> {
+  const sets: string[] = [];
+  const bind: string[] = [];
+  for (const col of MEMBER_INFO_COLUMNS) {
+    const v = fields[col];
+    if (v !== undefined) {
+      sets.push(`${col} = ?`);
+      bind.push(v);
+    }
+  }
+  if (sets.length === 0) return 0; // 방어 — 라우트가 최소 1개를 보장
+  bind.push(mbId);
+  const [result] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_member SET ${sets.join(', ')} WHERE mb_id = ?`,
+    bind,
+  );
+  return result.affectedRows;
+}
+
+// 관리자 메모 — 평문 저장, 부수효과 없음(코어 :110).
+export async function updateMemberMemo(mbId: string, memo: string): Promise<number> {
+  const [result] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_member SET mb_memo = ? WHERE mb_id = ?`,
+    [memo, mbId],
   );
   return result.affectedRows;
 }

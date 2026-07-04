@@ -10,6 +10,8 @@
 > 갱신 2026-07-03 · 장바구니 견적 행 건별 인라인 수량변경 — 담긴 상태에서 서버 재견적+cart 행 동기화(기법 #8 개정)
 > 갱신 2026-07-04 · 견적 수신처 회사명 2층 구조(SpOrderSpec.companyName 스냅샷 + SpMemberProfile 프로필) — 여분필드(mb_1/mb_2) 비사용
 > 갱신 2026-07-04 · 관리자 회원 관리(/app/admin/members) — 레거시 member_list.php 이관. g5 한정 예외에 ⑧(g5_member·g5_config read-only SELECT)·⑨(g5_member mb_intercept_date·mb_level UPDATE) 추가
+> 갱신 2026-07-04 · 회원 상세 편집 확장 — 회원 정보(이름·닉·이메일·연락처·주소)+관리자 메모. 카탈로그 ⑨-b(g5_member 정보/메모 UPDATE — 코어 정합성 이식, 가드 차등: self·cf_admin 허용)
+> 갱신 2026-07-04 · 드로어 주소 검색(Daum/카카오 우편번호) — 범용 composable `useDaumPostcode.ts`(win_zip 매핑 이식). mb_addr_jibeon 은 코어 동일 **형식 플래그(R/J)** 저장(검색 시) / addr1 수동 변경 시 '' 초기화(감사 판정 — HANDOFF #12). DB 스키마·카탈로그 문구 무변경
 > 갱신 2026-07-04 · **방침 개정** — sp-php 업무 기능의 모노레포 점진 마이그레이션 확정. g5 접근을 "원칙 금지 + 한정 예외"에서 "규율된 **접근 카탈로그**"로 재정의(5장, HANDOFF 결정 로그 #11)
 
 ---
@@ -193,7 +195,7 @@
 | `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT · 파생 SELECT · ct_select UPDATE(주문 선택 ④) · 견적 행 UPDATE(재견적 동기화 io_id/io_price/ct_option ⑥) · 견적 행 DELETE(ct_id 단위 빼기 ⑥)** (한정 예외, `lib/g5-db.ts` 에 명시) |
 | `g5_shop_item_option` (견적 옵션 행) | 영카트 코어 | sp-node 는 견적 옵션 행(io_id=quoteId) **INSERT + 보상 DELETE 만** (한정 예외 확장, 기법 #3) |
 | `g5_shop_item` (템플릿) | 영카트 코어 | sp-node 는 SELECT 만 (배송정책 스냅샷용) |
-| `g5_member` (회원 정보·상태) | 그누보드 | sp-node 는 **관리자 API 한정**. read-only SELECT: ⑤ 견적 신청자 표시(mb_name/nick/email/hp/tel 최소 컬럼, `getMembersByIds`) · ⑧ 회원 관리 목록/상세(컬럼 화이트리스트 — 연락처·주소·수신동의·여분필드 mb_1~9 등, 민감 컬럼(mb_password·mb_dupinfo·mb_lost_certify·mb_certify·mb_email_certify2)은 SELECT 자체 배제, `searchMembers`/`getMemberDetailRow`). **UPDATE 2컬럼 한정**: ⑨ mb_intercept_date(차단/해제)·mb_level(레벨 변경) — 그 외 컬럼 쓰기 절대 금지, 가드 3종(탈퇴/self/cf_admin 409), `setMemberIntercept`/`setMemberLevel`. `lib/g5-db.ts` |
+| `g5_member` (회원 정보·상태) | 그누보드 | sp-node 는 **관리자 API 한정**. read-only SELECT: ⑤ 견적 신청자 표시(mb_name/nick/email/hp/tel 최소 컬럼, `getMembersByIds`) · ⑧ 회원 관리 목록/상세(컬럼 화이트리스트 — 연락처·주소·수신동의·여분필드 mb_1~9 등, 민감 컬럼(mb_password·mb_dupinfo·mb_lost_certify·mb_certify·mb_email_certify2)은 SELECT 자체 배제, `searchMembers`/`getMemberDetailRow`). **UPDATE(화이트리스트)**: ⑨-a 차단/레벨(mb_intercept_date·mb_level — 가드 3종 탈퇴/self/cf_admin 409, `setMemberIntercept`/`setMemberLevel`) · ⑨-b 회원 정보/메모 편집(mb_name·mb_nick·mb_email·mb_hp·mb_tel·mb_zip1/2·mb_addr1~3·mb_addr_jibeon·mb_memo — 가드 2종 미존재 404+탈퇴 409, **self·cf_admin 허용**(권한 공격 벡터 아님), `updateMemberInfo`/`updateMemberMemo`). 코어 정합성(adm/member_form_update.php 이식): 닉/이메일/hp 중복 거부(⑧ COUNT)·hp 하이픈 정규화·zip 3+2 분해·주소 변경 시 mb_addr_jibeon 초기화·mb_nick_date 미갱신. 화이트리스트 밖 컬럼 쓰기 금지. `lib/g5-db.ts` |
 | `g5_config` (사이트 기본설정) | 그누보드 | sp-node 는 **관리자 회원 관리 한정 read-only SELECT** — cf_admin(최고관리자 mb_id) 1컬럼만, 차단/레벨 변경의 cf_admin 가드용 (한정 예외 ⑧, `lib/g5-db.ts` `getCfAdminId`) |
 | `g5_shop_default` (쇼핑몰 기본설정) | 영카트 코어 | sp-node 는 **관리자 견적서 한정 read-only SELECT** — de_admin_company_*/de_admin_info_*/de_bank_account 최소 컬럼, 견적서 발신처 표기용(하드코딩 대신 재사용) (한정 예외 ⑦, `lib/g5-db.ts` `getShopEstimateProfile`) |
 | 회원/세션 | 그누보드 | sp-node 는 JWT 클레임으로만 **식별** (DB 직접 결합 없음 — 표시용 read-only 예외는 위 `g5_member` 행) |
