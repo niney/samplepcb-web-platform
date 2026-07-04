@@ -7,7 +7,9 @@
 // 견적 관리의 신청자 표시용 — 최소 컬럼, 쓰기 절대 금지) ⑥ g5_shop_cart 견적 행
 // UPDATE(io_id/io_price/ct_option — 담긴 견적 수량 변경 시 재견적 동기화)·DELETE
 // (장바구니에서 견적 행 제거 — ct_id 단위. 코어 cartupdate 는 it_id 단위라 같은
-// 템플릿 견적이 뭉텅이로 처리되므로 ct_id 정밀 조작이 필요) 뿐이다.
+// 템플릿 견적이 뭉텅이로 처리되므로 ct_id 정밀 조작이 필요) ⑦ g5_shop_default
+// read-only SELECT(관리자 견적서의 발신처 정보 — 회사명·대표·주소·연락처·담당자·
+// 결제계좌 컬럼만, 쓰기 절대 금지) 뿐이다.
 // 그 외 g5_* 접근은 금지 — 범위를 넓히려면 HANDOFF 결정을 먼저 갱신할 것.
 //
 // LEGACY_DATABASE_URL(운영 읽기 전용, 검증 스크립트용)과 반드시 구분한다.
@@ -228,6 +230,42 @@ export async function getMembersByIds(mbIds: string[]): Promise<Map<string, G5Me
     });
   }
   return map;
+}
+
+// ── 발신처(쇼핑몰) 견적 프로필 SELECT (한정 예외 ⑦) ─────────────────────────
+// 관리자 견적서(A4)의 발신(공급자) 정보. 하드코딩 대신 영카트 기본환경설정
+// (g5_shop_default)을 재사용한다 — read-only, 아래 컬럼만. 쓰기 절대 금지.
+// 로컬 DB 는 설치 더미값("회사명" 등)이 그대로 표시되는 것이 정상(실값은 운영 절차).
+export interface ShopEstimateProfile {
+  name: string; // de_admin_company_name (상호)
+  owner: string; // de_admin_company_owner (대표자)
+  tel: string; // de_admin_company_tel
+  zip: string; // de_admin_company_zip
+  addr: string; // de_admin_company_addr
+  managerName: string; // de_admin_info_name (담당자)
+  managerEmail: string; // de_admin_info_email
+  bankAccount: string; // de_bank_account (결제계좌)
+}
+
+export async function getShopEstimateProfile(): Promise<ShopEstimateProfile | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT de_admin_company_name, de_admin_company_owner, de_admin_company_tel,
+            de_admin_company_zip, de_admin_company_addr, de_admin_info_name,
+            de_admin_info_email, de_bank_account
+       FROM g5_shop_default LIMIT 1`,
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    name: String(row.de_admin_company_name ?? ''),
+    owner: String(row.de_admin_company_owner ?? ''),
+    tel: String(row.de_admin_company_tel ?? ''),
+    zip: String(row.de_admin_company_zip ?? ''),
+    addr: String(row.de_admin_company_addr ?? ''),
+    managerName: String(row.de_admin_info_name ?? ''),
+    managerEmail: String(row.de_admin_info_email ?? ''),
+    bankAccount: String(row.de_bank_account ?? ''),
+  };
 }
 
 // ── 주문 선택 플래그 UPDATE ─────────────────────────────────────────────────

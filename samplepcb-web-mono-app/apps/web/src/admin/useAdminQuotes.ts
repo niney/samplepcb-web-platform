@@ -7,6 +7,7 @@ import {
 } from '@tanstack/vue-query';
 import {
   AdminConfirmPriceResponse,
+  AdminEstimateResponse,
   AdminQuoteDetailResponse,
   AdminQuoteListResponse,
   apiRoutes,
@@ -57,6 +58,19 @@ export function useAdminQuoteDetail(projectId: Ref<number | null>) {
       apiGet(
         `${apiRoutes.adminPcbProjects}/${String(projectId.value)}`,
         AdminQuoteDetailResponse,
+      ),
+    enabled: computed(() => projectId.value !== null),
+  });
+}
+
+// 견적서(A4) 표시 데이터 — 견적서 모달 open(projectId != null) 시에만 fetch.
+export function useAdminEstimate(projectId: Ref<number | null>) {
+  return useQuery({
+    queryKey: ['admin', 'quotes', 'estimate', projectId],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.adminPcbProjects}/${String(projectId.value)}/estimate`,
+        AdminEstimateResponse,
       ),
     enabled: computed(() => projectId.value !== null),
   });

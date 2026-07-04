@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   AdminConfirmPriceBody,
   AdminConfirmPriceResponse,
+  AdminEstimateResponse,
   AdminQuoteDetailResponse,
   AdminQuoteListQuery,
   AdminQuoteListResponse,
@@ -12,7 +13,7 @@ import {
 import type { AdminApplicantType, PcbProjectPayloadType } from '@sp/api-contract';
 import { buildOptionSummary } from '../lib/option-summary';
 import { downloadFromFileServer } from '../lib/file-server';
-import { getCartStates, getMembersByIds } from '../lib/g5-db';
+import { getCartStates, getMembersByIds, getShopEstimateProfile } from '../lib/g5-db';
 import type { CartState, G5Member } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
 import { signedThumbUrl } from '../lib/thumb-url';
@@ -33,6 +34,11 @@ const asQuoteStatus = (v: string): 'priced' | 'rfq' | 'quoted' =>
   v === 'rfq' ? 'rfq' : v === 'quoted' ? 'quoted' : 'priced';
 const asSpecStatus = (v: string): 'active' | 'deleted' | 'archived' =>
   v === 'deleted' ? 'deleted' : v === 'archived' ? 'archived' : 'active';
+
+// KST(+09:00) 기준 YYYY-MM-DD — 서버 타임존과 무관하게 한국 업무일로 날짜를 찍는다
+// (견적서 발행일·유효기간 표기용).
+const kstDateStr = (d: Date): string =>
+  new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
 // 신청자 합성 — mbId null(비회원)이면 null, 회원 행 소실(탈퇴)이면 mbId 만 채운다.
 const toApplicant = (
@@ -260,6 +266,85 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             writeDate: f.writeDate.toISOString(),
           })),
           updatedAt: spec.updatedAt.toISOString(),
+        },
+      };
+    },
+  );
+
+  // ── GET /api/admin/pcb-projects/:id/estimate — 견적서(A4) 표시 데이터 ──────
+  // 순수 표시 컴포넌트(EstimateSheet.vue)에 주입할 완성 데이터. 금액은 서버에서
+  // 부가세 역산(가격 미확정 rfq 면 amounts=null), 발신처는 g5_shop_default 재사용
+  // (한정 예외 ⑦). status 무제한 — 버튼 활성 판단은 FE 가 하고 서버는 데이터만 준다.
+  // pathToken 은 response 스키마에 없어 구조적으로 배제된다(상세 라우트와 동일 방어).
+  fastify.get(
+    '/pcb-projects/:id/estimate',
+    {
+      schema: {
+        params: ProjectIdParams,
+        response: { 200: AdminEstimateResponse },
+      },
+    },
+    async (request, reply) => {
+      const spec = await prisma.spOrderSpec.findFirst({
+        where: { id: BigInt(request.params.id) },
+      });
+      if (spec === null) return reply.notFound('프로젝트가 없습니다');
+
+      const [quote, members, profile] = await Promise.all([
+        prisma.spQuote.findUnique({ where: { id: spec.quoteId } }),
+        spec.mbId !== null
+          ? getMembersByIds([spec.mbId])
+          : Promise.resolve(new Map<string, G5Member>()),
+        getShopEstimateProfile(),
+      ]);
+
+      // 부가세 정석 역산 — 합계(부가세 포함) 기준 공급가액·부가세를 서버가 계산.
+      const total = spec.finalPrice ?? quote?.autoPrice ?? null;
+      const supply = total !== null ? Math.round(total / 1.1) : null;
+      const amounts =
+        total !== null && supply !== null ? { supply, vat: total - supply, total } : null;
+
+      // 유효기간 — 확정가(finalPrice) 문서는 확정이 곧 발행 근거라 발행일+30일(레거시
+      // "견적서 발행후 1개월" 관례). 자동견적 기반만 스냅샷 만료일(expiresAt)을 그대로
+      // 쓴다(오래된 자동견적이 만료로 표시되는 건 정직한 상태).
+      const now = new Date();
+      const validUntil =
+        spec.finalPrice === null && quote !== null
+          ? kstDateStr(quote.expiresAt)
+          : kstDateStr(new Date(now.getTime() + 30 * 24 * 3600 * 1000));
+
+      return {
+        result: true as const,
+        data: {
+          projectId: Number(spec.id),
+          estimateNo: `Q${String(Number(spec.id))}`,
+          issuedAt: kstDateStr(now),
+          validUntil,
+          projectName: spec.projectName,
+          category: spec.category,
+          orderCategory: asOrderCategory(spec.orderCategory),
+          qty: spec.qty,
+          optionSummary: buildOptionSummary(
+            spec.specJson as PcbProjectPayloadType['spec'],
+            spec.qty,
+          ),
+          spec: spec.specJson as PcbProjectPayloadType['spec'],
+          eta: quote?.eta ?? null,
+          applicant: toApplicant(
+            spec.mbId,
+            spec.mbId !== null ? members.get(spec.mbId) : undefined,
+          ),
+          amounts,
+          company: {
+            name: profile?.name ?? '',
+            owner: profile?.owner ?? '',
+            tel: profile?.tel ?? '',
+            zip: profile?.zip ?? '',
+            addr: profile?.addr ?? '',
+            managerName: profile?.managerName ?? '',
+            managerEmail: profile?.managerEmail ?? '',
+            bankAccount: profile?.bankAccount ?? '',
+          },
         },
       };
     },

@@ -184,6 +184,7 @@
 | `g5_shop_item_option` (견적 옵션 행) | 영카트 코어 | sp-node 는 견적 옵션 행(io_id=quoteId) **INSERT + 보상 DELETE 만** (한정 예외 확장, 기법 #3) |
 | `g5_shop_item` (템플릿) | 영카트 코어 | sp-node 는 SELECT 만 (배송정책 스냅샷용) |
 | `g5_member` (회원 표시 정보) | 그누보드 | sp-node 는 **관리자 API 한정 read-only SELECT** — mb_name/mb_nick/mb_email/mb_hp/mb_tel 최소 컬럼, 신청자 표시용 (한정 예외 ⑤, `lib/g5-db.ts` `getMembersByIds`) |
+| `g5_shop_default` (쇼핑몰 기본설정) | 영카트 코어 | sp-node 는 **관리자 견적서 한정 read-only SELECT** — de_admin_company_*/de_admin_info_*/de_bank_account 최소 컬럼, 견적서 발신처 표기용(하드코딩 대신 재사용) (한정 예외 ⑦, `lib/g5-db.ts` `getShopEstimateProfile`) |
 | 회원/세션 | 그누보드 | sp-node 는 JWT 클레임으로만 **식별** (DB 직접 결합 없음 — 표시용 read-only 예외는 위 `g5_member` 행) |
 | cart↔spec 관계 | **저장하지 않음** | `spec.ctId → g5_shop_cart` 조회 시점 조인으로 파생 — 동기화 로직 자체가 없어 불일치 불가능 |
 

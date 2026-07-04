@@ -9,6 +9,7 @@ import {
 } from '../../admin/useAdminQuotes';
 import { formatBytes, formatDate, formatDateTime, formatKrw } from '../../lib/format';
 import UiBadge from '../ui/UiBadge.vue';
+import EstimateModal from './EstimateModal.vue';
 
 // 견적 상세 드로어 — 우측 슬라이드 오버. 파일 다운로드와 가격 확정(rfq 확정·priced
 // 조정·quoted 재확정)을 담당한다. cart/ordered/deleted 는 서버 가드와 동일 사유로
@@ -52,6 +53,20 @@ const blockedReason = computed<string | null>(() => {
   if (d.cartState === 'cart') return t('admin.quotes.confirmBlocked.cart');
   if (d.cartState === 'ordered') return t('admin.quotes.confirmBlocked.ordered');
   return null;
+});
+
+// 견적서 — 가격이 확정(price != null)된 활성 견적만 발행 가능. 비활성 시 사유를 노출.
+const estimateProjectId = ref<number | null>(null);
+const estimateEnabled = computed<boolean>(() => {
+  const d = detail.value;
+  return d !== null && d.status === 'active' && d.price !== null;
+});
+const estimateBlockedReason = computed<string>(() => {
+  const d = detail.value;
+  if (d === null) return '';
+  if (d.status !== 'active') return t('admin.quotes.estimate.blockedDeleted');
+  if (d.price === null) return t('admin.quotes.estimate.blockedRfq');
+  return '';
 });
 
 const submit = (): void => {
@@ -107,7 +122,9 @@ const onDownload = async (fileId: number, fileName: string): Promise<void> => {
 };
 
 const onKeydown = (e: KeyboardEvent): void => {
-  if (e.key === 'Escape') emit('close');
+  // 견적서 모달이 위에 떠 있으면 ESC 는 모달(자체 리스너)이 처리 — 드로어까지
+  // 한꺼번에 닫히는 이중 닫힘을 막는다.
+  if (e.key === 'Escape' && estimateProjectId.value === null) emit('close');
 };
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
@@ -184,6 +201,21 @@ onBeforeUnmount(() => {
                   </span>
                 </p>
               </div>
+            </div>
+
+            <!-- 견적서 -->
+            <div class="mt-4">
+              <button
+                v-if="estimateEnabled"
+                type="button"
+                class="w-full rounded-md border border-blue-600 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+                @click="estimateProjectId = detail.projectId"
+              >
+                {{ t('admin.quotes.estimate.button') }}
+              </button>
+              <p v-else class="rounded-md bg-gray-50 px-3 py-2 text-center text-sm text-gray-400">
+                {{ estimateBlockedReason }}
+              </p>
             </div>
 
             <!-- 가격 확정 -->
@@ -371,6 +403,11 @@ onBeforeUnmount(() => {
           </template>
         </div>
       </aside>
+      <EstimateModal
+        v-if="estimateProjectId !== null"
+        :project-id="estimateProjectId"
+        @close="estimateProjectId = null"
+      />
     </div>
   </Teleport>
 </template>

@@ -138,3 +138,56 @@ export const AdminConfirmPriceResponse = z.object({
   }),
 });
 export type AdminConfirmPriceResponseType = z.infer<typeof AdminConfirmPriceResponse>;
+
+// ── 관리자 견적서(A4 인쇄) 계약 ─────────────────────────────────────────────
+// GET /api/admin/pcb-projects/:id/estimate. 순수 표시 컴포넌트(EstimateSheet.vue)에
+// props 로 주입한다. 향후 고객용 견적서 라우트에서 같은 스키마를 재사용할 수 있도록
+// 화면이 필요로 하는 표시 데이터를 서버가 완성해서 내려준다(FE 계산 없음).
+
+// 부가세 정석(내가·역산). 합계 = finalPrice ?? autoPrice(부가세 포함액)이며,
+//   공급가액 = round(합계/1.1) · 부가세 = 합계 − 공급가액 → 합이 정확히 합계(1원 오차 없음,
+//   영카트 orderformupdate.php 와 동일 공식). 서버에서 계산하며 FE 재계산 금지.
+export const AdminEstimateAmounts = z.object({
+  supply: z.number(), // 공급가액
+  vat: z.number(), // 부가세
+  total: z.number(), // 합계(부가세 포함)
+});
+export type AdminEstimateAmountsType = z.infer<typeof AdminEstimateAmounts>;
+
+// 발신(공급자) 정보 — 영카트 기본환경설정(g5_shop_default) 재사용(하드코딩 아님).
+// 로컬 DB 는 설치 더미값("회사명" 등)이 그대로 표시되는 게 정상(실값 입력은 운영 절차).
+export const AdminEstimateCompany = z.object({
+  name: z.string(),
+  owner: z.string(),
+  tel: z.string(),
+  zip: z.string(),
+  addr: z.string(),
+  managerName: z.string(),
+  managerEmail: z.string(),
+  bankAccount: z.string(), // 빈 값이면 시트에서 결제계좌 행 생략
+});
+export type AdminEstimateCompanyType = z.infer<typeof AdminEstimateCompany>;
+
+export const AdminEstimate = z.object({
+  projectId: z.number(),
+  estimateNo: z.string(), // "Q{projectId}"
+  issuedAt: z.string(), // 발행일 (오늘, KST YYYY-MM-DD)
+  validUntil: z.string(), // 유효기간 (확정가는 발행일+30일 · 자동견적만 quote.expiresAt KST, YYYY-MM-DD)
+  projectName: z.string(),
+  category: z.string(),
+  orderCategory: z.enum(['sample', 'mass']),
+  qty: z.number(),
+  optionSummary: z.string(),
+  spec: PcbProjectSpec, // 상세 드로어와 동일 원본 — 라벨링은 FE specKeys i18n
+  eta: z.string().nullable(),
+  applicant: AdminApplicant.nullable(),
+  amounts: AdminEstimateAmounts.nullable(), // 가격 미확정(rfq)이면 null
+  company: AdminEstimateCompany,
+});
+export type AdminEstimateType = z.infer<typeof AdminEstimate>;
+
+export const AdminEstimateResponse = z.object({
+  result: z.literal(true),
+  data: AdminEstimate,
+});
+export type AdminEstimateResponseType = z.infer<typeof AdminEstimateResponse>;
