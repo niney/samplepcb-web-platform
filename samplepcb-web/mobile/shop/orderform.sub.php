@@ -277,7 +277,12 @@ ob_start();
                     $good_info .= "good_amtx=".$sell_price.chr(31);
                 }
 
-                $image = get_it_image($row['it_id'], 80, 80);
+                // 거버 썸네일 우선(서버 서명 URL), 없으면 템플릿 상품 이미지 폴백.
+                // extend/sp_quote_cart.extend.php sp_quote_thumb_url() ④ 참조.
+                $thumb = function_exists('sp_quote_thumb_url') ? sp_quote_thumb_url($row['ct_id']) : '';
+                $image = $thumb !== ''
+                    ? '<img src="'.$thumb.'" alt="'.get_text($row['it_name']).'" width="80" height="80">'
+                    : get_it_image($row['it_id'], 80, 80);
 
                 $it_name = '<strong>' . stripslashes($row['it_name']) . '</strong>';
                 $it_options = '';

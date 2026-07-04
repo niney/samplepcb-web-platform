@@ -40,6 +40,50 @@ function sp_quote_it_ids_in()
     }, sp_quote_it_ids()));
 }
 
+// ④ 견적 행 거버 썸네일 서명 URL — sp-node lib/thumb-url.ts signedThumbUrl() 의 PHP 미러.
+//    시크릿(SPCB_JWT_SECRET = node JWT_SECRET) 공유라 서명을 PHP 가 직접 발급하고,
+//    바이트 서빙은 node(/api/pcb-thumbs)가 전담한다(파일서버·pathToken 경계 불변).
+//    주문서(pc·mobile orderform.sub.php) 견적 행이 견적관리·장바구니와 같은 그림을
+//    첫 페인트부터 서버 렌더로 보이게 한다(클라 img.src 교체 없이).
+//    폴백(썸네일 없음·시크릿 미배치)은 '' 반환 → 호출부가 템플릿 상품 이미지로 대체.
+function sp_quote_thumb_url($ct_id)
+{
+    $ct_id = (int) $ct_id;
+    if ($ct_id <= 0) return '';
+
+    // ct_id → sp_order_spec → sp_file(thumbnail). node /cart-items 와 동일하게
+    // id 오름차순 첫 건(= 같은 그림)을 고른다. sp_* 는 g5 와 동거 DB.
+    // ⚠ sp_order_spec 은 prisma @map 없음 → 실물 컬럼이 camelCase `ctId`
+    //    (sp_file 만 snake_case ref_type/ref_id/file_type). snake_case 로 되돌리지 말 것.
+    $row = sql_fetch(" select f.id
+                         from sp_order_spec s
+                         join sp_file f
+                           on f.ref_type  = 'sp_order_spec'
+                          and f.ref_id    = s.id
+                          and f.file_type = 'thumbnail'
+                        where s.`ctId` = '$ct_id'
+                        order by f.id asc
+                        limit 1 ");
+    if (empty($row['id'])) return '';
+
+    // secret.php 는 gitignore 대상 — 미배치 환경에서 require 가 Fatal(주문서 전체 다운)
+    // 나지 않게 존재 확인 후에만 로드해 폴백이 실제로 작동하도록 한다.
+    if (!defined('SPCB_JWT_SECRET')) {
+        $jwt_lib     = G5_PATH . '/spcb/lib/jwt.php';
+        $secret_file = G5_PATH . '/spcb/lib/secret.php';
+        if (!is_file($jwt_lib) || !is_file($secret_file)) return '';
+        require_once $jwt_lib; // SPCB_JWT_SECRET + spcb_base64url_encode()
+    }
+    if (!defined('SPCB_JWT_SECRET') || !function_exists('spcb_base64url_encode')) return '';
+
+    $file_id = (string) $row['id'];
+    $exp = time() + 15 * 60; // node THUMB_TTL_SECONDS 와 동일
+    $sig = spcb_base64url_encode(
+        hash_hmac('sha256', "thumb:{$file_id}:{$exp}", SPCB_JWT_SECRET, true)
+    );
+    return "/api/pcb-thumbs/{$file_id}?exp={$exp}&sig={$sig}";
+}
+
 // ① 주문서용 옵션 나열 — 선택행(ct_select=1)만. lib/shop.lib.php print_item_options 복제+필터.
 function sp_print_item_options_selected($it_id, $cart_id)
 {
