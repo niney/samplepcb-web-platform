@@ -14,4 +14,5 @@ export interface AdminMenuItem {
 export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin' }, labelKey: 'admin.menu.dashboard' },
   { to: { name: 'admin-quotes' }, labelKey: 'admin.menu.quotes', badge: 'rfqCount' },
+  { to: { name: 'admin-members' }, labelKey: 'admin.menu.members' },
 ];

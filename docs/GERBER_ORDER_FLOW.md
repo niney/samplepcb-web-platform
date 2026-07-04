@@ -9,6 +9,7 @@
 > 갱신 2026-07-03 · 견적관리(/shop/quotes)·지난 견적 보관함(/shop/quotes/archive) — 장바구니와 독립 모델 확립
 > 갱신 2026-07-03 · 장바구니 견적 행 건별 인라인 수량변경 — 담긴 상태에서 서버 재견적+cart 행 동기화(기법 #8 개정)
 > 갱신 2026-07-04 · 견적 수신처 회사명 2층 구조(SpOrderSpec.companyName 스냅샷 + SpMemberProfile 프로필) — 여분필드(mb_1/mb_2) 비사용
+> 갱신 2026-07-04 · 관리자 회원 관리(/app/admin/members) — 레거시 member_list.php 이관. g5 한정 예외에 ⑧(g5_member·g5_config read-only SELECT)·⑨(g5_member mb_intercept_date·mb_level UPDATE) 추가
 
 ---
 
@@ -185,7 +186,8 @@
 | `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT · 파생 SELECT · ct_select UPDATE(주문 선택 ④) · 견적 행 UPDATE(재견적 동기화 io_id/io_price/ct_option ⑥) · 견적 행 DELETE(ct_id 단위 빼기 ⑥)** (한정 예외, `lib/g5-db.ts` 에 명시) |
 | `g5_shop_item_option` (견적 옵션 행) | 영카트 코어 | sp-node 는 견적 옵션 행(io_id=quoteId) **INSERT + 보상 DELETE 만** (한정 예외 확장, 기법 #3) |
 | `g5_shop_item` (템플릿) | 영카트 코어 | sp-node 는 SELECT 만 (배송정책 스냅샷용) |
-| `g5_member` (회원 표시 정보) | 그누보드 | sp-node 는 **관리자 API 한정 read-only SELECT** — mb_name/mb_nick/mb_email/mb_hp/mb_tel 최소 컬럼, 신청자 표시용 (한정 예외 ⑤, `lib/g5-db.ts` `getMembersByIds`) |
+| `g5_member` (회원 정보·상태) | 그누보드 | sp-node 는 **관리자 API 한정**. read-only SELECT: ⑤ 견적 신청자 표시(mb_name/nick/email/hp/tel 최소 컬럼, `getMembersByIds`) · ⑧ 회원 관리 목록/상세(컬럼 화이트리스트 — 연락처·주소·수신동의·여분필드 mb_1~9 등, 민감 컬럼(mb_password·mb_dupinfo·mb_lost_certify·mb_certify·mb_email_certify2)은 SELECT 자체 배제, `searchMembers`/`getMemberDetailRow`). **UPDATE 2컬럼 한정**: ⑨ mb_intercept_date(차단/해제)·mb_level(레벨 변경) — 그 외 컬럼 쓰기 절대 금지, 가드 3종(탈퇴/self/cf_admin 409), `setMemberIntercept`/`setMemberLevel`. `lib/g5-db.ts` |
+| `g5_config` (사이트 기본설정) | 그누보드 | sp-node 는 **관리자 회원 관리 한정 read-only SELECT** — cf_admin(최고관리자 mb_id) 1컬럼만, 차단/레벨 변경의 cf_admin 가드용 (한정 예외 ⑧, `lib/g5-db.ts` `getCfAdminId`) |
 | `g5_shop_default` (쇼핑몰 기본설정) | 영카트 코어 | sp-node 는 **관리자 견적서 한정 read-only SELECT** — de_admin_company_*/de_admin_info_*/de_bank_account 최소 컬럼, 견적서 발신처 표기용(하드코딩 대신 재사용) (한정 예외 ⑦, `lib/g5-db.ts` `getShopEstimateProfile`) |
 | 회원/세션 | 그누보드 | sp-node 는 JWT 클레임으로만 **식별** (DB 직접 결합 없음 — 표시용 read-only 예외는 위 `g5_member` 행) |
 | cart↔spec 관계 | **저장하지 않음** | `spec.ctId → g5_shop_cart` 조회 시점 조인으로 파생 — 동기화 로직 자체가 없어 불일치 불가능 |
@@ -254,6 +256,20 @@ cart.php 에 "Standard PCB · <파일명>" 행 + 견적가 표시.
   해킹을 반복하지 않기로 한 결정(2026-07-04)의 신규 구현. 마이그레이션은 공유 DB drift 로
   `migrate dev` 가 전체 reset 을 요구하므로 추가 전용 migration.sql + `migrate deploy` 로
   적용(결정 로그 7 관례 — `HANDOFF.md`). ⚠ 사용자측 신청 폼 수집은 다음 단계.
+- **관리자 회원 관리** — `/app/admin/members` (sp-vue): 레거시 `/adm/member_list.php` 를 sp-vue
+  로 재구성(디자인·노출 필드는 답습하지 않음). 전 회원 목록(상태 탭 **배타 집계**(정상/차단/
+  탈퇴)·통합검색(아이디/이름/닉네임/이메일/휴대폰, **LIKE 특수문자 escape**)·가입일 기간·정렬
+  (가입일↓/최근접속↓)·오프셋 페이지네이션) + 상세 드로어(연락/주소·수신동의·이메일 인증일·
+  **레거시 사업자 정보**(mb_1~9 라벨 복원 read-only)·관리자 메모·최근 견적 5건 + [견적 관리에서
+  검색] + [그누보드 관리자에서 열기]) + **sp 프로필 회사명 저장**(2층 구조의 프로필층 — 저장 시
+  ['admin','quotes']까지 무효화해 견적 관리 해석값 연동) + **관리 작업 g5 쓰기 2종**: 차단/해제
+  (mb_intercept_date=KST 오늘 YYYYMMDD)·레벨 변경(mb_level 1~10). 가드 3종(탈퇴 409 LEFT_MEMBER /
+  자기 자신 409 SELF_FORBIDDEN / cf_admin 계정 409 ADMIN_PROTECTED, 이 순서). g5 한정 예외에 ⑧
+  (g5_member·g5_config read-only SELECT — 민감 컬럼(비밀번호·dupinfo·인증)은 SELECT 자체 배제)·
+  ⑨(g5_member 2컬럼 UPDATE)를 추가(5장). 삭제·본인확인·포인트·엑셀·일괄수정·회원 추가는 그누보드
+  관리자(/adm 병행 존속)에 위임(드로어 링크). 운영 커스텀 컬럼(mb_partner_auth, mb_11~20)은 로컬
+  신설 DB 에 없어 참조 안 함. 차단 즉시효력: PHP 는 매 요청 intercept 검사로 즉시, sp JWT 는 최대
+  10분 잔존 후 me.php 재발급 거부(수용). `kstDateStr` 은 `lib/kst.ts` 로 추출해 견적서 라우트와 공유.
 
 남은 것(우선순위): ① 전 메뉴 실전송 검증(standard 만 완료) ② rfq 대기 수 **사용자측**
 sp-php 헤더 뱃지(관리자 사이드바 뱃지는 구현됨) + quoted 견적의 사용자발 재견적 요청
@@ -277,9 +293,12 @@ sp-php 헤더 뱃지(관리자 사이드바 뱃지는 구현됨) + quoted 견적
 | 파일서버 클라이언트 | `…/apps/api/src/lib/file-server.ts` |
 | g5 접근(한정 예외) | `…/apps/api/src/lib/g5-db.ts` |
 | 관리자 견적 관리 API | `…/apps/api/src/routes/admin-pcb-projects.ts` (가드: `plugins/auth.ts` `requireAdmin`) |
-| 관리자 견적 관리 화면 | `…/apps/web/src/pages/admin/AdminQuotes.vue` · `components/admin/*` · `admin/useAdminQuotes.ts` |
+| 관리자 견적 관리 화면 | `…/apps/web/src/pages/admin/AdminQuotes.vue` · `components/admin/Quote*.vue` · `admin/useAdminQuotes.ts` |
+| 관리자 회원 관리 API | `…/apps/api/src/routes/admin-members.ts` (가드: `requireAdmin` · g5 접근: `g5-db.ts` 예외 ⑧⑨) |
+| 관리자 회원 관리 화면 | `…/apps/web/src/pages/admin/AdminMembers.vue` · `components/admin/Member*.vue` · `admin/useAdminMembers.ts` |
+| KST 날짜 유틸(공유) | `…/apps/api/src/lib/kst.ts` (`kstDateStr` 견적서·`kstTodayYmd` 차단일) |
 | 사양 요약 공용 헬퍼 | `…/apps/api/src/lib/option-summary.ts` (`buildOptionSummary` — cart·사용자·관리자 표기 통일) |
 | DB 스키마 | `…/apps/api/prisma/schema.prisma` (sp_quote/sp_order_spec/sp_file) |
-| 요청 계약 | `…/packages/api-contract/src/schemas/pcb-project.ts` · `auth.ts` · `admin.ts`(관리자) |
+| 요청 계약 | `…/packages/api-contract/src/schemas/pcb-project.ts` · `auth.ts` · `admin.ts`(견적 관리) · `members.ts`(회원 관리) |
 | 템플릿 상품 시드 | `…/apps/api/src/scripts/seed-template-items.ts` |
 | 거버 제출부 | `samplepcb_gerber/apps/view/src/ResultPanel/submit.tsx` (별도 repo) |

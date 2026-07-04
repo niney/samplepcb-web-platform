@@ -9,7 +9,13 @@
 // (장바구니에서 견적 행 제거 — ct_id 단위. 코어 cartupdate 는 it_id 단위라 같은
 // 템플릿 견적이 뭉텅이로 처리되므로 ct_id 정밀 조작이 필요) ⑦ g5_shop_default
 // read-only SELECT(관리자 견적서의 발신처 정보 — 회사명·대표·주소·연락처·담당자·
-// 결제계좌 컬럼만, 쓰기 절대 금지) 뿐이다.
+// 결제계좌 컬럼만, 쓰기 절대 금지) ⑧ g5_member·g5_config read-only SELECT(관리자
+// 회원 관리의 목록/검색/카운트/상세 — 컬럼 화이트리스트만; mb_password·mb_dupinfo·
+// mb_lost_certify·mb_certify·mb_email_certify2 등 인증·비밀번호 컬럼은 SELECT 목록에서도
+// 절대 제외, g5_config 는 cf_admin 1컬럼만) ⑨ g5_member UPDATE — mb_intercept_date·
+// mb_level 2컬럼 한정(차단/해제·레벨 변경. 그 외 컬럼 쓰기 절대 금지. 가드 3종 필수:
+// 탈퇴 회원 409 / 자기 자신 409 / cf_admin 계정 409 — 라우트가 강제) 뿐이다.
+// 운영 전용 커스텀 컬럼(mb_partner_auth, mb_11~mb_20)은 로컬 신설 DB 에 없어 참조 금지.
 // 그 외 g5_* 접근은 금지 — 범위를 넓히려면 HANDOFF 결정을 먼저 갱신할 것.
 //
 // LEGACY_DATABASE_URL(운영 읽기 전용, 검증 스크립트용)과 반드시 구분한다.
@@ -285,6 +291,244 @@ export async function selectCartRows(odId: string, ctIds: number[]): Promise<voi
       WHERE ct_id IN (${ctIds.map(() => '?').join(',')})`,
     ctIds,
   );
+}
+
+// ── 회원 관리 목록/검색/카운트 (한정 예외 ⑧) ────────────────────────────────
+// 관리자 회원 관리(/app/admin/members)의 read-only 조회. WHERE 는 파라미터 바인딩,
+// LIKE 특수문자(%,_,\)는 escape(레거시엔 없던 방어). 가입일(from/to)은 g5 가 KST
+// native 저장이라 문자열 그대로 비교한다(sp 의 UTC 저장과 다름) — to 는 +1일 미만.
+// counts 는 탭 제외 필터만 적용한 단일 쿼리(배타 SUM), total 은 탭 카운트로 파생한다.
+
+export interface MemberListRow {
+  mbId: string;
+  name: string;
+  nick: string;
+  email: string;
+  hp: string;
+  tel: string;
+  level: number;
+  point: number;
+  memberType: string; // mb_1 (회원구분)
+  legacyCompany: string; // mb_2 (레거시 회사명)
+  interceptDate: string; // mb_intercept_date (YYYYMMDD 또는 '')
+  leaveDate: string; // mb_leave_date (YYYYMMDD 또는 '')
+  joinedAt: string; // DATE_FORMAT(mb_datetime)
+  lastLoginAt: string | null; // NULLIF zero-date → null
+}
+
+export interface MemberCounts {
+  all: number;
+  normal: number;
+  intercepted: number;
+  left: number;
+}
+
+export interface SearchMembersParams {
+  tab: 'all' | 'normal' | 'intercepted' | 'left';
+  q: string | undefined;
+  from: string | undefined; // YYYY-MM-DD
+  to: string | undefined; // YYYY-MM-DD
+  sort: 'joined' | 'lastLogin';
+  page: number;
+  pageSize: number;
+}
+
+export interface SearchMembersResult {
+  rows: MemberListRow[];
+  total: number;
+  counts: MemberCounts;
+}
+
+// 목록/상세 공용 SELECT 컬럼(화이트리스트) — 민감 컬럼(mb_password·mb_dupinfo·
+// mb_lost_certify·mb_certify·mb_email_certify2)은 절대 넣지 않는다.
+const MEMBER_LIST_COLUMNS = `mb_id, mb_name, mb_nick, mb_email, mb_hp, mb_tel, mb_level, mb_point,
+    mb_1, mb_2, mb_leave_date, mb_intercept_date,
+    DATE_FORMAT(mb_datetime, '%Y-%m-%d %H:%i') AS joined_at,
+    DATE_FORMAT(NULLIF(mb_today_login, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i') AS last_login_at`;
+
+function mapMemberListRow(row: RowDataPacket): MemberListRow {
+  return {
+    mbId: String(row.mb_id),
+    name: String(row.mb_name),
+    nick: String(row.mb_nick),
+    email: String(row.mb_email),
+    hp: String(row.mb_hp),
+    tel: String(row.mb_tel),
+    level: Number(row.mb_level),
+    point: Number(row.mb_point),
+    memberType: String(row.mb_1),
+    legacyCompany: String(row.mb_2),
+    interceptDate: String(row.mb_intercept_date),
+    leaveDate: String(row.mb_leave_date),
+    joinedAt: String(row.joined_at ?? ''),
+    lastLoginAt: row.last_login_at === null ? null : String(row.last_login_at),
+  };
+}
+
+// 검색어·가입일 필터(탭 제외 — counts 와 목록이 공유). 바인딩 파라미터를 함께 반환.
+function memberBaseFilter(params: SearchMembersParams): { conds: string[]; bind: string[] } {
+  const conds: string[] = [];
+  const bind: string[] = [];
+  const q = params.q?.trim() ?? '';
+  if (q !== '') {
+    // LIKE 특수문자 escape 후 %…% 바인딩(MySQL 기본 escape 문자 = 백슬래시)
+    const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    conds.push(
+      '(mb_id LIKE ? OR mb_name LIKE ? OR mb_nick LIKE ? OR mb_email LIKE ? OR mb_hp LIKE ?)',
+    );
+    bind.push(like, like, like, like, like);
+  }
+  if (params.from !== undefined) {
+    conds.push('mb_datetime >= ?');
+    bind.push(`${params.from} 00:00:00`);
+  }
+  if (params.to !== undefined) {
+    // 해당 일 포함 — 다음 날 00:00:00 미만
+    conds.push('mb_datetime < DATE_ADD(?, INTERVAL 1 DAY)');
+    bind.push(`${params.to} 00:00:00`);
+  }
+  return { conds, bind };
+}
+
+const whereClause = (conds: string[]): string =>
+  conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+
+// 탭 조건(배타식) — 플레이스홀더 없는 상수 SQL.
+const MEMBER_TAB_COND: Record<'normal' | 'intercepted' | 'left', string> = {
+  normal: "mb_intercept_date = '' AND mb_leave_date = ''",
+  intercepted: "mb_intercept_date <> '' AND mb_leave_date = ''",
+  left: "mb_leave_date <> ''",
+};
+
+const MEMBER_SORT_COLUMN: Record<'joined' | 'lastLogin', string> = {
+  joined: 'mb_datetime',
+  lastLogin: 'mb_today_login',
+};
+
+export async function searchMembers(params: SearchMembersParams): Promise<SearchMembersResult> {
+  const pool = getG5Pool();
+  const base = memberBaseFilter(params);
+
+  // counts — 탭 제외 필터만. 배타 SUM(mysql2 는 SUM 을 string 으로 줄 수 있어 Number 정규화).
+  const [countRows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS all_count,
+            SUM(mb_leave_date <> '') AS left_count,
+            SUM(mb_intercept_date <> '' AND mb_leave_date = '') AS intercepted_count
+       FROM g5_member ${whereClause(base.conds)}`,
+    base.bind,
+  );
+  const cr = countRows[0];
+  const allCount = Number(cr?.all_count ?? 0);
+  const leftCount = Number(cr?.left_count ?? 0);
+  const interceptedCount = Number(cr?.intercepted_count ?? 0);
+  const counts: MemberCounts = {
+    all: allCount,
+    left: leftCount,
+    intercepted: interceptedCount,
+    normal: allCount - leftCount - interceptedCount,
+  };
+
+  // total = 탭 카운트(배타 집계라 별도 total 쿼리 불필요)
+  const total = params.tab === 'all' ? counts.all : counts[params.tab];
+
+  // 목록 — base + 탭 조건. ORDER BY 화이트리스트 + mb_no DESC 타이브레이크.
+  const listConds =
+    params.tab === 'all' ? base.conds : [...base.conds, MEMBER_TAB_COND[params.tab]];
+  const orderBy = `${MEMBER_SORT_COLUMN[params.sort]} DESC, mb_no DESC`;
+  const offset = (params.page - 1) * params.pageSize;
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT ${MEMBER_LIST_COLUMNS} FROM g5_member ${whereClause(listConds)}
+      ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+    [...base.bind, params.pageSize, offset],
+  );
+
+  return { rows: rows.map(mapMemberListRow), total, counts };
+}
+
+// 상세 — 목록 컬럼 + 주소·수신동의·인증일·메모·사업자 여분필드(mb_3~mb_9).
+export interface MemberDetailRow extends MemberListRow {
+  zip1: string;
+  zip2: string;
+  addr1: string;
+  addr2: string;
+  addr3: string;
+  emailCertifiedAt: string | null; // mb_email_certify, zero-date→null
+  mailling: number; // mb_mailling
+  sms: number; // mb_sms
+  marketingAgree: number; // mb_marketing_agree
+  memo: string; // mb_memo (관리자 메모, read-only)
+  mb3: string; // 사업자번호
+  mb4: string; // 대표자
+  mb5: string; // 업태
+  mb6: string; // 종목
+  mb7: string; // 담당자명
+  mb8: string; // 세금계산서 이메일
+  mb9: string; // 담당자 전화
+}
+
+export async function getMemberDetailRow(mbId: string): Promise<MemberDetailRow | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT ${MEMBER_LIST_COLUMNS},
+            mb_zip1, mb_zip2, mb_addr1, mb_addr2, mb_addr3,
+            DATE_FORMAT(NULLIF(mb_email_certify, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i') AS email_certified_at,
+            mb_mailling, mb_sms, mb_marketing_agree, mb_memo,
+            mb_3, mb_4, mb_5, mb_6, mb_7, mb_8, mb_9
+       FROM g5_member WHERE mb_id = ?`,
+    [mbId],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    ...mapMemberListRow(row),
+    zip1: String(row.mb_zip1),
+    zip2: String(row.mb_zip2),
+    addr1: String(row.mb_addr1),
+    addr2: String(row.mb_addr2),
+    addr3: String(row.mb_addr3),
+    emailCertifiedAt: row.email_certified_at === null ? null : String(row.email_certified_at),
+    mailling: Number(row.mb_mailling),
+    sms: Number(row.mb_sms),
+    marketingAgree: Number(row.mb_marketing_agree),
+    memo: String(row.mb_memo),
+    mb3: String(row.mb_3),
+    mb4: String(row.mb_4),
+    mb5: String(row.mb_5),
+    mb6: String(row.mb_6),
+    mb7: String(row.mb_7),
+    mb8: String(row.mb_8),
+    mb9: String(row.mb_9),
+  };
+}
+
+// cf_admin(최고관리자 mb_id) — 차단/레벨 변경 가드용(한정 예외 ⑧, g5_config 1컬럼만).
+export async function getCfAdminId(): Promise<string> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(`SELECT cf_admin FROM g5_config LIMIT 1`);
+  const row = rows[0];
+  return row === undefined ? '' : String(row.cf_admin ?? '');
+}
+
+// ── 회원 차단/레벨 UPDATE (한정 예외 ⑨ — 2컬럼 한정) ─────────────────────────
+// 이 두 함수 외에는 g5_member 를 절대 쓰지 않는다. 가드(탈퇴/self/cf_admin)는 라우트가
+// 강제. MyISAM 무트랜잭션이나 단일행·단일컬럼이라 무해. affectedRows 는 반환만 하고 흐름
+// 제어에 쓰지 않는다 — 동일값 UPDATE 가 0 을 줄 수 있어 멱등 200 과 충돌하므로, 존재 판정은
+// 라우트의 사전 조회 가드(getMemberDetailRow → 404)가 담당한다.
+
+// ymd = KST 오늘 YYYYMMDD(차단) 또는 ''(해제). PHP 는 매 요청 intercept 검사로 즉시 효력,
+// sp JWT 는 최대 10분 잔존 후 me.php 재발급 거부 — 수용(주석 기록).
+export async function setMemberIntercept(mbId: string, ymd: string): Promise<number> {
+  const [result] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_member SET mb_intercept_date = ? WHERE mb_id = ?`,
+    [ymd, mbId],
+  );
+  return result.affectedRows;
+}
+
+export async function setMemberLevel(mbId: string, level: number): Promise<number> {
+  const [result] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_member SET mb_level = ? WHERE mb_id = ?`,
+    [level, mbId],
+  );
+  return result.affectedRows;
 }
 
 export async function closeG5Pool(): Promise<void> {

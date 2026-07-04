@@ -17,6 +17,7 @@ import { buildOptionSummary } from '../lib/option-summary';
 import { downloadFromFileServer } from '../lib/file-server';
 import { getCartStates, getMembersByIds, getShopEstimateProfile } from '../lib/g5-db';
 import type { CartState, G5Member } from '../lib/g5-db';
+import { kstDateStr } from '../lib/kst';
 import { prisma } from '../lib/prisma';
 import { signedThumbUrl } from '../lib/thumb-url';
 
@@ -36,11 +37,6 @@ const asQuoteStatus = (v: string): 'priced' | 'rfq' | 'quoted' =>
   v === 'rfq' ? 'rfq' : v === 'quoted' ? 'quoted' : 'priced';
 const asSpecStatus = (v: string): 'active' | 'deleted' | 'archived' =>
   v === 'deleted' ? 'deleted' : v === 'archived' ? 'archived' : 'active';
-
-// KST(+09:00) 기준 YYYY-MM-DD — 서버 타임존과 무관하게 한국 업무일로 날짜를 찍는다
-// (견적서 발행일·유효기간 표기용).
-const kstDateStr = (d: Date): string =>
-  new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
 // 신청자 합성 — mbId null(비회원)이면 null, 회원 행 소실(탈퇴)이면 mbId 만 채운다.
 const toApplicant = (
