@@ -2,6 +2,8 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import {
+  AdminCompanyNameBody,
+  AdminCompanyNameResponse,
   AdminConfirmPriceBody,
   AdminConfirmPriceResponse,
   AdminEstimateResponse,
@@ -54,6 +56,15 @@ const toApplicant = (
     phone: member === undefined ? '' : member.hp !== '' ? member.hp : member.tel,
   };
 };
+
+// 수신처 회사명 해석(2층 구조) — 문서 스냅샷(spec.companyName) 우선, 없고 회원이면
+// 회원 프로필(SpMemberProfile) fallback. 프로필 조회는 스냅샷이 null 이고 mbId 가 있을
+// 때만 하므로, 그 외엔 profile 이 null 로 전달돼 결과도 null 이 된다.
+const resolveCompanyName = (
+  snapshot: string | null,
+  mbId: string | null,
+  profile: { companyName: string | null } | null,
+): string | null => snapshot ?? (mbId !== null ? (profile?.companyName ?? null) : null);
 
 export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   // 전 라우트 관리자 전용 — 라우트별 preHandler 누락 사고를 원천 차단
@@ -201,7 +212,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       });
       if (spec === null) return reply.notFound('프로젝트가 없습니다');
 
-      const [quote, files, cartStates, members] = await Promise.all([
+      const [quote, files, cartStates, members, memberProfile] = await Promise.all([
         prisma.spQuote.findUnique({ where: { id: spec.quoteId } }),
         prisma.spFile.findMany({
           where: { refType: 'sp_order_spec', refId: spec.id },
@@ -214,6 +225,13 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         spec.mbId !== null
           ? getMembersByIds([spec.mbId])
           : Promise.resolve(new Map<string, G5Member>()),
+        // 프로필 fallback 은 스냅샷이 없고 회원일 때만 조회(2층 구조 해석 규칙)
+        spec.companyName === null && spec.mbId !== null
+          ? prisma.spMemberProfile.findUnique({
+              where: { mbId: spec.mbId },
+              select: { companyName: true },
+            })
+          : Promise.resolve(null),
       ]);
       const thumb = files.find((f) => f.fileType === 'thumbnail');
       const cartState: CartState =
@@ -243,6 +261,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           ),
           createdAt: spec.createdAt.toISOString(),
           message: spec.message,
+          companyName: resolveCompanyName(spec.companyName, spec.mbId, memberProfile),
           spec: spec.specJson as PcbProjectPayloadType['spec'],
           finalPrice: spec.finalPrice,
           pricedBy: spec.pricedBy,
@@ -290,12 +309,19 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       });
       if (spec === null) return reply.notFound('프로젝트가 없습니다');
 
-      const [quote, members, profile] = await Promise.all([
+      const [quote, members, profile, memberProfile] = await Promise.all([
         prisma.spQuote.findUnique({ where: { id: spec.quoteId } }),
         spec.mbId !== null
           ? getMembersByIds([spec.mbId])
           : Promise.resolve(new Map<string, G5Member>()),
         getShopEstimateProfile(),
+        // 수신처 회사명 프로필 fallback — 스냅샷이 없고 회원일 때만(2층 구조 해석 규칙)
+        spec.companyName === null && spec.mbId !== null
+          ? prisma.spMemberProfile.findUnique({
+              where: { mbId: spec.mbId },
+              select: { companyName: true },
+            })
+          : Promise.resolve(null),
       ]);
 
       // 부가세 정석 역산 — 합계(부가세 포함) 기준 공급가액·부가세를 서버가 계산.
@@ -334,6 +360,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             spec.mbId,
             spec.mbId !== null ? members.get(spec.mbId) : undefined,
           ),
+          companyName: resolveCompanyName(spec.companyName, spec.mbId, memberProfile),
           amounts,
           company: {
             name: profile?.name ?? '',
@@ -429,6 +456,64 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           finalPrice: request.body.finalPrice,
           pricedBy: request.user.mbId,
           pricedAt: pricedAt.toISOString(),
+        },
+      };
+    },
+  );
+
+  // ── PATCH /api/admin/pcb-projects/:id/company-name — 수신처 회사명 저장 ─────
+  // 2층 구조: ① 스냅샷(문서층, spec.companyName) 저장 ② 값이 있고 회원이면 프로필층
+  // (SpMemberProfile) 기억해 같은 회원의 다음 견적서에 프리필. 빈 값(트림 후)은 스냅샷
+  // 삭제(null)이며 프로필은 건드리지 않는다(fallback 으로 프로필값이 다시 보임).
+  // /price 와 달리 status/cart 가드가 없다 — 회사명은 문서 메타데이터라 담김·주문·보관
+  // 상태와 무관하게 수정 가능(의도적 차이). 404(프로젝트 없음)만 방어한다.
+  fastify.patch(
+    '/pcb-projects/:id/company-name',
+    {
+      schema: {
+        params: ProjectIdParams,
+        body: AdminCompanyNameBody,
+        response: { 200: AdminCompanyNameResponse },
+      },
+    },
+    async (request, reply) => {
+      const spec = await prisma.spOrderSpec.findFirst({
+        where: { id: BigInt(request.params.id) },
+        select: { id: true, mbId: true },
+      });
+      if (spec === null) return reply.notFound('프로젝트가 없습니다');
+
+      const snapshot = request.body.companyName === '' ? null : request.body.companyName;
+
+      // 스냅샷 저장(빈 값이면 null)
+      await prisma.spOrderSpec.update({
+        where: { id: spec.id },
+        data: { companyName: snapshot },
+      });
+
+      // 값이 있고 회원이면 프로필층 갱신(upsert). 삭제(빈 값)는 프로필 불변.
+      if (snapshot !== null && spec.mbId !== null) {
+        await prisma.spMemberProfile.upsert({
+          where: { mbId: spec.mbId },
+          create: { mbId: spec.mbId, companyName: snapshot },
+          update: { companyName: snapshot },
+        });
+      }
+
+      // 응답도 해석 규칙 적용값 — 삭제 시(회원)엔 남아있는 프로필값이 fallback 으로 보인다.
+      const memberProfile =
+        snapshot === null && spec.mbId !== null
+          ? await prisma.spMemberProfile.findUnique({
+              where: { mbId: spec.mbId },
+              select: { companyName: true },
+            })
+          : null;
+
+      return {
+        result: true as const,
+        data: {
+          projectId: Number(spec.id),
+          companyName: resolveCompanyName(snapshot, spec.mbId, memberProfile),
         },
       };
     },

@@ -4,7 +4,11 @@
 // 담기 API 의 한정 예외(HANDOFF 결정 로그 #6)로 Prisma 가 아닌 mysql2 로 수행.
 //
 // ⚠⚠ 공유 DB 이므로 `prisma migrate reset` **절대 금지** — 대상 DB 의 모든 테이블
-// (그누보드 g5_* 포함)을 드랍한다. migrate dev/deploy 만 사용할 것.
+// (그누보드 g5_* 포함)을 드랍한다.
+// ⚠ `prisma migrate dev` 도 쓰지 말 것 — 이 DB 에선 g5_* 60개를 drift 로 감지해
+// **항상 전체 reset 을 요구**한다(2026-07-04 실측, HANDOFF 결정 로그). 스키마 변경 절차:
+// migrations/ 에 추가 전용(ALTER ADD·CREATE 만) migration.sql 수기 작성 → 눈 검수 →
+// `prisma migrate deploy`(drift 감지·shadow DB 없음) → `prisma generate`.
 
 generator client {
   provider = "prisma-client-js"
@@ -45,6 +49,7 @@ model SpOrderSpec {
   orderCategory String
   qty           Int
   message       String?   @db.Text
+  companyName   String?   @db.VarChar(255) // 수신처 회사명 스냅샷(견적서 문서에 박제, 2층 구조의 문서층)
   specJson      Json
   status        String    @default("active") // active|deleted|archived
   quoteStatus   String // priced|rfq|quoted
@@ -75,4 +80,16 @@ model SpFile {
 
   @@index([refType, refId], map: "idx_sp_file_ref")
   @@map("sp_file")
+}
+
+// 회원별 견적 기본값(2층 구조의 프로필층) — 관리자가 회사명을 저장하면 기억해
+// 같은 회원의 다음 견적서에 프리필한다. 그누보드 여분필드(mb_1/mb_2)를 쓰지 않기
+// 위한 sp측 명시 필드(2026-07-04 결정). 사용자측 신청 폼 수집은 다음 단계.
+model SpMemberProfile {
+  mbId        String   @id @db.VarChar(20)
+  companyName String?  @db.VarChar(255)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("sp_member_profile")
 }

@@ -94,6 +94,8 @@ export type AdminQuoteFileType = z.infer<typeof AdminQuoteFile>;
 
 export const AdminQuoteDetail = AdminQuoteListItem.extend({
   message: z.string().nullable(),
+  // 수신처 회사명 — 서버 해석 규칙 적용값(스냅샷 ?? 회원 프로필). 2층 구조.
+  companyName: z.string().nullable(),
   spec: PcbProjectSpec, // specJson 원본 — 드로어 라벨링용
   finalPrice: z.number().nullable(),
   pricedBy: z.string().nullable(),
@@ -139,6 +141,23 @@ export const AdminConfirmPriceResponse = z.object({
 });
 export type AdminConfirmPriceResponseType = z.infer<typeof AdminConfirmPriceResponse>;
 
+// 수신처 회사명 저장(2층 구조) — 스냅샷(SpOrderSpec.companyName) 저장 + 회원이면 프로필
+// (SpMemberProfile) 기억. 빈 문자열(트림 후)은 스냅샷 삭제(null 저장) 신호이며 프로필은
+// 건드리지 않는다. 가격(/price)과 달리 담김/주문/보관 상태 가드가 없다(문서 메타데이터).
+export const AdminCompanyNameBody = z.object({
+  companyName: z.string().trim().max(255), // '' = 스냅샷 삭제
+});
+export type AdminCompanyNameBodyType = z.infer<typeof AdminCompanyNameBody>;
+
+export const AdminCompanyNameResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    projectId: z.number(),
+    companyName: z.string().nullable(), // 저장 후 해석 규칙 적용값(스냅샷 ?? 프로필)
+  }),
+});
+export type AdminCompanyNameResponseType = z.infer<typeof AdminCompanyNameResponse>;
+
 // ── 관리자 견적서(A4 인쇄) 계약 ─────────────────────────────────────────────
 // GET /api/admin/pcb-projects/:id/estimate. 순수 표시 컴포넌트(EstimateSheet.vue)에
 // props 로 주입한다. 향후 고객용 견적서 라우트에서 같은 스키마를 재사용할 수 있도록
@@ -181,6 +200,8 @@ export const AdminEstimate = z.object({
   spec: PcbProjectSpec, // 상세 드로어와 동일 원본 — 라벨링은 FE specKeys i18n
   eta: z.string().nullable(),
   applicant: AdminApplicant.nullable(),
+  // 수신처 회사명 — 서버 해석 규칙 적용값(스냅샷 ?? 회원 프로필). 시트 recipientCompany 프리필용.
+  companyName: z.string().nullable(),
   amounts: AdminEstimateAmounts.nullable(), // 가격 미확정(rfq)이면 null
   company: AdminEstimateCompany,
 });

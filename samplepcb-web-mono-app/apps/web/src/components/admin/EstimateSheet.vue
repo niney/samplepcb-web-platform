@@ -12,9 +12,10 @@ const props = defineProps<{ estimate: AdminEstimateType }>();
 const i18n = useI18n();
 const { t } = i18n;
 
-// 인쇄 전 일회성 보정용 수기 필드(저장 없음). 수신처는 applicant 로 초기화하되 언제든
-// 덮어쓸 수 있게 전부 input 으로 둔다(applicant 가 null 이면 빈칸에서 시작).
-const recipientCompany = ref('');
+// 인쇄 전 일회성 보정용 수기 필드(저장 없음). 수신처는 서버 해석값(회사명 2층: 스냅샷
+// ?? 회원 프로필)·applicant 로 초기화하되 언제든 덮어쓸 수 있게 전부 input 으로 둔다.
+// 시트 안 수기 편집은 저장하지 않는 일회성 덮어쓰기다(저장은 드로어의 회사명 행이 담당).
+const recipientCompany = ref(props.estimate.companyName ?? '');
 const recipientDept = ref('');
 const recipientName = ref(props.estimate.applicant?.name ?? '');
 const recipientPhone = ref(props.estimate.applicant?.phone ?? '');

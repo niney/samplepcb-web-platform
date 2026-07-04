@@ -6,6 +6,7 @@ import {
   downloadAdminFile,
   useAdminQuoteDetail,
   useConfirmPrice,
+  useSaveCompanyName,
 } from '../../admin/useAdminQuotes';
 import { formatBytes, formatDate, formatDateTime, formatKrw } from '../../lib/format';
 import UiBadge from '../ui/UiBadge.vue';
@@ -32,19 +33,48 @@ const {
   reset: resetConfirm,
 } = useConfirmPrice();
 
+const {
+  mutate: saveCompanyName,
+  isPending: savingCompany,
+  isSuccess: companySaved,
+  isError: companySaveFailed,
+  reset: resetCompany,
+} = useSaveCompanyName();
+
 // 가격 입력 — 프로젝트가 바뀔 때만 현재가(확정가 ?? 표시가)로 리필
 const priceInput = ref('');
 const localError = ref<string | null>(null);
 const filledFor = ref<number | null>(null);
 
+// 회사명 입력 — 가격 입력과 같은 filledFor 가드로 프로젝트 전환 시에만 현재값(해석값)으로
+// 동기화(같은 프로젝트 재조회 때는 편집 중인 입력을 덮어쓰지 않음).
+const companyNameInput = ref('');
+
 watch(detail, (d) => {
   if (d !== null && filledFor.value !== d.projectId) {
     filledFor.value = d.projectId;
     priceInput.value = d.finalPrice !== null ? String(d.finalPrice) : d.price !== null ? String(d.price) : '';
+    companyNameInput.value = d.companyName ?? '';
     localError.value = null;
     resetConfirm();
+    resetCompany();
   }
 });
+
+// 저장 버튼은 값이 실제로 바뀌었을 때만 활성(트림 기준으로 현재 표시값과 비교).
+const companyNameChanged = computed<boolean>(() => {
+  const d = detail.value;
+  if (d === null) return false;
+  return companyNameInput.value.trim() !== (d.companyName ?? '');
+});
+
+const submitCompanyName = (): void => {
+  const d = detail.value;
+  if (d === null || !companyNameChanged.value) return;
+  resetCompany();
+  // 빈 문자열이면 스냅샷 삭제(서버가 회원 프로필 fallback 을 반영해 응답)
+  saveCompanyName({ projectId: d.projectId, companyName: companyNameInput.value.trim() });
+};
 
 const blockedReason = computed<string | null>(() => {
   const d = detail.value;
@@ -302,6 +332,35 @@ onBeforeUnmount(() => {
               <p v-else class="mt-2 text-sm text-gray-400">
                 {{ t('admin.quotes.table.guest') }}
               </p>
+
+              <!-- 회사명 (수신처 스냅샷 + 회원 프로필 2층) — 비회원도 스냅샷 저장 가능 -->
+              <div class="mt-3 border-t border-gray-100 pt-3">
+                <label class="text-xs text-gray-400">
+                  {{ t('admin.quotes.drawer.companyName') }}
+                </label>
+                <div class="mt-1 flex items-center gap-2">
+                  <input
+                    v-model="companyNameInput"
+                    type="text"
+                    class="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                    @keydown.enter="submitCompanyName"
+                  >
+                  <button
+                    type="button"
+                    class="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    :disabled="!companyNameChanged || savingCompany"
+                    @click="submitCompanyName"
+                  >
+                    {{ t('admin.quotes.drawer.companySave') }}
+                  </button>
+                </div>
+                <p v-if="companySaveFailed" class="mt-1 text-xs text-red-600">
+                  {{ t('admin.quotes.drawer.companySaveFailed') }}
+                </p>
+                <p v-else-if="companySaved" class="mt-1 text-xs text-green-700">
+                  {{ t('admin.quotes.drawer.companySaveSuccess') }}
+                </p>
+              </div>
             </section>
 
             <!-- 파일 -->

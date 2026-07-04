@@ -8,6 +8,7 @@
 > 갱신 2026-07-03 · 가격 엔진 라이브 패리티 체계 + spec 키 differentDesign 통일 반영
 > 갱신 2026-07-03 · 견적관리(/shop/quotes)·지난 견적 보관함(/shop/quotes/archive) — 장바구니와 독립 모델 확립
 > 갱신 2026-07-03 · 장바구니 견적 행 건별 인라인 수량변경 — 담긴 상태에서 서버 재견적+cart 행 동기화(기법 #8 개정)
+> 갱신 2026-07-04 · 견적 수신처 회사명 2층 구조(SpOrderSpec.companyName 스냅샷 + SpMemberProfile 프로필) — 여분필드(mb_1/mb_2) 비사용
 
 ---
 
@@ -178,6 +179,7 @@
 | 데이터 | 소유 | 접근 규칙 |
 |---|---|---|
 | 사양·파일연결·견적 (`sp_quote`/`sp_order_spec`/`sp_file`) | **sp-node (Prisma)** | 그누보드/PHP 는 접근하지 않음 |
+| 수신처 회사명 2층 (`sp_order_spec.companyName` 스냅샷 · `sp_member_profile` 프로필) | **sp-node (Prisma)** | 관리자 견적서 수신처 표기·프리필용(2026-07-04). 스냅샷=문서 박제(견적서에 고정), 프로필=회원 기본값(같은 회원 다음 견적서에 프리필). 표시값 = `스냅샷 ?? (회원이면)프로필`. 그누보드 여분필드(mb_1/mb_2) 대신 sp측 명시 필드 사용 |
 | 실파일 | file.samplepcb.kr | sp-node 가 업로드 대행, pathToken 만 보관 (다운로드 보안은 추후 과제) |
 | 실파일 삭제 | file.samplepcb.kr | 보관함 영구 삭제 시 sp-node 가 `GET /api/delete/:pathToken` 호출. ⚠ **보안 미처리 과제**: 이 API 는 인증 없이 pathToken 만으로 삭제되는 GET — pathToken 유출 시 임의 파일 삭제 가능. 내부망 제한 또는 서버 간 인증 추가 필요(2026-07 결정: 기능 먼저, 접근 제한은 인프라 트랙에서 후속 처리) |
 | `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT · 파생 SELECT · ct_select UPDATE(주문 선택 ④) · 견적 행 UPDATE(재견적 동기화 io_id/io_price/ct_option ⑥) · 견적 행 DELETE(ct_id 단위 빼기 ⑥)** (한정 예외, `lib/g5-db.ts` 에 명시) |
@@ -240,10 +242,24 @@ cart.php 에 "Standard PCB · <파일명>" 행 + 견적가 표시.
   (ct_id별 실수량·projectId·거버 썸네일). g5 쓰기 한정 예외에 ⑥(cart 행 UPDATE/DELETE) 추가.
   ⚠ 실브라우저 end-to-end 재검증 미완(코드/타입체크/lint 통과 기준).
 
+**2026-07-04 갱신**:
+- **견적 수신처 회사명 2층 구조** — 관리자 견적서(A4) 수신처 "회사명"이 저장 없는 수기
+  입력뿐이던 문제를 2층으로 해결. ① `SpOrderSpec.companyName`(문서 스냅샷 — 견적서에
+  박제) ② `SpMemberProfile`(회원별 기본값 — 관리자가 저장하면 기억해 같은 회원의 다음
+  견적서에 프리필). 해석 규칙(서버 공통) = `스냅샷 ?? (회원이면)프로필`. 신규 `PATCH
+  /api/admin/pcb-projects/:id/company-name`(빈 값=스냅샷 삭제, 값+회원이면 프로필 upsert;
+  삭제는 프로필 불변). /price 와 달리 **status/cart 가드 없음**(회사명은 문서 메타데이터라
+  담김·주문·보관 무관). 상세·estimate GET 응답에 해석값 `companyName` 추가, 드로어 신청자
+  카드에 회사명 저장 UI, 견적서 시트 `recipientCompany` 프리필. 레거시 여분필드(mb_1/mb_2)
+  해킹을 반복하지 않기로 한 결정(2026-07-04)의 신규 구현. 마이그레이션은 공유 DB drift 로
+  `migrate dev` 가 전체 reset 을 요구하므로 추가 전용 migration.sql + `migrate deploy` 로
+  적용(결정 로그 7 관례 — `HANDOFF.md`). ⚠ 사용자측 신청 폼 수집은 다음 단계.
+
 남은 것(우선순위): ① 전 메뉴 실전송 검증(standard 만 완료) ② rfq 대기 수 **사용자측**
 sp-php 헤더 뱃지(관리자 사이드바 뱃지는 구현됨) + quoted 견적의 사용자발 재견적 요청
-플로우 ③ 파일 삭제 API 접근 제한(5장 ⚠) ④ 운영 전환(거버 prod 분기·운영 nginx `/api`)
-— 상세 체크리스트는 `HANDOFF.md` 7장.
+플로우 ③ **사용자측 신청 폼 회사명 수집** — 거버 제출/신청 시 회사명을 받아 `SpMemberProfile`
+프로필로 프리필·최종 기억(관리자측 2층은 구현됨, 수집 진입점만 남음) ④ 파일 삭제 API 접근
+제한(5장 ⚠) ⑤ 운영 전환(거버 prod 분기·운영 nginx `/api`) — 상세 체크리스트는 `HANDOFF.md` 7장.
 
 ## 8. 관련 파일 색인
 

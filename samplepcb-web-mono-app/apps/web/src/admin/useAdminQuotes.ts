@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from '@tanstack/vue-query';
 import {
+  AdminCompanyNameResponse,
   AdminConfirmPriceResponse,
   AdminEstimateResponse,
   AdminQuoteDetailResponse,
@@ -106,6 +107,25 @@ export function useConfirmPrice() {
       ),
     onSuccess: async () => {
       // 접두 무효화 — 목록·상세·rfq 뱃지 일괄 갱신
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] });
+    },
+  });
+}
+
+// 수신처 회사명 저장(2층 구조) — 스냅샷 저장 + 회원이면 프로필 기억. 성공 시 ['admin',
+// 'quotes'] 접두 무효화로 상세·목록·견적서(estimate) 프리필까지 갱신(useConfirmPrice 관례).
+// 빈 문자열은 스냅샷 삭제 신호(서버가 프로필 fallback 을 반영한 값으로 응답).
+export function useSaveCompanyName() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, companyName }: { projectId: number; companyName: string }) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminPcbProjects}/${String(projectId)}/company-name`,
+        { companyName },
+        AdminCompanyNameResponse,
+      ),
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] });
     },
   });
