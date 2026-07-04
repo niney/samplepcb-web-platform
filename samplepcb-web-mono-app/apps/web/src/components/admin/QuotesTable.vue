@@ -1,11 +1,29 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AdminQuoteListItemType } from '@sp/api-contract';
 import UiBadge from '../ui/UiBadge.vue';
 import { formatDate, formatKrw } from '../../lib/format';
 
-const props = defineProps<{ items: AdminQuoteListItemType[]; loading: boolean }>();
-const emit = defineEmits<{ select: [projectId: number] }>();
+const props = defineProps<{
+  items: AdminQuoteListItemType[];
+  loading: boolean;
+  selectedIds: number[];
+}>();
+const emit = defineEmits<{
+  select: [projectId: number];
+  toggle: [projectId: number];
+  toggleAll: [checked: boolean];
+}>();
+
+const allSelected = computed(
+  () =>
+    props.items.length > 0 && props.items.every((i) => props.selectedIds.includes(i.projectId)),
+);
+const someSelected = computed(
+  () => props.items.some((i) => props.selectedIds.includes(i.projectId)) && !allSelected.value,
+);
+const isSelected = (id: number): boolean => props.selectedIds.includes(id);
 // te 는 구조분해하면 unbound-method(lint) — 컴포저 인스턴스로 호출한다
 const i18n = useI18n();
 const { t } = i18n;
@@ -21,6 +39,15 @@ const categoryLabel = (category: string): string =>
     <table class="w-full min-w-[64rem] text-left text-sm" :class="{ 'opacity-60': props.loading }">
       <thead class="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
         <tr>
+          <th class="w-10 px-3 py-2">
+            <input
+              type="checkbox"
+              :checked="allSelected"
+              :indeterminate="someSelected"
+              class="h-4 w-4 cursor-pointer rounded border-gray-300"
+              @change="emit('toggleAll', ($event.target as HTMLInputElement).checked)"
+            >
+          </th>
           <th class="px-3 py-2 font-medium" />
           <th class="px-3 py-2 font-medium">{{ t('admin.quotes.table.project') }}</th>
           <th class="px-3 py-2 font-medium">{{ t('admin.quotes.table.applicant') }}</th>
@@ -33,7 +60,7 @@ const categoryLabel = (category: string): string =>
       </thead>
       <tbody>
         <tr v-if="!props.loading && props.items.length === 0">
-          <td colspan="8" class="px-3 py-12 text-center text-gray-400">
+          <td colspan="9" class="px-3 py-12 text-center text-gray-400">
             {{ t('admin.quotes.table.empty') }}
           </td>
         </tr>
@@ -43,6 +70,14 @@ const categoryLabel = (category: string): string =>
           class="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-blue-50/40"
           @click="emit('select', item.projectId)"
         >
+          <td class="w-10 px-3 py-2" @click.stop>
+            <input
+              type="checkbox"
+              :checked="isSelected(item.projectId)"
+              class="h-4 w-4 cursor-pointer rounded border-gray-300"
+              @change="emit('toggle', item.projectId)"
+            >
+          </td>
           <td class="w-16 px-3 py-2">
             <img
               v-if="item.thumbnailUrl !== null"

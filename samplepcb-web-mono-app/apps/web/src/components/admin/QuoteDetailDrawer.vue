@@ -153,7 +153,11 @@ const onDownload = async (fileId: number, fileName: string): Promise<void> => {
 };
 
 // 완전삭제 모달 — 삭제 버튼으로 열고, 삭제 성공 시 드로어까지 닫는다(항목이 사라짐).
+// 배치 모달을 batch-of-1(ids=[projectId])로 재사용한다.
 const deleteProjectId = ref<number | null>(null);
+const deleteIds = computed<number[]>(() =>
+  deleteProjectId.value !== null ? [deleteProjectId.value] : [],
+);
 const onDeleted = (): void => {
   deleteProjectId.value = null;
   emit('close');
@@ -489,7 +493,7 @@ onBeforeUnmount(() => {
       />
       <DeleteQuoteModal
         v-if="deleteProjectId !== null"
-        :project-id="deleteProjectId"
+        :ids="deleteIds"
         @close="deleteProjectId = null"
         @deleted="onDeleted"
       />

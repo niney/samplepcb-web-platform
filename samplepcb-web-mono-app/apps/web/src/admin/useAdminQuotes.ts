@@ -133,33 +133,26 @@ export function useSaveCompanyName() {
   });
 }
 
-// 삭제 프리뷰 — 삭제 모달이 열릴 때(projectId != null)만 조회한다. 되돌릴 수 없는
-// 작업이라 항상 최신 상태를 봐야 하므로 캐시를 재사용하지 않는다(staleTime/gcTime 0).
-export function useDeletePreview(projectId: Ref<number | null>) {
-  return useQuery({
-    queryKey: ['admin', 'quotes', 'delete-preview', projectId],
-    queryFn: () =>
-      apiGet(
-        `${apiRoutes.adminPcbProjects}/${String(projectId.value)}/delete-preview`,
+// 배치 삭제 프리뷰 — 삭제 모달이 열릴 때 선택된 ids 로 조회(POST, mutation). 되돌릴 수
+// 없는 작업이라 캐시 없이 매번 최신 상태를 집계한다.
+export function useDeletePreview() {
+  return useMutation({
+    mutationFn: (ids: number[]) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/delete-preview`,
+        { ids },
         AdminDeletePreviewResponse,
       ),
-    enabled: computed(() => projectId.value !== null),
-    staleTime: 0,
-    gcTime: 0,
   });
 }
 
-// 견적 완전삭제 — 성공 시 ['admin','quotes'] 접두 무효화(목록·상세·rfq 뱃지 갱신).
-export function useDeleteQuote() {
+// 배치 완전삭제 — 성공 시 ['admin','quotes'] 접두 무효화(목록·상세·rfq 뱃지 갱신).
+export function useDeleteQuotes() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (projectId: number) =>
-      apiSend(
-        'DELETE',
-        `${apiRoutes.adminPcbProjects}/${String(projectId)}`,
-        undefined,
-        AdminDeleteResponse,
-      ),
+    mutationFn: (ids: number[]) =>
+      apiSend('POST', `${apiRoutes.adminPcbProjects}/delete`, { ids }, AdminDeleteResponse),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] });
     },
