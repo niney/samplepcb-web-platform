@@ -26,9 +26,9 @@ status: active
 
 ## Talks To [coverage: high — 5 sources]
 
-- **sp-node** (`/api`, Fastify 5, :3000) — 데이터 API. Vite dev proxy `'/api' → http://127.0.0.1:3000`. 계약은 `@sp/api-contract`(Zod)를 FE/BE가 공유해 타입으로 연결: DB(Prisma) → Fastify(zod type-provider) → 계약 → vue-query.
+- **sp-node** (`/api`, Fastify 5, :3333) — 데이터 API. Vite dev proxy `'/api' → http://127.0.0.1:3333`. 계약은 `@sp/api-contract`(Zod)를 FE/BE가 공유해 타입으로 연결: DB(Prisma) → Fastify(zod type-provider) → 계약 → vue-query.
 - **sp-php 인증 브리지** (`/spcb`, :8888) — 그누보드가 IdP. Vite dev proxy `'/spcb' → http://127.0.0.1:8888`. `GET /spcb/api/me`가 PHP 세션 기반으로 HS256 JWT(TTL 10분)를 발급 → sp-vue가 `/api` 호출 시 Bearer로 전달, Fastify는 검증만. 부트스트랩 로직은 `packages/shared/src/auth.ts`.
-- **nginx** (`ops/nginx/local-web.conf`, 통합 호스트 `local-web.samplepcb.co.kr`) — `/app/` → 5173(Vite dev+HMR), `/api/` → 3000, `/` → 8888(PHP). `/app`·`/api`는 그누보드 예약 경로로 base/prefix 고정.
+- **nginx** (`ops/nginx/local-web.conf`, 통합 호스트 `local-web.samplepcb.co.kr`) — `/app/` → 5173(Vite dev+HMR), `/api/` → 3333, `/` → 8888(PHP). `/app`·`/api`는 그누보드 예약 경로로 base/prefix 고정.
 
 ## API Surface [coverage: medium — 3 sources]
 

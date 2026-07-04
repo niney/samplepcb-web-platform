@@ -18,7 +18,7 @@ const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
-// httpErrors/assert 등 유틸. 개발 시 web(:5173)과 api(:3000)는 다른 origin 이라 CORS 허용.
+// httpErrors/assert 등 유틸. 개발 시 web(:5173)과 api(:3333)는 다른 origin 이라 CORS 허용.
 await app.register(fastifySensible);
 await app.register(fastifyCors, { origin: true });
 // 거버 zip 업로드 수신 (pcb-projects). 거버 최대 크기 여유 있게 100MB.
@@ -42,7 +42,7 @@ try {
   // 0.0.0.0(외부/인터넷 노출)은 불필요하다. 컨테이너 등 외부 바인딩이 필요하면
   // 환경변수 HOST=0.0.0.0 으로 override.
   const host = process.env.HOST ?? '127.0.0.1';
-  await app.listen({ port: Number(process.env.PORT ?? 3000), host });
+  await app.listen({ port: Number(process.env.PORT ?? 3333), host });
 } catch (err) {
   app.log.error(err);
   process.exit(1);

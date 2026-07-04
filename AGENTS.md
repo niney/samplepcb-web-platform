@@ -59,7 +59,7 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 **통합 호스트 `local-web.samplepcb.co.kr`** — 한 도메인에서 PHP·Vue·Node를 경로로 분기. 구체 경로(`/api`·`/app`)를 먼저, catch-all `/`를 마지막에 둔다:
 
 ```
-/api/  → 127.0.0.1:3000  Node (Fastify)      ← samplepcb-web-mono-app/apps/api
+/api/  → 127.0.0.1:3333  Node (Fastify)      ← samplepcb-web-mono-app/apps/api
 /app/  → 127.0.0.1:5173  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/web (base:'/app/')
 /      → 127.0.0.1:8888  PHP (XAMPP Apache)  ← samplepcb-web (그누보드/영카트)  ← 루트=PHP
 ```

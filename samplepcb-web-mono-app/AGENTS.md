@@ -57,8 +57,8 @@ apps/
 
 ```bash
 pnpm install
-pnpm dev          # turbo: web(5173) + api(3000) 동시
+pnpm dev          # turbo: web(5173) + api(3333) 동시
 pnpm typecheck    # turbo typecheck (모든 워크스페이스)
 pnpm lint
 ```
-nginx(`../ops/nginx/local-web.conf`)가 `/app`→5173, `/api`→3000 프록시.
+nginx(`../ops/nginx/local-web.conf`)가 `/app`→5173, `/api`→3333 프록시.

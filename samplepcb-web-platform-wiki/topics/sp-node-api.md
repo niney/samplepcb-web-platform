@@ -9,7 +9,7 @@ status: active
 
 ## Purpose [coverage: high — 5 sources]
 
-**sp-node** = Fastify 5 API 서버 (`samplepcb-web-mono-app/apps/api`, nginx `/api` 프록시, 기본 127.0.0.1:3000). 동적 PCB 주문(거버 업로드 → 사양·가격이 그때 정해지는 주문)을 영카트 **코어 무수정**으로 구현하는 백엔드다. 핵심 역할:
+**sp-node** = Fastify 5 API 서버 (`samplepcb-web-mono-app/apps/api`, nginx `/api` 프록시, 기본 127.0.0.1:3333). 동적 PCB 주문(거버 업로드 → 사양·가격이 그때 정해지는 주문)을 영카트 **코어 무수정**으로 구현하는 백엔드다. 핵심 역할:
 
 - **거버 PCB 담기 API** (`/api/pcb-projects`): 검증 → 견적 → 파일서버 업로드 대행 → `sp_*` 저장 → `g5_shop_cart` 스냅샷 INSERT
 - **가격 엔진** (`src/pricing/engine.ts`): 레거시 PHP `pcb_price*.lib.php` 를 실측 패리티로 이식
@@ -40,7 +40,7 @@ status: active
 | 그누보드 DB (`G5_DATABASE_URL`) | mysql2 직결 — 한정 예외 4가지만 (아래 Key Decisions) |
 | file.samplepcb.kr | 서버-to-서버 업로드(`/api/uploadFileByAnonymous`)·삭제(`GET /api/delete/:pathToken`) 대행, pathToken 클라이언트 미노출 |
 | 레거시 가격 API (`samplepcb_pricing_api.php`) | 런타임 아님 — 패리티 캡처 스크립트가 실측 대조용으로만 호출 |
-| nginx | `/api/` → 3000 프록시 (같은 도메인에서 PHP `/`·Vue `/app` 과 합류) |
+| nginx | `/api/` → 3333 프록시 (같은 도메인에서 PHP `/`·Vue `/app` 과 합류) |
 
 ## API Surface [coverage: medium — 3 sources]
 

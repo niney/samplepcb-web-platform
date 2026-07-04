@@ -17,7 +17,7 @@ export default defineConfig({
     // Vite 는 기본적으로 비허용 Host 를 403 차단하므로 명시 허용한다.
     allowedHosts: ['local-web.samplepcb.co.kr'],
     proxy: {
-      '/api': 'http://127.0.0.1:3000',
+      '/api': 'http://127.0.0.1:3333',
       '/spcb': 'http://127.0.0.1:8888',
     },
   },

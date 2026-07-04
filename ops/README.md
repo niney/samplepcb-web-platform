@@ -5,7 +5,7 @@
 ## 현재
 
 - **실제 구동 nginx = `D:\nginx\conf\nginx.conf`** (repo 밖, 로컬 머신). `nginx/local-web.conf`는 이 repo가 추적하는 **통합 호스트 레퍼런스 스니펫**(라이브에 동일 반영).
-- 통합 호스트 `local-web.samplepcb.co.kr`: `/api`→Node 3000 · `/app`→Vue 5173 · `/`→PHP 8888. **모노레포 가동 중이라 3경로 모두 동작.**
+- 통합 호스트 `local-web.samplepcb.co.kr`: `/api`→Node 3333 · `/app`→Vue 5173 · `/`→PHP 8888. **모노레포 가동 중이라 3경로 모두 동작.**
 - 라이브엔 개발용 부가 호스트도 있음: `local`·`local-www`→5173(Vue 단독 프리뷰), `local2`·`local3`→5174·5175(git worktree 병렬 dev). 통합 라우팅은 `local-web` 하나뿐, 나머지는 `/` 전체가 Vue.
 
 ## 예정

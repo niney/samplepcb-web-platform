@@ -16,7 +16,7 @@ samplepcb 웹 플랫폼의 로컬/운영 라우팅·인프라 계층. 두 코드
 **통합 호스트 `local-web.samplepcb.co.kr` — nginx 443 리버스프록시, 경로 분기:**
 
 ```
-/api/  → 127.0.0.1:3000  Node (Fastify)      ← samplepcb-web-mono-app/apps/api  (sp-node)
+/api/  → 127.0.0.1:3333  Node (Fastify)      ← samplepcb-web-mono-app/apps/api  (sp-node)
 /app/  → 127.0.0.1:5173  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/web  (sp-vue, base:'/app/')
 /      → 127.0.0.1:8888  PHP (XAMPP Apache)  ← samplepcb-web (그누보드/영카트)   ← 루트=PHP
 ```
@@ -33,7 +33,7 @@ samplepcb 웹 플랫폼의 로컬/운영 라우팅·인프라 계층. 두 코드
 
 | 구성요소 | 상대 | 방식 |
 |---|---|---|
-| nginx edge | sp-node(3000) · sp-vue(5173) · sp-php(8888) | 경로 기반 리버스프록시, `X-Forwarded-*`/`Host` 전달 |
+| nginx edge | sp-node(3333) · sp-vue(5173) · sp-php(8888) | 경로 기반 리버스프록시, `X-Forwarded-*`/`Host` 전달 |
 | sp-node | **file.samplepcb.kr** | 서버-to-서버 업로드/다운로드/삭제 대행 (`apps/api/src/lib/file-server.ts`), pathToken은 클라이언트 미노출 |
 | sp-node | 그누보드 공유 DB `samplepcb` | `DATABASE_URL` — sp_* 테이블(Prisma 소유)이 g5_*와 동거 |
 | 거버 뷰어 (local-gerber, 별도 repo) | local-web `/spcb/api/me` · `/api` | 교차 서브도메인이지만 same-site라 쿠키 전달, me.php가 `*.samplepcb.co.kr` 오리진 CORS 반사 허용 |
