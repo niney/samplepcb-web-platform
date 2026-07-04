@@ -22,9 +22,9 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 $g5['title'] = '장바구니';
 include_once('./_head.php');
 
-// 거버 견적 행(템플릿 상품) — sp-node g5-db.ts TEMPLATE_ITEMS 와 동일하게 유지.
-$sp_quote_it_ids = array('sp-pcb-std', 'sp-mask', 'sp-pcb-adv', 'sp-pcb-flex');
-$sp_ph = implode(',', array_map(function ($x) { return "'" . sql_real_escape_string($x) . "'"; }, $sp_quote_it_ids));
+// 거버 견적 행(템플릿 상품) — 목록은 extend/sp_quote_cart.extend.php 에서 공유
+// (주문서 orderform.sub.php 도 같은 목록으로 건별 렌더).
+$sp_ph = sp_quote_it_ids_in();
 
 $cart_items = array();
 $tot_point = 0;

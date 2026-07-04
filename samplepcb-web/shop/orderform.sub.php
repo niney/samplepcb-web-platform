@@ -52,6 +52,9 @@ if($is_kakaopay_use) {
         $goods_count = -1;
 
         // $s_cart_id 로 현재 장바구니 자료 쿼리
+        // sp 커스텀: 이 루프는 일반 상품 전용 — 거버 견적 템플릿은 뒤의 건별 루프에서
+        // GROUP BY 없이 따로 그린다(장바구니 테마 cart.php 와 동일한 이원 렌더).
+        $sp_quote_in = function_exists('sp_quote_it_ids_in') ? sp_quote_it_ids_in() : "''";
         $sql = " select a.ct_id,
                         a.it_id,
                         a.it_name,
@@ -67,7 +70,8 @@ if($is_kakaopay_use) {
                         b.it_notax
                    from {$g5['g5_shop_cart_table']} a left join {$g5['g5_shop_item_table']} b on ( a.it_id = b.it_id )
                   where a.od_id = '$s_cart_id'
-                    and a.ct_select = '1' ";
+                    and a.ct_select = '1'
+                    and a.it_id not in ($sp_quote_in) ";
         $sql .= " group by a.it_id ";
         $sql .= " order by a.ct_id ";
         $result = sql_query($sql);
@@ -235,6 +239,142 @@ if($is_kakaopay_use) {
             $tot_point      += $point;
             $tot_sell_price += $sell_price;
         } // for 끝
+
+        // sp 커스텀: 거버 견적 행 — 코어 GROUP BY(it_id) 를 풀어 건별(ct_id) 행으로.
+        // 견적은 템플릿 상품 4종의 it_id 를 공유하므로 집계하면 서로 다른 견적이
+        // "수량 N" 한 행으로 합쳐지고 판매가(ct_price=0)도 틀리게 보인다.
+        // 행 인덱스 $i 는 위 루프에서 이어진다(hidden 배열·escrow 인덱스 연속).
+        // 상세: extend/sp_quote_cart.extend.php ③
+        if (function_exists('sp_quote_it_ids_in')) {
+            $sqlq = " select a.ct_id,
+                             a.it_id,
+                             a.it_name,
+                             a.ct_price,
+                             a.ct_point,
+                             a.ct_qty,
+                             a.ct_send_cost,
+                             a.it_sc_type,
+                             a.io_type,
+                             a.io_price,
+                             a.ct_option,
+                             b.it_notax
+                        from {$g5['g5_shop_cart_table']} a left join {$g5['g5_shop_item_table']} b on ( a.it_id = b.it_id )
+                       where a.od_id = '$s_cart_id'
+                         and a.ct_select = '1'
+                         and a.it_id in (".sp_quote_it_ids_in().")
+                       order by a.ct_id ";
+            $resultq = sql_query($sqlq);
+
+            for (; $row=sql_fetch_array($resultq); $i++)
+            {
+                // 행 금액 — 견적은 ct_price=0·ct_qty=1, 총액은 io_price (테마 cart.php 와 동일)
+                if ($row['io_type'])
+                    $sell_price = $row['io_price'] * $row['ct_qty'];
+                else
+                    $sell_price = ($row['ct_price'] + $row['io_price']) * $row['ct_qty'];
+                $point = $row['ct_point'] * $row['ct_qty'];
+
+                if (!$goods)
+                {
+                    $goods = preg_replace("/\'|\"|\||\,|\&|\;/", "", $row['it_name']);
+                    $goods_it_id = $row['it_id'];
+                }
+                $goods_count++;
+
+                // 에스크로 상품정보 — 건별 행이므로 단가=행 총액, 수량=ct_qty(1)
+                if($default['de_escrow_use']) {
+                    if ($i>0)
+                        $good_info .= chr(30);
+                    $good_info .= "seq=".($i+1).chr(31);
+                    $good_info .= "ordr_numb={$od_id}_".sprintf("%04d", $i).chr(31);
+                    $good_info .= "good_name=".addslashes($row['it_name']).chr(31);
+                    $good_info .= "good_cntx=".$row['ct_qty'].chr(31);
+                    $good_info .= "good_amtx=".$sell_price.chr(31);
+                }
+
+                $image = get_it_image($row['it_id'], 80, 80);
+
+                $it_name = '<b>' . stripslashes($row['it_name']) . '</b>';
+                if($row['ct_option']) {
+                    $it_name .= '<div class="sod_opt"><ul><li>'.get_text($row['ct_option']).'</li></ul></div>';
+                }
+
+                // 복합과세금액
+                if($default['de_tax_flag_use']) {
+                    if($row['it_notax']) {
+                        $comm_free_mny += $sell_price;
+                    } else {
+                        $tot_tax_mny += $sell_price;
+                    }
+                }
+
+                // 토스페이먼츠 escrowProducts
+                $escrow_products[] = array(
+                    'id'        => $row['ct_id'],
+                    'name'      => $row['it_name'],
+                    'code'      => $row['it_id'],
+                    'unitPrice' => (int) $sell_price,
+                    'quantity'  => (int) $row['ct_qty']
+                );
+
+                // 배송비 라벨 — 계산(get_sendcost)은 it_id 집계 기준 그대로라 표시만 맞춘다
+                switch($row['ct_send_cost'])
+                {
+                    case 1:
+                        $ct_send_cost = '착불';
+                        break;
+                    case 2:
+                        $ct_send_cost = '무료';
+                        break;
+                    default:
+                        $ct_send_cost = '선불';
+                        break;
+                }
+
+                // 조건부무료 — 같은 템플릿 선택행 전체 합계로 판정(실제 배송비 계산과 동일 기준)
+                if($row['it_sc_type'] == 2) {
+                    $sumq = sql_fetch(" select SUM(IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty))) as price,
+                                               SUM(ct_qty) as qty
+                                          from {$g5['g5_shop_cart_table']}
+                                         where it_id = '{$row['it_id']}'
+                                           and od_id = '$s_cart_id'
+                                           and ct_select = '1' ");
+                    $sendcost = get_item_sendcost($row['it_id'], $sumq['price'], $sumq['qty'], $s_cart_id);
+
+                    if($sendcost == 0)
+                        $ct_send_cost = '무료';
+                }
+        ?>
+
+        <tr>
+
+            <td class="td_prd">
+                <div class="sod_img"><?php echo $image; ?></div>
+                <div class="sod_name">
+                    <input type="hidden" name="it_id[<?php echo $i; ?>]"    value="<?php echo $row['it_id']; ?>">
+                    <input type="hidden" name="it_name[<?php echo $i; ?>]"  value="<?php echo get_text($row['it_name']); ?>">
+                    <input type="hidden" name="it_price[<?php echo $i; ?>]" value="<?php echo $sell_price; ?>">
+                    <input type="hidden" name="cp_id[<?php echo $i; ?>]" value="">
+                    <input type="hidden" name="cp_price[<?php echo $i; ?>]" value="0">
+                    <?php if($default['de_tax_flag_use']) { ?>
+                    <input type="hidden" name="it_notax[<?php echo $i; ?>]" value="<?php echo $row['it_notax']; ?>">
+                    <?php } ?>
+                    <?php echo $it_name; ?>
+
+                 </div>
+            </td>
+            <td class="td_num"><?php echo number_format($row['ct_qty']); ?></td>
+            <td class="td_numbig  text_right"><?php echo number_format($sell_price); ?></td>
+            <td class="td_numbig  text_right"><span class="total_price"><?php echo number_format($sell_price); ?></span></td>
+            <td class="td_numbig  text_right"><?php echo number_format($point); ?></td>
+            <td class="td_dvr"><?php echo $ct_send_cost; ?></td>
+        </tr>
+
+        <?php
+                $tot_point      += $point;
+                $tot_sell_price += $sell_price;
+            } // 견적 for 끝
+        }
 
         if ($i == 0) {
             //echo '<tr><td colspan="7" class="empty_table">장바구니에 담긴 상품이 없습니다.</td></tr>';

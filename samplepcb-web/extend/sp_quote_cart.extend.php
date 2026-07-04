@@ -20,7 +20,25 @@ if (!defined('G5_USE_SHOP') || !G5_USE_SHOP) return;
  *    된다. 테마 JS 가 미체크 견적 ct_id 를 쿠키(sp_cart_deselect)에 실어 보내면,
  *    orderform.php 진입 시(extend 는 _common.php 말미 로드 → 본문보다 먼저 실행)
  *    세션 카트(od_id) 소유 행에 한해 ct_select=0 으로 되돌린다.
+ *
+ * ③ 견적 템플릿 it_id 목록 — 장바구니(테마 cart.php)와 주문서(pc·mobile
+ *    orderform.sub.php)가 같은 목록으로 "일반 상품 = it_id 집계 / 견적 = 건별
+ *    (ct_id) 행" 이원 렌더를 하도록 여기서 공유한다.
  */
+
+// ③ 거버 견적 템플릿 상품 it_id — sp-node g5-db.ts TEMPLATE_ITEMS 와 동일하게 유지.
+function sp_quote_it_ids()
+{
+    return array('sp-pcb-std', 'sp-mask', 'sp-pcb-adv', 'sp-pcb-flex');
+}
+
+// ③ SQL IN 절용 목록 — "'sp-pcb-std','sp-mask',..."
+function sp_quote_it_ids_in()
+{
+    return implode(',', array_map(function ($x) {
+        return "'" . sql_real_escape_string($x) . "'";
+    }, sp_quote_it_ids()));
+}
 
 // ① 주문서용 옵션 나열 — 선택행(ct_select=1)만. lib/shop.lib.php print_item_options 복제+필터.
 function sp_print_item_options_selected($it_id, $cart_id)
