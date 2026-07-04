@@ -16,12 +16,14 @@ import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadTarget } from '../lib/file-server';
 import {
   TEMPLATE_ITEMS,
+  deleteCartRow,
   deleteQuoteOption,
   getCartStates,
   getTemplateItem,
   insertCartRow,
   insertQuoteOption,
   selectCartRows,
+  updateCartQuoteRow,
 } from '../lib/g5-db';
 import type { CartState } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
@@ -432,6 +434,66 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     return { result: true as const, data: { thumbs: byItId } };
   });
 
+  // ── GET /api/pcb-projects/cart-items — 장바구니 견적 카드 보강 데이터 ────────
+  // cart.php(테마)는 g5_shop_cart 만 알아 실수량·projectId·견적상태를 모른다.
+  // ct_id 별로 이 값을 내려주면 장바구니 JS 가 견적 카드에 수량 입력(→PATCH 재견적)·
+  // 주문(→/order)·삭제(→DELETE)·거버 썸네일을 ct_id 단위로 붙인다.
+  // (정적 세그먼트라 Fastify 가 :id 파라미터 라우트보다 먼저 매칭.)
+  fastify.get('/pcb-projects/cart-items', async (request, reply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.unauthorized('로그인이 필요합니다');
+    }
+    const specs = await prisma.spOrderSpec.findMany({
+      where: { mbId: request.user.mbId, status: 'active', ctId: { not: null } },
+      orderBy: { ctId: 'asc' },
+    });
+    const states = await getCartStates(
+      specs.map((s) => s.ctId).filter((id): id is number => id !== null),
+    );
+    const inCart = specs.filter((s) => s.ctId !== null && states.get(s.ctId) === 'cart');
+    const quotes = await prisma.spQuote.findMany({
+      where: { id: { in: inCart.map((s) => s.quoteId) } },
+      select: { id: true, autoPrice: true, eta: true },
+    });
+    const quoteById = new Map(quotes.map((q) => [q.id, q]));
+    const thumbs = await prisma.spFile.findMany({
+      where: {
+        refType: 'sp_order_spec',
+        refId: { in: inCart.map((s) => s.id) },
+        fileType: 'thumbnail',
+      },
+      orderBy: { id: 'asc' },
+      select: { id: true, refId: true },
+    });
+    const thumbByRef = new Map<string, bigint>();
+    for (const t of thumbs) {
+      if (!thumbByRef.has(t.refId.toString())) thumbByRef.set(t.refId.toString(), t.id);
+    }
+    return {
+      result: true as const,
+      data: {
+        items: inCart.map((s) => {
+          const quote = quoteById.get(s.quoteId);
+          const thumbId = thumbByRef.get(s.id.toString());
+          return {
+            ctId: s.ctId,
+            projectId: Number(s.id),
+            projectName: s.projectName,
+            category: s.category,
+            qty: s.qty,
+            quoteStatus: s.quoteStatus,
+            price: s.finalPrice ?? quote?.autoPrice ?? null,
+            eta: quote?.eta ?? null,
+            optionSummary: buildOptionSummary(s.specJson as PcbProjectPayloadType['spec'], s.qty),
+            thumbnailUrl: thumbId !== undefined ? signedThumbUrl(thumbId) : null,
+          };
+        }),
+      },
+    };
+  });
+
   // ── POST /api/pcb-projects/:id/cart — [주문하기] 장바구니 담기 ──────────────
   // 가격 있는 프로젝트(자동견적 priced / 관리자 확정 quoted)만. 거버 직주문과 같은
   // INSERT 경로(io_price + 옵션 행 실등록) 재사용.
@@ -549,7 +611,10 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
 
   // ── PATCH /api/pcb-projects/:id — 수량 수정(서버 재견적) ────────────────────
   // 관리자 확정(quoted)은 수량 변경 시 확정가 의미가 사라지므로 거부(재확정 플로우는 2차).
-  // 담김(cart) 상태도 거부 — cart 행 가격과 어긋나므로 장바구니에서 뺀 뒤 수정.
+  // 담김(cart)이면 재견적 후 cart 행(io_id/io_price/ct_option)까지 새 견적에 맞춰
+  //   동기화한다 — 장바구니에서 바로 수량을 바꿀 수 있게(코어 수량변경은 io_price 를
+  //   선형(×수량)으로 다뤄 PCB 비선형 가격과 어긋나므로 서버 재견적만이 정답). ct_id
+  //   단위로 직접 조작(한정 예외 ⑥, g5-db.ts). 주문됨(ordered)은 주문 기록이라 거부.
   fastify.patch(
     '/pcb-projects/:id',
     { schema: { params: ProjectIdParams, body: PcbProjectQtyPatch } },
@@ -566,10 +631,12 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (spec.quoteStatus === 'quoted') {
         return reply.status(409).send({ result: false, error: 'QUOTE_FINALIZED' });
       }
+      // 담김 상태 확인 — cart 는 재견적 후 행 동기화, ordered 는 거부.
+      let cartState: CartState = 'none';
       if (spec.ctId !== null) {
-        const state = (await getCartStates([spec.ctId])).get(spec.ctId);
-        if (state === 'cart') {
-          return reply.status(409).send({ result: false, error: 'IN_CART' });
+        cartState = (await getCartStates([spec.ctId])).get(spec.ctId) ?? 'none';
+        if (cartState === 'ordered') {
+          return reply.status(409).send({ result: false, error: 'ALREADY_ORDERED' });
         }
       }
 
@@ -580,7 +647,12 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         qty,
         spec: spec.specJson as PcbProjectPayloadType['spec'],
       });
+      // 담긴 견적을 자동견적 불가(rfq) 수량으로 바꾸면 cart 행 금액을 유지할 수 없다 → 거부.
+      if (cartState === 'cart' && requote.listPrice === null) {
+        return reply.status(409).send({ result: false, error: 'REQUOTE_RFQ_IN_CART' });
+      }
       const quoteStatus = requote.listPrice === null ? 'rfq' : 'priced';
+      const oldQuoteId = spec.quoteId;
       const specJson = spec.specJson as Prisma.InputJsonValue;
       const updated = await prisma.$transaction(async (tx) => {
         // 견적 스냅샷은 불변 — 재견적은 새 quoteId 발급으로 기록을 남긴다
@@ -603,6 +675,29 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         });
         return q;
       });
+
+      // 담긴 견적이면 cart 행·옵션 행을 새 견적(새 quoteId)에 맞춰 동기화.
+      // 순서: 새 옵션 행 등록 → cart 행이 새 옵션을 가리키도록 UPDATE → 옛 옵션 행 삭제
+      //       (cart 행이 항상 실재하는 옵션 행을 참조 → 코어 재검증 통과).
+      if (cartState === 'cart' && spec.ctId !== null && requote.listPrice !== null) {
+        const item = await getTemplateItem(spec.category);
+        if (item !== null) {
+          try {
+            await insertQuoteOption(item.itId, updated.id, requote.listPrice);
+            await updateCartQuoteRow(
+              spec.ctId,
+              updated.id,
+              requote.listPrice,
+              buildOptionSummary(spec.specJson as PcbProjectPayloadType['spec'], qty),
+            );
+            await deleteQuoteOption(item.itId, oldQuoteId);
+          } catch (err) {
+            request.log.error({ err, projectId: Number(spec.id) }, 'cart 행 재견적 동기화 실패');
+            return reply.status(502).send({ result: false, error: 'CART_SYNC_FAILED' });
+          }
+        }
+      }
+
       return {
         result: true as const,
         data: {
@@ -611,14 +706,17 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           quoteStatus,
           price: requote.listPrice,
           eta: requote.eta === '' ? null : requote.eta,
+          cartState,
         },
       };
     },
   );
 
   // ── DELETE /api/pcb-projects/:id — 견적 삭제 (2단계) ────────────────────────
-  // active  → 소프트: status='deleted' 전환만. 데이터·파일 보존, 보관함("지난 견적")에 노출.
-  //           담김(cart)은 장바구니에서 먼저 삭제, 주문됨(ordered)은 주문 기록 연결이라 거부.
+  // active  → 소프트: status='deleted' 전환. 데이터·파일 보존, 보관함("지난 견적")에 노출.
+  //           담김(cart)이면 cart 행·옵션 행을 ct_id 단위로 먼저 제거(장바구니에서 빼기)
+  //           후 보관함으로 — 코어 seldelete 는 it_id 단위라 같은 템플릿 견적을 함께
+  //           지우므로 sp-node 가 정밀 삭제(한정 예외 ⑥). 주문됨(ordered)은 거부.
   // deleted → 하드(보관함 [영구 삭제], 복원 없음): 관련 데이터 전부 파기.
   //           순서가 핵심 — 실파일(파일서버) 먼저, 전부 성공했을 때만 DB 삭제.
   //           반대로 하면 실패 시 pathToken 이 사라져 고아 파일이 영구히 남는다.
@@ -645,11 +743,19 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (spec.status === 'active') {
         if (spec.ctId !== null) {
           const state = (await getCartStates([spec.ctId])).get(spec.ctId);
-          if (state === 'cart') {
-            return reply.status(409).send({ result: false, error: 'IN_CART' });
-          }
           if (state === 'ordered') {
             return reply.status(409).send({ result: false, error: 'ALREADY_ORDERED' });
+          }
+          if (state === 'cart') {
+            // 장바구니에서 빼기 = cart 행·옵션 행 제거(ct_id 단위) 후 보관함으로.
+            const itId = TEMPLATE_ITEMS[spec.category.toLowerCase()];
+            try {
+              await deleteCartRow(spec.ctId);
+              if (itId !== undefined) await deleteQuoteOption(itId, spec.quoteId);
+            } catch (err) {
+              request.log.error({ err, projectId: Number(spec.id) }, '장바구니 견적 행 삭제 실패');
+              return reply.status(502).send({ result: false, error: 'CART_DELETE_FAILED' });
+            }
           }
         }
         await prisma.spOrderSpec.update({ where: { id: spec.id }, data: { status: 'deleted' } });

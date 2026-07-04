@@ -5,23 +5,30 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
  * sp-lite 장바구니 — 코어 shop/cart.php 가 G5_THEME_SHOP_PATH/cart.php 존재 시 include 후 return (코어 무수정 오버라이드).
  * 진입 시점에 $s_cart_id·$cart_action_url·$naverpay_button_js 준비 완료, before_check_cart_price 실행됨.
  * 기능 훅(form 이름·ct_chk·mod_options·#mod_option_frm·form_check 등)은 코어와 동일하게 유지.
+ *
+ * 거버 견적 행(템플릿 상품 4종)은 코어 GROUP BY(it_id) 를 풀어 **건별 카드**로 보여준다.
+ * PCB 가격은 비선형이라 코어 수량변경(io_price×수량, 선형)이 틀리므로, 견적 행의
+ * 수량변경·주문·삭제는 모두 ct_id 단위로 sp-node 를 경유한다(하단 JS):
+ *   수량: PATCH /api/pcb-projects/{id}  (서버 재견적 → cart 행 io_price/ct_option 동기화)
+ *   주문: POST  /api/pcb-projects/order (행 단위 ct_select → orderform 직행)
+ *   삭제: DELETE /api/pcb-projects/{id} (cart 행 제거 → "지난 견적" 보관함)
+ * 일반 상품(견적 템플릿이 아닌 행)이 섞이면 그 상품엔 코어 폼(form_check) 경로를 쓴다.
  */
 
 $g5['title'] = '장바구니';
 include_once('./_head.php');
 
 // 거버 견적 행(템플릿 상품) — sp-node g5-db.ts TEMPLATE_ITEMS 와 동일하게 유지.
-// 견적 행은 ct_qty=1 고정(가격이 io_price 총액)이라 [선택사항수정] 팝업의 수량 변경이
-// 잘못된 선형 계산(총액×수량)이 되므로 버튼을 숨기고 견적관리로 안내한다.
 $sp_quote_it_ids = array('sp-pcb-std', 'sp-mask', 'sp-pcb-adv', 'sp-pcb-flex');
+$sp_ph = implode(',', array_map(function ($x) { return "'" . sql_real_escape_string($x) . "'"; }, $sp_quote_it_ids));
 
-// 장바구니 목록 수집 (쿼리·계산은 코어와 동일)
 $cart_items = array();
 $tot_point = 0;
 $tot_sell_price = 0;
 $send_cost = 0;
 $continue_ca_id = '';
 
+// ── (1) 일반 상품 — 코어와 동일한 it_id 집계(견적 템플릿 제외) ──────────────
 $sql = " select a.ct_id,
                 a.it_id,
                 a.it_name,
@@ -35,14 +42,13 @@ $sql = " select a.ct_id,
                 b.ca_id2,
                 b.ca_id3
            from {$g5['g5_shop_cart_table']} a left join {$g5['g5_shop_item_table']} b on ( a.it_id = b.it_id )
-          where a.od_id = '$s_cart_id' ";
-$sql .= " group by a.it_id ";
-$sql .= " order by a.ct_id ";
+          where a.od_id = '$s_cart_id'
+            and a.it_id not in ($sp_ph)
+          group by a.it_id
+          order by a.ct_id ";
 $result = sql_query($sql);
-
 for ($i=0; $row=sql_fetch_array($result); $i++)
 {
-    // 상품별 합계금액
     $sum = sql_fetch(" select SUM(IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty))) as price,
                               SUM(ct_point * ct_qty) as point,
                               SUM(ct_qty) as qty
@@ -50,31 +56,27 @@ for ($i=0; $row=sql_fetch_array($result); $i++)
                         where it_id = '{$row['it_id']}'
                           and od_id = '$s_cart_id' ");
 
-    if ($i == 0) // 계속쇼핑
+    if ($continue_ca_id === '') // 계속쇼핑
         $continue_ca_id = $row['ca_id'];
 
-    // 배송비 표기
     switch($row['ct_send_cost']) {
         case 1:  $ct_send_cost = '착불'; break;
         case 2:  $ct_send_cost = '무료'; break;
         default: $ct_send_cost = '선불'; break;
     }
 
-    // 조건부무료
     if($row['it_sc_type'] == 2) {
         $sendcost = get_item_sendcost($row['it_id'], $sum['price'], $sum['qty'], $s_cart_id);
         if($sendcost == 0)
             $ct_send_cost = '무료';
     }
 
-    $is_quote = in_array($row['it_id'], $sp_quote_it_ids);
-
     $cart_items[] = array(
+        'is_quote'   => false,
+        'ct_id'      => $row['ct_id'],
         'it_id'      => $row['it_id'],
-        'is_quote'   => $is_quote,
         'it_name'    => stripslashes($row['it_name']),
-        // 견적 행은 템플릿 상품 상세로 보내지 않고 견적관리로 안내
-        'it_url'     => $is_quote ? G5_URL.'/shop/quotes' : shop_item_url($row['it_id']),
+        'it_url'     => shop_item_url($row['it_id']),
         'image'      => get_it_image($row['it_id'], 96, 96),
         'options'    => print_item_options($row['it_id'], $s_cart_id),
         'qty'        => $sum['qty'],
@@ -88,6 +90,53 @@ for ($i=0; $row=sql_fetch_array($result); $i++)
     $tot_sell_price += $sum['price'];
 }
 
+// ── (2) 거버 견적 행 — 건별(ct_id) 카드. GROUP BY 를 풀어 각 견적을 따로 보여준다 ──
+// 견적 행은 ct_price=0, 가격은 io_price(견적 총액), ct_qty=1. 실수량·projectId 는
+// 하단 JS 가 sp-node(/cart-items)에서 받아 카드의 수량 입력을 채운다.
+$sqlq = " select a.ct_id,
+                 a.it_id,
+                 a.it_name,
+                 a.ct_price,
+                 a.ct_send_cost,
+                 a.io_price,
+                 a.ct_option,
+                 b.ca_id
+            from {$g5['g5_shop_cart_table']} a left join {$g5['g5_shop_item_table']} b on ( a.it_id = b.it_id )
+           where a.od_id = '$s_cart_id'
+             and a.it_id in ($sp_ph)
+           order by a.ct_id ";
+$resultq = sql_query($sqlq);
+for ($i=0; $row=sql_fetch_array($resultq); $i++)
+{
+    $price = (int) $row['ct_price'] + (int) $row['io_price']; // ct_qty=1 → 행 총액 = io_price
+
+    if ($continue_ca_id === '')
+        $continue_ca_id = $row['ca_id'];
+
+    switch($row['ct_send_cost']) {
+        case 1:  $ct_send_cost = '착불'; break;
+        case 2:  $ct_send_cost = '무료'; break;
+        default: $ct_send_cost = '선불'; break;
+    }
+
+    $cart_items[] = array(
+        'is_quote'   => true,
+        'ct_id'      => $row['ct_id'],
+        'it_id'      => $row['it_id'],
+        'it_name'    => stripslashes($row['it_name']),
+        'it_url'     => G5_URL.'/shop/quotes',
+        'image'      => get_it_image($row['it_id'], 96, 96), // JS 가 거버 썸네일로 교체
+        'options'    => $row['ct_option'], // 사양 요약 문자열 (buildOptionSummary)
+        'qty'        => 1, // 표시용 초기값 — JS 가 실수량으로 교체
+        'ct_price'   => $row['ct_price'],
+        'point'      => 0,
+        'send_label' => $ct_send_cost,
+        'sell_price' => $price,
+    );
+
+    $tot_sell_price += $price;
+}
+
 $cart_count = count($cart_items);
 if ($cart_count)
     $send_cost = get_sendcost($s_cart_id, 0); // 배송비 계산
@@ -98,6 +147,12 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
 <!-- 장바구니 시작 { -->
 <script src="<?php echo G5_JS_URL; ?>/shop.js?ver=<?php echo G5_JS_VER; ?>"></script>
 <script src="<?php echo G5_JS_URL; ?>/shop.override.js?ver=<?php echo G5_JS_VER; ?>"></script>
+
+<style>
+.sp-cart-qty-input{width:4.5em;padding:.25rem .4rem;text-align:center;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;}
+.sp-cart-qty-input:disabled{background:#f2f4f7;color:#98a2b3;cursor:not-allowed;}
+.sp-cart-item--quote .sp-cart-qty{display:flex;align-items:center;gap:.4rem;}
+</style>
 
 <div id="sod_bsk" class="od_prd_list">
 
@@ -130,16 +185,16 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                     <label for="ct_all"><span></span>전체선택 <em id="sp_sel_cnt"><?php echo $cart_count; ?>/<?php echo $cart_count; ?></em></label>
                 </span>
                 <div class="sp-cart-toolbar-btns btn_cart_del">
-                    <button type="button" onclick="return form_check('seldelete');">선택삭제</button>
-                    <button type="button" onclick="return form_check('alldelete');">비우기</button>
+                    <button type="button" onclick="return spCartDelete('sel');">선택삭제</button>
+                    <button type="button" onclick="return spCartDelete('all');">비우기</button>
                 </div>
             </div>
 
             <ul class="sp-cart-items">
                 <?php foreach ($cart_items as $idx => $item) { ?>
-                <li class="sp-cart-item">
+                <li class="sp-cart-item<?php echo $item['is_quote'] ? ' sp-cart-item--quote' : ''; ?>"<?php if ($item['is_quote']) { ?> data-ctid="<?php echo (int) $item['ct_id']; ?>"<?php } ?>>
                     <span class="sp-chk sp-cart-item-chk">
-                        <input type="checkbox" name="ct_chk[<?php echo $idx; ?>]" value="1" id="ct_chk_<?php echo $idx; ?>" checked="checked" class="selec_chk">
+                        <input type="checkbox" name="ct_chk[<?php echo $idx; ?>]" value="1" id="ct_chk_<?php echo $idx; ?>" checked="checked" class="selec_chk"<?php if ($item['is_quote']) { ?> data-quote="1"<?php } ?>>
                         <label for="ct_chk_<?php echo $idx; ?>"><span></span><b class="sound_only">상품 선택</b></label>
                     </span>
 
@@ -153,29 +208,30 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                         <a href="<?php echo $item['it_url']; ?>" class="prd_name"><b><?php echo $item['it_name']; ?></b></a>
 
                         <?php if ($item['options']) { ?>
-                        <div class="sod_opt"><?php echo $item['options']; ?></div>
+                        <div class="sod_opt"><?php echo $item['is_quote'] ? get_text($item['options']) : $item['options']; ?></div>
+                        <?php if (!$item['is_quote']) { ?>
                         <div class="sod_option_btn">
-                            <?php if ($item['is_quote']) { ?>
-                            <a href="<?php echo G5_URL; ?>/shop/quotes" class="sp-cart-quote-link"><i class="fa fa-pencil" aria-hidden="true"></i> 수량 변경은 견적관리에서</a>
-                            <?php } else { ?>
                             <button type="button" class="mod_options"><i class="fa fa-pencil" aria-hidden="true"></i> 선택사항수정</button>
-                            <?php } ?>
                         </div>
+                        <?php } ?>
                         <?php } ?>
 
                         <div class="sp-cart-meta">
-                            <?php if ($item['ct_price'] > 0) { ?><span>판매가 <?php echo number_format($item['ct_price']); ?>원</span><?php } ?>
+                            <?php if (!$item['is_quote'] && $item['ct_price'] > 0) { ?><span>판매가 <?php echo number_format($item['ct_price']); ?>원</span><?php } ?>
                             <?php if ($item['point'] > 0) { ?><span>포인트 <?php echo number_format($item['point']); ?>점</span><?php } ?>
                             <span>배송비 <?php echo $item['send_label']; ?></span>
-                            <?php if ($item['is_quote']) { /* 코어 cartupdate 삭제 → 서버 지연 반영으로 보관함 이동 */ ?>
+                            <?php if ($item['is_quote']) { /* sp-node DELETE → 보관함 이동 */ ?>
                             <span>삭제 시 <a href="<?php echo G5_URL; ?>/shop/quotes/archive" class="sp-link-archive">지난 견적 보관함</a>으로 이동</span>
                             <?php } ?>
                         </div>
                     </div>
 
                     <div class="sp-cart-calc">
-                        <?php if ($item['is_quote']) { /* 견적 행은 ct_qty=1 — 실수량은 사양 요약(ct_option)에, 카드 수치는 견적 건수 */ ?>
-                        <span class="sp-cart-qty">견적 <strong><?php echo number_format($item['qty']); ?></strong>건</span>
+                        <?php if ($item['is_quote']) { /* 견적 행: 수량 인라인 변경 → 서버 재견적(하단 JS) */ ?>
+                        <span class="sp-cart-qty">수량
+                            <input type="number" class="sp-cart-qty-input" min="1" step="1" value="<?php echo (int) $item['qty']; ?>" data-prev="<?php echo (int) $item['qty']; ?>" disabled aria-label="수량">
+                            개
+                        </span>
                         <?php } else { ?>
                         <span class="sp-cart-qty">수량 <strong><?php echo number_format($item['qty']); ?></strong>개</span>
                         <?php } ?>
@@ -215,7 +271,7 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                 <input type="hidden" name="url" value="./orderform.php">
                 <input type="hidden" name="records" value="<?php echo $cart_count; ?>">
                 <input type="hidden" name="act" value="">
-                <button type="button" onclick="return form_check('buy');" class="sp-btn sp-btn-primary btn_submit">주문하기</button>
+                <button type="button" onclick="return spCartOrder();" class="sp-btn sp-btn-primary btn_submit">주문하기</button>
                 <a href="<?php echo shop_category_url($continue_ca_id); ?>" class="sp-btn sp-btn-ghost btn01">쇼핑 계속하기</a>
 
                 <?php if ($naverpay_button_js) { ?>
@@ -234,7 +290,7 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
 $(function() {
     var close_btn_idx;
 
-    // 선택사항수정
+    // 선택사항수정 (일반 상품 전용 — 견적 행엔 버튼이 렌더되지 않는다)
     $(".mod_options").click(function() {
         var it_id = $(this).closest(".sp-cart-item").find("input[name^=it_id]").val();
         var $this = $(this);
@@ -281,18 +337,17 @@ $(function() {
     });
 });
 
+// 코어 폼 제출(일반 상품 폴백 경로) — buy/seldelete/alldelete
 function fsubmit_check(f) {
     if($("input[name^=ct_chk]:checked").length < 1) {
         alert("구매하실 상품을 하나이상 선택해 주십시오.");
         return false;
     }
-
     return true;
 }
 
 function form_check(act) {
     var f = document.frmcartlist;
-    var cnt = f.records.value;
 
     if (act == "buy")
     {
@@ -300,7 +355,6 @@ function form_check(act) {
             alert("주문하실 상품을 하나이상 선택해 주십시오.");
             return false;
         }
-
         f.act.value = act;
         f.submit();
     }
@@ -315,43 +369,173 @@ function form_check(act) {
             alert("삭제하실 상품을 하나이상 선택해 주십시오.");
             return false;
         }
-
         f.act.value = act;
         f.submit();
     }
-
     return true;
 }
 
-// 견적 카드 썸네일 교체 — 템플릿 이미지 → 대표 거버 썸네일(서명 프록시 URL).
-// cart 는 GROUP BY it_id 집계 카드라 sp-node 가 it_id 별 첫 담김 견적의 썸네일을
-// 내려준다(GET /api/pcb-projects/cart-thumbs). 실패하면 템플릿 이미지 그대로 둔다.
+// ── 거버 견적 행: ct_id 단위 sp-node 연동 (수량 재견적·주문·삭제) ────────────
 (function () {
-    var thumbs = document.querySelectorAll('.sp-cart-thumb[data-itid]');
-    if (thumbs.length === 0) { return; }
-    fetch('/spcb/api/me', { credentials: 'include' })
-        .then(function (res) {
+    'use strict';
+
+    var API = '/api/pcb-projects';
+    var token = null;
+
+    // 견적 카드가 하나도 없으면(일반 상품만) sp-node 경로 불필요 — 코어 폼만 쓴다.
+    var quoteCards = Array.prototype.slice.call(document.querySelectorAll('.sp-cart-item--quote'));
+    var hasNonQuote = document.querySelectorAll('#sod_bsk .sp-cart-item:not(.sp-cart-item--quote)').length > 0;
+
+    var ERR = {
+        QUOTE_FINALIZED: '확정된 견적은 수량을 변경할 수 없습니다. 재견적이 필요하면 문의해 주세요.',
+        ALREADY_ORDERED: '이미 주문된 견적입니다.',
+        REQUOTE_RFQ_IN_CART: '이 수량은 자동견적이 불가합니다. 장바구니에서 빼고 견적을 요청해 주세요.',
+        CART_SYNC_FAILED: '금액 동기화에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+        CART_DELETE_FAILED: '장바구니에서 삭제하지 못했습니다. 다시 시도해 주세요.',
+        NOT_PRICED: '견적가가 아직 없습니다.',
+        NO_ORDERABLE_ITEMS: '주문 가능한 항목이 없습니다.',
+        TEMPLATE_ITEM_MISSING: '상품 설정 오류입니다. 관리자에게 문의해 주세요.',
+        NOT_FOUND: '견적을 찾을 수 없습니다.'
+    };
+    function emsg(b) { return (b && ERR[b.error]) || (b && (b.message || b.error)) || '요청에 실패했습니다.'; }
+
+    function refreshToken() {
+        return fetch('/spcb/api/me', { credentials: 'include' }).then(function (res) {
             if (!res.ok) { throw new Error('not authenticated'); }
             return res.json();
-        })
-        .then(function (me) {
-            return fetch('/api/pcb-projects/cart-thumbs', {
-                headers: { 'Authorization': 'Bearer ' + me.token }
+        }).then(function (me) { token = me.token; });
+    }
+
+    function api(method, path, body) {
+        return fetch(API + path, {
+            method: method,
+            headers: Object.assign(
+                { 'Authorization': 'Bearer ' + token },
+                body ? { 'Content-Type': 'application/json' } : {}
+            ),
+            body: body ? JSON.stringify(body) : undefined
+        }).then(function (res) {
+            return res.json().then(function (json) { return { ok: res.ok, json: json }; });
+        });
+    }
+
+    // 견적 카드 보강: 실수량·projectId·거버 썸네일 (sp-node /cart-items)
+    function enrich() {
+        if (quoteCards.length === 0) { return Promise.resolve(); }
+        return refreshToken()
+            .then(function () { return api('GET', '/cart-items'); })
+            .then(function (r) {
+                if (!r.ok) { return; }
+                var map = {};
+                (r.json.data.items || []).forEach(function (it) { map[String(it.ctId)] = it; });
+                quoteCards.forEach(function (li) {
+                    var it = map[li.getAttribute('data-ctid')];
+                    if (!it) { return; }
+                    var input = li.querySelector('.sp-cart-qty-input');
+                    if (input) {
+                        input.value = it.qty;
+                        input.setAttribute('data-prev', it.qty);
+                        input.setAttribute('data-id', it.projectId);
+                        if (it.quoteStatus === 'quoted') {
+                            input.title = '확정 견적은 수량을 변경할 수 없습니다';
+                        } else {
+                            input.disabled = false;
+                        }
+                    }
+                    var img = li.querySelector('.sp-cart-thumb img');
+                    if (it.thumbnailUrl && img) { img.src = it.thumbnailUrl; }
+                    var chk = li.querySelector('input[name^=ct_chk]');
+                    if (chk) { chk.setAttribute('data-id', it.projectId); }
+                });
+            })
+            .catch(function () { /* 보강 실패 시 표시가는 그대로, 수량 입력은 비활성 유지 */ });
+    }
+
+    // 수량 변경 → 서버 재견적(담김 상태 cart 행 동기화) → 새로고침
+    document.addEventListener('change', function (ev) {
+        var input = ev.target;
+        if (!input.classList || !input.classList.contains('sp-cart-qty-input')) { return; }
+        var id = input.getAttribute('data-id');
+        if (!id) { return; }
+        var qty = parseInt(input.value, 10);
+        if (!(qty > 0)) { input.value = input.getAttribute('data-prev'); return; }
+        if (String(qty) === input.getAttribute('data-prev')) { return; }
+        input.disabled = true;
+        refreshToken()
+            .then(function () { return api('PATCH', '/' + id, { qty: qty }); })
+            .then(function (r) {
+                if (!r.ok) {
+                    alert(emsg(r.json));
+                    input.value = input.getAttribute('data-prev');
+                    input.disabled = false;
+                    return;
+                }
+                location.reload(); // 행 금액·총계가 함께 바뀌므로 서버 렌더 새로고침
+            })
+            .catch(function () { input.disabled = false; });
+    });
+
+    // 선택된 견적 카드의 projectId 목록
+    function selectedQuoteIds() {
+        var ids = [];
+        quoteCards.forEach(function (li) {
+            var chk = li.querySelector('input[name^=ct_chk]');
+            var pid = chk && chk.getAttribute('data-id');
+            if (chk && chk.checked && pid) { ids.push(parseInt(pid, 10)); }
+        });
+        return ids;
+    }
+    function nonQuoteChecked() {
+        return document.querySelectorAll('#sod_bsk .sp-cart-item:not(.sp-cart-item--quote) input[name^=ct_chk]:checked').length > 0;
+    }
+
+    // 주문하기 — 견적 전용이면 sp-node(/order, 행 단위 선택), 일반 상품 섞이면 코어 폼.
+    window.spCartOrder = function () {
+        if (hasNonQuote) { return form_check('buy'); }
+        var ids = selectedQuoteIds();
+        if (ids.length === 0) { alert('주문하실 견적을 하나 이상 선택해 주세요.'); return false; }
+        refreshToken()
+            .then(function () { return api('POST', '/order', { ids: ids }); })
+            .then(function (r) {
+                if (!r.ok) { alert(emsg(r.json)); return; }
+                location.href = r.json.data.redirectUrl;
             });
-        })
-        .then(function (res) {
-            if (!res.ok) { throw new Error('request failed'); }
-            return res.json();
-        })
-        .then(function (json) {
-            var map = (json.data && json.data.thumbs) || {};
-            Array.prototype.forEach.call(thumbs, function (a) {
-                var url = map[a.getAttribute('data-itid')];
-                var img = a.querySelector('img');
-                if (url && img) { img.src = url; }
+        return false;
+    };
+
+    // 삭제 — 견적 행은 ct_id 단위 sp-node DELETE(→ 보관함). 일반 상품 섞이면 코어 폼.
+    function spCartDelete(mode) {
+        if (hasNonQuote) { return form_check(mode === 'all' ? 'alldelete' : 'seldelete'); }
+        var ids;
+        if (mode === 'all') {
+            ids = [];
+            quoteCards.forEach(function (li) {
+                var chk = li.querySelector('input[name^=ct_chk]');
+                var pid = chk && chk.getAttribute('data-id');
+                if (pid) { ids.push(parseInt(pid, 10)); }
             });
-        })
-        .catch(function () { /* 템플릿 이미지 유지 */ });
+        } else {
+            ids = selectedQuoteIds();
+            if (ids.length === 0) { alert('삭제하실 견적을 하나 이상 선택해 주세요.'); return false; }
+        }
+        if (ids.length === 0) { alert('삭제할 견적이 없습니다.'); return false; }
+        if (!confirm('삭제한 견적은 "지난 견적" 보관함으로 이동됩니다. ' + ids.length + '건을 삭제할까요?')) { return false; }
+        refreshToken().then(function () {
+            var failed = 0;
+            return ids.reduce(function (chain, id) {
+                return chain.then(function () {
+                    return api('DELETE', '/' + id).then(function (r) { if (!r.ok) { failed++; } });
+                });
+            }, Promise.resolve()).then(function () {
+                if (failed > 0) { alert(failed + '건을 삭제하지 못했습니다.'); }
+                location.reload();
+            });
+        });
+        return false;
+    }
+    window.spCartDelete = spCartDelete;
+
+    enrich();
 })();
 </script>
 <!-- } 장바구니 끝 -->

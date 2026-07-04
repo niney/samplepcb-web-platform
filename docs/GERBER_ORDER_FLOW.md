@@ -7,6 +7,7 @@
 > 작성 2026-07-02 · 실브라우저 end-to-end 검증 완료 시점 기준
 > 갱신 2026-07-03 · 가격 엔진 라이브 패리티 체계 + spec 키 differentDesign 통일 반영
 > 갱신 2026-07-03 · 견적관리(/shop/quotes)·지난 견적 보관함(/shop/quotes/archive) — 장바구니와 독립 모델 확립
+> 갱신 2026-07-03 · 장바구니 견적 행 건별 인라인 수량변경 — 담긴 상태에서 서버 재견적+cart 행 동기화(기법 #8 개정)
 
 ---
 
@@ -143,9 +144,15 @@
   툴바 [선택삭제]/[비우기]. 수량 인라인 수정 = PATCH 서버 재견적(새 quoteId, 비선형 브래킷),
   [바로 주문] = POST /order (배치 담기 + `ct_select` 행 단위 선택 → orderform 직행).
   목록 API 의 `optionSummary` 가 cart 의 `ct_option` 과 같은 문자열이라 두 화면 표기가 항상 일치
-- **장바구니에서 삭제하면**: 코어 cartupdate 가 cart 행만 지운다. sp-node 는 훅 없이
-  **목록 조회 시점에 "ctId 는 있는데 cart 행이 없다"를 감지해 status='deleted' 로 지연 반영**
-  (lazy reconcile) — 보관함으로 이동. 주문 완료 건의 cart 행은 코어가 보존하므로 오탐 없음
+- **장바구니에서도 수량 변경·주문 (2026-07-03)**: 담긴 견적은 견적관리에 안 나오지만(독립 모델),
+  이제 **장바구니 카드에서 직접** 수량을 바꾼다 — 견적 행을 건별(ct_id) 카드로 분리하고 인라인
+  수량 입력이 `PATCH /:id`(담김 허용) 를 호출, 서버가 재견적하고 **cart 행 `io_price`/`ct_option`/
+  옵션 행을 새 견적에 동기화**(기법 #8·한정 예외 ⑥). 주문은 `/order`(행 단위 선택)로 직행
+- **장바구니에서 삭제하면**: sp-lite cart 의 [선택삭제]/[비우기]는 견적 행을 `DELETE /:id`(담김
+  허용, cart 행·옵션 행을 **ct_id 단위**로 제거 → status='deleted' 보관함)로 지운다. 코어
+  cartupdate 로 지운 경우(다른 경로)를 위한 **lazy reconcile 백스톱**도 유지 — 목록 조회 시점에
+  "ctId 는 있는데 cart 행이 없다"를 감지해 status='deleted' 로 지연 반영. 주문 완료 건의 cart
+  행은 코어가 보존하므로 오탐 없음
 - **보관함**: 보기 전용 + [영구 삭제](복원 없음). 하드 삭제 순서가 핵심 — 실파일(파일서버) 먼저,
   전부 성공했을 때만 DB 파기. 실패 시 spec 보존 → 재클릭이 곧 재시도(멱등)
 
@@ -162,7 +169,7 @@
 | 5 | `cartupdate.php:276` 이 같은 `it_id` 재담기 시 기존 행 전부 삭제 | 템플릿 상품을 **일반 목록/상세에 노출 금지** — 표준 담기 경로 자체를 차단 |
 | 6 | 가격 로직이 PHP 에 있음 | **실측 패리티 이식** — 라이브 레거시 API 에 실캡처 body 46케이스를 재생한 fixture 와 대조(`legacy-parity.test.ts`, 판매가·제작일·무게·eta 전항목). 가격표는 서버 라이브 파일이 정본이라 스냅샷 동기화 절차가 필수(`pnpm pricing:sync` → PRICE_VERSION bump → `pnpm pricing:capture`). 상세 `docs/pricing-engine-parity.md` |
 | 7 | 사양이 EAV(`it_1~it_50`) 50슬롯 제한 | `sp_order_spec.spec_json` — 슬롯 제한 없음(레거시에서 유실되던 `gusset` 등도 수용) |
-| 8 | [선택사항수정] 팝업이 수량을 옵션표 `io_price`×수량으로 재계산 — 견적 행은 io_price 가 **총액**이라 선형 곱 오류(+스냅샷 리셋) | **테마 cart 스킨 분기** — 견적 행(템플릿 4종 it_id)만 버튼을 숨기고 "수량 변경은 견적관리에서" 링크로 대체. ct_qty=1 고정이라 수량 표기도 "견적 N건"으로 |
+| 8 | [선택사항수정] 팝업이 수량을 옵션표 `io_price`×수량으로 선형 재계산 — 견적 행은 io_price 가 **총액**이라 곱 오류. 게다가 코어 cart 는 `GROUP BY it_id` 라 같은 템플릿 견적이 한 카드("견적 N건")로 뭉친다 | **테마 cart 스킨에서 견적 행을 건별(ct_id) 카드로 분리 + 인라인 수량 입력** — 코어 [선택사항수정] 대신 수량 입력이 sp-node 재견적(`PATCH /:id`)을 호출해 비선형 가격을 서버가 다시 계산하고 담긴 cart 행의 `io_price`/`ct_option`/옵션 행을 새 견적에 동기화한다(한정 예외 ⑥). 주문·삭제도 ct_id 단위로 sp-node(`/order`·`DELETE /:id`) 경유 — 코어 `buy`/`seldelete` 는 it_id 단위라 형제 견적을 함께 처리하므로. **(개정 2026-07-03: "수량 변경은 견적관리에서" 링크 → 장바구니에서 직접 변경)** |
 | 9 | 코어 "주문하기"(cartupdate act=buy)의 `ct_select` 선택이 **it_id 단위** — 템플릿 공유 시 다른 견적까지 함께 선택됨 | sp-node 가 `ct_select`/`ct_select_time` 을 **행(ct_id) 단위로 직접 UPDATE** 후 orderform 으로 직행 (한정 예외 ④) |
 | 10 | 장바구니에서 삭제(cartupdate)해도 sp-node 는 알 수 없음 — 훅·트리거는 코어 수정 | **지연 반영(lazy reconcile)** — 관계를 저장하지 않고 파생하는 구조를 역이용, 목록 조회 때 "ctId 있음 + cart 행 없음"이면 status='deleted' 전환. 삭제 신호를 조회가 겸하므로 훅이 필요 없다 |
 
@@ -173,7 +180,7 @@
 | 사양·파일연결·견적 (`sp_quote`/`sp_order_spec`/`sp_file`) | **sp-node (Prisma)** | 그누보드/PHP 는 접근하지 않음 |
 | 실파일 | file.samplepcb.kr | sp-node 가 업로드 대행, pathToken 만 보관 (다운로드 보안은 추후 과제) |
 | 실파일 삭제 | file.samplepcb.kr | 보관함 영구 삭제 시 sp-node 가 `GET /api/delete/:pathToken` 호출. ⚠ **보안 미처리 과제**: 이 API 는 인증 없이 pathToken 만으로 삭제되는 GET — pathToken 유출 시 임의 파일 삭제 가능. 내부망 제한 또는 서버 간 인증 추가 필요(2026-07 결정: 기능 먼저, 접근 제한은 인프라 트랙에서 후속 처리) |
-| `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT + 파생 SELECT 만** (한정 예외, `lib/g5-db.ts` 에 명시) |
+| `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT · 파생 SELECT · ct_select UPDATE(주문 선택 ④) · 견적 행 UPDATE(재견적 동기화 io_id/io_price/ct_option ⑥) · 견적 행 DELETE(ct_id 단위 빼기 ⑥)** (한정 예외, `lib/g5-db.ts` 에 명시) |
 | `g5_shop_item_option` (견적 옵션 행) | 영카트 코어 | sp-node 는 견적 옵션 행(io_id=quoteId) **INSERT + 보상 DELETE 만** (한정 예외 확장, 기법 #3) |
 | `g5_shop_item` (템플릿) | 영카트 코어 | sp-node 는 SELECT 만 (배송정책 스냅샷용) |
 | `g5_member` (회원 표시 정보) | 그누보드 | sp-node 는 **관리자 API 한정 read-only SELECT** — mb_name/mb_nick/mb_email/mb_hp/mb_tel 최소 컬럼, 신청자 표시용 (한정 예외 ⑤, `lib/g5-db.ts` `getMembersByIds`) |
@@ -223,6 +230,14 @@ cart.php 에 "Standard PCB · <파일명>" 행 + 견적가 표시.
   g5 한정 예외에 ⑤ `g5_member` read-only SELECT 추가(5장). rfq 대기 수 뱃지는 관리자
   **사이드바**에 구현. 관리자 목록 GET 은 lazy reconcile 을 하지 않는다(읽기가 타 사용자
   데이터를 변경하지 않도록 — 유령 건은 가격 확정 시도 시점에 정리·409).
+
+- **장바구니 인라인 수량변경** — `theme/sp-lite/shop/cart.php`: 견적 행을 건별(ct_id)
+  카드로 분리하고 수량 입력 → `PATCH /:id` 서버 재견적 → 담긴 cart 행 동기화(io_price/
+  ct_option/옵션 행). 주문·삭제도 ct_id 단위 sp-node(`/order`·`DELETE /:id`). 담긴 상태의
+  PATCH/DELETE 거부(IN_CART)는 제거하고 재견적 시 rfq 로 떨어지는 수량만 거부
+  (REQUOTE_RFQ_IN_CART). 카드 보강 데이터는 신규 `GET /pcb-projects/cart-items`
+  (ct_id별 실수량·projectId·거버 썸네일). g5 쓰기 한정 예외에 ⑥(cart 행 UPDATE/DELETE) 추가.
+  ⚠ 실브라우저 end-to-end 재검증 미완(코드/타입체크/lint 통과 기준).
 
 남은 것(우선순위): ① 전 메뉴 실전송 검증(standard 만 완료) ② rfq 대기 수 **사용자측**
 sp-php 헤더 뱃지(관리자 사이드바 뱃지는 구현됨) + quoted 견적의 사용자발 재견적 요청

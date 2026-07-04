@@ -4,7 +4,10 @@
 // 허용 범위는 ① g5_shop_cart INSERT ② g5_shop_item_option INSERT(견적 옵션 행)
 // ③ 템플릿 상품/카트 파생 SELECT ④ g5_shop_cart ct_select/ct_select_time
 // UPDATE(주문 선택 플래그 — 바로 주문) ⑤ g5_member read-only SELECT(관리자
-// 견적 관리의 신청자 표시용 — 최소 컬럼, 쓰기 절대 금지) 뿐이다.
+// 견적 관리의 신청자 표시용 — 최소 컬럼, 쓰기 절대 금지) ⑥ g5_shop_cart 견적 행
+// UPDATE(io_id/io_price/ct_option — 담긴 견적 수량 변경 시 재견적 동기화)·DELETE
+// (장바구니에서 견적 행 제거 — ct_id 단위. 코어 cartupdate 는 it_id 단위라 같은
+// 템플릿 견적이 뭉텅이로 처리되므로 ct_id 정밀 조작이 필요) 뿐이다.
 // 그 외 g5_* 접근은 금지 — 범위를 넓히려면 HANDOFF 결정을 먼저 갱신할 것.
 //
 // LEGACY_DATABASE_URL(운영 읽기 전용, 검증 스크립트용)과 반드시 구분한다.
@@ -146,6 +149,30 @@ export async function insertCartRow(c: CartInsert): Promise<number> {
     ],
   );
   return result.insertId; // = ct_id
+}
+
+// ── 장바구니 견적 행 재견적 동기화 / 제거 (한정 예외 ⑥) ─────────────────────
+// 담긴 견적의 수량을 바꾸면 서버가 새 quoteId 로 재견적한다 → cart 행이 새 견적
+// (새 io_id·io_price)과 사양요약(ct_option)을 가리키도록 갱신한다. 코어
+// before_check_cart_price 는 cart.io_price 를 같은 io_id 의 옵션 행과 대조하므로,
+// 호출부는 반드시 "새 옵션 행 등록 → 이 UPDATE → 옛 옵션 행 삭제" 순서를 지켜
+// cart 행이 항상 실재하는 옵션 행을 참조하게 한다(g5-db.ts insertQuoteOption 참조).
+export async function updateCartQuoteRow(
+  ctId: number,
+  ioId: string,
+  price: number,
+  option: string,
+): Promise<void> {
+  await getG5Pool().query(
+    `UPDATE g5_shop_cart SET io_id = ?, io_price = ?, ct_option = ? WHERE ct_id = ?`,
+    [ioId, price, option, ctId],
+  );
+}
+
+// 장바구니에서 견적 행 한 건 제거 — ct_id 단위(코어 seldelete 는 it_id 단위라
+// 같은 템플릿의 다른 견적까지 함께 지운다). 옵션 행 삭제는 deleteQuoteOption 로 별도.
+export async function deleteCartRow(ctId: number): Promise<void> {
+  await getG5Pool().query(`DELETE FROM g5_shop_cart WHERE ct_id = ?`, [ctId]);
 }
 
 // ── 카트 파생 상태 SELECT ───────────────────────────────────────────────────
