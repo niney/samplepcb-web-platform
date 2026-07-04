@@ -87,12 +87,17 @@ if($is_kakaopay_use) {
         for ($i=0; $row=sql_fetch_array($result); $i++)
         {
             // 합계금액 계산
+            // sp 커스텀: 선택행(ct_select=1)만 합산 — 거버 견적은 템플릿 it_id 를 공유한 채
+            // ct_id 단위로 선택되므로 필터가 없으면 미선택 견적까지 합산된다.
+            // 스톡은 선택이 it_id 단위 전량(cartupdate)이라 이 필터가 있어도 동작 동일.
+            // 상세: extend/sp_quote_cart.extend.php
             $sql = " select SUM(IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty))) as price,
                             SUM(ct_point * ct_qty) as point,
                             SUM(ct_qty) as qty
                         from {$g5['g5_shop_cart_table']}
                         where it_id = '{$row['it_id']}'
-                          and od_id = '$s_cart_id' ";
+                          and od_id = '$s_cart_id'
+                          and ct_select = '1' ";
             $sum = sql_fetch($sql);
 
             if (!$goods)
@@ -118,7 +123,10 @@ if($is_kakaopay_use) {
             $image = get_it_image($row['it_id'], 80, 80);
 
             $it_name = '<b>' . stripslashes($row['it_name']) . '</b>';
-            $it_options = print_item_options($row['it_id'], $s_cart_id);
+            // sp 커스텀: 옵션 나열도 선택행만 — extend/sp_quote_cart.extend.php 참고
+            $it_options = function_exists('sp_print_item_options_selected')
+                ? sp_print_item_options_selected($row['it_id'], $s_cart_id)
+                : print_item_options($row['it_id'], $s_cart_id);
             if($it_options) {
                 $it_name .= '<div class="sod_opt">'.$it_options.'</div>';
             }

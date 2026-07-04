@@ -12,7 +12,11 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
  *   수량: PATCH /api/pcb-projects/{id}  (서버 재견적 → cart 행 io_price/ct_option 동기화)
  *   주문: POST  /api/pcb-projects/order (행 단위 ct_select → orderform 직행)
  *   삭제: DELETE /api/pcb-projects/{id} (cart 행 제거 → "지난 견적" 보관함)
- * 일반 상품(견적 템플릿이 아닌 행)이 섞이면 그 상품엔 코어 폼(form_check) 경로를 쓴다.
+ * 일반 상품(견적 템플릿이 아닌 행)이 섞이면 그 상품엔 코어 폼(form_check) 경로를 쓰되,
+ * 코어(cartupdate)는 선택·삭제가 it_id 단위라 같은 템플릿의 미체크 견적까지 쓸어담는다:
+ *   주문: 미체크 견적 ct_id 를 쿠키(sp_cart_deselect)로 전달 → orderform 진입 시
+ *         extend/sp_quote_cart.extend.php 가 ct_select=0 보정
+ *   삭제: 견적은 혼합 카트에서도 항상 sp-node DELETE 로 지우고, 코어 폼엔 일반 상품만 남긴다
  */
 
 $g5['title'] = '장바구니';
@@ -485,15 +489,43 @@ function form_check(act) {
         });
         return ids;
     }
+    function checkedQuoteCount() {
+        var n = 0;
+        quoteCards.forEach(function (li) {
+            var chk = li.querySelector('input[name^=ct_chk]');
+            if (chk && chk.checked) { n++; }
+        });
+        return n;
+    }
     function nonQuoteChecked() {
         return document.querySelectorAll('#sod_bsk .sp-cart-item:not(.sp-cart-item--quote) input[name^=ct_chk]:checked').length > 0;
     }
 
-    // 주문하기 — 견적 전용이면 sp-node(/order, 행 단위 선택), 일반 상품 섞이면 코어 폼.
+    // 미체크 견적 ct_id 를 쿠키로 전달 — 코어 폼(cartupdate)은 선택이 it_id 단위라 같은
+    // 템플릿의 미체크 견적까지 ct_select=1 로 쓸어담는다. orderform 진입 시 extend
+    // (sp_quote_cart.extend.php)가 이 쿠키를 읽어 ct_select=0 으로 보정한다(1회용).
+    // 항상 새로 세팅(빈 값 포함) — 이전 주문 시도의 잔존 쿠키가 오발동하지 않게.
+    function setDeselectCookie() {
+        var ids = [];
+        quoteCards.forEach(function (li) {
+            var chk = li.querySelector('input[name^=ct_chk]');
+            if (chk && !chk.checked) { ids.push(li.getAttribute('data-ctid')); }
+        });
+        document.cookie = 'sp_cart_deselect=' + ids.join('-') + '; path=/; max-age=600';
+    }
+
+    // 주문하기 — 체크가 견적뿐이면 sp-node(/order, 행 단위 선택). 일반 상품이 체크돼
+    // 있으면 코어 폼(cartupdate) + 쿠키 보정(setDeselectCookie 참고).
     window.spCartOrder = function () {
-        if (hasNonQuote) { return form_check('buy'); }
+        setDeselectCookie();
+        if (nonQuoteChecked()) { return form_check('buy'); }
         var ids = selectedQuoteIds();
-        if (ids.length === 0) { alert('주문하실 견적을 하나 이상 선택해 주세요.'); return false; }
+        if (ids.length === 0) {
+            alert(checkedQuoteCount() > 0
+                ? '견적 정보를 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.'
+                : '주문하실 상품을 하나 이상 선택해 주세요.');
+            return false;
+        }
         refreshToken()
             .then(function () { return api('POST', '/order', { ids: ids }); })
             .then(function (r) {
@@ -503,11 +535,13 @@ function form_check(act) {
         return false;
     };
 
-    // 삭제 — 견적 행은 ct_id 단위 sp-node DELETE(→ 보관함). 일반 상품 섞이면 코어 폼.
+    // 삭제 — 견적 행은 혼합 카트에서도 항상 ct_id 단위 sp-node DELETE(→ 보관함).
+    // 코어 삭제(cartupdate)도 it_id 단위라 같은 템플릿의 미체크 견적까지 지워버리므로,
+    // 견적을 먼저 sp-node 로 지운 뒤 일반 상품만 코어 폼으로 잇는다.
     function spCartDelete(mode) {
-        if (hasNonQuote) { return form_check(mode === 'all' ? 'alldelete' : 'seldelete'); }
+        var isAll = (mode === 'all');
         var ids;
-        if (mode === 'all') {
+        if (isAll) {
             ids = [];
             quoteCards.forEach(function (li) {
                 var chk = li.querySelector('input[name^=ct_chk]');
@@ -516,10 +550,25 @@ function form_check(act) {
             });
         } else {
             ids = selectedQuoteIds();
-            if (ids.length === 0) { alert('삭제하실 견적을 하나 이상 선택해 주세요.'); return false; }
         }
-        if (ids.length === 0) { alert('삭제할 견적이 없습니다.'); return false; }
-        if (!confirm('삭제한 견적은 "지난 견적" 보관함으로 이동됩니다. ' + ids.length + '건을 삭제할까요?')) { return false; }
+
+        // 지울 견적이 없으면 코어 폼만으로 충분 (체크된 견적이 있는데 projectId 가
+        // 없다 = enrich 실패 — 코어 폼으로 넘기면 it_id 오폭이라 여기서 멈춘다)
+        if (ids.length === 0) {
+            if (!isAll && checkedQuoteCount() > 0) {
+                alert('견적 정보를 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.');
+                return false;
+            }
+            if (hasNonQuote) { return form_check(isAll ? 'alldelete' : 'seldelete'); }
+            alert(isAll ? '삭제할 견적이 없습니다.' : '삭제하실 견적을 하나 이상 선택해 주세요.');
+            return false;
+        }
+
+        var msg = isAll
+            ? '장바구니를 비울까요? 견적 ' + ids.length + '건은 "지난 견적" 보관함으로 이동됩니다.'
+            : '선택한 항목을 삭제할까요? 견적 ' + ids.length + '건은 "지난 견적" 보관함으로 이동됩니다.';
+        if (!confirm(msg)) { return false; }
+
         refreshToken().then(function () {
             var failed = 0;
             return ids.reduce(function (chain, id) {
@@ -528,12 +577,24 @@ function form_check(act) {
                 });
             }, Promise.resolve()).then(function () {
                 if (failed > 0) { alert(failed + '건을 삭제하지 못했습니다.'); }
+                // 일반 상품 삭제가 남았으면 견적 체크를 풀고(코어 it_id 삭제 오폭 방지) 코어 폼으로
+                if (hasNonQuote && (isAll || nonQuoteChecked())) {
+                    quoteCards.forEach(function (li) {
+                        var chk = li.querySelector('input[name^=ct_chk]');
+                        if (chk) { chk.checked = false; }
+                    });
+                    form_check(isAll ? 'alldelete' : 'seldelete');
+                    return;
+                }
                 location.reload();
             });
         });
         return false;
     }
     window.spCartDelete = spCartDelete;
+
+    // 카트 재진입 시 이전 주문 시도의 쿠키 제거 — 다른 진입점(견적관리 등) 주문에 오발동 방지
+    document.cookie = 'sp_cart_deselect=; path=/; max-age=0';
 
     enrich();
 })();
