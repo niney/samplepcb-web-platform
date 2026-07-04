@@ -1,7 +1,17 @@
-// 로컬/운영 그누보드(영카트) DB — 담기 API 의 g5_shop_cart 접근 전용.
+// 로컬/운영 그누보드(영카트) DB — sp-node 의 모든 g5_* 접근은 이 파일로 일원화한다.
 //
-// "그누보드 스키마 직접 결합 금지" 원칙의 **한정 예외**(HANDOFF 결정 로그 #6):
-// 허용 범위는 ① g5_shop_cart INSERT ② g5_shop_item_option INSERT(견적 옵션 행)
+// 방침(2026-07-04 개정, HANDOFF 결정 로그 #11): sp-php 에서 이 프로젝트 업무에 필요한
+// 기능은 sp-vue/sp-node 모노레포로 **점진 마이그레이션**한다 — g5 읽기/쓰기는 "원칙
+// 금지"가 아니라 **규율된 확장** 대상이다. 규율 4가지:
+//   (1) 접근 일원화 — g5 는 이 파일의 함수로만(mysql2). Prisma 는 sp_* 전용.
+//   (2) 아래 접근 카탈로그를 함수·컬럼 단위로 전수 유지(무엇을 읽고 쓰는지 기록).
+//   (3) 코어 정합성 — 그누보드/영카트가 병행 동작하므로 쓰기 추가 시 코어 부수효과
+//       (회원삭제 8테이블 연쇄·수신동의 agree_log·포인트 g5_point 연동 등)를 확인하고,
+//       단순 UPDATE 로 재현 안 되는 도메인은 그 로직까지 이식할 것.
+//   (4) 카탈로그 확장 시 HANDOFF 결정 로그 + GERBER_ORDER_FLOW 5장 동시 갱신.
+//
+// 접근 카탈로그(결정 로그 #6 계열):
+// ① g5_shop_cart INSERT ② g5_shop_item_option INSERT(견적 옵션 행)
 // ③ 템플릿 상품/카트 파생 SELECT ④ g5_shop_cart ct_select/ct_select_time
 // UPDATE(주문 선택 플래그 — 바로 주문) ⑤ g5_member read-only SELECT(관리자
 // 견적 관리의 신청자 표시용 — 최소 컬럼, 쓰기 절대 금지) ⑥ g5_shop_cart 견적 행
@@ -14,9 +24,10 @@
 // mb_lost_certify·mb_certify·mb_email_certify2 등 인증·비밀번호 컬럼은 SELECT 목록에서도
 // 절대 제외, g5_config 는 cf_admin 1컬럼만) ⑨ g5_member UPDATE — mb_intercept_date·
 // mb_level 2컬럼 한정(차단/해제·레벨 변경. 그 외 컬럼 쓰기 절대 금지. 가드 3종 필수:
-// 탈퇴 회원 409 / 자기 자신 409 / cf_admin 계정 409 — 라우트가 강제) 뿐이다.
+// 탈퇴 회원 409 / 자기 자신 409 / cf_admin 계정 409 — 라우트가 강제).
 // 운영 전용 커스텀 컬럼(mb_partner_auth, mb_11~mb_20)은 로컬 신설 DB 에 없어 참조 금지.
-// 그 외 g5_* 접근은 금지 — 범위를 넓히려면 HANDOFF 결정을 먼저 갱신할 것.
+// 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
+// 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
 //
 // LEGACY_DATABASE_URL(운영 읽기 전용, 검증 스크립트용)과 반드시 구분한다.
 // 이 모듈은 서비스가 실제로 쓰는 DB(G5_DATABASE_URL — 로컬 개발은 로컬 XAMPP)를 본다.

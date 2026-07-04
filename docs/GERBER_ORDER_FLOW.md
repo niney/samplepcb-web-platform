@@ -10,6 +10,7 @@
 > 갱신 2026-07-03 · 장바구니 견적 행 건별 인라인 수량변경 — 담긴 상태에서 서버 재견적+cart 행 동기화(기법 #8 개정)
 > 갱신 2026-07-04 · 견적 수신처 회사명 2층 구조(SpOrderSpec.companyName 스냅샷 + SpMemberProfile 프로필) — 여분필드(mb_1/mb_2) 비사용
 > 갱신 2026-07-04 · 관리자 회원 관리(/app/admin/members) — 레거시 member_list.php 이관. g5 한정 예외에 ⑧(g5_member·g5_config read-only SELECT)·⑨(g5_member mb_intercept_date·mb_level UPDATE) 추가
+> 갱신 2026-07-04 · **방침 개정** — sp-php 업무 기능의 모노레포 점진 마이그레이션 확정. g5 접근을 "원칙 금지 + 한정 예외"에서 "규율된 **접근 카탈로그**"로 재정의(5장, HANDOFF 결정 로그 #11)
 
 ---
 
@@ -175,7 +176,13 @@
 | 9 | 코어 "주문하기"(cartupdate act=buy)의 `ct_select` 선택이 **it_id 단위** — 템플릿 공유 시 다른 견적까지 함께 선택됨 | sp-node 가 `ct_select`/`ct_select_time` 을 **행(ct_id) 단위로 직접 UPDATE** 후 orderform 으로 직행 (한정 예외 ④) |
 | 10 | 장바구니에서 삭제(cartupdate)해도 sp-node 는 알 수 없음 — 훅·트리거는 코어 수정 | **지연 반영(lazy reconcile)** — 관계를 저장하지 않고 파생하는 구조를 역이용, 목록 조회 때 "ctId 있음 + cart 행 없음"이면 status='deleted' 전환. 삭제 신호를 조회가 겸하므로 훅이 필요 없다 |
 
-## 5. 데이터 소유권 지도
+## 5. 데이터 소유권 지도 (= sp-node 의 g5 접근 카탈로그)
+
+> **방침(2026-07-04 개정, HANDOFF 결정 로그 #11)**: sp-php(그누보드/영카트)에서 이 프로젝트
+> 업무에 필요한 기능은 모노레포로 **점진 마이그레이션**한다(최적화·커스텀 목적). 따라서 아래
+> g5_* 행은 "금지의 예외"가 아니라 sp-node 의 **접근 카탈로그**다 — 필요하면 확장하되,
+> ① `lib/g5-db.ts` 일원화 ② 함수·컬럼 단위 기록 ③ 코어 병행 동작과의 정합성(부수효과) 확인
+> ④ 이 표 + HANDOFF 동시 갱신이 규칙. 민감 컬럼 SELECT 배제·Prisma 의 g5 비편입은 불변.
 
 | 데이터 | 소유 | 접근 규칙 |
 |---|---|---|

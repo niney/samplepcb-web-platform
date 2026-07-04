@@ -44,14 +44,14 @@ apps/
 전체 흐름·시크릿 위치는 **상위 [`../AGENTS.md`](../AGENTS.md) "인증 브리지"가 단일 설명원본**. 모노레포에서 지킬 것만 요약:
 
 - Fastify는 그누보드가 발급한 JWT를 **검증만** 한다(`@fastify/jwt`, `apps/api/.env`의 `JWT_SECRET`은 그누보드 쪽 시크릿과 동일 값).
-- 회원 식별은 JWT 클레임(`@sp/api-contract`의 `JwtClaims` — `iat`/`exp` 필수). Node는 자기 DB(`sp_*`)만 소유, 그누보드 스키마 직접 결합 금지.
+- 회원 식별은 JWT 클레임(`@sp/api-contract`의 `JwtClaims` — `iat`/`exp` 필수). `sp_*` 는 Prisma 소유. `g5_*` 접근은 `apps/api/src/lib/g5-db.ts` 의 **접근 카탈로그**로 일원화 — sp-php 업무 기능의 모노레포 점진 마이그레이션 방침(2026-07-04)에 따라 필요한 만큼 확장하되, 카탈로그·HANDOFF·FLOW 5장을 동시 갱신(상세 규율은 g5-db.ts 헤더).
 
 ## 규칙
 
 - 새 코드 100% 타입 안전. `any`/`as any`/`// @ts-ignore` 금지(불가피하면 `@ts-expect-error` + 사유).
 - API 요청/응답 스키마는 **반드시 `@sp/api-contract`(Zod)** 에 정의하고 FE/BE 양쪽이 그걸 import.
 - `/app`·`/api`는 그누보드 예약 경로. base/prefix 고정.
-- DB 테이블은 `sp_` 접두, Prisma가 소유(그누보드 `g5_*`는 건드리지 않음).
+- 신규 DB 테이블은 `sp_` 접두, Prisma 가 소유. `g5_*` 는 Prisma 스키마에 넣지 않고 `lib/g5-db.ts`(mysql2) 접근 카탈로그로만 읽고 쓴다.
 
 ## 개발
 

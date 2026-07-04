@@ -86,7 +86,7 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 - 같은 도메인이라 PHPSESSID 공유. Node는 PHP 세션 직접 못 읽음 →
 - 그누보드 `GET /spcb/api/me`(무확장 — `spcb/.htaccess`. common.php 부트스트랩 → `$member` 기반 **서명 HS256 JWT**, TTL 10분) → Vue가 `/api` 호출 시 `Bearer` → **Fastify는 공유 시크릿으로 JWT만 검증**(`JwtClaims` — `iat`/`exp` 필수).
 - **시크릿**: `samplepcb-web/spcb/lib/secret.php`(gitignore) ↔ `apps/api/.env`의 `JWT_SECRET` — **같은 값 수동 동기화**.
-- Node DB = 그누보드와 **공유 DB(`samplepcb`)** 의 `sp_*` 테이블(Prisma 소유, 2026-07-03 통합 — 백업 정합성·조인). ⚠ `prisma migrate reset` 금지(g5_* 드랍). 회원 식별=JWT 클레임(스키마 결합은 계속 회피).
+- Node DB = 그누보드와 **공유 DB(`samplepcb`)** 의 `sp_*` 테이블(Prisma 소유, 2026-07-03 통합 — 백업 정합성·조인). ⚠ `prisma migrate reset` 금지(g5_* 드랍). 회원 식별=JWT 클레임. `g5_*` 접근은 `apps/api/src/lib/g5-db.ts` **접근 카탈로그**로 일원화 — sp-php 업무 기능의 모노레포 점진 마이그레이션 방침(2026-07-04, `docs/GERBER_ORDER_FLOW.md` 5장·HANDOFF #11)에 따라 규율 하에 확장.
 - 구현 위치: `samplepcb-web/spcb/`(me.php·jwt.php) · `apps/api/src/plugins/auth.ts`(검증) · `packages/shared/src/auth.ts`(bootstrap).
 
 ## HTTPS / 도메인
