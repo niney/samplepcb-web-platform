@@ -15,6 +15,7 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 
 > **📚 위키 먼저**: 코드베이스 파악이 필요하면 원시 파일 스캔 전에 **`samplepcb-web-platform-wiki/CONTEXT.md`**(사용법) → `samplepcb-web-platform-wiki/INDEX.md`(토픽 지도)를 읽어라. coverage 태그가 high 인 섹션은 원본 확인 없이 신뢰 가능.
 
+- **AI 작업 방식**: 규모 있는 작업의 진행 방식(직접/Opus 위임+전수 감사/병렬 agent) 선택 기준·품질 게이트·실증 로그는 **`docs/AI_WORKFLOW_PLAYBOOK.md`** — 메인 세션이 자율 결정하고 근거를 고지, 사용자는 원-체크(퀄리티 > 비용).
 - **리모트**: `origin`(push 대상) + `gnuboard`(=gnuboard/gnuboard5, subtree 소스, **push 차단**).
 - 그누보드 코어 최신화는 **`git subtree pull --prefix=samplepcb-web gnuboard master --squash`** (push 아님). 상세 `docs/UPSTREAM_SYNC.md`.
 - `samplepcb-web-mono-app`은 이 repo의 일반 서브폴더(자체 pnpm workspace). `node_modules`/`dist`/`.env`는 gitignore.
