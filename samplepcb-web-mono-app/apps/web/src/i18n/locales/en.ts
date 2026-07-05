@@ -35,6 +35,21 @@ export const en = {
       saved: 'Saved.',
       tabs: {
         businessInfo: 'Business Info',
+        gerberPricing: 'Gerber Pricing',
+      },
+      gerberPricing: {
+        intro:
+          'Choose whether the price from Gerber (auto-quote) is a VAT-inclusive total or a supply amount (VAT excluded). If you pick supply, the server adds 10% VAT at cart/checkout to the amount the customer pays.',
+        modes: {
+          order: {
+            label: 'Order price (VAT included)',
+            desc: 'Use the Gerber value as the final payable price. e.g. 100,000 → pay 100,000 (supply 90,909 + VAT 9,091).',
+          },
+          supply: {
+            label: 'Supply amount (VAT excluded)',
+            desc: 'Add 10% VAT to the Gerber value. e.g. 100,000 → pay 110,000 (supply 100,000 + VAT 10,000).',
+          },
+        },
       },
       fields: {
         companyName: 'Company name',

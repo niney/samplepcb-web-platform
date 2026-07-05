@@ -59,3 +59,26 @@ export const BusinessInfoUpdate = z.object({
   infoManagerEmail: z.string().trim().max(255),
 });
 export type BusinessInfoUpdateType = z.infer<typeof BusinessInfoUpdate>;
+
+// ── 거버 가격 해석 모드(gerber-pricing) 탭 ──────────────────────────────────
+// 견적 엔진(pricing/engine.ts)이 산출하는 listPrice 를 어떻게 볼지 정하는 전역 스위치.
+//   order  = 주문가(공급가+부가세 포함 총액). 현행 기본 — 그대로 하류로 넘긴다.
+//   supply = 공급가(부가세 별도). 서버가 담기·주문 전에 round(×1.1)로 부가세 10% 를 얹어
+//            "포함 총액"으로 정규화해 넘긴다.
+// 코어 주문 로직은 항상 포함 총액을 round(총액/1.1)로 역산하므로(get_order_info,
+// orderformupdate.php:557), 어느 모드든 하류(카트·주문·견적서·PG)엔 포함 총액이 흘러
+// 정합이 유지된다. sp_config 싱글 키(gerber_price_mode)에 저장 — 코어 g5_* 비수정.
+export const GerberPriceMode = z.enum(['order', 'supply']);
+export type GerberPriceModeType = z.infer<typeof GerberPriceMode>;
+
+// read/write 공용 응답 — 저장 후 저장값을 그대로 에코(사업자정보 관례).
+export const GerberPricingResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ mode: GerberPriceMode }),
+});
+export type GerberPricingResponseType = z.infer<typeof GerberPricingResponse>;
+
+export const GerberPricingUpdate = z.object({
+  mode: GerberPriceMode,
+});
+export type GerberPricingUpdateType = z.infer<typeof GerberPricingUpdate>;

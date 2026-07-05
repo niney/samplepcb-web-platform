@@ -351,3 +351,13 @@ model SpSeo {
   @@unique([scope, refKey]) // (scope,ref)당 1레코드 — upsert 키
   @@map("sp_seo")
 }
+
+// sp-node 범용 설정(key-value 싱글턴 스토어) — 코어 g5_config/g5_shop_default 를 건드리지
+// 않는 sp 소유 설정. 현재 gerber_price_mode(거버 가격 해석: order|supply) 1키.
+model SpConfig {
+  key       String   @id @db.VarChar(100)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("sp_config")
+}

@@ -11,6 +11,7 @@ import {
 } from '@sp/api-contract';
 import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
+import { applyGerberPriceMode } from '../pricing/gerber-price-mode';
 import { buildOptionSummary } from '../lib/option-summary';
 import { uploadToFileServer } from '../lib/file-server';
 import type { UploadTarget } from '../lib/file-server';
@@ -26,6 +27,7 @@ import {
 } from '../lib/g5-db';
 import type { CartState } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
+import { getGerberPriceMode } from '../lib/sp-config';
 import { purgeQuoteData, removeCartRow } from '../lib/quote-delete';
 import { signedThumbUrl } from '../lib/thumb-url';
 
@@ -144,12 +146,17 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     const cartId = request.user.cartId;
 
     // ── 견적 계산 (가격은 서버 재계산이 유일한 진실 — 클라이언트 가격 미수신) ──
-    const quote = calculateQuote({
+    const rawQuote = calculateQuote({
       category: payload.category,
       orderCategory: payload.orderCategory,
       qty: payload.qty,
       spec: payload.spec,
     });
+    // 거버 가격 해석 모드 정규화 — supply 면 부가세 10% 를 얹어 포함 총액으로(이후 하류 정합).
+    const quote = {
+      ...rawQuote,
+      listPrice: applyGerberPriceMode(rawQuote.listPrice, await getGerberPriceMode()),
+    };
     const quoteStatus = payload.flow === 'rfq' || quote.listPrice === null ? 'rfq' : 'priced';
 
     // ── 파일서버 업로드 대행 — 실패 시 프로젝트를 만들지 않고 중단 ──
@@ -641,12 +648,17 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       }
 
       const qty = request.body.qty;
-      const requote = calculateQuote({
+      const rawRequote = calculateQuote({
         category: spec.category,
         orderCategory: spec.orderCategory,
         qty,
         spec: spec.specJson as PcbProjectPayloadType['spec'],
       });
+      // 거버 가격 해석 모드 정규화(생성과 동일 규칙) — 재견적도 동일 모드로 부가세 처리.
+      const requote = {
+        ...rawRequote,
+        listPrice: applyGerberPriceMode(rawRequote.listPrice, await getGerberPriceMode()),
+      };
       // 담긴 견적을 자동견적 불가(rfq) 수량으로 바꾸면 cart 행 금액을 유지할 수 없다 → 거부.
       if (cartState === 'cart' && requote.listPrice === null) {
         return reply.status(409).send({ result: false, error: 'REQUOTE_RFQ_IN_CART' });

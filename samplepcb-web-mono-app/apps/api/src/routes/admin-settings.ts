@@ -1,7 +1,14 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
-import { ApiError, BusinessInfoResponse, BusinessInfoUpdate } from '@sp/api-contract';
+import {
+  ApiError,
+  BusinessInfoResponse,
+  BusinessInfoUpdate,
+  GerberPricingResponse,
+  GerberPricingUpdate,
+} from '@sp/api-contract';
 import { getBusinessInfo, updateBusinessInfo, type BusinessInfo } from '../lib/g5-db';
 import { cleanXssTags, isValidCallback } from '../lib/shop-config';
+import { getGerberPriceMode, setGerberPriceMode } from '../lib/sp-config';
 
 // 관리자 설정(/app/admin/settings) — 영카트 쇼핑몰설정을 탭 단위로 이식하는 도메인.
 // 현재 "사업자정보"(g5_shop_default de_admin_* 11컬럼) 탭만. 전 라우트 requireAdmin.
@@ -69,6 +76,29 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
       // 저장(정제 후) 값을 그대로 에코 — FE 캐시 즉시 정합화.
       return { result: true as const, data: clean };
+    },
+  );
+
+  // ── GET /api/admin/settings/gerber-pricing — 거버 가격 해석 모드 현재값 ─────
+  // 미설정이면 order(현행 = 거버값을 부가세 포함 총액으로 취급) 기본. sp_config 싱글 키.
+  fastify.get(
+    '/settings/gerber-pricing',
+    { schema: { response: { 200: GerberPricingResponse } } },
+    async () => {
+      const mode = await getGerberPriceMode();
+      return { result: true as const, data: { mode } };
+    },
+  );
+
+  // ── PATCH /api/admin/settings/gerber-pricing — 모드 저장(order|supply) ──────
+  // 순수 스위치라 도메인 검증 없음(zod enum 이 값 보장). supply 로 바꾸면 이후 견적부터
+  // listPrice 에 부가세 10% 가 얹혀 저장된다(pcb-projects 정규화). 기존 견적엔 소급 없음.
+  fastify.patch(
+    '/settings/gerber-pricing',
+    { schema: { body: GerberPricingUpdate, response: { 200: GerberPricingResponse } } },
+    async (request) => {
+      await setGerberPriceMode(request.body.mode);
+      return { result: true as const, data: { mode: request.body.mode } };
     },
   );
 

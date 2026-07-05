@@ -8,7 +8,10 @@ const props = defineProps<{ tab: SettingsTabKey }>();
 const emit = defineEmits<{ 'update:tab': [tab: SettingsTabKey] }>();
 const { t } = useI18n();
 
-const TABS: { key: SettingsTabKey; slug: string }[] = [{ key: 'businessInfo', slug: 'businessInfo' }];
+const TABS: { key: SettingsTabKey; slug: string }[] = [
+  { key: 'businessInfo', slug: 'businessInfo' },
+  { key: 'gerberPricing', slug: 'gerberPricing' },
+];
 </script>
 
 <template>
