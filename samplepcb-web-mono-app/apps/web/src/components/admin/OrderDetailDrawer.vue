@@ -4,15 +4,18 @@ import { useI18n } from 'vue-i18n';
 import type {
   AdminOrderCartItemType,
   AdminOrderDetailOrderType,
+  AdminOrderForceStatusRequestType,
   AdminOrderInfoBodyType,
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
   CANCEL_ITEM_TARGETS,
+  FORCE_STATUS_TARGETS,
   displayCompany,
   formatOdId,
   g5ToLocal,
   isCancelledItemStatus,
+  isForceTarget,
   nowLocalDateTime,
   orderStatusSlug,
   orderStatusVariant,
@@ -21,18 +24,23 @@ import {
   useOrderInfoMutation,
   useOrderMemoMutation,
   useOrderReceiptMutation,
+  useOrderStatusMutation,
   type CancelItemTarget,
+  type DeliveryInput,
+  type OrderForceTarget,
 } from '../../admin/useAdminOrders';
 import { useDaumPostcode, type DaumPostcodeData } from '../../lib/useDaumPostcode';
 import { formatKrw } from '../../lib/format';
 import UiBadge from '../ui/UiBadge.vue';
+import OrderActionResult from './OrderActionResult.vue';
 import OrderPrintModal from './OrderPrintModal.vue';
 import OrderItemCancelModal from './OrderItemCancelModal.vue';
+import OrderForceStatusModal from './OrderForceStatusModal.vue';
 
-// 주문 상세 드로어(우측 슬라이드 오버). odId=null 이면 닫힘. 읽기 + 부분 편집(주문자/받는분/
-// 배송지/메모/무통장 입금 조정) + 주문서 인쇄. 심층 편집(주문정보 전체·부분취소)은 PHP 위임.
-// 편집은 회원 관리 드로어(MemberDetailDrawer) 관례 미러 — dirty 필드만 PATCH, 응답은 { odId }라
-// 성공 시 상세/목록 refetch 로 갱신.
+// 주문 상세 드로어(우측 슬라이드 오버, 와이드 2컬럼). odId=null 이면 닫힘. 읽기 + 부분 편집
+// (주문자/받는분/배송지/메모/무통장 입금 조정) + 드로어 내 다음 단계 상태 처리 + 주문서 인쇄.
+// 편집은 회원 관리 드로어(MemberDetailDrawer) 관례 미러 — dirty 필드만 PATCH, 응답 { odId }라
+// 성공 시 상세/목록 refetch 로 갱신. 상태 처리는 목록 액션바와 동일 API(PATCH /status, 단건).
 const props = defineProps<{ odId: string | null }>();
 const emit = defineEmits<{ close: [] }>();
 // te 는 구조분해하면 unbound-method(lint) — 컴포저 인스턴스로 호출한다
@@ -136,9 +144,24 @@ const receiverAddrType = ref<AddrJibeon>('');
 const memoInput = ref('');
 const receiptEditing = ref(false);
 const receiptForm = ref<ReceiptForm>({ receiptPrice: 0, receiptTime: '', depositName: '' });
+const receiptFull = ref(false);
+const receiptPrevPrice = ref(0);
 const printOpen = ref<string | null>(null);
 // 카트행 취소/반품/품절 대상(확인 모달). null = 닫힘.
 const itemAction = ref<{ ctId: number; target: CancelItemTarget; label: string } | null>(null);
+
+// 다음 단계 상태 처리(드로어 내) — 준비→배송은 운송장 인라인 입력.
+const sendMail = ref(false);
+const sendSms = ref(false);
+const processError = ref<string | null>(null);
+const deliveryInput = ref<DeliveryInput>({ deliveryCompany: '', invoiceNo: '', invoiceTime: '' });
+
+// 임의 상태 변경(고급) — 접힘 토글 + target select + (배송이면 선택 운송장) + 확인 모달.
+type ForceDelivery = NonNullable<AdminOrderForceStatusRequestType['delivery']>;
+const forceOpen = ref(false);
+const forceTarget = ref<OrderForceTarget>('주문');
+const forceDelivery = ref<DeliveryInput>({ deliveryCompany: '', invoiceNo: '', invoiceTime: '' });
+const forceConfirm = ref<{ target: OrderForceTarget; delivery: ForceDelivery | null } | null>(null);
 
 const { mutate: saveInfo, isPending: infoPending, error: infoErr, reset: resetInfo } =
   useOrderInfoMutation();
@@ -151,6 +174,27 @@ const {
 } = useOrderMemoMutation();
 const { mutate: saveReceipt, isPending: receiptPending, error: receiptErr, reset: resetReceipt } =
   useOrderReceiptMutation();
+const {
+  mutate: processStatus,
+  data: statusData,
+  isPending: statusPending,
+  reset: resetStatus,
+} = useOrderStatusMutation();
+const statusResult = computed(() => statusData.value?.data ?? null);
+
+// 준비 상태면 운송장 입력 기본값(배송일시=현재, 배송회사=기존값), 그 외는 비운다.
+const initDelivery = (o: AdminOrderDetailOrderType): void => {
+  if (o.status === '준비') {
+    const existing = displayCompany(o.deliveryCompany);
+    deliveryInput.value = {
+      deliveryCompany: existing !== '-' ? existing : '',
+      invoiceNo: o.invoiceNo ?? '',
+      invoiceTime: o.invoiceTime !== null ? g5ToLocal(o.invoiceTime) : nowLocalDateTime(),
+    };
+  } else {
+    deliveryInput.value = { deliveryCompany: '', invoiceNo: '', invoiceTime: '' };
+  }
+};
 
 // 주문 전환 시에만 리셋/리필(편집 중 값 덮어쓰기 방지). 같은 주문 refetch 는 건너뛴다.
 const filledFor = ref<string | null>(null);
@@ -161,11 +205,29 @@ watch(order, (o) => {
     receiverEditing.value = false;
     receiptEditing.value = false;
     memoInput.value = o.shopMemo;
+    sendMail.value = false;
+    sendSms.value = false;
+    processError.value = null;
+    initDelivery(o);
+    forceOpen.value = false;
+    forceTarget.value = isForceTarget(o.status) ? o.status : '주문';
+    forceDelivery.value = { deliveryCompany: '', invoiceNo: '', invoiceTime: nowLocalDateTime() };
+    forceConfirm.value = null;
     resetInfo();
     resetMemo();
     resetReceipt();
+    resetStatus();
   }
 });
+
+// 드로어 내 전이로 상태가 준비로 바뀌면(같은 주문 refetch) 운송장 입력 기본값 재세팅.
+watch(
+  () => order.value?.status,
+  (status, prev) => {
+    const o = order.value;
+    if (o !== null && status === '준비' && prev !== '준비') initDelivery(o);
+  },
+);
 
 // ── 주소 검색(Daum) — 주문자/받는분 각각 패널 ────────────────────────────────
 const { embed: embedPostcode } = useDaumPostcode();
@@ -342,8 +404,24 @@ const startReceiptEdit = (): void => {
     receiptTime: o.receiptTime !== null ? g5ToLocal(o.receiptTime) : nowLocalDateTime(),
     depositName: o.depositName !== '' ? o.depositName : o.odName,
   };
+  receiptFull.value = false;
+  receiptPrevPrice.value = 0;
   resetReceipt();
   receiptEditing.value = true;
+};
+// '미수금 전액 입력'(PHP 결제금액 입력) — 체크 시 입금액=기존 입금액+미수금(=미수 0 되는 값),
+// 해제 시 직전 값 복원.
+const fullReceiptAmount = computed<number>(() => {
+  const o = order.value;
+  return o === null ? 0 : o.receiptPrice + o.misu;
+});
+const onReceiptFullToggle = (): void => {
+  if (receiptFull.value) {
+    receiptPrevPrice.value = receiptForm.value.receiptPrice;
+    receiptForm.value.receiptPrice = fullReceiptAmount.value;
+  } else {
+    receiptForm.value.receiptPrice = receiptPrevPrice.value;
+  }
 };
 const submitReceipt = (): void => {
   const o = order.value;
@@ -364,6 +442,87 @@ const submitReceipt = (): void => {
       },
     },
   );
+};
+
+// ── 다음 단계 상태 처리 ──────────────────────────────────────────────────────
+// 현재 상태 → 다음 전이. notify(메일/SMS) 는 target ∈ {입금,배송} 만. 입금 처리는 무통장 한정
+// (그 외 결제는 PG 입금이 자동). 준비→배송은 delivery 필수. 취소/완료 등은 처리 없음.
+interface NextAction {
+  target: '입금' | '준비' | '배송' | '완료';
+  labelKey: string;
+  notify: boolean;
+  needsDelivery: boolean;
+  bankOnly: boolean;
+}
+const NEXT_ACTION: Record<string, NextAction> = {
+  주문: { target: '입금', labelKey: 'toDeposit', notify: true, needsDelivery: false, bankOnly: true },
+  입금: { target: '준비', labelKey: 'toReady', notify: false, needsDelivery: false, bankOnly: false },
+  준비: { target: '배송', labelKey: 'toShipping', notify: true, needsDelivery: true, bankOnly: false },
+  배송: { target: '완료', labelKey: 'toDone', notify: false, needsDelivery: false, bankOnly: false },
+};
+const nextAction = computed<NextAction | null>(() => {
+  const o = order.value;
+  if (o === null) return null;
+  const a = NEXT_ACTION[o.status];
+  if (a === undefined) return null;
+  if (a.bankOnly && !isBankTransfer.value) return null;
+  return a;
+});
+const submitNextStep = (): void => {
+  const o = order.value;
+  const a = nextAction.value;
+  if (o === null || a === null) return;
+  processError.value = null;
+  if (a.needsDelivery) {
+    const di = deliveryInput.value;
+    if (di.deliveryCompany.trim() === '' || di.invoiceNo.trim() === '' || di.invoiceTime === '') {
+      processError.value = t('admin.orders.process.noInvoice');
+      return;
+    }
+    processStatus({
+      target: a.target,
+      odIds: [o.odId],
+      sendMail: a.notify && sendMail.value,
+      sendSms: a.notify && sendSms.value,
+      delivery: [
+        {
+          odId: o.odId,
+          deliveryCompany: di.deliveryCompany.trim(),
+          invoiceNo: di.invoiceNo.trim(),
+          invoiceTime: toG5DateTime(di.invoiceTime),
+        },
+      ],
+    });
+    return;
+  }
+  processStatus({
+    target: a.target,
+    odIds: [o.odId],
+    sendMail: a.notify && sendMail.value,
+    sendSms: a.notify && sendSms.value,
+  });
+};
+
+// 임의 상태 변경 — [적용] 시 확인 모달로. 배송이면 3필드 모두 채웠을 때만 delivery 동봉(계약 min1),
+// 비우면 상태만 강제 변경. 확인 모달이 실제 뮤테이션을 실행한다.
+const openForceConfirm = (): void => {
+  const target = forceTarget.value;
+  let delivery: ForceDelivery | null = null;
+  if (target === '배송') {
+    const d = forceDelivery.value;
+    if (d.deliveryCompany.trim() !== '' && d.invoiceNo.trim() !== '' && d.invoiceTime !== '') {
+      delivery = {
+        deliveryCompany: d.deliveryCompany.trim(),
+        invoiceNo: d.invoiceNo.trim(),
+        invoiceTime: toG5DateTime(d.invoiceTime),
+      };
+    }
+  }
+  forceConfirm.value = { target, delivery };
+};
+const onForceDone = (): void => {
+  forceConfirm.value = null;
+  forceOpen.value = false;
 };
 
 // 에러 코드 → i18n(미등록이면 서버 message → UNKNOWN). 회원 드로어 mapError 미러.
@@ -403,7 +562,7 @@ const formatAddr = (a: {
   return `${zip !== '' ? `[${zip}] ` : ''}${rest}`.trim();
 };
 
-// 상태 전이·삭제는 목록 액션바에서 처리 — 드로어는 심층 편집만 PHP 위임(새 탭, SPA base 밖).
+// 심층 편집(주문정보 전체·부분취소)만 PHP 위임(새 탭, SPA base 밖).
 const phpUrl = computed<string>(() =>
   order.value === null
     ? '#'
@@ -428,16 +587,24 @@ const ITEM_TARGET_SLUG: Record<CancelItemTarget, string> = {
 const itemTargetLabel = (target: CancelItemTarget): string =>
   t(`admin.orders.itemCancel.target.${ITEM_TARGET_SLUG[target]}`);
 
-// 드로어가 닫히면(부모가 odId=null) 열려 있던 인쇄·행처리 모달도 함께 정리한다.
+// 드로어가 닫히면(부모가 odId=null) 열려 있던 인쇄·행처리·강제변경 모달도 함께 정리한다.
 watch(odIdRef, (v) => {
   if (v === null) {
     printOpen.value = null;
     itemAction.value = null;
+    forceConfirm.value = null;
   }
 });
 
 const onKeydown = (e: KeyboardEvent): void => {
-  if (e.key === 'Escape' && printOpen.value === null && itemAction.value === null) emit('close');
+  if (
+    e.key === 'Escape' &&
+    printOpen.value === null &&
+    itemAction.value === null &&
+    forceConfirm.value === null
+  ) {
+    emit('close');
+  }
 };
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
@@ -455,7 +622,7 @@ const inputClass =
     <div v-if="props.odId !== null" class="fixed inset-0 z-40">
       <div class="absolute inset-0 bg-black/30" @click="emit('close')" />
       <aside
-        class="absolute right-0 top-0 flex h-full w-[36rem] max-w-full flex-col bg-white shadow-xl"
+        class="absolute right-0 top-0 flex h-full w-[56rem] max-w-[90vw] flex-col bg-white shadow-xl"
       >
         <!-- 헤더 -->
         <header class="flex items-center justify-between border-b border-gray-200 px-5 py-3">
@@ -491,498 +658,612 @@ const inputClass =
           <p v-if="isLoading" class="py-8 text-center text-sm text-gray-400">…</p>
 
           <template v-else-if="order !== null && detail !== null">
-            <!-- 주문 개요 -->
-            <div class="flex flex-wrap items-center gap-1.5">
-              <UiBadge :variant="orderStatusVariant(order.status)" :label="statusLabel(order.status)" />
-              <span v-if="order.isTest" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                {{ t('admin.orders.table.test') }}
-              </span>
-              <span class="text-sm text-gray-500">
-                {{ order.settleCase !== '' ? order.settleCase : t('admin.orders.drawer.noSettle') }}
-              </span>
-            </div>
-            <dl
-              v-if="order.payment.pg !== '' || order.payment.tno !== '' || order.payment.appNo !== ''"
-              class="mt-3 grid grid-cols-3 gap-x-4 gap-y-1 text-sm"
-            >
-              <div v-if="order.payment.pg !== ''">
-                <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.pg') }}</dt>
-                <dd class="break-all text-gray-800">{{ order.payment.pg }}</dd>
-              </div>
-              <div v-if="order.payment.tno !== ''">
-                <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.tno') }}</dt>
-                <dd class="break-all text-gray-800">{{ order.payment.tno }}</dd>
-              </div>
-              <div v-if="order.payment.appNo !== ''">
-                <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.appNo') }}</dt>
-                <dd class="break-all text-gray-800">{{ order.payment.appNo }}</dd>
-              </div>
-            </dl>
-
-            <!-- 주문자 (표시 ↔ 편집) -->
-            <section class="mt-5">
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-gray-800">
-                  {{ t('admin.orders.drawer.orderer') }}
-                </h3>
-                <button
-                  v-if="!ordererEditing"
-                  type="button"
-                  class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
-                  @click="startOrdererEdit"
-                >
-                  {{ t('admin.orders.drawer.edit.button') }}
-                </button>
-              </div>
-
-              <dl v-if="!ordererEditing" class="mt-2 space-y-1 text-sm">
-                <div class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.name') }}</dt>
-                  <dd class="text-gray-800">
-                    {{ order.odName !== '' ? order.odName : '-' }}
-                    <span class="ml-1 text-xs text-gray-400">
-                      {{ order.mbId !== '' ? order.mbId : t('admin.orders.table.guest') }}
-                      <span v-if="detail.memberOrderCount > 0">({{ detail.memberOrderCount }})</span>
+            <div class="grid grid-cols-1 gap-x-6 lg:grid-cols-2">
+              <!-- 좌: 개요 / 주문자 / 받는분 / 배송 / 메모 -->
+              <div class="space-y-5">
+                <!-- 주문 개요 -->
+                <div>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <UiBadge :variant="orderStatusVariant(order.status)" :label="statusLabel(order.status)" />
+                    <span v-if="order.isTest" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      {{ t('admin.orders.table.test') }}
                     </span>
-                  </dd>
-                </div>
-                <div class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.email') }}</dt>
-                  <dd class="min-w-0 break-all text-gray-800">{{ order.email !== '' ? order.email : '-' }}</dd>
-                </div>
-                <div class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.tel') }}</dt>
-                  <dd class="text-gray-800">{{ order.odHp !== '' ? order.odHp : (order.odTel !== '' ? order.odTel : '-') }}</dd>
-                </div>
-                <div class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.address') }}</dt>
-                  <dd class="min-w-0 text-gray-800">{{ formatAddr(order.addr) !== '' ? formatAddr(order.addr) : '-' }}</dd>
-                </div>
-                <div v-if="order.depositName !== ''" class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.depositName') }}</dt>
-                  <dd class="text-gray-800">{{ order.depositName }}</dd>
-                </div>
-                <div v-if="order.hopeDate !== null" class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.hopeDate') }}</dt>
-                  <dd class="text-gray-800">{{ order.hopeDate }}</dd>
-                </div>
-              </dl>
-
-              <!-- 주문자 편집 폼 -->
-              <div v-else class="mt-2 space-y-2">
-                <div class="grid grid-cols-2 gap-2">
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.name') }}</span>
-                    <input v-model="ordererForm.odName" type="text" :class="inputClass">
-                  </label>
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.email') }}</span>
-                    <input v-model="ordererForm.odEmail" type="email" :class="inputClass">
-                  </label>
-                </div>
-                <div class="grid grid-cols-2 gap-2">
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.tel') }}</span>
-                    <input v-model="ordererForm.odTel" type="text" :class="inputClass">
-                  </label>
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.hp') }}</span>
-                    <input v-model="ordererForm.odHp" type="text" :class="inputClass">
-                  </label>
-                </div>
-                <div>
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.zip') }}</span>
-                  <div class="mt-0.5 flex items-center gap-1.5">
-                    <input v-model="ordererForm.zip1" type="text" inputmode="numeric" maxlength="3" class="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none">
-                    <span class="text-gray-400">-</span>
-                    <input v-model="ordererForm.zip2" type="text" inputmode="numeric" maxlength="3" class="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none">
-                    <button type="button" class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100" @click="openOrdererPostcode">
-                      {{ t('admin.orders.drawer.edit.addrSearch') }}
-                    </button>
-                  </div>
-                  <p v-if="ordererPostcodeFailed" class="mt-1 text-xs text-red-600">
-                    {{ t('admin.orders.drawer.edit.addrSearchFailed') }}
-                  </p>
-                </div>
-                <div v-if="ordererPostcodeOpen" class="overflow-hidden rounded-md border border-gray-300">
-                  <div class="flex items-center justify-between border-b border-gray-200 px-2 py-1">
-                    <span class="text-xs text-gray-500">{{ t('admin.orders.drawer.edit.addrSearch') }}</span>
-                    <button type="button" class="rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100" @click="ordererPostcodeOpen = false">
-                      {{ t('admin.orders.drawer.edit.addrSearchClose') }}
-                    </button>
-                  </div>
-                  <div ref="ordererPanel" class="h-[300px] w-full" />
-                </div>
-                <label class="block">
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr1') }}</span>
-                  <input v-model="ordererForm.addr1" type="text" :class="inputClass">
-                </label>
-                <label class="block">
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr2') }}</span>
-                  <input v-model="ordererForm.addr2" type="text" :class="inputClass">
-                </label>
-                <label class="block">
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr3') }}</span>
-                  <input v-model="ordererForm.addr3" type="text" :class="inputClass">
-                </label>
-                <div class="grid grid-cols-2 gap-2">
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.depositName') }}</span>
-                    <input v-model="ordererForm.depositName" type="text" :class="inputClass">
-                  </label>
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.hopeDate') }}</span>
-                    <input v-model="ordererForm.hopeDate" type="date" :class="inputClass">
-                  </label>
-                </div>
-                <div class="flex items-center gap-2 pt-1">
-                  <button type="button" class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="infoPending" @click="submitOrderer">
-                    {{ t('admin.orders.drawer.edit.save') }}
-                  </button>
-                  <button type="button" class="rounded-md px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" @click="cancelOrdererEdit">
-                    {{ t('admin.orders.drawer.edit.cancel') }}
-                  </button>
-                  <span v-if="infoError !== null" class="text-xs text-red-600">{{ infoError }}</span>
-                </div>
-              </div>
-            </section>
-
-            <!-- 받는분 (표시 ↔ 편집) -->
-            <section class="mt-5">
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-gray-800">
-                  {{ t('admin.orders.drawer.receiver') }}
-                </h3>
-                <button
-                  v-if="!receiverEditing"
-                  type="button"
-                  class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
-                  @click="startReceiverEdit"
-                >
-                  {{ t('admin.orders.drawer.edit.button') }}
-                </button>
-              </div>
-
-              <dl v-if="!receiverEditing" class="mt-2 space-y-1 text-sm">
-                <div class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.name') }}</dt>
-                  <dd class="text-gray-800">{{ order.receiver.name !== '' ? order.receiver.name : '-' }}</dd>
-                </div>
-                <div class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.tel') }}</dt>
-                  <dd class="text-gray-800">
-                    {{ order.receiver.hp !== '' ? order.receiver.hp : (order.receiver.tel !== '' ? order.receiver.tel : '-') }}
-                  </dd>
-                </div>
-                <div class="flex gap-2">
-                  <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.address') }}</dt>
-                  <dd class="min-w-0 text-gray-800">
-                    {{ formatAddr(order.receiver) !== '' ? formatAddr(order.receiver) : '-' }}
-                  </dd>
-                </div>
-              </dl>
-
-              <!-- 받는분 편집 폼 -->
-              <div v-else class="mt-2 space-y-2">
-                <label class="block">
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.name') }}</span>
-                  <input v-model="receiverForm.bName" type="text" :class="inputClass">
-                </label>
-                <div class="grid grid-cols-2 gap-2">
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.tel') }}</span>
-                    <input v-model="receiverForm.bTel" type="text" :class="inputClass">
-                  </label>
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.hp') }}</span>
-                    <input v-model="receiverForm.bHp" type="text" :class="inputClass">
-                  </label>
-                </div>
-                <div>
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.zip') }}</span>
-                  <div class="mt-0.5 flex items-center gap-1.5">
-                    <input v-model="receiverForm.bZip1" type="text" inputmode="numeric" maxlength="3" class="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none">
-                    <span class="text-gray-400">-</span>
-                    <input v-model="receiverForm.bZip2" type="text" inputmode="numeric" maxlength="3" class="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none">
-                    <button type="button" class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100" @click="openReceiverPostcode">
-                      {{ t('admin.orders.drawer.edit.addrSearch') }}
-                    </button>
-                  </div>
-                  <p v-if="receiverPostcodeFailed" class="mt-1 text-xs text-red-600">
-                    {{ t('admin.orders.drawer.edit.addrSearchFailed') }}
-                  </p>
-                </div>
-                <div v-if="receiverPostcodeOpen" class="overflow-hidden rounded-md border border-gray-300">
-                  <div class="flex items-center justify-between border-b border-gray-200 px-2 py-1">
-                    <span class="text-xs text-gray-500">{{ t('admin.orders.drawer.edit.addrSearch') }}</span>
-                    <button type="button" class="rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100" @click="receiverPostcodeOpen = false">
-                      {{ t('admin.orders.drawer.edit.addrSearchClose') }}
-                    </button>
-                  </div>
-                  <div ref="receiverPanel" class="h-[300px] w-full" />
-                </div>
-                <label class="block">
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr1') }}</span>
-                  <input v-model="receiverForm.bAddr1" type="text" :class="inputClass">
-                </label>
-                <label class="block">
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr2') }}</span>
-                  <input v-model="receiverForm.bAddr2" type="text" :class="inputClass">
-                </label>
-                <label class="block">
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr3') }}</span>
-                  <input v-model="receiverForm.bAddr3" type="text" :class="inputClass">
-                </label>
-                <div class="flex items-center gap-2 pt-1">
-                  <button type="button" class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="infoPending" @click="submitReceiver">
-                    {{ t('admin.orders.drawer.edit.save') }}
-                  </button>
-                  <button type="button" class="rounded-md px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" @click="cancelReceiverEdit">
-                    {{ t('admin.orders.drawer.edit.cancel') }}
-                  </button>
-                  <span v-if="infoError !== null" class="text-xs text-red-600">{{ infoError }}</span>
-                </div>
-              </div>
-            </section>
-
-            <!-- 배송 -->
-            <section class="mt-5">
-              <h3 class="text-sm font-semibold text-gray-800">
-                {{ t('admin.orders.drawer.delivery') }}
-              </h3>
-              <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                <div>
-                  <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</dt>
-                  <dd class="text-gray-800">{{ order.invoiceNo ?? '-' }}</dd>
-                </div>
-                <div>
-                  <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryCompany') }}</dt>
-                  <dd class="text-gray-800">{{ displayCompany(order.deliveryCompany) }}</dd>
-                </div>
-                <div>
-                  <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceTime') }}</dt>
-                  <dd class="text-gray-800">{{ order.invoiceTime ?? '-' }}</dd>
-                </div>
-                <div>
-                  <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.hopeDate') }}</dt>
-                  <dd class="text-gray-800">{{ order.hopeDate ?? '-' }}</dd>
-                </div>
-              </dl>
-            </section>
-
-            <!-- 금액 -->
-            <section class="mt-5">
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-gray-800">
-                  {{ t('admin.orders.drawer.amounts') }}
-                </h3>
-                <button
-                  v-if="isBankTransfer && !receiptEditing"
-                  type="button"
-                  class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
-                  @click="startReceiptEdit"
-                >
-                  {{ t('admin.orders.drawer.receipt.adjust') }}
-                </button>
-              </div>
-              <dl class="mt-2 divide-y divide-gray-100 text-sm">
-                <div class="flex justify-between py-1">
-                  <dt class="text-gray-500">{{ t('admin.orders.drawer.orderPrice') }}</dt>
-                  <dd class="tabular-nums font-medium text-gray-900">{{ formatKrw(order.orderPrice) }}</dd>
-                </div>
-                <div class="flex justify-between py-1">
-                  <dt class="text-gray-500">{{ t('admin.orders.drawer.sendCost') }}</dt>
-                  <dd class="tabular-nums text-gray-800">
-                    {{ formatKrw(order.amounts.sendCost + order.amounts.sendCost2) }}
-                  </dd>
-                </div>
-                <div class="flex justify-between py-1">
-                  <dt class="text-gray-500">{{ t('admin.orders.drawer.receiptPrice') }}</dt>
-                  <dd class="tabular-nums text-gray-800">{{ formatKrw(order.receiptPrice) }}</dd>
-                </div>
-                <div v-if="order.amounts.receiptPoint !== 0" class="flex justify-between py-1">
-                  <dt class="text-gray-500">{{ t('admin.orders.drawer.point') }}</dt>
-                  <dd class="tabular-nums text-gray-800">{{ formatKrw(order.amounts.receiptPoint) }}</dd>
-                </div>
-                <div v-if="order.couponPrice !== 0" class="flex justify-between py-1">
-                  <dt class="text-gray-500">
-                    {{ t('admin.orders.drawer.coupon') }}
-                    <span class="text-xs text-gray-400">
-                      ({{ t('admin.orders.drawer.cartCoupon') }} {{ formatKrw(order.amounts.cartCoupon) }} ·
-                      {{ t('admin.orders.drawer.itemCoupon') }} {{ formatKrw(order.amounts.coupon) }} ·
-                      {{ t('admin.orders.drawer.sendCoupon') }} {{ formatKrw(order.amounts.sendCoupon) }})
+                    <span class="text-sm text-gray-500">
+                      {{ order.settleCase !== '' ? order.settleCase : t('admin.orders.drawer.noSettle') }}
                     </span>
-                  </dt>
-                  <dd class="tabular-nums text-gray-800">{{ formatKrw(order.couponPrice) }}</dd>
-                </div>
-                <div v-if="order.cancelPrice !== 0" class="flex justify-between py-1">
-                  <dt class="text-gray-500">{{ t('admin.orders.drawer.cancelPrice') }}</dt>
-                  <dd class="tabular-nums font-medium text-red-600">{{ formatKrw(order.cancelPrice) }}</dd>
-                </div>
-                <div v-if="order.amounts.refundPrice !== 0" class="flex justify-between py-1">
-                  <dt class="text-gray-500">{{ t('admin.orders.drawer.refund') }}</dt>
-                  <dd class="tabular-nums text-red-600">{{ formatKrw(order.amounts.refundPrice) }}</dd>
-                </div>
-                <div v-if="order.misu !== 0" class="flex justify-between py-1">
-                  <dt class="text-gray-500">{{ t('admin.orders.drawer.misu') }}</dt>
-                  <dd class="tabular-nums font-medium text-red-600">{{ formatKrw(order.misu) }}</dd>
-                </div>
-                <div class="flex justify-between py-1 text-xs text-gray-400">
-                  <dt>{{ t('admin.orders.drawer.tax') }}</dt>
-                  <dd class="tabular-nums">
-                    {{ t('admin.orders.drawer.taxMny') }} {{ formatKrw(order.amounts.taxMny) }} ·
-                    {{ t('admin.orders.drawer.vatMny') }} {{ formatKrw(order.amounts.vatMny) }} ·
-                    {{ t('admin.orders.drawer.freeMny') }} {{ formatKrw(order.amounts.freeMny) }}
-                  </dd>
-                </div>
-              </dl>
-
-              <!-- 무통장 입금 조정 -->
-              <div v-if="receiptEditing" class="mt-2 rounded-md border border-gray-200 bg-gray-50 p-3">
-                <p class="text-xs text-gray-500">{{ t('admin.orders.drawer.receipt.hint') }}</p>
-                <div class="mt-2 grid grid-cols-2 gap-2">
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.receipt.price') }}</span>
-                    <input v-model.number="receiptForm.receiptPrice" type="number" min="0" step="1" :class="inputClass">
-                  </label>
-                  <label class="block">
-                    <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.receipt.depositName') }}</span>
-                    <input v-model="receiptForm.depositName" type="text" :class="inputClass">
-                  </label>
-                </div>
-                <label class="mt-2 block">
-                  <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.receipt.time') }}</span>
-                  <input v-model="receiptForm.receiptTime" type="datetime-local" :class="inputClass">
-                </label>
-                <div class="mt-2 flex items-center gap-2">
-                  <button type="button" class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="receiptPending" @click="submitReceipt">
-                    {{ receiptPending ? t('admin.orders.drawer.receipt.saving') : t('admin.orders.drawer.receipt.save') }}
-                  </button>
-                  <button type="button" class="rounded-md px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" @click="receiptEditing = false">
-                    {{ t('admin.orders.drawer.receipt.cancel') }}
-                  </button>
-                  <span v-if="receiptError !== null" class="text-xs text-red-600">{{ receiptError }}</span>
-                </div>
-              </div>
-            </section>
-
-            <!-- 메모 -->
-            <section class="mt-5">
-              <h3 class="text-sm font-semibold text-gray-800">{{ t('admin.orders.drawer.memo') }}</h3>
-              <!-- 고객 요청(od_memo) 읽기 전용 -->
-              <div v-if="order.memo !== ''" class="mt-2">
-                <p class="text-xs text-gray-400">{{ t('admin.orders.drawer.customerMemo') }}</p>
-                <p class="whitespace-pre-wrap rounded-md bg-gray-50 p-2 text-sm text-gray-700">
-                  {{ order.memo }}
-                </p>
-              </div>
-              <!-- 관리자 메모(od_shop_memo) 편집 -->
-              <div class="mt-2">
-                <p class="text-xs text-gray-400">{{ t('admin.orders.drawer.shopMemo') }}</p>
-                <textarea
-                  v-model="memoInput"
-                  rows="3"
-                  :placeholder="t('admin.orders.drawer.memoEdit.placeholder')"
-                  class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                />
-                <div class="mt-1 flex items-center gap-2">
-                  <button
-                    type="button"
-                    class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                    :disabled="!memoChanged || memoPending"
-                    @click="submitMemo"
-                  >
-                    {{ t('admin.orders.drawer.memoEdit.save') }}
-                  </button>
-                  <span v-if="memoFailed" class="text-xs text-red-600">
-                    {{ t('admin.orders.drawer.memoEdit.failed') }}
-                  </span>
-                  <span v-else-if="memoSaved" class="text-xs text-green-700">
-                    {{ t('admin.orders.drawer.memoEdit.success') }}
-                  </span>
-                </div>
-              </div>
-            </section>
-
-            <!-- 주문 상품(카트행 ct_id 단위) -->
-            <section class="mt-5">
-              <h3 class="text-sm font-semibold text-gray-800">
-                {{ t('admin.orders.drawer.items') }}
-                <span class="text-gray-400">({{ detail.items.length }})</span>
-              </h3>
-              <ul v-if="detail.items.length > 0" class="mt-2 space-y-2">
-                <li
-                  v-for="it in detail.items"
-                  :key="it.ctId"
-                  class="flex gap-3 rounded-md border border-gray-200 p-2"
-                >
-                  <img
-                    v-if="it.quote !== null && it.quote.thumbUrl !== null"
-                    :src="it.quote.thumbUrl"
-                    alt=""
-                    class="h-14 w-14 shrink-0 rounded border border-gray-200 object-cover"
-                  >
-                  <div
-                    v-else
-                    class="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-dashed border-gray-200 text-[10px] text-gray-300"
-                  >
-                    PCB
                   </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-start justify-between gap-2">
-                      <p class="min-w-0 break-words text-sm text-gray-900">{{ it.itName }}</p>
-                      <span class="shrink-0 tabular-nums text-sm text-gray-800">
-                        {{ formatKrw(linePrice(it)) }}
-                      </span>
+                  <dl
+                    v-if="order.payment.pg !== '' || order.payment.tno !== '' || order.payment.appNo !== ''"
+                    class="mt-3 grid grid-cols-3 gap-x-4 gap-y-1 text-sm"
+                  >
+                    <div v-if="order.payment.pg !== ''">
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.pg') }}</dt>
+                      <dd class="break-all text-gray-800">{{ order.payment.pg }}</dd>
                     </div>
-                    <p v-if="it.quote !== null && it.quote.specSummary !== ''" class="mt-0.5 text-xs text-gray-500">
-                      {{ it.quote.specSummary }}
-                    </p>
-                    <p v-else-if="it.ctOption !== ''" class="mt-0.5 text-xs text-gray-500">
-                      {{ it.ctOption }}
-                    </p>
-                    <div class="mt-1 flex flex-wrap items-center gap-1.5">
-                      <span class="text-xs text-gray-400">
-                        {{ t('admin.orders.drawer.itemQty', { n: it.ctQty }) }}
-                      </span>
-                      <span
-                        v-if="it.ctStatus !== ''"
-                        class="rounded-full px-1.5 py-0.5 text-[11px]"
-                        :class="isCancelledItemStatus(it.ctStatus) ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'"
-                      >
-                        {{ it.ctStatus }}
-                      </span>
-                      <UiBadge
-                        v-if="it.quote !== null"
-                        :variant="it.quote.quoteStatus"
-                        :label="t(`admin.quotes.badge.${it.quote.quoteStatus}`)"
-                      />
-                      <span
-                        v-if="it.quote !== null && it.quote.finalPrice !== null"
-                        class="text-xs tabular-nums text-gray-500"
-                      >
-                        {{ t('admin.orders.drawer.finalPrice') }} {{ formatKrw(it.quote.finalPrice) }}
-                      </span>
+                    <div v-if="order.payment.tno !== ''">
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.tno') }}</dt>
+                      <dd class="break-all text-gray-800">{{ order.payment.tno }}</dd>
                     </div>
-                    <!-- 행별 취소/반품/품절(무통장 · 취소류 아님) — 되돌릴 수 없어 확인 모달 경유 -->
-                    <div v-if="canProcessItem(it)" class="mt-1.5 flex flex-wrap gap-1">
+                    <div v-if="order.payment.appNo !== ''">
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.appNo') }}</dt>
+                      <dd class="break-all text-gray-800">{{ order.payment.appNo }}</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <!-- 주문자 (표시 ↔ 편집) -->
+                <section>
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-800">
+                      {{ t('admin.orders.drawer.orderer') }}
+                    </h3>
+                    <button
+                      v-if="!ordererEditing"
+                      type="button"
+                      class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                      @click="startOrdererEdit"
+                    >
+                      {{ t('admin.orders.drawer.edit.button') }}
+                    </button>
+                  </div>
+
+                  <dl v-if="!ordererEditing" class="mt-2 space-y-1 text-sm">
+                    <div class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.name') }}</dt>
+                      <dd class="text-gray-800">
+                        {{ order.odName !== '' ? order.odName : '-' }}
+                        <span class="ml-1 text-xs text-gray-400">
+                          {{ order.mbId !== '' ? order.mbId : t('admin.orders.table.guest') }}
+                          <span v-if="detail.memberOrderCount > 0">({{ detail.memberOrderCount }})</span>
+                        </span>
+                      </dd>
+                    </div>
+                    <div class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.email') }}</dt>
+                      <dd class="min-w-0 break-all text-gray-800">{{ order.email !== '' ? order.email : '-' }}</dd>
+                    </div>
+                    <div class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.tel') }}</dt>
+                      <dd class="text-gray-800">{{ order.odHp !== '' ? order.odHp : (order.odTel !== '' ? order.odTel : '-') }}</dd>
+                    </div>
+                    <div class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.address') }}</dt>
+                      <dd class="min-w-0 text-gray-800">{{ formatAddr(order.addr) !== '' ? formatAddr(order.addr) : '-' }}</dd>
+                    </div>
+                    <div v-if="order.depositName !== ''" class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.depositName') }}</dt>
+                      <dd class="text-gray-800">{{ order.depositName }}</dd>
+                    </div>
+                    <div v-if="order.hopeDate !== null" class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.hopeDate') }}</dt>
+                      <dd class="text-gray-800">{{ order.hopeDate }}</dd>
+                    </div>
+                  </dl>
+
+                  <!-- 주문자 편집 폼 -->
+                  <div v-else class="mt-2 space-y-2">
+                    <div class="grid grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.name') }}</span>
+                        <input v-model="ordererForm.odName" type="text" :class="inputClass">
+                      </label>
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.email') }}</span>
+                        <input v-model="ordererForm.odEmail" type="email" :class="inputClass">
+                      </label>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.tel') }}</span>
+                        <input v-model="ordererForm.odTel" type="text" :class="inputClass">
+                      </label>
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.hp') }}</span>
+                        <input v-model="ordererForm.odHp" type="text" :class="inputClass">
+                      </label>
+                    </div>
+                    <div>
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.zip') }}</span>
+                      <div class="mt-0.5 flex items-center gap-1.5">
+                        <input v-model="ordererForm.zip1" type="text" inputmode="numeric" maxlength="3" class="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none">
+                        <span class="text-gray-400">-</span>
+                        <input v-model="ordererForm.zip2" type="text" inputmode="numeric" maxlength="3" class="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none">
+                        <button type="button" class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100" @click="openOrdererPostcode">
+                          {{ t('admin.orders.drawer.edit.addrSearch') }}
+                        </button>
+                      </div>
+                      <p v-if="ordererPostcodeFailed" class="mt-1 text-xs text-red-600">
+                        {{ t('admin.orders.drawer.edit.addrSearchFailed') }}
+                      </p>
+                    </div>
+                    <div v-if="ordererPostcodeOpen" class="overflow-hidden rounded-md border border-gray-300">
+                      <div class="flex items-center justify-between border-b border-gray-200 px-2 py-1">
+                        <span class="text-xs text-gray-500">{{ t('admin.orders.drawer.edit.addrSearch') }}</span>
+                        <button type="button" class="rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100" @click="ordererPostcodeOpen = false">
+                          {{ t('admin.orders.drawer.edit.addrSearchClose') }}
+                        </button>
+                      </div>
+                      <div ref="ordererPanel" class="h-[300px] w-full" />
+                    </div>
+                    <label class="block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr1') }}</span>
+                      <input v-model="ordererForm.addr1" type="text" :class="inputClass">
+                    </label>
+                    <label class="block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr2') }}</span>
+                      <input v-model="ordererForm.addr2" type="text" :class="inputClass">
+                    </label>
+                    <label class="block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr3') }}</span>
+                      <input v-model="ordererForm.addr3" type="text" :class="inputClass">
+                    </label>
+                    <div class="grid grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.depositName') }}</span>
+                        <input v-model="ordererForm.depositName" type="text" :class="inputClass">
+                      </label>
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.hopeDate') }}</span>
+                        <input v-model="ordererForm.hopeDate" type="date" :class="inputClass">
+                      </label>
+                    </div>
+                    <div class="flex items-center gap-2 pt-1">
+                      <button type="button" class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="infoPending" @click="submitOrderer">
+                        {{ t('admin.orders.drawer.edit.save') }}
+                      </button>
+                      <button type="button" class="rounded-md px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" @click="cancelOrdererEdit">
+                        {{ t('admin.orders.drawer.edit.cancel') }}
+                      </button>
+                      <span v-if="infoError !== null" class="text-xs text-red-600">{{ infoError }}</span>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 받는분 (표시 ↔ 편집) -->
+                <section>
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-800">
+                      {{ t('admin.orders.drawer.receiver') }}
+                    </h3>
+                    <button
+                      v-if="!receiverEditing"
+                      type="button"
+                      class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                      @click="startReceiverEdit"
+                    >
+                      {{ t('admin.orders.drawer.edit.button') }}
+                    </button>
+                  </div>
+
+                  <dl v-if="!receiverEditing" class="mt-2 space-y-1 text-sm">
+                    <div class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.name') }}</dt>
+                      <dd class="text-gray-800">{{ order.receiver.name !== '' ? order.receiver.name : '-' }}</dd>
+                    </div>
+                    <div class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.tel') }}</dt>
+                      <dd class="text-gray-800">
+                        {{ order.receiver.hp !== '' ? order.receiver.hp : (order.receiver.tel !== '' ? order.receiver.tel : '-') }}
+                      </dd>
+                    </div>
+                    <div class="flex gap-2">
+                      <dt class="w-16 shrink-0 text-gray-400">{{ t('admin.orders.drawer.address') }}</dt>
+                      <dd class="min-w-0 text-gray-800">
+                        {{ formatAddr(order.receiver) !== '' ? formatAddr(order.receiver) : '-' }}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <!-- 받는분 편집 폼 -->
+                  <div v-else class="mt-2 space-y-2">
+                    <label class="block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.name') }}</span>
+                      <input v-model="receiverForm.bName" type="text" :class="inputClass">
+                    </label>
+                    <div class="grid grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.tel') }}</span>
+                        <input v-model="receiverForm.bTel" type="text" :class="inputClass">
+                      </label>
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.hp') }}</span>
+                        <input v-model="receiverForm.bHp" type="text" :class="inputClass">
+                      </label>
+                    </div>
+                    <div>
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.zip') }}</span>
+                      <div class="mt-0.5 flex items-center gap-1.5">
+                        <input v-model="receiverForm.bZip1" type="text" inputmode="numeric" maxlength="3" class="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none">
+                        <span class="text-gray-400">-</span>
+                        <input v-model="receiverForm.bZip2" type="text" inputmode="numeric" maxlength="3" class="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none">
+                        <button type="button" class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100" @click="openReceiverPostcode">
+                          {{ t('admin.orders.drawer.edit.addrSearch') }}
+                        </button>
+                      </div>
+                      <p v-if="receiverPostcodeFailed" class="mt-1 text-xs text-red-600">
+                        {{ t('admin.orders.drawer.edit.addrSearchFailed') }}
+                      </p>
+                    </div>
+                    <div v-if="receiverPostcodeOpen" class="overflow-hidden rounded-md border border-gray-300">
+                      <div class="flex items-center justify-between border-b border-gray-200 px-2 py-1">
+                        <span class="text-xs text-gray-500">{{ t('admin.orders.drawer.edit.addrSearch') }}</span>
+                        <button type="button" class="rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100" @click="receiverPostcodeOpen = false">
+                          {{ t('admin.orders.drawer.edit.addrSearchClose') }}
+                        </button>
+                      </div>
+                      <div ref="receiverPanel" class="h-[300px] w-full" />
+                    </div>
+                    <label class="block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr1') }}</span>
+                      <input v-model="receiverForm.bAddr1" type="text" :class="inputClass">
+                    </label>
+                    <label class="block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr2') }}</span>
+                      <input v-model="receiverForm.bAddr2" type="text" :class="inputClass">
+                    </label>
+                    <label class="block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.edit.addr3') }}</span>
+                      <input v-model="receiverForm.bAddr3" type="text" :class="inputClass">
+                    </label>
+                    <div class="flex items-center gap-2 pt-1">
+                      <button type="button" class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="infoPending" @click="submitReceiver">
+                        {{ t('admin.orders.drawer.edit.save') }}
+                      </button>
+                      <button type="button" class="rounded-md px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" @click="cancelReceiverEdit">
+                        {{ t('admin.orders.drawer.edit.cancel') }}
+                      </button>
+                      <span v-if="infoError !== null" class="text-xs text-red-600">{{ infoError }}</span>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 배송 (준비 상태면 운송장 인라인 입력 — [배송 처리]가 이 값을 수집) -->
+                <section>
+                  <h3 class="text-sm font-semibold text-gray-800">
+                    {{ t('admin.orders.drawer.delivery') }}
+                  </h3>
+                  <div v-if="order.status === '준비'" class="mt-2 space-y-2">
+                    <label class="block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryCompany') }}</span>
+                      <input v-model="deliveryInput.deliveryCompany" type="text" :class="inputClass">
+                    </label>
+                    <div class="grid grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</span>
+                        <input v-model="deliveryInput.invoiceNo" type="text" :class="inputClass">
+                      </label>
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceTime') }}</span>
+                        <input v-model="deliveryInput.invoiceTime" type="datetime-local" :class="inputClass">
+                      </label>
+                    </div>
+                  </div>
+                  <dl v-else class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <div>
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</dt>
+                      <dd class="text-gray-800">{{ order.invoiceNo ?? '-' }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryCompany') }}</dt>
+                      <dd class="text-gray-800">{{ displayCompany(order.deliveryCompany) }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceTime') }}</dt>
+                      <dd class="text-gray-800">{{ order.invoiceTime ?? '-' }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.hopeDate') }}</dt>
+                      <dd class="text-gray-800">{{ order.hopeDate ?? '-' }}</dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <!-- 메모 -->
+                <section>
+                  <h3 class="text-sm font-semibold text-gray-800">{{ t('admin.orders.drawer.memo') }}</h3>
+                  <!-- 고객 요청(od_memo) 읽기 전용 -->
+                  <div v-if="order.memo !== ''" class="mt-2">
+                    <p class="text-xs text-gray-400">{{ t('admin.orders.drawer.customerMemo') }}</p>
+                    <p class="whitespace-pre-wrap rounded-md bg-gray-50 p-2 text-sm text-gray-700">
+                      {{ order.memo }}
+                    </p>
+                  </div>
+                  <!-- 관리자 메모(od_shop_memo) 편집 -->
+                  <div class="mt-2">
+                    <p class="text-xs text-gray-400">{{ t('admin.orders.drawer.shopMemo') }}</p>
+                    <textarea
+                      v-model="memoInput"
+                      rows="3"
+                      :placeholder="t('admin.orders.drawer.memoEdit.placeholder')"
+                      class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                    <div class="mt-1 flex items-center gap-2">
                       <button
-                        v-for="target in CANCEL_ITEM_TARGETS"
-                        :key="target"
                         type="button"
-                        class="rounded border border-gray-300 px-1.5 py-0.5 text-[11px] text-gray-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
-                        @click="openItemAction(it, target)"
+                        class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                        :disabled="!memoChanged || memoPending"
+                        @click="submitMemo"
                       >
-                        {{ itemTargetLabel(target) }}
+                        {{ t('admin.orders.drawer.memoEdit.save') }}
+                      </button>
+                      <span v-if="memoFailed" class="text-xs text-red-600">
+                        {{ t('admin.orders.drawer.memoEdit.failed') }}
+                      </span>
+                      <span v-else-if="memoSaved" class="text-xs text-green-700">
+                        {{ t('admin.orders.drawer.memoEdit.success') }}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <!-- 우: 처리 / 금액 / 주문상품 -->
+              <div class="mt-5 space-y-5 lg:mt-0">
+                <!-- 처리(다음 단계 상태 전이) -->
+                <section>
+                  <h3 class="text-sm font-semibold text-gray-800">{{ t('admin.orders.process.title') }}</h3>
+                  <div
+                    v-if="nextAction !== null"
+                    class="mt-2 space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3"
+                  >
+                    <div v-if="nextAction.notify" class="flex flex-wrap gap-x-3 gap-y-1">
+                      <label class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
+                        <input v-model="sendMail" type="checkbox" class="rounded border-gray-300">
+                        {{ t('admin.orders.action.sendMail') }}
+                      </label>
+                      <label class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
+                        <input v-model="sendSms" type="checkbox" class="rounded border-gray-300">
+                        {{ t('admin.orders.action.sendSms') }}
+                      </label>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                        :disabled="statusPending"
+                        @click="submitNextStep"
+                      >
+                        {{ statusPending ? t('admin.orders.action.processing') : t(`admin.orders.action.${nextAction.labelKey}`) }}
+                      </button>
+                      <span v-if="nextAction.needsDelivery" class="text-xs text-gray-400">
+                        {{ t('admin.orders.process.deliveryHint') }}
+                      </span>
+                    </div>
+                    <p v-if="processError !== null" class="text-sm text-red-600">{{ processError }}</p>
+                  </div>
+                  <p v-else class="mt-2 text-sm text-gray-400">{{ t('admin.orders.process.none') }}</p>
+                  <OrderActionResult v-if="statusResult !== null" :data="statusResult" class="mt-2" />
+
+                  <!-- 상태 직접 변경(고급) — 접힘. 수납·알림·운송장 필수검증 없이 강제 변경(역방향 가능) -->
+                  <div class="mt-3 border-t border-gray-200 pt-2">
+                    <button
+                      type="button"
+                      class="text-xs text-gray-500 hover:text-gray-800"
+                      @click="forceOpen = !forceOpen"
+                    >
+                      {{ t('admin.orders.force.toggle') }} {{ forceOpen ? '▲' : '▼' }}
+                    </button>
+                    <div v-if="forceOpen" class="mt-2 space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+                      <p class="text-xs text-amber-700">{{ t('admin.orders.force.warn') }}</p>
+                      <label class="block">
+                        <span class="text-xs text-gray-500">{{ t('admin.orders.force.target') }}</span>
+                        <select
+                          v-model="forceTarget"
+                          class="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                        >
+                          <option v-for="s in FORCE_STATUS_TARGETS" :key="s" :value="s">{{ statusLabel(s) }}</option>
+                        </select>
+                      </label>
+                      <div v-if="forceTarget === '배송'" class="space-y-2">
+                        <p class="text-xs text-gray-400">{{ t('admin.orders.force.deliveryOptionalHint') }}</p>
+                        <input
+                          v-model="forceDelivery.deliveryCompany"
+                          type="text"
+                          :placeholder="t('admin.orders.drawer.deliveryCompany')"
+                          :class="inputClass"
+                        >
+                        <div class="grid grid-cols-2 gap-2">
+                          <input
+                            v-model="forceDelivery.invoiceNo"
+                            type="text"
+                            :placeholder="t('admin.orders.drawer.invoiceNo')"
+                            :class="inputClass"
+                          >
+                          <input v-model="forceDelivery.invoiceTime" type="datetime-local" :class="inputClass">
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+                        @click="openForceConfirm"
+                      >
+                        {{ t('admin.orders.force.apply') }}
                       </button>
                     </div>
                   </div>
-                </li>
-              </ul>
-              <p v-else class="mt-2 text-sm text-gray-400">{{ t('admin.orders.drawer.noItems') }}</p>
-            </section>
+                </section>
 
-            <!-- PHP 관리자 위임 -->
+                <!-- 금액 -->
+                <section>
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-800">
+                      {{ t('admin.orders.drawer.amounts') }}
+                    </h3>
+                    <button
+                      v-if="isBankTransfer && !receiptEditing"
+                      type="button"
+                      class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                      @click="startReceiptEdit"
+                    >
+                      {{ t('admin.orders.drawer.receipt.adjust') }}
+                    </button>
+                  </div>
+                  <dl class="mt-2 divide-y divide-gray-100 text-sm">
+                    <div class="flex justify-between py-1">
+                      <dt class="text-gray-500">{{ t('admin.orders.drawer.orderPrice') }}</dt>
+                      <dd class="tabular-nums font-medium text-gray-900">{{ formatKrw(order.orderPrice) }}</dd>
+                    </div>
+                    <div class="flex justify-between py-1">
+                      <dt class="text-gray-500">{{ t('admin.orders.drawer.sendCost') }}</dt>
+                      <dd class="tabular-nums text-gray-800">
+                        {{ formatKrw(order.amounts.sendCost + order.amounts.sendCost2) }}
+                      </dd>
+                    </div>
+                    <div class="flex justify-between py-1">
+                      <dt class="text-gray-500">{{ t('admin.orders.drawer.receiptPrice') }}</dt>
+                      <dd class="tabular-nums text-gray-800">{{ formatKrw(order.receiptPrice) }}</dd>
+                    </div>
+                    <div v-if="order.amounts.receiptPoint !== 0" class="flex justify-between py-1">
+                      <dt class="text-gray-500">{{ t('admin.orders.drawer.point') }}</dt>
+                      <dd class="tabular-nums text-gray-800">{{ formatKrw(order.amounts.receiptPoint) }}</dd>
+                    </div>
+                    <div v-if="order.couponPrice !== 0" class="flex justify-between py-1">
+                      <dt class="text-gray-500">
+                        {{ t('admin.orders.drawer.coupon') }}
+                        <span class="text-xs text-gray-400">
+                          ({{ t('admin.orders.drawer.cartCoupon') }} {{ formatKrw(order.amounts.cartCoupon) }} ·
+                          {{ t('admin.orders.drawer.itemCoupon') }} {{ formatKrw(order.amounts.coupon) }} ·
+                          {{ t('admin.orders.drawer.sendCoupon') }} {{ formatKrw(order.amounts.sendCoupon) }})
+                        </span>
+                      </dt>
+                      <dd class="tabular-nums text-gray-800">{{ formatKrw(order.couponPrice) }}</dd>
+                    </div>
+                    <div v-if="order.cancelPrice !== 0" class="flex justify-between py-1">
+                      <dt class="text-gray-500">{{ t('admin.orders.drawer.cancelPrice') }}</dt>
+                      <dd class="tabular-nums font-medium text-red-600">{{ formatKrw(order.cancelPrice) }}</dd>
+                    </div>
+                    <div v-if="order.amounts.refundPrice !== 0" class="flex justify-between py-1">
+                      <dt class="text-gray-500">{{ t('admin.orders.drawer.refund') }}</dt>
+                      <dd class="tabular-nums text-red-600">{{ formatKrw(order.amounts.refundPrice) }}</dd>
+                    </div>
+                    <div v-if="order.misu !== 0" class="flex justify-between py-1">
+                      <dt class="text-gray-500">{{ t('admin.orders.drawer.misu') }}</dt>
+                      <dd class="tabular-nums font-medium text-red-600">{{ formatKrw(order.misu) }}</dd>
+                    </div>
+                    <div class="flex justify-between py-1 text-xs text-gray-400">
+                      <dt>{{ t('admin.orders.drawer.tax') }}</dt>
+                      <dd class="tabular-nums">
+                        {{ t('admin.orders.drawer.taxMny') }} {{ formatKrw(order.amounts.taxMny) }} ·
+                        {{ t('admin.orders.drawer.vatMny') }} {{ formatKrw(order.amounts.vatMny) }} ·
+                        {{ t('admin.orders.drawer.freeMny') }} {{ formatKrw(order.amounts.freeMny) }}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <!-- 무통장 입금 조정 -->
+                  <div v-if="receiptEditing" class="mt-2 rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p class="text-xs text-gray-500">{{ t('admin.orders.drawer.receipt.hint') }}</p>
+                    <label class="mt-2 flex cursor-pointer items-center gap-1.5 text-sm text-gray-600">
+                      <input v-model="receiptFull" type="checkbox" class="rounded border-gray-300" @change="onReceiptFullToggle">
+                      {{ t('admin.orders.drawer.receipt.full') }}
+                    </label>
+                    <div class="mt-2 grid grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.receipt.price') }}</span>
+                        <input v-model.number="receiptForm.receiptPrice" type="number" min="0" step="1" :class="inputClass">
+                      </label>
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.receipt.depositName') }}</span>
+                        <input v-model="receiptForm.depositName" type="text" :class="inputClass">
+                      </label>
+                    </div>
+                    <label class="mt-2 block">
+                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.receipt.time') }}</span>
+                      <input v-model="receiptForm.receiptTime" type="datetime-local" :class="inputClass">
+                    </label>
+                    <div class="mt-2 flex items-center gap-2">
+                      <button type="button" class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="receiptPending" @click="submitReceipt">
+                        {{ receiptPending ? t('admin.orders.drawer.receipt.saving') : t('admin.orders.drawer.receipt.save') }}
+                      </button>
+                      <button type="button" class="rounded-md px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" @click="receiptEditing = false">
+                        {{ t('admin.orders.drawer.receipt.cancel') }}
+                      </button>
+                      <span v-if="receiptError !== null" class="text-xs text-red-600">{{ receiptError }}</span>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- 주문 상품(카트행 ct_id 단위) -->
+                <section>
+                  <h3 class="text-sm font-semibold text-gray-800">
+                    {{ t('admin.orders.drawer.items') }}
+                    <span class="text-gray-400">({{ detail.items.length }})</span>
+                  </h3>
+                  <ul v-if="detail.items.length > 0" class="mt-2 space-y-2">
+                    <li
+                      v-for="it in detail.items"
+                      :key="it.ctId"
+                      class="flex gap-3 rounded-md border border-gray-200 p-2"
+                    >
+                      <img
+                        v-if="it.quote !== null && it.quote.thumbUrl !== null"
+                        :src="it.quote.thumbUrl"
+                        alt=""
+                        class="h-14 w-14 shrink-0 rounded border border-gray-200 object-cover"
+                      >
+                      <div
+                        v-else
+                        class="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-dashed border-gray-200 text-[10px] text-gray-300"
+                      >
+                        PCB
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-start justify-between gap-2">
+                          <p class="min-w-0 break-words text-sm text-gray-900">{{ it.itName }}</p>
+                          <span class="shrink-0 tabular-nums text-sm text-gray-800">
+                            {{ formatKrw(linePrice(it)) }}
+                          </span>
+                        </div>
+                        <p v-if="it.quote !== null && it.quote.specSummary !== ''" class="mt-0.5 text-xs text-gray-500">
+                          {{ it.quote.specSummary }}
+                        </p>
+                        <p v-else-if="it.ctOption !== ''" class="mt-0.5 text-xs text-gray-500">
+                          {{ it.ctOption }}
+                        </p>
+                        <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span class="text-xs text-gray-400">
+                            {{ t('admin.orders.drawer.itemQty', { n: it.ctQty }) }}
+                          </span>
+                          <span
+                            v-if="it.ctStatus !== ''"
+                            class="rounded-full px-1.5 py-0.5 text-[11px]"
+                            :class="isCancelledItemStatus(it.ctStatus) ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'"
+                          >
+                            {{ it.ctStatus }}
+                          </span>
+                          <UiBadge
+                            v-if="it.quote !== null"
+                            :variant="it.quote.quoteStatus"
+                            :label="t(`admin.quotes.badge.${it.quote.quoteStatus}`)"
+                          />
+                          <span
+                            v-if="it.quote !== null && it.quote.finalPrice !== null"
+                            class="text-xs tabular-nums text-gray-500"
+                          >
+                            {{ t('admin.orders.drawer.finalPrice') }} {{ formatKrw(it.quote.finalPrice) }}
+                          </span>
+                        </div>
+                        <!-- 행별 취소/반품/품절(무통장 · 취소류 아님) — 되돌릴 수 없어 확인 모달 경유 -->
+                        <div v-if="canProcessItem(it)" class="mt-1.5 flex flex-wrap gap-1">
+                          <button
+                            v-for="target in CANCEL_ITEM_TARGETS"
+                            :key="target"
+                            type="button"
+                            class="rounded border border-gray-300 px-1.5 py-0.5 text-[11px] text-gray-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                            @click="openItemAction(it, target)"
+                          >
+                            {{ itemTargetLabel(target) }}
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  </ul>
+                  <p v-else class="mt-2 text-sm text-gray-400">{{ t('admin.orders.drawer.noItems') }}</p>
+                </section>
+              </div>
+            </div>
+
+            <!-- PHP 관리자 위임 (전체 폭) -->
             <div class="mt-6 border-t border-gray-200 pt-4">
               <p class="text-xs text-gray-400">{{ t('admin.orders.drawer.phpNotice') }}</p>
               <a
@@ -1010,5 +1291,15 @@ const inputClass =
     :item-label="itemAction.label"
     @close="itemAction = null"
     @done="itemAction = null"
+  />
+
+  <OrderForceStatusModal
+    v-if="forceConfirm !== null && order !== null"
+    :od-id="order.odId"
+    :target="forceConfirm.target"
+    :target-label="statusLabel(forceConfirm.target)"
+    :delivery="forceConfirm.delivery"
+    @close="forceConfirm = null"
+    @done="onForceDone"
   />
 </template>

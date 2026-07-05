@@ -377,3 +377,21 @@ export const AdminOrderItemActionResponse = z.object({
   }),
 });
 export type AdminOrderItemActionResponseType = z.infer<typeof AdminOrderItemActionResponse>;
+
+// ── 주문 임의 상태 변경 (adm/shop_admin/orderformcartupdate.php 정상 상태 분기 이식) ──────
+// 드로어에서 주문 상태를 임의 값(역방향 포함)으로 점프. 활성 카트행 ct_status=target + od_status
+// =target 동기. 스톡 실동작이 앵커: target 배송/완료 진입 시 재고 차감(ct_stock_use=0 행), target
+// 주문(역방향) 시 재고 복원(ct_stock_use=1 행). 코어 정상 분기엔 **결제수단 가드 없음**(임의 변경
+// 허용). 운송장은 스톡이 요구하지 않아 **optional(refine 없음)** — target='배송'에 delivery 제공 시
+// 만 od_delivery_company/od_invoice/od_invoice_time 반영(contract 필드 존중). 응답은 { odId }(FE refetch).
+export const AdminOrderForceStatusRequest = z.object({
+  target: z.enum(['주문', '입금', '준비', '배송', '완료']),
+  delivery: z
+    .object({
+      deliveryCompany: z.string().min(1),
+      invoiceNo: z.string().min(1),
+      invoiceTime: z.string().min(1),
+    })
+    .optional(),
+});
+export type AdminOrderForceStatusRequestType = z.infer<typeof AdminOrderForceStatusRequest>;

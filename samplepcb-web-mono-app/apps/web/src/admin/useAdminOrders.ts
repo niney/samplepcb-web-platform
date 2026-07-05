@@ -10,6 +10,7 @@ import {
   apiRoutes,
 } from '@sp/api-contract';
 import type {
+  AdminOrderForceStatusRequestType,
   AdminOrderInfoBodyType,
   AdminOrderItemStatusRequestType,
   AdminOrderReceiptBodyType,
@@ -96,6 +97,12 @@ export const CANCEL_ITEM_TARGETS = ['취소', '반품', '품절'] as const;
 export type CancelItemTarget = (typeof CANCEL_ITEM_TARGETS)[number];
 export const isCancelledItemStatus = (ctStatus: string): boolean =>
   (CANCEL_ITEM_TARGETS as readonly string[]).includes(ctStatus);
+
+// 임의 상태 변경 대상 5종(계약 force-status target). 역방향 포함 강제 점프용.
+export type OrderForceTarget = AdminOrderForceStatusRequestType['target'];
+export const FORCE_STATUS_TARGETS = ['주문', '입금', '준비', '배송', '완료'] as const;
+export const isForceTarget = (s: string): s is OrderForceTarget =>
+  (FORCE_STATUS_TARGETS as readonly string[]).includes(s);
 
 // 준비 탭 운송장 인라인 입력 행(로컬 상태). invoiceTime 은 datetime-local 문자열('YYYY-MM-DDThh:mm').
 export interface DeliveryInput {
@@ -286,6 +293,24 @@ export function useOrderItemStatusMutation() {
         `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/items/status`,
         body,
         AdminOrderItemActionResponse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    },
+  });
+}
+
+// 주문 임의 상태 변경(역방향 포함) — 성공 시 재고·상태 서버 재계산되어 ['admin','orders'] 무효화로
+// 상세(헤더·카드)·목록 갱신. 코어 정상 분기라 결제수단 가드 없음(임의 변경 허용).
+export function useOrderForceStatusMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ odId, ...body }: { odId: string } & AdminOrderForceStatusRequestType) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/force-status`,
+        body,
+        AdminOrderEditResponse,
       ),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });

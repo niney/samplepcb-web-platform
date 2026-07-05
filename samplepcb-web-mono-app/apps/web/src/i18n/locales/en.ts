@@ -310,6 +310,7 @@ export const en = {
         sum: 'Total',
         companyPh: 'Carrier',
         invoicePh: 'Invoice no.',
+        perPage: 'Per page',
       },
       action: {
         selected: '{n} selected',
@@ -358,6 +359,25 @@ export const en = {
         mailFailed: '{n} email(s) failed',
         smsFailed: '{n} SMS failed',
         none: 'Nothing was processed.',
+      },
+      process: {
+        title: 'Process',
+        none: 'No next step available from this status.',
+        noInvoice: 'Enter invoice info (carrier, number, time).',
+        deliveryHint: 'Uses the invoice info in the Delivery section.',
+      },
+      force: {
+        toggle: 'Force status change',
+        warn: 'Forces the status only, with no payment/notification (reverse allowed, any payment method).',
+        target: 'Change to',
+        deliveryOptionalHint: 'Invoice optional — fill all three to also record it, leave blank for status only.',
+        apply: 'Apply',
+        confirmTitle: 'Force change to {target}',
+        confirmWarn: 'Force this order to {target}. Status only, no payment/notification (reverse allowed, any payment method).',
+        deliveryIncluded: 'Invoice included',
+        cancel: 'Cancel',
+        confirm: 'Change',
+        applying: 'Changing…',
       },
       deleteModal: {
         title: 'Delete selected orders',
@@ -462,6 +482,7 @@ export const en = {
         receipt: {
           adjust: 'Adjust deposit',
           hint: 'After confirming the bank transfer, adjusting the amount/time recalculates the unpaid balance.',
+          full: 'Fill full unpaid amount',
           price: 'Deposit amount',
           time: 'Deposit time',
           depositName: 'Depositor',

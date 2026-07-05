@@ -102,6 +102,16 @@
 //   • **포인트 복원(delete_point) no-op**: PCB 카트행은 ct_point=0(insertCartRow)이라 코어 조건 미발동.
 //       g5_point 원장 캐스케이드 포트는 미이식 — ct_point>0 행은 HAS_POINT 로 skip(구주문 유입 안전판,
 //       PHP 관리자로 위임). PG 취소 분기(코어 190-336)는 무통장 guard(라우트 409)로 제외.
+// ⑯ 주문 임의 상태 변경(관리자 드로어 — orderformcartupdate.php 정상 상태 분기 이식, ⑮ 취소류의 짝).
+// setOrderForceStatus(odId, target, delivery?, actor, ip) — 주문 라인(쇼핑/삭제 제외, **취소류 포함**)
+// ct_status=target + od_status=target. 취소류 행 → 정상 상태 = **un-cancel**(코어 정상 분기가 담당 —
+// 취소류를 빼면 전량취소 주문에 걸 때 od_status/카트행 불일치). 스톡 앵커(resolveForceStatusStock 순수
+// 판정): 배송/완료 진입 시 미차감 행 차감(취소 행은 WP6 가 ct_stock_use=0 복원해둠 → 진입 시 차감)
+// (adjustStock -ct_qty)·주문 역방향 시 차감 행 복원(+ct_qty)·그 외 무변화. it_sum_qty 는 코어 조건의
+// 정상 부분집합 {주문,완료} 만 재계산. 금액은 recomputeOrderMoneyOnItemChange(⑮) 재사용. od_mod_history
+// append 없음(코어 정상 분기 미기록). **결제수단 가드·운송장 요구 없음**(코어 정상 분기 무검사 —
+// 임의 변경 허용). delivery 는 target='배송' 제공 시만 운송장 반영(계약 필드 존중). 포인트 딸린 활성
+// 행(ct_point>0)은 HAS_POINT 로 전체 거부(⑮와 동일 안전판, PCB 미발생). claim-first 원자 가드.
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
 //
@@ -1826,23 +1836,24 @@ export function resolveItemCancelSkip(
   return null;
 }
 
-// 재고 복원(add_io_stock 미러, admin.shop.lib.php:44-60) — io_id 있으면 옵션행, 없으면 상품행 가산.
-async function restoreStock(
+// 재고 가감(add/subtract_io_stock 미러, admin.shop.lib.php:44-80) — io_id 있으면 옵션행, 없으면
+// 상품행. delta>0 복원(add)·delta<0 차감(subtract). ⑮ 취소 복원(+)·⑯ 임의 전이 배송 차감(-)/복원(+).
+async function adjustStock(
   itId: string,
   ioId: string,
   ioType: number,
-  qty: number,
+  delta: number,
 ): Promise<void> {
   const pool = getG5Pool();
   if (ioId !== '') {
     await pool.query(
       `UPDATE g5_shop_item_option SET io_stock_qty = io_stock_qty + ?
         WHERE it_id = ? AND io_id = ? AND io_type = ?`,
-      [qty, itId, ioId, ioType],
+      [delta, itId, ioId, ioType],
     );
   } else {
     await pool.query(`UPDATE g5_shop_item SET it_stock_qty = it_stock_qty + ? WHERE it_id = ?`, [
-      qty,
+      delta,
       itId,
     ]);
   }
@@ -1965,9 +1976,9 @@ export async function setOrderItemsStatus(
       continue;
     }
 
-    // 배송 후 차감된 행만 재고 복원(주문/입금/준비 행은 ct_stock_use=0 → 복원 없음).
+    // 배송 후 차감된 행만 재고 복원(주문/입금/준비 행은 ct_stock_use=0 → 복원 없음). delta=+ct_qty.
     if (Number(ct.ct_stock_use ?? 0) > 0) {
-      await restoreStock(
+      await adjustStock(
         String(ct.it_id ?? ''),
         String(ct.io_id ?? ''),
         Number(ct.io_type ?? 0),
@@ -2018,6 +2029,121 @@ export async function setOrderItemsStatus(
   );
   const odStatus = String(statusRows[0]?.od_status ?? '');
   return { processed, skipped, odStatus, orderCancelled: orderCancelled || odStatus === '취소' };
+}
+
+// ── 주문 임의 상태 변경 (카탈로그 ⑯ — 쓰기) ──────────────────────────────────
+// 레거시 adm/shop_admin/orderformcartupdate.php 의 **정상 상태 분기** 이식(WP6 취소류의 짝). 드로어에서
+// 주문 상태를 임의 값(역방향 포함)으로 점프 — 활성 카트행 ct_status=target + od_status=target 동기.
+// 스톡 실동작이 유일한 앵커(코어 정상 분기가 하는 것만): 결제수단 가드 없음·운송장 요구 없음·
+// od_mod_history append 없음(mod_history 는 취소 블록·수량변경에서만 채워짐 — 정상 전이는 '').
+
+export type OrderForceStatusTarget = '주문' | '입금' | '준비' | '배송' | '완료';
+export type ForceStockAction = 'subtract' | 'restore' | 'none';
+
+// force-status 스톡 판정(순수, orderformcartupdate.php:78-129 정상 분기 미러). 배송/완료 진입 시
+// 미차감 행 차감(-qty), 주문 역방향 시 차감된 행 복원(+qty), 그 외(입금/준비·이미 상태 부합)는 변화 없음.
+export function resolveForceStatusStock(
+  target: OrderForceStatusTarget,
+  stockUsed: boolean,
+): { newStockUse: 0 | 1; action: ForceStockAction } {
+  if ((target === '배송' || target === '완료') && !stockUsed) {
+    return { newStockUse: 1, action: 'subtract' };
+  }
+  if (target === '주문' && stockUsed) {
+    return { newStockUse: 0, action: 'restore' };
+  }
+  return { newStockUse: stockUsed ? 1 : 0, action: 'none' };
+}
+
+export interface ForceStatusDelivery {
+  deliveryCompany: string;
+  invoiceNo: string;
+  invoiceTime: string;
+}
+
+export type ForceStatusOutcome = 'ok' | 'HAS_POINT';
+
+// force-status 대상 라인 상태 집합 — 쇼핑/삭제만 제외(취소류 포함). 취소류 행에 정상 상태를 걸면
+// 코어 정상 분기가 **un-cancel**(행 복귀) 역할을 한다(관리자가 취소 행 체크 + '주문' 선택). 취소류를
+// 빼면 전량취소 주문에 force-status 시 od_status 만 바뀌고 카트행은 취소로 남는 불일치가 생긴다.
+const FORCE_STATUS_LINE_IN = `ct_status IN ('주문','입금','준비','배송','완료','취소','반품','품절')`;
+
+// 주문 라인(쇼핑/삭제 제외)을 target 으로 일괄 전이 + od_status=target. HAS_POINT(포인트 딸린 행)면
+// 전체 거부(PCB ct_point=0 이라 미발생 — 구주문 유입 안전판, PHP 관리자 위임). 미존재 404 는 라우트가 처리.
+export async function setOrderForceStatus(
+  odId: string,
+  target: OrderForceStatusTarget,
+  delivery: ForceStatusDelivery | undefined,
+  actorMbId: string,
+  ip: string,
+): Promise<ForceStatusOutcome> {
+  const pool = getG5Pool();
+
+  const [ptRows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS n FROM g5_shop_cart WHERE od_id = ? AND ${FORCE_STATUS_LINE_IN} AND ct_point > 0`,
+    [odId],
+  );
+  if (Number(ptRows[0]?.n ?? 0) > 0) return 'HAS_POINT';
+
+  const [lines] = await pool.query<RowDataPacket[]>(
+    `SELECT ct_id, it_id, io_id, io_type, ct_qty, ct_status, ct_stock_use
+       FROM g5_shop_cart WHERE od_id = ? AND ${FORCE_STATUS_LINE_IN}`,
+    [odId],
+  );
+  const now = kstDateTimeStr(new Date());
+  const affectedItemIds = new Set<string>();
+
+  for (const ct of lines) {
+    const currentStatus = String(ct.ct_status ?? '');
+    const ctQty = Number(ct.ct_qty ?? 0);
+    const { newStockUse, action } = resolveForceStatusStock(
+      target,
+      Number(ct.ct_stock_use ?? 0) > 0,
+    );
+    // claim-first — 원자 가드(WHERE ct_status=현재) 성공 후에만 재고 가감(레이스 이중반영 방지).
+    const history = `\n${target}|${actorMbId}|${now}|${ip}`;
+    const [upd] = await pool.query<ResultSetHeader>(
+      `UPDATE g5_shop_cart
+          SET ct_point_use = 0, ct_stock_use = ?, ct_status = ?, ct_history = CONCAT(ct_history, ?)
+        WHERE od_id = ? AND ct_id = ? AND ct_status = ?`,
+      [newStockUse, target, history, odId, Number(ct.ct_id), currentStatus],
+    );
+    if (upd.affectedRows === 0) continue; // 레이스 — 건너뜀
+    if (action !== 'none') {
+      const delta = action === 'subtract' ? -ctQty : ctQty;
+      await adjustStock(String(ct.it_id ?? ''), String(ct.io_id ?? ''), Number(ct.io_type ?? 0), delta);
+    }
+    affectedItemIds.add(String(ct.it_id ?? ''));
+  }
+
+  // it_sum_qty 재계산 — 코어 조건(target ∈ 주문/취소/반품/품절/완료)의 정상 부분집합 {주문,완료}만
+  // (코어가 입금/준비/배송 target 에선 재계산 안 함 — 미러, 스톡이 안 하는 부수효과 미창작).
+  if (target === '주문' || target === '완료') {
+    for (const itId of affectedItemIds) {
+      await pool.query(
+        `UPDATE g5_shop_item SET it_sum_qty =
+            (SELECT COALESCE(SUM(ct_qty), 0) FROM g5_shop_cart WHERE it_id = ? AND ct_status = '완료')
+          WHERE it_id = ?`,
+        [itId, itId],
+      );
+    }
+  }
+
+  await recomputeOrderMoneyOnItemChange(odId);
+
+  // target='배송' + delivery 제공 시에만 운송장 반영(계약 필드 존중 — 코어 정상 분기엔 없는 확장).
+  if (target === '배송' && delivery !== undefined) {
+    await pool.query(
+      `UPDATE g5_shop_order SET od_delivery_company = ?, od_invoice = ?, od_invoice_time = ?
+        WHERE od_id = ?`,
+      [delivery.deliveryCompany, delivery.invoiceNo, delivery.invoiceTime, odId],
+    );
+  }
+
+  // od_status = target(orderformcartupdate.php:367-369). 정상 분기라 od_mod_history append 없음.
+  await pool.query(`UPDATE g5_shop_order SET od_status = ? WHERE od_id = ?`, [target, odId]);
+
+  return 'ok';
 }
 
 export async function closeG5Pool(): Promise<void> {

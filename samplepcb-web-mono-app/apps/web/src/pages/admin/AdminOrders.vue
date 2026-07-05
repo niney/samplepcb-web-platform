@@ -113,6 +113,13 @@ const setPage = (page: number): void => {
   filters.value = { ...filters.value, page };
   clearSelection();
 };
+// 페이지당 건수(계약 pageSize max100) — 변경 시 1페이지 리셋.
+const PAGE_SIZES = [20, 50, 100] as const;
+const setPageSize = (e: Event): void => {
+  const size = Number((e.target as HTMLSelectElement).value);
+  filters.value = { ...filters.value, pageSize: size, page: 1 };
+  clearSelection();
+};
 
 const onDeleted = (): void => {
   deleteOpen.value = false;
@@ -147,16 +154,28 @@ const onDeleted = (): void => {
       @update-delivery="updateDelivery"
     />
 
-    <div v-if="data !== undefined" class="flex items-center justify-between">
+    <div v-if="data !== undefined" class="flex items-center justify-between gap-3">
       <p class="text-sm text-gray-500">
         {{ t('admin.orders.table.total', { n: data.data.total }) }}
       </p>
-      <UiPagination
-        :page="filters.page"
-        :page-size="filters.pageSize"
-        :total="data.data.total"
-        @update:page="setPage"
-      />
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-1.5 text-sm text-gray-500">
+          <span>{{ t('admin.orders.table.perPage') }}</span>
+          <select
+            class="rounded-md border border-gray-300 px-2 py-1 text-sm"
+            :value="filters.pageSize"
+            @change="setPageSize"
+          >
+            <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }}</option>
+          </select>
+        </label>
+        <UiPagination
+          :page="filters.page"
+          :page-size="filters.pageSize"
+          :total="data.data.total"
+          @update:page="setPage"
+        />
+      </div>
     </div>
 
     <OrderDetailDrawer :od-id="selectedOdId" @close="selectedOdId = null" />

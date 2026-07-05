@@ -312,6 +312,7 @@ export const ko = {
         sum: '합 계',
         companyPh: '배송회사',
         invoicePh: '운송장번호',
+        perPage: '페이지당',
       },
       action: {
         selected: '{n}건 선택됨',
@@ -360,6 +361,25 @@ export const ko = {
         mailFailed: '메일 발송 실패 {n}건',
         smsFailed: 'SMS 발송 실패 {n}건',
         none: '처리된 항목이 없습니다.',
+      },
+      process: {
+        title: '처리',
+        none: '이 상태에서 진행할 다음 단계가 없습니다.',
+        noInvoice: '운송장 정보(배송회사·번호·일시)를 입력하세요.',
+        deliveryHint: '배송 섹션의 운송장 정보로 처리됩니다.',
+      },
+      force: {
+        toggle: '상태 직접 변경',
+        warn: '수납·알림 없이 상태만 강제로 변경합니다(역방향 가능, 결제수단 무관).',
+        target: '변경할 상태',
+        deliveryOptionalHint: '운송장은 선택 — 3필드 모두 채우면 함께 반영, 비우면 상태만 변경합니다.',
+        apply: '적용',
+        confirmTitle: '{target}(으)로 강제 변경',
+        confirmWarn: '이 주문을 {target} 상태로 강제 변경합니다. 수납·알림 없이 상태만 바뀝니다(역방향 가능, 결제수단 무관).',
+        deliveryIncluded: '운송장 동봉',
+        cancel: '취소',
+        confirm: '변경',
+        applying: '변경 중…',
       },
       deleteModal: {
         title: '주문 선택삭제',
@@ -464,6 +484,7 @@ export const ko = {
         receipt: {
           adjust: '입금 조정',
           hint: '무통장 입금 확인 후 금액·일시를 조정하면 미수금이 재계산됩니다.',
+          full: '미수금 전액 입력',
           price: '입금액',
           time: '입금일시',
           depositName: '입금자명',
