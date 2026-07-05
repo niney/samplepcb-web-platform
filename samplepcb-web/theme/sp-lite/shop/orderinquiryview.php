@@ -121,7 +121,7 @@ if($od['od_pg'] == 'lg') {
 	                <td headers="th_itpt" class="td_numbig text_right"><?php echo number_format($point); ?></td>
 	                <td headers="th_itsd" class="td_dvr"><?php echo $ct_send_cost; ?></td>
 	                <td headers="th_itsum" class="td_numbig text_right"><?php echo number_format($sell_price); ?></td>
-	                <td headers="th_itst" class="td_mngsmall"><?php echo $opt['ct_status']; ?></td>
+	                <td headers="th_itst" class="td_mngsmall"><?php echo function_exists('sp_order_status_customer') ? sp_order_status_customer($opt['ct_status'])['label'] : $opt['ct_status']; ?></td>
 	            </tr>
 	            <?php
 	                    $tot_point       += $point;

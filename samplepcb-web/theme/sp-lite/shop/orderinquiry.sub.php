@@ -36,50 +36,13 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
     {
         $uid = function_exists('get_shop_uid') ? get_shop_uid('order', $row['od_id'], $row['od_time'], $row['od_ip']) : md5($row['od_id'].$row['od_time'].$row['od_ip']);
 
-        switch($row['od_status']) {
-            case '주문':
-                $od_status = '<span class="status_01">입금확인중</span>';
-                break;
-            case '입금':
-                $od_status = '<span class="status_02">입금완료</span>';
-                break;
-            case '준비':
-                $od_status = '<span class="status_03">상품준비중</span>';
-                break;
-            // PCB 제작 단계(레거시 이식) — 고객노출 라벨은 korForCustomer, 색은 '진행 중'(status_03) 공용.
-            case '가격확인':
-                $od_status = '<span class="status_03">상품준비중</span>';
-                break;
-            case '파일검사':
-                $od_status = '<span class="status_03">파일검사</span>';
-                break;
-            case 'EQ':
-                $od_status = '<span class="status_03">EQ</span>';
-                break;
-            case '생산시작':
-                $od_status = '<span class="status_03">생산시작</span>';
-                break;
-            case '생산중':
-                $od_status = '<span class="status_03">생산중</span>';
-                break;
-            case '품질시험':
-                $od_status = '<span class="status_03">품질시험</span>';
-                break;
-            case '생산완료':
-                $od_status = '<span class="status_03">생산완료</span>';
-                break;
-            case 'A/S':
-                $od_status = '<span class="status_03">A/S</span>';
-                break;
-            case '배송':
-                $od_status = '<span class="status_04">상품배송</span>';
-                break;
-            case '완료':
-                $od_status = '<span class="status_05">배송완료</span>';
-                break;
-            default:
-                $od_status = '<span class="status_06">주문취소</span>';
-                break;
+        // 상태 배지 — 고객노출 라벨/색은 공용 헬퍼(extend/sp_order_status.extend.php)로 일원화.
+        // 상세(orderinquiryview.php)와 같은 함수를 써 목록↔상세 표기가 어긋나지 않게 한다.
+        if (function_exists('sp_order_status_customer')) {
+            $sc = sp_order_status_customer($row['od_status']);
+            $od_status = '<span class="'.$sc['cls'].'">'.$sc['label'].'</span>';
+        } else {
+            $od_status = '<span class="status_06">'.$row['od_status'].'</span>';
         }
 
         $view_url = G5_SHOP_URL.'/orderinquiryview.php?od_id='.$row['od_id'].'&amp;uid='.$uid;
