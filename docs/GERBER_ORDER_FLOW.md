@@ -196,6 +196,7 @@
 | `g5_shop_cart` | 영카트 코어 | sp-node 는 **INSERT · 파생 SELECT · ct_select UPDATE(주문 선택 ④) · 견적 행 UPDATE(재견적 동기화 io_id/io_price/ct_option ⑥) · 견적 행 DELETE(ct_id 단위 빼기 ⑥)** (한정 예외, `lib/g5-db.ts` 에 명시) |
 | `g5_shop_item_option` (견적 옵션 행) | 영카트 코어 | sp-node 는 견적 옵션 행(io_id=quoteId) **INSERT + 보상 DELETE 만** (한정 예외 확장, 기법 #3) |
 | `g5_shop_item` (템플릿) | 영카트 코어 | sp-node 는 SELECT 만 (배송정책 스냅샷용) |
+| `g5_shop_order` (주문 헤더) | 영카트 코어 | sp-node 는 **관리자 API 한정**. read-only SELECT: ⑩ 견적 완전삭제 프리뷰(주문됨 견적이 묶인 주문의 결제상태·수납액·PG거래·형제 cart 파악 — od_status·od_receipt_price·od_cart_price·od_settle_case·od_tno·od_pg·od_misu, `getOrderInfoByCtId`) · ⑫ 관리자 주문내역(adm/shop_admin/orderlist.php 이식 — 목록/상세/배타 counts/누적주문수, 컬럼 화이트리스트, **민감 컬럼 od_pwd·od_cash·od_cash_info 는 SELECT 자체 배제**, 날짜는 KST native 문자열, WHERE 는 파라미터 바인딩(qField·정렬 컬럼은 화이트리스트 상수), `searchOrders`/`getOrderRow`/`getCartRowsByOdId`/`getMemberOrderCounts`). **DELETE**: ⑪ 미입금 주문 완전삭제(od_status='주문'만 — 백업(serialize)→cart ct_status='삭제'→order DELETE, 코어 orderlistdelete.php 이식, `deleteUnpaidOrder`). 주문 상태 전이·부분취소 등 쓰기는 아직 sp-php(/adm) 존속. `lib/g5-db.ts` |
 | `g5_member` (회원 정보·상태) | 그누보드 | sp-node 는 **관리자 API 한정**. read-only SELECT: ⑤ 견적 신청자 표시(mb_name/nick/email/hp/tel 최소 컬럼, `getMembersByIds`) · ⑧ 회원 관리 목록/상세(컬럼 화이트리스트 — 연락처·주소·수신동의·여분필드 mb_1~9 등, 민감 컬럼(mb_password·mb_dupinfo·mb_lost_certify·mb_certify·mb_email_certify2)은 SELECT 자체 배제, `searchMembers`/`getMemberDetailRow`). **UPDATE(화이트리스트)**: ⑨-a 차단/레벨(mb_intercept_date·mb_level — 가드 3종 탈퇴/self/cf_admin 409, `setMemberIntercept`/`setMemberLevel`) · ⑨-b 회원 정보/메모 편집(mb_name·mb_nick·mb_email·mb_hp·mb_tel·mb_zip1/2·mb_addr1~3·mb_addr_jibeon·mb_memo — 가드 2종 미존재 404+탈퇴 409, **self·cf_admin 허용**(권한 공격 벡터 아님), `updateMemberInfo`/`updateMemberMemo`). 코어 정합성(adm/member_form_update.php 이식): 닉/이메일/hp 중복 거부(⑧ COUNT)·hp 하이픈 정규화·zip 3+2 분해·주소 변경 시 mb_addr_jibeon 초기화·mb_nick_date 미갱신. 화이트리스트 밖 컬럼 쓰기 금지. `lib/g5-db.ts` |
 | `g5_config` (사이트 기본설정) | 그누보드 | sp-node 는 **관리자 회원 관리 한정 read-only SELECT** — cf_admin(최고관리자 mb_id) 1컬럼만, 차단/레벨 변경의 cf_admin 가드용 (한정 예외 ⑧, `lib/g5-db.ts` `getCfAdminId`) |
 | `g5_shop_default` (쇼핑몰 기본설정) | 영카트 코어 | sp-node 는 **관리자 견적서 한정 read-only SELECT** — de_admin_company_*/de_admin_info_*/de_bank_account 최소 컬럼, 견적서 발신처 표기용(하드코딩 대신 재사용) (한정 예외 ⑦, `lib/g5-db.ts` `getShopEstimateProfile`) |
@@ -306,6 +307,7 @@ sp-php 헤더 뱃지(관리자 사이드바 뱃지는 구현됨) + quoted 견적
 | 관리자 견적 관리 화면 | `…/apps/web/src/pages/admin/AdminQuotes.vue` · `components/admin/Quote*.vue` · `admin/useAdminQuotes.ts` |
 | 관리자 회원 관리 API | `…/apps/api/src/routes/admin-members.ts` (가드: `requireAdmin` · g5 접근: `g5-db.ts` 예외 ⑧⑨) |
 | 관리자 회원 관리 화면 | `…/apps/web/src/pages/admin/AdminMembers.vue` · `components/admin/Member*.vue` · `admin/useAdminMembers.ts` |
+| 관리자 주문내역 API (읽기) | `…/apps/api/src/routes/admin-orders.ts` (가드: `requireAdmin` · g5 접근: `g5-db.ts` 예외 ⑫ · WHERE 빌더 테스트 `g5-db.test.ts`) |
 | KST 날짜 유틸(공유) | `…/apps/api/src/lib/kst.ts` (`kstDateStr` 견적서·`kstTodayYmd` 차단일) |
 | 사양 요약 공용 헬퍼 | `…/apps/api/src/lib/option-summary.ts` (`buildOptionSummary` — cart·사용자·관리자 표기 통일) |
 | DB 스키마 | `…/apps/api/prisma/schema.prisma` (sp_quote/sp_order_spec/sp_file) |

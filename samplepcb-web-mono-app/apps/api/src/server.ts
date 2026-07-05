@@ -11,6 +11,7 @@ import { pcbProjectRoutes } from './routes/pcb-projects';
 import { pcbThumbRoutes } from './routes/pcb-thumbs';
 import { adminPcbProjectRoutes } from './routes/admin-pcb-projects';
 import { adminMemberRoutes } from './routes/admin-members';
+import { adminOrderRoutes } from './routes/admin-orders';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -36,6 +37,8 @@ await app.register(pcbThumbRoutes, { prefix: '/api' });
 await app.register(adminPcbProjectRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 회원 관리 목록·상세·차단/레벨·회사명 프로필
 await app.register(adminMemberRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 주문내역 목록·상세(읽기)
+await app.register(adminOrderRoutes, { prefix: '/api/admin' });
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로

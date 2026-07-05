@@ -37,6 +37,14 @@
 // 이식: od_status='주문'만, g5_shop_order_delete 백업(serialize) → g5_shop_cart ct_status='삭제'
 // → g5_shop_order DELETE. 결제완료(od_status≠'주문')는 PG환불 취소 도메인이라 차단. 포인트/쿠폰
 // 환급 불필요=미입금 부수효과 없음). 코어 정합성(규율 3): 미입금만·백업·cart 소프트 그대로 재현.
+// ⑫ g5_shop_order·g5_shop_cart read-only SELECT(관리자 주문내역 — adm/shop_admin/orderlist.php
+// 이식. 목록/상세/카운트/누적주문수, **읽기 전용**. 쓰기(상태 전이·삭제)는 별도 WP). 함수:
+// searchOrders(목록+배타 counts), getOrderRow(상세 헤더), getCartRowsByOdId(카트 라인),
+// getMemberOrderCounts(누적주문수 배치). WHERE 조립은 순수 함수 buildOrderListWhere/
+// buildOrderBaseConds/buildOrderTabCond(파라미터 바인딩, 문자열 보간 없음 — qField·정렬 컬럼은
+// 화이트리스트 상수). 컬럼: 목록은 ORDER_LIST_COLUMNS, 상세는 ORDER_DETAIL_COLUMNS(둘 다
+// 화이트리스트). **민감 컬럼 od_pwd·od_cash·od_cash_info 는 SELECT 에서 절대 제외**. 날짜는
+// KST native 문자열(DATE_FORMAT), zero-date 는 NULLIF→null. 쓰기 없음.
 // 운영 전용 커스텀 컬럼(mb_partner_auth, mb_11~mb_20)은 로컬 신설 DB 에 없어 참조 금지.
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
@@ -761,6 +769,427 @@ export async function updateMemberMemo(mbId: string, memo: string): Promise<numb
     [memo, mbId],
   );
   return result.affectedRows;
+}
+
+// ── 관리자 주문내역 조회 (한정 예외 ⑫ — read-only) ──────────────────────────
+// 레거시 adm/shop_admin/orderlist.php 의 필터·컬럼 시맨틱을 이식한다. WHERE 는 전부
+// 파라미터 바인딩(스톡 PHP 는 문자열 보간했지만 우리는 금지). qField·정렬 컬럼은 Zod
+// enum + 아래 화이트리스트로 이중 고정된 상수라 식별자 위치에 안전하게 놓는다.
+
+export type OrderTab = '전체' | '주문' | '입금' | '준비' | '배송' | '완료' | '취소' | '부분취소';
+export type OrderSortColumn = 'od_id' | 'od_cart_price' | 'od_receipt_price' | 'od_cancel_price' | 'od_misu';
+
+export interface SearchOrdersParams {
+  tab: OrderTab;
+  qField: string | undefined; // 화이트리스트 검색 대상 컬럼
+  q: string | undefined; // contains (qField 동반 필수)
+  from: string | undefined; // YYYY-MM-DD
+  to: string | undefined; // YYYY-MM-DD
+  settleCase: string | undefined; // 결제수단('간편결제'는 IN 확장)
+  misu: boolean | undefined;
+  cancelled: boolean | undefined;
+  refund: boolean | undefined;
+  point: boolean | undefined;
+  coupon: boolean | undefined;
+  sort: OrderSortColumn | undefined;
+  order: 'asc' | 'desc' | undefined;
+  page: number;
+  pageSize: number;
+}
+
+// LIKE 특수문자 escape(memberBaseFilter 와 동일 — MySQL 기본 escape = 백슬래시).
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
+}
+
+// 검색 대상 컬럼 화이트리스트(계약 enum 과 동일 — 식별자 인라인 방어).
+const ORDER_QFIELDS = new Set<string>([
+  'od_id',
+  'mb_id',
+  'od_name',
+  'od_tel',
+  'od_hp',
+  'od_b_name',
+  'od_b_tel',
+  'od_b_hp',
+  'od_deposit_name',
+  'od_invoice',
+]);
+// 정렬 컬럼 화이트리스트.
+const ORDER_SORT_COLUMNS = new Set<string>([
+  'od_id',
+  'od_cart_price',
+  'od_receipt_price',
+  'od_cancel_price',
+  'od_misu',
+]);
+// '간편결제' 등호 대신 확장되는 결제수단 집합(코어 orderlist.php:75).
+const SETTLE_SIMPLE_PAY = ['간편결제', '삼성페이', 'lpay', 'inicis_kakaopay'];
+// '부분취소' 판정에 쓰는 진행상태 집합(코어 orderlist.php:50).
+const CANCELABLE_STATUSES = ['주문', '입금', '준비', '배송', '완료'];
+
+// 탭 제외 base 조건(검색·기간·결제수단·플래그) — 목록과 counts 가 공유한다.
+// PHP 원본과 다른 점: fr_date·to_date 를 BETWEEN(둘 다 필수) 대신 각각 >=,<= 로 분리해
+// 한쪽만 줘도 열린 범위로 동작한다(둘 다 주면 BETWEEN 과 동일하므로 상위 호환).
+export function buildOrderBaseConds(params: SearchOrdersParams): {
+  conds: string[];
+  values: (string | number)[];
+} {
+  const conds: string[] = [];
+  const values: (string | number)[] = [];
+
+  const q = params.q?.trim() ?? '';
+  if (params.qField !== undefined && ORDER_QFIELDS.has(params.qField) && q !== '') {
+    conds.push(`${params.qField} LIKE ?`); // qField 는 화이트리스트 상수(바인딩 불가한 식별자)
+    values.push(`%${escapeLike(q)}%`);
+  }
+
+  if (params.settleCase !== undefined && params.settleCase !== '') {
+    if (params.settleCase === '간편결제') {
+      conds.push(`od_settle_case IN (${SETTLE_SIMPLE_PAY.map(() => '?').join(', ')})`);
+      values.push(...SETTLE_SIMPLE_PAY);
+    } else {
+      conds.push('od_settle_case = ?');
+      values.push(params.settleCase);
+    }
+  }
+
+  if (params.misu === true) conds.push('od_misu <> 0');
+  if (params.cancelled === true) conds.push('od_cancel_price <> 0');
+  if (params.refund === true) conds.push('od_refund_price <> 0');
+  if (params.point === true) conds.push('od_receipt_point <> 0');
+  if (params.coupon === true) conds.push('(od_cart_coupon + od_coupon + od_send_coupon) > 0');
+
+  if (params.from !== undefined) {
+    conds.push('od_time >= ?');
+    values.push(`${params.from} 00:00:00`);
+  }
+  if (params.to !== undefined) {
+    conds.push('od_time <= ?');
+    values.push(`${params.to} 23:59:59`);
+  }
+
+  return { conds, values };
+}
+
+// 탭 조건(배타식). '전체'=조건 없음 · '취소'=od_status='취소'(스톡 '전체취소') ·
+// '부분취소'=진행상태 IN AND od_cancel_price>0 · 그 외=od_status 등호.
+export function buildOrderTabCond(tab: OrderTab): { conds: string[]; values: string[] } {
+  switch (tab) {
+    case '전체':
+      return { conds: [], values: [] };
+    case '취소':
+      return { conds: ['od_status = ?'], values: ['취소'] };
+    case '부분취소':
+      return {
+        conds: [
+          `od_status IN (${CANCELABLE_STATUSES.map(() => '?').join(', ')}) AND od_cancel_price > 0`,
+        ],
+        values: [...CANCELABLE_STATUSES],
+      };
+    default:
+      return { conds: ['od_status = ?'], values: [tab] };
+  }
+}
+
+// 목록 WHERE(base + 탭) — 순수 함수(파라미터 바인딩). counts 는 base 만 쓴다.
+export function buildOrderListWhere(params: SearchOrdersParams): {
+  sql: string;
+  values: (string | number)[];
+} {
+  const base = buildOrderBaseConds(params);
+  const tab = buildOrderTabCond(params.tab);
+  const conds = [...base.conds, ...tab.conds];
+  const values = [...base.values, ...tab.values];
+  return { sql: conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '', values };
+}
+
+// 정렬 해석 — sort 지정 시 그 컬럼(+order, 기본 desc). 미지정 시 탭별 기본(코어 orderlist.php:57):
+//   입금→od_receipt_time desc · 배송→od_invoice_time desc · 그 외→od_id desc.
+// 반환 컬럼/방향은 전부 상수(화이트리스트)라 ORDER BY 에 인라인해도 안전하다.
+function resolveOrderSort(params: SearchOrdersParams): { column: string; direction: 'asc' | 'desc' } {
+  if (params.sort !== undefined && ORDER_SORT_COLUMNS.has(params.sort)) {
+    return { column: params.sort, direction: params.order === 'asc' ? 'asc' : 'desc' };
+  }
+  if (params.tab === '입금') return { column: 'od_receipt_time', direction: 'desc' };
+  if (params.tab === '배송') return { column: 'od_invoice_time', direction: 'desc' };
+  return { column: 'od_id', direction: 'desc' };
+}
+
+export interface OrderListRow {
+  odId: string;
+  odName: string;
+  mbId: string; // '' = 비회원
+  odTel: string;
+  odHp: string;
+  odBName: string;
+  status: string;
+  settleCase: string;
+  orderPrice: number;
+  receiptPrice: number;
+  cancelPrice: number;
+  couponPrice: number;
+  misu: number;
+  cartCount: number;
+  deliveryCompany: string | null;
+  invoiceNo: string | null;
+  invoiceTime: string | null;
+  receiptTime: string | null;
+  odTime: string;
+  isMobile: boolean;
+  isTest: boolean;
+}
+
+export type OrderCounts = Record<OrderTab, number>;
+
+export interface SearchOrdersResult {
+  rows: OrderListRow[];
+  total: number;
+  counts: OrderCounts;
+}
+
+// 목록 SELECT 컬럼(화이트리스트) — 계산 컬럼(order_price·coupon_price)은 SQL 에서.
+// 날짜는 KST native 문자열 그대로, zero-date 는 NULLIF→null.
+const ORDER_LIST_COLUMNS = `od_id, od_name, mb_id, od_tel, od_hp, od_b_name, od_status, od_settle_case,
+    (od_cart_price + od_send_cost + od_send_cost2) AS order_price,
+    od_receipt_price, od_cancel_price,
+    (od_cart_coupon + od_coupon + od_send_coupon) AS coupon_price,
+    od_misu, od_cart_count, od_delivery_company, od_invoice,
+    DATE_FORMAT(NULLIF(od_invoice_time, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i:%s') AS invoice_time,
+    DATE_FORMAT(NULLIF(od_receipt_time, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i:%s') AS receipt_time,
+    DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time,
+    od_mobile, od_test`;
+
+// counts — 탭 제외 base 필터만. 배타 SUM(조건부, 상수 SQL). mysql2 는 SUM 을 string 으로
+// 줄 수 있어 Number 정규화.
+const ORDER_COUNTS_SELECT = `COUNT(*) AS all_count,
+    SUM(od_status = '주문') AS s_order,
+    SUM(od_status = '입금') AS s_deposit,
+    SUM(od_status = '준비') AS s_ready,
+    SUM(od_status = '배송') AS s_ship,
+    SUM(od_status = '완료') AS s_done,
+    SUM(od_status = '취소') AS s_cancel,
+    SUM(od_status IN ('주문', '입금', '준비', '배송', '완료') AND od_cancel_price > 0) AS s_pcancel`;
+
+// '' → null 정규화(빈 문자열 varchar 컬럼). 경계에서 String() 으로 좁힌 뒤 넘긴다.
+const emptyToNull = (s: string): string | null => (s === '' ? null : s);
+
+function mapOrderListRow(row: RowDataPacket): OrderListRow {
+  return {
+    odId: String(row.od_id),
+    odName: String(row.od_name ?? ''),
+    mbId: String(row.mb_id ?? ''),
+    odTel: String(row.od_tel ?? ''),
+    odHp: String(row.od_hp ?? ''),
+    odBName: String(row.od_b_name ?? ''),
+    status: String(row.od_status ?? ''),
+    settleCase: String(row.od_settle_case ?? ''),
+    orderPrice: Number(row.order_price ?? 0),
+    receiptPrice: Number(row.od_receipt_price ?? 0),
+    cancelPrice: Number(row.od_cancel_price ?? 0),
+    couponPrice: Number(row.coupon_price ?? 0),
+    misu: Number(row.od_misu ?? 0),
+    cartCount: Number(row.od_cart_count ?? 0),
+    deliveryCompany: emptyToNull(String(row.od_delivery_company ?? '')),
+    invoiceNo: emptyToNull(String(row.od_invoice ?? '')),
+    invoiceTime: row.invoice_time == null ? null : String(row.invoice_time),
+    receiptTime: row.receipt_time == null ? null : String(row.receipt_time),
+    odTime: String(row.od_time ?? ''),
+    // od_mobile·od_test 는 tinyint(0/1) — 코어 if($row['od_mobile']) truthy 재현.
+    isMobile: Number(row.od_mobile ?? 0) > 0,
+    isTest: Number(row.od_test ?? 0) > 0,
+  };
+}
+
+export async function searchOrders(params: SearchOrdersParams): Promise<SearchOrdersResult> {
+  const pool = getG5Pool();
+  const base = buildOrderBaseConds(params);
+  const baseWhere = base.conds.length > 0 ? `WHERE ${base.conds.join(' AND ')}` : '';
+
+  const [countRows] = await pool.query<RowDataPacket[]>(
+    `SELECT ${ORDER_COUNTS_SELECT} FROM g5_shop_order ${baseWhere}`,
+    base.values,
+  );
+  const cr = countRows[0];
+  const counts: OrderCounts = {
+    전체: Number(cr?.all_count ?? 0),
+    주문: Number(cr?.s_order ?? 0),
+    입금: Number(cr?.s_deposit ?? 0),
+    준비: Number(cr?.s_ready ?? 0),
+    배송: Number(cr?.s_ship ?? 0),
+    완료: Number(cr?.s_done ?? 0),
+    취소: Number(cr?.s_cancel ?? 0),
+    부분취소: Number(cr?.s_pcancel ?? 0),
+  };
+  // total = 선택 탭의 카운트(목록 WHERE 술어와 동일 집합이라 별도 total 쿼리 불필요).
+  const total = counts[params.tab];
+
+  const where = buildOrderListWhere(params);
+  const { column, direction } = resolveOrderSort(params);
+  // od_id 가 아닌 정렬이면 od_id desc 타이브레이크(안정 페이지네이션 — 스톡엔 없던 보정).
+  const orderBy = column === 'od_id' ? `od_id ${direction}` : `${column} ${direction}, od_id desc`;
+  const offset = (params.page - 1) * params.pageSize;
+
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT ${ORDER_LIST_COLUMNS} FROM g5_shop_order ${where.sql}
+      ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+    [...where.values, params.pageSize, offset],
+  );
+
+  return { rows: rows.map(mapOrderListRow), total, counts };
+}
+
+// 상세 헤더 SELECT 컬럼(화이트리스트) — 민감 컬럼(od_pwd·od_cash·od_cash_info) 절대 제외.
+const ORDER_DETAIL_COLUMNS = `od_id, od_name, mb_id, od_email, od_tel, od_hp, od_b_name,
+    od_zip1, od_zip2, od_addr1, od_addr2, od_addr3, od_addr_jibeon,
+    od_b_tel, od_b_hp, od_b_zip1, od_b_zip2, od_b_addr1, od_b_addr2, od_b_addr3, od_b_addr_jibeon,
+    od_deposit_name, od_memo, od_shop_memo,
+    od_status, od_settle_case,
+    (od_cart_price + od_send_cost + od_send_cost2) AS order_price,
+    od_receipt_price, od_cancel_price,
+    (od_cart_coupon + od_coupon + od_send_coupon) AS coupon_price,
+    od_misu, od_cart_count, od_delivery_company, od_invoice,
+    od_send_cost, od_send_cost2, od_send_coupon, od_cart_coupon, od_coupon,
+    od_refund_price, od_receipt_point, od_tax_mny, od_vat_mny, od_free_mny,
+    od_pg, od_tno, od_app_no, od_ip,
+    DATE_FORMAT(NULLIF(od_hope_date, '0000-00-00'), '%Y-%m-%d') AS hope_date,
+    DATE_FORMAT(NULLIF(od_invoice_time, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i:%s') AS invoice_time,
+    DATE_FORMAT(NULLIF(od_receipt_time, '0000-00-00 00:00:00'), '%Y-%m-%d %H:%i:%s') AS receipt_time,
+    DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time,
+    od_mobile, od_test`;
+
+export interface OrderDetailRow extends OrderListRow {
+  email: string;
+  zip1: string;
+  zip2: string;
+  addr1: string;
+  addr2: string;
+  addr3: string;
+  addrJibeon: string;
+  bTel: string;
+  bHp: string;
+  bZip1: string;
+  bZip2: string;
+  bAddr1: string;
+  bAddr2: string;
+  bAddr3: string;
+  bAddrJibeon: string;
+  depositName: string;
+  memo: string;
+  shopMemo: string;
+  hopeDate: string | null;
+  sendCost: number;
+  sendCost2: number;
+  sendCoupon: number;
+  cartCoupon: number;
+  coupon: number;
+  refundPrice: number;
+  receiptPoint: number;
+  taxMny: number;
+  vatMny: number;
+  freeMny: number;
+  pg: string;
+  tno: string;
+  appNo: string;
+  ip: string;
+}
+
+export async function getOrderRow(odId: string): Promise<OrderDetailRow | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT ${ORDER_DETAIL_COLUMNS} FROM g5_shop_order WHERE od_id = ?`,
+    [odId],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    ...mapOrderListRow(row),
+    email: String(row.od_email ?? ''),
+    zip1: String(row.od_zip1 ?? ''),
+    zip2: String(row.od_zip2 ?? ''),
+    addr1: String(row.od_addr1 ?? ''),
+    addr2: String(row.od_addr2 ?? ''),
+    addr3: String(row.od_addr3 ?? ''),
+    addrJibeon: String(row.od_addr_jibeon ?? ''),
+    bTel: String(row.od_b_tel ?? ''),
+    bHp: String(row.od_b_hp ?? ''),
+    bZip1: String(row.od_b_zip1 ?? ''),
+    bZip2: String(row.od_b_zip2 ?? ''),
+    bAddr1: String(row.od_b_addr1 ?? ''),
+    bAddr2: String(row.od_b_addr2 ?? ''),
+    bAddr3: String(row.od_b_addr3 ?? ''),
+    bAddrJibeon: String(row.od_b_addr_jibeon ?? ''),
+    depositName: String(row.od_deposit_name ?? ''),
+    memo: String(row.od_memo ?? ''),
+    shopMemo: String(row.od_shop_memo ?? ''),
+    hopeDate: row.hope_date == null ? null : String(row.hope_date),
+    sendCost: Number(row.od_send_cost ?? 0),
+    sendCost2: Number(row.od_send_cost2 ?? 0),
+    sendCoupon: Number(row.od_send_coupon ?? 0),
+    cartCoupon: Number(row.od_cart_coupon ?? 0),
+    coupon: Number(row.od_coupon ?? 0),
+    refundPrice: Number(row.od_refund_price ?? 0),
+    receiptPoint: Number(row.od_receipt_point ?? 0),
+    taxMny: Number(row.od_tax_mny ?? 0),
+    vatMny: Number(row.od_vat_mny ?? 0),
+    freeMny: Number(row.od_free_mny ?? 0),
+    pg: String(row.od_pg ?? ''),
+    tno: String(row.od_tno ?? ''),
+    appNo: String(row.od_app_no ?? ''),
+    ip: String(row.od_ip ?? ''),
+  };
+}
+
+export interface CartRow {
+  ctId: number;
+  itId: string;
+  itName: string;
+  ctOption: string;
+  ctQty: number;
+  ctPrice: number;
+  ioId: string;
+  ioType: number;
+  ioPrice: number;
+  ctStatus: string;
+  ctSelect: number;
+}
+
+// 주문의 카트 라인 — GROUP BY 없이 실물 그대로(ct_id asc, io_type asc).
+export async function getCartRowsByOdId(odId: string): Promise<CartRow[]> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT ct_id, it_id, it_name, ct_option, ct_qty, ct_price, io_id, io_type, io_price,
+            ct_status, ct_select
+       FROM g5_shop_cart WHERE od_id = ? ORDER BY ct_id ASC, io_type ASC`,
+    [odId],
+  );
+  return rows.map((row) => ({
+    ctId: Number(row.ct_id),
+    itId: String(row.it_id ?? ''),
+    itName: String(row.it_name ?? ''),
+    ctOption: String(row.ct_option ?? ''),
+    ctQty: Number(row.ct_qty ?? 0),
+    ctPrice: Number(row.ct_price ?? 0),
+    ioId: String(row.io_id ?? ''),
+    ioType: Number(row.io_type ?? 0),
+    ioPrice: Number(row.io_price ?? 0),
+    ctStatus: String(row.ct_status ?? ''),
+    ctSelect: Number(row.ct_select ?? 0),
+  }));
+}
+
+// 회원 누적주문수 배치(코어의 N+1 서브쿼리 대체) — GROUP BY mb_id COUNT. 필터 무관 전체.
+export async function getMemberOrderCounts(mbIds: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const ids = [...new Set(mbIds)].filter((id) => id !== '');
+  if (ids.length === 0) return map;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT mb_id, COUNT(*) AS cnt FROM g5_shop_order
+      WHERE mb_id IN (${ids.map(() => '?').join(', ')}) GROUP BY mb_id`,
+    ids,
+  );
+  for (const row of rows) {
+    map.set(String(row.mb_id), Number(row.cnt ?? 0));
+  }
+  return map;
 }
 
 export async function closeG5Pool(): Promise<void> {
