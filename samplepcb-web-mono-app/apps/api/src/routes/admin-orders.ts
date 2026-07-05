@@ -4,11 +4,18 @@ import {
   AdminOrderActionResponse,
   AdminOrderDeleteRequest,
   AdminOrderDetailResponse,
+  AdminOrderEditResponse,
+  AdminOrderInfoBody,
   AdminOrderListQuery,
   AdminOrderListResponse,
+  AdminOrderMemoBody,
+  AdminOrderPrintResponse,
+  AdminOrderReceiptBody,
   AdminOrderStatusRequest,
+  ApiError,
 } from '@sp/api-contract';
 import type {
+  AdminOrderCartItemType,
   AdminOrderCoreType,
   AdminOrderDetailOrderType,
   PcbProjectPayloadType,
@@ -19,12 +26,16 @@ import {
   getDeliveryExcelRows,
   getMemberOrderCounts,
   getOrderRow,
+  getShopEstimateProfile,
   matchDeliveryRows,
   searchOrders,
   setOrdersComplete,
   setOrdersDelivery,
   setOrdersPreparing,
   setOrdersReceipt,
+  updateOrderInfo,
+  updateOrderReceipt,
+  updateOrderShopMemo,
 } from '../lib/g5-db';
 import type { OrderActionResult, OrderDetailRow, OrderListRow } from '../lib/g5-db';
 import {
@@ -33,6 +44,7 @@ import {
   readDeliverySheet,
 } from '../lib/delivery-excel';
 import { kstDateTimeStr, kstTodayYmd } from '../lib/kst';
+import { orderInfoBodyToFields } from '../lib/order-edit';
 import { buildOptionSummary } from '../lib/option-summary';
 import { notifyOrderEvent } from '../lib/php-bridge';
 import type { NotifyStatus } from '../lib/php-bridge';
@@ -118,6 +130,70 @@ const toDetailOrder = (row: OrderDetailRow): AdminOrderDetailOrderType => ({
   ip: row.ip,
 });
 
+// 주문의 카트 라인 조립(상세·인쇄 공용) — ct_id 단위 카트행 + sp_order_spec(ctId 조인) 견적 메타
+// (썸네일 서명·사양 요약·확정가). Prisma 배치 조회(sp_order_spec·sp_file)로 N+1 방지.
+async function buildOrderItems(odId: string): Promise<AdminOrderCartItemType[]> {
+  const cartRows = await getCartRowsByOdId(odId);
+  const ctIds = cartRows.map((r) => r.ctId);
+
+  const specs =
+    ctIds.length > 0
+      ? await prisma.spOrderSpec.findMany({ where: { ctId: { in: ctIds } } })
+      : [];
+  const specByCt = new Map<number, (typeof specs)[number]>();
+  for (const s of specs) {
+    if (s.ctId !== null) specByCt.set(s.ctId, s);
+  }
+
+  const thumbs =
+    specs.length > 0
+      ? await prisma.spFile.findMany({
+          where: {
+            refType: 'sp_order_spec',
+            refId: { in: specs.map((s) => s.id) },
+            fileType: 'thumbnail',
+          },
+          orderBy: { id: 'asc' },
+          select: { id: true, refId: true },
+        })
+      : [];
+  const thumbByRef = new Map<string, bigint>();
+  for (const t of thumbs) {
+    if (!thumbByRef.has(t.refId.toString())) thumbByRef.set(t.refId.toString(), t.id);
+  }
+
+  return cartRows.map((r) => {
+    const spec = specByCt.get(r.ctId);
+    const thumbId = spec !== undefined ? thumbByRef.get(spec.id.toString()) : undefined;
+    return {
+      ctId: r.ctId,
+      itId: r.itId,
+      itName: r.itName,
+      ctOption: r.ctOption,
+      ctQty: r.ctQty,
+      ctPrice: r.ctPrice,
+      ioId: r.ioId,
+      ioType: r.ioType,
+      ioPrice: r.ioPrice,
+      ctStatus: r.ctStatus,
+      ctSelect: r.ctSelect,
+      quote:
+        spec !== undefined
+          ? {
+              projectId: String(spec.id),
+              quoteStatus: asQuoteStatus(spec.quoteStatus),
+              specSummary: buildOptionSummary(
+                spec.specJson as PcbProjectPayloadType['spec'],
+                spec.qty,
+              ),
+              thumbUrl: thumbId !== undefined ? signedThumbUrl(thumbId) : null,
+              finalPrice: spec.finalPrice,
+            }
+          : null,
+    };
+  });
+}
+
 export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   // 전 라우트 관리자 전용 — 라우트별 preHandler 누락 사고를 원천 차단
   fastify.addHook('preHandler', fastify.requireAdmin);
@@ -187,37 +263,7 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const order = await getOrderRow(request.params.odId);
       if (order === null) return reply.notFound('주문이 없습니다');
 
-      const cartRows = await getCartRowsByOdId(order.odId);
-      const ctIds = cartRows.map((r) => r.ctId);
-
-      // sp_order_spec 배치 조인(ctId) → 각 카트 라인에 견적 메타 매핑
-      const specs =
-        ctIds.length > 0
-          ? await prisma.spOrderSpec.findMany({ where: { ctId: { in: ctIds } } })
-          : [];
-      const specByCt = new Map<number, (typeof specs)[number]>();
-      for (const s of specs) {
-        if (s.ctId !== null) specByCt.set(s.ctId, s);
-      }
-
-      // 썸네일(fileType='thumbnail') 배치 조회 → refId(spec.id)별 최초 파일 id
-      const thumbs =
-        specs.length > 0
-          ? await prisma.spFile.findMany({
-              where: {
-                refType: 'sp_order_spec',
-                refId: { in: specs.map((s) => s.id) },
-                fileType: 'thumbnail',
-              },
-              orderBy: { id: 'asc' },
-              select: { id: true, refId: true },
-            })
-          : [];
-      const thumbByRef = new Map<string, bigint>();
-      for (const t of thumbs) {
-        if (!thumbByRef.has(t.refId.toString())) thumbByRef.set(t.refId.toString(), t.id);
-      }
-
+      const items = await buildOrderItems(order.odId);
       const memberOrderCount =
         order.mbId !== ''
           ? ((await getMemberOrderCounts([order.mbId])).get(order.mbId) ?? 0)
@@ -227,36 +273,7 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         result: true as const,
         data: {
           order: toDetailOrder(order),
-          items: cartRows.map((r) => {
-            const spec = specByCt.get(r.ctId);
-            const thumbId = spec !== undefined ? thumbByRef.get(spec.id.toString()) : undefined;
-            return {
-              ctId: r.ctId,
-              itId: r.itId,
-              itName: r.itName,
-              ctOption: r.ctOption,
-              ctQty: r.ctQty,
-              ctPrice: r.ctPrice,
-              ioId: r.ioId,
-              ioType: r.ioType,
-              ioPrice: r.ioPrice,
-              ctStatus: r.ctStatus,
-              ctSelect: r.ctSelect,
-              quote:
-                spec !== undefined
-                  ? {
-                      projectId: String(spec.id),
-                      quoteStatus: asQuoteStatus(spec.quoteStatus),
-                      specSummary: buildOptionSummary(
-                        spec.specJson as PcbProjectPayloadType['spec'],
-                        spec.qty,
-                      ),
-                      thumbUrl: thumbId !== undefined ? signedThumbUrl(thumbId) : null,
-                      finalPrice: spec.finalPrice,
-                    }
-                  : null,
-            };
-          }),
+          items,
           memberOrderCount,
         },
       };
@@ -440,6 +457,115 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           skipped: [...matched.skipped, ...action.skipped],
           notify,
         },
+      };
+    },
+  );
+
+  // ── PATCH /api/admin/orders/:odId/info — 주문자/받는분/배송지 편집 ──────────
+  // 레거시 orderformupdate.php(mod_type='info') 이식. 상태 무관(코어 동일). 보낸 필드만 화이트리스트
+  // UPDATE. jibeon 은 코어처럼 패스스루(회원 ⑨-b 의 addr 변경 시 초기화와 다름 — FE 가 R/J/'' 전송).
+  // 부분 갱신이라 에코 대신 { odId }(FE refetch). 미존재 404.
+  fastify.patch(
+    '/orders/:odId/info',
+    {
+      schema: {
+        params: OdIdParams,
+        body: AdminOrderInfoBody,
+        response: { 200: AdminOrderEditResponse },
+      },
+    },
+    async (request, reply) => {
+      const { odId } = request.params;
+      const order = await getOrderRow(odId);
+      if (order === null) return reply.notFound('주문이 없습니다');
+
+      await updateOrderInfo(odId, orderInfoBodyToFields(request.body));
+      return { result: true as const, data: { odId } };
+    },
+  );
+
+  // ── PATCH /api/admin/orders/:odId/memo — 관리자 메모(od_shop_memo) 편집 ──────
+  // 레거시 orderformupdate.php else 분기. 평문·''=비움. od_memo(주문자 요청)는 편집 대상 아님. 404.
+  fastify.patch(
+    '/orders/:odId/memo',
+    {
+      schema: {
+        params: OdIdParams,
+        body: AdminOrderMemoBody,
+        response: { 200: AdminOrderEditResponse },
+      },
+    },
+    async (request, reply) => {
+      const { odId } = request.params;
+      const order = await getOrderRow(odId);
+      if (order === null) return reply.notFound('주문이 없습니다');
+
+      await updateOrderShopMemo(odId, request.body.shopMemo);
+      return { result: true as const, data: { odId } };
+    },
+  );
+
+  // ── PATCH /api/admin/orders/:odId/receipt — 무통장 입금 수동 조정 ───────────
+  // 레거시 orderformreceiptupdate.php 의 무통장·3필드 부분 이식. 결제수단≠무통장 → 409
+  // NOT_BANK_TRANSFER(무통장만 관리자 수동 입금 조정 대상). 3필드 UPDATE(원자 가드 WHERE
+  // od_settle_case='무통장') 후 recomputeOrderMoney(미수금 자동 재계산). **상태 전이·배송·에스크로·
+  // 재고·메일 부수효과는 스코프 밖**(WP3 전이가 담당). 404.
+  fastify.patch(
+    '/orders/:odId/receipt',
+    {
+      schema: {
+        params: OdIdParams,
+        body: AdminOrderReceiptBody,
+        response: { 200: AdminOrderEditResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const { odId } = request.params;
+      const order = await getOrderRow(odId);
+      if (order === null) return reply.notFound('주문이 없습니다');
+      if (order.settleCase !== '무통장') {
+        return reply
+          .status(409)
+          .send({ error: 'NOT_BANK_TRANSFER', message: '무통장 주문만 입금 조정할 수 있습니다' });
+      }
+
+      const { receiptPrice, receiptTime, depositName } = request.body;
+      await updateOrderReceipt(odId, receiptPrice, receiptTime, depositName);
+      return { result: true as const, data: { odId } };
+    },
+  );
+
+  // ── GET /api/admin/orders/:odId/print — 주문서 인쇄 데이터 ─────────────────
+  // 레거시 orderprint 계열 이식. 상세(order+items) + 발신처(seller — 견적서 발신처 g5_shop_default
+  // 재사용 ⑦). read-only. 404.
+  fastify.get(
+    '/orders/:odId/print',
+    {
+      schema: {
+        params: OdIdParams,
+        response: { 200: AdminOrderPrintResponse },
+      },
+    },
+    async (request, reply) => {
+      const order = await getOrderRow(request.params.odId);
+      if (order === null) return reply.notFound('주문이 없습니다');
+
+      const items = await buildOrderItems(order.odId);
+      const profile = await getShopEstimateProfile();
+      const seller = {
+        name: profile?.name ?? '',
+        owner: profile?.owner ?? '',
+        tel: profile?.tel ?? '',
+        zip: profile?.zip ?? '',
+        addr: profile?.addr ?? '',
+        managerName: profile?.managerName ?? '',
+        managerEmail: profile?.managerEmail ?? '',
+        bankAccount: profile?.bankAccount ?? '',
+      };
+
+      return {
+        result: true as const,
+        data: { order: toDetailOrder(order), items, seller },
       };
     },
   );

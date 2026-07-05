@@ -3,10 +3,17 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   AdminOrderActionResponse,
   AdminOrderDetailResponse,
+  AdminOrderEditResponse,
   AdminOrderListResponse,
+  AdminOrderPrintResponse,
   apiRoutes,
 } from '@sp/api-contract';
-import type { AdminOrderStatusRequestType, AdminOrderTabType } from '@sp/api-contract';
+import type {
+  AdminOrderInfoBodyType,
+  AdminOrderReceiptBodyType,
+  AdminOrderStatusRequestType,
+  AdminOrderTabType,
+} from '@sp/api-contract';
 import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
 
 // 관리자 주문내역(/admin/orders) 서버 상태 훅 — 이번 WP 는 읽기 경로만(목록/상세).
@@ -204,6 +211,72 @@ export function useOrderDeleteMutation() {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
       await queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] });
     },
+  });
+}
+
+// 주문자/받는분/배송지/희망일 부분 편집(dirty 필드만) — 응답은 { odId } 에코 없음이라
+// 성공 시 ['admin','orders'] 접두 무효화로 상세·목록 refetch(회원 편집 관례). info/memo/receipt 공통.
+export function useOrderInfoMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ odId, ...body }: { odId: string } & AdminOrderInfoBodyType) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/info`,
+        body,
+        AdminOrderEditResponse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    },
+  });
+}
+
+// 관리자 메모(od_shop_memo) 저장 — ''=비움.
+export function useOrderMemoMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ odId, shopMemo }: { odId: string; shopMemo: string }) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/memo`,
+        { shopMemo },
+        AdminOrderEditResponse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    },
+  });
+}
+
+// 무통장 입금 수동 조정 — 저장 후 서버가 미수금 재계산하므로 상세·목록 refetch 필요.
+// 무통장 아니면 서버가 409 NOT_BANK_TRANSFER.
+export function useOrderReceiptMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ odId, ...body }: { odId: string } & AdminOrderReceiptBodyType) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/receipt`,
+        body,
+        AdminOrderEditResponse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    },
+  });
+}
+
+// 주문서 인쇄 데이터 — 인쇄 모달 open(odId != null) 시에만 fetch(발신처 seller 포함).
+export function useAdminOrderPrint(odId: Ref<string | null>) {
+  return useQuery({
+    queryKey: ['admin', 'orders', 'print', odId],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.adminOrders}/${encodeURIComponent(String(odId.value))}/print`,
+        AdminOrderPrintResponse,
+      ),
+    enabled: computed(() => odId.value !== null),
   });
 }
 

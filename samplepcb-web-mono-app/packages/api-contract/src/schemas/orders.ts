@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AdminEstimateCompany } from './admin';
 
 // ── 관리자 주문내역(/app/admin/orders, sp-vue) 계약 ─────────────────────────
 // 레거시 /adm/shop_admin/orderlist.php(영카트 주문관리)를 sp-vue 로 마이그레이션.
@@ -281,3 +282,73 @@ export const AdminOrderActionResponse = z.object({
   }),
 });
 export type AdminOrderActionResponseType = z.infer<typeof AdminOrderActionResponse>;
+
+// ── 주문 상세 편집 + 입금 조정 + 인쇄 계약 (adm/shop_admin/orderformupdate.php·
+// orderformreceiptupdate.php·orderprint 이식) ───────────────────────────────────
+// info/memo 는 상태 무관(코어 orderformupdate.php 동일). 입금 조정은 무통장 한정·3필드로
+// 좁혀 이식(코어 receiptupdate 의 배송/에스크로/재고/상태전이/메일 부수효과는 스코프 밖 — WP3
+// 전이·배송이 담당). 부분 갱신 응답은 회원 ⑨-b 관례(에코 대신 { odId } → FE refetch).
+
+// 주소 형식 플래그 — 'R'(도로명)·'J'(지번)·''(미상). 회원 mb_addr_jibeon 과 동일 의미.
+const AddrJibeonFlag = z.enum(['R', 'J', '']);
+
+// 주문자/받는분/배송지/희망일 부분 편집 — 전부 optional, 최소 1개(refine). zip 은 상세 스키마와
+// 동일하게 zip1/zip2 분리 입력(코어는 합본 od_zip 을 서버가 분해 — FE 분리로 상위 이관).
+export const AdminOrderInfoBody = z
+  .object({
+    odName: z.string().max(255).optional(),
+    odEmail: z.string().max(255).optional(),
+    odTel: z.string().max(255).optional(),
+    odHp: z.string().max(255).optional(),
+    zip1: z.string().max(10).optional(),
+    zip2: z.string().max(10).optional(),
+    addr1: z.string().max(255).optional(),
+    addr2: z.string().max(255).optional(),
+    addr3: z.string().max(255).optional(),
+    addrJibeon: AddrJibeonFlag.optional(),
+    bName: z.string().max(255).optional(),
+    bTel: z.string().max(255).optional(),
+    bHp: z.string().max(255).optional(),
+    bZip1: z.string().max(10).optional(),
+    bZip2: z.string().max(10).optional(),
+    bAddr1: z.string().max(255).optional(),
+    bAddr2: z.string().max(255).optional(),
+    bAddr3: z.string().max(255).optional(),
+    bAddrJibeon: AddrJibeonFlag.optional(),
+    depositName: z.string().max(255).optional(),
+    hopeDate: z.union([z.literal(''), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: '수정할 필드가 최소 1개 필요합니다',
+  });
+export type AdminOrderInfoBodyType = z.infer<typeof AdminOrderInfoBody>;
+
+// 관리자 메모(od_shop_memo) — ''=비움. od_memo(주문자 요청사항)는 편집 대상 아님(코어 동일).
+export const AdminOrderMemoBody = z.object({ shopMemo: z.string().max(65535) });
+export type AdminOrderMemoBodyType = z.infer<typeof AdminOrderMemoBody>;
+
+// 무통장 입금 수동 조정 — 입금액·입금일시·입금자명. 수정 후 미수금 자동 재계산(recomputeOrderMoney).
+export const AdminOrderReceiptBody = z.object({
+  receiptPrice: z.number().int().min(0),
+  receiptTime: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/),
+  depositName: z.string().max(255),
+});
+export type AdminOrderReceiptBodyType = z.infer<typeof AdminOrderReceiptBody>;
+
+// 부분 편집 공통 응답 — 에코 대신 { odId }(FE refetch). 회원 ⑨-b 관례 미러.
+export const AdminOrderEditResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ odId: z.string() }),
+});
+export type AdminOrderEditResponseType = z.infer<typeof AdminOrderEditResponse>;
+
+// 주문서 인쇄 데이터 — 상세(order+items) + 발신처(seller, 견적서 발신처 스키마 재사용).
+export const AdminOrderPrintResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    order: AdminOrderDetailOrder,
+    items: z.array(AdminOrderCartItem),
+    seller: AdminEstimateCompany,
+  }),
+});
+export type AdminOrderPrintResponseType = z.infer<typeof AdminOrderPrintResponse>;

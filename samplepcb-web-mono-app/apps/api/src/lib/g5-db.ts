@@ -71,6 +71,17 @@
 //       (가드 원자성 — 읽고-쓰기 레이스 방지). 시각은 NOW()(기존 파일 관례; DB 세션 tz=KST 면
 //       코어 G5_TIME_YMDHIS 와 동등). **코어 change_status 는 od_mod_history 를 append 하지 않는다**
 //       (이력은 주문 생성 orderform 에서만 기록 — 상태 전이 흐름엔 이력 append 없음).
+// ⑭ g5_shop_order 상세 편집 UPDATE(관리자 주문 편집 — adm/shop_admin/orderformupdate.php·
+// orderformreceiptupdate.php 이식). 함수·컬럼:
+//   • updateOrderInfo — 주문자/받는분/배송지/희망일 화이트리스트 동적 SET(od_name·od_email·
+//       od_tel·od_hp·od_zip1/2·od_addr1~3·od_addr_jibeon·od_b_* 동형·od_deposit_name·od_hope_date).
+//       화이트리스트 밖 컬럼 쓰기 불가. jibeon 은 코어처럼 패스스루(⑨-b 회원과 달리 addr 변경 시
+//       미초기화). 상태 무관(코어 동일). zip 은 FE 가 zip1/zip2 분리 전송(코어는 합본 분해).
+//   • updateOrderShopMemo — od_shop_memo 평문(주문자 요청 od_memo 는 비대상).
+//   • updateOrderReceipt — 무통장 입금 조정 od_receipt_price·od_receipt_time·od_deposit_name
+//       (원자 가드 WHERE od_settle_case='무통장') + recomputeOrderMoney. 코어 receiptupdate 의
+//       배송/에스크로/재고/상태전이/메일 부수효과는 스코프 밖(WP3 전이·배송이 담당 — 갭 기록).
+//   • 인쇄(GET .../print)는 읽기 전용 — getOrderRow(⑫)+getShopEstimateProfile(⑦) 조합, 신규 쓰기 없음.
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
 //
@@ -1666,6 +1677,110 @@ export async function deleteOrders(
     else result.skipped.push({ odId, reason: 'NOT_FOUND' });
   }
   return result;
+}
+
+// ── 관리자 주문 상세 편집 (카탈로그 ⑭ — 쓰기) ───────────────────────────────
+// 레거시 adm/shop_admin/orderformupdate.php(주문자/받는분/배송지·관리자메모)·
+// orderformreceiptupdate.php(입금 조정)의 컬럼·시맨틱 이식. 화이트리스트 동적 SET(⑨-b
+// updateMemberInfo 미러). 가드(미존재 404·receipt 무통장 409)는 라우트가 강제하되, receipt
+// UPDATE 는 결제수단을 WHERE 에 넣어 원자화. 코어 orderformupdate.php 는 od_addr_jibeon 을
+// POST 값 그대로 저장(패스스루) — 회원 ⑨-b 의 "addr 변경 시 초기화"와 달리 초기화하지 않는다.
+
+export interface OrderInfoFields {
+  od_name?: string;
+  od_email?: string;
+  od_tel?: string;
+  od_hp?: string;
+  od_zip1?: string;
+  od_zip2?: string;
+  od_addr1?: string;
+  od_addr2?: string;
+  od_addr3?: string;
+  od_addr_jibeon?: string;
+  od_b_name?: string;
+  od_b_tel?: string;
+  od_b_hp?: string;
+  od_b_zip1?: string;
+  od_b_zip2?: string;
+  od_b_addr1?: string;
+  od_b_addr2?: string;
+  od_b_addr3?: string;
+  od_b_addr_jibeon?: string;
+  od_deposit_name?: string;
+  od_hope_date?: string;
+}
+
+const ORDER_INFO_COLUMNS = [
+  'od_name',
+  'od_email',
+  'od_tel',
+  'od_hp',
+  'od_zip1',
+  'od_zip2',
+  'od_addr1',
+  'od_addr2',
+  'od_addr3',
+  'od_addr_jibeon',
+  'od_b_name',
+  'od_b_tel',
+  'od_b_hp',
+  'od_b_zip1',
+  'od_b_zip2',
+  'od_b_addr1',
+  'od_b_addr2',
+  'od_b_addr3',
+  'od_b_addr_jibeon',
+  'od_deposit_name',
+  'od_hope_date',
+] as const;
+
+// 주문자/받는분/배송지 부분 갱신 — 화이트리스트 맵 밖 컬럼은 타입 차원에서 불가. 보낸 필드만
+// 동적 SET. affectedRows 는 반환만(멱등 — 동일값 UPDATE 0 가능; 존재 판정은 라우트 사전 조회).
+export async function updateOrderInfo(odId: string, fields: OrderInfoFields): Promise<number> {
+  const sets: string[] = [];
+  const bind: string[] = [];
+  for (const col of ORDER_INFO_COLUMNS) {
+    const v = fields[col];
+    if (v !== undefined) {
+      sets.push(`${col} = ?`);
+      bind.push(v);
+    }
+  }
+  if (sets.length === 0) return 0; // 방어 — 라우트/계약 refine 이 최소 1개 보장
+  bind.push(odId);
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_shop_order SET ${sets.join(', ')} WHERE od_id = ?`,
+    bind,
+  );
+  return res.affectedRows;
+}
+
+// 관리자 메모(od_shop_memo) — 평문, 부수효과 없음(코어 orderformupdate.php else 분기). ''=비움.
+export async function updateOrderShopMemo(odId: string, shopMemo: string): Promise<number> {
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_shop_order SET od_shop_memo = ? WHERE od_id = ?`,
+    [shopMemo, odId],
+  );
+  return res.affectedRows;
+}
+
+// 무통장 입금 수동 조정 — 3필드(입금액·입금일시·입금자명) 원자 가드 UPDATE(WHERE od_settle_case
+// ='무통장') 후 미수금 재계산(recomputeOrderMoney 재사용 — od_receipt_price 반영으로 od_misu 산출).
+// 코어 orderformreceiptupdate.php 의 광범위 부수효과(배송/에스크로/재고/상태전이/메일)는 스코프 밖.
+export async function updateOrderReceipt(
+  odId: string,
+  receiptPrice: number,
+  receiptTime: string,
+  depositName: string,
+): Promise<number> {
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_shop_order
+        SET od_receipt_price = ?, od_receipt_time = ?, od_deposit_name = ?
+      WHERE od_id = ? AND od_settle_case = '무통장'`,
+    [receiptPrice, receiptTime, depositName, odId],
+  );
+  if (res.affectedRows > 0) await recomputeOrderMoney(odId);
+  return res.affectedRows;
 }
 
 export async function closeG5Pool(): Promise<void> {
