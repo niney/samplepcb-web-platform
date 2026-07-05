@@ -96,13 +96,21 @@ if($od['od_pg'] == 'lg') {
 	
 	                    $sell_price = $opt_price * $opt['ct_qty'];
 	                    $point = $opt['ct_point'] * $opt['ct_qty'];
+
+                    // 견적 행: 거버 썸네일 우선(서버 서명 URL), 없으면 위 템플릿 이미지 폴백.
+                    // extend/sp_quote_cart.extend.php sp_quote_thumb_url() ④ 참조. 주문완료 후에도
+                    // 카트 행(ct_id)이 od_id=주문번호로 살아있어 그대로 해석된다.
+                    $thumb = function_exists('sp_quote_thumb_url') ? sp_quote_thumb_url($opt['ct_id']) : '';
+                    $row_image = $thumb !== ''
+                        ? '<img src="'.$thumb.'" alt="'.get_text($row['it_name']).'" width="55" height="55">'
+                        : $image;
 	
 	                    if($k == 0) {
 	            ?>
 	            <?php } ?>
 	            <tr>
 	                <td headers="th_itopt" class="td_prd">
-	                	<div class="sod_img"><?php echo $image; ?></div>
+	                	<div class="sod_img"><?php echo $row_image; ?></div>
 	                	<div class="sod_name">
 		                	<a href="<?php echo shop_item_url($row['it_id']); ?>"><?php echo $row['it_name']; ?></a><br>
 		                	<div class="sod_opt"><?php echo get_text($opt['ct_option']); ?></div>
