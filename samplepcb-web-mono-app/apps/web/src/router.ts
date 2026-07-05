@@ -5,6 +5,7 @@ import AdminLayout from './layouts/AdminLayout.vue';
 import Home from './pages/Home.vue';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
 import AdminQuotes from './pages/admin/AdminQuotes.vue';
+import AdminOrders from './pages/admin/AdminOrders.vue';
 import AdminMembers from './pages/admin/AdminMembers.vue';
 
 // 라우트 meta 타입 보강
@@ -30,6 +31,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', name: 'admin', component: AdminDashboard },
       { path: 'quotes', name: 'admin-quotes', component: AdminQuotes },
+      { path: 'orders', name: 'admin-orders', component: AdminOrders },
       { path: 'members', name: 'admin-members', component: AdminMembers },
     ],
   },
