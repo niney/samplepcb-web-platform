@@ -218,3 +218,64 @@ export const AdminOrderDetailResponse = z.object({
   }),
 });
 export type AdminOrderDetailResponseType = z.infer<typeof AdminOrderDetailResponse>;
+
+// ── 상태 전이·선택삭제 쓰기 계약 (WP: adm/shop_admin/orderlistupdate.php·orderlistdelete.php 이식) ─
+// 레거시 일괄 상태 전이(주문→입금→준비→배송→완료)와 미입금 선택삭제를 sp-node 로 이식한다.
+// 메일/SMS 는 Node 재구현이 아니라 PHP 브리지(spcb/api/order-notify.php) 재사용 — 커스텀된
+// 주문 메일 템플릿(ordermail.mail.php, 견적 건별 표시)의 드리프트를 막기 위한 아키텍처 결정.
+// 전이는 od 단위 독립 처리(하나 실패해도 나머지 진행) — 성공은 processed, 가드 위반은 skipped(reason).
+
+// 배송 처리 입력 행 — target='배송'일 때 od 별 운송장 정보(코어 order_update_delivery 미러).
+// invoiceTime 은 g5 관례상 'YYYY-MM-DD HH:MM:SS' KST native 문자열.
+export const AdminOrderDeliveryRow = z.object({
+  odId: z.string().min(1).max(20),
+  deliveryCompany: z.string().min(1), // od_delivery_company
+  invoiceNo: z.string().min(1), // od_invoice
+  invoiceTime: z.string().min(1), // od_invoice_time
+});
+export type AdminOrderDeliveryRowType = z.infer<typeof AdminOrderDeliveryRow>;
+
+// 상태 전이 요청 — target(전이 후 상태)·odIds(선택)·알림 플래그. 배송이면 delivery 필수(refine).
+// sendMail/sendSms 는 성공 전이 건에 한해 PHP 브리지로 발송(입금·배송 전이만 — 코어가 준비·완료
+// 전이에선 알림을 보내지 않음. 브리지 gating 은 라우트가 담당).
+export const AdminOrderStatusRequest = z
+  .object({
+    target: z.enum(['입금', '준비', '배송', '완료']),
+    odIds: z.array(z.string().min(1).max(20)).min(1),
+    sendMail: z.boolean().default(false),
+    sendSms: z.boolean().default(false),
+    delivery: z.array(AdminOrderDeliveryRow).optional(),
+  })
+  .refine((v) => v.target !== '배송' || (v.delivery !== undefined && v.delivery.length > 0), {
+    message: 'target=배송 이면 delivery 가 필요합니다',
+    path: ['delivery'],
+  });
+export type AdminOrderStatusRequestType = z.infer<typeof AdminOrderStatusRequest>;
+
+// 선택삭제 요청 — 미입금(od_status='주문')만 대상(코어 orderlistdelete.php: 백업→cart 삭제→order DELETE).
+export const AdminOrderDeleteRequest = z.object({
+  odIds: z.array(z.string().min(1).max(20)).min(1),
+});
+export type AdminOrderDeleteRequestType = z.infer<typeof AdminOrderDeleteRequest>;
+
+// 전이/삭제 공통 응답 — processed(성공 od), skipped(가드 위반 od+reason), notify(성공 od별 발송 결과).
+// reason 코드: NOT_FOUND · NOT_ORDER_STATUS · NOT_DEPOSIT_STATUS · NOT_READY_STATUS ·
+//   NOT_SHIPPING_STATUS · NOT_BANK_TRANSFER · MISSING_INVOICE. notify 상태: sent|failed|skipped.
+export const AdminOrderNotifyStatus = z.enum(['sent', 'failed', 'skipped']);
+export type AdminOrderNotifyStatusType = z.infer<typeof AdminOrderNotifyStatus>;
+
+export const AdminOrderActionResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    processed: z.array(z.string()),
+    skipped: z.array(z.object({ odId: z.string(), reason: z.string() })),
+    notify: z.array(
+      z.object({
+        odId: z.string(),
+        mail: AdminOrderNotifyStatus.optional(),
+        sms: AdminOrderNotifyStatus.optional(),
+      }),
+    ),
+  }),
+});
+export type AdminOrderActionResponseType = z.infer<typeof AdminOrderActionResponse>;

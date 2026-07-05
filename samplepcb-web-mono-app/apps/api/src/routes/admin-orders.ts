@@ -1,9 +1,12 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  AdminOrderActionResponse,
+  AdminOrderDeleteRequest,
   AdminOrderDetailResponse,
   AdminOrderListQuery,
   AdminOrderListResponse,
+  AdminOrderStatusRequest,
 } from '@sp/api-contract';
 import type {
   AdminOrderCoreType,
@@ -11,13 +14,21 @@ import type {
   PcbProjectPayloadType,
 } from '@sp/api-contract';
 import {
+  deleteOrders,
   getCartRowsByOdId,
   getMemberOrderCounts,
   getOrderRow,
+  matchDeliveryRows,
   searchOrders,
+  setOrdersComplete,
+  setOrdersDelivery,
+  setOrdersPreparing,
+  setOrdersReceipt,
 } from '../lib/g5-db';
-import type { OrderDetailRow, OrderListRow } from '../lib/g5-db';
+import type { OrderActionResult, OrderDetailRow, OrderListRow } from '../lib/g5-db';
 import { buildOptionSummary } from '../lib/option-summary';
+import { notifyOrderEvent } from '../lib/php-bridge';
+import type { NotifyStatus } from '../lib/php-bridge';
 import { prisma } from '../lib/prisma';
 import { signedThumbUrl } from '../lib/thumb-url';
 
@@ -241,6 +252,90 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           }),
           memberOrderCount,
         },
+      };
+    },
+  );
+
+  // ── PATCH /api/admin/orders/status — 일괄 상태 전이 ────────────────────────
+  // 레거시 orderlistupdate.php 이식. target 별 g5-db 전이 함수 → 성공 건에 한해 PHP 알림 브리지
+  // (메일/SMS). 전이는 od 단위 독립(processed/skipped). **알림 실패는 전이를 실패로 만들지 않는다**.
+  // 코어는 입금·배송 전이에서만 알림을 보내므로 준비·완료는 브리지를 호출하지 않는다(notify=[]).
+  fastify.patch(
+    '/orders/status',
+    {
+      schema: {
+        body: AdminOrderStatusRequest,
+        response: { 200: AdminOrderActionResponse },
+      },
+    },
+    async (request) => {
+      const { target, odIds, sendMail, sendSms, delivery } = request.body;
+
+      let action: OrderActionResult;
+      const preSkipped: { odId: string; reason: string }[] = [];
+      switch (target) {
+        case '입금':
+          action = await setOrdersReceipt(odIds);
+          break;
+        case '준비':
+          action = await setOrdersPreparing(odIds);
+          break;
+        case '배송': {
+          // 선택 odIds ↔ 운송장 행 매칭. 행 없거나 3필드 미비 → MISSING_INVOICE(전이 전 skip).
+          const matched = matchDeliveryRows(odIds, delivery ?? []);
+          preSkipped.push(...matched.skipped);
+          action = await setOrdersDelivery(matched.rows);
+          break;
+        }
+        case '완료':
+          action = await setOrdersComplete(odIds);
+          break;
+      }
+
+      // 알림 — 입금·배송 전이의 성공 건만(코어 orderlistupdate.php 미러). 서비스 JWT 서명(짧은 exp).
+      const notify: { odId: string; mail?: NotifyStatus; sms?: NotifyStatus }[] = [];
+      const needNotify = (target === '입금' || target === '배송') && (sendMail || sendSms);
+      if (needNotify && action.processed.length > 0) {
+        const token = fastify.jwt.sign({ svc: 'sp-node' }, { expiresIn: '60s' });
+        const results = await Promise.all(
+          action.processed.map(async (odId) => {
+            const r = await notifyOrderEvent(
+              { odId, event: target, mail: sendMail, sms: sendSms },
+              { token },
+            );
+            return { odId, ...r };
+          }),
+        );
+        notify.push(...results);
+      }
+
+      return {
+        result: true as const,
+        data: {
+          processed: action.processed,
+          skipped: [...preSkipped, ...action.skipped],
+          notify,
+        },
+      };
+    },
+  );
+
+  // ── POST /api/admin/orders/delete — 미입금 선택삭제 ───────────────────────
+  // 레거시 orderlistdelete.php 이식(⑬→⑪). od_status='주문'만 삭제(백업→cart 소프트삭제→order DELETE).
+  // 결제완료는 PG 환불 취소 도메인이라 NOT_ORDER_STATUS 로 skip. 삭제는 알림 없음(notify=[]).
+  fastify.post(
+    '/orders/delete',
+    {
+      schema: {
+        body: AdminOrderDeleteRequest,
+        response: { 200: AdminOrderActionResponse },
+      },
+    },
+    async (request) => {
+      const action = await deleteOrders(request.body.odIds, request.user.mbId, request.ip);
+      return {
+        result: true as const,
+        data: { processed: action.processed, skipped: action.skipped, notify: [] },
       };
     },
   );

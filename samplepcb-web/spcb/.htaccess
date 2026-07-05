@@ -7,6 +7,11 @@ Options -Indexes
 
 RewriteEngine On
 
+# 0) Authorization 헤더 패스스루 — 일부 Apache/mod_php 조합이 Bearer 토큰을 CGI 로 넘기지 않음.
+#    order-notify.php(서비스 JWT 검증)가 $_SERVER['HTTP_AUTHORIZATION'] 로 읽을 수 있게 반영.
+RewriteCond %{HTTP:Authorization} ^(.+)$
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%1]
+
 # 1) 이미 존재하는 파일/디렉터리는 그대로 서빙(리라이트 안 함)
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d

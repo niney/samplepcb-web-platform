@@ -3,8 +3,17 @@ import {
   buildOrderBaseConds,
   buildOrderListWhere,
   buildOrderTabCond,
+  computeOrderMoney,
+  matchDeliveryRows,
+  orderTransitionGuard,
+  phpRound,
 } from './g5-db';
-import type { OrderTab, SearchOrdersParams } from './g5-db';
+import type {
+  DeliveryInput,
+  OrderMoneyInput,
+  OrderTab,
+  SearchOrdersParams,
+} from './g5-db';
 
 // buildOrderListWhere/buildOrderBaseConds/buildOrderTabCond 는 순수 함수(DB 불필요).
 // 레거시 orderlist.php WHERE 조립의 이식 정합성을 파라미터 바인딩 관점에서 검증한다.
@@ -149,5 +158,152 @@ describe('buildOrderListWhere — base + 탭 결합', () => {
       'WHERE mb_id LIKE ? AND od_status IN (?, ?, ?, ?, ?) AND od_cancel_price > 0',
     );
     expect(r.values).toEqual(['%user1%', '주문', '입금', '준비', '배송', '완료']);
+  });
+});
+
+// ── 상태 전이·삭제(⑬) 순수 로직 — 코어 orderlistupdate.php 이식 정합성 ─────────
+
+describe('phpRound — round half away from zero(코어 PHP round 미러)', () => {
+  it('양수 0.5 는 올림', () => {
+    expect(phpRound(2.5)).toBe(3);
+    expect(phpRound(0.5)).toBe(1);
+  });
+  it('음수 0.5 는 0 에서 먼 쪽(내림) — JS Math.round 와 갈리는 지점', () => {
+    expect(phpRound(-2.5)).toBe(-3);
+    expect(phpRound(-0.5)).toBe(-1);
+    expect(Math.round(-2.5)).toBe(-2); // 대비: 코어와 달라 phpRound 가 필요한 이유
+  });
+  it('일반 반올림·0', () => {
+    expect(phpRound(11363.636363)).toBe(11364);
+    expect(phpRound(2.4)).toBe(2);
+    expect(phpRound(0)).toBe(0);
+  });
+});
+
+describe('computeOrderMoney — get_order_info(:1745-1795) 산식 미러', () => {
+  const money = (over: Partial<OrderMoneyInput> = {}): OrderMoneyInput => ({
+    taxFlag: true,
+    cartPrice: 10000,
+    cartCoupon: 0,
+    taxMny: 10000,
+    freeMny: 0,
+    sendCost: 2500,
+    sendCost2: 0,
+    odCoupon: 0,
+    odSendCoupon: 0,
+    receiptPrice: 0,
+    receiptPoint: 0,
+    refundPrice: 0,
+    ...over,
+  });
+
+  it('과세(taxFlag) — 미수/과세/부가세 산출', () => {
+    const r = computeOrderMoney(money());
+    // totTaxMny = 10000 + 2500 = 12500 → tax=round(12500/1.1)=11364, vat=1136
+    expect(r.odTaxMny).toBe(11364);
+    expect(r.odVatMny).toBe(1136);
+    expect(r.odFreeMny).toBe(0);
+    expect(r.odSendCost).toBe(2500); // 저장값 그대로 되씀
+    expect(r.odMisu).toBe(12500);
+  });
+
+  it('주문→입금 멱등 — receiptPrice=미수 로 바뀌면 misu=0, 과세/부가세 불변', () => {
+    const before = computeOrderMoney(money());
+    const after = computeOrderMoney(money({ receiptPrice: before.odMisu }));
+    expect(after.odMisu).toBe(0);
+    expect(after.odTaxMny).toBe(before.odTaxMny);
+    expect(after.odVatMny).toBe(before.odVatMny);
+  });
+
+  it('비과세(taxFlag=false) — freeMny 합산 후 0 으로', () => {
+    const r = computeOrderMoney(money({ taxFlag: false, taxMny: 8000, freeMny: 2000, sendCost: 0 }));
+    // totTaxMny = 8000 + 2000 = 10000 → tax=round(10000/1.1)=9091, vat=909, free=0
+    expect(r.odTaxMny).toBe(9091);
+    expect(r.odVatMny).toBe(909);
+    expect(r.odFreeMny).toBe(0);
+  });
+
+  it('과세 총액 음수는 0 클램프 + 초과분을 freeMny 로', () => {
+    const r = computeOrderMoney(money({ taxMny: 1000, sendCost: 0, receiptPoint: 2000 }));
+    // totTaxMny = 1000 - 2000 = -1000 < 0 → free += -1000, tot=0
+    expect(r.odTaxMny).toBe(0);
+    expect(r.odVatMny).toBe(0);
+    expect(r.odFreeMny).toBe(-1000);
+  });
+
+  it('쿠폰·환불 반영 — misu 산식', () => {
+    const r = computeOrderMoney(
+      money({ cartCoupon: 500, odCoupon: 1000, odSendCoupon: 300, refundPrice: 200, receiptPoint: 100 }),
+    );
+    // misu = (10000+2500+0) - (500+1000+300) - (0+100-200) = 12500 - 1800 + 100 = 10800
+    expect(r.odMisu).toBe(10800);
+  });
+});
+
+describe('orderTransitionGuard — 전이 가드 판정(코어 orderlistupdate.php switch)', () => {
+  it('입금: 주문+무통장만 허용', () => {
+    expect(orderTransitionGuard('입금', '주문', '무통장')).toEqual({ ok: true });
+    expect(orderTransitionGuard('입금', '주문', '신용카드')).toEqual({
+      ok: false,
+      reason: 'NOT_BANK_TRANSFER',
+    });
+    expect(orderTransitionGuard('입금', '입금', '무통장')).toEqual({
+      ok: false,
+      reason: 'NOT_ORDER_STATUS',
+    });
+  });
+  it('준비: 입금에서만', () => {
+    expect(orderTransitionGuard('준비', '입금', '')).toEqual({ ok: true });
+    expect(orderTransitionGuard('준비', '주문', '')).toEqual({
+      ok: false,
+      reason: 'NOT_DEPOSIT_STATUS',
+    });
+  });
+  it('배송: 준비에서만(운송장 유무는 matchDeliveryRows 담당)', () => {
+    expect(orderTransitionGuard('배송', '준비', '')).toEqual({ ok: true });
+    expect(orderTransitionGuard('배송', '입금', '')).toEqual({
+      ok: false,
+      reason: 'NOT_READY_STATUS',
+    });
+  });
+  it('완료: 배송에서만', () => {
+    expect(orderTransitionGuard('완료', '배송', '')).toEqual({ ok: true });
+    expect(orderTransitionGuard('완료', '준비', '')).toEqual({
+      ok: false,
+      reason: 'NOT_SHIPPING_STATUS',
+    });
+  });
+});
+
+describe('matchDeliveryRows — 배송 rows 매칭(운송장 필드 검증)', () => {
+  const row = (over: Partial<DeliveryInput> & { odId: string }): DeliveryInput => ({
+    deliveryCompany: 'CJ',
+    invoiceNo: '1234',
+    invoiceTime: '2026-07-05 10:00:00',
+    ...over,
+  });
+
+  it('행 있는 odId 는 rows, 없는 odId 는 MISSING_INVOICE', () => {
+    const r = matchDeliveryRows(['A', 'B'], [row({ odId: 'A' })]);
+    expect(r.rows.map((d) => d.odId)).toEqual(['A']);
+    expect(r.skipped).toEqual([{ odId: 'B', reason: 'MISSING_INVOICE' }]);
+  });
+
+  it('3필드 중 하나라도 비면 MISSING_INVOICE', () => {
+    const r = matchDeliveryRows(
+      ['A', 'B', 'C'],
+      [row({ odId: 'A', invoiceNo: '' }), row({ odId: 'B', deliveryCompany: '  ' }), row({ odId: 'C' })],
+    );
+    expect(r.rows.map((d) => d.odId)).toEqual(['C']);
+    expect(r.skipped).toEqual([
+      { odId: 'A', reason: 'MISSING_INVOICE' },
+      { odId: 'B', reason: 'MISSING_INVOICE' },
+    ]);
+  });
+
+  it('odIds 순서 보존 + odIds 밖 delivery 행 무시', () => {
+    const r = matchDeliveryRows(['B', 'A'], [row({ odId: 'A' }), row({ odId: 'Z' }), row({ odId: 'B' })]);
+    expect(r.rows.map((d) => d.odId)).toEqual(['B', 'A']);
+    expect(r.skipped).toEqual([]);
   });
 });

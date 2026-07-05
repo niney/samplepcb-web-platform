@@ -46,6 +46,29 @@
 // 화이트리스트). **민감 컬럼 od_pwd·od_cash·od_cash_info 는 SELECT 에서 절대 제외**. 날짜는
 // KST native 문자열(DATE_FORMAT), zero-date 는 NULLIF→null. 쓰기 없음.
 // 운영 전용 커스텀 컬럼(mb_partner_auth, mb_11~mb_20)은 로컬 신설 DB 에 없어 참조 금지.
+// ⑬ g5_shop_order·g5_shop_cart·g5_shop_item·g5_shop_item_option 쓰기(관리자 주문 상태 전이·
+// 선택삭제 — adm/shop_admin/orderlistupdate.php·orderlistdelete.php 이식). 함수·컬럼·가드:
+//   • setOrdersReceipt   주문→입금: change_status(od_status/ct_status='입금' WHERE ='주문') +
+//       order_update_receipt(od_receipt_price=od_misu·od_misu=0·od_receipt_time=NOW WHERE od_status
+//       ='입금'). 가드: 현재 od_status='주문' AND od_settle_case='무통장'(무통장만 관리자 수동 입금).
+//   • setOrdersPreparing 입금→준비: change_status(='준비' WHERE ='입금'). 가드: 현재 '입금'.
+//   • setOrdersDelivery  준비→배송: order_update_delivery(od_delivery_company·od_invoice·
+//       od_invoice_time UPDATE WHERE od_status='준비' + 카트 행 재고차감 loop: !ct_stock_use 면
+//       subtract_io_stock(io_id 있으면 g5_shop_item_option.io_stock_qty-=ct_qty, 없으면 g5_shop_item.
+//       it_stock_qty-=ct_qty)·ct_stock_use=1) + change_status(='배송' WHERE ='준비'). 가드: 현재 '준비'
+//       + 운송장 3필드(회사·번호·시각). 견적 행은 io_id=quoteId 로 per-quote 옵션 행(9999999)만 감소.
+//   • setOrdersComplete  배송→완료: change_status(='완료' WHERE ='배송') + it_sum_qty 갱신(주문의
+//       '완료' 카트 각 it_id 에 대해 전 주문 통틀어 SUM(ct_qty) '완료' 를 g5_shop_item.it_sum_qty 에
+//       기록 — 판매 통계, 공유 템플릿 무해). 가드: 현재 '배송'.
+//   • deleteOrders       미입금 선택삭제: ⑪ deleteUnpaidOrder 배치화(od 루프). 가드: od_status='주문'.
+//   • 공통: 전이 성공 후 recomputeOrderMoney(get_order_info :1745-1795 미러) — g5_shop_order
+//       od_misu·od_tax_mny·od_vat_mny·od_free_mny·od_send_cost UPDATE. **send_cost·od_coupon·
+//       od_send_coupon 은 저장값 재사용**(상태 전이는 get_sendcost/쿠폰 산식의 상태 WHERE 집합
+//       쇼핑~완료 내부 이동이라 불변 — get_sendcost/쿠폰테이블 포트는 미이식, 갭 기록). 순수
+//       산식은 computeOrderMoney(테스트 대상). 상태·금액 UPDATE 는 전부 WHERE od_id AND od_status
+//       (가드 원자성 — 읽고-쓰기 레이스 방지). 시각은 NOW()(기존 파일 관례; DB 세션 tz=KST 면
+//       코어 G5_TIME_YMDHIS 와 동등). **코어 change_status 는 od_mod_history 를 append 하지 않는다**
+//       (이력은 주문 생성 orderform 에서만 기록 — 상태 전이 흐름엔 이력 append 없음).
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
 //
@@ -1190,6 +1213,401 @@ export async function getMemberOrderCounts(mbIds: string[]): Promise<Map<string,
     map.set(String(row.mb_id), Number(row.cnt ?? 0));
   }
   return map;
+}
+
+// ── 관리자 주문 상태 전이·선택삭제 (카탈로그 ⑬ — 쓰기) ───────────────────────
+// 레거시 adm/shop_admin/orderlistupdate.php(일괄 상태 전이)·orderlistdelete.php(미입금 선택삭제)
+// 이식. 메일/SMS 는 여기서 하지 않는다(PHP 브리지 spcb/api/order-notify.php 재사용 — 라우트가 호출).
+
+export type OrderTransitionTarget = '입금' | '준비' | '배송' | '완료';
+
+export type OrderActionReason =
+  | 'NOT_FOUND'
+  | 'NOT_ORDER_STATUS'
+  | 'NOT_DEPOSIT_STATUS'
+  | 'NOT_READY_STATUS'
+  | 'NOT_SHIPPING_STATUS'
+  | 'NOT_BANK_TRANSFER'
+  | 'MISSING_INVOICE';
+
+// od 단위 독립 처리 결과 — 성공(processed)·가드 위반(skipped). 하나 실패해도 나머지 진행.
+export interface OrderActionResult {
+  processed: string[];
+  skipped: { odId: string; reason: OrderActionReason }[];
+}
+
+// target(전이 후 상태) → 필요한 현재 상태와 불일치 시 reason. 순수 판정(테스트 대상).
+const TRANSITION_REQUIRED_STATUS: Record<
+  OrderTransitionTarget,
+  { from: string; reason: OrderActionReason }
+> = {
+  입금: { from: '주문', reason: 'NOT_ORDER_STATUS' },
+  준비: { from: '입금', reason: 'NOT_DEPOSIT_STATUS' },
+  배송: { from: '준비', reason: 'NOT_READY_STATUS' },
+  완료: { from: '배송', reason: 'NOT_SHIPPING_STATUS' },
+};
+
+// 전이 가드 판정(순수). 현재 상태·결제수단으로 진행 여부를 결정한다. 입금 전이는 무통장만 허용
+// (코어 orderlistupdate.php:56 — 무통장 외 결제수단은 PG 승인이 입금을 결정하므로 관리자 수동
+// 입금 전이 대상이 아니다). 반환 ok=false 면 skipped(reason). 배송의 MISSING_INVOICE 는 여기가
+// 아니라 matchDeliveryRows(운송장 필드 유무)가 판정한다.
+export function orderTransitionGuard(
+  target: OrderTransitionTarget,
+  current: string,
+  settleCase: string,
+): { ok: true } | { ok: false; reason: OrderActionReason } {
+  const req = TRANSITION_REQUIRED_STATUS[target];
+  if (current !== req.from) return { ok: false, reason: req.reason };
+  if (target === '입금' && settleCase !== '무통장') {
+    return { ok: false, reason: 'NOT_BANK_TRANSFER' };
+  }
+  return { ok: true };
+}
+
+// 배송 rows 매칭(순수) — 선택 odIds 를 운송장 입력 행과 짝짓는다. 행이 없거나 3필드 중 하나라도
+// 비면 MISSING_INVOICE 로 skip. 코어 orderlistupdate.php 는 od_id 별 od_invoice/od_invoice_time/
+// od_delivery_company 를 폼에서 받으므로, 선택은 odIds·데이터는 delivery 행이 담당한다.
+export interface DeliveryInput {
+  odId: string;
+  deliveryCompany: string;
+  invoiceNo: string;
+  invoiceTime: string;
+}
+
+export function matchDeliveryRows(
+  odIds: string[],
+  delivery: DeliveryInput[],
+): { rows: DeliveryInput[]; skipped: { odId: string; reason: 'MISSING_INVOICE' }[] } {
+  const byId = new Map<string, DeliveryInput>();
+  for (const d of delivery) byId.set(d.odId, d);
+  const rows: DeliveryInput[] = [];
+  const skipped: { odId: string; reason: 'MISSING_INVOICE' }[] = [];
+  for (const odId of odIds) {
+    const d = byId.get(odId);
+    if (
+      d === undefined ||
+      d.deliveryCompany.trim() === '' ||
+      d.invoiceNo.trim() === '' ||
+      d.invoiceTime.trim() === ''
+    ) {
+      skipped.push({ odId, reason: 'MISSING_INVOICE' });
+      continue;
+    }
+    rows.push(d);
+  }
+  return { rows, skipped };
+}
+
+// PHP round() 재현 — "0.5 는 0 에서 먼 쪽으로"(round half away from zero). JS Math.round 는
+// 0.5 를 +∞ 쪽으로 올려 음수에서 코어와 갈린다(get_order_info 의 od_tax_mny=round(x/1.1)).
+export function phpRound(x: number): number {
+  return Math.sign(x) * Math.round(Math.abs(x));
+}
+
+// 미수금·과세 재계산 순수 산식 — 코어 get_order_info(lib/shop.lib.php:1745-1795) 미러.
+// 카트 집계(cartPrice·cartCoupon·taxMny·freeMny)와 주문 저장 컬럼을 입력받아 od_misu·od_tax_mny·
+// od_vat_mny·od_free_mny·od_send_cost 를 낸다. **sendCost·odCoupon·odSendCoupon 은 저장값 그대로**
+// (상태 전이는 get_sendcost/쿠폰 산식의 상태 WHERE 집합 내부 이동이라 불변 — 헤더 ⑬ 갭 참조).
+export interface OrderMoneyInput {
+  taxFlag: boolean; // od_tax_flag
+  cartPrice: number; // 카트 SUM(주문금액) — get_order_info:1668 price
+  cartCoupon: number; // 카트 SUM(cp_price) — od_cart_coupon 과 동치
+  taxMny: number; // 카트 SUM 과세대상 — get_order_info:1670
+  freeMny: number; // 카트 SUM 비과세대상 — get_order_info:1671
+  sendCost: number; // od_send_cost (저장값 재사용)
+  sendCost2: number; // od_send_cost2
+  odCoupon: number; // od_coupon (저장값 재사용)
+  odSendCoupon: number; // od_send_coupon (저장값 재사용)
+  receiptPrice: number; // od_receipt_price (입금 전이에서 변함)
+  receiptPoint: number; // od_receipt_point
+  refundPrice: number; // od_refund_price
+}
+
+export interface OrderMoneyResult {
+  odMisu: number;
+  odTaxMny: number;
+  odVatMny: number;
+  odFreeMny: number;
+  odSendCost: number;
+}
+
+export function computeOrderMoney(input: OrderMoneyInput): OrderMoneyResult {
+  const { cartPrice, cartCoupon, taxMny, sendCost, sendCost2, odCoupon, odSendCoupon } = input;
+  let freeMny = input.freeMny;
+  let totTaxMny: number;
+  if (input.taxFlag) {
+    totTaxMny = taxMny + sendCost + sendCost2 - (odCoupon + odSendCoupon + input.receiptPoint);
+    if (totTaxMny < 0) {
+      freeMny += totTaxMny;
+      totTaxMny = 0;
+    }
+  } else {
+    totTaxMny =
+      taxMny + freeMny + sendCost + sendCost2 - (odCoupon + odSendCoupon + input.receiptPoint);
+    freeMny = 0;
+  }
+  const odTaxMny = phpRound(totTaxMny / 1.1);
+  const odVatMny = totTaxMny - odTaxMny;
+  const odMisu =
+    cartPrice +
+    sendCost +
+    sendCost2 -
+    (cartCoupon + odCoupon + odSendCoupon) -
+    (input.receiptPrice + input.receiptPoint - input.refundPrice);
+  return { odMisu, odTaxMny, odVatMny, odFreeMny: freeMny, odSendCost: sendCost };
+}
+
+// 미수금·과세 재계산 후 g5_shop_order UPDATE(코어 orderlistupdate.php:148-158 미러).
+// 카트 집계는 get_order_info 의 SUM(:1668-1674)을 그대로 — 상태 WHERE 집합 동일.
+async function recomputeOrderMoney(odId: string): Promise<void> {
+  const pool = getG5Pool();
+  const [orderRows] = await pool.query<RowDataPacket[]>(
+    `SELECT od_tax_flag, od_send_cost, od_send_cost2, od_coupon, od_send_coupon,
+            od_receipt_price, od_receipt_point, od_refund_price
+       FROM g5_shop_order WHERE od_id = ?`,
+    [odId],
+  );
+  const od = orderRows[0];
+  if (od === undefined) return;
+
+  const [aggRows] = await pool.query<RowDataPacket[]>(
+    `SELECT
+        SUM(IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty))) AS price,
+        SUM(cp_price) AS coupon,
+        SUM(IF(ct_notax = 0, (IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty)) - cp_price), 0)) AS tax_mny,
+        SUM(IF(ct_notax = 1, (IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty)) - cp_price), 0)) AS free_mny
+       FROM g5_shop_cart
+      WHERE od_id = ? AND ct_status IN ('주문', '입금', '준비', '배송', '완료')`,
+    [odId],
+  );
+  const agg = aggRows[0];
+
+  const money = computeOrderMoney({
+    taxFlag: Number(od.od_tax_flag ?? 0) > 0,
+    cartPrice: Number(agg?.price ?? 0),
+    cartCoupon: Number(agg?.coupon ?? 0),
+    taxMny: Number(agg?.tax_mny ?? 0),
+    freeMny: Number(agg?.free_mny ?? 0),
+    sendCost: Number(od.od_send_cost ?? 0),
+    sendCost2: Number(od.od_send_cost2 ?? 0),
+    odCoupon: Number(od.od_coupon ?? 0),
+    odSendCoupon: Number(od.od_send_coupon ?? 0),
+    receiptPrice: Number(od.od_receipt_price ?? 0),
+    receiptPoint: Number(od.od_receipt_point ?? 0),
+    refundPrice: Number(od.od_refund_price ?? 0),
+  });
+
+  await pool.query(
+    `UPDATE g5_shop_order
+        SET od_misu = ?, od_tax_mny = ?, od_vat_mny = ?, od_free_mny = ?, od_send_cost = ?
+      WHERE od_id = ?`,
+    [money.odMisu, money.odTaxMny, money.odVatMny, money.odFreeMny, money.odSendCost, odId],
+  );
+}
+
+// change_status 미러(admin.shop.lib.php:84-93) — od_status·ct_status 를 원자 가드 WHERE 로 전이.
+// 반환 = 주문 헤더 UPDATE affectedRows(0 이면 레이스로 현재 상태가 이미 바뀐 것 → 호출부 skip).
+async function changeStatus(odId: string, from: string, to: string): Promise<number> {
+  const pool = getG5Pool();
+  const [res] = await pool.query<ResultSetHeader>(
+    `UPDATE g5_shop_order SET od_status = ? WHERE od_id = ? AND od_status = ?`,
+    [to, odId, from],
+  );
+  await pool.query(`UPDATE g5_shop_cart SET ct_status = ? WHERE od_id = ? AND ct_status = ?`, [
+    to,
+    odId,
+    from,
+  ]);
+  return res.affectedRows;
+}
+
+// 주문 헤더 1행의 상태·결제수단 조회(전이 가드 판정용). 없으면 null.
+async function getOrderStatusRow(
+  odId: string,
+): Promise<{ status: string; settleCase: string } | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT od_status, od_settle_case FROM g5_shop_order WHERE od_id = ?`,
+    [odId],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return { status: String(row.od_status ?? ''), settleCase: String(row.od_settle_case ?? '') };
+}
+
+// 주문→입금 — change_status + order_update_receipt(od_receipt_price=od_misu·od_misu=0·
+// od_receipt_time=NOW WHERE od_status='입금') + 미수금 재계산. 무통장만.
+export async function setOrdersReceipt(odIds: string[]): Promise<OrderActionResult> {
+  const result: OrderActionResult = { processed: [], skipped: [] };
+  for (const odId of [...new Set(odIds)]) {
+    const row = await getOrderStatusRow(odId);
+    if (row === null) {
+      result.skipped.push({ odId, reason: 'NOT_FOUND' });
+      continue;
+    }
+    const guard = orderTransitionGuard('입금', row.status, row.settleCase);
+    if (!guard.ok) {
+      result.skipped.push({ odId, reason: guard.reason });
+      continue;
+    }
+    const affected = await changeStatus(odId, '주문', '입금');
+    if (affected === 0) {
+      result.skipped.push({ odId, reason: 'NOT_ORDER_STATUS' }); // 레이스 — 이미 상태 변경됨
+      continue;
+    }
+    await getG5Pool().query(
+      `UPDATE g5_shop_order
+          SET od_receipt_price = od_misu, od_misu = 0, od_receipt_time = NOW()
+        WHERE od_id = ? AND od_status = '입금'`,
+      [odId],
+    );
+    await recomputeOrderMoney(odId);
+    result.processed.push(odId);
+  }
+  return result;
+}
+
+// 입금→준비 — change_status + 미수금 재계산. (코어는 이 전이에서 알림 미발송.)
+export async function setOrdersPreparing(odIds: string[]): Promise<OrderActionResult> {
+  const result: OrderActionResult = { processed: [], skipped: [] };
+  for (const odId of [...new Set(odIds)]) {
+    const row = await getOrderStatusRow(odId);
+    if (row === null) {
+      result.skipped.push({ odId, reason: 'NOT_FOUND' });
+      continue;
+    }
+    const guard = orderTransitionGuard('준비', row.status, row.settleCase);
+    if (!guard.ok) {
+      result.skipped.push({ odId, reason: guard.reason });
+      continue;
+    }
+    const affected = await changeStatus(odId, '입금', '준비');
+    if (affected === 0) {
+      result.skipped.push({ odId, reason: 'NOT_DEPOSIT_STATUS' });
+      continue;
+    }
+    await recomputeOrderMoney(odId);
+    result.processed.push(odId);
+  }
+  return result;
+}
+
+// 준비→배송 — order_update_delivery(운송장 UPDATE + 카트 재고차감 loop) + change_status + 재계산.
+// rows 는 matchDeliveryRows 로 이미 3필드 검증된 것만. 상태 가드는 여기서 재확인(원자 WHERE).
+export async function setOrdersDelivery(rows: DeliveryInput[]): Promise<OrderActionResult> {
+  const result: OrderActionResult = { processed: [], skipped: [] };
+  const pool = getG5Pool();
+  for (const d of rows) {
+    const row = await getOrderStatusRow(d.odId);
+    if (row === null) {
+      result.skipped.push({ odId: d.odId, reason: 'NOT_FOUND' });
+      continue;
+    }
+    const guard = orderTransitionGuard('배송', row.status, row.settleCase);
+    if (!guard.ok) {
+      result.skipped.push({ odId: d.odId, reason: guard.reason });
+      continue;
+    }
+    // order_update_delivery(admin.shop.lib.php:107-135) — 운송장 3필드 UPDATE(원자 가드 준비).
+    const [upd] = await pool.query<ResultSetHeader>(
+      `UPDATE g5_shop_order
+          SET od_delivery_company = ?, od_invoice = ?, od_invoice_time = ?
+        WHERE od_id = ? AND od_status = '준비'`,
+      [d.deliveryCompany, d.invoiceNo, d.invoiceTime, d.odId],
+    );
+    if (upd.affectedRows === 0) {
+      result.skipped.push({ odId: d.odId, reason: 'NOT_READY_STATUS' }); // 레이스
+      continue;
+    }
+    // 재고차감 loop — !ct_stock_use 인 카트 행만. io_id 있으면 per-quote 옵션 행(9999999) 감소,
+    // 없으면 상품 재고 감소. 감소 후 ct_stock_use=1(멱등 — 재실행 시 재차감 방지).
+    const [cartRows] = await pool.query<RowDataPacket[]>(
+      `SELECT ct_id, it_id, ct_qty, io_id, io_type FROM g5_shop_cart
+        WHERE od_id = ? AND ct_stock_use = 0`,
+      [d.odId],
+    );
+    for (const c of cartRows) {
+      const itId = String(c.it_id ?? '');
+      const ioId = String(c.io_id ?? '');
+      const ctQty = Number(c.ct_qty ?? 0);
+      if (ioId !== '') {
+        await pool.query(
+          `UPDATE g5_shop_item_option SET io_stock_qty = io_stock_qty - ?
+            WHERE it_id = ? AND io_id = ? AND io_type = ?`,
+          [ctQty, itId, ioId, Number(c.io_type ?? 0)],
+        );
+      } else {
+        await pool.query(`UPDATE g5_shop_item SET it_stock_qty = it_stock_qty - ? WHERE it_id = ?`, [
+          ctQty,
+          itId,
+        ]);
+      }
+      await pool.query(`UPDATE g5_shop_cart SET ct_stock_use = 1 WHERE ct_id = ?`, [
+        Number(c.ct_id),
+      ]);
+    }
+    await changeStatus(d.odId, '준비', '배송');
+    await recomputeOrderMoney(d.odId);
+    result.processed.push(d.odId);
+  }
+  return result;
+}
+
+// 배송→완료 — change_status + it_sum_qty 갱신(주문의 '완료' 카트 각 it_id 마다 전 주문 통틀어
+// SUM(ct_qty) '완료' 를 g5_shop_item.it_sum_qty 에 기록 — 판매 통계) + 재계산.
+export async function setOrdersComplete(odIds: string[]): Promise<OrderActionResult> {
+  const result: OrderActionResult = { processed: [], skipped: [] };
+  const pool = getG5Pool();
+  for (const odId of [...new Set(odIds)]) {
+    const row = await getOrderStatusRow(odId);
+    if (row === null) {
+      result.skipped.push({ odId, reason: 'NOT_FOUND' });
+      continue;
+    }
+    const guard = orderTransitionGuard('완료', row.status, row.settleCase);
+    if (!guard.ok) {
+      result.skipped.push({ odId, reason: guard.reason });
+      continue;
+    }
+    const affected = await changeStatus(odId, '배송', '완료');
+    if (affected === 0) {
+      result.skipped.push({ odId, reason: 'NOT_SHIPPING_STATUS' });
+      continue;
+    }
+    // it_sum_qty 갱신(orderlistupdate.php:125-133) — 완료 카트의 distinct it_id 별 전 주문 합계.
+    const [itemRows] = await pool.query<RowDataPacket[]>(
+      `SELECT DISTINCT it_id FROM g5_shop_cart WHERE od_id = ? AND ct_status = '완료'`,
+      [odId],
+    );
+    for (const it of itemRows) {
+      const itId = String(it.it_id ?? '');
+      await pool.query(
+        `UPDATE g5_shop_item SET it_sum_qty =
+            (SELECT COALESCE(SUM(ct_qty), 0) FROM g5_shop_cart WHERE it_id = ? AND ct_status = '완료')
+          WHERE it_id = ?`,
+        [itId, itId],
+      );
+    }
+    await recomputeOrderMoney(odId);
+    result.processed.push(odId);
+  }
+  return result;
+}
+
+// 미입금 선택삭제 — ⑪ deleteUnpaidOrder 배치화. od 단위 결과(deleted→processed, paid→
+// NOT_ORDER_STATUS, not_found→NOT_FOUND). 백업(serialize)→cart 소프트삭제→order DELETE.
+export async function deleteOrders(
+  odIds: string[],
+  actorMbId: string,
+  ip: string,
+): Promise<OrderActionResult> {
+  const result: OrderActionResult = { processed: [], skipped: [] };
+  for (const odId of [...new Set(odIds)]) {
+    const outcome = await deleteUnpaidOrder(odId, actorMbId, ip);
+    if (outcome === 'deleted') result.processed.push(odId);
+    else if (outcome === 'paid') result.skipped.push({ odId, reason: 'NOT_ORDER_STATUS' });
+    else result.skipped.push({ odId, reason: 'NOT_FOUND' });
+  }
+  return result;
 }
 
 export async function closeG5Pool(): Promise<void> {
