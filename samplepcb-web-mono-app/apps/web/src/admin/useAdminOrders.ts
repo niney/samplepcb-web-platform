@@ -39,6 +39,15 @@ const ORDER_STATUS_SLUG: Record<string, string> = {
   주문: 'order',
   입금: 'deposit',
   준비: 'ready',
+  // PCB 제작 단계(레거시 이식) — '준비'와 '배송' 사이.
+  가격확인: 'priceCheck',
+  파일검사: 'fileCheck',
+  EQ: 'eq',
+  생산시작: 'prodStart',
+  생산중: 'producing',
+  품질시험: 'qualityTest',
+  생산완료: 'prodDone',
+  'A/S': 'afterService',
   배송: 'shipping',
   완료: 'done',
   취소: 'cancelled',
@@ -49,19 +58,27 @@ export const orderStatusSlug = (status: string): string | null =>
   ORDER_STATUS_SLUG[status] ?? null;
 
 // 상태 → 뱃지 색. 팔레트(UiBadge)가 4색이라 의미 그룹으로 묶는다:
-// 주문(입금 대기)=amber · 입금/준비/배송(처리 중)=blue · 완료=green · 취소류=gray.
+// 주문(입금 대기)·EQ(고객확인 대기)=amber · 입금/준비/제작단계/배송(처리 중)=blue ·
+// 완료=green · A/S·취소류=gray.
 export type OrderStatusVariant = 'info' | 'warn' | 'success' | 'muted';
 export const orderStatusVariant = (status: string): OrderStatusVariant => {
   switch (status) {
     case '주문':
+    case 'EQ': // 고객 확인 대기 성격 — 주의 색
       return 'warn';
     case '입금':
     case '준비':
+    case '가격확인':
+    case '파일검사':
+    case '생산시작':
+    case '생산중':
+    case '품질시험':
+    case '생산완료':
     case '배송':
       return 'info';
     case '완료':
       return 'success';
-    default:
+    default: // A/S · 취소류
       return 'muted';
   }
 };
@@ -100,11 +117,41 @@ export type CancelItemTarget = (typeof CANCEL_ITEM_TARGETS)[number];
 export const isCancelledItemStatus = (ctStatus: string): boolean =>
   (CANCEL_ITEM_TARGETS as readonly string[]).includes(ctStatus);
 
-// 임의 상태 변경 대상 5종(계약 force-status target). 역방향 포함 강제 점프용.
+// 임의 상태 변경 대상 13종(계약 force-status target — 표준 5 + 제작 8). 역방향 포함 강제 점프용.
 export type OrderForceTarget = AdminOrderForceStatusRequestType['target'];
-export const FORCE_STATUS_TARGETS = ['주문', '입금', '준비', '배송', '완료'] as const;
+export const FORCE_STATUS_TARGETS = [
+  '주문',
+  '입금',
+  '준비',
+  '가격확인',
+  '파일검사',
+  'EQ',
+  '생산시작',
+  '생산중',
+  '품질시험',
+  '생산완료',
+  'A/S',
+  '배송',
+  '완료',
+] as const;
 export const isForceTarget = (s: string): s is OrderForceTarget =>
   (FORCE_STATUS_TARGETS as readonly string[]).includes(s);
+
+// 선형 파이프라인 순서(상태 스텝퍼 표시용) — 주문~완료. 취소/반품/품절·A/S 는 파이프라인 밖(별도 표기).
+export const ORDER_PIPELINE = [
+  '주문',
+  '입금',
+  '준비',
+  '가격확인',
+  '파일검사',
+  'EQ',
+  '생산시작',
+  '생산중',
+  '품질시험',
+  '생산완료',
+  '배송',
+  '완료',
+] as const;
 
 // 준비 탭 운송장 인라인 입력 행(로컬 상태). invoiceTime 은 datetime-local 문자열('YYYY-MM-DDThh:mm').
 export interface DeliveryInput {

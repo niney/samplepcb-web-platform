@@ -46,6 +46,31 @@ if (!defined("_ORDERINQUIRY_")) exit; // 개별 페이지 접근 불가
             case '준비':
                 $od_status = '<span class="status_03">상품준비중</span>';
                 break;
+            // PCB 제작 단계(레거시 이식) — 고객노출 라벨은 korForCustomer, 색은 '진행 중'(status_03) 공용.
+            case '가격확인':
+                $od_status = '<span class="status_03">상품준비중</span>';
+                break;
+            case '파일검사':
+                $od_status = '<span class="status_03">파일검사</span>';
+                break;
+            case 'EQ':
+                $od_status = '<span class="status_03">EQ</span>';
+                break;
+            case '생산시작':
+                $od_status = '<span class="status_03">생산시작</span>';
+                break;
+            case '생산중':
+                $od_status = '<span class="status_03">생산중</span>';
+                break;
+            case '품질시험':
+                $od_status = '<span class="status_03">품질시험</span>';
+                break;
+            case '생산완료':
+                $od_status = '<span class="status_03">생산완료</span>';
+                break;
+            case 'A/S':
+                $od_status = '<span class="status_03">A/S</span>';
+                break;
             case '배송':
                 $od_status = '<span class="status_04">상품배송</span>';
                 break;

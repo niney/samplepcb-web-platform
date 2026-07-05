@@ -21,10 +21,10 @@ const props = defineProps<{
 const emit = defineEmits<{ done: []; clear: []; openDelete: []; openExcel: [] }>();
 const { t } = useI18n();
 
-// 탭 → 전이 액션. notify(메일/SMS 노출) 는 target ∈ {입금,배송} 전이에만(코어가 그 전이만 알림).
-//   주문 탭 → [입금 처리](target 입금, notify) + [선택 삭제]
-//   입금 탭 → [준비 처리]          준비 탭 → [배송 처리](notify) + [엑셀배송]      배송 탭 → [완료 처리]
-//   전체/완료/취소/부분취소 탭 → 액션 없음
+// 탭 → 전이 액션(선형 체인). notify(메일/SMS 노출) 는 target ∈ {입금,배송} 전이에만(코어가 그 전이만 알림).
+//   주문→[입금](notify)+[삭제] · 입금→[준비] · 준비→[가격확인] · …제작 단계 순차… ·
+//   생산완료→[배송](notify)+[엑셀배송] · 배송→[완료]
+//   전체/완료/취소/부분취소/A/S 탭 → 액션 없음(A/S 는 force-status 전용)
 interface TabAction {
   target: AdminOrderStatusRequestType['target'];
   labelKey: string;
@@ -35,7 +35,14 @@ interface TabAction {
 const TAB_ACTION: Partial<Record<AdminOrderTabType, TabAction>> = {
   주문: { target: '입금', labelKey: 'toDeposit', notify: true, canDelete: true, excel: false },
   입금: { target: '준비', labelKey: 'toReady', notify: false, canDelete: false, excel: false },
-  준비: { target: '배송', labelKey: 'toShipping', notify: true, canDelete: false, excel: true },
+  준비: { target: '가격확인', labelKey: 'toPriceCheck', notify: false, canDelete: false, excel: false },
+  가격확인: { target: '파일검사', labelKey: 'toFileCheck', notify: false, canDelete: false, excel: false },
+  파일검사: { target: 'EQ', labelKey: 'toEq', notify: false, canDelete: false, excel: false },
+  EQ: { target: '생산시작', labelKey: 'toProdStart', notify: false, canDelete: false, excel: false },
+  생산시작: { target: '생산중', labelKey: 'toProducing', notify: false, canDelete: false, excel: false },
+  생산중: { target: '품질시험', labelKey: 'toQualityTest', notify: false, canDelete: false, excel: false },
+  품질시험: { target: '생산완료', labelKey: 'toProdDone', notify: false, canDelete: false, excel: false },
+  생산완료: { target: '배송', labelKey: 'toShipping', notify: true, canDelete: false, excel: true },
   배송: { target: '완료', labelKey: 'toDone', notify: false, canDelete: false, excel: false },
 };
 const action = computed<TabAction | undefined>(() => TAB_ACTION[props.tab]);

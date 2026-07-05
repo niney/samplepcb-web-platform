@@ -43,7 +43,7 @@ const filters = ref<AdminOrderFilters>({
 const { data, isFetching } = useAdminOrderList(filters);
 const selectedOdId = ref<string | null>(null);
 
-// 배치 선택 + 준비 탭 운송장 인라인 입력(부모 소유). lastCompany = 직전 입력 배송회사(다음 행 기본값).
+// 배치 선택 + 생산완료 탭 운송장 인라인 입력(부모 소유). lastCompany = 직전 입력 배송회사(다음 행 기본값).
 const selectedIds = ref<string[]>([]);
 const deliveryInputs = ref<Record<string, DeliveryInput>>({});
 const lastCompany = ref('');
@@ -80,11 +80,11 @@ const updateDelivery = (odId: string, field: keyof DeliveryInput, value: string)
   if (field === 'deliveryCompany' && value.trim() !== '') lastCompany.value = value;
 };
 
-// 준비 탭 진입/목록 변경 시 각 행 운송장 입력 기본값 채움(배송일시=현재, 배송회사=기존값 또는 직전 입력).
+// 생산완료 탭 진입/목록 변경 시 각 행 운송장 입력 기본값 채움(배송일시=현재, 배송회사=기존값 또는 직전 입력).
 watch(
   [() => data.value?.data.items, () => filters.value.tab],
   ([items, tab]) => {
-    if (tab !== '준비' || items === undefined) return;
+    if (tab !== '생산완료' || items === undefined) return;
     const next = { ...deliveryInputs.value };
     for (const it of items) {
       if (next[it.odId] === undefined) {

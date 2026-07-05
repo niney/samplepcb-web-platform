@@ -6,6 +6,7 @@ import type {
   AdminOrderDetailOrderType,
   AdminOrderForceStatusRequestType,
   AdminOrderInfoBodyType,
+  AdminOrderStatusRequestType,
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -38,6 +39,7 @@ import OrderActionResult from './OrderActionResult.vue';
 import OrderPrintModal from './OrderPrintModal.vue';
 import OrderItemCancelModal from './OrderItemCancelModal.vue';
 import OrderForceStatusModal from './OrderForceStatusModal.vue';
+import OrderStatusStepper from './OrderStatusStepper.vue';
 
 // 주문 상세 드로어(우측 슬라이드 오버, 와이드 2컬럼). odId=null 이면 닫힘. 읽기 + 부분 편집
 // (주문자/받는분/배송지/메모/무통장 입금 조정) + 드로어 내 다음 단계 상태 처리 + 주문서 인쇄.
@@ -447,10 +449,10 @@ const submitReceipt = (): void => {
 };
 
 // ── 다음 단계 상태 처리 ──────────────────────────────────────────────────────
-// 현재 상태 → 다음 전이. notify(메일/SMS) 는 target ∈ {입금,배송} 만. 입금 처리는 무통장 한정
-// (그 외 결제는 PG 입금이 자동). 준비→배송은 delivery 필수. 취소/완료 등은 처리 없음.
+// 현재 상태 → 다음 전이(선형 체인). notify(메일/SMS) 는 target ∈ {입금,배송} 만. 입금 처리는 무통장
+// 한정(그 외 결제는 PG 입금이 자동). 생산완료→배송은 delivery 필수. 취소/완료/A/S 등은 처리 없음.
 interface NextAction {
-  target: '입금' | '준비' | '배송' | '완료';
+  target: AdminOrderStatusRequestType['target'];
   labelKey: string;
   notify: boolean;
   needsDelivery: boolean;
@@ -459,7 +461,14 @@ interface NextAction {
 const NEXT_ACTION: Record<string, NextAction> = {
   주문: { target: '입금', labelKey: 'toDeposit', notify: true, needsDelivery: false, bankOnly: true },
   입금: { target: '준비', labelKey: 'toReady', notify: false, needsDelivery: false, bankOnly: false },
-  준비: { target: '배송', labelKey: 'toShipping', notify: true, needsDelivery: true, bankOnly: false },
+  준비: { target: '가격확인', labelKey: 'toPriceCheck', notify: false, needsDelivery: false, bankOnly: false },
+  가격확인: { target: '파일검사', labelKey: 'toFileCheck', notify: false, needsDelivery: false, bankOnly: false },
+  파일검사: { target: 'EQ', labelKey: 'toEq', notify: false, needsDelivery: false, bankOnly: false },
+  EQ: { target: '생산시작', labelKey: 'toProdStart', notify: false, needsDelivery: false, bankOnly: false },
+  생산시작: { target: '생산중', labelKey: 'toProducing', notify: false, needsDelivery: false, bankOnly: false },
+  생산중: { target: '품질시험', labelKey: 'toQualityTest', notify: false, needsDelivery: false, bankOnly: false },
+  품질시험: { target: '생산완료', labelKey: 'toProdDone', notify: false, needsDelivery: false, bankOnly: false },
+  생산완료: { target: '배송', labelKey: 'toShipping', notify: true, needsDelivery: true, bankOnly: false },
   배송: { target: '완료', labelKey: 'toDone', notify: false, needsDelivery: false, bankOnly: false },
 };
 const nextAction = computed<NextAction | null>(() => {
@@ -686,6 +695,8 @@ const inputClass =
                       {{ order.settleCase !== '' ? order.settleCase : t('admin.orders.drawer.noSettle') }}
                     </span>
                   </div>
+                  <!-- 상태 진행 스텝퍼(선형 파이프라인 상 현재 위치) -->
+                  <OrderStatusStepper :status="order.status" class="mt-3" />
                   <dl
                     v-if="order.payment.pg !== '' || order.payment.tno !== '' || order.payment.appNo !== ''"
                     class="mt-3 grid grid-cols-3 gap-x-4 gap-y-1 text-sm"

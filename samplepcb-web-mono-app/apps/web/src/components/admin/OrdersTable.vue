@@ -162,9 +162,9 @@ const totals = computed(() =>
           <td class="px-3 py-2 text-gray-600">
             {{ item.settleCase !== '' ? item.settleCase : '-' }}
           </td>
-          <!-- 운송장 — 준비 탭은 인라인 입력(배송회사/운송장번호/배송일시), 그 외는 읽기 -->
+          <!-- 운송장 — 생산완료 탭은 인라인 입력(배송회사/운송장번호/배송일시), 그 외는 읽기 -->
           <td class="px-3 py-2" @click.stop>
-            <div v-if="props.tab === '준비'" class="flex flex-col gap-1">
+            <div v-if="props.tab === '생산완료'" class="flex flex-col gap-1">
               <input
                 type="text"
                 :value="companyOf(item.odId)"

@@ -38,8 +38,8 @@ import {
   setOrderItemsStatus,
   setOrdersComplete,
   setOrdersDelivery,
-  setOrdersPreparing,
   setOrdersReceipt,
+  setOrdersStage,
   updateOrderInfo,
   updateOrderReceipt,
   updateOrderShopMemo,
@@ -309,7 +309,15 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           action = await setOrdersReceipt(odIds);
           break;
         case '준비':
-          action = await setOrdersPreparing(odIds);
+        case '가격확인':
+        case '파일검사':
+        case 'EQ':
+        case '생산시작':
+        case '생산중':
+        case '품질시험':
+        case '생산완료':
+          // 부수효과 없는 단순 선형 전이(입금→준비, 제작 7단계 간). 알림 미발송.
+          action = await setOrdersStage(odIds, target);
           break;
         case '배송': {
           // 선택 odIds ↔ 운송장 행 매칭. 행 없거나 3필드 미비 → MISSING_INVOICE(전이 전 skip).

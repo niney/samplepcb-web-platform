@@ -25,6 +25,15 @@ export const AdminOrderTab = z.enum([
   '주문',
   '입금',
   '준비',
+  // PCB 제작 단계(레거시 이식) — '준비'와 '배송' 사이. g5-db OrderTab 과 순서·집합 동기.
+  '가격확인',
+  '파일검사',
+  'EQ',
+  '생산시작',
+  '생산중',
+  '품질시험',
+  '생산완료',
+  'A/S',
   '배송',
   '완료',
   '취소',
@@ -81,6 +90,15 @@ export const AdminOrderCounts = z.object({
   주문: z.number(),
   입금: z.number(),
   준비: z.number(),
+  // PCB 제작 단계 — g5-db OrderCounts(Record<OrderTab>) 와 키 1:1 동기(불일치 시 직렬화 탈락→0).
+  가격확인: z.number(),
+  파일검사: z.number(),
+  EQ: z.number(),
+  생산시작: z.number(),
+  생산중: z.number(),
+  품질시험: z.number(),
+  생산완료: z.number(),
+  'A/S': z.number(),
   배송: z.number(),
   완료: z.number(),
   취소: z.number(),
@@ -243,7 +261,20 @@ export type AdminOrderDeliveryRowType = z.infer<typeof AdminOrderDeliveryRow>;
 // 전이에선 알림을 보내지 않음. 브리지 gating 은 라우트가 담당).
 export const AdminOrderStatusRequest = z
   .object({
-    target: z.enum(['입금', '준비', '배송', '완료']),
+    // 표준 + 제작 7단계 선형 전이(A/S 제외 — force-status 전용). g5-db OrderTransitionTarget 과 동기.
+    target: z.enum([
+      '입금',
+      '준비',
+      '가격확인',
+      '파일검사',
+      'EQ',
+      '생산시작',
+      '생산중',
+      '품질시험',
+      '생산완료',
+      '배송',
+      '완료',
+    ]),
     odIds: z.array(z.string().min(1).max(20)).min(1),
     sendMail: z.boolean().default(false),
     sendSms: z.boolean().default(false),
@@ -402,7 +433,22 @@ export type AdminOrderItemActionResponseType = z.infer<typeof AdminOrderItemActi
 // 허용). 운송장은 스톡이 요구하지 않아 **optional(refine 없음)** — target='배송'에 delivery 제공 시
 // 만 od_delivery_company/od_invoice/od_invoice_time 반영(contract 필드 존중). 응답은 { odId }(FE refetch).
 export const AdminOrderForceStatusRequest = z.object({
-  target: z.enum(['주문', '입금', '준비', '배송', '완료']),
+  // 제작 8단계(가격확인~A/S) 포함 — g5-db OrderForceStatusTarget 과 동기. 전환 허용의 게이트.
+  target: z.enum([
+    '주문',
+    '입금',
+    '준비',
+    '가격확인',
+    '파일검사',
+    'EQ',
+    '생산시작',
+    '생산중',
+    '품질시험',
+    '생산완료',
+    'A/S',
+    '배송',
+    '완료',
+  ]),
   delivery: z
     .object({
       deliveryCompany: z.string().min(1),

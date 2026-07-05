@@ -7,6 +7,7 @@ import {
   matchDeliveryRows,
   orderTransitionGuard,
   phpRound,
+  PRODUCTION_STATUSES,
   resolveForceStatusStock,
   resolveItemCancelSkip,
   resolveOrderSort,
@@ -59,12 +60,26 @@ describe('buildOrderTabCond — 탭 8종(배타 조건)', () => {
     expect(buildOrderTabCond('취소')).toEqual({ conds: ['od_status = ?'], values: ['취소'] });
   });
 
-  it("'부분취소' 는 진행상태 IN + od_cancel_price>0", () => {
+  it("'부분취소' 는 진행상태 IN(표준 5 + 제작 8) + od_cancel_price>0", () => {
     const r = buildOrderTabCond('부분취소');
     expect(r.conds).toEqual([
-      'od_status IN (?, ?, ?, ?, ?) AND od_cancel_price > 0',
+      'od_status IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) AND od_cancel_price > 0',
     ]);
-    expect(r.values).toEqual(['주문', '입금', '준비', '배송', '완료']);
+    expect(r.values).toEqual([
+      '주문',
+      '입금',
+      '준비',
+      '가격확인',
+      '파일검사',
+      'EQ',
+      '생산시작',
+      '생산중',
+      '품질시험',
+      '생산완료',
+      'A/S',
+      '배송',
+      '완료',
+    ]);
   });
 });
 
@@ -158,9 +173,24 @@ describe('buildOrderListWhere — base + 탭 결합', () => {
   it('부분취소 탭은 base 뒤에 IN + cancel_price 조건', () => {
     const r = buildOrderListWhere(base({ tab: '부분취소', qField: 'mb_id', q: 'user1' }));
     expect(r.sql).toBe(
-      'WHERE mb_id LIKE ? AND od_status IN (?, ?, ?, ?, ?) AND od_cancel_price > 0',
+      'WHERE mb_id LIKE ? AND od_status IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) AND od_cancel_price > 0',
     );
-    expect(r.values).toEqual(['%user1%', '주문', '입금', '준비', '배송', '완료']);
+    expect(r.values).toEqual([
+      '%user1%',
+      '주문',
+      '입금',
+      '준비',
+      '가격확인',
+      '파일검사',
+      'EQ',
+      '생산시작',
+      '생산중',
+      '품질시험',
+      '생산완료',
+      'A/S',
+      '배송',
+      '완료',
+    ]);
   });
 });
 
@@ -262,11 +292,20 @@ describe('orderTransitionGuard — 전이 가드 판정(코어 orderlistupdate.p
       reason: 'NOT_DEPOSIT_STATUS',
     });
   });
-  it('배송: 준비에서만(운송장 유무는 matchDeliveryRows 담당)', () => {
-    expect(orderTransitionGuard('배송', '준비', '')).toEqual({ ok: true });
-    expect(orderTransitionGuard('배송', '입금', '')).toEqual({
+  it('배송: 생산완료에서만(운송장 유무는 matchDeliveryRows 담당)', () => {
+    expect(orderTransitionGuard('배송', '생산완료', '')).toEqual({ ok: true });
+    expect(orderTransitionGuard('배송', '준비', '')).toEqual({
       ok: false,
-      reason: 'NOT_READY_STATUS',
+      reason: 'NOT_PREV_STAGE',
+    });
+  });
+  it('제작 단계: 각 직전 단계에서만(선형 체인)', () => {
+    expect(orderTransitionGuard('가격확인', '준비', '')).toEqual({ ok: true });
+    expect(orderTransitionGuard('파일검사', '가격확인', '')).toEqual({ ok: true });
+    expect(orderTransitionGuard('생산완료', '품질시험', '')).toEqual({ ok: true });
+    expect(orderTransitionGuard('가격확인', '입금', '')).toEqual({
+      ok: false,
+      reason: 'NOT_PREV_STAGE',
     });
   });
   it('완료: 배송에서만', () => {
@@ -363,6 +402,13 @@ describe('resolveForceStatusStock — 임의 상태 변경 스톡 판정(정상 
     expect(resolveForceStatusStock('입금', false)).toEqual({ newStockUse: 0, action: 'none' });
     expect(resolveForceStatusStock('준비', true)).toEqual({ newStockUse: 1, action: 'none' });
     expect(resolveForceStatusStock('준비', false)).toEqual({ newStockUse: 0, action: 'none' });
+  });
+  // 제작 단계(가격확인~A/S)는 배송/완료/주문 어디에도 안 걸려 스톡 무변화 — 재고차감은 '배송' 진입에서만.
+  it('제작 단계(가격확인~A/S) → 스톡 무변화', () => {
+    for (const s of PRODUCTION_STATUSES) {
+      expect(resolveForceStatusStock(s, true)).toEqual({ newStockUse: 1, action: 'none' });
+      expect(resolveForceStatusStock(s, false)).toEqual({ newStockUse: 0, action: 'none' });
+    }
   });
   // un-cancel — 취소류 행은 WP6 가 ct_stock_use=0 으로 복원해뒀으므로 stockUsed=false 로 표현된다.
   // 판정 입력은 (target, stockUsed)뿐 — 현재 상태(취소 여부)는 stockUsed 로 이미 반영(문서화 테스트).

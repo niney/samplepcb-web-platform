@@ -873,7 +873,23 @@ export async function updateMemberMemo(mbId: string, memo: string): Promise<numb
 // 파라미터 바인딩(스톡 PHP 는 문자열 보간했지만 우리는 금지). qField·정렬 컬럼은 Zod
 // enum + 아래 화이트리스트로 이중 고정된 상수라 식별자 위치에 안전하게 놓는다.
 
-export type OrderTab = '전체' | '주문' | '입금' | '준비' | '배송' | '완료' | '취소' | '부분취소';
+export type OrderTab =
+  | '전체'
+  | '주문'
+  | '입금'
+  | '준비'
+  | '가격확인'
+  | '파일검사'
+  | 'EQ'
+  | '생산시작'
+  | '생산중'
+  | '품질시험'
+  | '생산완료'
+  | 'A/S'
+  | '배송'
+  | '완료'
+  | '취소'
+  | '부분취소';
 export type OrderSortColumn =
   | 'od_id'
   | 'od_cart_price'
@@ -929,8 +945,25 @@ const ORDER_SORT_COLUMNS = new Set<string>([
 ]);
 // '간편결제' 등호 대신 확장되는 결제수단 집합(코어 orderlist.php:75).
 const SETTLE_SIMPLE_PAY = ['간편결제', '삼성페이', 'lpay', 'inicis_kakaopay'];
-// '부분취소' 판정에 쓰는 진행상태 집합(코어 orderlist.php:50).
-const CANCELABLE_STATUSES = ['주문', '입금', '준비', '배송', '완료'];
+// PCB 제작 단계(레거시 lib/common.lib.php get_order_status_list 이식) — '준비'와 '배송' 사이 커스텀 상태.
+// od_status/ct_status 에 그대로 저장되며 자체 부수 로직은 없다(재고차감·송장은 '배송' 진입에서만).
+export const PRODUCTION_STATUSES = [
+  '가격확인',
+  '파일검사',
+  'EQ',
+  '생산시작',
+  '생산중',
+  '품질시험',
+  '생산완료',
+  'A/S',
+] as const;
+// '정상 진행 중' 주문 상태(표준 5 + 제작 8). 매출/미수 정상합계·'부분취소' 판정·목록 카운트가 공유한다.
+// 취소/반품/품절/쇼핑만 제외 — 리터럴로 흩뿌리면 하나만 빠져도 금액·카운트가 조용히 틀어지므로 이 상수를 참조한다.
+const ACTIVE_ORDER_STATUSES = ['주문', '입금', '준비', ...PRODUCTION_STATUSES, '배송', '완료'] as const;
+// SQL IN(...) 리터럴 조립 — 값이 신뢰 가능한 내부 상수라 식별자 위치에 인라인해도 안전.
+const sqlStatusList = (arr: readonly string[]): string => arr.map((s) => `'${s}'`).join(', ');
+// '부분취소' 판정에 쓰는 진행상태 집합(코어 orderlist.php:50) — 제작 단계도 정상 진행이라 포함한다.
+const CANCELABLE_STATUSES = ACTIVE_ORDER_STATUSES;
 
 // 탭 제외 base 조건(검색·기간·결제수단·플래그) — 목록과 counts 가 공유한다.
 // PHP 원본과 다른 점: fr_date·to_date 를 BETWEEN(둘 다 필수) 대신 각각 >=,<= 로 분리해
@@ -1073,10 +1106,18 @@ const ORDER_COUNTS_SELECT = `COUNT(*) AS all_count,
     SUM(od_status = '주문') AS s_order,
     SUM(od_status = '입금') AS s_deposit,
     SUM(od_status = '준비') AS s_ready,
+    SUM(od_status = '가격확인') AS s_price_check,
+    SUM(od_status = '파일검사') AS s_file_check,
+    SUM(od_status = 'EQ') AS s_eq,
+    SUM(od_status = '생산시작') AS s_prod_start,
+    SUM(od_status = '생산중') AS s_producing,
+    SUM(od_status = '품질시험') AS s_quality_test,
+    SUM(od_status = '생산완료') AS s_prod_done,
+    SUM(od_status = 'A/S') AS s_as,
     SUM(od_status = '배송') AS s_ship,
     SUM(od_status = '완료') AS s_done,
     SUM(od_status = '취소') AS s_cancel,
-    SUM(od_status IN ('주문', '입금', '준비', '배송', '완료') AND od_cancel_price > 0) AS s_pcancel`;
+    SUM(od_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)}) AND od_cancel_price > 0) AS s_pcancel`;
 
 // '' → null 정규화(빈 문자열 varchar 컬럼). 경계에서 String() 으로 좁힌 뒤 넘긴다.
 const emptyToNull = (s: string): string | null => (s === '' ? null : s);
@@ -1123,6 +1164,14 @@ export async function searchOrders(params: SearchOrdersParams): Promise<SearchOr
     주문: Number(cr?.s_order ?? 0),
     입금: Number(cr?.s_deposit ?? 0),
     준비: Number(cr?.s_ready ?? 0),
+    가격확인: Number(cr?.s_price_check ?? 0),
+    파일검사: Number(cr?.s_file_check ?? 0),
+    EQ: Number(cr?.s_eq ?? 0),
+    생산시작: Number(cr?.s_prod_start ?? 0),
+    생산중: Number(cr?.s_producing ?? 0),
+    품질시험: Number(cr?.s_quality_test ?? 0),
+    생산완료: Number(cr?.s_prod_done ?? 0),
+    'A/S': Number(cr?.s_as ?? 0),
     배송: Number(cr?.s_ship ?? 0),
     완료: Number(cr?.s_done ?? 0),
     취소: Number(cr?.s_cancel ?? 0),
@@ -1325,7 +1374,7 @@ export async function getDeliveryExcelRows(): Promise<DeliveryExcelRow[]> {
             od_b_addr1, od_b_addr2, od_b_addr3, od_b_addr_jibeon,
             od_delivery_company, od_invoice
        FROM g5_shop_order
-      WHERE od_status = '준비' AND od_misu = 0
+      WHERE od_status = '생산완료' AND od_misu = 0
       ORDER BY od_id DESC`,
   );
   return rows.map((r) => ({
@@ -1349,7 +1398,20 @@ export async function getDeliveryExcelRows(): Promise<DeliveryExcelRow[]> {
 // 레거시 adm/shop_admin/orderlistupdate.php(일괄 상태 전이)·orderlistdelete.php(미입금 선택삭제)
 // 이식. 메일/SMS 는 여기서 하지 않는다(PHP 브리지 spcb/api/order-notify.php 재사용 — 라우트가 호출).
 
-export type OrderTransitionTarget = '입금' | '준비' | '배송' | '완료';
+// 선형 전이 target — 표준 흐름 + 제작 7단계(A/S 제외 — A/S 는 사후 단계라 force-status 전용).
+// 체인: 주문→입금→준비→가격확인→파일검사→EQ→생산시작→생산중→품질시험→생산완료→배송→완료.
+export type OrderTransitionTarget =
+  | '입금'
+  | '준비'
+  | '가격확인'
+  | '파일검사'
+  | 'EQ'
+  | '생산시작'
+  | '생산중'
+  | '품질시험'
+  | '생산완료'
+  | '배송'
+  | '완료';
 
 export type OrderActionReason =
   | 'NOT_FOUND'
@@ -1358,7 +1420,8 @@ export type OrderActionReason =
   | 'NOT_READY_STATUS'
   | 'NOT_SHIPPING_STATUS'
   | 'NOT_BANK_TRANSFER'
-  | 'MISSING_INVOICE';
+  | 'MISSING_INVOICE'
+  | 'NOT_PREV_STAGE'; // 제작 단계·배송 전이에서 직전 단계가 아님
 
 // od 단위 독립 처리 결과 — 성공(processed)·가드 위반(skipped). 하나 실패해도 나머지 진행.
 export interface OrderActionResult {
@@ -1373,7 +1436,16 @@ const TRANSITION_REQUIRED_STATUS: Record<
 > = {
   입금: { from: '주문', reason: 'NOT_ORDER_STATUS' },
   준비: { from: '입금', reason: 'NOT_DEPOSIT_STATUS' },
-  배송: { from: '준비', reason: 'NOT_READY_STATUS' },
+  // 제작 7단계 선형 체인(각 직전 단계에서만) — reason 은 공용 NOT_PREV_STAGE.
+  가격확인: { from: '준비', reason: 'NOT_PREV_STAGE' },
+  파일검사: { from: '가격확인', reason: 'NOT_PREV_STAGE' },
+  EQ: { from: '파일검사', reason: 'NOT_PREV_STAGE' },
+  생산시작: { from: 'EQ', reason: 'NOT_PREV_STAGE' },
+  생산중: { from: '생산시작', reason: 'NOT_PREV_STAGE' },
+  품질시험: { from: '생산중', reason: 'NOT_PREV_STAGE' },
+  생산완료: { from: '품질시험', reason: 'NOT_PREV_STAGE' },
+  // 배송은 이제 '생산완료' 다음(기존 '준비'에서 이동) — 운송장·재고차감은 여기서.
+  배송: { from: '생산완료', reason: 'NOT_PREV_STAGE' },
   완료: { from: '배송', reason: 'NOT_SHIPPING_STATUS' },
 };
 
@@ -1507,7 +1579,7 @@ async function recomputeOrderMoney(odId: string): Promise<void> {
         SUM(IF(ct_notax = 0, (IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty)) - cp_price), 0)) AS tax_mny,
         SUM(IF(ct_notax = 1, (IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty)) - cp_price), 0)) AS free_mny
        FROM g5_shop_cart
-      WHERE od_id = ? AND ct_status IN ('주문', '입금', '준비', '배송', '완료')`,
+      WHERE od_id = ? AND ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)})`,
     [odId],
   );
   const agg = aggRows[0];
@@ -1596,8 +1668,14 @@ export async function setOrdersReceipt(odIds: string[]): Promise<OrderActionResu
   return result;
 }
 
-// 입금→준비 — change_status + 미수금 재계산. (코어는 이 전이에서 알림 미발송.)
-export async function setOrdersPreparing(odIds: string[]): Promise<OrderActionResult> {
+// 부수효과 없는 단순 선형 전이(입금→준비, 제작 7단계 간) — guard + changeStatus(직전→target) +
+// 미수금 재계산. 부수효과가 있는 전이(입금=수납/배송=운송장·재고/완료=판매통계)는 전용 함수를 쓴다.
+// 코어는 이 전이들에서 알림 미발송(라우트가 notify 안 함). 라우트가 준비·제작 7단계만 이 함수로 dispatch.
+export async function setOrdersStage(
+  odIds: string[],
+  target: OrderTransitionTarget,
+): Promise<OrderActionResult> {
+  const req = TRANSITION_REQUIRED_STATUS[target];
   const result: OrderActionResult = { processed: [], skipped: [] };
   for (const odId of [...new Set(odIds)]) {
     const row = await getOrderStatusRow(odId);
@@ -1605,14 +1683,14 @@ export async function setOrdersPreparing(odIds: string[]): Promise<OrderActionRe
       result.skipped.push({ odId, reason: 'NOT_FOUND' });
       continue;
     }
-    const guard = orderTransitionGuard('준비', row.status, row.settleCase);
+    const guard = orderTransitionGuard(target, row.status, row.settleCase);
     if (!guard.ok) {
       result.skipped.push({ odId, reason: guard.reason });
       continue;
     }
-    const affected = await changeStatus(odId, '입금', '준비');
+    const affected = await changeStatus(odId, req.from, target);
     if (affected === 0) {
-      result.skipped.push({ odId, reason: 'NOT_DEPOSIT_STATUS' });
+      result.skipped.push({ odId, reason: req.reason }); // 레이스 — 이미 상태 변경됨
       continue;
     }
     await recomputeOrderMoney(odId);
@@ -1641,11 +1719,11 @@ export async function setOrdersDelivery(rows: DeliveryInput[]): Promise<OrderAct
     const [upd] = await pool.query<ResultSetHeader>(
       `UPDATE g5_shop_order
           SET od_delivery_company = ?, od_invoice = ?, od_invoice_time = ?
-        WHERE od_id = ? AND od_status = '준비'`,
+        WHERE od_id = ? AND od_status = '생산완료'`,
       [d.deliveryCompany, d.invoiceNo, d.invoiceTime, d.odId],
     );
     if (upd.affectedRows === 0) {
-      result.skipped.push({ odId: d.odId, reason: 'NOT_READY_STATUS' }); // 레이스
+      result.skipped.push({ odId: d.odId, reason: 'NOT_PREV_STAGE' }); // 레이스
       continue;
     }
     // 재고차감 loop — !ct_stock_use 인 카트 행만. io_id 있으면 per-quote 옵션 행(9999999) 감소,
@@ -1905,10 +1983,10 @@ async function recomputeOrderMoneyOnItemChange(odId: string): Promise<void> {
   // 활성(주문~완료) 집계 + 취소류 집계 — get_order_info(:1668-1674, :1767-1772) 미러(한 쿼리 조건합).
   const [aggRows] = await pool.query<RowDataPacket[]>(
     `SELECT
-        SUM(IF(ct_status IN ('주문','입금','준비','배송','완료'), ${CART_LINE_VALUE_SQL}, 0)) AS active_price,
-        SUM(IF(ct_status IN ('주문','입금','준비','배송','완료'), cp_price, 0)) AS active_coupon,
-        SUM(IF(ct_status IN ('주문','입금','준비','배송','완료') AND ct_notax = 0, ${CART_LINE_VALUE_SQL} - cp_price, 0)) AS tax_mny,
-        SUM(IF(ct_status IN ('주문','입금','준비','배송','완료') AND ct_notax = 1, ${CART_LINE_VALUE_SQL} - cp_price, 0)) AS free_mny,
+        SUM(IF(ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)}), ${CART_LINE_VALUE_SQL}, 0)) AS active_price,
+        SUM(IF(ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)}), cp_price, 0)) AS active_coupon,
+        SUM(IF(ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)}) AND ct_notax = 0, ${CART_LINE_VALUE_SQL} - cp_price, 0)) AS tax_mny,
+        SUM(IF(ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)}) AND ct_notax = 1, ${CART_LINE_VALUE_SQL} - cp_price, 0)) AS free_mny,
         SUM(IF(ct_status IN ('취소','반품','품절'), ${CART_LINE_VALUE_SQL}, 0)) AS cancel_price
        FROM g5_shop_cart WHERE od_id = ?`,
     [odId],
@@ -2067,7 +2145,20 @@ export async function setOrderItemsStatus(
 // 스톡 실동작이 유일한 앵커(코어 정상 분기가 하는 것만): 결제수단 가드 없음·운송장 요구 없음·
 // od_mod_history append 없음(mod_history 는 취소 블록·수량변경에서만 채워짐 — 정상 전이는 '').
 
-export type OrderForceStatusTarget = '주문' | '입금' | '준비' | '배송' | '완료';
+export type OrderForceStatusTarget =
+  | '주문'
+  | '입금'
+  | '준비'
+  | '가격확인'
+  | '파일검사'
+  | 'EQ'
+  | '생산시작'
+  | '생산중'
+  | '품질시험'
+  | '생산완료'
+  | 'A/S'
+  | '배송'
+  | '완료';
 export type ForceStockAction = 'subtract' | 'restore' | 'none';
 
 // force-status 스톡 판정(순수, orderformcartupdate.php:78-129 정상 분기 미러). 배송/완료 진입 시
@@ -2096,7 +2187,7 @@ export type ForceStatusOutcome = 'ok' | 'HAS_POINT';
 // force-status 대상 라인 상태 집합 — 쇼핑/삭제만 제외(취소류 포함). 취소류 행에 정상 상태를 걸면
 // 코어 정상 분기가 **un-cancel**(행 복귀) 역할을 한다(관리자가 취소 행 체크 + '주문' 선택). 취소류를
 // 빼면 전량취소 주문에 force-status 시 od_status 만 바뀌고 카트행은 취소로 남는 불일치가 생긴다.
-const FORCE_STATUS_LINE_IN = `ct_status IN ('주문','입금','준비','배송','완료','취소','반품','품절')`;
+const FORCE_STATUS_LINE_IN = `ct_status IN (${sqlStatusList([...ACTIVE_ORDER_STATUSES, '취소', '반품', '품절'])})`;
 
 // 주문 라인(쇼핑/삭제 제외)을 target 으로 일괄 전이 + od_status=target. HAS_POINT(포인트 딸린 행)면
 // 전체 거부(PCB ct_point=0 이라 미발생 — 구주문 유입 안전판, PHP 관리자 위임). 미존재 404 는 라우트가 처리.

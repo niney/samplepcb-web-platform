@@ -2,7 +2,7 @@
 import { useI18n } from 'vue-i18n';
 import type { AdminOrderCountsType, AdminOrderTabType } from '@sp/api-contract';
 
-// 주문상태 탭 — 계약 AdminOrderTab 8종(한글 리터럴). 값은 그대로 필터/카운트 키로 쓰되,
+// 주문상태 탭 — 계약 AdminOrderTab 16종(표준 8 + 제작 8, 한글 리터럴). 값은 그대로 필터/카운트 키로 쓰되,
 // i18n 라벨은 영문 스텁 대비를 위해 slug 로 우회한다. counts 는 탭 미반영 분포라
 // 탭을 오가도 숫자가 유지된다(견적·회원 관리 관례).
 const props = defineProps<{ tab: AdminOrderTabType; counts: AdminOrderCountsType | undefined }>();
@@ -14,6 +14,15 @@ const TABS: { key: AdminOrderTabType; slug: string }[] = [
   { key: '주문', slug: 'order' },
   { key: '입금', slug: 'deposit' },
   { key: '준비', slug: 'ready' },
+  // PCB 제작 단계(레거시 이식) — '준비'와 '배송' 사이.
+  { key: '가격확인', slug: 'priceCheck' },
+  { key: '파일검사', slug: 'fileCheck' },
+  { key: 'EQ', slug: 'eq' },
+  { key: '생산시작', slug: 'prodStart' },
+  { key: '생산중', slug: 'producing' },
+  { key: '품질시험', slug: 'qualityTest' },
+  { key: '생산완료', slug: 'prodDone' },
+  { key: 'A/S', slug: 'afterService' },
   { key: '배송', slug: 'shipping' },
   { key: '완료', slug: 'done' },
   { key: '취소', slug: 'cancelled' },
