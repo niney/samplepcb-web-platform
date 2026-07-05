@@ -11,6 +11,7 @@ import {
   AdminOrderItemStatusRequest,
   AdminOrderListQuery,
   AdminOrderListResponse,
+  AdminNotifyConfigResponse,
   AdminOrderMemoBody,
   AdminOrderPrintResponse,
   AdminOrderReceiptBody,
@@ -28,6 +29,7 @@ import {
   getCartRowsByOdId,
   getDeliveryExcelRows,
   getMemberOrderCounts,
+  getNotifyConfig,
   getOrderRow,
   getShopEstimateProfile,
   matchDeliveryRows,
@@ -373,6 +375,19 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
   // 레거시 orderdeliveryexcel.php 이식. od_status='준비' AND od_misu=0 주문 전체(페이지네이션
   // 없음)를 xlsx 로. od_id 는 문자열 셀(빅넘버 깨짐 방지). 응답은 바이너리라 스키마 없음.
   // 레거시(.xls/Excel5) 대비 **.xlsx(exceljs)** 로 포맷 상향 — 업로드 파서도 xlsx 를 읽는다.
+  // ── GET /api/admin/orders/notify-config — 메일/SMS 발송 설정(체크박스 노출 게이트) ──
+  // 코어 orderform.php 의 설정 게이트를 목록·상세 공통으로 이식. SMS 는 실발송(order-notify.php)과
+  // 동일 조건(cf_sms_use==='icode' + de_sms_use4/5)으로 계산됨(g5-db getNotifyConfig). read-only.
+  // 정적 경로라 '/orders/:odId' 보다 우선 매칭된다(delivery-excel 과 동일 그룹).
+  fastify.get(
+    '/orders/notify-config',
+    { schema: { response: { 200: AdminNotifyConfigResponse } } },
+    async () => {
+      const cfg = await getNotifyConfig();
+      return { result: true as const, data: cfg };
+    },
+  );
+
   fastify.get('/orders/delivery-excel', async (_request, reply) => {
     const rows = await getDeliveryExcelRows();
     const buffer = await buildDeliveryWorkbook(rows);

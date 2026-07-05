@@ -1,6 +1,7 @@
 import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  AdminNotifyConfigResponse,
   AdminOrderActionResponse,
   AdminOrderDetailResponse,
   AdminOrderEditResponse,
@@ -10,6 +11,7 @@ import {
   apiRoutes,
 } from '@sp/api-contract';
 import type {
+  AdminNotifyConfigResponseType,
   AdminOrderForceStatusRequestType,
   AdminOrderInfoBodyType,
   AdminOrderItemStatusRequestType,
@@ -203,6 +205,27 @@ export function useAdminOrderDetail(odId: Ref<string | null>) {
     enabled: computed(() => odId.value !== null),
   });
 }
+
+// 메일/SMS 발송 설정(체크박스 노출 게이트) — 코어 orderform.php(:717·825·851) 게이트를 목록·
+// 상세 공통으로 이식. 거의 불변이라 오래 캐시(staleTime). 설정 미로딩/꺼짐이면 게이트가 false 라
+// 체크박스가 숨는다(코어 상세 동작과 동일 + 실발송 정합).
+export function useAdminNotifyConfig() {
+  return useQuery({
+    queryKey: ['admin', 'orders', 'notify-config'],
+    queryFn: () => apiGet(`${apiRoutes.adminOrders}/notify-config`, AdminNotifyConfigResponse),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// 전이 target 별 SMS 체크박스 노출 가능 여부. notify 전이는 입금·배송뿐이라 입금=deposit,
+// 그 외(배송)=shipping. cfg 미로딩(undefined)이면 false(안전 — 숨김).
+export const smsAvailableForTarget = (
+  cfg: AdminNotifyConfigResponseType['data'] | undefined,
+  target: string,
+): boolean => {
+  if (cfg === undefined) return false;
+  return target === '입금' ? cfg.smsDepositAvailable : cfg.smsShippingAvailable;
+};
 
 // 상태 일괄 전이(입금/준비/배송/완료) — 성공 시 ['admin','orders'] 접두 무효화(목록 counts·상세 갱신).
 export function useOrderStatusMutation() {

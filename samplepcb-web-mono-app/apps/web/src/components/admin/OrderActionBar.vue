@@ -3,7 +3,9 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AdminOrderStatusRequestType, AdminOrderTabType } from '@sp/api-contract';
 import {
+  smsAvailableForTarget,
   toG5DateTime,
+  useAdminNotifyConfig,
   useOrderStatusMutation,
   type DeliveryInput,
 } from '../../admin/useAdminOrders';
@@ -41,6 +43,15 @@ const action = computed<TabAction | undefined>(() => TAB_ACTION[props.tab]);
 const sendMail = ref(false);
 const sendSms = ref(false);
 const localError = ref<string | null>(null);
+
+// 메일/SMS 발송 설정 게이트 — 코어 orderform.php 처럼 설정이 켜진 채널만 체크박스 노출.
+// mail=cf_email_use, sms=전이별(입금/배송) available(실발송 정합). 미로딩/꺼짐이면 숨김.
+const { data: notifyConfig } = useAdminNotifyConfig();
+const notifyData = computed(() => notifyConfig.value?.data);
+const mailAvailable = computed<boolean>(() => notifyData.value?.mailAvailable ?? false);
+const smsAvailable = computed<boolean>(() =>
+  action.value === undefined ? false : smsAvailableForTarget(notifyData.value, action.value.target),
+);
 
 const { mutate, data, isPending, reset } = useOrderStatusMutation();
 const resultData = computed(() => data.value?.data ?? null);
@@ -142,11 +153,11 @@ const submit = (): void => {
         >
           {{ t('admin.orders.action.delete') }}
         </button>
-        <label v-if="action.notify" class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
+        <label v-if="action.notify && mailAvailable" class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
           <input v-model="sendMail" type="checkbox" class="rounded border-gray-300">
           {{ t('admin.orders.action.sendMail') }}
         </label>
-        <label v-if="action.notify" class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
+        <label v-if="action.notify && smsAvailable" class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
           <input v-model="sendSms" type="checkbox" class="rounded border-gray-300">
           {{ t('admin.orders.action.sendSms') }}
         </label>

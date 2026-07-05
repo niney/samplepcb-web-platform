@@ -19,7 +19,9 @@ import {
   nowLocalDateTime,
   orderStatusSlug,
   orderStatusVariant,
+  smsAvailableForTarget,
   toG5DateTime,
+  useAdminNotifyConfig,
   useAdminOrderDetail,
   useOrderInfoMutation,
   useOrderMemoMutation,
@@ -468,6 +470,18 @@ const nextAction = computed<NextAction | null>(() => {
   if (a.bankOnly && !isBankTransfer.value) return null;
   return a;
 });
+
+// 메일/SMS 발송 설정 게이트(목록 액션바와 동일 정책) — 코어 orderform.php 처럼 설정이 켜진
+// 채널만 체크박스 노출. mail=cf_email_use, sms=전이별(입금/배송) available(실발송 정합).
+const { data: notifyConfig } = useAdminNotifyConfig();
+const notifyData = computed(() => notifyConfig.value?.data);
+const mailAvailable = computed<boolean>(() => notifyData.value?.mailAvailable ?? false);
+const smsAvailable = computed<boolean>(() =>
+  nextAction.value === null
+    ? false
+    : smsAvailableForTarget(notifyData.value, nextAction.value.target),
+);
+
 const submitNextStep = (): void => {
   const o = order.value;
   const a = nextAction.value;
@@ -1006,12 +1020,15 @@ const inputClass =
                     v-if="nextAction !== null"
                     class="mt-2 space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3"
                   >
-                    <div v-if="nextAction.notify" class="flex flex-wrap gap-x-3 gap-y-1">
-                      <label class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
+                    <div
+                      v-if="nextAction.notify && (mailAvailable || smsAvailable)"
+                      class="flex flex-wrap gap-x-3 gap-y-1"
+                    >
+                      <label v-if="mailAvailable" class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
                         <input v-model="sendMail" type="checkbox" class="rounded border-gray-300">
                         {{ t('admin.orders.action.sendMail') }}
                       </label>
-                      <label class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
+                      <label v-if="smsAvailable" class="flex cursor-pointer items-center gap-1 text-sm text-gray-600">
                         <input v-model="sendSms" type="checkbox" class="rounded border-gray-300">
                         {{ t('admin.orders.action.sendSms') }}
                       </label>

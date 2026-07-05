@@ -283,6 +283,23 @@ export const AdminOrderActionResponse = z.object({
 });
 export type AdminOrderActionResponseType = z.infer<typeof AdminOrderActionResponse>;
 
+// ── 알림(메일/SMS) 발송 설정 조회 계약 — 체크박스 노출 게이트 ──────────────────
+// 코어는 화면별로 게이트가 엇갈린다: 주문 상세(orderform.php:717·825·851)는 실제 설정으로
+// 게이트하지만, 목록(orderlist.php:475)은 상태만 보고 무조건 노출한다(설정 꺼져도 뜬 뒤
+// 발송 시 조용히 skip — 코어 자체 결함). sp-vue 는 목록·상세를 이 설정으로 **일관** 게이트한다.
+// SMS 조건은 코어 상세(cf_sms_use truthy)보다 좁혀, 실발송(order-notify.php:119)과 동일하게
+// cf_sms_use==='icode' + 전이별 de_sms_use4(입금)/de_sms_use5(배송) 로 맞춘다(노출-발송 정합).
+// 메일은 cf_email_use. 서버가 정책을 계산해 boolean 만 내려주고 FE 는 소비만 한다.
+export const AdminNotifyConfigResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    mailAvailable: z.boolean(), // cf_email_use
+    smsDepositAvailable: z.boolean(), // cf_sms_use==='icode' && de_sms_use4 (입금 전이)
+    smsShippingAvailable: z.boolean(), // cf_sms_use==='icode' && de_sms_use5 (배송 전이)
+  }),
+});
+export type AdminNotifyConfigResponseType = z.infer<typeof AdminNotifyConfigResponse>;
+
 // ── 주문 상세 편집 + 입금 조정 + 인쇄 계약 (adm/shop_admin/orderformupdate.php·
 // orderformreceiptupdate.php·orderprint 이식) ───────────────────────────────────
 // info/memo 는 상태 무관(코어 orderformupdate.php 동일). 입금 조정은 무통장 한정·3필드로

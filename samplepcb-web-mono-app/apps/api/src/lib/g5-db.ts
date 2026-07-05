@@ -722,6 +722,36 @@ export async function getCfAdminId(): Promise<string> {
   return row === undefined ? '' : String(row.cf_admin ?? '');
 }
 
+// ── 알림(메일/SMS) 발송 설정 SELECT (한정 예외 ⑧·⑦ — read-only) ────────────────
+// 관리자 주문 화면의 메일/SMS 체크박스 노출 게이트. 코어 orderform.php(:717·825·851)의
+// 설정 게이트를 sp-vue 목록·상세 공통으로 이식한다. 단 SMS 는 코어 상세(cf_sms_use truthy)
+// 보다 좁혀 실발송(spcb/api/order-notify.php:119)과 동일하게 cf_sms_use==='icode' + 전이별
+// de_sms_use4(입금)/de_sms_use5(배송) 로 맞춘다(노출-발송 정합). 정책 계산은 여기서 끝내고
+// 라우트는 boolean 만 그대로 응답한다. 쓰기 절대 금지.
+export interface NotifyConfig {
+  mailAvailable: boolean;
+  smsDepositAvailable: boolean;
+  smsShippingAvailable: boolean;
+}
+
+export async function getNotifyConfig(): Promise<NotifyConfig> {
+  const [cfgRows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT cf_email_use, cf_sms_use FROM g5_config LIMIT 1`,
+  );
+  const [defRows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT de_sms_use4, de_sms_use5 FROM g5_shop_default LIMIT 1`,
+  );
+  const cfg = cfgRows[0];
+  const def = defRows[0];
+  // cf_sms_use 는 문자열('icode'|''|…), cf_email_use·de_sms_useN 은 0/1(문자열일 수 있어 Number 정규화).
+  const smsIcode = cfg !== undefined && String(cfg.cf_sms_use ?? '') === 'icode';
+  return {
+    mailAvailable: cfg !== undefined && Number(cfg.cf_email_use ?? 0) > 0,
+    smsDepositAvailable: smsIcode && def !== undefined && Number(def.de_sms_use4 ?? 0) > 0,
+    smsShippingAvailable: smsIcode && def !== undefined && Number(def.de_sms_use5 ?? 0) > 0,
+  };
+}
+
 // ── 회원 차단/레벨 UPDATE (한정 예외 ⑨ — 2컬럼 한정) ─────────────────────────
 // 이 두 함수 외에는 g5_member 를 절대 쓰지 않는다. 가드(탈퇴/self/cf_admin)는 라우트가
 // 강제. MyISAM 무트랜잭션이나 단일행·단일컬럼이라 무해. affectedRows 는 반환만 하고 흐름
