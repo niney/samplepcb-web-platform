@@ -10,10 +10,9 @@ if (!function_exists('sp_order_status_customer')) {
         switch ($status) {
             case '주문':     return array('label' => '입금확인중', 'cls' => 'status_01');
             case '입금':     return array('label' => '입금완료',   'cls' => 'status_02');
-            // '준비'·'가격확인' 은 고객에게 "상품준비중" 으로 뭉뚱그린다(가격확인은 내부 단계).
-            case '준비':
-            case '가격확인': return array('label' => '상품준비중', 'cls' => 'status_03');
-            // 제작 단계는 원문 노출(진행 중 색 공용).
+            case '준비':     return array('label' => '상품준비중', 'cls' => 'status_03');
+            // 제작 단계는 원문 노출(관리자 상태명과 고객 표기 일치, 진행 중 색 공용).
+            case '가격확인': return array('label' => '가격확인',   'cls' => 'status_03');
             case '파일검사': return array('label' => '파일검사',   'cls' => 'status_03');
             case 'EQ':       return array('label' => 'EQ',         'cls' => 'status_03');
             case '생산시작': return array('label' => '생산시작',   'cls' => 'status_03');
