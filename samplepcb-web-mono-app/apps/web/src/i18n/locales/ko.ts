@@ -18,8 +18,37 @@ export const ko = {
       quotes: '견적 관리',
       orders: '주문내역',
       members: '회원 관리',
+      settings: '설정',
     },
     placeholder: '준비 중입니다.',
+    settings: {
+      title: '설정',
+      loading: '불러오는 중…',
+      saving: '저장 중…',
+      save: '저장',
+      saved: '저장되었습니다.',
+      tabs: {
+        businessInfo: '사업자정보',
+      },
+      fields: {
+        companyName: '회사명',
+        ownerName: '대표자명',
+        businessNo: '사업자등록번호',
+        tel: '대표전화번호',
+        fax: '팩스번호',
+        mailOrderNo: '통신판매업 신고번호',
+        bugaNo: '부가통신 사업자번호',
+        zip: '사업장우편번호',
+        addr: '사업장주소',
+        infoManagerName: '정보관리책임자명',
+        infoManagerEmail: '정보책임자 이메일',
+      },
+      error: {
+        INVALID_CALLBACK: '대표전화번호를 올바르게 입력해 주세요.',
+        OWNER_REQUIRED: '대표자명을 입력해 주세요.',
+        UNKNOWN: '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+      },
+    },
     quotes: {
       title: '견적 관리',
       // 상태 라벨은 사용자 화면(spcb quotes.php) 표기와 통일

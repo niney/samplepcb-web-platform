@@ -18,8 +18,37 @@ export const en = {
       quotes: 'Quotes',
       orders: 'Orders',
       members: 'Members',
+      settings: 'Settings',
     },
     placeholder: 'Coming soon.',
+    settings: {
+      title: 'Settings',
+      loading: 'Loading…',
+      saving: 'Saving…',
+      save: 'Save',
+      saved: 'Saved.',
+      tabs: {
+        businessInfo: 'Business Info',
+      },
+      fields: {
+        companyName: 'Company name',
+        ownerName: 'Representative',
+        businessNo: 'Business registration no.',
+        tel: 'Phone',
+        fax: 'Fax',
+        mailOrderNo: 'Mail-order sales no.',
+        bugaNo: 'Value-added telecom no.',
+        zip: 'Postal code',
+        addr: 'Address',
+        infoManagerName: 'Privacy manager',
+        infoManagerEmail: 'Privacy manager email',
+      },
+      error: {
+        INVALID_CALLBACK: 'Please enter a valid representative phone number.',
+        OWNER_REQUIRED: 'Please enter the representative name.',
+        UNKNOWN: 'Failed to save. Please try again later.',
+      },
+    },
     quotes: {
       title: 'Quotes',
       tabs: {

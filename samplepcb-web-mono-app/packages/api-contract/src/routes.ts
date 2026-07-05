@@ -6,4 +6,5 @@ export const apiRoutes = {
   adminPcbFiles: '/api/admin/pcb-files',
   adminMembers: '/api/admin/members',
   adminOrders: '/api/admin/orders',
+  adminSettings: '/api/admin/settings',
 } as const;

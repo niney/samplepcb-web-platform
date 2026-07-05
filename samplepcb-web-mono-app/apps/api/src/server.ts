@@ -12,6 +12,7 @@ import { pcbThumbRoutes } from './routes/pcb-thumbs';
 import { adminPcbProjectRoutes } from './routes/admin-pcb-projects';
 import { adminMemberRoutes } from './routes/admin-members';
 import { adminOrderRoutes } from './routes/admin-orders';
+import { adminSettingsRoutes } from './routes/admin-settings';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -39,6 +40,8 @@ await app.register(adminPcbProjectRoutes, { prefix: '/api/admin' });
 await app.register(adminMemberRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 주문내역 목록·상세(읽기)
 await app.register(adminOrderRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 설정(사업자정보 등, g5_shop_default 읽기/쓰기)
+await app.register(adminSettingsRoutes, { prefix: '/api/admin' });
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로

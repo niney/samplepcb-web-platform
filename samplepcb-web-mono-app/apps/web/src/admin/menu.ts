@@ -16,4 +16,5 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-quotes' }, labelKey: 'admin.menu.quotes', badge: 'rfqCount' },
   { to: { name: 'admin-orders' }, labelKey: 'admin.menu.orders' },
   { to: { name: 'admin-members' }, labelKey: 'admin.menu.members' },
+  { to: { name: 'admin-settings' }, labelKey: 'admin.menu.settings' },
 ];

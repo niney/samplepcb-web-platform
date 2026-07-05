@@ -7,6 +7,7 @@ import AdminDashboard from './pages/admin/AdminDashboard.vue';
 import AdminQuotes from './pages/admin/AdminQuotes.vue';
 import AdminOrders from './pages/admin/AdminOrders.vue';
 import AdminMembers from './pages/admin/AdminMembers.vue';
+import AdminSettings from './pages/admin/AdminSettings.vue';
 
 // 라우트 meta 타입 보강
 declare module 'vue-router' {
@@ -33,6 +34,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'quotes', name: 'admin-quotes', component: AdminQuotes },
       { path: 'orders', name: 'admin-orders', component: AdminOrders },
       { path: 'members', name: 'admin-members', component: AdminMembers },
+      { path: 'settings', name: 'admin-settings', component: AdminSettings },
     ],
   },
 ];

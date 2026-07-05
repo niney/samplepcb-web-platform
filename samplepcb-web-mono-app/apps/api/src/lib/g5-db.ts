@@ -112,6 +112,23 @@
 // append 없음(코어 정상 분기 미기록). **결제수단 가드·운송장 요구 없음**(코어 정상 분기 무검사 —
 // 임의 변경 허용). delivery 는 target='배송' 제공 시만 운송장 반영(계약 필드 존중). 포인트 딸린 활성
 // 행(ct_point>0)은 HAS_POINT 로 전체 거부(⑮와 동일 안전판, PCB 미발생). claim-first 원자 가드.
+// ⑱ g5_shop_default 사업자정보 read/write (관리자 설정 > 사업자정보 —
+// adm/shop_admin/configform.php·configformupdate.php 의 "사업자정보" 섹션 이식).
+// read getBusinessInfo: de_admin_company_name/owner/saupja_no/tel/fax · de_admin_tongsin_no ·
+//   de_admin_buga_no · de_admin_company_zip/addr · de_admin_info_name/email 11컬럼 SELECT(LIMIT 1).
+// write updateBusinessInfo: 위 11컬럼만 UPDATE(코어 configformupdate.php:273 은 ~150컬럼을 일괄
+//   UPDATE 하지만 우리는 11컬럼 한정 — PHP 관리자 병행 시 결제/PG/SMS 무관 설정 미훼손, 코어보다
+//   안전). WHERE 없음(g5_shop_default 는 설치 후 항상 1행인 싱글턴).
+// 코어 정합성(규율 3): 저장 전 부수 규칙 3종을 라우트(routes/admin-settings.ts)가 강제한다 —
+//   (1) de_admin_company_tel 은 isValidCallback(lib/shop-config.ts, check_vaild_callback 이식)
+//       통과 필수(SMS 발신번호 겸용), 실패 400. (2) de_admin_company_owner 공백이면 저장 전체
+//       거부(코어는 설정유실 방지 silent 리다이렉트 — API 는 400 으로 명시화). (3) 11필드
+//       cleanXssTags(lib/shop-config.ts, clean_xss_tags 이식) 정제 후 저장. addslashes/
+//       stripslashes 는 mysql2 파라미터 바인딩이 대체하므로 미이식.
+// ⑦ getShopEstimateProfile(read-only 발신처, bankAccount 포함 8컬럼)과 컬럼 일부 겹치나
+//   목적·쓰기여부가 달라 분리(⑱은 writable, businessNo/fax/mailOrderNo/bugaNo 4컬럼 더 가진 상위집합).
+// (번호: ⑰은 2026-07-05 PCB 제작단계 작업이 ACTIVE_ORDER_STATUSES SSOT 로 선점 — GERBER_ORDER_FLOW
+//  갱신 로그 참조. 미커밋 병존 작업이라 사업자정보는 ⑱로 매긴다.)
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
 //
@@ -485,6 +502,76 @@ export async function getShopEstimateProfile(): Promise<ShopEstimateProfile | nu
     managerEmail: String(row.de_admin_info_email ?? ''),
     bankAccount: String(row.de_bank_account ?? ''),
   };
+}
+
+// ── 사업자정보 read/write (카탈로그 ⑱) ──────────────────────────────────────
+// 관리자 설정 > 사업자정보 탭. g5_shop_default 의 de_admin_* 11컬럼(싱글턴 행)을 읽고
+// 쓴다. ⑦ getShopEstimateProfile 과 목적·쓰기여부가 달라 분리. 필드명은 api-contract
+// BusinessInfo 와 일치시켜 라우트에서 매핑 없이 그대로 응답에 실을 수 있게 한다.
+export interface BusinessInfo {
+  companyName: string; // de_admin_company_name (회사명)
+  ownerName: string; // de_admin_company_owner (대표자명)
+  businessNo: string; // de_admin_company_saupja_no (사업자등록번호)
+  tel: string; // de_admin_company_tel (대표전화 = SMS 발신번호)
+  fax: string; // de_admin_company_fax (팩스)
+  mailOrderNo: string; // de_admin_tongsin_no (통신판매업 신고번호)
+  bugaNo: string; // de_admin_buga_no (부가통신 사업자번호)
+  zip: string; // de_admin_company_zip (사업장우편번호)
+  addr: string; // de_admin_company_addr (사업장주소)
+  infoManagerName: string; // de_admin_info_name (정보관리책임자명)
+  infoManagerEmail: string; // de_admin_info_email (정보책임자 e-mail)
+}
+
+export async function getBusinessInfo(): Promise<BusinessInfo | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT de_admin_company_name, de_admin_company_owner, de_admin_company_saupja_no,
+            de_admin_company_tel, de_admin_company_fax, de_admin_tongsin_no,
+            de_admin_buga_no, de_admin_company_zip, de_admin_company_addr,
+            de_admin_info_name, de_admin_info_email
+       FROM g5_shop_default LIMIT 1`,
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    companyName: String(row.de_admin_company_name ?? ''),
+    ownerName: String(row.de_admin_company_owner ?? ''),
+    businessNo: String(row.de_admin_company_saupja_no ?? ''),
+    tel: String(row.de_admin_company_tel ?? ''),
+    fax: String(row.de_admin_company_fax ?? ''),
+    mailOrderNo: String(row.de_admin_tongsin_no ?? ''),
+    bugaNo: String(row.de_admin_buga_no ?? ''),
+    zip: String(row.de_admin_company_zip ?? ''),
+    addr: String(row.de_admin_company_addr ?? ''),
+    infoManagerName: String(row.de_admin_info_name ?? ''),
+    infoManagerEmail: String(row.de_admin_info_email ?? ''),
+  };
+}
+
+// 11컬럼 일괄 UPDATE — WHERE 없음(싱글턴 행). fields 는 이미 검증·정제 완료된 값이며
+// 도메인 판단(tel 검증·owner 가드·sanitize)은 라우트가 수행한다(updateMemberInfo 철학).
+// 코어 configformupdate.php:273-283 미러(단 사업자정보 11컬럼만 SET).
+export async function updateBusinessInfo(fields: BusinessInfo): Promise<number> {
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_shop_default SET
+        de_admin_company_name = ?, de_admin_company_owner = ?, de_admin_company_saupja_no = ?,
+        de_admin_company_tel = ?, de_admin_company_fax = ?, de_admin_tongsin_no = ?,
+        de_admin_buga_no = ?, de_admin_company_zip = ?, de_admin_company_addr = ?,
+        de_admin_info_name = ?, de_admin_info_email = ?`,
+    [
+      fields.companyName,
+      fields.ownerName,
+      fields.businessNo,
+      fields.tel,
+      fields.fax,
+      fields.mailOrderNo,
+      fields.bugaNo,
+      fields.zip,
+      fields.addr,
+      fields.infoManagerName,
+      fields.infoManagerEmail,
+    ],
+  );
+  return res.affectedRows;
 }
 
 // ── 주문 선택 플래그 UPDATE ─────────────────────────────────────────────────
