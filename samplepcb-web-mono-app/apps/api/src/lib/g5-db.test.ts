@@ -7,6 +7,7 @@ import {
   matchDeliveryRows,
   orderTransitionGuard,
   phpRound,
+  resolveItemCancelSkip,
   resolveOrderSort,
 } from './g5-db';
 import type {
@@ -322,5 +323,21 @@ describe('matchDeliveryRows — 배송 rows 매칭(운송장 필드 검증)', ()
     const r = matchDeliveryRows(['B', 'A'], [row({ odId: 'A' }), row({ odId: 'Z' }), row({ odId: 'B' })]);
     expect(r.rows.map((d) => d.odId)).toEqual(['B', 'A']);
     expect(r.skipped).toEqual([]);
+  });
+});
+
+describe('resolveItemCancelSkip — 카트행 취소 skip 판정(무통장 취소/반품/품절)', () => {
+  it('진행 상태 + ct_point=0 → 처리 진행(null)', () => {
+    expect(resolveItemCancelSkip('입금', 0)).toBeNull();
+    expect(resolveItemCancelSkip('배송', 0)).toBeNull();
+  });
+  it('ct_point>0 → HAS_POINT(안전판, 상태 무관 우선)', () => {
+    expect(resolveItemCancelSkip('입금', 100)).toBe('HAS_POINT');
+    expect(resolveItemCancelSkip('취소', 100)).toBe('HAS_POINT');
+  });
+  it('이미 취소류(취소/반품/품절) → ALREADY_CANCELLED', () => {
+    expect(resolveItemCancelSkip('취소', 0)).toBe('ALREADY_CANCELLED');
+    expect(resolveItemCancelSkip('반품', 0)).toBe('ALREADY_CANCELLED');
+    expect(resolveItemCancelSkip('품절', 0)).toBe('ALREADY_CANCELLED');
   });
 });

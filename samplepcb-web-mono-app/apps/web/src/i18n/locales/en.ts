@@ -334,6 +334,23 @@ export const en = {
         NOT_SHIPPING_STATUS: 'Not in shipping state',
         NOT_BANK_TRANSFER: 'Not a bank transfer',
         MISSING_INVOICE: 'Missing invoice info',
+        NOT_IN_ORDER: 'Not an item of this order',
+        ALREADY_CANCELLED: 'Already cancelled/returned/out-of-stock',
+        HAS_POINT: 'Line uses points (needs admin review)',
+      },
+      itemCancel: {
+        title: '{target}',
+        warn: 'The selected item will be marked as {target}. This cannot be undone.',
+        confirm: 'Mark {target}',
+        cancel: 'Cancel',
+        close: 'Close',
+        processing: 'Processing…',
+        orderCancelled: 'All items cancelled — the whole order is now cancelled.',
+        target: {
+          cancel: 'Cancel',
+          return: 'Return',
+          soldOut: 'Out of stock',
+        },
       },
       result: {
         processed: '{n} processed',

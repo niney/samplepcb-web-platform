@@ -6,6 +6,8 @@ import {
   AdminOrderDetailResponse,
   AdminOrderEditResponse,
   AdminOrderInfoBody,
+  AdminOrderItemActionResponse,
+  AdminOrderItemStatusRequest,
   AdminOrderListQuery,
   AdminOrderListResponse,
   AdminOrderMemoBody,
@@ -29,6 +31,7 @@ import {
   getShopEstimateProfile,
   matchDeliveryRows,
   searchOrders,
+  setOrderItemsStatus,
   setOrdersComplete,
   setOrdersDelivery,
   setOrdersPreparing,
@@ -566,6 +569,44 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       return {
         result: true as const,
         data: { order: toDetailOrder(order), items, seller },
+      };
+    },
+  );
+
+  // ── PATCH /api/admin/orders/:odId/items/status — 카트행 취소/반품/품절 ───────
+  // 레거시 orderformcartupdate.php 이식(무통장 한정). ct 단위 독립 처리 — 재고 복원·미수금/취소금액
+  // 재계산·전량 취소류면 od_status='취소'. 결제수단≠무통장 → 409 NOT_BANK_TRANSFER(PG 부분취소는
+  // PHP 도메인 존치). 미존재 404. 취소된 견적행은 주문내역에 남고 견적관리 미복귀(sp 무접촉).
+  fastify.patch(
+    '/orders/:odId/items/status',
+    {
+      schema: {
+        params: OdIdParams,
+        body: AdminOrderItemStatusRequest,
+        response: { 200: AdminOrderItemActionResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const { odId } = request.params;
+      const order = await getOrderRow(odId);
+      if (order === null) return reply.notFound('주문이 없습니다');
+      if (order.settleCase !== '무통장') {
+        return reply.status(409).send({
+          error: 'NOT_BANK_TRANSFER',
+          message: '무통장 주문만 카트행 취소/반품/품절 처리할 수 있습니다',
+        });
+      }
+
+      const { ctIds, target } = request.body;
+      const result = await setOrderItemsStatus(odId, ctIds, target, request.user.mbId, request.ip);
+      return {
+        result: true as const,
+        data: {
+          processed: result.processed,
+          skipped: result.skipped,
+          odStatus: result.odStatus,
+          orderCancelled: result.orderCancelled,
+        },
       };
     },
   );

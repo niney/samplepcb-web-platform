@@ -8,9 +8,11 @@ import type {
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
+  CANCEL_ITEM_TARGETS,
   displayCompany,
   formatOdId,
   g5ToLocal,
+  isCancelledItemStatus,
   nowLocalDateTime,
   orderStatusSlug,
   orderStatusVariant,
@@ -19,11 +21,13 @@ import {
   useOrderInfoMutation,
   useOrderMemoMutation,
   useOrderReceiptMutation,
+  type CancelItemTarget,
 } from '../../admin/useAdminOrders';
 import { useDaumPostcode, type DaumPostcodeData } from '../../lib/useDaumPostcode';
 import { formatKrw } from '../../lib/format';
 import UiBadge from '../ui/UiBadge.vue';
 import OrderPrintModal from './OrderPrintModal.vue';
+import OrderItemCancelModal from './OrderItemCancelModal.vue';
 
 // 주문 상세 드로어(우측 슬라이드 오버). odId=null 이면 닫힘. 읽기 + 부분 편집(주문자/받는분/
 // 배송지/메모/무통장 입금 조정) + 주문서 인쇄. 심층 편집(주문정보 전체·부분취소)은 PHP 위임.
@@ -133,6 +137,8 @@ const memoInput = ref('');
 const receiptEditing = ref(false);
 const receiptForm = ref<ReceiptForm>({ receiptPrice: 0, receiptTime: '', depositName: '' });
 const printOpen = ref<string | null>(null);
+// 카트행 취소/반품/품절 대상(확인 모달). null = 닫힘.
+const itemAction = ref<{ ctId: number; target: CancelItemTarget; label: string } | null>(null);
 
 const { mutate: saveInfo, isPending: infoPending, error: infoErr, reset: resetInfo } =
   useOrderInfoMutation();
@@ -408,13 +414,30 @@ const openPrint = (): void => {
   if (order.value !== null) printOpen.value = order.value.odId;
 };
 
-// 드로어가 닫히면(부모가 odId=null) 열려 있던 인쇄 모달도 함께 정리한다.
+// 카트행 처리 UI 노출 조건 — 무통장 + 아직 취소류(취소/반품/품절)가 아닌 행.
+const canProcessItem = (it: AdminOrderCartItemType): boolean =>
+  isBankTransfer.value && !isCancelledItemStatus(it.ctStatus);
+const openItemAction = (it: AdminOrderCartItemType, target: CancelItemTarget): void => {
+  itemAction.value = { ctId: it.ctId, target, label: it.itName };
+};
+const ITEM_TARGET_SLUG: Record<CancelItemTarget, string> = {
+  취소: 'cancel',
+  반품: 'return',
+  품절: 'soldOut',
+};
+const itemTargetLabel = (target: CancelItemTarget): string =>
+  t(`admin.orders.itemCancel.target.${ITEM_TARGET_SLUG[target]}`);
+
+// 드로어가 닫히면(부모가 odId=null) 열려 있던 인쇄·행처리 모달도 함께 정리한다.
 watch(odIdRef, (v) => {
-  if (v === null) printOpen.value = null;
+  if (v === null) {
+    printOpen.value = null;
+    itemAction.value = null;
+  }
 });
 
 const onKeydown = (e: KeyboardEvent): void => {
-  if (e.key === 'Escape' && printOpen.value === null) emit('close');
+  if (e.key === 'Escape' && printOpen.value === null && itemAction.value === null) emit('close');
 };
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
@@ -922,7 +945,11 @@ const inputClass =
                       <span class="text-xs text-gray-400">
                         {{ t('admin.orders.drawer.itemQty', { n: it.ctQty }) }}
                       </span>
-                      <span v-if="it.ctStatus !== ''" class="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
+                      <span
+                        v-if="it.ctStatus !== ''"
+                        class="rounded-full px-1.5 py-0.5 text-[11px]"
+                        :class="isCancelledItemStatus(it.ctStatus) ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'"
+                      >
                         {{ it.ctStatus }}
                       </span>
                       <UiBadge
@@ -936,6 +963,18 @@ const inputClass =
                       >
                         {{ t('admin.orders.drawer.finalPrice') }} {{ formatKrw(it.quote.finalPrice) }}
                       </span>
+                    </div>
+                    <!-- 행별 취소/반품/품절(무통장 · 취소류 아님) — 되돌릴 수 없어 확인 모달 경유 -->
+                    <div v-if="canProcessItem(it)" class="mt-1.5 flex flex-wrap gap-1">
+                      <button
+                        v-for="target in CANCEL_ITEM_TARGETS"
+                        :key="target"
+                        type="button"
+                        class="rounded border border-gray-300 px-1.5 py-0.5 text-[11px] text-gray-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                        @click="openItemAction(it, target)"
+                      >
+                        {{ itemTargetLabel(target) }}
+                      </button>
                     </div>
                   </div>
                 </li>
@@ -962,4 +1001,14 @@ const inputClass =
   </Teleport>
 
   <OrderPrintModal v-if="printOpen !== null" :od-id="printOpen" @close="printOpen = null" />
+
+  <OrderItemCancelModal
+    v-if="itemAction !== null && order !== null"
+    :od-id="order.odId"
+    :ct-ids="[itemAction.ctId]"
+    :target="itemAction.target"
+    :item-label="itemAction.label"
+    @close="itemAction = null"
+    @done="itemAction = null"
+  />
 </template>

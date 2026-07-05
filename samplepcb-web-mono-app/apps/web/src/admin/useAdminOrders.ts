@@ -4,12 +4,14 @@ import {
   AdminOrderActionResponse,
   AdminOrderDetailResponse,
   AdminOrderEditResponse,
+  AdminOrderItemActionResponse,
   AdminOrderListResponse,
   AdminOrderPrintResponse,
   apiRoutes,
 } from '@sp/api-contract';
 import type {
   AdminOrderInfoBodyType,
+  AdminOrderItemStatusRequestType,
   AdminOrderReceiptBodyType,
   AdminOrderStatusRequestType,
   AdminOrderTabType,
@@ -88,6 +90,12 @@ export type OrderSortField =
 // 배송회사 표시 정규화 — DB 원본 '0'/''/null 은 '-'(레거시 아티팩트: 빈값이 '0'으로 저장됨).
 export const displayCompany = (company: string | null): string =>
   company === null || company === '' || company === '0' ? '-' : company;
+
+// 카트행 취소류(취소/반품/품절) — 처리 완료 상태. 이 상태 행은 재처리 UI 를 숨긴다.
+export const CANCEL_ITEM_TARGETS = ['취소', '반품', '품절'] as const;
+export type CancelItemTarget = (typeof CANCEL_ITEM_TARGETS)[number];
+export const isCancelledItemStatus = (ctStatus: string): boolean =>
+  (CANCEL_ITEM_TARGETS as readonly string[]).includes(ctStatus);
 
 // 준비 탭 운송장 인라인 입력 행(로컬 상태). invoiceTime 은 datetime-local 문자열('YYYY-MM-DDThh:mm').
 export interface DeliveryInput {
@@ -260,6 +268,24 @@ export function useOrderReceiptMutation() {
         `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/receipt`,
         body,
         AdminOrderEditResponse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    },
+  });
+}
+
+// 카트행 단위 취소/반품/품절(무통장 한정) — 성공 시 미수금·재고·주문상태 서버 재계산되어
+// ['admin','orders'] 접두 무효화로 상세(카드·헤더)·목록이 갱신된다. 비무통장은 서버 409.
+export function useOrderItemStatusMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ odId, ...body }: { odId: string } & AdminOrderItemStatusRequestType) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/items/status`,
+        body,
+        AdminOrderItemActionResponse,
       ),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });

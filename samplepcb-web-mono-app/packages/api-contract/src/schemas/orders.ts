@@ -352,3 +352,28 @@ export const AdminOrderPrintResponse = z.object({
   }),
 });
 export type AdminOrderPrintResponseType = z.infer<typeof AdminOrderPrintResponse>;
+
+// ── 카트행 단위 취소/반품/품절 (adm/shop_admin/orderformcartupdate.php 이식, 무통장 한정) ──
+// 주문의 개별 카트행(ct_id)을 취소/반품/품절로 전환. 부수효과: 재고 복원(ct_stock_use=1 행만)·
+// 미수금/취소금액 재계산·전량 취소류면 od_status='취소'. PG 결제건은 무통장 guard(409)로 제외
+// (PG 부분취소는 PHP 도메인 존치). 취소된 견적행은 주문내역에 남고 견적관리로 되돌리지 않는다
+// (독립 모델 — sp_order_spec/sp_quote 무접촉). ct 단위 독립 처리(processed/skipped).
+export const AdminOrderItemStatusRequest = z.object({
+  ctIds: z.array(z.number().int().positive()).min(1),
+  target: z.enum(['취소', '반품', '품절']),
+});
+export type AdminOrderItemStatusRequestType = z.infer<typeof AdminOrderItemStatusRequest>;
+
+// reason 코드: NOT_IN_ORDER(ct 가 이 주문 소속 아님) · ALREADY_CANCELLED(이미 취소류) ·
+//   HAS_POINT(포인트 딸린 행 — PCB 는 ct_point=0 이라 미발생, 구주문 유입 대비 안전판 → PHP 관리자로).
+// odStatus: 재계산 후 주문 상태 · orderCancelled: 전량 취소류로 od_status='취소' 전환됐는지(FE 헤더 반영).
+export const AdminOrderItemActionResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    processed: z.array(z.number()),
+    skipped: z.array(z.object({ ctId: z.number(), reason: z.string() })),
+    odStatus: z.string(),
+    orderCancelled: z.boolean(),
+  }),
+});
+export type AdminOrderItemActionResponseType = z.infer<typeof AdminOrderItemActionResponse>;

@@ -336,6 +336,23 @@ export const ko = {
         NOT_SHIPPING_STATUS: '배송 상태 아님',
         NOT_BANK_TRANSFER: '무통장 결제 아님',
         MISSING_INVOICE: '운송장 정보 누락',
+        NOT_IN_ORDER: '이 주문의 상품 아님',
+        ALREADY_CANCELLED: '이미 취소/반품/품절 처리됨',
+        HAS_POINT: '포인트 사용 행(관리자 확인 필요)',
+      },
+      itemCancel: {
+        title: '{target} 처리',
+        warn: '선택한 상품을 {target} 처리합니다. 되돌릴 수 없습니다.',
+        confirm: '{target} 처리',
+        cancel: '취소',
+        close: '닫기',
+        processing: '처리 중…',
+        orderCancelled: '모든 상품이 취소되어 주문 전체가 취소 처리되었습니다.',
+        target: {
+          cancel: '취소',
+          return: '반품',
+          soldOut: '품절',
+        },
       },
       result: {
         processed: '{n}건 처리 완료',
