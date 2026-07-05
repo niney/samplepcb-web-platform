@@ -40,7 +40,9 @@
 // ⑫ g5_shop_order·g5_shop_cart read-only SELECT(관리자 주문내역 — adm/shop_admin/orderlist.php
 // 이식. 목록/상세/카운트/누적주문수, **읽기 전용**. 쓰기(상태 전이·삭제)는 별도 WP). 함수:
 // searchOrders(목록+배타 counts), getOrderRow(상세 헤더), getCartRowsByOdId(카트 라인),
-// getMemberOrderCounts(누적주문수 배치). WHERE 조립은 순수 함수 buildOrderListWhere/
+// getMemberOrderCounts(누적주문수 배치), getDeliveryExcelRows(엑셀 배송처리 대상 —
+// orderdeliveryexcel.php 이식: od_status='준비' AND od_misu=0, od_id desc, 받는분 연락처·주소
+// 포함). WHERE 조립은 순수 함수 buildOrderListWhere/
 // buildOrderBaseConds/buildOrderTabCond(파라미터 바인딩, 문자열 보간 없음 — qField·정렬 컬럼은
 // 화이트리스트 상수). 컬럼: 목록은 ORDER_LIST_COLUMNS, 상세는 ORDER_DETAIL_COLUMNS(둘 다
 // 화이트리스트). **민감 컬럼 od_pwd·od_cash·od_cash_info 는 SELECT 에서 절대 제외**. 날짜는
@@ -800,7 +802,13 @@ export async function updateMemberMemo(mbId: string, memo: string): Promise<numb
 // enum + 아래 화이트리스트로 이중 고정된 상수라 식별자 위치에 안전하게 놓는다.
 
 export type OrderTab = '전체' | '주문' | '입금' | '준비' | '배송' | '완료' | '취소' | '부분취소';
-export type OrderSortColumn = 'od_id' | 'od_cart_price' | 'od_receipt_price' | 'od_cancel_price' | 'od_misu';
+export type OrderSortColumn =
+  | 'od_id'
+  | 'od_cart_price'
+  | 'od_receipt_price'
+  | 'od_cancel_price'
+  | 'od_misu'
+  | 'od_time';
 
 export interface SearchOrdersParams {
   tab: OrderTab;
@@ -845,6 +853,7 @@ const ORDER_SORT_COLUMNS = new Set<string>([
   'od_receipt_price',
   'od_cancel_price',
   'od_misu',
+  'od_time',
 ]);
 // '간편결제' 등호 대신 확장되는 결제수단 집합(코어 orderlist.php:75).
 const SETTLE_SIMPLE_PAY = ['간편결제', '삼성페이', 'lpay', 'inicis_kakaopay'];
@@ -930,7 +939,10 @@ export function buildOrderListWhere(params: SearchOrdersParams): {
 // 정렬 해석 — sort 지정 시 그 컬럼(+order, 기본 desc). 미지정 시 탭별 기본(코어 orderlist.php:57):
 //   입금→od_receipt_time desc · 배송→od_invoice_time desc · 그 외→od_id desc.
 // 반환 컬럼/방향은 전부 상수(화이트리스트)라 ORDER BY 에 인라인해도 안전하다.
-function resolveOrderSort(params: SearchOrdersParams): { column: string; direction: 'asc' | 'desc' } {
+export function resolveOrderSort(params: SearchOrdersParams): {
+  column: string;
+  direction: 'asc' | 'desc';
+} {
   if (params.sort !== undefined && ORDER_SORT_COLUMNS.has(params.sort)) {
     return { column: params.sort, direction: params.order === 'asc' ? 'asc' : 'desc' };
   }
@@ -1213,6 +1225,52 @@ export async function getMemberOrderCounts(mbIds: string[]): Promise<Map<string,
     map.set(String(row.mb_id), Number(row.cnt ?? 0));
   }
   return map;
+}
+
+// ── 엑셀 배송처리 대상 조회 (⑫ 확장 — read-only) ─────────────────────────────
+// 레거시 adm/shop_admin/orderdeliveryexcel.php 의 다운로드 대상. od_status='준비' AND od_misu=0
+// (미수금 없는 배송 준비 주문)만, od_id desc. 엑셀 10열에 필요한 컬럼만(주문자/받는분 연락처·
+// 배송지 주소·현재 운송장). 목록 컬럼셋(ORDER_LIST_COLUMNS)엔 받는분 연락처·주소가 없어 전용.
+export interface DeliveryExcelRow {
+  odId: string;
+  odName: string;
+  odTel: string;
+  odHp: string;
+  bName: string;
+  bTel: string;
+  bHp: string;
+  bAddr1: string;
+  bAddr2: string;
+  bAddr3: string;
+  bAddrJibeon: string;
+  deliveryCompany: string;
+  invoiceNo: string;
+}
+
+export async function getDeliveryExcelRows(): Promise<DeliveryExcelRow[]> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT od_id, od_name, od_tel, od_hp, od_b_name, od_b_tel, od_b_hp,
+            od_b_addr1, od_b_addr2, od_b_addr3, od_b_addr_jibeon,
+            od_delivery_company, od_invoice
+       FROM g5_shop_order
+      WHERE od_status = '준비' AND od_misu = 0
+      ORDER BY od_id DESC`,
+  );
+  return rows.map((r) => ({
+    odId: String(r.od_id ?? ''),
+    odName: String(r.od_name ?? ''),
+    odTel: String(r.od_tel ?? ''),
+    odHp: String(r.od_hp ?? ''),
+    bName: String(r.od_b_name ?? ''),
+    bTel: String(r.od_b_tel ?? ''),
+    bHp: String(r.od_b_hp ?? ''),
+    bAddr1: String(r.od_b_addr1 ?? ''),
+    bAddr2: String(r.od_b_addr2 ?? ''),
+    bAddr3: String(r.od_b_addr3 ?? ''),
+    bAddrJibeon: String(r.od_b_addr_jibeon ?? ''),
+    deliveryCompany: String(r.od_delivery_company ?? ''),
+    invoiceNo: String(r.od_invoice ?? ''),
+  }));
 }
 
 // ── 관리자 주문 상태 전이·선택삭제 (카탈로그 ⑬ — 쓰기) ───────────────────────

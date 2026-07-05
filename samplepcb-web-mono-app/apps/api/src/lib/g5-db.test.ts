@@ -7,6 +7,7 @@ import {
   matchDeliveryRows,
   orderTransitionGuard,
   phpRound,
+  resolveOrderSort,
 } from './g5-db';
 import type {
   DeliveryInput,
@@ -272,6 +273,22 @@ describe('orderTransitionGuard — 전이 가드 판정(코어 orderlistupdate.p
       ok: false,
       reason: 'NOT_SHIPPING_STATUS',
     });
+  });
+});
+
+describe('resolveOrderSort — 정렬 컬럼 화이트리스트', () => {
+  it("'od_time' 정렬 지원(FE 요청 반영) — order 방향 반영", () => {
+    expect(resolveOrderSort(base({ sort: 'od_time', order: 'asc' }))).toEqual({
+      column: 'od_time',
+      direction: 'asc',
+    });
+    expect(resolveOrderSort(base({ sort: 'od_time' }))).toEqual({
+      column: 'od_time',
+      direction: 'desc',
+    });
+  });
+  it('sort 미지정 시 탭 기본(전체→od_id desc)', () => {
+    expect(resolveOrderSort(base())).toEqual({ column: 'od_id', direction: 'desc' });
   });
 });
 

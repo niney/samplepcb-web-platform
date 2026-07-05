@@ -66,7 +66,9 @@ export const AdminOrderListQuery = z.object({
   refund: orderBoolFlag, // od_refund_price <> 0 (환불)
   point: orderBoolFlag, // od_receipt_point <> 0 (포인트주문)
   coupon: orderBoolFlag, // od_cart_coupon+od_coupon+od_send_coupon > 0 (쿠폰)
-  sort: z.enum(['od_id', 'od_cart_price', 'od_receipt_price', 'od_cancel_price', 'od_misu']).optional(),
+  sort: z
+    .enum(['od_id', 'od_cart_price', 'od_receipt_price', 'od_cancel_price', 'od_misu', 'od_time'])
+    .optional(),
   order: z.enum(['asc', 'desc']).optional(),
 });
 export type AdminOrderListQueryType = z.infer<typeof AdminOrderListQuery>;

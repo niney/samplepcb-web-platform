@@ -14,6 +14,7 @@
 > 갱신 2026-07-04 · 드로어 주소 검색(Daum/카카오 우편번호) — 범용 composable `useDaumPostcode.ts`(win_zip 매핑 이식). mb_addr_jibeon 은 코어 동일 **형식 플래그(R/J)** 저장(검색 시) / addr1 수동 변경 시 '' 초기화(감사 판정 — HANDOFF #12). DB 스키마·카탈로그 문구 무변경
 > 갱신 2026-07-04 · **방침 개정** — sp-php 업무 기능의 모노레포 점진 마이그레이션 확정. g5 접근을 "원칙 금지 + 한정 예외"에서 "규율된 **접근 카탈로그**"로 재정의(5장, HANDOFF 결정 로그 #11)
 > 갱신 2026-07-05 · 관리자 주문내역 **상태 전이·선택삭제 백엔드**(adm/shop_admin/orderlistupdate.php·orderlistdelete.php 이식) + **PHP 알림 브리지**(spcb/api/order-notify.php — 메일/SMS 는 Node 재구현이 아니라 커스텀 주문 메일 템플릿 재사용). g5 카탈로그에 ⑬(g5_shop_order 상태·금액 UPDATE·DELETE / g5_shop_cart ct_status / g5_shop_item it_sum_qty·재고 / g5_shop_item_option 재고) 추가
+> 갱신 2026-07-05 · **엑셀 배송일괄처리**(orderdeliveryexcel.php·orderdeliveryupdate.php 이식 — exceljs. 다운로드=준비·미수0 주문 xlsx / 업로드=A·I·J열 파싱→matchDeliveryRows+setOrdersDelivery 재사용, 알림 opt-in 기본 off). ⑫에 getDeliveryExcelRows 추가, 목록 정렬에 od_time 추가
 
 ---
 
@@ -308,10 +309,11 @@ sp-php 헤더 뱃지(관리자 사이드바 뱃지는 구현됨) + quoted 견적
 | 관리자 견적 관리 화면 | `…/apps/web/src/pages/admin/AdminQuotes.vue` · `components/admin/Quote*.vue` · `admin/useAdminQuotes.ts` |
 | 관리자 회원 관리 API | `…/apps/api/src/routes/admin-members.ts` (가드: `requireAdmin` · g5 접근: `g5-db.ts` 예외 ⑧⑨) |
 | 관리자 회원 관리 화면 | `…/apps/web/src/pages/admin/AdminMembers.vue` · `components/admin/Member*.vue` · `admin/useAdminMembers.ts` |
-| 관리자 주문내역 API (읽기+쓰기) | `…/apps/api/src/routes/admin-orders.ts` (가드: `requireAdmin` · g5 접근: `g5-db.ts` 예외 ⑫ 읽기·⑬ 상태 전이/삭제 · 순수 로직 테스트 `g5-db.test.ts`: WHERE 빌더·`computeOrderMoney`·`orderTransitionGuard`·`matchDeliveryRows`·`phpRound`) |
+| 관리자 주문내역 API (읽기+쓰기) | `…/apps/api/src/routes/admin-orders.ts` (가드: `requireAdmin` · g5 접근: `g5-db.ts` 예외 ⑫ 읽기·⑬ 상태 전이/삭제 · 순수 로직 테스트 `g5-db.test.ts`: WHERE 빌더·`computeOrderMoney`·`orderTransitionGuard`·`matchDeliveryRows`·`phpRound`·`resolveOrderSort`). 엑셀 배송: `GET/POST /orders/delivery-excel`(업로드 파일 파트명 `file` 고정) |
+| 엑셀 배송처리 (다운로드/업로드) | `…/apps/api/src/lib/delivery-excel.ts` (exceljs — `buildDeliveryWorkbook`/`readDeliverySheet`/`extractDeliveryRowsFromMatrix`·`csvSafeCell`·`printAddress`. 테스트 `delivery-excel.test.ts`: 헬퍼 + build→read→extract 라운드트립) · 대상 조회 `g5-db.ts` `getDeliveryExcelRows`(⑫) |
 | 주문 알림 브리지 (PHP) | `samplepcb-web/spcb/api/order-notify.php` (`POST /spcb/api/order-notify` — 서비스 JWT(svc:'sp-node') 검증 후 커스텀 메일 템플릿 `adm/shop_admin/ordermail.inc.php` 재사용·SMS conv_sms_contents 미러. dryRun 프리뷰 지원) · 서명 검증 `spcb/lib/jwt.php` `spcb_jwt_decode` |
 | 주문 알림 브리지 클라이언트 (Node) | `…/apps/api/src/lib/php-bridge.ts` (`notifyOrderEvent` — 서비스 JWT `fastify.jwt.sign`, 타임아웃 10s, 실패는 'failed' 로 삼킴 → 전이 성공 불변) |
-| KST 날짜 유틸(공유) | `…/apps/api/src/lib/kst.ts` (`kstDateStr` 견적서·`kstTodayYmd` 차단일) |
+| KST 날짜 유틸(공유) | `…/apps/api/src/lib/kst.ts` (`kstDateStr` 견적서·`kstTodayYmd` 차단일·`kstDateTimeStr` 배송 시각) |
 | 사양 요약 공용 헬퍼 | `…/apps/api/src/lib/option-summary.ts` (`buildOptionSummary` — cart·사용자·관리자 표기 통일) |
 | DB 스키마 | `…/apps/api/prisma/schema.prisma` (sp_quote/sp_order_spec/sp_file) |
 | 요청 계약 | `…/packages/api-contract/src/schemas/pcb-project.ts` · `auth.ts` · `admin.ts`(견적 관리) · `members.ts`(회원 관리) |

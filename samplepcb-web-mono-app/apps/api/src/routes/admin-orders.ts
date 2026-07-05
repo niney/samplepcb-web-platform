@@ -16,6 +16,7 @@ import type {
 import {
   deleteOrders,
   getCartRowsByOdId,
+  getDeliveryExcelRows,
   getMemberOrderCounts,
   getOrderRow,
   matchDeliveryRows,
@@ -26,6 +27,12 @@ import {
   setOrdersReceipt,
 } from '../lib/g5-db';
 import type { OrderActionResult, OrderDetailRow, OrderListRow } from '../lib/g5-db';
+import {
+  buildDeliveryWorkbook,
+  extractDeliveryRowsFromMatrix,
+  readDeliverySheet,
+} from '../lib/delivery-excel';
+import { kstDateTimeStr, kstTodayYmd } from '../lib/kst';
 import { buildOptionSummary } from '../lib/option-summary';
 import { notifyOrderEvent } from '../lib/php-bridge';
 import type { NotifyStatus } from '../lib/php-bridge';
@@ -336,6 +343,103 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       return {
         result: true as const,
         data: { processed: action.processed, skipped: action.skipped, notify: [] },
+      };
+    },
+  );
+
+  // ── GET /api/admin/orders/delivery-excel — 배송처리용 엑셀 다운로드 ─────────
+  // 레거시 orderdeliveryexcel.php 이식. od_status='준비' AND od_misu=0 주문 전체(페이지네이션
+  // 없음)를 xlsx 로. od_id 는 문자열 셀(빅넘버 깨짐 방지). 응답은 바이너리라 스키마 없음.
+  // 레거시(.xls/Excel5) 대비 **.xlsx(exceljs)** 로 포맷 상향 — 업로드 파서도 xlsx 를 읽는다.
+  fastify.get('/orders/delivery-excel', async (_request, reply) => {
+    const rows = await getDeliveryExcelRows();
+    const buffer = await buildDeliveryWorkbook(rows);
+    const stamp = kstTodayYmd().slice(2); // YYMMDD (레거시 date('ymd') 미러)
+    return reply
+      .header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+      .header('Content-Disposition', `attachment; filename="deliverylist-${stamp}.xlsx"`)
+      .header('Cache-Control', 'no-store')
+      .send(buffer);
+  });
+
+  // ── POST /api/admin/orders/delivery-excel — 배송정보 일괄 업로드 ────────────
+  // 레거시 orderdeliveryupdate.php 이식. multipart 파일 파트명은 `file` 고정. xlsx 파싱 →
+  // A/I/J 열(od_id/배송회사/운송장) 추출 → invoice_time 은 서버 KST 시각(코어 G5_TIME_YMDHIS
+  // 등가 — 엑셀엔 시각 컬럼 없음) → 기존 matchDeliveryRows+setOrdersDelivery(⑬) 재사용.
+  // 알림: 레거시는 폼 체크박스 기본 on 이지만 팀리드 지시로 **기본 off**, sendMail/sendSms
+  // 필드('1'|'true')로 opt-in. 성공 건만 notifyOrderEvent('배송'). 응답은 기존 AdminOrderActionResponse.
+  fastify.post(
+    '/orders/delivery-excel',
+    {
+      schema: {
+        response: { 200: AdminOrderActionResponse },
+      },
+    },
+    async (request, reply) => {
+      if (!request.isMultipart()) {
+        return reply.badRequest('multipart/form-data 요청이어야 합니다');
+      }
+      let fileBuffer: Buffer | undefined;
+      let sendMail = false;
+      let sendSms = false;
+      const isTruthy = (v: unknown): boolean => v === '1' || v === 'true';
+      for await (const part of request.parts()) {
+        if (part.type === 'file') {
+          if (part.fieldname === 'file') fileBuffer = await part.toBuffer();
+          else await part.toBuffer(); // 예기치 않은 파일 파트는 소진(스트림 정체 방지)
+        } else if (part.fieldname === 'sendMail') {
+          sendMail = isTruthy(part.value);
+        } else if (part.fieldname === 'sendSms') {
+          sendSms = isTruthy(part.value);
+        }
+      }
+      if (fileBuffer === undefined) return reply.badRequest('file 파트(xlsx)가 없습니다');
+
+      let matrix: string[][];
+      try {
+        matrix = await readDeliverySheet(fileBuffer);
+      } catch {
+        return reply.badRequest('xlsx 파일을 읽을 수 없습니다');
+      }
+
+      const parsed = extractDeliveryRowsFromMatrix(matrix);
+      const invoiceTime = kstDateTimeStr(new Date());
+      const odIds = parsed.map((p) => p.odId);
+      const delivery = parsed.map((p) => ({
+        odId: p.odId,
+        deliveryCompany: p.deliveryCompany,
+        invoiceNo: p.invoiceNo,
+        invoiceTime,
+      }));
+      const matched = matchDeliveryRows(odIds, delivery);
+      const action = await setOrdersDelivery(matched.rows);
+
+      // 알림(opt-in) — 성공 배송 건에 한해 PHP 브리지(입금·배송만 코어가 발송).
+      const notify: { odId: string; mail?: NotifyStatus; sms?: NotifyStatus }[] = [];
+      if ((sendMail || sendSms) && action.processed.length > 0) {
+        const token = fastify.jwt.sign({ svc: 'sp-node' }, { expiresIn: '60s' });
+        const results = await Promise.all(
+          action.processed.map(async (odId) => {
+            const r = await notifyOrderEvent(
+              { odId, event: '배송', mail: sendMail, sms: sendSms },
+              { token },
+            );
+            return { odId, ...r };
+          }),
+        );
+        notify.push(...results);
+      }
+
+      return {
+        result: true as const,
+        data: {
+          processed: action.processed,
+          skipped: [...matched.skipped, ...action.skipped],
+          notify,
+        },
       };
     },
   );

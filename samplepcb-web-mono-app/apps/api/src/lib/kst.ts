@@ -7,3 +7,8 @@ export const kstDateStr = (d: Date): string =>
 
 // KST 오늘 YYYYMMDD — 그누보드 mb_intercept_date varchar(8) 차단일 기록용.
 export const kstTodayYmd = (): string => kstDateStr(new Date()).replaceAll('-', '');
+
+// KST 'YYYY-MM-DD HH:MM:SS' — g5 native datetime 문자열(코어 G5_TIME_YMDHIS 등가).
+// 엑셀 배송 업로드의 od_invoice_time 처럼 서버 시각을 KST 문자열로 기록하는 지점에 쓴다.
+export const kstDateTimeStr = (d: Date): string =>
+  new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ');

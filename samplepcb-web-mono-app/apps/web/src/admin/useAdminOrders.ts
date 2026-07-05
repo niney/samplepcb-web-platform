@@ -1,8 +1,13 @@
 import { computed, type Ref } from 'vue';
-import { keepPreviousData, useQuery } from '@tanstack/vue-query';
-import { AdminOrderDetailResponse, AdminOrderListResponse, apiRoutes } from '@sp/api-contract';
-import type { AdminOrderTabType } from '@sp/api-contract';
-import { apiGet } from '@sp/shared';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
+import {
+  AdminOrderActionResponse,
+  AdminOrderDetailResponse,
+  AdminOrderListResponse,
+  apiRoutes,
+} from '@sp/api-contract';
+import type { AdminOrderStatusRequestType, AdminOrderTabType } from '@sp/api-contract';
+import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
 
 // 관리자 주문내역(/admin/orders) 서버 상태 훅 — 이번 WP 는 읽기 경로만(목록/상세).
 // 계약은 @sp/api-contract(orders.ts), 호출은 @sp/shared(apiGet — 401 시 토큰 재발급
@@ -63,12 +68,54 @@ export type OrderQField =
   | 'od_invoice';
 
 // 정렬 대상 컬럼(계약 sort enum). ''(filters.sort) = 미지정 → 서버 기본 정렬.
+// 'od_time'(주문일시)은 BE 워커가 계약 enum 에 추가 중 — FE 는 문자열 파라미터로만 쓰므로
+// 로컬 타입에 선반영한다(서버 반영 전 선택 시 400, 코디네이션으로 곧 해소).
 export type OrderSortField =
   | 'od_id'
+  | 'od_time'
   | 'od_cart_price'
   | 'od_receipt_price'
   | 'od_cancel_price'
   | 'od_misu';
+
+// 배송회사 표시 정규화 — DB 원본 '0'/''/null 은 '-'(레거시 아티팩트: 빈값이 '0'으로 저장됨).
+export const displayCompany = (company: string | null): string =>
+  company === null || company === '' || company === '0' ? '-' : company;
+
+// 준비 탭 운송장 인라인 입력 행(로컬 상태). invoiceTime 은 datetime-local 문자열('YYYY-MM-DDThh:mm').
+export interface DeliveryInput {
+  deliveryCompany: string;
+  invoiceNo: string;
+  invoiceTime: string;
+}
+
+// KST 벽시계 기준 datetime-local 기본값('YYYY-MM-DDThh:mm'). datetime-local 은 TZ 무변환이라
+// 브라우저 TZ 와 무관하게 이 문자열을 그대로 표시한다.
+export const nowLocalDateTime = (): string =>
+  new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+    .format(new Date())
+    .replace(' ', 'T');
+
+// g5 native('YYYY-MM-DD HH:MM:SS') → datetime-local('YYYY-MM-DDThh:mm')
+export const g5ToLocal = (g5: string): string => {
+  const s = g5.replace(' ', 'T');
+  return s.length >= 16 ? s.slice(0, 16) : s;
+};
+
+// datetime-local('YYYY-MM-DDThh:mm') → g5 native('YYYY-MM-DD hh:mm:00')
+export const toG5DateTime = (local: string): string => {
+  if (local === '') return '';
+  const s = local.replace('T', ' ');
+  return s.length === 16 ? `${s}:00` : s;
+};
 
 export interface AdminOrderFilters {
   page: number;
@@ -133,4 +180,43 @@ export function useAdminOrderDetail(odId: Ref<string | null>) {
       ),
     enabled: computed(() => odId.value !== null),
   });
+}
+
+// 상태 일괄 전이(입금/준비/배송/완료) — 성공 시 ['admin','orders'] 접두 무효화(목록 counts·상세 갱신).
+export function useOrderStatusMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AdminOrderStatusRequestType) =>
+      apiSend('PATCH', `${apiRoutes.adminOrders}/status`, body, AdminOrderActionResponse),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    },
+  });
+}
+
+// 미입금('주문') 선택삭제 — 견적 딸린 주문 삭제 시 보관함 수거가 연동되므로 quotes 도 무효화.
+export function useOrderDeleteMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (odIds: string[]) =>
+      apiSend('POST', `${apiRoutes.adminOrders}/delete`, { odIds }, AdminOrderActionResponse),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] });
+    },
+  });
+}
+
+// 엑셀배송 양식 다운로드 — Bearer 필요라 <a href> 불가, fetch→blob→objectURL 저장(downloadAdminFile 관례).
+export async function downloadDeliveryExcel(): Promise<void> {
+  const blob = await apiGetBlob(`${apiRoutes.adminOrders}/delivery-excel`);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders-delivery-${nowLocalDateTime().slice(0, 10)}.xlsx`;
+    a.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

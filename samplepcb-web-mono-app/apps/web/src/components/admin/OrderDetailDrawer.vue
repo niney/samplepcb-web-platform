@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AdminOrderCartItemType } from '@sp/api-contract';
 import {
+  displayCompany,
   formatOdId,
   orderStatusSlug,
   orderStatusVariant,
@@ -193,7 +194,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div>
                   <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryCompany') }}</dt>
-                  <dd class="text-gray-800">{{ order.deliveryCompany ?? '-' }}</dd>
+                  <dd class="text-gray-800">{{ displayCompany(order.deliveryCompany) }}</dd>
                 </div>
                 <div>
                   <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceTime') }}</dt>

@@ -1,13 +1,44 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { AdminOrderListItemType } from '@sp/api-contract';
-import { formatOdId, orderStatusSlug, orderStatusVariant } from '../../admin/useAdminOrders';
+import type { AdminOrderListItemType, AdminOrderTabType } from '@sp/api-contract';
+import {
+  displayCompany,
+  formatOdId,
+  orderStatusSlug,
+  orderStatusVariant,
+  type DeliveryInput,
+} from '../../admin/useAdminOrders';
 import UiBadge from '../ui/UiBadge.vue';
 
-const props = defineProps<{ items: AdminOrderListItemType[]; loading: boolean }>();
-const emit = defineEmits<{ select: [odId: string] }>();
+const props = defineProps<{
+  items: AdminOrderListItemType[];
+  loading: boolean;
+  tab: AdminOrderTabType;
+  selectedIds: string[];
+  deliveryInputs: Record<string, DeliveryInput>;
+}>();
+const emit = defineEmits<{
+  select: [odId: string];
+  toggle: [odId: string];
+  toggleAll: [checked: boolean];
+  updateDelivery: [odId: string, field: keyof DeliveryInput, value: string];
+}>();
 const { t } = useI18n();
+
+// 선택(체크박스) — 현재 페이지 기준 전체선택/부분선택(QuotesTable 관례).
+const allSelected = computed<boolean>(
+  () => props.items.length > 0 && props.items.every((i) => props.selectedIds.includes(i.odId)),
+);
+const someSelected = computed<boolean>(
+  () => props.items.some((i) => props.selectedIds.includes(i.odId)) && !allSelected.value,
+);
+const isSelected = (odId: string): boolean => props.selectedIds.includes(odId);
+
+// 준비 탭 운송장 인라인 입력값(부모 소유 deliveryInputs 에서 조회, 없으면 빈값).
+const companyOf = (odId: string): string => props.deliveryInputs[odId]?.deliveryCompany ?? '';
+const invoiceNoOf = (odId: string): string => props.deliveryInputs[odId]?.invoiceNo ?? '';
+const invoiceTimeOf = (odId: string): string => props.deliveryInputs[odId]?.invoiceTime ?? '';
 
 // 금액 표기 — 라벨은 헤더에 있으므로 셀은 순수 숫자(천단위)만.
 const won = (n: number): string => n.toLocaleString('ko-KR');
@@ -43,6 +74,15 @@ const totals = computed(() =>
     <table class="w-full min-w-[80rem] text-left text-sm" :class="{ 'opacity-60': props.loading }">
       <thead class="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
         <tr>
+          <th class="w-10 px-3 py-2">
+            <input
+              type="checkbox"
+              :checked="allSelected"
+              :indeterminate="someSelected"
+              class="h-4 w-4 cursor-pointer rounded border-gray-300"
+              @change="emit('toggleAll', ($event.target as HTMLInputElement).checked)"
+            >
+          </th>
           <th class="px-3 py-2 font-medium">{{ t('admin.orders.table.odId') }}</th>
           <th class="px-3 py-2 font-medium">{{ t('admin.orders.table.odTime') }}</th>
           <th class="px-3 py-2 font-medium">{{ t('admin.orders.table.orderer') }}</th>
@@ -60,7 +100,7 @@ const totals = computed(() =>
       </thead>
       <tbody>
         <tr v-if="!props.loading && props.items.length === 0">
-          <td colspan="13" class="px-3 py-12 text-center text-gray-400">
+          <td colspan="14" class="px-3 py-12 text-center text-gray-400">
             {{ t('admin.orders.table.empty') }}
           </td>
         </tr>
@@ -71,6 +111,14 @@ const totals = computed(() =>
           :class="{ 'bg-amber-50/60': item.cancelPrice > 0 }"
           @click="emit('select', item.odId)"
         >
+          <td class="w-10 px-3 py-2" @click.stop>
+            <input
+              type="checkbox"
+              :checked="isSelected(item.odId)"
+              class="h-4 w-4 cursor-pointer rounded border-gray-300"
+              @change="emit('toggle', item.odId)"
+            >
+          </td>
           <!-- 주문번호 + (M) 모바일 + 테스트 뱃지 -->
           <td class="px-3 py-2">
             <span class="font-medium text-gray-900">{{ formatOdId(item.odId) }}</span>
@@ -114,12 +162,36 @@ const totals = computed(() =>
           <td class="px-3 py-2 text-gray-600">
             {{ item.settleCase !== '' ? item.settleCase : '-' }}
           </td>
-          <!-- 운송장(읽기) — 입력은 WP4 -->
-          <td class="px-3 py-2">
-            <template v-if="item.invoiceNo !== null">
+          <!-- 운송장 — 준비 탭은 인라인 입력(배송회사/운송장번호/배송일시), 그 외는 읽기 -->
+          <td class="px-3 py-2" @click.stop>
+            <div v-if="props.tab === '준비'" class="flex flex-col gap-1">
+              <input
+                type="text"
+                :value="companyOf(item.odId)"
+                :placeholder="t('admin.orders.table.companyPh')"
+                class="w-32 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                @input="emit('updateDelivery', item.odId, 'deliveryCompany', ($event.target as HTMLInputElement).value)"
+              >
+              <input
+                type="text"
+                :value="invoiceNoOf(item.odId)"
+                :placeholder="t('admin.orders.table.invoicePh')"
+                class="w-32 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                @input="emit('updateDelivery', item.odId, 'invoiceNo', ($event.target as HTMLInputElement).value)"
+              >
+              <input
+                type="datetime-local"
+                :value="invoiceTimeOf(item.odId)"
+                class="w-40 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                @input="emit('updateDelivery', item.odId, 'invoiceTime', ($event.target as HTMLInputElement).value)"
+              >
+            </div>
+            <template v-else-if="item.invoiceNo !== null">
               <p class="text-gray-700">{{ item.invoiceNo }}</p>
               <p class="text-xs text-gray-400">
-                <span v-if="item.deliveryCompany !== null">{{ item.deliveryCompany }}</span>
+                <span v-if="displayCompany(item.deliveryCompany) !== '-'">
+                  {{ displayCompany(item.deliveryCompany) }}
+                </span>
                 <span v-if="item.invoiceTime !== null"> · {{ shortTime(item.invoiceTime) }}</span>
               </p>
             </template>
@@ -129,7 +201,7 @@ const totals = computed(() =>
       </tbody>
       <tfoot v-if="props.items.length > 0" class="border-t border-gray-200 bg-gray-50 font-medium">
         <tr>
-          <th colspan="4" class="px-3 py-2 text-right text-gray-600">
+          <th colspan="5" class="px-3 py-2 text-right text-gray-600">
             {{ t('admin.orders.table.sum') }}
           </th>
           <td class="px-3 py-2 text-right tabular-nums text-gray-800">{{ totals.cartCount }}</td>
