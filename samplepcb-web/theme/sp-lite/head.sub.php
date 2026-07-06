@@ -30,6 +30,34 @@ header("Cache-Control: no-cache"); // HTTP/1.1
 header("Expires: 0"); // rfc2616 - Section 14.21
 header("Pragma: no-cache"); // HTTP/1.0
 */
+
+// sp-lite: 계정 팝업 페이지(포인트·쿠폰·쪽지·스크랩)를 인라인 계정 레이아웃으로 승격 (로그인 회원·PC 한정).
+// 코어(bbs/point.php·shop/coupon.php·bbs/memo*.php·bbs/scrap.php)는 비수정 — 여기서 표현만 승격한다.
+// point/coupon/memo/memo_view/scrap 은 라이브 팝업 진입점이 없어 무조건 인라인.
+// memo_form.php 는 코어 lib(get_sideview)의 전역 "쪽지보내기" 팝업과 이중 역할이라 ?inline=1 마커일 때만 승격.
+$sp_inline_map = array(
+    'point.php'     => 'point',
+    'coupon.php'    => 'coupon',
+    'memo.php'      => 'memo',
+    'memo_view.php' => 'memo',
+    'scrap.php'     => 'scrap',
+);
+// 계정 스킨(sp-acc 마크업)을 쓰는 페이지 — memo_form 은 마커 없이(팝업)도 여기 포함해 CSS 는 항상 로드.
+$sp_acc_pages      = array('point.php', 'coupon.php', 'memo.php', 'memo_view.php', 'scrap.php', 'memo_form.php');
+$sp_cur_sub        = basename($_SERVER['SCRIPT_NAME']);
+$sp_account_active = '';
+$sp_inline_account = false;                                                   // 계정 레이아웃(사이드바) 승격 여부
+$sp_acc_css        = false;                                                   // default_shop.css(sp-acc 스타일) 로드 여부
+if (!empty($member['mb_id']) && !G5_IS_MOBILE) {
+    $sp_acc_css = in_array($sp_cur_sub, $sp_acc_pages, true);
+    if (isset($sp_inline_map[$sp_cur_sub])) {
+        $sp_inline_account = true;
+        $sp_account_active = $sp_inline_map[$sp_cur_sub];
+    } else if ($sp_cur_sub === 'memo_form.php' && isset($_GET['inline']) && $_GET['inline'] === '1') {
+        $sp_inline_account = true;
+        $sp_account_active = 'memo';
+    }
+}
 ?>
 <!doctype html>
 <html lang="ko">
@@ -46,7 +74,7 @@ if($config['cf_add_meta'])
 <?php
 // sp-lite: default.css를 항상 로드하고, 쇼핑몰 페이지는 default_shop.css를 추가 로드
 echo '<link rel="stylesheet" href="'.run_replace('head_css_url', G5_THEME_CSS_URL.'/default.css?ver='.G5_CSS_VER, G5_THEME_URL).'">'.PHP_EOL;
-if (defined('_SHOP_'))
+if (defined('_SHOP_') || $sp_acc_css) // sp-lite: 계정 스킨(sp-acc) 페이지는 bbs 경로·팝업이어도 default_shop.css 필요
     echo '<link rel="stylesheet" href="'.G5_THEME_CSS_URL.'/default_shop.css?ver='.G5_CSS_VER.'">'.PHP_EOL;
 ?>
 <script>
@@ -91,4 +119,26 @@ if ($is_member) { // 회원이라면 로그인 중이라는 메세지를 출력�
 
     echo '<div id="hd_login_msg">'.$sr_admin_msg.get_text($member['mb_nick']).'님 로그인 중 ';
     echo '<a href="'.G5_BBS_URL.'/logout.php">로그아웃</a></div>';
+}
+
+// sp-lite: 인라인 계정 레이아웃 오프너 — 팝업 베어 대신 GNB + 계정 사이드바로 감싼다(tail.sub 가 대칭으로 닫음).
+if ($sp_inline_account) {
+    // inc/header.php(GNB) 및 콘텐츠/스킨 호환 lib (head.php 와 동일 세트)
+    include_once(G5_LIB_PATH.'/outlogin.lib.php');
+    include_once(G5_LIB_PATH.'/poll.lib.php');
+    include_once(G5_LIB_PATH.'/visit.lib.php');
+    include_once(G5_LIB_PATH.'/connect.lib.php');
+    include_once(G5_LIB_PATH.'/popular.lib.php');
+    include_once(G5_LIB_PATH.'/latest.lib.php');
+    include_once(G5_THEME_PATH.'/inc/header.php'); // 공용 헤더(GNB)
+    define('SP_INLINE_ACCOUNT', true);
+?>
+<div id="wrapper">
+    <div id="container" class="is-account">
+        <div id="aside" class="account-aside">
+            <?php include G5_THEME_SHOP_PATH.'/_account_nav.php'; ?>
+        </div>
+        <div class="shop-content account-main">
+            <div id="wrapper_title"><?php echo $g5['title']; ?></div>
+<?php
 }

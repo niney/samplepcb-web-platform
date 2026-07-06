@@ -9,7 +9,7 @@ if (!defined("_GNUBOARD_")) exit; // 개별 페이지 접근 불가
  * $member 로그인 전제(호출 측이 로그인 게이트). 배지 건수는 여기서 1회 조회.
  */
 if (!isset($sp_account_active)) $sp_account_active = '';
-$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '');
+$cur = array('home' => '', 'orders' => '', 'cart' => '', 'wish' => '', 'quotes' => '', 'point' => '', 'coupon' => '', 'memo' => '', 'scrap' => '');
 if (isset($cur[$sp_account_active])) $cur[$sp_account_active] = ' aria-current="page"';
 
 $sp_esc   = function_exists('sql_real_escape_string') ? sql_real_escape_string($member['mb_id']) : addslashes($member['mb_id']);
@@ -31,11 +31,11 @@ $sp_wi = (int) $tmp['cnt'];
             </div>
         </div>
         <div class="nav_stats">
-            <a class="nav_stat" href="<?php echo G5_BBS_URL ?>/point.php" target="_blank">
+            <a class="nav_stat" href="<?php echo G5_BBS_URL ?>/point.php">
                 <span class="v"><?php echo number_format($member['mb_point']); ?><small>P</small></span>
                 <span class="k"><i class="fa fa-database" aria-hidden="true"></i>포인트</span>
             </a>
-            <a class="nav_stat" href="<?php echo G5_SHOP_URL ?>/coupon.php" target="_blank">
+            <a class="nav_stat" href="<?php echo G5_SHOP_URL ?>/coupon.php">
                 <span class="v"><?php echo number_format($sp_cp); ?><small>장</small></span>
                 <span class="k"><i class="fa fa-ticket" aria-hidden="true"></i>쿠폰</span>
             </a>
@@ -56,15 +56,15 @@ $sp_wi = (int) $tmp['cnt'];
         <div class="nav_group">
             <p class="nav_glabel">혜택</p>
             <ul>
-                <li><a href="<?php echo G5_BBS_URL ?>/point.php" target="_blank"><i class="fa fa-database" aria-hidden="true"></i><span class="lbl">포인트</span><span class="nav_badge"><?php echo number_format($member['mb_point']); ?></span></a></li>
-                <li><a href="<?php echo G5_SHOP_URL ?>/coupon.php" target="_blank"><i class="fa fa-ticket" aria-hidden="true"></i><span class="lbl">쿠폰</span><?php if ($sp_cp) { ?><span class="nav_badge"><?php echo number_format($sp_cp); ?></span><?php } ?></a></li>
+                <li><a href="<?php echo G5_BBS_URL ?>/point.php"<?php echo $cur['point']; ?>><i class="fa fa-database" aria-hidden="true"></i><span class="lbl">포인트</span><span class="nav_badge"><?php echo number_format($member['mb_point']); ?></span></a></li>
+                <li><a href="<?php echo G5_SHOP_URL ?>/coupon.php"<?php echo $cur['coupon']; ?>><i class="fa fa-ticket" aria-hidden="true"></i><span class="lbl">쿠폰</span><?php if ($sp_cp) { ?><span class="nav_badge"><?php echo number_format($sp_cp); ?></span><?php } ?></a></li>
             </ul>
         </div>
         <div class="nav_group">
             <p class="nav_glabel">소통</p>
             <ul>
-                <li><a href="<?php echo G5_BBS_URL ?>/memo.php" target="_blank"><i class="fa fa-envelope-o" aria-hidden="true"></i><span class="lbl">쪽지</span><?php if ($sp_memo) { ?><span class="nav_badge on"><?php echo number_format($sp_memo); ?></span><?php } ?></a></li>
-                <li><a href="<?php echo G5_BBS_URL ?>/scrap.php" target="_blank"><i class="fa fa-thumb-tack" aria-hidden="true"></i><span class="lbl">스크랩</span><?php if ($sp_scrap) { ?><span class="nav_badge"><?php echo number_format($sp_scrap); ?></span><?php } ?></a></li>
+                <li><a href="<?php echo G5_BBS_URL ?>/memo.php"<?php echo $cur['memo']; ?>><i class="fa fa-envelope-o" aria-hidden="true"></i><span class="lbl">쪽지</span><?php if ($sp_memo) { ?><span class="nav_badge on"><?php echo number_format($sp_memo); ?></span><?php } ?></a></li>
+                <li><a href="<?php echo G5_BBS_URL ?>/scrap.php"<?php echo $cur['scrap']; ?>><i class="fa fa-thumb-tack" aria-hidden="true"></i><span class="lbl">스크랩</span><?php if ($sp_scrap) { ?><span class="nav_badge"><?php echo number_format($sp_scrap); ?></span><?php } ?></a></li>
             </ul>
         </div>
         <div class="nav_group">

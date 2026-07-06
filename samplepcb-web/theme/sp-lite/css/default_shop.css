@@ -2067,3 +2067,184 @@
     #smb_my_ov .op_area #smb_my_ovaddd { grid-column: auto; }
     #smb_ws_act button { flex: 1; padding: 0 12px; }
 }
+
+/* ==========================================================================
+   계정 콘텐츠 (포인트·쿠폰·쪽지·스크랩) — 팝업에서 인라인 계정 레이아웃으로 이관.
+   .account-main 우측 콘텐츠. 패널/헤더는 마이페이지(.smb_panel_*)와 공용 톤.
+   ========================================================================== */
+.sp-acc { min-width: 0; margin: 0 0 48px; }
+.sp-acc-panel {
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: var(--sp-bg);
+    padding: 24px;
+}
+.sp-acc-empty {
+    list-style: none;
+    padding: 44px 12px;
+    text-align: center;
+    color: var(--sp-muted);
+    font-size: 14px;
+}
+.sp-acc-paging { margin-top: 18px; }
+
+/* ---- 요약 타일(포인트 보유) ---- */
+.sp-acc-sum {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+    border-radius: var(--sp-radius);
+    background: var(--sp-primary-soft);
+}
+.sp-acc-sum__label { font-size: 13px; font-weight: 600; color: var(--sp-primary); }
+.sp-acc-sum__value { font-size: 26px; font-weight: 800; color: var(--sp-primary); line-height: 1; }
+.sp-acc-sum__value small { font-size: 14px; font-weight: 700; margin-left: 2px; }
+
+/* ---- 포인트 내역 ---- */
+.sp-acc-plist { list-style: none; margin: 0; padding: 0; }
+.sp-acc-plist__li { padding: 14px 2px; border-bottom: 1px solid var(--sp-line); }
+.sp-acc-plist__li:last-child { border-bottom: 0; }
+.sp-acc-plist__main { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sp-acc-plist__title { font-size: 14px; font-weight: 500; color: var(--sp-ink); }
+.sp-acc-plist__num { font-size: 15px; font-weight: 700; color: var(--sp-primary); white-space: nowrap; }
+.sp-acc-plist__num small { font-size: 11px; font-weight: 600; margin-left: 1px; }
+.sp-acc-plist__li.is-use .sp-acc-plist__num { color: #d64545; }
+.sp-acc-plist__meta { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; color: var(--sp-muted); }
+.sp-acc-plist__exp { color: #c07a2b; }
+.sp-acc-plist__li.is-expired { opacity: .55; }
+.sp-acc-subtotal {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 12px; padding: 12px 14px;
+    border-radius: var(--sp-radius); background: var(--sp-bg-soft);
+    font-size: 13px; color: var(--sp-muted);
+}
+.sp-acc-subtotal__nums strong { font-weight: 700; margin-left: 10px; }
+.sp-acc-subtotal__nums .up { color: var(--sp-primary); }
+.sp-acc-subtotal__nums .down { color: #d64545; }
+
+/* ---- 쿠폰 카드 ---- */
+.sp-acc-coupons { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.sp-acc-coupon-card {
+    display: flex; align-items: stretch;
+    border: 1px solid var(--sp-line); border-radius: var(--sp-radius); overflow: hidden;
+}
+.sp-acc-coupon-card__amt {
+    flex: none; width: 120px;
+    display: grid; place-items: center;
+    padding: 16px 10px;
+    background: var(--sp-primary); color: #fff;
+    font-size: 20px; font-weight: 800; text-align: center; word-break: keep-all;
+}
+.sp-acc-coupon-card__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; }
+.sp-acc-coupon-card__tit { font-size: 15px; font-weight: 700; color: var(--sp-ink); }
+.sp-acc-coupon-card__target,
+.sp-acc-coupon-card__date { font-size: 12px; color: var(--sp-muted); }
+.sp-acc-coupon-card__target i,
+.sp-acc-coupon-card__date i { color: var(--sp-primary); margin-right: 3px; }
+
+/* ---- 탭(쪽지) ---- */
+.sp-acc-tabs { display: flex; align-items: center; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--sp-line); }
+.sp-acc-tabs a {
+    padding: 10px 16px; margin-bottom: -1px;
+    font-size: 14px; font-weight: 600; color: var(--sp-muted);
+    border-bottom: 2px solid transparent;
+}
+.sp-acc-tabs a:hover { color: var(--sp-ink); }
+.sp-acc-tabs a.is-on { color: var(--sp-primary); border-bottom-color: var(--sp-primary); }
+.sp-acc-tabs__write { margin-left: auto; color: var(--sp-primary); }
+
+/* ---- 헤더 카운트 / 안내 ---- */
+.sp-acc-count { font-size: 13px; color: var(--sp-muted); }
+.sp-acc-count strong { color: var(--sp-primary); font-weight: 700; }
+.sp-acc-note {
+    margin: 16px 0 0; padding: 10px 12px;
+    border-radius: var(--sp-radius); background: var(--sp-bg-soft);
+    font-size: 12px; color: var(--sp-muted);
+}
+.sp-acc-note i { color: var(--sp-primary); margin-right: 4px; }
+
+/* ---- 쪽지 목록 ---- */
+.sp-acc-memos { list-style: none; margin: 0; padding: 0; }
+.sp-acc-memo-li { display: flex; align-items: flex-start; gap: 12px; padding: 14px 2px; border-bottom: 1px solid var(--sp-line); }
+.sp-acc-memo-li:last-child { border-bottom: 0; }
+.sp-acc-memo-li__ava { flex: none; }
+.sp-acc-memo-li__ava img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+.sp-acc-memo-li__body { flex: 1; min-width: 0; }
+.sp-acc-memo-li__top { display: flex; align-items: center; gap: 8px; }
+.sp-acc-memo-li__name { font-size: 14px; font-weight: 600; color: var(--sp-ink); }
+.sp-acc-memo-li__name a { color: inherit; }
+.sp-acc-memo-li__date { font-size: 12px; color: var(--sp-muted); }
+.sp-acc-memo-li__badge { font-size: 10px; font-weight: 700; color: #fff; background: var(--sp-primary); padding: 1px 6px; border-radius: 10px; }
+.sp-acc-memo-li__preview { display: block; margin-top: 3px; font-size: 13px; color: var(--sp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-acc-memo-li__preview:hover { color: var(--sp-primary); }
+.sp-acc-memo-li.is-unread .sp-acc-memo-li__preview { color: var(--sp-ink); font-weight: 500; }
+.sp-acc-memo-li__del { flex: none; color: var(--sp-muted); padding: 4px; }
+.sp-acc-memo-li__del:hover { color: #d64545; }
+
+/* ---- 쪽지 보기 ---- */
+.sp-acc-memo-view { border: 1px solid var(--sp-line); border-radius: var(--sp-radius); overflow: hidden; }
+.sp-acc-memo-view__head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--sp-bg-soft); border-bottom: 1px solid var(--sp-line); }
+.sp-acc-memo-view__ava img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+.sp-acc-memo-view__who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sp-acc-memo-view__nick { font-size: 14px; font-weight: 600; color: var(--sp-ink); }
+.sp-acc-memo-view__date { font-size: 12px; color: var(--sp-muted); }
+.sp-acc-memo-view__del { flex: none; color: var(--sp-muted); padding: 4px; }
+.sp-acc-memo-view__del:hover { color: #d64545; }
+.sp-acc-memo-view__body { padding: 20px 16px; font-size: 14px; line-height: 1.7; color: var(--sp-ink); word-break: break-word; }
+.sp-acc-memo-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; }
+.sp-acc-memo-nav__side { flex: 1; font-size: 13px; }
+.sp-acc-memo-nav__side--right { text-align: right; }
+.sp-acc-memo-nav__side a { color: var(--sp-muted); }
+.sp-acc-memo-nav__side a:hover { color: var(--sp-primary); }
+
+/* ---- 폼(쪽지 쓰기) ---- */
+.sp-acc-form { display: flex; flex-direction: column; gap: 18px; }
+.sp-acc-field { display: flex; flex-direction: column; gap: 6px; }
+.sp-acc-field label { font-size: 13px; font-weight: 600; color: var(--sp-ink); }
+.sp-acc-field label .req { color: #d64545; }
+.sp-acc-field input[type=text],
+.sp-acc-field textarea {
+    width: 100%; padding: 10px 12px;
+    border: 1px solid var(--sp-line); border-radius: var(--sp-radius);
+    font-size: 14px; color: var(--sp-ink); background: #fff;
+}
+.sp-acc-field textarea { min-height: 160px; resize: vertical; line-height: 1.6; }
+.sp-acc-field input:focus, .sp-acc-field textarea:focus { outline: none; border-color: var(--sp-primary); }
+.sp-acc-field__hint { font-size: 12px; color: var(--sp-muted); }
+.sp-acc-formbtns { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* 버튼 공용 */
+.sp-acc-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 42px; padding: 0 22px;
+    border: 1px solid var(--sp-line); border-radius: var(--sp-radius);
+    font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.sp-acc-btn--primary { background: var(--sp-primary); border-color: var(--sp-primary); color: #fff; }
+.sp-acc-btn--primary:hover { background: var(--sp-primary-dark); border-color: var(--sp-primary-dark); }
+.sp-acc-btn--ghost { background: #fff; color: var(--sp-ink); }
+.sp-acc-btn--ghost:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
+
+/* ---- 스크랩 ---- */
+.sp-acc-scraps { list-style: none; margin: 0; padding: 0; }
+.sp-acc-scrap-li { display: flex; align-items: flex-start; gap: 12px; padding: 14px 2px; border-bottom: 1px solid var(--sp-line); }
+.sp-acc-scrap-li:last-child { border-bottom: 0; }
+.sp-acc-scrap-li__body { flex: 1; min-width: 0; }
+.sp-acc-scrap-li__tit { display: block; font-size: 14px; font-weight: 600; color: var(--sp-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-acc-scrap-li__tit:hover { color: var(--sp-primary); }
+.sp-acc-scrap-li__meta { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; color: var(--sp-muted); }
+.sp-acc-scrap-li__cate { color: var(--sp-muted); }
+.sp-acc-scrap-li__cate:hover { color: var(--sp-primary); }
+.sp-acc-scrap-li__cate i { margin-right: 3px; }
+.sp-acc-scrap-li__del { flex: none; color: var(--sp-muted); padding: 4px; }
+.sp-acc-scrap-li__del:hover { color: #d64545; }
+
+/* ---- 계정 콘텐츠 반응형 ---- */
+@media (max-width: 640px) {
+    .sp-acc-panel { padding: 18px 16px; }
+    .sp-acc-coupon-card__amt { width: 92px; font-size: 17px; }
+    .sp-acc-tabs__write { padding-left: 8px; padding-right: 8px; }
+}
