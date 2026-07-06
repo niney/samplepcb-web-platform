@@ -33,10 +33,11 @@ function mimeOf(file: string): string {
 }
 
 async function collectTargets(limit: number): Promise<{ lines: UploadTargetLine[]; noFile: number }> {
+  // 최신 주문부터 — 미러가 최근 구간(2022+)만 있을 때 사전 업로드 가치가 높은 쪽을 먼저 나른다.
   const rows = await legacySelect(
     `SELECT c.od_id, c.ct_id, c.it_id
        FROM g5_shop_cart c JOIN g5_shop_order o ON o.od_id = c.od_id
-      WHERE c.it_id <> '' ORDER BY c.od_id, c.ct_id`,
+      WHERE c.it_id <> '' ORDER BY c.od_id DESC, c.ct_id`,
   );
   const lines: UploadTargetLine[] = [];
   let noFile = 0;
@@ -95,8 +96,10 @@ async function main(): Promise<void> {
     if (mirrorDir === undefined || mirrorDir === '') {
       console.log('MIGRATE_LEGACY_FILES_DIR 미설정 — 업로드 생략(원장/리링크만 가능).');
     } else {
-      const pending = lines.filter((l) => ledger.fileEntry(l.quoteId) === undefined);
-      console.log(`원장 미기록 ${String(pending.length)}건 업로드 시작 (동시성 ${String(concurrency)})`);
+      // pathToken 이 없으면(미기록 + 과거 missing) 재시도 대상 — missing 은 "그때 없었음"일 뿐,
+      // 이후 미러를 보강하면 재실행만으로 업로드로 승격된다(멱등: 업로드 완료분만 스킵).
+      const pending = lines.filter((l) => ledger.fileEntry(l.quoteId)?.pathToken === undefined);
+      console.log(`미업로드 ${String(pending.length)}건 업로드 시작 (동시성 ${String(concurrency)})`);
       let ok = 0;
       let missing = 0;
       let failed = 0;
