@@ -29,11 +29,22 @@ $wrapper_class = array();
 if( defined('G5_IS_COMMUNITY_PAGE') && G5_IS_COMMUNITY_PAGE ){
     $wrapper_class[] = 'is_community';
 }
+
+// 계정 사이드바를 붙일 쇼핑 페이지 판별(로그인 회원 한정). 견적 페이지는 다른 head(theme/head.php)라 여기 없음.
+$sp_account_pages = array(
+    'mypage.php'           => 'home',
+    'orderinquiry.php'     => 'orders',
+    'orderinquiryview.php' => 'orders',
+    'cart.php'             => 'cart',
+    'wishlist.php'         => 'wish',
+);
+$sp_cur_script = basename($_SERVER['SCRIPT_NAME']);
+$sp_account_active = (!empty($member['mb_id']) && isset($sp_account_pages[$sp_cur_script])) ? $sp_account_pages[$sp_cur_script] : '';
 ?>
 <!-- 전체 콘텐츠 시작 { -->
 <div id="wrapper" class="<?php echo implode(' ', $wrapper_class); ?>">
     <!-- #container 시작 { -->
-    <div id="container">
+    <div id="container"<?php echo $sp_account_active ? ' class="is-account"' : ''; ?>>
 
         <?php if(defined('_INDEX_')) { ?>
         <div id="aside">
@@ -61,6 +72,10 @@ if( defined('G5_IS_COMMUNITY_PAGE') && G5_IS_COMMUNITY_PAGE ){
 
             <?php echo display_banner('왼쪽', 'boxbanner.skin.php'); ?>
             <?php echo poll('theme/shop_basic'); // 설문조사 ?>
+        </div>
+        <?php } elseif($sp_account_active) { // 계정 페이지: #aside 에 공용 계정 사이드바 ?>
+        <div id="aside" class="account-aside">
+            <?php include G5_THEME_SHOP_PATH.'/_account_nav.php'; ?>
         </div>
         <?php } // end if ?>
         <?php

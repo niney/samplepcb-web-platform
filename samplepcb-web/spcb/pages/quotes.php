@@ -44,6 +44,12 @@ foreach (array(
 
 <link rel="stylesheet" href="<?php echo G5_THEME_CSS_URL; ?>/default_shop.css?ver=<?php echo G5_CSS_VER; ?>">
 
+<?php $sp_account_active = 'quotes'; ?>
+<div class="account-layout">
+    <?php include G5_THEME_SHOP_PATH . '/_account_nav.php'; ?>
+    <div class="account-main">
+        <div id="wrapper_title"><?php echo $g5['title']; ?></div>
+
 <div class="sp-quotes">
     <p class="sp-quotes__status" id="sp-quotes-status">불러오는 중…</p>
 
@@ -387,6 +393,9 @@ foreach (array(
     load();
 })();
 </script>
+
+    </div><!-- /.account-main -->
+</div><!-- /.account-layout -->
 
 <?php
 include_once(G5_THEME_PATH . '/tail.php');
