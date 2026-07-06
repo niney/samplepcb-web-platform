@@ -56,16 +56,22 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
                 <li><a href="<?php echo G5_BBS_URL ?>/login.php?url=<?php echo isset($urlencode) ? $urlencode : ''; ?>">로그인</a></li>
                 <li><a href="<?php echo G5_BBS_URL ?>/register.php" class="sp-util__cta">회원가입</a></li>
                 <?php } ?>
-                <?php if (defined('G5_USE_SHOP') && G5_USE_SHOP && function_exists('get_boxcart_datas_count')) { ?>
+                <?php if (defined('G5_USE_SHOP') && G5_USE_SHOP && function_exists('get_boxcart_datas_count')) {
+                    // 뱃지 카운트 — cart.php 표시 건수와 일치(견적 ct_id 건별)하도록 extend 헬퍼 사용.
+                    // 헬퍼 부재(구버전) 시 코어 집계로 폴백. 견적관리는 순수 견적(미담김) 건수.
+                    $sp_cart_cnt  = function_exists('sp_cart_badge_count')  ? sp_cart_badge_count()  : get_boxcart_datas_count();
+                    $sp_quote_cnt = function_exists('sp_quote_badge_count') ? sp_quote_badge_count() : 0;
+                ?>
                 <li class="sp-util__quotes">
                     <a href="<?php echo G5_URL; ?>/shop/quotes">
                         <i class="fa fa-file-text-o" aria-hidden="true"></i><span class="sound_only">견적관리</span>
+                        <?php if ($sp_quote_cnt > 0) { ?><span class="sp-util__quotes-count"><?php echo $sp_quote_cnt; ?></span><?php } ?>
                     </a>
                 </li>
                 <li class="sp-util__cart">
                     <a href="<?php echo G5_SHOP_URL; ?>/cart.php">
                         <i class="fa fa-shopping-cart" aria-hidden="true"></i><span class="sound_only">장바구니</span>
-                        <span class="sp-util__cart-count"><?php echo get_boxcart_datas_count(); ?></span>
+                        <?php if ($sp_cart_cnt > 0) { ?><span class="sp-util__cart-count"><?php echo $sp_cart_cnt; ?></span><?php } ?>
                     </a>
                 </li>
                 <?php } ?>

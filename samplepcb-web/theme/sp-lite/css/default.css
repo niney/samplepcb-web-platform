@@ -179,7 +179,8 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 
 .sp-util__quotes a,
 .sp-util__cart a { position: relative; font-size: 17px; color: var(--sp-ink); }
-.sp-util__cart-count {
+.sp-util__cart-count,
+.sp-util__quotes-count {
     position: absolute;
     top: -4px;
     right: -2px;

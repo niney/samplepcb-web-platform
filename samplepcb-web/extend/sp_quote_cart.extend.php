@@ -84,6 +84,53 @@ function sp_quote_thumb_url($ct_id)
     return "/api/pcb-thumbs/{$file_id}?exp={$exp}&sig={$sig}";
 }
 
+// ⑤ 헤더 유틸 뱃지 카운트 — 테마 inc/header.php 의 장바구니·견적관리 아이콘 뱃지.
+//
+// 장바구니: 코어 get_boxcart_datas_count() 는 전 행을 it_id 로 묶어, 같은 템플릿
+//   it_id 를 공유하는 견적 여러 건을 1 로 접는다(테마 cart.php 는 견적을 ct_id
+//   건별 카드로 렌더) → 뱃지가 실제 카트 건수보다 적게 나온다. 여기서 일반 상품은
+//   distinct it_id, 견적 템플릿 행은 ct_id 건별로 세어 cart.php 표시 건수와 일치시킨다.
+function sp_cart_badge_count()
+{
+    global $g5;
+
+    $cart_id = get_session('ss_cart_id');
+    if (!$cart_id) return 0;
+    $cart_id = sql_real_escape_string($cart_id);
+    $in = sp_quote_it_ids_in();
+
+    // 일반 상품 = distinct it_id(코어·cart.php 집계와 동일) + 견적 템플릿 = 건별(ct_id)
+    $row = sql_fetch(" select
+                (select count(distinct it_id) from {$g5['g5_shop_cart_table']}
+                  where od_id = '$cart_id' and it_id not in ($in)) +
+                (select count(*) from {$g5['g5_shop_cart_table']}
+                  where od_id = '$cart_id' and it_id in ($in)) as cnt ");
+
+    return $row ? (int) $row['cnt'] : 0;
+}
+
+// ⑤ 견적관리 뱃지 — 순수 견적(장바구니 미담김·미주문·미삭제) 건수.
+//   GET /api/pcb-projects?status=active 의 visible(ctId IS NULL) 필터와 동일 결과.
+//   sp_order_spec 은 prisma @map 없음 → 실물 컬럼 camelCase(`mbId`·`ctId`·status),
+//   sp_* 는 g5 동거 DB. 헤더는 전 페이지에서 렌더되므로, sp-node 미배치(테이블
+//   부재) 환경에서도 사이트가 죽지 않게 sql_fetch 2번째 인자 false 로 비치명 처리.
+function sp_quote_badge_count()
+{
+    global $member;
+
+    $mb_id = isset($member['mb_id']) ? trim($member['mb_id']) : '';
+    if ($mb_id === '') return 0;
+    $mb_id = sql_real_escape_string($mb_id);
+
+    $row = sql_fetch(" select count(*) as cnt
+                         from sp_order_spec
+                        where `mbId` = '$mb_id'
+                          and status = 'active'
+                          and `ctId` is null ", false);
+
+    return $row ? (int) $row['cnt'] : 0;
+}
+
 // ① 주문서용 옵션 나열 — 선택행(ct_select=1)만. lib/shop.lib.php print_item_options 복제+필터.
 function sp_print_item_options_selected($it_id, $cart_id)
 {
