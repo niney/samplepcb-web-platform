@@ -27,12 +27,9 @@ for($k=0; $cp=sql_fetch_array($res); $k++) {
         <h2>회원정보 개요</h2>
         
         <div class="smb_me">
-	        <strong class="my_ov_name"><?php echo get_member_profile_img($member['mb_id']); ?><br><?php echo $member['mb_name']; ?></strong><br>
-	        <a href="<?php echo G5_BBS_URL ?>/member_confirm.php?url=register_form.php" class="smb_info">정보수정</a>
-	        <a href="<?php echo G5_BBS_URL ?>/logout.php">로그아웃</a>
-        </div>
-        
-        <ul id="smb_private">
+	        <strong class="my_ov_name"><?php echo get_member_profile_img($member['mb_id']); ?><br><?php echo $member['mb_name']; ?></strong>
+
+	        <ul id="smb_private">
 	    	<li>
 	            <a href="<?php echo G5_BBS_URL ?>/point.php" target="_blank" class="win_point">
 					<i class="fa fa-database" aria-hidden="true"></i>포인트
@@ -58,7 +55,14 @@ for($k=0; $cp=sql_fetch_array($res); $k++) {
 	            </a>
 	        </li>
 	    </ul>
-	    
+
+	        <div class="smb_me_act">
+	            <a href="<?php echo G5_BBS_URL ?>/member_confirm.php?url=register_form.php" class="smb_info">정보수정</a>
+	            <a href="<?php echo G5_BBS_URL ?>/logout.php">로그아웃</a>
+	            <a href="<?php echo G5_BBS_URL; ?>/member_confirm.php?url=member_leave.php" onclick="return member_leave();" class="withdrawal">회원탈퇴</a>
+	        </div>
+        </div>
+
         <h3>내정보</h3>
         <dl class="op_area">
             <dt>연락처</dt>
@@ -72,8 +76,6 @@ for($k=0; $cp=sql_fetch_array($res); $k++) {
             <dt id="smb_my_ovaddt">주소</dt>
             <dd id="smb_my_ovaddd"><?php echo sprintf("(%s%s)", $member['mb_zip1'], $member['mb_zip2']).' '.print_address($member['mb_addr1'], $member['mb_addr2'], $member['mb_addr3'], $member['mb_addr_jibeon']); ?></dd>
         </dl>
-        
-        <a href="<?php echo G5_BBS_URL; ?>/member_confirm.php?url=member_leave.php" onclick="return member_leave();" class="withdrawal">회원탈퇴</a>
     </section>
     <!-- } 회원정보 개요 끝 -->
 

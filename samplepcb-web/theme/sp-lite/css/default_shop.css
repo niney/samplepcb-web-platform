@@ -1415,24 +1415,25 @@
 .status_06 { background: #f3f4f6; color: #6b7280; }  /* 주문취소   */
 
 /* ==========================================================================
-   주문내역 목록 (shop/orderinquiry.php → 테마 orderinquiry.sub.php)
-   전 기기 pc 파일 사용(G5_THEME_DEVICE=pc) → 넓은 화면 표 / 좁은 화면 카드
+   주문내역 목록 (넓은 화면 표 / 좁은 화면 카드)
+   .sod_list_* 는 공용 컴포넌트 — 주문내역(#sod_v)·마이페이지(#smb_my_od) 공유.
+   #sod_v 종속을 풀어 두 페이지가 같은 표↔카드 CSS를 재사용(SSOT).
    ========================================================================== */
 #sod_v { margin: 0 0 48px; }
 
-#sod_v .sod_v_count { margin: 0 0 16px; font-size: 14px; color: var(--sp-muted); }
-#sod_v .sod_v_count strong { color: var(--sp-ink); font-weight: 700; }
+.sod_v_count { margin: 0 0 16px; font-size: 14px; color: var(--sp-muted); }
+.sod_v_count strong { color: var(--sp-ink); font-weight: 700; }
 
-#sod_v .sod_list_wrap {
+.sod_list_wrap {
     border: 1px solid var(--sp-line);
     border-radius: var(--sp-radius);
     overflow-x: auto;
     background: var(--sp-bg);
 }
 
-#sod_v .sod_list_tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.sod_list_tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 
-#sod_v .sod_list_tbl thead th {
+.sod_list_tbl thead th {
     padding: 14px 16px;
     background: var(--sp-bg-soft);
     border-bottom: 1px solid var(--sp-line);
@@ -1442,9 +1443,9 @@
     white-space: nowrap;
     text-align: center;
 }
-#sod_v .sod_list_tbl thead th:first-child { text-align: left; }
+.sod_list_tbl thead th:first-child { text-align: left; }
 
-#sod_v .sod_list_tbl tbody td {
+.sod_list_tbl tbody td {
     padding: 15px 16px;
     border-bottom: 1px solid var(--sp-line);
     text-align: center;
@@ -1452,31 +1453,31 @@
     color: var(--sp-ink);
     white-space: nowrap;
 }
-#sod_v .sod_list_tbl tbody tr:last-child td { border-bottom: 0; }
-#sod_v .sod_list_tbl tbody tr:hover td { background: var(--sp-bg-soft); }
+.sod_list_tbl tbody tr:last-child td { border-bottom: 0; }
+.sod_list_tbl tbody tr:hover td { background: var(--sp-bg-soft); }
 
-#sod_v .sod_col_id { text-align: left; }
-#sod_v .sod_col_id a { font-weight: 600; color: var(--sp-primary); }
-#sod_v .sod_col_id a:hover { text-decoration: underline; }
+.sod_col_id { text-align: left; }
+.sod_col_id a { font-weight: 600; color: var(--sp-primary); }
+.sod_col_id a:hover { text-decoration: underline; }
 
-#sod_v .sod_col_price,
-#sod_v .sod_col_pay,
-#sod_v .sod_col_misu { text-align: right; font-variant-numeric: tabular-nums; }
-#sod_v .sod_col_misu { color: var(--sp-muted); }
+.sod_col_price,
+.sod_col_pay,
+.sod_col_misu { text-align: right; font-variant-numeric: tabular-nums; }
+.sod_col_misu { color: var(--sp-muted); }
 
-#sod_v .empty_list_row td { padding: 64px 16px; text-align: center; color: var(--sp-muted); }
+.empty_list_row td { padding: 64px 16px; text-align: center; color: var(--sp-muted); }
 
 #sod_v .pg_wrap { margin-top: 24px; }
 
 @media (max-width: 640px) {
-    #sod_v .sod_list_wrap { border: 0; background: transparent; overflow: visible; }
-    #sod_v .sod_list_tbl thead { position: absolute; left: -9999px; }
-    #sod_v .sod_list_tbl,
-    #sod_v .sod_list_tbl tbody,
-    #sod_v .sod_list_tbl tr,
-    #sod_v .sod_list_tbl td { display: block; width: auto; }
+    .sod_list_wrap { border: 0; background: transparent; overflow: visible; }
+    .sod_list_tbl thead { position: absolute; left: -9999px; }
+    .sod_list_tbl,
+    .sod_list_tbl tbody,
+    .sod_list_tbl tr,
+    .sod_list_tbl td { display: block; width: auto; }
 
-    #sod_v .sod_list_tbl tr {
+    .sod_list_tbl tr {
         margin-bottom: 12px;
         padding: 4px 16px;
         border: 1px solid var(--sp-line);
@@ -1484,7 +1485,7 @@
         background: var(--sp-bg);
     }
 
-    #sod_v .sod_list_tbl td {
+    .sod_list_tbl td {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -1494,8 +1495,8 @@
         text-align: right;
         white-space: normal;
     }
-    #sod_v .sod_list_tbl tr td:last-child { border-bottom: 0; }
-    #sod_v .sod_list_tbl td::before {
+    .sod_list_tbl tr td:last-child { border-bottom: 0; }
+    .sod_list_tbl td::before {
         content: attr(data-th);
         flex: 0 0 auto;
         font-size: 12px;
@@ -1503,10 +1504,10 @@
         color: var(--sp-muted);
         text-align: left;
     }
-    #sod_v .sod_col_id a { font-size: 15px; }
+    .sod_col_id a { font-size: 15px; }
 
-    #sod_v .empty_list_row td { justify-content: center; padding: 48px 0; }
-    #sod_v .empty_list_row td::before { content: none; }
+    .empty_list_row td { justify-content: center; padding: 48px 0; }
+    .empty_list_row td::before { content: none; }
 }
 
 /* ==========================================================================
@@ -1778,4 +1779,248 @@
     #sod_fin .tbl_head01 td { padding: 0; }
 
     #sod_fin .tbl_head03 table { min-width: 560px; }
+}
+
+/* ==========================================================================
+   마이페이지 대시보드 (theme/sp-lite/shop/mypage.php) — 주문 우선 레이아웃
+   회원 요약 카드 → 최근 주문내역(공용 .sod_list_* 표↔카드) → 최근 위시리스트.
+   전 기기 pc 파일(G5_THEME_DEVICE=pc), 반응형은 폭 기반.
+   ========================================================================== */
+#smb_my { margin: 0 0 48px; }
+#smb_my > section > h2 { position: absolute; left: -9999px; }  /* '회원정보 개요' 시각 숨김(카드 자체가 자명) */
+
+/* --- 회원 요약 카드 --- */
+#smb_my_ov {
+    margin: 0 0 24px;
+    padding: 24px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: var(--sp-bg);
+}
+
+/* 프로필 헤더: 아바타 + 이름 (좌) · 정보수정/로그아웃 (우) */
+#smb_my_ov .smb_me {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--sp-line);
+}
+#smb_my_ov .smb_me br { display: none; }
+#smb_my_ov .my_ov_name {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--sp-ink);
+}
+#smb_my_ov .my_ov_name img {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--sp-line);
+}
+/* 정보수정·로그아웃 — 헤더 우측 끝 */
+#smb_my_ov .smb_me_act { margin-left: auto; display: inline-flex; gap: 8px; }
+#smb_my_ov .smb_me_act a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sp-ink);
+    transition: border-color .15s, color .15s;
+}
+#smb_my_ov .smb_me_act a:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
+
+/* 요약 지표 4칸 (포인트/쿠폰/쪽지/스크랩) */
+/* 요약 지표 — 이름 옆 인라인 pill 칩 */
+#smb_private {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+}
+#smb_private li { margin: 0; }
+#smb_private li a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--sp-line);
+    border-radius: 999px;
+    background: var(--sp-bg-soft);
+    color: var(--sp-muted);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: border-color .15s, background-color .15s;
+}
+#smb_private li a:hover { border-color: var(--sp-primary); background: var(--sp-primary-soft); }
+#smb_private li a i { font-size: 14px; color: var(--sp-primary); }
+#smb_private li a strong { font-size: 14px; font-weight: 700; color: var(--sp-ink); }
+
+/* 내정보 정의목록 */
+#smb_my_ov h3 {
+    margin: 20px 0 10px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--sp-ink);
+}
+/* 2열 페어 그리드 — 두 항목씩 한 줄, 주소만 전폭(5줄→3줄) */
+#smb_my_ov .op_area {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
+    gap: 6px 12px;
+    margin: 0;
+    font-size: 13px;
+}
+#smb_my_ov .op_area dt { color: var(--sp-muted); font-weight: 600; white-space: nowrap; }
+#smb_my_ov .op_area dd { margin: 0; color: var(--sp-ink); word-break: break-all; }
+#smb_my_ov .op_area #smb_my_ovaddd { grid-column: 2 / -1; }  /* 주소값 전폭 */
+
+/* 회원탈퇴 — 로그아웃 옆 버튼(.smb_me_act a 기본 스타일 상속) · 위험 액션이라 저강조·빨강 hover */
+#smb_my_ov .smb_me_act .withdrawal { color: var(--sp-muted); }
+#smb_my_ov .smb_me_act .withdrawal:hover { border-color: #d64545; color: #d64545; }
+
+/* --- 주문/위시 패널 공통 --- */
+#smb_my_list section {
+    margin: 0 0 24px;
+    padding: 24px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    background: var(--sp-bg);
+}
+#smb_my_list section:last-child { margin-bottom: 0; }
+#smb_my_list section > h2 {
+    margin: 0 0 16px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--sp-ink);
+}
+
+/* 주문 표는 공용 .sod_list_* 재사용 — 패널이 이미 테두리를 가지므로 내부 래퍼 테두리 제거 */
+#smb_my_od .sod_list_wrap { border: 0; border-radius: 0; }
+
+/* 더보기 링크 */
+.smb_my_more { margin-top: 16px; text-align: right; }
+.smb_my_more a {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sp-muted);
+}
+.smb_my_more a:hover { color: var(--sp-primary); }
+.smb_my_more a::after { content: "\203A"; font-size: 15px; line-height: 1; }
+
+/* 위시리스트 상품 그리드 */
+#smb_my_wish ul {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin: 0;
+    padding: 0;
+}
+#smb_my_wish li {
+    position: relative;
+    margin: 0;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    overflow: hidden;
+    background: var(--sp-bg);
+}
+#smb_my_wish li.empty_li {
+    grid-column: 1 / -1;
+    padding: 48px 0;
+    border: 0;
+    text-align: center;
+    color: var(--sp-muted);
+}
+#smb_my_wish .smb_my_img,
+#smb_my_wish .smb_my_img a { display: block; }
+#smb_my_wish .smb_my_img img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+}
+#smb_my_wish .smb_my_tit {
+    padding: 10px 12px 0;
+    font-size: 13px;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+#smb_my_wish .smb_my_tit a { color: var(--sp-ink); }
+#smb_my_wish .smb_my_tit a:hover { color: var(--sp-primary); }
+#smb_my_wish .smb_my_price { padding: 6px 12px 0; font-size: 14px; font-weight: 700; color: var(--sp-ink); }
+#smb_my_wish .smb_my_date { padding: 4px 12px 12px; font-size: 12px; color: var(--sp-muted); }
+
+/* 위시 카드 오버레이: 체크박스(좌상)·삭제(우상) */
+#smb_my_wish .smb_my_chk { position: absolute; top: 8px; left: 8px; z-index: 2; }
+#smb_my_wish .wish_del {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .9);
+    color: var(--sp-muted);
+    font-size: 12px;
+}
+#smb_my_wish .wish_del:hover { color: #d64545; }
+
+/* 위시 액션 버튼(장바구니/주문하기) */
+#smb_ws_act {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+#smb_ws_act button {
+    min-height: 44px;
+    padding: 0 22px;
+    border: 1px solid var(--sp-line);
+    border-radius: var(--sp-radius);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+#smb_ws_act .btn01 { background: #fff; color: var(--sp-ink); }
+#smb_ws_act .btn01:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
+#smb_ws_act .btn02 { background: var(--sp-primary); border-color: var(--sp-primary); color: #fff; }
+#smb_ws_act .btn02:hover { background: var(--sp-primary-dark); border-color: var(--sp-primary-dark); }
+
+/* --- 마이페이지 반응형 --- */
+@media (max-width: 960px) {
+    #smb_my_wish ul { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 640px) {
+    #smb_my_ov,
+    #smb_my_list section { padding: 18px 16px; }
+    #smb_my_wish ul { grid-template-columns: repeat(2, 1fr); }
+    #smb_my_ov .op_area { grid-template-columns: max-content 1fr; gap: 6px 12px; }
+    #smb_my_ov .op_area #smb_my_ovaddd { grid-column: auto; }
+    #smb_ws_act button { flex: 1; padding: 0 12px; }
 }
