@@ -48,6 +48,7 @@ include_once('./_head.php');
     </section>
     <!-- } 최근 주문내역 끝 -->
 
+    <?php if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) { // 위시리스트 숨김 토글 — docs/wishlist-hidden.md ?>
     <!-- 최근 위시리스트 시작 { -->
     <section id="smb_my_wish">
         <div class="smb_panel_h">
@@ -114,6 +115,7 @@ include_once('./_head.php');
         </form>
     </section>
     <!-- } 최근 위시리스트 끝 -->
+    <?php } // end SP_USE_WISHLIST ?>
 </div>
 <!-- } 마이페이지 콘텐츠 끝 -->
 

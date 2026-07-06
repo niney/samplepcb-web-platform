@@ -80,7 +80,7 @@ add_stylesheet('<link rel="stylesheet" href="'.G5_SHOP_CSS_URL.'/style.css">', 0
 	            <span class="">사용후기 <?php echo $it['it_use_cnt']; ?> 개</span>
 	            
 	            <div id="sit_btn_opt">
-	            	<span id="btn_wish"><i class="fa fa-heart-o" aria-hidden="true"></i><span class="sound_only">위시리스트</span><span class="btn_wish_num"><?php echo get_wishlist_count_by_item($it['it_id']); ?></span></span>
+	            	<?php if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) { // 위시리스트 숨김 — docs/wishlist-hidden.md ?><span id="btn_wish"><i class="fa fa-heart-o" aria-hidden="true"></i><span class="sound_only">위시리스트</span><span class="btn_wish_num"><?php echo get_wishlist_count_by_item($it['it_id']); ?></span></span><?php } ?>
 	            	<button type="button" class="btn_sns_share"><i class="fa fa-share-alt" aria-hidden="true"></i><span class="sound_only">sns 공유</span></button>
 	            	<div class="sns_area">
 	            		<?php echo $sns_share_links; ?>
@@ -305,7 +305,7 @@ add_stylesheet('<link rel="stylesheet" href="'.G5_SHOP_CSS_URL.'/style.css">', 0
 	            <button type="submit" onclick="document.pressed=this.value;" value="장바구니" class="sit_btn_cart">장바구니</button>
 	            <button type="submit" onclick="document.pressed=this.value;" value="바로구매" class="sit_btn_buy">바로구매</button>
 	            <?php } ?>
-	            <a href="javascript:item_wish(document.fitem, '<?php echo $it['it_id']; ?>');" class="sit_btn_wish"><i class="fa fa-heart-o" aria-hidden="true"></i><span class="sound_only">위시리스트</span></a>
+	            <?php if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) { // 위시리스트 숨김 — docs/wishlist-hidden.md ?><a href="javascript:item_wish(document.fitem, '<?php echo $it['it_id']; ?>');" class="sit_btn_wish"><i class="fa fa-heart-o" aria-hidden="true"></i><span class="sound_only">위시리스트</span></a><?php } ?>
 	            	
 	            <?php if(!$is_orderable && $it['it_soldout'] && $it['it_stock_sms']) { ?>
 	            <a href="javascript:popup_stocksms('<?php echo $it['it_id']; ?>');" id="sit_btn_alm">재입고알림</a>

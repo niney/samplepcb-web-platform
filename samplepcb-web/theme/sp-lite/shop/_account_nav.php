@@ -18,8 +18,12 @@ $sp_memo  = isset($member['mb_memo_cnt'])  ? (int) $member['mb_memo_cnt']  : 0;
 $sp_scrap = isset($member['mb_scrap_cnt']) ? (int) $member['mb_scrap_cnt'] : 0;
 $tmp = sql_fetch(" select count(*) as cnt from {$g5['g5_shop_order_table']} where mb_id = '{$sp_esc}' ");
 $sp_od = (int) $tmp['cnt'];
-$tmp = sql_fetch(" select count(*) as cnt from {$g5['g5_shop_wish_table']} where mb_id = '{$sp_esc}' ");
-$sp_wi = (int) $tmp['cnt'];
+// 위시리스트 숨김(SP_USE_WISHLIST=false)이면 배지 쿼리도 생략. 복구·근거: docs/wishlist-hidden.md
+$sp_wi = 0;
+if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) {
+    $tmp = sql_fetch(" select count(*) as cnt from {$g5['g5_shop_wish_table']} where mb_id = '{$sp_esc}' ");
+    $sp_wi = (int) $tmp['cnt'];
+}
 ?>
 <aside class="smb_nav" aria-label="계정 메뉴">
     <div class="nav_id">
@@ -50,7 +54,9 @@ $sp_wi = (int) $tmp['cnt'];
                 <li><a href="<?php echo G5_SHOP_URL ?>/orderinquiry.php"<?php echo $cur['orders']; ?>><i class="fa fa-list-alt" aria-hidden="true"></i><span class="lbl">주문내역</span><?php if ($sp_od) { ?><span class="nav_badge"><?php echo number_format($sp_od); ?></span><?php } ?></a></li>
                 <li><a href="<?php echo G5_URL ?>/shop/quotes"<?php echo $cur['quotes']; ?>><i class="fa fa-file-text-o" aria-hidden="true"></i><span class="lbl">견적관리</span><span class="nav_new">NEW</span></a></li>
                 <li><a href="<?php echo G5_SHOP_URL ?>/cart.php"<?php echo $cur['cart']; ?>><i class="fa fa-shopping-cart" aria-hidden="true"></i><span class="lbl">장바구니</span></a></li>
+                <?php if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) { // 위시리스트 숨김 토글 — docs/wishlist-hidden.md ?>
                 <li><a href="<?php echo G5_SHOP_URL ?>/wishlist.php"<?php echo $cur['wish']; ?>><i class="fa fa-heart-o" aria-hidden="true"></i><span class="lbl">위시리스트</span><?php if ($sp_wi) { ?><span class="nav_badge"><?php echo number_format($sp_wi); ?></span><?php } ?></a></li>
+                <?php } ?>
             </ul>
         </div>
         <div class="nav_group">

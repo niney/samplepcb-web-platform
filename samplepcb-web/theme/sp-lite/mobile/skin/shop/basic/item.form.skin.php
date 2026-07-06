@@ -71,7 +71,7 @@ var kakao_javascript_apikey = "<?php echo $config['cf_kakao_js_apikey']; ?>";
                 <?php } ?>
 
                 <div class="sit_btn_opt">
-                    <span id="btn_wish"><i class="fa fa-heart-o" aria-hidden="true"></i><span class="sound_only">위시리스트</span><span class="btn_wish_num"><?php echo get_wishlist_count_by_item($it['it_id']); ?></span></span>
+                    <?php if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) { // 위시리스트 숨김 — docs/wishlist-hidden.md ?><span id="btn_wish"><i class="fa fa-heart-o" aria-hidden="true"></i><span class="sound_only">위시리스트</span><span class="btn_wish_num"><?php echo get_wishlist_count_by_item($it['it_id']); ?></span></span><?php } ?>
                     <button type="button" class="btn_sns_share"><i class="fa fa-share-alt" aria-hidden="true"></i><span class="sound_only">sns 공유</span></button>
                     <div class="sns_area">
                         <?php echo get_sns_share_link('facebook', $sns_url, $sns_title, G5_MSHOP_SKIN_URL.'/img/facebook.png'); ?>
@@ -322,7 +322,7 @@ var kakao_javascript_apikey = "<?php echo $config['cf_kakao_js_apikey']; ?>";
             <?php if(!$is_orderable && $it['it_soldout'] && $it['it_stock_sms']) { ?>
             <a href="javascript:popup_stocksms('<?php echo $it['it_id']; ?>');" id="sit_btn_phone">재입고알림</a>
             <?php } ?>
-            <a href="javascript:item_wish(document.fitem, '<?php echo $it['it_id']; ?>');" id="sit_btn_wish"><span class="sound_only">위시리스트</span><i class="fa fa-heart-o" aria-hidden="true"></i></a>
+            <?php if (defined('SP_USE_WISHLIST') && SP_USE_WISHLIST) { // 위시리스트 숨김 — docs/wishlist-hidden.md ?><a href="javascript:item_wish(document.fitem, '<?php echo $it['it_id']; ?>');" id="sit_btn_wish"><span class="sound_only">위시리스트</span><i class="fa fa-heart-o" aria-hidden="true"></i></a><?php } ?>
             <?php if ($naverpay_button_js) { ?>
             <div class="naverpay-item"><?php echo $naverpay_request_js.$naverpay_button_js; ?></div>
             <?php } ?>
