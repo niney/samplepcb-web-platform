@@ -16,6 +16,7 @@
 **/.env
 **/.env.*
 !**/.env.example
+!**/.env.migration.example
 **/data/dbconfig.php
 
 # 로컬 prisma DB

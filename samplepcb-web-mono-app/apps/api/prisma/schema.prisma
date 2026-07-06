@@ -41,26 +41,28 @@ model SpQuote {
 // cart 와의 관계(담김/주문됨)는 저장하지 않고 ct_id 조인으로 파생(HANDOFF 3장).
 model SpOrderSpec {
   id            BigInt    @id @default(autoincrement()) // = projectId
-  mbId          String?   @db.VarChar(20) // 비회원 null (목록 미노출)
+  // mb_id 는 레거시가 이메일 아이디를 쓰며 255 로 확폭 운영 — sp 측은 utf8mb4 인덱스 한도(191) 채택 (2026-07-07)
+  mbId          String?   @db.VarChar(191) // 비회원 null (목록 미노출)
   quoteId       String // sp_quote 연결
   ctId          Int? // g5_shop_cart 연결 (파생 조회 키)
   projectName   String
   category      String
   orderCategory String
   qty           Int
-  message       String?   @db.Text
+  message       String?   @db.MediumText // 레거시 it_basic 최대 ~1MB 실측 — TEXT(64KB) 절단 방지 (2026-07-07)
   companyName   String?   @db.VarChar(255) // 수신처 회사명 스냅샷(견적서 문서에 박제, 2층 구조의 문서층)
   specJson      Json
   status        String    @default("active") // active|deleted|archived
   quoteStatus   String // priced|rfq|quoted
   finalPrice    Int? // 관리자 확정가 (quoted)
-  pricedBy      String?   @db.VarChar(20)
+  pricedBy      String?   @db.VarChar(191) // mb_id 계열(이메일 아이디 수용) — 2026-07-07 확폭
   pricedAt      DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([mbId, status])
   @@index([quoteId])
+  @@index([ctId]) // 레거시 이관·ct_id 조인(테마 뱃지/썸네일) 조회용 (2026-07-07)
   @@map("sp_order_spec")
 }
 
@@ -85,11 +87,54 @@ model SpFile {
 // 회원별 견적 기본값(2층 구조의 프로필층) — 관리자가 회사명을 저장하면 기억해
 // 같은 회원의 다음 견적서에 프리필한다. 그누보드 여분필드(mb_1/mb_2)를 쓰지 않기
 // 위한 sp측 명시 필드(2026-07-04 결정). 사용자측 신청 폼 수집은 다음 단계.
+//
+// 2026-07-07 레거시 마이그레이션 확장: 레거시 g5_member 여분/커스텀 필드를 명시 컬럼으로
+// 승격(라벨 정본 = 계약 AdminMemberBusiness · 레거시 theme/samplepcb/member_info.php).
+// mb_1→memberType(정규화) · mb_2→companyName · mb_3→bizNo · mb_4→ceoName · mb_5→bizType(업태)
+// · mb_6→bizItem(종목) · mb_7→managerName · mb_8→taxEmail · mb_9→managerPhone · mb_10~12→
+// bizZip/bizAddr1/bizAddr2 · mb_13→partnerKind · mb_15→managerEmail · mb_partner_auth→partnerAuth.
+// 정규화 전 원본(mb_1 raw)·저사용 잔여 커스텀(mb_14/16~20 JSON, 계좌 6컬럼 등)은 legacyJson 보존.
 model SpMemberProfile {
-  mbId        String   @id @db.VarChar(20)
-  companyName String?  @db.VarChar(255)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  mbId         String   @id @db.VarChar(191) // mb_id 계열(이메일 아이디 수용) — 2026-07-07 확폭
+  companyName  String?  @db.VarChar(255)
+  memberType   String?  @db.VarChar(20) // personal|corporate|partner (mb_1 정규화)
+  bizNo        String?  @db.VarChar(50) // 사업자등록번호
+  ceoName      String?  @db.VarChar(255) // 대표자
+  bizType      String?  @db.VarChar(255) // 업태
+  bizItem      String?  @db.VarChar(255) // 종목
+  managerName  String?  @db.VarChar(255) // 담당자명
+  taxEmail     String?  @db.VarChar(255) // 세금계산서 이메일
+  managerPhone String?  @db.VarChar(50) // 담당자 전화
+  managerEmail String?  @db.VarChar(255) // 담당자 이메일 (레거시 mb_15)
+  bizZip       String?  @db.VarChar(20) // 사업장 우편번호
+  bizAddr1     String?  @db.VarChar(255) // 사업장 주소
+  bizAddr2     String?  @db.VarChar(255) // 사업장 상세주소
+  partnerKind  String?  @db.VarChar(100) // 파트너 종류 (레거시 mb_13)
+  partnerAuth  Int      @default(0) // 파트너 인증 등급 0=미인증/1=A/2=B/3=C/4=부품판매
+  legacyJson   Json? // 잔여 레거시 커스텀 원본 보존(mb_1 raw·mb_14/16~20·계좌 등)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@map("sp_member_profile")
+}
+
+// 주문별 세금계산서 발행 정보 — 레거시 g5_shop_order od_1~od_11(주문서 "세금계산서" 섹션,
+// 무통장 한정 입력) 이관처. 신규 주문 경로의 수집 폼 연결은 후속 과제(계획 문서 참조).
+// od_12~17 은 레거시에서도 미사용 확정이라 승격하지 않는다.
+model SpOrderBizInfo {
+  odId        String   @id @db.VarChar(30) // g5_shop_order.od_id (FK 아님 — 공유 DB 조인 키)
+  companyName String?  @db.VarChar(255) // od_1 회사명
+  bizNo       String?  @db.VarChar(50) // od_2 사업자등록번호
+  ceoName     String?  @db.VarChar(255) // od_3 대표자 성명
+  bizType     String?  @db.VarChar(255) // od_4 업태
+  bizItem     String?  @db.VarChar(255) // od_5 종목
+  managerName String?  @db.VarChar(255) // od_6 담당자명
+  taxEmail    String?  @db.VarChar(255) // od_7 세금계산서 이메일
+  companyTel  String?  @db.VarChar(50) // od_8 회사전화
+  bizZip      String?  @db.VarChar(20) // od_9 사업장 우편번호
+  bizAddr1    String?  @db.VarChar(255) // od_10 사업장 기본주소
+  bizAddr2    String?  @db.VarChar(255) // od_11 사업장 상세주소
+  createdAt   DateTime @default(now())
+
+  @@map("sp_order_biz_info")
 }

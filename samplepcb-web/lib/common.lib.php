@@ -991,7 +991,10 @@ function get_member($mb_id, $fields = '*', $is_cache = false)
     global $g5;
 
     $mb_id = trim($mb_id);
-    if (preg_match("/[^0-9a-z_]+/i", $mb_id)) {
+    // [samplepcb 코어 최소 수정 — 기록된 예외] 레거시 이관 회원의 아이디가 이메일 형식이라
+    // 허용 문자에 @ . - 를 추가한다(이관 실측: 이 3종 외 특수문자 0명, docs/LEGACY_DB_MIGRATION.md §8).
+    // 원본 코어는 [^0-9a-z_] — subtree pull 충돌 시 같은 취지로 재적용할 것.
+    if (preg_match("/[^0-9a-z_@.\-]+/i", $mb_id)) {
         return array();
     }
 
