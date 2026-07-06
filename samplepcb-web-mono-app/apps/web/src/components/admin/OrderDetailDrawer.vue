@@ -186,9 +186,9 @@ const {
 } = useOrderStatusMutation();
 const statusResult = computed(() => statusData.value?.data ?? null);
 
-// 준비 상태면 운송장 입력 기본값(배송일시=현재, 배송회사=기존값), 그 외는 비운다.
+// 생산완료(배송 직전) 상태면 운송장 입력 기본값(배송일시=현재, 배송회사=기존값), 그 외는 비운다.
 const initDelivery = (o: AdminOrderDetailOrderType): void => {
-  if (o.status === '준비') {
+  if (o.status === '생산완료') {
     const existing = displayCompany(o.deliveryCompany);
     deliveryInput.value = {
       deliveryCompany: existing !== '-' ? existing : '',
@@ -224,12 +224,12 @@ watch(order, (o) => {
   }
 });
 
-// 드로어 내 전이로 상태가 준비로 바뀌면(같은 주문 refetch) 운송장 입력 기본값 재세팅.
+// 드로어 내 전이로 상태가 생산완료(배송 직전)로 바뀌면(같은 주문 refetch) 운송장 입력 기본값 재세팅.
 watch(
   () => order.value?.status,
   (status, prev) => {
     const o = order.value;
-    if (o !== null && status === '준비' && prev !== '준비') initDelivery(o);
+    if (o !== null && status === '생산완료' && prev !== '생산완료') initDelivery(o);
   },
 );
 
@@ -942,28 +942,12 @@ const inputClass =
                   </div>
                 </section>
 
-                <!-- 배송 (준비 상태면 운송장 인라인 입력 — [배송 처리]가 이 값을 수집) -->
+                <!-- 배송 (읽기 전용 — 운송장 입력·수집은 우측 [처리] 섹션의 배송 처리에서) -->
                 <section>
                   <h3 class="text-sm font-semibold text-gray-800">
                     {{ t('admin.orders.drawer.delivery') }}
                   </h3>
-                  <div v-if="order.status === '준비'" class="mt-2 space-y-2">
-                    <label class="block">
-                      <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryCompany') }}</span>
-                      <input v-model="deliveryInput.deliveryCompany" type="text" :class="inputClass">
-                    </label>
-                    <div class="grid grid-cols-2 gap-2">
-                      <label class="block">
-                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</span>
-                        <input v-model="deliveryInput.invoiceNo" type="text" :class="inputClass">
-                      </label>
-                      <label class="block">
-                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceTime') }}</span>
-                        <input v-model="deliveryInput.invoiceTime" type="datetime-local" :class="inputClass">
-                      </label>
-                    </div>
-                  </div>
-                  <dl v-else class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                     <div>
                       <dt class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</dt>
                       <dd class="text-gray-800">{{ order.invoiceNo ?? '-' }}</dd>
@@ -1044,6 +1028,23 @@ const inputClass =
                         {{ t('admin.orders.action.sendSms') }}
                       </label>
                     </div>
+                    <!-- 배송 전이면 운송장 3필드를 [배송 처리] 바로 위에서 입력(입력과 실행 한자리) -->
+                    <div v-if="nextAction.needsDelivery" class="space-y-2">
+                      <label class="block">
+                        <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.deliveryCompany') }}</span>
+                        <input v-model="deliveryInput.deliveryCompany" type="text" :class="inputClass">
+                      </label>
+                      <div class="grid grid-cols-2 gap-2">
+                        <label class="block">
+                          <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceNo') }}</span>
+                          <input v-model="deliveryInput.invoiceNo" type="text" :class="inputClass">
+                        </label>
+                        <label class="block">
+                          <span class="text-xs text-gray-400">{{ t('admin.orders.drawer.invoiceTime') }}</span>
+                          <input v-model="deliveryInput.invoiceTime" type="datetime-local" :class="inputClass">
+                        </label>
+                      </div>
+                    </div>
                     <div class="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -1053,9 +1054,6 @@ const inputClass =
                       >
                         {{ statusPending ? t('admin.orders.action.processing') : t(`admin.orders.action.${nextAction.labelKey}`) }}
                       </button>
-                      <span v-if="nextAction.needsDelivery" class="text-xs text-gray-400">
-                        {{ t('admin.orders.process.deliveryHint') }}
-                      </span>
                     </div>
                     <p v-if="processError !== null" class="text-sm text-red-600">{{ processError }}</p>
                   </div>

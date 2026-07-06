@@ -1436,8 +1436,8 @@ export async function getMemberOrderCounts(mbIds: string[]): Promise<Map<string,
 }
 
 // ── 엑셀 배송처리 대상 조회 (⑫ 확장 — read-only) ─────────────────────────────
-// 레거시 adm/shop_admin/orderdeliveryexcel.php 의 다운로드 대상. od_status='준비' AND od_misu=0
-// (미수금 없는 배송 준비 주문)만, od_id desc. 엑셀 10열에 필요한 컬럼만(주문자/받는분 연락처·
+// 레거시 adm/shop_admin/orderdeliveryexcel.php 의 다운로드 대상. od_status='생산완료' AND od_misu=0
+// (미수금 없는 배송 직전 주문)만, od_id desc. 엑셀 10열에 필요한 컬럼만(주문자/받는분 연락처·
 // 배송지 주소·현재 운송장). 목록 컬럼셋(ORDER_LIST_COLUMNS)엔 받는분 연락처·주소가 없어 전용.
 export interface DeliveryExcelRow {
   odId: string;
@@ -1786,7 +1786,7 @@ export async function setOrdersStage(
   return result;
 }
 
-// 준비→배송 — order_update_delivery(운송장 UPDATE + 카트 재고차감 loop) + change_status + 재계산.
+// 생산완료→배송 — order_update_delivery(운송장 UPDATE + 카트 재고차감 loop) + change_status + 재계산.
 // rows 는 matchDeliveryRows 로 이미 3필드 검증된 것만. 상태 가드는 여기서 재확인(원자 WHERE).
 export async function setOrdersDelivery(rows: DeliveryInput[]): Promise<OrderActionResult> {
   const result: OrderActionResult = { processed: [], skipped: [] };
@@ -1802,7 +1802,7 @@ export async function setOrdersDelivery(rows: DeliveryInput[]): Promise<OrderAct
       result.skipped.push({ odId: d.odId, reason: guard.reason });
       continue;
     }
-    // order_update_delivery(admin.shop.lib.php:107-135) — 운송장 3필드 UPDATE(원자 가드 준비).
+    // order_update_delivery(admin.shop.lib.php:107-135) — 운송장 3필드 UPDATE(원자 가드 생산완료).
     const [upd] = await pool.query<ResultSetHeader>(
       `UPDATE g5_shop_order
           SET od_delivery_company = ?, od_invoice = ?, od_invoice_time = ?
@@ -1840,7 +1840,7 @@ export async function setOrdersDelivery(rows: DeliveryInput[]): Promise<OrderAct
         Number(c.ct_id),
       ]);
     }
-    await changeStatus(d.odId, '준비', '배송');
+    await changeStatus(d.odId, '생산완료', '배송');
     await recomputeOrderMoney(d.odId);
     result.processed.push(d.odId);
   }

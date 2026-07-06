@@ -409,7 +409,6 @@ export const en = {
         title: 'Process',
         none: 'No next step available from this status.',
         noInvoice: 'Enter invoice info (carrier, number, time).',
-        deliveryHint: 'Uses the invoice info in the Delivery section.',
       },
       force: {
         toggle: 'Force status change',

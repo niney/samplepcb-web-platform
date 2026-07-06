@@ -411,7 +411,6 @@ export const ko = {
         title: '처리',
         none: '이 상태에서 진행할 다음 단계가 없습니다.',
         noInvoice: '운송장 정보(배송회사·번호·일시)를 입력하세요.',
-        deliveryHint: '배송 섹션의 운송장 정보로 처리됩니다.',
       },
       force: {
         toggle: '상태 직접 변경',
