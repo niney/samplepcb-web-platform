@@ -1,12 +1,17 @@
-// 거버 실파일 사전 업로드 — 컷오버 창 밖에서 미리 돌리는 단계(계획 #9).
+// 거버 실파일 사전 이관 — 컷오버 창 밖에서 미리 돌리는 단계(계획 #9).
 //
-// 파일서버(file.samplepcb.kr)는 요청당 1파일 제약(실측)이라 대량(운영 ~1.87만)은 시간이 걸린다.
-// 파일은 불변이므로: 운영 gerber_files/ 미러(MIGRATE_LEGACY_FILES_DIR)에서 읽어 미리 업로드하고
-// 원장(ledger.files: quoteId→pathToken)에 기록 → phase 02(shop)는 원장만 소비한다.
+// 두 모드:
+// ① --sideload (대량 정석): 파일서버(niney-file)의 pathToken 은 DB 발급이 아니라
+//    **base64(encodeURIComponent(BASE_PATH 상대경로))** 이고, 다운로드도 그 경로를 그대로 읽는다
+//    (upload-utils.ts encryptPath / hosting.ts downloadFileByPathToken 실측). 따라서 미러를
+//    서버 `BASE_PATH/<MIGRATE_SIDELOAD_PREFIX>/` 로 rsync 해 **원본 날짜 폴더 구조를 보존**하고,
+//    토큰은 여기서 직접 계산해 원장에 기록한다 — 업로드 API 를 타지 않으므로 "업로드일 폴더
+//    한 곳에 수만 파일" 문제가 원천 소멸. (rsync 가 선행되어야 다운로드가 유효)
+// ② API 업로드 (소량/증분): uploadFileByAnonymous — 요청당 1파일 제약(실측), 업로드일 폴더 저장.
 //
-// 실행: pnpm migrate:files [-- --limit=100 --concurrency=6 --relink]
-//   --relink  이미 이관된 sp_order_spec(주문 선이관 후 파일 후업로드 케이스)에 sp_file 행을 보충
-import { readFile } from 'node:fs/promises';
+// 실행: pnpm migrate:files [-- --sideload --limit=100 --concurrency=6 --relink]
+//   --relink  이미 이관된 sp_order_spec(주문 선이관 후 파일 후이관 케이스)에 sp_file 행을 보충
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { PrismaClient } from '@prisma/client';
@@ -68,6 +73,11 @@ async function collectTargets(limit: number): Promise<{ lines: UploadTargetLine[
   return { lines, noFile };
 }
 
+/** 파일서버 upload-utils.ts encryptPath 와 동일 산식 — 변경 시 서버와 동기 필수. */
+export function computePathToken(relativePath: string): string {
+  return Buffer.from(encodeURIComponent(relativePath)).toString('base64');
+}
+
 async function main(): Promise<void> {
   // pnpm run 이 '--' 구분 토큰까지 전달하므로 걸러낸다(파싱 시 위치 인자 오인 방지)
   const args = process.argv.slice(2).filter((a) => a !== '--');
@@ -77,6 +87,7 @@ async function main(): Promise<void> {
       limit: { type: 'string', default: '0' },
       concurrency: { type: 'string', default: '6' },
       relink: { type: 'boolean', default: false },
+      sideload: { type: 'boolean', default: false },
     },
   });
   const limit = Math.trunc(Number(values.limit));
@@ -95,9 +106,38 @@ async function main(): Promise<void> {
     );
     if (mirrorDir === undefined || mirrorDir === '') {
       console.log('MIGRATE_LEGACY_FILES_DIR 미설정 — 업로드 생략(원장/리링크만 가능).');
+    } else if (values.sideload) {
+      // ① 사이드로드: 서버에 rsync 된 미러의 상대경로로 pathToken 을 직접 계산(네트워크 0회).
+      const prefix = (process.env.MIGRATE_SIDELOAD_PREFIX ?? 'gerber-legacy').replace(/\/+$/, '');
+      const pending = lines.filter((l) => ledger.fileEntry(l.quoteId)?.pathToken === undefined);
+      console.log(
+        `사이드로드 ${String(pending.length)}건 — 서버 BASE_PATH/${prefix}/ 기준 토큰 계산(⚠ rsync 선행 필요)`,
+      );
+      let ok = 0;
+      let missing = 0;
+      for (const line of pending) {
+        const rel = line.filePath.replace(/^\/?gerber_files\//, '').replace(/^\/+/, '');
+        try {
+          const st = await stat(path.join(mirrorDir, rel));
+          const serverRel = `${prefix}/${rel.replace(/\\/g, '/')}`;
+          await ledger.setFileEntry(line.quoteId, {
+            pathToken: computePathToken(serverRel),
+            uploadFileName: path.basename(rel),
+            originFileName: path.basename(rel),
+            size: st.size,
+            sourcePath: line.filePath,
+          });
+          ok += 1;
+        } catch {
+          await ledger.setFileEntry(line.quoteId, { missing: true, sourcePath: line.filePath });
+          missing += 1;
+        }
+      }
+      await ledger.save();
+      console.log(`사이드로드 완료 ${String(ok)} · 로컬 누락 ${String(missing)}`);
     } else {
-      // pathToken 이 없으면(미기록 + 과거 missing) 재시도 대상 — missing 은 "그때 없었음"일 뿐,
-      // 이후 미러를 보강하면 재실행만으로 업로드로 승격된다(멱등: 업로드 완료분만 스킵).
+      // ② API 업로드(소량/증분) — pathToken 이 없으면(미기록 + 과거 missing) 재시도 대상.
+      //    missing 은 "그때 없었음"일 뿐, 미러 보강 후 재실행만으로 업로드로 승격(멱등).
       const pending = lines.filter((l) => ledger.fileEntry(l.quoteId)?.pathToken === undefined);
       console.log(`미업로드 ${String(pending.length)}건 업로드 시작 (동시성 ${String(concurrency)})`);
       let ok = 0;

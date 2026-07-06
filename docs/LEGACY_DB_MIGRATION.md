@@ -174,7 +174,15 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 - [ ] **템플릿 상품 4종 시드**(`seed-template-items`) — 게이트가 부재 시 중단하므로 선행.
 - [ ] **덤프 루틴 확정**: `mysqldump -u<계정> -p --default-character-set=utf8 hyoh9150 > hyoh9150-$(date).dump` — 리허설·최종 동일 명령. 리허설 덤프로 `migrate:gate` 돌려 **드리프트 0** 확인(20260702 이후 스키마 변경이 있으면 여기서 잡힘).
 - [ ] **파일 미러**: 운영 `/gerber_files/`(rsync)·`data/file/open_market/`·`data/member_image/` 로컬/스테이징 미러 확보.
-- [ ] **파일 사전 업로드**: `migrate:files`(FILE_SERVICE_TYPE=gerber, 동시성 6) — ~1.87만 건 소요 시간 실측이 곧 컷오버 창 산정 근거. 파일은 불변이라 며칠 전 미리 돌려도 안전(원장 재사용).
+- [ ] **거버 파일 사전 이관 — 사이드로드가 정석**(2026-07-07 확정): 파일서버(niney-file)의 pathToken 은
+  **base64(encodeURIComponent(BASE_PATH 상대경로))** 이고 다운로드도 그 경로를 그대로 읽는다
+  (업로드 API 를 쓰면 전량이 "업로드일" 폴더 한 곳에 몰림 — 운영자 지적으로 폐기). 절차:
+  ① 미러를 파일서버로 rsync(원본 날짜 폴더 구조 보존):
+     `rsync -av <미러>/gerber_files/ <파일서버>:<BASE_PATH>/gerber-legacy/`
+  ② `pnpm migrate:files -- --sideload` — 토큰 로컬 계산+원장 기록(네트워크 0회, 수 초)
+  ③ `pnpm migrate:files -- --relink` — sp_file 연결
+  ④ 샘플 검증: `curl -I https://file.samplepcb.kr/api/download/<원장 pathToken>` → 200
+  (API 업로드 모드는 소량 증분 전용으로 유지. 서버 폴더 프리픽스 변경 시 `MIGRATE_SIDELOAD_PREFIX` 동기)
 - [ ] `.env.migration` 운영값 작성(소스=최종 덤프 임포트 DB, 타깃=운영 공유 DB) + sp-node `.env`(SPCB_BRIDGE_URL 등 — HANDOFF WP3 항목).
 
 ### T-0 (컷오버 창)
