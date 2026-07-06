@@ -10,8 +10,8 @@
 ## Topics
 | Slug | Description |
 |---|---|
-| sp-node-api | Fastify API (apps/api) — 담기 API·가격 엔진·g5 한정 예외·Prisma sp_* |
-| sp-vue-web | Vue SPA (apps/web) — /app 마운트 신규 화면 영역 |
+| sp-node-api | Fastify API (apps/api) — 담기 API·가격 엔진·관리 API·g5 접근 카탈로그 ⑤–⑱·알림 브리지·Prisma sp_* |
+| sp-vue-web | Vue SPA (apps/web) — /app 관리자 화면(견적·회원·주문·설정 관리) |
 | api-contract | @sp/api-contract Zod 계약 — 요청/응답 스키마 공유 |
 | shared-packages | @sp/config·shared·utils 모노레포 공용 패키지 |
 | spcb-bridge | samplepcb-web/spcb — 인증 브리지(me.php)·사용자 노출 커스텀 페이지(quotes 등) |
@@ -29,3 +29,4 @@
 
 ## Evolution Log
 - 2026-07-03: Initial schema generated from 9 topics, 3 concepts
+- 2026-07-06: 증분 재컴파일 — 토픽/개념 슬러그 무변경. 6개 토픽(sp-node-api·sp-vue-web·spcb-bridge·gnuboard-integration·infrastructure·docs-knowledge) 갱신. 관리 기능 이관(g5 접근 카탈로그 ⑤–⑱·관리자 주문/회원/설정·제작 8단계)·PHP 알림 브리지·신규 docs 4종 반영. sp-node-api·sp-vue-web 설명 갱신

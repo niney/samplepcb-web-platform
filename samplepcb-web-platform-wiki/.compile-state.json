@@ -1,5 +1,5 @@
 {
-  "last_compiled": "2026-07-03",
+  "last_compiled": "2026-07-06",
   "topics": [
     "sp-node-api",
     "sp-vue-web",
@@ -25,6 +25,10 @@
     "docs/UPSTREAM_SYNC.md",
     "docs/pricing-engine-parity.md",
     "docs/samplepcb-pricing-api-body-cases.md",
+    "docs/AI_WORKFLOW_PLAYBOOK.md",
+    "docs/DELIVERY_CARRIER_INTEGRATION.md",
+    "docs/LOCAL_MAIL_TESTING.md",
+    "docs/order-notify-gating.md",
     "ops/README.md",
     "ops/nginx/local-web.conf",
     "samplepcb-web/.htaccess",
@@ -36,5 +40,5 @@
     "samplepcb-web-mono-app/apps/api/.env.example",
     "samplepcb-web-mono-app/apps/api/prisma/schema.prisma"
   ],
-  "total_sources_scanned": 18
+  "total_sources_scanned": 22
 }

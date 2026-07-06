@@ -19,4 +19,4 @@ This project has a compiled knowledge wiki. Use it instead of scanning raw files
 - The wiki article says [coverage: low] for what you need
 
 ## Stats
-Compiled: 2026-07-03 | Topics: 9 | Sources: 18 | Auto-updates: prompt on stale
+Compiled: 2026-07-06 | Topics: 9 | Sources: 22 | Auto-updates: prompt on stale
