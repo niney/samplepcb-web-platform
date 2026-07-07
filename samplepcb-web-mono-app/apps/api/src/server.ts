@@ -16,6 +16,9 @@ import { adminPcbProjectRoutes } from './routes/admin-pcb-projects';
 import { adminMemberRoutes } from './routes/admin-members';
 import { adminOrderRoutes } from './routes/admin-orders';
 import { adminSettingsRoutes } from './routes/admin-settings';
+import { adminMarketExpertRoutes } from './routes/admin-market-experts';
+import { adminMarketProjectRoutes } from './routes/admin-market-projects';
+import { adminMarketSettingsRoutes } from './routes/admin-market-settings';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -51,6 +54,10 @@ await app.register(adminMemberRoutes, { prefix: '/api/admin' });
 await app.register(adminOrderRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 설정(사업자정보 등, g5_shop_default 읽기/쓰기)
 await app.register(adminSettingsRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일
+await app.register(adminMarketExpertRoutes, { prefix: '/api/admin' });
+await app.register(adminMarketProjectRoutes, { prefix: '/api/admin' });
+await app.register(adminMarketSettingsRoutes, { prefix: '/api/admin' });
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로
