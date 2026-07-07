@@ -84,6 +84,23 @@ const resolveCompanyName = (
   profile: { companyName: string | null } | null,
 ): string | null => snapshot ?? (mbId !== null ? (profile?.companyName ?? null) : null);
 
+// 마이그레이션 이관 레코드의 specJson 에는 내부 메타 `_legacy`(itId·odId·supplyPrice·
+// memberContact 등 객체)가 섞여 있다. PcbProjectSpec 은 catchall 이 스칼라(string|number)만
+// 허용하므로 이 객체가 응답 직렬화를 깨뜨리고(FST_ERR_RESPONSE_SERIALIZATION), 게다가
+// `_legacy.memberContact.mail` 은 PII 다. 클라이언트 응답 spec 에는 언더스코어 프리픽스
+// 내부 키를 제거한 사용자 사양만 싣는다(스키마 정합 + 개인정보 보호). spec 을 응답에 싣는
+// 라우트(상세·견적서)에서만 쓴다 — buildOptionSummary 는 알려진 키만 읽어 영향 없음.
+function toClientSpec(specJson: unknown): PcbProjectPayloadType['spec'] {
+  if (typeof specJson !== 'object' || specJson === null) {
+    return {} as PcbProjectPayloadType['spec'];
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(specJson as Record<string, unknown>)) {
+    if (!k.startsWith('_')) out[k] = v;
+  }
+  return out as PcbProjectPayloadType['spec'];
+}
+
 // GET /estimate(화면 시트)와 POST /send-estimate(메일 본문)가 공유하는 견적서 표시 데이터
 // 조립 — 두 매체가 같은 뷰모델(AdminEstimate)을 쓰도록 단일화(드리프트 방지). 금액은
 // 부가세 역산(가격 미확정 rfq 면 amounts=null), 발신처는 g5_shop_default 재사용(한정 예외 ⑦).
@@ -126,7 +143,7 @@ async function assembleEstimateData(spec: SpOrderSpec): Promise<AdminEstimateTyp
     orderCategory: asOrderCategory(spec.orderCategory),
     qty: spec.qty,
     optionSummary: buildOptionSummary(spec.specJson as PcbProjectPayloadType['spec'], spec.qty),
-    spec: spec.specJson as PcbProjectPayloadType['spec'],
+    spec: toClientSpec(spec.specJson),
     eta: quote?.eta ?? null,
     applicant: toApplicant(spec.mbId, spec.mbId !== null ? members.get(spec.mbId) : undefined),
     companyName: resolveCompanyName(spec.companyName, spec.mbId, memberProfile),
@@ -340,7 +357,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           createdAt: spec.createdAt.toISOString(),
           message: spec.message,
           companyName: resolveCompanyName(spec.companyName, spec.mbId, memberProfile),
-          spec: spec.specJson as PcbProjectPayloadType['spec'],
+          spec: toClientSpec(spec.specJson),
           finalPrice: spec.finalPrice,
           pricedBy: spec.pricedBy,
           pricedAt: spec.pricedAt?.toISOString() ?? null,
