@@ -267,8 +267,7 @@ onBeforeUnmount(() => {
               <h3 class="text-sm font-semibold text-gray-800">
                 {{ t('admin.quotes.drawer.finalPriceLabel') }}
               </h3>
-              <!-- 가격 행: 왼쪽=입력·확정(또는 잠김 메시지), 오른쪽=발송(레거시 목록 메일 버튼 대응).
-                   확정→발송 워크플로우를 한 라인에. 발송 드롭다운은 좁은 드로어라 좌측 전개(align=right) -->
+              <!-- 가격(컨텍스트): 편집 가능하면 입력+확정, 잠김이면 사유 메시지 -->
               <div class="mt-2 flex flex-wrap items-center gap-2">
                 <span v-if="blockedReason !== null" class="text-sm text-gray-500">
                   {{ blockedReason }}
@@ -295,14 +294,6 @@ onBeforeUnmount(() => {
                     }}
                   </button>
                 </template>
-                <EstimateSendControl
-                  v-if="estimateEnabled"
-                  align="right"
-                  class="ml-auto"
-                  :project-id="detail.projectId"
-                  :default-email="detail.applicant?.email ?? ''"
-                  :priced="true"
-                />
               </div>
               <p v-if="errorMessage !== null" class="mt-2 text-sm text-red-600">
                 {{ errorMessage }}
@@ -321,6 +312,17 @@ onBeforeUnmount(() => {
                   })
                 }}
               </p>
+
+              <!-- 발송 히어로 — 이 영역의 목표 액션(고객 발송). 가격 확정 다음 단계로 풀폭 주 버튼.
+                   레거시 estimate.php 목록 메일 버튼 대응. priced+active 일 때만 노출. -->
+              <div v-if="estimateEnabled" class="mt-3">
+                <EstimateSendControl
+                  variant="block"
+                  :project-id="detail.projectId"
+                  :default-email="detail.applicant?.email ?? ''"
+                  :priced="true"
+                />
+              </div>
             </section>
 
             <!-- 신청자 -->

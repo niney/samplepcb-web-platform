@@ -11,11 +11,12 @@ const props = defineProps<{
   projectId: number;
   defaultEmail: string;
   priced: boolean;
-  // 드롭다운 전개 방향 — 좁고 우측 고정인 드로어에선 'right'(좌측 전개)로 화면 밖 넘침 방지.
-  // 기본 'left'(견적서 모달 등 넓은 컨텍스트).
-  align?: 'left' | 'right';
+  // 'compact'(기본, 툴바용 소형 버튼) | 'block'(드로어 히어로 — 풀폭 주 버튼·서술 라벨)
+  variant?: 'compact' | 'block';
 }>();
 const { t } = useI18n();
+
+const isBlock = computed<boolean>(() => props.variant === 'block');
 
 const open = ref(false);
 const email = ref('');
@@ -72,18 +73,18 @@ const submit = (): void => {
   <div class="relative">
     <button
       type="button"
-      class="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-emerald-700 disabled:opacity-50"
+      class="rounded-md bg-emerald-600 text-white shadow hover:bg-emerald-700 disabled:opacity-50"
+      :class="isBlock ? 'w-full px-4 py-2.5 text-sm font-semibold' : 'px-4 py-2 text-sm font-medium'"
       :disabled="!props.priced"
       :title="!props.priced ? t('admin.quotes.estimate.send.blockedRfq') : ''"
       @click="toggle"
     >
-      {{ t('admin.quotes.estimate.send.button') }}
+      {{ isBlock ? t('admin.quotes.estimate.send.buttonPrimary') : t('admin.quotes.estimate.send.button') }}
     </button>
 
     <div
       v-if="open"
-      class="absolute top-full z-10 mt-2 w-80 rounded-lg border border-gray-200 bg-white p-4 text-left shadow-xl"
-      :class="props.align === 'right' ? 'right-0' : 'left-0'"
+      class="absolute left-0 top-full z-10 mt-2 w-80 rounded-lg border border-gray-200 bg-white p-4 text-left shadow-xl"
       @click.stop
     >
       <p class="mb-2 text-sm font-semibold text-gray-800">
