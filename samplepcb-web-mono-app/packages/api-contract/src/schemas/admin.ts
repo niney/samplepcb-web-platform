@@ -213,6 +213,32 @@ export const AdminEstimateResponse = z.object({
 });
 export type AdminEstimateResponseType = z.infer<typeof AdminEstimateResponse>;
 
+// ── 관리자 견적서 발송 계약 (POST .../:id/send-estimate) ──────────────────────
+// 레거시 sendFileMail(estimate.php) 이식 — 한 번에 메일 + 알림톡을 발송한다. 견적서는 PDF
+// 없이 메일 본문에 직접 임베드한다. 전송은 sp-node 직송(메일=nodemailer→로컬 Mailpit,
+// 알림톡=iwinv fetch)이라 발송 결과를 채널별로 정직하게 반환한다.
+// 가격 미확정(rfq=amounts null)이면 라우트가 409(NOT_PRICED).
+// 채널 게이트는 독립: 메일=cf_email_use(0이면 mail:'skipped'), 알림톡=ALIMTALK_ENABLED
+// (로컬 기본 false → alimtalk:'skipped', 실발송 0). 비회원/무효번호도 alimtalk:'skipped'.
+export const AdminNotifyChannelStatus = z.enum(['sent', 'failed', 'skipped']);
+export type AdminNotifyChannelStatusType = z.infer<typeof AdminNotifyChannelStatus>;
+
+// 수신자 이메일은 명시 파라미터(관리자가 화면에서 확인·수정 가능) — 회원 이메일에 암묵 의존 금지.
+export const AdminSendEstimateBody = z.object({
+  email: z.string().trim().email(),
+});
+export type AdminSendEstimateBodyType = z.infer<typeof AdminSendEstimateBody>;
+
+export const AdminSendEstimateResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    email: z.string(), // 실제 발송 대상(요청값 반영)
+    mail: AdminNotifyChannelStatus, // sent=성공 · failed=SMTP 실패 · skipped=cf_email_use=0
+    alimtalk: AdminNotifyChannelStatus, // sent=성공 · failed=vendor 오류 · skipped=비활성/무효번호
+  }),
+});
+export type AdminSendEstimateResponseType = z.infer<typeof AdminSendEstimateResponse>;
+
 // ── 관리자 견적 배치 완전삭제 계약 ──────────────────────────────────────────
 // "경고만 주고 관련 데이터 모두 삭제"(1단계 즉시 완전삭제) — 단건/다중 공통(ids 1개 =
 // 단건). 되돌릴 수 없어 삭제 전 POST .../delete-preview 로 무엇이 지워지는지 집계해

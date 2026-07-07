@@ -1,5 +1,5 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, SpOrderSpec } from '@prisma/client';
 import { z } from 'zod';
 import {
   AdminCompanyNameBody,
@@ -13,12 +13,15 @@ import {
   AdminQuoteDetailResponse,
   AdminQuoteListQuery,
   AdminQuoteListResponse,
+  AdminSendEstimateBody,
+  AdminSendEstimateResponse,
   ApiError,
 } from '@sp/api-contract';
 import type {
   AdminApplicantType,
   AdminDeleteOrderGroupType,
   AdminDeleteResultItemType,
+  AdminEstimateType,
   PcbProjectPayloadType,
 } from '@sp/api-contract';
 import { buildOptionSummary } from '../lib/option-summary';
@@ -27,11 +30,15 @@ import {
   deleteUnpaidOrder,
   getCartStates,
   getMembersByIds,
+  getNotifyConfig,
   getOrderInfoByCtId,
   getShopEstimateProfile,
 } from '../lib/g5-db';
 import type { CartState, G5Member, OrderInfo } from '../lib/g5-db';
+import { sendCompleteEstimate } from '../lib/alimtalk';
+import { buildEstimateEmail } from '../lib/estimate-email';
 import { kstDateStr } from '../lib/kst';
+import { sendMail } from '../lib/mailer';
 import { prisma } from '../lib/prisma';
 import { purgeQuoteData, removeCartRow } from '../lib/quote-delete';
 import { signedThumbUrl } from '../lib/thumb-url';
@@ -76,6 +83,66 @@ const resolveCompanyName = (
   mbId: string | null,
   profile: { companyName: string | null } | null,
 ): string | null => snapshot ?? (mbId !== null ? (profile?.companyName ?? null) : null);
+
+// GET /estimate(화면 시트)와 POST /send-estimate(메일 본문)가 공유하는 견적서 표시 데이터
+// 조립 — 두 매체가 같은 뷰모델(AdminEstimate)을 쓰도록 단일화(드리프트 방지). 금액은
+// 부가세 역산(가격 미확정 rfq 면 amounts=null), 발신처는 g5_shop_default 재사용(한정 예외 ⑦).
+// status 무제한 — 발송 가능 여부(rfq 차단 등)는 호출 라우트가 판단한다.
+async function assembleEstimateData(spec: SpOrderSpec): Promise<AdminEstimateType> {
+  const [quote, members, profile, memberProfile] = await Promise.all([
+    prisma.spQuote.findUnique({ where: { id: spec.quoteId } }),
+    spec.mbId !== null ? getMembersByIds([spec.mbId]) : Promise.resolve(new Map<string, G5Member>()),
+    getShopEstimateProfile(),
+    // 수신처 회사명 프로필 fallback — 스냅샷이 없고 회원일 때만(2층 구조 해석 규칙)
+    spec.companyName === null && spec.mbId !== null
+      ? prisma.spMemberProfile.findUnique({
+          where: { mbId: spec.mbId },
+          select: { companyName: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  // 부가세 정석 역산 — 합계(부가세 포함) 기준 공급가액·부가세를 서버가 계산.
+  const total = spec.finalPrice ?? quote?.autoPrice ?? null;
+  const supply = total !== null ? Math.round(total / 1.1) : null;
+  const amounts =
+    total !== null && supply !== null ? { supply, vat: total - supply, total } : null;
+
+  // 유효기간 — 확정가(finalPrice) 문서는 발행일+30일(레거시 "발행후 1개월"), 자동견적 기반만
+  // 스냅샷 만료일(expiresAt)을 그대로 쓴다(오래된 자동견적이 만료로 표시되는 건 정직한 상태).
+  const now = new Date();
+  const validUntil =
+    spec.finalPrice === null && quote !== null
+      ? kstDateStr(quote.expiresAt)
+      : kstDateStr(new Date(now.getTime() + 30 * 24 * 3600 * 1000));
+
+  return {
+    projectId: Number(spec.id),
+    estimateNo: `Q${String(Number(spec.id))}`,
+    issuedAt: kstDateStr(now),
+    validUntil,
+    projectName: spec.projectName,
+    category: spec.category,
+    orderCategory: asOrderCategory(spec.orderCategory),
+    qty: spec.qty,
+    optionSummary: buildOptionSummary(spec.specJson as PcbProjectPayloadType['spec'], spec.qty),
+    spec: spec.specJson as PcbProjectPayloadType['spec'],
+    eta: quote?.eta ?? null,
+    applicant: toApplicant(spec.mbId, spec.mbId !== null ? members.get(spec.mbId) : undefined),
+    companyName: resolveCompanyName(spec.companyName, spec.mbId, memberProfile),
+    amounts,
+    company: {
+      name: profile?.name ?? '',
+      owner: profile?.owner ?? '',
+      tel: profile?.tel ?? '',
+      zip: profile?.zip ?? '',
+      addr: profile?.addr ?? '',
+      managerName: profile?.managerName ?? '',
+      managerEmail: profile?.managerEmail ?? '',
+      bankAccount: profile?.bankAccount ?? '',
+    },
+  };
+}
 
 export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   // 전 라우트 관리자 전용 — 라우트별 preHandler 누락 사고를 원천 차단
@@ -319,72 +386,78 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         where: { id: BigInt(request.params.id) },
       });
       if (spec === null) return reply.notFound('프로젝트가 없습니다');
+      return { result: true as const, data: await assembleEstimateData(spec) };
+    },
+  );
 
-      const [quote, members, profile, memberProfile] = await Promise.all([
-        prisma.spQuote.findUnique({ where: { id: spec.quoteId } }),
-        spec.mbId !== null
-          ? getMembersByIds([spec.mbId])
-          : Promise.resolve(new Map<string, G5Member>()),
-        getShopEstimateProfile(),
-        // 수신처 회사명 프로필 fallback — 스냅샷이 없고 회원일 때만(2층 구조 해석 규칙)
-        spec.companyName === null && spec.mbId !== null
-          ? prisma.spMemberProfile.findUnique({
-              where: { mbId: spec.mbId },
-              select: { companyName: true },
-            })
-          : Promise.resolve(null),
-      ]);
+  // ── POST /api/admin/pcb-projects/:id/send-estimate — 견적서 발송(메일+알림톡) ──
+  // 레거시 sendFileMail(estimate.php) 이식 — 한 번에 메일 + 알림톡을 발송한다. PDF 없이
+  // 견적서를 메일 본문에 직접 임베드한다. 전송은 sp-node 직송(메일=nodemailer→로컬 Mailpit,
+  // 알림톡=iwinv fetch)이라 결과를 채널별로 정직하게 반환한다. 가격 미확정(rfq=amounts null)은
+  // 409(NOT_PRICED). 채널 게이트는 독립: 메일=cf_email_use, 알림톡=ALIMTALK_ENABLED(로컬 기본
+  // false→실발송 0). 수신자 이메일은 body 명시 파라미터(회원 이메일 암묵 의존 금지).
+  fastify.post(
+    '/pcb-projects/:id/send-estimate',
+    {
+      schema: {
+        params: ProjectIdParams,
+        body: AdminSendEstimateBody,
+        response: { 200: AdminSendEstimateResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const spec = await prisma.spOrderSpec.findFirst({
+        where: { id: BigInt(request.params.id) },
+      });
+      if (spec === null) return reply.notFound('프로젝트가 없습니다');
 
-      // 부가세 정석 역산 — 합계(부가세 포함) 기준 공급가액·부가세를 서버가 계산.
-      const total = spec.finalPrice ?? quote?.autoPrice ?? null;
-      const supply = total !== null ? Math.round(total / 1.1) : null;
-      const amounts =
-        total !== null && supply !== null ? { supply, vat: total - supply, total } : null;
+      const data = await assembleEstimateData(spec);
+      // 가격 미확정 견적은 금액이 비어 발송 의미가 없다 — 확정 요구(409).
+      if (data.amounts === null) {
+        return reply.status(409).send({
+          error: 'NOT_PRICED',
+          message: '가격이 확정되지 않은 견적은 발송할 수 없습니다',
+        });
+      }
 
-      // 유효기간 — 확정가(finalPrice) 문서는 확정이 곧 발행 근거라 발행일+30일(레거시
-      // "견적서 발행후 1개월" 관례). 자동견적 기반만 스냅샷 만료일(expiresAt)을 그대로
-      // 쓴다(오래된 자동견적이 만료로 표시되는 건 정직한 상태).
-      const now = new Date();
-      const validUntil =
-        spec.finalPrice === null && quote !== null
-          ? kstDateStr(quote.expiresAt)
-          : kstDateStr(new Date(now.getTime() + 30 * 24 * 3600 * 1000));
+      // ── 메일 채널 (게이트: cf_email_use=0 이면 보내지 않고 skipped 로 표면화) ──
+      const notify = await getNotifyConfig();
+      let mail: 'sent' | 'failed' | 'skipped' = 'skipped';
+      if (notify.mailAvailable) {
+        const { subject, html } = buildEstimateEmail(data);
+        // 발신 — 발신처(g5_shop_default) 담당자 이메일, 없으면 MAIL_FROM env, 그것도 없으면 상수.
+        const fromAddress =
+          data.company.managerEmail !== ''
+            ? data.company.managerEmail
+            : (process.env.MAIL_FROM ?? 'sales@samplepcb.co.kr');
+        const fromName = data.company.name !== '' ? data.company.name : 'SamplePCB';
+        try {
+          await sendMail({ to: request.body.email, subject, html, fromName, fromAddress });
+          mail = 'sent';
+        } catch (err) {
+          request.log.error({ err }, 'estimate mail send failed');
+          mail = 'failed';
+        }
+      }
 
-      return {
-        result: true as const,
-        data: {
-          projectId: Number(spec.id),
-          estimateNo: `Q${String(Number(spec.id))}`,
-          issuedAt: kstDateStr(now),
-          validUntil,
-          projectName: spec.projectName,
-          category: spec.category,
-          orderCategory: asOrderCategory(spec.orderCategory),
-          qty: spec.qty,
-          optionSummary: buildOptionSummary(
-            spec.specJson as PcbProjectPayloadType['spec'],
-            spec.qty,
-          ),
-          spec: spec.specJson as PcbProjectPayloadType['spec'],
-          eta: quote?.eta ?? null,
-          applicant: toApplicant(
-            spec.mbId,
-            spec.mbId !== null ? members.get(spec.mbId) : undefined,
-          ),
-          companyName: resolveCompanyName(spec.companyName, spec.mbId, memberProfile),
-          amounts,
-          company: {
-            name: profile?.name ?? '',
-            owner: profile?.owner ?? '',
-            tel: profile?.tel ?? '',
-            zip: profile?.zip ?? '',
-            addr: profile?.addr ?? '',
-            managerName: profile?.managerName ?? '',
-            managerEmail: profile?.managerEmail ?? '',
-            bankAccount: profile?.bankAccount ?? '',
-          },
+      // ── 알림톡 채널 (게이트: ALIMTALK_ENABLED, 메일과 독립) ──
+      // 로컬은 ALIMTALK_ENABLED!=='true' 라 실발송 없이 skipped. 비회원(applicant null)·무효
+      // 번호도 skipped. 파일명 자리는 프로젝트명(없으면 견적번호), 날짜는 발행일(YYYY.MM.DD).
+      const recipientName =
+        (data.applicant?.name ?? '').trim() || (data.companyName ?? '').trim() || '고객';
+      const alimtalk = await sendCompleteEstimate(
+        {
+          phone: data.applicant?.phone ?? '',
+          name: recipientName,
+          filename: data.projectName !== '' ? data.projectName : data.estimateNo,
+          date: data.issuedAt.replace(/-/g, '.'),
         },
-      };
+        (obj, msg) => {
+          request.log.info(obj, msg);
+        },
+      );
+
+      return { result: true as const, data: { email: request.body.email, mail, alimtalk } };
     },
   );
 
