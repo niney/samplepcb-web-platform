@@ -264,21 +264,35 @@ onBeforeUnmount(() => {
 
             <!-- 가격 확정 -->
             <section class="mt-5 rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <!-- 가격 확정 → 발송 2-스텝 워크플로우. ① 가격 확정과 ② 발송을 연결선으로 이어
-                   "확정하고 보낸다"는 실제 순서를 시각화. 발송 드롭다운은 좁은 드로어라 좌측 전개. -->
-              <div class="flex items-start gap-2">
+              <!-- 가격 확정 → 발송 2-스텝. ① 가격 확정과 ② 발송을 연결선(─▸)으로 이어 사이 간격을
+                   '흐름'으로 만든다("확정하고 보낸다"). 발송은 우측 끝 유지(드롭다운 좌측 전개). -->
+              <!-- 라벨 행: ① 가격 확정 ────── ② 발송 -->
+              <div class="flex items-center justify-between text-xs font-semibold">
+                <span class="flex items-center gap-1.5 text-gray-500">
+                  <span
+                    class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-400 text-[10px] font-bold text-white"
+                  >1</span>
+                  {{ t('admin.quotes.drawer.finalPriceLabel') }}
+                </span>
+                <span
+                  class="flex items-center gap-1.5"
+                  :class="estimateEnabled ? 'text-gray-500' : 'text-gray-300'"
+                >
+                  <span
+                    class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                    :class="estimateEnabled ? 'bg-emerald-500' : 'bg-gray-300'"
+                  >2</span>
+                  {{ t('admin.quotes.estimate.send.button') }}
+                </span>
+              </div>
+              <!-- 콘텐츠 행: [가격/확정] ──▸ [발송] -->
+              <div class="mt-1.5 flex items-center gap-2">
                 <!-- ① 가격 확정 -->
-                <div class="min-w-0 flex-1">
-                  <p class="mb-2 flex items-center gap-1.5 text-xs font-semibold text-gray-500">
-                    <span
-                      class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-400 text-[10px] font-bold text-white"
-                    >1</span>
-                    {{ t('admin.quotes.drawer.finalPriceLabel') }}
-                  </p>
-                  <p v-if="blockedReason !== null" class="text-sm font-semibold text-gray-800">
+                <div class="shrink-0">
+                  <span v-if="blockedReason !== null" class="text-sm font-semibold text-gray-800">
                     {{ detail.price !== null ? formatKrw(detail.price) : '-' }}
-                  </p>
-                  <div v-else class="flex flex-wrap items-center gap-1.5">
+                  </span>
+                  <div v-else class="flex items-center gap-1.5">
                     <input
                       v-model="priceInput"
                       type="text"
@@ -302,23 +316,14 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- 연결선 → (라벨 높이만큼 내려 콘텐츠 라인에 정렬) -->
-                <div class="shrink-0 pt-6 text-lg leading-none text-gray-300" aria-hidden="true">
-                  →
+                <!-- 연결선: 간격을 채우는 흐름선 + 화살촉 -->
+                <div class="flex flex-1 items-center gap-1" aria-hidden="true">
+                  <span class="h-px flex-1 bg-gray-200" />
+                  <span class="text-xs leading-none text-gray-300">▸</span>
                 </div>
 
                 <!-- ② 발송 -->
-                <div class="flex shrink-0 flex-col items-end">
-                  <p
-                    class="mb-2 flex items-center gap-1.5 text-xs font-semibold"
-                    :class="estimateEnabled ? 'text-gray-500' : 'text-gray-300'"
-                  >
-                    <span
-                      class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                      :class="estimateEnabled ? 'bg-emerald-500' : 'bg-gray-300'"
-                    >2</span>
-                    {{ t('admin.quotes.estimate.send.button') }}
-                  </p>
+                <div class="shrink-0">
                   <EstimateSendControl
                     v-if="estimateEnabled"
                     align="right"
