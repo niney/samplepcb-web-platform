@@ -63,6 +63,9 @@ export async function apiGet<T>(path: string, schema: ZodType<T>): Promise<T> {
 }
 
 // 타입 안전 변경 요청(JSON body): POST/PATCH/PUT/DELETE 공용.
+// body 가 undefined 면 Content-Type·body 를 아예 싣지 않는다 — 조기마감/채택/철회 등
+// 본문 없는 액션에 'application/json' 만 붙이면 body 가 비어(Content-Length:0) Fastify 가
+// FST_ERR_CTP_EMPTY_JSON_BODY 로 거부하기 때문(E2E req 헬퍼와 동일 규약).
 export async function apiSend<T>(
   method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   path: string,
@@ -71,8 +74,9 @@ export async function apiSend<T>(
 ): Promise<T> {
   const res = await authFetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    ...(body === undefined
+      ? {}
+      : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   });
   return parseJson(res, schema);
 }
