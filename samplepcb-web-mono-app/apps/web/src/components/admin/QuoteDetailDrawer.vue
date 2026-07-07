@@ -267,11 +267,13 @@ onBeforeUnmount(() => {
               <h3 class="text-sm font-semibold text-gray-800">
                 {{ t('admin.quotes.drawer.finalPriceLabel') }}
               </h3>
-              <p v-if="blockedReason !== null" class="mt-2 text-sm text-gray-500">
-                {{ blockedReason }}
-              </p>
-              <template v-else>
-                <div class="mt-2 flex items-center gap-2">
+              <!-- 가격 행: 왼쪽=입력·확정(또는 잠김 메시지), 오른쪽=발송(레거시 목록 메일 버튼 대응).
+                   확정→발송 워크플로우를 한 라인에. 발송 드롭다운은 좁은 드로어라 좌측 전개(align=right) -->
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <span v-if="blockedReason !== null" class="text-sm text-gray-500">
+                  {{ blockedReason }}
+                </span>
+                <template v-else>
                   <input
                     v-model="priceInput"
                     type="text"
@@ -292,14 +294,22 @@ onBeforeUnmount(() => {
                         : t('admin.quotes.drawer.confirm')
                     }}
                   </button>
-                </div>
-                <p v-if="errorMessage !== null" class="mt-2 text-sm text-red-600">
-                  {{ errorMessage }}
-                </p>
-                <p v-else-if="confirmed" class="mt-2 text-sm text-green-700">
-                  {{ t('admin.quotes.drawer.confirmSuccess') }}
-                </p>
-              </template>
+                </template>
+                <EstimateSendControl
+                  v-if="estimateEnabled"
+                  align="right"
+                  class="ml-auto"
+                  :project-id="detail.projectId"
+                  :default-email="detail.applicant?.email ?? ''"
+                  :priced="true"
+                />
+              </div>
+              <p v-if="errorMessage !== null" class="mt-2 text-sm text-red-600">
+                {{ errorMessage }}
+              </p>
+              <p v-else-if="confirmed" class="mt-2 text-sm text-green-700">
+                {{ t('admin.quotes.drawer.confirmSuccess') }}
+              </p>
               <p
                 v-if="detail.pricedBy !== null && detail.pricedAt !== null"
                 class="mt-2 text-xs text-gray-400"
@@ -311,15 +321,6 @@ onBeforeUnmount(() => {
                   })
                 }}
               </p>
-
-              <!-- 발송 (가격 확정 다음 단계 — 메일+알림톡, 레거시 estimate.php 목록 메일 버튼 대응) -->
-              <div v-if="estimateEnabled" class="mt-4 border-t border-gray-200 pt-3">
-                <EstimateSendControl
-                  :project-id="detail.projectId"
-                  :default-email="detail.applicant?.email ?? ''"
-                  :priced="true"
-                />
-              </div>
             </section>
 
             <!-- 신청자 -->

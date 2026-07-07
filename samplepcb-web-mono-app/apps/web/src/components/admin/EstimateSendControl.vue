@@ -11,6 +11,9 @@ const props = defineProps<{
   projectId: number;
   defaultEmail: string;
   priced: boolean;
+  // 드롭다운 전개 방향 — 좁고 우측 고정인 드로어에선 'right'(좌측 전개)로 화면 밖 넘침 방지.
+  // 기본 'left'(견적서 모달 등 넓은 컨텍스트).
+  align?: 'left' | 'right';
 }>();
 const { t } = useI18n();
 
@@ -79,7 +82,8 @@ const submit = (): void => {
 
     <div
       v-if="open"
-      class="absolute left-0 top-full z-10 mt-2 w-80 rounded-lg border border-gray-200 bg-white p-4 text-left shadow-xl"
+      class="absolute top-full z-10 mt-2 w-80 rounded-lg border border-gray-200 bg-white p-4 text-left shadow-xl"
+      :class="props.align === 'right' ? 'right-0' : 'left-0'"
       @click.stop
     >
       <p class="mb-2 text-sm font-semibold text-gray-800">
