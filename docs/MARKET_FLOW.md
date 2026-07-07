@@ -8,8 +8,9 @@
 
 - **1차(구현됨) = 매칭까지**: 전문가 등록(개인/기업)·관리자 승인 → 프로젝트 의뢰(역견적=공개
   블라인드 입찰 / 지정견적=1:1) → NDA 게이트 첨부 → 블라인드 견적 제출·비교·**채택**.
-- **2차(설계만)**: 계약(`sp_market_contract`) + **영카트 주문 재사용 결제**(앵커 상품 스냅샷
-  카트행 — 거버 담기와 동형) + 검수 + 정산(전문가측 수수료 공제). §8.
+- **2차(구현됨, 2026-07-08) = 거래 완결**: 채택 시 계약(`sp_market_contract`) 자동 생성 →
+  **영카트 주문 재사용 결제**(앵커 상품 스냅샷 카트행 — 거버 담기와 동형) → 작업 납품
+  (산출물 업로드) → 검수(수동 확정 + **7일 자동확정**) → 관리자 정산(전문가측 수수료 공제). §8.
 - **3차 후보**: 1:1 메시지룸, 인앱 알림, 알림톡(iwinv 템플릿 등록 후), 리뷰·평점, 제조·양산
   연계 페이지, SEO(프리렌더), `market.samplepcb.co.kr` 301.
 
@@ -41,6 +42,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | `sp_market_bid` | 입찰 | **unique(projectId, expertId)** = 전문가당 1입찰(재제출=같은 행) · amount 원 단위 Int · status `submitted\|awarded\|rejected\|withdrawn` |
 | `sp_market_nda_sign` | NDA 전자서명 | unique(projectId, mbId) · textVersion(문구 원문은 계약 상수) · signedName·ip 감사 스냅샷 |
 | `sp_market_settings` | 설정 싱글턴(id=1) | feeRateBp(기본 1000=10%) — GET 폴백/PATCH upsert, 시드 불요 |
+| `sp_market_contract` | 계약(2차) | **projectId unique**(프로젝트당 1건) · amount=채택 입찰액(VAT 포함 총액) · **feeRateBp/fee/payout 채택 시점 스냅샷** · **contractKey**(uuid=영카트 io_id·주문 라인 식별) · ctId(카트행, 재주입 시 갱신) · status `pending\|paid\|delivered\|completed\|settled\|cancelled` · hold(자동확정 정지)·검수·정산·취소 감사 필드 |
 
 - **첨부·증빙은 `sp_file` 폴리모픽 재사용**: refType `'sp_market_project'`(attachment) /
   `'sp_market_expert'`(license·portfolio·bizreg). pathToken 비노출·`uploadedBy`에 mbId 금지
@@ -65,6 +67,22 @@ local-web.samplepcb.co.kr (nginx 443)
   나머지 submitted→rejected). **unaward 없음** — 협의 결렬은 cancel.
 - bid: `submitted ↔(재제출/철회) withdrawn`, 채택 트랜잭션이 `awarded|rejected` 종결.
   철회·채택 레이스는 조건부 updateMany(0건=409)가 방어.
+- **contract(2차)**: `(채택 tx)→pending → paid → delivered → completed → settled`, +`cancelled`.
+  - **paid 승격 = cron 없는 lazy write-back**: 계약을 읽거나 전이 가드를 대는 모든 지점에서
+    `ensureContractLazy`(lib/market-contract.ts) 선행 — **라인 검증**(자기 카트행 ct_status ∈
+    PAID_ORDER_STATUSES ∧ io_id==contractKey ∧ io_price==amount)으로 판정('부분취소'는
+    od_status 값이 아니라 행 단위 취소이므로 od 헤더만 보면 오판). 승격 시 project
+    awarded→working. 단방향 래칫(이후 od 역행해도 paid 유지 — 관리자 드로어가 od 파생
+    상태를 상시 표시해 괴리 가시화). 무통장 미입금(od '주문')은 미승격 = 입금 대기 안내.
+  - **자동확정**: delivered ∧ hold 없음 ∧ deliveredAt+7일 경과 → completed(confirmedBy='auto',
+    **completedAt=deliveredAt+7d 파생값**). 승격 지점 = 당사자 조회 + 관리자 계약 목록의
+    탭 무관 스윕. 관리자 hold/unhold 로 정지 가능(해제 시 기한 경과면 다음 조회에서 즉시 확정).
+  - 취소: pending 만 의뢰인 취소(+project cancelled + **카트행·옵션행 정리** — 잔존 '쇼핑'
+    행은 코어 buy 경로로 취소된 계약을 결제할 수 있는 구멍). paid 이후는 관리자 운영 취소만
+    (환불 실행은 주문 관리/PG 도메인 — 기록만). project cancel 은 계약 paid+ 면 409 CONTRACT_ACTIVE.
+  - checkout 멱등: 주입 전 io_id 단위 '쇼핑' 행 청소 + 기존 ctId 분해(쇼핑∧내 버킷=재사용 /
+    버킷 불일치·행 소멸·주문 취소/삭제=재주입 / od '주문'=409 ORDER_PENDING / 결제 라인=409
+    ALREADY_PAID). JWT cartId 클레임 필수(me.php 브리지 — checkout 직전 FE 가 bootstrap 재발급).
 
 ## 5. 접근 제어 (서버 강제 — UI 숨김은 보안 아님)
 
@@ -102,30 +120,55 @@ local-web.samplepcb.co.kr (nginx 443)
 (액션 성패와 독립). 로컬 검증 = Mailpit(127.0.0.1:25 → http://localhost:8025).
 **알림톡은 2차** — iwinv templateCode 사전 심사가 릴리즈를 블로킹(lib/alimtalk.ts 선례).
 
-## 8. 2차 설계 방향 (구현 금지선 아님 — 계획서 승인분)
+## 8. 2차 결제·검수·정산 (구현됨 2026-07-08)
 
-- `sp_market_contract`: projectId·bidId·amount·**feeRateBp 스냅샷**(설정 변경과 절연)·
-  feeAmount·payoutAmount·contractKey(uuid=`io_id`)·ctId(g5_shop_cart 링크, od_id 는 파생 조인).
-- 결제 = 영카트 재사용: 앵커 상품(`sp-market-*`, seed-template-items 패턴) +
-  `insertQuoteOption`+`insertCartRow`(g5-db 카탈로그 확장) → `/shop/orderform.php`.
-  관리자 수기 전이는 무통장 한정(PG 취소는 PG 도메인) 기존 규칙 준수.
-- 수수료 정책(2026-07-08 확정): **전문가측 10% 단일 공제**(크몽식). 프로토타입 결제 화면의
-  "의뢰인 5%+VAT"는 채택하지 않음. 요율은 `sp_market_settings.feeRateBp`.
+- **결제 = 영카트 재사용**: 앵커 상품 `sp-market-svc` 1종(`seed-market-anchor-item.ts` —
+  **it_price=0**(코어 before_check_cart_price 통과 조건)·**it_sc_type=1 무료배송 명시**(기본 0은
+  "쇼핑몰 기본 배송정책"이라 차등 배송비가 붙음)·ca_id='10' 노출 억제·과세). checkout 이
+  `insertQuoteOption(contractKey, amount)`+`insertCartRow{io_id=contractKey, io_price=amount,
+  ct_price=0, ct_qty=1}` 주입 → `ct_select` 선택 → `/shop/orderform.php` 직행. 주문 후
+  `cart.od_id` 가 실주문번호로 덮어써져 계약↔주문은 ctId 파생 조인(`getOrderInfoByCtId`).
+- **PHP 이원 렌더 union**: 주문서(pc/mobile orderform.sub.php)·주문메일(ordermail1.inc.php)의
+  일반 상품(GROUP BY) 제외 목록과 건별(ct_id) 렌더 포함 목록을 `sp_custom_row_it_ids_in()`
+  (= sp_quote 4종 ∪ sp-market-svc, extend/sp_quote_cart.extend.php ⑥) **같은 union** 으로.
+  **sp_quote 목록에 합치지 않음** — 테마 cart.php 견적 카드·JS enrich 가 sp_quote 를 소비해
+  계약 행이 들어가면 파손. 테마 cart.php 는 마켓 행에 "재능마켓 계약" 배지 + [선택사항수정]
+  숨김(코어 optionmod 의 it_id 전삭제 트랩) + 수량 표시 생략.
+- 수수료 정책(확정): **전문가측 10% 단일 공제**(크몽식), 총액(VAT 포함) 기준. 요율은
+  `sp_market_settings.feeRateBp`, 계약 생성 시 스냅샷(설정 변경과 절연). 실수령 =
+  amount − round(amount×bp/10000).
+- 알림 메일 4종 추가(비차단, 전이 updateMany count==1 게이트 뒤 — lazy 승격 동시 조회의
+  중복 발송 방지): 결제 확인→전문가 / 납품(+7일 자동확정 고지)→의뢰인 / 검수 확정→전문가 /
+  정산 완료→전문가.
+- 산출물 = sp_file 재사용(refType `'sp_market_contract'`, fileType `'deliverable'`) — 전문가
+  업로드(완료 보고 multipart: 평문 `note` + `deliverable` 파일들), 다운로드는 당사자·관리자
+  인증 프록시.
+- 화면: 소비자 `ContractCard`(거래 스텝·역할별 액션, ProjectDetail 사이드바 최상단 분기) +
+  `/app/admin/market/contracts`(탭 counts·드로어=od 파생 결제 상시·계좌·hold/settle/운영취소).
+- **알려진 제약**: 한 카트에 계약 2건 이상 동시 담김 시 cart.php·주문메일의 일반 분기가
+  같은 앵커 it_id 로 병합 표시(주문서는 union 건별이라 정상, 데이터는 행별 io_id/io_price 로
+  정확 — 결제·승격 무영향). 검증 스크립트가 g5_shop_order 를 직접 다룰 땐 od_id 를 **2^53
+  미만 대역**으로(9e15 대역은 mysql2 number 정밀도 손실 — E2E 실측 함정).
 
 ## 9. 운영 절차·환경
 
-- 시드: `pnpm --filter api run market:seed` — 당사(샘플피씨비) 전문가 1행(지정 1번,
-  mbId=`g5_config.cf_admin`, 멱등 키=house 존재). 로컬 실행 완료(#1).
+- 시드: `pnpm --filter api run market:seed`(당사 전문가, 멱등) + **2차
+  `market:seed-anchor`**(앵커 상품 sp-market-svc, 멱등 — 미시드면 checkout 503
+  ANCHOR_ITEM_MISSING). 로컬 실행 완료.
 - env(apps/api/.env): 기존 JWT_SECRET·SMTP_*·FILE_SERVER_URL 재사용 +
   `MARKET_FILE_SERVICE_TYPE`(선택, 기본 `market`) — **파일서버가 신규 serviceType 을 받는지
   운영 전 1회 실측 필요**(테스트 'demo' 선례상 가능 추정).
 - dev: `pnpm --filter market dev`(5176, strictPort — 점유 시 실패가 정상 신호),
   api(3333)·web(5173)과 병행. 통합 확인은 local-web(라이브 nginx 반영 후).
-- **E2E 회귀**: `ops/scripts/e2e-market.mts` — 매칭 전 과정+부정 경로 33항목(§4·§5의
-  실행 가능한 명세). api 가동 상태에서
+- **E2E 회귀**: `ops/scripts/e2e-market.mts` — 1차 매칭 33 + **2차 거래 56 = 총 89항목**
+  (§4·§5·§8의 실행 가능한 명세 — 계약 생성 스냅샷·checkout DB 실증·주문 결제 시뮬→lazy
+  승격·hold/자동확정·confirm/settle·취소 카트 정리·재주입). api 가동 상태에서
   `pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-market.mts run`
-  → 확인 후 같은 명령 `cleanup`(파일서버 실파일까지 정리). 실존 회원 2명을 임시 주체로
-  쓰며 메일은 Mailpit 이 가로챈다.
+  → 확인 후 같은 명령 `cleanup`(계약·카트행·옵션행·시뮬 주문·파일서버 실파일까지 정리).
+  실존 회원 3명을 임시 주체로 쓰며 메일은 Mailpit 이 가로챈다.
+- **실브라우저 검증 완료(2026-07-08)**: 결제하기→orderform(계약 1행·배송비 0·과세 분리)→
+  무통장 실주문→`/app/admin/orders` 입금 처리→조회만으로 working 승격→납품→검수 확정→
+  `/app/admin/market/contracts` 정산 기록까지 전 구간 실측(픽스처 생성·정리 스크립트로 원복).
 - 문구 정책(1차): 도메인 라벨은 계약 `MARKET_*_LABELS` 정본, 화면 고유 카피는 마켓·관리자
   화면에서 ko 인라인(다국어(en) 도입 시 i18n 이관 — 모노레포 AGENTS "라벨 i18n" 원칙의
   1차 한정 예외).
@@ -134,8 +177,13 @@ local-web.samplepcb.co.kr (nginx 443)
 
 - [x] 라이브 nginx `location /market/` 반영(§2) — 2026-07-08 완료(서비스 재시작으로 적용,
       같은 도메인 PHPSESSID 자동 로그인까지 실브라우저 확인).
-- [ ] 파일서버 serviceType `market` 수용 실측(§9).
+- [ ] 파일서버 serviceType `market` 수용 실측(§9) — 운영 전 1회.
 - [ ] 운영 빌드 static 블록(ops/nginx 주석) 전환 시 `pnpm --filter market build` 산출물 경로 확인.
+- **subtree pull 재적용 목록(2차 추가)**: `shop/orderform.sub.php`·`mobile/shop/orderform.sub.php`·
+  `shop/ordermail1.inc.php` — 코어 기수정 파일에 sp_custom_row_it_ids_in() union 커스텀
+  (extend·테마 파일은 subtree 무관).
 - 조회수 dedup 없음(참고 지표) · 입찰 수정 감사 이력은 updatedAt 만 · 본인인증은 관리자
-  수동 체크(identityVerified) — 실인증 연동 2차.
+  수동 체크(identityVerified) — 실인증 연동 후속.
+- 3차 후보(§1)에 추가: 계약 카트행의 cart.php 딥링크(현재 상품 링크 유지), 재사용 카트행의
+  옵션 행 소실 시 자동 복구(현재는 사용자 행 삭제 후 재결제 경로로 해소).
 - 위키 재컴파일(`/wiki-compile`) 권장 — sp-node-api·sp-vue-web·infrastructure 토픽에 마켓 반영.
