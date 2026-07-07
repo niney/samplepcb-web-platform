@@ -139,6 +139,9 @@
 //   • getOrderInfoByCtId(⑩) additive 확장 — 자기 카트행의 ct_status·io_id·io_price 를 함께 반환
 //       (rowCtStatus/rowIoId/rowIoPrice). 승격 라인 검증(PAID_ORDER_STATUSES∧io_id==contractKey∧
 //       io_price==amount)용. 기존 반환 필드·호출부(admin-pcb-projects.ts) 불변, read-only.
+//   • getCartRowByCtId(ctId) — 카트행 자체(주문 헤더 유무 무관)의 od_id·ct_status·io_id·io_price
+//       read-only SELECT. getOrderInfoByCtId 는 주문 헤더가 없으면 null 이라 '쇼핑'(담김) 행을
+//       구분 못 하므로, checkout 재사용/재주입 판정('쇼핑'∧od_id 버킷 일치 → 재사용)이 이걸 쓴다.
 //   • PAID_ORDER_STATUSES export('입금'·'준비'·제작8·'배송'·'완료' = ACTIVE − '주문'). 승격 게이트 SSOT.
 //   결제 승격/취소 정리(ensurePaidLazy·updateMany·취소 tx)의 라우트 로직은 W2(market-contracts.ts).
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
@@ -427,6 +430,32 @@ export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null
     rowCtStatus: String(cart.ct_status ?? ''),
     rowIoId: String(cart.io_id ?? ''),
     rowIoPrice: Number(cart.io_price ?? 0),
+  };
+}
+
+// ── 카트행 단독 조회 (한정 예외 ⑲) ──────────────────────────────────────────
+// 계약 checkout/취소 분기용 — 주문 헤더 유무와 무관하게 카트행 자체의 od_id·ct_status·io 를
+// 읽는다. getOrderInfoByCtId 는 주문 헤더가 없으면 null 을 돌려 '쇼핑'(담김) 행을 구분하지
+// 못하므로, "행 od_id == JWT cartId 면 재사용" 버킷 판정은 이 read-only 조회로 한다.
+export interface CartRowInfo {
+  odId: string;
+  ctStatus: string;
+  ioId: string;
+  ioPrice: number;
+}
+
+export async function getCartRowByCtId(ctId: number): Promise<CartRowInfo | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT od_id, ct_status, io_id, io_price FROM g5_shop_cart WHERE ct_id = ?`,
+    [ctId],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    odId: String(row.od_id),
+    ctStatus: String(row.ct_status ?? ''),
+    ioId: String(row.io_id ?? ''),
+    ioPrice: Number(row.io_price ?? 0),
   };
 }
 

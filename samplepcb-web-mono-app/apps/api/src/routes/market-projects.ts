@@ -36,6 +36,13 @@ import {
   toMarketProjectListItem,
 } from '../lib/market';
 import type { MarketReceivedFile } from '../lib/market';
+import {
+  asContractStatus,
+  cancelPendingContractTx,
+  ensureContractLazy,
+  ensurePaidLazy,
+  toMarketContractSummary,
+} from '../lib/market-contract';
 import { prisma } from '../lib/prisma';
 
 // ── /api/market/projects — 프로젝트 의뢰(역견적/지정견적)·NDA·첨부 ───────────
@@ -342,6 +349,19 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           }),
           prisma.spMarketBid.findFirst({ where: { projectId: project.id, mbId: user.mbId } }),
         ]);
+        // 계약 요약 — 당사자(의뢰인·채택 전문가)에게만. 상세 진입이라 lazy 승격도 여기서.
+        let contractSummary: MarketProjectViewerType['contract'] = null;
+        const contract = await prisma.spMarketContract.findUnique({
+          where: { projectId: project.id },
+        });
+        if (
+          contract !== null &&
+          (contract.clientMbId === user.mbId || contract.expertMbId === user.mbId)
+        ) {
+          contractSummary = toMarketContractSummary(
+            await ensureContractLazy(contract, request.log),
+          );
+        }
         viewer = {
           isOwner,
           isApprovedExpert: expert?.status === 'approved',
@@ -351,7 +371,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             project.targetExpertId === expert.id,
           ndaSigned: signed !== null,
           myBidStatus: myBid !== null ? asBidStatus(myBid.status) : null,
-          contract: null, // W2 에서 당사자(의뢰인·채택 전문가)에게 계약 요약 주입
+          contract: contractSummary,
         };
         // 메타 규칙: NDA 불요 → 공개 / NDA 요구 → 소유자·관리자·서명자만(파일명도 기밀 힌트).
         if (!filesVisible) filesVisible = !project.ndaRequired || viewer.ndaSigned;
@@ -668,7 +688,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
   );
 
   // ── POST /market/projects/:id/cancel — 소유자 취소 ──────────────────────────
-  // awarded 취소는 1차의 "채택 무름" 대체 수단(2차 계약 생성 후엔 차단 예정).
+  // awarded 는 2차 계약이 걸려 있다 — 계약 pending 이면 동반 취소(카트 정리), paid 이후면
+  // 409 CONTRACT_ACTIVE(취소는 계약 취소/관리자 도메인). bidding/closed 는 단순 취소.
   fastify.post(
     '/market/projects/:id/cancel',
     { schema: { params: ProjectIdParams }, preHandler: fastify.authenticate },
@@ -680,6 +701,33 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (project.mbId !== request.user.mbId) {
         return reply.status(403).send({ result: false, error: 'FORBIDDEN' });
       }
+
+      if (project.status === 'awarded') {
+        const contract = await prisma.spMarketContract.findUnique({
+          where: { projectId: project.id },
+        });
+        if (contract !== null) {
+          const c = await ensurePaidLazy(contract, request.log);
+          if (c.status === 'pending') {
+            // pending → 계약 동반 취소(project awarded→cancelled + 카트 정리는 tx 헬퍼가 수행).
+            const cancelled = await cancelPendingContractTx(c, '의뢰인 취소');
+            if (cancelled) {
+              return {
+                result: true as const,
+                data: { projectId: Number(project.id), status: 'cancelled' as const },
+              };
+            }
+            // 레이스: 그 사이 pending 이 아니게 됨 — 현재 상태로 재판정.
+            const fresh = await prisma.spMarketContract.findUnique({ where: { id: c.id } });
+            if (fresh !== null && fresh.status !== 'pending' && fresh.status !== 'cancelled') {
+              return reply.status(409).send({ result: false, error: 'CONTRACT_ACTIVE' });
+            }
+          } else if (c.status !== 'cancelled') {
+            return reply.status(409).send({ result: false, error: 'CONTRACT_ACTIVE' });
+          }
+        }
+      }
+
       const updated = await prisma.spMarketProject.updateMany({
         where: { id: project.id, status: { in: ['bidding', 'closed', 'awarded'] } },
         data: { status: 'cancelled' },
@@ -742,6 +790,15 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           : [],
       );
       const bidById = new Map(awardedBids.map((b) => [b.id.toString(), b]));
+      // 계약 상태 배치 조회(N+1 금지) — 프로젝트당 1계약이라 projectId 로 매핑. lazy 승격은
+      // 상세 진입 시(목록은 성능 우선).
+      const contracts = await prisma.spMarketContract.findMany({
+        where: { projectId: { in: rows.map((p) => p.id) } },
+        select: { projectId: true, status: true },
+      });
+      const contractStatusByProject = new Map(
+        contracts.map((c) => [c.projectId.toString(), asContractStatus(c.status)]),
+      );
 
       const items: MarketMyProjectListItemType[] = rows.map((p) => {
         const awarded =
@@ -761,7 +818,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                   expertDisplayName: expertNames.get(awarded.expertId.toString()) ?? '',
                 }
               : null,
-          contractStatus: null, // W2 에서 계약 상태 주입
+          contractStatus: contractStatusByProject.get(p.id.toString()) ?? null,
         };
       });
       return { result: true as const, data: { items, total, page, pageSize } };

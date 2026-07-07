@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { Prisma } from '@prisma/client';
 import type { SpMarketBid, SpMarketExpert } from '@prisma/client';
@@ -12,6 +13,7 @@ import type {
 import { getMembersByIds } from '../lib/g5-db';
 import { buildAwardEmail, buildNewBidEmail, sendMarketMail } from '../lib/market-email';
 import {
+  DEFAULT_FEE_RATE_BP,
   asBidStatus,
   asCareerRange,
   asExpertType,
@@ -23,6 +25,7 @@ import {
   marketOwnerNames,
   toMarketProjectListItem,
 } from '../lib/market';
+import { asContractStatus, computeContractFee } from '../lib/market-contract';
 import { prisma } from '../lib/prisma';
 
 // ── /api/market — 입찰(블라인드 견적) 제출·수정·철회·비교·채택 ────────────────
@@ -294,6 +297,10 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         return reply.status(409).send({ result: false, error: 'BID_NOT_AWARDABLE' });
       }
 
+      // 수수료율 스냅샷 — 계약 생성 시점의 마켓 설정(부재 시 기본값). tx 밖 사전 조회.
+      const settings = await prisma.spMarketSettings.findUnique({ where: { id: 1 } });
+      const feeRateBp = settings?.feeRateBp ?? DEFAULT_FEE_RATE_BP;
+
       const awardedAt = new Date();
       try {
         await prisma.$transaction(async (tx) => {
@@ -316,9 +323,33 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
             where: { projectId: project.id, status: 'submitted', id: { not: bid.id } },
             data: { status: 'rejected' },
           });
+          // 계약 생성 — 채택 금액은 tx 안에서 재조회(라우트 상단 읽기와 tx 사이 PATCH
+          // my-bid 금액 변경 레이스 방어, M1). projectId unique → P2002 는 이미 계약 존재.
+          const freshBid = await tx.spMarketBid.findUnique({ where: { id: bid.id } });
+          if (freshBid === null) throw new AwardConflictError();
+          const { feeAmount, payoutAmount } = computeContractFee(freshBid.amount, feeRateBp);
+          await tx.spMarketContract.create({
+            data: {
+              projectId: project.id,
+              bidId: bid.id,
+              clientMbId: project.mbId,
+              expertMbId: freshBid.mbId,
+              expertId: freshBid.expertId,
+              amount: freshBid.amount,
+              feeRateBp,
+              feeAmount,
+              payoutAmount,
+              contractKey: randomUUID(),
+              status: 'pending',
+            },
+          });
         });
       } catch (err) {
         if (err instanceof AwardConflictError) {
+          return reply.status(409).send({ result: false, error: 'NOT_AWARDABLE' });
+        }
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          // 이 프로젝트에 이미 계약이 있음(동시 채택) — 채택 불가로 매핑.
           return reply.status(409).send({ result: false, error: 'NOT_AWARDABLE' });
         }
         throw err;
@@ -382,6 +413,15 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         where: { id: { in: rows.map((b) => b.projectId) } },
       });
       const projectById = new Map(projects.map((p) => [p.id.toString(), p]));
+      // 계약 상태 배치 조회(N+1 금지) — 계약은 채택 입찰(bidId)에 묶이므로 bidId 로 매핑해
+      // "이 입찰이 채택된 경우"에만 상태를 실는다. lazy 승격은 상세 진입 시(목록은 성능 우선).
+      const contracts = await prisma.spMarketContract.findMany({
+        where: { projectId: { in: rows.map((b) => b.projectId) } },
+        select: { bidId: true, status: true },
+      });
+      const contractStatusByBid = new Map(
+        contracts.map((c) => [c.bidId.toString(), asContractStatus(c.status)]),
+      );
       const now = new Date();
       const items: MarketMyBidListItemType[] = rows.map((b) => {
         const p = projectById.get(b.projectId.toString());
@@ -390,7 +430,7 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           amount: b.amount,
           durationDays: b.durationDays,
           status: asBidStatus(b.status),
-          contractStatus: null, // W2 에서 채택 계약 상태 주입
+          contractStatus: contractStatusByBid.get(b.id.toString()) ?? null,
           createdAt: b.createdAt.toISOString(),
           updatedAt: b.updatedAt.toISOString(),
           project: {

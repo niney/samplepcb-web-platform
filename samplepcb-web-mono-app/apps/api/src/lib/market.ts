@@ -40,6 +40,7 @@ import { prisma } from './prisma';
 // sp_file 폴리모픽 refType — 참조 테이블명 그대로(기존 'sp_order_spec' 관례).
 export const REF_MARKET_EXPERT = 'sp_market_expert';
 export const REF_MARKET_PROJECT = 'sp_market_project';
+export const REF_MARKET_CONTRACT = 'sp_market_contract'; // 계약 산출물(fileType='deliverable')
 
 // 파일서버 serviceType — 거버(FILE_SERVICE_TYPE=gerber)와 분리된 마켓 전용 버킷.
 export const MARKET_FILE_SERVICE_TYPE = process.env.MARKET_FILE_SERVICE_TYPE ?? 'market';
@@ -197,12 +198,19 @@ export interface MarketReceivedFile extends UploadTarget {
   field: string;
 }
 
-// FormData(파일 파트들 + payload JSON 문자열 파트)를 수집한다. 라우트는 이 호출 **뒤에**
-// jwtVerify 를 해야 한다(multipart 본문을 먼저 소비해야 하는 @fastify/multipart 제약).
+// FormData(파일 파트들 + 텍스트 파트들)를 수집한다. 라우트는 이 호출 **뒤에** jwtVerify 를
+// 해야 한다(multipart 본문을 먼저 소비해야 하는 @fastify/multipart 제약). 텍스트 파트는
+// fields 맵으로도 노출한다(계약 deliver 의 평문 note 필드 등) — rawPayload 는 관례상 'payload'
+// JSON 파트의 별칭(기존 등록 라우트 호환).
 export const collectMultipart = async (
   request: FastifyRequest,
-): Promise<{ files: MarketReceivedFile[]; rawPayload: string | undefined }> => {
+): Promise<{
+  files: MarketReceivedFile[];
+  rawPayload: string | undefined;
+  fields: Record<string, string>;
+}> => {
   const files: MarketReceivedFile[] = [];
+  const fields: Record<string, string> = {};
   let rawPayload: string | undefined;
   for await (const part of request.parts()) {
     if (part.type === 'file') {
@@ -212,9 +220,10 @@ export const collectMultipart = async (
         mimetype: part.mimetype,
         buffer: await part.toBuffer(),
       });
-    } else if (part.fieldname === 'payload' && typeof part.value === 'string') {
-      rawPayload = part.value;
+    } else if (typeof part.value === 'string') {
+      fields[part.fieldname] = part.value;
+      if (part.fieldname === 'payload') rawPayload = part.value;
     }
   }
-  return { files, rawPayload };
+  return { files, rawPayload, fields };
 };

@@ -153,6 +153,93 @@ export function buildExpertDecisionEmail(p: {
   };
 }
 
+// ── 계약(2차) 알림 4종 ───────────────────────────────────────────────────────
+// 결제 확인·납품·검수 확정·정산 완료. 발송은 전부 조건부 updateMany count===1 게이트 뒤
+// (lazy 승격 동시 조회의 중복 발송 방지 — 설계 §6·M3). 1차 4종과 같은 shell/table/esc 미러.
+
+// ① 결제 확인 → 전문가(작업 시작 + 실수령 안내).
+export function buildContractPaidEmail(p: {
+  expertName: string;
+  projectId: number;
+  projectTitle: string;
+  amount: number;
+  payoutAmount: number;
+}): MarketEmail {
+  return {
+    subject: `[재능마켓] 결제 확인 — ${p.projectTitle}`,
+    html: shell(
+      `${p.expertName}님, 결제가 확인되었습니다. 작업을 시작해 주세요.`,
+      table(
+        row('프로젝트', p.projectTitle) +
+          row('계약 금액', won(p.amount)) +
+          row('정산 예정액', won(p.payoutAmount)),
+      ) +
+        `<p style="padding-top:12px;margin:0;font-size:13px;color:#52627d;">
+          작업 완료 후 [작업 완료 보고]로 산출물을 전달하시면 의뢰인 검수가 진행됩니다.</p>`,
+      `/market/projects/${String(p.projectId)}`,
+      '프로젝트 확인',
+    ),
+  };
+}
+
+// ② 납품 보고 → 의뢰인(검수 요청 + 7일 자동확정 고지). ownerName 은 마스킹 표시명.
+export function buildContractDeliveredEmail(p: {
+  ownerName: string;
+  projectId: number;
+  projectTitle: string;
+  autoConfirmAt: string; // 표시 문자열(YYYY-MM-DD 등 — 호출측 포맷)
+}): MarketEmail {
+  return {
+    subject: `[재능마켓] 작업물 도착 — ${p.projectTitle}`,
+    html: shell(
+      `${p.ownerName}님, 작업물이 도착했습니다. 검수해 주세요.`,
+      table(row('프로젝트', p.projectTitle) + row('자동 확정 예정', p.autoConfirmAt)) +
+        `<p style="padding-top:12px;margin:0;font-size:13px;color:#52627d;">
+          기한 내 미확정 시 자동으로 검수 확정되어 정산이 진행됩니다.</p>`,
+      `/market/projects/${String(p.projectId)}`,
+      '작업물 확인하고 검수',
+    ),
+  };
+}
+
+// ③ 검수 확정 → 전문가(정산 예정). 수동 확정·7일 자동확정 공용.
+export function buildContractConfirmedEmail(p: {
+  expertName: string;
+  projectId: number;
+  projectTitle: string;
+  payoutAmount: number;
+}): MarketEmail {
+  return {
+    subject: `[재능마켓] 검수 확정 — ${p.projectTitle}`,
+    html: shell(
+      `${p.expertName}님, 작업물 검수가 확정되었습니다.`,
+      table(row('프로젝트', p.projectTitle) + row('정산 예정액', won(p.payoutAmount))) +
+        `<p style="padding-top:12px;margin:0;font-size:13px;color:#52627d;">
+          정산은 샘플피씨비가 순차 처리합니다. 문의 070-8667-1080</p>`,
+      `/market/projects/${String(p.projectId)}`,
+      '프로젝트 확인',
+    ),
+  };
+}
+
+// ④ 정산 완료 → 전문가.
+export function buildContractSettledEmail(p: {
+  expertName: string;
+  projectId: number;
+  projectTitle: string;
+  payoutAmount: number;
+}): MarketEmail {
+  return {
+    subject: `[재능마켓] 정산 완료 — ${p.projectTitle}`,
+    html: shell(
+      `${p.expertName}님, 정산이 완료되었습니다.`,
+      table(row('프로젝트', p.projectTitle) + row('정산액', won(p.payoutAmount))),
+      `/market/projects/${String(p.projectId)}`,
+      '프로젝트 확인',
+    ),
+  };
+}
+
 // 비차단 발송 — 실패는 로그만(액션 성패와 독립). to 가 없으면 조용히 스킵.
 export async function sendMarketMail(
   log: FastifyBaseLogger,
