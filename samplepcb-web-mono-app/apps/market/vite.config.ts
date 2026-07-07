@@ -11,6 +11,9 @@ export default defineConfig({
   server: {
     // 5173=sp-vue, 5174·5175=git worktree 병렬 dev 대역 — 그 다음 번호를 쓴다.
     port: 5176,
+    // nginx location /market/ 가 5176 고정 프록시 — 점유 시 조용히 다른 포트로
+    // 밀리면(라우팅 무단절단) 원인 찾기 어려우므로 명시적으로 실패시킨다.
+    strictPort: true,
     // IPv4 루프백에 바인딩. 기본값 'localhost'는 Windows에서 IPv6(::1)로만 열려
     // nginx의 proxy_pass http://127.0.0.1:5176 (IPv4)가 502(connection refused)가 된다.
     host: '127.0.0.1',

@@ -1,9 +1,42 @@
 @import "tailwindcss";
 
-/* 기본 글꼴을 Pretendard 로. Tailwind v4 는 --font-sans 가 곧 본문 기본 폰트.
-   재능마켓 디자인 토큰(네이비×카퍼 팔레트)은 레이아웃·홈 구현 단계에서 @theme 로 확장한다. */
+/* 재능마켓 디자인 토큰 — 프로토타입 css/style.css 팔레트(딥 네이비 × 카퍼 오렌지) 이식.
+   Tailwind v4 는 @theme 변수가 곧 유틸리티(bg-ink-950, text-copper-500, border-line …). */
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui,
     "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji";
+  /* 실크스크린 레퍼런스 라벨(U1·J3…)·수치용 모노 — 로컬 미설치 시 시스템 모노 폴백 */
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* 잉크(네이비) */
+  --color-ink-950: #081226;
+  --color-ink-900: #0c1b33;
+  --color-ink-850: #102138;
+  --color-ink-800: #16283f;
+  --color-ink-700: #1f3550;
+  /* 카퍼(브랜드 프라이머리) */
+  --color-copper-50: #fff4ec;
+  --color-copper-100: #ffe5d2;
+  --color-copper-400: #ff8a3d;
+  --color-copper-500: #f06e1d;
+  --color-copper-600: #d95a10;
+  --color-copper-700: #bc4a09;
+  /* 표면·라인·텍스트 */
+  --color-paper: #f5f7fb;
+  --color-line: #e4eaf3;
+  --color-line-2: #d2dcea;
+  --color-tx-1: #14243e;
+  --color-tx-2: #52627d;
+  --color-tx-3: #8593ab;
+  /* 온다크 보조 */
+  --color-dk-tx-1: #f2f6fc;
+  --color-dk-tx-2: #a9bad4;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-tx-1);
+  word-break: keep-all;
+  letter-spacing: -0.01em;
 }
