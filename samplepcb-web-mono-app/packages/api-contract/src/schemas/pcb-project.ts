@@ -53,9 +53,10 @@ const SpecValue = z.union([z.string(), z.number()]);
 // 계약 위반을 "차단"이 아니라 "발견"하기 위함. 본 구현 전환 시 strict 여부 재결정.
 export const PcbProjectSpec = z
   .object(
-    Object.fromEntries(
-      KNOWN_SPEC_KEYS.map((key) => [key, SpecValue.optional()]),
-    ) as Record<(typeof KNOWN_SPEC_KEYS)[number], z.ZodOptional<typeof SpecValue>>,
+    Object.fromEntries(KNOWN_SPEC_KEYS.map((key) => [key, SpecValue.optional()])) as Record<
+      (typeof KNOWN_SPEC_KEYS)[number],
+      z.ZodOptional<typeof SpecValue>
+    >,
   )
   .catchall(SpecValue);
 export type PcbProjectSpecType = z.infer<typeof PcbProjectSpec>;

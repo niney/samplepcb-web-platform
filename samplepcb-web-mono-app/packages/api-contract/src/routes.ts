@@ -7,4 +7,15 @@ export const apiRoutes = {
   adminMembers: '/api/admin/members',
   adminOrders: '/api/admin/orders',
   adminSettings: '/api/admin/settings',
+  // 재능마켓(market)
+  marketExperts: '/api/market/experts',
+  marketProjects: '/api/market/projects',
+  marketMyProjects: '/api/market/my/projects',
+  marketMyBids: '/api/market/my/bids',
+  marketMyTargetedProjects: '/api/market/my/targeted-projects',
+  marketSettings: '/api/market/settings',
+  adminMarketExperts: '/api/admin/market/experts',
+  adminMarketProjects: '/api/admin/market/projects',
+  adminMarketFiles: '/api/admin/market/files',
+  adminMarketSettings: '/api/admin/market/settings',
 } as const;
