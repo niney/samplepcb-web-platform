@@ -10,6 +10,7 @@ import { meRoutes } from './routes/me';
 import { pcbProjectRoutes } from './routes/pcb-projects';
 import { pcbThumbRoutes } from './routes/pcb-thumbs';
 import { marketExpertRoutes } from './routes/market-experts';
+import { marketProjectRoutes } from './routes/market-projects';
 import { adminPcbProjectRoutes } from './routes/admin-pcb-projects';
 import { adminMemberRoutes } from './routes/admin-members';
 import { adminOrderRoutes } from './routes/admin-orders';
@@ -37,6 +38,8 @@ await app.register(pcbProjectRoutes, { prefix: '/api' });
 await app.register(pcbThumbRoutes, { prefix: '/api' });
 // 재능마켓 — 전문가 등록·본인 관리·공개 프로필
 await app.register(marketExpertRoutes, { prefix: '/api' });
+// 재능마켓 — 프로젝트 의뢰·NDA·첨부·내 의뢰
+await app.register(marketProjectRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 견적 관리 목록·상세·가격 확정·원본 다운로드
 await app.register(adminPcbProjectRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 회원 관리 목록·상세·차단/레벨·회사명 프로필
