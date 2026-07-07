@@ -558,11 +558,12 @@ export const MarketProjectFilesResponse = z.object({
 });
 export type MarketProjectFilesResponseType = z.infer<typeof MarketProjectFilesResponse>;
 
-export const MarketProjectFileDeleteResponse = z.object({
+// 파일 삭제 공용 응답 — 프로젝트 첨부·전문가 증빙 모두 사용.
+export const MarketFileDeleteResponse = z.object({
   result: z.literal(true),
   data: z.object({ fileId: z.number() }),
 });
-export type MarketProjectFileDeleteResponseType = z.infer<typeof MarketProjectFileDeleteResponse>;
+export type MarketFileDeleteResponseType = z.infer<typeof MarketFileDeleteResponse>;
 
 // ── NDA ─────────────────────────────────────────────────────────────────────
 
