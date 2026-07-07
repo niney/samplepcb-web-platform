@@ -97,6 +97,64 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)
 
+  apps/market:
+    dependencies:
+      '@sp/api-contract':
+        specifier: workspace:*
+        version: link:../../packages/api-contract
+      '@sp/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@sp/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
+      '@tanstack/vue-query':
+        specifier: ^5.62.0
+        version: 5.101.2(vue@3.5.39(typescript@6.0.3))
+      pinia:
+        specifier: ^3.0.0
+        version: 3.0.4(typescript@6.0.3)(vue@3.5.39(typescript@6.0.3))
+      pretendard:
+        specifier: ^1.3.9
+        version: 1.3.9
+      vue:
+        specifier: ^3.5.13
+        version: 3.5.39(typescript@6.0.3)
+      vue-i18n:
+        specifier: ^11.4.6
+        version: 11.4.6(vue@3.5.39(typescript@6.0.3))
+      vue-router:
+        specifier: ^4.5.0
+        version: 4.6.4(vue@3.5.39(typescript@6.0.3))
+    devDependencies:
+      '@sp/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@tailwindcss/vite':
+        specifier: ^4.0.0
+        version: 4.3.2(vite@8.1.1(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
+      '@vitejs/plugin-vue':
+        specifier: ^6.0.0
+        version: 6.0.7(vite@8.1.1(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))(vue@3.5.39(typescript@6.0.3))
+      eslint:
+        specifier: ^10.0.1
+        version: 10.6.0(jiti@2.7.0)
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.3
+      tailwindcss:
+        specifier: ^4.0.0
+        version: 4.3.2
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.0.12
+        version: 8.1.1(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)
+      vue-tsc:
+        specifier: ^3.0.0
+        version: 3.3.5(typescript@6.0.3)
+
   apps/web:
     dependencies:
       '@sp/api-contract':

@@ -5,7 +5,7 @@
 ## 현재
 
 - **실제 구동 nginx = `D:\nginx\conf\nginx.conf`** (repo 밖, 로컬 머신). `nginx/local-web.conf`는 이 repo가 추적하는 **통합 호스트 레퍼런스 스니펫**(라이브에 동일 반영).
-- 통합 호스트 `local-web.samplepcb.co.kr`: `/api`→Node 3333 · `/app`→Vue 5173 · `/`→PHP 8888. **모노레포 가동 중이라 3경로 모두 동작.**
+- 통합 호스트 `local-web.samplepcb.co.kr`: `/api`→Node 3333 · `/app`→Vue 5173 · `/market`→Vue 5176(재능마켓, 2026-07-08 신설) · `/`→PHP 8888. **모노레포 가동 중이라 기존 3경로 모두 동작.** ⚠ `/market`은 라이브 nginx 수동 반영 필요.
 - 라이브엔 개발용 부가 호스트도 있음: `local`·`local-www`→5173(Vue 단독 프리뷰), `local2`·`local3`→5174·5175(git worktree 병렬 dev). 통합 라우팅은 `local-web` 하나뿐, 나머지는 `/` 전체가 Vue.
 
 ## 예정
@@ -19,6 +19,6 @@
 
 ## 참고
 
-- 예약 경로 `/app`·`/api`는 그누보드가 쓰지 않는다.
+- 예약 경로 `/app`·`/market`·`/api`는 그누보드가 쓰지 않는다.
 - DB charset = `utf8`(utf8mb4 아님).
 - 상세: 상위 `../AGENTS.md`.
