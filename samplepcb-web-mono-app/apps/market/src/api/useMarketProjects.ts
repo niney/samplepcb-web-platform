@@ -1,13 +1,14 @@
 import { computed, type Ref } from 'vue';
-import { keepPreviousData, useQuery } from '@tanstack/vue-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   MarketMyProjectListResponse,
+  MarketProjectCreateResponse,
   MarketProjectDetailResponse,
   MarketProjectListResponse,
   apiRoutes,
 } from '@sp/api-contract';
 import type { MarketProjectCategoryType, MarketProjectMethodType } from '@sp/api-contract';
-import { apiGet } from '@sp/shared';
+import { apiGet, apiSendForm } from '@sp/shared';
 
 // 프로젝트(의뢰) 서버 상태 훅 — 계약은 @sp/api-contract(market.ts), 호출은 @sp/shared
 // (apiGet — 401 시 토큰 재발급 1회 내장. 공개 라우트도 토큰이 있으면 실려 개인화된다).
@@ -48,6 +49,19 @@ export function useMarketProjectDetail(projectId: Ref<number | null>) {
     queryFn: () =>
       apiGet(`${apiRoutes.marketProjects}/${String(projectId.value)}`, MarketProjectDetailResponse),
     enabled: computed(() => projectId.value !== null),
+  });
+}
+
+// 의뢰 등록(multipart: payload + attachment[]).
+export function useCreateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (form: FormData) =>
+      apiSendForm('POST', apiRoutes.marketProjects, form, MarketProjectCreateResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['market', 'projects'] });
+      void qc.invalidateQueries({ queryKey: ['market', 'my-projects'] });
+    },
   });
 }
 
