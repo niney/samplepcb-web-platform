@@ -16,6 +16,7 @@ export const apiRoutes = {
   marketSettings: '/api/market/settings',
   adminMarketExperts: '/api/admin/market/experts',
   adminMarketProjects: '/api/admin/market/projects',
+  adminMarketContracts: '/api/admin/market/contracts',
   adminMarketFiles: '/api/admin/market/files',
   adminMarketSettings: '/api/admin/market/settings',
 } as const;

@@ -236,6 +236,102 @@ export const MarketFileMeta = z.object({
 });
 export type MarketFileMetaType = z.infer<typeof MarketFileMeta>;
 
+// ── 계약(2차: 결제·검수·정산) ────────────────────────────────────────────────
+// 채택(award) 시 프로젝트당 1건 생성 → 의뢰인 결제(영카트 재사용) → 전문가 납품 →
+// 의뢰인 검수(또는 7일 자동확정) → 관리자 정산. 상태·라벨은 이 파일이 단일 정본.
+// 민감값(전문가 계좌·pathToken)은 당사자 스키마에 두지 않는다 — 계좌는 Admin Detail 만.
+
+// 계약 상태 머신. cancelled = pending 의뢰인 취소 · paid 이후 관리자 운영 취소.
+export const MARKET_CONTRACT_STATUSES = [
+  'pending',
+  'paid',
+  'delivered',
+  'completed',
+  'settled',
+  'cancelled',
+] as const;
+export type MarketContractStatusType = (typeof MARKET_CONTRACT_STATUSES)[number];
+export const MarketContractStatus = z.enum(MARKET_CONTRACT_STATUSES);
+
+export const MARKET_CONTRACT_STATUS_LABELS = {
+  pending: '결제 대기',
+  paid: '작업 진행중',
+  delivered: '납품 완료',
+  completed: '검수 확정',
+  settled: '정산 완료',
+  cancelled: '취소',
+} as const satisfies Record<MarketContractStatusType, string>;
+
+// confirmedBy — 검수 확정 주체(client=의뢰인 수동 / auto=7일 자동확정). 라벨 불요.
+export const MARKET_CONFIRM_TYPES = ['client', 'auto'] as const;
+export type MarketConfirmTypeType = (typeof MARKET_CONFIRM_TYPES)[number];
+export const MarketConfirmType = z.enum(MARKET_CONFIRM_TYPES);
+
+// 산출물 파일 메타 — 1차 첨부(MarketFileMeta)와 동일 모양(fileType='deliverable').
+// pathToken 비노출 불변식 유지. 별칭으로 계약 도메인 의도를 명시한다.
+export const MarketContractFileMeta = MarketFileMeta;
+export type MarketContractFileMetaType = MarketFileMetaType;
+
+// 결제 파생 정보(영카트 주문 존재 시만) — od 헤더에서 실시간 파생(저장 아님).
+// 무통장 입금 대기 안내 + 단방향 승격 래칫과 od 현재 상태의 괴리 가시화.
+export const MarketContractPayment = z.object({
+  odId: z.string(),
+  odStatus: z.string(),
+  settleCase: z.string(),
+  receiptPrice: z.number().int(),
+  misu: z.number().int(),
+});
+export type MarketContractPaymentType = z.infer<typeof MarketContractPayment>;
+
+// 당사자용 계약 상세(의뢰인·채택 전문가). payout·feeAmount·feeRateBp 는 필드로 항상
+// 존재하되, 의뢰인에게 노출할지는 서버 DTO(W2)가 값 구성으로 결정한다.
+export const MarketContract = z.object({
+  contractId: z.number(),
+  projectId: z.number(),
+  bidId: z.number(),
+  status: MarketContractStatus,
+  amount: z.number().int(), // VAT 포함 총액
+  feeRateBp: z.number().int(), // 채택 시점 스냅샷
+  feeAmount: z.number().int(),
+  payoutAmount: z.number().int(),
+  paidAt: z.string().nullable(), // ISO
+  deliveredAt: z.string().nullable(),
+  deliveryNote: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  confirmedBy: MarketConfirmType.nullable(),
+  settledAt: z.string().nullable(),
+  cancelledAt: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  // 서버 파생 = deliveredAt+7d. delivered ∧ hold 아닐 때만 값(자동확정 D-day 표시).
+  autoConfirmAt: z.string().nullable(),
+  files: z.array(MarketContractFileMeta),
+  payment: MarketContractPayment.nullable(),
+});
+export type MarketContractType = z.infer<typeof MarketContract>;
+
+// 뷰어·목록용 경량 요약(프로젝트 상세 viewer 에 부착).
+export const MarketContractSummary = z.object({
+  contractId: z.number(),
+  status: MarketContractStatus,
+  amount: z.number().int(),
+  deliveredAt: z.string().nullable(),
+  autoConfirmAt: z.string().nullable(),
+});
+export type MarketContractSummaryType = z.infer<typeof MarketContractSummary>;
+
+// FE 파싱용 응답 스키마(회원 라우트는 fastify response 스키마 미선언 — 1차 관례).
+export const MarketContractResponse = z.object({
+  result: z.literal(true),
+  data: MarketContract,
+});
+export type MarketContractResponseType = z.infer<typeof MarketContractResponse>;
+
+export const MarketCheckoutResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ redirectUrl: z.string() }),
+});
+export type MarketCheckoutResponseType = z.infer<typeof MarketCheckoutResponse>;
+
 // ── 전문가: 등록/본인/공개 ───────────────────────────────────────────────────
 
 // 등록·수정 공통 편집 필드. bank* 는 2차 정산 대비 수집(폼 필수) — 본인·관리자 외 비노출.
@@ -488,6 +584,7 @@ export const MarketProjectViewer = z.object({
   isTargetExpert: z.boolean(), // targeted 에서 내가 지정 대상(open 이면 false)
   ndaSigned: z.boolean(),
   myBidStatus: MarketBidStatus.nullable(), // 내 입찰 없으면 null
+  contract: MarketContractSummary.nullable(), // 당사자(의뢰인·채택 전문가) 아니면 null
 });
 export type MarketProjectViewerType = z.infer<typeof MarketProjectViewer>;
 
@@ -520,7 +617,9 @@ export type MarketProjectDetailResponseType = z.infer<typeof MarketProjectDetail
 export const MarketMyProjectListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  tab: z.enum(['all', 'bidding', 'awarded', 'closed', 'cancelled']).default('all'),
+  tab: z
+    .enum(['all', 'bidding', 'awarded', 'working', 'completed', 'closed', 'cancelled'])
+    .default('all'),
 });
 export type MarketMyProjectListQueryType = z.infer<typeof MarketMyProjectListQuery>;
 
@@ -532,6 +631,7 @@ export const MarketMyProjectListItem = MarketProjectListItem.extend({
       expertDisplayName: z.string(),
     })
     .nullable(),
+  contractStatus: MarketContractStatus.nullable(), // 계약 없으면(미채택) null
 });
 export type MarketMyProjectListItemType = z.infer<typeof MarketMyProjectListItem>;
 
@@ -677,6 +777,7 @@ export const MarketMyBidListItem = z.object({
   amount: z.number(),
   durationDays: z.number(),
   status: MarketBidStatus,
+  contractStatus: MarketContractStatus.nullable(), // 채택 계약 없으면 null
   createdAt: z.string(),
   updatedAt: z.string(),
   project: z.object({
@@ -916,3 +1017,118 @@ export const AdminMarketProjectDetailResponse = z.object({
   data: AdminMarketProjectDetail,
 });
 export type AdminMarketProjectDetailResponseType = z.infer<typeof AdminMarketProjectDetailResponse>;
+
+// ── 관리자: 계약(2차) ────────────────────────────────────────────────────────
+// requireAdmin 뒤. 관리자는 블라인드·마스킹 예외(운영 감독) — 당사자 원 식별자·계좌 노출.
+
+export const AdminMarketContractListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  tab: z
+    .enum(['all', 'pending', 'paid', 'delivered', 'completed', 'settled', 'cancelled'])
+    .default('all'),
+  q: z.string().optional(), // 프로젝트명·의뢰인/전문가 mbId contains
+});
+export type AdminMarketContractListQueryType = z.infer<typeof AdminMarketContractListQuery>;
+
+// 탭 카운트 — 검색어 반영, 탭 자체는 미반영(관리자 목록 관례).
+export const AdminMarketContractCounts = z.object({
+  all: z.number(),
+  pending: z.number(),
+  paid: z.number(),
+  delivered: z.number(),
+  completed: z.number(),
+  settled: z.number(),
+  cancelled: z.number(),
+});
+export type AdminMarketContractCountsType = z.infer<typeof AdminMarketContractCounts>;
+
+// 목록 행 — 계약 scalar 전부 + 프로젝트/당사자 표시 + hold(자동확정 정지).
+// 장문(deliveryNote)·계좌·정산메모·산출물·결제파생은 Detail 에서(목록 경량화 관례).
+export const AdminMarketContractListItem = z.object({
+  contractId: z.number(),
+  projectId: z.number(),
+  bidId: z.number(),
+  projectTitle: z.string(),
+  clientMbId: z.string(),
+  clientName: z.string(), // g5_member 표시명(탈퇴 시 '')
+  expertDisplayName: z.string(),
+  status: MarketContractStatus,
+  amount: z.number().int(),
+  feeRateBp: z.number().int(),
+  feeAmount: z.number().int(),
+  payoutAmount: z.number().int(),
+  paidAt: z.string().nullable(),
+  deliveredAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  confirmedBy: MarketConfirmType.nullable(),
+  holdAt: z.string().nullable(),
+  holdReason: z.string().nullable(),
+  settledAt: z.string().nullable(),
+  cancelledAt: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  autoConfirmAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type AdminMarketContractListItemType = z.infer<typeof AdminMarketContractListItem>;
+
+export const AdminMarketContractList = z.object({
+  items: z.array(AdminMarketContractListItem),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  counts: AdminMarketContractCounts,
+});
+export type AdminMarketContractListType = z.infer<typeof AdminMarketContractList>;
+
+export const AdminMarketContractListResponse = z.object({
+  result: z.literal(true),
+  data: AdminMarketContractList,
+});
+export type AdminMarketContractListResponseType = z.infer<typeof AdminMarketContractListResponse>;
+
+// 드로어 상세 — 목록 행 + 납품 노트 + od 파생 결제 + 전문가 계좌(관리자만) + 정산 기록 +
+// 산출물 + 프로젝트 요약.
+export const AdminMarketContractDetail = AdminMarketContractListItem.extend({
+  expertMbId: z.string(), // 운영 감독(원 식별자)
+  deliveryNote: z.string().nullable(),
+  payment: MarketContractPayment.nullable(), // 항상 조회 시도(주문 없으면 null)
+  bankName: z.string().nullable(), // 전문가 정산 계좌 — Admin Detail 에만 노출
+  bankHolder: z.string().nullable(),
+  bankAccount: z.string().nullable(),
+  settledBy: z.string().nullable(),
+  settleNote: z.string().nullable(),
+  files: z.array(MarketContractFileMeta), // 산출물(deliverable) — 다운로드는 계약 파일 프록시
+  project: z.object({
+    projectId: z.number(),
+    title: z.string(),
+    category: MarketProjectCategory,
+    method: MarketProjectMethod,
+    status: MarketProjectStatus,
+  }),
+});
+export type AdminMarketContractDetailType = z.infer<typeof AdminMarketContractDetail>;
+
+export const AdminMarketContractDetailResponse = z.object({
+  result: z.literal(true),
+  data: AdminMarketContractDetail,
+});
+export type AdminMarketContractDetailResponseType = z.infer<
+  typeof AdminMarketContractDetailResponse
+>;
+
+// settle=정산 완료 기록(이체는 수동), hold/unhold=자동확정 정지/해제, cancel=운영 취소.
+export const AdminContractSettleBody = z.object({
+  note: z.string().trim().max(500).optional(),
+});
+export type AdminContractSettleBodyType = z.infer<typeof AdminContractSettleBody>;
+
+export const AdminContractHoldBody = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
+export type AdminContractHoldBodyType = z.infer<typeof AdminContractHoldBody>;
+
+export const AdminContractCancelBody = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
+export type AdminContractCancelBodyType = z.infer<typeof AdminContractCancelBody>;

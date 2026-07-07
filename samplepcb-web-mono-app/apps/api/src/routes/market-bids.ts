@@ -390,6 +390,7 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           amount: b.amount,
           durationDays: b.durationDays,
           status: asBidStatus(b.status),
+          contractStatus: null, // W2 에서 채택 계약 상태 주입
           createdAt: b.createdAt.toISOString(),
           updatedAt: b.updatedAt.toISOString(),
           project: {

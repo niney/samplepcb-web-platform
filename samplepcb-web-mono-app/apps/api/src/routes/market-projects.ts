@@ -351,6 +351,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             project.targetExpertId === expert.id,
           ndaSigned: signed !== null,
           myBidStatus: myBid !== null ? asBidStatus(myBid.status) : null,
+          contract: null, // W2 에서 당사자(의뢰인·채택 전문가)에게 계약 요약 주입
         };
         // 메타 규칙: NDA 불요 → 공개 / NDA 요구 → 소유자·관리자·서명자만(파일명도 기밀 힌트).
         if (!filesVisible) filesVisible = !project.ndaRequired || viewer.ndaSigned;
@@ -760,6 +761,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                   expertDisplayName: expertNames.get(awarded.expertId.toString()) ?? '',
                 }
               : null,
+          contractStatus: null, // W2 에서 계약 상태 주입
         };
       });
       return { result: true as const, data: { items, total, page, pageSize } };
