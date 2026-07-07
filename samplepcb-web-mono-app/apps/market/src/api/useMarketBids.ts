@@ -1,16 +1,22 @@
 import { computed, type Ref } from 'vue';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   MarketAwardResponse,
   MarketBidSubmitResponse,
   MarketBidWithdrawResponse,
+  MarketMyBidListResponse,
   MarketMyBidResponse,
   MarketNdaSignResponse,
   MarketProjectBidsResponse,
   MarketProjectStatusResponse,
+  MarketTargetedProjectListResponse,
   apiRoutes,
 } from '@sp/api-contract';
-import type { MarketBidSubmitBodyType, MarketNdaSignBodyType } from '@sp/api-contract';
+import type {
+  MarketBidStatusType,
+  MarketBidSubmitBodyType,
+  MarketNdaSignBodyType,
+} from '@sp/api-contract';
 import { apiGet, apiSend } from '@sp/shared';
 
 // 입찰·NDA·프로젝트 상태 액션 훅 — 성공 시 상세/입찰/마이 목록 캐시를 무효화해
@@ -101,6 +107,43 @@ export function useSignNda() {
     onSuccess: (_d, v) => {
       invalidate(v.projectId);
     },
+  });
+}
+
+export interface MyBidFilters {
+  page: number;
+  pageSize: number;
+  status: '' | MarketBidStatusType;
+}
+
+// 내 입찰 목록(전문가).
+export function useMyBidList(filters: Ref<MyBidFilters>, enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: ['market', 'my-bids', filters],
+    queryFn: () => {
+      const f = filters.value;
+      const params = new URLSearchParams();
+      params.set('page', String(f.page));
+      params.set('pageSize', String(f.pageSize));
+      if (f.status !== '') params.set('status', f.status);
+      return apiGet(`${apiRoutes.marketMyBids}?${params.toString()}`, MarketMyBidListResponse);
+    },
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+// 나를 지정한 의뢰 인박스(전문가).
+export function useTargetedProjects(page: Ref<number>, enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: ['market', 'targeted-projects', page],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.marketMyTargetedProjects}?page=${String(page.value)}&pageSize=20`,
+        MarketTargetedProjectListResponse,
+      ),
+    enabled,
+    placeholderData: keepPreviousData,
   });
 }
 
