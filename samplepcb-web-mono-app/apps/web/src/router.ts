@@ -8,6 +8,9 @@ import AdminQuotes from './pages/admin/AdminQuotes.vue';
 import AdminOrders from './pages/admin/AdminOrders.vue';
 import AdminMembers from './pages/admin/AdminMembers.vue';
 import AdminSettings from './pages/admin/AdminSettings.vue';
+import AdminMarketExperts from './pages/admin/AdminMarketExperts.vue';
+import AdminMarketProjects from './pages/admin/AdminMarketProjects.vue';
+import AdminMarketSettings from './pages/admin/AdminMarketSettings.vue';
 
 // 라우트 meta 타입 보강
 declare module 'vue-router' {
@@ -34,6 +37,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'quotes', name: 'admin-quotes', component: AdminQuotes },
       { path: 'orders', name: 'admin-orders', component: AdminOrders },
       { path: 'members', name: 'admin-members', component: AdminMembers },
+      // 재능마켓(/market) 관리 — 전문가 심사·프로젝트 모니터·설정
+      { path: 'market/experts', name: 'admin-market-experts', component: AdminMarketExperts },
+      { path: 'market/projects', name: 'admin-market-projects', component: AdminMarketProjects },
+      { path: 'market/settings', name: 'admin-market-settings', component: AdminMarketSettings },
       { path: 'settings', name: 'admin-settings', component: AdminSettings },
     ],
   },

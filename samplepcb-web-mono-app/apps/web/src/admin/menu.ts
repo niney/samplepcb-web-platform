@@ -16,5 +16,9 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-quotes' }, labelKey: 'admin.menu.quotes', badge: 'rfqCount' },
   { to: { name: 'admin-orders' }, labelKey: 'admin.menu.orders' },
   { to: { name: 'admin-members' }, labelKey: 'admin.menu.members' },
+  // 재능마켓(/market, sp-market) 관리
+  { to: { name: 'admin-market-experts' }, labelKey: 'admin.menu.marketExperts' },
+  { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },
+  { to: { name: 'admin-market-settings' }, labelKey: 'admin.menu.marketSettings' },
   { to: { name: 'admin-settings' }, labelKey: 'admin.menu.settings' },
 ];
