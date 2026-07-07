@@ -121,6 +121,11 @@ local-web.samplepcb.co.kr (nginx 443)
   운영 전 1회 실측 필요**(테스트 'demo' 선례상 가능 추정).
 - dev: `pnpm --filter market dev`(5176, strictPort — 점유 시 실패가 정상 신호),
   api(3333)·web(5173)과 병행. 통합 확인은 local-web(라이브 nginx 반영 후).
+- **E2E 회귀**: `ops/scripts/e2e-market.mts` — 매칭 전 과정+부정 경로 33항목(§4·§5의
+  실행 가능한 명세). api 가동 상태에서
+  `pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-market.mts run`
+  → 확인 후 같은 명령 `cleanup`(파일서버 실파일까지 정리). 실존 회원 2명을 임시 주체로
+  쓰며 메일은 Mailpit 이 가로챈다.
 - 문구 정책(1차): 도메인 라벨은 계약 `MARKET_*_LABELS` 정본, 화면 고유 카피는 마켓·관리자
   화면에서 ko 인라인(다국어(en) 도입 시 i18n 이관 — 모노레포 AGENTS "라벨 i18n" 원칙의
   1차 한정 예외).
