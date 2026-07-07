@@ -12,6 +12,7 @@ import { pcbThumbRoutes } from './routes/pcb-thumbs';
 import { marketExpertRoutes } from './routes/market-experts';
 import { marketProjectRoutes } from './routes/market-projects';
 import { marketBidRoutes } from './routes/market-bids';
+import { marketContractRoutes } from './routes/market-contracts';
 import { marketSettingsRoutes } from './routes/market-settings';
 import { adminPcbProjectRoutes } from './routes/admin-pcb-projects';
 import { adminMemberRoutes } from './routes/admin-members';
@@ -19,6 +20,7 @@ import { adminOrderRoutes } from './routes/admin-orders';
 import { adminSettingsRoutes } from './routes/admin-settings';
 import { adminMarketExpertRoutes } from './routes/admin-market-experts';
 import { adminMarketProjectRoutes } from './routes/admin-market-projects';
+import { adminMarketContractRoutes } from './routes/admin-market-contracts';
 import { adminMarketSettingsRoutes } from './routes/admin-market-settings';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
@@ -47,6 +49,8 @@ await app.register(marketExpertRoutes, { prefix: '/api' });
 await app.register(marketProjectRoutes, { prefix: '/api' });
 // 재능마켓 — 입찰 제출·수정·철회·소유자 비교·채택
 await app.register(marketBidRoutes, { prefix: '/api' });
+// 재능마켓 — 계약(결제·납품·검수·취소·산출물)
+await app.register(marketContractRoutes, { prefix: '/api' });
 // 재능마켓 — 공개 설정(수수료율 읽기 전용)
 await app.register(marketSettingsRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 견적 관리 목록·상세·가격 확정·원본 다운로드
@@ -60,6 +64,7 @@ await app.register(adminSettingsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일
 await app.register(adminMarketExpertRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketProjectRoutes, { prefix: '/api/admin' });
+await app.register(adminMarketContractRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketSettingsRoutes, { prefix: '/api/admin' });
 
 try {

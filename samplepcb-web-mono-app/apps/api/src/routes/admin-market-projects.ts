@@ -16,6 +16,7 @@ import { downloadFromFileServer } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
 import type { G5Member } from '../lib/g5-db';
 import {
+  REF_MARKET_CONTRACT,
   REF_MARKET_EXPERT,
   REF_MARKET_PROJECT,
   asBidStatus,
@@ -257,7 +258,7 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
     },
   );
 
-  // ── GET /api/admin/market/files/:fileId — 첨부·증빙 원본 다운로드 프록시 ────
+  // ── GET /api/admin/market/files/:fileId — 첨부·증빙·산출물 원본 다운로드 프록시 ──
   // refType 화이트리스트(마켓 소유 파일만) — 타 도메인(sp_order_spec 거버)은
   // admin-pcb-files 표면을 쓴다. pathToken 은 파일서버로만 전달(비노출 불변식).
   fastify.get(
@@ -267,7 +268,7 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
       const file = await prisma.spFile.findFirst({
         where: {
           id: BigInt(request.params.fileId),
-          refType: { in: [REF_MARKET_PROJECT, REF_MARKET_EXPERT] },
+          refType: { in: [REF_MARKET_PROJECT, REF_MARKET_EXPERT, REF_MARKET_CONTRACT] },
         },
         select: { pathToken: true, originFileName: true },
       });
