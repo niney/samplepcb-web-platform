@@ -40,7 +40,9 @@ import { prisma } from '../lib/prisma';
 // 구조적으로 탈락한다. g5_member 접근은 lib/g5-db.ts 한정 예외 ⑧(read-only SELECT)·⑨
 // (mb_intercept_date·mb_level UPDATE)로만 하고, sp_* 는 Prisma 가 소유한다.
 
-const MbIdParams = z.object({ mbId: z.string().min(1).max(20) });
+// max 191: 레거시 이관 회원은 이메일을 mb_id 로 사용(표준 20자 가정 폐기 — 20자 초과 838명,
+// 2026-07-07 전수 스윕 실측). g5 는 255 확폭됐고, sp 측 한도(VarChar(191))와 정합.
+const MbIdParams = z.object({ mbId: z.string().min(1).max(191) });
 
 // '' → null 정규화(익명화된 탈퇴 회원의 빈 값을 null 로 표시).
 const nn = (s: string | null): string | null => (s === null || s === '' ? null : s);
