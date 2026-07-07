@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   MARKET_BID_STATUS_LABELS,
+  MARKET_CONTRACT_STATUS_LABELS,
   MARKET_EXPERT_STATUS_LABELS,
   MARKET_METHOD_LABELS,
   MARKET_PROJECT_STATUS_LABELS,
@@ -17,7 +18,7 @@ import { useExpertMe } from '../api/useMarketExpertMe';
 import { useMyProjectList } from '../api/useMarketProjects';
 import type { MyProjectFilters } from '../api/useMarketProjects';
 import { loginUrl, marketPath } from '../lib/auth-urls';
-import { dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
+import { contractStatusClass, dateShort, ddayBadge, ddayToneClass, won } from '../lib/market-format';
 
 // 마이페이지 — 탭 3: 내 의뢰(의뢰인) / 내 입찰+지정 인박스(전문가) / 전문가 프로필.
 // 프로토타입 dashboard 2종의 1차 축약(칸반·정산은 2차).
@@ -35,6 +36,8 @@ const projectTabs = [
   { key: 'all', label: '전체' },
   { key: 'bidding', label: '입찰중' },
   { key: 'awarded', label: '선정완료' },
+  { key: 'working', label: '작업진행' },
+  { key: 'completed', label: '완료' },
   { key: 'closed', label: '마감' },
   { key: 'cancelled', label: '취소' },
 ] as const;
@@ -152,9 +155,18 @@ function goLogin(): void {
                 {{ dateShort(p.createdAt) }} 등록
               </p>
             </div>
-            <div v-if="p.awardedBid !== null" class="text-right text-xs">
-              <p class="font-bold text-copper-600">{{ p.awardedBid.expertDisplayName }} 선정</p>
-              <p class="text-tx-2">{{ won(p.awardedBid.amount) }}</p>
+            <div v-if="p.awardedBid !== null || p.contractStatus !== null" class="text-right text-xs">
+              <template v-if="p.awardedBid !== null">
+                <p class="font-bold text-copper-600">{{ p.awardedBid.expertDisplayName }} 선정</p>
+                <p class="text-tx-2">{{ won(p.awardedBid.amount) }}</p>
+              </template>
+              <span
+                v-if="p.contractStatus !== null"
+                class="mt-1 inline-block rounded-md px-2 py-0.5 text-[11px] font-bold"
+                :class="contractStatusClass[p.contractStatus]"
+              >
+                {{ MARKET_CONTRACT_STATUS_LABELS[p.contractStatus] }}
+              </span>
             </div>
           </RouterLink>
           <UiPagination
@@ -230,6 +242,13 @@ function goLogin(): void {
               <div class="text-right text-xs">
                 <p class="font-extrabold text-tx-1">{{ won(b.amount) }}</p>
                 <p class="text-tx-3">{{ b.durationDays }}일</p>
+                <span
+                  v-if="b.contractStatus !== null"
+                  class="mt-1 inline-block rounded-md px-2 py-0.5 text-[11px] font-bold"
+                  :class="contractStatusClass[b.contractStatus]"
+                >
+                  {{ MARKET_CONTRACT_STATUS_LABELS[b.contractStatus] }}
+                </span>
               </div>
             </RouterLink>
             <UiPagination

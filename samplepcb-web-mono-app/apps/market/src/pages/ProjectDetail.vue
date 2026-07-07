@@ -14,6 +14,8 @@ import {
 import type { MarketBidSubmitBodyType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import BidFormModal from '../components/BidFormModal.vue';
+import ContractCard from '../components/ContractCard.vue';
+import DeliverModal from '../components/DeliverModal.vue';
 import NdaSignModal from '../components/NdaSignModal.vue';
 import {
   useAwardBid,
@@ -26,6 +28,13 @@ import {
   useUpdateMyBid,
   useWithdrawMyBid,
 } from '../api/useMarketBids';
+import {
+  useCancelContract,
+  useCheckout,
+  useConfirm,
+  useContractQuery,
+  useDeliver,
+} from '../api/useMarketContract';
 import { useMarketProjectDetail } from '../api/useMarketProjects';
 import { useMarketSettings } from '../api/useMarketSettings';
 import { downloadAuthedFile } from '../lib/download';
@@ -71,6 +80,11 @@ const myBid = computed(() => myBidQ.data.value?.data ?? null);
 const settingsQ = useMarketSettings();
 const feeRateBp = computed(() => settingsQ.data.value?.data.feeRateBp ?? 1000);
 
+// 계약(2차) — 당사자(viewer.contract 존재)일 때만 상세 조회.
+const hasContract = computed(() => viewer.value?.contract != null);
+const contractQ = useContractQuery(projectId, hasContract);
+const contract = computed(() => contractQ.data.value?.data);
+
 const submitBid = useSubmitBid();
 const updateBid = useUpdateMyBid();
 const withdrawBid = useWithdrawMyBid();
@@ -78,6 +92,10 @@ const awardBid = useAwardBid();
 const signNda = useSignNda();
 const closeProject = useCloseProject();
 const cancelProject = useCancelProject();
+const checkout = useCheckout();
+const deliver = useDeliver();
+const confirmContract = useConfirm();
+const cancelContract = useCancelContract();
 
 // 모달·인라인 확인 상태 (네이티브 confirm 미사용 — 접근성·자동화 친화)
 const ndaOpen = ref(false);
@@ -87,6 +105,8 @@ const modalError = ref('');
 const actionError = ref('');
 const confirmAwardId = ref<number | null>(null);
 const confirmAction = ref<'close' | 'cancel' | 'withdraw' | null>(null);
+const reportOpen = ref(false);
+const reportError = ref('');
 
 const dday = computed(() => (detail.value !== undefined ? ddayBadge(detail.value) : null));
 
@@ -166,6 +186,74 @@ async function downloadFile(fileId: number, name: string): Promise<void> {
   try {
     await downloadAuthedFile(
       `${apiRoutes.marketProjects}/${String(projectId.value)}/files/${String(fileId)}`,
+      name,
+    );
+  } catch (err) {
+    actionError.value = errorMessage(err);
+  }
+}
+
+// ── 계약(2차) 액션 ──────────────────────────────────────────────────────────
+async function onCheckout(): Promise<void> {
+  if (projectId.value === null) return;
+  actionError.value = '';
+  try {
+    // 결제 직전 me 재발급 — JWT cartId 클레임이 10분 스테일이면 주입이 옛 버킷으로 감(거버 관례).
+    await auth.bootstrap();
+    const res = await checkout.mutateAsync(projectId.value);
+    window.location.assign(res.data.redirectUrl);
+  } catch (err) {
+    actionError.value = errorMessage(err);
+    // ORDER_PENDING(무통장 대기)·ALREADY_PAID 등은 계약 재조회로 결제 파생 상태를 갱신.
+    void contractQ.refetch();
+  }
+}
+
+async function onConfirmContract(): Promise<void> {
+  if (projectId.value === null) return;
+  actionError.value = '';
+  try {
+    await confirmContract.mutateAsync(projectId.value);
+  } catch (err) {
+    actionError.value = errorMessage(err);
+  }
+}
+
+async function onCancelContract(): Promise<void> {
+  if (projectId.value === null) return;
+  actionError.value = '';
+  try {
+    await cancelContract.mutateAsync(projectId.value);
+  } catch (err) {
+    actionError.value = errorMessage(err);
+  }
+}
+
+function openReport(): void {
+  reportError.value = '';
+  reportOpen.value = true;
+}
+
+async function onSubmitReport(payload: { note: string; files: File[] }): Promise<void> {
+  if (projectId.value === null) return;
+  reportError.value = '';
+  const fd = new FormData();
+  if (payload.note !== '') fd.append('note', payload.note);
+  for (const f of payload.files) fd.append('deliverable', f);
+  try {
+    await deliver.mutateAsync({ projectId: projectId.value, form: fd });
+    reportOpen.value = false;
+  } catch (err) {
+    reportError.value = errorMessage(err);
+  }
+}
+
+async function downloadContractFile(fileId: number, name: string): Promise<void> {
+  if (projectId.value === null) return;
+  actionError.value = '';
+  try {
+    await downloadAuthedFile(
+      `${apiRoutes.marketProjects}/${String(projectId.value)}/contract/files/${String(fileId)}`,
       name,
     );
   } catch (err) {
@@ -397,6 +485,27 @@ const fmtSize = (bytes: number): string =>
             </button>
           </div>
 
+          <!-- 계약 진행(당사자: 의뢰인·채택 전문가) — 채택 후 결제·납품·검수·정산 -->
+          <template v-else-if="viewer.contract !== null">
+            <ContractCard
+              v-if="contract !== undefined"
+              :contract="contract"
+              :is-owner="isOwner"
+              :checkout-pending="checkout.isPending.value"
+              :confirm-pending="confirmContract.isPending.value"
+              :cancel-pending="cancelContract.isPending.value"
+              :error="actionError"
+              @checkout="onCheckout"
+              @confirm="onConfirmContract"
+              @cancel="onCancelContract"
+              @report="openReport"
+              @download="downloadContractFile"
+            />
+            <div v-else class="rounded-2xl border border-line bg-white p-5 text-sm text-tx-3">
+              계약 정보를 불러오는 중…
+            </div>
+          </template>
+
           <!-- 소유자 액션 -->
           <div v-else-if="isOwner" class="rounded-2xl border border-line bg-white p-5">
             <p class="text-sm font-extrabold text-tx-1">내 프로젝트</p>
@@ -532,8 +641,11 @@ const fmtSize = (bytes: number): string =>
             </template>
           </div>
 
-          <!-- 안전거래 안내 -->
-          <div class="rounded-2xl bg-ink-900 p-5 text-xs leading-relaxed text-dk-tx-2">
+          <!-- 안전거래 안내 (계약 전) -->
+          <div
+            v-if="viewer?.contract == null"
+            class="rounded-2xl bg-ink-900 p-5 text-xs leading-relaxed text-dk-tx-2"
+          >
             <p class="font-bold text-dk-tx-1">🛡️ 안전거래 안내</p>
             <p class="mt-1.5">
               견적은 블라인드로 보호되고, NDA 서명 기록이 남습니다. 계약·결제는 채택 후
@@ -541,7 +653,12 @@ const fmtSize = (bytes: number): string =>
             </p>
           </div>
 
-          <p v-if="actionError !== ''" class="text-xs font-semibold text-red-600">{{ actionError }}</p>
+          <p
+            v-if="actionError !== '' && viewer?.contract == null"
+            class="text-xs font-semibold text-red-600"
+          >
+            {{ actionError }}
+          </p>
         </aside>
       </div>
 
@@ -564,6 +681,14 @@ const fmtSize = (bytes: number): string =>
         :error="modalError"
         @close="bidOpen = false"
         @submit="onSubmitBid"
+      />
+      <DeliverModal
+        :open="reportOpen"
+        :is-report="contract !== undefined && contract.status === 'delivered'"
+        :pending="deliver.isPending.value"
+        :error="reportError"
+        @close="reportOpen = false"
+        @submit="onSubmitReport"
       />
     </template>
   </section>

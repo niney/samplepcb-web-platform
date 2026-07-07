@@ -30,6 +30,15 @@ const CODE_MESSAGES: Record<string, string> = {
   NDA_REQUIRED: 'NDA 서명 후 열람할 수 있습니다.',
   NDA_NOT_REQUIRED: '이 프로젝트는 NDA 서명이 필요하지 않습니다.',
   FORBIDDEN: '접근 권한이 없습니다.',
+  // 계약·결제·검수·정산(2차) — 상태 전이 가드
+  ALREADY_PAID: '이미 결제된 계약입니다.',
+  ORDER_PENDING: '입금 대기 중인 주문이 있습니다. 입금이 확인되면 자동으로 반영됩니다.',
+  NO_CART_ID: '결제 세션이 만료되었습니다. 새로고침 후 다시 시도해 주세요.',
+  NOT_PAID: '결제 확인 후 진행할 수 있습니다.',
+  NOT_DELIVERED: '납품 완료 후 진행할 수 있습니다.',
+  CONTRACT_CANCELLED: '취소된 계약입니다.',
+  CONTRACT_ACTIVE: '진행 중인 계약이 있어 취소할 수 없습니다.',
+  INVALID_TRANSITION: '지금 상태에서는 처리할 수 없습니다. 새로고침 후 다시 확인해 주세요.',
   // 공통
   PAYLOAD_SCHEMA_MISMATCH: '입력값 형식이 올바르지 않습니다. 항목을 확인해 주세요.',
   FILE_UPLOAD_FAILED: '파일 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.',

@@ -68,7 +68,7 @@ export function useCreateProject() {
 export interface MyProjectFilters {
   page: number;
   pageSize: number;
-  tab: 'all' | 'bidding' | 'awarded' | 'closed' | 'cancelled';
+  tab: 'all' | 'bidding' | 'awarded' | 'working' | 'completed' | 'closed' | 'cancelled';
 }
 
 export function useMyProjectList(filters: Ref<MyProjectFilters>, enabled: Ref<boolean>) {

@@ -25,13 +25,15 @@ import { apiGet, apiSend } from '@sp/shared';
 const projectPath = (projectId: number): string =>
   `${apiRoutes.marketProjects}/${String(projectId)}`;
 
-function useInvalidateProject() {
+// 계약 액션(useMarketContract.ts)도 공유 — award/결제/납품/검수/취소 후 같은 집합을 무효화한다.
+export function useInvalidateProject() {
   const qc = useQueryClient();
   return (projectId: number): void => {
     void qc.invalidateQueries({ queryKey: ['market', 'projects', 'detail'] });
     void qc.invalidateQueries({ queryKey: ['market', 'projects', 'list'] });
     void qc.invalidateQueries({ queryKey: ['market', 'bids', projectId] });
     void qc.invalidateQueries({ queryKey: ['market', 'my-bid', projectId] });
+    void qc.invalidateQueries({ queryKey: ['market', 'contract', projectId] });
     void qc.invalidateQueries({ queryKey: ['market', 'my-projects'] });
     void qc.invalidateQueries({ queryKey: ['market', 'my-bids'] });
   };
