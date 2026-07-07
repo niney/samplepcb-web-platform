@@ -210,7 +210,6 @@ export const en = {
         shippingNotice: 'Shipping is calculated separately at order time.',
         send: {
           button: 'Send',
-          buttonPrimary: 'Send to customer',
           title: 'Send estimate',
           emailLabel: 'Recipient (email)',
           submit: 'Send email & AlimTalk',

@@ -212,7 +212,6 @@ export const ko = {
         // 견적서 발송(메일+알림톡) — EstimateSendControl
         send: {
           button: '발송',
-          buttonPrimary: '고객에게 발송',
           title: '견적서 발송',
           emailLabel: '받는 사람 (이메일)',
           submit: '메일·알림톡 발송',
