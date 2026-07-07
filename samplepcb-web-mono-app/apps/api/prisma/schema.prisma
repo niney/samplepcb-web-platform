@@ -138,3 +138,118 @@ model SpOrderBizInfo {
 
   @@map("sp_order_biz_info")
 }
+
+// ── PCB 재능마켓 (sp_market_*, 2026-07-08 1차=매칭까지) ─────────────────────
+// 회원 = 그누보드(g5_member). mbId 는 JWT 클레임 유래 문자열 — FK 금지(공유 DB 조인 키).
+// 분야/CAD 등 코드 사전은 @sp/api-contract 의 MARKET_* 상수가 정본, 여기엔 코드만 저장.
+// 상태값은 String + 앱단 리터럴 유니온(asXxx 내로잉) — 기존 sp_* 관례(enum 미사용).
+// 첨부·증빙 파일은 sp_file 폴리모픽 재사용(refType='sp_market_project'|'sp_market_expert').
+
+// 전문가 프로필 — 회원당 1행(mbId unique). 관리자 승인 워크플로 포함.
+// expertType: individual(개인·지정3번)|company(기업·지정2번)|house(당사·지정1번, 시드 1행).
+// status: pending|approved|rejected|suspended.
+model SpMarketExpert {
+  id               BigInt    @id @default(autoincrement())
+  mbId             String    @unique @db.VarChar(191) // mb_id 계열(이메일 아이디 수용)
+  expertType       String    @db.VarChar(20)
+  displayName      String    @db.VarChar(100) // 이름(개인)/상호(기업) — 공개 프로필 비마스킹
+  phone            String    @db.VarChar(50)
+  identityVerified Boolean   @default(false) // 1차: 관리자 심사 화면 수동 체크(실인증 연동 2차)
+  careerRange      String    @db.VarChar(20) // 경력 구간 코드
+  contactHours     String?   @db.VarChar(100) // 통화 가능시간(자유 입력)
+  region           String?   @db.VarChar(20) // 활동 지역 코드
+  travelRange      String?   @db.VarChar(20) // 이동 가능 거리 코드
+  intro            String?   @db.Text
+  categories       Json // 회로개발 세부분야 코드 배열
+  cadTools         Json // CAD 툴 코드 배열
+  bankName         String?   @db.VarChar(50) // 정산계좌(2차 정산 대비 수집) — 본인·관리자 외 비노출
+  bankHolder       String?   @db.VarChar(50)
+  bankAccount      String?   @db.VarChar(50)
+  termsAgreedAt    DateTime // 약관 + 프로필 공개 동의 시각
+  status           String    @default("pending") @db.VarChar(20)
+  statusReason     String?   @db.VarChar(255) // 반려/정지 사유
+  decidedBy        String?   @db.VarChar(191) // 처리 관리자 mbId
+  decidedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status]) // 관리자 심사 탭
+  @@map("sp_market_expert")
+}
+
+// 프로젝트 의뢰 — method: open(역견적=공개 블라인드 입찰)|targeted(지정견적=1:1).
+// status: bidding|closed|awarded|cancelled (2차 예약: working|completed).
+// 마감은 cron 없는 lazy 파생 — bidDeadlineAt vs now 비교(읽기 응답·쓰기 가드 동일 식).
+model SpMarketProject {
+  id             BigInt    @id @default(autoincrement())
+  mbId           String    @db.VarChar(191) // 의뢰인 — 공개 응답엔 maskName 값만 나간다
+  title          String    @db.VarChar(200)
+  category       String    @db.VarChar(30) // circuit|artwork|both|consult
+  cadTools       Json // 요구 CAD 코드 배열('any' 단독 허용)
+  description    String    @db.Text
+  ndaRequired    Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
+  budgetRange    String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
+  startHopeDate  String?   @db.VarChar(10) // 'YYYY-MM-DD' 표시용 KST 날짜 문자열(타임존 경계 회피)
+  dueHopeDate    String?   @db.VarChar(10)
+  bidDeadlineAt  DateTime // 견적 마감 절대 시각(서버 계산: 3/7/14일 프리셋 or 지정일 23:59:59 KST)
+  method         String    @db.VarChar(20)
+  targetExpertId BigInt? // 지정견적 대상(sp_market_expert.id) — open 이면 null
+  status         String    @default("bidding") @db.VarChar(20)
+  awardedBidId   BigInt? // 채택 입찰 — 2차 계약(sp_market_contract)의 연결 근원
+  awardedAt      DateTime?
+  viewCount      Int       @default(0) // 원자 +1(소유자/관리자 제외), dedup 없음(1차)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, bidDeadlineAt]) // 공개 목록(입찰중 WHERE + lazy 마감 + 마감순 정렬)
+  @@index([mbId]) // 내 의뢰 목록
+  @@index([targetExpertId]) // 지정견적 인박스(전문가별)
+  @@map("sp_market_project")
+}
+
+// 입찰(견적 제출) — 블라인드: 소유자·관리자만 전체, 전문가는 자기 것만, 공개는 개수만.
+// status: submitted|awarded|rejected|withdrawn. 재제출=같은 행 수정(unique 유지).
+model SpMarketBid {
+  id           BigInt   @id @default(autoincrement())
+  projectId    BigInt
+  expertId     BigInt // sp_market_expert.id
+  mbId         String   @db.VarChar(191) // 전문가 mbId 복제 — 소유 판정·내 입찰을 무조인으로
+  amount       Int // 원 단위 KRW(프로토타입의 만원 단위를 정규화)
+  durationDays Int
+  warranty     String?  @db.VarChar(255) // 하자보수 문구
+  message      String   @db.Text // 제안 메시지
+  status       String   @default("submitted") @db.VarChar(20)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt // 재제출 최종 시각
+
+  @@unique([projectId, expertId]) // 전문가당 1입찰(중복 제출 레이스의 최종 방어선)
+  @@index([projectId, status]) // 비교 목록·채택 일괄 전이·bidCount 집계
+  @@index([mbId]) // 내 입찰 목록
+  @@map("sp_market_bid")
+}
+
+// NDA 전자서명 — 프로젝트 단위 1인 1서명(재서명 요청은 멱등). 문구 원문은 계약
+// (MARKET_NDA_TEXT)이 버전 관리하고 여기엔 textVersion 만 저장.
+model SpMarketNdaSign {
+  id          BigInt   @id @default(autoincrement())
+  projectId   BigInt
+  mbId        String   @db.VarChar(191) // 서명자(승인 전문가)
+  textVersion String   @db.VarChar(20)
+  signedName  String   @db.VarChar(100) // 서명 시 입력 성명(회원 탈퇴 후 감사 대비 스냅샷)
+  ip          String   @db.VarChar(45) // IPv6 수용
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, mbId]) // 중복 방지 + 서명 여부 판정 키
+  @@map("sp_market_nda_sign")
+}
+
+// 마켓 설정 싱글턴(id=1) — g5_shop_default 는 영카트 소유라 마켓 설정을 섞지 않는다.
+// 행 부재 시 GET 은 기본값 폴백, PATCH 가 upsert(id=1) — 시드 불요.
+model SpMarketSettings {
+  id        Int      @id @default(1)
+  feeRateBp Int      @default(1000) // 전문가측 수수료율 basis point(1000=10.00%)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sp_market_settings")
+}
