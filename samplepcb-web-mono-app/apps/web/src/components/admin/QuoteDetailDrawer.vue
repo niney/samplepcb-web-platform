@@ -264,36 +264,75 @@ onBeforeUnmount(() => {
 
             <!-- 가격 확정 -->
             <section class="mt-5 rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <h3 class="text-sm font-semibold text-gray-800">
-                {{ t('admin.quotes.drawer.finalPriceLabel') }}
-              </h3>
-              <!-- 가격(컨텍스트): 편집 가능하면 입력+확정, 잠김이면 사유 메시지 -->
-              <div class="mt-2 flex flex-wrap items-center gap-2">
-                <span v-if="blockedReason !== null" class="text-sm text-gray-500">
-                  {{ blockedReason }}
-                </span>
-                <template v-else>
-                  <input
-                    v-model="priceInput"
-                    type="text"
-                    inputmode="numeric"
-                    class="w-40 rounded-md border border-gray-300 px-3 py-1.5 text-right text-sm tabular-nums focus:border-blue-500 focus:outline-none"
-                    @keydown.enter="submit"
+              <!-- 가격 확정 → 발송 2-스텝 워크플로우. ① 가격 확정과 ② 발송을 연결선으로 이어
+                   "확정하고 보낸다"는 실제 순서를 시각화. 발송 드롭다운은 좁은 드로어라 좌측 전개. -->
+              <div class="flex items-start gap-2">
+                <!-- ① 가격 확정 -->
+                <div class="min-w-0 flex-1">
+                  <p class="mb-2 flex items-center gap-1.5 text-xs font-semibold text-gray-500">
+                    <span
+                      class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-400 text-[10px] font-bold text-white"
+                    >1</span>
+                    {{ t('admin.quotes.drawer.finalPriceLabel') }}
+                  </p>
+                  <p v-if="blockedReason !== null" class="text-sm font-semibold text-gray-800">
+                    {{ detail.price !== null ? formatKrw(detail.price) : '-' }}
+                  </p>
+                  <div v-else class="flex flex-wrap items-center gap-1.5">
+                    <input
+                      v-model="priceInput"
+                      type="text"
+                      inputmode="numeric"
+                      class="w-28 rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-blue-500 focus:outline-none"
+                      @keydown.enter="submit"
+                    >
+                    <span class="text-xs text-gray-500">원</span>
+                    <button
+                      type="button"
+                      class="rounded-md bg-blue-600 px-2.5 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      :disabled="confirming"
+                      @click="submit"
+                    >
+                      {{
+                        detail.quoteStatus === 'quoted'
+                          ? t('admin.quotes.drawer.reconfirm')
+                          : t('admin.quotes.drawer.confirm')
+                      }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 연결선 → (라벨 높이만큼 내려 콘텐츠 라인에 정렬) -->
+                <div class="shrink-0 pt-6 text-lg leading-none text-gray-300" aria-hidden="true">
+                  →
+                </div>
+
+                <!-- ② 발송 -->
+                <div class="flex shrink-0 flex-col items-end">
+                  <p
+                    class="mb-2 flex items-center gap-1.5 text-xs font-semibold"
+                    :class="estimateEnabled ? 'text-gray-500' : 'text-gray-300'"
                   >
-                  <span class="text-sm text-gray-500">원</span>
-                  <button
-                    type="button"
-                    class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                    :disabled="confirming"
-                    @click="submit"
+                    <span
+                      class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                      :class="estimateEnabled ? 'bg-emerald-500' : 'bg-gray-300'"
+                    >2</span>
+                    {{ t('admin.quotes.estimate.send.button') }}
+                  </p>
+                  <EstimateSendControl
+                    v-if="estimateEnabled"
+                    align="right"
+                    :project-id="detail.projectId"
+                    :default-email="detail.applicant?.email ?? ''"
+                    :priced="true"
+                  />
+                  <span
+                    v-else
+                    class="cursor-not-allowed rounded-md border border-gray-200 px-2.5 py-1.5 text-sm text-gray-300"
                   >
-                    {{
-                      detail.quoteStatus === 'quoted'
-                        ? t('admin.quotes.drawer.reconfirm')
-                        : t('admin.quotes.drawer.confirm')
-                    }}
-                  </button>
-                </template>
+                    {{ t('admin.quotes.estimate.send.button') }}
+                  </span>
+                </div>
               </div>
               <p v-if="errorMessage !== null" class="mt-2 text-sm text-red-600">
                 {{ errorMessage }}
@@ -312,17 +351,6 @@ onBeforeUnmount(() => {
                   })
                 }}
               </p>
-
-              <!-- 발송 히어로 — 이 영역의 목표 액션(고객 발송). 가격 확정 다음 단계로 풀폭 주 버튼.
-                   레거시 estimate.php 목록 메일 버튼 대응. priced+active 일 때만 노출. -->
-              <div v-if="estimateEnabled" class="mt-3">
-                <EstimateSendControl
-                  variant="block"
-                  :project-id="detail.projectId"
-                  :default-email="detail.applicant?.email ?? ''"
-                  :priced="true"
-                />
-              </div>
             </section>
 
             <!-- 신청자 -->
