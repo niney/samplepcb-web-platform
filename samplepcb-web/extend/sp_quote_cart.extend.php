@@ -40,6 +40,36 @@ function sp_quote_it_ids_in()
     }, sp_quote_it_ids()));
 }
 
+// ⑥ 재능마켓 계약 앵커 상품 it_id — sp-node seed-market-anchor-item.ts·g5-db
+//    MARKET_ANCHOR_IT_ID 와 수동 동기화. 계약 결제는 이 앵커 상품의 카트행
+//    (io_id=계약 uuid, io_price=계약총액, ct_price=0, ct_qty=1)으로 주입되고
+//    사용자는 /shop/orderform.php 에서 결제한다. 거버 견적과 동형이나 sp_quote 목록엔
+//    합치지 않는다 — 테마 cart.php 가 sp_quote 를 견적 카드·JS enrich(/cart-items)로
+//    처리하는데 계약 행은 sp_order_spec 이 없어 파손된다(견적 조회 실패·삭제 불가).
+function sp_market_it_ids()
+{
+    return array('sp-market-svc');
+}
+
+// ⑥ SQL IN 절용 목록 — sp_quote_it_ids_in() 과 동형.
+function sp_market_it_ids_in()
+{
+    return implode(',', array_map(function ($x) {
+        return "'" . sql_real_escape_string($x) . "'";
+    }, sp_market_it_ids()));
+}
+
+// ⑥ 건별(ct_id) 렌더 대상 전체 = 거버 견적 ∪ 재능마켓 계약 — 주문서(pc·mobile
+//    orderform.sub.php)의 "일반 상품 = it_id 집계 / 커스텀 행 = 건별(ct_id)" 이원
+//    렌더에서 '커스텀 행 전체'를 가리키는 IN 문자열. 일반 루프의 제외 조건과 건별
+//    루프의 포함 조건이 반드시 이 같은 union 을 써야 이중 렌더/누락이 없다.
+function sp_custom_row_it_ids_in()
+{
+    return implode(',', array_map(function ($x) {
+        return "'" . sql_real_escape_string($x) . "'";
+    }, array_merge(sp_quote_it_ids(), sp_market_it_ids())));
+}
+
 // ④ 견적 행 거버 썸네일 서명 URL — sp-node lib/thumb-url.ts signedThumbUrl() 의 PHP 미러.
 //    시크릿(SPCB_JWT_SECRET = node JWT_SECRET) 공유라 서명을 PHP 가 직접 발급하고,
 //    바이트 서빙은 node(/api/pcb-thumbs)가 전담한다(파일서버·pathToken 경계 불변).

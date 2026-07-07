@@ -33,9 +33,10 @@ ob_start();
         $goods_count = -1;
 
         // $s_cart_id 로 현재 장바구니 자료 쿼리
-        // sp 커스텀: 이 루프는 일반 상품 전용 — 거버 견적 템플릿은 뒤의 건별 루프에서
-        // GROUP BY 없이 따로 그린다(pc orderform.sub.php·테마 cart.php 와 동일한 이원 렌더).
-        $sp_quote_in = function_exists('sp_quote_it_ids_in') ? sp_quote_it_ids_in() : "''";
+        // sp 커스텀: 이 루프는 일반 상품 전용 — 거버 견적·재능마켓 계약(앵커) 행은 뒤의
+        // 건별 루프에서 GROUP BY 없이 따로 그린다(pc orderform.sub.php·테마 cart.php 와 동일한 이원 렌더).
+        // 제외(여기)·포함(건별 루프)이 같은 union(sp_custom_row_it_ids_in)을 써야 이중 렌더/누락이 없다.
+        $sp_custom_in = function_exists('sp_custom_row_it_ids_in') ? sp_custom_row_it_ids_in() : "''";
         $sql = " select a.ct_id,
                         a.it_id,
                         a.it_name,
@@ -52,7 +53,7 @@ ob_start();
                    from {$g5['g5_shop_cart_table']} a left join {$g5['g5_shop_item_table']} b on ( a.it_id = b.it_id )
                   where a.od_id = '$s_cart_id'
                     and a.ct_select = '1'
-                    and a.it_id not in ($sp_quote_in) ";
+                    and a.it_id not in ($sp_custom_in) ";
         $sql .= " group by a.it_id ";
         $sql .= " order by a.ct_id ";
         $result = sql_query($sql);
@@ -225,12 +226,13 @@ ob_start();
             $tot_sell_price += $sell_price;
         } // for 끝
 
-        // sp 커스텀: 거버 견적 행 — 코어 GROUP BY(it_id) 를 풀어 건별(ct_id) 행으로.
-        // 견적은 템플릿 상품 4종의 it_id 를 공유하므로 집계하면 서로 다른 견적이
-        // "수량 N" 한 행으로 합쳐지고 판매가(ct_price=0)도 틀리게 보인다.
+        // sp 커스텀: 거버 견적·재능마켓 계약 행 — 코어 GROUP BY(it_id) 를 풀어 건별(ct_id) 행으로.
+        // 견적은 템플릿 상품 4종의 it_id 를, 계약은 앵커 it_id(sp-market-svc)를 공유하므로
+        // 집계하면 서로 다른 건이 "수량 N" 한 행으로 합쳐지고 판매가(ct_price=0)도 틀리게 보인다.
         // 행 인덱스 $i 는 위 루프에서 이어진다(hidden 배열·escrow 인덱스 연속).
-        // 상세: extend/sp_quote_cart.extend.php ③
-        if (function_exists('sp_quote_it_ids_in')) {
+        // 위 일반 루프의 제외와 반드시 같은 union(sp_custom_row_it_ids_in)을 쓴다.
+        // 상세: extend/sp_quote_cart.extend.php ③⑥
+        if (function_exists('sp_custom_row_it_ids_in')) {
             $sqlq = " select a.ct_id,
                              a.it_id,
                              a.it_name,
@@ -246,7 +248,7 @@ ob_start();
                         from {$g5['g5_shop_cart_table']} a left join {$g5['g5_shop_item_table']} b on ( a.it_id = b.it_id )
                        where a.od_id = '$s_cart_id'
                          and a.ct_select = '1'
-                         and a.it_id in (".sp_quote_it_ids_in().")
+                         and a.it_id in (".sp_custom_row_it_ids_in().")
                        order by a.ct_id ";
             $resultq = sql_query($sqlq);
 

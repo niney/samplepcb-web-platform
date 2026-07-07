@@ -75,8 +75,14 @@ for ($i=0; $row=sql_fetch_array($result); $i++)
             $ct_send_cost = '무료';
     }
 
+    // 재능마켓 계약 앵커 행 판정 — sp_quote 목록엔 없어(견적 카드 파손 방지) 이 일반
+    // 분기로 들어온다. 아래 렌더에서 계약 행은 [선택사항수정] 숨김·"재능마켓 계약" 표기·
+    // 수량 표시 생략(ct_qty=1 고정, io_price 가 총액). 상세: extend ⑥
+    $is_market = function_exists('sp_market_it_ids') && in_array($row['it_id'], sp_market_it_ids());
+
     $cart_items[] = array(
         'is_quote'   => false,
+        'is_market'  => $is_market,
         'ct_id'      => $row['ct_id'],
         'it_id'      => $row['it_id'],
         'it_name'    => stripslashes($row['it_name']),
@@ -156,6 +162,7 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
 .sp-cart-qty-input{width:4.5em;padding:.25rem .4rem;text-align:center;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;}
 .sp-cart-qty-input:disabled{background:#f2f4f7;color:#98a2b3;cursor:not-allowed;}
 .sp-cart-item--quote .sp-cart-qty{display:flex;align-items:center;gap:.4rem;}
+.sp-cart-market-tag{display:inline-block;padding:.15rem .5rem;border-radius:4px;background:#eef4ff;color:#1d4ed8;font-size:12px;font-weight:600;}
 </style>
 
 <div id="sod_bsk" class="od_prd_list">
@@ -211,7 +218,9 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
 
                         <a href="<?php echo $item['it_url']; ?>" class="prd_name"><b><?php echo $item['it_name']; ?></b></a>
 
-                        <?php if ($item['options']) { ?>
+                        <?php if (!empty($item['is_market'])) { /* 계약 행: io 기반 옵션(빈 옵션명+가격) 대신 계약 배지만. 선택사항수정(optionmod)은 같은 it_id 카트행 전삭제 트랩이라 노출 안 함 */ ?>
+                        <div class="sod_opt"><span class="sp-cart-market-tag">재능마켓 계약</span></div>
+                        <?php } elseif ($item['options']) { ?>
                         <div class="sod_opt"><?php echo $item['is_quote'] ? get_text($item['options']) : $item['options']; ?></div>
                         <?php if (!$item['is_quote']) { ?>
                         <div class="sod_option_btn">
@@ -236,9 +245,9 @@ $tot_price = $tot_sell_price + $send_cost; // 총계 = 주문상품금액합계 
                             <input type="number" class="sp-cart-qty-input" min="1" step="1" value="<?php echo (int) $item['qty']; ?>" data-prev="<?php echo (int) $item['qty']; ?>" disabled aria-label="수량">
                             개
                         </span>
-                        <?php } else { ?>
+                        <?php } elseif (empty($item['is_market'])) { ?>
                         <span class="sp-cart-qty">수량 <strong><?php echo number_format($item['qty']); ?></strong>개</span>
-                        <?php } ?>
+                        <?php } /* 계약 행: 수량 개념 없음(ct_qty=1 고정, io_price=총액) → 표시 생략 */ ?>
                         <strong class="sp-cart-sum"><span id="sell_price_<?php echo $idx; ?>" class="total_prc"><?php echo number_format($item['sell_price']); ?></span>원</strong>
                     </div>
                 </li>
