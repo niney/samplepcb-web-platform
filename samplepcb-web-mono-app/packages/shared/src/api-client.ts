@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import { ApiError, type ApiErrorType } from '@sp/api-contract';
+import { ApiError, ApiMemberError, type ApiErrorType } from '@sp/api-contract';
 import { useAuthStore } from './auth';
 
 // 계약(@sp/api-contract)의 ApiError 는 Zod 스키마이므로, throw 가능한 Error 로 감싼다.
@@ -36,11 +36,22 @@ async function authFetch(path: string, init: RequestInit = {}): Promise<Response
   return res;
 }
 
+// 에러 본문 해석 — 관리자형({error,message})과 회원 봉투형({result:false,error})을 모두
+// ApiErrorType 으로 정규화해 호출측이 payload.error 코드로 메시지를 매핑할 수 있게 한다.
+function toApiErrorPayload(body: unknown): ApiErrorType | null {
+  const admin = ApiError.safeParse(body);
+  if (admin.success) return admin.data;
+  const member = ApiMemberError.safeParse(body);
+  if (member.success) {
+    return { error: member.data.error, message: member.data.message ?? member.data.error };
+  }
+  return null;
+}
+
 async function parseJson<T>(res: Response, schema: ZodType<T>): Promise<T> {
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => null);
-    const parsed = ApiError.safeParse(body);
-    throw new ApiRequestError(res.status, parsed.success ? parsed.data : null);
+    throw new ApiRequestError(res.status, toApiErrorPayload(body));
   }
   const json: unknown = await res.json();
   return schema.parse(json);
@@ -66,14 +77,25 @@ export async function apiSend<T>(
   return parseJson(res, schema);
 }
 
+// 타입 안전 변경 요청(multipart FormData): 파일 업로드 동반 API(재능마켓 전문가 등록·
+// 의뢰 첨부 등) 공용. Content-Type 은 브라우저가 boundary 포함해 설정하므로 지정 금지.
+export async function apiSendForm<T>(
+  method: 'POST' | 'PATCH',
+  path: string,
+  form: FormData,
+  schema: ZodType<T>,
+): Promise<T> {
+  const res = await authFetch(path, { method, body: form });
+  return parseJson(res, schema);
+}
+
 // 파일 다운로드(관리자 거버 원본 등) — <img>/<a href> 는 Authorization 헤더를 못
 // 실으므로 fetch 로 받아 Blob 으로 반환한다(호출측이 objectURL 로 저장 처리).
 export async function apiGetBlob(path: string): Promise<Blob> {
   const res = await authFetch(path, { headers: { Accept: 'application/octet-stream' } });
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => null);
-    const parsed = ApiError.safeParse(body);
-    throw new ApiRequestError(res.status, parsed.success ? parsed.data : null);
+    throw new ApiRequestError(res.status, toApiErrorPayload(body));
   }
   return res.blob();
 }
