@@ -88,9 +88,10 @@ cp .env.migration.example .env.migration   # 소스/타깃/미러 경로 설정 
 
 pnpm migrate:gate    # 게이트만(처분표·컬럼·상태·길이·쿠폰·템플릿 검사)
 pnpm migrate:dry     # 쓰기 없이 전 phase 변환 통계
-pnpm migrate:files   # 거버 실파일 사전 업로드(컷오버 창 밖, --limit/--concurrency/--relink)
-pnpm migrate:run     # 실행 (--phase=members,shop,boards,misc 선택 가능)
-pnpm migrate:verify  # 검증 리포트(행수·금액 항등·참조 정합·센서스)
+pnpm migrate:files   # 거버 실파일 사전 이관(--sideload 정석 / API 업로드는 소량, --relink)
+pnpm migrate:run     # 덤프 전량 실행 (--phase=members,shop,boards,misc 선택 가능)
+pnpm migrate:sync    # ★ 증분 동기화 — 운영 레거시 직결 델타 반영(--dry-run --window=90 --final)
+pnpm migrate:verify  # 검증 리포트(행수·금액 항등·참조 정합·센서스 / --light = 행수+금액만)
 pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록 출력, --yes 로 실제 삭제
 ```
 
@@ -149,6 +150,34 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 64,000+6,400=70,400·PG 정보) · `/api/admin/members`(6,246·배타 카운트) · `/api/admin/pcb-projects`
 (20,443·optionSummary·신청자 조인·cartState=ordered 파생) · PHP 공지/QA 게시판 목록·본문 렌더 — 전부 정상.
 
+## 6-C. 증분 동기화(migrate:sync) — 설계·실증 (2026-07-07)
+
+덤프 1회 이관 후, 컷오버 전까지 레거시가 계속 만드는 데이터를 **운영 레거시 직결(읽기 전용)**로
+반복 반영. 레거시엔 수정시각 컬럼이 없어(**wr_last 조차 글 수정 시 미갱신 실측**) **대조(diff) 기반**.
+
+**정책(사용자 확정)**: 컷오버 전 신규 플랫폼 조회 전용(레거시 정본 단방향 — 테스트 변경은 다음
+sync 가 원복) · 삭제는 리포트만 · 수동 명령. 보호 계정(admin·kpeter, `MIGRATE_PROTECTED_MB_IDS`
+확장)은 상이해도 리포트만.
+
+**파이프라인**: 매회 gate → (a) 신규분: 기존 phase 멱등 재사용(주문은 레거시∖타깃 차집합 +
+**원장 무시** — 원장 파일은 타깃 DB "이름"으로만 구분돼 sync 에선 비권위) + 포인트 tail-append →
+(b) 재대조: 주문(후보 = 비종결 ∪ window ∪ **헤더 지문 전량 대조** — 종결 주문의 사후 수납·송장까지
+포착; 갱신은 덤프와 동일한 `loadAndConvertOrder` 단일 산식 → 금액 항등 유지, 라인 부재 시
+migrateLine INSERT = 무트랜잭션 레이스 수습) · 회원(전량 Node 필드 대조 — 노이즈 mb_today_login/
+mb_login_ip 제외(--final 에서 포함), **비번 앵커 규칙**: 타깃 재해시('sha256:') && mb_password2==레거시
+구해시 → 보존 / 불일치 → 레거시 채택+앵커 초기화) · 게시판 9종·1:1(전행 해시 — 답변이 질문 행
+qa_status 를 UPDATE 하는 구조 대응) · 주소록(회원별 replace-all) → (c) 삭제·이상 검출 리포트
+(주문: **신규 플랫폼 자체 주문(v4 quoteId 라인)만 제외하고 전부 리포트** — 과검출이 미검출보다 안전).
+
+**리허설 실증(변경 13종 주입 → sync → 값 검증 → 재실행 no-op → 픽스처 원복 후 최종 no-op+verify 그린)**:
+신규 주문 체인 생성 · 상태 전이/가격·배송비/사양(specHash 드리프트→spec·quote·ct_option 일괄) ·
+완료 주문 사후 수납(지문 포착) · 회원 정보/비번 변경·재해시 보존/채택(h1/h2) · 신규 회원+프로필 ·
+포인트 tail-append · 글 수정/신규/1:1 답변(질문 상태 플립) · 주문/글 삭제 검출. baseline 이 잡아준
+수정 3건: ① 라인 대조 SELECT 에 재작성 컬럼(ct_select) 누락 → 861건 오탐(데이터 무손상) 교정
+② 프로필 비교를 canonicalJson 으로(MySQL JSON 키 재배열 진동) ③ `bizZip` VARCHAR(100) 확폭
+(레거시 우편번호 칸에 주소 문자열 오염 실재 — 절단·진동 해소). 부수 실증: sync 는 외부에서 지워진
+이관 데이터(g5_auth 등)를 레거시 정본으로 자동 복원한다.
+
 ## 7. 운영 전환 절차 (P2·P3)
 
 1. ~~P2 운영 덤프 리허설~~ ✅ 완료(§6-B — 20260702 덤프, verify 그린).
@@ -157,10 +186,14 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
    `MIGRATE_LEGACY_FILES_DIR` 지정 → `migrate:files`(동시성 6, ~1.87만 건 — 시간 실측) →
    `migrate:files -- --relink`(선이관 spec 에 sp_file 보충 — 주문은 이미 이관됐으므로 relink 경로가 정본).
    `data/file/open_market`·`member_image` 폴더도 운영 미러에서 복사(로컬 레거시 소스에 없음 — 리포트 노트).
-4. **운영(진짜 프로덕션) 전환 시**: 같은 절차를 운영 인프라에서 반복 — 최신 덤프 재확보(20260702 이후 증분),
-   wipe → run → verify → **화면 실측**(레거시 회원 로그인=구형 해시 자동 재해시 · 소셜 로그인 ·
-   /shop/orderinquiry 상태 배지 · admin 드로어 전이 1회 왕복 후 원복 · 게시판 첨부 다운로드).
-   비밀번호 없는 실계정 로그인 실측은 이 단계에서만 가능(로컬은 해시만 보유).
+4. **운영(진짜 프로덕션) 전환 시 — sync 경로가 정식(§6-C)**:
+   - T-준비: 운영 레거시 **read-only 계정+SSH 터널**로 `migrate:sync` 리허설 수 회(델타 소요 실측 —
+     로컬 실측: 전량 재대조 포함 1~2분). 거버 미러 rsync 증분 → `migrate:files --sideload --relink`.
+   - T-0: 레거시 쓰기 동결 → `migrate:sync --final`(노이즈 컬럼 포함 최종 반영) → `migrate:verify`
+     → **화면 실측**(레거시 회원 로그인=구형 해시 자동 재해시 · 소셜 로그인 · /shop/orderinquiry
+     상태 배지 · admin 드로어 전이 1회 왕복 후 원복 · 게시판 첨부 다운로드) → 전환.
+     (최종 덤프 재임포트+`migrate:run`은 백업 경로로 강등 — sync 불가 상황에서만)
+   - 비밀번호 없는 실계정 로그인 실측은 이 단계에서만 가능(로컬은 해시만 보유).
 
 ## 7-B. 운영 컷오버 런북 (수작업 잔여물 전부 명세 — 로컬 실증에서 도출)
 

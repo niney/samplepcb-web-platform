@@ -106,7 +106,7 @@ model SpMemberProfile {
   taxEmail     String?  @db.VarChar(255) // 세금계산서 이메일
   managerPhone String?  @db.VarChar(50) // 담당자 전화
   managerEmail String?  @db.VarChar(255) // 담당자 이메일 (레거시 mb_15)
-  bizZip       String?  @db.VarChar(20) // 사업장 우편번호
+  bizZip       String?  @db.VarChar(100) // 사업장 우편번호(레거시 오염: 주소 문자열 실재 최대 35자 — 보존 확폭)
   bizAddr1     String?  @db.VarChar(255) // 사업장 주소
   bizAddr2     String?  @db.VarChar(255) // 사업장 상세주소
   partnerKind  String?  @db.VarChar(100) // 파트너 종류 (레거시 mb_13)

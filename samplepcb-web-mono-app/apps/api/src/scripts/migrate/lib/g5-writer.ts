@@ -92,6 +92,24 @@ export class G5Writer {
     return inserted;
   }
 
+  /**
+   * 단건 UPDATE — affectedRows 반환.
+   * ⚠ set 에 CopyPlan 의 filler(타깃 전용 NOT NULL 채움값)를 절대 넣지 말 것 — filler 는
+   *   INSERT 전용이다. 기존 행의 실값을 ''/0 으로 덮으면 데이터 파괴(계획 P0-2).
+   */
+  async updateRow(table: string, set: Row, where: Row): Promise<number> {
+    const setKeys = Object.keys(set);
+    if (setKeys.length === 0) return 0;
+    const whereKeys = Object.keys(where);
+    const res = await this.execute(
+      `UPDATE \`${table}\`
+          SET ${setKeys.map((k) => `\`${k}\` = ?`).join(', ')}
+        WHERE ${whereKeys.map((k) => `\`${k}\` = ?`).join(' AND ')}`,
+      [...setKeys.map((k) => set[k]), ...whereKeys.map((k) => where[k])],
+    );
+    return res.affectedRows;
+  }
+
   async getColumns(table: string): Promise<ColumnMeta[]> {
     const rows = await this.select(
       `SELECT COLUMN_NAME name, DATA_TYPE dataType, IS_NULLABLE nullable, COLUMN_DEFAULT dflt, EXTRA extra,

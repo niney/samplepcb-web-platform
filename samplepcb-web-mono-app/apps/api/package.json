@@ -16,6 +16,7 @@
     "migrate:dry": "tsx --env-file=.env.migration src/scripts/migrate/run.ts --dry-run",
     "migrate:run": "tsx --env-file=.env.migration src/scripts/migrate/run.ts",
     "migrate:files": "tsx --env-file=.env.migration src/scripts/migrate/upload-files.ts",
+    "migrate:sync": "tsx --env-file=.env.migration src/scripts/migrate/sync.ts",
     "migrate:verify": "tsx --env-file=.env.migration src/scripts/migrate/verify.ts",
     "migrate:wipe": "tsx --env-file=.env.migration src/scripts/migrate/wipe-test-data.ts",
     "pricing:sync": "tsx src/scripts/sync-pricing-data.ts",

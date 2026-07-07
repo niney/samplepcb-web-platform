@@ -14,6 +14,7 @@ import { closeLegacyPool, legacySelect } from '../../lib/legacy-db';
 import { G5Writer } from './lib/g5-writer';
 import { asInt, asStr, resolveMigrateTmpDir } from './lib/util';
 import { ACTIVE_ORDER_STATUSES } from './lib/status-map';
+import { MIGRATE_BOARDS } from './manifest';
 
 interface CheckResult {
   name: string;
@@ -75,10 +76,12 @@ async function memberAssetCensus(g5: G5Writer, label: string, table: string): Pr
 }
 
 async function main(): Promise<void> {
+  // --light: 행수·금액 항등만(운영 직결 sync 후 빠른 확인용 — 센서스/샘플/포인트 대조 생략)
+  const light = process.argv.slice(2).includes('--light');
   const g5 = new G5Writer();
   const prisma = new PrismaClient();
   try {
-    console.log(`══ 이관 검증 — 타깃 ${g5.dbName} ══`);
+    console.log(`══ 이관 검증 — 타깃 ${g5.dbName}${light ? ' (light)' : ''} ══`);
 
     // ── 1) 행수 대조 ──
     const countPairs: [string, string, string][] = [
@@ -100,7 +103,7 @@ async function main(): Promise<void> {
     }
 
     // 소셜 프로필: 레거시에서 회원 행이 삭제된 고아(연결 대상 없음)는 스킵이 정책 — 고아 제외 대조.
-    {
+    if (!light) {
       const l = asInt(
         (await legacySelect(`SELECT COUNT(*) c FROM g5_member_social_profiles`))[0]?.c,
       );
@@ -122,9 +125,11 @@ async function main(): Promise<void> {
 
     // 회원 귀속 자산(포인트/주소록)은 회원 단위 센서스 — 정책 스킵(레거시 절단 고아·타깃 기존
     // 계정)을 버킷으로 분리하고, 그 밖의 회원에서 카운트 불일치가 나오면 실패.
-    await memberAssetCensus(g5, '포인트 원장', 'g5_point');
-    await memberAssetCensus(g5, '주소록', 'g5_shop_order_address');
-    for (const board of ['notice', 'qa', 'faq', 'data', 'customer_center', 'review']) {
+    if (!light) {
+      await memberAssetCensus(g5, '포인트 원장', 'g5_point');
+      await memberAssetCensus(g5, '주소록', 'g5_shop_order_address');
+    }
+    for (const board of MIGRATE_BOARDS) {
       const table = `g5_write_${board}`;
       const l = asInt((await legacySelect(`SELECT COUNT(*) c FROM \`${table}\``))[0]?.c);
       const t = (await g5.tableExists(table))
@@ -211,6 +216,7 @@ async function main(): Promise<void> {
     );
 
     // ── 3) 참조 정합 ──
+    if (!light) {
     const specs = await prisma.spOrderSpec.findMany({ select: { id: true, ctId: true, quoteId: true } });
     const ctIds = specs.map((s) => s.ctId).filter((v): v is number => v !== null);
     let danglingCt = 0;
@@ -288,6 +294,7 @@ async function main(): Promise<void> {
       true,
       `${String(guest)}건`,
     );
+    } // if (!light) — 참조 정합·포인트·CS 집계는 전량 검증에서만
 
     const failCount = results.filter((r) => !r.ok).length;
     console.log(`\n══ 결과: ${failCount === 0 ? '전 항목 통과' : `실패 ${String(failCount)}건`} ══`);

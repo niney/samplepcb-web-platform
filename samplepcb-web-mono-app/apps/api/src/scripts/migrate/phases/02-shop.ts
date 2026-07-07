@@ -4,12 +4,16 @@
 //   신규:   g5_shop_order + g5_shop_cart(신규 규약) + g5_shop_item_option(io_id=quoteId)
 //           + sp_quote + sp_order_spec(+_legacy 메타) + sp_file(사전 업로드 원장) + sp_order_biz_info
 //
-// od 단위 멱등 재실행(타깃 g5 는 MyISAM — 트랜잭션 없음): 원장 완료 마커 + 자연키 존재검사
+// od 단위 멱등 재실행(타깃 g5 는 무트랜잭션 전제): 원장 완료 마커 + 자연키 존재검사
 // (od_id / (od_id, io_id=quoteId) / (it_id, io_id) / quoteId). 처리 순서는 "옵션행 → cart(ct_id 확보)
 // → SpQuote → SpOrderSpec(ctId 포함 생성) → SpFile" — ctId 역기록 단계 제거(반쪽 상태 창 소멸).
 //
 // 금액: 레거시 라인가(공급가)를 부가세 포함으로 변환(money-convert)하고, 헤더 파생값은
 // 신규 computeOrderMoney 로 재산출한다 — 이후 admin 전이/취소 재계산과 항등.
+//
+// 구조(2026-07-07 sync 확장): 로드→정규화→금액→헤더 산출은 **순수 변환 함수
+// `loadAndConvertOrder`** 로 분리 — 덤프 INSERT(이 파일)와 증분 UPDATE(lib/sync/order-resync)가
+// 같은 산출물을 쓴다(금액 항등의 단일 산식 강제, 계획 P1-4). od_cart_price 는 "활성 라인만" 관례.
 import type { Prisma } from '@prisma/client';
 import { computeOrderMoney, TEMPLATE_ITEMS } from '../../../lib/g5-db';
 import { buildOptionSummary } from '../../../lib/option-summary';
@@ -20,6 +24,7 @@ import { mapGerberItem } from '../lib/eav-mapper';
 import type { MappedLineSpec } from '../lib/eav-mapper';
 import type { Row } from '../lib/g5-writer';
 import { convertOrderLineMoney } from '../lib/money-convert';
+import type { OrderMoneyConversion } from '../lib/money-convert';
 import { isCancelStatus, normalizeStatus, resolvePartialCancelOdStatus } from '../lib/status-map';
 import { asInt, asStr, canonicalJson, legacyDate, sha256Hex, uuidV5 } from '../lib/util';
 
@@ -46,7 +51,7 @@ interface TemplateRow {
   itName: string;
 }
 
-interface LineConversion {
+export interface LineConversion {
   legacyCtId: string;
   quoteId: string;
   incl: number;
@@ -74,13 +79,18 @@ function parseJsonSafe(text: string): unknown {
   }
 }
 
-export async function runShopPhase(ctx: MigrateCtx): Promise<void> {
-  const { g5, legacy, report, ledger } = ctx;
-  console.log('\n── phase 02: shop (주문 변환) ──');
+// ── 공유 의존성(덤프 phase 와 sync 가 함께 사용) ────────────────────────────
 
-  // 템플릿 상품 로드(게이트에서 존재 보장)
+export interface ShopDeps {
+  orderPlan: CopyPlan;
+  cartPlan: CopyPlan;
+  templateByCategory: Map<string, TemplateRow>;
+}
+
+/** 템플릿 상품·복사 계획 로드(게이트에서 템플릿 존재 보장). */
+export async function prepareShopDeps(ctx: MigrateCtx): Promise<ShopDeps> {
   const templateIds = Object.values(TEMPLATE_ITEMS);
-  const tmplRows = await g5.select(
+  const tmplRows = await ctx.g5.select(
     `SELECT it_id, it_name FROM g5_shop_item WHERE it_id IN (${templateIds.map(() => '?').join(', ')})`,
     templateIds,
   );
@@ -91,29 +101,45 @@ export async function runShopPhase(ctx: MigrateCtx): Promise<void> {
       templateByCategory.set(category, { itId, itName: asStr(row.it_name) });
     }
   }
-
   const orderPlan = await buildCopyPlan(ctx.schema, 'g5_shop_order');
   const cartPlan = await buildCopyPlan(ctx.schema, 'g5_shop_cart', { dropAutoIncrement: true });
+  return { orderPlan, cartPlan, templateByCategory };
+}
+
+export interface ShopPhaseOptions {
+  /** 지정 시 이 od 목록만 처리(sync 신규분 = 레거시∖타깃 차집합). 미지정 = 레거시 전량. */
+  odIds?: readonly string[];
+  /** 원장 done 마커 무시 — sync 에서 원장은 권위 없음(계획 P0-1: 타깃 DB "이름"으로만
+   *  구분되는 원장 파일이 다른 환경의 마커로 신규 주문을 조용히 누락시키는 모드 차단). */
+  ignoreLedger?: boolean;
+}
+
+export async function runShopPhase(ctx: MigrateCtx, opts: ShopPhaseOptions = {}): Promise<void> {
+  const { g5, legacy, report, ledger } = ctx;
+  console.log('\n── phase 02: shop (주문 변환) ──');
+
+  const deps = await prepareShopDeps(ctx);
 
   const targetOrderIds = new Set(
     (await g5.select(`SELECT od_id FROM g5_shop_order`)).map((r) => asStr(r.od_id)),
   );
 
-  const odList = (await legacy(`SELECT od_id FROM g5_shop_order ORDER BY od_id`)).map((r) =>
-    asStr(r.od_id),
-  );
+  const odList =
+    opts.odIds !== undefined
+      ? [...opts.odIds]
+      : (await legacy(`SELECT od_id FROM g5_shop_order ORDER BY od_id`)).map((r) =>
+          asStr(r.od_id),
+        );
   report.count('shop.레거시 주문 수', odList.length);
 
   let processed = 0;
   for (const odId of odList) {
-    if (ledger.isOrderDone(odId)) {
+    if (opts.ignoreLedger !== true && ledger.isOrderDone(odId)) {
       report.count('shop.스킵(원장 완료)');
       continue;
     }
     await migrateOrder(ctx, odId, {
-      orderPlan,
-      cartPlan,
-      templateByCategory,
+      ...deps,
       headerExists: targetOrderIds.has(odId),
     });
     if (!ctx.dryRun) await ledger.markOrderDone(odId);
@@ -126,30 +152,46 @@ export async function runShopPhase(ctx: MigrateCtx): Promise<void> {
   if (!ctx.dryRun) await ledger.save();
   report.count('shop.주문 처리', processed);
 
-  // 주문에 연결되지 않은 레거시 cart 행(쇼핑/협력사 대기/오염) — 정책상 스킵, 규모만 기록
-  const unlinked = await legacy(
-    `SELECT c.ct_status s, COUNT(*) c FROM g5_shop_cart c
-      LEFT JOIN g5_shop_order o ON o.od_id = c.od_id
-     WHERE o.od_id IS NULL GROUP BY c.ct_status`,
-  );
-  for (const r of unlinked) {
-    report.note('shop.비이관 cart 행(주문 미연결)', `${asStr(r.s)}: ${asStr(r.c)}건`, 30);
+  // 주문에 연결되지 않은 레거시 cart 행(쇼핑/협력사 대기/오염) — 정책상 스킵, 규모만 기록.
+  // (odIds 지정 = sync 부분 실행에서는 생략 — 전량 모드의 감사 항목)
+  if (opts.odIds === undefined) {
+    const unlinked = await legacy(
+      `SELECT c.ct_status s, COUNT(*) c FROM g5_shop_cart c
+        LEFT JOIN g5_shop_order o ON o.od_id = c.od_id
+       WHERE o.od_id IS NULL GROUP BY c.ct_status`,
+    );
+    for (const r of unlinked) {
+      report.note('shop.비이관 cart 행(주문 미연결)', `${asStr(r.s)}: ${asStr(r.c)}건`, 30);
+    }
   }
 }
 
-interface OrderDeps {
-  orderPlan: CopyPlan;
-  cartPlan: CopyPlan;
-  templateByCategory: Map<string, TemplateRow>;
-  headerExists: boolean;
+// ── 순수 변환: 로드 → 라인 정규화 → 금액 변환 → 헤더 산출 (쓰기 없음) ─────────
+
+export interface ConvertedOrder {
+  odId: string;
+  od: LegacyRow;
+  lines: LineConversion[];
+  cartByCtId: Map<string, LegacyRow>;
+  odStatus: string;
+  conversion: OrderMoneyConversion;
+  /** 헤더 재작성 컬럼(od_status + 금액 6컬럼) — INSERT override 와 UPDATE SET 이 공유 */
+  headerOverrides: Row;
+  /** od_1~od_11 → sp_order_biz_info 필드(값 있는 것만) */
+  biz: Record<string, string>;
 }
 
-async function migrateOrder(ctx: MigrateCtx, odId: string, deps: OrderDeps): Promise<void> {
-  const { g5, legacy, prisma, report } = ctx;
+/** null = 주문 부재 또는 미지 od_status(노트 남김·스킵). */
+export async function loadAndConvertOrder(
+  ctx: MigrateCtx,
+  odId: string,
+  deps: ShopDeps,
+): Promise<ConvertedOrder | null> {
+  const { legacy, report } = ctx;
 
   const odRows = await legacy(`SELECT * FROM g5_shop_order WHERE od_id = ?`, [odId]);
   const od = odRows[0];
-  if (od === undefined) return;
+  if (od === undefined) return null;
 
   const cartRows = await legacy(`SELECT * FROM g5_shop_cart WHERE od_id = ? ORDER BY ct_id`, [odId]);
   if (cartRows.length === 0) {
@@ -279,7 +321,7 @@ async function migrateOrder(ctx: MigrateCtx, odId: string, deps: OrderDeps): Pro
     const normalized = normalizeStatus(rawOdStatus);
     if (normalized === null) {
       report.note('shop.미지 od_status(주문 스킵)', `${odId}: '${rawOdStatus}'`);
-      return;
+      return null;
     }
     if (normalized.mapped) report.count(`shop.상태 매핑(${rawOdStatus}→${normalized.status})`);
     odStatus = normalized.status;
@@ -314,37 +356,32 @@ async function migrateOrder(ctx: MigrateCtx, odId: string, deps: OrderDeps): Pro
     refundPrice: asInt(od.od_refund_price),
   });
 
-  // ── 헤더 INSERT(멱등: od_id 존재검사) ──
-  if (!deps.headerExists && !(await g5.exists('g5_shop_order', { od_id: odId }))) {
-    const headerOverrides: Row = {
-      od_status: odStatus,
-      od_cart_price: conversion.activeIncl,
-      od_misu: money.odMisu,
-      od_tax_mny: money.odTaxMny,
-      od_vat_mny: money.odVatMny,
-      od_free_mny: money.odFreeMny,
-    };
-    if (deps.orderPlan.insertCols.includes('od_cancel_price')) {
-      headerOverrides.od_cancel_price = conversion.cancelIncl;
-    }
-    if (!ctx.dryRun) {
-      await g5.insertRow('g5_shop_order', rowFromLegacy(od, deps.orderPlan, headerOverrides));
-    }
-    report.count('shop.주문 헤더 삽입');
-    if (asStr(od.mb_id) === '') report.count('shop.비회원 주문');
+  const headerOverrides: Row = {
+    od_status: odStatus,
+    od_cart_price: conversion.activeIncl, // "활성 라인만" 관례 — verify 금액 항등의 기준
+    od_misu: money.odMisu,
+    od_tax_mny: money.odTaxMny,
+    od_vat_mny: money.odVatMny,
+    od_free_mny: money.odFreeMny,
+  };
+  if (deps.orderPlan.insertCols.includes('od_cancel_price')) {
+    headerOverrides.od_cancel_price = conversion.cancelIncl;
   }
 
-  // ── 라인 처리: 옵션행 → cart → SpQuote → SpOrderSpec → SpFile ──
-  for (const line of lines) {
-    const ct = cartByCtId.get(line.legacyCtId);
-    if (ct === undefined) continue;
-    if (line.item === null && asStr(ct.it_id) !== '') {
-      report.note('shop.라인의 상품 부재(플레인 복사)', `${odId}/${line.legacyCtId}`, 100);
-    }
-    await migrateLine(ctx, { odId, od, ct, line, cartPlan: deps.cartPlan });
-  }
+  return {
+    odId,
+    od,
+    lines,
+    cartByCtId,
+    odStatus,
+    conversion,
+    headerOverrides,
+    biz: buildOrderBizMap(od),
+  };
+}
 
-  // ── 세금계산서 정보(od_1~od_11 → sp_order_biz_info) ──
+/** od_1~od_11(세금계산서 섹션) → sp_order_biz_info 필드 맵(값 있는 것만). */
+export function buildOrderBizMap(od: LegacyRow): Record<string, string> {
   const biz: Record<string, string> = {};
   const bizCols: [string, string][] = [
     ['od_1', 'companyName'],
@@ -363,17 +400,64 @@ async function migrateOrder(ctx: MigrateCtx, odId: string, deps: OrderDeps): Pro
     const v = asStr(od[src]).trim();
     if (v !== '') biz[dst] = v;
   }
-  if (Object.keys(biz).length > 0 && !ctx.dryRun) {
-    await prisma.spOrderBizInfo.upsert({
+  return biz;
+}
+
+export async function upsertOrderBizInfo(
+  ctx: MigrateCtx,
+  odId: string,
+  biz: Record<string, string>,
+): Promise<void> {
+  if (Object.keys(biz).length === 0) return;
+  if (!ctx.dryRun) {
+    await ctx.prisma.spOrderBizInfo.upsert({
       where: { odId },
       create: { odId, ...biz },
       update: biz,
     });
-    report.count('shop.세금계산서 정보(sp_order_biz_info)');
   }
+  ctx.report.count('shop.세금계산서 정보(sp_order_biz_info)');
 }
 
-interface LineDeps {
+// ── 덤프 경로: 변환 산출물을 INSERT 로 실체화 ───────────────────────────────
+
+async function migrateOrder(
+  ctx: MigrateCtx,
+  odId: string,
+  deps: ShopDeps & { headerExists: boolean },
+): Promise<void> {
+  const { g5, report } = ctx;
+
+  const conv = await loadAndConvertOrder(ctx, odId, deps);
+  if (conv === null) return;
+
+  // ── 헤더 INSERT(멱등: od_id 존재검사) ──
+  if (!deps.headerExists && !(await g5.exists('g5_shop_order', { od_id: odId }))) {
+    if (!ctx.dryRun) {
+      await g5.insertRow(
+        'g5_shop_order',
+        rowFromLegacy(conv.od, deps.orderPlan, conv.headerOverrides),
+      );
+    }
+    report.count('shop.주문 헤더 삽입');
+    if (asStr(conv.od.mb_id) === '') report.count('shop.비회원 주문');
+  }
+
+  // ── 라인 처리: 옵션행 → cart → SpQuote → SpOrderSpec → SpFile ──
+  for (const line of conv.lines) {
+    const ct = conv.cartByCtId.get(line.legacyCtId);
+    if (ct === undefined) continue;
+    if (line.item === null && asStr(ct.it_id) !== '') {
+      report.note('shop.라인의 상품 부재(플레인 복사)', `${odId}/${line.legacyCtId}`, 100);
+    }
+    await migrateLine(ctx, { odId, od: conv.od, ct, line, cartPlan: deps.cartPlan });
+  }
+
+  // ── 세금계산서 정보(od_1~od_11 → sp_order_biz_info) ──
+  await upsertOrderBizInfo(ctx, odId, conv.biz);
+}
+
+export interface LineDeps {
   odId: string;
   od: LegacyRow;
   ct: LegacyRow;
@@ -381,7 +465,7 @@ interface LineDeps {
   cartPlan: CopyPlan;
 }
 
-async function migrateLine(ctx: MigrateCtx, deps: LineDeps): Promise<void> {
+export async function migrateLine(ctx: MigrateCtx, deps: LineDeps): Promise<void> {
   const { g5, prisma, report, ledger } = ctx;
   const { odId, od, ct, line } = deps;
   // 상품 행 부재(빈 it_id 또는 삭제된 상품) = spec 을 만들 수 없는 오염 라인 → 플레인 복사
@@ -418,30 +502,11 @@ async function migrateLine(ctx: MigrateCtx, deps: LineDeps): Promise<void> {
   } else {
     // 재작성 컬럼 한정(계획 #3) — 나머지(ct_notax·ct_send_cost·it_sc_*·ct_point·ct_history·
     // ct_time/ct_ip·ct_stock_use(레거시 값)·cp_* 등)는 레거시 스냅샷 보존.
-    const overrides: Row = brokenLine
-      ? {
-          ct_status: line.status,
-          ct_price: line.incl, // 상품·spec 없는 오염 라인 — 레거시 보존형(io 규약 미적용)
-          io_id: '',
-          io_price: 0,
-          ct_select: 1,
-        }
-      : {
-          it_id: line.cartItId,
-          it_name: line.itemName,
-          ct_status: line.status,
-          ct_price: 0,
-          io_id: line.quoteId,
-          io_type: 0,
-          io_price: line.incl,
-          ct_option: buildOptionSummary(
-            line.mapped.spec,
-            line.mapped.qty,
-          ),
-          ct_select: 1,
-        };
     if (!ctx.dryRun) {
-      newCtId = await g5.insertRow('g5_shop_cart', rowFromLegacy(ct, deps.cartPlan, overrides));
+      newCtId = await g5.insertRow(
+        'g5_shop_cart',
+        rowFromLegacy(ct, deps.cartPlan, buildCartOverrides(line)),
+      );
     }
     report.count('shop.cart 라인 삽입');
     report.count(`shop.라인 카테고리(${line.category})`);
@@ -559,4 +624,27 @@ async function migrateLine(ctx: MigrateCtx, deps: LineDeps): Promise<void> {
   } else if (line.mapped.filePath !== '') {
     report.count('shop.파일 미업로드(원장 없음/누락)');
   }
+}
+
+/** cart 행 재작성 컬럼(계획 #3) — 덤프 INSERT override 와 sync UPDATE 대조가 공유. */
+export function buildCartOverrides(line: LineConversion): Row {
+  return line.item === null
+    ? {
+        ct_status: line.status,
+        ct_price: line.incl, // 상품·spec 없는 오염 라인 — 레거시 보존형(io 규약 미적용)
+        io_id: '',
+        io_price: 0,
+        ct_select: 1,
+      }
+    : {
+        it_id: line.cartItId,
+        it_name: line.itemName,
+        ct_status: line.status,
+        ct_price: 0,
+        io_id: line.quoteId,
+        io_type: 0,
+        io_price: line.incl,
+        ct_option: buildOptionSummary(line.mapped.spec, line.mapped.qty),
+        ct_select: 1,
+      };
 }
