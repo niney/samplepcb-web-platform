@@ -92,7 +92,7 @@ const resolveCompanyName = (
 // 라우트(상세·견적서)에서만 쓴다 — buildOptionSummary 는 알려진 키만 읽어 영향 없음.
 function toClientSpec(specJson: unknown): PcbProjectPayloadType['spec'] {
   if (typeof specJson !== 'object' || specJson === null) {
-    return {} as PcbProjectPayloadType['spec'];
+    return {};
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(specJson as Record<string, unknown>)) {

@@ -22,6 +22,50 @@ const ORDER_CATEGORY_LABEL: Record<AdminEstimateType['orderCategory'], string> =
   mass: '양산',
 };
 
+// 사양 키 → 한글 라벨. sp-vue i18n(admin.quotes.specKeys)의 서버측 대응본 — 미등록 키는 원문
+// 그대로 노출(계약 catchall). ⚠ ko.ts 의 specKeys 와 동기 유지(향후 공유 패키지 일원화 여지).
+const KO_SPEC_LABELS: Record<string, string> = {
+  length: '세로',
+  width: '가로',
+  layers: 'PCB층수',
+  pcbThickness: 'PCB두께',
+  material: 'PCB재료',
+  panel: '배열',
+  minTraceSpacing: '패턴폭/간격',
+  minHole: '최소홀크기',
+  solderMask: 'PCB색상',
+  silkscreen: '실크색상',
+  surfaceFinish: '표면마감',
+  viaProcess: 'VIA가공',
+  copperWeights: '동박두께',
+  kindPcb: 'PCB선택',
+  goldFingers: '골드핑거',
+  finishedCopperAdvance: '내부동박두께',
+  differentDesign: '파일갯수',
+  impedance: '임피던스',
+  etest: 'E-Test',
+  halfHole: '반홀가공',
+  stiffener: '보강판',
+  tape3m: '3M Tape',
+  framework: '프레임제작',
+  stencilSide: '스텐실제작',
+  stThickness: '스텐실두께',
+  fiducial: '피듀셜',
+  electroPolish: '전해연마',
+  metalCore: '메탈코어위치',
+  edgeRail: '자삽바',
+  placeOfOrigin: '원산지',
+  coordinate: '부품 좌표',
+  size: '스텐실크기',
+  sizeCustom: '스텐실크기(직접입력)',
+  cutting: '컷팅',
+  mqty: '원판수량',
+  layersRigid: '층수',
+  mat: '적층재료',
+  surfaceFinishWeights: '표면마감두께',
+  wvoltage: '내전압',
+};
+
 export interface EstimateEmail {
   subject: string;
   html: string;
@@ -92,6 +136,30 @@ export function buildEstimateEmail(data: AdminEstimateType): EstimateEmail {
          </p>`
       : '';
 
+  // 상세 사양 — data.spec(_legacy 제거 완료)을 라벨링해 2열 표로(화면 "사양 전체"의 메일판).
+  const specEntries: [string, string][] = Object.entries(data.spec)
+    .filter(([, v]) => String(v).trim() !== '')
+    .map(([k, v]): [string, string] => [KO_SPEC_LABELS[k] ?? k, String(v)]);
+  const specLabelCell =
+    'padding:7px 10px;background:#f3f6f9;color:#555;font-size:12px;white-space:nowrap;border:1px solid #e1e6ea;width:22%;';
+  const specValueCell = 'padding:7px 10px;color:#222;font-size:12px;border:1px solid #e1e6ea;';
+  const specCell = (e: [string, string] | undefined): string =>
+    e === undefined
+      ? `<td style="${specLabelCell}"></td><td style="${specValueCell}"></td>`
+      : `<td style="${specLabelCell}">${esc(e[0])}</td><td style="${specValueCell}">${esc(e[1])}</td>`;
+  const specRows: string[] = [];
+  for (let i = 0; i < specEntries.length; i += 2) {
+    specRows.push(`<tr>${specCell(specEntries[i])}${specCell(specEntries[i + 1])}</tr>`);
+  }
+  const specBlock =
+    specEntries.length === 0
+      ? ''
+      : `
+          <p style="margin:16px 0 6px;font-size:12px;font-weight:700;color:#0090c8;">상세 사양</p>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+            ${specRows.join('')}
+          </table>`;
+
   const html = `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f0f2f4;font-family:'Noto Sans KR',Apple SD Gothic Neo,Malgun Gothic,sans-serif;color:#333;">
@@ -129,6 +197,7 @@ export function buildEstimateEmail(data: AdminEstimateType): EstimateEmail {
             ${etaRow}
           </table>
 
+          ${specBlock}
           ${amountsBlock}
           ${bankBlock}
         </td></tr>
