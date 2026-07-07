@@ -5,7 +5,8 @@
 ## 현재
 
 - **실제 구동 nginx = `D:\nginx\conf\nginx.conf`** (repo 밖, 로컬 머신). `nginx/local-web.conf`는 이 repo가 추적하는 **통합 호스트 레퍼런스 스니펫**(라이브에 동일 반영).
-- 통합 호스트 `local-web.samplepcb.co.kr`: `/api`→Node 3333 · `/app`→Vue 5173 · `/market`→Vue 5176(재능마켓, 2026-07-08 신설) · `/`→PHP 8888. **모노레포 가동 중이라 기존 3경로 모두 동작.** ⚠ `/market`은 라이브 nginx 수동 반영 필요.
+- 통합 호스트 `local-web.samplepcb.co.kr`: `/api`→Node 3333 · `/app`→Vue 5173 · `/market`→Vue 5176(재능마켓) · `/`→PHP 8888. **모노레포 가동 중이라 4경로 모두 동작**(/market 은 2026-07-08 라이브 반영 완료).
+- 라이브 nginx는 **Windows 서비스('nginx', 자동 시작)** — `nginx -s reload` 신호는 서비스 컨텍스트라 관리자 권한으로도 Access denied. 설정 반영은 관리자 `net stop nginx & net start nginx`(순단 ~1초).
 - 라이브엔 개발용 부가 호스트도 있음: `local`·`local-www`→5173(Vue 단독 프리뷰), `local2`·`local3`→5174·5175(git worktree 병렬 dev). 통합 라우팅은 `local-web` 하나뿐, 나머지는 `/` 전체가 Vue.
 
 ## 예정

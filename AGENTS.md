@@ -69,7 +69,7 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 
 **설정 파일 위치 (중요)**
 - 실제 구동 = **`D:\nginx\conf\nginx.conf`** (repo **밖**, 로컬 머신).
-- **`ops/nginx/local-web.conf`** = repo가 추적하는 **통합 호스트 레퍼런스 스니펫**(위 4개 location). 라이브와 동일 구조(라이브 `/app`엔 `X-Forwarded-Proto` 한 줄이 더 있음). ⚠ `/market`(2026-07-08 신설)은 라이브 반영 전까지 404 — 반영 절차는 스니펫 주석 참조.
+- **`ops/nginx/local-web.conf`** = repo가 추적하는 **통합 호스트 레퍼런스 스니펫**(위 4개 location). 라이브와 동일 구조(라이브 `/app`·`/market`엔 `X-Forwarded-Proto` 한 줄이 더 있음). `/market`은 2026-07-08 라이브 반영 완료. 라이브 nginx는 Windows 서비스라 reload 신호 불가 — 관리자 `net stop/start nginx`.
 
 **라이브 nginx의 다른 호스트 (개발 편의용, repo 미추적)**
 

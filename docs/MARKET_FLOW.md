@@ -27,9 +27,10 @@ local-web.samplepcb.co.kr (nginx 443)
   `/bbs/login.php?url=<returnPath>` 왕복(`apps/market/src/lib/auth-urls.ts`).
 - 역할: 별도 테이블 없음 — **전문가 = `sp_market_expert.status='approved'` 행 보유 회원**,
   관리자 = JWT `isAdmin`(cf_admin 1인). 한 회원이 의뢰인 겸 전문가 가능.
-- ⚠ **라이브 nginx 수동 반영 필요**: `ops/nginx/local-web.conf`의 `location /market/` 블록을
-  `D:\nginx\conf\nginx.conf` 통합 호스트에 복사(catch-all `/` 앞) 후 reload. 반영 전까지
-  local-web 에서 /market 은 404(직접 5176 접속은 가능).
+- **라이브 nginx 반영 완료(2026-07-08)**: `D:\nginx\conf\nginx.conf` 통합 호스트에
+  `location /market/`(→5176, X-Forwarded-Proto 포함) 추가됨. 라이브 nginx 는 Windows
+  서비스('nginx')라 `-s reload` 신호가 Access denied — 변경 시 관리자
+  `net stop nginx & net start nginx`(순단 ~1초).
 
 ## 3. 데이터 모델 (Prisma `sp_market_*` 5테이블, 2026-07-08 마이그레이션)
 
@@ -126,7 +127,8 @@ local-web.samplepcb.co.kr (nginx 443)
 
 ## 10. 남은 것 / 알려진 제약
 
-- [ ] 라이브 nginx `location /market/` 반영(§2) — 사람 작업.
+- [x] 라이브 nginx `location /market/` 반영(§2) — 2026-07-08 완료(서비스 재시작으로 적용,
+      같은 도메인 PHPSESSID 자동 로그인까지 실브라우저 확인).
 - [ ] 파일서버 serviceType `market` 수용 실측(§9).
 - [ ] 운영 빌드 static 블록(ops/nginx 주석) 전환 시 `pnpm --filter market build` 산출물 경로 확인.
 - 조회수 dedup 없음(참고 지표) · 입찰 수정 감사 이력은 updatedAt 만 · 본인인증은 관리자
