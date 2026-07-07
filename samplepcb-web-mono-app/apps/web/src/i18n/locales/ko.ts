@@ -20,6 +20,7 @@ export const ko = {
       members: '회원 관리',
       marketExperts: '마켓 전문가',
       marketProjects: '마켓 프로젝트',
+      marketContracts: '마켓 계약·정산',
       marketSettings: '마켓 설정',
       settings: '설정',
     },

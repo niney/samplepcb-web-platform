@@ -10,6 +10,7 @@ import AdminMembers from './pages/admin/AdminMembers.vue';
 import AdminSettings from './pages/admin/AdminSettings.vue';
 import AdminMarketExperts from './pages/admin/AdminMarketExperts.vue';
 import AdminMarketProjects from './pages/admin/AdminMarketProjects.vue';
+import AdminMarketContracts from './pages/admin/AdminMarketContracts.vue';
 import AdminMarketSettings from './pages/admin/AdminMarketSettings.vue';
 
 // 라우트 meta 타입 보강
@@ -40,6 +41,7 @@ const routes: RouteRecordRaw[] = [
       // 재능마켓(/market) 관리 — 전문가 심사·프로젝트 모니터·설정
       { path: 'market/experts', name: 'admin-market-experts', component: AdminMarketExperts },
       { path: 'market/projects', name: 'admin-market-projects', component: AdminMarketProjects },
+      { path: 'market/contracts', name: 'admin-market-contracts', component: AdminMarketContracts },
       { path: 'market/settings', name: 'admin-market-settings', component: AdminMarketSettings },
       { path: 'settings', name: 'admin-settings', component: AdminSettings },
     ],

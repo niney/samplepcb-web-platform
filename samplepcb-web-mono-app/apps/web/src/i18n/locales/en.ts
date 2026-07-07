@@ -20,6 +20,7 @@ export const en = {
       members: 'Members',
       marketExperts: 'Market experts',
       marketProjects: 'Market projects',
+      marketContracts: 'Market contracts',
       marketSettings: 'Market settings',
       settings: 'Settings',
     },

@@ -1,6 +1,8 @@
 import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  AdminMarketContractDetailResponse,
+  AdminMarketContractListResponse,
   AdminMarketExpertDecisionResponse,
   AdminMarketExpertDetailResponse,
   AdminMarketExpertListResponse,
@@ -131,6 +133,121 @@ export function useAdminCancelProject() {
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'market', 'projects'] });
+    },
+  });
+}
+
+// ── 계약(정산) ────────────────────────────────────────────────────────────────
+// 액션(settle/hold/unhold/cancel)은 갱신된 계약 상세를 반환 → 성공 시
+// ['admin','market','contracts'] 무효화로 목록·상세를 동시 재조회한다(전문가 심사 관례).
+
+export interface AdminMarketContractFilters {
+  page: number;
+  pageSize: number;
+  tab: 'all' | 'pending' | 'paid' | 'delivered' | 'completed' | 'settled' | 'cancelled';
+  q: string;
+}
+
+const contractListPath = (f: AdminMarketContractFilters): string => {
+  const params = new URLSearchParams();
+  params.set('page', String(f.page));
+  params.set('pageSize', String(f.pageSize));
+  params.set('tab', f.tab);
+  if (f.q.trim() !== '') params.set('q', f.q.trim());
+  return `${apiRoutes.adminMarketContracts}?${params.toString()}`;
+};
+
+export function useAdminMarketContractList(filters: Ref<AdminMarketContractFilters>) {
+  return useQuery({
+    queryKey: ['admin', 'market', 'contracts', 'list', filters],
+    queryFn: () => apiGet(contractListPath(filters.value), AdminMarketContractListResponse),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAdminMarketContractDetail(contractId: Ref<number | null>) {
+  return useQuery({
+    queryKey: ['admin', 'market', 'contracts', 'detail', contractId],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.adminMarketContracts}/${String(contractId.value)}`,
+        AdminMarketContractDetailResponse,
+      ),
+    enabled: computed(() => contractId.value !== null),
+  });
+}
+
+const contractActionPath = (contractId: number, action: string): string =>
+  `${apiRoutes.adminMarketContracts}/${String(contractId)}/${action}`;
+
+function invalidateContracts(qc: ReturnType<typeof useQueryClient>): void {
+  void qc.invalidateQueries({ queryKey: ['admin', 'market', 'contracts'] });
+}
+
+// completed → settled. 이체는 수동, 여기는 기록(note 선택).
+export function useContractSettle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ contractId, note }: { contractId: number; note?: string }) =>
+      apiSend(
+        'POST',
+        contractActionPath(contractId, 'settle'),
+        note !== undefined && note.trim() !== '' ? { note: note.trim() } : {},
+        AdminMarketContractDetailResponse,
+      ),
+    onSuccess: () => {
+      invalidateContracts(qc);
+    },
+  });
+}
+
+// delivered 에서 자동확정 정지(사유 필수).
+export function useContractHold() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ contractId, reason }: { contractId: number; reason: string }) =>
+      apiSend(
+        'POST',
+        contractActionPath(contractId, 'hold'),
+        { reason },
+        AdminMarketContractDetailResponse,
+      ),
+    onSuccess: () => {
+      invalidateContracts(qc);
+    },
+  });
+}
+
+// 자동확정 정지 해제(본문 없음).
+export function useContractUnhold() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (contractId: number) =>
+      apiSend(
+        'POST',
+        contractActionPath(contractId, 'unhold'),
+        undefined,
+        AdminMarketContractDetailResponse,
+      ),
+    onSuccess: () => {
+      invalidateContracts(qc);
+    },
+  });
+}
+
+// 운영 취소(pending·paid·delivered, 사유 필수). 환불 실행은 주문 관리/PG — 여기는 기록.
+export function useAdminCancelContract() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ contractId, reason }: { contractId: number; reason: string }) =>
+      apiSend(
+        'POST',
+        contractActionPath(contractId, 'cancel'),
+        { reason },
+        AdminMarketContractDetailResponse,
+      ),
+    onSuccess: () => {
+      invalidateContracts(qc);
     },
   });
 }
