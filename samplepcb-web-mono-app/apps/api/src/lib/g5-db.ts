@@ -129,6 +129,18 @@
 //   목적·쓰기여부가 달라 분리(⑱은 writable, businessNo/fax/mailOrderNo/bugaNo 4컬럼 더 가진 상위집합).
 // (번호: ⑰은 2026-07-05 PCB 제작단계 작업이 ACTIVE_ORDER_STATUSES SSOT 로 선점 — GERBER_ORDER_FLOW
 //  갱신 로그 참조. 미커밋 병존 작업이라 사업자정보는 ⑱로 매긴다.)
+// ⑲ 재능마켓 2차 계약 결제(영카트 재사용) 지원 — g5_shop_item·g5_shop_cart read/write. 함수·컬럼:
+//   • MARKET_ANCHOR_IT_ID('sp-market-svc')·getMarketAnchorItem — 계약 결제 카트행이 참조하는 단일
+//       용역 앵커 상품 read-only SELECT(getTemplateItem 동형, it_price=0·it_sc_type=1 무료배송·
+//       ca_id='10' 노출억제로 시드). 옵션 행/카트 INSERT 는 기존 ①② insertQuoteOption/insertCartRow
+//       를 contractKey(io_id)·amount 로 재사용 — 신규 쓰기 함수 없음.
+//   • deleteCartRowsByIoId(ioId) — DELETE g5_shop_cart WHERE io_id=? AND ct_status='쇼핑'(⑥ 확장,
+//       계약 checkout 멱등 청소). 주문 라인(ct_status≠'쇼핑')은 불변.
+//   • getOrderInfoByCtId(⑩) additive 확장 — 자기 카트행의 ct_status·io_id·io_price 를 함께 반환
+//       (rowCtStatus/rowIoId/rowIoPrice). 승격 라인 검증(PAID_ORDER_STATUSES∧io_id==contractKey∧
+//       io_price==amount)용. 기존 반환 필드·호출부(admin-pcb-projects.ts) 불변, read-only.
+//   • PAID_ORDER_STATUSES export('입금'·'준비'·제작8·'배송'·'완료' = ACTIVE − '주문'). 승격 게이트 SSOT.
+//   결제 승격/취소 정리(ensurePaidLazy·updateMany·취소 tx)의 라우트 로직은 W2(market-contracts.ts).
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
 //
@@ -183,6 +195,32 @@ export async function getTemplateItem(category: string): Promise<TemplateItem | 
     `SELECT it_id, it_name, it_sc_type, it_sc_method, it_sc_price, it_sc_minimum, it_sc_qty, it_notax
        FROM g5_shop_item WHERE it_id = ?`,
     [itId],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    itId: String(row.it_id),
+    itName: String(row.it_name),
+    scType: Number(row.it_sc_type),
+    scMethod: Number(row.it_sc_method),
+    scPrice: Number(row.it_sc_price),
+    scMinimum: Number(row.it_sc_minimum),
+    scQty: Number(row.it_sc_qty),
+    notax: Number(row.it_notax),
+  };
+}
+
+// ── 마켓 앵커 상품(계약 결제 카트행이 참조) ─────────────────────────────────
+// 재능마켓 용역 앵커 상품 1종. 템플릿 상품과 동형이나 카테고리별이 아니라 단일 it_id.
+// getTemplateItem 과 같은 SELECT(스냅샷 모델 — 가격/사양은 읽지 않음). 시드:
+// scripts/seed-market-anchor-item.ts(it_price=0·it_sc_type=1 무료배송·ca_id='10' 노출억제).
+export const MARKET_ANCHOR_IT_ID = 'sp-market-svc';
+
+export async function getMarketAnchorItem(): Promise<TemplateItem | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT it_id, it_name, it_sc_type, it_sc_method, it_sc_price, it_sc_minimum, it_sc_qty, it_notax
+       FROM g5_shop_item WHERE it_id = ?`,
+    [MARKET_ANCHOR_IT_ID],
   );
   const row = rows[0];
   if (row === undefined) return null;
@@ -298,6 +336,16 @@ export async function deleteCartRow(ctId: number): Promise<void> {
   await getG5Pool().query(`DELETE FROM g5_shop_cart WHERE ct_id = ?`, [ctId]);
 }
 
+// 계약 checkout 멱등 청소 — 같은 io_id(=contractKey)의 '쇼핑' 행만 삭제(더블클릭·우회 담기로
+// 생긴 중복 카트 행 제거). 주문 라인(ct_status≠'쇼핑')은 불변. affectedRows 반환.
+export async function deleteCartRowsByIoId(ioId: string): Promise<number> {
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `DELETE FROM g5_shop_cart WHERE io_id = ? AND ct_status = '쇼핑'`,
+    [ioId],
+  );
+  return res.affectedRows;
+}
+
 // ── 카트 파생 상태 SELECT ───────────────────────────────────────────────────
 // HANDOFF 3장: cart 관계는 저장하지 않고 ct_id 조인으로 파생.
 //   '쇼핑' = 담김(cart) · 그 외 상태 행 존재 = 주문됨(ordered) · 행 없음 = 견적 보관(none)
@@ -334,12 +382,17 @@ export interface OrderInfo {
   pg: string; // od_pg PG사
   misu: number; // od_misu 미수금
   siblingCarts: { ctId: number; itName: string; ioId: string }[]; // 같은 주문의 다른 cart 행
+  // 자기 카트행(ct_id) 파생 — 계약 결제 승격의 라인 검증용(C1: 행 ct_status ∈ PAID_ORDER_STATUSES
+  // ∧ io_id==contractKey ∧ io_price==amount. 혼합 주문·행 단위 취소·금액 위변조 커버). additive.
+  rowCtStatus: string; // 이 ct_id 의 ct_status(주문 헤더 상태가 아닌 라인 상태)
+  rowIoId: string; // io_id(= contractKey 대조)
+  rowIoPrice: number; // io_price(= amount 대조)
 }
 
 export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null> {
   const pool = getG5Pool();
   const [cartRows] = await pool.query<RowDataPacket[]>(
-    `SELECT od_id FROM g5_shop_cart WHERE ct_id = ?`,
+    `SELECT od_id, ct_status, io_id, io_price FROM g5_shop_cart WHERE ct_id = ?`,
     [ctId],
   );
   const cart = cartRows[0];
@@ -371,6 +424,9 @@ export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null
       itName: String(s.it_name),
       ioId: String(s.io_id),
     })),
+    rowCtStatus: String(cart.ct_status ?? ''),
+    rowIoId: String(cart.io_id ?? ''),
+    rowIoPrice: Number(cart.io_price ?? 0),
   };
 }
 
@@ -1047,6 +1103,16 @@ export const PRODUCTION_STATUSES = [
 // '정상 진행 중' 주문 상태(표준 5 + 제작 8). 매출/미수 정상합계·'부분취소' 판정·목록 카운트가 공유한다.
 // 취소/반품/품절/쇼핑만 제외 — 리터럴로 흩뿌리면 하나만 빠져도 금액·카운트가 조용히 틀어지므로 이 상수를 참조한다.
 const ACTIVE_ORDER_STATUSES = ['주문', '입금', '준비', ...PRODUCTION_STATUSES, '배송', '완료'] as const;
+// 계약 결제 승격에 쓰는 "결제 완료(입금 이후)" 상태 집합 — ACTIVE 에서 '주문'(무통장 미입금
+// 대기)만 뺀 것. 무통장 부분입금(od '주문' 유지)은 미승격 = 의도와 일치. '취소'·'부분취소'류·
+// '쇼핑' 은 애초에 미포함. checkout·ensurePaidLazy(W2)가 라인 ct_status 판정에 참조한다.
+export const PAID_ORDER_STATUSES: readonly string[] = [
+  '입금',
+  '준비',
+  ...PRODUCTION_STATUSES,
+  '배송',
+  '완료',
+];
 // SQL IN(...) 리터럴 조립 — 값이 신뢰 가능한 내부 상수라 식별자 위치에 인라인해도 안전.
 const sqlStatusList = (arr: readonly string[]): string => arr.map((s) => `'${s}'`).join(', ');
 // '부분취소' 판정에 쓰는 진행상태 집합(코어 orderlist.php:50) — 제작 단계도 정상 진행이라 포함한다.

@@ -253,3 +253,43 @@ model SpMarketSettings {
 
   @@map("sp_market_settings")
 }
+
+// 계약(2차: 결제·검수·정산) — 채택(award) tx 에서 프로젝트당 1건 생성(projectId unique,
+// unaward 없음 모델). fee/payout 은 채택 시점 스냅샷. status: pending|paid|delivered|
+// completed|settled|cancelled. paid 승격은 cron 없는 lazy write-back(od·카트 라인 대조).
+// 산출물 파일은 sp_file 재사용(refType='sp_market_contract', fileType='deliverable').
+model SpMarketContract {
+  id           BigInt    @id @default(autoincrement())
+  projectId    BigInt    @unique // 프로젝트당 1계약(unaward 없음 모델)
+  bidId        BigInt // 채택 입찰(sp_market_bid.id)
+  clientMbId   String    @db.VarChar(191) // 의뢰인 — 복제(무조인 소유 판정)
+  expertMbId   String    @db.VarChar(191) // 채택 전문가 — 복제(무조인 소유 판정)
+  expertId     BigInt // sp_market_expert.id
+  amount       Int // 입찰액 = VAT 포함 총액(수수료도 총액 기준)
+  feeRateBp    Int // 수수료율 bp — 채택 시점 스냅샷
+  feeAmount    Int // round(amount×bp/10000) — 채택 시점 스냅샷
+  payoutAmount Int // amount − feeAmount — 채택 시점 스냅샷
+  contractKey  String    @unique @db.VarChar(36) // uuid v4 = 영카트 io_id·주문 라인 식별자
+  ctId         Int? // g5_shop_cart.ct_id — checkout 주입/재주입 시 갱신
+  status       String    @default("pending") @db.VarChar(20) // pending|paid|delivered|completed|settled|cancelled
+  paidAt       DateTime?
+  paidOdId     String?   @db.VarChar(20) // 승격 근거 주문(g5_shop_order.od_id)
+  deliveredAt  DateTime?
+  deliveryNote String?   @db.Text // 납품 보고 노트(재보고 시 갱신)
+  completedAt  DateTime?
+  confirmedBy  String?   @db.VarChar(10) // client|auto
+  holdAt       DateTime? // 관리자 자동확정 정지 시각(있으면 auto 승격 정지)
+  holdReason   String?   @db.VarChar(500)
+  settledAt    DateTime?
+  settledBy    String?   @db.VarChar(191) // 정산 처리 관리자 mbId
+  settleNote   String?   @db.VarChar(500)
+  cancelledAt  DateTime?
+  cancelReason String?   @db.VarChar(500)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status]) // 관리자 계약 목록 탭 + delivered 자동확정 스윕
+  @@index([clientMbId]) // 내 의뢰 계약
+  @@index([expertMbId]) // 내 작업 계약
+  @@map("sp_market_contract")
+}
