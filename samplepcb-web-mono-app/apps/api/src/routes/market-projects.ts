@@ -15,27 +15,22 @@ import {
 import type {
   JwtClaimsType,
   MarketMyProjectListItemType,
-  MarketProjectListItemType,
   MarketProjectViewerType,
 } from '@sp/api-contract';
-import { maskName } from '@sp/utils';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
-import { getMembersByIds } from '../lib/g5-db';
 import {
   MARKET_FILE_SERVICE_TYPE,
   REF_MARKET_PROJECT,
   asBidStatus,
-  asBudgetRange,
-  asProjectCategory,
-  asProjectMethod,
-  asProjectStatus,
   collectMultipart,
   deadlineToDate,
   deleteMarketFile,
   isBiddingClosed,
+  marketBidCounts,
+  marketOwnerNames,
   toFileMeta,
-  toProjectCadCodes,
+  toMarketProjectListItem,
 } from '../lib/market';
 import type { MarketReceivedFile } from '../lib/market';
 import { prisma } from '../lib/prisma';
@@ -60,52 +55,6 @@ const projectFiles = (projectId: bigint): Promise<ProjectFileRow[]> =>
     orderBy: { id: 'asc' },
     select: { id: true, fileType: true, originFileName: true, size: true },
   });
-
-// withdrawn 제외 입찰 수(블라인드 공개값이자 소유자 수정 가드).
-const bidCountsFor = async (projectIds: bigint[]): Promise<Map<string, number>> => {
-  if (projectIds.length === 0) return new Map();
-  const rows = await prisma.spMarketBid.groupBy({
-    by: ['projectId'],
-    where: { projectId: { in: projectIds }, status: { not: 'withdrawn' } },
-    _count: { _all: true },
-  });
-  return new Map(rows.map((r) => [r.projectId.toString(), r._count._all]));
-};
-
-// 의뢰인 표시명 — 서버가 maskName 적용(원명은 응답에 실리지 않는다). 회원 행 소실
-// (탈퇴 등)이면 '회원' 폴백.
-const ownerNamesFor = async (mbIds: string[]): Promise<Map<string, string>> => {
-  const unique = [...new Set(mbIds)];
-  const members = await getMembersByIds(unique);
-  const map = new Map<string, string>();
-  for (const id of unique) {
-    const masked = maskName(members.get(id)?.name ?? '');
-    map.set(id, masked === '' ? '회원' : masked);
-  }
-  return map;
-};
-
-const toListItem = (
-  p: SpMarketProject,
-  ownerName: string,
-  bidCount: number,
-  now: Date,
-): MarketProjectListItemType => ({
-  projectId: Number(p.id),
-  title: p.title,
-  category: asProjectCategory(p.category),
-  cadTools: toProjectCadCodes(p.cadTools),
-  budgetRange: asBudgetRange(p.budgetRange),
-  method: asProjectMethod(p.method),
-  ndaRequired: p.ndaRequired,
-  ownerName,
-  bidCount,
-  viewCount: p.viewCount,
-  bidDeadlineAt: p.bidDeadlineAt.toISOString(),
-  biddingClosed: isBiddingClosed(p.status, p.bidDeadlineAt, now),
-  status: asProjectStatus(p.status),
-  createdAt: p.createdAt.toISOString(),
-});
 
 // 채택된 입찰의 전문가 id(없으면 null) — 채택 후 접근 유지 판정에 쓴다.
 const awardedExpertIdOf = async (p: SpMarketProject): Promise<bigint | null> => {
@@ -310,11 +259,11 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       ]);
 
       const [owners, bidCounts] = await Promise.all([
-        ownerNamesFor(rows.map((p) => p.mbId)),
-        bidCountsFor(rows.map((p) => p.id)),
+        marketOwnerNames(rows.map((p) => p.mbId)),
+        marketBidCounts(rows.map((p) => p.id)),
       ]);
       const items = rows.map((p) =>
-        toListItem(
+        toMarketProjectListItem(
           p,
           owners.get(p.mbId) ?? '회원',
           bidCounts.get(p.id.toString()) ?? 0,
@@ -389,14 +338,14 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
       const [fileRows, owners, bidCounts] = await Promise.all([
         projectFiles(project.id),
-        ownerNamesFor([project.mbId]),
-        bidCountsFor([project.id]),
+        marketOwnerNames([project.mbId]),
+        marketBidCounts([project.id]),
       ]);
 
       return {
         result: true as const,
         data: {
-          ...toListItem(
+          ...toMarketProjectListItem(
             project,
             owners.get(project.mbId) ?? '회원',
             bidCounts.get(project.id.toString()) ?? 0,
@@ -745,8 +694,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       ]);
 
       const [owners, bidCounts] = await Promise.all([
-        ownerNamesFor([mbId]),
-        bidCountsFor(rows.map((p) => p.id)),
+        marketOwnerNames([mbId]),
+        marketBidCounts(rows.map((p) => p.id)),
       ]);
       // 채택 요약(있는 행만) — 입찰·전문가 표시명 조인.
       const awardedBidIds = rows
@@ -775,7 +724,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         const awarded =
           p.awardedBidId !== null ? bidById.get(p.awardedBidId.toString()) : undefined;
         return {
-          ...toListItem(
+          ...toMarketProjectListItem(
             p,
             owners.get(mbId) ?? '회원',
             bidCounts.get(p.id.toString()) ?? 0,

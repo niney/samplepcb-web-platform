@@ -1,5 +1,6 @@
 import type { FastifyRequest } from 'fastify';
-import type { SpFile } from '@prisma/client';
+import type { SpFile, SpMarketProject } from '@prisma/client';
+import { maskName } from '@sp/utils';
 import {
   MARKET_BUDGET_RANGES,
   MARKET_CAD_TOOLS,
@@ -21,6 +22,7 @@ import type {
   MarketProjectCadCodeType,
   MarketProjectCategoryType,
   MarketProjectDeadlineType,
+  MarketProjectListItemType,
   MarketProjectMethodType,
   MarketProjectStatusType,
   MarketRegionType,
@@ -28,6 +30,7 @@ import type {
 } from '@sp/api-contract';
 import { deleteFromFileServer } from './file-server';
 import type { UploadTarget } from './file-server';
+import { getMembersByIds } from './g5-db';
 import { prisma } from './prisma';
 
 // ── 재능마켓 공용 헬퍼 — 라우트 4파일(experts/projects/bids/admin-*)이 공유 ──
@@ -135,6 +138,54 @@ export const deleteMarketFile = async (file: Pick<SpFile, 'id' | 'pathToken'>): 
   await deleteFromFileServer(file.pathToken);
   await prisma.spFile.delete({ where: { id: file.id } });
 };
+
+// ── 프로젝트 목록 조각(projects·bids 라우트 공유) ────────────────────────────
+
+// withdrawn 제외 입찰 수(블라인드 공개값이자 소유자 수정 가드).
+export const marketBidCounts = async (projectIds: bigint[]): Promise<Map<string, number>> => {
+  if (projectIds.length === 0) return new Map();
+  const rows = await prisma.spMarketBid.groupBy({
+    by: ['projectId'],
+    where: { projectId: { in: projectIds }, status: { not: 'withdrawn' } },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((r) => [r.projectId.toString(), r._count._all]));
+};
+
+// 의뢰인 표시명 — 서버가 maskName 적용(원명은 응답에 실리지 않는다). 회원 행 소실
+// (탈퇴 등)이면 '회원' 폴백.
+export const marketOwnerNames = async (mbIds: string[]): Promise<Map<string, string>> => {
+  const unique = [...new Set(mbIds)];
+  const members = await getMembersByIds(unique);
+  const map = new Map<string, string>();
+  for (const id of unique) {
+    const masked = maskName(members.get(id)?.name ?? '');
+    map.set(id, masked === '' ? '회원' : masked);
+  }
+  return map;
+};
+
+export const toMarketProjectListItem = (
+  p: SpMarketProject,
+  ownerName: string,
+  bidCount: number,
+  now: Date,
+): MarketProjectListItemType => ({
+  projectId: Number(p.id),
+  title: p.title,
+  category: asProjectCategory(p.category),
+  cadTools: toProjectCadCodes(p.cadTools),
+  budgetRange: asBudgetRange(p.budgetRange),
+  method: asProjectMethod(p.method),
+  ndaRequired: p.ndaRequired,
+  ownerName,
+  bidCount,
+  viewCount: p.viewCount,
+  bidDeadlineAt: p.bidDeadlineAt.toISOString(),
+  biddingClosed: isBiddingClosed(p.status, p.bidDeadlineAt, now),
+  status: asProjectStatus(p.status),
+  createdAt: p.createdAt.toISOString(),
+});
 
 // ── multipart 수신 공통(pcb-projects 관례) ──────────────────────────────────
 
