@@ -16,6 +16,7 @@ import type {
 } from '@sp/api-contract';
 import { getMembersByIds } from '../lib/g5-db';
 import type { G5Member } from '../lib/g5-db';
+import { buildExpertDecisionEmail, sendMarketMail } from '../lib/market-email';
 import {
   REF_MARKET_EXPERT,
   asCareerRange,
@@ -183,6 +184,13 @@ export const adminMarketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts
           .status(409)
           .send({ error: 'INVALID_TRANSITION', message: '심사 대기 상태가 아닙니다.' });
       }
+      // 승인 통지(비차단).
+      const members = await getMembersByIds([expert.mbId]);
+      void sendMarketMail(
+        request.log,
+        members.get(expert.mbId)?.email,
+        buildExpertDecisionEmail({ displayName: expert.displayName, approved: true }),
+      );
       return {
         result: true as const,
         data: { expertId: Number(id), status: 'approved' as const, statusReason: null },
@@ -209,6 +217,17 @@ export const adminMarketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts
           .status(409)
           .send({ error: 'INVALID_TRANSITION', message: '심사 대기 상태가 아닙니다.' });
       }
+      // 반려 통지(비차단) — 사유 포함.
+      const members = await getMembersByIds([expert.mbId]);
+      void sendMarketMail(
+        request.log,
+        members.get(expert.mbId)?.email,
+        buildExpertDecisionEmail({
+          displayName: expert.displayName,
+          approved: false,
+          reason: request.body.reason,
+        }),
+      );
       return {
         result: true as const,
         data: { expertId: Number(id), status: 'rejected' as const, statusReason: request.body.reason },

@@ -21,6 +21,7 @@
     "migrate:wipe": "tsx --env-file=.env.migration src/scripts/migrate/wipe-test-data.ts",
     "pricing:sync": "tsx src/scripts/sync-pricing-data.ts",
     "pricing:capture": "tsx src/scripts/capture-legacy-pricing-goldens.ts",
+    "market:seed": "tsx --env-file=.env src/scripts/seed-market-house-expert.ts",
     "db:migrate": "prisma migrate dev",
     "clean": "rimraf dist .turbo"
   },

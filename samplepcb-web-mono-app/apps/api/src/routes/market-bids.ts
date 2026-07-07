@@ -9,6 +9,8 @@ import type {
   MarketProjectBidItemType,
   MarketTargetedProjectListItemType,
 } from '@sp/api-contract';
+import { getMembersByIds } from '../lib/g5-db';
+import { buildAwardEmail, buildNewBidEmail, sendMarketMail } from '../lib/market-email';
 import {
   asBidStatus,
   asCareerRange,
@@ -127,6 +129,26 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         }
         throw err;
       }
+
+      // 새 견적 도착 알림(비차단) — 의뢰인에게 메일(의뢰인은 블라인드 예외라 금액 안내 가능).
+      const [members, bidCount] = await Promise.all([
+        getMembersByIds([project.mbId]),
+        prisma.spMarketBid.count({
+          where: { projectId: project.id, status: { not: 'withdrawn' } },
+        }),
+      ]);
+      void sendMarketMail(
+        request.log,
+        members.get(project.mbId)?.email,
+        buildNewBidEmail({
+          projectId: Number(project.id),
+          projectTitle: project.title,
+          expertDisplayName: expert.displayName,
+          amount: bid.amount,
+          durationDays: bid.durationDays,
+          bidCount,
+        }),
+      );
 
       request.log.info(
         { projectId: Number(project.id), bidId: Number(bid.id), expertId: Number(expert.id) },
@@ -301,6 +323,25 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         }
         throw err;
       }
+
+      // 채택 통지(비차단) — 채택된 전문가에게 메일.
+      const [members, bidExpert] = await Promise.all([
+        getMembersByIds([bid.mbId]),
+        prisma.spMarketExpert.findUnique({
+          where: { id: bid.expertId },
+          select: { displayName: true },
+        }),
+      ]);
+      void sendMarketMail(
+        request.log,
+        members.get(bid.mbId)?.email,
+        buildAwardEmail({
+          expertName: bidExpert?.displayName ?? '전문가',
+          projectId: Number(project.id),
+          projectTitle: project.title,
+          amount: bid.amount,
+        }),
+      );
 
       request.log.info(
         { projectId: Number(project.id), bidId: Number(bid.id) },

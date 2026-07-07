@@ -1,6 +1,6 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { Prisma } from '@prisma/client';
-import type { SpFile, SpMarketProject } from '@prisma/client';
+import type { SpFile, SpMarketExpert, SpMarketProject } from '@prisma/client';
 import { z } from 'zod';
 import {
   JwtClaims,
@@ -19,6 +19,9 @@ import type {
 } from '@sp/api-contract';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
+import { getMembersByIds } from '../lib/g5-db';
+import { kstDateTimeStr } from '../lib/kst';
+import { buildTargetedRequestEmail, sendMarketMail } from '../lib/market-email';
 import {
   MARKET_FILE_SERVICE_TYPE,
   REF_MARKET_PROJECT,
@@ -144,7 +147,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     }
 
     // 지정견적 — 대상은 승인 전문가여야 하고, 자기 자신(자전 입찰 유도) 지정은 금지.
-    let targetExpertId: bigint | null = null;
+    let targetExpert: SpMarketExpert | null = null;
     if (payload.method === 'targeted') {
       if (payload.targetExpertId === undefined) {
         // 계약 superRefine 이 걸러주지만 타입 내로잉을 위해 한 번 더.
@@ -159,7 +162,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (target.mbId === mbId) {
         return reply.status(403).send({ result: false, error: 'SELF_TARGET_FORBIDDEN' });
       }
-      targetExpertId = target.id;
+      targetExpert = target;
     }
 
     // 첨부(선택 — 명세서 권장은 FE 경고로, 강제하지 않는다).
@@ -195,7 +198,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           dueHopeDate: payload.dueHopeDate ?? null,
           bidDeadlineAt,
           method: payload.method,
-          targetExpertId,
+          targetExpertId: targetExpert?.id ?? null,
         },
       });
       if (uploaded.length > 0) {
@@ -214,6 +217,25 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       }
       return p;
     });
+
+    // 지정견적 요청 알림(비차단) — 지정 전문가에게 메일. 실패해도 등록은 유효.
+    if (targetExpert !== null) {
+      const [members, owners] = await Promise.all([
+        getMembersByIds([targetExpert.mbId]),
+        marketOwnerNames([mbId]),
+      ]);
+      void sendMarketMail(
+        request.log,
+        members.get(targetExpert.mbId)?.email,
+        buildTargetedRequestEmail({
+          expertName: targetExpert.displayName,
+          projectId: Number(project.id),
+          projectTitle: payload.title,
+          ownerName: owners.get(mbId) ?? '회원',
+          bidDeadlineAt: `${kstDateTimeStr(bidDeadlineAt).slice(0, 16)} (KST)`,
+        }),
+      );
+    }
 
     request.log.info(
       { projectId: Number(project.id), mbId, method: payload.method },
