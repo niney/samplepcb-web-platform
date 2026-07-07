@@ -12,6 +12,7 @@ import { formatBytes, formatDate, formatDateTime, formatKrw } from '../../lib/fo
 import UiBadge from '../ui/UiBadge.vue';
 import DeleteQuoteModal from './DeleteQuoteModal.vue';
 import EstimateModal from './EstimateModal.vue';
+import EstimateSendControl from './EstimateSendControl.vue';
 
 // 견적 상세 드로어 — 우측 슬라이드 오버. 파일 다운로드와 가격 확정(rfq 확정·priced
 // 조정·quoted 재확정)을 담당한다. cart/ordered/deleted 는 서버 가드와 동일 사유로
@@ -246,7 +247,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <!-- 견적서 -->
+            <!-- 견적서 (보기·인쇄) -->
             <div class="mt-4">
               <button
                 v-if="estimateEnabled"
@@ -310,6 +311,15 @@ onBeforeUnmount(() => {
                   })
                 }}
               </p>
+
+              <!-- 발송 (가격 확정 다음 단계 — 메일+알림톡, 레거시 estimate.php 목록 메일 버튼 대응) -->
+              <div v-if="estimateEnabled" class="mt-4 border-t border-gray-200 pt-3">
+                <EstimateSendControl
+                  :project-id="detail.projectId"
+                  :default-email="detail.applicant?.email ?? ''"
+                  :priced="true"
+                />
+              </div>
             </section>
 
             <!-- 신청자 -->
