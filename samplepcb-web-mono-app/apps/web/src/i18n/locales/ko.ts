@@ -209,6 +209,25 @@ export const ko = {
         etaLabel: '출고 예정일',
         bankLabel: '결제 계좌',
         shippingNotice: '배송비는 주문 시 별도 계산됩니다.',
+        // 견적서 발송(메일+알림톡) — EstimateSendControl
+        send: {
+          button: '발송',
+          title: '견적서 발송',
+          emailLabel: '받는 사람 (이메일)',
+          submit: '메일·알림톡 발송',
+          sending: '발송 중…',
+          blockedRfq: '가격 확정 후 발송할 수 있습니다.',
+          invalidEmail: '올바른 이메일을 입력하세요.',
+          resultTitle: '발송 결과',
+          channelMail: '메일',
+          channelAlimtalk: '알림톡',
+          statusSent: '발송됨',
+          statusFailed: '실패',
+          statusSkipped: '건너뜀',
+          skippedHint: '설정이 꺼져 있거나 수신 정보가 없어 발송하지 않았습니다.',
+          error: '발송에 실패했습니다.',
+          cancel: '닫기',
+        },
       },
       // 사양 키 라벨 — KNOWN_SPEC_KEYS(@sp/api-contract) 기준. 미등록 키는 원문 노출.
       // 표기는 거버 뷰어(apps/view OptionControl 의 name) 명칭을 기준으로 통일하되 단위(mm/oz)는 생략.

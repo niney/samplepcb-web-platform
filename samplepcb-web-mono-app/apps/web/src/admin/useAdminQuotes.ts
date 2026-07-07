@@ -13,6 +13,7 @@ import {
   AdminEstimateResponse,
   AdminQuoteDetailResponse,
   AdminQuoteListResponse,
+  AdminSendEstimateResponse,
   apiRoutes,
 } from '@sp/api-contract';
 import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
@@ -76,6 +77,20 @@ export function useAdminEstimate(projectId: Ref<number | null>) {
         AdminEstimateResponse,
       ),
     enabled: computed(() => projectId.value !== null),
+  });
+}
+
+// 견적서 발송(메일+알림톡) — 발송은 DB 상태 변경이 없어 캐시 무효화 없음. 채널별 결과만 반환.
+// 서버가 rfq(가격 미확정)를 409 로 막으므로 mutation 에러(ApiRequestError.message)를 UI 가 표면화.
+export function useSendEstimate() {
+  return useMutation({
+    mutationFn: ({ projectId, email }: { projectId: number; email: string }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/${String(projectId)}/send-estimate`,
+        { email },
+        AdminSendEstimateResponse,
+      ),
   });
 }
 

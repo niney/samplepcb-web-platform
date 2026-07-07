@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAdminEstimate } from '../../admin/useAdminQuotes';
 import EstimateSheet from './EstimateSheet.vue';
+import EstimateSendControl from './EstimateSendControl.vue';
 
 // 견적서 레이어 팝업 — body 로 Teleport 한다. 부모가 v-if 로 마운트를 제어하므로
 // (견적서 열릴 때만 마운트) 인쇄 전역 스타일 주입/제거가 이 모달의 수명과 정확히 맞는다.
@@ -77,6 +78,12 @@ onBeforeUnmount(() => {
       >
         <!-- 툴바 (인쇄 미포함) -->
         <div class="no-print mb-4 flex gap-2">
+          <EstimateSendControl
+            v-if="estimate !== null"
+            :project-id="estimate.projectId"
+            :default-email="estimate.applicant?.email ?? ''"
+            :priced="estimate.amounts !== null"
+          />
           <button
             type="button"
             class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700 disabled:opacity-50"
