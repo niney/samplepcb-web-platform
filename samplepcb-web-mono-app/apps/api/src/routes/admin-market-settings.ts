@@ -1,5 +1,6 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { MarketSettings, MarketSettingsResponse } from '@sp/api-contract';
+import { DEFAULT_FEE_RATE_BP } from '../lib/market';
 import { prisma } from '../lib/prisma';
 
 // 관리자 마켓 설정(/app/admin/market/settings) — sp_market_settings 싱글턴(id=1).
@@ -14,7 +15,7 @@ export const adminMarketSettingsRoutes: FastifyPluginCallbackZod = (fastify, _op
     { schema: { response: { 200: MarketSettingsResponse } } },
     async () => {
       const row = await prisma.spMarketSettings.findUnique({ where: { id: 1 } });
-      return { result: true as const, data: { feeRateBp: row?.feeRateBp ?? 1000 } };
+      return { result: true as const, data: { feeRateBp: row?.feeRateBp ?? DEFAULT_FEE_RATE_BP } };
     },
   );
 

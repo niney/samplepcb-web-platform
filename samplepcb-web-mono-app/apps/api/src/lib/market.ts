@@ -44,6 +44,10 @@ export const REF_MARKET_PROJECT = 'sp_market_project';
 // 파일서버 serviceType — 거버(FILE_SERVICE_TYPE=gerber)와 분리된 마켓 전용 버킷.
 export const MARKET_FILE_SERVICE_TYPE = process.env.MARKET_FILE_SERVICE_TYPE ?? 'market';
 
+// 기본 수수료율(bp) — sp_market_settings 행 부재 시 폴백. 전문가측 10% 단일 공제(M-1).
+// 공개(market-settings)·관리자(admin-market-settings) 두 라우트가 공유해 기본값 드리프트 방지.
+export const DEFAULT_FEE_RATE_BP = 1000;
+
 // ── 코드 내로잉(총함수) ──────────────────────────────────────────────────────
 
 const asCode = <T extends string>(v: string, allowed: readonly T[], fallback: T): T =>
