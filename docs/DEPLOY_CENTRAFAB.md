@@ -314,7 +314,37 @@ rm -f /home/samplepcb/samplepcb-web-platform/.tmp/migrate/ledger-samplepcb.json 
 # 거래만 초기화(회원·게시판·설정 유지): pnpm migrate:wipe -- --yes  후 위 원장 삭제 → migrate:run
 ```
 
-- 컷오버 델타 반영: `pnpm migrate:sync` (운영 직결, 반복 안전). 거버 실파일: `pnpm migrate:files`.
+- 거버 실파일: `pnpm migrate:files`.
+
+## STEP 11-B — 증분 동기화 (새 데이터만 반영, `migrate:sync`)
+
+최초 `migrate:run` 후, **운영이 계속 만드는 신규·변경분만** 반영. 반복 실행 안전(무변경이면 no-op). 컷오버 전까지 로컬을 운영 최신으로 유지하는 정식 경로(§6-C·§6-D).
+
+| | `migrate:run` | `migrate:sync` |
+|---|---|---|
+| 용도 | 최초 전량 이관/재이관 | 이후 **델타만** 반영 |
+| 소스 | 덤프 임포트본 권장 | **운영 직결**(읽기전용) |
+| 판정 | 원장(완료마커) | **대조(diff)** — 레거시에 수정시각 컬럼 없음 |
+| 원장 | 삭제 필요(재이관 시) | **무시** — 원장 삭제 불필요 |
+
+```bash
+cd /home/samplepcb/samplepcb-web-platform/samplepcb-web-mono-app/apps/api
+pnpm migrate:sync -- --dry-run     # 미리보기(타깃 무변경) — 델타 규모 확인
+pnpm migrate:sync                  # 실제 반영 (기본 --window=90: 최근 생성 주문 재대조 창)
+pnpm migrate:verify                # 검증
+# 컷오버 마지막 1회만: 노이즈 컬럼(mb_today_login·mb_login_ip)까지 반영
+pnpm migrate:sync -- --final && pnpm migrate:verify
+```
+
+**동작(매 실행)**: 게이트(스키마 드리프트 시 중단) → 신규분(레거시∖타깃 차집합) → 재대조(비종결 주문·헤더 지문 상이·window 내 = 사후 수납·송장·가격확인 포착) → 삭제/이상 리포트.
+
+**리포트만(자동조치 X — 수동 판단)**: 주문/게시글 삭제 검출 · 보호계정(admin·kpeter) 상이 · 포인트 타깃 초과 · 파일 교체(→`migrate:files --sideload`) · **금액 항등 불일치(0이 정상, 나오면 즉시 조사)**. 리포트: `.tmp/migrate/sync-report-<DB>-<시각>.json`.
+
+**주의**:
+- 컷오버 전 신규 플랫폼은 **조회 전용** 전제 — 신규에서 바꾼 데이터는 다음 sync가 레거시 기준으로 **원복**(단방향 정본).
+- 게이트가 매번 먼저 도니 운영 스키마 변경 시 중단 → 처분 확정 후 재실행.
+
+> 흐름 요약: **초기 `migrate:run`(1회) → 이후 `migrate:sync`(반복) → 컷오버 `migrate:sync --final`**.
 
 ## STEP 12 — 관리자 계정
 
