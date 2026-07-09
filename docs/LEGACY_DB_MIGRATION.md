@@ -90,7 +90,7 @@ cp .env.migration.example .env.migration   # 소스/타깃/미러 경로 설정 
 pnpm migrate:gate    # 게이트만(처분표·컬럼·상태·길이·쿠폰·템플릿 검사)
 pnpm migrate:dry     # 쓰기 없이 전 phase 변환 통계
 pnpm migrate:files   # 거버 실파일 사전 이관(--sideload 정석 / API 업로드는 소량, --relink)
-pnpm migrate:run     # 덤프 전량 실행 (--phase=members,shop,boards,misc 선택 가능)
+pnpm migrate:run     # 덤프 전량 실행 (--phase=members,shop,boards,misc,reviews 선택 가능)
 pnpm migrate:sync    # ★ 증분 동기화 — 운영 레거시 직결 델타 반영(--dry-run --window=90 --final)
 pnpm migrate:verify  # 검증 리포트(행수·금액 항등·참조 정합·센서스 / --light = 행수+금액만)
 pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록 출력, --yes 로 실제 삭제
@@ -193,7 +193,8 @@ sync 가 원복) · 삭제는 리포트만 · 수동 명령. 보호 계정(admin
 migrateLine INSERT = 무트랜잭션 레이스 수습) · 회원(전량 Node 필드 대조 — 노이즈 mb_today_login/
 mb_login_ip 제외(--final 에서 포함), **비번 앵커 규칙**: 타깃 재해시('sha256:') && mb_password2==레거시
 구해시 → 보존 / 불일치 → 레거시 채택+앵커 초기화) · 게시판 9종·1:1(전행 해시 — 답변이 질문 행
-qa_status 를 UPDATE 하는 구조 대응) · 주소록(회원별 replace-all) → (c) 삭제·이상 검출 리포트
+qa_status 를 UPDATE 하는 구조 대응) · 주소록(회원별 replace-all) · 별점후기(전행 대조·legacyIsId
+멱등 — 후기 수정·관리자 답변 추가 반영, §5-B) → (c) 삭제·이상 검출 리포트
 (주문: **신규 플랫폼 자체 주문(v4 quoteId 라인)만 제외하고 전부 리포트** — 과검출이 미검출보다 안전).
 
 **리허설 실증(변경 13종 주입 → sync → 값 검증 → 재실행 no-op → 픽스처 원복 후 최종 no-op+verify 그린)**:
@@ -332,7 +333,7 @@ pnpm migrate:verify               # 전량 검증(--light = 행수+금액 항등
 | 역할 | 위치(apps/api 기준) |
 |---|---|
 | 오케스트레이터/게이트 | `src/scripts/migrate/run.ts`(덤프 전량) · `sync.ts`(증분 §6-C/6-D) · `manifest.ts`(처분표) |
-| phase | `phases/01-members.ts` · `02-shop.ts`(핵심 변환 — `loadAndConvertOrder` 를 sync 와 공유) · `03-boards.ts` · `04-misc.ts` |
+| phase | `phases/01-members.ts` · `02-shop.ts`(핵심 변환 — `loadAndConvertOrder` 를 sync 와 공유) · `03-boards.ts` · `04-misc.ts` · `05-reviews.ts`(별점후기→sp_review, sync 공유 §5-B) |
 | 공용 lib | `lib/{money-convert,eav-mapper,status-map,schema-prep,g5-writer,ledger,context,util}.ts` |
 | 증분(sync) lib | `lib/sync/{order-resync,member-resync,row-diff}.ts` (+ 단위테스트 4종 — 금액·EAV·상태·sync 규칙) |
 | 파일/정리/검증 | `upload-files.ts`(--sideload/--relink) · `wipe-test-data.ts` · `verify.ts`(--light) |
