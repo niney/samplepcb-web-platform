@@ -5,5 +5,6 @@ export * from './schemas/admin';
 export * from './schemas/members';
 export * from './schemas/orders';
 export * from './schemas/settings';
+export * from './schemas/slides';
 export * from './schemas/market';
 export * from './routes';

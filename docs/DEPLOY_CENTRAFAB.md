@@ -135,6 +135,7 @@ HOST=127.0.0.1
 JWT_SECRET=<openssl 값과 동일>
 DATABASE_URL="mysql://samplepcb:<DB비번>@127.0.0.1:3306/samplepcb"
 G5_DATABASE_URL="mysql://samplepcb:<DB비번>@127.0.0.1:3306/samplepcb"
+G5_DATA_PATH=/home/samplepcb/samplepcb-web-platform/samplepcb-web/data
 SPCB_BRIDGE_URL=https://centrafab.co.kr/spcb/api/me
 SMTP_HOST=127.0.0.1
 SMTP_PORT=25
@@ -368,6 +369,8 @@ curl -I https://centrafab.co.kr/app/  https://centrafab.co.kr/market/
 curl -I https://centrafab.co.kr/data/session/      # 403 = 보안 정상
 ```
 브라우저: `/` 홈 · `/bbs/login.php` 로그인 · `/adm/` · `/app/admin`(sp-vue) · `/market`(sp-market).
+
+> **메인 슬라이드(홈 최상단 배너)**: `g5_shop_banner`는 마이그레이션 skip(STEP 11 대상 아님)이라 배너 행·이미지가 이관되지 않는다. 컷오버 후 `/app/admin/slides`(메인 슬라이드)에서 이미지를 재등록한다. 이미지는 `G5_DATA_PATH/banner/{id}`에 저장되므로 **sp-api 실행 유저(samplepcb)가 이 경로에 쓰기 권한**이 있어야 한다(없으면 등록 시 500). 홈 렌더는 sp-php 브릿지 `theme/sp-lite/inc/main_slider.php`.
 
 ---
 

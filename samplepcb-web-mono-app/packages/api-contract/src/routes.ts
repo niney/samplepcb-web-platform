@@ -7,6 +7,7 @@ export const apiRoutes = {
   adminMembers: '/api/admin/members',
   adminOrders: '/api/admin/orders',
   adminSettings: '/api/admin/settings',
+  adminSlides: '/api/admin/slides',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',

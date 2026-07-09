@@ -144,6 +144,14 @@
 //       구분 못 하므로, checkout 재사용/재주입 판정('쇼핑'∧od_id 버킷 일치 → 재사용)이 이걸 쓴다.
 //   • PAID_ORDER_STATUSES export('입금'·'준비'·제작8·'배송'·'완료' = ACTIVE − '주문'). 승격 게이트 SSOT.
 //   결제 승격/취소 정리(ensurePaidLazy·updateMany·취소 tx)의 라우트 로직은 W2(market-contracts.ts).
+// ⑳ g5_shop_banner 메인 슬라이드 read/write(관리자 메인 슬라이드 — sp-vue /app/admin/slides,
+//   홈 브릿지 theme/sp-lite/inc/main_slider.php 소비). 함수: listMainBanners·getMainBannerById·
+//   createMainBanner·updateMainBanner·deleteMainBannerRow·reorderMainBanners. 컬럼 INSERT/UPDATE/
+//   DELETE: bn_alt·bn_url·bn_new_win·bn_order·bn_begin_time·bn_end_time·bn_time(bn_position='메인'
+//   스코프·bn_device='both' 고정·bn_border/bn_hit 상수). 이미지 실파일 data/banner/{bn_id} 는
+//   lib/banner-image.ts(삭제 시 행+파일 동반 — 코어 bannerformupdate.php:52 auto_increment=1 리셋
+//   대비 고아/부활 방지, 교체 시 bn_time 캐시버스팅). 영카트 배너관리(/adm)와 동일 테이블 공유
+//   (점진 이관, 순수 UI 콘텐츠라 코어 부수효과 없음).
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
 // 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
 //
@@ -657,6 +665,134 @@ export async function updateBusinessInfo(fields: BusinessInfo): Promise<number> 
     ],
   );
   return res.affectedRows;
+}
+
+// ── ⑳ g5_shop_banner 메인 슬라이드 read/write ───────────────────────────────
+// 관리자 메인 슬라이드 관리(sp-vue /app/admin/slides). 홈 브릿지 theme/sp-lite/inc/
+// main_slider.php 가 bn_position='메인' 배너를 owlCarousel 로 렌더 → 여기서 그 데이터를
+// CRUD 한다. bn_device 는 'both' 고정(브릿지가 pc|both 만 렌더). 날짜는 DATE_FORMAT 문자열
+// (⑫ 관례). 코어 정합성(규율 3): 이미지 실파일 data/banner/{bn_id} 는 lib/banner-image.ts
+// 가 관리하며 삭제는 행+파일 동반(코어 bannerformupdate.php:52 는 INSERT 전 auto_increment=1
+// 리셋이라 bn_id 재사용 가능 → 파일만 남으면 옛 이미지 부활, 이를 방지). 이미지 교체 시
+// bn_time 갱신(캐시버스팅 — 브릿지가 ?v=bn_time 로 무효화). 영카트 배너관리(/adm)와 같은
+// 테이블 공유(점진 이관, MyISAM last-write-wins).
+const MAIN_BANNER_POSITION = '메인';
+
+export interface MainBanner {
+  id: number; // bn_id
+  title: string; // bn_alt
+  linkUrl: string; // bn_url ('' 면 링크 없음)
+  newWindow: boolean; // bn_new_win
+  order: number; // bn_order
+  beginAt: string; // bn_begin_time 'YYYY-MM-DD HH:mm:ss'
+  endAt: string; // bn_end_time
+  updatedAt: string; // bn_time 'YYYYMMDDHHmmss'(캐시버스팅 토큰)
+}
+
+function toMainBanner(row: RowDataPacket): MainBanner {
+  return {
+    id: Number(row.bn_id ?? 0),
+    title: String(row.bn_alt ?? ''),
+    linkUrl: String(row.bn_url ?? ''),
+    newWindow: Number(row.bn_new_win ?? 0) === 1,
+    order: Number(row.bn_order ?? 0),
+    beginAt: String(row.bn_begin_time ?? ''),
+    endAt: String(row.bn_end_time ?? ''),
+    updatedAt: String(row.bn_time ?? ''),
+  };
+}
+
+const MAIN_BANNER_SELECT = `SELECT bn_id, bn_alt, bn_url, bn_new_win, bn_order,
+    DATE_FORMAT(bn_begin_time, '%Y-%m-%d %H:%i:%s') AS bn_begin_time,
+    DATE_FORMAT(bn_end_time,   '%Y-%m-%d %H:%i:%s') AS bn_end_time,
+    DATE_FORMAT(bn_time,       '%Y%m%d%H%i%s')      AS bn_time
+  FROM g5_shop_banner`;
+
+export async function listMainBanners(): Promise<MainBanner[]> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `${MAIN_BANNER_SELECT} WHERE bn_position = ? ORDER BY bn_order, bn_id`,
+    [MAIN_BANNER_POSITION],
+  );
+  return rows.map(toMainBanner);
+}
+
+export async function getMainBannerById(id: number): Promise<MainBanner | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `${MAIN_BANNER_SELECT} WHERE bn_id = ? AND bn_position = ?`,
+    [id, MAIN_BANNER_POSITION],
+  );
+  const row = rows[0];
+  return row === undefined ? null : toMainBanner(row);
+}
+
+export interface MainBannerWrite {
+  title: string;
+  linkUrl: string;
+  newWindow: boolean;
+  beginAt: string; // 'YYYY-MM-DD HH:mm:ss'
+  endAt: string;
+}
+
+export async function createMainBanner(fields: MainBannerWrite): Promise<number> {
+  const pool = getG5Pool();
+  const [maxRows] = await pool.query<RowDataPacket[]>(
+    `SELECT COALESCE(MAX(bn_order), 0) + 1 AS next_order
+       FROM g5_shop_banner WHERE bn_position = ?`,
+    [MAIN_BANNER_POSITION],
+  );
+  const nextOrder = Number(maxRows[0]?.next_order ?? 1);
+  const now = kstDateTimeStr(new Date());
+  const [res] = await pool.query<ResultSetHeader>(
+    `INSERT INTO g5_shop_banner
+        SET bn_alt = ?, bn_url = ?, bn_device = 'both', bn_position = ?,
+            bn_border = '0', bn_new_win = ?, bn_begin_time = ?, bn_end_time = ?,
+            bn_time = ?, bn_hit = '0', bn_order = ?`,
+    [fields.title, fields.linkUrl, MAIN_BANNER_POSITION, fields.newWindow ? 1 : 0,
+     fields.beginAt, fields.endAt, now, nextOrder],
+  );
+  return res.insertId;
+}
+
+// touchImage=true(이미지 교체) 일 때만 bn_time 갱신 → 브릿지 캐시버스팅 무효화.
+export async function updateMainBanner(
+  id: number,
+  fields: MainBannerWrite,
+  touchImage: boolean,
+): Promise<number> {
+  const sets = ['bn_alt = ?', 'bn_url = ?', 'bn_new_win = ?', 'bn_begin_time = ?', 'bn_end_time = ?'];
+  const params: (string | number)[] = [
+    fields.title, fields.linkUrl, fields.newWindow ? 1 : 0, fields.beginAt, fields.endAt,
+  ];
+  if (touchImage) {
+    sets.push('bn_time = ?');
+    params.push(kstDateTimeStr(new Date()));
+  }
+  params.push(id, MAIN_BANNER_POSITION);
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_shop_banner SET ${sets.join(', ')} WHERE bn_id = ? AND bn_position = ?`,
+    params,
+  );
+  return res.affectedRows;
+}
+
+// 행 삭제만 — 이미지 파일 삭제는 라우트가 lib/banner-image 로 동반 수행(디스크 경로 의존).
+export async function deleteMainBannerRow(id: number): Promise<boolean> {
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `DELETE FROM g5_shop_banner WHERE bn_id = ? AND bn_position = ?`,
+    [id, MAIN_BANNER_POSITION],
+  );
+  return res.affectedRows > 0;
+}
+
+// 표시 순서대로 bn_order 재부여(1..n). 배너 수가 적어 개별 UPDATE 로 충분.
+export async function reorderMainBanners(ids: number[]): Promise<void> {
+  const pool = getG5Pool();
+  for (let i = 0; i < ids.length; i++) {
+    await pool.query<ResultSetHeader>(
+      `UPDATE g5_shop_banner SET bn_order = ? WHERE bn_id = ? AND bn_position = ?`,
+      [i + 1, ids[i], MAIN_BANNER_POSITION],
+    );
+  }
 }
 
 // ── 주문 선택 플래그 UPDATE ─────────────────────────────────────────────────

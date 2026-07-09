@@ -22,6 +22,7 @@ export const en = {
       marketProjects: 'Market projects',
       marketContracts: 'Market contracts',
       marketSettings: 'Market settings',
+      slides: 'Main slides',
       settings: 'Settings',
     },
     placeholder: 'Coming soon.',
