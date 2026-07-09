@@ -10,6 +10,10 @@ if(G5_COMMUNITY_USE === false) {
 include_once(G5_THEME_PATH.'/head.php');
 ?>
 
+<!-- 메인 슬라이드 배너 시작 { (영카트 배너관리 '메인' 위치 재사용) -->
+<?php include G5_THEME_PATH.'/inc/main_slider.php'; ?>
+<!-- } 메인 슬라이드 배너 끝 -->
+
 <h2 class="sound_only">최신글</h2>
 
 <div class="latest_top_wr">
