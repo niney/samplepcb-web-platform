@@ -88,7 +88,7 @@ const TABLE_RULES: readonly TableRule[] = [
   { match: 'g5_shop_item_qa', disposition: 'skip' },
   { match: 'g5_shop_item_relation', disposition: 'skip' },
   { match: 'g5_shop_item_stocksms', disposition: 'skip' },
-  { match: 'g5_shop_item_use', disposition: 'skip' },
+  { match: 'g5_shop_item_use', disposition: 'convert' }, // 상품 별점후기 → sp_review(05-reviews)
   { match: 'g5_shop_personalpay', disposition: 'skip' },
   { match: 'g5_shop_sendcost', disposition: 'skip' },
   { match: 'g5_shop_wish', disposition: 'skip' },
@@ -130,6 +130,14 @@ const LEGACY_ONLY_ALLOWED: Record<string, readonly (string | RegExp)[]> = {
     'it_member_memo', // 비회원 회수 고객정보 → _legacy 보존
   ],
   g5_shop_order: [/^od_([1-9]|1[0-7])$/], // od_1~11 → sp_order_biz_info (12~17 미사용 확정)
+  g5_shop_item_use: [
+    // 후기는 sp_review 로 변환(05-reviews) — 타깃 표준 g5_shop_item_use 에 없는 커스텀 답변 컬럼만 허용.
+    // (표준 컬럼 is_id/it_id/mb_id/is_score/is_content/is_confirm/is_password 등은 타깃에도 있어 통과.
+    //  단 is_password 는 회원 비번 해시 사본이라 sp_review 로는 실제 이관하지 않는다 — 05-reviews.)
+    'is_reply_subject',
+    'is_reply_content',
+    'is_reply_name',
+  ],
 };
 
 export interface GateResult {

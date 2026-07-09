@@ -139,6 +139,37 @@ model SpOrderBizInfo {
   @@map("sp_order_biz_info")
 }
 
+// 상품 별점후기 — 레거시 영카트 g5_shop_item_use(상품 사용후기=별점평가) 이관처.
+// 레거시는 후기를 "거버 제출건별 상품(it_id)"에 붙였으나, 신규는 상품이 4종 템플릿뿐이라
+// 후기를 주문/프로젝트(sp_order_spec) 단위로 재귀속한다: it_id → 레거시 cart 라인(od,ct) →
+// quoteId=uuidV5("od:ct") → sp_order_spec.quoteId (05-reviews.ts, 2026-07-09).
+// - is_password(회원 비번 해시 사본)는 어떤 형태로도 저장하지 않는다(보안).
+// - _legacy 혼합 저장 금지 — legacyJson 분리(SpMemberProfile 관례, 직렬화 500 전례 회피).
+model SpReview {
+  id           BigInt    @id @default(autoincrement())
+  legacyIsId   Int?      @unique // 레거시 is_id — 증분 sync 멱등 upsert 키(신규 후기는 null)
+  mbId         String    @db.VarChar(191) // 작성자(=주문자). 필수 저장
+  quoteId      String? // sp_order_spec.quoteId 귀속(매핑 실패 시 null — 데이터 보존)
+  specId       BigInt? // sp_order_spec.id 부가 캐시(정본은 quoteId)
+  score        Int // is_score 1~5
+  subject      String?   @db.VarChar(255) // is_subject
+  content      String    @db.Text // is_content
+  isConfirm    Int       @default(0) // is_confirm 노출 승인 게이트(증분에서 0 가능)
+  replySubject String?   @db.VarChar(255) // is_reply_subject(관리자 답변)
+  replyContent String?   @db.Text // is_reply_content
+  replyName    String?   @db.VarChar(50) // is_reply_name(관리자 mb_nick)
+  repliedAt    DateTime? // 레거시 답변시각 컬럼 부재 → 이관분 항상 null
+  writeDate    DateTime // is_time
+  legacyItId   String?   @db.VarChar(20) // 원본 it_id(매핑 실패 조사·감사)
+  legacyJson   Json? // is_ip 등 잔여 원본(is_password 는 절대 제외)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([quoteId])
+  @@index([mbId])
+  @@map("sp_review")
+}
+
 // ── PCB 재능마켓 (sp_market_*, 2026-07-08 1차=매칭까지) ─────────────────────
 // 회원 = 그누보드(g5_member). mbId 는 JWT 클레임 유래 문자열 — FK 금지(공유 DB 조인 키).
 // 분야/CAD 등 코드 사전은 @sp/api-contract 의 MARKET_* 상수가 정본, 여기엔 코드만 저장.

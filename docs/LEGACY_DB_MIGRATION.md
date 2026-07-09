@@ -35,11 +35,12 @@
 
 > 정본은 `manifest.ts` `TABLE_RULES`(게이트가 이 표로 전수 대조 — 미분류 발견 시 중단). 아래는 그 스냅샷.
 
-### 변환 (1) — 신규 모델로 재구성
+### 변환 (2) — 신규 모델로 재구성
 
 | 테이블 | 행수 | 행선지 |
 |---|---|---|
 | g5_shop_item | 45,137 | **주문 연결분만** → sp_order_spec + sp_quote(+sp_file) + 신규 g5_shop_cart(io 규약) + g5_shop_item_option. 고아 견적(주문 미연결)은 스킵(사용자 확정) |
+| g5_shop_item_use | 61 | 상품 별점후기 → **`sp_review`**(신규 Prisma 모델). it_id→레거시 cart 라인→quoteId→sp_order_spec 귀속. `is_password`(회원 비번 해시 사본) 미이관. §5-B (2026-07-09) |
 
 ### 복사+보정 (24) — 동명 테이블로 이관
 
@@ -58,7 +59,7 @@
 | g5_auth | 8 | 회원 존재분만 |
 | g5_write_{notice,qa,faq,data,customer_center,review,portfolio,production_s,open_market} | 28/706/37/38/9/87/0/0/11 | wr_id 보존(댓글·공지·첨부 참조 정합). open_market 은 P2 게이트 발견 후 추가 |
 
-### 스킵 (46) — 운영성·파생·빈 테이블·설정(신규 유지)
+### 스킵 (45) — 운영성·파생·빈 테이블·설정(신규 유지)
 
 | 그룹 | 테이블(행수) | 사유 |
 |---|---|---|
@@ -69,7 +70,7 @@
 | 임시·파생 | g5_autosave(94) · g5_board_new(8) · g5_board_good(0) · g5_mail(4) · g5_shop_order_data(1,693 — PG 임시) · g5_shop_cart_tmp(5,259 — 2022 멈춘 잔재, PHP 참조 0건) | 재생성/사문화 |
 | 빈 테이블 | g5_memo · g5_scrap · g5_poll(_etc) · g5_faq(+master 1 — 실데이터는 write_faq) · g5_cert_history · g5_group_member · g5_new_win(26 — 팝업) · g5_shop_{order_delete, banner, event, event_item, coupon_zone, item_ext, item_option, item_qa, item_relation, item_stocksms, personalpay, sendcost, wish} · g5_shop_inicis_log(6) | 0행 또는 무가치 |
 | SMS 플러그인 | sms5_book(3,461) · sms5_book_group(1) · sms5_{config,form,form_group,history,write}(0) | 주소록은 회원 연락처 파생 — 신규 sms5 에서 재동기화 |
-| ⚠ 재고 여지 | **g5_shop_item_use(61)** — 상품 별점후기 | 2020 덤프 0건 기준 스킵 처분했으나 **운영엔 61건 실재**. 이관하려면 it_id 가 견적 생성 상품이라 상품 연결은 끊긴 채 목록성 이관만 가능 — 필요 시 재처분 |
+| ✅ 재처분 완료 | **g5_shop_item_use(61)** — 상품 별점후기 | 2020 덤프 0건 기준 스킵이었으나 운영 61건 실재 → **2026-07-09 convert 재처분**: sp_order_spec 귀속 sp_review 변환(§5-B). "상품 연결 끊김"은 프로젝트 귀속으로 해소 |
 
 ### 미이관 — 레거시 자체 sp_* (25, 사용자 확정)
 
@@ -118,6 +119,32 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 - **회원**: 교집합 복사(+NOT NULL 무default 명시 채움), mb_1~10 제외, admin/kpeter 등 타깃 기존재 스킵(주소록은 예외 — 타깃 0건이면 이관). 프로필 승격 매핑은 schema.prisma 주석 참조.
 - **처리 순서(od 단위)**: 헤더 → 라인마다 [옵션행 → cart(ct_id 확보) → SpQuote → SpOrderSpec(**ctId 포함 생성** — 반쪽 상태 창 없음) → SpFile(원장 pathToken)] → SpOrderBizInfo.
 - **quoteStatus**: 주문까지 간 견적이므로 전건 `quoted` + `finalPrice`(VAT 포함), `pricedBy='legacy-migration'`, `priceVersion='legacy-migration'`.
+
+## 5-B. 별점후기 변환 (g5_shop_item_use → sp_review, 2026-07-09)
+
+레거시는 후기를 "거버 제출건별 상품(it_id)"에 붙였으나 신규는 상품이 4종 템플릿뿐이라, 후기를
+**주문/프로젝트(`sp_order_spec`) 단위로 재귀속**한다(A안 — Fable 독립 자문 + 코드/DB 재검증 확정).
+구현 `phases/05-reviews.ts`(phase·sync 공유 순수 함수). manifest `convert` 처분 + 게이트
+`LEGACY_ONLY_ALLOWED['g5_shop_item_use']`=is_reply_* 3컬럼.
+
+- **귀속 결정 규칙**(순수·결정적 = sync 멱등): 후기 `it_id` → **레거시** `g5_shop_cart` 라인(⚠ 타깃
+  cart.it_id 는 템플릿 재작성이라 반드시 레거시) → **mb_id 일치 필터**(작성자=주문자) → 그래도
+  다수(재주문 1:N)면 `(od_id,ct_id)` 오름차순 **첫 라인** + 리포트 → `quoteId=uuidV5("od:ct")`
+  (02-shop 산식 동일) → `sp_order_spec.quoteId` findFirst 로 `specId`.
+- **매핑 실패도 저장**(quoteId/specId=null + `legacyItId` 보존 + 리포트) — 스킵 금지(데이터 보존). 단
+  quoteId 는 대응 spec 이 실제 존재할 때만 채운다(verify "quoteId 비-null 행의 spec 존재" 불변식).
+- **보안**: `is_password` 는 **회원 비번 해시 사본**(작성 당시 mb_password 복제 — 실측 61/61 일치)이라
+  어떤 컬럼·`legacyJson`에도 넣지 않는다. `_legacy` 혼합 금지 → 명시 컬럼 + `legacyJson`(is_name·is_ip만) 분리.
+- **답변**: is_reply_subject/content/name(커스텀 컬럼) → replySubject/Content/Name 1급 컬럼. **레거시에
+  답변시각 컬럼이 없어** `repliedAt`은 이관분 항상 null(추정 조작 금지).
+- **멱등 키**: `legacyIsId Int? @unique`(레거시 is_id — 후기 쓰기 경로에 재발급 없음 실측). 신규 작성분은 null.
+- **증분 sync**(`resyncReviews`, 전행 대조): row-diff.syncTableRows 는 g5 writer 기반이라 Prisma 소유
+  sp_review 에 못 써 전용 소형 루프. 부재 INSERT / 상이 UPDATE(후기 수정·답변 추가) / 동일 no-op /
+  레거시 부재는 삭제 리포트-온리.
+- **비범위**: 표시(홈/목록)·관리자 UI·고객 신규작성 폼(추후 별도).
+- **실증(2026-07-09)**: run --phase=reviews → 61건 전량 귀속(실패 0·1:N 0), verify 그린(행수 61·score합
+  302·귀속 61·답변 8). sync 리허설(신규 후기·별점 수정·답변 추가·삭제 주입) → 반영 정확 + 재실행 no-op +
+  삭제 리포트 + 비번해시 유출 0 실측.
 
 ## 6. P1 리허설 실증 (2026-07-07, 2020-12 덤프 → samplepcb 사본)
 

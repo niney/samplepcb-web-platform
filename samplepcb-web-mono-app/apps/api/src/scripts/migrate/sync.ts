@@ -18,7 +18,7 @@ import { G5Writer } from './lib/g5-writer';
 import type { Row } from './lib/g5-writer';
 import { Ledger } from './lib/ledger';
 import { prepareTargetSchema } from './lib/schema-prep';
-import { asStr, chunk, resolveMigrateTmpDir } from './lib/util';
+import { asInt, asStr, chunk, resolveMigrateTmpDir } from './lib/util';
 import { resyncMembers, tailAppendPoints, protectedMbIds } from './lib/sync/member-resync';
 import { resyncOrders, verifyOrdersMoney } from './lib/sync/order-resync';
 import { normValue, syncTableRows } from './lib/sync/row-diff';
@@ -27,6 +27,7 @@ import { runMembersPhase } from './phases/01-members';
 import { prepareShopDeps, runShopPhase } from './phases/02-shop';
 import { runBoardsPhase } from './phases/03-boards';
 import { runMiscPhase } from './phases/04-misc';
+import { emptyReviewStats, loadReviewLineIndex, upsertReview } from './phases/05-reviews';
 
 function dbNameOf(url: string | undefined): string {
   if (url === undefined || url === '') return '(미설정)';
@@ -125,6 +126,7 @@ async function main(): Promise<void> {
     await resyncBoards(ctx);
     await resyncQa(ctx);
     await resyncAddresses(ctx);
+    await resyncReviews(ctx);
 
     // ── (c) 삭제·이상 검출(리포트만) ──
     console.log('\n━━ (c) 삭제·이상 검출 ━━');
@@ -175,6 +177,38 @@ async function resyncBoards(ctx: MigrateCtx): Promise<void> {
     targetRows: await g5.select(`SELECT * FROM g5_board_file`),
     reportPrefix: 'sync.게시판 첨부',
   });
+}
+
+/**
+ * 별점후기 재대조 — 후기 수정·관리자 답변 추가가 in-place UPDATE 라 전행 대조(61건 소형 루프).
+ * row-diff.syncTableRows 는 g5 writer 기반이라 Prisma 소유 sp_review 에 못 쓴다 → 전용 루프.
+ * 신규+갱신은 upsertReview(legacyIsId 멱등) 가 겸하고, 삭제(레거시 부재)는 리포트-온리.
+ */
+async function resyncReviews(ctx: MigrateCtx): Promise<void> {
+  const { legacy, prisma, report } = ctx;
+  console.log('── sync: reviews 재대조 ──');
+  const reviews = await legacy(`SELECT * FROM g5_shop_item_use ORDER BY is_id`);
+  const index = await loadReviewLineIndex(
+    ctx,
+    reviews.map((r) => asStr(r.it_id)),
+  );
+  const stats = emptyReviewStats();
+  for (const r of reviews) await upsertReview(ctx, r, index, stats);
+  if (stats.inserted > 0) report.count('sync.후기 삽입', stats.inserted);
+  if (stats.updated > 0) report.count('sync.후기 갱신', stats.updated);
+  if (stats.unmapped > 0) report.count('sync.후기 귀속 실패(보존)', stats.unmapped);
+
+  // 삭제 검출(리포트-온리) — 타깃 이관분(legacyIsId 보유) 중 레거시에 없는 것.
+  const legacyIsIds = new Set(reviews.map((r) => asInt(r.is_id)));
+  const targetRows = await prisma.spReview.findMany({
+    where: { legacyIsId: { not: null } },
+    select: { legacyIsId: true },
+  });
+  for (const t of targetRows) {
+    if (t.legacyIsId !== null && !legacyIsIds.has(t.legacyIsId)) {
+      report.note('sync.후기 삭제 검출(레거시 부재 — 수동 확인)', `is_id ${String(t.legacyIsId)}`, 30);
+    }
+  }
 }
 
 /** 1:1문의 재대조 — 답변 등록이 질문 행 qa_status 를 UPDATE 하므로 전행 대조 필수(P1-7). */

@@ -138,6 +138,15 @@ async function main(): Promise<void> {
       check(`행수 게시판 ${board}`, t >= l, `레거시 ${String(l)} → 타깃 ${String(t)}`);
     }
 
+    // 별점후기(sp_review) 행수 — 이관분(legacyIsId 보유) 기준(신규 작성분 제외)
+    {
+      const l = asInt(
+        (await legacySelect(`SELECT COUNT(*) c FROM g5_shop_item_use`))[0]?.c,
+      );
+      const t = await prisma.spReview.count({ where: { legacyIsId: { not: null } } });
+      check('행수 별점후기(sp_review)', t >= l, `레거시 ${String(l)} → 타깃 ${String(t)}`);
+    }
+
     // ── 2) 금액 항등(이관 주문 전수) ──
     const legacyOrders = new Map<string, { misu: number }>();
     for (const r of await legacySelect(`SELECT od_id, od_misu FROM g5_shop_order`)) {
@@ -252,6 +261,48 @@ async function main(): Promise<void> {
 
     const fileCount = await prisma.spFile.count({ where: { refType: 'sp_order_spec' } });
     check('sp_file 연결', true, `${String(fileCount)}건 (누락은 phase 02 리포트 '파일 미업로드' 참조)`);
+
+    // 별점후기 정합: 별점 합 항등 · 귀속(quoteId 비-null 행의 spec 존재) · 관리자 답변 보존
+    {
+      const legacyScore = asInt(
+        (await legacySelect(`SELECT SUM(is_score) s FROM g5_shop_item_use`))[0]?.s,
+      );
+      const targetScore = (await prisma.spReview.aggregate({
+        where: { legacyIsId: { not: null } },
+        _sum: { score: true },
+      }))._sum.score;
+      check('별점후기 score 합 항등', (targetScore ?? 0) === legacyScore, `레거시 ${String(legacyScore)} → 타깃 ${String(targetScore ?? 0)}`);
+
+      const reviewQuoteIds = (
+        await prisma.spReview.findMany({
+          where: { quoteId: { not: null } },
+          select: { quoteId: true },
+        })
+      )
+        .map((r) => r.quoteId)
+        .filter((v): v is string => v !== null);
+      let danglingReview = 0;
+      if (reviewQuoteIds.length > 0) {
+        const foundQuotes = new Set(
+          (
+            await prisma.spOrderSpec.findMany({
+              where: { quoteId: { in: reviewQuoteIds } },
+              select: { quoteId: true },
+            })
+          ).map((s) => s.quoteId),
+        );
+        danglingReview = reviewQuoteIds.filter((q) => !foundQuotes.has(q)).length;
+      }
+      check('후기.quoteId → spec 정합', danglingReview === 0, `끊어진 귀속 ${String(danglingReview)}건 / 귀속 후기 ${String(reviewQuoteIds.length)}건`);
+
+      const legacyReplies = asInt(
+        (await legacySelect(`SELECT COUNT(*) c FROM g5_shop_item_use WHERE is_reply_content <> ''`))[0]?.c,
+      );
+      const targetReplies = await prisma.spReview.count({
+        where: { legacyIsId: { not: null }, replyContent: { not: null } },
+      });
+      check('후기 관리자 답변 보존', targetReplies >= legacyReplies, `레거시 ${String(legacyReplies)} → 타깃 ${String(targetReplies)}`);
+    }
 
     // ── 4) 포인트 정합 ──
     // 합계 대조는 "행수까지 일치하는 회원"(=이관 대상 그 자체)만 — 기존 계정(admin 등, 카운트

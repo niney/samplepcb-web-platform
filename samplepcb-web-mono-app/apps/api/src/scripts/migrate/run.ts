@@ -23,8 +23,10 @@ import { runMembersPhase } from './phases/01-members';
 import { runShopPhase } from './phases/02-shop';
 import { runBoardsPhase } from './phases/03-boards';
 import { runMiscPhase } from './phases/04-misc';
+import { runReviewsPhase } from './phases/05-reviews';
 
-const PHASE_ORDER = ['members', 'shop', 'boards', 'misc'] as const;
+// reviews 는 shop 뒤 — 후기 귀속 대상 sp_order_spec 이 먼저 존재해야 한다.
+const PHASE_ORDER = ['members', 'shop', 'boards', 'misc', 'reviews'] as const;
 type PhaseName = (typeof PHASE_ORDER)[number];
 
 function dbNameOf(url: string | undefined): string {
@@ -124,6 +126,7 @@ async function main(): Promise<void> {
       shop: runShopPhase,
       boards: runBoardsPhase,
       misc: runMiscPhase,
+      reviews: runReviewsPhase,
     };
     for (const phase of PHASE_ORDER) {
       if (!requested.has(phase)) continue;
