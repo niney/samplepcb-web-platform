@@ -24,7 +24,7 @@ if (defined('G5_USE_SHOP') && G5_USE_SHOP) {
         // array('위시리스트', G5_SHOP_URL.'/wishlist.php'), // 숨김: SP_USE_WISHLIST=false — docs/wishlist-hidden.md
         array('쿠폰존',     G5_SHOP_URL.'/couponzone.php'),
         array('개인결제',   G5_SHOP_URL.'/personalpay.php'),
-        array('사용후기',   G5_SHOP_URL.'/itemuselist.php'),
+        array('고객후기',   G5_URL.'/reviews'),
         array('상품문의',   G5_SHOP_URL.'/itemqalist.php'),
     );
 }
