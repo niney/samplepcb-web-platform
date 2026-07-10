@@ -14,58 +14,43 @@ include_once(G5_THEME_PATH.'/head.php');
 <?php include G5_THEME_PATH.'/inc/main_slider.php'; ?>
 <!-- } 메인 슬라이드 배너 끝 -->
 
-<h2 class="sound_only">최신글</h2>
+<!-- 별점후기 쇼케이스 시작 { (sp_review 상위 N, 전체=/reviews) -->
+<?php include G5_THEME_PATH.'/inc/main_reviews.php'; ?>
+<!-- } 별점후기 쇼케이스 끝 -->
 
-<div class="latest_top_wr">
-    <?php
-    // 이 함수가 바로 최신글을 추출하는 역할을 합니다.
-    // 사용방법 : latest(스킨, 게시판아이디, 출력라인, 글자수);
-    // 테마의 스킨을 사용하려면 theme/basic 과 같이 지정
-    echo latest('theme/pic_list', 'free', 4, 23);		// 최소설치시 자동생성되는 자유게시판
-	echo latest('theme/pic_list', 'qa', 4, 23);			// 최소설치시 자동생성되는 질문답변게시판
-	echo latest('theme/pic_list', 'notice', 4, 23);		// 최소설치시 자동생성되는 공지사항게시판
-    ?>
+<!-- 홈 게시판 3단 시작 { (공지사항 | Q&A | FAQ — 나머지 게시판은 우측 하단 '미배치 링크' 패널) -->
+<style>
+.sp-home-boards { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin:8px 0 44px; }
+.sp-home-board { min-width:0; }
+.sp-home-board .sp-hb { height:100%; box-sizing:border-box; border-radius:16px; padding:26px 24px; color:#fff; }
+.sp-home-board--notice .sp-hb { background:#12b886; }
+.sp-home-board--qa .sp-hb { background:var(--sp-primary,#0b57d0); }
+.sp-home-board--faq .sp-hb { background:#39424e; }
+.sp-hb__head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.sp-hb__title { margin:0; font-size:21px; font-weight:800; }
+.sp-hb__title a { color:#fff; text-decoration:none; }
+.sp-hb__more { font-size:12px; font-weight:700; letter-spacing:.04em; color:#fff; text-decoration:none; border:1px solid rgba(255,255,255,.55); border-radius:999px; padding:5px 14px; transition:background .15s; }
+.sp-hb__more:hover { background:rgba(255,255,255,.2); color:#fff; }
+.sp-hb__list { list-style:none; margin:0; padding:0; }
+.sp-hb__item { position:relative; border-top:1px solid rgba(255,255,255,.18); }
+.sp-hb__item:first-child { border-top:0; }
+.sp-hb__item::before { content:""; position:absolute; left:7px; top:50%; width:4px; height:4px; margin-top:-2px; border-radius:50%; background:rgba(255,255,255,.75); pointer-events:none; }
+.sp-hb__link { display:flex; align-items:center; gap:6px; padding:9px 12px 9px 20px; color:#fff; text-decoration:none; font-size:14px; }
+/* 테마 전역 a:hover(파랑)가 색 패널 위에서 글자를 안 보이게 함 → 호버해도 흰색 유지(가독성) */
+.sp-hb__link:hover { color:#fff; }
+.sp-hb__link:hover .sp-hb__subj { text-decoration:underline; }
+.sp-hb__lock { flex:0 0 auto; font-size:12px; opacity:.85; }
+.sp-hb__subj { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sp-hb__new { flex:0 0 auto; font-size:10px; font-weight:800; color:#ffe36e; }
+.sp-hb__empty { padding:9px 0; font-size:14px; color:rgba(255,255,255,.82); }
+@media (max-width:1023.98px) { .sp-home-boards { grid-template-columns:1fr; } }
+</style>
+<div class="sp-home-boards">
+    <div class="sp-home-board sp-home-board--notice"><?php echo latest('theme/home', 'notice', 4, 30); ?></div>
+    <div class="sp-home-board sp-home-board--qa"><?php echo latest('theme/home', 'qa', 4, 30); ?></div>
+    <div class="sp-home-board sp-home-board--faq"><?php echo latest('theme/home', 'faq', 4, 30); ?></div>
 </div>
-<div class="latest_wr">
-    <!-- 사진 최신글2 { -->
-    <?php
-    // 이 함수가 바로 최신글을 추출하는 역할을 합니다.
-    // 사용방법 : latest(스킨, 게시판아이디, 출력라인, 글자수);
-    // 테마의 스킨을 사용하려면 theme/basic 과 같이 지정
-    echo latest('theme/pic_block', 'gallery', 4, 23);		// 최소설치시 자동생성되는 갤러리게시판
-    ?>
-    <!-- } 사진 최신글2 끝 -->
-</div>
-
-<div class="latest_wr">
-<!-- 최신글 시작 { -->
-    <?php
-    //  최신글
-    $sql = " select bo_table
-                from `{$g5['board_table']}` a left join `{$g5['group_table']}` b on (a.gr_id=b.gr_id)
-                where a.bo_device <> 'mobile' ";
-    if(!$is_admin)
-	$sql .= " and a.bo_use_cert = '' ";
-    $sql .= " and a.bo_table not in ('notice', 'gallery') ";     //공지사항과 갤러리 게시판은 제외
-    $sql .= " order by b.gr_order, a.bo_order ";
-    $result = sql_query($sql);
-    for ($i=0; $row=sql_fetch_array($result); $i++) {
-		$lt_style = '';
-    	if ($i%3 !== 0 ) $lt_style = "margin-left:2%";
-    ?>
-    <div style="float:left;<?php echo $lt_style ?>" class="lt_wr">
-        <?php
-        // 이 함수가 바로 최신글을 추출하는 역할을 합니다.
-        // 사용방법 : latest(스킨, 게시판아이디, 출력라인, 글자수);
-        // 테마의 스킨을 사용하려면 theme/basic 과 같이 지정
-        echo latest('theme/basic', $row['bo_table'], 6, 24);
-        ?>
-    </div>
-    <?php
-    }
-    ?>
-    <!-- } 최신글 끝 -->
-</div>
+<!-- } 홈 게시판 3단 끝 -->
 
 <?php
 include_once(G5_THEME_PATH.'/tail.php');

@@ -7,13 +7,30 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 // - 출처: theme/basic head/tail·shop.head/shop.tail (원본은 repo의 theme/basic 에 보존)
 $sp_quicklinks = array(
     '커뮤니티' => array(
-        array('FAQ',        G5_BBS_URL.'/faq.php'),
         array('1:1문의',    G5_BBS_URL.'/qalist.php'),
         array('새글',       G5_BBS_URL.'/new.php'),
         array('현재접속자', G5_BBS_URL.'/current_connect.php'),
         array('전체검색',   G5_BBS_URL.'/search.php'),
     ),
 );
+
+// 미배치 게시판 — 홈 3단(공지사항·질문답변·FAQ)에 배치되지 않은 나머지 게시판.
+// 정식 배치 시 해당 줄 제거. (뒤 4개는 현재 0건)
+$sp_quick_boards = array(
+    'review'          => '고객후기',
+    'data'            => '자료실',
+    'customer_center' => '고객센터',
+    'open_market'     => '오픈마켓',
+    'free'            => '자유게시판',
+    'gallery'         => '갤러리',
+    'portfolio'       => 'PCB이해',
+    'production_s'    => '생산규격',
+);
+$sp_quicklinks['게시판'] = array();
+foreach ($sp_quick_boards as $sp_bt => $sp_label) {
+    $sp_url = function_exists('get_pretty_url') ? get_pretty_url($sp_bt) : G5_BBS_URL.'/board.php?bo_table='.$sp_bt;
+    $sp_quicklinks['게시판'][] = array($sp_label, $sp_url);
+}
 
 if (defined('G5_USE_SHOP') && G5_USE_SHOP) {
     $sp_quicklinks['쇼핑몰'] = array(

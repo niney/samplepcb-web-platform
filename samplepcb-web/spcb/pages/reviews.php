@@ -13,46 +13,7 @@
 //   실명이라 가운데 마스킹(mbId=이메일 PII 는 어디에도 노출 안 함). 읽기 전용(로그인·작성 불필요).
 
 include_once __DIR__ . '/../../common.php'; // 그누보드 부트스트랩 → $config, 테마 상수, sql_* 함수
-
-// ── 작성자 실명 마스킹: 박종현 → 박*현, 이태중 → 이*중, 홍길 → 홍* (순수 문자열) ──
-function sp_review_mask($name)
-{
-    $name = trim((string) $name);
-    $len = mb_strlen($name, 'UTF-8');
-    if ($len <= 1) return $name;
-    if ($len === 2) return mb_substr($name, 0, 1, 'UTF-8') . '*';
-    return mb_substr($name, 0, 1, 'UTF-8') . str_repeat('*', $len - 2) . mb_substr($name, -1, 1, 'UTF-8');
-}
-function sp_review_name($raw)
-{
-    $name = trim((string) $raw);
-    if ($name === '') return '고객';
-    return htmlspecialchars(sp_review_mask($name), ENT_QUOTES, 'UTF-8');
-}
-
-// ── 본문 새니타이즈: 문단/줄바꿈만 개행으로 남기고 모든 태그 제거 → 엔티티 정규화 → 재이스케이프 → nl2br ──
-//    · strip_tags 로 script/style/span/on* 전부 소거 → XSS 원천 차단.
-//    · html_entity_decode 로 &nbsp; 등 레거시 엔티티를 실제 문자로 되돌린 뒤(안 하면 화면에 리터럴 노출),
-//      htmlspecialchars 로 다시 안전하게 인코딩. 최종 <br>만 우리가 삽입.
-//    · $maskName 지정 시(관리자 답변) 본문이 호칭하는 작성자 실명을 동일 규칙으로 마스킹 — 공개 PII 최소화.
-function sp_review_body($html, $maskName = '')
-{
-    $t = preg_replace('#</p\s*>|<br\s*/?>#i', "\n", (string) $html);
-    $t = strip_tags($t);
-    $t = html_entity_decode($t, ENT_QUOTES, 'UTF-8');
-    $t = trim($t);
-    if ($maskName !== '' && mb_strlen($maskName, 'UTF-8') >= 2) {
-        $t = str_replace($maskName, sp_review_mask($maskName), $t);
-    }
-    return nl2br(htmlspecialchars($t, ENT_QUOTES, 'UTF-8'));
-}
-
-// ── 별점(5점 만점) ──
-function sp_review_stars($score)
-{
-    $s = max(0, min(5, (int) $score));
-    return str_repeat('★', $s) . str_repeat('☆', 5 - $s);
-}
+include_once G5_THEME_PATH . '/inc/reviews_lib.php'; // sp_review_mask/name/body/stars 공용 헬퍼
 
 $g5['title'] = '고객후기';
 include_once(G5_THEME_PATH . '/head.php');

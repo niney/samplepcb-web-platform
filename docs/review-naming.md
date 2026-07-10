@@ -36,3 +36,16 @@
 - **진입점**: `theme/sp-lite/inc/quicklinks.php` 의 '고객후기' → `/reviews`(임시 플로팅 패널). 정식 GNB 배치는 후속.
 - **범위**: 읽기 전용 1단계. **관리자 노출토글(isConfirm)·고객 신규 작성은 후속.**
 - **한계**: 답변 실명 마스킹은 작성자 본인 이름만 커버(답변이 제3자 이름을 부르면 미커버) — 신규 작성/관리 도입 시 정책 재점검.
+
+## 홈 메인 게시판 정리 + 별점후기 쇼케이스 (2026-07-10 구현)
+
+라이브 `www.samplepcb.co.kr`(리뉴얼된 새 디자인)의 메인 하단 구조를 sp-php 커뮤니티 홈(`theme/sp-lite/index.php`)으로 이관했다. 기존 홈은 그누보드 스톡 커뮤니티 레이아웃(`free/qa/notice` + `gallery` + "나머지 전 게시판 루프")이라 정리되지 않았다.
+
+**메인 구조 = 슬라이더(기존) → 별점후기 쇼케이스 → 공지사항 | 질문답변 | FAQ 3단 그리드.**
+
+- **별점후기 쇼케이스** — `theme/sp-lite/inc/main_reviews.php` 신규. `sp_review`(isConfirm=1) 최신 8건을 카드 그리드(4열/2열/1열 반응형)로. 평균 별점·총건수 헤더 + "전체 별점후기 보기" → `/reviews`. 라이브 "별점평가가 증명하는 제조서비스" 섹션 대응. **"사용후기" = 별점후기 쇼케이스(`sp_review`)** 로 확정(레거시 `review` 게시판 아님) — 라이브가 이 축을 씀. 이로써 `/reviews` 가 정식 진입점(MORE)을 얻음.
+- **3단 게시판 그리드** — `notice`(공지사항)·`qa`(질문답변)·`faq`(FAQ). 신규 홈 전용 최신글 스킨 `theme/sp-lite/skin/latest/home/latest.skin.php` + `index.php` 인라인 CSS(색상 녹/청/회). 코어 `latest()` 재사용.
+- **공용 헬퍼 추출** — `sp_review_mask/name/body/stars` + 신규 `sp_review_text`(평문 미리보기)를 `theme/sp-lite/inc/reviews_lib.php` 로 분리해 `reviews.php`·`main_reviews.php` 가 공유(중복 제거).
+- **미배치 링크(작업용) 패널** — `inc/quicklinks.php` 에 '게시판' 그룹 추가: 홈에 안 올라간 나머지 게시판(`review` 고객후기·`data` 자료실·`customer_center` 고객센터·`open_market` 오픈마켓 + 0건인 `free`·`gallery`·`portfolio`·`production_s`). 관리자 전용 게이트 없이 전체 노출. 내장 FAQ(`faq.php`, `g5_faq` 항목 0건)는 홈 FAQ 게시판과 중복이라 패널에서 제거.
+- **코어 무변경** — 신규는 전부 `theme/sp-lite/`(우리 테마)·`spcb/pages/`. `bbs/`·`shop/`·`config.php` 무수정. CSS 는 인라인 `<style>`(링크 CSS 아님)이라 `G5_CSS_VER` 캐시버스팅 불필요.
+- **후속**: 별점후기 관리자 노출토글·고객 신규 작성(위 1단계 후속과 동일). `notice/qa/faq` 정식 GNB 메뉴 배치는 메뉴설정(DB) 영역.
