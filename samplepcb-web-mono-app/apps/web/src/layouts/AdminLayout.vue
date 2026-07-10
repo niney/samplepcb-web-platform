@@ -17,12 +17,14 @@ const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true)
       <div class="border-b border-gray-200 px-5 py-4">
         <div class="flex items-center justify-between gap-2">
           <RouterLink to="/" class="text-lg font-bold text-blue-600">{{ $t('app.name') }}</RouterLink>
-          <RouterLink
-            to="/"
+          <!-- sp-php 메인(도메인 루트 = 그누보드 홈)으로 전체 이동. sp-vue 메인(/app)은 당분간
+               사용 안 하므로 RouterLink(SPA 내부)가 아니라 일반 앵커로 풀 내비게이션. -->
+          <a
+            href="/"
             class="rounded-md border border-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
           >
             {{ $t('common.backToSite') }}
-          </RouterLink>
+          </a>
         </div>
         <p class="mt-0.5 text-xs text-gray-400">{{ $t('admin.title') }}</p>
       </div>

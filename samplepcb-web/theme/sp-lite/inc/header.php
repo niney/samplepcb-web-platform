@@ -49,8 +49,9 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
                 <?php if ($is_member) { ?>
                 <li class="sp-util__member"><a href="<?php echo G5_BBS_URL ?>/member_confirm.php?url=<?php echo G5_BBS_URL ?>/register_form.php"><b><?php echo get_text($member['mb_nick']); ?></b>님</a></li>
                 <li><a href="<?php echo G5_BBS_URL ?>/logout.php">로그아웃</a></li>
-                <?php if ($is_admin) { ?>
-                <li><a href="<?php echo correct_goto_url(G5_ADMIN_URL); ?>">관리자</a></li>
+                <?php if ($is_admin == 'super') { // 최고관리자(cf_admin)에게만 노출 — sp-vue 접근권(spcb/api/me.php isAdmin=cf_admin)과 일치. 접근 자체는 막지 않음(직접 URL 가능). ?>
+                <li><a href="<?php echo G5_URL; ?>/app/admin">관리자</a></li>
+                <li><a href="<?php echo correct_goto_url(G5_ADMIN_URL); ?>">시스템 관리자</a></li>
                 <?php } ?>
                 <?php } else { ?>
                 <li><a href="<?php echo G5_BBS_URL ?>/login.php?url=<?php echo isset($urlencode) ? $urlencode : ''; ?>">로그인</a></li>
