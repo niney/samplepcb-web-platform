@@ -19,6 +19,7 @@ import { adminMemberRoutes } from './routes/admin-members';
 import { adminOrderRoutes } from './routes/admin-orders';
 import { adminSettingsRoutes } from './routes/admin-settings';
 import { adminSlidesRoutes } from './routes/admin-slides';
+import { adminSeoRoutes } from './routes/admin-seo';
 import { adminMarketExpertRoutes } from './routes/admin-market-experts';
 import { adminMarketProjectRoutes } from './routes/admin-market-projects';
 import { adminMarketContractRoutes } from './routes/admin-market-contracts';
@@ -64,6 +65,8 @@ await app.register(adminOrderRoutes, { prefix: '/api/admin' });
 await app.register(adminSettingsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 홈 메인 슬라이드 관리(g5_shop_banner '메인' read/write + 로컬 이미지)
 await app.register(adminSlidesRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 페이지별 SEO 메타 관리(sp_seo read/write, 소비는 sp-php head.sub.php)
+await app.register(adminSeoRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일
 await app.register(adminMarketExpertRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketProjectRoutes, { prefix: '/api/admin' });

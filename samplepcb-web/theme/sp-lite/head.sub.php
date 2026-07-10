@@ -66,8 +66,10 @@ if (!empty($member['mb_id']) && !G5_IS_MOBILE) {
 <meta name="viewport" id="meta_viewport" content="width=device-width,initial-scale=1">
 <meta name="format-detection" content="telephone=no">
 <?php
-if($config['cf_add_meta'])
+if($config['cf_add_meta']) // 정책: cf_add_meta 는 소유권/검증 태그 전용(description·OG 는 sp_seo 경유)
     echo $config['cf_add_meta'].PHP_EOL;
+// SEO 메타 브릿지(sp_seo) — <title> 직전. $g5_head_title 오버라이드 + description/og/canonical 출력.
+include_once(G5_THEME_PATH.'/inc/seo_head.php');
 ?>
 <title><?php echo $g5_head_title; ?></title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">

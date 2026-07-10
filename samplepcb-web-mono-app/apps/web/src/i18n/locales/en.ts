@@ -23,6 +23,7 @@ export const en = {
       marketContracts: 'Market contracts',
       marketSettings: 'Market settings',
       slides: 'Main slides',
+      seo: 'SEO',
       settings: 'Settings',
     },
     placeholder: 'Coming soon.',

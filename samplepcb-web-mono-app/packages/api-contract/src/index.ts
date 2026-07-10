@@ -6,5 +6,6 @@ export * from './schemas/members';
 export * from './schemas/orders';
 export * from './schemas/settings';
 export * from './schemas/slides';
+export * from './schemas/seo';
 export * from './schemas/market';
 export * from './routes';

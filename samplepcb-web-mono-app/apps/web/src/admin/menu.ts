@@ -22,5 +22,6 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-market-contracts' }, labelKey: 'admin.menu.marketContracts' },
   { to: { name: 'admin-market-settings' }, labelKey: 'admin.menu.marketSettings' },
   { to: { name: 'admin-slides' }, labelKey: 'admin.menu.slides' },
+  { to: { name: 'admin-seo' }, labelKey: 'admin.menu.seo' },
   { to: { name: 'admin-settings' }, labelKey: 'admin.menu.settings' },
 ];
