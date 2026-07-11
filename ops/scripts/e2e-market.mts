@@ -309,6 +309,7 @@ async function run() {
         region: 'seoul',
         travelRange: 'within30km',
         intro: 'E2E 통합 테스트용 전문가 소개입니다.',
+        serviceAreas: ['circuit', 'pcb'], // 필수(min 1) — 의뢰 유형·분야 분리 이후
         categories: ['arduino', 'firmware'],
         cadTools: ['kicad'],
         bankName: '신한',
@@ -337,7 +338,8 @@ async function run() {
         title: 'E2E 심박 모니터 회로 개발',
         requestType: 'individual',
         serviceAreas: ['circuit'],
-        cadTools: ['any'],
+        categories: ['power', 'mcu'], // STEP2 세부분야(specialties 컬럼)
+        cadTools: [], // 빈 배열 = 특정 툴 요구 없음(신규 의미 체계)
         description: 'E2E 통합 테스트용 프로젝트 상세 설명입니다.',
         ndaRequired: true,
         budgetRange: 'r300_700',
@@ -358,6 +360,12 @@ async function run() {
     assert(anon.json?.data?.attachments?.files === null && anon.json?.data?.attachments?.count === 1, 'NDA 메타 잠금(개수만)');
     const masked = anon.json?.data?.ownerName ?? '';
     assert(masked.includes('*') || masked === '회원', '의뢰인 마스킹', masked);
+    assert(
+      JSON.stringify(anon.json?.data?.categories) === JSON.stringify(['power', 'mcu']) &&
+        (anon.json?.data?.cadTools ?? ['x']).length === 0,
+      '세부분야 반영 + 빈 요구 툴',
+      anon.json?.data?.categories,
+    );
 
     // ── 5) 소유자 상세: 파일 보임 → fileId 확보 ──
     const ownerDetail = await req('GET', `/api/market/projects/${pid}`, { token: tClient });
@@ -472,7 +480,7 @@ async function run() {
         title: 'E2E 조기마감 테스트',
         requestType: 'individual',
         serviceAreas: ['etc'],
-        cadTools: ['any'],
+        cadTools: ['any'], // 레거시 표현 — 서버가 수용하고 읽기에서 빈 배열로 정규화해야 한다
         description: '조기 마감 E2E 테스트 상세 설명입니다.',
         ndaRequired: false,
         budgetRange: 'undecided',
@@ -484,6 +492,12 @@ async function run() {
     const cpid = cprj.json?.data?.projectId;
     ids.projectIds.push(cpid);
     writeFileSync(IDS_FILE, JSON.stringify(ids));
+    const cDetail = await req('GET', `/api/market/projects/${cpid}`, { token: tClient });
+    assert(
+      (cDetail.json?.data?.cadTools ?? ['x']).length === 0,
+      "레거시 ['any'] 수용 + 빈 배열 정규화",
+      cDetail.json?.data?.cadTools,
+    );
     const close = await req('POST', `/api/market/projects/${cpid}/close`, { token: tClient });
     assert(close.status === 200 && close.json?.data?.status === 'closed', '조기 마감');
     const lateBid = await req('POST', `/api/market/projects/${cpid}/bids`, {
@@ -526,7 +540,7 @@ async function run() {
           title,
           requestType: 'individual',
           serviceAreas: ['circuit'],
-          cadTools: ['any'],
+          cadTools: [],
           description: `${title} — 2차 E2E 상세 설명입니다.`,
           ndaRequired: false,
           budgetRange: 'r300_700',

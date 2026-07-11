@@ -38,7 +38,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | 테이블 | 역할 | 핵심 |
 |---|---|---|
 | `sp_market_expert` | 전문가 프로필 | mbId unique · expertType `individual\|company\|house` · 승인 워크플로(status/statusReason/decidedBy/decidedAt) · 정산계좌(2차 대비) |
-| `sp_market_project` | 의뢰 | method `open\|targeted`(+targetExpertId) · bidDeadlineAt(**lazy 마감** — 저장 전이 없음) · status `bidding\|closed\|awarded\|cancelled`(2차 예약 working/completed) · awardedBidId |
+| `sp_market_project` | 의뢰 | method `open\|targeted`(+targetExpertId) · bidDeadlineAt(**lazy 마감** — 저장 전이 없음) · status `bidding\|closed\|awarded\|cancelled`(2차 예약 working/completed) · awardedBidId · `specialties`(세부분야, Prisma `categories`)·`cadTools`(요구 툴, 빈 배열=무관) |
 | `sp_market_bid` | 입찰 | **unique(projectId, expertId)** = 전문가당 1입찰(재제출=같은 행) · amount 원 단위 Int · status `submitted\|awarded\|rejected\|withdrawn` |
 | `sp_market_nda_sign` | NDA 전자서명 | unique(projectId, mbId) · textVersion(문구 원문은 계약 상수) · signedName·ip 감사 스냅샷 |
 | `sp_market_settings` | 설정 싱글턴(id=1) | feeRateBp(기본 1000=10%) — GET 폴백/PATCH upsert, 시드 불요 |
@@ -49,9 +49,20 @@ local-web.samplepcb.co.kr (nginx 443)
   (varchar(20)) 불변식 유지. 파일서버 serviceType은 env `MARKET_FILE_SERVICE_TYPE`(기본 `market`).
 - 프로젝트 분류는 `requestType`(시스템 통합 개발/개별 분야 개발)과 복수
   `serviceAreas`(회로·PCB·펌웨어·제품디자인·기구설계·앱·서버·Linux/Windows 소프트웨어·기타)로
-  분리한다. 전문가도 같은 `serviceAreas`를 보유해 검색·매칭 기준을 공유하며, 기존 회로
-  세부분야 18종(`categories`)과 CAD 역량은 별도 축으로 유지한다.
-- 코드 사전(서비스 영역·회로 세부분야 18종·CAD·예산/경력/지역/이동거리 구간)과 **한글 라벨의 정본은
+  분리한다. 전문가도 같은 `serviceAreas`를 보유해 검색·매칭 기준을 공유하며, 세부분야
+  18종(`categories`)과 툴 역량은 별도 축으로 유지한다.
+- **의뢰 STEP2 "전문 기술·도구"는 분야 종속 동적 스텝**: 분야→질문 그룹 사전
+  (`MARKET_AREA_TOOL_GROUPS`: circuit/pcb→ecad, 기구→mcad, 제품디자인→design ·
+  `MARKET_AREA_SPECIALTIES`: circuit/firmware→세부분야 부분집합)의 **합집합**으로 섹션을
+  구성하고, 질문 그룹이 없는 분야(앱·서버·SW·기타)만 선택하면 스텝 자체가 목록에서
+  빠진다(4스텝). 프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map` — 인접
+  `category`=requestType 물리명과 혼동 회피)에 저장.
+- 툴 코드는 ECAD·MCAD·디자인 통합 flat 배열(`MARKET_TOOL_CODES`) — DB/계약 필드명은
+  `cadTools` 그대로(호환), 그룹 해석은 `MARKET_TOOL_GROUP_CODES` 로 UI/매칭 단계에서 한다.
+  **빈 배열 = 특정 툴 요구 없음**. 구 `'any'` 코드는 레거시 데이터 호환용으로만 enum 잔존
+  (마이그레이션 백필 `['any']→[]` + 읽기 정규화 보험). `categories` 의 `firmware`·`software`
+  코드는 serviceArea 와 동어반복이라 신규 선택 UI 에서 숨김(`MARKET_ACTIVE_CATEGORIES`).
+- 코드 사전(서비스 영역·세부분야 18종·툴·예산/경력/지역/이동거리 구간)과 **한글 라벨의 정본은
   `packages/api-contract/src/schemas/market.ts`** (`MARKET_*`, `MARKET_*_LABELS`) — sp-market·
   sp-vue·sp-node 메일 빌더 3곳이 공유. DB에는 코드만 저장(Json 배열).
 - 마이그레이션 규율 준수: 수기 CREATE → `prisma migrate deploy` → `generate`
@@ -164,7 +175,8 @@ local-web.samplepcb.co.kr (nginx 443)
   운영 전 1회 실측 필요**(테스트 'demo' 선례상 가능 추정).
 - dev: `pnpm --filter market dev`(5176, strictPort — 점유 시 실패가 정상 신호),
   api(3333)·web(5173)과 병행. 통합 확인은 local-web(라이브 nginx 반영 후).
-- **E2E 회귀**: `ops/scripts/e2e-market.mts` — 1차 매칭 33 + **2차 거래 56 = 총 89항목**
+- **E2E 회귀**: `ops/scripts/e2e-market.mts` — 1차 매칭 35 + **2차 거래 56 = 총 91항목**
+  (STEP2 확장으로 세부분야·빈 요구 툴 반영 + 레거시 `['any']` 정규화 2항목 추가, 2026-07-12)
   (§4·§5·§8의 실행 가능한 명세 — 계약 생성 스냅샷·checkout DB 실증·주문 결제 시뮬→lazy
   승격·hold/자동확정·confirm/settle·취소 카트 정리·재주입). api 가동 상태에서
   `pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-market.mts run`
