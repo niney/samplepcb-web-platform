@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import {
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_TOOL_LABELS,
   MARKET_CAREER_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
   MARKET_REGION_LABELS,
@@ -68,7 +68,7 @@ const visibleCategories = computed(() => props.item.categories.slice(0, 3));
     </div>
 
     <p v-if="item.cadTools.length > 0" class="mt-2 line-clamp-1 font-mono text-[11px] text-tx-3">
-      {{ item.cadTools.map((c) => MARKET_CAD_TOOL_LABELS[c]).join(' · ') }}
+      {{ item.cadTools.map((c) => MARKET_TOOL_LABELS[c]).join(' · ') }}
     </p>
 
     <p v-if="item.intro !== null" class="mt-3 line-clamp-2 border-t border-line pt-3 text-xs leading-relaxed text-tx-2">

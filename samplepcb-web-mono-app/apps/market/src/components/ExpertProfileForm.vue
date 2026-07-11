@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import {
-  MARKET_CAD_TOOLS,
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_ACTIVE_CATEGORIES,
   MARKET_CATEGORIES,
   MARKET_CATEGORY_LABELS,
   MARKET_SERVICE_AREAS,
   MARKET_SERVICE_AREA_LABELS,
+  MARKET_TOOL_GROUPS,
+  MARKET_TOOL_GROUP_CODES,
+  MARKET_TOOL_GROUP_LABELS,
+  MARKET_TOOL_LABELS,
 } from '@sp/api-contract';
 import type {
-  MarketCadToolCodeType,
+  MarketToolCodeType,
   MarketCategoryCodeType,
   MarketExpertMeType,
   MarketServiceAreaType,
@@ -34,7 +37,7 @@ const form = reactive({
   intro: props.me.intro ?? '',
   serviceAreas: [...props.me.serviceAreas] as MarketServiceAreaType[],
   categories: [...props.me.categories] as MarketCategoryCodeType[],
-  cadTools: [...props.me.cadTools] as MarketCadToolCodeType[],
+  cadTools: [...props.me.cadTools] as MarketToolCodeType[],
   bankName: props.me.bankName ?? '',
   bankHolder: props.me.bankHolder ?? '',
   bankAccount: props.me.bankAccount ?? '',
@@ -56,6 +59,15 @@ function toggle<T>(arr: T[], code: T): void {
   if (i >= 0) arr.splice(i, 1);
   else arr.push(code);
 }
+
+// 숨김 코드(firmware·software — 분야와 동어반복)는 신규 선택지에서 제외하되,
+// 이미 보유한 전문가에게는 계속 보여 해제할 수 있게 한다. 'etc' 툴도 동일(레거시).
+const visibleCategories = computed<MarketCategoryCodeType[]>(() =>
+  MARKET_CATEGORIES.filter(
+    (c) => (MARKET_ACTIVE_CATEGORIES as readonly string[]).includes(c) || form.categories.includes(c),
+  ),
+);
+const hasLegacyEtcTool = computed(() => form.cadTools.includes('etc'));
 
 async function onDeleteFile(fileId: number): Promise<void> {
   error.value = '';
@@ -127,10 +139,10 @@ async function save(): Promise<void> {
     </div>
 
     <div>
-      <p class="text-xs font-bold text-tx-2">회로개발 분야</p>
+      <p class="text-xs font-bold text-tx-2">세부분야 (회로·펌웨어)</p>
       <div class="mt-2 flex flex-wrap gap-1.5">
         <button
-          v-for="c in MARKET_CATEGORIES"
+          v-for="c in visibleCategories"
           :key="c"
           type="button"
           class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
@@ -141,18 +153,26 @@ async function save(): Promise<void> {
         </button>
       </div>
     </div>
-    <div>
-      <p class="text-xs font-bold text-tx-2">사용 가능 CAD 툴</p>
+    <div v-for="g in MARKET_TOOL_GROUPS" :key="g">
+      <p class="text-xs font-bold text-tx-2">{{ MARKET_TOOL_GROUP_LABELS[g] }}</p>
       <div class="mt-2 flex flex-wrap gap-1.5">
         <button
-          v-for="c in MARKET_CAD_TOOLS"
+          v-for="c in MARKET_TOOL_GROUP_CODES[g]"
           :key="c"
           type="button"
           class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
           :class="form.cadTools.includes(c) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2'"
           @click="toggle(form.cadTools, c)"
         >
-          {{ MARKET_CAD_TOOL_LABELS[c] }}
+          {{ MARKET_TOOL_LABELS[c] }}
+        </button>
+        <button
+          v-if="g === 'ecad' && hasLegacyEtcTool"
+          type="button"
+          class="rounded-full border border-ink-900 bg-ink-900 px-3 py-1.5 text-xs font-semibold text-white transition"
+          @click="toggle(form.cadTools, 'etc')"
+        >
+          {{ MARKET_TOOL_LABELS.etc }}
         </button>
       </div>
     </div>

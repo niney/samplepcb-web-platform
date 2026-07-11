@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import {
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_TOOL_LABELS,
   MARKET_CAREER_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
   MARKET_EXPERT_STATUS_LABELS,
@@ -236,7 +236,7 @@ const statusBadge = (s: string): string =>
                 {{ MARKET_CATEGORY_LABELS[c] }}
               </span>
               <span v-for="c in detail.cadTools" :key="c" class="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] text-teal-700">
-                {{ MARKET_CAD_TOOL_LABELS[c] }}
+                {{ MARKET_TOOL_LABELS[c] }}
               </span>
             </div>
           </div>

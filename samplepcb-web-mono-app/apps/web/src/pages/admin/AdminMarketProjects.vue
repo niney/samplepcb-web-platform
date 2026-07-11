@@ -3,7 +3,8 @@ import { computed, ref } from 'vue';
 import {
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_CATEGORY_LABELS,
+  MARKET_TOOL_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_METHOD_LABELS,
   MARKET_REQUEST_TYPE_LABELS,
@@ -215,8 +216,12 @@ const statusBadge = (s: string): string =>
             <dd>{{ detail.owner.name }} ({{ detail.owner.mbId }}) · {{ detail.owner.email ?? '-' }}</dd>
             <dt class="text-gray-500">예산</dt>
             <dd>{{ MARKET_BUDGET_RANGE_LABELS[detail.budgetRange] }}</dd>
-            <dt class="text-gray-500">요구 CAD</dt>
-            <dd>{{ detail.cadTools.map((c) => MARKET_CAD_TOOL_LABELS[c]).join(' · ') }}</dd>
+            <dt v-if="detail.categories.length > 0" class="text-gray-500">세부분야</dt>
+            <dd v-if="detail.categories.length > 0">
+              {{ detail.categories.map((c) => MARKET_CATEGORY_LABELS[c]).join(' · ') }}
+            </dd>
+            <dt class="text-gray-500">요구 툴</dt>
+            <dd>{{ detail.cadTools.length > 0 ? detail.cadTools.map((c) => MARKET_TOOL_LABELS[c]).join(' · ') : '특정 툴 요구 없음' }}</dd>
             <dt class="text-gray-500">마감</dt>
             <dd>{{ detail.bidDeadlineAt.slice(0, 16).replace('T', ' ') }} (UTC)</dd>
             <dt v-if="detail.targetExpert !== null" class="text-gray-500">지정 전문가</dt>

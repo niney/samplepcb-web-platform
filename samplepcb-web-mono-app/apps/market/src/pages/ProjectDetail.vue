@@ -4,7 +4,8 @@ import { useRoute } from 'vue-router';
 import {
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_CATEGORY_LABELS,
+  MARKET_TOOL_LABELS,
   MARKET_CAREER_RANGE_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_METHOD_LABELS,
@@ -337,9 +338,13 @@ const fmtSize = (bytes: number): string =>
               {{ detail.description }}
             </p>
             <div class="mt-4 flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-4 text-xs text-tx-2">
+              <span v-if="detail.categories.length > 0">
+                세부분야:
+                <b class="text-tx-1">{{ detail.categories.map((c) => MARKET_CATEGORY_LABELS[c]).join(' · ') }}</b>
+              </span>
               <span>
-                요구 CAD:
-                <b class="text-tx-1">{{ detail.cadTools.map((c) => MARKET_CAD_TOOL_LABELS[c]).join(' · ') }}</b>
+                요구 툴:
+                <b class="text-tx-1">{{ detail.cadTools.length > 0 ? detail.cadTools.map((c) => MARKET_TOOL_LABELS[c]).join(' · ') : '특정 툴 요구 없음' }}</b>
               </span>
               <span v-if="detail.startHopeDate !== null">시작 희망 {{ detail.startHopeDate }}</span>
               <span v-if="detail.dueHopeDate !== null">완료 희망 {{ detail.dueHopeDate }}</span>

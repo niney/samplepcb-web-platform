@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_TOOL_LABELS,
   MARKET_CAREER_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
   MARKET_REGION_LABELS,
@@ -107,7 +107,7 @@ const typeBadge = computed(() => {
               :key="c"
               class="rounded-full bg-teal-50 px-2.5 py-1 font-mono text-xs font-medium text-teal-700"
             >
-              {{ MARKET_CAD_TOOL_LABELS[c] }}
+              {{ MARKET_TOOL_LABELS[c] }}
             </span>
             <span v-if="expert.cadTools.length === 0" class="text-xs text-tx-3">—</span>
           </div>

@@ -6,7 +6,7 @@ import {
   apiRoutes,
 } from '@sp/api-contract';
 import type {
-  MarketCadToolCodeType,
+  MarketToolCodeType,
   MarketCategoryCodeType,
   MarketExpertTypeType,
   MarketServiceAreaType,
@@ -21,7 +21,7 @@ export interface ExpertListFilters {
   expertType: '' | MarketExpertTypeType; // '' = 전체
   serviceArea: '' | MarketServiceAreaType;
   category: '' | MarketCategoryCodeType;
-  cadTool: '' | MarketCadToolCodeType;
+  cadTool: '' | MarketToolCodeType;
   q: string;
 }
 

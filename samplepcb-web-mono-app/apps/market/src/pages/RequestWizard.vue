@@ -2,23 +2,31 @@
 import { computed, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
+  MARKET_AREA_SPECIALTIES,
+  MARKET_AREA_TOOL_GROUPS,
   MARKET_BUDGET_RANGES,
   MARKET_BUDGET_RANGE_LABELS,
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_CATEGORIES,
+  MARKET_CATEGORY_LABELS,
   MARKET_DEADLINE_PRESETS,
   MARKET_EXPERT_TYPE_LABELS,
-  MARKET_PROJECT_CAD_CODES,
   MARKET_REQUEST_TYPE_LABELS,
   MARKET_SERVICE_AREA_LABELS,
+  MARKET_TOOL_GROUPS,
+  MARKET_TOOL_GROUP_CODES,
+  MARKET_TOOL_GROUP_LABELS,
+  MARKET_TOOL_LABELS,
   MarketRequestType,
   MarketServiceArea,
 } from '@sp/api-contract';
 import type {
   MarketBudgetRangeType,
-  MarketProjectCadCodeType,
+  MarketCategoryCodeType,
   MarketProjectMethodType,
   MarketRequestTypeType,
   MarketServiceAreaType,
+  MarketToolCodeType,
+  MarketToolGroupType,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import { useMarketExpertList } from '../api/useMarketExperts';
@@ -27,8 +35,12 @@ import { useCreateProject } from '../api/useMarketProjects';
 import { errorMessage } from '../lib/error-msg';
 import { loginUrl, marketPath } from '../lib/auth-urls';
 
-// 의뢰 마법사 5스텝(프로토타입 request.html 이식):
-// 분야 → 요구 CAD('상관없음' 배타) → 설명·첨부·NDA → 예산·일정·마감 → 방식·지정 전문가.
+// 의뢰 마법사(프로토타입 request.html 이식 + STEP2 동적화):
+// 분야 → [전문 기술·도구(선택 분야에 질문 그룹이 있을 때만)] → 설명·첨부·NDA
+// → 예산·일정·마감 → 방식·지정 전문가.
+// STEP2 는 MARKET_AREA_TOOL_GROUPS·MARKET_AREA_SPECIALTIES 사전의 합집합으로 섹션을
+// 구성하고, 질문 그룹이 하나도 없으면 스텝 자체를 목록에서 제거한다(빈 스텝 노출 금지).
+// 모든 STEP2 항목은 선택 사항 — 비워두면 "조건 없음"(구 'any' 코드는 저장하지 않는다).
 // ?cat= 분야 프리셋, ?expert= 지정견적 프리셋(전문가 상세의 CTA 진입).
 
 const auth = useAuthStore();
@@ -36,7 +48,6 @@ const route = useRoute();
 const loggedIn = computed(() => auth.isLoggedIn);
 const create = useCreateProject();
 
-const step = ref(1);
 const submitError = ref('');
 const createdId = ref<number | null>(null);
 const typeNotice = ref('');
@@ -53,7 +64,8 @@ const presetExpertId = ((): number | null => {
 interface RequestForm {
   requestType: MarketRequestTypeType;
   serviceAreas: MarketServiceAreaType[];
-  cadTools: MarketProjectCadCodeType[];
+  categories: MarketCategoryCodeType[]; // 세부분야 — 빈 배열 = 지정 없음
+  cadTools: MarketToolCodeType[]; // 요구 툴 — 빈 배열 = 특정 툴 요구 없음
   title: string;
   description: string;
   ndaRequired: boolean;
@@ -69,7 +81,8 @@ interface RequestForm {
 const form = reactive<RequestForm>({
   requestType: 'individual',
   serviceAreas: [presetServiceArea],
-  cadTools: ['any'],
+  categories: [],
+  cadTools: [],
   title: '',
   description: '',
   ndaRequired: true,
@@ -82,6 +95,54 @@ const form = reactive<RequestForm>({
   targetExpertId: presetExpertId,
 });
 const attachments = ref<File[]>([]);
+
+// ── STEP2 질문 그룹 파생(분야 → 사전 합집합, 사전 순서 유지) ─────────────────
+
+const toolGroups = computed<MarketToolGroupType[]>(() => {
+  const set = new Set<MarketToolGroupType>();
+  for (const area of form.serviceAreas) {
+    for (const g of MARKET_AREA_TOOL_GROUPS[area] ?? []) set.add(g);
+  }
+  return MARKET_TOOL_GROUPS.filter((g) => set.has(g));
+});
+
+const specialtyCodes = computed<MarketCategoryCodeType[]>(() => {
+  const set = new Set<MarketCategoryCodeType>();
+  for (const area of form.serviceAreas) {
+    for (const c of MARKET_AREA_SPECIALTIES[area] ?? []) set.add(c);
+  }
+  return MARKET_CATEGORIES.filter((c) => set.has(c));
+});
+
+const hasTechnicalStep = computed(
+  () => toolGroups.value.length > 0 || specialtyCodes.value.length > 0,
+);
+
+// 분야 변경 시 가지치기 — 더는 노출되지 않는 그룹의 선택값이 payload 에 남지 않게.
+function pruneTechnical(): void {
+  const validTools = new Set<MarketToolCodeType>(
+    toolGroups.value.flatMap((g) => [...MARKET_TOOL_GROUP_CODES[g]]),
+  );
+  form.cadTools = form.cadTools.filter((c) => validTools.has(c));
+  const validSpecs = new Set(specialtyCodes.value);
+  form.categories = form.categories.filter((c) => validSpecs.has(c));
+}
+
+// ── 동적 스텝 — 고정 번호 대신 키 배열(질문 그룹 없으면 technical 제거) ───────
+
+type StepKey = 'area' | 'technical' | 'description' | 'schedule' | 'method';
+
+const steps = computed<{ key: StepKey; label: string }[]>(() => [
+  { key: 'area', label: '분야' },
+  ...(hasTechnicalStep.value ? [{ key: 'technical' as const, label: '전문 기술·도구' }] : []),
+  { key: 'description', label: '설명·자료' },
+  { key: 'schedule', label: '예산·일정' },
+  { key: 'method', label: '견적 방식' },
+]);
+
+const stepIndex = ref(0);
+const currentStep = computed<StepKey>(() => steps.value[stepIndex.value]?.key ?? 'area');
+const isLastStep = computed(() => stepIndex.value === steps.value.length - 1);
 
 // 지정 전문가 선택 목록(승인 전문가 전체 — 소규모 전제).
 const expertFilters = ref<ExpertListFilters>({
@@ -104,17 +165,16 @@ function pickAttachments(e: Event): void {
   attachments.value = input.files !== null ? Array.from(input.files) : [];
 }
 
-// '상관없음(any)'은 배타 — any 클릭 시 단독, 다른 툴 클릭 시 any 해제. 빈 선택은 any 로 복귀.
-function toggleCad(code: MarketProjectCadCodeType): void {
-  if (code === 'any') {
-    form.cadTools = ['any'];
-    return;
-  }
-  const next = form.cadTools.filter((c) => c !== 'any');
-  const i = next.indexOf(code);
-  if (i >= 0) next.splice(i, 1);
-  else next.push(code);
-  form.cadTools = next.length === 0 ? ['any'] : next;
+function toggleTool(code: MarketToolCodeType): void {
+  const i = form.cadTools.indexOf(code);
+  if (i >= 0) form.cadTools.splice(i, 1);
+  else form.cadTools.push(code);
+}
+
+function toggleSpecialty(code: MarketCategoryCodeType): void {
+  const i = form.categories.indexOf(code);
+  if (i >= 0) form.categories.splice(i, 1);
+  else form.categories.push(code);
 }
 
 function toggleServiceArea(code: MarketServiceAreaType): void {
@@ -125,7 +185,7 @@ function toggleServiceArea(code: MarketServiceAreaType): void {
     form.requestType = 'system';
     typeNotice.value = '개발 분야를 여러 개 선택해 의뢰 유형이 시스템 통합 개발로 자동 변경되었습니다.';
   }
-  if (!form.serviceAreas.includes('pcb')) form.cadTools = ['any'];
+  pruneTechnical();
 }
 
 function selectRequestType(type: MarketRequestTypeType): void {
@@ -134,19 +194,21 @@ function selectRequestType(type: MarketRequestTypeType): void {
   if (type === 'individual' && form.serviceAreas.length > 1) {
     form.serviceAreas = [form.serviceAreas[0] ?? 'circuit'];
     typeNotice.value = '개별 분야 개발은 한 분야만 선택할 수 있어 첫 번째 분야만 유지했습니다.';
+    pruneTechnical();
   }
 }
 
 const todayKst = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
 
 const stepValid = computed<boolean>(() => {
-  if (step.value === 1) return form.requestType === 'system' || form.serviceAreas.length === 1;
-  if (step.value === 2) return true;
-  if (step.value === 3) {
+  const key = currentStep.value;
+  if (key === 'area') return form.requestType === 'system' || form.serviceAreas.length === 1;
+  if (key === 'technical') return true; // 전 항목 선택 사항
+  if (key === 'description') {
     return form.title.trim().length >= 2 && form.description.trim().length >= 10;
   }
-  if (step.value === 4) {
-    return form.deadlineMode !== 'date' || form.deadlineDate > todayKst || form.deadlineDate === todayKst;
+  if (key === 'schedule') {
+    return form.deadlineMode !== 'date' || form.deadlineDate >= todayKst;
   }
   return form.method === 'open' || form.targetExpertId !== null;
 });
@@ -157,6 +219,7 @@ async function submit(): Promise<void> {
     title: form.title.trim(),
     requestType: form.requestType,
     serviceAreas: form.serviceAreas,
+    categories: form.categories,
     cadTools: form.cadTools,
     description: form.description.trim(),
     ndaRequired: form.ndaRequired,
@@ -182,14 +245,6 @@ async function submit(): Promise<void> {
     submitError.value = errorMessage(err);
   }
 }
-
-const stepTitles = [
-  { no: 1, label: '분야' },
-  { no: 2, label: 'CAD' },
-  { no: 3, label: '설명·자료' },
-  { no: 4, label: '예산·일정' },
-  { no: 5, label: '견적 방식' },
-];
 
 const requestTypeDescs: Record<MarketRequestTypeType, string> = {
   system: '여러 개발 분야를 연결해 제품 또는 시스템 전체를 개발합니다.',
@@ -242,27 +297,27 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
     <!-- 마법사 -->
     <template v-else>
       <ol class="mt-6 flex flex-wrap items-center gap-2 text-xs font-bold">
-        <li v-for="s in stepTitles" :key="s.no" class="flex items-center gap-2">
+        <li v-for="(s, i) in steps" :key="s.key" class="flex items-center gap-2">
           <span
             class="flex h-6 w-6 items-center justify-center rounded-full"
             :class="
-              step === s.no
+              stepIndex === i
                 ? 'bg-copper-500 text-white'
-                : step > s.no
+                : stepIndex > i
                   ? 'bg-ink-900 text-white'
                   : 'bg-line text-tx-3'
             "
           >
-            {{ s.no }}
+            {{ i + 1 }}
           </span>
-          <span :class="step === s.no ? 'text-tx-1' : 'text-tx-3'">{{ s.label }}</span>
-          <span v-if="s.no < 5" class="text-line-2">─</span>
+          <span :class="stepIndex === i ? 'text-tx-1' : 'text-tx-3'">{{ s.label }}</span>
+          <span v-if="i < steps.length - 1" class="text-line-2">─</span>
         </li>
       </ol>
 
       <div class="mt-6 rounded-2xl border border-line bg-white p-6 sm:p-8">
-        <!-- STEP 1: 분야 -->
-        <div v-if="step === 1" class="grid gap-6">
+        <!-- STEP: 분야 -->
+        <div v-if="currentStep === 'area'" class="grid gap-6">
           <div>
             <p class="text-xs font-bold text-tx-2">의뢰 유형 <span class="text-red-500">*</span></p>
             <div class="mt-3 grid gap-3 sm:grid-cols-2">
@@ -284,34 +339,59 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
           </div>
         </div>
 
-        <!-- STEP 2: 요구 CAD -->
-        <div v-else-if="step === 2">
-          <p v-if="form.serviceAreas.includes('pcb')" class="text-xs font-bold text-tx-2">
-            요구 CAD 툴 <span class="font-normal text-tx-3">(복수 선택 · '상관없음'은 단독)</span>
-          </p>
-          <div v-if="form.serviceAreas.includes('pcb')" class="mt-3 flex flex-wrap gap-1.5">
-            <button
-              v-for="c in MARKET_PROJECT_CAD_CODES"
-              :key="c"
-              type="button"
-              class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
-              :class="
-                form.cadTools.includes(c)
-                  ? 'border-ink-900 bg-ink-900 text-white'
-                  : 'border-line text-tx-2 hover:border-line-2'
-              "
-              @click="toggleCad(c)"
-            >
-              {{ MARKET_CAD_TOOL_LABELS[c] }}
-            </button>
+        <!-- STEP: 전문 기술·도구 (선택 분야에 질문 그룹이 있을 때만 스텝 존재) -->
+        <div v-else-if="currentStep === 'technical'" class="grid gap-6">
+          <div v-if="specialtyCodes.length > 0">
+            <p class="text-xs font-bold text-tx-2">
+              세부분야 <span class="font-normal text-tx-3">(선택 · 복수 선택 가능)</span>
+            </p>
+            <div class="mt-3 flex flex-wrap gap-1.5">
+              <button
+                v-for="c in specialtyCodes"
+                :key="c"
+                type="button"
+                class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+                :class="
+                  form.categories.includes(c)
+                    ? 'border-ink-900 bg-ink-900 text-white'
+                    : 'border-line text-tx-2 hover:border-line-2'
+                "
+                @click="toggleSpecialty(c)"
+              >
+                {{ MARKET_CATEGORY_LABELS[c] }}
+              </button>
+            </div>
           </div>
-          <p class="mt-3 text-xs text-tx-3">
-            {{ form.serviceAreas.includes('pcb') ? '특정 CAD가 없다면 상관없음을 선택하세요.' : 'PCB 설계를 선택하지 않아 CAD 조건을 건너뜁니다.' }}
+          <div v-for="g in toolGroups" :key="g">
+            <p class="text-xs font-bold text-tx-2">
+              {{ MARKET_TOOL_GROUP_LABELS[g] }}
+              <span class="font-normal text-tx-3">(선택 · 복수 선택 가능)</span>
+            </p>
+            <div class="mt-3 flex flex-wrap gap-1.5">
+              <button
+                v-for="c in MARKET_TOOL_GROUP_CODES[g]"
+                :key="c"
+                type="button"
+                class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+                :class="
+                  form.cadTools.includes(c)
+                    ? 'border-ink-900 bg-ink-900 text-white'
+                    : 'border-line text-tx-2 hover:border-line-2'
+                "
+                @click="toggleTool(c)"
+              >
+                {{ MARKET_TOOL_LABELS[c] }}
+              </button>
+            </div>
+          </div>
+          <p class="text-xs leading-relaxed text-tx-3">
+            모두 선택 사항입니다 — 비워두면 조건 없음으로 등록되어 더 많은 전문가가 견적을 낼 수 있습니다.
+            목록에 없는 툴·기술은 상세 설명에 적어주세요.
           </p>
         </div>
 
-        <!-- STEP 3: 설명·자료·NDA -->
-        <div v-else-if="step === 3" class="grid gap-4">
+        <!-- STEP: 설명·자료·NDA -->
+        <div v-else-if="currentStep === 'description'" class="grid gap-4">
           <label class="grid gap-1.5 text-xs font-bold text-tx-2">
             프로젝트 제목 <span class="text-red-500">*</span>
             <input
@@ -350,8 +430,8 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
           </label>
         </div>
 
-        <!-- STEP 4: 예산·일정·마감 -->
-        <div v-else-if="step === 4" class="grid gap-5">
+        <!-- STEP: 예산·일정·마감 -->
+        <div v-else-if="currentStep === 'schedule'" class="grid gap-5">
           <div>
             <p class="text-xs font-bold text-tx-2">예산 범위 <span class="text-red-500">*</span></p>
             <div class="mt-2 flex flex-wrap gap-1.5">
@@ -422,7 +502,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
           </div>
         </div>
 
-        <!-- STEP 5: 방식·지정 전문가·요약 -->
+        <!-- STEP: 방식·지정 전문가·요약 -->
         <div v-else class="grid gap-5">
           <div class="grid gap-3 sm:grid-cols-2">
             <button
@@ -483,7 +563,10 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
             <p class="mt-1">
               {{ MARKET_REQUEST_TYPE_LABELS[form.requestType] }} ·
               {{ form.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join('/') }} ·
-              {{ form.cadTools.map((c) => MARKET_CAD_TOOL_LABELS[c]).join('/') }} ·
+              <template v-if="form.categories.length > 0">
+                {{ form.categories.map((c) => MARKET_CATEGORY_LABELS[c]).join('/') }} ·
+              </template>
+              {{ form.cadTools.length > 0 ? form.cadTools.map((c) => MARKET_TOOL_LABELS[c]).join('/') : '툴 무관' }} ·
               {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
               마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
               {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} ·
@@ -495,20 +578,20 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
         <p v-if="submitError !== ''" class="mt-4 text-xs font-semibold text-red-600">{{ submitError }}</p>
         <div class="mt-6 flex items-center justify-between border-t border-line pt-5">
           <button
-            v-if="step > 1"
+            v-if="stepIndex > 0"
             type="button"
             class="rounded-lg border border-line px-4 py-2 text-xs font-bold text-tx-2 hover:border-line-2"
-            @click="step -= 1"
+            @click="stepIndex -= 1"
           >
             이전
           </button>
           <span v-else />
           <button
-            v-if="step < 5"
+            v-if="!isLastStep"
             type="button"
             class="rounded-lg bg-ink-900 px-5 py-2 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
             :disabled="!stepValid"
-            @click="step += 1"
+            @click="stepIndex += 1"
           >
             다음
           </button>

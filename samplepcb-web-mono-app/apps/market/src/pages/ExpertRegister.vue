@@ -1,22 +1,24 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 import {
-  MARKET_CAD_TOOLS,
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_ACTIVE_CATEGORIES,
   MARKET_CAREER_RANGES,
   MARKET_CAREER_RANGE_LABELS,
-  MARKET_CATEGORIES,
   MARKET_CATEGORY_LABELS,
   MARKET_EXPERT_STATUS_LABELS,
   MARKET_REGIONS,
   MARKET_SERVICE_AREAS,
   MARKET_SERVICE_AREA_LABELS,
   MARKET_REGION_LABELS,
+  MARKET_TOOL_GROUPS,
+  MARKET_TOOL_GROUP_CODES,
+  MARKET_TOOL_GROUP_LABELS,
+  MARKET_TOOL_LABELS,
   MARKET_TRAVEL_RANGES,
   MARKET_TRAVEL_RANGE_LABELS,
 } from '@sp/api-contract';
 import type {
-  MarketCadToolCodeType,
+  MarketToolCodeType,
   MarketCareerRangeType,
   MarketCategoryCodeType,
   MarketRegionType,
@@ -53,7 +55,7 @@ interface RegisterForm {
   intro: string;
   serviceAreas: MarketServiceAreaType[];
   categories: MarketCategoryCodeType[];
-  cadTools: MarketCadToolCodeType[];
+  cadTools: MarketToolCodeType[];
   bankName: string;
   bankHolder: string;
   bankAccount: string;
@@ -103,7 +105,7 @@ function toggleServiceArea(code: MarketServiceAreaType): void {
   if (i >= 0) form.serviceAreas.splice(i, 1);
   else form.serviceAreas.push(code);
 }
-function toggleCad(code: MarketCadToolCodeType): void {
+function toggleCad(code: MarketToolCodeType): void {
   const i = form.cadTools.indexOf(code);
   if (i >= 0) form.cadTools.splice(i, 1);
   else form.cadTools.push(code);
@@ -359,11 +361,11 @@ const stepTitles = computed(() => [
           </div>
           <div>
             <p class="text-xs font-bold text-tx-2">
-              회로개발 분야 <span class="font-normal text-tx-3">(복수 선택)</span>
+              세부분야 (회로·펌웨어) <span class="font-normal text-tx-3">(복수 선택)</span>
             </p>
             <div class="mt-2 flex flex-wrap gap-1.5">
               <button
-                v-for="c in MARKET_CATEGORIES"
+                v-for="c in MARKET_ACTIVE_CATEGORIES"
                 :key="c"
                 type="button"
                 class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
@@ -378,13 +380,13 @@ const stepTitles = computed(() => [
               </button>
             </div>
           </div>
-          <div>
+          <div v-for="g in MARKET_TOOL_GROUPS" :key="g">
             <p class="text-xs font-bold text-tx-2">
-              사용 가능 CAD 툴 <span class="font-normal text-tx-3">(복수 선택)</span>
+              {{ MARKET_TOOL_GROUP_LABELS[g] }} <span class="font-normal text-tx-3">(복수 선택)</span>
             </p>
             <div class="mt-2 flex flex-wrap gap-1.5">
               <button
-                v-for="c in MARKET_CAD_TOOLS"
+                v-for="c in MARKET_TOOL_GROUP_CODES[g]"
                 :key="c"
                 type="button"
                 class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
@@ -395,7 +397,7 @@ const stepTitles = computed(() => [
                 "
                 @click="toggleCad(c)"
               >
-                {{ MARKET_CAD_TOOL_LABELS[c] }}
+                {{ MARKET_TOOL_LABELS[c] }}
               </button>
             </div>
           </div>

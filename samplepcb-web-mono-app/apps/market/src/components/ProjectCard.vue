@@ -2,10 +2,11 @@
 import { computed } from 'vue';
 import {
   MARKET_BUDGET_RANGE_LABELS,
-  MARKET_CAD_TOOL_LABELS,
+  MARKET_CATEGORY_LABELS,
   MARKET_METHOD_LABELS,
   MARKET_REQUEST_TYPE_LABELS,
   MARKET_SERVICE_AREA_LABELS,
+  MARKET_TOOL_LABELS,
 } from '@sp/api-contract';
 import type { MarketProjectListItemType } from '@sp/api-contract';
 import { dateShort, ddayBadge, ddayToneClass } from '../lib/market-format';
@@ -55,7 +56,12 @@ const categoryChipClass = computed(() =>
     </div>
 
     <p class="mt-2 line-clamp-1 text-xs text-tx-3">
-      {{ item.cadTools.map((c) => MARKET_CAD_TOOL_LABELS[c]).join(' · ') }}
+      {{
+        [
+          ...item.categories.map((c) => MARKET_CATEGORY_LABELS[c]),
+          ...item.cadTools.map((c) => MARKET_TOOL_LABELS[c]),
+        ].join(' · ') || '요구 툴·세부분야 무관'
+      }}
     </p>
 
     <div class="mt-auto flex items-center justify-between border-t border-line pt-3 text-xs text-tx-2">

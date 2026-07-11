@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import {
-  MARKET_CAD_TOOL_LABELS,
-  MARKET_CAD_TOOLS,
   MARKET_CATEGORIES,
   MARKET_CATEGORY_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_SERVICE_AREAS,
   MARKET_SERVICE_AREA_LABELS,
+  MARKET_TOOL_GROUPS,
+  MARKET_TOOL_GROUP_CODES,
+  MARKET_TOOL_GROUP_LABELS,
+  MARKET_TOOL_LABELS,
 } from '@sp/api-contract';
 import type { MarketExpertTypeType } from '@sp/api-contract';
 import ExpertCard from '../components/ExpertCard.vue';
@@ -93,9 +95,11 @@ const resetPage = (): void => {
         @change="resetPage"
       >
         <option value="">{{ $t('experts.allCadTools') }}</option>
-        <option v-for="c in MARKET_CAD_TOOLS" :key="c" :value="c">
-          {{ MARKET_CAD_TOOL_LABELS[c] }}
-        </option>
+        <optgroup v-for="g in MARKET_TOOL_GROUPS" :key="g" :label="MARKET_TOOL_GROUP_LABELS[g]">
+          <option v-for="c in MARKET_TOOL_GROUP_CODES[g]" :key="c" :value="c">
+            {{ MARKET_TOOL_LABELS[c] }}
+          </option>
+        </optgroup>
       </select>
 
       <div class="ml-auto flex items-center gap-1.5">
