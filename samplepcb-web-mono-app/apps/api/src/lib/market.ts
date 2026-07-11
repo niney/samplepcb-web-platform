@@ -3,25 +3,24 @@ import type { SpFile, SpMarketProject } from '@prisma/client';
 import { maskName } from '@sp/utils';
 import {
   MARKET_BUDGET_RANGES,
-  MARKET_CAD_TOOLS,
   MARKET_CAREER_RANGES,
   MARKET_CATEGORIES,
-  MARKET_PROJECT_CAD_CODES,
+  MARKET_PROJECT_TOOL_CODES,
   MARKET_REQUEST_TYPES,
   MARKET_REGIONS,
   MARKET_SERVICE_AREAS,
+  MARKET_TOOL_CODES,
   MARKET_TRAVEL_RANGES,
 } from '@sp/api-contract';
 import type {
   MarketBidStatusType,
   MarketBudgetRangeType,
-  MarketCadToolCodeType,
   MarketCareerRangeType,
   MarketCategoryCodeType,
   MarketExpertStatusType,
   MarketExpertTypeType,
   MarketFileMetaType,
-  MarketProjectCadCodeType,
+  MarketProjectToolCodeType,
   MarketRequestTypeType,
   MarketServiceAreaType,
   MarketProjectDeadlineType,
@@ -29,6 +28,7 @@ import type {
   MarketProjectMethodType,
   MarketProjectStatusType,
   MarketRegionType,
+  MarketToolCodeType,
   MarketTravelRangeType,
 } from '@sp/api-contract';
 import { deleteFromFileServer } from './file-server';
@@ -114,11 +114,14 @@ export const toCategoryCodes = (json: unknown): MarketCategoryCodeType[] =>
 export const toServiceAreaCodes = (json: unknown): MarketServiceAreaType[] =>
   toCodeArray(json, MARKET_SERVICE_AREAS);
 
-export const toCadCodes = (json: unknown): MarketCadToolCodeType[] =>
-  toCodeArray(json, MARKET_CAD_TOOLS);
+export const toToolCodes = (json: unknown): MarketToolCodeType[] =>
+  toCodeArray(json, MARKET_TOOL_CODES);
 
-export const toProjectCadCodes = (json: unknown): MarketProjectCadCodeType[] =>
-  toCodeArray(json, MARKET_PROJECT_CAD_CODES);
+// 레거시 'any' 는 무관(빈 배열) 의미로 정규화 — 마이그레이션 백필의 보험.
+export const toProjectToolCodes = (json: unknown): MarketProjectToolCodeType[] => {
+  const codes = toCodeArray(json, MARKET_PROJECT_TOOL_CODES);
+  return codes.includes('any') ? [] : codes;
+};
 
 // ── 마감 파생(cron 없는 lazy) ────────────────────────────────────────────────
 
@@ -186,7 +189,8 @@ export const toMarketProjectListItem = (
   title: p.title,
   requestType: asRequestType(p.requestType),
   serviceAreas: toServiceAreaCodes(p.serviceAreas),
-  cadTools: toProjectCadCodes(p.cadTools),
+  categories: toCategoryCodes(p.categories),
+  cadTools: toProjectToolCodes(p.cadTools),
   budgetRange: asBudgetRange(p.budgetRange),
   method: asProjectMethod(p.method),
   ndaRequired: p.ndaRequired,

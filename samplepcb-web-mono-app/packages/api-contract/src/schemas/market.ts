@@ -55,25 +55,81 @@ export const MARKET_CATEGORY_LABELS = {
   etc: '기타',
 } as const satisfies Record<MarketCategoryCodeType, string>;
 
-// PCB 설계 CAD 툴(전문가 보유 스킬 겸 프로젝트 요구 조건).
-export const MARKET_CAD_TOOLS = ['altium', 'pads', 'orcad', 'xpedition', 'kicad', 'etc'] as const;
-export type MarketCadToolCodeType = (typeof MARKET_CAD_TOOLS)[number];
-export const MarketCadToolCode = z.enum(MARKET_CAD_TOOLS);
+// 'firmware'·'software' 는 serviceArea 와 동어반복이라 신규 선택 UI(의뢰 STEP2·전문가 폼)에서
+// 숨긴다. enum 에는 잔존 — 기존 전문가 태그 표시·검증 호환용.
+export const MARKET_HIDDEN_CATEGORIES = ['firmware', 'software'] as const;
+export const MARKET_ACTIVE_CATEGORIES = MARKET_CATEGORIES.filter(
+  (c): c is Exclude<MarketCategoryCodeType, (typeof MARKET_HIDDEN_CATEGORIES)[number]> =>
+    !(MARKET_HIDDEN_CATEGORIES as readonly string[]).includes(c),
+);
 
-// 프로젝트 요구 CAD 에만 존재하는 'any'(상관없음) — 선택 시 단독이어야 한다(배타).
-export const MARKET_PROJECT_CAD_CODES = ['any', ...MARKET_CAD_TOOLS] as const;
-export type MarketProjectCadCodeType = (typeof MARKET_PROJECT_CAD_CODES)[number];
-export const MarketProjectCadCode = z.enum(MARKET_PROJECT_CAD_CODES);
+// 요구 툴 코드(전문가 보유 스킬 겸 프로젝트 요구 조건) — ECAD·MCAD·디자인 통합 flat 배열.
+// DB 물리 컬럼·계약 필드명은 'cadTools' 그대로 유지(호환) — 의미는 "요구 툴 코드 배열"이다.
+// 그룹핑은 저장이 아니라 UI 노출·해석 단계에서 MARKET_TOOL_GROUP_CODES 로 한다.
+export const MARKET_ECAD_TOOLS = ['altium', 'pads', 'orcad', 'xpedition', 'kicad'] as const;
+export const MARKET_MCAD_TOOLS = [
+  'solidworks',
+  'fusion360',
+  'catia',
+  'inventor',
+  'nx',
+  'creo',
+  'autocad',
+] as const;
+export const MARKET_DESIGN_TOOLS = ['rhino', 'keyshot', 'blender', '3dsmax'] as const;
+// 'etc' 는 전 그룹 공용 레거시 코드 — 신규 그룹 UI 에는 노출하지 않는다(미선택=무관 원칙과 중복).
+export const MARKET_TOOL_CODES = [
+  ...MARKET_ECAD_TOOLS,
+  ...MARKET_MCAD_TOOLS,
+  ...MARKET_DESIGN_TOOLS,
+  'etc',
+] as const;
+export type MarketToolCodeType = (typeof MARKET_TOOL_CODES)[number];
+export const MarketToolCode = z.enum(MARKET_TOOL_CODES);
 
-export const MARKET_CAD_TOOL_LABELS = {
+// 'any'(상관없음)는 레거시 프로젝트 데이터 호환용으로만 enum 에 잔존 —
+// 신규 UI/저장은 "빈 배열 = 특정 툴 요구 없음"으로 표현한다(마이그레이션에서 ['any']→[] 백필).
+export const MARKET_PROJECT_TOOL_CODES = ['any', ...MARKET_TOOL_CODES] as const;
+export type MarketProjectToolCodeType = (typeof MARKET_PROJECT_TOOL_CODES)[number];
+export const MarketProjectToolCode = z.enum(MARKET_PROJECT_TOOL_CODES);
+
+export const MARKET_TOOL_LABELS = {
   any: '상관없음',
   altium: 'Altium Designer',
   pads: 'PADS',
   orcad: 'OrCAD·Allegro',
   xpedition: 'Xpedition (Mentor)',
   kicad: 'KiCad',
+  solidworks: 'SolidWorks',
+  fusion360: 'Fusion 360',
+  catia: 'CATIA',
+  inventor: 'Inventor',
+  nx: 'NX (Siemens)',
+  creo: 'Creo',
+  autocad: 'AutoCAD',
+  rhino: 'Rhino',
+  keyshot: 'KeyShot',
+  blender: 'Blender',
+  '3dsmax': '3ds Max',
   etc: '기타',
-} as const satisfies Record<MarketProjectCadCodeType, string>;
+} as const satisfies Record<MarketProjectToolCodeType, string>;
+
+// 툴 그룹 — 의뢰 STEP2·전문가 폼의 섹션 단위. area → 그룹 → 코드 2단 사전이라
+// 회로+PCB 를 함께 선택해도 ecad 그룹은 합집합 계산에서 한 번만 노출된다.
+export const MARKET_TOOL_GROUPS = ['ecad', 'mcad', 'design'] as const;
+export type MarketToolGroupType = (typeof MARKET_TOOL_GROUPS)[number];
+
+export const MARKET_TOOL_GROUP_LABELS = {
+  ecad: 'PCB·회로 CAD',
+  mcad: '기구 설계 CAD',
+  design: '디자인·렌더링 툴',
+} as const satisfies Record<MarketToolGroupType, string>;
+
+export const MARKET_TOOL_GROUP_CODES = {
+  ecad: MARKET_ECAD_TOOLS,
+  mcad: MARKET_MCAD_TOOLS,
+  design: MARKET_DESIGN_TOOLS,
+} as const satisfies Record<MarketToolGroupType, readonly MarketToolCodeType[]>;
 
 // 예산 구간(금액이 아니라 구간 select — 프로토타입 request STEP4).
 export const MARKET_BUDGET_RANGES = [
@@ -218,6 +274,59 @@ export const MARKET_SERVICE_AREA_LABELS = {
   'software-windows': '소프트웨어 개발 · Windows',
   etc: '기타',
 } as const satisfies Record<MarketServiceAreaType, string>;
+
+// ── 분야 → STEP2 질문 그룹 사전 ─────────────────────────────────────────────
+// 의뢰 STEP2("전문 기술·도구")는 선택한 분야를 이 두 사전으로 해석해 섹션을 구성한다.
+// 사전에 없는 분야(앱·서버·SW·기타)는 물을 것이 없다 — 전 분야가 그러면 STEP2 자체를 스텝
+// 목록에서 제거한다(빈 스텝 노출 금지).
+
+// 분야 → 요구 툴 그룹(합집합·중복 제거는 UI 계산).
+export const MARKET_AREA_TOOL_GROUPS: Partial<
+  Record<MarketServiceAreaType, readonly MarketToolGroupType[]>
+> = {
+  circuit: ['ecad'],
+  pcb: ['ecad'],
+  'mechanical-design': ['mcad'],
+  'product-design': ['design'],
+};
+
+// 분야 → 노출 세부분야(저장 enum 은 MARKET_CATEGORIES 재사용 — 노출만 부분집합).
+// 'mcu'(AVR·마이컴 회로)처럼 양쪽 성격인 코드는 중복 소속 허용(합집합 계산이라 무해).
+export const MARKET_AREA_SPECIALTIES: Partial<
+  Record<MarketServiceAreaType, readonly MarketCategoryCodeType[]>
+> = {
+  circuit: [
+    'arduino',
+    'mcu',
+    'fpga',
+    'digital',
+    'power',
+    'motor',
+    'plc',
+    'hv',
+    'rf',
+    'microwave',
+    'robot',
+    'led',
+    'bms',
+    'defense',
+    'reverse',
+    'etc',
+  ],
+  firmware: [
+    'arduino',
+    'mcu',
+    'fpga',
+    'digital',
+    'motor',
+    'plc',
+    'robot',
+    'led',
+    'bms',
+    'defense',
+    'etc',
+  ],
+};
 
 // working|completed 는 2차(계약·결제) 예약값 — 1차 라우트는 생성하지 않는다.
 export const MarketProjectStatus = z.enum([
@@ -374,7 +483,7 @@ const marketExpertEditableShape = {
   intro: z.string().trim().min(10).max(5000),
   serviceAreas: z.array(MarketServiceArea).min(1).max(MARKET_SERVICE_AREAS.length),
   categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
-  cadTools: z.array(MarketCadToolCode).max(MARKET_CAD_TOOLS.length).default([]),
+  cadTools: z.array(MarketToolCode).max(MARKET_TOOL_CODES.length).default([]),
   bankName: z.string().trim().min(1).max(50),
   bankHolder: z.string().trim().min(1).max(50),
   bankAccount: z
@@ -419,7 +528,7 @@ export const MarketExpertMe = z.object({
   intro: z.string().nullable(),
   serviceAreas: z.array(MarketServiceArea),
   categories: z.array(MarketCategoryCode),
-  cadTools: z.array(MarketCadToolCode),
+  cadTools: z.array(MarketToolCode),
   bankName: z.string().nullable(),
   bankHolder: z.string().nullable(),
   bankAccount: z.string().nullable(),
@@ -446,7 +555,7 @@ export const MarketExpertPublic = z.object({
   region: MarketRegion.nullable(),
   serviceAreas: z.array(MarketServiceArea),
   categories: z.array(MarketCategoryCode),
-  cadTools: z.array(MarketCadToolCode),
+  cadTools: z.array(MarketToolCode),
   intro: z.string().nullable(),
 });
 export type MarketExpertPublicType = z.infer<typeof MarketExpertPublic>;
@@ -457,7 +566,7 @@ export const MarketExpertListQuery = z.object({
   expertType: MarketExpertType.optional(),
   serviceArea: MarketServiceArea.optional(),
   category: MarketCategoryCode.optional(),
-  cadTool: MarketCadToolCode.optional(),
+  cadTool: MarketToolCode.optional(),
   q: z.string().optional(), // displayName·intro contains
 });
 export type MarketExpertListQueryType = z.infer<typeof MarketExpertListQuery>;
@@ -492,7 +601,10 @@ const marketProjectEditableShape = {
   title: z.string().trim().min(2).max(200),
   requestType: MarketRequestType,
   serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length),
-  cadTools: z.array(MarketProjectCadCode).min(1).max(MARKET_PROJECT_CAD_CODES.length),
+  // 세부분야(회로·펌웨어) — 빈 배열 = 지정 없음. 분야-코드 정합성은 클라 pruning 신뢰(서버는 enum 만).
+  categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
+  // 빈 배열 = 특정 툴 요구 없음('any' 는 레거시 데이터에만 존재).
+  cadTools: z.array(MarketProjectToolCode).max(MARKET_PROJECT_TOOL_CODES.length),
   description: z.string().trim().min(10).max(20000),
   ndaRequired: z.boolean().default(true),
   budgetRange: MarketBudgetRange,
@@ -547,6 +659,7 @@ export const MarketProjectUpdateBody = z
     title: marketProjectEditableShape.title,
     requestType: marketProjectEditableShape.requestType,
     serviceAreas: marketProjectEditableShape.serviceAreas,
+    categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length), // default 없이 — 미전송=변경 없음
     cadTools: marketProjectEditableShape.cadTools,
     description: marketProjectEditableShape.description,
     ndaRequired: z.boolean(),
@@ -592,7 +705,8 @@ export const MarketProjectListItem = z.object({
   title: z.string(),
   requestType: MarketRequestType,
   serviceAreas: z.array(MarketServiceArea),
-  cadTools: z.array(MarketProjectCadCode),
+  categories: z.array(MarketCategoryCode),
+  cadTools: z.array(MarketProjectToolCode),
   budgetRange: MarketBudgetRange,
   method: MarketProjectMethod,
   ndaRequired: z.boolean(),
@@ -938,7 +1052,7 @@ export const AdminMarketExpertDetail = AdminMarketExpertListItem.extend({
   intro: z.string().nullable(),
   serviceAreas: z.array(MarketServiceArea),
   categories: z.array(MarketCategoryCode),
-  cadTools: z.array(MarketCadToolCode),
+  cadTools: z.array(MarketToolCode),
   bankName: z.string().nullable(),
   bankHolder: z.string().nullable(),
   bankAccount: z.string().nullable(),
@@ -1034,7 +1148,8 @@ export const AdminMarketBidItem = MarketProjectBidItem.extend({
 export type AdminMarketBidItemType = z.infer<typeof AdminMarketBidItem>;
 
 export const AdminMarketProjectDetail = AdminMarketProjectListItem.extend({
-  cadTools: z.array(MarketProjectCadCode),
+  categories: z.array(MarketCategoryCode),
+  cadTools: z.array(MarketProjectToolCode),
   budgetRange: MarketBudgetRange,
   description: z.string(),
   startHopeDate: z.string().nullable(),

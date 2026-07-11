@@ -218,7 +218,9 @@ model SpMarketProject {
   title          String    @db.VarChar(200)
   requestType    String    @map("category") @db.VarChar(30) // system|individual
   serviceAreas   Json // 실제 필요한 개발 영역 코드 배열(복수)
-  cadTools       Json // 요구 CAD 코드 배열('any' 단독 허용)
+  // 물리명 specialties — 인접 물리 컬럼 category(=requestType)와 category/categories 혼동 회피.
+  categories     Json      @map("specialties") // 세부분야 코드 배열(회로·펌웨어 STEP2)
+  cadTools       Json // 요구 툴 코드 배열(ECAD·MCAD·디자인 통합) — 빈 배열=무관, 'any' 는 레거시
   description    String    @db.Text
   ndaRequired    Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
   budgetRange    String    @db.VarChar(20) // 예산 구간 코드(금액 아님)

@@ -20,7 +20,7 @@ import {
   asTravelRangeOrNull,
   collectMultipart,
   deleteMarketFile,
-  toCadCodes,
+  toToolCodes,
   toCategoryCodes,
   toFileMeta,
   toServiceAreaCodes,
@@ -63,7 +63,7 @@ const toExpertMe = (e: SpMarketExpert, files: ExpertFileRow[]): MarketExpertMeTy
   intro: e.intro,
   serviceAreas: toServiceAreaCodes(e.serviceAreas),
   categories: toCategoryCodes(e.categories),
-  cadTools: toCadCodes(e.cadTools),
+  cadTools: toToolCodes(e.cadTools),
   bankName: e.bankName,
   bankHolder: e.bankHolder,
   bankAccount: e.bankAccount,
@@ -83,7 +83,7 @@ const toExpertPublic = (e: SpMarketExpert): MarketExpertPublicType => ({
   region: asRegionOrNull(e.region),
   serviceAreas: toServiceAreaCodes(e.serviceAreas),
   categories: toCategoryCodes(e.categories),
-  cadTools: toCadCodes(e.cadTools),
+  cadTools: toToolCodes(e.cadTools),
   intro: e.intro,
 });
 
@@ -371,7 +371,7 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           return false;
         if (category !== undefined && !toCategoryCodes(e.categories).includes(category))
           return false;
-        if (cadTool !== undefined && !toCadCodes(e.cadTools).includes(cadTool)) return false;
+        if (cadTool !== undefined && !toToolCodes(e.cadTools).includes(cadTool)) return false;
         if (keyword !== undefined && keyword !== '') {
           const hay = `${e.displayName} ${e.intro ?? ''}`.toLowerCase();
           if (!hay.includes(keyword)) return false;

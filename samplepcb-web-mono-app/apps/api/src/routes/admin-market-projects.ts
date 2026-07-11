@@ -29,8 +29,9 @@ import {
   asRegionOrNull,
   isBiddingClosed,
   marketBidCounts,
+  toCategoryCodes,
   toFileMeta,
-  toProjectCadCodes,
+  toProjectToolCodes,
   toServiceAreaCodes,
 } from '../lib/market';
 import { prisma } from '../lib/prisma';
@@ -184,7 +185,8 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
             bidCounts.get(project.id.toString()) ?? 0,
             now,
           ),
-          cadTools: toProjectCadCodes(project.cadTools),
+          categories: toCategoryCodes(project.categories),
+          cadTools: toProjectToolCodes(project.cadTools),
           budgetRange: asBudgetRange(project.budgetRange),
           description: project.description,
           startHopeDate: project.startHopeDate,

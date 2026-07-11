@@ -200,6 +200,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           title: payload.title,
           requestType: payload.requestType,
           serviceAreas: payload.serviceAreas,
+          categories: payload.categories,
           cadTools: payload.cadTools,
           description: payload.description,
           ndaRequired: payload.ndaRequired,
@@ -445,6 +446,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (body.title !== undefined) data.title = body.title;
       if (body.requestType !== undefined) data.requestType = body.requestType;
       if (body.serviceAreas !== undefined) data.serviceAreas = body.serviceAreas;
+      if (body.categories !== undefined) data.categories = body.categories;
       if (body.cadTools !== undefined) data.cadTools = body.cadTools;
       if (body.description !== undefined) data.description = body.description;
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;
