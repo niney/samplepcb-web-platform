@@ -13,7 +13,8 @@ const projectFilters = ref<ProjectListFilters>({
   page: 1,
   pageSize: 6,
   tab: 'open',
-  category: '',
+  requestType: '',
+  serviceArea: '',
   method: '',
   q: '',
   sort: 'latest',
@@ -24,6 +25,7 @@ const expertFilters = ref<ExpertListFilters>({
   page: 1,
   pageSize: 4,
   expertType: '',
+  serviceArea: '',
   category: '',
   cadTool: '',
   q: '',
@@ -32,8 +34,8 @@ const { data: expertData } = useMarketExpertList(expertFilters);
 
 const categories = [
   { code: 'circuit', title: '회로개발', desc: '아두이노 · 펌웨어 · RF · 전원 등 18개 분야' },
-  { code: 'artwork', title: 'PCB 설계', desc: 'Altium · PADS · OrCAD · KiCad ArtWork' },
-  { code: 'both', title: '통합 의뢰', desc: '회로개발 + PCB설계를 한 번에' },
+  { code: 'pcb', title: 'PCB 설계', desc: 'Altium · PADS · OrCAD · KiCad ArtWork' },
+  { code: 'firmware', title: '펌웨어 개발', desc: 'MCU · 임베디드 · 제어 소프트웨어' },
 ] as const;
 
 const steps = [

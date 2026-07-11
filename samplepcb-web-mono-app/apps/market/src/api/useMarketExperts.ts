@@ -9,6 +9,7 @@ import type {
   MarketCadToolCodeType,
   MarketCategoryCodeType,
   MarketExpertTypeType,
+  MarketServiceAreaType,
 } from '@sp/api-contract';
 import { apiGet } from '@sp/shared';
 
@@ -18,6 +19,7 @@ export interface ExpertListFilters {
   page: number;
   pageSize: number;
   expertType: '' | MarketExpertTypeType; // '' = 전체
+  serviceArea: '' | MarketServiceAreaType;
   category: '' | MarketCategoryCodeType;
   cadTool: '' | MarketCadToolCodeType;
   q: string;
@@ -28,6 +30,7 @@ const listPath = (f: ExpertListFilters): string => {
   params.set('page', String(f.page));
   params.set('pageSize', String(f.pageSize));
   if (f.expertType !== '') params.set('expertType', f.expertType);
+  if (f.serviceArea !== '') params.set('serviceArea', f.serviceArea);
   if (f.category !== '') params.set('category', f.category);
   if (f.cadTool !== '') params.set('cadTool', f.cadTool);
   if (f.q.trim() !== '') params.set('q', f.q.trim());

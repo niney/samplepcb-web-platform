@@ -8,7 +8,8 @@ import {
   MARKET_CAREER_RANGE_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_METHOD_LABELS,
-  MARKET_PROJECT_CATEGORY_LABELS,
+  MARKET_REQUEST_TYPE_LABELS,
+  MARKET_SERVICE_AREA_LABELS,
   apiRoutes,
 } from '@sp/api-contract';
 import type { MarketBidSubmitBodyType } from '@sp/api-contract';
@@ -301,7 +302,7 @@ const fmtSize = (bytes: number): string =>
             {{ dday.label }}
           </span>
           <span class="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
-            {{ MARKET_PROJECT_CATEGORY_LABELS[detail.category] }}
+            {{ MARKET_REQUEST_TYPE_LABELS[detail.requestType] }} · {{ detail.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join(' · ') }}
           </span>
           <span
             class="rounded-full px-2 py-0.5 font-semibold"

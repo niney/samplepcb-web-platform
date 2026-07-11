@@ -8,14 +8,17 @@ import {
   MARKET_DEADLINE_PRESETS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_PROJECT_CAD_CODES,
-  MARKET_PROJECT_CATEGORY_LABELS,
-  MarketProjectCategory,
+  MARKET_REQUEST_TYPE_LABELS,
+  MARKET_SERVICE_AREA_LABELS,
+  MarketRequestType,
+  MarketServiceArea,
 } from '@sp/api-contract';
 import type {
   MarketBudgetRangeType,
   MarketProjectCadCodeType,
-  MarketProjectCategoryType,
   MarketProjectMethodType,
+  MarketRequestTypeType,
+  MarketServiceAreaType,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import { useMarketExpertList } from '../api/useMarketExperts';
@@ -36,10 +39,11 @@ const create = useCreateProject();
 const step = ref(1);
 const submitError = ref('');
 const createdId = ref<number | null>(null);
+const typeNotice = ref('');
 
-const presetCategory = ((): MarketProjectCategoryType => {
-  const cat = MarketProjectCategory.safeParse(route.query.cat);
-  return cat.success ? cat.data : 'circuit';
+const presetServiceArea = ((): MarketServiceAreaType => {
+  const area = MarketServiceArea.safeParse(route.query.cat);
+  return area.success ? area.data : 'circuit';
 })();
 const presetExpertId = ((): number | null => {
   const n = Number(route.query.expert);
@@ -47,7 +51,8 @@ const presetExpertId = ((): number | null => {
 })();
 
 interface RequestForm {
-  category: MarketProjectCategoryType;
+  requestType: MarketRequestTypeType;
+  serviceAreas: MarketServiceAreaType[];
   cadTools: MarketProjectCadCodeType[];
   title: string;
   description: string;
@@ -62,7 +67,8 @@ interface RequestForm {
 }
 
 const form = reactive<RequestForm>({
-  category: presetCategory,
+  requestType: 'individual',
+  serviceAreas: [presetServiceArea],
   cadTools: ['any'],
   title: '',
   description: '',
@@ -82,6 +88,7 @@ const expertFilters = ref<ExpertListFilters>({
   page: 1,
   pageSize: 100,
   expertType: '',
+  serviceArea: '',
   category: '',
   cadTool: '',
   q: '',
@@ -110,10 +117,31 @@ function toggleCad(code: MarketProjectCadCodeType): void {
   form.cadTools = next.length === 0 ? ['any'] : next;
 }
 
+function toggleServiceArea(code: MarketServiceAreaType): void {
+  const i = form.serviceAreas.indexOf(code);
+  if (i >= 0) form.serviceAreas.splice(i, 1);
+  else form.serviceAreas.push(code);
+  if (form.requestType === 'individual' && form.serviceAreas.length > 1) {
+    form.requestType = 'system';
+    typeNotice.value = '개발 분야를 여러 개 선택해 의뢰 유형이 시스템 통합 개발로 자동 변경되었습니다.';
+  }
+  if (!form.serviceAreas.includes('pcb')) form.cadTools = ['any'];
+}
+
+function selectRequestType(type: MarketRequestTypeType): void {
+  form.requestType = type;
+  typeNotice.value = '';
+  if (type === 'individual' && form.serviceAreas.length > 1) {
+    form.serviceAreas = [form.serviceAreas[0] ?? 'circuit'];
+    typeNotice.value = '개별 분야 개발은 한 분야만 선택할 수 있어 첫 번째 분야만 유지했습니다.';
+  }
+}
+
 const todayKst = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
 
 const stepValid = computed<boolean>(() => {
-  if (step.value === 1 || step.value === 2) return true;
+  if (step.value === 1) return form.requestType === 'system' || form.serviceAreas.length === 1;
+  if (step.value === 2) return true;
   if (step.value === 3) {
     return form.title.trim().length >= 2 && form.description.trim().length >= 10;
   }
@@ -127,7 +155,8 @@ async function submit(): Promise<void> {
   submitError.value = '';
   const payload = {
     title: form.title.trim(),
-    category: form.category,
+    requestType: form.requestType,
+    serviceAreas: form.serviceAreas,
     cadTools: form.cadTools,
     description: form.description.trim(),
     ndaRequired: form.ndaRequired,
@@ -162,11 +191,9 @@ const stepTitles = [
   { no: 5, label: '견적 방식' },
 ];
 
-const categoryDescs: Record<MarketProjectCategoryType, string> = {
-  circuit: '회로 설계·펌웨어 등 개발 의뢰',
-  artwork: '거버 산출을 위한 PCB ArtWork 의뢰',
-  both: '회로개발과 PCB설계를 한 번에',
-  consult: '범위가 애매하면 상담으로 시작',
+const requestTypeDescs: Record<MarketRequestTypeType, string> = {
+  system: '여러 개발 분야를 연결해 제품 또는 시스템 전체를 개발합니다.',
+  individual: '필요한 개발 분야를 하나 이상 선택해 의뢰합니다.',
 };
 </script>
 
@@ -235,26 +262,34 @@ const categoryDescs: Record<MarketProjectCategoryType, string> = {
 
       <div class="mt-6 rounded-2xl border border-line bg-white p-6 sm:p-8">
         <!-- STEP 1: 분야 -->
-        <div v-if="step === 1" class="grid gap-3 sm:grid-cols-2">
-          <button
-            v-for="c in MarketProjectCategory.options"
-            :key="c"
-            type="button"
-            class="rounded-2xl border-2 p-5 text-left transition"
-            :class="form.category === c ? 'border-copper-500 bg-copper-50' : 'border-line hover:border-line-2'"
-            @click="form.category = c"
-          >
-            <p class="text-sm font-extrabold text-tx-1">{{ MARKET_PROJECT_CATEGORY_LABELS[c] }}</p>
-            <p class="mt-1.5 text-xs leading-relaxed text-tx-2">{{ categoryDescs[c] }}</p>
-          </button>
+        <div v-if="step === 1" class="grid gap-6">
+          <div>
+            <p class="text-xs font-bold text-tx-2">의뢰 유형 <span class="text-red-500">*</span></p>
+            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+              <button v-for="type in MarketRequestType.options" :key="type" type="button" class="rounded-2xl border-2 p-5 text-left transition" :class="form.requestType === type ? 'border-copper-500 bg-copper-50' : 'border-line hover:border-line-2'" @click="selectRequestType(type)">
+                <p class="text-sm font-extrabold text-tx-1">{{ MARKET_REQUEST_TYPE_LABELS[type] }}</p>
+                <p class="mt-1.5 text-xs leading-relaxed text-tx-2">{{ requestTypeDescs[type] }}</p>
+              </button>
+            </div>
+          </div>
+          <div>
+            <p class="text-xs font-bold text-tx-2">필요한 개발 분야 <span class="font-normal text-tx-3">(복수 선택)</span> <span class="text-red-500">*</span></p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button v-for="area in MarketServiceArea.options" :key="area" type="button" class="rounded-full border px-3 py-2 text-xs font-semibold transition" :class="form.serviceAreas.includes(area) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2 hover:border-line-2'" @click="toggleServiceArea(area)">
+                {{ MARKET_SERVICE_AREA_LABELS[area] }}
+              </button>
+            </div>
+            <p class="mt-2 text-xs leading-relaxed text-tx-3">시스템 통합 개발은 분야를 선택하지 않아도 등록할 수 있습니다. 개별 분야 개발에서 두 개 이상 선택하면 시스템 통합 개발로 자동 변경됩니다.</p>
+            <p v-if="typeNotice !== ''" class="mt-2 rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">{{ typeNotice }}</p>
+          </div>
         </div>
 
         <!-- STEP 2: 요구 CAD -->
         <div v-else-if="step === 2">
-          <p class="text-xs font-bold text-tx-2">
+          <p v-if="form.serviceAreas.includes('pcb')" class="text-xs font-bold text-tx-2">
             요구 CAD 툴 <span class="font-normal text-tx-3">(복수 선택 · '상관없음'은 단독)</span>
           </p>
-          <div class="mt-3 flex flex-wrap gap-1.5">
+          <div v-if="form.serviceAreas.includes('pcb')" class="mt-3 flex flex-wrap gap-1.5">
             <button
               v-for="c in MARKET_PROJECT_CAD_CODES"
               :key="c"
@@ -271,7 +306,7 @@ const categoryDescs: Record<MarketProjectCategoryType, string> = {
             </button>
           </div>
           <p class="mt-3 text-xs text-tx-3">
-            PCB설계 의뢰가 아니면 '상관없음'으로 두어도 됩니다.
+            {{ form.serviceAreas.includes('pcb') ? '특정 CAD가 없다면 상관없음을 선택하세요.' : 'PCB 설계를 선택하지 않아 CAD 조건을 건너뜁니다.' }}
           </p>
         </div>
 
@@ -446,7 +481,8 @@ const categoryDescs: Record<MarketProjectCategoryType, string> = {
           <div class="rounded-xl bg-paper p-4 text-xs leading-relaxed text-tx-2">
             <p><b class="text-tx-1">{{ form.title || '(제목 미입력)' }}</b></p>
             <p class="mt-1">
-              {{ MARKET_PROJECT_CATEGORY_LABELS[form.category] }} ·
+              {{ MARKET_REQUEST_TYPE_LABELS[form.requestType] }} ·
+              {{ form.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join('/') }} ·
               {{ form.cadTools.map((c) => MARKET_CAD_TOOL_LABELS[c]).join('/') }} ·
               {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
               마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·

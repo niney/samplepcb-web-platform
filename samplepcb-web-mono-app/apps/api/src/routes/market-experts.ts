@@ -23,6 +23,7 @@ import {
   toCadCodes,
   toCategoryCodes,
   toFileMeta,
+  toServiceAreaCodes,
 } from '../lib/market';
 import type { MarketReceivedFile } from '../lib/market';
 import { prisma } from '../lib/prisma';
@@ -60,6 +61,7 @@ const toExpertMe = (e: SpMarketExpert, files: ExpertFileRow[]): MarketExpertMeTy
   region: asRegionOrNull(e.region),
   travelRange: asTravelRangeOrNull(e.travelRange),
   intro: e.intro,
+  serviceAreas: toServiceAreaCodes(e.serviceAreas),
   categories: toCategoryCodes(e.categories),
   cadTools: toCadCodes(e.cadTools),
   bankName: e.bankName,
@@ -79,6 +81,7 @@ const toExpertPublic = (e: SpMarketExpert): MarketExpertPublicType => ({
   expertType: asExpertType(e.expertType),
   careerRange: asCareerRange(e.careerRange),
   region: asRegionOrNull(e.region),
+  serviceAreas: toServiceAreaCodes(e.serviceAreas),
   categories: toCategoryCodes(e.categories),
   cadTools: toCadCodes(e.cadTools),
   intro: e.intro,
@@ -159,6 +162,7 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             region: payload.region ?? null,
             travelRange: payload.travelRange ?? null,
             intro: payload.intro,
+            serviceAreas: payload.serviceAreas,
             categories: payload.categories,
             cadTools: payload.cadTools,
             bankName: payload.bankName,
@@ -258,13 +262,6 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     }
     const payload = parsed.data;
 
-    // 병합 후 불변식 — 분야∪CAD 최소 1개(계약은 부분 갱신이라 병합 상태를 모른다).
-    const mergedCategories = payload.categories ?? toCategoryCodes(expert.categories);
-    const mergedCadTools = payload.cadTools ?? toCadCodes(expert.cadTools);
-    if (mergedCategories.length + mergedCadTools.length === 0) {
-      return reply.status(400).send({ result: false, error: 'CATEGORY_OR_CADTOOL_REQUIRED' });
-    }
-
     // 추가 증빙 업로드(선택) — 기존 파일 삭제는 DELETE /market/experts/me/files/:fileId.
     const evidences: MarketReceivedFile[] = files.filter((f) => EXPERT_FILE_FIELDS.has(f.field));
     let uploaded: UploadedFileType[] = [];
@@ -289,6 +286,7 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     if (payload.region !== undefined) data.region = payload.region;
     if (payload.travelRange !== undefined) data.travelRange = payload.travelRange;
     if (payload.intro !== undefined) data.intro = payload.intro;
+    if (payload.serviceAreas !== undefined) data.serviceAreas = payload.serviceAreas;
     if (payload.categories !== undefined) data.categories = payload.categories;
     if (payload.cadTools !== undefined) data.cadTools = payload.cadTools;
     if (payload.bankName !== undefined) data.bankName = payload.bankName;
@@ -363,12 +361,14 @@ export const marketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     '/market/experts',
     { schema: { querystring: MarketExpertListQuery } },
     async (request) => {
-      const { page, pageSize, expertType, category, cadTool, q } = request.query;
+      const { page, pageSize, expertType, serviceArea, category, cadTool, q } = request.query;
       const rows = await prisma.spMarketExpert.findMany({ where: { status: 'approved' } });
 
       const keyword = q?.trim().toLowerCase();
       const filtered = rows.filter((e) => {
         if (expertType !== undefined && asExpertType(e.expertType) !== expertType) return false;
+        if (serviceArea !== undefined && !toServiceAreaCodes(e.serviceAreas).includes(serviceArea))
+          return false;
         if (category !== undefined && !toCategoryCodes(e.categories).includes(category))
           return false;
         if (cadTool !== undefined && !toCadCodes(e.cadTools).includes(cadTool)) return false;

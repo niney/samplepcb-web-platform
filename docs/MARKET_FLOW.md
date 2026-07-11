@@ -47,7 +47,11 @@ local-web.samplepcb.co.kr (nginx 443)
 - **첨부·증빙은 `sp_file` 폴리모픽 재사용**: refType `'sp_market_project'`(attachment) /
   `'sp_market_expert'`(license·portfolio·bizreg). pathToken 비노출·`uploadedBy`에 mbId 금지
   (varchar(20)) 불변식 유지. 파일서버 serviceType은 env `MARKET_FILE_SERVICE_TYPE`(기본 `market`).
-- 코드 사전(분야 18종·CAD·예산/경력/지역/이동거리 구간)과 **한글 라벨의 정본은
+- 프로젝트 분류는 `requestType`(시스템 통합 개발/개별 분야 개발)과 복수
+  `serviceAreas`(회로·PCB·펌웨어·제품디자인·기구설계·앱·서버·Linux/Windows 소프트웨어·기타)로
+  분리한다. 전문가도 같은 `serviceAreas`를 보유해 검색·매칭 기준을 공유하며, 기존 회로
+  세부분야 18종(`categories`)과 CAD 역량은 별도 축으로 유지한다.
+- 코드 사전(서비스 영역·회로 세부분야 18종·CAD·예산/경력/지역/이동거리 구간)과 **한글 라벨의 정본은
   `packages/api-contract/src/schemas/market.ts`** (`MARKET_*`, `MARKET_*_LABELS`) — sp-market·
   sp-vue·sp-node 메일 빌더 3곳이 공유. DB에는 코드만 저장(Json 배열).
 - 마이그레이션 규율 준수: 수기 CREATE → `prisma migrate deploy` → `generate`

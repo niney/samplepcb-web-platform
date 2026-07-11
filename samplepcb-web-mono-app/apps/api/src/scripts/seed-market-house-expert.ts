@@ -5,7 +5,7 @@
 import { createPool } from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2/promise';
 import { PrismaClient } from '@prisma/client';
-import { MARKET_CAD_TOOLS, MARKET_CATEGORIES } from '@sp/api-contract';
+import { MARKET_CAD_TOOLS, MARKET_CATEGORIES, MARKET_SERVICE_AREAS } from '@sp/api-contract';
 
 // g5-db.ts 의 전역 풀은 스크립트가 닫을 수 없어(프로세스 잔류) 자체 풀을 쓴다
 // — seed-template-items.ts 관례.
@@ -49,6 +49,7 @@ if (existing !== null) {
         travelRange: 'nationwide',
         intro:
           'PCB 온라인 플랫폼 샘플피씨비 당사진행 서비스입니다. 회로개발·PCB설계부터 제작·SMT 양산까지 원스톱으로 진행합니다.',
+        serviceAreas: [...MARKET_SERVICE_AREAS],
         categories: [...MARKET_CATEGORIES],
         cadTools: [...MARKET_CAD_TOOLS],
         termsAgreedAt: now,

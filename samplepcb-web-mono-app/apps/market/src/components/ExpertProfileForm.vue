@@ -5,11 +5,14 @@ import {
   MARKET_CAD_TOOL_LABELS,
   MARKET_CATEGORIES,
   MARKET_CATEGORY_LABELS,
+  MARKET_SERVICE_AREAS,
+  MARKET_SERVICE_AREA_LABELS,
 } from '@sp/api-contract';
 import type {
   MarketCadToolCodeType,
   MarketCategoryCodeType,
   MarketExpertMeType,
+  MarketServiceAreaType,
 } from '@sp/api-contract';
 import { useDeleteExpertFile, useUpdateExpertMe } from '../api/useMarketExpertMe';
 import { errorMessage } from '../lib/error-msg';
@@ -29,6 +32,7 @@ const form = reactive({
   displayName: props.me.displayName,
   phone: props.me.phone,
   intro: props.me.intro ?? '',
+  serviceAreas: [...props.me.serviceAreas] as MarketServiceAreaType[],
   categories: [...props.me.categories] as MarketCategoryCodeType[],
   cadTools: [...props.me.cadTools] as MarketCadToolCodeType[],
   bankName: props.me.bankName ?? '',
@@ -65,14 +69,15 @@ async function onDeleteFile(fileId: number): Promise<void> {
 async function save(): Promise<void> {
   error.value = '';
   saved.value = false;
-  if (form.categories.length + form.cadTools.length === 0) {
-    error.value = '전문 분야 또는 CAD 툴을 1개 이상 선택해 주세요.';
+  if (form.serviceAreas.length === 0) {
+    error.value = '개발 분야를 1개 이상 선택해 주세요.';
     return;
   }
   const payload = {
     displayName: form.displayName.trim(),
     phone: form.phone.trim(),
     intro: form.intro.trim(),
+    serviceAreas: form.serviceAreas,
     categories: form.categories,
     cadTools: form.cadTools,
     ...(form.bankName !== '' ? { bankName: form.bankName } : {}),
@@ -113,6 +118,13 @@ async function save(): Promise<void> {
       내 소개
       <textarea v-model="form.intro" rows="4" class="rounded-lg border border-line p-3 text-sm font-normal leading-relaxed" />
     </label>
+
+    <div>
+      <p class="text-xs font-bold text-tx-2">제공 가능한 개발 분야</p>
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        <button v-for="area in MARKET_SERVICE_AREAS" :key="area" type="button" class="rounded-full border px-3 py-1.5 text-xs font-semibold transition" :class="form.serviceAreas.includes(area) ? 'border-ink-900 bg-ink-900 text-white' : 'border-line text-tx-2'" @click="toggle(form.serviceAreas, area)">{{ MARKET_SERVICE_AREA_LABELS[area] }}</button>
+      </div>
+    </div>
 
     <div>
       <p class="text-xs font-bold text-tx-2">회로개발 분야</p>

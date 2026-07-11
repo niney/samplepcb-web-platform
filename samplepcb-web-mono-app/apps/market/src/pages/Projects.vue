@@ -2,8 +2,10 @@
 import { ref } from 'vue';
 import {
   MARKET_METHOD_LABELS,
-  MARKET_PROJECT_CATEGORY_LABELS,
-  MarketProjectCategory,
+  MARKET_REQUEST_TYPE_LABELS,
+  MARKET_SERVICE_AREA_LABELS,
+  MarketRequestType,
+  MarketServiceArea,
   MarketProjectMethod,
 } from '@sp/api-contract';
 import ProjectCard from '../components/ProjectCard.vue';
@@ -15,7 +17,8 @@ const filters = ref<ProjectListFilters>({
   page: 1,
   pageSize: 12,
   tab: 'open',
-  category: '',
+  requestType: '',
+  serviceArea: '',
   method: '',
   q: '',
   sort: 'latest',
@@ -65,14 +68,19 @@ const resetPage = (): void => {
       </div>
 
       <select
-        v-model="filters.category"
+        v-model="filters.requestType"
         class="h-9 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-tx-2"
         @change="resetPage"
       >
         <option value="">{{ $t('projects.allCategories') }}</option>
-        <option v-for="c in MarketProjectCategory.options" :key="c" :value="c">
-          {{ MARKET_PROJECT_CATEGORY_LABELS[c] }}
+        <option v-for="c in MarketRequestType.options" :key="c" :value="c">
+          {{ MARKET_REQUEST_TYPE_LABELS[c] }}
         </option>
+      </select>
+
+      <select v-model="filters.serviceArea" class="h-9 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-tx-2" @change="resetPage">
+        <option value="">전체 개발 분야</option>
+        <option v-for="area in MarketServiceArea.options" :key="area" :value="area">{{ MARKET_SERVICE_AREA_LABELS[area] }}</option>
       </select>
 
       <select

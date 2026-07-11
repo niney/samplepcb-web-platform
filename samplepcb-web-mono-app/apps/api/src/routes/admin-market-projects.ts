@@ -23,7 +23,7 @@ import {
   asBudgetRange,
   asCareerRange,
   asExpertType,
-  asProjectCategory,
+  asRequestType,
   asProjectMethod,
   asProjectStatus,
   asRegionOrNull,
@@ -31,6 +31,7 @@ import {
   marketBidCounts,
   toFileMeta,
   toProjectCadCodes,
+  toServiceAreaCodes,
 } from '../lib/market';
 import { prisma } from '../lib/prisma';
 
@@ -59,7 +60,8 @@ const toAdminProjectItem = (
 ): AdminMarketProjectListItemType => ({
   projectId: Number(p.id),
   title: p.title,
-  category: asProjectCategory(p.category),
+  requestType: asRequestType(p.requestType),
+  serviceAreas: toServiceAreaCodes(p.serviceAreas),
   method: asProjectMethod(p.method),
   status: asProjectStatus(p.status),
   ndaRequired: p.ndaRequired,

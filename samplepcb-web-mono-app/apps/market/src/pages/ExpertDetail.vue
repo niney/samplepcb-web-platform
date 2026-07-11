@@ -6,6 +6,7 @@ import {
   MARKET_CAREER_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
   MARKET_REGION_LABELS,
+  MARKET_SERVICE_AREA_LABELS,
 } from '@sp/api-contract';
 import { useMarketExpertDetail } from '../api/useMarketExperts';
 import { avatarHue } from '../lib/market-format';
@@ -84,6 +85,9 @@ const typeBadge = computed(() => {
           <p class="font-mono text-[11px] tracking-widest text-tx-3">FIELDS</p>
           <h2 class="mt-1 text-sm font-extrabold text-tx-1">전문 분야</h2>
           <div class="mt-3 flex flex-wrap gap-1.5">
+            <span v-for="area in expert.serviceAreas" :key="area" class="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700">
+              {{ MARKET_SERVICE_AREA_LABELS[area] }}
+            </span>
             <span
               v-for="c in expert.categories"
               :key="c"

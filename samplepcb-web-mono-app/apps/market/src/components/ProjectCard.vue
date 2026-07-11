@@ -4,7 +4,8 @@ import {
   MARKET_BUDGET_RANGE_LABELS,
   MARKET_CAD_TOOL_LABELS,
   MARKET_METHOD_LABELS,
-  MARKET_PROJECT_CATEGORY_LABELS,
+  MARKET_REQUEST_TYPE_LABELS,
+  MARKET_SERVICE_AREA_LABELS,
 } from '@sp/api-contract';
 import type { MarketProjectListItemType } from '@sp/api-contract';
 import { dateShort, ddayBadge, ddayToneClass } from '../lib/market-format';
@@ -13,11 +14,7 @@ const props = defineProps<{ item: MarketProjectListItemType }>();
 
 const dday = computed(() => ddayBadge(props.item));
 const categoryChipClass = computed(() =>
-  props.item.category === 'artwork'
-    ? 'bg-teal-50 text-teal-700'
-    : props.item.category === 'circuit'
-      ? 'bg-blue-50 text-blue-700'
-      : 'bg-violet-50 text-violet-700',
+  props.item.requestType === 'system' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700',
 );
 </script>
 
@@ -41,7 +38,10 @@ const categoryChipClass = computed(() =>
 
     <div class="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
       <span class="rounded-full px-2 py-0.5 font-semibold" :class="categoryChipClass">
-        {{ MARKET_PROJECT_CATEGORY_LABELS[item.category] }}
+        {{ MARKET_REQUEST_TYPE_LABELS[item.requestType] }}
+      </span>
+      <span v-for="area in item.serviceAreas" :key="area" class="rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700">
+        {{ MARKET_SERVICE_AREA_LABELS[area] }}
       </span>
       <span
         class="rounded-full px-2 py-0.5 font-semibold"

@@ -7,6 +7,7 @@ import {
   MARKET_EXPERT_STATUS_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_REGION_LABELS,
+  MARKET_SERVICE_AREA_LABELS,
   MARKET_TRAVEL_RANGE_LABELS,
   apiRoutes,
 } from '@sp/api-contract';
@@ -228,6 +229,9 @@ const statusBadge = (s: string): string =>
           <div class="mt-4">
             <p class="text-xs font-bold text-gray-500">분야 · CAD</p>
             <div class="mt-1.5 flex flex-wrap gap-1">
+              <span v-for="area in detail.serviceAreas" :key="area" class="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] text-teal-700">
+                {{ MARKET_SERVICE_AREA_LABELS[area] }}
+              </span>
               <span v-for="c in detail.categories" :key="c" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
                 {{ MARKET_CATEGORY_LABELS[c] }}
               </span>

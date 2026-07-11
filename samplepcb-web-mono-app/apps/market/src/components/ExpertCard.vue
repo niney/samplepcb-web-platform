@@ -5,6 +5,7 @@ import {
   MARKET_CAREER_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
   MARKET_REGION_LABELS,
+  MARKET_SERVICE_AREA_LABELS,
 } from '@sp/api-contract';
 import type { MarketExpertPublicType } from '@sp/api-contract';
 import { avatarHue } from '../lib/market-format';
@@ -51,6 +52,9 @@ const visibleCategories = computed(() => props.item.categories.slice(0, 3));
     </span>
 
     <div class="mt-3 flex flex-wrap gap-1.5 text-xs">
+      <span v-for="area in item.serviceAreas.slice(0, 3)" :key="area" class="rounded-full bg-teal-50 px-2 py-0.5 font-medium text-teal-700">
+        {{ MARKET_SERVICE_AREA_LABELS[area] }}
+      </span>
       <span
         v-for="c in visibleCategories"
         :key="c"

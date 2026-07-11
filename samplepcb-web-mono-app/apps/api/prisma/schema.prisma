@@ -191,6 +191,7 @@ model SpMarketExpert {
   region           String?   @db.VarChar(20) // 활동 지역 코드
   travelRange      String?   @db.VarChar(20) // 이동 가능 거리 코드
   intro            String?   @db.Text
+  serviceAreas     Json // 제공 가능한 개발 영역 코드 배열
   categories       Json // 회로개발 세부분야 코드 배열
   cadTools         Json // CAD 툴 코드 배열
   bankName         String?   @db.VarChar(50) // 정산계좌(2차 정산 대비 수집) — 본인·관리자 외 비노출
@@ -215,7 +216,8 @@ model SpMarketProject {
   id             BigInt    @id @default(autoincrement())
   mbId           String    @db.VarChar(191) // 의뢰인 — 공개 응답엔 maskName 값만 나간다
   title          String    @db.VarChar(200)
-  category       String    @db.VarChar(30) // circuit|artwork|both|consult
+  requestType    String    @map("category") @db.VarChar(30) // system|individual
+  serviceAreas   Json // 실제 필요한 개발 영역 코드 배열(복수)
   cadTools       Json // 요구 CAD 코드 배열('any' 단독 허용)
   description    String    @db.Text
   ndaRequired    Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)

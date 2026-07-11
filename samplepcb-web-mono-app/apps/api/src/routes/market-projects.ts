@@ -26,6 +26,7 @@ import {
   MARKET_FILE_SERVICE_TYPE,
   REF_MARKET_PROJECT,
   asBidStatus,
+  asRequestType,
   collectMultipart,
   deadlineToDate,
   deleteMarketFile,
@@ -34,6 +35,7 @@ import {
   marketOwnerNames,
   toFileMeta,
   toMarketProjectListItem,
+  toServiceAreaCodes,
 } from '../lib/market';
 import type { MarketReceivedFile } from '../lib/market';
 import {
@@ -196,7 +198,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         data: {
           mbId,
           title: payload.title,
-          category: payload.category,
+          requestType: payload.requestType,
+          serviceAreas: payload.serviceAreas,
           cadTools: payload.cadTools,
           description: payload.description,
           ndaRequired: payload.ndaRequired,
@@ -256,11 +259,12 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     '/market/projects',
     { schema: { querystring: MarketProjectListQuery } },
     async (request) => {
-      const { page, pageSize, tab, category, method, q, sort } = request.query;
+      const { page, pageSize, tab, requestType, serviceArea, method, q, sort } = request.query;
       const now = new Date();
 
       const base: Prisma.SpMarketProjectWhereInput = {
-        ...(category !== undefined ? { category } : {}),
+        ...(requestType !== undefined ? { requestType } : {}),
+        ...(serviceArea !== undefined ? { serviceAreas: { array_contains: [serviceArea] } } : {}),
         ...(method !== undefined ? { method } : {}),
         ...(q !== undefined && q.trim() !== ''
           ? { OR: [{ title: { contains: q.trim() } }, { description: { contains: q.trim() } }] }
@@ -432,9 +436,15 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       }
 
       const body = request.body;
+      const nextRequestType = body.requestType ?? asRequestType(project.requestType);
+      const nextServiceAreas = body.serviceAreas ?? toServiceAreaCodes(project.serviceAreas);
+      if (nextRequestType === 'individual' && nextServiceAreas.length !== 1) {
+        return reply.status(400).send({ result: false, error: 'INDIVIDUAL_AREA_REQUIRED' });
+      }
       const data: Prisma.SpMarketProjectUpdateInput = {};
       if (body.title !== undefined) data.title = body.title;
-      if (body.category !== undefined) data.category = body.category;
+      if (body.requestType !== undefined) data.requestType = body.requestType;
+      if (body.serviceAreas !== undefined) data.serviceAreas = body.serviceAreas;
       if (body.cadTools !== undefined) data.cadTools = body.cadTools;
       if (body.description !== undefined) data.description = body.description;
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;

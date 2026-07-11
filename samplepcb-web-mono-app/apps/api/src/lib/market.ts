@@ -7,7 +7,9 @@ import {
   MARKET_CAREER_RANGES,
   MARKET_CATEGORIES,
   MARKET_PROJECT_CAD_CODES,
+  MARKET_REQUEST_TYPES,
   MARKET_REGIONS,
+  MARKET_SERVICE_AREAS,
   MARKET_TRAVEL_RANGES,
 } from '@sp/api-contract';
 import type {
@@ -20,7 +22,8 @@ import type {
   MarketExpertTypeType,
   MarketFileMetaType,
   MarketProjectCadCodeType,
-  MarketProjectCategoryType,
+  MarketRequestTypeType,
+  MarketServiceAreaType,
   MarketProjectDeadlineType,
   MarketProjectListItemType,
   MarketProjectMethodType,
@@ -79,8 +82,8 @@ export const asProjectStatus = (v: string): MarketProjectStatusType =>
 export const asBidStatus = (v: string): MarketBidStatusType =>
   v === 'awarded' ? 'awarded' : v === 'rejected' ? 'rejected' : v === 'withdrawn' ? 'withdrawn' : 'submitted';
 
-export const asProjectCategory = (v: string): MarketProjectCategoryType =>
-  v === 'artwork' ? 'artwork' : v === 'both' ? 'both' : v === 'consult' ? 'consult' : 'circuit';
+export const asRequestType = (v: string): MarketRequestTypeType =>
+  asCode(v, MARKET_REQUEST_TYPES, 'individual');
 
 export const asProjectMethod = (v: string): MarketProjectMethodType =>
   v === 'targeted' ? 'targeted' : 'open';
@@ -107,6 +110,9 @@ const toCodeArray = <T extends string>(json: unknown, allowed: readonly T[]): T[
 
 export const toCategoryCodes = (json: unknown): MarketCategoryCodeType[] =>
   toCodeArray(json, MARKET_CATEGORIES);
+
+export const toServiceAreaCodes = (json: unknown): MarketServiceAreaType[] =>
+  toCodeArray(json, MARKET_SERVICE_AREAS);
 
 export const toCadCodes = (json: unknown): MarketCadToolCodeType[] =>
   toCodeArray(json, MARKET_CAD_TOOLS);
@@ -178,7 +184,8 @@ export const toMarketProjectListItem = (
 ): MarketProjectListItemType => ({
   projectId: Number(p.id),
   title: p.title,
-  category: asProjectCategory(p.category),
+  requestType: asRequestType(p.requestType),
+  serviceAreas: toServiceAreaCodes(p.serviceAreas),
   cadTools: toProjectCadCodes(p.cadTools),
   budgetRange: asBudgetRange(p.budgetRange),
   method: asProjectMethod(p.method),

@@ -183,15 +183,41 @@ export const MARKET_METHOD_LABELS = {
   targeted: '지정견적',
 } as const satisfies Record<MarketProjectMethodType, string>;
 
-export const MarketProjectCategory = z.enum(['circuit', 'artwork', 'both', 'consult']);
-export type MarketProjectCategoryType = z.infer<typeof MarketProjectCategory>;
+// 의뢰 유형(프로젝트 성격)과 실제 작업 분야는 서로 다른 축이다.
+export const MARKET_REQUEST_TYPES = ['system', 'individual'] as const;
+export const MarketRequestType = z.enum(MARKET_REQUEST_TYPES);
+export type MarketRequestTypeType = z.infer<typeof MarketRequestType>;
+export const MARKET_REQUEST_TYPE_LABELS = {
+  system: '시스템 통합 개발',
+  individual: '개별 분야 개발',
+} as const satisfies Record<MarketRequestTypeType, string>;
 
-export const MARKET_PROJECT_CATEGORY_LABELS = {
-  circuit: '회로개발',
-  artwork: 'PCB 설계',
-  both: '회로개발+PCB설계',
-  consult: '기타·상담',
-} as const satisfies Record<MarketProjectCategoryType, string>;
+export const MARKET_SERVICE_AREAS = [
+  'circuit',
+  'pcb',
+  'firmware',
+  'product-design',
+  'mechanical-design',
+  'app',
+  'server',
+  'software-linux',
+  'software-windows',
+  'etc',
+] as const;
+export const MarketServiceArea = z.enum(MARKET_SERVICE_AREAS);
+export type MarketServiceAreaType = z.infer<typeof MarketServiceArea>;
+export const MARKET_SERVICE_AREA_LABELS = {
+  circuit: '회로 개발',
+  pcb: 'PCB 설계',
+  firmware: '펌웨어 개발',
+  'product-design': '제품 디자인',
+  'mechanical-design': '기구 설계',
+  app: '앱 개발',
+  server: '서버 개발',
+  'software-linux': '소프트웨어 개발 · Linux',
+  'software-windows': '소프트웨어 개발 · Windows',
+  etc: '기타',
+} as const satisfies Record<MarketServiceAreaType, string>;
 
 // working|completed 는 2차(계약·결제) 예약값 — 1차 라우트는 생성하지 않는다.
 export const MarketProjectStatus = z.enum([
@@ -346,6 +372,7 @@ const marketExpertEditableShape = {
   region: MarketRegion.optional(),
   travelRange: MarketTravelRange.optional(),
   intro: z.string().trim().min(10).max(5000),
+  serviceAreas: z.array(MarketServiceArea).min(1).max(MARKET_SERVICE_AREAS.length),
   categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
   cadTools: z.array(MarketCadToolCode).max(MARKET_CAD_TOOLS.length).default([]),
   bankName: z.string().trim().min(1).max(50),
@@ -364,10 +391,7 @@ export const MarketExpertRegisterPayload = z
     ...marketExpertEditableShape,
     termsAgree: z.literal(true), // 약관 + 프로필 공개 동의
   })
-  .refine((p) => p.categories.length + p.cadTools.length > 0, {
-    message: '전문 분야 또는 CAD 툴을 1개 이상 선택해야 합니다',
-    path: ['categories'],
-  });
+  ;
 export type MarketExpertRegisterPayloadType = z.infer<typeof MarketExpertRegisterPayload>;
 
 // 본인 수정(pending·rejected 에서만 — 라우트 가드). 보낸 필드만 갱신.
@@ -393,6 +417,7 @@ export const MarketExpertMe = z.object({
   region: MarketRegion.nullable(),
   travelRange: MarketTravelRange.nullable(),
   intro: z.string().nullable(),
+  serviceAreas: z.array(MarketServiceArea),
   categories: z.array(MarketCategoryCode),
   cadTools: z.array(MarketCadToolCode),
   bankName: z.string().nullable(),
@@ -419,6 +444,7 @@ export const MarketExpertPublic = z.object({
   expertType: MarketExpertType,
   careerRange: MarketCareerRange,
   region: MarketRegion.nullable(),
+  serviceAreas: z.array(MarketServiceArea),
   categories: z.array(MarketCategoryCode),
   cadTools: z.array(MarketCadToolCode),
   intro: z.string().nullable(),
@@ -429,6 +455,7 @@ export const MarketExpertListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   expertType: MarketExpertType.optional(),
+  serviceArea: MarketServiceArea.optional(),
   category: MarketCategoryCode.optional(),
   cadTool: MarketCadToolCode.optional(),
   q: z.string().optional(), // displayName·intro contains
@@ -463,7 +490,8 @@ export type MarketProjectDeadlineType = z.infer<typeof MarketProjectDeadline>;
 
 const marketProjectEditableShape = {
   title: z.string().trim().min(2).max(200),
-  category: MarketProjectCategory,
+  requestType: MarketRequestType,
+  serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length),
   cadTools: z.array(MarketProjectCadCode).min(1).max(MARKET_PROJECT_CAD_CODES.length),
   description: z.string().trim().min(10).max(20000),
   ndaRequired: z.boolean().default(true),
@@ -488,6 +516,13 @@ export const MarketProjectCreatePayload = z
     path: ['cadTools'],
   })
   .superRefine((p, ctx) => {
+    if (p.requestType === 'individual' && p.serviceAreas.length !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '개별 분야 개발은 개발 분야를 1개 선택해야 합니다',
+        path: ['serviceAreas'],
+      });
+    }
     if (p.method === 'targeted' && p.targetExpertId === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -510,7 +545,8 @@ export type MarketProjectCreatePayloadType = z.infer<typeof MarketProjectCreateP
 export const MarketProjectUpdateBody = z
   .object({
     title: marketProjectEditableShape.title,
-    category: marketProjectEditableShape.category,
+    requestType: marketProjectEditableShape.requestType,
+    serviceAreas: marketProjectEditableShape.serviceAreas,
     cadTools: marketProjectEditableShape.cadTools,
     description: marketProjectEditableShape.description,
     ndaRequired: z.boolean(),
@@ -524,7 +560,11 @@ export const MarketProjectUpdateBody = z
   .refine((b) => cadAnyExclusive(b.cadTools), {
     message: "'상관없음'은 단독으로만 선택할 수 있습니다",
     path: ['cadTools'],
-  });
+  })
+  .refine(
+    (b) => b.requestType === undefined || b.serviceAreas === undefined || b.requestType !== 'individual' || b.serviceAreas.length === 1,
+    { message: '개별 분야 개발은 개발 분야를 1개 선택해야 합니다', path: ['serviceAreas'] },
+  );
 export type MarketProjectUpdateBodyType = z.infer<typeof MarketProjectUpdateBody>;
 
 export const MarketProjectCreateResponse = z.object({
@@ -538,7 +578,8 @@ export const MarketProjectListQuery = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(12),
   // open=입찰 가능(bidding && 마감 전), closed=마감(수동 closed 포함 파생), awarded=선정 완료.
   tab: z.enum(['open', 'closed', 'awarded', 'all']).default('open'),
-  category: MarketProjectCategory.optional(),
+  requestType: MarketRequestType.optional(),
+  serviceArea: MarketServiceArea.optional(),
   method: MarketProjectMethod.optional(),
   q: z.string().optional(), // 제목·설명 contains
   sort: z.enum(['latest', 'deadline']).default('latest'),
@@ -549,7 +590,8 @@ export type MarketProjectListQueryType = z.infer<typeof MarketProjectListQuery>;
 export const MarketProjectListItem = z.object({
   projectId: z.number(),
   title: z.string(),
-  category: MarketProjectCategory,
+  requestType: MarketRequestType,
+  serviceAreas: z.array(MarketServiceArea),
   cadTools: z.array(MarketProjectCadCode),
   budgetRange: MarketBudgetRange,
   method: MarketProjectMethod,
@@ -894,6 +936,7 @@ export const AdminMarketExpertDetail = AdminMarketExpertListItem.extend({
   contactHours: z.string().nullable(),
   travelRange: MarketTravelRange.nullable(),
   intro: z.string().nullable(),
+  serviceAreas: z.array(MarketServiceArea),
   categories: z.array(MarketCategoryCode),
   cadTools: z.array(MarketCadToolCode),
   bankName: z.string().nullable(),
@@ -954,7 +997,8 @@ export type AdminMarketProjectCountsType = z.infer<typeof AdminMarketProjectCoun
 export const AdminMarketProjectListItem = z.object({
   projectId: z.number(),
   title: z.string(),
-  category: MarketProjectCategory,
+  requestType: MarketRequestType,
+  serviceAreas: z.array(MarketServiceArea),
   method: MarketProjectMethod,
   status: MarketProjectStatus,
   ndaRequired: z.boolean(),
@@ -1102,7 +1146,8 @@ export const AdminMarketContractDetail = AdminMarketContractListItem.extend({
   project: z.object({
     projectId: z.number(),
     title: z.string(),
-    category: MarketProjectCategory,
+    requestType: MarketRequestType,
+    serviceAreas: z.array(MarketServiceArea),
     method: MarketProjectMethod,
     status: MarketProjectStatus,
   }),

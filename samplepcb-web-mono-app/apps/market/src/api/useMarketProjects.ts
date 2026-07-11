@@ -7,7 +7,7 @@ import {
   MarketProjectListResponse,
   apiRoutes,
 } from '@sp/api-contract';
-import type { MarketProjectCategoryType, MarketProjectMethodType } from '@sp/api-contract';
+import type { MarketProjectMethodType, MarketRequestTypeType, MarketServiceAreaType } from '@sp/api-contract';
 import { apiGet, apiSendForm } from '@sp/shared';
 
 // 프로젝트(의뢰) 서버 상태 훅 — 계약은 @sp/api-contract(market.ts), 호출은 @sp/shared
@@ -17,7 +17,8 @@ export interface ProjectListFilters {
   page: number;
   pageSize: number;
   tab: 'open' | 'closed' | 'awarded' | 'all';
-  category: '' | MarketProjectCategoryType; // '' = 전체
+  requestType: '' | MarketRequestTypeType;
+  serviceArea: '' | MarketServiceAreaType;
   method: '' | MarketProjectMethodType;
   q: string;
   sort: 'latest' | 'deadline';
@@ -29,7 +30,8 @@ const listPath = (f: ProjectListFilters): string => {
   params.set('pageSize', String(f.pageSize));
   params.set('tab', f.tab);
   params.set('sort', f.sort);
-  if (f.category !== '') params.set('category', f.category);
+  if (f.requestType !== '') params.set('requestType', f.requestType);
+  if (f.serviceArea !== '') params.set('serviceArea', f.serviceArea);
   if (f.method !== '') params.set('method', f.method);
   if (f.q.trim() !== '') params.set('q', f.q.trim());
   return `${apiRoutes.marketProjects}?${params.toString()}`;

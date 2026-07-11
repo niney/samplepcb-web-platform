@@ -6,7 +6,8 @@ import {
   MARKET_CAD_TOOL_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
   MARKET_METHOD_LABELS,
-  MARKET_PROJECT_CATEGORY_LABELS,
+  MARKET_REQUEST_TYPE_LABELS,
+  MARKET_SERVICE_AREA_LABELS,
   MARKET_PROJECT_STATUS_LABELS,
   apiRoutes,
 } from '@sp/api-contract';
@@ -204,7 +205,7 @@ const statusBadge = (s: string): string =>
               {{ MARKET_PROJECT_STATUS_LABELS[detail.status] }}
             </span>
             <span class="text-xs text-gray-500">{{ MARKET_METHOD_LABELS[detail.method] }}</span>
-            <span class="text-xs text-gray-500">{{ MARKET_PROJECT_CATEGORY_LABELS[detail.category] }}</span>
+            <span class="text-xs text-gray-500">{{ MARKET_REQUEST_TYPE_LABELS[detail.requestType] }} · {{ detail.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join(' · ') }}</span>
             <span v-if="detail.ndaRequired" class="text-xs font-bold text-amber-600">NDA</span>
           </div>
           <h3 class="mt-2 text-base font-bold text-gray-900">{{ detail.title }}</h3>

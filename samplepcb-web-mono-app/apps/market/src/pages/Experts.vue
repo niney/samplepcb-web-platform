@@ -6,6 +6,8 @@ import {
   MARKET_CATEGORIES,
   MARKET_CATEGORY_LABELS,
   MARKET_EXPERT_TYPE_LABELS,
+  MARKET_SERVICE_AREAS,
+  MARKET_SERVICE_AREA_LABELS,
 } from '@sp/api-contract';
 import type { MarketExpertTypeType } from '@sp/api-contract';
 import ExpertCard from '../components/ExpertCard.vue';
@@ -17,6 +19,7 @@ const filters = ref<ExpertListFilters>({
   page: 1,
   pageSize: 20,
   expertType: '',
+  serviceArea: '',
   category: '',
   cadTool: '',
   q: '',
@@ -63,6 +66,15 @@ const resetPage = (): void => {
           {{ t.label }}
         </button>
       </div>
+
+      <select
+        v-model="filters.serviceArea"
+        class="h-9 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-tx-2"
+        @change="resetPage"
+      >
+        <option value="">전체 개발 분야</option>
+        <option v-for="area in MARKET_SERVICE_AREAS" :key="area" :value="area">{{ MARKET_SERVICE_AREA_LABELS[area] }}</option>
+      </select>
 
       <select
         v-model="filters.category"

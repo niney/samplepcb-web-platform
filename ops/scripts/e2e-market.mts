@@ -335,7 +335,8 @@ async function run() {
       'payload',
       JSON.stringify({
         title: 'E2E 심박 모니터 회로 개발',
-        category: 'circuit',
+        requestType: 'individual',
+        serviceAreas: ['circuit'],
         cadTools: ['any'],
         description: 'E2E 통합 테스트용 프로젝트 상세 설명입니다.',
         ndaRequired: true,
@@ -432,7 +433,8 @@ async function run() {
       'payload',
       JSON.stringify({
         title: 'E2E 지정견적 ArtWork',
-        category: 'artwork',
+        requestType: 'individual',
+        serviceAreas: ['pcb'],
         cadTools: ['kicad'],
         description: '지정견적 E2E 테스트 상세 설명입니다.',
         ndaRequired: false,
@@ -468,7 +470,8 @@ async function run() {
       'payload',
       JSON.stringify({
         title: 'E2E 조기마감 테스트',
-        category: 'consult',
+        requestType: 'individual',
+        serviceAreas: ['etc'],
         cadTools: ['any'],
         description: '조기 마감 E2E 테스트 상세 설명입니다.',
         ndaRequired: false,
@@ -521,7 +524,8 @@ async function run() {
         'payload',
         JSON.stringify({
           title,
-          category: 'circuit',
+          requestType: 'individual',
+          serviceAreas: ['circuit'],
           cadTools: ['any'],
           description: `${title} — 2차 E2E 상세 설명입니다.`,
           ndaRequired: false,
