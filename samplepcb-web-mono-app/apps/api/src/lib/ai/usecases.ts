@@ -4,10 +4,12 @@ import {
   AI_USECASES,
   AiDiagramRunBody,
   AiDiagramSpecRunBody,
+  AiPostingsRunBody,
   AiRocRunBody,
   AiStructurizeRunBody,
   DiagramSpec,
   MARKET_SERVICE_AREA_LABELS,
+  MarketPostingCards,
   normalizeDiagramSpec,
 } from '@sp/api-contract';
 import type { AiUsecaseKeyType } from '@sp/api-contract';
@@ -179,6 +181,40 @@ const ROC_DEFAULT_PROMPT = `당신은 하드웨어 개발 PM 입니다. 아래 [
 [구성 명세 JSON]
 {{spec}}`;
 
+// 분야별 포스팅 카드(Phase 3) — 단일 의뢰 유지(사용자 확정), 분야별 전문가 관점 카드만
+// 생성한다. 전문가가 30초 안에 견적 가능 여부를 판단하게 하는 것이 목적.
+const POSTINGS_DEFAULT_PROMPT = `당신은 하드웨어 개발 플랫폼의 PM 입니다. 아래 [의뢰 내용], [고객 인터뷰 답변], [구성 명세 JSON]을 바탕으로, [개발 분야]의 분야 각각에 대해 그 분야 전문가에게 보여줄 "분야별 포스팅 카드"를 JSON 으로 작성하세요.
+
+출력 규칙:
+- 설명 문장 없이 JSON 객체 하나만 출력한다.
+- 스키마(키 이름 엄수):
+{
+  "postings": [
+    {
+      "serviceArea": "분야 코드 — [개발 분야]에 나열된 코드만 사용",
+      "summary": ["이 분야 관점의 핵심 요약 불릿 2~4개"],
+      "scope": ["이 분야가 수행할 작업 항목 3~6개"],
+      "deliverables": ["이 분야의 산출물 2~5개"],
+      "notes": ["견적 전 확인할 리스크·미확정 사항 1~4개"]
+    }
+  ]
+}
+
+작성 규칙:
+- [개발 분야]에 있는 분야마다 카드를 정확히 1개씩 만들고, 그 외 분야 카드는 만들지 않는다.
+- 전문가가 견적 가능 여부를 30초 안에 판단할 수 있는 구체적 문장으로 쓴다(요구 수치·인터페이스 명시).
+- 확정되지 않은 값은 (TBD)로 표기하고 지어내지 않는다. 답변에 없는 구체 모델명 금지.
+
+[개발 분야(코드=이름)] {{serviceAreaCodes}}
+[의뢰 제목] {{title}}
+[의뢰 내용] {{description}}
+
+[고객 인터뷰 답변]
+{{answers}}
+
+[구성 명세 JSON]
+{{spec}}`;
+
 const QUESTION_BY_CODE = new Map(AI_INTERVIEW_QUESTIONS.map((q) => [q.code, q]));
 
 // 인터뷰 답변 → 프롬프트 라인(질문 라벨 매칭, 보강 답변은 원문 그대로).
@@ -293,6 +329,39 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
       if (sections.size < 8) throw new Error('FORMAT_MISMATCH');
       if (Buffer.byteLength(md, 'utf8') > MAX_TEXT_BYTES) throw new Error('RESULT_TOO_LARGE');
       return { md };
+    },
+    retries: 1,
+  },
+  'market.request-postings': {
+    defaultModel: 'glm-5.2:cloud',
+    defaultPrompt: POSTINGS_DEFAULT_PROMPT,
+    inputSchema: AiPostingsRunBody,
+    buildPrompt: (template, input) => {
+      const p = AiPostingsRunBody.parse(input);
+      const spec = parseDiagramSpecString(p.spec); // 파손 spec 은 400
+      return template
+        .replaceAll(
+          '{{serviceAreaCodes}}',
+          p.serviceAreas.map((a) => `${a}=${MARKET_SERVICE_AREA_LABELS[a]}`).join(', ') || '미지정',
+        )
+        .replaceAll('{{title}}', p.title)
+        .replaceAll('{{description}}', p.description)
+        .replaceAll('{{answers}}', buildAnswerLines(p.answers))
+        .replaceAll('{{spec}}', JSON.stringify(spec, null, 2));
+    },
+    parseResult: (raw) => {
+      const obj = extractJsonObject(raw) as { postings?: unknown };
+      // 분야 중복 카드는 앞엣것만 — enum 이탈은 스키마가 거부(재시도 대상).
+      const cards = MarketPostingCards.parse(obj.postings);
+      const seen = new Set<string>();
+      const deduped = cards.filter((c) => {
+        if (seen.has(c.serviceArea)) return false;
+        seen.add(c.serviceArea);
+        return true;
+      });
+      const json = JSON.stringify({ postings: deduped });
+      if (Buffer.byteLength(json, 'utf8') > MAX_TEXT_BYTES) throw new Error('RESULT_TOO_LARGE');
+      return { json };
     },
     retries: 1,
   },

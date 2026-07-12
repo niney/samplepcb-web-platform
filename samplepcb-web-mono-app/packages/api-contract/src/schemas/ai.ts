@@ -16,6 +16,7 @@ export const AI_USECASES = [
   'market.request-structurize',
   'market.request-diagram-spec',
   'market.request-roc',
+  'market.request-postings',
 ] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
@@ -189,6 +190,11 @@ export const AiRocRunBody = z.object({
   answers: z.array(AiInterviewAnswer).max(60).default([]),
 });
 export type AiRocRunBodyType = z.infer<typeof AiRocRunBody>;
+
+// market.request-postings 입력 — ROC 와 동일한 원천(명세+답변+의뢰 텍스트)에서 분야별
+// 포스팅 카드(JSON, market.ts MarketPostingCards)를 생성한다. 산출은 잡의 json 필드.
+export const AiPostingsRunBody = AiRocRunBody;
+export type AiPostingsRunBodyType = AiRocRunBodyType;
 
 export const AiRunResponse = z.object({
   result: z.literal(true),

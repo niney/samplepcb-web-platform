@@ -355,6 +355,11 @@ async function run() {
         // 작업검토지시서(Phase 2) + 인터뷰 답변 원본(응답 미노출 저장 전용)
         rocMd: '## 1. 프로젝트 식별\nE2E ROC 문서',
         interviewAnswers: [{ code: 'stage', answer: '아이디어만 있음' }],
+        // 분야별 포스팅 카드(Phase 3) — 의뢰 분야(circuit) 밖 카드(firmware)는 서버가 걸러야 함
+        postings: [
+          { serviceArea: 'circuit', summary: ['E2E 회로 요약'], scope: ['전원부 설계'], deliverables: ['회로도'], notes: [] },
+          { serviceArea: 'firmware', summary: ['걸러져야 함'], scope: ['걸러져야 함'], deliverables: [], notes: [] },
+        ],
         ndaRequired: true,
         budgetRange: 'r300_700',
         deadline: { days: 7 },
@@ -392,6 +397,43 @@ async function run() {
       (anon.json?.data?.rocMd ?? '').includes('E2E ROC') &&
         anon.json?.data?.interviewAnswers === undefined,
       'AI 지시서(rocMd) 왕복 + 인터뷰 답변 미노출',
+    );
+    const anonPostings = anon.json?.data?.postings ?? [];
+    assert(
+      anonPostings.length === 1 && anonPostings[0]?.serviceArea === 'circuit',
+      '포스팅 카드 왕복 + 분야 밖 카드 필터',
+      anonPostings,
+    );
+
+    // ── 4.5) 전체서비스(시스템 통합) 입찰 제한 — individual 전문가는 403 ──
+    const sysForm = new FormData();
+    sysForm.append(
+      'payload',
+      JSON.stringify({
+        title: 'E2E 시스템 통합 의뢰(입찰 제한 검증)',
+        requestType: 'system',
+        serviceAreas: ['circuit', 'firmware'],
+        categories: [],
+        cadTools: [],
+        description: '전체서비스 입찰 제한 E2E 검증용 프로젝트입니다.',
+        ndaRequired: false,
+        budgetRange: 'r300_700',
+        deadline: { days: 7 },
+        method: 'open',
+      }),
+    );
+    const sysPrj = await req('POST', '/api/market/projects', { token: tClient, form: sysForm });
+    const sysPid = sysPrj.json?.data?.projectId;
+    ids.projectIds.push(sysPid);
+    writeFileSync(IDS_FILE, JSON.stringify(ids));
+    const sysBid = await req('POST', `/api/market/projects/${sysPid}/bids`, {
+      token: tExpert, // e2e 전문가는 individual — company·house 만 허용이어야 함
+      body: { amount: 1_000_000, durationDays: 30, message: '전체서비스 제한에 막혀야 하는 입찰입니다.' },
+    });
+    assert(
+      sysBid.status === 403 && sysBid.json?.error === 'FULL_SERVICE_COMPANY_ONLY',
+      '시스템 통합 의뢰 individual 입찰 403',
+      sysBid,
     );
     const badSpec = await req('PATCH', `/api/market/projects/${pid}`, {
       token: tClient,

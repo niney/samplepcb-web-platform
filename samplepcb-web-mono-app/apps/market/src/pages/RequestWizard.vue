@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import {
   AI_INTERVIEW_QUESTIONS,
   DiagramSpec,
+  MarketPostingCards,
   MARKET_AREA_SPECIALTIES,
   MARKET_AREA_TOOL_GROUPS,
   MARKET_BUDGET_RANGES,
@@ -25,6 +26,7 @@ import type {
   AiInterviewAnswerType,
   AiInterviewQuestion,
   DiagramSpecType,
+  MarketPostingCardsType,
   MarketBudgetRangeType,
   MarketCategoryCodeType,
   MarketProjectMethodType,
@@ -41,6 +43,7 @@ import {
   useAiUsecaseStatus,
   useRunDiagram,
   useRunDiagramSpec,
+  useRunPostings,
   useRunRoc,
   useRunStructurize,
 } from '../api/useAi';
@@ -164,6 +167,11 @@ const interviewEnabled = computed(
 const rocEnabled = computed(
   () => interviewEnabled.value && (rocStatus.data.value?.data.enabled ?? false),
 );
+// 분야별 포스팅 카드(Phase 3) — 동일하게 인터뷰 경로 위 별도 토글.
+const postingsStatus = useAiUsecaseStatus('market.request-postings');
+const postingsEnabled = computed(
+  () => interviewEnabled.value && (postingsStatus.data.value?.data.enabled ?? false),
+);
 const legacyDiagramEnabled = computed(() => diagramStatus.data.value?.data.enabled ?? false);
 const diagramStepEnabled = computed(() => interviewEnabled.value || legacyDiagramEnabled.value);
 
@@ -171,6 +179,7 @@ const runDiagram = useRunDiagram();
 const runStructurize = useRunStructurize();
 const runDiagramSpec = useRunDiagramSpec();
 const runRoc = useRunRoc();
+const runPostings = useRunPostings();
 const diagramJobId = ref<string | null>(null);
 const diagramJob = useAiJob(diagramJobId);
 const includeDiagram = ref(true);
@@ -292,8 +301,9 @@ function generateSpec(): void {
     gapInputs[idx] = '';
   }
   specJobId.value = null;
-  diagramJobId.value = null; // 명세가 바뀌면 이전 구성도·지시서는 무효
+  diagramJobId.value = null; // 명세가 바뀌면 이전 구성도·지시서·포스팅 카드는 무효
   rocJobId.value = null;
+  postingsJobId.value = null;
   runStructurize.mutate(
     {
       title: form.title.trim(),
@@ -310,6 +320,7 @@ function reopenInterview(): void {
   specJobId.value = null;
   diagramJobId.value = null;
   rocJobId.value = null;
+  postingsJobId.value = null;
 }
 
 function generateDiagramFromSpec(): void {
@@ -352,6 +363,49 @@ function generateRoc(): void {
       answers: interviewAnswers(),
     },
     { onSuccess: (res) => { rocJobId.value = res.data.jobId; } },
+  );
+}
+
+// ── 분야별 포스팅 카드(Phase 3) — 명세 확정 후 선택 생성 ─────────────────────
+const postingsJobId = ref<string | null>(null);
+const postingsJob = useAiJob(postingsJobId);
+const includePostings = ref(true);
+const postingCards = computed<MarketPostingCardsType | null>(() => {
+  const raw = postingsJob.data.value?.data.status === 'done' ? postingsJob.data.value.data.json : null;
+  if (raw === null) return null;
+  try {
+    const parsed = MarketPostingCards.safeParse((JSON.parse(raw) as { postings?: unknown }).postings);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+});
+const postingsRunning = computed(
+  () =>
+    runPostings.isPending.value ||
+    (postingsJobId.value !== null &&
+      !postingsJob.isError.value &&
+      (postingsJob.data.value?.data.status ?? 'running') === 'running'),
+);
+const postingsFailed = computed(
+  () =>
+    runPostings.isError.value ||
+    postingsJob.isError.value ||
+    postingsJob.data.value?.data.status === 'error',
+);
+
+function generatePostings(): void {
+  if (specJson.value === null) return;
+  postingsJobId.value = null;
+  runPostings.mutate(
+    {
+      title: form.title.trim(),
+      serviceAreas: form.serviceAreas,
+      description: form.description.trim(),
+      spec: specJson.value,
+      answers: interviewAnswers(),
+    },
+    { onSuccess: (res) => { postingsJobId.value = res.data.jobId; } },
   );
 }
 
@@ -460,6 +514,9 @@ async function submit(): Promise<void> {
       ? { diagramSpec: specJson.value, interviewAnswers: interviewAnswers() }
       : {}),
     ...(rocMd.value !== null && includeRoc.value ? { rocMd: rocMd.value } : {}),
+    ...(postingCards.value !== null && includePostings.value
+      ? { postings: postingCards.value }
+      : {}),
     ndaRequired: form.ndaRequired,
     budgetRange: form.budgetRange,
     ...(form.startHopeDate !== '' ? { startHopeDate: form.startHopeDate } : {}),
@@ -884,6 +941,65 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                   </div>
                 </template>
               </div>
+
+              <!-- 분야별 포스팅 카드(Phase 3) — 명세 기반 선택 생성 -->
+              <div v-if="postingsEnabled && form.serviceAreas.length > 0" class="grid gap-2 border-t border-line pt-4">
+                <p class="text-xs font-bold text-tx-2">
+                  분야별 작업 안내 카드 <span class="font-normal text-tx-3">(선택)</span>
+                </p>
+                <p class="text-xs leading-relaxed text-tx-3">
+                  선택하신 개발 분야별로 전문가가 견적 가능 여부를 빠르게 판단할 요약 카드를 만듭니다(약 30초~1분).
+                </p>
+                <div v-if="postingCards === null" class="grid gap-2">
+                  <div>
+                    <button
+                      type="button"
+                      class="rounded-lg border border-line px-4 py-2 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                      :disabled="postingsRunning || specRunning"
+                      @click="generatePostings"
+                    >
+                      {{ postingsRunning ? '카드 생성 중…' : '분야별 카드 생성' }}
+                    </button>
+                  </div>
+                  <p v-if="postingsRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
+                    ⏳ 생성 중입니다 — 다음 단계를 먼저 진행하셔도 됩니다.
+                  </p>
+                  <p v-else-if="postingsFailed" class="text-xs font-semibold text-red-600">
+                    생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
+                  </p>
+                </div>
+                <template v-else>
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <div
+                      v-for="card in postingCards"
+                      :key="card.serviceArea"
+                      class="rounded-xl border border-line p-3 text-xs leading-relaxed text-tx-2"
+                    >
+                      <p class="font-extrabold text-tx-1">{{ MARKET_SERVICE_AREA_LABELS[card.serviceArea] }}</p>
+                      <ul class="mt-1.5 grid gap-1">
+                        <li v-for="(s, i) in card.summary" :key="i" class="flex gap-1.5">
+                          <span class="text-copper-500">•</span><span>{{ s }}</span>
+                        </li>
+                      </ul>
+                      <p class="mt-1.5 text-tx-3">작업 {{ card.scope.length }}항목<template v-if="(card.notes ?? []).length > 0"> · 확인 필요 {{ (card.notes ?? []).length }}건</template></p>
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-4">
+                    <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
+                      <input v-model="includePostings" type="checkbox">
+                      이 카드를 의뢰에 첨부
+                    </label>
+                    <button
+                      type="button"
+                      class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                      :disabled="postingsRunning"
+                      @click="generatePostings"
+                    >
+                      {{ postingsRunning ? '생성 중…' : '다시 생성' }}
+                    </button>
+                  </div>
+                </template>
+              </div>
             </template>
           </template>
 
@@ -1068,7 +1184,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
               마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
               {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} ·
-              첨부 {{ attachments.length }}개<template v-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning || specRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template><template v-else-if="specJson !== null && includeDiagram"> · AI 구성 명세 포함(구성도 미생성)</template><template v-if="rocMd !== null && includeRoc"> · AI 지시서 포함</template>
+              첨부 {{ attachments.length }}개<template v-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning || specRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template><template v-else-if="specJson !== null && includeDiagram"> · AI 구성 명세 포함(구성도 미생성)</template><template v-if="rocMd !== null && includeRoc"> · AI 지시서 포함</template><template v-if="postingCards !== null && includePostings"> · 분야 카드 {{ postingCards.length }}개</template>
             </p>
           </div>
         </div>

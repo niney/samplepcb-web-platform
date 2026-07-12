@@ -108,6 +108,11 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       if (project.method === 'targeted' && project.targetExpertId !== expert.id) {
         return reply.status(403).send({ result: false, error: 'TARGETED_ONLY' });
       }
+      // 시스템 통합(전체서비스) 의뢰는 검증 조직만 입찰 — 기획 §13.4 의 완화형(사용자
+      // 확정 2026-07-12): 목록·상세는 공개 유지, 입찰만 company·house 로 제한.
+      if (project.requestType === 'system' && expert.expertType === 'individual') {
+        return reply.status(403).send({ result: false, error: 'FULL_SERVICE_COMPANY_ONLY' });
+      }
       if (isBiddingClosed(project.status, project.bidDeadlineAt, new Date())) {
         return reply.status(409).send({ result: false, error: 'BIDDING_CLOSED' });
       }

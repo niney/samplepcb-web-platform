@@ -597,6 +597,25 @@ export const MarketProjectDeadline = z.union([
 ]);
 export type MarketProjectDeadlineType = z.infer<typeof MarketProjectDeadline>;
 
+// ── 분야별 포스팅 카드(Phase 3) — market.request-postings 산출 ───────────────
+// 단일 의뢰를 유지한 채(사용자 확정 — 분리 입찰 아님) 분야별 전문가 관점의 요약 카드를
+// 상세에 표시한다. 공개 범위는 description 과 동일. ai.ts 가 market.ts 를 import 하는
+// 방향이므로 여기 정의(역방향 순환 금지).
+export const MarketPostingCard = z.object({
+  serviceArea: MarketServiceArea,
+  summary: z.array(z.string().trim().min(1).max(300)).min(1).max(6),
+  scope: z.array(z.string().trim().min(1).max(200)).min(1).max(10),
+  // .catch 는 vue-tsc 추론이 unknown 으로 무너져 .default 사용(누락만 보정, 파손은 재시도).
+  deliverables: z.array(z.string().trim().min(1).max(200)).max(10).default([]),
+  notes: z.array(z.string().trim().min(1).max(300)).max(6).default([]),
+});
+export type MarketPostingCardType = z.infer<typeof MarketPostingCard>;
+export const MarketPostingCards = z
+  .array(MarketPostingCard)
+  .min(1)
+  .max(MARKET_SERVICE_AREAS.length);
+export type MarketPostingCardsType = z.infer<typeof MarketPostingCards>;
+
 const marketProjectEditableShape = {
   title: z.string().trim().min(2).max(200),
   requestType: MarketRequestType,
@@ -622,6 +641,8 @@ const marketProjectEditableShape = {
     .array(z.object({ code: z.string().trim().min(1).max(30), answer: z.string().trim().min(1).max(2000) }))
     .max(60)
     .optional(),
+  // 분야별 포스팅 카드(Phase 3) — 서버가 의뢰 분야 밖 카드를 걸러 저장.
+  postings: MarketPostingCards.optional(),
   ndaRequired: z.boolean().default(true),
   budgetRange: MarketBudgetRange,
   startHopeDate: z.string().regex(DATE_RE).optional(),
@@ -681,6 +702,7 @@ export const MarketProjectUpdateBody = z
     diagramHtml: z.string().max(512_000).nullable(), // null = 구성도 제거(spec 도 함께 제거됨)
     diagramSpec: z.string().max(200_000).nullable(),
     rocMd: z.string().max(200_000).nullable(), // null = 지시서 제거(spec 제거 시 동반 제거)
+    postings: MarketPostingCards.nullable(), // null = 카드 제거(spec 제거 시 동반 제거)
     ndaRequired: z.boolean(),
     budgetRange: marketProjectEditableShape.budgetRange,
     startHopeDate: z.string().regex(DATE_RE).nullable(),
@@ -775,6 +797,7 @@ export const MarketProjectDetail = MarketProjectListItem.extend({
   diagramHtml: z.string().nullable(), // AI 구성도 — sandbox iframe 렌더 전용
   diagramSpec: z.string().nullable(), // 구성 명세 JSON — 공개 범위는 description 동일
   rocMd: z.string().nullable(), // AI 작업검토지시서 — 공개 범위는 description 동일
+  postings: MarketPostingCards.nullable(), // 분야별 포스팅 카드 — 공개 범위 동일
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   awardedAt: z.string().nullable(), // ISO
@@ -1177,6 +1200,7 @@ export const AdminMarketProjectDetail = AdminMarketProjectListItem.extend({
   diagramHtml: z.string().nullable(),
   diagramSpec: z.string().nullable(),
   rocMd: z.string().nullable(),
+  postings: MarketPostingCards.nullable(),
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   targetExpert: z

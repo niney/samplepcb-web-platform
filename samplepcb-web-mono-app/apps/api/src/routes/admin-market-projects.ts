@@ -31,6 +31,7 @@ import {
   marketBidCounts,
   toCategoryCodes,
   toFileMeta,
+  toPostings,
   toProjectToolCodes,
   toServiceAreaCodes,
 } from '../lib/market';
@@ -192,6 +193,7 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
           diagramHtml: project.diagramHtml,
           diagramSpec: project.diagramSpec,
           rocMd: project.rocMd,
+          postings: toPostings(project.postings),
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           targetExpert:

@@ -36,6 +36,7 @@ import {
   marketOwnerNames,
   toFileMeta,
   toMarketProjectListItem,
+  toPostings,
   toServiceAreaCodes,
 } from '../lib/market';
 import type { MarketReceivedFile } from '../lib/market';
@@ -166,6 +167,9 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         return reply.status(400).send({ result: false, error: 'INVALID_DIAGRAM_SPEC' });
       }
     }
+    // 포스팅 카드 — 의뢰 분야 밖 카드는 조용히 걸러 저장(스키마는 계약이 이미 검증).
+    const postingCards =
+      payload.postings?.filter((c) => payload.serviceAreas.includes(c.serviceArea)) ?? [];
 
     // 지정견적 — 대상은 승인 전문가여야 하고, 자기 자신(자전 입찰 유도) 지정은 금지.
     let targetExpert: SpMarketExpert | null = null;
@@ -219,6 +223,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           diagramSpec: normalizedDiagramSpec,
           rocMd: payload.rocMd ?? null,
           interviewAnswers: payload.interviewAnswers ?? Prisma.DbNull,
+          postings: postingCards.length > 0 ? postingCards : Prisma.DbNull,
           ndaRequired: payload.ndaRequired,
           budgetRange: payload.budgetRange,
           startHopeDate: payload.startHopeDate ?? null,
@@ -419,6 +424,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           diagramHtml: project.diagramHtml,
           diagramSpec: project.diagramSpec,
           rocMd: project.rocMd,
+          postings: toPostings(project.postings),
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           awardedAt: project.awardedAt?.toISOString() ?? null,
@@ -482,8 +488,13 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         body.diagramSpec === null || (body.diagramHtml === null && body.diagramSpec === undefined);
       if (specRemoved) data.diagramSpec = null;
       if (body.rocMd !== undefined) data.rocMd = body.rocMd;
-      // 원천(spec) 제거 시 파생(지시서)도 명시가 없으면 동반 제거.
+      if (body.postings !== undefined) {
+        const filtered = (body.postings ?? []).filter((c) => nextServiceAreas.includes(c.serviceArea));
+        data.postings = filtered.length > 0 ? filtered : Prisma.DbNull;
+      }
+      // 원천(spec) 제거 시 파생(지시서·포스팅 카드)도 명시가 없으면 동반 제거.
       if (specRemoved && body.rocMd === undefined) data.rocMd = null;
+      if (specRemoved && body.postings === undefined) data.postings = Prisma.DbNull;
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;
       if (body.budgetRange !== undefined) data.budgetRange = body.budgetRange;
       if (body.startHopeDate !== undefined) data.startHopeDate = body.startHopeDate;

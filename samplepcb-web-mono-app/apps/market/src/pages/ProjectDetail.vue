@@ -39,6 +39,7 @@ import {
   useContractQuery,
   useDeliver,
 } from '../api/useMarketContract';
+import { useExpertMe } from '../api/useMarketExpertMe';
 import { useMarketProjectDetail } from '../api/useMarketProjects';
 import { useMarketSettings } from '../api/useMarketSettings';
 import { downloadAuthedFile } from '../lib/download';
@@ -62,11 +63,26 @@ const detail = computed(() => detailQ.data.value?.data);
 const viewer = computed(() => detail.value?.viewer ?? null);
 const isOwner = computed(() => viewer.value?.isOwner === true);
 
+// 시스템 통합(전체서비스) 의뢰 입찰 제한 — company·house 만(서버 가드
+// FULL_SERVICE_COMPANY_ONLY 와 동일 규칙, 여기는 UX 분기). viewer 에 expertType 이
+// 없어 본인 전문가 프로필에서 읽는다.
+const isExpertViewerEarly = computed(
+  () => viewer.value?.isApprovedExpert === true && !viewer.value.isOwner,
+);
+const expertMeQ = useExpertMe(isExpertViewerEarly);
+const fullServiceBlocked = computed(
+  () =>
+    detail.value?.requestType === 'system' &&
+    isExpertViewerEarly.value &&
+    expertMeQ.data.value?.data.expertType === 'individual',
+);
+
 const canBid = computed(() => {
   const d = detail.value;
   const v = viewer.value;
   if (d === undefined || v === null) return false;
   if (v.isOwner || !v.isApprovedExpert || d.biddingClosed) return false;
+  if (fullServiceBlocked.value) return false;
   return d.method === 'open' || v.isTargetExpert;
 });
 // NDA 서명 자격 = 입찰 자격과 동일 집합(서버와 동일 규칙).
@@ -375,6 +391,54 @@ const fmtSize = (bytes: number): string =>
             </div>
           </div>
 
+          <!-- 분야별 포스팅 카드 — 전문가 관점 요약(AI 생성) -->
+          <div v-if="detail.postings !== null" class="rounded-2xl border border-line bg-white p-6">
+            <p class="font-mono text-[11px] tracking-widest text-tx-3">POSTINGS BY AREA</p>
+            <h2 class="mt-1 text-sm font-extrabold text-tx-1">
+              분야별 작업 안내 <span class="font-normal text-tx-3">(AI 자동 생성 초안)</span>
+            </h2>
+            <p
+              v-if="detail.requestType === 'system'"
+              class="mt-2 rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700"
+            >
+              시스템 통합(전체서비스) 의뢰 — 견적 제출은 파트너사(기업)·샘플피씨비만 가능합니다.
+            </p>
+            <div class="mt-3 grid gap-3 md:grid-cols-2">
+              <div
+                v-for="card in detail.postings"
+                :key="card.serviceArea"
+                class="rounded-xl border border-line p-4 text-xs leading-relaxed text-tx-2"
+              >
+                <p class="text-[13px] font-extrabold text-tx-1">
+                  {{ MARKET_SERVICE_AREA_LABELS[card.serviceArea] }}
+                </p>
+                <ul class="mt-2 grid gap-1">
+                  <li v-for="(s, i) in card.summary" :key="i" class="flex gap-1.5">
+                    <span class="text-copper-500">•</span><span>{{ s }}</span>
+                  </li>
+                </ul>
+                <p class="mt-2 font-bold text-tx-1">작업 범위</p>
+                <ul class="mt-1 grid gap-1">
+                  <li v-for="(s, i) in card.scope" :key="i" class="flex gap-1.5">
+                    <span class="text-tx-3">–</span><span>{{ s }}</span>
+                  </li>
+                </ul>
+                <template v-if="(card.deliverables ?? []).length > 0">
+                  <p class="mt-2 font-bold text-tx-1">산출물</p>
+                  <p class="mt-1">{{ (card.deliverables ?? []).join(' · ') }}</p>
+                </template>
+                <template v-if="(card.notes ?? []).length > 0">
+                  <p class="mt-2 font-bold text-amber-700">확인 필요</p>
+                  <ul class="mt-1 grid gap-1">
+                    <li v-for="(s, i) in card.notes ?? []" :key="i" class="flex gap-1.5">
+                      <span class="text-amber-600">!</span><span>{{ s }}</span>
+                    </li>
+                  </ul>
+                </template>
+              </div>
+            </div>
+          </div>
+
           <!-- 첨부 (NDA 게이트) -->
           <div class="rounded-2xl border border-line bg-white p-6">
             <p class="font-mono text-[11px] tracking-widest text-tx-3">FILES</p>
@@ -656,6 +720,9 @@ const fmtSize = (bytes: number): string =>
                 <template v-if="detail.biddingClosed">견적 접수가 마감되었습니다.</template>
                 <template v-else-if="detail.method === 'targeted' && viewer.isTargetExpert === false">
                   지정견적 프로젝트 — 지정된 전문가만 참여할 수 있습니다.
+                </template>
+                <template v-else-if="fullServiceBlocked">
+                  시스템 통합(전체서비스) 의뢰는 파트너사(기업)·샘플피씨비만 견적을 제출할 수 있습니다.
                 </template>
                 <template v-else-if="viewer.isApprovedExpert === false">
                   승인된 전문가만 견적을 제출할 수 있습니다.

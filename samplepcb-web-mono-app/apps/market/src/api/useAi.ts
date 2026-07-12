@@ -9,6 +9,7 @@ import {
 import type {
   AiDiagramRunBodyType,
   AiDiagramSpecRunBodyType,
+  AiPostingsRunBodyType,
   AiRocRunBodyType,
   AiStructurizeRunBodyType,
   AiUsecaseKeyType,
@@ -56,6 +57,14 @@ export function useRunRoc() {
   return useMutation({
     mutationFn: (body: AiRocRunBodyType) =>
       apiSend('POST', `${apiRoutes.ai}/market.request-roc/run`, body, AiRunResponse),
+  });
+}
+
+// 구성 명세 + 답변 → 분야별 포스팅 카드 JSON(Phase 3) — 결과는 잡의 json 필드.
+export function useRunPostings() {
+  return useMutation({
+    mutationFn: (body: AiPostingsRunBodyType) =>
+      apiSend('POST', `${apiRoutes.ai}/market.request-postings/run`, body, AiRunResponse),
   });
 }
 

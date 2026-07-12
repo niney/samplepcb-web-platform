@@ -71,6 +71,7 @@ export const en = {
           market_request_structurize: 'Project request — interview structurize (spec JSON)',
           market_request_diagram_spec: 'Project request — render diagram from spec',
           market_request_roc: 'Project request — work review doc generation',
+          market_request_postings: 'Project request — per-area posting cards',
         },
         enabled: 'Enabled',
         model: 'Model',

@@ -70,8 +70,8 @@ ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-
 - 새 유스케이스 추가 = 계약 `AI_USECASES` + 레지스트리 def + (필요시 FE) — 설정 행·화면은
   자동(lazy 생성·목록 렌더).
 - E2E: `e2e-market.mts` 에 diagramHtml 왕복 + diagramSpec 왕복·파손 400 + rocMd 왕복·
-  인터뷰 답변 미노출 포함(총 95). LLM 실호출은 E2E 에 없음(Ollama 의존) — 실생성 검증은
-  수동/스크립트.
+  인터뷰 답변 미노출 + 포스팅 카드 왕복·분야 필터 + 전체서비스 입찰 403 포함(총 97).
+  LLM 실호출은 E2E 에 없음(Ollama 의존) — 실생성 검증은 수동/스크립트.
 
 ## 6. 인터뷰 파이프라인 (Phase 1, 2026-07-12)
 
@@ -133,7 +133,20 @@ ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-
   게이트는 인터뷰 활성 && roc 활성. 상세 화면(고객·전문가)은 `RocViewer`
   (마크다운 **라인 파서** 렌더 — LLM 산출이므로 v-html 금지).
 
-### Phase 3 (별도 트랙)
+### Phase 3 — 분야별 포스팅 카드 + 전체서비스 입찰 제한 (2026-07-12 구현)
 
-전문가/검수자 포스팅 자동 생성 — 매칭 공개범위 정책(전체서비스=검증 개발회사만 등,
-기획 PDF §13)과 얽혀 별도 설계. interviewAnswers·diagramSpec 이 원천 데이터.
+**사용자 확정 3건**: ① 단일 의뢰 유지 + 분야별 AI 카드(분리 입찰 아님 — 계약·정산이
+프로젝트당 1건 구조) ② 전체서비스(시스템 통합) 제한은 **입찰만**(목록·상세는 공개,
+기획 PDF §13.4 의 완화형) ③ 검수자 포스팅은 제외(검수자 역할 자체가 없어 별도 기획).
+
+- 유스케이스 `market.request-postings`: 명세+답변 → 분야별 카드 JSON(요약·작업범위·
+  산출물·확인 필요 리스크). 의뢰 분야 코드만 허용, 중복 카드 dedupe, 재시도 1.
+- 저장 `sp_market_project.postings`(JSON, `MarketPostingCards`) — 서버가 의뢰 분야 밖
+  카드를 걸러 저장, 응답은 `toPostings` 로 형태 정규화(파손분 null). 공개 범위는
+  description 동일. spec 제거 시 동반 제거. 마이그레이션 `20260713020000_market_postings`.
+- **입찰 정책**: `requestType=system` && `expertType=individual` → 403
+  `FULL_SERVICE_COMPANY_ONLY`(market-bids 가드 사슬). FE 는 useExpertMe 로 같은 규칙을
+  선반영(버튼 숨김 + 안내 문구), 상세 포스팅 섹션에 제한 배지 표시.
+- 위저드: 명세 확정 후 "분야별 카드 생성(선택)" → 카드 미리보기 + 첨부 체크.
+
+검수자 포스팅·분리 입찰(포스팅 엔티티)은 미구현 — 검수자 역할 기획이 서면 별도 트랙.

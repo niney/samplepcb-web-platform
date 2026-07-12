@@ -11,8 +11,10 @@ import {
   MARKET_SERVICE_AREAS,
   MARKET_TOOL_CODES,
   MARKET_TRAVEL_RANGES,
+  MarketPostingCards,
 } from '@sp/api-contract';
 import type {
+  MarketPostingCardsType,
   MarketBidStatusType,
   MarketBudgetRangeType,
   MarketCareerRangeType,
@@ -113,6 +115,12 @@ export const toCategoryCodes = (json: unknown): MarketCategoryCodeType[] =>
 
 export const toServiceAreaCodes = (json: unknown): MarketServiceAreaType[] =>
   toCodeArray(json, MARKET_SERVICE_AREAS);
+
+// 분야별 포스팅 카드(Json 컬럼) — 형태가 어긋난 저장분은 null 로 정규화(응답 500 방지).
+export const toPostings = (json: unknown): MarketPostingCardsType | null => {
+  const r = MarketPostingCards.nullable().safeParse(json ?? null);
+  return r.success ? r.data : null;
+};
 
 export const toToolCodes = (json: unknown): MarketToolCodeType[] =>
   toCodeArray(json, MARKET_TOOL_CODES);
