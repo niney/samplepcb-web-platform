@@ -225,6 +225,9 @@ model SpMarketProject {
   // AI 생성 시스템 구성도(단일 HTML) — 공개 범위는 description 과 동일(설명에서 파생).
   // 렌더는 반드시 sandbox iframe(srcdoc) — LLM 출력이라 DOM 직결 금지.
   diagramHtml    String?   @db.MediumText
+  // 구성 명세 JSON(DiagramSpec 직렬화) — 구성도의 원천 데이터. 재생성과 후속 문서
+  // (ROC·포스팅 요약) 파생의 근원이라 HTML 과 별도로 보존한다.
+  diagramSpec    String?   @db.MediumText
   ndaRequired    Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
   budgetRange    String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
   startHopeDate  String?   @db.VarChar(10) // 'YYYY-MM-DD' 표시용 KST 날짜 문자열(타임존 경계 회피)

@@ -67,13 +67,15 @@ export const en = {
         testOk: 'Connected — {count} models',
         testFail: 'Connection failed — check the URL and API key.',
         usecases: {
-          market_request_diagram: 'Project request — system diagram generation',
+          market_request_diagram: 'Project request — system diagram (description fallback)',
+          market_request_structurize: 'Project request — interview structurize (spec JSON)',
+          market_request_diagram_spec: 'Project request — render diagram from spec',
         },
         enabled: 'Enabled',
         model: 'Model',
         modelHint: 'Pick from the list after a connection test, or type freely. Strong text models recommended.',
         promptTemplate: 'Prompt template',
-        promptHint: 'Double-brace variables title / serviceAreas / description are filled from the request.',
+        promptHint: 'Double-brace variables are filled from input — diagram: title / serviceAreas / description, structurize: + answers / unanswered, spec render: spec.',
       },
       fields: {
         companyName: 'Company name',

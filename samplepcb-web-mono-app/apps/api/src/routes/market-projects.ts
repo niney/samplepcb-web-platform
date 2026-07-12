@@ -17,6 +17,7 @@ import type {
   MarketMyProjectListItemType,
   MarketProjectViewerType,
 } from '@sp/api-contract';
+import { parseDiagramSpecString } from '../lib/ai/usecases';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
 import { getMembersByIds } from '../lib/g5-db';
@@ -155,6 +156,17 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       return reply.status(400).send({ result: false, error: 'DEADLINE_PAST' });
     }
 
+    // 구성 명세 JSON — 우리 AI 산출이 정상 경로지만 클라이언트 입력이므로 재검증하고,
+    // 정규화 직렬화본으로 저장한다(이관 specJson _legacy 교훈: 저장 전 형태 통제).
+    let normalizedDiagramSpec: string | null = null;
+    if (payload.diagramSpec !== undefined) {
+      try {
+        normalizedDiagramSpec = JSON.stringify(parseDiagramSpecString(payload.diagramSpec));
+      } catch {
+        return reply.status(400).send({ result: false, error: 'INVALID_DIAGRAM_SPEC' });
+      }
+    }
+
     // 지정견적 — 대상은 승인 전문가여야 하고, 자기 자신(자전 입찰 유도) 지정은 금지.
     let targetExpert: SpMarketExpert | null = null;
     if (payload.method === 'targeted') {
@@ -204,6 +216,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           cadTools: payload.cadTools,
           description: payload.description,
           diagramHtml: payload.diagramHtml ?? null,
+          diagramSpec: normalizedDiagramSpec,
           ndaRequired: payload.ndaRequired,
           budgetRange: payload.budgetRange,
           startHopeDate: payload.startHopeDate ?? null,
@@ -402,6 +415,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           ),
           description: project.description,
           diagramHtml: project.diagramHtml,
+          diagramSpec: project.diagramSpec,
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           awardedAt: project.awardedAt?.toISOString() ?? null,
@@ -452,6 +466,18 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (body.cadTools !== undefined) data.cadTools = body.cadTools;
       if (body.description !== undefined) data.description = body.description;
       if (body.diagramHtml !== undefined) data.diagramHtml = body.diagramHtml;
+      if (body.diagramSpec !== undefined && body.diagramSpec !== null) {
+        try {
+          data.diagramSpec = JSON.stringify(parseDiagramSpecString(body.diagramSpec));
+        } catch {
+          return reply.status(400).send({ result: false, error: 'INVALID_DIAGRAM_SPEC' });
+        }
+      }
+      // 구성도 제거(diagramHtml=null) 시 spec 을 명시하지 않았으면 함께 제거 — 원천
+      // 데이터만 남아 상세·후속 문서가 지워진 구성도를 되살리는 혼란을 막는다.
+      if (body.diagramSpec === null || (body.diagramHtml === null && body.diagramSpec === undefined)) {
+        data.diagramSpec = null;
+      }
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;
       if (body.budgetRange !== undefined) data.budgetRange = body.budgetRange;
       if (body.startHopeDate !== undefined) data.startHopeDate = body.startHopeDate;

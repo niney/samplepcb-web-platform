@@ -342,6 +342,16 @@ async function run() {
         cadTools: [], // 빈 배열 = 특정 툴 요구 없음(신규 의미 체계)
         description: 'E2E 통합 테스트용 프로젝트 상세 설명입니다.',
         diagramHtml: '<html><body><svg viewBox="0 0 10 10"><text>E2E DIAGRAM</text></svg></body></html>',
+        // 구성 명세(JSON) — 서버가 재검증·정규화 직렬화해 저장(인터뷰 파이프라인 P1 산출 형태)
+        diagramSpec: JSON.stringify({
+          project: { name: 'E2E Spec', summary: 'E2E', stage: 'idea', service_type: 'single' },
+          groups: [{ id: 'main', label: 'MAIN CONTROLLER' }],
+          blocks: [{ id: 'mcu', group: 'main', type: 'controller', label: 'E2E MCU', status: 'confirmed' }],
+          connections: [],
+          constraints: [],
+          feature_highlights: [],
+          questions_missing: [],
+        }),
         ndaRequired: true,
         budgetRange: 'r300_700',
         deadline: { days: 7 },
@@ -371,6 +381,15 @@ async function run() {
       (anon.json?.data?.diagramHtml ?? '').includes('E2E DIAGRAM'),
       'AI 구성도(diagramHtml) 왕복',
     );
+    assert(
+      (anon.json?.data?.diagramSpec ?? '').includes('E2E MCU'),
+      'AI 구성 명세(diagramSpec) 왕복',
+    );
+    const badSpec = await req('PATCH', `/api/market/projects/${pid}`, {
+      token: tClient,
+      body: { diagramSpec: '{"broken":true}' },
+    });
+    assert(badSpec.status === 400, '파손 구성 명세 PATCH 400', badSpec.status);
 
     // ── 5) 소유자 상세: 파일 보임 → fileId 확보 ──
     const ownerDetail = await req('GET', `/api/market/projects/${pid}`, { token: tClient });

@@ -72,3 +72,14 @@ export function extractHtml(text: string): string {
   if (start >= 0) return text.slice(start).trim();
   return text.trim();
 }
+
+// LLM 응답에서 JSON 객체만 추출 — 코드펜스·서문·후문 방어(인터뷰 프로빙 로직 이식).
+// 파싱 실패는 throw — 러너의 재시도 1회가 흡수한다.
+export function extractJsonObject(text: string): unknown {
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  const candidate = fence?.[1] ?? text;
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('no JSON object in LLM output');
+  return JSON.parse(candidate.slice(start, end + 1)) as unknown;
+}

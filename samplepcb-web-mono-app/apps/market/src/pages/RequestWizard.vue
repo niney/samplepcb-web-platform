@@ -2,6 +2,8 @@
 import { computed, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
+  AI_INTERVIEW_QUESTIONS,
+  DiagramSpec,
   MARKET_AREA_SPECIALTIES,
   MARKET_AREA_TOOL_GROUPS,
   MARKET_BUDGET_RANGES,
@@ -20,6 +22,9 @@ import {
   MarketServiceArea,
 } from '@sp/api-contract';
 import type {
+  AiInterviewAnswerType,
+  AiInterviewQuestion,
+  DiagramSpecType,
   MarketBudgetRangeType,
   MarketCategoryCodeType,
   MarketProjectMethodType,
@@ -30,7 +35,13 @@ import type {
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import DiagramViewer from '../components/DiagramViewer.vue';
-import { useAiJob, useAiUsecaseStatus, useRunDiagram } from '../api/useAi';
+import {
+  useAiJob,
+  useAiUsecaseStatus,
+  useRunDiagram,
+  useRunDiagramSpec,
+  useRunStructurize,
+} from '../api/useAi';
 import { useMarketExpertList } from '../api/useMarketExperts';
 import type { ExpertListFilters } from '../api/useMarketExperts';
 import { useCreateProject } from '../api/useMarketProjects';
@@ -131,13 +142,27 @@ function pruneTechnical(): void {
 }
 
 // ── AI 시스템 구성도(diagram 스텝) — 관리자 활성 시에만 스텝 존재 ─────────────
+// 두 경로: ① 인터뷰(structurize+diagram-spec 둘 다 활성) = 코어 질문 → 구성 명세 JSON
+// → 요약·TBD 확인 → 명세 렌더, ② 폴백(legacy diagram 만 활성) = 설명 → HTML 단발.
 // 생성 ~3분: run 은 jobId 만 받고 5초 폴링. 사용자는 기다리지 않고 다음 스텝을 진행해도
 // 되며(폴링은 컴포넌트 상태로 지속), 완료되면 미리보기가 뜬다. 실패·미완료여도 제출은
-// 막지 않는다(비차단). 외부 전송은 제목·분야·설명 텍스트뿐 — 첨부는 보내지 않는다.
+// 막지 않는다(비차단). 외부 전송은 제목·분야·설명·인터뷰 답변 텍스트뿐 — 첨부는 보내지
+// 않는다(NDA 원칙).
 
 const diagramStatus = useAiUsecaseStatus('market.request-diagram');
-const diagramEnabled = computed(() => diagramStatus.data.value?.data.enabled ?? false);
+const structurizeStatus = useAiUsecaseStatus('market.request-structurize');
+const diagramSpecStatus = useAiUsecaseStatus('market.request-diagram-spec');
+const interviewEnabled = computed(
+  () =>
+    (structurizeStatus.data.value?.data.enabled ?? false) &&
+    (diagramSpecStatus.data.value?.data.enabled ?? false),
+);
+const legacyDiagramEnabled = computed(() => diagramStatus.data.value?.data.enabled ?? false);
+const diagramStepEnabled = computed(() => interviewEnabled.value || legacyDiagramEnabled.value);
+
 const runDiagram = useRunDiagram();
+const runStructurize = useRunStructurize();
+const runDiagramSpec = useRunDiagramSpec();
 const diagramJobId = ref<string | null>(null);
 const diagramJob = useAiJob(diagramJobId);
 const includeDiagram = ref(true);
@@ -148,6 +173,7 @@ const diagramHtml = computed<string | null>(() =>
 const diagramRunning = computed(
   () =>
     runDiagram.isPending.value ||
+    runDiagramSpec.isPending.value ||
     (diagramJobId.value !== null &&
       !diagramJob.isError.value &&
       (diagramJob.data.value?.data.status ?? 'running') === 'running'),
@@ -155,6 +181,7 @@ const diagramRunning = computed(
 const diagramFailed = computed(
   () =>
     runDiagram.isError.value ||
+    runDiagramSpec.isError.value ||
     diagramJob.isError.value ||
     diagramJob.data.value?.data.status === 'error',
 );
@@ -171,6 +198,119 @@ function generateDiagram(): void {
   );
 }
 
+// ── 인터뷰(코어 질문 → 구성 명세) ────────────────────────────────────────────
+// 전 문항 선택 사항 — 비워두면 구조화 프롬프트의 "미응답 항목"으로 넘어가 TBD·추가질문
+// (questions_missing)으로 돌아온다. 조건부 노출(hideIf)은 계약 질문 뱅크 정의를 따른다.
+
+const interviewValues = reactive<Record<string, string | string[]>>({});
+// 명세의 questions_missing 에 대한 보강 답변 — 반영(재구조화) 시 extraAnswers 로 흡수.
+const gapInputs = reactive<Record<string, string>>({});
+const extraAnswers = ref<string[]>([]);
+
+const interviewAnswerStr = (code: string): string => {
+  const v = interviewValues[code];
+  return Array.isArray(v) ? v.join(', ') : (v ?? '');
+};
+
+const questionHidden = (q: AiInterviewQuestion): boolean => {
+  const hide = q.hideIf;
+  return hide === undefined
+    ? false
+    : hide.values.some((v) => interviewAnswerStr(hide.code).includes(v));
+};
+const visibleQuestions = computed<AiInterviewQuestion[]>(() =>
+  AI_INTERVIEW_QUESTIONS.filter((q) => !questionHidden(q)),
+);
+
+function setSingle(code: string, option: string): void {
+  interviewValues[code] = interviewValues[code] === option ? '' : option;
+}
+function toggleMulti(code: string, option: string): void {
+  const cur = interviewValues[code];
+  const arr = Array.isArray(cur) ? [...cur] : [];
+  const i = arr.indexOf(option);
+  if (i >= 0) arr.splice(i, 1);
+  else arr.push(option);
+  interviewValues[code] = arr;
+}
+
+function interviewAnswers(): AiInterviewAnswerType[] {
+  const answers: AiInterviewAnswerType[] = [];
+  for (const q of visibleQuestions.value) {
+    const a = interviewAnswerStr(q.code).trim();
+    if (a !== '') answers.push({ code: q.code, answer: a });
+  }
+  for (const extra of extraAnswers.value) answers.push({ code: 'extra', answer: extra });
+  return answers;
+}
+
+const specJobId = ref<string | null>(null);
+const specJob = useAiJob(specJobId);
+const specJson = computed<string | null>(() =>
+  specJob.data.value?.data.status === 'done' ? specJob.data.value.data.json : null,
+);
+const spec = computed<DiagramSpecType | null>(() => {
+  if (specJson.value === null) return null;
+  try {
+    return DiagramSpec.parse(JSON.parse(specJson.value));
+  } catch {
+    return null;
+  }
+});
+const specRunning = computed(
+  () =>
+    runStructurize.isPending.value ||
+    (specJobId.value !== null &&
+      !specJob.isError.value &&
+      (specJob.data.value?.data.status ?? 'running') === 'running'),
+);
+const specFailed = computed(
+  () =>
+    runStructurize.isError.value ||
+    specJob.isError.value ||
+    specJob.data.value?.data.status === 'error',
+);
+const specTbdBlocks = computed(() =>
+  (spec.value?.blocks ?? []).filter((b) => b.status === 'tbd').map((b) => b.label),
+);
+
+function generateSpec(): void {
+  // 보강 입력을 영속 답변으로 흡수(질문 원문 → 답 형태) 후 입력칸 비움.
+  const missing = spec.value?.questions_missing ?? [];
+  for (const [idx, text] of Object.entries(gapInputs)) {
+    const t = text.trim();
+    const q = missing[Number(idx)];
+    if (t !== '' && q !== undefined) extraAnswers.value.push(`${q.question} → ${t}`);
+    gapInputs[idx] = '';
+  }
+  specJobId.value = null;
+  diagramJobId.value = null; // 명세가 바뀌면 이전 구성도는 무효
+  runStructurize.mutate(
+    {
+      title: form.title.trim(),
+      serviceAreas: form.serviceAreas,
+      description: form.description.trim(),
+      answers: interviewAnswers(),
+    },
+    { onSuccess: (res) => { specJobId.value = res.data.jobId; } },
+  );
+}
+
+// 답변 수정 — 명세를 버리고 질문 폼으로(답변 값은 보존).
+function reopenInterview(): void {
+  specJobId.value = null;
+  diagramJobId.value = null;
+}
+
+function generateDiagramFromSpec(): void {
+  if (specJson.value === null) return;
+  diagramJobId.value = null;
+  runDiagramSpec.mutate(
+    { spec: specJson.value },
+    { onSuccess: (res) => { diagramJobId.value = res.data.jobId; } },
+  );
+}
+
 // ── 동적 스텝 — 고정 번호 대신 키 배열(질문 그룹 없으면 technical 제거) ───────
 
 type StepKey = 'area' | 'technical' | 'description' | 'diagram' | 'schedule' | 'method';
@@ -179,7 +319,7 @@ const steps = computed<{ key: StepKey; label: string }[]>(() => [
   { key: 'area', label: '분야' },
   ...(hasTechnicalStep.value ? [{ key: 'technical' as const, label: '전문 기술·도구' }] : []),
   { key: 'description', label: '설명·자료' },
-  ...(diagramEnabled.value ? [{ key: 'diagram' as const, label: '시스템 구성도' }] : []),
+  ...(diagramStepEnabled.value ? [{ key: 'diagram' as const, label: '시스템 구성도' }] : []),
   { key: 'schedule', label: '예산·일정' },
   { key: 'method', label: '견적 방식' },
 ]);
@@ -270,6 +410,9 @@ async function submit(): Promise<void> {
     ...(diagramHtml.value !== null && includeDiagram.value
       ? { diagramHtml: diagramHtml.value }
       : {}),
+    // 구성 명세는 구성도의 원천 데이터 — 렌더 전 제출이어도 명세가 있으면 함께 저장
+    // (후속 재생성·문서 파생의 근원).
+    ...(specJson.value !== null && includeDiagram.value ? { diagramSpec: specJson.value } : {}),
     ndaRequired: form.ndaRequired,
     budgetRange: form.budgetRange,
     ...(form.startHopeDate !== '' ? { startHopeDate: form.startHopeDate } : {}),
@@ -485,47 +628,208 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               AI 시스템 구성도 <span class="font-normal text-tx-3">(선택)</span>
             </p>
             <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
-              작성하신 제목·분야·상세 설명으로 시스템 구성도 초안을 자동 생성합니다.
-              생성에 약 2~3분이 걸리며, 기다리는 동안 다음 단계를 먼저 진행하셔도 됩니다.
-              입력하신 텍스트가 AI 생성을 위해 외부 서버로 전송됩니다 — 첨부 파일은 전송되지 않습니다.
+              <template v-if="interviewEnabled">
+                아래 질문에 답할수록 구성도와 요구사항 정리가 정확해집니다 — 모두 선택 사항이며,
+                건너뛴 항목은 구성도에 "(TBD)"(미확정)로 표시됩니다.
+                입력하신 제목·설명·답변 텍스트가 AI 생성을 위해 외부 서버로 전송됩니다 — 첨부 파일은 전송되지 않습니다.
+              </template>
+              <template v-else>
+                작성하신 제목·분야·상세 설명으로 시스템 구성도 초안을 자동 생성합니다.
+                생성에 약 2~3분이 걸리며, 기다리는 동안 다음 단계를 먼저 진행하셔도 됩니다.
+                입력하신 텍스트가 AI 생성을 위해 외부 서버로 전송됩니다 — 첨부 파일은 전송되지 않습니다.
+              </template>
             </p>
           </div>
 
-          <div v-if="diagramHtml === null" class="grid gap-2">
-            <div>
-              <button
-                type="button"
-                class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
-                :disabled="diagramRunning"
-                @click="generateDiagram"
-              >
-                {{ diagramRunning ? '구성도 생성 중…' : '구성도 생성' }}
-              </button>
+          <!-- 인터뷰 경로: 질문 폼 → 명세 요약·TBD·추가질문 → 구성도 -->
+          <template v-if="interviewEnabled">
+            <!-- 1) 코어 질문 폼 (명세가 없을 때) -->
+            <div v-if="spec === null" class="grid gap-4">
+              <div v-for="q in visibleQuestions" :key="q.code">
+                <p class="text-xs font-bold text-tx-2">
+                  {{ q.label }} <span class="font-normal text-tx-3">(선택)</span>
+                </p>
+                <div v-if="q.type === 'text'" class="mt-2">
+                  <input
+                    :value="interviewAnswerStr(q.code)"
+                    type="text"
+                    :placeholder="q.placeholder ?? ''"
+                    class="h-9 w-full rounded-lg border border-line px-3 text-xs font-normal"
+                    @input="interviewValues[q.code] = ($event.target as HTMLInputElement).value"
+                  >
+                </div>
+                <div v-else class="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    v-for="opt in q.options ?? []"
+                    :key="opt"
+                    type="button"
+                    class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+                    :class="
+                      (q.type === 'single'
+                        ? interviewValues[q.code] === opt
+                        : Array.isArray(interviewValues[q.code]) &&
+                          (interviewValues[q.code] as string[]).includes(opt))
+                        ? 'border-ink-900 bg-ink-900 text-white'
+                        : 'border-line text-tx-2 hover:border-line-2'
+                    "
+                    @click="q.type === 'single' ? setSingle(q.code, opt) : toggleMulti(q.code, opt)"
+                  >
+                    {{ opt }}
+                  </button>
+                </div>
+              </div>
+              <div class="grid gap-2">
+                <div>
+                  <button
+                    type="button"
+                    class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
+                    :disabled="specRunning"
+                    @click="generateSpec"
+                  >
+                    {{ specRunning ? '구성 명세 정리 중…' : 'AI 구성 명세 만들기' }}
+                  </button>
+                </div>
+                <p v-if="specRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
+                  ⏳ 답변을 구조화하고 있습니다(약 30초~1분) — "다음"으로 넘어가 나머지를 작성하셔도 됩니다.
+                </p>
+                <p v-else-if="specFailed" class="text-xs font-semibold text-red-600">
+                  구조화에 실패했습니다. 잠시 후 다시 시도해 주세요.
+                </p>
+              </div>
             </div>
-            <p v-if="diagramRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-              ⏳ 생성 중입니다 — "다음"으로 넘어가 나머지를 작성하시면, 완료 시 이 단계와 요약에 반영됩니다.
-            </p>
-            <p v-else-if="diagramFailed" class="text-xs font-semibold text-red-600">
-              생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
-            </p>
-          </div>
 
+            <!-- 2) 명세 요약 + TBD + 추가질문(보강) + 구성도 -->
+            <template v-else>
+              <div class="rounded-xl bg-paper p-4 text-xs leading-relaxed text-tx-2">
+                <p class="flex flex-wrap items-center gap-2">
+                  <b class="text-tx-1">AI가 이해한 시스템</b>
+                  <span class="rounded bg-ink-900 px-1.5 py-0.5 text-[10px] font-bold text-white">{{ spec.project.name }}</span>
+                  <span class="text-tx-3">블록 {{ spec.blocks.length }} · 연결 {{ spec.connections.length }} · 그룹 {{ spec.groups.length }}</span>
+                </p>
+                <p v-if="spec.project.summary !== ''" class="mt-1">{{ spec.project.summary }}</p>
+                <p class="mt-2 flex flex-wrap gap-1.5">
+                  <span v-for="g in spec.groups" :key="g.id" class="rounded-full border border-line px-2 py-0.5 text-[11px] text-tx-3">{{ g.label }}</span>
+                </p>
+                <p v-if="specTbdBlocks.length > 0" class="mt-2 leading-relaxed">
+                  <b class="text-amber-700">미확정(TBD) {{ specTbdBlocks.length }}건:</b>
+                  {{ specTbdBlocks.join(' · ') }}
+                </p>
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="rounded-lg border border-line px-3 py-1.5 text-[11px] font-bold text-tx-2 hover:border-line-2"
+                    @click="reopenInterview"
+                  >
+                    답변 수정(명세 다시 만들기)
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="spec.questions_missing.length > 0" class="grid gap-2 rounded-xl border border-line p-4">
+                <p class="text-xs font-bold text-tx-2">
+                  AI 추가 질문 <span class="font-normal text-tx-3">— 답해주시면 더 정확해집니다(선택)</span>
+                </p>
+                <label
+                  v-for="(mq, i) in spec.questions_missing"
+                  :key="i"
+                  class="grid gap-1 text-xs font-normal text-tx-2"
+                >
+                  {{ mq.question }}
+                  <input
+                    :value="gapInputs[String(i)] ?? ''"
+                    type="text"
+                    class="h-9 rounded-lg border border-line px-3 text-xs"
+                    @input="gapInputs[String(i)] = ($event.target as HTMLInputElement).value"
+                  >
+                </label>
+                <div>
+                  <button
+                    type="button"
+                    class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                    :disabled="specRunning || Object.values(gapInputs).every((v) => v.trim() === '')"
+                    @click="generateSpec"
+                  >
+                    {{ specRunning ? '반영 중…' : '보강 답변 반영해 명세 다시 만들기' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="diagramHtml === null" class="grid gap-2">
+                <div>
+                  <button
+                    type="button"
+                    class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
+                    :disabled="diagramRunning || specRunning"
+                    @click="generateDiagramFromSpec"
+                  >
+                    {{ diagramRunning ? '구성도 생성 중…' : '이 명세로 구성도 생성' }}
+                  </button>
+                </div>
+                <p v-if="diagramRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
+                  ⏳ 생성 중입니다(약 2~3분) — "다음"으로 넘어가 나머지를 작성하시면, 완료 시 이 단계와 요약에 반영됩니다.
+                </p>
+                <p v-else-if="diagramFailed" class="text-xs font-semibold text-red-600">
+                  생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
+                </p>
+              </div>
+              <template v-else>
+                <DiagramViewer :html="diagramHtml" />
+                <div class="flex flex-wrap items-center gap-4">
+                  <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
+                    <input v-model="includeDiagram" type="checkbox">
+                    이 구성도를 의뢰에 첨부
+                  </label>
+                  <button
+                    type="button"
+                    class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                    :disabled="diagramRunning"
+                    @click="generateDiagramFromSpec"
+                  >
+                    {{ diagramRunning ? '생성 중…' : '다시 생성' }}
+                  </button>
+                </div>
+              </template>
+            </template>
+          </template>
+
+          <!-- 폴백 경로: 설명 → HTML 단발(기존 동작 유지) -->
           <template v-else>
-            <DiagramViewer :html="diagramHtml" />
-            <div class="flex flex-wrap items-center gap-4">
-              <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
-                <input v-model="includeDiagram" type="checkbox">
-                이 구성도를 의뢰에 첨부
-              </label>
-              <button
-                type="button"
-                class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
-                :disabled="diagramRunning"
-                @click="generateDiagram"
-              >
-                {{ diagramRunning ? '생성 중…' : '다시 생성' }}
-              </button>
+            <div v-if="diagramHtml === null" class="grid gap-2">
+              <div>
+                <button
+                  type="button"
+                  class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
+                  :disabled="diagramRunning"
+                  @click="generateDiagram"
+                >
+                  {{ diagramRunning ? '구성도 생성 중…' : '구성도 생성' }}
+                </button>
+              </div>
+              <p v-if="diagramRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
+                ⏳ 생성 중입니다 — "다음"으로 넘어가 나머지를 작성하시면, 완료 시 이 단계와 요약에 반영됩니다.
+              </p>
+              <p v-else-if="diagramFailed" class="text-xs font-semibold text-red-600">
+                생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
+              </p>
             </div>
+
+            <template v-else>
+              <DiagramViewer :html="diagramHtml" />
+              <div class="flex flex-wrap items-center gap-4">
+                <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
+                  <input v-model="includeDiagram" type="checkbox">
+                  이 구성도를 의뢰에 첨부
+                </label>
+                <button
+                  type="button"
+                  class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                  :disabled="diagramRunning"
+                  @click="generateDiagram"
+                >
+                  {{ diagramRunning ? '생성 중…' : '다시 생성' }}
+                </button>
+              </div>
+            </template>
           </template>
         </div>
 
@@ -669,7 +973,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
               마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
               {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} ·
-              첨부 {{ attachments.length }}개<template v-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template>
+              첨부 {{ attachments.length }}개<template v-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning || specRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template><template v-else-if="specJson !== null && includeDiagram"> · AI 구성 명세 포함(구성도 미생성)</template>
             </p>
           </div>
         </div>

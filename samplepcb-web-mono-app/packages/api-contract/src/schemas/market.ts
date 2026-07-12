@@ -609,6 +609,9 @@ const marketProjectEditableShape = {
   // AI 생성 시스템 구성도(단일 HTML, ai 유스케이스 market.request-diagram 산출) —
   // 공개 범위는 description 과 동일. 렌더는 반드시 sandbox iframe(srcdoc).
   diagramHtml: z.string().max(512_000).optional(),
+  // 구성 명세 JSON(DiagramSpec 직렬화 — market.request-structurize 산출). 구성도의
+  // 원천 데이터로, 재생성·후속 문서(ROC·포스팅 요약) 파생의 근원. 공개 범위 동일.
+  diagramSpec: z.string().max(200_000).optional(),
   ndaRequired: z.boolean().default(true),
   budgetRange: MarketBudgetRange,
   startHopeDate: z.string().regex(DATE_RE).optional(),
@@ -665,7 +668,8 @@ export const MarketProjectUpdateBody = z
     categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length), // default 없이 — 미전송=변경 없음
     cadTools: marketProjectEditableShape.cadTools,
     description: marketProjectEditableShape.description,
-    diagramHtml: z.string().max(512_000).nullable(), // null = 구성도 제거
+    diagramHtml: z.string().max(512_000).nullable(), // null = 구성도 제거(spec 도 함께 제거됨)
+    diagramSpec: z.string().max(200_000).nullable(),
     ndaRequired: z.boolean(),
     budgetRange: marketProjectEditableShape.budgetRange,
     startHopeDate: z.string().regex(DATE_RE).nullable(),
@@ -758,6 +762,7 @@ export type MarketProjectAttachmentsType = z.infer<typeof MarketProjectAttachmen
 export const MarketProjectDetail = MarketProjectListItem.extend({
   description: z.string(),
   diagramHtml: z.string().nullable(), // AI 구성도 — sandbox iframe 렌더 전용
+  diagramSpec: z.string().nullable(), // 구성 명세 JSON — 공개 범위는 description 동일
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   awardedAt: z.string().nullable(), // ISO
@@ -1158,6 +1163,7 @@ export const AdminMarketProjectDetail = AdminMarketProjectListItem.extend({
   budgetRange: MarketBudgetRange,
   description: z.string(),
   diagramHtml: z.string().nullable(),
+  diagramSpec: z.string().nullable(),
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   targetExpert: z

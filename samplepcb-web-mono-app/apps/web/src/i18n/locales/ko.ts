@@ -67,13 +67,15 @@ export const ko = {
         testOk: '연결 성공 — 모델 {count}개',
         testFail: '연결 실패 — 주소·API 키를 확인해 주세요.',
         usecases: {
-          market_request_diagram: '프로젝트 의뢰 — 시스템 구성도 생성',
+          market_request_diagram: '프로젝트 의뢰 — 시스템 구성도 생성(설명 기반 폴백)',
+          market_request_structurize: '프로젝트 의뢰 — 인터뷰 구조화(구성 명세 JSON)',
+          market_request_diagram_spec: '프로젝트 의뢰 — 구성 명세로 구성도 렌더',
         },
         enabled: '사용',
         model: '모델',
         modelHint: '연결 테스트 후 목록에서 고르거나 직접 입력합니다. 텍스트 생성이 강한 모델 권장.',
         promptTemplate: '프롬프트 템플릿',
-        promptHint: '이중 중괄호 변수 title · serviceAreas · description 이 의뢰 내용으로 치환됩니다.',
+        promptHint: '이중 중괄호 변수가 입력으로 치환됩니다 — 구성도: title · serviceAreas · description / 인터뷰 구조화: + answers · unanswered / 명세 렌더: spec.',
       },
       fields: {
         companyName: '회사명',

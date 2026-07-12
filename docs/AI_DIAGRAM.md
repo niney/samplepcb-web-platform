@@ -4,6 +4,10 @@
 유스케이스 실행 계층**을 신설했다. 프롬프트는 프로빙(모델 5종 × 변형 3종, 13런 + 사용자
 피드백)으로 확정한 것이 기본값이다.
 
+같은 날 2차로 **인터뷰 파이프라인(Phase 1)** 을 얹었다 — 질문 기획 PDF(질문 설계서 v3 ·
+ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-probing/`)으로 검증 후
+구현. 상세는 §6.
+
 ## 1. 구조 (3계층)
 
 | 계층 | 저장/코드 | 내용 |
@@ -65,5 +69,56 @@
   additive, `migrate deploy` 전용.
 - 새 유스케이스 추가 = 계약 `AI_USECASES` + 레지스트리 def + (필요시 FE) — 설정 행·화면은
   자동(lazy 생성·목록 렌더).
-- E2E: `e2e-market.mts` 에 diagramHtml 왕복 1항목 포함(총 92). LLM 실호출은 E2E 에 없음
-  (Ollama 의존) — 실생성 검증은 수동/스크립트.
+- E2E: `e2e-market.mts` 에 diagramHtml 왕복 + diagramSpec 왕복·파손 400 포함(총 94).
+  LLM 실호출은 E2E 에 없음(Ollama 의존) — 실생성 검증은 수동/스크립트.
+
+## 6. 인터뷰 파이프라인 (Phase 1, 2026-07-12)
+
+질문 기획 PDF(질문 설계서 v3 · ROC 질문 뱅크 v4)의 파이프라인
+`질문/답변 → 구조화 → 구성도(+후속 문서)` 중 Phase 1(인터뷰+명세+구성도)을 구현.
+**사용자 확정 3건**: 코어 10문항 내외 · ROC(작업검토지시서)는 Phase 2로 분리 ·
+갭 감지(P3)는 별도 호출 없이 P1 의 questions_missing 으로 흡수.
+
+### 구조 — spec JSON 이 피벗
+
+- 유스케이스 3종: `market.request-structurize`(답변→**DiagramSpec JSON**) →
+  `market.request-diagram-spec`(spec→구성도 HTML). 기존 `market.request-diagram`
+  (설명→HTML 단발)은 **인터뷰 비활성 시 폴백**으로 유지 — 프롬프트가 DB(관리자 소유)라
+  의미를 바꾸지 않고 유스케이스를 추가하는 쪽을 택했다.
+- 위저드 게이트: structurize·diagram-spec **둘 다 활성**이면 인터뷰 UI, 아니면 legacy
+  diagram 활성 시 기존 단발 UI. 스텝 자체는 셋 중 하나라도 활성이면 노출.
+- **질문 뱅크는 데이터(코드)**: `@sp/api-contract` `AI_INTERVIEW_QUESTIONS`(코어 13문항,
+  선택형 8+단문 5, `hideIf` 조건부 노출 — 예: 보드만 납품이면 케이스 질문 숨김). 전 문항
+  선택 사항 — 미응답은 프롬프트의 "미응답 항목"으로 넘어가 TBD·추가질문으로 돌아온다.
+  LLM 역할은 구조화·추가질문 생성·렌더 3종뿐, 인터뷰 흐름은 결정적.
+- 위저드 UX: 질문 폼 → "AI 구성 명세 만들기"(~30초) → **요약 카드(블록·그룹·TBD 목록) +
+  AI 추가 질문(questions_missing, 보강 입력 → 재구조화)** → "이 명세로 구성도 생성"(~3분,
+  비차단). 제출 시 `diagramSpec`(+`diagramHtml`) 저장.
+- 저장: `sp_market_project.diagramSpec`(MEDIUMTEXT, 정규화 직렬화본) — 구성도의 원천
+  데이터이자 Phase 2(ROC·포스팅 요약) 파생의 근원. 공개 범위는 description 동일.
+  마이그레이션 `20260712230000_market_diagram_spec`(additive).
+
+### 검증 계층 (프로빙 실측 기반)
+
+- **DiagramSpec zod 스키마**: enum 이탈은 `.catch`로 안전값 흡수(프로빙 실측 — glm·deepseek
+  모두 SWD 연결에 `flow:"debug"` 슬립), 구조 결함은 `normalizeDiagramSpec`이 보정(미정의
+  그룹 자동 생성·끊긴 연결 제거·중복 블록 제거). **실패 대신 복구가 원칙.**
+- 러너: parseResult throw 시 동일 프롬프트 재호출(structurize 는 1회) — JSON 완전 파손만
+  재시도 대상. 서버 저장 시에도 재검증(`parseDiagramSpecString`) — 파손 spec 은 400
+  `INVALID_DIAGRAM_SPEC` (이관 specJson `_legacy` 교훈: 저장 전 형태 통제).
+- 프롬프트 보강 4건(프로빙 결함 대응): 그룹 수 4~7 상한(8개→렌더 겹침 실측) · 서버 연동
+  답변 시 External System 블록 강제 · 미확정 점검 체크리스트(안테나·인증·방열·검사·커넥터
+  ·소비전류) · 답변에 없는 모델명 금지.
+
+### 프로빙 근거 (2026-07-12, `.tmp/ai-interview-probing/`)
+
+- P1 구조화 4런: JSON 유효 4/4·환각 0·TBD 규율 준수. P2 렌더 2런: 라벨 충실도 49/49
+  (골든 30/30 + P1 산출 파이프라인 19/19). P3 갭 감지 3런: 크리티컬 재현율 16/16,
+  부분 답변 인지 후속질문. P4 ROC 1런: 서식 10/10 — Phase 2 근거 확보.
+- 스모크: `.tmp/smoke-interview.mts`(활성화→structurize→렌더→원복, apps/api 에서
+  `tsx --env-file=.env ../../.tmp/smoke-interview.mts`).
+
+### Phase 2 (예정)
+
+ROC/작업검토지시서 유스케이스(P4 검증 통과 상태) — 노출 범위(개발자/검수자 포스팅)
+정책과 함께 설계. 전문가/검수자 포스팅 자동 생성은 매칭 공개범위 정책과 얽혀 별도 트랙.

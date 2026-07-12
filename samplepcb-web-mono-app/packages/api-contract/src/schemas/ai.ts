@@ -8,7 +8,14 @@ import { MarketServiceArea, MARKET_SERVICE_AREAS } from './market';
 // ai_api_key)과 유스케이스 설정(sp_ai_usecase: enabled·model·promptTemplate)은 분리.
 // apiKey 원문은 어떤 응답에도 싣지 않는다(마스킹만) — 서버 밖 유출 원천 차단.
 
-export const AI_USECASES = ['market.request-diagram'] as const;
+// structurize=인터뷰 답변→구성 명세 JSON(P1), diagram-spec=명세 JSON→구성도 HTML(P2).
+// 기존 diagram(설명→HTML 단발)은 인터뷰 비활성 시 폴백으로 유지 — 프롬프트가 DB(관리자
+// 소유)에 있어 의미를 바꾸지 않고 유스케이스를 추가하는 쪽이 안전하다.
+export const AI_USECASES = [
+  'market.request-diagram',
+  'market.request-structurize',
+  'market.request-diagram-spec',
+] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
 
@@ -31,6 +38,146 @@ export const AiDiagramRunBody = z.object({
 });
 export type AiDiagramRunBodyType = z.infer<typeof AiDiagramRunBody>;
 
+// ── 구성 명세(DiagramSpec) — 인터뷰 파이프라인의 피벗 JSON ──────────────────
+// LLM 산출을 스키마로 정규화한다: enum 이탈은 .catch 로 안전값으로 흡수(프로빙 실측 —
+// glm·deepseek 모두 flow "debug" 슬립), 알 수 없는 키는 zod 기본 strip. 구조 결함
+// (미정의 그룹·끊긴 연결)은 normalizeDiagramSpec 이 보정한다 — 실패 대신 복구가 원칙.
+
+export const DIAGRAM_BLOCK_TYPES = [
+  'power', 'controller', 'communication', 'sensor', 'input', 'output', 'driver',
+  'storage', 'debug', 'ui', 'external', 'mechanical', 'protection', 'other',
+] as const;
+
+const specId = z.string().trim().min(1).max(60);
+
+export const DiagramSpec = z.object({
+  project: z.object({
+    name: z.string().trim().min(1).max(200),
+    summary: z.string().trim().max(500).catch(''),
+    stage: z.string().trim().max(40).catch(''),
+    service_type: z.string().trim().max(40).catch(''),
+  }),
+  groups: z.array(z.object({ id: specId, label: z.string().trim().min(1).max(80) })).min(1).max(12),
+  blocks: z
+    .array(
+      z.object({
+        id: specId,
+        group: specId,
+        type: z.enum(DIAGRAM_BLOCK_TYPES).catch('other'),
+        label: z.string().trim().min(1).max(200),
+        status: z.enum(['confirmed', 'tbd', 'option']).catch('tbd'),
+      }),
+    )
+    .min(1)
+    .max(80),
+  connections: z
+    .array(
+      z.object({
+        from: specId,
+        to: specId,
+        interface: z.string().trim().max(60).catch(''),
+        flow: z.enum(['power', 'data', 'control', 'feedback']).catch('data'),
+      }),
+    )
+    .max(160)
+    .catch([]),
+  constraints: z.array(z.string().trim().min(1).max(300)).max(20).catch([]),
+  feature_highlights: z.array(z.string().trim().min(1).max(200)).max(20).catch([]),
+  questions_missing: z
+    .array(z.object({ topic: z.string().trim().max(60).catch(''), question: z.string().trim().min(1).max(500) }))
+    .max(20)
+    .catch([]),
+});
+export type DiagramSpecType = z.infer<typeof DiagramSpec>;
+
+// 구조 보정 — 블록이 참조하는 미정의 그룹은 자동 생성, 끊긴 연결은 제거, 중복 블록 id 는
+// 뒤엣것을 버린다. LLM 재호출 없이 렌더 가능한 상태로 만드는 최소 수리.
+export function normalizeDiagramSpec(spec: DiagramSpecType): DiagramSpecType {
+  const groupIds = new Set(spec.groups.map((g) => g.id));
+  const groups = [...spec.groups];
+  const seenBlocks = new Set<string>();
+  const blocks = spec.blocks.filter((b) => {
+    if (seenBlocks.has(b.id)) return false;
+    seenBlocks.add(b.id);
+    if (!groupIds.has(b.group)) {
+      groupIds.add(b.group);
+      groups.push({ id: b.group, label: b.group.replaceAll('_', ' ').toUpperCase() });
+    }
+    return true;
+  });
+  const connections = spec.connections.filter(
+    (c) => seenBlocks.has(c.from) && seenBlocks.has(c.to) && c.from !== c.to,
+  );
+  return { ...spec, groups, blocks, connections };
+}
+
+// ── 인터뷰 질문 뱅크(코어) — 위저드 폼과 프롬프트 바인딩이 공유하는 정본 ──────
+// 기획 PDF(질문 뱅크 v4)의 U/S 필수를 코어 13문항으로 압축(사용자 확정: 코어 10문항
+// 내외 + 조건부 노출 + 건너뛰면 TBD). 전 항목 선택 사항 — 미응답은 구조화 프롬프트에
+// "미응답 항목"으로 넘어가 TBD·questions_missing 으로 반영된다.
+
+export interface AiInterviewQuestion {
+  code: string; // 답변 페이로드 키(짧은 영문)
+  bankRef: string; // 기획 문서 질문 코드(U/S) — 추적용
+  label: string;
+  type: 'single' | 'multi' | 'text';
+  options?: readonly string[]; // single/multi 선택지(라벨=값, 프롬프트에 그대로 바인딩)
+  placeholder?: string;
+  // 단순 조건 노출 — 해당 code 의 답이 notValues 중 하나면 숨김(빈 답은 노출 유지)
+  hideIf?: { code: string; values: readonly string[] };
+}
+
+export const AI_INTERVIEW_QUESTIONS: readonly AiInterviewQuestion[] = [
+  { code: 'stage', bankRef: 'U-04', label: '현재 어느 단계에서 시작하나요?', type: 'single',
+    options: ['아이디어만 있음', '기능 명세 보유', '회로도 보유', 'PCB/거버 보유', 'PCBA(양산) 준비'] },
+  { code: 'delivery', bankRef: 'U-02', label: '최종 납품 형태는 무엇인가요?', type: 'single',
+    options: ['보드만(PCBA)', '케이스 포함 완제품', '미정'] },
+  { code: 'qty', bankRef: 'U-08', label: '시제품 수량과 목표 양산 수량은?', type: 'text',
+    placeholder: '예: 시제품 20대, 양산 연 1,000대' },
+  { code: 'power', bankRef: 'S-02/S-04', label: '전원은 무엇을 사용하나요?', type: 'multi',
+    options: ['AC 220V', 'DC 어댑터', 'USB 전원', 'PoE', '차량 전원', '배터리(주 전원)', '배터리(정전 백업용)', '미정'] },
+  { code: 'powerDetail', bankRef: 'S-03', label: '입력 전압 범위·최대 소비전류(아는 만큼)', type: 'text',
+    placeholder: '예: 12V(9~16V 허용), 최대 1A' },
+  { code: 'mcu', bankRef: 'S-05', label: '정해진 메인 컨트롤러(MCU/모듈)가 있나요?', type: 'text',
+    placeholder: '예: nRF52840 인증 모듈 — 미정이면 비워두세요(추천받기)' },
+  { code: 'sensors', bankRef: 'S-06', label: '감지하거나 입력받을 것은 무엇인가요?', type: 'text',
+    placeholder: '예: 온습도 1개, 문열림 센서, 키 스위치' },
+  { code: 'outputs', bankRef: 'S-07/S-08', label: '제어할 출력·부하는 무엇인가요? (전압/전류 아는 만큼)', type: 'text',
+    placeholder: '예: 12V 솔레노이드 락 500mA 1개, LED 3개' },
+  { code: 'comm', bankRef: 'S-09', label: '필요한 통신 방식은?', type: 'multi',
+    options: ['BLE', 'Wi-Fi', 'LTE-M/LTE', 'LoRa', 'RS485/RS232', 'CAN', 'Ethernet', 'USB', '없음', '미정'] },
+  { code: 'server', bankRef: 'S-10/S-11', label: '서버·앱 연동이 필요한가요?', type: 'multi',
+    options: ['기존 서버 연동', '신규 서버 필요', '모바일 앱', '웹 관리자 화면', '없음', '미정'] },
+  { code: 'ui', bankRef: 'S-13', label: '상태 표시·조작 요소가 있나요?', type: 'multi',
+    options: ['LED', '버튼/스위치', '디스플레이', '부저', '없음', '미정'] },
+  { code: 'enclosure', bankRef: 'S-16', label: '케이스는 어떻게 제작하나요?', type: 'single',
+    options: ['기성품 케이스 가공', '신규 디자인(3D프린팅 시제품)', '신규 디자인(양산 사출)', '미정'],
+    hideIf: { code: 'delivery', values: ['보드만(PCBA)'] } },
+  { code: 'env', bankRef: 'U-06/S-15', label: '사용 환경·방수방진·인증 요구가 있나요?', type: 'text',
+    placeholder: '예: 실외 IP65, KC 인증 필요' },
+] as const;
+
+export const AiInterviewAnswer = z.object({
+  code: z.string().trim().min(1).max(30),
+  answer: z.string().trim().min(1).max(2000),
+});
+export type AiInterviewAnswerType = z.infer<typeof AiInterviewAnswer>;
+
+// market.request-structurize 입력 — 인터뷰 답변(있는 것만) + 제목·분야·설명 텍스트.
+export const AiStructurizeRunBody = z.object({
+  title: z.string().trim().min(2).max(200),
+  serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length).default([]),
+  description: z.string().trim().min(10).max(20000),
+  answers: z.array(AiInterviewAnswer).max(40).default([]),
+});
+export type AiStructurizeRunBodyType = z.infer<typeof AiStructurizeRunBody>;
+
+// market.request-diagram-spec 입력 — 구성 명세 JSON 문자열(서버가 재검증·정규화).
+export const AiDiagramSpecRunBody = z.object({
+  spec: z.string().min(2).max(200_000),
+});
+export type AiDiagramSpecRunBodyType = z.infer<typeof AiDiagramSpecRunBody>;
+
 export const AiRunResponse = z.object({
   result: z.literal(true),
   data: z.object({ jobId: z.string() }),
@@ -46,6 +193,7 @@ export const AiJobResponse = z.object({
     jobId: z.string(),
     status: AiJobStatus,
     html: z.string().nullable(), // done 일 때만 — 렌더는 반드시 sandbox iframe(srcdoc)
+    json: z.string().nullable(), // done 일 때만 — JSON 산출 유스케이스(정규화된 명세 문자열)
     error: z.string().nullable(),
     elapsedSecs: z.number(),
   }),

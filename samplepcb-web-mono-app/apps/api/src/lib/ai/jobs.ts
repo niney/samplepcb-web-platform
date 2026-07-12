@@ -10,7 +10,8 @@ export interface AiJob {
   useCase: AiUsecaseKeyType;
   mbId: string; // 소유자 — 본인 잡만 조회 가능
   status: AiJobStatusType;
-  html: string | null;
+  html: string | null; // HTML 산출 유스케이스(구성도)
+  json: string | null; // JSON 산출 유스케이스(구성 명세 — 정규화된 직렬화 문자열)
   error: string | null;
   startedAt: number;
   finishedAt: number | null;
@@ -34,6 +35,7 @@ export function createAiJob(useCase: AiUsecaseKeyType, mbId: string): AiJob {
     mbId,
     status: 'running',
     html: null,
+    json: null,
     error: null,
     startedAt: Date.now(),
     finishedAt: null,
@@ -47,13 +49,19 @@ export function getAiJob(id: string): AiJob | undefined {
   return jobs.get(id);
 }
 
-export function finishAiJob(id: string, result: { html: string } | { error: string }): void {
+export function finishAiJob(
+  id: string,
+  result: { html: string } | { json: string } | { error: string },
+): void {
   const job = jobs.get(id);
   if (job === undefined) return;
   job.finishedAt = Date.now();
   if ('html' in result) {
     job.status = 'done';
     job.html = result.html;
+  } else if ('json' in result) {
+    job.status = 'done';
+    job.json = result.json;
   } else {
     job.status = 'error';
     job.error = result.error;

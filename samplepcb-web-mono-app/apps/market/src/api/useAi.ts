@@ -6,7 +6,12 @@ import {
   AiUsecaseStatusResponse,
   apiRoutes,
 } from '@sp/api-contract';
-import type { AiDiagramRunBodyType, AiUsecaseKeyType } from '@sp/api-contract';
+import type {
+  AiDiagramRunBodyType,
+  AiDiagramSpecRunBodyType,
+  AiStructurizeRunBodyType,
+  AiUsecaseKeyType,
+} from '@sp/api-contract';
 import { apiGet, apiSend } from '@sp/shared';
 
 // AI 유스케이스 훅 — 활성 여부(스텝 게이트) + 실행(잡 시작) + 잡 폴링.
@@ -21,11 +26,27 @@ export function useAiUsecaseStatus(useCase: AiUsecaseKeyType) {
   });
 }
 
-// 구성도 생성 시작 — jobId 반환(비동기).
+// 구성도 생성 시작(설명 기반 폴백 경로) — jobId 반환(비동기).
 export function useRunDiagram() {
   return useMutation({
     mutationFn: (body: AiDiagramRunBodyType) =>
       apiSend('POST', `${apiRoutes.ai}/market.request-diagram/run`, body, AiRunResponse),
+  });
+}
+
+// 인터뷰 답변 → 구성 명세 JSON 구조화(P1) — 결과는 잡의 json 필드.
+export function useRunStructurize() {
+  return useMutation({
+    mutationFn: (body: AiStructurizeRunBodyType) =>
+      apiSend('POST', `${apiRoutes.ai}/market.request-structurize/run`, body, AiRunResponse),
+  });
+}
+
+// 구성 명세 JSON → 구성도 HTML 렌더(P2) — 결과는 잡의 html 필드.
+export function useRunDiagramSpec() {
+  return useMutation({
+    mutationFn: (body: AiDiagramSpecRunBodyType) =>
+      apiSend('POST', `${apiRoutes.ai}/market.request-diagram-spec/run`, body, AiRunResponse),
   });
 }
 
