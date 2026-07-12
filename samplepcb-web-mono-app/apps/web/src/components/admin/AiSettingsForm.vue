@@ -40,13 +40,18 @@ function onTest(): void {
 }
 
 function onSubmit(): void {
+  // env(.env)가 우선 적용 중인 항목은 저장하지 않는다(어차피 무시됨 — 혼동 방지).
+  const baseUrlFromEnv = data.value?.data.baseUrlFromEnv ?? false;
+  const apiKeyFromEnv = data.value?.data.apiKeyFromEnv ?? false;
   save.mutate({
-    baseUrl: baseUrl.value.trim(),
-    ...(apiKeyInput.value.trim() !== ''
-      ? { apiKey: apiKeyInput.value.trim() }
-      : clearApiKey.value
-        ? { apiKey: null }
-        : {}),
+    ...(baseUrlFromEnv ? {} : { baseUrl: baseUrl.value.trim() }),
+    ...(apiKeyFromEnv
+      ? {}
+      : apiKeyInput.value.trim() !== ''
+        ? { apiKey: apiKeyInput.value.trim() }
+        : clearApiKey.value
+          ? { apiKey: null }
+          : {}),
     usecases: usecases.value.map((u) => ({
       useCase: u.useCase,
       enabled: u.enabled,
@@ -70,9 +75,12 @@ function onSubmit(): void {
           <input
             v-model="baseUrl"
             type="url"
-            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            :disabled="data?.data.baseUrlFromEnv"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
           >
-          <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.baseUrlHint') }}</span>
+          <span class="mt-0.5 block text-xs" :class="data?.data.baseUrlFromEnv ? 'font-semibold text-amber-600' : 'text-gray-500'">
+            {{ data?.data.baseUrlFromEnv ? t('admin.settings.ai.fromEnv') : t('admin.settings.ai.baseUrlHint') }}
+          </span>
         </label>
         <label class="block text-sm">
           <span class="font-medium text-gray-800">{{ t('admin.settings.ai.apiKey') }}</span>
@@ -80,11 +88,16 @@ function onSubmit(): void {
             v-model="apiKeyInput"
             type="password"
             autocomplete="off"
+            :disabled="data?.data.apiKeyFromEnv"
             :placeholder="t('admin.settings.ai.apiKeyPlaceholder')"
-            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
           >
-          <span class="mt-0.5 block text-xs text-gray-500">
-            <template v-if="data?.data.apiKeyMasked">
+          <span class="mt-0.5 block text-xs" :class="data?.data.apiKeyFromEnv ? 'font-semibold text-amber-600' : 'text-gray-500'">
+            <template v-if="data?.data.apiKeyFromEnv">
+              {{ t('admin.settings.ai.fromEnv') }}
+              <template v-if="data?.data.apiKeyMasked"> ({{ data.data.apiKeyMasked }})</template>
+            </template>
+            <template v-else-if="data?.data.apiKeyMasked">
               {{ t('admin.settings.ai.apiKeySet', { masked: data.data.apiKeyMasked }) }}
               <label class="ml-2 inline-flex items-center gap-1 text-red-600">
                 <input v-model="clearApiKey" type="checkbox">

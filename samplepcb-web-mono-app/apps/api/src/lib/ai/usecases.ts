@@ -72,20 +72,38 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
   },
 };
 
-// ── 연결 설정(sp_config) ────────────────────────────────────────────────────
+// ── 연결 설정 — 우선순위: env(.env) > 관리자 저장값(sp_config) > 기본값 ──────
+// 운영은 .env 파일 관리 권장(키가 DB 에 남지 않음). env 가 잡혀 있으면 관리자 화면
+// 저장값은 무시되며, 화면에는 fromEnv 플래그로 그 사실을 표시한다.
 
 const AI_BASE_URL_KEY = 'ai_base_url';
 const AI_API_KEY_KEY = 'ai_api_key';
 export const AI_DEFAULT_BASE_URL = 'http://127.0.0.1:11434'; // 로컬 데몬(클라우드 프록시)
 
-export async function getAiConnection(): Promise<{ baseUrl: string; apiKey: string | null }> {
+const envOrNull = (name: string): string | null => {
+  const v = process.env[name]?.trim();
+  return v !== undefined && v !== '' ? v : null;
+};
+
+export interface AiConnectionInfo {
+  baseUrl: string;
+  apiKey: string | null;
+  baseUrlFromEnv: boolean;
+  apiKeyFromEnv: boolean;
+}
+
+export async function getAiConnection(): Promise<AiConnectionInfo> {
+  const envBaseUrl = envOrNull('AI_BASE_URL');
+  const envApiKey = envOrNull('AI_API_KEY');
   const rows = await prisma.spConfig.findMany({
     where: { key: { in: [AI_BASE_URL_KEY, AI_API_KEY_KEY] } },
   });
   const map = new Map(rows.map((r) => [r.key, r.value]));
   return {
-    baseUrl: map.get(AI_BASE_URL_KEY) ?? AI_DEFAULT_BASE_URL,
-    apiKey: map.get(AI_API_KEY_KEY) ?? null,
+    baseUrl: envBaseUrl ?? map.get(AI_BASE_URL_KEY) ?? AI_DEFAULT_BASE_URL,
+    apiKey: envApiKey ?? map.get(AI_API_KEY_KEY) ?? null,
+    baseUrlFromEnv: envBaseUrl !== null,
+    apiKeyFromEnv: envApiKey !== null,
   };
 }
 

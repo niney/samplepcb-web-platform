@@ -54,8 +54,13 @@
 
 ## 5. 운영 메모
 
-- 운영 서버에 로컬 Ollama 가 없으면 baseUrl=`https://ollama.com` + API 키(ollama.com 발급)로
-  전환한다 — 클라이언트는 동일 코드 경로(Authorization Bearer).
+- **연결 우선순위: `.env`(AI_BASE_URL·AI_API_KEY) > 관리자 화면 저장값 > 기본값**
+  (`http://127.0.0.1:11434`). 운영 키는 `.env` 파일 관리 권장(DB 에 안 남음) — env 가
+  잡혀 있으면 관리자 화면의 해당 입력은 잠기고 ".env 값 우선" 안내가 뜬다.
+  `.env.example` 의 AI 섹션 참조. env 변경은 API 재시작 후 반영.
+- 운영 서버에 로컬 Ollama 가 없으면 `AI_BASE_URL=https://ollama.com` + API 키(ollama.com
+  발급)로 전환한다 — 클라이언트는 동일 코드 경로(Authorization Bearer). ollama.com 직결
+  시 모델명에 `:cloud` 접미사가 없을 수 있으니 연결 테스트 목록에서 재선택.
 - 마이그레이션 `20260712200000_ai_usecase_diagram`(sp_ai_usecase CREATE + diagramHtml ADD) —
   additive, `migrate deploy` 전용.
 - 새 유스케이스 추가 = 계약 `AI_USECASES` + 레지스트리 def + (필요시 FE) — 설정 행·화면은

@@ -62,6 +62,7 @@ export const ko = {
         apiKeySet: '저장된 키: {masked}',
         apiKeyNone: '저장된 키 없음 (로컬 데몬은 키가 필요 없습니다)',
         apiKeyClear: '키 삭제',
+        fromEnv: '서버 .env(환경변수) 값이 우선 적용 중입니다 — 변경은 파일에서 하세요.',
         testConnection: '연결 테스트 (모델 목록)',
         testOk: '연결 성공 — 모델 {count}개',
         testFail: '연결 실패 — 주소·API 키를 확인해 주세요.',

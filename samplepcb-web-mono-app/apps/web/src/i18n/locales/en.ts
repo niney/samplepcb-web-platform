@@ -62,6 +62,7 @@ export const en = {
         apiKeySet: 'Saved key: {masked}',
         apiKeyNone: 'No key saved (local daemon needs none)',
         apiKeyClear: 'Remove key',
+        fromEnv: 'Overridden by server .env — change it in the file.',
         testConnection: 'Test connection (list models)',
         testOk: 'Connected — {count} models',
         testFail: 'Connection failed — check the URL and API key.',

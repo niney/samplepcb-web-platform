@@ -68,6 +68,10 @@ export const AiSettingsResponse = z.object({
   data: z.object({
     baseUrl: z.string(),
     apiKeyMasked: z.string().nullable(), // 예: '****abcd' — 원문은 절대 미노출
+    // 연결 우선순위는 env(.env) > 관리자 저장값 > 기본값 — env 가 잡혀 있으면 true,
+    // 화면은 해당 입력을 잠그고 ".env 값이 우선 적용 중" 안내를 띄운다.
+    baseUrlFromEnv: z.boolean(),
+    apiKeyFromEnv: z.boolean(),
     usecases: z.array(AiUsecaseConfig),
   }),
 });

@@ -128,6 +128,8 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     return {
       baseUrl: conn.baseUrl,
       apiKeyMasked: maskApiKey(conn.apiKey),
+      baseUrlFromEnv: conn.baseUrlFromEnv,
+      apiKeyFromEnv: conn.apiKeyFromEnv,
       usecases: rows
         .filter((r) => (AI_USECASES as readonly string[]).includes(r.useCase))
         .map((r) => ({
