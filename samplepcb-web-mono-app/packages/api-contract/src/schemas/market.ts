@@ -606,6 +606,9 @@ const marketProjectEditableShape = {
   // 빈 배열 = 특정 툴 요구 없음('any' 는 레거시 데이터에만 존재).
   cadTools: z.array(MarketProjectToolCode).max(MARKET_PROJECT_TOOL_CODES.length),
   description: z.string().trim().min(10).max(20000),
+  // AI 생성 시스템 구성도(단일 HTML, ai 유스케이스 market.request-diagram 산출) —
+  // 공개 범위는 description 과 동일. 렌더는 반드시 sandbox iframe(srcdoc).
+  diagramHtml: z.string().max(512_000).optional(),
   ndaRequired: z.boolean().default(true),
   budgetRange: MarketBudgetRange,
   startHopeDate: z.string().regex(DATE_RE).optional(),
@@ -662,6 +665,7 @@ export const MarketProjectUpdateBody = z
     categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length), // default 없이 — 미전송=변경 없음
     cadTools: marketProjectEditableShape.cadTools,
     description: marketProjectEditableShape.description,
+    diagramHtml: z.string().max(512_000).nullable(), // null = 구성도 제거
     ndaRequired: z.boolean(),
     budgetRange: marketProjectEditableShape.budgetRange,
     startHopeDate: z.string().regex(DATE_RE).nullable(),
@@ -753,6 +757,7 @@ export type MarketProjectAttachmentsType = z.infer<typeof MarketProjectAttachmen
 
 export const MarketProjectDetail = MarketProjectListItem.extend({
   description: z.string(),
+  diagramHtml: z.string().nullable(), // AI 구성도 — sandbox iframe 렌더 전용
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   awardedAt: z.string().nullable(), // ISO
@@ -1152,6 +1157,7 @@ export const AdminMarketProjectDetail = AdminMarketProjectListItem.extend({
   cadTools: z.array(MarketProjectToolCode),
   budgetRange: MarketBudgetRange,
   description: z.string(),
+  diagramHtml: z.string().nullable(),
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   targetExpert: z

@@ -1,14 +1,27 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import {
+  AI_USECASES,
+  AiModelsResponse,
+  AiSettingsResponse,
+  AiSettingsUpdate,
   ApiError,
   BusinessInfoResponse,
   BusinessInfoUpdate,
   GerberPricingResponse,
   GerberPricingUpdate,
 } from '@sp/api-contract';
+import type { AiUsecaseKeyType } from '@sp/api-contract';
 import { getBusinessInfo, updateBusinessInfo, type BusinessInfo } from '../lib/g5-db';
 import { cleanXssTags, isValidCallback } from '../lib/shop-config';
 import { getGerberPriceMode, setGerberPriceMode } from '../lib/sp-config';
+import { ollamaListModels } from '../lib/ai/ollama';
+import {
+  ensureAiUsecaseRows,
+  getAiConnection,
+  maskApiKey,
+  setAiConnection,
+} from '../lib/ai/usecases';
+import { prisma } from '../lib/prisma';
 
 // 관리자 설정(/app/admin/settings) — 영카트 쇼핑몰설정을 탭 단위로 이식하는 도메인.
 // 현재 "사업자정보"(g5_shop_default de_admin_* 11컬럼) 탭만. 전 라우트 requireAdmin.
@@ -99,6 +112,76 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     async (request) => {
       await setGerberPriceMode(request.body.mode);
       return { result: true as const, data: { mode: request.body.mode } };
+    },
+  );
+
+  // ── AI 연동(ai) 탭 — 연결(sp_config ai_*) + 유스케이스(sp_ai_usecase) ────────
+  // apiKey 원문은 응답에 절대 싣지 않는다(마스킹만). 유스케이스 행은 레지스트리 기준
+  // lazy 생성 — 새 유스케이스가 코드에 추가되면 이 GET 이 자동으로 행을 만든다.
+
+  const aiSettingsData = async () => {
+    await ensureAiUsecaseRows();
+    const [conn, rows] = await Promise.all([
+      getAiConnection(),
+      prisma.spAiUsecase.findMany({ orderBy: { useCase: 'asc' } }),
+    ]);
+    return {
+      baseUrl: conn.baseUrl,
+      apiKeyMasked: maskApiKey(conn.apiKey),
+      usecases: rows
+        .filter((r) => (AI_USECASES as readonly string[]).includes(r.useCase))
+        .map((r) => ({
+          useCase: r.useCase as AiUsecaseKeyType,
+          enabled: r.enabled,
+          model: r.model,
+          promptTemplate: r.promptTemplate,
+          updatedAt: r.updatedAt.toISOString(),
+        })),
+    };
+  };
+
+  // GET /api/admin/settings/ai — 현재 연결(마스킹)·유스케이스 설정
+  fastify.get(
+    '/settings/ai',
+    { schema: { response: { 200: AiSettingsResponse } } },
+    async () => ({ result: true as const, data: await aiSettingsData() }),
+  );
+
+  // PATCH /api/admin/settings/ai — 부분 저장(보낸 필드만). apiKey 문자열=교체·null=삭제.
+  fastify.patch(
+    '/settings/ai',
+    { schema: { body: AiSettingsUpdate, response: { 200: AiSettingsResponse } } },
+    async (request) => {
+      const body = request.body;
+      await setAiConnection({ baseUrl: body.baseUrl, apiKey: body.apiKey });
+      if (body.usecases !== undefined) {
+        await ensureAiUsecaseRows();
+        for (const u of body.usecases) {
+          await prisma.spAiUsecase.update({
+            where: { useCase: u.useCase },
+            data: { enabled: u.enabled, model: u.model, promptTemplate: u.promptTemplate },
+          });
+        }
+      }
+      return { result: true as const, data: await aiSettingsData() };
+    },
+  );
+
+  // GET /api/admin/settings/ai/models — 연결 테스트 겸 모델 목록(/api/tags 프록시)
+  fastify.get(
+    '/settings/ai/models',
+    { schema: { response: { 200: AiModelsResponse, 502: ApiError } } },
+    async (request, reply) => {
+      try {
+        const models = await ollamaListModels(await getAiConnection());
+        return { result: true as const, data: { models } };
+      } catch (err) {
+        request.log.warn({ err }, 'ai models fetch failed');
+        return reply.status(502).send({
+          error: 'AI_CONNECTION_FAILED',
+          message: 'AI 서버 연결에 실패했습니다. 주소·API 키를 확인해 주세요.',
+        });
+      }
     },
   );
 

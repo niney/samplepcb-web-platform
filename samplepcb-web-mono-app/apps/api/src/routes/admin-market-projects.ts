@@ -189,6 +189,7 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
           cadTools: toProjectToolCodes(project.cadTools),
           budgetRange: asBudgetRange(project.budgetRange),
           description: project.description,
+          diagramHtml: project.diagramHtml,
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           targetExpert:

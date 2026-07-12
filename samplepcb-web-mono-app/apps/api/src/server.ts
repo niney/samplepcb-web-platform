@@ -18,6 +18,7 @@ import { adminPcbProjectRoutes } from './routes/admin-pcb-projects';
 import { adminMemberRoutes } from './routes/admin-members';
 import { adminOrderRoutes } from './routes/admin-orders';
 import { adminSettingsRoutes } from './routes/admin-settings';
+import { aiRoutes } from './routes/ai';
 import { adminSlidesRoutes } from './routes/admin-slides';
 import { adminSeoRoutes } from './routes/admin-seo';
 import { adminMarketExpertRoutes } from './routes/admin-market-experts';
@@ -55,6 +56,8 @@ await app.register(marketBidRoutes, { prefix: '/api' });
 await app.register(marketContractRoutes, { prefix: '/api' });
 // 재능마켓 — 공개 설정(수수료율 읽기 전용)
 await app.register(marketSettingsRoutes, { prefix: '/api' });
+// AI 유스케이스(범용 실행 — 현재 market.request-diagram)
+await app.register(aiRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 견적 관리 목록·상세·가격 확정·원본 다운로드
 await app.register(adminPcbProjectRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 회원 관리 목록·상세·차단/레벨·회사명 프로필

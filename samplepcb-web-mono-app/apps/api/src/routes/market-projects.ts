@@ -203,6 +203,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           categories: payload.categories,
           cadTools: payload.cadTools,
           description: payload.description,
+          diagramHtml: payload.diagramHtml ?? null,
           ndaRequired: payload.ndaRequired,
           budgetRange: payload.budgetRange,
           startHopeDate: payload.startHopeDate ?? null,
@@ -400,6 +401,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             now,
           ),
           description: project.description,
+          diagramHtml: project.diagramHtml,
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           awardedAt: project.awardedAt?.toISOString() ?? null,
@@ -449,6 +451,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (body.categories !== undefined) data.categories = body.categories;
       if (body.cadTools !== undefined) data.cadTools = body.cadTools;
       if (body.description !== undefined) data.description = body.description;
+      if (body.diagramHtml !== undefined) data.diagramHtml = body.diagramHtml;
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;
       if (body.budgetRange !== undefined) data.budgetRange = body.budgetRange;
       if (body.startHopeDate !== undefined) data.startHopeDate = body.startHopeDate;

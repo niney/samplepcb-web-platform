@@ -222,6 +222,9 @@ model SpMarketProject {
   categories     Json      @map("specialties") // 세부분야 코드 배열(회로·펌웨어 STEP2)
   cadTools       Json // 요구 툴 코드 배열(ECAD·MCAD·디자인 통합) — 빈 배열=무관, 'any' 는 레거시
   description    String    @db.Text
+  // AI 생성 시스템 구성도(단일 HTML) — 공개 범위는 description 과 동일(설명에서 파생).
+  // 렌더는 반드시 sandbox iframe(srcdoc) — LLM 출력이라 DOM 직결 금지.
+  diagramHtml    String?   @db.MediumText
   ndaRequired    Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
   budgetRange    String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
   startHopeDate  String?   @db.VarChar(10) // 'YYYY-MM-DD' 표시용 KST 날짜 문자열(타임존 경계 회피)
@@ -353,11 +356,23 @@ model SpSeo {
 }
 
 // sp-node 범용 설정(key-value 싱글턴 스토어) — 코어 g5_config/g5_shop_default 를 건드리지
-// 않는 sp 소유 설정. 현재 gerber_price_mode(거버 가격 해석: order|supply) 1키.
+// 않는 sp 소유 설정. gerber_price_mode · ai_base_url · ai_api_key(관리자 외 원문 비노출).
 model SpConfig {
   key       String   @id @db.VarChar(100)
   value     String   @db.Text
   updatedAt DateTime @updatedAt
 
   @@map("sp_config")
+}
+
+// AI 유스케이스 설정 — 연결(sp_config ai_*)과 분리된 유스케이스 단위(활성·모델·프롬프트).
+// 행은 서버가 레지스트리(lib/ai/usecases.ts) 기준으로 lazy 생성. 현재 market.request-diagram 1종.
+model SpAiUsecase {
+  useCase        String   @id @db.VarChar(100)
+  enabled        Boolean  @default(false)
+  model          String   @db.VarChar(100)
+  promptTemplate String   @db.Text
+  updatedAt      DateTime @updatedAt
+
+  @@map("sp_ai_usecase")
 }

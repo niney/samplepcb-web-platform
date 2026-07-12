@@ -8,4 +8,5 @@ export * from './schemas/settings';
 export * from './schemas/slides';
 export * from './schemas/seo';
 export * from './schemas/market';
+export * from './schemas/ai';
 export * from './routes';
