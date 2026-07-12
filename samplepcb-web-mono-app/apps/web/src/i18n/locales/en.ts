@@ -36,6 +36,7 @@ export const en = {
       tabs: {
         businessInfo: 'Business Info',
         gerberPricing: 'Gerber Pricing',
+        aiIntegration: 'AI Integration',
       },
       gerberPricing: {
         intro:
@@ -50,6 +51,28 @@ export const en = {
             desc: 'Add 10% VAT to the Gerber value. e.g. 100,000 → pay 110,000 (supply 100,000 + VAT 10,000).',
           },
         },
+      },
+      ai: {
+        intro:
+          'Configure the Ollama API connection and AI use cases (model, prompt). The raw API key is never shown again after saving.',
+        baseUrl: 'API base URL',
+        baseUrlHint: 'Local daemon (http://127.0.0.1:11434) or https://ollama.com (API key required)',
+        apiKey: 'API key',
+        apiKeyPlaceholder: 'Enter only when changing (leave blank to keep)',
+        apiKeySet: 'Saved key: {masked}',
+        apiKeyNone: 'No key saved (local daemon needs none)',
+        apiKeyClear: 'Remove key',
+        testConnection: 'Test connection (list models)',
+        testOk: 'Connected — {count} models',
+        testFail: 'Connection failed — check the URL and API key.',
+        usecases: {
+          market_request_diagram: 'Project request — system diagram generation',
+        },
+        enabled: 'Enabled',
+        model: 'Model',
+        modelHint: 'Pick from the list after a connection test, or type freely. Strong text models recommended.',
+        promptTemplate: 'Prompt template',
+        promptHint: 'Double-brace variables title / serviceAreas / description are filled from the request.',
       },
       fields: {
         companyName: 'Company name',

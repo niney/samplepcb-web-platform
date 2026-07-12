@@ -57,6 +57,9 @@ local-web.samplepcb.co.kr (nginx 443)
   구성하고, 질문 그룹이 없는 분야(앱·서버·SW·기타)만 선택하면 스텝 자체가 목록에서
   빠진다(4스텝). 프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map` — 인접
   `category`=requestType 물리명과 혼동 회피)에 저장.
+- **AI 시스템 구성도**: 위저드 "설명·자료" 뒤 동적 스텝(관리자 활성 시) — Ollama 로 단일
+  HTML 구성도를 생성해 `diagramHtml`(sandbox iframe 렌더 전용)에 저장. 정본
+  **docs/AI_DIAGRAM.md**(범용 AI 유스케이스 계층·프로빙 확정 프롬프트·운영).
 - 툴 코드는 ECAD·MCAD·디자인 통합 flat 배열(`MARKET_TOOL_CODES`) — DB/계약 필드명은
   `cadTools` 그대로(호환), 그룹 해석은 `MARKET_TOOL_GROUP_CODES` 로 UI/매칭 단계에서 한다.
   **빈 배열 = 특정 툴 요구 없음**. 구 `'any'` 코드는 레거시 데이터 호환용으로만 enum 잔존
@@ -175,8 +178,8 @@ local-web.samplepcb.co.kr (nginx 443)
   운영 전 1회 실측 필요**(테스트 'demo' 선례상 가능 추정).
 - dev: `pnpm --filter market dev`(5176, strictPort — 점유 시 실패가 정상 신호),
   api(3333)·web(5173)과 병행. 통합 확인은 local-web(라이브 nginx 반영 후).
-- **E2E 회귀**: `ops/scripts/e2e-market.mts` — 1차 매칭 35 + **2차 거래 56 = 총 91항목**
-  (STEP2 확장으로 세부분야·빈 요구 툴 반영 + 레거시 `['any']` 정규화 2항목 추가, 2026-07-12)
+- **E2E 회귀**: `ops/scripts/e2e-market.mts` — 1차 매칭 36 + **2차 거래 56 = 총 92항목**
+  (STEP2 확장 세부분야·빈 요구 툴·레거시 `['any']` 정규화 + AI 구성도 diagramHtml 왕복, 2026-07-12)
   (§4·§5·§8의 실행 가능한 명세 — 계약 생성 스냅샷·checkout DB 실증·주문 결제 시뮬→lazy
   승격·hold/자동확정·confirm/settle·취소 카트 정리·재주입). api 가동 상태에서
   `pnpm --filter api exec tsx --env-file=.env ../../../ops/scripts/e2e-market.mts run`

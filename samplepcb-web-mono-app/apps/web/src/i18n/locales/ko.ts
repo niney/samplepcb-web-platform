@@ -36,6 +36,7 @@ export const ko = {
       tabs: {
         businessInfo: '사업자정보',
         gerberPricing: '거버 가격',
+        aiIntegration: 'AI 연동',
       },
       gerberPricing: {
         intro:
@@ -50,6 +51,28 @@ export const ko = {
             desc: '거버 값에 부가세 10%를 더합니다. 예: 100,000원 → 결제 110,000원(공급가 100,000 + 부가세 10,000).',
           },
         },
+      },
+      ai: {
+        intro:
+          'Ollama API 연결과 AI 유스케이스(모델·프롬프트)를 설정합니다. API 키 원문은 저장 후 다시 표시되지 않습니다.',
+        baseUrl: 'API 주소',
+        baseUrlHint: '로컬 데몬(http://127.0.0.1:11434) 또는 https://ollama.com (API 키 필요)',
+        apiKey: 'API 키',
+        apiKeyPlaceholder: '변경할 때만 입력 (비워두면 기존 키 유지)',
+        apiKeySet: '저장된 키: {masked}',
+        apiKeyNone: '저장된 키 없음 (로컬 데몬은 키가 필요 없습니다)',
+        apiKeyClear: '키 삭제',
+        testConnection: '연결 테스트 (모델 목록)',
+        testOk: '연결 성공 — 모델 {count}개',
+        testFail: '연결 실패 — 주소·API 키를 확인해 주세요.',
+        usecases: {
+          market_request_diagram: '프로젝트 의뢰 — 시스템 구성도 생성',
+        },
+        enabled: '사용',
+        model: '모델',
+        modelHint: '연결 테스트 후 목록에서 고르거나 직접 입력합니다. 텍스트 생성이 강한 모델 권장.',
+        promptTemplate: '프롬프트 템플릿',
+        promptHint: '이중 중괄호 변수 title · serviceAreas · description 이 의뢰 내용으로 치환됩니다.',
       },
       fields: {
         companyName: '회사명',

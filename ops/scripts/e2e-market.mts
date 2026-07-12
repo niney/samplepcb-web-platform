@@ -341,6 +341,7 @@ async function run() {
         categories: ['power', 'mcu'], // STEP2 세부분야(specialties 컬럼)
         cadTools: [], // 빈 배열 = 특정 툴 요구 없음(신규 의미 체계)
         description: 'E2E 통합 테스트용 프로젝트 상세 설명입니다.',
+        diagramHtml: '<html><body><svg viewBox="0 0 10 10"><text>E2E DIAGRAM</text></svg></body></html>',
         ndaRequired: true,
         budgetRange: 'r300_700',
         deadline: { days: 7 },
@@ -365,6 +366,10 @@ async function run() {
         (anon.json?.data?.cadTools ?? ['x']).length === 0,
       '세부분야 반영 + 빈 요구 툴',
       anon.json?.data?.categories,
+    );
+    assert(
+      (anon.json?.data?.diagramHtml ?? '').includes('E2E DIAGRAM'),
+      'AI 구성도(diagramHtml) 왕복',
     );
 
     // ── 5) 소유자 상세: 파일 보임 → fileId 확보 ──

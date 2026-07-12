@@ -29,6 +29,7 @@ import type {
   MarketToolGroupType,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
+import { useAiJob, useAiUsecaseStatus, useRunDiagram } from '../api/useAi';
 import { useMarketExpertList } from '../api/useMarketExperts';
 import type { ExpertListFilters } from '../api/useMarketExperts';
 import { useCreateProject } from '../api/useMarketProjects';
@@ -128,14 +129,56 @@ function pruneTechnical(): void {
   form.categories = form.categories.filter((c) => validSpecs.has(c));
 }
 
+// ── AI 시스템 구성도(diagram 스텝) — 관리자 활성 시에만 스텝 존재 ─────────────
+// 생성 ~3분: run 은 jobId 만 받고 5초 폴링. 사용자는 기다리지 않고 다음 스텝을 진행해도
+// 되며(폴링은 컴포넌트 상태로 지속), 완료되면 미리보기가 뜬다. 실패·미완료여도 제출은
+// 막지 않는다(비차단). 외부 전송은 제목·분야·설명 텍스트뿐 — 첨부는 보내지 않는다.
+
+const diagramStatus = useAiUsecaseStatus('market.request-diagram');
+const diagramEnabled = computed(() => diagramStatus.data.value?.data.enabled ?? false);
+const runDiagram = useRunDiagram();
+const diagramJobId = ref<string | null>(null);
+const diagramJob = useAiJob(diagramJobId);
+const includeDiagram = ref(true);
+
+const diagramHtml = computed<string | null>(() =>
+  diagramJob.data.value?.data.status === 'done' ? diagramJob.data.value.data.html : null,
+);
+const diagramRunning = computed(
+  () =>
+    runDiagram.isPending.value ||
+    (diagramJobId.value !== null &&
+      !diagramJob.isError.value &&
+      (diagramJob.data.value?.data.status ?? 'running') === 'running'),
+);
+const diagramFailed = computed(
+  () =>
+    runDiagram.isError.value ||
+    diagramJob.isError.value ||
+    diagramJob.data.value?.data.status === 'error',
+);
+
+function generateDiagram(): void {
+  diagramJobId.value = null;
+  runDiagram.mutate(
+    {
+      title: form.title.trim(),
+      serviceAreas: form.serviceAreas,
+      description: form.description.trim(),
+    },
+    { onSuccess: (res) => { diagramJobId.value = res.data.jobId; } },
+  );
+}
+
 // ── 동적 스텝 — 고정 번호 대신 키 배열(질문 그룹 없으면 technical 제거) ───────
 
-type StepKey = 'area' | 'technical' | 'description' | 'schedule' | 'method';
+type StepKey = 'area' | 'technical' | 'description' | 'diagram' | 'schedule' | 'method';
 
 const steps = computed<{ key: StepKey; label: string }[]>(() => [
   { key: 'area', label: '분야' },
   ...(hasTechnicalStep.value ? [{ key: 'technical' as const, label: '전문 기술·도구' }] : []),
   { key: 'description', label: '설명·자료' },
+  ...(diagramEnabled.value ? [{ key: 'diagram' as const, label: '시스템 구성도' }] : []),
   { key: 'schedule', label: '예산·일정' },
   { key: 'method', label: '견적 방식' },
 ]);
@@ -207,6 +250,7 @@ const stepValid = computed<boolean>(() => {
   if (key === 'description') {
     return form.title.trim().length >= 2 && form.description.trim().length >= 10;
   }
+  if (key === 'diagram') return true; // 선택 사항 — 생성 중·실패여도 진행 가능
   if (key === 'schedule') {
     return form.deadlineMode !== 'date' || form.deadlineDate >= todayKst;
   }
@@ -222,6 +266,9 @@ async function submit(): Promise<void> {
     categories: form.categories,
     cadTools: form.cadTools,
     description: form.description.trim(),
+    ...(diagramHtml.value !== null && includeDiagram.value
+      ? { diagramHtml: diagramHtml.value }
+      : {}),
     ndaRequired: form.ndaRequired,
     budgetRange: form.budgetRange,
     ...(form.startHopeDate !== '' ? { startHopeDate: form.startHopeDate } : {}),
@@ -430,6 +477,64 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
           </label>
         </div>
 
+        <!-- STEP: AI 시스템 구성도 (관리자 활성 시에만 스텝 존재) -->
+        <div v-else-if="currentStep === 'diagram'" class="grid gap-4">
+          <div>
+            <p class="text-xs font-bold text-tx-2">
+              AI 시스템 구성도 <span class="font-normal text-tx-3">(선택)</span>
+            </p>
+            <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
+              작성하신 제목·분야·상세 설명으로 시스템 구성도 초안을 자동 생성합니다.
+              생성에 약 2~3분이 걸리며, 기다리는 동안 다음 단계를 먼저 진행하셔도 됩니다.
+              입력하신 텍스트가 AI 생성을 위해 외부 서버로 전송됩니다 — 첨부 파일은 전송되지 않습니다.
+            </p>
+          </div>
+
+          <div v-if="diagramHtml === null" class="grid gap-2">
+            <div>
+              <button
+                type="button"
+                class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
+                :disabled="diagramRunning"
+                @click="generateDiagram"
+              >
+                {{ diagramRunning ? '구성도 생성 중…' : '구성도 생성' }}
+              </button>
+            </div>
+            <p v-if="diagramRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
+              ⏳ 생성 중입니다 — "다음"으로 넘어가 나머지를 작성하시면, 완료 시 이 단계와 요약에 반영됩니다.
+            </p>
+            <p v-else-if="diagramFailed" class="text-xs font-semibold text-red-600">
+              생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
+            </p>
+          </div>
+
+          <template v-else>
+            <div class="overflow-auto rounded-xl border border-line bg-white">
+              <iframe
+                sandbox=""
+                :srcdoc="diagramHtml"
+                title="시스템 구성도 미리보기"
+                class="block h-[600px] w-[1400px]"
+              />
+            </div>
+            <div class="flex flex-wrap items-center gap-4">
+              <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
+                <input v-model="includeDiagram" type="checkbox">
+                이 구성도를 의뢰에 첨부
+              </label>
+              <button
+                type="button"
+                class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                :disabled="diagramRunning"
+                @click="generateDiagram"
+              >
+                {{ diagramRunning ? '생성 중…' : '다시 생성' }}
+              </button>
+            </div>
+          </template>
+        </div>
+
         <!-- STEP: 예산·일정·마감 -->
         <div v-else-if="currentStep === 'schedule'" class="grid gap-5">
           <div>
@@ -570,7 +675,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
               마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
               {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} ·
-              첨부 {{ attachments.length }}개
+              첨부 {{ attachments.length }}개<template v-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template>
             </p>
           </div>
         </div>
