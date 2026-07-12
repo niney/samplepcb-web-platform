@@ -17,6 +17,7 @@ import type { MarketBidSubmitBodyType } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import BidFormModal from '../components/BidFormModal.vue';
 import ContractCard from '../components/ContractCard.vue';
+import DiagramViewer from '../components/DiagramViewer.vue';
 import DeliverModal from '../components/DeliverModal.vue';
 import NdaSignModal from '../components/NdaSignModal.vue';
 import {
@@ -355,15 +356,10 @@ const fmtSize = (bytes: number): string =>
           <div v-if="detail.diagramHtml !== null" class="rounded-2xl border border-line bg-white p-6">
             <p class="font-mono text-[11px] tracking-widest text-tx-3">SYSTEM DIAGRAM</p>
             <h2 class="mt-1 text-sm font-extrabold text-tx-1">
-              시스템 구성도 <span class="font-normal text-tx-3">(AI 자동 생성 초안)</span>
+              시스템 구성도 <span class="font-normal text-tx-3">(AI 자동 생성 초안 · 클릭하면 크게 보기)</span>
             </h2>
-            <div class="mt-3 overflow-auto rounded-xl border border-line">
-              <iframe
-                sandbox=""
-                :srcdoc="detail.diagramHtml"
-                title="시스템 구성도"
-                class="block h-[620px] w-[1400px]"
-              />
+            <div class="mt-3">
+              <DiagramViewer :html="detail.diagramHtml" />
             </div>
           </div>
 

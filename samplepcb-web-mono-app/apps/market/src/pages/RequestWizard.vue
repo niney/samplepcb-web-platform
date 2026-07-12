@@ -29,6 +29,7 @@ import type {
   MarketToolGroupType,
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
+import DiagramViewer from '../components/DiagramViewer.vue';
 import { useAiJob, useAiUsecaseStatus, useRunDiagram } from '../api/useAi';
 import { useMarketExpertList } from '../api/useMarketExperts';
 import type { ExpertListFilters } from '../api/useMarketExperts';
@@ -510,14 +511,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
           </div>
 
           <template v-else>
-            <div class="overflow-auto rounded-xl border border-line bg-white">
-              <iframe
-                sandbox=""
-                :srcdoc="diagramHtml"
-                title="시스템 구성도 미리보기"
-                class="block h-[600px] w-[1400px]"
-              />
-            </div>
+            <DiagramViewer :html="diagramHtml" />
             <div class="flex flex-wrap items-center gap-4">
               <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
                 <input v-model="includeDiagram" type="checkbox">
