@@ -30,7 +30,14 @@ cd "$MONO"
 
 # ── 헬퍼 ────────────────────────────────────────────────
 step()         { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
-pull()         { step "코드 받기";             git -C "$ROOT" pull --ff-only; pnpm install --frozen-lockfile; }
+# 과거 'vue-tsc -b' 빌드가 src/ 에 emit 한 스테일 .js·tsbuildinfo 제거(untracked 만).
+# vite 확장자 해석이 .js > .ts 라 옛 .js 가 .ts 를 가려 MISSING_EXPORT 로 빌드가 깨진다.
+# 빌드 스크립트는 --noEmit 으로 교정됐지만(bbc3216bf) 서버 작업트리 잔재는 pull 이 못 지움.
+clean_stale()  { step "스테일 emit 정리";
+  git -C "$ROOT" status --porcelain | sed -n 's/^?? //p' \
+    | grep -E '/src/.*\.js$|\.tsbuildinfo$' \
+    | while IFS= read -r f; do rm -f "$ROOT/$f" && echo "  삭제: $f"; done || true; }
+pull()         { step "코드 받기";             git -C "$ROOT" pull --ff-only; clean_stale; pnpm install --frozen-lockfile; }
 gen()          { step "prisma generate";       pnpm --filter api db:generate; }
 migrate()      { step "prisma migrate deploy"; pnpm --filter api exec prisma migrate deploy; }
 build_api()    { step "sp-api 빌드";           pnpm --filter api build; }
