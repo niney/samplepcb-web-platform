@@ -27,6 +27,6 @@ describe('applyGerberPriceMode (거버 가격 정규화)', () => {
     const supply = 100_000;
     const total = applyGerberPriceMode(supply, 'supply');
     expect(total).toBe(110_000);
-    expect(Math.round((total as number) / 1.1)).toBe(supply);
+    expect(Math.round((total ?? 0) / 1.1)).toBe(supply);
   });
 });
