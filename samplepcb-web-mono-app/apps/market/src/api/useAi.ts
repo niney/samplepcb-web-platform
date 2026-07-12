@@ -9,6 +9,7 @@ import {
 import type {
   AiDiagramRunBodyType,
   AiDiagramSpecRunBodyType,
+  AiRocRunBodyType,
   AiStructurizeRunBodyType,
   AiUsecaseKeyType,
 } from '@sp/api-contract';
@@ -47,6 +48,14 @@ export function useRunDiagramSpec() {
   return useMutation({
     mutationFn: (body: AiDiagramSpecRunBodyType) =>
       apiSend('POST', `${apiRoutes.ai}/market.request-diagram-spec/run`, body, AiRunResponse),
+  });
+}
+
+// 구성 명세 + 답변 → 작업검토지시서 마크다운(Phase 2) — 결과는 잡의 md 필드.
+export function useRunRoc() {
+  return useMutation({
+    mutationFn: (body: AiRocRunBodyType) =>
+      apiSend('POST', `${apiRoutes.ai}/market.request-roc/run`, body, AiRunResponse),
   });
 }
 

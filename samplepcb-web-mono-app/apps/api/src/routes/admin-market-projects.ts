@@ -191,6 +191,7 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
           description: project.description,
           diagramHtml: project.diagramHtml,
           diagramSpec: project.diagramSpec,
+          rocMd: project.rocMd,
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           targetExpert:

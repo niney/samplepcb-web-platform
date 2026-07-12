@@ -70,6 +70,7 @@ export const ko = {
           market_request_diagram: '프로젝트 의뢰 — 시스템 구성도 생성(설명 기반 폴백)',
           market_request_structurize: '프로젝트 의뢰 — 인터뷰 구조화(구성 명세 JSON)',
           market_request_diagram_spec: '프로젝트 의뢰 — 구성 명세로 구성도 렌더',
+          market_request_roc: '프로젝트 의뢰 — 작업검토지시서 생성',
         },
         enabled: '사용',
         model: '모델',

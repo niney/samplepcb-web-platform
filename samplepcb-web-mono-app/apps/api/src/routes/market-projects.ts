@@ -217,6 +217,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           description: payload.description,
           diagramHtml: payload.diagramHtml ?? null,
           diagramSpec: normalizedDiagramSpec,
+          rocMd: payload.rocMd ?? null,
+          interviewAnswers: payload.interviewAnswers ?? Prisma.DbNull,
           ndaRequired: payload.ndaRequired,
           budgetRange: payload.budgetRange,
           startHopeDate: payload.startHopeDate ?? null,
@@ -416,6 +418,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           description: project.description,
           diagramHtml: project.diagramHtml,
           diagramSpec: project.diagramSpec,
+          rocMd: project.rocMd,
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           awardedAt: project.awardedAt?.toISOString() ?? null,
@@ -475,9 +478,12 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       }
       // 구성도 제거(diagramHtml=null) 시 spec 을 명시하지 않았으면 함께 제거 — 원천
       // 데이터만 남아 상세·후속 문서가 지워진 구성도를 되살리는 혼란을 막는다.
-      if (body.diagramSpec === null || (body.diagramHtml === null && body.diagramSpec === undefined)) {
-        data.diagramSpec = null;
-      }
+      const specRemoved =
+        body.diagramSpec === null || (body.diagramHtml === null && body.diagramSpec === undefined);
+      if (specRemoved) data.diagramSpec = null;
+      if (body.rocMd !== undefined) data.rocMd = body.rocMd;
+      // 원천(spec) 제거 시 파생(지시서)도 명시가 없으면 동반 제거.
+      if (specRemoved && body.rocMd === undefined) data.rocMd = null;
       if (body.ndaRequired !== undefined) data.ndaRequired = body.ndaRequired;
       if (body.budgetRange !== undefined) data.budgetRange = body.budgetRange;
       if (body.startHopeDate !== undefined) data.startHopeDate = body.startHopeDate;

@@ -18,6 +18,7 @@ import { useAuthStore } from '@sp/shared';
 import BidFormModal from '../components/BidFormModal.vue';
 import ContractCard from '../components/ContractCard.vue';
 import DiagramViewer from '../components/DiagramViewer.vue';
+import RocViewer from '../components/RocViewer.vue';
 import DeliverModal from '../components/DeliverModal.vue';
 import NdaSignModal from '../components/NdaSignModal.vue';
 import {
@@ -360,6 +361,17 @@ const fmtSize = (bytes: number): string =>
             </h2>
             <div class="mt-3">
               <DiagramViewer :html="detail.diagramHtml" />
+            </div>
+          </div>
+
+          <!-- AI 작업검토지시서 — 마크다운 라인 파서 렌더(v-html 금지) -->
+          <div v-if="detail.rocMd !== null" class="rounded-2xl border border-line bg-white p-6">
+            <p class="font-mono text-[11px] tracking-widest text-tx-3">WORK REVIEW DOC</p>
+            <h2 class="mt-1 text-sm font-extrabold text-tx-1">
+              작업검토지시서 <span class="font-normal text-tx-3">(AI 자동 생성 초안 · 미확정 값은 TBD)</span>
+            </h2>
+            <div class="mt-3">
+              <RocViewer :md="detail.rocMd" />
             </div>
           </div>
 

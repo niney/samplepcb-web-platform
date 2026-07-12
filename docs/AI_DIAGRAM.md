@@ -69,8 +69,9 @@ ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-
   additive, `migrate deploy` 전용.
 - 새 유스케이스 추가 = 계약 `AI_USECASES` + 레지스트리 def + (필요시 FE) — 설정 행·화면은
   자동(lazy 생성·목록 렌더).
-- E2E: `e2e-market.mts` 에 diagramHtml 왕복 + diagramSpec 왕복·파손 400 포함(총 94).
-  LLM 실호출은 E2E 에 없음(Ollama 의존) — 실생성 검증은 수동/스크립트.
+- E2E: `e2e-market.mts` 에 diagramHtml 왕복 + diagramSpec 왕복·파손 400 + rocMd 왕복·
+  인터뷰 답변 미노출 포함(총 95). LLM 실호출은 E2E 에 없음(Ollama 의존) — 실생성 검증은
+  수동/스크립트.
 
 ## 6. 인터뷰 파이프라인 (Phase 1, 2026-07-12)
 
@@ -118,7 +119,21 @@ ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-
 - 스모크: `.tmp/smoke-interview.mts`(활성화→structurize→렌더→원복, apps/api 에서
   `tsx --env-file=.env ../../.tmp/smoke-interview.mts`).
 
-### Phase 2 (예정)
+### Phase 2 — 작업검토지시서 (2026-07-12 구현)
 
-ROC/작업검토지시서 유스케이스(P4 검증 통과 상태) — 노출 범위(개발자/검수자 포스팅)
-정책과 함께 설계. 전문가/검수자 포스팅 자동 생성은 매칭 공개범위 정책과 얽혀 별도 트랙.
+- 유스케이스 `market.request-roc`: 구성 명세 + 인터뷰 답변 + 의뢰 텍스트 → 10섹션
+  마크다운 지시서(프로빙 P4 프롬프트의 의뢰 분야 일반형). 서식 게이트(섹션 8개 미만
+  재시도 1회) + (TBD)·9번 수집 규율.
+- **노출 정책**: description 과 동일(구성도와 같은 원칙) — 견적 낼 전문가·검수자가 보는
+  것이 목적. 포스팅 유형별(회로/PCB/FW…) 분리는 포스팅 시스템 트랙(별도)에서.
+- 저장: `sp_market_project.rocMd`(MEDIUMTEXT) + `interviewAnswers`(JSON, **응답 미노출**
+  저장 전용 — 재생성·Phase 3 파생의 근원). 마이그레이션 `20260713010000_market_roc_answers`.
+  원천(spec) 제거 시 파생(rocMd) 동반 제거.
+- 위저드: 명세 확정 후 "작업검토지시서 생성(선택)"(~1분) → 미리보기 + 첨부 체크.
+  게이트는 인터뷰 활성 && roc 활성. 상세 화면(고객·전문가)은 `RocViewer`
+  (마크다운 **라인 파서** 렌더 — LLM 산출이므로 v-html 금지).
+
+### Phase 3 (별도 트랙)
+
+전문가/검수자 포스팅 자동 생성 — 매칭 공개범위 정책(전체서비스=검증 개발회사만 등,
+기획 PDF §13)과 얽혀 별도 설계. interviewAnswers·diagramSpec 이 원천 데이터.

@@ -116,6 +116,7 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
           status: job.status,
           html: job.status === 'done' ? job.html : null,
           json: job.status === 'done' ? job.json : null,
+          md: job.status === 'done' ? job.md : null,
           error: job.error,
           elapsedSecs: Math.round(((job.finishedAt ?? Date.now()) - job.startedAt) / 1000),
         },

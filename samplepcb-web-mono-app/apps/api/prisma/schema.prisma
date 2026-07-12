@@ -228,6 +228,10 @@ model SpMarketProject {
   // 구성 명세 JSON(DiagramSpec 직렬화) — 구성도의 원천 데이터. 재생성과 후속 문서
   // (ROC·포스팅 요약) 파생의 근원이라 HTML 과 별도로 보존한다.
   diagramSpec    String?   @db.MediumText
+  // AI 작업검토지시서 마크다운(Phase 2) — 공개 범위는 description 과 동일.
+  rocMd          String?   @db.MediumText
+  // 인터뷰 답변 원본([{code,answer}]) — 응답 미노출 저장 전용, 명세·문서 재생성의 근원.
+  interviewAnswers Json?
   ndaRequired    Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
   budgetRange    String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
   startHopeDate  String?   @db.VarChar(10) // 'YYYY-MM-DD' 표시용 KST 날짜 문자열(타임존 경계 회피)

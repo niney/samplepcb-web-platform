@@ -35,11 +35,13 @@ import type {
 } from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import DiagramViewer from '../components/DiagramViewer.vue';
+import RocViewer from '../components/RocViewer.vue';
 import {
   useAiJob,
   useAiUsecaseStatus,
   useRunDiagram,
   useRunDiagramSpec,
+  useRunRoc,
   useRunStructurize,
 } from '../api/useAi';
 import { useMarketExpertList } from '../api/useMarketExperts';
@@ -152,10 +154,15 @@ function pruneTechnical(): void {
 const diagramStatus = useAiUsecaseStatus('market.request-diagram');
 const structurizeStatus = useAiUsecaseStatus('market.request-structurize');
 const diagramSpecStatus = useAiUsecaseStatus('market.request-diagram-spec');
+const rocStatus = useAiUsecaseStatus('market.request-roc');
 const interviewEnabled = computed(
   () =>
     (structurizeStatus.data.value?.data.enabled ?? false) &&
     (diagramSpecStatus.data.value?.data.enabled ?? false),
+);
+// 작업검토지시서(Phase 2) — 인터뷰 경로 위에서만 의미(명세가 입력), 별도 토글.
+const rocEnabled = computed(
+  () => interviewEnabled.value && (rocStatus.data.value?.data.enabled ?? false),
 );
 const legacyDiagramEnabled = computed(() => diagramStatus.data.value?.data.enabled ?? false);
 const diagramStepEnabled = computed(() => interviewEnabled.value || legacyDiagramEnabled.value);
@@ -163,6 +170,7 @@ const diagramStepEnabled = computed(() => interviewEnabled.value || legacyDiagra
 const runDiagram = useRunDiagram();
 const runStructurize = useRunStructurize();
 const runDiagramSpec = useRunDiagramSpec();
+const runRoc = useRunRoc();
 const diagramJobId = ref<string | null>(null);
 const diagramJob = useAiJob(diagramJobId);
 const includeDiagram = ref(true);
@@ -284,7 +292,8 @@ function generateSpec(): void {
     gapInputs[idx] = '';
   }
   specJobId.value = null;
-  diagramJobId.value = null; // 명세가 바뀌면 이전 구성도는 무효
+  diagramJobId.value = null; // 명세가 바뀌면 이전 구성도·지시서는 무효
+  rocJobId.value = null;
   runStructurize.mutate(
     {
       title: form.title.trim(),
@@ -300,6 +309,7 @@ function generateSpec(): void {
 function reopenInterview(): void {
   specJobId.value = null;
   diagramJobId.value = null;
+  rocJobId.value = null;
 }
 
 function generateDiagramFromSpec(): void {
@@ -308,6 +318,40 @@ function generateDiagramFromSpec(): void {
   runDiagramSpec.mutate(
     { spec: specJson.value },
     { onSuccess: (res) => { diagramJobId.value = res.data.jobId; } },
+  );
+}
+
+// ── 작업검토지시서(Phase 2) — 명세 확정 후 선택 생성(~40초) ──────────────────
+const rocJobId = ref<string | null>(null);
+const rocJob = useAiJob(rocJobId);
+const includeRoc = ref(true);
+const rocMd = computed<string | null>(() =>
+  rocJob.data.value?.data.status === 'done' ? rocJob.data.value.data.md : null,
+);
+const rocRunning = computed(
+  () =>
+    runRoc.isPending.value ||
+    (rocJobId.value !== null &&
+      !rocJob.isError.value &&
+      (rocJob.data.value?.data.status ?? 'running') === 'running'),
+);
+const rocFailed = computed(
+  () =>
+    runRoc.isError.value || rocJob.isError.value || rocJob.data.value?.data.status === 'error',
+);
+
+function generateRoc(): void {
+  if (specJson.value === null) return;
+  rocJobId.value = null;
+  runRoc.mutate(
+    {
+      title: form.title.trim(),
+      serviceAreas: form.serviceAreas,
+      description: form.description.trim(),
+      spec: specJson.value,
+      answers: interviewAnswers(),
+    },
+    { onSuccess: (res) => { rocJobId.value = res.data.jobId; } },
   );
 }
 
@@ -411,8 +455,11 @@ async function submit(): Promise<void> {
       ? { diagramHtml: diagramHtml.value }
       : {}),
     // 구성 명세는 구성도의 원천 데이터 — 렌더 전 제출이어도 명세가 있으면 함께 저장
-    // (후속 재생성·문서 파생의 근원).
-    ...(specJson.value !== null && includeDiagram.value ? { diagramSpec: specJson.value } : {}),
+    // (후속 재생성·문서 파생의 근원). 인터뷰 답변 원본도 재생성용으로 동봉(응답 미노출).
+    ...(specJson.value !== null && includeDiagram.value
+      ? { diagramSpec: specJson.value, interviewAnswers: interviewAnswers() }
+      : {}),
+    ...(rocMd.value !== null && includeRoc.value ? { rocMd: rocMd.value } : {}),
     ndaRequired: form.ndaRequired,
     budgetRange: form.budgetRange,
     ...(form.startHopeDate !== '' ? { startHopeDate: form.startHopeDate } : {}),
@@ -789,6 +836,54 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                   </button>
                 </div>
               </template>
+
+              <!-- 작업검토지시서(Phase 2) — 명세 기반 선택 생성 -->
+              <div v-if="rocEnabled" class="grid gap-2 border-t border-line pt-4">
+                <p class="text-xs font-bold text-tx-2">
+                  AI 작업검토지시서 <span class="font-normal text-tx-3">(선택)</span>
+                </p>
+                <p class="text-xs leading-relaxed text-tx-3">
+                  확정된 명세로 견적 낼 전문가·검수자가 참고할 요구사항 문서를 만듭니다(약 1분).
+                  공개 범위는 상세 설명과 같습니다.
+                </p>
+                <div v-if="rocMd === null" class="grid gap-2">
+                  <div>
+                    <button
+                      type="button"
+                      class="rounded-lg border border-line px-4 py-2 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                      :disabled="rocRunning || specRunning"
+                      @click="generateRoc"
+                    >
+                      {{ rocRunning ? '지시서 생성 중…' : '작업검토지시서 생성' }}
+                    </button>
+                  </div>
+                  <p v-if="rocRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
+                    ⏳ 생성 중입니다 — 다음 단계를 먼저 진행하셔도 됩니다.
+                  </p>
+                  <p v-else-if="rocFailed" class="text-xs font-semibold text-red-600">
+                    생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
+                  </p>
+                </div>
+                <template v-else>
+                  <div class="max-h-80 overflow-y-auto">
+                    <RocViewer :md="rocMd" />
+                  </div>
+                  <div class="flex flex-wrap items-center gap-4">
+                    <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
+                      <input v-model="includeRoc" type="checkbox">
+                      이 지시서를 의뢰에 첨부
+                    </label>
+                    <button
+                      type="button"
+                      class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                      :disabled="rocRunning"
+                      @click="generateRoc"
+                    >
+                      {{ rocRunning ? '생성 중…' : '다시 생성' }}
+                    </button>
+                  </div>
+                </template>
+              </div>
             </template>
           </template>
 
@@ -973,7 +1068,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
               마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
               {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} ·
-              첨부 {{ attachments.length }}개<template v-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning || specRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template><template v-else-if="specJson !== null && includeDiagram"> · AI 구성 명세 포함(구성도 미생성)</template>
+              첨부 {{ attachments.length }}개<template v-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning || specRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template><template v-else-if="specJson !== null && includeDiagram"> · AI 구성 명세 포함(구성도 미생성)</template><template v-if="rocMd !== null && includeRoc"> · AI 지시서 포함</template>
             </p>
           </div>
         </div>

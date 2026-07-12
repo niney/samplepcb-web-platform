@@ -15,6 +15,7 @@ export const AI_USECASES = [
   'market.request-diagram',
   'market.request-structurize',
   'market.request-diagram-spec',
+  'market.request-roc',
 ] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
@@ -178,6 +179,17 @@ export const AiDiagramSpecRunBody = z.object({
 });
 export type AiDiagramSpecRunBodyType = z.infer<typeof AiDiagramSpecRunBody>;
 
+// market.request-roc 입력 — 작업검토지시서(Phase 2). 구성 명세 + 의뢰 텍스트 + 인터뷰
+// 답변으로 개발자/검수자용 마크다운 문서를 생성한다. 산출은 잡의 md 필드.
+export const AiRocRunBody = z.object({
+  title: z.string().trim().min(2).max(200),
+  serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length).default([]),
+  description: z.string().trim().min(10).max(20000),
+  spec: z.string().min(2).max(200_000),
+  answers: z.array(AiInterviewAnswer).max(60).default([]),
+});
+export type AiRocRunBodyType = z.infer<typeof AiRocRunBody>;
+
 export const AiRunResponse = z.object({
   result: z.literal(true),
   data: z.object({ jobId: z.string() }),
@@ -194,6 +206,7 @@ export const AiJobResponse = z.object({
     status: AiJobStatus,
     html: z.string().nullable(), // done 일 때만 — 렌더는 반드시 sandbox iframe(srcdoc)
     json: z.string().nullable(), // done 일 때만 — JSON 산출 유스케이스(정규화된 명세 문자열)
+    md: z.string().nullable(), // done 일 때만 — 마크다운 산출 유스케이스(작업검토지시서)
     error: z.string().nullable(),
     elapsedSecs: z.number(),
   }),

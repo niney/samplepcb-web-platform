@@ -612,6 +612,16 @@ const marketProjectEditableShape = {
   // 구성 명세 JSON(DiagramSpec 직렬화 — market.request-structurize 산출). 구성도의
   // 원천 데이터로, 재생성·후속 문서(ROC·포스팅 요약) 파생의 근원. 공개 범위 동일.
   diagramSpec: z.string().max(200_000).optional(),
+  // 작업검토지시서 마크다운(market.request-roc 산출, Phase 2) — 견적 낼 전문가·검수자용.
+  // 공개 범위는 description 과 동일. 렌더는 이스케이프 라인 파서(v-html 금지).
+  rocMd: z.string().max(200_000).optional(),
+  // 인터뷰 답변 원본(ai.ts AiInterviewAnswer 와 동형 — ai.ts 가 market.ts 를 import 하는
+  // 순환을 피해 인라인 정의). 어떤 응답에도 노출하지 않는 저장 전용 원천 데이터 —
+  // 향후 명세·문서 재생성(Phase 3)의 근원.
+  interviewAnswers: z
+    .array(z.object({ code: z.string().trim().min(1).max(30), answer: z.string().trim().min(1).max(2000) }))
+    .max(60)
+    .optional(),
   ndaRequired: z.boolean().default(true),
   budgetRange: MarketBudgetRange,
   startHopeDate: z.string().regex(DATE_RE).optional(),
@@ -670,6 +680,7 @@ export const MarketProjectUpdateBody = z
     description: marketProjectEditableShape.description,
     diagramHtml: z.string().max(512_000).nullable(), // null = 구성도 제거(spec 도 함께 제거됨)
     diagramSpec: z.string().max(200_000).nullable(),
+    rocMd: z.string().max(200_000).nullable(), // null = 지시서 제거(spec 제거 시 동반 제거)
     ndaRequired: z.boolean(),
     budgetRange: marketProjectEditableShape.budgetRange,
     startHopeDate: z.string().regex(DATE_RE).nullable(),
@@ -763,6 +774,7 @@ export const MarketProjectDetail = MarketProjectListItem.extend({
   description: z.string(),
   diagramHtml: z.string().nullable(), // AI 구성도 — sandbox iframe 렌더 전용
   diagramSpec: z.string().nullable(), // 구성 명세 JSON — 공개 범위는 description 동일
+  rocMd: z.string().nullable(), // AI 작업검토지시서 — 공개 범위는 description 동일
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   awardedAt: z.string().nullable(), // ISO
@@ -1164,6 +1176,7 @@ export const AdminMarketProjectDetail = AdminMarketProjectListItem.extend({
   description: z.string(),
   diagramHtml: z.string().nullable(),
   diagramSpec: z.string().nullable(),
+  rocMd: z.string().nullable(),
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   targetExpert: z

@@ -352,6 +352,9 @@ async function run() {
           feature_highlights: [],
           questions_missing: [],
         }),
+        // 작업검토지시서(Phase 2) + 인터뷰 답변 원본(응답 미노출 저장 전용)
+        rocMd: '## 1. 프로젝트 식별\nE2E ROC 문서',
+        interviewAnswers: [{ code: 'stage', answer: '아이디어만 있음' }],
         ndaRequired: true,
         budgetRange: 'r300_700',
         deadline: { days: 7 },
@@ -384,6 +387,11 @@ async function run() {
     assert(
       (anon.json?.data?.diagramSpec ?? '').includes('E2E MCU'),
       'AI 구성 명세(diagramSpec) 왕복',
+    );
+    assert(
+      (anon.json?.data?.rocMd ?? '').includes('E2E ROC') &&
+        anon.json?.data?.interviewAnswers === undefined,
+      'AI 지시서(rocMd) 왕복 + 인터뷰 답변 미노출',
     );
     const badSpec = await req('PATCH', `/api/market/projects/${pid}`, {
       token: tClient,

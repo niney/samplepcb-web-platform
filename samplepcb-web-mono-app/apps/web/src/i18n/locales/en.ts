@@ -70,6 +70,7 @@ export const en = {
           market_request_diagram: 'Project request — system diagram (description fallback)',
           market_request_structurize: 'Project request — interview structurize (spec JSON)',
           market_request_diagram_spec: 'Project request — render diagram from spec',
+          market_request_roc: 'Project request — work review doc generation',
         },
         enabled: 'Enabled',
         model: 'Model',
