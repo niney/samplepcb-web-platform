@@ -1,8 +1,9 @@
 {
-  "last_compiled": "2026-07-06",
+  "last_compiled": "2026-07-13",
   "topics": [
     "sp-node-api",
     "sp-vue-web",
+    "sp-market-web",
     "api-contract",
     "shared-packages",
     "spcb-bridge",
@@ -14,21 +15,31 @@
   "concepts": [
     "core-nonmodification",
     "server-single-truth",
-    "manual-sync-drift"
+    "manual-sync-drift",
+    "admin-vue-consume-php",
+    "lazy-derived-state"
   ],
   "source_locations": [
     "AGENTS.md",
     "CLAUDE.md",
     "README.md",
-    "docs/GERBER_ORDER_FLOW.md",
-    "docs/LEGACY_SITE.md",
-    "docs/UPSTREAM_SYNC.md",
-    "docs/pricing-engine-parity.md",
-    "docs/samplepcb-pricing-api-body-cases.md",
+    "docs/AI_DIAGRAM.md",
     "docs/AI_WORKFLOW_PLAYBOOK.md",
     "docs/DELIVERY_CARRIER_INTEGRATION.md",
+    "docs/DEPLOY_CENTRAFAB.md",
+    "docs/GERBER_ORDER_FLOW.md",
+    "docs/GERBER_PRICE_MODE.md",
+    "docs/LEGACY_DB_MIGRATION.md",
+    "docs/LEGACY_SITE.md",
     "docs/LOCAL_MAIL_TESTING.md",
+    "docs/MARKET_FLOW.md",
     "docs/order-notify-gating.md",
+    "docs/pricing-engine-parity.md",
+    "docs/review-naming.md",
+    "docs/samplepcb-pricing-api-body-cases.md",
+    "docs/SEO_MANAGEMENT.md",
+    "docs/UPSTREAM_SYNC.md",
+    "docs/wishlist-hidden.md",
     "ops/README.md",
     "ops/nginx/local-web.conf",
     "samplepcb-web/.htaccess",
@@ -40,5 +51,5 @@
     "samplepcb-web-mono-app/apps/api/.env.example",
     "samplepcb-web-mono-app/apps/api/prisma/schema.prisma"
   ],
-  "total_sources_scanned": 22
+  "total_sources_scanned": 30
 }
