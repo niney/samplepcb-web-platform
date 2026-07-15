@@ -271,6 +271,8 @@ function interviewAnswers(): AiInterviewAnswerType[] {
   for (const extra of extraAnswers.value) answers.push({ code: 'extra', answer: extra });
   return answers;
 }
+const hasInterviewAnswers = computed(() => interviewAnswers().length > 0);
+const shareInterviewAnswersAgreed = ref(false);
 
 function projectDeadline(): MarketProjectDeadlineType {
   return form.deadlineMode === 'date'
@@ -595,7 +597,14 @@ const stepValid = computed<boolean>(() => {
   if (key === 'description') {
     return form.title.trim().length >= 2 && form.description.trim().length >= 10;
   }
-  if (key === 'diagram') return true; // 선택 사항 — 생성 중·실패여도 진행 가능
+  if (key === 'diagram') {
+    return !(
+      specJson.value !== null &&
+      includeSpec.value &&
+      hasInterviewAnswers.value &&
+      !shareInterviewAnswersAgreed.value
+    );
+  }
   if (key === 'schedule') {
     return form.deadlineMode !== 'date' || form.deadlineDate >= todayKst;
   }
@@ -604,6 +613,7 @@ const stepValid = computed<boolean>(() => {
 
 async function submit(): Promise<void> {
   submitError.value = '';
+  const answers = interviewAnswers();
   const aiJobIds = {
     ...(specJobId.value !== null && includeSpec.value && !aiArtifactsStale.value
       ? { structurize: specJobId.value }
@@ -632,7 +642,13 @@ async function submit(): Promise<void> {
     // 구성 명세는 구성도의 원천 데이터 — 렌더 전 제출이어도 명세가 있으면 함께 저장
     // (후속 재생성·문서 파생의 근원). 인터뷰 답변 원본도 재생성용으로 동봉(응답 미노출).
     ...(specJson.value !== null && includeSpec.value && !aiArtifactsStale.value
-      ? { diagramSpec: specJson.value, interviewAnswers: interviewAnswers() }
+      ? {
+          diagramSpec: specJson.value,
+          interviewAnswers: answers,
+          ...(answers.length > 0 && shareInterviewAnswersAgreed.value
+            ? { shareInterviewAnswers: true as const }
+            : {}),
+        }
       : {}),
     ...(rocMd.value !== null && includeSpec.value && includeRoc.value && !aiArtifactsStale.value
       ? { rocMd: rocMd.value }
@@ -882,6 +898,17 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               질문·명세 다시 확인
             </button>
           </div>
+
+          <label
+            v-if="interviewEnabled && specJson !== null && includeSpec && hasInterviewAnswers"
+            class="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-800"
+          >
+            <input v-model="shareInterviewAnswersAgreed" type="checkbox" class="mt-0.5">
+            <span>
+              <b>AI 질문 답변 원문 공개 동의</b> — 답변은 이 신규 의뢰에 견적을 낼 수 있는
+              전문가와 채택 전문가에게 공개됩니다. 기존 의뢰에는 이 정책을 소급 적용하지 않습니다.
+            </span>
+          </label>
 
           <!-- 인터뷰 경로: 질문 폼 → 명세 요약·TBD·추가질문 → 구성도 -->
           <template v-if="interviewEnabled">
@@ -1329,6 +1356,9 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
             견적 마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
             {{ form.method === 'open' ? '역견적' : '지정견적' }} ·
             {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} · 첨부 {{ attachments.length }}개
+            <template v-if="specJson !== null && includeSpec && hasInterviewAnswers">
+              · 답변 원문 전문가 공개
+            </template>
           </p>
           <p v-if="diagramStepEnabled" class="mt-1 text-tx-3">
             <template v-if="aiArtifactsStale">AI 결과 오래됨(등록 시 미포함)</template>

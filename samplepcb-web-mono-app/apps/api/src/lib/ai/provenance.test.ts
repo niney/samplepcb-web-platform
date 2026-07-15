@@ -31,6 +31,7 @@ const basePayload = {
   diagramSpec: spec,
   diagramHtml: '<svg>rendered</svg>',
   interviewAnswers: [{ code: 'stage', answer: '요구사항·기능 명세 보유' }],
+  shareInterviewAnswers: true as const,
   ndaRequired: true,
   budgetRange: 'r700_1500' as const,
   startHopeDate: '2026-08-01',

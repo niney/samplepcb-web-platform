@@ -31,6 +31,7 @@ import {
   marketBidCounts,
   toCategoryCodes,
   toFileMeta,
+  toInterviewAnswers,
   toPostings,
   toProjectToolCodes,
   toServiceAreaCodes,
@@ -202,6 +203,11 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
             rocMd: project.rocMd,
             postings,
           }),
+          interviewAnswers:
+            project.interviewAnswersSharedAt !== null
+              ? toInterviewAnswers(project.interviewAnswers)
+              : null,
+          interviewAnswersSharedAt: project.interviewAnswersSharedAt?.toISOString() ?? null,
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           targetExpert:

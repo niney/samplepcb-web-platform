@@ -26,6 +26,7 @@ import {
   toMarketProjectListItem,
 } from '../lib/market';
 import { asContractStatus, computeContractFee } from '../lib/market-contract';
+import { buildMarketRequestSnapshot } from '../lib/market-snapshot';
 import { prisma } from '../lib/prisma';
 
 // ── /api/market — 입찰(블라인드 견적) 제출·수정·철회·비교·채택 ────────────────
@@ -332,6 +333,8 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           // my-bid 금액 변경 레이스 방어, M1). projectId unique → P2002 는 이미 계약 존재.
           const freshBid = await tx.spMarketBid.findUnique({ where: { id: bid.id } });
           if (freshBid === null) throw new AwardConflictError();
+          const freshProject = await tx.spMarketProject.findUnique({ where: { id: project.id } });
+          if (freshProject === null) throw new AwardConflictError();
           const { feeAmount, payoutAmount } = computeContractFee(freshBid.amount, feeRateBp);
           await tx.spMarketContract.create({
             data: {
@@ -346,6 +349,7 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
               payoutAmount,
               contractKey: randomUUID(),
               status: 'pending',
+              requestSnapshot: buildMarketRequestSnapshot(freshProject, freshBid, awardedAt),
             },
           });
         });

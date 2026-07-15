@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   MarketBudgetRange,
   MarketCategoryCode,
+  MarketAiInterviewAnswer,
   MarketProjectDeadline,
   MarketProjectMethod,
   MarketServiceArea,
@@ -215,10 +216,7 @@ export function getApplicableAiInterviewQuestions(
   );
 }
 
-export const AiInterviewAnswer = z.object({
-  code: z.string().trim().min(1).max(30),
-  answer: z.string().trim().min(1).max(2000),
-});
+export const AiInterviewAnswer = MarketAiInterviewAnswer;
 export type AiInterviewAnswerType = z.infer<typeof AiInterviewAnswer>;
 
 // market.request-structurize 입력 — 인터뷰 답변(있는 것만) + 제목·분야·설명 텍스트.

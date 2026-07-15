@@ -34,6 +34,7 @@ import {
   REF_MARKET_PROJECT,
   asBidStatus,
   asRequestType,
+  canExpertViewInterviewAnswers,
   collectMultipart,
   deadlineToDate,
   deleteMarketFile,
@@ -41,6 +42,7 @@ import {
   marketBidCounts,
   marketOwnerNames,
   toFileMeta,
+  toInterviewAnswers,
   toMarketProjectListItem,
   toPostings,
   toServiceAreaCodes,
@@ -78,12 +80,23 @@ const projectFiles = (projectId: bigint): Promise<ProjectFileRow[]> =>
 
 // 채택된 입찰의 전문가 id(없으면 null) — 채택 후 접근 유지 판정에 쓴다.
 const awardedExpertIdOf = async (p: SpMarketProject): Promise<bigint | null> => {
-  if (p.status !== 'awarded' || p.awardedBidId === null) return null;
+  if (!['awarded', 'working', 'completed'].includes(p.status) || p.awardedBidId === null) return null;
   const awarded = await prisma.spMarketBid.findUnique({
     where: { id: p.awardedBidId },
     select: { expertId: true },
   });
   return awarded?.expertId ?? null;
+};
+
+// 공개 동의된 인터뷰 원문은 실제 견적 가능 전문가와 채택 전문가에게만 노출한다.
+// 첨부 NDA와 별개의 견적 판단 자료이며, 시스템 통합 의뢰의 개인 전문가는 입찰 제한과 동일하게 제외.
+const expertCanViewInterviewAnswers = async (
+  project: SpMarketProject,
+  expert: SpMarketExpert,
+  now: Date,
+): Promise<boolean> => {
+  const awardedExpertId = await awardedExpertIdOf(project);
+  return canExpertViewInterviewAnswers({ project, expert, awardedExpertId, now });
 };
 
 // 전문가의 첨부 접근 자격 — 입찰 접수 중(입찰 준비) 또는 채택된 작업자만.
@@ -253,6 +266,10 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           diagramSpec: normalizedDiagramSpec,
           rocMd: payload.rocMd ?? null,
           interviewAnswers: payload.interviewAnswers ?? Prisma.DbNull,
+          interviewAnswersSharedAt:
+            payload.shareInterviewAnswers === true && (payload.interviewAnswers?.length ?? 0) > 0
+              ? now
+              : null,
           postings: persistedPostings ?? Prisma.DbNull,
           aiGenerationMeta: aiGenerationMeta ?? Prisma.DbNull,
           ndaRequired: payload.ndaRequired,
@@ -397,6 +414,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       // 개인화 + 첨부 메타 노출 판정.
       let viewer: MarketProjectViewerType | null = null;
       let filesVisible = isOwner || isAdmin;
+      let interviewAnswersVisible =
+        project.interviewAnswersSharedAt !== null && (isOwner || isAdmin);
       if (user !== null) {
         const expert = await prisma.spMarketExpert.findUnique({ where: { mbId: user.mbId } });
         const [signed, myBid] = await Promise.all([
@@ -430,6 +449,13 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           myBidStatus: myBid !== null ? asBidStatus(myBid.status) : null,
           contract: contractSummary,
         };
+        if (
+          !interviewAnswersVisible &&
+          project.interviewAnswersSharedAt !== null &&
+          expert !== null
+        ) {
+          interviewAnswersVisible = await expertCanViewInterviewAnswers(project, expert, now);
+        }
         // 메타 규칙: NDA 불요 → 공개 / NDA 요구 → 소유자·관리자·서명자만(파일명도 기밀 힌트).
         if (!filesVisible) filesVisible = !project.ndaRequired || viewer.ndaSigned;
       } else {
@@ -463,6 +489,9 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             rocMd: project.rocMd,
             postings,
           }),
+          interviewAnswers: interviewAnswersVisible
+            ? toInterviewAnswers(project.interviewAnswers)
+            : null,
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           awardedAt: project.awardedAt?.toISOString() ?? null,

@@ -232,6 +232,9 @@ model SpMarketProject {
   rocMd          String?   @db.MediumText
   // 인터뷰 답변 원본([{code,answer}]) — 응답 미노출 저장 전용, 명세·문서 재생성의 근원.
   interviewAnswers Json?
+  // 신규 등록에서 원본 답변의 견적 가능 전문가 공개를 명시 동의한 시각. null인 기존 건은
+  // 어떤 신규 응답에도 답변을 싣지 않아 과거 비공개 정책을 소급 변경하지 않는다.
+  interviewAnswersSharedAt DateTime?
   // 분야별 포스팅 카드(Phase 3, MarketPostingCards) — 공개 범위는 description 과 동일.
   postings       Json?
   // AI 잡 출처와 결정적 렌더 출처의 검증 메타데이터. 모델·프롬프트/입력/출력 해시·jobId를
@@ -335,6 +338,9 @@ model SpMarketContract {
   settleNote   String?   @db.VarChar(500)
   cancelledAt  DateTime?
   cancelReason String?   @db.VarChar(500)
+  // 입찰 채택 시점의 의뢰 조건·AI 산출물·공개 동의 답변·채택 견적 전체 스냅샷.
+  // 원 프로젝트가 유지되더라도 분쟁 감사 기준을 계약 행에 고정한다.
+  requestSnapshot Json?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

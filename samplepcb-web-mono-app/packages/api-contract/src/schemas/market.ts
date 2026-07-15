@@ -437,6 +437,7 @@ export const MarketContract = z.object({
   settledAt: z.string().nullable(),
   cancelledAt: z.string().nullable(),
   cancelReason: z.string().nullable(),
+  requestSnapshotAt: z.string().nullable(), // 채택 시점 의뢰·산출물 스냅샷 캡처 시각
   // 서버 파생 = deliveredAt+7d. delivered ∧ hold 아닐 때만 값(자동확정 D-day 표시).
   autoConfirmAt: z.string().nullable(),
   files: z.array(MarketContractFileMeta),
@@ -616,6 +617,12 @@ export const MarketPostingCards = z
   .max(MARKET_SERVICE_AREAS.length);
 export type MarketPostingCardsType = z.infer<typeof MarketPostingCards>;
 
+export const MarketAiInterviewAnswer = z.object({
+  code: z.string().trim().min(1).max(30),
+  answer: z.string().trim().min(1).max(2000),
+});
+export type MarketAiInterviewAnswerType = z.infer<typeof MarketAiInterviewAnswer>;
+
 // AI 산출물 출처 표시 — 저장 메타데이터와 현재 산출물 해시를 서버가 대조한 결과만 응답한다.
 // 메타데이터가 없는 레거시/직접 입력은 unverified, 생성 뒤 원천·출력이 달라지면 customer-modified.
 export const MarketAiArtifactProvenance = z.object({
@@ -656,9 +663,11 @@ const marketProjectEditableShape = {
   // 순환을 피해 인라인 정의). 어떤 응답에도 노출하지 않는 저장 전용 원천 데이터 —
   // 향후 명세·문서 재생성(Phase 3)의 근원.
   interviewAnswers: z
-    .array(z.object({ code: z.string().trim().min(1).max(30), answer: z.string().trim().min(1).max(2000) }))
+    .array(MarketAiInterviewAnswer)
     .max(60)
     .optional(),
+  // 답변 원문을 견적 가능한 전문가에게 공개한다는 신규 등록 시점의 명시 동의.
+  shareInterviewAnswers: z.literal(true).optional(),
   // 분야별 포스팅 카드(Phase 3) — 서버가 의뢰 분야 밖 카드를 걸러 저장.
   postings: MarketPostingCards.optional(),
   // 서버가 인메모리 잡의 소유자·유스케이스·입력·출력을 직접 대조하는 참조값이다.
@@ -726,6 +735,13 @@ export const MarketProjectCreatePayload = z
         code: z.ZodIssueCode.custom,
         message: '분야별 작업 안내 카드는 구성 명세가 필요합니다',
         path: ['postings'],
+      });
+    }
+    if ((p.interviewAnswers?.length ?? 0) > 0 && p.shareInterviewAnswers !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'AI 인터뷰 답변을 저장하려면 전문가 공개 동의가 필요합니다',
+        path: ['shareInterviewAnswers'],
       });
     }
   });
@@ -857,6 +873,7 @@ export const MarketProjectDetail = MarketProjectListItem.extend({
   rocMd: z.string().nullable(), // AI 작업검토지시서 — 공개 범위는 description 동일
   postings: MarketPostingCards.nullable(), // 분야별 포스팅 카드 — 공개 범위 동일
   aiProvenance: MarketAiProvenance,
+  interviewAnswers: z.array(MarketAiInterviewAnswer).nullable(),
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   awardedAt: z.string().nullable(), // ISO
@@ -1261,6 +1278,8 @@ export const AdminMarketProjectDetail = AdminMarketProjectListItem.extend({
   rocMd: z.string().nullable(),
   postings: MarketPostingCards.nullable(),
   aiProvenance: MarketAiProvenance,
+  interviewAnswers: z.array(MarketAiInterviewAnswer).nullable(),
+  interviewAnswersSharedAt: z.string().nullable(),
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   targetExpert: z

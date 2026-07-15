@@ -1,5 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import type { SpFile, SpMarketProject } from '@prisma/client';
+import type { SpFile, SpMarketExpert, SpMarketProject } from '@prisma/client';
 import { maskName } from '@sp/utils';
 import {
   MARKET_BUDGET_RANGES,
@@ -11,10 +11,12 @@ import {
   MARKET_SERVICE_AREAS,
   MARKET_TOOL_CODES,
   MARKET_TRAVEL_RANGES,
+  MarketAiInterviewAnswer,
   MarketPostingCards,
 } from '@sp/api-contract';
 import type {
   MarketPostingCardsType,
+  MarketAiInterviewAnswerType,
   MarketBidStatusType,
   MarketBudgetRangeType,
   MarketCareerRangeType,
@@ -122,6 +124,11 @@ export const toPostings = (json: unknown): MarketPostingCardsType | null => {
   return r.success ? r.data : null;
 };
 
+export const toInterviewAnswers = (json: unknown): MarketAiInterviewAnswerType[] | null => {
+  const result = MarketAiInterviewAnswer.array().safeParse(json);
+  return result.success ? result.data : null;
+};
+
 export const toToolCodes = (json: unknown): MarketToolCodeType[] =>
   toCodeArray(json, MARKET_TOOL_CODES);
 
@@ -136,6 +143,23 @@ export const toProjectToolCodes = (json: unknown): MarketProjectToolCodeType[] =
 // "지금 입찰 접수 중인가"의 부정 — 읽기 응답(biddingClosed)과 쓰기 가드가 같은 식을 쓴다.
 export const isBiddingClosed = (status: string, bidDeadlineAt: Date, now = new Date()): boolean =>
   status !== 'bidding' || bidDeadlineAt.getTime() <= now.getTime();
+
+export const canExpertViewInterviewAnswers = (args: {
+  project: Pick<
+    SpMarketProject,
+    'status' | 'bidDeadlineAt' | 'requestType' | 'method' | 'targetExpertId'
+  >;
+  expert: Pick<SpMarketExpert, 'id' | 'status' | 'expertType'>;
+  awardedExpertId: bigint | null;
+  now: Date;
+}): boolean => {
+  const { project, expert, awardedExpertId, now } = args;
+  if (awardedExpertId === expert.id) return true;
+  if (expert.status !== 'approved') return false;
+  if (project.requestType === 'system' && expert.expertType === 'individual') return false;
+  if (project.method === 'targeted' && project.targetExpertId !== expert.id) return false;
+  return !isBiddingClosed(project.status, project.bidDeadlineAt, now);
+};
 
 // 마감 입력(프리셋 N일 뒤 or 지정일) → 절대 시각. 지정일은 그 날 23:59:59 KST.
 export const deadlineToDate = (deadline: MarketProjectDeadlineType, now = new Date()): Date =>

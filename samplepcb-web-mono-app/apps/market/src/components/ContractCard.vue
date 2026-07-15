@@ -73,6 +73,9 @@ const fmtSize = (bytes: number): string =>
         수수료 {{ feePct }}% 공제 후 실수령
         <b class="text-tx-1">{{ won(contract.payoutAmount) }}</b>
       </p>
+      <p v-if="contract.requestSnapshotAt !== null" class="mt-1 text-tx-3">
+        채택 시점 의뢰·AI 산출물·견적 스냅샷 보관 · {{ contract.requestSnapshotAt.slice(0, 10) }}
+      </p>
     </div>
 
     <!-- 거래 스텝 -->

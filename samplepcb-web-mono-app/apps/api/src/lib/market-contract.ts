@@ -22,6 +22,7 @@ import {
   sendMarketMail,
 } from './market-email';
 import { toFileMeta } from './market';
+import { requestSnapshotCapturedAt } from './market-snapshot';
 import { prisma } from './prisma';
 
 // ── 재능마켓 계약(2차) 공용 헬퍼 — 라우트(market-contracts·admin-market-contracts·
@@ -101,6 +102,7 @@ export const toMarketContract = (
   settledAt: c.settledAt?.toISOString() ?? null,
   cancelledAt: c.cancelledAt?.toISOString() ?? null,
   cancelReason: c.cancelReason,
+  requestSnapshotAt: requestSnapshotCapturedAt(c.requestSnapshot),
   autoConfirmAt: autoConfirmDate(c)?.toISOString() ?? null,
   files: files.map(toFileMeta),
   payment,

@@ -352,9 +352,10 @@ async function run() {
           feature_highlights: [],
           questions_missing: [],
         }),
-        // 작업검토지시서(Phase 2) + 인터뷰 답변 원본(응답 미노출 저장 전용)
+        // 작업검토지시서(Phase 2) + 신규 의뢰 인터뷰 답변 원문 공개 동의
         rocMd: '## 1. 프로젝트 식별\nE2E ROC 문서',
         interviewAnswers: [{ code: 'stage', answer: '아이디어만 있음' }],
+        shareInterviewAnswers: true,
         // 분야별 포스팅 카드(Phase 3) — 의뢰 분야(circuit) 밖 카드(firmware)는 서버가 걸러야 함
         postings: [
           { serviceArea: 'circuit', summary: ['E2E 회로 요약'], scope: ['전원부 설계'], deliverables: ['회로도'], notes: [] },
@@ -395,8 +396,14 @@ async function run() {
     );
     assert(
       (anon.json?.data?.rocMd ?? '').includes('E2E ROC') &&
-        anon.json?.data?.interviewAnswers === undefined,
-      'AI 지시서(rocMd) 왕복 + 인터뷰 답변 미노출',
+        anon.json?.data?.interviewAnswers === null,
+      'AI 지시서(rocMd) 왕복 + 익명 인터뷰 답변 비노출',
+    );
+    const expertDetail = await req('GET', `/api/market/projects/${pid}`, { token: tExpert });
+    assert(
+      expertDetail.json?.data?.interviewAnswers?.[0]?.answer === '아이디어만 있음',
+      '견적 가능 전문가에게 공개 동의 인터뷰 원문 노출',
+      expertDetail.json?.data?.interviewAnswers,
     );
     const anonPostings = anon.json?.data?.postings ?? [];
     assert(
@@ -648,7 +655,11 @@ async function run() {
 
     // ── 14) award 직후 계약 자동생성(Contract A = 1차 pid) + 스냅샷 + 당사자/제3자 ──
     const cA = await prisma.spMarketContract.findUnique({ where: { projectId: BigInt(pid) } });
-    assert(cA !== null && cA.status === 'pending', 'award 계약 자동생성(pending)', cA?.status);
+    assert(
+      cA !== null && cA.status === 'pending' && cA.requestSnapshot !== null,
+      'award 계약 자동생성(pending)+요청 스냅샷',
+      cA?.status,
+    );
     if (cA !== null) {
       ids.contractKeys.push(cA.contractKey);
       writeFileSync(IDS_FILE, JSON.stringify(ids));
@@ -662,7 +673,12 @@ async function run() {
       assert(cA.payoutAmount === cA.amount - cA.feeAmount, '계약 payoutAmount=amount-fee', cA.payoutAmount);
     }
     const cGetClient = await req('GET', `/api/market/projects/${pid}/contract`, { token: tClient });
-    assert(cGetClient.status === 200 && cGetClient.json?.data?.status === 'pending', '의뢰인 계약 GET 200');
+    assert(
+      cGetClient.status === 200 &&
+        cGetClient.json?.data?.status === 'pending' &&
+        typeof cGetClient.json?.data?.requestSnapshotAt === 'string',
+      '의뢰인 계약 GET 200+스냅샷 시각',
+    );
     const cGetExpert = await req('GET', `/api/market/projects/${pid}/contract`, { token: tExpert });
     assert(cGetExpert.status === 200, '전문가 계약 GET 200(당사자)');
     const cGetStranger = await req('GET', `/api/market/projects/${pid}/contract`, { token: tStranger });

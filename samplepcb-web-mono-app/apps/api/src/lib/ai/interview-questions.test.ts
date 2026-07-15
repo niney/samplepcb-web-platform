@@ -5,7 +5,7 @@ import {
   MarketProjectCreatePayload,
   MarketProjectUpdateBody,
 } from '@sp/api-contract';
-import { AI_USECASE_DEFS } from './usecases';
+import { AI_USECASE_DEFS, ROC_DISCLAIMER } from './usecases';
 
 const codesFor = (
   areas: Parameters<typeof getApplicableAiInterviewQuestions>[0],
@@ -117,6 +117,14 @@ describe('분야별 AI 인터뷰 질문', () => {
     expect(parsed.blocks.map((block) => block.type)).toEqual(types);
   });
 
+  it('ROC 산출물 맨 앞에 계약 비구속 AI 초안 고지를 결정적으로 붙인다', () => {
+    const body = Array.from({ length: 10 }, (_, index) =>
+      `## ${String(index + 1)}. 섹션\n내용`,
+    ).join('\n\n');
+    const result = AI_USECASE_DEFS['market.request-roc'].parseResult(body);
+    expect('md' in result ? result.md.startsWith(ROC_DISCLAIMER) : false).toBe(true);
+  });
+
   it('레거시 하드웨어 구성도는 전자 개발 분야에만 적용한다', () => {
     const applicable = AI_USECASE_DEFS['market.request-diagram'].isApplicable;
     expect(applicable).toBeDefined();
@@ -163,6 +171,18 @@ describe('프로젝트 AI 산출물 의존성', () => {
         notes: [],
       }],
     }).success).toBe(false);
+  });
+
+  it('신규 등록에서 AI 답변 원문 저장은 전문가 공개 동의를 요구한다', () => {
+    expect(MarketProjectCreatePayload.safeParse({
+      ...createBase,
+      interviewAnswers: [{ code: 'stage', answer: '아이디어만 있음' }],
+    }).success).toBe(false);
+    expect(MarketProjectCreatePayload.safeParse({
+      ...createBase,
+      interviewAnswers: [{ code: 'stage', answer: '아이디어만 있음' }],
+      shareInterviewAnswers: true,
+    }).success).toBe(true);
   });
 
   it('수정 요청에서 구성 명세를 제거하면서 파생 산출물을 유지하지 못한다', () => {

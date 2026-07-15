@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
+  AI_INTERVIEW_QUESTIONS,
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
@@ -305,6 +306,12 @@ const provenanceTitle = (provenance: MarketAiArtifactProvenanceType | null): str
   ].filter((value): value is string => value !== null);
   return details.join(' · ');
 };
+
+const interviewQuestionLabels = new Map(
+  AI_INTERVIEW_QUESTIONS.map((question) => [question.code, question.label]),
+);
+const interviewAnswerLabel = (code: string): string =>
+  interviewQuestionLabels.get(code) ?? (code === 'extra' ? 'AI 추가 질문' : '추가 확인 사항');
 </script>
 
 <template>
@@ -389,6 +396,27 @@ const provenanceTitle = (provenance: MarketAiArtifactProvenanceType | null): str
             </div>
           </div>
 
+          <div
+            v-if="detail.interviewAnswers !== null && detail.interviewAnswers.length > 0"
+            class="rounded-2xl border border-line bg-white p-6"
+          >
+            <p class="font-mono text-[11px] tracking-widest text-tx-3">ORIGINAL INTERVIEW</p>
+            <h2 class="mt-1 text-sm font-extrabold text-tx-1">의뢰인이 답한 AI 질문 원문</h2>
+            <p class="mt-1 text-xs leading-relaxed text-tx-3">
+              AI 문서와 대조할 수 있도록 의뢰인이 공개에 동의한 신규 의뢰의 답변만 표시합니다.
+            </p>
+            <dl class="mt-3 grid gap-3">
+              <div
+                v-for="(answer, index) in detail.interviewAnswers"
+                :key="`${answer.code}-${String(index)}`"
+                class="rounded-xl bg-paper p-3 text-xs leading-relaxed"
+              >
+                <dt class="font-bold text-tx-1">{{ interviewAnswerLabel(answer.code) }}</dt>
+                <dd class="mt-1 whitespace-pre-line text-tx-2">{{ answer.answer }}</dd>
+              </div>
+            </dl>
+          </div>
+
           <!-- AI 시스템 구성도 — sandbox iframe 전용(LLM 산출 HTML, DOM 직결 금지) -->
           <div v-if="detail.diagramHtml !== null" class="rounded-2xl border border-line bg-white p-6">
             <p class="font-mono text-[11px] tracking-widest text-tx-3">SYSTEM DIAGRAM</p>
@@ -414,6 +442,9 @@ const provenanceTitle = (provenance: MarketAiArtifactProvenanceType | null): str
                 :title="provenanceTitle(detail.aiProvenance.rocMd)"
               >({{ provenanceLabel(detail.aiProvenance.rocMd) }} · 미확정 값은 TBD)</span>
             </h2>
+            <p class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+              이 문서는 AI 생성 초안으로 계약의 일부가 아닙니다. 검수 기준과 완료 조건은 계약 체결 시 당사자가 별도로 확정해야 합니다.
+            </p>
             <div class="mt-3">
               <RocViewer :md="detail.rocMd" />
             </div>
