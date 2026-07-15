@@ -55,10 +55,11 @@ local-web.samplepcb.co.kr (nginx 443)
   (`MARKET_AREA_TOOL_GROUPS`: circuit/pcb→ecad, 기구→mcad, 제품디자인→design ·
   `MARKET_AREA_SPECIALTIES`: circuit/firmware→세부분야 부분집합)의 **합집합**으로 섹션을
   구성하고, 질문 그룹이 없는 분야(앱·서버·SW·기타)만 선택하면 스텝 자체가 목록에서
-  빠진다(4스텝). 프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map` — 인접
+  빠진다. 프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map` — 인접
   `category`=requestType 물리명과 혼동 회피)에 저장.
-- **AI 시스템 구성도**: 위저드 "설명·자료" 뒤 동적 스텝(관리자 활성 시) — 인터뷰 파이프라인은
-  전 분야, 레거시 단발 생성은 전자 분야에만 적용한다. 인터뷰의 `DiagramSpec`은 FE/BE 공용
+- **AI 명세·최종 검토**: 예산·일정과 견적 방식까지 입력한 뒤 마지막 동적 스텝으로 노출
+  (관리자 활성 시) — 인터뷰 파이프라인은 전 분야, 레거시 단발 생성은 전자 분야에만 적용한다.
+  비활성 시에는 견적 방식이 마지막 스텝이다. 인터뷰의 `DiagramSpec`은 FE/BE 공용
   결정적 SVG 렌더러가 즉시 변환하고 서버가 저장 전에 재생성한다. 기존 Ollama HTML을 포함한
   모든 구성도는 sandbox iframe에 넣기 전 외부 연결 차단 CSP와 활성 요소 제거를 적용해
   `diagramHtml`에 저장한다. 정본

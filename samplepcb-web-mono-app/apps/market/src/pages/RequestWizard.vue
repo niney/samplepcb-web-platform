@@ -55,7 +55,7 @@ import { loginUrl, marketPath } from '../lib/auth-urls';
 
 // 의뢰 마법사(프로토타입 request.html 이식 + STEP2 동적화):
 // 분야 → [전문 기술·도구(선택 분야에 질문 그룹이 있을 때만)] → 설명·첨부·NDA
-// → 예산·일정·마감 → 방식·지정 전문가.
+// → 예산·일정·마감 → 방식·지정 전문가 → [AI 명세·최종 검토(관리자 활성 시)].
 // STEP2 는 MARKET_AREA_TOOL_GROUPS·MARKET_AREA_SPECIALTIES 사전의 합집합으로 섹션을
 // 구성하고, 질문 그룹이 하나도 없으면 스텝 자체를 목록에서 제거한다(빈 스텝 노출 금지).
 // 모든 STEP2 항목은 선택 사항 — 비워두면 "조건 없음"(구 'any' 코드는 저장하지 않는다).
@@ -146,7 +146,7 @@ function pruneTechnical(): void {
   form.categories = form.categories.filter((c) => validSpecs.has(c));
 }
 
-// ── AI 시스템 구성도(diagram 스텝) — 관리자 활성 시에만 스텝 존재 ─────────────
+// ── AI 명세·최종 검토(diagram 스텝) — 관리자 활성 시에만 스텝 존재 ───────────
 // 두 경로: ① 인터뷰(structurize 활성) = 코어 질문 → 구성 명세 JSON → 공용 결정적 SVG
 // 즉시 렌더, ② 폴백(legacy diagram 만 활성) = 설명 → LLM HTML 단발. 외부 전송은
 // 제목·분야·설명·인터뷰 답변 텍스트뿐이며 첨부는 보내지 않는다(NDA 원칙).
@@ -457,6 +457,24 @@ const aiArtifactsStale = computed(
     aiGeneratedSourceSignature.value !== null &&
     aiSourceSignature.value !== aiGeneratedSourceSignature.value,
 );
+const includedAiArtifactLabels = computed<string[]>(() => {
+  const labels: string[] = [];
+  if (specJson.value !== null && includeSpec.value) labels.push('구성 명세');
+  if (
+    diagramHtml.value !== null &&
+    includeDiagram.value &&
+    (!interviewEnabled.value || includeSpec.value)
+  ) {
+    labels.push('구성도');
+  }
+  if (rocMd.value !== null && includeSpec.value && includeRoc.value) {
+    labels.push('작업검토지시서');
+  }
+  if (postingCards.value !== null && includeSpec.value && includePostings.value) {
+    labels.push(`분야 카드 ${String(postingCards.value.length)}개`);
+  }
+  return labels;
+});
 
 watch(aiArtifactsStale, (stale) => {
   if (!stale) return;
@@ -482,9 +500,9 @@ const steps = computed<{ key: StepKey; label: string }[]>(() => [
   { key: 'area', label: '분야' },
   ...(hasTechnicalStep.value ? [{ key: 'technical' as const, label: '전문 기술·도구' }] : []),
   { key: 'description', label: '설명·자료' },
-  ...(diagramStepEnabled.value ? [{ key: 'diagram' as const, label: '시스템 구성도' }] : []),
   { key: 'schedule', label: '예산·일정' },
   { key: 'method', label: '견적 방식' },
+  ...(diagramStepEnabled.value ? [{ key: 'diagram' as const, label: 'AI 최종 검토' }] : []),
 ]);
 
 const stepIndex = ref(0);
@@ -793,21 +811,22 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
           </label>
         </div>
 
-        <!-- STEP: AI 시스템 구성도 (관리자 활성 시에만 스텝 존재) -->
+        <!-- STEP: AI 명세·최종 검토 (관리자 활성 시에만 마지막 스텝으로 존재) -->
         <div v-else-if="currentStep === 'diagram'" class="grid gap-4">
           <div>
             <p class="text-xs font-bold text-tx-2">
-              AI 시스템 구성도 <span class="font-normal text-tx-3">(선택)</span>
+              AI 명세·최종 검토 <span class="font-normal text-tx-3">(선택)</span>
             </p>
             <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
               <template v-if="interviewEnabled">
+                앞에서 입력한 의뢰 조건을 최종 확인하면서,
                 공통 질문과 선택한 개발 분야에 맞는 질문만 보여드립니다. 답할수록 구성도와 요구사항 정리가 정확해집니다 — 모두 선택 사항이며,
                 건너뛴 항목은 구성도에 "(TBD)"(미확정)로 표시됩니다.
                 입력하신 제목·설명·답변 텍스트는 AI 명세 정리를 위해 외부 서버로 전송되지만, 구성도는 확정된 명세를 브라우저에서 즉시 그립니다 — 첨부 파일은 전송되지 않습니다.
               </template>
               <template v-else>
-                작성하신 제목·분야·상세 설명으로 시스템 구성도 초안을 자동 생성합니다.
-                생성에 약 2~3분이 걸리며, 기다리는 동안 다음 단계를 먼저 진행하셔도 됩니다.
+                앞에서 입력한 의뢰 조건을 최종 확인하고, 제목·분야·상세 설명으로 시스템 구성도 초안을 선택적으로 생성합니다.
+                생성에 약 2~3분이 걸리며, 생성하지 않거나 완료 전에 의뢰를 등록해도 됩니다.
                 입력하신 텍스트가 AI 생성을 위해 외부 서버로 전송됩니다 — 첨부 파일은 전송되지 않습니다.
               </template>
             </p>
@@ -879,7 +898,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                   </button>
                 </div>
                 <p v-if="specRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-                  ⏳ 답변을 구조화하고 있습니다(약 30초~1분) — "다음"으로 넘어가 나머지를 작성하셔도 됩니다.
+                  ⏳ 답변을 구조화하고 있습니다(약 30초~1분) — 완료 전에 등록하면 AI 산출물은 포함되지 않습니다.
                 </p>
                 <p v-else-if="specFailed" class="text-xs font-semibold text-red-600">
                   구조화에 실패했습니다. 잠시 후 다시 시도해 주세요.
@@ -999,7 +1018,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                     </button>
                   </div>
                   <p v-if="rocRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-                    ⏳ 생성 중입니다 — 다음 단계를 먼저 진행하셔도 됩니다.
+                    ⏳ 생성 중입니다 — 완료 전에 등록하면 이 지시서는 포함되지 않습니다.
                   </p>
                   <p v-else-if="rocFailed" class="text-xs font-semibold text-red-600">
                     생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
@@ -1046,7 +1065,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                     </button>
                   </div>
                   <p v-if="postingsRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-                    ⏳ 생성 중입니다 — 다음 단계를 먼저 진행하셔도 됩니다.
+                    ⏳ 생성 중입니다 — 완료 전에 등록하면 이 카드는 포함되지 않습니다.
                   </p>
                   <p v-else-if="postingsFailed" class="text-xs font-semibold text-red-600">
                     생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
@@ -1101,7 +1120,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                 </button>
               </div>
               <p v-if="diagramRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-                ⏳ 생성 중입니다 — "다음"으로 넘어가 나머지를 작성하시면, 완료 시 이 단계와 요약에 반영됩니다.
+                ⏳ 생성 중입니다 — 완료 전에 등록하면 이 구성도는 포함되지 않습니다.
               </p>
               <p v-else-if="diagramFailed" class="text-xs font-semibold text-red-600">
                 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.
@@ -1200,8 +1219,8 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
           </div>
         </div>
 
-        <!-- STEP: 방식·지정 전문가·요약 -->
-        <div v-else class="grid gap-5">
+        <!-- STEP: 방식·지정 전문가 -->
+        <div v-else-if="currentStep === 'method'" class="grid gap-5">
           <div class="grid gap-3 sm:grid-cols-2">
             <button
               type="button"
@@ -1254,23 +1273,35 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               </p>
             </div>
           </div>
+        </div>
 
-          <!-- 요약 -->
-          <div class="rounded-xl bg-paper p-4 text-xs leading-relaxed text-tx-2">
-            <p><b class="text-tx-1">{{ form.title || '(제목 미입력)' }}</b></p>
-            <p class="mt-1">
-              {{ MARKET_REQUEST_TYPE_LABELS[form.requestType] }} ·
-              {{ form.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join('/') }} ·
-              <template v-if="form.categories.length > 0">
-                {{ form.categories.map((c) => MARKET_CATEGORY_LABELS[c]).join('/') }} ·
-              </template>
-              {{ form.cadTools.length > 0 ? form.cadTools.map((c) => MARKET_TOOL_LABELS[c]).join('/') : '툴 무관' }} ·
-              {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
-              마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
-              {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} ·
-              첨부 {{ attachments.length }}개<template v-if="aiArtifactsStale"> · AI 결과 오래됨(미포함)</template><template v-else-if="diagramHtml !== null && includeDiagram && (!interviewEnabled || includeSpec)"> · AI 구성도 포함</template><template v-else-if="diagramRunning || specRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template><template v-if="!aiArtifactsStale && specJson !== null && includeSpec"> · AI 구성 명세 포함</template><template v-if="!aiArtifactsStale && rocMd !== null && includeSpec && includeRoc"> · AI 지시서 포함</template><template v-if="!aiArtifactsStale && postingCards !== null && includeSpec && includePostings"> · 분야 카드 {{ postingCards.length }}개</template>
-            </p>
-          </div>
+        <!-- 마지막 스텝 공통 최종 요약: AI 활성 시 diagram, 비활성 시 method -->
+        <div v-if="isLastStep" class="mt-5 rounded-xl bg-paper p-4 text-xs leading-relaxed text-tx-2">
+          <p class="font-bold text-tx-1">최종 의뢰 내용</p>
+          <p class="mt-1"><b class="text-tx-1">{{ form.title || '(제목 미입력)' }}</b></p>
+          <p class="mt-1">
+            {{ MARKET_REQUEST_TYPE_LABELS[form.requestType] }} ·
+            {{ form.serviceAreas.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join('/') }}
+            <template v-if="form.categories.length > 0">
+              · {{ form.categories.map((c) => MARKET_CATEGORY_LABELS[c]).join('/') }}
+            </template>
+            · {{ form.cadTools.length > 0 ? form.cadTools.map((c) => MARKET_TOOL_LABELS[c]).join('/') : '툴 무관' }}
+          </p>
+          <p class="mt-1">
+            {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
+            <template v-if="form.startHopeDate !== ''">시작 {{ form.startHopeDate }} · </template>
+            <template v-if="form.dueHopeDate !== ''">완료 {{ form.dueHopeDate }} · </template>
+            견적 마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
+            {{ form.method === 'open' ? '역견적' : '지정견적' }} ·
+            {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} · 첨부 {{ attachments.length }}개
+          </p>
+          <p v-if="diagramStepEnabled" class="mt-1 text-tx-3">
+            <template v-if="aiArtifactsStale">AI 결과 오래됨(등록 시 미포함)</template>
+            <template v-else-if="diagramRunning || specRunning">AI 생성 중(완료 전 등록 시 미포함)</template>
+            <template v-else>
+              AI 산출물: {{ includedAiArtifactLabels.length > 0 ? includedAiArtifactLabels.join(' · ') : '없음' }}
+            </template>
+          </p>
         </div>
 
         <p v-if="submitError !== ''" class="mt-4 text-xs font-semibold text-red-600">{{ submitError }}</p>
