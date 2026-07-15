@@ -7,16 +7,9 @@ import {
   AiUsecaseStatusResponse,
   ApiMemberError,
 } from '@sp/api-contract';
-import { ollamaChat } from '../lib/ai/ollama';
-import { AI_USECASE_DEFS, getAiConnection, getAiUsecase } from '../lib/ai/usecases';
-import {
-  createAiJob,
-  findReusableAiJob,
-  finishAiJob,
-  getAiJob,
-  hashAiInput,
-  hashAiText,
-} from '../lib/ai/jobs';
+import { AI_USECASE_DEFS, getAiUsecase } from '../lib/ai/usecases';
+import { getAiJob } from '../lib/ai/jobs';
+import { startAiJob } from '../lib/ai/runner';
 
 // ── /api/ai — 범용 AI 유스케이스 실행 ───────────────────────────────────────
 // 라우트는 범용, 정책(입력 스키마·프롬프트 바인딩)은 레지스트리(lib/ai/usecases.ts)가
@@ -26,10 +19,6 @@ import {
 
 const UsecaseParams = z.object({ useCase: AiUsecaseKey });
 const JobParams = z.object({ jobId: z.string().uuid() });
-
-// 산출 상한(EMPTY_RESULT/RESULT_TOO_LARGE)은 유스케이스 parseResult 가 판정한다 —
-// 알려진 코드는 그대로 사용자에게, 그 외는 GENERATION_FAILED 로 뭉개서 노출.
-const KNOWN_JOB_ERRORS = new Set(['EMPTY_RESULT', 'RESULT_TOO_LARGE']);
 
 export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   // ── GET /ai/:useCase/status — 공개(비밀 없음): FE 스텝 게이트용 활성 여부 ──
@@ -78,44 +67,19 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       } catch {
         return reply.status(400).send({ result: false, error: 'INPUT_SCHEMA_MISMATCH' });
       }
-      const source = {
+      const started = await startAiJob({
+        useCase: key,
+        mbId: request.user.mbId,
         model: row.model,
-        promptVersion: hashAiText(row.promptTemplate),
-        inputHash: hashAiInput(input.data),
-      };
-      const reusable = findReusableAiJob(key, request.user.mbId, source);
-      if (reusable !== undefined) {
-        request.log.info(
-          { useCase: key, jobId: reusable.id, mbId: request.user.mbId },
-          'ai job cache hit',
-        );
-        return { result: true as const, data: { jobId: reusable.id, cached: true } };
-      }
-      const conn = await getAiConnection();
-      const job = createAiJob(key, request.user.mbId, source);
-
-      // 백그라운드 생성 — 실패는 잡에 기록(비차단). 서버 재시작 시 잡 소실=클라 재시도.
-      // 파싱·검증 실패는 def.retries 만큼 동일 프롬프트로 재호출(비영도 온도의 재표집 —
-      // 인터뷰 프로빙 실측: JSON 완전 파손만 재시도 대상, enum 슬립은 스키마가 흡수).
-      void (async () => {
-        for (let attempt = 0; ; attempt += 1) {
-          const raw = await ollamaChat(conn, row.model, prompt);
-          try {
-            finishAiJob(job.id, def.parseResult(raw));
-            return;
-          } catch (err) {
-            if (attempt >= def.retries) throw err;
-            request.log.warn({ useCase: key, jobId: job.id, attempt }, 'ai parse failed — retrying');
-          }
-        }
-      })().catch((err: unknown) => {
-        request.log.warn({ err, useCase: key, jobId: job.id }, 'ai generation failed');
-        const msg = err instanceof Error && KNOWN_JOB_ERRORS.has(err.message) ? err.message : 'GENERATION_FAILED';
-        finishAiJob(job.id, { error: msg });
+        promptTemplate: row.promptTemplate,
+        input: input.data,
+        prompt,
+        log: request.log,
       });
-
-      request.log.info({ useCase: key, jobId: job.id, mbId: request.user.mbId, model: row.model }, 'ai job started');
-      return { result: true as const, data: { jobId: job.id, cached: false } };
+      return {
+        result: true as const,
+        data: { jobId: started.job.id, cached: started.cached },
+      };
     },
   );
 

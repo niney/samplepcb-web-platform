@@ -318,6 +318,15 @@ export const AiSettingsUpdate = z.object({
 });
 export type AiSettingsUpdateType = z.infer<typeof AiSettingsUpdate>;
 
+// 관리자 샘플 테스트 — 저장 전 편집 중인 모델·프롬프트를 고정 비식별 샘플로 실행한다.
+// 실제 실행과 같은 잡 조회 계약을 사용하되 유스케이스 활성 여부와 설정 저장은 건드리지 않는다.
+export const AiAdminPromptTestRun = z.object({
+  useCase: AiUsecaseKey,
+  model: z.string().trim().min(1).max(100),
+  promptTemplate: z.string().trim().min(10).max(20000),
+});
+export type AiAdminPromptTestRunType = z.infer<typeof AiAdminPromptTestRun>;
+
 // 모델 목록(연결 테스트 겸용) — 현재 연결(baseUrl·apiKey)로 /api/tags 조회.
 export const AiModelsResponse = z.object({
   result: z.literal(true),

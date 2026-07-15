@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { AiUsecaseConfigType } from '@sp/api-contract';
-import { useAiModels, useAiSettings, useSaveAiSettings } from '../../admin/useAdminSettings';
+import { DiagramSpec } from '@sp/api-contract';
+import type { AiUsecaseConfigType, AiUsecaseKeyType } from '@sp/api-contract';
+import { renderDiagramSpecHtml } from '@sp/utils';
+import {
+  useAiModels,
+  useAiPromptTest,
+  useAiPromptTestJob,
+  useAiSettings,
+  useSaveAiSettings,
+} from '../../admin/useAdminSettings';
+import { buildAiPreviewSrcdoc } from '../../lib/ai-preview-srcdoc';
 
 // AI 연동 폼 — 연결(baseUrl·apiKey) + 유스케이스(활성·모델·프롬프트). apiKey 는 서버가
 // 마스킹만 돌려주므로 입력칸은 항상 빈 값에서 시작: 입력=교체, 비움=유지, 삭제 체크=제거.
@@ -11,12 +20,52 @@ const { t } = useI18n();
 const { data, isLoading } = useAiSettings();
 const save = useSaveAiSettings();
 const modelsTest = useAiModels();
+const promptTest = useAiPromptTest();
 
 const baseUrl = ref('');
 const apiKeyInput = ref('');
 const clearApiKey = ref(false);
 const usecases = ref<AiUsecaseConfigType[]>([]);
 const models = ref<string[]>([]);
+const testedUseCase = ref<AiUsecaseKeyType | null>(null);
+const testJobId = ref<string | null>(null);
+const testJob = useAiPromptTestJob(testJobId);
+
+const testData = computed(() => testJob.data.value?.data);
+const isPromptTestRunning = computed(
+  () => promptTest.isPending.value || testData.value?.status === 'running',
+);
+const testPreviewHtml = computed<string | null>(() => {
+  const result = testData.value;
+  if (result?.status !== 'done') return null;
+  try {
+    if (testedUseCase.value === 'market.request-diagram' && result.html !== null) {
+      return buildAiPreviewSrcdoc(result.html);
+    }
+    if (testedUseCase.value === 'market.request-structurize' && result.json !== null) {
+      const spec = DiagramSpec.parse(JSON.parse(result.json) as unknown);
+      return buildAiPreviewSrcdoc(renderDiagramSpecHtml(spec));
+    }
+  } catch {
+    return null;
+  }
+  return null;
+});
+
+const testPreviewText = computed<string | null>(() => {
+  const result = testData.value;
+  if (result?.status !== 'done') return null;
+  if (result.md !== null) return result.md;
+  if (result.json !== null) {
+    try {
+      const parsed: unknown = JSON.parse(result.json);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return result.json;
+    }
+  }
+  return result.html;
+});
 
 // 로드/저장 에코 시 폼 리필(키 입력칸은 항상 초기화).
 watch(
@@ -37,6 +86,24 @@ function onTest(): void {
       models.value = res.data.models;
     },
   });
+}
+
+function onPromptTest(usecase: AiUsecaseConfigType): void {
+  testedUseCase.value = usecase.useCase;
+  testJobId.value = null;
+  promptTest.reset();
+  promptTest.mutate(
+    {
+      useCase: usecase.useCase,
+      model: usecase.model,
+      promptTemplate: usecase.promptTemplate,
+    },
+    {
+      onSuccess: (response) => {
+        testJobId.value = response.data.jobId;
+      },
+    },
+  );
 }
 
 function onSubmit(): void {
@@ -161,6 +228,55 @@ function onSubmit(): void {
           />
           <span class="mt-0.5 block text-xs text-gray-500">{{ t('admin.settings.ai.promptHint') }}</span>
         </label>
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            :disabled="isPromptTestRunning || u.model.trim() === '' || u.promptTemplate.trim().length < 10"
+            class="rounded-md border border-blue-300 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            @click="onPromptTest(u)"
+          >
+            {{
+              testedUseCase === u.useCase && isPromptTestRunning
+                ? t('admin.settings.ai.promptTestRunning')
+                : t('admin.settings.ai.promptTest')
+            }}
+          </button>
+          <span class="text-xs text-gray-500">{{ t('admin.settings.ai.promptTestHint') }}</span>
+        </div>
+
+        <div
+          v-if="testedUseCase === u.useCase"
+          class="space-y-3 rounded-md border border-blue-100 bg-blue-50/40 p-3"
+        >
+          <p v-if="promptTest.isPending.value || testData?.status === 'running'" class="text-sm text-blue-700">
+            {{ t('admin.settings.ai.promptTestWaiting') }}
+            <template v-if="testData"> ({{ testData.elapsedSecs }}s)</template>
+          </p>
+          <p v-else-if="promptTest.isError.value || testJob.isError.value" class="text-sm text-red-600">
+            {{ t('admin.settings.ai.promptTestStartFail') }}
+          </p>
+          <p v-else-if="testData?.status === 'error'" class="text-sm text-red-600">
+            {{ t('admin.settings.ai.promptTestResultFail', { error: testData.error ?? 'GENERATION_FAILED' }) }}
+          </p>
+          <template v-else-if="testData?.status === 'done'">
+            <p class="text-sm font-medium text-green-700">
+              {{ t('admin.settings.ai.promptTestDone', { seconds: testData.elapsedSecs }) }}
+            </p>
+            <iframe
+              v-if="testPreviewHtml !== null"
+              :srcdoc="testPreviewHtml"
+              sandbox=""
+              class="h-[430px] w-full rounded-md border border-gray-200 bg-white"
+              :title="t('admin.settings.ai.promptTestPreviewTitle')"
+            />
+            <details v-if="testPreviewText !== null" :open="testPreviewHtml === null">
+              <summary class="cursor-pointer text-xs font-medium text-gray-600">
+                {{ t('admin.settings.ai.promptTestRaw') }}
+              </summary>
+              <pre class="mt-2 max-h-[430px] overflow-auto whitespace-pre-wrap rounded-md bg-gray-900 p-3 text-xs text-gray-100">{{ testPreviewText }}</pre>
+            </details>
+          </template>
+        </div>
       </div>
       <datalist id="ai-models">
         <option v-for="m in models" :key="m" :value="m" />

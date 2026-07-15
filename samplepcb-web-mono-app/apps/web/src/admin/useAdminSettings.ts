@@ -1,12 +1,16 @@
+import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  AiJobResponse,
   AiModelsResponse,
+  AiRunResponse,
   AiSettingsResponse,
   BusinessInfoResponse,
   GerberPricingResponse,
   apiRoutes,
 } from '@sp/api-contract';
 import type {
+  AiAdminPromptTestRunType,
   AiSettingsUpdateType,
   BusinessInfoUpdateType,
   GerberPricingUpdateType,
@@ -48,6 +52,26 @@ export function useSaveAiSettings() {
 export function useAiModels() {
   return useMutation({
     mutationFn: () => apiGet(`${aiSettingsPath}/models`, AiModelsResponse),
+  });
+}
+
+// 저장 전 편집 중인 모델·프롬프트를 서버의 비식별 샘플로 실제 실행한다.
+export function useAiPromptTest() {
+  return useMutation({
+    mutationFn: (body: AiAdminPromptTestRunType) =>
+      apiSend('POST', `${aiSettingsPath}/test`, body, AiRunResponse),
+  });
+}
+
+// 샘플 테스트도 실제 의뢰와 같은 비동기 잡을 사용한다. 완료·오류 뒤에는 폴링을 멈춘다.
+export function useAiPromptTestJob(jobId: Ref<string | null>) {
+  return useQuery({
+    queryKey: computed(() => ['admin', 'settings', 'ai', 'test-job', jobId.value]),
+    queryFn: () => apiGet(`${apiRoutes.ai}/jobs/${jobId.value ?? ''}`, AiJobResponse),
+    enabled: computed(() => jobId.value !== null),
+    refetchInterval: (query) =>
+      query.state.data?.data.status === 'running' ? 3000 : false,
+    retry: false,
   });
 }
 

@@ -1,7 +1,9 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import {
   AI_USECASES,
+  AiAdminPromptTestRun,
   AiModelsResponse,
+  AiRunResponse,
   AiSettingsResponse,
   AiSettingsUpdate,
   ApiError,
@@ -16,11 +18,14 @@ import { cleanXssTags, isValidCallback } from '../lib/shop-config';
 import { getGerberPriceMode, setGerberPriceMode } from '../lib/sp-config';
 import { ollamaListModels } from '../lib/ai/ollama';
 import {
+  AI_USECASE_DEFS,
   ensureAiUsecaseRows,
   getAiConnection,
   maskApiKey,
   setAiConnection,
 } from '../lib/ai/usecases';
+import { getAiAdminSampleInput } from '../lib/ai/admin-samples';
+import { startAiJob } from '../lib/ai/runner';
 import { prisma } from '../lib/prisma';
 
 // 관리자 설정(/app/admin/settings) — 영카트 쇼핑몰설정을 탭 단위로 이식하는 도메인.
@@ -166,6 +171,30 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         }
       }
       return { result: true as const, data: await aiSettingsData() };
+    },
+  );
+
+  // POST /api/admin/settings/ai/test — 저장 전 모델·프롬프트를 비식별 샘플로 실제 실행.
+  // 활성 토글과 DB 설정은 바꾸지 않으며 캐시도 우회해 현재 연결·모델을 반드시 검증한다.
+  fastify.post(
+    '/settings/ai/test',
+    { schema: { body: AiAdminPromptTestRun, response: { 200: AiRunResponse } } },
+    async (request) => {
+      const { useCase, model, promptTemplate } = request.body;
+      const def = AI_USECASE_DEFS[useCase];
+      const input: unknown = def.inputSchema.parse(getAiAdminSampleInput(useCase));
+      const prompt = def.buildPrompt(promptTemplate, input);
+      const started = await startAiJob({
+        useCase,
+        mbId: request.user.mbId,
+        model,
+        promptTemplate,
+        input,
+        prompt,
+        log: request.log,
+        reuseCompleted: false,
+      });
+      return { result: true as const, data: { jobId: started.job.id, cached: false } };
     },
   );
 
