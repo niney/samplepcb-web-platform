@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import {
+  MarketBudgetRange,
   MarketCategoryCode,
+  MarketProjectDeadline,
+  MarketProjectMethod,
   MarketServiceArea,
   MarketToolCode,
   MARKET_CATEGORIES,
@@ -55,7 +58,8 @@ export type AiDiagramRunBodyType = z.infer<typeof AiDiagramRunBody>;
 
 export const DIAGRAM_BLOCK_TYPES = [
   'power', 'controller', 'communication', 'sensor', 'input', 'output', 'driver',
-  'storage', 'debug', 'ui', 'external', 'mechanical', 'protection', 'other',
+  'storage', 'debug', 'ui', 'external', 'mechanical', 'protection',
+  'client', 'service', 'api', 'database', 'cache', 'queue', 'worker', 'operations', 'other',
 ] as const;
 
 const specId = z.string().trim().min(1).max(60);
@@ -236,6 +240,11 @@ export const AiRocRunBody = z.object({
   categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
   cadTools: z.array(MarketToolCode).max(MARKET_TOOL_CODES.length).default([]),
   description: z.string().trim().min(10).max(20000),
+  budgetRange: MarketBudgetRange,
+  startHopeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  dueHopeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  deadline: MarketProjectDeadline,
+  method: MarketProjectMethod,
   spec: z.string().min(2).max(200_000),
   answers: z.array(AiInterviewAnswer).max(60).default([]),
 });
@@ -248,7 +257,7 @@ export type AiPostingsRunBodyType = AiRocRunBodyType;
 
 export const AiRunResponse = z.object({
   result: z.literal(true),
-  data: z.object({ jobId: z.string() }),
+  data: z.object({ jobId: z.string(), cached: z.boolean() }),
 });
 export type AiRunResponseType = z.infer<typeof AiRunResponse>;
 

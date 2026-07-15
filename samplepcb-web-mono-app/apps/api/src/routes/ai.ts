@@ -9,7 +9,14 @@ import {
 } from '@sp/api-contract';
 import { ollamaChat } from '../lib/ai/ollama';
 import { AI_USECASE_DEFS, getAiConnection, getAiUsecase } from '../lib/ai/usecases';
-import { createAiJob, finishAiJob, getAiJob } from '../lib/ai/jobs';
+import {
+  createAiJob,
+  findReusableAiJob,
+  finishAiJob,
+  getAiJob,
+  hashAiInput,
+  hashAiText,
+} from '../lib/ai/jobs';
 
 // ── /api/ai — 범용 AI 유스케이스 실행 ───────────────────────────────────────
 // 라우트는 범용, 정책(입력 스키마·프롬프트 바인딩)은 레지스트리(lib/ai/usecases.ts)가
@@ -71,8 +78,21 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       } catch {
         return reply.status(400).send({ result: false, error: 'INPUT_SCHEMA_MISMATCH' });
       }
+      const source = {
+        model: row.model,
+        promptVersion: hashAiText(row.promptTemplate),
+        inputHash: hashAiInput(input.data),
+      };
+      const reusable = findReusableAiJob(key, request.user.mbId, source);
+      if (reusable !== undefined) {
+        request.log.info(
+          { useCase: key, jobId: reusable.id, mbId: request.user.mbId },
+          'ai job cache hit',
+        );
+        return { result: true as const, data: { jobId: reusable.id, cached: true } };
+      }
       const conn = await getAiConnection();
-      const job = createAiJob(key, request.user.mbId);
+      const job = createAiJob(key, request.user.mbId, source);
 
       // 백그라운드 생성 — 실패는 잡에 기록(비차단). 서버 재시작 시 잡 소실=클라 재시도.
       // 파싱·검증 실패는 def.retries 만큼 동일 프롬프트로 재호출(비영도 온도의 재표집 —
@@ -95,7 +115,7 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       });
 
       request.log.info({ useCase: key, jobId: job.id, mbId: request.user.mbId, model: row.model }, 'ai job started');
-      return { result: true as const, data: { jobId: job.id } };
+      return { result: true as const, data: { jobId: job.id, cached: false } };
     },
   );
 

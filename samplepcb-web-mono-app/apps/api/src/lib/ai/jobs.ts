@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AiJobStatusType, AiUsecaseKeyType } from '@sp/api-contract';
 
 // 인메모리 AI 잡 스토어 — 생성이 수 분이라 run 은 즉시 jobId 반환, 클라이언트 폴링.
@@ -14,6 +14,9 @@ export interface AiJob {
   json: string | null; // JSON 산출 유스케이스(구성 명세 — 정규화된 직렬화 문자열)
   md: string | null; // 마크다운 산출 유스케이스(작업검토지시서)
   error: string | null;
+  model: string;
+  promptVersion: string;
+  inputHash: string;
   startedAt: number;
   finishedAt: number | null;
 }
@@ -28,7 +31,22 @@ function sweep(): void {
   }
 }
 
-export function createAiJob(useCase: AiUsecaseKeyType, mbId: string): AiJob {
+interface AiJobSource {
+  model: string;
+  promptVersion: string;
+  inputHash: string;
+}
+
+export const hashAiText = (value: string): string =>
+  createHash('sha256').update(value, 'utf8').digest('hex');
+
+export const hashAiInput = (value: unknown): string => hashAiText(JSON.stringify(value));
+
+export function createAiJob(
+  useCase: AiUsecaseKeyType,
+  mbId: string,
+  source: AiJobSource,
+): AiJob {
   sweep();
   const job: AiJob = {
     id: randomUUID(),
@@ -39,11 +57,31 @@ export function createAiJob(useCase: AiUsecaseKeyType, mbId: string): AiJob {
     json: null,
     md: null,
     error: null,
+    ...source,
     startedAt: Date.now(),
     finishedAt: null,
   };
   jobs.set(job.id, job);
   return job;
+}
+
+// 동일 회원·유스케이스·모델·프롬프트 버전·입력의 성공 결과는 TTL 동안 재사용한다.
+// 사용자 간 결과 공유는 자유 입력의 기밀 경계를 흐리므로 하지 않는다.
+export function findReusableAiJob(
+  useCase: AiUsecaseKeyType,
+  mbId: string,
+  source: AiJobSource,
+): AiJob | undefined {
+  sweep();
+  return [...jobs.values()].reverse().find(
+    (job) =>
+      job.status === 'done' &&
+      job.useCase === useCase &&
+      job.mbId === mbId &&
+      job.model === source.model &&
+      job.promptVersion === source.promptVersion &&
+      job.inputHash === source.inputHash,
+  );
 }
 
 export function getAiJob(id: string): AiJob | undefined {

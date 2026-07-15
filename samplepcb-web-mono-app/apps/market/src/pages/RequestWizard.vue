@@ -29,6 +29,7 @@ import type {
   MarketPostingCardsType,
   MarketBudgetRangeType,
   MarketCategoryCodeType,
+  MarketProjectDeadlineType,
   MarketProjectMethodType,
   MarketRequestTypeType,
   MarketServiceAreaType,
@@ -271,6 +272,12 @@ function interviewAnswers(): AiInterviewAnswerType[] {
   return answers;
 }
 
+function projectDeadline(): MarketProjectDeadlineType {
+  return form.deadlineMode === 'date'
+    ? { date: form.deadlineDate }
+    : { days: Number(form.deadlineMode) as 3 | 7 | 14 };
+}
+
 const specJobId = ref<string | null>(null);
 const specJob = useAiJob(specJobId);
 const specJson = computed<string | null>(() =>
@@ -377,6 +384,11 @@ function generateRoc(): void {
       categories: form.categories,
       cadTools: form.cadTools,
       description: form.description.trim(),
+      budgetRange: form.budgetRange,
+      startHopeDate: form.startHopeDate || null,
+      dueHopeDate: form.dueHopeDate || null,
+      deadline: projectDeadline(),
+      method: form.method,
       spec: specJson.value,
       answers: interviewAnswers(),
     },
@@ -423,6 +435,11 @@ function generatePostings(): void {
       categories: form.categories,
       cadTools: form.cadTools,
       description: form.description.trim(),
+      budgetRange: form.budgetRange,
+      startHopeDate: form.startHopeDate || null,
+      dueHopeDate: form.dueHopeDate || null,
+      deadline: projectDeadline(),
+      method: form.method,
       spec: specJson.value,
       answers: interviewAnswers(),
     },
@@ -440,6 +457,12 @@ const aiSourceSignature = computed(() =>
     cadTools: form.cadTools,
     title: form.title.trim(),
     description: form.description.trim(),
+    budgetRange: form.budgetRange,
+    startHopeDate: form.startHopeDate,
+    dueHopeDate: form.dueHopeDate,
+    deadlineMode: form.deadlineMode,
+    deadlineDate: form.deadlineDate,
+    method: form.method,
     answers: interviewAnswers(),
   }),
 );
@@ -607,10 +630,7 @@ async function submit(): Promise<void> {
     budgetRange: form.budgetRange,
     ...(form.startHopeDate !== '' ? { startHopeDate: form.startHopeDate } : {}),
     ...(form.dueHopeDate !== '' ? { dueHopeDate: form.dueHopeDate } : {}),
-    deadline:
-      form.deadlineMode === 'date'
-        ? { date: form.deadlineDate }
-        : { days: Number(form.deadlineMode) },
+    deadline: projectDeadline(),
     method: form.method,
     ...(form.method === 'targeted' && form.targetExpertId !== null
       ? { targetExpertId: form.targetExpertId }
