@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { MarketServiceArea, MARKET_SERVICE_AREAS } from './market';
+import {
+  MarketCategoryCode,
+  MarketServiceArea,
+  MarketToolCode,
+  MARKET_CATEGORIES,
+  MARKET_SERVICE_AREAS,
+  MARKET_TOOL_CODES,
+} from './market';
 import type { MarketServiceAreaType } from './market';
 
 // ── AI 유스케이스 계약 ───────────────────────────────────────────────────────
@@ -37,6 +44,8 @@ export type AiUsecaseStatusResponseType = z.infer<typeof AiUsecaseStatusResponse
 export const AiDiagramRunBody = z.object({
   title: z.string().trim().min(2).max(200),
   serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length).default([]),
+  categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
+  cadTools: z.array(MarketToolCode).max(MARKET_TOOL_CODES.length).default([]),
   description: z.string().trim().min(10).max(20000),
 });
 export type AiDiagramRunBodyType = z.infer<typeof AiDiagramRunBody>;
@@ -214,6 +223,8 @@ export type AiInterviewAnswerType = z.infer<typeof AiInterviewAnswer>;
 export const AiStructurizeRunBody = z.object({
   title: z.string().trim().min(2).max(200),
   serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length).default([]),
+  categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
+  cadTools: z.array(MarketToolCode).max(MARKET_TOOL_CODES.length).default([]),
   description: z.string().trim().min(10).max(20000),
   answers: z.array(AiInterviewAnswer).max(40).default([]),
 });
@@ -230,6 +241,8 @@ export type AiDiagramSpecRunBodyType = z.infer<typeof AiDiagramSpecRunBody>;
 export const AiRocRunBody = z.object({
   title: z.string().trim().min(2).max(200),
   serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length).default([]),
+  categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
+  cadTools: z.array(MarketToolCode).max(MARKET_TOOL_CODES.length).default([]),
   description: z.string().trim().min(10).max(20000),
   spec: z.string().min(2).max(200_000),
   answers: z.array(AiInterviewAnswer).max(60).default([]),

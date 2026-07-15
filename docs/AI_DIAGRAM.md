@@ -8,6 +8,10 @@
 ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-probing/`)으로 검증 후
 구현. 상세는 §6.
 
+2026-07-15에는 생성 원천과 저장 산출물의 정합성을 보강했다. STEP 2의 세부분야·요구 툴을
+AI 입력에 포함하고, 원천 입력 변경 시 기존 산출물을 자동 제외하며, 명세 없는 파생 문서 저장을
+서버가 거부한다. LLM HTML 렌더에는 CSP 전처리를 추가했다.
+
 ## 1. 구조 (3계층)
 
 | 계층 | 저장/코드 | 내용 |
@@ -31,8 +35,10 @@ ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-
 - 결과는 `sp_market_project.diagramHtml`(MEDIUMTEXT, 512KB 상한)에 저장. 공개 범위는
   description 과 동일(설명에서 파생된 것). 상세 화면(고객·관리자) 표시.
 - **렌더는 반드시 sandbox iframe(srcdoc)** — LLM 산출 HTML 을 DOM 에 직결하면 XSS.
-- **외부 전송은 제목·분야·설명 텍스트뿐** — 사용자 첨부 파일은 절대 보내지 않는다(NDA 원칙).
-  위저드에 전송 고지 문구 표시.
+  `diagram-srcdoc.ts`가 script·embed·form 등 활성 요소와 기존 보안 메타를 제거하고, 외부 연결을
+  차단하는 CSP(`default-src 'none'`, 이미지는 data URL만)를 주입한다.
+- **외부 전송은 제목·분야·설명·세부분야·요구 툴과 인터뷰 답변 텍스트뿐** — 사용자 첨부
+  파일은 절대 보내지 않는다(NDA 원칙). 위저드에 전송 고지 문구 표시.
 - 재생성 횟수 제한은 현재 없음(사용자 결정) — 남용 시 잡 시작 지점에 rate limit 추가.
 
 ## 3. 프로빙 확정 사항 (2026-07-12)
@@ -84,10 +90,12 @@ ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-
 
 - 유스케이스 3종: `market.request-structurize`(답변→**DiagramSpec JSON**) →
   `market.request-diagram-spec`(spec→구성도 HTML). 기존 `market.request-diagram`
-  (설명→HTML 단발)은 **인터뷰 비활성 시 폴백**으로 유지 — 프롬프트가 DB(관리자 소유)라
-  의미를 바꾸지 않고 유스케이스를 추가하는 쪽을 택했다.
+  (설명→HTML 단발)은 **인터뷰 비활성 시 전자 분야(circuit/pcb/firmware) 전용 폴백**으로
+  유지 — 프롬프트가 DB(관리자 소유)인 하드웨어 전용 계약이므로 순수 SW 의뢰에는 노출하지
+  않고, 직접 API 호출도 409 `USECASE_NOT_APPLICABLE`로 거부한다.
 - 위저드 게이트: structurize·diagram-spec **둘 다 활성**이면 인터뷰 UI, 아니면 legacy
-  diagram 활성 시 기존 단발 UI. 스텝 자체는 셋 중 하나라도 활성이면 노출.
+  diagram 활성 + 전자 분야 선택 시 기존 단발 UI. 적용 가능한 파이프라인이 없으면 스텝을
+  노출하지 않는다.
 - **질문 뱅크는 데이터(코드)**: `@sp/api-contract` `AI_INTERVIEW_QUESTIONS`를 공통 3문항
   (개발 단계·결과물·보유 자료)과 분야별 모듈(회로/PCB/펌웨어·제품/기구·앱·서버·
   Linux/Windows SW)로 구성한다. `getApplicableAiInterviewQuestions(serviceAreas)`가 FE
@@ -98,12 +106,17 @@ ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-
 - 관리자 DB에 과거 하드웨어 전용 프롬프트가 저장돼 있어도 실행 시 `분야 적용 정책`을
   앞에 붙인다. 순수 앱·서버·Linux/Windows SW에는 전원·MCU·센서·PCB 블록 생성을 금지하고,
   제품·기구 단독 의뢰도 전자 하드웨어가 명시된 경우에만 해당 블록을 허용한다.
+- STEP 2의 `categories`·`cadTools`는 코드=한글 라벨의 고정 기술 컨텍스트로 프롬프트 앞에
+  붙인다. 관리자 DB에 저장된 과거 템플릿을 수정하지 않아도 구조화·ROC·포스팅이 요구 기술을
+  함께 판단한다.
 - 위저드 UX: 질문 폼 → "AI 구성 명세 만들기"(~30초) → **요약 카드(블록·그룹·TBD 목록) +
   AI 추가 질문(questions_missing, 보강 입력 → 재구조화)** → "이 명세로 구성도 생성"(~3분,
-  비차단). 제출 시 `diagramSpec`(+`diagramHtml`) 저장.
+  비차단). 명세와 구성도는 별도 포함 체크박스로 선택한다. 제목·설명·분야·세부분야·요구 툴·
+  답변이 생성 시점과 달라지면 결과를 오래된 상태로 표시하고 제출에서 모두 제외한다.
 - 저장: `sp_market_project.diagramSpec`(MEDIUMTEXT, 정규화 직렬화본) — 구성도의 원천
   데이터이자 Phase 2(ROC·포스팅 요약) 파생의 근원. 공개 범위는 description 동일.
-  마이그레이션 `20260712230000_market_diagram_spec`(additive).
+  ROC·포스팅은 명세가 있어야 저장할 수 있으며 create/PATCH 양쪽에서 최종 상태 불변식을
+  검증한다. 마이그레이션 `20260712230000_market_diagram_spec`(additive).
 
 ### 검증 계층 (프로빙 실측 기반)
 
@@ -123,8 +136,9 @@ ROC 질문 뱅크 v4) 기반, 별도 프로빙(P1~P4, 11런, `.tmp/ai-interview-
 - P1 구조화 4런: JSON 유효 4/4·환각 0·TBD 규율 준수. P2 렌더 2런: 라벨 충실도 49/49
   (골든 30/30 + P1 산출 파이프라인 19/19). P3 갭 감지 3런: 크리티컬 재현율 16/16,
   부분 답변 인지 후속질문. P4 ROC 1런: 서식 10/10 — Phase 2 근거 확보.
-- 스모크: `.tmp/smoke-interview.mts`(활성화→structurize→렌더→원복, apps/api 에서
-  `tsx --env-file=.env ../../.tmp/smoke-interview.mts`).
+- 당시 임시 `.tmp/smoke-interview.mts`로 활성화→structurize→렌더→원복을 실측했으나 해당
+  파일은 보존하지 않았다. 현재 자동 테스트는 입력 계약·분야 게이트·산출물 의존성을 검증하며,
+  실제 모델 호출은 운영 연결 상태에서 수동 검증한다.
 
 ### Phase 2 — 작업검토지시서 (2026-07-12 구현)
 

@@ -8,7 +8,9 @@ import {
   AiRocRunBody,
   AiStructurizeRunBody,
   DiagramSpec,
+  MARKET_CATEGORY_LABELS,
   MARKET_SERVICE_AREA_LABELS,
+  MARKET_TOOL_LABELS,
   MarketPostingCards,
   normalizeDiagramSpec,
   getApplicableAiInterviewQuestions,
@@ -30,6 +32,8 @@ export interface AiUsecaseDef {
   defaultModel: string;
   defaultPrompt: string;
   inputSchema: z.ZodTypeAny;
+  // 활성 상태라도 입력 분야에 적용할 수 없으면 잡 생성 전에 거절한다.
+  isApplicable?: (input: unknown) => boolean;
   // 검증 통과한 입력을 관리자 프롬프트 템플릿({{변수}})에 바인딩.
   // 깊은 검증 실패(예: spec JSON 파손)는 throw — 라우트가 400 으로 변환한다.
   buildPrompt: (template: string, input: unknown) => string;
@@ -218,6 +222,24 @@ const POSTINGS_DEFAULT_PROMPT = `당신은 제품·하드웨어·소프트웨어
 
 const QUESTION_BY_CODE = new Map(AI_INTERVIEW_QUESTIONS.map((q) => [q.code, q]));
 
+const ELECTRONICS_AREAS = new Set(['circuit', 'pcb', 'firmware']);
+const hasElectronicsArea = (areas: readonly string[]): boolean =>
+  areas.some((area) => ELECTRONICS_AREAS.has(area));
+
+// 관리자 DB의 과거 프롬프트에도 STEP2 선택값이 전달되도록 템플릿 밖에 고정 삽입한다.
+const buildTechnicalContext = (
+  categories: readonly (keyof typeof MARKET_CATEGORY_LABELS)[],
+  cadTools: readonly (keyof typeof MARKET_TOOL_LABELS)[],
+): string => {
+  const categoryLines = categories.map((code) => `${code}=${MARKET_CATEGORY_LABELS[code]}`);
+  const toolLines = cadTools.map((code) => `${code}=${MARKET_TOOL_LABELS[code]}`);
+  return [
+    '[사용자 선택 기술 조건]',
+    `세부분야: ${categoryLines.join(', ') || '지정 없음'}`,
+    `요구 도구: ${toolLines.join(', ') || '특정 도구 요구 없음'}`,
+  ].join('\n');
+};
+
 // 관리자 저장 프롬프트가 과거 하드웨어 전용 기본값이어도 순수 소프트웨어 의뢰에 MCU·전원
 // 블록을 만들지 않도록 실행 시 불변 정책을 앞에 붙인다. 프롬프트 본문(DB 소유)은 그대로 유지.
 const structurizeAreaPolicy = (areas: readonly string[]): string => {
@@ -253,15 +275,17 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
     defaultModel: 'glm-5.2:cloud', // 프로빙 1위(사용자 확정) — 차선 deepseek-v4-pro:cloud
     defaultPrompt: DIAGRAM_DEFAULT_PROMPT,
     inputSchema: AiDiagramRunBody,
+    isApplicable: (input) => hasElectronicsArea(AiDiagramRunBody.parse(input).serviceAreas),
     buildPrompt: (template, input) => {
       const p = AiDiagramRunBody.parse(input);
-      return template
+      const prompt = template
         .replaceAll('{{title}}', p.title)
         .replaceAll(
           '{{serviceAreas}}',
           p.serviceAreas.map((a) => MARKET_SERVICE_AREA_LABELS[a]).join(', ') || '미지정',
         )
         .replaceAll('{{description}}', p.description);
+      return `${buildTechnicalContext(p.categories, p.cadTools)}\n\n${prompt}`;
     },
     parseResult: parseHtmlResult,
     retries: 0,
@@ -297,7 +321,7 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
         .replaceAll('{{description}}', p.description)
         .replaceAll('{{answers}}', answerLines)
         .replaceAll('{{unanswered}}', unansweredLines);
-      return `${structurizeAreaPolicy(p.serviceAreas)}\n\n${prompt}`;
+      return `${structurizeAreaPolicy(p.serviceAreas)}\n\n${buildTechnicalContext(p.categories, p.cadTools)}\n\n${prompt}`;
     },
     parseResult: (raw) => {
       const spec = normalizeDiagramSpec(DiagramSpec.parse(extractJsonObject(raw)));
@@ -327,7 +351,7 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
     buildPrompt: (template, input) => {
       const p = AiRocRunBody.parse(input);
       const spec = parseDiagramSpecString(p.spec); // 파손 spec 은 400
-      return template
+      const prompt = template
         .replaceAll('{{title}}', p.title)
         .replaceAll(
           '{{serviceAreas}}',
@@ -336,6 +360,7 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
         .replaceAll('{{description}}', p.description)
         .replaceAll('{{answers}}', buildAnswerLines(p.answers))
         .replaceAll('{{spec}}', JSON.stringify(spec, null, 2));
+      return `${buildTechnicalContext(p.categories, p.cadTools)}\n\n${prompt}`;
     },
     parseResult: (raw) => {
       // 코드펜스로 감싸 오면 벗긴다(마크다운 본문만 저장).
@@ -357,7 +382,7 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
     buildPrompt: (template, input) => {
       const p = AiPostingsRunBody.parse(input);
       const spec = parseDiagramSpecString(p.spec); // 파손 spec 은 400
-      return template
+      const prompt = template
         .replaceAll(
           '{{serviceAreaCodes}}',
           p.serviceAreas.map((a) => `${a}=${MARKET_SERVICE_AREA_LABELS[a]}`).join(', ') || '미지정',
@@ -366,6 +391,7 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
         .replaceAll('{{description}}', p.description)
         .replaceAll('{{answers}}', buildAnswerLines(p.answers))
         .replaceAll('{{spec}}', JSON.stringify(spec, null, 2));
+      return `${buildTechnicalContext(p.categories, p.cadTools)}\n\n${prompt}`;
     },
     parseResult: (raw) => {
       const obj = extractJsonObject(raw) as { postings?: unknown };

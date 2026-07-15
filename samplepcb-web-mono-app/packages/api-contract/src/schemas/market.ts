@@ -686,6 +686,20 @@ export const MarketProjectCreatePayload = z
         path: ['targetExpertId'],
       });
     }
+    if (p.diagramSpec === undefined && p.rocMd !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '작업검토지시서는 구성 명세가 필요합니다',
+        path: ['rocMd'],
+      });
+    }
+    if (p.diagramSpec === undefined && p.postings !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '분야별 작업 안내 카드는 구성 명세가 필요합니다',
+        path: ['postings'],
+      });
+    }
   });
 export type MarketProjectCreatePayloadType = z.infer<typeof MarketProjectCreatePayload>;
 
@@ -718,7 +732,23 @@ export const MarketProjectUpdateBody = z
   .refine(
     (b) => b.requestType === undefined || b.serviceAreas === undefined || b.requestType !== 'individual' || b.serviceAreas.length === 1,
     { message: '개별 분야 개발은 개발 분야를 1개 선택해야 합니다', path: ['serviceAreas'] },
-  );
+  )
+  .superRefine((b, ctx) => {
+    if (b.diagramSpec === null && b.rocMd !== undefined && b.rocMd !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '구성 명세를 제거하면서 작업검토지시서를 유지할 수 없습니다',
+        path: ['rocMd'],
+      });
+    }
+    if (b.diagramSpec === null && b.postings !== undefined && b.postings !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '구성 명세를 제거하면서 분야별 작업 안내 카드를 유지할 수 없습니다',
+        path: ['postings'],
+      });
+    }
+  });
 export type MarketProjectUpdateBodyType = z.infer<typeof MarketProjectUpdateBody>;
 
 export const MarketProjectCreateResponse = z.object({

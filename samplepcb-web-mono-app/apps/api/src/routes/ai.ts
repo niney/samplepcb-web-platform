@@ -60,6 +60,9 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       if (!input.success) {
         return reply.status(400).send({ result: false, error: 'INPUT_SCHEMA_MISMATCH' });
       }
+      if (def.isApplicable !== undefined && !def.isApplicable(input.data)) {
+        return reply.status(409).send({ result: false, error: 'USECASE_NOT_APPLICABLE' });
+      }
 
       // 깊은 입력 검증(예: spec JSON 파손)은 buildPrompt 가 throw — 잡 시작 전 400.
       let prompt: string;

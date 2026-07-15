@@ -167,6 +167,12 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         return reply.status(400).send({ result: false, error: 'INVALID_DIAGRAM_SPEC' });
       }
     }
+    if (
+      normalizedDiagramSpec === null &&
+      (payload.rocMd !== undefined || payload.postings !== undefined)
+    ) {
+      return reply.status(400).send({ result: false, error: 'AI_ARTIFACT_SPEC_REQUIRED' });
+    }
     // 포스팅 카드 — 의뢰 분야 밖 카드는 조용히 걸러 저장(스키마는 계약이 이미 검증).
     const postingCards =
       payload.postings?.filter((c) => payload.serviceAreas.includes(c.serviceArea)) ?? [];
@@ -486,6 +492,20 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       // 데이터만 남아 상세·후속 문서가 지워진 구성도를 되살리는 혼란을 막는다.
       const specRemoved =
         body.diagramSpec === null || (body.diagramHtml === null && body.diagramSpec === undefined);
+      const nextHasSpec =
+        body.diagramSpec !== undefined ? body.diagramSpec !== null : !specRemoved && project.diagramSpec !== null;
+      const nextHasRoc =
+        body.rocMd !== undefined ? body.rocMd !== null : !specRemoved && project.rocMd !== null;
+      const nextHasPostings =
+        body.postings !== undefined ? body.postings !== null : !specRemoved && project.postings !== null;
+      const aiArtifactsTouched =
+        body.diagramHtml !== undefined ||
+        body.diagramSpec !== undefined ||
+        body.rocMd !== undefined ||
+        body.postings !== undefined;
+      if (aiArtifactsTouched && !nextHasSpec && (nextHasRoc || nextHasPostings)) {
+        return reply.status(400).send({ result: false, error: 'AI_ARTIFACT_SPEC_REQUIRED' });
+      }
       if (specRemoved) data.diagramSpec = null;
       if (body.rocMd !== undefined) data.rocMd = body.rocMd;
       if (body.postings !== undefined) {

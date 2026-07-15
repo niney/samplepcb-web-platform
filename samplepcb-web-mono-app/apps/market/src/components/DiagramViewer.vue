@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { buildDiagramSrcdoc } from '../lib/diagram-srcdoc';
 
 // AI 구성도 뷰어 — 기본은 컨테이너 폭에 맞춘 축소 미리보기(scale-to-fit, 스크롤 없음),
 // 클릭하면 모달에서 원본 크기 전체보기. 위저드 미리보기·프로젝트 상세가 공유한다.
@@ -13,7 +14,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 // 띄워 레이아웃 기여를 0 으로 만든다(안 그러면 grid min-content 가 1400px 로 밀려
 // 부모 카드를 뚫는다 — 실측 버그).
 
-defineProps<{ html: string }>();
+const props = defineProps<{ html: string }>();
+const sandboxedHtml = computed(() => buildDiagramSrcdoc(props.html));
 
 // 프롬프트가 강제하는 설계 캔버스(svg viewBox 1400×1000) — 측정 실패 시 폴백.
 const BASE_W = 1400;
@@ -74,7 +76,7 @@ watch(open, (v) => {
     >
       <iframe
         sandbox="allow-same-origin"
-        :srcdoc="html"
+        :srcdoc="sandboxedHtml"
         title="시스템 구성도 미리보기"
         class="pointer-events-none absolute left-0 top-0 origin-top-left border-0"
         :style="{
@@ -114,9 +116,9 @@ watch(open, (v) => {
           <div class="min-h-0 flex-1 overflow-auto">
             <iframe
               sandbox="allow-same-origin"
-              :srcdoc="html"
+              :srcdoc="sandboxedHtml"
               title="시스템 구성도 전체보기"
-              class="block border-0"
+              class="pointer-events-none block border-0"
               :style="{ width: `${String(contentW)}px`, height: `${String(contentH)}px` }"
             />
           </div>

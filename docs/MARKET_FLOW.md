@@ -57,12 +57,18 @@ local-web.samplepcb.co.kr (nginx 443)
   구성하고, 질문 그룹이 없는 분야(앱·서버·SW·기타)만 선택하면 스텝 자체가 목록에서
   빠진다(4스텝). 프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map` — 인접
   `category`=requestType 물리명과 혼동 회피)에 저장.
-- **AI 시스템 구성도**: 위저드 "설명·자료" 뒤 동적 스텝(관리자 활성 시) — Ollama 로 단일
-  HTML 구성도를 생성해 `diagramHtml`(sandbox iframe 렌더 전용)에 저장. 정본
+- **AI 시스템 구성도**: 위저드 "설명·자료" 뒤 동적 스텝(관리자 활성 시) — 인터뷰 파이프라인은
+  전 분야, 레거시 단발 생성은 전자 분야에만 적용한다. Ollama HTML은 sandbox iframe에 넣기 전
+  외부 연결 차단 CSP와 활성 요소 제거를 적용해 `diagramHtml`에 저장한다. 정본
   **docs/AI_DIAGRAM.md**(범용 AI 유스케이스 계층·프로빙 확정 프롬프트·운영).
 - AI 인터뷰 질문은 공통 3문항 + 선택 개발 분야별 모듈의 합집합이다. FE 노출과 서버의
   미응답→추가질문 계산은 `getApplicableAiInterviewQuestions`를 공유해, 앱·서버 의뢰에
-  전원·MCU 같은 무관한 하드웨어 질문이 전달되지 않는다.
+  전원·MCU 같은 무관한 하드웨어 질문이 전달되지 않는다. STEP 2의 세부분야·요구 툴도 모든
+  AI 문서 프롬프트의 고정 기술 컨텍스트로 전달된다.
+- AI 산출물은 생성 시점의 제목·설명·분야·세부분야·요구 툴·인터뷰 답변 서명을 함께 추적한다.
+  원천이 달라지면 기존 명세·구성도·ROC·포스팅은 오래된 결과로 표시하고 제출에서 제외한다.
+  명세 포함 여부는 구성도와 별도로 선택하며, 서버는 create/PATCH 모두 명세 없는 ROC·포스팅
+  저장을 거부한다.
 - 툴 코드는 ECAD·MCAD·디자인 통합 flat 배열(`MARKET_TOOL_CODES`) — DB/계약 필드명은
   `cadTools` 그대로(호환), 그룹 해석은 `MARKET_TOOL_GROUP_CODES` 로 UI/매칭 단계에서 한다.
   **빈 배열 = 특정 툴 요구 없음**. 구 `'any'` 코드는 레거시 데이터 호환용으로만 enum 잔존

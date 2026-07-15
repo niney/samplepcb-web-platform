@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   DiagramSpec,
@@ -172,7 +172,12 @@ const postingsStatus = useAiUsecaseStatus('market.request-postings');
 const postingsEnabled = computed(
   () => interviewEnabled.value && (postingsStatus.data.value?.data.enabled ?? false),
 );
-const legacyDiagramEnabled = computed(() => diagramStatus.data.value?.data.enabled ?? false);
+const hasElectronicsArea = computed(() =>
+  form.serviceAreas.some((area) => area === 'circuit' || area === 'pcb' || area === 'firmware'),
+);
+const legacyDiagramEnabled = computed(
+  () => (diagramStatus.data.value?.data.enabled ?? false) && hasElectronicsArea.value,
+);
 const diagramStepEnabled = computed(() => interviewEnabled.value || legacyDiagramEnabled.value);
 
 const runDiagram = useRunDiagram();
@@ -183,6 +188,7 @@ const runPostings = useRunPostings();
 const diagramJobId = ref<string | null>(null);
 const diagramJob = useAiJob(diagramJobId);
 const includeDiagram = ref(true);
+const includeSpec = ref(true);
 
 const diagramHtml = computed<string | null>(() =>
   diagramJob.data.value?.data.status === 'done' ? diagramJob.data.value.data.html : null,
@@ -204,11 +210,15 @@ const diagramFailed = computed(
 );
 
 function generateDiagram(): void {
+  aiGeneratedSourceSignature.value = aiSourceSignature.value;
+  includeDiagram.value = true;
   diagramJobId.value = null;
   runDiagram.mutate(
     {
       title: form.title.trim(),
       serviceAreas: form.serviceAreas,
+      categories: form.categories,
+      cadTools: form.cadTools,
       description: form.description.trim(),
     },
     { onSuccess: (res) => { diagramJobId.value = res.data.jobId; } },
@@ -306,6 +316,8 @@ function generateSpec(): void {
     if (t !== '' && q !== undefined) extraAnswers.value.push(`${q.question} → ${t}`);
     gapInputs[idx] = '';
   }
+  aiGeneratedSourceSignature.value = aiSourceSignature.value;
+  includeSpec.value = true;
   specJobId.value = null;
   diagramJobId.value = null; // 명세가 바뀌면 이전 구성도·지시서·포스팅 카드는 무효
   rocJobId.value = null;
@@ -314,6 +326,8 @@ function generateSpec(): void {
     {
       title: form.title.trim(),
       serviceAreas: form.serviceAreas,
+      categories: form.categories,
+      cadTools: form.cadTools,
       description: form.description.trim(),
       answers: interviewAnswers(),
     },
@@ -327,10 +341,12 @@ function reopenInterview(): void {
   diagramJobId.value = null;
   rocJobId.value = null;
   postingsJobId.value = null;
+  aiGeneratedSourceSignature.value = null;
 }
 
 function generateDiagramFromSpec(): void {
-  if (specJson.value === null) return;
+  if (specJson.value === null || aiArtifactsStale.value) return;
+  includeDiagram.value = true;
   diagramJobId.value = null;
   runDiagramSpec.mutate(
     { spec: specJson.value },
@@ -358,12 +374,15 @@ const rocFailed = computed(
 );
 
 function generateRoc(): void {
-  if (specJson.value === null) return;
+  if (specJson.value === null || aiArtifactsStale.value) return;
+  includeRoc.value = true;
   rocJobId.value = null;
   runRoc.mutate(
     {
       title: form.title.trim(),
       serviceAreas: form.serviceAreas,
+      categories: form.categories,
+      cadTools: form.cadTools,
       description: form.description.trim(),
       spec: specJson.value,
       answers: interviewAnswers(),
@@ -401,12 +420,15 @@ const postingsFailed = computed(
 );
 
 function generatePostings(): void {
-  if (specJson.value === null) return;
+  if (specJson.value === null || aiArtifactsStale.value) return;
+  includePostings.value = true;
   postingsJobId.value = null;
   runPostings.mutate(
     {
       title: form.title.trim(),
       serviceAreas: form.serviceAreas,
+      categories: form.categories,
+      cadTools: form.cadTools,
       description: form.description.trim(),
       spec: specJson.value,
       answers: interviewAnswers(),
@@ -414,6 +436,49 @@ function generatePostings(): void {
     { onSuccess: (res) => { postingsJobId.value = res.data.jobId; } },
   );
 }
+
+// AI 결과는 생성 버튼을 누른 시점의 입력에 종속된다. 앞 단계 입력이 달라지면 결과를
+// 화면에는 남겨 비교할 수 있게 하되 제출에서는 자동 제외한다(provenance 도입 전 방어선).
+const aiSourceSignature = computed(() =>
+  JSON.stringify({
+    requestType: form.requestType,
+    serviceAreas: form.serviceAreas,
+    categories: form.categories,
+    cadTools: form.cadTools,
+    title: form.title.trim(),
+    description: form.description.trim(),
+    answers: interviewAnswers(),
+  }),
+);
+const aiGeneratedSourceSignature = ref<string | null>(null);
+const hasAiAttempt = computed(
+  () =>
+    specJobId.value !== null ||
+    diagramJobId.value !== null ||
+    rocJobId.value !== null ||
+    postingsJobId.value !== null,
+);
+const aiArtifactsStale = computed(
+  () =>
+    hasAiAttempt.value &&
+    aiGeneratedSourceSignature.value !== null &&
+    aiSourceSignature.value !== aiGeneratedSourceSignature.value,
+);
+
+watch(aiArtifactsStale, (stale) => {
+  if (!stale) return;
+  includeSpec.value = false;
+  includeDiagram.value = false;
+  includeRoc.value = false;
+  includePostings.value = false;
+});
+
+// ROC·분야 카드는 구성 명세의 파생물이다.
+watch(includeSpec, (included) => {
+  if (included) return;
+  includeRoc.value = false;
+  includePostings.value = false;
+});
 
 // ── 동적 스텝 — 고정 번호 대신 키 배열(질문 그룹 없으면 technical 제거) ───────
 
@@ -511,16 +576,18 @@ async function submit(): Promise<void> {
     categories: form.categories,
     cadTools: form.cadTools,
     description: form.description.trim(),
-    ...(diagramHtml.value !== null && includeDiagram.value
+    ...(diagramHtml.value !== null && includeDiagram.value && !aiArtifactsStale.value
       ? { diagramHtml: diagramHtml.value }
       : {}),
     // 구성 명세는 구성도의 원천 데이터 — 렌더 전 제출이어도 명세가 있으면 함께 저장
     // (후속 재생성·문서 파생의 근원). 인터뷰 답변 원본도 재생성용으로 동봉(응답 미노출).
-    ...(specJson.value !== null && includeDiagram.value
+    ...(specJson.value !== null && includeSpec.value && !aiArtifactsStale.value
       ? { diagramSpec: specJson.value, interviewAnswers: interviewAnswers() }
       : {}),
-    ...(rocMd.value !== null && includeRoc.value ? { rocMd: rocMd.value } : {}),
-    ...(postingCards.value !== null && includePostings.value
+    ...(rocMd.value !== null && includeSpec.value && includeRoc.value && !aiArtifactsStale.value
+      ? { rocMd: rocMd.value }
+      : {}),
+    ...(postingCards.value !== null && includeSpec.value && includePostings.value && !aiArtifactsStale.value
       ? { postings: postingCards.value }
       : {}),
     ndaRequired: form.ndaRequired,
@@ -751,6 +818,22 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
             </p>
           </div>
 
+          <div
+            v-if="aiArtifactsStale"
+            class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800"
+          >
+            <p class="font-bold">앞 단계의 내용이 변경되어 기존 AI 결과가 오래된 상태입니다.</p>
+            <p class="mt-1">현재 결과는 의뢰 등록에서 자동 제외됩니다. 변경된 내용으로 다시 생성해 주세요.</p>
+            <button
+              v-if="interviewEnabled"
+              type="button"
+              class="mt-2 rounded-lg border border-amber-300 px-3 py-1.5 text-[11px] font-bold hover:border-amber-500"
+              @click="reopenInterview"
+            >
+              질문·명세 다시 확인
+            </button>
+          </div>
+
           <!-- 인터뷰 경로: 질문 폼 → 명세 요약·TBD·추가질문 → 구성도 -->
           <template v-if="interviewEnabled">
             <!-- 1) 코어 질문 폼 (명세가 없을 때) -->
@@ -826,6 +909,10 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                   {{ specTbdBlocks.join(' · ') }}
                 </p>
                 <div class="mt-3 flex flex-wrap gap-2">
+                  <label class="flex items-center gap-2 text-[11px] font-semibold text-tx-2">
+                    <input v-model="includeSpec" type="checkbox" :disabled="aiArtifactsStale">
+                    이 AI 구성 명세를 의뢰에 포함
+                  </label>
                   <button
                     type="button"
                     class="rounded-lg border border-line px-3 py-1.5 text-[11px] font-bold text-tx-2 hover:border-line-2"
@@ -870,7 +957,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                   <button
                     type="button"
                     class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
-                    :disabled="diagramRunning || specRunning"
+                    :disabled="diagramRunning || specRunning || aiArtifactsStale"
                     @click="generateDiagramFromSpec"
                   >
                     {{ diagramRunning ? '구성도 생성 중…' : '이 명세로 구성도 생성' }}
@@ -887,13 +974,13 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                 <DiagramViewer :html="diagramHtml" />
                 <div class="flex flex-wrap items-center gap-4">
                   <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
-                    <input v-model="includeDiagram" type="checkbox">
+                    <input v-model="includeDiagram" type="checkbox" :disabled="aiArtifactsStale">
                     이 구성도를 의뢰에 첨부
                   </label>
                   <button
                     type="button"
                     class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
-                    :disabled="diagramRunning"
+                    :disabled="diagramRunning || aiArtifactsStale"
                     @click="generateDiagramFromSpec"
                   >
                     {{ diagramRunning ? '생성 중…' : '다시 생성' }}
@@ -915,7 +1002,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                     <button
                       type="button"
                       class="rounded-lg border border-line px-4 py-2 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
-                      :disabled="rocRunning || specRunning"
+                      :disabled="rocRunning || specRunning || aiArtifactsStale || !includeSpec"
                       @click="generateRoc"
                     >
                       {{ rocRunning ? '지시서 생성 중…' : '작업검토지시서 생성' }}
@@ -934,13 +1021,13 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                   </div>
                   <div class="flex flex-wrap items-center gap-4">
                     <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
-                      <input v-model="includeRoc" type="checkbox">
+                      <input v-model="includeRoc" type="checkbox" :disabled="aiArtifactsStale || !includeSpec">
                       이 지시서를 의뢰에 첨부
                     </label>
                     <button
                       type="button"
                       class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
-                      :disabled="rocRunning"
+                      :disabled="rocRunning || aiArtifactsStale || !includeSpec"
                       @click="generateRoc"
                     >
                       {{ rocRunning ? '생성 중…' : '다시 생성' }}
@@ -962,7 +1049,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                     <button
                       type="button"
                       class="rounded-lg border border-line px-4 py-2 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
-                      :disabled="postingsRunning || specRunning"
+                      :disabled="postingsRunning || specRunning || aiArtifactsStale || !includeSpec"
                       @click="generatePostings"
                     >
                       {{ postingsRunning ? '카드 생성 중…' : '분야별 카드 생성' }}
@@ -993,13 +1080,13 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                   </div>
                   <div class="flex flex-wrap items-center gap-4">
                     <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
-                      <input v-model="includePostings" type="checkbox">
+                      <input v-model="includePostings" type="checkbox" :disabled="aiArtifactsStale || !includeSpec">
                       이 카드를 의뢰에 첨부
                     </label>
                     <button
                       type="button"
                       class="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
-                      :disabled="postingsRunning"
+                      :disabled="postingsRunning || aiArtifactsStale || !includeSpec"
                       @click="generatePostings"
                     >
                       {{ postingsRunning ? '생성 중…' : '다시 생성' }}
@@ -1035,7 +1122,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               <DiagramViewer :html="diagramHtml" />
               <div class="flex flex-wrap items-center gap-4">
                 <label class="flex items-center gap-2 text-xs font-semibold text-tx-2">
-                  <input v-model="includeDiagram" type="checkbox">
+                  <input v-model="includeDiagram" type="checkbox" :disabled="aiArtifactsStale">
                   이 구성도를 의뢰에 첨부
                 </label>
                 <button
@@ -1191,7 +1278,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
               {{ MARKET_BUDGET_RANGE_LABELS[form.budgetRange] }} ·
               마감 {{ form.deadlineMode === 'date' ? form.deadlineDate : `${form.deadlineMode}일 뒤` }} ·
               {{ form.ndaRequired ? 'NDA 보호' : 'NDA 없음' }} ·
-              첨부 {{ attachments.length }}개<template v-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning || specRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template><template v-else-if="specJson !== null && includeDiagram"> · AI 구성 명세 포함(구성도 미생성)</template><template v-if="rocMd !== null && includeRoc"> · AI 지시서 포함</template><template v-if="postingCards !== null && includePostings"> · 분야 카드 {{ postingCards.length }}개</template>
+              첨부 {{ attachments.length }}개<template v-if="aiArtifactsStale"> · AI 결과 오래됨(미포함)</template><template v-else-if="diagramHtml !== null && includeDiagram"> · AI 구성도 포함</template><template v-else-if="diagramRunning || specRunning"> · 구성도 생성 중(완료 전 제출 시 미포함)</template><template v-if="!aiArtifactsStale && specJson !== null && includeSpec"> · AI 구성 명세 포함</template><template v-if="!aiArtifactsStale && rocMd !== null && includeSpec && includeRoc"> · AI 지시서 포함</template><template v-if="!aiArtifactsStale && postingCards !== null && includeSpec && includePostings"> · 분야 카드 {{ postingCards.length }}개</template>
             </p>
           </div>
         </div>
