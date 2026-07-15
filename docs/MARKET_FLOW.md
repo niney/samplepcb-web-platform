@@ -60,6 +60,9 @@ local-web.samplepcb.co.kr (nginx 443)
 - **AI 시스템 구성도**: 위저드 "설명·자료" 뒤 동적 스텝(관리자 활성 시) — Ollama 로 단일
   HTML 구성도를 생성해 `diagramHtml`(sandbox iframe 렌더 전용)에 저장. 정본
   **docs/AI_DIAGRAM.md**(범용 AI 유스케이스 계층·프로빙 확정 프롬프트·운영).
+- AI 인터뷰 질문은 공통 3문항 + 선택 개발 분야별 모듈의 합집합이다. FE 노출과 서버의
+  미응답→추가질문 계산은 `getApplicableAiInterviewQuestions`를 공유해, 앱·서버 의뢰에
+  전원·MCU 같은 무관한 하드웨어 질문이 전달되지 않는다.
 - 툴 코드는 ECAD·MCAD·디자인 통합 flat 배열(`MARKET_TOOL_CODES`) — DB/계약 필드명은
   `cadTools` 그대로(호환), 그룹 해석은 `MARKET_TOOL_GROUP_CODES` 로 UI/매칭 단계에서 한다.
   **빈 배열 = 특정 툴 요구 없음**. 구 `'any'` 코드는 레거시 데이터 호환용으로만 enum 잔존

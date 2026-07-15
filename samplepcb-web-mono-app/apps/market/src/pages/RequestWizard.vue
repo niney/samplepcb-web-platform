@@ -2,8 +2,8 @@
 import { computed, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  AI_INTERVIEW_QUESTIONS,
   DiagramSpec,
+  getApplicableAiInterviewQuestions,
   MarketPostingCards,
   MARKET_AREA_SPECIALTIES,
   MARKET_AREA_TOOL_GROUPS,
@@ -236,8 +236,14 @@ const questionHidden = (q: AiInterviewQuestion): boolean => {
     : hide.values.some((v) => interviewAnswerStr(hide.code).includes(v));
 };
 const visibleQuestions = computed<AiInterviewQuestion[]>(() =>
-  AI_INTERVIEW_QUESTIONS.filter((q) => !questionHidden(q)),
+  getApplicableAiInterviewQuestions(form.serviceAreas).filter((q) => !questionHidden(q)),
 );
+
+const questionContextLabel = (q: AiInterviewQuestion): string => {
+  if (q.areas === undefined) return '공통';
+  const applicable = q.areas.filter((area) => form.serviceAreas.includes(area));
+  return applicable.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join('·');
+};
 
 function setSingle(code: string, option: string): void {
   interviewValues[code] = interviewValues[code] === option ? '' : option;
@@ -733,7 +739,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
             </p>
             <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
               <template v-if="interviewEnabled">
-                아래 질문에 답할수록 구성도와 요구사항 정리가 정확해집니다 — 모두 선택 사항이며,
+                공통 질문과 선택한 개발 분야에 맞는 질문만 보여드립니다. 답할수록 구성도와 요구사항 정리가 정확해집니다 — 모두 선택 사항이며,
                 건너뛴 항목은 구성도에 "(TBD)"(미확정)로 표시됩니다.
                 입력하신 제목·설명·답변 텍스트가 AI 생성을 위해 외부 서버로 전송됩니다 — 첨부 파일은 전송되지 않습니다.
               </template>
@@ -751,6 +757,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
             <div v-if="spec === null" class="grid gap-4">
               <div v-for="q in visibleQuestions" :key="q.code">
                 <p class="text-xs font-bold text-tx-2">
+                  <span class="mr-1 rounded bg-paper px-1.5 py-0.5 text-[10px] text-tx-3">{{ questionContextLabel(q) }}</span>
                   {{ q.label }} <span class="font-normal text-tx-3">(선택)</span>
                 </p>
                 <div v-if="q.type === 'text'" class="mt-2">

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MarketServiceArea, MARKET_SERVICE_AREAS } from './market';
+import type { MarketServiceAreaType } from './market';
 
 // ── AI 유스케이스 계약 ───────────────────────────────────────────────────────
 // 범용 실행 라우트(/api/ai/:useCase/run)와 관리자 설정(/api/admin/settings/ai)의 계약.
@@ -113,10 +114,9 @@ export function normalizeDiagramSpec(spec: DiagramSpecType): DiagramSpecType {
   return { ...spec, groups, blocks, connections };
 }
 
-// ── 인터뷰 질문 뱅크(코어) — 위저드 폼과 프롬프트 바인딩이 공유하는 정본 ──────
-// 기획 PDF(질문 뱅크 v4)의 U/S 필수를 코어 13문항으로 압축(사용자 확정: 코어 10문항
-// 내외 + 조건부 노출 + 건너뛰면 TBD). 전 항목 선택 사항 — 미응답은 구조화 프롬프트에
-// "미응답 항목"으로 넘어가 TBD·questions_missing 으로 반영된다.
+// ── 인터뷰 질문 뱅크 — 위저드와 서버 프롬프트 바인딩이 공유하는 정본 ─────────
+// 공통 질문 + 선택 분야별 모듈. 전 항목 선택 사항이며, 적용 분야의 미응답만 구조화
+// 프롬프트에 전달한다. 순수 소프트웨어 의뢰에 MCU·전원 질문이 섞이지 않게 하는 경계다.
 
 export interface AiInterviewQuestion {
   code: string; // 답변 페이로드 키(짧은 영문)
@@ -125,39 +125,84 @@ export interface AiInterviewQuestion {
   type: 'single' | 'multi' | 'text';
   options?: readonly string[]; // single/multi 선택지(라벨=값, 프롬프트에 그대로 바인딩)
   placeholder?: string;
+  // 미지정이면 모든 의뢰에 적용하는 공통 질문. 하나 이상이면 선택 분야와 교집합일 때 적용.
+  areas?: readonly MarketServiceAreaType[];
   // 단순 조건 노출 — 해당 code 의 답이 notValues 중 하나면 숨김(빈 답은 노출 유지)
   hideIf?: { code: string; values: readonly string[] };
 }
 
 export const AI_INTERVIEW_QUESTIONS: readonly AiInterviewQuestion[] = [
   { code: 'stage', bankRef: 'U-04', label: '현재 어느 단계에서 시작하나요?', type: 'single',
-    options: ['아이디어만 있음', '기능 명세 보유', '회로도 보유', 'PCB/거버 보유', 'PCBA(양산) 준비'] },
-  { code: 'delivery', bankRef: 'U-02', label: '최종 납품 형태는 무엇인가요?', type: 'single',
-    options: ['보드만(PCBA)', '케이스 포함 완제품', '미정'] },
+    options: ['아이디어만 있음', '요구사항·기능 명세 보유', '기존 설계·소스 보유', '시제품·테스트 중', '출시·양산 준비'] },
+  { code: 'delivery', bankRef: 'U-02', label: '원하는 최종 결과물은 무엇인가요?', type: 'text',
+    placeholder: '예: 회로도와 거버, iOS/Android 앱, API 서버와 운영 문서' },
+  { code: 'assets', bankRef: 'U-03', label: '현재 보유한 자료·설계·소스가 있나요?', type: 'text',
+    placeholder: '예: 기능명세서, 기존 회로도, 3D 도면, 소스 저장소, API 문서' },
   { code: 'qty', bankRef: 'U-08', label: '시제품 수량과 목표 양산 수량은?', type: 'text',
-    placeholder: '예: 시제품 20대, 양산 연 1,000대' },
+    placeholder: '예: 시제품 20대, 양산 연 1,000대',
+    areas: ['circuit', 'pcb', 'firmware', 'product-design', 'mechanical-design'] },
   { code: 'power', bankRef: 'S-02/S-04', label: '전원은 무엇을 사용하나요?', type: 'multi',
-    options: ['AC 220V', 'DC 어댑터', 'USB 전원', 'PoE', '차량 전원', '배터리(주 전원)', '배터리(정전 백업용)', '미정'] },
+    options: ['AC 220V', 'DC 어댑터', 'USB 전원', 'PoE', '차량 전원', '배터리(주 전원)', '배터리(정전 백업용)', '미정'],
+    areas: ['circuit', 'pcb', 'firmware'] },
   { code: 'powerDetail', bankRef: 'S-03', label: '입력 전압 범위·최대 소비전류(아는 만큼)', type: 'text',
-    placeholder: '예: 12V(9~16V 허용), 최대 1A' },
+    placeholder: '예: 12V(9~16V 허용), 최대 1A', areas: ['circuit', 'pcb', 'firmware'] },
   { code: 'mcu', bankRef: 'S-05', label: '정해진 메인 컨트롤러(MCU/모듈)가 있나요?', type: 'text',
-    placeholder: '예: nRF52840 인증 모듈 — 미정이면 비워두세요(추천받기)' },
+    placeholder: '예: nRF52840 인증 모듈 — 미정이면 비워두세요(추천받기)', areas: ['circuit', 'firmware'] },
   { code: 'sensors', bankRef: 'S-06', label: '감지하거나 입력받을 것은 무엇인가요?', type: 'text',
-    placeholder: '예: 온습도 1개, 문열림 센서, 키 스위치' },
+    placeholder: '예: 온습도 1개, 문열림 센서, 키 스위치', areas: ['circuit', 'firmware'] },
   { code: 'outputs', bankRef: 'S-07/S-08', label: '제어할 출력·부하는 무엇인가요? (전압/전류 아는 만큼)', type: 'text',
-    placeholder: '예: 12V 솔레노이드 락 500mA 1개, LED 3개' },
-  { code: 'comm', bankRef: 'S-09', label: '필요한 통신 방식은?', type: 'multi',
-    options: ['BLE', 'Wi-Fi', 'LTE-M/LTE', 'LoRa', 'RS485/RS232', 'CAN', 'Ethernet', 'USB', '없음', '미정'] },
+    placeholder: '예: 12V 솔레노이드 락 500mA 1개, LED 3개', areas: ['circuit', 'firmware'] },
+  { code: 'comm', bankRef: 'S-09', label: '장치에 필요한 통신 방식은?', type: 'multi',
+    options: ['BLE', 'Wi-Fi', 'LTE-M/LTE', 'LoRa', 'RS485/RS232', 'CAN', 'Ethernet', 'USB', '없음', '미정'],
+    areas: ['circuit', 'pcb', 'firmware'] },
   { code: 'server', bankRef: 'S-10/S-11', label: '서버·앱 연동이 필요한가요?', type: 'multi',
-    options: ['기존 서버 연동', '신규 서버 필요', '모바일 앱', '웹 관리자 화면', '없음', '미정'] },
-  { code: 'ui', bankRef: 'S-13', label: '상태 표시·조작 요소가 있나요?', type: 'multi',
-    options: ['LED', '버튼/스위치', '디스플레이', '부저', '없음', '미정'] },
+    options: ['기존 서버 연동', '신규 서버 필요', '모바일 앱', '웹 관리자 화면', '없음', '미정'],
+    areas: ['circuit', 'firmware'] },
+  { code: 'ui', bankRef: 'S-13', label: '물리적인 상태 표시·조작 요소가 있나요?', type: 'multi',
+    options: ['LED', '버튼/스위치', '디스플레이', '부저', '없음', '미정'],
+    areas: ['circuit', 'firmware', 'product-design'] },
   { code: 'enclosure', bankRef: 'S-16', label: '케이스는 어떻게 제작하나요?', type: 'single',
     options: ['기성품 케이스 가공', '신규 디자인(3D프린팅 시제품)', '신규 디자인(양산 사출)', '미정'],
-    hideIf: { code: 'delivery', values: ['보드만(PCBA)'] } },
+    areas: ['product-design', 'mechanical-design'] },
   { code: 'env', bankRef: 'U-06/S-15', label: '사용 환경·방수방진·인증 요구가 있나요?', type: 'text',
-    placeholder: '예: 실외 IP65, KC 인증 필요' },
+    placeholder: '예: 실외 IP65, KC 인증 필요',
+    areas: ['circuit', 'pcb', 'firmware', 'product-design', 'mechanical-design'] },
+  { code: 'pcbInputs', bankRef: 'P-01', label: 'PCB 설계에 제공할 입력 자료는 무엇인가요?', type: 'multi',
+    options: ['회로도', '부품목록(BOM)', '기구 외형·배치도', '기존 PCB/거버', '없음', '미정'], areas: ['pcb'] },
+  { code: 'pcbConstraints', bankRef: 'P-02', label: '기판 크기·층수·특수 제약이 있나요?', type: 'text',
+    placeholder: '예: 80×50mm, 4층, 임피던스 제어 필요', areas: ['pcb'] },
+  { code: 'mechanical', bankRef: 'M-01/M-02', label: '목표 크기·재질·제작 방식이 정해졌나요?', type: 'text',
+    placeholder: '예: 120×80×30mm, ABS, 시제품 3D프린팅 후 사출', areas: ['product-design', 'mechanical-design'] },
+  { code: 'mechanicalAssets', bankRef: 'M-03', label: '기존 도면·3D 데이터·참고 제품이 있나요?', type: 'text',
+    placeholder: '예: STEP 파일과 제품 스케치 보유', areas: ['product-design', 'mechanical-design'] },
+  { code: 'appPlatform', bankRef: 'A-01', label: '앱의 대상 플랫폼은 무엇인가요?', type: 'multi',
+    options: ['웹', 'iOS', 'Android', '태블릿', '미정'], areas: ['app'] },
+  { code: 'appScope', bankRef: 'A-02', label: '주요 사용자와 꼭 필요한 화면·기능은 무엇인가요?', type: 'text',
+    placeholder: '예: 일반 사용자/관리자, 회원가입·장치등록·상태조회·푸시알림', areas: ['app'] },
+  { code: 'appExisting', bankRef: 'A-03', label: '연동할 기존 API·디자인·앱이 있나요?', type: 'text',
+    placeholder: '예: REST API 문서와 Figma 디자인 보유', areas: ['app'] },
+  { code: 'serverScope', bankRef: 'B-01', label: '서버 개발 범위는 무엇인가요?', type: 'multi',
+    options: ['API', 'DB 설계', '관리자 화면', '실시간 통신', '배치·스케줄러', '인프라·배포', '미정'], areas: ['server'] },
+  { code: 'serverScale', bankRef: 'B-02', label: '예상 사용자·장치 수와 트래픽 규모는?', type: 'text',
+    placeholder: '예: 장치 1만 대, 동시접속 500명, 초당 메시지 100건', areas: ['server'] },
+  { code: 'serverEnv', bankRef: 'B-03', label: '운영 환경·외부 연동·보안 요구가 있나요?', type: 'text',
+    placeholder: '예: AWS, 사내 ERP 연동, 개인정보 암호화와 감사로그 필요', areas: ['server'] },
+  { code: 'softwareTarget', bankRef: 'W-01', label: '대상 OS·버전과 실행 형태는 무엇인가요?', type: 'text',
+    placeholder: '예: Windows 11 GUI 프로그램 / Ubuntu 24.04 백그라운드 서비스', areas: ['software-linux', 'software-windows'] },
+  { code: 'softwareIntegration', bankRef: 'W-02', label: '연동할 장비·드라이버·프로토콜·기존 소스가 있나요?', type: 'text',
+    placeholder: '예: USB 계측기, 시리얼 통신, 기존 C++ 소스 보유', areas: ['software-linux', 'software-windows'] },
+  { code: 'softwareDelivery', bankRef: 'W-03', label: '설치·업데이트·배포 방식에 요구가 있나요?', type: 'text',
+    placeholder: '예: 오프라인 설치 파일과 자동 업데이트 필요', areas: ['software-linux', 'software-windows'] },
 ] as const;
+
+export function getApplicableAiInterviewQuestions(
+  serviceAreas: readonly MarketServiceAreaType[],
+): AiInterviewQuestion[] {
+  const selected = new Set<MarketServiceAreaType>(serviceAreas);
+  return AI_INTERVIEW_QUESTIONS.filter(
+    (q) => q.areas === undefined || q.areas.some((area) => selected.has(area)),
+  );
+}
 
 export const AiInterviewAnswer = z.object({
   code: z.string().trim().min(1).max(30),
