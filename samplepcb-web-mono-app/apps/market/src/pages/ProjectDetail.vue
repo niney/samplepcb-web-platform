@@ -13,7 +13,10 @@ import {
   MARKET_SERVICE_AREA_LABELS,
   apiRoutes,
 } from '@sp/api-contract';
-import type { MarketBidSubmitBodyType } from '@sp/api-contract';
+import type {
+  MarketAiArtifactProvenanceType,
+  MarketBidSubmitBodyType,
+} from '@sp/api-contract';
 import { useAuthStore } from '@sp/shared';
 import BidFormModal from '../components/BidFormModal.vue';
 import ContractCard from '../components/ContractCard.vue';
@@ -285,6 +288,23 @@ const fmtSize = (bytes: number): string =>
   bytes >= 1_048_576
     ? `${(bytes / 1_048_576).toFixed(1)}MB`
     : `${Math.max(1, Math.round(bytes / 1024)).toString()}KB`;
+
+const provenanceLabel = (provenance: MarketAiArtifactProvenanceType | null): string => {
+  if (provenance?.state === 'ai-generated') return '검증된 AI 생성본';
+  if (provenance?.state === 'deterministic') return '명세 기반 시스템 렌더';
+  if (provenance?.state === 'customer-modified') return '고객 수정본';
+  return '출처 미확인';
+};
+
+const provenanceTitle = (provenance: MarketAiArtifactProvenanceType | null): string => {
+  if (provenance === null) return '';
+  const details = [
+    provenance.model !== null ? `모델 ${provenance.model}` : null,
+    provenance.promptVersion !== null ? `프롬프트 ${provenance.promptVersion.slice(0, 12)}` : null,
+    provenance.generatedAt !== null ? `생성 ${provenance.generatedAt}` : null,
+  ].filter((value): value is string => value !== null);
+  return details.join(' · ');
+};
 </script>
 
 <template>
@@ -373,7 +393,11 @@ const fmtSize = (bytes: number): string =>
           <div v-if="detail.diagramHtml !== null" class="rounded-2xl border border-line bg-white p-6">
             <p class="font-mono text-[11px] tracking-widest text-tx-3">SYSTEM DIAGRAM</p>
             <h2 class="mt-1 text-sm font-extrabold text-tx-1">
-              시스템 구성도 <span class="font-normal text-tx-3">(AI 자동 생성 초안 · 클릭하면 크게 보기)</span>
+              시스템 구성도
+              <span
+                class="font-normal text-tx-3"
+                :title="provenanceTitle(detail.aiProvenance.diagramHtml)"
+              >({{ provenanceLabel(detail.aiProvenance.diagramHtml) }} · 클릭하면 크게 보기)</span>
             </h2>
             <div class="mt-3">
               <DiagramViewer :html="detail.diagramHtml" />
@@ -384,7 +408,11 @@ const fmtSize = (bytes: number): string =>
           <div v-if="detail.rocMd !== null" class="rounded-2xl border border-line bg-white p-6">
             <p class="font-mono text-[11px] tracking-widest text-tx-3">WORK REVIEW DOC</p>
             <h2 class="mt-1 text-sm font-extrabold text-tx-1">
-              작업검토지시서 <span class="font-normal text-tx-3">(AI 자동 생성 초안 · 미확정 값은 TBD)</span>
+              작업검토지시서
+              <span
+                class="font-normal text-tx-3"
+                :title="provenanceTitle(detail.aiProvenance.rocMd)"
+              >({{ provenanceLabel(detail.aiProvenance.rocMd) }} · 미확정 값은 TBD)</span>
             </h2>
             <div class="mt-3">
               <RocViewer :md="detail.rocMd" />
@@ -395,7 +423,11 @@ const fmtSize = (bytes: number): string =>
           <div v-if="detail.postings !== null" class="rounded-2xl border border-line bg-white p-6">
             <p class="font-mono text-[11px] tracking-widest text-tx-3">POSTINGS BY AREA</p>
             <h2 class="mt-1 text-sm font-extrabold text-tx-1">
-              분야별 작업 안내 <span class="font-normal text-tx-3">(AI 자동 생성 초안)</span>
+              분야별 작업 안내
+              <span
+                class="font-normal text-tx-3"
+                :title="provenanceTitle(detail.aiProvenance.postings)"
+              >({{ provenanceLabel(detail.aiProvenance.postings) }})</span>
             </h2>
             <p
               v-if="detail.requestType === 'system'"

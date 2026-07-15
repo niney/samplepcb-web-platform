@@ -35,6 +35,7 @@ import {
   toProjectToolCodes,
   toServiceAreaCodes,
 } from '../lib/market';
+import { toAiProvenance } from '../lib/ai/provenance';
 import { prisma } from '../lib/prisma';
 
 // ── /api/admin/market/projects — 프로젝트 모니터(운영 감독) ──────────────────
@@ -175,6 +176,7 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
         where: { id: { in: bids.map((b) => b.expertId) } },
       });
       const expertById = new Map(experts.map((e) => [e.id.toString(), e]));
+      const postings = toPostings(project.postings);
 
       const now = new Date();
       return {
@@ -193,7 +195,13 @@ export const adminMarketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opt
           diagramHtml: project.diagramHtml,
           diagramSpec: project.diagramSpec,
           rocMd: project.rocMd,
-          postings: toPostings(project.postings),
+          postings,
+          aiProvenance: toAiProvenance(project.aiGenerationMeta, {
+            diagramSpec: project.diagramSpec,
+            diagramHtml: project.diagramHtml,
+            rocMd: project.rocMd,
+            postings,
+          }),
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           targetExpert:

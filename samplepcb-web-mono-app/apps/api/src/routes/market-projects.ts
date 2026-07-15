@@ -18,6 +18,11 @@ import type {
   MarketProjectViewerType,
 } from '@sp/api-contract';
 import { renderDiagramSpecHtml } from '@sp/utils';
+import {
+  buildAiGenerationMeta,
+  invalidateAiGenerationMeta,
+  toAiProvenance,
+} from '../lib/ai/provenance';
 import { parseDiagramSpecString } from '../lib/ai/usecases';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
@@ -183,6 +188,18 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       payload.diagramHtml !== undefined && normalizedDiagram !== null
         ? renderDiagramSpecHtml(normalizedDiagram)
         : payload.diagramHtml ?? null;
+    const persistedPostings = postingCards.length > 0 ? postingCards : null;
+    const aiGenerationMeta = buildAiGenerationMeta({
+      mbId,
+      payload,
+      artifacts: {
+        diagramSpec: normalizedDiagramSpec,
+        diagramHtml,
+        rocMd: payload.rocMd ?? null,
+        postings: persistedPostings,
+      },
+      generatedAt: now,
+    });
 
     // 지정견적 — 대상은 승인 전문가여야 하고, 자기 자신(자전 입찰 유도) 지정은 금지.
     let targetExpert: SpMarketExpert | null = null;
@@ -236,7 +253,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           diagramSpec: normalizedDiagramSpec,
           rocMd: payload.rocMd ?? null,
           interviewAnswers: payload.interviewAnswers ?? Prisma.DbNull,
-          postings: postingCards.length > 0 ? postingCards : Prisma.DbNull,
+          postings: persistedPostings ?? Prisma.DbNull,
+          aiGenerationMeta: aiGenerationMeta ?? Prisma.DbNull,
           ndaRequired: payload.ndaRequired,
           budgetRange: payload.budgetRange,
           startHopeDate: payload.startHopeDate ?? null,
@@ -423,6 +441,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         marketOwnerNames([project.mbId]),
         marketBidCounts([project.id]),
       ]);
+      const postings = toPostings(project.postings);
 
       return {
         result: true as const,
@@ -437,7 +456,13 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           diagramHtml: project.diagramHtml,
           diagramSpec: project.diagramSpec,
           rocMd: project.rocMd,
-          postings: toPostings(project.postings),
+          postings,
+          aiProvenance: toAiProvenance(project.aiGenerationMeta, {
+            diagramSpec: project.diagramSpec,
+            diagramHtml: project.diagramHtml,
+            rocMd: project.rocMd,
+            postings,
+          }),
           startHopeDate: project.startHopeDate,
           dueHopeDate: project.dueHopeDate,
           awardedAt: project.awardedAt?.toISOString() ?? null,
@@ -552,6 +577,24 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           return reply.status(400).send({ result: false, error: 'DEADLINE_PAST' });
         }
         data.bidDeadlineAt = next;
+      }
+      const aiSourceTouched =
+        body.title !== undefined ||
+        body.requestType !== undefined ||
+        body.serviceAreas !== undefined ||
+        body.categories !== undefined ||
+        body.cadTools !== undefined ||
+        body.description !== undefined ||
+        body.diagramHtml !== undefined ||
+        body.diagramSpec !== undefined ||
+        body.rocMd !== undefined ||
+        body.postings !== undefined ||
+        body.budgetRange !== undefined ||
+        body.startHopeDate !== undefined ||
+        body.dueHopeDate !== undefined ||
+        body.deadline !== undefined;
+      if (aiSourceTouched) {
+        data.aiGenerationMeta = invalidateAiGenerationMeta(project.aiGenerationMeta) ?? Prisma.DbNull;
       }
 
       const updated = await prisma.spMarketProject.update({ where: { id: project.id }, data });

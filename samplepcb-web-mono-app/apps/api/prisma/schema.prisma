@@ -234,6 +234,9 @@ model SpMarketProject {
   interviewAnswers Json?
   // 분야별 포스팅 카드(Phase 3, MarketPostingCards) — 공개 범위는 description 과 동일.
   postings       Json?
+  // AI 잡 출처와 결정적 렌더 출처의 검증 메타데이터. 모델·프롬프트/입력/출력 해시·jobId를
+  // 보존하며, 실제 산출물과 해시가 다르면 응답 라벨을 고객 수정본으로 내린다.
+  aiGenerationMeta Json?
   ndaRequired    Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
   budgetRange    String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
   startHopeDate  String?   @db.VarChar(10) // 'YYYY-MM-DD' 표시용 KST 날짜 문자열(타임존 경계 회피)

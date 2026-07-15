@@ -604,6 +604,20 @@ const stepValid = computed<boolean>(() => {
 
 async function submit(): Promise<void> {
   submitError.value = '';
+  const aiJobIds = {
+    ...(specJobId.value !== null && includeSpec.value && !aiArtifactsStale.value
+      ? { structurize: specJobId.value }
+      : {}),
+    ...(diagramJobId.value !== null && includeDiagram.value && !interviewEnabled.value && !aiArtifactsStale.value
+      ? { legacyDiagram: diagramJobId.value }
+      : {}),
+    ...(rocJobId.value !== null && includeRoc.value && includeSpec.value && !aiArtifactsStale.value
+      ? { roc: rocJobId.value }
+      : {}),
+    ...(postingsJobId.value !== null && includePostings.value && includeSpec.value && !aiArtifactsStale.value
+      ? { postings: postingsJobId.value }
+      : {}),
+  };
   const payload = {
     title: form.title.trim(),
     requestType: form.requestType,
@@ -626,6 +640,7 @@ async function submit(): Promise<void> {
     ...(postingCards.value !== null && includeSpec.value && includePostings.value && !aiArtifactsStale.value
       ? { postings: postingCards.value }
       : {}),
+    ...(Object.keys(aiJobIds).length > 0 ? { aiJobIds } : {}),
     ndaRequired: form.ndaRequired,
     budgetRange: form.budgetRange,
     ...(form.startHopeDate !== '' ? { startHopeDate: form.startHopeDate } : {}),

@@ -616,6 +616,24 @@ export const MarketPostingCards = z
   .max(MARKET_SERVICE_AREAS.length);
 export type MarketPostingCardsType = z.infer<typeof MarketPostingCards>;
 
+// AI 산출물 출처 표시 — 저장 메타데이터와 현재 산출물 해시를 서버가 대조한 결과만 응답한다.
+// 메타데이터가 없는 레거시/직접 입력은 unverified, 생성 뒤 원천·출력이 달라지면 customer-modified.
+export const MarketAiArtifactProvenance = z.object({
+  state: z.enum(['ai-generated', 'deterministic', 'customer-modified', 'unverified']),
+  model: z.string().nullable(),
+  promptVersion: z.string().nullable(),
+  generatedAt: z.string().nullable(),
+});
+export type MarketAiArtifactProvenanceType = z.infer<typeof MarketAiArtifactProvenance>;
+
+export const MarketAiProvenance = z.object({
+  diagramSpec: MarketAiArtifactProvenance.nullable(),
+  diagramHtml: MarketAiArtifactProvenance.nullable(),
+  rocMd: MarketAiArtifactProvenance.nullable(),
+  postings: MarketAiArtifactProvenance.nullable(),
+});
+export type MarketAiProvenanceType = z.infer<typeof MarketAiProvenance>;
+
 const marketProjectEditableShape = {
   title: z.string().trim().min(2).max(200),
   requestType: MarketRequestType,
@@ -643,6 +661,16 @@ const marketProjectEditableShape = {
     .optional(),
   // 분야별 포스팅 카드(Phase 3) — 서버가 의뢰 분야 밖 카드를 걸러 저장.
   postings: MarketPostingCards.optional(),
+  // 서버가 인메모리 잡의 소유자·유스케이스·입력·출력을 직접 대조하는 참조값이다.
+  // 이 필드 자체는 출처 메타데이터로 신뢰하거나 DB에 그대로 저장하지 않는다.
+  aiJobIds: z
+    .object({
+      structurize: z.string().uuid().optional(),
+      legacyDiagram: z.string().uuid().optional(),
+      roc: z.string().uuid().optional(),
+      postings: z.string().uuid().optional(),
+    })
+    .optional(),
   ndaRequired: z.boolean().default(true),
   budgetRange: MarketBudgetRange,
   startHopeDate: z.string().regex(DATE_RE).optional(),
@@ -828,6 +856,7 @@ export const MarketProjectDetail = MarketProjectListItem.extend({
   diagramSpec: z.string().nullable(), // 구성 명세 JSON — 공개 범위는 description 동일
   rocMd: z.string().nullable(), // AI 작업검토지시서 — 공개 범위는 description 동일
   postings: MarketPostingCards.nullable(), // 분야별 포스팅 카드 — 공개 범위 동일
+  aiProvenance: MarketAiProvenance,
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   awardedAt: z.string().nullable(), // ISO
@@ -1231,6 +1260,7 @@ export const AdminMarketProjectDetail = AdminMarketProjectListItem.extend({
   diagramSpec: z.string().nullable(),
   rocMd: z.string().nullable(),
   postings: MarketPostingCards.nullable(),
+  aiProvenance: MarketAiProvenance,
   startHopeDate: z.string().nullable(),
   dueHopeDate: z.string().nullable(),
   targetExpert: z
