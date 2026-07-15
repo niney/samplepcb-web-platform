@@ -39,3 +39,5 @@ export function maskName(name: string): string {
   if (chars.length === 2 || last === undefined) return `${first}*`;
   return `${first}${'*'.repeat(chars.length - 2)}${last}`;
 }
+
+export { renderDiagramSpecHtml } from './diagram-renderer';

@@ -17,6 +17,7 @@ import type {
   MarketMyProjectListItemType,
   MarketProjectViewerType,
 } from '@sp/api-contract';
+import { renderDiagramSpecHtml } from '@sp/utils';
 import { parseDiagramSpecString } from '../lib/ai/usecases';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
@@ -160,9 +161,11 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     // 구성 명세 JSON — 우리 AI 산출이 정상 경로지만 클라이언트 입력이므로 재검증하고,
     // 정규화 직렬화본으로 저장한다(이관 specJson _legacy 교훈: 저장 전 형태 통제).
     let normalizedDiagramSpec: string | null = null;
+    let normalizedDiagram: ReturnType<typeof parseDiagramSpecString> | null = null;
     if (payload.diagramSpec !== undefined) {
       try {
-        normalizedDiagramSpec = JSON.stringify(parseDiagramSpecString(payload.diagramSpec));
+        normalizedDiagram = parseDiagramSpecString(payload.diagramSpec);
+        normalizedDiagramSpec = JSON.stringify(normalizedDiagram);
       } catch {
         return reply.status(400).send({ result: false, error: 'INVALID_DIAGRAM_SPEC' });
       }
@@ -176,6 +179,10 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     // 포스팅 카드 — 의뢰 분야 밖 카드는 조용히 걸러 저장(스키마는 계약이 이미 검증).
     const postingCards =
       payload.postings?.filter((c) => payload.serviceAreas.includes(c.serviceArea)) ?? [];
+    const diagramHtml =
+      payload.diagramHtml !== undefined && normalizedDiagram !== null
+        ? renderDiagramSpecHtml(normalizedDiagram)
+        : payload.diagramHtml ?? null;
 
     // 지정견적 — 대상은 승인 전문가여야 하고, 자기 자신(자전 입찰 유도) 지정은 금지.
     let targetExpert: SpMarketExpert | null = null;
@@ -225,7 +232,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           categories: payload.categories,
           cadTools: payload.cadTools,
           description: payload.description,
-          diagramHtml: payload.diagramHtml ?? null,
+          diagramHtml,
           diagramSpec: normalizedDiagramSpec,
           rocMd: payload.rocMd ?? null,
           interviewAnswers: payload.interviewAnswers ?? Prisma.DbNull,
@@ -480,13 +487,32 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (body.categories !== undefined) data.categories = body.categories;
       if (body.cadTools !== undefined) data.cadTools = body.cadTools;
       if (body.description !== undefined) data.description = body.description;
-      if (body.diagramHtml !== undefined) data.diagramHtml = body.diagramHtml;
+      let normalizedBodySpec: ReturnType<typeof parseDiagramSpecString> | null = null;
       if (body.diagramSpec !== undefined && body.diagramSpec !== null) {
         try {
-          data.diagramSpec = JSON.stringify(parseDiagramSpecString(body.diagramSpec));
+          normalizedBodySpec = parseDiagramSpecString(body.diagramSpec);
+          data.diagramSpec = JSON.stringify(normalizedBodySpec);
         } catch {
           return reply.status(400).send({ result: false, error: 'INVALID_DIAGRAM_SPEC' });
         }
+      }
+      if (body.diagramHtml !== undefined) {
+        if (body.diagramHtml === null) {
+          data.diagramHtml = null;
+        } else if (normalizedBodySpec !== null) {
+          data.diagramHtml = renderDiagramSpecHtml(normalizedBodySpec);
+        } else if (body.diagramSpec === undefined && project.diagramSpec !== null) {
+          try {
+            data.diagramHtml = renderDiagramSpecHtml(parseDiagramSpecString(project.diagramSpec));
+          } catch {
+            data.diagramHtml = body.diagramHtml;
+          }
+        } else {
+          data.diagramHtml = body.diagramHtml;
+        }
+      } else if (normalizedBodySpec !== null && project.diagramHtml !== null) {
+        // 명세가 바뀌었는데 구성도 포함 상태가 유지되면 같은 명세로 즉시 재렌더한다.
+        data.diagramHtml = renderDiagramSpecHtml(normalizedBodySpec);
       }
       // 구성도 제거(diagramHtml=null) 시 spec 을 명시하지 않았으면 함께 제거 — 원천
       // 데이터만 남아 상세·후속 문서가 지워진 구성도를 되살리는 혼란을 막는다.
@@ -507,6 +533,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         return reply.status(400).send({ result: false, error: 'AI_ARTIFACT_SPEC_REQUIRED' });
       }
       if (specRemoved) data.diagramSpec = null;
+      if (body.diagramSpec === null && body.diagramHtml === undefined) data.diagramHtml = null;
       if (body.rocMd !== undefined) data.rocMd = body.rocMd;
       if (body.postings !== undefined) {
         const filtered = (body.postings ?? []).filter((c) => nextServiceAreas.includes(c.serviceArea));

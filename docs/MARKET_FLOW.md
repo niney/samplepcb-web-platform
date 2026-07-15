@@ -58,8 +58,10 @@ local-web.samplepcb.co.kr (nginx 443)
   빠진다(4스텝). 프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map` — 인접
   `category`=requestType 물리명과 혼동 회피)에 저장.
 - **AI 시스템 구성도**: 위저드 "설명·자료" 뒤 동적 스텝(관리자 활성 시) — 인터뷰 파이프라인은
-  전 분야, 레거시 단발 생성은 전자 분야에만 적용한다. Ollama HTML은 sandbox iframe에 넣기 전
-  외부 연결 차단 CSP와 활성 요소 제거를 적용해 `diagramHtml`에 저장한다. 정본
+  전 분야, 레거시 단발 생성은 전자 분야에만 적용한다. 인터뷰의 `DiagramSpec`은 FE/BE 공용
+  결정적 SVG 렌더러가 즉시 변환하고 서버가 저장 전에 재생성한다. 기존 Ollama HTML을 포함한
+  모든 구성도는 sandbox iframe에 넣기 전 외부 연결 차단 CSP와 활성 요소 제거를 적용해
+  `diagramHtml`에 저장한다. 정본
   **docs/AI_DIAGRAM.md**(범용 AI 유스케이스 계층·프로빙 확정 프롬프트·운영).
 - AI 인터뷰 질문은 공통 3문항 + 선택 개발 분야별 모듈의 합집합이다. FE 노출과 서버의
   미응답→추가질문 계산은 `getApplicableAiInterviewQuestions`를 공유해, 앱·서버 의뢰에

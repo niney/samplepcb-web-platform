@@ -16,13 +16,11 @@ import type { MarketServiceAreaType } from './market';
 // ai_api_key)과 유스케이스 설정(sp_ai_usecase: enabled·model·promptTemplate)은 분리.
 // apiKey 원문은 어떤 응답에도 싣지 않는다(마스킹만) — 서버 밖 유출 원천 차단.
 
-// structurize=인터뷰 답변→구성 명세 JSON(P1), diagram-spec=명세 JSON→구성도 HTML(P2).
-// 기존 diagram(설명→HTML 단발)은 인터뷰 비활성 시 폴백으로 유지 — 프롬프트가 DB(관리자
-// 소유)에 있어 의미를 바꾸지 않고 유스케이스를 추가하는 쪽이 안전하다.
+// structurize=인터뷰 답변→구성 명세 JSON(P1). 구성도는 DiagramSpec을 공용 결정적 렌더러로
+// 즉시 변환한다. 기존 diagram(설명→HTML 단발)은 구조화 비활성 시 전자 분야 폴백으로 유지.
 export const AI_USECASES = [
   'market.request-diagram',
   'market.request-structurize',
-  'market.request-diagram-spec',
   'market.request-roc',
   'market.request-postings',
 ] as const;
@@ -229,12 +227,6 @@ export const AiStructurizeRunBody = z.object({
   answers: z.array(AiInterviewAnswer).max(40).default([]),
 });
 export type AiStructurizeRunBodyType = z.infer<typeof AiStructurizeRunBody>;
-
-// market.request-diagram-spec 입력 — 구성 명세 JSON 문자열(서버가 재검증·정규화).
-export const AiDiagramSpecRunBody = z.object({
-  spec: z.string().min(2).max(200_000),
-});
-export type AiDiagramSpecRunBodyType = z.infer<typeof AiDiagramSpecRunBody>;
 
 // market.request-roc 입력 — 작업검토지시서(Phase 2). 구성 명세 + 의뢰 텍스트 + 인터뷰
 // 답변으로 개발자/검수자용 마크다운 문서를 생성한다. 산출은 잡의 md 필드.

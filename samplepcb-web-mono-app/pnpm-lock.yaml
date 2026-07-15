@@ -276,6 +276,10 @@ importers:
         version: 3.3.5(typescript@6.0.3)
 
   packages/utils:
+    dependencies:
+      '@sp/api-contract':
+        specifier: workspace:*
+        version: link:../api-contract
     devDependencies:
       '@sp/config':
         specifier: workspace:*

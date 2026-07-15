@@ -8,7 +8,6 @@ import {
 } from '@sp/api-contract';
 import type {
   AiDiagramRunBodyType,
-  AiDiagramSpecRunBodyType,
   AiPostingsRunBodyType,
   AiRocRunBodyType,
   AiStructurizeRunBodyType,
@@ -41,14 +40,6 @@ export function useRunStructurize() {
   return useMutation({
     mutationFn: (body: AiStructurizeRunBodyType) =>
       apiSend('POST', `${apiRoutes.ai}/market.request-structurize/run`, body, AiRunResponse),
-  });
-}
-
-// 구성 명세 JSON → 구성도 HTML 렌더(P2) — 결과는 잡의 html 필드.
-export function useRunDiagramSpec() {
-  return useMutation({
-    mutationFn: (body: AiDiagramSpecRunBodyType) =>
-      apiSend('POST', `${apiRoutes.ai}/market.request-diagram-spec/run`, body, AiRunResponse),
   });
 }
 

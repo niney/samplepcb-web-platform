@@ -3,7 +3,6 @@ import {
   AI_INTERVIEW_QUESTIONS,
   AI_USECASES,
   AiDiagramRunBody,
-  AiDiagramSpecRunBody,
   AiPostingsRunBody,
   AiRocRunBody,
   AiStructurizeRunBody,
@@ -121,37 +120,6 @@ const STRUCTURIZE_DEFAULT_PROMPT = `당신은 제품·하드웨어·소프트웨
 
 [미응답 항목]
 {{unanswered}}`;
-
-// 인터뷰 프로빙 확정 P2 프롬프트 — 기존 DIAGRAM_DEFAULT_PROMPT 의 레이아웃·색 규칙을
-// 유지하고 입력을 [구성 명세 JSON]으로 바꾼 변형. 렌더 충실도 49/49 실측.
-const DIAGRAM_SPEC_DEFAULT_PROMPT = `당신은 제품·하드웨어·소프트웨어 시스템 아키텍트입니다. 아래 [구성 명세 JSON]을 "시스템 구성도" HTML 문서로 그리세요.
-
-출력 규칙:
-- 외부 리소스(CDN·이미지·폰트·스크립트) 없이 인라인 CSS/SVG만 사용하는 단일 HTML 파일
-- 설명 문장 없이 완성된 HTML 코드만 출력
-
-입력 충실도(가장 중요):
-- JSON 의 groups/blocks/connections 를 빠짐없이, 라벨 문구 그대로 그린다.
-- JSON 에 없는 블록·연결을 추가하지 않는다(제목·Legend·FEATURE HIGHLIGHTS 박스는 예외).
-- block.status 가 "tbd"면 라벨 뒤에 "(TBD)", "option"이면 "(Option)"을 붙인다(라벨에 이미 있으면 중복 금지).
-- constraints 는 해당 그룹 근처에 작은 주석 텍스트로, feature_highlights 는 FEATURE HIGHLIGHTS 박스에 표시한다. questions_missing 은 그리지 않는다.
-
-레이아웃 골격(엄수 — 하나의 <svg viewBox="0 0 1400 1000"> 안에 전부 그린다):
-- 최상단 중앙: 시스템 제목(project.name 영문 대문자)
-- 3열 배치. 좌열=사용자·입력 그룹, 중앙=핵심 처리(컨트롤러·애플리케이션·API), 우열=출력·데이터·외부 연동 그룹
-- 다이어그램 맨 오른쪽: External System 그룹은 세로 체인으로
-- 최하단 가로: Power Supply 그룹은 전원 계통 체인(입력 → 보호/필터 → 변환 단계)으로
-- 하단 여백: Legend 박스(블록 색·화살표 의미)와 FEATURE HIGHLIGHTS 박스
-- 연결선은 수평·수직 직교선만 사용(대각선 금지), 꺾임은 직각. 선 중앙에 connection.interface 라벨
-- 블록·선·텍스트가 서로 겹치지 않게 충분한 간격을 둘 것
-
-블록 규칙:
-- 색상: 통신 모듈=#c8e6c9, 인터페이스/입출력=#fff9c4, 전원/공급=#bbdefb, 외부 시스템=흰색+회색 테두리
-- flow=power 연결선=빨간 화살표, 그 외(data/control/feedback)=검은 화살표
-- 기능 그룹은 점선 테두리 박스로 묶고 박스 상단에 파란 대문자 그룹명(group.label)
-
-[구성 명세 JSON]
-{{spec}}`;
 
 // 작업검토지시서(Phase 2) — 인터뷰 프로빙 P4(서식 10/10) 프롬프트를 의뢰 분야 일반형으로.
 // 확정 안 된 값은 (TBD) + 9번 수집, 모델명 환각 금지 — 구성도와 동일한 규율.
@@ -330,19 +298,6 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
       return { json };
     },
     retries: 1, // JSON 완전 파손만 재시도 — enum 슬립은 스키마 .catch 가 흡수
-  },
-  'market.request-diagram-spec': {
-    defaultModel: 'glm-5.2:cloud',
-    defaultPrompt: DIAGRAM_SPEC_DEFAULT_PROMPT,
-    inputSchema: AiDiagramSpecRunBody,
-    buildPrompt: (template, input) => {
-      const p = AiDiagramSpecRunBody.parse(input);
-      // 깊은 검증 — 파손 JSON 은 여기서 throw(라우트가 400 변환), 잡 시작 전에 거른다.
-      const spec = parseDiagramSpecString(p.spec);
-      return template.replaceAll('{{spec}}', JSON.stringify(spec, null, 2));
-    },
-    parseResult: parseHtmlResult,
-    retries: 0,
   },
   'market.request-roc': {
     defaultModel: 'glm-5.2:cloud',

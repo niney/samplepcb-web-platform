@@ -625,7 +625,7 @@ const marketProjectEditableShape = {
   // 빈 배열 = 특정 툴 요구 없음('any' 는 레거시 데이터에만 존재).
   cadTools: z.array(MarketProjectToolCode).max(MARKET_PROJECT_TOOL_CODES.length),
   description: z.string().trim().min(10).max(20000),
-  // AI 생성 시스템 구성도(단일 HTML, ai 유스케이스 market.request-diagram 산출) —
+  // 시스템 구성도 단일 HTML — DiagramSpec 결정적 렌더 또는 전자 분야 legacy AI 산출.
   // 공개 범위는 description 과 동일. 렌더는 반드시 sandbox iframe(srcdoc).
   diagramHtml: z.string().max(512_000).optional(),
   // 구성 명세 JSON(DiagramSpec 직렬화 — market.request-structurize 산출). 구성도의
@@ -824,7 +824,7 @@ export type MarketProjectAttachmentsType = z.infer<typeof MarketProjectAttachmen
 
 export const MarketProjectDetail = MarketProjectListItem.extend({
   description: z.string(),
-  diagramHtml: z.string().nullable(), // AI 구성도 — sandbox iframe 렌더 전용
+  diagramHtml: z.string().nullable(), // 자동 생성 구성도 — sandbox iframe 렌더 전용
   diagramSpec: z.string().nullable(), // 구성 명세 JSON — 공개 범위는 description 동일
   rocMd: z.string().nullable(), // AI 작업검토지시서 — 공개 범위는 description 동일
   postings: MarketPostingCards.nullable(), // 분야별 포스팅 카드 — 공개 범위 동일

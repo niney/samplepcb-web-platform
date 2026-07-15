@@ -103,7 +103,7 @@ watch(open, (v) => {
         <div class="flex max-h-[94vh] w-fit max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
           <div class="flex items-center justify-between gap-6 border-b border-line px-4 py-2.5">
             <p class="text-sm font-extrabold text-tx-1">
-              시스템 구성도 <span class="font-normal text-tx-3">(AI 자동 생성 초안)</span>
+              시스템 구성도 <span class="font-normal text-tx-3">(자동 생성 초안)</span>
             </p>
             <button
               type="button"
