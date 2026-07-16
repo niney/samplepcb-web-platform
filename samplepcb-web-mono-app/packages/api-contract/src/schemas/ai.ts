@@ -168,6 +168,16 @@ export const AiQuestionPreanalysisResult = z.object({
     code: z.string().trim().min(1).max(30),
     evidence: z.string().trim().min(1).max(300),
   })).max(15),
+  // "제가 이해한 내용" 카드용 요약(v2). optional — v1 프롬프트 응답·기존 캐시 잡도 계약을 통과해야 한다.
+  // 제목·설명·첨부에 명시된 내용만 담고, 확인되지 않은 필드는 생략한다.
+  understood: z.object({
+    product: z.string().trim().min(1).max(200).optional(),
+    problem: z.string().trim().min(1).max(300).optional(),
+    users: z.string().trim().min(1).max(200).optional(),
+    environment: z.string().trim().min(1).max(200).optional(),
+    coreFunctions: z.array(z.string().trim().min(1).max(120)).max(5).default([]),
+    materials: z.string().trim().min(1).max(200).optional(),
+  }).optional(),
 });
 export type AiQuestionPreanalysisResultType = z.infer<typeof AiQuestionPreanalysisResult>;
 

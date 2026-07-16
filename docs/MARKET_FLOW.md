@@ -51,33 +51,40 @@ local-web.samplepcb.co.kr (nginx 443)
   `serviceAreas`(회로·PCB·펌웨어·제품디자인·기구설계·앱·서버·Linux/Windows 소프트웨어·기타)로
   분리한다. 전문가도 같은 `serviceAreas`를 보유해 검색·매칭 기준을 공유하며, 세부분야
   18종(`categories`)과 툴 역량은 별도 축으로 유지한다.
-- **의뢰 STEP2 "전문 기술·도구"는 분야 종속 동적 스텝**: 분야→질문 그룹 사전
-  (`MARKET_AREA_TOOL_GROUPS`: circuit/pcb→ecad, 기구→mcad, 제품디자인→design ·
-  `MARKET_AREA_SPECIALTIES`: circuit/firmware→세부분야 부분집합)의 **합집합**으로 섹션을
-  구성하고, 질문 그룹이 없는 분야(앱·서버·SW·기타)만 선택하면 스텝 자체가 목록에서
-  빠진다. 프로젝트 `categories`는 물리 컬럼 `specialties`(Prisma `@map` — 인접
-  `category`=requestType 물리명과 혼동 회피)에 저장.
-- **AI 명세·최종 검토**: 예산·일정과 견적 방식까지 입력한 뒤 마지막 동적 스텝으로 노출
-  (관리자 활성 시) — 인터뷰 파이프라인은 전 분야, 레거시 단발 생성은 전자 분야에만 적용한다.
-  비활성 시에는 견적 방식이 마지막 스텝이다. 인터뷰의 `DiagramSpec`은 FE/BE 공용
-  결정적 SVG 렌더러가 즉시 변환하고 서버가 저장 전에 재생성한다. 기존 Ollama HTML을 포함한
-  모든 구성도는 sandbox iframe에 넣기 전 외부 연결 차단 CSP와 활성 요소 제거를 적용해
-  `diagramHtml`에 저장한다. 정본
+- **의뢰 위저드 v2(2026-07-16) = AI-우선 4스텝**: 분야 → 설명·자료(제목+자연어 설명+첨부+
+  AI 분석 동의, 기본 on) → AI 인터뷰(동적) → 검토·등록. 구 "전문 기술·도구"·"예산·일정"·
+  "견적 방식" 스텝은 삭제 — 예산·마감·방식·NDA는 검토 스텝의 컴팩트 조건 폼으로 흡수했고
+  희망 시작/완료일 입력은 제거했다(스키마 optional 유지). 신규 의뢰의 `categories`·`cadTools`는
+  항상 빈 배열(=무관)로 저장하며, 코드 사전·기존 데이터 표시·전문가 프로필 축은 유지한다.
+  특정 툴 요구는 설명·고정 제약(COMMON-10) 답변에 자연어로 담긴다. 프로젝트 `categories`는
+  물리 컬럼 `specialties`(Prisma `@map` — 인접 `category`=requestType 물리명과 혼동 회피)에
+  저장(기존 데이터 호환).
+- **AI 인터뷰·검토 스텝**: structurize 활성 && AI 분석 동의일 때만 인터뷰 스텝이 존재하고,
+  검토 스텝 진입 시 구조화가 자동 시작된다(대기 중에도 조건 입력·등록 가능 — 미완료 산출물은
+  자동 제외). 동의 해제·비활성 시 스텝은 [분야, 설명·자료, 검토·등록]으로 줄고 일반 등록만
+  가능하다. v2에서 레거시 단발 구성도 UI는 제거(유스케이스·API·기존 데이터 표시는 존치).
+  인터뷰의 `DiagramSpec`은 FE/BE 공용 결정적 SVG 렌더러가 즉시 변환하고 서버가 저장 전에
+  재생성한다. 모든 구성도는 sandbox iframe에 넣기 전 외부 연결 차단 CSP와 활성 요소 제거를
+  적용해 `diagramHtml`에 저장한다. 정본
   **docs/AI_DIAGRAM.md**(범용 AI 유스케이스 계층·프로빙 확정 프롬프트·운영).
 - AI 인터뷰 질문은 정책 77문항 + Linux/Windows 보완 3문항의 뱅크에서 앞 단계 중복을 빼고
   `selectAiInterviewQuestions`가 최대 15개를 선택하며, 화면에는 한 번에 최대 5개씩 보인다.
   시스템 통합은 공통 최대 8 + 연결 4 + 선택 분야 3, 개별 의뢰는 공통 + 해당 분야 질문으로
-  구성한다. 앱·서버 의뢰에 전원·MCU 같은 무관한 질문은 전달하지 않는다. STEP 2의 세부분야·
-  요구 툴도 모든 AI 문서 프롬프트의 고정 기술 컨텍스트로 전달된다.
-- 사용자가 선택하면 설명·첨부 선분석이 최초 후보 중 이미 명확히 답한 질문만 근거와 함께
-  제외한다. 부분 답변·추론 항목은 유지하고, 제거된 자리를 낮은 우선순위 질문으로 채우지 않는다.
-  입력이 바뀌거나 선분석이 실패하면 결정적 후보로 복귀한다. 최종 질문 코드(`aiQuestionCodes`)는
+  구성한다. 앱·서버 의뢰에 전원·MCU 같은 무관한 질문은 전달하지 않는다. 세부분야·요구 툴
+  기술 컨텍스트는 위저드 v2에서 항상 빈 값으로 전달된다(프롬프트 계약은 유지).
+- 설명 스텝의 AI 분석 동의(기본 on) 시 인터뷰 스텝 진입에서 선분석이 자동 실행되어, 최초
+  후보 중 이미 명확히 답한 질문만 근거와 함께 제외하고 "제가 이해한 내용" 요약을 보여준다
+  (선분석 v2 `understood`). 부분 답변·추론 항목은 유지하고, 제거된 자리를 낮은 우선순위
+  질문으로 채우지 않는다. 입력이 바뀌거나 선분석이 실패하면 결정적 후보로 복귀한다. 첨부가
+  있으면 COMMON-06(보유자료)은 폼 차원에서 후보 제외한다. 최종 질문 코드(`aiQuestionCodes`)는
   등록 시 구조화 잡 provenance 재검증에만 사용하며 DB에는 저장하지 않는다.
-- 첨부가 있으면 별도 고지 뒤 문서 텍스트·PDF/래스터 미리보기를 AI 구조화에 함께 사용한다.
+- 첨부가 있으면(설명 스텝의 AI 분석 동의가 전송 고지를 겸함) 문서 텍스트·PDF/래스터
+  미리보기를 AI 구조화에 함께 사용한다.
   원본 해시를 잡 캐시·provenance에 포함하고 등록 첨부와 재검증한다. 미지원 바이너리는 내용을
   추정하지 않으며, 상세 포맷·상한·프로빙 결과는 `docs/AI_DIAGRAM.md` §6을 따른다.
-- AI 산출물은 생성 시점의 제목·설명·분야·세부분야·요구 툴·인터뷰 답변 서명을 함께 추적한다.
-  ROC·분야 카드에는 예산·희망일·견적 마감·견적 방식도 전달하며 이 조건들도 서명에 포함한다.
+- AI 산출물은 생성 시점의 제목·설명·의뢰 유형·분야·인터뷰 답변·질문 코드·첨부 메타 서명을
+  추적한다. ROC·분야 카드에는 예산·견적 마감·견적 방식도 전달하며 이 조건들은 문서 서명에만
+  포함한다(조건만 바뀌면 명세·구성도는 신선 유지, ROC·카드만 제출 제외).
   원천이 달라지면 기존 명세·구성도·ROC·포스팅은 오래된 결과로 표시하고 제출에서 제외한다.
   명세 포함 여부는 구성도와 별도로 선택하며, 서버는 create/PATCH 모두 명세 없는 ROC·포스팅
   저장을 거부한다.
@@ -157,7 +164,7 @@ local-web.samplepcb.co.kr (nginx 443)
 | 관리자 라우트 | `apps/api/src/routes/admin-market-{experts,projects,settings}.ts` (prefix `/api/admin`, requireAdmin addHook) + `GET /api/admin/market/files/:fileId` |
 | 공용 헬퍼 | `apps/api/src/lib/market.ts`(asXxx 내로잉·lazy 마감·마감 계산 KST 23:59:59·sp_file 조각·multipart 수집) |
 | 계약 | `packages/api-contract/src/schemas/market.ts` + `routes.ts` apiRoutes 10종 |
-| 소비자 화면 | `apps/market/src/pages/{Home,Projects,ProjectDetail,Experts,ExpertDetail,RequestWizard,ExpertRegister,Me}.vue` |
+| 소비자 화면 | `apps/market/src/pages/{Home,Projects,ProjectDetail,Experts,ExpertDetail,RequestWizard,ExpertRegister,Me}.vue` — 의뢰 위저드 v2는 `components/request/Step{Area,Describe,Interview,Review}.vue` + `composables/useRequestWizard{Form,Ai}.ts`로 분해(셸 ~170줄) |
 | 관리자 화면 | `apps/web/src/pages/admin/AdminMarket{Experts,Projects,Settings}.vue` + `admin/useAdminMarket.ts` |
 
 ## 7. 알림 (1차 = 메일 4종, 비차단)

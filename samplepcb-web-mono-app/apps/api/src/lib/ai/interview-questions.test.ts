@@ -116,9 +116,82 @@ describe('분야별 AI 인터뷰 질문', () => {
     });
     expect(questionPreanalysisJobSourceInput(input)).not.toHaveProperty('attachmentContext');
     expect(questionPreanalysisJobSourceInput(input)).toEqual(expect.objectContaining({
-      mode: 'question-preanalysis-v1',
+      mode: 'question-preanalysis-v2',
       attachmentHashes: ['b'.repeat(64)],
     }));
+  });
+
+  it('선분석 프롬프트에 이해 요약(understood) 지시와 출력 필드를 포함한다', () => {
+    const prompt = buildQuestionPreanalysisPrompt({
+      title: '저온 창고 모니터링 장치',
+      requestType: 'system' as const,
+      serviceAreas: ['circuit'] as const,
+      categories: [] as const,
+      cadTools: [] as const,
+      description: '저온 창고 상태를 중앙 서버로 전송하는 장치를 개발합니다.',
+      candidateQuestionCodes: ['COMMON-02'],
+    });
+    expect(prompt).toContain('이해 요약(understood) 규칙');
+    expect(prompt).toContain('"understood"');
+    expect(prompt).toContain('coreFunctions');
+    expect(prompt).toContain('추론·창작·일반화하지 않고');
+    expect(prompt).toContain('coreFunctions 각 항목은 120자');
+  });
+
+  it('선분석 결과에 understood 요약을 보존하고 후보 필터링은 유지한다', () => {
+    const input = {
+      title: '저온 창고 모니터링 장치',
+      requestType: 'system' as const,
+      serviceAreas: ['circuit'] as const,
+      categories: [] as const,
+      cadTools: [] as const,
+      description: '저온 창고 상태를 중앙 서버로 전송하는 장치를 개발합니다.',
+      candidateQuestionCodes: ['COMMON-02', 'COMMON-04'],
+    };
+    const result = parseQuestionPreanalysisResult(JSON.stringify({
+      knownQuestionCodes: ['COMMON-02', 'NOT-A-CANDIDATE'],
+      findings: [
+        { code: 'COMMON-02', evidence: '원격 감시 목적이 명시됨' },
+        { code: 'NOT-A-CANDIDATE', evidence: '후보 밖 코드' },
+      ],
+      understood: {
+        product: '저온 창고 원격 모니터링 장치',
+        problem: '온도·출입문 상태를 중앙에서 감시하지 못하는 문제',
+        coreFunctions: ['온도 측정', '중앙 서버 전송'],
+      },
+    }), input);
+    const parsed: unknown = JSON.parse(result.json);
+    expect(parsed).toEqual({
+      knownQuestionCodes: ['COMMON-02'],
+      findings: [{ code: 'COMMON-02', evidence: '원격 감시 목적이 명시됨' }],
+      understood: {
+        product: '저온 창고 원격 모니터링 장치',
+        problem: '온도·출입문 상태를 중앙에서 감시하지 못하는 문제',
+        coreFunctions: ['온도 측정', '중앙 서버 전송'],
+      },
+    });
+  });
+
+  it('understood 없는 구형 응답도 파싱에 성공하고 필드를 만들지 않는다', () => {
+    const input = {
+      title: '저온 창고 모니터링 장치',
+      requestType: 'system' as const,
+      serviceAreas: ['circuit'] as const,
+      categories: [] as const,
+      cadTools: [] as const,
+      description: '저온 창고 상태를 중앙 서버로 전송하는 장치를 개발합니다.',
+      candidateQuestionCodes: ['COMMON-02'],
+    };
+    const result = parseQuestionPreanalysisResult(JSON.stringify({
+      knownQuestionCodes: ['COMMON-02'],
+      findings: [{ code: 'COMMON-02', evidence: '원격 감시 목적이 명시됨' }],
+    }), input);
+    const parsed: unknown = JSON.parse(result.json);
+    expect(parsed).toEqual({
+      knownQuestionCodes: ['COMMON-02'],
+      findings: [{ code: 'COMMON-02', evidence: '원격 감시 목적이 명시됨' }],
+    });
+    expect(parsed).not.toHaveProperty('understood');
   });
 
   it('기존 관리자 프롬프트에도 순수 소프트웨어 실행 정책을 앞에 붙인다', () => {
