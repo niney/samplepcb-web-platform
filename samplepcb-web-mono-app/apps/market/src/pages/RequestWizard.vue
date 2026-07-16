@@ -29,10 +29,24 @@ const form = useRequestWizardForm();
 const ai = useRequestWizardAi(form);
 const { fields, attachments, steps, stepIndex, currentStep, isLastStep, stepValid, prev, next, projectDeadline } = form;
 
-// 등록 가능 여부 — 검토 스텝은 폼 유효성 + 답변 공개 동의 결합.
+// 등록 가능 여부 — 검토 스텝은 폼 유효성 + 답변 공개 동의 + AI 생성 완료 대기 결합.
 const canProceed = computed(
-  () => stepValid.value && !(currentStep.value === 'review' && ai.reviewBlockedByConsent.value),
+  () =>
+    stepValid.value &&
+    !(
+      currentStep.value === 'review' &&
+      (ai.reviewBlockedByConsent.value || ai.aiGenerationBlocking.value)
+    ),
 );
+// 등록 버튼이 비활성인 사유 안내(검토 스텝 · 동의 우선). 둘 다 걸리면 동의 안내만.
+const registerHelp = computed<string>(() => {
+  if (currentStep.value !== 'review') return '';
+  if (ai.reviewBlockedByConsent.value) return 'AI 질문 답변 원문 공개 동의에 체크하면 등록할 수 있습니다';
+  if (ai.aiGenerationBlocking.value) {
+    return "AI 생성이 끝나면 등록됩니다 — 기다리지 않으려면 '생성 중인 AI 산출물 빼고 바로 등록'을 누르세요";
+  }
+  return '';
+});
 
 function goLogin(): void {
   window.location.assign(loginUrl(marketPath(route.fullPath)));
@@ -138,6 +152,7 @@ async function submit(): Promise<void> {
         <StepReview v-else-if="currentStep === 'review'" :form="form" :ai="ai" />
 
         <p v-if="submitError !== ''" class="mt-4 text-xs font-semibold text-red-600">{{ submitError }}</p>
+        <p v-if="registerHelp !== ''" class="mt-4 text-xs leading-relaxed text-tx-3">{{ registerHelp }}</p>
         <div class="mt-6 flex items-center justify-between border-t border-line pt-5">
           <button
             v-if="stepIndex > 0"

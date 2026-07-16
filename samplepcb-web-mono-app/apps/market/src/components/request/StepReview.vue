@@ -16,7 +16,8 @@ import type { RequestWizardForm } from '../../composables/useRequestWizardForm';
 import type { RequestWizardAi } from '../../composables/useRequestWizardAi';
 
 // 스텝 4 — AI 구성 명세(진입 시 자동 구조화) + 구성도 + 선택 문서 + 견적 조건 + 등록.
-// AI 대기 중에도 조건 입력·등록이 가능하며, 미완료 산출물은 제출에서 제외된다.
+// 포함 예정 AI 산출물이 생성 중이면 등록이 차단된다(생성 중인 것만 빼는 건너뛰기 제공).
+// 조건 입력은 생성 중에도 가능하다.
 const props = defineProps<{ form: RequestWizardForm; ai: RequestWizardAi }>();
 const { fields, attachments, todayKst, goToStep } = props.form;
 const {
@@ -33,6 +34,8 @@ const {
   generateSpec,
   ensureSpec,
   reopenInterview,
+  aiGenerationBlocking,
+  skipAiArtifacts,
   diagramHtml,
   generateDiagramFromSpec,
   rocMd,
@@ -87,7 +90,7 @@ const gapHasInput = (): boolean =>
         <p class="text-xs font-bold text-tx-2">AI 구성 명세 <span class="font-normal text-tx-3">(선택)</span></p>
         <p class="mt-1.5 text-xs leading-relaxed text-tx-3">
           입력한 내용과 답변으로 구성 명세를 만들고, 확정된 명세를 브라우저에서 즉시 구성도로 그립니다.
-          명세 생성에 약 30초~3분이 걸리며, 완료 전에 아래 조건을 입력하고 등록해도 됩니다(미완료 산출물은 제외).
+          명세 생성에 약 30초~3분이 걸립니다. 생성 중에도 아래 조건을 미리 입력할 수 있고, 생성이 끝나면 등록됩니다.
         </p>
       </div>
 
@@ -96,8 +99,23 @@ const gapHasInput = (): boolean =>
         ⏳ AI가 설명·첨부를 먼저 확인하고 있습니다 — 곧 구성 명세를 만듭니다.
       </p>
       <p v-else-if="specRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-        ⏳ AI가 구성 명세를 만들고 있습니다(약 30초~3분) — 완료 전에 등록하면 AI 산출물은 포함되지 않습니다.
+        ⏳ AI가 구성 명세를 만들고 있습니다(약 30초~3분).
       </p>
+
+      <!-- 생성 대기 탈출구 — 포함하기로 한 AI 산출물이 생성 중이면 등록이 차단된다. -->
+      <div
+        v-if="aiGenerationBlocking"
+        class="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2 text-[11px] leading-relaxed text-tx-3"
+      >
+        <span>AI 생성이 끝나면 등록됩니다.</span>
+        <button
+          type="button"
+          class="rounded-lg border border-line px-3 py-1.5 text-[11px] font-bold text-tx-2 hover:border-line-2"
+          @click="skipAiArtifacts"
+        >
+          생성 중인 AI 산출물 빼고 바로 등록
+        </button>
+      </div>
       <div v-else-if="specFailed && spec === null" class="grid gap-2">
         <p class="text-xs font-semibold text-red-600">구조화에 실패했습니다. 잠시 후 다시 시도해 주세요.</p>
         <div>
@@ -254,7 +272,7 @@ const gapHasInput = (): boolean =>
                   </button>
                 </div>
                 <p v-if="rocRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-                  ⏳ 생성 중입니다 — 완료 전에 등록하면 이 지시서는 포함되지 않습니다.
+                  ⏳ 생성 중입니다 — 완료되면 함께 등록됩니다.
                 </p>
                 <p v-else-if="rocFailed" class="text-xs font-semibold text-red-600">생성에 실패했습니다. 잠시 후 다시 시도해 주세요.</p>
               </div>
@@ -297,7 +315,7 @@ const gapHasInput = (): boolean =>
                   </button>
                 </div>
                 <p v-if="postingsRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-                  ⏳ 생성 중입니다 — 완료 전에 등록하면 이 카드는 포함되지 않습니다.
+                  ⏳ 생성 중입니다 — 완료되면 함께 등록됩니다.
                 </p>
                 <p v-else-if="postingsFailed" class="text-xs font-semibold text-red-600">생성에 실패했습니다. 잠시 후 다시 시도해 주세요.</p>
               </div>
@@ -441,7 +459,7 @@ const gapHasInput = (): boolean =>
         <template v-if="consentRequired && shareInterviewAnswersAgreed">· 답변 원문 전문가 공개</template>
       </p>
       <p v-if="aiActive" class="mt-1 text-tx-3">
-        <template v-if="specRunning">AI 생성 중(완료 전 등록 시 미포함)</template>
+        <template v-if="aiGenerationBlocking">AI 생성 중 — 완료 후 등록 가능</template>
         <template v-else>AI 산출물: {{ includedAiArtifactLabels.length > 0 ? includedAiArtifactLabels.join(' · ') : '없음' }}</template>
       </p>
     </div>

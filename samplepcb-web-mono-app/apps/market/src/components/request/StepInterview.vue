@@ -29,6 +29,7 @@ const {
   interviewAnswerStr,
   setSingle,
   toggleMulti,
+  hasInterviewAnswers,
 } = props.ai;
 
 // 진입 시 자동 선분석(이미 시작/완료됐으면 재호출 안 함).
@@ -201,7 +202,7 @@ const questionLabel = (code: string): string =>
         class="rounded-lg border border-line px-4 py-2.5 text-xs font-bold text-tx-2 hover:border-line-2"
         @click="goToStep('review')"
       >
-        질문 건너뛰고 결과 보기
+        {{ hasInterviewAnswers ? '답변 반영해 결과 보기' : '질문 건너뛰고 결과 보기' }}
       </button>
     </div>
   </div>

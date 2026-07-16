@@ -489,6 +489,31 @@ export function useRequestWizardAi(form: RequestWizardForm) {
     }
   });
 
+  // 등록 차단 — 포함하기로 한 AI 산출물이 아직 생성 중이면 등록을 막아 산출물이 조용히
+  // 누락되는 것을 방지한다. aiActive 조건 필수: 검토 진입 후 설명 스텝으로 돌아가 동의를
+  // 해제하면 잡 폴링이 남아 있어도 막지 않는다. 생성 실패는 running 이 아니므로 차단하지 않는다.
+  const aiGenerationBlocking = computed(
+    () =>
+      aiActive.value &&
+      (((specAwaitingPreanalysis.value || specRunning.value) && includeSpec.value) ||
+        (rocRunning.value && includeRoc.value) ||
+        (postingsRunning.value && includePostings.value)),
+  );
+  // 생성 대기 탈출구 — **생성 중인 산출물만** 제외해 차단을 해제한다. 명세가 생성 중이면
+  // 파생물도 함께 제외하지만(의미상 종속), 명세가 이미 완료되고 ROC·분야 카드만 생성 중이면
+  // 완료된 명세·구성도는 지키고 생성 중인 문서만 뺀다. includeSpec watch 가 파생물을
+  // 해제하지만 다음 플러시라 즉시 차단 해제를 위해 명시적으로도 끈다.
+  function skipAiArtifacts(): void {
+    if (specAwaitingPreanalysis.value || specRunning.value) {
+      includeSpec.value = false;
+      includeRoc.value = false;
+      includePostings.value = false;
+      return;
+    }
+    if (rocRunning.value) includeRoc.value = false;
+    if (postingsRunning.value) includePostings.value = false;
+  }
+
   // 답변 수정 — 명세를 버리고 인터뷰 폼으로(답변 값은 보존).
   function reopenInterview(): void {
     specJobId.value = null;
@@ -651,6 +676,8 @@ export function useRequestWizardAi(form: RequestWizardForm) {
     generateSpec,
     ensureSpec,
     reopenInterview,
+    aiGenerationBlocking,
+    skipAiArtifacts,
     // 구성도
     diagramHtml,
     generateDiagramFromSpec,
