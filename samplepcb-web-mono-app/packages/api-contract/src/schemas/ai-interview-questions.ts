@@ -383,9 +383,9 @@ export function selectAiInterviewQuestions(
   context: AiInterviewSelectionContext,
 ): AiInterviewQuestion[] {
   // COMMON-01(제품)과 COMMON-07(개발 분야)은 의뢰 마법사의 앞 단계 필수값이다.
-  const known = new Set(['COMMON-01', 'COMMON-07', ...(context.knownQuestionCodes ?? [])]);
+  const alwaysKnown = new Set(['COMMON-01', 'COMMON-07']);
   const applicable = getApplicableAiInterviewQuestions(context.serviceAreas, context.requestType)
-    .filter((question) => !known.has(question.code));
+    .filter((question) => !alwaysKnown.has(question.code));
   const commonQuestions = byPriority(applicable.filter((question) => question.group === 'common')).slice(0, 8);
   const integrationQuestions = context.requestType === 'system'
     ? byPriority(applicable.filter((question) => question.group === 'integration')).slice(0, 4)
@@ -399,7 +399,12 @@ export function selectAiInterviewQuestions(
     context.serviceAreas,
     domainLimit,
   );
-  return [...commonQuestions, ...integrationQuestions, ...domainQuestions].slice(0, 15);
+  // 선분석에서 이미 답이 확인된 질문은 최초 후보를 만든 뒤 제거한다. 제거한 자리를 낮은
+  // 우선순위 질문으로 다시 채우지 않아 실제 질문 수가 줄어드는 정책을 보장한다.
+  const known = new Set(context.knownQuestionCodes ?? []);
+  return [...commonQuestions, ...integrationQuestions, ...domainQuestions]
+    .slice(0, 15)
+    .filter((question) => !known.has(question.code));
 }
 
 // 교체 이전 저장 데이터의 질문 라벨은 상세/스냅샷에서 계속 사람이 읽을 수 있어야 한다.

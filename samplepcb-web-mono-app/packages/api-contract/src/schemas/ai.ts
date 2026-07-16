@@ -147,6 +147,30 @@ export const AiStructurizeRunBody = z.object({
 });
 export type AiStructurizeRunBodyType = z.infer<typeof AiStructurizeRunBody>;
 
+// 최초 질문 전에 제목·설명·첨부에서 이미 답이 확인된 후보 코드를 찾는 선분석 입력.
+// attachmentContext는 multipart 라우트가 서버 내부에서만 채우고, 원본은 해시로 추적한다.
+export const AiQuestionPreanalysisRunBody = z.object({
+  title: z.string().trim().min(2).max(200),
+  requestType: MarketRequestType.default('individual'),
+  serviceAreas: z.array(MarketServiceArea).max(MARKET_SERVICE_AREAS.length).default([]),
+  categories: z.array(MarketCategoryCode).max(MARKET_CATEGORIES.length).default([]),
+  cadTools: z.array(MarketToolCode).max(MARKET_TOOL_CODES.length).default([]),
+  description: z.string().trim().min(10).max(20000),
+  candidateQuestionCodes: z.array(z.string().trim().min(1).max(30)).max(15),
+  attachmentContext: z.string().max(90_000).optional(),
+  attachmentHashes: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10).optional(),
+});
+export type AiQuestionPreanalysisRunBodyType = z.infer<typeof AiQuestionPreanalysisRunBody>;
+
+export const AiQuestionPreanalysisResult = z.object({
+  knownQuestionCodes: z.array(z.string().trim().min(1).max(30)).max(15),
+  findings: z.array(z.object({
+    code: z.string().trim().min(1).max(30),
+    evidence: z.string().trim().min(1).max(300),
+  })).max(15),
+});
+export type AiQuestionPreanalysisResultType = z.infer<typeof AiQuestionPreanalysisResult>;
+
 // market.request-roc 입력 — 작업검토지시서(Phase 2). 구성 명세 + 의뢰 텍스트 + 인터뷰
 // 답변으로 개발자/검수자용 마크다운 문서를 생성한다. 산출은 잡의 md 필드.
 export const AiRocRunBody = z.object({

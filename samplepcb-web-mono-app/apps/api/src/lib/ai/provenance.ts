@@ -134,7 +134,7 @@ export function buildAiGenerationMeta(args: {
       categories: payload.categories,
       cadTools: payload.cadTools,
       description: payload.description,
-      questionCodes: selectAiInterviewQuestions({
+      questionCodes: payload.aiQuestionCodes ?? selectAiInterviewQuestions({
         requestType: payload.requestType,
         serviceAreas: payload.serviceAreas,
         ...(attachmentHashes.length > 0 ? { knownQuestionCodes: ['COMMON-06'] } : {}),

@@ -9,6 +9,7 @@ import {
 import type {
   AiDiagramRunBodyType,
   AiPostingsRunBodyType,
+  AiQuestionPreanalysisRunBodyType,
   AiRocRunBodyType,
   AiStructurizeRunBodyType,
   AiUsecaseKeyType,
@@ -53,6 +54,27 @@ export function useRunStructurizeWithAttachments() {
       return apiSendForm(
         'POST',
         `${apiRoutes.ai}/market.request-structurize/run-with-attachments`,
+        form,
+        AiRunResponse,
+      );
+    },
+  });
+}
+
+// 설명·첨부에서 이미 답이 확인된 최초 질문을 비동기 선분석한다. 첨부가 없어도 같은
+// multipart 계약을 사용해 UI 분기를 없앤다.
+export function useRunQuestionPreanalysis() {
+  return useMutation({
+    mutationFn: ({ body, files }: {
+      body: AiQuestionPreanalysisRunBodyType;
+      files: readonly File[];
+    }) => {
+      const form = new FormData();
+      form.append('payload', JSON.stringify(body));
+      for (const file of files) form.append('attachment', file);
+      return apiSendForm(
+        'POST',
+        `${apiRoutes.ai}/market.request-structurize/preanalyze-questions`,
         form,
         AiRunResponse,
       );

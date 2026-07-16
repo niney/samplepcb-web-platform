@@ -26,7 +26,7 @@ status: active
   - `src/schemas/seo.ts` — SEO 관리 (`Seo*`)
   - `src/schemas/market.ts` — **재능마켓 전체 플로우**(최대 모듈: 코드 사전·라벨·전문가·프로젝트·입찰·NDA·계약·정산·관리자 표면)
   - `src/schemas/ai.ts` — **AI 유스케이스 실행 계층**(유스케이스 키·잡·설정·DiagramSpec·첨부 구조화 입력)
-  - `src/schemas/ai-interview-questions.ts` — 정책 인터뷰 질문 뱅크·분야/의뢰유형 매핑·최대 15개 선택기
+  - `src/schemas/ai-interview-questions.ts` — 정책 인터뷰 질문 뱅크·분야/의뢰유형 매핑·최대 15개 선택기(선분석 확인 코드는 재충전 없이 제외)
   - `src/routes.ts` — `apiRoutes` 상수 24종 (`/api/health`~`/api/admin/market/settings`)
 - 데이터 흐름에서의 위치: **DB(Prisma) → API(Fastify, `fastify-type-provider-zod`) → 계약(`@sp/api-contract`) → Vue(@tanstack/vue-query)** 가 타입으로 연결.
 
@@ -88,7 +88,7 @@ status: active
 
 ## Key Decisions [coverage: high — 8 sources]
 
-- **AI 인터뷰 파이프라인의 결정적 부분은 계약이 소유(2026-07-12)**: 질문 뱅크(`AI_INTERVIEW_QUESTIONS`)·유스케이스 키(`AI_USECASES`)·`DiagramSpec` 스키마를 코드(계약)에 두고, LLM 산출 검증은 **거부 대신 `.catch` 흡수 + 정규화 복구**를 원칙으로 — 프로빙 실측(glm·deepseek 의 enum 슬립) 근거.
+- **AI 인터뷰 파이프라인의 결정적 부분은 계약이 소유(2026-07-12, 07-16 보강)**: 질문 뱅크(`AI_INTERVIEW_QUESTIONS`)·선분석 입력/근거 결과(`AiQuestionPreanalysis*`)·유스케이스 키(`AI_USECASES`)·`DiagramSpec` 스키마를 코드(계약)에 둔다. 최종 `aiQuestionCodes`는 등록 provenance 재구성용 일회성 필드다. 명세 LLM 산출 검증은 **거부 대신 `.catch` 흡수 + 정규화 복구**를 원칙으로 — 프로빙 실측(glm·deepseek 의 enum 슬립) 근거.
 - **전체서비스 입찰 제한을 계약 코드로 표현(2026-07-12)**: `requestType=system` × `expertType=individual` → 403 `FULL_SERVICE_COMPANY_ONLY` — 목록·상세는 공개, 입찰만 제한. FE 는 같은 계약 코드로 선반영.
 - **SEO 는 오버라이드 전용 스키마(2026-07-10)**: `SeoRecord`에 `jsonLd` 컬럼 없음($it 자동 유도가 기본), `canonical`은 수동 오버라이드 전용(호스트 무관 설계라 절대 URL 저장 금지). 소비측(sp-php)은 API 가 아닌 DB 직접 SELECT — 계약은 관리 UI 경로만 커버.
 - **마켓 코드 사전·한글 라벨 정본 = market.ts(2026-07-08~)**: `MARKET_*`/`MARKET_*_LABELS`를 sp-market·sp-vue·sp-node 메일 3곳이 공유. 툴은 **빈 배열=무관**(구 `'any'` 코드는 레거시 호환 enum 잔존). 계약 `MarketContract`는 feeRateBp/fee/payout 을 **채택 시점 스냅샷**으로 담아 설정 변경과 절연.

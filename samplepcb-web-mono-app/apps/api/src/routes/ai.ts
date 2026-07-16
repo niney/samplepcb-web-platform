@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import {
   AiJobResponse,
+  AiQuestionPreanalysisRunBody,
   AiRunResponse,
   AiStructurizeRunBody,
   AiUsecaseKey,
@@ -9,8 +10,12 @@ import {
   ApiMemberError,
 } from '@sp/api-contract';
 import {
+  AI_QUESTION_PREANALYSIS_PROMPT,
   AI_USECASE_DEFS,
+  buildQuestionPreanalysisPrompt,
   getAiUsecase,
+  parseQuestionPreanalysisResult,
+  questionPreanalysisJobSourceInput,
   structurizeJobSourceInput,
 } from '../lib/ai/usecases';
 import { getAiJob } from '../lib/ai/jobs';
@@ -26,6 +31,10 @@ import { collectMultipart } from '../lib/market';
 
 const UsecaseParams = z.object({ useCase: AiUsecaseKey });
 const JobParams = z.object({ jobId: z.string().uuid() });
+const attachmentVisionModel = (): string => {
+  const configured = process.env.AI_ATTACHMENT_VISION_MODEL?.trim() ?? '';
+  return configured === '' ? 'qwen3.5:cloud' : configured;
+};
 
 export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   // ── GET /ai/:useCase/status — 공개(비밀 없음): FE 스텝 게이트용 활성 여부 ──
@@ -90,6 +99,76 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     },
   );
 
+  // ── POST /ai/market.request-structurize/preanalyze-questions ────────────
+  // 설명·첨부에서 이미 답이 확인된 정책 질문을 먼저 골라 최초 질문 수를 줄인다. 별도
+  // 관리자 유스케이스를 늘리지 않고 활성화된 structurize의 연결·모델 설정을 재사용한다.
+  fastify.post(
+    '/ai/market.request-structurize/preanalyze-questions',
+    {
+      schema: {
+        response: { 200: AiRunResponse, 400: ApiMemberError, 401: ApiMemberError, 409: ApiMemberError },
+      },
+    },
+    async (request, reply) => {
+      if (!request.isMultipart()) {
+        return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
+      }
+      const { files, rawPayload } = await collectMultipart(request);
+      try {
+        await request.jwtVerify();
+      } catch {
+        return reply.status(401).send({ result: false, error: 'UNAUTHORIZED' });
+      }
+      if (rawPayload === undefined) {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_REQUIRED' });
+      }
+      let payloadJson: unknown;
+      try {
+        payloadJson = JSON.parse(rawPayload);
+      } catch {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
+      }
+      const baseInput = AiQuestionPreanalysisRunBody.safeParse(payloadJson);
+      if (!baseInput.success) {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
+      }
+
+      const key = 'market.request-structurize' as const;
+      const row = await getAiUsecase(key);
+      if (!row?.enabled) {
+        return reply.status(409).send({ result: false, error: 'USECASE_DISABLED' });
+      }
+      const attachments = files.filter((file) => file.field === 'attachment');
+      const prepared = await prepareAiAttachments(attachments);
+      const input = AiQuestionPreanalysisRunBody.parse({
+        ...baseInput.data,
+        ...(prepared.context === '' ? {} : { attachmentContext: prepared.context }),
+        ...(prepared.hashes.length === 0 ? {} : { attachmentHashes: prepared.hashes }),
+      });
+      const prompt = buildQuestionPreanalysisPrompt(input);
+      const started = await startAiJob({
+        useCase: key,
+        mbId: request.user.mbId,
+        model: prepared.images.length > 0 ? attachmentVisionModel() : row.model,
+        promptTemplate: AI_QUESTION_PREANALYSIS_PROMPT,
+        input,
+        sourceInput: questionPreanalysisJobSourceInput(input),
+        prompt,
+        images: prepared.images,
+        parseResult: parseQuestionPreanalysisResult,
+        retries: 1,
+        log: request.log,
+      });
+      request.log.info({
+        jobId: started.job.id,
+        candidateCount: input.candidateQuestionCodes.length,
+        analyzedFiles: prepared.analyzedFiles,
+        imageCount: prepared.images.length,
+      }, 'question preanalysis job started');
+      return { result: true as const, data: { jobId: started.job.id, cached: started.cached } };
+    },
+  );
+
   // ── POST /ai/market.request-structurize/run-with-attachments ─────────────
   // 질문/설명 payload + 아직 등록 전인 attachment[]를 한 번에 받아 문서 텍스트와
   // 이미지 근거까지 포함한 명세 잡을 시작한다. multipart 제약상 본문 소비 뒤 JWT 검증.
@@ -146,14 +225,10 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       } catch {
         return reply.status(400).send({ result: false, error: 'INPUT_SCHEMA_MISMATCH' });
       }
-      const visionModelEnv = process.env.AI_ATTACHMENT_VISION_MODEL?.trim();
-      const visionModel = visionModelEnv !== undefined && visionModelEnv !== ''
-        ? visionModelEnv
-        : 'qwen3.5:cloud';
       const started = await startAiJob({
         useCase: key,
         mbId: request.user.mbId,
-        model: prepared.images.length > 0 ? visionModel : row.model,
+        model: prepared.images.length > 0 ? attachmentVisionModel() : row.model,
         promptTemplate: row.promptTemplate,
         input,
         sourceInput: structurizeJobSourceInput(input),

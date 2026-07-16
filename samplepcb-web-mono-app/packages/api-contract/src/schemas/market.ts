@@ -680,6 +680,8 @@ const marketProjectEditableShape = {
       postings: z.string().uuid().optional(),
     })
     .optional(),
+  // 등록 시 구조화 잡의 입력 해시를 재구성하기 위한 일회성 질문 코드. DB에는 저장하지 않는다.
+  aiQuestionCodes: z.array(z.string().trim().min(1).max(30)).max(15).optional(),
   ndaRequired: z.boolean().default(true),
   budgetRange: MarketBudgetRange,
   startHopeDate: z.string().regex(DATE_RE).optional(),

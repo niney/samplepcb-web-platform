@@ -45,6 +45,10 @@ const basePayload = {
 describe('AI 프로젝트 산출물 provenance', () => {
   it('소유 잡의 입력·출력이 모두 일치할 때만 AI 생성본으로 증명한다', () => {
     const mbId = `provenance-${randomUUID()}`;
+    const questionCodes = selectAiInterviewQuestions({
+      requestType: basePayload.requestType,
+      serviceAreas: basePayload.serviceAreas,
+    }).slice(0, 5).map((question) => question.code);
     const input = AiStructurizeRunBody.parse({
       title: basePayload.title,
       requestType: basePayload.requestType,
@@ -52,10 +56,7 @@ describe('AI 프로젝트 산출물 provenance', () => {
       categories: basePayload.categories,
       cadTools: basePayload.cadTools,
       description: basePayload.description,
-      questionCodes: selectAiInterviewQuestions({
-        requestType: basePayload.requestType,
-        serviceAreas: basePayload.serviceAreas,
-      }).map((question) => question.code),
+      questionCodes,
       answers: basePayload.interviewAnswers,
     });
     const job = createAiJob('market.request-structurize', mbId, {
@@ -66,6 +67,7 @@ describe('AI 프로젝트 산출물 provenance', () => {
     finishAiJob(job.id, { json: spec });
     const payload = MarketProjectCreatePayload.parse({
       ...basePayload,
+      aiQuestionCodes: questionCodes,
       aiJobIds: { structurize: job.id },
     });
     const artifacts = {

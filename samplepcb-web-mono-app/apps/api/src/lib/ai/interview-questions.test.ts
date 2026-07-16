@@ -6,7 +6,14 @@ import {
   MarketProjectUpdateBody,
   selectAiInterviewQuestions,
 } from '@sp/api-contract';
-import { AI_USECASE_DEFS, ROC_DISCLAIMER, structurizeJobSourceInput } from './usecases';
+import {
+  AI_USECASE_DEFS,
+  ROC_DISCLAIMER,
+  buildQuestionPreanalysisPrompt,
+  parseQuestionPreanalysisResult,
+  questionPreanalysisJobSourceInput,
+  structurizeJobSourceInput,
+} from './usecases';
 
 const codesFor = (
   areas: Parameters<typeof selectAiInterviewQuestions>[0]['serviceAreas'],
@@ -63,6 +70,55 @@ describe('분야별 AI 인터뷰 질문', () => {
     expect(codesFor(['software-linux'])).toEqual(expect.arrayContaining([
       'SOFTWARE-01', 'SOFTWARE-02', 'SOFTWARE-03',
     ]));
+  });
+
+  it('선분석에서 확인된 질문은 최초 후보에서 제거하고 낮은 우선순위로 다시 채우지 않는다', () => {
+    const baseline = codesFor(['circuit']);
+    const known = baseline.slice(0, 4);
+    const reduced = selectAiInterviewQuestions({
+      requestType: 'individual',
+      serviceAreas: ['circuit'],
+      knownQuestionCodes: known,
+    }).map((question) => question.code);
+    expect(reduced).toEqual(baseline.filter((code) => !known.includes(code)));
+    expect(reduced).toHaveLength(11);
+  });
+
+  it('질문 선분석은 후보 코드와 첨부 근거만 사용하고 후보 밖 결과를 제거한다', () => {
+    const input = {
+      title: '저온 창고 모니터링 장치',
+      requestType: 'system' as const,
+      serviceAreas: ['circuit', 'pcb', 'firmware'] as const,
+      categories: ['mcu'] as const,
+      cadTools: ['kicad'] as const,
+      description: '저온 창고 상태를 중앙 서버로 전송하는 장치를 개발합니다.',
+      candidateQuestionCodes: ['COMMON-02', 'COMMON-04'],
+      attachmentContext: '[첨부] 시제품 10대를 2026-11-30까지 제작',
+      attachmentHashes: ['b'.repeat(64)],
+    };
+    const prompt = buildQuestionPreanalysisPrompt(input);
+    expect(prompt).toContain('COMMON-02: 이 제품이나 서비스가 해결해야 하는 가장 중요한 문제');
+    expect(prompt).toContain('시제품 10대를 2026-11-30까지 제작');
+
+    const result = parseQuestionPreanalysisResult(JSON.stringify({
+      knownQuestionCodes: ['COMMON-02', 'NOT-A-CANDIDATE'],
+      findings: [
+        { code: 'COMMON-02', evidence: '저온 창고 상태를 원격 확인하려는 목적이 명시됨' },
+        { code: 'COMMON-02', evidence: '중복 근거' },
+        { code: 'COMMON-04', evidence: 'known 목록에는 없는 근거' },
+        { code: 'NOT-A-CANDIDATE', evidence: '후보 밖 코드' },
+      ],
+    }), input);
+    const parsed: unknown = JSON.parse(result.json);
+    expect(parsed).toEqual({
+      knownQuestionCodes: ['COMMON-02'],
+      findings: [{ code: 'COMMON-02', evidence: '저온 창고 상태를 원격 확인하려는 목적이 명시됨' }],
+    });
+    expect(questionPreanalysisJobSourceInput(input)).not.toHaveProperty('attachmentContext');
+    expect(questionPreanalysisJobSourceInput(input)).toEqual(expect.objectContaining({
+      mode: 'question-preanalysis-v1',
+      attachmentHashes: ['b'.repeat(64)],
+    }));
   });
 
   it('기존 관리자 프롬프트에도 순수 소프트웨어 실행 정책을 앞에 붙인다', () => {

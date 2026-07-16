@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   DiagramSpec,
+  AiQuestionPreanalysisResult,
   selectAiInterviewQuestions,
   MarketPostingCards,
   MARKET_AREA_SPECIALTIES,
@@ -45,6 +46,7 @@ import {
   useAiUsecaseStatus,
   useRunDiagram,
   useRunPostings,
+  useRunQuestionPreanalysis,
   useRunRoc,
   useRunStructurize,
   useRunStructurizeWithAttachments,
@@ -177,6 +179,7 @@ const legacyDiagramEnabled = computed(
 const diagramStepEnabled = computed(() => interviewEnabled.value || legacyDiagramEnabled.value);
 
 const runDiagram = useRunDiagram();
+const runQuestionPreanalysis = useRunQuestionPreanalysis();
 const runStructurize = useRunStructurize();
 const runStructurizeWithAttachments = useRunStructurizeWithAttachments();
 const runRoc = useRunRoc();
@@ -242,16 +245,87 @@ const questionHidden = (q: AiInterviewQuestion): boolean => {
     ? false
     : hide.values.some((v) => interviewAnswerStr(hide.code).includes(v));
 };
+const formKnownQuestionCodes = computed<string[]>(() =>
+  attachments.value.length > 0 ? ['COMMON-06'] : [],
+);
+const questionCandidates = computed<AiInterviewQuestion[]>(() =>
+  selectAiInterviewQuestions({
+    requestType: form.requestType,
+    serviceAreas: form.serviceAreas,
+    knownQuestionCodes: formKnownQuestionCodes.value,
+  }),
+);
+const questionPreanalysisJobId = ref<string | null>(null);
+const questionPreanalysisJob = useAiJob(questionPreanalysisJobId);
+const questionPreanalysisResult = computed(() => {
+  const raw = questionPreanalysisJob.data.value?.data.status === 'done'
+    ? questionPreanalysisJob.data.value.data.json
+    : null;
+  if (raw === null) return null;
+  try {
+    return AiQuestionPreanalysisResult.parse(JSON.parse(raw) as unknown);
+  } catch {
+    return null;
+  }
+});
+const preanalysisKnownQuestionCodes = computed(
+  () => questionPreanalysisResult.value?.knownQuestionCodes ?? [],
+);
 const selectedQuestions = computed<AiInterviewQuestion[]>(() =>
   selectAiInterviewQuestions({
     requestType: form.requestType,
     serviceAreas: form.serviceAreas,
-    ...(attachments.value.length > 0 ? { knownQuestionCodes: ['COMMON-06'] } : {}),
+    knownQuestionCodes: [
+      ...formKnownQuestionCodes.value,
+      ...preanalysisKnownQuestionCodes.value,
+    ],
   }),
 );
 const visibleQuestions = computed<AiInterviewQuestion[]>(() =>
   selectedQuestions.value.filter((q) => !questionHidden(q)),
 );
+const questionPreanalysisRunning = computed(
+  () =>
+    runQuestionPreanalysis.isPending.value ||
+    (questionPreanalysisJobId.value !== null &&
+      !questionPreanalysisJob.isError.value &&
+      (questionPreanalysisJob.data.value?.data.status ?? 'running') === 'running'),
+);
+const questionPreanalysisFailed = computed(
+  () =>
+    runQuestionPreanalysis.isError.value ||
+    questionPreanalysisJob.isError.value ||
+    questionPreanalysisJob.data.value?.data.status === 'error' ||
+    (questionPreanalysisJob.data.value?.data.status === 'done' && questionPreanalysisResult.value === null),
+);
+
+function preanalyzeQuestions(): void {
+  if (questionPreanalysisRunning.value || questionCandidates.value.length === 0) return;
+  const sourceAtStart = questionPreanalysisSourceSignature.value;
+  questionPreanalysisJobId.value = null;
+  runQuestionPreanalysis.reset();
+  runQuestionPreanalysis.mutate(
+    {
+      body: {
+        title: form.title.trim(),
+        requestType: form.requestType,
+        serviceAreas: form.serviceAreas,
+        categories: form.categories,
+        cadTools: form.cadTools,
+        description: form.description.trim(),
+        candidateQuestionCodes: questionCandidates.value.map((question) => question.code),
+      },
+      files: attachments.value,
+    },
+    {
+      onSuccess: (response) => {
+        if (questionPreanalysisSourceSignature.value === sourceAtStart) {
+          questionPreanalysisJobId.value = response.data.jobId;
+        }
+      },
+    },
+  );
+}
 const QUESTION_BATCH_SIZE = 5;
 const questionRound = ref(0);
 const questionRoundCount = computed(() =>
@@ -294,7 +368,8 @@ function toggleMulti(code: string, option: string): void {
 
 function interviewAnswers(): AiInterviewAnswerType[] {
   const answers: AiInterviewAnswerType[] = [];
-  for (const q of visibleQuestions.value) {
+  // 선분석 전에 사용자가 직접 적은 답은 질문이 자료 근거로 숨겨져도 구조화 입력에 보존한다.
+  for (const q of questionCandidates.value) {
     const a = interviewAnswerStr(q.code).trim();
     if (a !== '') answers.push({ code: q.code, answer: a });
   }
@@ -343,6 +418,7 @@ const specTbdBlocks = computed(() =>
 );
 
 function generateSpec(): void {
+  if (questionPreanalysisRunning.value) return;
   // 보강 입력을 영속 답변으로 흡수(질문 원문 → 답 형태) 후 입력칸 비움.
   const missing = spec.value?.questions_missing ?? [];
   for (const [idx, text] of Object.entries(gapInputs)) {
@@ -550,6 +626,22 @@ const includedAiArtifactLabels = computed<string[]>(() => {
   return labels;
 });
 
+const questionPreanalysisSourceSignature = computed(() => JSON.stringify({
+  requestType: form.requestType,
+  serviceAreas: form.serviceAreas,
+  categories: form.categories,
+  cadTools: form.cadTools,
+  title: form.title.trim(),
+  description: form.description.trim(),
+  candidateQuestionCodes: questionCandidates.value.map((question) => question.code),
+  attachments: attachments.value.map((file) => ({
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    lastModified: file.lastModified,
+  })),
+}));
+
 watch(aiArtifactsStale, (stale) => {
   if (!stale) return;
   includeSpec.value = false;
@@ -574,6 +666,16 @@ watch(
   }),
   () => { questionRound.value = 0; },
 );
+
+watch(questionPreanalysisSourceSignature, () => {
+  questionPreanalysisJobId.value = null;
+  runQuestionPreanalysis.reset();
+  questionRound.value = 0;
+});
+
+watch(preanalysisKnownQuestionCodes, () => {
+  questionRound.value = 0;
+});
 
 // ── 동적 스텝 — 고정 번호 대신 키 배열(질문 그룹 없으면 technical 제거) ───────
 
@@ -703,6 +805,7 @@ async function submit(): Promise<void> {
       ? {
           diagramSpec: specJson.value,
           interviewAnswers: answers,
+          aiQuestionCodes: visibleQuestions.value.map((question) => question.code),
           ...(answers.length > 0 && shareInterviewAnswersAgreed.value
             ? { shareInterviewAnswers: true as const }
             : {}),
@@ -972,6 +1075,44 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
           <template v-if="interviewEnabled">
             <!-- 1) 정책 질문 폼 (한 번에 5개, 전체 15개 이하) -->
             <div v-if="spec === null" class="grid gap-4">
+              <div class="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs leading-relaxed text-blue-900">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p class="font-bold">AI가 설명·첨부를 먼저 확인해 질문 줄이기</p>
+                    <p class="mt-1 text-blue-700">
+                      이미 명확히 적힌 내용은 질문 후보에서 제외합니다. 선분석 없이 아래 질문을 바로 답해도 됩니다.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    class="rounded-lg border border-blue-300 bg-white px-3 py-2 text-[11px] font-bold text-blue-800 hover:border-blue-500 disabled:opacity-40"
+                    :disabled="questionPreanalysisRunning || questionCandidates.length === 0"
+                    @click="preanalyzeQuestions"
+                  >
+                    {{ questionPreanalysisResult !== null ? '다시 선분석' : 'AI 선분석 시작' }}
+                  </button>
+                </div>
+                <p v-if="questionPreanalysisRunning" class="mt-3 font-semibold text-blue-800">
+                  ⏳ 설명{{ attachments.length > 0 ? '과 첨부자료' : '' }}에서 이미 확인된 답을 찾고 있습니다(약 30초~3분).
+                </p>
+                <p v-else-if="questionPreanalysisFailed" class="mt-3 font-semibold text-red-600">
+                  선분석에 실패했습니다. 기존 질문으로 계속 진행하거나 다시 시도할 수 있습니다.
+                </p>
+                <template v-else-if="questionPreanalysisResult !== null">
+                  <p class="mt-3 font-semibold text-blue-800">
+                    {{ questionPreanalysisResult.knownQuestionCodes.length }}개 항목을 자료에서 확인해 질문을
+                    {{ questionCandidates.length }}개에서 {{ visibleQuestions.length }}개로 줄였습니다.
+                  </p>
+                  <details v-if="questionPreanalysisResult.findings.length > 0" class="mt-2">
+                    <summary class="cursor-pointer font-semibold">확인 근거 보기</summary>
+                    <ul class="mt-1 list-disc space-y-1 pl-5 text-blue-700">
+                      <li v-for="finding in questionPreanalysisResult.findings" :key="finding.code">
+                        {{ finding.evidence }}
+                      </li>
+                    </ul>
+                  </details>
+                </template>
+              </div>
               <div class="flex items-center justify-between rounded-lg bg-paper px-3 py-2 text-[11px] text-tx-3">
                 <span>요구사항 확인 질문 {{ questionRound + 1 }}/{{ questionRoundCount }}</span>
                 <span>한 번에 최대 5개 · 전체 {{ visibleQuestions.length }}개</span>
@@ -1035,7 +1176,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                     v-if="questionRound < questionRoundCount - 1"
                     type="button"
                     class="rounded-lg border border-line px-4 py-2.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
-                    :disabled="specRunning"
+                    :disabled="specRunning || questionPreanalysisRunning"
                     @click="generateSpec"
                   >
                     남은 질문 건너뛰고 AI 분석
@@ -1044,7 +1185,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                     v-else
                     type="button"
                     class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
-                    :disabled="specRunning"
+                    :disabled="specRunning || questionPreanalysisRunning"
                     @click="generateSpec"
                   >
                     {{ specRunning ? '구성 명세 정리 중…' : 'AI 구성 명세 만들기' }}

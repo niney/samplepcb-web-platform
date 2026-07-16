@@ -29,6 +29,8 @@ interface StartAiJobOptions {
   reuseCompleted?: boolean;
   sourceInput?: unknown;
   images?: readonly string[];
+  parseResult?: (raw: string, input?: unknown) => { html: string } | { json: string } | { md: string };
+  retries?: number;
 }
 
 export interface StartedAiJob {
@@ -54,6 +56,8 @@ export async function startAiJob(options: StartAiJobOptions): Promise<StartedAiJ
   const conn = await getAiConnection();
   const job = createAiJob(useCase, mbId, source);
   const def = AI_USECASE_DEFS[useCase];
+  const parseResult = options.parseResult ?? def.parseResult;
+  const retries = options.retries ?? def.retries;
 
   // 서버 재시작 시 인메모리 잡은 소실되며 클라이언트가 재시도한다. 산출 파싱 실패는
   // 유스케이스별 retries 만큼 동일 프롬프트로 다시 표집한다.
@@ -61,10 +65,10 @@ export async function startAiJob(options: StartAiJobOptions): Promise<StartedAiJ
     for (let attempt = 0; ; attempt += 1) {
       const raw = await ollamaChat(conn, model, prompt, 600_000, options.images ?? []);
       try {
-        finishAiJob(job.id, def.parseResult(raw, input));
+        finishAiJob(job.id, parseResult(raw, input));
         return;
       } catch (err) {
-        if (attempt >= def.retries) throw err;
+        if (attempt >= retries) throw err;
         log.warn({ useCase, jobId: job.id, attempt }, 'ai parse failed — retrying');
       }
     }

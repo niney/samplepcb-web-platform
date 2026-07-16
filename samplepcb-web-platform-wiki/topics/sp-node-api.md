@@ -14,7 +14,7 @@ status: active
 - **거버 PCB 담기 API** (`/api/pcb-projects`): 검증 → 견적 → 파일서버 업로드 대행 → `sp_*` 저장 → `g5_shop_cart` 스냅샷 INSERT
 - **가격 엔진** (`src/pricing/engine.ts`): 레거시 PHP `pcb_price*.lib.php` 실측 패리티 이식 + **거버 가격모드**(`gerber-price-mode.ts` — 공급가 ×1.1 정규화, 2026-07-05)
 - **재능마켓 백엔드** (`market-*.ts` 5 + `admin-market-*.ts` 4): 전문가 승인·블라인드 입찰·채택 → 계약·영카트 재사용 결제·검수(7일 자동확정)·정산 — 정본 [MARKET_FLOW](../../docs/MARKET_FLOW.md)
-- **AI 유스케이스 실행 계층** (`routes/ai.ts` + `lib/ai/`): `sp_config`(연결) + `sp_ai_usecase`(케이스별 설정) + `POST /api/ai/:useCase/run` 비동기 잡. 인터뷰 파이프라인 Phase 1~3(structurize·diagram-spec·roc·postings) — 정본 [AI_DIAGRAM](../../docs/AI_DIAGRAM.md)
+- **AI 유스케이스 실행 계층** (`routes/ai.ts` + `lib/ai/`): `sp_config`(연결) + `sp_ai_usecase`(케이스별 설정) + `POST /api/ai/:useCase/run` 비동기 잡. 인터뷰 파이프라인 Phase 1~3(structurize·diagram-spec·roc·postings)과 설명·첨부 기반 최초 질문 선분석(multipart 비동기 잡) — 정본 [AI_DIAGRAM](../../docs/AI_DIAGRAM.md)
 - **관리자 API** (`/api/admin/*`, `requireAdmin`): 견적(가격 확정)·회원·주문내역(orderlist.php 풀 패리티)·설정(사업자정보·거버가격·AI)·SEO(`admin-seo.ts`)·메인 슬라이드(`admin-slides.ts`)·마켓 심사/계약/정산
 - **레거시 DB 마이그레이션 스크립트군** (`src/scripts/migrate/`): 운영 레거시(EAV 상품 4.5만 건) → 신규 모델 변환 이관 + 증분 sync — P1~P3 verify 그린, 정본 [LEGACY_DB_MIGRATION](../../docs/LEGACY_DB_MIGRATION.md)
 - **g5 접근 카탈로그** (`src/lib/g5-db.ts`): 그누보드/영카트 DB 접근을 함수·컬럼 단위로 규율한 단일 모듈 — 현재 ①~⑲(마켓 계약 결제 포함)
