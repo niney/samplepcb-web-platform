@@ -20,11 +20,20 @@ export async function ollamaChat(
   model: string,
   prompt: string,
   timeoutMs = 600_000,
+  images: readonly string[] = [],
 ): Promise<string> {
   const res = await fetch(`${conn.baseUrl}/api/chat`, {
     method: 'POST',
     headers: authHeaders(conn),
-    body: JSON.stringify({ model, stream: true, messages: [{ role: 'user', content: prompt }] }),
+    body: JSON.stringify({
+      model,
+      stream: true,
+      messages: [{
+        role: 'user',
+        content: prompt,
+        ...(images.length === 0 ? {} : { images }),
+      }],
+    }),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok || res.body === null) {

@@ -5,6 +5,7 @@ import {
   AiRocRunBody,
   AiStructurizeRunBody,
   MarketPostingCards,
+  selectAiInterviewQuestions,
 } from '@sp/api-contract';
 import type {
   MarketAiProvenanceType,
@@ -13,7 +14,7 @@ import type {
 } from '@sp/api-contract';
 import { getAiJob, hashAiInput, hashAiText } from './jobs';
 import type { AiJob } from './jobs';
-import { parseDiagramSpecString } from './usecases';
+import { parseDiagramSpecString, structurizeJobSourceInput } from './usecases';
 
 const StoredArtifactMeta = z.object({
   source: z.enum(['ai', 'deterministic']),
@@ -118,25 +119,34 @@ export function buildAiGenerationMeta(args: {
   payload: MarketProjectCreatePayloadType;
   artifacts: PersistedArtifacts;
   generatedAt: Date;
+  attachmentHashes?: readonly string[];
 }): StoredAiGenerationMetaType | null {
   const { mbId, payload, artifacts, generatedAt } = args;
   const meta: StoredAiGenerationMetaType = { version: 1 };
   const answers = payload.interviewAnswers ?? [];
+  const attachmentHashes = args.attachmentHashes ?? [];
 
   if (artifacts.diagramSpec !== null) {
     const input = AiStructurizeRunBody.parse({
       title: payload.title,
+      requestType: payload.requestType,
       serviceAreas: payload.serviceAreas,
       categories: payload.categories,
       cadTools: payload.cadTools,
       description: payload.description,
+      questionCodes: selectAiInterviewQuestions({
+        requestType: payload.requestType,
+        serviceAreas: payload.serviceAreas,
+        ...(attachmentHashes.length > 0 ? { knownQuestionCodes: ['COMMON-06'] } : {}),
+      }).map((question) => question.code),
+      ...(attachmentHashes.length > 0 ? { attachmentHashes } : {}),
       answers,
     });
     const job = completedOwnedJob(
       payload.aiJobIds?.structurize,
       mbId,
       'market.request-structurize',
-      hashAiInput(input),
+      hashAiInput(structurizeJobSourceInput(input)),
     );
     if (job !== null && normalizedJobSpec(job) === artifacts.diagramSpec) {
       meta.diagramSpec = aiMeta(job, artifacts.diagramSpec);

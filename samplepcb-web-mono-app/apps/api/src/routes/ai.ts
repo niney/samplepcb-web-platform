@@ -3,19 +3,26 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import {
   AiJobResponse,
   AiRunResponse,
+  AiStructurizeRunBody,
   AiUsecaseKey,
   AiUsecaseStatusResponse,
   ApiMemberError,
 } from '@sp/api-contract';
-import { AI_USECASE_DEFS, getAiUsecase } from '../lib/ai/usecases';
+import {
+  AI_USECASE_DEFS,
+  getAiUsecase,
+  structurizeJobSourceInput,
+} from '../lib/ai/usecases';
 import { getAiJob } from '../lib/ai/jobs';
 import { startAiJob } from '../lib/ai/runner';
+import { prepareAiAttachments } from '../lib/ai/attachment-extractor';
+import { collectMultipart } from '../lib/market';
 
 // ── /api/ai — 범용 AI 유스케이스 실행 ───────────────────────────────────────
 // 라우트는 범용, 정책(입력 스키마·프롬프트 바인딩)은 레지스트리(lib/ai/usecases.ts)가
 // 유스케이스별로 명시. 생성이 수 분이라 run 은 잡을 만들고 즉시 반환 → 폴링(jobs/:id).
-// 외부 전송 원칙: 입력 스키마에 선언된 텍스트만 나간다 — 사용자 첨부 파일은 어떤
-// 유스케이스에서도 보내지 않는다(NDA 원칙).
+// 외부 전송 원칙: 일반 run은 입력 스키마 텍스트만, 첨부 전용 structurize 라우트는
+// 사용자 고지 뒤 제한 추출한 문서 텍스트·래스터 미리보기를 비전 모델에 전달한다.
 
 const UsecaseParams = z.object({ useCase: AiUsecaseKey });
 const JobParams = z.object({ jobId: z.string().uuid() });
@@ -80,6 +87,87 @@ export const aiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
         result: true as const,
         data: { jobId: started.job.id, cached: started.cached },
       };
+    },
+  );
+
+  // ── POST /ai/market.request-structurize/run-with-attachments ─────────────
+  // 질문/설명 payload + 아직 등록 전인 attachment[]를 한 번에 받아 문서 텍스트와
+  // 이미지 근거까지 포함한 명세 잡을 시작한다. multipart 제약상 본문 소비 뒤 JWT 검증.
+  fastify.post(
+    '/ai/market.request-structurize/run-with-attachments',
+    {
+      schema: {
+        response: { 200: AiRunResponse, 400: ApiMemberError, 401: ApiMemberError, 409: ApiMemberError },
+      },
+    },
+    async (request, reply) => {
+      if (!request.isMultipart()) {
+        return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
+      }
+      const { files, rawPayload } = await collectMultipart(request);
+      try {
+        await request.jwtVerify();
+      } catch {
+        return reply.status(401).send({ result: false, error: 'UNAUTHORIZED' });
+      }
+      if (rawPayload === undefined) {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_REQUIRED' });
+      }
+      let payloadJson: unknown;
+      try {
+        payloadJson = JSON.parse(rawPayload);
+      } catch {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
+      }
+      const baseInput = AiStructurizeRunBody.safeParse(payloadJson);
+      if (!baseInput.success) {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
+      }
+      const attachments = files.filter((file) => file.field === 'attachment');
+      if (attachments.length === 0) {
+        return reply.status(400).send({ result: false, error: 'ATTACHMENT_REQUIRED' });
+      }
+
+      const key = 'market.request-structurize' as const;
+      const def = AI_USECASE_DEFS[key];
+      const row = await getAiUsecase(key);
+      if (!row?.enabled) {
+        return reply.status(409).send({ result: false, error: 'USECASE_DISABLED' });
+      }
+      const prepared = await prepareAiAttachments(attachments);
+      const input = AiStructurizeRunBody.parse({
+        ...baseInput.data,
+        attachmentContext: prepared.context,
+        attachmentHashes: prepared.hashes,
+      });
+      let prompt: string;
+      try {
+        prompt = def.buildPrompt(row.promptTemplate, input);
+      } catch {
+        return reply.status(400).send({ result: false, error: 'INPUT_SCHEMA_MISMATCH' });
+      }
+      const visionModelEnv = process.env.AI_ATTACHMENT_VISION_MODEL?.trim();
+      const visionModel = visionModelEnv !== undefined && visionModelEnv !== ''
+        ? visionModelEnv
+        : 'qwen3.5:cloud';
+      const started = await startAiJob({
+        useCase: key,
+        mbId: request.user.mbId,
+        model: prepared.images.length > 0 ? visionModel : row.model,
+        promptTemplate: row.promptTemplate,
+        input,
+        sourceInput: structurizeJobSourceInput(input),
+        prompt,
+        images: prepared.images,
+        log: request.log,
+      });
+      request.log.info({
+        jobId: started.job.id,
+        analyzedFiles: prepared.analyzedFiles,
+        imageCount: prepared.images.length,
+        warningCount: prepared.warnings.length,
+      }, 'attachment-aware structurize job started');
+      return { result: true as const, data: { jobId: started.job.id, cached: started.cached } };
     },
   );
 

@@ -13,7 +13,7 @@ import type {
   AiStructurizeRunBodyType,
   AiUsecaseKeyType,
 } from '@sp/api-contract';
-import { apiGet, apiSend } from '@sp/shared';
+import { apiGet, apiSend, apiSendForm } from '@sp/shared';
 
 // AI 유스케이스 훅 — 활성 여부(스텝 게이트) + 실행(잡 시작) + 잡 폴링.
 // 생성이 수 분이라 실행은 jobId 만 받고, 폴링 쿼리가 5초 간격으로 완료를 기다린다.
@@ -40,6 +40,23 @@ export function useRunStructurize() {
   return useMutation({
     mutationFn: (body: AiStructurizeRunBodyType) =>
       apiSend('POST', `${apiRoutes.ai}/market.request-structurize/run`, body, AiRunResponse),
+  });
+}
+
+// 등록 전 첨부를 서버에서 추출·비전 분석한 뒤 같은 구성 명세 잡으로 연결한다.
+export function useRunStructurizeWithAttachments() {
+  return useMutation({
+    mutationFn: ({ body, files }: { body: AiStructurizeRunBodyType; files: readonly File[] }) => {
+      const form = new FormData();
+      form.append('payload', JSON.stringify(body));
+      for (const file of files) form.append('attachment', file);
+      return apiSendForm(
+        'POST',
+        `${apiRoutes.ai}/market.request-structurize/run-with-attachments`,
+        form,
+        AiRunResponse,
+      );
+    },
   });
 }
 

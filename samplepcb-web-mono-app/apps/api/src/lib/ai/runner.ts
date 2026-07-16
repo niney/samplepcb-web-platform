@@ -27,6 +27,8 @@ interface StartAiJobOptions {
   prompt: string;
   log: AiRunLogger;
   reuseCompleted?: boolean;
+  sourceInput?: unknown;
+  images?: readonly string[];
 }
 
 export interface StartedAiJob {
@@ -39,7 +41,7 @@ export async function startAiJob(options: StartAiJobOptions): Promise<StartedAiJ
   const source = {
     model,
     promptVersion: hashAiText(promptTemplate),
-    inputHash: hashAiInput(input),
+    inputHash: hashAiInput(options.sourceInput ?? input),
   };
   if (options.reuseCompleted !== false) {
     const reusable = findReusableAiJob(useCase, mbId, source);
@@ -57,9 +59,9 @@ export async function startAiJob(options: StartAiJobOptions): Promise<StartedAiJ
   // 유스케이스별 retries 만큼 동일 프롬프트로 다시 표집한다.
   void (async () => {
     for (let attempt = 0; ; attempt += 1) {
-      const raw = await ollamaChat(conn, model, prompt);
+      const raw = await ollamaChat(conn, model, prompt, 600_000, options.images ?? []);
       try {
-        finishAiJob(job.id, def.parseResult(raw));
+        finishAiJob(job.id, def.parseResult(raw, input));
         return;
       } catch (err) {
         if (attempt >= def.retries) throw err;

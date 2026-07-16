@@ -25,7 +25,8 @@ status: active
   - `src/schemas/slides.ts` — 메인 슬라이드 관리 (`Slide*`)
   - `src/schemas/seo.ts` — SEO 관리 (`Seo*`)
   - `src/schemas/market.ts` — **재능마켓 전체 플로우**(최대 모듈: 코드 사전·라벨·전문가·프로젝트·입찰·NDA·계약·정산·관리자 표면)
-  - `src/schemas/ai.ts` — **AI 유스케이스 실행 계층**(유스케이스 키·잡·설정·DiagramSpec·인터뷰 질문 뱅크)
+  - `src/schemas/ai.ts` — **AI 유스케이스 실행 계층**(유스케이스 키·잡·설정·DiagramSpec·첨부 구조화 입력)
+  - `src/schemas/ai-interview-questions.ts` — 정책 인터뷰 질문 뱅크·분야/의뢰유형 매핑·최대 15개 선택기
   - `src/routes.ts` — `apiRoutes` 상수 24종 (`/api/health`~`/api/admin/market/settings`)
 - 데이터 흐름에서의 위치: **DB(Prisma) → API(Fastify, `fastify-type-provider-zod`) → 계약(`@sp/api-contract`) → Vue(@tanstack/vue-query)** 가 타입으로 연결.
 
@@ -72,7 +73,7 @@ status: active
 **ai** (범용 AI 유스케이스 계층)
 - `AI_USECASES` — 유스케이스 키 레지스트리(`market.request-diagram` 단발 폴백 · `market.request-structurize` · `market.request-diagram-spec` · `market.request-roc` · `market.request-postings`). 새 유스케이스 추가 = 이 상수 + sp-node 레지스트리 def.
 - `DiagramSpec` — 인터뷰 파이프라인의 피벗 JSON. **enum 이탈은 `.catch`로 안전값 흡수**(LLM 산출 특성 — 실패 대신 복구), `DIAGRAM_BLOCK_TYPES` 상수.
-- `AI_INTERVIEW_QUESTIONS` — 코어 13문항 질문 뱅크(선택형 8+단문 5, `hideIf` 조건부) — 인터뷰 흐름은 결정적 데이터, LLM 은 구조화·추가질문·렌더만.
+- `AI_INTERVIEW_QUESTIONS` — 정책 77문항 + Linux/Windows 보완 3문항. `selectAiInterviewQuestions`가 앞 단계 중복을 제외하고 시스템 통합은 공통8+연결4+분야3, 개별은 공통+분야에서 최대 15개를 결정적으로 선택한다.
 - run 바디 4종(`AiDiagramRunBody`/`AiStructurizeRunBody`/`AiDiagramSpecRunBody`/`AiRocRunBody`/`AiPostingsRunBody`) · `AiRunResponse`(jobId 즉시 반환) · `AiJobResponse`(5초 폴링) · `AiSettingsResponse`/`Update`(연결·유스케이스 설정, API 키는 마스킹만) · `AiModelsResponse`(연결 테스트).
 
 **routes** — `apiRoutes` 24종: `health`·`me`·`pcbProjects` + 관리자 7종(`adminPcbProjects`·`adminPcbFiles`·`adminMembers`·`adminOrders`·`adminSettings`·`adminSlides`·`adminSeo`) + 마켓 회원 6종(`marketExperts`·`marketProjects`·`marketMy*`·`marketSettings`) + `ai` + 마켓 관리자 5종(`adminMarket*`).

@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   DiagramSpec,
-  getApplicableAiInterviewQuestions,
+  selectAiInterviewQuestions,
   MarketPostingCards,
   MARKET_AREA_SPECIALTIES,
   MARKET_AREA_TOOL_GROUPS,
@@ -47,6 +47,7 @@ import {
   useRunPostings,
   useRunRoc,
   useRunStructurize,
+  useRunStructurizeWithAttachments,
 } from '../api/useAi';
 import { useMarketExpertList } from '../api/useMarketExperts';
 import type { ExpertListFilters } from '../api/useMarketExperts';
@@ -149,8 +150,8 @@ function pruneTechnical(): void {
 
 // ── AI 명세·최종 검토(diagram 스텝) — 관리자 활성 시에만 스텝 존재 ───────────
 // 두 경로: ① 인터뷰(structurize 활성) = 코어 질문 → 구성 명세 JSON → 공용 결정적 SVG
-// 즉시 렌더, ② 폴백(legacy diagram 만 활성) = 설명 → LLM HTML 단발. 외부 전송은
-// 제목·분야·설명·인터뷰 답변 텍스트뿐이며 첨부는 보내지 않는다(NDA 원칙).
+// 즉시 렌더, ② 폴백(legacy diagram 만 활성) = 설명 → LLM HTML 단발. 인터뷰 경로는
+// 별도 고지 뒤 첨부 추출 텍스트·래스터도 보내며, legacy 경로는 첨부를 보내지 않는다.
 
 const diagramStatus = useAiUsecaseStatus('market.request-diagram');
 const structurizeStatus = useAiUsecaseStatus('market.request-structurize');
@@ -177,6 +178,7 @@ const diagramStepEnabled = computed(() => interviewEnabled.value || legacyDiagra
 
 const runDiagram = useRunDiagram();
 const runStructurize = useRunStructurize();
+const runStructurizeWithAttachments = useRunStructurizeWithAttachments();
 const runRoc = useRunRoc();
 const runPostings = useRunPostings();
 const diagramJobId = ref<string | null>(null);
@@ -240,11 +242,30 @@ const questionHidden = (q: AiInterviewQuestion): boolean => {
     ? false
     : hide.values.some((v) => interviewAnswerStr(hide.code).includes(v));
 };
-const visibleQuestions = computed<AiInterviewQuestion[]>(() =>
-  getApplicableAiInterviewQuestions(form.serviceAreas).filter((q) => !questionHidden(q)),
+const selectedQuestions = computed<AiInterviewQuestion[]>(() =>
+  selectAiInterviewQuestions({
+    requestType: form.requestType,
+    serviceAreas: form.serviceAreas,
+    ...(attachments.value.length > 0 ? { knownQuestionCodes: ['COMMON-06'] } : {}),
+  }),
 );
+const visibleQuestions = computed<AiInterviewQuestion[]>(() =>
+  selectedQuestions.value.filter((q) => !questionHidden(q)),
+);
+const QUESTION_BATCH_SIZE = 5;
+const questionRound = ref(0);
+const questionRoundCount = computed(() =>
+  Math.max(1, Math.ceil(visibleQuestions.value.length / QUESTION_BATCH_SIZE)),
+);
+const currentQuestions = computed(() => {
+  const safeRound = Math.min(questionRound.value, questionRoundCount.value - 1);
+  const start = safeRound * QUESTION_BATCH_SIZE;
+  return visibleQuestions.value.slice(start, start + QUESTION_BATCH_SIZE);
+});
 
 const questionContextLabel = (q: AiInterviewQuestion): string => {
+  if (q.group === 'common') return '공통';
+  if (q.group === 'integration') return '시스템 통합';
   if (q.areas === undefined) return '공통';
   const applicable = q.areas.filter((area) => form.serviceAreas.includes(area));
   return applicable.map((area) => MARKET_SERVICE_AREA_LABELS[area]).join('·');
@@ -254,8 +275,17 @@ function setSingle(code: string, option: string): void {
   interviewValues[code] = interviewValues[code] === option ? '' : option;
 }
 function toggleMulti(code: string, option: string): void {
+  const unknownOptions = new Set(['잘 모르겠습니다', '전문가 추천']);
   const cur = interviewValues[code];
   const arr = Array.isArray(cur) ? [...cur] : [];
+  if (unknownOptions.has(option)) {
+    interviewValues[code] = arr.includes(option) ? [] : [option];
+    return;
+  }
+  for (const unknown of unknownOptions) {
+    const unknownIndex = arr.indexOf(unknown);
+    if (unknownIndex >= 0) arr.splice(unknownIndex, 1);
+  }
   const i = arr.indexOf(option);
   if (i >= 0) arr.splice(i, 1);
   else arr.push(option);
@@ -296,6 +326,7 @@ const spec = computed<DiagramSpecType | null>(() => {
 const specRunning = computed(
   () =>
     runStructurize.isPending.value ||
+    runStructurizeWithAttachments.isPending.value ||
     (specJobId.value !== null &&
       !specJob.isError.value &&
       (specJob.data.value?.data.status ?? 'running') === 'running'),
@@ -303,6 +334,7 @@ const specRunning = computed(
 const specFailed = computed(
   () =>
     runStructurize.isError.value ||
+    runStructurizeWithAttachments.isError.value ||
     specJob.isError.value ||
     specJob.data.value?.data.status === 'error',
 );
@@ -326,17 +358,27 @@ function generateSpec(): void {
   renderedDiagramHtml.value = null;
   rocJobId.value = null;
   postingsJobId.value = null;
-  runStructurize.mutate(
-    {
-      title: form.title.trim(),
-      serviceAreas: form.serviceAreas,
-      categories: form.categories,
-      cadTools: form.cadTools,
-      description: form.description.trim(),
-      answers: interviewAnswers(),
-    },
-    { onSuccess: (res) => { specJobId.value = res.data.jobId; } },
-  );
+  const body = {
+    title: form.title.trim(),
+    requestType: form.requestType,
+    serviceAreas: form.serviceAreas,
+    categories: form.categories,
+    cadTools: form.cadTools,
+    description: form.description.trim(),
+    questionCodes: visibleQuestions.value.map((question) => question.code),
+    answers: interviewAnswers(),
+  };
+  const onSuccess = (res: { data: { jobId: string } }): void => {
+    specJobId.value = res.data.jobId;
+  };
+  if (attachments.value.length > 0) {
+    runStructurizeWithAttachments.mutate(
+      { body, files: attachments.value },
+      { onSuccess },
+    );
+  } else {
+    runStructurize.mutate(body, { onSuccess });
+  }
 }
 
 // 답변 수정 — 명세를 버리고 질문 폼으로(답변 값은 보존).
@@ -466,6 +508,13 @@ const aiSourceSignature = computed(() =>
     deadlineDate: form.deadlineDate,
     method: form.method,
     answers: interviewAnswers(),
+    questionCodes: visibleQuestions.value.map((question) => question.code),
+    attachments: attachments.value.map((file) => ({
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+    })),
   }),
 );
 const aiGeneratedSourceSignature = ref<string | null>(null);
@@ -516,6 +565,15 @@ watch(includeSpec, (included) => {
   includeRoc.value = false;
   includePostings.value = false;
 });
+
+watch(
+  () => JSON.stringify({
+    requestType: form.requestType,
+    serviceAreas: form.serviceAreas,
+    hasAttachments: attachments.value.length > 0,
+  }),
+  () => { questionRound.value = 0; },
+);
 
 // ── 동적 스텝 — 고정 번호 대신 키 배열(질문 그룹 없으면 technical 제거) ───────
 
@@ -873,7 +931,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                 앞에서 입력한 의뢰 조건을 최종 확인하면서,
                 공통 질문과 선택한 개발 분야에 맞는 질문만 보여드립니다. 답할수록 구성도와 요구사항 정리가 정확해집니다 — 모두 선택 사항이며,
                 건너뛴 항목은 구성도에 "(TBD)"(미확정)로 표시됩니다.
-                입력하신 제목·설명·답변 텍스트는 AI 명세 정리를 위해 외부 서버로 전송되지만, 구성도는 확정된 명세를 브라우저에서 즉시 그립니다 — 첨부 파일은 전송되지 않습니다.
+                입력하신 제목·설명·답변과 첨부에서 추출한 텍스트·이미지는 AI 명세 정리를 위해 외부 서버로 전송됩니다. 첨부 분석은 최대 10개·합계 50MB이며 미지원 바이너리는 내용을 추정하지 않습니다. 구성도는 확정된 명세를 브라우저에서 즉시 그립니다.
               </template>
               <template v-else>
                 앞에서 입력한 의뢰 조건을 최종 확인하고, 제목·분야·상세 설명으로 시스템 구성도 초안을 선택적으로 생성합니다.
@@ -912,9 +970,16 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
 
           <!-- 인터뷰 경로: 질문 폼 → 명세 요약·TBD·추가질문 → 구성도 -->
           <template v-if="interviewEnabled">
-            <!-- 1) 코어 질문 폼 (명세가 없을 때) -->
+            <!-- 1) 정책 질문 폼 (한 번에 5개, 전체 15개 이하) -->
             <div v-if="spec === null" class="grid gap-4">
-              <div v-for="q in visibleQuestions" :key="q.code">
+              <div class="flex items-center justify-between rounded-lg bg-paper px-3 py-2 text-[11px] text-tx-3">
+                <span>요구사항 확인 질문 {{ questionRound + 1 }}/{{ questionRoundCount }}</span>
+                <span>한 번에 최대 5개 · 전체 {{ visibleQuestions.length }}개</span>
+              </div>
+              <p v-if="attachments.length > 0" class="rounded-lg bg-paper px-3 py-2 text-[11px] leading-relaxed text-tx-3">
+                첨부에 이미 적힌 내용은 다시 답하지 않아도 됩니다. AI가 첨부 근거를 우선 반영하고 중복 질문을 제외합니다.
+              </p>
+              <div v-for="q in currentQuestions" :key="q.code">
                 <p class="text-xs font-bold text-tx-2">
                   <span class="mr-1 rounded bg-paper px-1.5 py-0.5 text-[10px] text-tx-3">{{ questionContextLabel(q) }}</span>
                   {{ q.label }} <span class="font-normal text-tx-3">(선택)</span>
@@ -949,8 +1014,34 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                 </div>
               </div>
               <div class="grid gap-2">
-                <div>
+                <div class="flex flex-wrap gap-2">
                   <button
+                    v-if="questionRound > 0"
+                    type="button"
+                    class="rounded-lg border border-line px-4 py-2.5 text-xs font-bold text-tx-2 hover:border-line-2"
+                    @click="questionRound -= 1"
+                  >
+                    이전 질문
+                  </button>
+                  <button
+                    v-if="questionRound < questionRoundCount - 1"
+                    type="button"
+                    class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800"
+                    @click="questionRound += 1"
+                  >
+                    다음 질문
+                  </button>
+                  <button
+                    v-if="questionRound < questionRoundCount - 1"
+                    type="button"
+                    class="rounded-lg border border-line px-4 py-2.5 text-xs font-bold text-tx-2 hover:border-line-2 disabled:opacity-40"
+                    :disabled="specRunning"
+                    @click="generateSpec"
+                  >
+                    남은 질문 건너뛰고 AI 분석
+                  </button>
+                  <button
+                    v-else
                     type="button"
                     class="rounded-lg bg-ink-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-ink-800 disabled:opacity-40"
                     :disabled="specRunning"
@@ -960,7 +1051,7 @@ const requestTypeDescs: Record<MarketRequestTypeType, string> = {
                   </button>
                 </div>
                 <p v-if="specRunning" class="rounded-lg bg-copper-50 px-3 py-2 text-xs font-semibold text-copper-700">
-                  ⏳ 답변을 구조화하고 있습니다(약 30초~1분) — 완료 전에 등록하면 AI 산출물은 포함되지 않습니다.
+                  ⏳ {{ attachments.length > 0 ? '첨부자료와 답변을 분석' : '답변을 구조화' }}하고 있습니다(약 30초~3분) — 완료 전에 등록하면 AI 산출물은 포함되지 않습니다.
                 </p>
                 <p v-else-if="specFailed" class="text-xs font-semibold text-red-600">
                   구조화에 실패했습니다. 잠시 후 다시 시도해 주세요.

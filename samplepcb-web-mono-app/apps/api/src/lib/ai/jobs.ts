@@ -40,6 +40,9 @@ interface AiJobSource {
 export const hashAiText = (value: string): string =>
   createHash('sha256').update(value, 'utf8').digest('hex');
 
+export const hashAiBytes = (value: Uint8Array): string =>
+  createHash('sha256').update(value).digest('hex');
+
 export const hashAiInput = (value: unknown): string => hashAiText(JSON.stringify(value));
 
 export function createAiJob(

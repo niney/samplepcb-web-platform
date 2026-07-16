@@ -129,7 +129,7 @@ sp-php가 **sp_* 를 직접 SELECT하는 역방향**도 정착: `sp_review`(revi
 
 - ⚠ **`prisma migrate reset` = 그누보드 DB 전멸**, `migrate dev`도 금지(g5_* 60개 drift → 항상 전체 reset 요구). 스키마 변경은 추가 전용 migration.sql 수기 + `migrate deploy` + `generate`.
 - ⚠ **`differentDesign` 부재 → 조용한 rfq 강등**: 키 누락 시 "0원 → 견적 대기"(2026-07-03 실사고). / **가격표 스냅샷 드리프트**: `pnpm pricing:sync` → PRICE_VERSION bump → `pricing:capture` → `pnpm test` 절차 누락 시 패리티 첫 케이스 "sha 불일치".
-- ⚠ **AI 비스트림 호출 금지**: undici 헤더 타임아웃(~300s)으로 장시간 생성 실패 — `stream:true` 필수. LLM 산출 HTML은 **sandbox iframe(srcdoc) 렌더만**(DOM 직결=XSS), rocMd도 라인 파서 렌더(v-html 금지). 외부 전송은 제목·분야·설명 텍스트뿐 — 첨부 파일 절대 미전송(NDA 원칙). 잡은 인메모리라 서버 재시작 시 소실.
+- ⚠ **AI 비스트림 호출 금지**: undici 헤더 타임아웃(~300s)으로 장시간 생성 실패 — `stream:true` 필수. LLM 산출 HTML은 **sandbox iframe(srcdoc) 렌더만**(DOM 직결=XSS), rocMd도 라인 파서 렌더(v-html 금지). 일반/레거시 경로는 텍스트만 전송하고, 첨부 구조화 전용 multipart 경로만 고지 후 제한 추출한 문서 텍스트·래스터를 전송한다(`qwen3.5:cloud`, 원본 해시 provenance). 잡은 인메모리라 서버 재시작 시 소실.
 - ⚠ **이관 specJson `_legacy` 메타**: 내부 id·PII(memberContact)가 섞여 있어 spec을 그대로 직렬화하는 라우트는 500(FST_ERR_RESPONSE_SERIALIZATION) — 새 spec-응답 라우트는 언더스코어 키 strip 필수. 신규 모델은 `legacyJson` 분리 저장이 관례.
 - ⚠ **mb_id ≤ 20자 가정 금지**: 이관 회원은 이메일 아이디(최대 29자) — 코어 필터·컬럼 폭·계약 3층에 가정이 숨어 있었음(sp측은 VarChar 191). / **만료 견적 정리 배치는 이관 견적(`priceVersion='legacy-migration'`) 제외 필수** — 1.87만 건 삭제 후보화 방지.
 - **마켓 paid 판정은 od 헤더가 아니라 라인**: '부분취소'는 od_status 값이 아니라 행 단위 취소 — 자기 카트행 ct_status∈PAID ∧ io_id==contractKey ∧ io_price==amount로 검증. 계약 취소 시 **카트행·옵션행 정리 필수**(잔존 '쇼핑' 행은 코어 buy로 취소 계약을 결제하는 구멍). E2E에서 od_id는 2^53 미만 대역(mysql2 number 정밀도).

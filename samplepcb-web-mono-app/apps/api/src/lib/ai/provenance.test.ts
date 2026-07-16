@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   AiStructurizeRunBody,
   MarketProjectCreatePayload,
+  selectAiInterviewQuestions,
 } from '@sp/api-contract';
 import { createAiJob, finishAiJob, hashAiInput, hashAiText } from './jobs';
+import { structurizeJobSourceInput } from './usecases';
 import {
   buildAiGenerationMeta,
   invalidateAiGenerationMeta,
@@ -45,16 +47,21 @@ describe('AI 프로젝트 산출물 provenance', () => {
     const mbId = `provenance-${randomUUID()}`;
     const input = AiStructurizeRunBody.parse({
       title: basePayload.title,
+      requestType: basePayload.requestType,
       serviceAreas: basePayload.serviceAreas,
       categories: basePayload.categories,
       cadTools: basePayload.cadTools,
       description: basePayload.description,
+      questionCodes: selectAiInterviewQuestions({
+        requestType: basePayload.requestType,
+        serviceAreas: basePayload.serviceAreas,
+      }).map((question) => question.code),
       answers: basePayload.interviewAnswers,
     });
     const job = createAiJob('market.request-structurize', mbId, {
       model: 'verified-model',
       promptVersion: hashAiText('prompt-v1'),
-      inputHash: hashAiInput(input),
+      inputHash: hashAiInput(structurizeJobSourceInput(input)),
     });
     finishAiJob(job.id, { json: spec });
     const payload = MarketProjectCreatePayload.parse({

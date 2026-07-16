@@ -1,39 +1,68 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AI_INTERVIEW_QUESTIONS,
   DiagramSpec,
-  getApplicableAiInterviewQuestions,
   MarketProjectCreatePayload,
   MarketProjectUpdateBody,
+  selectAiInterviewQuestions,
 } from '@sp/api-contract';
-import { AI_USECASE_DEFS, ROC_DISCLAIMER } from './usecases';
+import { AI_USECASE_DEFS, ROC_DISCLAIMER, structurizeJobSourceInput } from './usecases';
 
 const codesFor = (
-  areas: Parameters<typeof getApplicableAiInterviewQuestions>[0],
-): string[] => getApplicableAiInterviewQuestions(areas).map((q) => q.code);
+  areas: Parameters<typeof selectAiInterviewQuestions>[0]['serviceAreas'],
+  requestType: Parameters<typeof selectAiInterviewQuestions>[0]['requestType'] = 'individual',
+): string[] => selectAiInterviewQuestions({ requestType, serviceAreas: areas }).map((q) => q.code);
 
 describe('분야별 AI 인터뷰 질문', () => {
-  it('분야 미지정 시스템 통합은 공통 질문만 노출한다', () => {
-    expect(codesFor([])).toEqual(['stage', 'delivery', 'assets']);
+  it('정책 질문 77개와 소프트웨어 보완 3개를 추적 가능한 코드로 보존한다', () => {
+    expect(AI_INTERVIEW_QUESTIONS).toHaveLength(80);
+    expect(new Set(AI_INTERVIEW_QUESTIONS.map((question) => question.code)).size).toBe(80);
+    expect(AI_INTERVIEW_QUESTIONS.map((question) => question.code)).toEqual(expect.arrayContaining([
+      'COMMON-01', 'SYSTEM-01', 'CIRCUIT-01', 'PCB-01', 'FIRMWARE-01',
+      'MECHANICAL-01', 'DESIGN-01', 'APP-01', 'SERVER-01', 'SOFTWARE-01',
+    ]));
   });
 
-  it('앱 의뢰에는 앱 질문만 추가하고 하드웨어 질문을 제외한다', () => {
+  it('모든 선택형 질문에 모름 또는 전문가 추천 선택지가 있다', () => {
+    for (const question of AI_INTERVIEW_QUESTIONS) {
+      if (question.type === 'text') continue;
+      expect(question.options?.some(
+        (option) => option === '잘 모르겠습니다' || option === '전문가 추천',
+      ), question.code).toBe(true);
+    }
+  });
+
+  it('앱 개별 의뢰는 앞 단계 중복을 빼고 공통+앱 질문을 15개 이하로 선택한다', () => {
     const codes = codesFor(['app']);
-    expect(codes).toEqual(['stage', 'delivery', 'assets', 'appPlatform', 'appScope', 'appExisting']);
-    expect(codes).not.toContain('power');
-    expect(codes).not.toContain('mcu');
+    expect(codes).toHaveLength(15);
+    expect(codes).not.toContain('COMMON-01');
+    expect(codes).not.toContain('COMMON-07');
+    expect(codes).toEqual(expect.arrayContaining(['COMMON-02', 'COMMON-04', 'APP-01', 'APP-03']));
+    expect(codes).not.toContain('CIRCUIT-01');
   });
 
-  it('회로 의뢰에는 기존 하드웨어 핵심 질문을 유지한다', () => {
+  it('회로 의뢰에는 정책의 회로 질문만 추가하고 앱 질문을 제외한다', () => {
     const codes = codesFor(['circuit']);
-    expect(codes).toEqual(expect.arrayContaining(['power', 'powerDetail', 'mcu', 'sensors', 'outputs', 'comm']));
-    expect(codes).not.toContain('appPlatform');
-    expect(codes).not.toContain('serverScale');
+    expect(codes).toHaveLength(15);
+    expect(codes).toEqual(expect.arrayContaining(['CIRCUIT-01', 'CIRCUIT-02', 'CIRCUIT-04']));
+    expect(codes).not.toContain('APP-01');
+    expect(codes).not.toContain('SERVER-03');
   });
 
-  it('복수 분야는 질문을 중복 없이 합집합으로 구성한다', () => {
-    const codes = codesFor(['circuit', 'app', 'server']);
-    expect(codes).toEqual(expect.arrayContaining(['mcu', 'appPlatform', 'serverScope']));
+  it('시스템 통합은 공통 8 + 연결 4 + 분야 3으로 제한하고 분야를 순환 선택한다', () => {
+    const codes = codesFor(['circuit', 'app', 'server'], 'system');
+    expect(codes).toHaveLength(15);
+    expect(codes.filter((code) => code.startsWith('SYSTEM-'))).toHaveLength(4);
+    expect(codes).toEqual(expect.arrayContaining(['SYSTEM-01', 'SYSTEM-04', 'SYSTEM-06', 'SYSTEM-07']));
+    expect(codes).toEqual(expect.arrayContaining(['CIRCUIT-02', 'APP-02', 'SERVER-01']));
     expect(new Set(codes).size).toBe(codes.length);
+  });
+
+  it('정책에 없는 기타는 공통 질문만, Linux/Windows는 보완 질문을 사용한다', () => {
+    expect(codesFor(['etc'])).toHaveLength(8);
+    expect(codesFor(['software-linux'])).toEqual(expect.arrayContaining([
+      'SOFTWARE-01', 'SOFTWARE-02', 'SOFTWARE-03',
+    ]));
   });
 
   it('기존 관리자 프롬프트에도 순수 소프트웨어 실행 정책을 앞에 붙인다', () => {
@@ -63,6 +92,52 @@ describe('분야별 AI 인터뷰 질문', () => {
     expect(prompt).toContain('mcu=AVR·마이컴 회로');
     expect(prompt).toContain('power=전원회로·SMPS');
     expect(prompt).toContain('kicad=KiCad');
+  });
+
+  it('첨부 근거·누락 방지 정책을 프롬프트에 고정하고 캐시 원천에는 원본 해시만 남긴다', () => {
+    const input = {
+      title: '저온 창고 모니터링 장치',
+      requestType: 'system' as const,
+      serviceAreas: ['circuit', 'pcb', 'firmware'] as const,
+      description: '저온 창고의 온도와 출입문 상태를 중앙 서버로 전송하는 장치입니다.',
+      questionCodes: ['COMMON-10'],
+      attachmentContext: '[첨부 1] 동작 온도 -25~5 °C, 시제품 10대, Ethernet MQTT 사용',
+      attachmentHashes: ['a'.repeat(64)],
+      answers: [],
+    };
+    const def = AI_USECASE_DEFS['market.request-structurize'];
+    const prompt = def.buildPrompt(def.defaultPrompt, input);
+
+    expect(prompt).toContain('[첨부자료 분석]');
+    expect(prompt).toContain('questions_missing에 다시 묻지 않는다');
+    expect(prompt).toContain('groups는 반드시 2~7개');
+    expect(prompt).toContain('LED 3개는 3색 LED가 아니다');
+    expect(prompt).toContain('connections.interface');
+    expect(structurizeJobSourceInput(input)).toEqual(expect.objectContaining({
+      attachmentHashes: ['a'.repeat(64)],
+    }));
+    expect(structurizeJobSourceInput(input)).not.toHaveProperty('attachmentContext');
+
+    const result = def.parseResult(JSON.stringify({
+      project: { name: 'Cold Monitor', summary: '', stage: 'spec', service_type: 'full' },
+      groups: [{ id: 'system', label: 'SYSTEM' }],
+      blocks: [
+        { id: 'mcu', group: 'system', type: 'controller', label: 'MCU', status: 'tbd' },
+        { id: 'server', group: 'system', type: 'service', label: 'Server', status: 'confirmed' },
+      ],
+      connections: [
+        { from: 'mcu', to: 'server', interface: 'GPIO', flow: 'data' },
+        { from: 'server', to: 'mcu', interface: 'Ethernet/MQTT', flow: 'data' },
+      ],
+      constraints: [],
+      feature_highlights: [],
+      questions_missing: [],
+    }), input);
+    const resultJson: unknown = 'json' in result ? JSON.parse(result.json) : null;
+    expect(DiagramSpec.parse(resultJson).connections).toEqual([
+      expect.objectContaining({ interface: '(TBD)' }),
+      expect.objectContaining({ interface: 'Ethernet/MQTT' }),
+    ]);
   });
 
   it('ROC와 분야 카드에 예산·일정·견적 방식과 입력 보안 정책을 고정 전달한다', () => {

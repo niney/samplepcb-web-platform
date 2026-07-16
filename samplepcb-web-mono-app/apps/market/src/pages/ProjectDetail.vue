@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  AI_INTERVIEW_QUESTIONS,
+  aiInterviewQuestionLabel,
   MARKET_BID_STATUS_LABELS,
   MARKET_BUDGET_RANGE_LABELS,
   MARKET_CATEGORY_LABELS,
@@ -307,11 +307,8 @@ const provenanceTitle = (provenance: MarketAiArtifactProvenanceType | null): str
   return details.join(' · ');
 };
 
-const interviewQuestionLabels = new Map(
-  AI_INTERVIEW_QUESTIONS.map((question) => [question.code, question.label]),
-);
 const interviewAnswerLabel = (code: string): string =>
-  interviewQuestionLabels.get(code) ?? (code === 'extra' ? 'AI 추가 질문' : '추가 확인 사항');
+  aiInterviewQuestionLabel(code) ?? (code === 'extra' ? 'AI 추가 질문' : '추가 확인 사항');
 </script>
 
 <template>

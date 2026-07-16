@@ -23,6 +23,7 @@ import {
   invalidateAiGenerationMeta,
   toAiProvenance,
 } from '../lib/ai/provenance';
+import { hashAiBytes } from '../lib/ai/jobs';
 import { parseDiagramSpecString } from '../lib/ai/usecases';
 import { downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import type { UploadedFileType } from '../lib/file-server';
@@ -169,6 +170,7 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
     }
     const payload = parsed.data;
+    const attachments: MarketReceivedFile[] = files.filter((f) => f.field === 'attachment');
 
     const now = new Date();
     const bidDeadlineAt = deadlineToDate(payload.deadline, now);
@@ -212,6 +214,8 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         postings: persistedPostings,
       },
       generatedAt: now,
+      // 첨부 AI 전처리와 같은 앞쪽 10개만 캐시/provenance 원천으로 사용한다.
+      attachmentHashes: attachments.slice(0, 10).map((file) => hashAiBytes(file.buffer)),
     });
 
     // 지정견적 — 대상은 승인 전문가여야 하고, 자기 자신(자전 입찰 유도) 지정은 금지.
@@ -234,7 +238,6 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     }
 
     // 첨부(선택 — 명세서 권장은 FE 경고로, 강제하지 않는다).
-    const attachments: MarketReceivedFile[] = files.filter((f) => f.field === 'attachment');
     let uploaded: UploadedFileType[] = [];
     if (attachments.length > 0) {
       try {

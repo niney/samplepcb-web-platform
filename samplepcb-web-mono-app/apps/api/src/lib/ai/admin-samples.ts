@@ -49,17 +49,19 @@ const electronicsInput = {
 
 const softwareInput = {
   title: '스마트 물류 재고 관리 시스템',
+  requestType: 'system',
   serviceAreas: ['app', 'server'],
   categories: [],
   cadTools: [],
   description:
     '창고 작업자가 모바일에서 바코드로 입출고를 처리하고 관리자가 웹에서 재고와 작업 이력을 확인하는 시스템을 개발합니다.',
+  questionCodes: ['COMMON-05', 'COMMON-09', 'APP-01', 'SERVER-02', 'SERVER-03'],
   answers: [
-    { code: 'stage', answer: '요구사항·기능 명세 보유' },
-    { code: 'delivery', answer: 'iOS·Android 앱, 관리자 웹, API 서버, 운영 문서' },
-    { code: 'appPlatform', answer: 'iOS, Android, 웹' },
-    { code: 'serverScope', answer: 'API, DB 설계, 관리자 화면, 인프라·배포' },
-    { code: 'serverScale', answer: '작업자 200명, 동시접속 50명, 일 입출고 2만 건' },
+    { code: 'COMMON-05', answer: '요구사항 문서가 있음' },
+    { code: 'COMMON-09', answer: '앱 소스코드, 서버 소스코드, 서버 배포' },
+    { code: 'APP-01', answer: 'Android, iPhone' },
+    { code: 'SERVER-02', answer: '회원정보, 장치정보, 주문 및 결제, 로그' },
+    { code: 'SERVER-03', answer: '1,000 이하' },
   ],
 };
 
