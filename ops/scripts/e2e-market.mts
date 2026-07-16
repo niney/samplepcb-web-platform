@@ -386,9 +386,12 @@ async function run() {
       '세부분야 반영 + 빈 요구 툴',
       anon.json?.data?.categories,
     );
+    // spec 동반 시 서버가 클라이언트 HTML 을 버리고 같은 명세로 재렌더한다(d6a4bb2ad) —
+    // 저장본에는 spec 블록 라벨이 있고 클라이언트 마커는 없어야 한다.
     assert(
-      (anon.json?.data?.diagramHtml ?? '').includes('E2E DIAGRAM'),
-      'AI 구성도(diagramHtml) 왕복',
+      (anon.json?.data?.diagramHtml ?? '').includes('E2E MCU') &&
+        !(anon.json?.data?.diagramHtml ?? '').includes('E2E DIAGRAM'),
+      'AI 구성도(diagramHtml) 서버 재렌더 왕복',
     );
     assert(
       (anon.json?.data?.diagramSpec ?? '').includes('E2E MCU'),
