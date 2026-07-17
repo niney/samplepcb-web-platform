@@ -49,11 +49,13 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 | **`sp-vue`** | Vue SPA 프런트 (관리자) | `samplepcb-web-mono-app/apps/web` | `/app` | `@sp` 스코프 |
 | **`sp-market`** | Vue SPA 재능마켓 (고객) | `samplepcb-web-mono-app/apps/market` | `/market` | `@sp` 스코프 |
 | **`sp-node`** | Node/Fastify 백엔드 | `samplepcb-web-mono-app/apps/api` | `/api` | Fastify · `@sp` 스코프 |
+| **`sp-rnd`** | Vue 연구·실험 앱 | `samplepcb-web-mono-app/apps/rnd` | `/rnd` | 독립 Vite 앱 |
 
 - **sp-vue `/app`의 실질 기본 용도는 관리자(`/app/admin`)다** — 고객 대면 신규 화면(견적관리 등)은 sp-php(`spcb/pages/`)에 우선 구현하는 플랫폼 결정에 따라, `/app` 루트 홈은 최소 셸이고 관리자 화면이 본문이다. **예외(2026-07-08): 재능마켓처럼 SPA급 인터랙션(마법사·블라인드 견적 비교·대시보드)이 필요한 신규 소비자 서비스는 별도 Vue 앱(sp-market, `/market`)으로 구현** — sp-vue는 계속 관리자 전용이고, 마켓의 관리 화면은 `/app/admin/market`에 둔다.
 - **"web"은 호칭으로 쓰지 않는다** — `samplepcb-web/`(PHP)와 `apps/web`(Vue) 양쪽에 걸쳐 혼동을 부르기 때문. 위 세 별칭으로 대체.
 - 빠른 대화에선 `php`/`vue`/`node`로 줄여도 1:1로 통함. **문서·커밋엔 `sp-` 접두형 권장.**
 - `sp-node`는 런타임 기준 이름. 라우트/계약(`/api`, `@sp/api-contract`)을 콕 집을 땐 "sp-node의 api".
+- `sp-rnd`는 제품 기능과 분리된 가설 검증·프로토타이핑용 독립 Vue 앱이다.
 
 ## 런타임 통합 — 같은 도메인 라우팅 (nginx 443 리버스프록시)
 
@@ -63,9 +65,10 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 /api/    → 127.0.0.1:3333  Node (Fastify)      ← samplepcb-web-mono-app/apps/api
 /app/    → 127.0.0.1:5173  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/web (base:'/app/')
 /market/ → 127.0.0.1:5176  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/market (base:'/market/')
+/rnd/    → 127.0.0.1:5177  Vue (Vite dev+HMR)  ← samplepcb-web-mono-app/apps/rnd (base:'/rnd/')
 /        → 127.0.0.1:8888  PHP (XAMPP Apache)  ← samplepcb-web (그누보드/영카트)  ← 루트=PHP
 ```
-- **`/app`·`/api`·`/market`는 그누보드 예약 경로**(그누보드가 점유 안 함). `/spcb`(인증 브리지)는 별도 location이 없어 catch-all `/`로 흘러 PHP가 처리.
+- **`/app`·`/api`·`/market`·`/rnd`는 그누보드 예약 경로**(그누보드가 점유 안 함). `/spcb`(인증 브리지)는 별도 location이 없어 catch-all `/`로 흘러 PHP가 처리.
 
 **설정 파일 위치 (중요)**
 - 실제 구동 = **`D:\nginx\conf\nginx.conf`** (repo **밖**, 로컬 머신).

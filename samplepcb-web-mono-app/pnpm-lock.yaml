@@ -161,6 +161,34 @@ importers:
         specifier: ^3.0.0
         version: 3.3.5(typescript@6.0.3)
 
+  apps/rnd:
+    dependencies:
+      vue:
+        specifier: ^3.5.13
+        version: 3.5.39(typescript@6.0.3)
+    devDependencies:
+      '@sp/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@vitejs/plugin-vue':
+        specifier: ^6.0.0
+        version: 6.0.7(vite@8.1.1(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))(vue@3.5.39(typescript@6.0.3))
+      eslint:
+        specifier: ^10.0.1
+        version: 10.6.0(jiti@2.7.0)
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.3
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.0.12
+        version: 8.1.1(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)
+      vue-tsc:
+        specifier: ^3.0.0
+        version: 3.3.5(typescript@6.0.3)
+
   apps/web:
     dependencies:
       '@sp/api-contract':

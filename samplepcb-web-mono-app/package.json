@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "turbo dev",
     "dev:web": "turbo dev --filter=web",
+    "dev:rnd": "turbo dev --filter=rnd",
     "dev:api": "turbo dev --filter=api",
     "build": "turbo build",
     "typecheck": "turbo typecheck",

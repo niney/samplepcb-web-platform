@@ -38,6 +38,7 @@ packages/
 apps/
 ├── web/           Vite + Vue 3      ← base:'/app/' (관리자)
 ├── market/        Vite + Vue 3      ← base:'/market/' (재능마켓 고객 SPA)
+├── rnd/           Vite + Vue 3      ← base:'/rnd/' (연구·실험용 독립 SPA)
 └── api/           Fastify 5         ← prefix '/api'
 ```
 
@@ -59,8 +60,8 @@ apps/
 
 ```bash
 pnpm install
-pnpm dev          # turbo: web(5173) + market(5176) + api(3333) 동시
+pnpm dev          # turbo: web(5173) + market(5176) + rnd(5177) + api(3333) 동시
 pnpm typecheck    # turbo typecheck (모든 워크스페이스)
 pnpm lint
 ```
-nginx(`../ops/nginx/local-web.conf`)가 `/app`→5173, `/market`→5176, `/api`→3333 프록시.
+nginx(`../ops/nginx/local-web.conf`)가 `/app`→5173, `/market`→5176, `/rnd`→5177, `/api`→3333 프록시.
