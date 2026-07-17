@@ -85,8 +85,16 @@ const RND_PCB_REQUEST_DOCUMENT_DEFAULT_PROMPT = `당신은 PCB·전자제품 개
 출력 규칙:
 - 설명 문장이나 코드펜스 없이 마크다운 본문만 출력합니다.
 - 아래 10개 섹션 제목·번호를 빠짐없이 정확히 포함합니다.
-- 첨부 원본의 파일명과 분류 결과를 2번 섹션에 반영합니다.
+- 2번 첨부자료 목록에는 분류 결과의 모든 파일 id(F0001 형식)·경로·분류·신뢰도를 정확히 한 번씩 적습니다.
+- 4번 입력 조건은 확인된 사실 / 사용자 요구 / 추정 / 미확정으로 구분합니다. 확인된 사실에는 반드시 [근거: F0001]처럼 파일 id를 붙이고, 요구사항에서 온 사실에는 [근거: 사용자 요구사항]을 붙입니다.
+- 6번 기술 요구사항은 "확정 요구사항", "설계 제안", "미확정(TBD)"을 구분합니다. 일반적인 권장사항은 확정 요구가 아니라 설계 제안으로만 씁니다.
+- 7번 산출물에는 PCB 제작·조립에 필요한 Gerber, NC Drill, BOM, Pick & Place/Centroid 좌표와 회로·PCB 설계 원본의 제공 조건을 포함합니다. 3D STEP, 인증서처럼 요청되지 않은 부가 산출물은 추가하지 않습니다.
+- 8번 검수 기준은 검증 방법과 합격 판단 주체를 적되, 근거 없는 수치 기준을 만들지 않습니다.
 - 설계 파일이 PDF/이미지/BOM뿐이고 편집 가능한 EDA 원본이 확인되지 않으면, 재작성 범위와 견적 영향은 9번 미확정 항목에 둡니다.
+- 분류 confidence가 low/medium이거나 warnings에 든 내용은 확인된 사실로 승격하지 않습니다.
+- 기존 회로에서 확인된 부품 번호는 "현행 설계 사실"일 뿐 고정 부품 요구가 아닙니다. 사용자가 명시하지 않았다면 동일 부품 유지로 확정하지 말고, 유지·대체 여부를 설계 검토 또는 TBD로 둡니다.
+- 사용자 요구사항에 없는 작성일·납기·예산·담당자·수정 횟수는 미확정 항목에도 넣지 말고 문서에서 아예 언급하지 않습니다.
+- 모든 불명확한 내용은 9번에 (TBD)로 모으고, 10번 완료 조건은 그 TBD가 합의되기 전 설계 확정을 요구하지 않습니다.
 
 ## 1. 프로젝트 식별
 ## 2. 첨부자료 목록
@@ -99,12 +107,31 @@ const RND_PCB_REQUEST_DOCUMENT_DEFAULT_PROMPT = `당신은 PCB·전자제품 개
 ## 9. 미확정 항목
 ## 10. 완료 조건`;
 
-const parseRndPcbRequestDocument = (raw: string): { md: string } => {
+const parseRndPcbRequestDocument = (raw: string, input?: unknown): { md: string } => {
+  const source = RndPcbRequestDocumentInput.parse(input);
   const fence = /```(?:markdown|md)?\s*([\s\S]*?)```/i.exec(raw);
   const md = (fence?.[1] ?? raw).trim();
   if (md === '') throw new Error('EMPTY_RESULT');
   const sections = new Set([...md.matchAll(/^##\s*(\d+)\./gm)].map((match) => Number(match[1])));
-  if (sections.size < 10) throw new Error('FORMAT_MISMATCH');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].every((number) => sections.has(number))) {
+    throw new Error('FORMAT_MISMATCH');
+  }
+  const attachmentSection = /^##\s*2\.[\s\S]*?(?=^##\s*3\.)/m.exec(md)?.[0] ?? '';
+  if (source.classification.files.some((file) => !attachmentSection.includes(file.id))) {
+    throw new Error('SOURCE_COVERAGE_MISMATCH');
+  }
+  const evidenceSection = /^##\s*4\.[\s\S]*?(?=^##\s*5\.)/m.exec(md)?.[0] ?? '';
+  if (!evidenceSection.includes('[근거:')) throw new Error('EVIDENCE_TRACE_MISSING');
+  const deliverableSection = /^##\s*7\.[\s\S]*?(?=^##\s*8\.)/m.exec(md)?.[0] ?? '';
+  if (![/gerber/i, /drill/i, /bom/i, /pick\s*&?\s*place|centroid|좌표/i].every((pattern) => pattern.test(deliverableSection))) {
+    throw new Error('DELIVERABLE_COVERAGE_MISMATCH');
+  }
+  const identitySection = /^##\s*1\.[\s\S]*?(?=^##\s*2\.)/m.exec(md)?.[0] ?? '';
+  if (!/\d{4}[-.]\d{1,2}[-.]\d{1,2}/.test(source.requirements) && /(?:작성일|납기|완료일).*\d{4}[-.]\d{1,2}/.test(identitySection)) {
+    throw new Error('UNSUPPORTED_METADATA');
+  }
+  const uncertaintySection = /^##\s*9\.[\s\S]*?(?=^##\s*10\.)/m.exec(md)?.[0] ?? '';
+  if (!/\(TBD\)|미확정|확인 필요/.test(uncertaintySection)) throw new Error('UNCERTAINTY_MISSING');
   const document = md.startsWith(ROC_DISCLAIMER) ? md : `${ROC_DISCLAIMER}\n\n${md}`;
   if (Buffer.byteLength(document, 'utf8') > MAX_TEXT_BYTES) throw new Error('RESULT_TOO_LARGE');
   return { md: document };
@@ -538,7 +565,7 @@ export const AI_USECASE_DEFS: Record<AiUsecaseKeyType, AiUsecaseDef> = {
       const requirements = p.requirements === '' ? '별도 요구사항 없음' : p.requirements;
       return `${template}\n\n[사용자 요구사항]\n${requirements}\n\n[파일 분류 결과]\n${JSON.stringify(p.classification, null, 2)}\n\n[첨부에서 추출한 근거]\n${p.attachmentContext}`;
     },
-    parseResult: (raw) => parseRndPcbRequestDocument(raw),
+    parseResult: (raw, input) => parseRndPcbRequestDocument(raw, input),
     retries: 1,
   },
   'market.request-diagram': {

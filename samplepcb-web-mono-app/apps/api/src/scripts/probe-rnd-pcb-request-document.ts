@@ -1,41 +1,52 @@
-// 실제 PCB설계.zip을 근거로 만든 가상 의뢰 조건에서 "PCB 설계 개발의뢰서" 품질을 비교한다.
+// 실제 PCB설계.zip을 고정 입력으로 웹과 동일한 "PCB 설계 개발의뢰서" 유스케이스를 반복 비교한다.
 // 실행: apps/api 에서 pnpm rnd:request-probe
-// 선택 모델: RND_PCB_REQUEST_PROBE_MODELS=model-a,model-b pnpm rnd:request-probe
+// 후보: RND_PCB_REQUEST_PROBE_MODELS=model-a,model-b pnpm rnd:request-probe
+// 반복: RND_PCB_REQUEST_PROBE_ROUNDS=3 pnpm rnd:request-probe (1~5, 기본 3)
 // 결과: apps/api/.tmp/rnd-pcb-request-probe-<timestamp>.json (gitignore 대상)
 
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AiRocRunBody } from '@sp/api-contract';
-import type { AiRocRunBodyType } from '@sp/api-contract';
+import { RndFileClassifyResult, RndPcbRequestDocumentInput } from '@sp/api-contract';
 import { expandAiArchives } from '../lib/ai/archive';
 import { prepareAiAttachments } from '../lib/ai/attachment-extractor';
 import type { UploadTarget } from '../lib/file-server';
 import { ollamaChat, ollamaListModels } from '../lib/ai/ollama';
 import { AI_USECASE_DEFS, getAiConnection } from '../lib/ai/usecases';
 
-const USE_CASE = 'market.request-roc' as const;
+const USE_CASE = 'rnd.pcb-request-document' as const;
 const REQUEST_TIMEOUT_MS = 300_000;
-const SECTION_NUMBERS = Array.from({ length: 10 }, (_value, index) => index + 1);
+const DEFAULT_MODELS = ['glm-5.2', 'kimi-k2.7-code', 'deepseek-v4-pro', 'qwen3.5:397b'] as const;
 const REQUIRED_EVIDENCE = [
   'STM32F429', 'AD7989', 'LAN8742', 'TLE9250', 'PoE', 'BOM', 'nRF54L15', 'LGA-53',
 ] as const;
-const REQUIRED_DELIVERABLES = ['Gerber', 'drill', 'BOM', 'centroid', '좌표', '검사'];
-const UNSUPPORTED_FACTS = ['4층', '4 layer', '4-layer', 'UL 인증', 'CE 인증', 'KC 인증'];
+const REQUIRED_DELIVERABLES = ['Gerber', 'drill', 'BOM', 'centroid', '좌표', '검사'] as const;
+const UNSUPPORTED_PATTERNS = [
+  /(?:^|\s)4\s*(?:layer|레이어|층)/i,
+  /100\s*[x×]\s*80\s*mm/i,
+  /(?:KC|CE|UL)\s*인증/i,
+  /3D\s*STEP/i,
+  /작성일.*\d{4}[-.]\d{1,2}[-.]\d{1,2}/i,
+  /(?:STM32F429|AD7989|LAN8742|TLE9250).*(?:유지|고정)|(?:유지|고정).*(?:STM32F429|AD7989|LAN8742|TLE9250)/i,
+] as const;
 
 interface DocumentScore {
   score: number;
   maxScore: number;
-  sections: number[];
+  sections: number;
+  sourceIds: number;
+  citations: number;
   evidenceTerms: string[];
   deliverableTerms: string[];
-  uncertaintyHandled: boolean;
-  unsupportedFacts: string[];
+  uncertaintyChecks: number;
+  unsupportedAssertions: string[];
 }
 
 interface ModelProbeResult {
   model: string;
+  round: number;
   ok: boolean;
+  attempts: number;
   seconds: number;
   score?: DocumentScore;
   document?: string;
@@ -51,181 +62,206 @@ const elapsedSeconds = (started: number): number =>
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : '알 수 없는 오류';
 
-const compactAttachmentEvidence = (context: string): string =>
-  context
-    .split(/\n\n(?=\[첨부)/)
-    .map((section) => section.slice(0, 1_800))
-    .join('\n\n');
+const configuredRounds = (): number => {
+  const value = Number(process.env.RND_PCB_REQUEST_PROBE_ROUNDS ?? '3');
+  if (!Number.isInteger(value) || value < 1 || value > 5) {
+    throw new Error('RND_PCB_REQUEST_PROBE_ROUNDS는 1~5 정수여야 합니다.');
+  }
+  return value;
+};
 
-const modelSelection = (available: readonly string[]): string[] => {
+const selectedModels = (available: readonly string[]): string[] => {
   const configured = process.env.RND_PCB_REQUEST_PROBE_MODELS?.split(',')
     .map((model) => model.trim())
     .filter((model) => model !== '') ?? [];
-  if (configured.length === 0) return [...available];
-  const missing = configured.filter((model) => !available.includes(model));
+  const requested = configured.length === 0 ? DEFAULT_MODELS : configured;
+  const missing = requested.filter((model) => !available.includes(model));
   if (missing.length > 0) throw new Error(`등록되지 않은 모델: ${missing.join(', ')}`);
-  return configured;
+  return [...requested];
 };
 
-const buildInput = (attachmentEvidence: string): AiRocRunBodyType => AiRocRunBody.parse({
-  title: 'WIM_DAQ Rev.2 산업용 데이터수집 PCB 설계 개발',
-  serviceAreas: ['circuit', 'pcb'],
-  categories: ['mcu', 'power', 'digital', 'rf'],
-  cadTools: [],
-  // 임의의 의뢰 조건은 아래 첫 블록뿐이며, 나머지는 실제 ZIP에서 추출하거나 눈으로 확인한 근거다.
-  description: `기존 WIM_DAQ 1차 설계 자료를 검토해 산업용 데이터수집 보드 Rev.2의 회로·PCB 설계를 의뢰합니다.
+const roleForPath = (displayPath: string): {
+  category: 'schematic' | 'bom' | 'pcb-layout';
+  role: string;
+  evidence: string;
+} => {
+  if (displayPath.endsWith('WIM_DAQ_1ST_PCB.pdf')) {
+    return {
+      category: 'schematic',
+      role: 'WIM_DAQ 1차 설계의 Power, MCU, ADC, Ethernet 4페이지 회로도 PDF',
+      evidence: 'PDF 텍스트에서 4개 시트와 STM32F429ZIY7, AD7989-1, LAN8742A, TLE9250VLE, PoE 전원 부품을 확인',
+    };
+  }
+  if (displayPath.endsWith('WIM_DAQ_1ST_PCB_BOM.xlsx')) {
+    return {
+      category: 'bom',
+      role: 'WIM_DAQ 1차 설계 부품명세서',
+      evidence: 'XLSX에서 Item, Quantity, Reference, Part, FootPrint 열을 확인',
+    };
+  }
+  if (displayPath.endsWith('부품배치.png')) {
+    return {
+      category: 'pcb-layout',
+      role: 'WIM_DAQ PCB 부품 배치 이미지',
+      evidence: '이미지에서 PCB 위 실장 부품의 배치 뷰를 확인',
+    };
+  }
+  if (displayPath.endsWith('외형도.png')) {
+    return {
+      category: 'pcb-layout',
+      role: '일반 보드 외형도가 아닌 NX15(nRF54L15) LGA-53 Pad Layout 참조 이미지',
+      evidence: '이미지 제목과 핀 배열에서 NX15 LGA-53 Pad Layout임을 확인',
+    };
+  }
+  return {
+    category: 'schematic',
+    role: 'nRF54L15, 32MHz 크리스털, RF 매칭 및 안테나 경로가 포함된 별도 참조 회로 이미지',
+    evidence: '이미지에서 nRF54L15 RF 회로와 안테나 경로를 확인',
+  };
+};
 
-[의뢰인이 정한 가정 조건]
-- Rev.2 시제품 10대를 제작 가능한 수준의 설계 산출물을 만든다.
-- 기존 PoE 전원, MCU 기반 제어, 아날로그 센서 입력 2채널, Ethernet 및 CAN 통신의 기능 의도는 유지한다.
-- 기존 편집 가능 EDA 원본의 보유 여부는 확인되지 않았으므로, 원본이 없으면 재작성 범위와 비용 영향을 분리해 제시한다.
-- 별도 PNG에 nRF54L15 RF 회로 및 NX15 LGA-53 패드 레이아웃이 보인다. 이 RF 회로를 WIM_DAQ Rev.2에 통합할지는 아직 결정하지 않았으며, 기본 범위에는 넣지 않는다.
-
-[첨부에서 직접 확인한 사실]
-- WIM_DAQ_1ST_PCB.pdf는 Power, MCU, ADC, Ethernet의 4개 회로 시트다.
-- PDF/BOM에서 STM32F429ZIY7, AD7989-1, INA128UA, LAN8742A, TLE9250VLE, Silvertel Ag9912LPB(PoE)가 확인된다.
-- WIM_DAQ_1ST_PCB_BOM.xlsx는 Item, Quantity, Reference, Part, FootPrint 열을 가진 BOM이다.
-- 부품배치.png는 WIM_DAQ PCB 부품 배치 이미지다.
-- 외형도.png는 일반 보드 외형이 아니라 NX15(nRF54L15) LGA-53 Pad Layout이다.
-- 회로도.png는 nRF54L15, 32MHz 크리스털, RF 매칭·안테나 경로가 보이는 별도 회로 참조 이미지다.
-
-[첨부 추출 원문 일부]
-${attachmentEvidence}`,
-  answers: [
-    { code: 'PCB-01', answer: '기존 회로도 PDF와 BOM 엑셀은 있으나 원본 EDA 파일 보유 여부는 미확인' },
-    { code: 'PCB-02', answer: '시제품 10대 제작 가능 수준의 Gerber·drill·BOM·좌표 산출물이 필요' },
-    { code: 'PCB-03', answer: 'nRF54L15 RF 회로의 본보드 통합 여부는 별도 결정 전까지 기본 범위에서 제외' },
-  ],
-  budgetRange: 'r300_700',
-  startHopeDate: '2026-08-10',
-  dueHopeDate: '2026-10-31',
-  deadline: { days: 14 },
-  method: 'open',
-  spec: JSON.stringify({
-    project: {
-      name: 'WIM_DAQ_REV2',
-      summary: 'PoE 전원 기반 산업용 데이터수집 PCB의 기존 설계 검토 및 Rev.2 회로·PCB 개발',
-      stage: 'pcb',
-      service_type: 'full',
-    },
-    groups: [
-      { id: 'power', label: 'POWER' },
-      { id: 'controller', label: 'CONTROLLER' },
-      { id: 'analog_input', label: 'ANALOG INPUT' },
-      { id: 'communication', label: 'COMMUNICATION' },
-      { id: 'rf_reference', label: 'RF REFERENCE (OPTION)' },
-    ],
-    blocks: [
-      { id: 'poe_power', group: 'power', type: 'power', label: 'PoE 전원 및 레귤레이터', status: 'confirmed' },
-      { id: 'mcu', group: 'controller', type: 'controller', label: 'STM32F429ZIY7 MCU', status: 'confirmed' },
-      { id: 'sensor_adc', group: 'analog_input', type: 'sensor', label: 'INA128UA + AD7989-1 센서 입력 2채널', status: 'confirmed' },
-      { id: 'ethernet', group: 'communication', type: 'communication', label: 'LAN8742A Ethernet PHY', status: 'confirmed' },
-      { id: 'can', group: 'communication', type: 'communication', label: 'TLE9250VLE CAN 트랜시버', status: 'confirmed' },
-      { id: 'rf_board', group: 'rf_reference', type: 'communication', label: 'nRF54L15 RF 참조 회로', status: 'option' },
-    ],
-    connections: [
-      { from: 'poe_power', to: 'mcu', interface: '(TBD)', flow: 'power' },
-      { from: 'sensor_adc', to: 'mcu', interface: '(TBD)', flow: 'data' },
-      { from: 'mcu', to: 'ethernet', interface: '(TBD)', flow: 'data' },
-      { from: 'mcu', to: 'can', interface: '(TBD)', flow: 'data' },
-    ],
-    constraints: [
-      '기존 EDA 원본 보유 여부는 미확정이며, PDF/BOM만으로 재작성해야 할 수 있음',
-      'nRF54L15 RF 참조 회로는 WIM_DAQ 본보드 통합 여부가 미확정',
-      '레이어 수, 보드 치수, 센서 인터페이스 전기 사양, 제작처와 시험 조건은 미확정',
-    ],
-    feature_highlights: [
-      'PoE 전원', '아날로그 센서 입력 2채널', 'Ethernet', 'CAN',
-    ],
-    questions_missing: [
-      { topic: 'EDA 원본', question: '기존 회로/PCB 편집 원본과 라이브러리 파일을 제공할 수 있나요?' },
-      { topic: 'RF 통합', question: 'nRF54L15 RF 참조 회로를 WIM_DAQ Rev.2에 통합할까요?' },
-      { topic: '제작 조건', question: 'PCB 레이어 수, 보드 치수, 목표 수량, 제작처와 검사 조건은 무엇인가요?' },
-    ],
-  }),
-});
-
-const scoreDocument = (document: string): DocumentScore => {
-  const sections = SECTION_NUMBERS.filter((number) =>
-    new RegExp(`^##\\s*${String(number)}\\.`, 'm').test(document),
-  );
+const scoreDocument = (document: string, sourceIds: readonly string[]): DocumentScore => {
+  const sections = [...document.matchAll(/^##\s*(\d+)\./gm)]
+    .map((match) => Number(match[1]))
+    .filter((number) => number >= 1 && number <= 10);
+  const uniqueSections = new Set(sections).size;
+  const coveredSourceIds = sourceIds.filter((id) => document.includes(id)).length;
+  const citations = Math.min(8, [...document.matchAll(/\[근거:\s*[^\]]+\]/g)].length);
   const normalized = document.toLowerCase();
   const evidenceTerms = REQUIRED_EVIDENCE.filter((term) => normalized.includes(term.toLowerCase()));
   const deliverableTerms = REQUIRED_DELIVERABLES.filter((term) => normalized.includes(term.toLowerCase()));
-  const uncertaintyHandled = /미확정|\(TBD\)|확인 필요/.test(document) &&
-    /nrf54l15|rf/.test(normalized) && /원본.*(없|미확정|확인)/.test(document);
-  const unsupportedFacts = UNSUPPORTED_FACTS.filter((fact) => normalized.includes(fact.toLowerCase()));
-  // 서식 10점, 근거 보존 8점, 산출물 구체성 5점, 미확정 통제 5점, 근거 없는 확정 감점.
-  const score = sections.length + evidenceTerms.length + deliverableTerms.length + (uncertaintyHandled ? 5 : 0) - (unsupportedFacts.length * 3);
+  const uncertaintyChecks = [
+    /EDA.*(?:원본|소스).*(?:TBD|미확정|확인 필요)/i.test(document),
+    /nRF54L15|RF/i.test(document) && /통합.*(?:TBD|미확정|선택|제외|확인 필요)/i.test(document),
+    /(?:레이어|보드 치수|외형).*(?:TBD|미확정|확인 필요)/i.test(document),
+    /##\s*9\./.test(document) && /\(TBD\)|미확정|확인 필요/.test(document),
+  ].filter(Boolean).length;
+  const unsupportedAssertions = document
+    .split('\n')
+    .filter((line) => UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(line)))
+    .filter((line) => !/(?:TBD|미확정|확인 필요|제안|예시|선택|제외|협의|검토|여부)/i.test(line));
+  const maxScore = 10 + sourceIds.length + 8 + REQUIRED_EVIDENCE.length + REQUIRED_DELIVERABLES.length + 4;
+  const score = uniqueSections + coveredSourceIds + citations + evidenceTerms.length +
+    deliverableTerms.length + uncertaintyChecks - (unsupportedAssertions.length * 4);
   return {
     score,
-    maxScore: 10 + REQUIRED_EVIDENCE.length + REQUIRED_DELIVERABLES.length + 5,
-    sections,
+    maxScore,
+    sections: uniqueSections,
+    sourceIds: coveredSourceIds,
+    citations,
     evidenceTerms,
     deliverableTerms,
-    uncertaintyHandled,
-    unsupportedFacts,
+    uncertaintyChecks,
+    unsupportedAssertions,
   };
 };
 
 async function main(): Promise<void> {
   const configuredZip = process.env.RND_PCB_PROBE_ZIP?.trim();
   const zipPath = path.resolve(configuredZip === undefined || configuredZip === '' ? defaultZipPath : configuredZip);
-  const inputFile: UploadTarget = {
+  const zip: UploadTarget = {
     filename: path.basename(zipPath),
     mimetype: 'application/zip',
     buffer: await readFile(zipPath),
   };
-  const expanded = expandAiArchives([inputFile]);
-  const prepared = await prepareAiAttachments(expanded.files, { maxFiles: 300 });
-  const input = buildInput(compactAttachmentEvidence(prepared.context));
+  const expanded = expandAiArchives([zip]);
+  if (expanded.files.length === 0) throw new Error('분석 가능한 ZIP 항목이 없습니다.');
+  const numbered = expanded.files.map((file, index) => ({
+    ...file,
+    filename: `[F${String(index + 1).padStart(4, '0')}] ${file.displayPath}`,
+  }));
+  const prepared = await prepareAiAttachments(numbered, { maxFiles: 300 });
+  const classification = RndFileClassifyResult.parse({
+    summary: 'WIM_DAQ 1차 PCB 회로도·BOM·부품배치와 별도 nRF54L15 RF 참조 자료가 함께 든 설계 묶음',
+    files: expanded.files.map((file, index) => ({
+      id: `F${String(index + 1).padStart(4, '0')}`,
+      path: file.displayPath,
+      ...roleForPath(file.displayPath),
+      confidence: 'high',
+    })),
+    warnings: ['nRF54L15 RF 참조 자료와 WIM_DAQ 본보드의 통합 관계는 첨부만으로 확정할 수 없음'],
+  });
+  const input = RndPcbRequestDocumentInput.parse({
+    requirements: `기존 WIM_DAQ 1차 자료를 검토해 Rev.2 회로·PCB 설계를 의뢰합니다.
+- 시제품 10대를 제작 가능한 수준의 설계 산출물이 필요합니다.
+- 기존 PoE 전원, MCU 제어, 아날로그 센서 입력 2채널, Ethernet, CAN 기능 의도는 유지합니다.
+- 편집 가능한 EDA 원본 보유 여부는 확인되지 않았으며, 없으면 재작성 범위와 견적 영향을 분리합니다.
+- nRF54L15 RF 회로는 통합 여부를 결정하기 전까지 기본 범위에서 제외합니다.`,
+    classification,
+    attachmentContext: [
+      prepared.context,
+      ...(expanded.warnings.length === 0 ? [] : [`[압축 해제 경고]\n${expanded.warnings.map((warning) => `- ${warning}`).join('\n')}`]),
+    ].join('\n\n'),
+  });
   const def = AI_USECASE_DEFS[USE_CASE];
   const prompt = def.buildPrompt(def.defaultPrompt, input);
   const conn = await getAiConnection();
-  const models = modelSelection(await ollamaListModels(conn));
+  const models = selectedModels(await ollamaListModels(conn));
+  const rounds = configuredRounds();
   const results: ModelProbeResult[] = [];
+  const sourceIds = classification.files.map((file) => file.id);
 
   console.log(`입력: ${zipPath}`);
-  console.log(`첨부: ${String(expanded.files.length)}개 / 모델: ${String(models.length)}개`);
-  for (const [index, model] of models.entries()) {
-    const started = Date.now();
-    console.log(`[${String(index + 1)}/${String(models.length)}] ${model}: 개발의뢰서 생성 중`);
-    try {
-      const raw = await ollamaChat(conn, model, prompt, REQUEST_TIMEOUT_MS);
-      const output = def.parseResult(raw, input);
-      if (!('md' in output)) throw new Error('market.request-roc 유스케이스가 마크다운 결과를 반환하지 않았습니다.');
-      const score = scoreDocument(output.md);
-      const seconds = elapsedSeconds(started);
-      console.log(`  성공 ${String(seconds)}초 / ${String(score.score)}/${String(score.maxScore)}점 / 섹션 ${String(score.sections.length)}/10 / 근거 ${String(score.evidenceTerms.length)}`);
-      results.push({ model, ok: true, seconds, score, document: output.md });
-    } catch (error) {
-      const seconds = elapsedSeconds(started);
-      const message = errorText(error);
-      console.log(`  실패 ${String(seconds)}초: ${message}`);
-      results.push({ model, ok: false, seconds, error: message });
+  console.log(`모델: ${String(models.length)}개 / 반복: ${String(rounds)}회 / 총 실행: ${String(models.length * rounds)}회`);
+  for (let round = 1; round <= rounds; round += 1) {
+    for (const model of models) {
+      const started = Date.now();
+      let attempts = 0;
+      let lastError: unknown;
+      console.log(`[${String(round)}/${String(rounds)}] ${model}: 웹 최종 의뢰서 생성 중`);
+      for (let attempt = 0; attempt <= def.retries; attempt += 1) {
+        attempts += 1;
+        try {
+          const raw = await ollamaChat(conn, model, prompt, REQUEST_TIMEOUT_MS);
+          const output = def.parseResult(raw, input);
+          if (!('md' in output)) throw new Error('rnd.pcb-request-document가 마크다운 결과를 반환하지 않았습니다.');
+          const score = scoreDocument(output.md, sourceIds);
+          const seconds = elapsedSeconds(started);
+          console.log(`  성공 ${String(seconds)}초 / ${String(score.score)}/${String(score.maxScore)}점 / 시도 ${String(attempts)}회`);
+          results.push({ model, round, ok: true, attempts, seconds, score, document: output.md });
+          lastError = undefined;
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (lastError !== undefined) {
+        const seconds = elapsedSeconds(started);
+        const message = errorText(lastError);
+        console.log(`  실패 ${String(seconds)}초 / 시도 ${String(attempts)}회: ${message}`);
+        results.push({ model, round, ok: false, attempts, seconds, error: message });
+      }
     }
   }
 
-  const ranking = results
-    .filter((result) => result.ok && result.score !== undefined)
-    .sort((left, right) => {
-      const scoreDifference = (right.score?.score ?? 0) - (left.score?.score ?? 0);
-      return scoreDifference !== 0 ? scoreDifference : left.seconds - right.seconds;
-    });
+  const ranking = models.map((model) => {
+    const successful = results.filter((result) => result.model === model && result.ok && result.score !== undefined);
+    const average = (values: readonly number[]): number => values.length === 0
+      ? 0
+      : Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
+    return {
+      model,
+      successRate: successful.length / rounds,
+      averageScore: average(successful.map((result) => result.score?.score ?? 0)),
+      minimumScore: successful.length === 0 ? 0 : Math.min(...successful.map((result) => result.score?.score ?? 0)),
+      averageSeconds: average(successful.map((result) => result.seconds)),
+      averageAttempts: average(successful.map((result) => result.attempts)),
+    };
+  }).sort((left, right) =>
+    right.successRate - left.successRate ||
+    right.averageScore - left.averageScore ||
+    right.minimumScore - left.minimumScore ||
+    left.averageSeconds - right.averageSeconds,
+  );
   const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
   const outputPath = path.join(outputDirectory, `rnd-pcb-request-probe-${timestamp}.json`);
   await mkdir(outputDirectory, { recursive: true });
   await writeFile(outputPath, `${JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    zipPath,
-    input,
-    prepared: { analyzedFiles: prepared.analyzedFiles, warnings: prepared.warnings },
-    results,
-    ranking: ranking.map((result) => ({ model: result.model, seconds: result.seconds, score: result.score })),
+    generatedAt: new Date().toISOString(), zipPath, rounds, models, input, results, ranking,
   }, null, 2)}\n`, 'utf8');
-  console.log('\n최종 순위');
+  console.log('\n반복 프로빙 순위');
   for (const [index, result] of ranking.entries()) {
-    console.log(`${String(index + 1)}. ${result.model}: ${String(result.score?.score)}/${String(result.score?.maxScore)}점, ${String(result.seconds)}초`);
+    console.log(`${String(index + 1)}. ${result.model}: 성공률 ${String(Math.round(result.successRate * 100))}%, 평균 ${String(result.averageScore)}점, 최저 ${String(result.minimumScore)}점, 평균 ${String(result.averageSeconds)}초`);
   }
   console.log(`상세 결과: ${outputPath}`);
 }
