@@ -96,5 +96,22 @@ export function getAiAdminSampleInput(useCase: AiUsecaseKeyType): unknown {
         }],
         attachmentContext: '[첨부 F0001]\n- 분석 상태: 텍스트 추출\n- 추출 텍스트: (kicad_pcb 보드 파일)',
       };
+    case 'rnd.pcb-request-document':
+      return {
+        requirements: '기존 PCB 설계 자료를 검토해 시제품 제작 가능한 Rev.2 설계를 의뢰합니다.',
+        classification: {
+          summary: 'PoE 전원과 MCU, Ethernet을 포함한 PCB 설계 자료 묶음',
+          files: [{
+            id: 'F0001',
+            path: 'prototype/board.pdf',
+            category: 'schematic',
+            role: '기존 회로도 PDF',
+            confidence: 'high',
+            evidence: 'Power, MCU, Ethernet 시트가 확인됨',
+          }],
+          warnings: ['편집 가능한 EDA 원본 파일 보유 여부는 확인이 필요합니다.'],
+        },
+        attachmentContext: '[첨부 F0001]\n- 분석 상태: PDF 텍스트 추출\n- 추출 텍스트: Power, MCU, Ethernet 회로 시트',
+      };
   }
 }

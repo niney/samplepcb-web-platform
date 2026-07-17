@@ -9,6 +9,8 @@ import {
   RndAiModelsResponse,
   RndFileClassifyInput,
   RndFileClassifyPayload,
+  RndPcbRequestDocumentInput,
+  RndPcbRequestDocumentPayload,
 } from '@sp/api-contract';
 import { expandAiArchives } from '../lib/ai/archive';
 import { prepareAiAttachments } from '../lib/ai/attachment-extractor';
@@ -19,6 +21,7 @@ import { AI_USECASE_DEFS, getAiConnection } from '../lib/ai/usecases';
 import { collectMultipart } from '../lib/market';
 
 const RND_FILE_CLASSIFY_USECASE = 'rnd.file-classify' as const;
+const RND_PCB_REQUEST_DOCUMENT_USECASE = 'rnd.pcb-request-document' as const;
 const JobParams = z.object({ jobId: z.string().uuid() });
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 // 실제 PCB설계.zip으로 2026-07-17 프로빙해 이미지 입력을 수용한 현재 Ollama 모델.
@@ -41,8 +44,9 @@ export const rndAiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     { schema: { response: { 200: RndAiModelsResponse, 502: ApiMemberError } } },
     async (request, reply) => {
       try {
-        const models = (await ollamaListModels(await getAiConnection())).filter((model) => RND_VISION_MODELS.has(model));
-        return { result: true as const, data: { models } };
+        const documentModels = await ollamaListModels(await getAiConnection());
+        const models = documentModels.filter((model) => RND_VISION_MODELS.has(model));
+        return { result: true as const, data: { models, documentModels } };
       } catch (err) {
         request.log.warn({ err }, 'rnd ai models fetch failed');
         return reply.status(502).send({ result: false, error: 'AI_CONNECTION_FAILED' });
@@ -124,12 +128,79 @@ export const rndAiRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     },
   );
 
+  fastify.post(
+    '/rnd/ai/request-document',
+    { schema: { response: { 200: AiRunResponse, 400: ApiMemberError, 502: ApiMemberError } } },
+    async (request, reply) => {
+      if (!request.isMultipart()) return reply.status(400).send({ result: false, error: 'MULTIPART_REQUIRED' });
+      const { files, rawPayload } = await collectMultipart(request);
+      if (rawPayload === undefined) return reply.status(400).send({ result: false, error: 'PAYLOAD_REQUIRED' });
+      let payloadJson: unknown;
+      try {
+        payloadJson = JSON.parse(rawPayload);
+      } catch {
+        return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
+      }
+      const payload = RndPcbRequestDocumentPayload.safeParse(payloadJson);
+      if (!payload.success) return reply.status(400).send({ result: false, error: 'PAYLOAD_SCHEMA_MISMATCH' });
+      if (files.length === 0) return reply.status(400).send({ result: false, error: 'FILE_REQUIRED' });
+      const uploadBytes = files.reduce((total, file) => total + file.buffer.byteLength, 0);
+      if (uploadBytes > MAX_UPLOAD_BYTES) {
+        return reply.status(400).send({ result: false, error: 'UPLOAD_TOO_LARGE' });
+      }
+
+      let availableModels: string[];
+      try {
+        availableModels = await ollamaListModels(await getAiConnection());
+      } catch (err) {
+        request.log.warn({ err }, 'rnd request document model validation failed');
+        return reply.status(502).send({ result: false, error: 'AI_CONNECTION_FAILED' });
+      }
+      if (!availableModels.includes(payload.data.model)) {
+        return reply.status(400).send({ result: false, error: 'MODEL_NOT_AVAILABLE' });
+      }
+
+      const expanded = expandAiArchives(files);
+      if (expanded.files.length === 0) {
+        return reply.status(400).send({ result: false, error: 'NO_ANALYZABLE_FILES' });
+      }
+      const numbered = expanded.files.map((file, index) => ({
+        ...file,
+        filename: `[F${String(index + 1).padStart(4, '0')}] ${file.displayPath}`,
+      }));
+      const prepared = await prepareAiAttachments(numbered, { maxFiles: 300 });
+      const input = RndPcbRequestDocumentInput.parse({
+        requirements: payload.data.requirements,
+        classification: payload.data.classification,
+        attachmentContext: [
+          prepared.context,
+          ...(expanded.warnings.length === 0 ? [] : [`[압축 해제 경고]\n${expanded.warnings.map((warning) => `- ${warning}`).join('\n')}`]),
+        ].join('\n\n'),
+      });
+      const def = AI_USECASE_DEFS[RND_PCB_REQUEST_DOCUMENT_USECASE];
+      const prompt = def.buildPrompt(def.defaultPrompt, input);
+      const started = await startAiJob({
+        useCase: RND_PCB_REQUEST_DOCUMENT_USECASE,
+        mbId: payload.data.clientId,
+        model: payload.data.model,
+        promptTemplate: def.defaultPrompt,
+        input,
+        prompt,
+        log: request.log,
+      });
+      return { result: true as const, data: { jobId: started.job.id, cached: started.cached } };
+    },
+  );
+
   fastify.get(
     '/rnd/ai/jobs/:jobId',
     { schema: { params: JobParams, querystring: RndAiJobQuery, response: { 200: AiJobResponse, 404: ApiMemberError } } },
     async (request, reply) => {
       const job = getAiJob(request.params.jobId);
-      if (job?.useCase !== RND_FILE_CLASSIFY_USECASE || job.mbId !== request.query.clientId) {
+      if (
+        (job?.useCase !== RND_FILE_CLASSIFY_USECASE && job?.useCase !== RND_PCB_REQUEST_DOCUMENT_USECASE) ||
+        job.mbId !== request.query.clientId
+      ) {
         return reply.status(404).send({ result: false, error: 'JOB_NOT_FOUND' });
       }
       return {

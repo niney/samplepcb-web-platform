@@ -28,6 +28,7 @@ export const AI_USECASES = [
   'market.request-roc',
   'market.request-postings',
   'rnd.file-classify',
+  'rnd.pcb-request-document',
 ] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
@@ -241,9 +242,31 @@ export const RndFileClassifyResult = z.object({
 });
 export type RndFileClassifyResultType = z.infer<typeof RndFileClassifyResult>;
 
+// 분류 결과를 다음 단계인 "PCB 설계 개발의뢰서"에 그대로 전달한다. 원본은 다시
+// multipart로 받아 서버 메모리에서만 재추출하므로, 브라우저 캐시의 편집 결과도 반영된다.
+export const RndPcbRequestDocumentPayload = z.object({
+  clientId: RndClientId,
+  requirements: z.string().trim().max(20_000).default(''),
+  model: z.string().trim().min(1).max(100),
+  classification: RndFileClassifyResult,
+});
+export type RndPcbRequestDocumentPayloadType = z.infer<typeof RndPcbRequestDocumentPayload>;
+
+export const RndPcbRequestDocumentInput = z.object({
+  requirements: z.string().max(20_000),
+  classification: RndFileClassifyResult,
+  attachmentContext: z.string().max(100_000),
+});
+export type RndPcbRequestDocumentInputType = z.infer<typeof RndPcbRequestDocumentInput>;
+
 export const RndAiModelsResponse = z.object({
   result: z.literal(true),
-  data: z.object({ models: z.array(z.string()) }),
+  data: z.object({
+    // 분류는 실제 이미지도 읽어야 하므로 검증된 비전 모델만 노출한다.
+    models: z.array(z.string()),
+    // 의뢰서 생성은 추출 텍스트·분류 결과 기반이라 전체 사용 가능 모델을 제공한다.
+    documentModels: z.array(z.string()),
+  }),
 });
 export type RndAiModelsResponseType = z.infer<typeof RndAiModelsResponse>;
 
