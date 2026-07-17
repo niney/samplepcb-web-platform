@@ -2,6 +2,7 @@
 // 실행: apps/api 에서 pnpm rnd:request-probe
 // 후보: RND_PCB_REQUEST_PROBE_MODELS=model-a,model-b pnpm rnd:request-probe
 // 반복: RND_PCB_REQUEST_PROBE_ROUNDS=3 pnpm rnd:request-probe (1~5, 기본 3)
+// 요구사항: RND_PCB_REQUEST_PROBE_PROFILE=none|baseline|practical (기본 baseline)
 // 결과: apps/api/.tmp/rnd-pcb-request-probe-<timestamp>.json (gitignore 대상)
 
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -57,6 +58,8 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultZipPath = path.resolve(scriptDirectory, '../../../rnd/PCB설계.zip');
 const outputDirectory = path.resolve(scriptDirectory, '../../.tmp');
 
+type RequirementsProfile = 'none' | 'baseline' | 'practical';
+
 const elapsedSeconds = (started: number): number =>
   Math.round(((Date.now() - started) / 1000) * 10) / 10;
 
@@ -68,6 +71,37 @@ const configuredRounds = (): number => {
     throw new Error('RND_PCB_REQUEST_PROBE_ROUNDS는 1~5 정수여야 합니다.');
   }
   return value;
+};
+
+const requirementsProfile = (): { name: RequirementsProfile; requirements: string } => {
+  const configured = process.env.RND_PCB_REQUEST_PROBE_PROFILE?.trim();
+  const name = configured === undefined || configured === '' ? 'baseline' : configured;
+  if (name !== 'none' && name !== 'baseline' && name !== 'practical') {
+    throw new Error('RND_PCB_REQUEST_PROBE_PROFILE은 none, baseline, practical 중 하나여야 합니다.');
+  }
+  if (name === 'none') return { name, requirements: '' };
+  if (name === 'practical') {
+    return {
+      name,
+      requirements: `기존 WIM_DAQ 1차 자료를 기반으로 산업용 제어반에 설치할 Rev.2 회로·PCB 설계를 의뢰합니다.
+- 장치는 공장 제어반 내부에서 24시간 연속 운전하며 목표 동작온도는 -20~60℃입니다.
+- 시제품 10대를 제작할 예정이며, 이번 의뢰 범위는 회로·PCB 설계와 제작·조립용 데이터 작성까지입니다. 부품 구매, PCB/PCBA 제작, 펌웨어 개발, 인증 시험은 제외합니다.
+- 기존 PoE 전원, MCU 제어, 아날로그 센서 입력 2채널, Ethernet, CAN 기능 의도는 유지합니다. 기존 부품 번호 고정이 아니라 수급성·단종 여부를 검토해 유지 또는 대체안을 제시해야 합니다.
+- nRF54L15 RF 회로는 별도 참고 자료이며, 본보드 통합 여부를 결정하기 전까지 기본 범위에서 제외합니다.
+- 편집 가능한 EDA 원본 보유 여부는 미확정입니다. 원본이 없을 경우 회로도·PCB 재작성 범위, 추가 공수, 일정 영향을 별도 항목으로 제시해야 합니다.
+- 보드 외형, 레이어 수, 커넥터 고정 위치는 기존 자료에서 확인 가능한 범위는 유지하되 확인되지 않는 값은 TBD로 두고 설계 착수 전 질문 목록에 포함합니다.
+- 산출물에는 편집 가능한 회로·PCB 원본, PDF 회로도, Gerber, NC Drill, BOM, Pick & Place/Centroid 좌표, 조립도, ERC/DRC 결과와 Rev.1 대비 변경 목록이 필요합니다.
+- 검수 계획에는 PoE 전원 레일 확인, Ethernet 링크, CAN 통신, ADC 2채널 기본 입출력 확인과 제조사 CAM 검토 절차를 포함하되 구체 합격 수치는 설계 사양 확정 후 합의합니다.`,
+    };
+  }
+  return {
+    name,
+    requirements: `기존 WIM_DAQ 1차 자료를 검토해 Rev.2 회로·PCB 설계를 의뢰합니다.
+- 시제품 10대를 제작 가능한 수준의 설계 산출물이 필요합니다.
+- 기존 PoE 전원, MCU 제어, 아날로그 센서 입력 2채널, Ethernet, CAN 기능 의도는 유지합니다.
+- 편집 가능한 EDA 원본 보유 여부는 확인되지 않았으며, 없으면 재작성 범위와 견적 영향을 분리합니다.
+- nRF54L15 RF 회로는 통합 여부를 결정하기 전까지 기본 범위에서 제외합니다.`,
+  };
 };
 
 const selectedModels = (available: readonly string[]): string[] => {
@@ -171,6 +205,7 @@ async function main(): Promise<void> {
     filename: `[F${String(index + 1).padStart(4, '0')}] ${file.displayPath}`,
   }));
   const prepared = await prepareAiAttachments(numbered, { maxFiles: 300 });
+  const profile = requirementsProfile();
   const classification = RndFileClassifyResult.parse({
     summary: 'WIM_DAQ 1차 PCB 회로도·BOM·부품배치와 별도 nRF54L15 RF 참조 자료가 함께 든 설계 묶음',
     files: expanded.files.map((file, index) => ({
@@ -182,11 +217,7 @@ async function main(): Promise<void> {
     warnings: ['nRF54L15 RF 참조 자료와 WIM_DAQ 본보드의 통합 관계는 첨부만으로 확정할 수 없음'],
   });
   const input = RndPcbRequestDocumentInput.parse({
-    requirements: `기존 WIM_DAQ 1차 자료를 검토해 Rev.2 회로·PCB 설계를 의뢰합니다.
-- 시제품 10대를 제작 가능한 수준의 설계 산출물이 필요합니다.
-- 기존 PoE 전원, MCU 제어, 아날로그 센서 입력 2채널, Ethernet, CAN 기능 의도는 유지합니다.
-- 편집 가능한 EDA 원본 보유 여부는 확인되지 않았으며, 없으면 재작성 범위와 견적 영향을 분리합니다.
-- nRF54L15 RF 회로는 통합 여부를 결정하기 전까지 기본 범위에서 제외합니다.`,
+    requirements: profile.requirements,
     classification,
     attachmentContext: [
       prepared.context,
@@ -202,6 +233,7 @@ async function main(): Promise<void> {
   const sourceIds = classification.files.map((file) => file.id);
 
   console.log(`입력: ${zipPath}`);
+  console.log(`요구사항 프로필: ${profile.name}`);
   console.log(`모델: ${String(models.length)}개 / 반복: ${String(rounds)}회 / 총 실행: ${String(models.length * rounds)}회`);
   for (let round = 1; round <= rounds; round += 1) {
     for (const model of models) {
@@ -257,7 +289,7 @@ async function main(): Promise<void> {
   const outputPath = path.join(outputDirectory, `rnd-pcb-request-probe-${timestamp}.json`);
   await mkdir(outputDirectory, { recursive: true });
   await writeFile(outputPath, `${JSON.stringify({
-    generatedAt: new Date().toISOString(), zipPath, rounds, models, input, results, ranking,
+    generatedAt: new Date().toISOString(), zipPath, profile: profile.name, rounds, models, input, results, ranking,
   }, null, 2)}\n`, 'utf8');
   console.log('\n반복 프로빙 순위');
   for (const [index, result] of ranking.entries()) {

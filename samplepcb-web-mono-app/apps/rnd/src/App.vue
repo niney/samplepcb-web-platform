@@ -16,6 +16,7 @@ interface CachedUpload {
 interface BrowserCache {
   key: 'latest';
   requirements: string;
+  documentRequirements?: string;
   model: string;
   documentModel?: string;
   files: CachedUpload[];
@@ -29,8 +30,15 @@ const CACHE_KEY = 'latest';
 const CLIENT_ID_KEY = 'samplepcb-rnd-client-id';
 const RECOMMENDED_MODEL = 'minimax-m3';
 const RECOMMENDED_DOCUMENT_MODEL = 'glm-5.2';
+const PRACTICAL_DOCUMENT_REQUIREMENTS = `- 설치 환경과 연속 운전 조건을 적어 주세요. 예: 공장 제어반 내부, 24시간 운전, -20~60℃
+- 시제품 수량과 의뢰 포함 범위를 적어 주세요. 예: 10대, 회로·PCB 설계와 제작·조립용 데이터까지
+- 제외 범위를 적어 주세요. 예: 부품 구매, PCB/PCBA 제작, 펌웨어, 인증 시험 제외
+- 반드시 유지할 기능과 변경 가능한 부품을 구분해 주세요.
+- EDA 원본, 보드 외형, 레이어 수, 커넥터 위치 등 미확정 사항을 적어 주세요.
+- 필요한 산출물과 검수 항목을 적어 주세요. 예: Gerber, NC Drill, BOM, 좌표, ERC/DRC, CAM 검토`;
 const files = ref<CachedUpload[]>([]);
 const requirements = ref('');
+const documentRequirements = ref('');
 const models = ref<string[]>([]);
 const selectedModel = ref('');
 const documentModels = ref<string[]>([]);
@@ -71,6 +79,7 @@ async function saveCache(): Promise<void> {
   const cache: BrowserCache = {
     key: CACHE_KEY,
     requirements: requirements.value,
+    documentRequirements: documentRequirements.value,
     model: selectedModel.value,
     documentModel: selectedDocumentModel.value,
     files: files.value,
@@ -257,9 +266,12 @@ async function runDocument(): Promise<void> {
   try {
     const form = new FormData();
     for (const item of files.value) form.append('file', item.file, item.file.name);
+    const combinedRequirements = [requirements.value.trim(), documentRequirements.value.trim()]
+      .filter((value) => value !== '')
+      .join('\n\n[개발의뢰서 추가 요구사항]\n');
     form.append('payload', JSON.stringify({
       clientId: clientId(),
-      requirements: requirements.value,
+      requirements: combinedRequirements,
       model: selectedDocumentModel.value,
       classification: result.value,
     }));
@@ -275,6 +287,15 @@ async function runDocument(): Promise<void> {
   } finally {
     isDocumentRunning.value = false;
   }
+}
+
+function fillPracticalDocumentRequirements(): void {
+  documentRequirements.value = PRACTICAL_DOCUMENT_REQUIREMENTS;
+  requestDocument.value = null;
+}
+
+function onDocumentRequirementsInput(): void {
+  requestDocument.value = null;
 }
 
 function downloadResult(): void {
@@ -307,13 +328,14 @@ function downloadDocument(): void {
 async function clearBrowserCache(): Promise<void> {
   files.value = [];
   requirements.value = '';
+  documentRequirements.value = '';
   result.value = null;
   requestDocument.value = null;
   await saveCache();
   message.value = '이 브라우저의 연구 캐시를 비웠습니다.';
 }
 
-watch([requirements, selectedModel, selectedDocumentModel, result, requestDocument], () => { void saveCache(); }, { deep: true });
+watch([requirements, documentRequirements, selectedModel, selectedDocumentModel, result, requestDocument], () => { void saveCache(); }, { deep: true });
 
 onMounted(async () => {
   try {
@@ -321,6 +343,7 @@ onMounted(async () => {
     if (cache !== undefined) {
       files.value = cache.files;
       requirements.value = cache.requirements;
+      documentRequirements.value = cache.documentRequirements ?? '';
       selectedModel.value = cache.model;
       selectedDocumentModel.value = cache.documentModel ?? '';
       result.value = cache.result;
@@ -437,6 +460,19 @@ onMounted(async () => {
             {{ isDocumentRunning ? '의뢰서 작성 중…' : '개발의뢰서 만들기' }}
           </button>
         </div>
+      </div>
+      <div class="document-requirements">
+        <div class="field-heading">
+          <label class="field-label" for="document-requirements">개발의뢰서 추가 요구사항 <small>(권장)</small></label>
+          <button class="text-button" type="button" @click="fillPracticalDocumentRequirements">실무 예시 채우기</button>
+        </div>
+        <textarea
+          id="document-requirements"
+          v-model="documentRequirements"
+          rows="8"
+          placeholder="사용 환경, 수량, 포함·제외 범위, 유지 기능, 미확정 사양, 산출물과 검수 방법을 적으면 의뢰서가 더 구체적이고 안정적으로 생성됩니다."
+          @input="onDocumentRequirementsInput"
+        />
       </div>
       <template v-if="requestDocument !== null">
         <label class="field-label" for="request-document">편집 가능한 개발의뢰서 초안</label>
