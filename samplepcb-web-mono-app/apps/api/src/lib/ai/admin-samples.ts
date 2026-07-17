@@ -84,5 +84,17 @@ export function getAiAdminSampleInput(useCase: AiUsecaseKeyType): unknown {
     case 'market.request-roc':
     case 'market.request-postings':
       return documentInput;
+    case 'rnd.file-classify':
+      return {
+        requirements: '회로도와 PCB 제조 자료가 섞인 파일 묶음을 분류합니다.',
+        files: [{
+          id: 'F0001',
+          path: 'prototype/board.kicad_pcb',
+          extension: '.kicad_pcb',
+          size: 1024,
+          extracted: true,
+        }],
+        attachmentContext: '[첨부 F0001]\n- 분석 상태: 텍스트 추출\n- 추출 텍스트: (kicad_pcb 보드 파일)',
+      };
   }
 }

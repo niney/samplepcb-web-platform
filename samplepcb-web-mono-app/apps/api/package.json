@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "rnd:probe": "tsx --env-file=.env src/scripts/probe-rnd-file-classifier.ts",
     "db:generate": "prisma generate",
     "legacy:sample": "tsx --env-file=.env src/scripts/extract-legacy-gerber-samples.ts",
     "migrate:gate": "tsx --env-file=.env.migration src/scripts/migrate/run.ts --phase=gate",

@@ -27,6 +27,7 @@ export const AI_USECASES = [
   'market.request-structurize',
   'market.request-roc',
   'market.request-postings',
+  'rnd.file-classify',
 ] as const;
 export type AiUsecaseKeyType = (typeof AI_USECASES)[number];
 export const AiUsecaseKey = z.enum(AI_USECASES);
@@ -180,6 +181,74 @@ export const AiQuestionPreanalysisResult = z.object({
   }).optional(),
 });
 export type AiQuestionPreanalysisResultType = z.infer<typeof AiQuestionPreanalysisResult>;
+
+// ── R&D: 첨부 묶음 분류 ────────────────────────────────────────────────────
+// 원본 파일은 서버에 저장하지 않는다. 브라우저가 보유한 clientId 는 인메모리 잡의
+// 소유 확인과 동일 브라우저 내 재시도 캐시에만 쓰며, 신원 식별자가 아니다.
+export const RndClientId = z.string().uuid();
+
+export const RndFileClassifyPayload = z.object({
+  clientId: RndClientId,
+  requirements: z.string().trim().max(20_000).default(''),
+  model: z.string().trim().min(1).max(100),
+});
+export type RndFileClassifyPayloadType = z.infer<typeof RndFileClassifyPayload>;
+
+export const RndFileManifestItem = z.object({
+  id: z.string().regex(/^F\d{4}$/),
+  path: z.string().trim().min(1).max(1_000),
+  extension: z.string().trim().max(40),
+  size: z.number().int().nonnegative(),
+  extracted: z.boolean(),
+});
+export type RndFileManifestItemType = z.infer<typeof RndFileManifestItem>;
+
+export const RndFileCategory = z.enum([
+  'image',
+  'pdf-document',
+  'spreadsheet',
+  'text-document',
+  'schematic',
+  'pcb-layout',
+  'gerber-manufacturing',
+  'bom',
+  'archive',
+  'binary-unknown',
+  'other',
+]);
+
+export const RndFileClassifyInput = z.object({
+  requirements: z.string().max(20_000),
+  files: z.array(RndFileManifestItem).min(1).max(300),
+  attachmentContext: z.string().max(100_000),
+});
+export type RndFileClassifyInputType = z.infer<typeof RndFileClassifyInput>;
+
+export const RndFileClassification = z.object({
+  id: z.string().regex(/^F\d{4}$/),
+  // 서버가 입력 manifest에서 다시 붙이는 표시용 경로다. LLM은 id만 반환하면 된다.
+  path: z.string().trim().min(1).max(1_000).optional(),
+  category: RndFileCategory,
+  role: z.string().trim().min(1).max(160),
+  confidence: z.enum(['high', 'medium', 'low']),
+  evidence: z.string().trim().min(1).max(500),
+});
+
+export const RndFileClassifyResult = z.object({
+  summary: z.string().trim().min(1).max(2_000),
+  files: z.array(RndFileClassification).max(300),
+  warnings: z.array(z.string().trim().min(1).max(300)).max(30).default([]),
+});
+export type RndFileClassifyResultType = z.infer<typeof RndFileClassifyResult>;
+
+export const RndAiModelsResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ models: z.array(z.string()) }),
+});
+export type RndAiModelsResponseType = z.infer<typeof RndAiModelsResponse>;
+
+export const RndAiJobQuery = z.object({ clientId: RndClientId });
+export type RndAiJobQueryType = z.infer<typeof RndAiJobQuery>;
 
 // market.request-roc 입력 — 작업검토지시서(Phase 2). 구성 명세 + 의뢰 텍스트 + 인터뷰
 // 답변으로 개발자/검수자용 마크다운 문서를 생성한다. 산출은 잡의 md 필드.

@@ -35,10 +35,22 @@ export interface PreparedAiAttachments {
   warnings: string[];
 }
 
+export interface PrepareAiAttachmentsOptions {
+  maxFiles?: number;
+}
+
 interface ExtractedFile {
   text: string;
   images: Buffer[];
   note: string;
+}
+
+interface ImageCandidate {
+  image: Buffer;
+  // 고객이 직접 넣은 이미지가 PDF/Office 문서에서 파생한 미리보기보다 우선이다.
+  // 그렇지 않으면 앞선 대형 PDF가 이미지 예산을 모두 차지해 별도 회로도/외형도를 못 본다.
+  priority: number;
+  sourceIndex: number;
 }
 
 const truncate = (value: string, max: number): string =>
@@ -207,10 +219,12 @@ const extractFile = async (file: UploadTarget): Promise<ExtractedFile> => {
 
 export async function prepareAiAttachments(
   inputFiles: readonly UploadTarget[],
+  options: PrepareAiAttachmentsOptions = {},
 ): Promise<PreparedAiAttachments> {
-  const files = inputFiles.slice(0, MAX_FILES);
+  const maxFiles = options.maxFiles ?? MAX_FILES;
+  const files = inputFiles.slice(0, maxFiles);
   const warnings: string[] = [];
-  if (inputFiles.length > MAX_FILES) warnings.push(`첨부 ${String(inputFiles.length - MAX_FILES)}개는 분석 개수 제한으로 생략`);
+  if (inputFiles.length > maxFiles) warnings.push(`첨부 ${String(inputFiles.length - maxFiles)}개는 분석 개수 제한으로 생략`);
   const totalBytes = files.reduce((sum, file) => sum + file.buffer.byteLength, 0);
   if (totalBytes > MAX_TOTAL_FILE_BYTES) {
     warnings.push('첨부 합계가 50MB를 넘어 앞쪽 파일부터 제한 분석');
@@ -218,6 +232,7 @@ export async function prepareAiAttachments(
 
   const sections: string[] = [];
   const images: string[] = [];
+  const imageCandidates: ImageCandidate[] = [];
   const hashes: string[] = files.map((file) => hashAiBytes(file.buffer));
   let consumedBytes = 0;
   let consumedText = 0;
@@ -234,8 +249,13 @@ export async function prepareAiAttachments(
       const remainingText = Math.max(0, MAX_TOTAL_TEXT - consumedText);
       const text = truncate(extracted.text, Math.min(MAX_TEXT_PER_FILE, remainingText));
       consumedText += text.length;
-      const remainingImages = Math.max(0, MAX_IMAGES - images.length);
-      images.push(...extracted.images.slice(0, remainingImages).map((image) => image.toString('base64')));
+      const directImage = IMAGE_EXTENSIONS.has(path.extname(file.filename).toLowerCase()) ||
+        RASTER_IMAGE_MIME_TYPES.has(file.mimetype.toLowerCase());
+      imageCandidates.push(...extracted.images.map((image) => ({
+        image,
+        priority: directImage ? 0 : 1,
+        sourceIndex: index,
+      })));
       sections.push([
         header,
         `- 분석 상태: ${extracted.note}`,
@@ -252,6 +272,10 @@ export async function prepareAiAttachments(
   const warningSection = warnings.length === 0
     ? ''
     : `\n\n[첨부 분석 경고]\n${warnings.map((warning) => `- ${warning}`).join('\n')}`;
+  images.push(...imageCandidates
+    .sort((left, right) => left.priority - right.priority || left.sourceIndex - right.sourceIndex)
+    .slice(0, MAX_IMAGES)
+    .map((candidate) => candidate.image.toString('base64')));
   return {
     context: truncate(`${sections.join('\n\n')}${warningSection}`, MAX_TOTAL_TEXT + 10_000),
     images,

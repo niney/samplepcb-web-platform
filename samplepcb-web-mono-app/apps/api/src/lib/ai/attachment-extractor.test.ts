@@ -49,6 +49,24 @@ describe('AI 첨부 전처리', () => {
     expect(prepared.images).toHaveLength(1);
   });
 
+  it('직접 첨부한 이미지를 문서에서 추출한 미리보기보다 먼저 모델에 보낸다', async () => {
+    const docx = zipSync({
+      'word/document.xml': strToU8('<w:document><w:body /></w:document>'),
+      'word/media/reference.png': new Uint8Array([2]),
+    });
+    const directImage = Buffer.from([1]);
+    const prepared = await prepareAiAttachments([
+      {
+        filename: 'spec.docx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        buffer: Buffer.from(docx),
+      },
+      { filename: 'schematic.png', mimetype: 'image/png', buffer: directImage },
+    ]);
+
+    expect(prepared.images[0]).toBe(directImage.toString('base64'));
+  });
+
   it('XLSX 시트와 셀 값을 행 단위 텍스트로 추출한다', async () => {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('BOM');
