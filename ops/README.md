@@ -16,10 +16,10 @@
   - PHP 이미지: `gd`(jpeg/freetype)·`mysqli`·`mbstring`·`exif`·`fileinfo`·`curl`·`openssl`·`zip`.
   - `proxy_fix.php` → 컨테이너 `php.ini` `auto_prepend_file` (https 인식).
 - `dev.sh` — 로컬 전체 스택 기동(turbo dev + apache + nginx).
-- `deploy.sh` — 빌드/배포.
+- `deploy.sh` — 빌드/배포. 운영 R&D 앱은 `./deploy.sh 9`, 풀 배포는 `./deploy.sh 5`로 `apps/rnd/dist`까지 갱신한다.
 
 ## 참고
 
-- 예약 경로 `/app`·`/market`·`/api`는 그누보드가 쓰지 않는다.
+- 예약 경로 `/app`·`/market`·`/rnd`·`/api`는 그누보드가 쓰지 않는다.
 - DB charset = `utf8`(utf8mb4 아님).
 - 상세: 상위 `../AGENTS.md`.

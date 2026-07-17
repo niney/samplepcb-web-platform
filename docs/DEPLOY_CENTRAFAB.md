@@ -10,6 +10,7 @@
 [방문자] → Cloudflare(SSL 종단, Flexible) → 오리진 nginx :80 ─┬─ /api/    → 127.0.0.1:3333  Node/Fastify(sp-api, systemd)
                                                               ├─ /app/    → apps/web/dist       정적 SPA
                                                               ├─ /market/ → apps/market/dist    정적 SPA
+                                                              ├─ /rnd/    → apps/rnd/dist       연구용 정적 SPA
                                                               └─ /        → php-fpm(unix socket) 그누보드/영카트  ※Apache 없음
 ```
 
@@ -24,7 +25,7 @@
 | OS | Ubuntu 22.04, nginx `user samplepcb` |
 | PHP | **8.1**(OS 기본), 소켓 `/run/php/php8.1-fpm.sock` |
 | Node(서비스용) | **시스템 LTS `/usr/bin/node`** (dev의 fnm/conda와 분리 — systemd는 절대경로 필요) |
-| pnpm 필터 | 앱=`api`·`web`·`market` (스코프 없음) / 패키지=`@sp/*` |
+| pnpm 필터 | 앱=`api`·`web`·`market`·`rnd` (스코프 없음) / 패키지=`@sp/*` |
 | DB | MariaDB, DB·유저 `samplepcb`, charset **utf8**(utf8mb4 아님), **`sql_mode=''`** |
 | 포트 | Node 3333(127.0.0.1 바인딩) · php-fpm 소켓 · 공개는 80만 |
 | 경로 | `/home/samplepcb/samplepcb-web-platform` |
@@ -87,10 +88,10 @@ cd samplepcb-web-platform/samplepcb-web-mono-app
 
 pnpm install --frozen-lockfile
 pnpm --filter api db:generate          # prisma client (필터는 'api' — @sp/api 아님!)
-pnpm -r build                          # shared/config/utils → web(dist)·market(dist)·api(dist) 토폴로지 순
+pnpm -r build                          # shared/config/utils → web·market·rnd(dist)·api(dist) 토폴로지 순
 ```
 
-- 결과물: `apps/web/dist`, `apps/market/dist`, `apps/api/dist/server.js`.
+- 결과물: `apps/web/dist`, `apps/market/dist`, `apps/rnd/dist`, `apps/api/dist/server.js`.
 - api 빌드는 `apps/api/tsup.config.ts`(`noExternal:[/^@sp\//]`)로 워크스페이스 소스를 번들에 포함 → `node dist/server.js`가 `.ts`를 안 만남.
 
 ## STEP 4 — 그누보드 클린 설치
@@ -212,6 +213,7 @@ server {
 
     location = /app    { return 301 /app/; }
     location = /market { return 301 /market/; }
+    location = /rnd    { return 301 /rnd/; }
 
     # 1) Node API (sp-node)
     location ^~ /api/ {
@@ -233,6 +235,10 @@ server {
     location ^~ /market/ {
         alias /home/samplepcb/samplepcb-web-platform/samplepcb-web-mono-app/apps/market/dist/;
         try_files $uri $uri/ /market/index.html;
+    }
+    location ^~ /rnd/ {
+        alias /home/samplepcb/samplepcb-web-platform/samplepcb-web-mono-app/apps/rnd/dist/;
+        try_files $uri $uri/ /rnd/index.html;
     }
 
     # 3) 보안: data/ PHP 실행차단(RCE)·include 전용 디렉토리 차단
