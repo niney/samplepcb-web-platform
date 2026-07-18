@@ -1,16 +1,47 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type { PartFacetBucketType, PartHitType } from '@sp/api-contract';
+import { parseSpecToken, type SpecKind } from '@sp/utils';
 import { usePartDetail, usePartSearch, type PartSearchFilters } from '../../admin/useAdminParts';
 
 // 부품 카탈로그 검색 — 검색창(단위·표기 자유: 4k7 · 0.0047M · 104K · 2p · 0402) + 패싯 + 결과.
 // 데이터는 BOM 공급사 검색이 자동 적재한 카탈로그(sp_part*/sp-parts).
+// 스펙 범위 입력도 자유 표기("4k7"~"10k") — spec-units 파서가 SI 로 변환해 보낸다.
 
 const input = ref('');
 const q = ref('');
 const filters = ref<PartSearchFilters>({ page: 1, pageSize: 20, sort: 'relevance' });
 const enabled = ref(false);
 const detailId = ref<string | null>(null);
+const sortSel = ref<'relevance' | 'price' | 'stock'>('relevance');
+const inStockOnly = ref(false);
+
+// 스펙 범위(자유 표기) — kind 별 min/max 텍스트 입력
+interface RangeInput {
+  kind: SpecKind;
+  label: string;
+  minKey: 'resistanceMin' | 'capacitanceMin' | 'inductanceMin' | 'voltageMin';
+  maxKey: 'resistanceMax' | 'capacitanceMax' | 'inductanceMax' | 'voltageMax';
+  min: string;
+  max: string;
+  placeholder: string;
+}
+const rangeInputs = ref<RangeInput[]>([
+  { kind: 'resistance', label: '저항', minKey: 'resistanceMin', maxKey: 'resistanceMax', min: '', max: '', placeholder: '예: 1k · 4k7 · 10kΩ' },
+  { kind: 'capacitance', label: '용량', minKey: 'capacitanceMin', maxKey: 'capacitanceMax', min: '', max: '', placeholder: '예: 100n · 2.2uF · 104' },
+  { kind: 'inductance', label: '인덕턴스', minKey: 'inductanceMin', maxKey: 'inductanceMax', min: '', max: '', placeholder: '예: 10uH · 1mH' },
+  { kind: 'voltage', label: '전압', minKey: 'voltageMin', maxKey: 'voltageMax', min: '', max: '', placeholder: '예: 6.3V · 16V' },
+]);
+
+/** 자유 표기 → 해당 kind 의 SI 값(파싱 실패·kind 불일치는 undefined = 무시). */
+function toSiFor(kind: SpecKind, raw: string): number | undefined {
+  const t = raw.trim();
+  if (t === '') return undefined;
+  const hit = parseSpecToken(t)
+    .filter((s) => s.kind === kind)
+    .sort((a, b) => (a.confidence === b.confidence ? 0 : a.confidence === 'high' ? -1 : 1))[0];
+  return hit?.si;
+}
 
 const search = usePartSearch(q, filters, enabled);
 const data = computed(() => search.data.value?.data ?? null);
@@ -22,7 +53,18 @@ const searchFailed = computed(() => search.isError.value);
 
 function onSearch(): void {
   q.value = input.value.trim();
-  filters.value = { ...filters.value, page: 1 };
+  const next: PartSearchFilters = {
+    ...filters.value,
+    page: 1,
+    sort: sortSel.value,
+    inStockOnly: inStockOnly.value,
+  };
+  // 스펙 범위(자유 표기 → SI) — 빈 입력·파싱 실패는 필터 해제
+  for (const r of rangeInputs.value) {
+    next[r.minKey] = toSiFor(r.kind, r.min);
+    next[r.maxKey] = toSiFor(r.kind, r.max);
+  }
+  filters.value = next;
   enabled.value = true;
 }
 
@@ -74,8 +116,14 @@ function specSummary(specsSi: Record<string, number>): string {
   return parts.join(' · ');
 }
 
-function fmtPrice(p: number | null): string {
-  return p === null ? '' : `$${String(Number(p.toPrecision(4)))}`;
+const CURRENCY_SYMBOL: Record<string, string> = { KRW: '₩', USD: '$', EUR: '€', JPY: '¥', CNY: '¥' };
+
+function fmtPrice(p: number | null, currency: string | null): string {
+  if (p === null) return '';
+  const n = String(Number(p.toPrecision(4)));
+  if (currency === null || currency === '') return n;
+  const sym = CURRENCY_SYMBOL[currency];
+  return sym === undefined ? `${n} ${currency}` : `${sym}${n}`;
 }
 
 function facetLabel(b: PartFacetBucketType): string {
@@ -96,8 +144,8 @@ function facetLabel(b: PartFacetBucketType): string {
       </p>
     </div>
 
-    <!-- 검색창 -->
-    <div class="flex gap-2">
+    <!-- 검색창 + 정렬·재고 -->
+    <div class="flex flex-wrap items-center gap-2">
       <input
         v-model="input"
         type="text"
@@ -105,6 +153,15 @@ function facetLabel(b: PartFacetBucketType): string {
         class="w-full max-w-xl rounded-md border border-gray-300 px-3 py-2 text-sm"
         @keydown.enter="onSearch"
       >
+      <select v-model="sortSel" class="rounded-md border border-gray-300 px-2 py-2 text-sm" @change="onSearch">
+        <option value="relevance">관련도순</option>
+        <option value="price">최저가순</option>
+        <option value="stock">재고순</option>
+      </select>
+      <label class="flex items-center gap-1 text-sm text-gray-600">
+        <input v-model="inStockOnly" type="checkbox" @change="onSearch">
+        재고 있음
+      </label>
       <button
         type="button"
         class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
@@ -114,6 +171,33 @@ function facetLabel(b: PartFacetBucketType): string {
         검색
       </button>
     </div>
+
+    <!-- 스펙 범위 (자유 표기: 4k7 · 100n · 6.3V — spec-units 가 SI 로 변환) -->
+    <details class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm">
+      <summary class="cursor-pointer select-none font-medium text-gray-700">스펙 범위 필터</summary>
+      <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div v-for="r in rangeInputs" :key="r.kind">
+          <p class="mb-1 text-xs font-medium text-gray-500">{{ r.label }} <span class="font-normal">({{ r.placeholder }})</span></p>
+          <div class="flex items-center gap-1">
+            <input
+              v-model="r.min"
+              type="text"
+              placeholder="최소"
+              class="w-full rounded border border-gray-300 px-2 py-1"
+              @keydown.enter="onSearch"
+            >
+            <span class="text-gray-400">~</span>
+            <input
+              v-model="r.max"
+              type="text"
+              placeholder="최대"
+              class="w-full rounded border border-gray-300 px-2 py-1"
+              @keydown.enter="onSearch"
+            >
+          </div>
+        </div>
+      </div>
+    </details>
 
     <p v-if="searchFailed" class="text-sm text-red-600">
       검색을 사용할 수 없습니다 — Elasticsearch 상태를 확인하세요.
@@ -168,7 +252,7 @@ function facetLabel(b: PartFacetBucketType): string {
                   <td class="whitespace-nowrap px-3 py-2 text-gray-600">{{ specSummary(p.specsSi) }}</td>
                   <td class="max-w-xs truncate px-3 py-2 text-gray-500">{{ p.description }}</td>
                   <td class="px-3 py-2">{{ p.totalStock }}</td>
-                  <td class="px-3 py-2">{{ fmtPrice(p.minPrice) }}</td>
+                  <td class="whitespace-nowrap px-3 py-2">{{ fmtPrice(p.minPrice, p.minPriceCurrency) }}</td>
                   <td class="px-3 py-2 text-gray-500">{{ p.suppliers.join(', ') }}</td>
                 </tr>
                 <!-- 상세(오퍼·가격구간) 확장 행 -->
@@ -199,7 +283,7 @@ function facetLabel(b: PartFacetBucketType): string {
                             v-for="pb in offer.priceBreaks"
                             :key="pb.qty"
                             class="rounded bg-gray-100 px-1.5 py-0.5"
-                          >{{ pb.qty }}+ : {{ fmtPrice(pb.price) }}</span>
+                          >{{ pb.qty }}+ : {{ fmtPrice(pb.price, offer.currency) }}</span>
                         </div>
                       </div>
                     </div>

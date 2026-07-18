@@ -36,6 +36,7 @@ export const PartHit = z.object({
   suppliers: z.array(z.string()),
   offerCount: z.number().int(),
   minPrice: z.number().nullable(),
+  minPriceCurrency: z.string().nullable(), // KRW·USD… — UI 가 통화 기호를 결정
   totalStock: z.number().int(),
   score: z.number().nullable(),
 });

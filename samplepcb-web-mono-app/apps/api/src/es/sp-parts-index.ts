@@ -56,6 +56,8 @@ export interface SpPartDoc {
   suppliers: string[];
   offerCount: number;
   minPrice: number | null;
+  /** minPrice 가 나온 오퍼의 통화(KRW·USD…) — 표시용. */
+  minPriceCurrency: string | null;
   totalStock: number;
   updatedAt: string;
 }
@@ -121,6 +123,7 @@ const mappings = {
     suppliers: { type: 'keyword' },
     offerCount: { type: 'integer' },
     minPrice: { type: 'double' },
+    minPriceCurrency: { type: 'keyword' },
     totalStock: { type: 'long' },
     updatedAt: { type: 'date' },
   },
@@ -131,7 +134,8 @@ export interface MinimalLogger {
   warn: (msg: string) => void;
 }
 
-/** 기동 시 부트스트랩 — 없으면 생성+alias, 있으면 그대로(매핑 변경은 reindex 로). 실패해도 앱은 뜬다. */
+/** 기동 시 부트스트랩 — 없으면 생성+alias, 있으면 putMapping 으로 추가 필드 반영(xpse 방식).
+ * 필드 추가는 non-breaking 이라 안전 — 기존 필드 타입 변경은 reindex(v2+스왑)로만. 실패해도 앱은 뜬다. */
 export async function bootstrapPartsIndex(log: MinimalLogger): Promise<void> {
   try {
     const es = esClient();
@@ -144,6 +148,8 @@ export async function bootstrapPartsIndex(log: MinimalLogger): Promise<void> {
         aliases: { [SP_PARTS_READ]: {}, [SP_PARTS_WRITE]: { is_write_index: true } },
       });
       log.info(`ES 인덱스 생성: ${SP_PARTS_INDEX} (alias: ${SP_PARTS_READ}/${SP_PARTS_WRITE})`);
+    } else {
+      await es.indices.putMapping({ index: SP_PARTS_INDEX, properties: mappings.properties });
     }
   } catch (error) {
     log.warn(`ES 부트스트랩 실패(검색 비활성 축퇴): ${String(error)}`);

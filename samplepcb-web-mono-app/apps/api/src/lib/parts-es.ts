@@ -49,16 +49,20 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     pkgVariants = canon === null ? [part.packageCode] : canon.flatMap((c) => packageVariants(c));
   }
 
-  // 오퍼 요약 — 대표 단가는 각 오퍼의 최소수량 구간 단가 중 최저
+  // 오퍼 요약 — 대표 단가는 각 오퍼의 최소수량 구간 단가 중 최저(통화 병기)
   const suppliers = [...new Set(part.offers.map((o) => o.supplier))];
   let minPrice: number | null = null;
+  let minPriceCurrency: string | null = null;
   let totalStock = 0;
   for (const offer of part.offers) {
     totalStock += offer.stock ?? 0;
     const first = [...offer.priceBreaks].sort((a, b) => a.qty - b.qty)[0];
     if (first !== undefined) {
       const p = Number(first.price);
-      if (Number.isFinite(p) && p > 0 && (minPrice === null || p < minPrice)) minPrice = p;
+      if (Number.isFinite(p) && p > 0 && (minPrice === null || p < minPrice)) {
+        minPrice = p;
+        minPriceCurrency = first.currency !== '' ? first.currency : (offer.currency ?? null);
+      }
     }
   }
 
@@ -78,6 +82,7 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     suppliers,
     offerCount: part.offers.length,
     minPrice,
+    minPriceCurrency,
     totalStock,
     updatedAt: part.lastSeenAt.toISOString(),
   };

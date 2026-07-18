@@ -11,8 +11,36 @@ import {
 // 부품 카탈로그 검색/상세 — /api/admin/parts (ES 검색 + DB 상세)
 
 export type PartSearchFilters = Partial<
-  Pick<PartSearchQueryType, 'manufacturer' | 'packageCode' | 'supplier' | 'inStockOnly' | 'sort' | 'page' | 'pageSize'>
+  Pick<
+    PartSearchQueryType,
+    | 'manufacturer'
+    | 'packageCode'
+    | 'supplier'
+    | 'inStockOnly'
+    | 'sort'
+    | 'page'
+    | 'pageSize'
+    | 'resistanceMin'
+    | 'resistanceMax'
+    | 'capacitanceMin'
+    | 'capacitanceMax'
+    | 'inductanceMin'
+    | 'inductanceMax'
+    | 'voltageMin'
+    | 'voltageMax'
+  >
 >;
+
+const RANGE_KEYS = [
+  'resistanceMin',
+  'resistanceMax',
+  'capacitanceMin',
+  'capacitanceMax',
+  'inductanceMin',
+  'inductanceMax',
+  'voltageMin',
+  'voltageMax',
+] as const;
 
 function toQueryString(q: string, filters: PartSearchFilters): string {
   const params = new URLSearchParams();
@@ -24,6 +52,10 @@ function toQueryString(q: string, filters: PartSearchFilters): string {
   if (filters.sort !== undefined) params.set('sort', filters.sort);
   if (filters.page !== undefined) params.set('page', String(filters.page));
   if (filters.pageSize !== undefined) params.set('pageSize', String(filters.pageSize));
+  for (const key of RANGE_KEYS) {
+    const v = filters[key];
+    if (v !== undefined) params.set(key, String(v));
+  }
   return params.toString();
 }
 

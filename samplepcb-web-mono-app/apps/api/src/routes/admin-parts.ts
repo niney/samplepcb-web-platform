@@ -102,6 +102,7 @@ function toHit(doc: SpPartDoc, score: number | null | undefined): PartHitType {
     suppliers: doc.suppliers,
     offerCount: doc.offerCount,
     minPrice: doc.minPrice,
+    minPriceCurrency: doc.minPriceCurrency ?? null, // 구 문서(필드 이전 색인) 호환
     totalStock: doc.totalStock,
     score: score ?? null,
   };
@@ -195,6 +196,7 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           suppliers: [...new Set(part.offers.map((o) => o.supplier))],
           offerCount: part.offers.length,
           minPrice: null,
+          minPriceCurrency: null,
           totalStock: part.offers.reduce((sum, o) => sum + (o.stock ?? 0), 0),
           score: null,
           firstSeenAt: part.firstSeenAt.toISOString(),
