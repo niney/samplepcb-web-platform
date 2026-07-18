@@ -22,6 +22,7 @@ export const en = {
       marketProjects: 'Market projects',
       marketContracts: 'Market contracts',
       marketSettings: 'Market settings',
+      bom: 'BOM upload',
       slides: 'Main slides',
       seo: 'SEO',
       settings: 'Settings',

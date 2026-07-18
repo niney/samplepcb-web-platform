@@ -9,6 +9,8 @@ export const apiRoutes = {
   adminSettings: '/api/admin/settings',
   adminSlides: '/api/admin/slides',
   adminSeo: '/api/admin/seo',
+  // BOM 추출 + 공급사 검색 (sp-engine 프록시)
+  adminBom: '/api/admin/bom',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',
