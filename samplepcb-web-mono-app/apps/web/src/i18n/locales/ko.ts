@@ -23,6 +23,7 @@ export const ko = {
       marketContracts: '마켓 계약·정산',
       marketSettings: '마켓 설정',
       bom: 'BOM 업로드',
+      parts: '부품 검색',
       slides: '메인 슬라이드',
       seo: 'SEO 설정',
       settings: '설정',

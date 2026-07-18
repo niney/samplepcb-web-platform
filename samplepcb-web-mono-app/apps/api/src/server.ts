@@ -23,6 +23,9 @@ import { rndAiRoutes } from './routes/rnd-ai';
 import { adminSlidesRoutes } from './routes/admin-slides';
 import { adminSeoRoutes } from './routes/admin-seo';
 import { adminBomRoutes } from './routes/admin-bom';
+import { adminPartsRoutes } from './routes/admin-parts';
+import { bootstrapPartsIndex } from './es/sp-parts-index';
+import { drainIndexQueue } from './lib/parts-ingest';
 import { adminMarketExpertRoutes } from './routes/admin-market-experts';
 import { adminMarketProjectRoutes } from './routes/admin-market-projects';
 import { adminMarketContractRoutes } from './routes/admin-market-contracts';
@@ -76,11 +79,23 @@ await app.register(adminSlidesRoutes, { prefix: '/api/admin' });
 await app.register(adminSeoRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — BOM 추출 + 공급사 검색 (sp-engine Python 프록시)
 await app.register(adminBomRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 부품 카탈로그 검색(ES sp-parts) + 상세(DB sp_part*)
+await app.register(adminPartsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일
 await app.register(adminMarketExpertRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketProjectRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketContractRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketSettingsRoutes, { prefix: '/api/admin' });
+
+// ES sp-parts 부트스트랩 + 색인 실패 큐 드레인 — ES 다운이어도 앱은 뜬다(검색만 축퇴).
+void bootstrapPartsIndex(app.log)
+  .then(() => drainIndexQueue())
+  .then((r) => {
+    if (r.drained > 0) app.log.info(`sp-parts 색인 큐 드레인: ${String(r.drained)}건 (잔여 ${String(r.remaining)})`);
+  })
+  .catch((error: unknown) => {
+    app.log.warn(`sp-parts 색인 큐 드레인 실패: ${String(error)}`);
+  });
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로

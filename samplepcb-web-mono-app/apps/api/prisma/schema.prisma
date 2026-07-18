@@ -394,3 +394,79 @@ model SpAiUsecase {
 
   @@map("sp_ai_usecase")
 }
+
+// ── 부품 카탈로그 (BOM 공급사 검색 자동 인제스트, docs/PARTS_SEARCH.md) ──────
+// DB=진실원본, ES(sp-parts)=재구축 가능한 검색 파생물. 카탈로그는 사실 데이터이며
+// BOM 매칭 상태(VERIFIED 등 문맥)는 저장하지 않는다.
+
+// 정규 부품 1행 — 공급사 무관. upsert 키 = (mpnNorm, manufacturerNorm).
+model SpPart {
+  id               BigInt        @id @default(autoincrement())
+  mpn              String        @db.VarChar(191) // 원문 MPN(표시용)
+  mpnNorm          String        @db.VarChar(191) // 대문자·영숫자만(@sp/utils normalizeMpn)
+  manufacturerName String        @db.VarChar(191) // 별칭 해소 후 정준 표시명
+  manufacturerNorm String        @db.VarChar(191) // 소문자·영숫자만
+  description      String?       @db.Text
+  category         String?       @db.VarChar(191)
+  packageCode      String?       @db.VarChar(32) // 임페리얼 정준(0402) 또는 원문 대문자
+  lifecycle        String?       @db.VarChar(64)
+  datasheetUrl     String?       @db.VarChar(500)
+  specsJson        Json // 공급사 normalized_specs 병합(표시용 — dielectric·온도범위 포함)
+  specsSi          Json // SI 정준 수치만(resistanceOhm 등 SPEC_SI_FIELD 키) — ES 색인 원천
+  firstSeenAt      DateTime      @default(now())
+  lastSeenAt       DateTime      @default(now())
+  indexedAt        DateTime? // 마지막 ES 색인 성공 시각(null=미색인)
+  offers           SpPartOffer[]
+
+  @@unique([mpnNorm, manufacturerNorm])
+  @@index([lastSeenAt])
+  @@map("sp_part")
+}
+
+// 공급사별 판매 정보 — 공급사 추가는 supplier 값 추가일 뿐(스키마 무변경).
+model SpPartOffer {
+  id            BigInt             @id @default(autoincrement())
+  partId        BigInt
+  supplier      String             @db.VarChar(32) // mouser|digikey|unikeyic|…
+  supplierSku   String             @default("") @db.VarChar(191) // null 공급사는 '' 로 정규화(unique 안정)
+  productUrl    String?            @db.VarChar(1000)
+  stock         Int?
+  moq           Int?
+  orderMultiple Int?
+  packaging     String?            @db.VarChar(64)
+  currency      String?            @db.VarChar(8) // 대표 통화(프라이스브레이크 첫 행)
+  leadTime      String?            @db.VarChar(64)
+  rawJson       Json // 공급사 원본 product payload — 감사·재처리용
+  fetchedAt     DateTime
+  part          SpPart             @relation(fields: [partId], references: [id], onDelete: Cascade)
+  priceBreaks   SpPartPriceBreak[]
+
+  @@unique([partId, supplier, supplierSku])
+  @@index([supplier])
+  @@map("sp_part_offer")
+}
+
+// 수량 구간 단가 — fetch 단위 replace-all.
+model SpPartPriceBreak {
+  id       BigInt      @id @default(autoincrement())
+  offerId  BigInt
+  qty      Int
+  price    Decimal     @db.Decimal(14, 6)
+  currency String      @default("") @db.VarChar(8)
+  offer    SpPartOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, qty])
+  @@map("sp_part_price_break")
+}
+
+// ES 색인 실패 재시도 큐 — DB 쓰기는 성공했으나 색인이 실패한 부품. 기동 시·주기 drain.
+model SpPartIndexQueue {
+  id       BigInt   @id @default(autoincrement())
+  partId   BigInt
+  reason   String   @db.VarChar(191)
+  attempts Int      @default(0)
+  queuedAt DateTime @default(now())
+
+  @@index([partId])
+  @@map("sp_part_index_queue")
+}

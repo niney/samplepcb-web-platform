@@ -41,3 +41,4 @@ export function maskName(name: string): string {
 }
 
 export { renderDiagramSpecHtml } from './diagram-renderer';
+export * from './spec-units';

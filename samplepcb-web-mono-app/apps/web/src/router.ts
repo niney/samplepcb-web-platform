@@ -11,6 +11,7 @@ import AdminSettings from './pages/admin/AdminSettings.vue';
 import AdminSlides from './pages/admin/AdminSlides.vue';
 import AdminSeo from './pages/admin/AdminSeo.vue';
 import AdminBom from './pages/admin/AdminBom.vue';
+import AdminParts from './pages/admin/AdminParts.vue';
 import AdminBomJob from './pages/admin/AdminBomJob.vue';
 import AdminMarketExperts from './pages/admin/AdminMarketExperts.vue';
 import AdminMarketProjects from './pages/admin/AdminMarketProjects.vue';
@@ -50,6 +51,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'slides', name: 'admin-slides', component: AdminSlides },
       { path: 'seo', name: 'admin-seo', component: AdminSeo },
       { path: 'bom', name: 'admin-bom', component: AdminBom },
+      { path: 'parts', name: 'admin-parts', component: AdminParts },
       { path: 'bom/:id', name: 'admin-bom-job', component: AdminBomJob },
       { path: 'settings', name: 'admin-settings', component: AdminSettings },
     ],

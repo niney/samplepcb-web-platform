@@ -1,0 +1,83 @@
+{
+  "$comment": "spec-units 골든 벡터 — 이 표가 곧 요구사항 명세다(docs/PARTS_SEARCH.md). expect 의 각 항목이 파싱 결과에 존재해야 한다(초과 해석은 허용 — 다중 해석 설계). si 는 상대오차 1e-6 비교.",
+  "parse": [
+    { "input": "4k7", "expect": [{ "kind": "resistance", "si": 4700, "confidence": "high" }] },
+    { "input": "4.7k", "expect": [{ "kind": "resistance", "si": 4700, "confidence": "high" }] },
+    { "input": "4700", "expect": [{ "kind": "resistance", "si": 4700, "confidence": "low" }, { "kind": "capacitance", "si": 4.7e-9, "confidence": "low" }] },
+    { "input": "4,700", "expect": [{ "kind": "resistance", "si": 4700, "confidence": "low" }] },
+    { "input": "0.0047M", "expect": [{ "kind": "resistance", "si": 4700, "confidence": "high" }] },
+    { "input": "4.7m", "expect": [{ "kind": "resistance", "si": 4700000, "confidence": "low" }, { "kind": "inductance", "si": 0.0047, "confidence": "low" }] },
+    { "input": "16M", "expect": [{ "kind": "resistance", "si": 16000000, "confidence": "high" }, { "kind": "frequency", "si": 16000000, "confidence": "low" }] },
+    { "input": "16MHz", "expect": [{ "kind": "frequency", "si": 16000000, "confidence": "high" }] },
+    { "input": "455kHz", "expect": [{ "kind": "frequency", "si": 455000, "confidence": "high" }] },
+    { "input": "5mΩ", "expect": [{ "kind": "resistance", "si": 0.005, "confidence": "high" }, { "kind": "resistance", "si": 5000000, "confidence": "low" }] },
+    { "input": "4.7MΩ", "expect": [{ "kind": "resistance", "si": 4700000, "confidence": "high" }] },
+    { "input": "10K ohm", "expect": [{ "kind": "resistance", "si": 10000, "confidence": "high" }] },
+    { "input": "R47", "expect": [{ "kind": "resistance", "si": 0.47, "confidence": "high" }] },
+    { "input": "66R5", "expect": [{ "kind": "resistance", "si": 66.5, "confidence": "high" }] },
+    { "input": "4.7k옴", "expect": [{ "kind": "resistance", "si": 4700, "confidence": "high" }] },
+
+    { "input": "2.2pF", "expect": [{ "kind": "capacitance", "si": 2.2e-12, "confidence": "high" }] },
+    { "input": "2p2", "expect": [{ "kind": "capacitance", "si": 2.2e-12, "confidence": "high" }, { "kind": "inductance", "si": 2.2e-12, "confidence": "low" }] },
+    { "input": "2200fF", "expect": [{ "kind": "capacitance", "si": 2.2e-12, "confidence": "high" }] },
+    { "input": "2p", "expect": [{ "kind": "capacitance", "si": 2e-12, "confidence": "high" }] },
+    { "input": "2200p", "expect": [{ "kind": "capacitance", "si": 2.2e-9, "confidence": "high" }] },
+    { "input": "0.0022uF", "expect": [{ "kind": "capacitance", "si": 2.2e-9, "confidence": "high" }] },
+    { "input": "2.2nF", "expect": [{ "kind": "capacitance", "si": 2.2e-9, "confidence": "high" }] },
+    { "input": "100n", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }, { "kind": "inductance", "si": 1e-7, "confidence": "low" }] },
+    { "input": "0.1uF", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
+    { "input": "0.1µF", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
+    { "input": "0.1μF", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
+    { "input": "4u7", "expect": [{ "kind": "capacitance", "si": 4.7e-6, "confidence": "high" }, { "kind": "inductance", "si": 4.7e-6, "confidence": "low" }] },
+
+    { "input": "104K", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high", "tolerancePct": 10 }] },
+    { "input": "222J", "expect": [{ "kind": "capacitance", "si": 2.2e-9, "confidence": "high", "tolerancePct": 5 }] },
+    { "input": "104", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "low" }, { "kind": "resistance", "si": 100000, "confidence": "low" }] },
+    { "input": "472", "expect": [{ "kind": "capacitance", "si": 4.7e-9, "confidence": "low" }, { "kind": "resistance", "si": 4700, "confidence": "low" }] },
+    { "input": "4702", "expect": [{ "kind": "resistance", "si": 47000, "confidence": "low" }] },
+
+    { "input": "10uH", "expect": [{ "kind": "inductance", "si": 1e-5, "confidence": "high" }] },
+    { "input": "1mH", "expect": [{ "kind": "inductance", "si": 0.001, "confidence": "high" }] },
+
+    { "input": "6.3V", "expect": [{ "kind": "voltage", "si": 6.3, "confidence": "high" }] },
+    { "input": "16v", "expect": [{ "kind": "voltage", "si": 16, "confidence": "high" }] },
+    { "input": "500mA", "expect": [{ "kind": "current", "si": 0.5, "confidence": "high" }] },
+    { "input": "1/8W", "expect": [{ "kind": "power", "si": 0.125, "confidence": "high" }] },
+    { "input": "125mW", "expect": [{ "kind": "power", "si": 0.125, "confidence": "high" }] },
+    { "input": "±5%", "expect": [{ "kind": "tolerance", "si": 5, "confidence": "high" }] },
+    { "input": "+/-1%", "expect": [{ "kind": "tolerance", "si": 1, "confidence": "high" }] },
+
+    { "input": "GRM155R71C104KA88D", "expect": [] },
+    { "input": "0402", "expect": [] }
+  ],
+  "variants": [
+    { "kind": "capacitance", "si": 2.2e-9, "includes": ["2.2nf", "2n2", "2200pf", "2200p", "222"] },
+    { "kind": "capacitance", "si": 1e-7, "includes": ["100nf", "100n", "0.1uf", "104"] },
+    { "kind": "capacitance", "si": 2.2e-12, "includes": ["2.2pf", "2p2", "2.2p"] },
+    { "kind": "resistance", "si": 4700, "includes": ["4.7k", "4k7", "4700", "472", "4.7kohm"] },
+    { "kind": "resistance", "si": 0.47, "includes": ["r47", "0.47"] },
+    { "kind": "resistance", "si": 4700000, "includes": ["4.7m", "4m7"] },
+    { "kind": "inductance", "si": 4.7e-6, "includes": ["4.7uh", "4u7"] },
+    { "kind": "voltage", "si": 6.3, "includes": ["6.3v"] },
+    { "kind": "power", "si": 0.125, "includes": ["0.125w", "125mw", "1/8w"] },
+    { "kind": "frequency", "si": 16000000, "includes": ["16mhz"] },
+    { "kind": "tolerance", "si": 5, "includes": ["5%"] }
+  ],
+  "packages": [
+    { "input": "0402", "canon": ["0402"] },
+    { "input": "1005", "canon": ["0402"] },
+    { "input": "C1005", "canon": ["0402"] },
+    { "input": "1608", "canon": ["0603"] },
+    { "input": "0603_1608Metric", "canon": ["0603"] },
+    { "input": "0402/1005", "canon": ["0402"] },
+    { "input": "0402(1005 미터법)", "canon": ["0402"] },
+    { "input": "0603 (1608 Metric)", "canon": ["0603"] },
+    { "input": "603", "canon": ["0603"] },
+    { "input": "SOT-23", "canon": null }
+  ],
+  "packageVariants": [
+    { "imperial": "0402", "expect": ["0402", "1005"] },
+    { "imperial": "0603", "expect": ["0603", "1608"] },
+    { "imperial": "9999", "expect": ["9999"] }
+  ]
+}

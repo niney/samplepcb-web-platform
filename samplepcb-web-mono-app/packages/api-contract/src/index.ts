@@ -8,6 +8,7 @@ export * from './schemas/settings';
 export * from './schemas/slides';
 export * from './schemas/seo';
 export * from './schemas/bom';
+export * from './schemas/parts';
 export * from './schemas/market';
 export * from './schemas/ai';
 export * from './schemas/ai-interview-questions';
