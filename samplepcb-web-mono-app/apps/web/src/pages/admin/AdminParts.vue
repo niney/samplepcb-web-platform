@@ -4,9 +4,10 @@ import type { PartFacetBucketType, PartHitType } from '@sp/api-contract';
 import { parseSpecToken, type SpecKind } from '@sp/utils';
 import { usePartDetail, usePartSearch, type PartSearchFilters } from '../../admin/useAdminParts';
 
-// 부품 카탈로그 검색 — 검색창(단위·표기 자유: 4k7 · 0.0047M · 104K · 2p · 0402) + 패싯 + 결과.
+// 부품 카탈로그 검색 — "검색 콘솔" 카드가 페이지의 시그니처: 단위·표기 자유 검색이
+// 이 페이지의 본질이므로 검색 도구를 하나의 카드로 통합해 주인공으로 세운다.
+// gray-50 레이아웃 위에서 콘텐츠가 묻히지 않도록 패싯·결과도 카드로 띄운다.
 // 데이터는 BOM 공급사 검색이 자동 적재한 카탈로그(sp_part*/sp-parts).
-// 스펙 범위 입력도 자유 표기("4k7"~"10k") — spec-units 파서가 SI 로 변환해 보낸다.
 
 const input = ref('');
 const q = ref('');
@@ -16,7 +17,10 @@ const detailId = ref<string | null>(null);
 const sortSel = ref<'relevance' | 'price' | 'stock'>('relevance');
 const inStockOnly = ref(false);
 
-// 스펙 범위(자유 표기) — kind 별 min/max 텍스트 입력
+// 클릭하면 바로 검색되는 예시 칩 — 단위 자유 검색이라는 도메인 특성을 UI 로 시연
+const EXAMPLES = ['4k7', '104K', '0.1uF 0402', '0.0047M', 'GRM155'] as const;
+
+// 스펙 범위(자유 표기) — kind 별 min/max 텍스트 입력, spec-units 파서가 SI 로 변환
 interface RangeInput {
   kind: SpecKind;
   label: string;
@@ -27,10 +31,10 @@ interface RangeInput {
   placeholder: string;
 }
 const rangeInputs = ref<RangeInput[]>([
-  { kind: 'resistance', label: '저항', minKey: 'resistanceMin', maxKey: 'resistanceMax', min: '', max: '', placeholder: '예: 1k · 4k7 · 10kΩ' },
-  { kind: 'capacitance', label: '용량', minKey: 'capacitanceMin', maxKey: 'capacitanceMax', min: '', max: '', placeholder: '예: 100n · 2.2uF · 104' },
-  { kind: 'inductance', label: '인덕턴스', minKey: 'inductanceMin', maxKey: 'inductanceMax', min: '', max: '', placeholder: '예: 10uH · 1mH' },
-  { kind: 'voltage', label: '전압', minKey: 'voltageMin', maxKey: 'voltageMax', min: '', max: '', placeholder: '예: 6.3V · 16V' },
+  { kind: 'resistance', label: '저항', minKey: 'resistanceMin', maxKey: 'resistanceMax', min: '', max: '', placeholder: '1k · 4k7 · 10kΩ' },
+  { kind: 'capacitance', label: '용량', minKey: 'capacitanceMin', maxKey: 'capacitanceMax', min: '', max: '', placeholder: '100n · 2.2uF · 104' },
+  { kind: 'inductance', label: '인덕턴스', minKey: 'inductanceMin', maxKey: 'inductanceMax', min: '', max: '', placeholder: '10uH · 1mH' },
+  { kind: 'voltage', label: '전압', minKey: 'voltageMin', maxKey: 'voltageMax', min: '', max: '', placeholder: '6.3V · 16V' },
 ]);
 
 /** 자유 표기 → 해당 kind 의 SI 값(파싱 실패·kind 불일치는 undefined = 무시). */
@@ -59,7 +63,6 @@ function onSearch(): void {
     sort: sortSel.value,
     inStockOnly: inStockOnly.value,
   };
-  // 스펙 범위(자유 표기 → SI) — 빈 입력·파싱 실패는 필터 해제
   for (const r of rangeInputs.value) {
     next[r.minKey] = toSiFor(r.kind, r.min);
     next[r.maxKey] = toSiFor(r.kind, r.max);
@@ -68,10 +71,56 @@ function onSearch(): void {
   enabled.value = true;
 }
 
+function runExample(example: string): void {
+  input.value = example;
+  onSearch();
+}
+
 function toggleFacet(key: 'manufacturer' | 'packageCode' | 'supplier', value: string): void {
   const current = filters.value[key];
   filters.value = { ...filters.value, [key]: current === value ? undefined : value, page: 1 };
 }
+
+// 활성 필터 칩 — 현재 걸린 조건을 결과 위에 보여주고 클릭으로 해제
+interface ActiveChip {
+  label: string;
+  clear: () => void;
+}
+const activeChips = computed<ActiveChip[]>(() => {
+  const chips: ActiveChip[] = [];
+  const f = filters.value;
+  if (f.manufacturer !== undefined) {
+    chips.push({ label: `제조사: ${f.manufacturer}`, clear: () => { toggleFacet('manufacturer', f.manufacturer ?? ''); } });
+  }
+  if (f.packageCode !== undefined) {
+    chips.push({ label: `패키지: ${f.packageCode}`, clear: () => { toggleFacet('packageCode', f.packageCode ?? ''); } });
+  }
+  if (f.supplier !== undefined) {
+    chips.push({ label: `공급사: ${f.supplier}`, clear: () => { toggleFacet('supplier', f.supplier ?? ''); } });
+  }
+  if (f.inStockOnly === true) {
+    chips.push({
+      label: '재고 있음',
+      clear: () => {
+        inStockOnly.value = false;
+        onSearch();
+      },
+    });
+  }
+  for (const r of rangeInputs.value) {
+    if (r.min.trim() !== '' || r.max.trim() !== '') {
+      chips.push({
+        label: `${r.label}: ${r.min.trim() === '' ? '~' : r.min}${r.max.trim() === '' ? '~' : ` ~ ${r.max}`}`,
+        clear: () => {
+          r.min = '';
+          r.max = '';
+          onSearch();
+        },
+      });
+    }
+  }
+  return chips;
+});
 
 function setPage(page: number): void {
   filters.value = { ...filters.value, page };
@@ -127,132 +176,184 @@ function fmtPrice(p: number | null, currency: string | null): string {
 }
 
 function facetLabel(b: PartFacetBucketType): string {
-  return `${b.value} (${String(b.count)})`;
+  return b.value;
 }
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-5">
     <div>
       <h1 class="text-xl font-semibold text-gray-900">부품 검색</h1>
       <p class="mt-1 text-sm text-gray-500">
-        단위·표기 자유 검색 — 예: <code class="rounded bg-gray-100 px-1">4k7</code>
-        <code class="rounded bg-gray-100 px-1">0.0047M</code>
-        <code class="rounded bg-gray-100 px-1">104K</code>
-        <code class="rounded bg-gray-100 px-1">0.1uF 0402</code>
-        <code class="rounded bg-gray-100 px-1">GRM155</code>
+        단위·표기를 자유롭게 — 접두 환산(4k7=4700=0.0047M)과 관행 표기(104·2p2)를 모두 이해합니다.
       </p>
     </div>
 
-    <!-- 검색창 + 정렬·재고 -->
-    <div class="flex flex-wrap items-center gap-2">
-      <input
-        v-model="input"
-        type="text"
-        placeholder="MPN · 스펙(4k7, 100nF…) · 제조사 · 패키지"
-        class="w-full max-w-xl rounded-md border border-gray-300 px-3 py-2 text-sm"
-        @keydown.enter="onSearch"
-      >
-      <select v-model="sortSel" class="rounded-md border border-gray-300 px-2 py-2 text-sm" @change="onSearch">
-        <option value="relevance">관련도순</option>
-        <option value="price">최저가순</option>
-        <option value="stock">재고순</option>
-      </select>
-      <label class="flex items-center gap-1 text-sm text-gray-600">
-        <input v-model="inStockOnly" type="checkbox" @change="onSearch">
-        재고 있음
-      </label>
-      <button
-        type="button"
-        class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        :disabled="search.isFetching.value"
-        @click="onSearch"
-      >
-        검색
-      </button>
-    </div>
+    <!-- 검색 콘솔 — 이 페이지의 시그니처: 검색·정렬·재고·스펙범위를 한 카드로 -->
+    <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="relative w-full max-w-xl">
+          <svg
+            class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.34-4.34M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
+          </svg>
+          <input
+            v-model="input"
+            type="text"
+            placeholder="MPN · 스펙(4k7, 100nF…) · 제조사 · 패키지"
+            class="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
+            @keydown.enter="onSearch"
+          >
+        </div>
+        <select
+          v-model="sortSel"
+          class="rounded-lg border border-gray-300 px-2 py-2.5 text-sm outline-none focus:border-blue-500"
+          @change="onSearch"
+        >
+          <option value="relevance">관련도순</option>
+          <option value="price">최저가순</option>
+          <option value="stock">재고순</option>
+        </select>
+        <label class="flex items-center gap-1.5 text-sm text-gray-600">
+          <input v-model="inStockOnly" type="checkbox" class="accent-blue-600" @change="onSearch">
+          재고 있음
+        </label>
+        <button
+          type="button"
+          class="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="search.isFetching.value"
+          @click="onSearch"
+        >
+          검색
+        </button>
+      </div>
 
-    <!-- 스펙 범위 (자유 표기: 4k7 · 100n · 6.3V — spec-units 가 SI 로 변환) -->
-    <details class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm">
-      <summary class="cursor-pointer select-none font-medium text-gray-700">스펙 범위 필터</summary>
-      <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div v-for="r in rangeInputs" :key="r.kind">
-          <p class="mb-1 text-xs font-medium text-gray-500">{{ r.label }} <span class="font-normal">({{ r.placeholder }})</span></p>
-          <div class="flex items-center gap-1">
-            <input
-              v-model="r.min"
-              type="text"
-              placeholder="최소"
-              class="w-full rounded border border-gray-300 px-2 py-1"
-              @keydown.enter="onSearch"
-            >
-            <span class="text-gray-400">~</span>
-            <input
-              v-model="r.max"
-              type="text"
-              placeholder="최대"
-              class="w-full rounded border border-gray-300 px-2 py-1"
-              @keydown.enter="onSearch"
-            >
+      <!-- 예시 칩 — 클릭하면 바로 검색 -->
+      <div class="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+        <span class="text-gray-400">예시</span>
+        <button
+          v-for="ex in EXAMPLES"
+          :key="ex"
+          type="button"
+          class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 font-mono text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+          @click="runExample(ex)"
+        >
+          {{ ex }}
+        </button>
+      </div>
+
+      <!-- 스펙 범위 (자유 표기 → SI 변환) -->
+      <details class="mt-3 border-t border-gray-100 pt-3 text-sm">
+        <summary class="cursor-pointer select-none font-medium text-gray-600 hover:text-gray-900">스펙 범위 필터</summary>
+        <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div v-for="r in rangeInputs" :key="r.kind">
+            <p class="mb-1 text-xs font-medium text-gray-500">
+              {{ r.label }} <span class="font-normal text-gray-400">({{ r.placeholder }})</span>
+            </p>
+            <div class="flex items-center gap-1">
+              <input
+                v-model="r.min"
+                type="text"
+                placeholder="최소"
+                class="w-full rounded-md border border-gray-300 px-2 py-1 outline-none focus:border-blue-500"
+                @keydown.enter="onSearch"
+              >
+              <span class="text-gray-400">~</span>
+              <input
+                v-model="r.max"
+                type="text"
+                placeholder="최대"
+                class="w-full rounded-md border border-gray-300 px-2 py-1 outline-none focus:border-blue-500"
+                @keydown.enter="onSearch"
+              >
+            </div>
           </div>
         </div>
-      </div>
-    </details>
+      </details>
+    </div>
 
-    <p v-if="searchFailed" class="text-sm text-red-600">
+    <p v-if="searchFailed" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
       검색을 사용할 수 없습니다 — Elasticsearch 상태를 확인하세요.
     </p>
 
-    <div v-if="data !== null" class="flex gap-6">
-      <!-- 패싯 -->
-      <aside class="w-52 shrink-0 space-y-4 text-sm">
-        <div v-for="facet in ([['제조사', 'manufacturer', data.facets.manufacturers], ['패키지', 'packageCode', data.facets.packages], ['공급사', 'supplier', data.facets.suppliers]] as const)" :key="facet[1]">
-          <h3 class="mb-1 font-medium text-gray-700">{{ facet[0] }}</h3>
+    <div v-if="data !== null" class="flex gap-5">
+      <!-- 패싯 카드 -->
+      <aside class="w-52 shrink-0 self-start rounded-xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
+        <div
+          v-for="(facet, fi) in ([['제조사', 'manufacturer', data.facets.manufacturers], ['패키지', 'packageCode', data.facets.packages], ['공급사', 'supplier', data.facets.suppliers]] as const)"
+          :key="facet[1]"
+          :class="{ 'mt-4 border-t border-gray-100 pt-3': fi > 0 }"
+        >
+          <h3 class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ facet[0] }}</h3>
           <ul class="space-y-0.5">
             <li v-for="b in facet[2]" :key="b.value">
               <button
                 type="button"
-                class="w-full truncate rounded px-2 py-0.5 text-left hover:bg-gray-100"
-                :class="{ 'bg-blue-50 font-medium text-blue-700': filters[facet[1]] === b.value }"
+                class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-gray-50"
+                :class="filters[facet[1]] === b.value ? 'bg-blue-50 font-medium text-blue-700 hover:bg-blue-50' : 'text-gray-700'"
                 @click="toggleFacet(facet[1], b.value)"
               >
-                {{ facetLabel(b) }}
+                <span class="truncate">{{ facetLabel(b) }}</span>
+                <span class="shrink-0 text-xs tabular-nums text-gray-400">{{ b.count }}</span>
               </button>
             </li>
-            <li v-if="facet[2].length === 0" class="px-2 text-gray-400">—</li>
+            <li v-if="facet[2].length === 0" class="px-2 text-gray-300">—</li>
           </ul>
         </div>
       </aside>
 
       <!-- 결과 -->
       <div class="min-w-0 flex-1 space-y-3">
-        <p class="text-sm text-gray-500">
-          총 <span class="font-semibold text-gray-800">{{ data.total }}</span>건
-        </p>
-        <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <span class="text-gray-500">
+            총 <span class="font-semibold tabular-nums text-gray-900">{{ data.total }}</span>건
+          </span>
+          <!-- 활성 필터 칩 — 클릭으로 해제 -->
+          <button
+            v-for="chip in activeChips"
+            :key="chip.label"
+            type="button"
+            class="group flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+            @click="chip.clear()"
+          >
+            {{ chip.label }}
+            <span class="text-blue-400 group-hover:text-blue-600">✕</span>
+          </button>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
               <tr>
-                <th class="px-3 py-2">MPN</th>
-                <th class="px-3 py-2">제조사</th>
-                <th class="min-w-24 whitespace-nowrap px-3 py-2">패키지</th>
-                <th class="px-3 py-2">스펙</th>
-                <th class="px-3 py-2">설명</th>
-                <th class="min-w-20 whitespace-nowrap px-3 py-2">재고</th>
-                <th class="min-w-20 whitespace-nowrap px-3 py-2">최저가</th>
-                <th class="px-3 py-2">공급사</th>
+                <th class="px-3 py-2.5">MPN</th>
+                <th class="px-3 py-2.5">제조사</th>
+                <th class="min-w-24 whitespace-nowrap px-3 py-2.5">패키지</th>
+                <th class="px-3 py-2.5">스펙</th>
+                <th class="px-3 py-2.5">설명</th>
+                <th class="min-w-20 whitespace-nowrap px-3 py-2.5">재고</th>
+                <th class="min-w-20 whitespace-nowrap px-3 py-2.5">최저가</th>
+                <th class="px-3 py-2.5">공급사</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
               <template v-for="p in items" :key="p.id">
-                <tr class="cursor-pointer hover:bg-blue-50/40" @click="toggleDetail(p.id)">
+                <tr
+                  class="cursor-pointer hover:bg-blue-50/40"
+                  :class="{ 'bg-blue-50/60': detailId === p.id }"
+                  @click="toggleDetail(p.id)"
+                >
                   <td class="px-3 py-2 font-medium text-gray-900">{{ p.mpn }}</td>
                   <td class="px-3 py-2">{{ p.manufacturerName }}</td>
                   <td class="px-3 py-2">{{ p.packageCode }}</td>
                   <td class="whitespace-nowrap px-3 py-2 text-gray-600">{{ specSummary(p.specsSi) }}</td>
                   <td class="max-w-xs truncate px-3 py-2 text-gray-500">{{ p.description }}</td>
-                  <td class="px-3 py-2">{{ p.totalStock }}</td>
-                  <td class="whitespace-nowrap px-3 py-2">{{ fmtPrice(p.minPrice, p.minPriceCurrency) }}</td>
+                  <td class="px-3 py-2 tabular-nums">{{ p.totalStock }}</td>
+                  <td class="whitespace-nowrap px-3 py-2 tabular-nums">{{ fmtPrice(p.minPrice, p.minPriceCurrency) }}</td>
                   <td class="px-3 py-2 text-gray-500">{{ p.suppliers.join(', ') }}</td>
                 </tr>
                 <!-- 상세(오퍼·가격구간) 확장 행 -->
@@ -263,13 +364,13 @@ function facetLabel(b: PartFacetBucketType): string {
                       <div
                         v-for="offer in detailData.offers"
                         :key="`${offer.supplier}-${offer.supplierSku}`"
-                        class="rounded border border-gray-200 bg-white p-3 text-sm"
+                        class="rounded-lg border border-gray-200 bg-white p-3 text-sm"
                       >
                         <div class="flex flex-wrap items-center gap-3">
                           <span class="font-medium">{{ offer.supplier }}</span>
                           <span class="text-gray-500">{{ offer.supplierSku }}</span>
-                          <span>재고 {{ offer.stock ?? '—' }}</span>
-                          <span>MOQ {{ offer.moq ?? '—' }}</span>
+                          <span>재고 <span class="tabular-nums">{{ offer.stock ?? '—' }}</span></span>
+                          <span>MOQ <span class="tabular-nums">{{ offer.moq ?? '—' }}</span></span>
                           <a
                             v-if="offer.productUrl !== null"
                             :href="offer.productUrl"
@@ -278,11 +379,11 @@ function facetLabel(b: PartFacetBucketType): string {
                             class="text-blue-600 hover:underline"
                           >제품 페이지 ↗</a>
                         </div>
-                        <div v-if="offer.priceBreaks.length > 0" class="mt-1 flex flex-wrap gap-2 text-xs text-gray-600">
+                        <div v-if="offer.priceBreaks.length > 0" class="mt-1.5 flex flex-wrap gap-1.5 text-xs text-gray-600">
                           <span
                             v-for="pb in offer.priceBreaks"
                             :key="pb.qty"
-                            class="rounded bg-gray-100 px-1.5 py-0.5"
+                            class="rounded bg-gray-100 px-1.5 py-0.5 tabular-nums"
                           >{{ pb.qty }}+ : {{ fmtPrice(pb.price, offer.currency) }}</span>
                         </div>
                       </div>
@@ -291,7 +392,9 @@ function facetLabel(b: PartFacetBucketType): string {
                 </tr>
               </template>
               <tr v-if="items.length === 0">
-                <td colspan="8" class="px-3 py-6 text-center text-gray-400">검색 결과가 없습니다.</td>
+                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">
+                  검색 결과가 없습니다 — 다른 표기로 시도해 보세요 (예: 4.7k ↔ 4k7 ↔ 472)
+                </td>
               </tr>
             </tbody>
           </table>
@@ -301,16 +404,16 @@ function facetLabel(b: PartFacetBucketType): string {
         <div v-if="totalPages > 1" class="flex items-center gap-2 text-sm">
           <button
             type="button"
-            class="rounded border border-gray-300 px-2 py-1 disabled:opacity-40"
+            class="rounded-md border border-gray-300 bg-white px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
             :disabled="(filters.page ?? 1) <= 1"
             @click="setPage((filters.page ?? 1) - 1)"
           >
             이전
           </button>
-          <span class="text-gray-600">{{ filters.page ?? 1 }} / {{ totalPages }}</span>
+          <span class="tabular-nums text-gray-600">{{ filters.page ?? 1 }} / {{ totalPages }}</span>
           <button
             type="button"
-            class="rounded border border-gray-300 px-2 py-1 disabled:opacity-40"
+            class="rounded-md border border-gray-300 bg-white px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
             :disabled="(filters.page ?? 1) >= totalPages"
             @click="setPage((filters.page ?? 1) + 1)"
           >
@@ -318,6 +421,14 @@ function facetLabel(b: PartFacetBucketType): string {
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- 첫 진입(검색 전) 안내 -->
+    <div
+      v-else-if="!searchFailed"
+      class="rounded-xl border border-dashed border-gray-300 bg-white/60 px-6 py-12 text-center text-sm text-gray-400"
+    >
+      검색어를 입력하거나 위의 예시를 눌러보세요 — 카탈로그는 BOM 공급사 검색으로 자동 성장합니다.
     </div>
   </div>
 </template>
