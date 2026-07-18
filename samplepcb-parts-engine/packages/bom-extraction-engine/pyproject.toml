@@ -1,0 +1,28 @@
+# bom-extraction-engine — 구 smartbom_engine (bom_probing_claude 규칙 파이프라인 이식)
+# 성격: 스프레드시트(xlsx/csv) → 헤더 탐지(fusion) → 열 역할 분류 → 행별 구조화 컴포넌트
+#       추출(출처·근거셀·confidence·정규화 수치). 100% 규칙 기반, LLM/네트워크 없음.
+# 결과 계약 식별자("engine":"smartbom", parser_version)는 프론트 호환을 위해 보존.
+[project]
+name = "bom-extraction-engine"
+version = "0.1.0"
+description = "PCB BOM 스프레드시트 → 구조화 컴포넌트 규칙 추출 엔진"
+requires-python = ">=3.11"
+dependencies = [
+  "model2vec>=0.4,<1",
+  "numpy>=1.26,<3",
+  "openpyxl>=3.1,<4",
+  "pandas>=2,<3",
+  "python-calamine>=0.4,<1",
+  "rapidfuzz>=3,<4",
+  "pydantic>=2,<3",
+  "scikit-learn>=1.6,<2",
+  "joblib>=1.4,<2",
+  "xlrd>=2,<3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bom_extraction_engine"]

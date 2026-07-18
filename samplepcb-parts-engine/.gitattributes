@@ -1,0 +1,5 @@
+# 개행 고정 — 크로스플랫폼(Windows·Mac·Linux) 일관성.
+# 쉘 스크립트는 LF 필수(CRLF면 bash 가 \r 로 깨진다). 나머지 텍스트도 LF 통일.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf

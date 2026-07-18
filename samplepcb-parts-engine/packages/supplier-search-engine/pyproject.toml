@@ -1,0 +1,20 @@
+# supplier-search-engine — search_probing_gpt 프로덕션 모듈 이식본 (verbatim)
+# 성격: 공급사 API(Mouser/Digikey/UniKeyIC) 검색 → 공통 모델 정규화 + 매칭.
+#       캐시(SQLite)·쿼터(예산)·singleflight·레인 세마포어. httpx + pydantic 만 의존.
+# 원본은 sp-smartbom-eye 연구 계보 — 리팩토링은 seam(설정 주입)에 국한, 로직 보존.
+[project]
+name = "supplier-search-engine"
+version = "0.1.0"
+description = "공급사(Mouser/Digikey/UniKeyIC) 부품 검색·정규화 엔진"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28,<1",
+  "pydantic>=2,<3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/supplier_search_engine"]

@@ -1,0 +1,42 @@
+# samplepcb-parts-engine — uv workspace 루트 (aggregator, 비패키지)
+# 구성:
+#   packages/bom-extraction-engine   — BOM 스프레드시트 → 구조화 컴포넌트 규칙 추출 (구 smartbom_engine)
+#   packages/supplier-search-engine  — 공급사(Mouser/Digikey/UniKeyIC) 검색·정규화 (search_probing_gpt 이식)
+#   app/                             — FastAPI 오케스트레이션 (Phase 2 신규)
+[project]
+name = "samplepcb-parts-engine"
+version = "0.1.0"
+description = "PCB 부품 BOM 추출 + 공급사 검색 엔진 (sp-engine)"
+requires-python = ">=3.11"
+dependencies = [
+  "bom-extraction-engine",
+  "supplier-search-engine",
+  "parts-engine-app",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*", "app"]
+
+[tool.uv.sources]
+bom-extraction-engine = { workspace = true }
+supplier-search-engine = { workspace = true }
+parts-engine-app = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "pytest>=8,<10",
+  "pytest-asyncio>=0.24,<2",
+  "ruff>=0.6,<1",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+  "packages/bom-extraction-engine/tests",
+  "packages/supplier-search-engine/tests",
+  "app/tests",
+]
+addopts = "-q"
+asyncio_mode = "auto"
