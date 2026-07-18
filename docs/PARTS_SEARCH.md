@@ -75,9 +75,9 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 
 ## 검증 (게이트 통과 기록, 2026-07-18)
 
-- A: `pnpm --filter @sp/utils test` — 골든 벡터 **69/69** (4k7=0.0047M, 2p2=2.2pF=2200fF, 104K→100nF±10%, 16MHz, Ω·µ 변형, 콤마, 바닥숫자 다중해석)
-- B: 실 DB+ES 통합(`PARTS_IT=1 vitest run parts-ingest.int`) — 인제스트→색인→Track A("104K" SI range)·Track B("104"·"0.1uf"·메트릭 1005) 히트 + idempotency
-- C: 실 ES 검색(`PARTS_IT=1 vitest run admin-parts.search.int`) — **9/9**: 4k7·0.0047M·4700→저항 / 104K·0.1u프리픽스→캡 / 2200p 오검색 없음 / GRM155 프리픽스 / "4k7 0402" 랭킹 1위 / 1005↔0402 등가
+- A: `pnpm --filter @sp/utils test` — 골든 벡터 **71/71** (4k7=0.0047M, 2p2=2.2pF=2200fF, 104K→100nF±10%, 16MHz, Ω·µ 변형, 콤마, 바닥숫자 다중해석)
+- B: 실 DB+ES 통합(`PARTS_IT=1 vitest run parts-ingest.int`) — **2/2**: 잘못된 envelope 무저장, 제조사 별칭·다중 공급사 병합, 동일 오퍼 최신 스냅샷 선택, 가격구간 replace-all, stale 결과 역전 방지, Track A/B 히트
+- C: 실 ES 검색(`PARTS_IT=1 vitest run admin-parts.search.int`) — **21/21**: 저항·커패시터·인덕터 단위/관행 표기, MPN prefix/infix, 0402↔1005·0603↔1608, 제조사·공급사·재고·SI 범위 필터, 가격·재고 정렬, 페이지네이션, 음성 케이스
 - 통합 테스트는 `PARTS_IT=1` 옵트인 — turbo test/CI 에서 자동 skip.
 
 ## 다음 단계(미착수)

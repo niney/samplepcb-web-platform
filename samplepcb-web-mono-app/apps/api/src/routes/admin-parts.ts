@@ -58,7 +58,12 @@ export function buildSearchQuery(params: PartSearchQueryType): Query {
 
   // 패키지: 알려진 코드(메트릭 대응 존재)만 필터 승격, 나머지는 위 should 가 커버
   const knownPkgs = parsed.packageCodes.filter((c) => packageVariants(c).length > 1);
-  if (knownPkgs.length > 0) filter.push({ terms: { [F.packageVariants]: knownPkgs } });
+  if (knownPkgs.length > 0) {
+    filter.push({ terms: { [F.packageVariants]: knownPkgs } });
+    // "1005"처럼 패키지 토큰만 입력해도 minimum_should_match=1을 만족해야 한다.
+    // 필터는 후보 범위를 제한하고, 이 절은 패키지 자체를 유효한 검색 의도로 인정한다.
+    should.push({ terms: { [F.packageVariants]: knownPkgs, boost: BOOST.specHigh } });
+  }
 
   // 구조화 필터(패싯 클릭·범위 입력) — 여기만 배타 필터
   if (params.manufacturer !== undefined) filter.push({ term: { [F.manufacturerName]: params.manufacturer } });
@@ -82,6 +87,13 @@ export function buildSearchQuery(params: PartSearchQueryType): Query {
     bool.minimum_should_match = 1;
   }
   return { bool };
+}
+
+/** 검색 API와 실 ES 통합 테스트가 같은 정렬 계약을 사용한다. */
+export function buildPartSort(sort: PartSearchQueryType['sort']): estypes.Sort {
+  if (sort === 'price') return [{ [F.minPrice]: { order: 'asc', missing: '_last' } }];
+  if (sort === 'stock') return [{ [F.totalStock]: { order: 'desc' } }];
+  return ['_score'];
 }
 
 function toHit(doc: SpPartDoc, score: number | null | undefined): PartHitType {
@@ -125,12 +137,7 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     { schema: { querystring: PartSearchQuery, response: { 200: PartSearchResponse, 503: SearchUnavailable } } },
     async (request, reply) => {
       const q = request.query;
-      const sort: estypes.Sort =
-        q.sort === 'price'
-          ? [{ [F.minPrice]: { order: 'asc', missing: '_last' } }]
-          : q.sort === 'stock'
-            ? [{ [F.totalStock]: { order: 'desc' } }]
-            : ['_score'];
+      const sort = buildPartSort(q.sort);
       // exactOptionalPropertyTypes 와 ES 클라이언트 타입의 알려진 비호환 — 변수로 전달되는
       // QueryDslQueryContainer 가 EOPT 하에서 거부되므로 요청 객체만 명시 캐스트한다.
       const searchRequest = {

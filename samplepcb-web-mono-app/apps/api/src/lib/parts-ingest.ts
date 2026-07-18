@@ -176,6 +176,7 @@ async function upsertGroup(group: ProductGroup): Promise<{ partId: bigint; offer
   const merged = mergeOffers(group);
   for (const { offer, raw } of merged) {
     const sku = (offer.supplier_sku ?? '').slice(0, 191);
+    const fetchedAt = new Date(offer.fetched_at);
     const offerData = {
       productUrl: offer.product_url?.slice(0, 1000) ?? null,
       stock: offer.stock ?? null,
@@ -185,12 +186,25 @@ async function upsertGroup(group: ProductGroup): Promise<{ partId: bigint; offer
       currency: offer.price_breaks[0]?.currency.slice(0, 8) ?? null,
       leadTime: offer.lead_time?.slice(0, 64) ?? null,
       rawJson: raw as unknown as Prisma.InputJsonValue,
-      fetchedAt: new Date(offer.fetched_at),
+      fetchedAt,
     };
     // 오퍼 upsert + price break replace-all — 오퍼 단위 트랜잭션
     await prisma.$transaction(async (tx) => {
+      const unique = {
+        partId_supplier_supplierSku: {
+          partId: part.id,
+          supplier: offer.supplier,
+          supplierSku: sku,
+        },
+      };
+      const existing = await tx.spPartOffer.findUnique({
+        where: unique,
+        select: { fetchedAt: true },
+      });
+      // 늦게 도착한 과거 검색 결과가 최신 재고·가격구간을 되돌리지 않게 한다.
+      if (existing !== null && existing.fetchedAt > fetchedAt) return;
       const row = await tx.spPartOffer.upsert({
-        where: { partId_supplier_supplierSku: { partId: part.id, supplier: offer.supplier, supplierSku: sku } },
+        where: unique,
         create: { partId: part.id, supplier: offer.supplier, supplierSku: sku, ...offerData },
         update: offerData,
         select: { id: true },
