@@ -80,3 +80,35 @@ def test_result_before_ready_conflicts(tmp_path):
     client = _client(tmp_path)
     assert client.get("/jobs/does-not-exist").status_code == 404
     assert client.get("/jobs/does-not-exist/result").status_code == 404
+
+
+def test_supplier_preflight_requires_completed_analysis_and_does_not_call_api(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    assert upload.status_code == 202, upload.text
+    job_id = upload.json()["job_id"]
+    assert _await_completed(client, job_id)["status"] == "completed"
+
+    response = client.post(
+        f"/jobs/{job_id}/supplier-search/preflight",
+        json={"max_calls": 5, "cache_only": True, "reset_cache": False},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["analysis_job_id"] == job_id
+    assert body["plan"]["component_count"] >= 3
+    assert body["plan"]["cache_only"] is True
+    assert body["plan"]["estimated_api_calls"] == 0
+
+
+def test_supplier_search_rejects_conflicting_cache_modes(tmp_path):
+    client = _client(tmp_path)
+    response = client.post(
+        "/jobs/missing/supplier-search/preflight",
+        json={"max_calls": 10, "cache_only": True, "reset_cache": True},
+    )
+    assert response.status_code == 422

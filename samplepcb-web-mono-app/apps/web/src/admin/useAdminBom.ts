@@ -4,8 +4,10 @@ import { apiGet, apiSend, apiSendForm } from '@sp/shared';
 import {
   BomJobResponse,
   BomResultResponse,
+  BomSupplierPreflightResponse,
   BomSupplierResultResponse,
   BomSupplierStartResponse,
+  type BomSupplierOptionsType,
   apiRoutes,
 } from '@sp/api-contract';
 
@@ -42,8 +44,21 @@ export function useBomResult(jobId: Ref<string | null>, enabled: Ref<boolean>) {
 // 공급사 검색 시작
 export function useStartSupplierSearch() {
   return useMutation({
-    mutationFn: (jobId: string) =>
-      apiSend('POST', `${jobsPath}/${jobId}/supplier-search`, undefined, BomSupplierStartResponse),
+    mutationFn: ({ jobId, options }: { jobId: string; options: BomSupplierOptionsType }) =>
+      apiSend('POST', `${jobsPath}/${jobId}/supplier-search`, options, BomSupplierStartResponse),
+  });
+}
+
+// 공급사 API를 실제로 호출하기 전 캐시·쿼터·예상 호출 수를 계산한다.
+export function useSupplierPreflight() {
+  return useMutation({
+    mutationFn: ({ jobId, options }: { jobId: string; options: BomSupplierOptionsType }) =>
+      apiSend(
+        'POST',
+        `${jobsPath}/${jobId}/supplier-search/preflight`,
+        options,
+        BomSupplierPreflightResponse,
+      ),
   });
 }
 

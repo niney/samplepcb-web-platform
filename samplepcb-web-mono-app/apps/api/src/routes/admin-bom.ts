@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { BomSupplierOptions } from '@sp/api-contract';
 import { collectMultipart } from '../lib/market';
 
 // ── /api/admin/bom — BOM 추출 + 공급사 검색 (sp-engine Python 프록시, requireAdmin) ──
@@ -68,9 +69,37 @@ export const adminBomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     proxy(reply, `/jobs/${encodeURIComponent(request.params.id)}/result`, undefined, 200),
   );
 
-  // 공급사 검색 시작/상태/결과
-  fastify.post('/bom/jobs/:id/supplier-search', { schema: { params: IdParams } }, async (request, reply) =>
-    proxy(reply, `/jobs/${encodeURIComponent(request.params.id)}/supplier-search`, { method: 'POST' }, 202),
+  // 공급사 검색은 사전점검으로 호출량·캐시·키 상태를 확인한 뒤에만 실행한다.
+  fastify.post(
+    '/bom/jobs/:id/supplier-search/preflight',
+    { schema: { params: IdParams, body: BomSupplierOptions } },
+    async (request, reply) =>
+      proxy(
+        reply,
+        `/jobs/${encodeURIComponent(request.params.id)}/supplier-search/preflight`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(request.body),
+        },
+        200,
+      ),
+  );
+
+  fastify.post(
+    '/bom/jobs/:id/supplier-search',
+    { schema: { params: IdParams, body: BomSupplierOptions } },
+    async (request, reply) =>
+      proxy(
+        reply,
+        `/jobs/${encodeURIComponent(request.params.id)}/supplier-search`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(request.body),
+        },
+        202,
+      ),
   );
 
   fastify.get('/bom/jobs/:id/supplier-search', { schema: { params: IdParams } }, async (request, reply) =>

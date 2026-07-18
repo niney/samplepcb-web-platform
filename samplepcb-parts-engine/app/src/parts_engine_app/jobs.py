@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
 from bom_extraction_engine import SmartbomConfig, build_smartbom_result
 from supplier_search_engine.contract import build_batch_from_result
+from supplier_search_engine.cache import CacheLookup, SQLiteCache
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings as SearchSettings
 
@@ -23,6 +26,34 @@ _ALLOWED_EXTS = {".xlsx", ".xlsm", ".xls", ".csv", ".tsv"}
 
 class JobError(RuntimeError):
     """호출부에서 4xx로 매핑하기 위한 도메인 예외."""
+
+
+@dataclass(frozen=True)
+class SupplierSearchOptions:
+    """공급사 검색 실행 전에 확정하는 안전 옵션.
+
+    브라우저가 보내는 값이지만 실제 상한은 JobService가 Config 값으로 한 번 더
+    강제한다. cache_only와 reset_cache는 동시에 성립하지 않는다.
+    """
+
+    max_calls: int
+    cache_only: bool = False
+    reset_cache: bool = False
+
+
+class _EmptyPreflightCache:
+    """캐시를 지우지 않고 '초기화 후 실행'의 호출 수를 계산하는 읽기 전용 뷰."""
+
+    def get(
+        self,
+        namespace: str,
+        key: str,
+        *,
+        allow_stale: bool = False,
+        now: float | None = None,
+    ) -> CacheLookup:
+        del namespace, key, allow_stale, now
+        return CacheLookup("miss", None, None)
 
 
 @dataclass
@@ -43,6 +74,8 @@ class Job:
     supplier_message: str = ""
     supplier_result: dict[str, Any] | None = None
     supplier_error: str | None = None
+    supplier_options: SupplierSearchOptions | None = None
+    supplier_preflight: dict[str, Any] | None = None
 
 
 class JobService:
@@ -59,6 +92,11 @@ class JobService:
         self._executor = ThreadPoolExecutor(
             max_workers=workers, thread_name_prefix="parts-engine"
         )
+        # reset_cache는 모든 공급사 응답 캐시를 지우므로 다른 검색과 동시에
+        # 실행되면 안 된다. 일반 검색끼리는 기존처럼 병렬 실행한다.
+        self._supplier_state_lock = Lock()
+        self._active_supplier_searches = 0
+        self._cache_reset_running = False
 
     # ── 조회 ──────────────────────────────────────────────
     def get(self, job_id: str) -> Job:
@@ -107,30 +145,100 @@ class JobService:
             job.error = f"{type(error).__name__}: {str(error)[:500]}"
 
     # ── 공급사 검색 ───────────────────────────────────────
-    def submit_supplier(self, job_id: str) -> Job:
+    def preflight_supplier(
+        self,
+        job_id: str,
+        options: SupplierSearchOptions,
+    ) -> dict[str, Any]:
+        """실제 API 호출 없이 캐시·쿼터·예상 호출 수를 계산한다."""
         job = self.get(job_id)
         if job.status != "completed" or job.result is None:
             raise JobError(f"analysis_not_ready: {job.status}")
-        if job.supplier_status == "running":
-            raise JobError("supplier_search_already_running")
+        self._validate_supplier_options(options)
+
+        started = time.perf_counter()
+        batch = build_batch_from_result(job.result)
+        settings = self._supplier_settings(options)
+        cache = _EmptyPreflightCache() if options.reset_cache else None
+
+        async def build_plan() -> dict[str, Any]:
+            async with SearchService(settings, cache=cache) as service:
+                return service.preflight_batch(batch).model_dump(mode="json")
+
+        plan = asyncio.run(build_plan())
+        return {
+            "analysis_job_id": job.id,
+            "analysis_elapsed_ms": self._analysis_elapsed_ms(job),
+            "preflight_elapsed_ms": (time.perf_counter() - started) * 1_000,
+            "reset_cache": options.reset_cache,
+            "plan": plan,
+        }
+
+    def submit_supplier(self, job_id: str, options: SupplierSearchOptions) -> Job:
+        job = self.get(job_id)
+        if job.status != "completed" or job.result is None:
+            raise JobError(f"analysis_not_ready: {job.status}")
+        self._validate_supplier_options(options)
+        preflight = self.preflight_supplier(job_id, options)
+        estimated_calls = int(preflight["plan"]["estimated_api_calls"])
+        if estimated_calls > options.max_calls:
+            raise JobError(
+                f"supplier_call_limit_exceeded: expected {estimated_calls}, limit {options.max_calls}"
+            )
+
+        with self._supplier_state_lock:
+            if job.supplier_status == "running":
+                raise JobError("supplier_search_already_running")
+            if self._cache_reset_running or (
+                options.reset_cache and self._active_supplier_searches > 0
+            ):
+                raise JobError("supplier_search_cache_reset_busy")
+            self._active_supplier_searches += 1
+            if options.reset_cache:
+                self._cache_reset_running = True
+
         job.supplier_status = "running"
         job.supplier_progress = 5
-        job.supplier_message = "공급사 검색 계획 중"
+        job.supplier_message = "확정된 공급사 검색 계획을 준비 중"
         job.supplier_error = None
+        job.supplier_options = options
+        job.supplier_preflight = preflight
         self._executor.submit(self._run_supplier, job)
         return job
 
     def _run_supplier(self, job: Job) -> None:
         try:
             assert job.result is not None
+            assert job.supplier_options is not None
+            assert job.supplier_preflight is not None
             batch = build_batch_from_result(job.result)
-            settings = SearchSettings.from_env()
-            settings.cache_path = self.config.supplier_cache_path
-            settings.max_api_calls_per_job = self.config.supplier_max_calls
+            options = job.supplier_options
+            settings = self._supplier_settings(options)
             job.supplier_progress = 20
-            job.supplier_message = "Mouser·DigiKey·UniKeyIC 병렬 검색 중"
+            if options.reset_cache:
+                job.supplier_message = "공급사 응답 캐시를 초기화하는 중"
+                cache_reset_started = time.perf_counter()
+                cache_entries_cleared = SQLiteCache(settings.cache_path).clear()
+                cache_reset_elapsed_ms = (time.perf_counter() - cache_reset_started) * 1_000
+            else:
+                cache_entries_cleared = 0
+                cache_reset_elapsed_ms = 0.0
+            job.supplier_progress = 28
+            job.supplier_message = (
+                "캐시된 공급사 응답만 검증 중"
+                if options.cache_only
+                else "Mouser·DigiKey·UniKeyIC 병렬 검색 중"
+            )
+            search_started = time.perf_counter()
             result = asyncio.run(self._search(settings, batch))
-            job.supplier_result = self._supplier_envelope(job, result)
+            search_elapsed_ms = (time.perf_counter() - search_started) * 1_000
+            job.supplier_result = self._supplier_envelope(
+                job,
+                result,
+                cache_entries_cleared=cache_entries_cleared,
+                cache_reset_elapsed_ms=cache_reset_elapsed_ms,
+                search_elapsed_ms=search_elapsed_ms,
+            )
             job.supplier_status = "completed"
             job.supplier_progress = 100
             job.supplier_message = "공급사 검색 완료"
@@ -138,27 +246,99 @@ class JobService:
             logger.exception("공급사 검색 실패: %s", job.id)
             job.supplier_status = "failed"
             job.supplier_error = f"{type(error).__name__}: {str(error)[:500]}"
+        finally:
+            with self._supplier_state_lock:
+                self._active_supplier_searches = max(0, self._active_supplier_searches - 1)
+                if job.supplier_options is not None and job.supplier_options.reset_cache:
+                    self._cache_reset_running = False
 
     @staticmethod
     async def _search(settings: SearchSettings, batch: Any) -> Any:
         async with SearchService(settings) as service:
             return await service.search_batch(batch)
 
+    def _supplier_settings(self, options: SupplierSearchOptions) -> SearchSettings:
+        settings = SearchSettings.from_env()
+        settings.cache_path = self.config.supplier_cache_path
+        settings.max_api_calls_per_job = options.max_calls
+        settings.cache_only = options.cache_only
+        return settings
+
+    def _validate_supplier_options(self, options: SupplierSearchOptions) -> None:
+        if options.max_calls < 1:
+            raise JobError("supplier_max_calls_invalid")
+        if options.max_calls > self.config.supplier_max_calls:
+            raise JobError(
+                f"supplier_max_calls_exceeded: maximum {self.config.supplier_max_calls}"
+            )
+        if options.cache_only and options.reset_cache:
+            raise JobError("supplier_cache_modes_conflict")
+
     @staticmethod
-    def _supplier_envelope(job: Job, result: Any) -> dict[str, Any]:
+    def _analysis_elapsed_ms(job: Job) -> float | None:
+        if job.result is None:
+            return None
+        value = job.result.get("summary", {}).get("processing_ms")
+        return float(value) if isinstance(value, (int, float)) else None
+
+    def _supplier_envelope(
+        self,
+        job: Job,
+        result: Any,
+        *,
+        cache_entries_cleared: int,
+        cache_reset_elapsed_ms: float,
+        search_elapsed_ms: float,
+    ) -> dict[str, Any]:
         status_counts: Counter[str] = Counter(
             component.status.value for component in result.components
         )
+        supplier_timing: dict[str, dict[str, float | int]] = {}
+        for component in result.components:
+            for supplier_result in component.supplier_results:
+                supplier = supplier_result.supplier.value
+                timing = supplier_timing.setdefault(
+                    supplier,
+                    {
+                        "request_count": 0,
+                        "api_calls": 0,
+                        "cache_hits": 0,
+                        "operation_elapsed_ms": 0.0,
+                        "max_operation_elapsed_ms": 0.0,
+                    },
+                )
+                timing["request_count"] += 1
+                timing["api_calls"] += supplier_result.api_calls
+                timing["cache_hits"] += int(supplier_result.cache_state in {"fresh", "coalesced"})
+                timing["operation_elapsed_ms"] += supplier_result.operation_elapsed_ms
+                timing["max_operation_elapsed_ms"] = max(
+                    float(timing["max_operation_elapsed_ms"]),
+                    supplier_result.operation_elapsed_ms,
+                )
+        preflight = job.supplier_preflight or {}
+        preflight_elapsed_ms = float(preflight.get("preflight_elapsed_ms", 0.0))
         return {
             "supplier_search_schema_version": "1.1",
             "analysis_job_id": job.id,
+            "timing": {
+                "analysis_elapsed_ms": self._analysis_elapsed_ms(job),
+                "preflight_elapsed_ms": preflight_elapsed_ms,
+                "cache_reset_elapsed_ms": cache_reset_elapsed_ms,
+                "search_elapsed_ms": search_elapsed_ms,
+                "known_pipeline_elapsed_ms": (
+                    preflight_elapsed_ms + cache_reset_elapsed_ms + search_elapsed_ms
+                ),
+                "suppliers": supplier_timing,
+            },
             "summary": {
                 "component_count": len(result.components),
                 "status_counts": dict(sorted(status_counts.items())),
                 "api_calls": result.api_calls,
                 "cache_hits": result.cache_hits,
                 "elapsed_ms": result.elapsed_ms,
+                "cache_entries_cleared": cache_entries_cleared,
             },
+            "preflight": preflight.get("plan", {}),
             "search": result.model_dump(mode="json"),
         }
 
