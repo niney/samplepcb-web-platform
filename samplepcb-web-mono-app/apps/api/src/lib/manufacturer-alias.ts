@@ -26,6 +26,8 @@ const ALIASES: Record<string, string> = {
   maxim: 'maximintegrated',
   maximintegrated: 'maximintegrated',
   analogdevicesmaximintegrated: 'maximintegrated',
+  panasonic: 'panasonic',
+  panasonicindustry: 'panasonic',
   yageo: 'yageo',
   muratamanufacturing: 'murata',
   murata: 'murata',

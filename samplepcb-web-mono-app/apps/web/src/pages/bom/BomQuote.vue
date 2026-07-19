@@ -21,16 +21,19 @@ import {
 import {
   useBomJob,
   useBomQuote,
+  useBomQuoteCandidates,
   useBuildBomQuote,
   useCancelBomQuote,
   useDeleteBomQuote,
   usePatchBomQuote,
   usePrepareBomQuoteSheets,
   useRequestBomQuote,
+  useSelectBomQuoteCandidate,
   useSupplierSearchResult,
   useSupplierSearchStatus,
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
+import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 import BomCompareModal from '../../components/bom/BomCompareModal.vue';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
@@ -330,7 +333,7 @@ watch(
   { immediate: true },
 );
 
-// searching → done 전환: 엔진 판정과 최저 실효가 선정 결과가 한 번에 도착한다.
+// searching → done 전환: 엔진 판정과 기술·가격 하이브리드 선정 결과가 한 번에 도착한다.
 // 여기서 카탈로그 재매칭을 다시 호출하면 ambiguous/input_conflict 판정을 덮어쓰므로 금지한다.
 watch(
   () => detail.value?.enrichStatus,
@@ -349,30 +352,29 @@ const SUPPLIER_META: Record<string, { name: string; icon: string }> = {
   samplepcb: { name: 'SamplePCB', icon: favSamplepcb },
 };
 
-// ── 가격구간 표시(상위 4개 + 가격 상세 확장) ─────────────────────────────────
-const expandedPrice = ref<Set<number>>(new Set());
+// ── 후보 비교·선택 드로어 + 카탈로그 폴백 ────────────────────────────────────
+const candidateRowIdx = ref<number | null>(null);
+const candidateOpen = computed(() => candidateRowIdx.value !== null);
+const candidateItem = computed(() =>
+  candidateRowIdx.value === null
+    ? null
+    : (items.value.find((item) => item.rowIdx === candidateRowIdx.value) ?? null),
+);
+const candidateQuery = useBomQuoteCandidates(
+  computed(() => (quoteId.value === '' ? null : quoteId.value)),
+  candidateRowIdx,
+  candidateOpen,
+);
+const candidateSelection = useSelectBomQuoteCandidate();
+const candidateSelectionError = ref('');
 
-function togglePrice(rowIdx: number): void {
-  const next = new Set(expandedPrice.value);
-  if (next.has(rowIdx)) next.delete(rowIdx);
-  else next.add(rowIdx);
-  expandedPrice.value = next;
-}
-
-function visibleBreaks(item: BomQuoteItemType): { qty: number; price: number }[] {
-  const offer = item.selectedOffer;
-  if (offer === null) return [];
-  const sorted = [...offer.priceBreaks].sort((a, b) => a.qty - b.qty);
-  return expandedPrice.value.has(item.rowIdx) ? sorted : sorted.slice(0, 4);
-}
-
-// ── 오퍼 변경·부품 교체/추가 모달 ────────────────────────────────────────────
 const offerModal = ref<{ lineIdx: number; partId: string } | null>(null);
 const partModal = ref<{ mode: 'swap' | 'add'; lineIdx: number | null; query: string } | null>(null);
 
 watch(editingLocked, (locked) => {
   if (!locked) return;
   // 열려 있던 선택 모달에서 검색 도중 변경이 들어가는 경로도 차단한다.
+  candidateRowIdx.value = null;
   offerModal.value = null;
   partModal.value = null;
 });
@@ -380,6 +382,60 @@ watch(editingLocked, (locked) => {
 function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: string): void {
   if (editingLocked.value) return;
   partModal.value = { mode, lineIdx, query };
+}
+
+function openCandidateDrawer(item: BomQuoteItemType): void {
+  candidateSelectionError.value = '';
+  candidateRowIdx.value = item.rowIdx;
+}
+
+function closeCandidateDrawer(): void {
+  candidateRowIdx.value = null;
+  candidateSelectionError.value = '';
+}
+
+async function selectCandidate(candidateKey: string, offerKey: string | null): Promise<void> {
+  if (candidateRowIdx.value === null || editingLocked.value) return;
+  if (dirty.value) {
+    await saveNow();
+    if (saveState.value === 'error') {
+      candidateSelectionError.value = '저장되지 않은 변경사항이 있습니다. 저장 상태를 확인해 주세요.';
+      return;
+    }
+  }
+  candidateSelectionError.value = '';
+  try {
+    await candidateSelection.mutateAsync({
+      quoteId: quoteId.value,
+      rowIdx: candidateRowIdx.value,
+      body: { candidateKey, offerKey },
+    });
+    dirty.value = false;
+    await Promise.all([quote.refetch(), candidateQuery.refetch()]);
+  } catch (reason) {
+    const code = reason instanceof ApiRequestError ? reason.payload?.error : undefined;
+    candidateSelectionError.value = code === 'CANDIDATE_BLOCKED'
+      ? '충돌하거나 필수 정보가 부족한 후보는 고객 화면에서 선택할 수 없습니다.'
+      : code === 'OFFER_NOT_PRICED'
+        ? '가격이 없는 오퍼는 선택할 수 없습니다.'
+        : '후보 선택을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  }
+}
+
+function openCatalogSearchFromDrawer(): void {
+  const item = candidateItem.value;
+  if (item === null) return;
+  const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
+  closeCandidateDrawer();
+  openPartModal('swap', lineIdx < 0 ? null : lineIdx, item.mpn);
+}
+
+function openCatalogOffersFromDrawer(): void {
+  const item = candidateItem.value;
+  if (item === null) return;
+  const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
+  closeCandidateDrawer();
+  if (lineIdx >= 0) openOfferModal(lineIdx);
 }
 
 function openOfferModal(idx: number): void {
@@ -394,6 +450,7 @@ function applyOfferPick(pick: OfferPick, pinned: boolean, lineIdx: number, partI
   const item = items.value[lineIdx];
   if (item === undefined) return;
   const snapshot: BomQuoteSelectedOfferType = {
+    offerKey: null,
     supplier: pick.offer.supplier,
     supplierSku: pick.offer.supplierSku,
     packaging: pick.offer.packaging,
@@ -409,6 +466,9 @@ function applyOfferPick(pick: OfferPick, pinned: boolean, lineIdx: number, partI
     pinned,
   };
   if (partId !== undefined) item.partId = partId;
+  item.matchStatus = 'manual';
+  item.selectedCandidateKey = null;
+  item.selectionSource = 'catalog';
   item.selectedOffer = snapshot;
   item.orderQty = pick.orderQty;
   recalcLine(item);
@@ -461,6 +521,9 @@ async function onPartSelected(part: PartHitType): Promise<void> {
       orderQty: 0,
       matchStatus: 'manual',
       matchEvidence: null,
+      recommendedCandidateKey: null,
+      selectedCandidateKey: null,
+      selectionSource: 'catalog',
       partId: part.id,
       selectedOffer: null,
       sourceRow: null,
@@ -476,6 +539,8 @@ async function onPartSelected(part: PartHitType): Promise<void> {
     item.manufacturerName = part.manufacturerName;
     item.description = part.description;
     item.matchStatus = 'manual';
+    item.selectedCandidateKey = null;
+    item.selectionSource = 'catalog';
     item.partId = part.id;
     item.selectedOffer = null;
   }
@@ -601,6 +666,41 @@ function engineEvidenceTitle(item: BomQuoteItemType): string {
   if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
   if (evidence.missingRequirements.length > 0) details.push(`누락: ${evidence.missingRequirements.join(', ')}`);
   return details.join('\n');
+}
+
+function selectionSourceLabel(item: BomQuoteItemType): string {
+  if (item.selectionSource === 'customer') return '고객 선택';
+  if (item.selectionSource === 'catalog') return '직접 검색';
+  if (item.selectionSource === 'admin') return '관리자 선택';
+  if (item.matchEvidence?.recommendationType === 'price') return '가격 최적';
+  if (item.matchEvidence?.recommendationType === 'lifecycle') return '수명주기 추천';
+  if (item.matchEvidence?.selectionMode === 'exact') return '정확 일치';
+  if (item.matchEvidence?.selectionMode === 'variant') return '검증 변형';
+  if (item.matchEvidence?.selectionMode === 'spec-compatible') return '기술 추천';
+  return item.matchStatus === 'manual' ? '직접 선택' : '자동 매칭';
+}
+
+function selectionReasonSummary(item: BomQuoteItemType): string {
+  const evidence = item.matchEvidence;
+  if (evidence === null) return item.matchStatus === 'manual' ? '카탈로그에서 직접 선택' : '후보 근거 없음';
+  if (item.selectionSource === 'customer') {
+    if (evidence.decisionReasonCodes.includes('offer-choice')) return '공급사 오퍼 직접 선택';
+    return evidence.selectedTechnicalRank === null
+      ? '후보 직접 선택'
+      : `기술 ${String(evidence.selectedTechnicalRank)}순위 후보 직접 선택`;
+  }
+  if (evidence.recommendationType === 'price' && evidence.priceEvidence?.savingsKrw !== null) {
+    const saving = evidence.priceEvidence?.savingsKrw ?? null;
+    const rateValue = evidence.priceEvidence?.savingsRate ?? null;
+    return saving === null
+      ? '필수 스펙 검증 후 가격 최적'
+      : `기술 1위 대비 ${Math.round(saving).toLocaleString('ko-KR')}원 절감${rateValue === null ? '' : ` · ${(rateValue * 100).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`}`;
+  }
+  if (evidence.recommendationType === 'lifecycle') return '기술 1순위 NRND/EOL · 활성 부품 추천';
+  const required = evidence.requiredRequirementCount;
+  return required > 0
+    ? `확인된 항목 ${String(evidence.verifiedRequirementCount)}/${String(required)} · 충돌 없음`
+    : `안전 후보 ${String(evidence.eligibleCandidateCount)}개 중 기술 우선`;
 }
 
 function sourceRows(item: BomQuoteItemType): number[] {
@@ -816,7 +916,7 @@ function partLabel(item: BomQuoteItemType): string {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(item, idx) in items" :key="item.rowIdx" class="border-b border-[#e5e8ed] align-top transition-colors" :class="rowClass(item)">
+              <tr v-for="item in items" :key="item.rowIdx" class="border-b border-[#e5e8ed] align-top transition-colors" :class="rowClass(item)">
                 <!-- 핸들(디자인만) + 포함 체크 -->
                 <td class="px-2 py-3">
                   <div class="flex flex-col items-center gap-2 pt-1">
@@ -865,25 +965,11 @@ function partLabel(item: BomQuoteItemType): string {
                 <td class="max-w-[220px] px-2 py-3 pt-[42px]">
                   <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
                 </td>
-                <!-- UNIT PRICE 구간(상위 4 + 가격 상세) -->
+                <!-- 적용 가격 — 전체 가격구간·후보 비교는 통합 드로어에서 제공 -->
                 <td class="px-2 py-3">
                   <template v-if="item.selectedOffer !== null">
-                    <div class="flex flex-col gap-[4px]">
-                      <div
-                        v-for="pb in visibleBreaks(item)"
-                        :key="pb.qty"
-                        class="flex items-baseline justify-between gap-3 text-[12px]"
-                        :class="pb.qty === item.selectedOffer.breakQty ? 'font-bold text-[#1e64fd]' : 'font-semibold text-[#5f6777]'"
-                      >
-                        <span>{{ pb.qty }}+</span>
-                        <span class="tabular-nums">{{ fmtBreakPrice(pb.price, item.selectedOffer.currency) }}</span>
-                      </div>
-                    </div>
-                    <div v-if="item.selectedOffer.priceBreaks.length > 4" class="mt-1 border-t border-gray-200 pt-1 text-center">
-                      <button type="button" class="text-[12px] font-semibold text-[#1e64fd]" @click="togglePrice(item.rowIdx)">
-                        가격 상세 {{ expandedPrice.has(item.rowIdx) ? '▴' : '▾' }}
-                      </button>
-                    </div>
+                    <p class="pt-4 text-right text-[15px] font-bold tabular-nums text-[#1e64fd]">{{ fmtBreakPrice(item.selectedOffer.unitPrice, item.selectedOffer.currency) }}</p>
+                    <p class="mt-1 text-right text-[11px] text-gray-500">{{ item.selectedOffer.breakQty.toLocaleString('ko-KR') }}+ 적용 · MOQ {{ item.selectedOffer.moq?.toLocaleString('ko-KR') ?? '—' }}</p>
                     <p class="mt-1 text-right text-[10px] text-gray-400" title="이 가격·재고를 공급사에서 가져온 시각">기준 {{ fmtAge(item.selectedOffer.fetchedAt) }}</p>
                   </template>
                   <p v-else class="pt-[24px] text-right text-[12px] text-gray-300">—</p>
@@ -893,9 +979,9 @@ function partLabel(item: BomQuoteItemType): string {
                   <button
                     type="button"
                     class="flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d3d5dc] bg-[#f4f4f4] px-3 text-[13px] font-bold text-[#4c4c4c] disabled:cursor-not-allowed disabled:opacity-50"
-                    :disabled="!isDraft || editingLocked || item.partId === null"
+                    :disabled="!isDraft || editingLocked"
                     :title="editingLocked ? EDIT_LOCK_TITLE : (item.selectedOffer?.packaging ?? '오퍼 선택')"
-                    @click="openOfferModal(idx)"
+                    @click="openCandidateDrawer(item)"
                   >
                     <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : '오퍼 없음') }}</span>
                     <span class="text-[10px] text-gray-400">▾</span>
@@ -925,7 +1011,10 @@ function partLabel(item: BomQuoteItemType): string {
                     <span v-else-if="isStockShort(item)" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">재고 부족</span>
                     <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="engineEvidenceTitle(item)">매칭</span>
                     <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="engineEvidenceTitle(item)">가격 확인 필요</span>
+                    <span v-if="item.matchStatus !== 'none'" class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{{ selectionSourceLabel(item) }}</span>
                     <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
+                    <p v-if="item.matchStatus !== 'none'" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="selectionReasonSummary(item)">{{ selectionReasonSummary(item) }}</p>
+                    <span v-if="(item.matchEvidence?.alternativeCandidateCount ?? 0) > 0" class="text-[10px] font-semibold text-blue-600">대체 후보 {{ item.matchEvidence?.alternativeCandidateCount }}개</span>
                     <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? 'text-gray-300' : 'text-[#38b614]'">
                       {{ item.lineTotalKrw === null ? '—' : fmtWon(Math.round(item.lineTotalKrw)) }}
                     </span>
@@ -934,12 +1023,11 @@ function partLabel(item: BomQuoteItemType): string {
                     </span>
                   </div>
                 </td>
-                <!-- 액션 3버튼(시안 60×24): 변경=부품 교체 / 삭제=제외 / 상세=오퍼 -->
+                <!-- 후보 비교가 변경+상세+오퍼 선택을 통합. 삭제는 실제 삭제가 아니라 견적 제외. -->
                 <td class="px-2 py-3">
                   <div v-if="isDraft" class="flex flex-col gap-[6px] pt-1">
-                    <button type="button" class="h-[24px] w-[60px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[13px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : '부품 변경'" @click="openPartModal('swap', idx, item.mpn)">변경</button>
-                    <button type="button" class="h-[24px] w-[60px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[13px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="toggleInclude(item)">{{ item.included ? '삭제' : '복원' }}</button>
-                    <button type="button" class="h-[24px] w-[60px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[13px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked || item.partId === null" :title="editingLocked ? EDIT_LOCK_TITLE : '오퍼 상세'" @click="openOfferModal(idx)">상세</button>
+                    <button type="button" class="h-[30px] w-[88px] rounded-[5px] border border-blue-300 bg-blue-50 text-[12px] font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : '선정 이유·가격·차순위 후보 비교'" @click="openCandidateDrawer(item)">후보 비교</button>
+                    <button type="button" class="h-[26px] w-[88px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[12px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="toggleInclude(item)">{{ item.included ? '제외' : '복원' }}</button>
                   </div>
                 </td>
               </tr>
@@ -1107,6 +1195,19 @@ function partLabel(item: BomQuoteItemType): string {
       </div>
     </div>
 
+    <BomCandidateDrawer
+      :open="candidateOpen"
+      :context="candidateQuery.data.value?.data ?? null"
+      :loading="candidateQuery.isLoading.value"
+      :failed="candidateQuery.isError.value"
+      :selecting="candidateSelection.isPending.value"
+      :selection-error="candidateSelectionError"
+      :has-catalog-part="candidateItem?.partId !== null && candidateItem?.selectedCandidateKey === null"
+      @select="selectCandidate"
+      @catalog-search="openCatalogSearchFromDrawer"
+      @catalog-offers="openCatalogOffersFromDrawer"
+      @close="closeCandidateDrawer"
+    />
     <BomOfferModal
       v-if="offerModal !== null && detail !== null && !editingLocked"
       :part-id="offerModal.partId"

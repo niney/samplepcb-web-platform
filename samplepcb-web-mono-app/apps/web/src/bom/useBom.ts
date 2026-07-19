@@ -6,6 +6,7 @@ import {
   BomQuoteCreateResponse,
   BomQuoteOkResponse,
   BomQuoteDetailResponse,
+  BomQuoteItemCandidatesResponse,
   BomQuoteListResponse,
   BomSupplierPreflightResponse,
   BomSupplierResultResponse,
@@ -14,6 +15,7 @@ import {
   PartSearchResponse,
   apiRoutes,
   type BomQuoteBuildBodyType,
+  type BomQuoteCandidateSelectionBodyType,
   type BomQuotePatchBodyType,
   type BomSupplierOptionsType,
 } from '@sp/api-contract';
@@ -83,6 +85,34 @@ export function usePrepareBomQuoteSheets() {
   return useQuoteMutation((quoteId: string) =>
     apiSend('POST', `${base}/quotes/${quoteId}/prepare`, undefined, BomQuoteDetailResponse),
   );
+}
+
+export function useBomQuoteCandidates(
+  quoteId: Ref<string | null>,
+  rowIdx: Ref<number | null>,
+  enabled: Ref<boolean>,
+) {
+  return useQuery({
+    queryKey: computed(() => ['bom', 'quote', quoteId.value, 'candidates', rowIdx.value]),
+    queryFn: () => apiGet(
+      `${base}/quotes/${quoteId.value ?? ''}/items/${String(rowIdx.value ?? '')}/candidates`,
+      BomQuoteItemCandidatesResponse,
+    ),
+    enabled: computed(() => enabled.value && quoteId.value !== null && rowIdx.value !== null),
+    retry: false,
+  });
+}
+
+export function useSelectBomQuoteCandidate() {
+  return useQuoteMutation(({
+    quoteId,
+    rowIdx,
+    body,
+  }: {
+    quoteId: string;
+    rowIdx: number;
+    body: BomQuoteCandidateSelectionBodyType;
+  }) => apiSend('POST', `${base}/quotes/${quoteId}/items/${String(rowIdx)}/selection`, body, BomQuoteDetailResponse));
 }
 
 export function useCatalogMatchBomQuote() {

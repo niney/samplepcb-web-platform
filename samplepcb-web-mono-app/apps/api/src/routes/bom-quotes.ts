@@ -3,12 +3,15 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   BomQuoteCatalogMatchBody,
+  BomQuoteCandidateSelectionBody,
   BomQuoteBuildBody,
   BomQuoteCreateResponse,
   BomQuoteDetailResponse,
+  BomQuoteItemCandidatesResponse,
   BomQuoteListResponse,
   BomQuotePatchBody,
   BomQuoteRequestBody,
+  type BomQuoteMatchEvidenceType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import { collectMultipart } from '../lib/market';
@@ -18,12 +21,15 @@ import { getBomQuoteConfig } from '../lib/sp-config';
 import { ingestJobResult, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
 import {
   buildItemsFromEngineResult,
+  applyQuoteCandidateSelection,
   canTransition,
   catalogMatchItems,
   computeQuote,
   extractEngineSheets,
+  getQuoteItemCandidates,
   persistQuoteComputed,
   refreshQuoteFromSupplierResult,
+  repriceCandidateSelections,
   replaceQuoteItems,
   toDetailDto,
   toItemDto,
@@ -36,6 +42,7 @@ import {
 // 원본 파일은 파일서버(serviceType 'bom')+sp_file 로 보존 — 관리자 다운로드용.
 
 const IdParams = z.object({ id: z.coerce.bigint() });
+const ItemParams = IdParams.extend({ rowIdx: z.coerce.number().int().min(0) });
 const ListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
@@ -151,7 +158,7 @@ async function autoEnrichQuote(
   await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'searching' } });
   log.info({ quoteId: String(quoteId), jobId, cacheOnly }, '자동 보강 검색 시작');
   startIngestPoller(jobId, log, async () => {
-    await applyCompletedSupplierResult(quoteId, jobId); // 엔진 판정+최저 실효가+done 원자 커밋
+    await applyCompletedSupplierResult(quoteId, jobId); // 엔진 판정+하이브리드 추천+done 원자 커밋
   });
   return true;
 }
@@ -311,6 +318,52 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     return { result: true as const, data: toDetailDto(quote, quote.items, quote.sheets) };
   });
 
+  // 엔진 잡과 무관한 영속 후보 비교 — 요청 후에도 고객이 자신의 선정 근거를 조회할 수 있다.
+  fastify.get('/bom/quotes/:id/items/:rowIdx/candidates', {
+    schema: { params: ItemParams, response: { 200: BomQuoteItemCandidatesResponse } },
+  }, async (request, reply) => {
+    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    const data = await getQuoteItemCandidates(quote.id, request.params.rowIdx);
+    if (data === null) return reply.notFound('견적 항목을 찾을 수 없습니다');
+    return { result: true as const, data };
+  });
+
+  // 후보/오퍼 명시 선택 — 클라이언트 가격은 받지 않고 서버 스냅샷에서 합계를 재계산한다.
+  fastify.post('/bom/quotes/:id/items/:rowIdx/selection', {
+    schema: {
+      params: ItemParams,
+      body: BomQuoteCandidateSelectionBody,
+      response: { 200: BomQuoteDetailResponse, 409: BizError },
+    },
+  }, async (request, reply) => {
+    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (quote.status !== 'draft') return reply.conflict('견적요청 후에는 후보를 변경할 수 없습니다');
+    if (quote.buildStatus !== 'ready') return reply.conflict('시트 계산이 완료된 후 후보를 변경할 수 있습니다');
+    if (quote.enrichStatus === 'searching') return reply.conflict('공급사 확인이 완료된 후 후보를 변경할 수 있습니다');
+    const result = await applyQuoteCandidateSelection(
+      quote.id,
+      request.params.rowIdx,
+      request.body.candidateKey,
+      request.body.offerKey,
+      request.user.mbId,
+    );
+    if (result !== 'ok') {
+      const error = result === 'candidate-blocked'
+        ? 'CANDIDATE_BLOCKED'
+        : result === 'offer-not-found'
+          ? 'OFFER_NOT_FOUND'
+          : result === 'offer-not-priced'
+            ? 'OFFER_NOT_PRICED'
+            : 'CANDIDATE_NOT_FOUND';
+      return reply.status(409).send({ result: false, error });
+    }
+    const fresh = await loadOwnQuote(quote.id, request.user.mbId);
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    return { result: true as const, data: toDetailDto(fresh, fresh.items, fresh.sheets) };
+  });
+
   // 파싱 완료 결과에서 시트 요약만 영속 — 계산·공급사 검색은 아직 시작하지 않는다.
   fastify.post('/bom/quotes/:id/prepare', { schema: { params: IdParams, response: { 200: BomQuoteDetailResponse, 409: BizError, 502: BizError } } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
@@ -447,10 +500,39 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const existing = new Map(quote.items.map((row) => [row.rowIdx, toItemDto(row)]));
     // 엔진 판정은 서버 소유 스냅샷 — 클라이언트 PATCH가 변조하거나 과거 값으로 되돌릴 수 없다.
     const items =
-      request.body.items?.map((item) => ({
-        ...item,
-        matchEvidence: existing.get(item.rowIdx)?.matchEvidence ?? null,
-      })) ?? [...existing.values()];
+      request.body.items?.map((item) => {
+        const current = existing.get(item.rowIdx);
+        const catalogChanged = current !== undefined && item.matchStatus === 'manual' && (
+          item.partId !== current.partId ||
+          item.selectedOffer?.supplier !== current.selectedOffer?.supplier ||
+          item.selectedOffer?.supplierSku !== current.selectedOffer?.supplierSku ||
+          item.selectedOffer?.packaging !== current.selectedOffer?.packaging
+        );
+        const evidence = current?.matchEvidence ?? null;
+        const nextEvidence: BomQuoteMatchEvidenceType | null = catalogChanged && evidence !== null
+          ? {
+              ...evidence,
+              selectedCandidateKey: null,
+              selectedTechnicalRank: null,
+              selectedMpn: item.mpn,
+              selectedManufacturer: item.manufacturerName,
+              selectedSupplier: item.selectedOffer?.supplier ?? null,
+              selectedSupplierSku: item.selectedOffer?.supplierSku ?? null,
+              decisionReasonCodes: ['catalog-choice'],
+              priceEvidence: null,
+            }
+          : evidence;
+        return {
+          ...item,
+          matchEvidence: nextEvidence,
+          recommendedCandidateKey: current?.recommendedCandidateKey ?? null,
+          selectedCandidateKey: catalogChanged ? null : (current?.selectedCandidateKey ?? null),
+          selectionSource: catalogChanged ? 'catalog' as const : (current?.selectionSource ?? item.selectionSource),
+        };
+      }) ?? [...existing.values()];
+    const nextSetQty = request.body.setQty ?? quote.setQty;
+    const nextSpareQty = request.body.spareQty ?? quote.spareQty;
+    await repriceCandidateSelections(quote.id, items, nextSetQty, nextSpareQty, config.usdKrwRate);
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
       ...(request.body.title !== undefined ? { title: request.body.title } : {}),

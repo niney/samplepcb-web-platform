@@ -4,17 +4,19 @@ import {
   AdminBomQuoteDetailResponse,
   AdminBomQuoteListResponse,
   AdminBomQuotePatchBody,
+  BomQuoteItemCandidatesResponse,
   BomQuoteStatus,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import { downloadFromFileServer } from '../lib/file-server';
-import { canTransition, toAdminDetailDto, toAdminSummaryDto } from '../lib/bom-quote';
+import { canTransition, getQuoteItemCandidates, toAdminDetailDto, toAdminSummaryDto } from '../lib/bom-quote';
 
 // ── /api/admin/bom-quotes — 고객 BOM 견적요청 검토 (requireAdmin) ─────────────
 // 1차 범위: 목록·상세·상태 전이·확정가(운송료/관리비/총액)·메모·원본 다운로드.
 // 협력사 RFQ·발주·선적 풀 워크벤치는 이 데이터 모델 위에서 후속 재설계(docs/BOM_QUOTE.md).
 
 const IdParams = z.object({ id: z.coerce.bigint() });
+const ItemParams = IdParams.extend({ rowIdx: z.coerce.number().int().min(0) });
 const ListQuery = z.object({
   status: BomQuoteStatus.optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -52,6 +54,14 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(quote.id)}/file`;
     return { result: true as const, data: toAdminDetailDto(quote, quote.items, quote.sheets, fileUrl) };
+  });
+
+  fastify.get('/bom-quotes/:id/items/:rowIdx/candidates', {
+    schema: { params: ItemParams, response: { 200: BomQuoteItemCandidatesResponse } },
+  }, async (request, reply) => {
+    const data = await getQuoteItemCandidates(request.params.id, request.params.rowIdx);
+    if (data === null) return reply.notFound('견적 항목을 찾을 수 없습니다');
+    return { result: true as const, data };
   });
 
   // 원본 BOM 파일 다운로드(서버 경유 스트리밍 — pathToken 클라 미노출 원칙)

@@ -134,6 +134,13 @@ function candidate(
   unitPrice: number,
   moq: number,
   conflicts: string[] = [],
+  options: {
+    category?: string;
+    reasons?: string[];
+    stock?: number;
+    lifecycleStatus?: string;
+    manufacturer?: string | null;
+  } = {},
 ) {
   return {
     status,
@@ -141,19 +148,21 @@ function candidate(
     specification_confidence: status === 'spec_compatible' ? 1 : 0,
     conflicts,
     missing_requirements: [],
-    reasons: [`${status}_reason`],
+    reasons: options.reasons ?? [`${status}_reason`],
     corroborating_suppliers: [],
     product: {
       supplier,
       manufacturer_part_number: mpn,
-      manufacturer: 'Test Mfr',
+      manufacturer: options.manufacturer === undefined ? 'Test Mfr' : options.manufacturer,
       description: mpn,
+      category: options.category,
+      lifecycle_status: options.lifecycleStatus,
       offers: [
         {
           supplier,
           supplier_sku: `${supplier}-${mpn}`,
           packaging: 'Cut Tape',
-          stock: 1_000,
+          stock: options.stock ?? 1_000,
           moq,
           order_multiple: 1,
           price_breaks: [{ quantity: 1, unit_price: unitPrice, currency: 'KRW' }],
@@ -165,7 +174,7 @@ function candidate(
 }
 
 describe('BOM 엔진 후보 자동 선정', () => {
-  it('MPN 없는 행은 충돌 없는 스펙 호환 후보 중 MOQ 포함 실효 총비용 최저를 고른다', () => {
+  it('MPN 없는 행도 필수 스펙 검증 근거가 없으면 가격만으로 기술 1순위를 뒤집지 않는다', () => {
     const decision = selectEngineMatch(
       {
         component_id: 'component-1',
@@ -180,13 +189,135 @@ describe('BOM 엔진 후보 자동 선정', () => {
       null,
     );
 
-    expect(decision?.candidate?.product.manufacturer_part_number).toBe('LOWEST-TOTAL');
-    expect(decision?.pick?.offer.supplier).toBe('mouser');
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('CHEAP-UNIT-HIGH-MOQ');
+    expect(decision?.pick?.offer.supplier).toBe('digikey');
     expect(decision?.evidence).toMatchObject({
       selectionMode: 'spec-compatible',
       eligibleCandidateCount: 2,
-      selectedSupplier: 'mouser',
+      selectedTechnicalRank: 1,
+      recommendationType: 'technical',
+      decisionReasonCodes: ['technical-top', 'same-part-lowest-total'],
     });
+  });
+
+  it('필수 스펙이 모두 검증되고 10%·500원 이상 절감되면 가격 대체품을 추천한다', () => {
+    const fullSpecReasons = [
+      'resistance_ohm_match',
+      'power_w_match',
+      'tolerance_percent_match',
+      'package_match',
+    ];
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-price-saving',
+        status: 'spec_compatible',
+        candidates: [
+          candidate('spec_compatible', 'TECHNICAL-TOP', 'digikey', 2_000, 1, [], {
+            category: 'resistor',
+            reasons: fullSpecReasons,
+          }),
+          candidate('spec_compatible', 'SAFE-SAVING', 'mouser', 1_000, 1, [], {
+            category: 'resistor',
+            reasons: fullSpecReasons,
+          }),
+        ],
+      },
+      false,
+      1,
+      null,
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('SAFE-SAVING');
+    expect(decision?.evidence).toMatchObject({
+      selectedTechnicalRank: 2,
+      recommendationType: 'price',
+      decisionReasonCodes: ['strict-spec-price-saving', 'same-part-lowest-total'],
+      verifiedRequirementCount: 4,
+      requiredRequirementCount: 4,
+      priceEvidence: {
+        lineTotalKrw: 1_000,
+        technicalTopLineTotalKrw: 2_000,
+        savingsKrw: 1_000,
+        savingsRate: 0.5,
+      },
+    });
+  });
+
+  it('필수 스펙이 같아도 절감액이 500원 미만이면 기술 1순위를 유지한다', () => {
+    const fullSpecReasons = [
+      'resistance_ohm_match',
+      'power_w_match',
+      'tolerance_percent_match',
+      'package_match',
+    ];
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-small-saving',
+        status: 'spec_compatible',
+        candidates: [
+          candidate('spec_compatible', 'TECHNICAL-TOP', 'digikey', 1_200, 1, [], {
+            category: 'resistor',
+            reasons: fullSpecReasons,
+          }),
+          candidate('spec_compatible', 'SMALL-SAVING', 'mouser', 800, 1, [], {
+            category: 'resistor',
+            reasons: fullSpecReasons,
+          }),
+        ],
+      },
+      false,
+      1,
+      null,
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('TECHNICAL-TOP');
+    expect(decision?.evidence).toMatchObject({ selectedTechnicalRank: 1, recommendationType: 'technical' });
+  });
+
+  it('같은 제조사·MPN의 공급사 행은 하나의 부품 후보로 묶고 실효 총비용 최저 오퍼를 고른다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-same-part',
+        status: 'verified_exact',
+        candidates: [
+          candidate('verified_exact', 'SAME-MPN', 'digikey', 100, 1, [], { manufacturer: 'Panasonic' }),
+          candidate('verified_exact', 'SAME-MPN', 'mouser', 10, 1, [], { manufacturer: 'Panasonic Industry' }),
+        ],
+      },
+      true,
+      1,
+      null,
+    );
+
+    expect(decision?.snapshots).toHaveLength(1);
+    expect(decision?.snapshots[0]?.offers).toHaveLength(2);
+    expect(decision?.pick?.offer.supplier).toBe('mouser');
+    expect(decision?.evidence).toMatchObject({
+      candidateCount: 2,
+      groupedCandidateCount: 1,
+      selectedTechnicalRank: 1,
+      recommendationType: 'identity',
+    });
+  });
+
+  it('같은 MPN이라도 제조사가 다르면 미확인 제조사 행이 두 제조사를 합치는 연결고리가 되지 않는다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-manufacturer-boundary',
+        status: 'verified_exact',
+        candidates: [
+          candidate('verified_exact', 'SHARED-MPN', 'digikey', 100, 1, [], { manufacturer: 'Maker A' }),
+          candidate('verified_exact', 'SHARED-MPN', 'mouser', 90, 1, [], { manufacturer: 'Maker B' }),
+          candidate('verified_exact', 'SHARED-MPN', 'unikey', 80, 1, [], { manufacturer: null }),
+        ],
+      },
+      true,
+      1,
+      null,
+    );
+
+    expect(decision?.snapshots).toHaveLength(3);
+    expect(new Set(decision?.snapshots.map((snapshot) => snapshot.candidateKey)).size).toBe(3);
   });
 
   it('원본 MPN이 있으면 더 싼 스펙 대체품보다 정확 일치를 우선한다', () => {

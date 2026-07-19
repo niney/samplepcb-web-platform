@@ -2,14 +2,24 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import {
+  BomQuoteDecisionReason,
   BomQuoteMatchEvidence,
+  BomQuoteSelectionSource,
   BomQuoteSelectedOffer,
   type AdminBomQuoteDetailType,
   type AdminBomQuoteSummaryType,
   type BomQuoteDetailType,
+  type BomQuoteCandidateOfferType,
+  type BomQuoteCandidateSafetyType,
+  type BomQuoteCandidateType,
+  type BomQuoteDecisionReasonType,
+  type BomQuoteItemCandidatesType,
   type BomQuoteItemInputType,
   type BomQuoteItemType,
   type BomQuoteMatchEvidenceType,
+  type BomQuoteRecommendationTypeType,
+  type BomQuoteSelectionEventType,
+  type BomQuoteSelectionSourceType,
   type BomQuoteSheetType,
   type BomQuoteSelectedOfferType,
   type BomQuoteStatusType,
@@ -40,6 +50,8 @@ import { getBomQuoteConfig } from './sp-config';
 export type QuoteRow = Prisma.SpBomQuoteGetPayload<object>;
 export type QuoteItemRow = Prisma.SpBomQuoteItemGetPayload<object>;
 export type QuoteSheetRow = Prisma.SpBomQuoteSheetGetPayload<object>;
+export type QuoteCandidateRow = Prisma.SpBomQuoteCandidateGetPayload<object>;
+export type QuoteSelectionEventRow = Prisma.SpBomQuoteSelectionEventGetPayload<object>;
 
 // ── 상태 전이 ────────────────────────────────────────────────────────────────
 export const QUOTE_TRANSITIONS: Record<string, BomQuoteStatusType[]> = {
@@ -98,6 +110,8 @@ const EngineSupplierOffer = z
     stock: z.number().int().nullish(),
     moq: z.number().int().nullish(),
     order_multiple: z.number().int().nullish(),
+    product_url: z.string().nullish(),
+    lead_time: z.string().nullish(),
     price_breaks: z
       .array(
         z.object({
@@ -126,9 +140,18 @@ const EngineSupplierCandidate = z
         manufacturer_part_number: z.string(),
         manufacturer: z.string().nullish(),
         description: z.string().nullish(),
+        category: z.string().nullish(),
+        package: z.string().nullish(),
+        lifecycle_status: z.string().nullish(),
+        discontinued: z.boolean().nullish(),
+        end_of_life: z.boolean().nullish(),
+        datasheet_url: z.string().nullish(),
+        normalized_specs: z.record(z.string(), z.unknown()).default({}),
         offers: z.array(EngineSupplierOffer).default([]),
       })
       .passthrough(),
+    package_comparison: z.record(z.string(), z.unknown()).nullish(),
+    spec_comparisons: z.record(z.string(), z.unknown()).default({}),
   })
   .passthrough();
 
@@ -153,7 +176,7 @@ const EngineSupplierEnvelope = z
 type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-safe-lowest-cost-v1';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-hybrid-transparent-v2';
 
 /** 엔진 시트 결과를 고객·관리자 공용 선택 스냅샷으로 축약한다. */
 export function extractEngineSheets(result: unknown): BomQuoteSheetType[] {
@@ -212,6 +235,9 @@ export function buildItemsFromEngineResult(
       orderQty: 0, // 매칭·수량 박제 전 — catalog-match/재계산이 채운다
       matchStatus: 'none',
       matchEvidence: null,
+      recommendedCandidateKey: null,
+      selectedCandidateKey: null,
+      selectionSource: 'none',
       partId: null,
       selectedOffer: null,
       sourceSheetIndex: c.sheet_index_0based,
@@ -250,8 +276,9 @@ function toOfferInputs(part: PartWithOffers): BomOfferInput[] {
     }));
 }
 
-function snapshotFromPick(pick: OfferPick, pinned: boolean): BomQuoteSelectedOfferType {
+function snapshotFromPick(pick: OfferPick, pinned: boolean, offerKey: string | null = null): BomQuoteSelectedOfferType {
   return {
+    offerKey,
     supplier: pick.offer.supplier,
     supplierSku: pick.offer.supplierSku,
     packaging: pick.offer.packaging,
@@ -330,6 +357,9 @@ export async function catalogMatchItems(
     const pick = pickDefaultOffer(toOfferInputs(part), needed, usdKrwRate);
     item.partId = String(part.id);
     item.matchStatus = 'auto';
+    item.recommendedCandidateKey = null;
+    item.selectedCandidateKey = null;
+    item.selectionSource = 'auto';
     item.selectedOffer = pick === null ? null : snapshotFromPick(pick, false);
     item.orderQty = pick === null ? needed : pick.orderQty;
     // 소스 BOM 에 제조사·설명 열이 없으면 카탈로그 정본으로 보강(화면 공백 방지)
@@ -342,17 +372,114 @@ export async function catalogMatchItems(
   }
 }
 
+type SelectionMode = BomQuoteMatchEvidenceType['selectionMode'];
+type AutomaticSelectionMode = Exclude<SelectionMode, 'review' | 'unmatched'>;
+
+const StoredCandidateOffer = z.object({
+  offerKey: z.string(),
+  supplier: z.string(),
+  supplierSku: z.string(),
+  packaging: z.string().nullable(),
+  stock: z.number().int().nullable(),
+  moq: z.number().int().nullable(),
+  orderMultiple: z.number().int().nullable(),
+  productUrl: z.string().nullable(),
+  leadTime: z.string().nullable(),
+  fetchedAt: z.string(),
+  priceBreaks: z.array(z.object({ qty: z.number().int().positive(), price: z.number().positive(), currency: z.string() })),
+});
+
+const StoredCandidate = z.object({
+  candidateKey: z.string(),
+  technicalRank: z.number().int().positive(),
+  status: z.string(),
+  selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review']),
+  safety: z.enum(['safe', 'caution', 'blocked']),
+  autoEligible: z.boolean(),
+  mpn: z.string(),
+  manufacturerName: z.string().nullable(),
+  description: z.string().nullable(),
+  category: z.string().nullable(),
+  packageCode: z.string().nullable(),
+  lifecycleStatus: z.string().nullable(),
+  datasheetUrl: z.string().nullable(),
+  identityConfidence: z.number(),
+  specificationConfidence: z.number(),
+  conflicts: z.array(z.string()),
+  missingRequirements: z.array(z.string()),
+  reasons: z.array(z.string()),
+  corroboratingSuppliers: z.array(z.string()),
+  verifiedRequirementCount: z.number().int().min(0),
+  requiredRequirementCount: z.number().int().min(0),
+  normalizedSpecs: z.record(z.string(), z.unknown()),
+  specComparisons: z.record(z.string(), z.unknown()),
+  packageComparison: z.record(z.string(), z.unknown()).nullable(),
+  offers: z.array(StoredCandidateOffer),
+});
+
+type StoredCandidateType = z.infer<typeof StoredCandidate>;
+type StoredCandidateOfferType = z.infer<typeof StoredCandidateOffer>;
+
+export interface QuoteCandidateSnapshotInput {
+  rowIdx: number;
+  candidate: StoredCandidateType;
+}
+
+interface CandidateGroup {
+  snapshot: StoredCandidateType;
+  representative: EngineSupplierCandidateType;
+  offerInputs: Map<string, BomOfferInput>;
+}
+
 interface EngineMatchDecision {
   evidence: BomQuoteMatchEvidenceType;
   candidate: EngineSupplierCandidateType | null;
+  candidateKey: string | null;
+  recommendedCandidateKey: string | null;
+  offerKey: string | null;
   pick: OfferPick | null;
+  snapshots: StoredCandidateType[];
 }
 
-function candidateMode(status: string): BomQuoteMatchEvidenceType['selectionMode'] | null {
+const STRICT_CATEGORY_FIELDS: Record<string, readonly string[]> = {
+  resistor: ['resistance_ohm', 'power_w', 'tolerance_percent', 'package'],
+  capacitor: ['capacitance_f', 'voltage_v', 'tolerance_percent', 'dielectric', 'package'],
+  inductor: ['inductance_h', 'current_a', 'tolerance_percent', 'package'],
+  crystal: ['frequency_hz', 'tolerance_percent', 'package'],
+};
+
+const PRICE_SAVING_RATE_MIN = 0.1;
+const PRICE_SAVING_KRW_MIN = 500;
+
+function candidateMode(status: string): AutomaticSelectionMode | null {
   if (status === 'verified_exact') return 'exact';
   if (status === 'verified_variant') return 'variant';
   if (status === 'spec_compatible') return 'spec-compatible';
   return null;
+}
+
+function lifecycleCaution(value: string | null, discontinued: boolean | null, endOfLife: boolean | null): boolean {
+  if (discontinued === true || endOfLife === true) return true;
+  const normalized = (value ?? '').toLocaleLowerCase();
+  return ['nrnd', 'eol', 'end of life', 'obsolete', 'discontinued', '기존 설계'].some((token) => normalized.includes(token));
+}
+
+function lifecycleActive(value: string | null, discontinued: boolean | null, endOfLife: boolean | null): boolean {
+  if (discontinued === true || endOfLife === true) return false;
+  const normalized = (value ?? '').toLocaleLowerCase();
+  return normalized.includes('active') || normalized.includes('신규 설계') || normalized.includes('양산');
+}
+
+function candidateSafety(candidate: EngineSupplierCandidateType, originalHasMpn: boolean): BomQuoteCandidateSafetyType {
+  const mode = candidateMode(candidate.status);
+  if (mode === null || normalizeMpn(candidate.product.manufacturer_part_number) === '') return 'blocked';
+  if (mode === 'spec-compatible' && originalHasMpn) return 'blocked';
+  if (candidate.conflicts.length > 0) return 'blocked';
+  if (mode === 'spec-compatible' && candidate.missing_requirements.length > 0) return 'blocked';
+  if (lifecycleCaution(candidate.product.lifecycle_status ?? null, candidate.product.discontinued ?? null, candidate.product.end_of_life ?? null)) {
+    return 'caution';
+  }
+  return 'safe';
 }
 
 function engineOfferInput(offer: z.infer<typeof EngineSupplierOffer>): BomOfferInput {
@@ -373,14 +500,182 @@ function engineOfferInput(offer: z.infer<typeof EngineSupplierOffer>): BomOfferI
   };
 }
 
+function offerKey(candidateKey: string, offer: z.infer<typeof EngineSupplierOffer>): string {
+  return createHash('sha256')
+    .update(`${candidateKey}\0${offer.supplier.toLocaleLowerCase()}\0${offer.supplier_sku ?? ''}\0${offer.packaging ?? ''}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+function requirementCounts(candidate: EngineSupplierCandidateType): { verified: number; required: number } {
+  const verified = new Set<string>();
+  for (const reason of candidate.reasons) {
+    if (!reason.endsWith('_match')) continue;
+    if (reason === 'manufacturer_match' || reason.startsWith('manufacturer_part_number_')) continue;
+    verified.add(reason.slice(0, -'_match'.length));
+  }
+  if (candidate.reasons.includes('tolerance_not_applicable_for_zero_ohm')) verified.add('tolerance_percent');
+  const required = new Set(verified);
+  for (const missing of candidate.missing_requirements) required.add(missing);
+  for (const conflict of candidate.conflicts) {
+    if (conflict.endsWith('_mismatch')) required.add(conflict.slice(0, -'_mismatch'.length));
+  }
+  return { verified: verified.size, required: required.size };
+}
+
+function buildCandidateGroups(component: EngineSupplierComponentType, originalHasMpn: boolean): CandidateGroup[] {
+  const grouped: { mpnNorm: string; manufacturerNorms: Set<string>; members: EngineSupplierCandidateType[] }[] = [];
+  for (const candidate of component.candidates) {
+    const mpnNorm = normalizeMpn(candidate.product.manufacturer_part_number);
+    if (mpnNorm === '') continue;
+    const manufacturerNorm = resolveManufacturer(candidate.product.manufacturer).norm;
+    const sameMpn = grouped.filter((item) => item.mpnNorm === mpnNorm);
+    const unknownOnly = sameMpn.find(
+      (item) => item.manufacturerNorms.size === 1 && item.manufacturerNorms.has('unknown'),
+    );
+    let group: (typeof grouped)[number] | undefined;
+    if (manufacturerNorm === 'unknown') {
+      const knownGroups = sameMpn.filter((item) =>
+        [...item.manufacturerNorms].some((value) => value !== 'unknown'),
+      );
+      group = knownGroups.length === 1 ? knownGroups[0] : unknownOnly;
+    } else {
+      group = sameMpn.find((item) => item.manufacturerNorms.has(manufacturerNorm)) ?? unknownOnly;
+    }
+    if (group === undefined) {
+      grouped.push({ mpnNorm, manufacturerNorms: new Set([manufacturerNorm]), members: [candidate] });
+    } else {
+      group.manufacturerNorms.add(manufacturerNorm);
+      group.members.push(candidate);
+    }
+  }
+
+  return grouped.map((group, index) => {
+    const representative = group.members[0];
+    if (representative === undefined) throw new Error('BOM candidate group invariant');
+    const manufacturerNorm = [...group.manufacturerNorms].find((value) => value !== 'unknown') ?? 'unknown';
+    const candidateKey = createHash('sha256')
+      .update(`${group.mpnNorm}\0${manufacturerNorm}`)
+      .digest('hex')
+      .slice(0, 32);
+    const offers: StoredCandidateOfferType[] = [];
+    const offerInputs = new Map<string, BomOfferInput>();
+    const seenOffers = new Set<string>();
+    for (const member of group.members) {
+      for (const offer of member.product.offers) {
+        const key = offerKey(candidateKey, offer);
+        if (seenOffers.has(key)) continue;
+        seenOffers.add(key);
+        const input = engineOfferInput(offer);
+        offerInputs.set(key, input);
+        offers.push({
+          offerKey: key,
+          supplier: input.supplier,
+          supplierSku: input.supplierSku,
+          packaging: input.packaging,
+          stock: input.stock,
+          moq: input.moq,
+          orderMultiple: input.orderMultiple,
+          productUrl: offer.product_url ?? null,
+          leadTime: offer.lead_time ?? null,
+          fetchedAt: input.fetchedAt,
+          priceBreaks: input.priceBreaks.map((step) => ({
+            qty: step.qty,
+            price: step.price,
+            currency: step.currency ?? input.currency ?? '',
+          })),
+        });
+      }
+    }
+    const counts = requirementCounts(representative);
+    const safety = candidateSafety(representative, originalHasMpn);
+    const mode = candidateMode(representative.status) ?? 'review';
+    const corroborating = new Set(representative.corroborating_suppliers);
+    for (const member of group.members) {
+      corroborating.add(member.product.supplier);
+      for (const supplier of member.corroborating_suppliers) corroborating.add(supplier);
+    }
+    return {
+      representative,
+      offerInputs,
+      snapshot: {
+        candidateKey,
+        technicalRank: index + 1,
+        status: representative.status,
+        selectionMode: mode,
+        safety,
+        autoEligible: safety !== 'blocked' && candidateMode(representative.status) !== null,
+        mpn: representative.product.manufacturer_part_number.trim().slice(0, 191),
+        manufacturerName: representative.product.manufacturer?.trim().slice(0, 191) ?? null,
+        description: representative.product.description?.trim().slice(0, 1000) ?? null,
+        category: representative.product.category?.trim().slice(0, 191) ?? null,
+        packageCode: representative.product.package?.trim().slice(0, 64) ?? null,
+        lifecycleStatus: representative.product.lifecycle_status?.trim().slice(0, 64) ?? null,
+        datasheetUrl: representative.product.datasheet_url?.trim().slice(0, 500) ?? null,
+        identityConfidence: representative.identity_confidence,
+        specificationConfidence: representative.specification_confidence,
+        conflicts: representative.conflicts,
+        missingRequirements: representative.missing_requirements,
+        reasons: representative.reasons,
+        corroboratingSuppliers: [...corroborating].sort(),
+        verifiedRequirementCount: counts.verified,
+        requiredRequirementCount: counts.required,
+        normalizedSpecs: representative.product.normalized_specs,
+        specComparisons: representative.spec_comparisons,
+        packageComparison: representative.package_comparison ?? null,
+        offers,
+      },
+    };
+  });
+}
+
+function groupBestPick(
+  group: CandidateGroup,
+  needed: number,
+  usdKrwRate: number | null,
+): { pick: OfferPick | null; offerKey: string | null } {
+  const inputs = [...group.offerInputs.entries()];
+  const pick = pickDefaultOffer(inputs.map(([, input]) => input), needed, usdKrwRate);
+  if (pick === null) return { pick: null, offerKey: null };
+  return { pick, offerKey: inputs.find(([, input]) => input === pick.offer)?.[0] ?? null };
+}
+
+function pickLineTotal(pick: OfferPick | null): number | null {
+  if (pick?.unitPriceKrw == null) return null;
+  return Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100;
+}
+
+function hasStrictCategoryCoverage(candidate: StoredCandidateType): boolean {
+  const category = (candidate.category ?? '').toLocaleLowerCase();
+  const entry = Object.entries(STRICT_CATEGORY_FIELDS).find(([key]) => category.includes(key));
+  if (entry === undefined) return false;
+  const matched = new Set(
+    candidate.reasons
+      .filter((reason) => reason.endsWith('_match'))
+      .map((reason) => reason.slice(0, -'_match'.length)),
+  );
+  if (candidate.reasons.includes('tolerance_not_applicable_for_zero_ohm')) matched.add('tolerance_percent');
+  return entry[1].every((field) => matched.has(field));
+}
+
 function evidenceFromDecision(
   component: EngineSupplierComponentType,
-  eligible: EngineSupplierCandidateType[],
-  candidate: EngineSupplierCandidateType | null,
+  groups: CandidateGroup[],
+  eligible: CandidateGroup[],
+  selected: CandidateGroup | null,
+  recommendedCandidateKey: string | null,
   pick: OfferPick | null,
-  mode: BomQuoteMatchEvidenceType['selectionMode'],
+  mode: SelectionMode,
+  recommendationType: BomQuoteRecommendationTypeType,
+  reasonCodes: BomQuoteDecisionReasonType[],
+  needed: number,
+  technicalTopPick: OfferPick | null,
 ): BomQuoteMatchEvidenceType {
-  const reviewCandidate = candidate ?? component.candidates[0] ?? null;
+  const reviewCandidate = selected?.representative ?? component.candidates[0] ?? null;
+  const selectedTotal = pickLineTotal(pick);
+  const technicalTotal = pickLineTotal(technicalTopPick);
+  const savings = selectedTotal === null || technicalTotal === null ? null : Math.round((technicalTotal - selectedTotal) * 100) / 100;
+  const savingsRate = savings === null || technicalTotal === null || technicalTotal <= 0 ? null : savings / technicalTotal;
   return {
     policyVersion: BOM_ENGINE_SELECTION_POLICY_VERSION,
     componentId: component.component_id,
@@ -389,8 +684,8 @@ function evidenceFromDecision(
     selectionMode: mode,
     candidateCount: component.candidates.length,
     eligibleCandidateCount: eligible.length,
-    selectedMpn: candidate?.product.manufacturer_part_number ?? null,
-    selectedManufacturer: candidate?.product.manufacturer ?? null,
+    selectedMpn: selected?.snapshot.mpn ?? null,
+    selectedManufacturer: selected?.snapshot.manufacturerName ?? null,
     selectedSupplier: pick?.offer.supplier ?? null,
     selectedSupplierSku: pick?.offer.supplierSku ?? null,
     identityConfidence: reviewCandidate?.identity_confidence ?? null,
@@ -398,13 +693,35 @@ function evidenceFromDecision(
     conflicts: reviewCandidate?.conflicts ?? [],
     missingRequirements: reviewCandidate?.missing_requirements ?? [],
     reasons: reviewCandidate?.reasons ?? [],
-    corroboratingSuppliers: reviewCandidate?.corroborating_suppliers ?? [],
+    corroboratingSuppliers: selected?.snapshot.corroboratingSuppliers ?? reviewCandidate?.corroborating_suppliers ?? [],
+    groupedCandidateCount: groups.length,
+    alternativeCandidateCount: Math.max(0, eligible.length - (selected === null ? 0 : 1)),
+    recommendedCandidateKey,
+    selectedCandidateKey: selected?.snapshot.candidateKey ?? null,
+    selectedTechnicalRank: selected?.snapshot.technicalRank ?? null,
+    recommendationType,
+    decisionReasonCodes: reasonCodes,
+    verifiedRequirementCount: selected?.snapshot.verifiedRequirementCount ?? 0,
+    requiredRequirementCount: selected?.snapshot.requiredRequirementCount ?? 0,
+    priceEvidence:
+      pick === null
+        ? null
+        : {
+            neededQty: needed,
+            orderQty: pick.orderQty,
+            lineTotalKrw: selectedTotal,
+            technicalTopLineTotalKrw: technicalTotal,
+            savingsKrw: savings,
+            savingsRate,
+          },
   };
 }
 
 /**
- * 엔진 후보에서 안전한 최상위 판정 등급만 남긴 뒤 모든 공급사 오퍼 중 실효 총비용
- * 최저를 고른다. 원본 MPN이 있으면 임의 대체를 막기 위해 spec_compatible은 제외한다.
+ * 기술 순위와 구매 순위를 분리한 하이브리드 추천.
+ * - 원본 MPN: 기술 최상위 부품 고정 + 동일 MPN 안에서 실효 총비용 최저 오퍼.
+ * - 스펙 입력: 기술 최상위가 기본. 카테고리 필수 스펙 전부 확인 + 재고 충족 +
+ *   10%·500원 이상 절감(또는 NRND/EOL 개선)일 때만 다른 MPN을 자동 추천한다.
  */
 export function selectEngineMatch(
   componentValue: unknown,
@@ -415,45 +732,117 @@ export function selectEngineMatch(
   const parsed = EngineSupplierComponent.safeParse(componentValue);
   if (!parsed.success) return null;
   const component = parsed.data;
-  const safe = component.candidates.filter((candidate) => {
-    const mode = candidateMode(candidate.status);
-    if (mode === null) return false;
-    if (mode === 'spec-compatible' && originalHasMpn) return false;
-    if (candidate.conflicts.length > 0) return false;
-    if (mode === 'spec-compatible' && candidate.missing_requirements.length > 0) return false;
-    return normalizeMpn(candidate.product.manufacturer_part_number) !== '';
-  });
-
-  const tierOrder: BomQuoteMatchEvidenceType['selectionMode'][] = originalHasMpn
+  const groups = buildCandidateGroups(component, originalHasMpn);
+  const tierOrder: SelectionMode[] = originalHasMpn
     ? ['exact', 'variant']
     : ['exact', 'variant', 'spec-compatible'];
-  const selectedMode = tierOrder.find((mode) => safe.some((candidate) => candidateMode(candidate.status) === mode));
+  const selectedMode = tierOrder.find((mode) =>
+    groups.some((group) => group.snapshot.autoEligible && group.snapshot.selectionMode === mode),
+  );
   if (selectedMode === undefined) {
     const mode = component.status === 'not_found' ? 'unmatched' : 'review';
+    const reasonCodes: BomQuoteDecisionReasonType[] = ['no-safe-candidate'];
     return {
-      evidence: evidenceFromDecision(component, [], null, null, mode),
+      evidence: evidenceFromDecision(component, groups, [], null, null, null, mode, 'none', reasonCodes, needed, null),
       candidate: null,
+      candidateKey: null,
+      recommendedCandidateKey: null,
+      offerKey: null,
       pick: null,
+      snapshots: groups.map((group) => group.snapshot),
     };
   }
 
-  const eligible = safe.filter((candidate) => candidateMode(candidate.status) === selectedMode);
-  const candidateByOffer = new Map<BomOfferInput, EngineSupplierCandidateType>();
-  const offers: BomOfferInput[] = [];
-  for (const candidate of eligible) {
-    for (const offer of candidate.product.offers) {
-      const input = engineOfferInput(offer);
-      offers.push(input);
-      candidateByOffer.set(input, candidate);
+  const eligible = groups.filter(
+    (group) => group.snapshot.autoEligible && group.snapshot.selectionMode === selectedMode,
+  );
+  const technicalTop = eligible[0] ?? null;
+  if (technicalTop === null) return null;
+  let selected = technicalTop;
+  let selectedPick = groupBestPick(technicalTop, needed, usdKrwRate);
+  const technicalPick = selectedPick.pick;
+  let recommendationType: BomQuoteRecommendationTypeType = originalHasMpn ? 'identity' : 'technical';
+  const reasonCodes: BomQuoteDecisionReasonType[] = [
+    selectedMode === 'exact' ? 'identity-exact' : selectedMode === 'variant' ? 'identity-variant' : 'technical-top',
+    'same-part-lowest-total',
+  ];
+
+  if (!originalHasMpn && selectedMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop.snapshot)) {
+    const alternatives = eligible
+      .slice(1)
+      .filter((group) => hasStrictCategoryCoverage(group.snapshot))
+      .map((group) => ({ group, result: groupBestPick(group, needed, usdKrwRate) }))
+      .filter((entry) => entry.result.pick !== null && !entry.result.pick.stockShort)
+      .sort((a, b) => (pickLineTotal(a.result.pick) ?? Number.POSITIVE_INFINITY) - (pickLineTotal(b.result.pick) ?? Number.POSITIVE_INFINITY));
+    const activeAlternative = alternatives.find((entry) =>
+      lifecycleActive(
+        entry.group.representative.product.lifecycle_status ?? null,
+        entry.group.representative.product.discontinued ?? null,
+        entry.group.representative.product.end_of_life ?? null,
+      ),
+    );
+    if (
+      lifecycleCaution(
+        technicalTop.representative.product.lifecycle_status ?? null,
+        technicalTop.representative.product.discontinued ?? null,
+        technicalTop.representative.product.end_of_life ?? null,
+      ) &&
+      activeAlternative !== undefined
+    ) {
+      selected = activeAlternative.group;
+      selectedPick = activeAlternative.result;
+      recommendationType = 'lifecycle';
+      reasonCodes.splice(0, reasonCodes.length, 'lifecycle-improvement', 'same-part-lowest-total');
+    } else if ((technicalPick === null || technicalPick.stockShort) && alternatives[0] !== undefined) {
+      selected = alternatives[0].group;
+      selectedPick = alternatives[0].result;
+      recommendationType = 'availability';
+      reasonCodes.splice(0, reasonCodes.length, 'availability', 'same-part-lowest-total');
+    } else {
+      const technicalTotal = pickLineTotal(technicalPick);
+      const cheapest = alternatives[0];
+      const cheapestTotal = cheapest === undefined ? null : pickLineTotal(cheapest.result.pick);
+      const saving = technicalTotal === null || cheapestTotal === null ? null : technicalTotal - cheapestTotal;
+      const savingRate = saving === null || technicalTotal === null || technicalTotal <= 0 ? null : saving / technicalTotal;
+      if (
+        cheapest !== undefined &&
+        saving !== null &&
+        savingRate !== null &&
+        saving >= PRICE_SAVING_KRW_MIN &&
+        savingRate >= PRICE_SAVING_RATE_MIN
+      ) {
+        selected = cheapest.group;
+        selectedPick = cheapest.result;
+        recommendationType = 'price';
+        reasonCodes.splice(0, reasonCodes.length, 'strict-spec-price-saving', 'same-part-lowest-total');
+      }
     }
   }
-  const pick = pickDefaultOffer(offers, needed, usdKrwRate);
-  // 가격이 없는 안전 후보도 부품 자체는 선정한다. 공급사 오퍼는 가격 확인 필요 상태다.
-  const candidate = pick === null ? (eligible[0] ?? null) : (candidateByOffer.get(pick.offer) ?? eligible[0] ?? null);
+
+  const recommendedCandidateKey = selected.snapshot.candidateKey;
   return {
-    evidence: evidenceFromDecision(component, eligible, candidate, pick, selectedMode),
-    candidate,
-    pick,
+    evidence: evidenceFromDecision(
+      component,
+      groups,
+      eligible,
+      selected,
+      recommendedCandidateKey,
+      selectedPick.pick,
+      selectedMode,
+      recommendationType,
+      reasonCodes,
+      needed,
+      technicalPick,
+    ),
+    candidate: selected.representative,
+    candidateKey: selected.snapshot.candidateKey,
+    recommendedCandidateKey,
+    offerKey: selectedPick.offerKey,
+    pick: selectedPick.pick,
+    snapshots: groups.map((group) => ({
+      ...group.snapshot,
+      autoEligible: eligible.includes(group),
+    })),
   };
 }
 
@@ -463,6 +852,45 @@ function originalPartNumber(item: BomQuoteItemInputType): string {
   if (raw === null) return '';
   if (item.matchEvidence?.selectionMode === 'spec-compatible') return '';
   return item.mpn.trim();
+}
+
+function remapExplicitCandidate(
+  item: BomQuoteItemInputType,
+  snapshots: StoredCandidateType[],
+): StoredCandidateType | null {
+  const mpnNorm = normalizeMpn(item.mpn);
+  if (mpnNorm === '') return null;
+  const sameMpn = snapshots.filter((candidate) => normalizeMpn(candidate.mpn) === mpnNorm);
+  if (sameMpn.length === 0) return null;
+  const manufacturerNorm = resolveManufacturer(item.manufacturerName).norm;
+  if (manufacturerNorm !== 'unknown') {
+    const byManufacturer = sameMpn.find(
+      (candidate) => resolveManufacturer(candidate.manufacturerName).norm === manufacturerNorm,
+    );
+    if (byManufacturer !== undefined) return byManufacturer;
+  }
+  const currentOffer = item.selectedOffer;
+  if (currentOffer !== null) {
+    const byOffer = sameMpn.find((candidate) => candidate.offers.some((offer) =>
+      offer.supplier.toLocaleLowerCase() === currentOffer.supplier.toLocaleLowerCase() &&
+      offer.supplierSku === currentOffer.supplierSku,
+    ));
+    if (byOffer !== undefined) return byOffer;
+  }
+  return sameMpn.length === 1 ? (sameMpn[0] ?? null) : null;
+}
+
+function remappedPinnedOfferKey(
+  item: BomQuoteItemInputType,
+  candidate: StoredCandidateType,
+): string | null {
+  const current = item.selectedOffer;
+  if (current?.pinned !== true) return null;
+  return candidate.offers.find((offer) =>
+    offer.supplier.toLocaleLowerCase() === current.supplier.toLocaleLowerCase() &&
+    offer.supplierSku === current.supplierSku &&
+    offer.packaging === current.packaging,
+  )?.offerKey ?? null;
 }
 
 async function partIdForCandidate(candidate: EngineSupplierCandidateType): Promise<string | null> {
@@ -479,6 +907,11 @@ async function partIdForCandidate(candidate: EngineSupplierCandidateType): Promi
   return byMpn === null ? null : String(byMpn.id);
 }
 
+export interface ApplyEngineSupplierResult {
+  applied: boolean;
+  candidateSnapshots: QuoteCandidateSnapshotInput[];
+}
+
 /** 관리자와 동일한 공급사 검색 결과를 견적 행에 직접 반영한다. */
 export async function applyEngineSupplierResult(
   items: BomQuoteItemInputType[],
@@ -486,13 +919,13 @@ export async function applyEngineSupplierResult(
   setQty: number,
   spareQty: number,
   usdKrwRate: number | null,
-): Promise<boolean> {
+): Promise<ApplyEngineSupplierResult> {
   const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
-  if (!parsed.success) return false;
+  if (!parsed.success) return { applied: false, candidateSnapshots: [] };
   const components = new Map(parsed.data.search.components.map((component) => [component.component_id, component]));
+  const candidateSnapshots: QuoteCandidateSnapshotInput[] = [];
 
   for (const item of items) {
-    if (item.matchStatus === 'manual' || item.selectedOffer?.pinned === true) continue;
     const componentId = item.sourceRow?.componentId;
     if (typeof componentId !== 'string') continue; // 수동 추가 행은 카탈로그/사용자 선택을 유지
     const component = components.get(componentId);
@@ -502,7 +935,66 @@ export async function applyEngineSupplierResult(
     const needed = neededQty(item.bomQty, setQty, spareQty);
     const decision = selectEngineMatch(component, inputPartNumber !== '', needed, usdKrwRate);
     if (decision === null) continue;
+    candidateSnapshots.push(...decision.snapshots.map((candidate) => ({ rowIdx: item.rowIdx, candidate })));
+
+    // 고객/관리자의 명시 선택은 후보 목록·자동 추천만 최신화하고 현재 선택은 보존한다.
+    // 후보 키는 제조사 별칭/그룹화 정책이 바뀌면 달라질 수 있어 현재 MPN·제조사·오퍼로 재연결한다.
+    const explicitSelection =
+      item.matchStatus === 'manual' ||
+      ['customer', 'catalog', 'admin'].includes(item.selectionSource) ||
+      item.selectedOffer?.pinned === true;
+    if (explicitSelection) {
+      item.recommendedCandidateKey = decision.recommendedCandidateKey;
+      const currentReasons = item.matchEvidence?.decisionReasonCodes ?? (
+        item.selectionSource === 'catalog' ? ['catalog-choice'] as const : ['customer-choice'] as const
+      );
+      const remapped = item.selectedCandidateKey === null
+        ? null
+        : remapExplicitCandidate(item, decision.snapshots);
+      if (remapped === null) {
+        item.selectedCandidateKey = null;
+        item.matchEvidence = {
+          ...decision.evidence,
+          selectedCandidateKey: null,
+          selectedTechnicalRank: null,
+          selectedMpn: item.mpn === '' ? null : item.mpn,
+          selectedManufacturer: item.manufacturerName,
+          selectedSupplier: item.selectedOffer?.supplier ?? null,
+          selectedSupplierSku: item.selectedOffer?.supplierSku ?? null,
+          decisionReasonCodes: [...currentReasons],
+          priceEvidence: null,
+        };
+        continue;
+      }
+      const pinnedOfferKey = remappedPinnedOfferKey(item, remapped);
+      const pinnedOfferMissing = item.selectedOffer?.pinned === true && pinnedOfferKey === null;
+      const remappedPick = pinnedOfferMissing
+        ? { pick: null, offerKey: null }
+        : storedCandidatePick(remapped, needed, usdKrwRate, pinnedOfferKey);
+      item.selectedCandidateKey = remapped.candidateKey;
+      if (remappedPick.pick !== null) {
+        item.selectedOffer = snapshotFromPick(
+          remappedPick.pick,
+          item.selectedOffer?.pinned === true,
+          remappedPick.offerKey,
+        );
+        item.orderQty = remappedPick.pick.orderQty;
+      } else if (item.selectedOffer !== null) {
+        item.selectedOffer = { ...item.selectedOffer, offerKey: null };
+      }
+      item.matchEvidence = selectedEvidence(
+        decision.evidence,
+        remapped,
+        remappedPick.pick,
+        needed,
+        decision.evidence.priceEvidence?.technicalTopLineTotalKrw ?? null,
+        [...currentReasons],
+      );
+      continue;
+    }
     item.matchEvidence = decision.evidence;
+    item.recommendedCandidateKey = decision.recommendedCandidateKey;
+    item.selectedCandidateKey = decision.candidateKey;
 
     if (decision.candidate === null) {
       item.mpn = inputPartNumber.slice(0, 191);
@@ -510,6 +1002,7 @@ export async function applyEngineSupplierResult(
       item.matchStatus = 'none';
       item.selectedOffer = null;
       item.orderQty = needed;
+      item.selectionSource = 'none';
       continue;
     }
 
@@ -523,10 +1016,530 @@ export async function applyEngineSupplierResult(
     }
     item.partId = await partIdForCandidate(decision.candidate);
     item.matchStatus = 'auto';
-    item.selectedOffer = decision.pick === null ? null : snapshotFromPick(decision.pick, false);
+    item.selectionSource = 'auto';
+    item.selectedOffer = decision.pick === null ? null : snapshotFromPick(decision.pick, false, decision.offerKey);
     item.orderQty = decision.pick?.orderQty ?? needed;
   }
-  return true;
+  return { applied: true, candidateSnapshots };
+}
+
+function storedOfferInput(offer: StoredCandidateOfferType): BomOfferInput {
+  return {
+    supplier: offer.supplier,
+    supplierSku: offer.supplierSku,
+    packaging: offer.packaging,
+    currency: offer.priceBreaks[0]?.currency ?? null,
+    stock: offer.stock,
+    moq: offer.moq,
+    orderMultiple: offer.orderMultiple,
+    fetchedAt: offer.fetchedAt,
+    priceBreaks: offer.priceBreaks,
+  };
+}
+
+function storedCandidatePick(
+  candidate: StoredCandidateType,
+  needed: number,
+  usdKrwRate: number | null,
+  requestedOfferKey: string | null = null,
+): { pick: OfferPick | null; offerKey: string | null } {
+  if (requestedOfferKey !== null) {
+    const offer = candidate.offers.find((item) => item.offerKey === requestedOfferKey);
+    if (offer === undefined) return { pick: null, offerKey: null };
+    return { pick: applyQtyToOffer(storedOfferInput(offer), needed, usdKrwRate), offerKey: requestedOfferKey };
+  }
+  const inputs = candidate.offers.map((offer) => ({ offer, input: storedOfferInput(offer) }));
+  const pick = pickDefaultOffer(inputs.map(({ input }) => input), needed, usdKrwRate);
+  if (pick === null) return { pick: null, offerKey: null };
+  return {
+    pick,
+    offerKey: inputs.find(({ input }) => input === pick.offer)?.offer.offerKey ?? null,
+  };
+}
+
+async function partIdForStoredCandidate(candidate: StoredCandidateType): Promise<string | null> {
+  const mpnNorm = normalizeMpn(candidate.mpn);
+  if (mpnNorm === '') return null;
+  const manufacturer = resolveManufacturer(candidate.manufacturerName);
+  const exact = await prisma.spPart.findUnique({
+    where: { mpnNorm_manufacturerNorm: { mpnNorm, manufacturerNorm: manufacturer.norm } },
+    select: { id: true },
+  });
+  if (exact !== null) return String(exact.id);
+  const byMpn = await prisma.spPart.findFirst({
+    where: { mpnNorm },
+    orderBy: { lastSeenAt: 'desc' },
+    select: { id: true },
+  });
+  return byMpn === null ? null : String(byMpn.id);
+}
+
+interface StoredRecommendation {
+  candidate: StoredCandidateType;
+  pick: OfferPick | null;
+  offerKey: string | null;
+  technicalTopLineTotalKrw: number | null;
+  recommendationType: BomQuoteRecommendationTypeType;
+  reasonCodes: BomQuoteDecisionReasonType[];
+}
+
+/** 저장된 후보에 현재 수량을 다시 적용해 자동 추천을 재현한다. 명시 선택에는 적용하지 않는다. */
+function recommendStoredCandidate(
+  candidates: StoredCandidateType[],
+  needed: number,
+  usdKrwRate: number | null,
+): StoredRecommendation | null {
+  const eligible = candidates
+    .filter((candidate) => candidate.autoEligible)
+    .sort((a, b) => a.technicalRank - b.technicalRank);
+  const technicalTop = eligible[0];
+  if (technicalTop === undefined) return null;
+  const technicalResult = storedCandidatePick(technicalTop, needed, usdKrwRate);
+  let selected = technicalTop;
+  let selectedResult = technicalResult;
+  let recommendationType: BomQuoteRecommendationTypeType =
+    technicalTop.selectionMode === 'exact' || technicalTop.selectionMode === 'variant' ? 'identity' : 'technical';
+  const reasonCodes: BomQuoteDecisionReasonType[] = [
+    technicalTop.selectionMode === 'exact'
+      ? 'identity-exact'
+      : technicalTop.selectionMode === 'variant'
+        ? 'identity-variant'
+        : 'technical-top',
+    'same-part-lowest-total',
+  ];
+
+  if (technicalTop.selectionMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop)) {
+    const alternatives = eligible
+      .slice(1)
+      .filter(hasStrictCategoryCoverage)
+      .map((candidate) => ({ candidate, result: storedCandidatePick(candidate, needed, usdKrwRate) }))
+      .filter((entry) => entry.result.pick !== null && !entry.result.pick.stockShort)
+      .sort((a, b) =>
+        (pickLineTotal(a.result.pick) ?? Number.POSITIVE_INFINITY) -
+        (pickLineTotal(b.result.pick) ?? Number.POSITIVE_INFINITY),
+      );
+    const activeAlternative = alternatives.find((entry) =>
+      lifecycleActive(entry.candidate.lifecycleStatus, null, null),
+    );
+    if (lifecycleCaution(technicalTop.lifecycleStatus, null, null) && activeAlternative !== undefined) {
+      selected = activeAlternative.candidate;
+      selectedResult = activeAlternative.result;
+      recommendationType = 'lifecycle';
+      reasonCodes.splice(0, reasonCodes.length, 'lifecycle-improvement', 'same-part-lowest-total');
+    } else if (
+      (technicalResult.pick === null || technicalResult.pick.stockShort) &&
+      alternatives[0] !== undefined
+    ) {
+      selected = alternatives[0].candidate;
+      selectedResult = alternatives[0].result;
+      recommendationType = 'availability';
+      reasonCodes.splice(0, reasonCodes.length, 'availability', 'same-part-lowest-total');
+    } else {
+      const technicalTotal = pickLineTotal(technicalResult.pick);
+      const cheapest = alternatives[0];
+      const cheapestTotal = cheapest === undefined ? null : pickLineTotal(cheapest.result.pick);
+      const saving = technicalTotal === null || cheapestTotal === null ? null : technicalTotal - cheapestTotal;
+      const savingRate = saving === null || technicalTotal === null || technicalTotal <= 0 ? null : saving / technicalTotal;
+      if (
+        cheapest !== undefined &&
+        saving !== null &&
+        savingRate !== null &&
+        saving >= PRICE_SAVING_KRW_MIN &&
+        savingRate >= PRICE_SAVING_RATE_MIN
+      ) {
+        selected = cheapest.candidate;
+        selectedResult = cheapest.result;
+        recommendationType = 'price';
+        reasonCodes.splice(0, reasonCodes.length, 'strict-spec-price-saving', 'same-part-lowest-total');
+      }
+    }
+  }
+
+  return {
+    candidate: selected,
+    pick: selectedResult.pick,
+    offerKey: selectedResult.offerKey,
+    technicalTopLineTotalKrw: pickLineTotal(technicalResult.pick),
+    recommendationType,
+    reasonCodes,
+  };
+}
+
+function selectedEvidence(
+  previous: BomQuoteMatchEvidenceType | null,
+  candidate: StoredCandidateType,
+  pick: OfferPick | null,
+  needed: number,
+  technicalTopLineTotalKrw: number | null,
+  reasonCodes: BomQuoteDecisionReasonType[],
+  recommendation?: StoredRecommendation | null,
+): BomQuoteMatchEvidenceType | null {
+  if (previous === null) return null;
+  const lineTotal = pickLineTotal(pick);
+  const savings = lineTotal === null || technicalTopLineTotalKrw === null
+    ? null
+    : Math.round((technicalTopLineTotalKrw - lineTotal) * 100) / 100;
+  return {
+    ...previous,
+    candidateStatus: candidate.status,
+    selectionMode: candidate.selectionMode,
+    selectedMpn: candidate.mpn,
+    selectedManufacturer: candidate.manufacturerName,
+    selectedSupplier: pick?.offer.supplier ?? null,
+    selectedSupplierSku: pick?.offer.supplierSku ?? null,
+    identityConfidence: candidate.identityConfidence,
+    specificationConfidence: candidate.specificationConfidence,
+    conflicts: candidate.conflicts,
+    missingRequirements: candidate.missingRequirements,
+    reasons: candidate.reasons,
+    corroboratingSuppliers: candidate.corroboratingSuppliers,
+    ...(recommendation === undefined
+      ? {}
+      : {
+          recommendedCandidateKey: recommendation?.candidate.candidateKey ?? null,
+          recommendationType: recommendation?.recommendationType ?? 'none',
+        }),
+    selectedCandidateKey: candidate.candidateKey,
+    selectedTechnicalRank: candidate.technicalRank,
+    decisionReasonCodes: reasonCodes,
+    verifiedRequirementCount: candidate.verifiedRequirementCount,
+    requiredRequirementCount: candidate.requiredRequirementCount,
+    priceEvidence:
+      pick === null
+        ? null
+        : {
+            neededQty: needed,
+            orderQty: pick.orderQty,
+            lineTotalKrw: lineTotal,
+            technicalTopLineTotalKrw,
+            savingsKrw: savings,
+            savingsRate:
+              savings === null || technicalTopLineTotalKrw === null || technicalTopLineTotalKrw <= 0
+                ? null
+                : savings / technicalTopLineTotalKrw,
+          },
+  };
+}
+
+/** 수량 변경 시 후보 스냅샷에서 가격을 다시 계산해 클라이언트 단가 변조를 차단한다. */
+export async function repriceCandidateSelections(
+  quoteId: bigint,
+  items: BomQuoteItemInputType[],
+  setQty: number,
+  spareQty: number,
+  usdKrwRate: number | null,
+): Promise<void> {
+  const relevantRows = items
+    .filter((item) => item.selectedCandidateKey !== null || item.recommendedCandidateKey !== null)
+    .map((item) => item.rowIdx);
+  if (relevantRows.length === 0) return;
+  const rows = await prisma.spBomQuoteCandidate.findMany({
+    where: { quoteId, rowIdx: { in: relevantRows } },
+    orderBy: [{ rowIdx: 'asc' }, { technicalRank: 'asc' }],
+  });
+  const candidates = new Map<number, StoredCandidateType[]>();
+  for (const row of rows) {
+    const parsed = StoredCandidate.safeParse(row.payload);
+    if (!parsed.success) continue;
+    const current = candidates.get(row.rowIdx) ?? [];
+    current.push(parsed.data);
+    candidates.set(row.rowIdx, current);
+  }
+  for (const item of items) {
+    const rowCandidates = candidates.get(item.rowIdx);
+    if (rowCandidates === undefined) continue;
+    const needed = neededQty(item.bomQty, setQty, spareQty);
+    const recommendation = recommendStoredCandidate(rowCandidates, needed, usdKrwRate);
+    item.recommendedCandidateKey = recommendation?.candidate.candidateKey ?? null;
+    if (item.matchEvidence !== null) {
+      item.matchEvidence = {
+        ...item.matchEvidence,
+        recommendedCandidateKey: item.recommendedCandidateKey,
+        recommendationType: recommendation?.recommendationType ?? 'none',
+      };
+    }
+    const selectedCandidateKey = item.selectionSource === 'auto'
+      ? (recommendation?.candidate.candidateKey ?? item.selectedCandidateKey)
+      : item.selectedCandidateKey;
+    if (selectedCandidateKey === null) continue;
+    const candidate = rowCandidates.find((entry) => entry.candidateKey === selectedCandidateKey);
+    if (candidate === undefined) continue;
+    const requestedOfferKey = item.selectedOffer?.pinned === true ? item.selectedOffer.offerKey : null;
+    const selected = item.selectionSource === 'auto' && recommendation?.candidate.candidateKey === candidate.candidateKey
+      ? { pick: recommendation.pick, offerKey: recommendation.offerKey }
+      : storedCandidatePick(candidate, needed, usdKrwRate, requestedOfferKey);
+    const candidateChanged = item.selectedCandidateKey !== candidate.candidateKey;
+    item.mpn = candidate.mpn;
+    item.manufacturerName = candidate.manufacturerName;
+    item.description = candidate.description;
+    item.selectedCandidateKey = candidate.candidateKey;
+    if (candidateChanged) item.partId = await partIdForStoredCandidate(candidate);
+    item.orderQty = selected.pick?.orderQty ?? needed;
+    item.selectedOffer = selected.pick === null
+      ? null
+      : snapshotFromPick(selected.pick, requestedOfferKey !== null, selected.offerKey);
+    item.matchEvidence = selectedEvidence(
+      item.matchEvidence,
+      candidate,
+      selected.pick,
+      needed,
+      recommendation?.technicalTopLineTotalKrw ?? null,
+      item.selectionSource === 'customer'
+        ? ['customer-choice', ...(requestedOfferKey === null ? [] : ['offer-choice'] as const)]
+        : (recommendation?.reasonCodes ?? item.matchEvidence?.decisionReasonCodes ?? []),
+      item.selectionSource === 'auto' ? recommendation : undefined,
+    );
+  }
+}
+
+function candidateOfferView(
+  offer: StoredCandidateOfferType,
+  needed: number,
+  usdKrwRate: number | null,
+): BomQuoteCandidateOfferType {
+  const pick = applyQtyToOffer(storedOfferInput(offer), needed, usdKrwRate);
+  return {
+    offerKey: offer.offerKey,
+    supplier: offer.supplier,
+    supplierSku: offer.supplierSku,
+    packaging: offer.packaging,
+    stock: offer.stock,
+    moq: offer.moq,
+    orderMultiple: offer.orderMultiple,
+    productUrl: offer.productUrl,
+    fetchedAt: offer.fetchedAt,
+    priceBreaks: offer.priceBreaks,
+    applied:
+      pick === null
+        ? null
+        : {
+            orderQty: pick.orderQty,
+            breakQty: pick.breakQty,
+            unitPrice: pick.unitPrice,
+            currency: pick.currency,
+            unitPriceKrw: pick.unitPriceKrw,
+            lineTotalKrw: pickLineTotal(pick),
+            stockShort: pick.stockShort,
+          },
+  };
+}
+
+function selectionEventDto(row: QuoteSelectionEventRow): BomQuoteSelectionEventType {
+  const source = BomQuoteSelectionSource.safeParse(row.source);
+  const rawCodes = Array.isArray(row.reasonCodes) ? row.reasonCodes : [];
+  return {
+    id: String(row.id),
+    source: source.success ? source.data : 'legacy',
+    actorId: row.actorId,
+    previousCandidateKey: row.previousCandidateKey,
+    selectedCandidateKey: row.selectedCandidateKey,
+    previousMpn: row.previousMpn,
+    selectedMpn: row.selectedMpn,
+    previousOfferKey: row.previousOfferKey,
+    selectedOfferKey: row.selectedOfferKey,
+    previousLineTotalKrw: row.previousLineTotalKrw === null ? null : Number(row.previousLineTotalKrw),
+    selectedLineTotalKrw: row.selectedLineTotalKrw === null ? null : Number(row.selectedLineTotalKrw),
+    reasonCodes: rawCodes.flatMap((code) => {
+      const parsed = BomQuoteDecisionReason.safeParse(code);
+      return parsed.success ? [parsed.data] : [];
+    }),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/** 엔진 재시작과 무관한 DB 후보 비교 응답 — 고객/관리자가 같은 함수를 사용한다. */
+export async function getQuoteItemCandidates(
+  quoteId: bigint,
+  rowIdx: number,
+): Promise<BomQuoteItemCandidatesType | null> {
+  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId } });
+  if (quote === null) return null;
+  const [itemRow, candidateRows, eventRows] = await Promise.all([
+    prisma.spBomQuoteItem.findUnique({ where: { quoteId_rowIdx: { quoteId, rowIdx } } }),
+    prisma.spBomQuoteCandidate.findMany({ where: { quoteId, rowIdx }, orderBy: { technicalRank: 'asc' } }),
+    prisma.spBomQuoteSelectionEvent.findMany({ where: { quoteId, rowIdx }, orderBy: { createdAt: 'desc' }, take: 20 }),
+  ]);
+  if (itemRow === null) return null;
+  const item = toItemDto(itemRow);
+  const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
+  const stored = candidateRows.flatMap((row) => {
+    const parsed = StoredCandidate.safeParse(row.payload);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const picks = new Map<string, { pick: OfferPick | null; offerKey: string | null }>();
+  for (const candidate of stored) picks.set(candidate.candidateKey, storedCandidatePick(candidate, needed, quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed)));
+  const priced = stored
+    .filter((candidate) => candidate.safety !== 'blocked')
+    .map((candidate) => ({ candidate, total: pickLineTotal(picks.get(candidate.candidateKey)?.pick ?? null) }))
+    .filter((entry): entry is { candidate: StoredCandidateType; total: number } => entry.total !== null)
+    .sort((a, b) => a.total - b.total || a.candidate.technicalRank - b.candidate.technicalRank);
+  const priceRanks = new Map(priced.map((entry, index) => [entry.candidate.candidateKey, index + 1]));
+  const technicalTop = stored
+    .filter((candidate) => candidate.autoEligible)
+    .sort((a, b) => a.technicalRank - b.technicalRank)[0] ?? null;
+  const technicalTopTotal = technicalTop === null ? null : pickLineTotal(picks.get(technicalTop.candidateKey)?.pick ?? null);
+  const currentTotal = item.lineTotalKrw;
+  const rate = quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed);
+  const candidates: BomQuoteCandidateType[] = stored.map((candidate) => {
+    const result = picks.get(candidate.candidateKey) ?? { pick: null, offerKey: null };
+    const bestTotal = pickLineTotal(result.pick);
+    const savings = bestTotal === null || technicalTopTotal === null ? null : Math.round((technicalTopTotal - bestTotal) * 100) / 100;
+    return {
+      candidateKey: candidate.candidateKey,
+      technicalRank: candidate.technicalRank,
+      priceRank: priceRanks.get(candidate.candidateKey) ?? null,
+      status: candidate.status,
+      selectionMode: candidate.selectionMode,
+      safety: candidate.safety,
+      autoEligible: candidate.autoEligible,
+      selected: candidate.candidateKey === item.selectedCandidateKey,
+      recommended: candidate.candidateKey === item.recommendedCandidateKey,
+      mpn: candidate.mpn,
+      manufacturerName: candidate.manufacturerName,
+      description: candidate.description,
+      category: candidate.category,
+      packageCode: candidate.packageCode,
+      lifecycleStatus: candidate.lifecycleStatus,
+      datasheetUrl: candidate.datasheetUrl,
+      identityConfidence: candidate.identityConfidence,
+      specificationConfidence: candidate.specificationConfidence,
+      conflicts: candidate.conflicts,
+      missingRequirements: candidate.missingRequirements,
+      reasons: candidate.reasons,
+      corroboratingSuppliers: candidate.corroboratingSuppliers,
+      verifiedRequirementCount: candidate.verifiedRequirementCount,
+      requiredRequirementCount: candidate.requiredRequirementCount,
+      normalizedSpecs: candidate.normalizedSpecs,
+      specComparisons: candidate.specComparisons,
+      packageComparison: candidate.packageComparison,
+      offers: candidate.offers
+        .map((offer) => candidateOfferView(offer, needed, rate))
+        .sort((a, b) => (a.applied?.lineTotalKrw ?? Number.POSITIVE_INFINITY) - (b.applied?.lineTotalKrw ?? Number.POSITIVE_INFINITY)),
+      bestOfferKey: result.offerKey,
+      bestLineTotalKrw: bestTotal,
+      lineDeltaKrw: bestTotal === null || currentTotal === null ? null : Math.round((bestTotal - currentTotal) * 100) / 100,
+      savingsVsTechnicalKrw: savings,
+      savingsVsTechnicalRate:
+        savings === null || technicalTopTotal === null || technicalTopTotal <= 0 ? null : savings / technicalTopTotal,
+    };
+  });
+  const originalMpnRaw = item.sourceRow?.inputPartNumber;
+  const originalValueRaw = item.sourceRow?.valueRaw;
+  return {
+    quoteId: String(quoteId),
+    rowIdx,
+    originalMpn: typeof originalMpnRaw === 'string' && originalMpnRaw.trim() !== '' ? originalMpnRaw : null,
+    originalValue: typeof originalValueRaw === 'string' && originalValueRaw.trim() !== '' ? originalValueRaw : null,
+    neededQty: needed,
+    currentMpn: item.mpn,
+    currentLineTotalKrw: item.lineTotalKrw,
+    selectionSource: item.selectionSource,
+    selectedCandidateKey: item.selectedCandidateKey,
+    selectedOfferKey: item.selectedOffer?.offerKey ?? null,
+    recommendedCandidateKey: item.recommendedCandidateKey,
+    technicalTopCandidateKey: technicalTop?.candidateKey ?? null,
+    technicalTopLineTotalKrw: technicalTopTotal,
+    decisionReasonCodes: item.matchEvidence?.decisionReasonCodes ?? [],
+    candidates,
+    events: eventRows.map(selectionEventDto),
+  };
+}
+
+export type QuoteCandidateSelectionResult =
+  | 'ok'
+  | 'quote-not-found'
+  | 'item-not-found'
+  | 'candidate-not-found'
+  | 'candidate-blocked'
+  | 'offer-not-found'
+  | 'offer-not-priced';
+
+/** 고객 명시 선택 — 후보/오퍼 키만 신뢰하고 가격·합계는 서버 스냅샷에서 재계산한다. */
+export async function applyQuoteCandidateSelection(
+  quoteId: bigint,
+  rowIdx: number,
+  candidateKeyValue: string,
+  requestedOfferKey: string | null,
+  actorId: string,
+): Promise<QuoteCandidateSelectionResult> {
+  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
+  if (quote === null) return 'quote-not-found';
+  const itemRow = quote.items.find((row) => row.rowIdx === rowIdx);
+  if (itemRow === undefined) return 'item-not-found';
+  const candidateRow = await prisma.spBomQuoteCandidate.findUnique({
+    where: { quoteId_rowIdx_candidateKey: { quoteId, rowIdx, candidateKey: candidateKeyValue } },
+  });
+  if (candidateRow === null) return 'candidate-not-found';
+  const parsed = StoredCandidate.safeParse(candidateRow.payload);
+  if (!parsed.success) return 'candidate-not-found';
+  const candidate = parsed.data;
+  if (candidate.safety === 'blocked') return 'candidate-blocked';
+  if (requestedOfferKey !== null && !candidate.offers.some((offer) => offer.offerKey === requestedOfferKey)) {
+    return 'offer-not-found';
+  }
+  const config = await getBomQuoteConfig();
+  const items = quote.items.map(toItemDto);
+  const item = items.find((entry) => entry.rowIdx === rowIdx);
+  if (item === undefined) return 'item-not-found';
+  const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
+  const selected = storedCandidatePick(candidate, needed, config.usdKrwRate, requestedOfferKey);
+  if (requestedOfferKey !== null && selected.pick === null) return 'offer-not-priced';
+  const technicalTop = await prisma.spBomQuoteCandidate.findFirst({
+    where: { quoteId, rowIdx, autoEligible: true },
+    orderBy: { technicalRank: 'asc' },
+  });
+  const technicalParsed = technicalTop === null ? null : StoredCandidate.safeParse(technicalTop.payload);
+  const technicalPick = technicalParsed?.success === true
+    ? storedCandidatePick(technicalParsed.data, needed, config.usdKrwRate).pick
+    : null;
+  const previous = {
+    candidateKey: item.selectedCandidateKey,
+    mpn: item.mpn,
+    offerKey: item.selectedOffer?.offerKey ?? null,
+    lineTotalKrw: item.lineTotalKrw,
+  };
+  const reasonCodes: BomQuoteDecisionReasonType[] = [
+    'customer-choice',
+    ...(requestedOfferKey === null ? [] : ['offer-choice'] as const),
+  ];
+  item.mpn = candidate.mpn;
+  item.manufacturerName = candidate.manufacturerName;
+  item.description = candidate.description;
+  item.partId = await partIdForStoredCandidate(candidate);
+  item.matchStatus = 'manual';
+  item.selectedCandidateKey = candidate.candidateKey;
+  item.selectionSource = 'customer';
+  item.selectedOffer = selected.pick === null
+    ? null
+    : snapshotFromPick(selected.pick, requestedOfferKey !== null, selected.offerKey);
+  item.orderQty = selected.pick?.orderQty ?? needed;
+  item.matchEvidence = selectedEvidence(
+    item.matchEvidence,
+    candidate,
+    selected.pick,
+    needed,
+    pickLineTotal(technicalPick),
+    reasonCodes,
+  );
+  const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
+  const selectedComputed = computed.items.find((entry) => entry.rowIdx === rowIdx);
+  await persistQuoteComputed(quoteId, computed, config.usdKrwRate, {
+    selectionEvent: {
+      rowIdx,
+      source: 'customer',
+      actorId,
+      previousCandidateKey: previous.candidateKey,
+      selectedCandidateKey: candidate.candidateKey,
+      previousMpn: previous.mpn,
+      selectedMpn: candidate.mpn,
+      previousOfferKey: previous.offerKey,
+      selectedOfferKey: selected.offerKey,
+      previousLineTotalKrw: previous.lineTotalKrw,
+      selectedLineTotalKrw: selectedComputed?.lineTotalKrw ?? null,
+      reasonCodes,
+    },
+  });
+  return 'ok';
 }
 
 /**
@@ -549,11 +1562,14 @@ export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdK
     if (same !== undefined) {
       const pick = applyQtyToOffer(same, Math.max(1, item.orderQty), usdKrwRate);
       if (pick !== null) {
-        item.selectedOffer = snapshotFromPick(pick, current.pinned);
+        item.selectedOffer = snapshotFromPick(pick, current.pinned, current.offerKey);
         item.orderQty = pick.orderQty;
         continue;
       }
     }
+    // 엔진 후보 선택은 후보 스냅샷이 가격·오퍼의 정본이다. 카탈로그의 다른 오퍼로
+    // 조용히 바꾸면 selectedCandidateKey와 실제 오퍼가 어긋나므로 그대로 보존한다.
+    if (item.selectedCandidateKey !== null) continue;
     if (!current.pinned) {
       const pick = pickDefaultOffer(offers, Math.max(1, item.orderQty), usdKrwRate);
       if (pick !== null) {
@@ -615,11 +1631,12 @@ export async function refreshQuoteFromSupplierResult(quoteId: bigint, envelope: 
     const config = await getBomQuoteConfig();
     const items = quote.items.map(toItemDto);
     const applied = await applyEngineSupplierResult(items, envelope, quote.setQty, quote.spareQty, config.usdKrwRate);
-    if (!applied) return false;
+    if (!applied.applied) return false;
     const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistQuoteComputed(quoteId, result, config.usdKrwRate, {
       enrichStatus: 'done',
       enrichedAt: new Date(),
+      candidateSnapshots: applied.candidateSnapshots,
     });
     return true;
   })();
@@ -703,6 +1720,9 @@ async function replaceQuoteItemsInTransaction(
       orderQty: item.orderQty,
       matchStatus: item.matchStatus,
       matchEvidence: item.matchEvidence === null ? Prisma.DbNull : (item.matchEvidence as Prisma.InputJsonValue),
+      recommendedCandidateKey: item.recommendedCandidateKey,
+      selectedCandidateKey: item.selectedCandidateKey,
+      selectionSource: item.selectionSource,
       partId: item.partId === null ? null : BigInt(item.partId),
       selectedOffer: item.selectedOffer === null ? Prisma.DbNull : (item.selectedOffer as Prisma.InputJsonValue),
       lineTotalKrw: item.lineTotalKrw,
@@ -729,7 +1749,26 @@ export interface QuotePersistenceExtra {
   enrichedAt?: Date | null;
   buildStatus?: string;
   selectedSheetIndexes?: number[];
+  candidateSnapshots?: QuoteCandidateSnapshotInput[];
+  selectionEvent?: {
+    rowIdx: number;
+    source: 'customer' | 'catalog' | 'admin';
+    actorId: string | null;
+    previousCandidateKey: string | null;
+    selectedCandidateKey: string | null;
+    previousMpn: string | null;
+    selectedMpn: string | null;
+    previousOfferKey: string | null;
+    selectedOfferKey: string | null;
+    previousLineTotalKrw: number | null;
+    selectedLineTotalKrw: number | null;
+    reasonCodes: BomQuoteDecisionReasonType[];
+  };
 }
+
+// 후보 payload에는 정규화 스펙·비교 근거·가격구간이 포함된다. 대형 BOM을 한 INSERT로
+// 보내면 MariaDB max_allowed_packet을 넘겨 연결이 끊길 수 있어 작은 배치로 나눈다.
+const CANDIDATE_INSERT_BATCH_SIZE = 20;
 
 /** 계산 라인과 견적 합계·보강 상태를 한 트랜잭션으로 영속화한다. */
 export async function persistQuoteComputed(
@@ -740,6 +1779,29 @@ export async function persistQuoteComputed(
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await replaceQuoteItemsInTransaction(tx, quoteId, computed.items);
+    if (extra?.candidateSnapshots !== undefined) {
+      await tx.spBomQuoteCandidate.deleteMany({ where: { quoteId } });
+      if (extra.candidateSnapshots.length > 0) {
+        const candidateRows = extra.candidateSnapshots.map(({ rowIdx, candidate }) => ({
+          quoteId,
+          rowIdx,
+          candidateKey: candidate.candidateKey,
+          technicalRank: candidate.technicalRank,
+          status: candidate.status,
+          selectionMode: candidate.selectionMode,
+          safety: candidate.safety,
+          autoEligible: candidate.autoEligible,
+          mpn: candidate.mpn,
+          manufacturerName: candidate.manufacturerName,
+          payload: candidate as Prisma.InputJsonValue,
+        }));
+        for (let offset = 0; offset < candidateRows.length; offset += CANDIDATE_INSERT_BATCH_SIZE) {
+          await tx.spBomQuoteCandidate.createMany({
+            data: candidateRows.slice(offset, offset + CANDIDATE_INSERT_BATCH_SIZE),
+          });
+        }
+      }
+    }
     if (extra?.selectedSheetIndexes !== undefined) {
       await tx.spBomQuoteSheet.updateMany({ where: { quoteId }, data: { selected: false } });
       await tx.spBomQuoteSheet.updateMany({
@@ -763,6 +1825,26 @@ export async function persistQuoteComputed(
         ...(extra?.buildStatus !== undefined ? { buildStatus: extra.buildStatus } : {}),
       },
     });
+    if (extra?.selectionEvent !== undefined) {
+      const event = extra.selectionEvent;
+      await tx.spBomQuoteSelectionEvent.create({
+        data: {
+          quoteId,
+          rowIdx: event.rowIdx,
+          source: event.source,
+          actorId: event.actorId,
+          previousCandidateKey: event.previousCandidateKey,
+          selectedCandidateKey: event.selectedCandidateKey,
+          previousMpn: event.previousMpn,
+          selectedMpn: event.selectedMpn,
+          previousOfferKey: event.previousOfferKey,
+          selectedOfferKey: event.selectedOfferKey,
+          previousLineTotalKrw: event.previousLineTotalKrw,
+          selectedLineTotalKrw: event.selectedLineTotalKrw,
+          reasonCodes: event.reasonCodes,
+        },
+      });
+    }
   });
 }
 
@@ -784,9 +1866,31 @@ export function computeQuote(
 
 // ── DTO 매핑 ────────────────────────────────────────────────────────────────
 
+function legacyCompatibleOffer(value: Prisma.JsonValue | null): Prisma.JsonValue | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  return { offerKey: null, ...value };
+}
+
+function legacyCompatibleEvidence(value: Prisma.JsonValue | null): Prisma.JsonValue | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  return {
+    groupedCandidateCount: 0,
+    alternativeCandidateCount: 0,
+    recommendedCandidateKey: null,
+    selectedCandidateKey: null,
+    selectedTechnicalRank: null,
+    recommendationType: 'none',
+    decisionReasonCodes: [],
+    verifiedRequirementCount: 0,
+    requiredRequirementCount: 0,
+    priceEvidence: null,
+    ...value,
+  };
+}
+
 export function toItemDto(row: QuoteItemRow): BomQuoteItemType {
-  const offer = BomQuoteSelectedOffer.safeParse(row.selectedOffer);
-  const evidence = BomQuoteMatchEvidence.safeParse(row.matchEvidence);
+  const offer = BomQuoteSelectedOffer.safeParse(legacyCompatibleOffer(row.selectedOffer));
+  const evidence = BomQuoteMatchEvidence.safeParse(legacyCompatibleEvidence(row.matchEvidence));
   return {
     rowIdx: row.rowIdx,
     included: row.included,
@@ -797,6 +1901,9 @@ export function toItemDto(row: QuoteItemRow): BomQuoteItemType {
     orderQty: row.orderQty,
     matchStatus: row.matchStatus as BomQuoteItemType['matchStatus'],
     matchEvidence: evidence.success ? evidence.data : null,
+    recommendedCandidateKey: row.recommendedCandidateKey,
+    selectedCandidateKey: row.selectedCandidateKey,
+    selectionSource: row.selectionSource as BomQuoteSelectionSourceType,
     partId: row.partId === null ? null : String(row.partId),
     selectedOffer: offer.success ? offer.data : null,
     sourceSheetIndex: row.sourceSheetIndex,

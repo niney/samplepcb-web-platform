@@ -10,6 +10,44 @@ export type BomQuoteStatusType = z.infer<typeof BomQuoteStatus>;
 export const BomQuoteMatchStatus = z.enum(['auto', 'manual', 'none']);
 export type BomQuoteMatchStatusType = z.infer<typeof BomQuoteMatchStatus>;
 
+export const BomQuoteSelectionSource = z.enum(['none', 'auto', 'customer', 'catalog', 'admin', 'legacy']);
+export type BomQuoteSelectionSourceType = z.infer<typeof BomQuoteSelectionSource>;
+
+export const BomQuoteRecommendationType = z.enum([
+  'none',
+  'identity',
+  'technical',
+  'price',
+  'lifecycle',
+  'availability',
+]);
+export type BomQuoteRecommendationTypeType = z.infer<typeof BomQuoteRecommendationType>;
+
+export const BomQuoteDecisionReason = z.enum([
+  'identity-exact',
+  'identity-variant',
+  'technical-top',
+  'same-part-lowest-total',
+  'strict-spec-price-saving',
+  'lifecycle-improvement',
+  'availability',
+  'customer-choice',
+  'catalog-choice',
+  'offer-choice',
+  'no-safe-candidate',
+]);
+export type BomQuoteDecisionReasonType = z.infer<typeof BomQuoteDecisionReason>;
+
+export const BomQuotePriceEvidence = z.object({
+  neededQty: z.number().int().min(1),
+  orderQty: z.number().int().min(1),
+  lineTotalKrw: z.number().nullable(),
+  technicalTopLineTotalKrw: z.number().nullable(),
+  savingsKrw: z.number().nullable(),
+  savingsRate: z.number().nullable(),
+});
+export type BomQuotePriceEvidenceType = z.infer<typeof BomQuotePriceEvidence>;
+
 /**
  * 공급사 검색 엔진의 BOM 문맥 판정과 자동 선정 근거.
  * 카탈로그 사실 데이터와 분리해 견적 라인에 스냅샷으로 보존한다.
@@ -32,6 +70,17 @@ export const BomQuoteMatchEvidence = z.object({
   missingRequirements: z.array(z.string()),
   reasons: z.array(z.string()),
   corroboratingSuppliers: z.array(z.string()),
+  /** 공급사 중복을 제조사+MPN으로 묶은 실제 부품 후보 수. */
+  groupedCandidateCount: z.number().int().min(0),
+  alternativeCandidateCount: z.number().int().min(0),
+  recommendedCandidateKey: z.string().nullable(),
+  selectedCandidateKey: z.string().nullable(),
+  selectedTechnicalRank: z.number().int().min(1).nullable(),
+  recommendationType: BomQuoteRecommendationType,
+  decisionReasonCodes: z.array(BomQuoteDecisionReason),
+  verifiedRequirementCount: z.number().int().min(0),
+  requiredRequirementCount: z.number().int().min(0),
+  priceEvidence: BomQuotePriceEvidence.nullable(),
 });
 export type BomQuoteMatchEvidenceType = z.infer<typeof BomQuoteMatchEvidence>;
 
@@ -56,6 +105,8 @@ export type BomQuoteSheetType = z.infer<typeof BomQuoteSheet>;
 
 /** 라인에 박제되는 오퍼 스냅샷 — 견적요청 후 재선정하지 않는다(시점 고정). */
 export const BomQuoteSelectedOffer = z.object({
+  /** 후보 스냅샷 안에서 공급사+SKU+포장을 식별하는 안정 키. 레거시는 null. */
+  offerKey: z.string().nullable(),
   supplier: z.string(),
   supplierSku: z.string(),
   packaging: z.string().nullable(),
@@ -76,6 +127,110 @@ export const BomQuoteSelectedOffer = z.object({
 });
 export type BomQuoteSelectedOfferType = z.infer<typeof BomQuoteSelectedOffer>;
 
+export const BomQuoteCandidateSafety = z.enum(['safe', 'caution', 'blocked']);
+export type BomQuoteCandidateSafetyType = z.infer<typeof BomQuoteCandidateSafety>;
+
+export const BomQuoteCandidateOfferApplied = z.object({
+  orderQty: z.number().int().min(1),
+  breakQty: z.number().int().min(1),
+  unitPrice: z.number(),
+  currency: z.string(),
+  unitPriceKrw: z.number().nullable(),
+  lineTotalKrw: z.number().nullable(),
+  stockShort: z.boolean(),
+});
+
+/** 견적 후보에 박제된 공급사 오퍼와 현재 필요수량 기준 계산 결과. */
+export const BomQuoteCandidateOffer = z.object({
+  offerKey: z.string(),
+  supplier: z.string(),
+  supplierSku: z.string(),
+  packaging: z.string().nullable(),
+  stock: z.number().int().nullable(),
+  moq: z.number().int().nullable(),
+  orderMultiple: z.number().int().nullable(),
+  productUrl: z.string().nullable(),
+  fetchedAt: z.string(),
+  priceBreaks: z.array(z.object({ qty: z.number().int().min(1), price: z.number(), currency: z.string() })),
+  applied: BomQuoteCandidateOfferApplied.nullable(),
+});
+export type BomQuoteCandidateOfferType = z.infer<typeof BomQuoteCandidateOffer>;
+
+/** 공급사 행을 제조사+MPN으로 통합한 고객 선택 단위. */
+export const BomQuoteCandidate = z.object({
+  candidateKey: z.string(),
+  technicalRank: z.number().int().min(1),
+  priceRank: z.number().int().min(1).nullable(),
+  status: z.string(),
+  selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review']),
+  safety: BomQuoteCandidateSafety,
+  autoEligible: z.boolean(),
+  selected: z.boolean(),
+  recommended: z.boolean(),
+  mpn: z.string(),
+  manufacturerName: z.string().nullable(),
+  description: z.string().nullable(),
+  category: z.string().nullable(),
+  packageCode: z.string().nullable(),
+  lifecycleStatus: z.string().nullable(),
+  datasheetUrl: z.string().nullable(),
+  identityConfidence: z.number(),
+  specificationConfidence: z.number(),
+  conflicts: z.array(z.string()),
+  missingRequirements: z.array(z.string()),
+  reasons: z.array(z.string()),
+  corroboratingSuppliers: z.array(z.string()),
+  verifiedRequirementCount: z.number().int().min(0),
+  requiredRequirementCount: z.number().int().min(0),
+  normalizedSpecs: z.record(z.string(), z.unknown()),
+  specComparisons: z.record(z.string(), z.unknown()),
+  packageComparison: z.record(z.string(), z.unknown()).nullable(),
+  offers: z.array(BomQuoteCandidateOffer),
+  bestOfferKey: z.string().nullable(),
+  bestLineTotalKrw: z.number().nullable(),
+  lineDeltaKrw: z.number().nullable(),
+  savingsVsTechnicalKrw: z.number().nullable(),
+  savingsVsTechnicalRate: z.number().nullable(),
+});
+export type BomQuoteCandidateType = z.infer<typeof BomQuoteCandidate>;
+
+export const BomQuoteSelectionEvent = z.object({
+  id: z.string(),
+  source: BomQuoteSelectionSource,
+  actorId: z.string().nullable(),
+  previousCandidateKey: z.string().nullable(),
+  selectedCandidateKey: z.string().nullable(),
+  previousMpn: z.string().nullable(),
+  selectedMpn: z.string().nullable(),
+  previousOfferKey: z.string().nullable(),
+  selectedOfferKey: z.string().nullable(),
+  previousLineTotalKrw: z.number().nullable(),
+  selectedLineTotalKrw: z.number().nullable(),
+  reasonCodes: z.array(BomQuoteDecisionReason),
+  createdAt: z.string(),
+});
+export type BomQuoteSelectionEventType = z.infer<typeof BomQuoteSelectionEvent>;
+
+export const BomQuoteItemCandidates = z.object({
+  quoteId: z.string(),
+  rowIdx: z.number().int().min(0),
+  originalMpn: z.string().nullable(),
+  originalValue: z.string().nullable(),
+  neededQty: z.number().int().min(1),
+  currentMpn: z.string(),
+  currentLineTotalKrw: z.number().nullable(),
+  selectionSource: BomQuoteSelectionSource,
+  selectedCandidateKey: z.string().nullable(),
+  selectedOfferKey: z.string().nullable(),
+  recommendedCandidateKey: z.string().nullable(),
+  technicalTopCandidateKey: z.string().nullable(),
+  technicalTopLineTotalKrw: z.number().nullable(),
+  decisionReasonCodes: z.array(BomQuoteDecisionReason),
+  candidates: z.array(BomQuoteCandidate),
+  events: z.array(BomQuoteSelectionEvent),
+});
+export type BomQuoteItemCandidatesType = z.infer<typeof BomQuoteItemCandidates>;
+
 /** 클라이언트 → 서버 항목(PATCH 는 draft 한정 replace-all — 레거시 문서 자동저장 방식). */
 export const BomQuoteItemInput = z.object({
   rowIdx: z.number().int().min(0),
@@ -91,6 +246,9 @@ export const BomQuoteItemInput = z.object({
   matchStatus: BomQuoteMatchStatus,
   /** 관리자 공급사 엔진과 동일한 판정·자동 선정 근거. 수동 추가는 null. */
   matchEvidence: BomQuoteMatchEvidence.nullable(),
+  recommendedCandidateKey: z.string().nullable(),
+  selectedCandidateKey: z.string().nullable(),
+  selectionSource: BomQuoteSelectionSource,
   /** 카탈로그(sp_part) 연결 — 매칭 안 됐으면 null. */
   partId: z.string().nullable(),
   selectedOffer: BomQuoteSelectedOffer.nullable(),
@@ -179,6 +337,13 @@ export const BomQuoteBuildBody = z.object({
 });
 export type BomQuoteBuildBodyType = z.infer<typeof BomQuoteBuildBody>;
 
+/** 엔진 후보를 명시 선택. offerKey=null이면 해당 부품 안의 실효 총비용 최저 오퍼. */
+export const BomQuoteCandidateSelectionBody = z.object({
+  candidateKey: z.string().min(1).max(64),
+  offerKey: z.string().min(1).max(64).nullable(),
+});
+export type BomQuoteCandidateSelectionBodyType = z.infer<typeof BomQuoteCandidateSelectionBody>;
+
 /** 카탈로그 매칭 — 기본은 미매칭 라인만(수동 선택 pinned 보존). */
 export const BomQuoteCatalogMatchBody = z.object({
   onlyUnmatched: z.boolean().default(true),
@@ -214,6 +379,9 @@ export type BomQuoteListResponseType = z.infer<typeof BomQuoteListResponse>;
 
 export const BomQuoteDetailResponse = z.object({ result: z.literal(true), data: BomQuoteDetail });
 export type BomQuoteDetailResponseType = z.infer<typeof BomQuoteDetailResponse>;
+
+export const BomQuoteItemCandidatesResponse = z.object({ result: z.literal(true), data: BomQuoteItemCandidates });
+export type BomQuoteItemCandidatesResponseType = z.infer<typeof BomQuoteItemCandidatesResponse>;
 
 // ── 관리자 ────────────────────────────────────────────────────────────────
 

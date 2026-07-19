@@ -506,6 +506,8 @@ model SpBomQuote {
   updatedAt              DateTime          @updatedAt
   items                  SpBomQuoteItem[]
   sheets                 SpBomQuoteSheet[]
+  candidates             SpBomQuoteCandidate[]
+  selectionEvents        SpBomQuoteSelectionEvent[]
 
   @@index([mbId, status])
   @@index([status, requestedAt])
@@ -546,6 +548,9 @@ model SpBomQuoteItem {
   orderQty         Int        @default(0)
   matchStatus      String     @default("none") @db.VarChar(8) // auto|manual|none
   matchEvidence    Json? // 엔진 component 판정·후보·자동 선정 정책 스냅샷(BOM 문맥)
+  recommendedCandidateKey String?    @db.VarChar(64) // 하이브리드 정책의 최초/현재 자동추천
+  selectedCandidateKey    String?    @db.VarChar(64) // 고객이 실제 선택한 견적 후보(카탈로그 직접선택은 null)
+  selectionSource         String     @default("none") @db.VarChar(16) // none|auto|customer|catalog|admin|legacy
   partId           BigInt?
   selectedOffer    Json?
   lineTotalKrw     Decimal?   @db.Decimal(14, 2)
@@ -559,4 +564,53 @@ model SpBomQuoteItem {
   @@unique([quoteId, rowIdx])
   @@index([quoteId, sourceSheetIndex])
   @@map("sp_bom_quote_item")
+}
+
+// 공급사 엔진 후보의 견적 문맥 스냅샷. 엔진 잡은 재시작 시 소멸하므로 고객 후보 비교가
+// 인메모리 결과에 의존하지 않게 quoteId+rowIdx에 박제한다. payload는 엔진 스키마 변화를
+// 흡수하고, 목록/정렬에 필요한 안정 필드만 열로 승격한다.
+model SpBomQuoteCandidate {
+  id               BigInt     @id @default(autoincrement())
+  quoteId          BigInt
+  rowIdx           Int
+  candidateKey     String     @db.VarChar(64)
+  technicalRank    Int
+  status           String     @db.VarChar(32)
+  selectionMode    String     @db.VarChar(24) // exact|variant|spec-compatible|review
+  safety           String     @db.VarChar(12) // safe|caution|blocked
+  autoEligible     Boolean    @default(false)
+  mpn              String     @db.VarChar(191)
+  manufacturerName String?    @db.VarChar(191)
+  payload          Json
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  quote            SpBomQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, rowIdx, candidateKey])
+  @@index([quoteId, rowIdx, technicalRank])
+  @@map("sp_bom_quote_candidate")
+}
+
+// 자동추천은 matchEvidence에 남기고, 고객/관리자의 명시 변경만 이벤트로 누적한다.
+// 견적 라인이 replace-all 저장되어도 감사 이력이 사라지지 않도록 quoteId+rowIdx로 연결한다.
+model SpBomQuoteSelectionEvent {
+  id                   BigInt     @id @default(autoincrement())
+  quoteId              BigInt
+  rowIdx               Int
+  source               String     @db.VarChar(16) // customer|catalog|admin
+  actorId              String?    @db.VarChar(60)
+  previousCandidateKey String?    @db.VarChar(64)
+  selectedCandidateKey String?    @db.VarChar(64)
+  previousMpn          String?    @db.VarChar(191)
+  selectedMpn          String?    @db.VarChar(191)
+  previousOfferKey     String?    @db.VarChar(64)
+  selectedOfferKey     String?    @db.VarChar(64)
+  previousLineTotalKrw Decimal?   @db.Decimal(14, 2)
+  selectedLineTotalKrw Decimal?   @db.Decimal(14, 2)
+  reasonCodes          Json?
+  createdAt            DateTime   @default(now())
+  quote                SpBomQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId, rowIdx, createdAt])
+  @@map("sp_bom_quote_selection_event")
 }

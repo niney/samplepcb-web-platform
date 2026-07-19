@@ -2,7 +2,13 @@
 import { computed, ref, watch } from 'vue';
 import { apiGetBlob } from '@sp/shared';
 import type { BomQuoteItemType, BomQuoteStatusType } from '@sp/api-contract';
-import { useAdminBomQuote, useAdminBomQuotes, usePatchAdminBomQuote } from '../../admin/useAdminBomQuotes';
+import {
+  useAdminBomQuote,
+  useAdminBomQuoteCandidates,
+  useAdminBomQuotes,
+  usePatchAdminBomQuote,
+} from '../../admin/useAdminBomQuotes';
+import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 
 // 고객 BOM 견적요청 검토(1차 최소 화면) — 목록(상태 탭)·상세·상태 전이·확정가·메모·원본
 // 다운로드. 협력사 RFQ·발주·선적 풀 워크벤치는 이 데이터 모델 위에서 후속(docs/BOM_QUOTE.md).
@@ -37,6 +43,12 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / 20)));
 const detailQuery = useAdminBomQuote(detailId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
 const patch = usePatchAdminBomQuote();
+const candidateRowIdx = ref<number | null>(null);
+const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateRowIdx);
+
+watch(detailId, () => {
+  candidateRowIdx.value = null;
+});
 
 // 검토 폼(상세 열 때 프리필)
 const form = ref({
@@ -190,7 +202,7 @@ async function downloadOriginal(): Promise<void> {
                     <div class="max-h-80 overflow-y-auto rounded-lg border border-gray-200 bg-white">
                       <table class="min-w-full divide-y divide-gray-100 text-xs">
                         <thead class="sticky top-0 bg-gray-50 text-left text-gray-500">
-                          <tr><th class="px-2 py-1.5">Excel 위치</th><th class="px-2 py-1.5">부품</th><th class="px-2 py-1.5">오퍼</th><th class="px-2 py-1.5 text-right">주문수량</th><th class="px-2 py-1.5 text-right">합계</th></tr>
+                          <tr><th class="px-2 py-1.5">Excel 위치</th><th class="px-2 py-1.5">부품</th><th class="px-2 py-1.5">오퍼</th><th class="px-2 py-1.5 text-right">주문수량</th><th class="px-2 py-1.5 text-right">합계</th><th class="px-2 py-1.5" /></tr>
                         </thead>
                         <tbody class="divide-y divide-gray-50">
                           <tr v-for="item in detail.items" :key="item.rowIdx" :class="{ 'opacity-40': !item.included }">
@@ -209,6 +221,7 @@ async function downloadOriginal(): Promise<void> {
                             </td>
                             <td class="px-2 py-1.5 text-right tabular-nums">{{ item.orderQty.toLocaleString('ko-KR') }}</td>
                             <td class="px-2 py-1.5 text-right tabular-nums">{{ item.lineTotalKrw === null ? '—' : fmtWon(Math.round(item.lineTotalKrw)) }}</td>
+                            <td class="px-2 py-1.5 text-right"><button type="button" class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50" @click="candidateRowIdx = item.rowIdx">후보·근거</button></td>
                           </tr>
                         </tbody>
                       </table>
@@ -259,5 +272,13 @@ async function downloadOriginal(): Promise<void> {
       <span class="text-gray-500">{{ page }} / {{ totalPages }}</span>
       <button type="button" class="rounded-md border border-gray-300 bg-white px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40" :disabled="page >= totalPages" @click="page += 1">다음</button>
     </div>
+    <BomCandidateDrawer
+      :open="candidateRowIdx !== null"
+      :context="candidateQuery.data.value?.data ?? null"
+      :loading="candidateQuery.isLoading.value"
+      :failed="candidateQuery.isError.value"
+      read-only
+      @close="candidateRowIdx = null"
+    />
   </div>
 </template>
