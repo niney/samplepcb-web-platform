@@ -122,3 +122,16 @@ export const PartRefreshResponse = z.object({
   }),
 });
 export type PartRefreshResponseType = z.infer<typeof PartRefreshResponse>;
+
+// 하드 삭제(관리자) — 오퍼·가격구간 cascade, 견적 라인은 partId 만 해제(스냅샷 보존)
+export const PartDeleteResponse = z.object({ result: z.literal(true) });
+export type PartDeleteResponseType = z.infer<typeof PartDeleteResponse>;
+
+// 카탈로그 초기화(관리자) — 전체 하드 삭제. confirm 리터럴로 오호출 방어.
+export const PartsResetBody = z.object({ confirm: z.literal('RESET') });
+export type PartsResetBodyType = z.infer<typeof PartsResetBody>;
+export const PartsResetResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ parts: z.number().int() }),
+});
+export type PartsResetResponseType = z.infer<typeof PartsResetResponse>;

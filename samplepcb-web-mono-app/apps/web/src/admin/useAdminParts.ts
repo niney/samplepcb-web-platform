@@ -2,9 +2,11 @@ import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiSend } from '@sp/shared';
 import {
+  PartDeleteResponse,
   PartDetailResponse,
   PartRefreshResponse,
   PartSearchResponse,
+  PartsResetResponse,
   apiRoutes,
   type PartSearchQueryType,
 } from '@sp/api-contract';
@@ -86,6 +88,28 @@ export function useRefreshPart() {
   return useMutation({
     mutationFn: (partId: string) =>
       apiSend('POST', `${apiRoutes.adminParts}/${partId}/refresh`, undefined, PartRefreshResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'parts'] });
+    },
+  });
+}
+
+// 하드 삭제 — 오퍼·가격구간 cascade, 견적 라인은 partId 만 해제(스냅샷 보존)
+export function useDeletePart() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (partId: string) => apiSend('DELETE', `${apiRoutes.adminParts}/${partId}`, undefined, PartDeleteResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'parts'] });
+    },
+  });
+}
+
+// 카탈로그 초기화 — 부품 전체 하드 삭제(자동 인제스트로 재성장)
+export function useResetParts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiSend('POST', `${apiRoutes.adminParts}/reset`, { confirm: 'RESET' }, PartsResetResponse),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'parts'] });
     },

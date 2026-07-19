@@ -2,16 +2,19 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import type { estypes } from '@elastic/elasticsearch';
 import { z } from 'zod';
 import {
+  PartDeleteResponse,
   PartDetailResponse,
   PartRefreshResponse,
   PartSearchQuery,
   PartSearchResponse,
+  PartsResetBody,
+  PartsResetResponse,
   type PartHitType,
   type PartSearchQueryType,
 } from '@sp/api-contract';
 import { SPEC_SI_FIELD, normalizeMpn, packageVariants, parseQuery, siRange } from '@sp/utils';
 import { esClient } from '../es/client';
-import { F, SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
+import { F, SP_PARTS_READ, SP_PARTS_WRITE, type SpPartDoc } from '../es/sp-parts-index';
 import { prisma } from '../lib/prisma';
 import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
@@ -190,6 +193,50 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const detail = await loadPartDetailDto(request.params.id);
       if (detail === null) return reply.notFound('부품을 찾을 수 없습니다');
       return { result: true as const, data: detail };
+    },
+  );
+
+  // 카탈로그 초기화 — 부품 전체 하드 삭제(오퍼·가격구간 DB cascade + ES 문서).
+  // 견적 라인은 partId 만 해제(오퍼 스냅샷·합계 보존 — 스냅샷 박제 원칙).
+  // 카탈로그는 BOM 공급사 검색 자동 인제스트로 다시 성장한다.
+  fastify.post(
+    '/parts/reset',
+    { schema: { body: PartsResetBody, response: { 200: PartsResetResponse } } },
+    async (request) => {
+      const parts = await prisma.spPart.count();
+      await prisma.$transaction([
+        prisma.spPartIndexQueue.deleteMany({}),
+        prisma.spBomQuoteItem.updateMany({ where: { partId: { not: null } }, data: { partId: null } }),
+        prisma.spPart.deleteMany({}),
+      ]);
+      try {
+        await esClient().deleteByQuery({ index: SP_PARTS_WRITE, query: { match_all: {} }, refresh: true, conflicts: 'proceed' });
+      } catch (err) {
+        request.log.warn({ err }, 'parts reset: ES 문서 정리 실패 — parts:reindex 로 정합 회복 가능');
+      }
+      return { result: true as const, data: { parts } };
+    },
+  );
+
+  // 부품 단건 하드 삭제 — 오퍼·가격구간 DB cascade + ES 문서. 견적 라인은 partId 만 해제.
+  fastify.delete(
+    '/parts/:id',
+    { schema: { params: IdParams, response: { 200: PartDeleteResponse } } },
+    async (request, reply) => {
+      const id = request.params.id;
+      const part = await prisma.spPart.findUnique({ where: { id }, select: { id: true } });
+      if (part === null) return reply.notFound('부품을 찾을 수 없습니다');
+      await prisma.$transaction([
+        prisma.spPartIndexQueue.deleteMany({ where: { partId: id } }),
+        prisma.spBomQuoteItem.updateMany({ where: { partId: id }, data: { partId: null } }),
+        prisma.spPart.delete({ where: { id } }),
+      ]);
+      try {
+        await esClient().delete({ index: SP_PARTS_WRITE, id: String(id), refresh: true });
+      } catch (err) {
+        request.log.warn({ err, partId: String(id) }, 'part delete: ES 문서 정리 실패 — parts:reindex 로 정합 회복 가능');
+      }
+      return { result: true as const };
     },
   );
 

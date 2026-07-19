@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import type { PartFacetBucketType, PartHitType } from '@sp/api-contract';
 import { parseSpecToken, type SpecKind } from '@sp/utils';
-import { usePartDetail, usePartSearch, useRefreshPart, type PartSearchFilters } from '../../admin/useAdminParts';
+import { useDeletePart, usePartDetail, usePartSearch, useRefreshPart, useResetParts, type PartSearchFilters } from '../../admin/useAdminParts';
 
 // 부품 카탈로그 검색 — "검색 콘솔" 카드가 페이지의 시그니처: 단위·표기 자유 검색이
 // 이 페이지의 본질이므로 검색 도구를 하나의 카드로 통합해 주인공으로 세운다.
@@ -61,6 +61,48 @@ async function onRefresh(partId: string): Promise<void> {
     await refresh.mutateAsync(partId); // 성공 시 검색·상세 쿼리 자동 무효화 → 화면 갱신
   } catch {
     refreshError.value = '갱신 실패 — 엔진(sp-engine) 상태를 확인하세요.';
+  }
+}
+
+// ── 하드 삭제·카탈로그 초기화 — 되돌릴 수 없어 2단계 인라인 확인(네이티브 confirm 미사용) ──
+const del = useDeletePart();
+const resetParts = useResetParts();
+const deleteArmId = ref<string | null>(null); // 1차 클릭한 부품 — 같은 버튼이 확정으로 변전
+const deleteError = ref('');
+const resetArm = ref(false);
+const resetMsg = ref('');
+
+function armDelete(partId: string): void {
+  deleteArmId.value = partId;
+  setTimeout(() => {
+    if (deleteArmId.value === partId) deleteArmId.value = null; // 5초 내 미확정 시 해제
+  }, 5_000);
+}
+
+async function onDeletePart(partId: string): Promise<void> {
+  deleteError.value = '';
+  deleteArmId.value = null;
+  try {
+    await del.mutateAsync(partId);
+    detailId.value = null;
+  } catch {
+    deleteError.value = '삭제 실패 — 잠시 후 다시 시도하세요.';
+  }
+}
+
+function armReset(): void {
+  resetArm.value = true;
+  resetMsg.value = '';
+  setTimeout(() => (resetArm.value = false), 5_000);
+}
+
+async function onReset(): Promise<void> {
+  resetArm.value = false;
+  try {
+    const res = await resetParts.mutateAsync();
+    resetMsg.value = `카탈로그 초기화 완료 — 부품 ${String(res.data.parts)}건 삭제(견적 스냅샷은 보존)`;
+  } catch {
+    resetMsg.value = '초기화 실패 — 잠시 후 다시 시도하세요.';
   }
 }
 
@@ -205,14 +247,37 @@ function facetLabel(b: PartFacetBucketType): string {
 
 <template>
   <div class="space-y-5">
-    <div>
-      <h1 class="text-xl font-semibold text-gray-900">부품 검색</h1>
-      <p class="mt-1 text-sm text-gray-500">
-        단위·표기를 자유롭게 — 접두 환산(4k7=4700=0.0047M)과 관행 표기(104·2p2)를 모두 이해합니다.
-      </p>
-      <p class="mt-0.5 text-xs text-gray-400">
-        검색은 색인된 카탈로그로 즉시 응답 · 카탈로그는 BOM 공급사 검색이 자동 적재 · 재고·가격 최신화는 부품 상세의 [공급사 갱신]
-      </p>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 class="text-xl font-semibold text-gray-900">부품 검색</h1>
+        <p class="mt-1 text-sm text-gray-500">
+          단위·표기를 자유롭게 — 접두 환산(4k7=4700=0.0047M)과 관행 표기(104·2p2)를 모두 이해합니다.
+        </p>
+        <p class="mt-0.5 text-xs text-gray-400">
+          검색은 색인된 카탈로그로 즉시 응답 · 카탈로그는 BOM 공급사 검색이 자동 적재 · 재고·가격 최신화는 부품 상세의 [공급사 갱신]
+        </p>
+      </div>
+      <!-- 카탈로그 초기화 — 전체 하드 삭제(자동 인제스트로 재성장), 2단계 확인 -->
+      <div class="flex items-center gap-2">
+        <span v-if="resetMsg !== ''" class="text-xs" :class="resetMsg.includes('실패') ? 'text-red-600' : 'text-emerald-700'">{{ resetMsg }}</span>
+        <button
+          v-if="!resetArm"
+          type="button"
+          class="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+          :disabled="resetParts.isPending.value"
+          @click="armReset"
+        >
+          {{ resetParts.isPending.value ? '초기화 중…' : '카탈로그 초기화' }}
+        </button>
+        <button
+          v-else
+          type="button"
+          class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+          @click="onReset"
+        >
+          부품 전체 삭제 — 되돌릴 수 없습니다. 확정하려면 클릭
+        </button>
+      </div>
     </div>
 
     <!-- 검색 콘솔 — 이 페이지의 시그니처: 검색·정렬·재고·스펙범위를 한 카드로 -->
@@ -406,8 +471,27 @@ function facetLabel(b: PartFacetBucketType): string {
                         >
                           {{ refresh.isPending.value ? '공급사 조회 중…' : '공급사 갱신' }}
                         </button>
+                        <!-- 하드 삭제 — 2단계 확인. 견적 라인은 스냅샷 보존(partId 만 해제) -->
+                        <button
+                          v-if="deleteArmId !== p.id"
+                          type="button"
+                          class="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          :disabled="del.isPending.value"
+                          @click="armDelete(p.id)"
+                        >
+                          {{ del.isPending.value ? '삭제 중…' : '삭제' }}
+                        </button>
+                        <button
+                          v-else
+                          type="button"
+                          class="rounded-md bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700"
+                          @click="onDeletePart(p.id)"
+                        >
+                          정말 삭제 — 되돌릴 수 없습니다
+                        </button>
                         <span class="text-xs text-gray-400">데이터 기준: {{ fmtAge(detailData.offersFetchedAt) }}</span>
                         <span v-if="refreshError !== ''" class="text-xs text-red-600">{{ refreshError }}</span>
+                        <span v-if="deleteError !== ''" class="text-xs text-red-600">{{ deleteError }}</span>
                       </div>
                       <!-- 스펙 충돌 — 채택값(첫 그룹)과 나머지 공급사 값을 병기 -->
                       <div

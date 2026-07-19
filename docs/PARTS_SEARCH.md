@@ -72,6 +72,10 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   alias(`sp-parts`/`sp-parts-write`) 스왑으로 무중단.
 - **공급사 추가 체크리스트**: ① sp-engine 에 `SupplierClient` 구현 1개 ② (필요시) 계약의
   supplier 표시 문자열 — **DB/ES 스키마 변경 없음**(supplier 는 행 값).
+- **하드 삭제·초기화(관리자, 2026-07-19)**: 부품 상세 [삭제] = 단건, 페이지 헤더
+  [카탈로그 초기화] = 전체(`POST /parts/reset`, `confirm:'RESET'` 리터럴). 둘 다 오퍼·가격구간
+  DB cascade + ES 문서 삭제, **견적 라인은 partId 만 해제**(오퍼 스냅샷·합계 보존 — 박제 원칙).
+  되돌릴 수 없어 UI 는 2단계 인라인 확인(5초 자동 해제). 카탈로그는 자동 인제스트로 재성장.
 
 ## 검증 (게이트 통과 기록, 2026-07-19)
 
