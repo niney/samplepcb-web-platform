@@ -26,6 +26,7 @@ export const en = {
       marketContracts: 'Market contracts',
       marketSettings: 'Market settings',
       bom: 'BOM upload',
+      bomQuotes: 'BOM quote requests',
       parts: 'Parts search',
       slides: 'Main slides',
       seo: 'SEO',
@@ -42,6 +43,7 @@ export const en = {
         businessInfo: 'Business Info',
         gerberPricing: 'Gerber Pricing',
         aiIntegration: 'AI Integration',
+        bomQuote: 'BOM Quote',
       },
       gerberPricing: {
         intro:

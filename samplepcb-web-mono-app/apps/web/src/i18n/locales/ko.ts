@@ -26,6 +26,7 @@ export const ko = {
       marketContracts: '마켓 계약·정산',
       marketSettings: '마켓 설정',
       bom: 'BOM 업로드',
+      bomQuotes: 'BOM 견적요청',
       parts: '부품 검색',
       slides: '메인 슬라이드',
       seo: 'SEO 설정',
@@ -42,6 +43,7 @@ export const ko = {
         businessInfo: '사업자정보',
         gerberPricing: '거버 가격',
         aiIntegration: 'AI 연동',
+        bomQuote: 'BOM 견적',
       },
       gerberPricing: {
         intro:

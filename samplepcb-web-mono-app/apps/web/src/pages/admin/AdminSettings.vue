@@ -5,6 +5,7 @@ import SettingsTabs from '../../components/admin/SettingsTabs.vue';
 import BusinessInfoForm from '../../components/admin/BusinessInfoForm.vue';
 import GerberPricingForm from '../../components/admin/GerberPricingForm.vue';
 import AiSettingsForm from '../../components/admin/AiSettingsForm.vue';
+import BomQuoteSettingsForm from '../../components/admin/BomQuoteSettingsForm.vue';
 import type { SettingsTabKey } from '../../admin/useAdminSettings';
 
 // 관리자 설정 — 영카트 쇼핑몰설정을 탭 단위로 이식. 사이드바는 1-depth "설정" 하나이고
@@ -21,5 +22,6 @@ const activeTab = ref<SettingsTabKey>('businessInfo');
     <BusinessInfoForm v-if="activeTab === 'businessInfo'" />
     <GerberPricingForm v-else-if="activeTab === 'gerberPricing'" />
     <AiSettingsForm v-else-if="activeTab === 'aiIntegration'" />
+    <BomQuoteSettingsForm v-else-if="activeTab === 'bomQuote'" />
   </div>
 </template>

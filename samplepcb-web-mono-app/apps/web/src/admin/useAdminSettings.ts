@@ -21,7 +21,7 @@ import { apiGet, apiSend } from '@sp/shared';
 // 이 파일에 훅을 이어 붙인다. 계약은 @sp/api-contract(settings.ts), 호출은 @sp/shared.
 
 // 설정 탭 키 — 페이지/탭 컴포넌트 공용. 탭 추가 시 이 유니온을 확장한다.
-export type SettingsTabKey = 'businessInfo' | 'gerberPricing' | 'aiIntegration';
+export type SettingsTabKey = 'businessInfo' | 'gerberPricing' | 'aiIntegration' | 'bomQuote';
 
 const businessInfoPath = `${apiRoutes.adminSettings}/business-info`;
 const gerberPricingPath = `${apiRoutes.adminSettings}/gerber-pricing`;

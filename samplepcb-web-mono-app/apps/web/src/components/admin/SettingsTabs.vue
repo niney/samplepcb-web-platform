@@ -12,6 +12,7 @@ const TABS: { key: SettingsTabKey; slug: string }[] = [
   { key: 'businessInfo', slug: 'businessInfo' },
   { key: 'gerberPricing', slug: 'gerberPricing' },
   { key: 'aiIntegration', slug: 'aiIntegration' },
+  { key: 'bomQuote', slug: 'bomQuote' },
 ];
 </script>
 
