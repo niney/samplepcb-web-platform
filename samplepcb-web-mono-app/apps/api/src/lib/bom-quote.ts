@@ -1766,6 +1766,33 @@ export async function getQuoteItemCandidates(
     const parsed = StoredCandidate.safeParse(row.payload);
     return parsed.success ? [parsed.data] : [];
   });
+  // 후보 imageUrl 은 검색 당시 스냅샷이므로 도입 전 후보에는 비어 있을 수 있다.
+  // 선택 여부와 무관하게 MPN+제조사 정본(없으면 최신 MPN 정본)으로 표시만 보완한다.
+  const candidateMpnNorms = uniqueStrings(stored.map((candidate) => normalizeMpn(candidate.mpn))).filter((value) => value !== '');
+  const catalogParts = candidateMpnNorms.length === 0
+    ? []
+    : await prisma.spPart.findMany({
+        where: { mpnNorm: { in: candidateMpnNorms } },
+        orderBy: { lastSeenAt: 'desc' },
+        select: { mpnNorm: true, manufacturerNorm: true, imageUrl: true },
+      });
+  const catalogImageByExact = new Map<string, string | null>();
+  const catalogImageByMpn = new Map<string, string | null>();
+  for (const part of catalogParts) {
+    catalogImageByExact.set(`${part.mpnNorm}\u0000${part.manufacturerNorm}`, part.imageUrl);
+    if (!catalogImageByMpn.has(part.mpnNorm)) catalogImageByMpn.set(part.mpnNorm, part.imageUrl);
+  }
+  const catalogImageByCandidate = new Map<string, string>();
+  for (const candidate of stored) {
+    const mpnNorm = normalizeMpn(candidate.mpn);
+    if (mpnNorm === '') continue;
+    const manufacturerNorm = resolveManufacturer(candidate.manufacturerName).norm;
+    const exactKey = `${mpnNorm}\u0000${manufacturerNorm}`;
+    const imageUrl = catalogImageByExact.has(exactKey)
+      ? (catalogImageByExact.get(exactKey) ?? null)
+      : (catalogImageByMpn.get(mpnNorm) ?? null);
+    if (imageUrl !== null) catalogImageByCandidate.set(candidate.candidateKey, imageUrl);
+  }
   const picks = new Map<string, { pick: OfferPick | null; offerKey: string | null }>();
   for (const candidate of stored) picks.set(candidate.candidateKey, storedCandidatePick(candidate, needed, quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed)));
   const priced = stored
@@ -1783,6 +1810,7 @@ export async function getQuoteItemCandidates(
     const result = picks.get(candidate.candidateKey) ?? { pick: null, offerKey: null };
     const bestTotal = pickLineTotal(result.pick);
     const savings = bestTotal === null || technicalTopTotal === null ? null : Math.round((technicalTopTotal - bestTotal) * 100) / 100;
+    const selected = candidate.candidateKey === item.selectedCandidateKey;
     return {
       candidateKey: candidate.candidateKey,
       technicalRank: candidate.technicalRank,
@@ -1791,7 +1819,7 @@ export async function getQuoteItemCandidates(
       selectionMode: candidate.selectionMode,
       safety: candidate.safety,
       autoEligible: candidate.autoEligible,
-      selected: candidate.candidateKey === item.selectedCandidateKey,
+      selected,
       recommended: candidate.candidateKey === item.recommendedCandidateKey,
       mpn: candidate.mpn,
       manufacturerName: candidate.manufacturerName,
@@ -1800,7 +1828,7 @@ export async function getQuoteItemCandidates(
       packageCode: candidate.packageCode,
       lifecycleStatus: candidate.lifecycleStatus,
       datasheetUrl: candidate.datasheetUrl,
-      imageUrl: candidate.imageUrl,
+      imageUrl: candidate.imageUrl ?? catalogImageByCandidate.get(candidate.candidateKey) ?? null,
       identityConfidence: candidate.identityConfidence,
       specificationConfidence: candidate.specificationConfidence,
       conflicts: candidate.conflicts,
