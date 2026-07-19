@@ -152,4 +152,18 @@ Figma "02 BOM 파일 분석_검색 결과" 레이아웃에 기존 기능 병합(
   납기 "확정 시 안내")·예상 견적(최종합계 파랑 강조·VAT 별도·가견적 각주)·[견적요청]
   — BomLayout 프로모 aside 는 홈에서만 표시
 - catalogMatchItems 보강: 소스 BOM 에 제조사·설명 열이 없으면 카탈로그 정본으로 채움
-- 미구현(디자인만) 추가: BOM 비교 · 선택 삭제 · 행 정렬 핸들 · 부품 이미지 · 데이터시트 링크
+- 미구현(디자인만) 추가: 선택 삭제 · 행 정렬 핸들 · 부품 이미지 · 데이터시트 링크
+
+### BOM 비교 모달 (2026-07-19)
+
+상세 헤더 [BOM 비교]: Excel 원본과 공급사 검색 원본 결과를 부품 단위로 대조하는 전체 화면
+모달(`components/bom/BomCompareModal.vue`). 결과는 모달을 열 때만 지연 조회
+(`GET /api/bom/jobs/:id/supplier-search/result` — `useSupplierSearchResult`, 소유 검증+백업 인제스트 훅).
+
+- 조인: 원본 행+REFDES 시그니처로 견적 라인↔검색 컴포넌트 연결(엔진 전처리로 순서가 달라져도
+  안전, 빈 시그니처일 때만 인덱스 폴백)
+- 판정: 엔진 검증 결과 그대로 — status 요약 카드(검증·호환/확인 필요/결과 없음)+행 칩, 셀 색은
+  spec_comparisons·package_comparison state(일치/불일치/확인 불가), relation 칩(정확·별칭·호환·범위 충족 등)
+- 열: 항목·Excel 원본(sticky) + 공급사 열(Mouser/DigiKey/UniKeyIC 고정 + 발견 공급사) —
+  스펙 비교 외에 재고·MOQ·최저 단가·수명주기(EOL/단종) 표시
+- 필터: 검색어·판정·시트·공급사 열 선택, 페이지당 5부품 · 로딩/실패(재시도)/결과 없음/진행 중 상태 패널

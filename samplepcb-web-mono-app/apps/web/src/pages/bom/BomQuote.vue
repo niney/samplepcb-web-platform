@@ -26,9 +26,11 @@ import {
   useCatalogMatchBomQuote,
   usePatchBomQuote,
   useRequestBomQuote,
+  useSupplierSearchResult,
   useSupplierSearchStatus,
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
+import BomCompareModal from '../../components/bom/BomCompareModal.vue';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
 import favDigikey from '../../assets/bom/fav-digikey.png';
@@ -39,7 +41,7 @@ import favSamplepcb from '../../assets/bom/fav-samplepcb.png';
 // 고객 스마트 BOM 견적 워크벤치 — Figma "02 BOM 파일 분석_검색 결과"(87:12875) 레이아웃에
 // 기존 기능(자동저장·오퍼/부품 모달·자동 보강·견적요청)을 병합. 사용자 지시:
 // 채팅·가격순 정렬 제외, Found 대신 기존 매칭 배지, 공급사 배지는 파비콘(vueline 방식),
-// 미구현 요소(핸들·이미지·데이터시트·BOM 비교·선택 삭제)는 디자인만.
+// 미구현 요소(핸들·이미지·데이터시트·선택 삭제)는 디자인만.
 
 const route = useRoute();
 const router = useRouter();
@@ -210,9 +212,14 @@ const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee 
 
 // ── 조용한 자동 보강 상태 — 서버(build)가 판단·시작하므로 FE 는 상태 표시만 ────
 const catalogMatch = useCatalogMatchBomQuote();
+const compareOpen = ref(false);
 const supplierStatus = useSupplierSearchStatus(
   computed(() => detail.value?.engineJobId ?? null),
   computed(() => isDraft.value && !needsBuild.value),
+);
+const supplierResult = useSupplierSearchResult(
+  computed(() => detail.value?.engineJobId ?? null),
+  compareOpen,
 );
 const enriching = computed(() => supplierStatus.data.value?.data.status === 'running');
 const refreshedNotice = ref(false);
@@ -488,8 +495,12 @@ function rowClass(item: BomQuoteItemType): string {
               <template v-else-if="saveState === 'saved' && !dirty">자동 저장됨</template>
               <template v-else-if="saveState === 'error'"><span class="text-red-500">저장 실패</span></template>
             </span>
-            <!-- BOM 비교 — 미구현(디자인만) -->
-            <button type="button" class="flex h-[38px] cursor-default items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 text-[14px] font-semibold text-[#374151] opacity-70" title="BOM 비교 (준비 중)">
+            <button
+              type="button"
+              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 text-[14px] font-semibold text-[#374151] hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+              title="Excel 원본과 공급사 검색 결과 비교"
+              @click="compareOpen = true"
+            >
               <span>◫</span> BOM 비교
             </button>
             <button
@@ -779,6 +790,19 @@ function rowClass(item: BomQuoteItemType): string {
       :mode="partModal.mode"
       @select="onPartSelected"
       @close="partModal = null"
+    />
+    <BomCompareModal
+      v-if="compareOpen && detail !== null"
+      :open="compareOpen"
+      :title="detail.fileName ?? detail.title"
+      :items="items"
+      :result="supplierResult.data.value?.data ?? null"
+      :loading="supplierResult.isFetching.value && supplierResult.data.value === undefined"
+      :failed="supplierResult.isError.value"
+      :engine-job-id="detail.engineJobId"
+      :search-status="supplierStatus.data.value?.data.status ?? null"
+      @retry="supplierResult.refetch()"
+      @close="compareOpen = false"
     />
   </div>
 </template>

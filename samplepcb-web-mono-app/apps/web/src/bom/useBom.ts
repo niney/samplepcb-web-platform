@@ -8,6 +8,7 @@ import {
   BomQuoteDetailResponse,
   BomQuoteListResponse,
   BomSupplierPreflightResponse,
+  BomSupplierResultResponse,
   BomSupplierStartResponse,
   PartDetailResponse,
   PartSearchResponse,
@@ -131,6 +132,16 @@ export function useSupplierSearchStatus(jobId: Ref<string | null>, enabled: Ref<
     enabled: computed(() => enabled.value && jobId.value !== null),
     retry: false,
     refetchInterval: (query) => (query.state.data?.data.status === 'running' ? 2_000 : false),
+  });
+}
+
+/** 완료된 공급사 검색 원본 결과 — BOM 비교 화면을 열 때만 지연 조회한다. */
+export function useSupplierSearchResult(jobId: Ref<string | null>, enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: computed(() => ['bom', 'supplier-result', jobId.value]),
+    queryFn: () => apiGet(`${base}/jobs/${jobId.value ?? ''}/supplier-search/result`, BomSupplierResultResponse),
+    enabled: computed(() => enabled.value && jobId.value !== null),
+    retry: false,
   });
 }
 
