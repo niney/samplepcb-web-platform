@@ -40,7 +40,7 @@ const ListQuery = z.object({
 });
 
 const ALLOWED_EXT = new Set(['xlsx', 'xlsm', 'xls', 'csv', 'tsv']);
-const MAX_FILE_BYTES = 30 * 1024 * 1024;
+const MAX_FILE_BYTES = 50 * 1024 * 1024; // 시안 카피("up to 50 MB")와 정합
 
 const FILE_REF_TYPE = 'sp_bom_quote';
 const BizError = z.object({ result: z.literal(false), error: z.string() });
@@ -122,7 +122,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (file === undefined) return reply.badRequest('file 파트가 없습니다');
     const ext = file.filename.split('.').pop()?.toLowerCase() ?? '';
     if (!ALLOWED_EXT.has(ext)) return reply.badRequest('지원하지 않는 파일 형식입니다 (xlsx/xlsm/xls/csv/tsv)');
-    if (file.buffer.length > MAX_FILE_BYTES) return reply.badRequest('파일이 30MB 를 초과합니다');
+    if (file.buffer.length > MAX_FILE_BYTES) return reply.badRequest('파일이 50MB 를 초과합니다');
 
     // 1) 엔진 파싱 잡 — 엔진 다운이면 여기서 즉시 실패(잔여물 없음)
     let jobId: string;

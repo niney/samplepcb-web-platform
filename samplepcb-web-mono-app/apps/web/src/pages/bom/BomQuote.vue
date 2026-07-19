@@ -365,7 +365,7 @@ function fmtUnit(offer: BomQuoteSelectedOfferType): string {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-4 p-6">
     <!-- 헤더 -->
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-3">

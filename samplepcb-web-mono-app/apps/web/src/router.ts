@@ -2,6 +2,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@sp/shared';
 import DefaultLayout from './layouts/DefaultLayout.vue';
 import AdminLayout from './layouts/AdminLayout.vue';
+import BomLayout from './layouts/BomLayout.vue';
 import Home from './pages/Home.vue';
 import BomHome from './pages/bom/BomHome.vue';
 import BomQuote from './pages/bom/BomQuote.vue';
@@ -41,11 +42,17 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: DefaultLayout,
+    children: [{ path: '', name: 'home', component: Home }],
+  },
+  // 고객 스마트 BOM 견적 — 회원 전용, Parts Eyes 전용 셸(Figma Smart BOM_Web 2.0 이식).
+  // 레거시 spSmartBomV2 재설계(docs/BOM_QUOTE.md).
+  {
+    path: '/bom',
+    component: BomLayout,
+    meta: { requiresMember: true },
     children: [
-      { path: '', name: 'home', component: Home },
-      // 고객 스마트 BOM 견적 — 회원 전용(레거시 spSmartBomV2 재설계, docs/BOM_QUOTE.md)
-      { path: 'bom', name: 'bom', component: BomHome, meta: { requiresMember: true, wide: true } },
-      { path: 'bom/:id', name: 'bom-quote', component: BomQuote, meta: { requiresMember: true, wide: true } },
+      { path: '', name: 'bom', component: BomHome, meta: { requiresMember: true } },
+      { path: ':id', name: 'bom-quote', component: BomQuote, meta: { requiresMember: true } },
     ],
   },
   {
