@@ -7,6 +7,7 @@ import type {
   BomQuoteItemCandidatesType,
   BomQuoteSelectionSourceType,
 } from '@sp/api-contract';
+import PartImage from '../ui/PartImage.vue';
 
 const props = withDefaults(defineProps<{
   open: boolean;
@@ -333,26 +334,33 @@ onBeforeUnmount(() => {
                   <article v-for="candidate in candidates" :key="candidate.candidateKey" class="overflow-hidden rounded-xl border transition" :class="safetyClass(candidate)">
                     <div class="p-4">
                       <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div class="min-w-0 flex-1">
-                          <div class="flex flex-wrap items-center gap-1.5">
-                            <span v-if="candidate.selected" class="rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white">현재 선택</span>
-                            <span v-if="candidate.recommended" class="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">자동 추천</span>
-                            <span v-if="candidate.technicalRank === 1" class="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-800">기술 1위</span>
-                            <span v-if="candidate.priceRank === 1" class="rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-bold text-cyan-800">가격 1위</span>
-                            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{{ statusLabel(candidate.status) }}</span>
-                            <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
-                            <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
-                          </div>
-                          <h4 class="mt-2 break-words text-base font-bold text-slate-950">{{ candidate.mpn }}</h4>
-                          <p class="mt-1 text-sm text-slate-500">{{ candidate.manufacturerName ?? '제조사 미확인' }}<span v-if="candidate.packageCode"> · {{ candidate.packageCode }}</span><span v-if="candidate.lifecycleStatus"> · {{ candidate.lifecycleStatus }}</span></p>
-                          <p v-if="candidate.description" class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{{ candidate.description }}</p>
-                          <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-                            <span class="rounded px-2 py-1" :class="verificationClass(candidate)">검증 {{ candidate.verifiedRequirementCount }}/{{ candidate.requiredRequirementCount }}</span>
-                            <span v-if="context.originalMpn !== null" class="rounded bg-blue-50 px-2 py-1 font-semibold text-blue-800">품번 {{ Math.round(candidate.identityConfidence * 100) }}%</span>
-                            <span v-if="candidate.selectionMode === 'spec-compatible' || candidate.specificationConfidence > 0" class="rounded px-2 py-1" :class="verificationClass(candidate)">{{ verificationLabel(candidate) }}</span>
-                            <span v-if="candidate.reasons.includes('mount_style_match')" class="rounded bg-sky-50 px-2 py-1 font-semibold text-sky-800">실장 방식 일치</span>
-                            <span v-if="candidate.reasons.includes('diameter_mm_match')" class="rounded bg-sky-50 px-2 py-1 font-semibold text-sky-800">직경 일치</span>
-                            <span class="rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">공급사 {{ candidate.corroboratingSuppliers.length }}</span>
+                        <div class="flex min-w-0 flex-1 items-start gap-3">
+                          <PartImage
+                            :src="candidate.imageUrl"
+                            :alt="`${candidate.mpn} 부품 이미지`"
+                            class="size-[64px] shrink-0 rounded-lg border border-slate-200 sm:size-[72px]"
+                          />
+                          <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                              <span v-if="candidate.selected" class="rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white">현재 선택</span>
+                              <span v-if="candidate.recommended" class="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">자동 추천</span>
+                              <span v-if="candidate.technicalRank === 1" class="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-800">기술 1위</span>
+                              <span v-if="candidate.priceRank === 1" class="rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-bold text-cyan-800">가격 1위</span>
+                              <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{{ statusLabel(candidate.status) }}</span>
+                              <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
+                              <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
+                            </div>
+                            <h4 class="mt-2 break-words text-base font-bold text-slate-950">{{ candidate.mpn }}</h4>
+                            <p class="mt-1 text-sm text-slate-500">{{ candidate.manufacturerName ?? '제조사 미확인' }}<span v-if="candidate.packageCode"> · {{ candidate.packageCode }}</span><span v-if="candidate.lifecycleStatus"> · {{ candidate.lifecycleStatus }}</span></p>
+                            <p v-if="candidate.description" class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{{ candidate.description }}</p>
+                            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
+                              <span class="rounded px-2 py-1" :class="verificationClass(candidate)">검증 {{ candidate.verifiedRequirementCount }}/{{ candidate.requiredRequirementCount }}</span>
+                              <span v-if="context.originalMpn !== null" class="rounded bg-blue-50 px-2 py-1 font-semibold text-blue-800">품번 {{ Math.round(candidate.identityConfidence * 100) }}%</span>
+                              <span v-if="candidate.selectionMode === 'spec-compatible' || candidate.specificationConfidence > 0" class="rounded px-2 py-1" :class="verificationClass(candidate)">{{ verificationLabel(candidate) }}</span>
+                              <span v-if="candidate.reasons.includes('mount_style_match')" class="rounded bg-sky-50 px-2 py-1 font-semibold text-sky-800">실장 방식 일치</span>
+                              <span v-if="candidate.reasons.includes('diameter_mm_match')" class="rounded bg-sky-50 px-2 py-1 font-semibold text-sky-800">직경 일치</span>
+                              <span class="rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">공급사 {{ candidate.corroboratingSuppliers.length }}</span>
+                            </div>
                           </div>
                         </div>
                         <div class="w-full shrink-0 rounded-xl border border-slate-200 bg-white p-4 lg:w-60">

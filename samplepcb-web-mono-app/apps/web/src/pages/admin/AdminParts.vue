@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import type { PartFacetBucketType, PartHitType } from '@sp/api-contract';
 import { parseSpecToken, type SpecKind } from '@sp/utils';
 import { useDeletePart, usePartDetail, usePartSearch, useRefreshPart, useResetParts, type PartSearchFilters } from '../../admin/useAdminParts';
+import PartImage from '../../components/ui/PartImage.vue';
 
 // 부품 카탈로그 검색 — "검색 콘솔" 카드가 페이지의 시그니처: 단위·표기 자유 검색이
 // 이 페이지의 본질이므로 검색 도구를 하나의 카드로 통합해 주인공으로 세운다.
@@ -440,15 +441,11 @@ function facetLabel(b: PartFacetBucketType): string {
                   @click="toggleDetail(p.id)"
                 >
                   <td class="px-3 py-2 font-medium text-gray-900">
-                    <img
-                      v-if="p.imageUrl !== null"
+                    <PartImage
                       :src="p.imageUrl"
-                      alt=""
-                      loading="lazy"
-                      referrerpolicy="no-referrer"
-                      class="mr-1.5 inline-block size-[28px] rounded border border-gray-200 bg-white object-contain align-middle"
-                      @error="($event.target as HTMLImageElement).style.display = 'none'"
-                    >
+                      :placeholder="null"
+                      class="mr-1.5 inline-block size-[28px] rounded border border-gray-200 align-middle"
+                    />
                     {{ p.mpn }}
                     <span
                       v-if="p.hasSpecConflict"

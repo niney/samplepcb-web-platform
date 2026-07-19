@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import type { PartHitType } from '@sp/api-contract';
 import { useBomPartsSearch } from '../../bom/useBom';
+import PartImage from '../ui/PartImage.vue';
 
 // 부품 교체/추가 모달 — 카탈로그(sp-parts) 검색. 단위·표기 자유(4k7=0.0047M=472).
 
@@ -55,15 +56,11 @@ function submit(): void {
           @click="emit('select', p)"
         >
           <div class="flex flex-wrap items-center gap-2 text-sm">
-            <img
-              v-if="p.imageUrl !== null"
+            <PartImage
               :src="p.imageUrl"
-              alt=""
-              loading="lazy"
-              referrerpolicy="no-referrer"
-              class="size-[32px] rounded border border-gray-200 bg-white object-contain"
-              @error="($event.target as HTMLImageElement).style.display = 'none'"
-            >
+              :placeholder="null"
+              class="size-[32px] rounded border border-gray-200"
+            />
             <span class="font-semibold">{{ p.mpn }}</span>
             <span class="text-gray-500">{{ p.manufacturerName }}</span>
             <span v-if="p.packageCode" class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">{{ p.packageCode }}</span>

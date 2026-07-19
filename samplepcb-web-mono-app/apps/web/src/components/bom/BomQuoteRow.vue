@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed } from 'vue';
 import type { BomQuoteItemType } from '@sp/api-contract';
+import PartImage from '../ui/PartImage.vue';
 import favDigikey from '../../assets/bom/fav-digikey.png';
 import favMouser from '../../assets/bom/fav-mouser.png';
 import favUnikeyic from '../../assets/bom/fav-unikeyic.png';
@@ -32,11 +33,6 @@ const SUPPLIER_META: Record<string, { name: string; icon: string }> = {
   unikeyic: { name: 'UniKeyIC', icon: favUnikeyic },
   samplepcb: { name: 'SamplePCB', icon: favSamplepcb },
 };
-
-// 공급사 CDN 이미지가 깨지면(핫링크 차단 등) 플레이스홀더로 축퇴
-const imageBroken = ref(false);
-watch(() => props.item.partImageUrl, () => { imageBroken.value = false; });
-const imageSrc = computed(() => (imageBroken.value ? null : props.item.partImageUrl));
 
 const stockShort = computed(() => {
   const o = props.item.selectedOffer;
@@ -191,16 +187,10 @@ function onQtyInput(event: Event): void {
             <span class="truncate text-[10px] font-semibold text-[#3b4252]">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
           </div>
           <!-- 부품 이미지(카탈로그 정본 imageUrl) — 실사진이 정사각이라 1:1 유지 -->
-          <img
-            v-if="imageSrc !== null"
-            :src="imageSrc"
-            alt=""
-            loading="lazy"
-            referrerpolicy="no-referrer"
-            class="size-[76px] rounded-md border border-gray-200 bg-white object-contain"
-            @error="imageBroken = true"
-          >
-          <div v-else class="grid size-[76px] place-items-center rounded-md border border-gray-200 bg-gray-50 text-[10px] text-gray-300">IMG</div>
+          <PartImage
+            :src="item.partImageUrl"
+            class="size-[76px] rounded-md border border-gray-200"
+          />
         </div>
         <div class="min-w-0 pt-[22px]">
           <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]" :title="partLabel">{{ partLabel }}</p>
