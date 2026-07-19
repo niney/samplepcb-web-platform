@@ -84,3 +84,23 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 
 운영 ES 설치+deploy.sh 케이스 · xpse pcbparts 2,677건 이관 · EIA-96 코드 · nori ·
 dense_vector 시맨틱 · 재고/가격 라이브 갱신 · 공개(비관리자) 검색+rate limit.
+
+## 부품 정본·자체(samplepcb) 오퍼 (2026-07-19 추가 — 커밋 참조)
+
+부품 정본과 자체 오퍼는 **"그 부품의 전체 실공급사 오퍼"의 함수**다(`lib/parts-facts.ts`,
+인제스트·수동 갱신·백필 `parts:refacts` 전 경로 끝에서 `applyPartFacts` 가 재생성 —
+영속은 캐시, 소유권은 함수).
+
+- **`resolvePartFacts`**: union 보강 + SI 상대오차 0.5% 게이트(표기·정밀도 차이≠충돌) +
+  실충돌은 **다수결 → 공급사 신뢰순위(digikey>mouser>unikeyic) → 최신** 채택,
+  전체 그룹을 `sp_part.specConflicts` 에 기록(관리자 목록 배지+상세 패널, ES `hasSpecConflict`).
+  스펙 판정과 오퍼 선정(상업 조건)은 분리 축 — 최저가 공급사의 오타 스펙이 정본을 오염 못 함.
+  구 mergeSpecs 의 무감지 덮어쓰기·봉투 단위 병합(과거 공급사 스펙 유실) 결함 교정.
+- **`deriveSamplepcbOffer`**: `supplier='samplepcb'` 영속 오퍼 — 재고>0·KRW 우선·최소구간
+  단가 최저 원천 **1개에서 통째 복사**(브레이크 혼합 금지), `rawJson.derivedFrom` 추적,
+  fetchedAt=원천 시각(데이터 나이 정직). 향후 판매가/마진 정책의 유일한 적용 지점.
+- **집계 규칙**: totalStock·offerCount·minPrice 는 실공급사만(파생 이중 계산 방지),
+  suppliers 패싯에는 samplepcb 포함. BOM 견적 `pickDefaultOffer` 후보에서 제외(순환 방지).
+- 백필 실측: 6,469건 재계산 — 실충돌 298건(예: SD05T1G 3사 전압 9.8/5/14.5V — TVS 전압
+  파라미터 해석차 포착), samplepcb 오퍼 6,257건. 골든 15/15 + 통합 29/29(픽스처 prefix
+  SPINGEST/SPTEST 분리로 병렬 레이스 교정).
