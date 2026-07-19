@@ -3,28 +3,15 @@ import type { FastifyBaseLogger, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { BomSupplierOptions } from '@sp/api-contract';
 import { collectMultipart } from '../lib/market';
+import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
 
 // ── /api/admin/bom — BOM 추출 + 공급사 검색 (sp-engine Python 프록시, requireAdmin) ──
 // sp-node 는 인증 경계 + 얇은 프록시. 엔진은 사설망·무인증이며 잡 상태를 소유한다.
 // 응답은 엔진 원본(G-shape 등)을 {result:true,data} 봉투로 감싸 그대로 전달(직렬화
 // 스키마 미지정 → 방대한 결과가 탈락 없이 통과, 클라이언트가 Zod 로 검증).
-const BOM_ENGINE_URL = process.env.BOM_ENGINE_URL ?? 'http://127.0.0.1:8400';
-const BOM_ENGINE_TIMEOUT_MS = Number(process.env.BOM_ENGINE_TIMEOUT_MS ?? 120_000);
 
 const IdParams = z.object({ id: z.string().min(1) });
-
-async function engineFetch(path: string, init?: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, BOM_ENGINE_TIMEOUT_MS);
-  try {
-    return await fetch(`${BOM_ENGINE_URL}${path}`, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 async function proxy(
   reply: FastifyReply,

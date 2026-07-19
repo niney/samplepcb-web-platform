@@ -3,6 +3,7 @@ import type { estypes } from '@elastic/elasticsearch';
 import { z } from 'zod';
 import {
   PartDetailResponse,
+  PartRefreshResponse,
   PartSearchQuery,
   PartSearchResponse,
   type PartHitType,
@@ -13,6 +14,8 @@ import { esClient } from '../es/client';
 import { F, SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
 import { prisma } from '../lib/prisma';
 import { specsSiRecord } from '../lib/parts-es';
+import { engineFetch } from '../lib/engine-client';
+import { ingestSupplierSearchResult } from '../lib/parts-ingest';
 
 // ── /api/admin/parts — 부품 카탈로그 검색(ES) + 상세(DB) (requireAdmin) ──────
 // 쿼리 이해: @sp/utils parseQuery 의 다중 해석을 전부 should(가산점)로 편성 —
@@ -116,6 +119,7 @@ function toHit(doc: SpPartDoc, score: number | null | undefined): PartHitType {
     minPrice: doc.minPrice,
     minPriceCurrency: doc.minPriceCurrency ?? null, // 구 문서(필드 이전 색인) 호환
     totalStock: doc.totalStock,
+    offersFetchedAt: doc.offersFetchedAt ?? null,
     score: score ?? null,
   };
 }
@@ -205,6 +209,10 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           minPrice: null,
           minPriceCurrency: null,
           totalStock: part.offers.reduce((sum, o) => sum + (o.stock ?? 0), 0),
+          offersFetchedAt:
+            part.offers.length === 0
+              ? null
+              : new Date(Math.max(...part.offers.map((o) => o.fetchedAt.getTime()))).toISOString(),
           score: null,
           firstSeenAt: part.firstSeenAt.toISOString(),
           lastSeenAt: part.lastSeenAt.toISOString(),
@@ -224,6 +232,34 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           })),
         },
       };
+    },
+  );
+
+  // 수동 갱신 — 엔진 강제 라이브 단건 검색(캐시 읽기 무시) → 재인제스트.
+  // 자동 갱신은 의도적으로 없다: 검색은 항상 색인 응답, 최신화는 관리자가 이 버튼으로.
+  fastify.post(
+    '/parts/:id/refresh',
+    { schema: { params: IdParams, response: { 200: PartRefreshResponse, 503: SearchUnavailable } } },
+    async (request, reply) => {
+      const part = await prisma.spPart.findUnique({
+        where: { id: request.params.id },
+        select: { mpn: true, manufacturerName: true },
+      });
+      if (part === null) return reply.notFound('부품을 찾을 수 없습니다');
+      let res: Response;
+      try {
+        res = await engineFetch('/parts/refresh', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ part_number: part.mpn, manufacturer: part.manufacturerName }),
+        });
+      } catch {
+        return reply.status(503).send({ result: false as const, error: 'BOM_ENGINE_UNREACHABLE' });
+      }
+      const body: unknown = await res.json().catch(() => null);
+      if (!res.ok) return reply.status(503).send({ result: false as const, error: 'BOM_ENGINE_ERROR' });
+      const stats = await ingestSupplierSearchResult(body);
+      return { result: true as const, data: stats };
     },
   );
 

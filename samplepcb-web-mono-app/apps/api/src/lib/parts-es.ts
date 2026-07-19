@@ -54,8 +54,10 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
   let minPrice: number | null = null;
   let minPriceCurrency: string | null = null;
   let totalStock = 0;
+  let offersFetchedAt: Date | null = null;
   for (const offer of part.offers) {
     totalStock += offer.stock ?? 0;
+    if (offersFetchedAt === null || offer.fetchedAt > offersFetchedAt) offersFetchedAt = offer.fetchedAt;
     const first = [...offer.priceBreaks].sort((a, b) => a.qty - b.qty)[0];
     if (first !== undefined) {
       const p = Number(first.price);
@@ -84,6 +86,7 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     minPrice,
     minPriceCurrency,
     totalStock,
+    offersFetchedAt: offersFetchedAt?.toISOString() ?? null,
     updatedAt: part.lastSeenAt.toISOString(),
   };
 }

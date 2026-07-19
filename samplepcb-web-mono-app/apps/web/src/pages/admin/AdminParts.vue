@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import type { PartFacetBucketType, PartHitType } from '@sp/api-contract';
 import { parseSpecToken, type SpecKind } from '@sp/utils';
-import { usePartDetail, usePartSearch, type PartSearchFilters } from '../../admin/useAdminParts';
+import { usePartDetail, usePartSearch, useRefreshPart, type PartSearchFilters } from '../../admin/useAdminParts';
 
 // 부품 카탈로그 검색 — "검색 콘솔" 카드가 페이지의 시그니처: 단위·표기 자유 검색이
 // 이 페이지의 본질이므로 검색 도구를 하나의 카드로 통합해 주인공으로 세운다.
@@ -52,6 +52,29 @@ const data = computed(() => search.data.value?.data ?? null);
 const items = computed<PartHitType[]>(() => data.value?.items ?? []);
 const detail = usePartDetail(detailId);
 const detailData = computed(() => detail.data.value?.data ?? null);
+const refresh = useRefreshPart();
+const refreshError = ref('');
+
+async function onRefresh(partId: string): Promise<void> {
+  refreshError.value = '';
+  try {
+    await refresh.mutateAsync(partId); // 성공 시 검색·상세 쿼리 자동 무효화 → 화면 갱신
+  } catch {
+    refreshError.value = '갱신 실패 — 엔진(sp-engine) 상태를 확인하세요.';
+  }
+}
+
+/** ISO 시각 → 상대 나이("3시간 전"). null=오퍼 없음. */
+function fmtAge(iso: string | null): string {
+  if (iso === null) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return '방금';
+  if (min < 60) return `${String(min)}분 전`;
+  const hours = Math.floor(min / 60);
+  if (hours < 48) return `${String(hours)}시간 전`;
+  return `${String(Math.floor(hours / 24))}일 전`;
+}
 
 const searchFailed = computed(() => search.isError.value);
 
@@ -186,6 +209,9 @@ function facetLabel(b: PartFacetBucketType): string {
       <h1 class="text-xl font-semibold text-gray-900">부품 검색</h1>
       <p class="mt-1 text-sm text-gray-500">
         단위·표기를 자유롭게 — 접두 환산(4k7=4700=0.0047M)과 관행 표기(104·2p2)를 모두 이해합니다.
+      </p>
+      <p class="mt-0.5 text-xs text-gray-400">
+        검색은 색인된 카탈로그로 즉시 응답 · 카탈로그는 BOM 공급사 검색이 자동 적재 · 재고·가격 최신화는 부품 상세의 [공급사 갱신]
       </p>
     </div>
 
@@ -338,6 +364,7 @@ function facetLabel(b: PartFacetBucketType): string {
                 <th class="min-w-20 whitespace-nowrap px-3 py-2.5">재고</th>
                 <th class="min-w-20 whitespace-nowrap px-3 py-2.5">최저가</th>
                 <th class="px-3 py-2.5">공급사</th>
+                <th class="min-w-20 whitespace-nowrap px-3 py-2.5">데이터 기준</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -355,12 +382,26 @@ function facetLabel(b: PartFacetBucketType): string {
                   <td class="px-3 py-2 tabular-nums">{{ p.totalStock }}</td>
                   <td class="whitespace-nowrap px-3 py-2 tabular-nums">{{ fmtPrice(p.minPrice, p.minPriceCurrency) }}</td>
                   <td class="px-3 py-2 text-gray-500">{{ p.suppliers.join(', ') }}</td>
+                  <td class="whitespace-nowrap px-3 py-2 text-gray-400">{{ fmtAge(p.offersFetchedAt) }}</td>
                 </tr>
                 <!-- 상세(오퍼·가격구간) 확장 행 -->
                 <tr v-if="detailId === p.id">
-                  <td colspan="8" class="bg-gray-50 px-4 py-3">
+                  <td colspan="9" class="bg-gray-50 px-4 py-3">
                     <p v-if="detail.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
                     <div v-else-if="detailData !== null" class="space-y-2">
+                      <!-- 수동 갱신 — 공급사 API 강제 호출 후 재색인 -->
+                      <div class="flex flex-wrap items-center gap-3 text-sm">
+                        <button
+                          type="button"
+                          class="rounded-md border border-blue-600 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                          :disabled="refresh.isPending.value"
+                          @click="onRefresh(p.id)"
+                        >
+                          {{ refresh.isPending.value ? '공급사 조회 중…' : '공급사 갱신' }}
+                        </button>
+                        <span class="text-xs text-gray-400">데이터 기준: {{ fmtAge(detailData.offersFetchedAt) }}</span>
+                        <span v-if="refreshError !== ''" class="text-xs text-red-600">{{ refreshError }}</span>
+                      </div>
                       <div
                         v-for="offer in detailData.offers"
                         :key="`${offer.supplier}-${offer.supplierSku}`"
@@ -371,6 +412,7 @@ function facetLabel(b: PartFacetBucketType): string {
                           <span class="text-gray-500">{{ offer.supplierSku }}</span>
                           <span>재고 <span class="tabular-nums">{{ offer.stock ?? '—' }}</span></span>
                           <span>MOQ <span class="tabular-nums">{{ offer.moq ?? '—' }}</span></span>
+                          <span class="text-xs text-gray-400">{{ fmtAge(offer.fetchedAt) }}</span>
                           <a
                             v-if="offer.productUrl !== null"
                             :href="offer.productUrl"
@@ -392,7 +434,7 @@ function facetLabel(b: PartFacetBucketType): string {
                 </tr>
               </template>
               <tr v-if="items.length === 0">
-                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">
+                <td colspan="9" class="px-3 py-10 text-center text-sm text-gray-400">
                   검색 결과가 없습니다 — 다른 표기로 시도해 보세요 (예: 4.7k ↔ 4k7 ↔ 472)
                 </td>
               </tr>

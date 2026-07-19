@@ -38,6 +38,8 @@ export const PartHit = z.object({
   minPrice: z.number().nullable(),
   minPriceCurrency: z.string().nullable(), // KRW·USD… — UI 가 통화 기호를 결정
   totalStock: z.number().int(),
+  /** 오퍼(재고·가격) 최신 fetchedAt — 데이터 나이 표시용. null=오퍼 없음/구 색인. */
+  offersFetchedAt: z.string().nullable(),
   score: z.number().nullable(),
 });
 export type PartHitType = z.infer<typeof PartHit>;
@@ -95,3 +97,15 @@ export type PartDetailType = z.infer<typeof PartDetail>;
 
 export const PartDetailResponse = z.object({ result: z.literal(true), data: PartDetail });
 export type PartDetailResponseType = z.infer<typeof PartDetailResponse>;
+
+// 수동 갱신([공급사 갱신] 버튼) — 강제 라이브 검색 후 재인제스트 통계
+export const PartRefreshResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    parts: z.number().int(),
+    offers: z.number().int(),
+    indexed: z.number().int(),
+    queued: z.number().int(),
+  }),
+});
+export type PartRefreshResponseType = z.infer<typeof PartRefreshResponse>;

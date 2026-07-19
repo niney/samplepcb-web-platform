@@ -59,6 +59,8 @@ export interface SpPartDoc {
   /** minPrice 가 나온 오퍼의 통화(KRW·USD…) — 표시용. */
   minPriceCurrency: string | null;
   totalStock: number;
+  /** 오퍼 최신 fetchedAt — 데이터 나이 표시·정렬용. */
+  offersFetchedAt: string | null;
   updatedAt: string;
 }
 
@@ -124,6 +126,7 @@ const mappings = {
     offerCount: { type: 'integer' },
     minPrice: { type: 'double' },
     minPriceCurrency: { type: 'keyword' },
+    offersFetchedAt: { type: 'date' },
     totalStock: { type: 'long' },
     updatedAt: { type: 'date' },
   },

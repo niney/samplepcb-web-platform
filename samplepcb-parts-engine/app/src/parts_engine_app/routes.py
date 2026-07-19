@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadF
 from pydantic import BaseModel, Field, model_validator
 
 from .jobs import Job, JobError, JobService, SupplierSearchOptions
+from .refresh import refresh_part
 
 router = APIRouter()
 
@@ -143,3 +144,25 @@ async def get_supplier_result(request: Request, job_id: str) -> dict[str, Any]:
     if job.supplier_status != "completed" or job.supplier_result is None:
         raise HTTPException(status_code=409, detail=f"supplier_search_{job.supplier_status}")
     return job.supplier_result
+
+
+class PartRefreshBody(BaseModel):
+    """단건 부품 수동 갱신 — 부품 검색 화면 [공급사 갱신] 버튼."""
+
+    part_number: str = Field(min_length=1, max_length=191)
+    manufacturer: str | None = None
+    max_calls: int = Field(default=25, ge=1, le=100)
+
+
+@router.post("/parts/refresh")
+async def refresh_single_part(request: Request, body: PartRefreshBody) -> dict[str, Any]:
+    """MPN 1건 강제 라이브 검색(캐시 읽기 무시·쓰기 기록). 응답 {search: BatchSearchResult}."""
+    try:
+        return await refresh_part(
+            _svc(request).config,
+            body.part_number,
+            body.manufacturer,
+            max_calls=body.max_calls,
+        )
+    except Exception as error:  # 공급사/네트워크 오류를 502 로 정규화
+        raise HTTPException(status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}") from error

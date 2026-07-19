@@ -1,8 +1,9 @@
 import { computed, type Ref } from 'vue';
-import { useQuery } from '@tanstack/vue-query';
-import { apiGet } from '@sp/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
+import { apiGet, apiSend } from '@sp/shared';
 import {
   PartDetailResponse,
+  PartRefreshResponse,
   PartSearchResponse,
   apiRoutes,
   type PartSearchQueryType,
@@ -76,5 +77,17 @@ export function usePartDetail(partId: Ref<string | null>) {
     queryFn: () => apiGet(`${apiRoutes.adminParts}/${partId.value ?? ''}`, PartDetailResponse),
     enabled: computed(() => partId.value !== null),
     retry: false,
+  });
+}
+
+// 수동 갱신([공급사 갱신]) — 강제 라이브 검색→재인제스트 후 검색·상세 쿼리 무효화
+export function useRefreshPart() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (partId: string) =>
+      apiSend('POST', `${apiRoutes.adminParts}/${partId}/refresh`, undefined, PartRefreshResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'parts'] });
+    },
   });
 }
