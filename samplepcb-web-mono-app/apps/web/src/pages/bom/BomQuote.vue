@@ -28,6 +28,7 @@ import {
   useRequestBomQuote,
   useSupplierSearchStatus,
 } from '../../bom/useBom';
+import { useBomPanels } from '../../bom/usePanels';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
 import favDigikey from '../../assets/bom/fav-digikey.png';
@@ -43,6 +44,8 @@ import favSamplepcb from '../../assets/bom/fav-samplepcb.png';
 const route = useRoute();
 const router = useRouter();
 const quoteId = computed(() => String(route.params.id ?? ''));
+// 상단바 우측 접기 버튼과 공유 — 이 페이지의 우측 패널(AI 분석결과·주문 정보·예상 견적)
+const { rightOpen } = useBomPanels();
 
 const quote = useBomQuote(computed(() => (quoteId.value === '' ? null : quoteId.value)));
 const detail = computed(() => quote.data.value?.data ?? null);
@@ -635,8 +638,8 @@ function rowClass(item: BomQuoteItemType): string {
         </div>
       </section>
 
-      <!-- 우: 정보 패널 (시안 right side bar — 라이트 치환) -->
-      <aside class="w-full shrink-0 space-y-3 xl:w-[286px]">
+      <!-- 우: 정보 패널 (시안 right side bar — 라이트 치환, 상단바 접기 버튼과 연동) -->
+      <aside v-show="rightOpen" class="w-full shrink-0 space-y-3 xl:w-[286px]">
         <!-- 회신(answered) -->
         <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
           <p class="font-semibold text-emerald-800">담당자 회신</p>

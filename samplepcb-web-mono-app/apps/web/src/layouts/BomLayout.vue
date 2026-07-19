@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { useMyBomQuotes } from '../bom/useBom';
+import { useBomPanels } from '../bom/usePanels';
 import logoIcon from '../assets/bom/logo-partseyes-icon.png';
 import icProfile from '../assets/bom/ic-profile.svg';
 import icFold from '../assets/bom/ic-fold.svg';
@@ -21,11 +22,9 @@ import promoVideo from '../assets/bom/promo-video.png';
 const route = useRoute();
 const auth = useAuthStore();
 
-// 사이드바 접기 — 좌(메뉴)/우(프로모) 각각 토글, 선호는 localStorage 유지
-const leftOpen = ref(localStorage.getItem('bom.leftOpen') !== '0');
-const rightOpen = ref(localStorage.getItem('bom.rightOpen') !== '0');
-watch(leftOpen, (v) => { localStorage.setItem('bom.leftOpen', v ? '1' : '0'); });
-watch(rightOpen, (v) => { localStorage.setItem('bom.rightOpen', v ? '1' : '0'); });
+// 사이드바 접기 — 좌(메뉴)/우(페이지별 우측 패널) 토글. 상세 페이지의 정보 패널
+// (AI 분석결과·주문 정보·예상 견적)도 같은 rightOpen 을 공유한다(usePanels 싱글턴).
+const { leftOpen, rightOpen } = useBomPanels();
 
 // Recent file — 시안의 4행을 실데이터(내 견적 최신 4건)로 채운다
 const list = useMyBomQuotes(ref(1), computed(() => auth.isLoggedIn));
