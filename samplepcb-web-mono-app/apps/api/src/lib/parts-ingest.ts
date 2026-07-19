@@ -1,14 +1,24 @@
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
-import { normalizeMpn, normalizePackageCode, roundSig } from '@sp/utils';
+import { Prisma } from '@prisma/client';
+import { normalizeMpn, normalizePackageCode } from '@sp/utils';
 import { prisma } from './prisma';
 import { resolveManufacturer } from './manufacturer-alias';
 import { buildPartDoc, indexPartDoc, type PartWithOffers } from './parts-es';
+import {
+  SAMPLEPCB_POLICY_VERSION,
+  SAMPLEPCB_SUPPLIER,
+  deriveSamplepcbOffer,
+  resolvePartFacts,
+  type FactsSource,
+} from './parts-facts';
 
 // BOM 공급사 검색 결과(sp-engine envelope) → 부품 카탈로그 자동 인제스트.
 // 전 경로 idempotent: part=(mpnNorm,manufacturerNorm) · offer=(partId,supplier,sku) upsert,
 // price break 는 fetch 단위 replace-all. DB 성공 후 ES 색인 — 실패는 큐 적재(드레인이 재시도).
 // VERIFIED 등 매칭 상태는 BOM 문맥이므로 저장하지 않는다(카탈로그=사실 데이터).
+//
+// 부품 정본(스펙·설명)과 자체(samplepcb) 오퍼는 "전체 실공급사 오퍼"의 함수(parts-facts)로,
+// 오퍼 upsert 뒤 항상 applyPartFacts 가 재계산한다 — 영속은 캐시, 소유권은 함수.
 
 // ── 엔진 페이로드 계약(느슨한 재검증 — 원본 pydantic 이 진실원본, 여긴 방어선) ──
 const EnginePriceBreak = z.object({
@@ -68,18 +78,6 @@ const EngineEnvelope = z
 type EngineProductT = z.infer<typeof EngineProduct>;
 type EngineOfferT = z.infer<typeof EngineOffer>;
 
-// 엔진 normalized_specs 키 → ES SI 필드(SPEC_SI_FIELD 값과 일치)
-const ENGINE_SPEC_FIELD: Record<string, string> = {
-  resistance_ohm: 'resistanceOhm',
-  capacitance_f: 'capacitanceF',
-  inductance_h: 'inductanceH',
-  power_w: 'powerW',
-  tolerance_percent: 'tolerancePct',
-  voltage_v: 'voltageV',
-  current_a: 'currentA',
-  frequency_hz: 'frequencyHz',
-};
-
 export interface IngestStats {
   parts: number;
   offers: number;
@@ -113,27 +111,6 @@ function groupProducts(products: EngineProductT[]): ProductGroup[] {
   return [...byKey.values()];
 }
 
-function mergeSpecs(group: ProductGroup): { specsJson: Record<string, unknown>; specsSi: Record<string, number> } {
-  const specsJson: Record<string, unknown> = {};
-  const specsSi: Record<string, number> = {};
-  for (const p of group.products) {
-    for (const [key, value] of Object.entries(p.normalized_specs)) {
-      if (value === null || value === undefined) continue;
-      specsJson[key] = value;
-      const field = ENGINE_SPEC_FIELD[key];
-      if (field !== undefined && typeof value === 'number' && Number.isFinite(value)) {
-        specsSi[field] = roundSig(value);
-      }
-    }
-  }
-  return { specsJson, specsSi };
-}
-
-function firstNonNull<T>(items: (T | null | undefined)[]): T | null {
-  for (const v of items) if (v !== null && v !== undefined && v !== ('' as unknown as T)) return v;
-  return null;
-}
-
 /** 오퍼 병합: (supplier, sku) 당 최신 fetched_at 1건. */
 function mergeOffers(group: ProductGroup): { offer: EngineOfferT; raw: EngineProductT }[] {
   const byKey = new Map<string, { offer: EngineOfferT; raw: EngineProductT }>();
@@ -148,28 +125,22 @@ function mergeOffers(group: ProductGroup): { offer: EngineOfferT; raw: EnginePro
 }
 
 async function upsertGroup(group: ProductGroup): Promise<{ partId: bigint; offers: number }> {
-  const { specsJson, specsSi } = mergeSpecs(group);
-  const rawPackage = firstNonNull(group.products.map((p) => p.package));
-  const canonPkg = rawPackage === null ? null : normalizePackageCode(rawPackage);
-  const packageCode = (canonPkg?.[0] ?? rawPackage?.toUpperCase() ?? null)?.slice(0, 32) ?? null;
   const now = new Date();
 
-  const common = {
-    manufacturerName: group.manufacturerName,
-    description: firstNonNull(group.products.map((p) => p.description)),
-    category: firstNonNull(group.products.map((p) => p.category)),
-    packageCode,
-    lifecycle: firstNonNull(group.products.map((p) => p.lifecycle_status)),
-    datasheetUrl: firstNonNull(group.products.map((p) => p.datasheet_url))?.slice(0, 500) ?? null,
-    specsJson: specsJson as Prisma.InputJsonValue,
-    specsSi: specsSi as Prisma.InputJsonValue,
-    lastSeenAt: now,
-  };
-
+  // 정본 필드(스펙·설명 등)는 여기서 채우지 않는다 — 오퍼 upsert 뒤 applyPartFacts 가
+  // "전체 오퍼" 기준으로 계산한다(이번 봉투만 보던 병합의 시간축 유실 방지).
   const part = await prisma.spPart.upsert({
     where: { mpnNorm_manufacturerNorm: { mpnNorm: group.mpnNorm, manufacturerNorm: group.manufacturerNorm } },
-    create: { mpn: group.mpn, mpnNorm: group.mpnNorm, manufacturerNorm: group.manufacturerNorm, ...common },
-    update: common,
+    create: {
+      mpn: group.mpn,
+      mpnNorm: group.mpnNorm,
+      manufacturerNorm: group.manufacturerNorm,
+      manufacturerName: group.manufacturerName,
+      specsJson: {},
+      specsSi: {},
+      lastSeenAt: now,
+    },
+    update: { manufacturerName: group.manufacturerName, lastSeenAt: now },
     select: { id: true },
   });
 
@@ -222,7 +193,124 @@ async function upsertGroup(group: ProductGroup): Promise<{ partId: bigint; offer
       }
     });
   }
+
+  await applyPartFacts(part.id);
   return { partId: part.id, offers: merged.length };
+}
+
+// rawJson(공급사 원본 product) 중 정본 계산에 쓰는 필드만 — 느슨한 재검증
+const RawProductFacts = z
+  .object({
+    normalized_specs: z.record(z.string(), z.unknown()).default({}),
+    description: z.string().nullish(),
+    category: z.string().nullish(),
+    package: z.string().nullish(),
+    lifecycle_status: z.string().nullish(),
+    datasheet_url: z.string().nullish(),
+  })
+  .passthrough();
+
+/**
+ * 부품 정본(스펙·설명·specConflicts) + 자체(samplepcb) 오퍼 재계산 — 전체 실공급사
+ * 오퍼 기준. 인제스트·수동 갱신·백필 모든 경로의 종착점(idempotent).
+ */
+export async function applyPartFacts(partId: bigint): Promise<void> {
+  const part = await loadPartWithOffers(partId);
+  if (part === null) return;
+  const real = part.offers.filter((o) => o.supplier !== SAMPLEPCB_SUPPLIER);
+  if (real.length === 0) return; // 원천 없음 — 기존 정본을 비우지 않는다(방어)
+
+  const sources: FactsSource[] = real.map((o) => {
+    const raw = RawProductFacts.safeParse(o.rawJson);
+    const d = raw.success ? raw.data : undefined;
+    return {
+      supplier: o.supplier,
+      fetchedAt: o.fetchedAt,
+      specs: d?.normalized_specs ?? {},
+      description: d?.description ?? null,
+      category: d?.category ?? null,
+      packageCode: d?.package ?? null,
+      lifecycle: d?.lifecycle_status ?? null,
+      datasheetUrl: d?.datasheet_url ?? null,
+    };
+  });
+  const facts = resolvePartFacts(sources);
+  const canonPkg = facts.packageCode === null ? null : normalizePackageCode(facts.packageCode);
+  const packageCode = (canonPkg?.[0] ?? facts.packageCode?.toUpperCase() ?? null)?.slice(0, 32) ?? null;
+  const hasConflicts = Object.keys(facts.specConflicts).length > 0;
+
+  await prisma.spPart.update({
+    where: { id: partId },
+    data: {
+      description: facts.description,
+      category: facts.category,
+      packageCode,
+      lifecycle: facts.lifecycle,
+      datasheetUrl: facts.datasheetUrl?.slice(0, 500) ?? null,
+      specsJson: facts.specsJson as Prisma.InputJsonValue,
+      specsSi: facts.specsSi,
+      specConflicts: hasConflicts ? (facts.specConflicts as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+    },
+  });
+
+  // 자체(samplepcb) 오퍼 — 원천 1개에서 통째 복사(공급사 간 브레이크 혼합 금지)
+  const chosen = deriveSamplepcbOffer(
+    real.map((o) => ({
+      supplier: o.supplier,
+      supplierSku: o.supplierSku,
+      productUrl: o.productUrl,
+      stock: o.stock,
+      moq: o.moq,
+      orderMultiple: o.orderMultiple,
+      packaging: o.packaging,
+      currency: o.currency,
+      leadTime: o.leadTime,
+      fetchedAt: o.fetchedAt,
+      priceBreaks: o.priceBreaks.map((pb) => ({ qty: pb.qty, price: Number(pb.price), currency: pb.currency })),
+    })),
+  );
+
+  if (chosen === null) {
+    await prisma.spPartOffer.deleteMany({ where: { partId, supplier: SAMPLEPCB_SUPPLIER } });
+    return;
+  }
+  const sku = part.mpnNorm.slice(0, 191);
+  const offerData = {
+    productUrl: null, // 자체 오퍼 — 외부 상품 링크는 derivedFrom 으로만 추적
+    stock: chosen.stock,
+    moq: chosen.moq,
+    orderMultiple: chosen.orderMultiple,
+    packaging: chosen.packaging,
+    currency: chosen.currency,
+    leadTime: chosen.leadTime,
+    rawJson: {
+      derivedFrom: {
+        supplier: chosen.supplier,
+        supplierSku: chosen.supplierSku,
+        fetchedAt: chosen.fetchedAt.toISOString(),
+      },
+      policyVersion: SAMPLEPCB_POLICY_VERSION,
+    } as Prisma.InputJsonValue,
+    fetchedAt: chosen.fetchedAt, // 데이터 나이 표시의 정직성 — 원천 시각 그대로
+  };
+  await prisma.$transaction(async (tx) => {
+    // sku 정책 변경 등으로 남은 과거 파생 행 정리
+    await tx.spPartOffer.deleteMany({
+      where: { partId, supplier: SAMPLEPCB_SUPPLIER, NOT: { supplierSku: sku } },
+    });
+    const row = await tx.spPartOffer.upsert({
+      where: { partId_supplier_supplierSku: { partId, supplier: SAMPLEPCB_SUPPLIER, supplierSku: sku } },
+      create: { partId, supplier: SAMPLEPCB_SUPPLIER, supplierSku: sku, ...offerData },
+      update: offerData,
+      select: { id: true },
+    });
+    await tx.spPartPriceBreak.deleteMany({ where: { offerId: row.id } });
+    if (chosen.priceBreaks.length > 0) {
+      await tx.spPartPriceBreak.createMany({
+        data: chosen.priceBreaks.map((pb) => ({ offerId: row.id, qty: pb.qty, price: pb.price, currency: pb.currency })),
+      });
+    }
+  });
 }
 
 async function loadPartWithOffers(partId: bigint): Promise<PartWithOffers | null> {
@@ -232,7 +320,7 @@ async function loadPartWithOffers(partId: bigint): Promise<PartWithOffers | null
   });
 }
 
-async function tryIndexPart(partId: bigint): Promise<boolean> {
+export async function tryIndexPart(partId: bigint): Promise<boolean> {
   const part = await loadPartWithOffers(partId);
   if (part === null) return false;
   try {

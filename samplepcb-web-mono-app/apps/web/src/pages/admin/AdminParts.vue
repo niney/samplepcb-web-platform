@@ -374,7 +374,14 @@ function facetLabel(b: PartFacetBucketType): string {
                   :class="{ 'bg-blue-50/60': detailId === p.id }"
                   @click="toggleDetail(p.id)"
                 >
-                  <td class="px-3 py-2 font-medium text-gray-900">{{ p.mpn }}</td>
+                  <td class="px-3 py-2 font-medium text-gray-900">
+                    {{ p.mpn }}
+                    <span
+                      v-if="p.hasSpecConflict"
+                      class="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+                      title="공급사 간 스펙이 서로 다릅니다 — 상세에서 확인"
+                    >스펙 충돌</span>
+                  </td>
                   <td class="px-3 py-2">{{ p.manufacturerName }}</td>
                   <td class="px-3 py-2">{{ p.packageCode }}</td>
                   <td class="whitespace-nowrap px-3 py-2 text-gray-600">{{ specSummary(p.specsSi) }}</td>
@@ -402,6 +409,20 @@ function facetLabel(b: PartFacetBucketType): string {
                         <span class="text-xs text-gray-400">데이터 기준: {{ fmtAge(detailData.offersFetchedAt) }}</span>
                         <span v-if="refreshError !== ''" class="text-xs text-red-600">{{ refreshError }}</span>
                       </div>
+                      <!-- 스펙 충돌 — 채택값(첫 그룹)과 나머지 공급사 값을 병기 -->
+                      <div
+                        v-if="detailData.specConflicts !== null"
+                        class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
+                      >
+                        <p class="mb-1 font-semibold">공급사 간 스펙 충돌 — 첫 값이 채택값(다수결→신뢰순위→최신)</p>
+                        <div v-for="(groups, field) in detailData.specConflicts" :key="field" class="mt-0.5">
+                          <span class="font-medium">{{ field }}</span>:
+                          <span v-for="(g, gi) in groups" :key="gi" class="ml-1.5">
+                            <span :class="gi === 0 ? 'font-semibold' : 'line-through opacity-70'">{{ g.value }}</span>
+                            <span class="opacity-70">({{ g.suppliers.join(',') }})</span>
+                          </span>
+                        </div>
+                      </div>
                       <div
                         v-for="offer in detailData.offers"
                         :key="`${offer.supplier}-${offer.supplierSku}`"
@@ -409,6 +430,11 @@ function facetLabel(b: PartFacetBucketType): string {
                       >
                         <div class="flex flex-wrap items-center gap-3">
                           <span class="font-medium">{{ offer.supplier }}</span>
+                          <span
+                            v-if="offer.derivedFrom !== null"
+                            class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+                            :title="`원천: ${offer.derivedFrom.supplier} ${offer.derivedFrom.supplierSku}`"
+                          >자체 · {{ offer.derivedFrom.supplier }} 기반</span>
                           <span class="text-gray-500">{{ offer.supplierSku }}</span>
                           <span>재고 <span class="tabular-nums">{{ offer.stock ?? '—' }}</span></span>
                           <span>MOQ <span class="tabular-nums">{{ offer.moq ?? '—' }}</span></span>

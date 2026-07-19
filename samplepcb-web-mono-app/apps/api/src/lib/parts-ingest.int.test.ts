@@ -13,9 +13,9 @@ import {
 import { ingestSupplierSearchResult } from './parts-ingest';
 
 const RUN = process.env.PARTS_IT === '1';
-const MPN = 'SPTEST-INGEST-GRM155R71C104KA88D';
-const MOUSER_SKU = '81-SPTEST-INGEST';
-const DIGIKEY_SKU = '490-SPTEST-INGEST';
+const MPN = 'SPINGEST-GRM155R71C104KA88D';
+const MOUSER_SKU = '81-SPINGEST';
+const DIGIKEY_SKU = '490-SPINGEST';
 
 interface PriceBreakInput {
   quantity: number;
@@ -148,12 +148,18 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
     if (part === null) return;
     expect(part.manufacturerNorm).toBe('murata');
     expect(part.packageCode).toBe('0402');
-    expect(part.offers).toHaveLength(2);
+    // 실공급사 2 + 자체(samplepcb) 파생 1 — applyPartFacts 가 항상 재생성한다
+    expect(part.offers).toHaveLength(3);
     const mouser = part.offers.find((offer) => offer.supplier === 'mouser');
     const digikey = part.offers.find((offer) => offer.supplier === 'digikey');
+    const own = part.offers.find((offer) => offer.supplier === 'samplepcb');
     expect(mouser?.stock).toBe(1_000);
     expect(mouser?.priceBreaks.map((price) => price.qty).sort((a, b) => a - b)).toEqual([1, 100]);
     expect(digikey?.stock).toBe(200);
+    // 파생 오퍼: 원천 통째 복사 + derivedFrom 추적(둘 다 USD·재고>0 → 최소구간 단가 mouser 0.0123 < digikey 0.013)
+    expect(own).toBeDefined();
+    expect((own?.rawJson as { derivedFrom?: { supplier?: string } }).derivedFrom?.supplier).toBe('mouser');
+    expect(own?.stock).toBe(mouser?.stock);
 
     // 같은 오퍼의 새 스냅샷은 가격구간 replace-all, 다른 공급사 오퍼는 보존한다.
     const updated = envelope([
@@ -191,12 +197,16 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
       where: { id: part.id },
       include: { offers: { include: { priceBreaks: true } } },
     });
-    expect(refreshed?.offers).toHaveLength(2);
+    expect(refreshed?.offers).toHaveLength(3); // 실공급사 2 + samplepcb 파생
     const refreshedMouser = refreshed?.offers.find((offer) => offer.supplier === 'mouser');
     expect(refreshedMouser?.stock).toBe(1_500);
     expect(refreshedMouser?.priceBreaks.map((price) => [price.qty, Number(price.price)])).toEqual([
       [10, 0.009],
     ]);
+    // 파생 오퍼도 최신 원천으로 추종(mouser 0.009 < digikey 0.013)
+    const refreshedOwn = refreshed?.offers.find((offer) => offer.supplier === 'samplepcb');
+    expect((refreshedOwn?.rawJson as { derivedFrom?: { supplier?: string } }).derivedFrom?.supplier).toBe('mouser');
+    expect(refreshedOwn?.stock).toBe(1_500);
 
     await esClient().indices.refresh({ index: SP_PARTS_READ });
     const indexed = await esClient().get<SpPartDoc>({ index: SP_PARTS_READ, id: String(part.id) });

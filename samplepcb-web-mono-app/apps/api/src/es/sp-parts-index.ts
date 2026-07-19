@@ -61,6 +61,8 @@ export interface SpPartDoc {
   totalStock: number;
   /** 오퍼 최신 fetchedAt — 데이터 나이 표시·정렬용. */
   offersFetchedAt: string | null;
+  /** 공급사 간 스펙 실충돌 존재 여부(specConflicts) — 관리자 배지용. 구 색인 문서는 undefined. */
+  hasSpecConflict: boolean | undefined;
   updatedAt: string;
 }
 
@@ -128,6 +130,7 @@ const mappings = {
     minPriceCurrency: { type: 'keyword' },
     offersFetchedAt: { type: 'date' },
     totalStock: { type: 'long' },
+    hasSpecConflict: { type: 'boolean' },
     updatedAt: { type: 'date' },
   },
 } satisfies estypes.MappingTypeMapping;

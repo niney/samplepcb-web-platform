@@ -27,7 +27,8 @@
     "market:seed-anchor": "tsx --env-file=.env src/scripts/seed-market-anchor-item.ts",
     "db:migrate": "prisma migrate dev",
     "clean": "rimraf dist .turbo",
-    "parts:reindex": "tsx --env-file=.env src/scripts/parts-reindex.ts"
+    "parts:reindex": "tsx --env-file=.env src/scripts/parts-reindex.ts",
+    "parts:refacts": "tsx --env-file=.env src/scripts/parts-refacts.ts"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^9.4.2",

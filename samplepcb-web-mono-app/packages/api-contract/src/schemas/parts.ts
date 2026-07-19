@@ -10,7 +10,7 @@ export const PartPriceBreak = z.object({
 export type PartPriceBreakType = z.infer<typeof PartPriceBreak>;
 
 export const PartOfferView = z.object({
-  supplier: z.string(), // mouser|digikey|unikeyic|… (공급사 추가 = 값 추가, 스키마 무변경)
+  supplier: z.string(), // mouser|digikey|unikeyic|samplepcb|… (공급사 추가 = 값 추가, 스키마 무변경)
   supplierSku: z.string(),
   productUrl: z.string().nullable(),
   stock: z.number().int().nullable(),
@@ -20,6 +20,8 @@ export const PartOfferView = z.object({
   currency: z.string().nullable(),
   priceBreaks: z.array(PartPriceBreak),
   fetchedAt: z.string(),
+  /** samplepcb 자체(파생) 오퍼의 원천 — 실공급사 오퍼는 null. */
+  derivedFrom: z.object({ supplier: z.string(), supplierSku: z.string(), fetchedAt: z.string() }).nullable(),
 });
 export type PartOfferViewType = z.infer<typeof PartOfferView>;
 
@@ -40,6 +42,8 @@ export const PartHit = z.object({
   totalStock: z.number().int(),
   /** 오퍼(재고·가격) 최신 fetchedAt — 데이터 나이 표시용. null=오퍼 없음/구 색인. */
   offersFetchedAt: z.string().nullable(),
+  /** 공급사 간 스펙 실충돌 존재 — 관리자 배지용(구 색인 문서는 서버가 false 로 보정). */
+  hasSpecConflict: z.boolean(),
   score: z.number().nullable(),
 });
 export type PartHitType = z.infer<typeof PartHit>;
@@ -87,8 +91,17 @@ export const PartSearchResponse = z.object({
 });
 export type PartSearchResponseType = z.infer<typeof PartSearchResponse>;
 
+export const PartSpecConflictGroup = z.object({
+  value: z.unknown(),
+  suppliers: z.array(z.string()),
+  fetchedAt: z.string(),
+});
+export type PartSpecConflictGroupType = z.infer<typeof PartSpecConflictGroup>;
+
 export const PartDetail = PartHit.extend({
   specsJson: z.record(z.string(), z.unknown()),
+  /** field → 값 그룹들(채택 그룹이 첫 번째). null=충돌 없음. */
+  specConflicts: z.record(z.string(), z.array(PartSpecConflictGroup)).nullable(),
   offers: z.array(PartOfferView),
   firstSeenAt: z.string(),
   lastSeenAt: z.string(),

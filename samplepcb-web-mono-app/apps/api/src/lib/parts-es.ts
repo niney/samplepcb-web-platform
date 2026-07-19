@@ -9,6 +9,7 @@ import {
 } from '@sp/utils';
 import { esClient } from '../es/client';
 import { SP_PARTS_WRITE, type SpPartDoc } from '../es/sp-parts-index';
+import { SAMPLEPCB_SUPPLIER } from './parts-facts';
 
 // SpPart(DB 진실원본) → sp-parts 검색 요약 문서 빌드 + 색인.
 // 문서는 언제든 DB 에서 재구축 가능(parts:reindex) — ES 는 파생물이다.
@@ -49,13 +50,16 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     pkgVariants = canon === null ? [part.packageCode] : canon.flatMap((c) => packageVariants(c));
   }
 
-  // 오퍼 요약 — 대표 단가는 각 오퍼의 최소수량 구간 단가 중 최저(통화 병기)
+  // 오퍼 요약 — 대표 단가는 각 오퍼의 최소수량 구간 단가 중 최저(통화 병기).
+  // 집계(재고·건수·최저가)는 실공급사만 — samplepcb 파생 오퍼를 넣으면 원천과
+  // 이중 계산된다. 패싯(suppliers)에는 samplepcb 포함(검색 필터 가치).
   const suppliers = [...new Set(part.offers.map((o) => o.supplier))];
+  const realOffers = part.offers.filter((o) => o.supplier !== SAMPLEPCB_SUPPLIER);
   let minPrice: number | null = null;
   let minPriceCurrency: string | null = null;
   let totalStock = 0;
   let offersFetchedAt: Date | null = null;
-  for (const offer of part.offers) {
+  for (const offer of realOffers) {
     totalStock += offer.stock ?? 0;
     if (offersFetchedAt === null || offer.fetchedAt > offersFetchedAt) offersFetchedAt = offer.fetchedAt;
     const first = [...offer.priceBreaks].sort((a, b) => a.qty - b.qty)[0];
@@ -82,11 +86,15 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     specVariants: [...specVariants],
     ...si,
     suppliers,
-    offerCount: part.offers.length,
+    offerCount: realOffers.length,
     minPrice,
     minPriceCurrency,
     totalStock,
     offersFetchedAt: offersFetchedAt?.toISOString() ?? null,
+    hasSpecConflict:
+      part.specConflicts !== null &&
+      typeof part.specConflicts === 'object' &&
+      Object.keys(part.specConflicts).length > 0,
     updatedAt: part.lastSeenAt.toISOString(),
   };
 }
