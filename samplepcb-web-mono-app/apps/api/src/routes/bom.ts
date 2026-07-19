@@ -5,6 +5,7 @@ import { BomSupplierOptions, PartDetailResponse, PartSearchQuery, PartSearchResp
 import { esClient } from '../es/client';
 import { SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
 import { ingestJobResult, jobOwnedBy, proxyEngine, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
+import { refreshQuotesForJob } from '../lib/bom-quote';
 import { getBomQuoteConfig } from '../lib/sp-config';
 import { loadPartDetailDto } from '../lib/parts-read';
 import { prisma } from '../lib/prisma';
@@ -93,7 +94,14 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       undefined,
       200,
     );
-    if (reply.statusCode === 200) void ingestJobResult(request.params.id, request.log); // 백업 훅
+    if (reply.statusCode === 200) {
+      // 백업 훅 — 인제스트 후 연결된 draft 견적까지 재매칭(폴러 유실·재시작 내성)
+      void ingestJobResult(request.params.id, request.log)
+        .then(async () => refreshQuotesForJob(request.params.id))
+        .catch((error: unknown) => {
+          request.log.warn({ jobId: request.params.id, err: String(error) }, '백업 견적 재매칭 실패');
+        });
+    }
     return out;
   });
 

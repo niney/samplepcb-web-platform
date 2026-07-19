@@ -14,7 +14,7 @@ import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
 import { getBomQuoteConfig } from '../lib/sp-config';
-import { recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
+import { ingestJobResult, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
 import {
   buildItemsFromEngineResult,
   canTransition,
@@ -51,31 +51,50 @@ async function loadOwnQuote(id: bigint, mbId: string) {
   return quote;
 }
 
-// ── 조용한 자동 보강 — build 직후 서버가 판단·실행(고객에겐 상태 라벨만) ────────
+// ── 조용한 자동 보강 — build 가 "시작"까지 동기 확정(응답 enriching 플래그) ─────
 // 필요 조건: included 미매칭 라인 존재 OR 오퍼 데이터 나이 > freshnessHours.
 // 비용 게이트: preflight 로 예상 호출 확인 → 한도 내면 라이브, 초과·일일 소진이면
-// cache_only(0콜). 완료 시 인제스트 폴러가 견적 draft 를 자동 재매칭(refreshQuoteFromCatalog).
+// cache_only(0콜). 검색 시작을 응답 전에 확정하므로 FE 첫 상태 폴이 반드시 running
+// 을 관측한다(폴링 경합 원천 제거). 완료·재매칭(refreshQuoteFromCatalog)은 백그라운드.
+// 반환: 검색을 실제로 시작했는지.
+/** 보강 필요 판정 — included 미매칭 또는 오퍼 나이 > freshnessHours (build 선판정·autoEnrich 공용). */
+function enrichNeeded(
+  items: { included: boolean; matchStatus: string; selectedOffer: { fetchedAt: string } | null }[],
+  freshnessHours: number,
+): boolean {
+  const now = Date.now();
+  const freshMs = freshnessHours * 3_600_000;
+  return items.some(
+    (i) =>
+      i.included &&
+      (i.matchStatus === 'none' ||
+        (i.selectedOffer !== null && now - new Date(i.selectedOffer.fetchedAt).getTime() > freshMs)),
+  );
+}
+
 async function autoEnrichQuote(
   quoteId: bigint,
   jobId: string,
   mbId: string,
   log: Parameters<typeof startIngestPoller>[1],
-): Promise<void> {
+): Promise<boolean> {
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
-  if (quote?.status !== 'draft') return;
+  if (quote?.status !== 'draft') return false;
   const config = await getBomQuoteConfig();
 
-  const now = Date.now();
-  const freshMs = config.freshnessHours * 3_600_000;
   const items = quote.items.map(toItemDto);
-  const hasUnmatched = items.some((i) => i.included && i.matchStatus === 'none');
-  const hasStale = items.some(
-    (i) =>
-      i.included &&
-      i.selectedOffer !== null &&
-      now - new Date(i.selectedOffer.fetchedAt).getTime() > freshMs,
-  );
-  if (!hasUnmatched && !hasStale) return; // 전부 신선 — 0콜로 끝
+  if (!enrichNeeded(items, config.freshnessHours)) {
+    // 전부 신선 — 0콜로 끝. build 가 선점해 둔 searching 이 있으면 idle 로 되돌린다.
+    if (quote.enrichStatus === 'searching') {
+      await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'idle' } }).catch(() => undefined);
+    }
+    return false;
+  }
+
+  const markFailed = async (): Promise<false> => {
+    await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'failed' } }).catch(() => undefined);
+    return false;
+  };
 
   let cacheOnly = false;
   try {
@@ -84,7 +103,7 @@ async function autoEnrichQuote(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ max_calls: config.supplierSearchMaxCalls, cache_only: false, reset_cache: false }),
     });
-    if (!pfRes.ok) return;
+    if (!pfRes.ok) return await markFailed();
     const pf = (await pfRes.json()) as { plan?: { estimated_within_job_limit?: boolean; estimated_api_calls?: number } };
     if (pf.plan?.estimated_within_job_limit !== true) cacheOnly = true; // 초대형 BOM — 캐시만
     const liveCalls = (pf.plan?.estimated_api_calls ?? 0) > 0;
@@ -92,7 +111,7 @@ async function autoEnrichQuote(
       cacheOnly = true; // 일일 한도 소진 — 캐시만
     }
   } catch {
-    return; // 엔진 불가 — 카탈로그 데이터로 그대로(다음 업로드에 재시도)
+    return markFailed(); // 엔진 불가 — 카탈로그 데이터로 그대로(다음 업로드에 재시도)
   }
 
   try {
@@ -101,14 +120,57 @@ async function autoEnrichQuote(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ max_calls: config.supplierSearchMaxCalls, cache_only: cacheOnly, reset_cache: false }),
     });
-    if (res.status !== 202 && !res.ok) return;
+    if (res.status !== 202 && !res.ok) return await markFailed();
   } catch {
-    return;
+    return markFailed();
   }
+  // 응답 전에 searching 을 영속 — 이후 어떤 조회(새로고침·타기기)든 같은 진실을 본다
+  await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'searching' } });
   log.info({ quoteId: String(quoteId), jobId, cacheOnly }, '자동 보강 검색 시작');
   startIngestPoller(jobId, log, async () => {
-    await refreshQuoteFromCatalog(quoteId);
+    await refreshQuoteFromCatalog(quoteId); // enrichStatus=done 포함 커밋
   });
+  return true;
+}
+
+// ── 게으른 치유 — searching 견적 조회 시 상태를 수렴시킨다(재시작·폴러 유실 내성) ──
+// 엔진 running → 유지 · completed → 인제스트+재매칭(done) · 잡 소멸/엔진 다운 → failed.
+// fire-and-forget: 고객의 3초 폴링이 곧 치유 트리거 — 다음 폴이 수렴된 상태를 받는다.
+const healInFlight = new Set<string>();
+
+async function healEnrichment(
+  quoteId: bigint,
+  jobId: string,
+  log: Parameters<typeof startIngestPoller>[1],
+): Promise<void> {
+  const key = String(quoteId);
+  if (healInFlight.has(key)) return;
+  healInFlight.add(key);
+  try {
+    let status: string;
+    try {
+      const res = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search`);
+      if (res.ok) {
+        const body = (await res.json()) as { status?: string };
+        status = typeof body.status === 'string' ? body.status : 'unknown';
+      } else {
+        status = 'gone'; // 404 등 — 엔진 재시작으로 인메모리 잡 소실
+      }
+    } catch {
+      status = 'gone'; // 엔진 다운
+    }
+    if (status === 'running' || status === 'unknown') return;
+    if (status === 'completed') {
+      await ingestJobResult(jobId, log);
+      await refreshQuoteFromCatalog(quoteId); // enrichStatus=done 포함 커밋
+      return;
+    }
+    // gone·failed — 검색 결과를 받을 수 없음: 최종 판정으로 전환
+    await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'failed' } });
+    log.warn({ quoteId: key, jobId, engineStatus: status }, '자동 보강 치유 — failed 로 종결');
+  } finally {
+    healInFlight.delete(key);
+  }
 }
 
 export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
@@ -214,6 +276,13 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
   fastify.get('/bom/quotes/:id', { schema: { params: IdParams, response: { 200: BomQuoteDetailResponse } } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    // 게으른 치유 — searching 견적은 조회가 곧 수렴 트리거(고객 폴링이 갭도 단축)
+    if (quote.status === 'draft' && quote.enrichStatus === 'searching' && quote.engineJobId !== null) {
+      const jobId = quote.engineJobId;
+      void healEnrichment(quote.id, jobId, request.log).catch((error: unknown) => {
+        request.log.warn({ quoteId: String(quote.id), err: String(error) }, '자동 보강 치유 실패');
+      });
+    }
     return { result: true as const, data: toDetailDto(quote, quote.items) };
   });
 
@@ -222,7 +291,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     quoteId: bigint,
     computed: QuoteComputed,
     usdKrwRate: number | null,
-    extra?: { title?: string; setQty?: number; spareQty?: number; customerMemo?: string | null },
+    extra?: { title?: string; setQty?: number; spareQty?: number; customerMemo?: string | null; enrichStatus?: string },
   ): Promise<void> {
     await replaceQuoteItems(quoteId, computed.items);
     await prisma.spBomQuote.update({
@@ -236,6 +305,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         ...(extra?.setQty !== undefined ? { setQty: extra.setQty } : {}),
         ...(extra?.spareQty !== undefined ? { spareQty: extra.spareQty } : {}),
         ...(extra?.customerMemo !== undefined ? { customerMemo: extra.customerMemo } : {}),
+        ...(extra?.enrichStatus !== undefined ? { enrichStatus: extra.enrichStatus } : {}),
       },
     });
   }
@@ -263,13 +333,22 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const config = await getBomQuoteConfig();
     await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, false);
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
-    await persistComputed(quote.id, computed, config.usdKrwRate);
-
-    // 조용한 자동 보강 — 응답을 막지 않는다(고객은 카탈로그 견적을 즉시 보고, 완료 시 갱신)
-    const jobId = quote.engineJobId;
-    void autoEnrichQuote(quote.id, jobId, request.user.mbId, request.log).catch((error: unknown) => {
-      request.log.warn({ quoteId: String(quote.id), err: String(error) }, '자동 보강 실패');
+    // 보강 필요를 동기 선판정해 items 와 searching 을 함께 커밋 — "items 는 있는데 idle"
+    // 창(그 순간 조회하면 전 라인 빨간 미매칭 렌더, 실측 ~1.2s)을 제거한다.
+    // autoEnrichQuote 가 시작 실패 시 failed, (이례적) 불필요 판정 시 idle 로 되돌린다.
+    const willEnrich = enrichNeeded(computed.items, config.freshnessHours);
+    await persistComputed(quote.id, computed, config.usdKrwRate, {
+      enrichStatus: willEnrich ? 'searching' : 'idle',
     });
+
+    // 조용한 자동 보강 — 검색 "시작"까지만 동기(수백 ms)로 확정. enrichStatus=searching 이
+    // 응답에 실려 FE 가 즉시 "확인 중" 모드로 들어간다. 완료·재매칭은 백그라운드.
+    const jobId = quote.engineJobId;
+    try {
+      await autoEnrichQuote(quote.id, jobId, request.user.mbId, request.log);
+    } catch (error: unknown) {
+      request.log.warn({ quoteId: String(quote.id), err: String(error) }, '자동 보강 실패');
+    }
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');

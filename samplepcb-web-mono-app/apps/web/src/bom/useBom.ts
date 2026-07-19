@@ -32,12 +32,17 @@ export function useMyBomQuotes(page: Ref<number>, enabled: Ref<boolean>) {
   });
 }
 
-export function useBomQuote(quoteId: Ref<string | null>) {
+/**
+ * refetchInterval: 자동 보강 진행 중 실시간 반영용 — 반드시 반응형(Ref/computed)이어야 한다.
+ * 일반 함수는 vue-query 가 fetch 직후에만 재평가해, false 로 한 번 굳으면 폴링이 재개되지 않는다.
+ */
+export function useBomQuote(quoteId: Ref<string | null>, refetchInterval?: Ref<number | false>) {
   return useQuery({
     queryKey: computed(() => ['bom', 'quote', quoteId.value]),
     queryFn: () => apiGet(`${base}/quotes/${quoteId.value ?? ''}`, BomQuoteDetailResponse),
     enabled: computed(() => quoteId.value !== null),
     retry: false,
+    ...(refetchInterval === undefined ? {} : { refetchInterval }),
   });
 }
 
@@ -53,7 +58,7 @@ export function useCreateBomQuote() {
   });
 }
 
-function useQuoteMutation<TInput>(fn: (input: TInput) => Promise<unknown>) {
+function useQuoteMutation<TInput, TOut>(fn: (input: TInput) => Promise<TOut>) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,

@@ -497,6 +497,8 @@ model SpBomQuote {
   confirmedShippingFee   Int?
   confirmedManagementFee Int?
   confirmedTotal         Int?
+  enrichStatus           String           @default("idle") @db.VarChar(12) // idle|searching|done|failed — 자동 보강 생명주기(단일 진실)
+  enrichedAt             DateTime? // 마지막 보강 반영(재매칭 저장) 시각
   requestedAt            DateTime?
   answeredAt             DateTime?
   createdAt              DateTime         @default(now())

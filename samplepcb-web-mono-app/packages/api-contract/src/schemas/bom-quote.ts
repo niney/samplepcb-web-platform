@@ -77,6 +77,10 @@ export type BomQuoteSummaryType = z.infer<typeof BomQuoteSummary>;
 
 export const BomQuoteDetail = BomQuoteSummary.extend({
   engineJobId: z.string().nullable(),
+  /** 자동 보강 생명주기(서버 영속 단일 진실) — searching 동안 FE 는 "확인 중" UI + 폴링. */
+  enrichStatus: z.enum(['idle', 'searching', 'done', 'failed']),
+  /** 마지막 보강 반영(재매칭 저장) 시각. */
+  enrichedAt: z.string().nullable(),
   setQty: z.number().int().min(1),
   spareQty: z.number().int().min(0),
   /** 부품 합계(KRW, included 라인) — 서버 재계산 스냅샷. */

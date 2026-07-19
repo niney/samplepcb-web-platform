@@ -28,6 +28,7 @@
 - `sp_bom_quote`(SpBomQuote): mbId·title·status·fileName·contentHash(SHA-256)·
   engineJobId(엔진 인메모리 잡 — 재시작 시 소멸)·setQty/spareQty·
   **예상 스냅샷**(itemsTotal/shippingFee/managementFee/finalTotal/usdKrwRateUsed/uncostedCount)·
+  **enrichStatus/enrichedAt(자동 보강 생명주기 — 서버 영속 단일 진실)**·
   customerMemo·adminMemo(내부)·answerNote(고객 노출)·confirmed*(관리자 확정)·requestedAt/answeredAt
 - `sp_bom_quote_item`(SpBomQuoteItem): rowIdx·included·mpn·bomQty·**orderQty(박제 수량 = 단일 진실)**·
   matchStatus(auto|manual|none)·partId(sp_part 느슨한 참조, FK 없음)·
@@ -59,13 +60,35 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   신선하면 0콜로 종료.
 - **비용 게이트**: preflight 예상 호출이 한도 내면 라이브 검색(일일 카운트 1회), 한도
   초과(초대형 BOM)·일일 소진이면 `cache_only`(0콜). 엔진 불가면 조용히 생략(카탈로그 데이터 유지).
-- **완료 반영**: 인제스트 폴러 콜백 `refreshQuoteFromCatalog` — 기존 라인은 오퍼 정체성
-  (공급사+SKU) 보존한 스냅샷 최신화(pinned 포함, orderQty 보존·신규 MOQ/배수 재적용),
-  미매칭 라인은 재매칭. FE 는 running 감지 시 "가격·재고 확인 중…" 표시, 완료 시
-  onlyUnmatched 재매칭을 즉시 당기고(멱등) 갱신 토스트.
+- **생명주기 상태 기계(2026-07-19 정석화)**: `sp_bom_quote.enrichStatus`
+  (`idle|searching|done|failed`) + `enrichedAt` — **서버 영속 단일 진실**. 전이:
+  build 가 보강 필요를 동기 선판정해 **items 와 `searching` 을 함께 커밋**("items 는 있는데
+  idle" 창 제거 — 그 창에서 조회되면 전 라인이 빨간 미매칭으로 렌더됐다, 실측 ~1.2s) 후
+  검색 개시를 확정(실패 시 failed·불필요 시 idle 로 되돌림) → 반영(`refreshQuoteFromCatalog`)이 매칭 라인과
+  `done`+`enrichedAt` 을 **한 저장으로 커밋**(상태·데이터 원자성 — "검색 완료 후 빨간
+  미매칭 깜빡임"이 불가능해짐) → 시작 실패·잡 소실은 `failed`(최종 판정 표시).
+- **완료 반영 경로 3중**: ① 인제스트 폴러 onDone ② 결과 조회 백업 훅 `refreshQuotesForJob`
+  (engineJobId 역조회) ③ **게으른 치유** — `searching` 견적의 상세 GET 이 엔진 상태를 확인해
+  completed 면 인제스트+재매칭을 즉발(고객의 3초 폴링이 곧 치유 트리거 — 갭 단축 겸용),
+  잡 소실·엔진 다운이면 `failed` 로 종결. 어떤 재시작 후에도 조회만으로 상태가 수렴한다.
+  반영 자체는 오퍼 정체성(공급사+SKU) 보존 스냅샷 최신화(pinned 포함, orderQty 보존·신규
+  MOQ/배수 재적용) + 미매칭 재매칭.
+- **접미사 변형 매칭(2026-07-19)**: 카탈로그 매칭은 정확 mpnNorm 우선, 없으면 프리픽스+
+  잔여 ≤4자 폴백(길이 ≥6 가드) — 고객이 베이스 품번(TLV70225DBV)만 적고 공급사는
+  접미사형(…DBVR/…DBVT)만 파는 관행 대응(엔진 verified_variant 와 정합). 동시성 견고화:
+  인제스트 동시 호출은 완료를 공유 대기(부분 카탈로그 재매칭 방지), 견적 재매칭은
+  quote 단위 직렬화, FE 는 done 후 8초 정착 refetch.
+- **"확인 중" UI**: `enrichStatus==='searching'` 이면 미매칭 라인은 빨간 "미매칭" 대신 파란
+  "확인 중"(펄스, 중립 행) — 빨간 미매칭은 `done/failed` 후의 **최종 판정**에만. 진행 배너
+  (검색 중엔 엔진 progress %, 엔진 완료 후엔 "결과를 반영하고 있습니다" 100%)·우측 통계
+  "확인 중" 카드·합계 노트·견적요청 비활성("가격 확인 중…"). searching 동안 견적 3초 폴링,
+  searching→done 전환 토스트. 자동저장 replace-all 경합은 dirty 가드(편집 중 동기화 스킵)
+  + done 시 잔여 미매칭 1회 재매칭(멱등)으로 치유.
 - 라인 오퍼에 "기준 N일 전" 나이 배지(데이터 정직성 — 방금 조회처럼 보이지 않게).
 - 라이브 검증: 카탈로그 미보유 STM32F030F4P6 업로드 → build 미매칭 → 고객 개입 0으로
-  자동 검색→적재→실 Mouser 오퍼(₩3,042) 매칭·합계 갱신 확인.
+  자동 검색→적재→실 Mouser 오퍼(₩3,042) 매칭·합계 갱신 확인. 2026-07-19 초기화 상태
+  (카탈로그 3건)에서 3부품 CSV 재검증 — 업로드 즉시 "확인 중" 모드, 완료 후 3/3 매칭
+  (Mouser·Digikey 실오퍼)·합계 갱신·버튼 활성.
 
 ## 비용 정책 (sp_config `bom_quote` — 관리자 설정 승격)
 

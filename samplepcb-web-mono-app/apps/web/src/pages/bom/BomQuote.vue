@@ -50,7 +50,13 @@ const quoteId = computed(() => String(route.params.id ?? ''));
 // 상단바 우측 접기 버튼과 공유 — 이 페이지의 우측 패널(AI 분석결과·주문 정보·예상 견적)
 const { rightOpen } = useBomPanels();
 
-const quote = useBomQuote(computed(() => (quoteId.value === '' ? null : quoteId.value)));
+// 자동 보강(searching) 동안 견적을 3초 폴링 — done 은 매칭 라인과 같은 응답으로
+// 도착하므로(서버가 한 저장으로 커밋) 링거·타임아웃 휴리스틱이 필요 없다
+const enrichPolling = ref(false);
+const quote = useBomQuote(
+  computed(() => (quoteId.value === '' ? null : quoteId.value)),
+  computed(() => (enrichPolling.value ? 3_000 : false)),
+);
 const detail = computed(() => quote.data.value?.data ?? null);
 const isDraft = computed(() => detail.value?.status === 'draft');
 
@@ -95,6 +101,7 @@ watch(
   detail,
   (d) => {
     if (d === null) return;
+    if (dirty.value) return; // 편집 중(자동저장 대기) — 폴링 응답이 로컬 편집을 덮지 않게
     items.value = d.items.map((i) => ({ ...i, selectedOffer: i.selectedOffer === null ? null : { ...i.selectedOffer } }));
     setQty.value = d.setQty;
     spareQty.value = d.spareQty;
@@ -211,30 +218,47 @@ const itemsTotal = computed(() =>
 const uncostedCount = computed(() => items.value.filter((i) => i.included && i.lineTotalKrw === null).length);
 const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee ?? 0) + (detail.value?.managementFee ?? 0));
 
-// ── 조용한 자동 보강 상태 — 서버(build)가 판단·시작하므로 FE 는 상태 표시만 ────
+// ── 조용한 자동 보강 상태 — 서버 영속 enrichStatus 가 단일 진실 ─────────────────
+// searching 이면 "확인 중" UI + 3초 폴링. done 은 매칭 라인과 원자적으로 도착하고,
+// 재시작·잡 유실은 서버의 게으른 치유(조회 시 수렴)가 처리한다.
 const catalogMatch = useCatalogMatchBomQuote();
 const compareOpen = ref(false);
+// settling: done 직후 안전망 재매칭이 도는 동안 — 이때도 "확인 중"을 유지해
+// 재매칭으로 곧 바뀔 라인이 잠깐 빨간 미매칭으로 보이는 마지막 창을 닫는다
+const settling = ref(false);
+const enriching = computed(() => detail.value?.enrichStatus === 'searching' || settling.value);
 const supplierStatus = useSupplierSearchStatus(
   computed(() => detail.value?.engineJobId ?? null),
-  computed(() => isDraft.value && !needsBuild.value),
+  enriching, // 진행률(%) 표시에만 필요
 );
 const supplierResult = useSupplierSearchResult(
   computed(() => detail.value?.engineJobId ?? null),
   compareOpen,
 );
-const enriching = computed(() => supplierStatus.data.value?.data.status === 'running');
+// 검색은 끝났고 서버가 결과를 견적에 반영(인제스트→재매칭)하는 중
+const applying = computed(() => enriching.value && supplierStatus.data.value?.data.status === 'completed');
+const enrichProgress = computed(() => (applying.value ? 100 : (supplierStatus.data.value?.data.progress ?? 3)));
 const refreshedNotice = ref(false);
 
+watch(enriching, (now) => (enrichPolling.value = now), { immediate: true });
+
+// searching → done 전환: 토스트 + 자동저장(replace-all) 경합으로 유실됐을 수 있는
+// 잔여 미매칭 1회 재매칭(멱등 — 진짜 못 찾은 부품이면 no-op)
 watch(
-  () => supplierStatus.data.value?.data.status,
+  () => detail.value?.enrichStatus,
   (now, prev) => {
-    if (prev !== 'running' || now !== 'completed' || !isDraft.value) return;
-    void catalogMatch.mutateAsync({ quoteId: quoteId.value, onlyUnmatched: true }).catch(() => undefined);
-    setTimeout(() => {
-      void quote.refetch();
-    }, 7_000);
+    if (prev !== 'searching' || now !== 'done') return;
     refreshedNotice.value = true;
-    setTimeout(() => (refreshedNotice.value = false), 5_000);
+    setTimeout(() => (refreshedNotice.value = false), 6_000);
+    if (items.value.some((i) => i.included && i.matchStatus === 'none')) {
+      settling.value = true; // 재매칭이 끝날 때까지 최종 판정(빨간 미매칭) 유보
+      void catalogMatch
+        .mutateAsync({ quoteId: quoteId.value, onlyUnmatched: true })
+        .catch(() => undefined)
+        .finally(() => (settling.value = false));
+    }
+    // 정착 refetch — done 이후 서버측 늦은 쓰기(중복 경로의 후속 재매칭)가 있어도 수렴
+    setTimeout(() => void quote.refetch(), 8_000);
   },
 );
 
@@ -456,7 +480,8 @@ function fmtAge(iso: string): string {
 
 function rowClass(item: BomQuoteItemType): string {
   if (!item.included) return 'opacity-45';
-  if (item.matchStatus === 'none') return 'bg-[#fdf2f2]'; // 미매칭 — 시안 분홍
+  // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
+  if (item.matchStatus === 'none') return enriching.value ? 'bg-white' : 'bg-[#fdf2f2]';
   if (isStockShort(item)) return 'bg-[#fdf8e7]'; // 재고 부족 — 시안 노랑
   return 'bg-white';
 }
@@ -502,11 +527,7 @@ function rowClass(item: BomQuoteItemType): string {
                 <span class="text-[14px]">↥</span> 업로드
               </button>
               <span class="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{{ STATUS_LABEL[detail.status] }}</span>
-              <span v-if="enriching" class="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-                가격·재고 확인 중… ({{ supplierStatus.data.value?.data.progress ?? 0 }}%)
-              </span>
-              <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">최신 가격·재고로 갱신되었습니다</span>
+              <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">가격·재고 확인 완료 — 최신 결과로 갱신되었습니다</span>
             </div>
             <p class="mt-1 pl-6 text-[13px] text-[#5f6777]">{{ stats.total }}개 부품</p>
           </div>
@@ -532,6 +553,20 @@ function rowClass(item: BomQuoteItemType): string {
             >
               <span class="text-[16px] leading-none">+</span> 추가
             </button>
+          </div>
+        </div>
+
+        <!-- 자동 보강 진행 배너 — 완료되면 서버가 재매칭한 결과가 폴링으로 자동 반영된다 -->
+        <div v-if="enriching" class="mt-3 rounded-lg bg-blue-50 px-4 py-2.5 ring-1 ring-blue-100">
+          <div class="flex items-center justify-between gap-3 text-[13px] text-blue-700">
+            <span class="flex items-center gap-2">
+              <span class="size-2 animate-pulse rounded-full bg-blue-500" />
+              {{ applying ? '검색 완료 — 결과를 반영하고 있습니다…' : '공급사에서 가격·재고를 확인하고 있습니다 — 완료되면 자동으로 반영됩니다' }}
+            </span>
+            <span class="font-semibold tabular-nums">{{ enrichProgress }}%</span>
+          </div>
+          <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-blue-100">
+            <div class="h-full rounded-full bg-blue-500 transition-all duration-700" :style="{ width: `${String(enrichProgress)}%` }" />
           </div>
         </div>
 
@@ -642,7 +677,11 @@ function rowClass(item: BomQuoteItemType): string {
                 <!-- TOTAL: 기존 매칭 배지(Found 대체) + 합계 -->
                 <td class="px-2 py-3 text-right">
                   <div class="flex flex-col items-end gap-1.5 pt-1">
-                    <span v-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600">미매칭</span>
+                    <!-- 보강 진행 중엔 "확인 중"(파랑) — 빨간 미매칭은 보강이 끝난 뒤의 최종 판정 -->
+                    <span v-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
+                      <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
+                    </span>
+                    <span v-else-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600">미매칭</span>
                     <span v-else-if="isStockShort(item)" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">재고 부족</span>
                     <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]">매칭</span>
                     <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
@@ -700,9 +739,10 @@ function rowClass(item: BomQuoteItemType): string {
               <span class="text-[11px] font-bold uppercase tracking-wide text-amber-700">Nostock</span>
               <span class="text-[18px] font-bold tabular-nums text-amber-600">{{ stats.nostock }}</span>
             </div>
-            <div class="flex items-center justify-between rounded-lg bg-red-50 px-3 py-2.5">
-              <span class="text-[11px] font-bold uppercase tracking-wide text-red-700">Unmatched</span>
-              <span class="text-[18px] font-bold tabular-nums text-red-600">{{ stats.unmatched }}</span>
+            <!-- 보강 진행 중엔 "확인 중"(파랑) — 최종 미매칭 판정과 구분 -->
+            <div class="flex items-center justify-between rounded-lg px-3 py-2.5" :class="enriching ? 'bg-blue-50' : 'bg-red-50'">
+              <span class="text-[11px] font-bold uppercase tracking-wide" :class="enriching ? 'text-blue-700' : 'text-red-700'">{{ enriching ? '확인 중' : 'Unmatched' }}</span>
+              <span class="text-[18px] font-bold tabular-nums" :class="enriching ? 'text-blue-600' : 'text-red-600'">{{ stats.unmatched }}</span>
             </div>
           </div>
         </div>
@@ -754,7 +794,10 @@ function rowClass(item: BomQuoteItemType): string {
                 <span class="text-[20px] font-bold tabular-nums text-[#1e64fd]">{{ fmtWon(finalTotal) }}</span>
               </div>
             </div>
-            <p v-if="uncostedCount > 0" class="rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다</p>
+            <p v-if="uncostedCount > 0" class="rounded px-2 py-1.5 text-[11px]" :class="enriching ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'">
+              <template v-if="enriching">가격 확인 중인 라인 {{ uncostedCount }}건 — 완료되면 합계에 반영됩니다</template>
+              <template v-else>금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다</template>
+            </p>
             <p class="pt-1 text-[11px] leading-[16px] text-gray-400">· AI로 산출한 가견적입니다.<br>· 정확한 가격은 담당자 확정 시 안내드립니다.</p>
           </div>
         </div>
@@ -765,10 +808,11 @@ function rowClass(item: BomQuoteItemType): string {
             v-if="isDraft"
             type="button"
             class="flex h-[48px] w-full items-center justify-center gap-1.5 rounded-xl bg-[#1e64fd] text-[15px] font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-            :disabled="request.isPending.value || stats.included === 0"
+            :disabled="request.isPending.value || stats.included === 0 || enriching"
+            :title="enriching ? '가격·재고 확인이 끝나면 요청할 수 있습니다' : undefined"
             @click="openRequestModal"
           >
-            📄 견적요청
+            {{ enriching ? '가격 확인 중…' : '📄 견적요청' }}
           </button>
           <!-- draft=하드 삭제(2단계 확인) · requested=요청 취소(관리자 워크플로 존중) -->
           <template v-if="detail.status === 'draft'">

@@ -33,21 +33,34 @@ const POLL_MS = 5_000;
 const POLL_MAX_TRIES = 120;
 const pollers = new Map<string, NodeJS.Timeout>();
 const ingestedJobs = new Set<string>();
+const ingestInFlight = new Map<string, Promise<void>>();
 
 export async function ingestJobResult(jobId: string, log: FastifyBaseLogger): Promise<void> {
   if (ingestedJobs.has(jobId)) return;
-  ingestedJobs.add(jobId);
-  try {
-    const res = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/result`);
-    if (!res.ok) {
-      ingestedJobs.delete(jobId);
-      return;
+  // 동시 호출(폴러+치유+백업 훅)은 같은 인제스트의 "완료"를 기다린다 — 즉시 반환하면
+  // 호출부가 절반만 적재된 카탈로그로 재매칭해 부분 반영이 생긴다.
+  const inFlight = ingestInFlight.get(jobId);
+  if (inFlight !== undefined) return inFlight;
+  const run = (async (): Promise<void> => {
+    ingestedJobs.add(jobId);
+    try {
+      const res = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/result`);
+      if (!res.ok) {
+        ingestedJobs.delete(jobId);
+        return;
+      }
+      const stats = await ingestSupplierSearchResult(await res.json());
+      log.info({ jobId, ...stats }, '부품 카탈로그 자동 인제스트 완료');
+    } catch (error) {
+      ingestedJobs.delete(jobId); // 다음 기회(백업 훅/재조회)에 재시도
+      log.warn({ jobId, err: String(error) }, '부품 카탈로그 자동 인제스트 실패');
     }
-    const stats = await ingestSupplierSearchResult(await res.json());
-    log.info({ jobId, ...stats }, '부품 카탈로그 자동 인제스트 완료');
-  } catch (error) {
-    ingestedJobs.delete(jobId); // 다음 기회(백업 훅/재조회)에 재시도
-    log.warn({ jobId, err: String(error) }, '부품 카탈로그 자동 인제스트 실패');
+  })();
+  ingestInFlight.set(jobId, run);
+  try {
+    await run;
+  } finally {
+    ingestInFlight.delete(jobId);
   }
 }
 

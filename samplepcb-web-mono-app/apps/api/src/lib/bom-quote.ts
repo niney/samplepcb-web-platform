@@ -153,11 +153,22 @@ export async function catalogMatchItems(
     const mpnNorm = normalizeMpn(item.mpn);
     if (mpnNorm === '') continue;
 
-    const parts = await prisma.spPart.findMany({
+    let parts = await prisma.spPart.findMany({
       where: { mpnNorm },
       include: { offers: { include: { priceBreaks: true } } },
       take: 5,
     });
+    if (parts.length === 0 && mpnNorm.length >= 6) {
+      // 포장 접미사 변형 폴백(엔진 verified_variant 와 동일 취지) — 고객은 베이스 품번
+      // (TLV70225DBV)만 적고 공급사는 접미사형(…DBVR/…DBVT)만 파는 관행 대응.
+      // 잔여 접미사 ≤4자(R·T·TR·CT·G4·RG4…)만 허용해 다른 부품 오인을 차단한다.
+      const prefixed = await prisma.spPart.findMany({
+        where: { mpnNorm: { startsWith: mpnNorm } },
+        include: { offers: { include: { priceBreaks: true } } },
+        take: 10,
+      });
+      parts = prefixed.filter((p) => p.mpnNorm.length - mpnNorm.length <= 4);
+    }
     if (parts.length === 0) {
       if (!onlyUnmatched) {
         item.partId = null;
@@ -233,8 +244,24 @@ export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdK
 /**
  * 자동 보강 완료 후 견적 반영 — draft 한정. 기존 라인은 스냅샷 최신화(정체성 보존),
  * 미매칭 라인은 카탈로그 재매칭으로 채운 뒤 합계 재계산·영속.
+ * 동시 호출(폴러 onDone+치유+백업 훅)은 직렬화 — replace-all 저장이 겹치지 않게.
  */
+const refreshInFlight = new Map<string, Promise<void>>();
+
 export async function refreshQuoteFromCatalog(quoteId: bigint): Promise<void> {
+  const key = String(quoteId);
+  const inFlight = refreshInFlight.get(key);
+  if (inFlight !== undefined) return inFlight;
+  const run = refreshQuoteFromCatalogInner(quoteId);
+  refreshInFlight.set(key, run);
+  try {
+    await run;
+  } finally {
+    refreshInFlight.delete(key);
+  }
+}
+
+async function refreshQuoteFromCatalogInner(quoteId: bigint): Promise<void> {
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
   if (quote?.status !== 'draft') return;
   const config = await getBomQuoteConfig();
@@ -250,8 +277,29 @@ export async function refreshQuoteFromCatalog(quoteId: bigint): Promise<void> {
       finalTotal: result.finalTotal,
       uncostedCount: result.uncostedCount,
       usdKrwRateUsed: config.usdKrwRate,
+      // 상태와 데이터를 같은 저장으로 커밋 — FE 는 done 과 매칭 라인을 한 응답으로 받는다
+      enrichStatus: 'done',
+      enrichedAt: new Date(),
     },
   });
+}
+
+/**
+ * 잡의 검색 결과가 (백업 훅 등으로) 인제스트된 뒤, 그 잡에 연결된 draft 견적을 재매칭.
+ * sp-node 재시작으로 인제스트 폴러(onDone)가 유실됐을 때의 내성 — "카탈로그엔 있는데
+ * 견적은 미매칭" 고착 방지. 미매칭 라인이 없으면 건드리지 않는다.
+ */
+export async function refreshQuotesForJob(jobId: string): Promise<void> {
+  const quotes = await prisma.spBomQuote.findMany({
+    where: { engineJobId: jobId, status: 'draft' },
+    select: { id: true, enrichStatus: true, items: { select: { included: true, matchStatus: true } } },
+  });
+  for (const quote of quotes) {
+    const hasUnmatched = quote.items.some((i) => i.included && i.matchStatus === 'none');
+    // searching 은 미매칭이 없어도(신선도 보강) 반영해 done 으로 종결시킨다
+    if (quote.enrichStatus !== 'searching' && !hasUnmatched) continue;
+    await refreshQuoteFromCatalog(quote.id);
+  }
 }
 
 function round2(n: number): number {
@@ -380,6 +428,8 @@ export function toDetailDto(quote: QuoteRow, items: QuoteItemRow[]): BomQuoteDet
   return {
     ...toSummaryDto(quote, items),
     engineJobId: quote.engineJobId,
+    enrichStatus: quote.enrichStatus as BomQuoteDetailType['enrichStatus'],
+    enrichedAt: quote.enrichedAt?.toISOString() ?? null,
     setQty: quote.setQty,
     spareQty: quote.spareQty,
     itemsTotal: quote.itemsTotal,
