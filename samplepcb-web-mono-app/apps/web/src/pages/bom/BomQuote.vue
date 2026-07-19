@@ -24,6 +24,7 @@ import {
   useBuildBomQuote,
   useCancelBomQuote,
   useCatalogMatchBomQuote,
+  useDeleteBomQuote,
   usePatchBomQuote,
   useRequestBomQuote,
   useSupplierSearchResult,
@@ -404,6 +405,26 @@ async function onCancel(): Promise<void> {
   }
 }
 
+// draft 삭제 — 하드 삭제(항목·원본 파일 정리, 사용자 결정: 취소 대신 삭제 제공).
+// 되돌릴 수 없어 같은 버튼이 확정으로 변전하는 2단계 확인.
+const del = useDeleteBomQuote();
+const deleteArm = ref(false);
+
+function armDelete(): void {
+  deleteArm.value = true;
+  setTimeout(() => (deleteArm.value = false), 5_000); // 5초 내 미확정 시 해제
+}
+
+async function onDelete(): Promise<void> {
+  deleteArm.value = false;
+  try {
+    await del.mutateAsync(quoteId.value);
+    await router.push({ name: 'bom' });
+  } catch {
+    // draft 아님 등 — 화면 갱신으로 확인
+  }
+}
+
 // ── 표시 헬퍼 ────────────────────────────────────────────────────────────────
 const STATUS_LABEL: Record<string, string> = {
   draft: '작성 중',
@@ -749,13 +770,33 @@ function rowClass(item: BomQuoteItemType): string {
           >
             📄 견적요청
           </button>
+          <!-- draft=하드 삭제(2단계 확인) · requested=요청 취소(관리자 워크플로 존중) -->
+          <template v-if="detail.status === 'draft'">
+            <button
+              v-if="!deleteArm"
+              type="button"
+              class="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-600 hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+              :disabled="del.isPending.value"
+              @click="armDelete"
+            >
+              {{ del.isPending.value ? '삭제 중…' : '견적 삭제' }}
+            </button>
+            <button
+              v-else
+              type="button"
+              class="w-full rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
+              @click="onDelete"
+            >
+              정말 삭제 — 되돌릴 수 없습니다
+            </button>
+          </template>
           <button
-            v-if="detail.status === 'draft' || detail.status === 'requested'"
+            v-else-if="detail.status === 'requested'"
             type="button"
             class="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50"
             @click="onCancel"
           >
-            {{ detail.status === 'draft' ? '작성 취소' : '요청 취소' }}
+            요청 취소
           </button>
         </div>
       </aside>
