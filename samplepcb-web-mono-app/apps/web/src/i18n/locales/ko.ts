@@ -6,6 +6,9 @@ export const ko = {
   common: {
     backToSite: '사이트로',
   },
+  nav: {
+    smartBom: '스마트 BOM',
+  },
   auth: {
     greeting: '{nick}님',
     notLoggedIn: '로그인하지 않음',

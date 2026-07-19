@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 
 const auth = useAuthStore();
+const route = useRoute();
 </script>
 
 <template>
@@ -11,6 +13,13 @@ const auth = useAuthStore();
     >
       <div class="flex items-center gap-3">
         <RouterLink to="/" class="text-lg font-bold text-blue-600">{{ $t('app.name') }}</RouterLink>
+        <RouterLink
+          :to="{ name: 'bom' }"
+          class="rounded-md px-2.5 py-1 text-sm font-medium text-gray-700 hover:bg-gray-100"
+          active-class="bg-blue-50 text-blue-700"
+        >
+          {{ $t('nav.smartBom') }}
+        </RouterLink>
         <RouterLink
           v-if="auth.me?.isAdmin"
           :to="{ name: 'admin' }"
@@ -33,7 +42,7 @@ const auth = useAuthStore();
       </div>
     </header>
 
-    <main class="mx-auto max-w-3xl px-6 py-8">
+    <main :class="route.meta.wide === true ? 'mx-auto max-w-7xl px-6 py-8' : 'mx-auto max-w-3xl px-6 py-8'">
       <RouterView />
     </main>
   </div>

@@ -3,6 +3,9 @@ import { useAuthStore } from '@sp/shared';
 import DefaultLayout from './layouts/DefaultLayout.vue';
 import AdminLayout from './layouts/AdminLayout.vue';
 import Home from './pages/Home.vue';
+import BomHome from './pages/bom/BomHome.vue';
+import BomQuote from './pages/bom/BomQuote.vue';
+import { appPath, loginUrl } from './lib/auth-urls';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
 import AdminQuotes from './pages/admin/AdminQuotes.vue';
 import AdminOrders from './pages/admin/AdminOrders.vue';
@@ -22,17 +25,27 @@ import AdminMarketSettings from './pages/admin/AdminMarketSettings.vue';
 declare module 'vue-router' {
   interface RouteMeta {
     requiresAdmin?: boolean;
+    /** 회원 전용 화면 — 비로그인은 그누보드 로그인으로 왕복. */
+    requiresMember?: boolean;
+    /** 넓은 본문 레이아웃(BOM 워크벤치 등 테이블 중심 화면). */
+    wide?: boolean;
   }
 }
 
-// sp-vue 는 사실상 관리자 앱 — 고객 대면 화면은 sp-php(`/`) 담당이라 /admin 하위가
-// 실질 본문이다. 미구현 메뉴(주문/상품/통계/설정)는 placeholder 로 두지 않고 제거,
-// 기능이 생길 때 라우트·메뉴·i18n 을 함께 추가한다.
+// sp-vue 는 관리자 콘솔 + 일반(회원) 화면을 함께 담는다(2026-07-19 스마트 BOM 부터
+// 공개 라우트 그룹 신설 — 이전의 "관리자 전용" 전제 변경). 고객 단순 화면은 여전히
+// sp-php(`/`) 담당, SPA 급 인터랙션이 필요한 화면만 여기(/app) 또는 sp-market.
+// 미구현 메뉴는 placeholder 로 두지 않고 제거, 기능이 생길 때 라우트·메뉴·i18n 동시 추가.
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: DefaultLayout,
-    children: [{ path: '', name: 'home', component: Home }],
+    children: [
+      { path: '', name: 'home', component: Home },
+      // 고객 스마트 BOM 견적 — 회원 전용(레거시 spSmartBomV2 재설계, docs/BOM_QUOTE.md)
+      { path: 'bom', name: 'bom', component: BomHome, meta: { requiresMember: true, wide: true } },
+      { path: 'bom/:id', name: 'bom-quote', component: BomQuote, meta: { requiresMember: true, wide: true } },
+    ],
   },
   {
     path: '/admin',
@@ -64,11 +77,18 @@ export const router = createRouter({
   routes,
 });
 
-// 관리자 접근 가드 — UX용. 실제 보안은 sp-node 가 JWT 의 isAdmin 을 검증한다.
+// 접근 가드 — UX용. 실제 보안은 sp-node 가 JWT(isAdmin·mbId)를 검증한다.
 router.beforeEach((to) => {
-  if (!to.meta.requiresAdmin) return true;
   const auth = useAuthStore();
-  if (!auth.isLoggedIn) return { name: 'home' };
-  if (!auth.me?.isAdmin) return { name: 'home' };
+  if (to.meta.requiresAdmin) {
+    if (!auth.isLoggedIn) return { name: 'home' };
+    if (!auth.me?.isAdmin) return { name: 'home' };
+    return true;
+  }
+  if (to.meta.requiresMember && !auth.isLoggedIn) {
+    // 그누보드 로그인 왕복 — 로그인 후 원래 경로로 복귀(auth.bootstrap 이 JWT 재교환)
+    window.location.href = loginUrl(appPath(to.fullPath));
+    return false;
+  }
   return true;
 });

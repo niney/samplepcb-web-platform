@@ -6,6 +6,9 @@ export const en = {
   common: {
     backToSite: 'Back to site',
   },
+  nav: {
+    smartBom: 'Smart BOM',
+  },
   auth: {
     greeting: '{nick}',
     notLoggedIn: 'Not signed in',

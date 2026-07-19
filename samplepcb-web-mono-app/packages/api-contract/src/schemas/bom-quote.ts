@@ -125,6 +125,9 @@ export type BomQuoteRequestBodyType = z.infer<typeof BomQuoteRequestBody>;
 
 // ── 응답 ──────────────────────────────────────────────────────────────────
 
+export const BomQuoteOkResponse = z.object({ result: z.literal(true) });
+export type BomQuoteOkResponseType = z.infer<typeof BomQuoteOkResponse>;
+
 export const BomQuoteCreateResponse = z.object({
   result: z.literal(true),
   data: z.object({ quoteId: z.string(), jobId: z.string() }),
