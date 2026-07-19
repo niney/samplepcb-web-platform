@@ -140,6 +140,10 @@ function candidate(
     stock?: number;
     lifecycleStatus?: string;
     manufacturer?: string | null;
+    description?: string;
+    packageCode?: string | null;
+    normalizedSpecs?: Record<string, unknown>;
+    attributes?: Record<string, unknown>;
   } = {},
 ) {
   return {
@@ -154,9 +158,12 @@ function candidate(
       supplier,
       manufacturer_part_number: mpn,
       manufacturer: options.manufacturer === undefined ? 'Test Mfr' : options.manufacturer,
-      description: mpn,
+      description: options.description ?? mpn,
       category: options.category,
+      package: options.packageCode,
       lifecycle_status: options.lifecycleStatus,
+      normalized_specs: options.normalizedSpecs ?? {},
+      attributes: options.attributes ?? {},
       offers: [
         {
           supplier,
@@ -272,6 +279,80 @@ describe('BOM 엔진 후보 자동 선정', () => {
 
     expect(decision?.candidate?.product.manufacturer_part_number).toBe('TECHNICAL-TOP');
     expect(decision?.evidence).toMatchObject({ selectedTechnicalRank: 1, recommendationType: 'technical' });
+  });
+
+  it('칩전해 원본은 동일 직경 스루홀을 차단하고 검증된 활성 SMD 후보를 우선한다', () => {
+    const electricalReasons = ['capacitance_f_match', 'voltage_v_match', 'part_type_match'];
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-chip-electrolytic',
+        status: 'spec_compatible',
+        candidates: [
+          candidate('spec_compatible', 'EEE-1HA221P', 'mouser', 1_326, 1, [], {
+            category: '커패시터',
+            description: '알루미늄 전해 커패시터 220 µF 50 V 방사형, 캔 - SMD',
+            packageCode: '방사형, 캔 - SMD',
+            lifecycleStatus: '기존 설계 전용',
+            reasons: electricalReasons,
+            normalizedSpecs: { package: 'SMD' },
+            attributes: {
+              '실장 유형': '표면 실장',
+              '크기/치수': '0.394" Dia(10.00mm)',
+            },
+          }),
+          candidate('spec_compatible', 'UWT1H221MNL1GS', 'digikey', 1_273, 1, [], {
+            category: '커패시터',
+            description: '알루미늄 전해 커패시터 220 µF 50 V 방사형, 캔 - SMD',
+            packageCode: '방사형, 캔 - SMD',
+            lifecycleStatus: '활성',
+            reasons: electricalReasons,
+            normalizedSpecs: { package: 'SMD' },
+            attributes: {
+              '실장 유형': '표면 실장',
+              '크기/치수': '0.394" Dia(10.00mm)',
+            },
+          }),
+          candidate('spec_compatible', '50ZLH220MEFC10X16', 'digikey', 1_066, 1, [], {
+            category: '커패시터',
+            description: '알루미늄 전해 커패시터 220 µF 50 V 방사형, 캔',
+            packageCode: '방사형, 캔',
+            lifecycleStatus: '활성',
+            reasons: electricalReasons,
+            attributes: {
+              '실장 유형': '스루홀',
+              '크기/치수': '0.394" Dia(10.00mm)',
+            },
+          }),
+        ],
+      },
+      false,
+      2,
+      null,
+      { valueRaw: '220uF/50V/칩전해10파이', packageCode: null },
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('UWT1H221MNL1GS');
+    expect(decision?.evidence).toMatchObject({
+      selectedTechnicalRank: 2,
+      recommendationType: 'lifecycle',
+      decisionReasonCodes: ['lifecycle-improvement', 'same-part-lowest-total'],
+      verifiedRequirementCount: 5,
+      requiredRequirementCount: 5,
+    });
+    const blocked = decision?.snapshots.find((snapshot) => snapshot.mpn === '50ZLH220MEFC10X16');
+    expect(blocked).toMatchObject({
+      safety: 'blocked',
+      autoEligible: false,
+      conflicts: ['mount_style_mismatch'],
+      verifiedRequirementCount: 4,
+      requiredRequirementCount: 5,
+      packageComparison: {
+        source: { mountStyle: 'smd', diameterMm: 10 },
+        candidate: { mountStyle: 'through-hole', diameterMm: 10 },
+        checks: { mountStyle: 'mismatch', diameterMm: 'match' },
+      },
+    });
+    expect(blocked?.reasons).toContain('diameter_mm_match');
   });
 
   it('같은 제조사·MPN의 공급사 행은 하나의 부품 후보로 묶고 실효 총비용 최저 오퍼를 고른다', () => {

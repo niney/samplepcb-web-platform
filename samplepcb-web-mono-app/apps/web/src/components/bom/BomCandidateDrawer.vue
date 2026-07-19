@@ -132,6 +132,65 @@ function safetyClass(candidate: BomQuoteCandidateType): string {
   return 'border-slate-200 bg-white';
 }
 
+function cautionLabel(candidate: BomQuoteCandidateType): string {
+  if (candidate.missingRequirements.length > 0) return '검증 보완 필요';
+  return '라이프사이클 주의';
+}
+
+function verificationPercent(candidate: BomQuoteCandidateType): number | null {
+  if (candidate.requiredRequirementCount <= 0) return null;
+  return Math.max(
+    0,
+    Math.min(100, Math.round(candidate.verifiedRequirementCount / candidate.requiredRequirementCount * 100)),
+  );
+}
+
+function verificationClass(candidate: BomQuoteCandidateType): string {
+  if (candidate.conflicts.length > 0) return 'bg-red-100 font-semibold text-red-800';
+  if (candidate.missingRequirements.length > 0 || candidate.requiredRequirementCount <= 0) {
+    return 'bg-amber-100 font-semibold text-amber-800';
+  }
+  return 'bg-emerald-50 font-semibold text-emerald-800';
+}
+
+function verificationLabel(candidate: BomQuoteCandidateType): string {
+  const percent = verificationPercent(candidate);
+  return percent === null ? '검증 기준 미확인' : `필수조건 ${String(percent)}%`;
+}
+
+function requirementLabel(code: string): string {
+  const labels: Record<string, string> = {
+    mount_style: '실장 방식',
+    package: '패키지',
+    diameter_mm: '직경',
+    capacitance_f: '정전용량',
+    voltage_v: '정격전압',
+    tolerance_percent: '허용오차',
+    dielectric: '유전체',
+    resistance_ohm: '저항값',
+    power_w: '정격전력',
+    inductance_h: '인덕턴스',
+    current_a: '정격전류',
+    frequency_hz: '주파수',
+    part_type: '부품 유형',
+  };
+  return labels[code] ?? code;
+}
+
+function conflictLabel(code: string): string {
+  if (code.endsWith('_mismatch')) return `${requirementLabel(code.slice(0, -'_mismatch'.length))} 불일치`;
+  if (code.endsWith('_source_conflict')) return `${requirementLabel(code.slice(0, -'_source_conflict'.length))} 공급사 정보 충돌`;
+  return requirementLabel(code);
+}
+
+function conflictText(candidate: BomQuoteCandidateType): string {
+  return candidate.conflicts.map(conflictLabel).join(', ');
+}
+
+function missingText(candidate: BomQuoteCandidateType): string {
+  return candidate.missingRequirements.map(requirementLabel).join(', ');
+}
+
 function fmtWon(value: number | null): string {
   if (value === null) return '가격 확인 필요';
   return `${Math.round(value).toLocaleString('ko-KR')}원`;
@@ -244,7 +303,7 @@ onBeforeUnmount(() => {
                   <div v-if="currentCandidate !== null" class="rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
                     <p>기술 순위 <b class="text-slate-900">{{ currentCandidate.technicalRank }}위</b></p>
                     <p class="mt-1">가격 순위 <b class="text-slate-900">{{ currentCandidate.priceRank === null ? '산정 불가' : `${String(currentCandidate.priceRank)}위` }}</b></p>
-                    <p class="mt-1">확인 항목 <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }}</b></p>
+                    <p class="mt-1">필수조건 <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }} 검증</b></p>
                   </div>
                 </div>
               </section>
@@ -277,16 +336,18 @@ onBeforeUnmount(() => {
                             <span v-if="candidate.technicalRank === 1" class="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-800">기술 1위</span>
                             <span v-if="candidate.priceRank === 1" class="rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-bold text-cyan-800">가격 1위</span>
                             <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{{ statusLabel(candidate.status) }}</span>
-                            <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">라이프사이클 주의</span>
-                            <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-800">고객 선택 제한</span>
+                            <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
+                            <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
                           </div>
                           <h4 class="mt-2 break-words text-base font-bold text-slate-950">{{ candidate.mpn }}</h4>
                           <p class="mt-1 text-sm text-slate-500">{{ candidate.manufacturerName ?? '제조사 미확인' }}<span v-if="candidate.packageCode"> · {{ candidate.packageCode }}</span><span v-if="candidate.lifecycleStatus"> · {{ candidate.lifecycleStatus }}</span></p>
                           <p v-if="candidate.description" class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{{ candidate.description }}</p>
                           <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-                            <span class="rounded bg-emerald-50 px-2 py-1 font-semibold text-emerald-800">확인된 항목 {{ candidate.verifiedRequirementCount }}/{{ candidate.requiredRequirementCount }}</span>
+                            <span class="rounded px-2 py-1" :class="verificationClass(candidate)">검증 {{ candidate.verifiedRequirementCount }}/{{ candidate.requiredRequirementCount }}</span>
                             <span v-if="context.originalMpn !== null" class="rounded bg-blue-50 px-2 py-1 font-semibold text-blue-800">품번 {{ Math.round(candidate.identityConfidence * 100) }}%</span>
-                            <span v-if="candidate.selectionMode === 'spec-compatible' || candidate.specificationConfidence > 0" class="rounded bg-violet-50 px-2 py-1 font-semibold text-violet-800">스펙 {{ Math.round(candidate.specificationConfidence * 100) }}%</span>
+                            <span v-if="candidate.selectionMode === 'spec-compatible' || candidate.specificationConfidence > 0" class="rounded px-2 py-1" :class="verificationClass(candidate)">{{ verificationLabel(candidate) }}</span>
+                            <span v-if="candidate.reasons.includes('mount_style_match')" class="rounded bg-sky-50 px-2 py-1 font-semibold text-sky-800">실장 방식 일치</span>
+                            <span v-if="candidate.reasons.includes('diameter_mm_match')" class="rounded bg-sky-50 px-2 py-1 font-semibold text-sky-800">직경 일치</span>
                             <span class="rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">공급사 {{ candidate.corroboratingSuppliers.length }}</span>
                           </div>
                         </div>
@@ -307,8 +368,8 @@ onBeforeUnmount(() => {
                         </div>
                       </div>
 
-                      <div v-if="candidate.conflicts.length > 0" class="mt-3 rounded-lg bg-red-100/70 px-3 py-2 text-xs text-red-800">충돌: {{ candidate.conflicts.join(', ') }}</div>
-                      <div v-if="candidate.missingRequirements.length > 0" class="mt-2 rounded-lg bg-amber-100/70 px-3 py-2 text-xs text-amber-800">확인 불가: {{ candidate.missingRequirements.join(', ') }}</div>
+                      <div v-if="candidate.conflicts.length > 0" class="mt-3 rounded-lg bg-red-100/70 px-3 py-2 text-xs text-red-800">자동선정 제외: {{ conflictText(candidate) }}</div>
+                      <div v-if="candidate.missingRequirements.length > 0" class="mt-2 rounded-lg bg-amber-100/70 px-3 py-2 text-xs text-amber-800">추가 확인 필요: {{ missingText(candidate) }}</div>
 
                       <button type="button" class="mt-3 inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900" @click="toggleCandidate(candidate.candidateKey)">
                         공급사 오퍼 {{ candidate.offers.length }}개 {{ expanded.has(candidate.candidateKey) ? '접기 ▴' : '보기 ▾' }}

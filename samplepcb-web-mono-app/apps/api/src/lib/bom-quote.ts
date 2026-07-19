@@ -147,6 +147,7 @@ const EngineSupplierCandidate = z
         end_of_life: z.boolean().nullish(),
         datasheet_url: z.string().nullish(),
         normalized_specs: z.record(z.string(), z.unknown()).default({}),
+        attributes: z.record(z.string(), z.unknown()).default({}),
         offers: z.array(EngineSupplierOffer).default([]),
       })
       .passthrough(),
@@ -176,7 +177,7 @@ const EngineSupplierEnvelope = z
 type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-hybrid-transparent-v2';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-hybrid-physical-v3';
 
 /** 엔진 시트 결과를 고객·관리자 공용 선택 스냅샷으로 축약한다. */
 export function extractEngineSheets(result: unknown): BomQuoteSheetType[] {
@@ -441,12 +442,43 @@ interface EngineMatchDecision {
   snapshots: StoredCandidateType[];
 }
 
-const STRICT_CATEGORY_FIELDS: Record<string, readonly string[]> = {
-  resistor: ['resistance_ohm', 'power_w', 'tolerance_percent', 'package'],
-  capacitor: ['capacitance_f', 'voltage_v', 'tolerance_percent', 'dielectric', 'package'],
-  inductor: ['inductance_h', 'current_a', 'tolerance_percent', 'package'],
-  crystal: ['frequency_hz', 'tolerance_percent', 'package'],
-};
+type MountStyle = 'smd' | 'through-hole';
+
+interface OriginalSelectionContext {
+  valueRaw: string | null;
+  packageCode: string | null;
+}
+
+interface PhysicalRequirements {
+  mountStyle: MountStyle | null;
+  diameterMm: number | null;
+}
+
+interface CandidatePhysicalFacts {
+  mountStyle: MountStyle | null;
+  diameterMm: number | null;
+  mountConflict: boolean;
+  diameterConflict: boolean;
+}
+
+interface PhysicalValidation {
+  reasons: string[];
+  conflicts: string[];
+  missingRequirements: string[];
+  comparison: Record<string, unknown> | null;
+}
+
+const STRICT_CATEGORY_RULES: readonly {
+  tokens: readonly string[];
+  fields: readonly string[];
+}[] = [
+  // 전해 커패시터는 유전체 코드가 적용되지 않는다. 용량·전압과 물리 패키지를 필수로 본다.
+  { tokens: ['electrolytic', '전해'], fields: ['capacitance_f', 'voltage_v', 'package'] },
+  { tokens: ['resistor', '저항'], fields: ['resistance_ohm', 'power_w', 'tolerance_percent', 'package'] },
+  { tokens: ['capacitor', '커패시터', '콘덴서'], fields: ['capacitance_f', 'voltage_v', 'tolerance_percent', 'dielectric', 'package'] },
+  { tokens: ['inductor', '인덕터', '코일'], fields: ['inductance_h', 'current_a', 'tolerance_percent', 'package'] },
+  { tokens: ['crystal', '크리스털', '수정'], fields: ['frequency_hz', 'tolerance_percent', 'package'] },
+];
 
 const PRICE_SAVING_RATE_MIN = 0.1;
 const PRICE_SAVING_KRW_MIN = 500;
@@ -467,15 +499,206 @@ function lifecycleCaution(value: string | null, discontinued: boolean | null, en
 function lifecycleActive(value: string | null, discontinued: boolean | null, endOfLife: boolean | null): boolean {
   if (discontinued === true || endOfLife === true) return false;
   const normalized = (value ?? '').toLocaleLowerCase();
-  return normalized.includes('active') || normalized.includes('신규 설계') || normalized.includes('양산');
+  if (normalized.includes('inactive') || normalized.includes('비활성')) return false;
+  return /(?:^|\W)active(?:\W|$)/.test(normalized) || normalized === '활성' || normalized.includes('신규 설계') || normalized.includes('양산');
 }
 
-function candidateSafety(candidate: EngineSupplierCandidateType, originalHasMpn: boolean): BomQuoteCandidateSafetyType {
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function detectMountStyle(value: string): MountStyle | null {
+  const normalized = value.toLocaleLowerCase().replaceAll('_', ' ');
+  if (
+    /(?:^|[^a-z])(smd|smt)(?:[^a-z]|$)/i.test(normalized) ||
+    /surface[ -]?mount/i.test(normalized) ||
+    /표면\s*실장/.test(normalized) ||
+    /칩\s*(?:전해|저항|커패시터|콘덴서)/.test(normalized)
+  ) {
+    return 'smd';
+  }
+  if (
+    /(?:^|[^a-z])(tht)(?:[^a-z]|$)/i.test(normalized) ||
+    /through[ -]?hole/i.test(normalized) ||
+    /스루\s*홀|삽입형|리드형/.test(normalized)
+  ) {
+    return 'through-hole';
+  }
+  // 공급사 패키지의 "방사형, 캔 - SMD"는 위에서 먼저 SMD로 판정한다.
+  if (/방사형\s*,?\s*캔|radial\s*,?\s*can/i.test(normalized)) return 'through-hole';
+  return null;
+}
+
+function firstPositiveNumber(value: string, patterns: readonly RegExp[]): number | null {
+  for (const pattern of patterns) {
+    const raw = value.match(pattern)?.[1];
+    if (raw === undefined) continue;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+function sourceDiameterMm(value: string): number | null {
+  return firstPositiveNumber(value, [
+    /(?:ø|Ø|φ|Φ)\s*(\d+(?:\.\d+)?)/,
+    /(\d+(?:\.\d+)?)\s*(?:파이|ø|Ø|φ|Φ)/,
+    /(?:dia(?:meter)?|직경|지름)\D{0,8}(\d+(?:\.\d+)?)\s*mm/i,
+    /(\d+(?:\.\d+)?)\s*mm\D{0,8}(?:dia(?:meter)?|직경|지름)/i,
+  ]);
+}
+
+function candidateDiameterMm(candidate: EngineSupplierCandidateType): number | null {
+  for (const [key, value] of Object.entries(candidate.product.normalized_specs)) {
+    if (!/(?:^|_)(?:case_|body_)?diameter(?:_mm)?$/i.test(key)) continue;
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  }
+
+  const attributeValues = Object.entries(candidate.product.attributes)
+    .filter(([key]) => /크기\s*\/\s*치수|diameter|dimensions?|size/i.test(key))
+    .flatMap(([, value]) => (typeof value === 'string' ? [value] : []));
+  const texts = [
+    ...attributeValues,
+    candidate.product.package ?? '',
+    candidate.product.description ?? '',
+    candidate.product.manufacturer_part_number,
+  ];
+  for (const text of texts) {
+    const explicit = firstPositiveNumber(text, [
+      /(?:dia(?:meter)?|직경|지름)\D{0,8}(\d+(?:\.\d+)?)\s*mm/i,
+      /(\d+(?:\.\d+)?)\s*mm\D{0,8}(?:dia(?:meter)?|직경|지름)/i,
+      /(?:ø|Ø|φ|Φ)\s*(\d+(?:\.\d+)?)\s*mm?/,
+    ]);
+    if (explicit !== null) return explicit;
+  }
+  for (const text of texts) {
+    const dimensional = firstPositiveNumber(text, [
+      /(?:^|[^0-9])(\d{1,2}(?:\.\d+)?)\s*(?:mm\s*)?[x×]\s*\d{1,3}(?:\.\d+)?(?:\s*mm|[^0-9]|$)/i,
+    ]);
+    if (dimensional !== null) return dimensional;
+  }
+  return null;
+}
+
+function candidateMountStyle(candidate: EngineSupplierCandidateType): MountStyle | null {
+  const mountAttributes = Object.entries(candidate.product.attributes)
+    .filter(([key]) => /mount(?:ing)?\s*type|실장\s*유형|장착\s*유형/i.test(key))
+    .flatMap(([, value]) => (typeof value === 'string' ? [value] : []));
+  const normalizedPackage = candidate.product.normalized_specs.package;
+  const texts = [
+    ...mountAttributes,
+    typeof normalizedPackage === 'string' ? normalizedPackage : '',
+    candidate.product.package ?? '',
+    candidate.product.description ?? '',
+  ];
+  for (const text of texts) {
+    const style = detectMountStyle(text);
+    if (style !== null) return style;
+  }
+  return null;
+}
+
+function candidateGroupPhysicalFacts(members: readonly EngineSupplierCandidateType[]): CandidatePhysicalFacts {
+  const mounts = uniqueStrings(members.flatMap((member) => {
+    const value = candidateMountStyle(member);
+    return value === null ? [] : [value];
+  })) as MountStyle[];
+  const diameters = members.flatMap((member) => {
+    const value = candidateDiameterMm(member);
+    return value === null ? [] : [value];
+  });
+  const firstDiameter = diameters[0] ?? null;
+  const diameterConflict =
+    firstDiameter !== null && diameters.some((diameter) => Math.abs(diameter - firstDiameter) > 0.25);
+  return {
+    mountStyle: mounts.length === 1 ? mounts[0] ?? null : null,
+    diameterMm: diameterConflict ? null : firstDiameter,
+    mountConflict: mounts.length > 1,
+    diameterConflict,
+  };
+}
+
+function originalPhysicalRequirements(context: OriginalSelectionContext | null): PhysicalRequirements {
+  if (context === null) return { mountStyle: null, diameterMm: null };
+  const sourceText = `${context.packageCode ?? ''} ${context.valueRaw ?? ''}`.trim();
+  return {
+    mountStyle: detectMountStyle(sourceText),
+    diameterMm: sourceDiameterMm(sourceText),
+  };
+}
+
+function validatePhysicalRequirements(
+  requirements: PhysicalRequirements,
+  facts: CandidatePhysicalFacts,
+  engineComparison: Record<string, unknown> | null,
+): PhysicalValidation {
+  if (requirements.mountStyle === null && requirements.diameterMm === null) {
+    return { reasons: [], conflicts: [], missingRequirements: [], comparison: engineComparison };
+  }
+
+  const reasons: string[] = [];
+  const conflicts: string[] = [];
+  const missingRequirements: string[] = [];
+  let mountResult: 'not-required' | 'match' | 'mismatch' | 'unknown' = 'not-required';
+  let diameterResult: 'not-required' | 'match' | 'mismatch' | 'unknown' = 'not-required';
+
+  if (requirements.mountStyle !== null) {
+    if (facts.mountConflict) {
+      conflicts.push('mount_style_source_conflict');
+      mountResult = 'unknown';
+    } else if (facts.mountStyle === null) {
+      missingRequirements.push('mount_style');
+      mountResult = 'unknown';
+    } else if (facts.mountStyle !== requirements.mountStyle) {
+      conflicts.push('mount_style_mismatch');
+      mountResult = 'mismatch';
+    } else {
+      reasons.push('mount_style_match');
+      mountResult = 'match';
+    }
+  }
+
+  if (requirements.diameterMm !== null) {
+    if (facts.diameterConflict) {
+      conflicts.push('diameter_mm_source_conflict');
+      diameterResult = 'unknown';
+    } else if (facts.diameterMm === null) {
+      missingRequirements.push('diameter_mm');
+      diameterResult = 'unknown';
+    } else if (Math.abs(facts.diameterMm - requirements.diameterMm) > 0.25) {
+      conflicts.push('diameter_mm_mismatch');
+      diameterResult = 'mismatch';
+    } else {
+      reasons.push('diameter_mm_match');
+      diameterResult = 'match';
+    }
+  }
+
+  return {
+    reasons,
+    conflicts,
+    missingRequirements,
+    comparison: {
+      policy: 'source-physical-v1',
+      source: requirements,
+      candidate: { mountStyle: facts.mountStyle, diameterMm: facts.diameterMm },
+      checks: { mountStyle: mountResult, diameterMm: diameterResult },
+      engine: engineComparison,
+    },
+  };
+}
+
+function candidateSafety(
+  candidate: EngineSupplierCandidateType,
+  originalHasMpn: boolean,
+  conflicts: readonly string[] = candidate.conflicts,
+  missingRequirements: readonly string[] = candidate.missing_requirements,
+): BomQuoteCandidateSafetyType {
   const mode = candidateMode(candidate.status);
   if (mode === null || normalizeMpn(candidate.product.manufacturer_part_number) === '') return 'blocked';
   if (mode === 'spec-compatible' && originalHasMpn) return 'blocked';
-  if (candidate.conflicts.length > 0) return 'blocked';
-  if (mode === 'spec-compatible' && candidate.missing_requirements.length > 0) return 'blocked';
+  if (conflicts.length > 0) return 'blocked';
+  if (mode === 'spec-compatible' && missingRequirements.length > 0) return 'blocked';
   if (lifecycleCaution(candidate.product.lifecycle_status ?? null, candidate.product.discontinued ?? null, candidate.product.end_of_life ?? null)) {
     return 'caution';
   }
@@ -507,23 +730,32 @@ function offerKey(candidateKey: string, offer: z.infer<typeof EngineSupplierOffe
     .slice(0, 32);
 }
 
-function requirementCounts(candidate: EngineSupplierCandidateType): { verified: number; required: number } {
+function requirementCounts(
+  reasons: readonly string[],
+  missingRequirements: readonly string[],
+  conflicts: readonly string[],
+): { verified: number; required: number } {
   const verified = new Set<string>();
-  for (const reason of candidate.reasons) {
+  for (const reason of reasons) {
     if (!reason.endsWith('_match')) continue;
     if (reason === 'manufacturer_match' || reason.startsWith('manufacturer_part_number_')) continue;
     verified.add(reason.slice(0, -'_match'.length));
   }
-  if (candidate.reasons.includes('tolerance_not_applicable_for_zero_ohm')) verified.add('tolerance_percent');
+  if (reasons.includes('tolerance_not_applicable_for_zero_ohm')) verified.add('tolerance_percent');
   const required = new Set(verified);
-  for (const missing of candidate.missing_requirements) required.add(missing);
-  for (const conflict of candidate.conflicts) {
+  for (const missing of missingRequirements) required.add(missing);
+  for (const conflict of conflicts) {
     if (conflict.endsWith('_mismatch')) required.add(conflict.slice(0, -'_mismatch'.length));
+    if (conflict.endsWith('_source_conflict')) required.add(conflict.slice(0, -'_source_conflict'.length));
   }
   return { verified: verified.size, required: required.size };
 }
 
-function buildCandidateGroups(component: EngineSupplierComponentType, originalHasMpn: boolean): CandidateGroup[] {
+function buildCandidateGroups(
+  component: EngineSupplierComponentType,
+  originalHasMpn: boolean,
+  physicalRequirements: PhysicalRequirements,
+): CandidateGroup[] {
   const grouped: { mpnNorm: string; manufacturerNorms: Set<string>; members: EngineSupplierCandidateType[] }[] = [];
   for (const candidate of component.candidates) {
     const mpnNorm = normalizeMpn(candidate.product.manufacturer_part_number);
@@ -587,8 +819,21 @@ function buildCandidateGroups(component: EngineSupplierComponentType, originalHa
         });
       }
     }
-    const counts = requirementCounts(representative);
-    const safety = candidateSafety(representative, originalHasMpn);
+    const metadataMember = group.members.find((member) => Object.keys(member.product.attributes).length > 0)
+      ?? representative;
+    const physical = validatePhysicalRequirements(
+      physicalRequirements,
+      candidateGroupPhysicalFacts(group.members),
+      group.members.find((member) => member.package_comparison != null)?.package_comparison ?? null,
+    );
+    const reasons = uniqueStrings([...representative.reasons, ...physical.reasons]);
+    const conflicts = uniqueStrings([...representative.conflicts, ...physical.conflicts]);
+    const missingRequirements = uniqueStrings([
+      ...representative.missing_requirements,
+      ...physical.missingRequirements,
+    ]);
+    const counts = requirementCounts(reasons, missingRequirements, conflicts);
+    const safety = candidateSafety(representative, originalHasMpn, conflicts, missingRequirements);
     const mode = candidateMode(representative.status) ?? 'review';
     const corroborating = new Set(representative.corroborating_suppliers);
     for (const member of group.members) {
@@ -606,23 +851,23 @@ function buildCandidateGroups(component: EngineSupplierComponentType, originalHa
         safety,
         autoEligible: safety !== 'blocked' && candidateMode(representative.status) !== null,
         mpn: representative.product.manufacturer_part_number.trim().slice(0, 191),
-        manufacturerName: representative.product.manufacturer?.trim().slice(0, 191) ?? null,
-        description: representative.product.description?.trim().slice(0, 1000) ?? null,
-        category: representative.product.category?.trim().slice(0, 191) ?? null,
-        packageCode: representative.product.package?.trim().slice(0, 64) ?? null,
+        manufacturerName: metadataMember.product.manufacturer?.trim().slice(0, 191) ?? null,
+        description: metadataMember.product.description?.trim().slice(0, 1000) ?? null,
+        category: metadataMember.product.category?.trim().slice(0, 191) ?? null,
+        packageCode: metadataMember.product.package?.trim().slice(0, 64) ?? null,
         lifecycleStatus: representative.product.lifecycle_status?.trim().slice(0, 64) ?? null,
-        datasheetUrl: representative.product.datasheet_url?.trim().slice(0, 500) ?? null,
+        datasheetUrl: metadataMember.product.datasheet_url?.trim().slice(0, 500) ?? null,
         identityConfidence: representative.identity_confidence,
         specificationConfidence: representative.specification_confidence,
-        conflicts: representative.conflicts,
-        missingRequirements: representative.missing_requirements,
-        reasons: representative.reasons,
+        conflicts,
+        missingRequirements,
+        reasons,
         corroboratingSuppliers: [...corroborating].sort(),
         verifiedRequirementCount: counts.verified,
         requiredRequirementCount: counts.required,
-        normalizedSpecs: representative.product.normalized_specs,
+        normalizedSpecs: metadataMember.product.normalized_specs,
         specComparisons: representative.spec_comparisons,
-        packageComparison: representative.package_comparison ?? null,
+        packageComparison: physical.comparison,
         offers,
       },
     };
@@ -646,16 +891,27 @@ function pickLineTotal(pick: OfferPick | null): number | null {
 }
 
 function hasStrictCategoryCoverage(candidate: StoredCandidateType): boolean {
-  const category = (candidate.category ?? '').toLocaleLowerCase();
-  const entry = Object.entries(STRICT_CATEGORY_FIELDS).find(([key]) => category.includes(key));
-  if (entry === undefined) return false;
+  if (
+    candidate.safety === 'blocked' ||
+    candidate.conflicts.length > 0 ||
+    candidate.missingRequirements.length > 0 ||
+    candidate.requiredRequirementCount === 0 ||
+    candidate.verifiedRequirementCount !== candidate.requiredRequirementCount
+  ) {
+    return false;
+  }
+  const categoryText = `${candidate.category ?? ''} ${candidate.description ?? ''}`.toLocaleLowerCase();
+  const rule = STRICT_CATEGORY_RULES.find((entry) => entry.tokens.some((token) => categoryText.includes(token)));
+  if (rule === undefined) return false;
   const matched = new Set(
     candidate.reasons
       .filter((reason) => reason.endsWith('_match'))
       .map((reason) => reason.slice(0, -'_match'.length)),
   );
   if (candidate.reasons.includes('tolerance_not_applicable_for_zero_ohm')) matched.add('tolerance_percent');
-  return entry[1].every((field) => matched.has(field));
+  // 원본의 칩/SMD 요구를 공급사 실장 속성으로 확인한 것도 패키지 완전 검증으로 취급한다.
+  if (matched.has('mount_style')) matched.add('package');
+  return rule.fields.every((field) => matched.has(field));
 }
 
 function evidenceFromDecision(
@@ -671,7 +927,9 @@ function evidenceFromDecision(
   needed: number,
   technicalTopPick: OfferPick | null,
 ): BomQuoteMatchEvidenceType {
-  const reviewCandidate = selected?.representative ?? component.candidates[0] ?? null;
+  const reviewGroup = selected ?? groups[0] ?? null;
+  const reviewCandidate = reviewGroup?.representative ?? component.candidates[0] ?? null;
+  const evidenceSnapshot = reviewGroup?.snapshot ?? null;
   const selectedTotal = pickLineTotal(pick);
   const technicalTotal = pickLineTotal(technicalTopPick);
   const savings = selectedTotal === null || technicalTotal === null ? null : Math.round((technicalTotal - selectedTotal) * 100) / 100;
@@ -680,7 +938,7 @@ function evidenceFromDecision(
     policyVersion: BOM_ENGINE_SELECTION_POLICY_VERSION,
     componentId: component.component_id,
     componentStatus: component.status,
-    candidateStatus: reviewCandidate?.status ?? null,
+    candidateStatus: evidenceSnapshot?.status ?? reviewCandidate?.status ?? null,
     selectionMode: mode,
     candidateCount: component.candidates.length,
     eligibleCandidateCount: eligible.length,
@@ -690,10 +948,10 @@ function evidenceFromDecision(
     selectedSupplierSku: pick?.offer.supplierSku ?? null,
     identityConfidence: reviewCandidate?.identity_confidence ?? null,
     specificationConfidence: reviewCandidate?.specification_confidence ?? null,
-    conflicts: reviewCandidate?.conflicts ?? [],
-    missingRequirements: reviewCandidate?.missing_requirements ?? [],
-    reasons: reviewCandidate?.reasons ?? [],
-    corroboratingSuppliers: selected?.snapshot.corroboratingSuppliers ?? reviewCandidate?.corroborating_suppliers ?? [],
+    conflicts: evidenceSnapshot?.conflicts ?? reviewCandidate?.conflicts ?? [],
+    missingRequirements: evidenceSnapshot?.missingRequirements ?? reviewCandidate?.missing_requirements ?? [],
+    reasons: evidenceSnapshot?.reasons ?? reviewCandidate?.reasons ?? [],
+    corroboratingSuppliers: evidenceSnapshot?.corroboratingSuppliers ?? reviewCandidate?.corroborating_suppliers ?? [],
     groupedCandidateCount: groups.length,
     alternativeCandidateCount: Math.max(0, eligible.length - (selected === null ? 0 : 1)),
     recommendedCandidateKey,
@@ -701,8 +959,8 @@ function evidenceFromDecision(
     selectedTechnicalRank: selected?.snapshot.technicalRank ?? null,
     recommendationType,
     decisionReasonCodes: reasonCodes,
-    verifiedRequirementCount: selected?.snapshot.verifiedRequirementCount ?? 0,
-    requiredRequirementCount: selected?.snapshot.requiredRequirementCount ?? 0,
+    verifiedRequirementCount: evidenceSnapshot?.verifiedRequirementCount ?? 0,
+    requiredRequirementCount: evidenceSnapshot?.requiredRequirementCount ?? 0,
     priceEvidence:
       pick === null
         ? null
@@ -720,19 +978,25 @@ function evidenceFromDecision(
 /**
  * 기술 순위와 구매 순위를 분리한 하이브리드 추천.
  * - 원본 MPN: 기술 최상위 부품 고정 + 동일 MPN 안에서 실효 총비용 최저 오퍼.
- * - 스펙 입력: 기술 최상위가 기본. 카테고리 필수 스펙 전부 확인 + 재고 충족 +
- *   10%·500원 이상 절감(또는 NRND/EOL 개선)일 때만 다른 MPN을 자동 추천한다.
+ * - 스펙 입력: 원본의 실장 방식·치수까지 공급사 속성과 교차 검증한다. 물리 조건과
+ *   카테고리 필수 스펙을 전부 확인하고 재고가 충분하며 10%·500원 이상 절감
+ *   (또는 NRND/EOL 개선)될 때만 다른 MPN을 자동 추천한다.
  */
 export function selectEngineMatch(
   componentValue: unknown,
   originalHasMpn: boolean,
   needed: number,
   usdKrwRate: number | null,
+  sourceContext: OriginalSelectionContext | null = null,
 ): EngineMatchDecision | null {
   const parsed = EngineSupplierComponent.safeParse(componentValue);
   if (!parsed.success) return null;
   const component = parsed.data;
-  const groups = buildCandidateGroups(component, originalHasMpn);
+  const groups = buildCandidateGroups(
+    component,
+    originalHasMpn,
+    originalPhysicalRequirements(originalHasMpn ? null : sourceContext),
+  );
   const tierOrder: SelectionMode[] = originalHasMpn
     ? ['exact', 'variant']
     : ['exact', 'variant', 'spec-compatible'];
@@ -933,7 +1197,12 @@ export async function applyEngineSupplierResult(
 
     const inputPartNumber = originalPartNumber(item);
     const needed = neededQty(item.bomQty, setQty, spareQty);
-    const decision = selectEngineMatch(component, inputPartNumber !== '', needed, usdKrwRate);
+    const rawValue = item.sourceRow?.valueRaw;
+    const rawPackage = item.sourceRow?.packageCode;
+    const decision = selectEngineMatch(component, inputPartNumber !== '', needed, usdKrwRate, {
+      valueRaw: typeof rawValue === 'string' ? rawValue : null,
+      packageCode: typeof rawPackage === 'string' ? rawPackage : null,
+    });
     if (decision === null) continue;
     candidateSnapshots.push(...decision.snapshots.map((candidate) => ({ rowIdx: item.rowIdx, candidate })));
 
@@ -1369,7 +1638,6 @@ export async function getQuoteItemCandidates(
   const picks = new Map<string, { pick: OfferPick | null; offerKey: string | null }>();
   for (const candidate of stored) picks.set(candidate.candidateKey, storedCandidatePick(candidate, needed, quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed)));
   const priced = stored
-    .filter((candidate) => candidate.safety !== 'blocked')
     .map((candidate) => ({ candidate, total: pickLineTotal(picks.get(candidate.candidateKey)?.pick ?? null) }))
     .filter((entry): entry is { candidate: StoredCandidateType; total: number } => entry.total !== null)
     .sort((a, b) => a.total - b.total || a.candidate.technicalRank - b.candidate.technicalRank);
