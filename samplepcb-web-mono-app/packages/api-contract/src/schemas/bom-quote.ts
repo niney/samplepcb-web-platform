@@ -24,6 +24,8 @@ export const BomQuoteSelectedOffer = z.object({
   moq: z.number().int().nullable(),
   orderMultiple: z.number().int().nullable(),
   stock: z.number().int().nullable(),
+  /** 선택 시점의 가격구간 사다리 전체 — 수량 변경 시 구간 재계산의 근거(스냅샷). */
+  priceBreaks: z.array(z.object({ qty: z.number().int(), price: z.number() })),
   fetchedAt: z.string(),
   /** 사용자가 명시 선택(고정) — 수량 변경 시 이 오퍼 안에서만 구간 재계산. */
   pinned: z.boolean(),

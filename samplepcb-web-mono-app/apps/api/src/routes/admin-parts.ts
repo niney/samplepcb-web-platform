@@ -13,10 +13,9 @@ import { SPEC_SI_FIELD, normalizeMpn, packageVariants, parseQuery, siRange } fro
 import { esClient } from '../es/client';
 import { F, SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
 import { prisma } from '../lib/prisma';
-import { specsSiRecord } from '../lib/parts-es';
 import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
-import { SAMPLEPCB_SUPPLIER } from '../lib/parts-facts';
+import { loadPartDetailDto } from '../lib/parts-read';
 
 // ── /api/admin/parts — 부품 카탈로그 검색(ES) + 상세(DB) (requireAdmin) ──────
 // 쿼리 이해: @sp/utils parseQuery 의 다중 해석을 전부 should(가산점)로 편성 —
@@ -100,7 +99,7 @@ export function buildPartSort(sort: PartSearchQueryType['sort']): estypes.Sort {
   return ['_score'];
 }
 
-function toHit(doc: SpPartDoc, score: number | null | undefined): PartHitType {
+export function toHit(doc: SpPartDoc, score: number | null | undefined): PartHitType {
   const specsSi: Record<string, number> = {};
   for (const field of Object.values(SPEC_SI_FIELD)) {
     const v = (doc as unknown as Record<string, unknown>)[field];
@@ -126,20 +125,6 @@ function toHit(doc: SpPartDoc, score: number | null | undefined): PartHitType {
   };
 }
 
-// 파생(samplepcb) 오퍼 rawJson 의 원천 추적 — 실공급사 오퍼는 null
-const DerivedFromRaw = z.object({
-  derivedFrom: z.object({ supplier: z.string(), supplierSku: z.string(), fetchedAt: z.string() }),
-});
-
-function offerDerivedFrom(rawJson: unknown): { supplier: string; supplierSku: string; fetchedAt: string } | null {
-  const parsed = DerivedFromRaw.safeParse(rawJson);
-  return parsed.success ? parsed.data.derivedFrom : null;
-}
-
-const SpecConflictsJson = z.record(
-  z.string(),
-  z.array(z.object({ value: z.unknown(), suppliers: z.array(z.string()), fetchedAt: z.string() })),
-);
 
 function facetBuckets(aggs: Record<string, estypes.AggregationsAggregate> | undefined, name: string): { value: string; count: number }[] {
   const agg = aggs?.[name] as estypes.AggregationsStringTermsAggregate | undefined;
@@ -202,59 +187,9 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     '/parts/:id',
     { schema: { params: IdParams, response: { 200: PartDetailResponse } } },
     async (request, reply) => {
-      const part = await prisma.spPart.findUnique({
-        where: { id: request.params.id },
-        include: { offers: { include: { priceBreaks: true } } },
-      });
-      if (part === null) return reply.notFound('부품을 찾을 수 없습니다');
-      // 집계는 실공급사만(파생 samplepcb 오퍼는 원천과 이중 계산) — 목록(hit)과 동일 기준
-      const realOffers = part.offers.filter((o) => o.supplier !== SAMPLEPCB_SUPPLIER);
-      const conflicts = SpecConflictsJson.safeParse(part.specConflicts);
-      return {
-        result: true as const,
-        data: {
-          id: String(part.id),
-          mpn: part.mpn,
-          manufacturerName: part.manufacturerName,
-          description: part.description,
-          category: part.category,
-          packageCode: part.packageCode,
-          lifecycle: part.lifecycle,
-          specsSi: specsSiRecord(part.specsSi),
-          specsJson: (typeof part.specsJson === 'object' && part.specsJson !== null && !Array.isArray(part.specsJson)
-            ? part.specsJson
-            : {}),
-          specConflicts: conflicts.success ? conflicts.data : null,
-          hasSpecConflict: conflicts.success && Object.keys(conflicts.data).length > 0,
-          suppliers: [...new Set(part.offers.map((o) => o.supplier))],
-          offerCount: realOffers.length,
-          minPrice: null,
-          minPriceCurrency: null,
-          totalStock: realOffers.reduce((sum, o) => sum + (o.stock ?? 0), 0),
-          offersFetchedAt:
-            realOffers.length === 0
-              ? null
-              : new Date(Math.max(...realOffers.map((o) => o.fetchedAt.getTime()))).toISOString(),
-          score: null,
-          firstSeenAt: part.firstSeenAt.toISOString(),
-          lastSeenAt: part.lastSeenAt.toISOString(),
-          offers: part.offers.map((o) => ({
-            supplier: o.supplier,
-            supplierSku: o.supplierSku,
-            productUrl: o.productUrl,
-            stock: o.stock,
-            moq: o.moq,
-            orderMultiple: o.orderMultiple,
-            packaging: o.packaging,
-            currency: o.currency,
-            priceBreaks: [...o.priceBreaks]
-              .sort((a, b) => a.qty - b.qty)
-              .map((pb) => ({ qty: pb.qty, price: Number(pb.price) })),
-            fetchedAt: o.fetchedAt.toISOString(),
-            derivedFrom: o.supplier === SAMPLEPCB_SUPPLIER ? offerDerivedFrom(o.rawJson) : null,
-          })),
-        },
-      };
+      const detail = await loadPartDetailDto(request.params.id);
+      if (detail === null) return reply.notFound('부품을 찾을 수 없습니다');
+      return { result: true as const, data: detail };
     },
   );
 

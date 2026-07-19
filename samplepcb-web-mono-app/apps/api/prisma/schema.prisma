@@ -471,3 +471,64 @@ model SpPartIndexQueue {
   @@index([partId])
   @@map("sp_part_index_queue")
 }
+
+// 고객 스마트 BOM 견적 — 업로드→파싱→매칭→검토→견적요청(RFQ). 설계: docs/BOM_QUOTE.md.
+// xpse 의 sp_bom_document/sp_estimate_document(별도 DB)와 무관한 sp-node 소유 신규 모델.
+// 금액 필드는 "예상 스냅샷"(sp_config 기본값·서버 재계산) — 확정은 confirmed* 로 분리.
+model SpBomQuote {
+  id                     BigInt           @id @default(autoincrement())
+  mbId                   String           @db.VarChar(60)
+  title                  String           @db.VarChar(191)
+  status                 String           @default("draft") @db.VarChar(16) // draft|requested|reviewing|answered|closed|canceled
+  fileName               String?          @db.VarChar(255)
+  contentHash            String?          @db.VarChar(64) // 원본 SHA-256 — 동일 파일 안내용
+  engineJobId            String?          @db.VarChar(64) // 엔진 인메모리 잡 — 재시작 시 소멸(재업로드)
+  setQty                 Int              @default(1)
+  spareQty               Int              @default(0)
+  itemsTotal             Int              @default(0) // KRW 정수(반올림)
+  shippingFee            Int              @default(0)
+  managementFee          Int              @default(0)
+  finalTotal             Int              @default(0)
+  usdKrwRateUsed         Decimal?         @db.Decimal(10, 2)
+  uncostedCount          Int              @default(0)
+  customerMemo           String?          @db.Text
+  adminMemo              String?          @db.Text // 내부 메모 — 고객 응답 미노출
+  answerNote             String?          @db.Text // 고객 노출 회신
+  confirmedShippingFee   Int?
+  confirmedManagementFee Int?
+  confirmedTotal         Int?
+  requestedAt            DateTime?
+  answeredAt             DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  items                  SpBomQuoteItem[]
+
+  @@index([mbId, status])
+  @@index([status, requestedAt])
+  @@map("sp_bom_quote")
+}
+
+// 견적 라인 — orderQty·selectedOffer 스냅샷이 단일 진실(요청 후 재선정 없음).
+// partId 는 카탈로그(sp_part) 느슨한 참조(FK 없음 — 카탈로그 정리와 독립).
+model SpBomQuoteItem {
+  id               BigInt     @id @default(autoincrement())
+  quoteId          BigInt
+  rowIdx           Int
+  included         Boolean    @default(true)
+  mpn              String     @db.VarChar(191)
+  manufacturerName String?    @db.VarChar(191)
+  description      String?    @db.VarChar(1000)
+  bomQty           Int
+  orderQty         Int        @default(0)
+  matchStatus      String     @default("none") @db.VarChar(8) // auto|manual|none
+  partId           BigInt?
+  selectedOffer    Json?
+  lineTotalKrw     Decimal?   @db.Decimal(14, 2)
+  sourceRow        Json?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  quote            SpBomQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, rowIdx])
+  @@map("sp_bom_quote_item")
+}

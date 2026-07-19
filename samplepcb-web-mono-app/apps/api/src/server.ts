@@ -24,6 +24,9 @@ import { adminSlidesRoutes } from './routes/admin-slides';
 import { adminSeoRoutes } from './routes/admin-seo';
 import { adminBomRoutes } from './routes/admin-bom';
 import { adminPartsRoutes } from './routes/admin-parts';
+import { adminBomQuoteRoutes } from './routes/admin-bom-quotes';
+import { bomRoutes } from './routes/bom';
+import { bomQuoteRoutes } from './routes/bom-quotes';
 import { bootstrapPartsIndex } from './es/sp-parts-index';
 import { drainIndexQueue } from './lib/parts-ingest';
 import { adminMarketExpertRoutes } from './routes/admin-market-experts';
@@ -78,7 +81,10 @@ await app.register(adminSlidesRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 페이지별 SEO 메타 관리(sp_seo read/write, 소비는 sp-php head.sub.php)
 await app.register(adminSeoRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — BOM 추출 + 공급사 검색 (sp-engine Python 프록시)
+await app.register(bomRoutes, { prefix: '/api' });
+await app.register(bomQuoteRoutes, { prefix: '/api' });
 await app.register(adminBomRoutes, { prefix: '/api/admin' });
+await app.register(adminBomQuoteRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 부품 카탈로그 검색(ES sp-parts) + 상세(DB sp_part*)
 await app.register(adminPartsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일

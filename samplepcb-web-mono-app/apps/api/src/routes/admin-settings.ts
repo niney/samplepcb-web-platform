@@ -7,6 +7,8 @@ import {
   AiSettingsResponse,
   AiSettingsUpdate,
   ApiError,
+  BomQuoteConfig,
+  BomQuoteConfigResponse,
   BusinessInfoResponse,
   BusinessInfoUpdate,
   GerberPricingResponse,
@@ -15,7 +17,7 @@ import {
 import type { AiUsecaseKeyType } from '@sp/api-contract';
 import { getBusinessInfo, updateBusinessInfo, type BusinessInfo } from '../lib/g5-db';
 import { cleanXssTags, isValidCallback } from '../lib/shop-config';
-import { getGerberPriceMode, setGerberPriceMode } from '../lib/sp-config';
+import { getBomQuoteConfig, getGerberPriceMode, setBomQuoteConfig, setGerberPriceMode } from '../lib/sp-config';
 import { ollamaListModels } from '../lib/ai/ollama';
 import {
   AI_USECASE_DEFS,
@@ -146,6 +148,22 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         })),
     };
   };
+
+  // GET/PUT /api/admin/settings/bom-quote — 고객 BOM 견적 비용·검색 한도(sp_config)
+  fastify.get(
+    '/settings/bom-quote',
+    { schema: { response: { 200: BomQuoteConfigResponse } } },
+    async () => ({ result: true as const, data: await getBomQuoteConfig() }),
+  );
+
+  fastify.put(
+    '/settings/bom-quote',
+    { schema: { body: BomQuoteConfig, response: { 200: BomQuoteConfigResponse } } },
+    async (request) => {
+      await setBomQuoteConfig(request.body);
+      return { result: true as const, data: await getBomQuoteConfig() };
+    },
+  );
 
   // GET /api/admin/settings/ai — 현재 연결(마스킹)·유스케이스 설정
   fastify.get(
