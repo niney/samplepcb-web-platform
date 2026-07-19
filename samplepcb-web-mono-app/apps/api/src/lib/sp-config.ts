@@ -29,7 +29,8 @@ export const BOM_QUOTE_CONFIG_DEFAULTS: BomQuoteConfigType = {
   defaultShippingFee: 30_000,
   defaultManagementFee: 25_000,
   usdKrwRate: null, // 미설정 = USD 오퍼 미환산 표시(정직) — 관리자가 채우면 환산 예상 표기
-  supplierSearchMaxCalls: 60,
+  // 실측: 부품 1건당 약 3콜(3공급사) — 100라인 BOM ≈ 300콜. 60은 실BOM에서 즉시 한도 초과였음.
+  supplierSearchMaxCalls: 300,
   memberDailySearchLimit: 20,
 };
 

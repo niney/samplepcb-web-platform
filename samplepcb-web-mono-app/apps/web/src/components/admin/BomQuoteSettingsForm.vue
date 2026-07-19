@@ -69,8 +69,8 @@ function submit(): void {
         <input v-model.number="form.usdKrwRate" type="number" min="0" step="0.01" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-right tabular-nums" placeholder="예: 1400">
       </label>
       <label class="block text-sm">
-        <span class="text-gray-600">검색 1회 최대 API 호출</span>
-        <input v-model.number="form.supplierSearchMaxCalls" type="number" min="1" max="200" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-right tabular-nums">
+        <span class="text-gray-600">검색 1회 최대 API 호출 (부품 1건당 약 3콜 — 100라인 ≈ 300)</span>
+        <input v-model.number="form.supplierSearchMaxCalls" type="number" min="1" max="1000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-right tabular-nums">
       </label>
       <label class="block text-sm">
         <span class="text-gray-600">회원별 일일 검색 한도</span>

@@ -201,8 +201,8 @@ export const BomQuoteConfig = z.object({
   defaultManagementFee: z.number().int().min(0),
   /** USD→KRW 환산 환율(수동 설정, null=미환산 표시). */
   usdKrwRate: z.number().positive().nullable(),
-  /** 공급사 검색 1회 최대 외부 호출 수(엔진 max_calls 상한). */
-  supplierSearchMaxCalls: z.number().int().min(1).max(200),
+  /** 공급사 검색 1회 최대 외부 호출 수(엔진 max_calls 상한, 엔진 스키마 최대 1000). */
+  supplierSearchMaxCalls: z.number().int().min(1).max(1000),
   /** 회원별 1일 공급사 검색 횟수 제한. */
   memberDailySearchLimit: z.number().int().min(1).max(1000),
 });

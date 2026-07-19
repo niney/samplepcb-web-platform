@@ -180,32 +180,48 @@ const supplierStatus = useSupplierSearchStatus(
   searchPolling,
 );
 const searchError = ref('');
-const preflightInfo = ref<string | null>(null);
+// max_calls 는 서버가 sp_config 상한으로 클램프한다 — FE 는 스키마 최대치를 보내 위임.
+const SEARCH_OPTIONS_MAX = 1_000;
+const preflightInfo = ref<{ text: string; overLimit: boolean } | null>(null);
 
 async function onSupplierSearch(): Promise<void> {
   const jobId = detail.value?.engineJobId;
   if (jobId === undefined || jobId === null) return;
   searchError.value = '';
   try {
-    const pf = await preflight.mutateAsync({ jobId, options: { max_calls: 60, cache_only: false, reset_cache: false } });
+    const pf = await preflight.mutateAsync({
+      jobId,
+      options: { max_calls: SEARCH_OPTIONS_MAX, cache_only: false, reset_cache: false },
+    });
     const plan = pf.data.plan;
-    preflightInfo.value = `부품 ${String(plan.component_count)}건 · 예상 API 호출 ${String(plan.estimated_api_calls)}회 (캐시 활용 ${String(plan.fresh_cache_requests)}건)`;
+    const overLimit = !plan.estimated_within_job_limit;
+    preflightInfo.value = {
+      overLimit,
+      text: overLimit
+        ? `예상 API 호출 ${String(plan.estimated_api_calls)}회가 검색 한도(${String(plan.job_call_limit)}회)를 초과합니다 — 엔진 캐시 데이터만으로 검색하거나, 그대로 견적요청해도 됩니다(카탈로그 데이터 기준).`
+        : `부품 ${String(plan.component_count)}건 · 예상 API 호출 ${String(plan.estimated_api_calls)}회 (캐시 활용 ${String(plan.fresh_cache_requests)}건)`,
+    };
   } catch {
     searchError.value = '공급사 검색 사전점검에 실패했습니다. 잠시 후 다시 시도해 주세요.';
   }
 }
 
-async function confirmSupplierSearch(): Promise<void> {
+async function confirmSupplierSearch(cacheOnly: boolean): Promise<void> {
   const jobId = detail.value?.engineJobId;
   if (jobId === undefined || jobId === null) return;
   preflightInfo.value = null;
   try {
-    await startSearch.mutateAsync({ jobId, options: { max_calls: 60, cache_only: false, reset_cache: false } });
+    await startSearch.mutateAsync({
+      jobId,
+      options: { max_calls: SEARCH_OPTIONS_MAX, cache_only: cacheOnly, reset_cache: false },
+    });
     searchPolling.value = true;
   } catch (reason) {
-    searchError.value =
-      reason instanceof Error && reason.message.includes('429')
-        ? '오늘 공급사 검색 한도에 도달했습니다. 내일 다시 시도해 주세요.'
+    const msg = reason instanceof Error ? reason.message : '';
+    searchError.value = msg.includes('429')
+      ? '오늘 공급사 검색 한도에 도달했습니다. 내일 다시 시도해 주세요.'
+      : msg.includes('limit')
+        ? '검색 호출 한도를 초과했습니다 — 캐시 전용 검색을 이용하거나 관리자에게 문의해 주세요.'
         : '공급사 검색 시작에 실패했습니다.';
   }
 }
@@ -460,10 +476,25 @@ function fmtUnit(offer: BomQuoteSelectedOfferType): string {
         </div>
 
         <!-- preflight 확인 -->
-        <div v-if="preflightInfo !== null" class="flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-          <span>{{ preflightInfo }}</span>
-          <button type="button" class="rounded bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700" @click="confirmSupplierSearch">검색 실행</button>
-          <button type="button" class="text-xs text-blue-600 hover:underline" @click="preflightInfo = null">취소</button>
+        <div
+          v-if="preflightInfo !== null"
+          class="flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-sm"
+          :class="preflightInfo.overLimit ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'"
+        >
+          <span>{{ preflightInfo.text }}</span>
+          <button
+            v-if="!preflightInfo.overLimit"
+            type="button"
+            class="rounded bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+            @click="confirmSupplierSearch(false)"
+          >검색 실행</button>
+          <button
+            v-else
+            type="button"
+            class="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700"
+            @click="confirmSupplierSearch(true)"
+          >캐시 데이터로만 검색</button>
+          <button type="button" class="text-xs hover:underline" @click="preflightInfo = null">취소</button>
         </div>
 
         <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">

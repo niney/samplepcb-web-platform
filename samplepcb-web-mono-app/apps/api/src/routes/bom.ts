@@ -4,9 +4,10 @@ import { z } from 'zod';
 import { BomSupplierOptions, PartDetailResponse, PartSearchQuery, PartSearchResponse } from '@sp/api-contract';
 import { esClient } from '../es/client';
 import { SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
-import { ingestJobResult, jobOwnedBy, proxyEngine, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
+import { ingestJobResult, jobOwnedBy, proxyEngine, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
 import { getBomQuoteConfig } from '../lib/sp-config';
 import { loadPartDetailDto } from '../lib/parts-read';
+import { prisma } from '../lib/prisma';
 import { buildPartSort, buildSearchQuery, toHit } from './admin-parts';
 
 // ── /api/bom — 고객(회원) 스마트 BOM: 엔진 잡 프록시 + 카탈로그 검색 ──────────
@@ -19,15 +20,26 @@ const IdParams = z.object({ id: z.string().min(1) });
 export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
-  const assertJobAccess = (jobId: string, mbId: string): boolean => jobOwnedBy(jobId, mbId);
+  // 인메모리 소유가 sp-node 재시작으로 유실돼도 견적 행(engineJobId+mbId)이 소유를
+  // 증명한다 — 엔진 잡이 살아있는 한 기존 draft 의 공급사 검색이 계속 동작.
+  const assertJobAccess = async (jobId: string, mbId: string): Promise<boolean> => {
+    if (jobOwnedBy(jobId, mbId)) return true;
+    const quote = await prisma.spBomQuote.findFirst({
+      where: { engineJobId: jobId, mbId },
+      select: { id: true },
+    });
+    if (quote === null) return false;
+    recordJobOwner(jobId, mbId);
+    return true;
+  };
 
   fastify.get('/bom/jobs/:id', { schema: { params: IdParams } }, async (request, reply) => {
-    if (!assertJobAccess(request.params.id, request.user.mbId)) return reply.notFound('잡을 찾을 수 없습니다');
+    if (!(await assertJobAccess(request.params.id, request.user.mbId))) return reply.notFound('잡을 찾을 수 없습니다');
     return proxyEngine(reply, `/jobs/${encodeURIComponent(request.params.id)}`, undefined, 200);
   });
 
   fastify.get('/bom/jobs/:id/result', { schema: { params: IdParams } }, async (request, reply) => {
-    if (!assertJobAccess(request.params.id, request.user.mbId)) return reply.notFound('잡을 찾을 수 없습니다');
+    if (!(await assertJobAccess(request.params.id, request.user.mbId))) return reply.notFound('잡을 찾을 수 없습니다');
     return proxyEngine(reply, `/jobs/${encodeURIComponent(request.params.id)}/result`, undefined, 200);
   });
 
@@ -35,7 +47,7 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     '/bom/jobs/:id/supplier-search/preflight',
     { schema: { params: IdParams, body: BomSupplierOptions } },
     async (request, reply) => {
-      if (!assertJobAccess(request.params.id, request.user.mbId)) return reply.notFound('잡을 찾을 수 없습니다');
+      if (!(await assertJobAccess(request.params.id, request.user.mbId))) return reply.notFound('잡을 찾을 수 없습니다');
       const config = await getBomQuoteConfig();
       const body = { ...request.body, max_calls: Math.min(request.body.max_calls, config.supplierSearchMaxCalls) };
       return proxyEngine(
@@ -51,7 +63,7 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     '/bom/jobs/:id/supplier-search',
     { schema: { params: IdParams, body: BomSupplierOptions } },
     async (request, reply) => {
-      if (!assertJobAccess(request.params.id, request.user.mbId)) return reply.notFound('잡을 찾을 수 없습니다');
+      if (!(await assertJobAccess(request.params.id, request.user.mbId))) return reply.notFound('잡을 찾을 수 없습니다');
       const config = await getBomQuoteConfig();
       if (!tryCountDailySearch(request.user.mbId, config.memberDailySearchLimit)) {
         return reply.status(429).send({ result: false, error: 'SEARCH_DAILY_LIMIT' });
@@ -69,12 +81,12 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   );
 
   fastify.get('/bom/jobs/:id/supplier-search', { schema: { params: IdParams } }, async (request, reply) => {
-    if (!assertJobAccess(request.params.id, request.user.mbId)) return reply.notFound('잡을 찾을 수 없습니다');
+    if (!(await assertJobAccess(request.params.id, request.user.mbId))) return reply.notFound('잡을 찾을 수 없습니다');
     return proxyEngine(reply, `/jobs/${encodeURIComponent(request.params.id)}/supplier-search`, undefined, 200);
   });
 
   fastify.get('/bom/jobs/:id/supplier-search/result', { schema: { params: IdParams } }, async (request, reply) => {
-    if (!assertJobAccess(request.params.id, request.user.mbId)) return reply.notFound('잡을 찾을 수 없습니다');
+    if (!(await assertJobAccess(request.params.id, request.user.mbId))) return reply.notFound('잡을 찾을 수 없습니다');
     const out = await proxyEngine(
       reply,
       `/jobs/${encodeURIComponent(request.params.id)}/supplier-search/result`,
