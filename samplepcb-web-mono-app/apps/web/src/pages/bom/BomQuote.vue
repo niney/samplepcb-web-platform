@@ -673,6 +673,7 @@ function selectionSourceLabel(item: BomQuoteItemType): string {
   if (item.selectionSource === 'catalog') return '직접 검색';
   if (item.selectionSource === 'admin') return '관리자 선택';
   if (item.matchEvidence?.recommendationType === 'price') return '가격 최적';
+  if (item.matchEvidence?.recommendationType === 'purchase-fit') return '구매조건 우선';
   if (item.matchEvidence?.recommendationType === 'lifecycle') return '수명주기 추천';
   if (item.matchEvidence?.selectionMode === 'exact') return '정확 일치';
   if (item.matchEvidence?.selectionMode === 'variant') return '검증 변형';
@@ -697,6 +698,12 @@ function selectionReasonSummary(item: BomQuoteItemType): string {
       : `기술 1위 대비 ${Math.round(saving).toLocaleString('ko-KR')}원 절감${rateValue === null ? '' : ` · ${(rateValue * 100).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`}`;
   }
   if (evidence.recommendationType === 'lifecycle') return '기술 1순위 NRND/EOL · 활성 부품 추천';
+  if (evidence.recommendationType === 'purchase-fit') {
+    const price = evidence.priceEvidence;
+    return price === null
+      ? '동급 후보 중 구매조건 우선 · 일부 확인 필요'
+      : `동급 후보 중 필요 ${price.neededQty.toLocaleString('ko-KR')}개 → 주문 ${price.orderQty.toLocaleString('ko-KR')}개 · 일부 확인 필요`;
+  }
   const required = evidence.requiredRequirementCount;
   return required > 0
     ? `확인된 항목 ${String(evidence.verifiedRequirementCount)}/${String(required)} · 충돌 없음`
@@ -1012,6 +1019,7 @@ function partLabel(item: BomQuoteItemType): string {
                     <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="engineEvidenceTitle(item)">매칭</span>
                     <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="engineEvidenceTitle(item)">가격 확인 필요</span>
                     <span v-if="item.matchStatus !== 'none'" class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{{ selectionSourceLabel(item) }}</span>
+                    <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="engineEvidenceTitle(item)">일부 확인 필요</span>
                     <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
                     <p v-if="item.matchStatus !== 'none'" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="selectionReasonSummary(item)">{{ selectionReasonSummary(item) }}</p>
                     <span v-if="(item.matchEvidence?.alternativeCandidateCount ?? 0) > 0" class="text-[10px] font-semibold text-blue-600">대체 후보 {{ item.matchEvidence?.alternativeCandidateCount }}개</span>

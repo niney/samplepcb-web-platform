@@ -18,6 +18,7 @@ export const BomQuoteRecommendationType = z.enum([
   'identity',
   'technical',
   'price',
+  'purchase-fit',
   'lifecycle',
   'availability',
 ]);
@@ -29,6 +30,7 @@ export const BomQuoteDecisionReason = z.enum([
   'technical-top',
   'same-part-lowest-total',
   'strict-spec-price-saving',
+  'purchase-fit',
   'lifecycle-improvement',
   'availability',
   'customer-choice',

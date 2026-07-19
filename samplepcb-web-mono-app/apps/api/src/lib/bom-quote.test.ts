@@ -144,6 +144,7 @@ function candidate(
     packageCode?: string | null;
     normalizedSpecs?: Record<string, unknown>;
     attributes?: Record<string, unknown>;
+    missingRequirements?: string[];
   } = {},
 ) {
   return {
@@ -151,7 +152,7 @@ function candidate(
     identity_confidence: status === 'verified_exact' ? 1 : 0,
     specification_confidence: status === 'spec_compatible' ? 1 : 0,
     conflicts,
-    missing_requirements: [],
+    missing_requirements: options.missingRequirements ?? [],
     reasons: options.reasons ?? [`${status}_reason`],
     corroborating_suppliers: [],
     product: {
@@ -181,6 +182,67 @@ function candidate(
 }
 
 describe('BOM 엔진 후보 자동 선정', () => {
+  it('제조사 없는 MPN의 동급 불완전 후보는 과다구매 대신 구매조건이 가까운 후보를 고른다', () => {
+    const shared = {
+      reasons: ['manufacturer_part_number_exact', 'part_type_match'],
+      missingRequirements: ['package'],
+    };
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-ambiguous-purchase-fit',
+        status: 'verified_exact',
+        candidates: [
+          candidate('verified_exact', 'M7', 'digikey', 104.958, 20_000, [], {
+            ...shared,
+            manufacturer: 'MDD',
+          }),
+          candidate('verified_exact', 'M7', 'digikey', 191, 1, [], {
+            ...shared,
+            manufacturer: 'Diotec Semiconductor',
+          }),
+        ],
+      },
+      true,
+      3,
+      null,
+      { valueRaw: 'M7(1N4007SMD)', packageCode: 'DO214 SMAJ', manufacturerName: null },
+    );
+
+    expect(decision?.candidate?.product.manufacturer).toBe('Diotec Semiconductor');
+    expect(decision?.pick?.orderQty).toBe(3);
+    expect(decision?.evidence).toMatchObject({
+      selectedTechnicalRank: 2,
+      recommendationType: 'purchase-fit',
+      decisionReasonCodes: ['identity-exact', 'purchase-fit', 'same-part-lowest-total'],
+      missingRequirements: ['package'],
+      priceEvidence: { neededQty: 3, orderQty: 3, lineTotalKrw: 573 },
+    });
+  });
+
+  it('원본 제조사가 있으면 동급 후보라도 다른 제조사로 구매조건 전환하지 않는다', () => {
+    const shared = {
+      reasons: ['manufacturer_part_number_exact', 'part_type_match'],
+      missingRequirements: ['package'],
+    };
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-original-manufacturer',
+        status: 'verified_exact',
+        candidates: [
+          candidate('verified_exact', 'M7', 'digikey', 104.958, 20_000, [], { ...shared, manufacturer: 'MDD' }),
+          candidate('verified_exact', 'M7', 'digikey', 191, 1, [], { ...shared, manufacturer: 'Diotec Semiconductor' }),
+        ],
+      },
+      true,
+      3,
+      null,
+      { valueRaw: 'M7', packageCode: null, manufacturerName: 'MDD' },
+    );
+
+    expect(decision?.candidate?.product.manufacturer).toBe('MDD');
+    expect(decision?.evidence.recommendationType).toBe('identity');
+  });
+
   it('MPN 없는 행도 필수 스펙 검증 근거가 없으면 가격만으로 기술 1순위를 뒤집지 않는다', () => {
     const decision = selectEngineMatch(
       {
@@ -328,7 +390,7 @@ describe('BOM 엔진 후보 자동 선정', () => {
       false,
       2,
       null,
-      { valueRaw: '220uF/50V/칩전해10파이', packageCode: null },
+      { valueRaw: '220uF/50V/칩전해10파이', packageCode: null, manufacturerName: null },
     );
 
     expect(decision?.candidate?.product.manufacturer_part_number).toBe('UWT1H221MNL1GS');

@@ -115,6 +115,7 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'technical-top': '기술 검증 1순위',
     'same-part-lowest-total': '동일 부품 내 실효 총액 최저',
     'strict-spec-price-saving': '필수 스펙 완전 검증 후 유의미한 절감',
+    'purchase-fit': '동급 후보 중 구매조건 최적',
     'lifecycle-improvement': 'NRND/EOL 대신 활성 부품 우선',
     availability: '구매 가능한 재고·가격 우선',
     'customer-choice': '고객 직접 선택',
@@ -305,6 +306,9 @@ onBeforeUnmount(() => {
                     <p class="mt-1">가격 순위 <b class="text-slate-900">{{ currentCandidate.priceRank === null ? '산정 불가' : `${String(currentCandidate.priceRank)}위` }}</b></p>
                     <p class="mt-1">필수조건 <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }} 검증</b></p>
                   </div>
+                </div>
+                <div v-if="context.decisionReasonCodes.includes('purchase-fit')" class="mx-5 mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800">
+                  일부 조건은 추가 확인이 필요하지만, 기술 근거가 같은 후보 중 필요수량·MOQ·예상금액이 가장 적합한 부품을 선택했습니다.
                 </div>
               </section>
 

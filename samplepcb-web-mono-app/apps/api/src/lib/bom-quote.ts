@@ -177,7 +177,7 @@ const EngineSupplierEnvelope = z
 type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-hybrid-physical-v3';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-hybrid-purchase-fit-v4';
 
 /** 엔진 시트 결과를 고객·관리자 공용 선택 스냅샷으로 축약한다. */
 export function extractEngineSheets(result: unknown): BomQuoteSheetType[] {
@@ -251,6 +251,7 @@ export function buildItemsFromEngineResult(
         packageCode: c.package ?? null,
         valueRaw: c.value_raw ?? null,
         inputPartNumber: mpn === '' ? null : mpn,
+        inputManufacturer: c.manufacturer ?? null,
       },
     });
   }
@@ -447,6 +448,7 @@ type MountStyle = 'smd' | 'through-hole';
 interface OriginalSelectionContext {
   valueRaw: string | null;
   packageCode: string | null;
+  manufacturerName: string | null;
 }
 
 interface PhysicalRequirements {
@@ -885,6 +887,71 @@ function groupBestPick(
   return { pick, offerKey: inputs.find(([, input]) => input === pick.offer)?.[0] ?? null };
 }
 
+function sameStringSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const right = new Set(b);
+  return a.every((value) => right.has(value));
+}
+
+/** 엔진 순위를 제외한 판정 근거가 같은 후보만 구매조건 비교를 허용한다. */
+function hasEquivalentTechnicalEvidence(a: StoredCandidateType, b: StoredCandidateType): boolean {
+  return (
+    a.status === b.status &&
+    a.selectionMode === b.selectionMode &&
+    a.safety === b.safety &&
+    a.identityConfidence === b.identityConfidence &&
+    a.specificationConfidence === b.specificationConfidence &&
+    a.verifiedRequirementCount === b.verifiedRequirementCount &&
+    a.requiredRequirementCount === b.requiredRequirementCount &&
+    sameStringSet(a.conflicts, b.conflicts) &&
+    sameStringSet(a.missingRequirements, b.missingRequirements) &&
+    sameStringSet(a.reasons, b.reasons)
+  );
+}
+
+function hasIncompleteVerification(candidate: StoredCandidateType): boolean {
+  return (
+    candidate.requiredRequirementCount === 0 ||
+    candidate.verifiedRequirementCount < candidate.requiredRequirementCount ||
+    candidate.missingRequirements.length > 0
+  );
+}
+
+const EXCESSIVE_ORDER_RATIO_MIN = 100;
+const EXCESSIVE_SURPLUS_VALUE_KRW_MIN = 10_000;
+
+/** 수량과 금액이 함께 비정상적으로 커야 과다구매로 본다(저가 릴 포장은 허용). */
+function purchaseRiskRank(pick: OfferPick | null, needed: number): number {
+  if (pick === null) return 4;
+  if (pick.stockShort) return 3;
+  if (pick.unitPriceKrw === null) return 2;
+  const surplusQty = Math.max(0, pick.orderQty - needed);
+  const excessive =
+    pick.orderQty >= needed * EXCESSIVE_ORDER_RATIO_MIN &&
+    surplusQty * pick.unitPriceKrw >= EXCESSIVE_SURPLUS_VALUE_KRW_MIN;
+  return excessive ? 1 : 0;
+}
+
+interface PurchaseFitEntry<T> {
+  value: T;
+  snapshot: StoredCandidateType;
+  result: { pick: OfferPick | null; offerKey: string | null };
+}
+
+/** 기술 근거가 같은 후보는 과다구매 위험→총액→주문수량 순으로 결정한다. */
+function pickPurchaseFit<T>(entries: PurchaseFitEntry<T>[], needed: number): PurchaseFitEntry<T> | null {
+  return [...entries].sort((a, b) => {
+    const risk = purchaseRiskRank(a.result.pick, needed) - purchaseRiskRank(b.result.pick, needed);
+    if (risk !== 0) return risk;
+    const total = (pickLineTotal(a.result.pick) ?? Number.POSITIVE_INFINITY) -
+      (pickLineTotal(b.result.pick) ?? Number.POSITIVE_INFINITY);
+    if (total !== 0) return total;
+    const orderQty = (a.result.pick?.orderQty ?? Number.POSITIVE_INFINITY) -
+      (b.result.pick?.orderQty ?? Number.POSITIVE_INFINITY);
+    return orderQty || a.snapshot.technicalRank - b.snapshot.technicalRank;
+  })[0] ?? null;
+}
+
 function pickLineTotal(pick: OfferPick | null): number | null {
   if (pick?.unitPriceKrw == null) return null;
   return Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100;
@@ -1031,7 +1098,34 @@ export function selectEngineMatch(
     'same-part-lowest-total',
   ];
 
-  if (!originalHasMpn && selectedMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop.snapshot)) {
+  const originalManufacturerMissing = sourceContext?.manufacturerName?.trim() === '' || sourceContext?.manufacturerName == null;
+  if (
+    originalHasMpn &&
+    originalManufacturerMissing &&
+    (selectedMode === 'exact' || selectedMode === 'variant') &&
+    hasIncompleteVerification(technicalTop.snapshot)
+  ) {
+    const equivalent = eligible
+      .filter((group) => hasEquivalentTechnicalEvidence(technicalTop.snapshot, group.snapshot))
+      .map((group) => ({
+        value: group,
+        snapshot: group.snapshot,
+        result: groupBestPick(group, needed, usdKrwRate),
+      }));
+    const purchaseFit = pickPurchaseFit(equivalent, needed);
+    if (purchaseFit !== null && purchaseFit.value !== technicalTop) {
+      selected = purchaseFit.value;
+      selectedPick = purchaseFit.result;
+      recommendationType = 'purchase-fit';
+      reasonCodes.splice(
+        0,
+        reasonCodes.length,
+        selectedMode === 'exact' ? 'identity-exact' : 'identity-variant',
+        'purchase-fit',
+        'same-part-lowest-total',
+      );
+    }
+  } else if (!originalHasMpn && selectedMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop.snapshot)) {
     const alternatives = eligible
       .slice(1)
       .filter((group) => hasStrictCategoryCoverage(group.snapshot))
@@ -1199,9 +1293,11 @@ export async function applyEngineSupplierResult(
     const needed = neededQty(item.bomQty, setQty, spareQty);
     const rawValue = item.sourceRow?.valueRaw;
     const rawPackage = item.sourceRow?.packageCode;
+    const rawManufacturer = item.sourceRow?.inputManufacturer;
     const decision = selectEngineMatch(component, inputPartNumber !== '', needed, usdKrwRate, {
       valueRaw: typeof rawValue === 'string' ? rawValue : null,
       packageCode: typeof rawPackage === 'string' ? rawPackage : null,
+      manufacturerName: typeof rawManufacturer === 'string' ? rawManufacturer : null,
     });
     if (decision === null) continue;
     candidateSnapshots.push(...decision.snapshots.map((candidate) => ({ rowIdx: item.rowIdx, candidate })));
@@ -1357,6 +1453,7 @@ function recommendStoredCandidate(
   candidates: StoredCandidateType[],
   needed: number,
   usdKrwRate: number | null,
+  allowAmbiguousPurchaseFit: boolean,
 ): StoredRecommendation | null {
   const eligible = candidates
     .filter((candidate) => candidate.autoEligible)
@@ -1377,7 +1474,32 @@ function recommendStoredCandidate(
     'same-part-lowest-total',
   ];
 
-  if (technicalTop.selectionMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop)) {
+  if (
+    allowAmbiguousPurchaseFit &&
+    (technicalTop.selectionMode === 'exact' || technicalTop.selectionMode === 'variant') &&
+    hasIncompleteVerification(technicalTop)
+  ) {
+    const equivalent = eligible
+      .filter((candidate) => hasEquivalentTechnicalEvidence(technicalTop, candidate))
+      .map((candidate) => ({
+        value: candidate,
+        snapshot: candidate,
+        result: storedCandidatePick(candidate, needed, usdKrwRate),
+      }));
+    const purchaseFit = pickPurchaseFit(equivalent, needed);
+    if (purchaseFit !== null && purchaseFit.value !== technicalTop) {
+      selected = purchaseFit.value;
+      selectedResult = purchaseFit.result;
+      recommendationType = 'purchase-fit';
+      reasonCodes.splice(
+        0,
+        reasonCodes.length,
+        technicalTop.selectionMode === 'exact' ? 'identity-exact' : 'identity-variant',
+        'purchase-fit',
+        'same-part-lowest-total',
+      );
+    }
+  } else if (technicalTop.selectionMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop)) {
     const alternatives = eligible
       .slice(1)
       .filter(hasStrictCategoryCoverage)
@@ -1518,7 +1640,13 @@ export async function repriceCandidateSelections(
     const rowCandidates = candidates.get(item.rowIdx);
     if (rowCandidates === undefined) continue;
     const needed = neededQty(item.bomQty, setQty, spareQty);
-    const recommendation = recommendStoredCandidate(rowCandidates, needed, usdKrwRate);
+    const originalManufacturer = item.sourceRow?.inputManufacturer;
+    const recommendation = recommendStoredCandidate(
+      rowCandidates,
+      needed,
+      usdKrwRate,
+      typeof originalManufacturer !== 'string' || originalManufacturer.trim() === '',
+    );
     item.recommendedCandidateKey = recommendation?.candidate.candidateKey ?? null;
     if (item.matchEvidence !== null) {
       item.matchEvidence = {
