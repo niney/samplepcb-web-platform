@@ -269,18 +269,10 @@ async function refreshQuoteFromCatalogInner(quoteId: bigint): Promise<void> {
   await refreshOfferSnapshots(items, config.usdKrwRate);
   await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, true);
   const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
-  await replaceQuoteItems(quoteId, result.items);
-  await prisma.spBomQuote.update({
-    where: { id: quoteId },
-    data: {
-      itemsTotal: result.itemsTotal,
-      finalTotal: result.finalTotal,
-      uncostedCount: result.uncostedCount,
-      usdKrwRateUsed: config.usdKrwRate,
-      // 상태와 데이터를 같은 저장으로 커밋 — FE 는 done 과 매칭 라인을 한 응답으로 받는다
-      enrichStatus: 'done',
-      enrichedAt: new Date(),
-    },
+  // 라인과 done을 한 트랜잭션으로 공개 — 어떤 상세 GET도 중간 상태를 볼 수 없다.
+  await persistQuoteComputed(quoteId, result, config.usdKrwRate, {
+    enrichStatus: 'done',
+    enrichedAt: new Date(),
   });
 }
 
@@ -330,26 +322,33 @@ export function recalcItems(items: BomQuoteItemInputType[], usdKrwRate: number |
 /** 라인 replace-all(레거시 문서 자동저장 방식) — draft 한정으로 호출할 것. */
 export async function replaceQuoteItems(quoteId: bigint, items: BomQuoteItemType[]): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    await tx.spBomQuoteItem.deleteMany({ where: { quoteId } });
-    if (items.length > 0) {
-      await tx.spBomQuoteItem.createMany({
-        data: items.map((item) => ({
-          quoteId,
-          rowIdx: item.rowIdx,
-          included: item.included,
-          mpn: item.mpn,
-          manufacturerName: item.manufacturerName,
-          description: item.description,
-          bomQty: item.bomQty,
-          orderQty: item.orderQty,
-          matchStatus: item.matchStatus,
-          partId: item.partId === null ? null : BigInt(item.partId),
-          selectedOffer: item.selectedOffer === null ? Prisma.DbNull : (item.selectedOffer as Prisma.InputJsonValue),
-          lineTotalKrw: item.lineTotalKrw,
-          sourceRow: item.sourceRow === null ? Prisma.DbNull : (item.sourceRow as Prisma.InputJsonValue),
-        })),
-      });
-    }
+    await replaceQuoteItemsInTransaction(tx, quoteId, items);
+  });
+}
+
+async function replaceQuoteItemsInTransaction(
+  tx: Prisma.TransactionClient,
+  quoteId: bigint,
+  items: BomQuoteItemType[],
+): Promise<void> {
+  await tx.spBomQuoteItem.deleteMany({ where: { quoteId } });
+  if (items.length === 0) return;
+  await tx.spBomQuoteItem.createMany({
+    data: items.map((item) => ({
+      quoteId,
+      rowIdx: item.rowIdx,
+      included: item.included,
+      mpn: item.mpn,
+      manufacturerName: item.manufacturerName,
+      description: item.description,
+      bomQty: item.bomQty,
+      orderQty: item.orderQty,
+      matchStatus: item.matchStatus,
+      partId: item.partId === null ? null : BigInt(item.partId),
+      selectedOffer: item.selectedOffer === null ? Prisma.DbNull : (item.selectedOffer as Prisma.InputJsonValue),
+      lineTotalKrw: item.lineTotalKrw,
+      sourceRow: item.sourceRow === null ? Prisma.DbNull : (item.sourceRow as Prisma.InputJsonValue),
+    })),
   });
 }
 
@@ -358,6 +357,42 @@ export interface QuoteComputed {
   itemsTotal: number;
   finalTotal: number;
   uncostedCount: number;
+}
+
+export interface QuotePersistenceExtra {
+  title?: string;
+  setQty?: number;
+  spareQty?: number;
+  customerMemo?: string | null;
+  enrichStatus?: string;
+  enrichedAt?: Date | null;
+}
+
+/** 계산 라인과 견적 합계·보강 상태를 한 트랜잭션으로 영속화한다. */
+export async function persistQuoteComputed(
+  quoteId: bigint,
+  computed: QuoteComputed,
+  usdKrwRate: number | null,
+  extra?: QuotePersistenceExtra,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await replaceQuoteItemsInTransaction(tx, quoteId, computed.items);
+    await tx.spBomQuote.update({
+      where: { id: quoteId },
+      data: {
+        itemsTotal: computed.itemsTotal,
+        finalTotal: computed.finalTotal,
+        uncostedCount: computed.uncostedCount,
+        usdKrwRateUsed: usdKrwRate,
+        ...(extra?.title !== undefined ? { title: extra.title } : {}),
+        ...(extra?.setQty !== undefined ? { setQty: extra.setQty } : {}),
+        ...(extra?.spareQty !== undefined ? { spareQty: extra.spareQty } : {}),
+        ...(extra?.customerMemo !== undefined ? { customerMemo: extra.customerMemo } : {}),
+        ...(extra?.enrichStatus !== undefined ? { enrichStatus: extra.enrichStatus } : {}),
+        ...(extra?.enrichedAt !== undefined ? { enrichedAt: extra.enrichedAt } : {}),
+      },
+    });
+  });
 }
 
 /** 라인 재계산 + 합계(운송료·관리비 포함, VAT 별도) — 저장 전 단일 경로. */

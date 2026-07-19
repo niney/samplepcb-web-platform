@@ -97,7 +97,9 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     if (reply.statusCode === 200) {
       // 백업 훅 — 인제스트 후 연결된 draft 견적까지 재매칭(폴러 유실·재시작 내성)
       void ingestJobResult(request.params.id, request.log)
-        .then(async () => refreshQuotesForJob(request.params.id))
+        .then(async (ingested) => {
+          if (ingested) await refreshQuotesForJob(request.params.id);
+        })
         .catch((error: unknown) => {
           request.log.warn({ jobId: request.params.id, err: String(error) }, '백업 견적 재매칭 실패');
         });

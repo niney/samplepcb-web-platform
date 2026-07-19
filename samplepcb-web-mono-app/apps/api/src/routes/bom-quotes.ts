@@ -20,12 +20,12 @@ import {
   canTransition,
   catalogMatchItems,
   computeQuote,
+  persistQuoteComputed,
   refreshQuoteFromCatalog,
   replaceQuoteItems,
   toDetailDto,
   toItemDto,
   toSummaryDto,
-  type QuoteComputed,
 } from '../lib/bom-quote';
 
 // ── /api/bom/quotes — 고객(회원) BOM 견적 CRUD (설계: docs/BOM_QUOTE.md) ─────
@@ -161,7 +161,8 @@ async function healEnrichment(
     }
     if (status === 'running' || status === 'unknown') return;
     if (status === 'completed') {
-      await ingestJobResult(jobId, log);
+      const ingested = await ingestJobResult(jobId, log);
+      if (!ingested) return; // 결과 준비 지연·일시 실패 — searching 유지, 다음 조회가 재시도
       await refreshQuoteFromCatalog(quoteId); // enrichStatus=done 포함 커밋
       return;
     }
@@ -286,30 +287,6 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     return { result: true as const, data: toDetailDto(quote, quote.items) };
   });
 
-  /** 계산 결과를 견적에 영속화(라인 replace-all + 합계 스냅샷). */
-  async function persistComputed(
-    quoteId: bigint,
-    computed: QuoteComputed,
-    usdKrwRate: number | null,
-    extra?: { title?: string; setQty?: number; spareQty?: number; customerMemo?: string | null; enrichStatus?: string },
-  ): Promise<void> {
-    await replaceQuoteItems(quoteId, computed.items);
-    await prisma.spBomQuote.update({
-      where: { id: quoteId },
-      data: {
-        itemsTotal: computed.itemsTotal,
-        finalTotal: computed.finalTotal,
-        uncostedCount: computed.uncostedCount,
-        usdKrwRateUsed: usdKrwRate,
-        ...(extra?.title !== undefined ? { title: extra.title } : {}),
-        ...(extra?.setQty !== undefined ? { setQty: extra.setQty } : {}),
-        ...(extra?.spareQty !== undefined ? { spareQty: extra.spareQty } : {}),
-        ...(extra?.customerMemo !== undefined ? { customerMemo: extra.customerMemo } : {}),
-        ...(extra?.enrichStatus !== undefined ? { enrichStatus: extra.enrichStatus } : {}),
-      },
-    });
-  }
-
   // 파싱 결과 → 라인 생성 + 카탈로그 매칭(최초 1회 — 이미 라인이 있으면 그대로 반환)
   fastify.post('/bom/quotes/:id/build', { schema: { params: IdParams, response: { 200: BomQuoteDetailResponse, 409: BizError, 502: BizError } } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
@@ -337,7 +314,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     // 창(그 순간 조회하면 전 라인 빨간 미매칭 렌더, 실측 ~1.2s)을 제거한다.
     // autoEnrichQuote 가 시작 실패 시 failed, (이례적) 불필요 판정 시 idle 로 되돌린다.
     const willEnrich = enrichNeeded(computed.items, config.freshnessHours);
-    await persistComputed(quote.id, computed, config.usdKrwRate, {
+    await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
       enrichStatus: willEnrich ? 'searching' : 'idle',
     });
 
@@ -364,7 +341,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const config = await getBomQuoteConfig();
     const items = request.body.items ?? quote.items.map(toItemDto);
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
-    await persistComputed(quote.id, computed, config.usdKrwRate, {
+    await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
       ...(request.body.title !== undefined ? { title: request.body.title } : {}),
       ...(request.body.setQty !== undefined ? { setQty: request.body.setQty } : {}),
       ...(request.body.spareQty !== undefined ? { spareQty: request.body.spareQty } : {}),
@@ -386,7 +363,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const items = quote.items.map(toItemDto);
     await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, request.body.onlyUnmatched);
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
-    await persistComputed(quote.id, computed, config.usdKrwRate);
+    await persistQuoteComputed(quote.id, computed, config.usdKrwRate);
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
