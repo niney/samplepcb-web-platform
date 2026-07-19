@@ -13,6 +13,10 @@ export const apiRoutes = {
   adminBom: '/api/admin/bom',
   // 부품 카탈로그 검색 (DB+ES)
   adminParts: '/api/admin/parts',
+  // 고객 스마트 BOM 견적 (회원) — 잡 프록시 + 견적 CRUD
+  bom: '/api/bom',
+  // 고객 BOM 견적요청 관리자 검토
+  adminBomQuotes: '/api/admin/bom-quotes',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',
