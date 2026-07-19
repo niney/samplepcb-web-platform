@@ -26,8 +26,11 @@
     { "input": "2.2nF", "expect": [{ "kind": "capacitance", "si": 2.2e-9, "confidence": "high" }] },
     { "input": "100n", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }, { "kind": "inductance", "si": 1e-7, "confidence": "low" }] },
     { "input": "0.1uF", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
+    { "input": "0.1uf", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
     { "input": "0.1µF", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
     { "input": "0.1μF", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
+    { "input": "0.1㎌", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
+    { "input": "0.1 uF", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high" }] },
     { "input": "4u7", "expect": [{ "kind": "capacitance", "si": 4.7e-6, "confidence": "high" }, { "kind": "inductance", "si": 4.7e-6, "confidence": "low" }] },
 
     { "input": "104K", "expect": [{ "kind": "capacitance", "si": 1e-7, "confidence": "high", "tolerancePct": 10 }] },

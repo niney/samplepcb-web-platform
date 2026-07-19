@@ -169,8 +169,16 @@ describe.skipIf(!RUN)('parts search (integration — 실 ES, C 게이트)', () =
     expect(await search('104K')).toContain(C);
   });
 
-  it('"0.1u" 프리픽스 → 커패시터 히트 (Track B prefix)', async () => {
-    expect(await search('0.1u')).toContain(C);
+  it.each([
+    ['0.1u', '접두만 입력'],
+    ['0.1uF', 'ASCII u + F'],
+    ['0.1uf', 'ASCII 소문자'],
+    ['0.1µF', 'micro sign U+00B5'],
+    ['0.1μF', 'Greek mu U+03BC'],
+    ['0.1㎌', 'square microfarad NFKC'],
+    ['0.1 uF', '숫자·단위 공백'],
+  ] as const)('"%s" → 100nF 커패시터 히트 (%s)', async (query, label) => {
+    expect(await search(query), label).toContain(C);
   });
 
   it('"2200p"(=2.2nF) 는 100nF 와 불일치 — 오검색 없음', async () => {
