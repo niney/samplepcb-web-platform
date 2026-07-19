@@ -13,6 +13,7 @@ import {
   PartDetailResponse,
   PartSearchResponse,
   apiRoutes,
+  type BomQuoteBuildBodyType,
   type BomQuotePatchBodyType,
   type BomSupplierOptionsType,
 } from '@sp/api-contract';
@@ -73,8 +74,14 @@ export function usePatchBomQuote() {
 }
 
 export function useBuildBomQuote() {
+  return useQuoteMutation(({ quoteId, body }: { quoteId: string; body: BomQuoteBuildBodyType }) =>
+    apiSend('POST', `${base}/quotes/${quoteId}/build`, body, BomQuoteDetailResponse),
+  );
+}
+
+export function usePrepareBomQuoteSheets() {
   return useQuoteMutation((quoteId: string) =>
-    apiSend('POST', `${base}/quotes/${quoteId}/build`, undefined, BomQuoteDetailResponse),
+    apiSend('POST', `${base}/quotes/${quoteId}/prepare`, undefined, BomQuoteDetailResponse),
   );
 }
 

@@ -10,6 +10,50 @@ export type BomQuoteStatusType = z.infer<typeof BomQuoteStatus>;
 export const BomQuoteMatchStatus = z.enum(['auto', 'manual', 'none']);
 export type BomQuoteMatchStatusType = z.infer<typeof BomQuoteMatchStatus>;
 
+/**
+ * 공급사 검색 엔진의 BOM 문맥 판정과 자동 선정 근거.
+ * 카탈로그 사실 데이터와 분리해 견적 라인에 스냅샷으로 보존한다.
+ */
+export const BomQuoteMatchEvidence = z.object({
+  policyVersion: z.string(),
+  componentId: z.string(),
+  componentStatus: z.string(),
+  candidateStatus: z.string().nullable(),
+  selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review', 'unmatched']),
+  candidateCount: z.number().int().min(0),
+  eligibleCandidateCount: z.number().int().min(0),
+  selectedMpn: z.string().nullable(),
+  selectedManufacturer: z.string().nullable(),
+  selectedSupplier: z.string().nullable(),
+  selectedSupplierSku: z.string().nullable(),
+  identityConfidence: z.number().nullable(),
+  specificationConfidence: z.number().nullable(),
+  conflicts: z.array(z.string()),
+  missingRequirements: z.array(z.string()),
+  reasons: z.array(z.string()),
+  corroboratingSuppliers: z.array(z.string()),
+});
+export type BomQuoteMatchEvidenceType = z.infer<typeof BomQuoteMatchEvidence>;
+
+/** 업로드 파싱부터 선택 시트 계산 완료까지의 생명주기. */
+export const BomQuoteBuildStatus = z.enum(['parsing', 'selecting', 'building', 'ready', 'failed']);
+export type BomQuoteBuildStatusType = z.infer<typeof BomQuoteBuildStatus>;
+
+export const BomQuoteSheetStatus = z.enum(['parsed', 'not_bom', 'error']);
+export type BomQuoteSheetStatusType = z.infer<typeof BomQuoteSheetStatus>;
+
+/** 엔진이 발견한 워크북 시트와 고객 선택 스냅샷. */
+export const BomQuoteSheet = z.object({
+  sheetIndex: z.number().int().min(0),
+  sheetName: z.string(),
+  status: BomQuoteSheetStatus,
+  componentCount: z.number().int().min(0),
+  selected: z.boolean(),
+  failureReason: z.string().nullable(),
+  warnings: z.array(z.string()),
+});
+export type BomQuoteSheetType = z.infer<typeof BomQuoteSheet>;
+
 /** 라인에 박제되는 오퍼 스냅샷 — 견적요청 후 재선정하지 않는다(시점 고정). */
 export const BomQuoteSelectedOffer = z.object({
   supplier: z.string(),
@@ -37,18 +81,24 @@ export const BomQuoteItemInput = z.object({
   rowIdx: z.number().int().min(0),
   /** 합계·견적요청에 포함 여부 — items 와 합계의 기준을 동일하게(레거시 결함 교정). */
   included: z.boolean(),
-  mpn: z.string().min(1).max(191),
+  /** 원본에 MPN이 없는 스펙 기반 부품행은 빈 문자열로 보존한다. */
+  mpn: z.string().max(191),
   manufacturerName: z.string().max(191).nullable(),
   description: z.string().max(1000).nullable(),
   bomQty: z.number().int().min(1),
   /** 박제된 주문수량(=max(BOM수량×세트, MOQ)→배수 올림) — 단일 진실. */
   orderQty: z.number().int().min(0),
   matchStatus: BomQuoteMatchStatus,
+  /** 관리자 공급사 엔진과 동일한 판정·자동 선정 근거. 수동 추가는 null. */
+  matchEvidence: BomQuoteMatchEvidence.nullable(),
   /** 카탈로그(sp_part) 연결 — 매칭 안 됐으면 null. */
   partId: z.string().nullable(),
   selectedOffer: BomQuoteSelectedOffer.nullable(),
   /** 원본 행 근거(엑셀 셀 값들) — 검토·감사용. */
   sourceRow: z.record(z.string(), z.unknown()).nullable(),
+  /** 시트 필터·그룹에 쓰는 구조화된 원본 위치. 수동 추가 행은 null. */
+  sourceSheetIndex: z.number().int().min(0).nullable(),
+  sourceSheetName: z.string().nullable(),
 });
 export type BomQuoteItemInputType = z.infer<typeof BomQuoteItemInput>;
 
@@ -77,6 +127,9 @@ export type BomQuoteSummaryType = z.infer<typeof BomQuoteSummary>;
 
 export const BomQuoteDetail = BomQuoteSummary.extend({
   engineJobId: z.string().nullable(),
+  /** 전체 시트 파싱→선택→선택 시트 계산의 서버 영속 단일 진실. */
+  buildStatus: BomQuoteBuildStatus,
+  sheets: z.array(BomQuoteSheet),
   /** 자동 보강 생명주기(서버 영속 단일 진실) — searching 동안 FE 는 "확인 중" UI + 폴링. */
   enrichStatus: z.enum(['idle', 'searching', 'done', 'failed']),
   /** 마지막 보강 반영(재매칭 저장) 시각. */
@@ -115,6 +168,16 @@ export const BomQuotePatchBody = z.object({
   items: z.array(BomQuoteItemInput).max(2000).optional(),
 });
 export type BomQuotePatchBodyType = z.infer<typeof BomQuotePatchBody>;
+
+/** 파싱 완료 후 실제 견적·공급사 검색에 포함할 시트. */
+export const BomQuoteBuildBody = z.object({
+  sheetIndexes: z
+    .array(z.number().int().min(0))
+    .min(1)
+    .max(100)
+    .refine((indexes) => new Set(indexes).size === indexes.length, '중복된 시트가 있습니다'),
+});
+export type BomQuoteBuildBodyType = z.infer<typeof BomQuoteBuildBody>;
 
 /** 카탈로그 매칭 — 기본은 미매칭 라인만(수동 선택 pinned 보존). */
 export const BomQuoteCatalogMatchBody = z.object({

@@ -107,6 +107,11 @@ function quoteSheet(item: BomQuoteItemType | undefined): string {
   return typeof value === 'string' && value !== '' ? value : '시트 미확인';
 }
 
+function quoteComponentId(item: BomQuoteItemType | undefined): string | null {
+  const value = sourceRow(item)?.componentId;
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
 function signature(rows: number[] | undefined, refs: string[] | undefined): string {
   return `${(rows ?? []).join(',')}|${[...(refs ?? [])].sort().join(',')}`;
 }
@@ -117,12 +122,17 @@ const comparisonItems = computed<ComparisonItem[]>(() => {
   const unused = new Set(quoteItems.map((_, index) => index));
   const compared: ComparisonItem[] = components.map((component, componentIndex) => {
     const componentSignature = signature(component.source_rows_1based, component.reference_designators);
-    let quoteIndex = quoteItems.findIndex(
-      (item, candidateIndex) =>
-        unused.has(candidateIndex) && signature(quoteRows(item), quoteRefs(item)) === componentSignature,
+    let quoteIndex = quoteItems.findIndex((item, candidateIndex) =>
+      unused.has(candidateIndex) && quoteComponentId(item) === component.component_id,
     );
-    // 레거시와 동일하게 원본 행/REFDES가 일치할 때만 연결한다. 검색 결과 순서는
-    // 엔진 전처리 과정에서 달라질 수 있으므로 단순 배열 인덱스로 잘못 결합하지 않는다.
+    if (quoteIndex < 0) {
+      quoteIndex = quoteItems.findIndex(
+        (item, candidateIndex) =>
+          unused.has(candidateIndex) && signature(quoteRows(item), quoteRefs(item)) === componentSignature,
+      );
+    }
+    // 시트 인덱스까지 포함한 엔진 component_id를 우선 사용한다. 기존 견적처럼 id가
+    // 없는 데이터만 원본 행/REFDES로 폴백하고 단순 배열 인덱스 결합은 피한다.
     if (quoteIndex < 0 && componentSignature === '|' && unused.has(componentIndex)) quoteIndex = componentIndex;
     const quoteItem = quoteIndex < 0 ? undefined : quoteItems[quoteIndex];
     if (quoteIndex >= 0) unused.delete(quoteIndex);

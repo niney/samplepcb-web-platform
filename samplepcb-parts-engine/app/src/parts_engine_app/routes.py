@@ -18,11 +18,16 @@ class SupplierSearchOptionsBody(BaseModel):
     max_calls: int = Field(default=700, ge=1, le=1_000)
     cache_only: bool = False
     reset_cache: bool = False
+    sheet_indexes: list[int] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def validate_cache_mode(self) -> "SupplierSearchOptionsBody":
         if self.cache_only and self.reset_cache:
             raise ValueError("cache_only and reset_cache cannot be enabled together")
+        if any(index < 0 for index in self.sheet_indexes):
+            raise ValueError("sheet_indexes must be zero-based non-negative integers")
+        if len(set(self.sheet_indexes)) != len(self.sheet_indexes):
+            raise ValueError("sheet_indexes cannot contain duplicates")
         return self
 
     def to_options(self) -> SupplierSearchOptions:
@@ -30,6 +35,7 @@ class SupplierSearchOptionsBody(BaseModel):
             max_calls=self.max_calls,
             cache_only=self.cache_only,
             reset_cache=self.reset_cache,
+            sheet_indexes=tuple(self.sheet_indexes),
         )
 
 

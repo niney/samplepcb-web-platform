@@ -47,11 +47,11 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
   });
 
   fastify.get('/bom-quotes/:id', { schema: { params: IdParams, response: { 200: AdminBomQuoteDetailResponse } } }, async (request, reply) => {
-    const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id }, include: { items: true } });
+    const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id }, include: { items: true, sheets: true } });
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(quote.id)}/file`;
-    return { result: true as const, data: toAdminDetailDto(quote, quote.items, fileUrl) };
+    return { result: true as const, data: toAdminDetailDto(quote, quote.items, quote.sheets, fileUrl) };
   });
 
   // 원본 BOM 파일 다운로드(서버 경유 스트리밍 — pathToken 클라 미노출 원칙)
@@ -89,11 +89,11 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       },
     });
 
-    const fresh = await prisma.spBomQuote.findUnique({ where: { id: quote.id }, include: { items: true } });
+    const fresh = await prisma.spBomQuote.findUnique({ where: { id: quote.id }, include: { items: true, sheets: true } });
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
-    return { result: true as const, data: toAdminDetailDto(fresh, fresh.items, fileUrl) };
+    return { result: true as const, data: toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl) };
   });
 
   done();

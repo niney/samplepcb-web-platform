@@ -476,38 +476,60 @@ model SpPartIndexQueue {
 // xpse 의 sp_bom_document/sp_estimate_document(별도 DB)와 무관한 sp-node 소유 신규 모델.
 // 금액 필드는 "예상 스냅샷"(sp_config 기본값·서버 재계산) — 확정은 confirmed* 로 분리.
 model SpBomQuote {
-  id                     BigInt           @id @default(autoincrement())
-  mbId                   String           @db.VarChar(60)
-  title                  String           @db.VarChar(191)
-  status                 String           @default("draft") @db.VarChar(16) // draft|requested|reviewing|answered|closed|canceled
-  fileName               String?          @db.VarChar(255)
-  contentHash            String?          @db.VarChar(64) // 원본 SHA-256 — 동일 파일 안내용
-  engineJobId            String?          @db.VarChar(64) // 엔진 인메모리 잡 — 재시작 시 소멸(재업로드)
-  setQty                 Int              @default(1)
-  spareQty               Int              @default(0)
-  itemsTotal             Int              @default(0) // KRW 정수(반올림)
-  shippingFee            Int              @default(0)
-  managementFee          Int              @default(0)
-  finalTotal             Int              @default(0)
-  usdKrwRateUsed         Decimal?         @db.Decimal(10, 2)
-  uncostedCount          Int              @default(0)
-  customerMemo           String?          @db.Text
-  adminMemo              String?          @db.Text // 내부 메모 — 고객 응답 미노출
-  answerNote             String?          @db.Text // 고객 노출 회신
+  id                     BigInt            @id @default(autoincrement())
+  mbId                   String            @db.VarChar(60)
+  title                  String            @db.VarChar(191)
+  status                 String            @default("draft") @db.VarChar(16) // draft|requested|reviewing|answered|closed|canceled
+  fileName               String?           @db.VarChar(255)
+  contentHash            String?           @db.VarChar(64) // 원본 SHA-256 — 동일 파일 안내용
+  engineJobId            String?           @db.VarChar(64) // 엔진 인메모리 잡 — 재시작 시 소멸(재업로드)
+  buildStatus            String            @default("ready") @db.VarChar(12) // parsing|selecting|building|ready|failed
+  setQty                 Int               @default(1)
+  spareQty               Int               @default(0)
+  itemsTotal             Int               @default(0) // KRW 정수(반올림)
+  shippingFee            Int               @default(0)
+  managementFee          Int               @default(0)
+  finalTotal             Int               @default(0)
+  usdKrwRateUsed         Decimal?          @db.Decimal(10, 2)
+  uncostedCount          Int               @default(0)
+  customerMemo           String?           @db.Text
+  adminMemo              String?           @db.Text // 내부 메모 — 고객 응답 미노출
+  answerNote             String?           @db.Text // 고객 노출 회신
   confirmedShippingFee   Int?
   confirmedManagementFee Int?
   confirmedTotal         Int?
-  enrichStatus           String           @default("idle") @db.VarChar(12) // idle|searching|done|failed — 자동 보강 생명주기(단일 진실)
+  enrichStatus           String            @default("idle") @db.VarChar(12) // idle|searching|done|failed — 자동 보강 생명주기(단일 진실)
   enrichedAt             DateTime? // 마지막 보강 반영(재매칭 저장) 시각
   requestedAt            DateTime?
   answeredAt             DateTime?
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
   items                  SpBomQuoteItem[]
+  sheets                 SpBomQuoteSheet[]
 
   @@index([mbId, status])
   @@index([status, requestedAt])
   @@map("sp_bom_quote")
+}
+
+// 업로드 워크북 시트 분석·선택 스냅샷 — 선택 시트만 견적 계산·공급사 검색에 사용.
+model SpBomQuoteSheet {
+  id             BigInt     @id @default(autoincrement())
+  quoteId        BigInt
+  sheetIndex     Int
+  sheetName      String     @db.VarChar(191)
+  status         String     @db.VarChar(16) // parsed|not_bom|error
+  componentCount Int        @default(0)
+  selected       Boolean    @default(false)
+  failureReason  String?    @db.VarChar(500)
+  warnings       Json?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  quote          SpBomQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, sheetIndex])
+  @@index([quoteId, selected])
+  @@map("sp_bom_quote_sheet")
 }
 
 // 견적 라인 — orderQty·selectedOffer 스냅샷이 단일 진실(요청 후 재선정 없음).
@@ -523,14 +545,18 @@ model SpBomQuoteItem {
   bomQty           Int
   orderQty         Int        @default(0)
   matchStatus      String     @default("none") @db.VarChar(8) // auto|manual|none
+  matchEvidence    Json? // 엔진 component 판정·후보·자동 선정 정책 스냅샷(BOM 문맥)
   partId           BigInt?
   selectedOffer    Json?
   lineTotalKrw     Decimal?   @db.Decimal(14, 2)
   sourceRow        Json?
+  sourceSheetIndex Int?
+  sourceSheetName  String?    @db.VarChar(191)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
   quote            SpBomQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@unique([quoteId, rowIdx])
+  @@index([quoteId, sourceSheetIndex])
   @@map("sp_bom_quote_item")
 }

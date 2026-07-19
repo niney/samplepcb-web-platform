@@ -104,6 +104,7 @@ def build_batch_from_result(
     result: dict[str, Any],
     *,
     source_file: str | None = None,
+    sheet_indexes: set[int] | None = None,
 ) -> SearchBatchInput:
     """SMARTBOM 공개 결과(G-shape AnalysisResult dict) → 검색 배치 계약.
 
@@ -119,6 +120,8 @@ def build_batch_from_result(
     components: list[SearchComponentInput] = []
     for component in result.get("components") or []:
         sheet_index = int(component["sheet_index_0based"])
+        if sheet_indexes is not None and sheet_index not in sheet_indexes:
+            continue
         rows = [int(row) for row in component.get("source_rows_1based") or []]
         components.append(
             SearchComponentInput(

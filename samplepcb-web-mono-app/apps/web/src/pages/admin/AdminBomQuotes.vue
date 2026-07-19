@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { apiGetBlob } from '@sp/shared';
-import type { BomQuoteStatusType } from '@sp/api-contract';
+import type { BomQuoteItemType, BomQuoteStatusType } from '@sp/api-contract';
 import { useAdminBomQuote, useAdminBomQuotes, usePatchAdminBomQuote } from '../../admin/useAdminBomQuotes';
 
 // 고객 BOM 견적요청 검토(1차 최소 화면) — 목록(상태 탭)·상세·상태 전이·확정가·메모·원본
@@ -67,6 +67,35 @@ function fmtWon(v: number | null): string {
 function fmtDate(iso: string | null): string {
   if (iso === null) return '—';
   return new Date(iso).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function itemRows(item: BomQuoteItemType): number[] {
+  const value = item.sourceRow?.sourceRows;
+  if (!Array.isArray(value)) return [];
+  return value.filter((row): row is number => typeof row === 'number' && Number.isInteger(row) && row > 0);
+}
+
+function itemLocation(item: BomQuoteItemType): string {
+  const rows = itemRows(item);
+  if (item.sourceSheetName === null) return '수동 추가';
+  return rows.length === 0 ? item.sourceSheetName : `${item.sourceSheetName} · ${rows.join(', ')}행`;
+}
+
+function itemLabel(item: BomQuoteItemType): string {
+  if (item.mpn.trim() !== '') return item.mpn;
+  const raw = item.sourceRow?.valueRaw;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : '품번 미기재';
+}
+
+function itemMatchLabel(item: BomQuoteItemType): string {
+  if (item.matchStatus === 'manual') return '수동 선정';
+  const evidence = item.matchEvidence;
+  if (evidence === null) return item.matchStatus === 'none' ? '미매칭' : '카탈로그 매칭';
+  if (evidence.selectionMode === 'exact') return '정확 일치';
+  if (evidence.selectionMode === 'variant') return '검증 변형';
+  if (evidence.selectionMode === 'spec-compatible') return '스펙 호환';
+  if (evidence.selectionMode === 'review') return `검토 필요 · ${evidence.componentStatus}`;
+  return '미매칭';
 }
 
 async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
@@ -161,12 +190,13 @@ async function downloadOriginal(): Promise<void> {
                     <div class="max-h-80 overflow-y-auto rounded-lg border border-gray-200 bg-white">
                       <table class="min-w-full divide-y divide-gray-100 text-xs">
                         <thead class="sticky top-0 bg-gray-50 text-left text-gray-500">
-                          <tr><th class="px-2 py-1.5">부품</th><th class="px-2 py-1.5">오퍼</th><th class="px-2 py-1.5 text-right">주문수량</th><th class="px-2 py-1.5 text-right">합계</th></tr>
+                          <tr><th class="px-2 py-1.5">Excel 위치</th><th class="px-2 py-1.5">부품</th><th class="px-2 py-1.5">오퍼</th><th class="px-2 py-1.5 text-right">주문수량</th><th class="px-2 py-1.5 text-right">합계</th></tr>
                         </thead>
                         <tbody class="divide-y divide-gray-50">
                           <tr v-for="item in detail.items" :key="item.rowIdx" :class="{ 'opacity-40': !item.included }">
+                            <td class="whitespace-nowrap px-2 py-1.5 text-gray-500">{{ itemLocation(item) }}</td>
                             <td class="px-2 py-1.5">
-                              <div class="font-medium">{{ item.mpn }}</div>
+                              <div class="font-medium">{{ itemLabel(item) }}</div>
                               <div class="text-gray-400">{{ item.manufacturerName }}</div>
                             </td>
                             <td class="px-2 py-1.5">
@@ -175,6 +205,7 @@ async function downloadOriginal(): Promise<void> {
                                 <span v-if="item.selectedOffer.pinned" class="ml-1 rounded bg-blue-100 px-1 text-[10px] text-blue-700">고정</span>
                               </template>
                               <span v-else class="text-amber-600">{{ item.matchStatus === 'none' ? '미매칭' : '오퍼 없음' }}</span>
+                              <div class="mt-0.5 text-[10px] text-gray-400">{{ itemMatchLabel(item) }}</div>
                             </td>
                             <td class="px-2 py-1.5 text-right tabular-nums">{{ item.orderQty.toLocaleString('ko-KR') }}</td>
                             <td class="px-2 py-1.5 text-right tabular-nums">{{ item.lineTotalKrw === null ? '—' : fmtWon(Math.round(item.lineTotalKrw)) }}</td>

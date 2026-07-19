@@ -39,6 +39,7 @@ class SupplierSearchOptions:
     max_calls: int
     cache_only: bool = False
     reset_cache: bool = False
+    sheet_indexes: tuple[int, ...] = ()
 
 
 class _EmptyPreflightCache:
@@ -157,7 +158,10 @@ class JobService:
         self._validate_supplier_options(options)
 
         started = time.perf_counter()
-        batch = build_batch_from_result(job.result)
+        batch = build_batch_from_result(
+            job.result,
+            sheet_indexes=set(options.sheet_indexes) if options.sheet_indexes else None,
+        )
         settings = self._supplier_settings(options)
         cache = _EmptyPreflightCache() if options.reset_cache else None
 
@@ -211,7 +215,12 @@ class JobService:
             assert job.result is not None
             assert job.supplier_options is not None
             assert job.supplier_preflight is not None
-            batch = build_batch_from_result(job.result)
+            batch = build_batch_from_result(
+                job.result,
+                sheet_indexes=set(job.supplier_options.sheet_indexes)
+                if job.supplier_options.sheet_indexes
+                else None,
+            )
             options = job.supplier_options
             settings = self._supplier_settings(options)
             job.supplier_progress = 20
@@ -273,6 +282,10 @@ class JobService:
             )
         if options.cache_only and options.reset_cache:
             raise JobError("supplier_cache_modes_conflict")
+        if any(index < 0 for index in options.sheet_indexes):
+            raise JobError("supplier_sheet_index_invalid")
+        if len(set(options.sheet_indexes)) != len(options.sheet_indexes):
+            raise JobError("supplier_sheet_index_duplicate")
 
     @staticmethod
     def _analysis_elapsed_ms(job: Job) -> float | None:
