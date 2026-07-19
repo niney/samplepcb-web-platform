@@ -105,6 +105,12 @@ dense_vector 시맨틱 · 재고/가격 라이브 갱신 · 공개(비관리자)
   fetchedAt=원천 시각(데이터 나이 정직). 향후 판매가/마진 정책의 유일한 적용 지점.
 - **집계 규칙**: totalStock·offerCount·minPrice 는 실공급사만(파생 이중 계산 방지),
   suppliers 패싯에는 samplepcb 포함. BOM 견적 `pickDefaultOffer` 후보에서 제외(순환 방지).
+- **이미지(2026-07-20)**: 공급사 제품 사진 직링크를 정본으로 승격 — 엔진 `SupplierProduct.image_url`
+  (Mouser `ImagePath`·DigiKey `PhotoUrl`·UniKeyIC `image_url|img`) → rawJson 경유
+  `resolvePartFacts` 가 `sp_part.imageUrl`(신뢰순위→최신, 충돌 게이트 비대상) 채움 →
+  ES `imageUrl`(index:false 표시 전용) → PartHit/PartDetail. **기존 적재분은 백필 불가**
+  (도입 전 rawJson 에 이미지 없음) — 재검색·수동 갱신 시 점진 채움. 1차는 CDN 직링크
+  (`referrerpolicy=no-referrer`+onerror 축퇴), 핫링크 차단 실측 시 파일서버 캐시 프록시 2차.
 - 백필 실측: 6,469건 재계산 — 실충돌 298건(예: SD05T1G 3사 전압 9.8/5/14.5V — TVS 전압
   파라미터 해석차 포착), samplepcb 오퍼 6,257건. 골든 15/15 + 통합 29/29(픽스처 prefix
   SPINGEST/SPTEST 분리로 병렬 레이스 교정).

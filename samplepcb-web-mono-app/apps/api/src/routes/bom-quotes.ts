@@ -112,7 +112,7 @@ async function autoEnrichQuote(
     sheet_indexes: sheetIndexes,
   };
 
-  const items = quote.items.map(toItemDto);
+  const items = quote.items.map((row) => toItemDto(row));
   if (!enrichNeeded(items, config.freshnessHours)) {
     // 전부 신선 — 0콜로 끝. build 가 선점해 둔 searching 이 있으면 idle 로 되돌린다.
     if (quote.enrichStatus === 'searching') {
@@ -315,7 +315,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         request.log.warn({ quoteId: String(quote.id), err: String(error) }, '자동 보강 치유 실패');
       });
     }
-    return { result: true as const, data: toDetailDto(quote, quote.items, quote.sheets) };
+    return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };
   });
 
   // 엔진 잡과 무관한 영속 후보 비교 — 요청 후에도 고객이 자신의 선정 근거를 조회할 수 있다.
@@ -361,7 +361,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     }
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    return { result: true as const, data: toDetailDto(fresh, fresh.items, fresh.sheets) };
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 파싱 완료 결과에서 시트 요약만 영속 — 계산·공급사 검색은 아직 시작하지 않는다.
@@ -370,7 +370,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
     if (quote.status !== 'draft') return reply.conflict('draft 상태에서만 가능합니다');
     if (quote.buildStatus !== 'parsing') {
-      return { result: true as const, data: toDetailDto(quote, quote.items, quote.sheets) };
+      return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };
     }
     if (quote.engineJobId === null) return reply.conflict('파싱 잡이 없습니다 — 다시 업로드해 주세요');
 
@@ -413,7 +413,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    return { result: true as const, data: toDetailDto(fresh, fresh.items, fresh.sheets) };
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 고객이 선택한 시트만 라인 생성·카탈로그 매칭·공급사 검색한다.
@@ -422,7 +422,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
     if (quote.status !== 'draft') return reply.conflict('draft 상태에서만 가능합니다');
     if (quote.buildStatus === 'ready') {
-      return { result: true as const, data: toDetailDto(quote, quote.items, quote.sheets) };
+      return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };
     }
     if (quote.buildStatus !== 'selecting') return reply.conflict('시트 분석 또는 다른 계산이 진행 중입니다');
     if (quote.engineJobId === null) return reply.conflict('파싱 잡이 없습니다 — 다시 업로드해 주세요');
@@ -485,7 +485,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    return { result: true as const, data: toDetailDto(fresh, fresh.items, fresh.sheets) };
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 자동저장(디바운스) — draft 한정, items 는 replace-all
@@ -543,7 +543,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    return { result: true as const, data: toDetailDto(fresh, fresh.items, fresh.sheets) };
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 카탈로그 재매칭 — 공급사 검색(자동 인제스트) 후 호출하면 신규 오퍼 반영
@@ -554,14 +554,14 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (quote.buildStatus !== 'ready') return reply.conflict('시트 계산이 완료된 후 다시 매칭할 수 있습니다');
 
     const config = await getBomQuoteConfig();
-    const items = quote.items.map(toItemDto);
+    const items = quote.items.map((row) => toItemDto(row));
     await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, request.body.onlyUnmatched);
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistQuoteComputed(quote.id, computed, config.usdKrwRate);
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    return { result: true as const, data: toDetailDto(fresh, fresh.items, fresh.sheets) };
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 견적요청(RFQ) — 서버 재계산 후 동결(draft→requested)
@@ -571,7 +571,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (!canTransition(quote.status, 'requested')) return reply.conflict('견적요청할 수 없는 상태입니다');
     if (quote.buildStatus !== 'ready') return reply.conflict('시트 계산이 완료된 후 견적요청할 수 있습니다');
 
-    const items = quote.items.map(toItemDto);
+    const items = quote.items.map((row) => toItemDto(row));
     if (!items.some((i) => i.included)) return reply.badRequest('견적요청에 포함된 라인이 없습니다');
 
     const rate = quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed);
@@ -591,7 +591,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    return { result: true as const, data: toDetailDto(fresh, fresh.items, fresh.sheets) };
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 취소 — draft/requested 에서만(고객)
@@ -602,7 +602,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     await prisma.spBomQuote.update({ where: { id: quote.id }, data: { status: 'canceled' } });
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    return { result: true as const, data: toDetailDto(fresh, fresh.items, fresh.sheets) };
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 삭제 — draft 한정(하드 삭제, 원본 파일도 정리)

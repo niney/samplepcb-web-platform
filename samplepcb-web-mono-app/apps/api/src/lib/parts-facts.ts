@@ -40,6 +40,7 @@ export interface FactsSource {
   packageCode: string | null; // 원문 — 정준화(normalizePackageCode)는 호출부
   lifecycle: string | null;
   datasheetUrl: string | null;
+  imageUrl: string | null;
 }
 
 export interface SpecConflictGroup {
@@ -60,6 +61,7 @@ export interface PartFacts {
   packageCode: string | null;
   lifecycle: string | null;
   datasheetUrl: string | null;
+  imageUrl: string | null;
 }
 
 function trustRank(supplier: string): number {
@@ -187,6 +189,7 @@ export function resolvePartFacts(sources: FactsSource[]): PartFacts {
     packageCode: pickScalar(real, (s) => s.packageCode),
     lifecycle: pickScalar(real, (s) => s.lifecycle),
     datasheetUrl: pickScalar(real, (s) => s.datasheetUrl),
+    imageUrl: pickScalar(real, (s) => s.imageUrl),
   };
 }
 

@@ -21,6 +21,7 @@ function src(partial: Partial<FactsSource> & { supplier: string }): FactsSource 
     packageCode: null,
     lifecycle: null,
     datasheetUrl: null,
+    imageUrl: null,
     ...partial,
   };
 }

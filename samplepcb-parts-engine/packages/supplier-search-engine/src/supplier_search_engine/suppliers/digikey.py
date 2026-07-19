@@ -467,6 +467,7 @@ class DigiKeyClient(SupplierClient):
                     discontinued=product.get("Discontinued"),
                     end_of_life=product.get("EndOfLife"),
                     datasheet_url=product.get("DatasheetUrl"),
+                    image_url=product.get("PhotoUrl") or None,
                     normalized_specs=specs,
                     attributes=raw_attributes,
                     offers=offers,

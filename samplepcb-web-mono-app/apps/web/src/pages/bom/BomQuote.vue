@@ -546,6 +546,7 @@ async function onPartSelected(part: PartHitType): Promise<void> {
       sourceSheetIndex: null,
       sourceSheetName: null,
       lineTotalKrw: null,
+      partImageUrl: part.imageUrl,
     });
     lineIdx = items.value.length - 1;
   } else {
@@ -554,6 +555,7 @@ async function onPartSelected(part: PartHitType): Promise<void> {
     item.mpn = part.mpn;
     item.manufacturerName = part.manufacturerName;
     item.description = part.description;
+    item.partImageUrl = part.imageUrl;
     item.matchStatus = 'manual';
     item.selectedCandidateKey = null;
     item.selectionSource = 'catalog';

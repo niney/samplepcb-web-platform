@@ -83,6 +83,7 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     packageCode: part.packageCode,
     packageVariants: pkgVariants,
     lifecycle: part.lifecycle,
+    imageUrl: part.imageUrl,
     specVariants: [...specVariants],
     ...si,
     suppliers,

@@ -259,7 +259,12 @@ Figma "02 BOM 파일 분석_검색 결과" 레이아웃에 기존 기능 병합(
 - catalogMatchItems 보강: 소스 BOM 에 제조사·설명 열이 없으면 카탈로그 정본으로 채움
 - draft 하단 액션(2026-07-19): [견적 삭제] = 하드 삭제(`DELETE /quotes/:id` — 항목 cascade·
   원본 파일 정리, 2단계 인라인 확인) — 사용자 결정으로 작성 취소를 대체. requested 는 [요청 취소] 유지.
-- 미구현(디자인만) 추가: 선택 삭제 · 행 정렬 핸들 · 부품 이미지 · 데이터시트 링크
+- 부품 이미지(2026-07-20): 라인 `partImageUrl` = 카탈로그 `sp_part.imageUrl` 을 응답 시
+  `toDetailDto` 가 일괄 조회해 채움(스냅샷 아님 — 항상 현재 카탈로그, PATCH 왕복 없는
+  서버 계산 필드). 행 76px 정사각 `<img>`(no-referrer·onerror 시 플레이스홀더 축퇴),
+  부품 검색 모달·관리자 카탈로그 목록에도 표시. 후보 비교 데이터(`BomQuoteCandidate.imageUrl`)
+  는 엔진 `image_url` 스냅샷. 상세: docs/PARTS_SEARCH.md 이미지 절.
+- 미구현(디자인만) 추가: 선택 삭제 · 행 정렬 핸들 · 데이터시트 링크
 
 ### 렌더 성능 구조 (2026-07-20)
 

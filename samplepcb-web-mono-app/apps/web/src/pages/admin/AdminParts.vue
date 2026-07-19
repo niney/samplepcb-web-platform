@@ -440,6 +440,15 @@ function facetLabel(b: PartFacetBucketType): string {
                   @click="toggleDetail(p.id)"
                 >
                   <td class="px-3 py-2 font-medium text-gray-900">
+                    <img
+                      v-if="p.imageUrl !== null"
+                      :src="p.imageUrl"
+                      alt=""
+                      loading="lazy"
+                      referrerpolicy="no-referrer"
+                      class="mr-1.5 inline-block size-[28px] rounded border border-gray-200 bg-white object-contain align-middle"
+                      @error="($event.target as HTMLImageElement).style.display = 'none'"
+                    >
                     {{ p.mpn }}
                     <span
                       v-if="p.hasSpecConflict"

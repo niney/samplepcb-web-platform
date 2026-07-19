@@ -176,6 +176,8 @@ export const BomQuoteCandidate = z.object({
   packageCode: z.string().nullable(),
   lifecycleStatus: z.string().nullable(),
   datasheetUrl: z.string().nullable(),
+  /** 공급사 제품 사진 직링크 — 표시 전용. */
+  imageUrl: z.string().nullable(),
   identityConfidence: z.number(),
   specificationConfidence: z.number(),
   conflicts: z.array(z.string()),
@@ -266,6 +268,8 @@ export type BomQuoteItemInputType = z.infer<typeof BomQuoteItemInput>;
 export const BomQuoteItem = BomQuoteItemInput.extend({
   /** 단가×주문수량 KRW 환산(예상) — 미환산이면 null(화면 경고). */
   lineTotalKrw: z.number().nullable(),
+  /** 카탈로그 부품 이미지(partId 조회, 서버 채움) — 표시 전용·PATCH 왕복 없음. */
+  partImageUrl: z.string().nullable(),
 });
 export type BomQuoteItemType = z.infer<typeof BomQuoteItem>;
 

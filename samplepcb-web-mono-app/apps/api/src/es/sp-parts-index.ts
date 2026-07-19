@@ -44,6 +44,8 @@ export interface SpPartDoc {
   packageCode: string | null;
   packageVariants: string[];
   lifecycle: string | null;
+  /** 공급사 제품 사진 직링크 — 표시 전용(비색인). 구 색인 문서는 undefined. */
+  imageUrl: string | null | undefined;
   specVariants: string[];
   resistanceOhm?: number;
   capacitanceF?: number;
@@ -110,6 +112,7 @@ const mappings = {
     packageCode: { type: 'keyword' },
     packageVariants: { type: 'keyword' },
     lifecycle: { type: 'keyword' },
+    imageUrl: { type: 'keyword', index: false, doc_values: false }, // 표시 전용
     // 관행 표기 변형(2n2·472·104…). prefix 서브필드가 "2p"→"2p2" 부분 입력을 커버.
     specVariants: {
       type: 'keyword',

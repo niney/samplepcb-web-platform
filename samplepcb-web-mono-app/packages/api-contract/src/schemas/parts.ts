@@ -33,6 +33,8 @@ export const PartHit = z.object({
   category: z.string().nullable(),
   packageCode: z.string().nullable(),
   lifecycle: z.string().nullable(),
+  /** 공급사 제품 사진 직링크 — 표시 전용. */
+  imageUrl: z.string().nullable(),
   /** SI 정준 스펙 (resistanceOhm·capacitanceF·… — @sp/utils SPEC_SI_FIELD 키) */
   specsSi: z.record(z.string(), z.number()),
   suppliers: z.array(z.string()),

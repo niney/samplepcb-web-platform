@@ -105,6 +105,7 @@ class SupplierProduct(BaseModel):
     discontinued: bool | None = None
     end_of_life: bool | None = None
     datasheet_url: str | None = None
+    image_url: str | None = None
     normalized_specs: dict[str, float | str | list[float | None] | None] = Field(default_factory=dict)
     attributes: dict[str, Any] = Field(default_factory=dict)
     offers: list[SupplierOffer] = Field(default_factory=list)

@@ -116,6 +116,7 @@ export function toHit(doc: SpPartDoc, score: number | null | undefined): PartHit
     category: doc.category,
     packageCode: doc.packageCode,
     lifecycle: doc.lifecycle,
+    imageUrl: doc.imageUrl ?? null, // 구 문서(필드 이전 색인) 호환
     specsSi,
     suppliers: doc.suppliers,
     offerCount: doc.offerCount,

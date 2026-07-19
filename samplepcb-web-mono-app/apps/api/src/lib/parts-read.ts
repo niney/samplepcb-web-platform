@@ -37,6 +37,7 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
     category: part.category,
     packageCode: part.packageCode,
     lifecycle: part.lifecycle,
+    imageUrl: part.imageUrl,
     specsSi: specsSiRecord(part.specsSi),
     specsJson:
       typeof part.specsJson === 'object' && part.specsJson !== null && !Array.isArray(part.specsJson)

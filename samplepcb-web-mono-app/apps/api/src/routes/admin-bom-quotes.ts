@@ -53,7 +53,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(quote.id)}/file`;
-    return { result: true as const, data: toAdminDetailDto(quote, quote.items, quote.sheets, fileUrl) };
+    return { result: true as const, data: await toAdminDetailDto(quote, quote.items, quote.sheets, fileUrl) };
   });
 
   fastify.get('/bom-quotes/:id/items/:rowIdx/candidates', {
@@ -103,7 +103,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
-    return { result: true as const, data: toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl) };
+    return { result: true as const, data: await toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl) };
   });
 
   done();

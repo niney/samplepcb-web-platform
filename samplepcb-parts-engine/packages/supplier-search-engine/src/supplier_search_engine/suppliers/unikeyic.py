@@ -111,6 +111,7 @@ class UniKeyICClient(SupplierClient):
                     category=product.get("cate_name"),
                     package=specs.get("package") if isinstance(specs.get("package"), str) else None,
                     datasheet_url=product.get("datasheet_url"),
+                    image_url=product.get("image_url") or product.get("img") or None,
                     normalized_specs=specs,
                     attributes={"date_code": product.get("dc")},
                     offers=[offer],

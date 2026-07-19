@@ -52,6 +52,7 @@ const EngineProduct = z
     package: z.string().nullish(),
     lifecycle_status: z.string().nullish(),
     datasheet_url: z.string().nullish(),
+    image_url: z.string().nullish(),
     normalized_specs: z.record(z.string(), z.unknown()).default({}),
     offers: z.array(EngineOffer).default([]),
   })
@@ -207,6 +208,7 @@ const RawProductFacts = z
     package: z.string().nullish(),
     lifecycle_status: z.string().nullish(),
     datasheet_url: z.string().nullish(),
+    image_url: z.string().nullish(),
   })
   .passthrough();
 
@@ -232,6 +234,7 @@ export async function applyPartFacts(partId: bigint): Promise<void> {
       packageCode: d?.package ?? null,
       lifecycle: d?.lifecycle_status ?? null,
       datasheetUrl: d?.datasheet_url ?? null,
+      imageUrl: d?.image_url ?? null,
     };
   });
   const facts = resolvePartFacts(sources);
@@ -247,6 +250,7 @@ export async function applyPartFacts(partId: bigint): Promise<void> {
       packageCode,
       lifecycle: facts.lifecycle,
       datasheetUrl: facts.datasheetUrl?.slice(0, 500) ?? null,
+      imageUrl: facts.imageUrl?.slice(0, 500) ?? null,
       specsJson: facts.specsJson as Prisma.InputJsonValue,
       specsSi: facts.specsSi,
       specConflicts: hasConflicts ? (facts.specConflicts as unknown as Prisma.InputJsonValue) : Prisma.DbNull,

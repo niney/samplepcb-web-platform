@@ -146,6 +146,7 @@ const EngineSupplierCandidate = z
         discontinued: z.boolean().nullish(),
         end_of_life: z.boolean().nullish(),
         datasheet_url: z.string().nullish(),
+        image_url: z.string().nullish(),
         normalized_specs: z.record(z.string(), z.unknown()).default({}),
         attributes: z.record(z.string(), z.unknown()).default({}),
         offers: z.array(EngineSupplierOffer).default([]),
@@ -405,6 +406,7 @@ const StoredCandidate = z.object({
   packageCode: z.string().nullable(),
   lifecycleStatus: z.string().nullable(),
   datasheetUrl: z.string().nullable(),
+  imageUrl: z.string().nullable().catch(null), // 도입 전 저장 스냅샷 호환
   identityConfidence: z.number(),
   specificationConfidence: z.number(),
   conflicts: z.array(z.string()),
@@ -859,6 +861,7 @@ function buildCandidateGroups(
         packageCode: metadataMember.product.package?.trim().slice(0, 64) ?? null,
         lifecycleStatus: representative.product.lifecycle_status?.trim().slice(0, 64) ?? null,
         datasheetUrl: metadataMember.product.datasheet_url?.trim().slice(0, 500) ?? null,
+        imageUrl: metadataMember.product.image_url?.trim().slice(0, 500) ?? null,
         identityConfidence: representative.identity_confidence,
         specificationConfidence: representative.specification_confidence,
         conflicts,
@@ -1797,6 +1800,7 @@ export async function getQuoteItemCandidates(
       packageCode: candidate.packageCode,
       lifecycleStatus: candidate.lifecycleStatus,
       datasheetUrl: candidate.datasheetUrl,
+      imageUrl: candidate.imageUrl,
       identityConfidence: candidate.identityConfidence,
       specificationConfidence: candidate.specificationConfidence,
       conflicts: candidate.conflicts,
@@ -1874,7 +1878,7 @@ export async function applyQuoteCandidateSelection(
     return 'offer-not-found';
   }
   const config = await getBomQuoteConfig();
-  const items = quote.items.map(toItemDto);
+  const items = quote.items.map((row) => toItemDto(row));
   const item = items.find((entry) => entry.rowIdx === rowIdx);
   if (item === undefined) return 'item-not-found';
   const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
@@ -2000,7 +2004,7 @@ async function refreshQuoteFromCatalogInner(quoteId: bigint): Promise<void> {
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
   if (quote?.status !== 'draft') return;
   const config = await getBomQuoteConfig();
-  const items = quote.items.map(toItemDto);
+  const items = quote.items.map((row) => toItemDto(row));
   await refreshOfferSnapshots(items, config.usdKrwRate);
   await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, true);
   const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
@@ -2025,7 +2029,7 @@ export async function refreshQuoteFromSupplierResult(quoteId: bigint, envelope: 
     const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
     if (quote?.status !== 'draft') return false;
     const config = await getBomQuoteConfig();
-    const items = quote.items.map(toItemDto);
+    const items = quote.items.map((row) => toItemDto(row));
     const applied = await applyEngineSupplierResult(items, envelope, quote.setQty, quote.spareQty, config.usdKrwRate);
     if (!applied.applied) return false;
     const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
@@ -2073,7 +2077,8 @@ function round2(n: number): number {
 export function recalcItems(items: BomQuoteItemInputType[], usdKrwRate: number | null): BomQuoteItemType[] {
   return items.map((item) => {
     const offer = item.selectedOffer;
-    if (offer === null) return { ...item, lineTotalKrw: null };
+    // partImageUrl 은 응답 시 toDetailDto 가 카탈로그에서 채운다(여긴 계산 전용)
+    if (offer === null) return { ...item, lineTotalKrw: null, partImageUrl: null };
     const orderQty = Math.max(1, item.orderQty);
     const step = pickBreak(offer.priceBreaks, orderQty);
     const unitPrice = step === null ? offer.unitPrice : step.price;
@@ -2084,6 +2089,7 @@ export function recalcItems(items: BomQuoteItemInputType[], usdKrwRate: number |
       orderQty,
       selectedOffer: { ...offer, breakQty, unitPrice, unitPriceKrw },
       lineTotalKrw: unitPriceKrw === null ? null : round2(unitPriceKrw * orderQty),
+      partImageUrl: null,
     };
   });
 }
@@ -2284,7 +2290,7 @@ function legacyCompatibleEvidence(value: Prisma.JsonValue | null): Prisma.JsonVa
   };
 }
 
-export function toItemDto(row: QuoteItemRow): BomQuoteItemType {
+export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null): BomQuoteItemType {
   const offer = BomQuoteSelectedOffer.safeParse(legacyCompatibleOffer(row.selectedOffer));
   const evidence = BomQuoteMatchEvidence.safeParse(legacyCompatibleEvidence(row.matchEvidence));
   return {
@@ -2309,7 +2315,19 @@ export function toItemDto(row: QuoteItemRow): BomQuoteItemType {
         ? (row.sourceRow)
         : null,
     lineTotalKrw: row.lineTotalKrw === null ? null : Number(row.lineTotalKrw),
+    partImageUrl,
   };
+}
+
+/** 라인 partId → 카탈로그 이미지 일괄 조회 — 스냅샷이 아니라 항상 현재 카탈로그를 따른다. */
+async function loadPartImageMap(items: QuoteItemRow[]): Promise<Map<bigint, string>> {
+  const partIds = [...new Set(items.flatMap((i) => (i.partId === null ? [] : [i.partId])))];
+  if (partIds.length === 0) return new Map();
+  const parts = await prisma.spPart.findMany({
+    where: { id: { in: partIds } },
+    select: { id: true, imageUrl: true },
+  });
+  return new Map(parts.flatMap((p) => (p.imageUrl === null ? [] : [[p.id, p.imageUrl] as const])));
 }
 
 type SummaryItemRow = Pick<QuoteItemRow, 'included' | 'matchStatus'>;
@@ -2349,7 +2367,8 @@ function toSheetDto(row: QuoteSheetRow): BomQuoteSheetType {
   };
 }
 
-export function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): BomQuoteDetailType {
+export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
+  const imageMap = await loadPartImageMap(items);
   return {
     ...toSummaryDto(quote, items),
     engineJobId: quote.engineJobId,
@@ -2370,7 +2389,9 @@ export function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: Quot
     confirmedManagementFee: quote.confirmedManagementFee,
     confirmedTotal: quote.confirmedTotal,
     answerNote: quote.answerNote,
-    items: [...items].sort((a, b) => a.rowIdx - b.rowIdx).map(toItemDto),
+    items: [...items]
+      .sort((a, b) => a.rowIdx - b.rowIdx)
+      .map((row) => toItemDto(row, row.partId === null ? null : (imageMap.get(row.partId) ?? null))),
   };
 }
 
@@ -2378,11 +2399,11 @@ export function toAdminSummaryDto(quote: QuoteRow, items: SummaryItemRow[]): Adm
   return { ...toSummaryDto(quote, items), mbId: quote.mbId };
 }
 
-export function toAdminDetailDto(
+export async function toAdminDetailDto(
   quote: QuoteRow,
   items: QuoteItemRow[],
   sheets: QuoteSheetRow[],
   fileUrl: string | null,
-): AdminBomQuoteDetailType {
-  return { ...toDetailDto(quote, items, sheets), mbId: quote.mbId, adminMemo: quote.adminMemo, fileUrl };
+): Promise<AdminBomQuoteDetailType> {
+  return { ...(await toDetailDto(quote, items, sheets)), mbId: quote.mbId, adminMemo: quote.adminMemo, fileUrl };
 }

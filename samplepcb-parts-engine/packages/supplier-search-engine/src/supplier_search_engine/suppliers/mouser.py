@@ -326,6 +326,7 @@ class MouserClient(SupplierClient):
                     lifecycle_status=part.get("LifecycleStatus"),
                     discontinued=self._boolean(part.get("IsDiscontinued")),
                     datasheet_url=part.get("DataSheetUrl") or None,
+                    image_url=part.get("ImagePath") or None,
                     normalized_specs=specs,
                     attributes=attribute_map,
                     offers=[offer],
