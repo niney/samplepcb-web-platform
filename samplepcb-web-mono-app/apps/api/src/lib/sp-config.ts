@@ -32,6 +32,7 @@ export const BOM_QUOTE_CONFIG_DEFAULTS: BomQuoteConfigType = {
   // 실측: 부품 1건당 약 3콜(3공급사) — 100라인 BOM ≈ 300콜. 60은 실BOM에서 즉시 한도 초과였음.
   supplierSearchMaxCalls: 300,
   memberDailySearchLimit: 20,
+  freshnessHours: 24, // 재고·가격 하루 변동은 "예상 견적" 수준에서 허용(확정은 관리자 검토)
 };
 
 export async function getBomQuoteConfig(): Promise<BomQuoteConfigType> {

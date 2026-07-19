@@ -26,8 +26,6 @@ import {
   useCatalogMatchBomQuote,
   usePatchBomQuote,
   useRequestBomQuote,
-  useSupplierPreflight,
-  useSupplierSearchStart,
   useSupplierSearchStatus,
 } from '../../bom/useBom';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
@@ -170,75 +168,28 @@ const stats = computed(() => ({
   included: items.value.filter((i) => i.included).length,
 }));
 
-// ── 공급사 검색(라이브 보강) ─────────────────────────────────────────────────
-const preflight = useSupplierPreflight();
-const startSearch = useSupplierSearchStart();
+// ── 조용한 자동 보강 상태 — 서버(build)가 판단·시작하므로 FE 는 상태 표시만 ────
+// status 쿼리는 진입 시 1회 + running 인 동안만 폴링(useSupplierSearchStatus 내부).
 const catalogMatch = useCatalogMatchBomQuote();
-const searchPolling = ref(false);
 const supplierStatus = useSupplierSearchStatus(
   computed(() => detail.value?.engineJobId ?? null),
-  searchPolling,
+  computed(() => isDraft.value && !needsBuild.value),
 );
-const searchError = ref('');
-// max_calls 는 서버가 sp_config 상한으로 클램프한다 — FE 는 스키마 최대치를 보내 위임.
-const SEARCH_OPTIONS_MAX = 1_000;
-const preflightInfo = ref<{ text: string; overLimit: boolean } | null>(null);
-
-async function onSupplierSearch(): Promise<void> {
-  const jobId = detail.value?.engineJobId;
-  if (jobId === undefined || jobId === null) return;
-  searchError.value = '';
-  try {
-    const pf = await preflight.mutateAsync({
-      jobId,
-      options: { max_calls: SEARCH_OPTIONS_MAX, cache_only: false, reset_cache: false },
-    });
-    const plan = pf.data.plan;
-    const overLimit = !plan.estimated_within_job_limit;
-    preflightInfo.value = {
-      overLimit,
-      text: overLimit
-        ? `예상 API 호출 ${String(plan.estimated_api_calls)}회가 검색 한도(${String(plan.job_call_limit)}회)를 초과합니다 — 엔진 캐시 데이터만으로 검색하거나, 그대로 견적요청해도 됩니다(카탈로그 데이터 기준).`
-        : `부품 ${String(plan.component_count)}건 · 예상 API 호출 ${String(plan.estimated_api_calls)}회 (캐시 활용 ${String(plan.fresh_cache_requests)}건)`,
-    };
-  } catch {
-    searchError.value = '공급사 검색 사전점검에 실패했습니다. 잠시 후 다시 시도해 주세요.';
-  }
-}
-
-async function confirmSupplierSearch(cacheOnly: boolean): Promise<void> {
-  const jobId = detail.value?.engineJobId;
-  if (jobId === undefined || jobId === null) return;
-  preflightInfo.value = null;
-  try {
-    await startSearch.mutateAsync({
-      jobId,
-      options: { max_calls: SEARCH_OPTIONS_MAX, cache_only: cacheOnly, reset_cache: false },
-    });
-    searchPolling.value = true;
-  } catch (reason) {
-    const msg = reason instanceof Error ? reason.message : '';
-    searchError.value = msg.includes('429')
-      ? '오늘 공급사 검색 한도에 도달했습니다. 내일 다시 시도해 주세요.'
-      : msg.includes('limit')
-        ? '검색 호출 한도를 초과했습니다 — 캐시 전용 검색을 이용하거나 관리자에게 문의해 주세요.'
-        : '공급사 검색 시작에 실패했습니다.';
-  }
-}
+const enriching = computed(() => supplierStatus.data.value?.data.status === 'running');
+const refreshedNotice = ref(false);
 
 watch(
   () => supplierStatus.data.value?.data.status,
-  (status) => {
-    if (!searchPolling.value) return;
-    if (status === 'completed') {
-      searchPolling.value = false;
-      // 자동 인제스트된 신규 오퍼를 카탈로그 재매칭으로 반영
-      void catalogMatch.mutateAsync({ quoteId: quoteId.value, onlyUnmatched: true });
-    }
-    if (status === 'failed') {
-      searchPolling.value = false;
-      searchError.value = supplierStatus.data.value?.data.error ?? '공급사 검색에 실패했습니다.';
-    }
+  (now, prev) => {
+    if (prev !== 'running' || now !== 'completed' || !isDraft.value) return;
+    // 서버 폴러가 견적을 재매칭하지만 최대 5초 지연 — 미매칭 채움은 즉시 당기고(멱등),
+    // 서버측 스냅샷 최신화 반영을 위해 잠시 후 한 번 더 새로고침한다.
+    void catalogMatch.mutateAsync({ quoteId: quoteId.value, onlyUnmatched: true }).catch(() => undefined);
+    setTimeout(() => {
+      void quote.refetch();
+    }, 7_000);
+    refreshedNotice.value = true;
+    setTimeout(() => (refreshedNotice.value = false), 5_000);
   },
 );
 
@@ -398,6 +349,15 @@ function fmtWon(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
 }
 
+/** 오퍼 데이터 나이 — 정직성 표시(방금 조회한 것처럼 보이지 않게). */
+function fmtAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return '방금';
+  if (ms < 3_600_000) return `${String(Math.floor(ms / 60_000))}분 전`;
+  if (ms < 86_400_000) return `${String(Math.floor(ms / 3_600_000))}시간 전`;
+  return `${String(Math.floor(ms / 86_400_000))}일 전`;
+}
+
 function fmtUnit(offer: BomQuoteSelectedOfferType): string {
   const sym = offer.currency === 'KRW' ? '₩' : offer.currency === 'USD' ? '$' : `${offer.currency} `;
   return `${sym}${offer.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`;
@@ -457,44 +417,19 @@ function fmtUnit(offer: BomQuoteSelectedOfferType): string {
           <button
             v-if="isDraft"
             type="button"
-            class="rounded-lg border border-blue-600 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50"
-            :disabled="preflight.isPending.value || searchPolling"
-            @click="onSupplierSearch"
-          >
-            {{ searchPolling ? '공급사 검색 중…' : '공급사 검색으로 보강' }}
-          </button>
-          <button
-            v-if="isDraft"
-            type="button"
             class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
             @click="partModal = { mode: 'add', lineIdx: null, query: '' }"
           >
             + 부품 추가
           </button>
-          <span v-if="searchPolling" class="text-xs text-blue-600">{{ supplierStatus.data.value?.data.message ?? '공급사 조회 중' }} ({{ supplierStatus.data.value?.data.progress ?? 0 }}%)</span>
-          <span v-if="searchError !== ''" class="text-xs text-red-600">{{ searchError }}</span>
-        </div>
-
-        <!-- preflight 확인 -->
-        <div
-          v-if="preflightInfo !== null"
-          class="flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-sm"
-          :class="preflightInfo.overLimit ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'"
-        >
-          <span>{{ preflightInfo.text }}</span>
-          <button
-            v-if="!preflightInfo.overLimit"
-            type="button"
-            class="rounded bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
-            @click="confirmSupplierSearch(false)"
-          >검색 실행</button>
-          <button
-            v-else
-            type="button"
-            class="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700"
-            @click="confirmSupplierSearch(true)"
-          >캐시 데이터로만 검색</button>
-          <button type="button" class="text-xs hover:underline" @click="preflightInfo = null">취소</button>
+          <!-- 조용한 자동 보강 — 서버가 필요 시 시작, 여기서는 상태 표시만 -->
+          <span v-if="enriching" class="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+            가격·재고 확인 중… ({{ supplierStatus.data.value?.data.progress ?? 0 }}%)
+          </span>
+          <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+            최신 가격·재고로 갱신되었습니다
+          </span>
         </div>
 
         <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -530,6 +465,7 @@ function fmtUnit(offer: BomQuoteSelectedOfferType): string {
                     <div class="mt-0.5 text-xs tabular-nums text-gray-600">
                       {{ fmtUnit(item.selectedOffer) }} <span class="text-gray-400">@{{ item.selectedOffer.breakQty }}+</span>
                       <span v-if="item.selectedOffer.currency !== 'KRW'" class="text-gray-400"> · {{ item.selectedOffer.unitPriceKrw === null ? '환산 불가' : `≈₩${item.selectedOffer.unitPriceKrw.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}` }}</span>
+                      <span class="text-gray-400" :title="'이 가격·재고를 공급사에서 가져온 시각'"> · 기준 {{ fmtAge(item.selectedOffer.fetchedAt) }}</span>
                     </div>
                   </template>
                   <span v-else-if="item.matchStatus === 'none'" class="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">미매칭</span>

@@ -14,12 +14,13 @@ import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
 import { getBomQuoteConfig } from '../lib/sp-config';
-import { recordJobOwner } from '../lib/bom-engine-jobs';
+import { recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
 import {
   buildItemsFromEngineResult,
   canTransition,
   catalogMatchItems,
   computeQuote,
+  refreshQuoteFromCatalog,
   replaceQuoteItems,
   toDetailDto,
   toItemDto,
@@ -48,6 +49,66 @@ async function loadOwnQuote(id: bigint, mbId: string) {
   const quote = await prisma.spBomQuote.findUnique({ where: { id }, include: { items: true } });
   if (quote?.mbId !== mbId) return null; // 타인 견적은 404 로 은닉
   return quote;
+}
+
+// ── 조용한 자동 보강 — build 직후 서버가 판단·실행(고객에겐 상태 라벨만) ────────
+// 필요 조건: included 미매칭 라인 존재 OR 오퍼 데이터 나이 > freshnessHours.
+// 비용 게이트: preflight 로 예상 호출 확인 → 한도 내면 라이브, 초과·일일 소진이면
+// cache_only(0콜). 완료 시 인제스트 폴러가 견적 draft 를 자동 재매칭(refreshQuoteFromCatalog).
+async function autoEnrichQuote(
+  quoteId: bigint,
+  jobId: string,
+  mbId: string,
+  log: Parameters<typeof startIngestPoller>[1],
+): Promise<void> {
+  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
+  if (quote?.status !== 'draft') return;
+  const config = await getBomQuoteConfig();
+
+  const now = Date.now();
+  const freshMs = config.freshnessHours * 3_600_000;
+  const items = quote.items.map(toItemDto);
+  const hasUnmatched = items.some((i) => i.included && i.matchStatus === 'none');
+  const hasStale = items.some(
+    (i) =>
+      i.included &&
+      i.selectedOffer !== null &&
+      now - new Date(i.selectedOffer.fetchedAt).getTime() > freshMs,
+  );
+  if (!hasUnmatched && !hasStale) return; // 전부 신선 — 0콜로 끝
+
+  let cacheOnly = false;
+  try {
+    const pfRes = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ max_calls: config.supplierSearchMaxCalls, cache_only: false, reset_cache: false }),
+    });
+    if (!pfRes.ok) return;
+    const pf = (await pfRes.json()) as { plan?: { estimated_within_job_limit?: boolean; estimated_api_calls?: number } };
+    if (pf.plan?.estimated_within_job_limit !== true) cacheOnly = true; // 초대형 BOM — 캐시만
+    const liveCalls = (pf.plan?.estimated_api_calls ?? 0) > 0;
+    if (!cacheOnly && liveCalls && !tryCountDailySearch(mbId, config.memberDailySearchLimit)) {
+      cacheOnly = true; // 일일 한도 소진 — 캐시만
+    }
+  } catch {
+    return; // 엔진 불가 — 카탈로그 데이터로 그대로(다음 업로드에 재시도)
+  }
+
+  try {
+    const res = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ max_calls: config.supplierSearchMaxCalls, cache_only: cacheOnly, reset_cache: false }),
+    });
+    if (res.status !== 202 && !res.ok) return;
+  } catch {
+    return;
+  }
+  log.info({ quoteId: String(quoteId), jobId, cacheOnly }, '자동 보강 검색 시작');
+  startIngestPoller(jobId, log, async () => {
+    await refreshQuoteFromCatalog(quoteId);
+  });
 }
 
 export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
@@ -203,6 +264,12 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, false);
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistComputed(quote.id, computed, config.usdKrwRate);
+
+    // 조용한 자동 보강 — 응답을 막지 않는다(고객은 카탈로그 견적을 즉시 보고, 완료 시 갱신)
+    const jobId = quote.engineJobId;
+    void autoEnrichQuote(quote.id, jobId, request.user.mbId, request.log).catch((error: unknown) => {
+      request.log.warn({ quoteId: String(quote.id), err: String(error) }, '자동 보강 실패');
+    });
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');

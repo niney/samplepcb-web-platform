@@ -51,7 +51,11 @@ export async function ingestJobResult(jobId: string, log: FastifyBaseLogger): Pr
   }
 }
 
-export function startIngestPoller(jobId: string, log: FastifyBaseLogger): void {
+/**
+ * 검색 완료 감지 → 카탈로그 인제스트 폴러. onDone 은 인제스트 뒤 후처리(고객 견적
+ * 자동 재매칭 등) — 실패해도 인제스트에는 영향 없다.
+ */
+export function startIngestPoller(jobId: string, log: FastifyBaseLogger, onDone?: () => Promise<void>): void {
   if (pollers.has(jobId)) return;
   let tries = 0;
   const stop = (): void => {
@@ -69,6 +73,13 @@ export function startIngestPoller(jobId: string, log: FastifyBaseLogger): void {
           if (body.status === 'completed') {
             stop();
             await ingestJobResult(jobId, log);
+            if (onDone !== undefined) {
+              try {
+                await onDone();
+              } catch (error) {
+                log.warn({ jobId, err: String(error) }, '검색 완료 후처리 실패');
+              }
+            }
             return;
           }
           if (body.status === 'failed') {

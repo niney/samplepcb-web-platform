@@ -205,6 +205,8 @@ export const BomQuoteConfig = z.object({
   supplierSearchMaxCalls: z.number().int().min(1).max(1000),
   /** 회원별 1일 공급사 검색 횟수 제한. */
   memberDailySearchLimit: z.number().int().min(1).max(1000),
+  /** 오퍼 데이터 신선 임계(시간) — 초과 라인이 있으면 업로드 시 자동 보강 트리거. */
+  freshnessHours: z.number().int().min(1).max(720),
 });
 export type BomQuoteConfigType = z.infer<typeof BomQuoteConfig>;
 

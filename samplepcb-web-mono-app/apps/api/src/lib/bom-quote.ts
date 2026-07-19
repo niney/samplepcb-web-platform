@@ -12,6 +12,7 @@ import {
   type BomQuoteSummaryType,
 } from '@sp/api-contract';
 import {
+  applyQtyToOffer,
   computeTotals,
   neededQty,
   normalizeMpn,
@@ -24,6 +25,7 @@ import {
 import { prisma } from './prisma';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { getBomQuoteConfig } from './sp-config';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
 // 원칙: 수량·오퍼는 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
@@ -184,6 +186,65 @@ export async function catalogMatchItems(
     item.selectedOffer = pick === null ? null : snapshotFromPick(pick, false);
     item.orderQty = pick === null ? needed : pick.orderQty;
   }
+}
+
+/**
+ * 스냅샷 오퍼를 카탈로그 최신 데이터로 갱신 — 오퍼 정체성(공급사+SKU)은 보존하고
+ * 가격구간·재고·fetchedAt 만 최신화(pinned 포함 — 고정은 오퍼 선택이지 옛 숫자가 아니다).
+ * 원 오퍼가 카탈로그에서 사라졌으면 비고정 라인만 재선정한다. orderQty 는 보존하되
+ * 갱신된 MOQ·배수는 재적용(발주 정합).
+ */
+export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdKrwRate: number | null): Promise<void> {
+  for (const item of items) {
+    if (item.partId === null || item.selectedOffer === null) continue;
+    const part = await prisma.spPart.findUnique({
+      where: { id: BigInt(item.partId) },
+      include: { offers: { include: { priceBreaks: true } } },
+    });
+    if (part === null) continue;
+    const offers = toOfferInputs(part);
+    const current = item.selectedOffer;
+    const same = offers.find((o) => o.supplier === current.supplier && o.supplierSku === current.supplierSku);
+    if (same !== undefined) {
+      const pick = applyQtyToOffer(same, Math.max(1, item.orderQty), usdKrwRate);
+      if (pick !== null) {
+        item.selectedOffer = snapshotFromPick(pick, current.pinned);
+        item.orderQty = pick.orderQty;
+        continue;
+      }
+    }
+    if (!current.pinned) {
+      const pick = pickDefaultOffer(offers, Math.max(1, item.orderQty), usdKrwRate);
+      if (pick !== null) {
+        item.selectedOffer = snapshotFromPick(pick, false);
+        item.orderQty = pick.orderQty;
+      }
+    }
+  }
+}
+
+/**
+ * 자동 보강 완료 후 견적 반영 — draft 한정. 기존 라인은 스냅샷 최신화(정체성 보존),
+ * 미매칭 라인은 카탈로그 재매칭으로 채운 뒤 합계 재계산·영속.
+ */
+export async function refreshQuoteFromCatalog(quoteId: bigint): Promise<void> {
+  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
+  if (quote?.status !== 'draft') return;
+  const config = await getBomQuoteConfig();
+  const items = quote.items.map(toItemDto);
+  await refreshOfferSnapshots(items, config.usdKrwRate);
+  await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, true);
+  const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
+  await replaceQuoteItems(quoteId, result.items);
+  await prisma.spBomQuote.update({
+    where: { id: quoteId },
+    data: {
+      itemsTotal: result.itemsTotal,
+      finalTotal: result.finalTotal,
+      uncostedCount: result.uncostedCount,
+      usdKrwRateUsed: config.usdKrwRate,
+    },
+  });
 }
 
 function round2(n: number): number {

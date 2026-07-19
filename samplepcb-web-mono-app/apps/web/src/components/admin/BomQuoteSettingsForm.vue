@@ -76,6 +76,10 @@ function submit(): void {
         <span class="text-gray-600">회원별 일일 검색 한도</span>
         <input v-model.number="form.memberDailySearchLimit" type="number" min="1" max="1000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-right tabular-nums">
       </label>
+      <label class="block text-sm">
+        <span class="text-gray-600">데이터 신선 임계(시간) — 초과 시 업로드 때 자동 보강</span>
+        <input v-model.number="form.freshnessHours" type="number" min="1" max="720" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-right tabular-nums">
+      </label>
     </div>
     <div class="flex items-center gap-3">
       <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" :disabled="save.isPending.value">
