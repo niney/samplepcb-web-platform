@@ -69,10 +69,24 @@ function useQuoteMutation<TInput, TOut>(fn: (input: TInput) => Promise<TOut>) {
   });
 }
 
+/**
+ * 자동저장(1s 디바운스)은 가장 잦은 뮤테이션 — ['bom'] 전체 무효화 대신 응답(서버
+ * 재계산 포함)을 상세 캐시에 직접 반영해 저장마다 뒤따르던 GET 리페치와 전체
+ * 재렌더를 없앤다. setQueryData 도 structural sharing 을 타므로 안 바뀐 항목의
+ * 참조가 유지된다(BomQuote 의 행 단위 재렌더 격리 전제).
+ */
 export function usePatchBomQuote() {
-  return useQuoteMutation(({ quoteId, body }: { quoteId: string; body: BomQuotePatchBodyType }) =>
-    apiSend('PATCH', `${base}/quotes/${quoteId}`, body, BomQuoteDetailResponse),
-  );
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, body }: { quoteId: string; body: BomQuotePatchBodyType }) =>
+      apiSend('PATCH', `${base}/quotes/${quoteId}`, body, BomQuoteDetailResponse),
+    onSuccess: (data, { quoteId }) => {
+      qc.setQueryData(['bom', 'quote', quoteId], data);
+      // 목록 합계·후보 스냅샷(현재 금액)은 다음 조회 때 갱신 — 열려 있지 않으면 비용 0
+      void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] });
+      void qc.invalidateQueries({ queryKey: ['bom', 'quote', quoteId, 'candidates'] });
+    },
+  });
 }
 
 export function useBuildBomQuote() {

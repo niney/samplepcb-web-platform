@@ -37,10 +37,7 @@ import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 import BomCompareModal from '../../components/bom/BomCompareModal.vue';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
-import favDigikey from '../../assets/bom/fav-digikey.png';
-import favMouser from '../../assets/bom/fav-mouser.png';
-import favUnikeyic from '../../assets/bom/fav-unikeyic.png';
-import favSamplepcb from '../../assets/bom/fav-samplepcb.png';
+import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
 
 // 고객 스마트 BOM 견적 워크벤치 — Figma "02 BOM 파일 분석_검색 결과"(87:12875) 레이아웃에
 // 기존 기능(자동저장·오퍼/부품 모달·자동 보강·견적요청)을 병합. 사용자 지시:
@@ -169,6 +166,7 @@ watch(quoteId, () => {
   autoBuildAttempted.value = false;
   selectedSheetIndexes.value = [];
   buildError.value = '';
+  lastServerItems = new Map();
 });
 
 // ── 로컬 편집 상태(draft) — 서버 응답이 올 때마다 동기화 ─────────────────────
@@ -177,15 +175,27 @@ const setQty = ref(1);
 const spareQty = ref(0);
 const dirty = ref(false);
 
+// 서버 항목 참조 추적 — vue-query structural sharing 은 내용이 안 바뀐 항목을
+// 폴링 응답에서도 같은 참조로 유지한다. 그 항목은 로컬 클론을 재사용해
+// 행 컴포넌트(BomQuoteRow)의 props 가 그대로 유지되게 하고 재렌더를 건너뛴다.
+let lastServerItems = new Map<number, BomQuoteItemType>();
+
 watch(
   detail,
   (d) => {
     if (d === null) return;
     if (dirty.value) return; // 편집 중(자동저장 대기) — 폴링 응답이 로컬 편집을 덮지 않게
-    items.value = d.items.map((i) => ({ ...i, selectedOffer: i.selectedOffer === null ? null : { ...i.selectedOffer } }));
+    const prevLocal = new Map(items.value.map((i) => [i.rowIdx, i]));
+    const nextServer = new Map<number, BomQuoteItemType>();
+    items.value = d.items.map((si) => {
+      nextServer.set(si.rowIdx, si);
+      const cur = prevLocal.get(si.rowIdx);
+      if (cur !== undefined && lastServerItems.get(si.rowIdx) === si) return cur;
+      return { ...si, selectedOffer: si.selectedOffer === null ? null : { ...si.selectedOffer } };
+    });
+    lastServerItems = nextServer;
     setQty.value = d.setQty;
     spareQty.value = d.spareQty;
-    dirty.value = false;
   },
   { immediate: true },
 );
@@ -233,8 +243,9 @@ function stepSpare(delta: number): void {
   restampAll();
 }
 
-function onQtyChange(item: BomQuoteItemType): void {
+function onRowQtyChange(item: BomQuoteItemType, qty: number): void {
   if (editingLocked.value) return;
+  item.orderQty = qty;
   recalcLine(item);
   markDirty();
 }
@@ -278,11 +289,26 @@ function isStockShort(item: BomQuoteItemType): boolean {
   return o !== null && o.stock !== null && o.stock < item.orderQty;
 }
 
+// 통계·합계를 한 번의 순회로 — 행 속성 하나가 바뀔 때마다 전 행을 여러 번 훑지 않게
 const stats = computed(() => {
-  const total = items.value.length;
-  const matched = items.value.filter((i) => i.matchStatus !== 'none').length;
-  const review = items.value.filter((i) => i.matchStatus === 'none' && i.matchEvidence?.selectionMode === 'review').length;
-  const nostock = items.value.filter((i) => i.included && isStockShort(i)).length;
+  let total = 0;
+  let matched = 0;
+  let review = 0;
+  let nostock = 0;
+  let included = 0;
+  let uncosted = 0;
+  let lineSum = 0;
+  for (const i of items.value) {
+    total += 1;
+    if (i.matchStatus !== 'none') matched += 1;
+    else if (i.matchEvidence?.selectionMode === 'review') review += 1;
+    if (i.included) {
+      included += 1;
+      if (isStockShort(i)) nostock += 1;
+      if (i.lineTotalKrw === null) uncosted += 1;
+      else lineSum += i.lineTotalKrw;
+    }
+  }
   return {
     total,
     matched,
@@ -291,16 +317,14 @@ const stats = computed(() => {
     review,
     unmatched: total - matched - review,
     unresolved: total - matched,
-    included: items.value.filter((i) => i.included).length,
+    included,
+    uncosted,
+    itemsTotal: Math.round(lineSum),
   };
 });
 
-const itemsTotal = computed(() =>
-  Math.round(
-    items.value.filter((i) => i.included && i.lineTotalKrw !== null).reduce((s, i) => s + (i.lineTotalKrw ?? 0), 0),
-  ),
-);
-const uncostedCount = computed(() => items.value.filter((i) => i.included && i.lineTotalKrw === null).length);
+const itemsTotal = computed(() => stats.value.itemsTotal);
+const uncostedCount = computed(() => stats.value.uncosted);
 const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee ?? 0) + (detail.value?.managementFee ?? 0));
 
 // ── 조용한 자동 보강 상태 — 서버 영속 enrichStatus 가 단일 진실 ─────────────────
@@ -343,14 +367,6 @@ watch(
     setTimeout(() => (refreshedNotice.value = false), 6_000);
   },
 );
-
-// ── 공급사 배지(vueline 파비콘 방식) ─────────────────────────────────────────
-const SUPPLIER_META: Record<string, { name: string; icon: string }> = {
-  digikey: { name: 'Digikey', icon: favDigikey },
-  mouser: { name: 'Mouser', icon: favMouser },
-  unikeyic: { name: 'UniKeyIC', icon: favUnikeyic },
-  samplepcb: { name: 'SamplePCB', icon: favSamplepcb },
-};
 
 // ── 후보 비교·선택 드로어 + 카탈로그 폴백 ────────────────────────────────────
 const candidateRowIdx = ref<number | null>(null);
@@ -629,111 +645,6 @@ const STATUS_LABEL: Record<string, string> = {
 function fmtWon(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
 }
-
-function fmtBreakPrice(price: number, currency: string): string {
-  if (currency === 'KRW') return `${price.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원`;
-  const sym = currency === 'USD' ? '$' : `${currency} `;
-  return `${sym}${price.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`;
-}
-
-/** 오퍼 데이터 나이 — 정직성 표시(방금 조회한 것처럼 보이지 않게). */
-function fmtAge(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 60_000) return '방금';
-  if (ms < 3_600_000) return `${String(Math.floor(ms / 60_000))}분 전`;
-  if (ms < 86_400_000) return `${String(Math.floor(ms / 3_600_000))}시간 전`;
-  return `${String(Math.floor(ms / 86_400_000))}일 전`;
-}
-
-function rowClass(item: BomQuoteItemType): string {
-  if (!item.included) return 'opacity-45';
-  // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
-  if (item.matchStatus === 'none') {
-    if (enriching.value) return 'bg-white';
-    return item.matchEvidence?.selectionMode === 'review' ? 'bg-amber-50/60' : 'bg-[#fdf2f2]';
-  }
-  if (isStockShort(item)) return 'bg-[#fdf8e7]'; // 재고 부족 — 시안 노랑
-  return 'bg-white';
-}
-
-function engineEvidenceTitle(item: BomQuoteItemType): string {
-  const evidence = item.matchEvidence;
-  if (evidence === null) return '';
-  const details = [
-    `엔진 판정: ${evidence.componentStatus}`,
-    `안전 후보: ${String(evidence.eligibleCandidateCount)}/${String(evidence.candidateCount)}`,
-  ];
-  if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
-  if (evidence.missingRequirements.length > 0) details.push(`누락: ${evidence.missingRequirements.join(', ')}`);
-  return details.join('\n');
-}
-
-function selectionSourceLabel(item: BomQuoteItemType): string {
-  if (item.selectionSource === 'customer') return '고객 선택';
-  if (item.selectionSource === 'catalog') return '직접 검색';
-  if (item.selectionSource === 'admin') return '관리자 선택';
-  if (item.matchEvidence?.recommendationType === 'price') return '가격 최적';
-  if (item.matchEvidence?.recommendationType === 'purchase-fit') return '구매조건 우선';
-  if (item.matchEvidence?.recommendationType === 'lifecycle') return '수명주기 추천';
-  if (item.matchEvidence?.selectionMode === 'exact') return '정확 일치';
-  if (item.matchEvidence?.selectionMode === 'variant') return '검증 변형';
-  if (item.matchEvidence?.selectionMode === 'spec-compatible') return '기술 추천';
-  return item.matchStatus === 'manual' ? '직접 선택' : '자동 매칭';
-}
-
-function selectionReasonSummary(item: BomQuoteItemType): string {
-  const evidence = item.matchEvidence;
-  if (evidence === null) return item.matchStatus === 'manual' ? '카탈로그에서 직접 선택' : '후보 근거 없음';
-  if (item.selectionSource === 'customer') {
-    if (evidence.decisionReasonCodes.includes('offer-choice')) return '공급사 오퍼 직접 선택';
-    return evidence.selectedTechnicalRank === null
-      ? '후보 직접 선택'
-      : `기술 ${String(evidence.selectedTechnicalRank)}순위 후보 직접 선택`;
-  }
-  if (evidence.recommendationType === 'price' && evidence.priceEvidence?.savingsKrw !== null) {
-    const saving = evidence.priceEvidence?.savingsKrw ?? null;
-    const rateValue = evidence.priceEvidence?.savingsRate ?? null;
-    return saving === null
-      ? '필수 스펙 검증 후 가격 최적'
-      : `기술 1위 대비 ${Math.round(saving).toLocaleString('ko-KR')}원 절감${rateValue === null ? '' : ` · ${(rateValue * 100).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`}`;
-  }
-  if (evidence.recommendationType === 'lifecycle') return '기술 1순위 NRND/EOL · 활성 부품 추천';
-  if (evidence.recommendationType === 'purchase-fit') {
-    const price = evidence.priceEvidence;
-    return price === null
-      ? '동급 후보 중 구매조건 우선 · 일부 확인 필요'
-      : `동급 후보 중 필요 ${price.neededQty.toLocaleString('ko-KR')}개 → 주문 ${price.orderQty.toLocaleString('ko-KR')}개 · 일부 확인 필요`;
-  }
-  const required = evidence.requiredRequirementCount;
-  return required > 0
-    ? `확인된 항목 ${String(evidence.verifiedRequirementCount)}/${String(required)} · 충돌 없음`
-    : `안전 후보 ${String(evidence.eligibleCandidateCount)}개 중 기술 우선`;
-}
-
-function sourceRows(item: BomQuoteItemType): number[] {
-  const value = item.sourceRow?.sourceRows;
-  if (!Array.isArray(value)) return [];
-  return value.filter((row): row is number => typeof row === 'number' && Number.isInteger(row) && row > 0);
-}
-
-function sourceRowLabel(item: BomQuoteItemType): string {
-  const rows = sourceRows(item);
-  if (rows.length === 0) return item.sourceSheetName === null ? '수동 추가' : '행 번호 없음';
-  return `${rows.join(', ')}행`;
-}
-
-function sourceValue(item: BomQuoteItemType): string | null {
-  const value = item.sourceRow?.valueRaw;
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
-function partLabel(item: BomQuoteItemType): string {
-  const mpn = item.mpn.trim();
-  const description = item.description?.trim() ?? '';
-  return mpn !== '' ? mpn : (sourceValue(item) ?? (description !== '' ? description : '품번 미기재'));
-}
 </script>
 
 <template>
@@ -923,122 +834,17 @@ function partLabel(item: BomQuoteItemType): string {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in items" :key="item.rowIdx" class="border-b border-[#e5e8ed] align-top transition-colors" :class="rowClass(item)">
-                <!-- 핸들(디자인만) + 포함 체크 -->
-                <td class="px-2 py-3">
-                  <div class="flex flex-col items-center gap-2 pt-1">
-                    <input
-                      :checked="item.included"
-                      type="checkbox"
-                      class="h-4 w-4 rounded border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
-                      :disabled="!isDraft || editingLocked"
-                      :title="editingLocked ? EDIT_LOCK_TITLE : '합계·견적요청 포함'"
-                      @change="toggleInclude(item)"
-                    >
-                    <span class="cursor-default text-[13px] leading-none text-gray-300" title="정렬 (준비 중)">⋮⋮</span>
-                  </div>
-                </td>
-                <!-- 원본 Excel 위치 — 표시 순서와 함께 감사 가능한 기준 -->
-                <td class="px-2 py-3 pt-[38px]">
-                  <p class="max-w-[100px] truncate text-[11px] font-semibold text-blue-600" :title="item.sourceSheetName ?? '수동 추가'">
-                    {{ item.sourceSheetName ?? '수동 추가' }}
-                  </p>
-                  <p class="mt-0.5 text-[12px] font-bold tabular-nums text-[#3b4252]">{{ sourceRowLabel(item) }}</p>
-                </td>
-                <!-- MPN: 공급사 배지 + 이미지 자리 + 품번 + 데이터시트 -->
-                <td class="px-2 py-3">
-                  <div class="flex gap-2.5">
-                    <!-- 고정폭 76px(최장 공급사명 UniKeyIC 기준) — 배지 유무와 무관하게 열 폭 일관 -->
-                    <div class="w-[76px] shrink-0">
-                      <div
-                        v-if="item.selectedOffer !== null"
-                        class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-white px-1 shadow-sm"
-                        :title="item.selectedOffer.supplierSku"
-                      >
-                        <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? favSamplepcb" alt="" class="size-[12px] rounded-[2px]">
-                        <span class="truncate text-[10px] font-semibold text-[#3b4252]">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
-                      </div>
-                      <!-- 부품 이미지 — 데이터 없음(디자인만 플레이스홀더). 실사진이 정사각이라 1:1 유지 -->
-                      <div class="grid size-[76px] place-items-center rounded-md border border-gray-200 bg-gray-50 text-[10px] text-gray-300">IMG</div>
-                    </div>
-                    <div class="min-w-0 pt-[22px]">
-                      <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]" :title="partLabel(item)">{{ partLabel(item) }}</p>
-                      <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
-                      <p class="cursor-default text-[12px] leading-[16px] text-[#9db9dd]" title="데이터시트 (준비 중)">데이터시트</p>
-                    </div>
-                  </div>
-                </td>
-                <td class="px-2 py-3 pt-[42px] text-[12px] leading-[16px] text-[#5f6777]">{{ item.manufacturerName ?? '—' }}</td>
-                <td class="max-w-[220px] px-2 py-3 pt-[42px]">
-                  <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
-                </td>
-                <!-- 적용 가격 — 전체 가격구간·후보 비교는 통합 드로어에서 제공 -->
-                <td class="px-2 py-3">
-                  <template v-if="item.selectedOffer !== null">
-                    <p class="pt-4 text-right text-[15px] font-bold tabular-nums text-[#1e64fd]">{{ fmtBreakPrice(item.selectedOffer.unitPrice, item.selectedOffer.currency) }}</p>
-                    <p class="mt-1 text-right text-[11px] text-gray-500">{{ item.selectedOffer.breakQty.toLocaleString('ko-KR') }}+ 적용 · MOQ {{ item.selectedOffer.moq?.toLocaleString('ko-KR') ?? '—' }}</p>
-                    <p class="mt-1 text-right text-[10px] text-gray-400" title="이 가격·재고를 공급사에서 가져온 시각">기준 {{ fmtAge(item.selectedOffer.fetchedAt) }}</p>
-                  </template>
-                  <p v-else class="pt-[24px] text-right text-[12px] text-gray-300">—</p>
-                </td>
-                <!-- QUANTITY / STOCK: 패키지(→오퍼 모달) + 수량 -->
-                <td class="px-2 py-3">
-                  <button
-                    type="button"
-                    class="flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d3d5dc] bg-[#f4f4f4] px-3 text-[13px] font-bold text-[#4c4c4c] disabled:cursor-not-allowed disabled:opacity-50"
-                    :disabled="!isDraft || editingLocked"
-                    :title="editingLocked ? EDIT_LOCK_TITLE : (item.selectedOffer?.packaging ?? '오퍼 선택')"
-                    @click="openCandidateDrawer(item)"
-                  >
-                    <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : '오퍼 없음') }}</span>
-                    <span class="text-[10px] text-gray-400">▾</span>
-                  </button>
-                  <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d6dae7] bg-[#fafcff] pl-1 pr-3">
-                    <input
-                      v-model.number="item.orderQty"
-                      type="number"
-                      min="1"
-                      class="w-[70px] bg-transparent px-2 text-right text-[15px] font-bold tabular-nums focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                      :disabled="!isDraft || editingLocked || item.selectedOffer === null"
-                      :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
-                      @change="onQtyChange(item)"
-                    >
-                    <span class="text-[11px] text-[#8e97a5]">/ {{ item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—' }}</span>
-                  </div>
-                </td>
-                <!-- TOTAL: 기존 매칭 배지(Found 대체) + 합계 -->
-                <td class="px-2 py-3 text-right">
-                  <div class="flex flex-col items-end gap-1.5 pt-1">
-                    <!-- 보강 진행 중엔 "확인 중"(파랑) — 빨간 미매칭은 보강이 끝난 뒤의 최종 판정 -->
-                    <span v-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
-                      <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
-                    </span>
-                    <span v-else-if="item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review'" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="engineEvidenceTitle(item)">검토 필요</span>
-                    <span v-else-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600" :title="engineEvidenceTitle(item)">미매칭</span>
-                    <span v-else-if="isStockShort(item)" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">재고 부족</span>
-                    <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="engineEvidenceTitle(item)">매칭</span>
-                    <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="engineEvidenceTitle(item)">가격 확인 필요</span>
-                    <span v-if="item.matchStatus !== 'none'" class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{{ selectionSourceLabel(item) }}</span>
-                    <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="engineEvidenceTitle(item)">일부 확인 필요</span>
-                    <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
-                    <p v-if="item.matchStatus !== 'none'" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="selectionReasonSummary(item)">{{ selectionReasonSummary(item) }}</p>
-                    <span v-if="(item.matchEvidence?.alternativeCandidateCount ?? 0) > 0" class="text-[10px] font-semibold text-blue-600">대체 후보 {{ item.matchEvidence?.alternativeCandidateCount }}개</span>
-                    <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? 'text-gray-300' : 'text-[#38b614]'">
-                      {{ item.lineTotalKrw === null ? '—' : fmtWon(Math.round(item.lineTotalKrw)) }}
-                    </span>
-                    <span v-if="item.selectedOffer !== null && item.selectedOffer.currency !== 'KRW'" class="text-[10px] text-gray-400">
-                      {{ item.selectedOffer.unitPriceKrw === null ? '환산 불가' : `단가 ≈₩${item.selectedOffer.unitPriceKrw.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}` }}
-                    </span>
-                  </div>
-                </td>
-                <!-- 후보 비교가 변경+상세+오퍼 선택을 통합. 삭제는 실제 삭제가 아니라 견적 제외. -->
-                <td class="px-2 py-3">
-                  <div v-if="isDraft" class="flex flex-col gap-[6px] pt-1">
-                    <button type="button" class="h-[30px] w-[88px] rounded-[5px] border border-blue-300 bg-blue-50 text-[12px] font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : '선정 이유·가격·차순위 후보 비교'" @click="openCandidateDrawer(item)">후보 비교</button>
-                    <button type="button" class="h-[26px] w-[88px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[12px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="toggleInclude(item)">{{ item.included ? '제외' : '복원' }}</button>
-                  </div>
-                </td>
-              </tr>
+              <BomQuoteRow
+                v-for="item in items"
+                :key="item.rowIdx"
+                :item="item"
+                :is-draft="isDraft"
+                :editing-locked="editingLocked"
+                :enriching="enriching"
+                @toggle-include="toggleInclude(item)"
+                @qty-change="onRowQtyChange(item, $event)"
+                @open-candidates="openCandidateDrawer(item)"
+              />
               <tr v-if="items.length === 0">
                 <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">표시할 라인이 없습니다.</td>
               </tr>
