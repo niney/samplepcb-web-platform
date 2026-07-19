@@ -70,7 +70,7 @@ function onDrop(event: DragEvent): void {
 </script>
 
 <template>
-  <div class="flex flex-col items-center px-6 pb-[60px]">
+  <div class="flex h-full flex-col items-center overflow-y-auto px-6 pb-[60px]">
     <!-- togle btn (87:9712) — 단일 검색은 미구현(표시만) -->
     <div class="mt-[46px] flex h-[42px] items-center rounded-full bg-[#f0f4fa]">
       <span class="flex h-[42px] items-center rounded-full bg-[#061023] px-[24px] text-[16px] font-bold leading-[24px] text-white">BOM 분석</span>

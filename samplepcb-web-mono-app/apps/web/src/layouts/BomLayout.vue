@@ -33,7 +33,8 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col bg-[#eef1f6] text-[#131519] [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
+  <!-- 앱형 고정 레이아웃 — 문서 스크롤 없이 각 영역(테이블·패널)이 내부 스크롤한다 -->
+  <div class="flex h-screen flex-col overflow-hidden bg-[#eef1f6] text-[#131519] [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
     <!-- top (87:9560) — 시안 다크 → 라이트 치환 -->
     <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-gray-200 bg-white">
       <!-- 로고 블록은 시안처럼 사이드바 폭(220px)과 정렬 — 구분선이 경계에 온다 -->
@@ -112,9 +113,9 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
         </div>
       </aside>
 
-      <!-- 중앙 흰 패널 (Rectangle 197) -->
-      <main class="min-w-0 flex-1 p-[10px]">
-        <div class="min-h-full rounded-[12px] bg-[#fdfdff] shadow-sm">
+      <!-- 중앙 흰 패널 (Rectangle 197) — 페이지가 내부 스크롤을 관리한다 -->
+      <main class="min-h-0 min-w-0 flex-1 p-[10px]">
+        <div class="h-full overflow-hidden rounded-[12px] bg-[#fdfdff] shadow-sm">
           <RouterView />
         </div>
       </main>

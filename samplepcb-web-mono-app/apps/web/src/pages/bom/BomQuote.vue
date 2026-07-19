@@ -435,7 +435,7 @@ function rowClass(item: BomQuoteItemType): string {
 </script>
 
 <template>
-  <div>
+  <div class="h-full">
     <p v-if="quote.isLoading.value" class="py-16 text-center text-sm text-gray-400">불러오는 중…</p>
 
     <!-- 파싱 진행 -->
@@ -455,10 +455,10 @@ function rowClass(item: BomQuoteItemType): string {
       </template>
     </section>
 
-    <!-- 워크벤치 — 시안(87:12875): 좌 매칭 결과 테이블 + 우 정보 패널 -->
-    <div v-else-if="detail" class="flex flex-col gap-4 p-5 xl:flex-row">
-      <!-- 좌: 파일명·액션·테이블 -->
-      <section class="min-w-0 flex-1">
+    <!-- 워크벤치 — 시안(87:12875): 좌 매칭 결과 테이블(내부 스크롤) + 우 정보 패널(고정) -->
+    <div v-else-if="detail" class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 xl:flex-row xl:overflow-visible">
+      <!-- 좌: 파일명·액션(고정) + 테이블(내부 스크롤) -->
+      <section class="flex min-h-0 min-w-0 flex-1 flex-col">
         <!-- file name + 액션 (87:13178~) -->
         <div class="flex flex-wrap items-start justify-between gap-3 px-1">
           <div>
@@ -510,11 +510,11 @@ function rowClass(item: BomQuoteItemType): string {
           <button type="button" class="h-[26px] cursor-default rounded border border-gray-300 bg-white px-2.5 text-[12px] text-gray-500 opacity-70" title="선택 삭제 (준비 중)">선택 삭제</button>
         </div>
 
-        <!-- 테이블 (list01 스타일: 행 h~110, border-b #E5E8ED) -->
-        <div class="mt-2 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+        <!-- 테이블 (list01 스타일) — 이 영역만 내부 스크롤, 헤더는 sticky -->
+        <div class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white">
           <table class="min-w-[980px] w-full">
-            <thead>
-              <tr class="border-b border-[#e5e8ed] text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
+            <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
+              <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
                 <th class="w-[36px] px-2 py-2.5" />
                 <th class="min-w-[240px] px-2 py-2.5">MPN</th>
                 <th class="px-2 py-2.5">Manufacturer</th>
@@ -638,8 +638,9 @@ function rowClass(item: BomQuoteItemType): string {
         </div>
       </section>
 
-      <!-- 우: 정보 패널 (시안 right side bar — 라이트 치환, 상단바 접기 버튼과 연동) -->
-      <aside v-show="rightOpen" class="w-full shrink-0 space-y-3 xl:w-[286px]">
+      <!-- 우: 정보 패널 (시안 right side bar — 라이트 치환, 상단바 접기 버튼과 연동).
+           패널 자체는 고정, 내용이 길면 패널 안에서만 스크롤 -->
+      <aside v-show="rightOpen" class="w-full shrink-0 space-y-3 xl:min-h-0 xl:w-[286px] xl:overflow-y-auto xl:pb-1">
         <!-- 회신(answered) -->
         <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
           <p class="font-semibold text-emerald-800">담당자 회신</p>
