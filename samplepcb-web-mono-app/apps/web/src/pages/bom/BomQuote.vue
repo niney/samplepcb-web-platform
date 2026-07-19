@@ -548,17 +548,18 @@ function rowClass(item: BomQuoteItemType): string {
                 <!-- MPN: 공급사 배지 + 이미지 자리 + 품번 + 데이터시트 -->
                 <td class="px-2 py-3">
                   <div class="flex gap-2.5">
-                    <div class="shrink-0">
+                    <!-- 고정폭 76px(최장 공급사명 UniKeyIC 기준) — 배지 유무와 무관하게 열 폭 일관 -->
+                    <div class="w-[76px] shrink-0">
                       <div
                         v-if="item.selectedOffer !== null"
-                        class="mb-1 flex h-[20px] w-fit items-center gap-1 rounded-[3px] bg-[#131519] px-1.5"
+                        class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-white px-1 shadow-sm"
                         :title="item.selectedOffer.supplierSku"
                       >
                         <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? favSamplepcb" alt="" class="size-[12px] rounded-[2px]">
-                        <span class="text-[10px] font-semibold text-white">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
+                        <span class="truncate text-[10px] font-semibold text-[#3b4252]">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
                       </div>
-                      <!-- 부품 이미지 — 데이터 없음(디자인만 플레이스홀더) -->
-                      <div class="grid size-[56px] place-items-center rounded-md border border-gray-200 bg-gray-50 text-[10px] text-gray-300">IMG</div>
+                      <!-- 부품 이미지 — 데이터 없음(디자인만 플레이스홀더). 실사진이 정사각이라 1:1 유지 -->
+                      <div class="grid size-[76px] place-items-center rounded-md border border-gray-200 bg-gray-50 text-[10px] text-gray-300">IMG</div>
                     </div>
                     <div class="min-w-0 pt-[22px]">
                       <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]">{{ item.mpn }}</p>
