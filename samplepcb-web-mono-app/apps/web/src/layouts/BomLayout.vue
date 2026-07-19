@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { useMyBomQuotes } from '../bom/useBom';
@@ -16,10 +16,16 @@ import promoVideo from '../assets/bom/promo-video.png';
 
 // 스마트 BOM 전용 앱 셸 — Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(87:9037) 이식.
 // 시안의 다크 배경(상단바·사이드바)은 사용자 결정으로 라이트 모드 치환, 구조·치수는 동일.
-// 미구현(표시만): 단일 검색 메뉴·샘플 토글·사이드바 접기·프로필 메뉴·프로모 카드 링크.
+// 미구현(표시만): 단일 검색 메뉴·샘플 토글·프로필 메뉴·프로모 카드 링크.
 
 const route = useRoute();
 const auth = useAuthStore();
+
+// 사이드바 접기 — 좌(메뉴)/우(프로모) 각각 토글, 선호는 localStorage 유지
+const leftOpen = ref(localStorage.getItem('bom.leftOpen') !== '0');
+const rightOpen = ref(localStorage.getItem('bom.rightOpen') !== '0');
+watch(leftOpen, (v) => { localStorage.setItem('bom.leftOpen', v ? '1' : '0'); });
+watch(rightOpen, (v) => { localStorage.setItem('bom.rightOpen', v ? '1' : '0'); });
 
 // Recent file — 시안의 4행을 실데이터(내 견적 최신 4건)로 채운다
 const list = useMyBomQuotes(ref(1), computed(() => auth.isLoggedIn));
@@ -31,14 +37,21 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
   <div class="flex min-h-screen flex-col bg-[#eef1f6] text-[#131519] [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
     <!-- top (87:9560) — 시안 다크 → 라이트 치환 -->
     <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-gray-200 bg-white">
-      <RouterLink :to="{ name: 'bom' }" class="flex items-center gap-[7px] pl-[24px]">
-        <img :src="logoIcon" alt="Parts Eyes" class="h-[26px] w-auto">
-        <span class="text-[21px] font-bold tracking-tight text-[#061023]">Parts Eyes</span>
-      </RouterLink>
-      <div class="ml-[22px] h-[30px] w-px bg-gray-200" />
-      <!-- 사이드바 접기 — 미구현(장식) -->
-      <button type="button" class="ml-[10px] grid size-[26px] cursor-default place-items-center opacity-70" title="사이드바 접기 (준비 중)">
-        <img :src="icFold" alt="" class="size-[22px]">
+      <!-- 로고 블록은 시안처럼 사이드바 폭(220px)과 정렬 — 구분선이 경계에 온다 -->
+      <div class="flex w-[220px] shrink-0 items-center pl-[24px]">
+        <RouterLink :to="{ name: 'bom' }" class="flex items-center gap-[7px]">
+          <img :src="logoIcon" alt="Parts Eyes" class="h-[26px] w-auto">
+          <span class="text-[21px] font-bold tracking-tight text-[#061023]">Parts Eyes</span>
+        </RouterLink>
+      </div>
+      <div class="h-[30px] w-px bg-gray-200" />
+      <button
+        type="button"
+        class="ml-[12px] grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
+        :title="leftOpen ? '사이드바 접기' : '사이드바 펼치기'"
+        @click="leftOpen = !leftOpen"
+      >
+        <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="leftOpen ? '' : '-scale-x-100'">
       </button>
       <!-- 샘플 토글 — 미구현(표시만) -->
       <div
@@ -52,8 +65,13 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
       <p class="absolute left-1/2 -translate-x-1/2 text-[18px] font-medium text-[#7c8698]">AI 기반 전자부품 검색 엔진</p>
 
       <div class="ml-auto flex items-center gap-[12px] pr-[18px]">
-        <button type="button" class="grid size-[26px] cursor-default place-items-center opacity-70" title="패널 접기 (준비 중)">
-          <img :src="icFold" alt="" class="size-[22px] -scale-x-100">
+        <button
+          type="button"
+          class="grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
+          :title="rightOpen ? '패널 접기' : '패널 펼치기'"
+          @click="rightOpen = !rightOpen"
+        >
+          <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="rightOpen ? '-scale-x-100' : ''">
         </button>
         <div
           class="flex size-[32px] items-center justify-center overflow-hidden rounded-full bg-[#9aa3b2]"
@@ -66,7 +84,7 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
 
     <div class="flex min-h-0 flex-1">
       <!-- left side bar (87:9485) — 라이트 치환 -->
-      <aside class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-white pt-[36px] lg:flex">
+      <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-white pt-[36px] lg:flex">
         <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center bg-[#eaf2ff] pl-[21px] pr-[15px]">
           <img :src="icMenuBom" alt="" class="size-[18px]">
           <span class="ml-[6px] text-[16px] font-medium text-[#0e6efd]">BOM 분석</span>
@@ -103,7 +121,7 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
       </main>
 
       <!-- right side bar (87:21445) — 라이트 치환, 프로모 카드는 시안 그대로 -->
-      <aside class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
+      <aside v-show="rightOpen" class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
         <!-- con01: Parts Eyes 튜토리얼 — 링크 미구현 -->
         <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-[#f2fdfd] to-[#f7f7fb] ring-1 ring-black/5" title="튜토리얼 (준비 중)">
           <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-[#e3f3ff] to-[#f7f9fb] blur-[10px]" />
@@ -132,6 +150,6 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
       </aside>
     </div>
   </div>
-  <!-- 시안 대비 미구현 기능(리스트업): 단일 검색(메뉴·토글) · 샘플 토글 · 사이드바/패널 접기 ·
-       프로필 메뉴 · 프로모 카드 링크(튜토리얼/Gerber Eyes) · 우측 하단 홈 인디케이터 -->
+  <!-- 시안 대비 미구현 기능(리스트업): 단일 검색(메뉴·토글) · 샘플 토글 ·
+       프로필 메뉴 · 프로모 카드 링크(튜토리얼/Gerber Eyes) — 사이드바/패널 접기는 구현됨 -->
 </template>
