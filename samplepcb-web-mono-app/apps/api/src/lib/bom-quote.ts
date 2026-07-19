@@ -185,6 +185,13 @@ export async function catalogMatchItems(
     item.matchStatus = 'auto';
     item.selectedOffer = pick === null ? null : snapshotFromPick(pick, false);
     item.orderQty = pick === null ? needed : pick.orderQty;
+    // 소스 BOM 에 제조사·설명 열이 없으면 카탈로그 정본으로 보강(화면 공백 방지)
+    if (item.manufacturerName === null || item.manufacturerName.trim() === '') {
+      item.manufacturerName = part.manufacturerName;
+    }
+    if (item.description === null || item.description.trim() === '') {
+      item.description = part.description?.slice(0, 1000) ?? null;
+    }
   }
 }
 

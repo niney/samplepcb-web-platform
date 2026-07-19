@@ -30,10 +30,15 @@ import {
 } from '../../bom/useBom';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
+import favDigikey from '../../assets/bom/fav-digikey.png';
+import favMouser from '../../assets/bom/fav-mouser.png';
+import favUnikeyic from '../../assets/bom/fav-unikeyic.png';
+import favSamplepcb from '../../assets/bom/fav-samplepcb.png';
 
-// 고객 스마트 BOM 견적 워크벤치 — 레거시 spSmartBomV2 result 화면의 기본 구조
-// (좌 결과 테이블 + 우 주문 패널)를 따르되 재설계: 서버 저장이 단일 진실,
-// 계산은 @sp/utils bom-pricing(서버와 동일 함수), 견적요청 후 동결.
+// 고객 스마트 BOM 견적 워크벤치 — Figma "02 BOM 파일 분석_검색 결과"(87:12875) 레이아웃에
+// 기존 기능(자동저장·오퍼/부품 모달·자동 보강·견적요청)을 병합. 사용자 지시:
+// 채팅·가격순 정렬 제외, Found 대신 기존 매칭 배지, 공급사 배지는 파비콘(vueline 방식),
+// 미구현 요소(핸들·이미지·데이터시트·BOM 비교·선택 삭제)는 디자인만.
 
 const route = useRoute();
 const router = useRouter();
@@ -122,8 +127,26 @@ function restampAll(): void {
   markDirty();
 }
 
+function stepSet(delta: number): void {
+  if (!isDraft.value) return;
+  setQty.value = Math.max(1, setQty.value + delta);
+  restampAll();
+}
+
+function stepSpare(delta: number): void {
+  if (!isDraft.value) return;
+  spareQty.value = Math.max(0, spareQty.value + delta);
+  restampAll();
+}
+
 function onQtyChange(item: BomQuoteItemType): void {
   recalcLine(item);
+  markDirty();
+}
+
+function toggleInclude(item: BomQuoteItemType): void {
+  if (!isDraft.value) return;
+  item.included = !item.included;
   markDirty();
 }
 
@@ -154,7 +177,26 @@ async function saveNow(): Promise<void> {
   }
 }
 
-// ── 합계(로컬 표시 — 저장 시 서버가 재계산해 동기화) ─────────────────────────
+// ── 통계·합계(로컬 표시 — 저장 시 서버가 재계산해 동기화) ────────────────────
+function isStockShort(item: BomQuoteItemType): boolean {
+  const o = item.selectedOffer;
+  return o !== null && o.stock !== null && o.stock < item.orderQty;
+}
+
+const stats = computed(() => {
+  const total = items.value.length;
+  const matched = items.value.filter((i) => i.matchStatus !== 'none').length;
+  const nostock = items.value.filter((i) => i.included && isStockShort(i)).length;
+  return {
+    total,
+    matched,
+    matchedPct: total === 0 ? 0 : Math.round((matched / total) * 100),
+    nostock,
+    unmatched: total - matched,
+    included: items.value.filter((i) => i.included).length,
+  };
+});
+
 const itemsTotal = computed(() =>
   Math.round(
     items.value.filter((i) => i.included && i.lineTotalKrw !== null).reduce((s, i) => s + (i.lineTotalKrw ?? 0), 0),
@@ -162,14 +204,8 @@ const itemsTotal = computed(() =>
 );
 const uncostedCount = computed(() => items.value.filter((i) => i.included && i.lineTotalKrw === null).length);
 const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee ?? 0) + (detail.value?.managementFee ?? 0));
-const stats = computed(() => ({
-  total: items.value.length,
-  matched: items.value.filter((i) => i.matchStatus !== 'none').length,
-  included: items.value.filter((i) => i.included).length,
-}));
 
 // ── 조용한 자동 보강 상태 — 서버(build)가 판단·시작하므로 FE 는 상태 표시만 ────
-// status 쿼리는 진입 시 1회 + running 인 동안만 폴링(useSupplierSearchStatus 내부).
 const catalogMatch = useCatalogMatchBomQuote();
 const supplierStatus = useSupplierSearchStatus(
   computed(() => detail.value?.engineJobId ?? null),
@@ -182,8 +218,6 @@ watch(
   () => supplierStatus.data.value?.data.status,
   (now, prev) => {
     if (prev !== 'running' || now !== 'completed' || !isDraft.value) return;
-    // 서버 폴러가 견적을 재매칭하지만 최대 5초 지연 — 미매칭 채움은 즉시 당기고(멱등),
-    // 서버측 스냅샷 최신화 반영을 위해 잠시 후 한 번 더 새로고침한다.
     void catalogMatch.mutateAsync({ quoteId: quoteId.value, onlyUnmatched: true }).catch(() => undefined);
     setTimeout(() => {
       void quote.refetch();
@@ -192,6 +226,31 @@ watch(
     setTimeout(() => (refreshedNotice.value = false), 5_000);
   },
 );
+
+// ── 공급사 배지(vueline 파비콘 방식) ─────────────────────────────────────────
+const SUPPLIER_META: Record<string, { name: string; icon: string }> = {
+  digikey: { name: 'Digikey', icon: favDigikey },
+  mouser: { name: 'Mouser', icon: favMouser },
+  unikeyic: { name: 'UniKeyIC', icon: favUnikeyic },
+  samplepcb: { name: 'SamplePCB', icon: favSamplepcb },
+};
+
+// ── 가격구간 표시(상위 4개 + 가격 상세 확장) ─────────────────────────────────
+const expandedPrice = ref<Set<number>>(new Set());
+
+function togglePrice(rowIdx: number): void {
+  const next = new Set(expandedPrice.value);
+  if (next.has(rowIdx)) next.delete(rowIdx);
+  else next.add(rowIdx);
+  expandedPrice.value = next;
+}
+
+function visibleBreaks(item: BomQuoteItemType): { qty: number; price: number }[] {
+  const offer = item.selectedOffer;
+  if (offer === null) return [];
+  const sorted = [...offer.priceBreaks].sort((a, b) => a.qty - b.qty);
+  return expandedPrice.value.has(item.rowIdx) ? sorted : sorted.slice(0, 4);
+}
 
 // ── 오퍼 변경·부품 교체/추가 모달 ────────────────────────────────────────────
 const offerModal = ref<{ lineIdx: number; partId: string } | null>(null);
@@ -349,6 +408,12 @@ function fmtWon(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
 }
 
+function fmtBreakPrice(price: number, currency: string): string {
+  if (currency === 'KRW') return `${price.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원`;
+  const sym = currency === 'USD' ? '$' : `${currency} `;
+  return `${sym}${price.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`;
+}
+
 /** 오퍼 데이터 나이 — 정직성 표시(방금 조회한 것처럼 보이지 않게). */
 function fmtAge(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -358,32 +423,20 @@ function fmtAge(iso: string): string {
   return `${String(Math.floor(ms / 86_400_000))}일 전`;
 }
 
-function fmtUnit(offer: BomQuoteSelectedOfferType): string {
-  const sym = offer.currency === 'KRW' ? '₩' : offer.currency === 'USD' ? '$' : `${offer.currency} `;
-  return `${sym}${offer.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`;
+function rowClass(item: BomQuoteItemType): string {
+  if (!item.included) return 'opacity-45';
+  if (item.matchStatus === 'none') return 'bg-[#fdf2f2]'; // 미매칭 — 시안 분홍
+  if (isStockShort(item)) return 'bg-[#fdf8e7]'; // 재고 부족 — 시안 노랑
+  return 'bg-white';
 }
 </script>
 
 <template>
-  <div class="space-y-4 p-6">
-    <!-- 헤더 -->
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div class="flex items-center gap-3">
-        <button type="button" class="text-sm text-gray-500 hover:text-gray-800" @click="router.push({ name: 'bom' })">← 목록</button>
-        <h1 class="text-xl font-semibold text-gray-900">{{ detail?.title ?? '' }}</h1>
-        <span v-if="detail" class="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{{ STATUS_LABEL[detail.status] }}</span>
-      </div>
-      <div v-if="isDraft" class="text-xs text-gray-400">
-        <span v-if="saveState === 'saving'">저장 중…</span>
-        <span v-else-if="saveState === 'saved' && !dirty">자동 저장됨</span>
-        <span v-else-if="saveState === 'error'" class="text-red-500">저장 실패 — 네트워크 확인</span>
-      </div>
-    </div>
-
+  <div>
     <p v-if="quote.isLoading.value" class="py-16 text-center text-sm text-gray-400">불러오는 중…</p>
 
     <!-- 파싱 진행 -->
-    <section v-else-if="needsBuild" class="rounded-2xl border border-gray-200 bg-white p-10 text-center shadow-sm">
+    <section v-else-if="needsBuild" class="m-6 rounded-2xl border border-gray-200 bg-white p-10 text-center shadow-sm">
       <template v-if="buildError === ''">
         <p class="text-lg font-semibold text-gray-900">BOM을 분석하고 있습니다…</p>
         <p class="mt-2 text-sm text-gray-500">{{ job.data.value?.data.message ?? '헤더·품번·수량을 인식하는 중' }}</p>
@@ -399,149 +452,291 @@ function fmtUnit(offer: BomQuoteSelectedOfferType): string {
       </template>
     </section>
 
-    <!-- 워크벤치: 좌 결과 테이블 + 우 주문 패널 (레거시 기본 구조) -->
-    <div v-else-if="detail" class="grid gap-4 lg:grid-cols-[1fr_310px]">
-      <!-- 결과 테이블 -->
-      <section class="space-y-3">
-        <!-- 회신(answered) 안내 -->
-        <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
-          <p class="font-semibold text-emerald-800">담당자 회신</p>
-          <p v-if="detail.answerNote" class="mt-1 whitespace-pre-wrap text-emerald-900">{{ detail.answerNote }}</p>
-          <p v-if="detail.confirmedTotal !== null" class="mt-2 text-emerald-900">
-            확정 견적: <b class="tabular-nums">{{ fmtWon(detail.confirmedTotal) }}</b>
-            <span v-if="detail.confirmedShippingFee !== null" class="ml-2 text-xs">(운송료 {{ fmtWon(detail.confirmedShippingFee) }} · 관리비 {{ fmtWon(detail.confirmedManagementFee) }})</span>
-          </p>
+    <!-- 워크벤치 — 시안(87:12875): 좌 매칭 결과 테이블 + 우 정보 패널 -->
+    <div v-else-if="detail" class="flex flex-col gap-4 p-5 xl:flex-row">
+      <!-- 좌: 파일명·액션·테이블 -->
+      <section class="min-w-0 flex-1">
+        <!-- file name + 액션 (87:13178~) -->
+        <div class="flex flex-wrap items-start justify-between gap-3 px-1">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="text-sm text-gray-400 hover:text-gray-700" title="목록으로" @click="router.push({ name: 'bom' })">←</button>
+              <h1 class="text-[19px] font-bold text-[#061023]">{{ detail.fileName ?? detail.title }}</h1>
+              <button
+                type="button"
+                class="flex h-[30px] items-center gap-1 rounded-md border border-[#1e64fd] px-2.5 text-[13px] font-semibold text-[#1e64fd] hover:bg-blue-50"
+                title="새 BOM 업로드"
+                @click="router.push({ name: 'bom' })"
+              >
+                <span class="text-[14px]">↥</span> 업로드
+              </button>
+              <span class="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{{ STATUS_LABEL[detail.status] }}</span>
+              <span v-if="enriching" class="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                가격·재고 확인 중… ({{ supplierStatus.data.value?.data.progress ?? 0 }}%)
+              </span>
+              <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">최신 가격·재고로 갱신되었습니다</span>
+            </div>
+            <p class="mt-1 pl-6 text-[13px] text-[#5f6777]">{{ stats.total }}개 부품</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span v-if="isDraft" class="mr-1 text-xs text-gray-400">
+              <template v-if="saveState === 'saving'">저장 중…</template>
+              <template v-else-if="saveState === 'saved' && !dirty">자동 저장됨</template>
+              <template v-else-if="saveState === 'error'"><span class="text-red-500">저장 실패</span></template>
+            </span>
+            <!-- BOM 비교 — 미구현(디자인만) -->
+            <button type="button" class="flex h-[38px] cursor-default items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 text-[14px] font-semibold text-[#374151] opacity-70" title="BOM 비교 (준비 중)">
+              <span>◫</span> BOM 비교
+            </button>
+            <button
+              v-if="isDraft"
+              type="button"
+              class="flex h-[38px] items-center gap-1 rounded-lg bg-[#1e64fd] px-4 text-[14px] font-semibold text-white hover:bg-blue-700"
+              @click="partModal = { mode: 'add', lineIdx: null, query: '' }"
+            >
+              <span class="text-[16px] leading-none">+</span> 추가
+            </button>
+          </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            v-if="isDraft"
-            type="button"
-            class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
-            @click="partModal = { mode: 'add', lineIdx: null, query: '' }"
-          >
-            + 부품 추가
-          </button>
-          <!-- 조용한 자동 보강 — 서버가 필요 시 시작, 여기서는 상태 표시만 -->
-          <span v-if="enriching" class="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-            가격·재고 확인 중… ({{ supplierStatus.data.value?.data.progress ?? 0 }}%)
-          </span>
-          <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-            최신 가격·재고로 갱신되었습니다
-          </span>
+        <!-- 매칭 결과 헤더 -->
+        <div class="mt-4 flex items-center justify-between px-1">
+          <p class="text-[15px] font-bold text-[#061023]">매칭 결과</p>
+          <!-- 선택 삭제 — 미구현(디자인만) -->
+          <button type="button" class="h-[26px] cursor-default rounded border border-gray-300 bg-white px-2.5 text-[12px] text-gray-500 opacity-70" title="선택 삭제 (준비 중)">선택 삭제</button>
         </div>
 
-        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table class="min-w-full divide-y divide-gray-200 text-sm">
-            <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
-              <tr>
-                <th class="px-3 py-2.5">포함</th>
-                <th class="px-3 py-2.5">부품</th>
-                <th class="px-3 py-2.5">오퍼</th>
-                <th class="whitespace-nowrap px-3 py-2.5">BOM</th>
-                <th class="whitespace-nowrap px-3 py-2.5">주문수량</th>
-                <th class="whitespace-nowrap px-3 py-2.5">합계</th>
-                <th class="px-3 py-2.5" />
+        <!-- 테이블 (list01 스타일: 행 h~110, border-b #E5E8ED) -->
+        <div class="mt-2 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <table class="min-w-[980px] w-full">
+            <thead>
+              <tr class="border-b border-[#e5e8ed] text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
+                <th class="w-[36px] px-2 py-2.5" />
+                <th class="min-w-[240px] px-2 py-2.5">MPN</th>
+                <th class="px-2 py-2.5">Manufacturer</th>
+                <th class="px-2 py-2.5">Description</th>
+                <th class="w-[130px] px-2 py-2.5 text-right">Unit Price</th>
+                <th class="w-[170px] px-2 py-2.5">Quantity / Stock</th>
+                <th class="w-[130px] px-2 py-2.5 text-right">Total Price</th>
+                <th class="w-[76px] px-2 py-2.5" />
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
-              <tr v-for="(item, idx) in items" :key="item.rowIdx" :class="{ 'opacity-45': !item.included }">
-                <td class="px-3 py-2">
-                  <input v-model="item.included" type="checkbox" class="h-4 w-4 rounded border-gray-300" :disabled="!isDraft" @change="markDirty">
+            <tbody>
+              <tr v-for="(item, idx) in items" :key="item.rowIdx" class="border-b border-[#e5e8ed] align-top transition-colors" :class="rowClass(item)">
+                <!-- 핸들(디자인만) + 포함 체크 -->
+                <td class="px-2 py-3">
+                  <div class="flex flex-col items-center gap-2 pt-1">
+                    <input :checked="item.included" type="checkbox" class="h-4 w-4 rounded border-gray-300" :disabled="!isDraft" title="합계·견적요청 포함" @change="toggleInclude(item)">
+                    <span class="cursor-default text-[13px] leading-none text-gray-300" title="정렬 (준비 중)">⋮⋮</span>
+                  </div>
                 </td>
-                <td class="px-3 py-2">
-                  <div class="font-medium text-gray-900">{{ item.mpn }}</div>
-                  <div class="text-xs text-gray-500">{{ item.manufacturerName }}</div>
-                  <div class="max-w-56 truncate text-xs text-gray-400" :title="item.description ?? ''">{{ item.description }}</div>
+                <!-- MPN: 공급사 배지 + 이미지 자리 + 품번 + 데이터시트 -->
+                <td class="px-2 py-3">
+                  <div class="flex gap-2.5">
+                    <div class="shrink-0">
+                      <div
+                        v-if="item.selectedOffer !== null"
+                        class="mb-1 flex h-[20px] w-fit items-center gap-1 rounded-[3px] bg-[#131519] px-1.5"
+                        :title="item.selectedOffer.supplierSku"
+                      >
+                        <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? favSamplepcb" alt="" class="size-[12px] rounded-[2px]">
+                        <span class="text-[10px] font-semibold text-white">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
+                      </div>
+                      <!-- 부품 이미지 — 데이터 없음(디자인만 플레이스홀더) -->
+                      <div class="grid size-[56px] place-items-center rounded-md border border-gray-200 bg-gray-50 text-[10px] text-gray-300">IMG</div>
+                    </div>
+                    <div class="min-w-0 pt-[22px]">
+                      <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]">{{ item.mpn }}</p>
+                      <p class="cursor-default text-[12px] leading-[16px] text-[#9db9dd]" title="데이터시트 (준비 중)">데이터시트</p>
+                    </div>
+                  </div>
                 </td>
-                <td class="px-3 py-2">
+                <td class="px-2 py-3 pt-[42px] text-[12px] leading-[16px] text-[#5f6777]">{{ item.manufacturerName ?? '—' }}</td>
+                <td class="max-w-[220px] px-2 py-3 pt-[42px]">
+                  <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
+                </td>
+                <!-- UNIT PRICE 구간(상위 4 + 가격 상세) -->
+                <td class="px-2 py-3">
                   <template v-if="item.selectedOffer !== null">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-700">{{ item.selectedOffer.supplier }}</span>
-                      <span v-if="item.selectedOffer.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
-                      <span v-if="item.selectedOffer.stock !== null && item.selectedOffer.stock < item.orderQty" class="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">재고 부족</span>
+                    <div class="flex flex-col gap-[4px]">
+                      <div
+                        v-for="pb in visibleBreaks(item)"
+                        :key="pb.qty"
+                        class="flex items-baseline justify-between gap-3 text-[12px]"
+                        :class="pb.qty === item.selectedOffer.breakQty ? 'font-bold text-[#1e64fd]' : 'font-semibold text-[#5f6777]'"
+                      >
+                        <span>{{ pb.qty }}+</span>
+                        <span class="tabular-nums">{{ fmtBreakPrice(pb.price, item.selectedOffer.currency) }}</span>
+                      </div>
                     </div>
-                    <div class="mt-0.5 text-xs tabular-nums text-gray-600">
-                      {{ fmtUnit(item.selectedOffer) }} <span class="text-gray-400">@{{ item.selectedOffer.breakQty }}+</span>
-                      <span v-if="item.selectedOffer.currency !== 'KRW'" class="text-gray-400"> · {{ item.selectedOffer.unitPriceKrw === null ? '환산 불가' : `≈₩${item.selectedOffer.unitPriceKrw.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}` }}</span>
-                      <span class="text-gray-400" :title="'이 가격·재고를 공급사에서 가져온 시각'"> · 기준 {{ fmtAge(item.selectedOffer.fetchedAt) }}</span>
+                    <div v-if="item.selectedOffer.priceBreaks.length > 4" class="mt-1 border-t border-gray-200 pt-1 text-center">
+                      <button type="button" class="text-[12px] font-semibold text-[#1e64fd]" @click="togglePrice(item.rowIdx)">
+                        가격 상세 {{ expandedPrice.has(item.rowIdx) ? '▴' : '▾' }}
+                      </button>
                     </div>
+                    <p class="mt-1 text-right text-[10px] text-gray-400" title="이 가격·재고를 공급사에서 가져온 시각">기준 {{ fmtAge(item.selectedOffer.fetchedAt) }}</p>
                   </template>
-                  <span v-else-if="item.matchStatus === 'none'" class="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">미매칭</span>
-                  <span v-else class="text-xs text-gray-400">오퍼 없음</span>
+                  <p v-else class="pt-[24px] text-right text-[12px] text-gray-300">—</p>
                 </td>
-                <td class="px-3 py-2 tabular-nums text-gray-600">{{ item.bomQty }}</td>
-                <td class="px-3 py-2">
-                  <input
-                    v-model.number="item.orderQty"
-                    type="number"
-                    min="1"
-                    class="w-24 rounded-md border border-gray-300 px-2 py-1 text-right text-sm tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
-                    :disabled="!isDraft || item.selectedOffer === null"
-                    @change="onQtyChange(item)"
+                <!-- QUANTITY / STOCK: 패키지(→오퍼 모달) + 수량 -->
+                <td class="px-2 py-3">
+                  <button
+                    type="button"
+                    class="flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d3d5dc] bg-[#f4f4f4] px-3 text-[13px] font-bold text-[#4c4c4c] disabled:cursor-default"
+                    :disabled="!isDraft || item.partId === null"
+                    :title="item.selectedOffer?.packaging ?? '오퍼 선택'"
+                    @click="openOfferModal(idx)"
                   >
+                    <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : '오퍼 없음') }}</span>
+                    <span class="text-[10px] text-gray-400">▾</span>
+                  </button>
+                  <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d6dae7] bg-[#fafcff] pl-1 pr-3">
+                    <input
+                      v-model.number="item.orderQty"
+                      type="number"
+                      min="1"
+                      class="w-[70px] bg-transparent px-2 text-right text-[15px] font-bold tabular-nums focus:outline-none"
+                      :disabled="!isDraft || item.selectedOffer === null"
+                      @change="onQtyChange(item)"
+                    >
+                    <span class="text-[11px] text-[#8e97a5]">/ {{ item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—' }}</span>
+                  </div>
                 </td>
-                <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ fmtWon(item.lineTotalKrw === null ? null : Math.round(item.lineTotalKrw)) }}</td>
-                <td class="whitespace-nowrap px-3 py-2 text-right text-xs">
-                  <template v-if="isDraft">
-                    <button v-if="item.partId !== null" type="button" class="text-blue-600 hover:underline" @click="openOfferModal(idx)">오퍼</button>
-                    <button type="button" class="ml-2 text-gray-500 hover:underline" @click="partModal = { mode: 'swap', lineIdx: idx, query: item.mpn }">교체</button>
-                  </template>
+                <!-- TOTAL: 기존 매칭 배지(Found 대체) + 합계 -->
+                <td class="px-2 py-3 text-right">
+                  <div class="flex flex-col items-end gap-1.5 pt-1">
+                    <span v-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600">미매칭</span>
+                    <span v-else-if="isStockShort(item)" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">재고 부족</span>
+                    <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]">매칭</span>
+                    <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
+                    <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? 'text-gray-300' : 'text-[#38b614]'">
+                      {{ item.lineTotalKrw === null ? '—' : fmtWon(Math.round(item.lineTotalKrw)) }}
+                    </span>
+                    <span v-if="item.selectedOffer !== null && item.selectedOffer.currency !== 'KRW'" class="text-[10px] text-gray-400">
+                      {{ item.selectedOffer.unitPriceKrw === null ? '환산 불가' : `단가 ≈₩${item.selectedOffer.unitPriceKrw.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}` }}
+                    </span>
+                  </div>
+                </td>
+                <!-- 액션 3버튼(시안 60×24): 변경=부품 교체 / 삭제=제외 / 상세=오퍼 -->
+                <td class="px-2 py-3">
+                  <div v-if="isDraft" class="flex flex-col gap-[6px] pt-1">
+                    <button type="button" class="h-[24px] w-[60px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[13px] font-medium text-[#4c4c4c] hover:bg-gray-200" @click="partModal = { mode: 'swap', lineIdx: idx, query: item.mpn }">변경</button>
+                    <button type="button" class="h-[24px] w-[60px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[13px] font-medium text-[#4c4c4c] hover:bg-gray-200" @click="toggleInclude(item)">{{ item.included ? '삭제' : '복원' }}</button>
+                    <button type="button" class="h-[24px] w-[60px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[13px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:opacity-40" :disabled="item.partId === null" @click="openOfferModal(idx)">상세</button>
+                  </div>
                 </td>
               </tr>
               <tr v-if="items.length === 0">
-                <td colspan="7" class="px-3 py-10 text-center text-sm text-gray-400">표시할 라인이 없습니다.</td>
+                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">표시할 라인이 없습니다.</td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <!-- 주문 패널 -->
-      <aside class="space-y-4 self-start rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div class="grid grid-cols-3 gap-2 text-center text-sm">
-          <div class="rounded-lg bg-gray-50 p-2"><div class="text-lg font-semibold tabular-nums">{{ stats.total }}</div><div class="text-xs text-gray-500">전체</div></div>
-          <div class="rounded-lg bg-emerald-50 p-2"><div class="text-lg font-semibold tabular-nums text-emerald-700">{{ stats.matched }}</div><div class="text-xs text-gray-500">매칭</div></div>
-          <div class="rounded-lg bg-blue-50 p-2"><div class="text-lg font-semibold tabular-nums text-blue-700">{{ stats.included }}</div><div class="text-xs text-gray-500">포함</div></div>
+      <!-- 우: 정보 패널 (시안 right side bar — 라이트 치환) -->
+      <aside class="w-full shrink-0 space-y-3 xl:w-[286px]">
+        <!-- 회신(answered) -->
+        <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
+          <p class="font-semibold text-emerald-800">담당자 회신</p>
+          <p v-if="detail.answerNote" class="mt-1 whitespace-pre-wrap text-emerald-900">{{ detail.answerNote }}</p>
+          <p v-if="detail.confirmedTotal !== null" class="mt-2 text-emerald-900">
+            확정 견적: <b class="tabular-nums">{{ fmtWon(detail.confirmedTotal) }}</b>
+            <span v-if="detail.confirmedShippingFee !== null" class="ml-1 block text-xs">(운송료 {{ fmtWon(detail.confirmedShippingFee) }} · 관리비 {{ fmtWon(detail.confirmedManagementFee) }})</span>
+          </p>
         </div>
 
-        <div class="space-y-2 border-t border-gray-100 pt-3 text-sm">
-          <label class="flex items-center justify-between gap-2">
-            <span class="text-gray-600">세트수량</span>
-            <input v-model.number="setQty" type="number" min="1" class="w-24 rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-50" :disabled="!isDraft" @change="restampAll">
-          </label>
-          <label class="flex items-center justify-between gap-2">
-            <span class="text-gray-600">예비수량</span>
-            <input v-model.number="spareQty" type="number" min="0" class="w-24 rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-50" :disabled="!isDraft" @change="restampAll">
-          </label>
-          <p class="text-xs text-gray-400">주문수량 = max(BOM수량 × (세트+예비), MOQ) 후 주문배수 올림</p>
+        <!-- AI 분석결과 (87:12996) -->
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+          <p class="flex items-center gap-1.5 text-[14px] font-bold text-[#061023]"><span>🤖</span> AI 분석결과</p>
+          <div class="mt-3 space-y-2">
+            <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2.5">
+              <span class="text-[11px] font-bold uppercase tracking-wide text-[#5f6777]">Total Lines</span>
+              <span class="text-[18px] font-bold tabular-nums text-[#061023]">{{ stats.total }}</span>
+            </div>
+            <div class="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2.5">
+              <span class="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Matched</span>
+              <span class="text-[18px] font-bold tabular-nums text-emerald-600">{{ stats.matched }} <span class="text-[12px] font-semibold">{{ stats.matchedPct }}%</span></span>
+            </div>
+            <div class="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2.5">
+              <span class="text-[11px] font-bold uppercase tracking-wide text-amber-700">Nostock</span>
+              <span class="text-[18px] font-bold tabular-nums text-amber-600">{{ stats.nostock }}</span>
+            </div>
+            <div class="flex items-center justify-between rounded-lg bg-red-50 px-3 py-2.5">
+              <span class="text-[11px] font-bold uppercase tracking-wide text-red-700">Unmatched</span>
+              <span class="text-[18px] font-bold tabular-nums text-red-600">{{ stats.unmatched }}</span>
+            </div>
+          </div>
         </div>
 
-        <div class="space-y-1.5 border-t border-gray-100 pt-3 text-sm">
-          <div class="flex justify-between"><span class="text-gray-600">부품 합계</span><span class="tabular-nums">{{ fmtWon(itemsTotal) }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-600">운송료(예상)</span><span class="tabular-nums">{{ fmtWon(detail.shippingFee) }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-600">관리비(예상)</span><span class="tabular-nums">{{ fmtWon(detail.managementFee) }}</span></div>
-          <div class="flex justify-between border-t border-gray-200 pt-2 text-base font-semibold"><span>예상 합계</span><span class="tabular-nums">{{ fmtWon(finalTotal) }}</span></div>
-          <p class="text-xs text-gray-400">VAT 별도 · 예상 견적 — 담당자 확정 시 변동될 수 있습니다</p>
-          <p v-if="uncostedCount > 0" class="rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-700">금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다</p>
-          <p class="text-xs text-gray-400">납기는 견적 확정 시 안내드립니다</p>
+        <!-- 주문 정보 (87:13013) -->
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+          <p class="flex items-center gap-1.5 text-[14px] font-bold text-[#061023]"><span>🛒</span> 주문 정보</p>
+          <div class="mt-3 space-y-2.5 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-[13px] text-[#5f6777]">세트 수량</span>
+              <div class="flex items-center gap-1">
+                <div class="flex h-[32px] w-[92px] items-center rounded-md border border-gray-300 bg-white">
+                  <button type="button" class="w-[26px] text-gray-400 hover:text-gray-700 disabled:opacity-40" :disabled="!isDraft" @click="stepSet(-1)">−</button>
+                  <input v-model.number="setQty" type="number" min="1" class="w-full min-w-0 border-x border-gray-200 text-center text-[14px] font-semibold tabular-nums focus:outline-none disabled:bg-transparent" :disabled="!isDraft" @change="restampAll">
+                  <button type="button" class="w-[26px] text-gray-400 hover:text-gray-700 disabled:opacity-40" :disabled="!isDraft" @click="stepSet(1)">+</button>
+                </div>
+                <span class="text-[11px] text-gray-400">Set</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-[13px] text-[#5f6777]">예비 수량</span>
+              <div class="flex items-center gap-1">
+                <div class="flex h-[32px] w-[92px] items-center rounded-md border border-gray-300 bg-white">
+                  <button type="button" class="w-[26px] text-gray-400 hover:text-gray-700 disabled:opacity-40" :disabled="!isDraft" @click="stepSpare(-1)">−</button>
+                  <input v-model.number="spareQty" type="number" min="0" class="w-full min-w-0 border-x border-gray-200 text-center text-[14px] font-semibold tabular-nums focus:outline-none disabled:bg-transparent" :disabled="!isDraft" @change="restampAll">
+                  <button type="button" class="w-[26px] text-gray-400 hover:text-gray-700 disabled:opacity-40" :disabled="!isDraft" @click="stepSpare(1)">+</button>
+                </div>
+                <span class="text-[11px] text-gray-400">Set</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between border-t border-gray-100 pt-2.5">
+              <span class="text-[13px] text-[#5f6777]">예상 납기</span>
+              <span class="text-[12px] text-gray-500">확정 시 안내</span>
+            </div>
+            <p class="text-[11px] leading-[16px] text-gray-400">주문수량 = max(BOM수량 × (세트+예비), MOQ) 후 주문배수 올림</p>
+          </div>
         </div>
 
-        <div class="space-y-2 border-t border-gray-100 pt-3">
+        <!-- 예상 견적 (87:13028) -->
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+          <p class="flex items-center gap-1.5 text-[14px] font-bold text-[#061023]"><span>💰</span> 예상 견적</p>
+          <div class="mt-3 space-y-1.5 text-[13px]">
+            <div class="flex justify-between"><span class="text-[#5f6777]">합계</span><span class="tabular-nums text-[#061023]">{{ fmtWon(itemsTotal) }}</span></div>
+            <div class="flex justify-between"><span class="text-[#5f6777]">운송료</span><span class="tabular-nums text-[#061023]">{{ fmtWon(detail.shippingFee) }}</span></div>
+            <div class="flex justify-between"><span class="text-[#5f6777]">관리비</span><span class="tabular-nums text-[#061023]">{{ fmtWon(detail.managementFee) }}</span></div>
+            <div class="mt-2 rounded-lg bg-[#eef4ff] px-3 py-2.5">
+              <div class="flex items-baseline justify-between">
+                <span class="text-[12px] font-semibold text-[#5f6777]">최종합계 <span class="font-normal">(VAT 별도)</span></span>
+                <span class="text-[20px] font-bold tabular-nums text-[#1e64fd]">{{ fmtWon(finalTotal) }}</span>
+              </div>
+            </div>
+            <p v-if="uncostedCount > 0" class="rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다</p>
+            <p class="pt-1 text-[11px] leading-[16px] text-gray-400">· AI로 산출한 가견적입니다.<br>· 정확한 가격은 담당자 확정 시 안내드립니다.</p>
+          </div>
+        </div>
+
+        <!-- CTA -->
+        <div class="space-y-2">
           <button
             v-if="isDraft"
             type="button"
-            class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            class="flex h-[48px] w-full items-center justify-center gap-1.5 rounded-xl bg-[#1e64fd] text-[15px] font-bold text-white hover:bg-blue-700 disabled:opacity-50"
             :disabled="request.isPending.value || stats.included === 0"
             @click="openRequestModal"
           >
-            견적요청
+            📄 견적요청
           </button>
           <button
             v-if="detail.status === 'draft' || detail.status === 'requested'"
             type="button"
-            class="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+            class="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50"
             @click="onCancel"
           >
             {{ detail.status === 'draft' ? '작성 취소' : '요청 취소' }}
