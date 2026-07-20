@@ -1857,11 +1857,31 @@ export async function getQuoteItemCandidates(
   });
   const originalMpnRaw = item.sourceRow?.inputPartNumber;
   const originalValueRaw = item.sourceRow?.valueRaw;
+  const originalRowsRaw = item.sourceRow?.sourceRows;
+  const originalRefsRaw = item.sourceRow?.referenceDesignators;
+  const originalManufacturerRaw = item.sourceRow?.inputManufacturer;
+  const originalPackageCodeRaw = item.sourceRow?.packageCode;
   return {
     quoteId: String(quoteId),
     rowIdx,
     originalMpn: typeof originalMpnRaw === 'string' && originalMpnRaw.trim() !== '' ? originalMpnRaw : null,
     originalValue: typeof originalValueRaw === 'string' && originalValueRaw.trim() !== '' ? originalValueRaw : null,
+    originalSheetName: item.sourceSheetName,
+    originalRows: Array.isArray(originalRowsRaw)
+      ? originalRowsRaw.filter((row): row is number => typeof row === 'number' && Number.isInteger(row) && row > 0)
+      : [],
+    originalReferenceDesignators: Array.isArray(originalRefsRaw)
+      ? originalRefsRaw.filter((ref): ref is string => typeof ref === 'string' && ref.trim() !== '').map((ref) => ref.trim())
+      : [],
+    originalManufacturer:
+      typeof originalManufacturerRaw === 'string' && originalManufacturerRaw.trim() !== ''
+        ? originalManufacturerRaw
+        : null,
+    originalPackageCode:
+      typeof originalPackageCodeRaw === 'string' && originalPackageCodeRaw.trim() !== ''
+        ? originalPackageCodeRaw
+        : null,
+    bomQty: item.bomQty,
     neededQty: needed,
     currentMpn: item.mpn,
     currentLineTotalKrw: item.lineTotalKrw,
