@@ -51,6 +51,18 @@ class SupplierClient(ABC):
         value = "\0".join(part or "" for part in parts).encode("utf-8")
         return hashlib.sha256(value).hexdigest()[:16]
 
+    @staticmethod
+    def structured_product_identifier(*values: object) -> str | None:
+        """Return a source-owned stable identifier without deriving one from a URL."""
+
+        for value in values:
+            if value is None or isinstance(value, bool):
+                continue
+            parsed = str(value).strip()
+            if parsed:
+                return parsed
+        return None
+
     def cache_payload(self, query: PlannedQuery) -> dict[str, Any]:
         """Only fields that can change the supplier request belong in the raw-cache key."""
         if query.mode == SearchMode.IDENTITY and query.part_number:

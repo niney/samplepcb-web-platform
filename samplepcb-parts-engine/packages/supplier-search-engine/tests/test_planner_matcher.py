@@ -13,6 +13,7 @@ from supplier_search_engine.models import (
     MatchStatus,
     SelectionEligibility,
     Supplier,
+    SupplierOffer,
     SupplierProduct,
 )
 from supplier_search_engine.planner import QueryPlanner
@@ -301,6 +302,67 @@ def test_unknown_manufacturer_grouping_is_deterministic_with_multiple_makers():
 
     assert identity_maps[0] == identity_maps[1]
     assert len(set(identity_maps[0].values())) == 3
+
+
+def test_unknown_manufacturer_identity_uses_stable_supplier_locator_not_url():
+    query = QueryPlanner().plan(component(part_number="SHARED-MPN"))
+
+    def identity_key(product: SupplierProduct) -> str:
+        return finalize_candidate_decisions(
+            query,
+            [CandidateMatcher().evaluate(query, product)],
+        )[0].decision.identity_key
+
+    first = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        supplier_product_id="DK-PRODUCT-42",
+        manufacturer_part_number="SHARED-MPN",
+        manufacturer=None,
+        offers=[
+            SupplierOffer(
+                supplier=Supplier.DIGIKEY,
+                supplier_sku="OLD-SKU",
+                product_url="https://example.com/old?campaign=a#offer",
+            )
+        ],
+    )
+    same_product = first.model_copy(
+        update={
+            "supplier_product_id": "dk-product-42",
+            "offers": [
+                SupplierOffer(
+                    supplier=Supplier.DIGIKEY,
+                    supplier_sku="NEW-SKU",
+                    product_url="https://example.com/new?campaign=b",
+                )
+            ],
+        },
+        deep=True,
+    )
+    different_product = first.model_copy(
+        update={"supplier_product_id": "DK-PRODUCT-43"},
+        deep=True,
+    )
+    sku_fallback = first.model_copy(
+        update={"supplier_product_id": None},
+        deep=True,
+    )
+    same_sku_new_url = sku_fallback.model_copy(
+        update={
+            "offers": [
+                SupplierOffer(
+                    supplier=Supplier.DIGIKEY,
+                    supplier_sku="old-sku",
+                    product_url="https://another.example/product/renamed",
+                )
+            ]
+        },
+        deep=True,
+    )
+
+    assert identity_key(first) == identity_key(same_product)
+    assert identity_key(first) != identity_key(different_product)
+    assert identity_key(sku_fallback) == identity_key(same_sku_new_url)
 
 
 def test_complete_parametric_resistor_is_automatic_only_with_strict_coverage():

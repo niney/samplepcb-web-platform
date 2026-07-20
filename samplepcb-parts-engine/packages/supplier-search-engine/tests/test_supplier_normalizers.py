@@ -70,6 +70,7 @@ def test_digikey_normalizes_parameters_and_offers():
         ok=True,
         payload={
             "Product": {
+                "ProductId": 4242,
                 "ManufacturerProductNumber": "RC0603-10K",
                 "Manufacturer": {"Name": "Acme"},
                 "Description": {"ProductDescription": "10k Ohm resistor"},
@@ -90,6 +91,7 @@ def test_digikey_normalizes_parameters_and_offers():
 
     product = client.normalize(raw, query())[0]
 
+    assert product.supplier_product_id == "4242"
     assert product.normalized_specs["resistance_ohm"] == 10_000
     assert product.normalized_specs["package"] == "0603"
     assert product.offers[0].stock == 42
@@ -129,6 +131,7 @@ def test_mouser_normalizes_attributes_stock_and_price():
             "SearchResults": {
                 "Parts": [
                     {
+                        "MouserPartNumber": "603-RC0603-10K",
                         "ManufacturerPartNumber": "RC0603-10K",
                         "Manufacturer": "Acme",
                         "Description": "10k Ohm resistor",
@@ -143,6 +146,7 @@ def test_mouser_normalizes_attributes_stock_and_price():
 
     product = client.normalize(raw, query())[0]
 
+    assert product.supplier_product_id == "603-RC0603-10K"
     assert product.normalized_specs["resistance_ohm"] == 10_000
     assert product.offers[0].stock == 1234
     assert product.offers[0].price_breaks[0].unit_price == 0.12
@@ -158,6 +162,7 @@ def test_unikeyic_preserves_returned_variants_for_the_matcher():
             "data": {
                 "products": [
                     {
+                        "goods_id": 9876,
                         "pro_sno": "RC0603-10K",
                         "std_mfr_name": "Acme",
                         "short_desc": "10k Ohm resistor 0603",
@@ -174,6 +179,7 @@ def test_unikeyic_preserves_returned_variants_for_the_matcher():
 
     product = client.normalize(raw, query())[0]
 
+    assert product.supplier_product_id == "9876"
     assert product.manufacturer == "Acme"
     assert len(client.normalize(raw, query())) == 2
     assert product.package == "0603"

@@ -458,6 +458,10 @@ class DigiKeyClient(SupplierClient):
             result.append(
                 SupplierProduct(
                     supplier=self.supplier,
+                    supplier_product_id=self.structured_product_identifier(
+                        product.get("ProductId"),
+                        product.get("ProductID"),
+                    ),
                     manufacturer_part_number=mpn,
                     manufacturer=manufacturer,
                     description=description,

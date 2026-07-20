@@ -115,6 +115,7 @@ class SupplierProduct(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     supplier: Supplier
+    supplier_product_id: str | None = None
     manufacturer_part_number: str
     manufacturer: str | None = None
     description: str | None = None

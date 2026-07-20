@@ -319,6 +319,11 @@ class MouserClient(SupplierClient):
             result.append(
                 SupplierProduct(
                     supplier=self.supplier,
+                    supplier_product_id=self.structured_product_identifier(
+                        part.get("ProductId"),
+                        part.get("ProductID"),
+                        part.get("MouserPartNumber"),
+                    ),
                     manufacturer_part_number=mpn,
                     manufacturer=part.get("ActualMfrName") or part.get("Manufacturer"),
                     description=description,

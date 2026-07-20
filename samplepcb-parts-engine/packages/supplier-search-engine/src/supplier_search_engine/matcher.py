@@ -639,18 +639,36 @@ def finalize_candidate_decisions(
             )
         )
         # 제조사 미상 행은 같은 MPN의 알려진 제조사나 다른 공급사에 추측으로
-        # 붙이지 않는다. 공급사·SKU가 같은 중복 결과만 안정적으로 한 그룹에 둔다.
+        # 붙이지 않는다. URL은 변동 가능한 전달 속성이므로 identity에 사용하지
+        # 않고, 공급사 소유 제품 ID를 우선하며 SKU를 안정 fallback으로 사용한다.
         unknown_groups: dict[str, list[CandidateMatch]] = {}
         for candidate in unknown_candidates:
+            supplier_product_id = (
+                candidate.product.supplier_product_id or ""
+            ).strip().casefold()
             supplier_skus = sorted(
                 {
-                    offer.supplier_sku.strip()
+                    offer.supplier_sku.strip().casefold()
                     for offer in candidate.product.offers
                     if offer.supplier_sku and offer.supplier_sku.strip()
                 }
             )
+            if supplier_product_id:
+                supplier_locator: object = [
+                    "supplier_product_id",
+                    supplier_product_id,
+                ]
+            elif supplier_skus:
+                supplier_locator = ["supplier_skus", supplier_skus]
+            else:
+                supplier_locator = ["supplier_identity_unavailable"]
             discriminator = _stable_key(
-                [mpn_norm, "unknown", candidate.product.supplier, supplier_skus]
+                [
+                    mpn_norm,
+                    "unknown",
+                    candidate.product.supplier.value,
+                    supplier_locator,
+                ]
             )
             unknown_groups.setdefault(discriminator, []).append(candidate)
         groups.extend(

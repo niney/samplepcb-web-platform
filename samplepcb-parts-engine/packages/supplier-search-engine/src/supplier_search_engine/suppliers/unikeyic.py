@@ -132,6 +132,12 @@ class UniKeyICClient(SupplierClient):
             result.append(
                 SupplierProduct(
                     supplier=self.supplier,
+                    supplier_product_id=self.structured_product_identifier(
+                        product.get("goods_id"),
+                        product.get("goods_sno"),
+                        product.get("id"),
+                        product.get("sku"),
+                    ),
                     manufacturer_part_number=mpn,
                     manufacturer=product.get("std_mfr_name"),
                     description=description,
