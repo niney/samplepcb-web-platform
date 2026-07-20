@@ -132,4 +132,45 @@ describe('refreshKoreaEximUsdExchangeRate', () => {
     expect(typeof serialized).toBe('string');
     expect(String(serialized)).not.toContain('test-key');
   });
+
+  it('인증 실패(result=3)를 "고시 없음"으로 오진하지 않고 키 확인을 안내한다', async () => {
+    vi.stubEnv('KOREAEXIM_API_KEY', 'bad-key');
+    const fetcher = vi.fn((): Promise<Response> => Promise.resolve(
+      new Response(JSON.stringify([{ result: 3 }]), { status: 200, headers: { 'content-type': 'application/json' } }),
+    )) as unknown as typeof fetch;
+
+    await expect(refreshKoreaEximUsdExchangeRate(fetcher, new Date('2026-07-20T04:00:00.000Z')))
+      .rejects.toThrow(/KOREAEXIM_API_KEY/);
+    expect(fetcher).toHaveBeenCalledTimes(1); // 역탐색 없이 즉시 중단
+    expect(prismaMocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it('일일 호출 한도 초과(result=4)는 전용 메시지로 중단한다', async () => {
+    vi.stubEnv('KOREAEXIM_API_KEY', 'test-key');
+    const fetcher = vi.fn((): Promise<Response> => Promise.resolve(
+      new Response(JSON.stringify([{ result: 4 }]), { status: 200, headers: { 'content-type': 'application/json' } }),
+    )) as unknown as typeof fetch;
+
+    await expect(refreshKoreaEximUsdExchangeRate(fetcher, new Date('2026-07-20T04:00:00.000Z')))
+      .rejects.toThrow(/일일 호출 한도/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('API 지연이 전체 예산(15초)을 넘기면 역탐색을 중단한다', async () => {
+    vi.stubEnv('KOREAEXIM_API_KEY', 'test-key');
+    // Date.now 흐름: 예산 계산 시 0ms → 1회차 잔여 검사 0ms → 2회차 잔여 검사 16,000ms(예산 초과)
+    const nowValues = [0, 0, 16_000];
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => nowValues.shift() ?? 16_000);
+    try {
+      const fetcher = vi.fn((): Promise<Response> => Promise.resolve(
+        new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } }),
+      )) as unknown as typeof fetch;
+
+      await expect(refreshKoreaEximUsdExchangeRate(fetcher, new Date('2026-07-20T04:00:00.000Z')))
+        .rejects.toThrow(/예산을 초과/);
+      expect(fetcher).toHaveBeenCalledTimes(1); // 빈 응답 1회 후 예산 초과로 중단
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
 });

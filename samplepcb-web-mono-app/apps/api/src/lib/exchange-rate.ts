@@ -11,13 +11,24 @@ const KOREAEXIM_URL = 'https://oapi.koreaexim.go.kr/site/program/financial/excha
 const EXCHANGE_RATE_CACHE_KEY = 'bom_quote_exchange_rate_usd';
 const API_SEARCH_DAYS = 10;
 const API_TIMEOUT_MS = 10_000;
+// 역탐색 전체 예산 — API가 응답 없이 매달려도 관리자 [지금 갱신]이 이 이상 붙잡히지 않는다.
+// (평시 빈 배열 응답은 수백 ms — 예산은 장애 시에만 발동한다)
+const API_TOTAL_BUDGET_MS = 15_000;
 
+// 오류 행은 cur_unit 등이 비어 있으므로 전 필드 optional 로 받고 result 코드를 먼저 해석한다.
 const KoreaEximRow = z.object({
   result: z.union([z.number(), z.string()]).optional(),
-  cur_unit: z.string(),
-  deal_bas_r: z.string(),
-  tts: z.string(),
+  cur_unit: z.string().optional(),
+  deal_bas_r: z.string().optional(),
+  tts: z.string().optional(),
 }).passthrough();
+
+// 수출입은행 result 코드: 1=성공, 2=DATA코드 오류, 3=인증코드 오류, 4=일일 호출 한도 마감
+const KOREAEXIM_RESULT_ERRORS: Record<number, string> = {
+  2: '수출입은행 환율 API 요청 형식 오류(result=2) — data 파라미터를 확인하세요.',
+  3: '수출입은행 환율 API 인증 실패(result=3) — KOREAEXIM_API_KEY 값을 확인하세요.',
+  4: '수출입은행 환율 API 일일 호출 한도 초과(result=4) — 내일 자동 갱신에서 재시도됩니다.',
+};
 
 const ExchangeRateCache = z.object({
   source: z.literal('koreaexim'),
@@ -79,20 +90,27 @@ async function fetchKoreaEximUsdForDate(
   authKey: string,
   rateDate: string,
   fetcher: typeof fetch,
+  timeoutMs: number = API_TIMEOUT_MS,
 ): Promise<ExchangeRateCacheType | null> {
   const url = new URL(KOREAEXIM_URL);
   url.searchParams.set('authkey', authKey);
   url.searchParams.set('searchdate', rateDate.replaceAll('-', ''));
   url.searchParams.set('data', 'AP01');
-  const response = await fetcher(url, { signal: AbortSignal.timeout(API_TIMEOUT_MS) });
+  const response = await fetcher(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`수출입은행 환율 API HTTP ${String(response.status)}`);
   const payload: unknown = await response.json();
   const rows = z.array(KoreaEximRow).safeParse(payload);
   if (!rows.success) throw new Error('수출입은행 환율 API 응답 형식이 올바르지 않습니다.');
-  const usd = rows.data.find((row) => row.cur_unit.trim().toUpperCase() === 'USD');
+  // 인증 실패·한도 초과는 데이터 부재("고시 없음")로 오진되지 않게 코드로 먼저 판별한다.
+  for (const row of rows.data) {
+    const code = Number(row.result ?? 1);
+    const message = KOREAEXIM_RESULT_ERRORS[code];
+    if (message !== undefined) throw new Error(message);
+  }
+  const usd = rows.data.find((row) => (row.cur_unit ?? '').trim().toUpperCase() === 'USD');
   if (usd === undefined) return null; // 주말·공휴일·당일 고시 전에는 빈 배열 또는 USD 행 없음.
-  const dealBasR = parseRate(usd.deal_bas_r);
-  const tts = parseRate(usd.tts);
+  const dealBasR = usd.deal_bas_r === undefined ? null : parseRate(usd.deal_bas_r);
+  const tts = usd.tts === undefined ? null : parseRate(usd.tts);
   if (dealBasR === null || tts === null) throw new Error('수출입은행 USD 환율 값이 올바르지 않습니다.');
   return {
     source: 'koreaexim',
@@ -132,8 +150,18 @@ export async function refreshKoreaEximUsdExchangeRate(
   const authKey = process.env.KOREAEXIM_API_KEY?.trim();
   if (authKey === undefined || authKey === '') throw new Error('KOREAEXIM_API_KEY가 설정되지 않았습니다.');
   const today = formatKstDate(now);
+  const deadline = Date.now() + API_TOTAL_BUDGET_MS;
   for (let offset = 0; offset < API_SEARCH_DAYS; offset += 1) {
-    const cache = await fetchKoreaEximUsdForDate(authKey, shiftDate(today, -offset), fetcher);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error(`수출입은행 환율 API 응답 지연 — ${String(API_TOTAL_BUDGET_MS / 1_000)}초 예산을 초과했습니다. 마지막 정상 환율로 계속 동작합니다.`);
+    }
+    const cache = await fetchKoreaEximUsdForDate(
+      authKey,
+      shiftDate(today, -offset),
+      fetcher,
+      Math.min(API_TIMEOUT_MS, remainingMs),
+    );
     if (cache !== null) {
       await storeUsdExchangeRate(cache);
       return cache;
