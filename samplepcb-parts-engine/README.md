@@ -11,7 +11,7 @@ PCB 부품 **BOM 추출 + 공급사 검색** Python 엔진. `samplepcb-web-platf
 
 - `packages/bom-extraction-engine/` — 구 `smartbom_engine` (bom_probing_claude 규칙 파이프라인).
   스프레드시트 → 헤더 탐지 → 열 역할 분류 → 행별 구조화 컴포넌트(출처·근거셀·confidence·정규화). 100% 규칙, 네트워크 없음.
-- `packages/supplier-search-engine/` — `search_probing_gpt` 이식본(verbatim). 공급사 API(Mouser/Digikey/UniKeyIC)
+- `packages/supplier-search-engine/` — `search_probing_gpt` 계보 동기화 이식본. 공급사 API(Mouser/Digikey/UniKeyIC)
   검색 → 공통 모델 정규화 + 매칭, SQLite 캐시·쿼터. httpx+pydantic 만 의존. **연구 계보 재-sync 대상 → 리팩토링은 seam에 국한.**
 
 ## 구조
@@ -49,6 +49,23 @@ uv run uvicorn parts_engine_app.main:app --host 127.0.0.1 --port 8400 --reload
 protocol=tcp` 로 확인. 다른 포트를 쓰면 sp-node 의 `BOM_ENGINE_URL` 도 맞춰야 한다.
 
 공급사 검색은 `.env`(=`.env.example` 복사)에 자격증명 필요. 추출 엔진은 자격증명 불필요.
+
+### 품번 미검색 시 스펙 재검색
+
+품번이 있는 `identity`/`hybrid` 질의에서 신뢰할 수 있는 동일 품번 후보를 찾지 못하면,
+엔진은 BOM에서 확정(`hard`)된 스펙으로 `parametric` 질의를 만들어 한 번 더 검색한다.
+일반 무품번 검색은 hard spec 두 개가 필요하지만, 이 2차 검색은 저항값·커패시턴스·인덕턴스·
+주파수처럼 부품 종류별 핵심 전기값이 확정되면 한 개로도 허용한다.
+
+- 최초 품번 질의·공급사 응답은 `initial_query`·`initial_supplier_results`에 보존하고,
+  최종 `query`·`supplier_results`에는 스펙 검색 결과를 둔다.
+- 품번 없는 스펙 검색은 DigiKey·Mouser만 사용한다. UniKeyIC는 정확 품번 보강에만 참여한다.
+- preflight는 조건부 2차 검색의 예상·최악 호출량까지 선반영해 잡 호출 한도를 과소 계산하지 않는다.
+- FastAPI 집계는 최초·최종 검색의 API 호출·캐시·시간을 모두 합산하되, 배치에서 공유한 동일
+  공급사 질의는 한 번만 계산한다.
+
+동기화 기준: `sp-smartbom-eye` `36fa3ad`(`품번 미검색 시 스펙 재검색과 v3 테스트 데이터 제외`).
+대상 프로젝트 고유 기능(이미지·UniKeyIC 패키징 정규화·선택 시트·영속 공급사 잡)은 유지했다.
 
 ## 마이그레이션 원칙
 

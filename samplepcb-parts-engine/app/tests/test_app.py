@@ -3,6 +3,7 @@
 공급사 검색은 실 API 키/네트워크가 필요해 여기서 라이브로 돌리지 않는다
 (엔드포인트 계약/게이팅만 확인). 추출 경로는 인라인 CSV로 완전 검증.
 """
+
 from __future__ import annotations
 
 import time
@@ -10,7 +11,17 @@ import time
 from fastapi.testclient import TestClient
 
 from parts_engine_app.config import Config
+from parts_engine_app.jobs import Job, JobService
 from parts_engine_app.main import create_app
+from supplier_search_engine.models import (
+    BatchSearchResult,
+    ComponentSearchResult,
+    MatchStatus,
+    PlannedQuery,
+    SearchMode,
+    Supplier,
+    SupplierSearchResult,
+)
 
 _CSV = (
     "No,Part Number,Manufacturer,Qty,Reference\n"
@@ -23,7 +34,7 @@ _CSV = (
 def _client(tmp_path) -> TestClient:
     config = Config(
         data_dir=tmp_path,
-        m2v_path="off",          # 오프라인·임베딩 폴백 비활성 → 사전만으로 헤더 탐지
+        m2v_path="off",  # 오프라인·임베딩 폴백 비활성 → 사전만으로 헤더 탐지
         component_limit=5000,
         max_upload_bytes=30 * 1024 * 1024,
         supplier_max_calls=700,
@@ -63,7 +74,7 @@ def test_upload_parse_and_display(tmp_path):
     result = client.get(f"/jobs/{job_id}/result")
     assert result.status_code == 200, result.text
     body = result.json()
-    assert body["engine"] == "smartbom"           # 계약 식별자 보존 확인
+    assert body["engine"] == "smartbom"  # 계약 식별자 보존 확인
     assert body["summary"]["component_count"] >= 3
     pns = {c.get("part_number") for c in body["components"]}
     assert "RC0402FR-0710KL" in pns
@@ -143,3 +154,77 @@ def test_supplier_search_rejects_conflicting_cache_modes(tmp_path):
         json={"max_calls": 10, "cache_only": True, "reset_cache": True},
     )
     assert response.status_code == 422
+
+
+def test_supplier_envelope_counts_identity_and_spec_fallback_attempts(tmp_path):
+    service = JobService(
+        Config(
+            data_dir=tmp_path,
+            m2v_path="off",
+            component_limit=5000,
+            max_upload_bytes=30 * 1024 * 1024,
+            supplier_max_calls=700,
+        )
+    )
+    initial_query = PlannedQuery(
+        component_id="component-1",
+        mode=SearchMode.IDENTITY,
+        part_number="0603X03L_C",
+        keywords="0603X03L_C",
+    )
+    fallback_query = PlannedQuery(
+        component_id="component-1",
+        mode=SearchMode.PARAMETRIC,
+        part_type="resistor",
+        keywords="1k",
+    )
+    result = BatchSearchResult(
+        source_file="bom.xlsx",
+        components=[
+            ComponentSearchResult(
+                component_id="component-1",
+                mode=SearchMode.PARAMETRIC,
+                status=MatchStatus.SPEC_COMPATIBLE,
+                query=fallback_query,
+                initial_query=initial_query,
+                initial_supplier_results=[
+                    SupplierSearchResult(supplier=Supplier.DIGIKEY, api_calls=1)
+                ],
+                supplier_results=[
+                    SupplierSearchResult(supplier=Supplier.DIGIKEY, api_calls=1)
+                ],
+                api_calls=2,
+            )
+        ],
+        unique_query_count=1,
+        api_calls=2,
+        cache_hits=0,
+        elapsed_ms=10.0,
+    )
+    job = Job(
+        id="job-1",
+        engine="smartbom",
+        filename="bom.xlsx",
+        upload_path=tmp_path / "bom.xlsx",
+        status="completed",
+        result={"summary": {"processing_ms": 1.0}},
+        supplier_preflight={"preflight_elapsed_ms": 2.0, "plan": {}},
+    )
+
+    try:
+        envelope = service._supplier_envelope(
+            job,
+            result,
+            cache_entries_cleared=0,
+            cache_reset_elapsed_ms=0.0,
+            search_elapsed_ms=10.0,
+        )
+    finally:
+        service.shutdown()
+
+    digikey = envelope["timing"]["suppliers"]["digikey"]
+    assert digikey["request_count"] == 2
+    assert digikey["api_calls"] == 2
+    component = envelope["search"]["components"][0]
+    assert component["initial_query"]["part_number"] == "0603X03L_C"
+    assert component["query"]["keywords"] == "1k"

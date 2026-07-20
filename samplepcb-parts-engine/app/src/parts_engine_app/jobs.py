@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from bom_extraction_engine import SmartbomConfig, build_smartbom_result
 from supplier_search_engine.contract import build_batch_from_result
-from supplier_search_engine.cache import CacheLookup, SQLiteCache
+from supplier_search_engine.cache import CacheLookup, SQLiteCache, stable_cache_key
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings as SearchSettings
 
@@ -65,13 +65,13 @@ class Job:
     filename: str
     upload_path: Path
     # 파싱(추출) 잡
-    status: str = "running"           # running|completed|failed
+    status: str = "running"  # running|completed|failed
     progress: int = 15
     message: str = ""
     result: dict[str, Any] | None = None
     error: str | None = None
     # 공급사 검색 서브잡
-    supplier_status: str | None = None   # None|running|completed|failed
+    supplier_status: str | None = None  # None|running|completed|failed
     supplier_progress: int = 0
     supplier_message: str = ""
     supplier_result: dict[str, Any] | None = None
@@ -261,7 +261,9 @@ class JobService:
                 job.supplier_message = "공급사 응답 캐시를 초기화하는 중"
                 cache_reset_started = time.perf_counter()
                 cache_entries_cleared = SQLiteCache(settings.cache_path).clear()
-                cache_reset_elapsed_ms = (time.perf_counter() - cache_reset_started) * 1_000
+                cache_reset_elapsed_ms = (
+                    time.perf_counter() - cache_reset_started
+                ) * 1_000
             else:
                 cache_entries_cleared = 0
                 cache_reset_elapsed_ms = 0.0
@@ -290,8 +292,13 @@ class JobService:
             job.supplier_error = f"{type(error).__name__}: {str(error)[:500]}"
         finally:
             with self._supplier_state_lock:
-                self._active_supplier_searches = max(0, self._active_supplier_searches - 1)
-                if job.supplier_options is not None and job.supplier_options.reset_cache:
+                self._active_supplier_searches = max(
+                    0, self._active_supplier_searches - 1
+                )
+                if (
+                    job.supplier_options is not None
+                    and job.supplier_options.reset_cache
+                ):
                     self._cache_reset_running = False
 
     @staticmethod
@@ -340,27 +347,42 @@ class JobService:
             component.status.value for component in result.components
         )
         supplier_timing: dict[str, dict[str, float | int]] = {}
+        seen_requests: set[tuple[str, str]] = set()
         for component in result.components:
-            for supplier_result in component.supplier_results:
-                supplier = supplier_result.supplier.value
-                timing = supplier_timing.setdefault(
-                    supplier,
-                    {
-                        "request_count": 0,
-                        "api_calls": 0,
-                        "cache_hits": 0,
-                        "operation_elapsed_ms": 0.0,
-                        "max_operation_elapsed_ms": 0.0,
-                    },
-                )
-                timing["request_count"] += 1
-                timing["api_calls"] += supplier_result.api_calls
-                timing["cache_hits"] += int(supplier_result.cache_state in {"fresh", "coalesced"})
-                timing["operation_elapsed_ms"] += supplier_result.operation_elapsed_ms
-                timing["max_operation_elapsed_ms"] = max(
-                    float(timing["max_operation_elapsed_ms"]),
-                    supplier_result.operation_elapsed_ms,
-                )
+            attempts = (
+                (component.initial_query, component.initial_supplier_results),
+                (component.query, component.supplier_results),
+            )
+            for query, supplier_results in attempts:
+                query_key = stable_cache_key(query.cache_payload()) if query else ""
+                for supplier_result in supplier_results:
+                    supplier = supplier_result.supplier.value
+                    request_identity = (supplier, query_key)
+                    if request_identity in seen_requests:
+                        continue
+                    seen_requests.add(request_identity)
+                    timing = supplier_timing.setdefault(
+                        supplier,
+                        {
+                            "request_count": 0,
+                            "api_calls": 0,
+                            "cache_hits": 0,
+                            "operation_elapsed_ms": 0.0,
+                            "max_operation_elapsed_ms": 0.0,
+                        },
+                    )
+                    timing["request_count"] += 1
+                    timing["api_calls"] += supplier_result.api_calls
+                    timing["cache_hits"] += int(
+                        supplier_result.cache_state in {"fresh", "stale", "coalesced"}
+                    )
+                    timing["operation_elapsed_ms"] += (
+                        supplier_result.operation_elapsed_ms
+                    )
+                    timing["max_operation_elapsed_ms"] = max(
+                        float(timing["max_operation_elapsed_ms"]),
+                        supplier_result.operation_elapsed_ms,
+                    )
         preflight = job.supplier_preflight or {}
         preflight_elapsed_ms = float(preflight.get("preflight_elapsed_ms", 0.0))
         return {

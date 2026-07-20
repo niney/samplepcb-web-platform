@@ -58,6 +58,8 @@ export const BomQuoteMatchEvidence = z.object({
   policyVersion: z.string(),
   componentId: z.string(),
   componentStatus: z.string(),
+  /** 품번 검색에서 신뢰 후보가 없어 엔진이 확정 스펙 검색으로 전환했는지 여부. */
+  identityFallback: z.boolean(),
   candidateStatus: z.string().nullable(),
   selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review', 'unmatched']),
   candidateCount: z.number().int().min(0),

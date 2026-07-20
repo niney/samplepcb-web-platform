@@ -84,6 +84,13 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   검증을 거쳐 느슨한 MPN 존재 여부가 관리자 수준 판정을 대신하지 못하게 한다.
 - **비용 게이트**: preflight 예상 호출이 한도 내면 라이브 검색(일일 카운트 1회), 한도
   초과(초대형 BOM)·일일 소진이면 `cache_only`(0콜). 엔진 불가면 조용히 생략(카탈로그 데이터 유지).
+- **품번 미검색 시 스펙 재검색(2026-07-21)**: `identity`/`hybrid` 품번 검색에서 신뢰할 수 있는
+  동일 품번 후보가 없고 BOM의 확정 스펙이 충분하면, 엔진이 품번·제조사를 제거한 `parametric`
+  질의로 DigiKey·Mouser를 한 번 더 검색한다. 최초 품번 질의와 응답도 결과에 함께 보존하며,
+  preflight·실행 집계는 조건부 2차 호출까지 포함한다. sp-node는 `initial_query(identity|hybrid)`와
+  최종 `query(parametric)`가 모두 있는 엔진 계보만 품번 미검색 폴백으로 인정한다. 이 경우에는
+  원본 문자열이 있어도 스펙 후보를 안전성 검증 대상으로 포함하되, 충돌·필수값 누락·물리조건
+  불일치 후보는 계속 차단한다. 계보가 없는 일반 MPN 행의 다른 MPN 자동선정도 기존대로 금지한다.
 - **생명주기 상태 기계(2026-07-19 정석화)**: `sp_bom_quote.enrichStatus`
   (`idle|searching|done|failed`) + `enrichedAt` — **서버 영속 단일 진실**. 전이:
   build 가 보강 필요를 동기 선판정해 **items 와 `searching` 을 함께 커밋**("items 는 있는데

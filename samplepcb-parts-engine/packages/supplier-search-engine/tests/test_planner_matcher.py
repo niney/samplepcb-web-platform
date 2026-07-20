@@ -43,9 +43,59 @@ def test_planner_uses_only_extracted_values_as_hard_requirements():
     assert query.requirements["tolerance_percent"].hard is False
 
 
+def test_identity_query_can_build_spec_only_fallback_with_sufficient_evidence():
+    planner = QueryPlanner()
+    query = planner.plan(
+        component(
+            part_number="0603X03L_C",
+            manufacturer="Murata",
+            part_type="capacitor",
+            capacitance="10uF",
+            voltage="6.3V",
+            package="0402",
+        )
+    )
+
+    fallback = planner.parametric_fallback(query)
+
+    assert query.mode.value == "identity"
+    assert fallback is not None
+    assert fallback.mode.value == "parametric"
+    assert fallback.part_number is None
+    assert fallback.manufacturer is None
+    assert fallback.keywords == "10uF 0402"
+    assert fallback.requirements == query.requirements
+
+
+def test_identity_query_without_two_hard_specs_has_no_parametric_fallback():
+    planner = QueryPlanner()
+    query = planner.plan(component(part_number="ABC-123", package="0603"))
+
+    assert planner.parametric_fallback(query) is None
+
+
+def test_identity_query_can_fallback_with_one_type_specific_primary_value():
+    planner = QueryPlanner()
+    query = planner.plan(
+        component(
+            part_number="0603X03L_C",
+            part_type="resistor",
+            resistance="1K",
+        )
+    )
+
+    fallback = planner.parametric_fallback(query)
+
+    assert fallback is not None
+    assert fallback.mode.value == "parametric"
+    assert fallback.keywords == "1k"
+
+
 def test_exact_mpn_with_hard_spec_conflict_is_input_conflict():
     query = QueryPlanner().plan(
-        component(part_number="RC0603FR-0710KL", manufacturer="Yageo", resistance="10kΩ")
+        component(
+            part_number="RC0603FR-0710KL", manufacturer="Yageo", resistance="10kΩ"
+        )
     )
     product = SupplierProduct(
         supplier=Supplier.DIGIKEY,
@@ -78,13 +128,19 @@ def test_supplier_part_type_inference_requires_one_unambiguous_category():
 
 
 def test_parametric_match_checks_minimum_ratings_and_package():
-    query = QueryPlanner().plan(component(part_type="resistor", resistance="10kΩ", power="0.1W", package="0603"))
+    query = QueryPlanner().plan(
+        component(part_type="resistor", resistance="10kΩ", power="0.1W", package="0603")
+    )
     product = SupplierProduct(
         supplier=Supplier.MOUSER,
         manufacturer_part_number="PART-10K",
         category="Thick Film Resistors",
         package="0603",
-        normalized_specs={"resistance_ohm": 10_000.0, "power_w": 0.125, "package": "0603"},
+        normalized_specs={
+            "resistance_ohm": 10_000.0,
+            "power_w": 0.125,
+            "package": "0603",
+        },
     )
 
     match = CandidateMatcher().evaluate(query, product)
@@ -122,7 +178,9 @@ def test_zero_ohm_jumper_does_not_require_percentage_tolerance():
 
 
 def test_ic_category_accepts_operational_amplifier_taxonomy():
-    query = QueryPlanner().plan(component(part_number="LM358DR", part_type="ic", package="SOIC-8"))
+    query = QueryPlanner().plan(
+        component(part_number="LM358DR", part_type="ic", package="SOIC-8")
+    )
     product = SupplierProduct(
         supplier=Supplier.MOUSER,
         manufacturer_part_number="LM358DR",
@@ -211,7 +269,9 @@ def test_ti_reel_marker_before_nopb_is_verified_as_variant():
 
 def test_exact_mpn_keeps_real_frequency_conflict_after_category_aliases():
     query = QueryPlanner().plan(
-        component(part_number="ECS-250-10-36-CKM-TR", part_type="crystal", frequency="32MHz")
+        component(
+            part_number="ECS-250-10-36-CKM-TR", part_type="crystal", frequency="32MHz"
+        )
     )
     product = SupplierProduct(
         supplier=Supplier.MOUSER,
@@ -282,7 +342,11 @@ def test_package_comparison_keeps_distinct_supplier_alias_and_backend_mismatch()
         normalized_specs={"capacitance_f": 0.1e-6, "package": "0402"},
     )
     mismatch_product = alias_product.model_copy(
-        update={"manufacturer_part_number": "CAP-WRONG", "package": "C1608", "normalized_specs": {"capacitance_f": 0.1e-6, "package": "0603"}}
+        update={
+            "manufacturer_part_number": "CAP-WRONG",
+            "package": "C1608",
+            "normalized_specs": {"capacitance_f": 0.1e-6, "package": "0603"},
+        }
     )
 
     alias = CandidateMatcher().evaluate(query, alias_product)
@@ -344,11 +408,17 @@ def test_dielectric_alias_is_backend_owned_and_keeps_original_bom_notation():
         supplier=Supplier.DIGIKEY,
         manufacturer_part_number="C1005C0G1H101J",
         category="Ceramic Capacitors",
-        normalized_specs={"capacitance_f": 100e-12, "package": "0402", "dielectric": "C0G"},
+        normalized_specs={
+            "capacitance_f": 100e-12,
+            "package": "0402",
+            "dielectric": "C0G",
+        },
         attributes={"Temperature Characteristic": "C0G"},
     )
 
-    comparison = CandidateMatcher().evaluate(query, product).spec_comparisons["dielectric"]
+    comparison = (
+        CandidateMatcher().evaluate(query, product).spec_comparisons["dielectric"]
+    )
 
     assert query.requirements["dielectric"].raw_value == "NP0"
     assert comparison.state == "match"
@@ -366,7 +436,10 @@ def test_temperature_range_accepts_supplier_range_that_contains_bom_requirement(
         supplier=Supplier.MOUSER,
         manufacturer_part_number="CAP-WIDE-TEMP",
         category="Ceramic Capacitors",
-        normalized_specs={"capacitance_f": 0.1e-6, "temperature_range_c": [-55.0, 125.0]},
+        normalized_specs={
+            "capacitance_f": 0.1e-6,
+            "temperature_range_c": [-55.0, 125.0],
+        },
     )
 
     match = CandidateMatcher().evaluate(query, product)
@@ -380,7 +453,9 @@ def test_temperature_range_accepts_supplier_range_that_contains_bom_requirement(
 
 
 def test_unparsed_temperature_is_not_a_hard_requirement():
-    query = QueryPlanner().plan(component(part_type="capacitor", temperature="room temperature"))
+    query = QueryPlanner().plan(
+        component(part_type="capacitor", temperature="room temperature")
+    )
 
     assert query.requirements["temperature_range_c"].normalized_value is None
     assert query.requirements["temperature_range_c"].hard is False
@@ -530,7 +605,9 @@ def test_prefixed_named_package_is_not_searched_as_an_mpn():
 
 def test_supplier_manufacturer_aliases_do_not_create_false_input_conflicts():
     assert manufacturers_compatible("MPS", "Monolithic Power Systems (MPS)") is True
-    assert manufacturers_compatible("MAXIM", "Analog Devices / Maxim Integrated") is True
+    assert (
+        manufacturers_compatible("MAXIM", "Analog Devices / Maxim Integrated") is True
+    )
 
 
 def test_prefixed_and_pin_qualified_sot_packages_are_backend_compatible():

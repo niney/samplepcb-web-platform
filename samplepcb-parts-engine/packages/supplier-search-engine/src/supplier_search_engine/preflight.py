@@ -33,6 +33,7 @@ class _RequestGroup:
     namespace: str | None
     cache_key: str | None
     component_indexes: tuple[int, ...]
+    is_fallback: bool = False
 
 
 class PreflightAnalyzer:
@@ -54,39 +55,89 @@ class PreflightAnalyzer:
 
     def analyze(self, batch: SearchBatchInput) -> BatchPreflight:
         queries = [self.planner.plan(component) for component in batch.components]
+        fallback_queries = [
+            self.planner.parametric_fallback(query) for query in queries
+        ]
         unique_queries = {stable_cache_key(query.cache_payload()) for query in queries}
         group_members: dict[str, list[int]] = defaultdict(list)
-        group_data: dict[str, tuple[Supplier, SupplierClient | None, PlannedQuery, str | None, str | None]] = {}
+        group_data: dict[
+            str,
+            tuple[
+                Supplier,
+                SupplierClient | None,
+                PlannedQuery,
+                str | None,
+                str | None,
+                bool,
+            ],
+        ] = {}
 
         for index, query in enumerate(queries):
-            for supplier in suppliers_for_query(query):
-                client = self.clients.get(supplier)
-                if client is None:
-                    if query.mode == SearchMode.IDENTITY and query.part_number:
-                        unavailable_payload = {
-                            "mode": query.mode.value,
-                            "part_number": query.part_number,
-                            "manufacturer": query.manufacturer,
-                            "site": query.site,
-                            "language": query.language,
-                            "currency": query.currency,
-                        }
+            stages = [(False, query)]
+            if fallback_queries[index] is not None:
+                stages.append((True, fallback_queries[index]))
+            for is_fallback, stage_query in stages:
+                if stage_query is None:
+                    continue
+                for supplier in suppliers_for_query(stage_query):
+                    client = self.clients.get(supplier)
+                    if client is None:
+                        if (
+                            stage_query.mode == SearchMode.IDENTITY
+                            and stage_query.part_number
+                        ):
+                            unavailable_payload = {
+                                "mode": stage_query.mode.value,
+                                "part_number": stage_query.part_number,
+                                "manufacturer": stage_query.manufacturer,
+                                "site": stage_query.site,
+                                "language": stage_query.language,
+                                "currency": stage_query.currency,
+                            }
+                        else:
+                            unavailable_payload = stage_query.cache_payload()
+                        identity = (
+                            f"{'fallback' if is_fallback else 'primary'}:unavailable:"
+                            f"{supplier.value}:{stable_cache_key(unavailable_payload)}"
+                        )
+                        namespace = None
+                        cache_key = None
                     else:
-                        unavailable_payload = query.cache_payload()
-                    identity = f"unavailable:{supplier.value}:{stable_cache_key(unavailable_payload)}"
-                    namespace = None
-                    cache_key = None
-                else:
-                    namespace, cache_key = supplier_cache_coordinates(client, query)
-                    identity = f"{namespace}:{cache_key}"
-                group_members[identity].append(index)
-                group_data.setdefault(identity, (supplier, client, query, namespace, cache_key))
+                        namespace, cache_key = supplier_cache_coordinates(
+                            client, stage_query
+                        )
+                        identity = f"{'fallback' if is_fallback else 'primary'}:{namespace}:{cache_key}"
+                    group_members[identity].append(index)
+                    group_data.setdefault(
+                        identity,
+                        (
+                            supplier,
+                            client,
+                            stage_query,
+                            namespace,
+                            cache_key,
+                            is_fallback,
+                        ),
+                    )
 
-        groups = [
-            _RequestGroup(*group_data[identity], component_indexes=tuple(indexes))
-            for identity, indexes in group_members.items()
-        ]
+        groups: list[_RequestGroup] = []
+        for identity, indexes in group_members.items():
+            supplier, client, query, namespace, cache_key, is_fallback = group_data[
+                identity
+            ]
+            groups.append(
+                _RequestGroup(
+                    supplier=supplier,
+                    client=client,
+                    query=query,
+                    namespace=namespace,
+                    cache_key=cache_key,
+                    component_indexes=tuple(indexes),
+                    is_fallback=is_fallback,
+                )
+            )
         projections: dict[tuple[int, Supplier], SupplierPreflight] = {}
+        fallback_projections: dict[tuple[int, Supplier], SupplierPreflight] = {}
         supplier_estimated: dict[Supplier, int] = defaultdict(int)
         supplier_worst: dict[Supplier, int] = defaultdict(int)
         fresh_count = 0
@@ -133,24 +184,47 @@ class PreflightAnalyzer:
             supplier_worst[group.supplier] += projection.retry_worst_case_api_calls
             fresh_count += int(lookup.state == "fresh")
             stale_count += int(lookup.state == "stale")
-            uncallable_count += int(not projection.will_call_api and not projection.usable_without_api)
+            uncallable_count += int(
+                not projection.will_call_api and not projection.usable_without_api
+            )
             for index in group.component_indexes:
-                projections[(index, group.supplier)] = projection.model_copy(deep=True)
+                target = fallback_projections if group.is_fallback else projections
+                target[(index, group.supplier)] = projection.model_copy(deep=True)
 
         components: list[ComponentPreflight] = []
         for index, query in enumerate(queries):
             source_component = batch.components[index]
             warnings: list[str] = []
             supplier_items = [
-                projections[(index, supplier)] for supplier in suppliers_for_query(query)
+                projections[(index, supplier)]
+                for supplier in suppliers_for_query(query)
             ]
+            fallback_query = fallback_queries[index]
+            fallback_items = (
+                [
+                    fallback_projections[(index, supplier)]
+                    for supplier in suppliers_for_query(fallback_query)
+                ]
+                if fallback_query is not None
+                else []
+            )
             if query.mode == SearchMode.INSUFFICIENT:
-                warnings.append("부품 식별자 또는 검증 가능한 스펙이 부족해 공급사를 호출하지 않습니다.")
-            for item in supplier_items:
+                warnings.append(
+                    "부품 식별자 또는 검증 가능한 스펙이 부족해 공급사를 호출하지 않습니다."
+                )
+            if fallback_query is not None:
+                warnings.append(
+                    "품번 일치 후보가 없을 때의 스펙 재검색 호출량을 포함했습니다."
+                )
+            for item in [*supplier_items, *fallback_items]:
                 if not item.configured and not item.usable_without_api:
-                    warnings.append(f"{item.supplier.value}: 자격증명과 사용 가능한 캐시가 없습니다.")
+                    warnings.append(
+                        f"{item.supplier.value}: 자격증명과 사용 가능한 캐시가 없습니다."
+                    )
                 elif item.cache_state == "stale" and item.will_call_api:
-                    warnings.append(f"{item.supplier.value}: stale 캐시가 있어 갱신을 시도합니다.")
+                    warnings.append(
+                        f"{item.supplier.value}: stale 캐시가 있어 갱신을 시도합니다."
+                    )
             components.append(
                 ComponentPreflight(
                     component_id=query.component_id,
@@ -161,6 +235,11 @@ class PreflightAnalyzer:
                     manufacturer=query.manufacturer,
                     keywords=query.keywords,
                     suppliers=supplier_items,
+                    fallback_mode=(fallback_query.mode if fallback_query else None),
+                    fallback_keywords=(
+                        fallback_query.keywords if fallback_query else None
+                    ),
+                    fallback_suppliers=fallback_items,
                     warnings=warnings,
                 )
             )
@@ -183,8 +262,10 @@ class PreflightAnalyzer:
             estimated_api_calls=estimated_total,
             retry_worst_case_api_calls=worst_total,
             job_call_limit=self.settings.max_api_calls_per_job,
-            estimated_within_job_limit=estimated_total <= self.settings.max_api_calls_per_job,
-            retry_worst_case_within_job_limit=worst_total <= self.settings.max_api_calls_per_job,
+            estimated_within_job_limit=estimated_total
+            <= self.settings.max_api_calls_per_job,
+            retry_worst_case_within_job_limit=worst_total
+            <= self.settings.max_api_calls_per_job,
             cache_only=self.settings.cache_only,
             fresh_cache_requests=fresh_count,
             stale_cache_requests=stale_count,
@@ -206,12 +287,16 @@ class PreflightAnalyzer:
             return CacheLookup("miss", None, None)
         return lookup
 
-    def _project_group(self, group: _RequestGroup, lookup: CacheLookup) -> SupplierPreflight:
+    def _project_group(
+        self, group: _RequestGroup, lookup: CacheLookup
+    ) -> SupplierPreflight:
         configured = bool(group.client and group.client.configured)
         usable_without_api = lookup.state == "fresh" or (
             lookup.state == "stale" and (self.settings.cache_only or not configured)
         )
-        will_call = configured and not self.settings.cache_only and lookup.state != "fresh"
+        will_call = (
+            configured and not self.settings.cache_only and lookup.state != "fresh"
+        )
         if lookup.state == "fresh":
             reason = "fresh_cache"
         elif lookup.state == "stale" and will_call:
@@ -232,7 +317,11 @@ class PreflightAnalyzer:
             cache_state=lookup.state,
             cache_age_seconds=lookup.age_seconds,
             will_call_api=will_call,
-            estimated_api_calls=(group.client.planned_api_calls(group.query) if will_call and group.client else 0),
+            estimated_api_calls=(
+                group.client.planned_api_calls(group.query)
+                if will_call and group.client
+                else 0
+            ),
             retry_worst_case_api_calls=(
                 group.client.retry_worst_case_api_calls(group.query)
                 if will_call and group.client
@@ -250,10 +339,14 @@ class PreflightAnalyzer:
     ) -> SupplierBudgetProjection:
         usage = self.budget.usage(supplier)
         daily_remaining = (
-            None if usage.daily_limit is None else max(0, usage.daily_limit - usage.daily_used)
+            None
+            if usage.daily_limit is None
+            else max(0, usage.daily_limit - usage.daily_used)
         )
         minute_remaining = (
-            None if usage.minute_limit is None else max(0, usage.minute_limit - usage.minute_used)
+            None
+            if usage.minute_limit is None
+            else max(0, usage.minute_limit - usage.minute_used)
         )
 
         def within(projected: int) -> bool:

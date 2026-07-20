@@ -18,6 +18,7 @@ from .normalizer import (
 
 from .models import PlannedQuery, Requirement, SearchMode
 from .normalization import dielectric_notation, normalize_dielectric, normalize_package
+from .supplier_query import supplier_core_keywords
 
 
 _PLACEHOLDER_PART_NUMBER = re.compile(
@@ -68,7 +69,9 @@ def _package_from_pseudo_part_number(
         candidate = prefixed.group(2).strip()
         if _NAMED_PACKAGE_VALUE.fullmatch(candidate):
             return candidate
-        if (part_type or "").casefold() in _PASSIVE_TYPES and _PACKAGE_SIZE_VALUE.fullmatch(candidate):
+        if (
+            part_type or ""
+        ).casefold() in _PASSIVE_TYPES and _PACKAGE_SIZE_VALUE.fullmatch(candidate):
             return candidate.upper()
     return None
 
@@ -109,23 +112,37 @@ class QueryPlanner:
         quantity = fields["quantity"]
         requirements: dict[str, Requirement] = {}
 
-        for source_name, (target_name, parser, comparison) in self._SPEC_PARSERS.items():
+        for source_name, (
+            target_name,
+            parser,
+            comparison,
+        ) in self._SPEC_PARSERS.items():
             field = fields[source_name]
             if field.value is None:
                 continue
             parsed = parser(field.value)
-            requirements[target_name] = self._requirement(target_name, field, parsed, comparison)
+            requirements[target_name] = self._requirement(
+                target_name, field, parsed, comparison
+            )
 
         temperature = fields["temperature"]
         if temperature.value is not None:
             minimum, maximum = parse_temperature_range_c(temperature.value)
-            normalized_temperature = [minimum, maximum] if minimum is not None or maximum is not None else None
+            normalized_temperature = (
+                [minimum, maximum]
+                if minimum is not None or maximum is not None
+                else None
+            )
             requirements["temperature_range_c"] = self._requirement(
                 "temperature_range_c", temperature, normalized_temperature, "contains"
             )
-        part_type_value = str(part_type.value).strip() if part_type.value is not None else None
+        part_type_value = (
+            str(part_type.value).strip() if part_type.value is not None else None
+        )
         raw_part_number = str(pn.value).strip() if pn.value is not None else None
-        pseudo_package = _package_from_pseudo_part_number(raw_part_number, part_type_value)
+        pseudo_package = _package_from_pseudo_part_number(
+            raw_part_number, part_type_value
+        )
         if pseudo_package is None:
             raw_part_number = _part_number_without_manufacturer_prefix(raw_part_number)
         if package.value is not None:
@@ -154,11 +171,11 @@ class QueryPlanner:
             and not _GENERIC_CONNECTOR_NOTATION.fullmatch(raw_part_number)
             else None
         )
-        manufacturer_name = str(manufacturer.value).strip() if manufacturer.value is not None else None
+        manufacturer_name = (
+            str(manufacturer.value).strip() if manufacturer.value is not None else None
+        )
         package_value = (
-            str(package.value).strip()
-            if package.value is not None
-            else pseudo_package
+            str(package.value).strip() if package.value is not None else pseudo_package
         )
         description = component.description or component.value_raw
         dielectric_raw = dielectric_notation(description)
@@ -172,7 +189,11 @@ class QueryPlanner:
                 hard=True,
                 comparison="eq",
             )
-        hard_specs = [item for item in requirements.values() if item.hard and item.name not in {"part_type"}]
+        hard_specs = [
+            item
+            for item in requirements.values()
+            if item.hard and item.name not in {"part_type"}
+        ]
 
         if part_number and pn.status == "extracted":
             mode = SearchMode.IDENTITY
@@ -213,7 +234,11 @@ class QueryPlanner:
             if not keyword_parts and description:
                 keyword_parts.append(description)
 
-        qty = int(quantity.value) if isinstance(quantity.value, (int, float)) and quantity.value > 0 else None
+        qty = (
+            int(quantity.value)
+            if isinstance(quantity.value, (int, float)) and quantity.value > 0
+            else None
+        )
         return PlannedQuery(
             component_id=component.component_id,
             mode=mode,
@@ -223,12 +248,59 @@ class QueryPlanner:
             part_type=part_type_value,
             package=package_value,
             quantity=qty,
-            keywords=" ".join(dict.fromkeys(part for part in keyword_parts if part))[:250],
+            keywords=" ".join(dict.fromkeys(part for part in keyword_parts if part))[
+                :250
+            ],
             requirements=requirements,
         )
 
     @staticmethod
-    def _requirement(name: str, field: SearchField, normalized: Any, comparison: str) -> Requirement:
+    def parametric_fallback(query: PlannedQuery) -> PlannedQuery | None:
+        """품번 검색이 해결되지 않았을 때 사용할 확정 스펙 기반 2차 질의를 만든다.
+
+        일반적인 무품번 탐색은 hard spec 두 개가 필요하다. 다만 품번 검색까지
+        실패한 뒤에는 1K 저항처럼 부품 종류별 핵심 전기값 하나도 대체품을 찾을
+        근거로 허용한다.
+        """
+
+        if (
+            query.mode not in {SearchMode.IDENTITY, SearchMode.HYBRID}
+            or not query.part_number
+        ):
+            return None
+        hard_specs = [
+            requirement
+            for requirement in query.requirements.values()
+            if requirement.hard and requirement.name != "part_type"
+        ]
+        primary_name = {
+            "resistor": "resistance_ohm",
+            "capacitor": "capacitance_f",
+            "inductor": "inductance_h",
+            "crystal": "frequency_hz",
+        }.get((query.part_type or "").casefold())
+        primary = query.requirements.get(primary_name or "")
+        has_primary_value = bool(primary and primary.hard)
+        if len(hard_specs) < 2 and not has_primary_value:
+            return None
+        fallback = query.model_copy(
+            update={
+                "mode": SearchMode.PARAMETRIC,
+                "part_number": None,
+                # 해석할 수 없는 품번·제조사 조합이 대체품 탐색 범위를 좁히면 안 된다.
+                "manufacturer": None,
+            },
+            deep=True,
+        )
+        return fallback.model_copy(
+            update={"keywords": supplier_core_keywords(fallback)},
+            deep=True,
+        )
+
+    @staticmethod
+    def _requirement(
+        name: str, field: SearchField, normalized: Any, comparison: str
+    ) -> Requirement:
         return Requirement(
             name=name,
             raw_value=field.value,

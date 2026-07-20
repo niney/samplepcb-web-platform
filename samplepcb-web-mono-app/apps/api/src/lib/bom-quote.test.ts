@@ -493,6 +493,77 @@ describe('BOM 엔진 후보 자동 선정', () => {
     expect(decision?.candidate?.product.manufacturer_part_number).toBe('INPUT-MPN');
     expect(decision?.evidence.selectionMode).toBe('exact');
     expect(decision?.evidence.eligibleCandidateCount).toBe(1);
+    expect(decision?.evidence.identityFallback).toBe(false);
+  });
+
+  it('품번 미검색 뒤 엔진이 만든 스펙 폴백 후보는 원본 MPN이 있어도 안전 후보로 적용한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-identity-fallback',
+        mode: 'parametric',
+        status: 'spec_compatible',
+        initial_query: {
+          mode: 'identity',
+          part_number: '0603X03L_C',
+        },
+        query: {
+          mode: 'parametric',
+          part_number: null,
+        },
+        candidates: [
+          candidate('spec_compatible', 'RC0402FR-071KL', 'digikey', 10, 1, [], {
+            category: 'Chip Resistor',
+            reasons: ['resistance_ohm_match', 'part_type_match'],
+          }),
+        ],
+      },
+      true,
+      1,
+      null,
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('RC0402FR-071KL');
+    expect(decision?.evidence).toMatchObject({
+      identityFallback: true,
+      selectionMode: 'spec-compatible',
+      eligibleCandidateCount: 1,
+      recommendationType: 'technical',
+    });
+  });
+
+  it('품번 미검색 폴백이어도 필수 스펙이 누락된 후보는 적용하지 않는다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-identity-fallback-missing-spec',
+        mode: 'parametric',
+        status: 'spec_partial',
+        initial_query: {
+          mode: 'identity',
+          part_number: '0603X03L_C',
+        },
+        query: {
+          mode: 'parametric',
+          part_number: null,
+        },
+        candidates: [
+          candidate('spec_compatible', 'UNVERIFIED-PACKAGE', 'digikey', 10, 1, [], {
+            missingRequirements: ['package'],
+          }),
+        ],
+      },
+      true,
+      1,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.pick).toBeNull();
+    expect(decision?.evidence).toMatchObject({
+      identityFallback: true,
+      selectionMode: 'review',
+      eligibleCandidateCount: 0,
+      missingRequirements: ['package'],
+    });
   });
 
   it('모호·충돌 후보와 MPN 입력 행의 스펙 대체품은 자동 선정하지 않는다', () => {

@@ -163,10 +163,20 @@ const EngineSupplierCandidate = z
   })
   .passthrough();
 
+const EngineSupplierQuery = z
+  .object({
+    mode: z.string(),
+    part_number: z.string().nullish(),
+  })
+  .passthrough();
+
 const EngineSupplierComponent = z
   .object({
     component_id: z.string(),
+    mode: z.string().optional(),
     status: z.string(),
+    query: EngineSupplierQuery.nullish(),
+    initial_query: EngineSupplierQuery.nullish(),
     candidates: z.array(EngineSupplierCandidate).default([]),
   })
   .passthrough();
@@ -184,7 +194,7 @@ const EngineSupplierEnvelope = z
 type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-hybrid-purchase-fit-v4';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-hybrid-purchase-fit-v5';
 
 /** 엔진 시트 결과를 고객·관리자 공용 선택 스냅샷으로 축약한다. */
 export function extractEngineSheets(result: unknown): BomQuoteSheetType[] {
@@ -905,12 +915,13 @@ function validatePhysicalRequirements(
 function candidateSafety(
   candidate: EngineSupplierCandidateType,
   originalHasMpn: boolean,
+  identityFallback: boolean,
   conflicts: readonly string[] = candidate.conflicts,
   missingRequirements: readonly string[] = candidate.missing_requirements,
 ): BomQuoteCandidateSafetyType {
   const mode = candidateMode(candidate.status);
   if (mode === null || normalizeMpn(candidate.product.manufacturer_part_number) === '') return 'blocked';
-  if (mode === 'spec-compatible' && originalHasMpn) return 'blocked';
+  if (mode === 'spec-compatible' && originalHasMpn && !identityFallback) return 'blocked';
   if (conflicts.length > 0) return 'blocked';
   if (mode === 'spec-compatible' && missingRequirements.length > 0) return 'blocked';
   if (lifecycleCaution(candidate.product.lifecycle_status ?? null, candidate.product.discontinued ?? null, candidate.product.end_of_life ?? null)) {
@@ -968,6 +979,7 @@ function requirementCounts(
 function buildCandidateGroups(
   component: EngineSupplierComponentType,
   originalHasMpn: boolean,
+  identityFallback: boolean,
   physicalRequirements: PhysicalRequirements,
 ): CandidateGroup[] {
   const grouped: { mpnNorm: string; manufacturerNorms: Set<string>; members: EngineSupplierCandidateType[] }[] = [];
@@ -1047,7 +1059,13 @@ function buildCandidateGroups(
       ...physical.missingRequirements,
     ]);
     const counts = requirementCounts(reasons, missingRequirements, conflicts);
-    const safety = candidateSafety(representative, originalHasMpn, conflicts, missingRequirements);
+    const safety = candidateSafety(
+      representative,
+      originalHasMpn,
+      identityFallback,
+      conflicts,
+      missingRequirements,
+    );
     const mode = candidateMode(representative.status) ?? 'review';
     const corroborating = new Set(representative.corroborating_suppliers);
     for (const member of group.members) {
@@ -1196,6 +1214,7 @@ function hasStrictCategoryCoverage(candidate: StoredCandidateType): boolean {
 
 function evidenceFromDecision(
   component: EngineSupplierComponentType,
+  identityFallback: boolean,
   groups: CandidateGroup[],
   eligible: CandidateGroup[],
   selected: CandidateGroup | null,
@@ -1218,6 +1237,7 @@ function evidenceFromDecision(
     policyVersion: BOM_ENGINE_SELECTION_POLICY_VERSION,
     componentId: component.component_id,
     componentStatus: component.status,
+    identityFallback,
     candidateStatus: evidenceSnapshot?.status ?? reviewCandidate?.status ?? null,
     selectionMode: mode,
     candidateCount: component.candidates.length,
@@ -1256,6 +1276,21 @@ function evidenceFromDecision(
 }
 
 /**
+ * 엔진만이 생성하는 두 단계 검색 계보를 확인한다. 단순 spec_compatible 상태나
+ * 원본 MPN 문자열만으로는 예외를 열지 않아 일반 대체품 자동선정을 방지한다.
+ */
+function isIdentityMissSpecFallback(component: EngineSupplierComponentType): boolean {
+  const initial = component.initial_query;
+  const final = component.query;
+  return (
+    component.mode === 'parametric' &&
+    final?.mode === 'parametric' &&
+    (initial?.mode === 'identity' || initial?.mode === 'hybrid') &&
+    normalizeMpn(initial.part_number ?? '') !== ''
+  );
+}
+
+/**
  * 기술 순위와 구매 순위를 분리한 하이브리드 추천.
  * - 원본 MPN: 기술 최상위 부품 고정 + 동일 MPN 안에서 실효 총비용 최저 오퍼.
  * - 스펙 입력: 원본의 실장 방식·치수까지 공급사 속성과 교차 검증한다. 물리 조건과
@@ -1272,14 +1307,17 @@ export function selectEngineMatch(
   const parsed = EngineSupplierComponent.safeParse(componentValue);
   if (!parsed.success) return null;
   const component = parsed.data;
+  const identityFallback = isIdentityMissSpecFallback(component);
+  const specificationSelection = !originalHasMpn || identityFallback;
   const groups = buildCandidateGroups(
     component,
     originalHasMpn,
-    originalPhysicalRequirements(originalHasMpn ? null : sourceContext),
+    identityFallback,
+    originalPhysicalRequirements(specificationSelection ? sourceContext : null),
   );
-  const tierOrder: SelectionMode[] = originalHasMpn
-    ? ['exact', 'variant']
-    : ['exact', 'variant', 'spec-compatible'];
+  const tierOrder: SelectionMode[] = specificationSelection
+    ? ['exact', 'variant', 'spec-compatible']
+    : ['exact', 'variant'];
   const selectedMode = tierOrder.find((mode) =>
     groups.some((group) => group.snapshot.autoEligible && group.snapshot.selectionMode === mode),
   );
@@ -1287,7 +1325,20 @@ export function selectEngineMatch(
     const mode = component.status === 'not_found' ? 'unmatched' : 'review';
     const reasonCodes: BomQuoteDecisionReasonType[] = ['no-safe-candidate'];
     return {
-      evidence: evidenceFromDecision(component, groups, [], null, null, null, mode, 'none', reasonCodes, needed, null),
+      evidence: evidenceFromDecision(
+        component,
+        identityFallback,
+        groups,
+        [],
+        null,
+        null,
+        null,
+        mode,
+        'none',
+        reasonCodes,
+        needed,
+        null,
+      ),
       candidate: null,
       candidateKey: null,
       recommendedCandidateKey: null,
@@ -1305,7 +1356,7 @@ export function selectEngineMatch(
   let selected = technicalTop;
   let selectedPick = groupBestPick(technicalTop, needed, usdKrwRate);
   const technicalPick = selectedPick.pick;
-  let recommendationType: BomQuoteRecommendationTypeType = originalHasMpn ? 'identity' : 'technical';
+  let recommendationType: BomQuoteRecommendationTypeType = specificationSelection ? 'technical' : 'identity';
   const reasonCodes: BomQuoteDecisionReasonType[] = [
     selectedMode === 'exact' ? 'identity-exact' : selectedMode === 'variant' ? 'identity-variant' : 'technical-top',
     'same-part-lowest-total',
@@ -1338,7 +1389,7 @@ export function selectEngineMatch(
         'same-part-lowest-total',
       );
     }
-  } else if (!originalHasMpn && selectedMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop.snapshot)) {
+  } else if (specificationSelection && selectedMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop.snapshot)) {
     const alternatives = eligible
       .slice(1)
       .filter((group) => hasStrictCategoryCoverage(group.snapshot))
@@ -1394,6 +1445,7 @@ export function selectEngineMatch(
   return {
     evidence: evidenceFromDecision(
       component,
+      identityFallback,
       groups,
       eligible,
       selected,
@@ -2648,6 +2700,7 @@ function legacyCompatibleOffer(value: Prisma.JsonValue | null): Prisma.JsonValue
 function legacyCompatibleEvidence(value: Prisma.JsonValue | null): Prisma.JsonValue | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
   return {
+    identityFallback: false,
     groupedCandidateCount: 0,
     alternativeCandidateCount: 0,
     recommendedCandidateKey: null,

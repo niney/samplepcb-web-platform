@@ -106,7 +106,9 @@ class SupplierProduct(BaseModel):
     end_of_life: bool | None = None
     datasheet_url: str | None = None
     image_url: str | None = None
-    normalized_specs: dict[str, float | str | list[float | None] | None] = Field(default_factory=dict)
+    normalized_specs: dict[str, float | str | list[float | None] | None] = Field(
+        default_factory=dict
+    )
     attributes: dict[str, Any] = Field(default_factory=dict)
     offers: list[SupplierOffer] = Field(default_factory=list)
 
@@ -117,7 +119,9 @@ class PackageComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state: Literal["match", "mismatch", "missing", "neutral"]
-    relation: Literal["exact", "alias", "compatible", "mismatch", "missing", "unverified"]
+    relation: Literal[
+        "exact", "alias", "compatible", "mismatch", "missing", "unverified"
+    ]
     expected_display: str | None = None
     expected_raw: str | None = None
     actual_display: str | None = None
@@ -218,9 +222,11 @@ class ComponentSearchResult(BaseModel):
     reference_designators: list[str] = Field(default_factory=list)
     source_rows_1based: list[int] = Field(default_factory=list)
     query: PlannedQuery | None = None
+    initial_query: PlannedQuery | None = None
     candidates: list[CandidateMatch] = Field(default_factory=list)
     input_corrections: list[InputCorrection] = Field(default_factory=list)
     supplier_results: list[SupplierSearchResult] = Field(default_factory=list)
+    initial_supplier_results: list[SupplierSearchResult] = Field(default_factory=list)
     api_calls: int = 0
     elapsed_ms: float = 0.0
     warnings: list[str] = Field(default_factory=list)
@@ -268,6 +274,9 @@ class ComponentPreflight(BaseModel):
     manufacturer: str | None = None
     keywords: str = ""
     suppliers: list[SupplierPreflight] = Field(default_factory=list)
+    fallback_mode: SearchMode | None = None
+    fallback_keywords: str | None = None
+    fallback_suppliers: list[SupplierPreflight] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

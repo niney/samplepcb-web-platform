@@ -4,7 +4,11 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from supplier_search_engine.contract import VALUE_FIELDS
-from supplier_search_engine.contract import SearchBatchInput, SearchComponentInput, SearchField
+from supplier_search_engine.contract import (
+    SearchBatchInput,
+    SearchComponentInput,
+    SearchField,
+)
 
 from supplier_search_engine.models import (
     CandidateMatch,
@@ -25,7 +29,9 @@ class FakeDigiKeyClient(SupplierClient):
     supplier = Supplier.DIGIKEY
     api_version = "fake-v1"
 
-    def __init__(self, *, delay: float = 0.0, products: list[SupplierProduct] | None = None) -> None:
+    def __init__(
+        self, *, delay: float = 0.0, products: list[SupplierProduct] | None = None
+    ) -> None:
         self.delay = delay
         self.calls = 0
         self.products = products or []
@@ -44,17 +50,27 @@ class FakeDigiKeyClient(SupplierClient):
         self.calls += 1
         if self.delay:
             await asyncio.sleep(self.delay)
-        return RawSupplierResponse(supplier=self.supplier, ok=True, status_code=200, payload={"hit": True})
+        return RawSupplierResponse(
+            supplier=self.supplier, ok=True, status_code=200, payload={"hit": True}
+        )
 
-    def normalize(self, raw: RawSupplierResponse, query: PlannedQuery) -> list[SupplierProduct]:
+    def normalize(
+        self, raw: RawSupplierResponse, query: PlannedQuery
+    ) -> list[SupplierProduct]:
         return list(self.products)
 
     async def close(self) -> None:
         return None
 
 
-def make_component(component_id: str, *, resistance: str | None = None) -> SearchComponentInput:
-    values = {"part_number": "ABC-123", "manufacturer": "Acme", "resistance": resistance}
+def make_component(
+    component_id: str, *, resistance: str | None = None
+) -> SearchComponentInput:
+    values = {
+        "part_number": "ABC-123",
+        "manufacturer": "Acme",
+        "resistance": resistance,
+    }
     fields = {
         name: SearchField(
             value=values.get(name),
@@ -110,10 +126,14 @@ async def test_batch_deduplicates_and_second_run_uses_durable_cache(tmp_path):
 
 async def test_singleflight_collapses_concurrent_identical_requests(tmp_path):
     fake = FakeDigiKeyClient(delay=0.05, products=[make_product()])
-    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
     query = service.planner.plan(make_component("a"))
 
-    results = await asyncio.gather(service.search_component(query), service.search_component(query))
+    results = await asyncio.gather(
+        service.search_component(query), service.search_component(query)
+    )
 
     assert fake.calls == 1
     assert sum(result.api_calls for result in results) == 1
@@ -128,7 +148,9 @@ async def test_singleflight_collapses_concurrent_identical_requests(tmp_path):
 
 async def test_negative_results_are_cached(tmp_path):
     fake = FakeDigiKeyClient(products=[])
-    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
     query = service.planner.plan(make_component("a"))
 
     first = await service.search_component(query)
@@ -140,10 +162,137 @@ async def test_negative_results_are_cached(tmp_path):
     assert second.api_calls == 0
 
 
-async def test_same_supplier_query_reuses_raw_response_but_rechecks_each_bom_spec(tmp_path):
-    product = make_product().model_copy(update={"normalized_specs": {"resistance_ohm": 10_000.0}})
+async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_path):
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="SPEC-CAP-10UF",
+        category="Ceramic Capacitors",
+        package="0402",
+        normalized_specs={
+            "capacitance_f": 10e-6,
+            "voltage_v": 10.0,
+            "package": "0402",
+            "part_type": "capacitor",
+        },
+    )
+    unrelated = product.model_copy(
+        update={"manufacturer_part_number": "UNRELATED-PART"},
+        deep=True,
+    )
+
+    class IdentityMissSpecHitClient(FakeDigiKeyClient):
+        def normalize(self, raw, query):
+            return [product] if query.mode == SearchMode.PARAMETRIC else [unrelated]
+
+    item = make_component("fallback")
+    item.fields["part_number"].value = "0603X03L_C"
+    item.fields["manufacturer"].value = "Murata"
+    for name, value in {
+        "part_type": "capacitor",
+        "capacitance": "10uF",
+        "voltage": "6.3V",
+        "package": "0402",
+    }.items():
+        item.fields[name].value = value
+        item.fields[name].status = "extracted"
+    fake = IdentityMissSpecHitClient()
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
+
+    result = await service.search_component(service.planner.plan(item))
+
+    assert fake.calls == 2
+    assert result.mode == SearchMode.PARAMETRIC
+    assert result.status == MatchStatus.SPEC_COMPATIBLE
+    assert result.initial_query is not None
+    assert result.initial_query.part_number == "0603X03L_C"
+    assert result.initial_supplier_results[0].products == [unrelated]
+    assert result.query is not None
+    assert result.query.part_number is None
+    assert result.query.keywords == "10uF 0402"
+    assert [item.supplier for item in result.initial_supplier_results] == [
+        Supplier.DIGIKEY,
+        Supplier.MOUSER,
+        Supplier.UNIKEYIC,
+    ]
+    assert [item.supplier for item in result.supplier_results] == [
+        Supplier.DIGIKEY,
+        Supplier.MOUSER,
+    ]
+    assert result.api_calls == 2
+    assert "일치하는 후보가 없어 확정 스펙으로 다시 검색" in " ".join(result.warnings)
+
+    batch_result = await service.search_batch(
+        SearchBatchInput(
+            parser_schema_version="1",
+            parser_version="test",
+            training_fingerprint="test",
+            source_file="bom.xlsx",
+            components=[item],
+        )
+    )
+    batched = batch_result.components[0]
+    assert fake.calls == 2
+    assert batch_result.cache_hits == 2
+    assert batched.mode == SearchMode.PARAMETRIC
+    assert batched.initial_query is not None
+    assert batched.initial_query.part_number == "0603X03L_C"
+    assert batched.query is not None
+    assert batched.query.mode == SearchMode.PARAMETRIC
+    assert batched.query.part_number is None
+
+
+async def test_identity_miss_without_sufficient_specs_does_not_retry(tmp_path):
+    fake = FakeDigiKeyClient(products=[])
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
+
+    result = await service.search_component(
+        service.planner.plan(make_component("no-fallback"))
+    )
+
+    assert fake.calls == 1
+    assert result.mode == SearchMode.IDENTITY
+    assert result.status == MatchStatus.NOT_FOUND
+    assert result.initial_query is None
+
+
+async def test_resolved_identity_with_specs_does_not_retry(tmp_path):
+    product = make_product().model_copy(
+        update={
+            "package": "0603",
+            "normalized_specs": {"resistance_ohm": 10_000.0, "package": "0603"},
+        },
+        deep=True,
+    )
     fake = FakeDigiKeyClient(products=[product])
-    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
+    item = make_component("resolved", resistance="10kΩ")
+    item.fields["package"].value = "0603"
+    item.fields["package"].status = "extracted"
+
+    result = await service.search_component(service.planner.plan(item))
+
+    assert fake.calls == 1
+    assert result.mode == SearchMode.IDENTITY
+    assert result.status == MatchStatus.VERIFIED_EXACT
+    assert result.initial_query is None
+
+
+async def test_same_supplier_query_reuses_raw_response_but_rechecks_each_bom_spec(
+    tmp_path,
+):
+    product = make_product().model_copy(
+        update={"normalized_specs": {"resistance_ohm": 10_000.0}}
+    )
+    fake = FakeDigiKeyClient(products=[product])
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
     batch = SearchBatchInput(
         parser_schema_version="1",
         parser_version="test",
@@ -179,13 +328,17 @@ async def test_cache_only_can_use_expired_entry_inside_stale_window(tmp_path):
 
     cached = await service.search_component(query)
 
-    digikey = next(item for item in cached.supplier_results if item.supplier == Supplier.DIGIKEY)
+    digikey = next(
+        item for item in cached.supplier_results if item.supplier == Supplier.DIGIKEY
+    )
     assert fake.calls == 1
     assert digikey.cache_state == "stale"
     assert cached.api_calls == 0
 
 
-async def test_batch_timeout_returns_every_component_without_waiting_for_slow_supplier(tmp_path):
+async def test_batch_timeout_returns_every_component_without_waiting_for_slow_supplier(
+    tmp_path,
+):
     fake = FakeDigiKeyClient(delay=0.2, products=[make_product()])
     service = SearchService(
         Settings(
@@ -198,7 +351,9 @@ async def test_batch_timeout_returns_every_component_without_waiting_for_slow_su
     result = await service.search_batch(make_batch())
 
     assert len(result.components) == 2
-    assert all(component.status.value == "supplier_error" for component in result.components)
+    assert all(
+        component.status.value == "supplier_error" for component in result.components
+    )
     assert all(
         supplier.error_type == "job_timeout"
         for component in result.components
@@ -253,7 +408,11 @@ async def test_digikey_identity_and_parametric_searches_use_separate_lanes(tmp_p
         async def fetch(self, query, reserve_call=None):
             if reserve_call:
                 await reserve_call()
-            lane = SearchMode.IDENTITY if query.mode == SearchMode.IDENTITY else SearchMode.PARAMETRIC
+            lane = (
+                SearchMode.IDENTITY
+                if query.mode == SearchMode.IDENTITY
+                else SearchMode.PARAMETRIC
+            )
             self.active[lane] += 1
             self.maximum[lane] = max(self.maximum[lane], self.active[lane])
             self.maximum_total = max(self.maximum_total, sum(self.active.values()))
@@ -304,13 +463,19 @@ async def test_digikey_identity_and_parametric_searches_use_separate_lanes(tmp_p
     assert fake.maximum_total == 5
 
 
-async def test_batch_result_keeps_four_candidates_per_supplier_without_duplicate_products(tmp_path):
+async def test_batch_result_keeps_four_candidates_per_supplier_without_duplicate_products(
+    tmp_path,
+):
     products = [
-        make_product().model_copy(update={"manufacturer_part_number": f"ABC-123-{index}"})
+        make_product().model_copy(
+            update={"manufacturer_part_number": f"ABC-123-{index}"}
+        )
         for index in range(6)
     ]
     fake = FakeDigiKeyClient(products=products)
-    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
 
     result = await service.search_batch(make_batch())
 
@@ -320,14 +485,18 @@ async def test_batch_result_keeps_four_candidates_per_supplier_without_duplicate
 
 def test_unaccepted_candidates_rank_by_verified_spec_coverage():
     partial = CandidateMatch(
-        product=make_product().model_copy(update={"manufacturer_part_number": "PARTIAL"}),
+        product=make_product().model_copy(
+            update={"manufacturer_part_number": "PARTIAL"}
+        ),
         status=MatchStatus.SPEC_PARTIAL,
         identity_confidence=0.0,
         specification_confidence=0.2,
         missing_requirements=["package", "voltage_v"],
     )
     explained_conflict = CandidateMatch(
-        product=make_product().model_copy(update={"manufacturer_part_number": "CONFLICT"}),
+        product=make_product().model_copy(
+            update={"manufacturer_part_number": "CONFLICT"}
+        ),
         status=MatchStatus.AMBIGUOUS,
         identity_confidence=0.0,
         specification_confidence=0.8,
@@ -344,7 +513,9 @@ def test_unaccepted_candidates_rank_by_verified_spec_coverage():
 
 def test_primary_value_conflict_ranks_below_secondary_dielectric_conflict():
     wrong_capacitance = CandidateMatch(
-        product=make_product().model_copy(update={"manufacturer_part_number": "WRONG-CAP"}),
+        product=make_product().model_copy(
+            update={"manufacturer_part_number": "WRONG-CAP"}
+        ),
         status=MatchStatus.AMBIGUOUS,
         identity_confidence=0.0,
         specification_confidence=0.8,
@@ -352,7 +523,9 @@ def test_primary_value_conflict_ranks_below_secondary_dielectric_conflict():
         corroborating_suppliers=[Supplier.DIGIKEY, Supplier.MOUSER],
     )
     alternate_dielectric = CandidateMatch(
-        product=make_product().model_copy(update={"manufacturer_part_number": "ALT-DIELECTRIC"}),
+        product=make_product().model_copy(
+            update={"manufacturer_part_number": "ALT-DIELECTRIC"}
+        ),
         status=MatchStatus.AMBIGUOUS,
         identity_confidence=0.0,
         specification_confidence=0.8,
