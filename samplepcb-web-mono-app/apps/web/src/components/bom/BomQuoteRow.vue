@@ -23,6 +23,7 @@ const emit = defineEmits<{
   'qty-change': [qty: number];
   'open-offers': [];
   'open-candidates': [];
+  'open-search': [];
 }>();
 
 const EDIT_LOCK_TITLE = '공급사 확인이 완료되면 수정할 수 있습니다';
@@ -39,6 +40,12 @@ const stockShort = computed(() => {
   const o = props.item.selectedOffer;
   return o !== null && o.stock !== null && o.stock < props.item.orderQty;
 });
+
+const hasEngineCandidates = computed(() =>
+  (props.item.matchEvidence?.groupedCandidateCount ?? 0) > 0
+  || props.item.selectedCandidateKey !== null
+  || props.item.recommendedCandidateKey !== null,
+);
 
 const rowClass = computed(() => {
   const item = props.item;
@@ -263,11 +270,30 @@ function onQtyInput(event: Event): void {
         </span>
       </div>
     </td>
-    <!-- 후보 비교가 변경+상세+오퍼 선택을 통합. 삭제는 실제 삭제가 아니라 견적 제외. -->
+    <!-- 후보 비교와 전체 카탈로그 변경은 한 드로어의 다른 진입점. 제외는 실제 삭제가 아니라 견적 제외. -->
     <td class="px-2 py-3">
-      <div v-if="isDraft" class="flex flex-col gap-[6px] pt-1">
-        <button type="button" class="h-[30px] w-[88px] rounded-[5px] border border-blue-300 bg-blue-50 text-[12px] font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : '선정 이유·가격·차순위 후보 비교'" @click="emit('open-candidates')">후보 비교</button>
-        <button type="button" class="h-[26px] w-[88px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[12px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
+      <div v-if="isDraft" class="flex flex-col gap-[5px] pt-1">
+        <button
+          type="button"
+          class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
+          :class="hasEngineCandidates ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'"
+          :disabled="editingLocked"
+          :title="editingLocked ? EDIT_LOCK_TITLE : '엔진 선정 이유·가격·차순위 후보 비교'"
+          @click="emit('open-candidates')"
+        >
+          후보 비교
+        </button>
+        <button
+          type="button"
+          class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
+          :class="hasEngineCandidates ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50' : 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'"
+          :disabled="editingLocked"
+          :title="editingLocked ? EDIT_LOCK_TITLE : '전체 카탈로그에서 다른 부품 검색'"
+          @click="emit('open-search')"
+        >
+          부품 변경
+        </button>
+        <button type="button" class="h-[24px] w-[88px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[11px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
       </div>
     </td>
   </tr>

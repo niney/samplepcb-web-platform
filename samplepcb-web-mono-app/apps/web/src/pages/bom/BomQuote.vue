@@ -379,8 +379,10 @@ watch(
 
 // ── 후보 비교·선택 드로어 + 카탈로그 폴백 ────────────────────────────────────
 type SelectionSurface = 'candidates' | 'offers';
+type CandidateDrawerView = 'candidates' | 'search';
 const candidateRowIdx = ref<number | null>(null);
 const selectionSurface = ref<SelectionSurface | null>(null);
+const candidateDrawerView = ref<CandidateDrawerView>('candidates');
 const candidateOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value === 'candidates');
 const quoteOfferOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value === 'offers');
 const selectionOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value !== null);
@@ -396,6 +398,7 @@ const candidateQuery = useBomQuoteCandidates(
 );
 const candidateSelection = useSelectBomQuoteCandidate();
 const candidateSelectionError = ref('');
+const catalogSelectionPending = ref(false);
 
 const offerModal = ref<{ lineIdx: number; partId: string } | null>(null);
 const partModal = ref<{ mode: 'swap' | 'add'; lineIdx: number | null; query: string } | null>(null);
@@ -415,8 +418,18 @@ function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: stri
 }
 
 function openCandidateDrawer(item: BomQuoteItemType): void {
+  if (editingLocked.value) return;
   candidateSelectionError.value = '';
   candidateRowIdx.value = item.rowIdx;
+  candidateDrawerView.value = 'candidates';
+  selectionSurface.value = 'candidates';
+}
+
+function openCatalogSearchDrawer(item: BomQuoteItemType): void {
+  if (editingLocked.value) return;
+  candidateSelectionError.value = '';
+  candidateRowIdx.value = item.rowIdx;
+  candidateDrawerView.value = 'search';
   selectionSurface.value = 'candidates';
 }
 
@@ -441,6 +454,7 @@ function openQuoteOfferModal(item: BomQuoteItemType): void {
 function openCandidateDrawerFromOfferModal(): void {
   if (candidateRowIdx.value === null) return;
   candidateSelectionError.value = '';
+  candidateDrawerView.value = 'candidates';
   selectionSurface.value = 'candidates';
 }
 
@@ -477,14 +491,6 @@ async function selectCandidate(candidateKey: string, offerKey: string | null): P
 async function selectQuoteOffer(candidateKey: string, offerKey: string): Promise<void> {
   const selected = await selectCandidate(candidateKey, offerKey);
   if (selected) closeSelectionSurface();
-}
-
-function openCatalogSearchFromDrawer(): void {
-  const item = candidateItem.value;
-  if (item === null) return;
-  const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
-  closeSelectionSurface();
-  openPartModal('swap', lineIdx < 0 ? null : lineIdx, item.mpn);
 }
 
 function openCatalogOffersFromDrawer(): void {
@@ -538,11 +544,13 @@ function onOfferSelected(pick: OfferPick): void {
   offerModal.value = null;
 }
 
-async function onPartSelected(part: PartHitType): Promise<void> {
-  const modal = partModal.value;
-  if (modal === null || editingLocked.value) return;
-  partModal.value = null;
+interface CatalogSelectionTarget {
+  mode: 'swap' | 'add';
+  lineIdx: number | null;
+}
 
+async function applyCatalogPart(part: PartHitType, target: CatalogSelectionTarget): Promise<boolean> {
+  if (editingLocked.value) return false;
   // 선택 부품의 오퍼를 불러와 기본 오퍼 자동 선정(matchStatus=manual)
   let offers: BomOfferInput[];
   try {
@@ -561,12 +569,12 @@ async function onPartSelected(part: PartHitType): Promise<void> {
         priceBreaks: o.priceBreaks.map((pb) => ({ qty: pb.qty, price: pb.price })),
       }));
   } catch {
-    return;
+    return false;
   }
-  if (enriching.value) return; // 상세 조회 사이 검색이 시작된 경우 변경 폐기
+  if (enriching.value) return false; // 상세 조회 사이 검색이 시작된 경우 변경 폐기
 
-  let lineIdx = modal.lineIdx;
-  if (modal.mode === 'add' || lineIdx === null) {
+  let lineIdx = target.lineIdx;
+  if (target.mode === 'add' || lineIdx === null) {
     const rowIdx = items.value.reduce((m, i) => Math.max(m, i.rowIdx), -1) + 1;
     items.value.push({
       rowIdx,
@@ -592,7 +600,7 @@ async function onPartSelected(part: PartHitType): Promise<void> {
     lineIdx = items.value.length - 1;
   } else {
     const item = items.value[lineIdx];
-    if (item === undefined) return;
+    if (item === undefined) return false;
     item.mpn = part.mpn;
     item.manufacturerName = part.manufacturerName;
     item.description = part.description;
@@ -605,13 +613,41 @@ async function onPartSelected(part: PartHitType): Promise<void> {
   }
 
   const item = items.value[lineIdx];
-  if (item === undefined) return;
+  if (item === undefined) return false;
   const pick = pickDefaultOffer(offers, neededQty(item.bomQty, setQty.value, spareQty.value), rate.value);
   if (pick !== null) {
     applyOfferPick(pick, false, lineIdx, part.id);
   } else {
     recalcLine(item);
     markDirty();
+  }
+  return true;
+}
+
+async function onPartSelected(part: PartHitType): Promise<void> {
+  const modal = partModal.value;
+  if (modal === null || editingLocked.value) return;
+  partModal.value = null;
+  await applyCatalogPart(part, modal);
+}
+
+async function onCatalogPartSelected(part: PartHitType): Promise<void> {
+  const item = candidateItem.value;
+  if (item === null || editingLocked.value || catalogSelectionPending.value) return;
+  const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
+  if (lineIdx < 0) {
+    candidateSelectionError.value = '변경할 견적 행을 찾지 못했습니다. 패널을 닫고 다시 시도해 주세요.';
+    return;
+  }
+
+  candidateSelectionError.value = '';
+  catalogSelectionPending.value = true;
+  try {
+    const applied = await applyCatalogPart(part, { mode: 'swap', lineIdx });
+    if (applied) closeSelectionSurface();
+    else candidateSelectionError.value = '부품 상세 또는 공급사 오퍼를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  } finally {
+    catalogSelectionPending.value = false;
   }
 }
 
@@ -877,7 +913,7 @@ function fmtAmount(v: number | null): string {
                 <th class="w-[130px] px-2 py-2.5 text-right">Unit Price</th>
                 <th class="w-[170px] px-2 py-2.5">Quantity / Stock</th>
                 <th class="w-[130px] px-2 py-2.5 text-right">Total Price</th>
-                <th class="w-[76px] px-2 py-2.5" />
+                <th class="w-[100px] px-2 py-2.5" />
               </tr>
             </thead>
             <tbody>
@@ -892,9 +928,10 @@ function fmtAmount(v: number | null): string {
                 @qty-change="onRowQtyChange(item, $event)"
                 @open-offers="openQuoteOfferModal(item)"
                 @open-candidates="openCandidateDrawer(item)"
+                @open-search="openCatalogSearchDrawer(item)"
               />
               <tr v-if="items.length === 0">
-                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">표시할 라인이 없습니다.</td>
+                <td colspan="9" class="px-3 py-10 text-center text-sm text-gray-400">표시할 라인이 없습니다.</td>
               </tr>
             </tbody>
           </table>
@@ -1102,10 +1139,14 @@ function fmtAmount(v: number | null): string {
       :loading="candidateQuery.isLoading.value"
       :failed="candidateQuery.isError.value"
       :selecting="candidateSelection.isPending.value"
+      :catalog-selecting="catalogSelectionPending"
       :selection-error="candidateSelectionError"
-      :has-catalog-part="candidateItem?.partId !== null && candidateItem?.selectedCandidateKey === null"
+      :initial-view="candidateDrawerView"
+      :search-initial-query="candidateItem?.mpn ?? ''"
+      :current-part-id="candidateItem?.partId ?? null"
+      :has-catalog-part="candidateItem !== null && candidateItem.partId !== null && candidateItem.selectedCandidateKey === null"
       @select="selectCandidate"
-      @catalog-search="openCatalogSearchFromDrawer"
+      @catalog-select="onCatalogPartSelected"
       @catalog-offers="openCatalogOffersFromDrawer"
       @close="closeSelectionSurface"
     />

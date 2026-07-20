@@ -6,7 +6,9 @@ import type {
   BomQuoteDecisionReasonType,
   BomQuoteItemCandidatesType,
   BomQuoteSelectionSourceType,
+  PartHitType,
 } from '@sp/api-contract';
+import BomPartSearchPanel from './BomPartSearchPanel.vue';
 import PartImage from '../ui/PartImage.vue';
 
 const props = withDefaults(defineProps<{
@@ -16,25 +18,35 @@ const props = withDefaults(defineProps<{
   failed: boolean;
   readOnly?: boolean;
   selecting?: boolean;
+  catalogSelecting?: boolean;
   hasCatalogPart?: boolean;
   selectionError?: string;
+  initialView?: SelectionView;
+  searchInitialQuery?: string;
+  currentPartId?: string | null;
 }>(), {
   readOnly: false,
   selecting: false,
+  catalogSelecting: false,
   hasCatalogPart: false,
   selectionError: '',
+  initialView: 'candidates',
+  searchInitialQuery: '',
+  currentPartId: null,
 });
 
 const emit = defineEmits<{
   close: [];
   select: [candidateKey: string, offerKey: string | null];
-  catalogSearch: [];
+  catalogSelect: [part: PartHitType];
   catalogOffers: [];
 }>();
 
+type SelectionView = 'candidates' | 'search';
 type CandidateTab = 'selectable' | 'all' | 'review';
 type CandidateSort = 'technical' | 'price';
 
+const view = ref<SelectionView>(props.initialView);
 const tab = ref<CandidateTab>('selectable');
 const sort = ref<CandidateSort>('technical');
 const expanded = ref<Set<string>>(new Set());
@@ -45,6 +57,20 @@ watch(
     tab.value = 'selectable';
     sort.value = 'technical';
     expanded.value = new Set();
+  },
+);
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) view.value = props.initialView;
+  },
+);
+
+watch(
+  () => props.initialView,
+  (next) => {
+    if (props.open) view.value = next;
   },
 );
 
@@ -269,17 +295,68 @@ onBeforeUnmount(() => {
           <div class="flex items-start justify-between gap-5">
             <div class="min-w-0">
               <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-600">Part selection</p>
-              <h2 id="candidate-drawer-title" class="mt-1 truncate text-xl font-bold text-slate-950">후보 비교·선택</h2>
+              <h2 id="candidate-drawer-title" class="mt-1 truncate text-xl font-bold text-slate-950">부품 선택</h2>
               <p v-if="context !== null" class="mt-1 text-sm text-slate-500">
                 Excel 원본 {{ context.originalMpn ?? context.originalValue ?? '품번 미기재' }} · 필요수량 {{ context.neededQty.toLocaleString('ko-KR') }}개
               </p>
+              <p v-else-if="searchInitialQuery !== ''" class="mt-1 text-sm text-slate-500">현재 품번 {{ searchInitialQuery }}</p>
             </div>
             <button type="button" class="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-xl text-slate-500 hover:bg-slate-100" aria-label="후보 패널 닫기" @click="emit('close')">×</button>
           </div>
         </header>
 
+        <nav class="grid shrink-0 grid-cols-2 gap-1 border-b border-slate-200 bg-white px-5 pt-2 sm:px-7" aria-label="부품 선택 방식">
+          <button
+            type="button"
+            class="border-b-2 px-3 py-3 text-sm font-bold transition"
+            :class="view === 'candidates' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'"
+            @click="view = 'candidates'"
+          >
+            추천 후보
+            <span v-if="context !== null" class="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{{ context.candidates.length }}</span>
+          </button>
+          <button
+            v-if="!readOnly"
+            type="button"
+            class="border-b-2 px-3 py-3 text-sm font-bold transition"
+            :class="view === 'search' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'"
+            @click="view = 'search'"
+          >
+            전체 부품 검색
+          </button>
+        </nav>
+
         <div class="min-h-0 flex-1 overflow-y-auto">
-          <div v-if="loading" class="grid min-h-80 place-items-center p-8 text-sm text-slate-500">
+          <div v-if="view === 'search'" class="space-y-4 p-4 sm:p-6">
+            <div v-if="selectionError !== ''" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ selectionError }}</div>
+            <section class="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 sm:p-5">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p class="text-xs font-bold uppercase tracking-wide text-blue-600">Manual catalog selection</p>
+                  <h3 class="mt-1 text-base font-bold text-slate-950">엔진 후보 밖에서 직접 찾기</h3>
+                  <p class="mt-1 text-xs leading-5 text-slate-600">품번·스펙·패키지로 전체 카탈로그를 검색합니다. 선택 결과는 엔진 추천과 섞지 않고 <b class="text-slate-800">직접 검색</b>으로 기록됩니다.</p>
+                </div>
+                <div class="shrink-0 rounded-xl border border-blue-100 bg-white px-3 py-2 text-xs text-slate-600 sm:text-right">
+                  <span class="block text-[10px] font-bold uppercase tracking-wide text-slate-400">현재 부품</span>
+                  <b class="mt-0.5 block max-w-64 break-all text-slate-900">{{ context?.currentMpn || searchInitialQuery || '미선정' }}</b>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div class="mb-4">
+                <h3 class="font-bold text-slate-900">카탈로그 검색</h3>
+                <p class="mt-1 text-xs text-slate-500">선택하면 해당 부품의 공급사 오퍼를 불러와 현재 행에 즉시 적용하고 자동 저장합니다.</p>
+              </div>
+              <BomPartSearchPanel
+                :initial-query="searchInitialQuery"
+                :current-part-id="currentPartId"
+                :selecting="catalogSelecting"
+                @select="emit('catalogSelect', $event)"
+              />
+            </section>
+          </div>
+          <div v-else-if="loading" class="grid min-h-80 place-items-center p-8 text-sm text-slate-500">
             <div class="text-center"><span class="mx-auto mb-3 block size-7 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />후보 스냅샷을 불러오는 중입니다.</div>
           </div>
           <div v-else-if="failed" class="m-6 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-800">
@@ -457,7 +534,7 @@ onBeforeUnmount(() => {
                   <div><h3 class="text-sm font-bold text-slate-900">엔진 후보 밖에서 찾기</h3><p class="mt-1 text-xs text-slate-500">품번·스펙으로 카탈로그를 직접 검색할 수 있습니다.</p></div>
                   <div class="flex flex-wrap gap-2">
                     <button v-if="hasCatalogPart" type="button" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50" @click="emit('catalogOffers')">현재 부품 오퍼</button>
-                    <button type="button" class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50" @click="emit('catalogSearch')">카탈로그 직접 검색</button>
+                    <button type="button" class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50" @click="view = 'search'">전체 부품 검색</button>
                   </div>
                 </div>
               </section>
@@ -466,7 +543,8 @@ onBeforeUnmount(() => {
         </div>
 
         <footer class="shrink-0 border-t border-slate-200 bg-white px-5 py-3 text-[11px] leading-5 text-slate-500 sm:px-7">
-          가격은 필요수량·MOQ·주문배수·재고·환율을 반영한 부품 예상금액입니다. 운송료·관리비·세금은 전체 견적에서 별도로 계산됩니다.
+          <template v-if="view === 'candidates'">가격은 필요수량·MOQ·주문배수·재고·환율을 반영한 부품 예상금액입니다. 운송료·관리비·세금은 전체 견적에서 별도로 계산됩니다.</template>
+          <template v-else>전체 부품 검색 선택은 엔진 추천을 덮어쓰지 않고 고객의 카탈로그 직접 선택으로 별도 기록됩니다.</template>
         </footer>
       </aside>
     </div>
