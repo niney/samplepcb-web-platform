@@ -1,5 +1,15 @@
 # Compile Log
 
+## 2026-07-20
+
+**Topics updated:** sp-node-api, sp-vue-web, sp-market-web, infrastructure, docs-knowledge
+**New topics:** parts-engine (samplepcb-parts-engine — Python uv workspace BOM 추출·공급사 검색 엔진, FastAPI :8400, sp-node 게이트웨이 소비)
+**New concepts:** snapshot-freeze (스냅샷 박제+서버 재계산 — 거버→마켓→BOM 3연속 동형으로 확정), in-memory-async-jobs (인메모리 비동기 잡+영속 스냅샷 복구 — AI 잡·BOM 엔진 잡). 기존 3종 갱신 — lazy-derived-state(BOM enrichStatus 게으른 치유), server-single-truth(BOM 서버 재계산·RFQ), manual-sync-drift(공유 함수 SSOT·BOM_ENGINE_URL 동기화 지점·문서 드리프트 3건)
+**Sources scanned:** 39 knowledge files (+ 토픽별 경량 코드 스캔)
+**Sources changed:** 14 (AGENTS.md, mono AGENTS.md, apps/api .env.example, schema.prisma +9모델, ops/README.md, ops/nginx/local-web.conf, docs/AI_DIAGRAM.md, docs/DEPLOY_CENTRAFAB.md, docs/MARKET_FLOW.md + 신규 5종: docs/BOM_QUOTE.md·docs/PARTS_SEARCH.md·docs/bom-quote-code-review-2026-07-19.md·samplepcb-parts-engine README·.env.example)
+**핵심 변화:** 고객 스마트 BOM 견적 전 계층(sp_bom_quote* 5테이블·/api/bom·/app/bom 회원 라우트 — **sp-vue "관리자 전용" 전제 공식 폐기**·RFQ·환율 스냅샷)·부품 카탈로그+ES 검색(sp_part*·sp-parts·2트랙·parts-facts)·parts-engine 프로덕션 이식+sp-node 게이트웨이·위저드 v2(AI-우선 4스텝, 2026-07-16)·sp-rnd 연구 앱(/rnd:5177, nginx 5경로·deploy.sh 9케이스)·E2E 92항목. api-contract·shared-packages·spcb-bridge·theme-sp-lite·gnuboard-integration 은 유의미 변경 없어 건너뜀
+**미분류/후보:** 크로스커팅 후보로 "sp_config key-value 전역 스위치"(gerber_price_mode→AI 연결→bom_quote 네임스페이스)와 "신규 앱 온보딩 체크리스트"(market·rnd 2회 반복 — 3회째에 개념 승격 검토)가 관찰됨
+
 ## 2026-07-13
 
 **Topics updated:** sp-node-api, sp-vue-web, api-contract, spcb-bridge, theme-sp-lite, gnuboard-integration, infrastructure, docs-knowledge

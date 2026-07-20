@@ -10,7 +10,7 @@ This project has a compiled knowledge wiki. Use it instead of scanning raw files
    - [coverage: high] — trust this section, skip raw files
    - [coverage: medium] — good overview, check raw sources for implementation details
    - [coverage: low] — read the raw source files listed in Sources
-4. Check concepts/ for cross-cutting patterns (코어 비수정 기법, 서버 단일 진실, 수동 동기화 드리프트, 관리=sp-vue/소비=sp-php 브릿지, lazy 파생 상태)
+4. Check concepts/ for cross-cutting patterns (코어 비수정 기법, 서버 단일 진실, 수동 동기화 드리프트, 관리=sp-vue/소비=sp-php 브릿지, lazy 파생 상태, 스냅샷 박제+서버 재계산, 인메모리 비동기 잡)
 5. Only read raw source files when you need code-level detail
 
 ## When NOT to use the wiki
@@ -19,4 +19,4 @@ This project has a compiled knowledge wiki. Use it instead of scanning raw files
 - The wiki article says [coverage: low] for what you need
 
 ## Stats
-Compiled: 2026-07-13 | Topics: 10 | Sources: 30 | Auto-updates: prompt on stale
+Compiled: 2026-07-20 | Topics: 11 | Sources: 39 | Auto-updates: prompt on stale

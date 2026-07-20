@@ -1,9 +1,10 @@
 {
-  "last_compiled": "2026-07-13",
+  "last_compiled": "2026-07-20",
   "topics": [
     "sp-node-api",
     "sp-vue-web",
     "sp-market-web",
+    "parts-engine",
     "api-contract",
     "shared-packages",
     "spcb-bridge",
@@ -17,7 +18,9 @@
     "server-single-truth",
     "manual-sync-drift",
     "admin-vue-consume-php",
-    "lazy-derived-state"
+    "lazy-derived-state",
+    "snapshot-freeze",
+    "in-memory-async-jobs"
   ],
   "source_locations": [
     "AGENTS.md",
@@ -25,6 +28,7 @@
     "README.md",
     "docs/AI_DIAGRAM.md",
     "docs/AI_WORKFLOW_PLAYBOOK.md",
+    "docs/BOM_QUOTE.md",
     "docs/DELIVERY_CARRIER_INTEGRATION.md",
     "docs/DEPLOY_CENTRAFAB.md",
     "docs/GERBER_ORDER_FLOW.md",
@@ -33,6 +37,8 @@
     "docs/LEGACY_SITE.md",
     "docs/LOCAL_MAIL_TESTING.md",
     "docs/MARKET_FLOW.md",
+    "docs/PARTS_SEARCH.md",
+    "docs/bom-quote-code-review-2026-07-19.md",
     "docs/order-notify-gating.md",
     "docs/pricing-engine-parity.md",
     "docs/review-naming.md",
@@ -42,6 +48,12 @@
     "docs/wishlist-hidden.md",
     "ops/README.md",
     "ops/nginx/local-web.conf",
+    "samplepcb-parts-engine/.env.example",
+    "samplepcb-parts-engine/README.md",
+    "samplepcb-parts-engine/pyproject.toml",
+    "samplepcb-parts-engine/app/pyproject.toml",
+    "samplepcb-parts-engine/packages/bom-extraction-engine/pyproject.toml",
+    "samplepcb-parts-engine/packages/supplier-search-engine/pyproject.toml",
     "samplepcb-web/.htaccess",
     "samplepcb-web/README.md",
     "samplepcb-web/extend/.htaccess",
@@ -51,5 +63,5 @@
     "samplepcb-web-mono-app/apps/api/.env.example",
     "samplepcb-web-mono-app/apps/api/prisma/schema.prisma"
   ],
-  "total_sources_scanned": 30
+  "total_sources_scanned": 39
 }

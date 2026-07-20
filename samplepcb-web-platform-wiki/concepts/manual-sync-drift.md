@@ -1,7 +1,7 @@
 ---
 concept: 수동 동기화 지점과 드리프트 리스크
-last_compiled: 2026-07-06
-topics_connected: [sp-node-api, theme-sp-lite, spcb-bridge, docs-knowledge, infrastructure]
+last_compiled: 2026-07-20
+topics_connected: [sp-node-api, theme-sp-lite, spcb-bridge, docs-knowledge, infrastructure, parts-engine]
 status: active
 ---
 
@@ -11,6 +11,9 @@ status: active
 시스템 경계(PHP↔Node, 로컬↔라이브, 코어 설정↔실발송)를 넘는 곳마다 **코드로 강제되지 않는 수동 동기화 지점**이 생기고, 여기서 드리프트가 실사고로 이어진 이력이 반복된다. 이 코드베이스에서 버그가 났던 곳은 대부분 로직 오류가 아니라 "두 곳에 같은 값이 있는데 한쪽만 바뀐" 경우다. 대응은 두 방향 — ① 동기화 지점 자체를 없애거나(서버가 값을 내려주기, SSOT 상수), ② 없앨 수 없으면 정본 명시 + 검증 자동화 + 이 문서 등록.
 
 ## Instances
+- **2026-07-19~20 (드리프트 봉인)** in [sp-node-api](../topics/sp-node-api.md) / [docs-knowledge](../topics/docs-knowledge.md): **공유 함수 SSOT 확장** — bom-pricing 을 서버·FE 가 `@sp/utils` 동일 함수로 계산(+골든 테스트), spec-units 단위 해석을 색인·검색이 공유(골든 74케이스=명세). 계약(Zod)을 넘어 로직 계층까지 "동기화 지점 제거" 방향 확장
+- **2026-07-18~20 (신규 동기화 지점)** in [sp-node-api](../topics/sp-node-api.md) / [parts-engine](../topics/parts-engine.md): **`BOM_ENGINE_URL`(sp-node .env) ↔ parts-engine 실행 포트(기본 8400)** — 코드로 강제되지 않는 한 값. 8100→8400 변경 이력(Hyper-V 예약범위 회피)이 이미 한 번 있었고, 불일치 시 BOM 후보 검색이 조용히 실패
+- **2026-07-17~19 (문서 드리프트)** in [docs-knowledge](../topics/docs-knowledge.md) / [infrastructure](../topics/infrastructure.md): **문서가 코드를 못 따라온 지점 3건** — 루트/모노 AGENTS.md 의 "sp-vue=관리자 전용" 전제가 `/app/bom` 회원 라우트 신설(정본 router.ts+BOM_QUOTE.md)과 어긋남 · ops/README "현재" 절에 `/rnd` 누락 · parts-engine README 구조도의 `app/ (예정)` 표기 vs 실제 코드 존재
 - **2026-07-05 (드리프트 봉인)** in [sp-node-api](../topics/sp-node-api.md): **`ACTIVE_ORDER_STATUSES` 상수 = SSOT** — 정상합계/부분취소/counts 의 IN절 상태 리터럴이 6곳에 복제돼 있던 것을 상수 하나로 통합(제작 8단계 도입 시 리터럴 누락 위험 제거). g5-db·계약·FE 탭·배지·i18n·sp-lite 배지가 이 한 소스를 따르게 함
 - **2026-07-05 (신규 동기화 지점)** in [spcb-bridge](../topics/spcb-bridge.md) / [infrastructure](../topics/infrastructure.md): `JWT_SECRET`(sp-node .env) ↔ `SPCB_JWT_SECRET`(spcb/lib/secret.php) 한 값이 이제 **회원 JWT·서비스 JWT 양쪽**을 서명 — 불일치 시 인증·알림 둘 다 401. 부하가 커진 단일 대칭키
 - **2026-07-05 (코어 내부 불일치)** in [docs-knowledge](../topics/docs-knowledge.md): 알림 게이트 — 코어 상세의 SMS 노출 조건(`cf_sms_use` truthy)과 실발송 조건(`cf_sms_use==='icode'`)이 어긋나 "노출됐는데 skip". sp-vue 가 실발송과 정합하도록 게이트를 좁혀 교정
