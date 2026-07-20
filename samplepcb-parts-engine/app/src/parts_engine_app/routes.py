@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .capabilities import supplier_search_capabilities
 from .jobs import Job, JobError, JobService, SupplierSearchOptions
 from .refresh import refresh_part
 
@@ -85,6 +86,12 @@ def _supplier_view(job: Job) -> dict[str, Any]:
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/capabilities")
+async def capabilities(request: Request) -> dict[str, object]:
+    """Read-only operational metadata. Credentials and filesystem paths are omitted."""
+    return supplier_search_capabilities(_svc(request).config)
 
 
 @router.post("/jobs", status_code=202)

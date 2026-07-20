@@ -29,7 +29,12 @@ import { engineFetch } from '../lib/engine-client';
 import { getBomQuoteConfig } from '../lib/sp-config';
 import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
-import { ingestJobResult, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
+import { ingestJobResult, recordJobOwner, startIngestPoller } from '../lib/bom-engine-jobs';
+import {
+  inputJson,
+  reserveDailySupplierSearch,
+  supplierRunSummarySnapshot,
+} from '../lib/bom-supplier-operations';
 import {
   BomAnalysisContractError,
   loadActiveBomAnalysisResult,
@@ -139,18 +144,30 @@ async function applyCompletedSupplierResult(
 ): Promise<boolean> {
   const result = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/result`);
   if (!result.ok) return false;
-  const applied = await refreshQuoteFromSupplierResult(quoteId, await result.json());
+  const envelope: unknown = await result.json();
+  const summary = supplierRunSummarySnapshot(envelope);
+  const applied = await refreshQuoteFromSupplierResult(quoteId, envelope);
   if (applied) {
     await prisma.spBomSupplierSearchRun.updateMany({
       where: { id: searchRunId, quoteId },
-      data: { status: 'completed', completedAt: new Date(), error: null },
+      data: {
+        status: 'completed',
+        completedAt: new Date(),
+        error: null,
+        ...(summary === null ? {} : { resultSummary: inputJson(summary) }),
+      },
     });
   } else {
     const completedAt = new Date();
     await prisma.$transaction([
       prisma.spBomSupplierSearchRun.updateMany({
         where: { id: searchRunId, quoteId },
-        data: { status: 'failed', completedAt, error: 'supplier_result_not_applied' },
+        data: {
+          status: 'failed',
+          completedAt,
+          error: 'supplier_result_not_applied',
+          ...(summary === null ? {} : { resultSummary: inputJson(summary) }),
+        },
       }),
       prisma.spBomQuote.updateMany({
         where: { id: quoteId, status: 'draft', enrichStatus: 'searching' },
@@ -238,7 +255,8 @@ async function autoEnrichQuote(
       data: { preflight: pf },
     });
     const liveCalls = (pf.plan?.estimated_api_calls ?? 0) > 0;
-    const dailySlotAvailable = !liveCalls || tryCountDailySearch(mbId, config.memberDailySearchLimit);
+    const dailySlotAvailable = !liveCalls
+      || await reserveDailySupplierSearch(mbId, config.memberDailySearchLimit);
     const decision = decideAutomaticSupplierSearch(pf.plan, dailySlotAvailable);
     estimatedApiCalls = decision.estimatedApiCalls;
     estimateExceedsJobLimit = decision.estimateExceedsJobLimit;

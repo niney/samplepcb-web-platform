@@ -560,6 +560,7 @@ model SpBomSupplierSearchRun {
   status         String           @db.VarChar(16) // preparing|running|completed|failed
   options        Json
   preflight      Json?
+  resultSummary  Json?            @map("result_summary") // 실제 호출·캐시·시간·한도 소진 행의 compact 운영 지표
   error          String?          @db.VarChar(500)
   createdAt      DateTime         @default(now())
   startedAt      DateTime?
@@ -572,6 +573,20 @@ model SpBomSupplierSearchRun {
   @@index([analysisRunId, createdAt])
   @@index([status, createdAt])
   @@map("sp_bom_supplier_search_run")
+}
+
+// 회원별 공급사 검색 일일 사용량 — 인메모리 카운터 대신 재시작·다중 인스턴스에도 유지한다.
+model SpBomSupplierDailyUsage {
+  id          BigInt   @id @default(autoincrement())
+  mbId        String   @db.VarChar(60)
+  dayKey      String   @db.Char(10) // Asia/Seoul YYYY-MM-DD
+  searchCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([mbId, dayKey])
+  @@index([dayKey, searchCount])
+  @@map("sp_bom_supplier_daily_usage")
 }
 
 // 분석 시트 원본 스냅샷 — 선택 여부는 견적 영역(sp_bom_quote_sheet)에 남기고 분석 자체는 불변이다.

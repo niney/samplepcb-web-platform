@@ -112,10 +112,8 @@ export function startIngestPoller(jobId: string, log: FastifyBaseLogger, onDone?
   pollers.set(jobId, timer);
 }
 
-// ── 고객(회원) 잡 소유·검색 쿼터 — 인메모리(단일 인스턴스 전제) ─────────────────
-// 엔진 잡 자체가 인메모리라 재시작 시 잡·소유가 함께 소멸한다(정합). 일일 검색
-// 카운터도 재시작 시 초기화 — 1차 허용(문서화), 남용의 실질 상한은 preflight
-// max_calls 클램프가 함께 담당한다.
+// ── 고객(회원) 잡 소유 — 엔진 인메모리 잡과 같은 수명 ────────────────────────
+// 회원 일일 검색 사용량은 bom-supplier-operations의 DB 원장이 담당한다.
 
 const jobOwners = new Map<string, string>();
 
@@ -126,20 +124,4 @@ export function recordJobOwner(jobId: string, mbId: string): void {
 /** 소유 확인 — 미기록·타인 잡은 false(호출부는 404 로 은닉). */
 export function jobOwnedBy(jobId: string, mbId: string): boolean {
   return jobOwners.get(jobId) === mbId;
-}
-
-const searchCounts = new Map<string, number>(); // `${YYYY-MM-DD}:${mbId}` → count
-
-/** 일일 검색 한도 검사 + 카운트 — 한도 초과면 false(카운트 안 함). */
-export function tryCountDailySearch(mbId: string, limit: number): boolean {
-  const day = new Date().toISOString().slice(0, 10);
-  const key = `${day}:${mbId}`;
-  // 전날 키 정리(무한 성장 방지)
-  for (const k of searchCounts.keys()) {
-    if (!k.startsWith(day)) searchCounts.delete(k);
-  }
-  const count = searchCounts.get(key) ?? 0;
-  if (count >= limit) return false;
-  searchCounts.set(key, count + 1);
-  return true;
 }

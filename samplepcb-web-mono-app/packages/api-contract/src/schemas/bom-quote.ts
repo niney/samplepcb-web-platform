@@ -630,10 +630,57 @@ export const BomQuoteExchangeRateStatus = z.object({
 });
 export type BomQuoteExchangeRateStatusType = z.infer<typeof BomQuoteExchangeRateStatus>;
 
+export const BomSupplierSearchOperations = z.object({
+  configuredMaxCalls: z.number().int().positive(),
+  effectiveMaxCalls: z.number().int().positive().nullable(),
+  engine: z.object({
+    available: z.boolean(),
+    maxCallsPerJob: z.number().int().positive().nullable(),
+    error: z.string().nullable(),
+    suppliers: z.array(z.object({
+      supplier: z.enum(['digikey', 'mouser', 'unikeyic']),
+      configured: z.boolean(),
+    })),
+    cache: z.object({
+      mode: z.enum(['normal', 'only']),
+      entryCount: z.number().int().nonnegative(),
+      rawTtlSeconds: z.number().int().nonnegative(),
+      keywordTtlSeconds: z.number().int().nonnegative(),
+      staleTtlSeconds: z.number().int().nonnegative(),
+      staleIfError: z.boolean(),
+    }).nullable(),
+  }),
+  todayUsage: z.object({
+    dayKey: z.string(),
+    totalSearches: z.number().int().nonnegative(),
+    memberCount: z.number().int().nonnegative(),
+    maxMemberSearches: z.number().int().nonnegative(),
+  }),
+  recentRuns: z.array(z.object({
+    id: z.string(),
+    quoteId: z.string(),
+    quoteTitle: z.string(),
+    memberId: z.string(),
+    status: z.string(),
+    componentCount: z.number().int().nonnegative().nullable(),
+    estimatedApiCalls: z.number().int().nonnegative().nullable(),
+    actualApiCalls: z.number().int().nonnegative().nullable(),
+    cacheHits: z.number().int().nonnegative().nullable(),
+    maxCalls: z.number().int().positive().nullable(),
+    budgetExhaustedCount: z.number().int().nonnegative().nullable(),
+    elapsedMs: z.number().nonnegative().nullable(),
+    error: z.string().nullable(),
+    createdAt: z.string(),
+    completedAt: z.string().nullable(),
+  })),
+});
+export type BomSupplierSearchOperationsType = z.infer<typeof BomSupplierSearchOperations>;
+
 export const BomQuoteConfigResponse = z.object({
   result: z.literal(true),
   data: BomQuoteConfig,
   exchangeRate: BomQuoteExchangeRateStatus,
+  supplierSearch: BomSupplierSearchOperations,
 });
 export type BomQuoteConfigResponseType = z.infer<typeof BomQuoteConfigResponse>;
 

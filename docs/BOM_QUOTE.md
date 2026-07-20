@@ -38,8 +38,10 @@
   상태·검색 텍스트처럼 정렬/조인에 필요한 안정 필드만 열로 승격한다. 알 수 없는 신규 엔진 필드도
   런타임에서 보존되며, 조회 계층이 늦게 따라가도 원본 데이터는 유실되지 않는다.
 - `sp_bom_supplier_search_run`: 어떤 분석 run과 옵션으로 독립 공급사 검색을 실행했는지,
-  엔진 jobId·preflight·상태·오류·시각을 영속한다. 엔진 재시작으로 잡이 사라지면 같은 분석
-  스냅샷에서 새 실행을 만들 수 있다.
+  엔진 jobId·preflight·상태·오류·시각과 완료 시 실제 API 호출·캐시 적중·소요시간·한도 소진
+  요약을 영속한다. 엔진 재시작으로 잡이 사라지면 같은 분석 스냅샷에서 새 실행을 만들 수 있다.
+- `sp_bom_supplier_daily_usage`: 회원별 KST 일자 검색 횟수. 기존 프로세스 메모리 카운터와 달리
+  sp-node 재시작·다중 인스턴스에서도 일일 한도가 유지되며 조건부 원자 증가로 동시 요청을 제한한다.
 - `sp_bom_quote_item`(SpBomQuoteItem): **id(영속 행 식별자)**·rowIdx(표시 순서)·
   analysisComponentId(추출 정본 연결)·included·mpn·bomQty·**orderQty(박제 수량 = 단일 진실)**·
   matchStatus(auto|manual|none)·**matchEvidence Json(엔진 판정·안전 후보·선정 정책 스냅샷)**·
@@ -86,6 +88,12 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   검색을 시작하고 sp-engine이 실제 호출 시점의 원자적 job budget으로 `max_calls`를 강제한다.
   실제 한도에 도달한 요청은 `job_call_limit_exhausted`로 구분한다. 회원 일일 한도 소진은
   캐시 전용으로 조용히 축퇴하지 않고 검색 실행 실패 사유로 영속한다.
+- **관리자 운영 화면(2026-07-21)**: `/app/admin/settings`의 `BOM 견적` 탭에서 관리자 설정
+  `supplierSearchMaxCalls`와 sp-engine `/capabilities`가 알리는 런타임 안전 상한을 함께 보여주고,
+  둘 중 작은 값을 실제 적용 한도로 표시한다. 엔진 연결·공급사 자격증명 준비 여부·캐시 모드/건수와
+  오늘 회원 검색 횟수, 최근 10개 실행의 예상/실제 호출·캐시·소요시간·실패를 한 화면에서 확인한다.
+  엔진 상한을 넘는 설정은 sp-vue와 sp-node 양쪽에서 저장을 차단한다. `/capabilities`에는 키·경로를
+  포함하지 않고 비밀이 아닌 운영 메타데이터만 노출한다.
 - **품번 미검색 시 스펙 재검색(2026-07-21)**: `identity`/`hybrid` 품번 검색에서 신뢰할 수 있는
   동일 품번 후보가 없고 BOM의 확정 스펙이 충분하면, 엔진이 품번·제조사를 제거한 `parametric`
   질의로 DigiKey·Mouser를 한 번 더 검색한다. 최초 품번 질의와 응답도 결과에 함께 보존하며,

@@ -3,11 +3,15 @@
 export const BOM_ENGINE_URL = process.env.BOM_ENGINE_URL ?? 'http://127.0.0.1:8400';
 const BOM_ENGINE_TIMEOUT_MS = Number(process.env.BOM_ENGINE_TIMEOUT_MS ?? 120_000);
 
-export async function engineFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function engineFetch(
+  path: string,
+  init?: RequestInit,
+  timeoutMs = BOM_ENGINE_TIMEOUT_MS,
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort();
-  }, BOM_ENGINE_TIMEOUT_MS);
+  }, timeoutMs);
   try {
     return await fetch(`${BOM_ENGINE_URL}${path}`, { ...init, signal: controller.signal });
   } finally {

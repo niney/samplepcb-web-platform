@@ -19,6 +19,7 @@ import type { AiUsecaseKeyType } from '@sp/api-contract';
 import { getBusinessInfo, updateBusinessInfo, type BusinessInfo } from '../lib/g5-db';
 import { cleanXssTags, isValidCallback } from '../lib/shop-config';
 import { getBomQuoteConfig, getGerberPriceMode, setBomQuoteConfig, setGerberPriceMode } from '../lib/sp-config';
+import { getBomSupplierSearchOperations, getSupplierEngineStatus } from '../lib/bom-supplier-operations';
 import {
   getBomQuoteExchangeRateStatus,
   refreshKoreaEximUsdExchangeRate,
@@ -161,6 +162,7 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       result: true as const,
       data: config,
       exchangeRate: await getBomQuoteExchangeRateStatus(config, lastRefreshError),
+      supplierSearch: await getBomSupplierSearchOperations(config),
     };
   };
 
@@ -172,8 +174,15 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
   fastify.put(
     '/settings/bom-quote',
-    { schema: { body: BomQuoteConfig, response: { 200: BomQuoteConfigResponse } } },
-    async (request) => {
+    { schema: { body: BomQuoteConfig, response: { 200: BomQuoteConfigResponse, 400: ApiError } } },
+    async (request, reply) => {
+      const engine = await getSupplierEngineStatus();
+      if (engine.maxCallsPerJob !== null && request.body.supplierSearchMaxCalls > engine.maxCallsPerJob) {
+        return reply.status(400).send({
+          error: 'BOM_ENGINE_MAX_CALLS_EXCEEDED',
+          message: `검색 1회 최대 호출은 현재 엔진 안전 상한 ${String(engine.maxCallsPerJob)}회를 넘을 수 없습니다.`,
+        });
+      }
       await setBomQuoteConfig(request.body);
       return bomQuoteSettingsData();
     },

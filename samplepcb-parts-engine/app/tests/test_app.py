@@ -57,6 +57,28 @@ def test_health(tmp_path):
     assert _client(tmp_path).get("/health").json() == {"status": "ok"}
 
 
+def test_capabilities_exposes_limits_without_supplier_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv("DIGIKEY_CLIENT_ID", "digikey-client-secret-value")
+    monkeypatch.setenv("DIGIKEY_CLIENT_SECRET", "digikey-secret-value")
+    monkeypatch.setenv("MOUSER_API_KEY", "mouser-secret-value")
+    monkeypatch.delenv("UNIKEYIC_API_KEY", raising=False)
+
+    body = _client(tmp_path).get("/capabilities").json()
+
+    assert body["supplier_search"]["max_calls_per_job"] == 700
+    assert body["supplier_search"]["cache"]["mode"] == "normal"
+    assert body["supplier_search"]["cache"]["entry_count"] == 0
+    assert body["supplier_search"]["suppliers"] == [
+        {"supplier": "digikey", "configured": True},
+        {"supplier": "mouser", "configured": True},
+        {"supplier": "unikeyic", "configured": False},
+    ]
+    serialized = str(body)
+    assert "digikey-client-secret-value" not in serialized
+    assert "digikey-secret-value" not in serialized
+    assert "mouser-secret-value" not in serialized
+
+
 def test_upload_parse_and_display(tmp_path):
     client = _client(tmp_path)
     resp = client.post(

@@ -326,3 +326,23 @@ export type BomSupplierResultType = z.infer<typeof BomSupplierResult>;
 
 export const BomSupplierResultResponse = z.object({ result: z.literal(true), data: BomSupplierResult });
 export type BomSupplierResultResponseType = z.infer<typeof BomSupplierResultResponse>;
+
+export const BomEngineCapabilities = z.object({
+  schema_version: z.string(),
+  supplier_search: z.object({
+    max_calls_per_job: z.number().int().positive(),
+    suppliers: z.array(z.object({
+      supplier: z.enum(['digikey', 'mouser', 'unikeyic']),
+      configured: z.boolean(),
+    })),
+    cache: z.object({
+      mode: z.enum(['normal', 'only']),
+      entry_count: z.number().int().nonnegative(),
+      raw_ttl_seconds: z.number().int().nonnegative(),
+      keyword_ttl_seconds: z.number().int().nonnegative(),
+      stale_ttl_seconds: z.number().int().nonnegative(),
+      stale_if_error: z.boolean(),
+    }),
+  }),
+});
+export type BomEngineCapabilitiesType = z.infer<typeof BomEngineCapabilities>;

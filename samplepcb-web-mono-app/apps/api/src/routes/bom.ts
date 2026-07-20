@@ -5,8 +5,9 @@ import { BomPartSearchQuery, BomPartSearchResponse, BomSupplierOptions, PartDeta
 import { pickDefaultOffer } from '@sp/utils';
 import { esClient } from '../es/client';
 import { SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
-import { ingestJobResult, jobOwnedBy, proxyEngine, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
+import { ingestJobResult, jobOwnedBy, proxyEngine, recordJobOwner, startIngestPoller } from '../lib/bom-engine-jobs';
 import { refreshQuotesForJob, toOfferInputs } from '../lib/bom-quote';
+import { reserveDailySupplierSearch } from '../lib/bom-supplier-operations';
 import { getBomQuoteConfig } from '../lib/sp-config';
 import { loadPartDetailDto } from '../lib/parts-read';
 import { prisma } from '../lib/prisma';
@@ -67,7 +68,7 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     async (request, reply) => {
       if (!(await assertJobAccess(request.params.id, request.user.mbId))) return reply.notFound('잡을 찾을 수 없습니다');
       const config = await getBomQuoteConfig();
-      if (!tryCountDailySearch(request.user.mbId, config.memberDailySearchLimit)) {
+      if (!(await reserveDailySupplierSearch(request.user.mbId, config.memberDailySearchLimit))) {
         return reply.status(429).send({ result: false, error: 'SEARCH_DAILY_LIMIT' });
       }
       const body = { ...request.body, max_calls: Math.min(request.body.max_calls, config.supplierSearchMaxCalls) };
