@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
@@ -18,6 +19,7 @@ import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
 import { getBomQuoteConfig } from '../lib/sp-config';
+import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { ingestJobResult, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
 import {
   buildItemsFromEngineResult,
@@ -244,7 +246,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (stored === undefined) return reply.status(502).send({ result: false, error: 'FILE_SERVER_ERROR' });
 
     // 3) 견적 생성 — 비용은 sp_config 기본값 스냅샷("예상 — 확정 시 변동")
-    const config = await getBomQuoteConfig();
+    const config = await getBomQuoteRuntimeConfig();
     const contentHash = createHash('sha256').update(file.buffer).digest('hex');
     const quote = await prisma.$transaction(async (tx) => {
       const q = await tx.spBomQuote.create({
@@ -259,6 +261,9 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
           managementFee: config.defaultManagementFee,
           finalTotal: config.defaultShippingFee + config.defaultManagementFee,
           usdKrwRateUsed: config.usdKrwRate,
+          exchangeRateSnapshot: config.exchangeRateSnapshot === null
+            ? Prisma.DbNull
+            : (config.exchangeRateSnapshot as Prisma.InputJsonValue),
         },
         select: { id: true },
       });
@@ -455,13 +460,14 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     });
     if (claimed.count !== 1) return reply.conflict('다른 시트 계산이 진행 중입니다');
 
-    const config = await getBomQuoteConfig();
+    const config = await getBomQuoteRuntimeConfig();
     try {
       await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, false);
       const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
       // 라인·선택 시트·ready를 한 트랜잭션으로 공개한다.
       const willEnrich = enrichNeeded(computed.items, config.freshnessHours);
       await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
+        exchangeRateSnapshot: config.exchangeRateSnapshot,
         enrichStatus: willEnrich ? 'searching' : 'idle',
         buildStatus: 'ready',
         selectedSheetIndexes: requestedIndexes,
@@ -496,7 +502,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (quote.buildStatus !== 'ready') return reply.conflict('시트 계산이 완료된 후 수정할 수 있습니다');
     if (quote.enrichStatus === 'searching') return reply.conflict('공급사 확인이 완료된 후 수정할 수 있습니다');
 
-    const config = await getBomQuoteConfig();
+    const config = await getBomQuoteRuntimeConfig();
     const existing = new Map(quote.items.map((row) => [row.rowIdx, toItemDto(row)]));
     // 엔진 판정은 서버 소유 스냅샷 — 클라이언트 PATCH가 변조하거나 과거 값으로 되돌릴 수 없다.
     const items =
@@ -535,6 +541,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     await repriceCandidateSelections(quote.id, items, nextSetQty, nextSpareQty, config.usdKrwRate);
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
+      exchangeRateSnapshot: config.exchangeRateSnapshot,
       ...(request.body.title !== undefined ? { title: request.body.title } : {}),
       ...(request.body.setQty !== undefined ? { setQty: request.body.setQty } : {}),
       ...(request.body.spareQty !== undefined ? { spareQty: request.body.spareQty } : {}),
@@ -553,11 +560,13 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (quote.status !== 'draft') return reply.conflict('draft 상태에서만 가능합니다');
     if (quote.buildStatus !== 'ready') return reply.conflict('시트 계산이 완료된 후 다시 매칭할 수 있습니다');
 
-    const config = await getBomQuoteConfig();
+    const config = await getBomQuoteRuntimeConfig();
     const items = quote.items.map((row) => toItemDto(row));
     await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, request.body.onlyUnmatched);
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
-    await persistQuoteComputed(quote.id, computed, config.usdKrwRate);
+    await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
+      exchangeRateSnapshot: config.exchangeRateSnapshot,
+    });
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');

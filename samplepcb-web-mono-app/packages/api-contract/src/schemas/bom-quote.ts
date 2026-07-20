@@ -289,6 +289,28 @@ export const BomQuoteSummary = z.object({
 });
 export type BomQuoteSummaryType = z.infer<typeof BomQuoteSummary>;
 
+export const BomQuoteUsdRateMode = z.enum(['auto', 'manual']);
+export type BomQuoteUsdRateModeType = z.infer<typeof BomQuoteUsdRateMode>;
+
+export const BomQuoteUsdRateType = z.enum(['dealBasR', 'tts']);
+export type BomQuoteUsdRateTypeType = z.infer<typeof BomQuoteUsdRateType>;
+
+/** 견적 계산에 실제 적용한 환율의 출처·기준일 스냅샷. draft 재계산 중에는 갱신되고 RFQ 요청 후 동결된다. */
+export const BomQuoteExchangeRateSnapshot = z.object({
+  mode: BomQuoteUsdRateMode,
+  source: z.enum(['koreaexim', 'manual']),
+  rateType: z.enum(['dealBasR', 'tts', 'manual']),
+  sourceRate: z.number().positive(),
+  safetyMarginPercent: z.number().min(0).max(20),
+  appliedRate: z.number().positive(),
+  rateDate: z.string().nullable(),
+  fetchedAt: z.string().nullable(),
+  stale: z.boolean(),
+  /** auto 모드에서 수동값 또는 오래된 캐시를 쓴 경우의 축퇴 사유. */
+  fallbackReason: z.enum(['manual-rate', 'stale-cache']).nullable(),
+});
+export type BomQuoteExchangeRateSnapshotType = z.infer<typeof BomQuoteExchangeRateSnapshot>;
+
 export const BomQuoteDetail = BomQuoteSummary.extend({
   engineJobId: z.string().nullable(),
   /** 전체 시트 파싱→선택→선택 시트 계산의 서버 영속 단일 진실. */
@@ -308,6 +330,8 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
   finalTotal: z.number(),
   /** 환산에 사용한 USD→KRW 환율(미설정 null). */
   usdKrwRateUsed: z.number().nullable(),
+  /** 환율 출처·기준일·안전계수 감사 스냅샷(기존 견적은 null). */
+  exchangeRateSnapshot: BomQuoteExchangeRateSnapshot.nullable(),
   /** included 인데 금액 미산정(오퍼 없음·미환산) 라인 수. */
   uncostedCount: z.number().int(),
   customerMemo: z.string().nullable(),
@@ -440,8 +464,16 @@ export const BomQuoteConfig = z.object({
   defaultShippingFee: z.number().int().min(0),
   /** 예상 관리비 기본값(KRW) — 레거시 하드코딩 25000 의 승격. */
   defaultManagementFee: z.number().int().min(0),
-  /** USD→KRW 환산 환율(수동 설정, null=미환산 표시). */
+  /** 자동 환율 장애 시 폴백하거나 manual 모드에서 적용할 USD→KRW 환율. */
   usdKrwRate: z.number().positive().nullable(),
+  /** auto=수출입은행 캐시 우선, manual=관리자 입력값 고정. 기존 설정은 auto로 승격. */
+  usdKrwRateMode: BomQuoteUsdRateMode,
+  /** 수출입은행 매매기준율(dealBasR) 또는 송금 보낼 때 환율(tts). */
+  usdKrwAutoRateType: BomQuoteUsdRateType,
+  /** 외화 결제 시점 변동·수수료를 흡수할 자동 환율 안전계수(%). */
+  usdKrwSafetyMarginPercent: z.number().min(0).max(20),
+  /** 이 기간을 넘긴 자동 환율은 오래된 캐시로 표시(수동값이 있으면 수동 폴백 우선). */
+  usdKrwMaxAgeDays: z.number().int().min(1).max(30),
   /** 공급사 검색 1회 최대 외부 호출 수(엔진 max_calls 상한, 엔진 스키마 최대 1000). */
   supplierSearchMaxCalls: z.number().int().min(1).max(1000),
   /** 회원별 1일 공급사 검색 횟수 제한. */
@@ -451,5 +483,25 @@ export const BomQuoteConfig = z.object({
 });
 export type BomQuoteConfigType = z.infer<typeof BomQuoteConfig>;
 
-export const BomQuoteConfigResponse = z.object({ result: z.literal(true), data: BomQuoteConfig });
+export const BomQuoteExchangeRateStatus = z.object({
+  apiConfigured: z.boolean(),
+  cache: z.object({
+    rateDate: z.string(),
+    dealBasR: z.number().positive(),
+    tts: z.number().positive(),
+    fetchedAt: z.string(),
+  }).nullable(),
+  effective: BomQuoteExchangeRateSnapshot.nullable(),
+  lastRefreshError: z.string().nullable(),
+});
+export type BomQuoteExchangeRateStatusType = z.infer<typeof BomQuoteExchangeRateStatus>;
+
+export const BomQuoteConfigResponse = z.object({
+  result: z.literal(true),
+  data: BomQuoteConfig,
+  exchangeRate: BomQuoteExchangeRateStatus,
+});
 export type BomQuoteConfigResponseType = z.infer<typeof BomQuoteConfigResponse>;
+
+export const BomQuoteExchangeRateRefreshResponse = BomQuoteConfigResponse;
+export type BomQuoteExchangeRateRefreshResponseType = z.infer<typeof BomQuoteExchangeRateRefreshResponse>;

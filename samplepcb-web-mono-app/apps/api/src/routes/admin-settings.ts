@@ -9,6 +9,7 @@ import {
   ApiError,
   BomQuoteConfig,
   BomQuoteConfigResponse,
+  BomQuoteExchangeRateRefreshResponse,
   BusinessInfoResponse,
   BusinessInfoUpdate,
   GerberPricingResponse,
@@ -18,6 +19,10 @@ import type { AiUsecaseKeyType } from '@sp/api-contract';
 import { getBusinessInfo, updateBusinessInfo, type BusinessInfo } from '../lib/g5-db';
 import { cleanXssTags, isValidCallback } from '../lib/shop-config';
 import { getBomQuoteConfig, getGerberPriceMode, setBomQuoteConfig, setGerberPriceMode } from '../lib/sp-config';
+import {
+  getBomQuoteExchangeRateStatus,
+  refreshKoreaEximUsdExchangeRate,
+} from '../lib/exchange-rate';
 import { ollamaListModels } from '../lib/ai/ollama';
 import {
   AI_USECASE_DEFS,
@@ -150,10 +155,19 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
   };
 
   // GET/PUT /api/admin/settings/bom-quote — 고객 BOM 견적 비용·검색 한도(sp_config)
+  const bomQuoteSettingsData = async (lastRefreshError: string | null = null) => {
+    const config = await getBomQuoteConfig();
+    return {
+      result: true as const,
+      data: config,
+      exchangeRate: await getBomQuoteExchangeRateStatus(config, lastRefreshError),
+    };
+  };
+
   fastify.get(
     '/settings/bom-quote',
     { schema: { response: { 200: BomQuoteConfigResponse } } },
-    async () => ({ result: true as const, data: await getBomQuoteConfig() }),
+    async () => bomQuoteSettingsData(),
   );
 
   fastify.put(
@@ -161,7 +175,22 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     { schema: { body: BomQuoteConfig, response: { 200: BomQuoteConfigResponse } } },
     async (request) => {
       await setBomQuoteConfig(request.body);
-      return { result: true as const, data: await getBomQuoteConfig() };
+      return bomQuoteSettingsData();
+    },
+  );
+
+  // 외부 호출은 관리자 명시 액션과 일일 스케줄러에서만 수행. 실패해도 마지막 정상 캐시는 보존한다.
+  fastify.post(
+    '/settings/bom-quote/exchange-rate/refresh',
+    { schema: { response: { 200: BomQuoteExchangeRateRefreshResponse } } },
+    async () => {
+      let error: string | null = null;
+      try {
+        await refreshKoreaEximUsdExchangeRate();
+      } catch (cause: unknown) {
+        error = cause instanceof Error ? cause.message : String(cause);
+      }
+      return bomQuoteSettingsData(error);
     },
   );
 

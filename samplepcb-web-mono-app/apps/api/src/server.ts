@@ -33,6 +33,7 @@ import { adminMarketExpertRoutes } from './routes/admin-market-experts';
 import { adminMarketProjectRoutes } from './routes/admin-market-projects';
 import { adminMarketContractRoutes } from './routes/admin-market-contracts';
 import { adminMarketSettingsRoutes } from './routes/admin-market-settings';
+import { scheduleKoreaEximExchangeRateRefresh } from './lib/exchange-rate';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -109,6 +110,7 @@ try {
   // 환경변수 HOST=0.0.0.0 으로 override.
   const host = process.env.HOST ?? '127.0.0.1';
   await app.listen({ port: Number(process.env.PORT ?? 3333), host });
+  scheduleKoreaEximExchangeRateRefresh(app.log);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

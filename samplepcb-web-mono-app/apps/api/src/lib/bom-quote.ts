@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import {
   BomQuoteDecisionReason,
+  BomQuoteExchangeRateSnapshot,
   BomQuoteMatchEvidence,
   BomQuoteSelectionSource,
   BomQuoteSelectedOffer,
@@ -13,6 +14,7 @@ import {
   type BomQuoteCandidateSafetyType,
   type BomQuoteCandidateType,
   type BomQuoteDecisionReasonType,
+  type BomQuoteExchangeRateSnapshotType,
   type BomQuoteItemCandidatesType,
   type BomQuoteItemInputType,
   type BomQuoteItemType,
@@ -40,7 +42,7 @@ import { prisma } from './prisma';
 import { engineFetch } from './engine-client';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
-import { getBomQuoteConfig } from './sp-config';
+import { getBomQuoteRuntimeConfig } from './exchange-rate';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
 // 원칙: 수량·오퍼는 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
@@ -1905,7 +1907,7 @@ export async function applyQuoteCandidateSelection(
   if (requestedOfferKey !== null && !candidate.offers.some((offer) => offer.offerKey === requestedOfferKey)) {
     return 'offer-not-found';
   }
-  const config = await getBomQuoteConfig();
+  const config = await getBomQuoteRuntimeConfig();
   const items = quote.items.map((row) => toItemDto(row));
   const item = items.find((entry) => entry.rowIdx === rowIdx);
   if (item === undefined) return 'item-not-found';
@@ -1952,6 +1954,7 @@ export async function applyQuoteCandidateSelection(
   const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
   const selectedComputed = computed.items.find((entry) => entry.rowIdx === rowIdx);
   await persistQuoteComputed(quoteId, computed, config.usdKrwRate, {
+    exchangeRateSnapshot: config.exchangeRateSnapshot,
     selectionEvent: {
       rowIdx,
       source: 'customer',
@@ -2031,13 +2034,14 @@ export async function refreshQuoteFromCatalog(quoteId: bigint): Promise<void> {
 async function refreshQuoteFromCatalogInner(quoteId: bigint): Promise<void> {
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
   if (quote?.status !== 'draft') return;
-  const config = await getBomQuoteConfig();
+  const config = await getBomQuoteRuntimeConfig();
   const items = quote.items.map((row) => toItemDto(row));
   await refreshOfferSnapshots(items, config.usdKrwRate);
   await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, true);
   const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
   // 라인과 done을 한 트랜잭션으로 공개 — 어떤 상세 GET도 중간 상태를 볼 수 없다.
   await persistQuoteComputed(quoteId, result, config.usdKrwRate, {
+    exchangeRateSnapshot: config.exchangeRateSnapshot,
     enrichStatus: 'done',
     enrichedAt: new Date(),
   });
@@ -2056,12 +2060,13 @@ export async function refreshQuoteFromSupplierResult(quoteId: bigint, envelope: 
   const run = (async (): Promise<boolean> => {
     const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
     if (quote?.status !== 'draft') return false;
-    const config = await getBomQuoteConfig();
+    const config = await getBomQuoteRuntimeConfig();
     const items = quote.items.map((row) => toItemDto(row));
     const applied = await applyEngineSupplierResult(items, envelope, quote.setQty, quote.spareQty, config.usdKrwRate);
     if (!applied.applied) return false;
     const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistQuoteComputed(quoteId, result, config.usdKrwRate, {
+      exchangeRateSnapshot: config.exchangeRateSnapshot,
       enrichStatus: 'done',
       enrichedAt: new Date(),
       candidateSnapshots: applied.candidateSnapshots,
@@ -2180,6 +2185,7 @@ export interface QuotePersistenceExtra {
   buildStatus?: string;
   selectedSheetIndexes?: number[];
   candidateSnapshots?: QuoteCandidateSnapshotInput[];
+  exchangeRateSnapshot?: BomQuoteExchangeRateSnapshotType | null;
   selectionEvent?: {
     rowIdx: number;
     source: 'customer' | 'catalog' | 'admin';
@@ -2246,6 +2252,13 @@ export async function persistQuoteComputed(
         finalTotal: computed.finalTotal,
         uncostedCount: computed.uncostedCount,
         usdKrwRateUsed: usdKrwRate,
+        ...(extra?.exchangeRateSnapshot !== undefined
+          ? {
+              exchangeRateSnapshot: extra.exchangeRateSnapshot === null
+                ? Prisma.DbNull
+                : (extra.exchangeRateSnapshot as Prisma.InputJsonValue),
+            }
+          : {}),
         ...(extra?.title !== undefined ? { title: extra.title } : {}),
         ...(extra?.setQty !== undefined ? { setQty: extra.setQty } : {}),
         ...(extra?.spareQty !== undefined ? { spareQty: extra.spareQty } : {}),
@@ -2411,6 +2424,10 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     managementFee: quote.managementFee,
     finalTotal: quote.finalTotal,
     usdKrwRateUsed: quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed),
+    exchangeRateSnapshot: (() => {
+      const parsed = BomQuoteExchangeRateSnapshot.safeParse(quote.exchangeRateSnapshot);
+      return parsed.success ? parsed.data : null;
+    })(),
     uncostedCount: quote.uncostedCount,
     customerMemo: quote.customerMemo,
     confirmedShippingFee: quote.confirmedShippingFee,

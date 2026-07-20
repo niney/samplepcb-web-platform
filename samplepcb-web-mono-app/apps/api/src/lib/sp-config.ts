@@ -28,7 +28,12 @@ const BOM_QUOTE_CONFIG_KEY = 'bom_quote';
 export const BOM_QUOTE_CONFIG_DEFAULTS: BomQuoteConfigType = {
   defaultShippingFee: 30_000,
   defaultManagementFee: 25_000,
-  usdKrwRate: null, // 미설정 = USD 오퍼 미환산 표시(정직) — 관리자가 채우면 환산 예상 표기
+  // 수출입은행 매매기준율 + 2% 안전계수를 기본으로 사용한다. 수동값은 API/캐시 장애 폴백.
+  usdKrwRate: null,
+  usdKrwRateMode: 'auto',
+  usdKrwAutoRateType: 'dealBasR',
+  usdKrwSafetyMarginPercent: 2,
+  usdKrwMaxAgeDays: 7,
   // 실측: 부품 1건당 약 3콜(3공급사) — 100라인 BOM ≈ 300콜. 60은 실BOM에서 즉시 한도 초과였음.
   supplierSearchMaxCalls: 300,
   memberDailySearchLimit: 20,
@@ -39,7 +44,13 @@ export async function getBomQuoteConfig(): Promise<BomQuoteConfigType> {
   const row = await prisma.spConfig.findUnique({ where: { key: BOM_QUOTE_CONFIG_KEY } });
   if (row === null) return BOM_QUOTE_CONFIG_DEFAULTS;
   try {
-    const parsed = BomQuoteConfig.safeParse(JSON.parse(row.value));
+    const value: unknown = JSON.parse(row.value);
+    // 자동 환율 필드 도입 전 JSON도 기본값과 병합해 무중단 승격한다.
+    const parsed = BomQuoteConfig.safeParse(
+      typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? { ...BOM_QUOTE_CONFIG_DEFAULTS, ...value }
+        : value,
+    );
     return parsed.success ? parsed.data : BOM_QUOTE_CONFIG_DEFAULTS;
   } catch {
     return BOM_QUOTE_CONFIG_DEFAULTS; // 손상 값 — 기본값 폴백(다음 저장이 복구)
