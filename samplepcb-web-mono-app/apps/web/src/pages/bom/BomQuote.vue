@@ -39,6 +39,11 @@ import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
+import icFile from '../../assets/bom/ic-file.svg';
+import icPanelAi from '../../assets/bom/ic-panel-ai.svg';
+import icPanelNostock from '../../assets/bom/ic-panel-nostock.svg';
+import icPanelOrder from '../../assets/bom/ic-panel-order.svg';
+import icPanelQuote from '../../assets/bom/ic-panel-quote.svg';
 
 // 고객 스마트 BOM 견적 워크벤치 — Figma "02 BOM 파일 분석_검색 결과"(87:12875) 레이아웃에
 // 기존 기능(자동저장·오퍼/부품 모달·자동 보강·견적요청)을 병합. 사용자 지시:
@@ -315,6 +320,7 @@ const stats = computed(() => {
     matched,
     matchedPct: total === 0 ? 0 : Math.round((matched / total) * 100),
     nostock,
+    nostockPct: total === 0 ? 0 : Math.round((nostock / total) * 100),
     review,
     unmatched: total - matched - review,
     unresolved: total - matched,
@@ -682,6 +688,10 @@ const STATUS_LABEL: Record<string, string> = {
 function fmtWon(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
 }
+
+function fmtAmount(v: number | null): string {
+  return v === null ? '—' : v.toLocaleString('ko-KR');
+}
 </script>
 
 <template>
@@ -891,146 +901,181 @@ function fmtWon(v: number | null): string {
         </div>
       </section>
 
-      <!-- 우: 정보 패널 (시안 right side bar — 라이트 치환, 상단바 접기 버튼과 연동).
-           패널 자체는 고정, 내용이 길면 패널 안에서만 스크롤 -->
-      <aside v-show="rightOpen" class="w-full shrink-0 space-y-3 xl:min-h-0 xl:w-[286px] xl:overflow-y-auto xl:pb-1">
-        <!-- 회신(answered) -->
-        <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
-          <p class="font-semibold text-emerald-800">담당자 회신</p>
-          <p v-if="detail.answerNote" class="mt-1 whitespace-pre-wrap text-emerald-900">{{ detail.answerNote }}</p>
-          <p v-if="detail.confirmedTotal !== null" class="mt-2 text-emerald-900">
-            확정 견적: <b class="tabular-nums">{{ fmtWon(detail.confirmedTotal) }}</b>
-            <span v-if="detail.confirmedShippingFee !== null" class="ml-1 block text-xs">(운송료 {{ fmtWon(detail.confirmedShippingFee) }} · 관리비 {{ fmtWon(detail.confirmedManagementFee) }})</span>
-          </p>
-        </div>
-
-        <!-- AI 분석결과 (87:12996) -->
-        <div class="rounded-xl border border-gray-200 bg-white p-4">
-          <p class="flex items-center gap-1.5 text-[14px] font-bold text-[#061023]"><span>🤖</span> AI 분석결과</p>
-          <div class="mt-3 space-y-2">
-            <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2.5">
-              <span class="text-[11px] font-bold uppercase tracking-wide text-[#5f6777]">Total Lines</span>
-              <span class="text-[18px] font-bold tabular-nums text-[#061023]">{{ stats.total }}</span>
-            </div>
-            <div class="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2.5">
-              <span class="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Matched</span>
-              <span class="text-[18px] font-bold tabular-nums text-emerald-600">{{ stats.matched }} <span class="text-[12px] font-semibold">{{ stats.matchedPct }}%</span></span>
-            </div>
-            <div class="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2.5">
-              <span class="text-[11px] font-bold uppercase tracking-wide text-amber-700">Nostock</span>
-              <span class="text-[18px] font-bold tabular-nums text-amber-600">{{ stats.nostock }}</span>
-            </div>
-            <div v-if="!enriching && stats.review > 0" class="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2.5">
-              <span class="text-[11px] font-bold uppercase tracking-wide text-amber-700">검토 필요</span>
-              <span class="text-[18px] font-bold tabular-nums text-amber-600">{{ stats.review }}</span>
-            </div>
-            <!-- 보강 진행 중엔 "확인 중"(파랑) — 최종 미매칭 판정과 구분 -->
-            <div class="flex items-center justify-between rounded-lg px-3 py-2.5" :class="enriching ? 'bg-blue-50' : 'bg-red-50'">
-              <span class="text-[11px] font-bold uppercase tracking-wide" :class="enriching ? 'text-blue-700' : 'text-red-700'">{{ enriching ? '확인 중' : 'Unmatched' }}</span>
-              <span class="text-[18px] font-bold tabular-nums" :class="enriching ? 'text-blue-600' : 'text-red-600'">{{ enriching ? stats.unresolved : stats.unmatched }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 주문 정보 (87:13013) -->
-        <div class="rounded-xl border border-gray-200 bg-white p-4">
-          <p class="flex items-center gap-1.5 text-[14px] font-bold text-[#061023]"><span>🛒</span> 주문 정보</p>
-          <div class="mt-3 space-y-2.5 text-sm">
-            <div class="flex items-center justify-between">
-              <span class="text-[13px] text-[#5f6777]">세트 수량</span>
-              <div class="flex items-center gap-1">
-                <div class="flex h-[32px] w-[92px] items-center rounded-md border border-gray-300 bg-white">
-                  <button type="button" class="w-[26px] text-gray-400 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" @click="stepSet(-1)">−</button>
-                  <input v-model.number="setQty" type="number" min="1" class="w-full min-w-0 border-x border-gray-200 text-center text-[14px] font-semibold tabular-nums focus:outline-none disabled:cursor-not-allowed disabled:bg-transparent disabled:opacity-50" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" @change="restampAll">
-                  <button type="button" class="w-[26px] text-gray-400 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" @click="stepSet(1)">+</button>
-                </div>
-                <span class="text-[11px] text-gray-400">Set</span>
-              </div>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-[13px] text-[#5f6777]">예비 수량</span>
-              <div class="flex items-center gap-1">
-                <div class="flex h-[32px] w-[92px] items-center rounded-md border border-gray-300 bg-white">
-                  <button type="button" class="w-[26px] text-gray-400 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" @click="stepSpare(-1)">−</button>
-                  <input v-model.number="spareQty" type="number" min="0" class="w-full min-w-0 border-x border-gray-200 text-center text-[14px] font-semibold tabular-nums focus:outline-none disabled:cursor-not-allowed disabled:bg-transparent disabled:opacity-50" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" @change="restampAll">
-                  <button type="button" class="w-[26px] text-gray-400 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" @click="stepSpare(1)">+</button>
-                </div>
-                <span class="text-[11px] text-gray-400">Set</span>
-              </div>
-            </div>
-            <div class="flex items-center justify-between border-t border-gray-100 pt-2.5">
-              <span class="text-[13px] text-[#5f6777]">예상 납기</span>
-              <span class="text-[12px] text-gray-500">확정 시 안내</span>
-            </div>
-            <p class="text-[11px] leading-[16px] text-gray-400">주문수량 = max(BOM수량 × (세트+예비), MOQ) 후 주문배수 올림</p>
-          </div>
-        </div>
-
-        <!-- 예상 견적 (87:13028) -->
-        <div class="rounded-xl border border-gray-200 bg-white p-4" :aria-busy="pricingPending">
-          <p class="flex items-center gap-1.5 text-[14px] font-bold text-[#061023]"><span>💰</span> 예상 견적</p>
-          <div v-if="pricingPending" class="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-4 text-center" aria-live="polite">
-            <span class="mx-auto block size-2 animate-pulse rounded-full bg-blue-500" />
-            <p class="mt-2 text-[13px] font-semibold text-blue-800">공급사 가격을 확인하고 있습니다</p>
-            <p class="mt-1 text-[11px] leading-4 text-blue-600">모든 결과가 반영되면 합계와 최종합계를 표시합니다.</p>
-          </div>
-          <div v-else class="mt-3 space-y-1.5 text-[13px]">
-            <div class="flex justify-between"><span class="text-[#5f6777]">합계</span><span class="tabular-nums text-[#061023]">{{ fmtWon(itemsTotal) }}</span></div>
-            <div class="flex justify-between"><span class="text-[#5f6777]">운송료</span><span class="tabular-nums text-[#061023]">{{ fmtWon(detail.shippingFee) }}</span></div>
-            <div class="flex justify-between"><span class="text-[#5f6777]">관리비</span><span class="tabular-nums text-[#061023]">{{ fmtWon(detail.managementFee) }}</span></div>
-            <div class="mt-2 rounded-lg bg-[#eef4ff] px-3 py-2.5">
-              <div class="flex items-baseline justify-between">
-                <span class="text-[12px] font-semibold text-[#5f6777]">최종합계 <span class="font-normal">(VAT 별도)</span></span>
-                <span class="text-[20px] font-bold tabular-nums text-[#1e64fd]">{{ fmtWon(finalTotal) }}</span>
-              </div>
-            </div>
-            <p v-if="uncostedCount > 0" class="rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
-              금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다
+      <!-- 우: Figma right side bar(93:23505)의 치수·위계를 라이트 테마로 번역 -->
+      <aside v-show="rightOpen" class="w-full shrink-0 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#cbd3df] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] xl:min-h-0 xl:w-[286px] xl:overflow-y-auto xl:pb-1">
+        <div class="flex min-h-full flex-col rounded-xl border border-[#e1e6ef] bg-white p-[15px] shadow-[0_4px_18px_rgba(19,33,68,0.06)]">
+          <!-- 회신(answered) -->
+          <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="mb-[18px] rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12px]">
+            <p class="font-bold text-emerald-800">담당자 회신</p>
+            <p v-if="detail.answerNote" class="mt-1 whitespace-pre-wrap leading-[18px] text-emerald-900">{{ detail.answerNote }}</p>
+            <p v-if="detail.confirmedTotal !== null" class="mt-2 text-emerald-900">
+              확정 견적: <b class="tabular-nums">{{ fmtWon(detail.confirmedTotal) }}</b>
+              <span v-if="detail.confirmedShippingFee !== null" class="mt-1 block text-[10px] text-emerald-700">(운송료 {{ fmtWon(detail.confirmedShippingFee) }} · 관리비 {{ fmtWon(detail.confirmedManagementFee) }})</span>
             </p>
-            <p class="pt-1 text-[11px] leading-[16px] text-gray-400">· AI로 산출한 가견적입니다.<br>· 정확한 가격은 담당자 확정 시 안내드립니다.</p>
           </div>
-        </div>
 
-        <!-- CTA -->
-        <div class="space-y-2">
-          <button
-            v-if="isDraft"
-            type="button"
-            class="flex h-[48px] w-full items-center justify-center gap-1.5 rounded-xl bg-[#1e64fd] text-[15px] font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="request.isPending.value || stats.included === 0 || editingLocked"
-            :title="editingLocked ? '가격·재고 확인이 끝나면 요청할 수 있습니다' : undefined"
-            @click="openRequestModal"
-          >
-            {{ editingLocked ? '가격 확인 중…' : '📄 견적요청' }}
-          </button>
-          <!-- draft=하드 삭제(2단계 확인) · requested=요청 취소(관리자 워크플로 존중) -->
-          <template v-if="detail.status === 'draft'">
+          <!-- AI 분석결과 (93:23545) -->
+          <section>
+            <h2 class="flex h-[22px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-[#151b28]">
+              <img :src="icPanelAi" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
+              AI 분석결과
+            </h2>
+            <div class="mt-[10px] space-y-[11px]">
+              <div class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] border border-[#dce7f8] bg-[#f8faff] px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#2f7eff] after:to-transparent">
+                <div class="flex h-full flex-col justify-center pt-px">
+                  <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Total Lines</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-[#2477f4]">{{ stats.total }}</span>
+                </div>
+                <span class="grid size-[28px] place-items-center rounded-[6px] bg-[#e7f0ff] text-[19px] leading-none text-[#2477f4]">≋</span>
+              </div>
+              <div class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] border border-[#d7eee6] bg-[#f6fcf9] px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#08b77f] after:to-transparent">
+                <div class="flex h-full flex-col justify-center pt-px">
+                  <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Matched</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-[#08ad79]">{{ stats.matched }} <span class="text-[12px] font-semibold">{{ stats.matchedPct }}%</span></span>
+                </div>
+                <span class="grid size-[28px] place-items-center rounded-[6px] bg-[#e4f7ef] text-[19px] font-semibold leading-none text-[#08ad79]">✓</span>
+              </div>
+              <div class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] border border-[#f1e8b9] bg-[#fffdf3] px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#e2c100] after:to-transparent">
+                <div class="flex h-full flex-col justify-center pt-px">
+                  <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Nostock</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-[#c8aa00]">{{ stats.nostock }} <span class="text-[12px] font-semibold">{{ stats.nostockPct }}%</span></span>
+                </div>
+                <img :src="icPanelNostock" alt="" class="size-[28px] shrink-0">
+              </div>
+              <div v-if="!enriching && stats.review > 0" class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] border border-orange-200 bg-orange-50/60 px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-orange-400 after:to-transparent">
+                <div class="flex h-full flex-col justify-center pt-px">
+                  <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Review</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-orange-500">{{ stats.review }}</span>
+                </div>
+                <span class="grid size-[28px] place-items-center rounded-[6px] bg-orange-100 text-[17px] font-bold text-orange-500">!</span>
+              </div>
+              <!-- 보강 진행 중엔 Checking(파랑) — 최종 미매칭 판정과 구분 -->
+              <div
+                class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent"
+                :class="enriching ? 'border border-[#dce7f8] bg-[#f8faff] after:from-[#2f7eff]' : 'border border-[#f2dce3] bg-[#fff7f9] after:from-[#f23a6b]'"
+              >
+                <div class="flex h-full flex-col justify-center pt-px">
+                  <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">{{ enriching ? 'Checking' : 'Unmatched' }}</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums" :class="enriching ? 'text-[#2477f4]' : 'text-[#e73362]'">{{ enriching ? stats.unresolved : stats.unmatched }}</span>
+                </div>
+                <span class="grid size-[28px] place-items-center rounded-[6px] text-[20px] leading-none" :class="enriching ? 'bg-[#e7f0ff] text-[#2477f4]' : 'bg-[#fbe6ec] text-[#e73362]'">{{ enriching ? '…' : '×' }}</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="my-[18px] h-px shrink-0 bg-[#e8ebf0]" />
+
+          <!-- 주문 정보 (93:23562) -->
+          <section title="주문수량은 BOM 수량과 세트·예비 수량을 반영한 뒤 MOQ와 주문배수에 맞춰 계산됩니다.">
+            <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-[#151b28]">
+              <img :src="icPanelOrder" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
+              주문 정보
+            </h2>
+            <div class="mt-[10px] space-y-[11px] rounded-[8px] border border-[#e1e6ef] bg-[#f8fafc] px-[11px] py-[11px]">
+              <div class="flex items-center justify-between">
+                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-[#5f6777]">세트 수량</span>
+                <div class="flex items-center gap-[7px]">
+                  <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-[#cfd7e4] bg-white shadow-[inset_0_1px_1px_rgba(20,35,65,0.03)] focus-within:border-[#4d8df7] focus-within:ring-2 focus-within:ring-[#4d8df7]/15">
+                    <button type="button" class="w-[27px] shrink-0 border-r border-[#e1e6ef] bg-[#f3f6fa] text-[14px] text-[#9aa5b5] transition hover:bg-[#eaf1fb] hover:text-[#315f9f] disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 줄이기" @click="stepSet(-1)">−</button>
+                    <input v-model.number="setQty" type="number" min="1" class="min-w-0 flex-1 appearance-none bg-white text-center text-[14px] font-semibold tabular-nums text-[#172033] outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:bg-[#f8fafc] disabled:text-[#9aa5b5] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량" @change="restampAll">
+                    <button type="button" class="w-[27px] shrink-0 border-l border-[#e1e6ef] bg-[#f3f6fa] text-[14px] text-[#9aa5b5] transition hover:bg-[#eaf1fb] hover:text-[#315f9f] disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 늘리기" @click="stepSet(1)">+</button>
+                  </div>
+                  <span class="w-[18px] text-[10px] font-semibold text-[#9aa3b2]">Set</span>
+                </div>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-[#5f6777]">예비 수량</span>
+                <div class="flex items-center gap-[7px]">
+                  <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-[#cfd7e4] bg-white shadow-[inset_0_1px_1px_rgba(20,35,65,0.03)] focus-within:border-[#4d8df7] focus-within:ring-2 focus-within:ring-[#4d8df7]/15">
+                    <button type="button" class="w-[27px] shrink-0 border-r border-[#e1e6ef] bg-[#f3f6fa] text-[14px] text-[#9aa5b5] transition hover:bg-[#eaf1fb] hover:text-[#315f9f] disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 줄이기" @click="stepSpare(-1)">−</button>
+                    <input v-model.number="spareQty" type="number" min="0" class="min-w-0 flex-1 appearance-none bg-white text-center text-[14px] font-semibold tabular-nums text-[#172033] outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:bg-[#f8fafc] disabled:text-[#9aa5b5] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량" @change="restampAll">
+                    <button type="button" class="w-[27px] shrink-0 border-l border-[#e1e6ef] bg-[#f3f6fa] text-[14px] text-[#9aa5b5] transition hover:bg-[#eaf1fb] hover:text-[#315f9f] disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 늘리기" @click="stepSpare(1)">+</button>
+                  </div>
+                  <span class="w-[18px] text-[10px] font-semibold text-[#9aa3b2]">Set</span>
+                </div>
+              </div>
+              <div class="flex h-[19px] items-center justify-between pt-px">
+                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-[#5f6777]">예상 납기</span>
+                <span class="flex items-center gap-[6px] text-[11px] font-semibold text-[#169ab6]"><span class="size-[6px] rounded-full bg-[#20aeca]" />확정 시 안내</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="my-[18px] h-px shrink-0 bg-[#e8ebf0]" />
+
+          <!-- 예상 견적 (93:23573) -->
+          <section :aria-busy="pricingPending">
+            <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-[#151b28]">
+              <img :src="icPanelQuote" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
+              예상 견적
+            </h2>
+            <div v-if="pricingPending" class="mt-[10px] rounded-[8px] border border-[#d9e6fb] bg-[#f4f8ff] px-3 py-4 text-center" aria-live="polite">
+              <span class="mx-auto block size-[7px] animate-pulse rounded-full bg-[#4d8df7]" />
+              <p class="mt-2 text-[12px] font-semibold text-[#315f9f]">공급사 가격을 확인하고 있습니다</p>
+              <p class="mt-1 text-[10px] leading-[15px] text-[#7c94b7]">모든 결과가 반영되면 합계를 표시합니다.</p>
+            </div>
+            <div v-else class="mt-[10px]">
+              <div class="space-y-[8px] rounded-[8px] border border-[#e1e6ef] bg-[#f8fafc] px-[11px] py-[11px] text-[12px]">
+                <div class="flex items-baseline justify-between"><span class="text-[#5f6777]">합계</span><span class="font-bold tabular-nums text-[#293346]">{{ fmtAmount(itemsTotal) }} <small class="text-[9px] font-normal text-[#9aa3b2]">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="text-[#5f6777]">운송료</span><span class="font-bold tabular-nums text-[#293346]">{{ fmtAmount(detail.shippingFee) }} <small class="text-[9px] font-normal text-[#9aa3b2]">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="text-[#5f6777]">관리비</span><span class="font-bold tabular-nums text-[#293346]">{{ fmtAmount(detail.managementFee) }} <small class="text-[9px] font-normal text-[#9aa3b2]">원</small></span></div>
+              </div>
+              <div class="relative mt-[11px] h-[70px] rounded-[8px] border border-[#d6e3fb] bg-[#f4f7ff] px-[11px] py-[11px]">
+                <span class="text-[12px] font-medium text-[#263248]">최종합계 <span class="text-[10px] font-normal text-[#8a95a6]">(VAT 별도)</span></span>
+                <span class="absolute bottom-[11px] right-[11px] text-[20px] font-bold leading-[22px] tabular-nums text-[#287cff]">{{ fmtAmount(finalTotal) }}<small class="ml-[3px] text-[11px] font-semibold">원</small></span>
+              </div>
+              <p v-if="uncostedCount > 0" class="mt-[9px] rounded-[5px] bg-amber-50 px-2 py-1.5 text-[10px] leading-[15px] text-amber-700">
+                금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다
+              </p>
+              <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[15px] text-[#8993a2]">
+                <li>AI로 산출한 가견적입니다.</li>
+                <li>정확한 가격은 담당자 확정 시 안내드립니다.</li>
+              </ul>
+            </div>
+          </section>
+
+          <!-- CTA -->
+          <div class="mt-auto space-y-2 pt-[30px]">
             <button
-              v-if="!deleteArm"
+              v-if="isDraft"
               type="button"
-              class="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-600 hover:border-red-300 hover:bg-red-50 hover:text-red-600"
-              :disabled="del.isPending.value"
-              @click="armDelete"
+              class="flex h-[40px] w-full items-center justify-center gap-[8px] rounded-[7px] bg-[#287cff] text-[14px] font-bold text-white shadow-[0_6px_14px_rgba(40,124,255,0.24)] transition hover:bg-[#176ff5] disabled:cursor-not-allowed disabled:opacity-45"
+              :disabled="request.isPending.value || stats.included === 0 || editingLocked"
+              :title="editingLocked ? '가격·재고 확인이 끝나면 요청할 수 있습니다' : undefined"
+              @click="openRequestModal"
             >
-              {{ del.isPending.value ? '삭제 중…' : '견적 삭제' }}
+              <img :src="icFile" alt="" class="size-[14px] brightness-0 invert">
+              {{ editingLocked ? '가격 확인 중…' : '견적요청' }}
             </button>
+            <!-- draft=하드 삭제(2단계 확인) · requested=요청 취소(관리자 워크플로 존중) -->
+            <template v-if="detail.status === 'draft'">
+              <button
+                v-if="!deleteArm"
+                type="button"
+                class="w-full rounded-[7px] border border-[#dbe1ea] bg-white px-4 py-2 text-[12px] text-[#7a8493] transition hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                :disabled="del.isPending.value"
+                @click="armDelete"
+              >
+                {{ del.isPending.value ? '삭제 중…' : '견적 삭제' }}
+              </button>
+              <button
+                v-else
+                type="button"
+                class="w-full rounded-[7px] bg-red-600 px-4 py-2 text-[12px] font-semibold text-white hover:bg-red-700"
+                @click="onDelete"
+              >
+                정말 삭제 — 되돌릴 수 없습니다
+              </button>
+            </template>
             <button
-              v-else
+              v-else-if="detail.status === 'requested'"
               type="button"
-              class="w-full rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
-              @click="onDelete"
+              class="w-full rounded-[7px] border border-[#dbe1ea] bg-white px-4 py-2 text-[12px] text-[#7a8493] transition hover:bg-gray-50 hover:text-[#273248]"
+              @click="onCancel"
             >
-              정말 삭제 — 되돌릴 수 없습니다
+              요청 취소
             </button>
-          </template>
-          <button
-            v-else-if="detail.status === 'requested'"
-            type="button"
-            class="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50"
-            @click="onCancel"
-          >
-            요청 취소
-          </button>
+          </div>
         </div>
       </aside>
     </div>
