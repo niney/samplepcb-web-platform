@@ -21,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'toggle-include': [];
   'qty-change': [qty: number];
+  'open-offers': [];
   'open-candidates': [];
 }>();
 
@@ -212,14 +213,14 @@ function onQtyInput(event: Event): void {
       </template>
       <p v-else class="pt-[24px] text-right text-[12px] text-gray-300">—</p>
     </td>
-    <!-- QUANTITY / STOCK: 패키지(→후보 드로어) + 수량 -->
+    <!-- QUANTITY / STOCK: 공급사 포장(→현재 부품 오퍼 선택) + 수량 -->
     <td class="px-2 py-3">
       <button
         type="button"
         class="flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d3d5dc] bg-[#f4f4f4] px-3 text-[13px] font-bold text-[#4c4c4c] disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="!isDraft || editingLocked"
-        :title="editingLocked ? EDIT_LOCK_TITLE : (item.selectedOffer?.packaging ?? '오퍼 선택')"
-        @click="emit('open-candidates')"
+        :title="editingLocked ? EDIT_LOCK_TITLE : `공급사·포장 변경 — ${item.selectedOffer?.packaging ?? '오퍼 선택'}`"
+        @click="emit('open-offers')"
       >
         <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : '오퍼 없음') }}</span>
         <span class="text-[10px] text-gray-400">▾</span>

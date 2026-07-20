@@ -82,6 +82,18 @@ function toggleCandidate(candidateKey: string): void {
   expanded.value = next;
 }
 
+function offersForDisplay(candidate: BomQuoteCandidateType): BomQuoteCandidateOfferType[] {
+  const offers = [...candidate.offers];
+  if (candidate.bestOfferKey === null) return offers;
+
+  return offers.sort((a, b) => {
+    const aRecommended = a.offerKey === candidate.bestOfferKey;
+    const bRecommended = b.offerKey === candidate.bestOfferKey;
+    if (aRecommended === bRecommended) return 0;
+    return aRecommended ? -1 : 1;
+  });
+}
+
 function statusLabel(status: string): string {
   const labels: Record<string, string> = {
     verified_exact: '정확 일치',
@@ -390,13 +402,14 @@ onBeforeUnmount(() => {
 
                     <div v-if="expanded.has(candidate.candidateKey)" class="border-t border-slate-200 bg-white">
                       <div v-if="candidate.offers.length > 0" class="divide-y divide-slate-100">
-                        <div v-for="offer in candidate.offers" :key="offer.offerKey" class="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                        <div v-for="offer in offersForDisplay(candidate)" :key="offer.offerKey" class="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
                           <div>
                             <div class="flex flex-wrap items-center gap-2 text-sm">
                               <strong class="uppercase text-slate-900">{{ offer.supplier }}</strong>
                               <span class="text-xs text-slate-500">{{ offer.supplierSku || 'SKU 미확인' }}</span>
                               <span v-if="offer.packaging" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">{{ offer.packaging }}</span>
                               <span v-if="offer.applied?.stockShort" class="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-bold text-red-700">재고 부족</span>
+                              <span v-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">추천 오퍼</span>
                               <span v-if="context.selectedOfferKey === offer.offerKey" class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-bold text-blue-700">사용 중</span>
                             </div>
                             <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">

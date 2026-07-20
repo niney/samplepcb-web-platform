@@ -37,6 +37,7 @@ import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 import BomCompareModal from '../../components/bom/BomCompareModal.vue';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
+import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
 
 // 고객 스마트 BOM 견적 워크벤치 — Figma "02 BOM 파일 분석_검색 결과"(87:12875) 레이아웃에
@@ -332,6 +333,8 @@ const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee 
 // 재시작·잡 유실은 서버의 게으른 치유(조회 시 수렴)가 처리한다.
 const compareOpen = ref(false);
 const enriching = computed(() => detail.value?.enrichStatus === 'searching');
+// 중간 공급사 결과로 계산된 금액은 최종 합계처럼 오인될 수 있으므로 완료 전에는 숨긴다.
+const pricingPending = computed(() => detail.value?.buildStatus !== 'ready' || enriching.value);
 // PATCH가 라인 전체 replace-all 계약이므로 일부 행만 열어도 확인 중 데이터를 덮을 수 있다.
 // 검색·결과 반영이 끝날 때까지 모든 BOM 변경 동작을 잠그고 읽기 기능만 유지한다.
 const editingLocked = computed(() => enriching.value);
@@ -369,8 +372,12 @@ watch(
 );
 
 // ── 후보 비교·선택 드로어 + 카탈로그 폴백 ────────────────────────────────────
+type SelectionSurface = 'candidates' | 'offers';
 const candidateRowIdx = ref<number | null>(null);
-const candidateOpen = computed(() => candidateRowIdx.value !== null);
+const selectionSurface = ref<SelectionSurface | null>(null);
+const candidateOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value === 'candidates');
+const quoteOfferOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value === 'offers');
+const selectionOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value !== null);
 const candidateItem = computed(() =>
   candidateRowIdx.value === null
     ? null
@@ -379,7 +386,7 @@ const candidateItem = computed(() =>
 const candidateQuery = useBomQuoteCandidates(
   computed(() => (quoteId.value === '' ? null : quoteId.value)),
   candidateRowIdx,
-  candidateOpen,
+  selectionOpen,
 );
 const candidateSelection = useSelectBomQuoteCandidate();
 const candidateSelectionError = ref('');
@@ -391,6 +398,7 @@ watch(editingLocked, (locked) => {
   if (!locked) return;
   // 열려 있던 선택 모달에서 검색 도중 변경이 들어가는 경로도 차단한다.
   candidateRowIdx.value = null;
+  selectionSurface.value = null;
   offerModal.value = null;
   partModal.value = null;
 });
@@ -403,20 +411,40 @@ function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: stri
 function openCandidateDrawer(item: BomQuoteItemType): void {
   candidateSelectionError.value = '';
   candidateRowIdx.value = item.rowIdx;
+  selectionSurface.value = 'candidates';
 }
 
-function closeCandidateDrawer(): void {
+function closeSelectionSurface(): void {
   candidateRowIdx.value = null;
+  selectionSurface.value = null;
   candidateSelectionError.value = '';
 }
 
-async function selectCandidate(candidateKey: string, offerKey: string | null): Promise<void> {
-  if (candidateRowIdx.value === null || editingLocked.value) return;
+function openQuoteOfferModal(item: BomQuoteItemType): void {
+  if (editingLocked.value) return;
+  const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
+  if (item.selectedCandidateKey === null && item.partId !== null) {
+    if (lineIdx >= 0) openOfferModal(lineIdx);
+    return;
+  }
+  candidateSelectionError.value = '';
+  candidateRowIdx.value = item.rowIdx;
+  selectionSurface.value = 'offers';
+}
+
+function openCandidateDrawerFromOfferModal(): void {
+  if (candidateRowIdx.value === null) return;
+  candidateSelectionError.value = '';
+  selectionSurface.value = 'candidates';
+}
+
+async function selectCandidate(candidateKey: string, offerKey: string | null): Promise<boolean> {
+  if (candidateRowIdx.value === null || editingLocked.value) return false;
   if (dirty.value) {
     await saveNow();
     if (saveState.value === 'error') {
       candidateSelectionError.value = '저장되지 않은 변경사항이 있습니다. 저장 상태를 확인해 주세요.';
-      return;
+      return false;
     }
   }
   candidateSelectionError.value = '';
@@ -428,6 +456,7 @@ async function selectCandidate(candidateKey: string, offerKey: string | null): P
     });
     dirty.value = false;
     await Promise.all([quote.refetch(), candidateQuery.refetch()]);
+    return true;
   } catch (reason) {
     const code = reason instanceof ApiRequestError ? reason.payload?.error : undefined;
     candidateSelectionError.value = code === 'CANDIDATE_BLOCKED'
@@ -435,14 +464,20 @@ async function selectCandidate(candidateKey: string, offerKey: string | null): P
       : code === 'OFFER_NOT_PRICED'
         ? '가격이 없는 오퍼는 선택할 수 없습니다.'
         : '후보 선택을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    return false;
   }
+}
+
+async function selectQuoteOffer(candidateKey: string, offerKey: string): Promise<void> {
+  const selected = await selectCandidate(candidateKey, offerKey);
+  if (selected) closeSelectionSurface();
 }
 
 function openCatalogSearchFromDrawer(): void {
   const item = candidateItem.value;
   if (item === null) return;
   const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
-  closeCandidateDrawer();
+  closeSelectionSurface();
   openPartModal('swap', lineIdx < 0 ? null : lineIdx, item.mpn);
 }
 
@@ -450,7 +485,7 @@ function openCatalogOffersFromDrawer(): void {
   const item = candidateItem.value;
   if (item === null) return;
   const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
-  closeCandidateDrawer();
+  closeSelectionSurface();
   if (lineIdx >= 0) openOfferModal(lineIdx);
 }
 
@@ -845,6 +880,7 @@ function fmtWon(v: number | null): string {
                 :enriching="enriching"
                 @toggle-include="toggleInclude(item)"
                 @qty-change="onRowQtyChange(item, $event)"
+                @open-offers="openQuoteOfferModal(item)"
                 @open-candidates="openCandidateDrawer(item)"
               />
               <tr v-if="items.length === 0">
@@ -931,9 +967,14 @@ function fmtWon(v: number | null): string {
         </div>
 
         <!-- 예상 견적 (87:13028) -->
-        <div class="rounded-xl border border-gray-200 bg-white p-4">
+        <div class="rounded-xl border border-gray-200 bg-white p-4" :aria-busy="pricingPending">
           <p class="flex items-center gap-1.5 text-[14px] font-bold text-[#061023]"><span>💰</span> 예상 견적</p>
-          <div class="mt-3 space-y-1.5 text-[13px]">
+          <div v-if="pricingPending" class="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-4 text-center" aria-live="polite">
+            <span class="mx-auto block size-2 animate-pulse rounded-full bg-blue-500" />
+            <p class="mt-2 text-[13px] font-semibold text-blue-800">공급사 가격을 확인하고 있습니다</p>
+            <p class="mt-1 text-[11px] leading-4 text-blue-600">모든 결과가 반영되면 합계와 최종합계를 표시합니다.</p>
+          </div>
+          <div v-else class="mt-3 space-y-1.5 text-[13px]">
             <div class="flex justify-between"><span class="text-[#5f6777]">합계</span><span class="tabular-nums text-[#061023]">{{ fmtWon(itemsTotal) }}</span></div>
             <div class="flex justify-between"><span class="text-[#5f6777]">운송료</span><span class="tabular-nums text-[#061023]">{{ fmtWon(detail.shippingFee) }}</span></div>
             <div class="flex justify-between"><span class="text-[#5f6777]">관리비</span><span class="tabular-nums text-[#061023]">{{ fmtWon(detail.managementFee) }}</span></div>
@@ -943,9 +984,8 @@ function fmtWon(v: number | null): string {
                 <span class="text-[20px] font-bold tabular-nums text-[#1e64fd]">{{ fmtWon(finalTotal) }}</span>
               </div>
             </div>
-            <p v-if="uncostedCount > 0" class="rounded px-2 py-1.5 text-[11px]" :class="enriching ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'">
-              <template v-if="enriching">가격 확인 중인 라인 {{ uncostedCount }}건 — 완료되면 합계에 반영됩니다</template>
-              <template v-else>금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다</template>
+            <p v-if="uncostedCount > 0" class="rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
+              금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다
             </p>
             <p class="pt-1 text-[11px] leading-[16px] text-gray-400">· AI로 산출한 가견적입니다.<br>· 정확한 가격은 담당자 확정 시 안내드립니다.</p>
           </div>
@@ -1022,7 +1062,18 @@ function fmtWon(v: number | null): string {
       @select="selectCandidate"
       @catalog-search="openCatalogSearchFromDrawer"
       @catalog-offers="openCatalogOffersFromDrawer"
-      @close="closeCandidateDrawer"
+      @close="closeSelectionSurface"
+    />
+    <BomQuoteOfferModal
+      :open="quoteOfferOpen"
+      :context="candidateQuery.data.value?.data ?? null"
+      :loading="candidateQuery.isLoading.value"
+      :failed="candidateQuery.isError.value"
+      :selecting="candidateSelection.isPending.value"
+      :selection-error="candidateSelectionError"
+      @select="selectQuoteOffer"
+      @compare="openCandidateDrawerFromOfferModal"
+      @close="closeSelectionSurface"
     />
     <BomOfferModal
       v-if="offerModal !== null && detail !== null && !editingLocked"
