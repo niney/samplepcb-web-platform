@@ -442,6 +442,33 @@ export interface QuoteComparisonSourceRow {
   extraction: BomQuoteExtractionSourceType | null;
 }
 
+interface AnalysisComponentExtractionRow {
+  id: bigint;
+  engineComponentId: string;
+  reviewStatus: string;
+  confidence: number | null;
+  payload: Prisma.JsonValue;
+}
+
+/** 비교 모달과 후보 패널이 같은 영속 ComponentRecord를 읽도록 응답 변환을 일원화한다. */
+export function toBomExtractionSource(
+  component: AnalysisComponentExtractionRow | null,
+): BomQuoteExtractionSourceType | null {
+  if (component === null) return null;
+  if (
+    component.payload === null
+    || typeof component.payload !== 'object'
+    || Array.isArray(component.payload)
+  ) return null;
+  return {
+    analysisComponentId: String(component.id),
+    engineComponentId: component.engineComponentId,
+    reviewStatus: component.reviewStatus === 'review' ? 'review' : 'extracted',
+    confidence: component.confidence,
+    payload: component.payload,
+  };
+}
+
 /**
  * 전체 BOM 비교용 영속 뷰. 엔진 잡은 재시작 시 소멸하므로 이미 박제한 후보 payload만
  * 사용하고, 손상되거나 구버전인 개별 후보는 해당 행 전체가 아니라 그 후보만 격리한다.
@@ -589,18 +616,7 @@ export async function loadQuoteComparisonPage(
         select: { quoteItemId: true, payload: true },
       });
   const sources: QuoteComparisonSourceRow[] = pageItems.map((item) => {
-    const component = item.analysisComponent;
-    const payload = component?.payload;
-    const extraction = component !== null
-      && typeof payload === 'object' && payload !== null && !Array.isArray(payload)
-      ? {
-          analysisComponentId: String(component.id),
-          engineComponentId: component.engineComponentId,
-          reviewStatus: component.reviewStatus === 'review' ? 'review' as const : 'extracted' as const,
-          confidence: component.confidence,
-          payload,
-        }
-      : null;
+    const extraction = toBomExtractionSource(item.analysisComponent);
     return { itemId: String(item.id), rowIdx: item.rowIdx, extraction };
   });
   return {
@@ -1952,7 +1968,20 @@ export async function getQuoteItemCandidates(
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId } });
   if (quote === null) return null;
   const [itemRow, candidateRows, eventRows] = await Promise.all([
-    prisma.spBomQuoteItem.findFirst({ where: { id: itemId, quoteId } }),
+    prisma.spBomQuoteItem.findFirst({
+      where: { id: itemId, quoteId },
+      include: {
+        analysisComponent: {
+          select: {
+            id: true,
+            engineComponentId: true,
+            reviewStatus: true,
+            confidence: true,
+            payload: true,
+          },
+        },
+      },
+    }),
     prisma.spBomQuoteCandidate.findMany({ where: { quoteId, quoteItemId: itemId }, orderBy: { technicalRank: 'asc' } }),
     prisma.spBomQuoteSelectionEvent.findMany({ where: { quoteId, quoteItemId: itemId }, orderBy: { createdAt: 'desc' }, take: 20 }),
   ]);
@@ -2058,6 +2087,7 @@ export async function getQuoteItemCandidates(
     quoteId: String(quoteId),
     itemId: String(itemRow.id),
     rowIdx: item.rowIdx,
+    extraction: toBomExtractionSource(itemRow.analysisComponent),
     originalMpn: typeof originalMpnRaw === 'string' && originalMpnRaw.trim() !== '' ? originalMpnRaw : null,
     originalValue: typeof originalValueRaw === 'string' && originalValueRaw.trim() !== '' ? originalValueRaw : null,
     originalSheetName: item.sourceSheetName,

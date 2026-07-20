@@ -279,6 +279,8 @@ export const BomQuoteItemCandidates = z.object({
   quoteId: z.string(),
   itemId: z.string(),
   rowIdx: z.number().int().min(0),
+  /** 영속 분석에서 읽은 원본 ComponentRecord. 도입 전/수동 행은 null이다. */
+  extraction: BomQuoteExtractionSource.nullable(),
   originalMpn: z.string().nullable(),
   originalValue: z.string().nullable(),
   originalSheetName: z.string().nullable(),

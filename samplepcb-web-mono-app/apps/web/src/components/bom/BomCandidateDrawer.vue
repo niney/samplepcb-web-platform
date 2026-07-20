@@ -9,6 +9,13 @@ import type {
   PartHitType,
 } from '@sp/api-contract';
 import type { OfferPick } from '@sp/utils';
+import {
+  extractionAlerts,
+  extractionDisplayFields,
+  extractionDisplaySummary,
+  type ExtractionCertainty,
+  type ExtractionDisplayField,
+} from '../../bom/extraction-display';
 import BomPartSearchPanel from './BomPartSearchPanel.vue';
 import PartImage from '../ui/PartImage.vue';
 
@@ -57,12 +64,18 @@ interface OriginalField {
   value: string;
   title: string;
   wide?: boolean;
+  summarySpan?: string;
+  normalizedValue?: string | null;
+  provenance?: string;
+  certainty?: ExtractionCertainty;
+  evidenceCells?: string[];
 }
 
 const view = ref<SelectionView>(props.initialView);
 const tab = ref<CandidateTab>('selectable');
 const sort = ref<CandidateSort>('technical');
 const expanded = ref<Set<string>>(new Set());
+const originalDetailsExpanded = ref(false);
 
 watch(
   () => props.context?.rowIdx,
@@ -70,13 +83,17 @@ watch(
     tab.value = 'selectable';
     sort.value = 'technical';
     expanded.value = new Set();
+    originalDetailsExpanded.value = false;
   },
 );
 
 watch(
   () => props.open,
   (open) => {
-    if (open) view.value = props.initialView;
+    if (open) {
+      view.value = props.initialView;
+      originalDetailsExpanded.value = false;
+    }
   },
 );
 
@@ -97,6 +114,24 @@ function formatOriginalRows(rows: number[], compact: boolean): string {
   return `${rows.slice(0, 4).join(', ')}행 외 ${String(rows.length - 4)}개`;
 }
 
+const extractedOriginalFields = computed<ExtractionDisplayField[]>(() => {
+  const payload = props.context?.extraction?.payload;
+  return payload === undefined ? [] : extractionDisplayFields(payload);
+});
+const originalExtractionSummary = computed(() => extractionDisplaySummary(extractedOriginalFields.value));
+const originalExtractionAlerts = computed(() => {
+  const payload = props.context?.extraction?.payload;
+  return payload === undefined ? [] : extractionAlerts(payload);
+});
+
+function extractedFieldTitle(field: ExtractionDisplayField): string {
+  return [
+    field.value,
+    field.normalizedValue === null ? null : `정규화 ${field.normalizedValue}`,
+    field.evidenceCells.length === 0 ? null : `근거 ${field.evidenceCells.join(', ')}`,
+  ].filter((value): value is string => value !== null).join(' · ');
+}
+
 const originalFields = computed<OriginalField[]>(() => {
   const context = props.context;
   if (context === null) return [];
@@ -112,38 +147,47 @@ const originalFields = computed<OriginalField[]>(() => {
     title: locationTitle === '' ? '수동 추가' : locationTitle,
   }];
 
-  if (context.originalMpn !== null) {
-    fields.push({ key: 'mpn', label: '원본 MPN', value: context.originalMpn, title: context.originalMpn, wide: true });
+  if (extractedOriginalFields.value.length > 0) {
+    fields.push(...extractedOriginalFields.value.map((field) => ({
+      ...field,
+      title: extractedFieldTitle(field),
+    })));
+  } else {
+    if (context.originalMpn !== null) {
+      fields.push({ key: 'mpn', label: '원본 MPN', value: context.originalMpn, title: context.originalMpn, wide: true });
+    }
+    if (context.originalValue !== null) {
+      fields.push({ key: 'value', label: '원본 값 / 설명', value: context.originalValue, title: context.originalValue, wide: true });
+    }
+    if (context.originalManufacturer !== null) {
+      fields.push({
+        key: 'manufacturer',
+        label: '원본 제조사',
+        value: context.originalManufacturer,
+        title: context.originalManufacturer,
+      });
+    }
+    if (context.originalPackageCode !== null) {
+      fields.push({
+        key: 'package',
+        label: '원본 패키지',
+        value: context.originalPackageCode,
+        title: context.originalPackageCode,
+      });
+    }
+    if (context.originalReferenceDesignators.length > 0) {
+      const references = context.originalReferenceDesignators.join(', ');
+      fields.push({ key: 'references', label: 'REFDES', value: references, title: references, wide: true });
+    }
   }
-  if (context.originalValue !== null) {
-    fields.push({ key: 'value', label: '원본 값 / 설명', value: context.originalValue, title: context.originalValue, wide: true });
-  }
-  if (context.originalManufacturer !== null) {
+  if (!fields.some((field) => field.key === 'quantity')) {
     fields.push({
-      key: 'manufacturer',
-      label: '원본 제조사',
-      value: context.originalManufacturer,
-      title: context.originalManufacturer,
+      key: 'bom-qty',
+      label: 'BOM 수량',
+      value: `${context.bomQty.toLocaleString('ko-KR')}개`,
+      title: `${context.bomQty.toLocaleString('ko-KR')}개`,
     });
   }
-  if (context.originalPackageCode !== null) {
-    fields.push({
-      key: 'package',
-      label: '원본 패키지',
-      value: context.originalPackageCode,
-      title: context.originalPackageCode,
-    });
-  }
-  if (context.originalReferenceDesignators.length > 0) {
-    const references = context.originalReferenceDesignators.join(', ');
-    fields.push({ key: 'references', label: 'REFDES', value: references, title: references, wide: true });
-  }
-  fields.push({
-    key: 'bom-qty',
-    label: 'BOM 수량',
-    value: `${context.bomQty.toLocaleString('ko-KR')}개`,
-    title: `${context.bomQty.toLocaleString('ko-KR')}개`,
-  });
   fields.push({
     key: 'needed-qty',
     label: '총 필요수량',
@@ -152,6 +196,78 @@ const originalFields = computed<OriginalField[]>(() => {
   });
   return fields;
 });
+
+function comparableSpec(value: string): string {
+  return value.toLocaleLowerCase('en-US').replaceAll(/\s+/g, '').replaceAll('μ', 'µ');
+}
+
+function summaryCertainty(fields: readonly OriginalField[]): ExtractionCertainty | undefined {
+  if (fields.some((field) => field.certainty === 'review')) return 'review';
+  if (fields.some((field) => field.certainty === 'inferred')) return 'inferred';
+  if (fields.some((field) => field.certainty === 'unknown')) return 'unknown';
+  if (fields.some((field) => field.certainty === 'verified')) return 'verified';
+  return undefined;
+}
+
+const originalSummaryFields = computed<OriginalField[]>(() => {
+  const fields = originalFields.value;
+  const byKey = (...keys: string[]): OriginalField | undefined => keys
+    .map((key) => fields.find((field) => field.key === key))
+    .find((field) => field !== undefined);
+  const withSpan = (field: OriginalField | undefined, summarySpan: string): OriginalField[] => field === undefined
+    ? []
+    : [{ ...field, summarySpan }];
+
+  const partNumber = byKey('part_number', 'mpn');
+  const manufacturer = byKey('manufacturer');
+  const rawValue = byKey('value_raw', 'value');
+  const primarySpec = byKey('resistance', 'capacitance', 'inductance');
+  const value = rawValue ?? primarySpec;
+  const footprint = byKey('footprint');
+  const packageField = byKey('package');
+  const mount = footprint ?? packageField;
+  const description = byKey('description');
+
+  const rawComparable = value === undefined ? null : comparableSpec(value.normalizedValue ?? value.value);
+  const specFields = fields.filter((field) => [
+    'resistance',
+    'capacitance',
+    'inductance',
+    'power',
+    'tolerance',
+    'voltage',
+    'current',
+    'frequency',
+    'temperature',
+  ].includes(field.key) && (
+    rawComparable === null
+    || comparableSpec(field.normalizedValue ?? field.value) !== rawComparable
+  )).slice(0, 4);
+  const keySpecCertainty = summaryCertainty(specFields);
+  const keySpecs: OriginalField | undefined = specFields.length === 0
+    ? undefined
+    : {
+        key: 'key-specs',
+        label: '핵심 사양',
+        value: specFields.map((field) => field.normalizedValue ?? field.value).join(' · '),
+        title: specFields.map((field) => `${field.label} ${field.normalizedValue ?? field.value}`).join(' · '),
+        ...(keySpecCertainty === undefined ? {} : { certainty: keySpecCertainty }),
+        evidenceCells: [...new Set(specFields.flatMap((field) => field.evidenceCells ?? []))],
+      };
+
+  return [
+    ...withSpan(partNumber, 'sm:col-span-2'),
+    ...withSpan(manufacturer, 'sm:col-span-1'),
+    ...withSpan(value, 'sm:col-span-1'),
+    ...withSpan(mount, 'sm:col-span-2'),
+    ...withSpan(description, keySpecs === undefined ? 'sm:col-span-6' : 'sm:col-span-3'),
+    ...withSpan(keySpecs, description === undefined ? 'sm:col-span-6' : 'sm:col-span-3'),
+  ];
+});
+
+const originalLocation = computed(() => originalFields.value.find((field) => field.key === 'location') ?? null);
+const originalDetailCount = computed(() => extractedOriginalFields.value.length || originalFields.value.length);
+const originalReviewFields = computed(() => extractedOriginalFields.value.filter((field) => field.certainty === 'review'));
 
 const candidates = computed(() => {
   const source = props.context?.candidates ?? [];
@@ -447,25 +563,138 @@ onBeforeUnmount(() => {
           <template v-else-if="context !== null">
             <div class="space-y-3 p-4">
               <div v-if="selectionError !== ''" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ selectionError }}</div>
-              <section class="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm" aria-labelledby="original-bom-title">
-                <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <div class="flex items-baseline gap-3">
-                    <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Excel source</p>
-                    <h3 id="original-bom-title" class="font-bold text-slate-950">원본 BOM</h3>
+              <section class="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm" aria-labelledby="original-bom-title">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <div class="flex items-baseline gap-2">
+                      <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Excel source</p>
+                      <h3 id="original-bom-title" class="font-bold text-slate-950">원본 BOM</h3>
+                    </div>
+                    <span v-if="originalLocation !== null" class="truncate text-[11px] font-medium text-slate-500" :title="originalLocation.title">
+                      {{ originalLocation.value }}
+                    </span>
+                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                      BOM {{ context.bomQty.toLocaleString('ko-KR') }} · 필요 {{ context.neededQty.toLocaleString('ko-KR') }}
+                    </span>
                   </div>
-                  <p class="text-xs text-slate-500">후보 선택 전 Excel에서 읽은 원본 정보입니다.</p>
+                  <div class="flex flex-wrap items-center justify-end gap-1.5">
+                    <template v-if="context.extraction !== null">
+                      <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                        근거 {{ originalExtractionSummary.verified }}/{{ originalExtractionSummary.extracted }}
+                      </span>
+                      <span v-if="originalExtractionSummary.inferred > 0" class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                        추론 {{ originalExtractionSummary.inferred }}
+                      </span>
+                      <span v-if="originalExtractionSummary.review > 0 || context.extraction.reviewStatus !== 'extracted'" class="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">
+                        검토 {{ Math.max(originalExtractionSummary.review, 1) }}
+                      </span>
+                    </template>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                      :aria-expanded="originalDetailsExpanded"
+                      aria-controls="original-bom-details"
+                      @click="originalDetailsExpanded = !originalDetailsExpanded"
+                    >
+                      {{ originalDetailsExpanded ? '전체 추출값 접기' : `전체 추출값 ${String(originalDetailCount)}개` }}
+                      <span aria-hidden="true">{{ originalDetailsExpanded ? '▴' : '▾' }}</span>
+                    </button>
+                  </div>
                 </div>
-                <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3 sm:grid-cols-6">
+
+                <dl class="mt-2 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-2 sm:grid-cols-6">
                   <div
-                    v-for="field in originalFields"
+                    v-for="field in originalSummaryFields"
                     :key="field.key"
-                    class="min-w-0 border-l-2 border-slate-100 pl-2.5 pr-1"
-                    :class="field.key === 'references' ? 'col-span-2 sm:col-span-3' : field.wide ? 'col-span-2' : ''"
+                    class="min-w-0 rounded-md border px-2.5 py-1.5"
+                    :class="[
+                      field.summarySpan,
+                      field.certainty === 'inferred'
+                        ? 'border-amber-200 bg-amber-50/50'
+                        : field.certainty === 'review'
+                          ? 'border-rose-200 bg-rose-50/60'
+                          : 'border-slate-100 bg-slate-50/60',
+                    ]"
                   >
-                    <dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">{{ field.label }}</dt>
-                    <dd class="mt-0.5 line-clamp-2 break-words text-sm font-semibold leading-5 text-slate-800" :title="field.title">{{ field.value }}</dd>
+                    <dt class="flex items-center justify-between gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                      <span>{{ field.label }}</span>
+                      <span
+                        v-if="field.certainty !== undefined"
+                        class="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-extrabold normal-case tracking-normal"
+                        :class="field.certainty === 'verified'
+                          ? 'bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200'
+                          : field.certainty === 'inferred'
+                            ? 'bg-amber-100 text-amber-700'
+                            : field.certainty === 'review'
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-slate-200 text-slate-600'"
+                        :title="field.provenance"
+                      >
+                        {{ field.certainty === 'verified' ? '✓ 확인' : field.certainty === 'inferred' ? '≈ 추론' : field.certainty === 'review' ? '! 검토' : '? 미상' }}
+                      </span>
+                    </dt>
+                    <dd
+                      class="mt-0.5 truncate text-sm leading-5"
+                      :class="field.certainty === 'verified' ? 'font-bold text-slate-950' : 'font-semibold text-slate-800'"
+                      :title="field.title"
+                    >
+                      {{ field.value }}
+                    </dd>
+                    <p v-if="field.normalizedValue !== undefined && field.normalizedValue !== null" class="truncate text-[11px] font-medium text-blue-700">
+                      정규화 {{ field.normalizedValue }}
+                    </p>
                   </div>
                 </dl>
+
+                <div v-if="originalReviewFields.length > 0 || originalExtractionAlerts.length > 0" class="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1.5">
+                  <span class="text-[11px] font-bold text-rose-700">검토 필요</span>
+                  <span v-for="field in originalReviewFields" :key="`review-${field.key}`" class="text-[11px] text-rose-700">{{ field.label }} {{ field.value }}</span>
+                  <span v-for="alert in originalExtractionAlerts" :key="alert" class="rounded-full bg-white/80 px-2 py-0.5 text-[11px] text-rose-700">{{ alert }}</span>
+                </div>
+
+                <div v-show="originalDetailsExpanded" id="original-bom-details" class="mt-2 border-t border-slate-200 pt-2">
+                  <div class="flex flex-wrap items-center justify-between gap-1">
+                    <p class="text-xs font-bold text-slate-700">전체 추출값과 근거</p>
+                    <p class="text-[11px] text-slate-500">원문 우선 · 정규화값 보조</p>
+                  </div>
+                  <dl class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                    <div
+                      v-for="field in originalFields"
+                      :key="`detail-${field.key}`"
+                      class="min-w-0 rounded-md border px-2.5 py-1.5"
+                      :class="[
+                        field.wide ? 'col-span-2' : '',
+                        field.certainty === 'inferred'
+                          ? 'border-amber-200 bg-amber-50/40'
+                          : field.certainty === 'review'
+                            ? 'border-rose-200 bg-rose-50/50'
+                            : 'border-slate-100 bg-white',
+                      ]"
+                    >
+                      <dt class="flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        <span>{{ field.label }}</span>
+                        <span
+                          v-if="field.provenance !== undefined"
+                          class="rounded-full px-1.5 py-0.5 normal-case tracking-normal"
+                          :class="field.certainty === 'verified'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : field.certainty === 'inferred'
+                              ? 'bg-amber-50 text-amber-700'
+                              : field.certainty === 'review'
+                                ? 'bg-rose-50 text-rose-700'
+                                : 'bg-slate-100 text-slate-600'"
+                        >{{ field.certainty === 'verified' ? '✓ ' : field.certainty === 'inferred' ? '≈ ' : field.certainty === 'review' ? '! ' : '? ' }}{{ field.provenance }}</span>
+                      </dt>
+                      <dd class="mt-0.5 break-words text-sm font-semibold leading-5 text-slate-800" :title="field.title">{{ field.value }}</dd>
+                      <p v-if="field.normalizedValue !== undefined && field.normalizedValue !== null" class="mt-0.5 text-xs font-medium text-blue-700">
+                        정규화 {{ field.normalizedValue }}
+                      </p>
+                      <p v-if="field.evidenceCells !== undefined && field.evidenceCells.length > 0" class="mt-0.5 text-[11px] text-slate-500">
+                        근거 {{ field.evidenceCells.join(', ') }}
+                      </p>
+                    </div>
+                  </dl>
+                </div>
               </section>
               <section class="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm">
                 <div class="flex flex-col gap-3 bg-gradient-to-r from-blue-700 to-blue-600 px-4 py-3.5 text-white sm:flex-row sm:items-start sm:justify-between">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildQuoteComparisonRows } from './bom-quote';
+import { buildQuoteComparisonRows, toBomExtractionSource } from './bom-quote';
 
 function candidatePayload(candidateKey: string, technicalRank: number) {
   return {
@@ -51,6 +51,22 @@ function candidatePayload(candidateKey: string, technicalRank: number) {
 }
 
 describe('BOM 전체 비교 영속 스냅샷', () => {
+  it('후보 패널에도 미래 필드를 포함한 ComponentRecord 원본을 그대로 전달한다', () => {
+    expect(toBomExtractionSource({
+      id: 7n,
+      engineComponentId: 'engine-component-7',
+      reviewStatus: 'extracted',
+      confidence: 0.95,
+      payload: { part_number: 'ABC-123', future_field: { retained: true } },
+    })).toEqual({
+      analysisComponentId: '7',
+      engineComponentId: 'engine-component-7',
+      reviewStatus: 'extracted',
+      confidence: 0.95,
+      payload: { part_number: 'ABC-123', future_field: { retained: true } },
+    });
+  });
+
   it('엔진 잡 없이 DB 후보 payload를 행·기술순위로 복원한다', () => {
     const rows = buildQuoteComparisonRows([
       { itemId: '9', payload: candidatePayload('second', 2) },
