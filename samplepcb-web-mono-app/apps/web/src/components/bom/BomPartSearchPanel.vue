@@ -16,11 +16,14 @@ const props = withDefaults(defineProps<{
   selecting?: boolean;
   needed?: number;
   usdKrwRate?: number | null;
+  /** 열람 전용(단일 검색 화면) — 부품 변경 CTA 없이 구매 조건 비교만 제공한다. */
+  browse?: boolean;
 }>(), {
   currentPartId: null,
   selecting: false,
   needed: 1,
   usdKrwRate: null,
+  browse: false,
 });
 
 const emit = defineEmits<{
@@ -185,7 +188,7 @@ function selectPackaging(group: PackagingGroup): void {
 
 function confirmSelection(): void {
   const part = selectedPart.value;
-  if (part === null || props.selecting) return;
+  if (part === null || props.selecting || props.browse) return;
   emit('select', part, selectedRow.value?.pick ?? null);
 }
 
@@ -309,9 +312,11 @@ function fmtAge(iso: string): string {
       </div>
       <div v-else-if="offerRows.length === 0" class="p-4">
         <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-          가격이 있는 공급사 오퍼가 없어 공급 포장을 선택할 수 없습니다. 부품만 변경하면 금액은 미산정 상태로 저장됩니다.
+          {{ browse
+            ? '가격이 있는 공급사 오퍼가 아직 없습니다. 공급사 검색이 쌓이면 구매 조건이 표시됩니다.'
+            : '가격이 있는 공급사 오퍼가 없어 공급 포장을 선택할 수 없습니다. 부품만 변경하면 금액은 미산정 상태로 저장됩니다.' }}
         </div>
-        <button type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting" @click="confirmSelection">
+        <button v-if="!browse" type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting" @click="confirmSelection">
           {{ selecting ? '적용 중…' : '가격 없이 부품만 변경' }}
         </button>
       </div>
@@ -382,7 +387,7 @@ function fmtAge(iso: string): string {
             <strong class="tabular-nums text-blue-700">{{ fmtTotal(selectedRow.pick) }}</strong>
           </div>
         </div>
-        <button type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting || selectedRow === null" @click="confirmSelection">
+        <button v-if="!browse" type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting || selectedRow === null" @click="confirmSelection">
           {{ selecting ? '적용 중…' : selectedPart.id === currentPartId ? '선택한 공급 포장으로 변경' : '선택한 구매조건으로 부품 변경' }}
         </button>
       </div>

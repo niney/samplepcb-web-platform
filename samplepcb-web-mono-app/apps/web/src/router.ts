@@ -5,6 +5,7 @@ import AdminLayout from './layouts/AdminLayout.vue';
 import BomLayout from './layouts/BomLayout.vue';
 import Home from './pages/Home.vue';
 import BomHome from './pages/bom/BomHome.vue';
+import BomSearch from './pages/bom/BomSearch.vue';
 import BomQuote from './pages/bom/BomQuote.vue';
 import { appPath, loginUrl } from './lib/auth-urls';
 import AdminDashboard from './pages/admin/AdminDashboard.vue';
@@ -52,6 +53,8 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresMember: true },
     children: [
       { path: '', name: 'bom', component: BomHome, meta: { requiresMember: true } },
+      // 정적 세그먼트가 ':id' 보다 먼저 — 'search' 가 견적 id 로 매칭되지 않게 한다
+      { path: 'search', name: 'bom-search', component: BomSearch, meta: { requiresMember: true } },
       { path: ':id', name: 'bom-quote', component: BomQuote, meta: { requiresMember: true } },
     ],
   },

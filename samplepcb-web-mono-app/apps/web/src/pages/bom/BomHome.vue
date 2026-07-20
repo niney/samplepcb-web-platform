@@ -71,10 +71,15 @@ function onDrop(event: DragEvent): void {
 
 <template>
   <div class="flex h-full flex-col items-center overflow-y-auto px-6 pb-[60px]">
-    <!-- togle btn (87:9712) — 단일 검색은 미구현(표시만) -->
+    <!-- togle btn (87:9712) -->
     <div class="mt-[46px] flex h-[42px] items-center rounded-full bg-[#f0f4fa]">
       <span class="flex h-[42px] items-center rounded-full bg-[#061023] px-[24px] text-[16px] font-bold leading-[24px] text-white">BOM 분석</span>
-      <span class="flex h-[42px] cursor-default items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-[#27292e] opacity-80" title="단일 검색 (준비 중)">단일 검색</span>
+      <RouterLink
+        :to="{ name: 'bom-search' }"
+        class="flex h-[42px] items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-[#27292e] transition hover:opacity-70"
+      >
+        단일 검색
+      </RouterLink>
     </div>
 
     <!-- drag & drop (87:9040) — 카드 비주얼은 시안 합성 렌더 통짜 베이크(그라데이션×글로우×

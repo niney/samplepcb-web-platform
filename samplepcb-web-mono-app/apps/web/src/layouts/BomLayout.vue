@@ -17,7 +17,7 @@ import promoVideo from '../assets/bom/promo-video.png';
 
 // 스마트 BOM 전용 앱 셸 — Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(87:9037) 이식.
 // 시안의 다크 배경(상단바·사이드바)은 사용자 결정으로 라이트 모드 치환, 구조·치수는 동일.
-// 미구현(표시만): 단일 검색 메뉴·샘플 토글·프로필 메뉴·프로모 카드 링크.
+// 미구현(표시만): 샘플 토글·프로필 메뉴·프로모 카드 링크.
 
 const route = useRoute();
 const auth = useAuthStore();
@@ -30,6 +30,7 @@ const { leftOpen, rightOpen } = useBomPanels();
 const list = useMyBomQuotes(ref(1), computed(() => auth.isLoggedIn));
 const recent = computed(() => (list.data.value?.data.items ?? []).slice(0, 4));
 const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? route.params.id : null));
+const onSearch = computed(() => route.name === 'bom-search');
 </script>
 
 <template>
@@ -85,17 +86,16 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
     <div class="flex min-h-0 flex-1">
       <!-- left side bar (87:9485) — 라이트 치환 -->
       <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-white pt-[36px] lg:flex">
-        <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center bg-[#eaf2ff] pl-[21px] pr-[15px]">
+        <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onSearch ? 'hover:bg-gray-50' : 'bg-[#eaf2ff]'">
           <img :src="icMenuBom" alt="" class="size-[18px]">
-          <span class="ml-[6px] text-[16px] font-medium text-[#0e6efd]">BOM 분석</span>
+          <span class="ml-[6px] text-[16px] font-medium" :class="onSearch ? 'text-[#27292e]' : 'text-[#0e6efd]'">BOM 분석</span>
           <img :src="icMenuUpload" alt="" class="ml-auto size-[14px]">
         </RouterLink>
-        <!-- 단일 검색 — 미구현(표시만) -->
-        <div class="flex h-[45px] cursor-default items-center pl-[21px] pr-[15px] opacity-80" title="단일 검색 (준비 중)">
+        <RouterLink :to="{ name: 'bom-search' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onSearch ? 'bg-[#eaf2ff]' : 'hover:bg-gray-50'">
           <img :src="icMenuSearch" alt="" class="size-[18px]">
-          <span class="ml-[6px] text-[16px] font-medium text-[#27292e]">단일 검색</span>
+          <span class="ml-[6px] text-[16px] font-medium" :class="onSearch ? 'text-[#0e6efd]' : 'text-[#27292e]'">단일 검색</span>
           <img :src="icTrailSearch" alt="" class="ml-auto size-[14px]">
-        </div>
+        </RouterLink>
 
         <p class="mt-[38px] pl-[21px] text-[13px] font-bold text-[#8f94a2]">Recent file</p>
         <div class="mt-[16px] flex w-[179px] flex-col gap-[2px] self-start pl-0" style="margin-left: 21px">
@@ -122,7 +122,7 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
 
       <!-- right side bar (87:21445) — 라이트 치환, 프로모 카드는 시안 그대로.
            상세(bom-quote)에서는 페이지 자체 우측 패널(주문 정보·예상 견적)이 대신한다. -->
-      <aside v-show="rightOpen && route.name === 'bom'" class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
+      <aside v-show="rightOpen && (route.name === 'bom' || route.name === 'bom-search')" class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
         <!-- con01: Parts Eyes 튜토리얼 — 링크 미구현 -->
         <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-[#f2fdfd] to-[#f7f7fb] ring-1 ring-black/5" title="튜토리얼 (준비 중)">
           <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-[#e3f3ff] to-[#f7f9fb] blur-[10px]" />
@@ -151,6 +151,6 @@ const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? rou
       </aside>
     </div>
   </div>
-  <!-- 시안 대비 미구현 기능(리스트업): 단일 검색(메뉴·토글) · 샘플 토글 ·
-       프로필 메뉴 · 프로모 카드 링크(튜토리얼/Gerber Eyes) — 사이드바/패널 접기는 구현됨 -->
+  <!-- 시안 대비 미구현 기능(리스트업): 샘플 토글 · 프로필 메뉴 ·
+       프로모 카드 링크(튜토리얼/Gerber Eyes) — 사이드바/패널 접기·단일 검색은 구현됨 -->
 </template>
