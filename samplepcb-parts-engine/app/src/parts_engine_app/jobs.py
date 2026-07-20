@@ -217,11 +217,6 @@ class JobService:
             raise JobError(f"analysis_not_ready: {job.status}")
         self._validate_supplier_options(options)
         preflight = self.preflight_supplier(job_id, options)
-        estimated_calls = int(preflight["plan"]["estimated_api_calls"])
-        if estimated_calls > options.max_calls:
-            raise JobError(
-                f"supplier_call_limit_exceeded: expected {estimated_calls}, limit {options.max_calls}"
-            )
 
         with self._supplier_state_lock:
             if job.supplier_status == "running":

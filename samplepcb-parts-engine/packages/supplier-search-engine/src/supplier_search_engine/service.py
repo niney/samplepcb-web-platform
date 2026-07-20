@@ -670,18 +670,23 @@ class SearchService:
                 async with self._supplier_slot(supplier, query):
                     raw = await client.fetch(query, reserve_call=reserve_call)
             except (QuotaExceeded, JobBudgetExceeded) as exc:
+                error_type = (
+                    "job_call_limit_exhausted"
+                    if isinstance(exc, JobBudgetExceeded)
+                    else "quota_exhausted"
+                )
                 if stale is not None:
                     return stale.model_copy(
                         update={
                             "api_call_performed": call_count > 0,
                             "api_calls": call_count,
-                            "error_type": "quota_exhausted",
+                            "error_type": error_type,
                             "error_message": str(exc),
                         }
                     )
                 return SupplierSearchResult(
                     supplier=supplier,
-                    error_type="quota_exhausted",
+                    error_type=error_type,
                     error_message=str(exc),
                     api_call_performed=call_count > 0,
                     api_calls=call_count,

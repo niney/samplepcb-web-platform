@@ -11,7 +11,7 @@ import time
 from fastapi.testclient import TestClient
 
 from parts_engine_app.config import Config
-from parts_engine_app.jobs import Job, JobService
+from parts_engine_app.jobs import Job, JobService, SupplierSearchOptions
 from parts_engine_app.main import create_app
 from supplier_search_engine.models import (
     BatchSearchResult,
@@ -154,6 +154,59 @@ def test_supplier_search_rejects_conflicting_cache_modes(tmp_path):
         json={"max_calls": 10, "cache_only": True, "reset_cache": True},
     )
     assert response.status_code == 422
+
+
+def test_supplier_search_starts_when_preflight_estimate_exceeds_runtime_budget(
+    tmp_path, monkeypatch
+):
+    service = JobService(
+        Config(
+            data_dir=tmp_path,
+            m2v_path="off",
+            component_limit=5000,
+            max_upload_bytes=30 * 1024 * 1024,
+            supplier_max_calls=700,
+        )
+    )
+    job = Job(
+        id="budgeted-job",
+        engine="smartbom",
+        filename="bom.xlsx",
+        upload_path=tmp_path / "bom.xlsx",
+        status="completed",
+        result={"components": [], "sheets": []},
+    )
+    service._jobs[job.id] = job
+    monkeypatch.setattr(
+        service,
+        "preflight_supplier",
+        lambda _job_id, _options: {
+            "plan": {
+                "estimated_api_calls": 360,
+                "job_call_limit": 300,
+                "estimated_within_job_limit": False,
+            }
+        },
+    )
+    submitted = []
+    monkeypatch.setattr(
+        service._executor,
+        "submit",
+        lambda function, *args: submitted.append((function, args)),
+    )
+
+    try:
+        started = service.submit_supplier(
+            job.id,
+            SupplierSearchOptions(max_calls=300),
+        )
+    finally:
+        service.shutdown()
+
+    assert started.supplier_status == "running"
+    assert started.supplier_options == SupplierSearchOptions(max_calls=300)
+    assert started.supplier_preflight["plan"]["estimated_api_calls"] == 360
+    assert len(submitted) == 1
 
 
 def test_supplier_envelope_counts_identity_and_spec_fallback_attempts(tmp_path):

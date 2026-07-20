@@ -27,6 +27,7 @@ import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
 import { getBomQuoteConfig } from '../lib/sp-config';
+import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { ingestJobResult, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
 import {
@@ -104,8 +105,9 @@ async function loadOwnQuote(id: bigint, mbId: string) {
 
 // ── 조용한 자동 보강 — build 가 "시작"까지 동기 확정(응답 enriching 플래그) ─────
 // 필요 조건: included 미매칭 라인 존재 OR 오퍼 데이터 나이 > freshnessHours.
-// 비용 게이트: preflight 로 예상 호출 확인 → 한도 내면 라이브, 초과·일일 소진이면
-// cache_only(0콜). 검색 시작을 응답 전에 확정하므로 FE 첫 상태 폴이 반드시 running
+// 비용 게이트: preflight 예상치는 관측·경고용이며 실제 호출 상한은 엔진 job budget이
+// 강제한다. 회원 일일 한도 소진은 명시 실패로 남기고 cache_only로 의미를 바꾸지 않는다.
+// 검색 시작을 응답 전에 확정하므로 FE 첫 상태 폴이 반드시 running
 // 을 관측한다(폴링 경합 원천 제거). 완료·재매칭(refreshQuoteFromCatalog)은 백그라운드.
 // 반환: 검색을 실제로 시작했는지.
 /** 보강 필요 판정 — included 미매칭 또는 오퍼 나이 > freshnessHours (build 선판정·autoEnrich 공용). */
@@ -221,7 +223,8 @@ async function autoEnrichQuote(
     return markFailed(`supplier_job_registration_failed: ${String(error)}`);
   }
 
-  let cacheOnly = false;
+  let estimatedApiCalls: number;
+  let estimateExceedsJobLimit: boolean;
   try {
     const pfRes = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/preflight`, {
       method: 'POST',
@@ -234,20 +237,31 @@ async function autoEnrichQuote(
       where: { id: searchRun.id },
       data: { preflight: pf },
     });
-    if (pf.plan?.estimated_within_job_limit !== true) cacheOnly = true; // 초대형 BOM — 캐시만
     const liveCalls = (pf.plan?.estimated_api_calls ?? 0) > 0;
-    if (!cacheOnly && liveCalls && !tryCountDailySearch(mbId, config.memberDailySearchLimit)) {
-      cacheOnly = true; // 일일 한도 소진 — 캐시만
+    const dailySlotAvailable = !liveCalls || tryCountDailySearch(mbId, config.memberDailySearchLimit);
+    const decision = decideAutomaticSupplierSearch(pf.plan, dailySlotAvailable);
+    estimatedApiCalls = decision.estimatedApiCalls;
+    estimateExceedsJobLimit = decision.estimateExceedsJobLimit;
+    if (!decision.start) {
+      return await markFailed(decision.blockedReason ?? 'supplier_search_policy_blocked');
+    }
+    if (decision.estimateExceedsJobLimit) {
+      log.warn({
+        quoteId: String(quoteId),
+        searchRunId: String(searchRun.id),
+        estimatedApiCalls: decision.estimatedApiCalls,
+        maxCalls: searchOptions.max_calls,
+      }, '공급사 예상 호출이 작업 한도를 초과하지만 실제 엔진 예산으로 검색을 계속합니다');
     }
   } catch {
-    return markFailed('supplier_preflight_unreachable');
+    return await markFailed('supplier_preflight_unreachable');
   }
 
   try {
     const res = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...searchOptions, cache_only: cacheOnly }),
+      body: JSON.stringify(searchOptions),
     });
     if (res.status !== 202 && !res.ok) return await markFailed(`supplier_start_${String(res.status)}`);
   } catch (error) {
@@ -259,7 +273,7 @@ async function autoEnrichQuote(
       where: { id: searchRun.id },
       data: {
         status: 'running',
-        options: { ...searchOptions, cache_only: cacheOnly },
+        options: searchOptions,
         startedAt: new Date(),
       },
     }),
@@ -268,7 +282,14 @@ async function autoEnrichQuote(
       data: { enrichStatus: 'searching', activeSupplierSearchRunId: searchRun.id },
     }),
   ]);
-  log.info({ quoteId: String(quoteId), searchRunId: String(searchRun.id), jobId, cacheOnly }, '영속 분석 기반 자동 보강 검색 시작');
+  log.info({
+    quoteId: String(quoteId),
+    searchRunId: String(searchRun.id),
+    jobId,
+    estimatedApiCalls,
+    estimateExceedsJobLimit,
+    maxCalls: searchOptions.max_calls,
+  }, '영속 분석 기반 자동 보강 검색 시작');
   startIngestPoller(jobId, log, async () => {
     await applyCompletedSupplierResult(quoteId, searchRun.id, jobId);
   });

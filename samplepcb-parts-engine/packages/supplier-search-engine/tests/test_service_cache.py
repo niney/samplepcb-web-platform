@@ -124,6 +124,38 @@ async def test_batch_deduplicates_and_second_run_uses_durable_cache(tmp_path):
     assert second.cache_hits == 1
 
 
+async def test_batch_enforces_actual_call_budget_when_preflight_would_overestimate(
+    tmp_path,
+):
+    fake = FakeDigiKeyClient(products=[make_product()])
+    settings = Settings(
+        cache_path=tmp_path / "cache.sqlite3",
+        max_api_calls_per_job=1,
+    )
+    service = SearchService(settings, clients=[fake])
+    first = make_component("first")
+    second = make_component("second")
+    second.fields["part_number"].value = "DEF-456"
+    source = SearchBatchInput(
+        parser_schema_version="1",
+        parser_version="test",
+        training_fingerprint="test",
+        source_file="bom.xlsx",
+        components=[first, second],
+    )
+
+    result = await service.search_batch(source)
+
+    assert result.api_calls == 1
+    assert fake.calls == 1
+    errors = {
+        supplier_result.error_type
+        for component in result.components
+        for supplier_result in component.supplier_results
+    }
+    assert "job_call_limit_exhausted" in errors
+
+
 async def test_singleflight_collapses_concurrent_identical_requests(tmp_path):
     fake = FakeDigiKeyClient(delay=0.05, products=[make_product()])
     service = SearchService(
