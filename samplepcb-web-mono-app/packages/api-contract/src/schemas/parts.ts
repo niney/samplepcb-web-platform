@@ -93,6 +93,51 @@ export const PartSearchResponse = z.object({
 });
 export type PartSearchResponseType = z.infer<typeof PartSearchResponse>;
 
+// ── 고객 단일 검색(/api/bom/parts-search) — 결과 행에 대표 구매 조건 첨부 ──────
+// 서버가 pickDefaultOffer(@sp/utils, FE 와 동일 함수)로 필요수량 기준 대표 오퍼를
+// 선정해 내린다. 환율 문맥이 없어 KRW 환산은 하지 않는다(원통화 표시).
+
+export const PartAppliedOffer = z.object({
+  supplier: z.string(),
+  supplierSku: z.string(),
+  packaging: z.string().nullable(),
+  currency: z.string(),
+  stock: z.number().int().nullable(),
+  moq: z.number().int().nullable(),
+  orderMultiple: z.number().int().nullable(),
+  fetchedAt: z.string(),
+  priceBreaks: z.array(PartPriceBreak),
+  /** 적용 단가·구간·실효 주문수량(MOQ·배수 보정) — 필요수량(needed) 기준. */
+  unitPrice: z.number(),
+  breakQty: z.number().int(),
+  orderQty: z.number().int(),
+  stockShort: z.boolean(),
+});
+export type PartAppliedOfferType = z.infer<typeof PartAppliedOffer>;
+
+export const BomPartSearchQuery = PartSearchQuery.extend({
+  needed: z.coerce.number().int().min(1).max(1_000_000).default(1),
+});
+export type BomPartSearchQueryType = z.infer<typeof BomPartSearchQuery>;
+
+export const BomPartHit = PartHit.extend({
+  /** 필요수량 기준 대표 구매 조건 — 가격 있는 실공급사 오퍼가 없으면 null. */
+  applied: PartAppliedOffer.nullable(),
+});
+export type BomPartHitType = z.infer<typeof BomPartHit>;
+
+export const BomPartSearchResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(BomPartHit),
+    total: z.number().int(),
+    page: z.number().int(),
+    pageSize: z.number().int(),
+    facets: PartSearchFacets,
+  }),
+});
+export type BomPartSearchResponseType = z.infer<typeof BomPartSearchResponse>;
+
 export const PartSpecConflictGroup = z.object({
   value: z.unknown(),
   suppliers: z.array(z.string()),

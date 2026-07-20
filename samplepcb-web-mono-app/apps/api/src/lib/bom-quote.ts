@@ -264,9 +264,10 @@ export function buildItemsFromEngineResult(
 
 // ── 카탈로그 매칭 + 재계산 ───────────────────────────────────────────────────
 
-type PartWithOffers = Prisma.SpPartGetPayload<{ include: { offers: { include: { priceBreaks: true } } } }>;
+export type PartWithOffers = Prisma.SpPartGetPayload<{ include: { offers: { include: { priceBreaks: true } } } }>;
 
-function toOfferInputs(part: PartWithOffers): BomOfferInput[] {
+// 단일 검색 라우트(bom.ts)도 대표 구매 조건 계산에 재사용한다.
+export function toOfferInputs(part: PartWithOffers): BomOfferInput[] {
   return part.offers
     .filter((o) => o.supplier !== SAMPLEPCB_SUPPLIER)
     .map((o) => ({

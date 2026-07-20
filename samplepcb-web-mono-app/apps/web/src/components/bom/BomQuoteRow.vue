@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import type { BomQuoteItemType } from '@sp/api-contract';
 import PartImage from '../ui/PartImage.vue';
-import favDigikey from '../../assets/bom/fav-digikey.png';
-import favMouser from '../../assets/bom/fav-mouser.png';
-import favUnikeyic from '../../assets/bom/fav-unikeyic.png';
-import favSamplepcb from '../../assets/bom/fav-samplepcb.png';
+import BomPriceBreaks from './BomPriceBreaks.vue';
+import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
 
 // 매칭 결과 테이블의 한 행 — 컴포넌트 경계로 재렌더를 행 단위로 격리한다.
 // item 은 부모 소유의 로컬 편집 객체(참조 안정 유지) — 여기서는 읽기만, 변경은 emit.
@@ -28,14 +26,6 @@ const emit = defineEmits<{
 
 const EDIT_LOCK_TITLE = '공급사 확인이 완료되면 수정할 수 있습니다';
 
-// 공급사 배지(vueline 파비콘 방식)
-const SUPPLIER_META: Record<string, { name: string; icon: string }> = {
-  digikey: { name: 'Digikey', icon: favDigikey },
-  mouser: { name: 'Mouser', icon: favMouser },
-  unikeyic: { name: 'UniKeyIC', icon: favUnikeyic },
-  samplepcb: { name: 'SamplePCB', icon: favSamplepcb },
-};
-
 const stockShort = computed(() => {
   const o = props.item.selectedOffer;
   return o !== null && o.stock !== null && o.stock < props.item.orderQty;
@@ -47,28 +37,12 @@ const hasEngineCandidates = computed(() =>
   || props.item.recommendedCandidateKey !== null,
 );
 
-const priceExpanded = ref(false);
-
 const sortedPriceBreaks = computed(() => {
   const offer = props.item.selectedOffer;
   if (offer === null) return [];
   const rows = [...offer.priceBreaks].sort((a, b) => a.qty - b.qty);
   // 일부 레거시/수동 오퍼는 가격구간 배열 없이 적용 단가만 보존되어 있다.
   return rows.length > 0 ? rows : [{ qty: offer.breakQty, price: offer.unitPrice }];
-});
-
-const hasMorePriceBreaks = computed(() => sortedPriceBreaks.value.length > 4);
-
-const visiblePriceBreaks = computed(() => {
-  const rows = sortedPriceBreaks.value;
-  if (priceExpanded.value || rows.length <= 4) return rows;
-
-  // 적용 구간이 뒤쪽에 있어도 파란 강조가 접힌 목록에서 사라지지 않도록
-  // 적용 구간 앞뒤의 4개 가격대를 보여준다.
-  const activeIndex = rows.findIndex((row) => row.qty === props.item.selectedOffer?.breakQty);
-  if (activeIndex < 4) return rows.slice(0, 4);
-  const start = Math.min(Math.max(activeIndex - 1, 0), rows.length - 4);
-  return rows.slice(start, start + 4);
 });
 
 const rowClass = computed(() => {
@@ -160,33 +134,6 @@ function fmtWon(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
 }
 
-function fmtBreakNumber(price: number, currency: string): string {
-  return price.toLocaleString('ko-KR', { maximumFractionDigits: currency === 'KRW' ? 2 : 4 });
-}
-
-function pricePrefix(currency: string): string {
-  if (currency === 'KRW') return '';
-  return currency === 'USD' ? '$' : `${currency} `;
-}
-
-function priceSuffix(currency: string): string {
-  return currency === 'KRW' ? '원' : '';
-}
-
-function togglePriceDetails(): void {
-  if (!hasMorePriceBreaks.value) return;
-  priceExpanded.value = !priceExpanded.value;
-}
-
-/** 오퍼 데이터 나이 — 정직성 표시(방금 조회한 것처럼 보이지 않게). */
-function fmtAge(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 60_000) return '방금';
-  if (ms < 3_600_000) return `${String(Math.floor(ms / 60_000))}분 전`;
-  if (ms < 86_400_000) return `${String(Math.floor(ms / 3_600_000))}시간 전`;
-  return `${String(Math.floor(ms / 86_400_000))}일 전`;
-}
-
 function onQtyInput(event: Event): void {
   const raw = Number((event.target as HTMLInputElement).value);
   if (!Number.isFinite(raw)) return; // 빈 값·비정상 입력은 무시(다음 동기화가 복원)
@@ -227,7 +174,7 @@ function onQtyInput(event: Event): void {
             class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-white px-1 shadow-sm"
             :title="item.selectedOffer.supplierSku"
           >
-            <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? favSamplepcb" alt="" class="size-[12px] rounded-[2px]">
+            <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] rounded-[2px]">
             <span class="truncate text-[10px] font-semibold text-[#3b4252]">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
           </div>
           <!-- 부품 이미지(카탈로그 정본 imageUrl) — 실사진이 정사각이라 1:1 유지 -->
@@ -247,35 +194,17 @@ function onQtyInput(event: Event): void {
     <td class="max-w-[220px] px-2 py-3 pt-[42px]">
       <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
-    <!-- UNIT PRICE: Figma 87:13361 — 가격구간 4행 + 적용 구간 강조 + 상세 확장 -->
+    <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->
     <td class="px-2 py-2">
-      <template v-if="item.selectedOffer !== null">
-        <div class="flex flex-col gap-[4px]">
-          <div
-            v-for="priceBreak in visiblePriceBreaks"
-            :key="priceBreak.qty"
-            class="flex min-h-[14px] items-baseline justify-between gap-3 text-[12px] leading-[14px]"
-            :class="priceBreak.qty === item.selectedOffer.breakQty ? 'font-bold text-[#1e64fd]' : 'font-semibold text-[#5f6777]'"
-          >
-            <span class="w-[32px] shrink-0 text-right tabular-nums">{{ priceBreak.qty.toLocaleString('ko-KR') }}+</span>
-            <span class="min-w-0 text-right tabular-nums">
-              {{ pricePrefix(item.selectedOffer.currency) }}{{ fmtBreakNumber(priceBreak.price, item.selectedOffer.currency) }}<span class="font-normal">{{ priceSuffix(item.selectedOffer.currency) }}</span>
-            </span>
-          </div>
-        </div>
-        <div v-if="hasMorePriceBreaks" class="mt-[6px] border-t border-[#d7dce4] pt-[4px] text-center">
-          <button
-            type="button"
-            class="inline-flex h-[14px] items-center gap-1 text-[12px] font-semibold leading-[14px] text-[#1e64fd] hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-            :disabled="editingLocked"
-            :title="editingLocked ? EDIT_LOCK_TITLE : `전체 ${String(sortedPriceBreaks.length)}개 가격구간 ${priceExpanded ? '접기' : '보기'}`"
-            @click="togglePriceDetails"
-          >
-            가격 상세 <span class="text-[10px]">{{ priceExpanded ? '▴' : '▾' }}</span>
-          </button>
-        </div>
-        <p class="mt-[3px] text-center text-[9px] leading-[11px] text-gray-400" title="이 가격·재고를 공급사에서 가져온 시각">기준 {{ fmtAge(item.selectedOffer.fetchedAt) }}</p>
-      </template>
+      <BomPriceBreaks
+        v-if="item.selectedOffer !== null"
+        :price-breaks="sortedPriceBreaks"
+        :active-qty="item.selectedOffer.breakQty"
+        :currency="item.selectedOffer.currency"
+        :fetched-at="item.selectedOffer.fetchedAt"
+        :locked="editingLocked"
+        :locked-title="EDIT_LOCK_TITLE"
+      />
       <p v-else class="pt-[24px] text-right text-[12px] text-gray-300">—</p>
     </td>
     <!-- QUANTITY / STOCK: 공급사 포장(→현재 부품 오퍼 선택) + 수량 -->

@@ -11,8 +11,8 @@ import {
   BomSupplierPreflightResponse,
   BomSupplierResultResponse,
   BomSupplierStartResponse,
+  BomPartSearchResponse,
   PartDetailResponse,
-  PartSearchResponse,
   apiRoutes,
   type BomQuoteBuildBodyType,
   type BomQuoteCandidateSelectionBodyType,
@@ -202,10 +202,14 @@ export function useSupplierSearchResult(jobId: Ref<string | null>, enabled: Ref<
 }
 
 // ── 카탈로그(부품 교체·추가·오퍼 변경 모달) ──────────────────────────────────
-export function useBomPartsSearch(q: Ref<string>, enabled: Ref<boolean>) {
+export function useBomPartsSearch(q: Ref<string>, enabled: Ref<boolean>, needed?: Ref<number>) {
   return useQuery({
-    queryKey: computed(() => ['bom', 'parts-search', q.value]),
-    queryFn: () => apiGet(`${base}/parts-search?q=${encodeURIComponent(q.value)}&pageSize=20`, PartSearchResponse),
+    queryKey: computed(() => ['bom', 'parts-search', q.value, needed?.value ?? 1]),
+    queryFn: () =>
+      apiGet(
+        `${base}/parts-search?q=${encodeURIComponent(q.value)}&pageSize=20&needed=${String(needed?.value ?? 1)}`,
+        BomPartSearchResponse,
+      ),
     enabled: computed(() => enabled.value && q.value.trim() !== ''),
     retry: false,
   });

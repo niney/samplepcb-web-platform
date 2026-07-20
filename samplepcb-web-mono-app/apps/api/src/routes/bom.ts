@@ -1,11 +1,12 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import type { estypes } from '@elastic/elasticsearch';
 import { z } from 'zod';
-import { BomSupplierOptions, PartDetailResponse, PartSearchQuery, PartSearchResponse } from '@sp/api-contract';
+import { BomPartSearchQuery, BomPartSearchResponse, BomSupplierOptions, PartDetailResponse } from '@sp/api-contract';
+import { pickDefaultOffer } from '@sp/utils';
 import { esClient } from '../es/client';
 import { SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
 import { ingestJobResult, jobOwnedBy, proxyEngine, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
-import { refreshQuotesForJob } from '../lib/bom-quote';
+import { refreshQuotesForJob, toOfferInputs } from '../lib/bom-quote';
 import { getBomQuoteConfig } from '../lib/sp-config';
 import { loadPartDetailDto } from '../lib/parts-read';
 import { prisma } from '../lib/prisma';
@@ -107,8 +108,10 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     return out;
   });
 
-  // ── 카탈로그 검색(부품 교체·추가 모달) — admin-parts 쿼리 빌더 재사용, 패싯 생략 ──
-  fastify.get('/bom/parts-search', { schema: { querystring: PartSearchQuery, response: { 200: PartSearchResponse } } }, async (request) => {
+  // ── 카탈로그 검색(단일 검색 화면·부품 교체/추가 모달) — admin-parts 쿼리 빌더
+  // 재사용, 패싯 생략. 결과 행에는 필요수량(needed) 기준 대표 구매 조건을 서버가 계산해
+  // 첨부한다(FE 와 동일한 pickDefaultOffer — 환율 문맥이 없어 KRW 환산 없이 원통화).
+  fastify.get('/bom/parts-search', { schema: { querystring: BomPartSearchQuery, response: { 200: BomPartSearchResponse } } }, async (request) => {
     const q = request.query;
     const searchRequest = {
       index: SP_PARTS_READ,
@@ -119,10 +122,41 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     };
     const res = await esClient().search<SpPartDoc>(searchRequest as unknown as estypes.SearchRequest);
     const total = typeof res.hits.total === 'number' ? res.hits.total : (res.hits.total?.value ?? 0);
+    const hits = res.hits.hits.flatMap((h) => (h._source === undefined ? [] : [toHit(h._source, h._score)]));
+    const parts = hits.length === 0
+      ? []
+      : await prisma.spPart.findMany({
+          where: { id: { in: hits.map((h) => BigInt(h.id)) } },
+          include: { offers: { include: { priceBreaks: true } } },
+        });
+    const applied = new Map(parts.map((part) => [String(part.id), pickDefaultOffer(toOfferInputs(part), q.needed, null)] as const));
     return {
       result: true as const,
       data: {
-        items: res.hits.hits.flatMap((h) => (h._source === undefined ? [] : [toHit(h._source, h._score)])),
+        items: hits.map((hit) => {
+          const pick = applied.get(hit.id) ?? null;
+          return {
+            ...hit,
+            applied:
+              pick === null
+                ? null
+                : {
+                    supplier: pick.offer.supplier,
+                    supplierSku: pick.offer.supplierSku,
+                    packaging: pick.offer.packaging,
+                    currency: pick.currency,
+                    stock: pick.offer.stock,
+                    moq: pick.offer.moq,
+                    orderMultiple: pick.offer.orderMultiple,
+                    fetchedAt: pick.offer.fetchedAt,
+                    priceBreaks: pick.offer.priceBreaks.map((pb) => ({ qty: pb.qty, price: pb.price })),
+                    unitPrice: pick.unitPrice,
+                    breakQty: pick.breakQty,
+                    orderQty: pick.orderQty,
+                    stockShort: pick.stockShort,
+                  },
+          };
+        }),
         total,
         page: q.page,
         pageSize: q.pageSize,
