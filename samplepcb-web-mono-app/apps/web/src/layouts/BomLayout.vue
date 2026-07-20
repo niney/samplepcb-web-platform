@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { useMyBomQuotes } from '../bom/useBom';
@@ -26,11 +26,36 @@ const auth = useAuthStore();
 // (AI 분석결과·주문 정보·예상 견적)도 같은 rightOpen 을 공유한다(usePanels 싱글턴).
 const { leftOpen, rightOpen } = useBomPanels();
 
-// Recent file — 시안의 4행을 실데이터(내 견적 최신 4건)로 채운다
-const list = useMyBomQuotes(ref(1), computed(() => auth.isLoggedIn));
-const recent = computed(() => (list.data.value?.data.items ?? []).slice(0, 4));
+// Recent file — 남은 사이드바 높이에 맞춰 최신 견적을 최대한 채우고, 전체 이력 화면 진입점은 항상 유지한다.
+const list = useMyBomQuotes(ref(1), computed(() => auth.isLoggedIn), { pageSize: 50 });
+const recentViewport = ref<HTMLElement | null>(null);
+const recentCapacity = ref(4);
+const RECENT_ROW_HEIGHT = 30;
+const RECENT_ROW_GAP = 2;
+let recentResizeObserver: ResizeObserver | null = null;
+
+const recent = computed(() => (list.data.value?.data.items ?? []).slice(0, recentCapacity.value));
+const recentTotal = computed(() => list.data.value?.data.total ?? 0);
+
+onMounted(() => {
+  recentResizeObserver = new ResizeObserver(([entry]) => {
+    if (entry === undefined || entry.contentRect.height <= 0) return;
+    recentCapacity.value = Math.max(
+      1,
+      Math.floor((entry.contentRect.height + RECENT_ROW_GAP) / (RECENT_ROW_HEIGHT + RECENT_ROW_GAP)),
+    );
+  });
+  if (recentViewport.value !== null) recentResizeObserver.observe(recentViewport.value);
+});
+
+onBeforeUnmount(() => {
+  recentResizeObserver?.disconnect();
+});
+
 const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? route.params.id : null));
 const onSearch = computed(() => route.name === 'bom-search');
+const onHistory = computed(() => route.name === 'bom-history');
+const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
 </script>
 
 <template>
@@ -86,9 +111,9 @@ const onSearch = computed(() => route.name === 'bom-search');
     <div class="flex min-h-0 flex-1">
       <!-- left side bar (87:9485) — 라이트 치환 -->
       <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-white pt-[36px] lg:flex">
-        <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onSearch ? 'hover:bg-gray-50' : 'bg-[#eaf2ff]'">
+        <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onBomPrimary ? 'bg-[#eaf2ff]' : 'hover:bg-gray-50'">
           <img :src="icMenuBom" alt="" class="size-[18px]">
-          <span class="ml-[6px] text-[16px] font-medium" :class="onSearch ? 'text-[#27292e]' : 'text-[#0e6efd]'">BOM 분석</span>
+          <span class="ml-[6px] text-[16px] font-medium" :class="onBomPrimary ? 'text-[#0e6efd]' : 'text-[#27292e]'">BOM 분석</span>
           <img :src="icMenuUpload" alt="" class="ml-auto size-[14px]">
         </RouterLink>
         <RouterLink :to="{ name: 'bom-search' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onSearch ? 'bg-[#eaf2ff]' : 'hover:bg-gray-50'">
@@ -97,20 +122,32 @@ const onSearch = computed(() => route.name === 'bom-search');
           <img :src="icTrailSearch" alt="" class="ml-auto size-[14px]">
         </RouterLink>
 
-        <p class="mt-[38px] pl-[21px] text-[13px] font-bold text-[#8f94a2]">Recent file</p>
-        <div class="mt-[16px] flex w-[179px] flex-col gap-[2px] self-start pl-0" style="margin-left: 21px">
-          <RouterLink
-            v-for="q in recent"
-            :key="q.id"
-            :to="{ name: 'bom-quote', params: { id: q.id } }"
-            class="flex items-center gap-[4px] rounded-[4px] px-[8px] py-[6px]"
-            :class="currentQuoteId === q.id ? 'border border-[#dfe3ec] bg-[#f4f6fa]' : 'border border-transparent hover:bg-gray-50'"
-          >
-            <img :src="icFile" alt="" class="size-[15px] opacity-60">
-            <span class="truncate text-[12px] text-[#6b7280]">{{ q.fileName ?? q.title }}</span>
-          </RouterLink>
-          <p v-if="recent.length === 0" class="px-[8px] py-[6px] text-[12px] text-gray-400">아직 업로드한 BOM이 없습니다</p>
-        </div>
+        <section class="mt-[38px] flex min-h-0 flex-1 flex-col pb-4">
+          <p class="pl-[21px] text-[13px] font-bold text-[#8f94a2]">Recent file</p>
+          <div ref="recentViewport" class="mt-[12px] flex min-h-0 w-[179px] flex-1 flex-col gap-[2px] self-start overflow-hidden" style="margin-left: 21px">
+            <RouterLink
+              v-for="q in recent"
+              :key="q.id"
+              :to="{ name: 'bom-quote', params: { id: q.id } }"
+              class="flex h-[30px] shrink-0 items-center gap-[4px] rounded-[4px] border px-[8px]"
+              :class="currentQuoteId === q.id ? 'border-[#dfe3ec] bg-[#f4f6fa]' : 'border-transparent hover:bg-gray-50'"
+            >
+              <img :src="icFile" alt="" class="size-[15px] opacity-60">
+              <span class="truncate text-[12px] text-[#6b7280]">{{ q.fileName ?? q.title }}</span>
+            </RouterLink>
+            <p v-if="recent.length === 0" class="px-[8px] py-[6px] text-[12px] text-gray-400">아직 업로드한 BOM이 없습니다</p>
+          </div>
+          <div class="mt-1 h-[30px] w-[179px] shrink-0" style="margin-left: 21px">
+            <RouterLink
+              :to="{ name: 'bom-history' }"
+              class="flex h-full items-center justify-between rounded-[4px] px-[8px] text-[12px] font-semibold text-[#2477f4] hover:bg-blue-50"
+              :class="onHistory ? 'bg-blue-50' : ''"
+            >
+              <span>모두 보기</span>
+              <span class="tabular-nums text-[#7d8da8]">{{ recentTotal }}개 ›</span>
+            </RouterLink>
+          </div>
+        </section>
       </aside>
 
       <!-- 중앙 흰 패널 (Rectangle 197) — 페이지가 내부 스크롤을 관리한다 -->

@@ -4,6 +4,7 @@ import { apiGet, apiSend, apiSendForm } from '@sp/shared';
 import {
   BomJobResponse,
   BomQuoteCreateResponse,
+  BomQuoteDeleteManyResponse,
   BomQuoteOkResponse,
   BomQuoteDetailResponse,
   BomQuoteItemCandidatesResponse,
@@ -16,7 +17,9 @@ import {
   apiRoutes,
   type BomQuoteBuildBodyType,
   type BomQuoteCandidateSelectionBodyType,
+  type BomQuoteDeleteManyBodyType,
   type BomQuotePatchBodyType,
+  type BomQuoteStatusType,
   type BomSupplierOptionsType,
 } from '@sp/api-contract';
 
@@ -25,10 +28,24 @@ import {
 
 const base = apiRoutes.bom;
 
-export function useMyBomQuotes(page: Ref<number>, enabled: Ref<boolean>) {
+interface MyBomQuotesOptions {
+  pageSize?: number;
+  search?: Ref<string>;
+  status?: Ref<BomQuoteStatusType | null>;
+}
+
+export function useMyBomQuotes(page: Ref<number>, enabled: Ref<boolean>, options: MyBomQuotesOptions = {}) {
+  const search = computed(() => options.search?.value.trim() ?? '');
+  const status = computed(() => options.status?.value ?? null);
+  const pageSize = options.pageSize ?? 20;
   return useQuery({
-    queryKey: computed(() => ['bom', 'quotes', page.value]),
-    queryFn: () => apiGet(`${base}/quotes?page=${String(page.value)}&pageSize=20`, BomQuoteListResponse),
+    queryKey: computed(() => ['bom', 'quotes', page.value, pageSize, search.value, status.value]),
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize) });
+      if (search.value !== '') params.set('search', search.value);
+      if (status.value !== null) params.set('status', status.value);
+      return apiGet(`${base}/quotes?${params.toString()}`, BomQuoteListResponse);
+    },
     enabled,
     retry: false,
     placeholderData: (prev) => prev,
@@ -151,6 +168,15 @@ export function useDeleteBomQuote() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (quoteId: string) => apiSend('DELETE', `${base}/quotes/${quoteId}`, undefined, BomQuoteOkResponse),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] }),
+  });
+}
+
+export function useDeleteBomQuotes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: BomQuoteDeleteManyBodyType) =>
+      apiSend('POST', `${base}/quotes/delete`, body, BomQuoteDeleteManyResponse),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] }),
   });
 }

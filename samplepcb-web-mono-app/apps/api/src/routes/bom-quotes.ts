@@ -7,11 +7,14 @@ import {
   BomQuoteCandidateSelectionBody,
   BomQuoteBuildBody,
   BomQuoteCreateResponse,
+  BomQuoteDeleteManyBody,
+  BomQuoteDeleteManyResponse,
   BomQuoteDetailResponse,
   BomQuoteItemCandidatesResponse,
   BomQuoteListResponse,
   BomQuotePatchBody,
   BomQuoteRequestBody,
+  BomQuoteStatus,
   type BomQuoteMatchEvidenceType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
@@ -21,6 +24,12 @@ import { engineFetch } from '../lib/engine-client';
 import { getBomQuoteConfig } from '../lib/sp-config';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { ingestJobResult, recordJobOwner, startIngestPoller, tryCountDailySearch } from '../lib/bom-engine-jobs';
+import {
+  bomQuoteDeleteCounts,
+  chunkBomQuoteDeletionIds,
+  planBomQuoteDeletion,
+  resolveDeletedBomQuoteIds,
+} from '../lib/bom-quote-delete';
 import {
   buildItemsFromEngineResult,
   applyQuoteCandidateSelection,
@@ -48,6 +57,8 @@ const ItemParams = IdParams.extend({ rowIdx: z.coerce.number().int().min(0) });
 const ListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  search: z.string().trim().max(191).optional(),
+  status: BomQuoteStatus.optional(),
 });
 
 const ALLOWED_EXT = new Set(['xlsx', 'xlsm', 'xls', 'csv', 'tsv']);
@@ -55,6 +66,18 @@ const MAX_FILE_BYTES = 50 * 1024 * 1024; // 시안 카피("up to 50 MB")와 정�
 
 const FILE_REF_TYPE = 'sp_bom_quote';
 const BizError = z.object({ result: z.literal(false), error: z.string() });
+
+/** 파일서버 정리는 응답을 막지 않되 동시 요청을 5건으로 제한한다. */
+async function deleteBomFiles(pathTokens: readonly string[]): Promise<void> {
+  const batchSize = 5;
+  for (let start = 0; start < pathTokens.length; start += batchSize) {
+    await Promise.all(
+      pathTokens.slice(start, start + batchSize).map((pathToken) =>
+        deleteFromFileServer(pathToken).catch(() => undefined),
+      ),
+    );
+  }
+}
 
 async function loadOwnQuote(id: bigint, mbId: string) {
   const quote = await prisma.spBomQuote.findUnique({ where: { id }, include: { items: true, sheets: true } });
@@ -287,25 +310,111 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
 
   // 내 견적 목록
   fastify.get('/bom/quotes', { schema: { querystring: ListQuery, response: { 200: BomQuoteListResponse } } }, async (request) => {
-    const { page, pageSize } = request.query;
-    const where = { mbId: request.user.mbId };
-    const [rows, total] = await Promise.all([
+    const { page, pageSize, search, status } = request.query;
+    const where: Prisma.SpBomQuoteWhereInput = {
+      mbId: request.user.mbId,
+      ...(status === undefined ? {} : { status }),
+      ...(search === undefined || search === ''
+        ? {}
+        : { OR: [{ title: { contains: search } }, { fileName: { contains: search } }] }),
+    };
+    const [rows, total, deletableCount] = await Promise.all([
       prisma.spBomQuote.findMany({
         where,
-        include: { items: { select: { included: true, matchStatus: true } } },
+        include: { _count: { select: { items: true } } },
         orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
       prisma.spBomQuote.count({ where }),
+      prisma.spBomQuote.count({ where: { mbId: request.user.mbId, status: 'draft' } }),
     ]);
+    const quoteIds = rows.map((row) => row.id);
+    const [includedRows, matchedRows] = quoteIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          prisma.spBomQuote.findMany({
+            where: { id: { in: quoteIds } },
+            select: { id: true, _count: { select: { items: { where: { included: true } } } } },
+          }),
+          prisma.spBomQuote.findMany({
+            where: { id: { in: quoteIds } },
+            select: { id: true, _count: { select: { items: { where: { matchStatus: { not: 'none' } } } } } },
+          }),
+        ]);
+    const includedCountById = new Map(includedRows.map((row) => [row.id, row._count.items] as const));
+    const matchedCountById = new Map(matchedRows.map((row) => [row.id, row._count.items] as const));
     return {
       result: true as const,
       data: {
-        items: rows.map((row) => toSummaryDto(row, row.items)),
+        items: rows.map((row) => toSummaryDto(row, {
+          itemCount: row._count.items,
+          includedCount: includedCountById.get(row.id) ?? 0,
+          matchedCount: matchedCountById.get(row.id) ?? 0,
+        })),
         total,
+        deletableCount,
         page,
         pageSize,
+      },
+    };
+  });
+
+  // 목록 일괄 삭제 — 본인 draft만 삭제한다. scope=all도 요청·검토·답변 견적은 보존한다.
+  fastify.post('/bom/quotes/delete', {
+    schema: { body: BomQuoteDeleteManyBody, response: { 200: BomQuoteDeleteManyResponse } },
+  }, async (request) => {
+    const selectedIds = request.body.scope === 'selected'
+      ? request.body.quoteIds.map((id) => BigInt(id))
+      : null;
+
+    const rows = await prisma.spBomQuote.findMany({
+      where: {
+        mbId: request.user.mbId,
+        ...(selectedIds === null ? {} : { id: { in: selectedIds } }),
+      },
+      select: { id: true, mbId: true, status: true },
+    });
+    const { targets, deletableIds } = planBomQuoteDeletion(rows, request.user.mbId);
+    const pathTokens: string[] = [];
+    let deletedCount = 0;
+
+    // cascade 대상이 큰 scope=all도 청크별 커밋해 기본 트랜잭션 시간 안에 수렴시킨다.
+    for (const ids of chunkBomQuoteDeletionIds(deletableIds)) {
+      const chunk = await prisma.$transaction(async (tx) => {
+        await tx.spBomQuote.deleteMany({
+          where: { id: { in: ids }, mbId: request.user.mbId, status: 'draft' },
+        });
+        const survivors = await tx.spBomQuote.findMany({
+          where: { id: { in: ids } },
+          select: { id: true },
+        });
+        const deletedIds = resolveDeletedBomQuoteIds(ids, survivors.map((quote) => quote.id));
+        const files = deletedIds.length === 0
+          ? []
+          : await tx.spFile.findMany({
+              where: { refType: FILE_REF_TYPE, refId: { in: deletedIds } },
+              select: { pathToken: true },
+            });
+
+        if (deletedIds.length > 0) {
+          await tx.spFile.deleteMany({ where: { refType: FILE_REF_TYPE, refId: { in: deletedIds } } });
+        }
+        return { deletedCount: deletedIds.length, pathTokens: files.map((file) => file.pathToken) };
+      });
+      deletedCount += chunk.deletedCount;
+      pathTokens.push(...chunk.pathTokens);
+    }
+
+    const deleted = bomQuoteDeleteCounts(selectedIds?.length ?? targets.length, targets.length, deletedCount);
+    void deleteBomFiles(pathTokens);
+
+    return {
+      result: true as const,
+      data: {
+        requestedCount: deleted.requestedCount,
+        deletedCount: deleted.deletedCount,
+        retainedCount: deleted.retainedCount,
       },
     };
   });

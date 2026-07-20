@@ -2419,8 +2419,13 @@ async function loadCandidateDatasheetMap(quoteId: bigint, items: QuoteItemRow[])
 }
 
 type SummaryItemRow = Pick<QuoteItemRow, 'included' | 'matchStatus'>;
+export interface BomQuoteSummaryCounts {
+  itemCount: number;
+  includedCount: number;
+  matchedCount: number;
+}
 
-function summaryCounts(items: SummaryItemRow[]): { itemCount: number; includedCount: number; matchedCount: number } {
+function summaryCounts(items: SummaryItemRow[]): BomQuoteSummaryCounts {
   return {
     itemCount: items.length,
     includedCount: items.filter((i) => i.included).length,
@@ -2428,13 +2433,13 @@ function summaryCounts(items: SummaryItemRow[]): { itemCount: number; includedCo
   };
 }
 
-export function toSummaryDto(quote: QuoteRow, items: SummaryItemRow[]): BomQuoteSummaryType {
+export function toSummaryDto(quote: QuoteRow, counts: BomQuoteSummaryCounts): BomQuoteSummaryType {
   return {
     id: String(quote.id),
     title: quote.title,
     status: quote.status as BomQuoteStatusType,
     fileName: quote.fileName,
-    ...summaryCounts(items),
+    ...counts,
     finalTotal: quote.finalTotal,
     createdAt: quote.createdAt.toISOString(),
     updatedAt: quote.updatedAt.toISOString(),
@@ -2461,7 +2466,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     loadCandidateDatasheetMap(quote.id, items),
   ]);
   return {
-    ...toSummaryDto(quote, items),
+    ...toSummaryDto(quote, summaryCounts(items)),
     engineJobId: quote.engineJobId,
     buildStatus: quote.buildStatus as BomQuoteDetailType['buildStatus'],
     sheets: [...sheets].sort((a, b) => a.sheetIndex - b.sheetIndex).map(toSheetDto),
@@ -2498,7 +2503,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
 }
 
 export function toAdminSummaryDto(quote: QuoteRow, items: SummaryItemRow[]): AdminBomQuoteSummaryType {
-  return { ...toSummaryDto(quote, items), mbId: quote.mbId };
+  return { ...toSummaryDto(quote, summaryCounts(items)), mbId: quote.mbId };
 }
 
 export async function toAdminDetailDto(

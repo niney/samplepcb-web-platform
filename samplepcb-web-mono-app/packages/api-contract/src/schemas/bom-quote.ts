@@ -393,10 +393,37 @@ export const BomQuoteRequestBody = z.object({
 });
 export type BomQuoteRequestBodyType = z.infer<typeof BomQuoteRequestBody>;
 
+const BomQuoteIdString = z.string().regex(/^\d+$/);
+
+/** 고객 목록의 일괄 삭제. 요청·검토·답변 등 확정 흐름에 들어간 견적은 서버가 보존한다. */
+export const BomQuoteDeleteManyBody = z.discriminatedUnion('scope', [
+  z.object({
+    scope: z.literal('selected'),
+    quoteIds: z.array(BomQuoteIdString).min(1).max(200),
+  }),
+  z.object({ scope: z.literal('all') }),
+]).superRefine((value, context) => {
+  if (value.scope !== 'selected') return;
+  if (new Set(value.quoteIds).size !== value.quoteIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'quoteIds must be unique', path: ['quoteIds'] });
+  }
+});
+export type BomQuoteDeleteManyBodyType = z.infer<typeof BomQuoteDeleteManyBody>;
+
 // ── 응답 ──────────────────────────────────────────────────────────────────
 
 export const BomQuoteOkResponse = z.object({ result: z.literal(true) });
 export type BomQuoteOkResponseType = z.infer<typeof BomQuoteOkResponse>;
+
+export const BomQuoteDeleteManyResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    requestedCount: z.number().int().nonnegative(),
+    deletedCount: z.number().int().nonnegative(),
+    retainedCount: z.number().int().nonnegative(),
+  }),
+});
+export type BomQuoteDeleteManyResponseType = z.infer<typeof BomQuoteDeleteManyResponse>;
 
 export const BomQuoteCreateResponse = z.object({
   result: z.literal(true),
@@ -409,6 +436,8 @@ export const BomQuoteListResponse = z.object({
   data: z.object({
     items: z.array(BomQuoteSummary),
     total: z.number().int(),
+    /** 전체 목록 중 고객이 즉시 삭제할 수 있는 draft 견적 수. */
+    deletableCount: z.number().int().nonnegative(),
     page: z.number().int(),
     pageSize: z.number().int(),
   }),

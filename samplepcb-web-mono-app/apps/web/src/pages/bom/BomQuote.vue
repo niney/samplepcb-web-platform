@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -341,6 +341,71 @@ const pricingPending = computed(() => detail.value?.buildStatus !== 'ready' || e
 // 검색·결과 반영이 끝날 때까지 모든 BOM 변경 동작을 잠그고 읽기 기능만 유지한다.
 const editingLocked = computed(() => enriching.value);
 const EDIT_LOCK_TITLE = '공급사 확인이 완료되면 수정할 수 있습니다';
+
+// ── 매칭 결과 필터 ──────────────────────────────────────────────────────────
+// 매칭 상태는 서로 배타적이며, 재고 부족은 매칭된 행에도 함께 존재할 수 있는
+// 독립 조건이다. 우측 요약 카드의 집계 규칙과 같은 판정식을 사용한다.
+type ResultMatchFilter = 'all' | 'matched' | 'review' | 'unmatched';
+type SpecificResultMatchFilter = Exclude<ResultMatchFilter, 'all'>;
+
+const resultMatchFilter = ref<ResultMatchFilter>('all');
+const resultNostockOnly = ref(false);
+const resultsScrollEl = ref<HTMLElement | null>(null);
+
+const RESULT_MATCH_FILTER_LABEL: Record<SpecificResultMatchFilter, string> = {
+  matched: 'Matched',
+  review: 'Review',
+  unmatched: 'Unmatched',
+};
+
+function itemMatchGroup(item: BomQuoteItemType): SpecificResultMatchFilter {
+  if (item.matchStatus !== 'none') return 'matched';
+  if (item.matchEvidence?.selectionMode === 'review') return 'review';
+  return 'unmatched';
+}
+
+const filteredItems = computed(() => items.value.filter((item) => {
+  if (resultMatchFilter.value !== 'all' && itemMatchGroup(item) !== resultMatchFilter.value) return false;
+  // Nostock 집계는 견적 합계에 포함된 행만 세므로 필터도 같은 규칙을 따른다.
+  if (resultNostockOnly.value && (!item.included || !isStockShort(item))) return false;
+  return true;
+}));
+
+const resultFiltersActive = computed(() => resultMatchFilter.value !== 'all' || resultNostockOnly.value);
+const activeMatchFilterLabel = computed(() => (
+  resultMatchFilter.value === 'all' ? null : RESULT_MATCH_FILTER_LABEL[resultMatchFilter.value]
+));
+
+function scrollResultsToTop(): void {
+  void nextTick(() => {
+    if (resultsScrollEl.value !== null) resultsScrollEl.value.scrollTop = 0;
+  });
+}
+
+function clearResultFilters(): void {
+  resultMatchFilter.value = 'all';
+  resultNostockOnly.value = false;
+  scrollResultsToTop();
+}
+
+function toggleResultMatchFilter(filter: SpecificResultMatchFilter): void {
+  resultMatchFilter.value = resultMatchFilter.value === filter ? 'all' : filter;
+  scrollResultsToTop();
+}
+
+function toggleResultNostockFilter(): void {
+  resultNostockOnly.value = !resultNostockOnly.value;
+  scrollResultsToTop();
+}
+
+watch(quoteId, clearResultFilters);
+watch(enriching, (active) => {
+  // 확인 중에는 Review/Unmatched 최종 분류가 아직 확정되지 않는다.
+  if (active && (resultMatchFilter.value === 'review' || resultMatchFilter.value === 'unmatched')) {
+    resultMatchFilter.value = 'all';
+    scrollResultsToTop();
+  }
+});
 const supplierStatus = useSupplierSearchStatus(
   computed(() => detail.value?.engineJobId ?? null),
   enriching, // 진행률(%) 표시에만 필요
@@ -877,15 +942,23 @@ function fmtAmount(v: number | null): string {
         </div>
 
         <!-- 매칭 결과 헤더 -->
-        <div class="mt-4 flex items-center justify-between px-1">
-          <p class="text-[15px] font-bold text-[#061023]">매칭 결과</p>
+        <div class="mt-4 flex min-h-[26px] flex-wrap items-center justify-between gap-2 px-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="text-[15px] font-bold text-[#061023]">매칭 결과</p>
+            <template v-if="resultFiltersActive">
+              <span class="text-[12px] font-medium text-[#5f6777]">{{ stats.total }}개 중 {{ filteredItems.length }}개 표시</span>
+              <span v-if="activeMatchFilterLabel !== null" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{{ activeMatchFilterLabel }}</span>
+              <span v-if="resultNostockOnly" class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">재고 부족</span>
+              <button type="button" class="text-[11px] font-semibold text-[#2477f4] underline-offset-2 hover:underline" @click="clearResultFilters">필터 해제</button>
+            </template>
+          </div>
           <!-- 선택 삭제 — 미구현(디자인만) -->
           <button type="button" class="h-[26px] cursor-default rounded border border-gray-300 bg-white px-2.5 text-[12px] text-gray-500 opacity-70" title="선택 삭제 (준비 중)">선택 삭제</button>
         </div>
 
         <!-- 테이블 (list01 스타일) — 이 영역만 내부 스크롤, 헤더는 sticky -->
-        <div class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white">
-          <table class="min-w-[1000px] w-full" :aria-busy="editingLocked">
+        <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white">
+          <table id="bom-results-table" class="min-w-[1000px] w-full" :aria-busy="editingLocked">
             <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
               <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
                 <th class="w-[52px] px-1 py-2.5"><span class="sr-only">포함 및 원본 행</span></th>
@@ -900,7 +973,7 @@ function fmtAmount(v: number | null): string {
             </thead>
             <tbody>
               <BomQuoteRow
-                v-for="item in items"
+                v-for="item in filteredItems"
                 :key="item.rowIdx"
                 :item="item"
                 :is-draft="isDraft"
@@ -912,8 +985,8 @@ function fmtAmount(v: number | null): string {
                 @open-candidates="openCandidateDrawer(item)"
                 @open-search="openCatalogSearchDrawer(item)"
               />
-              <tr v-if="items.length === 0">
-                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">표시할 라인이 없습니다.</td>
+              <tr v-if="filteredItems.length === 0">
+                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
               </tr>
             </tbody>
           </table>
@@ -940,45 +1013,88 @@ function fmtAmount(v: number | null): string {
               AI 분석결과
             </h2>
             <div class="mt-[10px] space-y-[11px]">
-              <div class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] border border-[#dce7f8] bg-[#f8faff] px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#2f7eff] after:to-transparent">
+              <button
+                type="button"
+                class="relative flex h-[51px] w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-[#dce7f8] bg-[#f8faff] px-[12px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#2f7eff] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2477f4] focus-visible:ring-offset-1"
+                :class="!resultFiltersActive ? 'ring-2 ring-[#2477f4] ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
+                :aria-pressed="!resultFiltersActive"
+                :aria-label="`전체 ${String(stats.total)}개 행 보기`"
+                aria-controls="bom-results-table"
+                @click="clearResultFilters"
+              >
                 <div class="flex h-full flex-col justify-center pt-px">
                   <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Total Lines</span>
                   <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-[#2477f4]">{{ stats.total }}</span>
                 </div>
                 <span class="grid size-[28px] place-items-center rounded-[6px] bg-[#e7f0ff] text-[19px] leading-none text-[#2477f4]">≋</span>
-              </div>
-              <div class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] border border-[#d7eee6] bg-[#f6fcf9] px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#08b77f] after:to-transparent">
+              </button>
+              <button
+                type="button"
+                class="relative flex h-[51px] w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-[#d7eee6] bg-[#f6fcf9] px-[12px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#08b77f] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#08ad79] focus-visible:ring-offset-1"
+                :class="resultMatchFilter === 'matched' ? 'ring-2 ring-[#08ad79] ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
+                :aria-pressed="resultMatchFilter === 'matched'"
+                :aria-label="`매칭 완료 ${String(stats.matched)}개 행 필터`"
+                aria-controls="bom-results-table"
+                @click="toggleResultMatchFilter('matched')"
+              >
                 <div class="flex h-full flex-col justify-center pt-px">
                   <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Matched</span>
                   <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-[#08ad79]">{{ stats.matched }} <span class="text-[12px] font-semibold">{{ stats.matchedPct }}%</span></span>
                 </div>
                 <span class="grid size-[28px] place-items-center rounded-[6px] bg-[#e4f7ef] text-[19px] font-semibold leading-none text-[#08ad79]">✓</span>
-              </div>
-              <div class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] border border-[#f1e8b9] bg-[#fffdf3] px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#e2c100] after:to-transparent">
+              </button>
+              <button
+                type="button"
+                class="relative flex h-[51px] w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-[#f1e8b9] bg-[#fffdf3] px-[12px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#e2c100] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c8aa00] focus-visible:ring-offset-1"
+                :class="resultNostockOnly ? 'ring-2 ring-[#c8aa00] ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
+                :aria-pressed="resultNostockOnly"
+                :aria-label="`재고 부족 ${String(stats.nostock)}개 행 필터`"
+                aria-controls="bom-results-table"
+                @click="toggleResultNostockFilter"
+              >
                 <div class="flex h-full flex-col justify-center pt-px">
                   <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Nostock</span>
                   <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-[#c8aa00]">{{ stats.nostock }} <span class="text-[12px] font-semibold">{{ stats.nostockPct }}%</span></span>
                 </div>
                 <img :src="icPanelNostock" alt="" class="size-[28px] shrink-0">
-              </div>
-              <div v-if="!enriching && stats.review > 0" class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] border border-orange-200 bg-orange-50/60 px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-orange-400 after:to-transparent">
+              </button>
+              <button
+                v-if="!enriching && stats.review > 0"
+                type="button"
+                class="relative flex h-[51px] w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-orange-200 bg-orange-50/60 px-[12px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-orange-400 after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1"
+                :class="resultMatchFilter === 'review' ? 'ring-2 ring-orange-400 ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
+                :aria-pressed="resultMatchFilter === 'review'"
+                :aria-label="`검토 필요 ${String(stats.review)}개 행 필터`"
+                aria-controls="bom-results-table"
+                @click="toggleResultMatchFilter('review')"
+              >
                 <div class="flex h-full flex-col justify-center pt-px">
                   <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Review</span>
                   <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-orange-500">{{ stats.review }}</span>
                 </div>
                 <span class="grid size-[28px] place-items-center rounded-[6px] bg-orange-100 text-[17px] font-bold text-orange-500">!</span>
-              </div>
+              </button>
               <!-- 보강 진행 중엔 Checking(파랑) — 최종 미매칭 판정과 구분 -->
-              <div
-                class="relative flex h-[51px] items-center justify-between overflow-hidden rounded-[8px] px-[12px] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent"
-                :class="enriching ? 'border border-[#dce7f8] bg-[#f8faff] after:from-[#2f7eff]' : 'border border-[#f2dce3] bg-[#fff7f9] after:from-[#f23a6b]'"
+              <button
+                type="button"
+                class="relative flex h-[51px] w-full items-center justify-between overflow-hidden rounded-[8px] px-[12px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-wait"
+                :class="[
+                  enriching ? 'border border-[#dce7f8] bg-[#f8faff] after:from-[#2f7eff]' : 'cursor-pointer border border-[#f2dce3] bg-[#fff7f9] after:from-[#f23a6b] focus-visible:ring-[#e73362]',
+                  !enriching && resultMatchFilter === 'unmatched' ? 'ring-2 ring-[#e73362] ring-offset-1 shadow-sm' : !enriching ? 'hover:-translate-y-px hover:shadow-sm' : '',
+                ]"
+                :disabled="enriching"
+                :aria-pressed="!enriching && resultMatchFilter === 'unmatched'"
+                :aria-label="enriching ? `확인 중 ${String(stats.unresolved)}개 행` : `미매칭 ${String(stats.unmatched)}개 행 필터`"
+                aria-controls="bom-results-table"
+                :title="enriching ? '공급사 확인이 완료되면 필터할 수 있습니다' : undefined"
+                @click="toggleResultMatchFilter('unmatched')"
               >
                 <div class="flex h-full flex-col justify-center pt-px">
                   <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">{{ enriching ? 'Checking' : 'Unmatched' }}</span>
                   <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums" :class="enriching ? 'text-[#2477f4]' : 'text-[#e73362]'">{{ enriching ? stats.unresolved : stats.unmatched }}</span>
                 </div>
                 <span class="grid size-[28px] place-items-center rounded-[6px] text-[20px] leading-none" :class="enriching ? 'bg-[#e7f0ff] text-[#2477f4]' : 'bg-[#fbe6ec] text-[#e73362]'">{{ enriching ? '…' : '×' }}</span>
-              </div>
+              </button>
             </div>
           </section>
 
