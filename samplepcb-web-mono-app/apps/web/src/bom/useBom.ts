@@ -67,10 +67,36 @@ export function useBomQuote(quoteId: Ref<string | null>, refetchInterval?: Ref<n
 }
 
 /** 엔진 재시작과 무관하게 quoteId에 박제된 후보를 읽는 전체 BOM 비교. */
-export function useBomQuoteComparison(quoteId: Ref<string | null>, enabled: Ref<boolean>) {
+export interface BomQuoteComparisonQuery {
+  page: Ref<number>;
+  search: Ref<string>;
+  status: Ref<'all' | 'matched' | 'attention' | 'not_found'>;
+  sheet: Ref<string>;
+}
+
+export function useBomQuoteComparison(
+  quoteId: Ref<string | null>,
+  enabled: Ref<boolean>,
+  query: BomQuoteComparisonQuery,
+) {
   return useQuery({
-    queryKey: computed(() => ['bom', 'quote-comparison', quoteId.value]),
-    queryFn: () => apiGet(`${base}/quotes/${quoteId.value ?? ''}/comparison`, BomQuoteComparisonResponse),
+    queryKey: computed(() => [
+      'bom',
+      'quote-comparison',
+      quoteId.value,
+      query.page.value,
+      query.search.value,
+      query.status.value,
+      query.sheet.value,
+    ]),
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(query.page.value), pageSize: '5' });
+      const search = query.search.value.trim();
+      if (search !== '') params.set('search', search);
+      if (query.status.value !== 'all') params.set('status', query.status.value);
+      if (query.sheet.value !== 'all') params.set('sheet', query.sheet.value);
+      return apiGet(`${base}/quotes/${quoteId.value ?? ''}/comparison?${params.toString()}`, BomQuoteComparisonResponse);
+    },
     enabled: computed(() => enabled.value && quoteId.value !== null),
     retry: false,
   });
@@ -130,16 +156,16 @@ export function usePrepareBomQuoteSheets() {
 
 export function useBomQuoteCandidates(
   quoteId: Ref<string | null>,
-  rowIdx: Ref<number | null>,
+  itemId: Ref<string | null>,
   enabled: Ref<boolean>,
 ) {
   return useQuery({
-    queryKey: computed(() => ['bom', 'quote', quoteId.value, 'candidates', rowIdx.value]),
+    queryKey: computed(() => ['bom', 'quote', quoteId.value, 'candidates', itemId.value]),
     queryFn: () => apiGet(
-      `${base}/quotes/${quoteId.value ?? ''}/items/${String(rowIdx.value ?? '')}/candidates`,
+      `${base}/quotes/${quoteId.value ?? ''}/items/${itemId.value ?? ''}/candidates`,
       BomQuoteItemCandidatesResponse,
     ),
-    enabled: computed(() => enabled.value && quoteId.value !== null && rowIdx.value !== null),
+    enabled: computed(() => enabled.value && quoteId.value !== null && itemId.value !== null),
     retry: false,
   });
 }
@@ -147,13 +173,13 @@ export function useBomQuoteCandidates(
 export function useSelectBomQuoteCandidate() {
   return useQuoteMutation(({
     quoteId,
-    rowIdx,
+    itemId,
     body,
   }: {
     quoteId: string;
-    rowIdx: number;
+    itemId: string;
     body: BomQuoteCandidateSelectionBodyType;
-  }) => apiSend('POST', `${base}/quotes/${quoteId}/items/${String(rowIdx)}/selection`, body, BomQuoteDetailResponse));
+  }) => apiSend('POST', `${base}/quotes/${quoteId}/items/${itemId}/selection`, body, BomQuoteDetailResponse));
 }
 
 export function useCatalogMatchBomQuote() {
@@ -217,11 +243,11 @@ export function useSupplierSearchStart() {
   });
 }
 
-export function useSupplierSearchStatus(jobId: Ref<string | null>, enabled: Ref<boolean>) {
+export function useSupplierSearchStatus(quoteId: Ref<string | null>, enabled: Ref<boolean>) {
   return useQuery({
-    queryKey: computed(() => ['bom', 'supplier', jobId.value]),
-    queryFn: () => apiGet(`${base}/jobs/${jobId.value ?? ''}/supplier-search`, BomSupplierStartResponse),
-    enabled: computed(() => enabled.value && jobId.value !== null),
+    queryKey: computed(() => ['bom', 'quote', quoteId.value, 'supplier-search']),
+    queryFn: () => apiGet(`${base}/quotes/${quoteId.value ?? ''}/supplier-search`, BomSupplierStartResponse),
+    enabled: computed(() => enabled.value && quoteId.value !== null),
     retry: false,
     refetchInterval: (query) => (query.state.data?.data.status === 'running' ? 2_000 : false),
   });

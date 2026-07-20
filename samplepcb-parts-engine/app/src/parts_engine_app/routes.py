@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .jobs import Job, JobError, JobService, SupplierSearchOptions
 from .refresh import refresh_part
@@ -37,6 +37,14 @@ class SupplierSearchOptionsBody(BaseModel):
             reset_cache=self.reset_cache,
             sheet_indexes=tuple(self.sheet_indexes),
         )
+
+
+class PersistedAnalysisBody(BaseModel):
+    """sp-node 영속 분석 결과를 공급사 검색 계산 입력으로 등록한다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    analysis: dict[str, Any]
 
 
 def _svc(request: Request) -> JobService:
@@ -106,6 +114,18 @@ async def get_result(request: Request, job_id: str) -> dict[str, Any]:
     if job.status != "completed" or job.result is None:
         raise HTTPException(status_code=409, detail=f"analysis_{job.status}")
     return job.result
+
+
+@router.post("/supplier-jobs", status_code=201)
+async def create_supplier_job(
+    request: Request,
+    body: PersistedAnalysisBody,
+) -> dict[str, Any]:
+    try:
+        job = await asyncio.to_thread(_svc(request).submit_analysis_snapshot, body.analysis)
+    except JobError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return _job_view(job)
 
 
 @router.post("/jobs/{job_id}/supplier-search/preflight")

@@ -35,6 +35,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   retry: [];
+  'query-change': [query: {
+    page: number;
+    search: string;
+    status: StatusFilter;
+    sheet: string;
+  }];
 }>();
 
 const closeButton = ref<HTMLButtonElement | null>(null);
@@ -89,33 +95,37 @@ function sourceRow(item: BomQuoteItemType): Record<string, unknown> | null {
   return asRecord(item.sourceRow);
 }
 
-function quoteRows(item: BomQuoteItemType): number[] {
-  return numberArray(sourceRow(item)?.sourceRows);
+function extractionPayload(item: ComparisonItem): Record<string, unknown> | null {
+  return item.comparison?.extraction?.payload ?? null;
 }
 
-function quoteRefs(item: BomQuoteItemType): string[] {
-  return stringArray(sourceRow(item)?.referenceDesignators);
+function quoteRows(item: ComparisonItem): number[] {
+  const extracted = numberArray(extractionPayload(item)?.source_rows_1based);
+  return extracted.length > 0 ? extracted : numberArray(sourceRow(item.quoteItem)?.sourceRows);
 }
 
-function quoteSheet(item: BomQuoteItemType): string {
-  const value = item.sourceSheetName ?? sourceRow(item)?.sheetName;
+function quoteRefs(item: ComparisonItem): string[] {
+  const extracted = stringArray(extractionPayload(item)?.reference_designators);
+  return extracted.length > 0 ? extracted : stringArray(sourceRow(item.quoteItem)?.referenceDesignators);
+}
+
+function quoteSheet(item: ComparisonItem): string {
+  const value = extractionPayload(item)?.sheet_name ?? item.quoteItem.sourceSheetName ?? sourceRow(item.quoteItem)?.sheetName;
   return typeof value === 'string' && value !== '' ? value : '시트 미확인';
 }
 
-function sourceText(item: BomQuoteItemType, key: string): string | null {
-  const value = sourceRow(item)?.[key];
+function sourceText(item: ComparisonItem, key: string): string | null {
+  const value = extractionPayload(item)?.[key] ?? sourceRow(item.quoteItem)?.[key];
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
 const comparisonItems = computed<ComparisonItem[]>(() => {
-  const rows = new Map((props.comparison?.rows ?? []).map((row) => [row.rowIdx, row] as const));
-  return props.items.map((quoteItem) => {
-    const comparison = rows.get(quoteItem.rowIdx);
-    return {
-      id: `quote-${String(quoteItem.rowIdx)}`,
-      quoteItem,
-      ...(comparison === undefined ? {} : { comparison }),
-    };
+  const quoteItems = new Map(props.items.map((item) => [item.id, item] as const));
+  return (props.comparison?.rows ?? []).flatMap((comparison) => {
+    const quoteItem = quoteItems.get(comparison.itemId);
+    return quoteItem === undefined
+      ? []
+      : [{ id: `quote-${quoteItem.id}`, quoteItem, comparison }];
   });
 });
 
@@ -133,13 +143,10 @@ function statusCategory(item: ComparisonItem): Exclude<StatusFilter, 'all'> {
   return 'attention';
 }
 
-const matchedCount = computed(() => comparisonItems.value.filter((item) => statusCategory(item) === 'matched').length);
-const attentionCount = computed(
-  () => comparisonItems.value.filter((item) => statusCategory(item) === 'attention').length,
-);
-const notFoundCount = computed(
-  () => comparisonItems.value.filter((item) => statusCategory(item) === 'not_found').length,
-);
+const matchedCount = computed(() => props.comparison?.summary.matched ?? 0);
+const attentionCount = computed(() => props.comparison?.summary.attention ?? 0);
+const notFoundCount = computed(() => props.comparison?.summary.notFound ?? 0);
+const totalCount = computed(() => matchedCount.value + attentionCount.value + notFoundCount.value);
 
 const preferredSuppliers = ['mouser', 'digikey', 'unikeyic'];
 const supplierLabels: Record<string, string> = {
@@ -167,40 +174,10 @@ const statusFilter = ref<StatusFilter>('all');
 const supplierFilter = ref('all');
 const sheetFilter = ref('all');
 const page = ref(1);
-const perPage = 5;
 
-const sheets = computed(() => [...new Set(comparisonItems.value.map((item) => quoteSheet(item.quoteItem)))]);
-
-function candidateSearchValues(candidate: Candidate): unknown[] {
-  return [
-    candidate.mpn,
-    candidate.manufacturerName,
-    candidate.description,
-    ...candidate.offers.flatMap((offer) => [offer.supplier, offer.supplierSku]),
-  ];
-}
-
-const filteredItems = computed(() => {
-  const needle = search.value.trim().toLocaleLowerCase();
-  return comparisonItems.value.filter((item) => {
-    if (sheetFilter.value !== 'all' && quoteSheet(item.quoteItem) !== sheetFilter.value) return false;
-    if (statusFilter.value !== 'all' && statusCategory(item) !== statusFilter.value) return false;
-    if (needle === '') return true;
-    const values: unknown[] = [
-      quoteSheet(item.quoteItem),
-      item.quoteItem.mpn,
-      item.quoteItem.manufacturerName,
-      item.quoteItem.description,
-      sourceRow(item.quoteItem)?.valueRaw,
-      ...quoteRefs(item.quoteItem),
-      ...(item.comparison?.candidates.flatMap(candidateSearchValues) ?? []),
-    ];
-    return values.some((value) => formatValue(value).toLocaleLowerCase().includes(needle));
-  });
-});
-
-const pageCount = computed(() => Math.max(1, Math.ceil(filteredItems.value.length / perPage)));
-const visibleItems = computed(() => filteredItems.value.slice((page.value - 1) * perPage, page.value * perPage));
+const sheets = computed(() => props.comparison?.sheets ?? []);
+const pageCount = computed(() => props.comparison?.totalPages ?? 1);
+const visibleItems = computed(() => comparisonItems.value);
 const visibleSuppliers = computed(() =>
   supplierFilter.value === 'all' ? suppliers.value : suppliers.value.filter((name) => name === supplierFilter.value),
 );
@@ -209,7 +186,34 @@ const gridStyle = computed(() => ({
   minWidth: `${String(372 + visibleSuppliers.value.length * 245)}px`,
 }));
 
-watch([search, statusFilter, supplierFilter, sheetFilter], () => (page.value = 1));
+let queryTimer: ReturnType<typeof setTimeout> | null = null;
+onBeforeUnmount(() => {
+  if (queryTimer !== null) clearTimeout(queryTimer);
+});
+watch([search, statusFilter, sheetFilter], () => {
+  page.value = 1;
+  if (queryTimer !== null) clearTimeout(queryTimer);
+  queryTimer = setTimeout(() => {
+    emit('query-change', {
+      page: 1,
+      search: search.value,
+      status: statusFilter.value,
+      sheet: sheetFilter.value,
+    });
+  }, 250);
+});
+watch(page, (next, previous) => {
+  if (next === previous) return;
+  emit('query-change', {
+    page: next,
+    search: search.value,
+    status: statusFilter.value,
+    sheet: sheetFilter.value,
+  });
+});
+watch(() => props.comparison?.page, (serverPage) => {
+  if (serverPage !== undefined && page.value !== serverPage) page.value = serverPage;
+});
 watch(pageCount, (count) => {
   if (page.value > count) page.value = count;
 });
@@ -234,6 +238,9 @@ const fieldLabels: Record<string, string> = {
   manufacturer: '제조사',
   part_type: '부품 종류',
   package: '패키지 / 크기',
+  footprint: '풋프린트',
+  value_raw: '원본 값',
+  size_code: '사이즈 코드',
   description: '설명',
   quantity: 'BOM 수량',
   source_cells: 'Excel 원본 위치',
@@ -247,6 +254,8 @@ const fieldLabels: Record<string, string> = {
   frequency_hz: '주파수',
   temperature_c: '온도',
   temperature_range_c: '동작 온도 범위',
+  temperature_min_c: '최저 동작 온도',
+  temperature_max_c: '최고 동작 온도',
   dielectric: '유전체 특성',
   stock: '재고',
   moq: '최소 주문 수량',
@@ -268,10 +277,32 @@ const specOrder = [
 ];
 
 function fieldsFor(item: ComparisonItem): DisplayField[] {
-  const requirementKeys = [...new Set(
-    (item.comparison?.candidates ?? []).flatMap((candidate) => Object.keys(candidate.specComparisons)),
-  )]
-    .filter((key) => !['part_number', 'manufacturer', 'part_type', 'package', 'size_code'].includes(key))
+  const payload = extractionPayload(item);
+  const fieldStates = asRecord(payload?.field_states);
+  const rawFields = asRecord(payload?.raw_fields);
+  const attributeKeys = Array.isArray(payload?.attributes)
+    ? payload.attributes.flatMap((attribute) => {
+        const record = asRecord(attribute);
+        return typeof record?.name === 'string' ? [record.name] : [];
+      })
+    : [];
+  const candidateKeys = (item.comparison?.candidates ?? [])
+    .flatMap((candidate) => Object.keys(candidate.specComparisons));
+  const requirementKeys = [...new Set([
+    ...Object.keys(fieldStates ?? {}),
+    ...Object.keys(rawFields ?? {}),
+    ...attributeKeys,
+    ...candidateKeys,
+  ])]
+    .filter((key) => ![
+      'part_number',
+      'manufacturer',
+      'part_type',
+      'component_type',
+      'package',
+      'description',
+      'quantity',
+    ].includes(key))
     .sort((left, right) => {
       const leftIndex = specOrder.indexOf(left);
       const rightIndex = specOrder.indexOf(right);
@@ -293,6 +324,36 @@ function fieldsFor(item: ComparisonItem): DisplayField[] {
   ];
 }
 
+function fieldState(item: ComparisonItem, key: string): Record<string, unknown> | null {
+  return asRecord(asRecord(extractionPayload(item)?.field_states)?.[key]);
+}
+
+function attributeFor(item: ComparisonItem, key: string): Record<string, unknown> | null {
+  const attributes = extractionPayload(item)?.attributes;
+  if (!Array.isArray(attributes)) return null;
+  for (const attribute of attributes) {
+    const record = asRecord(attribute);
+    if (record?.name === key) return record;
+  }
+  return null;
+}
+
+function sourceProvenance(item: ComparisonItem, key: string): string {
+  const state = fieldState(item, key);
+  if (state === null) return item.comparison?.extraction?.reviewStatus === 'extracted' ? '엔진 추출' : '';
+  if (state.status === 'review') return '검토 필요';
+  if (state.status !== 'extracted') return '';
+  if (state.source === 'col') return '근거 셀 확인';
+  if (state.source === 'text') return '원문 해석';
+  if (state.source === 'infer') return '규칙 추론';
+  return '근거 유형 미상';
+}
+
+function sourceVerified(item: ComparisonItem, key: string): boolean {
+  const state = fieldState(item, key);
+  return state?.status === 'extracted' && (state.source === 'col' || state.source === 'text');
+}
+
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (Array.isArray(value)) return value.map(formatValue).join(' ~ ');
@@ -307,20 +368,32 @@ function formatValue(value: unknown): string {
 
 function sourceValue(item: ComparisonItem, key: string): string {
   const quoteItem = item.quoteItem;
+  const payload = extractionPayload(item);
   const row = sourceRow(quoteItem);
-  if (key === 'part_number') return formatValue(sourceText(quoteItem, 'inputPartNumber') ?? sourceText(quoteItem, 'valueRaw') ?? quoteItem.mpn);
-  if (key === 'manufacturer') return formatValue(sourceText(quoteItem, 'inputManufacturer'));
-  if (key === 'part_type') return expectedComparisonValue(item, key);
-  if (key === 'package') return formatValue(row?.packageCode ?? expectedComparisonValue(item, key));
-  if (key === 'description') return formatValue(sourceText(quoteItem, 'valueRaw') ?? quoteItem.description);
-  if (key === 'quantity') return formatValue(quoteItem.bomQty);
+  const stateValue = fieldState(item, key)?.value;
+  const attribute = attributeFor(item, key);
+  const rawFieldValue = asRecord(payload?.raw_fields)?.[key];
+  const directValue = payload?.[key];
+  if (key === 'part_number') return formatValue(payload?.part_number ?? sourceText(item, 'inputPartNumber') ?? payload?.value_raw ?? quoteItem.mpn);
+  if (key === 'manufacturer') return formatValue(payload?.manufacturer ?? sourceText(item, 'inputManufacturer'));
+  if (key === 'part_type') return formatValue(payload?.component_type ?? stateValue ?? expectedComparisonValue(item, key));
+  if (key === 'package') return formatValue(payload?.package ?? row?.packageCode ?? stateValue ?? expectedComparisonValue(item, key));
+  if (key === 'description') return formatValue(payload?.description ?? payload?.value_raw ?? quoteItem.description);
+  if (key === 'quantity') return formatValue(payload?.quantity ?? quoteItem.bomQty);
   if (key === 'source_cells') {
-    const rows = quoteRows(quoteItem);
-    const refs = quoteRefs(quoteItem);
-    return `${quoteSheet(quoteItem)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · ${refs.length > 0 ? refs.join(', ') : 'REFDES 없음'}`;
+    const rows = quoteRows(item);
+    const refs = quoteRefs(item);
+    return `${quoteSheet(item)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · ${refs.length > 0 ? refs.join(', ') : 'REFDES 없음'}`;
   }
   if (['stock', 'moq', 'best_price', 'lifecycle'].includes(key)) return '—';
-  return expectedComparisonValue(item, key);
+  return formatValue(
+    attribute?.raw_value
+      ?? rawFieldValue
+      ?? stateValue
+      ?? attribute?.normalized_value
+      ?? directValue
+      ?? expectedComparisonValue(item, key),
+  );
 }
 
 function candidateFor(item: ComparisonItem, supplier: string): Candidate | undefined {
@@ -436,20 +509,21 @@ function supplierStatus(item: ComparisonItem, supplier: string): string {
 
 function itemTitle(item: ComparisonItem): string {
   return formatValue(
-    sourceText(item.quoteItem, 'inputPartNumber')
-      ?? sourceText(item.quoteItem, 'valueRaw')
+    extractionPayload(item)?.part_number
+      ?? sourceText(item, 'inputPartNumber')
+      ?? extractionPayload(item)?.value_raw
       ?? item.quoteItem.mpn,
   );
 }
 
 function itemRefs(item: ComparisonItem): string {
-  const refs = quoteRefs(item.quoteItem);
+  const refs = quoteRefs(item);
   return refs.length > 0 ? refs.join(', ') : 'REFDES 없음';
 }
 
 function itemMeta(item: ComparisonItem): string {
-  const rows = quoteRows(item.quoteItem);
-  return `${quoteSheet(item.quoteItem)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · BOM 수량 ${formatValue(item.quoteItem.bomQty)}`;
+  const rows = quoteRows(item);
+  return `${quoteSheet(item)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · BOM 수량 ${formatValue(item.quoteItem.bomQty)}`;
 }
 
 function supplierLabel(value: string): string {
@@ -499,7 +573,7 @@ function statusLabel(item: ComparisonItem): string {
 
         <template v-else>
           <section class="summary-grid" aria-label="BOM 비교 요약">
-            <article><span>전체 부품</span><strong>{{ comparisonItems.length }}</strong></article>
+            <article><span>전체 부품</span><strong>{{ totalCount }}</strong></article>
             <article class="matched"><span>검증·호환</span><strong>{{ matchedCount }}</strong></article>
             <article class="attention"><span>확인 필요</span><strong>{{ attentionCount }}</strong></article>
             <article class="not-found"><span>검색 결과 없음</span><strong>{{ notFoundCount }}</strong></article>
@@ -533,7 +607,7 @@ function statusLabel(item: ComparisonItem): string {
                 <option v-for="supplier in suppliers" :key="supplier" :value="supplier">{{ supplierLabel(supplier) }}</option>
               </select>
             </label>
-            <strong class="result-count">{{ filteredItems.length }}개</strong>
+            <strong class="result-count">{{ comparison.total }}개</strong>
           </section>
 
           <p class="comparison-guide">
@@ -568,8 +642,15 @@ function statusLabel(item: ComparisonItem): string {
 
                   <template v-for="field in fieldsFor(item)" :key="field.key">
                     <div class="field-cell field-column" :class="{ multiline: field.multiline }">{{ field.label }}</div>
-                    <div class="value-cell source-column" :class="{ multiline: field.multiline }" :title="sourceValue(item, field.key)">
+                    <div
+                      class="value-cell source-column"
+                      :class="{ multiline: field.multiline, verified: sourceVerified(item, field.key) }"
+                      :title="sourceValue(item, field.key)"
+                    >
                       <span>{{ sourceValue(item, field.key) }}</span>
+                      <small v-if="sourceProvenance(item, field.key)" class="source-provenance">
+                        {{ sourceProvenance(item, field.key) }}
+                      </small>
                     </div>
                     <div
                       v-for="supplier in visibleSuppliers"
@@ -665,6 +746,7 @@ function statusLabel(item: ComparisonItem): string {
 .value-cell.mismatch { background: #fff0f1; }
 .value-cell.missing { color: #8a681e; background: #fff9ea; }
 .relation-chip { flex: 0 0 auto; padding: 3px 5px; border-radius: 5px; color: #5c6879; background: #e9edf2; font-size: 8px; white-space: nowrap; }
+.source-provenance { flex: 0 0 auto; padding: 3px 5px; border-radius: 5px; color: #526273; background: #e8edf3; font-size: 8px; font-weight: 800; white-space: nowrap; }
 .value-cell.match .relation-chip { color: #08785b; background: #d4eee5; }
 .value-cell.mismatch .relation-chip { color: #963d43; background: #f6d6d8; }
 .field-column { position: sticky; left: 0; z-index: 3; }
@@ -672,6 +754,8 @@ function statusLabel(item: ComparisonItem): string {
 .column-head.field-column { z-index: 5; background: #e4eaf2; }
 .column-head.source-column { z-index: 4; background: #eaf1fb; }
 .value-cell.source-column { background: #fbfcfe; }
+.value-cell.source-column.verified { color: #076c53; background: #edf9f5; box-shadow: inset 3px 0 #20a77d; }
+.value-cell.source-column.verified .source-provenance { color: #076c53; background: #d4eee5; }
 .state-panel { min-height: 300px; padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid #dfe4ec; border-radius: 14px; color: #667085; background: white; text-align: center; }
 .state-panel strong { color: #263348; font-size: 17px; }
 .state-panel p { margin: 0; font-size: 12px; }

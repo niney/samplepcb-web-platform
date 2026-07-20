@@ -105,6 +105,37 @@ def test_supplier_preflight_requires_completed_analysis_and_does_not_call_api(tm
     assert body["plan"]["estimated_api_calls"] == 0
 
 
+def test_supplier_job_accepts_persisted_analysis_without_parse_job_dependency(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    analysis["future_engine_field"] = {"preserved": True}
+
+    created = client.post("/supplier-jobs", json={"analysis": analysis})
+    assert created.status_code == 201, created.text
+    supplier_job_id = created.json()["job_id"]
+    assert supplier_job_id != parse_job_id
+    assert created.json()["status"] == "completed"
+
+    stored = client.get(f"/jobs/{supplier_job_id}/result")
+    assert stored.status_code == 200, stored.text
+    assert stored.json()["future_engine_field"] == {"preserved": True}
+
+    preflight = client.post(
+        f"/jobs/{supplier_job_id}/supplier-search/preflight",
+        json={"max_calls": 5, "cache_only": True, "reset_cache": False},
+    )
+    assert preflight.status_code == 200, preflight.text
+    assert preflight.json()["analysis_job_id"] == supplier_job_id
+    assert preflight.json()["plan"]["component_count"] >= 3
+
+
 def test_supplier_search_rejects_conflicting_cache_modes(tmp_path):
     client = _client(tmp_path)
     response = client.post(

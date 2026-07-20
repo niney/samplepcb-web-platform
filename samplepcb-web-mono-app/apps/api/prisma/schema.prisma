@@ -213,46 +213,46 @@ model SpMarketExpert {
 // status: bidding|closed|awarded|cancelled (2차 예약: working|completed).
 // 마감은 cron 없는 lazy 파생 — bidDeadlineAt vs now 비교(읽기 응답·쓰기 가드 동일 식).
 model SpMarketProject {
-  id             BigInt    @id @default(autoincrement())
-  mbId           String    @db.VarChar(191) // 의뢰인 — 공개 응답엔 maskName 값만 나간다
-  title          String    @db.VarChar(200)
-  requestType    String    @map("category") @db.VarChar(30) // system|individual
-  serviceAreas   Json // 실제 필요한 개발 영역 코드 배열(복수)
+  id                       BigInt    @id @default(autoincrement())
+  mbId                     String    @db.VarChar(191) // 의뢰인 — 공개 응답엔 maskName 값만 나간다
+  title                    String    @db.VarChar(200)
+  requestType              String    @map("category") @db.VarChar(30) // system|individual
+  serviceAreas             Json // 실제 필요한 개발 영역 코드 배열(복수)
   // 물리명 specialties — 인접 물리 컬럼 category(=requestType)와 category/categories 혼동 회피.
-  categories     Json      @map("specialties") // 세부분야 코드 배열(회로·펌웨어 STEP2)
-  cadTools       Json // 요구 툴 코드 배열(ECAD·MCAD·디자인 통합) — 빈 배열=무관, 'any' 는 레거시
-  description    String    @db.Text
+  categories               Json      @map("specialties") // 세부분야 코드 배열(회로·펌웨어 STEP2)
+  cadTools                 Json // 요구 툴 코드 배열(ECAD·MCAD·디자인 통합) — 빈 배열=무관, 'any' 는 레거시
+  description              String    @db.Text
   // AI 생성 시스템 구성도(단일 HTML) — 공개 범위는 description 과 동일(설명에서 파생).
   // 렌더는 반드시 sandbox iframe(srcdoc) — LLM 출력이라 DOM 직결 금지.
-  diagramHtml    String?   @db.MediumText
+  diagramHtml              String?   @db.MediumText
   // 구성 명세 JSON(DiagramSpec 직렬화) — 구성도의 원천 데이터. 재생성과 후속 문서
   // (ROC·포스팅 요약) 파생의 근원이라 HTML 과 별도로 보존한다.
-  diagramSpec    String?   @db.MediumText
+  diagramSpec              String?   @db.MediumText
   // AI 작업검토지시서 마크다운(Phase 2) — 공개 범위는 description 과 동일.
-  rocMd          String?   @db.MediumText
+  rocMd                    String?   @db.MediumText
   // 인터뷰 답변 원본([{code,answer}]) — 응답 미노출 저장 전용, 명세·문서 재생성의 근원.
-  interviewAnswers Json?
+  interviewAnswers         Json?
   // 신규 등록에서 원본 답변의 견적 가능 전문가 공개를 명시 동의한 시각. null인 기존 건은
   // 어떤 신규 응답에도 답변을 싣지 않아 과거 비공개 정책을 소급 변경하지 않는다.
   interviewAnswersSharedAt DateTime?
   // 분야별 포스팅 카드(Phase 3, MarketPostingCards) — 공개 범위는 description 과 동일.
-  postings       Json?
+  postings                 Json?
   // AI 잡 출처와 결정적 렌더 출처의 검증 메타데이터. 모델·프롬프트/입력/출력 해시·jobId를
   // 보존하며, 실제 산출물과 해시가 다르면 응답 라벨을 고객 수정본으로 내린다.
-  aiGenerationMeta Json?
-  ndaRequired    Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
-  budgetRange    String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
-  startHopeDate  String?   @db.VarChar(10) // 'YYYY-MM-DD' 표시용 KST 날짜 문자열(타임존 경계 회피)
-  dueHopeDate    String?   @db.VarChar(10)
-  bidDeadlineAt  DateTime // 견적 마감 절대 시각(서버 계산: 3/7/14일 프리셋 or 지정일 23:59:59 KST)
-  method         String    @db.VarChar(20)
-  targetExpertId BigInt? // 지정견적 대상(sp_market_expert.id) — open 이면 null
-  status         String    @default("bidding") @db.VarChar(20)
-  awardedBidId   BigInt? // 채택 입찰 — 2차 계약(sp_market_contract)의 연결 근원
-  awardedAt      DateTime?
-  viewCount      Int       @default(0) // 원자 +1(소유자/관리자 제외), dedup 없음(1차)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  aiGenerationMeta         Json?
+  ndaRequired              Boolean   @default(true) // 프로젝트 단위 NDA 게이트(첨부 일괄)
+  budgetRange              String    @db.VarChar(20) // 예산 구간 코드(금액 아님)
+  startHopeDate            String?   @db.VarChar(10) // 'YYYY-MM-DD' 표시용 KST 날짜 문자열(타임존 경계 회피)
+  dueHopeDate              String?   @db.VarChar(10)
+  bidDeadlineAt            DateTime // 견적 마감 절대 시각(서버 계산: 3/7/14일 프리셋 or 지정일 23:59:59 KST)
+  method                   String    @db.VarChar(20)
+  targetExpertId           BigInt? // 지정견적 대상(sp_market_expert.id) — open 이면 null
+  status                   String    @default("bidding") @db.VarChar(20)
+  awardedBidId             BigInt? // 채택 입찰 — 2차 계약(sp_market_contract)의 연결 근원
+  awardedAt                DateTime?
+  viewCount                Int       @default(0) // 원자 +1(소유자/관리자 제외), dedup 없음(1차)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   @@index([status, bidDeadlineAt]) // 공개 목록(입찰중 WHERE + lazy 마감 + 마감순 정렬)
   @@index([mbId]) // 내 의뢰 목록
@@ -312,37 +312,37 @@ model SpMarketSettings {
 // completed|settled|cancelled. paid 승격은 cron 없는 lazy write-back(od·카트 라인 대조).
 // 산출물 파일은 sp_file 재사용(refType='sp_market_contract', fileType='deliverable').
 model SpMarketContract {
-  id           BigInt    @id @default(autoincrement())
-  projectId    BigInt    @unique // 프로젝트당 1계약(unaward 없음 모델)
-  bidId        BigInt // 채택 입찰(sp_market_bid.id)
-  clientMbId   String    @db.VarChar(191) // 의뢰인 — 복제(무조인 소유 판정)
-  expertMbId   String    @db.VarChar(191) // 채택 전문가 — 복제(무조인 소유 판정)
-  expertId     BigInt // sp_market_expert.id
-  amount       Int // 입찰액 = VAT 포함 총액(수수료도 총액 기준)
-  feeRateBp    Int // 수수료율 bp — 채택 시점 스냅샷
-  feeAmount    Int // round(amount×bp/10000) — 채택 시점 스냅샷
-  payoutAmount Int // amount − feeAmount — 채택 시점 스냅샷
-  contractKey  String    @unique @db.VarChar(36) // uuid v4 = 영카트 io_id·주문 라인 식별자
-  ctId         Int? // g5_shop_cart.ct_id — checkout 주입/재주입 시 갱신
-  status       String    @default("pending") @db.VarChar(20) // pending|paid|delivered|completed|settled|cancelled
-  paidAt       DateTime?
-  paidOdId     String?   @db.VarChar(20) // 승격 근거 주문(g5_shop_order.od_id)
-  deliveredAt  DateTime?
-  deliveryNote String?   @db.Text // 납품 보고 노트(재보고 시 갱신)
-  completedAt  DateTime?
-  confirmedBy  String?   @db.VarChar(10) // client|auto
-  holdAt       DateTime? // 관리자 자동확정 정지 시각(있으면 auto 승격 정지)
-  holdReason   String?   @db.VarChar(500)
-  settledAt    DateTime?
-  settledBy    String?   @db.VarChar(191) // 정산 처리 관리자 mbId
-  settleNote   String?   @db.VarChar(500)
-  cancelledAt  DateTime?
-  cancelReason String?   @db.VarChar(500)
+  id              BigInt    @id @default(autoincrement())
+  projectId       BigInt    @unique // 프로젝트당 1계약(unaward 없음 모델)
+  bidId           BigInt // 채택 입찰(sp_market_bid.id)
+  clientMbId      String    @db.VarChar(191) // 의뢰인 — 복제(무조인 소유 판정)
+  expertMbId      String    @db.VarChar(191) // 채택 전문가 — 복제(무조인 소유 판정)
+  expertId        BigInt // sp_market_expert.id
+  amount          Int // 입찰액 = VAT 포함 총액(수수료도 총액 기준)
+  feeRateBp       Int // 수수료율 bp — 채택 시점 스냅샷
+  feeAmount       Int // round(amount×bp/10000) — 채택 시점 스냅샷
+  payoutAmount    Int // amount − feeAmount — 채택 시점 스냅샷
+  contractKey     String    @unique @db.VarChar(36) // uuid v4 = 영카트 io_id·주문 라인 식별자
+  ctId            Int? // g5_shop_cart.ct_id — checkout 주입/재주입 시 갱신
+  status          String    @default("pending") @db.VarChar(20) // pending|paid|delivered|completed|settled|cancelled
+  paidAt          DateTime?
+  paidOdId        String?   @db.VarChar(20) // 승격 근거 주문(g5_shop_order.od_id)
+  deliveredAt     DateTime?
+  deliveryNote    String?   @db.Text // 납품 보고 노트(재보고 시 갱신)
+  completedAt     DateTime?
+  confirmedBy     String?   @db.VarChar(10) // client|auto
+  holdAt          DateTime? // 관리자 자동확정 정지 시각(있으면 auto 승격 정지)
+  holdReason      String?   @db.VarChar(500)
+  settledAt       DateTime?
+  settledBy       String?   @db.VarChar(191) // 정산 처리 관리자 mbId
+  settleNote      String?   @db.VarChar(500)
+  cancelledAt     DateTime?
+  cancelReason    String?   @db.VarChar(500)
   // 입찰 채택 시점의 의뢰 조건·AI 산출물·공개 동의 답변·채택 견적 전체 스냅샷.
   // 원 프로젝트가 유지되더라도 분쟁 감사 기준을 계약 행에 고정한다.
   requestSnapshot Json?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([status]) // 관리자 계약 목록 탭 + delivered 자동확정 스윕
   @@index([clientMbId]) // 내 의뢰 계약
@@ -477,43 +477,151 @@ model SpPartIndexQueue {
 // xpse 의 sp_bom_document/sp_estimate_document(별도 DB)와 무관한 sp-node 소유 신규 모델.
 // 금액 필드는 "예상 스냅샷"(sp_config 기본값·서버 재계산) — 확정은 confirmed* 로 분리.
 model SpBomQuote {
-  id                     BigInt            @id @default(autoincrement())
-  mbId                   String            @db.VarChar(60)
-  title                  String            @db.VarChar(191)
-  status                 String            @default("draft") @db.VarChar(16) // draft|requested|reviewing|answered|closed|canceled
-  fileName               String?           @db.VarChar(255)
-  contentHash            String?           @db.VarChar(64) // 원본 SHA-256 — 동일 파일 안내용
-  engineJobId            String?           @db.VarChar(64) // 엔진 인메모리 잡 — 재시작 시 소멸(재업로드)
-  buildStatus            String            @default("ready") @db.VarChar(12) // parsing|selecting|building|ready|failed
-  setQty                 Int               @default(1)
-  spareQty               Int               @default(0)
-  itemsTotal             Int               @default(0) // KRW 정수(반올림)
-  shippingFee            Int               @default(0)
-  managementFee          Int               @default(0)
-  finalTotal             Int               @default(0)
-  usdKrwRateUsed         Decimal?          @db.Decimal(10, 2)
-  exchangeRateSnapshot   Json?             // 적용 환율의 출처·기준일·안전계수(RFQ 감사 스냅샷)
-  uncostedCount          Int               @default(0)
-  customerMemo           String?           @db.Text
-  adminMemo              String?           @db.Text // 내부 메모 — 고객 응답 미노출
-  answerNote             String?           @db.Text // 고객 노출 회신
-  confirmedShippingFee   Int?
-  confirmedManagementFee Int?
-  confirmedTotal         Int?
-  enrichStatus           String            @default("idle") @db.VarChar(12) // idle|searching|done|failed — 자동 보강 생명주기(단일 진실)
-  enrichedAt             DateTime? // 마지막 보강 반영(재매칭 저장) 시각
-  requestedAt            DateTime?
-  answeredAt             DateTime?
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
-  items                  SpBomQuoteItem[]
-  sheets                 SpBomQuoteSheet[]
-  candidates             SpBomQuoteCandidate[]
-  selectionEvents        SpBomQuoteSelectionEvent[]
+  id                        BigInt                     @id @default(autoincrement())
+  mbId                      String                     @db.VarChar(60)
+  title                     String                     @db.VarChar(191)
+  status                    String                     @default("draft") @db.VarChar(16) // draft|requested|reviewing|answered|closed|canceled
+  fileName                  String?                    @db.VarChar(255)
+  contentHash               String?                    @db.VarChar(64) // 원본 SHA-256 — 동일 파일 안내용
+  engineJobId               String?                    @db.VarChar(64) // 엔진 인메모리 잡 — 재시작 시 소멸(재업로드)
+  activeAnalysisRunId       BigInt?                    @unique @map("active_analysis_run_id")
+  activeSupplierSearchRunId BigInt?                    @unique @map("active_supplier_search_run_id")
+  buildStatus               String                     @default("ready") @db.VarChar(12) // parsing|selecting|building|ready|failed
+  setQty                    Int                        @default(1)
+  spareQty                  Int                        @default(0)
+  itemsTotal                Int                        @default(0) // KRW 정수(반올림)
+  shippingFee               Int                        @default(0)
+  managementFee             Int                        @default(0)
+  finalTotal                Int                        @default(0)
+  usdKrwRateUsed            Decimal?                   @db.Decimal(10, 2)
+  exchangeRateSnapshot      Json? // 적용 환율의 출처·기준일·안전계수(RFQ 감사 스냅샷)
+  uncostedCount             Int                        @default(0)
+  customerMemo              String?                    @db.Text
+  adminMemo                 String?                    @db.Text // 내부 메모 — 고객 응답 미노출
+  answerNote                String?                    @db.Text // 고객 노출 회신
+  confirmedShippingFee      Int?
+  confirmedManagementFee    Int?
+  confirmedTotal            Int?
+  enrichStatus              String                     @default("idle") @db.VarChar(12) // idle|searching|done|failed — 자동 보강 생명주기(단일 진실)
+  enrichedAt                DateTime? // 마지막 보강 반영(재매칭 저장) 시각
+  requestedAt               DateTime?
+  answeredAt                DateTime?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  items                     SpBomQuoteItem[]
+  sheets                    SpBomQuoteSheet[]
+  candidates                SpBomQuoteCandidate[]
+  selectionEvents           SpBomQuoteSelectionEvent[]
+  analysisRuns              SpBomAnalysisRun[]         @relation("BomQuoteAnalysisRuns")
+  activeAnalysisRun         SpBomAnalysisRun?          @relation("BomQuoteActiveAnalysis", fields: [activeAnalysisRunId], references: [id], onDelete: SetNull)
+  supplierSearchRuns        SpBomSupplierSearchRun[]   @relation("BomQuoteSupplierSearchRuns")
+  activeSupplierSearchRun   SpBomSupplierSearchRun?    @relation("BomQuoteActiveSupplierSearch", fields: [activeSupplierSearchRunId], references: [id], onDelete: SetNull)
 
   @@index([mbId, status])
   @@index([status, requestedAt])
   @@map("sp_bom_quote")
+}
+
+// BOM 추출 실행 — sp-engine은 계산 서비스이며, 완료 결과의 영속 단일 진실은 sp-node가 소유한다.
+// 실행은 append-only이고 quote.activeAnalysisRunId만 성공한 최신 실행으로 원자 전환한다.
+model SpBomAnalysisRun {
+  id                 BigInt                   @id @default(autoincrement())
+  quoteId            BigInt
+  engineJobId        String?                  @db.VarChar(64)
+  engine             String                   @db.VarChar(32)
+  schemaVersion      String                   @db.VarChar(32)
+  parserVersion      String                   @db.VarChar(191)
+  sourceFile         String                   @db.VarChar(255)
+  engineModel        String?                  @db.VarChar(191)
+  promptVersion      String?                  @db.VarChar(191)
+  status             String                   @db.VarChar(16) // completed|failed
+  summary            Json
+  headers            Json
+  failures           Json
+  createdAt          DateTime                 @default(now())
+  completedAt        DateTime?
+  quote              SpBomQuote               @relation("BomQuoteAnalysisRuns", fields: [quoteId], references: [id], onDelete: Cascade)
+  activeForQuote     SpBomQuote?              @relation("BomQuoteActiveAnalysis")
+  sheets             SpBomAnalysisSheet[]
+  components         SpBomAnalysisComponent[]
+  supplierSearchRuns SpBomSupplierSearchRun[]
+
+  @@index([quoteId, createdAt])
+  @@map("sp_bom_analysis_run")
+}
+
+// 공급사 검색 실행 — 영속 분석 입력에서 만든 독립 계산 잡의 수명·옵션·오류를 추적한다.
+// engineJobId가 소멸해도 같은 analysisRun으로 새 실행을 만들 수 있다.
+model SpBomSupplierSearchRun {
+  id             BigInt           @id @default(autoincrement())
+  quoteId        BigInt
+  analysisRunId  BigInt
+  engineJobId    String?          @db.VarChar(64)
+  status         String           @db.VarChar(16) // preparing|running|completed|failed
+  options        Json
+  preflight      Json?
+  error          String?          @db.VarChar(500)
+  createdAt      DateTime         @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  quote          SpBomQuote       @relation("BomQuoteSupplierSearchRuns", fields: [quoteId], references: [id], onDelete: Cascade)
+  activeForQuote SpBomQuote?      @relation("BomQuoteActiveSupplierSearch")
+  analysisRun    SpBomAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId, createdAt])
+  @@index([analysisRunId, createdAt])
+  @@index([status, createdAt])
+  @@map("sp_bom_supplier_search_run")
+}
+
+// 분석 시트 원본 스냅샷 — 선택 여부는 견적 영역(sp_bom_quote_sheet)에 남기고 분석 자체는 불변이다.
+model SpBomAnalysisSheet {
+  id             BigInt                   @id @default(autoincrement())
+  analysisRunId  BigInt
+  sheetIndex     Int
+  sheetName      String                   @db.VarChar(191)
+  status         String                   @db.VarChar(16) // parsed|not_bom|error
+  componentCount Int                      @default(0)
+  columnCount    Int                      @default(0)
+  failureReason  String?                  @db.VarChar(500)
+  payload        Json
+  createdAt      DateTime                 @default(now())
+  analysisRun    SpBomAnalysisRun         @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  components     SpBomAnalysisComponent[]
+
+  @@unique([analysisRunId, sheetIndex])
+  @@index([analysisRunId, status])
+  @@map("sp_bom_analysis_sheet")
+}
+
+// 엔진 ComponentRecord 원본 JSON을 payload에 그대로 박제한다. 자주 조인·표시하는 안정 필드만
+// 열로 승격하며, 엔진이 새 필드를 추가해도 Node 표시 계층이 따라오기 전에 데이터부터 보존된다.
+model SpBomAnalysisComponent {
+  id                   BigInt             @id @default(autoincrement())
+  analysisRunId        BigInt
+  analysisSheetId      BigInt
+  engineComponentId    String             @db.VarChar(24)
+  sourceRows           Json
+  referenceDesignators Json
+  partNumber           String?            @db.VarChar(191)
+  manufacturer         String?            @db.VarChar(191)
+  componentType        String?            @db.VarChar(64)
+  description          String?            @db.VarChar(1000)
+  quantity             Int?
+  packageCode          String?            @db.VarChar(191)
+  reviewStatus         String             @db.VarChar(16)
+  confidence           Float?
+  searchText           String?            @db.Text
+  payload              Json
+  createdAt            DateTime           @default(now())
+  analysisRun          SpBomAnalysisRun   @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  analysisSheet        SpBomAnalysisSheet @relation(fields: [analysisSheetId], references: [id], onDelete: Cascade)
+  quoteItems           SpBomQuoteItem[]
+
+  @@unique([analysisRunId, engineComponentId])
+  @@index([analysisSheetId, id])
+  @@index([analysisRunId, reviewStatus])
+  @@map("sp_bom_analysis_component")
 }
 
 // 업로드 워크북 시트 분석·선택 스냅샷 — 선택 시트만 견적 계산·공급사 검색에 사용.
@@ -539,32 +647,37 @@ model SpBomQuoteSheet {
 // 견적 라인 — orderQty·selectedOffer 스냅샷이 단일 진실(요청 후 재선정 없음).
 // partId 는 카탈로그(sp_part) 느슨한 참조(FK 없음 — 카탈로그 정리와 독립).
 model SpBomQuoteItem {
-  id               BigInt     @id @default(autoincrement())
-  quoteId          BigInt
-  rowIdx           Int
-  included         Boolean    @default(true)
-  mpn              String     @db.VarChar(191)
-  manufacturerName String?    @db.VarChar(191)
-  description      String?    @db.VarChar(1000)
-  bomQty           Int
-  orderQty         Int        @default(0)
-  matchStatus      String     @default("none") @db.VarChar(8) // auto|manual|none
-  matchEvidence    Json? // 엔진 component 판정·후보·자동 선정 정책 스냅샷(BOM 문맥)
-  recommendedCandidateKey String?    @db.VarChar(64) // 하이브리드 정책의 최초/현재 자동추천
-  selectedCandidateKey    String?    @db.VarChar(64) // 고객이 실제 선택한 견적 후보(카탈로그 직접선택은 null)
-  selectionSource         String     @default("none") @db.VarChar(16) // none|auto|customer|catalog|admin|legacy
-  partId           BigInt?
-  selectedOffer    Json?
-  lineTotalKrw     Decimal?   @db.Decimal(14, 2)
-  sourceRow        Json?
-  sourceSheetIndex Int?
-  sourceSheetName  String?    @db.VarChar(191)
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  quote            SpBomQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id                      BigInt                     @id @default(autoincrement())
+  quoteId                 BigInt
+  analysisComponentId     BigInt?                    @map("analysis_component_id")
+  rowIdx                  Int
+  included                Boolean                    @default(true)
+  mpn                     String                     @db.VarChar(191)
+  manufacturerName        String?                    @db.VarChar(191)
+  description             String?                    @db.VarChar(1000)
+  bomQty                  Int
+  orderQty                Int                        @default(0)
+  matchStatus             String                     @default("none") @db.VarChar(8) // auto|manual|none
+  matchEvidence           Json? // 엔진 component 판정·후보·자동 선정 정책 스냅샷(BOM 문맥)
+  recommendedCandidateKey String?                    @db.VarChar(64) // 하이브리드 정책의 최초/현재 자동추천
+  selectedCandidateKey    String?                    @db.VarChar(64) // 고객이 실제 선택한 견적 후보(카탈로그 직접선택은 null)
+  selectionSource         String                     @default("none") @db.VarChar(16) // none|auto|customer|catalog|admin|legacy
+  partId                  BigInt?
+  selectedOffer           Json?
+  lineTotalKrw            Decimal?                   @db.Decimal(14, 2)
+  sourceRow               Json?
+  sourceSheetIndex        Int?
+  sourceSheetName         String?                    @db.VarChar(191)
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  quote                   SpBomQuote                 @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  analysisComponent       SpBomAnalysisComponent?    @relation(fields: [analysisComponentId], references: [id], onDelete: SetNull)
+  candidates              SpBomQuoteCandidate[]
+  selectionEvents         SpBomQuoteSelectionEvent[]
 
   @@unique([quoteId, rowIdx])
   @@index([quoteId, sourceSheetIndex])
+  @@index([analysisComponentId])
   @@map("sp_bom_quote_item")
 }
 
@@ -572,47 +685,51 @@ model SpBomQuoteItem {
 // 인메모리 결과에 의존하지 않게 quoteId+rowIdx에 박제한다. payload는 엔진 스키마 변화를
 // 흡수하고, 목록/정렬에 필요한 안정 필드만 열로 승격한다.
 model SpBomQuoteCandidate {
-  id               BigInt     @id @default(autoincrement())
+  id               BigInt         @id @default(autoincrement())
   quoteId          BigInt
-  rowIdx           Int
-  candidateKey     String     @db.VarChar(64)
+  quoteItemId      BigInt         @map("quote_item_id")
+  candidateKey     String         @db.VarChar(64)
   technicalRank    Int
-  status           String     @db.VarChar(32)
-  selectionMode    String     @db.VarChar(24) // exact|variant|spec-compatible|review
-  safety           String     @db.VarChar(12) // safe|caution|blocked
-  autoEligible     Boolean    @default(false)
-  mpn              String     @db.VarChar(191)
-  manufacturerName String?    @db.VarChar(191)
+  status           String         @db.VarChar(32)
+  selectionMode    String         @db.VarChar(24) // exact|variant|spec-compatible|review
+  safety           String         @db.VarChar(12) // safe|caution|blocked
+  autoEligible     Boolean        @default(false)
+  mpn              String         @db.VarChar(191)
+  manufacturerName String?        @db.VarChar(191)
   payload          Json
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  quote            SpBomQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  quote            SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteItem        SpBomQuoteItem @relation(fields: [quoteItemId], references: [id], onDelete: Cascade)
 
-  @@unique([quoteId, rowIdx, candidateKey])
-  @@index([quoteId, rowIdx, technicalRank])
+  @@unique([quoteItemId, candidateKey])
+  @@index([quoteId, technicalRank])
+  @@index([quoteItemId, technicalRank])
   @@map("sp_bom_quote_candidate")
 }
 
 // 자동추천은 matchEvidence에 남기고, 고객/관리자의 명시 변경만 이벤트로 누적한다.
-// 견적 라인이 replace-all 저장되어도 감사 이력이 사라지지 않도록 quoteId+rowIdx로 연결한다.
+// 안정 quoteItemId로 연결하므로 표시 순서(rowIdx)가 바뀌어도 감사 대상이 유지된다.
 model SpBomQuoteSelectionEvent {
-  id                   BigInt     @id @default(autoincrement())
+  id                   BigInt         @id @default(autoincrement())
   quoteId              BigInt
-  rowIdx               Int
-  source               String     @db.VarChar(16) // customer|catalog|admin
-  actorId              String?    @db.VarChar(60)
-  previousCandidateKey String?    @db.VarChar(64)
-  selectedCandidateKey String?    @db.VarChar(64)
-  previousMpn          String?    @db.VarChar(191)
-  selectedMpn          String?    @db.VarChar(191)
-  previousOfferKey     String?    @db.VarChar(64)
-  selectedOfferKey     String?    @db.VarChar(64)
-  previousLineTotalKrw Decimal?   @db.Decimal(14, 2)
-  selectedLineTotalKrw Decimal?   @db.Decimal(14, 2)
+  quoteItemId          BigInt         @map("quote_item_id")
+  source               String         @db.VarChar(16) // customer|catalog|admin
+  actorId              String?        @db.VarChar(60)
+  previousCandidateKey String?        @db.VarChar(64)
+  selectedCandidateKey String?        @db.VarChar(64)
+  previousMpn          String?        @db.VarChar(191)
+  selectedMpn          String?        @db.VarChar(191)
+  previousOfferKey     String?        @db.VarChar(64)
+  selectedOfferKey     String?        @db.VarChar(64)
+  previousLineTotalKrw Decimal?       @db.Decimal(14, 2)
+  selectedLineTotalKrw Decimal?       @db.Decimal(14, 2)
   reasonCodes          Json?
-  createdAt            DateTime   @default(now())
-  quote                SpBomQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  createdAt            DateTime       @default(now())
+  quote                SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteItem            SpBomQuoteItem @relation(fields: [quoteItemId], references: [id], onDelete: Cascade)
 
-  @@index([quoteId, rowIdx, createdAt])
+  @@index([quoteItemId, createdAt])
+  @@index([quoteId, createdAt])
   @@map("sp_bom_quote_selection_event")
 }

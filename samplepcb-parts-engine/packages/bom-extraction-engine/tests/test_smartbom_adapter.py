@@ -65,6 +65,15 @@ def test_component_g_shape_and_normalization():
     res_state = item["field_states"]["resistance"]
     assert res_state["evidence"][0]["cell"] == "B2"
     assert res_state["evidence"][0]["raw_value"] == "10K OHM 1% 1/10W"
+    assert item["field_states"]["value_raw"] == {
+        "value": "10K OHM 1% 1/10W",
+        "status": "extracted",
+        "evidence": [{"cell": "B2", "raw_value": "10K OHM 1% 1/10W",
+                      "supports": "value_raw"}],
+        "source": "col",
+    }
+    assert item["field_states"]["footprint"]["source"] == "col"
+    assert item["evidence_exact_rate"] == 1.0
 
     # raw_fields 원문 보존
     assert item["raw_fields"]["resistance"] == "10K OHM"
@@ -107,6 +116,9 @@ def test_quantity_not_found_flags_review():
     assert "quantity_not_found" in item["quality_flags"]
     assert item["review_status"] == "review"
     assert item["field_states"]["quantity"]["status"] == "not_found"
+    assert item["description"] == "LDO Regulator"
+    assert item["field_states"]["description"]["status"] == "extracted"
+    assert item["field_states"]["description"]["source"] == "col"
 
 
 def test_headers_rule_vs_local_model():

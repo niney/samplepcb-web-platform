@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildItemsFromEngineResult, extractEngineSheets, selectEngineMatch } from './bom-quote';
+import {
+  analysisComponentLookupWhere,
+  buildItemsFromEngineResult,
+  extractEngineSheets,
+  selectEngineMatch,
+} from './bom-quote';
 
 const ENGINE_RESULT = {
   schema_version: '1.0',
@@ -62,6 +67,13 @@ const ENGINE_RESULT = {
 };
 
 describe('BOM 견적 시트 선택', () => {
+  it('영속 분석 component를 실제 analysisRunId 필드로 조회한다', () => {
+    expect(analysisComponentLookupWhere(3n, ['component-a', 'component-b'])).toEqual({
+      analysisRunId: 3n,
+      engineComponentId: { in: ['component-a', 'component-b'] },
+    });
+  });
+
   it('엔진 시트 상태와 제외 사유를 선택 스냅샷으로 변환한다', () => {
     expect(extractEngineSheets(ENGINE_RESULT)).toEqual([
       expect.objectContaining({ sheetIndex: 0, sheetName: 'BOARD_A', status: 'parsed', componentCount: 2 }),

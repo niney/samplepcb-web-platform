@@ -72,16 +72,6 @@ def _fold(s: Any) -> str:
     return _WS.sub(" ", str(s)).strip().casefold()
 
 
-def _first_role_text(roles: Dict[str, List[int]], role_names: Tuple[str, ...],
-                     cells: List[str]) -> Optional[str]:
-    """주어진 역할 열들에서 첫 비어있지 않은 원문 셀."""
-    for role in role_names:
-        for i in roles.get(role, []):
-            if i < len(cells) and str(cells[i]).strip():
-                return str(cells[i]).strip()
-    return None
-
-
 def _reference_designators(reference: Optional[str]) -> List[str]:
     """"R1, R2-R4" → ["R1", "R2-R4"] — 범위 토큰은 전개하지 않고 유지."""
     if not reference:
@@ -167,6 +157,29 @@ class _SheetAdapter:
                         "raw_value": cell, "supports": field}
         return None
 
+    def _role_field_state(self, field: str, role_names: Tuple[str, ...],
+                          cells: List[str], row_1based: int) -> Tuple[Optional[str], dict]:
+        """열 역할에서 직접 읽은 공개 필드의 값·근거·source를 함께 만든다."""
+        for role in role_names:
+            for i in self.roles.get(role, []):
+                if i >= len(cells):
+                    continue
+                raw = str(cells[i]).strip()
+                if not raw:
+                    continue
+                evidence = {
+                    "cell": f"{self.col_letters[i]}{row_1based}",
+                    "raw_value": raw,
+                    "supports": field,
+                }
+                return raw, {
+                    "value": raw,
+                    "status": "extracted",
+                    "evidence": [evidence],
+                    "source": "col",
+                }
+        return None, {"value": None, "status": "not_found", "evidence": []}
+
     def component(self, attrs: RowAttrs, src: Dict[str, str],
                   cells: List[str]) -> Dict[str, Any]:
         row_1based = attrs.row_id + 1
@@ -228,6 +241,20 @@ class _SheetAdapter:
                 "evidence": field_states["temperature"]["evidence"],
             })
 
+        description, description_state = self._role_field_state(
+            "description", _DESC_ROLES, cells, row_1based)
+        footprint, footprint_state = self._role_field_state(
+            "footprint", ("package",), cells, row_1based)
+        value_raw, value_state = self._role_field_state(
+            "value_raw", ("value",), cells, row_1based)
+        field_states.update({
+            "description": description_state,
+            "footprint": footprint_state,
+            "value_raw": value_state,
+        })
+        for state in (description_state, footprint_state, value_state):
+            evidence.extend(state["evidence"])
+
         quality_flags: List[str] = []
         if attrs.quantity is None:
             quality_flags.append("quantity_not_found")
@@ -237,7 +264,6 @@ class _SheetAdapter:
                        if raw_fields[f] is not None
                        and src.get(f) in _SOURCE_CONFIDENCE]
         package = attrs.package
-        footprint = _first_role_text(self.roles, ("package",), cells)
         record: Dict[str, Any] = {
             "source_file": self.source_file,
             "sheet_name": self.sheet_name,
@@ -246,12 +272,12 @@ class _SheetAdapter:
             "component_type": attrs.part_type,
             "part_number": attrs.part_number,
             "manufacturer": attrs.manufacturer,
-            "description": _first_role_text(self.roles, _DESC_ROLES, cells),
+            "description": description,
             "quantity": attrs.quantity,
             "reference_designators": _reference_designators(reference),
             "package": package,
             "footprint": footprint,
-            "value_raw": _first_role_text(self.roles, ("value",), cells),
+            "value_raw": value_raw,
             "raw_fields": raw_fields,
             "field_states": field_states,
             "evidence": evidence,
@@ -262,7 +288,7 @@ class _SheetAdapter:
             **normalized,
             "size_code": parse_size_code(package or footprint),
             "attributes": attributes,
-            "evidence_exact_rate": 1.0 if evidence else None,
+            "evidence_exact_rate": self._evidence_exact_rate(field_states),
             "part_number_supported": (
                 field_states["part_number"]["status"] == "extracted"
                 if attrs.part_number is not None else None),
@@ -270,6 +296,16 @@ class _SheetAdapter:
         if confidences:
             record["confidence"] = round(sum(confidences) / len(confidences), 3)
         return record
+
+    @staticmethod
+    def _evidence_exact_rate(field_states: Dict[str, dict]) -> Optional[float]:
+        present = [state for state in field_states.values()
+                   if state["status"] != "not_found"]
+        if not present:
+            return None
+        exact = sum(1 for state in present if state["status"] == "extracted"
+                    and state["evidence"])
+        return round(exact / len(present), 3)
 
     def headers(self) -> List[dict]:
         """헤더 매핑 그리드용 — 라벨 분류=rule/1.0, 내용 추론 승격=local_model/0.75."""

@@ -180,19 +180,19 @@ const dirty = ref(false);
 // 서버 항목 참조 추적 — vue-query structural sharing 은 내용이 안 바뀐 항목을
 // 폴링 응답에서도 같은 참조로 유지한다. 그 항목은 로컬 클론을 재사용해
 // 행 컴포넌트(BomQuoteRow)의 props 가 그대로 유지되게 하고 재렌더를 건너뛴다.
-let lastServerItems = new Map<number, BomQuoteItemType>();
+let lastServerItems = new Map<string, BomQuoteItemType>();
 
 watch(
   detail,
   (d) => {
     if (d === null) return;
     if (dirty.value) return; // 편집 중(자동저장 대기) — 폴링 응답이 로컬 편집을 덮지 않게
-    const prevLocal = new Map(items.value.map((i) => [i.rowIdx, i]));
-    const nextServer = new Map<number, BomQuoteItemType>();
+    const prevLocal = new Map(items.value.map((i) => [i.id, i]));
+    const nextServer = new Map<string, BomQuoteItemType>();
     items.value = d.items.map((si) => {
-      nextServer.set(si.rowIdx, si);
-      const cur = prevLocal.get(si.rowIdx);
-      if (cur !== undefined && lastServerItems.get(si.rowIdx) === si) return cur;
+      nextServer.set(si.id, si);
+      const cur = prevLocal.get(si.id);
+      if (cur !== undefined && lastServerItems.get(si.id) === si) return cur;
       return { ...si, selectedOffer: si.selectedOffer === null ? null : { ...si.selectedOffer } };
     });
     lastServerItems = nextServer;
@@ -276,7 +276,26 @@ async function saveNow(): Promise<void> {
   try {
     await patch.mutateAsync({
       quoteId: quoteId.value,
-      body: { setQty: setQty.value, spareQty: spareQty.value, items: items.value },
+      body: {
+        setQty: setQty.value,
+        spareQty: spareQty.value,
+        items: items.value.map((item) => ({
+          id: /^\d+$/.test(item.id) ? item.id : null,
+          included: item.included,
+          orderQty: item.orderQty,
+          ...(item.selectionSource === 'catalog' && item.partId !== null
+            ? {
+                catalogSelection: {
+                  mpn: item.mpn,
+                  manufacturerName: item.manufacturerName,
+                  description: item.description,
+                  partId: item.partId,
+                  selectedOffer: item.selectedOffer,
+                },
+              }
+            : {}),
+        })),
+      },
     });
     dirty.value = false;
     saveState.value = 'saved';
@@ -337,8 +356,8 @@ const compareOpen = ref(false);
 const enriching = computed(() => detail.value?.enrichStatus === 'searching');
 // 중간 공급사 결과로 계산된 금액은 최종 합계처럼 오인될 수 있으므로 완료 전에는 숨긴다.
 const pricingPending = computed(() => detail.value?.buildStatus !== 'ready' || enriching.value);
-// PATCH가 라인 전체 replace-all 계약이므로 일부 행만 열어도 확인 중 데이터를 덮을 수 있다.
-// 검색·결과 반영이 끝날 때까지 모든 BOM 변경 동작을 잠그고 읽기 기능만 유지한다.
+// 검색 결과 적용과 사용자의 같은 행 수정이 경합하지 않도록, 결과 반영이 끝날 때까지
+// 모든 BOM 변경 동작을 잠그고 읽기 기능만 유지한다.
 const editingLocked = computed(() => enriching.value);
 const EDIT_LOCK_TITLE = '공급사 확인이 완료되면 수정할 수 있습니다';
 
@@ -407,13 +426,35 @@ watch(enriching, (active) => {
   }
 });
 const supplierStatus = useSupplierSearchStatus(
-  computed(() => detail.value?.engineJobId ?? null),
+  computed(() => (quoteId.value === '' ? null : quoteId.value)),
   enriching, // 진행률(%) 표시에만 필요
 );
+const comparisonPage = ref(1);
+const comparisonSearch = ref('');
+const comparisonStatus = ref<'all' | 'matched' | 'attention' | 'not_found'>('all');
+const comparisonSheet = ref('all');
 const quoteComparison = useBomQuoteComparison(
   quoteId,
   compareOpen,
+  {
+    page: comparisonPage,
+    search: comparisonSearch,
+    status: comparisonStatus,
+    sheet: comparisonSheet,
+  },
 );
+
+function onComparisonQueryChange(query: {
+  page: number;
+  search: string;
+  status: 'all' | 'matched' | 'attention' | 'not_found';
+  sheet: string;
+}): void {
+  comparisonPage.value = query.page;
+  comparisonSearch.value = query.search;
+  comparisonStatus.value = query.status;
+  comparisonSheet.value = query.sheet;
+}
 // 검색은 끝났고 서버가 결과를 견적에 반영(인제스트→재매칭)하는 중
 const applying = computed(() => enriching.value && supplierStatus.data.value?.data.status === 'completed');
 const enrichProgress = computed(() => (applying.value ? 100 : (supplierStatus.data.value?.data.progress ?? 3)));
@@ -441,20 +482,20 @@ watch(
 // ── 후보 비교·선택 드로어 + 카탈로그 폴백 ────────────────────────────────────
 type SelectionSurface = 'candidates' | 'offers';
 type CandidateDrawerView = 'candidates' | 'search';
-const candidateRowIdx = ref<number | null>(null);
+const candidateItemId = ref<string | null>(null);
 const selectionSurface = ref<SelectionSurface | null>(null);
 const candidateDrawerView = ref<CandidateDrawerView>('candidates');
-const candidateOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value === 'candidates');
-const quoteOfferOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value === 'offers');
-const selectionOpen = computed(() => candidateRowIdx.value !== null && selectionSurface.value !== null);
+const candidateOpen = computed(() => candidateItemId.value !== null && selectionSurface.value === 'candidates');
+const quoteOfferOpen = computed(() => candidateItemId.value !== null && selectionSurface.value === 'offers');
+const selectionOpen = computed(() => candidateItemId.value !== null && selectionSurface.value !== null);
 const candidateItem = computed(() =>
-  candidateRowIdx.value === null
+  candidateItemId.value === null
     ? null
-    : (items.value.find((item) => item.rowIdx === candidateRowIdx.value) ?? null),
+    : (items.value.find((item) => item.id === candidateItemId.value) ?? null),
 );
 const candidateQuery = useBomQuoteCandidates(
   computed(() => (quoteId.value === '' ? null : quoteId.value)),
-  candidateRowIdx,
+  candidateItemId,
   selectionOpen,
 );
 const candidateSelection = useSelectBomQuoteCandidate();
@@ -472,7 +513,7 @@ const partModalNeeded = computed(() => {
 watch(editingLocked, (locked) => {
   if (!locked) return;
   // 열려 있던 선택 모달에서 검색 도중 변경이 들어가는 경로도 차단한다.
-  candidateRowIdx.value = null;
+  candidateItemId.value = null;
   selectionSurface.value = null;
   offerModal.value = null;
   partModal.value = null;
@@ -486,7 +527,7 @@ function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: stri
 function openCandidateDrawer(item: BomQuoteItemType): void {
   if (editingLocked.value) return;
   candidateSelectionError.value = '';
-  candidateRowIdx.value = item.rowIdx;
+  candidateItemId.value = item.id;
   candidateDrawerView.value = 'candidates';
   selectionSurface.value = 'candidates';
 }
@@ -494,38 +535,38 @@ function openCandidateDrawer(item: BomQuoteItemType): void {
 function openCatalogSearchDrawer(item: BomQuoteItemType): void {
   if (editingLocked.value) return;
   candidateSelectionError.value = '';
-  candidateRowIdx.value = item.rowIdx;
+  candidateItemId.value = item.id;
   candidateDrawerView.value = 'search';
   selectionSurface.value = 'candidates';
 }
 
 function closeSelectionSurface(): void {
-  candidateRowIdx.value = null;
+  candidateItemId.value = null;
   selectionSurface.value = null;
   candidateSelectionError.value = '';
 }
 
 function openQuoteOfferModal(item: BomQuoteItemType): void {
   if (editingLocked.value) return;
-  const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
+  const lineIdx = items.value.findIndex((entry) => entry.id === item.id);
   if (item.selectedCandidateKey === null && item.partId !== null) {
     if (lineIdx >= 0) openOfferModal(lineIdx);
     return;
   }
   candidateSelectionError.value = '';
-  candidateRowIdx.value = item.rowIdx;
+  candidateItemId.value = item.id;
   selectionSurface.value = 'offers';
 }
 
 function openCandidateDrawerFromOfferModal(): void {
-  if (candidateRowIdx.value === null) return;
+  if (candidateItemId.value === null) return;
   candidateSelectionError.value = '';
   candidateDrawerView.value = 'candidates';
   selectionSurface.value = 'candidates';
 }
 
 async function selectCandidate(candidateKey: string, offerKey: string | null): Promise<boolean> {
-  if (candidateRowIdx.value === null || editingLocked.value) return false;
+  if (candidateItemId.value === null || editingLocked.value) return false;
   if (dirty.value) {
     await saveNow();
     if (saveState.value === 'error') {
@@ -537,7 +578,7 @@ async function selectCandidate(candidateKey: string, offerKey: string | null): P
   try {
     await candidateSelection.mutateAsync({
       quoteId: quoteId.value,
-      rowIdx: candidateRowIdx.value,
+      itemId: candidateItemId.value,
       body: { candidateKey, offerKey },
     });
     dirty.value = false;
@@ -562,7 +603,7 @@ async function selectQuoteOffer(candidateKey: string, offerKey: string): Promise
 function openCatalogOffersFromDrawer(): void {
   const item = candidateItem.value;
   if (item === null) return;
-  const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
+  const lineIdx = items.value.findIndex((entry) => entry.id === item.id);
   closeSelectionSurface();
   if (lineIdx >= 0) openOfferModal(lineIdx);
 }
@@ -623,6 +664,7 @@ function applyCatalogPart(part: PartHitType, pick: OfferPick | null, target: Cat
   if (target.mode === 'add' || lineIdx === null) {
     const rowIdx = items.value.reduce((m, i) => Math.max(m, i.rowIdx), -1) + 1;
     items.value.push({
+      id: `new:${String(rowIdx)}`,
       rowIdx,
       included: true,
       mpn: part.mpn,
@@ -682,7 +724,7 @@ function onPartSelected(part: PartHitType, pick: OfferPick | null): void {
 function onCatalogPartSelected(part: PartHitType, pick: OfferPick | null): void {
   const item = candidateItem.value;
   if (item === null || editingLocked.value || catalogSelectionPending.value) return;
-  const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
+  const lineIdx = items.value.findIndex((entry) => entry.id === item.id);
   if (lineIdx < 0) {
     candidateSelectionError.value = '변경할 견적 행을 찾지 못했습니다. 패널을 닫고 다시 시도해 주세요.';
     return;
@@ -974,7 +1016,7 @@ function fmtAmount(v: number | null): string {
             <tbody>
               <BomQuoteRow
                 v-for="item in filteredItems"
-                :key="item.rowIdx"
+                :key="item.id"
                 :item="item"
                 :is-draft="isDraft"
                 :editing-locked="editingLocked"
@@ -1287,6 +1329,7 @@ function fmtAmount(v: number | null): string {
       :loading="quoteComparison.isFetching.value && quoteComparison.data.value === undefined"
       :failed="quoteComparison.isError.value"
       @retry="quoteComparison.refetch()"
+      @query-change="onComparisonQueryChange"
       @close="compareOpen = false"
     />
   </div>

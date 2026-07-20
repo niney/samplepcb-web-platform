@@ -224,14 +224,36 @@ export const BomQuoteComparisonCandidate = BomQuoteCandidate.pick({
 }).extend({ offers: z.array(BomQuoteComparisonOffer) });
 export type BomQuoteComparisonCandidateType = z.infer<typeof BomQuoteComparisonCandidate>;
 
+/** 견적과 독립적으로 박제된 엔진 ComponentRecord 원본. payload가 전 필드의 단일 진실이다. */
+export const BomQuoteExtractionSource = z.object({
+  analysisComponentId: z.string(),
+  engineComponentId: z.string(),
+  reviewStatus: z.enum(['extracted', 'review']),
+  confidence: z.number().nullable(),
+  payload: z.record(z.string(), z.unknown()),
+});
+export type BomQuoteExtractionSourceType = z.infer<typeof BomQuoteExtractionSource>;
+
 export const BomQuoteComparisonRow = z.object({
+  itemId: z.string(),
   rowIdx: z.number().int().min(0),
+  extraction: BomQuoteExtractionSource.nullable(),
   candidates: z.array(BomQuoteComparisonCandidate),
 });
 export type BomQuoteComparisonRowType = z.infer<typeof BomQuoteComparisonRow>;
 
 export const BomQuoteComparison = z.object({
   quoteId: z.string(),
+  page: z.number().int().min(1),
+  pageSize: z.number().int().min(1).max(50),
+  total: z.number().int().min(0),
+  totalPages: z.number().int().min(1),
+  summary: z.object({
+    matched: z.number().int().min(0),
+    attention: z.number().int().min(0),
+    notFound: z.number().int().min(0),
+  }),
+  sheets: z.array(z.string()),
   rows: z.array(BomQuoteComparisonRow),
 });
 export type BomQuoteComparisonType = z.infer<typeof BomQuoteComparison>;
@@ -255,6 +277,7 @@ export type BomQuoteSelectionEventType = z.infer<typeof BomQuoteSelectionEvent>;
 
 export const BomQuoteItemCandidates = z.object({
   quoteId: z.string(),
+  itemId: z.string(),
   rowIdx: z.number().int().min(0),
   originalMpn: z.string().nullable(),
   originalValue: z.string().nullable(),
@@ -279,7 +302,7 @@ export const BomQuoteItemCandidates = z.object({
 });
 export type BomQuoteItemCandidatesType = z.infer<typeof BomQuoteItemCandidates>;
 
-/** 클라이언트 → 서버 항목(PATCH 는 draft 한정 replace-all — 레거시 문서 자동저장 방식). */
+/** 서버 내부 견적 라인 상태. 클라이언트 PATCH 계약과 분리해 서버 소유 근거를 왕복하지 않는다. */
 export const BomQuoteItemInput = z.object({
   rowIdx: z.number().int().min(0),
   /** 합계·견적요청에 포함 여부 — items 와 합계의 기준을 동일하게(레거시 결함 교정). */
@@ -310,6 +333,8 @@ export type BomQuoteItemInputType = z.infer<typeof BomQuoteItemInput>;
 
 /** 서버 → 클라이언트 항목(서버 계산 필드 포함). */
 export const BomQuoteItem = BomQuoteItemInput.extend({
+  /** 견적 라인의 영속 식별자. rowIdx는 표시 순서일 뿐 수정·후보 연결 키로 쓰지 않는다. */
+  id: z.string(),
   /** 단가×주문수량 KRW 환산(예상) — 미환산이면 null(화면 경고). */
   lineTotalKrw: z.number().nullable(),
   /** 카탈로그 부품 이미지(partId 조회, 서버 채움) — 표시 전용·PATCH 왕복 없음. */
@@ -318,6 +343,33 @@ export const BomQuoteItem = BomQuoteItemInput.extend({
   partDatasheetUrl: z.string().nullable(),
 });
 export type BomQuoteItemType = z.infer<typeof BomQuoteItem>;
+
+/** 고객이 카탈로그에서 명시적으로 선택한 부품·오퍼. 엔진 원본/판정과 분리된 사용자 명령이다. */
+export const BomQuoteCatalogSelection = z.object({
+  mpn: z.string().max(191),
+  manufacturerName: z.string().max(191).nullable(),
+  description: z.string().max(1000).nullable(),
+  partId: z.string().regex(/^\d+$/),
+  selectedOffer: BomQuoteSelectedOffer.nullable(),
+});
+export type BomQuoteCatalogSelectionType = z.infer<typeof BomQuoteCatalogSelection>;
+
+/** 안정 ID 기반 draft 라인 편집. id=null은 카탈로그에서 추가한 신규 수동 행이다. */
+export const BomQuoteItemEdit = z.object({
+  id: z.string().regex(/^\d+$/).nullable(),
+  included: z.boolean(),
+  orderQty: z.number().int().min(0),
+  catalogSelection: BomQuoteCatalogSelection.optional(),
+}).superRefine((item, ctx) => {
+  if (item.id === null && item.catalogSelection === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['catalogSelection'],
+      message: '신규 견적 행에는 카탈로그 선택 정보가 필요합니다',
+    });
+  }
+});
+export type BomQuoteItemEditType = z.infer<typeof BomQuoteItemEdit>;
 
 export const BomQuoteSummary = z.object({
   id: z.string(),
@@ -393,13 +445,13 @@ export type BomQuoteDetailType = z.infer<typeof BomQuoteDetail>;
 
 // ── 요청 바디 ──────────────────────────────────────────────────────────────
 
-/** draft 자동저장(디바운스) — items 는 replace-all. draft 상태에서만 허용. */
+/** draft 자동저장(디바운스) — 안정 ID 행 부분 갱신. draft 상태에서만 허용. */
 export const BomQuotePatchBody = z.object({
   title: z.string().trim().min(1).max(191).optional(),
   setQty: z.number().int().min(1).max(100000).optional(),
   spareQty: z.number().int().min(0).max(100000).optional(),
   customerMemo: z.string().max(2000).nullable().optional(),
-  items: z.array(BomQuoteItemInput).max(2000).optional(),
+  items: z.array(BomQuoteItemEdit).max(2000).optional(),
 });
 export type BomQuotePatchBodyType = z.infer<typeof BomQuotePatchBody>;
 

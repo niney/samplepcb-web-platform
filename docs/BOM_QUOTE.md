@@ -9,9 +9,10 @@
 ```
 고객(/app/bom, 회원 전용)                sp-node(/api/bom)                sp-engine(:8400)
  업로드(xlsx/xls/csv/…) ───────────▶ POST /quotes(원본 파일서버 보존) ──▶ 전체 시트 파싱 잡
- 시트 선택(다중 선택) → build ─────▶ 선택 시트만 라인 + 1차 카탈로그 매칭 ◀── sp_part*(DB)+sp-parts(ES)
- 검토(수량·오퍼·포함) → 1s 자동저장 ─▶ PATCH(draft, replace-all)
- (버튼 없음 — 조용한 자동 보강) ◀──── build 직후 서버가 판단·검색 실행 ─▶ Mouser/DigiKey/UniKeyIC
+ 시트 분석 완료 ──────────────────▶ 분석 원문 JSON을 append-only 스냅샷으로 즉시 박제
+ 시트 선택(다중 선택) → build ─────▶ 스냅샷에서 안정 ID 라인 + 1차 카탈로그 매칭 ◀── sp_part*(DB)+sp-parts(ES)
+ 검토(수량·오퍼·포함) → 1s 자동저장 ─▶ PATCH(draft, ID 기반 수정 명령)
+ (버튼 없음 — 조용한 자동 보강) ◀──── 영속 분석으로 독립 검색 실행 ─▶ Mouser/DigiKey/UniKeyIC
    "가격·재고 확인 중…" 라벨만        └ 자동 인제스트 → 엔진 판정+기술·가격 하이브리드 추천 반영
  견적요청(제목 입력) ───────────────▶ POST /request(서버 재계산·동결)
 관리자(/app/admin/bom-quotes)        상태 전이·확정가·회신 메모·원본 다운로드
@@ -26,23 +27,32 @@
 ## 데이터 모델 (Prisma, 공유 DB — 추가형 `migrate deploy`만)
 
 - `sp_bom_quote`(SpBomQuote): mbId·title·status·fileName·contentHash(SHA-256)·
-  engineJobId(엔진 인메모리 잡 — 재시작 시 소멸)·**buildStatus(파싱·선택·계산 생명주기)**·
+  engineJobId(최초 파싱 잡 추적용)·**activeAnalysisRunId(현재 분석 정본)**·
+  **activeSupplierSearchRunId(현재 공급사 검색 실행)**·**buildStatus(파싱·선택·계산 생명주기)**·
   setQty/spareQty·
   **예상 스냅샷**(itemsTotal/shippingFee/managementFee/finalTotal/usdKrwRateUsed/uncostedCount)·
   **enrichStatus/enrichedAt(자동 보강 생명주기 — 서버 영속 단일 진실)**·
   customerMemo·adminMemo(내부)·answerNote(고객 노출)·confirmed*(관리자 확정)·requestedAt/answeredAt
-- `sp_bom_quote_item`(SpBomQuoteItem): rowIdx·included·mpn·bomQty·**orderQty(박제 수량 = 단일 진실)**·
+- `sp_bom_analysis_run/sheet/component`: 엔진 분석 1회를 append-only로 보존한다. component의
+  `payload`는 엔진 `ComponentRecord` JSON을 변환 없이 그대로 박제하고, componentId·시트·원본 행·
+  상태·검색 텍스트처럼 정렬/조인에 필요한 안정 필드만 열로 승격한다. 알 수 없는 신규 엔진 필드도
+  런타임에서 보존되며, 조회 계층이 늦게 따라가도 원본 데이터는 유실되지 않는다.
+- `sp_bom_supplier_search_run`: 어떤 분석 run과 옵션으로 독립 공급사 검색을 실행했는지,
+  엔진 jobId·preflight·상태·오류·시각을 영속한다. 엔진 재시작으로 잡이 사라지면 같은 분석
+  스냅샷에서 새 실행을 만들 수 있다.
+- `sp_bom_quote_item`(SpBomQuoteItem): **id(영속 행 식별자)**·rowIdx(표시 순서)·
+  analysisComponentId(추출 정본 연결)·included·mpn·bomQty·**orderQty(박제 수량 = 단일 진실)**·
   matchStatus(auto|manual|none)·**matchEvidence Json(엔진 판정·안전 후보·선정 정책 스냅샷)**·
   **recommendedCandidateKey/selectedCandidateKey/selectionSource**(자동 추천과 실제 선택 분리)·
   partId(sp_part 느슨한 참조, FK 없음)·
   **selectedOffer Json(오퍼 스냅샷 박제 — 가격구간 사다리 포함·pinned)**·lineTotalKrw·sourceRow(원본 근거)·
   sourceSheetIndex/sourceSheetName
-- `sp_bom_quote_candidate`(SpBomQuoteCandidate): 엔진 공급사 행을 **제조사+MPN 부품 후보**로 묶은
+- `sp_bom_quote_candidate`(SpBomQuoteCandidate): quoteItemId로 안정 행에 연결하며 엔진 공급사 행을 **제조사+MPN 부품 후보**로 묶은
   견적 문맥 스냅샷. 기술 순위·안전 판정·오퍼/가격구간·검증 근거를 보존해 엔진 인메모리 잡이
   사라져도 고객과 관리자가 동일한 후보를 비교한다. 스펙은 기술 순위 최상 후보를 정본으로 삼고
   공급사별 값의 임의 필드 병합은 하지 않으며, 동일 부품의 공급사 오퍼만 한 후보 아래 통합한다.
-- `sp_bom_quote_selection_event`(SpBomQuoteSelectionEvent): 고객 명시 선택의 이전/선택 후보·MPN·
-  오퍼·행 금액·이유를 누적한다. item replace-all 자동저장과 분리되어 선택 감사 이력이 보존된다.
+- `sp_bom_quote_selection_event`(SpBomQuoteSelectionEvent): quoteItemId 기준으로 고객 명시 선택의
+  이전/선택 후보·MPN·오퍼·행 금액·이유를 누적한다. 행 갱신과 분리되어 선택 감사 이력이 보존된다.
 - `sp_bom_quote_sheet`(SpBomQuoteSheet): 엔진이 분석한 전체 시트의 index/name/status/componentCount·
   failureReason/warnings와 고객의 selected 스냅샷. 견적·관리자 상세에서 동일하게 조회한다.
 - 원본 파일: 파일서버(serviceType `bom`) + `sp_file`(refType `sp_bom_quote`) —
@@ -66,7 +76,7 @@
 **서버 재계산 원칙**: 합계는 항상 서버가 스냅샷에서 재계산(클라 금액 불신). 검색 완료 후
 스냅샷 단가는 엔진의 안전 후보 오퍼 중 서버가 선택하며, 최종 확정가는 관리자 검토가 결정하는 RFQ 모델.
 
-## 조용한 자동 보강 (2026-07-19 — 고객에게 "공급사 검색" 개념 비노출)
+## 조용한 자동 보강 (2026-07-20 — 고객에게 "공급사 검색" 개념 비노출)
 
 build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하고 FE 는 상태 라벨만:
 - **필요 조건**: 엔진 판정(`matchEvidence`)이 없는 업로드 라인 OR included 미매칭 라인 존재
@@ -81,10 +91,14 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   검색 개시를 확정(실패 시 failed·불필요 시 idle 로 되돌림) → 반영(`refreshQuoteFromSupplierResult`)이 매칭 라인과
   `done`+`enrichedAt` 을 **한 저장으로 커밋**(상태·데이터 원자성 — "검색 완료 후 빨간
   미매칭 깜빡임"이 불가능해짐) → 시작 실패·잡 소실은 `failed`(최종 판정 표시).
-- **완료 반영 경로 3중**: ① 인제스트 폴러 onDone ② 결과 조회 백업 훅 `refreshQuotesForJob`
-  (engineJobId 역조회) ③ **게으른 치유** — `searching` 견적의 상세 GET 이 엔진 상태를 확인해
+- **검색 입력과 실행 분리**: build는 원본 파싱 잡을 다시 읽지 않고 `activeAnalysisRunId`의
+  선택 시트 JSON으로 `/supplier-jobs`를 생성한다. 검색 실행은 `sp_bom_supplier_search_run`에
+  기록되므로 분석 정본과 실행 상태를 혼합하지 않는다.
+- **완료 반영 경로 3중**: ① 인제스트 폴러 onDone ② 결과 조회 백업 훅 ③ **게으른 치유** —
+  `searching` 견적의 상세 GET 이 활성 검색 실행과 엔진 상태를 확인해
   completed 면 인제스트+엔진 판정 반영을 즉발(고객의 3초 폴링이 곧 치유 트리거 — 갭 단축 겸용),
-  잡 소실·엔진 다운이면 `failed` 로 종결. 어떤 재시작 후에도 조회만으로 상태가 수렴한다.
+  잡 소실이면 기존 실행을 failed로 닫고 **영속 분석에서 새 검색 실행을 생성**한다. 결과를
+  견적에 적용할 수 없는 경우도 실행과 견적을 failed로 닫아 `searching` 고착을 막는다.
   반영 자체는 `componentId`로 원본 행과 엔진 결과를 조인한다. 수동/pinned 행은 보존하고,
   나머지는 엔진의 안전 후보 판정과 선택 오퍼를 한 저장으로 교체한다.
 - **기술·가격·물리 호환 하이브리드 자동 선정(`engine-hybrid-physical-v3`, 2026-07-20)**:
@@ -115,7 +129,8 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   "확인 중"(펄스, 중립 행) — 빨간 미매칭은 `done/failed` 후의 **최종 판정**에만. 진행 배너
   (검색 중엔 엔진 progress %, 엔진 완료 후엔 "결과를 반영하고 있습니다" 100%)·우측 통계
   "확인 중" 카드·합계 노트·견적요청 비활성("가격 확인 중…"). searching 동안 견적 3초 폴링,
-  searching→done 전환 토스트. searching 동안 FE와 PATCH를 모두 잠가 replace-all 경합을 막는다.
+  searching→done 전환 토스트. searching 동안 FE와 PATCH를 모두 잠가 검색 결과 적용과 사용자
+  수정 명령의 경합을 막는다.
   done 뒤 카탈로그 재매칭은 엔진의 검토/충돌 판정을 덮어쓰므로 호출하지 않는다.
 - 라인 오퍼에 "기준 N일 전" 나이 배지(데이터 정직성 — 방금 조회처럼 보이지 않게).
 - 라이브 검증: 카탈로그 미보유 STM32F030F4P6 업로드 → build 미매칭 → 고객 개입 0으로
@@ -145,12 +160,15 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
 ## API
 
 **회원 `/api/bom`** (`routes/bom.ts`·`bom-quotes.ts`, `authenticate`):
-- `POST /quotes`(multipart) 업로드→견적+엔진 잡 · `GET /quotes`(내 목록) · `GET/PATCH /quotes/:id`
-  (PATCH 는 draft 한정, items **replace-all** — 레거시 문서 자동저장 방식)
-- `POST /quotes/:id/prepare`(파싱 결과의 시트별 상태·부품 수 영속) →
-  `POST /quotes/:id/build {sheetIndexes}`(선택한 parsed 시트만 라인+카탈로그 매칭, 최대 2,000라인) ·
-  `GET /quotes/:id/items/:rowIdx/candidates`(영속 후보·현재 수량 가격·선택 이력) ·
-  `POST /quotes/:id/items/:rowIdx/selection {candidateKey,offerKey}`(draft 전용, 가격은 서버 재계산) ·
+- `POST /quotes`(multipart) 업로드→견적+엔진 잡 · `GET /quotes`(내 목록) · `GET/PATCH /quotes/:id`.
+  PATCH는 draft 한정이며 `{id,included,orderQty,catalogSelection?}` 수정 명령만 받는다. 기존 행은
+  id로 제자리 갱신하고, 서버 소유 추출·판정·후보 필드는 클라이언트 왕복 대상이 아니다.
+- `POST /quotes/:id/prepare`: 파싱 결과 전체를 분석 run/sheet/component에 먼저 박제한다. →
+  `POST /quotes/:id/build {sheetIndexes}`: 영속 분석의 선택 시트로 라인+카탈로그 매칭(최대 2,000라인) ·
+  `GET /quotes/:id/items/:itemId/candidates`(영속 후보·현재 수량 가격·선택 이력) ·
+  `POST /quotes/:id/items/:itemId/selection {candidateKey,offerKey}`(draft 전용, 가격은 서버 재계산) ·
+  `GET /quotes/:id/comparison?page&pageSize&search&status&sheet`(원본 추출+후보의 페이지 조회) ·
+  `GET /quotes/:id/supplier-search`(이 견적의 활성 검색 실행 상태) ·
   `/catalog-match`(onlyUnmatched 기본 — pinned 보존) · `/request`(재계산·동결) · `/cancel` · `DELETE`(draft)
 - 잡 프록시: `GET /jobs/:id[/result]`, 공급사 검색 `POST /jobs/:id/supplier-search[/preflight]`
   — **소유 회원만**(타인·미기록 404 은닉), 일일 한도 초과 429 `SEARCH_DAILY_LIMIT`,
@@ -159,7 +177,8 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
 
 **관리자 `/api/admin/bom-quotes`** (`routes/admin-bom-quotes.ts`, `requireAdmin`):
 목록(기본 draft 제외)·상세·`PATCH`(상태 전이 검증+확정가+메모)·`GET /:id/file`(원본 스트리밍)·
-`GET /:id/items/:rowIdx/candidates`(고객과 같은 후보·선정 근거·이력, 읽기 전용).
+`GET /:id/items/:itemId/candidates`(고객과 같은 후보·선정 근거·이력, 읽기 전용) ·
+`GET /:id/comparison`(고객과 같은 페이지형 원본 추출+후보 읽기 모델).
 
 ## 화면
 
@@ -168,13 +187,14 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   전제 공식 변경(router.ts 주석). `meta.requiresMember` 가드 = 그누보드 로그인 왕복.
 - 워크북에 BOM으로 인식된 시트가 하나면 자동 선택하고, 둘 이상이면 계산 전 체크박스
   다중 선택 단계를 표시한다. `not_bom`·`error` 시트는 사유와 함께 비활성화한다. 선택값은
-  `sp_bom_quote_sheet`, 라인 원본 위치는 `sourceSheetIndex/sourceSheetName`에 영속한다.
+  `sp_bom_quote_sheet`, 전체 추출 정본은 분석 run/sheet/component에 영속한다.
   생명주기는 `buildStatus`(`parsing→selecting→building→ready`, 실패=`failed`)로 판정하며
   `items.length===0`을 분석 중 신호로 사용하지 않는다.
 - 선택 시트에서 엔진이 컴포넌트로 판정한 행은 MPN 유무와 관계없이 모두 라인으로 보존한다.
   표시·저장 순서는 워크북 시트 순서→Excel 원본 행 번호이며, MPN이 없는 행은 `value_raw`를
   화면 대표값으로만 표시하고 빈 MPN으로 저장해 카탈로그 품번으로 오인하지 않는다. 고객 결과
-  표에는 시트명과 1-based Excel 행 번호를 별도 열로 표시한다.
+  표의 별도 `Excel 위치` 열은 제거하고 체크박스 아래에 1-based 행 번호를 작게 표시해 너비를
+  절약한다. 정확한 시트·행·근거 셀과 전체 추출 필드는 BOM 비교에서 확인한다.
 - 공급사 검색에도 선택한 `sheet_indexes`를 전달한다. 따라서 선택되지 않은 시트는 외부 API
   호출·카탈로그 인제스트·견적 합계 모두에서 제외된다. 여러 선택 시트의 동일 품번은 감사 가능한
   원본 라인으로 각각 유지하고, 동일 검색 조건의 공급사 호출만 엔진 배치에서 재사용한다.
@@ -183,7 +203,10 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   통합했다. 패널은 현재 선택과 금액, 자동 추천 이유, 기술/가격 순위, 검증 수, 차액, 공급사별
   MOQ·재고·적용 단가·행 총액을 함께 보여주며 안전 후보와 특정 공급사 오퍼를 명시 선택할 수 있다.
   패널 상단의 **원본 BOM**은 시트·행·원본 MPN/값·제조사·패키지·REFDES·BOM 수량을 보여줘
-  `원본 → 현재 선정 → 다른 후보`의 판단 흐름을 보존한다(값이 없는 원본 필드는 숨김).
+  `원본 → 현재 선정 → 다른 후보`의 판단 흐름을 보존한다. BOM 비교는 5행씩 서버 페이지네이션하고
+  검색·판정·시트 필터를 서버에 적용한다. 후보가 없는 추출 행도 빠뜨리지 않으며, 엔진 payload의
+  field_states/raw_fields/attributes를 동적으로 모두 표시한다. 원문 값을 우선하고 정규화 값은
+  보조로 사용한다. `col/text/infer/미상` 근거를 구분하고, 근거 셀이 확실한 값은 시각적으로 강조한다.
   엔진 후보 밖의 카탈로그 직접 검색/오퍼 선택은 같은 패널의 보조 경로로 유지한다.
 - 관리자는 견적 라인의 [후보·근거]에서 고객과 동일한 후보 스냅샷·현재 선택·변경 이력을 읽기
   전용으로 확인해, 고객 선택이 자동 추천과 달라진 이유를 추적한다.
@@ -191,6 +214,14 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
 
 ## 검증 기록 (2026-07-20)
 
+- **분석 정본·안정 ID 전환**: 실제 엔진 adapter 출력과 공유하는 골든 JSON을 Python에서 생성·
+  exact 비교하고 Node에서 strict 파싱한다. 운영 수신은 passthrough로 미래 필드를 보존한다.
+  Python 엔진/앱 선택 테스트 13건, Node 관련 테스트 21건과 api/api-contract/sp-vue typecheck 통과.
+  기존 DB 273개 견적 행·798개 후보를 `quoteItemId`로 전부 백필했으며 orphan 0, 후보 유실 0을
+  마이그레이션 전후 SQL로 확인했다. DB 저장→미래 필드 복원→cascade 정리와 실행 중 엔진의
+  `/supplier-jobs` 등록→1개 component cache-only preflight(예상 외부 호출 0)도 통과했다.
+- **페이지형 BOM 비교 실화면**: 기존 20행 견적에서 첫 페이지 5행, 2/4 페이지 이동 시 원본 행
+  14~18로 교체, `검색 결과 없음` 필터 6건·1/2페이지·표시 5건을 Chrome에서 확인했다.
 - API 전체 283/283 통과(통합 환경 플래그 29건 제외) · 신규 BOM 정책 11/11 ·
   api-contract/API/sp-vue typecheck · API lint · 변경 sp-vue 파일 lint · API/sp-vue production build 통과.
 - **후보 패널 실데이터 E2E**: `(박용한정렬)EnvMainV5_BOM241209.xlsx` 첫 시트 108행 견적(#63)의
@@ -227,8 +258,12 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
 > 2026-07-19 코드 리뷰에서 확인한 후속 보완 항목과 재현 근거는
 > [`bom-quote-code-review-2026-07-19.md`](./bom-quote-code-review-2026-07-19.md)에 기록한다.
 
-- 엔진 잡·잡 소유·일일 검색 카운터는 인메모리(단일 인스턴스) — 재시작 시 파싱 중 견적은
-  "재업로드 안내"로 복구(빌드 완료된 견적은 DB 라 무관).
+- 최초 파일 파싱 잡·잡 소유·일일 검색 카운터는 인메모리(단일 인스턴스) — `prepare` 전에
+  재시작한 파싱 중 견적은 "재업로드 안내"가 필요하다. `prepare`가 끝난 분석과 이후 공급사 검색은
+  DB 정본에서 복구 가능하다.
+- 이 구조 도입 전에 만들어진 견적은 분석 component 정본이 없어 BOM 비교가 기존 `sourceRow`로
+  축퇴한다. 원본 파일 재분석과 전 행 componentId 대조가 모두 성공한 견적만 선택적으로 백필해야
+  하며, 기존 견적을 자동 재해석하는 데이터 변경은 이번 전환에 포함하지 않는다.
 - 카탈로그 직접 검색의 selectedOffer 스냅샷은 클라 제출값(조작 가능하나 RFQ 모델이라 이득 없음 —
   관리자 확정가가 정본). 엔진 후보 선택은 후보/오퍼 키만 받아 DB 스냅샷으로 서버 재계산한다.
   결제 연계 시 카탈로그 선택도 동일한 서버 선택 API로 통합해야 한다.
@@ -326,17 +361,19 @@ Figma "02 BOM 파일 분석_검색 결과" 레이아웃에 기존 기능 병합(
 
 상세 헤더 [BOM 비교]: Excel 원본과 공급사 후보를 부품 단위로 대조하는 전체 화면 모달
 (`components/bom/BomCompareModal.vue`). 결과는 모달을 열 때 quote 소유권을 검증한 뒤 지연 조회한다
-(`GET /api/bom/quotes/:id/comparison` — `sp_bom_quote_candidate.payload` 영속 스냅샷).
+(`GET /api/bom/quotes/:id/comparison` — 분석 component와 후보 payload의 영속 스냅샷).
 
 초기 구현은 `/jobs/:id/supplier-search/result`를 다시 조회해 엔진 재시작으로 인메모리 잡이 사라지면
 이미 DB에 후보가 박제된 완료 견적도 비교만 404가 났다. 비교 경로를 quoteId 기반 DB 읽기로 전환해
 엔진 가동 여부·잡 생존 여부와 분리했으며, 손상된 구버전 후보는 해당 후보만 격리한다.
 
-- 조인: 상세 항목과 후보 스냅샷을 견적 내부 불변 키 `rowIdx`로 연결한다. 엔진 component 배열 순서나
-  원본 행·REFDES의 우연한 일치에 의존하지 않는다.
+- 조인: 분석 component→quoteItem→candidate를 각각 영속 ID로 연결한다. `rowIdx`는 표시 순서일 뿐
+  관계 키로 쓰지 않으며, 엔진 component 배열 순서나 원본 행·REFDES의 우연한 일치에 의존하지 않는다.
 - 판정: 박제한 엔진 검증 결과 그대로 — status 요약 카드(검증·호환/확인 필요/결과 없음)+행 칩,
   셀 색은 `specComparisons`·`packageComparison` state(일치/불일치/확인 불가), relation 칩
   (정확·별칭·호환·범위 충족 등)
 - 열: 항목·Excel 원본(sticky) + 공급사 열(Mouser/DigiKey/UniKeyIC 고정 + 발견 공급사) —
   같은 제조사+MPN 후보 아래 통합한 공급사 오퍼에서 재고·MOQ·최저 단가·수명주기 표시
-- 필터: 검색어·판정·시트·공급사 열 선택, 페이지당 5부품 · 로딩/실패(재시도)/결과 없음 상태 패널
+- 필터: 검색어·판정·시트는 서버 적용, 공급사 열은 현재 페이지 표시 제어. 페이지당 5부품 ·
+  로딩/실패(재시도)/결과 없음 상태 패널. 후보가 없어도 분석에서 추출된 행은 모두 반환하며,
+  raw value와 전체 동적 필드·근거 셀·추출 방식을 함께 표시한다.

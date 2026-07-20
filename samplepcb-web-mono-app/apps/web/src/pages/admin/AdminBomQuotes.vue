@@ -43,11 +43,11 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / 20)));
 const detailQuery = useAdminBomQuote(detailId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
 const patch = usePatchAdminBomQuote();
-const candidateRowIdx = ref<number | null>(null);
-const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateRowIdx);
+const candidateItemId = ref<string | null>(null);
+const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateItemId);
 
 watch(detailId, () => {
-  candidateRowIdx.value = null;
+  candidateItemId.value = null;
 });
 
 // 검토 폼(상세 열 때 프리필)
@@ -205,7 +205,7 @@ async function downloadOriginal(): Promise<void> {
                           <tr><th class="px-2 py-1.5">Excel 위치</th><th class="px-2 py-1.5">부품</th><th class="px-2 py-1.5">오퍼</th><th class="px-2 py-1.5 text-right">주문수량</th><th class="px-2 py-1.5 text-right">합계</th><th class="px-2 py-1.5" /></tr>
                         </thead>
                         <tbody class="divide-y divide-gray-50">
-                          <tr v-for="item in detail.items" :key="item.rowIdx" :class="{ 'opacity-40': !item.included }">
+                          <tr v-for="item in detail.items" :key="item.id" :class="{ 'opacity-40': !item.included }">
                             <td class="whitespace-nowrap px-2 py-1.5 text-gray-500">{{ itemLocation(item) }}</td>
                             <td class="px-2 py-1.5">
                               <div class="font-medium">{{ itemLabel(item) }}</div>
@@ -221,7 +221,7 @@ async function downloadOriginal(): Promise<void> {
                             </td>
                             <td class="px-2 py-1.5 text-right tabular-nums">{{ item.orderQty.toLocaleString('ko-KR') }}</td>
                             <td class="px-2 py-1.5 text-right tabular-nums">{{ item.lineTotalKrw === null ? '—' : fmtWon(Math.round(item.lineTotalKrw)) }}</td>
-                            <td class="px-2 py-1.5 text-right"><button type="button" class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50" @click="candidateRowIdx = item.rowIdx">후보·근거</button></td>
+                            <td class="px-2 py-1.5 text-right"><button type="button" class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50" @click="candidateItemId = item.id">후보·근거</button></td>
                           </tr>
                         </tbody>
                       </table>
@@ -273,12 +273,12 @@ async function downloadOriginal(): Promise<void> {
       <button type="button" class="rounded-md border border-gray-300 bg-white px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40" :disabled="page >= totalPages" @click="page += 1">다음</button>
     </div>
     <BomCandidateDrawer
-      :open="candidateRowIdx !== null"
+      :open="candidateItemId !== null"
       :context="candidateQuery.data.value?.data ?? null"
       :loading="candidateQuery.isLoading.value"
       :failed="candidateQuery.isError.value"
       read-only
-      @close="candidateRowIdx = null"
+      @close="candidateItemId = null"
     />
   </div>
 </template>

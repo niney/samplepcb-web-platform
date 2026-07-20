@@ -4,23 +4,31 @@ import {
   AdminBomQuoteDetailResponse,
   AdminBomQuoteListResponse,
   AdminBomQuotePatchBody,
+  BomQuoteComparisonResponse,
   BomQuoteItemCandidatesResponse,
   BomQuoteStatus,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import { downloadFromFileServer } from '../lib/file-server';
-import { canTransition, getQuoteItemCandidates, toAdminDetailDto, toAdminSummaryDto } from '../lib/bom-quote';
+import { canTransition, getQuoteItemCandidates, loadQuoteComparisonPage, toAdminDetailDto, toAdminSummaryDto } from '../lib/bom-quote';
 
 // ── /api/admin/bom-quotes — 고객 BOM 견적요청 검토 (requireAdmin) ─────────────
 // 1차 범위: 목록·상세·상태 전이·확정가(운송료/관리비/총액)·메모·원본 다운로드.
 // 협력사 RFQ·발주·선적 풀 워크벤치는 이 데이터 모델 위에서 후속 재설계(docs/BOM_QUOTE.md).
 
 const IdParams = z.object({ id: z.coerce.bigint() });
-const ItemParams = IdParams.extend({ rowIdx: z.coerce.number().int().min(0) });
+const ItemParams = IdParams.extend({ itemId: z.coerce.bigint() });
 const ListQuery = z.object({
   status: BomQuoteStatus.optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+const ComparisonQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(5),
+  search: z.string().trim().max(191).optional(),
+  sheet: z.string().trim().min(1).max(191).optional(),
+  status: z.enum(['matched', 'attention', 'not_found']).optional(),
 });
 
 const FILE_REF_TYPE = 'sp_bom_quote';
@@ -56,10 +64,18 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     return { result: true as const, data: await toAdminDetailDto(quote, quote.items, quote.sheets, fileUrl) };
   });
 
-  fastify.get('/bom-quotes/:id/items/:rowIdx/candidates', {
+  fastify.get('/bom-quotes/:id/comparison', {
+    schema: { params: IdParams, querystring: ComparisonQuery, response: { 200: BomQuoteComparisonResponse } },
+  }, async (request, reply) => {
+    const data = await loadQuoteComparisonPage(request.params.id, request.query);
+    if (data === null) return reply.notFound('견적을 찾을 수 없습니다');
+    return { result: true as const, data };
+  });
+
+  fastify.get('/bom-quotes/:id/items/:itemId/candidates', {
     schema: { params: ItemParams, response: { 200: BomQuoteItemCandidatesResponse } },
   }, async (request, reply) => {
-    const data = await getQuoteItemCandidates(request.params.id, request.params.rowIdx);
+    const data = await getQuoteItemCandidates(request.params.id, request.params.itemId);
     if (data === null) return reply.notFound('견적 항목을 찾을 수 없습니다');
     return { result: true as const, data };
   });

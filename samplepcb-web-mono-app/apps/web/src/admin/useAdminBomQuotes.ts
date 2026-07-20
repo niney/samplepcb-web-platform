@@ -36,14 +36,14 @@ export function useAdminBomQuote(quoteId: Ref<string | null>) {
   });
 }
 
-export function useAdminBomQuoteCandidates(quoteId: Ref<string | null>, rowIdx: Ref<number | null>) {
+export function useAdminBomQuoteCandidates(quoteId: Ref<string | null>, itemId: Ref<string | null>) {
   return useQuery({
-    queryKey: computed(() => ['admin', 'bom-quotes', 'candidates', quoteId.value, rowIdx.value]),
+    queryKey: computed(() => ['admin', 'bom-quotes', 'candidates', quoteId.value, itemId.value]),
     queryFn: () => apiGet(
-      `${base}/${quoteId.value ?? ''}/items/${String(rowIdx.value ?? '')}/candidates`,
+      `${base}/${quoteId.value ?? ''}/items/${itemId.value ?? ''}/candidates`,
       BomQuoteItemCandidatesResponse,
     ),
-    enabled: computed(() => quoteId.value !== null && rowIdx.value !== null),
+    enabled: computed(() => quoteId.value !== null && itemId.value !== null),
     retry: false,
   });
 }

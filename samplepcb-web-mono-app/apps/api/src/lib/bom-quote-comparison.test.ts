@@ -53,9 +53,12 @@ function candidatePayload(candidateKey: string, technicalRank: number) {
 describe('BOM 전체 비교 영속 스냅샷', () => {
   it('엔진 잡 없이 DB 후보 payload를 행·기술순위로 복원한다', () => {
     const rows = buildQuoteComparisonRows([
-      { rowIdx: 9, payload: candidatePayload('second', 2) },
-      { rowIdx: 4, payload: candidatePayload('other-row', 1) },
-      { rowIdx: 9, payload: candidatePayload('first', 1) },
+      { itemId: '9', payload: candidatePayload('second', 2) },
+      { itemId: '4', payload: candidatePayload('other-row', 1) },
+      { itemId: '9', payload: candidatePayload('first', 1) },
+    ], [
+      { itemId: '9', rowIdx: 9, extraction: null },
+      { itemId: '4', rowIdx: 4, extraction: null },
     ]);
 
     expect(rows.map((row) => row.rowIdx)).toEqual([4, 9]);
@@ -69,12 +72,26 @@ describe('BOM 전체 비교 영속 스냅샷', () => {
 
   it('손상된 구버전 후보만 격리하고 같은 견적의 정상 후보는 유지한다', () => {
     const rows = buildQuoteComparisonRows([
-      { rowIdx: 1, payload: { candidateKey: 'broken' } },
-      { rowIdx: 2, payload: candidatePayload('healthy', 1) },
+      { itemId: '1', payload: { candidateKey: 'broken' } },
+      { itemId: '2', payload: candidatePayload('healthy', 1) },
+    ], [
+      {
+        itemId: '1',
+        rowIdx: 1,
+        extraction: {
+          analysisComponentId: '101',
+          engineComponentId: 'engine-1',
+          reviewStatus: 'extracted',
+          confidence: 0.95,
+          payload: { future_engine_field: { preserved: true } },
+        },
+      },
+      { itemId: '2', rowIdx: 2, extraction: null },
     ]);
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.rowIdx).toBe(2);
-    expect(rows[0]?.candidates[0]?.candidateKey).toBe('healthy');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.candidates).toEqual([]);
+    expect(rows[0]?.extraction?.payload.future_engine_field).toEqual({ preserved: true });
+    expect(rows[1]?.candidates[0]?.candidateKey).toBe('healthy');
   });
 });

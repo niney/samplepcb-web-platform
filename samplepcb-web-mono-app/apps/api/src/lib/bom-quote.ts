@@ -14,8 +14,10 @@ import {
   type BomQuoteCandidateSafetyType,
   type BomQuoteCandidateType,
   type BomQuoteComparisonRowType,
+  type BomQuoteComparisonType,
   type BomQuoteDecisionReasonType,
   type BomQuoteExchangeRateSnapshotType,
+  type BomQuoteExtractionSourceType,
   type BomQuoteItemCandidatesType,
   type BomQuoteItemInputType,
   type BomQuoteItemType,
@@ -430,8 +432,14 @@ type StoredCandidateType = z.infer<typeof StoredCandidate>;
 type StoredCandidateOfferType = z.infer<typeof StoredCandidateOffer>;
 
 export interface QuoteComparisonCandidateSnapshotRow {
-  rowIdx: number;
+  itemId: string;
   payload: Prisma.JsonValue;
+}
+
+export interface QuoteComparisonSourceRow {
+  itemId: string;
+  rowIdx: number;
+  extraction: BomQuoteExtractionSourceType | null;
 }
 
 /**
@@ -440,13 +448,14 @@ export interface QuoteComparisonCandidateSnapshotRow {
  */
 export function buildQuoteComparisonRows(
   rows: readonly QuoteComparisonCandidateSnapshotRow[],
+  sources: readonly QuoteComparisonSourceRow[],
 ): BomQuoteComparisonRowType[] {
-  const byRow = new Map<number, BomQuoteComparisonRowType['candidates']>();
+  const byItem = new Map<string, BomQuoteComparisonRowType['candidates']>();
   for (const row of rows) {
     const parsed = StoredCandidate.safeParse(row.payload);
     if (!parsed.success) continue;
     const candidate = parsed.data;
-    const candidates = byRow.get(row.rowIdx) ?? [];
+    const candidates = byItem.get(row.itemId) ?? [];
     candidates.push({
       candidateKey: candidate.candidateKey,
       technicalRank: candidate.technicalRank,
@@ -479,14 +488,134 @@ export function buildQuoteComparisonRows(
         priceBreaks: offer.priceBreaks,
       })),
     });
-    byRow.set(row.rowIdx, candidates);
+    byItem.set(row.itemId, candidates);
   }
-  return [...byRow.entries()]
-    .sort(([left], [right]) => left - right)
-    .map(([rowIdx, candidates]) => ({
-      rowIdx,
-      candidates: candidates.sort((left, right) => left.technicalRank - right.technicalRank),
+  return [...sources]
+    .sort((left, right) => left.rowIdx - right.rowIdx)
+    .map((source) => ({
+      itemId: source.itemId,
+      rowIdx: source.rowIdx,
+      extraction: source.extraction,
+      candidates: (byItem.get(source.itemId) ?? [])
+        .sort((left, right) => left.technicalRank - right.technicalRank),
     }));
+}
+
+export interface QuoteComparisonPageQuery {
+  page: number;
+  pageSize: number;
+  search?: string | undefined;
+  sheet?: string | undefined;
+  status?: 'matched' | 'attention' | 'not_found' | undefined;
+}
+
+const COMPARISON_MATCHED_STATUSES = new Set(['verified_exact', 'verified_variant', 'spec_compatible']);
+
+function comparisonStatus(matchStatus: string, matchEvidence: Prisma.JsonValue | null): 'matched' | 'attention' | 'not_found' {
+  const componentStatus = typeof matchEvidence === 'object' && matchEvidence !== null && !Array.isArray(matchEvidence)
+    ? matchEvidence.componentStatus
+    : null;
+  if (typeof componentStatus === 'string') {
+    if (COMPARISON_MATCHED_STATUSES.has(componentStatus)) return 'matched';
+    if (componentStatus === 'not_found') return 'not_found';
+    return 'attention';
+  }
+  return matchStatus === 'none' ? 'not_found' : 'matched';
+}
+
+/** 고객/관리자가 공유하는 페이지 단위 비교 읽기 모델. 후보가 없어도 원본 추출행을 반환한다. */
+export async function loadQuoteComparisonPage(
+  quoteId: bigint,
+  query: QuoteComparisonPageQuery,
+): Promise<BomQuoteComparisonType | null> {
+  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, select: { id: true } });
+  if (quote === null) return null;
+  const search = query.search?.trim() ?? '';
+  const itemRows = await prisma.spBomQuoteItem.findMany({
+    where: {
+      quoteId,
+      ...(query.sheet === undefined ? {} : { sourceSheetName: query.sheet }),
+      ...(search === ''
+        ? {}
+        : {
+            OR: [
+              { mpn: { contains: search } },
+              { manufacturerName: { contains: search } },
+              { description: { contains: search } },
+              { sourceSheetName: { contains: search } },
+              { analysisComponent: { is: { searchText: { contains: search } } } },
+            ],
+          }),
+    },
+    orderBy: { rowIdx: 'asc' },
+    select: {
+      id: true,
+      rowIdx: true,
+      matchStatus: true,
+      matchEvidence: true,
+      sourceSheetName: true,
+      analysisComponent: {
+        select: {
+          id: true,
+          engineComponentId: true,
+          reviewStatus: true,
+          confidence: true,
+          payload: true,
+        },
+      },
+    },
+  });
+  const categorized = itemRows.map((item) => ({
+    item,
+    status: comparisonStatus(item.matchStatus, item.matchEvidence),
+  }));
+  const summary = categorized.reduce(
+    (counts, entry) => ({ ...counts, [entry.status]: counts[entry.status] + 1 }),
+    { matched: 0, attention: 0, not_found: 0 },
+  );
+  const filtered = query.status === undefined
+    ? categorized
+    : categorized.filter((entry) => entry.status === query.status);
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / query.pageSize));
+  const page = Math.min(query.page, totalPages);
+  const pageItems = filtered.slice((page - 1) * query.pageSize, page * query.pageSize).map((entry) => entry.item);
+  const pageItemIds = pageItems.map((item) => item.id);
+  const candidateRows = pageItemIds.length === 0
+    ? []
+    : await prisma.spBomQuoteCandidate.findMany({
+        where: { quoteId, quoteItemId: { in: pageItemIds } },
+        orderBy: [{ quoteItemId: 'asc' }, { technicalRank: 'asc' }],
+        select: { quoteItemId: true, payload: true },
+      });
+  const sources: QuoteComparisonSourceRow[] = pageItems.map((item) => {
+    const component = item.analysisComponent;
+    const payload = component?.payload;
+    const extraction = component !== null
+      && typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+      ? {
+          analysisComponentId: String(component.id),
+          engineComponentId: component.engineComponentId,
+          reviewStatus: component.reviewStatus === 'review' ? 'review' as const : 'extracted' as const,
+          confidence: component.confidence,
+          payload,
+        }
+      : null;
+    return { itemId: String(item.id), rowIdx: item.rowIdx, extraction };
+  });
+  return {
+    quoteId: String(quoteId),
+    page,
+    pageSize: query.pageSize,
+    total,
+    totalPages,
+    summary: { matched: summary.matched, attention: summary.attention, notFound: summary.not_found },
+    sheets: [...new Set(itemRows.flatMap((item) => item.sourceSheetName === null ? [] : [item.sourceSheetName]))],
+    rows: buildQuoteComparisonRows(
+      candidateRows.map((row) => ({ itemId: String(row.quoteItemId), payload: row.payload })),
+      sources,
+    ),
+  };
 }
 
 export interface QuoteCandidateSnapshotInput {
@@ -1683,29 +1812,32 @@ function selectedEvidence(
 /** 수량 변경 시 후보 스냅샷에서 가격을 다시 계산해 클라이언트 단가 변조를 차단한다. */
 export async function repriceCandidateSelections(
   quoteId: bigint,
-  items: BomQuoteItemInputType[],
+  items: (BomQuoteItemInputType & { id?: string })[],
   setQty: number,
   spareQty: number,
   usdKrwRate: number | null,
 ): Promise<void> {
-  const relevantRows = items
-    .filter((item) => item.selectedCandidateKey !== null || item.recommendedCandidateKey !== null)
-    .map((item) => item.rowIdx);
-  if (relevantRows.length === 0) return;
+  const relevantItemIds = items.flatMap((item) =>
+    (item.selectedCandidateKey !== null || item.recommendedCandidateKey !== null) && item.id !== undefined
+      ? [BigInt(item.id)]
+      : [],
+  );
+  if (relevantItemIds.length === 0) return;
   const rows = await prisma.spBomQuoteCandidate.findMany({
-    where: { quoteId, rowIdx: { in: relevantRows } },
-    orderBy: [{ rowIdx: 'asc' }, { technicalRank: 'asc' }],
+    where: { quoteId, quoteItemId: { in: relevantItemIds } },
+    orderBy: [{ quoteItemId: 'asc' }, { technicalRank: 'asc' }],
   });
-  const candidates = new Map<number, StoredCandidateType[]>();
+  const candidates = new Map<string, StoredCandidateType[]>();
   for (const row of rows) {
     const parsed = StoredCandidate.safeParse(row.payload);
     if (!parsed.success) continue;
-    const current = candidates.get(row.rowIdx) ?? [];
+    const itemId = String(row.quoteItemId);
+    const current = candidates.get(itemId) ?? [];
     current.push(parsed.data);
-    candidates.set(row.rowIdx, current);
+    candidates.set(itemId, current);
   }
   for (const item of items) {
-    const rowCandidates = candidates.get(item.rowIdx);
+    const rowCandidates = item.id === undefined ? undefined : candidates.get(item.id);
     if (rowCandidates === undefined) continue;
     const needed = neededQty(item.bomQty, setQty, spareQty);
     const originalManufacturer = item.sourceRow?.inputManufacturer;
@@ -1815,14 +1947,14 @@ function selectionEventDto(row: QuoteSelectionEventRow): BomQuoteSelectionEventT
 /** 엔진 재시작과 무관한 DB 후보 비교 응답 — 고객/관리자가 같은 함수를 사용한다. */
 export async function getQuoteItemCandidates(
   quoteId: bigint,
-  rowIdx: number,
+  itemId: bigint,
 ): Promise<BomQuoteItemCandidatesType | null> {
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId } });
   if (quote === null) return null;
   const [itemRow, candidateRows, eventRows] = await Promise.all([
-    prisma.spBomQuoteItem.findUnique({ where: { quoteId_rowIdx: { quoteId, rowIdx } } }),
-    prisma.spBomQuoteCandidate.findMany({ where: { quoteId, rowIdx }, orderBy: { technicalRank: 'asc' } }),
-    prisma.spBomQuoteSelectionEvent.findMany({ where: { quoteId, rowIdx }, orderBy: { createdAt: 'desc' }, take: 20 }),
+    prisma.spBomQuoteItem.findFirst({ where: { id: itemId, quoteId } }),
+    prisma.spBomQuoteCandidate.findMany({ where: { quoteId, quoteItemId: itemId }, orderBy: { technicalRank: 'asc' } }),
+    prisma.spBomQuoteSelectionEvent.findMany({ where: { quoteId, quoteItemId: itemId }, orderBy: { createdAt: 'desc' }, take: 20 }),
   ]);
   if (itemRow === null) return null;
   const item = toItemDto(itemRow);
@@ -1924,7 +2056,8 @@ export async function getQuoteItemCandidates(
   const originalPackageCodeRaw = item.sourceRow?.packageCode;
   return {
     quoteId: String(quoteId),
-    rowIdx,
+    itemId: String(itemRow.id),
+    rowIdx: item.rowIdx,
     originalMpn: typeof originalMpnRaw === 'string' && originalMpnRaw.trim() !== '' ? originalMpnRaw : null,
     originalValue: typeof originalValueRaw === 'string' && originalValueRaw.trim() !== '' ? originalValueRaw : null,
     originalSheetName: item.sourceSheetName,
@@ -1970,17 +2103,17 @@ export type QuoteCandidateSelectionResult =
 /** 고객 명시 선택 — 후보/오퍼 키만 신뢰하고 가격·합계는 서버 스냅샷에서 재계산한다. */
 export async function applyQuoteCandidateSelection(
   quoteId: bigint,
-  rowIdx: number,
+  itemId: bigint,
   candidateKeyValue: string,
   requestedOfferKey: string | null,
   actorId: string,
 ): Promise<QuoteCandidateSelectionResult> {
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
   if (quote === null) return 'quote-not-found';
-  const itemRow = quote.items.find((row) => row.rowIdx === rowIdx);
+  const itemRow = quote.items.find((row) => row.id === itemId);
   if (itemRow === undefined) return 'item-not-found';
   const candidateRow = await prisma.spBomQuoteCandidate.findUnique({
-    where: { quoteId_rowIdx_candidateKey: { quoteId, rowIdx, candidateKey: candidateKeyValue } },
+    where: { quoteItemId_candidateKey: { quoteItemId: itemId, candidateKey: candidateKeyValue } },
   });
   if (candidateRow === null) return 'candidate-not-found';
   const parsed = StoredCandidate.safeParse(candidateRow.payload);
@@ -1992,13 +2125,13 @@ export async function applyQuoteCandidateSelection(
   }
   const config = await getBomQuoteRuntimeConfig();
   const items = quote.items.map((row) => toItemDto(row));
-  const item = items.find((entry) => entry.rowIdx === rowIdx);
+  const item = items.find((entry) => entry.id === String(itemId));
   if (item === undefined) return 'item-not-found';
   const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
   const selected = storedCandidatePick(candidate, needed, config.usdKrwRate, requestedOfferKey);
   if (requestedOfferKey !== null && selected.pick === null) return 'offer-not-priced';
   const technicalTop = await prisma.spBomQuoteCandidate.findFirst({
-    where: { quoteId, rowIdx, autoEligible: true },
+    where: { quoteId, quoteItemId: itemId, autoEligible: true },
     orderBy: { technicalRank: 'asc' },
   });
   const technicalParsed = technicalTop === null ? null : StoredCandidate.safeParse(technicalTop.payload);
@@ -2035,11 +2168,11 @@ export async function applyQuoteCandidateSelection(
     reasonCodes,
   );
   const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
-  const selectedComputed = computed.items.find((entry) => entry.rowIdx === rowIdx);
+  const selectedComputed = computed.items.find((entry) => entry.id === String(itemId));
   await persistQuoteComputed(quoteId, computed, config.usdKrwRate, {
     exchangeRateSnapshot: config.exchangeRateSnapshot,
     selectionEvent: {
-      rowIdx,
+      itemId: String(itemId),
       source: 'customer',
       actorId,
       previousCandidateKey: previous.candidateKey,
@@ -2097,7 +2230,7 @@ export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdK
 /**
  * 자동 보강 완료 후 견적 반영 — draft 한정. 기존 라인은 스냅샷 최신화(정체성 보존),
  * 미매칭 라인은 카탈로그 재매칭으로 채운 뒤 합계 재계산·영속.
- * 동시 호출(폴러 onDone+치유+백업 훅)은 직렬화 — replace-all 저장이 겹치지 않게.
+ * 동시 호출(폴러 onDone+치유+백업 훅)은 직렬화 — 같은 견적 계산 저장이 겹치지 않게.
  */
 const refreshInFlight = new Map<string, Promise<void>>();
 
@@ -2189,8 +2322,15 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** 스냅샷 기준 라인 재계산 — orderQty 에 맞는 구간·단가·환산·라인합계. */
-export function recalcItems(items: BomQuoteItemInputType[], usdKrwRate: number | null): BomQuoteItemType[] {
+export type QuoteComputedItem<T extends BomQuoteItemInputType = BomQuoteItemInputType> = T & {
+  lineTotalKrw: number | null;
+};
+
+/** 스냅샷 기준 라인 재계산 — 입력의 안정 ID를 보존하면서 금액만 서버에서 다시 계산한다. */
+export function recalcItems<T extends BomQuoteItemInputType>(
+  items: T[],
+  usdKrwRate: number | null,
+): QuoteComputedItem<T>[] {
   return items.map((item) => {
     const offer = item.selectedOffer;
     // partImageUrl·partDatasheetUrl 은 응답 시 toDetailDto 가 카탈로그에서 채운다(여긴 계산 전용)
@@ -2205,31 +2345,82 @@ export function recalcItems(items: BomQuoteItemInputType[], usdKrwRate: number |
       orderQty,
       selectedOffer: { ...offer, breakQty, unitPrice, unitPriceKrw },
       lineTotalKrw: unitPriceKrw === null ? null : round2(unitPriceKrw * orderQty),
-      partImageUrl: null,
-      partDatasheetUrl: null,
     };
   });
 }
 
 // ── 영속화 ──────────────────────────────────────────────────────────────────
 
-/** 라인 replace-all(레거시 문서 자동저장 방식) — draft 한정으로 호출할 것. */
-export async function replaceQuoteItems(quoteId: bigint, items: BomQuoteItemType[]): Promise<void> {
+/** 기존 영속 ID를 유지하며 계산 결과를 갱신한다. 최초 build의 신규 행만 INSERT한다. */
+export async function replaceQuoteItems(
+  quoteId: bigint,
+  items: QuoteComputedItem<BomQuoteItemType>[],
+): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    await replaceQuoteItemsInTransaction(tx, quoteId, items);
+    await persistQuoteItemsInTransaction(tx, quoteId, items);
   });
 }
 
-async function replaceQuoteItemsInTransaction(
+/** 분석 component 조회 조건을 Prisma 실제 필드명으로 고정하는 회귀 방어선. */
+export function analysisComponentLookupWhere(
+  analysisRunId: bigint,
+  engineComponentIds: readonly string[],
+): Prisma.SpBomAnalysisComponentWhereInput {
+  return {
+    analysisRunId,
+    engineComponentId: { in: [...engineComponentIds] },
+  };
+}
+
+async function persistQuoteItemsInTransaction<T extends BomQuoteItemInputType>(
   tx: Prisma.TransactionClient,
   quoteId: bigint,
-  items: BomQuoteItemType[],
+  items: QuoteComputedItem<T>[],
 ): Promise<void> {
-  await tx.spBomQuoteItem.deleteMany({ where: { quoteId } });
   if (items.length === 0) return;
-  await tx.spBomQuoteItem.createMany({
-    data: items.map((item) => ({
+
+  const quote = await tx.spBomQuote.findUnique({
+    where: { id: quoteId },
+    select: {
+      activeAnalysisRunId: true,
+      items: { select: { id: true } },
+    },
+  });
+  if (quote === null) throw new Error(`BOM quote ${String(quoteId)} not found`);
+
+  const existingIds = new Set(quote.items.map((item) => String(item.id)));
+  const suppliedIds = items.flatMap((item) => {
+    const id = 'id' in item && typeof item.id === 'string' ? item.id : null;
+    return id === null ? [] : [id];
+  });
+  if (new Set(suppliedIds).size !== suppliedIds.length) {
+    throw new Error(`Duplicate BOM quote item id for quote ${String(quoteId)}`);
+  }
+  for (const id of suppliedIds) {
+    if (!existingIds.has(id)) throw new Error(`BOM quote item ${id} does not belong to quote ${String(quoteId)}`);
+  }
+
+  const componentIds = items.flatMap((item) => {
+    const source = item.sourceRow;
+    const componentId = source !== null && typeof source.componentId === 'string' ? source.componentId : null;
+    return componentId === null ? [] : [componentId];
+  });
+  const analysisComponents = quote.activeAnalysisRunId === null || componentIds.length === 0
+    ? []
+    : await tx.spBomAnalysisComponent.findMany({
+        where: analysisComponentLookupWhere(quote.activeAnalysisRunId, [...new Set(componentIds)]),
+        select: { id: true, engineComponentId: true },
+      });
+  const analysisComponentByEngineId = new Map(
+    analysisComponents.map((component) => [component.engineComponentId, component.id] as const),
+  );
+
+  const dataFor = (item: QuoteComputedItem<T>) => {
+    const source = item.sourceRow;
+    const componentId = source !== null && typeof source.componentId === 'string' ? source.componentId : null;
+    return {
       quoteId,
+      analysisComponentId: componentId === null ? null : (analysisComponentByEngineId.get(componentId) ?? null),
       rowIdx: item.rowIdx,
       included: item.included,
       mpn: item.mpn,
@@ -2248,12 +2439,30 @@ async function replaceQuoteItemsInTransaction(
       sourceRow: item.sourceRow === null ? Prisma.DbNull : (item.sourceRow as Prisma.InputJsonValue),
       sourceSheetIndex: item.sourceSheetIndex,
       sourceSheetName: item.sourceSheetName,
-    })),
-  });
+    };
+  };
+
+  const creates: Prisma.SpBomQuoteItemCreateManyInput[] = [];
+  for (const item of items) {
+    const id = 'id' in item && typeof item.id === 'string' ? item.id : null;
+    const data = dataFor(item);
+    if (id === null) {
+      creates.push(data);
+      continue;
+    }
+    const { quoteId: _quoteId, ...updateData } = data;
+    void _quoteId;
+    const updated = await tx.spBomQuoteItem.updateMany({
+      where: { id: BigInt(id), quoteId },
+      data: updateData,
+    });
+    if (updated.count !== 1) throw new Error(`BOM quote item ${id} update lost`);
+  }
+  if (creates.length > 0) await tx.spBomQuoteItem.createMany({ data: creates });
 }
 
-export interface QuoteComputed {
-  items: BomQuoteItemType[];
+export interface QuoteComputed<T extends BomQuoteItemInputType = BomQuoteItemInputType> {
+  items: QuoteComputedItem<T>[];
   itemsTotal: number;
   finalTotal: number;
   uncostedCount: number;
@@ -2271,7 +2480,7 @@ export interface QuotePersistenceExtra {
   candidateSnapshots?: QuoteCandidateSnapshotInput[];
   exchangeRateSnapshot?: BomQuoteExchangeRateSnapshotType | null;
   selectionEvent?: {
-    rowIdx: number;
+    itemId: string;
     source: 'customer' | 'catalog' | 'admin';
     actorId: string | null;
     previousCandidateKey: string | null;
@@ -2291,20 +2500,28 @@ export interface QuotePersistenceExtra {
 const CANDIDATE_INSERT_BATCH_SIZE = 20;
 
 /** 계산 라인과 견적 합계·보강 상태를 한 트랜잭션으로 영속화한다. */
-export async function persistQuoteComputed(
+export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
   quoteId: bigint,
-  computed: QuoteComputed,
+  computed: QuoteComputed<T>,
   usdKrwRate: number | null,
   extra?: QuotePersistenceExtra,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    await replaceQuoteItemsInTransaction(tx, quoteId, computed.items);
+    await persistQuoteItemsInTransaction(tx, quoteId, computed.items);
     if (extra?.candidateSnapshots !== undefined) {
       await tx.spBomQuoteCandidate.deleteMany({ where: { quoteId } });
       if (extra.candidateSnapshots.length > 0) {
+        const snapshotRowIndexes = [...new Set(extra.candidateSnapshots.map((snapshot) => snapshot.rowIdx))];
+        const quoteItems = await tx.spBomQuoteItem.findMany({
+          where: { quoteId, rowIdx: { in: snapshotRowIndexes } },
+          select: { id: true, rowIdx: true },
+        });
+        const quoteItemIdByRowIdx = new Map(quoteItems.map((item) => [item.rowIdx, item.id] as const));
         const candidateRows = extra.candidateSnapshots.map(({ rowIdx, candidate }) => ({
           quoteId,
-          rowIdx,
+          quoteItemId: quoteItemIdByRowIdx.get(rowIdx) ?? (() => {
+            throw new Error(`BOM quote candidate row ${String(rowIdx)} has no persisted item`);
+          })(),
           candidateKey: candidate.candidateKey,
           technicalRank: candidate.technicalRank,
           status: candidate.status,
@@ -2357,7 +2574,7 @@ export async function persistQuoteComputed(
       await tx.spBomQuoteSelectionEvent.create({
         data: {
           quoteId,
-          rowIdx: event.rowIdx,
+          quoteItemId: BigInt(event.itemId),
           source: event.source,
           actorId: event.actorId,
           previousCandidateKey: event.previousCandidateKey,
@@ -2376,12 +2593,12 @@ export async function persistQuoteComputed(
 }
 
 /** 라인 재계산 + 합계(운송료·관리비 포함, VAT 별도) — 저장 전 단일 경로. */
-export function computeQuote(
-  items: BomQuoteItemInputType[],
+export function computeQuote<T extends BomQuoteItemInputType>(
+  items: T[],
   usdKrwRate: number | null,
   shippingFee: number,
   managementFee: number,
-): QuoteComputed {
+): QuoteComputed<T> {
   const computed = recalcItems(items, usdKrwRate);
   const totals = computeTotals(
     computed.map((i) => ({ included: i.included, lineTotalKrw: i.lineTotalKrw })),
@@ -2422,6 +2639,7 @@ export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null,
     ? { ...offer.data, packaging: normalizeSupplierPackaging(offer.data.supplier, offer.data.packaging) }
     : null;
   return {
+    id: String(row.id),
     rowIdx: row.rowIdx,
     included: row.included,
     mpn: row.mpn,
@@ -2459,22 +2677,24 @@ async function loadPartMetaMap(items: QuoteItemRow[]): Promise<Map<bigint, { ima
   return new Map(parts.map((p) => [p.id, { imageUrl: p.imageUrl, datasheetUrl: p.datasheetUrl }] as const));
 }
 
-/** 엔진 매칭 라인(partId 없음)용 — 선정 후보 스냅샷의 datasheetUrl 을 rowIdx 별로 모은다. */
+/** 엔진 매칭 라인(partId 없음)용 — 안정 itemId로 후보를 찾고 표시 rowIdx에 투영한다. */
 async function loadCandidateDatasheetMap(quoteId: bigint, items: QuoteItemRow[]): Promise<Map<number, string>> {
-  const rowIdxs = items
+  const itemIds = items
     .filter((item) => item.partId === null && item.selectedCandidateKey !== null)
-    .map((item) => item.rowIdx);
-  if (rowIdxs.length === 0) return new Map();
-  const selectedKeyByRow = new Map(items.map((item) => [item.rowIdx, item.selectedCandidateKey] as const));
+    .map((item) => item.id);
+  if (itemIds.length === 0) return new Map();
+  const selectedKeyByItem = new Map(items.map((item) => [item.id, item.selectedCandidateKey] as const));
+  const rowIdxByItem = new Map(items.map((item) => [item.id, item.rowIdx] as const));
   const rows = await prisma.spBomQuoteCandidate.findMany({
-    where: { quoteId, rowIdx: { in: rowIdxs } },
+    where: { quoteId, quoteItemId: { in: itemIds } },
   });
   const map = new Map<number, string>();
   for (const row of rows) {
     const parsed = StoredCandidate.safeParse(row.payload);
     if (!parsed.success) continue;
-    if (parsed.data.candidateKey !== selectedKeyByRow.get(row.rowIdx)) continue;
-    if (parsed.data.datasheetUrl !== null) map.set(row.rowIdx, parsed.data.datasheetUrl);
+    if (parsed.data.candidateKey !== selectedKeyByItem.get(row.quoteItemId)) continue;
+    const rowIdx = rowIdxByItem.get(row.quoteItemId);
+    if (parsed.data.datasheetUrl !== null && rowIdx !== undefined) map.set(rowIdx, parsed.data.datasheetUrl);
   }
   return map;
 }

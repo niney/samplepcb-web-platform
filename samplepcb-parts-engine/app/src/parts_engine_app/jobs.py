@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import logging
 import time
 from collections import Counter
@@ -119,6 +120,38 @@ class JobService:
         job = Job(id=job_id, engine=engine, filename=filename, upload_path=upload_path)
         self._jobs[job_id] = job
         self._executor.submit(self._run_parse, job)
+        return job
+
+    def submit_analysis_snapshot(self, result: dict[str, Any]) -> Job:
+        """sp-node가 영속한 분석 스냅샷으로 독립 공급사 검색 잡을 만든다.
+
+        추출 잡의 인메모리 수명과 공급사 검색을 분리하는 경계다. 원본 JSON은 새
+        필드를 버리지 않도록 그대로 복제하고, supplier 계약 변환이 가능한지만
+        등록 전에 검증한다.
+        """
+        if not isinstance(result.get("components"), list):
+            raise JobError("analysis_snapshot_components_invalid")
+        if not isinstance(result.get("sheets"), list):
+            raise JobError("analysis_snapshot_sheets_invalid")
+        try:
+            build_batch_from_result(result)
+        except (KeyError, TypeError, ValueError) as error:
+            raise JobError(f"analysis_snapshot_invalid: {str(error)[:300]}") from error
+
+        job_id = uuid4().hex
+        filename = str(result.get("source_file") or "persisted-analysis")
+        engine = str(result.get("engine") or "smartbom")
+        job = Job(
+            id=job_id,
+            engine=engine,
+            filename=filename,
+            upload_path=Path(),
+            status="completed",
+            progress=100,
+            message="영속 분석 스냅샷 준비 완료",
+            result=deepcopy(result),
+        )
+        self._jobs[job_id] = job
         return job
 
     def _run_parse(self, job: Job) -> None:
