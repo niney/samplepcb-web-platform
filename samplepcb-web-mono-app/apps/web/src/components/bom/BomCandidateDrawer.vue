@@ -272,8 +272,8 @@ const originalReviewFields = computed(() => extractedOriginalFields.value.filter
 const candidates = computed(() => {
   const source = props.context?.candidates ?? [];
   const filtered = source.filter((candidate) => {
-    if (tab.value === 'selectable') return candidate.safety !== 'blocked';
-    if (tab.value === 'review') return candidate.safety === 'blocked';
+    if (tab.value === 'selectable') return candidate.manualSelectable;
+    if (tab.value === 'review') return !candidate.manualSelectable;
     return true;
   });
   return [...filtered].sort((a, b) => {
@@ -286,10 +286,10 @@ const candidates = computed(() => {
 });
 
 const selectableCount = computed(() =>
-  props.context?.candidates.filter((candidate) => candidate.safety !== 'blocked').length ?? 0,
+  props.context?.candidates.filter((candidate) => candidate.manualSelectable).length ?? 0,
 );
 const reviewCount = computed(() =>
-  props.context?.candidates.filter((candidate) => candidate.safety === 'blocked').length ?? 0,
+  props.context?.candidates.filter((candidate) => !candidate.manualSelectable).length ?? 0,
 );
 
 function toggleCandidate(candidateKey: string): void {
@@ -364,8 +364,14 @@ function safetyClass(candidate: BomQuoteCandidateType): string {
 }
 
 function cautionLabel(candidate: BomQuoteCandidateType): string {
+  if (candidate.selectionEligibility === 'manual_review') {
+    return candidate.selectionReasonCodes.includes('manufacturer_confirmation_required')
+      ? '제조사 확인 후 선택'
+      : '검토 후 선택';
+  }
+  if (candidate.lifecycleState === 'caution') return '라이프사이클 주의';
   if (candidate.missingRequirements.length > 0) return '검증 보완 필요';
-  return '라이프사이클 주의';
+  return '엔진 검토 필요';
 }
 
 function verificationPercent(candidate: BomQuoteCandidateType): number | null {
@@ -377,8 +383,9 @@ function verificationPercent(candidate: BomQuoteCandidateType): number | null {
 }
 
 function verificationClass(candidate: BomQuoteCandidateType): string {
+  if (candidate.selectionEligibility === 'manual_review') return 'bg-amber-100 font-semibold text-amber-800';
   if (candidate.conflicts.length > 0) return 'bg-red-100 font-semibold text-red-800';
-  if (candidate.missingRequirements.length > 0 || candidate.requiredRequirementCount <= 0) {
+  if (!candidate.verificationComplete || candidate.requiredRequirementCount <= 0) {
     return 'bg-amber-100 font-semibold text-amber-800';
   }
   return 'bg-emerald-50 font-semibold text-emerald-800';
@@ -404,6 +411,8 @@ function requirementLabel(code: string): string {
     current_a: '정격전류',
     frequency_hz: '주파수',
     part_type: '부품 유형',
+    manufacturer: '제조사',
+    part_number: '품번',
   };
   return labels[code] ?? code;
 }
@@ -453,7 +462,8 @@ function fmtAge(iso: string): string {
 }
 
 function selectBest(candidate: BomQuoteCandidateType): void {
-  if (props.readOnly || props.selecting || candidate.safety === 'blocked') return;
+  if (props.readOnly || props.selecting || !candidate.manualSelectable) return;
+  if (!confirmManualReview(candidate)) return;
   emit('select', candidate.candidateKey, null);
 }
 
@@ -462,8 +472,18 @@ function bestOfferAlreadySelected(candidate: BomQuoteCandidateType): boolean {
 }
 
 function selectOffer(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateOfferType): void {
-  if (props.readOnly || props.selecting || candidate.safety === 'blocked' || offer.applied === null) return;
+  if (props.readOnly || props.selecting || !candidate.manualSelectable || offer.applied === null) return;
+  if (!confirmManualReview(candidate)) return;
   emit('select', candidate.candidateKey, offer.offerKey);
+}
+
+function confirmManualReview(candidate: BomQuoteCandidateType): boolean {
+  if (candidate.selectionEligibility !== 'manual_review') return true;
+  const originalManufacturer = props.context?.originalManufacturer ?? '미확인';
+  const candidateManufacturer = candidate.manufacturerName ?? '미확인';
+  return window.confirm(
+    `품번은 일치하지만 제조사 확인이 필요합니다.\n원본: ${originalManufacturer}\n후보: ${candidateManufacturer}\n이 후보를 선택할까요?`,
+  );
 }
 
 function selectCatalogPart(part: PartHitType, pick: OfferPick | null): void {
@@ -793,15 +813,24 @@ onBeforeUnmount(() => {
                             v-if="!readOnly"
                             type="button"
                             class="mt-3 h-9 w-full rounded-lg bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                            :disabled="selecting || candidate.safety === 'blocked' || bestOfferAlreadySelected(candidate)"
+                            :disabled="selecting || !candidate.manualSelectable || bestOfferAlreadySelected(candidate)"
                             @click="selectBest(candidate)"
                           >
-                            {{ bestOfferAlreadySelected(candidate) ? '현재 최적 오퍼' : candidate.selected ? '최적 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '최적 오퍼로 선택' }}
+                            {{ bestOfferAlreadySelected(candidate) ? '현재 최적 오퍼' : candidate.selectionEligibility === 'manual_review' ? '확인 후 선택' : candidate.selected ? '최적 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '최적 오퍼로 선택' }}
                           </button>
                         </div>
                       </div>
 
-                      <div v-if="candidate.conflicts.length > 0" class="mt-3 rounded-lg bg-red-100/70 px-3 py-2 text-xs text-red-800">자동선정 제외: {{ conflictText(candidate) }}</div>
+                      <div
+                        v-if="candidate.conflicts.length > 0"
+                        class="mt-3 rounded-lg px-3 py-2 text-xs"
+                        :class="candidate.selectionEligibility === 'manual_review' ? 'bg-amber-100/70 text-amber-900' : 'bg-red-100/70 text-red-800'"
+                      >
+                        자동선정 제외: {{ conflictText(candidate) }}
+                      </div>
+                      <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                        엔진 판단: 품번 정체성은 확인됐지만 원본 제조사 <b>{{ context.originalManufacturer ?? '미확인' }}</b>와 후보 제조사 <b>{{ candidate.manufacturerName ?? '미확인' }}</b> 확인이 필요합니다. 자동 추천에서는 제외되며 확인 후 직접 선택할 수 있습니다.
+                      </div>
                       <div v-if="candidate.missingRequirements.length > 0" class="mt-2 rounded-lg bg-amber-100/70 px-3 py-2 text-xs text-amber-800">추가 확인 필요: {{ missingText(candidate) }}</div>
 
                       <button type="button" class="mt-3 inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900" @click="toggleCandidate(candidate.candidateKey)">
@@ -836,7 +865,7 @@ onBeforeUnmount(() => {
                               v-if="!readOnly"
                               type="button"
                               class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
-                              :disabled="selecting || candidate.safety === 'blocked' || offer.applied === null || context.selectedOfferKey === offer.offerKey"
+                              :disabled="selecting || !candidate.manualSelectable || offer.applied === null || context.selectedOfferKey === offer.offerKey"
                               @click="selectOffer(candidate, offer)"
                             >
                               이 오퍼 선택

@@ -3,7 +3,6 @@ import { Prisma } from '@prisma/client';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
-  BomQuoteCatalogMatchBody,
   BomQuoteCandidateSelectionBody,
   BomQuoteBuildBody,
   BomQuoteComparisonResponse,
@@ -22,6 +21,7 @@ import {
   type BomQuoteItemType,
   type BomQuoteMatchEvidenceType,
 } from '@sp/api-contract';
+import { neededQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
 import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
@@ -50,7 +50,6 @@ import {
   buildItemsFromEngineResult,
   applyQuoteCandidateSelection,
   canTransition,
-  catalogMatchItems,
   computeQuote,
   getQuoteItemCandidates,
   loadQuoteComparisonPage,
@@ -64,8 +63,8 @@ import {
 } from '../lib/bom-quote';
 
 // ── /api/bom/quotes — 고객(회원) BOM 견적 CRUD (설계: docs/BOM_QUOTE.md) ─────
-// 업로드(견적+엔진 잡 생성) → build(파싱 결과→라인+카탈로그 매칭) → 검토(PATCH
-// 자동저장·catalog-match 재매칭) → request(견적요청, 서버 재계산·동결).
+// 업로드(견적+엔진 잡 생성) → build(파싱 결과→라인+필요수량) → 공급사 검색
+// 결과 반영(엔진 기술 판정+Node 구매조건) → 검토(PATCH 자동저장) → request(동결).
 // 원본 파일은 파일서버(serviceType 'bom')+sp_file 로 보존 — 관리자 다운로드용.
 
 const IdParams = z.object({ id: z.coerce.bigint() });
@@ -113,7 +112,7 @@ async function loadOwnQuote(id: bigint, mbId: string) {
 // 비용 게이트: preflight 예상치는 관측·경고용이며 실제 호출 상한은 엔진 job budget이
 // 강제한다. 회원 일일 한도 소진은 명시 실패로 남기고 cache_only로 의미를 바꾸지 않는다.
 // 검색 시작을 응답 전에 확정하므로 FE 첫 상태 폴이 반드시 running
-// 을 관측한다(폴링 경합 원천 제거). 완료·재매칭(refreshQuoteFromCatalog)은 백그라운드.
+// 을 관측한다(폴링 경합 원천 제거). 완료 결과는 엔진 결정 그대로 반영한다.
 // 반환: 검색을 실제로 시작했는지.
 /** 보강 필요 판정 — included 미매칭 또는 오퍼 나이 > freshnessHours (build 선판정·autoEnrich 공용). */
 function enrichNeeded(
@@ -716,7 +715,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
-  // 고객이 선택한 시트만 라인 생성·카탈로그 매칭·공급사 검색한다.
+  // 고객이 선택한 시트만 라인·필요수량을 생성하고 공급사 검색을 시작한다.
   fastify.post('/bom/quotes/:id/build', { schema: { params: IdParams, body: BomQuoteBuildBody, response: { 200: BomQuoteDetailResponse, 409: BizError, 502: BizError } } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
@@ -751,7 +750,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
 
     const config = await getBomQuoteRuntimeConfig();
     try {
-      await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, false);
+      for (const item of items) item.orderQty = neededQty(item.bomQty, quote.setQty, quote.spareQty);
       const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
       // 라인·선택 시트·ready를 한 트랜잭션으로 공개한다.
       const willEnrich = enrichNeeded(computed.items, config.freshnessHours);
@@ -770,7 +769,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     }
 
     // 조용한 자동 보강 — 검색 "시작"까지만 동기(수백 ms)로 확정. enrichStatus=searching 이
-    // 응답에 실려 FE 가 즉시 "확인 중" 모드로 들어간다. 완료·재매칭은 백그라운드.
+    // 응답에 실려 FE 가 즉시 "확인 중" 모드로 들어간다. 완료·결과 반영은 백그라운드.
     try {
       await autoEnrichQuote(quote.id, request.user.mbId, request.log);
     } catch (error: unknown) {
@@ -875,26 +874,6 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       ...(request.body.setQty !== undefined ? { setQty: request.body.setQty } : {}),
       ...(request.body.spareQty !== undefined ? { spareQty: request.body.spareQty } : {}),
       ...(request.body.customerMemo !== undefined ? { customerMemo: request.body.customerMemo } : {}),
-    });
-
-    const fresh = await loadOwnQuote(quote.id, request.user.mbId);
-    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
-  });
-
-  // 카탈로그 재매칭 — 공급사 검색(자동 인제스트) 후 호출하면 신규 오퍼 반영
-  fastify.post('/bom/quotes/:id/catalog-match', { schema: { params: IdParams, body: BomQuoteCatalogMatchBody, response: { 200: BomQuoteDetailResponse } } }, async (request, reply) => {
-    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
-    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
-    if (quote.status !== 'draft') return reply.conflict('draft 상태에서만 가능합니다');
-    if (quote.buildStatus !== 'ready') return reply.conflict('시트 계산이 완료된 후 다시 매칭할 수 있습니다');
-
-    const config = await getBomQuoteRuntimeConfig();
-    const items = quote.items.map((row) => toItemDto(row));
-    await catalogMatchItems(items, quote.setQty, quote.spareQty, config.usdKrwRate, request.body.onlyUnmatched);
-    const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
-    await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
-      exchangeRateSnapshot: config.exchangeRateSnapshot,
     });
 
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);

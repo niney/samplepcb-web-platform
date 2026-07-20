@@ -11,11 +11,14 @@ from supplier_search_engine.contract import (
 )
 
 from supplier_search_engine.models import (
+    CandidateDecision,
     CandidateMatch,
+    CandidateSelectionMode,
     MatchStatus,
     PlannedQuery,
     RawSupplierResponse,
     SearchMode,
+    SelectionEligibility,
     Supplier,
     SupplierProduct,
     SupplierSearchResult,
@@ -238,6 +241,7 @@ async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_
     assert result.mode == SearchMode.PARAMETRIC
     assert result.status == MatchStatus.SPEC_COMPATIBLE
     assert result.initial_query is not None
+    assert result.identity_fallback is True
     assert result.initial_query.part_number == "0603X03L_C"
     assert result.initial_supplier_results[0].products == [unrelated]
     assert result.query is not None
@@ -269,6 +273,7 @@ async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_
     assert batch_result.cache_hits == 2
     assert batched.mode == SearchMode.PARAMETRIC
     assert batched.initial_query is not None
+    assert batched.identity_fallback is True
     assert batched.initial_query.part_number == "0603X03L_C"
     assert batched.query is not None
     assert batched.query.mode == SearchMode.PARAMETRIC
@@ -541,6 +546,42 @@ def test_unaccepted_candidates_rank_by_verified_spec_coverage():
     )
 
     assert ranked[0].product.manufacturer_part_number == "CONFLICT"
+
+
+def test_corroboration_requires_same_engine_identity_and_technical_evidence():
+    safe = CandidateMatch(
+        product=make_product(),
+        status=MatchStatus.VERIFIED_EXACT,
+        identity_confidence=1.0,
+        specification_confidence=1.0,
+        decision=CandidateDecision(
+            selection_eligibility=SelectionEligibility.AUTOMATIC,
+            selection_mode=CandidateSelectionMode.EXACT,
+            auto_eligible=True,
+            manual_selectable=True,
+            identity_key="same-identity",
+            technical_evidence_key="safe-evidence",
+        ),
+    )
+    blocked = CandidateMatch(
+        product=make_product().model_copy(update={"supplier": Supplier.MOUSER}),
+        status=MatchStatus.INPUT_CONFLICT,
+        identity_confidence=1.0,
+        specification_confidence=0.0,
+        decision=CandidateDecision(
+            selection_eligibility=SelectionEligibility.BLOCKED,
+            selection_mode=CandidateSelectionMode.EXACT,
+            auto_eligible=False,
+            manual_selectable=False,
+            identity_key="same-identity",
+            technical_evidence_key="blocked-evidence",
+        ),
+    )
+
+    corroborated = SearchService._add_corroboration([safe, blocked])
+
+    assert corroborated[0].corroborating_suppliers == [Supplier.DIGIKEY]
+    assert corroborated[1].corroborating_suppliers == [Supplier.MOUSER]
 
 
 def test_primary_value_conflict_ranks_below_secondary_dielectric_conflict():

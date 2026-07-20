@@ -36,6 +36,25 @@ class MatchStatus(StrEnum):
     INSUFFICIENT_INPUT = "insufficient_input"
 
 
+class SelectionEligibility(StrEnum):
+    AUTOMATIC = "automatic"
+    MANUAL_REVIEW = "manual_review"
+    BLOCKED = "blocked"
+
+
+class CandidateSelectionMode(StrEnum):
+    EXACT = "exact"
+    VARIANT = "variant"
+    SPEC_COMPATIBLE = "spec-compatible"
+    REVIEW = "review"
+
+
+class LifecycleState(StrEnum):
+    ACTIVE = "active"
+    CAUTION = "caution"
+    UNKNOWN = "unknown"
+
+
 class Requirement(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -180,6 +199,26 @@ class SupplierSearchResult(BaseModel):
     api_calls: int = 0
 
 
+class CandidateDecision(BaseModel):
+    """Engine-owned technical eligibility and grouping decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    policy_version: str = "supplier-candidate-decision-v1"
+    selection_eligibility: SelectionEligibility = SelectionEligibility.BLOCKED
+    selection_mode: CandidateSelectionMode = CandidateSelectionMode.REVIEW
+    auto_eligible: bool = False
+    manual_selectable: bool = False
+    reason_codes: list[str] = Field(default_factory=lambda: ["decision_unavailable"])
+    identity_key: str = ""
+    technical_evidence_key: str = ""
+    verified_requirement_count: int = Field(default=0, ge=0)
+    required_requirement_count: int = Field(default=0, ge=0)
+    verification_complete: bool = False
+    strict_category_coverage: bool = False
+    lifecycle_state: LifecycleState = LifecycleState.UNKNOWN
+
+
 class CandidateMatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -193,6 +232,7 @@ class CandidateMatch(BaseModel):
     corroborating_suppliers: list[Supplier] = Field(default_factory=list)
     package_comparison: PackageComparison | None = None
     spec_comparisons: dict[str, SpecComparison] = Field(default_factory=dict)
+    decision: CandidateDecision = Field(default_factory=CandidateDecision)
 
 
 class InputCorrection(BaseModel):
@@ -223,6 +263,7 @@ class ComponentSearchResult(BaseModel):
     source_rows_1based: list[int] = Field(default_factory=list)
     query: PlannedQuery | None = None
     initial_query: PlannedQuery | None = None
+    identity_fallback: bool = False
     candidates: list[CandidateMatch] = Field(default_factory=list)
     input_corrections: list[InputCorrection] = Field(default_factory=list)
     supplier_results: list[SupplierSearchResult] = Field(default_factory=list)
@@ -235,7 +276,7 @@ class ComponentSearchResult(BaseModel):
 class BatchSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_schema_version: str = "1.1"
+    search_schema_version: str = "1.2"
     source_file: str
     components: list[ComponentSearchResult]
     unique_query_count: int

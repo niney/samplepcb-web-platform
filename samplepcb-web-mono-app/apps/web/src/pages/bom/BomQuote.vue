@@ -898,7 +898,7 @@ function fmtAmount(v: number | null): string {
     <section v-else-if="isBuilding" class="m-6 rounded-2xl border border-blue-100 bg-blue-50 p-10 text-center shadow-sm">
       <span class="mx-auto block size-3 animate-pulse rounded-full bg-blue-500" />
       <p class="mt-4 text-lg font-semibold text-gray-900">선택한 시트를 계산하고 있습니다…</p>
-      <p class="mt-2 text-sm text-gray-500">부품 카탈로그 매칭과 주문수량 계산이 끝나면 결과가 표시됩니다.</p>
+      <p class="mt-2 text-sm text-gray-500">라인과 주문수량 계산이 끝나면 결과가 표시되고 공급사 검색이 이어집니다.</p>
     </section>
 
     <section v-else-if="isBuildFailed && detail" class="m-6 rounded-2xl border border-red-100 bg-white p-8 shadow-sm">

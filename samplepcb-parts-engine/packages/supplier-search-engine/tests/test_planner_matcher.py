@@ -5,10 +5,16 @@ from supplier_search_engine.contract import SearchComponentInput, SearchField
 
 from supplier_search_engine.matcher import (
     CandidateMatcher,
+    finalize_candidate_decisions,
     infer_supplier_part_type,
     manufacturers_compatible,
 )
-from supplier_search_engine.models import MatchStatus, Supplier, SupplierProduct
+from supplier_search_engine.models import (
+    MatchStatus,
+    SelectionEligibility,
+    Supplier,
+    SupplierProduct,
+)
 from supplier_search_engine.planner import QueryPlanner
 
 
@@ -108,6 +114,237 @@ def test_exact_mpn_with_hard_spec_conflict_is_input_conflict():
 
     assert match.status == MatchStatus.INPUT_CONFLICT
     assert "resistance_ohm_mismatch" in match.conflicts
+    assert match.decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert match.decision.manual_selectable is False
+
+
+def test_exact_mpn_with_only_manufacturer_mismatch_requires_manual_review():
+    query = QueryPlanner().plan(
+        component(
+            part_number="RVT1J101M1010",
+            manufacturer="HONOR(荣誉)",
+            package="SMD",
+        )
+    )
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="RVT1J101M1010",
+        manufacturer="HONORCAP",
+        description="Aluminum Electrolytic Capacitor",
+    )
+
+    match = CandidateMatcher().evaluate(query, product)
+
+    assert match.status == MatchStatus.INPUT_CONFLICT
+    assert match.conflicts == ["manufacturer_mismatch"]
+    assert set(match.missing_requirements) == {"mount_style", "package"}
+    assert match.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert match.decision.auto_eligible is False
+    assert match.decision.manual_selectable is True
+    assert "manufacturer_confirmation_required" in match.decision.reason_codes
+
+
+def test_exact_mpn_with_missing_supplier_manufacturer_requires_manual_review():
+    query = QueryPlanner().plan(
+        component(part_number="RVT1J101M1010", manufacturer="HONOR")
+    )
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="RVT1J101M1010",
+        manufacturer=None,
+        description="Aluminum Electrolytic Capacitor",
+    )
+
+    match = CandidateMatcher().evaluate(query, product)
+
+    assert match.missing_requirements == ["manufacturer"]
+    assert match.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert match.decision.auto_eligible is False
+    assert match.decision.manual_selectable is True
+    assert "manufacturer_confirmation_required" in match.decision.reason_codes
+
+
+def test_exact_mpn_with_physical_conflict_is_blocked_by_engine():
+    query = QueryPlanner().plan(
+        component(
+            part_number="CAP-100UF",
+            manufacturer="Maker",
+            description="SMD electrolytic Ø6.3mm",
+        )
+    )
+    product = SupplierProduct(
+        supplier=Supplier.MOUSER,
+        manufacturer_part_number="CAP-100UF",
+        manufacturer="Maker",
+        description="Radial, Can through-hole diameter 6.3 mm",
+    )
+
+    match = CandidateMatcher().evaluate(query, product)
+
+    assert query.requirements["mount_style"].normalized_value == "smd"
+    assert query.requirements["diameter_mm"].normalized_value == 6.3
+    assert "mount_style_mismatch" in match.conflicts
+    assert match.decision.selection_eligibility == SelectionEligibility.BLOCKED
+
+
+def test_supplier_group_physical_disagreement_blocks_every_member():
+    query = QueryPlanner().plan(
+        component(part_number="CAP-SAME", description="SMD electrolytic Ø6.3mm")
+    )
+    base = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="CAP-SAME",
+        manufacturer="Maker",
+        description="SMD electrolytic diameter 6.3 mm",
+    )
+    other = base.model_copy(
+        update={
+            "supplier": Supplier.MOUSER,
+            "description": "Radial, Can through-hole diameter 6.3 mm",
+        }
+    )
+
+    matches = finalize_candidate_decisions(
+        query,
+        [
+            CandidateMatcher().evaluate(query, base),
+            CandidateMatcher().evaluate(query, other),
+        ],
+    )
+
+    assert len({match.decision.identity_key for match in matches}) == 1
+    assert all("mount_style_source_conflict" in match.conflicts for match in matches)
+    assert all(
+        match.decision.selection_eligibility == SelectionEligibility.BLOCKED
+        for match in matches
+    )
+
+
+def test_supplier_group_diameter_decision_checks_every_value_without_order_bias():
+    query = QueryPlanner().plan(
+        component(part_number="CAP-SAME", description="SMD electrolytic Ø6.3mm")
+    )
+    near = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="CAP-SAME",
+        manufacturer="Maker",
+        description="SMD electrolytic diameter 6.5 mm",
+    )
+    far = near.model_copy(
+        update={
+            "supplier": Supplier.MOUSER,
+            "description": "SMD electrolytic diameter 6.7 mm",
+        }
+    )
+
+    decisions_by_order = []
+    for products in ([near, far], [far, near]):
+        matches = finalize_candidate_decisions(
+            query,
+            [CandidateMatcher().evaluate(query, product) for product in products],
+        )
+        decisions_by_order.append(
+            sorted(
+                (
+                    match.product.supplier.value,
+                    match.decision.identity_key,
+                    tuple(match.conflicts),
+                    match.decision.selection_eligibility,
+                )
+                for match in matches
+            )
+        )
+
+    assert decisions_by_order[0] == decisions_by_order[1]
+    assert all(
+        "diameter_mm_mismatch" in conflicts
+        and eligibility == SelectionEligibility.BLOCKED
+        for _, _, conflicts, eligibility in decisions_by_order[0]
+    )
+
+
+def test_unknown_manufacturer_grouping_is_deterministic_with_multiple_makers():
+    query = QueryPlanner().plan(component(part_number="SHARED-MPN"))
+    products = [
+        SupplierProduct(
+            supplier=Supplier.DIGIKEY,
+            manufacturer_part_number="SHARED-MPN",
+            manufacturer=None,
+        ),
+        SupplierProduct(
+            supplier=Supplier.MOUSER,
+            manufacturer_part_number="SHARED-MPN",
+            manufacturer="Maker A",
+        ),
+        SupplierProduct(
+            supplier=Supplier.UNIKEYIC,
+            manufacturer_part_number="SHARED-MPN",
+            manufacturer="Maker B",
+        ),
+    ]
+
+    identity_maps = []
+    for ordered_products in (products, [products[2], products[0], products[1]]):
+        matches = finalize_candidate_decisions(
+            query,
+            [
+                CandidateMatcher().evaluate(query, product)
+                for product in ordered_products
+            ],
+        )
+        identity_maps.append(
+            {
+                match.product.supplier.value: match.decision.identity_key
+                for match in matches
+            }
+        )
+
+    assert identity_maps[0] == identity_maps[1]
+    assert len(set(identity_maps[0].values())) == 3
+
+
+def test_complete_parametric_resistor_is_automatic_only_with_strict_coverage():
+    query = QueryPlanner().plan(
+        component(
+            part_type="resistor",
+            resistance="10kΩ",
+            power="0.1W",
+            tolerance="1%",
+            package="0603",
+        )
+    )
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="RES-10K",
+        category="Chip Resistor - Surface Mount",
+        normalized_specs={
+            "resistance_ohm": 10_000.0,
+            "power_w": 0.125,
+            "tolerance_percent": 1.0,
+            "package": "0603",
+        },
+    )
+
+    match = CandidateMatcher().evaluate(query, product)
+
+    assert match.decision.verification_complete is True
+    assert match.decision.strict_category_coverage is True
+    assert match.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+
+
+def test_lifecycle_caution_is_engine_owned_without_blocking_exact_identity():
+    query = QueryPlanner().plan(component(part_number="ACTIVE-OLD"))
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="ACTIVE-OLD",
+        lifecycle_status="NRND - Not Recommended for New Designs",
+    )
+
+    decision = CandidateMatcher().evaluate(query, product).decision
+
+    assert decision.lifecycle_state.value == "caution"
+    assert decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert "lifecycle_caution" in decision.reason_codes
 
 
 def test_supplier_part_type_inference_requires_one_unambiguous_category():
@@ -608,6 +845,7 @@ def test_supplier_manufacturer_aliases_do_not_create_false_input_conflicts():
     assert (
         manufacturers_compatible("MAXIM", "Analog Devices / Maxim Integrated") is True
     )
+    assert manufacturers_compatible("Samsung", "Samsung Electro-Mechanics") is False
 
 
 def test_prefixed_and_pin_qualified_sot_packages_are_backend_compatible():

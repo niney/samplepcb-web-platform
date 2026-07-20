@@ -134,6 +134,9 @@ export type BomQuoteSelectedOfferType = z.infer<typeof BomQuoteSelectedOffer>;
 export const BomQuoteCandidateSafety = z.enum(['safe', 'caution', 'blocked']);
 export type BomQuoteCandidateSafetyType = z.infer<typeof BomQuoteCandidateSafety>;
 
+export const BomQuoteCandidateSelectionEligibility = z.enum(['automatic', 'manual_review', 'blocked']);
+export type BomQuoteCandidateSelectionEligibilityType = z.infer<typeof BomQuoteCandidateSelectionEligibility>;
+
 export const BomQuoteCandidateOfferApplied = z.object({
   orderQty: z.number().int().min(1),
   breakQty: z.number().int().min(1),
@@ -168,7 +171,10 @@ export const BomQuoteCandidate = z.object({
   status: z.string(),
   selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review']),
   safety: BomQuoteCandidateSafety,
+  selectionEligibility: BomQuoteCandidateSelectionEligibility,
   autoEligible: z.boolean(),
+  manualSelectable: z.boolean(),
+  selectionReasonCodes: z.array(z.string()),
   selected: z.boolean(),
   recommended: z.boolean(),
   mpn: z.string(),
@@ -177,6 +183,7 @@ export const BomQuoteCandidate = z.object({
   category: z.string().nullable(),
   packageCode: z.string().nullable(),
   lifecycleStatus: z.string().nullable(),
+  lifecycleState: z.enum(['active', 'caution', 'unknown']),
   datasheetUrl: z.string().nullable(),
   /** 공급사 제품 사진 직링크 — 표시 전용. */
   imageUrl: z.string().nullable(),
@@ -188,6 +195,9 @@ export const BomQuoteCandidate = z.object({
   corroboratingSuppliers: z.array(z.string()),
   verifiedRequirementCount: z.number().int().min(0),
   requiredRequirementCount: z.number().int().min(0),
+  verificationComplete: z.boolean(),
+  strictCategoryCoverage: z.boolean(),
+  technicalEvidenceKey: z.string(),
   normalizedSpecs: z.record(z.string(), z.unknown()),
   specComparisons: z.record(z.string(), z.unknown()),
   packageComparison: z.record(z.string(), z.unknown()).nullable(),
@@ -209,6 +219,9 @@ export const BomQuoteComparisonCandidate = BomQuoteCandidate.pick({
   technicalRank: true,
   status: true,
   safety: true,
+  selectionEligibility: true,
+  manualSelectable: true,
+  selectionReasonCodes: true,
   mpn: true,
   manufacturerName: true,
   description: true,
@@ -475,12 +488,6 @@ export const BomQuoteCandidateSelectionBody = z.object({
   offerKey: z.string().min(1).max(64).nullable(),
 });
 export type BomQuoteCandidateSelectionBodyType = z.infer<typeof BomQuoteCandidateSelectionBody>;
-
-/** 카탈로그 매칭 — 기본은 미매칭 라인만(수동 선택 pinned 보존). */
-export const BomQuoteCatalogMatchBody = z.object({
-  onlyUnmatched: z.boolean().default(true),
-});
-export type BomQuoteCatalogMatchBodyType = z.infer<typeof BomQuoteCatalogMatchBody>;
 
 export const BomQuoteRequestBody = z.object({
   title: z.string().trim().min(1).max(191),

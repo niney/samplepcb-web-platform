@@ -10,10 +10,10 @@
 고객(/app/bom, 회원 전용)                sp-node(/api/bom)                sp-engine(:8400)
  업로드(xlsx/xls/csv/…) ───────────▶ POST /quotes(원본 파일서버 보존) ──▶ 전체 시트 파싱 잡
  시트 분석 완료 ──────────────────▶ 분석 원문 JSON을 append-only 스냅샷으로 즉시 박제
- 시트 선택(다중 선택) → build ─────▶ 스냅샷에서 안정 ID 라인 + 1차 카탈로그 매칭 ◀── sp_part*(DB)+sp-parts(ES)
+ 시트 선택(다중 선택) → build ─────▶ 스냅샷에서 안정 ID 라인 + 필요수량 생성
  검토(수량·오퍼·포함) → 1s 자동저장 ─▶ PATCH(draft, ID 기반 수정 명령)
  (버튼 없음 — 조용한 자동 보강) ◀──── 영속 분석으로 독립 검색 실행 ─▶ Mouser/DigiKey/UniKeyIC
-   "가격·재고 확인 중…" 라벨만        └ 자동 인제스트 → 엔진 판정+기술·가격 하이브리드 추천 반영
+   "가격·재고 확인 중…" 라벨만        └ 자동 인제스트 → 엔진 기술 판정+Node 구매조건 추천 반영
  견적요청(제목 입력) ───────────────▶ POST /request(서버 재계산·동결)
 관리자(/app/admin/bom-quotes)        상태 전이·확정가·회신 메모·원본 다운로드
 ```
@@ -49,8 +49,8 @@
   partId(sp_part 느슨한 참조, FK 없음)·
   **selectedOffer Json(오퍼 스냅샷 박제 — 가격구간 사다리 포함·pinned)**·lineTotalKrw·sourceRow(원본 근거)·
   sourceSheetIndex/sourceSheetName
-- `sp_bom_quote_candidate`(SpBomQuoteCandidate): quoteItemId로 안정 행에 연결하며 엔진 공급사 행을 **제조사+MPN 부품 후보**로 묶은
-  견적 문맥 스냅샷. 기술 순위·안전 판정·오퍼/가격구간·검증 근거를 보존해 엔진 인메모리 잡이
+- `sp_bom_quote_candidate`(SpBomQuoteCandidate): quoteItemId로 안정 행에 연결하며 엔진의 `identity_key`가 묶은
+  부품 후보의 견적 문맥 스냅샷. 엔진 선택 자격·기술 순위·오퍼/가격구간·검증 근거를 보존해 엔진 인메모리 잡이
   사라져도 고객과 관리자가 동일한 후보를 비교한다. 스펙은 기술 순위 최상 후보를 정본으로 삼고
   공급사별 값의 임의 필드 병합은 하지 않으며, 동일 부품의 공급사 오퍼만 한 후보 아래 통합한다.
 - `sp_bom_quote_selection_event`(SpBomQuoteSelectionEvent): quoteItemId 기준으로 고객 명시 선택의
@@ -69,7 +69,7 @@
 | 수량 박제: `orderQty = max(BOM수량×(세트+예비), MOQ)` → **주문배수 올림** | 배수 보정 신규(레거시 죽은 필드) |
 | 합계: `Σ(단가×orderQty, included 라인) + 운송료 + 관리비`, VAT 별도 | items=합계 기준 통일(레거시 불일치 결함 교정) |
 | 오퍼 자동 선정 `pickDefaultOffer`: **실효 총비용**(오퍼별 MOQ·배수 반영 실효수량×적용단가, KRW 환산) 최저. 재고 충분→환산 가능 우선, 동률 시 재고↓→PKG(Cut>Digi>Bulk>Tape) | 신규 — 레거시는 단일 부품 pkg 선택뿐 |
-| 제조사 없는 MPN의 불완전 검증 후보: 기술 판정 근거가 완전히 같은 후보끼리는 **과다구매 위험→실효 총액→주문수량**으로 자동선정하고 `일부 확인 필요` 경고. 과다구매는 필요량 100배 이상이면서 초과재고금액 1만원 이상일 때 적용 | 신규 — 엔진 반환 순서 의존 제거 |
+| 엔진의 `technical_evidence_key`가 같은 자동 가능 후보끼리는 **과다구매 위험→실효 총액→주문수량**으로 구매조건을 정한다. 과다구매는 필요량 100배 이상이면서 초과재고금액 1만원 이상일 때 적용 | 신규 — 기술 동등성은 엔진, 구매 적합성은 Node |
 | `pinned`(사용자 명시 선택): 수량 변경 시 그 오퍼 안에서 구간만 재계산, 자동 라인은 재선정 허용 | 레거시 "선택 pkg 내 탐색" 일반화 |
 | 통화: 오퍼 원통화 보존. USD는 한국수출입은행 자동 환율(매매기준율/TTS 선택)+안전계수로 KRW 예상 환산. 장애 시 수동값→마지막 정상 캐시 순 폴백, 모두 없으면 uncosted 경고 | 신규 |
 | samplepcb 파생 오퍼는 견적 선정 후보 제외(자기 선택 순환 방지) | — |
@@ -97,8 +97,8 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
 - **품번 미검색 시 스펙 재검색(2026-07-21)**: `identity`/`hybrid` 품번 검색에서 신뢰할 수 있는
   동일 품번 후보가 없고 BOM의 확정 스펙이 충분하면, 엔진이 품번·제조사를 제거한 `parametric`
   질의로 DigiKey·Mouser를 한 번 더 검색한다. 최초 품번 질의와 응답도 결과에 함께 보존하며,
-  preflight·실행 집계는 조건부 2차 호출까지 포함한다. sp-node는 `initial_query(identity|hybrid)`와
-  최종 `query(parametric)`가 모두 있는 엔진 계보만 품번 미검색 폴백으로 인정한다. 이 경우에는
+  preflight·실행 집계는 조건부 2차 호출까지 포함한다. sp-engine은 이 전환을
+  `identity_fallback=true`로 명시하고 sp-node는 그대로 투영한다. 이 경우에는
   원본 문자열이 있어도 스펙 후보를 안전성 검증 대상으로 포함하되, 충돌·필수값 누락·물리조건
   불일치 후보는 계속 차단한다. 계보가 없는 일반 MPN 행의 다른 MPN 자동선정도 기존대로 금지한다.
 - **생명주기 상태 기계(2026-07-19 정석화)**: `sp_bom_quote.enrichStatus`
@@ -118,12 +118,15 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   견적에 적용할 수 없는 경우도 실행과 견적을 failed로 닫아 `searching` 고착을 막는다.
   반영 자체는 `componentId`로 원본 행과 엔진 결과를 조인한다. 수동/pinned 행은 보존하고,
   나머지는 엔진의 안전 후보 판정과 선택 오퍼를 한 저장으로 교체한다.
-- **기술·가격·물리 호환 하이브리드 자동 선정(`engine-hybrid-physical-v3`, 2026-07-20)**:
-  `verified_exact` → `verified_variant` → `spec_compatible`의 엔진 기술 순위와 현재 필요수량의
-  실효 총비용 순위를 분리한다. 원본 MPN이 있는 행은 기술 최상위 부품을 고정하고, 같은
-  제조사+MPN 아래에서만 MOQ·주문배수·재고·가격구간·환율 반영 최저 오퍼를 고른다. MPN 없는
-  스펙 행도 기본은 기술 1순위다. `valueRaw`·원본 패키지의 `칩전해/SMD/SMT/스루홀`과
-  `파이/Ø/Dia` 직경 표현을 공급사 `attributes`·정규 스펙·패키지 설명과 교차 검증한다.
+- **엔진 기술 판단 단일화 + 구매조건 추천(`engine-decision-purchase-fit-v6`, 2026-07-21)**:
+  sp-engine이 후보마다 `automatic|manual_review|blocked`, 선택 모드, 안정 `identity_key`,
+  `technical_evidence_key`, 검증 수, 카테고리 완전 검증, 수명주기 상태와 근거 코드를 반환한다.
+  sp-node는 상태·문자열·제조사 별칭·스펙을 재해석하지 않고 이 결정을 저장·강제한다. 결정 계약이
+  없는 이전/손상/모순 후보는 자체 규칙으로 복원하지 않고 차단한다. 같은 `identity_key` 안에서도
+  `technical_evidence_key`가 같은 공급사 오퍼만 가격·재고 비교에 합치며, 제조사 미상 후보는
+  알려진 제조사나 다른 공급사에 추측으로 귀속하지 않는다. `valueRaw`·원본 패키지의
+  `칩전해/SMD/SMT/스루홀`과 `파이/Ø/Dia` 직경 표현도 sp-engine이 공급사
+  `attributes`·정규 스펙·패키지 설명과 교차 검증한다.
   실장 방식·직경이 다르거나 공급사 간 물리 정보가 충돌하면 후보를 자동선정/고객선택에서
   제외하고, 필요한 물리 속성이 없으면 검증 필요 후보로 분리한다. 한국어·영어 카테고리를
   함께 인식하며 전해 커패시터에는 유전체 코드를 강제하지 않는다. 카테고리별 필수 스펙과
@@ -131,17 +134,15 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   **10% 이상이면서 500원 이상** 절감될 때만 다른 MPN을 가격 추천한다. 기술 1순위가
   NRND/EOL이고 `active|활성` 후보가 있으면 수명주기를, 가격/재고가 없거나 부족하면 구매 가능성을
   우선한다. 그 외에는 낮은 가격만으로 차순위를 자동 선택하지 않는다.
-  `ambiguous|input_conflict|spec_partial|insufficient_input`과 충돌/누락 후보는 비교에는 남기되
-  고객 선택을 막는다. 세트·예비 수량 변경 시 자동 추천만 현재 가격으로 재평가하고,
+  정확 MPN에서 실제 기술 충돌 없이 제조사 불일치만 있으면 `manual_review`로 자동 추천에서는
+  제외하되, 원본/후보 제조사를 확인한 고객이 직접 선택할 수 있다. 실제 MPN·스펙·패키지·부품
+  유형·실장·치수 충돌은 `blocked`로 고객 선택도 막는다. 세트·예비 수량 변경 시 자동 추천만 현재 가격으로 재평가하고,
   고객이 명시한 후보/공급사 오퍼는 유지한다. 후보 패널의 검증률은 엔진 confidence를 그대로
   `100%`로 표시하지 않고 실제 확인 필수조건 수로 계산하며, 실장 방식·직경 일치와 제외 사유를
   한글로 노출한다. 추천 유형·기술 순위·검증 수·절감액/비율·이유 코드는
   `matchEvidence`에, 전체 후보·오퍼는 `sp_bom_quote_candidate`에 박제한다.
-- **접미사 변형 매칭(2026-07-19)**: 카탈로그 매칭은 정확 mpnNorm 우선, 없으면 프리픽스+
-  잔여 ≤4자 폴백(길이 ≥6 가드) — 고객이 베이스 품번(TLV70225DBV)만 적고 공급사는
-  접미사형(…DBVR/…DBVT)만 파는 관행 대응(엔진 verified_variant 와 정합). 동시성 견고화:
-  인제스트 동시 호출은 완료를 공유 대기(부분 카탈로그 재매칭 방지), 견적 재매칭은
-  quote 단위 직렬화, FE 는 done 후 8초 정착 refetch.
+- **접미사 변형 매칭**: 포장 접미사형(…DBVR/…DBVT)의 기술적 동일성은 sp-engine의
+  `verified_variant`/결정 계약만 인정한다. sp-node의 프리픽스 카탈로그 자동 매칭 경로는 제거했다.
 - **"확인 중" UI**: `enrichStatus==='searching'` 이면 미매칭 라인은 빨간 "미매칭" 대신 파란
   "확인 중"(펄스, 중립 행) — 빨간 미매칭은 `done/failed` 후의 **최종 판정**에만. 진행 배너
   (검색 중엔 엔진 progress %, 엔진 완료 후엔 "결과를 반영하고 있습니다" 100%)·우측 통계
@@ -181,12 +182,12 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   PATCH는 draft 한정이며 `{id,included,orderQty,catalogSelection?}` 수정 명령만 받는다. 기존 행은
   id로 제자리 갱신하고, 서버 소유 추출·판정·후보 필드는 클라이언트 왕복 대상이 아니다.
 - `POST /quotes/:id/prepare`: 파싱 결과 전체를 분석 run/sheet/component에 먼저 박제한다. →
-  `POST /quotes/:id/build {sheetIndexes}`: 영속 분석의 선택 시트로 라인+카탈로그 매칭(최대 2,000라인) ·
+  `POST /quotes/:id/build {sheetIndexes}`: 영속 분석의 선택 시트로 라인+필요수량 생성(최대 2,000라인) ·
   `GET /quotes/:id/items/:itemId/candidates`(영속 후보·현재 수량 가격·선택 이력) ·
   `POST /quotes/:id/items/:itemId/selection {candidateKey,offerKey}`(draft 전용, 가격은 서버 재계산) ·
   `GET /quotes/:id/comparison?page&pageSize&search&status&sheet`(원본 추출+후보의 페이지 조회) ·
   `GET /quotes/:id/supplier-search`(이 견적의 활성 검색 실행 상태) ·
-  `/catalog-match`(onlyUnmatched 기본 — pinned 보존) · `/request`(재계산·동결) · `/cancel` · `DELETE`(draft)
+  `/request`(재계산·동결) · `/cancel` · `DELETE`(draft)
 - 잡 프록시: `GET /jobs/:id[/result]`, 공급사 검색 `POST /jobs/:id/supplier-search[/preflight]`
   — **소유 회원만**(타인·미기록 404 은닉), 일일 한도 초과 429 `SEARCH_DAILY_LIMIT`,
   max_calls 는 sp_config 로 클램프. 자동 인제스트(폴러+백업 훅)는 관리자 플로우와 동일.
@@ -268,11 +269,12 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   하이브리드 정책에 따라 기술 1순위가 기본이며 검증·절감 조건을 만족할 때만 가격 후보로 바뀐다.
 - **선택 시트 엔진 실증**: 동일 2시트/216행 파일을 `sheet_indexes:[0]`으로 실행해 preflight와
   supplier result 모두 108행, 판정 분포도 위 첫 시트 수치와 일치(선택 전 전체 검색 결함 교정).
-- **라이브 e2e**: CSV 업로드→파싱→build(카탈로그 자동 매칭, 실 KRW 단가)→공급사 검색
-  (preflight 클램프 500→60 확인·202→완료·자동 인제스트)→전체 재매칭(세트 10 → 주문수량
+- **라이브 e2e(이전 카탈로그 경로 역사 기록)**: CSV 업로드→파싱→build(카탈로그 자동 매칭,
+  실 KRW 단가)→공급사 검색(preflight 클램프 500→60 확인·202→완료·자동 인제스트)→전체 재매칭(세트 10 → 주문수량
   40/100 박제·가격구간 하락 25→9.4KRW 반영)→견적요청(동결·이후 PATCH 409)→관리자
   목록·회신(answered·확정 45,000·잘못된 전이 409)→고객 회신 확인→원본 다운로드 전부 통과.
-  인증 경계: 비로그인 401·회원의 admin 403·타인 잡 404.
+  인증 경계: 비로그인 401·회원의 admin 403·타인 잡 404. 현재 v6은 build의 카탈로그
+  자동매칭·재매칭을 제거했으므로 해당 구간은 현행 동작 증명이 아닌 회귀 역사로만 유지한다.
 - **렌더 최적화 실측(2026-07-20, 견적 #66 108행 Chrome)**: 수량 편집 1회의 Vue 패치 비용
   12~16ms(전 행 재렌더) → 행 컴포넌트 격리 후 0.6~3ms. 편집→1s 디바운스 저장→응답 반영
   전 과정에서 DOM 변형이 편집한 행 1개에 국한됨을 MutationObserver 로 확인. 자동저장 PATCH
@@ -357,7 +359,7 @@ Figma "02 BOM 파일 분석_검색 결과" 레이아웃에 기존 기능 병합(
   분석 카드는 결과 표 필터로도 동작한다. MATCHED/REVIEW/UNMATCHED는 단일 상태 필터,
   NOSTOCK은 상태와 조합 가능한 독립 재고 필터, TOTAL은 전체 필터 해제다.
   — BomLayout 프로모 aside 는 홈에서만 표시
-- catalogMatchItems 보강: 소스 BOM 에 제조사·설명 열이 없으면 카탈로그 정본으로 채움
+- 공급사 검색 적용: 엔진이 기술적으로 허용한 후보의 제조사·설명을 선택 스냅샷에 함께 박제
 - draft 하단 액션(2026-07-19): [견적 삭제] = 하드 삭제(`DELETE /quotes/:id` — 항목 cascade·
   원본 파일 정리, 2단계 인라인 확인) — 사용자 결정으로 작성 취소를 대체. requested 는 [요청 취소] 유지.
 - 부품 이미지(2026-07-20): 라인 `partImageUrl` = 카탈로그 `sp_part.imageUrl` 을 응답 시

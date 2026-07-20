@@ -18,6 +18,7 @@ from .normalizer import (
 
 from .models import PlannedQuery, Requirement, SearchMode
 from .normalization import dielectric_notation, normalize_dielectric, normalize_package
+from .physical import detect_mount_style, source_diameter_mm
 from .supplier_query import supplier_core_keywords
 
 
@@ -178,6 +179,31 @@ class QueryPlanner:
             str(package.value).strip() if package.value is not None else pseudo_package
         )
         description = component.description or component.value_raw
+        physical_source = " ".join(
+            value
+            for value in (package_value, component.value_raw, component.description)
+            if value
+        )
+        mount_style = detect_mount_style(physical_source)
+        if mount_style is not None:
+            requirements["mount_style"] = Requirement(
+                name="mount_style",
+                raw_value=physical_source,
+                normalized_value=mount_style,
+                status="extracted",
+                hard=True,
+                comparison="eq",
+            )
+        diameter_mm = source_diameter_mm(physical_source)
+        if diameter_mm is not None:
+            requirements["diameter_mm"] = Requirement(
+                name="diameter_mm",
+                raw_value=physical_source,
+                normalized_value=diameter_mm,
+                status="extracted",
+                hard=True,
+                comparison="eq",
+            )
         dielectric_raw = dielectric_notation(description)
         dielectric = normalize_dielectric(description)
         if dielectric:

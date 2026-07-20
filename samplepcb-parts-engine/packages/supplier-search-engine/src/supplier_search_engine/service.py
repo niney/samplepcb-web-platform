@@ -13,8 +13,8 @@ from .budget import ApiBudgetManager, QuotaExceeded
 from .cache import SQLiteCache, stable_cache_key
 from .matcher import (
     CandidateMatcher,
+    finalize_candidate_decisions,
     infer_supplier_part_type,
-    manufacturers_compatible,
 )
 from .models import (
     BatchSearchResult,
@@ -29,7 +29,6 @@ from .models import (
     Supplier,
     SupplierSearchResult,
 )
-from .normalization import compact_mpn
 from .planner import QueryPlanner
 from .preflight import PreflightAnalyzer
 from .request_cache import supplier_cache_coordinates
@@ -402,6 +401,7 @@ class SearchService:
             for result in supplier_results
             for product in result.products
         ]
+        candidates = finalize_candidate_decisions(query, candidates)
         candidates = self._add_corroboration(candidates)
         candidates.sort(key=self._candidate_sort_key)
         input_corrections = self._input_corrections(query, candidates)
@@ -451,6 +451,7 @@ class SearchService:
             update={
                 "component_id": query.component_id,
                 "initial_query": query,
+                "identity_fallback": True,
                 "initial_supplier_results": primary.supplier_results,
                 "api_calls": primary.api_calls + fallback.api_calls,
                 "warnings": list(
@@ -872,16 +873,12 @@ class SearchService:
     def _add_corroboration(candidates: list[CandidateMatch]) -> list[CandidateMatch]:
         result: list[CandidateMatch] = []
         for candidate in candidates:
-            product = candidate.product
             suppliers = {
                 other.product.supplier
                 for other in candidates
-                if compact_mpn(other.product.manufacturer_part_number)
-                == compact_mpn(product.manufacturer_part_number)
-                and manufacturers_compatible(
-                    product.manufacturer, other.product.manufacturer
-                )
-                is not False
+                if other.decision.identity_key == candidate.decision.identity_key
+                and other.decision.technical_evidence_key
+                == candidate.decision.technical_evidence_key
             }
             result.append(
                 candidate.model_copy(

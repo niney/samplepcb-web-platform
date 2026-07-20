@@ -139,44 +139,69 @@ describe('BOM 견적 시트 선택', () => {
   });
 });
 
+interface CandidateOptions {
+  eligibility?: 'automatic' | 'manual_review' | 'blocked';
+  selectionMode?: 'exact' | 'variant' | 'spec-compatible' | 'review';
+  identityKey?: string;
+  technicalEvidenceKey?: string;
+  verificationComplete?: boolean;
+  strictCategoryCoverage?: boolean;
+  lifecycleState?: 'active' | 'caution' | 'unknown';
+  lifecycleStatus?: string;
+  manufacturer?: string | null;
+  conflicts?: string[];
+  missingRequirements?: string[];
+  reasons?: string[];
+  requiredCount?: number;
+  verifiedCount?: number;
+  stock?: number;
+  corroboratingSuppliers?: string[];
+}
+
 function candidate(
   status: string,
   mpn: string,
   supplier: string,
   unitPrice: number,
   moq: number,
-  conflicts: string[] = [],
-  options: {
-    category?: string;
-    reasons?: string[];
-    stock?: number;
-    lifecycleStatus?: string;
-    manufacturer?: string | null;
-    description?: string;
-    packageCode?: string | null;
-    normalizedSpecs?: Record<string, unknown>;
-    attributes?: Record<string, unknown>;
-    missingRequirements?: string[];
-  } = {},
+  options: CandidateOptions = {},
 ) {
+  const selectionMode = options.selectionMode
+    ?? (status === 'verified_exact' ? 'exact' : status === 'verified_variant' ? 'variant' : 'spec-compatible');
+  const eligibility = options.eligibility ?? 'automatic';
+  const requiredCount = options.requiredCount ?? 0;
+  const verifiedCount = options.verifiedCount ?? requiredCount;
   return {
     status,
     identity_confidence: status === 'verified_exact' ? 1 : 0,
     specification_confidence: status === 'spec_compatible' ? 1 : 0,
-    conflicts,
+    conflicts: options.conflicts ?? [],
     missing_requirements: options.missingRequirements ?? [],
     reasons: options.reasons ?? [`${status}_reason`],
-    corroborating_suppliers: [],
+    corroborating_suppliers: options.corroboratingSuppliers ?? [],
+    decision: {
+      policy_version: 'supplier-candidate-decision-v1',
+      selection_eligibility: eligibility,
+      selection_mode: selectionMode,
+      auto_eligible: eligibility === 'automatic',
+      manual_selectable: eligibility !== 'blocked',
+      reason_codes: eligibility === 'manual_review' ? ['manufacturer_confirmation_required'] : [],
+      identity_key: options.identityKey ?? `${mpn}:${options.manufacturer ?? 'Test Mfr'}`,
+      technical_evidence_key: options.technicalEvidenceKey ?? `${status}:${mpn}`,
+      verified_requirement_count: verifiedCount,
+      required_requirement_count: requiredCount,
+      verification_complete: options.verificationComplete ?? verifiedCount === requiredCount,
+      strict_category_coverage: options.strictCategoryCoverage ?? false,
+      lifecycle_state: options.lifecycleState ?? 'unknown',
+    },
     product: {
       supplier,
       manufacturer_part_number: mpn,
       manufacturer: options.manufacturer === undefined ? 'Test Mfr' : options.manufacturer,
-      description: options.description ?? mpn,
-      category: options.category,
-      package: options.packageCode,
+      description: mpn,
       lifecycle_status: options.lifecycleStatus,
-      normalized_specs: options.normalizedSpecs ?? {},
-      attributes: options.attributes ?? {},
+      normalized_specs: {},
+      attributes: {},
       offers: [
         {
           supplier,
@@ -193,253 +218,17 @@ function candidate(
   };
 }
 
-describe('BOM 엔진 후보 자동 선정', () => {
-  it('제조사 없는 MPN의 동급 불완전 후보는 과다구매 대신 구매조건이 가까운 후보를 고른다', () => {
-    const shared = {
-      reasons: ['manufacturer_part_number_exact', 'part_type_match'],
-      missingRequirements: ['package'],
-    };
+describe('BOM 엔진 후보 결정 투영', () => {
+  it('엔진 그룹 키가 같은 공급사 행만 하나의 후보로 합친다', () => {
     const decision = selectEngineMatch(
       {
-        component_id: 'component-ambiguous-purchase-fit',
+        component_id: 'component-engine-group',
         status: 'verified_exact',
         candidates: [
-          candidate('verified_exact', 'M7', 'digikey', 104.958, 20_000, [], {
-            ...shared,
-            manufacturer: 'MDD',
-          }),
-          candidate('verified_exact', 'M7', 'digikey', 191, 1, [], {
-            ...shared,
-            manufacturer: 'Diotec Semiconductor',
-          }),
+          candidate('verified_exact', 'SAME-MPN', 'digikey', 100, 1, { identityKey: 'engine-group-1' }),
+          candidate('verified_exact', 'SAME-MPN', 'mouser', 10, 1, { identityKey: 'engine-group-1' }),
         ],
       },
-      true,
-      3,
-      null,
-      { valueRaw: 'M7(1N4007SMD)', packageCode: 'DO214 SMAJ', manufacturerName: null },
-    );
-
-    expect(decision?.candidate?.product.manufacturer).toBe('Diotec Semiconductor');
-    expect(decision?.pick?.orderQty).toBe(3);
-    expect(decision?.evidence).toMatchObject({
-      selectedTechnicalRank: 2,
-      recommendationType: 'purchase-fit',
-      decisionReasonCodes: ['identity-exact', 'purchase-fit', 'same-part-lowest-total'],
-      missingRequirements: ['package'],
-      priceEvidence: { neededQty: 3, orderQty: 3, lineTotalKrw: 573 },
-    });
-  });
-
-  it('원본 제조사가 있으면 동급 후보라도 다른 제조사로 구매조건 전환하지 않는다', () => {
-    const shared = {
-      reasons: ['manufacturer_part_number_exact', 'part_type_match'],
-      missingRequirements: ['package'],
-    };
-    const decision = selectEngineMatch(
-      {
-        component_id: 'component-original-manufacturer',
-        status: 'verified_exact',
-        candidates: [
-          candidate('verified_exact', 'M7', 'digikey', 104.958, 20_000, [], { ...shared, manufacturer: 'MDD' }),
-          candidate('verified_exact', 'M7', 'digikey', 191, 1, [], { ...shared, manufacturer: 'Diotec Semiconductor' }),
-        ],
-      },
-      true,
-      3,
-      null,
-      { valueRaw: 'M7', packageCode: null, manufacturerName: 'MDD' },
-    );
-
-    expect(decision?.candidate?.product.manufacturer).toBe('MDD');
-    expect(decision?.evidence.recommendationType).toBe('identity');
-  });
-
-  it('MPN 없는 행도 필수 스펙 검증 근거가 없으면 가격만으로 기술 1순위를 뒤집지 않는다', () => {
-    const decision = selectEngineMatch(
-      {
-        component_id: 'component-1',
-        status: 'spec_compatible',
-        candidates: [
-          candidate('spec_compatible', 'CHEAP-UNIT-HIGH-MOQ', 'digikey', 1, 100),
-          candidate('spec_compatible', 'LOWEST-TOTAL', 'mouser', 5, 1),
-        ],
-      },
-      false,
-      1,
-      null,
-    );
-
-    expect(decision?.candidate?.product.manufacturer_part_number).toBe('CHEAP-UNIT-HIGH-MOQ');
-    expect(decision?.pick?.offer.supplier).toBe('digikey');
-    expect(decision?.evidence).toMatchObject({
-      selectionMode: 'spec-compatible',
-      eligibleCandidateCount: 2,
-      selectedTechnicalRank: 1,
-      recommendationType: 'technical',
-      decisionReasonCodes: ['technical-top', 'same-part-lowest-total'],
-    });
-  });
-
-  it('필수 스펙이 모두 검증되고 10%·500원 이상 절감되면 가격 대체품을 추천한다', () => {
-    const fullSpecReasons = [
-      'resistance_ohm_match',
-      'power_w_match',
-      'tolerance_percent_match',
-      'package_match',
-    ];
-    const decision = selectEngineMatch(
-      {
-        component_id: 'component-price-saving',
-        status: 'spec_compatible',
-        candidates: [
-          candidate('spec_compatible', 'TECHNICAL-TOP', 'digikey', 2_000, 1, [], {
-            category: 'resistor',
-            reasons: fullSpecReasons,
-          }),
-          candidate('spec_compatible', 'SAFE-SAVING', 'mouser', 1_000, 1, [], {
-            category: 'resistor',
-            reasons: fullSpecReasons,
-          }),
-        ],
-      },
-      false,
-      1,
-      null,
-    );
-
-    expect(decision?.candidate?.product.manufacturer_part_number).toBe('SAFE-SAVING');
-    expect(decision?.evidence).toMatchObject({
-      selectedTechnicalRank: 2,
-      recommendationType: 'price',
-      decisionReasonCodes: ['strict-spec-price-saving', 'same-part-lowest-total'],
-      verifiedRequirementCount: 4,
-      requiredRequirementCount: 4,
-      priceEvidence: {
-        lineTotalKrw: 1_000,
-        technicalTopLineTotalKrw: 2_000,
-        savingsKrw: 1_000,
-        savingsRate: 0.5,
-      },
-    });
-  });
-
-  it('필수 스펙이 같아도 절감액이 500원 미만이면 기술 1순위를 유지한다', () => {
-    const fullSpecReasons = [
-      'resistance_ohm_match',
-      'power_w_match',
-      'tolerance_percent_match',
-      'package_match',
-    ];
-    const decision = selectEngineMatch(
-      {
-        component_id: 'component-small-saving',
-        status: 'spec_compatible',
-        candidates: [
-          candidate('spec_compatible', 'TECHNICAL-TOP', 'digikey', 1_200, 1, [], {
-            category: 'resistor',
-            reasons: fullSpecReasons,
-          }),
-          candidate('spec_compatible', 'SMALL-SAVING', 'mouser', 800, 1, [], {
-            category: 'resistor',
-            reasons: fullSpecReasons,
-          }),
-        ],
-      },
-      false,
-      1,
-      null,
-    );
-
-    expect(decision?.candidate?.product.manufacturer_part_number).toBe('TECHNICAL-TOP');
-    expect(decision?.evidence).toMatchObject({ selectedTechnicalRank: 1, recommendationType: 'technical' });
-  });
-
-  it('칩전해 원본은 동일 직경 스루홀을 차단하고 검증된 활성 SMD 후보를 우선한다', () => {
-    const electricalReasons = ['capacitance_f_match', 'voltage_v_match', 'part_type_match'];
-    const decision = selectEngineMatch(
-      {
-        component_id: 'component-chip-electrolytic',
-        status: 'spec_compatible',
-        candidates: [
-          candidate('spec_compatible', 'EEE-1HA221P', 'mouser', 1_326, 1, [], {
-            category: '커패시터',
-            description: '알루미늄 전해 커패시터 220 µF 50 V 방사형, 캔 - SMD',
-            packageCode: '방사형, 캔 - SMD',
-            lifecycleStatus: '기존 설계 전용',
-            reasons: electricalReasons,
-            normalizedSpecs: { package: 'SMD' },
-            attributes: {
-              '실장 유형': '표면 실장',
-              '크기/치수': '0.394" Dia(10.00mm)',
-            },
-          }),
-          candidate('spec_compatible', 'UWT1H221MNL1GS', 'digikey', 1_273, 1, [], {
-            category: '커패시터',
-            description: '알루미늄 전해 커패시터 220 µF 50 V 방사형, 캔 - SMD',
-            packageCode: '방사형, 캔 - SMD',
-            lifecycleStatus: '활성',
-            reasons: electricalReasons,
-            normalizedSpecs: { package: 'SMD' },
-            attributes: {
-              '실장 유형': '표면 실장',
-              '크기/치수': '0.394" Dia(10.00mm)',
-            },
-          }),
-          candidate('spec_compatible', '50ZLH220MEFC10X16', 'digikey', 1_066, 1, [], {
-            category: '커패시터',
-            description: '알루미늄 전해 커패시터 220 µF 50 V 방사형, 캔',
-            packageCode: '방사형, 캔',
-            lifecycleStatus: '활성',
-            reasons: electricalReasons,
-            attributes: {
-              '실장 유형': '스루홀',
-              '크기/치수': '0.394" Dia(10.00mm)',
-            },
-          }),
-        ],
-      },
-      false,
-      2,
-      null,
-      { valueRaw: '220uF/50V/칩전해10파이', packageCode: null, manufacturerName: null },
-    );
-
-    expect(decision?.candidate?.product.manufacturer_part_number).toBe('UWT1H221MNL1GS');
-    expect(decision?.evidence).toMatchObject({
-      selectedTechnicalRank: 2,
-      recommendationType: 'lifecycle',
-      decisionReasonCodes: ['lifecycle-improvement', 'same-part-lowest-total'],
-      verifiedRequirementCount: 5,
-      requiredRequirementCount: 5,
-    });
-    const blocked = decision?.snapshots.find((snapshot) => snapshot.mpn === '50ZLH220MEFC10X16');
-    expect(blocked).toMatchObject({
-      safety: 'blocked',
-      autoEligible: false,
-      conflicts: ['mount_style_mismatch'],
-      verifiedRequirementCount: 4,
-      requiredRequirementCount: 5,
-      packageComparison: {
-        source: { mountStyle: 'smd', diameterMm: 10 },
-        candidate: { mountStyle: 'through-hole', diameterMm: 10 },
-        checks: { mountStyle: 'mismatch', diameterMm: 'match' },
-      },
-    });
-    expect(blocked?.reasons).toContain('diameter_mm_match');
-  });
-
-  it('같은 제조사·MPN의 공급사 행은 하나의 부품 후보로 묶고 실효 총비용 최저 오퍼를 고른다', () => {
-    const decision = selectEngineMatch(
-      {
-        component_id: 'component-same-part',
-        status: 'verified_exact',
-        candidates: [
-          candidate('verified_exact', 'SAME-MPN', 'digikey', 100, 1, [], { manufacturer: 'Panasonic' }),
-          candidate('verified_exact', 'SAME-MPN', 'mouser', 10, 1, [], { manufacturer: 'Panasonic Industry' }),
-        ],
-      },
-      true,
       1,
       null,
     );
@@ -447,142 +236,222 @@ describe('BOM 엔진 후보 자동 선정', () => {
     expect(decision?.snapshots).toHaveLength(1);
     expect(decision?.snapshots[0]?.offers).toHaveLength(2);
     expect(decision?.pick?.offer.supplier).toBe('mouser');
-    expect(decision?.evidence).toMatchObject({
-      candidateCount: 2,
-      groupedCandidateCount: 1,
-      selectedTechnicalRank: 1,
-      recommendationType: 'identity',
+  });
+
+  it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 오퍼는 합치지 않는다', () => {
+    const safe = candidate('verified_exact', 'SAME-MPN', 'digikey', 100, 1, {
+      identityKey: 'engine-group-1',
+      technicalEvidenceKey: 'safe-evidence',
+      corroboratingSuppliers: ['digikey', 'mouser'],
     });
-  });
-
-  it('같은 MPN이라도 제조사가 다르면 미확인 제조사 행이 두 제조사를 합치는 연결고리가 되지 않는다', () => {
     const decision = selectEngineMatch(
       {
-        component_id: 'component-manufacturer-boundary',
+        component_id: 'component-evidence-boundary',
         status: 'verified_exact',
         candidates: [
-          candidate('verified_exact', 'SHARED-MPN', 'digikey', 100, 1, [], { manufacturer: 'Maker A' }),
-          candidate('verified_exact', 'SHARED-MPN', 'mouser', 90, 1, [], { manufacturer: 'Maker B' }),
-          candidate('verified_exact', 'SHARED-MPN', 'unikey', 80, 1, [], { manufacturer: null }),
-        ],
-      },
-      true,
-      1,
-      null,
-    );
-
-    expect(decision?.snapshots).toHaveLength(3);
-    expect(new Set(decision?.snapshots.map((snapshot) => snapshot.candidateKey)).size).toBe(3);
-  });
-
-  it('원본 MPN이 있으면 더 싼 스펙 대체품보다 정확 일치를 우선한다', () => {
-    const decision = selectEngineMatch(
-      {
-        component_id: 'component-2',
-        status: 'verified_exact',
-        candidates: [
-          candidate('verified_exact', 'INPUT-MPN', 'digikey', 100, 1),
-          candidate('spec_compatible', 'CHEAP-SUBSTITUTE', 'mouser', 1, 1),
-        ],
-      },
-      true,
-      1,
-      null,
-    );
-
-    expect(decision?.candidate?.product.manufacturer_part_number).toBe('INPUT-MPN');
-    expect(decision?.evidence.selectionMode).toBe('exact');
-    expect(decision?.evidence.eligibleCandidateCount).toBe(1);
-    expect(decision?.evidence.identityFallback).toBe(false);
-  });
-
-  it('품번 미검색 뒤 엔진이 만든 스펙 폴백 후보는 원본 MPN이 있어도 안전 후보로 적용한다', () => {
-    const decision = selectEngineMatch(
-      {
-        component_id: 'component-identity-fallback',
-        mode: 'parametric',
-        status: 'spec_compatible',
-        initial_query: {
-          mode: 'identity',
-          part_number: '0603X03L_C',
-        },
-        query: {
-          mode: 'parametric',
-          part_number: null,
-        },
-        candidates: [
-          candidate('spec_compatible', 'RC0402FR-071KL', 'digikey', 10, 1, [], {
-            category: 'Chip Resistor',
-            reasons: ['resistance_ohm_match', 'part_type_match'],
+          safe,
+          candidate('input_conflict', 'SAME-MPN', 'mouser', 1, 1, {
+            identityKey: 'engine-group-1',
+            technicalEvidenceKey: 'blocked-evidence',
+            selectionMode: 'exact',
+            eligibility: 'blocked',
+            conflicts: ['resistance_ohm_mismatch'],
           }),
         ],
       },
-      true,
       1,
       null,
     );
 
-    expect(decision?.candidate?.product.manufacturer_part_number).toBe('RC0402FR-071KL');
-    expect(decision?.evidence).toMatchObject({
-      identityFallback: true,
-      selectionMode: 'spec-compatible',
-      eligibleCandidateCount: 1,
-      recommendationType: 'technical',
-    });
+    expect(decision?.snapshots).toHaveLength(1);
+    expect(decision?.snapshots[0]?.offers).toHaveLength(1);
+    expect(decision?.snapshots[0]?.offers[0]?.supplier).toBe('digikey');
+    expect(decision?.snapshots[0]?.corroboratingSuppliers).toEqual(['digikey']);
+    expect(decision?.pick?.offer.supplier).toBe('digikey');
   });
 
-  it('품번 미검색 폴백이어도 필수 스펙이 누락된 후보는 적용하지 않는다', () => {
+  it('같은 MPN도 엔진 그룹 키가 다르면 Node가 제조사 별칭으로 다시 합치지 않는다', () => {
     const decision = selectEngineMatch(
       {
-        component_id: 'component-identity-fallback-missing-spec',
-        mode: 'parametric',
-        status: 'spec_partial',
-        initial_query: {
-          mode: 'identity',
-          part_number: '0603X03L_C',
-        },
-        query: {
-          mode: 'parametric',
-          part_number: null,
-        },
+        component_id: 'component-engine-boundary',
+        status: 'verified_exact',
         candidates: [
-          candidate('spec_compatible', 'UNVERIFIED-PACKAGE', 'digikey', 10, 1, [], {
+          candidate('verified_exact', 'SHARED-MPN', 'digikey', 100, 1, { identityKey: 'maker-a' }),
+          candidate('verified_exact', 'SHARED-MPN', 'mouser', 90, 1, { identityKey: 'maker-b' }),
+        ],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.snapshots).toHaveLength(2);
+  });
+
+  it('정확 MPN의 제조사 확인 후보는 자동 선택하지 않고 수동 선택 가능 상태로 보존한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-manufacturer-review',
+        status: 'input_conflict',
+        candidates: [
+          candidate('input_conflict', 'RVT1J101M1010', 'digikey', 100, 1, {
+            selectionMode: 'exact',
+            eligibility: 'manual_review',
+            conflicts: ['manufacturer_mismatch'],
             missingRequirements: ['package'],
           }),
         ],
       },
-      true,
       1,
       null,
     );
 
     expect(decision?.candidate).toBeNull();
-    expect(decision?.pick).toBeNull();
-    expect(decision?.evidence).toMatchObject({
-      identityFallback: true,
-      selectionMode: 'review',
-      eligibleCandidateCount: 0,
-      missingRequirements: ['package'],
+    expect(decision?.snapshots[0]).toMatchObject({
+      selectionEligibility: 'manual_review',
+      safety: 'caution',
+      autoEligible: false,
+      manualSelectable: true,
+      selectionReasonCodes: ['manufacturer_confirmation_required'],
     });
   });
 
-  it('모호·충돌 후보와 MPN 입력 행의 스펙 대체품은 자동 선정하지 않는다', () => {
+  it('결정 계약이 없는 이전 후보는 Node 규칙으로 복구하지 않고 차단한다', () => {
+    const withoutDecision = candidate('verified_exact', 'LEGACY', 'digikey', 100, 1);
+    Reflect.deleteProperty(withoutDecision, 'decision');
     const decision = selectEngineMatch(
-      {
-        component_id: 'component-3',
-        status: 'input_conflict',
-        candidates: [
-          candidate('spec_compatible', 'CONFLICTED', 'digikey', 1, 1, ['package_mismatch']),
-          candidate('ambiguous', 'AMBIGUOUS', 'mouser', 1, 1),
-        ],
-      },
-      true,
+      { component_id: 'component-legacy', status: 'verified_exact', candidates: [withoutDecision] },
       1,
       null,
     );
 
     expect(decision?.candidate).toBeNull();
-    expect(decision?.pick).toBeNull();
-    expect(decision?.evidence).toMatchObject({ selectionMode: 'review', eligibleCandidateCount: 0 });
+    expect(decision?.snapshots[0]).toMatchObject({
+      selectionEligibility: 'blocked',
+      autoEligible: false,
+      manualSelectable: false,
+    });
+  });
+
+  it('선택 자격과 권한 boolean이 모순된 엔진 결정도 차단한다', () => {
+    const inconsistent = candidate('verified_exact', 'INCONSISTENT', 'digikey', 100, 1, {
+      eligibility: 'blocked',
+    });
+    inconsistent.decision.auto_eligible = true;
+    inconsistent.decision.manual_selectable = true;
+
+    const decision = selectEngineMatch(
+      { component_id: 'component-inconsistent', status: 'verified_exact', candidates: [inconsistent] },
+      1,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.snapshots[0]).toMatchObject({
+      selectionEligibility: 'blocked',
+      autoEligible: false,
+      manualSelectable: false,
+      selectionReasonCodes: ['decision_unavailable'],
+    });
+  });
+
+  it('엔진이 동등하다고 한 기술 근거 안에서만 MOQ·총액 구매조건을 비교한다', () => {
+    const shared = {
+      technicalEvidenceKey: 'same-engine-evidence',
+      verificationComplete: false,
+      requiredCount: 2,
+      verifiedCount: 1,
+    };
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-purchase-fit',
+        status: 'verified_exact',
+        candidates: [
+          candidate('verified_exact', 'M7-A', 'digikey', 104.958, 20_000, shared),
+          candidate('verified_exact', 'M7-B', 'mouser', 191, 1, shared),
+        ],
+      },
+      3,
+      null,
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('M7-B');
+    expect(decision?.evidence.recommendationType).toBe('purchase-fit');
+    expect(decision?.pick?.orderQty).toBe(3);
+  });
+
+  it('엔진이 완전 검증한 스펙 후보들 사이에서만 가격 절감을 적용한다', () => {
+    const engineVerified = {
+      selectionMode: 'spec-compatible' as const,
+      strictCategoryCoverage: true,
+      verificationComplete: true,
+      requiredCount: 4,
+      verifiedCount: 4,
+    };
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-price',
+        status: 'spec_compatible',
+        candidates: [
+          candidate('spec_compatible', 'TECHNICAL-TOP', 'digikey', 2_000, 1, engineVerified),
+          candidate('spec_compatible', 'SAFE-SAVING', 'mouser', 1_000, 1, engineVerified),
+        ],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('SAFE-SAVING');
+    expect(decision?.evidence).toMatchObject({
+      recommendationType: 'price',
+      verifiedRequirementCount: 4,
+      requiredRequirementCount: 4,
+    });
+  });
+
+  it('수명주기 개선도 엔진 상태만 사용하며 문자열을 다시 해석하지 않는다', () => {
+    const engineVerified = {
+      selectionMode: 'spec-compatible' as const,
+      strictCategoryCoverage: true,
+      lifecycleStatus: 'unrecognized text',
+    };
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-lifecycle',
+        status: 'spec_compatible',
+        candidates: [
+          candidate('spec_compatible', 'OLD', 'digikey', 1_000, 1, {
+            ...engineVerified,
+            lifecycleState: 'caution',
+          }),
+          candidate('spec_compatible', 'ACTIVE', 'mouser', 1_100, 1, {
+            ...engineVerified,
+            lifecycleState: 'active',
+          }),
+        ],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('ACTIVE');
+    expect(decision?.evidence.recommendationType).toBe('lifecycle');
+  });
+
+  it('품번 미검색 스펙 폴백 여부는 엔진의 명시 필드만 투영한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-fallback',
+        status: 'spec_compatible',
+        identity_fallback: true,
+        candidates: [candidate('spec_compatible', 'SPEC-HIT', 'digikey', 10, 1, {
+          selectionMode: 'spec-compatible',
+        })],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.evidence.identityFallback).toBe(true);
+    expect(decision?.evidence.selectionMode).toBe('spec-compatible');
   });
 });

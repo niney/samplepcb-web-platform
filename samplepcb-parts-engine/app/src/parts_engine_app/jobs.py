@@ -381,7 +381,7 @@ class JobService:
         preflight = job.supplier_preflight or {}
         preflight_elapsed_ms = float(preflight.get("preflight_elapsed_ms", 0.0))
         return {
-            "supplier_search_schema_version": "1.1",
+            "supplier_search_schema_version": "1.2",
             "analysis_job_id": job.id,
             "timing": {
                 "analysis_elapsed_ms": self._analysis_elapsed_ms(job),

@@ -182,12 +182,6 @@ export function useSelectBomQuoteCandidate() {
   }) => apiSend('POST', `${base}/quotes/${quoteId}/items/${itemId}/selection`, body, BomQuoteDetailResponse));
 }
 
-export function useCatalogMatchBomQuote() {
-  return useQuoteMutation(({ quoteId, onlyUnmatched }: { quoteId: string; onlyUnmatched: boolean }) =>
-    apiSend('POST', `${base}/quotes/${quoteId}/catalog-match`, { onlyUnmatched }, BomQuoteDetailResponse),
-  );
-}
-
 export function useRequestBomQuote() {
   return useQuoteMutation(({ quoteId, title }: { quoteId: string; title: string }) =>
     apiSend('POST', `${base}/quotes/${quoteId}/request`, { title }, BomQuoteDetailResponse),
