@@ -117,8 +117,16 @@ const sourceRowText = computed(() => {
   const rows = Array.isArray(value)
     ? value.filter((row): row is number => typeof row === 'number' && Number.isInteger(row) && row > 0)
     : [];
-  if (rows.length === 0) return props.item.sourceSheetName === null ? '수동 추가' : '행 번호 없음';
+  if (rows.length === 0) return props.item.sourceSheetName === null ? '추가' : '—';
   return `${rows.join(', ')}행`;
+});
+
+const sourceLocationTitle = computed(() => {
+  const sheetName = props.item.sourceSheetName?.trim() ?? '';
+  if (sheetName === '') return sourceRowText.value === '추가' ? '수동 추가' : sourceRowText.value;
+  return sourceRowText.value === '—'
+    ? `${sheetName} · 행 번호 없음`
+    : `${sheetName} · ${sourceRowText.value}`;
 });
 
 const partLabel = computed(() => {
@@ -143,9 +151,9 @@ function onQtyInput(event: Event): void {
 
 <template>
   <tr class="border-b border-[#e5e8ed] align-top transition-colors" :class="rowClass">
-    <!-- 핸들(디자인만) + 포함 체크 -->
-    <td class="px-2 py-3">
-      <div class="flex flex-col items-center gap-2 pt-1">
+    <!-- 포함 체크 + 원본 행. 시트명은 좁은 표를 위해 툴팁으로만 보존한다. -->
+    <td class="px-1 py-3">
+      <div class="flex flex-col items-center gap-1.5 pt-1">
         <input
           :checked="item.included"
           type="checkbox"
@@ -154,15 +162,13 @@ function onQtyInput(event: Event): void {
           :title="editingLocked ? EDIT_LOCK_TITLE : '합계·견적요청 포함'"
           @change="emit('toggle-include')"
         >
-        <span class="cursor-default text-[13px] leading-none text-gray-300" title="정렬 (준비 중)">⋮⋮</span>
+        <span
+          class="block max-w-[48px] cursor-default truncate text-center text-[11px] font-semibold leading-[14px] tabular-nums text-[#667085]"
+          :title="sourceLocationTitle"
+        >
+          {{ sourceRowText }}
+        </span>
       </div>
-    </td>
-    <!-- 원본 Excel 위치 — 표시 순서와 함께 감사 가능한 기준 -->
-    <td class="px-2 py-3 pt-[38px]">
-      <p class="max-w-[100px] truncate text-[11px] font-semibold text-blue-600" :title="item.sourceSheetName ?? '수동 추가'">
-        {{ item.sourceSheetName ?? '수동 추가' }}
-      </p>
-      <p class="mt-0.5 text-[12px] font-bold tabular-nums text-[#3b4252]">{{ sourceRowText }}</p>
     </td>
     <!-- MPN: 공급사 배지 + 이미지 자리 + 품번 + 데이터시트 -->
     <td class="px-2 py-3">

@@ -883,11 +883,10 @@ function fmtAmount(v: number | null): string {
 
         <!-- 테이블 (list01 스타일) — 이 영역만 내부 스크롤, 헤더는 sticky -->
         <div class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white">
-          <table class="min-w-[1100px] w-full" :aria-busy="editingLocked">
+          <table class="min-w-[1000px] w-full" :aria-busy="editingLocked">
             <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
               <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
-                <th class="w-[36px] px-2 py-2.5" />
-                <th class="w-[110px] px-2 py-2.5">Excel 위치</th>
+                <th class="w-[52px] px-1 py-2.5"><span class="sr-only">포함 및 원본 행</span></th>
                 <th class="min-w-[220px] px-2 py-2.5">MPN / 원본 값</th>
                 <th class="px-2 py-2.5">Manufacturer</th>
                 <th class="px-2 py-2.5">Description</th>
@@ -912,7 +911,7 @@ function fmtAmount(v: number | null): string {
                 @open-search="openCatalogSearchDrawer(item)"
               />
               <tr v-if="items.length === 0">
-                <td colspan="9" class="px-3 py-10 text-center text-sm text-gray-400">표시할 라인이 없습니다.</td>
+                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">표시할 라인이 없습니다.</td>
               </tr>
             </tbody>
           </table>
