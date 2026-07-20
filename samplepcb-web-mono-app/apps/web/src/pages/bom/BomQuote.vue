@@ -17,6 +17,7 @@ import {
 import {
   useBomJob,
   useBomQuote,
+  useBomQuoteComparison,
   useBomQuoteCandidates,
   useBuildBomQuote,
   useCancelBomQuote,
@@ -25,7 +26,6 @@ import {
   usePrepareBomQuoteSheets,
   useRequestBomQuote,
   useSelectBomQuoteCandidate,
-  useSupplierSearchResult,
   useSupplierSearchStatus,
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
@@ -410,8 +410,8 @@ const supplierStatus = useSupplierSearchStatus(
   computed(() => detail.value?.engineJobId ?? null),
   enriching, // 진행률(%) 표시에만 필요
 );
-const supplierResult = useSupplierSearchResult(
-  computed(() => detail.value?.engineJobId ?? null),
+const quoteComparison = useBomQuoteComparison(
+  quoteId,
   compareOpen,
 );
 // 검색은 끝났고 서버가 결과를 견적에 반영(인제스트→재매칭)하는 중
@@ -1283,12 +1283,10 @@ function fmtAmount(v: number | null): string {
       :open="compareOpen"
       :title="detail.fileName ?? detail.title"
       :items="items"
-      :result="supplierResult.data.value?.data ?? null"
-      :loading="supplierResult.isFetching.value && supplierResult.data.value === undefined"
-      :failed="supplierResult.isError.value"
-      :engine-job-id="detail.engineJobId"
-      :search-status="supplierStatus.data.value?.data.status ?? null"
-      @retry="supplierResult.refetch()"
+      :comparison="quoteComparison.data.value?.data ?? null"
+      :loading="quoteComparison.isFetching.value && quoteComparison.data.value === undefined"
+      :failed="quoteComparison.isError.value"
+      @retry="quoteComparison.refetch()"
       @close="compareOpen = false"
     />
   </div>

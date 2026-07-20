@@ -6,6 +6,7 @@ import {
   BomQuoteCatalogMatchBody,
   BomQuoteCandidateSelectionBody,
   BomQuoteBuildBody,
+  BomQuoteComparisonResponse,
   BomQuoteCreateResponse,
   BomQuoteDeleteManyBody,
   BomQuoteDeleteManyResponse,
@@ -33,6 +34,7 @@ import {
 import {
   buildItemsFromEngineResult,
   applyQuoteCandidateSelection,
+  buildQuoteComparisonRows,
   canTransition,
   catalogMatchItems,
   computeQuote,
@@ -415,6 +417,29 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         requestedCount: deleted.requestedCount,
         deletedCount: deleted.deletedCount,
         retainedCount: deleted.retainedCount,
+      },
+    };
+  });
+
+  // 엔진 잡은 재시작 시 소멸한다. 전체 비교는 quoteId에 박제한 후보 스냅샷만 사용한다.
+  fastify.get('/bom/quotes/:id/comparison', {
+    schema: { params: IdParams, response: { 200: BomQuoteComparisonResponse } },
+  }, async (request, reply) => {
+    const quote = await prisma.spBomQuote.findUnique({
+      where: { id: request.params.id },
+      select: { mbId: true },
+    });
+    if (quote?.mbId !== request.user.mbId) return reply.notFound('견적을 찾을 수 없습니다');
+    const candidateRows = await prisma.spBomQuoteCandidate.findMany({
+      where: { quoteId: request.params.id },
+      orderBy: [{ rowIdx: 'asc' }, { technicalRank: 'asc' }],
+      select: { rowIdx: true, payload: true },
+    });
+    return {
+      result: true as const,
+      data: {
+        quoteId: String(request.params.id),
+        rows: buildQuoteComparisonRows(candidateRows),
       },
     };
   });

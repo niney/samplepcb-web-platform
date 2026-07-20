@@ -198,6 +198,44 @@ export const BomQuoteCandidate = z.object({
 });
 export type BomQuoteCandidateType = z.infer<typeof BomQuoteCandidate>;
 
+/** 전체 BOM 비교에서 사용하는 영속 후보 뷰 — 엔진 인메모리 잡과 무관한 DB 스냅샷. */
+export const BomQuoteComparisonOffer = BomQuoteCandidateOffer.omit({ applied: true });
+export type BomQuoteComparisonOfferType = z.infer<typeof BomQuoteComparisonOffer>;
+
+export const BomQuoteComparisonCandidate = BomQuoteCandidate.pick({
+  candidateKey: true,
+  technicalRank: true,
+  status: true,
+  safety: true,
+  mpn: true,
+  manufacturerName: true,
+  description: true,
+  category: true,
+  packageCode: true,
+  lifecycleStatus: true,
+  identityConfidence: true,
+  specificationConfidence: true,
+  conflicts: true,
+  missingRequirements: true,
+  reasons: true,
+  normalizedSpecs: true,
+  specComparisons: true,
+  packageComparison: true,
+}).extend({ offers: z.array(BomQuoteComparisonOffer) });
+export type BomQuoteComparisonCandidateType = z.infer<typeof BomQuoteComparisonCandidate>;
+
+export const BomQuoteComparisonRow = z.object({
+  rowIdx: z.number().int().min(0),
+  candidates: z.array(BomQuoteComparisonCandidate),
+});
+export type BomQuoteComparisonRowType = z.infer<typeof BomQuoteComparisonRow>;
+
+export const BomQuoteComparison = z.object({
+  quoteId: z.string(),
+  rows: z.array(BomQuoteComparisonRow),
+});
+export type BomQuoteComparisonType = z.infer<typeof BomQuoteComparison>;
+
 export const BomQuoteSelectionEvent = z.object({
   id: z.string(),
   source: BomQuoteSelectionSource,
@@ -449,6 +487,9 @@ export type BomQuoteDetailResponseType = z.infer<typeof BomQuoteDetailResponse>;
 
 export const BomQuoteItemCandidatesResponse = z.object({ result: z.literal(true), data: BomQuoteItemCandidates });
 export type BomQuoteItemCandidatesResponseType = z.infer<typeof BomQuoteItemCandidatesResponse>;
+
+export const BomQuoteComparisonResponse = z.object({ result: z.literal(true), data: BomQuoteComparison });
+export type BomQuoteComparisonResponseType = z.infer<typeof BomQuoteComparisonResponse>;
 
 // ── 관리자 ────────────────────────────────────────────────────────────────
 

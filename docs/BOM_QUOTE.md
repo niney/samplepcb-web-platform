@@ -322,16 +322,21 @@ Figma "02 BOM 파일 분석_검색 결과" 레이아웃에 기존 기능 병합(
 - 남은 여지(비병목): 2,000행 상한의 최초 마운트는 여전히 전 행 DOM 생성 — 필요해지면
   가상 스크롤 도입(현 108행 실측에선 불필요 판단).
 
-### BOM 비교 모달 (2026-07-19)
+### BOM 비교 모달 (2026-07-19, 영속 스냅샷 전환 2026-07-20)
 
-상세 헤더 [BOM 비교]: Excel 원본과 공급사 검색 원본 결과를 부품 단위로 대조하는 전체 화면
-모달(`components/bom/BomCompareModal.vue`). 결과는 모달을 열 때만 지연 조회
-(`GET /api/bom/jobs/:id/supplier-search/result` — `useSupplierSearchResult`, 소유 검증+백업 인제스트 훅).
+상세 헤더 [BOM 비교]: Excel 원본과 공급사 후보를 부품 단위로 대조하는 전체 화면 모달
+(`components/bom/BomCompareModal.vue`). 결과는 모달을 열 때 quote 소유권을 검증한 뒤 지연 조회한다
+(`GET /api/bom/quotes/:id/comparison` — `sp_bom_quote_candidate.payload` 영속 스냅샷).
 
-- 조인: 시트 index까지 포함한 엔진 `component_id`를 우선 사용하고, 기존 견적만 원본 행+REFDES
-  시그니처로 폴백(다중 시트의 같은 행·REFDES도 오결합 방지, 빈 시그니처일 때만 인덱스 폴백)
-- 판정: 엔진 검증 결과 그대로 — status 요약 카드(검증·호환/확인 필요/결과 없음)+행 칩, 셀 색은
-  spec_comparisons·package_comparison state(일치/불일치/확인 불가), relation 칩(정확·별칭·호환·범위 충족 등)
+초기 구현은 `/jobs/:id/supplier-search/result`를 다시 조회해 엔진 재시작으로 인메모리 잡이 사라지면
+이미 DB에 후보가 박제된 완료 견적도 비교만 404가 났다. 비교 경로를 quoteId 기반 DB 읽기로 전환해
+엔진 가동 여부·잡 생존 여부와 분리했으며, 손상된 구버전 후보는 해당 후보만 격리한다.
+
+- 조인: 상세 항목과 후보 스냅샷을 견적 내부 불변 키 `rowIdx`로 연결한다. 엔진 component 배열 순서나
+  원본 행·REFDES의 우연한 일치에 의존하지 않는다.
+- 판정: 박제한 엔진 검증 결과 그대로 — status 요약 카드(검증·호환/확인 필요/결과 없음)+행 칩,
+  셀 색은 `specComparisons`·`packageComparison` state(일치/불일치/확인 불가), relation 칩
+  (정확·별칭·호환·범위 충족 등)
 - 열: 항목·Excel 원본(sticky) + 공급사 열(Mouser/DigiKey/UniKeyIC 고정 + 발견 공급사) —
-  스펙 비교 외에 재고·MOQ·최저 단가·수명주기(EOL/단종) 표시
-- 필터: 검색어·판정·시트·공급사 열 선택, 페이지당 5부품 · 로딩/실패(재시도)/결과 없음/진행 중 상태 패널
+  같은 제조사+MPN 후보 아래 통합한 공급사 오퍼에서 재고·MOQ·최저 단가·수명주기 표시
+- 필터: 검색어·판정·시트·공급사 열 선택, 페이지당 5부품 · 로딩/실패(재시도)/결과 없음 상태 패널

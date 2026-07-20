@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import type {
+  BomQuoteComparisonCandidateType,
+  BomQuoteComparisonRowType,
+  BomQuoteComparisonType,
   BomQuoteItemType,
-  BomSupplierResultType,
-  BomSupplierSearchComponentType,
 } from '@sp/api-contract';
 
-type Candidate = BomSupplierSearchComponentType['candidates'][number];
+type Candidate = BomQuoteComparisonCandidateType;
 type CellState = 'match' | 'mismatch' | 'missing' | 'neutral';
 type StatusFilter = 'all' | 'matched' | 'attention' | 'not_found';
 
 interface ComparisonItem {
   id: string;
-  quoteItem?: BomQuoteItemType;
-  searchComponent?: BomSupplierSearchComponentType;
+  quoteItem: BomQuoteItemType;
+  comparison?: BomQuoteComparisonRowType;
 }
 
 interface DisplayField {
@@ -26,11 +27,9 @@ const props = defineProps<{
   open: boolean;
   title: string;
   items: BomQuoteItemType[];
-  result: BomSupplierResultType | null;
+  comparison: BomQuoteComparisonType | null;
   loading: boolean;
   failed: boolean;
-  engineJobId: string | null;
-  searchStatus: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -78,10 +77,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function valueAt(value: unknown, key: string): unknown {
-  return asRecord(value)?.[key];
-}
-
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
@@ -90,68 +85,45 @@ function numberArray(value: unknown): number[] {
   return Array.isArray(value) ? value.filter((item): item is number => typeof item === 'number') : [];
 }
 
-function sourceRow(item: BomQuoteItemType | undefined): Record<string, unknown> | null {
-  return asRecord(item?.sourceRow);
+function sourceRow(item: BomQuoteItemType): Record<string, unknown> | null {
+  return asRecord(item.sourceRow);
 }
 
-function quoteRows(item: BomQuoteItemType | undefined): number[] {
+function quoteRows(item: BomQuoteItemType): number[] {
   return numberArray(sourceRow(item)?.sourceRows);
 }
 
-function quoteRefs(item: BomQuoteItemType | undefined): string[] {
+function quoteRefs(item: BomQuoteItemType): string[] {
   return stringArray(sourceRow(item)?.referenceDesignators);
 }
 
-function quoteSheet(item: BomQuoteItemType | undefined): string {
-  const value = sourceRow(item)?.sheetName;
+function quoteSheet(item: BomQuoteItemType): string {
+  const value = item.sourceSheetName ?? sourceRow(item)?.sheetName;
   return typeof value === 'string' && value !== '' ? value : '시트 미확인';
 }
 
-function quoteComponentId(item: BomQuoteItemType | undefined): string | null {
-  const value = sourceRow(item)?.componentId;
-  return typeof value === 'string' && value !== '' ? value : null;
-}
-
-function signature(rows: number[] | undefined, refs: string[] | undefined): string {
-  return `${(rows ?? []).join(',')}|${[...(refs ?? [])].sort().join(',')}`;
+function sourceText(item: BomQuoteItemType, key: string): string | null {
+  const value = sourceRow(item)?.[key];
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
 const comparisonItems = computed<ComparisonItem[]>(() => {
-  const quoteItems = props.items;
-  const components = props.result?.search.components ?? [];
-  const unused = new Set(quoteItems.map((_, index) => index));
-  const compared: ComparisonItem[] = components.map((component, componentIndex) => {
-    const componentSignature = signature(component.source_rows_1based, component.reference_designators);
-    let quoteIndex = quoteItems.findIndex((item, candidateIndex) =>
-      unused.has(candidateIndex) && quoteComponentId(item) === component.component_id,
-    );
-    if (quoteIndex < 0) {
-      quoteIndex = quoteItems.findIndex(
-        (item, candidateIndex) =>
-          unused.has(candidateIndex) && signature(quoteRows(item), quoteRefs(item)) === componentSignature,
-      );
-    }
-    // 시트 인덱스까지 포함한 엔진 component_id를 우선 사용한다. 기존 견적처럼 id가
-    // 없는 데이터만 원본 행/REFDES로 폴백하고 단순 배열 인덱스 결합은 피한다.
-    if (quoteIndex < 0 && componentSignature === '|' && unused.has(componentIndex)) quoteIndex = componentIndex;
-    const quoteItem = quoteIndex < 0 ? undefined : quoteItems[quoteIndex];
-    if (quoteIndex >= 0) unused.delete(quoteIndex);
+  const rows = new Map((props.comparison?.rows ?? []).map((row) => [row.rowIdx, row] as const));
+  return props.items.map((quoteItem) => {
+    const comparison = rows.get(quoteItem.rowIdx);
     return {
-      id: component.component_id,
-      ...(quoteItem === undefined ? {} : { quoteItem }),
-      searchComponent: component,
+      id: `quote-${String(quoteItem.rowIdx)}`,
+      quoteItem,
+      ...(comparison === undefined ? {} : { comparison }),
     };
   });
-  for (const quoteIndex of unused) {
-    const quoteItem = quoteItems[quoteIndex];
-    if (quoteItem !== undefined) compared.push({ id: `quote-${String(quoteItem.rowIdx)}`, quoteItem });
-  }
-  return compared;
 });
 
 const MATCHED_STATUSES = new Set(['verified_exact', 'verified_variant', 'spec_compatible']);
 function itemStatus(item: ComparisonItem): string {
-  return item.searchComponent?.status ?? 'not_found';
+  const componentStatus = asRecord(item.quoteItem.matchEvidence)?.componentStatus;
+  if (typeof componentStatus === 'string') return componentStatus;
+  return item.comparison?.candidates[0]?.status ?? 'not_found';
 }
 
 function statusCategory(item: ComparisonItem): Exclude<StatusFilter, 'all'> {
@@ -178,7 +150,9 @@ const supplierLabels: Record<string, string> = {
 const suppliers = computed(() => {
   const discovered = new Set(
     comparisonItems.value.flatMap((item) =>
-      (item.searchComponent?.candidates ?? []).map((candidate) => candidate.product.supplier.toLocaleLowerCase()),
+      (item.comparison?.candidates ?? []).flatMap((candidate) =>
+        candidate.offers.map((offer) => offer.supplier.toLocaleLowerCase()),
+      ),
     ),
   );
   return [...new Set([...preferredSuppliers, ...discovered])].sort((left, right) => {
@@ -197,12 +171,13 @@ const perPage = 5;
 
 const sheets = computed(() => [...new Set(comparisonItems.value.map((item) => quoteSheet(item.quoteItem)))]);
 
-function queryRecord(component: BomSupplierSearchComponentType | undefined): Record<string, unknown> | null {
-  return asRecord(valueAt(component, 'query'));
-}
-
 function candidateSearchValues(candidate: Candidate): unknown[] {
-  return [candidate.product.manufacturer_part_number, candidate.product.manufacturer, candidate.product.description];
+  return [
+    candidate.mpn,
+    candidate.manufacturerName,
+    candidate.description,
+    ...candidate.offers.flatMap((offer) => [offer.supplier, offer.supplierSku]),
+  ];
 }
 
 const filteredItems = computed(() => {
@@ -211,18 +186,14 @@ const filteredItems = computed(() => {
     if (sheetFilter.value !== 'all' && quoteSheet(item.quoteItem) !== sheetFilter.value) return false;
     if (statusFilter.value !== 'all' && statusCategory(item) !== statusFilter.value) return false;
     if (needle === '') return true;
-    const query = queryRecord(item.searchComponent);
     const values: unknown[] = [
       quoteSheet(item.quoteItem),
-      item.quoteItem?.mpn,
-      item.quoteItem?.manufacturerName,
-      item.quoteItem?.description,
+      item.quoteItem.mpn,
+      item.quoteItem.manufacturerName,
+      item.quoteItem.description,
       sourceRow(item.quoteItem)?.valueRaw,
       ...quoteRefs(item.quoteItem),
-      query?.part_number,
-      query?.manufacturer,
-      query?.keywords,
-      ...(item.searchComponent?.candidates.flatMap(candidateSearchValues) ?? []),
+      ...(item.comparison?.candidates.flatMap(candidateSearchValues) ?? []),
     ];
     return values.some((value) => formatValue(value).toLocaleLowerCase().includes(needle));
   });
@@ -296,12 +267,10 @@ const specOrder = [
   'dielectric',
 ];
 
-function requirements(component: BomSupplierSearchComponentType | undefined): Record<string, unknown> {
-  return asRecord(queryRecord(component)?.requirements) ?? {};
-}
-
 function fieldsFor(item: ComparisonItem): DisplayField[] {
-  const requirementKeys = Object.keys(requirements(item.searchComponent))
+  const requirementKeys = [...new Set(
+    (item.comparison?.candidates ?? []).flatMap((candidate) => Object.keys(candidate.specComparisons)),
+  )]
     .filter((key) => !['part_number', 'manufacturer', 'part_type', 'package', 'size_code'].includes(key))
     .sort((left, right) => {
       const leftIndex = specOrder.indexOf(left);
@@ -338,89 +307,91 @@ function formatValue(value: unknown): string {
 
 function sourceValue(item: ComparisonItem, key: string): string {
   const quoteItem = item.quoteItem;
-  const query = queryRecord(item.searchComponent);
   const row = sourceRow(quoteItem);
-  if (key === 'part_number') return formatValue(quoteItem?.mpn ?? query?.part_number);
-  if (key === 'manufacturer') return formatValue(quoteItem?.manufacturerName ?? query?.manufacturer);
-  if (key === 'part_type') return formatValue(query?.part_type);
-  if (key === 'package') return formatValue(row?.packageCode ?? query?.package);
-  if (key === 'description') return formatValue(quoteItem?.description ?? row?.valueRaw ?? query?.description);
-  if (key === 'quantity') return formatValue(quoteItem?.bomQty ?? query?.quantity);
+  if (key === 'part_number') return formatValue(sourceText(quoteItem, 'inputPartNumber') ?? sourceText(quoteItem, 'valueRaw') ?? quoteItem.mpn);
+  if (key === 'manufacturer') return formatValue(sourceText(quoteItem, 'inputManufacturer'));
+  if (key === 'part_type') return expectedComparisonValue(item, key);
+  if (key === 'package') return formatValue(row?.packageCode ?? expectedComparisonValue(item, key));
+  if (key === 'description') return formatValue(sourceText(quoteItem, 'valueRaw') ?? quoteItem.description);
+  if (key === 'quantity') return formatValue(quoteItem.bomQty);
   if (key === 'source_cells') {
     const rows = quoteRows(quoteItem);
     const refs = quoteRefs(quoteItem);
     return `${quoteSheet(quoteItem)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · ${refs.length > 0 ? refs.join(', ') : 'REFDES 없음'}`;
   }
   if (['stock', 'moq', 'best_price', 'lifecycle'].includes(key)) return '—';
-  const requirement = asRecord(requirements(item.searchComponent)[key]);
-  return formatValue(requirement?.raw_value ?? requirement?.normalized_value);
+  return expectedComparisonValue(item, key);
 }
 
 function candidateFor(item: ComparisonItem, supplier: string): Candidate | undefined {
-  return item.searchComponent?.candidates.find(
-    (candidate) => candidate.product.supplier.toLocaleLowerCase() === supplier,
+  return item.comparison?.candidates.find(
+    (candidate) => candidate.offers.some((offer) => offer.supplier.toLocaleLowerCase() === supplier),
   );
 }
 
 function normalizedSpecs(candidate: Candidate): Record<string, unknown> {
-  return asRecord(valueAt(candidate.product, 'normalized_specs')) ?? {};
+  return candidate.normalizedSpecs;
 }
 
 function comparisonFor(candidate: Candidate, key: string): Record<string, unknown> | null {
-  if (key === 'package') return asRecord(valueAt(candidate, 'package_comparison'));
-  return asRecord(asRecord(valueAt(candidate, 'spec_comparisons'))?.[key]);
+  if (key === 'package') return candidate.packageComparison;
+  return asRecord(candidate.specComparisons[key]);
 }
 
-function maxStock(candidate: Candidate): string {
-  const values = candidate.product.offers
+function expectedComparisonValue(item: ComparisonItem, key: string): string {
+  for (const candidate of item.comparison?.candidates ?? []) {
+    const comparison = comparisonFor(candidate, key);
+    const expected = comparison?.expected_display ?? comparison?.expected_raw;
+    if (expected !== null && expected !== undefined && expected !== '') return formatValue(expected);
+  }
+  return '—';
+}
+
+function supplierOffers(candidate: Candidate, supplier: string): Candidate['offers'] {
+  return candidate.offers.filter((offer) => offer.supplier.toLocaleLowerCase() === supplier);
+}
+
+function maxStock(candidate: Candidate, supplier: string): string {
+  const values = supplierOffers(candidate, supplier)
     .map((offer) => offer.stock)
     .filter((value): value is number => typeof value === 'number');
   return values.length > 0 ? Math.max(...values).toLocaleString('ko-KR') : '—';
 }
 
-function minimumMoq(candidate: Candidate): string {
-  const values = candidate.product.offers
+function minimumMoq(candidate: Candidate, supplier: string): string {
+  const values = supplierOffers(candidate, supplier)
     .map((offer) => offer.moq)
     .filter((value): value is number => typeof value === 'number');
   return values.length > 0 ? Math.min(...values).toLocaleString('ko-KR') : '—';
 }
 
-function bestPrice(candidate: Candidate): string {
-  const prices = candidate.product.offers
-    .flatMap((offer) => offer.price_breaks ?? [])
-    .sort((left, right) => left.unit_price - right.unit_price);
+function bestPrice(candidate: Candidate, supplier: string): string {
+  const prices = supplierOffers(candidate, supplier)
+    .flatMap((offer) => offer.priceBreaks)
+    .sort((left, right) => left.price - right.price);
   const price = prices[0];
   return price === undefined
     ? '—'
-    : `${price.unit_price.toLocaleString('ko-KR', { maximumFractionDigits: 6 })} ${price.currency} · ${price.quantity.toLocaleString('ko-KR')}+`;
+    : `${price.price.toLocaleString('ko-KR', { maximumFractionDigits: 6 })} ${price.currency} · ${price.qty.toLocaleString('ko-KR')}+`;
 }
 
 function supplierValue(item: ComparisonItem, supplier: string, key: string): string {
   const candidate = candidateFor(item, supplier);
   if (candidate === undefined) return '—';
-  const product = candidate.product;
   const specs = normalizedSpecs(candidate);
-  if (key === 'part_number') return formatValue(product.manufacturer_part_number);
-  if (key === 'manufacturer') return formatValue(product.manufacturer);
-  if (key === 'part_type') return formatValue(specs.part_type ?? valueAt(product, 'category'));
+  if (key === 'part_number') return formatValue(candidate.mpn);
+  if (key === 'manufacturer') return formatValue(candidate.manufacturerName);
+  if (key === 'part_type') return formatValue(specs.part_type ?? candidate.category);
   if (key === 'package') {
-    return formatValue(comparisonFor(candidate, key)?.actual_display ?? specs.package ?? product.package);
+    return formatValue(comparisonFor(candidate, key)?.actual_display ?? specs.package ?? candidate.packageCode);
   }
-  if (key === 'description') return formatValue(product.description);
+  if (key === 'description') return formatValue(candidate.description);
   if (key === 'quantity' || key === 'source_cells') return '—';
-  if (key === 'stock') return maxStock(candidate);
-  if (key === 'moq') return minimumMoq(candidate);
-  if (key === 'best_price') return bestPrice(candidate);
-  if (key === 'lifecycle') {
-    if (valueAt(product, 'end_of_life') === true) return 'EOL';
-    if (valueAt(product, 'discontinued') === true) return '단종';
-    return formatValue(product.lifecycle_status);
-  }
+  if (key === 'stock') return maxStock(candidate, supplier);
+  if (key === 'moq') return minimumMoq(candidate, supplier);
+  if (key === 'best_price') return bestPrice(candidate, supplier);
+  if (key === 'lifecycle') return formatValue(candidate.lifecycleStatus);
   return formatValue(comparisonFor(candidate, key)?.actual_display ?? specs[key]);
-}
-
-function stringValues(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 function cellState(item: ComparisonItem, supplier: string, key: string): CellState {
@@ -434,8 +405,8 @@ function cellState(item: ComparisonItem, supplier: string, key: string): CellSta
     return comparisonState;
   }
   if (candidate.conflicts.includes(`${key}_mismatch`)) return 'mismatch';
-  if (candidate.missing_requirements.includes(key)) return 'missing';
-  const reasons = stringValues(valueAt(candidate, 'reasons'));
+  if (candidate.missingRequirements.includes(key)) return 'missing';
+  const reasons = candidate.reasons;
   if (key === 'part_number' && reasons.some((reason) => reason.startsWith('manufacturer_part_number_'))) return 'match';
   if (key === 'manufacturer' && reasons.includes('manufacturer_match')) return 'match';
   return reasons.includes(`${key}_match`) ? 'match' : 'neutral';
@@ -464,20 +435,21 @@ function supplierStatus(item: ComparisonItem, supplier: string): string {
 }
 
 function itemTitle(item: ComparisonItem): string {
-  const query = queryRecord(item.searchComponent);
-  return formatValue(item.quoteItem?.mpn ?? query?.part_number ?? sourceRow(item.quoteItem)?.valueRaw ?? '미식별 부품');
+  return formatValue(
+    sourceText(item.quoteItem, 'inputPartNumber')
+      ?? sourceText(item.quoteItem, 'valueRaw')
+      ?? item.quoteItem.mpn,
+  );
 }
 
 function itemRefs(item: ComparisonItem): string {
-  const refs = item.searchComponent?.reference_designators ?? quoteRefs(item.quoteItem);
+  const refs = quoteRefs(item.quoteItem);
   return refs.length > 0 ? refs.join(', ') : 'REFDES 없음';
 }
 
 function itemMeta(item: ComparisonItem): string {
-  const rows = quoteRows(item.quoteItem).length > 0
-    ? quoteRows(item.quoteItem)
-    : (item.searchComponent?.source_rows_1based ?? []);
-  return `${quoteSheet(item.quoteItem)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · BOM 수량 ${formatValue(item.quoteItem?.bomQty)}`;
+  const rows = quoteRows(item.quoteItem);
+  return `${quoteSheet(item.quoteItem)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · BOM 수량 ${formatValue(item.quoteItem.bomQty)}`;
 }
 
 function supplierLabel(value: string): string {
@@ -515,17 +487,14 @@ function statusLabel(item: ComparisonItem): string {
         </div>
 
         <div v-else-if="failed" class="state-panel error" role="alert">
-          <strong>공급사 비교 결과를 불러오지 못했습니다.</strong>
-          <p v-if="searchStatus === 'running'">공급사 검색이 아직 진행 중입니다. 완료 후 다시 시도해 주세요.</p>
-          <p v-else>분석 서버가 재시작됐거나 완료된 공급사 검색 결과가 없을 수 있습니다.</p>
+          <strong>저장된 BOM 비교 데이터를 불러오지 못했습니다.</strong>
+          <p>잠시 후 다시 시도해 주세요.</p>
           <button type="button" class="primary-button" @click="emit('retry')">다시 불러오기</button>
         </div>
 
-        <div v-else-if="engineJobId === null || result === null" class="state-panel">
-          <strong>비교할 공급사 검색 결과가 없습니다.</strong>
-          <p v-if="engineJobId === null">이 견적에는 연결된 BOM 분석 작업이 없습니다.</p>
-          <p v-else-if="searchStatus === 'running'">현재 공급사 검색이 진행 중입니다. 완료 후 다시 열어 주세요.</p>
-          <p v-else>공급사 검색이 완료되면 BOM 원본과 검색 결과를 비교할 수 있습니다.</p>
+        <div v-else-if="comparison === null" class="state-panel">
+          <strong>비교할 후보 스냅샷이 없습니다.</strong>
+          <p>BOM 분석이 완료되면 Excel 원본과 저장된 공급사 후보를 비교할 수 있습니다.</p>
         </div>
 
         <template v-else>

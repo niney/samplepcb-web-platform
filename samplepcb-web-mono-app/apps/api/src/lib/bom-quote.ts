@@ -13,6 +13,7 @@ import {
   type BomQuoteCandidateOfferType,
   type BomQuoteCandidateSafetyType,
   type BomQuoteCandidateType,
+  type BomQuoteComparisonRowType,
   type BomQuoteDecisionReasonType,
   type BomQuoteExchangeRateSnapshotType,
   type BomQuoteItemCandidatesType,
@@ -427,6 +428,66 @@ const StoredCandidate = z.object({
 
 type StoredCandidateType = z.infer<typeof StoredCandidate>;
 type StoredCandidateOfferType = z.infer<typeof StoredCandidateOffer>;
+
+export interface QuoteComparisonCandidateSnapshotRow {
+  rowIdx: number;
+  payload: Prisma.JsonValue;
+}
+
+/**
+ * 전체 BOM 비교용 영속 뷰. 엔진 잡은 재시작 시 소멸하므로 이미 박제한 후보 payload만
+ * 사용하고, 손상되거나 구버전인 개별 후보는 해당 행 전체가 아니라 그 후보만 격리한다.
+ */
+export function buildQuoteComparisonRows(
+  rows: readonly QuoteComparisonCandidateSnapshotRow[],
+): BomQuoteComparisonRowType[] {
+  const byRow = new Map<number, BomQuoteComparisonRowType['candidates']>();
+  for (const row of rows) {
+    const parsed = StoredCandidate.safeParse(row.payload);
+    if (!parsed.success) continue;
+    const candidate = parsed.data;
+    const candidates = byRow.get(row.rowIdx) ?? [];
+    candidates.push({
+      candidateKey: candidate.candidateKey,
+      technicalRank: candidate.technicalRank,
+      status: candidate.status,
+      safety: candidate.safety,
+      mpn: candidate.mpn,
+      manufacturerName: candidate.manufacturerName,
+      description: candidate.description,
+      category: candidate.category,
+      packageCode: candidate.packageCode,
+      lifecycleStatus: candidate.lifecycleStatus,
+      identityConfidence: candidate.identityConfidence,
+      specificationConfidence: candidate.specificationConfidence,
+      conflicts: candidate.conflicts,
+      missingRequirements: candidate.missingRequirements,
+      reasons: candidate.reasons,
+      normalizedSpecs: candidate.normalizedSpecs,
+      specComparisons: candidate.specComparisons,
+      packageComparison: candidate.packageComparison,
+      offers: candidate.offers.map((offer) => ({
+        offerKey: offer.offerKey,
+        supplier: offer.supplier,
+        supplierSku: offer.supplierSku,
+        packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging),
+        stock: offer.stock,
+        moq: offer.moq,
+        orderMultiple: offer.orderMultiple,
+        productUrl: offer.productUrl,
+        fetchedAt: offer.fetchedAt,
+        priceBreaks: offer.priceBreaks,
+      })),
+    });
+    byRow.set(row.rowIdx, candidates);
+  }
+  return [...byRow.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([rowIdx, candidates]) => ({
+      rowIdx,
+      candidates: candidates.sort((left, right) => left.technicalRank - right.technicalRank),
+    }));
+}
 
 export interface QuoteCandidateSnapshotInput {
   rowIdx: number;

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiSend, apiSendForm } from '@sp/shared';
 import {
   BomJobResponse,
+  BomQuoteComparisonResponse,
   BomQuoteCreateResponse,
   BomQuoteDeleteManyResponse,
   BomQuoteOkResponse,
@@ -10,7 +11,6 @@ import {
   BomQuoteItemCandidatesResponse,
   BomQuoteListResponse,
   BomSupplierPreflightResponse,
-  BomSupplierResultResponse,
   BomSupplierStartResponse,
   BomPartSearchResponse,
   PartDetailResponse,
@@ -63,6 +63,16 @@ export function useBomQuote(quoteId: Ref<string | null>, refetchInterval?: Ref<n
     enabled: computed(() => quoteId.value !== null),
     retry: false,
     ...(refetchInterval === undefined ? {} : { refetchInterval }),
+  });
+}
+
+/** 엔진 재시작과 무관하게 quoteId에 박제된 후보를 읽는 전체 BOM 비교. */
+export function useBomQuoteComparison(quoteId: Ref<string | null>, enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: computed(() => ['bom', 'quote-comparison', quoteId.value]),
+    queryFn: () => apiGet(`${base}/quotes/${quoteId.value ?? ''}/comparison`, BomQuoteComparisonResponse),
+    enabled: computed(() => enabled.value && quoteId.value !== null),
+    retry: false,
   });
 }
 
@@ -214,16 +224,6 @@ export function useSupplierSearchStatus(jobId: Ref<string | null>, enabled: Ref<
     enabled: computed(() => enabled.value && jobId.value !== null),
     retry: false,
     refetchInterval: (query) => (query.state.data?.data.status === 'running' ? 2_000 : false),
-  });
-}
-
-/** 완료된 공급사 검색 원본 결과 — BOM 비교 화면을 열 때만 지연 조회한다. */
-export function useSupplierSearchResult(jobId: Ref<string | null>, enabled: Ref<boolean>) {
-  return useQuery({
-    queryKey: computed(() => ['bom', 'supplier-result', jobId.value]),
-    queryFn: () => apiGet(`${base}/jobs/${jobId.value ?? ''}/supplier-search/result`, BomSupplierResultResponse),
-    enabled: computed(() => enabled.value && jobId.value !== null),
-    retry: false,
   });
 }
 
