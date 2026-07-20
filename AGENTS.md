@@ -41,7 +41,7 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 
 ## 프로젝트 호칭 (별칭)
 
-세 프로젝트를 부르는 **별칭**. 폴더·경로·패키지명은 **바꾸지 않는다** — 사람·에이전트가 문서·이슈·커밋·대화에서 안 헷갈리도록 통일한 호칭일 뿐(`@sp` 스코프·kebab-case 규칙과 일관).
+프로젝트를 부르는 **별칭**. 폴더·경로·패키지명은 **바꾸지 않는다** — 사람·에이전트가 문서·이슈·커밋·대화에서 안 헷갈리도록 통일한 호칭일 뿐(`@sp` 스코프·kebab-case 규칙과 일관).
 
 | 별칭 | 정체 | 폴더 (불변) | 라우트 | 정밀 구분 |
 |---|---|---|---|---|
@@ -50,12 +50,19 @@ samplepcb-web-platform/          ← 단일 git repo  (origin: niney/samplepcb-w
 | **`sp-market`** | Vue SPA 재능마켓 (고객) | `samplepcb-web-mono-app/apps/market` | `/market` | `@sp` 스코프 |
 | **`sp-node`** | Node/Fastify 백엔드 | `samplepcb-web-mono-app/apps/api` | `/api` | Fastify · `@sp` 스코프 |
 | **`sp-rnd`** | Vue 연구·실험 앱 | `samplepcb-web-mono-app/apps/rnd` | `/rnd` | 독립 Vite 앱 |
+| **`sp-engine`** | BOM 추출·부품 검색 엔진 | `samplepcb-parts-engine/` | sp-node 내부 연동 | Python |
 
 - **sp-vue `/app`의 실질 기본 용도는 관리자(`/app/admin`)다** — 고객 대면 신규 화면(견적관리 등)은 sp-php(`spcb/pages/`)에 우선 구현하는 플랫폼 결정에 따라, `/app` 루트 홈은 최소 셸이고 관리자 화면이 본문이다. **예외(2026-07-08): 재능마켓처럼 SPA급 인터랙션(마법사·블라인드 견적 비교·대시보드)이 필요한 신규 소비자 서비스는 별도 Vue 앱(sp-market, `/market`)으로 구현** — sp-vue는 계속 관리자 전용이고, 마켓의 관리 화면은 `/app/admin/market`에 둔다.
-- **"web"은 호칭으로 쓰지 않는다** — `samplepcb-web/`(PHP)와 `apps/web`(Vue) 양쪽에 걸쳐 혼동을 부르기 때문. 위 세 별칭으로 대체.
+- **"web"은 호칭으로 쓰지 않는다** — `samplepcb-web/`(PHP)와 `apps/web`(Vue) 양쪽에 걸쳐 혼동을 부르기 때문. 위 별칭으로 대체.
 - 빠른 대화에선 `php`/`vue`/`node`로 줄여도 1:1로 통함. **문서·커밋엔 `sp-` 접두형 권장.**
 - `sp-node`는 런타임 기준 이름. 라우트/계약(`/api`, `@sp/api-contract`)을 콕 집을 땐 "sp-node의 api".
 - `sp-rnd`는 제품 기능과 분리된 가설 검증·프로토타이핑용 독립 Vue 앱이다.
+
+## BOM 역할 경계
+
+- **sp-engine**을 BOM 추출·정규화·검색·호환성 판단의 원본으로 삼고, 같은 판단을 sp-node나 sp-vue에 중복 구현하지 않는다.
+- **sp-node**는 sp-engine과 프론트 사이의 계약·저장·업무 정책 경계다. sp-engine과 sp-vue를 직접 연결하지 않는다.
+- 필요한 정보나 판단이 엔진에 없으면 응용 계층에서 추측하지 말고, sp-engine 수정 필요성을 사용자에게 알린 뒤 엔진부터 바른다.
 
 ## 런타임 통합 — 같은 도메인 라우팅 (nginx 443 리버스프록시)
 
