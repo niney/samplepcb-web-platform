@@ -8,6 +8,7 @@ import type {
   BomQuoteSelectionSourceType,
   PartHitType,
 } from '@sp/api-contract';
+import type { OfferPick } from '@sp/utils';
 import BomPartSearchPanel from './BomPartSearchPanel.vue';
 import PartImage from '../ui/PartImage.vue';
 
@@ -24,6 +25,8 @@ const props = withDefaults(defineProps<{
   initialView?: SelectionView;
   searchInitialQuery?: string;
   currentPartId?: string | null;
+  needed?: number;
+  usdKrwRate?: number | null;
 }>(), {
   readOnly: false,
   selecting: false,
@@ -33,12 +36,14 @@ const props = withDefaults(defineProps<{
   initialView: 'candidates',
   searchInitialQuery: '',
   currentPartId: null,
+  needed: 1,
+  usdKrwRate: null,
 });
 
 const emit = defineEmits<{
   close: [];
   select: [candidateKey: string, offerKey: string | null];
-  catalogSelect: [part: PartHitType];
+  catalogSelect: [part: PartHitType, pick: OfferPick | null];
   catalogOffers: [];
 }>();
 
@@ -275,6 +280,10 @@ function selectOffer(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateO
   emit('select', candidate.candidateKey, offer.offerKey);
 }
 
+function selectCatalogPart(part: PartHitType, pick: OfferPick | null): void {
+  emit('catalogSelect', part, pick);
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (props.open && event.key === 'Escape') emit('close');
 }
@@ -346,13 +355,15 @@ onBeforeUnmount(() => {
             <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
               <div class="mb-4">
                 <h3 class="font-bold text-slate-900">카탈로그 검색</h3>
-                <p class="mt-1 text-xs text-slate-500">선택하면 해당 부품의 공급사 오퍼를 불러와 현재 행에 즉시 적용하고 자동 저장합니다.</p>
+                <p class="mt-1 text-xs text-slate-500">부품을 고른 뒤 공급 포장·공급사·실제 주문수량과 총액을 확인하고 적용합니다.</p>
               </div>
               <BomPartSearchPanel
                 :initial-query="searchInitialQuery"
                 :current-part-id="currentPartId"
                 :selecting="catalogSelecting"
-                @select="emit('catalogSelect', $event)"
+                :needed="needed"
+                :usd-krw-rate="usdKrwRate"
+                @select="selectCatalogPart"
               />
             </section>
           </div>

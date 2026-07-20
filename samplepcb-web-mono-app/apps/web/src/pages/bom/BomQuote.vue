@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ApiRequestError, apiGet } from '@sp/shared';
+import { ApiRequestError } from '@sp/shared';
 import {
-  PartDetailResponse,
-  apiRoutes,
   type BomQuoteItemType,
   type BomQuoteSelectedOfferType,
   type PartHitType,
@@ -12,10 +10,8 @@ import {
 import {
   neededQty,
   pickBreak,
-  pickDefaultOffer,
   stampOrderQty,
   toKrw,
-  type BomOfferInput,
   type OfferPick,
 } from '@sp/utils';
 import {
@@ -402,6 +398,11 @@ const catalogSelectionPending = ref(false);
 
 const offerModal = ref<{ lineIdx: number; partId: string } | null>(null);
 const partModal = ref<{ mode: 'swap' | 'add'; lineIdx: number | null; query: string } | null>(null);
+const partModalNeeded = computed(() => {
+  const target = partModal.value;
+  if (target?.lineIdx === undefined || target.lineIdx === null) return neededQty(1, setQty.value, spareQty.value);
+  return neededQty(items.value[target.lineIdx]?.bomQty ?? 1, setQty.value, spareQty.value);
+});
 
 watch(editingLocked, (locked) => {
   if (!locked) return;
@@ -549,29 +550,9 @@ interface CatalogSelectionTarget {
   lineIdx: number | null;
 }
 
-async function applyCatalogPart(part: PartHitType, target: CatalogSelectionTarget): Promise<boolean> {
+function applyCatalogPart(part: PartHitType, pick: OfferPick | null, target: CatalogSelectionTarget): boolean {
   if (editingLocked.value) return false;
-  // 선택 부품의 오퍼를 불러와 기본 오퍼 자동 선정(matchStatus=manual)
-  let offers: BomOfferInput[];
-  try {
-    const res = await apiGet(`${apiRoutes.bom}/parts/${part.id}`, PartDetailResponse);
-    offers = res.data.offers
-      .filter((o) => o.supplier !== 'samplepcb')
-      .map((o) => ({
-        supplier: o.supplier,
-        supplierSku: o.supplierSku,
-        packaging: o.packaging,
-        currency: o.currency,
-        stock: o.stock,
-        moq: o.moq,
-        orderMultiple: o.orderMultiple,
-        fetchedAt: o.fetchedAt,
-        priceBreaks: o.priceBreaks.map((pb) => ({ qty: pb.qty, price: pb.price })),
-      }));
-  } catch {
-    return false;
-  }
-  if (enriching.value) return false; // 상세 조회 사이 검색이 시작된 경우 변경 폐기
+  if (enriching.value) return false;
 
   let lineIdx = target.lineIdx;
   if (target.mode === 'add' || lineIdx === null) {
@@ -614,9 +595,9 @@ async function applyCatalogPart(part: PartHitType, target: CatalogSelectionTarge
 
   const item = items.value[lineIdx];
   if (item === undefined) return false;
-  const pick = pickDefaultOffer(offers, neededQty(item.bomQty, setQty.value, spareQty.value), rate.value);
   if (pick !== null) {
-    applyOfferPick(pick, false, lineIdx, part.id);
+    // 추천값이어도 고객이 공급 포장·공급사를 확인하고 확정한 직접 선택이다.
+    applyOfferPick(pick, true, lineIdx, part.id);
   } else {
     recalcLine(item);
     markDirty();
@@ -624,14 +605,14 @@ async function applyCatalogPart(part: PartHitType, target: CatalogSelectionTarge
   return true;
 }
 
-async function onPartSelected(part: PartHitType): Promise<void> {
+function onPartSelected(part: PartHitType, pick: OfferPick | null): void {
   const modal = partModal.value;
   if (modal === null || editingLocked.value) return;
   partModal.value = null;
-  await applyCatalogPart(part, modal);
+  applyCatalogPart(part, pick, modal);
 }
 
-async function onCatalogPartSelected(part: PartHitType): Promise<void> {
+function onCatalogPartSelected(part: PartHitType, pick: OfferPick | null): void {
   const item = candidateItem.value;
   if (item === null || editingLocked.value || catalogSelectionPending.value) return;
   const lineIdx = items.value.findIndex((entry) => entry.rowIdx === item.rowIdx);
@@ -643,9 +624,9 @@ async function onCatalogPartSelected(part: PartHitType): Promise<void> {
   candidateSelectionError.value = '';
   catalogSelectionPending.value = true;
   try {
-    const applied = await applyCatalogPart(part, { mode: 'swap', lineIdx });
+    const applied = applyCatalogPart(part, pick, { mode: 'swap', lineIdx });
     if (applied) closeSelectionSurface();
-    else candidateSelectionError.value = '부품 상세 또는 공급사 오퍼를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    else candidateSelectionError.value = '선택한 구매 조건을 현재 행에 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.';
   } finally {
     catalogSelectionPending.value = false;
   }
@@ -1144,6 +1125,8 @@ function fmtAmount(v: number | null): string {
       :initial-view="candidateDrawerView"
       :search-initial-query="candidateItem?.mpn ?? ''"
       :current-part-id="candidateItem?.partId ?? null"
+      :needed="candidateItem === null ? 1 : neededQty(candidateItem.bomQty, setQty, spareQty)"
+      :usd-krw-rate="rate"
       :has-catalog-part="candidateItem !== null && candidateItem.partId !== null && candidateItem.selectedCandidateKey === null"
       @select="selectCandidate"
       @catalog-select="onCatalogPartSelected"
@@ -1173,6 +1156,8 @@ function fmtAmount(v: number | null): string {
       v-if="partModal !== null && !editingLocked"
       :initial-query="partModal.query"
       :mode="partModal.mode"
+      :needed="partModalNeeded"
+      :usd-krw-rate="rate"
       @select="onPartSelected"
       @close="partModal = null"
     />
