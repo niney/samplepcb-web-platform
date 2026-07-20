@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { BomQuoteItemType } from '@sp/api-contract';
 import PartImage from '../ui/PartImage.vue';
 import favDigikey from '../../assets/bom/fav-digikey.png';
@@ -46,6 +46,30 @@ const hasEngineCandidates = computed(() =>
   || props.item.selectedCandidateKey !== null
   || props.item.recommendedCandidateKey !== null,
 );
+
+const priceExpanded = ref(false);
+
+const sortedPriceBreaks = computed(() => {
+  const offer = props.item.selectedOffer;
+  if (offer === null) return [];
+  const rows = [...offer.priceBreaks].sort((a, b) => a.qty - b.qty);
+  // 일부 레거시/수동 오퍼는 가격구간 배열 없이 적용 단가만 보존되어 있다.
+  return rows.length > 0 ? rows : [{ qty: offer.breakQty, price: offer.unitPrice }];
+});
+
+const hasMorePriceBreaks = computed(() => sortedPriceBreaks.value.length > 4);
+
+const visiblePriceBreaks = computed(() => {
+  const rows = sortedPriceBreaks.value;
+  if (priceExpanded.value || rows.length <= 4) return rows;
+
+  // 적용 구간이 뒤쪽에 있어도 파란 강조가 접힌 목록에서 사라지지 않도록
+  // 적용 구간 앞뒤의 4개 가격대를 보여준다.
+  const activeIndex = rows.findIndex((row) => row.qty === props.item.selectedOffer?.breakQty);
+  if (activeIndex < 4) return rows.slice(0, 4);
+  const start = Math.min(Math.max(activeIndex - 1, 0), rows.length - 4);
+  return rows.slice(start, start + 4);
+});
 
 const rowClass = computed(() => {
   const item = props.item;
@@ -136,10 +160,22 @@ function fmtWon(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
 }
 
-function fmtBreakPrice(price: number, currency: string): string {
-  if (currency === 'KRW') return `${price.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원`;
-  const sym = currency === 'USD' ? '$' : `${currency} `;
-  return `${sym}${price.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`;
+function fmtBreakNumber(price: number, currency: string): string {
+  return price.toLocaleString('ko-KR', { maximumFractionDigits: currency === 'KRW' ? 2 : 4 });
+}
+
+function pricePrefix(currency: string): string {
+  if (currency === 'KRW') return '';
+  return currency === 'USD' ? '$' : `${currency} `;
+}
+
+function priceSuffix(currency: string): string {
+  return currency === 'KRW' ? '원' : '';
+}
+
+function togglePriceDetails(): void {
+  if (!hasMorePriceBreaks.value) return;
+  priceExpanded.value = !priceExpanded.value;
 }
 
 /** 오퍼 데이터 나이 — 정직성 표시(방금 조회한 것처럼 보이지 않게). */
@@ -211,12 +247,34 @@ function onQtyInput(event: Event): void {
     <td class="max-w-[220px] px-2 py-3 pt-[42px]">
       <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
-    <!-- 적용 가격 — 전체 가격구간·후보 비교는 통합 드로어에서 제공 -->
-    <td class="px-2 py-3">
+    <!-- UNIT PRICE: Figma 87:13361 — 가격구간 4행 + 적용 구간 강조 + 상세 확장 -->
+    <td class="px-2 py-2">
       <template v-if="item.selectedOffer !== null">
-        <p class="pt-4 text-right text-[15px] font-bold tabular-nums text-[#1e64fd]">{{ fmtBreakPrice(item.selectedOffer.unitPrice, item.selectedOffer.currency) }}</p>
-        <p class="mt-1 text-right text-[11px] text-gray-500">{{ item.selectedOffer.breakQty.toLocaleString('ko-KR') }}+ 적용 · MOQ {{ item.selectedOffer.moq?.toLocaleString('ko-KR') ?? '—' }}</p>
-        <p class="mt-1 text-right text-[10px] text-gray-400" title="이 가격·재고를 공급사에서 가져온 시각">기준 {{ fmtAge(item.selectedOffer.fetchedAt) }}</p>
+        <div class="flex flex-col gap-[4px]">
+          <div
+            v-for="priceBreak in visiblePriceBreaks"
+            :key="priceBreak.qty"
+            class="flex min-h-[14px] items-baseline justify-between gap-3 text-[12px] leading-[14px]"
+            :class="priceBreak.qty === item.selectedOffer.breakQty ? 'font-bold text-[#1e64fd]' : 'font-semibold text-[#5f6777]'"
+          >
+            <span class="w-[32px] shrink-0 text-right tabular-nums">{{ priceBreak.qty.toLocaleString('ko-KR') }}+</span>
+            <span class="min-w-0 text-right tabular-nums">
+              {{ pricePrefix(item.selectedOffer.currency) }}{{ fmtBreakNumber(priceBreak.price, item.selectedOffer.currency) }}<span class="font-normal">{{ priceSuffix(item.selectedOffer.currency) }}</span>
+            </span>
+          </div>
+        </div>
+        <div v-if="hasMorePriceBreaks" class="mt-[6px] border-t border-[#d7dce4] pt-[4px] text-center">
+          <button
+            type="button"
+            class="inline-flex h-[14px] items-center gap-1 text-[12px] font-semibold leading-[14px] text-[#1e64fd] hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+            :disabled="editingLocked"
+            :title="editingLocked ? EDIT_LOCK_TITLE : `전체 ${String(sortedPriceBreaks.length)}개 가격구간 ${priceExpanded ? '접기' : '보기'}`"
+            @click="togglePriceDetails"
+          >
+            가격 상세 <span class="text-[10px]">{{ priceExpanded ? '▴' : '▾' }}</span>
+          </button>
+        </div>
+        <p class="mt-[3px] text-center text-[9px] leading-[11px] text-gray-400" title="이 가격·재고를 공급사에서 가져온 시각">기준 {{ fmtAge(item.selectedOffer.fetchedAt) }}</p>
       </template>
       <p v-else class="pt-[24px] text-right text-[12px] text-gray-300">—</p>
     </td>
