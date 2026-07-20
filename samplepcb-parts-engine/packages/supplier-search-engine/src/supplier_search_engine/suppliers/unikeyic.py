@@ -17,10 +17,37 @@ from ..normalization import normalized_specs_from_text
 from .base import SupplierClient
 
 
+_PACKAGING_TRANSLATIONS = {
+    "卷带装": "Tape & Reel",
+    "托盘装": "Tray",
+    "管装": "Tube",
+    "散装": "Bulk",
+    "盒装": "Box",
+    "袋装": "Bag",
+}
+
+
+def normalize_unikeyic_packaging(value: Any) -> str | None:
+    """Translate UniKeyIC supply packaging without touching physical package data."""
+    if not isinstance(value, str):
+        return None
+    tokens = [token.strip() for token in value.replace("，", ",").split(",") if token.strip()]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        translated = _PACKAGING_TRANSLATIONS.get(token, token)
+        key = translated.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(translated)
+    return ", ".join(normalized) or None
+
+
 class UniKeyICClient(SupplierClient):
     supplier = Supplier.UNIKEYIC
     api_version = "search-v1"
-    normalizer_version = "2"
+    normalizer_version = "3"
 
     def __init__(
         self,
@@ -85,7 +112,7 @@ class UniKeyICClient(SupplierClient):
                 continue
             description = product.get("short_desc")
             specs = normalized_specs_from_text(description, query.part_type)
-            packaging = product.get("package")
+            packaging = normalize_unikeyic_packaging(product.get("package"))
             price_values = product.get("calc_sale_usd_price") or []
             quantities = product.get("nums") or []
             breaks: list[PriceBreak] = []

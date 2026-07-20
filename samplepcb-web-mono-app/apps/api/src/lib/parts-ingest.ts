@@ -11,6 +11,7 @@ import {
   resolvePartFacts,
   type FactsSource,
 } from './parts-facts';
+import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // BOM 공급사 검색 결과(sp-engine envelope) → 부품 카탈로그 자동 인제스트.
 // 전 경로 idempotent: part=(mpnNorm,manufacturerNorm) · offer=(partId,supplier,sku) upsert,
@@ -154,7 +155,7 @@ async function upsertGroup(group: ProductGroup): Promise<{ partId: bigint; offer
       stock: offer.stock ?? null,
       moq: offer.moq ?? null,
       orderMultiple: offer.order_multiple ?? null,
-      packaging: offer.packaging?.slice(0, 64) ?? null,
+      packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging)?.slice(0, 64) ?? null,
       currency: offer.price_breaks[0]?.currency.slice(0, 8) ?? null,
       leadTime: offer.lead_time?.slice(0, 64) ?? null,
       rawJson: raw as unknown as Prisma.InputJsonValue,
@@ -284,7 +285,7 @@ export async function applyPartFacts(partId: bigint): Promise<void> {
     stock: chosen.stock,
     moq: chosen.moq,
     orderMultiple: chosen.orderMultiple,
-    packaging: chosen.packaging,
+    packaging: normalizeSupplierPackaging(chosen.supplier, chosen.packaging),
     currency: chosen.currency,
     leadTime: chosen.leadTime,
     rawJson: {

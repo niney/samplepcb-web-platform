@@ -3,6 +3,7 @@ import type { PartDetailType } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { specsSiRecord } from './parts-es';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // 부품 상세(DB) DTO 빌더 — 관리자 카탈로그 상세와 고객 BOM 오퍼 변경 모달이 공유.
 // 집계는 실공급사만(파생 samplepcb 오퍼는 원천과 이중 계산) — 목록(hit)과 동일 기준.
@@ -57,20 +58,23 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
     score: null,
     firstSeenAt: part.firstSeenAt.toISOString(),
     lastSeenAt: part.lastSeenAt.toISOString(),
-    offers: part.offers.map((o) => ({
-      supplier: o.supplier,
-      supplierSku: o.supplierSku,
-      productUrl: o.productUrl,
-      stock: o.stock,
-      moq: o.moq,
-      orderMultiple: o.orderMultiple,
-      packaging: o.packaging,
-      currency: o.currency,
-      priceBreaks: [...o.priceBreaks]
-        .sort((a, b) => a.qty - b.qty)
-        .map((pb) => ({ qty: pb.qty, price: Number(pb.price) })),
-      fetchedAt: o.fetchedAt.toISOString(),
-      derivedFrom: o.supplier === SAMPLEPCB_SUPPLIER ? offerDerivedFrom(o.rawJson) : null,
-    })),
+    offers: part.offers.map((o) => {
+      const derivedFrom = o.supplier === SAMPLEPCB_SUPPLIER ? offerDerivedFrom(o.rawJson) : null;
+      return {
+        supplier: o.supplier,
+        supplierSku: o.supplierSku,
+        productUrl: o.productUrl,
+        stock: o.stock,
+        moq: o.moq,
+        orderMultiple: o.orderMultiple,
+        packaging: normalizeSupplierPackaging(derivedFrom?.supplier ?? o.supplier, o.packaging),
+        currency: o.currency,
+        priceBreaks: [...o.priceBreaks]
+          .sort((a, b) => a.qty - b.qty)
+          .map((pb) => ({ qty: pb.qty, price: Number(pb.price) })),
+        fetchedAt: o.fetchedAt.toISOString(),
+        derivedFrom,
+      };
+    }),
   };
 }

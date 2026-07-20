@@ -43,6 +43,7 @@ import { engineFetch } from './engine-client';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
+import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
 // 원칙: 수량·오퍼는 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
@@ -271,7 +272,7 @@ function toOfferInputs(part: PartWithOffers): BomOfferInput[] {
     .map((o) => ({
       supplier: o.supplier,
       supplierSku: o.supplierSku,
-      packaging: o.packaging,
+      packaging: normalizeSupplierPackaging(o.supplier, o.packaging),
       currency: o.currency,
       stock: o.stock,
       moq: o.moq,
@@ -715,7 +716,7 @@ function engineOfferInput(offer: z.infer<typeof EngineSupplierOffer>): BomOfferI
   return {
     supplier: offer.supplier,
     supplierSku: (offer.supplier_sku ?? '').slice(0, 191),
-    packaging: offer.packaging ?? null,
+    packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging),
     currency: offer.price_breaks[0]?.currency ?? null,
     stock: offer.stock ?? null,
     moq: offer.moq ?? null,
@@ -1397,7 +1398,7 @@ function storedOfferInput(offer: StoredCandidateOfferType): BomOfferInput {
   return {
     supplier: offer.supplier,
     supplierSku: offer.supplierSku,
-    packaging: offer.packaging,
+    packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging),
     currency: offer.priceBreaks[0]?.currency ?? null,
     stock: offer.stock,
     moq: offer.moq,
@@ -1704,7 +1705,7 @@ function candidateOfferView(
     offerKey: offer.offerKey,
     supplier: offer.supplier,
     supplierSku: offer.supplierSku,
-    packaging: offer.packaging,
+    packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging),
     stock: offer.stock,
     moq: offer.moq,
     orderMultiple: offer.orderMultiple,
@@ -2334,6 +2335,9 @@ function legacyCompatibleEvidence(value: Prisma.JsonValue | null): Prisma.JsonVa
 export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null): BomQuoteItemType {
   const offer = BomQuoteSelectedOffer.safeParse(legacyCompatibleOffer(row.selectedOffer));
   const evidence = BomQuoteMatchEvidence.safeParse(legacyCompatibleEvidence(row.matchEvidence));
+  const selectedOffer = offer.success
+    ? { ...offer.data, packaging: normalizeSupplierPackaging(offer.data.supplier, offer.data.packaging) }
+    : null;
   return {
     rowIdx: row.rowIdx,
     included: row.included,
@@ -2348,7 +2352,7 @@ export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null)
     selectedCandidateKey: row.selectedCandidateKey,
     selectionSource: row.selectionSource as BomQuoteSelectionSourceType,
     partId: row.partId === null ? null : String(row.partId),
-    selectedOffer: offer.success ? offer.data : null,
+    selectedOffer,
     sourceSheetIndex: row.sourceSheetIndex,
     sourceSheetName: row.sourceSheetName,
     sourceRow:

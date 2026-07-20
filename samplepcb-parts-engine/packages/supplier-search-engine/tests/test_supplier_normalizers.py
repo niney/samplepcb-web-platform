@@ -8,7 +8,7 @@ import httpx
 from supplier_search_engine.models import PlannedQuery, RawSupplierResponse, Requirement, SearchMode, Supplier
 from supplier_search_engine.suppliers.digikey import DigiKeyClient
 from supplier_search_engine.suppliers.mouser import MouserClient
-from supplier_search_engine.suppliers.unikeyic import UniKeyICClient
+from supplier_search_engine.suppliers.unikeyic import UniKeyICClient, normalize_unikeyic_packaging
 
 
 def query() -> PlannedQuery:
@@ -180,6 +180,16 @@ def test_unikeyic_preserves_returned_variants_for_the_matcher():
     assert product.offers[0].packaging == "0603"
     assert product.offers[0].stock == 5
     assert len(product.offers[0].price_breaks) == 2
+
+
+def test_unikeyic_translates_supply_packaging_to_english():
+    assert normalize_unikeyic_packaging("卷带装") == "Tape & Reel"
+    assert normalize_unikeyic_packaging("Cut T&R, 卷带装") == "Cut T&R, Tape & Reel"
+    assert normalize_unikeyic_packaging(", 卷带装") == "Tape & Reel"
+    assert normalize_unikeyic_packaging("托盘装, Tube") == "Tray, Tube"
+    assert normalize_unikeyic_packaging("0603") == "0603"
+    assert normalize_unikeyic_packaging("") is None
+    assert normalize_unikeyic_packaging(None) is None
 
 
 async def test_retry_reserves_every_physical_supplier_call():
@@ -451,7 +461,6 @@ async def test_mouser_parametric_search_falls_back_from_full_to_core_keywords():
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         request_bodies.append(body)
-        root = next(iter(body))
         if len(request_bodies) == 1:
             return httpx.Response(200, json={"SearchResults": {"Parts": []}})
         return httpx.Response(
