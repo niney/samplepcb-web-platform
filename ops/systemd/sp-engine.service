@@ -1,0 +1,36 @@
+# sp-engine — samplepcb-parts-engine (BOM 추출 + 공급사 검색, FastAPI/uvicorn)
+#
+# 설치 (운영 centrafab.co.kr, 유저 samplepcb):
+#   1) uv 설치(1회): curl -LsSf https://astral.sh/uv/install.sh | sh   → ~/.local/bin/uv
+#   2) cd /home/samplepcb/samplepcb-web-platform/samplepcb-parts-engine && uv sync
+#   3) .env 작성(공급사 API 키 — MOUSER/DIGIKEY/UNIKEYIC). main.py 가 load_dotenv() 로 읽음.
+#   4) sudo cp ops/systemd/sp-engine.service /etc/systemd/system/
+#      sudo systemctl daemon-reload && sudo systemctl enable --now sp-engine
+#   5) 확인: curl http://127.0.0.1:8400/health
+#
+# 주의: 엔진은 무인증(인증은 sp-node 담당) — 반드시 127.0.0.1 바인딩 유지, 외부 노출 금지.
+#       코드 갱신 배포는 ./deploy.sh 10 (pull → uv sync → restart).
+
+[Unit]
+Description=samplepcb parts engine (BOM extraction + supplier search)
+After=network.target
+
+[Service]
+Type=simple
+User=samplepcb
+Group=samplepcb
+WorkingDirectory=/home/samplepcb/samplepcb-web-platform/samplepcb-parts-engine
+# --no-sync: 배포 스크립트가 uv sync 를 이미 수행 — 기동 시 네트워크 의존 제거
+ExecStart=/home/samplepcb/.local/bin/uv run --no-sync uvicorn parts_engine_app.main:app --host 127.0.0.1 --port 8400
+Restart=always
+RestartSec=3
+# 공급사 API 타임아웃 대비 여유 종료 시간
+TimeoutStopSec=30
+
+# 최소 하드닝(무인증 사설 서비스)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

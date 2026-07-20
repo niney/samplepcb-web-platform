@@ -18,6 +18,12 @@
 - `dev.sh` — 로컬 전체 스택 기동(turbo dev + apache + nginx).
 - `deploy.sh` — 빌드/배포. 운영 R&D 앱은 `./deploy.sh 9`, 풀 배포는 `./deploy.sh 5`로 `apps/rnd/dist`까지 갱신한다.
 
+## 운영(centrafab.co.kr)
+
+- `nginx-live/` — **운영 서버 nginx 실설정 스냅샷**(서버에서 복사해온 참고용). gitignore 대상 — 커밋 금지. 정본은 서버 `/etc/nginx/`.
+- `systemd/sp-engine.service` — sp-engine(Python, 127.0.0.1:8400) 유닛 초안. 최초 설치 절차는 파일 머리말 주석 참고. 이후 갱신은 `./deploy.sh 10`.
+- sp-engine 은 nginx 노출 없음(sp-node 가 내부 프록시) — centrafab nginx 설정 변경 불필요.
+
 ## 참고
 
 - 예약 경로 `/app`·`/market`·`/rnd`·`/api`는 그누보드가 쓰지 않는다.
