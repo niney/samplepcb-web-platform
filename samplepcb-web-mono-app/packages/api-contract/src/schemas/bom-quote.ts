@@ -270,6 +270,8 @@ export const BomQuoteItem = BomQuoteItemInput.extend({
   lineTotalKrw: z.number().nullable(),
   /** 카탈로그 부품 이미지(partId 조회, 서버 채움) — 표시 전용·PATCH 왕복 없음. */
   partImageUrl: z.string().nullable(),
+  /** 데이터시트 외부 링크(카탈로그 partId 우선, 없으면 선정 후보 스냅샷) — 표시 전용·PATCH 왕복 없음. */
+  partDatasheetUrl: z.string().nullable(),
 });
 export type BomQuoteItemType = z.infer<typeof BomQuoteItem>;
 

@@ -2112,8 +2112,8 @@ function round2(n: number): number {
 export function recalcItems(items: BomQuoteItemInputType[], usdKrwRate: number | null): BomQuoteItemType[] {
   return items.map((item) => {
     const offer = item.selectedOffer;
-    // partImageUrl 은 응답 시 toDetailDto 가 카탈로그에서 채운다(여긴 계산 전용)
-    if (offer === null) return { ...item, lineTotalKrw: null, partImageUrl: null };
+    // partImageUrl·partDatasheetUrl 은 응답 시 toDetailDto 가 카탈로그에서 채운다(여긴 계산 전용)
+    if (offer === null) return { ...item, lineTotalKrw: null, partImageUrl: null, partDatasheetUrl: null };
     const orderQty = Math.max(1, item.orderQty);
     const step = pickBreak(offer.priceBreaks, orderQty);
     const unitPrice = step === null ? offer.unitPrice : step.price;
@@ -2125,6 +2125,7 @@ export function recalcItems(items: BomQuoteItemInputType[], usdKrwRate: number |
       selectedOffer: { ...offer, breakQty, unitPrice, unitPriceKrw },
       lineTotalKrw: unitPriceKrw === null ? null : round2(unitPriceKrw * orderQty),
       partImageUrl: null,
+      partDatasheetUrl: null,
     };
   });
 }
@@ -2333,7 +2334,7 @@ function legacyCompatibleEvidence(value: Prisma.JsonValue | null): Prisma.JsonVa
   };
 }
 
-export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null): BomQuoteItemType {
+export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null, partDatasheetUrl: string | null = null): BomQuoteItemType {
   const offer = BomQuoteSelectedOffer.safeParse(legacyCompatibleOffer(row.selectedOffer));
   const evidence = BomQuoteMatchEvidence.safeParse(legacyCompatibleEvidence(row.matchEvidence));
   const selectedOffer = offer.success
@@ -2362,18 +2363,39 @@ export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null)
         : null,
     lineTotalKrw: row.lineTotalKrw === null ? null : Number(row.lineTotalKrw),
     partImageUrl,
+    partDatasheetUrl,
   };
 }
 
-/** 라인 partId → 카탈로그 이미지 일괄 조회 — 스냅샷이 아니라 항상 현재 카탈로그를 따른다. */
-async function loadPartImageMap(items: QuoteItemRow[]): Promise<Map<bigint, string>> {
+/** 라인 partId → 카탈로그 이미지·데이터시트 일괄 조회 — 스냅샷이 아니라 항상 현재 카탈로그를 따른다. */
+async function loadPartMetaMap(items: QuoteItemRow[]): Promise<Map<bigint, { imageUrl: string | null; datasheetUrl: string | null }>> {
   const partIds = [...new Set(items.flatMap((i) => (i.partId === null ? [] : [i.partId])))];
   if (partIds.length === 0) return new Map();
   const parts = await prisma.spPart.findMany({
     where: { id: { in: partIds } },
-    select: { id: true, imageUrl: true },
+    select: { id: true, imageUrl: true, datasheetUrl: true },
   });
-  return new Map(parts.flatMap((p) => (p.imageUrl === null ? [] : [[p.id, p.imageUrl] as const])));
+  return new Map(parts.map((p) => [p.id, { imageUrl: p.imageUrl, datasheetUrl: p.datasheetUrl }] as const));
+}
+
+/** 엔진 매칭 라인(partId 없음)용 — 선정 후보 스냅샷의 datasheetUrl 을 rowIdx 별로 모은다. */
+async function loadCandidateDatasheetMap(quoteId: bigint, items: QuoteItemRow[]): Promise<Map<number, string>> {
+  const rowIdxs = items
+    .filter((item) => item.partId === null && item.selectedCandidateKey !== null)
+    .map((item) => item.rowIdx);
+  if (rowIdxs.length === 0) return new Map();
+  const selectedKeyByRow = new Map(items.map((item) => [item.rowIdx, item.selectedCandidateKey] as const));
+  const rows = await prisma.spBomQuoteCandidate.findMany({
+    where: { quoteId, rowIdx: { in: rowIdxs } },
+  });
+  const map = new Map<number, string>();
+  for (const row of rows) {
+    const parsed = StoredCandidate.safeParse(row.payload);
+    if (!parsed.success) continue;
+    if (parsed.data.candidateKey !== selectedKeyByRow.get(row.rowIdx)) continue;
+    if (parsed.data.datasheetUrl !== null) map.set(row.rowIdx, parsed.data.datasheetUrl);
+  }
+  return map;
 }
 
 type SummaryItemRow = Pick<QuoteItemRow, 'included' | 'matchStatus'>;
@@ -2414,7 +2436,10 @@ function toSheetDto(row: QuoteSheetRow): BomQuoteSheetType {
 }
 
 export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
-  const imageMap = await loadPartImageMap(items);
+  const [partMetaMap, candidateDatasheetMap] = await Promise.all([
+    loadPartMetaMap(items),
+    loadCandidateDatasheetMap(quote.id, items),
+  ]);
   return {
     ...toSummaryDto(quote, items),
     engineJobId: quote.engineJobId,
@@ -2441,7 +2466,14 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     answerNote: quote.answerNote,
     items: [...items]
       .sort((a, b) => a.rowIdx - b.rowIdx)
-      .map((row) => toItemDto(row, row.partId === null ? null : (imageMap.get(row.partId) ?? null))),
+      .map((row) => {
+        const meta = row.partId === null ? null : (partMetaMap.get(row.partId) ?? null);
+        return toItemDto(
+          row,
+          meta?.imageUrl ?? null,
+          meta?.datasheetUrl ?? candidateDatasheetMap.get(row.rowIdx) ?? null,
+        );
+      }),
   };
 }
 

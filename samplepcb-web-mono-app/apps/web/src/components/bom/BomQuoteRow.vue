@@ -192,7 +192,16 @@ function onQtyInput(event: Event): void {
         <div class="min-w-0 pt-[22px]">
           <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]" :title="partLabel">{{ partLabel }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
-          <p class="cursor-default text-[12px] leading-[16px] text-[#9db9dd]" title="데이터시트 (준비 중)">데이터시트</p>
+          <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->
+          <a
+            v-if="item.partDatasheetUrl !== null"
+            :href="item.partDatasheetUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-[12px] leading-[16px] text-[#2f6fed] hover:underline"
+            title="데이터시트 새 창에서 열기"
+          >데이터시트</a>
+          <p v-else class="cursor-default text-[12px] leading-[16px] text-[#c3cbd6]" title="데이터시트 없음">데이터시트</p>
         </div>
       </div>
     </td>
