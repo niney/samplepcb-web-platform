@@ -140,8 +140,12 @@ describe('BOM 견적 시트 선택', () => {
 });
 
 interface CandidateOptions {
+  currentDecisionContract?: boolean;
   eligibility?: 'automatic' | 'manual_review' | 'blocked';
   selectionMode?: 'exact' | 'variant' | 'spec-compatible' | 'review';
+  technicalReviewRank?: number | null;
+  selectionRecommendation?: 'preselect' | 'candidate_only' | 'exclude';
+  reviewRecommended?: boolean;
   identityKey?: string;
   technicalEvidenceKey?: string;
   verificationComplete?: boolean;
@@ -171,6 +175,50 @@ function candidate(
   const eligibility = options.eligibility ?? 'automatic';
   const requiredCount = options.requiredCount ?? 0;
   const verifiedCount = options.verifiedCount ?? requiredCount;
+  const identityKey = options.identityKey ?? `${mpn}:${options.manufacturer ?? 'Test Mfr'}`;
+  const technicalEvidenceKey = options.technicalEvidenceKey ?? `${status}:${mpn}`;
+  const decision = options.currentDecisionContract
+    ? {
+        decision_policy_version: 'supplier-candidate-decision-v1',
+        category_policy_version: 'candidate-category-policy-v1',
+        identity_key_version: 'candidate-identity-key-v1',
+        evidence_key_version: 'candidate-evidence-key-v1',
+        match_relation: selectionMode === 'review' ? 'unresolved' : selectionMode,
+        selection_eligibility: eligibility,
+        auto_eligible: eligibility === 'automatic',
+        manual_selectable: eligibility !== 'blocked',
+        reason_codes: eligibility === 'manual_review' ? ['manufacturer_confirmation_required'] : [],
+        identity_key: identityKey,
+        technical_evidence_key: technicalEvidenceKey,
+        verified_requirement_count: verifiedCount,
+        required_requirement_count: requiredCount,
+        verification_complete: options.verificationComplete ?? verifiedCount === requiredCount,
+        strict_category_coverage: options.strictCategoryCoverage ?? false,
+        lifecycle_state: options.lifecycleState ?? 'unknown',
+        technical_review_rank: options.technicalReviewRank ?? null,
+        ...(options.selectionRecommendation === undefined
+          ? {}
+          : {
+              selection_recommendation_policy_version: 'candidate-selection-recommendation-v1',
+              selection_recommendation: options.selectionRecommendation,
+              review_recommended: options.reviewRecommended ?? false,
+            }),
+      }
+    : {
+        policy_version: 'supplier-candidate-decision-v1',
+        selection_eligibility: eligibility,
+        selection_mode: selectionMode,
+        auto_eligible: eligibility === 'automatic',
+        manual_selectable: eligibility !== 'blocked',
+        reason_codes: eligibility === 'manual_review' ? ['manufacturer_confirmation_required'] : [],
+        identity_key: identityKey,
+        technical_evidence_key: technicalEvidenceKey,
+        verified_requirement_count: verifiedCount,
+        required_requirement_count: requiredCount,
+        verification_complete: options.verificationComplete ?? verifiedCount === requiredCount,
+        strict_category_coverage: options.strictCategoryCoverage ?? false,
+        lifecycle_state: options.lifecycleState ?? 'unknown',
+      };
   return {
     status,
     identity_confidence: status === 'verified_exact' ? 1 : 0,
@@ -179,21 +227,7 @@ function candidate(
     missing_requirements: options.missingRequirements ?? [],
     reasons: options.reasons ?? [`${status}_reason`],
     corroborating_suppliers: options.corroboratingSuppliers ?? [],
-    decision: {
-      policy_version: 'supplier-candidate-decision-v1',
-      selection_eligibility: eligibility,
-      selection_mode: selectionMode,
-      auto_eligible: eligibility === 'automatic',
-      manual_selectable: eligibility !== 'blocked',
-      reason_codes: eligibility === 'manual_review' ? ['manufacturer_confirmation_required'] : [],
-      identity_key: options.identityKey ?? `${mpn}:${options.manufacturer ?? 'Test Mfr'}`,
-      technical_evidence_key: options.technicalEvidenceKey ?? `${status}:${mpn}`,
-      verified_requirement_count: verifiedCount,
-      required_requirement_count: requiredCount,
-      verification_complete: options.verificationComplete ?? verifiedCount === requiredCount,
-      strict_category_coverage: options.strictCategoryCoverage ?? false,
-      lifecycle_state: options.lifecycleState ?? 'unknown',
-    },
+    decision,
     product: {
       supplier,
       manufacturer_part_number: mpn,
@@ -219,6 +253,181 @@ function candidate(
 }
 
 describe('BOM 엔진 후보 결정 투영', () => {
+  it('현재 엔진의 사전 선정 후보를 더 싼 candidate_only 후보로 교체하지 않는다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-engine-preselection',
+        status: 'verified_exact',
+        candidates: [
+          candidate('verified_exact', 'ENGINE-PRESELECT', 'digikey', 1_000, 1, {
+            currentDecisionContract: true,
+            selectionRecommendation: 'preselect',
+            identityKey: 'ik1:engine-preselect',
+            technicalEvidenceKey: 'ek1:engine-preselect',
+          }),
+          candidate('verified_exact', 'CHEAPER-CANDIDATE', 'mouser', 1, 1, {
+            currentDecisionContract: true,
+            selectionRecommendation: 'candidate_only',
+            identityKey: 'ik1:cheaper-candidate',
+            technicalEvidenceKey: 'ek1:cheaper-candidate',
+          }),
+        ],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('ENGINE-PRESELECT');
+    expect(decision?.recommendedCandidateKey).toBe('ik1:engine-preselect');
+    expect(decision?.evidence.policyVersion).toBe('engine-preselection-projection-v7');
+    expect(decision?.snapshots.map((candidate) => candidate.selectionRecommendation)).toEqual([
+      'preselect',
+      'candidate_only',
+    ]);
+  });
+
+  it('엔진이 사전 선정한 수동 후보는 자동 적용하지 않고 검토 권장으로 보존한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-engine-review-preselection',
+        status: 'input_conflict',
+        candidates: [candidate('input_conflict', 'REVIEW-PRESELECT', 'digikey', 100, 1, {
+          currentDecisionContract: true,
+          eligibility: 'manual_review',
+          selectionMode: 'exact',
+          technicalReviewRank: 1,
+          selectionRecommendation: 'preselect',
+          reviewRecommended: true,
+          identityKey: 'ik1:review-preselect',
+          technicalEvidenceKey: 'ek1:review-preselect',
+        })],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.candidateKey).toBeNull();
+    expect(decision?.recommendedCandidateKey).toBe('ik1:review-preselect');
+    expect(decision?.snapshots[0]).toMatchObject({
+      selectionRecommendation: 'preselect',
+      reviewRecommended: true,
+      technicalReviewRank: 1,
+      autoEligible: false,
+      manualSelectable: true,
+    });
+  });
+
+  it('현재 엔진 계약의 수동 검토 순위를 일반 기술 순위와 분리해 보존한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-review-rank',
+        status: 'input_conflict',
+        candidates: [candidate('input_conflict', 'REVIEW-MPN', 'digikey', 100, 1, {
+          currentDecisionContract: true,
+          eligibility: 'manual_review',
+          selectionMode: 'exact',
+          technicalReviewRank: 1,
+          identityKey: 'ik1:review-candidate',
+          technicalEvidenceKey: 'ek1:review-evidence',
+        })],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.snapshots[0]).toMatchObject({
+      technicalRank: 1,
+      technicalReviewRank: 1,
+      selectionEligibility: 'manual_review',
+      selectionMode: 'exact',
+      autoEligible: false,
+      manualSelectable: true,
+    });
+  });
+
+  it('현재 엔진 계약이 비수동 후보에 검토 순위를 부여하면 fail-closed 처리한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-invalid-review-rank',
+        status: 'verified_exact',
+        candidates: [candidate('verified_exact', 'INVALID-RANK', 'digikey', 100, 1, {
+          currentDecisionContract: true,
+          eligibility: 'automatic',
+          technicalReviewRank: 1,
+          identityKey: 'ik1:invalid-rank',
+          technicalEvidenceKey: 'ek1:invalid-rank',
+        })],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.snapshots[0]).toMatchObject({
+      technicalReviewRank: null,
+      selectionEligibility: 'blocked',
+      autoEligible: false,
+      manualSelectable: false,
+      selectionReasonCodes: ['decision_unavailable'],
+    });
+  });
+
+  it('현재 엔진 계약이 둘 이상의 후보를 사전 선정하면 자동 적용하지 않는다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-duplicate-preselection',
+        status: 'verified_exact',
+        candidates: [
+          candidate('verified_exact', 'PRESELECT-A', 'digikey', 100, 1, {
+            currentDecisionContract: true,
+            selectionRecommendation: 'preselect',
+            identityKey: 'ik1:preselect-a',
+            technicalEvidenceKey: 'ek1:preselect-a',
+          }),
+          candidate('verified_exact', 'PRESELECT-B', 'mouser', 90, 1, {
+            currentDecisionContract: true,
+            selectionRecommendation: 'preselect',
+            identityKey: 'ik1:preselect-b',
+            technicalEvidenceKey: 'ek1:preselect-b',
+          }),
+        ],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.recommendedCandidateKey).toBeNull();
+    expect(decision?.snapshots).toHaveLength(2);
+  });
+
+  it('차단 후보를 candidate_only로 전달한 엔진 결정은 fail-closed 처리한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-invalid-blocked-recommendation',
+        status: 'input_conflict',
+        candidates: [candidate('input_conflict', 'INVALID-BLOCKED', 'digikey', 100, 1, {
+          currentDecisionContract: true,
+          eligibility: 'blocked',
+          selectionRecommendation: 'candidate_only',
+          identityKey: 'ik1:invalid-blocked',
+          technicalEvidenceKey: 'ek1:invalid-blocked',
+        })],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.snapshots[0]).toMatchObject({
+      selectionRecommendation: null,
+      selectionReasonCodes: ['decision_unavailable'],
+      selectionEligibility: 'blocked',
+      manualSelectable: false,
+    });
+  });
+
   it('엔진 그룹 키가 같은 공급사 행만 하나의 후보로 합친다', () => {
     const decision = selectEngineMatch(
       {
@@ -236,6 +445,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.snapshots).toHaveLength(1);
     expect(decision?.snapshots[0]?.offers).toHaveLength(2);
     expect(decision?.pick?.offer.supplier).toBe('mouser');
+    expect(decision?.evidence.policyVersion).toBe('engine-decision-purchase-fit-v6');
   });
 
   it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 오퍼는 합치지 않는다', () => {

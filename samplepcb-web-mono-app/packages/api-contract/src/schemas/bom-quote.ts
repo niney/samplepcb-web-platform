@@ -137,6 +137,9 @@ export type BomQuoteCandidateSafetyType = z.infer<typeof BomQuoteCandidateSafety
 export const BomQuoteCandidateSelectionEligibility = z.enum(['automatic', 'manual_review', 'blocked']);
 export type BomQuoteCandidateSelectionEligibilityType = z.infer<typeof BomQuoteCandidateSelectionEligibility>;
 
+export const BomQuoteCandidateSelectionRecommendation = z.enum(['preselect', 'candidate_only', 'exclude']);
+export type BomQuoteCandidateSelectionRecommendationType = z.infer<typeof BomQuoteCandidateSelectionRecommendation>;
+
 export const BomQuoteCandidateOfferApplied = z.object({
   orderQty: z.number().int().min(1),
   breakQty: z.number().int().min(1),
@@ -167,6 +170,11 @@ export type BomQuoteCandidateOfferType = z.infer<typeof BomQuoteCandidateOffer>;
 export const BomQuoteCandidate = z.object({
   candidateKey: z.string(),
   technicalRank: z.number().int().min(1),
+  /** 엔진이 manual_review 기술 근거 그룹에만 부여한 검토 순위. */
+  technicalReviewRank: z.number().int().min(1).nullable(),
+  /** 엔진이 지정한 기술 후보군 사전 선정 상태. 기존 스냅샷은 null. */
+  selectionRecommendation: BomQuoteCandidateSelectionRecommendation.nullable(),
+  reviewRecommended: z.boolean(),
   priceRank: z.number().int().min(1).nullable(),
   status: z.string(),
   selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review']),
@@ -217,6 +225,9 @@ export type BomQuoteComparisonOfferType = z.infer<typeof BomQuoteComparisonOffer
 export const BomQuoteComparisonCandidate = BomQuoteCandidate.pick({
   candidateKey: true,
   technicalRank: true,
+  technicalReviewRank: true,
+  selectionRecommendation: true,
+  reviewRecommended: true,
   status: true,
   safety: true,
   selectionEligibility: true,

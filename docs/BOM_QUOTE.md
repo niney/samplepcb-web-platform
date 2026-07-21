@@ -118,7 +118,15 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   견적에 적용할 수 없는 경우도 실행과 견적을 failed로 닫아 `searching` 고착을 막는다.
   반영 자체는 `componentId`로 원본 행과 엔진 결과를 조인한다. 수동/pinned 행은 보존하고,
   나머지는 엔진의 안전 후보 판정과 선택 오퍼를 한 저장으로 교체한다.
-- **엔진 기술 판단 단일화 + 구매조건 추천(`engine-decision-purchase-fit-v6`, 2026-07-21)**:
+- **엔진 사전 선정 우선(`engine-preselection-projection-v7`, 2026-07-21)**:
+  sp-node는 최신 sp-engine의 결정·카테고리·identity/evidence key·사전 선정 정책 버전을 모두
+  검증하고 `technical_review_rank`, `preselect|candidate_only|exclude`, `review_recommended`를
+  후보 스냅샷에 그대로 보존한다. 유효한 `preselect`가 정확히 하나일 때만 적용하며,
+  `automatic`은 그 후보군 안에서 오퍼를 선택하고 `manual_review`는 자동 적용 없이 검토 권장으로
+  남긴다. 이 계약을 받은 뒤에는 sp-node가 더 싼 가격·재고·수명주기를 이유로 다른 기술 후보군으로
+  교체하지 않는다. 중복 사전 선정, 정책 버전 불일치, 자격·선택 불변식 위반은 fail-closed 처리한다.
+  이전 결정/스냅샷은 아래 v6 규칙으로 읽어 기존 견적의 재평가 동작을 보존한다.
+- **이전 엔진 결정 호환 + 구매조건 추천(`engine-decision-purchase-fit-v6`, 2026-07-21)**:
   sp-engine이 후보마다 `automatic|manual_review|blocked`, 선택 모드, 안정 `identity_key`,
   `technical_evidence_key`, 검증 수, 카테고리 완전 검증, 수명주기 상태와 근거 코드를 반환한다.
   sp-node는 상태·문자열·제조사 별칭·스펙을 재해석하지 않고 이 결정을 저장·강제한다. 결정 계약이

@@ -131,7 +131,7 @@ const EngineSupplierOffer = z
   })
   .passthrough();
 
-const EngineCandidateDecision = z
+const EngineLegacyCandidateDecision = z
   .object({
     policy_version: z.string(),
     selection_eligibility: z.enum(['automatic', 'manual_review', 'blocked']),
@@ -148,6 +148,36 @@ const EngineCandidateDecision = z
     lifecycle_state: z.enum(['active', 'caution', 'unknown']),
   })
   .passthrough();
+
+const EngineCandidateDecisionV1 = z
+  .object({
+    decision_policy_version: z.string(),
+    category_policy_version: z.string(),
+    identity_key_version: z.string(),
+    evidence_key_version: z.string(),
+    selection_recommendation_policy_version: z.string().optional(),
+    match_relation: z.enum(['exact', 'variant', 'spec-compatible', 'unresolved']),
+    selection_eligibility: z.enum(['automatic', 'manual_review', 'blocked']),
+    auto_eligible: z.boolean(),
+    manual_selectable: z.boolean(),
+    reason_codes: z.array(z.string()).default([]),
+    identity_key: z.string(),
+    technical_evidence_key: z.string(),
+    verified_requirement_count: z.number().int().min(0),
+    required_requirement_count: z.number().int().min(0),
+    verification_complete: z.boolean(),
+    strict_category_coverage: z.boolean(),
+    lifecycle_state: z.enum(['active', 'caution', 'unknown']),
+    technical_review_rank: z.number().int().min(1).nullish(),
+    selection_recommendation: z.enum(['preselect', 'candidate_only', 'exclude']).optional(),
+    review_recommended: z.boolean().optional(),
+  })
+  .passthrough();
+
+const EngineCandidateDecision = z.union([
+  EngineCandidateDecisionV1,
+  EngineLegacyCandidateDecision,
+]);
 
 const EngineSupplierCandidate = z
   .object({
@@ -216,8 +246,13 @@ type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 type EngineCandidateDecisionType = z.infer<typeof EngineCandidateDecision>;
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-decision-purchase-fit-v6';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-preselection-projection-v7';
+const BOM_ENGINE_LEGACY_SELECTION_POLICY_VERSION = 'engine-decision-purchase-fit-v6';
 const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION = 'supplier-candidate-decision-v1';
+const SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION = 'candidate-category-policy-v1';
+const SUPPORTED_ENGINE_IDENTITY_KEY_VERSION = 'candidate-identity-key-v1';
+const SUPPORTED_ENGINE_EVIDENCE_KEY_VERSION = 'candidate-evidence-key-v1';
+const SUPPORTED_ENGINE_SELECTION_RECOMMENDATION_POLICY_VERSION = 'candidate-selection-recommendation-v1';
 
 /** 엔진 시트 결과를 고객·관리자 공용 선택 스냅샷으로 축약한다. */
 export function extractEngineSheets(result: unknown): BomQuoteSheetType[] {
@@ -357,6 +392,9 @@ const StoredCandidateOffer = z.object({
 const StoredCandidate = z.object({
   candidateKey: z.string(),
   technicalRank: z.number().int().positive(),
+  technicalReviewRank: z.number().int().positive().nullable().catch(null),
+  selectionRecommendation: z.enum(['preselect', 'candidate_only', 'exclude']).nullable().catch(null),
+  reviewRecommended: z.boolean().catch(false),
   status: z.string(),
   selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review']),
   safety: z.enum(['safe', 'caution', 'blocked']),
@@ -448,6 +486,9 @@ export function buildQuoteComparisonRows(
     candidates.push({
       candidateKey: candidate.candidateKey,
       technicalRank: candidate.technicalRank,
+      technicalReviewRank: candidate.technicalReviewRank,
+      selectionRecommendation: candidate.selectionRecommendation,
+      reviewRecommended: candidate.reviewRecommended,
       status: candidate.status,
       safety: candidate.safety,
       selectionEligibility: candidate.selectionEligibility,
@@ -620,19 +661,121 @@ interface EngineMatchDecision {
   snapshots: StoredCandidateType[];
 }
 
-function isUsableEngineDecision(decision: EngineCandidateDecisionType): boolean {
+interface NormalizedEngineCandidateDecision {
+  policyVersion: string;
+  selectionEligibility: 'automatic' | 'manual_review' | 'blocked';
+  selectionMode: 'exact' | 'variant' | 'spec-compatible' | 'review';
+  autoEligible: boolean;
+  manualSelectable: boolean;
+  reasonCodes: string[];
+  identityKey: string;
+  technicalEvidenceKey: string;
+  verifiedRequirementCount: number;
+  requiredRequirementCount: number;
+  verificationComplete: boolean;
+  strictCategoryCoverage: boolean;
+  lifecycleState: 'active' | 'caution' | 'unknown';
+  technicalReviewRank: number | null;
+  selectionRecommendation: 'preselect' | 'candidate_only' | 'exclude' | null;
+  reviewRecommended: boolean;
+}
+
+function normalizeEngineDecision(
+  decision: EngineCandidateDecisionType | null | undefined,
+): NormalizedEngineCandidateDecision | null {
+  if (decision === null || decision === undefined) return null;
+  const expectedPermissions = {
+    automatic: { autoEligible: true, manualSelectable: true },
+    manual_review: { autoEligible: false, manualSelectable: true },
+    blocked: { autoEligible: false, manualSelectable: false },
+  } as const;
+  const expected = expectedPermissions[decision.selection_eligibility];
   if (
-    decision.policy_version !== SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION
+    decision.auto_eligible !== expected.autoEligible
+    || decision.manual_selectable !== expected.manualSelectable
     || decision.identity_key.trim() === ''
     || decision.technical_evidence_key.trim() === ''
-  ) return false;
-  if (decision.selection_eligibility === 'automatic') {
-    return decision.auto_eligible && decision.manual_selectable;
+  ) return null;
+
+  const current = EngineCandidateDecisionV1.safeParse(decision);
+  if (current.success) {
+    const currentDecision = current.data;
+    const recommendationFields = [
+      currentDecision.selection_recommendation_policy_version,
+      currentDecision.selection_recommendation,
+      currentDecision.review_recommended,
+    ];
+    const hasRecommendationContract = recommendationFields.every((value) => value !== undefined);
+    const hasPartialRecommendationContract = recommendationFields.some((value) => value !== undefined)
+      && !hasRecommendationContract;
+    const recommendation = hasRecommendationContract
+      ? currentDecision.selection_recommendation ?? null
+      : null;
+    const reviewRecommended = hasRecommendationContract
+      ? currentDecision.review_recommended === true
+      : false;
+    if (
+      currentDecision.decision_policy_version !== SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION
+      || currentDecision.category_policy_version !== SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION
+      || currentDecision.identity_key_version !== SUPPORTED_ENGINE_IDENTITY_KEY_VERSION
+      || currentDecision.evidence_key_version !== SUPPORTED_ENGINE_EVIDENCE_KEY_VERSION
+      || (currentDecision.selection_eligibility === 'automatic' && currentDecision.match_relation === 'unresolved')
+      || (currentDecision.technical_review_rank != null && currentDecision.selection_eligibility !== 'manual_review')
+      || !currentDecision.identity_key.startsWith('ik1:')
+      || !currentDecision.technical_evidence_key.startsWith('ek1:')
+      || hasPartialRecommendationContract
+      || (hasRecommendationContract
+        && currentDecision.selection_recommendation_policy_version
+          !== SUPPORTED_ENGINE_SELECTION_RECOMMENDATION_POLICY_VERSION)
+      || (recommendation === 'exclude' && currentDecision.selection_eligibility !== 'blocked')
+      || (currentDecision.selection_eligibility === 'blocked' && recommendation !== 'exclude')
+      || (recommendation === 'preselect' && !currentDecision.manual_selectable)
+      || reviewRecommended !== (
+        recommendation === 'preselect'
+        && currentDecision.selection_eligibility === 'manual_review'
+      )
+    ) return null;
+    return {
+      policyVersion: currentDecision.decision_policy_version,
+      selectionEligibility: currentDecision.selection_eligibility,
+      selectionMode: currentDecision.match_relation === 'unresolved' ? 'review' : currentDecision.match_relation,
+      autoEligible: currentDecision.auto_eligible,
+      manualSelectable: currentDecision.manual_selectable,
+      reasonCodes: currentDecision.reason_codes,
+      identityKey: currentDecision.identity_key.trim(),
+      technicalEvidenceKey: currentDecision.technical_evidence_key.trim(),
+      verifiedRequirementCount: currentDecision.verified_requirement_count,
+      requiredRequirementCount: currentDecision.required_requirement_count,
+      verificationComplete: currentDecision.verification_complete,
+      strictCategoryCoverage: currentDecision.strict_category_coverage,
+      lifecycleState: currentDecision.lifecycle_state,
+      technicalReviewRank: currentDecision.technical_review_rank ?? null,
+      selectionRecommendation: recommendation,
+      reviewRecommended,
+    };
   }
-  if (decision.selection_eligibility === 'manual_review') {
-    return !decision.auto_eligible && decision.manual_selectable;
-  }
-  return !decision.auto_eligible && !decision.manual_selectable;
+
+  const legacy = EngineLegacyCandidateDecision.safeParse(decision);
+  if (!legacy.success || legacy.data.policy_version !== SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION) return null;
+  const legacyDecision = legacy.data;
+  return {
+    policyVersion: legacyDecision.policy_version,
+    selectionEligibility: legacyDecision.selection_eligibility,
+    selectionMode: legacyDecision.selection_mode,
+    autoEligible: legacyDecision.auto_eligible,
+    manualSelectable: legacyDecision.manual_selectable,
+    reasonCodes: legacyDecision.reason_codes,
+    identityKey: legacyDecision.identity_key.trim(),
+    technicalEvidenceKey: legacyDecision.technical_evidence_key.trim(),
+    verifiedRequirementCount: legacyDecision.verified_requirement_count,
+    requiredRequirementCount: legacyDecision.required_requirement_count,
+    verificationComplete: legacyDecision.verification_complete,
+    strictCategoryCoverage: legacyDecision.strict_category_coverage,
+    lifecycleState: legacyDecision.lifecycle_state,
+    technicalReviewRank: null,
+    selectionRecommendation: null,
+    reviewRecommended: false,
+  };
 }
 
 const PRICE_SAVING_RATE_MIN = 0.1;
@@ -672,10 +815,8 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
   component.candidates.forEach((candidate, index) => {
     if (candidate.product.manufacturer_part_number.trim() === '') return;
     // 그룹 정체성은 엔진 결정만 사용한다. 결정이 없는 이전/손상 결과는 서로 합치지 않는다.
-    const candidateDecision = candidate.decision;
-    const engineIdentityKey = candidateDecision != null && isUsableEngineDecision(candidateDecision)
-      ? candidateDecision.identity_key.trim()
-      : '';
+    const candidateDecision = normalizeEngineDecision(candidate.decision);
+    const engineIdentityKey = candidateDecision?.identityKey ?? '';
     const groupKey = engineIdentityKey === ''
       ? `untrusted:${component.component_id}:${String(index)}`
       : engineIdentityKey;
@@ -687,25 +828,24 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
   return [...grouped.entries()].map(([groupKey, members], index) => {
     const representative = members[0];
     if (representative === undefined) throw new Error('BOM candidate group invariant');
-    const rawDecision = representative.decision;
-    const decision = rawDecision != null && isUsableEngineDecision(rawDecision) ? rawDecision : null;
-    const technicalEvidenceKey = decision?.technical_evidence_key.trim() ?? '';
+    const decision = normalizeEngineDecision(representative.decision);
+    const technicalEvidenceKey = decision?.technicalEvidenceKey ?? '';
     // 같은 identity_key라도 공급사별 스펙 근거가 다를 수 있다. 엔진이 가격·재고
     // 비교를 허용한 동일 technical_evidence_key 행의 오퍼만 한 후보에 합친다.
     const evidenceMembers = decision === null || technicalEvidenceKey === ''
       ? [representative]
       : members.filter((member) => {
-        const memberDecision = member.decision;
-        return memberDecision != null
-          && isUsableEngineDecision(memberDecision)
-          && memberDecision.policy_version === decision.policy_version
-          && memberDecision.technical_evidence_key === technicalEvidenceKey
-          && memberDecision.selection_eligibility === decision.selection_eligibility
-          && memberDecision.selection_mode === decision.selection_mode
-          && memberDecision.auto_eligible === decision.auto_eligible
-          && memberDecision.manual_selectable === decision.manual_selectable;
+        const memberDecision = normalizeEngineDecision(member.decision);
+        return memberDecision?.policyVersion === decision.policyVersion
+          && memberDecision.technicalEvidenceKey === technicalEvidenceKey
+          && memberDecision.selectionEligibility === decision.selectionEligibility
+          && memberDecision.selectionMode === decision.selectionMode
+          && memberDecision.autoEligible === decision.autoEligible
+          && memberDecision.manualSelectable === decision.manualSelectable
+          && memberDecision.selectionRecommendation === decision.selectionRecommendation
+          && memberDecision.reviewRecommended === decision.reviewRecommended;
       });
-    const engineCandidateKey = decision?.identity_key.trim() ?? '';
+    const engineCandidateKey = decision?.identityKey ?? '';
     const candidateKey = engineCandidateKey === ''
       ? createHash('sha256').update(groupKey).digest('hex').slice(0, 32)
       : engineCandidateKey;
@@ -740,12 +880,12 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
     }
     const metadataMember = evidenceMembers.find((member) => Object.keys(member.product.attributes).length > 0)
       ?? representative;
-    const selectionEligibility = decision?.selection_eligibility ?? 'blocked';
-    const autoEligible = selectionEligibility === 'automatic' && decision?.auto_eligible === true;
-    const manualSelectable = selectionEligibility !== 'blocked' && decision?.manual_selectable === true;
+    const selectionEligibility = decision?.selectionEligibility ?? 'blocked';
+    const autoEligible = selectionEligibility === 'automatic' && decision?.autoEligible === true;
+    const manualSelectable = selectionEligibility !== 'blocked' && decision?.manualSelectable === true;
     const safety: BomQuoteCandidateSafetyType = selectionEligibility === 'blocked'
       ? 'blocked'
-      : selectionEligibility === 'manual_review' || decision?.lifecycle_state === 'caution'
+      : selectionEligibility === 'manual_review' || decision?.lifecycleState === 'caution'
         ? 'caution'
         : 'safe';
     const corroborating = new Set<string>();
@@ -758,20 +898,23 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
       snapshot: {
         candidateKey,
         technicalRank: index + 1,
+        technicalReviewRank: decision?.technicalReviewRank ?? null,
+        selectionRecommendation: decision?.selectionRecommendation ?? null,
+        reviewRecommended: decision?.reviewRecommended ?? false,
         status: representative.status,
-        selectionMode: decision?.selection_mode ?? 'review',
+        selectionMode: decision?.selectionMode ?? 'review',
         safety,
         selectionEligibility,
         autoEligible,
         manualSelectable,
-        selectionReasonCodes: decision?.reason_codes ?? ['decision_unavailable'],
+        selectionReasonCodes: decision?.reasonCodes ?? ['decision_unavailable'],
         mpn: representative.product.manufacturer_part_number.trim().slice(0, 191),
         manufacturerName: metadataMember.product.manufacturer?.trim().slice(0, 191) ?? null,
         description: metadataMember.product.description?.trim().slice(0, 1000) ?? null,
         category: metadataMember.product.category?.trim().slice(0, 191) ?? null,
         packageCode: metadataMember.product.package?.trim().slice(0, 64) ?? null,
         lifecycleStatus: representative.product.lifecycle_status?.trim().slice(0, 64) ?? null,
-        lifecycleState: decision?.lifecycle_state ?? 'unknown',
+        lifecycleState: decision?.lifecycleState ?? 'unknown',
         datasheetUrl: metadataMember.product.datasheet_url?.trim().slice(0, 500) ?? null,
         imageUrl: metadataMember.product.image_url?.trim().slice(0, 500) ?? null,
         identityConfidence: representative.identity_confidence,
@@ -780,10 +923,10 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
         missingRequirements: representative.missing_requirements,
         reasons: representative.reasons,
         corroboratingSuppliers: [...corroborating].sort(),
-        verifiedRequirementCount: decision?.verified_requirement_count ?? 0,
-        requiredRequirementCount: decision?.required_requirement_count ?? 0,
-        verificationComplete: decision?.verification_complete ?? false,
-        strictCategoryCoverage: decision?.strict_category_coverage ?? false,
+        verifiedRequirementCount: decision?.verifiedRequirementCount ?? 0,
+        requiredRequirementCount: decision?.requiredRequirementCount ?? 0,
+        verificationComplete: decision?.verificationComplete ?? false,
+        strictCategoryCoverage: decision?.strictCategoryCoverage ?? false,
         technicalEvidenceKey,
         normalizedSpecs: metadataMember.product.normalized_specs,
         specComparisons: representative.spec_comparisons,
@@ -879,8 +1022,11 @@ function evidenceFromDecision(
   const technicalTotal = pickLineTotal(technicalTopPick);
   const savings = selectedTotal === null || technicalTotal === null ? null : Math.round((technicalTotal - selectedTotal) * 100) / 100;
   const savingsRate = savings === null || technicalTotal === null || technicalTotal <= 0 ? null : savings / technicalTotal;
+  const policyVersion = groups.some((group) => group.snapshot.selectionRecommendation !== null)
+    ? BOM_ENGINE_SELECTION_POLICY_VERSION
+    : BOM_ENGINE_LEGACY_SELECTION_POLICY_VERSION;
   return {
-    policyVersion: BOM_ENGINE_SELECTION_POLICY_VERSION,
+    policyVersion,
     componentId: component.component_id,
     componentStatus: component.status,
     identityFallback,
@@ -936,10 +1082,19 @@ export function selectEngineMatch(
   const identityFallback = component.identity_fallback;
   const groups = buildCandidateGroups(component);
   const eligible = groups.filter((group) => group.snapshot.autoEligible);
-  const technicalTop = eligible[0] ?? null;
+  const usesEngineRecommendation = groups.some((group) => group.snapshot.selectionRecommendation !== null);
+  const preselected = groups.filter((group) => group.snapshot.selectionRecommendation === 'preselect');
+  const singlePreselected = preselected.length === 1 ? preselected[0] ?? null : null;
+  const technicalTop = usesEngineRecommendation
+    ? singlePreselected?.snapshot.autoEligible === true ? singlePreselected : null
+    : eligible[0] ?? null;
   if (technicalTop === null) {
     const mode = component.status === 'not_found' ? 'unmatched' : 'review';
     const reasonCodes: BomQuoteDecisionReasonType[] = ['no-safe-candidate'];
+    const reviewRecommendation = singlePreselected?.snapshot.reviewRecommended === true
+      ? singlePreselected
+      : null;
+    const recommendedCandidateKey = reviewRecommendation?.snapshot.candidateKey ?? null;
     return {
       evidence: evidenceFromDecision(
         component,
@@ -947,7 +1102,7 @@ export function selectEngineMatch(
         groups,
         [],
         null,
-        null,
+        recommendedCandidateKey,
         null,
         mode,
         'none',
@@ -957,7 +1112,7 @@ export function selectEngineMatch(
       ),
       candidate: null,
       candidateKey: null,
-      recommendedCandidateKey: null,
+      recommendedCandidateKey,
       offerKey: null,
       pick: null,
       snapshots: groups.map((group) => group.snapshot),
@@ -975,6 +1130,7 @@ export function selectEngineMatch(
   ];
 
   if (
+    !usesEngineRecommendation &&
     (selectedMode === 'exact' || selectedMode === 'variant') &&
     hasIncompleteVerification(technicalTop.snapshot)
   ) {
@@ -998,7 +1154,11 @@ export function selectEngineMatch(
         'same-part-lowest-total',
       );
     }
-  } else if (selectedMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop.snapshot)) {
+  } else if (
+    !usesEngineRecommendation
+    && selectedMode === 'spec-compatible'
+    && hasStrictCategoryCoverage(technicalTop.snapshot)
+  ) {
     const alternatives = eligible
       .slice(1)
       .filter((group) => hasStrictCategoryCoverage(group.snapshot))
@@ -1297,6 +1457,39 @@ function recommendStoredCandidate(
   usdKrwRate: number | null,
   allowAmbiguousPurchaseFit: boolean,
 ): StoredRecommendation | null {
+  const usesEngineRecommendation = candidates.some((candidate) => candidate.selectionRecommendation !== null);
+  if (usesEngineRecommendation) {
+    const preselected = candidates.filter((candidate) => candidate.selectionRecommendation === 'preselect');
+    const selected = preselected.length === 1 ? preselected[0] : undefined;
+    if (selected === undefined) return null;
+    const result = selected.autoEligible
+      ? storedCandidatePick(selected, needed, usdKrwRate)
+      : { pick: null, offerKey: null };
+    const recommendationType: BomQuoteRecommendationTypeType = selected.autoEligible
+      ? selected.selectionMode === 'exact' || selected.selectionMode === 'variant'
+        ? 'identity'
+        : 'technical'
+      : 'none';
+    const reasonCodes: BomQuoteDecisionReasonType[] = selected.autoEligible
+      ? [
+          selected.selectionMode === 'exact'
+            ? 'identity-exact'
+            : selected.selectionMode === 'variant'
+              ? 'identity-variant'
+              : 'technical-top',
+          'same-part-lowest-total',
+        ]
+      : ['no-safe-candidate'];
+    return {
+      candidate: selected,
+      pick: result.pick,
+      offerKey: result.offerKey,
+      technicalTopLineTotalKrw: pickLineTotal(result.pick),
+      recommendationType,
+      reasonCodes,
+    };
+  }
+
   const eligible = candidates
     .filter((candidate) => candidate.autoEligible)
     .sort((a, b) => a.technicalRank - b.technicalRank);
@@ -1667,6 +1860,9 @@ export async function getQuoteItemCandidates(
     return {
       candidateKey: candidate.candidateKey,
       technicalRank: candidate.technicalRank,
+      technicalReviewRank: candidate.technicalReviewRank,
+      selectionRecommendation: candidate.selectionRecommendation,
+      reviewRecommended: candidate.reviewRecommended,
       priceRank: priceRanks.get(candidate.candidateKey) ?? null,
       status: candidate.status,
       selectionMode: candidate.selectionMode,
