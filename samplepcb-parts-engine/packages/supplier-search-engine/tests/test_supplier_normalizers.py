@@ -188,6 +188,77 @@ def test_unikeyic_preserves_returned_variants_for_the_matcher():
     assert len(product.offers[0].price_breaks) == 2
 
 
+async def test_unikeyic_parametric_search_uses_verified_supplier_keywords():
+    request_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "err_code": "Com:Success",
+                "data": {
+                    "products": [
+                        {
+                            "goods_id": 10,
+                            "pro_sno": "MLCC-100N-16V-0603",
+                            "short_desc": "MLCC 0.1uF 16V 10% 0603",
+                        }
+                    ]
+                },
+            },
+        )
+
+    reservations = 0
+
+    async def reserve() -> None:
+        nonlocal reservations
+        reservations += 1
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = UniKeyICClient(
+            api_key="not-a-real-key",
+            base_url="https://example.invalid",
+            client=http_client,
+        )
+        raw = await client.fetch(parametric_query(), reserve_call=reserve)
+
+    assert raw.ok is True
+    assert reservations == 1
+    assert request_bodies == [
+        {"pro_sno": "100nF 16V 10% 0603 capacitor"}
+    ]
+    assert raw.request_trace[0].strategy == "parametric_full"
+
+
+async def test_unikeyic_preserves_hybrid_part_number_discovery():
+    request_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"err_code": "Com:Success", "data": {"products": []}},
+        )
+
+    hybrid = query().model_copy(update={"mode": SearchMode.HYBRID})
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler)
+    ) as http_client:
+        client = UniKeyICClient(
+            api_key="not-a-real-key",
+            base_url="https://example.invalid",
+            client=http_client,
+        )
+        raw = await client.fetch(hybrid)
+
+    assert raw.ok is True
+    assert request_bodies == [{"pro_sno": "RC0603-10K"}]
+    assert raw.request_trace[0].strategy == "hybrid_keyword"
+
+
 def test_unikeyic_translates_supply_packaging_to_english():
     assert normalize_unikeyic_packaging("卷带装") == "Tape & Reel"
     assert normalize_unikeyic_packaging("Cut T&R, 卷带装") == "Cut T&R, Tape & Reel"
@@ -196,6 +267,20 @@ def test_unikeyic_translates_supply_packaging_to_english():
     assert normalize_unikeyic_packaging("0603") == "0603"
     assert normalize_unikeyic_packaging("") is None
     assert normalize_unikeyic_packaging(None) is None
+
+
+def test_parametric_cache_payload_tracks_generated_supplier_keywords():
+    original = parametric_query()
+    changed = original.model_copy(deep=True)
+    changed.requirements["voltage_v"].normalized_value = 50.0
+    clients = [
+        DigiKeyClient(client_id=None, client_secret=None, account_id=None),
+        MouserClient(api_key=None),
+        UniKeyICClient(api_key=None, base_url=""),
+    ]
+
+    for client in clients:
+        assert client.cache_payload(original) != client.cache_payload(changed)
 
 
 async def test_retry_reserves_every_physical_supplier_call():
@@ -332,7 +417,9 @@ async def test_digikey_parametric_search_discovers_then_applies_response_filter_
 
     assert raw.ok is True
     assert reservations == 2
-    assert request_bodies[0]["Keywords"] == "100nF 16V 10% 0603"
+    assert request_bodies[0]["Keywords"] == (
+        "0.1uF 16V 10% 0603 capacitor"
+    )
     parameter_request = request_bodies[1]["FilterOptionsRequest"]["ParameterFilterRequest"]
     assert parameter_request["CategoryFilter"] == {"Id": "60"}
     assert parameter_request["ParameterFilters"] == [
@@ -341,7 +428,9 @@ async def test_digikey_parametric_search_discovers_then_applies_response_filter_
         {"ParameterId": 14, "FilterValues": [{"Id": "16"}]},
         {"ParameterId": 16, "FilterValues": [{"Id": "39246"}]},
     ]
-    assert raw.payload["SearchProbeDiscovery"]["Keywords"] == "100nF 16V 10% 0603"
+    assert raw.payload["SearchProbeDiscovery"]["Keywords"] == (
+        "0.1uF 16V 10% 0603 capacitor"
+    )
     assert raw.payload["Products"][0]["ManufacturerProductNumber"] == "GRM188R71C104KA01D"
 
 
@@ -390,7 +479,9 @@ async def test_digikey_parametric_search_skips_filter_when_discovery_is_fully_ve
     assert raw.ok is True
     assert reservations == 1
     assert len(request_bodies) == 1
-    assert request_bodies[0]["Keywords"] == "100nF 16V 10% 0603"
+    assert request_bodies[0]["Keywords"] == (
+        "0.1uF 16V 10% 0603 capacitor"
+    )
     assert raw.payload["Products"][0]["ManufacturerProductNumber"] == "GRM188R71C104KA01D"
 
 
@@ -427,10 +518,12 @@ async def test_digikey_parametric_search_falls_back_from_full_to_core_keywords()
     assert raw.ok is True
     assert reservations == 2
     assert [body["Keywords"] for body in request_bodies] == [
-        "100nF 16V 10% 0603",
-        "100nF 0603",
+        "0.1uF 16V 10% 0603 capacitor",
+        "0.1uF 0603 capacitor",
     ]
-    assert raw.payload["SearchProbeDiscovery"]["FallbackKeywords"] == "100nF 0603"
+    assert raw.payload["SearchProbeDiscovery"]["FallbackKeywords"] == (
+        "0.1uF 0603 capacitor"
+    )
     assert raw.payload["Products"][0]["ManufacturerProductNumber"] == "GRM188R71C104KA01D"
 
 
@@ -487,5 +580,8 @@ async def test_mouser_parametric_search_falls_back_from_full_to_core_keywords():
     assert raw.ok is True
     assert reservations == 2
     keywords = [next(iter(body.values()))["keyword"] for body in request_bodies]
-    assert keywords == ["100nF 16V 10% 0603", "100nF 0603"]
+    assert keywords == [
+        "100nF 16V 10% 0603 capacitor",
+        "100nF 0603 capacitor",
+    ]
     assert raw.payload["SearchResults"]["Parts"][0]["ManufacturerPartNumber"] == "GRM188R71C104KA01D"

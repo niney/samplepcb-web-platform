@@ -38,6 +38,27 @@ def test_package_normalization_uses_imperial_canonical_codes(value, expected):
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("CAP_C2012N", "0805"),
+        ("RES_C2012N", "0805"),
+        ("IND_C2012N", "0805"),
+        ("CAP_ECAP_F55", ""),
+        ("CAP_ECAP_H10", ""),
+        ("RES_C3216ARRAY4", ""),
+        ("RESC3216_ARRAY4", ""),
+        ("PDA1_SSR", ""),
+        ("SOT_23", "SOT23"),
+    ],
+)
+def test_internal_cad_footprints_only_expose_verified_physical_sizes(
+    value,
+    expected,
+):
+    assert normalize_package(value) == expected
+
+
+@pytest.mark.parametrize(
     "value",
     [
         "1612",

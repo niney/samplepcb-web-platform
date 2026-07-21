@@ -5,17 +5,21 @@ from typing import Any
 
 import httpx
 
+from ..matcher import CandidateMatcher
 from ..models import (
     ManufacturerEvidence,
+    MatchStatus,
     PlannedQuery,
     PriceBreak,
     RawSupplierResponse,
+    SearchMode,
     Supplier,
     SupplierOffer,
     SupplierProduct,
 )
 from ..normalization import normalized_specs_from_text
 from ..pricing import valid_price_break
+from ..supplier_query import supplier_core_keywords, supplier_spec_keywords
 from .base import SupplierClient
 
 _PACKAGING_TRANSLATIONS = {
@@ -48,7 +52,7 @@ def normalize_unikeyic_packaging(value: Any) -> str | None:
 class UniKeyICClient(SupplierClient):
     supplier = Supplier.UNIKEYIC
     api_version = "search-v1"
-    normalizer_version = "2"
+    normalizer_version = "3"
 
     def __init__(
         self,
@@ -61,6 +65,7 @@ class UniKeyICClient(SupplierClient):
         super().__init__(client=client, timeout_seconds=timeout_seconds)
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self._matcher = CandidateMatcher()
 
     @property
     def configured(self) -> bool:
@@ -82,29 +87,164 @@ class UniKeyICClient(SupplierClient):
                 error_type="not_configured",
                 error_message="UniKeyIC API key/base URL is not configured",
             )
-        if not query.part_number:
+        if query.mode in {SearchMode.IDENTITY, SearchMode.HYBRID} and query.part_number:
+            search_text = query.part_number
+            strategy = (
+                "identity_exact"
+                if query.mode == SearchMode.IDENTITY
+                else "hybrid_keyword"
+            )
+        elif query.mode == SearchMode.PARAMETRIC:
+            search_text = supplier_spec_keywords(query, Supplier.UNIKEYIC)
+            strategy = "parametric_full"
+        else:
             return RawSupplierResponse(
                 supplier=self.supplier,
                 ok=False,
                 error_type="unsupported_search_mode",
-                error_message="UniKeyIC is used only for exact part-number enrichment",
+                error_message="UniKeyIC requires an identity or parametric query",
             )
+        raw = await self._fetch_keyword(
+            search_text,
+            strategy=strategy,
+            reserve_call=reserve_call,
+        )
+        if query.mode != SearchMode.PARAMETRIC or not raw.ok:
+            return raw
+        if self._has_verified_candidate(query, raw):
+            return raw
+        core_keywords = supplier_core_keywords(query, Supplier.UNIKEYIC)
+        if core_keywords == search_text:
+            return raw
+        fallback = await self._fetch_keyword(
+            core_keywords,
+            strategy="parametric_core",
+            fallback_reason="no_verified_candidate",
+            reserve_call=reserve_call,
+        )
+        if fallback.ok and self._product_count(fallback):
+            return self._merge_keyword_responses(raw, fallback)
+        return self._with_additional_attempts(raw, fallback)
+
+    async def _fetch_keyword(
+        self,
+        search_text: str,
+        *,
+        strategy: str,
+        reserve_call: Callable[[], Awaitable[None]] | None,
+        fallback_reason: str | None = None,
+    ) -> RawSupplierResponse:
         raw = await self._request_json(
             "POST",
             f"{self.base_url}/search-v1/products/get-single-goods-usd",
             headers={"Authorization": self.api_key or "", "Content-Type": "application/json"},
-            json_body={"pro_sno": query.part_number},
+            json_body={"pro_sno": search_text},
             reserve_call=reserve_call,
         )
         return self.traced_response(
             raw,
-            strategy="identity_exact",
-            query=query.part_number,
+            strategy=strategy,
+            query=search_text,
             result_count=self._product_count(raw),
+            fallback_reason=fallback_reason,
         )
 
     def cache_payload(self, query: PlannedQuery) -> dict[str, Any]:
-        return {"part_number": query.part_number}
+        if query.mode in {SearchMode.IDENTITY, SearchMode.HYBRID} and query.part_number:
+            return {
+                "mode": query.mode.value,
+                "part_number": query.part_number,
+                "strategy": "identity-or-hybrid-v2",
+            }
+        return {
+            "mode": query.mode.value,
+            "preferred_keywords": supplier_spec_keywords(
+                query,
+                Supplier.UNIKEYIC,
+            ),
+            "core_keywords": supplier_core_keywords(
+                query,
+                Supplier.UNIKEYIC,
+            ),
+            "strategy": "parametric-full-core-v1",
+        }
+
+    def planned_api_calls(self, query: PlannedQuery) -> int:
+        return 2 if query.mode == SearchMode.PARAMETRIC else 1
+
+    def retry_worst_case_api_calls(self, query: PlannedQuery) -> int:
+        return 6 if query.mode == SearchMode.PARAMETRIC else 3
+
+    def _has_verified_candidate(
+        self,
+        query: PlannedQuery,
+        raw: RawSupplierResponse,
+    ) -> bool:
+        for product in self.normalize(raw, query):
+            try:
+                if (
+                    self._matcher.evaluate(query, product).status
+                    == MatchStatus.SPEC_COMPATIBLE
+                ):
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
+
+    @staticmethod
+    def _with_additional_attempts(
+        result: RawSupplierResponse,
+        attempted: RawSupplierResponse,
+    ) -> RawSupplierResponse:
+        return result.model_copy(
+            update={
+                "latency_ms": result.latency_ms + attempted.latency_ms,
+                "http_attempt_count": (
+                    result.http_attempt_count + attempted.http_attempt_count
+                ),
+                "request_trace": [*result.request_trace, *attempted.request_trace],
+            },
+            deep=True,
+        )
+
+    @staticmethod
+    def _merge_keyword_responses(
+        preferred: RawSupplierResponse,
+        fallback: RawSupplierResponse,
+    ) -> RawSupplierResponse:
+        products: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for response in (preferred, fallback):
+            data = (response.payload or {}).get("data") or {}
+            for product in data.get("products") or []:
+                if not isinstance(product, dict):
+                    continue
+                identity = (
+                    str(product.get("pro_sno") or "").casefold(),
+                    str(product.get("std_mfr_name") or "").casefold(),
+                )
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                products.append(product)
+        payload = dict(fallback.payload or {})
+        data = dict(payload.get("data") or {})
+        data["products"] = products
+        payload["data"] = data
+        return fallback.model_copy(
+            update={
+                "payload": payload,
+                "latency_ms": preferred.latency_ms + fallback.latency_ms,
+                "http_attempt_count": (
+                    preferred.http_attempt_count + fallback.http_attempt_count
+                ),
+                "request_trace": [
+                    *preferred.request_trace,
+                    *fallback.request_trace,
+                ],
+            },
+            deep=True,
+        )
 
     @staticmethod
     def _product_count(raw: RawSupplierResponse) -> int:

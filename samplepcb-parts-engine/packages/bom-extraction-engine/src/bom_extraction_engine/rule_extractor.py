@@ -218,7 +218,7 @@ _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
                          r"|다이오드|제너|쇼트키", re.I)),
     ("connector", re.compile(
         r"conn\b|connector|socket|plug|header|rece|jack|\bbtb\b|\busb\b"
-        r"|\d\s*pin\b|\bjst\b|커넥터|콘넥터|컨넥터|컨낵터|하네스", re.I)),
+        r"|\bjst\b|커넥터|콘넥터|컨넥터|컨낵터|하네스", re.I)),
     ("inductor", re.compile(r"inductor|\bind\b|bead|ferrite|choke"
                             r"|인덕터|비드|초크", re.I)),
     ("capacitor", re.compile(r"capacitor|\bcap\b|mlcc"
@@ -1372,10 +1372,28 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
     #      생략 표기)을 해당 값 필드로 (gpt _IND_NO_H 증류)
     _bare_fld = {"capacitor": "capacitance",
                  "inductor": "inductance"}.get(val.get("part_type"))
-    if _bare_fld and _bare_fld not in val and blob:
-        m = _RE_BARE_UNIT.search(blob)
+    if _bare_fld and _bare_fld not in val:
+        m = _RE_BARE_UNIT.search(blob or "")
+        part_number_bare = False
+        if not m:
+            part_number_value = str(val.get("part_number") or "").strip()
+            candidate = _RE_BARE_UNIT.fullmatch(part_number_value)
+            corroborated = (
+                _bare_fld == "inductance"
+                or "voltage" in val
+                or "/" in raw_blob
+            )
+            if candidate and corroborated:
+                m = candidate
+                part_number_bare = True
         if m:
             put(_bare_fld, m.group().strip(), "text")
+            if part_number_bare:
+                # A passive value column can be mislabeled as a part-number
+                # column. Once type and adjacent specification evidence agree,
+                # do not send the bare engineering value as an identity query.
+                val.pop("part_number", None)
+                src.pop("part_number", None)
 
     # 5.53) tolerance 문자 코드 — 명시 라벨("Tolerence J")과 저항/커패시터
     #      괄호 세그("(100K/16/J)")의 좁은 문맥만 (EIA 등급 문자 오탐 방지)

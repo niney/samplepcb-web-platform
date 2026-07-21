@@ -174,6 +174,58 @@ async def test_negative_results_are_cached(tmp_path):
     assert second.api_calls == 0
 
 
+async def test_search_collapses_identical_offers_but_preserves_raw_results(
+    tmp_path,
+):
+    supplier_product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        supplier_product_id="digikey-ss34",
+        manufacturer_part_number="SS34",
+        manufacturer="Diodes Inc.",
+        package="SMB",
+        offers=[
+            SupplierOffer(
+                supplier=Supplier.DIGIKEY,
+                supplier_sku="SS34DICT-ND",
+                packaging="Cut Tape",
+                stock=1_000,
+                moq=1,
+                order_multiple=1,
+                price_breaks=[
+                    {"quantity": 1, "unit_price": 100, "currency": "KRW"}
+                ],
+            )
+        ],
+    )
+    fake = FakeDigiKeyClient(
+        products=[supplier_product, supplier_product.model_copy(deep=True)]
+    )
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[fake],
+    )
+
+    result = await service.search_component(
+        PlannedQuery(
+            component_id="ss34",
+            mode=SearchMode.IDENTITY,
+            part_number="SS34",
+            manufacturer="Diodes Inc.",
+            part_type="diode",
+            package="SMB",
+            quantity=10,
+        )
+    )
+
+    assert result.status == MatchStatus.VERIFIED_EXACT
+    assert len(result.supplier_results[0].products) == 2
+    assert len(result.candidates) == 1
+    assert len(result.candidates[0].product.offers) == 1
+    decision = result.candidates[0].product.offers[0].procurement_decision
+    assert decision is not None
+    assert result.procurement_decision.automatic_offer_key == decision.offer_key
+
+
 async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_path):
     product = SupplierProduct(
         supplier=Supplier.DIGIKEY,
@@ -231,6 +283,7 @@ async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_
     assert [item.supplier for item in result.supplier_results] == [
         Supplier.DIGIKEY,
         Supplier.MOUSER,
+        Supplier.UNIKEYIC,
     ]
     assert result.api_calls == 2
     assert "일치하는 후보가 없어 확정 스펙으로 다시 검색" in " ".join(result.warnings)
@@ -283,7 +336,7 @@ async def test_normal_zero_results_trigger_parametric_fallback(tmp_path):
 
     result = await service.search_component(service.planner.plan(item))
 
-    assert [client.calls for client in clients] == [2, 2, 1]
+    assert [client.calls for client in clients] == [2, 2, 2]
     assert result.status == MatchStatus.NOT_FOUND
     assert result.mode == SearchMode.PARAMETRIC
     assert result.identity_fallback is True
@@ -329,7 +382,7 @@ async def test_partial_supplier_success_without_identity_match_triggers_fallback
 
     result = await service.search_component(service.planner.plan(item))
 
-    assert [client.calls for client in clients] == [2, 2, 1]
+    assert [client.calls for client in clients] == [2, 2, 2]
     assert result.mode == SearchMode.PARAMETRIC
     assert result.identity_fallback is True
     assert result.initial_query is not None

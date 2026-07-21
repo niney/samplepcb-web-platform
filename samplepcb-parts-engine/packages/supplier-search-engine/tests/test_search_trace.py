@@ -140,8 +140,8 @@ async def test_digikey_preserves_full_then_core_parametric_attempts() -> None:
         "parametric_full",
         "parametric_core",
     ]
-    assert raw.request_trace[0].query == "1uF 16V 0603"
-    assert raw.request_trace[1].query == "1uF 0603"
+    assert raw.request_trace[0].query == "1uF 16V 0603 capacitor"
+    assert raw.request_trace[1].query == "1uF 0603 capacitor"
     assert raw.request_trace[1].fallback_reason == "no_verified_candidate"
     serialized = raw.model_dump_json()
     assert "client-id-not-for-trace" not in serialized

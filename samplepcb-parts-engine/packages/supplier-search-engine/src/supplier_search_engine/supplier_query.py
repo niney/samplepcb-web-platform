@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
-from .models import PlannedQuery, Requirement
+from .models import PlannedQuery, Requirement, Supplier
 from .normalization import normalize_package
 
 
@@ -43,6 +44,9 @@ def _requirement_token(
     name: str,
     requirement: Requirement,
     component_type: str | None = None,
+    supplier: Supplier | None = None,
+    *,
+    ferrite_bead: bool = False,
 ) -> str | None:
     value = requirement.normalized_value
     if name == "package":
@@ -55,8 +59,16 @@ def _requirement_token(
     if name == "resistance_ohm":
         if numeric == 0:
             return "0 ohm"
+        if ferrite_bead and supplier == Supplier.DIGIKEY:
+            return f"{_number(numeric)} Ohms"
+        if supplier is not None and abs(numeric) < 1_000:
+            return f"{_number(numeric)}R"
         return _scaled(numeric, ((1e9, "G"), (1e6, "M"), (1e3, "k"), (1, " ohm")))
     if name == "capacitance_f":
+        if supplier == Supplier.DIGIKEY and 100e-9 <= abs(numeric) < 1e-6:
+            return f"{_number(numeric / 1e-6)}uF"
+        if supplier is not None and 1e-6 <= abs(numeric) <= 10e-3:
+            return f"{_number(numeric / 1e-6)}uF"
         return _scaled(numeric, ((1, "F"), (1e-3, "mF"), (1e-6, "uF"), (1e-9, "nF"), (1e-12, "pF")))
     if name == "inductance_h":
         return _scaled(numeric, ((1, "H"), (1e-3, "mH"), (1e-6, "uH"), (1e-9, "nH"), (1e-12, "pH")))
@@ -73,31 +85,99 @@ def _requirement_token(
     return None
 
 
-def _tokens(query: PlannedQuery, names: Iterable[str]) -> list[str]:
+def is_ferrite_bead_query(query: PlannedQuery) -> bool:
+    if (query.part_type or "").casefold() != "inductor":
+        return False
+    resistance = query.requirements.get("resistance_ohm")
+    text = " ".join(
+        str(value)
+        for value in (
+            query.description,
+            query.keywords,
+            resistance.raw_value if resistance is not None else None,
+        )
+        if value
+    )
+    return bool(
+        re.search(
+            r"(?:\bbead\b|f\.?\s*bead|ferrite|비드|자기\s*비드)",
+            text,
+            re.I,
+        )
+    )
+
+
+def _category_token(query: PlannedQuery, supplier: Supplier | None) -> str | None:
+    if supplier is None:
+        return None
+    if is_ferrite_bead_query(query):
+        return "ferrite bead"
+    if query.category_policy == "electrolytic":
+        return (
+            "aluminum electrolytic capacitor"
+            if supplier == Supplier.DIGIKEY
+            else "electrolytic capacitor"
+        )
+    return {
+        "resistor": "resistor",
+        "capacitor": "capacitor",
+        "inductor": "inductor",
+        "crystal": "crystal",
+    }.get((query.part_type or "").casefold())
+
+
+def _tokens(
+    query: PlannedQuery,
+    names: Iterable[str],
+    supplier: Supplier | None = None,
+) -> list[str]:
     tokens: list[str] = []
+    ferrite_bead = is_ferrite_bead_query(query)
     for name in names:
         requirement = query.requirements.get(name)
         if requirement is None or not requirement.hard:
             continue
-        token = _requirement_token(name, requirement, query.part_type)
+        token = _requirement_token(
+            name,
+            requirement,
+            query.part_type,
+            supplier,
+            ferrite_bead=ferrite_bead,
+        )
         if token:
             tokens.append(token)
+    category = _category_token(query, supplier)
+    if category:
+        tokens.append(category)
     return list(dict.fromkeys(tokens))
 
 
-def supplier_spec_keywords(query: PlannedQuery) -> str:
+def supplier_spec_keywords(
+    query: PlannedQuery,
+    supplier: Supplier | None = None,
+) -> str:
     """Build a precise first-pass query while local matching stays authoritative."""
 
     part_type = (query.part_type or "").casefold()
-    names = _SPEC_ORDER.get(part_type, tuple(query.requirements))
-    tokens = _tokens(query, names)
+    names = (
+        ("package", "resistance_ohm", "frequency_hz")
+        if is_ferrite_bead_query(query)
+        else _SPEC_ORDER.get(part_type, tuple(query.requirements))
+    )
+    tokens = _tokens(query, names, supplier)
     return " ".join(tokens)[:250] or query.keywords
 
-def supplier_core_keywords(query: PlannedQuery) -> str:
+def supplier_core_keywords(
+    query: PlannedQuery,
+    supplier: Supplier | None = None,
+) -> str:
     """Return the broad second-rung query: primary electrical value + package."""
 
     part_type = (query.part_type or "").casefold()
-    primary = _CORE_SPEC.get(part_type)
-    names = tuple(name for name in (primary, "package") if name)
-    tokens = _tokens(query, names)
+    if is_ferrite_bead_query(query):
+        names = ("package", "resistance_ohm")
+    else:
+        primary = _CORE_SPEC.get(part_type)
+        names = tuple(name for name in (primary, "package") if name)
+    tokens = _tokens(query, names, supplier)
     return " ".join(tokens)[:250] or query.keywords

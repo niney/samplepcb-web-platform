@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -692,6 +693,59 @@ def test_offer_key_preserves_supplier_sku_punctuation_that_changes_identity():
     ) == 3
 
 
+def test_offer_key_treats_supplier_placeholder_identifiers_as_missing():
+    placeholder = product(
+        Supplier.MOUSER,
+        mpn="SMB",
+        manufacturer="MicroCare",
+        sku="N/A",
+        product_id="N/A",
+    )
+
+    assert stable_offer_key(placeholder, placeholder.offers[0]) is None
+    candidates, component = decide(query(quantity=10), [placeholder])
+    decision = offer_decision(candidates[0])
+    assert decision.offer_key is None
+    assert decision.purchasable is False
+    assert "stable_offer_identity_unavailable" in decision.reason_codes
+    assert component.automatic_offer_key is None
+    assert component.review_offer_key is None
+
+
+def test_placeholder_offer_keys_do_not_block_valid_supplier_offer():
+    planned = query(quantity=10)
+    candidates, component = decide(
+        planned,
+        [
+            product(Supplier.DIGIKEY),
+            product(
+                Supplier.MOUSER,
+                mpn="SMB",
+                manufacturer="Keystone Electronics",
+                sku="N/A",
+                product_id="N/A",
+            ),
+            product(
+                Supplier.MOUSER,
+                mpn="SMB",
+                manufacturer="MicroCare",
+                sku="N/A",
+                product_id="N/A",
+            ),
+        ],
+    )
+
+    decisions = [
+        offer_decision(candidate)
+        for candidate in candidates
+        if candidate.product.offers
+    ]
+    valid_keys = [decision.offer_key for decision in decisions if decision.offer_key]
+    assert len(valid_keys) == 1
+    assert component.automatic_offer_key == valid_keys[0]
+    assert sum(decision.offer_key is None for decision in decisions) == 2
+
+
 def test_reevaluation_preserves_unique_legacy_offer_key_version():
     planned = query(quantity=10)
     candidates = technical_candidates(planned, [product(Supplier.DIGIKEY)])
@@ -862,15 +916,66 @@ def test_reevaluation_accepts_manual_offer_only_as_manual_review():
     assert "manual_review_required" in result.requested_offer.reason_codes
 
 
-def test_reevaluation_fails_closed_for_ambiguous_offer_key():
+def test_reevaluation_collapses_identical_duplicate_offer_key():
     stored = technical_candidates(
         query(quantity=10),
         [product(Supplier.DIGIKEY), product(Supplier.DIGIKEY)],
     )
 
+    result = reevaluate_procurement(
+        ProcurementReevaluationRequest(
+            component_id="procurement",
+            candidates=stored,
+            required_quantity=10,
+            procurement_policy=policy(),
+        )
+    )
+
+    assert len(result.candidates) == 1
+    assert len(result.candidates[0].product.offers) == 1
+    decision = offer_decision(result.candidates[0])
+    assert result.procurement_decision.automatic_offer_key == decision.offer_key
+    assert decision.recommendation == OfferRecommendation.AUTOMATIC
+
+
+def test_duplicate_offer_collapse_is_independent_of_candidate_order():
+    older = product(Supplier.DIGIKEY, url="https://example.com/old")
+    newer = product(Supplier.DIGIKEY, url="https://example.com/new")
+    newer.offers[0].fetched_at = older.offers[0].fetched_at + timedelta(seconds=1)
+    stored = technical_candidates(query(quantity=10), [older, newer])
+    shared_policy = policy()
+
+    def reevaluate(candidates):
+        return reevaluate_procurement(
+            ProcurementReevaluationRequest(
+                component_id="procurement",
+                candidates=candidates,
+                required_quantity=10,
+                procurement_policy=shared_policy,
+            )
+        )
+
+    forward = reevaluate(stored)
+    reversed_result = reevaluate(list(reversed(stored)))
+
+    assert forward.procurement_decision == reversed_result.procurement_decision
+    assert forward.candidates[0].product.offers[0].product_url == (
+        "https://example.com/new"
+    )
+    assert reversed_result.candidates[0].product.offers[0].product_url == (
+        "https://example.com/new"
+    )
+
+
+def test_reevaluation_fails_closed_for_conflicting_duplicate_offer_key():
+    stored = technical_candidates(
+        query(quantity=10),
+        [product(Supplier.DIGIKEY), product(Supplier.DIGIKEY, stock=1)],
+    )
+
     with pytest.raises(
         ProcurementReevaluationError,
-        match="stable offer keys must identify exactly one",
+        match="conflicting supplier or procurement data",
     ) as error:
         reevaluate_procurement(
             ProcurementReevaluationRequest(
@@ -881,6 +986,8 @@ def test_reevaluation_fails_closed_for_ambiguous_offer_key():
             )
         )
     assert error.value.code == "duplicate_offer_key"
+    assert error.value.context["duplicate_policy"] == "fail_closed_conflict"
+    assert error.value.context["conflicting_sections"] == ["offer"]
 
 
 def test_reevaluate_procurement_batch_matches_individual_reevaluation_per_component():
@@ -944,6 +1051,7 @@ def test_reevaluate_procurement_batch_isolates_one_component_failure():
         query(component_id="component-broken", quantity=10),
         [product(Supplier.DIGIKEY, mpn="BATCH-BROKEN"), product(Supplier.DIGIKEY, mpn="BATCH-BROKEN")],
     )
+    broken[1].product.offers[0].stock = 1
 
     batch_result = reevaluate_procurement_batch(
         ProcurementReevaluationBatchRequest(

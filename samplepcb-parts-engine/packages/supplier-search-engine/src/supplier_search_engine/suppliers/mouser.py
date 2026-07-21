@@ -61,7 +61,19 @@ class MouserClient(SupplierClient):
         if query.mode == SearchMode.IDENTITY and query.part_number:
             payload["strategy"] = "exact-keyword-fallback-v2"
         elif query.mode == SearchMode.PARAMETRIC:
-            payload["strategy"] = "parametric-full-core-v2"
+            payload.update(
+                {
+                    "strategy": "parametric-full-core-v3",
+                    "preferred_keywords": supplier_spec_keywords(
+                        query,
+                        Supplier.MOUSER,
+                    ),
+                    "core_keywords": supplier_core_keywords(
+                        query,
+                        Supplier.MOUSER,
+                    ),
+                }
+            )
         return payload
 
     def planned_api_calls(self, query: PlannedQuery) -> int:
@@ -84,7 +96,11 @@ class MouserClient(SupplierClient):
             )
         is_identity = query.mode == SearchMode.IDENTITY and bool(query.part_number)
         is_parametric = query.mode == SearchMode.PARAMETRIC
-        preferred_keywords = supplier_spec_keywords(query) if is_parametric else query.keywords
+        preferred_keywords = (
+            supplier_spec_keywords(query, Supplier.MOUSER)
+            if is_parametric
+            else query.keywords
+        )
         if is_identity:
             if query.manufacturer:
                 path = "/api/v2/search/partnumberandmanufacturer"
@@ -141,7 +157,7 @@ class MouserClient(SupplierClient):
             result_count=self._part_count(raw),
         )
         if is_parametric and raw.ok and not self._has_verified_candidate(query, raw):
-            core_keywords = supplier_core_keywords(query)
+            core_keywords = supplier_core_keywords(query, Supplier.MOUSER)
             if core_keywords != preferred_keywords:
                 fallback = await self.fetch_keyword(
                     query,

@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .models import ProcurementPolicyInput
 
-SEARCH_CONTRACT_VERSION = "1.0"
+SEARCH_CONTRACT_VERSION = "1.1"
 FieldStatus = Literal["extracted", "review", "not_found"]
 
 # 검색 계약이 소비하는 추출 필드 — bom_probing_gpt.runtime.VALUE_FIELDS 미러
@@ -39,6 +39,17 @@ VALUE_FIELDS = (
     "quantity",
 )
 
+_NORMALIZED_FIELD_NAMES = {
+    "resistance": "resistance_ohm",
+    "capacitance": "capacitance_f",
+    "inductance": "inductance_h",
+    "power": "power_w",
+    "tolerance": "tolerance_percent",
+    "voltage": "voltage_v",
+    "current": "current_a",
+    "frequency": "frequency_hz",
+}
+
 
 class SearchEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -52,6 +63,7 @@ class SearchField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: Any = None
+    normalized_value: Any = None
     status: FieldStatus = "not_found"
     evidence: list[SearchEvidence] = Field(default_factory=list)
 
@@ -93,7 +105,7 @@ def _component_id(source_file: str, sheet_index: int, rows: list[int]) -> str:
 
 
 def _field(component: dict[str, Any], name: str) -> SearchField:
-    """field_states 항목 → SearchField. value/status/evidence 3키만 취하므로
+    """field_states 항목 → SearchField. value/status/evidence 키만 취하므로
     smartbom이 덧붙이는 `source` 키는 자연히 걸러진다."""
     states = component.get("field_states") or {}
     state = states.get(name) or {}
@@ -102,7 +114,14 @@ def _field(component: dict[str, Any], name: str) -> SearchField:
     if status not in {"extracted", "review", "not_found"}:
         status = "review" if value is not None else "not_found"
     evidence = [SearchEvidence.model_validate(item) for item in state.get("evidence") or []]
-    return SearchField(value=value, status=status, evidence=evidence)
+    normalized_name = _NORMALIZED_FIELD_NAMES.get(name)
+    normalized_value = component.get(normalized_name) if normalized_name else None
+    return SearchField(
+        value=value,
+        normalized_value=normalized_value,
+        status=status,
+        evidence=evidence,
+    )
 
 
 def _required_quantity(component: dict[str, Any]) -> int | None:

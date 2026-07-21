@@ -109,6 +109,16 @@ _CRYSTAL_DIMENSION = re.compile(
 )
 _CRYSTAL_SIZE_CODE = re.compile(r"(?<!\d)(1612|2016|2520|3225)(?!\d)")
 _GENERIC_CRYSTAL_SMD = re.compile(r"(?:\d+SMD|SMD\d+)(?:NOLEAD)?")
+_INTERNAL_CAD_PASSIVE_SIZE = re.compile(
+    r"^(?:CAP|RES|IND)[_-](?:C|R|L)?"
+    r"(0402|0603|1005|1608|2012|3216|3225|3528|4520|4532|5025|"
+    r"5750|6032|6332|7343)N?$",
+    re.I,
+)
+_INTERNAL_CAD_PASSIVE_PACKAGE = re.compile(
+    r"^(?:CAP|RES|IND)[_-][A-Z0-9_-]+$",
+    re.I,
+)
 
 
 def _is_crystal_package_context(component_type: str | None) -> bool:
@@ -149,6 +159,14 @@ def normalize_package(value: object, component_type: str | None = None) -> str:
     prefixed = re.fullmatch(r"[^=]{1,24}=(.+)", text.strip())
     if prefixed:
         text = prefixed.group(1).strip()
+    internal_size = _INTERNAL_CAD_PASSIVE_SIZE.fullmatch(text.strip())
+    if internal_size:
+        return _METRIC_TO_IMPERIAL[internal_size.group(1)]
+    # Library footprint identifiers are not distributor package names. Keep
+    # only a physically encoded passive size; ECAP/array/library suffixes must
+    # remain unverified instead of becoming toxic search keywords.
+    if _INTERNAL_CAD_PASSIVE_PACKAGE.fullmatch(text.strip()):
+        return ""
     compact = re.sub(r"[^A-Z0-9]+", "", text)
 
     crystal_context = _is_crystal_package_context(component_type)
@@ -202,6 +220,18 @@ def normalize_package(value: object, component_type: str | None = None) -> str:
         return size
     if compact in _METRIC_TO_IMPERIAL:
         return _METRIC_TO_IMPERIAL[compact]
+    if "_" in text:
+        # CAD library identifiers commonly use underscores to join a symbol,
+        # body hint, and library suffix. Accept an embedded standard named
+        # package, but never expose the untouched library identifier as a
+        # distributor package constraint.
+        named = _NAMED_PACKAGE.search(text.replace("_", "-"))
+        if named:
+            return normalize_package(
+                f"{named.group(1)}-{named.group(2)}",
+                component_type,
+            )
+        return ""
     return _PACKAGE_ALIASES.get(compact, compact)
 
 

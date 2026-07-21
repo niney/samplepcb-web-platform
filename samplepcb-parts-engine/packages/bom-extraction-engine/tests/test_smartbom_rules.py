@@ -159,6 +159,15 @@ CASES += [
     ("역할 열이 전부 숫자인 행의 quantity 기권",
      (["App", "On count", "Off count"], ["Fibonacci", "19", "18"]),
      lambda a: a is None or a.quantity is None),
+    ("전해 커패시터의 F 생략 용량은 품번이 아님",
+     (["References", "Description", "Value", "Quantity", "Footprint"],
+      ["C52", "", "100u/35V/H10", "1", "CAP_ECAP_H10"]),
+     lambda a: a.part_number is None and a.capacitance == "100u"
+     and a.voltage == "35V"),
+    ("IC 패키지 핀 수만으로 connector가 되지 않음",
+     (["References", "Description", "Value", "Quantity", "Footprint"],
+      ["U4", "SOIC 8PIN / MAX485ESA", "MAX485", "1", "D008_N"]),
+     lambda a: a.part_type == "ic" and a.part_number == "MAX485"),
 ]
 
 

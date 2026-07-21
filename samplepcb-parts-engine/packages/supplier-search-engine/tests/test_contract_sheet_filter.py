@@ -36,3 +36,25 @@ def test_missing_sheet_filter_preserves_admin_all_sheet_behavior() -> None:
     batch = build_batch_from_result(result)
 
     assert [item.sheet_index_0based for item in batch.components] == [0, 1]
+
+
+def test_build_batch_preserves_extractor_normalized_values() -> None:
+    item = component(0, 2)
+    item["raw_fields"]["resistance"] = "10K OHM"
+    item["field_states"]["resistance"] = {
+        "value": "10K OHM",
+        "status": "extracted",
+        "evidence": [],
+    }
+    item["resistance_ohm"] = 10_000.0
+
+    batch = build_batch_from_result(
+        {
+            "schema_version": "1.0",
+            "source_file": "normalized.xlsx",
+            "components": [item],
+        }
+    )
+
+    assert batch.search_contract_version == "1.1"
+    assert batch.components[0].fields["resistance"].normalized_value == 10_000.0

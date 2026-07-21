@@ -32,6 +32,18 @@ from .models import (
 
 
 CURRENT_OFFER_KEY_VERSION: OfferKeyVersion = "supplier-offer-key-v2"
+_MISSING_SUPPLIER_IDENTIFIERS = frozenset(
+    {
+        "-",
+        "--",
+        "n/a",
+        "n.a.",
+        "none",
+        "not available",
+        "null",
+        "unknown",
+    }
+)
 
 
 class ProcurementReevaluationError(ValueError):
@@ -128,14 +140,16 @@ def _validate_candidate_groups(
     return preselected_groups[0] if preselected_groups else None
 
 
-def _validate_unique_offer_keys(
+def _collect_offer_occurrences(
     candidates: list[CandidateMatch],
     offer_key_version: OfferKeyVersion,
-) -> None:
-    occurrences: dict[str, int] = {}
+) -> dict[str, list[tuple[int, int, CandidateMatch, SupplierOffer]]]:
+    occurrences: dict[
+        str, list[tuple[int, int, CandidateMatch, SupplierOffer]]
+    ] = {}
     stored_key_mismatches: list[dict[str, Any]] = []
-    for candidate in candidates:
-        for offer in candidate.product.offers:
+    for candidate_index, candidate in enumerate(candidates):
+        for offer_index, offer in enumerate(candidate.product.offers):
             offer_key = stable_offer_key(
                 candidate.product,
                 offer,
@@ -156,7 +170,9 @@ def _validate_unique_offer_keys(
                     }
                 )
             if offer_key is not None:
-                occurrences[offer_key] = occurrences.get(offer_key, 0) + 1
+                occurrences.setdefault(offer_key, []).append(
+                    (candidate_index, offer_index, candidate, offer)
+                )
     if stored_key_mismatches:
         mismatch = min(
             stored_key_mismatches,
@@ -167,8 +183,134 @@ def _validate_unique_offer_keys(
             "stored offer key does not match the stable supplier-owned offer identity",
             context=mismatch,
         )
+    return occurrences
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _duplicate_offer_payload(
+    candidate: CandidateMatch,
+    offer: SupplierOffer,
+) -> dict[str, Any]:
+    """Return safety-relevant data that must agree before duplicate collapse."""
+
+    candidate_payload = candidate.model_dump(mode="json", exclude={"product"})
+    product_payload = candidate.product.model_dump(
+        mode="json",
+        exclude={"offers", "datasheet_url", "image_url"},
+    )
+    offer_payload = offer.model_dump(
+        mode="json",
+        exclude={"fetched_at", "procurement_decision", "product_url"},
+    )
+    offer_payload["price_breaks"] = sorted(
+        offer_payload.get("price_breaks", []),
+        key=_canonical_json,
+    )
+    return {
+        "candidate": candidate_payload,
+        "product": product_payload,
+        "offer": offer_payload,
+    }
+
+
+def _duplicate_offer_preference(
+    occurrence: tuple[int, int, CandidateMatch, SupplierOffer],
+) -> tuple[Any, ...]:
+    """Choose one identical occurrence without depending on input order."""
+
+    candidate_index, offer_index, candidate, offer = occurrence
+    return (
+        -offer.fetched_at.timestamp(),
+        offer.product_url or "",
+        candidate.product.datasheet_url or "",
+        candidate.product.image_url or "",
+        candidate_index,
+        offer_index,
+    )
+
+
+def _canonicalize_duplicate_offers(
+    candidates: list[CandidateMatch],
+    offer_key_version: OfferKeyVersion,
+) -> list[CandidateMatch]:
+    """Collapse exact repeated offers while rejecting conflicting duplicate keys."""
+
+    occurrences = _collect_offer_occurrences(candidates, offer_key_version)
+    removed: set[tuple[int, int]] = set()
+    for offer_key in sorted(occurrences):
+        repeated = occurrences[offer_key]
+        if len(repeated) < 2:
+            continue
+        payloads = [
+            _duplicate_offer_payload(candidate, offer)
+            for _, _, candidate, offer in repeated
+        ]
+        canonical_payloads = {_canonical_json(payload) for payload in payloads}
+        if len(canonical_payloads) > 1:
+            baseline = payloads[0]
+            conflicting_sections = sorted(
+                section
+                for section in baseline
+                if len({_canonical_json(payload[section]) for payload in payloads}) > 1
+            )
+            raise ProcurementReevaluationError(
+                "duplicate_offer_key",
+                "one stable offer key contains conflicting supplier or procurement data",
+                context={
+                    "offer_key": offer_key,
+                    "occurrence_count": len(repeated),
+                    "duplicate_policy": "fail_closed_conflict",
+                    "conflicting_sections": conflicting_sections,
+                },
+            )
+        canonical = min(repeated, key=_duplicate_offer_preference)
+        removed.update(
+            (candidate_index, offer_index)
+            for candidate_index, offer_index, _candidate, _offer in repeated
+            if (candidate_index, offer_index) != canonical[:2]
+        )
+
+    if not removed:
+        return candidates
+
+    canonical_candidates: list[CandidateMatch] = []
+    for candidate_index, candidate in enumerate(candidates):
+        offers = [
+            offer
+            for offer_index, offer in enumerate(candidate.product.offers)
+            if (candidate_index, offer_index) not in removed
+        ]
+        if candidate.product.offers and not offers:
+            continue
+        canonical_candidates.append(
+            candidate.model_copy(
+                update={
+                    "product": candidate.product.model_copy(
+                        update={"offers": offers},
+                        deep=True,
+                    )
+                },
+                deep=True,
+            )
+        )
+    return canonical_candidates
+
+
+def _validate_unique_offer_keys(
+    candidates: list[CandidateMatch],
+    offer_key_version: OfferKeyVersion,
+) -> None:
+    occurrences = _collect_offer_occurrences(candidates, offer_key_version)
     duplicate_keys = sorted(
-        key for key, occurrence_count in occurrences.items() if occurrence_count > 1
+        key for key, repeated in occurrences.items() if len(repeated) > 1
     )
     if duplicate_keys:
         duplicate_key = duplicate_keys[0]
@@ -177,7 +319,7 @@ def _validate_unique_offer_keys(
             "stable offer keys must identify exactly one stored offer",
             context={
                 "offer_key": duplicate_key,
-                "occurrence_count": occurrences[duplicate_key],
+                "occurrence_count": len(occurrences[duplicate_key]),
                 "duplicate_policy": "fail_closed",
             },
         )
@@ -191,7 +333,10 @@ def _stable_token(value: str | None) -> str:
 def _stable_supplier_identifier(value: str | None) -> str:
     """Normalize representation without erasing punctuation that identifies an SKU."""
 
-    return unicodedata.normalize("NFKC", value or "").strip()
+    normalized = unicodedata.normalize("NFKC", value or "").strip()
+    if normalized.casefold() in _MISSING_SUPPLIER_IDENTIFIERS:
+        return ""
+    return normalized
 
 
 def stable_offer_key(
@@ -618,6 +763,10 @@ def apply_procurement_decisions(
         offer_key_version or stored_version or CURRENT_OFFER_KEY_VERSION
     )
     preselected_group = _validate_candidate_groups(candidates)
+    candidates = _canonicalize_duplicate_offers(
+        candidates,
+        effective_offer_key_version,
+    )
     _validate_unique_offer_keys(candidates, effective_offer_key_version)
     entries: list[
         tuple[int, int, CandidateMatch, SupplierOffer, OfferProcurementDecision]
@@ -886,8 +1035,14 @@ def reevaluate_procurement(
 ) -> ProcurementReevaluationResult:
     """Recalculate purchasing fields without supplier, cache, or quota access."""
 
+    stored_version = _stored_offer_key_version(request.candidates)
+    _validate_candidate_groups(request.candidates)
+    canonical_candidates = _canonicalize_duplicate_offers(
+        request.candidates,
+        stored_version or CURRENT_OFFER_KEY_VERSION,
+    )
     technical_before = [
-        candidate.decision.model_dump(mode="json") for candidate in request.candidates
+        candidate.decision.model_dump(mode="json") for candidate in canonical_candidates
     ]
     query = PlannedQuery(
         component_id=request.component_id,
@@ -896,7 +1051,7 @@ def reevaluate_procurement(
     )
     candidates, component_decision = apply_procurement_decisions(
         query,
-        request.candidates,
+        canonical_candidates,
         request.procurement_policy,
     )
     technical_after = [

@@ -150,7 +150,7 @@ def test_preflight_includes_conditional_spec_fallback_calls(tmp_path):
     result = service.preflight_batch(batch(item))
 
     component_plan = result.components[0]
-    assert result.unique_supplier_request_count == 5
+    assert result.unique_supplier_request_count == 6
     assert result.estimated_api_calls == 2
     assert result.retry_worst_case_api_calls == 6
     assert component_plan.fallback_mode is not None
@@ -159,5 +159,6 @@ def test_preflight_includes_conditional_spec_fallback_calls(tmp_path):
     assert [item.supplier for item in component_plan.fallback_suppliers] == [
         Supplier.DIGIKEY,
         Supplier.MOUSER,
+        Supplier.UNIKEYIC,
     ]
     assert "스펙 재검색 호출량" in " ".join(component_plan.warnings)

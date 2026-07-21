@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from supplier_search_engine.models import PlannedQuery, Requirement, SearchMode
+from supplier_search_engine.models import PlannedQuery, Requirement, SearchMode, Supplier
 from supplier_search_engine.supplier_query import supplier_core_keywords, supplier_spec_keywords
 
 
@@ -29,6 +29,9 @@ def test_resistor_query_uses_full_verified_spec_then_core_fallback():
 
     assert supplier_spec_keywords(query) == "10k 0.0625W 1% 0402"
     assert supplier_core_keywords(query) == "10k 0402"
+    assert supplier_spec_keywords(query, Supplier.DIGIKEY) == (
+        "10k 0.0625W 1% 0402 resistor"
+    )
 
 
 def test_capacitor_query_uses_dielectric_in_precise_search_but_not_broad_fallback():
@@ -47,3 +50,49 @@ def test_capacitor_query_uses_dielectric_in_precise_search_but_not_broad_fallbac
 
     assert supplier_spec_keywords(query) == "100nF 50V 10% X5R 0402"
     assert supplier_core_keywords(query) == "100nF 0402"
+    assert supplier_spec_keywords(query, Supplier.DIGIKEY) == (
+        "0.1uF 50V 10% X5R 0402 capacitor"
+    )
+    assert supplier_spec_keywords(query, Supplier.MOUSER) == (
+        "100nF 50V 10% X5R 0402 capacitor"
+    )
+
+
+def test_ferrite_bead_query_uses_impedance_and_avoids_inductor_value_tokens():
+    query = PlannedQuery(
+        component_id="bd1",
+        mode=SearchMode.PARAMETRIC,
+        part_type="inductor",
+        description="2012 BEAD / 470 ~ 680 ohm",
+        requirements={
+            "resistance_ohm": requirement("resistance_ohm", 680.0),
+            "package": requirement("package", "0805"),
+        },
+    )
+
+    assert supplier_spec_keywords(query, Supplier.DIGIKEY) == (
+        "0805 680 Ohms ferrite bead"
+    )
+    assert supplier_spec_keywords(query, Supplier.MOUSER) == (
+        "0805 680R ferrite bead"
+    )
+
+
+def test_supplier_queries_keep_large_electrolytics_in_microfarads():
+    query = PlannedQuery(
+        component_id="c2",
+        mode=SearchMode.PARAMETRIC,
+        part_type="capacitor",
+        category_policy="electrolytic",
+        requirements={
+            "capacitance_f": requirement("capacitance_f", 1e-3),
+            "voltage_v": requirement("voltage_v", 10.0),
+        },
+    )
+
+    assert supplier_spec_keywords(query, Supplier.DIGIKEY) == (
+        "1000uF 10V aluminum electrolytic capacitor"
+    )
+    assert supplier_spec_keywords(query, Supplier.MOUSER) == (
+        "1000uF 10V electrolytic capacitor"
+    )

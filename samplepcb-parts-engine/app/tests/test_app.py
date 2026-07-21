@@ -289,12 +289,24 @@ def test_procurement_reevaluation_api_is_deterministic_and_fails_closed(tmp_path
     duplicate = deepcopy(payload)
     duplicate_offer = deepcopy(duplicate["candidates"][0]["product"]["offers"][0])
     duplicate["candidates"][0]["product"]["offers"].append(duplicate_offer)
-    rejected = client.post(
+    collapsed = client.post(
         "/supplier-search/procurement/reevaluate",
         json=duplicate,
     )
+    assert collapsed.status_code == 200
+    assert len(collapsed.json()["candidates"][0]["product"]["offers"]) == 1
+
+    conflicting = deepcopy(duplicate)
+    conflicting["candidates"][0]["product"]["offers"][1]["stock"] = 1
+    rejected = client.post(
+        "/supplier-search/procurement/reevaluate",
+        json=conflicting,
+    )
     assert rejected.status_code == 422
     assert rejected.json()["detail"]["code"] == "duplicate_offer_key"
+    assert rejected.json()["detail"]["context"]["duplicate_policy"] == (
+        "fail_closed_conflict"
+    )
 
 
 def test_procurement_reevaluation_batch_api_isolates_component_failures(tmp_path):
@@ -303,6 +315,7 @@ def test_procurement_reevaluation_batch_api_isolates_component_failures(tmp_path
     base = _procurement_request()
 
     broken_candidates = [base["candidates"][0], deepcopy(base["candidates"][0])]
+    broken_candidates[1]["product"]["offers"][0]["stock"] = 1
     batch_payload = {
         "contract_version": "supplier-procurement-reevaluation-batch-v1",
         "procurement_policy": base["procurement_policy"],

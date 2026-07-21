@@ -532,7 +532,9 @@ async def test_digikey_parametric_search_discovers_then_applies_response_filter_
 
     assert raw.ok is True
     assert reservations == 2
-    assert request_bodies[0]["Keywords"] == "100nF 16V 10% 0603"
+    assert request_bodies[0]["Keywords"] == (
+        "0.1uF 16V 10% 0603 capacitor"
+    )
     parameter_request = request_bodies[1]["FilterOptionsRequest"]["ParameterFilterRequest"]
     assert parameter_request["CategoryFilter"] == {"Id": "60"}
     assert parameter_request["ParameterFilters"] == [
@@ -541,7 +543,9 @@ async def test_digikey_parametric_search_discovers_then_applies_response_filter_
         {"ParameterId": 14, "FilterValues": [{"Id": "16"}]},
         {"ParameterId": 16, "FilterValues": [{"Id": "39246"}]},
     ]
-    assert raw.payload["SearchProbeDiscovery"]["Keywords"] == "100nF 16V 10% 0603"
+    assert raw.payload["SearchProbeDiscovery"]["Keywords"] == (
+        "0.1uF 16V 10% 0603 capacitor"
+    )
     assert raw.payload["Products"][0]["ManufacturerProductNumber"] == "GRM188R71C104KA01D"
 
 
@@ -590,7 +594,9 @@ async def test_digikey_parametric_search_skips_filter_when_discovery_is_fully_ve
     assert raw.ok is True
     assert reservations == 1
     assert len(request_bodies) == 1
-    assert request_bodies[0]["Keywords"] == "100nF 16V 10% 0603"
+    assert request_bodies[0]["Keywords"] == (
+        "0.1uF 16V 10% 0603 capacitor"
+    )
     assert raw.payload["Products"][0]["ManufacturerProductNumber"] == "GRM188R71C104KA01D"
 
 
@@ -627,10 +633,12 @@ async def test_digikey_parametric_search_falls_back_from_full_to_core_keywords()
     assert raw.ok is True
     assert reservations == 2
     assert [body["Keywords"] for body in request_bodies] == [
-        "100nF 16V 10% 0603",
-        "100nF 0603",
+        "0.1uF 16V 10% 0603 capacitor",
+        "0.1uF 0603 capacitor",
     ]
-    assert raw.payload["SearchProbeDiscovery"]["FallbackKeywords"] == "100nF 0603"
+    assert raw.payload["SearchProbeDiscovery"]["FallbackKeywords"] == (
+        "0.1uF 0603 capacitor"
+    )
     assert raw.payload["Products"][0]["ManufacturerProductNumber"] == "GRM188R71C104KA01D"
 
 
@@ -687,5 +695,8 @@ async def test_mouser_parametric_search_falls_back_from_full_to_core_keywords():
     assert raw.ok is True
     assert reservations == 2
     keywords = [next(iter(body.values()))["keyword"] for body in request_bodies]
-    assert keywords == ["100nF 16V 10% 0603", "100nF 0603"]
+    assert keywords == [
+        "100nF 16V 10% 0603 capacitor",
+        "100nF 0603 capacitor",
+    ]
     assert raw.payload["SearchResults"]["Parts"][0]["ManufacturerPartNumber"] == "GRM188R71C104KA01D"

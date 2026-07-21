@@ -61,6 +61,40 @@ def test_planner_freezes_category_policy_from_bom_evidence():
     assert electrolytic.category_policy == "electrolytic"
 
 
+def test_planner_uses_extractor_normalized_value_for_bare_passive_numbers():
+    item = component(
+        part_type="resistor",
+        resistance="100",
+        package="RES_C2012N",
+    )
+    item.fields["resistance"].normalized_value = 100.0
+
+    query = QueryPlanner().plan(item)
+
+    assert query.mode.value == "parametric"
+    assert query.requirements["resistance_ohm"].normalized_value == 100.0
+    assert query.requirements["package"].normalized_value == "0805"
+    assert query.keywords == "100 0805 resistor"
+
+
+def test_internal_electrolytic_footprint_sets_category_without_fake_package():
+    item = component(
+        part_type="capacitor",
+        capacitance="100u",
+        voltage="16V",
+        package="CAP_ECAP_F55",
+    )
+    item.fields["capacitance"].normalized_value = 100e-6
+
+    query = QueryPlanner().plan(item)
+
+    assert query.mode.value == "parametric"
+    assert query.category_policy == "electrolytic"
+    assert query.requirements["package"].normalized_value is None
+    assert query.requirements["package"].hard is False
+    assert "CAPECAPF55" not in query.keywords
+
+
 def test_identity_query_can_build_spec_only_fallback_with_sufficient_evidence():
     planner = QueryPlanner()
     query = planner.plan(

@@ -35,6 +35,16 @@ _PASSIVE_PACKAGE_PART_NUMBER = re.compile(
     re.I,
 )
 _CAD_PASSIVE_FOOTPRINT = re.compile(r"^[CR]\d{4}\(\d{4}\)[A-Z0-9_-]*$", re.I)
+_INTERNAL_CAD_PASSIVE_FOOTPRINT = re.compile(
+    r"^(?:CAP|RES|IND)[_-][A-Z0-9_-]+$",
+    re.I,
+)
+_INTERNAL_CAD_PASSIVE_SIZE = re.compile(
+    r"^(?:CAP|RES|IND)[_-](?:C|R|L)?"
+    r"(0402|0603|1005|1608|2012|3216|3225|3528|4520|4532|5025|"
+    r"5750|6032|6332|7343)N?$",
+    re.I,
+)
 _PREFIXED_PART_NUMBER = re.compile(r"^([^=]{1,24})=(.+)$")
 _NAMED_PACKAGE_VALUE = re.compile(
     r"^(?:P?G?SOT|TSOT|SOD|DO|T?FBGA|BGA|WSON|V?QFN|DFN|SOIC|SOP|"
@@ -55,7 +65,7 @@ _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("crystal", ("crystal", "oscillator", "크리스털", "수정", "발진기")),
     ("capacitor", ("capacitor", "커패시터", "콘덴서")),
 )
-_ELECTROLYTIC_TOKENS = ("electrolytic", "전해")
+_ELECTROLYTIC_TOKENS = ("electrolytic", "ecap", "전해")
 
 
 def _package_from_pseudo_part_number(
@@ -73,6 +83,9 @@ def _package_from_pseudo_part_number(
     if cad:
         metric = re.search(r"\((\d{4})\)", value)
         return metric.group(1) if metric else None
+    internal = _INTERNAL_CAD_PASSIVE_SIZE.fullmatch(value.strip())
+    if internal:
+        return internal.group(1).upper()
     prefixed = _PREFIXED_PART_NUMBER.fullmatch(value.strip())
     if prefixed:
         candidate = prefixed.group(2).strip()
@@ -98,12 +111,15 @@ def _canonical_category_policy(
     part_type: str | None,
     description: str | None,
     value_raw: str | None,
+    package: str | None,
 ) -> str | None:
     """Choose the category policy from BOM-owned evidence only."""
 
     part_type_text = (part_type or "").casefold()
     bom_text = " ".join(
-        value.casefold() for value in (part_type, description, value_raw) if value
+        value.casefold()
+        for value in (part_type, description, value_raw, package)
+        if value
     )
     if any(token in bom_text for token in _ELECTROLYTIC_TOKENS) and any(
         token in part_type_text
@@ -149,7 +165,11 @@ class QueryPlanner:
             field = fields[source_name]
             if field.value is None:
                 continue
-            parsed = parser(field.value)
+            parsed = (
+                field.normalized_value
+                if field.normalized_value is not None
+                else parser(field.value)
+            )
             requirements[target_name] = self._requirement(target_name, field, parsed, comparison)
 
         temperature = fields["temperature"]
@@ -162,13 +182,21 @@ class QueryPlanner:
         part_type_value = str(part_type.value).strip() if part_type.value is not None else None
         raw_part_number = str(pn.value).strip() if pn.value is not None else None
         pseudo_package = _package_from_pseudo_part_number(raw_part_number, part_type_value)
+        internal_cad_part_number = bool(
+            raw_part_number
+            and _INTERNAL_CAD_PASSIVE_FOOTPRINT.fullmatch(raw_part_number)
+        )
         if pseudo_package is None:
             raw_part_number = _part_number_without_manufacturer_prefix(raw_part_number)
         if package.value is not None:
+            normalized_package = normalize_package(
+                package.value,
+                part_type_value,
+            ) or None
             requirements["package"] = self._requirement(
                 "package",
                 package,
-                normalize_package(package.value, part_type_value),
+                normalized_package,
                 "eq",
             )
         elif pseudo_package:
@@ -189,6 +217,7 @@ class QueryPlanner:
             raw_part_number
             if raw_part_number
             and pseudo_package is None
+            and not internal_cad_part_number
             and not _PLACEHOLDER_PART_NUMBER.fullmatch(raw_part_number)
             and not _GENERIC_CONNECTOR_NOTATION.fullmatch(raw_part_number)
             else None
@@ -204,6 +233,7 @@ class QueryPlanner:
             part_type_value,
             component.description,
             component.value_raw,
+            package_value,
         )
         physical_source = " ".join(
             value
@@ -279,7 +309,12 @@ class QueryPlanner:
                     keyword_parts.append(str(field.value))
                     break
             if package_value:
-                keyword_parts.append(normalize_package(package_value, part_type_value))
+                normalized_package = normalize_package(
+                    package_value,
+                    part_type_value,
+                )
+                if normalized_package:
+                    keyword_parts.append(normalized_package)
             if dielectric:
                 keyword_parts.append(dielectric)
             if part_type_value:

@@ -23,7 +23,11 @@ from ..models import (
 )
 from ..normalization import normalize_package, normalized_specs_from_parameters, normalized_specs_from_text
 from ..pricing import valid_price_break
-from ..supplier_query import supplier_core_keywords, supplier_spec_keywords
+from ..supplier_query import (
+    is_ferrite_bead_query,
+    supplier_core_keywords,
+    supplier_spec_keywords,
+)
 from .base import SupplierClient
 
 
@@ -75,7 +79,20 @@ class DigiKeyClient(SupplierClient):
         if query.mode == SearchMode.IDENTITY and query.part_number:
             payload["strategy"] = "product-details-keyword-fallback-v1"
         elif query.mode == SearchMode.PARAMETRIC and self._primary_requirement(query):
-            payload["strategy"] = "parametric-full-filter-core-v6"
+            payload.update(
+                {
+                    "strategy": "parametric-full-filter-core-v7",
+                    "preferred_keywords": supplier_spec_keywords(
+                        query,
+                        Supplier.DIGIKEY,
+                    ),
+                    "core_keywords": supplier_core_keywords(
+                        query,
+                        Supplier.DIGIKEY,
+                    ),
+                    "request_language": "en",
+                }
+            )
         return payload
 
     def planned_api_calls(self, query: PlannedQuery) -> int:
@@ -133,7 +150,13 @@ class DigiKeyClient(SupplierClient):
             "Authorization": f"Bearer {token}",
             "X-DIGIKEY-Client-Id": self.client_id or "",
             "X-DIGIKEY-Locale-Site": query.site,
-            "X-DIGIKEY-Locale-Language": query.language,
+            # Live probing showed that the Korean keyword parser can split
+            # engineering units incorrectly (10uF -> 0.1uF results). Product
+            # text remains locally normalized, so parametric discovery uses
+            # DigiKey's English parser while preserving site and currency.
+            "X-DIGIKEY-Locale-Language": (
+                "en" if query.mode == SearchMode.PARAMETRIC else query.language
+            ),
             "X-DIGIKEY-Locale-Currency": query.currency,
         }
         if self.account_id:
@@ -169,7 +192,7 @@ class DigiKeyClient(SupplierClient):
             return self._with_previous_attempts(exact, fallback)
 
         if query.mode == SearchMode.PARAMETRIC and self._primary_requirement(query):
-            preferred_keywords = supplier_spec_keywords(query)
+            preferred_keywords = supplier_spec_keywords(query, Supplier.DIGIKEY)
             discovery = await self._keyword_fetch(
                 query,
                 headers,
@@ -217,7 +240,7 @@ class DigiKeyClient(SupplierClient):
                     )
                 return self._with_additional_attempts(discovery, filtered)
 
-            core_keywords = supplier_core_keywords(query)
+            core_keywords = supplier_core_keywords(query, Supplier.DIGIKEY)
             if core_keywords != preferred_keywords:
                 fallback = await self._keyword_fetch(
                     query,
@@ -325,7 +348,11 @@ class DigiKeyClient(SupplierClient):
     ) -> RawSupplierResponse:
 
         filter_options: dict[str, Any] = {"MarketPlaceFilter": "ExcludeMarketPlace"}
-        category_id = _CATEGORY_IDS.get((query.part_type or "").casefold())
+        category_id = (
+            None
+            if is_ferrite_bead_query(query)
+            else _CATEGORY_IDS.get((query.part_type or "").casefold())
+        )
         if category_id:
             filter_options["CategoryFilter"] = [{"Id": category_id}]
         if parameter_filter:
@@ -397,12 +424,14 @@ class DigiKeyClient(SupplierClient):
 
     @staticmethod
     def _primary_requirement(query: PlannedQuery) -> Requirement | None:
+        if is_ferrite_bead_query(query):
+            return query.requirements.get("resistance_ohm")
         key = _PRIMARY_REQUIREMENTS.get((query.part_type or "").casefold())
         return query.requirements.get(key) if key else None
 
     @classmethod
     def _discovery_keywords(cls, query: PlannedQuery) -> str:
-        return supplier_core_keywords(query)
+        return supplier_core_keywords(query, Supplier.DIGIKEY)
 
     @classmethod
     def _parameter_filter_request(
