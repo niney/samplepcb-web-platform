@@ -152,6 +152,15 @@ def test_exact_mpn_with_hard_spec_conflict_is_input_conflict():
 
     assert match.status == MatchStatus.INPUT_CONFLICT
     assert "resistance_ohm_mismatch" in match.conflicts
+    resistance = next(
+        item
+        for item in match.decision.requirement_assessments
+        if item.key == "resistance_ohm"
+    )
+    assert resistance.state == "mismatch"
+    assert resistance.verified is False
+    assert resistance.expected_display == "10 kΩ"
+    assert resistance.actual_display == "1 kΩ"
 
 
 def test_supplier_part_type_inference_requires_one_unambiguous_category():
@@ -189,6 +198,19 @@ def test_parametric_match_checks_minimum_ratings_and_package():
     assert match.package_comparison.state == "match"
     assert match.package_comparison.relation == "exact"
     assert match.package_comparison.expected_display == "0603 · 1608 metric"
+    assessments = {item.key: item for item in match.decision.requirement_assessments}
+    assert assessments["resistance_ohm"].expected_display == "10 kΩ"
+    assert assessments["resistance_ohm"].actual_display == "10 kΩ"
+    assert assessments["power_w"].comparison == "gte"
+    assert assessments["power_w"].expected_display == "100 mW"
+    assert assessments["power_w"].actual_display == "125 mW"
+    assert assessments["power_w"].state == "match"
+    assert assessments["tolerance_percent"].state == "missing"
+    assert len(assessments) == match.decision.required_requirement_count
+    assert (
+        sum(item.verified for item in assessments.values())
+        == match.decision.verified_requirement_count
+    )
 
 
 def test_zero_ohm_jumper_does_not_require_percentage_tolerance():
@@ -213,6 +235,13 @@ def test_zero_ohm_jumper_does_not_require_percentage_tolerance():
     assert match.status == MatchStatus.SPEC_COMPATIBLE
     assert "tolerance_percent" not in match.missing_requirements
     assert "tolerance_not_applicable_for_zero_ohm" in match.reasons
+    tolerance = next(
+        item
+        for item in match.decision.requirement_assessments
+        if item.key == "tolerance_percent"
+    )
+    assert tolerance.state == "not_applicable"
+    assert tolerance.verified is True
 
 
 def test_ic_category_accepts_operational_amplifier_taxonomy():

@@ -547,6 +547,19 @@ class SpecComparison(BaseModel):
     actual_detail: str | None = None
 
 
+class RequirementAssessment(BaseModel):
+    """One required BOM condition and the engine-owned candidate verdict."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    comparison: Literal["eq", "gte", "lte", "contains", "category"]
+    state: Literal["match", "mismatch", "missing", "not_applicable", "unverified"]
+    verified: bool
+    expected_display: str | None = None
+    actual_display: str | None = None
+
+
 class RawSupplierResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -608,6 +621,7 @@ class CandidateDecision(BaseModel):
     technical_evidence_key: str
     verified_requirement_count: int = Field(ge=0)
     required_requirement_count: int = Field(ge=0)
+    requirement_assessments: list[RequirementAssessment] = Field(default_factory=list)
     verification_complete: bool
     strict_category_coverage: bool
     lifecycle_state: LifecycleState

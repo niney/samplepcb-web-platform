@@ -6,6 +6,7 @@ import {
   BomQuoteDecisionReason,
   BomQuoteExchangeRateSnapshot,
   BomQuoteMatchEvidence,
+  BomQuoteRequirementAssessment,
   BomQuoteSelectionSource,
   BomQuoteSelectedOffer,
   type AdminBomQuoteDetailType,
@@ -25,6 +26,7 @@ import {
   type BomQuoteMatchEvidenceType,
   type BomQuotePatchBodyType,
   type BomQuoteRecommendationTypeType,
+  type BomQuoteRequirementAssessmentType,
   type BomQuoteSelectionEventType,
   type BomQuoteSelectionSourceType,
   type BomQuoteSearchTraceSummaryType,
@@ -196,6 +198,15 @@ const EngineLegacyCandidateDecision = z
   })
   .passthrough();
 
+const EngineRequirementAssessment = z.object({
+  key: z.string(),
+  comparison: z.enum(['eq', 'gte', 'lte', 'contains', 'category']),
+  state: z.enum(['match', 'mismatch', 'missing', 'not_applicable', 'unverified']),
+  verified: z.boolean(),
+  expected_display: z.string().nullable(),
+  actual_display: z.string().nullable(),
+});
+
 const EngineCandidateDecisionV1 = z
   .object({
     decision_policy_version: z.string(),
@@ -212,6 +223,7 @@ const EngineCandidateDecisionV1 = z
     technical_evidence_key: z.string(),
     verified_requirement_count: z.number().int().min(0),
     required_requirement_count: z.number().int().min(0),
+    requirement_assessments: z.array(EngineRequirementAssessment).default([]),
     verification_complete: z.boolean(),
     strict_category_coverage: z.boolean(),
     lifecycle_state: z.enum(['active', 'caution', 'unknown']),
@@ -655,6 +667,7 @@ const StoredCandidate = z.object({
   corroboratingSuppliers: z.array(z.string()),
   verifiedRequirementCount: z.number().int().min(0),
   requiredRequirementCount: z.number().int().min(0),
+  requirementAssessments: z.array(BomQuoteRequirementAssessment).catch([]),
   verificationComplete: z.boolean().catch(false),
   strictCategoryCoverage: z.boolean().catch(false),
   technicalEvidenceKey: z.string().catch(''),
@@ -743,6 +756,7 @@ export function buildQuoteComparisonRows(
       conflicts: candidate.conflicts,
       missingRequirements: candidate.missingRequirements,
       reasons: candidate.reasons,
+      requirementAssessments: candidate.requirementAssessments,
       normalizedSpecs: candidate.normalizedSpecs,
       specComparisons: candidate.specComparisons,
       packageComparison: candidate.packageComparison,
@@ -915,6 +929,7 @@ interface NormalizedEngineCandidateDecision {
   technicalEvidenceKey: string;
   verifiedRequirementCount: number;
   requiredRequirementCount: number;
+  requirementAssessments: BomQuoteRequirementAssessmentType[];
   verificationComplete: boolean;
   strictCategoryCoverage: boolean;
   lifecycleState: 'active' | 'caution' | 'unknown';
@@ -989,6 +1004,14 @@ function normalizeEngineDecision(
       technicalEvidenceKey: currentDecision.technical_evidence_key.trim(),
       verifiedRequirementCount: currentDecision.verified_requirement_count,
       requiredRequirementCount: currentDecision.required_requirement_count,
+      requirementAssessments: currentDecision.requirement_assessments.map((assessment) => ({
+        key: assessment.key,
+        comparison: assessment.comparison,
+        state: assessment.state,
+        verified: assessment.verified,
+        expectedDisplay: assessment.expected_display,
+        actualDisplay: assessment.actual_display,
+      })),
       verificationComplete: currentDecision.verification_complete,
       strictCategoryCoverage: currentDecision.strict_category_coverage,
       lifecycleState: currentDecision.lifecycle_state,
@@ -1012,6 +1035,7 @@ function normalizeEngineDecision(
     technicalEvidenceKey: legacyDecision.technical_evidence_key.trim(),
     verifiedRequirementCount: legacyDecision.verified_requirement_count,
     requiredRequirementCount: legacyDecision.required_requirement_count,
+    requirementAssessments: [],
     verificationComplete: legacyDecision.verification_complete,
     strictCategoryCoverage: legacyDecision.strict_category_coverage,
     lifecycleState: legacyDecision.lifecycle_state,
@@ -1187,6 +1211,7 @@ function buildCandidateGroups(
         corroboratingSuppliers: [...corroborating].sort(),
         verifiedRequirementCount: decision?.verifiedRequirementCount ?? 0,
         requiredRequirementCount: decision?.requiredRequirementCount ?? 0,
+        requirementAssessments: decision?.requirementAssessments ?? [],
         verificationComplete: decision?.verificationComplete ?? false,
         strictCategoryCoverage: decision?.strictCategoryCoverage ?? false,
         technicalEvidenceKey,
@@ -2602,6 +2627,7 @@ export async function getQuoteItemCandidates(
       corroboratingSuppliers: candidate.corroboratingSuppliers,
       verifiedRequirementCount: candidate.verifiedRequirementCount,
       requiredRequirementCount: candidate.requiredRequirementCount,
+      requirementAssessments: candidate.requirementAssessments,
       verificationComplete: candidate.verificationComplete,
       strictCategoryCoverage: candidate.strictCategoryCoverage,
       technicalEvidenceKey: candidate.technicalEvidenceKey,

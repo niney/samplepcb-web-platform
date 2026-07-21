@@ -161,6 +161,14 @@ interface CandidateOptions {
   reasons?: string[];
   requiredCount?: number;
   verifiedCount?: number;
+  requirementAssessments?: {
+    key: string;
+    comparison: 'eq' | 'gte' | 'lte' | 'contains' | 'category';
+    state: 'match' | 'mismatch' | 'missing' | 'not_applicable' | 'unverified';
+    verified: boolean;
+    expected_display: string | null;
+    actual_display: string | null;
+  }[];
   stock?: number;
   corroboratingSuppliers?: string[];
 }
@@ -195,6 +203,7 @@ function candidate(
         technical_evidence_key: technicalEvidenceKey,
         verified_requirement_count: verifiedCount,
         required_requirement_count: requiredCount,
+        requirement_assessments: options.requirementAssessments ?? [],
         verification_complete: options.verificationComplete ?? verifiedCount === requiredCount,
         strict_category_coverage: options.strictCategoryCoverage ?? false,
         lifecycle_state: options.lifecycleState ?? 'unknown',
@@ -379,6 +388,16 @@ describe('BOM 엔진 후보 결정 투영', () => {
       selectionRecommendation: 'preselect',
       identityKey: 'ik1:engine-choice',
       technicalEvidenceKey: 'ek1:engine-choice',
+      requiredCount: 1,
+      verifiedCount: 1,
+      requirementAssessments: [{
+        key: 'voltage_v',
+        comparison: 'gte',
+        state: 'match',
+        verified: true,
+        expected_display: '25 V',
+        actual_display: '50 V',
+      }],
     });
     const cheaper = candidate('verified_exact', 'ENGINE-PICK', 'mouser', 1, 1, {
       currentDecisionContract: true,
@@ -424,6 +443,14 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.evidence.decisionReasonCodes).toEqual([
       'engine-procurement-recommendation',
     ]);
+    expect(decision?.snapshots[0]?.requirementAssessments).toEqual([{
+      key: 'voltage_v',
+      comparison: 'gte',
+      state: 'match',
+      verified: true,
+      expectedDisplay: '25 V',
+      actualDisplay: '50 V',
+    }]);
   });
 
   it('오퍼 키와 선언된 키 버전이 다르면 엔진 계약을 거부한다', () => {

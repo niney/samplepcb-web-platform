@@ -240,6 +240,16 @@ export const BomQuoteCandidateOffer = z.object({
 });
 export type BomQuoteCandidateOfferType = z.infer<typeof BomQuoteCandidateOffer>;
 
+export const BomQuoteRequirementAssessment = z.object({
+  key: z.string(),
+  comparison: z.enum(['eq', 'gte', 'lte', 'contains', 'category']),
+  state: z.enum(['match', 'mismatch', 'missing', 'not_applicable', 'unverified']),
+  verified: z.boolean(),
+  expectedDisplay: z.string().nullable(),
+  actualDisplay: z.string().nullable(),
+});
+export type BomQuoteRequirementAssessmentType = z.infer<typeof BomQuoteRequirementAssessment>;
+
 /** 공급사 행을 제조사+MPN으로 통합한 고객 선택 단위. */
 export const BomQuoteCandidate = z.object({
   candidateKey: z.string(),
@@ -278,6 +288,8 @@ export const BomQuoteCandidate = z.object({
   corroboratingSuppliers: z.array(z.string()),
   verifiedRequirementCount: z.number().int().min(0),
   requiredRequirementCount: z.number().int().min(0),
+  /** sp-engine이 백분율과 같은 필수조건 집합으로 확정한 항목별 판정. */
+  requirementAssessments: z.array(BomQuoteRequirementAssessment),
   verificationComplete: z.boolean(),
   strictCategoryCoverage: z.boolean(),
   technicalEvidenceKey: z.string(),
@@ -319,6 +331,7 @@ export const BomQuoteComparisonCandidate = BomQuoteCandidate.pick({
   conflicts: true,
   missingRequirements: true,
   reasons: true,
+  requirementAssessments: true,
   normalizedSpecs: true,
   specComparisons: true,
   packageComparison: true,

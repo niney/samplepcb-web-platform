@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type {
   BomQuoteCandidateOfferType,
   BomQuoteCandidateType,
   BomQuoteDecisionReasonType,
   BomQuoteItemCandidatesType,
+  BomQuoteRequirementAssessmentType,
   BomQuoteSearchTraceAttemptType,
   BomQuoteSelectionSourceType,
   PartHitType,
@@ -80,12 +81,100 @@ interface PendingReviewSelection {
   offerKey: string | null;
 }
 
+interface RequirementTooltipPosition {
+  top: number;
+  left: number;
+  width: number;
+}
+
 const view = ref<SelectionView>(props.initialView);
 const tab = ref<CandidateTab>('selectable');
 const expanded = ref<Set<string>>(new Set());
 const originalDetailsExpanded = ref(false);
 const searchTraceExpanded = ref(false);
 const pendingReviewSelection = ref<PendingReviewSelection | null>(null);
+const requirementTooltipCandidateKey = ref<string | null>(null);
+const requirementTooltipPosition = ref<RequirementTooltipPosition>({ top: 0, left: 0, width: 440 });
+const requirementTooltipRef = ref<HTMLElement | null>(null);
+const requirementTooltipTrigger = ref<HTMLElement | null>(null);
+let requirementTooltipCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+const requirementTooltipCandidate = computed(() =>
+  props.context?.candidates.find((candidate) =>
+    candidate.candidateKey === requirementTooltipCandidateKey.value) ?? null,
+);
+const requirementTooltipId = computed(() =>
+  requirementTooltipCandidateKey.value === null
+    ? undefined
+    : `bom-requirements-${requirementTooltipCandidateKey.value.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+);
+const requirementTooltipStyle = computed(() => ({
+  top: `${String(requirementTooltipPosition.value.top)}px`,
+  left: `${String(requirementTooltipPosition.value.left)}px`,
+  width: `${String(requirementTooltipPosition.value.width)}px`,
+}));
+
+function cancelRequirementTooltipClose(): void {
+  if (requirementTooltipCloseTimer === null) return;
+  clearTimeout(requirementTooltipCloseTimer);
+  requirementTooltipCloseTimer = null;
+}
+
+function hideRequirementTooltipNow(): void {
+  cancelRequirementTooltipClose();
+  requirementTooltipCandidateKey.value = null;
+  requirementTooltipTrigger.value = null;
+}
+
+function scheduleRequirementTooltipClose(): void {
+  cancelRequirementTooltipClose();
+  requirementTooltipCloseTimer = setTimeout(() => {
+    requirementTooltipCandidateKey.value = null;
+    requirementTooltipTrigger.value = null;
+    requirementTooltipCloseTimer = null;
+  }, 100);
+}
+
+function positionRequirementTooltip(trigger: HTMLElement, candidateKey: string): void {
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(440, Math.max(280, window.innerWidth - 16));
+  const left = Math.min(
+    Math.max(8, rect.left + rect.width / 2 - width / 2),
+    Math.max(8, window.innerWidth - width - 8),
+  );
+  requirementTooltipPosition.value = { top: rect.bottom + 8, left, width };
+  void nextTick(() => {
+    if (requirementTooltipCandidateKey.value !== candidateKey) return;
+    const tooltip = requirementTooltipRef.value;
+    if (tooltip === null) return;
+    const height = tooltip.getBoundingClientRect().height;
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const top = spaceBelow < height && rect.top > spaceBelow
+      ? Math.max(8, rect.top - height - 8)
+      : Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - height - 8));
+    requirementTooltipPosition.value = { top, left, width };
+  });
+}
+
+function showRequirementTooltip(candidate: BomQuoteCandidateType, event: Event): void {
+  const trigger = event.currentTarget;
+  if (!(trigger instanceof HTMLElement)) return;
+  cancelRequirementTooltipClose();
+  requirementTooltipCandidateKey.value = candidate.candidateKey;
+  requirementTooltipTrigger.value = trigger;
+  positionRequirementTooltip(trigger, candidate.candidateKey);
+}
+
+function onDocumentPointerDown(event: PointerEvent): void {
+  if (requirementTooltipCandidateKey.value === null) return;
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (
+    requirementTooltipTrigger.value?.contains(target) === true
+    || requirementTooltipRef.value?.contains(target) === true
+  ) return;
+  hideRequirementTooltipNow();
+}
 
 function resetCandidatePresentation(): void {
   const recommended = props.context?.candidates.find((candidate) =>
@@ -94,6 +183,7 @@ function resetCandidatePresentation(): void {
   tab.value = recommended === undefined ? 'selectable' : 'review';
   expanded.value = new Set();
   pendingReviewSelection.value = null;
+  hideRequirementTooltipNow();
 }
 
 watch(
@@ -463,9 +553,10 @@ function verificationClass(candidate: BomQuoteCandidateType): string {
   return 'bg-emerald-50 font-semibold text-emerald-800';
 }
 
-function verificationLabel(candidate: BomQuoteCandidateType): string {
+function requirementBadgeLabel(candidate: BomQuoteCandidateType): string {
   const percent = verificationPercent(candidate);
-  return percent === null ? '검증 기준 미확인' : `필수조건 ${String(percent)}%`;
+  if (percent === null) return '필수조건 미확인';
+  return `필수조건 ${String(candidate.verifiedRequirementCount)}/${String(candidate.requiredRequirementCount)} · ${String(percent)}%`;
 }
 
 function requirementLabel(code: string): string {
@@ -501,6 +592,29 @@ function conflictText(candidate: BomQuoteCandidateType): string {
 
 function missingText(candidate: BomQuoteCandidateType): string {
   return candidate.missingRequirements.map(requirementLabel).join(', ');
+}
+
+function requirementExpectedLabel(assessment: BomQuoteRequirementAssessmentType): string {
+  if (assessment.expectedDisplay === null) return 'BOM 정보 없음';
+  if (assessment.comparison === 'gte') return `≥ ${assessment.expectedDisplay}`;
+  if (assessment.comparison === 'lte') return `≤ ${assessment.expectedDisplay}`;
+  return assessment.expectedDisplay;
+}
+
+function requirementStateLabel(assessment: BomQuoteRequirementAssessmentType): string {
+  if (assessment.state === 'not_applicable') return '해당 없음 · 충족';
+  if (assessment.state === 'mismatch') return '불일치';
+  if (assessment.state === 'missing') return '확인 필요';
+  if (assessment.state === 'unverified') return '미검증';
+  return assessment.comparison === 'eq' || assessment.comparison === 'category' ? '일치' : '충족';
+}
+
+function requirementStateClass(assessment: BomQuoteRequirementAssessmentType): string {
+  if (assessment.state === 'match' || assessment.state === 'not_applicable') {
+    return 'bg-emerald-100 text-emerald-800';
+  }
+  if (assessment.state === 'mismatch') return 'bg-red-100 text-red-800';
+  return 'bg-amber-100 text-amber-800';
 }
 
 function fmtWon(value: number | null): string {
@@ -594,6 +708,10 @@ function selectCatalogPart(part: PartHitType, pick: OfferPick | null): void {
 
 function onKeydown(event: KeyboardEvent): void {
   if (!props.open || event.key !== 'Escape') return;
+  if (requirementTooltipCandidateKey.value !== null) {
+    hideRequirementTooltipNow();
+    return;
+  }
   if (pendingReviewSelection.value !== null) {
     pendingReviewSelection.value = null;
     return;
@@ -603,9 +721,14 @@ function onKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
+  window.addEventListener('resize', hideRequirementTooltipNow);
+  document.addEventListener('pointerdown', onDocumentPointerDown);
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('resize', hideRequirementTooltipNow);
+  document.removeEventListener('pointerdown', onDocumentPointerDown);
+  cancelRequirementTooltipClose();
 });
 </script>
 
@@ -650,7 +773,7 @@ onBeforeUnmount(() => {
           </button>
         </nav>
 
-        <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="min-h-0 flex-1 overflow-y-auto" @scroll="hideRequirementTooltipNow">
           <div v-if="view === 'search'" class="space-y-4 p-4 sm:p-6">
             <div v-if="selectionError !== ''" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ selectionError }}</div>
             <section class="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 sm:p-5">
@@ -905,7 +1028,18 @@ onBeforeUnmount(() => {
                   <div v-if="currentCandidate !== null" class="flex shrink-0 flex-wrap gap-x-3 gap-y-1 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
                     <p>기술 <b class="text-slate-900">{{ currentCandidate.technicalRank }}위</b></p>
                     <p>구매조건 <b class="text-slate-900">{{ currentCandidate.priceRank === null ? '산정 불가' : `오퍼 ${String(currentCandidate.priceRank)}위` }}</b></p>
-                    <p>필수조건 <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }}</b></p>
+                    <button
+                      type="button"
+                      class="rounded px-1 text-left hover:bg-slate-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                      :aria-describedby="requirementTooltipCandidateKey === currentCandidate.candidateKey ? requirementTooltipId : undefined"
+                      @mouseenter="showRequirementTooltip(currentCandidate, $event)"
+                      @mouseleave="scheduleRequirementTooltipClose"
+                      @focus="showRequirementTooltip(currentCandidate, $event)"
+                      @blur="scheduleRequirementTooltipClose"
+                      @click.stop="showRequirementTooltip(currentCandidate, $event)"
+                    >
+                      필수조건 <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }}</b>
+                    </button>
                   </div>
                 </div>
                 <div v-if="context.decisionReasonCodes.includes('purchase-fit')" class="mx-3 mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
@@ -965,11 +1099,20 @@ onBeforeUnmount(() => {
                             <p class="mt-1 text-sm text-slate-500">{{ candidate.manufacturerName ?? '제조사 미확인' }}<span v-if="candidate.packageCode"> · {{ candidate.packageCode }}</span><span v-if="candidate.lifecycleStatus"> · {{ candidate.lifecycleStatus }}</span></p>
                             <p v-if="candidate.description" class="mt-1 line-clamp-1 text-xs leading-5 text-slate-500" :title="candidate.description">{{ candidate.description }}</p>
                             <div class="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-                              <span class="rounded px-2 py-0.5" :class="verificationClass(candidate)">검증 {{ candidate.verifiedRequirementCount }}/{{ candidate.requiredRequirementCount }}</span>
+                              <button
+                                type="button"
+                                class="rounded px-2 py-0.5 text-left transition hover:ring-2 hover:ring-current/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                                :class="verificationClass(candidate)"
+                                :aria-describedby="requirementTooltipCandidateKey === candidate.candidateKey ? requirementTooltipId : undefined"
+                                @mouseenter="showRequirementTooltip(candidate, $event)"
+                                @mouseleave="scheduleRequirementTooltipClose"
+                                @focus="showRequirementTooltip(candidate, $event)"
+                                @blur="scheduleRequirementTooltipClose"
+                                @click.stop="showRequirementTooltip(candidate, $event)"
+                              >
+                                {{ requirementBadgeLabel(candidate) }}
+                              </button>
                               <span v-if="context.originalMpn !== null" class="rounded bg-blue-50 px-2 py-0.5 font-semibold text-blue-800">품번 {{ Math.round(candidate.identityConfidence * 100) }}%</span>
-                              <span v-if="candidate.selectionMode === 'spec-compatible' || candidate.specificationConfidence > 0" class="rounded px-2 py-0.5" :class="verificationClass(candidate)">{{ verificationLabel(candidate) }}</span>
-                              <span v-if="candidate.reasons.includes('mount_style_match')" class="rounded bg-sky-50 px-2 py-0.5 font-semibold text-sky-800">실장 방식 일치</span>
-                              <span v-if="candidate.reasons.includes('diameter_mm_match')" class="rounded bg-sky-50 px-2 py-0.5 font-semibold text-sky-800">직경 일치</span>
                               <span class="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">공급사 {{ candidate.corroboratingSuppliers.length }}</span>
                             </div>
                           </div>
@@ -1149,6 +1292,47 @@ onBeforeUnmount(() => {
           </footer>
         </section>
       </div>
+    </div>
+    <div
+      v-if="open && requirementTooltipCandidate !== null"
+      :id="requirementTooltipId"
+      ref="requirementTooltipRef"
+      role="tooltip"
+      class="fixed z-[90] overflow-hidden rounded-xl border border-slate-300 bg-white text-xs text-slate-700 shadow-2xl ring-1 ring-slate-950/5"
+      :style="requirementTooltipStyle"
+      @mouseenter="cancelRequirementTooltipClose"
+      @mouseleave="scheduleRequirementTooltipClose"
+    >
+      <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div class="min-w-0">
+          <p class="font-bold text-slate-950">필수조건 상세</p>
+          <p class="mt-0.5 truncate text-[11px] text-slate-500">{{ requirementTooltipCandidate.mpn }}</p>
+        </div>
+        <span class="shrink-0 rounded-full px-2 py-0.5 font-bold tabular-nums" :class="verificationClass(requirementTooltipCandidate)">
+          {{ requirementTooltipCandidate.verifiedRequirementCount }}/{{ requirementTooltipCandidate.requiredRequirementCount }} · {{ verificationPercent(requirementTooltipCandidate) ?? 0 }}%
+        </span>
+      </div>
+      <div v-if="requirementTooltipCandidate.requirementAssessments.length > 0" class="max-h-[70vh] overflow-auto">
+        <div class="grid min-w-[400px] grid-cols-[minmax(76px,0.8fr)_minmax(96px,1fr)_minmax(96px,1fr)_auto] gap-x-2 border-b border-slate-200 bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+          <span>항목</span>
+          <span>BOM 요구</span>
+          <span>후보값</span>
+          <span>판정</span>
+        </div>
+        <div
+          v-for="assessment in requirementTooltipCandidate.requirementAssessments"
+          :key="assessment.key"
+          class="grid min-w-[400px] grid-cols-[minmax(76px,0.8fr)_minmax(96px,1fr)_minmax(96px,1fr)_auto] items-center gap-x-2 border-b border-slate-100 px-3 py-2 last:border-b-0"
+        >
+          <span class="font-semibold text-slate-800">{{ requirementLabel(assessment.key) }}</span>
+          <span class="break-words text-slate-600">{{ requirementExpectedLabel(assessment) }}</span>
+          <span class="break-words" :class="assessment.actualDisplay === null ? 'text-amber-700' : 'text-slate-800'">{{ assessment.actualDisplay ?? '정보 없음' }}</span>
+          <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold" :class="requirementStateClass(assessment)">{{ requirementStateLabel(assessment) }}</span>
+        </div>
+      </div>
+      <p v-else class="px-3 py-3 leading-5 text-slate-600">
+        기존 분석 결과에는 항목별 근거가 없습니다. 새로 분석한 견적부터 상세값을 표시합니다.
+      </p>
     </div>
   </Teleport>
 </template>

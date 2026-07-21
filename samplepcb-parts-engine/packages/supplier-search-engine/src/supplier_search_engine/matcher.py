@@ -16,6 +16,7 @@ from .models import (
     MatchStatus,
     PackageComparison,
     PlannedQuery,
+    RequirementAssessment,
     SearchMode,
     SelectionEligibility,
     SelectionRecommendation,
@@ -217,6 +218,142 @@ def _requirement_assessment(
     )
 
 
+def _compact_number(value: float) -> str:
+    return f"{value:.6g}"
+
+
+def _scaled_display(value: float, scales: tuple[tuple[float, str], ...]) -> str:
+    absolute = abs(value)
+    for factor, unit in scales:
+        if absolute >= factor or factor == scales[-1][0]:
+            return f"{_compact_number(value / factor)} {unit}"
+    return _compact_number(value)
+
+
+def _requirement_value_display(
+    name: str,
+    value: Any,
+    component_type: str | None,
+) -> str | None:
+    if value is None:
+        return None
+    if name == "package":
+        canonical = normalize_package(value, component_type)
+        return package_display(canonical, component_type) or str(value)
+    if name == "mount_style":
+        labels = {"smd": "SMD", "through-hole": "THT"}
+        return " / ".join(labels.get(item, item) for item in str(value).split(" / "))
+    if isinstance(value, list):
+        separator = " – " if name == "temperature_range_c" else " / "
+        return separator.join(
+            "…"
+            if item is None
+            else _requirement_value_display(name, item, component_type) or "…"
+            for item in value
+        )
+    if not isinstance(value, (int, float)):
+        return str(value)
+
+    numeric = float(value)
+    if name == "resistance_ohm":
+        return _scaled_display(
+            numeric, ((1_000_000.0, "MΩ"), (1_000.0, "kΩ"), (1.0, "Ω"))
+        )
+    if name == "capacitance_f":
+        return _scaled_display(
+            numeric, ((1.0, "F"), (1e-6, "µF"), (1e-9, "nF"), (1e-12, "pF"))
+        )
+    if name == "inductance_h":
+        return _scaled_display(
+            numeric, ((1.0, "H"), (1e-3, "mH"), (1e-6, "µH"), (1e-9, "nH"))
+        )
+    if name == "frequency_hz":
+        return _scaled_display(
+            numeric, ((1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz"), (1.0, "Hz"))
+        )
+    if name == "current_a":
+        return _scaled_display(numeric, ((1.0, "A"), (1e-3, "mA"), (1e-6, "µA")))
+    if name == "power_w":
+        return _scaled_display(numeric, ((1.0, "W"), (1e-3, "mW")))
+    if name == "voltage_v":
+        return f"{_compact_number(numeric)} V"
+    if name == "tolerance_percent":
+        return f"±{_compact_number(numeric)}%"
+    if name == "diameter_mm":
+        return f"Ø{_compact_number(numeric)} mm"
+    if name == "temperature_range_c":
+        return f"{_compact_number(numeric)} °C"
+    return _compact_number(numeric)
+
+
+def _requirement_actual_value(name: str, product: SupplierProduct) -> Any:
+    if name == "package":
+        return product.normalized_specs.get("package") or product.package
+    if name == "part_type":
+        return product.category or product.description
+    if name == "mount_style":
+        values = sorted(
+            {evidence.value for evidence in product_mount_evidence(product)}
+        )
+        return " / ".join(values) if values else None
+    if name == "diameter_mm":
+        values = sorted(
+            {evidence.value_mm for evidence in product_diameter_evidence(product)}
+        )
+        return values[0] if len(values) == 1 else values or None
+    return product.normalized_specs.get(name)
+
+
+def _build_requirement_assessments(
+    query: PlannedQuery,
+    product: SupplierProduct,
+    verified: set[str],
+    required: set[str],
+    category_missing: set[str],
+    conflicts: set[str],
+    missing: set[str],
+    reasons: list[str],
+) -> list[RequirementAssessment]:
+    ordered_names = [name for name in query.requirements if name in required]
+    ordered_names.extend(
+        name for name in (_category_fields(query) or ()) if name not in ordered_names
+    )
+    ordered_names.extend(sorted(required - set(ordered_names)))
+    assessments: list[RequirementAssessment] = []
+    for name in ordered_names:
+        requirement = query.requirements.get(name)
+        expected = requirement.normalized_value if requirement is not None else None
+        actual = _requirement_actual_value(name, product)
+        if (
+            name == "tolerance_percent"
+            and "tolerance_not_applicable_for_zero_ohm" in reasons
+        ):
+            state = "not_applicable"
+        elif name in verified:
+            state = "match"
+        elif f"{name}_mismatch" in conflicts:
+            state = "mismatch"
+        elif name in missing or name in category_missing:
+            state = "missing"
+        else:
+            state = "unverified"
+        assessments.append(
+            RequirementAssessment(
+                key=name,
+                comparison=requirement.comparison if requirement is not None else "eq",
+                state=state,
+                verified=name in verified,
+                expected_display=_requirement_value_display(
+                    name, expected, query.part_type
+                ),
+                actual_display=_requirement_value_display(
+                    name, actual, query.part_type
+                ),
+            )
+        )
+    return assessments
+
+
 def _match_relation(
     query: PlannedQuery,
     product: SupplierProduct,
@@ -253,6 +390,16 @@ def _candidate_decision(
     )
     lifecycle = _lifecycle_state(product)
     conflict_set = set(conflicts)
+    requirement_assessments = _build_requirement_assessments(
+        query,
+        product,
+        verified,
+        required,
+        category_missing,
+        conflict_set,
+        set(missing),
+        reasons,
+    )
     source_conflicts = conflict_set & _SOURCE_CONFLICTS
     actual_conflicts = conflict_set - _SOURCE_CONFLICTS - {"manufacturer_mismatch"}
     identity_relation = relation in {MatchRelation.EXACT, MatchRelation.VARIANT}
@@ -339,6 +486,7 @@ def _candidate_decision(
         technical_evidence_key=f"ek1:{_stable_digest(evidence_payload)}",
         verified_requirement_count=len(verified),
         required_requirement_count=len(required),
+        requirement_assessments=requirement_assessments,
         verification_complete=complete,
         strict_category_coverage=strict,
         lifecycle_state=lifecycle,
