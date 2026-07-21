@@ -3133,7 +3133,7 @@ export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
   usdKrwRate: number | null,
   extra?: QuotePersistenceExtra,
 ): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+  const persist = async (tx: Prisma.TransactionClient): Promise<void> => {
     await persistQuoteItemsInTransaction(tx, quoteId, computed.items);
     if (extra?.candidateSnapshots !== undefined) {
       const scope = extra.candidateSnapshotScope ?? 'full';
@@ -3263,7 +3263,14 @@ export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
         },
       });
     }
-  });
+  };
+  await prisma.$transaction(
+    persist,
+    // 후보·검색 trace JSON을 배치 저장하는 경로는 운영 DB 부하에서 Prisma 기본 5초를
+    // 넘을 수 있다. 카탈로그 인제스트 트랜잭션과 같은 대기 여유를 두되, 대형 BOM의
+    // 순차 라인 갱신까지 원자적으로 끝낼 수 있도록 실행 제한은 60초로 둔다.
+    { maxWait: 10_000, timeout: 60_000 },
+  );
 }
 
 /** 라인 재계산 + 합계(운송료·관리비 포함, VAT 별도) — 저장 전 단일 경로. */

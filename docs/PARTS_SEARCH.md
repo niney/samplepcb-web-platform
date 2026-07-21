@@ -74,7 +74,9 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   재시작·다중 인스턴스에서도 한 실행을 기다린 뒤 재사용한다. 서로 다른 결과가 같은 part에
   동시에 들어오면 part 행 잠금으로 직렬화하고, stale 오퍼는 버리며 완전 동일 오퍼는 쓰지 않는다.
   MySQL Prisma upsert의 최초 create 경합(`P2002`)은 unique key로 승자 행을 재조회해 이어가고,
-  deadlock(`P2034`)은 한정 지수 재시도한다. 공급사 수집 시각만 새로우면 가격구간 replace-all을 생략한다.
+  deadlock(`P2034`)은 `READ COMMITTED` 트랜잭션에서 최대 8회 지수 재시도한다. 운영 DB의 잠금
+  경합을 줄이기 위해 DB 쓰기는 4-worker로 제한한다. 공급사 수집 시각만 새로우면 가격구간
+  replace-all을 생략한다.
 - **증분 파생물**: 정본 fingerprint가 바뀐 부품만 facts/samplepcb 오퍼를 재계산하고, ES 문서
   fingerprint가 바뀐 부품만 200건 단위 bulk 색인한다. 색인 도중 DB가 다시 바뀌면 성공 시각을
   확정하지 않고 재시도 큐로 보낸다. 큐 행 자체를 ES 상태 불신 신호로 취급해 드레인 때는 DB의
@@ -97,8 +99,8 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 - C: 실 ES 검색(`PARTS_IT=1 vitest run admin-parts.search.int`) — **27/27**: 저항·커패시터·인덕터 단위/관행 표기, uF·uf·µF·μF·㎌·공백 마이크로 표기, MPN prefix/infix, 0402↔1005·0603↔1608, 제조사·공급사·재고·SI 범위 필터, 가격·재고 정렬, 페이지네이션, 음성 케이스
 - D: 견적 #109 영속 후보 2,424건(76 component에서 복원한 카탈로그 부품 2,228종)을 재생해
   최초 증분 DB 6.89s + ES bulk 4.05s = 10.97s, 동일 fingerprint 재호출 0.19s를 확인했다.
-  8-worker 최초 검증에서 실제 InnoDB `P2034` deadlock을 재현했고 part 단위 트랜잭션의 한정
-  지수 재시도(최대 4회)를 추가한 뒤 같은 입력이 큐 0건으로 수렴했다.
+  InnoDB `P2034` 재현과 운영 재시도 소진을 반영해 현재는 4-worker·`READ COMMITTED`·최대 8회
+  지수 백오프로 수렴한다.
 - 통합 테스트는 `PARTS_IT=1` 옵트인 — turbo test/CI 에서 자동 skip.
 
 ## 다음 단계(미착수)

@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMocks = vi.hoisted(() => ({
   partUpsert: vi.fn(),
@@ -35,6 +35,14 @@ function uniqueConflict(modelName: string): Prisma.PrismaClientKnownRequestError
   });
 }
 
+function deadlock(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError('deadlock', {
+    code: 'P2034',
+    clientVersion: '6.19.3',
+    meta: { modelName: 'SpPartPriceBreak' },
+  });
+}
+
 function supplierEnvelope(): unknown {
   return {
     search: {
@@ -59,32 +67,39 @@ function supplierEnvelope(): unknown {
   };
 }
 
+function mockCurrentOfferTransaction(): void {
+  const tx = {
+    $queryRaw: vi.fn().mockResolvedValue([{ id: 11n }]),
+    spPart: {
+      findUniqueOrThrow: vi.fn().mockResolvedValue({ factsFingerprint: 'current-facts' }),
+    },
+    spPartOffer: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 21n,
+        fetchedAt: new Date('2026-07-22T00:00:00.000Z'),
+        contentFingerprint: 'current-offer',
+      }),
+    },
+  };
+  prismaMocks.transaction.mockImplementation(async (operation: unknown) => {
+    if (typeof operation !== 'function') throw new Error('unexpected transaction form');
+    return (operation as (client: typeof tx) => Promise<unknown>)(tx);
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('parts ingest P2002 race recovery', () => {
   it('신규 part upsert 경합은 승자가 만든 행을 재조회해 계속 처리한다', async () => {
     prismaMocks.partUpsert.mockRejectedValueOnce(uniqueConflict('SpPart'));
     prismaMocks.partFindUnique.mockResolvedValueOnce({ id: 11n });
-
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 11n }]),
-      spPart: {
-        findUniqueOrThrow: vi.fn().mockResolvedValue({ factsFingerprint: 'current-facts' }),
-      },
-      spPartOffer: {
-        findUnique: vi.fn().mockResolvedValue({
-          id: 21n,
-          fetchedAt: new Date('2026-07-22T00:00:00.000Z'),
-          contentFingerprint: 'current-offer',
-        }),
-      },
-    };
-    prismaMocks.transaction.mockImplementation(async (operation: unknown) => {
-      if (typeof operation !== 'function') throw new Error('unexpected transaction form');
-      return (operation as (client: typeof tx) => Promise<unknown>)(tx);
-    });
+    mockCurrentOfferTransaction();
 
     await expect(ingestSupplierSearchResult(supplierEnvelope())).resolves.toMatchObject({
       parts: 0,
@@ -113,5 +128,35 @@ describe('parts ingest P2002 race recovery', () => {
     });
     expect(prismaMocks.ingestRunFindUnique).toHaveBeenCalledTimes(1);
     expect(prismaMocks.ingestRunFindUniqueOrThrow).toHaveBeenCalledTimes(1);
+  });
+
+  it('운영 부하에서 네 번 연속 P2034가 발생해도 지수 백오프 뒤 다시 시도해 수렴한다', async () => {
+    vi.useFakeTimers();
+    prismaMocks.partUpsert.mockResolvedValueOnce({ id: 11n });
+    prismaMocks.transaction
+      .mockRejectedValueOnce(deadlock())
+      .mockRejectedValueOnce(deadlock())
+      .mockRejectedValueOnce(deadlock())
+      .mockRejectedValueOnce(deadlock());
+    mockCurrentOfferTransaction();
+
+    const resultPromise = ingestSupplierSearchResult(supplierEnvelope());
+    await vi.runAllTimersAsync();
+
+    await expect(resultPromise).resolves.toMatchObject({
+      parts: 0,
+      offers: 0,
+      skippedParts: 1,
+      skippedOffers: 1,
+    });
+    expect(prismaMocks.transaction).toHaveBeenCalledTimes(5);
+    expect(prismaMocks.transaction).toHaveBeenLastCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        maxWait: 10_000,
+        timeout: 30_000,
+        isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+      }),
+    );
   });
 });

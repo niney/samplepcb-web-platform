@@ -112,6 +112,9 @@ const INGEST_LEASE_MS = 30 * 60 * 1_000;
 const INGEST_WAIT_MS = 500;
 const INGEST_WAIT_MAX_MS = 35 * 60 * 1_000;
 const INDEX_BATCH_SIZE = 200;
+const DB_WRITE_CONCURRENCY = 4;
+const DEADLOCK_MAX_ATTEMPTS = 8;
+const DEADLOCK_BASE_DELAY_MS = 50;
 
 const completedIngests = new Map<string, Promise<CatalogIngestResult>>();
 
@@ -389,15 +392,20 @@ async function upsertGroup(group: ProductGroup): Promise<GroupUpsertResult> {
       }
       return { partId: part.id, offers, skippedOffers, changed };
     },
-    { maxWait: 10_000, timeout: 30_000 },
+    {
+      maxWait: 10_000,
+      timeout: 30_000,
+      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+    },
   );
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < DEADLOCK_MAX_ATTEMPTS; attempt += 1) {
     try {
       return await transact();
     } catch (error) {
       const retryable = isPrismaErrorCode(error, 'P2034');
-      if (!retryable || attempt === 3) throw error;
-      await wait(25 * (2 ** attempt) + Math.floor(Math.random() * 25));
+      if (!retryable || attempt === DEADLOCK_MAX_ATTEMPTS - 1) throw error;
+      const backoffMs = DEADLOCK_BASE_DELAY_MS * (2 ** attempt);
+      await wait(backoffMs + Math.floor(Math.random() * DEADLOCK_BASE_DELAY_MS));
     }
   }
   throw new Error('unreachable part ingest retry state');
@@ -667,7 +675,7 @@ async function ingestSupplierSearchResultWithTiming(
   if (groups === null) return { stats, timing: emptyTiming() };
 
   const dbStartedAt = performance.now();
-  const results = await mapConcurrent(groups, 8, upsertGroup);
+  const results = await mapConcurrent(groups, DB_WRITE_CONCURRENCY, upsertGroup);
   const changedPartIds: bigint[] = [];
   for (const result of results) {
     if (result.partId === 0n) continue;

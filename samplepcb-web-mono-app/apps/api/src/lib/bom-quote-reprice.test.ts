@@ -623,6 +623,10 @@ describe('persistQuoteComputed candidateSnapshotScope', () => {
     const created = tx.spBomQuoteCandidate.createMany.mock.calls[0]?.[0] as { data: { quoteItemId: bigint }[] };
     expect(created.data).toHaveLength(1);
     expect(created.data[0]?.quoteItemId).toBe(10n);
+    expect(transactionMock).toHaveBeenCalledWith(
+      expect.any(Function),
+      { maxWait: 10_000, timeout: 60_000 },
+    );
   });
 
   it('scope 미지정(기본 full)이면 기존처럼 quoteId 전체 후보를 교체한다(공급사 검색 완료 반영 경로 보존)', async () => {
