@@ -297,6 +297,95 @@ def test_procurement_reevaluation_api_is_deterministic_and_fails_closed(tmp_path
     assert rejected.json()["detail"]["code"] == "duplicate_offer_key"
 
 
+def test_procurement_reevaluation_batch_api_isolates_component_failures(tmp_path):
+    """sp-node 자동저장이 청크 단위로 던지는 벌크 재평가 — 한 컴포넌트 실패가 나머지를 막지 않는다."""
+    client = _client(tmp_path)
+    base = _procurement_request()
+
+    broken_candidates = [base["candidates"][0], deepcopy(base["candidates"][0])]
+    batch_payload = {
+        "contract_version": "supplier-procurement-reevaluation-batch-v1",
+        "procurement_policy": base["procurement_policy"],
+        "components": [
+            {
+                "component_id": "batch-ok-1",
+                "candidates": base["candidates"],
+                "required_quantity": base["required_quantity"],
+            },
+            {
+                "component_id": "batch-ok-2",
+                "candidates": base["candidates"],
+                "required_quantity": base["required_quantity"],
+            },
+            {
+                "component_id": "batch-broken",
+                "candidates": broken_candidates,
+                "required_quantity": base["required_quantity"],
+            },
+        ],
+    }
+
+    response = client.post("/supplier-search/procurement/reevaluate-batch", json=batch_payload)
+    assert response.status_code == 200, response.text
+    by_id = {item["component_id"]: item for item in response.json()["components"]}
+
+    assert by_id["batch-ok-1"]["status"] == "ok"
+    assert by_id["batch-ok-1"]["procurement_decision"]["status"] == "automatic_recommended"
+    assert by_id["batch-ok-2"]["status"] == "ok"
+    assert by_id["batch-broken"]["status"] == "error"
+    assert by_id["batch-broken"]["error_code"] == "duplicate_offer_key"
+    assert by_id["batch-broken"]["candidates"] is None
+    assert by_id["batch-broken"]["procurement_decision"] is None
+
+    # 결정론 — 같은 입력을 다시 보내도 같은 결과(엔진은 상태를 갖지 않는다).
+    replay = client.post("/supplier-search/procurement/reevaluate-batch", json=batch_payload)
+    assert replay.json() == response.json()
+
+
+def test_procurement_reevaluation_batch_api_rejects_oversized_batch(tmp_path):
+    client = _client(tmp_path)
+    base = _procurement_request()
+    components = [
+        {
+            "component_id": f"batch-component-{index}",
+            "candidates": base["candidates"],
+            "required_quantity": base["required_quantity"],
+        }
+        for index in range(201)
+    ]
+
+    response = client.post(
+        "/supplier-search/procurement/reevaluate-batch",
+        json={
+            "contract_version": "supplier-procurement-reevaluation-batch-v1",
+            "procurement_policy": base["procurement_policy"],
+            "components": components,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_procurement_reevaluation_batch_api_rejects_contract_version_mismatch(tmp_path):
+    client = _client(tmp_path)
+    base = _procurement_request()
+
+    response = client.post(
+        "/supplier-search/procurement/reevaluate-batch",
+        json={
+            "contract_version": "supplier-procurement-reevaluation-v1",  # 단건 계약 버전 — 배치가 아니다
+            "procurement_policy": base["procurement_policy"],
+            "components": [
+                {
+                    "component_id": base["component_id"],
+                    "candidates": base["candidates"],
+                    "required_quantity": base["required_quantity"],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_supplier_search_rejects_conflicting_cache_modes(tmp_path):
     client = _client(tmp_path)
     response = client.post(

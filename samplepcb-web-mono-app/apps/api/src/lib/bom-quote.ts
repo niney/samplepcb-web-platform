@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
+import type { FastifyBaseLogger } from 'fastify';
 import {
   BomQuoteDecisionReason,
   BomQuoteExchangeRateSnapshot,
@@ -22,6 +23,7 @@ import {
   type BomQuoteItemInputType,
   type BomQuoteItemType,
   type BomQuoteMatchEvidenceType,
+  type BomQuotePatchBodyType,
   type BomQuoteRecommendationTypeType,
   type BomQuoteSelectionEventType,
   type BomQuoteSelectionSourceType,
@@ -37,6 +39,7 @@ import {
   normalizeMpn,
   pickBreak,
   pickDefaultOffer,
+  stampOrderQty,
   toKrw,
   type BomOfferInput,
   type OfferPick,
@@ -345,17 +348,29 @@ const EngineSupplierEnvelope = z
   })
   .passthrough();
 
-const EngineProcurementReevaluationResponse = z
+// 벌크 재평가 응답 — 컴포넌트별로 ok/error 가 격리되어 온다(한 컴포넌트 실패가 배치 전체를
+// 실패시키지 않는다). requested_offer 는 Node 선정 경로가 쓰지 않아 느슨하게 통과시킨다.
+const EngineProcurementReevaluationBatchItem = z.discriminatedUnion('status', [
+  z
+    .object({
+      component_id: z.string(),
+      status: z.literal('ok'),
+      candidates: z.array(EngineSupplierCandidate),
+      procurement_decision: EngineComponentProcurementDecision,
+    })
+    .passthrough(),
+  z
+    .object({
+      component_id: z.string(),
+      status: z.literal('error'),
+      error_code: z.string().nullish(),
+    })
+    .passthrough(),
+]);
+
+const EngineProcurementReevaluationBatchResponse = z
   .object({
-    component_id: z.string(),
-    candidates: z.array(EngineSupplierCandidate),
-    procurement_decision: EngineComponentProcurementDecision,
-    requested_offer: z.object({
-      requested_offer_key: z.string().nullish(),
-      status: z.enum(['not_requested', 'accepted', 'rejected']),
-      acceptance_mode: z.enum(['automatic', 'manual_review', 'none']),
-      reason_codes: z.array(z.string()).default([]),
-    }),
+    components: z.array(EngineProcurementReevaluationBatchItem),
   })
   .passthrough();
 
@@ -1879,61 +1894,167 @@ function needsEngineProcurementReevaluation(
   );
 }
 
-async function reevaluateStoredProcurement(
-  componentId: string,
-  candidates: StoredCandidateType[],
-  needed: number,
-  usdKrwRate: number | null,
-  exchangeRateSnapshot: BomQuoteExchangeRateSnapshotType | null,
-  requestedOfferKey: string | null,
-  identityFallback: boolean,
-): Promise<EngineMatchDecision | null> {
-  const uniqueCandidates = new Map<string, EngineSupplierCandidateType>();
+const BATCH_REEVALUATION_CHUNK_SIZE = 50;
+const BATCH_REEVALUATION_TIMEOUT_MS = 15_000;
+
+function collectUniqueEngineCandidates(candidates: StoredCandidateType[]): EngineSupplierCandidateType[] {
+  const unique = new Map<string, EngineSupplierCandidateType>();
   for (const candidate of candidates) {
     for (const engineCandidate of candidate.engineCandidates) {
-      uniqueCandidates.set(JSON.stringify(engineCandidate), engineCandidate);
+      unique.set(JSON.stringify(engineCandidate), engineCandidate);
     }
   }
-  if (uniqueCandidates.size === 0) return null;
-  try {
-    const response = await engineFetch('/supplier-search/procurement/reevaluate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contract_version: 'supplier-procurement-reevaluation-v1',
-        component_id: componentId,
-        candidates: [...uniqueCandidates.values()],
-        required_quantity: needed,
-        procurement_policy: buildEngineProcurementPolicy(
-          usdKrwRate,
-          exchangeRateSnapshot,
-        ),
-        requested_offer_key: requestedOfferKey,
-      }),
-    });
-    if (!response.ok) return null;
-    const parsed = EngineProcurementReevaluationResponse.safeParse(await response.json());
-    if (!parsed.success) return null;
-    return selectEngineMatch(
-      {
-        component_id: parsed.data.component_id,
-        status: parsed.data.candidates[0]?.status ?? 'not_found',
-        identity_fallback: identityFallback,
-        candidates: parsed.data.candidates,
-        procurement_decision: parsed.data.procurement_decision,
-      },
-      needed,
-      usdKrwRate,
-    );
-  } catch {
-    return null;
-  }
+  return [...unique.values()];
 }
 
-export class BomProcurementReevaluationError extends Error {
-  constructor(public readonly code: 'component-id-missing' | 'engine-reevaluation-failed') {
-    super(code);
-    this.name = 'BomProcurementReevaluationError';
+function decisionFromBatchCandidates(
+  componentId: string,
+  candidates: EngineSupplierCandidateType[],
+  procurementDecision: z.infer<typeof EngineComponentProcurementDecision>,
+  identityFallback: boolean,
+  needed: number,
+  usdKrwRate: number | null,
+): EngineMatchDecision | null {
+  return selectEngineMatch(
+    {
+      component_id: componentId,
+      status: candidates[0]?.status ?? 'not_found',
+      identity_fallback: identityFallback,
+      candidates,
+      procurement_decision: procurementDecision,
+    },
+    needed,
+    usdKrwRate,
+  );
+}
+
+interface PendingBatchReevaluation {
+  itemId: string;
+  componentId: string;
+  needed: number;
+  requestedOfferKey: string | null;
+  identityFallback: boolean;
+  engineCandidates: EngineSupplierCandidateType[];
+}
+
+interface BatchReevaluationOutcome {
+  succeeded: Map<string, EngineMatchDecision>;
+  degradedItemIds: Set<string>;
+  errorCodes: Set<string>;
+}
+
+/**
+ * 저장 후보를 컴포넌트 50개 청크로 묶어 sp-engine 벌크 재평가를 호출한다 — 행별 순차 호출을
+ * 제거해 자동저장 지연을 없앤다. 청크 요청 실패·타임아웃·컴포넌트별 오류는 예외를 던지지
+ * 않고 degradedItemIds 에만 표시한다(호출부가 해당 행을 stale 유지로 축퇴시킬 신호).
+ *
+ * 서킷브레이커: 청크 "요청 자체"가 실패(네트워크 예외·타임아웃·비200·파싱 실패)하면 엔진이
+ * 완전히 죽었거나 행업 상태일 가능성이 크므로, 잔여 청크는 호출하지 않고 즉시 전부 축퇴시킨
+ * 뒤 중단한다(2,000행 상한에서 청크당 15초 타임아웃을 전부 소진하는 최악의 지연을 방지).
+ * 컴포넌트별 status:'error'는 엔진이 응답했다는(=살아있다는) 뜻이라 서킷브레이커를 열지
+ * 않고 그 컴포넌트만 격리한 채 다음 청크를 계속 시도한다.
+ */
+async function batchReevaluateStoredProcurement(
+  pending: PendingBatchReevaluation[],
+  usdKrwRate: number | null,
+  exchangeRateSnapshot: BomQuoteExchangeRateSnapshotType | null,
+): Promise<BatchReevaluationOutcome> {
+  const succeeded = new Map<string, EngineMatchDecision>();
+  const degradedItemIds = new Set<string>();
+  const errorCodes = new Set<string>();
+  const procurementPolicy = buildEngineProcurementPolicy(usdKrwRate, exchangeRateSnapshot);
+
+  for (let offset = 0; offset < pending.length; offset += BATCH_REEVALUATION_CHUNK_SIZE) {
+    const chunk = pending.slice(offset, offset + BATCH_REEVALUATION_CHUNK_SIZE);
+    let parsed: z.infer<typeof EngineProcurementReevaluationBatchResponse> | null = null;
+    try {
+      const response = await engineFetch(
+        '/supplier-search/procurement/reevaluate-batch',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            contract_version: 'supplier-procurement-reevaluation-batch-v1',
+            procurement_policy: procurementPolicy,
+            components: chunk.map((entry) => ({
+              component_id: entry.componentId,
+              candidates: entry.engineCandidates,
+              required_quantity: entry.needed,
+              requested_offer_key: entry.requestedOfferKey,
+            })),
+          }),
+        },
+        BATCH_REEVALUATION_TIMEOUT_MS,
+      );
+      if (response.ok) {
+        const result = EngineProcurementReevaluationBatchResponse.safeParse(await response.json());
+        if (result.success) parsed = result.data;
+      }
+    } catch {
+      parsed = null;
+    }
+    if (parsed === null) {
+      for (const entry of chunk) degradedItemIds.add(entry.itemId);
+      errorCodes.add('batch-request-failed');
+      // 서킷브레이커 — 남은 청크는 호출을 시도조차 하지 않고 곧바로 축퇴시킨다.
+      const remaining = pending.slice(offset + BATCH_REEVALUATION_CHUNK_SIZE);
+      if (remaining.length > 0) {
+        for (const entry of remaining) degradedItemIds.add(entry.itemId);
+        errorCodes.add('batch-circuit-open');
+      }
+      break;
+    }
+    const byComponentId = new Map(parsed.components.map((entry) => [entry.component_id, entry] as const));
+    for (const entry of chunk) {
+      const result = byComponentId.get(entry.componentId);
+      if (result === undefined) {
+        degradedItemIds.add(entry.itemId);
+        errorCodes.add('component-result-missing');
+        continue;
+      }
+      if (result.status === 'error') {
+        degradedItemIds.add(entry.itemId);
+        errorCodes.add(result.error_code ?? 'unknown-error');
+        continue;
+      }
+      const decision = decisionFromBatchCandidates(
+        entry.componentId,
+        result.candidates,
+        result.procurement_decision,
+        entry.identityFallback,
+        entry.needed,
+        usdKrwRate,
+      );
+      if (decision === null) {
+        degradedItemIds.add(entry.itemId);
+        errorCodes.add('local-projection-rejected');
+        continue;
+      }
+      succeeded.set(entry.itemId, decision);
+    }
+  }
+  return { succeeded, degradedItemIds, errorCodes };
+}
+
+/**
+ * 배치 재평가가 실패한 행은 recommendStoredCandidate/재선정 경로에 들어가지 않고 현재 선택을
+ * 그대로 둔다(selectedCandidateKey/selectedOffer/matchStatus/selectionSource/matchEvidence
+ * 는 아래 reason 코드 추가 외엔 불변). 선택된 오퍼가 있으면 주문수량만 FE restampAll과 같은
+ * 산수로 로컬 재도장한다 — 후보·오퍼 재순위는 하지 않고, 가격은 이후 computeQuote의 스냅샷
+ * 재계산(recalcItems)이 이 orderQty 기준으로 채운다.
+ */
+function degradeStaleRow(item: BomQuoteItemInputType, needed: number): void {
+  if (item.selectedOffer !== null) {
+    item.orderQty = stampOrderQty(needed, item.selectedOffer.moq, item.selectedOffer.orderMultiple);
+  }
+  if (
+    item.matchEvidence !== null
+    && !item.matchEvidence.decisionReasonCodes.includes('engine-procurement-unavailable')
+  ) {
+    item.matchEvidence = {
+      ...item.matchEvidence,
+      decisionReasonCodes: [...item.matchEvidence.decisionReasonCodes, 'engine-procurement-unavailable'],
+    };
   }
 }
 
@@ -1948,7 +2069,20 @@ export function isEngineManagedQuoteSelection(
     );
 }
 
-/** 수량·환율 변경 시 저장 후보를 sp-engine에서 재평가해 클라이언트 단가 변조를 차단한다. */
+/** PATCH 바디가 재평가 트리거 필드(items/setQty/spareQty)를 하나도 포함하지 않으면 호출부가
+ *  repriceCandidateSelections 자체를 건너뛸 수 있다 — 제목·메모 전용 자동저장이 매번 엔진을
+ *  때리던 낭비 제거. computeQuote+persist(저렴한 재계산)는 이 판단과 무관하게 항상 수행한다. */
+export function patchNeedsCandidateReprice(
+  body: Pick<BomQuotePatchBodyType, 'items' | 'setQty' | 'spareQty'>,
+): boolean {
+  return body.items !== undefined || body.setQty !== undefined || body.spareQty !== undefined;
+}
+
+/**
+ * 수량·환율 변경 시 저장 후보를 sp-engine에서 재평가해 클라이언트 단가 변조를 차단한다.
+ * 엔진이 부분/전체로 죽어 있어도(청크 실패·타임아웃·컴포넌트별 오류) 예외를 던지지 않는다 —
+ * 실패한 행만 degradeStaleRow로 축퇴시키고 나머지 행 저장은 항상 진행한다(PATCH는 항상 200).
+ */
 export async function repriceCandidateSelections(
   quoteId: bigint,
   items: (BomQuoteItemInputType & { id?: string })[],
@@ -1956,6 +2090,7 @@ export async function repriceCandidateSelections(
   spareQty: number,
   usdKrwRate: number | null,
   exchangeRateSnapshot: BomQuoteExchangeRateSnapshotType | null,
+  log: FastifyBaseLogger,
 ): Promise<QuoteCandidateSnapshotInput[] | undefined> {
   const candidateItemIds = items.flatMap((item) =>
     item.id === undefined ? [] : [BigInt(item.id)],
@@ -1974,37 +2109,79 @@ export async function repriceCandidateSelections(
     current.push(parsed.data);
     candidates.set(itemId, current);
   }
+
+  // 1단계 — 재평가가 필요한 행만 모은다. componentId가 없어 애초에 배치에 실을 수 없으면
+  // 엔진 호출 없이 바로 축퇴 대상으로 표시한다.
+  const itemsNeedingReevaluation = new Set<string>();
+  const pending: PendingBatchReevaluation[] = [];
+  const degradedItemIds = new Set<string>();
+  for (const item of items) {
+    if (item.id === undefined) continue;
+    const rowCandidates = candidates.get(item.id);
+    if (rowCandidates === undefined) continue;
+    const needed = neededQty(item.bomQty, setQty, spareQty);
+    if (!needsEngineProcurementReevaluation(rowCandidates, needed, usdKrwRate)) continue;
+    itemsNeedingReevaluation.add(item.id);
+    const componentId = item.matchEvidence?.componentId
+      ?? (typeof item.sourceRow?.componentId === 'string' ? item.sourceRow.componentId : null);
+    const engineCandidates = collectUniqueEngineCandidates(rowCandidates);
+    if (componentId === null || engineCandidates.length === 0) {
+      degradedItemIds.add(item.id);
+      continue;
+    }
+    pending.push({
+      itemId: item.id,
+      componentId,
+      needed,
+      requestedOfferKey: item.selectedOffer?.pinned === true ? item.selectedOffer.offerKey : null,
+      identityFallback: item.matchEvidence?.identityFallback ?? false,
+      engineCandidates,
+    });
+  }
+
+  // 2단계 — 50개 컴포넌트 청크로 벌크 재평가(실패는 예외 없이 degradedItemIds 로만 표시).
+  const missingComponentIdCount = degradedItemIds.size;
+  const batchOutcome = pending.length === 0
+    ? { succeeded: new Map<string, EngineMatchDecision>(), degradedItemIds: new Set<string>(), errorCodes: new Set<string>() }
+    : await batchReevaluateStoredProcurement(pending, usdKrwRate, exchangeRateSnapshot);
+  for (const itemId of batchOutcome.degradedItemIds) degradedItemIds.add(itemId);
+
+  // 3단계 — 결과를 행에 반영한다. 축퇴 행은 recommendStoredCandidate/재선정 경로로 절대
+  // 진입시키지 않는다(여기로 새면 selectedCandidateKey=null && selectionSource==='auto'
+  // 리셋 분기가 재현되어 자동 선정·가격이 조용히 소거된다).
   let snapshotsChanged = false;
   const candidateSnapshots: QuoteCandidateSnapshotInput[] = [];
   for (const item of items) {
-    let rowCandidates = item.id === undefined ? undefined : candidates.get(item.id);
+    if (item.id === undefined) continue;
+    let rowCandidates = candidates.get(item.id);
     if (rowCandidates === undefined) continue;
-    let reevaluatedEvidence: BomQuoteMatchEvidenceType | null = null;
     const needed = neededQty(item.bomQty, setQty, spareQty);
-    if (needsEngineProcurementReevaluation(rowCandidates, needed, usdKrwRate)) {
-      const componentId = item.matchEvidence?.componentId
-        ?? (typeof item.sourceRow?.componentId === 'string'
-          ? item.sourceRow.componentId
-          : null);
-      if (componentId === null) throw new BomProcurementReevaluationError('component-id-missing');
-      const reevaluated = await reevaluateStoredProcurement(
-        componentId,
-        rowCandidates,
-        needed,
-        usdKrwRate,
-        exchangeRateSnapshot,
-        item.selectedOffer?.pinned === true ? item.selectedOffer.offerKey : null,
-        item.matchEvidence?.identityFallback ?? false,
+    let reevaluatedEvidence: BomQuoteMatchEvidenceType | null = null;
+
+    if (itemsNeedingReevaluation.has(item.id)) {
+      if (degradedItemIds.has(item.id)) {
+        degradeStaleRow(item, needed);
+        continue;
+      }
+      const decision = batchOutcome.succeeded.get(item.id);
+      if (decision === undefined) {
+        // 배치 결과 어디에도 없는 예상 밖 상태 — fail-safe로 축퇴(리셋 분기 진입 차단).
+        degradedItemIds.add(item.id);
+        batchOutcome.errorCodes.add('missing-batch-result');
+        degradeStaleRow(item, needed);
+        continue;
+      }
+      rowCandidates = decision.snapshots;
+      reevaluatedEvidence = decision.evidence;
+      candidates.set(item.id, rowCandidates);
+      // 재평가에 실제로 성공한 행의 스냅샷만 반환한다 — persistQuoteComputed가 이 목록으로
+      // quoteItemId 단위 부분 교체를 할 수 있도록(전 행 재삽입 방지).
+      candidateSnapshots.push(
+        ...rowCandidates.map((candidate) => ({ rowIdx: item.rowIdx, candidate })),
       );
-      if (reevaluated === null) throw new BomProcurementReevaluationError('engine-reevaluation-failed');
-      rowCandidates = reevaluated.snapshots;
-      reevaluatedEvidence = reevaluated.evidence;
-      if (item.id !== undefined) candidates.set(item.id, rowCandidates);
       snapshotsChanged = true;
     }
-    candidateSnapshots.push(
-      ...rowCandidates.map((candidate) => ({ rowIdx: item.rowIdx, candidate })),
-    );
+
     const recommendation = recommendStoredCandidate(
       rowCandidates,
       needed,
@@ -2086,6 +2263,19 @@ export async function repriceCandidateSelections(
       engineManagedSelection ? recommendation : undefined,
     );
   }
+
+  if (degradedItemIds.size > 0) {
+    log.warn(
+      {
+        quoteId: String(quoteId),
+        degradedRowCount: degradedItemIds.size,
+        missingComponentIdCount,
+        engineErrorCodes: [...batchOutcome.errorCodes],
+      },
+      'BOM 견적 자동저장: sp-engine 재평가 실패로 일부 행을 stale 유지로 축퇴했습니다',
+    );
+  }
+
   return snapshotsChanged ? candidateSnapshots : undefined;
 }
 
@@ -2678,6 +2868,13 @@ export interface QuotePersistenceExtra {
   buildStatus?: string;
   selectedSheetIndexes?: number[];
   candidateSnapshots?: QuoteCandidateSnapshotInput[];
+  /**
+   * candidateSnapshots 저장 범위. 'full'(기본) = quoteId 전체 후보 교체(공급사 검색 완료
+   * 반영처럼 모든 행이 실제로 갱신되는 경로). 'partial' = candidateSnapshots에 등장하는
+   * quoteItemId만 교체 — PATCH 자동저장이 실제로 재평가에 성공한 행만 스냅샷을 반환할 때,
+   * 무관한 나머지 행의 후보를 지웠다 다시 넣는 전량 재삽입을 피한다.
+   */
+  candidateSnapshotScope?: 'full' | 'partial';
   exchangeRateSnapshot?: BomQuoteExchangeRateSnapshotType | null;
   selectionEvent?: {
     itemId: string;
@@ -2709,14 +2906,25 @@ export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
   await prisma.$transaction(async (tx) => {
     await persistQuoteItemsInTransaction(tx, quoteId, computed.items);
     if (extra?.candidateSnapshots !== undefined) {
-      await tx.spBomQuoteCandidate.deleteMany({ where: { quoteId } });
+      const scope = extra.candidateSnapshotScope ?? 'full';
+      const snapshotRowIndexes = [...new Set(extra.candidateSnapshots.map((snapshot) => snapshot.rowIdx))];
+      const quoteItemIdByRowIdx = snapshotRowIndexes.length === 0
+        ? new Map<number, bigint>()
+        : new Map((await tx.spBomQuoteItem.findMany({
+            where: { quoteId, rowIdx: { in: snapshotRowIndexes } },
+            select: { id: true, rowIdx: true },
+          })).map((item) => [item.rowIdx, item.id] as const));
+      if (scope === 'full') {
+        await tx.spBomQuoteCandidate.deleteMany({ where: { quoteId } });
+      } else {
+        const targetItemIds = snapshotRowIndexes.map((rowIdx) => quoteItemIdByRowIdx.get(rowIdx) ?? (() => {
+          throw new Error(`BOM quote candidate row ${String(rowIdx)} has no persisted item`);
+        })());
+        if (targetItemIds.length > 0) {
+          await tx.spBomQuoteCandidate.deleteMany({ where: { quoteId, quoteItemId: { in: targetItemIds } } });
+        }
+      }
       if (extra.candidateSnapshots.length > 0) {
-        const snapshotRowIndexes = [...new Set(extra.candidateSnapshots.map((snapshot) => snapshot.rowIdx))];
-        const quoteItems = await tx.spBomQuoteItem.findMany({
-          where: { quoteId, rowIdx: { in: snapshotRowIndexes } },
-          select: { id: true, rowIdx: true },
-        });
-        const quoteItemIdByRowIdx = new Map(quoteItems.map((item) => [item.rowIdx, item.id] as const));
         const candidateRows = extra.candidateSnapshots.map(({ rowIdx, candidate }) => ({
           quoteId,
           quoteItemId: quoteItemIdByRowIdx.get(rowIdx) ?? (() => {

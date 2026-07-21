@@ -14,6 +14,8 @@ from supplier_search_engine.models import (
     OfferRecommendation,
     PlannedQuery,
     ProcurementPolicyInput,
+    ProcurementReevaluationBatchRequest,
+    ProcurementReevaluationCandidateInput,
     ProcurementReevaluationRequest,
     Requirement,
     SearchMode,
@@ -26,6 +28,7 @@ from supplier_search_engine.procurement import (
     ProcurementReevaluationError,
     apply_procurement_decisions,
     reevaluate_procurement,
+    reevaluate_procurement_batch,
     stable_offer_key,
 )
 from supplier_search_engine.service import SearchService
@@ -42,9 +45,9 @@ def requirement(name: str, value: float, comparison: str = "eq") -> Requirement:
     )
 
 
-def query(*, quantity: int | None = 105, requirements=None) -> PlannedQuery:
+def query(*, component_id: str = "procurement", quantity: int | None = 105, requirements=None) -> PlannedQuery:
     return PlannedQuery(
-        component_id="procurement",
+        component_id=component_id,
         mode=SearchMode.IDENTITY,
         part_number="ABC123456",
         manufacturer="Acme",
@@ -818,3 +821,100 @@ def test_reevaluation_fails_closed_for_ambiguous_offer_key():
             )
         )
     assert error.value.code == "duplicate_offer_key"
+
+
+def test_reevaluate_procurement_batch_matches_individual_reevaluation_per_component():
+    """배치는 공유 정책 + 컴포넌트별 입력을 단건과 같은 경로로 태워 같은 결과를 낸다."""
+    per_component_products = {
+        "component-a": [
+            product(
+                Supplier.DIGIKEY,
+                mpn="BATCH-A",
+                stock=500,
+                moq=20,
+                multiple=10,
+                prices=[(1, 10, "KRW"), (100, 8, "KRW")],
+            )
+        ],
+        "component-b": [product(Supplier.MOUSER, mpn="BATCH-B", moq=1, multiple=1)],
+    }
+    shared_policy = policy()
+    stored = {
+        component_id: decide(query(component_id=component_id, quantity=50), items)[0]
+        for component_id, items in per_component_products.items()
+    }
+
+    batch_result = reevaluate_procurement_batch(
+        ProcurementReevaluationBatchRequest(
+            procurement_policy=shared_policy,
+            components=[
+                ProcurementReevaluationCandidateInput(
+                    component_id=component_id,
+                    candidates=candidates,
+                    required_quantity=150,
+                )
+                for component_id, candidates in stored.items()
+            ],
+        )
+    )
+
+    assert [item.status for item in batch_result.components] == ["ok", "ok"]
+    by_id = {item.component_id: item for item in batch_result.components}
+    for component_id, candidates in stored.items():
+        individual = reevaluate_procurement(
+            ProcurementReevaluationRequest(
+                component_id=component_id,
+                candidates=candidates,
+                required_quantity=150,
+                procurement_policy=shared_policy,
+            )
+        )
+        assert by_id[component_id].candidates == individual.candidates
+        assert by_id[component_id].procurement_decision == individual.procurement_decision
+        assert by_id[component_id].requested_offer == individual.requested_offer
+
+
+def test_reevaluate_procurement_batch_isolates_one_component_failure():
+    """한 컴포넌트의 실패(중복 오퍼 키)가 배치의 나머지 컴포넌트를 막지 않는다."""
+    healthy, _ = decide(
+        query(component_id="component-ok", quantity=10),
+        [product(Supplier.DIGIKEY, mpn="BATCH-OK")],
+    )
+    broken = technical_candidates(
+        query(component_id="component-broken", quantity=10),
+        [product(Supplier.DIGIKEY, mpn="BATCH-BROKEN"), product(Supplier.DIGIKEY, mpn="BATCH-BROKEN")],
+    )
+
+    batch_result = reevaluate_procurement_batch(
+        ProcurementReevaluationBatchRequest(
+            procurement_policy=policy(),
+            components=[
+                ProcurementReevaluationCandidateInput(
+                    component_id="component-ok", candidates=healthy, required_quantity=10,
+                ),
+                ProcurementReevaluationCandidateInput(
+                    component_id="component-broken", candidates=broken, required_quantity=10,
+                ),
+            ],
+        )
+    )
+
+    by_id = {item.component_id: item for item in batch_result.components}
+    assert by_id["component-ok"].status == "ok"
+    assert by_id["component-ok"].procurement_decision is not None
+    assert by_id["component-broken"].status == "error"
+    assert by_id["component-broken"].error_code == "duplicate_offer_key"
+    assert by_id["component-broken"].candidates is None
+    assert by_id["component-broken"].procurement_decision is None
+
+
+def test_reevaluate_procurement_batch_rejects_duplicate_component_ids():
+    healthy, _ = decide(query(component_id="dup", quantity=10), [product(Supplier.DIGIKEY)])
+    with pytest.raises(ValueError, match="unique"):
+        ProcurementReevaluationBatchRequest(
+            procurement_policy=policy(),
+            components=[
+                ProcurementReevaluationCandidateInput(component_id="dup", candidates=healthy, required_quantity=10),
+                ProcurementReevaluationCandidateInput(component_id="dup", candidates=healthy, required_quantity=10),
+            ],
+        )

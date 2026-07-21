@@ -128,8 +128,27 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   기술 순위·`preselect`는 감사 근거로 그대로 남고 실제 선정·금액만 적용 후보를 따른다.
   sp-node는 1.4 계약의 기술/적용 후보군·오퍼 키·
   수량·금액 불변식을 검증해 그대로 투영하며 자체 가격·재고 정렬로 덮어쓰지 않는다. 수량·환율이 바뀌면
-  저장된 원본 엔진 후보를 `/supplier-search/procurement/reevaluate`에 보내 공급사 API·캐시·쿼터 호출 없이
-  재판정하고 같은 트랜잭션에 후보·라인·합계를 갱신한다. 계약 누락·중복 키·수량 불일치는 fail-closed다.
+  저장된 원본 엔진 후보를 재평가해 공급사 API·캐시·쿼터 호출 없이 재판정하고 같은 트랜잭션에 후보·라인·
+  합계를 갱신한다(자동저장 PATCH가 쓰는 배치 재평가 메커니즘은 아래 항목 참조). 엔진 응답 자체의
+  계약 누락·중복 키·수량 불일치는 fail-closed다.
+- **저장 후보 재평가 배치화 + 행 단위 축퇴(2026-07-21)**: 자동저장 PATCH(`repriceCandidateSelections`)가
+  수량·환율 드리프트로 재평가가 필요한 행을 모아 `POST /supplier-search/procurement/reevaluate-batch`
+  (`supplier-procurement-reevaluation-batch-v1`)를 **50컴포넌트 청크**로 순차 호출한다(청크당 타임아웃
+  15초, 배치 상한 200 — sp-engine이 초과 시 422). 응답은 컴포넌트별 `ok|error`로 격리되어 한 컴포넌트의
+  실패가 배치 전체를 막지 않는다. **서킷브레이커**: 청크 "요청 자체"가 실패(네트워크 예외·타임아웃·
+  비200·파싱 실패)하면 엔진이 죽었거나 행업 상태일 가능성이 커 잔여 청크는 호출하지 않고 즉시 전부
+  축퇴시킨다(2,000행 상한에서 청크마다 타임아웃을 소진하는 최악 지연을 방지). 컴포넌트별 `error`는
+  엔진이 응답한 상태이므로 서킷브레이커를 열지 않고 그 컴포넌트만 격리한 채 다음 청크를 계속 시도한다.
+  청크 실패·컴포넌트별 오류·componentId 누락으로 재평가할 수 없는 행은 예외를 던지지 않고 **행 단위
+  stale 축퇴**로 빠진다 — `selectedCandidateKey`/`selectedOffer`/`matchStatus`/`selectionSource`는
+  그대로 두고(자동 선정·가격이 조용히 소거되던 구결함 재현을 차단), `orderQty`만 새 필요수량으로 로컬
+  재도장하며 `matchEvidence.decisionReasonCodes`에 `engine-procurement-unavailable`을 추가한다.
+  다음 저장에서 엔진이 살아 있으면 자동으로 재시도된다. 이 덕분에 PATCH는 **엔진이 완전히 죽어 있어도
+  항상 200**을 반환한다(이전엔 409로 자동저장 전체를 막았다). `items`/`setQty`/`spareQty`를 하나도
+  건드리지 않는 제목·메모 전용 PATCH는 재평가 자체를 건너뛴다(엔진 호출 0회). 후보 스냅샷도 실제로
+  재평가에 성공한 행만 `quoteItemId` 단위로 부분 교체한다(`candidateSnapshotScope:'partial'`) —
+  공급사 검색 완료 반영(`refreshQuoteFromSupplierResult`)은 전 행이 실제로 갱신되므로 기존처럼
+  quoteId 전체 교체를 유지한다.
 - **판단 단일 설명 원본(2026-07-21)**: 후보의 관계·선택 자격·기술/검토 순위·사전 선정과
   오퍼의 가격/구매적합 순위·자동/검토 추천은 모두 sp-engine이 결정한다. sp-node는 정책 버전,
   identity/evidence/offer key, 필요수량·금액 불변식을 검증하고 DB·ES에 저장할 뿐 후보를 재정렬하거나
@@ -141,9 +160,9 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   기존 명시 선택 API가 같은 후보·오퍼를 `selectionSource=customer`로 기록하며, sp-node가
   `manual_review` 조합을 보고 임시 선정을 자체 추론하지 않는다.
 - **구버전 결과 처리**: 1.3 조달 결정이 없거나 `supplier-selection-application-v1`인 저장 후보는
-  sp-node의 옛 구매 규칙으로 복원하지 않는다. 원본 엔진 후보가 있으면
-  `/supplier-search/procurement/reevaluate`로 현재 v2 적용 후보 정책을 적용하고,
-  재평가할 수 없으면 가격·추천을 비운 채 재분석이 필요한 상태로 축퇴한다. 결정 계약이 없거나
+  sp-node의 옛 구매 규칙으로 복원하지 않는다. 원본 엔진 후보가 있으면 위 배치 재평가로 현재 v2
+  적용 후보 정책을 적용하고, 재평가할 수 없으면(청크 실패·컴포넌트별 오류·componentId 누락)
+  선택은 그대로 둔 채 stale 축퇴한다. 결정 계약이 없거나
   모순된 후보를 자체 규칙으로 복원하지 않는 fail-closed 원칙은 동일하다.
 - **검토 표현**: 엔진의 `automatic_selected`는 바로 선정 완료, `provisional_selected`는 후보·오퍼·
   예상금액까지 적용된 검토 대기 선정, `not_selected`는 미선정이다. 임시 선정을 사용자가 확인하면

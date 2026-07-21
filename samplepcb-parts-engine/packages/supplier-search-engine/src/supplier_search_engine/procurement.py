@@ -15,6 +15,9 @@ from .models import (
     OfferRecommendation,
     PlannedQuery,
     ProcurementPolicyInput,
+    ProcurementReevaluationBatchItemResult,
+    ProcurementReevaluationBatchRequest,
+    ProcurementReevaluationBatchResult,
     ProcurementReevaluationRequest,
     ProcurementReevaluationResult,
     RequestedOfferEvaluation,
@@ -905,3 +908,56 @@ def reevaluate_procurement(
         procurement_decision=component_decision,
         requested_offer=requested_offer,
     )
+
+
+def reevaluate_procurement_batch(
+    request: ProcurementReevaluationBatchRequest,
+) -> ProcurementReevaluationBatchResult:
+    """컴포넌트별로 reevaluate_procurement 를 재사용하고 실패를 그 컴포넌트로만 격리한다.
+
+    결정 알고리즘은 여기서 새로 만들지 않는다 — 배치 정책 + 컴포넌트별 입력을 기존
+    ProcurementReevaluationRequest 로 재구성해 단건과 동일한 경로를 그대로 태운다.
+    """
+
+    results: list[ProcurementReevaluationBatchItemResult] = []
+    for component in request.components:
+        try:
+            single = reevaluate_procurement(
+                ProcurementReevaluationRequest(
+                    component_id=component.component_id,
+                    candidates=component.candidates,
+                    required_quantity=component.required_quantity,
+                    procurement_policy=request.procurement_policy,
+                    requested_offer_key=component.requested_offer_key,
+                )
+            )
+        except ProcurementReevaluationError as error:
+            results.append(
+                ProcurementReevaluationBatchItemResult(
+                    component_id=component.component_id,
+                    status="error",
+                    error_code=error.code,
+                    error_message=str(error),
+                )
+            )
+            continue
+        except Exception as error:  # 한 컴포넌트의 예상 못한 실패가 배치 전체를 막지 않는다
+            results.append(
+                ProcurementReevaluationBatchItemResult(
+                    component_id=component.component_id,
+                    status="error",
+                    error_code="unexpected_error",
+                    error_message=f"{type(error).__name__}: {str(error)[:300]}",
+                )
+            )
+            continue
+        results.append(
+            ProcurementReevaluationBatchItemResult(
+                component_id=component.component_id,
+                status="ok",
+                candidates=single.candidates,
+                procurement_decision=single.procurement_decision,
+                requested_offer=single.requested_offer,
+            )
+        )
+    return ProcurementReevaluationBatchResult(components=results)

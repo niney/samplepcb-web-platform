@@ -622,18 +622,14 @@ _CURRENT_DECISION_FIELDS = frozenset(
 )
 
 
-class ProcurementReevaluationRequest(BaseModel):
-    """Stored current decisions plus new purchasing inputs; never starts a search."""
+class ProcurementReevaluationCandidateInput(BaseModel):
+    """component_id + 후보 + 필요수량 + 요청 오퍼 계약 — 단건/배치 재평가가 공유한다."""
 
     model_config = ConfigDict(extra="forbid")
 
-    contract_version: Literal["supplier-procurement-reevaluation-v1"] = (
-        "supplier-procurement-reevaluation-v1"
-    )
     component_id: str = Field(min_length=1)
     candidates: list[CandidateMatch] = Field(default_factory=list)
     required_quantity: int = Field(ge=1)
-    procurement_policy: ProcurementPolicyInput
     requested_offer_key: str | None = None
 
     @model_validator(mode="before")
@@ -671,6 +667,15 @@ class ProcurementReevaluationRequest(BaseModel):
         if value is not None and not value.startswith("ok1:"):
             raise ValueError("requested_offer_key must use supplier-offer-key-v1")
         return value
+
+
+class ProcurementReevaluationRequest(ProcurementReevaluationCandidateInput):
+    """Stored current decisions plus new purchasing inputs; never starts a search."""
+
+    contract_version: Literal["supplier-procurement-reevaluation-v1"] = (
+        "supplier-procurement-reevaluation-v1"
+    )
+    procurement_policy: ProcurementPolicyInput
 
 
 class RequestedOfferEvaluation(BaseModel):
@@ -758,6 +763,74 @@ class ProcurementReevaluationResult(BaseModel):
                 "recommendation type must match the selected candidate eligibility"
             )
         return self
+
+
+class ProcurementReevaluationBatchRequest(BaseModel):
+    """벌크 재평가 — 정책은 배치가 공유하고 컴포넌트별 후보·필요수량만 다르다(공급사 호출 없음).
+
+    한 요청의 sp-node 청크 상한(50)보다 넉넉한 200을 엔진 쪽 배치 상한으로 둔다 — 상한 초과는
+    FastAPI가 자동으로 422 로 거부한다(별도 핸들러 코드 불필요).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal["supplier-procurement-reevaluation-batch-v1"] = (
+        "supplier-procurement-reevaluation-batch-v1"
+    )
+    procurement_policy: ProcurementPolicyInput
+    components: list[ProcurementReevaluationCandidateInput] = Field(
+        min_length=1, max_length=200
+    )
+
+    @model_validator(mode="after")
+    def validate_unique_components(self) -> "ProcurementReevaluationBatchRequest":
+        component_ids = [component.component_id for component in self.components]
+        if len(set(component_ids)) != len(component_ids):
+            raise ValueError("batch component_id values must be unique")
+        return self
+
+
+class ProcurementReevaluationBatchItemResult(BaseModel):
+    """배치 항목 결과 — 한 컴포넌트의 실패를 그 컴포넌트로만 격리해 표현한다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    component_id: str
+    status: Literal["ok", "error"]
+    error_code: str | None = None
+    error_message: str | None = None
+    candidates: list[CandidateMatch] | None = None
+    procurement_decision: ComponentProcurementDecision | None = None
+    requested_offer: RequestedOfferEvaluation | None = None
+
+    @model_validator(mode="after")
+    def validate_status_payload(self) -> "ProcurementReevaluationBatchItemResult":
+        if self.status == "ok":
+            if (
+                self.candidates is None
+                or self.procurement_decision is None
+                or self.requested_offer is None
+                or self.error_code is not None
+                or self.error_message is not None
+            ):
+                raise ValueError("ok results must carry a full decision and no error")
+        elif (
+            self.error_code is None
+            or self.candidates is not None
+            or self.procurement_decision is not None
+            or self.requested_offer is not None
+        ):
+            raise ValueError("error results must carry only an error code/message")
+        return self
+
+
+class ProcurementReevaluationBatchResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal["supplier-procurement-reevaluation-batch-v1"] = (
+        "supplier-procurement-reevaluation-batch-v1"
+    )
+    components: list[ProcurementReevaluationBatchItemResult]
 
 
 class InputCorrection(BaseModel):

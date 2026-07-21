@@ -47,13 +47,13 @@ import {
   resolveDeletedBomQuoteIds,
 } from '../lib/bom-quote-delete';
 import {
-  BomProcurementReevaluationError,
   buildItemsFromEngineResult,
   applyQuoteCandidateSelection,
   canTransition,
   computeQuote,
   getQuoteItemCandidates,
   loadQuoteComparisonPage,
+  patchNeedsCandidateReprice,
   persistQuoteComputed,
   refreshQuoteFromSupplierResult,
   repriceCandidateSelections,
@@ -882,26 +882,24 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     }
     const nextSetQty = request.body.setQty ?? quote.setQty;
     const nextSpareQty = request.body.spareQty ?? quote.spareQty;
-    let candidateSnapshots: Awaited<ReturnType<typeof repriceCandidateSelections>>;
-    try {
-      candidateSnapshots = await repriceCandidateSelections(
-        quote.id,
-        items,
-        nextSetQty,
-        nextSpareQty,
-        config.usdKrwRate,
-        config.exchangeRateSnapshot,
-      );
-    } catch (error) {
-      if (error instanceof BomProcurementReevaluationError) {
-        return reply.conflict('저장된 후보의 구매조건을 엔진에서 재평가할 수 없습니다. BOM 공급사 분석을 다시 실행해 주세요.');
-      }
-      throw error;
-    }
+    // items/setQty/spareQty 를 하나도 건드리지 않는 PATCH(제목·메모 전용)는 재평가 대상 자체가
+    // 없다 — 엔진 호출 없이 스킵한다. 엔진이 완전히 죽어 있어도 repriceCandidateSelections는
+    // 더 이상 예외를 던지지 않으므로(실패 행은 stale 축퇴) 이 PATCH는 항상 200을 반환한다.
+    const candidateSnapshots = patchNeedsCandidateReprice(request.body)
+      ? await repriceCandidateSelections(
+          quote.id,
+          items,
+          nextSetQty,
+          nextSpareQty,
+          config.usdKrwRate,
+          config.exchangeRateSnapshot,
+          request.log,
+        )
+      : undefined;
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
       exchangeRateSnapshot: config.exchangeRateSnapshot,
-      ...(candidateSnapshots === undefined ? {} : { candidateSnapshots }),
+      ...(candidateSnapshots === undefined ? {} : { candidateSnapshots, candidateSnapshotScope: 'partial' as const }),
       ...(request.body.title !== undefined ? { title: request.body.title } : {}),
       ...(request.body.setQty !== undefined ? { setQty: request.body.setQty } : {}),
       ...(request.body.spareQty !== undefined ? { spareQty: request.body.spareQty } : {}),

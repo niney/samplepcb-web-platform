@@ -7,12 +7,15 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadF
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from supplier_search_engine.models import (
     ProcurementPolicyInput,
+    ProcurementReevaluationBatchRequest,
+    ProcurementReevaluationBatchResult,
     ProcurementReevaluationRequest,
     ProcurementReevaluationResult,
 )
 from supplier_search_engine.procurement import (
     ProcurementReevaluationError,
     reevaluate_procurement,
+    reevaluate_procurement_batch,
 )
 
 from .capabilities import supplier_search_capabilities
@@ -219,6 +222,22 @@ async def reevaluate_supplier_procurement(
         return await asyncio.to_thread(reevaluate_procurement, body)
     except ProcurementReevaluationError as error:
         raise HTTPException(status_code=422, detail=error.api_detail()) from error
+
+
+@router.post(
+    "/supplier-search/procurement/reevaluate-batch",
+    response_model=ProcurementReevaluationBatchResult,
+)
+async def reevaluate_supplier_procurement_batch(
+    body: ProcurementReevaluationBatchRequest,
+) -> ProcurementReevaluationBatchResult:
+    """벌크 재평가 — 컴포넌트 하나의 실패·예외가 배치 전체를 막지 않는다(공급사 호출 없음).
+
+    sp-node 자동저장 PATCH가 행마다 순차 호출하던 것을 청크 단위로 묶어 보내는 용도.
+    배치 상한(200)·contract_version 불일치는 pydantic 검증이 422로 거부한다.
+    """
+
+    return await asyncio.to_thread(reevaluate_procurement_batch, body)
 
 
 class PartRefreshBody(BaseModel):
