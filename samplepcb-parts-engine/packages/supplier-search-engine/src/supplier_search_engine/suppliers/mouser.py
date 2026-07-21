@@ -8,9 +8,9 @@ import httpx
 
 from ..matcher import CandidateMatcher
 from ..models import (
+    ManufacturerEvidence,
     MatchStatus,
     PlannedQuery,
-    PriceBreak,
     RawSupplierResponse,
     SearchMode,
     Supplier,
@@ -22,6 +22,7 @@ from ..normalization import (
     normalized_specs_from_parameters,
     normalized_specs_from_text,
 )
+from ..pricing import valid_price_break
 from ..supplier_query import supplier_core_keywords, supplier_spec_keywords
 from .base import SupplierClient
 
@@ -290,20 +291,29 @@ class MouserClient(SupplierClient):
                     attribute_map.setdefault(name, value)
                 if name.casefold() in {"packaging", "포장"} and value:
                     packagings.append(str(value))
-            specs, parsed_attributes = normalized_specs_from_parameters(attributes)
+            specs, parsed_attributes = normalized_specs_from_parameters(
+                attributes,
+                query.part_type,
+            )
             description = part.get("Description")
             for key, value in normalized_specs_from_text(description, query.part_type).items():
                 specs.setdefault(key, value)
             attribute_map.update(parsed_attributes)
-            price_breaks = [
-                PriceBreak(
-                    quantity=int(item.get("Quantity") or 0),
-                    unit_price=self._price(item.get("Price")),
-                    currency=str(item.get("Currency") or query.currency),
+            price_breaks = []
+            invalid_price_break_count = 0
+            for item in part.get("PriceBreaks") or []:
+                if not isinstance(item, dict):
+                    invalid_price_break_count += 1
+                    continue
+                price_break = valid_price_break(
+                    item.get("Quantity"),
+                    item.get("Price"),
+                    item.get("Currency") or query.currency,
                 )
-                for item in part.get("PriceBreaks") or []
-                if isinstance(item, dict)
-            ]
+                if price_break is None:
+                    invalid_price_break_count += 1
+                else:
+                    price_breaks.append(price_break)
             offer = SupplierOffer(
                 supplier=self.supplier,
                 supplier_sku=part.get("MouserPartNumber"),
@@ -312,10 +322,12 @@ class MouserClient(SupplierClient):
                 moq=self._integer(part.get("Min")),
                 order_multiple=self._integer(part.get("Mult")),
                 price_breaks=price_breaks,
+                invalid_price_break_count=invalid_price_break_count,
                 lead_time=part.get("LeadTime"),
                 product_url=part.get("ProductDetailUrl"),
                 fetched_at=raw.fetched_at,
             )
+            manufacturer = part.get("ActualMfrName") or part.get("Manufacturer")
             result.append(
                 SupplierProduct(
                     supplier=self.supplier,
@@ -325,7 +337,12 @@ class MouserClient(SupplierClient):
                         part.get("MouserPartNumber"),
                     ),
                     manufacturer_part_number=mpn,
-                    manufacturer=part.get("ActualMfrName") or part.get("Manufacturer"),
+                    manufacturer=manufacturer,
+                    manufacturer_evidence=(
+                        ManufacturerEvidence.STRUCTURED
+                        if manufacturer
+                        else ManufacturerEvidence.MISSING
+                    ),
                     description=description,
                     category=part.get("MouserProductCategory") or part.get("Category"),
                     lifecycle_status=part.get("LifecycleStatus"),
@@ -345,14 +362,6 @@ class MouserClient(SupplierClient):
             return None
         match = _LEADING_INTEGER.search(str(value).replace(",", ""))
         return int(match.group()) if match else None
-
-    @staticmethod
-    def _price(value: Any) -> float:
-        cleaned = re.sub(r"[^0-9.]", "", str(value or ""))
-        try:
-            return float(cleaned) if cleaned and cleaned != "." else 0.0
-        except ValueError:
-            return 0.0
 
     @staticmethod
     def _boolean(value: Any) -> bool | None:

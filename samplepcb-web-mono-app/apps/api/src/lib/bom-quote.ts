@@ -43,6 +43,7 @@ import {
 } from '@sp/utils';
 import { prisma } from './prisma';
 import { engineFetch } from './engine-client';
+import { buildEngineProcurementPolicy } from './bom-procurement-policy';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
@@ -108,6 +109,36 @@ const EngineResultLoose = z
   })
   .passthrough();
 
+const EnginePositiveDecimal = z.coerce.number().positive();
+
+const EngineOfferProcurementDecision = z
+  .object({
+    procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
+    offer_key_version: z.literal('supplier-offer-key-v1'),
+    rank_scope: z.literal('identity_and_technical_evidence'),
+    offer_key: z.string().startsWith('ok1:').nullable(),
+    calculation_status: z.enum(['calculated', 'unavailable', 'supplier_not_allowed']),
+    required_quantity: z.number().int().positive().nullish(),
+    order_quantity: z.number().int().positive().nullish(),
+    applied_price_break_quantity: z.number().int().positive().nullish(),
+    source_unit_price: EnginePositiveDecimal.nullish(),
+    source_currency: z.string().nullish(),
+    exchange_rate: EnginePositiveDecimal.nullish(),
+    target_currency: z.string(),
+    converted_unit_price: EnginePositiveDecimal.nullish(),
+    line_total: EnginePositiveDecimal.nullish(),
+    stock_short: z.boolean().nullish(),
+    stock_short_quantity: z.number().int().min(0).nullish(),
+    surplus_quantity: z.number().int().min(0).nullish(),
+    excessive_order: z.boolean().nullish(),
+    price_rank: z.number().int().positive().nullish(),
+    purchase_fit_rank: z.number().int().positive().nullish(),
+    purchasable: z.boolean(),
+    recommendation: z.enum(['automatic', 'manual_review', 'none']),
+    reason_codes: z.array(z.string()).default([]),
+  })
+  .passthrough();
+
 const EngineSupplierOffer = z
   .object({
     supplier: z.string(),
@@ -128,6 +159,7 @@ const EngineSupplierOffer = z
       )
       .default([]),
     fetched_at: z.string(),
+    procurement_decision: EngineOfferProcurementDecision.nullish(),
   })
   .passthrough();
 
@@ -191,6 +223,7 @@ const EngineSupplierCandidate = z
     product: z
       .object({
         supplier: z.string(),
+        supplier_product_id: z.string().nullish(),
         manufacturer_part_number: z.string(),
         manufacturer: z.string().nullish(),
         description: z.string().nullish(),
@@ -220,6 +253,28 @@ const EngineSupplierQuery = z
   })
   .passthrough();
 
+const EngineComponentProcurementDecision = z
+  .object({
+    procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
+    status: z.enum([
+      'automatic_recommended',
+      'review_recommended',
+      'no_recommendation',
+      'input_incomplete',
+    ]),
+    required_quantity: z.number().int().positive().nullish(),
+    target_currency: z.string(),
+    currency_rate_snapshot_id: z.string().min(1),
+    currency_rate_as_of: z.string().datetime({ offset: true }),
+    currency_rate_source: z.string().min(1),
+    technical_preselection_identity_key: z.string().startsWith('ik1:').nullish(),
+    technical_preselection_evidence_key: z.string().startsWith('ek1:').nullish(),
+    automatic_offer_key: z.string().startsWith('ok1:').nullish(),
+    review_offer_key: z.string().startsWith('ok1:').nullish(),
+    recommendation_reason_codes: z.array(z.string()).default([]),
+  })
+  .passthrough();
+
 const EngineSupplierComponent = z
   .object({
     component_id: z.string(),
@@ -229,16 +284,34 @@ const EngineSupplierComponent = z
     initial_query: EngineSupplierQuery.nullish(),
     identity_fallback: z.boolean().default(false),
     candidates: z.array(EngineSupplierCandidate).default([]),
+    procurement_decision: EngineComponentProcurementDecision.nullish(),
   })
   .passthrough();
 
 const EngineSupplierEnvelope = z
   .object({
+    supplier_search_schema_version: z.string().optional(),
+    procurement_decision_contract_status: z.string().optional(),
     search: z
       .object({
+        search_schema_version: z.string().optional(),
         components: z.array(EngineSupplierComponent).default([]),
       })
       .passthrough(),
+  })
+  .passthrough();
+
+const EngineProcurementReevaluationResponse = z
+  .object({
+    component_id: z.string(),
+    candidates: z.array(EngineSupplierCandidate),
+    procurement_decision: EngineComponentProcurementDecision,
+    requested_offer: z.object({
+      requested_offer_key: z.string().nullish(),
+      status: z.enum(['not_requested', 'accepted', 'rejected']),
+      acceptance_mode: z.enum(['automatic', 'manual_review', 'none']),
+      reason_codes: z.array(z.string()).default([]),
+    }),
   })
   .passthrough();
 
@@ -246,8 +319,7 @@ type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 type EngineCandidateDecisionType = z.infer<typeof EngineCandidateDecision>;
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-preselection-projection-v7';
-const BOM_ENGINE_LEGACY_SELECTION_POLICY_VERSION = 'engine-decision-purchase-fit-v6';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v8';
 const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION = 'supplier-candidate-decision-v1';
 const SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION = 'candidate-category-policy-v1';
 const SUPPORTED_ENGINE_IDENTITY_KEY_VERSION = 'candidate-identity-key-v1';
@@ -387,10 +459,12 @@ const StoredCandidateOffer = z.object({
   leadTime: z.string().nullable(),
   fetchedAt: z.string(),
   priceBreaks: z.array(z.object({ qty: z.number().int().positive(), price: z.number().positive(), currency: z.string() })),
+  procurementDecision: EngineOfferProcurementDecision.nullable().catch(null),
 });
 
 const StoredCandidate = z.object({
   candidateKey: z.string(),
+  identityKey: z.string().catch(''),
   technicalRank: z.number().int().positive(),
   technicalReviewRank: z.number().int().positive().nullable().catch(null),
   selectionRecommendation: z.enum(['preselect', 'candidate_only', 'exclude']).nullable().catch(null),
@@ -426,6 +500,8 @@ const StoredCandidate = z.object({
   specComparisons: z.record(z.string(), z.unknown()),
   packageComparison: z.record(z.string(), z.unknown()).nullable(),
   offers: z.array(StoredCandidateOffer),
+  procurementDecision: EngineComponentProcurementDecision.nullable().catch(null),
+  engineCandidates: z.array(EngineSupplierCandidate).catch([]),
 });
 
 type StoredCandidateType = z.infer<typeof StoredCandidate>;
@@ -519,6 +595,11 @@ export function buildQuoteComparisonRows(
         productUrl: offer.productUrl,
         fetchedAt: offer.fetchedAt,
         priceBreaks: offer.priceBreaks,
+        priceRank: offer.procurementDecision?.price_rank ?? null,
+        purchaseFitRank: offer.procurementDecision?.purchase_fit_rank ?? null,
+        purchasable: offer.procurementDecision?.purchasable ?? false,
+        recommendation: offer.procurementDecision?.recommendation ?? 'none',
+        decisionReasonCodes: offer.procurementDecision?.reason_codes ?? [],
       })),
     });
     byItem.set(row.itemId, candidates);
@@ -778,9 +859,6 @@ function normalizeEngineDecision(
   };
 }
 
-const PRICE_SAVING_RATE_MIN = 0.1;
-const PRICE_SAVING_KRW_MIN = 500;
-
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
@@ -810,20 +888,32 @@ function offerKey(candidateKey: string, offer: z.infer<typeof EngineSupplierOffe
     .slice(0, 32);
 }
 
-function buildCandidateGroups(component: EngineSupplierComponentType): CandidateGroup[] {
+function buildCandidateGroups(
+  component: EngineSupplierComponentType,
+  useProcurementContract: boolean,
+): CandidateGroup[] {
   const grouped = new Map<string, EngineSupplierCandidateType[]>();
   component.candidates.forEach((candidate, index) => {
     if (candidate.product.manufacturer_part_number.trim() === '') return;
     // 그룹 정체성은 엔진 결정만 사용한다. 결정이 없는 이전/손상 결과는 서로 합치지 않는다.
     const candidateDecision = normalizeEngineDecision(candidate.decision);
     const engineIdentityKey = candidateDecision?.identityKey ?? '';
+    const technicalEvidenceKey = candidateDecision?.technicalEvidenceKey ?? '';
     const groupKey = engineIdentityKey === ''
       ? `untrusted:${component.component_id}:${String(index)}`
-      : engineIdentityKey;
+      : useProcurementContract
+        ? `${engineIdentityKey}\0${technicalEvidenceKey}`
+        : engineIdentityKey;
     const members = grouped.get(groupKey);
     if (members === undefined) grouped.set(groupKey, [candidate]);
     else members.push(candidate);
   });
+
+  const identityOccurrences = new Map<string, number>();
+  for (const members of grouped.values()) {
+    const identityKey = normalizeEngineDecision(members[0]?.decision)?.identityKey ?? '';
+    identityOccurrences.set(identityKey, (identityOccurrences.get(identityKey) ?? 0) + 1);
+  }
 
   return [...grouped.entries()].map(([groupKey, members], index) => {
     const representative = members[0];
@@ -848,13 +938,21 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
     const engineCandidateKey = decision?.identityKey ?? '';
     const candidateKey = engineCandidateKey === ''
       ? createHash('sha256').update(groupKey).digest('hex').slice(0, 32)
-      : engineCandidateKey;
+      : useProcurementContract && (identityOccurrences.get(engineCandidateKey) ?? 0) > 1
+        ? createHash('sha256')
+          .update(`${engineCandidateKey}\0${technicalEvidenceKey}`)
+          .digest('hex')
+          .slice(0, 32)
+        : engineCandidateKey;
     const offers: StoredCandidateOfferType[] = [];
     const offerInputs = new Map<string, BomOfferInput>();
     const seenOffers = new Set<string>();
     for (const member of evidenceMembers) {
       for (const offer of member.product.offers) {
-        const key = offerKey(candidateKey, offer);
+        const engineOfferKey = offer.procurement_decision?.offer_key;
+        const key = useProcurementContract && engineOfferKey !== null && engineOfferKey !== undefined
+          ? engineOfferKey
+          : offerKey(candidateKey, offer);
         if (seenOffers.has(key)) continue;
         seenOffers.add(key);
         const input = engineOfferInput(offer);
@@ -875,6 +973,7 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
             price: step.price,
             currency: step.currency ?? input.currency ?? '',
           })),
+          procurementDecision: offer.procurement_decision ?? null,
         });
       }
     }
@@ -897,6 +996,7 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
       offerInputs,
       snapshot: {
         candidateKey,
+        identityKey: decision?.identityKey ?? '',
         technicalRank: index + 1,
         technicalReviewRank: decision?.technicalReviewRank ?? null,
         selectionRecommendation: decision?.selectionRecommendation ?? null,
@@ -932,73 +1032,164 @@ function buildCandidateGroups(component: EngineSupplierComponentType): Candidate
         specComparisons: representative.spec_comparisons,
         packageComparison: representative.package_comparison ?? null,
         offers,
+        procurementDecision: component.procurement_decision ?? null,
+        engineCandidates: evidenceMembers,
       },
     };
   });
 }
 
-function groupBestPick(
-  group: CandidateGroup,
+interface EngineProcurementProjection {
+  valid: boolean;
+  selected: CandidateGroup | null;
+  recommended: CandidateGroup | null;
+  offerKey: string | null;
+  pick: OfferPick | null;
+}
+
+function storedEngineDecisionPick(
+  storedOffer: StoredCandidateOfferType,
   needed: number,
-  usdKrwRate: number | null,
-): { pick: OfferPick | null; offerKey: string | null } {
-  const inputs = [...group.offerInputs.entries()];
-  const pick = pickDefaultOffer(inputs.map(([, input]) => input), needed, usdKrwRate);
-  if (pick === null) return { pick: null, offerKey: null };
-  return { pick, offerKey: inputs.find(([, input]) => input === pick.offer)?.[0] ?? null };
+  options: {
+    recommendation?: 'automatic' | 'manual_review' | 'none';
+    requireTop: boolean;
+    requirePurchasable: boolean;
+  },
+): OfferPick | null {
+  const decision = storedOffer.procurementDecision;
+  if (
+    decision?.offer_key !== storedOffer.offerKey
+    || decision.calculation_status !== 'calculated'
+    || decision.required_quantity !== needed
+    || decision.order_quantity === null
+    || decision.order_quantity === undefined
+    || decision.applied_price_break_quantity === null
+    || decision.applied_price_break_quantity === undefined
+    || decision.source_unit_price === null
+    || decision.source_unit_price === undefined
+    || decision.source_currency === null
+    || decision.source_currency === undefined
+    || decision.converted_unit_price === null
+    || decision.converted_unit_price === undefined
+    || decision.line_total === null
+    || decision.line_total === undefined
+    || decision.stock_short === null
+    || decision.stock_short === undefined
+    || decision.target_currency.toUpperCase() !== 'KRW'
+    || (options.requirePurchasable && !decision.purchasable)
+    || (options.requireTop && decision.purchase_fit_rank !== 1)
+    || (options.recommendation !== undefined
+      && decision.recommendation !== options.recommendation)
+    || Math.abs(
+      decision.line_total - decision.converted_unit_price * decision.order_quantity
+    ) > 0.02
+  ) return null;
+  return {
+    offer: storedOfferInput(storedOffer),
+    orderQty: decision.order_quantity,
+    breakQty: decision.applied_price_break_quantity,
+    unitPrice: decision.source_unit_price,
+    currency: decision.source_currency.toUpperCase(),
+    unitPriceKrw: decision.converted_unit_price,
+    stockShort: decision.stock_short,
+  };
 }
 
-/** 엔진 순위를 제외한 판정 근거가 같은 후보만 구매조건 비교를 허용한다. */
-function hasEquivalentTechnicalEvidence(a: StoredCandidateType, b: StoredCandidateType): boolean {
-  return a.technicalEvidenceKey !== '' && a.technicalEvidenceKey === b.technicalEvidenceKey;
+function engineDecisionPick(
+  group: CandidateGroup,
+  storedOffer: StoredCandidateOfferType,
+  needed: number,
+  recommendation: 'automatic' | 'manual_review',
+): OfferPick | null {
+  const input = group.offerInputs.get(storedOffer.offerKey);
+  const pick = storedEngineDecisionPick(storedOffer, needed, {
+    recommendation,
+    requireTop: true,
+    requirePurchasable: true,
+  });
+  return pick === null || input === undefined ? null : { ...pick, offer: input };
 }
 
-function hasIncompleteVerification(candidate: StoredCandidateType): boolean {
-  return !candidate.verificationComplete;
-}
+/** 현재 엔진의 조달 결정을 검증해 그대로 투영한다. 로컬 가격 정렬은 수행하지 않는다. */
+function projectEngineProcurement(
+  component: EngineSupplierComponentType,
+  groups: CandidateGroup[],
+  needed: number,
+): EngineProcurementProjection {
+  const decision = component.procurement_decision;
+  const invalid: EngineProcurementProjection = {
+    valid: false,
+    selected: null,
+    recommended: null,
+    offerKey: null,
+    pick: null,
+  };
+  if (
+    decision?.required_quantity !== needed
+    || decision.target_currency.toUpperCase() !== 'KRW'
+  ) return invalid;
 
-const EXCESSIVE_ORDER_RATIO_MIN = 100;
-const EXCESSIVE_SURPLUS_VALUE_KRW_MIN = 10_000;
+  const identityKey = decision.technical_preselection_identity_key ?? null;
+  const evidenceKey = decision.technical_preselection_evidence_key ?? null;
+  if ((identityKey === null) !== (evidenceKey === null)) return invalid;
+  const technicalGroup = identityKey === null || evidenceKey === null
+    ? null
+    : groups.find((group) =>
+      group.snapshot.identityKey === identityKey
+      && group.snapshot.technicalEvidenceKey === evidenceKey)
+      ?? null;
+  if (identityKey !== null && technicalGroup === null) return invalid;
 
-/** 수량과 금액이 함께 비정상적으로 커야 과다구매로 본다(저가 릴 포장은 허용). */
-function purchaseRiskRank(pick: OfferPick | null, needed: number): number {
-  if (pick === null) return 4;
-  if (pick.stockShort) return 3;
-  if (pick.unitPriceKrw === null) return 2;
-  const surplusQty = Math.max(0, pick.orderQty - needed);
-  const excessive =
-    pick.orderQty >= needed * EXCESSIVE_ORDER_RATIO_MIN &&
-    surplusQty * pick.unitPriceKrw >= EXCESSIVE_SURPLUS_VALUE_KRW_MIN;
-  return excessive ? 1 : 0;
-}
+  const recommendedOffers = groups.flatMap((group) =>
+    group.snapshot.offers.flatMap((offer) =>
+      offer.procurementDecision?.recommendation === 'none'
+        || offer.procurementDecision === null
+        ? []
+        : [{ group, offer }]),
+  );
+  if (decision.status === 'no_recommendation') {
+    return recommendedOffers.length === 0
+      ? { valid: true, selected: null, recommended: null, offerKey: null, pick: null }
+      : invalid;
+  }
+  if (decision.status === 'input_incomplete' || technicalGroup === null) return invalid;
 
-interface PurchaseFitEntry<T> {
-  value: T;
-  snapshot: StoredCandidateType;
-  result: { pick: OfferPick | null; offerKey: string | null };
-}
-
-/** 기술 근거가 같은 후보는 과다구매 위험→총액→주문수량 순으로 결정한다. */
-function pickPurchaseFit<T>(entries: PurchaseFitEntry<T>[], needed: number): PurchaseFitEntry<T> | null {
-  return [...entries].sort((a, b) => {
-    const risk = purchaseRiskRank(a.result.pick, needed) - purchaseRiskRank(b.result.pick, needed);
-    if (risk !== 0) return risk;
-    const total = (pickLineTotal(a.result.pick) ?? Number.POSITIVE_INFINITY) -
-      (pickLineTotal(b.result.pick) ?? Number.POSITIVE_INFINITY);
-    if (total !== 0) return total;
-    const orderQty = (a.result.pick?.orderQty ?? Number.POSITIVE_INFINITY) -
-      (b.result.pick?.orderQty ?? Number.POSITIVE_INFINITY);
-    return orderQty || a.snapshot.technicalRank - b.snapshot.technicalRank;
-  })[0] ?? null;
+  const automatic = decision.status === 'automatic_recommended';
+  const expectedOfferKey = automatic
+    ? decision.automatic_offer_key ?? null
+    : decision.review_offer_key ?? null;
+  const expectedRecommendation = automatic ? 'automatic' : 'manual_review';
+  const matching = recommendedOffers.filter(({ group, offer }) =>
+    group === technicalGroup
+    && offer.offerKey === expectedOfferKey
+    && offer.procurementDecision?.recommendation === expectedRecommendation);
+  if (recommendedOffers.length !== 1 || matching.length !== 1) return invalid;
+  const selectedOffer = matching[0]?.offer;
+  if (selectedOffer === undefined) return invalid;
+  const expectedEligibility = automatic ? 'automatic' : 'manual_review';
+  if (
+    technicalGroup.snapshot.selectionEligibility !== expectedEligibility
+    || technicalGroup.snapshot.selectionRecommendation !== 'preselect'
+  ) return invalid;
+  const pick = engineDecisionPick(
+    technicalGroup,
+    selectedOffer,
+    needed,
+    expectedRecommendation,
+  );
+  if (pick === null) return invalid;
+  return {
+    valid: true,
+    selected: automatic ? technicalGroup : null,
+    recommended: technicalGroup,
+    offerKey: selectedOffer.offerKey,
+    pick: automatic ? pick : null,
+  };
 }
 
 function pickLineTotal(pick: OfferPick | null): number | null {
   if (pick?.unitPriceKrw == null) return null;
   return Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100;
-}
-
-function hasStrictCategoryCoverage(candidate: StoredCandidateType): boolean {
-  return candidate.strictCategoryCoverage;
 }
 
 function evidenceFromDecision(
@@ -1014,6 +1205,7 @@ function evidenceFromDecision(
   reasonCodes: BomQuoteDecisionReasonType[],
   needed: number,
   technicalTopPick: OfferPick | null,
+  policyVersion: string,
 ): BomQuoteMatchEvidenceType {
   const reviewGroup = selected ?? groups[0] ?? null;
   const reviewCandidate = reviewGroup?.representative ?? component.candidates[0] ?? null;
@@ -1022,9 +1214,6 @@ function evidenceFromDecision(
   const technicalTotal = pickLineTotal(technicalTopPick);
   const savings = selectedTotal === null || technicalTotal === null ? null : Math.round((technicalTotal - selectedTotal) * 100) / 100;
   const savingsRate = savings === null || technicalTotal === null || technicalTotal <= 0 ? null : savings / technicalTotal;
-  const policyVersion = groups.some((group) => group.snapshot.selectionRecommendation !== null)
-    ? BOM_ENGINE_SELECTION_POLICY_VERSION
-    : BOM_ENGINE_LEGACY_SELECTION_POLICY_VERSION;
   return {
     policyVersion,
     componentId: component.component_id,
@@ -1067,164 +1256,89 @@ function evidenceFromDecision(
   };
 }
 
-/**
- * 엔진 기술 순위를 보존하면서 구매 조건만 적용한다. Node는 엔진의 자동 자격,
- * 기술 근거 동등성, 카테고리 검증, 수명주기 상태를 재해석하지 않는다.
- */
+/** 엔진의 기술·구매 결정을 검증해 그대로 투영한다. 조달 계약이 없으면 선정하지 않는다. */
 export function selectEngineMatch(
   componentValue: unknown,
   needed: number,
-  usdKrwRate: number | null,
+  _usdKrwRate: number | null,
 ): EngineMatchDecision | null {
   const parsed = EngineSupplierComponent.safeParse(componentValue);
   if (!parsed.success) return null;
   const component = parsed.data;
   const identityFallback = component.identity_fallback;
-  const groups = buildCandidateGroups(component);
+  const usesProcurementContract = component.procurement_decision !== null
+    && component.procurement_decision !== undefined;
+  const groups = buildCandidateGroups(component, usesProcurementContract);
   const eligible = groups.filter((group) => group.snapshot.autoEligible);
-  const usesEngineRecommendation = groups.some((group) => group.snapshot.selectionRecommendation !== null);
-  const preselected = groups.filter((group) => group.snapshot.selectionRecommendation === 'preselect');
-  const singlePreselected = preselected.length === 1 ? preselected[0] ?? null : null;
-  const technicalTop = usesEngineRecommendation
-    ? singlePreselected?.snapshot.autoEligible === true ? singlePreselected : null
-    : eligible[0] ?? null;
-  if (technicalTop === null) {
-    const mode = component.status === 'not_found' ? 'unmatched' : 'review';
-    const reasonCodes: BomQuoteDecisionReasonType[] = ['no-safe-candidate'];
-    const reviewRecommendation = singlePreselected?.snapshot.reviewRecommended === true
-      ? singlePreselected
-      : null;
-    const recommendedCandidateKey = reviewRecommendation?.snapshot.candidateKey ?? null;
+  if (usesProcurementContract) {
+    const procurement = projectEngineProcurement(component, groups, needed);
+    const selected = procurement.valid ? procurement.selected : null;
+    const recommended = procurement.valid ? procurement.recommended : null;
+    const selectedMode = selected?.snapshot.selectionMode
+      ?? recommended?.snapshot.selectionMode
+      ?? (component.status === 'not_found' ? 'unmatched' : 'review');
+    const recommendationType: BomQuoteRecommendationTypeType = selected === null
+      ? 'none'
+      : selectedMode === 'spec-compatible'
+        ? 'technical'
+        : 'identity';
+    const reasonCodes: BomQuoteDecisionReasonType[] = procurement.valid
+      ? selected === null
+        ? recommended === null
+          ? ['engine-procurement-unavailable']
+          : ['engine-manual-review']
+        : ['engine-procurement-recommendation']
+      : ['no-safe-candidate'];
+    const recommendedCandidateKey = recommended?.snapshot.candidateKey ?? null;
     return {
       evidence: evidenceFromDecision(
         component,
         identityFallback,
         groups,
-        [],
-        null,
+        eligible,
+        selected,
         recommendedCandidateKey,
-        null,
-        mode,
-        'none',
+        procurement.pick,
+        selectedMode,
+        recommendationType,
         reasonCodes,
         needed,
-        null,
+        procurement.pick,
+        BOM_ENGINE_SELECTION_POLICY_VERSION,
       ),
-      candidate: null,
-      candidateKey: null,
+      candidate: selected?.representative ?? null,
+      candidateKey: selected?.snapshot.candidateKey ?? null,
       recommendedCandidateKey,
-      offerKey: null,
-      pick: null,
+      offerKey: selected === null ? null : procurement.offerKey,
+      pick: procurement.pick,
       snapshots: groups.map((group) => group.snapshot),
     };
   }
-
-  const selectedMode = technicalTop.snapshot.selectionMode;
-  let selected = technicalTop;
-  let selectedPick = groupBestPick(technicalTop, needed, usdKrwRate);
-  const technicalPick = selectedPick.pick;
-  let recommendationType: BomQuoteRecommendationTypeType = selectedMode === 'spec-compatible' ? 'technical' : 'identity';
-  const reasonCodes: BomQuoteDecisionReasonType[] = [
-    selectedMode === 'exact' ? 'identity-exact' : selectedMode === 'variant' ? 'identity-variant' : 'technical-top',
-    'same-part-lowest-total',
-  ];
-
-  if (
-    !usesEngineRecommendation &&
-    (selectedMode === 'exact' || selectedMode === 'variant') &&
-    hasIncompleteVerification(technicalTop.snapshot)
-  ) {
-    const equivalent = eligible
-      .filter((group) => hasEquivalentTechnicalEvidence(technicalTop.snapshot, group.snapshot))
-      .map((group) => ({
-        value: group,
-        snapshot: group.snapshot,
-        result: groupBestPick(group, needed, usdKrwRate),
-      }));
-    const purchaseFit = pickPurchaseFit(equivalent, needed);
-    if (purchaseFit !== null && purchaseFit.value !== technicalTop) {
-      selected = purchaseFit.value;
-      selectedPick = purchaseFit.result;
-      recommendationType = 'purchase-fit';
-      reasonCodes.splice(
-        0,
-        reasonCodes.length,
-        selectedMode === 'exact' ? 'identity-exact' : 'identity-variant',
-        'purchase-fit',
-        'same-part-lowest-total',
-      );
-    }
-  } else if (
-    !usesEngineRecommendation
-    && selectedMode === 'spec-compatible'
-    && hasStrictCategoryCoverage(technicalTop.snapshot)
-  ) {
-    const alternatives = eligible
-      .slice(1)
-      .filter((group) => hasStrictCategoryCoverage(group.snapshot))
-      .map((group) => ({ group, result: groupBestPick(group, needed, usdKrwRate) }))
-      .filter((entry) => entry.result.pick !== null && !entry.result.pick.stockShort)
-      .sort((a, b) => (pickLineTotal(a.result.pick) ?? Number.POSITIVE_INFINITY) - (pickLineTotal(b.result.pick) ?? Number.POSITIVE_INFINITY));
-    const activeAlternative = alternatives.find((entry) => entry.group.snapshot.lifecycleState === 'active');
-    if (
-      technicalTop.snapshot.lifecycleState === 'caution' &&
-      activeAlternative !== undefined
-    ) {
-      selected = activeAlternative.group;
-      selectedPick = activeAlternative.result;
-      recommendationType = 'lifecycle';
-      reasonCodes.splice(0, reasonCodes.length, 'lifecycle-improvement', 'same-part-lowest-total');
-    } else if ((technicalPick === null || technicalPick.stockShort) && alternatives[0] !== undefined) {
-      selected = alternatives[0].group;
-      selectedPick = alternatives[0].result;
-      recommendationType = 'availability';
-      reasonCodes.splice(0, reasonCodes.length, 'availability', 'same-part-lowest-total');
-    } else {
-      const technicalTotal = pickLineTotal(technicalPick);
-      const cheapest = alternatives[0];
-      const cheapestTotal = cheapest === undefined ? null : pickLineTotal(cheapest.result.pick);
-      const saving = technicalTotal === null || cheapestTotal === null ? null : technicalTotal - cheapestTotal;
-      const savingRate = saving === null || technicalTotal === null || technicalTotal <= 0 ? null : saving / technicalTotal;
-      if (
-        cheapest !== undefined &&
-        saving !== null &&
-        savingRate !== null &&
-        saving >= PRICE_SAVING_KRW_MIN &&
-        savingRate >= PRICE_SAVING_RATE_MIN
-      ) {
-        selected = cheapest.group;
-        selectedPick = cheapest.result;
-        recommendationType = 'price';
-        reasonCodes.splice(0, reasonCodes.length, 'strict-spec-price-saving', 'same-part-lowest-total');
-      }
-    }
-  }
-
-  const recommendedCandidateKey = selected.snapshot.candidateKey;
+  const selectedMode = component.status === 'not_found'
+    ? 'unmatched'
+    : groups[0]?.snapshot.selectionMode ?? 'review';
   return {
     evidence: evidenceFromDecision(
       component,
       identityFallback,
       groups,
       eligible,
-      selected,
-      recommendedCandidateKey,
-      selectedPick.pick,
+      null,
+      null,
+      null,
       selectedMode,
-      recommendationType,
-      reasonCodes,
+      'none',
+      ['engine-procurement-unavailable'],
       needed,
-      technicalPick,
+      null,
+      BOM_ENGINE_SELECTION_POLICY_VERSION,
     ),
-    candidate: selected.representative,
-    candidateKey: selected.snapshot.candidateKey,
-    recommendedCandidateKey,
-    offerKey: selectedPick.offerKey,
-    pick: selectedPick.pick,
-    snapshots: groups.map((group) => ({
-      ...group.snapshot,
-      autoEligible: eligible.includes(group),
-    })),
+    candidate: null,
+    candidateKey: null,
+    recommendedCandidateKey: null,
+    offerKey: null,
+    pick: null,
+    snapshots: groups.map((group) => group.snapshot),
   };
 }
 
@@ -1288,6 +1402,12 @@ export async function applyEngineSupplierResult(
 ): Promise<ApplyEngineSupplierResult> {
   const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
   if (!parsed.success) return { applied: false, candidateSnapshots: [] };
+  if (
+    parsed.data.procurement_decision_contract_status !== 'current'
+    || parsed.data.search.components.some((component) =>
+      component.procurement_decision === null
+      || component.procurement_decision === undefined)
+  ) return { applied: false, candidateSnapshots: [] };
   const components = new Map(parsed.data.search.components.map((component) => [component.component_id, component]));
   const candidateSnapshots: QuoteCandidateSnapshotInput[] = [];
 
@@ -1407,21 +1527,25 @@ function storedOfferInput(offer: StoredCandidateOfferType): BomOfferInput {
 function storedCandidatePick(
   candidate: StoredCandidateType,
   needed: number,
-  usdKrwRate: number | null,
+  _usdKrwRate: number | null,
   requestedOfferKey: string | null = null,
 ): { pick: OfferPick | null; offerKey: string | null } {
-  if (requestedOfferKey !== null) {
-    const offer = candidate.offers.find((item) => item.offerKey === requestedOfferKey);
-    if (offer === undefined) return { pick: null, offerKey: null };
-    return { pick: applyQtyToOffer(storedOfferInput(offer), needed, usdKrwRate), offerKey: requestedOfferKey };
-  }
-  const inputs = candidate.offers.map((offer) => ({ offer, input: storedOfferInput(offer) }));
-  const pick = pickDefaultOffer(inputs.map(({ input }) => input), needed, usdKrwRate);
-  if (pick === null) return { pick: null, offerKey: null };
-  return {
-    pick,
-    offerKey: inputs.find(({ input }) => input === pick.offer)?.offer.offerKey ?? null,
-  };
+  if (candidate.procurementDecision === null) return { pick: null, offerKey: null };
+  const eligibleOffers = requestedOfferKey === null
+    ? candidate.offers.filter((offer) =>
+      offer.procurementDecision?.purchase_fit_rank === 1
+      && offer.procurementDecision.purchasable)
+    : candidate.offers.filter((offer) => offer.offerKey === requestedOfferKey);
+  if (eligibleOffers.length !== 1) return { pick: null, offerKey: null };
+  const engineOffer = eligibleOffers[0];
+  if (engineOffer === undefined) return { pick: null, offerKey: null };
+  const pick = storedEngineDecisionPick(engineOffer, needed, {
+    requireTop: requestedOfferKey === null,
+    requirePurchasable: true,
+  });
+  return pick === null
+    ? { pick: null, offerKey: null }
+    : { pick, offerKey: engineOffer.offerKey };
 }
 
 async function partIdForStoredCandidate(candidate: StoredCandidateType): Promise<string | null> {
@@ -1442,6 +1566,7 @@ async function partIdForStoredCandidate(candidate: StoredCandidateType): Promise
 }
 
 interface StoredRecommendation {
+  automatic: boolean;
   candidate: StoredCandidateType;
   pick: OfferPick | null;
   offerKey: string | null;
@@ -1450,142 +1575,65 @@ interface StoredRecommendation {
   reasonCodes: BomQuoteDecisionReasonType[];
 }
 
-/** 저장된 후보에 현재 수량을 다시 적용해 자동 추천을 재현한다. 명시 선택에는 적용하지 않는다. */
+function hasConsistentProcurementDecision(candidates: StoredCandidateType[]): boolean {
+  const first = candidates[0]?.procurementDecision;
+  if (first === null || first === undefined) return false;
+  const expected = JSON.stringify(first);
+  return candidates.every((candidate) =>
+    candidate.procurementDecision !== null
+    && JSON.stringify(candidate.procurementDecision) === expected);
+}
+
+/** 저장된 최신 엔진 조달 결정을 검증해 투영한다. 후보·오퍼 순위는 재계산하지 않는다. */
 function recommendStoredCandidate(
   candidates: StoredCandidateType[],
   needed: number,
-  usdKrwRate: number | null,
-  allowAmbiguousPurchaseFit: boolean,
 ): StoredRecommendation | null {
-  const usesEngineRecommendation = candidates.some((candidate) => candidate.selectionRecommendation !== null);
-  if (usesEngineRecommendation) {
-    const preselected = candidates.filter((candidate) => candidate.selectionRecommendation === 'preselect');
-    const selected = preselected.length === 1 ? preselected[0] : undefined;
-    if (selected === undefined) return null;
-    const result = selected.autoEligible
-      ? storedCandidatePick(selected, needed, usdKrwRate)
-      : { pick: null, offerKey: null };
-    const recommendationType: BomQuoteRecommendationTypeType = selected.autoEligible
-      ? selected.selectionMode === 'exact' || selected.selectionMode === 'variant'
-        ? 'identity'
-        : 'technical'
-      : 'none';
-    const reasonCodes: BomQuoteDecisionReasonType[] = selected.autoEligible
-      ? [
-          selected.selectionMode === 'exact'
-            ? 'identity-exact'
-            : selected.selectionMode === 'variant'
-              ? 'identity-variant'
-              : 'technical-top',
-          'same-part-lowest-total',
-        ]
-      : ['no-safe-candidate'];
-    return {
-      candidate: selected,
-      pick: result.pick,
-      offerKey: result.offerKey,
-      technicalTopLineTotalKrw: pickLineTotal(result.pick),
-      recommendationType,
-      reasonCodes,
-    };
-  }
-
-  const eligible = candidates
-    .filter((candidate) => candidate.autoEligible)
-    .sort((a, b) => a.technicalRank - b.technicalRank);
-  const technicalTop = eligible[0];
-  if (technicalTop === undefined) return null;
-  const technicalResult = storedCandidatePick(technicalTop, needed, usdKrwRate);
-  let selected = technicalTop;
-  let selectedResult = technicalResult;
-  let recommendationType: BomQuoteRecommendationTypeType =
-    technicalTop.selectionMode === 'exact' || technicalTop.selectionMode === 'variant' ? 'identity' : 'technical';
-  const reasonCodes: BomQuoteDecisionReasonType[] = [
-    technicalTop.selectionMode === 'exact'
-      ? 'identity-exact'
-      : technicalTop.selectionMode === 'variant'
-        ? 'identity-variant'
-        : 'technical-top',
-    'same-part-lowest-total',
-  ];
-
+  if (!hasConsistentProcurementDecision(candidates)) return null;
+  const componentDecision = candidates[0]?.procurementDecision;
   if (
-    allowAmbiguousPurchaseFit &&
-    (technicalTop.selectionMode === 'exact' || technicalTop.selectionMode === 'variant') &&
-    hasIncompleteVerification(technicalTop)
-  ) {
-    const equivalent = eligible
-      .filter((candidate) => hasEquivalentTechnicalEvidence(technicalTop, candidate))
-      .map((candidate) => ({
-        value: candidate,
-        snapshot: candidate,
-        result: storedCandidatePick(candidate, needed, usdKrwRate),
-      }));
-    const purchaseFit = pickPurchaseFit(equivalent, needed);
-    if (purchaseFit !== null && purchaseFit.value !== technicalTop) {
-      selected = purchaseFit.value;
-      selectedResult = purchaseFit.result;
-      recommendationType = 'purchase-fit';
-      reasonCodes.splice(
-        0,
-        reasonCodes.length,
-        technicalTop.selectionMode === 'exact' ? 'identity-exact' : 'identity-variant',
-        'purchase-fit',
-        'same-part-lowest-total',
-      );
-    }
-  } else if (technicalTop.selectionMode === 'spec-compatible' && hasStrictCategoryCoverage(technicalTop)) {
-    const alternatives = eligible
-      .slice(1)
-      .filter(hasStrictCategoryCoverage)
-      .map((candidate) => ({ candidate, result: storedCandidatePick(candidate, needed, usdKrwRate) }))
-      .filter((entry) => entry.result.pick !== null && !entry.result.pick.stockShort)
-      .sort((a, b) =>
-        (pickLineTotal(a.result.pick) ?? Number.POSITIVE_INFINITY) -
-        (pickLineTotal(b.result.pick) ?? Number.POSITIVE_INFINITY),
-      );
-    const activeAlternative = alternatives.find((entry) => entry.candidate.lifecycleState === 'active');
-    if (technicalTop.lifecycleState === 'caution' && activeAlternative !== undefined) {
-      selected = activeAlternative.candidate;
-      selectedResult = activeAlternative.result;
-      recommendationType = 'lifecycle';
-      reasonCodes.splice(0, reasonCodes.length, 'lifecycle-improvement', 'same-part-lowest-total');
-    } else if (
-      (technicalResult.pick === null || technicalResult.pick.stockShort) &&
-      alternatives[0] !== undefined
-    ) {
-      selected = alternatives[0].candidate;
-      selectedResult = alternatives[0].result;
-      recommendationType = 'availability';
-      reasonCodes.splice(0, reasonCodes.length, 'availability', 'same-part-lowest-total');
-    } else {
-      const technicalTotal = pickLineTotal(technicalResult.pick);
-      const cheapest = alternatives[0];
-      const cheapestTotal = cheapest === undefined ? null : pickLineTotal(cheapest.result.pick);
-      const saving = technicalTotal === null || cheapestTotal === null ? null : technicalTotal - cheapestTotal;
-      const savingRate = saving === null || technicalTotal === null || technicalTotal <= 0 ? null : saving / technicalTotal;
-      if (
-        cheapest !== undefined &&
-        saving !== null &&
-        savingRate !== null &&
-        saving >= PRICE_SAVING_KRW_MIN &&
-        savingRate >= PRICE_SAVING_RATE_MIN
-      ) {
-        selected = cheapest.candidate;
-        selectedResult = cheapest.result;
-        recommendationType = 'price';
-        reasonCodes.splice(0, reasonCodes.length, 'strict-spec-price-saving', 'same-part-lowest-total');
-      }
-    }
-  }
-
+    componentDecision?.required_quantity !== needed
+    || componentDecision.target_currency.toUpperCase() !== 'KRW'
+    || (componentDecision.status !== 'automatic_recommended'
+      && componentDecision.status !== 'review_recommended')
+  ) return null;
+  const automatic = componentDecision.status === 'automatic_recommended';
+  const identityKey = componentDecision.technical_preselection_identity_key;
+  const evidenceKey = componentDecision.technical_preselection_evidence_key;
+  const selected = candidates.filter((candidate) =>
+    candidate.identityKey === identityKey
+    && candidate.technicalEvidenceKey === evidenceKey
+    && candidate.selectionRecommendation === 'preselect');
+  if (selected.length !== 1) return null;
+  const candidate = selected[0];
+  if (
+    candidate?.selectionEligibility !== (automatic ? 'automatic' : 'manual_review')
+  ) return null;
+  const offerKey = automatic
+    ? componentDecision.automatic_offer_key
+    : componentDecision.review_offer_key;
+  if (offerKey === null || offerKey === undefined) return null;
+  const offer = candidate.offers.find((entry) => entry.offerKey === offerKey);
+  if (offer === undefined) return null;
+  const pick = storedEngineDecisionPick(offer, needed, {
+    recommendation: automatic ? 'automatic' : 'manual_review',
+    requireTop: true,
+    requirePurchasable: true,
+  });
+  if (pick === null) return null;
+  const recommendationType: BomQuoteRecommendationTypeType = automatic
+    ? candidate.selectionMode === 'spec-compatible' ? 'technical' : 'identity'
+    : 'none';
   return {
-    candidate: selected,
-    pick: selectedResult.pick,
-    offerKey: selectedResult.offerKey,
-    technicalTopLineTotalKrw: pickLineTotal(technicalResult.pick),
+    automatic,
+    candidate,
+    pick,
+    offerKey,
+    technicalTopLineTotalKrw: pickLineTotal(pick),
     recommendationType,
-    reasonCodes,
+    reasonCodes: automatic
+      ? ['engine-procurement-recommendation']
+      : ['engine-manual-review'],
   };
 }
 
@@ -1645,22 +1693,102 @@ function selectedEvidence(
   };
 }
 
-/** 수량 변경 시 후보 스냅샷에서 가격을 다시 계산해 클라이언트 단가 변조를 차단한다. */
+function needsEngineProcurementReevaluation(
+  candidates: StoredCandidateType[],
+  needed: number,
+  usdKrwRate: number | null,
+): boolean {
+  if (candidates.length === 0) return false;
+  if (!hasConsistentProcurementDecision(candidates)) {
+    return candidates.some((candidate) => candidate.engineCandidates.length > 0);
+  }
+  return candidates.some((candidate) =>
+    candidate.procurementDecision?.required_quantity !== needed
+    || candidate.offers.some((offer) => {
+      const decision = offer.procurementDecision;
+      if (decision?.source_currency?.toUpperCase() !== 'USD') return false;
+      return usdKrwRate === null
+        ? decision.exchange_rate !== null && decision.exchange_rate !== undefined
+        : decision.exchange_rate === null
+          || decision.exchange_rate === undefined
+          || Math.abs(decision.exchange_rate - usdKrwRate) > 0.000001;
+    }),
+  );
+}
+
+async function reevaluateStoredProcurement(
+  componentId: string,
+  candidates: StoredCandidateType[],
+  needed: number,
+  usdKrwRate: number | null,
+  exchangeRateSnapshot: BomQuoteExchangeRateSnapshotType | null,
+  requestedOfferKey: string | null,
+  identityFallback: boolean,
+): Promise<EngineMatchDecision | null> {
+  const uniqueCandidates = new Map<string, EngineSupplierCandidateType>();
+  for (const candidate of candidates) {
+    for (const engineCandidate of candidate.engineCandidates) {
+      uniqueCandidates.set(JSON.stringify(engineCandidate), engineCandidate);
+    }
+  }
+  if (uniqueCandidates.size === 0) return null;
+  try {
+    const response = await engineFetch('/supplier-search/procurement/reevaluate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contract_version: 'supplier-procurement-reevaluation-v1',
+        component_id: componentId,
+        candidates: [...uniqueCandidates.values()],
+        required_quantity: needed,
+        procurement_policy: buildEngineProcurementPolicy(
+          usdKrwRate,
+          exchangeRateSnapshot,
+        ),
+        requested_offer_key: requestedOfferKey,
+      }),
+    });
+    if (!response.ok) return null;
+    const parsed = EngineProcurementReevaluationResponse.safeParse(await response.json());
+    if (!parsed.success) return null;
+    return selectEngineMatch(
+      {
+        component_id: parsed.data.component_id,
+        status: parsed.data.candidates[0]?.status ?? 'not_found',
+        identity_fallback: identityFallback,
+        candidates: parsed.data.candidates,
+        procurement_decision: parsed.data.procurement_decision,
+      },
+      needed,
+      usdKrwRate,
+    );
+  } catch {
+    return null;
+  }
+}
+
+export class BomProcurementReevaluationError extends Error {
+  constructor(public readonly code: 'component-id-missing' | 'engine-reevaluation-failed') {
+    super(code);
+    this.name = 'BomProcurementReevaluationError';
+  }
+}
+
+/** 수량·환율 변경 시 저장 후보를 sp-engine에서 재평가해 클라이언트 단가 변조를 차단한다. */
 export async function repriceCandidateSelections(
   quoteId: bigint,
   items: (BomQuoteItemInputType & { id?: string })[],
   setQty: number,
   spareQty: number,
   usdKrwRate: number | null,
-): Promise<void> {
-  const relevantItemIds = items.flatMap((item) =>
-    (item.selectedCandidateKey !== null || item.recommendedCandidateKey !== null) && item.id !== undefined
-      ? [BigInt(item.id)]
-      : [],
+  exchangeRateSnapshot: BomQuoteExchangeRateSnapshotType | null,
+): Promise<QuoteCandidateSnapshotInput[] | undefined> {
+  const candidateItemIds = items.flatMap((item) =>
+    item.id === undefined ? [] : [BigInt(item.id)],
   );
-  if (relevantItemIds.length === 0) return;
+  if (candidateItemIds.length === 0) return undefined;
   const rows = await prisma.spBomQuoteCandidate.findMany({
-    where: { quoteId, quoteItemId: { in: relevantItemIds } },
+    where: { quoteId, quoteItemId: { in: candidateItemIds } },
     orderBy: [{ quoteItemId: 'asc' }, { technicalRank: 'asc' }],
   });
   const candidates = new Map<string, StoredCandidateType[]>();
@@ -1672,16 +1800,38 @@ export async function repriceCandidateSelections(
     current.push(parsed.data);
     candidates.set(itemId, current);
   }
+  let snapshotsChanged = false;
+  const candidateSnapshots: QuoteCandidateSnapshotInput[] = [];
   for (const item of items) {
-    const rowCandidates = item.id === undefined ? undefined : candidates.get(item.id);
+    let rowCandidates = item.id === undefined ? undefined : candidates.get(item.id);
     if (rowCandidates === undefined) continue;
     const needed = neededQty(item.bomQty, setQty, spareQty);
-    const originalManufacturer = item.sourceRow?.inputManufacturer;
+    if (needsEngineProcurementReevaluation(rowCandidates, needed, usdKrwRate)) {
+      const componentId = item.matchEvidence?.componentId
+        ?? (typeof item.sourceRow?.componentId === 'string'
+          ? item.sourceRow.componentId
+          : null);
+      if (componentId === null) throw new BomProcurementReevaluationError('component-id-missing');
+      const reevaluated = await reevaluateStoredProcurement(
+        componentId,
+        rowCandidates,
+        needed,
+        usdKrwRate,
+        exchangeRateSnapshot,
+        item.selectedOffer?.pinned === true ? item.selectedOffer.offerKey : null,
+        item.matchEvidence?.identityFallback ?? false,
+      );
+      if (reevaluated === null) throw new BomProcurementReevaluationError('engine-reevaluation-failed');
+      rowCandidates = reevaluated.snapshots;
+      if (item.id !== undefined) candidates.set(item.id, rowCandidates);
+      snapshotsChanged = true;
+    }
+    candidateSnapshots.push(
+      ...rowCandidates.map((candidate) => ({ rowIdx: item.rowIdx, candidate })),
+    );
     const recommendation = recommendStoredCandidate(
       rowCandidates,
       needed,
-      usdKrwRate,
-      typeof originalManufacturer !== 'string' || originalManufacturer.trim() === '',
     );
     item.recommendedCandidateKey = recommendation?.candidate.candidateKey ?? null;
     if (item.matchEvidence !== null) {
@@ -1692,13 +1842,43 @@ export async function repriceCandidateSelections(
       };
     }
     const selectedCandidateKey = item.selectionSource === 'auto'
-      ? (recommendation?.candidate.candidateKey ?? item.selectedCandidateKey)
+      ? (recommendation?.automatic === true ? recommendation.candidate.candidateKey : null)
       : item.selectedCandidateKey;
-    if (selectedCandidateKey === null) continue;
+    if (selectedCandidateKey === null) {
+      if (item.selectionSource === 'auto') {
+        const inputPartNumber = item.sourceRow?.inputPartNumber;
+        const inputManufacturer = item.sourceRow?.inputManufacturer;
+        item.mpn = typeof inputPartNumber === 'string' ? inputPartNumber.trim().slice(0, 191) : '';
+        item.manufacturerName = typeof inputManufacturer === 'string'
+          ? inputManufacturer.trim().slice(0, 191) || null
+          : null;
+        item.partId = null;
+        item.selectedCandidateKey = null;
+        item.selectedOffer = null;
+        item.matchStatus = 'none';
+        item.selectionSource = 'none';
+        item.orderQty = needed;
+        if (item.matchEvidence !== null) {
+          item.matchEvidence = {
+            ...item.matchEvidence,
+            selectedCandidateKey: null,
+            selectedTechnicalRank: null,
+            selectedMpn: null,
+            selectedManufacturer: null,
+            selectedSupplier: null,
+            selectedSupplierSku: null,
+            priceEvidence: null,
+          };
+        }
+      }
+      continue;
+    }
     const candidate = rowCandidates.find((entry) => entry.candidateKey === selectedCandidateKey);
     if (candidate === undefined) continue;
     const requestedOfferKey = item.selectedOffer?.pinned === true ? item.selectedOffer.offerKey : null;
-    const selected = item.selectionSource === 'auto' && recommendation?.candidate.candidateKey === candidate.candidateKey
+    const selected = item.selectionSource === 'auto'
+      && recommendation?.automatic === true
+      && recommendation.candidate.candidateKey === candidate.candidateKey
       ? { pick: recommendation.pick, offerKey: recommendation.offerKey }
       : storedCandidatePick(candidate, needed, usdKrwRate, requestedOfferKey);
     const candidateChanged = item.selectedCandidateKey !== candidate.candidateKey;
@@ -1723,14 +1903,20 @@ export async function repriceCandidateSelections(
       item.selectionSource === 'auto' ? recommendation : undefined,
     );
   }
+  return snapshotsChanged ? candidateSnapshots : undefined;
 }
 
 function candidateOfferView(
   offer: StoredCandidateOfferType,
   needed: number,
-  usdKrwRate: number | null,
+  _usdKrwRate: number | null,
 ): BomQuoteCandidateOfferType {
-  const pick = applyQtyToOffer(storedOfferInput(offer), needed, usdKrwRate);
+  const pick = offer.procurementDecision === null
+    ? null
+    : storedEngineDecisionPick(offer, needed, {
+      requireTop: false,
+      requirePurchasable: false,
+    });
   return {
     offerKey: offer.offerKey,
     supplier: offer.supplier,
@@ -1742,6 +1928,11 @@ function candidateOfferView(
     productUrl: offer.productUrl,
     fetchedAt: offer.fetchedAt,
     priceBreaks: offer.priceBreaks,
+    priceRank: offer.procurementDecision?.price_rank ?? null,
+    purchaseFitRank: offer.procurementDecision?.purchase_fit_rank ?? null,
+    purchasable: offer.procurementDecision?.purchasable ?? false,
+    recommendation: offer.procurementDecision?.recommendation ?? 'none',
+    decisionReasonCodes: offer.procurementDecision?.reason_codes ?? [],
     applied:
       pick === null
         ? null
@@ -1841,13 +2032,8 @@ export async function getQuoteItemCandidates(
   }
   const picks = new Map<string, { pick: OfferPick | null; offerKey: string | null }>();
   for (const candidate of stored) picks.set(candidate.candidateKey, storedCandidatePick(candidate, needed, quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed)));
-  const priced = stored
-    .map((candidate) => ({ candidate, total: pickLineTotal(picks.get(candidate.candidateKey)?.pick ?? null) }))
-    .filter((entry): entry is { candidate: StoredCandidateType; total: number } => entry.total !== null)
-    .sort((a, b) => a.total - b.total || a.candidate.technicalRank - b.candidate.technicalRank);
-  const priceRanks = new Map(priced.map((entry, index) => [entry.candidate.candidateKey, index + 1]));
   const technicalTop = stored
-    .filter((candidate) => candidate.autoEligible)
+    .filter((candidate) => candidate.selectionRecommendation === 'preselect')
     .sort((a, b) => a.technicalRank - b.technicalRank)[0] ?? null;
   const technicalTopTotal = technicalTop === null ? null : pickLineTotal(picks.get(technicalTop.candidateKey)?.pick ?? null);
   const currentTotal = item.lineTotalKrw;
@@ -1863,7 +2049,9 @@ export async function getQuoteItemCandidates(
       technicalReviewRank: candidate.technicalReviewRank,
       selectionRecommendation: candidate.selectionRecommendation,
       reviewRecommended: candidate.reviewRecommended,
-      priceRank: priceRanks.get(candidate.candidateKey) ?? null,
+      priceRank: result.offerKey === null
+        ? null
+        : candidate.offers.find((offer) => offer.offerKey === result.offerKey)?.procurementDecision?.price_rank ?? null,
       status: candidate.status,
       selectionMode: candidate.selectionMode,
       safety: candidate.safety,
@@ -1898,7 +2086,10 @@ export async function getQuoteItemCandidates(
       packageComparison: candidate.packageComparison,
       offers: candidate.offers
         .map((offer) => candidateOfferView(offer, needed, rate))
-        .sort((a, b) => (a.applied?.lineTotalKrw ?? Number.POSITIVE_INFINITY) - (b.applied?.lineTotalKrw ?? Number.POSITIVE_INFINITY)),
+        .sort((a, b) =>
+          (a.purchaseFitRank ?? Number.MAX_SAFE_INTEGER) - (b.purchaseFitRank ?? Number.MAX_SAFE_INTEGER)
+          || (a.priceRank ?? Number.MAX_SAFE_INTEGER) - (b.priceRank ?? Number.MAX_SAFE_INTEGER)
+          || a.offerKey.localeCompare(b.offerKey)),
       bestOfferKey: result.offerKey,
       bestLineTotalKrw: bestTotal,
       lineDeltaKrw: bestTotal === null || currentTotal === null ? null : Math.round((bestTotal - currentTotal) * 100) / 100,
@@ -2057,6 +2248,8 @@ export async function applyQuoteCandidateSelection(
  */
 export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdKrwRate: number | null): Promise<void> {
   for (const item of items) {
+    // 엔진 후보 오퍼는 반드시 procurement reevaluation 경로를 사용한다.
+    if (item.selectedCandidateKey !== null) continue;
     if (item.partId === null || item.selectedOffer === null) continue;
     const part = await prisma.spPart.findUnique({
       where: { id: BigInt(item.partId) },
@@ -2074,9 +2267,6 @@ export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdK
         continue;
       }
     }
-    // 엔진 후보 선택은 후보 스냅샷이 가격·오퍼의 정본이다. 카탈로그의 다른 오퍼로
-    // 조용히 바꾸면 selectedCandidateKey와 실제 오퍼가 어긋나므로 그대로 보존한다.
-    if (item.selectedCandidateKey !== null) continue;
     if (!current.pinned) {
       const pick = pickDefaultOffer(offers, Math.max(1, item.orderQty), usdKrwRate);
       if (pick !== null) {

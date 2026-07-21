@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def utc_now() -> datetime:
@@ -36,23 +37,235 @@ class MatchStatus(StrEnum):
     INSUFFICIENT_INPUT = "insufficient_input"
 
 
+class ManufacturerEvidence(StrEnum):
+    STRUCTURED = "structured"
+    INFERRED = "inferred"
+    MISSING = "missing"
+
+
 class SelectionEligibility(StrEnum):
     AUTOMATIC = "automatic"
     MANUAL_REVIEW = "manual_review"
     BLOCKED = "blocked"
 
 
-class CandidateSelectionMode(StrEnum):
+class SelectionRecommendation(StrEnum):
+    PRESELECT = "preselect"
+    CANDIDATE_ONLY = "candidate_only"
+    EXCLUDE = "exclude"
+
+
+class OfferRecommendation(StrEnum):
+    AUTOMATIC = "automatic"
+    MANUAL_REVIEW = "manual_review"
+    NONE = "none"
+
+
+class MatchRelation(StrEnum):
     EXACT = "exact"
     VARIANT = "variant"
     SPEC_COMPATIBLE = "spec-compatible"
-    REVIEW = "review"
+    UNRESOLVED = "unresolved"
 
 
 class LifecycleState(StrEnum):
     ACTIVE = "active"
     CAUTION = "caution"
     UNKNOWN = "unknown"
+
+
+class CurrencyRate(BaseModel):
+    """Explicit source-to-target exchange rate from an immutable snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_currency: str
+    target_currency: str
+    rate: Decimal = Field(gt=0)
+
+    @field_validator("source_currency", "target_currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if len(normalized) != 3 or not normalized.isalpha():
+            raise ValueError("currency must be a three-letter alphabetic code")
+        return normalized
+
+
+class ProcurementPolicyInput(BaseModel):
+    """Application-provided inputs for deterministic engine procurement decisions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    procurement_policy_version: Literal["supplier-procurement-decision-v1"] = (
+        "supplier-procurement-decision-v1"
+    )
+    target_currency: str = "KRW"
+    currency_rates: list[CurrencyRate] = Field(default_factory=list)
+    currency_rate_snapshot_id: str = "same-currency-only"
+    currency_rate_as_of: datetime = Field(default_factory=utc_now)
+    currency_rate_source: str = "application"
+    allowed_suppliers: list[Supplier] = Field(default_factory=lambda: list(Supplier))
+    allow_stock_shortage: bool = False
+    allow_unverified_stock: bool = False
+    excessive_surplus_quantity: int | None = Field(default=100, ge=0)
+    excessive_surplus_ratio: Decimal | None = Field(default=Decimal("0.5"), ge=0)
+
+    @field_validator("target_currency")
+    @classmethod
+    def normalize_target_currency(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if len(normalized) != 3 or not normalized.isalpha():
+            raise ValueError("target_currency must be a three-letter alphabetic code")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_snapshot(self) -> "ProcurementPolicyInput":
+        if not self.currency_rate_snapshot_id.strip():
+            raise ValueError("currency_rate_snapshot_id must not be blank")
+        if not self.currency_rate_source.strip():
+            raise ValueError("currency_rate_source must not be blank")
+        if (
+            self.currency_rate_as_of.tzinfo is None
+            or self.currency_rate_as_of.utcoffset() is None
+        ):
+            raise ValueError("currency_rate_as_of must include a timezone")
+        if len(set(self.allowed_suppliers)) != len(self.allowed_suppliers):
+            raise ValueError("allowed_suppliers must be unique")
+        pairs: set[tuple[str, str]] = set()
+        for rate in self.currency_rates:
+            pair = (rate.source_currency, rate.target_currency)
+            if pair in pairs:
+                raise ValueError("currency rate pairs must be unique")
+            if rate.target_currency != self.target_currency:
+                raise ValueError("every currency rate must target target_currency")
+            if rate.source_currency == rate.target_currency and rate.rate != Decimal(
+                "1"
+            ):
+                raise ValueError("same-currency exchange rates must equal one")
+            pairs.add(pair)
+        return self
+
+
+class OfferProcurementDecision(BaseModel):
+    """Engine-owned calculation and rank for one stable supplier offer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    procurement_policy_version: Literal["supplier-procurement-decision-v1"] = (
+        "supplier-procurement-decision-v1"
+    )
+    offer_key_version: Literal["supplier-offer-key-v1"] = "supplier-offer-key-v1"
+    rank_scope: Literal["identity_and_technical_evidence"] = (
+        "identity_and_technical_evidence"
+    )
+    offer_key: str | None = None
+    calculation_status: Literal["calculated", "unavailable", "supplier_not_allowed"]
+    required_quantity: int | None = Field(default=None, ge=1)
+    order_quantity: int | None = Field(default=None, ge=1)
+    applied_price_break_quantity: int | None = Field(default=None, ge=1)
+    source_unit_price: Decimal | None = Field(default=None, gt=0)
+    source_currency: str | None = None
+    exchange_rate: Decimal | None = Field(default=None, gt=0)
+    target_currency: str
+    converted_unit_price: Decimal | None = Field(default=None, gt=0)
+    line_total: Decimal | None = Field(default=None, gt=0)
+    stock_short: bool | None = None
+    stock_short_quantity: int | None = Field(default=None, ge=0)
+    surplus_quantity: int | None = Field(default=None, ge=0)
+    excessive_order: bool | None = None
+    price_rank: int | None = Field(default=None, ge=1)
+    purchase_fit_rank: int | None = Field(default=None, ge=1)
+    purchasable: bool = False
+    recommendation: OfferRecommendation = OfferRecommendation.NONE
+    reason_codes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_recommendation(self) -> "OfferProcurementDecision":
+        if self.offer_key is not None and not self.offer_key.startswith("ok1:"):
+            raise ValueError("offer_key must use supplier-offer-key-v1")
+        if self.price_rank is not None and self.line_total is None:
+            raise ValueError("price-ranked offers must have a line total")
+        if self.purchasable and (
+            self.calculation_status != "calculated"
+            or self.offer_key is None
+            or self.line_total is None
+        ):
+            raise ValueError("purchasable offers must have a stable calculated price")
+        if self.recommendation != OfferRecommendation.NONE and (
+            not self.purchasable or self.purchase_fit_rank != 1
+        ):
+            raise ValueError("recommended offers must be the top purchasable fit")
+        return self
+
+
+class ComponentProcurementDecision(BaseModel):
+    """Recommendation boundary between technical selection and supplier offers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    procurement_policy_version: Literal["supplier-procurement-decision-v1"] = (
+        "supplier-procurement-decision-v1"
+    )
+    status: Literal[
+        "automatic_recommended",
+        "review_recommended",
+        "no_recommendation",
+        "input_incomplete",
+    ]
+    required_quantity: int | None = Field(default=None, ge=1)
+    target_currency: str
+    currency_rate_snapshot_id: str
+    currency_rate_as_of: datetime
+    currency_rate_source: str
+    technical_preselection_identity_key: str | None = None
+    technical_preselection_evidence_key: str | None = None
+    automatic_offer_key: str | None = None
+    review_offer_key: str | None = None
+    recommendation_reason_codes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_recommendation(self) -> "ComponentProcurementDecision":
+        for value, prefix in (
+            (self.technical_preselection_identity_key, "ik1:"),
+            (self.technical_preselection_evidence_key, "ek1:"),
+            (self.automatic_offer_key, "ok1:"),
+            (self.review_offer_key, "ok1:"),
+        ):
+            if value is not None and not value.startswith(prefix):
+                raise ValueError("recommended keys must use their declared versions")
+        if (self.technical_preselection_identity_key is None) != (
+            self.technical_preselection_evidence_key is None
+        ):
+            raise ValueError("technical preselection keys must be provided together")
+        if self.status == "automatic_recommended" and not all(
+            (
+                self.technical_preselection_identity_key,
+                self.technical_preselection_evidence_key,
+                self.automatic_offer_key,
+            )
+        ):
+            raise ValueError(
+                "automatic recommendations must identify candidate and offer"
+            )
+        if self.status == "review_recommended" and not all(
+            (
+                self.technical_preselection_identity_key,
+                self.technical_preselection_evidence_key,
+                self.review_offer_key,
+            )
+        ):
+            raise ValueError("review recommendations must identify candidate and offer")
+        if (
+            self.status != "automatic_recommended"
+            and self.automatic_offer_key is not None
+        ):
+            raise ValueError(
+                "only automatic recommendations can expose automatic_offer_key"
+            )
+        if self.status != "review_recommended" and self.review_offer_key is not None:
+            raise ValueError("only review recommendations can expose review_offer_key")
+        return self
 
 
 class Requirement(BaseModel):
@@ -75,6 +288,13 @@ class PlannedQuery(BaseModel):
     manufacturer: str | None = None
     description: str | None = None
     part_type: str | None = None
+    category_policy: Literal[
+        "resistor",
+        "capacitor",
+        "electrolytic",
+        "inductor",
+        "crystal",
+    ] | None = None
     package: str | None = None
     quantity: int | None = None
     keywords: str = ""
@@ -89,10 +309,10 @@ class PlannedQuery(BaseModel):
 
 
 class PriceBreak(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    quantity: int
-    unit_price: float
+    quantity: int = Field(ge=1)
+    unit_price: float = Field(gt=0)
     currency: str
 
 
@@ -106,9 +326,11 @@ class SupplierOffer(BaseModel):
     moq: int | None = None
     order_multiple: int | None = None
     price_breaks: list[PriceBreak] = Field(default_factory=list)
+    invalid_price_break_count: int = Field(default=0, ge=0)
     lead_time: str | None = None
     product_url: str | None = None
     fetched_at: datetime = Field(default_factory=utc_now)
+    procurement_decision: OfferProcurementDecision | None = None
 
 
 class SupplierProduct(BaseModel):
@@ -118,6 +340,7 @@ class SupplierProduct(BaseModel):
     supplier_product_id: str | None = None
     manufacturer_part_number: str
     manufacturer: str | None = None
+    manufacturer_evidence: ManufacturerEvidence = ManufacturerEvidence.STRUCTURED
     description: str | None = None
     category: str | None = None
     package: str | None = None
@@ -126,11 +349,15 @@ class SupplierProduct(BaseModel):
     end_of_life: bool | None = None
     datasheet_url: str | None = None
     image_url: str | None = None
-    normalized_specs: dict[str, float | str | list[float | None] | None] = Field(
-        default_factory=dict
-    )
+    normalized_specs: dict[str, float | str | list[float | None] | None] = Field(default_factory=dict)
     attributes: dict[str, Any] = Field(default_factory=dict)
     offers: list[SupplierOffer] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_manufacturer_evidence(self) -> "SupplierProduct":
+        if not self.manufacturer:
+            self.manufacturer_evidence = ManufacturerEvidence.MISSING
+        return self
 
 
 class PackageComparison(BaseModel):
@@ -139,9 +366,7 @@ class PackageComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state: Literal["match", "mismatch", "missing", "neutral"]
-    relation: Literal[
-        "exact", "alias", "compatible", "mismatch", "missing", "unverified"
-    ]
+    relation: Literal["exact", "alias", "compatible", "mismatch", "missing", "unverified"]
     expected_display: str | None = None
     expected_raw: str | None = None
     actual_display: str | None = None
@@ -201,23 +426,99 @@ class SupplierSearchResult(BaseModel):
 
 
 class CandidateDecision(BaseModel):
-    """Engine-owned technical eligibility and grouping decision."""
+    """Engine-owned technical relationship, eligibility, and grouping contract."""
 
     model_config = ConfigDict(extra="forbid")
 
-    policy_version: str = "supplier-candidate-decision-v1"
-    selection_eligibility: SelectionEligibility = SelectionEligibility.BLOCKED
-    selection_mode: CandidateSelectionMode = CandidateSelectionMode.REVIEW
-    auto_eligible: bool = False
-    manual_selectable: bool = False
-    reason_codes: list[str] = Field(default_factory=lambda: ["decision_unavailable"])
-    identity_key: str = ""
-    technical_evidence_key: str = ""
-    verified_requirement_count: int = Field(default=0, ge=0)
-    required_requirement_count: int = Field(default=0, ge=0)
-    verification_complete: bool = False
-    strict_category_coverage: bool = False
-    lifecycle_state: LifecycleState = LifecycleState.UNKNOWN
+    decision_policy_version: Literal["supplier-candidate-decision-v1"] = (
+        "supplier-candidate-decision-v1"
+    )
+    category_policy_version: Literal["candidate-category-policy-v1"] = (
+        "candidate-category-policy-v1"
+    )
+    identity_key_version: Literal["candidate-identity-key-v1"] = (
+        "candidate-identity-key-v1"
+    )
+    evidence_key_version: Literal["candidate-evidence-key-v1"] = (
+        "candidate-evidence-key-v1"
+    )
+    selection_recommendation_policy_version: Literal[
+        "candidate-selection-recommendation-v1"
+    ] = "candidate-selection-recommendation-v1"
+    match_relation: MatchRelation
+    selection_eligibility: SelectionEligibility
+    auto_eligible: bool
+    manual_selectable: bool
+    reason_codes: list[str]
+    identity_key: str
+    technical_evidence_key: str
+    verified_requirement_count: int = Field(ge=0)
+    required_requirement_count: int = Field(ge=0)
+    verification_complete: bool
+    strict_category_coverage: bool
+    lifecycle_state: LifecycleState
+    technical_review_rank: int | None = Field(default=None, ge=1)
+    selection_recommendation: SelectionRecommendation = (
+        SelectionRecommendation.CANDIDATE_ONLY
+    )
+    review_recommended: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_legacy_selection_recommendation(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "selection_recommendation" in value:
+            return value
+        updated = dict(value)
+        updated["selection_recommendation"] = (
+            SelectionRecommendation.EXCLUDE
+            if value.get("selection_eligibility") == SelectionEligibility.BLOCKED
+            or value.get("selection_eligibility") == SelectionEligibility.BLOCKED.value
+            else SelectionRecommendation.CANDIDATE_ONLY
+        )
+        return updated
+
+    @model_validator(mode="after")
+    def validate_selection_invariants(self) -> "CandidateDecision":
+        expected = {
+            SelectionEligibility.AUTOMATIC: (True, True),
+            SelectionEligibility.MANUAL_REVIEW: (False, True),
+            SelectionEligibility.BLOCKED: (False, False),
+        }[self.selection_eligibility]
+        if (self.auto_eligible, self.manual_selectable) != expected:
+            raise ValueError("selection eligibility boolean invariant violated")
+        if (
+            self.selection_eligibility == SelectionEligibility.AUTOMATIC
+            and self.match_relation == MatchRelation.UNRESOLVED
+        ):
+            raise ValueError("automatic candidates cannot have an unresolved relation")
+        if (
+            self.technical_review_rank is not None
+            and self.selection_eligibility != SelectionEligibility.MANUAL_REVIEW
+        ):
+            raise ValueError(
+                "technical_review_rank is only valid for manual review candidates"
+            )
+        if self.selection_eligibility == SelectionEligibility.BLOCKED:
+            if self.selection_recommendation != SelectionRecommendation.EXCLUDE:
+                raise ValueError("blocked candidates must be excluded from preselection")
+        elif self.selection_recommendation == SelectionRecommendation.EXCLUDE:
+            raise ValueError("selectable candidates cannot be excluded")
+        if (
+            self.selection_recommendation == SelectionRecommendation.PRESELECT
+            and not self.manual_selectable
+        ):
+            raise ValueError("preselected candidates must be manually selectable")
+        expected_review = (
+            self.selection_recommendation == SelectionRecommendation.PRESELECT
+            and self.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+        )
+        if self.review_recommended != expected_review:
+            raise ValueError("review recommendation invariant violated")
+        if not self.identity_key.startswith("ik1:"):
+            raise ValueError("identity_key must use candidate-identity-key-v1")
+        if not self.technical_evidence_key.startswith("ek1:"):
+            raise ValueError("technical_evidence_key must use candidate-evidence-key-v1")
+        return self
 
 
 class CandidateMatch(BaseModel):
@@ -233,7 +534,167 @@ class CandidateMatch(BaseModel):
     corroborating_suppliers: list[Supplier] = Field(default_factory=list)
     package_comparison: PackageComparison | None = None
     spec_comparisons: dict[str, SpecComparison] = Field(default_factory=dict)
-    decision: CandidateDecision = Field(default_factory=CandidateDecision)
+    decision: CandidateDecision
+
+
+_CURRENT_DECISION_FIELDS = frozenset(
+    {
+        "decision_policy_version",
+        "category_policy_version",
+        "identity_key_version",
+        "evidence_key_version",
+        "selection_recommendation_policy_version",
+        "match_relation",
+        "selection_eligibility",
+        "auto_eligible",
+        "manual_selectable",
+        "reason_codes",
+        "identity_key",
+        "technical_evidence_key",
+        "verified_requirement_count",
+        "required_requirement_count",
+        "verification_complete",
+        "strict_category_coverage",
+        "lifecycle_state",
+        "technical_review_rank",
+        "selection_recommendation",
+        "review_recommended",
+    }
+)
+
+
+class ProcurementReevaluationRequest(BaseModel):
+    """Stored current decisions plus new purchasing inputs; never starts a search."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal["supplier-procurement-reevaluation-v1"] = (
+        "supplier-procurement-reevaluation-v1"
+    )
+    component_id: str = Field(min_length=1)
+    candidates: list[CandidateMatch] = Field(default_factory=list)
+    required_quantity: int = Field(ge=1)
+    procurement_policy: ProcurementPolicyInput
+    requested_offer_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_legacy_or_incomplete_decisions(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        candidates = value.get("candidates")
+        if not isinstance(candidates, list):
+            return value
+        for index, candidate in enumerate(candidates):
+            if not isinstance(candidate, dict):
+                continue
+            decision = candidate.get("decision")
+            if not isinstance(decision, dict):
+                raise ValueError(f"candidate {index} has no current technical decision")
+            missing = sorted(_CURRENT_DECISION_FIELDS - decision.keys())
+            if missing:
+                raise ValueError(
+                    f"candidate {index} technical decision is incomplete: {', '.join(missing)}"
+                )
+        return value
+
+    @field_validator("component_id")
+    @classmethod
+    def normalize_component_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("component_id must not be blank")
+        return normalized
+
+    @field_validator("requested_offer_key")
+    @classmethod
+    def validate_requested_offer_key(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith("ok1:"):
+            raise ValueError("requested_offer_key must use supplier-offer-key-v1")
+        return value
+
+
+class RequestedOfferEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requested_offer_key: str | None = None
+    status: Literal["not_requested", "accepted", "rejected"]
+    acceptance_mode: Literal["automatic", "manual_review", "none"] = "none"
+    reason_codes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_acceptance(self) -> "RequestedOfferEvaluation":
+        if self.status == "not_requested" and self.requested_offer_key is not None:
+            raise ValueError("not_requested cannot identify an offer")
+        if self.status == "rejected" and self.requested_offer_key is None:
+            raise ValueError("rejected offers must identify the requested offer")
+        if self.status == "accepted" and (
+            self.requested_offer_key is None or self.acceptance_mode == "none"
+        ):
+            raise ValueError(
+                "accepted offers require a key and explicit acceptance mode"
+            )
+        if self.status != "accepted" and self.acceptance_mode != "none":
+            raise ValueError("only accepted offers can expose an acceptance mode")
+        return self
+
+
+class ProcurementReevaluationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal["supplier-procurement-reevaluation-v1"] = (
+        "supplier-procurement-reevaluation-v1"
+    )
+    component_id: str
+    candidates: list[CandidateMatch]
+    procurement_decision: ComponentProcurementDecision
+    requested_offer: RequestedOfferEvaluation
+
+    @model_validator(mode="after")
+    def validate_recommendation_references(self) -> "ProcurementReevaluationResult":
+        component = self.procurement_decision
+        if component.status == "automatic_recommended":
+            recommendation_key = component.automatic_offer_key
+            expected_recommendation = OfferRecommendation.AUTOMATIC
+            expected_eligibility = SelectionEligibility.AUTOMATIC
+        elif component.status == "review_recommended":
+            recommendation_key = component.review_offer_key
+            expected_recommendation = OfferRecommendation.MANUAL_REVIEW
+            expected_eligibility = SelectionEligibility.MANUAL_REVIEW
+        else:
+            recommendation_key = None
+            expected_recommendation = OfferRecommendation.NONE
+            expected_eligibility = None
+
+        recommended = [
+            (candidate, offer.procurement_decision)
+            for candidate in self.candidates
+            for offer in candidate.product.offers
+            if offer.procurement_decision is not None
+            and offer.procurement_decision.recommendation != OfferRecommendation.NONE
+        ]
+        if recommendation_key is None:
+            if recommended:
+                raise ValueError(
+                    "offer recommendations require a component recommendation key"
+                )
+            return self
+        matching = [
+            (candidate, decision)
+            for candidate, decision in recommended
+            if decision.offer_key == recommendation_key
+        ]
+        if len(recommended) != 1 or len(matching) != 1:
+            raise ValueError("recommendation key must identify exactly one offer")
+        candidate, decision = matching[0]
+        if (
+            candidate.decision.selection_eligibility != expected_eligibility
+            or decision.recommendation != expected_recommendation
+        ):
+            raise ValueError(
+                "recommendation type must match the selected candidate eligibility"
+            )
+        return self
 
 
 class InputCorrection(BaseModel):
@@ -269,6 +730,7 @@ class ComponentSearchResult(BaseModel):
     input_corrections: list[InputCorrection] = Field(default_factory=list)
     supplier_results: list[SupplierSearchResult] = Field(default_factory=list)
     initial_supplier_results: list[SupplierSearchResult] = Field(default_factory=list)
+    procurement_decision: ComponentProcurementDecision | None = None
     api_calls: int = 0
     elapsed_ms: float = 0.0
     warnings: list[str] = Field(default_factory=list)
@@ -277,7 +739,10 @@ class ComponentSearchResult(BaseModel):
 class BatchSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_schema_version: str = "1.2"
+    search_schema_version: str = "1.3"
+    procurement_policy: ProcurementPolicyInput = Field(
+        default_factory=ProcurementPolicyInput
+    )
     source_file: str
     components: list[ComponentSearchResult]
     unique_query_count: int
@@ -286,7 +751,6 @@ class BatchSearchResult(BaseModel):
     prefetched_requests: int = 0
     elapsed_ms: float = 0.0
     created_at: datetime = Field(default_factory=utc_now)
-
 
 class SupplierPreflight(BaseModel):
     model_config = ConfigDict(extra="forbid")

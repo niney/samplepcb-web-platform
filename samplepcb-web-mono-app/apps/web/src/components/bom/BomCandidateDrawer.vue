@@ -56,7 +56,6 @@ const emit = defineEmits<{
 
 type SelectionView = 'candidates' | 'search';
 type CandidateTab = 'selectable' | 'all' | 'review';
-type CandidateSort = 'technical' | 'price';
 
 interface OriginalField {
   key: string;
@@ -73,16 +72,22 @@ interface OriginalField {
 
 const view = ref<SelectionView>(props.initialView);
 const tab = ref<CandidateTab>('selectable');
-const sort = ref<CandidateSort>('technical');
 const expanded = ref<Set<string>>(new Set());
 const originalDetailsExpanded = ref(false);
+
+function resetCandidatePresentation(): void {
+  const recommended = props.context?.candidates.find((candidate) =>
+    candidate.recommended
+    && candidate.reviewRecommended
+    && candidate.selectionRecommendation === 'preselect');
+  tab.value = recommended === undefined ? 'selectable' : 'review';
+  expanded.value = new Set();
+}
 
 watch(
   () => props.context?.rowIdx,
   () => {
-    tab.value = 'selectable';
-    sort.value = 'technical';
-    expanded.value = new Set();
+    resetCandidatePresentation();
     originalDetailsExpanded.value = false;
   },
 );
@@ -92,6 +97,7 @@ watch(
   (open) => {
     if (open) {
       view.value = props.initialView;
+      resetCandidatePresentation();
       originalDetailsExpanded.value = false;
     }
   },
@@ -106,6 +112,12 @@ watch(
 
 const currentCandidate = computed(() =>
   props.context?.candidates.find((candidate) => candidate.selected) ?? null,
+);
+const reviewRecommendedCandidate = computed(() =>
+  props.context?.candidates.find((candidate) =>
+    candidate.recommended
+    && candidate.reviewRecommended
+    && candidate.selectionRecommendation === 'preselect') ?? null,
 );
 
 function formatOriginalRows(rows: number[], compact: boolean): string {
@@ -273,23 +285,17 @@ const candidates = computed(() => {
   const source = props.context?.candidates ?? [];
   const filtered = source.filter((candidate) => {
     if (tab.value === 'selectable') return candidate.manualSelectable;
-    if (tab.value === 'review') return !candidate.manualSelectable;
+    if (tab.value === 'review') return candidate.selectionEligibility !== 'automatic';
     return true;
   });
-  return [...filtered].sort((a, b) => {
-    if (sort.value === 'price') {
-      return (a.priceRank ?? Number.MAX_SAFE_INTEGER) - (b.priceRank ?? Number.MAX_SAFE_INTEGER)
-        || a.technicalRank - b.technicalRank;
-    }
-    return a.technicalRank - b.technicalRank;
-  });
+  return [...filtered].sort((a, b) => a.technicalRank - b.technicalRank);
 });
 
 const selectableCount = computed(() =>
   props.context?.candidates.filter((candidate) => candidate.manualSelectable).length ?? 0,
 );
 const reviewCount = computed(() =>
-  props.context?.candidates.filter((candidate) => !candidate.manualSelectable).length ?? 0,
+  props.context?.candidates.filter((candidate) => candidate.selectionEligibility !== 'automatic').length ?? 0,
 );
 
 function toggleCandidate(candidateKey: string): void {
@@ -300,15 +306,10 @@ function toggleCandidate(candidateKey: string): void {
 }
 
 function offersForDisplay(candidate: BomQuoteCandidateType): BomQuoteCandidateOfferType[] {
-  const offers = [...candidate.offers];
-  if (candidate.bestOfferKey === null) return offers;
-
-  return offers.sort((a, b) => {
-    const aRecommended = a.offerKey === candidate.bestOfferKey;
-    const bRecommended = b.offerKey === candidate.bestOfferKey;
-    if (aRecommended === bRecommended) return 0;
-    return aRecommended ? -1 : 1;
-  });
+  return [...candidate.offers].sort((a, b) =>
+    (a.purchaseFitRank ?? Number.MAX_SAFE_INTEGER) - (b.purchaseFitRank ?? Number.MAX_SAFE_INTEGER)
+    || (a.priceRank ?? Number.MAX_SAFE_INTEGER) - (b.priceRank ?? Number.MAX_SAFE_INTEGER)
+    || a.offerKey.localeCompare(b.offerKey));
 }
 
 function statusLabel(status: string): string {
@@ -351,16 +352,31 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'customer-choice': '고객 직접 선택',
     'catalog-choice': '카탈로그 직접 선택',
     'offer-choice': '공급사 오퍼 직접 선택',
+    'engine-procurement-recommendation': '엔진 구매조건 추천',
+    'engine-manual-review': '엔진 수동 검토 권장',
+    'engine-procurement-unavailable': '구매 가능한 추천 오퍼 없음',
     'no-safe-candidate': '안전 자동선정 후보 없음',
   };
   return labels[reason];
 }
 
 function safetyClass(candidate: BomQuoteCandidateType): string {
+  if (candidate.selected) return 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-200';
+  if (candidate.recommended && candidate.reviewRecommended) {
+    return 'border-amber-400 bg-amber-50/60 ring-2 ring-amber-200';
+  }
   if (candidate.safety === 'blocked') return 'border-red-200 bg-red-50/30';
   if (candidate.safety === 'caution') return 'border-amber-200 bg-amber-50/30';
-  if (candidate.selected) return 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-200';
   return 'border-slate-200 bg-white';
+}
+
+function recommendationLabel(candidate: BomQuoteCandidateType): string {
+  if (candidate.reviewRecommended) return candidate.recommended ? '검토 권장' : '기술 검토 1순위';
+  if (candidate.selectionRecommendation === 'preselect') {
+    return candidate.recommended ? '자동 추천' : '기술 사전 선정';
+  }
+  if (candidate.selectionRecommendation === 'candidate_only') return '후보만 표시';
+  return candidate.selectionRecommendation === 'exclude' ? '선정 제외' : '';
 }
 
 function cautionLabel(candidate: BomQuoteCandidateType): string {
@@ -472,17 +488,25 @@ function bestOfferAlreadySelected(candidate: BomQuoteCandidateType): boolean {
 }
 
 function selectOffer(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateOfferType): void {
-  if (props.readOnly || props.selecting || !candidate.manualSelectable || offer.applied === null) return;
+  if (
+    props.readOnly
+    || props.selecting
+    || !candidate.manualSelectable
+    || !offer.purchasable
+    || offer.applied === null
+  ) return;
   if (!confirmManualReview(candidate)) return;
   emit('select', candidate.candidateKey, offer.offerKey);
 }
 
 function confirmManualReview(candidate: BomQuoteCandidateType): boolean {
   if (candidate.selectionEligibility !== 'manual_review') return true;
-  const originalManufacturer = props.context?.originalManufacturer ?? '미확인';
-  const candidateManufacturer = candidate.manufacturerName ?? '미확인';
+  const details = [
+    candidate.conflicts.length === 0 ? null : `충돌: ${conflictText(candidate)}`,
+    candidate.missingRequirements.length === 0 ? null : `확인 필요: ${missingText(candidate)}`,
+  ].filter((value): value is string => value !== null);
   return window.confirm(
-    `품번은 일치하지만 제조사 확인이 필요합니다.\n원본: ${originalManufacturer}\n후보: ${candidateManufacturer}\n이 후보를 선택할까요?`,
+    `엔진이 검토를 권장한 후보입니다.${details.length === 0 ? '' : `\n${details.join('\n')}`}\n확인 후 이 후보를 선택할까요?`,
   );
 }
 
@@ -721,7 +745,8 @@ onBeforeUnmount(() => {
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <span class="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">{{ sourceLabel(context.selectionSource) }}</span>
-                      <span v-if="currentCandidate?.recommended" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">자동 추천과 동일</span>
+                      <span v-if="currentCandidate?.recommended && currentCandidate.reviewRecommended" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">검토 권장 후보 선택됨</span>
+                      <span v-else-if="currentCandidate?.recommended" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">자동 추천과 동일</span>
                       <span v-else-if="currentCandidate !== null" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">추천에서 변경됨</span>
                     </div>
                     <div class="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -745,7 +770,7 @@ onBeforeUnmount(() => {
                   </div>
                   <div v-if="currentCandidate !== null" class="flex shrink-0 flex-wrap gap-x-3 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                     <p>기술 <b class="text-slate-900">{{ currentCandidate.technicalRank }}위</b></p>
-                    <p>가격 <b class="text-slate-900">{{ currentCandidate.priceRank === null ? '산정 불가' : `${String(currentCandidate.priceRank)}위` }}</b></p>
+                    <p>구매조건 <b class="text-slate-900">{{ currentCandidate.priceRank === null ? '산정 불가' : `오퍼 ${String(currentCandidate.priceRank)}위` }}</b></p>
                     <p>필수조건 <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }}</b></p>
                   </div>
                 </div>
@@ -758,17 +783,18 @@ onBeforeUnmount(() => {
                 <div class="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="font-bold text-slate-900">부품 후보</h3>
-                    <p class="mt-1 text-xs text-slate-500">기술 순위와 현재 수량 기준 구매 가격을 분리해 표시합니다.</p>
+                    <p class="mt-1 text-xs text-slate-500">sp-engine의 기술 순서와 현재 수량 기준 구매 판정을 그대로 표시합니다.</p>
                   </div>
-                  <select v-model="sort" class="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500" aria-label="후보 정렬">
-                    <option value="technical">기술 순위</option>
-                    <option value="price">가격 순위</option>
-                  </select>
+                  <span class="rounded-lg bg-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-600">엔진 순서 고정</span>
+                </div>
+                <div v-if="reviewRecommendedCandidate !== null" class="mx-4 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                  <p><b>검토 권장 · 임시 선정</b> {{ reviewRecommendedCandidate.mpn }} — 사용자 확인 전에는 견적에 반영되지 않습니다.</p>
+                  <span v-if="reviewRecommendedCandidate.technicalReviewRank !== null" class="rounded-full bg-amber-200 px-2 py-0.5 font-bold">검토 {{ reviewRecommendedCandidate.technicalReviewRank }}순위</span>
                 </div>
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-100 px-4 pt-3">
                   <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold" :class="tab === 'selectable' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'selectable'">선택 가능 {{ selectableCount }}</button>
                   <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold" :class="tab === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'all'">전체 {{ context.candidates.length }}</button>
-                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold" :class="tab === 'review' ? 'bg-red-50 text-red-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'review'">확인 필요 {{ reviewCount }}</button>
+                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold" :class="tab === 'review' ? 'bg-amber-50 text-amber-800' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'review'">검토 필요 {{ reviewCount }}</button>
                 </div>
 
                 <div v-if="candidates.length > 0" class="space-y-3 p-4">
@@ -784,9 +810,13 @@ onBeforeUnmount(() => {
                           <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-1.5">
                               <span v-if="candidate.selected" class="rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white">현재 선택</span>
-                              <span v-if="candidate.recommended" class="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">자동 추천</span>
+                              <span
+                                v-if="recommendationLabel(candidate) !== ''"
+                                class="rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                :class="candidate.reviewRecommended ? 'bg-amber-200 text-amber-950' : candidate.selectionRecommendation === 'exclude' ? 'bg-red-100 text-red-800' : candidate.selectionRecommendation === 'candidate_only' ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'"
+                              >{{ recommendationLabel(candidate) }}</span>
+                              <span v-if="candidate.technicalReviewRank !== null" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">검토 {{ candidate.technicalReviewRank }}순위</span>
                               <span v-if="candidate.technicalRank === 1" class="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-800">기술 1위</span>
-                              <span v-if="candidate.priceRank === 1" class="rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-bold text-cyan-800">가격 1위</span>
                               <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{{ statusLabel(candidate.status) }}</span>
                               <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
                               <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
@@ -816,7 +846,7 @@ onBeforeUnmount(() => {
                             :disabled="selecting || !candidate.manualSelectable || bestOfferAlreadySelected(candidate)"
                             @click="selectBest(candidate)"
                           >
-                            {{ bestOfferAlreadySelected(candidate) ? '현재 최적 오퍼' : candidate.selectionEligibility === 'manual_review' ? '확인 후 선택' : candidate.selected ? '최적 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '최적 오퍼로 선택' }}
+                            {{ bestOfferAlreadySelected(candidate) ? '현재 구매조건 오퍼' : candidate.reviewRecommended ? '권장 후보 검토 후 선택' : candidate.selectionEligibility === 'manual_review' ? '검토 후 선택' : candidate.selected ? '구매조건 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '구매조건 오퍼로 선택' }}
                           </button>
                         </div>
                       </div>
@@ -829,7 +859,8 @@ onBeforeUnmount(() => {
                         자동선정 제외: {{ conflictText(candidate) }}
                       </div>
                       <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-                        엔진 판단: 품번 정체성은 확인됐지만 원본 제조사 <b>{{ context.originalManufacturer ?? '미확인' }}</b>와 후보 제조사 <b>{{ candidate.manufacturerName ?? '미확인' }}</b> 확인이 필요합니다. 자동 추천에서는 제외되며 확인 후 직접 선택할 수 있습니다.
+                        <template v-if="candidate.reviewRecommended"><b>엔진 검토 권장:</b> 가장 유력한 후보이지만 확인이 필요한 항목이 있어 자동 적용하지 않았습니다. 검토 후 직접 선택할 수 있습니다.</template>
+                        <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
                       </div>
                       <div v-if="candidate.missingRequirements.length > 0" class="mt-2 rounded-lg bg-amber-100/70 px-3 py-2 text-xs text-amber-800">추가 확인 필요: {{ missingText(candidate) }}</div>
 
@@ -847,13 +878,17 @@ onBeforeUnmount(() => {
                               <span class="text-xs text-slate-500">{{ offer.supplierSku || 'SKU 미확인' }}</span>
                               <span v-if="offer.packaging" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">{{ offer.packaging }}</span>
                               <span v-if="offer.applied?.stockShort" class="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-bold text-red-700">재고 부족</span>
-                              <span v-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">추천 오퍼</span>
+                              <span v-if="offer.recommendation === 'automatic'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">자동 추천 오퍼</span>
+                              <span v-else-if="offer.recommendation === 'manual_review'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">검토 권장 오퍼</span>
+                              <span v-else-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">구매조건 1위</span>
                               <span v-if="context.selectedOfferKey === offer.offerKey" class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-bold text-blue-700">사용 중</span>
                             </div>
                             <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
                               <span>단가 <b>{{ fmtUnit(offer) }}</b></span>
                               <span>주문 <b>{{ offer.applied?.orderQty.toLocaleString('ko-KR') ?? '—' }}</b></span>
                               <span>합계 <b>{{ fmtWon(offer.applied?.lineTotalKrw ?? null) }}</b></span>
+                              <span v-if="offer.purchaseFitRank !== null">구매적합 <b>{{ offer.purchaseFitRank }}위</b></span>
+                              <span v-if="offer.priceRank !== null">가격 <b>{{ offer.priceRank }}위</b></span>
                               <span>재고 <b>{{ offer.stock?.toLocaleString('ko-KR') ?? '—' }}</b></span>
                               <span>MOQ <b>{{ offer.moq?.toLocaleString('ko-KR') ?? '—' }}</b></span>
                               <span class="text-slate-400">기준 {{ fmtAge(offer.fetchedAt) }}</span>
@@ -865,10 +900,10 @@ onBeforeUnmount(() => {
                               v-if="!readOnly"
                               type="button"
                               class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
-                              :disabled="selecting || !candidate.manualSelectable || offer.applied === null || context.selectedOfferKey === offer.offerKey"
+                              :disabled="selecting || !candidate.manualSelectable || !offer.purchasable || offer.applied === null || context.selectedOfferKey === offer.offerKey"
                               @click="selectOffer(candidate, offer)"
                             >
-                              이 오퍼 선택
+                              {{ offer.purchasable ? '이 오퍼 선택' : '선택 불가' }}
                             </button>
                           </div>
                         </div>

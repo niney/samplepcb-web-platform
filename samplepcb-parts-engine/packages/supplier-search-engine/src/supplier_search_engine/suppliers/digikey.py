@@ -11,9 +11,9 @@ import httpx
 
 from ..matcher import CandidateMatcher
 from ..models import (
+    ManufacturerEvidence,
     MatchStatus,
     PlannedQuery,
-    PriceBreak,
     RawSupplierResponse,
     Requirement,
     SearchMode,
@@ -22,6 +22,7 @@ from ..models import (
     SupplierProduct,
 )
 from ..normalization import normalize_package, normalized_specs_from_parameters, normalized_specs_from_text
+from ..pricing import valid_price_break
 from ..supplier_query import supplier_core_keywords, supplier_spec_keywords
 from .base import SupplierClient
 
@@ -336,7 +337,12 @@ class DigiKeyClient(SupplierClient):
             for requirement_name, requirement in query.requirements.items():
                 if not requirement.hard or requirement_name == "part_type":
                     continue
-                selected = cls._matching_filter_values(requirement_name, requirement, option)
+                selected = cls._matching_filter_values(
+                    requirement_name,
+                    requirement,
+                    option,
+                    query.part_type,
+                )
                 if selected:
                     by_category.setdefault(str(category_id), {}).setdefault(
                         requirement_name,
@@ -366,6 +372,7 @@ class DigiKeyClient(SupplierClient):
         requirement_name: str,
         requirement: Requirement,
         option: dict[str, Any],
+        component_type: str | None = None,
     ) -> list[str]:
         matches: list[tuple[str, Any]] = []
         parameter_name = str(option.get("ParameterName") or "")
@@ -373,10 +380,15 @@ class DigiKeyClient(SupplierClient):
             if not isinstance(value, dict) or value.get("ValueId") is None:
                 continue
             normalized, _raw = normalized_specs_from_parameters(
-                [(parameter_name, value.get("ValueName"))]
+                [(parameter_name, value.get("ValueName"))],
+                component_type,
             )
             actual = normalized.get(requirement_name)
-            if actual is not None and cls._requirement_matches(requirement, actual):
+            if actual is not None and cls._requirement_matches(
+                requirement,
+                actual,
+                component_type,
+            ):
                 matches.append((str(value["ValueId"]), actual))
         if not matches:
             return []
@@ -390,7 +402,11 @@ class DigiKeyClient(SupplierClient):
         return [value_id for value_id, _actual in matches]
 
     @staticmethod
-    def _requirement_matches(requirement: Requirement, actual: Any) -> bool:
+    def _requirement_matches(
+        requirement: Requirement,
+        actual: Any,
+        component_type: str | None = None,
+    ) -> bool:
         expected = requirement.normalized_value
         if expected is None:
             return False
@@ -403,7 +419,10 @@ class DigiKeyClient(SupplierClient):
                     abs_tol=max(abs(float(expected)), abs(float(actual)), 1.0) * 1e-9,
                 )
             if isinstance(expected, str):
-                return normalize_package(expected) == normalize_package(actual)
+                return normalize_package(expected, component_type) == normalize_package(
+                    actual,
+                    component_type,
+                )
             return expected == actual
         if requirement.comparison == "gte":
             return isinstance(actual, (int, float)) and float(actual) >= float(expected)
@@ -444,12 +463,17 @@ class DigiKeyClient(SupplierClient):
                 if isinstance(parameter, dict):
                     name = parameter.get("ParameterText") or parameter.get("Text") or parameter.get("ParameterId")
                     parameters.append((str(name), parameter.get("ValueText")))
-            specs, raw_attributes = normalized_specs_from_parameters(parameters)
+            specs, raw_attributes = normalized_specs_from_parameters(
+                parameters,
+                query.part_type,
+            )
             for key, value in normalized_specs_from_text(description, query.part_type).items():
                 specs.setdefault(key, value)
-            package = self._component_package(parameters)
+            package = self._component_package(parameters, query.part_type)
             if package:
-                specs["package"] = normalize_package(package)
+                normalized_package = normalize_package(package, query.part_type)
+                if normalized_package:
+                    specs["package"] = normalized_package
             category_obj = product.get("Category") or {}
             category = category_obj.get("Name") if isinstance(category_obj, dict) else None
             status_obj = product.get("ProductStatus") or {}
@@ -464,6 +488,11 @@ class DigiKeyClient(SupplierClient):
                     ),
                     manufacturer_part_number=mpn,
                     manufacturer=manufacturer,
+                    manufacturer_evidence=(
+                        ManufacturerEvidence.STRUCTURED
+                        if manufacturer
+                        else ManufacturerEvidence.MISSING
+                    ),
                     description=description,
                     category=category,
                     package=package,
@@ -480,13 +509,46 @@ class DigiKeyClient(SupplierClient):
         return result
 
     @staticmethod
-    def _component_package(parameters: list[tuple[str, Any]]) -> str | None:
-        preferred = ("supplier device package", "package / case", "패키지")
-        for wanted in preferred:
-            for name, value in parameters:
-                if wanted in name.casefold() and value:
-                    return str(value)
-        return None
+    def _component_package(
+        parameters: list[tuple[str, Any]],
+        component_type: str | None = None,
+    ) -> str | None:
+        entries = [
+            (
+                "".join(
+                    character for character in name.casefold() if character.isalnum()
+                ),
+                str(value),
+            )
+            for name, value in parameters
+            if value
+        ]
+
+        def first(*aliases: str) -> str | None:
+            for name, value in entries:
+                if name in aliases:
+                    return value
+            return None
+
+        supplier_package = first("supplierdevicepackage", "공급장치패키지")
+        size = first("sizedimension", "크기치수")
+        package_case = first("packagecase", "패키지케이스", "패키지")
+        crystal_context = (component_type or "").casefold() in {
+            "crystal",
+            "oscillator",
+            "resonator",
+            "xtal",
+        }
+        if not crystal_context:
+            return supplier_package or package_case or size
+
+        if supplier_package and normalize_package(supplier_package, component_type):
+            return supplier_package
+        if size and normalize_package(size, component_type):
+            return f"{supplier_package} ({size})" if supplier_package else size
+        if package_case and normalize_package(package_case, component_type):
+            return package_case
+        return supplier_package or package_case
 
     def _offers(self, product: dict[str, Any], query: PlannedQuery, fetched_at) -> list[SupplierOffer]:
         offers: list[SupplierOffer] = []
@@ -495,15 +557,21 @@ class DigiKeyClient(SupplierClient):
                 continue
             package_obj = variation.get("PackageType") or {}
             packaging = package_obj.get("Name") if isinstance(package_obj, dict) else None
-            price_breaks = [
-                PriceBreak(
-                    quantity=int(item.get("BreakQuantity") or 0),
-                    unit_price=float(item.get("UnitPrice") or 0),
-                    currency=query.currency,
+            price_breaks = []
+            invalid_price_break_count = 0
+            for item in variation.get("StandardPricing") or []:
+                if not isinstance(item, dict):
+                    invalid_price_break_count += 1
+                    continue
+                price_break = valid_price_break(
+                    item.get("BreakQuantity"),
+                    item.get("UnitPrice"),
+                    query.currency,
                 )
-                for item in variation.get("StandardPricing") or []
-                if isinstance(item, dict)
-            ]
+                if price_break is None:
+                    invalid_price_break_count += 1
+                else:
+                    price_breaks.append(price_break)
             offers.append(
                 SupplierOffer(
                     supplier=self.supplier,
@@ -512,6 +580,7 @@ class DigiKeyClient(SupplierClient):
                     stock=variation.get("QuantityAvailableforPackageType"),
                     moq=variation.get("MinimumOrderQuantity"),
                     price_breaks=price_breaks,
+                    invalid_price_break_count=invalid_price_break_count,
                     product_url=product.get("ProductUrl"),
                     fetched_at=fetched_at,
                 )

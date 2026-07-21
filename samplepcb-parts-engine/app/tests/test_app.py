@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import time
 
 from fastapi.testclient import TestClient
@@ -13,15 +14,21 @@ from fastapi.testclient import TestClient
 from parts_engine_app.config import Config
 from parts_engine_app.jobs import Job, JobService, SupplierSearchOptions
 from parts_engine_app.main import create_app
+from supplier_search_engine.contract import build_batch_from_result
+from supplier_search_engine.matcher import CandidateMatcher, finalize_candidate_decisions
 from supplier_search_engine.models import (
     BatchSearchResult,
     ComponentSearchResult,
     MatchStatus,
     PlannedQuery,
+    ProcurementPolicyInput,
     SearchMode,
     Supplier,
+    SupplierOffer,
+    SupplierProduct,
     SupplierSearchResult,
 )
+from supplier_search_engine.service import SearchService
 
 _CSV = (
     "No,Part Number,Manufacturer,Qty,Reference\n"
@@ -169,6 +176,117 @@ def test_supplier_job_accepts_persisted_analysis_without_parse_job_dependency(tm
     assert preflight.json()["plan"]["component_count"] >= 3
 
 
+def test_persisted_quantities_and_procurement_policy_reach_same_search_batch(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    component_id = build_batch_from_result(analysis).components[0].component_id
+    created = client.post(
+        "/supplier-jobs",
+        json={"analysis": analysis, "required_quantities": {component_id: 321}},
+    )
+    supplier_job = client.app.state.jobs.get(created.json()["job_id"])
+    policy = ProcurementPolicyInput(
+        currency_rate_snapshot_id="test-snapshot",
+        currency_rate_source="pytest",
+    )
+    options = SupplierSearchOptions(max_calls=5, procurement_policy=policy)
+
+    preflight_batch = client.app.state.jobs._supplier_batch(supplier_job, options)
+    search_batch = client.app.state.jobs._supplier_batch(supplier_job, options)
+
+    assert preflight_batch == search_batch
+    assert preflight_batch.components[0].required_quantity == 321
+    assert preflight_batch.procurement_policy.currency_rate_snapshot_id == (
+        "test-snapshot"
+    )
+
+
+def _procurement_request() -> dict:
+    query = PlannedQuery(
+        component_id="api-component",
+        mode=SearchMode.IDENTITY,
+        part_number="ABC123",
+        manufacturer="Acme",
+        part_type="resistor",
+        quantity=10,
+    )
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        supplier_product_id="digikey-product-1",
+        manufacturer_part_number="ABC123",
+        manufacturer="Acme",
+        offers=[
+            SupplierOffer(
+                supplier=Supplier.DIGIKEY,
+                supplier_sku="ABC123-DK",
+                stock=1_000,
+                moq=1,
+                order_multiple=1,
+                price_breaks=[
+                    {"quantity": 1, "unit_price": 10, "currency": "KRW"},
+                    {"quantity": 100, "unit_price": 8, "currency": "KRW"},
+                ],
+            )
+        ],
+    )
+    matcher = CandidateMatcher()
+    candidates = finalize_candidate_decisions(
+        query,
+        [matcher.evaluate(query, product)],
+    )
+    candidates = SearchService._add_corroboration(candidates)
+    candidates = SearchService._assign_technical_review_ranks(query, candidates)
+    candidates = SearchService._assign_selection_recommendations(candidates, query)
+    return {
+        "contract_version": "supplier-procurement-reevaluation-v1",
+        "component_id": query.component_id,
+        "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
+        "required_quantity": 150,
+        "procurement_policy": {
+            "procurement_policy_version": "supplier-procurement-decision-v1",
+            "target_currency": "KRW",
+            "currency_rates": [],
+            "currency_rate_snapshot_id": "fixture-2026-07-21",
+            "currency_rate_as_of": "2026-07-21T00:00:00+09:00",
+            "currency_rate_source": "pytest",
+            "allowed_suppliers": ["digikey"],
+        },
+    }
+
+
+def test_procurement_reevaluation_api_is_deterministic_and_fails_closed(tmp_path):
+    client = _client(tmp_path)
+    payload = _procurement_request()
+
+    first = client.post("/supplier-search/procurement/reevaluate", json=payload)
+    second = client.post("/supplier-search/procurement/reevaluate", json=payload)
+
+    assert first.status_code == 200, first.text
+    assert first.json() == second.json()
+    result = first.json()
+    offer = result["candidates"][0]["product"]["offers"][0]
+    assert offer["procurement_decision"]["order_quantity"] == 150
+    assert offer["procurement_decision"]["recommendation"] == "automatic"
+    assert result["procurement_decision"]["status"] == "automatic_recommended"
+
+    duplicate = deepcopy(payload)
+    duplicate_offer = deepcopy(duplicate["candidates"][0]["product"]["offers"][0])
+    duplicate["candidates"][0]["product"]["offers"].append(duplicate_offer)
+    rejected = client.post(
+        "/supplier-search/procurement/reevaluate",
+        json=duplicate,
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["code"] == "duplicate_offer_key"
+
+
 def test_supplier_search_rejects_conflicting_cache_modes(tmp_path):
     client = _client(tmp_path)
     response = client.post(
@@ -301,5 +419,8 @@ def test_supplier_envelope_counts_identity_and_spec_fallback_attempts(tmp_path):
     assert digikey["request_count"] == 2
     assert digikey["api_calls"] == 2
     component = envelope["search"]["components"][0]
+    assert envelope["supplier_search_schema_version"] == "1.3"
+    assert envelope["decision_contract_status"] == "current"
+    assert envelope["procurement_decision_contract_status"] == "current"
     assert component["initial_query"]["part_number"] == "0603X03L_C"
     assert component["query"]["keywords"] == "1k"

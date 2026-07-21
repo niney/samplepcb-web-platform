@@ -36,6 +36,9 @@ export const BomQuoteDecisionReason = z.enum([
   'customer-choice',
   'catalog-choice',
   'offer-choice',
+  'engine-procurement-recommendation',
+  'engine-manual-review',
+  'engine-procurement-unavailable',
   'no-safe-candidate',
 ]);
 export type BomQuoteDecisionReasonType = z.infer<typeof BomQuoteDecisionReason>;
@@ -162,6 +165,12 @@ export const BomQuoteCandidateOffer = z.object({
   productUrl: z.string().nullable(),
   fetchedAt: z.string(),
   priceBreaks: z.array(z.object({ qty: z.number().int().min(1), price: z.number(), currency: z.string() })),
+  /** sp-engine의 동일 기술 근거 그룹 내 가격·구매적합 순위. */
+  priceRank: z.number().int().min(1).nullable(),
+  purchaseFitRank: z.number().int().min(1).nullable(),
+  purchasable: z.boolean(),
+  recommendation: z.enum(['automatic', 'manual_review', 'none']),
+  decisionReasonCodes: z.array(z.string()),
   applied: BomQuoteCandidateOfferApplied.nullable(),
 });
 export type BomQuoteCandidateOfferType = z.infer<typeof BomQuoteCandidateOffer>;
@@ -175,6 +184,7 @@ export const BomQuoteCandidate = z.object({
   /** 엔진이 지정한 기술 후보군 사전 선정 상태. 기존 스냅샷은 null. */
   selectionRecommendation: BomQuoteCandidateSelectionRecommendation.nullable(),
   reviewRecommended: z.boolean(),
+  /** 대표 오퍼의 엔진 가격 순위. 후보 간 독자 재정렬에는 사용하지 않는다. */
   priceRank: z.number().int().min(1).nullable(),
   status: z.string(),
   selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review']),

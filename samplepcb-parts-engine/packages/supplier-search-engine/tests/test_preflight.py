@@ -22,9 +22,7 @@ def batch(*components) -> SearchBatchInput:
     )
 
 
-def test_preflight_deduplicates_supplier_request_but_preserves_distinct_local_checks(
-    tmp_path,
-):
+def test_preflight_deduplicates_supplier_request_but_preserves_distinct_local_checks(tmp_path):
     fake = FakeDigiKeyClient(products=[make_product()])
     settings = Settings(
         cache_path=tmp_path / "cache.sqlite3",
@@ -46,9 +44,7 @@ def test_preflight_deduplicates_supplier_request_but_preserves_distinct_local_ch
     digikey = result.components[0].suppliers[0]
     assert digikey.shared_component_count == 2
     assert digikey.reason == "cache_miss"
-    budget = next(
-        item for item in result.supplier_budgets if item.supplier == Supplier.DIGIKEY
-    )
+    budget = next(item for item in result.supplier_budgets if item.supplier == Supplier.DIGIKEY)
     assert budget.estimated_calls == 1
     assert budget.daily_remaining == 10
 
@@ -64,27 +60,17 @@ def test_preflight_preserves_each_components_source_identity(tmp_path):
 
     result = service.preflight_batch(batch(first, second))
 
-    assert [component.reference_designators for component in result.components] == [
-        ["R1"],
-        ["R2"],
-    ]
-    assert [component.source_rows_1based for component in result.components] == [
-        [2],
-        [3],
-    ]
+    assert [component.reference_designators for component in result.components] == [["R1"], ["R2"]]
+    assert [component.source_rows_1based for component in result.components] == [[2], [3]]
 
 
 def test_preflight_recognizes_fresh_negative_or_positive_raw_cache(tmp_path):
     fake = FakeDigiKeyClient(products=[make_product()])
-    service = SearchService(
-        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
-    )
+    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
     source = batch(make_component("a"))
     query = service.planner.plan(source.components[0])
     namespace, key = supplier_cache_coordinates(fake, query)
-    raw = RawSupplierResponse(
-        supplier=Supplier.DIGIKEY, ok=True, status_code=200, payload={"hit": True}
-    )
+    raw = RawSupplierResponse(supplier=Supplier.DIGIKEY, ok=True, status_code=200, payload={"hit": True})
     service.cache.put(namespace, key, raw.model_dump(mode="json"), ttl_seconds=60)
 
     result = service.preflight_batch(source)
@@ -137,9 +123,7 @@ def test_preflight_cache_only_uses_stale_entry_without_refresh(tmp_path):
 
 def test_preflight_treats_schema_corrupt_cache_as_miss(tmp_path):
     fake = FakeDigiKeyClient(products=[make_product()])
-    service = SearchService(
-        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
-    )
+    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
     source = batch(make_component("a"))
     query = service.planner.plan(source.components[0])
     namespace, key = supplier_cache_coordinates(fake, query)
@@ -155,9 +139,7 @@ def test_preflight_treats_schema_corrupt_cache_as_miss(tmp_path):
 
 def test_preflight_includes_conditional_spec_fallback_calls(tmp_path):
     fake = FakeDigiKeyClient(products=[])
-    service = SearchService(
-        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
-    )
+    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
     item = make_component("fallback", resistance="10kΩ")
     item.fields["part_number"].value = "0603X03L_C"
     item.fields["part_type"].value = "resistor"

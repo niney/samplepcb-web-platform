@@ -8,19 +8,20 @@ from dataclasses import dataclass
 from typing import Any
 
 from .models import (
-    CandidateMatch,
     CandidateDecision,
-    CandidateSelectionMode,
+    CandidateMatch,
     LifecycleState,
+    ManufacturerEvidence,
+    MatchRelation,
     MatchStatus,
     PackageComparison,
     PlannedQuery,
     SearchMode,
     SelectionEligibility,
+    SelectionRecommendation,
     SpecComparison,
     SupplierProduct,
 )
-from .physical import product_diameter_mm, product_mount_style
 from .normalization import (
     compact_mpn,
     dielectric_notation,
@@ -32,6 +33,7 @@ from .normalization import (
     package_display,
     packages_compatible,
 )
+from .physical import product_diameter_evidence, product_mount_evidence
 
 
 _MANUFACTURER_ALIASES = {
@@ -51,33 +53,25 @@ _MANUFACTURER_ALIASES = {
     "yageo": "yageo",
 }
 
-_STRICT_CATEGORY_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
-    (("electrolytic", "전해"), ("capacitance_f", "voltage_v", "package")),
-    (
-        ("resistor", "저항"),
-        ("resistance_ohm", "power_w", "tolerance_percent", "package"),
+_CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
+    "electrolytic": ("capacitance_f", "voltage_v", "package", "mount_style"),
+    "resistor": ("resistance_ohm", "power_w", "tolerance_percent", "package"),
+    "capacitor": (
+        "capacitance_f",
+        "voltage_v",
+        "tolerance_percent",
+        "dielectric",
+        "package",
     ),
-    (
-        ("capacitor", "커패시터", "콘덴서"),
-        (
-            "capacitance_f",
-            "voltage_v",
-            "tolerance_percent",
-            "dielectric",
-            "package",
-        ),
-    ),
-    (
-        ("inductor", "인덕터", "코일"),
-        ("inductance_h", "current_a", "tolerance_percent", "package"),
-    ),
-    (
-        ("crystal", "크리스털", "수정"),
-        ("frequency_hz", "tolerance_percent", "package"),
-    ),
-)
-
+    "inductor": ("inductance_h", "current_a", "tolerance_percent", "package"),
+    "crystal": ("frequency_hz", "tolerance_percent", "package"),
+}
 _PHYSICAL_REQUIREMENTS = {"mount_style", "diameter_mm"}
+_SOURCE_CONFLICTS = {
+    "manufacturer_source_conflict",
+    "mount_style_source_conflict",
+    "diameter_mm_source_conflict",
+}
 
 
 def canonical_manufacturer(value: str | None) -> str:
@@ -95,7 +89,7 @@ def manufacturers_compatible(expected: str | None, actual: str | None) -> bool |
     return left == right
 
 
-def _stable_key(payload: object) -> str:
+def _stable_digest(payload: object) -> str:
     serialized = json.dumps(
         payload,
         ensure_ascii=False,
@@ -104,6 +98,36 @@ def _stable_key(payload: object) -> str:
         default=str,
     )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:32]
+
+
+def _verified_product_manufacturer(product: SupplierProduct) -> str:
+    if product.manufacturer_evidence != ManufacturerEvidence.STRUCTURED:
+        return ""
+    return canonical_manufacturer(product.manufacturer)
+
+
+def _identity_key(product: SupplierProduct) -> str:
+    mpn = compact_mpn(product.manufacturer_part_number)
+    manufacturer = _verified_product_manufacturer(product)
+    if manufacturer:
+        payload: object = [mpn, manufacturer]
+    else:
+        supplier_product_id = (product.supplier_product_id or "").strip().casefold()
+        supplier_skus = sorted(
+            {
+                offer.supplier_sku.strip().casefold()
+                for offer in product.offers
+                if offer.supplier_sku and offer.supplier_sku.strip()
+            }
+        )
+        if supplier_product_id:
+            supplier_locator: object = ["supplier_product_id", supplier_product_id]
+        elif supplier_skus:
+            supplier_locator = ["supplier_skus", supplier_skus]
+        else:
+            supplier_locator = ["supplier_identity_unavailable"]
+        payload = [mpn, "unknown", product.supplier.value, supplier_locator]
+    return f"ik1:{_stable_digest(payload)}"
 
 
 def _lifecycle_state(product: SupplierProduct) -> LifecycleState:
@@ -134,10 +158,27 @@ def _lifecycle_state(product: SupplierProduct) -> LifecycleState:
     return LifecycleState.UNKNOWN
 
 
-def _requirement_counts(
+def _category_fields(query: PlannedQuery) -> tuple[str, ...] | None:
+    policy = query.category_policy
+    if policy is None:
+        part_type = (query.part_type or "").casefold()
+        policy = next(
+            (
+                name
+                for name in _CATEGORY_POLICY
+                if name in part_type
+                or (name == "crystal" and "oscillator" in part_type)
+            ),
+            None,
+        )
+    return _CATEGORY_POLICY.get(policy) if policy else None
+
+
+def _requirement_assessment(
     query: PlannedQuery,
+    product: SupplierProduct,
     reasons: list[str],
-) -> tuple[int, int, bool]:
+) -> tuple[set[str], set[str], set[str], bool, bool]:
     required = {
         name
         for name, requirement in query.requirements.items()
@@ -152,53 +193,48 @@ def _requirement_counts(
     }
     if "tolerance_not_applicable_for_zero_ohm" in reasons:
         verified.add("tolerance_percent")
-    verified_required = required & verified
-    return len(verified_required), len(required), required <= verified
+
+    category_fields = _category_fields(query)
+    category_missing: set[str] = set()
+    if query.mode == SearchMode.PARAMETRIC:
+        if category_fields is None:
+            category_missing.add("unsupported_category")
+        else:
+            required.update(category_fields)
+            category_missing.update(set(category_fields) - verified)
+    verification_complete = required <= verified
+    strict_category_coverage = bool(
+        query.mode == SearchMode.PARAMETRIC
+        and category_fields is not None
+        and not category_missing
+    )
+    return (
+        verified & required,
+        required,
+        category_missing,
+        verification_complete,
+        strict_category_coverage,
+    )
 
 
-def _strict_category_coverage(
+def _match_relation(
     query: PlannedQuery,
     product: SupplierProduct,
+    conflicts: list[str],
+    missing: list[str],
     reasons: list[str],
-) -> bool:
-    category_text = f"{product.category or ''} {product.description or ''}".casefold()
-    rule = next(
-        (
-            fields
-            for tokens, fields in _STRICT_CATEGORY_RULES
-            if any(token in category_text for token in tokens)
-        ),
-        None,
-    )
-    if rule is None:
-        return False
-    matched = {
-        reason.removesuffix("_match") for reason in reasons if reason.endswith("_match")
-    }
-    if "tolerance_not_applicable_for_zero_ohm" in reasons:
-        matched.add("tolerance_percent")
-    if "mount_style" in matched:
-        matched.add("package")
-    # A category field must exist as an engine hard requirement as well as match.
-    hard = {
-        name
-        for name, requirement in query.requirements.items()
-        if requirement.hard and requirement.normalized_value is not None
-    }
-    return all(field in hard and field in matched for field in rule)
-
-
-def _selection_mode(
-    query: PlannedQuery,
-    reasons: list[str],
-) -> CandidateSelectionMode:
+) -> MatchRelation:
     if "manufacturer_part_number_exact" in reasons:
-        return CandidateSelectionMode.EXACT
+        return MatchRelation.EXACT
     if "manufacturer_part_number_format_variant" in reasons:
-        return CandidateSelectionMode.VARIANT
-    if query.mode == SearchMode.PARAMETRIC:
-        return CandidateSelectionMode.SPEC_COMPATIBLE
-    return CandidateSelectionMode.REVIEW
+        return MatchRelation.VARIANT
+    if query.mode != SearchMode.PARAMETRIC:
+        return MatchRelation.UNRESOLVED
+    actual_conflicts = set(conflicts) - _SOURCE_CONFLICTS
+    _, _, _, complete, strict = _requirement_assessment(query, product, reasons)
+    if not actual_conflicts and not missing and complete and strict:
+        return MatchRelation.SPEC_COMPATIBLE
+    return MatchRelation.UNRESOLVED
 
 
 def _candidate_decision(
@@ -211,92 +247,100 @@ def _candidate_decision(
     *,
     identity_key: str | None = None,
 ) -> CandidateDecision:
-    mode = _selection_mode(query, reasons)
-    verified, required, verification_complete = _requirement_counts(query, reasons)
-    strict_coverage = _strict_category_coverage(query, product, reasons)
-    lifecycle = _lifecycle_state(product)
-    eligibility = SelectionEligibility.BLOCKED
-    reason_codes: list[str] = []
-
-    if mode == CandidateSelectionMode.EXACT:
-        reason_codes.append("identity_exact")
-    elif mode == CandidateSelectionMode.VARIANT:
-        reason_codes.append("identity_variant")
-    elif mode == CandidateSelectionMode.SPEC_COMPATIBLE:
-        reason_codes.append("specification_compatible")
-
-    conflict_set = set(conflicts)
-    manufacturer_confirmation = (
-        mode
-        in {
-            CandidateSelectionMode.EXACT,
-            CandidateSelectionMode.VARIANT,
-        }
-        and not (conflict_set - {"manufacturer_mismatch"})
-        and ("manufacturer_mismatch" in conflict_set or "manufacturer" in missing)
+    relation = _match_relation(query, product, conflicts, missing, reasons)
+    verified, required, category_missing, complete, strict = _requirement_assessment(
+        query, product, reasons
     )
-    if manufacturer_confirmation:
-        eligibility = SelectionEligibility.MANUAL_REVIEW
-        reason_codes.append("manufacturer_confirmation_required")
-    elif not conflicts and mode in {
-        CandidateSelectionMode.EXACT,
-        CandidateSelectionMode.VARIANT,
-    }:
-        eligibility = SelectionEligibility.AUTOMATIC
-    elif (
-        status == MatchStatus.SPEC_COMPATIBLE
-        and mode == CandidateSelectionMode.SPEC_COMPATIBLE
-        and not conflicts
-        and not missing
-        and verification_complete
-        and strict_coverage
-    ):
-        eligibility = SelectionEligibility.AUTOMATIC
+    lifecycle = _lifecycle_state(product)
+    conflict_set = set(conflicts)
+    source_conflicts = conflict_set & _SOURCE_CONFLICTS
+    actual_conflicts = conflict_set - _SOURCE_CONFLICTS - {"manufacturer_mismatch"}
+    identity_relation = relation in {MatchRelation.EXACT, MatchRelation.VARIANT}
+    manufacturer_confirmation = identity_relation and (
+        "manufacturer_mismatch" in conflict_set
+        or "manufacturer" in missing
+        or product.manufacturer_evidence != ManufacturerEvidence.STRUCTURED
+        or (not query.manufacturer and not product.manufacturer)
+    )
 
-    if conflicts:
-        reason_codes.extend(f"conflict:{value}" for value in sorted(conflict_set))
-    if missing:
-        reason_codes.extend(f"missing:{value}" for value in sorted(set(missing)))
-    if not verification_complete:
+    if actual_conflicts:
+        eligibility = SelectionEligibility.BLOCKED
+    elif source_conflicts or manufacturer_confirmation:
+        eligibility = SelectionEligibility.MANUAL_REVIEW
+    elif identity_relation:
+        eligibility = SelectionEligibility.AUTOMATIC
+    elif relation == MatchRelation.SPEC_COMPATIBLE:
+        eligibility = SelectionEligibility.AUTOMATIC
+    else:
+        eligibility = SelectionEligibility.MANUAL_REVIEW
+
+    reason_codes: list[str] = []
+    if relation == MatchRelation.EXACT:
+        reason_codes.append("identity_exact")
+    elif relation == MatchRelation.VARIANT:
+        reason_codes.append("identity_variant")
+    elif relation == MatchRelation.SPEC_COMPATIBLE:
+        reason_codes.append("specification_compatible")
+    else:
+        reason_codes.append("relationship_unresolved")
+    if manufacturer_confirmation:
+        reason_codes.append("manufacturer_confirmation_required")
+    if product.manufacturer_evidence == ManufacturerEvidence.INFERRED:
+        reason_codes.append("manufacturer_inferred")
+    for value in sorted(source_conflicts):
+        reason_codes.append(value)
+    reason_codes.extend(f"conflict:{value}" for value in sorted(conflict_set - source_conflicts))
+    reason_codes.extend(f"missing:{value}" for value in sorted(set(missing)))
+    reason_codes.extend(
+        f"category_coverage_missing:{value}" for value in sorted(category_missing)
+    )
+    if not complete:
         reason_codes.append("verification_incomplete")
-    if mode == CandidateSelectionMode.SPEC_COMPATIBLE and not strict_coverage:
+    if query.mode == SearchMode.PARAMETRIC and not strict:
         reason_codes.append("strict_category_coverage_incomplete")
     if lifecycle == LifecycleState.CAUTION:
         reason_codes.append("lifecycle_caution")
-    if eligibility == SelectionEligibility.BLOCKED:
+    if eligibility == SelectionEligibility.MANUAL_REVIEW:
+        reason_codes.append("manual_review_required")
+    elif eligibility == SelectionEligibility.BLOCKED:
         reason_codes.append("technical_selection_blocked")
 
-    manufacturer_key = canonical_manufacturer(product.manufacturer) or "unknown"
-    candidate_identity_key = identity_key or _stable_key(
-        [compact_mpn(product.manufacturer_part_number), manufacturer_key]
-    )
-    technical_evidence_key = _stable_key(
-        {
-            "status": status,
-            "selection_mode": mode,
-            "selection_eligibility": eligibility,
-            "conflicts": sorted(conflict_set),
-            "missing": sorted(set(missing)),
-            "reasons": sorted(set(reasons)),
-            "verified": verified,
-            "required": required,
-            "verification_complete": verification_complete,
-            "strict_category_coverage": strict_coverage,
-            "lifecycle_state": lifecycle,
-        }
-    )
+    candidate_identity_key = identity_key or _identity_key(product)
+    evidence_payload = {
+        "decision_policy_version": "supplier-candidate-decision-v1",
+        "category_policy_version": "candidate-category-policy-v1",
+        "evidence_key_version": "candidate-evidence-key-v1",
+        "status": status.value,
+        "match_relation": relation.value,
+        "selection_eligibility": eligibility.value,
+        "conflicts": sorted(conflict_set),
+        "missing": sorted(set(missing)),
+        "verified_fields": sorted(verified),
+        "required_fields": sorted(required),
+        "category_missing": sorted(category_missing),
+        "verification_complete": complete,
+        "strict_category_coverage": strict,
+        "lifecycle_state": lifecycle.value,
+        "manufacturer_evidence": product.manufacturer_evidence.value,
+        "reason_codes": sorted(set(reason_codes)),
+    }
     return CandidateDecision(
+        match_relation=relation,
         selection_eligibility=eligibility,
-        selection_mode=mode,
         auto_eligible=eligibility == SelectionEligibility.AUTOMATIC,
         manual_selectable=eligibility != SelectionEligibility.BLOCKED,
+        selection_recommendation=(
+            SelectionRecommendation.EXCLUDE
+            if eligibility == SelectionEligibility.BLOCKED
+            else SelectionRecommendation.CANDIDATE_ONLY
+        ),
         reason_codes=list(dict.fromkeys(reason_codes)),
         identity_key=candidate_identity_key,
-        technical_evidence_key=technical_evidence_key,
-        verified_requirement_count=verified,
-        required_requirement_count=required,
-        verification_complete=verification_complete,
-        strict_category_coverage=strict_coverage,
+        technical_evidence_key=f"ek1:{_stable_digest(evidence_payload)}",
+        verified_requirement_count=len(verified),
+        required_requirement_count=len(required),
+        verification_complete=complete,
+        strict_category_coverage=strict,
         lifecycle_state=lifecycle,
     )
 
@@ -383,9 +427,7 @@ def _dielectric_detail(value: object) -> str | None:
         return None
     minimum, maximum, _ = profile
     change = _DIELECTRIC_CAPACITANCE_CHANGE[canonical[-1]]
-    return (
-        f"{_temperature_number(minimum)} ~ {_temperature_number(maximum)} °C · {change}"
-    )
+    return f"{_temperature_number(minimum)} ~ {_temperature_number(maximum)} °C · {change}"
 
 
 def _conditional_dielectric_substitute(expected: object, actual: object) -> bool:
@@ -395,11 +437,7 @@ def _conditional_dielectric_substitute(expected: object, actual: object) -> bool
         return False
     exp_minimum, exp_maximum, exp_change = expected_profile
     act_minimum, act_maximum, act_change = actual_profile
-    return (
-        act_minimum <= exp_minimum
-        and act_maximum >= exp_maximum
-        and act_change <= exp_change
-    )
+    return act_minimum <= exp_minimum and act_maximum >= exp_maximum and act_change <= exp_change
 
 
 def _supplier_dielectric_notation(product: SupplierProduct) -> str | None:
@@ -415,9 +453,7 @@ def _supplier_dielectric_notation(product: SupplierProduct) -> str | None:
     )
 
 
-def _category_matches(
-    part_type: str, category: str | None, description: str | None
-) -> bool | None:
+def _category_matches(part_type: str, category: str | None, description: str | None) -> bool | None:
     haystack = f"{category or ''} {description or ''}".casefold()
     aliases = {
         "resistor": ("resistor", "저항"),
@@ -504,63 +540,70 @@ def infer_supplier_part_type(product: SupplierProduct) -> str | None:
 
 @dataclass
 class _CandidateGroup:
-    mpn_norm: str
     identity_key: str
     candidates: list[CandidateMatch]
 
 
-def _group_physical_evidence(
+def _physical_group_updates(
     query: PlannedQuery,
     candidates: list[CandidateMatch],
-) -> tuple[list[str], list[str], list[str]]:
-    reasons: list[str] = []
-    conflicts: list[str] = []
-    missing: list[str] = []
+) -> list[tuple[list[str], list[str], list[str]]]:
+    updates: list[tuple[list[str], list[str], list[str]]] = [
+        ([], [], []) for _ in candidates
+    ]
+    mount_values = [
+        {evidence.value for evidence in product_mount_evidence(candidate.product)}
+        for candidate in candidates
+    ]
+    mount_known = set().union(*mount_values)
+    mount_source_conflict = len(mount_known) > 1
     mount_requirement = query.requirements.get("mount_style")
-    if mount_requirement is not None and mount_requirement.normalized_value is not None:
-        mount_styles = {
-            value
-            for candidate in candidates
-            if (value := product_mount_style(candidate.product)) is not None
-        }
-        if len(mount_styles) > 1:
+    for index, value in enumerate(mount_values):
+        reasons, conflicts, missing = updates[index]
+        if mount_source_conflict:
             conflicts.append("mount_style_source_conflict")
-        elif not mount_styles:
+        if mount_requirement is None or mount_requirement.normalized_value is None:
+            continue
+        if not value:
             missing.append("mount_style")
-        elif next(iter(mount_styles)) == mount_requirement.normalized_value:
+        elif value == {mount_requirement.normalized_value}:
             reasons.append("mount_style_match")
         else:
             conflicts.append("mount_style_mismatch")
 
+    diameter_values = [
+        {evidence.value_mm for evidence in product_diameter_evidence(candidate.product)}
+        for candidate in candidates
+    ]
+    known_diameters = sorted(set().union(*diameter_values))
+    diameter_source_conflict = bool(known_diameters) and not math.isclose(
+        max(known_diameters),
+        min(known_diameters),
+        rel_tol=0.0,
+        abs_tol=0.25,
+    )
     diameter_requirement = query.requirements.get("diameter_mm")
-    if (
-        diameter_requirement is not None
-        and diameter_requirement.normalized_value is not None
-    ):
-        diameters = [
-            value
-            for candidate in candidates
-            if (value := product_diameter_mm(candidate.product)) is not None
-        ]
-        if diameters and not math.isclose(
-            max(diameters), min(diameters), rel_tol=0.0, abs_tol=0.25
-        ):
+    for index, value in enumerate(diameter_values):
+        reasons, conflicts, missing = updates[index]
+        if diameter_source_conflict:
             conflicts.append("diameter_mm_source_conflict")
-        elif not diameters:
+        if diameter_requirement is None or diameter_requirement.normalized_value is None:
+            continue
+        if not value:
             missing.append("diameter_mm")
         elif all(
             math.isclose(
-                diameter,
+                candidate_value,
                 float(diameter_requirement.normalized_value),
                 rel_tol=0.0,
                 abs_tol=0.25,
             )
-            for diameter in diameters
+            for candidate_value in value
         ):
             reasons.append("diameter_mm_match")
         else:
             conflicts.append("diameter_mm_mismatch")
-    return reasons, conflicts, missing
+    return updates
 
 
 def _status_after_group_evidence(
@@ -608,80 +651,51 @@ def finalize_candidate_decisions(
     query: PlannedQuery,
     candidates: list[CandidateMatch],
 ) -> list[CandidateMatch]:
-    """Assign engine-owned identity groups and group-level physical decisions."""
+    """Finalize per-candidate decisions after deterministic identity grouping."""
 
     candidates_by_mpn: dict[str, list[CandidateMatch]] = {}
     for candidate in candidates:
-        mpn_norm = compact_mpn(candidate.product.manufacturer_part_number)
-        candidates_by_mpn.setdefault(mpn_norm, []).append(candidate)
+        mpn = compact_mpn(candidate.product.manufacturer_part_number)
+        candidates_by_mpn.setdefault(mpn, []).append(candidate)
 
     groups: list[_CandidateGroup] = []
-    for mpn_norm in sorted(candidates_by_mpn):
-        manufacturer_groups: dict[str, list[CandidateMatch]] = {}
-        unknown_candidates: list[CandidateMatch] = []
-        for candidate in candidates_by_mpn[mpn_norm]:
-            manufacturer_norm = (
-                canonical_manufacturer(candidate.product.manufacturer) or "unknown"
-            )
-            if manufacturer_norm == "unknown":
-                unknown_candidates.append(candidate)
-            else:
-                manufacturer_groups.setdefault(manufacturer_norm, []).append(candidate)
+    manufacturer_source_conflicts: set[str] = set()
+    for mpn in sorted(candidates_by_mpn):
+        mpn_candidates = candidates_by_mpn[mpn]
+        known_manufacturers = {
+            _verified_product_manufacturer(candidate.product)
+            for candidate in mpn_candidates
+            if _verified_product_manufacturer(candidate.product)
+        }
+        if not query.manufacturer and len(known_manufacturers) > 1:
+            manufacturer_source_conflicts.add(mpn)
 
+        known_groups: dict[str, list[CandidateMatch]] = {}
+        unknown_groups: dict[str, list[CandidateMatch]] = {}
+        for candidate in mpn_candidates:
+            manufacturer = _verified_product_manufacturer(candidate.product)
+            if manufacturer:
+                known_groups.setdefault(manufacturer, []).append(candidate)
+            else:
+                key = _identity_key(candidate.product)
+                unknown_groups.setdefault(key, []).append(candidate)
         groups.extend(
             _CandidateGroup(
-                mpn_norm,
-                _stable_key([mpn_norm, manufacturer_norm]),
-                group_candidates,
+                identity_key=f"ik1:{_stable_digest([mpn, manufacturer])}",
+                candidates=group_candidates,
             )
-            for manufacturer_norm, group_candidates in sorted(
-                manufacturer_groups.items()
-            )
+            for manufacturer, group_candidates in sorted(known_groups.items())
         )
-        # 제조사 미상 행은 같은 MPN의 알려진 제조사나 다른 공급사에 추측으로
-        # 붙이지 않는다. URL은 변동 가능한 전달 속성이므로 identity에 사용하지
-        # 않고, 공급사 소유 제품 ID를 우선하며 SKU를 안정 fallback으로 사용한다.
-        unknown_groups: dict[str, list[CandidateMatch]] = {}
-        for candidate in unknown_candidates:
-            supplier_product_id = (
-                candidate.product.supplier_product_id or ""
-            ).strip().casefold()
-            supplier_skus = sorted(
-                {
-                    offer.supplier_sku.strip().casefold()
-                    for offer in candidate.product.offers
-                    if offer.supplier_sku and offer.supplier_sku.strip()
-                }
-            )
-            if supplier_product_id:
-                supplier_locator: object = [
-                    "supplier_product_id",
-                    supplier_product_id,
-                ]
-            elif supplier_skus:
-                supplier_locator = ["supplier_skus", supplier_skus]
-            else:
-                supplier_locator = ["supplier_identity_unavailable"]
-            discriminator = _stable_key(
-                [
-                    mpn_norm,
-                    "unknown",
-                    candidate.product.supplier.value,
-                    supplier_locator,
-                ]
-            )
-            unknown_groups.setdefault(discriminator, []).append(candidate)
         groups.extend(
-            _CandidateGroup(mpn_norm, identity_key, group_candidates)
-            for identity_key, group_candidates in sorted(unknown_groups.items())
+            _CandidateGroup(identity_key=key, candidates=group_candidates)
+            for key, group_candidates in sorted(unknown_groups.items())
         )
 
     completed: list[CandidateMatch] = []
     for group in groups:
-        physical_reasons, physical_conflicts, physical_missing = (
-            _group_physical_evidence(query, group.candidates)
-        )
-        for candidate in group.candidates:
+        physical_updates = _physical_group_updates(query, group.candidates)
+        for candidate, physical in zip(group.candidates, physical_updates, strict=True):
+            physical_reasons, physical_conflicts, physical_missing = physical
             reasons = [
                 value
                 for value in candidate.reasons
@@ -691,7 +705,9 @@ def finalize_candidate_decisions(
                 value
                 for value in candidate.conflicts
                 if not (
-                    value.startswith("mount_style_") or value.startswith("diameter_mm_")
+                    value.startswith("mount_style_")
+                    or value.startswith("diameter_mm_")
+                    or value == "manufacturer_source_conflict"
                 )
             ]
             missing = [
@@ -699,6 +715,9 @@ def finalize_candidate_decisions(
                 for value in candidate.missing_requirements
                 if value not in _PHYSICAL_REQUIREMENTS
             ]
+            mpn = compact_mpn(candidate.product.manufacturer_part_number)
+            if mpn in manufacturer_source_conflicts:
+                physical_conflicts.append("manufacturer_source_conflict")
             reasons = list(dict.fromkeys([*reasons, *physical_reasons]))
             conflicts = sorted(set([*conflicts, *physical_conflicts]))
             missing = sorted(set([*missing, *physical_missing]))
@@ -734,34 +753,28 @@ class CandidateMatcher:
         identity_confidence = 0.0
 
         if query.part_number:
-            if normalize_mpn(query.part_number) == normalize_mpn(
-                product.manufacturer_part_number
-            ):
+            if normalize_mpn(query.part_number) == normalize_mpn(product.manufacturer_part_number):
                 identity_confidence = 1.0
                 reasons.append("manufacturer_part_number_exact")
-            elif compact_mpn(query.part_number) == compact_mpn(
-                product.manufacturer_part_number
-            ):
+            elif compact_mpn(query.part_number) == compact_mpn(product.manufacturer_part_number):
                 identity_confidence = 0.92
                 reasons.append("manufacturer_part_number_format_variant")
-            elif _packaging_variant(
-                query.part_number, product.manufacturer_part_number
-            ):
+            elif _packaging_variant(query.part_number, product.manufacturer_part_number):
                 identity_confidence = 0.92
                 reasons.append("manufacturer_part_number_format_variant")
             else:
                 conflicts.append("part_number_mismatch")
-        manufacturer_match = manufacturers_compatible(
-            query.manufacturer, product.manufacturer
-        )
+        manufacturer_match = manufacturers_compatible(query.manufacturer, product.manufacturer)
         if manufacturer_match is True:
-            identity_confidence = min(1.0, identity_confidence + 0.03)
-            reasons.append("manufacturer_match")
+            if product.manufacturer_evidence == ManufacturerEvidence.STRUCTURED:
+                identity_confidence = min(1.0, identity_confidence + 0.03)
+                reasons.append("manufacturer_match")
+            else:
+                missing.append("manufacturer")
+                reasons.append("manufacturer_inferred")
         elif manufacturer_match is False:
             conflicts.append("manufacturer_mismatch")
-        elif canonical_manufacturer(query.manufacturer) and not canonical_manufacturer(
-            product.manufacturer
-        ):
+        elif query.manufacturer:
             missing.append("manufacturer")
 
         checked = 0
@@ -770,22 +783,21 @@ class CandidateMatcher:
             expected = requirement.normalized_value
             if expected is None:
                 continue
+            if name in _PHYSICAL_REQUIREMENTS:
+                continue
             if name == "tolerance_percent" and self._is_zero_ohm_query(query):
                 reasons.append("tolerance_not_applicable_for_zero_ohm")
                 continue
             actual: Any
             if name == "package":
-                actual = product.normalized_specs.get("package") or product.package
+                package_source = (
+                    product.normalized_specs.get("package") or product.package
+                )
+                actual = normalize_package(package_source, query.part_type) or None
             elif name == "dielectric":
                 actual = product.normalized_specs.get("dielectric")
-            elif name == "mount_style":
-                actual = product_mount_style(product)
-            elif name == "diameter_mm":
-                actual = product_diameter_mm(product)
             elif name == "part_type":
-                category_match = _category_matches(
-                    str(expected), product.category, product.description
-                )
+                category_match = _category_matches(str(expected), product.category, product.description)
                 if category_match is None:
                     if requirement.hard:
                         missing.append(name)
@@ -804,15 +816,11 @@ class CandidateMatcher:
                     missing.append(name)
                 continue
             checked += 1
-            is_match = (
-                math.isclose(
-                    float(expected),
-                    float(actual),
-                    rel_tol=0.0,
-                    abs_tol=0.25,
-                )
-                if name == "diameter_mm"
-                else self._matches(requirement.comparison, expected, actual)
+            is_match = self._matches(
+                requirement.comparison,
+                expected,
+                actual,
+                query.part_type,
             )
             if is_match:
                 matched += 1
@@ -824,30 +832,13 @@ class CandidateMatcher:
         # single category match report 100% on an otherwise empty candidate.
         confidence_checks = checked + len(set(missing))
         spec_confidence = matched / confidence_checks if confidence_checks else 0.0
-        hard_conflicts = [
-            item
-            for item in conflicts
-            if item != "part_number_mismatch" or query.mode == SearchMode.IDENTITY
-        ]
-        if (
-            query.mode == SearchMode.IDENTITY
-            and identity_confidence >= 1.0
-            and not hard_conflicts
-        ):
+        hard_conflicts = [item for item in conflicts if item != "part_number_mismatch" or query.mode == SearchMode.IDENTITY]
+        if query.mode == SearchMode.IDENTITY and identity_confidence >= 1.0 and not hard_conflicts:
             status = MatchStatus.VERIFIED_EXACT
-        elif (
-            query.mode == SearchMode.IDENTITY
-            and identity_confidence >= 0.9
-            and not hard_conflicts
-        ):
+        elif query.mode == SearchMode.IDENTITY and identity_confidence >= 0.9 and not hard_conflicts:
             status = MatchStatus.VERIFIED_VARIANT
-        elif (
-            query.mode == SearchMode.IDENTITY
-            and identity_confidence >= 0.9
-            and any(
-                item.endswith("_mismatch") and item != "part_number_mismatch"
-                for item in conflicts
-            )
+        elif query.mode == SearchMode.IDENTITY and identity_confidence >= 0.9 and any(
+            item.endswith("_mismatch") and item != "part_number_mismatch" for item in conflicts
         ):
             status = MatchStatus.INPUT_CONFLICT
         elif conflicts:
@@ -861,14 +852,7 @@ class CandidateMatcher:
         package_comparison = self._package_comparison(
             query, product, conflicts, missing, reasons
         )
-        decision = _candidate_decision(
-            query,
-            product,
-            status,
-            sorted(set(conflicts)),
-            sorted(set(missing)),
-            reasons,
-        )
+        spec_comparisons = self._spec_comparisons(query, product)
         return CandidateMatch(
             product=product,
             status=status,
@@ -878,8 +862,15 @@ class CandidateMatcher:
             missing_requirements=sorted(set(missing)),
             reasons=reasons,
             package_comparison=package_comparison,
-            spec_comparisons=self._spec_comparisons(query, product),
-            decision=decision,
+            spec_comparisons=spec_comparisons,
+            decision=_candidate_decision(
+                query,
+                product,
+                status,
+                sorted(set(conflicts)),
+                sorted(set(missing)),
+                reasons,
+            ),
         )
 
     @staticmethod
@@ -913,18 +904,10 @@ class CandidateMatcher:
             if name == "dielectric":
                 expected_display = normalize_dielectric(expected)
                 actual_display = normalize_dielectric(actual)
-                expected_notation = (
-                    dielectric_notation(requirement.raw_value) or expected_display
-                )
-                actual_notation = (
-                    _supplier_dielectric_notation(product) or actual_display
-                )
-                expected_raw = (
-                    expected_notation if expected_notation != expected_display else None
-                )
-                actual_raw = (
-                    actual_notation if actual_notation != actual_display else None
-                )
+                expected_notation = dielectric_notation(requirement.raw_value) or expected_display
+                actual_notation = _supplier_dielectric_notation(product) or actual_display
+                expected_raw = expected_notation if expected_notation != expected_display else None
+                actual_raw = actual_notation if actual_notation != actual_display else None
                 expected_detail = _dielectric_detail(expected)
                 actual_detail = _dielectric_detail(actual)
             else:
@@ -937,17 +920,14 @@ class CandidateMatcher:
             elif self._matches(requirement.comparison, expected, actual):
                 state = "match"
                 if name == "dielectric":
-                    relation = (
-                        "exact" if expected_notation == actual_notation else "alias"
-                    )
+                    relation = "exact" if expected_notation == actual_notation else "alias"
                 else:
                     relation = "exact" if expected == actual else "contains"
             else:
                 state = "mismatch"
                 relation = (
                     "conditional"
-                    if name == "dielectric"
-                    and _conditional_dielectric_substitute(expected, actual)
+                    if name == "dielectric" and _conditional_dielectric_substitute(expected, actual)
                     else "mismatch"
                 )
 
@@ -977,12 +957,22 @@ class CandidateMatcher:
 
         expected_source = requirement.raw_value or requirement.normalized_value
         actual_source = product.normalized_specs.get("package") or product.package
-        expected_canonical = normalize_package(expected_source)
-        actual_canonical = normalize_package(actual_source)
-        expected_raw = distinct_package_notation(expected_source, expected_canonical)
-        actual_raw = distinct_package_notation(product.package, actual_canonical)
+        expected_canonical = normalize_package(expected_source, query.part_type)
+        actual_canonical = normalize_package(actual_source, query.part_type)
+        expected_raw = distinct_package_notation(
+            expected_source,
+            expected_canonical,
+            query.part_type,
+        )
+        actual_raw = distinct_package_notation(
+            product.package,
+            actual_canonical,
+            query.part_type,
+        )
+        if actual_raw is None and product.package and not actual_canonical:
+            actual_raw = product.package
 
-        if actual_source is None or "package" in missing:
+        if not actual_canonical or "package" in missing:
             state = "missing"
             relation = "missing"
         elif "package_mismatch" in conflicts:
@@ -991,14 +981,11 @@ class CandidateMatcher:
         elif "package_match" in reasons:
             state = "match"
             expected_text = re.sub(r"[^A-Z0-9]+", "", str(expected_source).upper())
-            actual_text = re.sub(
-                r"[^A-Z0-9]+", "", str(product.package or actual_source).upper()
-            )
+            actual_text = re.sub(r"[^A-Z0-9]+", "", str(product.package or actual_source).upper())
             if expected_canonical == actual_canonical:
                 relation = (
                     "exact"
-                    if expected_canonical in expected_text
-                    and actual_canonical in actual_text
+                    if expected_canonical in expected_text and actual_canonical in actual_text
                     else "alias"
                 )
             else:
@@ -1010,23 +997,26 @@ class CandidateMatcher:
         return PackageComparison(
             state=state,
             relation=relation,
-            expected_display=package_display(expected_canonical),
+            expected_display=package_display(expected_canonical, query.part_type),
             expected_raw=expected_raw,
-            actual_display=package_display(actual_canonical),
+            actual_display=package_display(actual_canonical, query.part_type),
             actual_raw=actual_raw,
         )
 
     @staticmethod
-    def _matches(comparison: str, expected: Any, actual: Any) -> bool:
+    def _matches(
+        comparison: str,
+        expected: Any,
+        actual: Any,
+        component_type: str | None = None,
+    ) -> bool:
         if comparison == "eq":
             if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
                 return _numeric_close(float(expected), float(actual))
             if isinstance(expected, str):
                 if normalize_dielectric(expected):
-                    return normalize_dielectric(expected) == normalize_dielectric(
-                        actual
-                    )
-                return packages_compatible(expected, actual)
+                    return normalize_dielectric(expected) == normalize_dielectric(actual)
+                return packages_compatible(expected, actual, component_type)
             return expected == actual
         if comparison == "gte":
             return float(actual) >= float(expected)
@@ -1037,7 +1027,7 @@ class CandidateMatcher:
             actual_range = list(actual)
             exp_min, exp_max = expected_range
             act_min, act_max = actual_range
-            return (
-                exp_min is None or (act_min is not None and act_min <= exp_min)
-            ) and (exp_max is None or (act_max is not None and act_max >= exp_max))
+            return (exp_min is None or (act_min is not None and act_min <= exp_min)) and (
+                exp_max is None or (act_max is not None and act_max >= exp_max)
+            )
         return False

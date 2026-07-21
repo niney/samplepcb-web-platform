@@ -38,6 +38,52 @@ def test_package_normalization_uses_imperial_canonical_codes(value, expected):
 
 
 @pytest.mark.parametrize(
+    "value",
+    [
+        "1612",
+        "1.6 x 1.2 mm",
+        "1.6mm x 1.2mm",
+        "1.60 mm × 1.20 mm",
+        "4-SMD(1.6x1.2)",
+    ],
+)
+def test_crystal_package_normalization_uses_physical_metric_code(value):
+    assert normalize_package(value, "crystal") == "1612"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2.0 x 1.6 mm", "2016"),
+        ("2.5mm x 2.0mm", "2520"),
+        ("3.2 mm × 2.5 mm", "3225"),
+        ("3225", "3225"),
+    ],
+)
+def test_crystal_package_context_does_not_apply_passive_aliases(value, expected):
+    assert normalize_package(value, "oscillator") == expected
+
+
+def test_generic_crystal_smd_pin_count_has_no_physical_package():
+    assert normalize_package("4-SMD", "crystal") == ""
+    assert normalize_package("4-SMD") == "4SMD"
+
+
+def test_crystal_text_and_parameters_receive_component_context():
+    text = normalized_specs_from_text(
+        "32MHz crystal, 4-SMD, body 1.6mm x 1.2mm",
+        "crystal",
+    )
+    parameters, _raw = normalized_specs_from_parameters(
+        [("Size / Dimension", "1.60 mm × 1.20 mm")],
+        "crystal",
+    )
+
+    assert text["package"] == "1612"
+    assert parameters["package"] == "1612"
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
         ("X5R", "X5R"),

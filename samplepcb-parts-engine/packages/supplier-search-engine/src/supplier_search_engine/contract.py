@@ -4,7 +4,7 @@
 
 vendoring 범위: 스키마 클래스(SearchEvidence/SearchField/SearchComponentInput/
 SearchBatchInput)와 _component_id/_field 헬퍼, VALUE_FIELDS 상수(원본
-bom_probing_gpt/runtime.py와 순서까지 동일 — smartbom_engine/schema.py와도
+bom_probing_gpt/runtime.py와 순서까지 동일 — bom_extraction_engine/schema.py와도
 동일함이 확인됨). 시트 중첩 구조 전제인 search_batch_from_runtime과
 analyze_for_search는 제외 — SMARTBOM 결과는 components가 flat이라
 build_batch_from_result가 그 역할을 대신한다.
@@ -15,6 +15,8 @@ import hashlib
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from .models import ProcurementPolicyInput
 
 SEARCH_CONTRACT_VERSION = "1.0"
 FieldStatus = Literal["extracted", "review", "not_found"]
@@ -67,6 +69,7 @@ class SearchComponentInput(BaseModel):
     value_raw: str | None = None
     review_status: str
     quality_flags: list[str] = Field(default_factory=list)
+    required_quantity: int | None = Field(default=None, ge=1)
     fields: dict[str, SearchField]
 
 
@@ -80,7 +83,9 @@ class SearchBatchInput(BaseModel):
     runtime_dependency_fingerprint: str | None = None
     source_file: str
     components: list[SearchComponentInput]
-
+    procurement_policy: ProcurementPolicyInput = Field(
+        default_factory=ProcurementPolicyInput
+    )
 
 def _component_id(source_file: str, sheet_index: int, rows: list[int]) -> str:
     raw = f"{source_file}\0{sheet_index}\0{','.join(map(str, rows))}".encode("utf-8")
@@ -98,6 +103,19 @@ def _field(component: dict[str, Any], name: str) -> SearchField:
         status = "review" if value is not None else "not_found"
     evidence = [SearchEvidence.model_validate(item) for item in state.get("evidence") or []]
     return SearchField(value=value, status=status, evidence=evidence)
+
+
+def _required_quantity(component: dict[str, Any]) -> int | None:
+    value = _field(component, "quantity").value
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and value > 0:
+        return int(value)
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def build_batch_from_result(
@@ -135,6 +153,7 @@ def build_batch_from_result(
                 value_raw=component.get("value_raw"),
                 review_status=str(component.get("review_status") or "review"),
                 quality_flags=list(component.get("quality_flags") or []),
+                required_quantity=_required_quantity(component),
                 fields={name: _field(component, name) for name in VALUE_FIELDS},
             )
         )

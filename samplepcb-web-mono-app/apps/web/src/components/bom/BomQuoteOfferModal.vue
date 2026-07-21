@@ -35,12 +35,10 @@ const candidate = computed(() => {
 const offers = computed(() => {
   const current = candidate.value;
   if (current === null) return [];
-  return [...current.offers].sort((a, b) => {
-    const aRecommended = a.offerKey === current.bestOfferKey;
-    const bRecommended = b.offerKey === current.bestOfferKey;
-    if (aRecommended !== bRecommended) return aRecommended ? -1 : 1;
-    return (a.applied?.lineTotalKrw ?? Infinity) - (b.applied?.lineTotalKrw ?? Infinity);
-  });
+  return [...current.offers].sort((a, b) =>
+    (a.purchaseFitRank ?? Number.MAX_SAFE_INTEGER) - (b.purchaseFitRank ?? Number.MAX_SAFE_INTEGER)
+    || (a.priceRank ?? Number.MAX_SAFE_INTEGER) - (b.priceRank ?? Number.MAX_SAFE_INTEGER)
+    || a.offerKey.localeCompare(b.offerKey));
 });
 
 function isCurrent(offer: BomQuoteCandidateOfferType): boolean {
@@ -48,7 +46,7 @@ function isCurrent(offer: BomQuoteCandidateOfferType): boolean {
 }
 
 function selectOffer(current: BomQuoteCandidateType, offer: BomQuoteCandidateOfferType): void {
-  if (props.selecting || offer.applied === null || isCurrent(offer)) return;
+  if (props.selecting || !offer.purchasable || offer.applied === null || isCurrent(offer)) return;
   emit('select', current.candidateKey, offer.offerKey);
 }
 
@@ -131,7 +129,9 @@ onBeforeUnmount(() => {
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-1.5">
                     <strong class="uppercase text-slate-950">{{ offer.supplier }}</strong>
-                    <span v-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">추천 오퍼</span>
+                    <span v-if="offer.recommendation === 'automatic'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">자동 추천 오퍼</span>
+                    <span v-else-if="offer.recommendation === 'manual_review'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">검토 권장 오퍼</span>
+                    <span v-else-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">구매조건 1위</span>
                     <span v-if="isCurrent(offer)" class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-bold text-blue-700">사용 중</span>
                     <span v-if="offer.applied?.stockShort" class="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-bold text-red-700">재고 부족</span>
                   </div>
@@ -141,6 +141,8 @@ onBeforeUnmount(() => {
                     <span class="rounded bg-slate-100 px-2 py-1">주문 <b>{{ offer.applied?.orderQty.toLocaleString('ko-KR') ?? '—' }}</b></span>
                     <span class="rounded bg-slate-100 px-2 py-1">재고 <b>{{ offer.stock?.toLocaleString('ko-KR') ?? '—' }}</b></span>
                     <span class="rounded bg-slate-100 px-2 py-1">MOQ <b>{{ offer.moq?.toLocaleString('ko-KR') ?? '—' }}</b></span>
+                    <span v-if="offer.purchaseFitRank !== null" class="rounded bg-slate-100 px-2 py-1">구매적합 <b>{{ offer.purchaseFitRank }}위</b></span>
+                    <span v-if="offer.priceRank !== null" class="rounded bg-slate-100 px-2 py-1">가격 <b>{{ offer.priceRank }}위</b></span>
                   </div>
                   <p class="mt-2 text-[11px] text-slate-400">공급사 기준 {{ fmtAge(offer.fetchedAt) }}</p>
                 </div>
@@ -152,10 +154,10 @@ onBeforeUnmount(() => {
                     <button
                       type="button"
                       class="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                      :disabled="selecting || offer.applied === null || isCurrent(offer)"
+                      :disabled="selecting || !offer.purchasable || offer.applied === null || isCurrent(offer)"
                       @click="selectOffer(candidate, offer)"
                     >
-                      {{ isCurrent(offer) ? '현재 오퍼' : '이 오퍼 선택' }}
+                      {{ isCurrent(offer) ? '현재 오퍼' : offer.purchasable ? '이 오퍼 선택' : '선택 불가' }}
                     </button>
                   </div>
                 </div>

@@ -39,10 +39,14 @@ def _scaled(value: float, scales: Iterable[tuple[float, str]]) -> str:
     return f"{_number(value / factor)}{suffix}"
 
 
-def _requirement_token(name: str, requirement: Requirement) -> str | None:
+def _requirement_token(
+    name: str,
+    requirement: Requirement,
+    component_type: str | None = None,
+) -> str | None:
     value = requirement.normalized_value
     if name == "package":
-        return normalize_package(value or requirement.raw_value) or None
+        return normalize_package(value or requirement.raw_value, component_type) or None
     if name == "dielectric":
         return str(value or requirement.raw_value).strip().upper() or None
     if not isinstance(value, (int, float)):
@@ -75,7 +79,7 @@ def _tokens(query: PlannedQuery, names: Iterable[str]) -> list[str]:
         requirement = query.requirements.get(name)
         if requirement is None or not requirement.hard:
             continue
-        token = _requirement_token(name, requirement)
+        token = _requirement_token(name, requirement, query.part_type)
         if token:
             tokens.append(token)
     return list(dict.fromkeys(tokens))
@@ -88,7 +92,6 @@ def supplier_spec_keywords(query: PlannedQuery) -> str:
     names = _SPEC_ORDER.get(part_type, tuple(query.requirements))
     tokens = _tokens(query, names)
     return " ".join(tokens)[:250] or query.keywords
-
 
 def supplier_core_keywords(query: PlannedQuery) -> str:
     """Return the broad second-rung query: primary electrical value + package."""

@@ -26,9 +26,9 @@ import { prisma } from '../lib/prisma';
 import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
-import { getBomQuoteConfig } from '../lib/sp-config';
 import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
+import { buildEngineProcurementPolicy } from '../lib/bom-procurement-policy';
 import { ingestJobResult, recordJobOwner, startIngestPoller } from '../lib/bom-engine-jobs';
 import {
   inputJson,
@@ -47,6 +47,7 @@ import {
   resolveDeletedBomQuoteIds,
 } from '../lib/bom-quote-delete';
 import {
+  BomProcurementReevaluationError,
   buildItemsFromEngineResult,
   applyQuoteCandidateSelection,
   canTransition,
@@ -64,7 +65,7 @@ import {
 
 // ── /api/bom/quotes — 고객(회원) BOM 견적 CRUD (설계: docs/BOM_QUOTE.md) ─────
 // 업로드(견적+엔진 잡 생성) → build(파싱 결과→라인+필요수량) → 공급사 검색
-// 결과 반영(엔진 기술 판정+Node 구매조건) → 검토(PATCH 자동저장) → request(동결).
+// 결과 반영(엔진 기술·구매조건 판단) → 검토(PATCH 자동저장) → request(동결).
 // 원본 파일은 파일서버(serviceType 'bom')+sp_file 로 보존 — 관리자 다운로드용.
 
 const IdParams = z.object({ id: z.coerce.bigint() });
@@ -184,15 +185,24 @@ async function autoEnrichQuote(
 ): Promise<boolean> {
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
   if (quote?.status !== 'draft' || quote.activeAnalysisRunId === null) return false;
-  const config = await getBomQuoteConfig();
+  const config = await getBomQuoteRuntimeConfig();
   const sheetIndexes = quote.sheets.filter((sheet) => sheet.selected).map((sheet) => sheet.sheetIndex);
   if (sheetIndexes.length === 0) return false;
+  const procurement = buildEngineProcurementPolicy(
+    config.usdKrwRate,
+    config.exchangeRateSnapshot,
+  );
   const searchOptions = {
     max_calls: config.supplierSearchMaxCalls,
     cache_only: false,
     reset_cache: false,
     sheet_indexes: sheetIndexes,
-  };
+    procurement: {
+      ...procurement,
+      currency_rates: procurement.currency_rates.map((rate) => ({ ...rate })),
+      allowed_suppliers: [...procurement.allowed_suppliers],
+    },
+  } satisfies Prisma.InputJsonObject;
 
   const items = quote.items.map((row) => toItemDto(row));
   if (!enrichNeeded(items, config.freshnessHours)) {
@@ -222,13 +232,19 @@ async function autoEnrichQuote(
 
   const analysis = await loadActiveBomAnalysisResult(quoteId, sheetIndexes);
   if (analysis === null) return markFailed('analysis_snapshot_not_found');
+  const requiredQuantities = Object.fromEntries(items.flatMap((item) => {
+    const componentId = item.sourceRow?.componentId;
+    return typeof componentId === 'string' && componentId !== ''
+      ? [[componentId, neededQty(item.bomQty, quote.setQty, quote.spareQty)] as const]
+      : [];
+  }));
 
   let jobId: string;
   try {
     const registered = await engineFetch('/supplier-jobs', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ analysis }),
+      body: JSON.stringify({ analysis, required_quantities: requiredQuantities }),
     });
     if (!registered.ok) return await markFailed(`supplier_job_registration_${String(registered.status)}`);
     const body = (await registered.json()) as { job_id?: unknown };
@@ -866,10 +882,26 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     }
     const nextSetQty = request.body.setQty ?? quote.setQty;
     const nextSpareQty = request.body.spareQty ?? quote.spareQty;
-    await repriceCandidateSelections(quote.id, items, nextSetQty, nextSpareQty, config.usdKrwRate);
+    let candidateSnapshots: Awaited<ReturnType<typeof repriceCandidateSelections>>;
+    try {
+      candidateSnapshots = await repriceCandidateSelections(
+        quote.id,
+        items,
+        nextSetQty,
+        nextSpareQty,
+        config.usdKrwRate,
+        config.exchangeRateSnapshot,
+      );
+    } catch (error) {
+      if (error instanceof BomProcurementReevaluationError) {
+        return reply.conflict('저장된 후보의 구매조건을 엔진에서 재평가할 수 없습니다. BOM 공급사 분석을 다시 실행해 주세요.');
+      }
+      throw error;
+    }
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
       exchangeRateSnapshot: config.exchangeRateSnapshot,
+      ...(candidateSnapshots === undefined ? {} : { candidateSnapshots }),
       ...(request.body.title !== undefined ? { title: request.body.title } : {}),
       ...(request.body.setQty !== undefined ? { setQty: request.body.setQty } : {}),
       ...(request.body.spareQty !== undefined ? { spareQty: request.body.spareQty } : {}),

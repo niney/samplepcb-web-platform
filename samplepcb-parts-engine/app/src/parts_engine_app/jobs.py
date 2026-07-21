@@ -6,15 +6,16 @@ import logging
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 from typing import Any
 from uuid import uuid4
 
 from bom_extraction_engine import SmartbomConfig, build_smartbom_result
-from supplier_search_engine.contract import build_batch_from_result
+from supplier_search_engine.contract import SearchBatchInput, build_batch_from_result
 from supplier_search_engine.cache import CacheLookup, SQLiteCache, stable_cache_key
+from supplier_search_engine.models import ProcurementPolicyInput
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings as SearchSettings
 
@@ -41,6 +42,9 @@ class SupplierSearchOptions:
     cache_only: bool = False
     reset_cache: bool = False
     sheet_indexes: tuple[int, ...] = ()
+    procurement_policy: ProcurementPolicyInput = field(
+        default_factory=ProcurementPolicyInput
+    )
 
 
 class _EmptyPreflightCache:
@@ -78,6 +82,7 @@ class Job:
     supplier_error: str | None = None
     supplier_options: SupplierSearchOptions | None = None
     supplier_preflight: dict[str, Any] | None = None
+    supplier_required_quantities: dict[str, int] = field(default_factory=dict)
 
 
 class JobService:
@@ -122,7 +127,11 @@ class JobService:
         self._executor.submit(self._run_parse, job)
         return job
 
-    def submit_analysis_snapshot(self, result: dict[str, Any]) -> Job:
+    def submit_analysis_snapshot(
+        self,
+        result: dict[str, Any],
+        required_quantities: dict[str, int] | None = None,
+    ) -> Job:
         """sp-node가 영속한 분석 스냅샷으로 독립 공급사 검색 잡을 만든다.
 
         추출 잡의 인메모리 수명과 공급사 검색을 분리하는 경계다. 원본 JSON은 새
@@ -133,6 +142,16 @@ class JobService:
             raise JobError("analysis_snapshot_components_invalid")
         if not isinstance(result.get("sheets"), list):
             raise JobError("analysis_snapshot_sheets_invalid")
+        quantities = dict(required_quantities or {})
+        if any(
+            not isinstance(component_id, str)
+            or not component_id.strip()
+            or isinstance(quantity, bool)
+            or not isinstance(quantity, int)
+            or quantity < 1
+            for component_id, quantity in quantities.items()
+        ):
+            raise JobError("analysis_snapshot_required_quantities_invalid")
         try:
             build_batch_from_result(result)
         except (KeyError, TypeError, ValueError) as error:
@@ -150,6 +169,7 @@ class JobService:
             progress=100,
             message="영속 분석 스냅샷 준비 완료",
             result=deepcopy(result),
+            supplier_required_quantities=quantities,
         )
         self._jobs[job_id] = job
         return job
@@ -191,10 +211,7 @@ class JobService:
         self._validate_supplier_options(options)
 
         started = time.perf_counter()
-        batch = build_batch_from_result(
-            job.result,
-            sheet_indexes=set(options.sheet_indexes) if options.sheet_indexes else None,
-        )
+        batch = self._supplier_batch(job, options)
         settings = self._supplier_settings(options)
         cache = _EmptyPreflightCache() if options.reset_cache else None
 
@@ -243,12 +260,7 @@ class JobService:
             assert job.result is not None
             assert job.supplier_options is not None
             assert job.supplier_preflight is not None
-            batch = build_batch_from_result(
-                job.result,
-                sheet_indexes=set(job.supplier_options.sheet_indexes)
-                if job.supplier_options.sheet_indexes
-                else None,
-            )
+            batch = self._supplier_batch(job, job.supplier_options)
             options = job.supplier_options
             settings = self._supplier_settings(options)
             job.supplier_progress = 20
@@ -300,6 +312,34 @@ class JobService:
     async def _search(settings: SearchSettings, batch: Any) -> Any:
         async with SearchService(settings) as service:
             return await service.search_batch(batch)
+
+    @staticmethod
+    def _supplier_batch(
+        job: Job,
+        options: SupplierSearchOptions,
+    ) -> SearchBatchInput:
+        assert job.result is not None
+        batch = build_batch_from_result(
+            job.result,
+            sheet_indexes=set(options.sheet_indexes) if options.sheet_indexes else None,
+        )
+        components = [
+            component.model_copy(
+                update={
+                    "required_quantity": job.supplier_required_quantities.get(
+                        component.component_id,
+                        component.required_quantity,
+                    )
+                }
+            )
+            for component in batch.components
+        ]
+        return batch.model_copy(
+            update={
+                "components": components,
+                "procurement_policy": options.procurement_policy.model_copy(deep=True),
+            }
+        )
 
     def _supplier_settings(self, options: SupplierSearchOptions) -> SearchSettings:
         settings = SearchSettings.from_env()
@@ -381,7 +421,9 @@ class JobService:
         preflight = job.supplier_preflight or {}
         preflight_elapsed_ms = float(preflight.get("preflight_elapsed_ms", 0.0))
         return {
-            "supplier_search_schema_version": "1.2",
+            "supplier_search_schema_version": result.search_schema_version,
+            "decision_contract_status": "current",
+            "procurement_decision_contract_status": "current",
             "analysis_job_id": job.id,
             "timing": {
                 "analysis_elapsed_ms": self._analysis_elapsed_ms(job),

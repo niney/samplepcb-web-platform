@@ -504,7 +504,19 @@ function relationLabel(item: ComparisonItem, supplier: string, key: string): str
 
 function supplierStatus(item: ComparisonItem, supplier: string): string {
   const candidate = candidateFor(item, supplier);
-  return candidate === undefined ? '검색 결과 없음' : (statusLabels[candidate.status] ?? candidate.status);
+  if (candidate === undefined) return '검색 결과 없음';
+  const status = statusLabels[candidate.status] ?? candidate.status;
+  if (candidate.reviewRecommended) return `${status} · 검토 권장`;
+  if (candidate.selectionRecommendation === 'preselect') return `${status} · 기술 사전 선정`;
+  if (candidate.selectionRecommendation === 'exclude') return `${status} · 선정 제외`;
+  return status;
+}
+
+function itemRecommendation(item: ComparisonItem): 'preselect' | 'review' | null {
+  const candidate = item.comparison?.candidates.find((entry) =>
+    entry.selectionRecommendation === 'preselect');
+  if (candidate?.reviewRecommended === true) return 'review';
+  return candidate === undefined ? null : 'preselect';
 }
 
 function itemTitle(item: ComparisonItem): string {
@@ -627,7 +639,11 @@ function statusLabel(item: ComparisonItem): string {
                     <span class="item-meta" :title="itemMeta(item)">{{ itemMeta(item) }}</span>
                   </div>
                 </div>
-                <span class="status-chip" :class="statusCategory(item)">{{ statusLabel(item) }}</span>
+                <div class="item-statuses">
+                  <span v-if="itemRecommendation(item) === 'review'" class="recommendation-chip review">검토 권장</span>
+                  <span v-else-if="itemRecommendation(item) === 'preselect'" class="recommendation-chip automatic">기술 사전 선정</span>
+                  <span class="status-chip" :class="statusCategory(item)">{{ statusLabel(item) }}</span>
+                </div>
               </header>
 
               <div class="comparison-scroll">
@@ -726,7 +742,11 @@ function statusLabel(item: ComparisonItem): string {
 .item-title, .item-meta { max-width: 740px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-title { color: #142033; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
 .item-meta { color: #8490a2; font-size: 10px; }
+.item-statuses { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
 .status-chip { flex: 0 0 auto; padding: 5px 9px; border-radius: 99px; color: #596579; background: #edf0f4; font-size: 10px; font-weight: 800; }
+.recommendation-chip { padding: 5px 9px; border-radius: 99px; font-size: 10px; font-weight: 900; }
+.recommendation-chip.automatic { color: #08785b; background: #d9f4e9; }
+.recommendation-chip.review { color: #8a5708; background: #ffe9ae; box-shadow: inset 0 0 0 1px #e7bd57; }
 .status-chip.matched { color: #08785b; background: #e1f5ee; }
 .status-chip.attention { color: #98600d; background: #fff3d7; }
 .status-chip.not_found { color: #a33b42; background: #feecee; }

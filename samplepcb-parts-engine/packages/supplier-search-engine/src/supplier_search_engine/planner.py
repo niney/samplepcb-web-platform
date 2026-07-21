@@ -49,6 +49,14 @@ _PACKAGE_SIZE_VALUE = re.compile(
     re.I,
 )
 
+_CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("resistor", ("resistor", "저항")),
+    ("inductor", ("inductor", "인덕터", "코일")),
+    ("crystal", ("crystal", "oscillator", "크리스털", "수정", "발진기")),
+    ("capacitor", ("capacitor", "커패시터", "콘덴서")),
+)
+_ELECTROLYTIC_TOKENS = ("electrolytic", "전해")
+
 
 def _package_from_pseudo_part_number(
     value: str | None,
@@ -70,9 +78,7 @@ def _package_from_pseudo_part_number(
         candidate = prefixed.group(2).strip()
         if _NAMED_PACKAGE_VALUE.fullmatch(candidate):
             return candidate
-        if (
-            part_type or ""
-        ).casefold() in _PASSIVE_TYPES and _PACKAGE_SIZE_VALUE.fullmatch(candidate):
+        if (part_type or "").casefold() in _PASSIVE_TYPES and _PACKAGE_SIZE_VALUE.fullmatch(candidate):
             return candidate.upper()
     return None
 
@@ -86,6 +92,32 @@ def _part_number_without_manufacturer_prefix(value: str | None) -> str | None:
     candidate = match.group(2).strip()
     # BOM comments frequently append a sourcing/assembly note to the MPN.
     return re.sub(r"\((?:NP|RVS|ALT|대체)\)$", "", candidate, flags=re.I).strip()
+
+
+def _canonical_category_policy(
+    part_type: str | None,
+    description: str | None,
+    value_raw: str | None,
+) -> str | None:
+    """Choose the category policy from BOM-owned evidence only."""
+
+    part_type_text = (part_type or "").casefold()
+    bom_text = " ".join(
+        value.casefold() for value in (part_type, description, value_raw) if value
+    )
+    if any(token in bom_text for token in _ELECTROLYTIC_TOKENS) and any(
+        token in part_type_text
+        for token in ("capacitor", "커패시터", "콘덴서", "electrolytic", "전해")
+    ):
+        return "electrolytic"
+    return next(
+        (
+            policy
+            for policy, tokens in _CATEGORY_POLICY_TOKENS
+            if any(token in part_type_text for token in tokens)
+        ),
+        None,
+    )
 
 
 class QueryPlanner:
@@ -113,48 +145,37 @@ class QueryPlanner:
         quantity = fields["quantity"]
         requirements: dict[str, Requirement] = {}
 
-        for source_name, (
-            target_name,
-            parser,
-            comparison,
-        ) in self._SPEC_PARSERS.items():
+        for source_name, (target_name, parser, comparison) in self._SPEC_PARSERS.items():
             field = fields[source_name]
             if field.value is None:
                 continue
             parsed = parser(field.value)
-            requirements[target_name] = self._requirement(
-                target_name, field, parsed, comparison
-            )
+            requirements[target_name] = self._requirement(target_name, field, parsed, comparison)
 
         temperature = fields["temperature"]
         if temperature.value is not None:
             minimum, maximum = parse_temperature_range_c(temperature.value)
-            normalized_temperature = (
-                [minimum, maximum]
-                if minimum is not None or maximum is not None
-                else None
-            )
+            normalized_temperature = [minimum, maximum] if minimum is not None or maximum is not None else None
             requirements["temperature_range_c"] = self._requirement(
                 "temperature_range_c", temperature, normalized_temperature, "contains"
             )
-        part_type_value = (
-            str(part_type.value).strip() if part_type.value is not None else None
-        )
+        part_type_value = str(part_type.value).strip() if part_type.value is not None else None
         raw_part_number = str(pn.value).strip() if pn.value is not None else None
-        pseudo_package = _package_from_pseudo_part_number(
-            raw_part_number, part_type_value
-        )
+        pseudo_package = _package_from_pseudo_part_number(raw_part_number, part_type_value)
         if pseudo_package is None:
             raw_part_number = _part_number_without_manufacturer_prefix(raw_part_number)
         if package.value is not None:
             requirements["package"] = self._requirement(
-                "package", package, normalize_package(package.value), "eq"
+                "package",
+                package,
+                normalize_package(package.value, part_type_value),
+                "eq",
             )
         elif pseudo_package:
             requirements["package"] = Requirement(
                 name="package",
                 raw_value=pseudo_package,
-                normalized_value=normalize_package(pseudo_package),
+                normalized_value=normalize_package(pseudo_package, part_type_value),
                 status=pn.status,
                 hard=pn.status == "extracted",
                 comparison="eq",
@@ -172,16 +193,26 @@ class QueryPlanner:
             and not _GENERIC_CONNECTOR_NOTATION.fullmatch(raw_part_number)
             else None
         )
-        manufacturer_name = (
-            str(manufacturer.value).strip() if manufacturer.value is not None else None
-        )
+        manufacturer_name = str(manufacturer.value).strip() if manufacturer.value is not None else None
         package_value = (
-            str(package.value).strip() if package.value is not None else pseudo_package
+            str(package.value).strip()
+            if package.value is not None
+            else pseudo_package
         )
         description = component.description or component.value_raw
+        category_policy = _canonical_category_policy(
+            part_type_value,
+            component.description,
+            component.value_raw,
+        )
         physical_source = " ".join(
             value
-            for value in (package_value, component.value_raw, component.description)
+            for value in (
+                part_type_value,
+                package_value,
+                component.value_raw,
+                component.description,
+            )
             if value
         )
         mount_style = detect_mount_style(physical_source)
@@ -215,11 +246,7 @@ class QueryPlanner:
                 hard=True,
                 comparison="eq",
             )
-        hard_specs = [
-            item
-            for item in requirements.values()
-            if item.hard and item.name not in {"part_type"}
-        ]
+        hard_specs = [item for item in requirements.values() if item.hard and item.name not in {"part_type"}]
 
         if part_number and pn.status == "extracted":
             mode = SearchMode.IDENTITY
@@ -252,7 +279,7 @@ class QueryPlanner:
                     keyword_parts.append(str(field.value))
                     break
             if package_value:
-                keyword_parts.append(normalize_package(package_value))
+                keyword_parts.append(normalize_package(package_value, part_type_value))
             if dielectric:
                 keyword_parts.append(dielectric)
             if part_type_value:
@@ -260,11 +287,9 @@ class QueryPlanner:
             if not keyword_parts and description:
                 keyword_parts.append(description)
 
-        qty = (
-            int(quantity.value)
-            if isinstance(quantity.value, (int, float)) and quantity.value > 0
-            else None
-        )
+        qty = component.required_quantity
+        if qty is None and isinstance(quantity.value, (int, float)) and quantity.value > 0:
+            qty = int(quantity.value)
         return PlannedQuery(
             component_id=component.component_id,
             mode=mode,
@@ -272,27 +297,22 @@ class QueryPlanner:
             manufacturer=manufacturer_name,
             description=description,
             part_type=part_type_value,
+            category_policy=category_policy,
             package=package_value,
             quantity=qty,
-            keywords=" ".join(dict.fromkeys(part for part in keyword_parts if part))[
-                :250
-            ],
+            keywords=" ".join(dict.fromkeys(part for part in keyword_parts if part))[:250],
             requirements=requirements,
         )
-
     @staticmethod
     def parametric_fallback(query: PlannedQuery) -> PlannedQuery | None:
-        """품번 검색이 해결되지 않았을 때 사용할 확정 스펙 기반 2차 질의를 만든다.
+        """Create a spec-only second-stage query for an unresolved MPN.
 
-        일반적인 무품번 탐색은 hard spec 두 개가 필요하다. 다만 품번 검색까지
-        실패한 뒤에는 1K 저항처럼 부품 종류별 핵심 전기값 하나도 대체품을 찾을
-        근거로 허용한다.
+        Normal part-number-free discovery still requires two hard specs.  Once
+        an MPN attempt has failed, one type-specific primary electrical value is
+        also useful enough to search (for example, ``1K`` + ``resistor``).
         """
 
-        if (
-            query.mode not in {SearchMode.IDENTITY, SearchMode.HYBRID}
-            or not query.part_number
-        ):
+        if query.mode not in {SearchMode.IDENTITY, SearchMode.HYBRID} or not query.part_number:
             return None
         hard_specs = [
             requirement
@@ -313,7 +333,8 @@ class QueryPlanner:
             update={
                 "mode": SearchMode.PARAMETRIC,
                 "part_number": None,
-                # 해석할 수 없는 품번·제조사 조합이 대체품 탐색 범위를 좁히면 안 된다.
+                # An unresolvable MPN/manufacturer pair must not narrow the
+                # replacement-part discovery query.
                 "manufacturer": None,
             },
             deep=True,
@@ -324,9 +345,7 @@ class QueryPlanner:
         )
 
     @staticmethod
-    def _requirement(
-        name: str, field: SearchField, normalized: Any, comparison: str
-    ) -> Requirement:
+    def _requirement(name: str, field: SearchField, normalized: Any, comparison: str) -> Requirement:
         return Requirement(
             name=name,
             raw_value=field.value,

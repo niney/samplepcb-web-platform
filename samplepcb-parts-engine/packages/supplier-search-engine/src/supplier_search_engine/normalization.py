@@ -85,6 +85,48 @@ _PACKAGE_ALIASES = {
     "SC90SOD323F": "SC90",
     "TO2363SC59SOT233": "SOT23",
 }
+_CRYSTAL_PACKAGE_TYPES = {
+    "crystal",
+    "oscillator",
+    "resonator",
+    "xtal",
+    "크리스털",
+    "크리스탈",
+    "수정",
+    "발진기",
+    "공진기",
+}
+_CRYSTAL_DIMENSION_CODES = {
+    (16, 12): "1612",
+    (20, 16): "2016",
+    (25, 20): "2520",
+    (32, 25): "3225",
+}
+_CRYSTAL_DIMENSION = re.compile(
+    r"(?<![\d.])(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*"
+    r"(\d+(?:\.\d+)?)\s*(?:mm)?(?![\d.])",
+    re.I,
+)
+_CRYSTAL_SIZE_CODE = re.compile(r"(?<!\d)(1612|2016|2520|3225)(?!\d)")
+_GENERIC_CRYSTAL_SMD = re.compile(r"(?:\d+SMD|SMD\d+)(?:NOLEAD)?")
+
+
+def _is_crystal_package_context(component_type: str | None) -> bool:
+    component = unicodedata.normalize("NFKC", component_type or "").strip().casefold()
+    return component in _CRYSTAL_PACKAGE_TYPES
+
+
+def _crystal_package_from_text(value: object) -> str | None:
+    text = unicodedata.normalize("NFKC", "" if value is None else str(value))
+    dimension = _CRYSTAL_DIMENSION.search(text)
+    if dimension:
+        first = round(float(dimension.group(1)) * 10)
+        second = round(float(dimension.group(2)) * 10)
+        package = _CRYSTAL_DIMENSION_CODES.get((first, second))
+        if package:
+            return package
+    code = _CRYSTAL_SIZE_CODE.search(text)
+    return code.group(1) if code else None
 
 
 def normalize_mpn(value: object) -> str:
@@ -102,12 +144,21 @@ def normalize_manufacturer(value: object) -> str:
     return re.sub(r"[^a-z0-9가-힣]+", "", text)
 
 
-def normalize_package(value: object) -> str:
+def normalize_package(value: object, component_type: str | None = None) -> str:
     text = unicodedata.normalize("NFKC", "" if value is None else str(value)).upper()
     prefixed = re.fullmatch(r"[^=]{1,24}=(.+)", text.strip())
     if prefixed:
         text = prefixed.group(1).strip()
     compact = re.sub(r"[^A-Z0-9]+", "", text)
+
+    crystal_context = _is_crystal_package_context(component_type)
+    if crystal_context:
+        physical_package = _crystal_package_from_text(text)
+        if physical_package:
+            return physical_package
+        # Pin count alone does not identify a crystal's physical body size.
+        if _GENERIC_CRYSTAL_SMD.fullmatch(compact):
+            return ""
 
     tfbga = (
         re.search(r"TFBGA[^0-9]{0,8}(\d{1,3}(?:\s*\+\s*\d{1,3})?)", text)
@@ -154,9 +205,13 @@ def normalize_package(value: object) -> str:
     return _PACKAGE_ALIASES.get(compact, compact)
 
 
-def packages_compatible(expected: object, actual: object) -> bool:
-    left = normalize_package(expected)
-    right = normalize_package(actual)
+def packages_compatible(
+    expected: object,
+    actual: object,
+    component_type: str | None = None,
+) -> bool:
+    left = normalize_package(expected, component_type)
+    right = normalize_package(actual, component_type)
     if not left or not right:
         return False
     if left == right:
@@ -169,21 +224,25 @@ def packages_compatible(expected: object, actual: object) -> bool:
     return False
 
 
-def package_display(value: object) -> str | None:
+def package_display(value: object, component_type: str | None = None) -> str | None:
     """Return one canonical package label for API and UI consumers."""
 
-    canonical = normalize_package(value)
+    canonical = normalize_package(value, component_type)
     if not canonical:
         return None
     metric = _IMPERIAL_TO_METRIC.get(canonical)
     return f"{canonical} · {metric} metric" if metric else canonical
 
 
-def distinct_package_notation(value: object, canonical_value: object) -> str | None:
+def distinct_package_notation(
+    value: object,
+    canonical_value: object,
+    component_type: str | None = None,
+) -> str | None:
     """Keep only supplier/BOM notation that adds information to the canonical label."""
 
     raw = unicodedata.normalize("NFKC", "" if value is None else str(value)).strip()
-    canonical = normalize_package(canonical_value)
+    canonical = normalize_package(canonical_value, component_type)
     if not raw or not canonical:
         return None
     compact_raw = re.sub(r"[^A-Z0-9]+", "", raw.upper())
@@ -219,15 +278,17 @@ def normalize_dielectric(value: object) -> str | None:
     return "C0G" if token in {"COG", "NP0"} else token
 
 
-def package_from_text(value: object) -> str | None:
+def package_from_text(value: object, component_type: str | None = None) -> str | None:
     text = unicodedata.normalize("NFKC", "" if value is None else str(value))
+    if _is_crystal_package_context(component_type):
+        return _crystal_package_from_text(text)
     size = parse_size_code(text)
     if size:
         return size.upper()
     match = _NAMED_PACKAGE.search(text)
     if not match:
         return None
-    return normalize_package(f"{match.group(1)}-{match.group(2)}")
+    return normalize_package(f"{match.group(1)}-{match.group(2)}", component_type)
 
 
 def normalized_specs_from_text(text: str | None, component_type: str | None = None) -> dict[str, Any]:
@@ -238,7 +299,7 @@ def normalized_specs_from_text(text: str | None, component_type: str | None = No
     minimum, maximum = parse_temperature_range_c(text)
     if minimum is not None or maximum is not None:
         result["temperature_range_c"] = [minimum, maximum]
-    package = package_from_text(text)
+    package = package_from_text(text, component_type)
     if package:
         result["package"] = package
     dielectric = normalize_dielectric(text)
@@ -247,7 +308,10 @@ def normalized_specs_from_text(text: str | None, component_type: str | None = No
     return result
 
 
-def normalized_specs_from_parameters(parameters: Iterable[tuple[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+def normalized_specs_from_parameters(
+    parameters: Iterable[tuple[str, Any]],
+    component_type: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     normalized: dict[str, Any] = {}
     raw: dict[str, Any] = {}
     priorities: dict[str, int] = {}
@@ -323,7 +387,7 @@ def normalized_specs_from_parameters(parameters: Iterable[tuple[str, Any]]) -> t
             if minimum is not None or maximum is not None:
                 normalized["temperature_range_c"] = [minimum, maximum]
         if any(alias in compact_key for alias in ("package", "case", "size", "패키지", "크기")):
-            package = normalize_package(value)
+            package = normalize_package(value, component_type)
             if package:
                 normalized["package"] = package
         if any(

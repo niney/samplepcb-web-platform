@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from ..models import (
+    ManufacturerEvidence,
     PlannedQuery,
     PriceBreak,
     RawSupplierResponse,
@@ -14,8 +15,8 @@ from ..models import (
     SupplierProduct,
 )
 from ..normalization import normalized_specs_from_text
+from ..pricing import valid_price_break
 from .base import SupplierClient
-
 
 _PACKAGING_TRANSLATIONS = {
     "卷带装": "Tape & Reel",
@@ -47,7 +48,7 @@ def normalize_unikeyic_packaging(value: Any) -> str | None:
 class UniKeyICClient(SupplierClient):
     supplier = Supplier.UNIKEYIC
     api_version = "search-v1"
-    normalizer_version = "3"
+    normalizer_version = "2"
 
     def __init__(
         self,
@@ -116,10 +117,13 @@ class UniKeyICClient(SupplierClient):
             price_values = product.get("calc_sale_usd_price") or []
             quantities = product.get("nums") or []
             breaks: list[PriceBreak] = []
+            invalid_price_break_count = abs(len(quantities) - len(price_values))
             for quantity, price_value in zip(quantities, price_values, strict=False):
-                price = self._price(price_value)
-                if price is not None:
-                    breaks.append(PriceBreak(quantity=int(quantity or 0), unit_price=price, currency="USD"))
+                price_break = valid_price_break(quantity, price_value, "USD")
+                if price_break is None:
+                    invalid_price_break_count += 1
+                else:
+                    breaks.append(price_break)
             offer = SupplierOffer(
                 supplier=self.supplier,
                 supplier_sku=product.get("sku"),
@@ -127,8 +131,10 @@ class UniKeyICClient(SupplierClient):
                 stock=int(product["stock"]) if isinstance(product.get("stock"), (int, float)) else None,
                 moq=int(product["moq"]) if isinstance(product.get("moq"), (int, float)) else None,
                 price_breaks=breaks,
+                invalid_price_break_count=invalid_price_break_count,
                 fetched_at=raw.fetched_at,
             )
+            manufacturer = product.get("std_mfr_name")
             result.append(
                 SupplierProduct(
                     supplier=self.supplier,
@@ -139,7 +145,12 @@ class UniKeyICClient(SupplierClient):
                         product.get("sku"),
                     ),
                     manufacturer_part_number=mpn,
-                    manufacturer=product.get("std_mfr_name"),
+                    manufacturer=manufacturer,
+                    manufacturer_evidence=(
+                        ManufacturerEvidence.STRUCTURED
+                        if manufacturer
+                        else ManufacturerEvidence.MISSING
+                    ),
                     description=description,
                     category=product.get("cate_name"),
                     package=specs.get("package") if isinstance(specs.get("package"), str) else None,
@@ -151,13 +162,3 @@ class UniKeyICClient(SupplierClient):
                 )
             )
         return result
-
-    @staticmethod
-    def _price(value: Any) -> float | None:
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, dict):
-            for nested in value.values():
-                if isinstance(nested, (int, float)):
-                    return float(nested)
-        return None

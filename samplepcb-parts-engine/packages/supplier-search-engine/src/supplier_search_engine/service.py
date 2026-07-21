@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -13,6 +14,7 @@ from .budget import ApiBudgetManager, QuotaExceeded
 from .cache import SQLiteCache, stable_cache_key
 from .matcher import (
     CandidateMatcher,
+    canonical_manufacturer,
     finalize_candidate_decisions,
     infer_supplier_part_type,
 )
@@ -22,15 +24,22 @@ from .models import (
     CandidateMatch,
     ComponentSearchResult,
     InputCorrection,
+    LifecycleState,
+    MatchRelation,
     MatchStatus,
     PlannedQuery,
+    ProcurementPolicyInput,
     RawSupplierResponse,
     SearchMode,
+    SelectionEligibility,
+    SelectionRecommendation,
     Supplier,
     SupplierSearchResult,
 )
+from .normalization import compact_mpn
 from .planner import QueryPlanner
 from .preflight import PreflightAnalyzer
+from .procurement import apply_procurement_decisions
 from .request_cache import supplier_cache_coordinates
 from .routing import suppliers_for_query
 from .settings import Settings
@@ -52,9 +61,7 @@ class _JobCallBudget:
     async def reserve(self, supplier: Supplier) -> None:
         async with self._lock:
             if self.used >= self.maximum:
-                raise JobBudgetExceeded(
-                    f"job API call limit ({self.maximum}) exhausted"
-                )
+                raise JobBudgetExceeded(f"job API call limit ({self.maximum}) exhausted")
             # This transaction is deliberately inside the same lock: a rejected
             # supplier quota must not consume the per-job allowance.
             self.persistent_budget.reserve(supplier)
@@ -63,19 +70,6 @@ class _JobCallBudget:
 
 class SearchService:
     """Cache-first supplier orchestration and deterministic local verification."""
-
-    _STATUS_ORDER = {
-        MatchStatus.VERIFIED_EXACT: 0,
-        MatchStatus.VERIFIED_VARIANT: 1,
-        MatchStatus.SPEC_COMPATIBLE: 2,
-        MatchStatus.INPUT_CONFLICT: 3,
-        # Neither state is accepted. Rank them in the same bucket so the
-        # candidate with more verified BOM evidence is shown first instead of
-        # an almost-empty partial result hiding a well-explained conflict.
-        MatchStatus.SPEC_PARTIAL: 4,
-        MatchStatus.AMBIGUOUS: 4,
-    }
-    _PUBLIC_CANDIDATES_PER_SUPPLIER = 4
 
     def __init__(
         self,
@@ -91,9 +85,7 @@ class SearchService:
         self.planner = QueryPlanner()
         self.matcher = CandidateMatcher()
         self.singleflight = AsyncSingleFlight()
-        supplied_clients = (
-            clients if clients is not None else self._default_clients(settings)
-        )
+        supplied_clients = clients if clients is not None else self._default_clients(settings)
         self.clients = {client.supplier: client for client in supplied_clients}
         concurrency = {
             Supplier.DIGIKEY: settings.digikey_concurrency,
@@ -162,13 +154,12 @@ class SearchService:
             groups.setdefault(key, []).append((index, plan))
 
         job_budget = _JobCallBudget(self.settings.max_api_calls_per_job, self.budget)
-        mouser_prefetch = asyncio.create_task(
-            self._prefetch_mouser_exact(plans, job_budget)
-        )
+        mouser_prefetch = asyncio.create_task(self._prefetch_mouser_exact(plans, job_budget))
         tasks = {
             key: asyncio.create_task(
                 self.search_component(
                     items[0][1],
+                    procurement_policy=batch.procurement_policy,
                     job_budget=job_budget,
                     supplier_barriers=(
                         {Supplier.MOUSER: mouser_prefetch}
@@ -195,6 +186,7 @@ class SearchService:
             if task not in done or task.cancelled():
                 unique_results[key] = self._batch_failure_result(
                     query,
+                    procurement_policy=batch.procurement_policy,
                     error_type="job_timeout",
                     message=(
                         f"공급사 검색이 작업 시간 상한 "
@@ -207,6 +199,7 @@ class SearchService:
             except Exception as exc:  # Batch isolation: preserve every component row.
                 unique_results[key] = self._batch_failure_result(
                     query,
+                    procurement_policy=batch.procurement_policy,
                     error_type=type(exc).__name__,
                     message="공급사 검색 작업을 완료하지 못했습니다.",
                 )
@@ -242,9 +235,7 @@ class SearchService:
                     else None
                 )
                 if offset:
-                    warnings.append(
-                        "동일 검색 조건을 배치 내에서 병합해 공급사 호출을 재사용했습니다."
-                    )
+                    warnings.append("동일 검색 조건을 배치 내에서 병합해 공급사 호출을 재사용했습니다.")
                     api_calls = 0
                 component_results[index] = result.model_copy(
                     update={
@@ -270,6 +261,7 @@ class SearchService:
             if supplier_result.cache_state in {"fresh", "stale", "coalesced"}
         )
         return BatchSearchResult(
+            procurement_policy=batch.procurement_policy,
             source_file=batch.source_file,
             components=completed,
             unique_query_count=len(groups),
@@ -280,24 +272,8 @@ class SearchService:
         )
 
     @classmethod
-    def _compact_component_result(
-        cls, result: ComponentSearchResult
-    ) -> ComponentSearchResult:
-        """Keep the data consumed by the web drawer without duplicating raw products.
-
-        Matching and corroboration run against the complete supplier response first.
-        The raw response remains in SQLite; the public batch result needs only the
-        representative candidate plus three alternates for each supplier.
-        """
-        counts: dict[Supplier, int] = {}
-        candidates: list[CandidateMatch] = []
-        for candidate in result.candidates:
-            supplier = candidate.product.supplier
-            used = counts.get(supplier, 0)
-            if used >= cls._PUBLIC_CANDIDATES_PER_SUPPLIER:
-                continue
-            counts[supplier] = used + 1
-            candidates.append(candidate)
+    def _compact_component_result(cls, result: ComponentSearchResult) -> ComponentSearchResult:
+        """Drop duplicate raw product arrays while preserving every decided candidate."""
         supplier_results = [
             supplier_result.model_copy(update={"products": []}, deep=False)
             for supplier_result in result.supplier_results
@@ -308,7 +284,6 @@ class SearchService:
         ]
         return result.model_copy(
             update={
-                "candidates": candidates,
                 "supplier_results": supplier_results,
                 "initial_supplier_results": initial_supplier_results,
             },
@@ -319,9 +294,15 @@ class SearchService:
     def _batch_failure_result(
         query: PlannedQuery,
         *,
+        procurement_policy: ProcurementPolicyInput | None = None,
         error_type: str,
         message: str,
     ) -> ComponentSearchResult:
+        _, procurement_decision = apply_procurement_decisions(
+            query,
+            [],
+            procurement_policy or ProcurementPolicyInput(),
+        )
         return ComponentSearchResult(
             component_id=query.component_id,
             mode=query.mode,
@@ -335,6 +316,7 @@ class SearchService:
                 )
                 for supplier in suppliers_for_query(query)
             ],
+            procurement_decision=procurement_decision,
             warnings=[message],
         )
 
@@ -351,12 +333,14 @@ class SearchService:
         self,
         query: PlannedQuery,
         *,
+        procurement_policy: ProcurementPolicyInput | None = None,
         job_budget: _JobCallBudget | None = None,
         supplier_barriers: dict[Supplier, asyncio.Task[int]] | None = None,
     ) -> ComponentSearchResult:
         started = time.perf_counter()
         result = await self._search_component_impl(
             query,
+            procurement_policy=procurement_policy or ProcurementPolicyInput(),
             job_budget=job_budget,
             supplier_barriers=supplier_barriers,
         )
@@ -369,21 +353,24 @@ class SearchService:
         self,
         query: PlannedQuery,
         *,
+        procurement_policy: ProcurementPolicyInput,
         job_budget: _JobCallBudget | None = None,
         supplier_barriers: dict[Supplier, asyncio.Task[int]] | None = None,
     ) -> ComponentSearchResult:
         if query.mode == SearchMode.INSUFFICIENT:
+            _, procurement_decision = apply_procurement_decisions(
+                query, [], procurement_policy
+            )
             return ComponentSearchResult(
                 component_id=query.component_id,
                 mode=query.mode,
                 status=MatchStatus.INSUFFICIENT_INPUT,
                 query=query,
+                procurement_decision=procurement_decision,
                 warnings=["부품 식별자 또는 검증 가능한 스펙이 부족합니다."],
             )
 
-        budget = job_budget or _JobCallBudget(
-            self.settings.max_api_calls_per_job, self.budget
-        )
+        budget = job_budget or _JobCallBudget(self.settings.max_api_calls_per_job, self.budget)
         suppliers = suppliers_for_query(query)
         tasks = [
             self._search_supplier_after_barrier(
@@ -403,6 +390,11 @@ class SearchService:
         ]
         candidates = finalize_candidate_decisions(query, candidates)
         candidates = self._add_corroboration(candidates)
+        candidates = self._assign_technical_review_ranks(query, candidates)
+        candidates = self._assign_selection_recommendations(candidates, query)
+        candidates, procurement_decision = apply_procurement_decisions(
+            query, candidates, procurement_policy
+        )
         candidates.sort(key=self._candidate_sort_key)
         input_corrections = self._input_corrections(query, candidates)
 
@@ -416,9 +408,7 @@ class SearchService:
         warnings: list[str] = []
         for result in supplier_results:
             if result.cache_state == "stale":
-                warnings.append(
-                    f"{result.supplier.value}: 만료 캐시를 대체 결과로 사용했습니다."
-                )
+                warnings.append(f"{result.supplier.value}: 만료 캐시를 대체 결과로 사용했습니다.")
             if result.error_type:
                 warnings.append(f"{result.supplier.value}: {result.error_type}")
         primary = ComponentSearchResult(
@@ -429,6 +419,7 @@ class SearchService:
             candidates=candidates,
             input_corrections=input_corrections,
             supplier_results=supplier_results,
+            procurement_decision=procurement_decision,
             api_calls=sum(result.api_calls for result in supplier_results),
             warnings=warnings,
         )
@@ -445,6 +436,7 @@ class SearchService:
 
         fallback = await self._search_component_impl(
             fallback_query,
+            procurement_policy=procurement_policy,
             job_budget=budget,
         )
         return fallback.model_copy(
@@ -496,12 +488,7 @@ class SearchService:
             if query.mode != SearchMode.IDENTITY or not query.part_number:
                 continue
             namespace, cache_key = supplier_cache_coordinates(client, query)
-            if (
-                self._cached_result(
-                    client, query, namespace, cache_key, allow_stale=False
-                )
-                is not None
-            ):
+            if self._cached_result(client, query, namespace, cache_key, allow_stale=False) is not None:
                 continue
             unique.setdefault(cache_key, query)
         queries = list(unique.values())
@@ -545,9 +532,7 @@ class SearchService:
         async def fetch_chunk(chunk: list[PlannedQuery]) -> int:
             try:
                 async with self._semaphores[Supplier.MOUSER]:
-                    raw = await client.fetch_exact_batch(
-                        chunk, reserve_call=reserve_call
-                    )
+                    raw = await client.fetch_exact_batch(chunk, reserve_call=reserve_call)
             except (QuotaExceeded, JobBudgetExceeded):
                 return 0
             if not raw.ok:
@@ -561,9 +546,7 @@ class SearchService:
                 else:
                     missing.append(query)
             if missing:
-                stored += sum(
-                    await asyncio.gather(*(fallback(query) for query in missing))
-                )
+                stored += sum(await asyncio.gather(*(fallback(query) for query in missing)))
             return stored
 
         chunks = [queries[index : index + 10] for index in range(0, len(queries), 10)]
@@ -630,23 +613,17 @@ class SearchService:
             )
         namespace, cache_key = supplier_cache_coordinates(client, query)
 
-        cached = self._cached_result(
-            client, query, namespace, cache_key, allow_stale=False
-        )
+        cached = self._cached_result(client, query, namespace, cache_key, allow_stale=False)
         if cached is not None:
             return cached
 
         async def execute() -> SupplierSearchResult:
             # A second check closes the race between the first lookup and
             # single-flight registration.
-            fresh = self._cached_result(
-                client, query, namespace, cache_key, allow_stale=False
-            )
+            fresh = self._cached_result(client, query, namespace, cache_key, allow_stale=False)
             if fresh is not None:
                 return fresh
-            stale = self._cached_result(
-                client, query, namespace, cache_key, allow_stale=True
-            )
+            stale = self._cached_result(client, query, namespace, cache_key, allow_stale=True)
             if self.settings.cache_only:
                 return stale or SupplierSearchResult(
                     supplier=supplier,
@@ -671,23 +648,18 @@ class SearchService:
                 async with self._supplier_slot(supplier, query):
                     raw = await client.fetch(query, reserve_call=reserve_call)
             except (QuotaExceeded, JobBudgetExceeded) as exc:
-                error_type = (
-                    "job_call_limit_exhausted"
-                    if isinstance(exc, JobBudgetExceeded)
-                    else "quota_exhausted"
-                )
                 if stale is not None:
                     return stale.model_copy(
                         update={
                             "api_call_performed": call_count > 0,
                             "api_calls": call_count,
-                            "error_type": error_type,
+                            "error_type": "quota_exhausted",
                             "error_message": str(exc),
                         }
                     )
                 return SupplierSearchResult(
                     supplier=supplier,
-                    error_type=error_type,
+                    error_type="quota_exhausted",
                     error_message=str(exc),
                     api_call_performed=call_count > 0,
                     api_calls=call_count,
@@ -738,21 +710,11 @@ class SearchService:
                 api_calls=call_count,
             )
 
-        result, joined = await self.singleflight.run(
-            f"{namespace}:{cache_key}", execute
-        )
+        result, joined = await self.singleflight.run(f"{namespace}:{cache_key}", execute)
         if joined:
-            state = (
-                "coalesced"
-                if result.cache_state in {"miss", "fresh", "coalesced"}
-                else result.cache_state
-            )
+            state = "coalesced" if result.cache_state in {"miss", "fresh", "coalesced"} else result.cache_state
             return result.model_copy(
-                update={
-                    "cache_state": state,
-                    "api_call_performed": False,
-                    "api_calls": 0,
-                },
+                update={"cache_state": state, "api_call_performed": False, "api_calls": 0},
                 deep=True,
             )
         return result
@@ -833,41 +795,130 @@ class SearchService:
         )
 
     @classmethod
-    def _candidate_sort_key(cls, candidate: CandidateMatch) -> tuple[Any, ...]:
-        stock = max(
-            (
-                offer.stock
-                for offer in candidate.product.offers
-                if offer.stock is not None
-            ),
-            default=-1,
+    def _candidate_sort_key(
+        cls,
+        candidate: CandidateMatch,
+        query: PlannedQuery | None = None,
+    ) -> tuple[Any, ...]:
+        decision = candidate.decision
+        eligibility_order = {
+            SelectionEligibility.AUTOMATIC: 0,
+            SelectionEligibility.MANUAL_REVIEW: 1,
+            SelectionEligibility.BLOCKED: 2,
+        }
+        relation_order = {
+            MatchRelation.EXACT: 0,
+            MatchRelation.VARIANT: 1,
+            MatchRelation.SPEC_COMPATIBLE: 2,
+            MatchRelation.UNRESOLVED: 3,
+        }
+        lifecycle_order = {
+            LifecycleState.ACTIVE: 0,
+            LifecycleState.UNKNOWN: 1,
+            LifecycleState.CAUTION: 2,
+        }
+        recommendation_order = {
+            SelectionRecommendation.PRESELECT: 0,
+            SelectionRecommendation.CANDIDATE_ONLY: 1,
+            SelectionRecommendation.EXCLUDE: 2,
+        }
+        source_conflicts = sum(value.endswith("_source_conflict") for value in candidate.conflicts)
+        actual_conflicts = sum(
+            not value.endswith("_source_conflict") and value != "manufacturer_mismatch"
+            for value in candidate.conflicts
         )
-        primary_conflicts = sum(
-            conflict
-            in {
-                "part_number_mismatch",
-                "manufacturer_mismatch",
-                "part_type_mismatch",
-                "resistance_ohm_mismatch",
-                "capacitance_f_mismatch",
-                "inductance_h_mismatch",
-                "frequency_hz_mismatch",
-                "package_mismatch",
-            }
-            for conflict in candidate.conflicts
+        required = decision.required_requirement_count
+        verification_ratio = (
+            decision.verified_requirement_count / required if required else 0.0
+        )
+        if decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW:
+            review_rank = decision.technical_review_rank or 1_000_000
+        else:
+            review_rank = 0
+        supplier_skus = ",".join(
+            sorted(
+                {
+                    offer.supplier_sku
+                    for offer in candidate.product.offers
+                    if offer.supplier_sku
+                }
+            )
         )
         return (
-            cls._STATUS_ORDER.get(candidate.status, 99),
+            eligibility_order[decision.selection_eligibility],
+            recommendation_order[decision.selection_recommendation],
+            review_rank,
+            relation_order[decision.match_relation],
+            actual_conflicts,
+            source_conflicts,
+            len(candidate.missing_requirements),
+            -verification_ratio,
+            -decision.verified_requirement_count,
+            -cls._exact_requirement_match_count(query, candidate),
             -candidate.identity_confidence,
             -candidate.specification_confidence,
-            primary_conflicts,
-            len(candidate.conflicts),
-            len(candidate.missing_requirements),
-            -len(candidate.corroborating_suppliers),
-            -stock,
+            lifecycle_order[decision.lifecycle_state],
+            canonical_manufacturer(candidate.product.manufacturer),
+            compact_mpn(candidate.product.manufacturer_part_number),
             candidate.product.supplier.value,
-            candidate.product.manufacturer_part_number,
+            supplier_skus,
+            decision.identity_key,
+            decision.technical_evidence_key,
         )
+
+    @staticmethod
+    def _normalized_values_equal(expected: Any, actual: Any) -> bool:
+        if isinstance(expected, bool) or isinstance(actual, bool):
+            return expected is actual
+        if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+            scale = max(abs(float(expected)), abs(float(actual)))
+            return math.isclose(
+                float(expected),
+                float(actual),
+                rel_tol=1e-9,
+                abs_tol=max(scale * 1e-12, 1e-18),
+            )
+        if isinstance(expected, list) and isinstance(actual, list):
+            return len(expected) == len(actual) and all(
+                SearchService._normalized_values_equal(left, right)
+                for left, right in zip(expected, actual, strict=True)
+            )
+        if isinstance(expected, str) and isinstance(actual, str):
+            return expected.strip().casefold() == actual.strip().casefold()
+        return expected == actual
+
+    @classmethod
+    def _exact_requirement_match_count(
+        cls,
+        query: PlannedQuery | None,
+        candidate: CandidateMatch,
+    ) -> int:
+        if query is None:
+            return 0
+        exact = 0
+        for name, requirement in query.requirements.items():
+            if not requirement.hard or requirement.normalized_value is None:
+                continue
+            if f"{name}_match" not in candidate.reasons:
+                continue
+            if name == "package":
+                if candidate.package_comparison and candidate.package_comparison.relation in {
+                    "exact",
+                    "alias",
+                }:
+                    exact += 1
+                continue
+            comparison = candidate.spec_comparisons.get(name)
+            if comparison is not None:
+                if comparison.relation in {"exact", "alias"}:
+                    exact += 1
+                continue
+            actual = candidate.product.normalized_specs.get(name)
+            if name == "part_type" and actual is None:
+                actual = infer_supplier_part_type(candidate.product)
+            if cls._normalized_values_equal(requirement.normalized_value, actual):
+                exact += 1
+        return exact
 
     @staticmethod
     def _add_corroboration(candidates: list[CandidateMatch]) -> list[CandidateMatch]:
@@ -882,15 +933,164 @@ class SearchService:
             }
             result.append(
                 candidate.model_copy(
+                    update={"corroborating_suppliers": sorted(suppliers, key=lambda item: item.value)},
+                    deep=True,
+                )
+            )
+        return result
+
+    @classmethod
+    def _assign_technical_review_ranks(
+        cls,
+        query: PlannedQuery,
+        candidates: list[CandidateMatch],
+    ) -> list[CandidateMatch]:
+        """Dense-rank manual-review evidence groups by engine-owned technical order."""
+
+        groups: dict[tuple[str, str], list[CandidateMatch]] = {}
+        for candidate in candidates:
+            decision = candidate.decision
+            if not cls._technical_review_rank_eligible(query, candidate):
+                continue
+            key = (decision.identity_key, decision.technical_evidence_key)
+            groups.setdefault(key, []).append(candidate)
+
+        ordered_keys = sorted(
+            groups,
+            key=lambda key: min(
+                cls._candidate_sort_key(candidate, query) for candidate in groups[key]
+            ),
+        )
+        rank_by_key = {key: rank for rank, key in enumerate(ordered_keys, start=1)}
+
+        ranked: list[CandidateMatch] = []
+        for candidate in candidates:
+            decision = candidate.decision
+            key = (decision.identity_key, decision.technical_evidence_key)
+            rank = (
+                rank_by_key.get(key)
+                if decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+                else None
+            )
+            ranked.append(
+                candidate.model_copy(
                     update={
-                        "corroborating_suppliers": sorted(
-                            suppliers, key=lambda item: item.value
+                        "decision": decision.model_copy(
+                            update={"technical_review_rank": rank},
+                            deep=True,
                         )
                     },
                     deep=True,
                 )
             )
-        return result
+        return ranked
+
+    @staticmethod
+    def _technical_review_rank_eligible(
+        query: PlannedQuery,
+        candidate: CandidateMatch,
+    ) -> bool:
+        decision = candidate.decision
+        if decision.selection_eligibility != SelectionEligibility.MANUAL_REVIEW:
+            return False
+        if any(value.endswith("_source_conflict") for value in candidate.conflicts):
+            return False
+        if decision.match_relation in {MatchRelation.EXACT, MatchRelation.VARIANT}:
+            return True
+
+        required = {
+            name
+            for name, requirement in query.requirements.items()
+            if requirement.hard and requirement.normalized_value is not None
+        }
+        verified = {
+            reason.removesuffix("_match")
+            for reason in candidate.reasons
+            if reason.endswith("_match")
+            and reason != "manufacturer_match"
+            and not reason.startswith("manufacturer_part_number_")
+        }
+        if "tolerance_not_applicable_for_zero_ohm" in candidate.reasons:
+            verified.add("tolerance_percent")
+        technical_required = required - {"manufacturer", "part_number", "part_type"}
+        return (
+            required <= verified
+            and technical_required <= verified
+            and len(technical_required) >= 2
+        )
+
+    @classmethod
+    def _assign_selection_recommendations(
+        cls,
+        candidates: list[CandidateMatch],
+        query: PlannedQuery | None = None,
+    ) -> list[CandidateMatch]:
+        selectable_groups: dict[tuple[str, str], list[CandidateMatch]] = {}
+        for candidate in candidates:
+            if candidate.decision.selection_eligibility != SelectionEligibility.AUTOMATIC:
+                continue
+            key = (
+                candidate.decision.identity_key,
+                candidate.decision.technical_evidence_key,
+            )
+            selectable_groups.setdefault(key, []).append(candidate)
+
+        if selectable_groups:
+            preselected_key = min(
+                selectable_groups,
+                key=lambda key: min(
+                    cls._candidate_sort_key(candidate, query)
+                    for candidate in selectable_groups[key]
+                ),
+            )
+        else:
+            first_review = min(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate.decision.technical_review_rank == 1
+                ),
+                key=lambda candidate: cls._candidate_sort_key(candidate, query),
+                default=None,
+            )
+            preselected_key = (
+                (
+                    first_review.decision.identity_key,
+                    first_review.decision.technical_evidence_key,
+                )
+                if first_review is not None
+                else None
+            )
+
+        recommended: list[CandidateMatch] = []
+        for candidate in candidates:
+            decision = candidate.decision
+            key = (decision.identity_key, decision.technical_evidence_key)
+            if decision.selection_eligibility == SelectionEligibility.BLOCKED:
+                recommendation = SelectionRecommendation.EXCLUDE
+            elif key == preselected_key:
+                recommendation = SelectionRecommendation.PRESELECT
+            else:
+                recommendation = SelectionRecommendation.CANDIDATE_ONLY
+            review_recommended = (
+                recommendation == SelectionRecommendation.PRESELECT
+                and decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+            )
+            recommended.append(
+                candidate.model_copy(
+                    update={
+                        "decision": decision.model_copy(
+                            update={
+                                "selection_recommendation": recommendation,
+                                "review_recommended": review_recommended,
+                            },
+                            deep=True,
+                        )
+                    },
+                    deep=True,
+                )
+            )
+        return recommended
 
     @staticmethod
     def _input_corrections(
@@ -900,9 +1100,7 @@ class SearchService:
         """Suggest, but never mutate, a BOM value contradicted by supplier consensus."""
 
         requirement = query.requirements.get("part_type")
-        bom_value = str(
-            (requirement.normalized_value if requirement else None) or ""
-        ).casefold()
+        bom_value = str((requirement.normalized_value if requirement else None) or "").casefold()
         if (
             query.mode != SearchMode.IDENTITY
             or not query.part_number
@@ -924,10 +1122,7 @@ class SearchService:
                 continue
             supplier_candidates = by_suggestion.setdefault(suggested, {})
             current = supplier_candidates.get(candidate.product.supplier)
-            if (
-                current is None
-                or candidate.identity_confidence > current.identity_confidence
-            ):
+            if current is None or candidate.identity_confidence > current.identity_confidence:
                 supplier_candidates[candidate.product.supplier] = candidate
 
         # Any contradictory supplier taxonomy blocks the correction even when

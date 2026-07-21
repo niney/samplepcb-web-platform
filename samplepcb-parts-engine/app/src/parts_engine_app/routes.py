@@ -5,6 +5,15 @@ from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from supplier_search_engine.models import (
+    ProcurementPolicyInput,
+    ProcurementReevaluationRequest,
+    ProcurementReevaluationResult,
+)
+from supplier_search_engine.procurement import (
+    ProcurementReevaluationError,
+    reevaluate_procurement,
+)
 
 from .capabilities import supplier_search_capabilities
 from .jobs import Job, JobError, JobService, SupplierSearchOptions
@@ -20,6 +29,9 @@ class SupplierSearchOptionsBody(BaseModel):
     cache_only: bool = False
     reset_cache: bool = False
     sheet_indexes: list[int] = Field(default_factory=list, max_length=100)
+    procurement: ProcurementPolicyInput = Field(
+        default_factory=ProcurementPolicyInput
+    )
 
     @model_validator(mode="after")
     def validate_cache_mode(self) -> "SupplierSearchOptionsBody":
@@ -37,6 +49,7 @@ class SupplierSearchOptionsBody(BaseModel):
             cache_only=self.cache_only,
             reset_cache=self.reset_cache,
             sheet_indexes=tuple(self.sheet_indexes),
+            procurement_policy=self.procurement,
         )
 
 
@@ -46,6 +59,16 @@ class PersistedAnalysisBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     analysis: dict[str, Any]
+    required_quantities: dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_required_quantities(self) -> "PersistedAnalysisBody":
+        for component_id, quantity in self.required_quantities.items():
+            if not component_id.strip():
+                raise ValueError("required quantity component ids must not be blank")
+            if isinstance(quantity, bool) or quantity < 1:
+                raise ValueError("required quantities must be positive integers")
+        return self
 
 
 def _svc(request: Request) -> JobService:
@@ -129,7 +152,11 @@ async def create_supplier_job(
     body: PersistedAnalysisBody,
 ) -> dict[str, Any]:
     try:
-        job = await asyncio.to_thread(_svc(request).submit_analysis_snapshot, body.analysis)
+        job = await asyncio.to_thread(
+            _svc(request).submit_analysis_snapshot,
+            body.analysis,
+            body.required_quantities,
+        )
     except JobError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return _job_view(job)
@@ -177,6 +204,21 @@ async def get_supplier_result(request: Request, job_id: str) -> dict[str, Any]:
     if job.supplier_status != "completed" or job.supplier_result is None:
         raise HTTPException(status_code=409, detail=f"supplier_search_{job.supplier_status}")
     return job.supplier_result
+
+
+@router.post(
+    "/supplier-search/procurement/reevaluate",
+    response_model=ProcurementReevaluationResult,
+)
+async def reevaluate_supplier_procurement(
+    body: ProcurementReevaluationRequest,
+) -> ProcurementReevaluationResult:
+    """저장된 기술 후보에 새 수량·환율 정책만 적용한다(공급사 호출 없음)."""
+
+    try:
+        return await asyncio.to_thread(reevaluate_procurement, body)
+    except ProcurementReevaluationError as error:
+        raise HTTPException(status_code=422, detail=error.api_detail()) from error
 
 
 class PartRefreshBody(BaseModel):
