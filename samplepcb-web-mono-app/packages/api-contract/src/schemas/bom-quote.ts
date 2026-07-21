@@ -13,6 +13,13 @@ export type BomQuoteMatchStatusType = z.infer<typeof BomQuoteMatchStatus>;
 export const BomQuoteSelectionSource = z.enum(['none', 'auto', 'customer', 'catalog', 'admin', 'legacy']);
 export type BomQuoteSelectionSourceType = z.infer<typeof BomQuoteSelectionSource>;
 
+export const BomQuoteSelectionApplicationState = z.enum([
+  'automatic_selected',
+  'provisional_selected',
+  'not_selected',
+]);
+export type BomQuoteSelectionApplicationStateType = z.infer<typeof BomQuoteSelectionApplicationState>;
+
 export const BomQuoteRecommendationType = z.enum([
   'none',
   'identity',
@@ -61,6 +68,10 @@ export const BomQuoteMatchEvidence = z.object({
   policyVersion: z.string(),
   componentId: z.string(),
   componentStatus: z.string(),
+  /** sp-engine이 결정한 적용 상태. 사용자 확인 여부와 분리한다. */
+  selectionApplicationState: BomQuoteSelectionApplicationState.optional(),
+  /** 엔진 선정 결과를 최종 확정하기 전에 사용자 확인이 필요한지 여부. */
+  confirmationRequired: z.boolean().optional(),
   /** 품번 검색에서 신뢰 후보가 없어 엔진이 확정 스펙 검색으로 전환했는지 여부. */
   identityFallback: z.boolean(),
   candidateStatus: z.string().nullable(),
@@ -329,6 +340,8 @@ export const BomQuoteItemCandidates = z.object({
   currentMpn: z.string(),
   currentLineTotalKrw: z.number().nullable(),
   selectionSource: BomQuoteSelectionSource,
+  selectionApplicationState: BomQuoteSelectionApplicationState,
+  confirmationRequired: z.boolean(),
   selectedCandidateKey: z.string().nullable(),
   selectedOfferKey: z.string().nullable(),
   recommendedCandidateKey: z.string().nullable(),

@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
+  type BomQuoteDetailType,
   type BomQuoteItemType,
   type BomQuoteSelectedOfferType,
   type PartHitType,
@@ -182,22 +183,26 @@ const dirty = ref(false);
 // 행 컴포넌트(BomQuoteRow)의 props 가 그대로 유지되게 하고 재렌더를 건너뛴다.
 let lastServerItems = new Map<string, BomQuoteItemType>();
 
+function applyServerDetail(d: BomQuoteDetailType): void {
+  const prevLocal = new Map(items.value.map((i) => [i.id, i]));
+  const nextServer = new Map<string, BomQuoteItemType>();
+  items.value = d.items.map((si) => {
+    nextServer.set(si.id, si);
+    const cur = prevLocal.get(si.id);
+    if (cur !== undefined && lastServerItems.get(si.id) === si) return cur;
+    return { ...si, selectedOffer: si.selectedOffer === null ? null : { ...si.selectedOffer } };
+  });
+  lastServerItems = nextServer;
+  setQty.value = d.setQty;
+  spareQty.value = d.spareQty;
+}
+
 watch(
   detail,
   (d) => {
     if (d === null) return;
     if (dirty.value) return; // 편집 중(자동저장 대기) — 폴링 응답이 로컬 편집을 덮지 않게
-    const prevLocal = new Map(items.value.map((i) => [i.id, i]));
-    const nextServer = new Map<string, BomQuoteItemType>();
-    items.value = d.items.map((si) => {
-      nextServer.set(si.id, si);
-      const cur = prevLocal.get(si.id);
-      if (cur !== undefined && lastServerItems.get(si.id) === si) return cur;
-      return { ...si, selectedOffer: si.selectedOffer === null ? null : { ...si.selectedOffer } };
-    });
-    lastServerItems = nextServer;
-    setQty.value = d.setQty;
-    spareQty.value = d.spareQty;
+    applyServerDetail(d);
   },
   { immediate: true },
 );
@@ -274,7 +279,7 @@ async function saveNow(): Promise<void> {
   if (!isDraft.value || !dirty.value) return;
   saveState.value = 'saving';
   try {
-    await patch.mutateAsync({
+    const saved = await patch.mutateAsync({
       quoteId: quoteId.value,
       body: {
         setQty: setQty.value,
@@ -298,6 +303,9 @@ async function saveNow(): Promise<void> {
       },
     });
     dirty.value = false;
+    // 캐시는 mutation onSuccess에서 먼저 바뀌지만 위 watcher는 당시 dirty라 응답을
+    // 건너뛴다. 서버가 확정한 후보·오퍼·금액을 저장 응답에서 직접 동기화한다.
+    applyServerDetail(saved.data);
     saveState.value = 'saved';
   } catch {
     saveState.value = 'error';
@@ -318,6 +326,7 @@ const stats = computed(() => {
   let nostock = 0;
   let included = 0;
   let uncosted = 0;
+  let pendingReview = 0;
   let lineSum = 0;
   for (const i of items.value) {
     total += 1;
@@ -325,6 +334,11 @@ const stats = computed(() => {
     else if (i.matchEvidence?.selectionMode === 'review') review += 1;
     if (i.included) {
       included += 1;
+      if (
+        i.selectionSource === 'auto'
+        && i.matchEvidence?.selectionApplicationState === 'provisional_selected'
+        && i.matchEvidence.confirmationRequired
+      ) pendingReview += 1;
       if (isStockShort(i)) nostock += 1;
       if (i.lineTotalKrw === null) uncosted += 1;
       else lineSum += i.lineTotalKrw;
@@ -341,6 +355,7 @@ const stats = computed(() => {
     unresolved: total - matched,
     included,
     uncosted,
+    pendingReview,
     itemsTotal: Math.round(lineSum),
   };
 });
@@ -1203,6 +1218,9 @@ function fmtAmount(v: number | null): string {
               </div>
               <p v-if="uncostedCount > 0" class="mt-[9px] rounded-[5px] bg-amber-50 px-2 py-1.5 text-[10px] leading-[15px] text-amber-700">
                 금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다
+              </p>
+              <p v-if="stats.pendingReview > 0" class="mt-[9px] rounded-[5px] border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-semibold leading-[15px] text-amber-800">
+                선정됨 · 검토 대기 {{ stats.pendingReview }}건 — 임시 선정 금액이 합계에 포함되어 있습니다
               </p>
               <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[15px] text-[#8993a2]">
                 <li>AI로 산출한 가견적입니다.</li>

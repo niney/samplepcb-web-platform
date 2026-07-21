@@ -37,9 +37,10 @@ const hasEngineCandidates = computed(() =>
   || props.item.recommendedCandidateKey !== null,
 );
 
-const hasReviewRecommendation = computed(() =>
-  props.item.matchStatus === 'none'
-  && props.item.recommendedCandidateKey !== null,
+const provisionalSelectionPending = computed(() =>
+  props.item.selectionSource === 'auto'
+  && props.item.matchEvidence?.selectionApplicationState === 'provisional_selected'
+  && props.item.matchEvidence.confirmationRequired,
 );
 
 const sortedPriceBreaks = computed(() => {
@@ -53,10 +54,11 @@ const sortedPriceBreaks = computed(() => {
 const rowClass = computed(() => {
   const item = props.item;
   if (!item.included) return 'opacity-45';
+  if (provisionalSelectionPending.value) return 'bg-amber-50/70';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
     if (props.enriching) return 'bg-white';
-    return hasReviewRecommendation.value || item.matchEvidence?.selectionMode === 'review'
+    return item.recommendedCandidateKey !== null || item.matchEvidence?.selectionMode === 'review'
       ? 'bg-amber-50/60'
       : 'bg-[#fdf2f2]';
   }
@@ -71,13 +73,14 @@ const evidenceTitle = computed(() => {
     `엔진 판정: ${evidence.componentStatus}`,
     `안전 후보: ${String(evidence.eligibleCandidateCount)}/${String(evidence.candidateCount)}`,
   ];
-  if (hasReviewRecommendation.value) details.push('가장 유력한 후보: 사용자 검토 권장');
+  if (provisionalSelectionPending.value) details.push('엔진 임시 선정: 사용자 검토 대기');
   if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
   if (evidence.missingRequirements.length > 0) details.push(`누락: ${evidence.missingRequirements.join(', ')}`);
   return details.join('\n');
 });
 
 const sourceLabel = computed(() => {
+  if (provisionalSelectionPending.value) return '엔진 임시 선정';
   if (props.item.selectionSource === 'customer') return '고객 선택';
   if (props.item.selectionSource === 'catalog') return '직접 검색';
   if (props.item.selectionSource === 'admin') return '관리자 선택';
@@ -262,7 +265,7 @@ function onQtyInput(event: Event): void {
         <span v-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
           <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
         </span>
-        <span v-else-if="hasReviewRecommendation" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">검토 권장</span>
+        <span v-else-if="provisionalSelectionPending" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">선정됨 · 검토 대기</span>
         <span v-else-if="item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review'" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">검토 필요</span>
         <span v-else-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600" :title="evidenceTitle">미매칭</span>
         <span v-else-if="stockShort" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">재고 부족</span>

@@ -4,6 +4,7 @@ import {
   applyEngineSupplierResult,
   buildItemsFromEngineResult,
   extractEngineSheets,
+  isEngineManagedQuoteSelection,
   selectEngineMatch,
 } from './bom-quote';
 
@@ -297,7 +298,14 @@ function componentProcurementDecision(
 ) {
   return {
     procurement_policy_version: 'supplier-procurement-decision-v1',
+    selection_application_policy_version: 'supplier-selection-application-v1',
     status,
+    selection_application_state: status === 'automatic_recommended'
+      ? 'automatic_selected'
+      : status === 'review_recommended'
+        ? 'provisional_selected'
+        : 'not_selected',
+    confirmation_required: status === 'review_recommended',
     required_quantity: requiredQuantity,
     target_currency: 'KRW',
     currency_rate_snapshot_id: 'fixture-snapshot',
@@ -312,6 +320,24 @@ function componentProcurementDecision(
 }
 
 describe('BOM 엔진 후보 결정 투영', () => {
+  it('명시 선택이 없는 none/auto 행만 엔진 적용 상태로 수렴시킨다', () => {
+    const state = (selectionSource: 'none' | 'auto' | 'customer' | 'catalog') => ({
+      selectionSource,
+      selectedCandidateKey: null,
+      selectedOffer: null,
+    });
+
+    expect(isEngineManagedQuoteSelection(state('none'))).toBe(true);
+    expect(isEngineManagedQuoteSelection(state('auto'))).toBe(true);
+    expect(isEngineManagedQuoteSelection(state('customer'))).toBe(false);
+    expect(isEngineManagedQuoteSelection(state('catalog'))).toBe(false);
+    expect(isEngineManagedQuoteSelection({
+      selectionSource: 'none',
+      selectedCandidateKey: 'customer-kept',
+      selectedOffer: null,
+    })).toBe(false);
+  });
+
   it.each(['1.2', '1.3'])('%s 봉투가 현재 조달 결정 상태를 명시하지 않으면 전체 반영을 거부한다', async (schemaVersion) => {
     const result = await applyEngineSupplierResult(
       [],
@@ -359,13 +385,15 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.pick?.offer.supplier).toBe('digikey');
     expect(decision?.offerKey).toBe('ok1:engine-selected');
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v8');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v9');
+    expect(decision?.evidence.selectionApplicationState).toBe('automatic_selected');
+    expect(decision?.evidence.confirmationRequired).toBe(false);
     expect(decision?.evidence.decisionReasonCodes).toEqual([
       'engine-procurement-recommendation',
     ]);
   });
 
-  it('엔진의 조달 수동 검토 추천은 후보만 권장하고 자동 적용하지 않는다', () => {
+  it('엔진의 조달 수동 검토 추천은 임시 선정과 가격으로 그대로 적용한다', () => {
     const review = candidate('input_conflict', 'REVIEW-PICK', 'digikey', 100, 1, {
       currentDecisionContract: true,
       eligibility: 'manual_review',
@@ -392,10 +420,46 @@ describe('BOM 엔진 후보 결정 투영', () => {
       null,
     );
 
-    expect(decision?.candidate).toBeNull();
-    expect(decision?.pick).toBeNull();
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('REVIEW-PICK');
+    expect(decision?.candidateKey).toBe('ik1:engine-choice');
+    expect(decision?.offerKey).toBe('ok1:review-selected');
+    expect(decision?.pick?.orderQty).toBe(10);
     expect(decision?.recommendedCandidateKey).toBe('ik1:engine-choice');
+    expect(decision?.evidence.selectionApplicationState).toBe('provisional_selected');
+    expect(decision?.evidence.confirmationRequired).toBe(true);
     expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-manual-review']);
+  });
+
+  it('검토 권장인데 엔진 적용 상태가 임시 선정이 아니면 fail-closed 처리한다', () => {
+    const review = candidate('input_conflict', 'INVALID-APPLICATION', 'digikey', 100, 1, {
+      currentDecisionContract: true,
+      eligibility: 'manual_review',
+      selectionMode: 'exact',
+      technicalReviewRank: 1,
+      selectionRecommendation: 'preselect',
+      reviewRecommended: true,
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+    });
+    attachProcurementDecision(review, 'ok1:invalid-application', 'manual_review');
+
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-invalid-application',
+        status: 'input_conflict',
+        procurement_decision: {
+          ...componentProcurementDecision('review_recommended', 'ok1:invalid-application'),
+          selection_application_state: 'automatic_selected',
+        },
+        candidates: [review],
+      },
+      10,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.recommendedCandidateKey).toBeNull();
+    expect(decision?.evidence.decisionReasonCodes).toEqual(['no-safe-candidate']);
   });
 
   it('엔진 조달 결정의 필요수량이 견적 수량과 다르면 fail-closed 처리한다', () => {
@@ -453,7 +517,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.candidate).toBeNull();
     expect(decision?.recommendedCandidateKey).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v8');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v9');
     expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-procurement-unavailable']);
     expect(decision?.snapshots.map((candidate) => candidate.selectionRecommendation)).toEqual([
       'preselect',
@@ -621,7 +685,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.snapshots).toHaveLength(1);
     expect(decision?.snapshots[0]?.offers).toHaveLength(2);
     expect(decision?.pick).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v8');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v9');
   });
 
   it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 오퍼는 합치지 않는다', () => {

@@ -119,7 +119,7 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   견적에 적용할 수 없는 경우도 실행과 견적을 failed로 닫아 `searching` 고착을 막는다.
   반영 자체는 `componentId`로 원본 행과 엔진 결과를 조인한다. 수동/pinned 행은 보존하고,
   나머지는 엔진의 안전 후보 판정과 선택 오퍼를 한 저장으로 교체한다.
-- **엔진 조달 판단 투영(`engine-procurement-projection-v8`, 2026-07-21)**:
+- **엔진 조달 판단 투영(`engine-procurement-projection-v9`, 2026-07-21)**:
   sp-node는 실제 필요수량과 환율 스냅샷을 검색 입력에 전달한다. sp-engine은 기술 사전 선정 후보군을
   바꾸지 않은 채 안정 `offer_key`, MOQ·주문배수 반영 주문수량, 가격구간, 환산단가, 재고 부족·과다주문,
   구매 적합 순위와 `automatic|manual_review|none` 추천을 계산한다. sp-node는 1.3 계약의 후보군·오퍼 키·
@@ -130,15 +130,19 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   오퍼의 가격/구매적합 순위·자동/검토 추천은 모두 sp-engine이 결정한다. sp-node는 정책 버전,
   identity/evidence/offer key, 필요수량·금액 불변식을 검증하고 DB·ES에 저장할 뿐 후보를 재정렬하거나
   가격·재고·수명주기로 다른 후보를 고르지 않는다. sp-vue도 엔진 순서를 기본으로 고정하며
-  `manual_review + preselect`는 `검토 권장` 임시 선정으로만 강조한다. 사용자 확인 전에는
-  `selectedCandidateKey`나 견적 금액에 반영하지 않는다.
+  엔진이 `automatic_selected|provisional_selected|not_selected` 적용 상태와 사용자 확인 필요 여부를
+  명시한다. `provisional_selected`도 엔진이 지정한 후보·오퍼를 `selectedCandidateKey`와 예상금액에
+  반영하지만 `selectionSource=auto`인 동안은 `선정됨 · 검토 대기`로 표시한다. 사용자가 확인하면
+  기존 명시 선택 API가 같은 후보·오퍼를 `selectionSource=customer`로 기록하며, sp-node가
+  `manual_review` 조합을 보고 임시 선정을 자체 추론하지 않는다.
 - **구버전 결과 처리**: 1.3 조달 결정이 없는 저장 후보는 sp-node의 옛 v6 구매 규칙으로 복원하지
   않는다. 원본 엔진 후보가 있으면 `/supplier-search/procurement/reevaluate`로 현재 정책을 적용하고,
   재평가할 수 없으면 가격·추천을 비운 채 재분석이 필요한 상태로 축퇴한다. 결정 계약이 없거나
   모순된 후보를 자체 규칙으로 복원하지 않는 fail-closed 원칙은 동일하다.
-- **검토 표현**: `automatic`만 자동 적용한다. `manual_review + preselect + review_recommended`는
-  가장 유력한 후보·오퍼를 알려주되 사용자 확인을 요구하고, `candidate_only`는 일반 검토 후보,
-  `exclude`는 선택 불가로 표시한다. 후보 패널의 검증률은 confidence를 그대로 `100%`로 표시하지
+- **검토 표현**: 엔진의 `automatic_selected`는 바로 선정 완료, `provisional_selected`는 후보·오퍼·
+  예상금액까지 적용된 검토 대기 선정, `not_selected`는 미선정이다. 임시 선정을 사용자가 확인하면
+  선택 이벤트를 남기고 검토 완료로 전환한다. `candidate_only`는 일반 검토 후보, `exclude`는 선택
+  불가로 표시한다. 후보 패널의 검증률은 confidence를 그대로 `100%`로 표시하지
   않고 실제 확인 필수조건 수로 계산하며 엔진 사유 코드를 한글로 설명한다.
 - **접미사 변형 매칭**: 포장 접미사형(…DBVR/…DBVT)의 기술적 동일성은 sp-engine의
   `verified_variant`/결정 계약만 인정한다. sp-node의 프리픽스 카탈로그 자동 매칭 경로는 제거했다.

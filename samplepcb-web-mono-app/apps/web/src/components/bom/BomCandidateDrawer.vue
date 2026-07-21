@@ -119,6 +119,17 @@ const reviewRecommendedCandidate = computed(() =>
     && candidate.reviewRecommended
     && candidate.selectionRecommendation === 'preselect') ?? null,
 );
+const provisionalSelectionPending = computed(() =>
+  props.context?.selectionSource === 'auto'
+  && props.context.selectionApplicationState === 'provisional_selected'
+  && props.context.confirmationRequired,
+);
+const reviewSelectionConfirmed = computed(() =>
+  props.context?.selectionApplicationState === 'provisional_selected'
+  && props.context.confirmationRequired
+  && ['customer', 'admin'].includes(props.context.selectionSource)
+  && props.context.selectedCandidateKey === reviewRecommendedCandidate.value?.candidateKey,
+);
 
 function formatOriginalRows(rows: number[], compact: boolean): string {
   if (rows.length === 0) return '';
@@ -330,7 +341,7 @@ function statusLabel(status: string): string {
 function sourceLabel(source: BomQuoteSelectionSourceType): string {
   const labels: Record<BomQuoteSelectionSourceType, string> = {
     none: '미선정',
-    auto: '자동 추천',
+    auto: provisionalSelectionPending.value ? '엔진 임시 선정' : '자동 추천',
     customer: '고객 직접 선택',
     catalog: '카탈로그 직접 선택',
     admin: '관리자 선택',
@@ -361,6 +372,9 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
 }
 
 function safetyClass(candidate: BomQuoteCandidateType): string {
+  if (candidate.selected && provisionalSelectionPending.value) {
+    return 'border-amber-400 bg-amber-50/70 ring-2 ring-amber-200';
+  }
   if (candidate.selected) return 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-200';
   if (candidate.recommended && candidate.reviewRecommended) {
     return 'border-amber-400 bg-amber-50/60 ring-2 ring-amber-200';
@@ -484,7 +498,15 @@ function selectBest(candidate: BomQuoteCandidateType): void {
 }
 
 function bestOfferAlreadySelected(candidate: BomQuoteCandidateType): boolean {
-  return candidate.selected && candidate.bestOfferKey === props.context?.selectedOfferKey;
+  return candidate.selected
+    && candidate.bestOfferKey === props.context?.selectedOfferKey
+    && !provisionalSelectionPending.value;
+}
+
+function offerAlreadyConfirmed(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateOfferType): boolean {
+  return candidate.selected
+    && props.context?.selectedOfferKey === offer.offerKey
+    && !provisionalSelectionPending.value;
 }
 
 function selectOffer(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateOfferType): void {
@@ -745,7 +767,8 @@ onBeforeUnmount(() => {
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <span class="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">{{ sourceLabel(context.selectionSource) }}</span>
-                      <span v-if="currentCandidate?.recommended && currentCandidate.reviewRecommended" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">검토 권장 후보 선택됨</span>
+                      <span v-if="provisionalSelectionPending" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">선정됨 · 검토 대기</span>
+                      <span v-else-if="reviewSelectionConfirmed" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">검토 완료</span>
                       <span v-else-if="currentCandidate?.recommended" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">자동 추천과 동일</span>
                       <span v-else-if="currentCandidate !== null" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">추천에서 변경됨</span>
                     </div>
@@ -787,8 +810,10 @@ onBeforeUnmount(() => {
                   </div>
                   <span class="rounded-lg bg-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-600">엔진 순서 고정</span>
                 </div>
-                <div v-if="reviewRecommendedCandidate !== null" class="mx-4 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                  <p><b>검토 권장 · 임시 선정</b> {{ reviewRecommendedCandidate.mpn }} — 사용자 확인 전에는 견적에 반영되지 않습니다.</p>
+                <div v-if="reviewRecommendedCandidate !== null" class="mx-4 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs" :class="reviewSelectionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-300 bg-amber-50 text-amber-950'">
+                  <p v-if="provisionalSelectionPending"><b>선정됨 · 검토 대기</b> {{ reviewRecommendedCandidate.mpn }} — 엔진 임시 선정으로 예상 견적에 반영했습니다.</p>
+                  <p v-else-if="reviewSelectionConfirmed"><b>검토 완료</b> {{ reviewRecommendedCandidate.mpn }} — 사용자가 엔진 검토 권장 후보를 확인했습니다.</p>
+                  <p v-else><b>검토 권장</b> {{ reviewRecommendedCandidate.mpn }} — 엔진 적용 상태를 다시 반영하면 임시 선정됩니다.</p>
                   <span v-if="reviewRecommendedCandidate.technicalReviewRank !== null" class="rounded-full bg-amber-200 px-2 py-0.5 font-bold">검토 {{ reviewRecommendedCandidate.technicalReviewRank }}순위</span>
                 </div>
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-100 px-4 pt-3">
@@ -809,7 +834,7 @@ onBeforeUnmount(() => {
                           />
                           <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-1.5">
-                              <span v-if="candidate.selected" class="rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white">현재 선택</span>
+                              <span v-if="candidate.selected" class="rounded-full px-2.5 py-1 text-[11px] font-bold text-white" :class="provisionalSelectionPending ? 'bg-amber-600' : 'bg-blue-600'">{{ provisionalSelectionPending ? '현재 선택 · 검토 대기' : '현재 선택' }}</span>
                               <span
                                 v-if="recommendationLabel(candidate) !== ''"
                                 class="rounded-full px-2.5 py-1 text-[11px] font-bold"
@@ -846,7 +871,7 @@ onBeforeUnmount(() => {
                             :disabled="selecting || !candidate.manualSelectable || bestOfferAlreadySelected(candidate)"
                             @click="selectBest(candidate)"
                           >
-                            {{ bestOfferAlreadySelected(candidate) ? '현재 구매조건 오퍼' : candidate.reviewRecommended ? '권장 후보 검토 후 선택' : candidate.selectionEligibility === 'manual_review' ? '검토 후 선택' : candidate.selected ? '구매조건 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '구매조건 오퍼로 선택' }}
+                            {{ provisionalSelectionPending && candidate.selected ? '검토 완료' : bestOfferAlreadySelected(candidate) ? '현재 구매조건 오퍼' : candidate.reviewRecommended ? '권장 후보 검토 후 선택' : candidate.selectionEligibility === 'manual_review' ? '검토 후 선택' : candidate.selected ? '구매조건 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '구매조건 오퍼로 선택' }}
                           </button>
                         </div>
                       </div>
@@ -859,7 +884,7 @@ onBeforeUnmount(() => {
                         자동선정 제외: {{ conflictText(candidate) }}
                       </div>
                       <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-                        <template v-if="candidate.reviewRecommended"><b>엔진 검토 권장:</b> 가장 유력한 후보이지만 확인이 필요한 항목이 있어 자동 적용하지 않았습니다. 검토 후 직접 선택할 수 있습니다.</template>
+                        <template v-if="candidate.reviewRecommended"><b>엔진 검토 권장:</b> 가장 유력한 후보와 구매조건을 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
                       </div>
                       <div v-if="candidate.missingRequirements.length > 0" class="mt-2 rounded-lg bg-amber-100/70 px-3 py-2 text-xs text-amber-800">추가 확인 필요: {{ missingText(candidate) }}</div>
@@ -900,10 +925,10 @@ onBeforeUnmount(() => {
                               v-if="!readOnly"
                               type="button"
                               class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
-                              :disabled="selecting || !candidate.manualSelectable || !offer.purchasable || offer.applied === null || context.selectedOfferKey === offer.offerKey"
+                              :disabled="selecting || !candidate.manualSelectable || !offer.purchasable || offer.applied === null || offerAlreadyConfirmed(candidate, offer)"
                               @click="selectOffer(candidate, offer)"
                             >
-                              {{ offer.purchasable ? '이 오퍼 선택' : '선택 불가' }}
+                              {{ provisionalSelectionPending && candidate.selected && context.selectedOfferKey === offer.offerKey ? '이 오퍼 확인 완료' : offer.purchasable ? '이 오퍼 선택' : '선택 불가' }}
                             </button>
                           </div>
                         </div>

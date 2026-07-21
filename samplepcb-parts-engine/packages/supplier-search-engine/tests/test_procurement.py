@@ -9,6 +9,7 @@ from supplier_search_engine.matcher import (
     finalize_candidate_decisions,
 )
 from supplier_search_engine.models import (
+    ComponentProcurementDecision,
     CurrencyRate,
     OfferRecommendation,
     PlannedQuery,
@@ -164,6 +165,8 @@ def test_required_quantity_moq_multiple_price_break_and_exchange_rate():
     assert decision.stock_short is False
     assert decision.recommendation == OfferRecommendation.AUTOMATIC
     assert component.status == "automatic_recommended"
+    assert component.selection_application_state == "automatic_selected"
+    assert component.confirmation_required is False
     assert component.automatic_offer_key == decision.offer_key
 
 
@@ -248,6 +251,8 @@ def test_invalid_prices_are_never_ranked_or_recommended_as_free():
     assert "invalid_price" in decision.reason_codes
     assert "price_unavailable" in decision.reason_codes
     assert component.status == "no_recommendation"
+    assert component.selection_application_state == "not_selected"
+    assert component.confirmation_required is False
 
 
 def test_blocked_cheapest_offer_is_never_purchase_ranked_or_recommended():
@@ -301,9 +306,22 @@ def test_manual_review_purchase_rank_never_promotes_technical_eligibility():
     assert offer_decision(candidate).purchase_fit_rank == 1
     assert offer_decision(candidate).recommendation == OfferRecommendation.MANUAL_REVIEW
     assert component.status == "review_recommended"
+    assert component.selection_application_state == "provisional_selected"
+    assert component.confirmation_required is True
     assert component.automatic_offer_key is None
     assert component.review_offer_key == offer_decision(candidate).offer_key
     assert "manual_review_required" in component.recommendation_reason_codes
+
+    with pytest.raises(
+        ValueError,
+        match="selection application state must match",
+    ):
+        ComponentProcurementDecision.model_validate(
+            {
+                **component.model_dump(),
+                "selection_application_state": "automatic_selected",
+            }
+        )
 
 
 def test_best_offer_is_selected_only_inside_preselected_technical_group():
@@ -645,6 +663,11 @@ def test_reevaluation_accepts_manual_offer_only_as_manual_review():
     )
 
     assert result.procurement_decision.status == "review_recommended"
+    assert (
+        result.procurement_decision.selection_application_state
+        == "provisional_selected"
+    )
+    assert result.procurement_decision.confirmation_required is True
     assert result.procurement_decision.automatic_offer_key is None
     assert result.procurement_decision.review_offer_key == offer_key
     assert result.requested_offer.status == "accepted"

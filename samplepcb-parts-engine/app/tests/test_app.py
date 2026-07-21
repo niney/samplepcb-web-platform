@@ -275,6 +275,11 @@ def test_procurement_reevaluation_api_is_deterministic_and_fails_closed(tmp_path
     assert offer["procurement_decision"]["order_quantity"] == 150
     assert offer["procurement_decision"]["recommendation"] == "automatic"
     assert result["procurement_decision"]["status"] == "automatic_recommended"
+    assert (
+        result["procurement_decision"]["selection_application_state"]
+        == "automatic_selected"
+    )
+    assert result["procurement_decision"]["confirmation_required"] is False
 
     duplicate = deepcopy(payload)
     duplicate_offer = deepcopy(duplicate["candidates"][0]["product"]["offers"][0])

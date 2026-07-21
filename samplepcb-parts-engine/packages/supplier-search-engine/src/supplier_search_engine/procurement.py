@@ -19,6 +19,7 @@ from .models import (
     ProcurementReevaluationResult,
     RequestedOfferEvaluation,
     SearchMode,
+    SelectionApplicationState,
     SelectionEligibility,
     SelectionRecommendation,
     SupplierOffer,
@@ -636,6 +637,14 @@ def apply_procurement_decisions(
     )
     component_decision = ComponentProcurementDecision(
         status=status,
+        selection_application_state=(
+            SelectionApplicationState.AUTOMATIC_SELECTED
+            if status == "automatic_recommended"
+            else SelectionApplicationState.PROVISIONAL_SELECTED
+            if status == "review_recommended"
+            else SelectionApplicationState.NOT_SELECTED
+        ),
+        confirmation_required=status == "review_recommended",
         required_quantity=query.quantity,
         target_currency=policy.target_currency,
         currency_rate_snapshot_id=policy.currency_rate_snapshot_id,

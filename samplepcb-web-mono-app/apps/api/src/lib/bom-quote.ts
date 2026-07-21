@@ -256,12 +256,19 @@ const EngineSupplierQuery = z
 const EngineComponentProcurementDecision = z
   .object({
     procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
+    selection_application_policy_version: z.literal('supplier-selection-application-v1'),
     status: z.enum([
       'automatic_recommended',
       'review_recommended',
       'no_recommendation',
       'input_incomplete',
     ]),
+    selection_application_state: z.enum([
+      'automatic_selected',
+      'provisional_selected',
+      'not_selected',
+    ]),
+    confirmation_required: z.boolean(),
     required_quantity: z.number().int().positive().nullish(),
     target_currency: z.string(),
     currency_rate_snapshot_id: z.string().min(1),
@@ -319,7 +326,7 @@ type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 type EngineCandidateDecisionType = z.infer<typeof EngineCandidateDecision>;
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v8';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v9';
 const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION = 'supplier-candidate-decision-v1';
 const SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION = 'candidate-category-policy-v1';
 const SUPPORTED_ENGINE_IDENTITY_KEY_VERSION = 'candidate-identity-key-v1';
@@ -1045,6 +1052,8 @@ interface EngineProcurementProjection {
   recommended: CandidateGroup | null;
   offerKey: string | null;
   pick: OfferPick | null;
+  applicationState: 'automatic_selected' | 'provisional_selected' | 'not_selected';
+  confirmationRequired: boolean;
 }
 
 function storedEngineDecisionPick(
@@ -1123,6 +1132,8 @@ function projectEngineProcurement(
     recommended: null,
     offerKey: null,
     pick: null,
+    applicationState: 'not_selected',
+    confirmationRequired: false,
   };
   if (
     decision?.required_quantity !== needed
@@ -1149,12 +1160,29 @@ function projectEngineProcurement(
   );
   if (decision.status === 'no_recommendation') {
     return recommendedOffers.length === 0
-      ? { valid: true, selected: null, recommended: null, offerKey: null, pick: null }
+      && decision.selection_application_state === 'not_selected'
+      && !decision.confirmation_required
+      ? {
+          valid: true,
+          selected: null,
+          recommended: null,
+          offerKey: null,
+          pick: null,
+          applicationState: 'not_selected',
+          confirmationRequired: false,
+        }
       : invalid;
   }
   if (decision.status === 'input_incomplete' || technicalGroup === null) return invalid;
 
   const automatic = decision.status === 'automatic_recommended';
+  const expectedApplicationState = automatic
+    ? 'automatic_selected'
+    : 'provisional_selected';
+  if (
+    decision.selection_application_state !== expectedApplicationState
+    || decision.confirmation_required !== !automatic
+  ) return invalid;
   const expectedOfferKey = automatic
     ? decision.automatic_offer_key ?? null
     : decision.review_offer_key ?? null;
@@ -1180,10 +1208,12 @@ function projectEngineProcurement(
   if (pick === null) return invalid;
   return {
     valid: true,
-    selected: automatic ? technicalGroup : null,
+    selected: technicalGroup,
     recommended: technicalGroup,
     offerKey: selectedOffer.offerKey,
-    pick: automatic ? pick : null,
+    pick,
+    applicationState: expectedApplicationState,
+    confirmationRequired: !automatic,
   };
 }
 
@@ -1195,6 +1225,8 @@ function pickLineTotal(pick: OfferPick | null): number | null {
 function evidenceFromDecision(
   component: EngineSupplierComponentType,
   identityFallback: boolean,
+  selectionApplicationState: 'automatic_selected' | 'provisional_selected' | 'not_selected',
+  confirmationRequired: boolean,
   groups: CandidateGroup[],
   eligible: CandidateGroup[],
   selected: CandidateGroup | null,
@@ -1218,6 +1250,8 @@ function evidenceFromDecision(
     policyVersion,
     componentId: component.component_id,
     componentStatus: component.status,
+    selectionApplicationState,
+    confirmationRequired,
     identityFallback,
     candidateStatus: evidenceSnapshot?.status ?? reviewCandidate?.status ?? null,
     selectionMode: mode,
@@ -1283,17 +1317,19 @@ export function selectEngineMatch(
         ? 'technical'
         : 'identity';
     const reasonCodes: BomQuoteDecisionReasonType[] = procurement.valid
-      ? selected === null
-        ? recommended === null
-          ? ['engine-procurement-unavailable']
-          : ['engine-manual-review']
-        : ['engine-procurement-recommendation']
+      ? procurement.applicationState === 'provisional_selected'
+        ? ['engine-manual-review']
+        : procurement.applicationState === 'automatic_selected'
+          ? ['engine-procurement-recommendation']
+          : ['engine-procurement-unavailable']
       : ['no-safe-candidate'];
     const recommendedCandidateKey = recommended?.snapshot.candidateKey ?? null;
     return {
       evidence: evidenceFromDecision(
         component,
         identityFallback,
+        procurement.applicationState,
+        procurement.confirmationRequired,
         groups,
         eligible,
         selected,
@@ -1321,6 +1357,8 @@ export function selectEngineMatch(
     evidence: evidenceFromDecision(
       component,
       identityFallback,
+      'not_selected',
+      false,
       groups,
       eligible,
       null,
@@ -1566,7 +1604,8 @@ async function partIdForStoredCandidate(candidate: StoredCandidateType): Promise
 }
 
 interface StoredRecommendation {
-  automatic: boolean;
+  applicationState: 'automatic_selected' | 'provisional_selected';
+  confirmationRequired: boolean;
   candidate: StoredCandidateType;
   pick: OfferPick | null;
   offerKey: string | null;
@@ -1598,6 +1637,11 @@ function recommendStoredCandidate(
       && componentDecision.status !== 'review_recommended')
   ) return null;
   const automatic = componentDecision.status === 'automatic_recommended';
+  const applicationState = componentDecision.selection_application_state;
+  if (
+    applicationState !== (automatic ? 'automatic_selected' : 'provisional_selected')
+    || componentDecision.confirmation_required !== !automatic
+  ) return null;
   const identityKey = componentDecision.technical_preselection_identity_key;
   const evidenceKey = componentDecision.technical_preselection_evidence_key;
   const selected = candidates.filter((candidate) =>
@@ -1625,7 +1669,8 @@ function recommendStoredCandidate(
     ? candidate.selectionMode === 'spec-compatible' ? 'technical' : 'identity'
     : 'none';
   return {
-    automatic,
+    applicationState,
+    confirmationRequired: componentDecision.confirmation_required,
     candidate,
     pick,
     offerKey,
@@ -1774,6 +1819,17 @@ export class BomProcurementReevaluationError extends Error {
   }
 }
 
+export function isEngineManagedQuoteSelection(
+  item: Pick<BomQuoteItemInputType, 'selectionSource' | 'selectedCandidateKey' | 'selectedOffer'>,
+): boolean {
+  return item.selectionSource === 'auto'
+    || (
+      item.selectionSource === 'none'
+      && item.selectedCandidateKey === null
+      && item.selectedOffer === null
+    );
+}
+
 /** 수량·환율 변경 시 저장 후보를 sp-engine에서 재평가해 클라이언트 단가 변조를 차단한다. */
 export async function repriceCandidateSelections(
   quoteId: bigint,
@@ -1805,6 +1861,7 @@ export async function repriceCandidateSelections(
   for (const item of items) {
     let rowCandidates = item.id === undefined ? undefined : candidates.get(item.id);
     if (rowCandidates === undefined) continue;
+    let reevaluatedEvidence: BomQuoteMatchEvidenceType | null = null;
     const needed = neededQty(item.bomQty, setQty, spareQty);
     if (needsEngineProcurementReevaluation(rowCandidates, needed, usdKrwRate)) {
       const componentId = item.matchEvidence?.componentId
@@ -1823,6 +1880,7 @@ export async function repriceCandidateSelections(
       );
       if (reevaluated === null) throw new BomProcurementReevaluationError('engine-reevaluation-failed');
       rowCandidates = reevaluated.snapshots;
+      reevaluatedEvidence = reevaluated.evidence;
       if (item.id !== undefined) candidates.set(item.id, rowCandidates);
       snapshotsChanged = true;
     }
@@ -1834,15 +1892,19 @@ export async function repriceCandidateSelections(
       needed,
     );
     item.recommendedCandidateKey = recommendation?.candidate.candidateKey ?? null;
-    if (item.matchEvidence !== null) {
+    const currentEvidence = reevaluatedEvidence ?? item.matchEvidence;
+    if (currentEvidence !== null) {
       item.matchEvidence = {
-        ...item.matchEvidence,
+        ...currentEvidence,
+        selectionApplicationState: recommendation?.applicationState ?? 'not_selected',
+        confirmationRequired: recommendation?.confirmationRequired ?? false,
         recommendedCandidateKey: item.recommendedCandidateKey,
         recommendationType: recommendation?.recommendationType ?? 'none',
       };
     }
-    const selectedCandidateKey = item.selectionSource === 'auto'
-      ? (recommendation?.automatic === true ? recommendation.candidate.candidateKey : null)
+    const engineManagedSelection = isEngineManagedQuoteSelection(item);
+    const selectedCandidateKey = engineManagedSelection
+      ? (recommendation?.candidate.candidateKey ?? null)
       : item.selectedCandidateKey;
     if (selectedCandidateKey === null) {
       if (item.selectionSource === 'auto') {
@@ -1876,9 +1938,8 @@ export async function repriceCandidateSelections(
     const candidate = rowCandidates.find((entry) => entry.candidateKey === selectedCandidateKey);
     if (candidate === undefined) continue;
     const requestedOfferKey = item.selectedOffer?.pinned === true ? item.selectedOffer.offerKey : null;
-    const selected = item.selectionSource === 'auto'
-      && recommendation?.automatic === true
-      && recommendation.candidate.candidateKey === candidate.candidateKey
+    const selected = engineManagedSelection
+      && recommendation?.candidate.candidateKey === candidate.candidateKey
       ? { pick: recommendation.pick, offerKey: recommendation.offerKey }
       : storedCandidatePick(candidate, needed, usdKrwRate, requestedOfferKey);
     const candidateChanged = item.selectedCandidateKey !== candidate.candidateKey;
@@ -1886,6 +1947,10 @@ export async function repriceCandidateSelections(
     item.manufacturerName = candidate.manufacturerName;
     item.description = candidate.description;
     item.selectedCandidateKey = candidate.candidateKey;
+    if (engineManagedSelection) {
+      item.matchStatus = 'auto';
+      item.selectionSource = 'auto';
+    }
     if (candidateChanged) item.partId = await partIdForStoredCandidate(candidate);
     item.orderQty = selected.pick?.orderQty ?? needed;
     item.selectedOffer = selected.pick === null
@@ -1900,7 +1965,7 @@ export async function repriceCandidateSelections(
       item.selectionSource === 'customer'
         ? ['customer-choice', ...(requestedOfferKey === null ? [] : ['offer-choice'] as const)]
         : (recommendation?.reasonCodes ?? item.matchEvidence?.decisionReasonCodes ?? []),
-      item.selectionSource === 'auto' ? recommendation : undefined,
+      engineManagedSelection ? recommendation : undefined,
     );
   }
   return snapshotsChanged ? candidateSnapshots : undefined;
@@ -2131,6 +2196,8 @@ export async function getQuoteItemCandidates(
     currentMpn: item.mpn,
     currentLineTotalKrw: item.lineTotalKrw,
     selectionSource: item.selectionSource,
+    selectionApplicationState: item.matchEvidence?.selectionApplicationState ?? 'not_selected',
+    confirmationRequired: item.matchEvidence?.confirmationRequired ?? false,
     selectedCandidateKey: item.selectedCandidateKey,
     selectedOfferKey: item.selectedOffer?.offerKey ?? null,
     recommendedCandidateKey: item.recommendedCandidateKey,

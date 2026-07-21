@@ -61,6 +61,12 @@ class OfferRecommendation(StrEnum):
     NONE = "none"
 
 
+class SelectionApplicationState(StrEnum):
+    AUTOMATIC_SELECTED = "automatic_selected"
+    PROVISIONAL_SELECTED = "provisional_selected"
+    NOT_SELECTED = "not_selected"
+
+
 class MatchRelation(StrEnum):
     EXACT = "exact"
     VARIANT = "variant"
@@ -207,12 +213,17 @@ class ComponentProcurementDecision(BaseModel):
     procurement_policy_version: Literal["supplier-procurement-decision-v1"] = (
         "supplier-procurement-decision-v1"
     )
+    selection_application_policy_version: Literal[
+        "supplier-selection-application-v1"
+    ] = "supplier-selection-application-v1"
     status: Literal[
         "automatic_recommended",
         "review_recommended",
         "no_recommendation",
         "input_incomplete",
     ]
+    selection_application_state: SelectionApplicationState
+    confirmation_required: bool
     required_quantity: int | None = Field(default=None, ge=1)
     target_currency: str
     currency_rate_snapshot_id: str
@@ -265,6 +276,23 @@ class ComponentProcurementDecision(BaseModel):
             )
         if self.status != "review_recommended" and self.review_offer_key is not None:
             raise ValueError("only review recommendations can expose review_offer_key")
+        expected_application = {
+            "automatic_recommended": SelectionApplicationState.AUTOMATIC_SELECTED,
+            "review_recommended": SelectionApplicationState.PROVISIONAL_SELECTED,
+            "no_recommendation": SelectionApplicationState.NOT_SELECTED,
+            "input_incomplete": SelectionApplicationState.NOT_SELECTED,
+        }[self.status]
+        if self.selection_application_state != expected_application:
+            raise ValueError(
+                "selection application state must match the engine recommendation"
+            )
+        if self.confirmation_required != (
+            self.selection_application_state
+            == SelectionApplicationState.PROVISIONAL_SELECTED
+        ):
+            raise ValueError(
+                "only provisional selections can require user confirmation"
+            )
         return self
 
 
