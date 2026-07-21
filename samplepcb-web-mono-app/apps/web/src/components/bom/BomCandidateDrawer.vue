@@ -613,24 +613,26 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-[70] flex justify-end bg-slate-950/50" role="presentation" @mousedown.self="emit('close')">
       <aside class="flex h-full w-full max-w-4xl flex-col bg-[#f6f8fb] shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="candidate-drawer-title">
-        <header class="shrink-0 border-b border-slate-200 bg-white px-5 py-4 sm:px-7">
-          <div class="flex items-start justify-between gap-5">
+        <header class="shrink-0 border-b border-slate-200 bg-white px-5 py-2.5 sm:px-6">
+          <div class="flex items-center justify-between gap-4">
             <div class="min-w-0">
-              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-600">Part selection</p>
-              <h2 id="candidate-drawer-title" class="mt-1 truncate text-xl font-bold text-slate-950">부품 선택</h2>
-              <p v-if="context !== null" class="mt-1 text-sm text-slate-500">
+              <div class="flex min-w-0 items-baseline gap-2">
+                <h2 id="candidate-drawer-title" class="truncate text-lg font-bold text-slate-950">부품 선택</h2>
+                <p class="shrink-0 text-[11px] font-bold uppercase tracking-[0.18em] text-blue-600">Part selection</p>
+              </div>
+              <p v-if="context !== null" class="mt-0.5 truncate text-sm text-slate-500">
                 Excel 원본 {{ context.originalMpn ?? context.originalValue ?? '품번 미기재' }} · 필요수량 {{ context.neededQty.toLocaleString('ko-KR') }}개
               </p>
-              <p v-else-if="searchInitialQuery !== ''" class="mt-1 text-sm text-slate-500">현재 품번 {{ searchInitialQuery }}</p>
+              <p v-else-if="searchInitialQuery !== ''" class="mt-0.5 truncate text-sm text-slate-500">현재 품번 {{ searchInitialQuery }}</p>
             </div>
             <button type="button" class="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-xl text-slate-500 hover:bg-slate-100" aria-label="후보 패널 닫기" @click="emit('close')">×</button>
           </div>
         </header>
 
-        <nav class="grid shrink-0 grid-cols-2 gap-1 border-b border-slate-200 bg-white px-5 pt-2 sm:px-7" aria-label="부품 선택 방식">
+        <nav class="grid shrink-0 grid-cols-2 gap-1 border-b border-slate-200 bg-white px-5 pt-1 sm:px-6" aria-label="부품 선택 방식">
           <button
             type="button"
-            class="border-b-2 px-3 py-3 text-sm font-bold transition"
+            class="border-b-2 px-3 py-2 text-sm font-bold transition"
             :class="view === 'candidates' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'"
             @click="view = 'candidates'"
           >
@@ -640,7 +642,7 @@ onBeforeUnmount(() => {
           <button
             v-if="!readOnly"
             type="button"
-            class="border-b-2 px-3 py-3 text-sm font-bold transition"
+            class="border-b-2 px-3 py-2 text-sm font-bold transition"
             :class="view === 'search' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'"
             @click="view = 'search'"
           >
@@ -688,10 +690,10 @@ onBeforeUnmount(() => {
             <p class="mt-1">견적은 유지되어 있습니다. 패널을 닫고 다시 시도해 주세요.</p>
           </div>
           <template v-else-if="context !== null">
-            <div class="space-y-3 p-4">
+            <div class="space-y-2.5 p-3">
               <div v-if="selectionError !== ''" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ selectionError }}</div>
-              <section class="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm" aria-labelledby="original-bom-title">
-                <div class="flex flex-wrap items-center justify-between gap-2">
+              <section class="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm" aria-labelledby="original-bom-title">
+                <div class="flex flex-wrap items-center justify-between gap-1.5">
                   <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
                     <div class="flex items-baseline gap-2">
                       <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Excel source</p>
@@ -729,11 +731,11 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <dl class="mt-2 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-2 sm:grid-cols-6">
+                <dl class="mt-1.5 grid grid-cols-2 gap-1 border-t border-slate-100 pt-1.5 sm:grid-cols-6">
                   <div
                     v-for="field in originalSummaryFields"
                     :key="field.key"
-                    class="min-w-0 rounded-md border px-2.5 py-1.5"
+                    class="min-w-0 rounded-md border px-2 py-1"
                     :class="[
                       field.summarySpan,
                       field.certainty === 'inferred'
@@ -826,7 +828,7 @@ onBeforeUnmount(() => {
               <section v-if="context.searchTrace !== null" class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                 <button
                   type="button"
-                  class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-slate-50"
+                  class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50"
                   :aria-expanded="searchTraceExpanded"
                   aria-controls="supplier-search-trace"
                   @click="searchTraceExpanded = !searchTraceExpanded"
@@ -871,8 +873,8 @@ onBeforeUnmount(() => {
                   </ol>
                 </div>
               </section>
-              <section class="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm">
-                <div class="flex flex-col gap-3 bg-gradient-to-r from-blue-700 to-blue-600 px-4 py-3.5 text-white sm:flex-row sm:items-start sm:justify-between">
+              <section class="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+                <div class="flex flex-col gap-2 bg-gradient-to-r from-blue-700 to-blue-600 px-3 py-2.5 text-white sm:flex-row sm:items-start sm:justify-between">
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <span class="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">{{ sourceLabel(context.selectionSource) }}</span>
@@ -881,45 +883,45 @@ onBeforeUnmount(() => {
                       <span v-else-if="currentCandidate?.recommended" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">자동 추천과 동일</span>
                       <span v-else-if="currentCandidate !== null" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">추천에서 변경됨</span>
                     </div>
-                    <div class="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <h3 class="break-words text-xl font-bold">{{ context.currentMpn || '선정 부품 없음' }}</h3>
+                    <div class="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <h3 class="break-words text-lg font-bold">{{ context.currentMpn || '선정 부품 없음' }}</h3>
                       <p v-if="currentCandidate?.manufacturerName" class="text-sm text-blue-100">{{ currentCandidate.manufacturerName }}</p>
                     </div>
                   </div>
                   <div class="shrink-0 text-left sm:text-right">
                     <p class="text-xs text-blue-100">현재 행 예상금액</p>
-                    <strong class="block text-2xl tabular-nums">{{ fmtWon(context.currentLineTotalKrw) }}</strong>
+                    <strong class="block text-xl tabular-nums">{{ fmtWon(context.currentLineTotalKrw) }}</strong>
                     <p class="text-xs text-blue-100">공급사 배송비·세금 제외</p>
                   </div>
                 </div>
-                <div class="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between">
-                  <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <div class="flex flex-col gap-2 px-3 py-2 md:flex-row md:items-center md:justify-between">
+                  <div class="flex min-w-0 flex-wrap items-center gap-1.5">
                     <p class="shrink-0 text-xs font-bold uppercase tracking-wide text-slate-400">선정 이유</p>
-                    <div v-if="context.decisionReasonCodes.length > 0" class="flex flex-wrap gap-1.5">
-                      <span v-for="reason in context.decisionReasonCodes" :key="reason" class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{{ reasonLabel(reason) }}</span>
+                    <div v-if="context.decisionReasonCodes.length > 0" class="flex flex-wrap gap-1">
+                      <span v-for="reason in context.decisionReasonCodes" :key="reason" class="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">{{ reasonLabel(reason) }}</span>
                     </div>
                     <p v-else class="text-sm text-slate-500">기존 견적 또는 직접 검색으로 선정된 부품입니다.</p>
                   </div>
-                  <div v-if="currentCandidate !== null" class="flex shrink-0 flex-wrap gap-x-3 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  <div v-if="currentCandidate !== null" class="flex shrink-0 flex-wrap gap-x-3 gap-y-1 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
                     <p>기술 <b class="text-slate-900">{{ currentCandidate.technicalRank }}위</b></p>
                     <p>구매조건 <b class="text-slate-900">{{ currentCandidate.priceRank === null ? '산정 불가' : `오퍼 ${String(currentCandidate.priceRank)}위` }}</b></p>
                     <p>필수조건 <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }}</b></p>
                   </div>
                 </div>
-                <div v-if="context.decisionReasonCodes.includes('purchase-fit')" class="mx-4 mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                <div v-if="context.decisionReasonCodes.includes('purchase-fit')" class="mx-3 mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
                   일부 조건은 추가 확인이 필요하지만, 기술 근거가 같은 후보 중 필요수량·MOQ·예상금액이 가장 적합한 부품을 선택했습니다.
                 </div>
               </section>
 
-              <section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div class="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div class="flex flex-col gap-2 border-b border-slate-200 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="font-bold text-slate-900">부품 후보</h3>
                     <p class="mt-1 text-xs text-slate-500">sp-engine의 기술 순서와 현재 수량 기준 구매 판정을 그대로 표시합니다.</p>
                   </div>
-                  <span class="rounded-lg bg-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-600">엔진 순서 고정</span>
+                  <span class="rounded-md bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600">엔진 순서 고정</span>
                 </div>
-                <div v-if="recommendedCandidate !== null && recommendedCandidate.selectionEligibility === 'manual_review'" class="mx-4 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs" :class="reviewSelectionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-300 bg-amber-50 text-amber-950'">
+                <div v-if="recommendedCandidate !== null && recommendedCandidate.selectionEligibility === 'manual_review'" class="mx-3 mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs" :class="reviewSelectionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-300 bg-amber-50 text-amber-950'">
                   <p v-if="provisionalSelectionPending">
                     <b>선정됨 · 검토 대기</b> {{ recommendedCandidate.mpn }} —
                     <template v-if="context.technicalFallbackUsed">기술 1순위의 구매 가능한 오퍼가 없어 엔진이 다음 안전 후보를 임시 선정했습니다.</template>
@@ -929,59 +931,59 @@ onBeforeUnmount(() => {
                   <p v-else><b>검토 권장</b> {{ recommendedCandidate.mpn }} — 엔진이 실제 적용 후보로 지정했습니다.</p>
                   <span v-if="recommendedCandidate.technicalReviewRank !== null" class="rounded-full bg-amber-200 px-2 py-0.5 font-bold">검토 {{ recommendedCandidate.technicalReviewRank }}순위</span>
                 </div>
-                <div class="flex gap-1 overflow-x-auto border-b border-slate-100 px-4 pt-3">
-                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold" :class="tab === 'selectable' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'selectable'">선택 가능 {{ selectableCount }}</button>
-                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold" :class="tab === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'all'">전체 {{ context.candidates.length }}</button>
-                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold" :class="tab === 'review' ? 'bg-amber-50 text-amber-800' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'review'">검토 필요 {{ reviewCount }}</button>
+                <div class="flex gap-1 overflow-x-auto border-b border-slate-100 px-3 pt-2">
+                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'selectable' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'selectable'">선택 가능 {{ selectableCount }}</button>
+                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'all'">전체 {{ context.candidates.length }}</button>
+                  <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-1.5 text-xs font-semibold" :class="tab === 'review' ? 'bg-amber-50 text-amber-800' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'review'">검토 필요 {{ reviewCount }}</button>
                 </div>
 
-                <div v-if="candidates.length > 0" class="space-y-3 p-4">
-                  <article v-for="candidate in candidates" :key="candidate.candidateKey" class="overflow-hidden rounded-xl border transition" :class="safetyClass(candidate)">
-                    <div class="p-4">
-                      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div class="flex min-w-0 flex-1 items-start gap-3">
+                <div v-if="candidates.length > 0" class="space-y-2 p-3">
+                  <article v-for="candidate in candidates" :key="candidate.candidateKey" class="overflow-hidden rounded-lg border transition" :class="safetyClass(candidate)">
+                    <div class="p-3">
+                      <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div class="flex min-w-0 flex-1 items-start gap-2.5">
                           <PartImage
                             :src="candidate.imageUrl"
                             :alt="`${candidate.mpn} 부품 이미지`"
-                            class="size-[64px] shrink-0 rounded-lg border border-slate-200 sm:size-[72px]"
+                            class="size-14 shrink-0 rounded-md border border-slate-200"
                           />
                           <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-1.5">
-                              <span v-if="candidate.selected" class="rounded-full px-2.5 py-1 text-[11px] font-bold text-white" :class="provisionalSelectionPending ? 'bg-amber-600' : 'bg-blue-600'">{{ provisionalSelectionPending ? '현재 선택 · 검토 대기' : '현재 선택' }}</span>
+                              <span v-if="candidate.selected" class="rounded-full px-2 py-0.5 text-[11px] font-bold text-white" :class="provisionalSelectionPending ? 'bg-amber-600' : 'bg-blue-600'">{{ provisionalSelectionPending ? '현재 선택 · 검토 대기' : '현재 선택' }}</span>
                               <span
                                 v-if="recommendationLabel(candidate) !== ''"
-                                class="rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                class="rounded-full px-2 py-0.5 text-[11px] font-bold"
                                 :class="candidate.recommended && candidate.selectionEligibility === 'manual_review' ? 'bg-amber-200 text-amber-950' : candidate.recommended ? 'bg-emerald-100 text-emerald-800' : candidate.selectionRecommendation === 'exclude' ? 'bg-red-100 text-red-800' : candidate.selectionRecommendation === 'candidate_only' ? 'bg-slate-200 text-slate-700' : 'bg-violet-100 text-violet-800'"
                               >{{ recommendationLabel(candidate) }}</span>
-                              <span v-if="candidate.technicalReviewRank !== null" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">검토 {{ candidate.technicalReviewRank }}순위</span>
-                              <span v-if="candidate.candidateKey === context.technicalTopCandidateKey" class="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-800">기술 1위</span>
-                              <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{{ statusLabel(candidate.status) }}</span>
-                              <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
-                              <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
+                              <span v-if="candidate.technicalReviewRank !== null" class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">검토 {{ candidate.technicalReviewRank }}순위</span>
+                              <span v-if="candidate.candidateKey === context.technicalTopCandidateKey" class="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-800">기술 1위</span>
+                              <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{{ statusLabel(candidate.status) }}</span>
+                              <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
+                              <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
                             </div>
-                            <h4 class="mt-2 break-words text-base font-bold text-slate-950">{{ candidate.mpn }}</h4>
+                            <h4 class="mt-1.5 break-words text-base font-bold text-slate-950">{{ candidate.mpn }}</h4>
                             <p class="mt-1 text-sm text-slate-500">{{ candidate.manufacturerName ?? '제조사 미확인' }}<span v-if="candidate.packageCode"> · {{ candidate.packageCode }}</span><span v-if="candidate.lifecycleStatus"> · {{ candidate.lifecycleStatus }}</span></p>
-                            <p v-if="candidate.description" class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{{ candidate.description }}</p>
-                            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-                              <span class="rounded px-2 py-1" :class="verificationClass(candidate)">검증 {{ candidate.verifiedRequirementCount }}/{{ candidate.requiredRequirementCount }}</span>
-                              <span v-if="context.originalMpn !== null" class="rounded bg-blue-50 px-2 py-1 font-semibold text-blue-800">품번 {{ Math.round(candidate.identityConfidence * 100) }}%</span>
-                              <span v-if="candidate.selectionMode === 'spec-compatible' || candidate.specificationConfidence > 0" class="rounded px-2 py-1" :class="verificationClass(candidate)">{{ verificationLabel(candidate) }}</span>
-                              <span v-if="candidate.reasons.includes('mount_style_match')" class="rounded bg-sky-50 px-2 py-1 font-semibold text-sky-800">실장 방식 일치</span>
-                              <span v-if="candidate.reasons.includes('diameter_mm_match')" class="rounded bg-sky-50 px-2 py-1 font-semibold text-sky-800">직경 일치</span>
-                              <span class="rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">공급사 {{ candidate.corroboratingSuppliers.length }}</span>
+                            <p v-if="candidate.description" class="mt-1 line-clamp-1 text-xs leading-5 text-slate-500" :title="candidate.description">{{ candidate.description }}</p>
+                            <div class="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                              <span class="rounded px-2 py-0.5" :class="verificationClass(candidate)">검증 {{ candidate.verifiedRequirementCount }}/{{ candidate.requiredRequirementCount }}</span>
+                              <span v-if="context.originalMpn !== null" class="rounded bg-blue-50 px-2 py-0.5 font-semibold text-blue-800">품번 {{ Math.round(candidate.identityConfidence * 100) }}%</span>
+                              <span v-if="candidate.selectionMode === 'spec-compatible' || candidate.specificationConfidence > 0" class="rounded px-2 py-0.5" :class="verificationClass(candidate)">{{ verificationLabel(candidate) }}</span>
+                              <span v-if="candidate.reasons.includes('mount_style_match')" class="rounded bg-sky-50 px-2 py-0.5 font-semibold text-sky-800">실장 방식 일치</span>
+                              <span v-if="candidate.reasons.includes('diameter_mm_match')" class="rounded bg-sky-50 px-2 py-0.5 font-semibold text-sky-800">직경 일치</span>
+                              <span class="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">공급사 {{ candidate.corroboratingSuppliers.length }}</span>
                             </div>
                           </div>
                         </div>
-                        <div class="w-full shrink-0 rounded-xl border border-slate-200 bg-white p-4 lg:w-60">
+                        <div class="w-full shrink-0 rounded-lg border border-slate-200 bg-white p-3 md:w-52">
                           <p class="text-xs text-slate-400">필요수량 기준 최적 오퍼</p>
-                          <strong class="mt-1 block text-xl tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
+                          <strong class="mt-0.5 block text-lg tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
                           <p v-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
                           <p v-else class="mt-1 text-xs font-semibold text-amber-700">재고·가격 구매조건 미충족</p>
                           <p v-if="candidate.savingsVsTechnicalKrw !== null && candidate.savingsVsTechnicalKrw > 0" class="mt-1 text-[11px] text-slate-500">기술 1위 대비 {{ fmtWon(candidate.savingsVsTechnicalKrw) }} 절감 {{ fmtRate(candidate.savingsVsTechnicalRate) }}</p>
                           <button
                             v-if="!readOnly"
                             type="button"
-                            class="mt-3 h-9 w-full rounded-lg bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            class="mt-2 h-9 w-full rounded-lg bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                             :disabled="selecting || !candidate.manualSelectable || bestOfferAlreadySelected(candidate)"
                             @click="selectBest(candidate)"
                           >
@@ -992,27 +994,27 @@ onBeforeUnmount(() => {
 
                       <div
                         v-if="candidate.conflicts.length > 0"
-                        class="mt-3 rounded-lg px-3 py-2 text-xs"
+                        class="mt-2 rounded-md px-2.5 py-1.5 text-xs"
                         :class="candidate.selectionEligibility === 'manual_review' ? 'bg-amber-100/70 text-amber-900' : 'bg-red-100/70 text-red-800'"
                       >
                         자동선정 제외: {{ conflictText(candidate) }}
                       </div>
-                      <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                      <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs leading-5 text-amber-900">
                         <template v-if="candidate.recommended"><b>엔진 검토 권장:</b> 구매 가능한 재고·가격을 포함해 실제 적용 후보로 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
                         <template v-else-if="context.technicalFallbackUsed && candidate.candidateKey === technicalTopCandidate?.candidateKey"><b>기술 1순위:</b> 기술 근거상 가장 앞선 후보지만 구매 가능한 오퍼가 없어 현재 견적에는 적용하지 않았습니다.</template>
                         <template v-else-if="candidate.reviewRecommended"><b>엔진 기술 검토 1순위:</b> 기술 근거상 가장 유력하지만 구매조건을 충족하지 못해 적용 후보와 분리했습니다.</template>
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
                       </div>
-                      <div v-if="candidate.missingRequirements.length > 0" class="mt-2 rounded-lg bg-amber-100/70 px-3 py-2 text-xs text-amber-800">추가 확인 필요: {{ missingText(candidate) }}</div>
+                      <div v-if="candidate.missingRequirements.length > 0" class="mt-1.5 rounded-md bg-amber-100/70 px-2.5 py-1.5 text-xs text-amber-800">추가 확인 필요: {{ missingText(candidate) }}</div>
 
-                      <button type="button" class="mt-3 inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900" @click="toggleCandidate(candidate.candidateKey)">
+                      <button type="button" class="mt-2 inline-flex min-h-9 items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900" @click="toggleCandidate(candidate.candidateKey)">
                         공급사 오퍼 {{ candidate.offers.length }}개 {{ expanded.has(candidate.candidateKey) ? '접기 ▴' : '보기 ▾' }}
                       </button>
                     </div>
 
                     <div v-if="expanded.has(candidate.candidateKey)" class="border-t border-slate-200 bg-white">
                       <div v-if="candidate.offers.length > 0" class="divide-y divide-slate-100">
-                        <div v-for="offer in offersForDisplay(candidate)" :key="offer.offerKey" class="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                        <div v-for="offer in offersForDisplay(candidate)" :key="offer.offerKey" class="grid gap-2 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
                           <div>
                             <div class="flex flex-wrap items-center gap-2 text-sm">
                               <strong class="uppercase text-slate-900">{{ offer.supplier }}</strong>
@@ -1056,7 +1058,7 @@ onBeforeUnmount(() => {
                 <div v-else class="p-10 text-center text-sm text-slate-400">이 조건에 해당하는 후보가 없습니다.</div>
               </section>
 
-              <section v-if="context.events.length > 0" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <section v-if="context.events.length > 0" class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                 <h3 class="font-bold text-slate-900">선택 이력</h3>
                 <div class="mt-3 space-y-2">
                   <div v-for="event in context.events.slice(0, 5)" :key="event.id" class="flex flex-col gap-1 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
@@ -1066,7 +1068,7 @@ onBeforeUnmount(() => {
                 </div>
               </section>
 
-              <section v-if="!readOnly" class="rounded-2xl border border-dashed border-slate-300 bg-white p-4">
+              <section v-if="!readOnly" class="rounded-xl border border-dashed border-slate-300 bg-white p-3">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div><h3 class="text-sm font-bold text-slate-900">엔진 후보 밖에서 찾기</h3><p class="mt-1 text-xs text-slate-500">품번·스펙으로 카탈로그를 직접 검색할 수 있습니다.</p></div>
                   <div class="flex flex-wrap gap-2">
@@ -1079,7 +1081,7 @@ onBeforeUnmount(() => {
           </template>
         </div>
 
-        <footer class="shrink-0 border-t border-slate-200 bg-white px-5 py-3 text-[11px] leading-5 text-slate-500 sm:px-7">
+        <footer class="shrink-0 border-t border-slate-200 bg-white px-5 py-2 text-[11px] leading-5 text-slate-500 sm:px-6">
           <template v-if="view === 'candidates'">가격은 필요수량·MOQ·주문배수·재고·환율을 반영한 부품 예상금액입니다. 운송료·관리비·세금은 전체 견적에서 별도로 계산됩니다.</template>
           <template v-else>전체 부품 검색 선택은 엔진 추천을 덮어쓰지 않고 고객의 카탈로그 직접 선택으로 별도 기록됩니다.</template>
         </footer>
