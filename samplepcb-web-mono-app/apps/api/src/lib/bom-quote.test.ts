@@ -364,7 +364,11 @@ describe('BOM 엔진 후보 결정 투영', () => {
       null,
     );
 
-    expect(result).toEqual({ applied: false, candidateSnapshots: [] });
+    expect(result).toEqual({
+      applied: false,
+      candidateSnapshots: [],
+      searchTraceSnapshots: [],
+    });
   });
 
   it('현재 엔진의 가격·재고·MOQ 추천 오퍼를 Node 재정렬 없이 투영한다', () => {
@@ -406,6 +410,60 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.evidence.decisionReasonCodes).toEqual([
       'engine-procurement-recommendation',
     ]);
+  });
+
+  it('엔진 검색 trace는 판정 없이 compact 요약으로 투영한다', () => {
+    const selected = candidate('verified_exact', 'TRACE-PICK', 'digikey', 1_000, 1, {
+      currentDecisionContract: true,
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+    });
+    attachProcurementDecision(selected, 'ok1:trace-selected', 'automatic');
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-trace',
+        status: 'verified_exact',
+        search_trace: {
+          version: 'supplier-search-trace-v1',
+          primary_query: '0603X03L_C',
+          fallback_query: '1k 0603',
+          fallback_used: true,
+          attempts: [
+            {
+              sequence: 1,
+              stage: 'primary',
+              supplier: 'digikey',
+              strategy: 'identity_exact',
+              query: '0603X03L_C',
+              source: 'live_api',
+              outcome: 'empty',
+              result_count: 0,
+              api_calls: 1,
+              http_attempt_count: 1,
+              elapsed_ms: 12.5,
+              fallback_reason: null,
+              error_type: null,
+            },
+          ],
+        },
+        procurement_decision: componentProcurementDecision(
+          'automatic_recommended',
+          'ok1:trace-selected',
+        ),
+        candidates: [selected],
+      },
+      10,
+      null,
+    );
+
+    expect(decision?.evidence.searchTraceSummary).toEqual({
+      version: 'supplier-search-trace-v1',
+      primaryQuery: '0603X03L_C',
+      fallbackQuery: '1k 0603',
+      fallbackUsed: true,
+      attemptCount: 1,
+    });
   });
 
   it('엔진의 조달 수동 검토 추천은 임시 선정과 가격으로 그대로 적용한다', () => {

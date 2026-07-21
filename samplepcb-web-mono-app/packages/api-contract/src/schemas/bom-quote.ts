@@ -61,6 +61,53 @@ export const BomQuotePriceEvidence = z.object({
 });
 export type BomQuotePriceEvidenceType = z.infer<typeof BomQuotePriceEvidence>;
 
+export const BomQuoteSearchTraceSource = z.enum([
+  'live_api',
+  'fresh_cache',
+  'stale_cache',
+  'coalesced',
+  'prefetch_cache',
+  'batch_reuse',
+  'not_executed',
+]);
+export const BomQuoteSearchTraceOutcome = z.enum([
+  'results',
+  'empty',
+  'error',
+  'skipped',
+  'budget_exhausted',
+]);
+export const BomQuoteSearchTraceAttempt = z.object({
+  sequence: z.number().int().min(1),
+  stage: z.enum(['primary', 'identity_fallback']),
+  supplier: z.string(),
+  strategy: z.string(),
+  query: z.string(),
+  source: BomQuoteSearchTraceSource,
+  outcome: BomQuoteSearchTraceOutcome,
+  resultCount: z.number().int().min(0),
+  apiCalls: z.number().int().min(0),
+  httpAttemptCount: z.number().int().min(0),
+  elapsedMs: z.number().min(0),
+  fallbackReason: z.string().nullable(),
+  errorType: z.string().nullable(),
+});
+export type BomQuoteSearchTraceAttemptType = z.infer<typeof BomQuoteSearchTraceAttempt>;
+
+export const BomQuoteSearchTraceSummary = z.object({
+  version: z.literal('supplier-search-trace-v1'),
+  primaryQuery: z.string(),
+  fallbackQuery: z.string().nullable(),
+  fallbackUsed: z.boolean(),
+  attemptCount: z.number().int().min(0),
+});
+export type BomQuoteSearchTraceSummaryType = z.infer<typeof BomQuoteSearchTraceSummary>;
+
+export const BomQuoteSearchTrace = BomQuoteSearchTraceSummary.extend({
+  attempts: z.array(BomQuoteSearchTraceAttempt),
+});
+export type BomQuoteSearchTraceType = z.infer<typeof BomQuoteSearchTrace>;
+
 /**
  * 공급사 검색 엔진의 BOM 문맥 판정과 자동 선정 근거.
  * 카탈로그 사실 데이터와 분리해 견적 라인에 스냅샷으로 보존한다.
@@ -79,6 +126,8 @@ export const BomQuoteMatchEvidence = z.object({
   technicalFallbackUsed: z.boolean().optional(),
   /** 품번 검색에서 신뢰 후보가 없어 엔진이 확정 스펙 검색으로 전환했는지 여부. */
   identityFallback: z.boolean(),
+  /** 전체 이력은 후보 API에서 지연 조회하고 목록에는 엔진 trace의 compact 요약만 둔다. */
+  searchTraceSummary: BomQuoteSearchTraceSummary.nullable().optional(),
   candidateStatus: z.string().nullable(),
   selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review', 'unmatched']),
   candidateCount: z.number().int().min(0),
@@ -354,6 +403,8 @@ export const BomQuoteItemCandidates = z.object({
   technicalTopLineTotalKrw: z.number().nullable(),
   technicalFallbackUsed: z.boolean(),
   decisionReasonCodes: z.array(BomQuoteDecisionReason),
+  /** 활성 공급사 검색 실행에서 영속 조회한 컴포넌트 검색 과정. 구버전 실행은 null이다. */
+  searchTrace: BomQuoteSearchTrace.nullable(),
   candidates: z.array(BomQuoteCandidate),
   events: z.array(BomQuoteSelectionEvent),
 });

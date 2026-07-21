@@ -40,6 +40,10 @@
 - `sp_bom_supplier_search_run`: 어떤 분석 run과 옵션으로 독립 공급사 검색을 실행했는지,
   엔진 jobId·preflight·상태·오류·시각과 완료 시 실제 API 호출·캐시 적중·소요시간·한도 소진
   요약을 영속한다. 엔진 재시작으로 잡이 사라지면 같은 분석 스냅샷에서 새 실행을 만들 수 있다.
+- `sp_bom_supplier_search_trace`: 공급사 검색 실행별·엔진 componentId별 `supplier-search-trace-v1`
+  원본 JSON을 박제하고 rowIdx·최초/fallback 검색어·시도 수만 열로 승격한다. 후보/오퍼마다 중복하지
+  않으며 실행 삭제 시 함께 삭제된다. BOM 목록 폴링에는 compact 요약만 포함하고 전체 시도 이력은
+  후보 상세 API에서 지연 조회한다. trace 도입 전 실행은 실제 과정을 역산하지 않고 이력 없음으로 둔다.
 - `sp_bom_supplier_daily_usage`: 회원별 KST 일자 검색 횟수. 기존 프로세스 메모리 카운터와 달리
   sp-node 재시작·다중 인스턴스에서도 일일 한도가 유지되며 조건부 원자 증가로 동시 요청을 제한한다.
 - `sp_bom_quote_item`(SpBomQuoteItem): **id(영속 행 식별자)**·rowIdx(표시 순서)·
@@ -102,6 +106,11 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   `identity_fallback=true`로 명시하고 sp-node는 그대로 투영한다. 이 경우에는
   원본 문자열이 있어도 스펙 후보를 안전성 검증 대상으로 포함하되, 충돌·필수값 누락·물리조건
   불일치 후보는 계속 차단한다. 계보가 없는 일반 MPN 행의 다른 MPN 자동선정도 기존대로 금지한다.
+- **실제 검색 과정 provenance(2026-07-21)**: sp-engine 1.5는 component마다 최초 검색어와
+  조건부 스펙 fallback 검색어, 공급사별 논리 시도 순서·전략·API/캐시 출처·결과 수·HTTP 재시도 수·
+  소요시간·fallback 사유를 구조화한다. API 키·헤더·원본 요청 body·URL은 기록하지 않는다.
+  sp-node는 이를 실행 스냅샷으로 저장하고 판단을 재구성하지 않으며, sp-vue는 결과 행에 최초 검색어와
+  fallback 여부만 한 줄로 표시하고 후보 비교의 접힌 `검색 과정`에서 전체 이력을 보여준다.
 - **생명주기 상태 기계(2026-07-19 정석화)**: `sp_bom_quote.enrichStatus`
   (`idle|searching|done|failed`) + `enrichedAt` — **서버 영속 단일 진실**. 전이:
   build 가 보강 필요를 동기 선판정해 **items 와 `searching` 을 함께 커밋**("items 는 있는데
@@ -218,7 +227,7 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   id로 제자리 갱신하고, 서버 소유 추출·판정·후보 필드는 클라이언트 왕복 대상이 아니다.
 - `POST /quotes/:id/prepare`: 파싱 결과 전체를 분석 run/sheet/component에 먼저 박제한다. →
   `POST /quotes/:id/build {sheetIndexes}`: 영속 분석의 선택 시트로 라인+필요수량 생성(최대 2,000라인) ·
-  `GET /quotes/:id/items/:itemId/candidates`(영속 후보·현재 수량 가격·선택 이력) ·
+  `GET /quotes/:id/items/:itemId/candidates`(영속 후보·현재 수량 가격·선택 이력·활성 검색 실행 trace) ·
   `POST /quotes/:id/items/:itemId/selection {candidateKey,offerKey}`(draft 전용, 가격은 서버 재계산) ·
   `GET /quotes/:id/comparison?page&pageSize&search&status&sheet`(원본 추출+후보의 페이지 조회) ·
   `GET /quotes/:id/supplier-search`(이 견적의 활성 검색 실행 상태) ·

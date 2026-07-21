@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { BomQuoteItemType } from '@sp/api-contract';
 import PartImage from '../ui/PartImage.vue';
 import BomPriceBreaks from './BomPriceBreaks.vue';
@@ -24,6 +25,8 @@ const emit = defineEmits<{
   'open-search': [];
 }>();
 
+const { t } = useI18n();
+
 const EDIT_LOCK_TITLE = '공급사 확인이 완료되면 수정할 수 있습니다';
 
 const stockShort = computed(() => {
@@ -46,6 +49,19 @@ const provisionalSelectionPending = computed(() =>
 const technicalFallbackUsed = computed(() =>
   props.item.matchEvidence?.technicalFallbackUsed === true,
 );
+
+const searchTraceSummary = computed(() =>
+  props.item.matchEvidence?.searchTraceSummary ?? null,
+);
+
+const searchTraceTitle = computed(() => {
+  const trace = searchTraceSummary.value;
+  if (trace === null) return '';
+  const lines = [`${t('bomSearchTrace.search')}: ${trace.primaryQuery}`];
+  if (trace.fallbackQuery !== null) lines.push(`${t('bomSearchTrace.fallbackBadge')}: ${trace.fallbackQuery}`);
+  lines.push(t('bomSearchTrace.attempts', { count: trace.attemptCount }));
+  return lines.join('\n');
+});
 
 const sortedPriceBreaks = computed(() => {
   const offer = props.item.selectedOffer;
@@ -285,6 +301,18 @@ function onQtyInput(event: Event): void {
         <span v-if="technicalFallbackUsed" class="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700" :title="evidenceTitle">구매 가능 차순위</span>
         <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="evidenceTitle">일부 확인 필요</span>
         <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
+        <button
+          v-if="searchTraceSummary !== null"
+          type="button"
+          class="flex max-w-[190px] items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-left text-[10px] leading-4 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 disabled:cursor-default disabled:opacity-60"
+          :disabled="editingLocked"
+          :title="searchTraceTitle"
+          @click="emit('open-candidates')"
+        >
+          <span class="shrink-0 font-bold text-slate-500">{{ t('bomSearchTrace.search') }}</span>
+          <span class="min-w-0 truncate">{{ searchTraceSummary.primaryQuery }}</span>
+          <span v-if="searchTraceSummary.fallbackUsed" class="shrink-0 rounded bg-amber-100 px-1 font-bold text-amber-700">{{ t('bomSearchTrace.fallbackBadge') }}</span>
+        </button>
         <p v-if="item.matchStatus !== 'none'" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="reasonSummary">{{ reasonSummary }}</p>
         <span v-if="(item.matchEvidence?.alternativeCandidateCount ?? 0) > 0" class="text-[10px] font-semibold text-blue-600">대체 후보 {{ item.matchEvidence?.alternativeCandidateCount }}개</span>
         <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? 'text-gray-300' : 'text-[#38b614]'">

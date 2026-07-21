@@ -154,7 +154,7 @@ async function applyCompletedSupplierResult(
     select: { startedAt: true },
   });
   const applyStartedAt = performance.now();
-  const applied = await refreshQuoteFromSupplierResult(quoteId, envelope);
+  const applied = await refreshQuoteFromSupplierResult(quoteId, envelope, searchRunId);
   const completedAt = new Date();
   const baseSummary = supplierRunSummarySnapshot(envelope);
   const summary = baseSummary === null

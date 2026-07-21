@@ -27,6 +27,8 @@ import {
   type BomQuoteRecommendationTypeType,
   type BomQuoteSelectionEventType,
   type BomQuoteSelectionSourceType,
+  type BomQuoteSearchTraceSummaryType,
+  type BomQuoteSearchTraceType,
   type BomQuoteSheetType,
   type BomQuoteSelectedOfferType,
   type BomQuoteStatusType,
@@ -256,6 +258,38 @@ const EngineSupplierQuery = z
   })
   .passthrough();
 
+const EngineSupplierSearchTraceAttempt = z.object({
+  sequence: z.number().int().min(1),
+  stage: z.enum(['primary', 'identity_fallback']),
+  supplier: z.string(),
+  strategy: z.string(),
+  query: z.string(),
+  source: z.enum([
+    'live_api',
+    'fresh_cache',
+    'stale_cache',
+    'coalesced',
+    'prefetch_cache',
+    'batch_reuse',
+    'not_executed',
+  ]),
+  outcome: z.enum(['results', 'empty', 'error', 'skipped', 'budget_exhausted']),
+  result_count: z.number().int().min(0),
+  api_calls: z.number().int().min(0),
+  http_attempt_count: z.number().int().min(0),
+  elapsed_ms: z.number().min(0),
+  fallback_reason: z.string().nullish(),
+  error_type: z.string().nullish(),
+});
+
+const EngineSupplierSearchTrace = z.object({
+  version: z.literal('supplier-search-trace-v1'),
+  primary_query: z.string(),
+  fallback_query: z.string().nullish(),
+  fallback_used: z.boolean(),
+  attempts: z.array(EngineSupplierSearchTraceAttempt),
+});
+
 const EngineComponentProcurementDecisionV1 = z
   .object({
     procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
@@ -330,6 +364,7 @@ const EngineSupplierComponent = z
     query: EngineSupplierQuery.nullish(),
     initial_query: EngineSupplierQuery.nullish(),
     identity_fallback: z.boolean().default(false),
+    search_trace: EngineSupplierSearchTrace.nullish(),
     candidates: z.array(EngineSupplierCandidate).default([]),
     procurement_decision: EngineComponentProcurementDecision.nullish(),
   })
@@ -377,6 +412,44 @@ const EngineProcurementReevaluationBatchResponse = z
 type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 type EngineCandidateDecisionType = z.infer<typeof EngineCandidateDecision>;
+type EngineSupplierSearchTraceType = z.infer<typeof EngineSupplierSearchTrace>;
+
+function quoteSearchTrace(trace: EngineSupplierSearchTraceType): BomQuoteSearchTraceType {
+  return {
+    version: trace.version,
+    primaryQuery: trace.primary_query,
+    fallbackQuery: trace.fallback_query ?? null,
+    fallbackUsed: trace.fallback_used,
+    attemptCount: trace.attempts.length,
+    attempts: trace.attempts.map((attempt) => ({
+      sequence: attempt.sequence,
+      stage: attempt.stage,
+      supplier: attempt.supplier,
+      strategy: attempt.strategy,
+      query: attempt.query,
+      source: attempt.source,
+      outcome: attempt.outcome,
+      resultCount: attempt.result_count,
+      apiCalls: attempt.api_calls,
+      httpAttemptCount: attempt.http_attempt_count,
+      elapsedMs: attempt.elapsed_ms,
+      fallbackReason: attempt.fallback_reason ?? null,
+      errorType: attempt.error_type ?? null,
+    })),
+  };
+}
+
+function searchTraceSummary(trace: EngineSupplierSearchTraceType | null | undefined): BomQuoteSearchTraceSummaryType | null {
+  if (trace === null || trace === undefined) return null;
+  const projected = quoteSearchTrace(trace);
+  return {
+    version: projected.version,
+    primaryQuery: projected.primaryQuery,
+    fallbackQuery: projected.fallbackQuery,
+    fallbackUsed: projected.fallbackUsed,
+    attemptCount: projected.attemptCount,
+  };
+}
 
 export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v10';
 const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION = 'supplier-candidate-decision-v1';
@@ -1345,6 +1418,7 @@ function evidenceFromDecision(
     technicalPreselectionCandidateKey: technicalTop?.snapshot.candidateKey ?? null,
     technicalFallbackUsed,
     identityFallback,
+    searchTraceSummary: searchTraceSummary(component.search_trace),
     candidateStatus: evidenceSnapshot?.status ?? reviewCandidate?.status ?? null,
     selectionMode: mode,
     candidateCount: component.candidates.length,
@@ -1527,6 +1601,13 @@ async function partIdForCandidate(candidate: EngineSupplierCandidateType): Promi
 export interface ApplyEngineSupplierResult {
   applied: boolean;
   candidateSnapshots: QuoteCandidateSnapshotInput[];
+  searchTraceSnapshots: QuoteSearchTraceSnapshotInput[];
+}
+
+export interface QuoteSearchTraceSnapshotInput {
+  rowIdx: number;
+  componentId: string;
+  trace: EngineSupplierSearchTraceType;
 }
 
 /** 관리자와 동일한 공급사 검색 결과를 견적 행에 직접 반영한다. */
@@ -1538,15 +1619,16 @@ export async function applyEngineSupplierResult(
   usdKrwRate: number | null,
 ): Promise<ApplyEngineSupplierResult> {
   const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
-  if (!parsed.success) return { applied: false, candidateSnapshots: [] };
+  if (!parsed.success) return { applied: false, candidateSnapshots: [], searchTraceSnapshots: [] };
   if (
     parsed.data.procurement_decision_contract_status !== 'current'
     || parsed.data.search.components.some((component) =>
       component.procurement_decision === null
       || component.procurement_decision === undefined)
-  ) return { applied: false, candidateSnapshots: [] };
+  ) return { applied: false, candidateSnapshots: [], searchTraceSnapshots: [] };
   const components = new Map(parsed.data.search.components.map((component) => [component.component_id, component]));
   const candidateSnapshots: QuoteCandidateSnapshotInput[] = [];
+  const searchTraceSnapshots: QuoteSearchTraceSnapshotInput[] = [];
 
   for (const item of items) {
     const componentId = item.sourceRow?.componentId;
@@ -1557,6 +1639,13 @@ export async function applyEngineSupplierResult(
     const sourcePartNumber = item.sourceRow?.inputPartNumber;
     const inputPartNumber = typeof sourcePartNumber === 'string' ? sourcePartNumber.trim() : '';
     const needed = neededQty(item.bomQty, setQty, spareQty);
+    if (component.search_trace !== null && component.search_trace !== undefined) {
+      searchTraceSnapshots.push({
+        rowIdx: item.rowIdx,
+        componentId,
+        trace: component.search_trace,
+      });
+    }
     const decision = selectEngineMatch(component, needed, usdKrwRate);
     if (decision === null) continue;
     candidateSnapshots.push(...decision.snapshots.map((candidate) => ({ rowIdx: item.rowIdx, candidate })));
@@ -1644,7 +1733,7 @@ export async function applyEngineSupplierResult(
     item.selectedOffer = decision.pick === null ? null : snapshotFromPick(decision.pick, false, decision.offerKey);
     item.orderQty = decision.pick?.orderQty ?? needed;
   }
-  return { applied: true, candidateSnapshots };
+  return { applied: true, candidateSnapshots, searchTraceSnapshots };
 }
 
 function storedOfferInput(offer: StoredCandidateOfferType): BomOfferInput {
@@ -2370,6 +2459,22 @@ export async function getQuoteItemCandidates(
     prisma.spBomQuoteSelectionEvent.findMany({ where: { quoteId, quoteItemId: itemId }, orderBy: { createdAt: 'desc' }, take: 20 }),
   ]);
   if (itemRow === null) return null;
+  const searchTraceRow = quote.activeSupplierSearchRunId === null
+    || itemRow.analysisComponent?.engineComponentId === undefined
+    ? null
+    : await prisma.spBomSupplierSearchTrace.findFirst({
+        where: {
+          supplierSearchRunId: quote.activeSupplierSearchRunId,
+          engineComponentId: itemRow.analysisComponent.engineComponentId,
+        },
+        select: { payload: true },
+      });
+  const storedSearchTrace = searchTraceRow === null
+    ? null
+    : EngineSupplierSearchTrace.safeParse(searchTraceRow.payload);
+  const searchTrace = storedSearchTrace?.success === true
+    ? quoteSearchTrace(storedSearchTrace.data)
+    : null;
   const item = toItemDto(itemRow);
   const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
   const stored = candidateRows.flatMap((row) => {
@@ -2513,6 +2618,7 @@ export async function getQuoteItemCandidates(
     technicalTopLineTotalKrw: technicalTopTotal,
     technicalFallbackUsed: item.matchEvidence?.technicalFallbackUsed ?? false,
     decisionReasonCodes: item.matchEvidence?.decisionReasonCodes ?? [],
+    searchTrace,
     candidates,
     events: eventRows.map(selectionEventDto),
   };
@@ -2660,8 +2766,12 @@ const engineRefreshInFlight = new Map<string, Promise<boolean>>();
  * 먼저 저장하며, 아직 없는 partId는 후속 backfillQuotePartIds가 조건부 연결한다.
  * 매칭 판정과 오퍼 선택의 진실원본은 이 엔진 봉투다.
  */
-export async function refreshQuoteFromSupplierResult(quoteId: bigint, envelope: unknown): Promise<boolean> {
-  const key = String(quoteId);
+export async function refreshQuoteFromSupplierResult(
+  quoteId: bigint,
+  envelope: unknown,
+  supplierSearchRunId?: bigint,
+): Promise<boolean> {
+  const key = `${String(quoteId)}:${supplierSearchRunId === undefined ? 'legacy' : String(supplierSearchRunId)}`;
   const inFlight = engineRefreshInFlight.get(key);
   if (inFlight !== undefined) return inFlight;
   const run = (async (): Promise<boolean> => {
@@ -2677,6 +2787,12 @@ export async function refreshQuoteFromSupplierResult(quoteId: bigint, envelope: 
       enrichStatus: 'done',
       enrichedAt: new Date(),
       candidateSnapshots: applied.candidateSnapshots,
+      ...(supplierSearchRunId === undefined
+        ? {}
+        : {
+            supplierSearchRunId,
+            searchTraceSnapshots: applied.searchTraceSnapshots,
+          }),
     });
     return true;
   })();
@@ -2743,13 +2859,22 @@ export async function refreshQuotesForJob(jobId: string): Promise<void> {
   const envelope: unknown = await response.json();
   const quotes = await prisma.spBomQuote.findMany({
     where: { engineJobId: jobId, status: 'draft' },
-    select: { id: true, enrichStatus: true, items: { select: { included: true, matchStatus: true } } },
+    select: {
+      id: true,
+      enrichStatus: true,
+      activeSupplierSearchRunId: true,
+      items: { select: { included: true, matchStatus: true } },
+    },
   });
   for (const quote of quotes) {
     const hasUnmatched = quote.items.some((i) => i.included && i.matchStatus === 'none');
     // searching 은 미매칭이 없어도 최신 엔진 판정·가격을 반영해 done 으로 종결시킨다.
     if (quote.enrichStatus !== 'searching' && !hasUnmatched) continue;
-    await refreshQuoteFromSupplierResult(quote.id, envelope);
+    await refreshQuoteFromSupplierResult(
+      quote.id,
+      envelope,
+      quote.activeSupplierSearchRunId ?? undefined,
+    );
   }
 }
 
@@ -2920,6 +3045,8 @@ export interface QuotePersistenceExtra {
    * 무관한 나머지 행의 후보를 지웠다 다시 넣는 전량 재삽입을 피한다.
    */
   candidateSnapshotScope?: 'full' | 'partial';
+  supplierSearchRunId?: bigint;
+  searchTraceSnapshots?: QuoteSearchTraceSnapshotInput[];
   exchangeRateSnapshot?: BomQuoteExchangeRateSnapshotType | null;
   selectionEvent?: {
     itemId: string;
@@ -2990,6 +3117,42 @@ export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
             data: candidateRows.slice(offset, offset + CANDIDATE_INSERT_BATCH_SIZE),
           });
         }
+      }
+    }
+    if (
+      extra?.supplierSearchRunId !== undefined
+      && extra.searchTraceSnapshots !== undefined
+    ) {
+      const supplierSearchRunId = extra.supplierSearchRunId;
+      const run = await tx.spBomSupplierSearchRun.findFirst({
+        where: { id: supplierSearchRunId, quoteId },
+        select: { id: true },
+      });
+      if (run === null) {
+        throw new Error(`BOM supplier search run ${String(supplierSearchRunId)} does not belong to quote ${String(quoteId)}`);
+      }
+      const componentIds = extra.searchTraceSnapshots.map((snapshot) => snapshot.componentId);
+      if (new Set(componentIds).size !== componentIds.length) {
+        throw new Error(`Duplicate BOM supplier search trace component for run ${String(supplierSearchRunId)}`);
+      }
+      await tx.spBomSupplierSearchTrace.deleteMany({
+        where: { supplierSearchRunId },
+      });
+      const traceRows = extra.searchTraceSnapshots.map(({ rowIdx, componentId, trace }) => ({
+        supplierSearchRunId,
+        engineComponentId: componentId,
+        rowIdx,
+        traceVersion: trace.version,
+        primaryQuery: trace.primary_query.slice(0, 500),
+        fallbackQuery: trace.fallback_query?.slice(0, 500) ?? null,
+        fallbackUsed: trace.fallback_used,
+        attemptCount: trace.attempts.length,
+        payload: trace,
+      }));
+      for (let offset = 0; offset < traceRows.length; offset += CANDIDATE_INSERT_BATCH_SIZE) {
+        await tx.spBomSupplierSearchTrace.createMany({
+          data: traceRows.slice(offset, offset + CANDIDATE_INSERT_BATCH_SIZE),
+        });
       }
     }
     if (extra?.selectedSheetIndexes !== undefined) {

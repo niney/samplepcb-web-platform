@@ -595,12 +595,34 @@ model SpBomSupplierSearchRun {
   activeForQuote     SpBomQuote?      @relation("BomQuoteActiveSupplierSearch")
   analysisRun        SpBomAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
   catalogIngestRun   SpPartIngestRun? @relation(fields: [catalogIngestRunId], references: [id], onDelete: SetNull)
+  searchTraces       SpBomSupplierSearchTrace[]
 
   @@index([quoteId, createdAt])
   @@index([analysisRunId, createdAt])
   @@index([catalogIngestRunId])
   @@index([status, createdAt])
   @@map("sp_bom_supplier_search_run")
+}
+
+// 엔진이 실행 순간 확정한 실제 검색어·공급사 내부 fallback provenance.
+// 검색 실행별 컴포넌트에 한 번만 저장하고 BOM 목록의 반복 폴링에서는 지연 조회한다.
+model SpBomSupplierSearchTrace {
+  id                  BigInt                 @id @default(autoincrement())
+  supplierSearchRunId BigInt                 @map("supplier_search_run_id")
+  engineComponentId   String                 @map("engine_component_id") @db.VarChar(24)
+  rowIdx               Int                    @map("row_idx")
+  traceVersion         String                 @map("trace_version") @db.VarChar(64)
+  primaryQuery         String                 @map("primary_query") @db.VarChar(500)
+  fallbackQuery        String?                @map("fallback_query") @db.VarChar(500)
+  fallbackUsed         Boolean                @map("fallback_used")
+  attemptCount         Int                    @map("attempt_count")
+  payload              Json
+  createdAt            DateTime               @default(now()) @map("created_at")
+  supplierSearchRun    SpBomSupplierSearchRun @relation(fields: [supplierSearchRunId], references: [id], onDelete: Cascade, map: "fk_bom_supplier_trace_run")
+
+  @@unique([supplierSearchRunId, engineComponentId], map: "uq_bom_supplier_trace_run_component")
+  @@index([supplierSearchRunId, rowIdx], map: "idx_bom_supplier_trace_run_row")
+  @@map("sp_bom_supplier_search_trace")
 }
 
 // 회원별 공급사 검색 일일 사용량 — 인메모리 카운터 대신 재시작·다중 인스턴스에도 유지한다.

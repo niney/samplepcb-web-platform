@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type {
   BomQuoteCandidateOfferType,
   BomQuoteCandidateType,
   BomQuoteDecisionReasonType,
   BomQuoteItemCandidatesType,
+  BomQuoteSearchTraceAttemptType,
   BomQuoteSelectionSourceType,
   PartHitType,
 } from '@sp/api-contract';
@@ -54,6 +56,9 @@ const emit = defineEmits<{
   catalogOffers: [];
 }>();
 
+const i18n = useI18n();
+const { t } = i18n;
+
 type SelectionView = 'candidates' | 'search';
 type CandidateTab = 'selectable' | 'all' | 'review';
 
@@ -79,6 +84,7 @@ const view = ref<SelectionView>(props.initialView);
 const tab = ref<CandidateTab>('selectable');
 const expanded = ref<Set<string>>(new Set());
 const originalDetailsExpanded = ref(false);
+const searchTraceExpanded = ref(false);
 const pendingReviewSelection = ref<PendingReviewSelection | null>(null);
 
 function resetCandidatePresentation(): void {
@@ -95,6 +101,7 @@ watch(
   () => {
     resetCandidatePresentation();
     originalDetailsExpanded.value = false;
+    searchTraceExpanded.value = false;
   },
 );
 
@@ -105,6 +112,7 @@ watch(
       view.value = props.initialView;
       resetCandidatePresentation();
       originalDetailsExpanded.value = false;
+      searchTraceExpanded.value = false;
     }
   },
 );
@@ -137,6 +145,23 @@ const reviewSelectionConfirmed = computed(() =>
   && ['customer', 'admin'].includes(props.context.selectionSource)
   && props.context.selectedCandidateKey === recommendedCandidate.value?.candidateKey,
 );
+
+function traceCodeLabel(section: 'stage' | 'strategy' | 'source' | 'fallbackReason', code: string): string {
+  const key = `bomSearchTrace.${section}.${code}`;
+  return i18n.te(key) ? t(key) : code;
+}
+
+function traceOutcomeLabel(attempt: BomQuoteSearchTraceAttemptType): string {
+  const key = `bomSearchTrace.outcome.${attempt.outcome}`;
+  if (!i18n.te(key)) return attempt.outcome;
+  return t(key, { count: attempt.resultCount });
+}
+
+function traceElapsedLabel(elapsedMs: number): string {
+  return elapsedMs < 1000
+    ? `${Math.round(elapsedMs).toLocaleString('ko-KR')}ms`
+    : `${(elapsedMs / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}s`;
+}
 
 function formatOriginalRows(rows: number[], compact: boolean): string {
   if (rows.length === 0) return '';
@@ -796,6 +821,54 @@ onBeforeUnmount(() => {
                       </p>
                     </div>
                   </dl>
+                </div>
+              </section>
+              <section v-if="context.searchTrace !== null" class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <button
+                  type="button"
+                  class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-slate-50"
+                  :aria-expanded="searchTraceExpanded"
+                  aria-controls="supplier-search-trace"
+                  @click="searchTraceExpanded = !searchTraceExpanded"
+                >
+                  <span class="flex min-w-0 items-center gap-2">
+                    <span class="shrink-0 text-xs font-bold text-slate-800">{{ t('bomSearchTrace.process') }}</span>
+                    <span class="min-w-0 truncate text-xs text-slate-600" :title="context.searchTrace.primaryQuery">{{ context.searchTrace.primaryQuery }}</span>
+                    <span v-if="context.searchTrace.fallbackUsed" class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{{ t('bomSearchTrace.fallbackBadge') }}</span>
+                  </span>
+                  <span class="flex shrink-0 items-center gap-2 text-[11px] font-semibold text-slate-500">
+                    {{ t('bomSearchTrace.attempts', { count: context.searchTrace.attemptCount }) }}
+                    <span aria-hidden="true">{{ searchTraceExpanded ? '▴' : '▾' }}</span>
+                  </span>
+                </button>
+                <div v-show="searchTraceExpanded" id="supplier-search-trace" class="border-t border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                  <div v-if="context.searchTrace.fallbackQuery !== null" class="mb-2 grid min-w-0 gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] sm:grid-cols-[auto_1fr]">
+                    <b class="text-amber-800">{{ t('bomSearchTrace.fallbackBadge') }}</b>
+                    <span class="break-words text-amber-900">{{ context.searchTrace.fallbackQuery }}</span>
+                  </div>
+                  <ol class="space-y-1.5">
+                    <li
+                      v-for="attempt in context.searchTrace.attempts"
+                      :key="attempt.sequence"
+                      class="grid gap-x-2 gap-y-1 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[11px] sm:grid-cols-[24px_108px_minmax(0,1fr)_auto] sm:items-start"
+                    >
+                      <span class="flex size-5 items-center justify-center rounded-full bg-slate-100 font-bold tabular-nums text-slate-600">{{ attempt.sequence }}</span>
+                      <span class="font-semibold text-slate-700">
+                        {{ traceCodeLabel('stage', attempt.stage) }}
+                        <small class="block truncate font-normal uppercase text-slate-400">{{ attempt.supplier }}</small>
+                      </span>
+                      <span class="min-w-0">
+                        <span class="mr-1.5 rounded bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700">{{ traceCodeLabel('strategy', attempt.strategy) }}</span>
+                        <span class="break-words text-slate-700">{{ attempt.query }}</span>
+                        <span v-if="attempt.fallbackReason !== null" class="mt-1 block text-amber-700">{{ traceCodeLabel('fallbackReason', attempt.fallbackReason) }}</span>
+                        <span v-if="attempt.errorType !== null" class="mt-1 block text-rose-700">{{ attempt.errorType }}</span>
+                      </span>
+                      <span class="whitespace-nowrap text-right text-slate-500">
+                        <b class="text-slate-700">{{ traceOutcomeLabel(attempt) }}</b>
+                        <small class="block">{{ traceCodeLabel('source', attempt.source) }} · {{ traceElapsedLabel(attempt.elapsedMs) }}</small>
+                      </span>
+                    </li>
+                  </ol>
                 </div>
               </section>
               <section class="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm">
