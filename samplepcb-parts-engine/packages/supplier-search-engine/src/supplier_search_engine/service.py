@@ -22,6 +22,8 @@ from .models import (
     BatchSearchResult,
     BatchPreflight,
     CandidateMatch,
+    ComponentSearchTrace,
+    ComponentSearchTraceAttempt,
     ComponentSearchResult,
     InputCorrection,
     LifecycleState,
@@ -31,9 +33,11 @@ from .models import (
     ProcurementPolicyInput,
     RawSupplierResponse,
     SearchMode,
+    SearchTraceSource,
     SelectionEligibility,
     SelectionRecommendation,
     Supplier,
+    SupplierSearchTraceAttempt,
     SupplierSearchResult,
 )
 from .normalization import compact_mpn
@@ -237,6 +241,20 @@ class SearchService:
                 if offset:
                     warnings.append("동일 검색 조건을 배치 내에서 병합해 공급사 호출을 재사용했습니다.")
                     api_calls = 0
+                search_trace = result.search_trace
+                if offset and search_trace is not None:
+                    search_trace = search_trace.model_copy(
+                        update={
+                            "attempts": [
+                                attempt.model_copy(
+                                    update={"source": "batch_reuse", "api_calls": 0},
+                                    deep=True,
+                                )
+                                for attempt in search_trace.attempts
+                            ]
+                        },
+                        deep=True,
+                    )
                 component_results[index] = result.model_copy(
                     update={
                         "component_id": plan.component_id,
@@ -244,6 +262,7 @@ class SearchService:
                         "source_rows_1based": source_component.source_rows_1based,
                         "query": final_query,
                         "initial_query": initial_query,
+                        "search_trace": search_trace,
                         "api_calls": api_calls,
                         "warnings": warnings,
                     },
@@ -303,20 +322,24 @@ class SearchService:
             [],
             procurement_policy or ProcurementPolicyInput(),
         )
+        supplier_results = [
+            SupplierSearchResult(
+                supplier=supplier,
+                error_type=error_type,
+                error_message=message,
+            )
+            for supplier in suppliers_for_query(query)
+        ]
         return ComponentSearchResult(
             component_id=query.component_id,
             mode=query.mode,
             status=MatchStatus.SUPPLIER_ERROR,
             query=query,
-            supplier_results=[
-                SupplierSearchResult(
-                    supplier=supplier,
-                    error_type=error_type,
-                    error_message=message,
-                )
-                for supplier in suppliers_for_query(query)
-            ],
+            supplier_results=supplier_results,
             procurement_decision=procurement_decision,
+            search_trace=SearchService._component_search_trace(
+                query, supplier_results
+            ),
             warnings=[message],
         )
 
@@ -366,6 +389,7 @@ class SearchService:
                 mode=query.mode,
                 status=MatchStatus.INSUFFICIENT_INPUT,
                 query=query,
+                search_trace=self._component_search_trace(query, []),
                 procurement_decision=procurement_decision,
                 warnings=["부품 식별자 또는 검증 가능한 스펙이 부족합니다."],
             )
@@ -416,6 +440,7 @@ class SearchService:
             mode=query.mode,
             status=status,
             query=query,
+            search_trace=self._component_search_trace(query, supplier_results),
             candidates=candidates,
             input_corrections=input_corrections,
             supplier_results=supplier_results,
@@ -444,6 +469,12 @@ class SearchService:
                 "component_id": query.component_id,
                 "initial_query": query,
                 "identity_fallback": True,
+                "search_trace": self._component_search_trace(
+                    query,
+                    primary.supplier_results,
+                    fallback_query=fallback.query or fallback_query,
+                    fallback_results=fallback.supplier_results,
+                ),
                 "initial_supplier_results": primary.supplier_results,
                 "api_calls": primary.api_calls + fallback.api_calls,
                 "warnings": list(
@@ -458,6 +489,107 @@ class SearchService:
                 ),
             },
             deep=True,
+        )
+
+    @staticmethod
+    def _query_text(query: PlannedQuery) -> str:
+        return (query.part_number or query.keywords or "").strip()
+
+    @staticmethod
+    def _planned_strategy(query: PlannedQuery) -> str:
+        if query.mode == SearchMode.IDENTITY:
+            return "identity"
+        if query.mode == SearchMode.HYBRID:
+            return "hybrid"
+        if query.mode == SearchMode.PARAMETRIC:
+            return "parametric"
+        return "insufficient"
+
+    @staticmethod
+    def _trace_source(result: SupplierSearchResult) -> SearchTraceSource:
+        if result.cache_state == "fresh":
+            if any(
+                attempt.strategy == "identity_batch_exact"
+                for attempt in result.search_attempts
+            ):
+                return "prefetch_cache"
+            return "fresh_cache"
+        if result.cache_state == "stale":
+            return "stale_cache"
+        if result.cache_state == "coalesced":
+            return "coalesced"
+        return "live_api" if result.api_calls > 0 else "not_executed"
+
+    @classmethod
+    def _component_search_trace(
+        cls,
+        primary_query: PlannedQuery,
+        primary_results: list[SupplierSearchResult],
+        *,
+        fallback_query: PlannedQuery | None = None,
+        fallback_results: list[SupplierSearchResult] | None = None,
+    ) -> ComponentSearchTrace:
+        staged = (
+            ("primary", primary_query, primary_results),
+            (
+                "identity_fallback",
+                fallback_query,
+                fallback_results or [],
+            ),
+        )
+        attempts: list[ComponentSearchTraceAttempt] = []
+        for stage, query, results in staged:
+            if query is None:
+                continue
+            for result in results:
+                supplier_attempts = result.search_attempts
+                if not supplier_attempts:
+                    error_type = result.error_type
+                    outcome = (
+                        "budget_exhausted"
+                        if error_type == "quota_exhausted"
+                        else "skipped"
+                        if error_type in {
+                            "cache_miss",
+                            "client_unavailable",
+                            "not_configured",
+                            "unsupported_search_mode",
+                        }
+                        else "error"
+                        if error_type is not None
+                        else "results"
+                        if result.products
+                        else "empty"
+                    )
+                    supplier_attempts = [
+                        SupplierSearchTraceAttempt(
+                            supplier=result.supplier,
+                            strategy=cls._planned_strategy(query),
+                            query=cls._query_text(query),
+                            source=cls._trace_source(result),
+                            outcome=outcome,
+                            result_count=len(result.products),
+                            api_calls=result.api_calls,
+                            http_attempt_count=result.api_calls,
+                            elapsed_ms=result.operation_elapsed_ms,
+                            error_type=error_type,
+                        )
+                    ]
+                for attempt in supplier_attempts:
+                    attempts.append(
+                        ComponentSearchTraceAttempt(
+                            **attempt.model_dump(),
+                            sequence=len(attempts) + 1,
+                            stage=stage,
+                        )
+                    )
+        return ComponentSearchTrace(
+            primary_query=cls._query_text(primary_query),
+            fallback_query=(
+                cls._query_text(fallback_query) if fallback_query is not None else None
+            ),
+            fallback_used=fallback_query is not None,
+            attempts=attempts,
         )
 
     async def _search_supplier_after_barrier(
@@ -521,12 +653,30 @@ class SearchService:
             )
             return True
 
-        async def fallback(query: PlannedQuery) -> int:
+        async def fallback(
+            query: PlannedQuery,
+            exact: RawSupplierResponse,
+        ) -> int:
             try:
                 async with self._semaphores[Supplier.MOUSER]:
-                    raw = await client.fetch_keyword(query, reserve_call=reserve_call)
+                    raw = await client.fetch_keyword(
+                        query,
+                        reserve_call=reserve_call,
+                        strategy="identity_keyword",
+                        fallback_reason="batch_exact_no_result",
+                    )
             except (QuotaExceeded, JobBudgetExceeded):
                 return 0
+            raw = raw.model_copy(
+                update={
+                    "latency_ms": exact.latency_ms + raw.latency_ms,
+                    "http_attempt_count": (
+                        exact.http_attempt_count + raw.http_attempt_count
+                    ),
+                    "request_trace": [*exact.request_trace, *raw.request_trace],
+                },
+                deep=True,
+            )
             return int(await store(query, raw))
 
         async def fetch_chunk(chunk: list[PlannedQuery]) -> int:
@@ -538,15 +688,19 @@ class SearchService:
             if not raw.ok:
                 return 0
             stored = 0
-            missing: list[PlannedQuery] = []
+            missing: list[tuple[PlannedQuery, RawSupplierResponse]] = []
             for query in chunk:
                 filtered = client.exact_batch_result(raw, query)
                 if client.normalize(filtered, query):
                     stored += int(await store(query, filtered))
                 else:
-                    missing.append(query)
+                    missing.append((query, filtered))
             if missing:
-                stored += sum(await asyncio.gather(*(fallback(query) for query in missing)))
+                stored += sum(
+                    await asyncio.gather(
+                        *(fallback(query, exact) for query, exact in missing)
+                    )
+                )
             return stored
 
         chunks = [queries[index : index + 10] for index in range(0, len(queries), 10)]
@@ -648,6 +802,17 @@ class SearchService:
                 async with self._supplier_slot(supplier, query):
                     raw = await client.fetch(query, reserve_call=reserve_call)
             except (QuotaExceeded, JobBudgetExceeded) as exc:
+                budget_attempt = SupplierSearchTraceAttempt(
+                    supplier=supplier,
+                    strategy=self._planned_strategy(query),
+                    query=self._query_text(query),
+                    source="live_api" if call_count > 0 else "not_executed",
+                    outcome="budget_exhausted",
+                    api_calls=call_count,
+                    http_attempt_count=call_count,
+                    fallback_reason="request_budget_exhausted",
+                    error_type="quota_exhausted",
+                )
                 if stale is not None:
                     return stale.model_copy(
                         update={
@@ -655,6 +820,10 @@ class SearchService:
                             "api_calls": call_count,
                             "error_type": "quota_exhausted",
                             "error_message": str(exc),
+                            "search_attempts": [
+                                budget_attempt,
+                                *stale.search_attempts,
+                            ],
                         }
                     )
                 return SupplierSearchResult(
@@ -663,6 +832,7 @@ class SearchService:
                     error_message=str(exc),
                     api_call_performed=call_count > 0,
                     api_calls=call_count,
+                    search_attempts=[budget_attempt],
                 )
             except Exception as exc:  # Supplier adapters are isolation boundaries.
                 raw = RawSupplierResponse(
@@ -692,12 +862,24 @@ class SearchService:
                     )
                 return result
             if stale is not None and self.settings.stale_if_error:
+                failed = self._result_from_raw(
+                    client,
+                    raw,
+                    query,
+                    cache_state="miss",
+                    cache_age_seconds=0.0,
+                    api_calls=call_count,
+                )
                 return stale.model_copy(
                     update={
                         "api_call_performed": call_count > 0,
                         "api_calls": call_count,
                         "error_type": raw.error_type,
                         "error_message": raw.error_message,
+                        "search_attempts": [
+                            *failed.search_attempts,
+                            *stale.search_attempts,
+                        ],
                     }
                 )
             return SupplierSearchResult(
@@ -713,8 +895,22 @@ class SearchService:
         result, joined = await self.singleflight.run(f"{namespace}:{cache_key}", execute)
         if joined:
             state = "coalesced" if result.cache_state in {"miss", "fresh", "coalesced"} else result.cache_state
+            search_attempts = result.search_attempts
+            if state == "coalesced":
+                search_attempts = [
+                    attempt.model_copy(
+                        update={"source": "coalesced", "api_calls": 0},
+                        deep=True,
+                    )
+                    for attempt in search_attempts
+                ]
             return result.model_copy(
-                update={"cache_state": state, "api_call_performed": False, "api_calls": 0},
+                update={
+                    "cache_state": state,
+                    "api_call_performed": False,
+                    "api_calls": 0,
+                    "search_attempts": search_attempts,
+                },
                 deep=True,
             )
         return result
@@ -756,6 +952,37 @@ class SearchService:
         cache_age_seconds: float | None,
         api_calls: int,
     ) -> SupplierSearchResult:
+        if cache_state == "fresh":
+            source = (
+                "prefetch_cache"
+                if any(
+                    attempt.strategy == "identity_batch_exact"
+                    for attempt in raw.request_trace
+                )
+                else "fresh_cache"
+            )
+        elif cache_state == "stale":
+            source = "stale_cache"
+        elif cache_state == "coalesced":
+            source = "coalesced"
+        else:
+            source = "live_api" if api_calls > 0 else "not_executed"
+        search_attempts = [
+            SupplierSearchTraceAttempt(
+                supplier=client.supplier,
+                strategy=attempt.strategy,
+                query=attempt.query,
+                source=source,
+                outcome=attempt.outcome,
+                result_count=attempt.result_count,
+                api_calls=(attempt.http_attempt_count if source == "live_api" else 0),
+                http_attempt_count=attempt.http_attempt_count,
+                elapsed_ms=attempt.elapsed_ms,
+                fallback_reason=attempt.fallback_reason,
+                error_type=attempt.error_type,
+            )
+            for attempt in raw.request_trace
+        ]
         try:
             products = client.normalize(raw, query)
         except Exception as exc:
@@ -769,6 +996,7 @@ class SearchService:
                 source_fetched_at=raw.fetched_at,
                 api_call_performed=api_calls > 0,
                 api_calls=api_calls,
+                search_attempts=search_attempts,
             )
         return SupplierSearchResult(
             supplier=client.supplier,
@@ -779,6 +1007,7 @@ class SearchService:
             source_fetched_at=raw.fetched_at,
             api_call_performed=api_calls > 0,
             api_calls=api_calls,
+            search_attempts=search_attempts,
         )
 
     def _cache_ttl(self, query: PlannedQuery, *, negative: bool) -> int:

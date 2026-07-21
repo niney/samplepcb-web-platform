@@ -89,16 +89,28 @@ class UniKeyICClient(SupplierClient):
                 error_type="unsupported_search_mode",
                 error_message="UniKeyIC is used only for exact part-number enrichment",
             )
-        return await self._request_json(
+        raw = await self._request_json(
             "POST",
             f"{self.base_url}/search-v1/products/get-single-goods-usd",
             headers={"Authorization": self.api_key or "", "Content-Type": "application/json"},
             json_body={"pro_sno": query.part_number},
             reserve_call=reserve_call,
         )
+        return self.traced_response(
+            raw,
+            strategy="identity_exact",
+            query=query.part_number,
+            result_count=self._product_count(raw),
+        )
 
     def cache_payload(self, query: PlannedQuery) -> dict[str, Any]:
         return {"part_number": query.part_number}
+
+    @staticmethod
+    def _product_count(raw: RawSupplierResponse) -> int:
+        data = (raw.payload or {}).get("data")
+        products = data.get("products") if isinstance(data, dict) else None
+        return sum(1 for product in products or [] if isinstance(product, dict))
 
     def normalize(self, raw: RawSupplierResponse, query: PlannedQuery) -> list[SupplierProduct]:
         if not raw.ok or not raw.payload or raw.payload.get("err_code") not in {None, "Com:Success"}:

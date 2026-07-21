@@ -126,6 +126,20 @@ class MouserClient(SupplierClient):
             json_body={root: request},
             reserve_call=reserve_call,
         )
+        strategy = (
+            "identity_exact"
+            if is_identity
+            else "parametric_full"
+            if is_parametric
+            else "keyword"
+        )
+        trace_query = query.part_number if is_identity else preferred_keywords
+        raw = self.traced_response(
+            raw,
+            strategy=strategy,
+            query=trace_query or "",
+            result_count=self._part_count(raw),
+        )
         if is_parametric and raw.ok and not self._has_verified_candidate(query, raw):
             core_keywords = supplier_core_keywords(query)
             if core_keywords != preferred_keywords:
@@ -133,12 +147,21 @@ class MouserClient(SupplierClient):
                     query,
                     reserve_call,
                     keywords=core_keywords,
+                    strategy="parametric_core",
+                    fallback_reason="no_verified_candidate",
                 )
                 if fallback.ok and self._has_parts(fallback):
                     return self._merge_keyword_responses(raw, fallback)
+                return self._with_additional_attempts(raw, fallback)
         if not is_identity or not raw.ok or self._has_parts(raw):
             return raw
-        return await self.fetch_keyword(query, reserve_call)
+        fallback = await self.fetch_keyword(
+            query,
+            reserve_call,
+            strategy="identity_keyword",
+            fallback_reason="exact_no_result",
+        )
+        return self._with_previous_attempts(raw, fallback)
 
     async def fetch_keyword(
         self,
@@ -146,6 +169,8 @@ class MouserClient(SupplierClient):
         reserve_call: Callable[[], Awaitable[None]] | None,
         *,
         keywords: str | None = None,
+        strategy: str = "keyword",
+        fallback_reason: str | None = None,
     ) -> RawSupplierResponse:
         search_keywords = keywords or query.part_number or query.keywords
         if query.manufacturer:
@@ -169,12 +194,19 @@ class MouserClient(SupplierClient):
                 "searchOptions": "",
                 "searchWithYourSignUpLanguage": "true",
             }
-        return await self._request_json(
+        raw = await self._request_json(
             "POST",
             f"{self.base_url}{path}",
             params={"apiKey": self.api_key},
             json_body={root: request},
             reserve_call=reserve_call,
+        )
+        return self.traced_response(
+            raw,
+            strategy=strategy,
+            query=search_keywords,
+            result_count=self._part_count(raw),
+            fallback_reason=fallback_reason,
         )
 
     def _has_verified_candidate(self, query: PlannedQuery, raw: RawSupplierResponse) -> bool:
@@ -216,7 +248,43 @@ class MouserClient(SupplierClient):
             update={
                 "payload": payload,
                 "latency_ms": (preferred.latency_ms or 0.0) + (fallback.latency_ms or 0.0),
+                "http_attempt_count": (
+                    preferred.http_attempt_count + fallback.http_attempt_count
+                ),
+                "request_trace": [*preferred.request_trace, *fallback.request_trace],
             }
+        )
+
+    @staticmethod
+    def _with_previous_attempts(
+        previous: RawSupplierResponse,
+        current: RawSupplierResponse,
+    ) -> RawSupplierResponse:
+        return current.model_copy(
+            update={
+                "latency_ms": previous.latency_ms + current.latency_ms,
+                "http_attempt_count": (
+                    previous.http_attempt_count + current.http_attempt_count
+                ),
+                "request_trace": [*previous.request_trace, *current.request_trace],
+            },
+            deep=True,
+        )
+
+    @staticmethod
+    def _with_additional_attempts(
+        result: RawSupplierResponse,
+        attempted: RawSupplierResponse,
+    ) -> RawSupplierResponse:
+        return result.model_copy(
+            update={
+                "latency_ms": result.latency_ms + attempted.latency_ms,
+                "http_attempt_count": (
+                    result.http_attempt_count + attempted.http_attempt_count
+                ),
+                "request_trace": [*result.request_trace, *attempted.request_trace],
+            },
+            deep=True,
         )
 
     async def fetch_exact_batch(
@@ -259,12 +327,27 @@ class MouserClient(SupplierClient):
             and compact_mpn(part.get("ManufacturerPartNumber")) == expected
         ]
         payload["SearchResults"] = search_results
-        return raw.model_copy(update={"payload": payload}, deep=True)
+        filtered = raw.model_copy(
+            update={"payload": payload, "request_trace": []},
+            deep=True,
+        )
+        return MouserClient.traced_response(
+            filtered,
+            strategy="identity_batch_exact",
+            query=query.part_number or "",
+            result_count=MouserClient._part_count(filtered),
+        )
 
     @staticmethod
     def _has_parts(raw: RawSupplierResponse) -> bool:
         search_results = (raw.payload or {}).get("SearchResults")
         return bool(search_results.get("Parts")) if isinstance(search_results, dict) else False
+
+    @staticmethod
+    def _part_count(raw: RawSupplierResponse) -> int:
+        search_results = (raw.payload or {}).get("SearchResults")
+        parts = search_results.get("Parts") if isinstance(search_results, dict) else None
+        return sum(1 for part in parts or [] if isinstance(part, dict))
 
     def normalize(self, raw: RawSupplierResponse, query: PlannedQuery) -> list[SupplierProduct]:
         if not raw.ok or not raw.payload:

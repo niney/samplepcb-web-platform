@@ -148,11 +148,25 @@ class DigiKeyClient(SupplierClient):
                 params=params,
                 reserve_call=reserve_call,
             )
+            exact = self.traced_response(
+                exact,
+                strategy="identity_exact",
+                query=query.part_number,
+                result_count=self._product_count(exact),
+            )
             if exact.ok and exact.payload and exact.payload.get("Product"):
                 return exact
             if not exact.ok and exact.status_code not in {400, 404}:
                 return exact
-            return await self._keyword_fetch(query, headers, reserve_call, keywords=query.part_number)
+            fallback = await self._keyword_fetch(
+                query,
+                headers,
+                reserve_call,
+                keywords=query.part_number,
+                strategy="identity_keyword",
+                fallback_reason="exact_no_result",
+            )
+            return self._with_previous_attempts(exact, fallback)
 
         if query.mode == SearchMode.PARAMETRIC and self._primary_requirement(query):
             preferred_keywords = supplier_spec_keywords(query)
@@ -161,6 +175,7 @@ class DigiKeyClient(SupplierClient):
                 headers,
                 reserve_call,
                 keywords=preferred_keywords,
+                strategy="parametric_full",
             )
             if not discovery.ok or not discovery.payload:
                 return discovery
@@ -174,6 +189,8 @@ class DigiKeyClient(SupplierClient):
                     reserve_call,
                     keywords=preferred_keywords,
                     parameter_filter=parameter_filter,
+                    strategy="parametric_filter",
+                    fallback_reason="parameter_filter_required",
                 )
                 if filtered.ok and filtered.payload and self._has_products(filtered.payload):
                     filtered_payload = dict(filtered.payload)
@@ -188,9 +205,17 @@ class DigiKeyClient(SupplierClient):
                             "payload": filtered_payload,
                             "latency_ms": (discovery.latency_ms or 0.0)
                             + (filtered.latency_ms or 0.0),
+                            "http_attempt_count": (
+                                discovery.http_attempt_count
+                                + filtered.http_attempt_count
+                            ),
+                            "request_trace": [
+                                *discovery.request_trace,
+                                *filtered.request_trace,
+                            ],
                         }
                     )
-                return discovery
+                return self._with_additional_attempts(discovery, filtered)
 
             core_keywords = supplier_core_keywords(query)
             if core_keywords != preferred_keywords:
@@ -199,6 +224,8 @@ class DigiKeyClient(SupplierClient):
                     headers,
                     reserve_call,
                     keywords=core_keywords,
+                    strategy="parametric_core",
+                    fallback_reason="no_verified_candidate",
                 )
                 if fallback.ok and fallback.payload and self._has_products(fallback.payload):
                     return self._merge_keyword_responses(
@@ -207,9 +234,15 @@ class DigiKeyClient(SupplierClient):
                         preferred_keywords=preferred_keywords,
                         fallback_keywords=core_keywords,
                     )
+                return self._with_additional_attempts(discovery, fallback)
             return discovery
 
-        return await self._keyword_fetch(query, headers, reserve_call)
+        return await self._keyword_fetch(
+            query,
+            headers,
+            reserve_call,
+            strategy="keyword",
+        )
 
     @staticmethod
     def _merge_keyword_responses(
@@ -250,6 +283,10 @@ class DigiKeyClient(SupplierClient):
             update={
                 "payload": payload,
                 "latency_ms": (preferred.latency_ms or 0.0) + (fallback.latency_ms or 0.0),
+                "http_attempt_count": (
+                    preferred.http_attempt_count + fallback.http_attempt_count
+                ),
+                "request_trace": [*preferred.request_trace, *fallback.request_trace],
             }
         )
 
@@ -283,6 +320,8 @@ class DigiKeyClient(SupplierClient):
         *,
         keywords: str | None = None,
         parameter_filter: dict[str, Any] | None = None,
+        strategy: str,
+        fallback_reason: str | None = None,
     ) -> RawSupplierResponse:
 
         filter_options: dict[str, Any] = {"MarketPlaceFilter": "ExcludeMarketPlace"}
@@ -297,13 +336,60 @@ class DigiKeyClient(SupplierClient):
             "Offset": 0,
             "FilterOptionsRequest": filter_options,
         }
-        return await self._request_json(
+        raw = await self._request_json(
             "POST",
             f"{self.base_url}/products/v4/search/keyword",
             headers=headers,
             json_body=body,
             reserve_call=reserve_call,
         )
+        return self.traced_response(
+            raw,
+            strategy=strategy,
+            query=str(body["Keywords"]),
+            result_count=self._product_count(raw),
+            fallback_reason=fallback_reason,
+        )
+
+    @staticmethod
+    def _with_previous_attempts(
+        previous: RawSupplierResponse,
+        current: RawSupplierResponse,
+    ) -> RawSupplierResponse:
+        return current.model_copy(
+            update={
+                "latency_ms": previous.latency_ms + current.latency_ms,
+                "http_attempt_count": (
+                    previous.http_attempt_count + current.http_attempt_count
+                ),
+                "request_trace": [*previous.request_trace, *current.request_trace],
+            },
+            deep=True,
+        )
+
+    @staticmethod
+    def _with_additional_attempts(
+        result: RawSupplierResponse,
+        attempted: RawSupplierResponse,
+    ) -> RawSupplierResponse:
+        return result.model_copy(
+            update={
+                "latency_ms": result.latency_ms + attempted.latency_ms,
+                "http_attempt_count": (
+                    result.http_attempt_count + attempted.http_attempt_count
+                ),
+                "request_trace": [*result.request_trace, *attempted.request_trace],
+            },
+            deep=True,
+        )
+
+    @staticmethod
+    def _product_count(raw: RawSupplierResponse) -> int:
+        payload = raw.payload or {}
+        if isinstance(payload.get("Product"), dict):
+            return 1
+        products = payload.get("Products") or payload.get("ExactMatches") or []
+        return sum(1 for product in products if isinstance(product, dict))
 
     @staticmethod
     def _has_products(payload: dict[str, Any]) -> bool:

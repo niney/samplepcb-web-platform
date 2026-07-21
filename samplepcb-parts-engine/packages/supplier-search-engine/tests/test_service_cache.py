@@ -148,6 +148,14 @@ async def test_singleflight_collapses_concurrent_identical_requests(tmp_path):
         if supplier_result.supplier == Supplier.DIGIKEY
     ]
     assert "coalesced" in states
+    trace_sources = [
+        attempt.source
+        for result in results
+        if result.search_trace is not None
+        for attempt in result.search_trace.attempts
+        if attempt.supplier == Supplier.DIGIKEY
+    ]
+    assert "coalesced" in trace_sources
 
 
 async def test_negative_results_are_cached(tmp_path):
@@ -435,6 +443,12 @@ async def test_cache_only_can_use_expired_entry_inside_stale_window(tmp_path):
     assert fake.calls == 1
     assert digikey.cache_state == "stale"
     assert cached.api_calls == 0
+    assert cached.search_trace is not None
+    assert next(
+        attempt.source
+        for attempt in cached.search_trace.attempts
+        if attempt.supplier == Supplier.DIGIKEY
+    ) == "stale_cache"
 
 
 async def test_batch_timeout_returns_every_component_without_waiting_for_slow_supplier(tmp_path):

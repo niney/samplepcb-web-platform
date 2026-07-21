@@ -419,6 +419,80 @@ class SupplierProduct(BaseModel):
         return self
 
 
+SearchTraceOutcome = Literal[
+    "results",
+    "empty",
+    "error",
+    "skipped",
+    "budget_exhausted",
+]
+SearchTraceSource = Literal[
+    "live_api",
+    "fresh_cache",
+    "stale_cache",
+    "coalesced",
+    "prefetch_cache",
+    "batch_reuse",
+    "not_executed",
+]
+
+
+class SupplierRequestTrace(BaseModel):
+    """Credential-free provenance for one logical supplier request.
+
+    This lower-level form is safe to keep with the raw supplier cache.  It never
+    contains URLs, headers, credentials, or an unfiltered request body.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: str = Field(min_length=1, max_length=64)
+    query: str = Field(max_length=500)
+    outcome: Literal["results", "empty", "error"]
+    result_count: int = Field(default=0, ge=0)
+    http_attempt_count: int = Field(default=0, ge=0)
+    elapsed_ms: float = Field(default=0.0, ge=0.0)
+    fallback_reason: str | None = Field(default=None, max_length=64)
+    error_type: str | None = Field(default=None, max_length=100)
+
+
+class SupplierSearchTraceAttempt(BaseModel):
+    """One supplier attempt after current-run cache/API provenance is applied."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    supplier: Supplier
+    strategy: str = Field(min_length=1, max_length=64)
+    query: str = Field(max_length=500)
+    source: SearchTraceSource
+    outcome: SearchTraceOutcome
+    result_count: int = Field(default=0, ge=0)
+    api_calls: int = Field(default=0, ge=0)
+    http_attempt_count: int = Field(default=0, ge=0)
+    elapsed_ms: float = Field(default=0.0, ge=0.0)
+    fallback_reason: str | None = Field(default=None, max_length=64)
+    error_type: str | None = Field(default=None, max_length=100)
+
+
+class ComponentSearchTraceAttempt(SupplierSearchTraceAttempt):
+    model_config = ConfigDict(extra="forbid")
+
+    sequence: int = Field(ge=1)
+    stage: Literal["primary", "identity_fallback"]
+
+
+class ComponentSearchTrace(BaseModel):
+    """Ordered, display-safe search provenance owned by the engine."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["supplier-search-trace-v1"] = "supplier-search-trace-v1"
+    primary_query: str = Field(max_length=500)
+    fallback_query: str | None = Field(default=None, max_length=500)
+    fallback_used: bool = False
+    attempts: list[ComponentSearchTraceAttempt] = Field(default_factory=list)
+
+
 class PackageComparison(BaseModel):
     """Backend-owned package equivalence and display decision."""
 
@@ -466,6 +540,8 @@ class RawSupplierResponse(BaseModel):
     error_message: str | None = None
     fetched_at: datetime = Field(default_factory=utc_now)
     latency_ms: float = 0.0
+    http_attempt_count: int = Field(default=0, ge=0)
+    request_trace: list[SupplierRequestTrace] = Field(default_factory=list)
 
 
 class SupplierSearchResult(BaseModel):
@@ -482,6 +558,7 @@ class SupplierSearchResult(BaseModel):
     operation_elapsed_ms: float = 0.0
     api_call_performed: bool = False
     api_calls: int = 0
+    search_attempts: list[SupplierSearchTraceAttempt] = Field(default_factory=list)
 
 
 class CandidateDecision(BaseModel):
@@ -862,6 +939,7 @@ class ComponentSearchResult(BaseModel):
     query: PlannedQuery | None = None
     initial_query: PlannedQuery | None = None
     identity_fallback: bool = False
+    search_trace: ComponentSearchTrace | None = None
     candidates: list[CandidateMatch] = Field(default_factory=list)
     input_corrections: list[InputCorrection] = Field(default_factory=list)
     supplier_results: list[SupplierSearchResult] = Field(default_factory=list)
@@ -875,7 +953,7 @@ class ComponentSearchResult(BaseModel):
 class BatchSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_schema_version: str = "1.4"
+    search_schema_version: str = "1.5"
     procurement_policy: ProcurementPolicyInput = Field(
         default_factory=ProcurementPolicyInput
     )

@@ -11,7 +11,14 @@ from typing import Any
 
 import httpx
 
-from ..models import PlannedQuery, RawSupplierResponse, SearchMode, Supplier, SupplierProduct
+from ..models import (
+    PlannedQuery,
+    RawSupplierResponse,
+    SearchMode,
+    Supplier,
+    SupplierProduct,
+    SupplierRequestTrace,
+)
 
 
 class SupplierClient(ABC):
@@ -92,6 +99,33 @@ class SupplierClient(ABC):
     def retry_worst_case_api_calls(self, query: PlannedQuery) -> int:
         return 3
 
+    @staticmethod
+    def traced_response(
+        raw: RawSupplierResponse,
+        *,
+        strategy: str,
+        query: str,
+        result_count: int,
+        fallback_reason: str | None = None,
+    ) -> RawSupplierResponse:
+        """Attach one credential-free logical request record to a raw response."""
+
+        outcome = "error" if not raw.ok else "results" if result_count > 0 else "empty"
+        attempt = SupplierRequestTrace(
+            strategy=strategy,
+            query=query,
+            outcome=outcome,
+            result_count=result_count,
+            http_attempt_count=raw.http_attempt_count,
+            elapsed_ms=max(raw.latency_ms, 0.0),
+            fallback_reason=fallback_reason,
+            error_type=raw.error_type,
+        )
+        return raw.model_copy(
+            update={"request_trace": [*raw.request_trace, attempt]},
+            deep=True,
+        )
+
     async def _request_json(
         self,
         method: str,
@@ -126,6 +160,7 @@ class SupplierClient(ABC):
                             status_code=response.status_code,
                             payload=response.json(),
                             latency_ms=(time.perf_counter() - started) * 1_000,
+                            http_attempt_count=attempt + 1,
                         )
                     return RawSupplierResponse(
                         supplier=self.supplier,
@@ -134,6 +169,7 @@ class SupplierClient(ABC):
                         error_type=f"http_{response.status_code}",
                         error_message="supplier request rejected",
                         latency_ms=(time.perf_counter() - started) * 1_000,
+                        http_attempt_count=attempt + 1,
                     )
                 if attempt < retries:
                     await asyncio.sleep(self._retry_delay(response.headers.get("Retry-After"), attempt))
@@ -145,6 +181,7 @@ class SupplierClient(ABC):
                     error_type=f"http_{response.status_code}",
                     error_message="supplier temporarily unavailable or rate limited",
                     latency_ms=(time.perf_counter() - started) * 1_000,
+                    http_attempt_count=attempt + 1,
                 )
             except (httpx.TimeoutException, httpx.TransportError, ValueError) as exc:
                 last_error = exc
@@ -156,6 +193,7 @@ class SupplierClient(ABC):
             error_type=type(last_error).__name__ if last_error else "request_error",
             error_message="supplier request failed",
             latency_ms=(time.perf_counter() - started) * 1_000,
+            http_attempt_count=retries + 1,
         )
 
     @staticmethod

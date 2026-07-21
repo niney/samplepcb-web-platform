@@ -70,6 +70,24 @@ async def test_mouser_batch_prefetch_reduces_two_exact_parts_to_one_call(tmp_pat
         == "fresh"
         for component in result.components
     )
+    assert [
+        next(
+            attempt.source
+            for attempt in component.search_trace.attempts
+            if attempt.supplier == Supplier.MOUSER
+        )
+        for component in result.components
+        if component.search_trace is not None
+    ] == ["prefetch_cache", "prefetch_cache"]
+    assert all(
+        component.search_trace is not None
+        and next(
+            attempt.strategy
+            for attempt in component.search_trace.attempts
+            if attempt.supplier == Supplier.MOUSER
+        ) == "identity_batch_exact"
+        for component in result.components
+    )
 
 
 async def test_mouser_batch_uses_keyword_only_for_part_missing_from_batch(tmp_path):
@@ -92,6 +110,13 @@ async def test_mouser_batch_uses_keyword_only_for_part_missing_from_batch(tmp_pa
     assert paths == ["/api/v1/search/partnumber", "/api/v2/search/keywordandmanufacturer"]
     assert result.api_calls == 2
     assert result.prefetched_requests == 2
+    second = result.components[1]
+    assert second.search_trace is not None
+    assert [
+        attempt.strategy
+        for attempt in second.search_trace.attempts
+        if attempt.supplier == Supplier.MOUSER
+    ] == ["identity_batch_exact", "identity_keyword"]
 
 
 def test_preflight_projects_one_batch_plus_conditional_keyword_per_part(tmp_path):
