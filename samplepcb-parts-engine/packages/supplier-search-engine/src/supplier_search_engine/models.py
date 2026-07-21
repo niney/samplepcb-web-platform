@@ -436,6 +436,13 @@ SearchTraceSource = Literal[
     "not_executed",
 ]
 
+SEARCH_TRACE_QUERY_MAX_LENGTH = 500
+
+
+def bounded_search_trace_query(value: str) -> str:
+    """Bound display-only provenance without changing the actual supplier request."""
+    return value[:SEARCH_TRACE_QUERY_MAX_LENGTH]
+
 
 class SupplierRequestTrace(BaseModel):
     """Credential-free provenance for one logical supplier request.
@@ -447,7 +454,7 @@ class SupplierRequestTrace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     strategy: str = Field(min_length=1, max_length=64)
-    query: str = Field(max_length=500)
+    query: str = Field(max_length=SEARCH_TRACE_QUERY_MAX_LENGTH)
     outcome: Literal["results", "empty", "error"]
     result_count: int = Field(default=0, ge=0)
     http_attempt_count: int = Field(default=0, ge=0)
@@ -463,7 +470,7 @@ class SupplierSearchTraceAttempt(BaseModel):
 
     supplier: Supplier
     strategy: str = Field(min_length=1, max_length=64)
-    query: str = Field(max_length=500)
+    query: str = Field(max_length=SEARCH_TRACE_QUERY_MAX_LENGTH)
     source: SearchTraceSource
     outcome: SearchTraceOutcome
     result_count: int = Field(default=0, ge=0)
@@ -487,8 +494,10 @@ class ComponentSearchTrace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: Literal["supplier-search-trace-v1"] = "supplier-search-trace-v1"
-    primary_query: str = Field(max_length=500)
-    fallback_query: str | None = Field(default=None, max_length=500)
+    primary_query: str = Field(max_length=SEARCH_TRACE_QUERY_MAX_LENGTH)
+    fallback_query: str | None = Field(
+        default=None, max_length=SEARCH_TRACE_QUERY_MAX_LENGTH
+    )
     fallback_used: bool = False
     attempts: list[ComponentSearchTraceAttempt] = Field(default_factory=list)
 

@@ -31,6 +31,24 @@ def requirement(name: str, value: float | str) -> Requirement:
     )
 
 
+def test_supplier_trace_bounds_query_without_changing_request_input() -> None:
+    query = "Q" * 600
+
+    traced = SupplierClient.traced_response(
+        RawSupplierResponse(
+            supplier=Supplier.DIGIKEY,
+            ok=True,
+            status_code=200,
+        ),
+        strategy="identity_exact",
+        query=query,
+        result_count=0,
+    )
+
+    assert query == "Q" * 600
+    assert traced.request_trace[0].query == "Q" * 500
+
+
 async def test_mouser_preserves_exact_then_keyword_attempts() -> None:
     requests: list[dict] = []
 

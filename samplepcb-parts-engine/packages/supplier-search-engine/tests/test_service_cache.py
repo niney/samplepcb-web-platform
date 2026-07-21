@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from unittest.mock import patch
 
 from supplier_search_engine.contract import VALUE_FIELDS
 from supplier_search_engine.contract import SearchBatchInput, SearchComponentInput, SearchField
@@ -471,6 +472,61 @@ async def test_batch_timeout_returns_every_component_without_waiting_for_slow_su
         for supplier in component.supplier_results
     )
     assert result.elapsed_ms < 150
+
+
+async def test_long_part_number_trace_does_not_abort_batch(tmp_path):
+    fake = FakeDigiKeyClient(products=[])
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
+    contaminated = make_component("contaminated")
+    contaminated.fields["part_number"].value = "X" * 600
+    batch = SearchBatchInput(
+        parser_schema_version="1",
+        parser_version="test",
+        training_fingerprint="test",
+        source_file="bom.xlsx",
+        components=[make_component("normal"), contaminated],
+    )
+
+    result = await service.search_batch(batch)
+
+    assert [component.component_id for component in result.components] == [
+        "normal",
+        "contaminated",
+    ]
+    assert result.components[0].search_trace is not None
+    assert result.components[1].search_trace is not None
+    assert result.components[1].search_trace.primary_query == "X" * 500
+    assert all(
+        len(attempt.query) <= 500
+        for component in result.components
+        if component.search_trace is not None
+        for attempt in component.search_trace.attempts
+    )
+
+
+def test_batch_failure_result_survives_trace_builder_failure() -> None:
+    query = PlannedQuery(
+        component_id="broken-trace",
+        mode=SearchMode.IDENTITY,
+        part_number="ABC-123",
+    )
+
+    with patch.object(
+        SearchService,
+        "_component_search_trace",
+        side_effect=ValueError("trace assembly failed"),
+    ):
+        result = SearchService._batch_failure_result(
+            query,
+            error_type="upstream_failure",
+            message="supplier search failed",
+        )
+
+    assert result.status == MatchStatus.SUPPLIER_ERROR
+    assert result.search_trace is None
+    assert result.warnings == ["supplier search failed"]
 
 
 async def test_parametric_search_does_not_wait_for_identity_mouser_prefetch(tmp_path):

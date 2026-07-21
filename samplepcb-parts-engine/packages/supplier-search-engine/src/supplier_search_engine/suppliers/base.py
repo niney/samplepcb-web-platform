@@ -18,6 +18,7 @@ from ..models import (
     Supplier,
     SupplierProduct,
     SupplierRequestTrace,
+    bounded_search_trace_query,
 )
 
 
@@ -113,7 +114,9 @@ class SupplierClient(ABC):
         outcome = "error" if not raw.ok else "results" if result_count > 0 else "empty"
         attempt = SupplierRequestTrace(
             strategy=strategy,
-            query=query,
+            # The supplier request itself remains untouched; only its
+            # display-safe provenance is bounded to the trace contract.
+            query=bounded_search_trace_query(query),
             outcome=outcome,
             result_count=result_count,
             http_attempt_count=raw.http_attempt_count,

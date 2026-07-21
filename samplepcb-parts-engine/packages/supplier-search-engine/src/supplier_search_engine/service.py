@@ -39,6 +39,7 @@ from .models import (
     Supplier,
     SupplierSearchTraceAttempt,
     SupplierSearchResult,
+    bounded_search_trace_query,
 )
 from .normalization import compact_mpn
 from .planner import QueryPlanner
@@ -330,6 +331,14 @@ class SearchService:
             )
             for supplier in suppliers_for_query(query)
         ]
+        try:
+            search_trace = SearchService._component_search_trace(
+                query, supplier_results
+            )
+        except Exception:
+            # Failure isolation must never fail again because optional
+            # observability data cannot be assembled.
+            search_trace = None
         return ComponentSearchResult(
             component_id=query.component_id,
             mode=query.mode,
@@ -337,9 +346,7 @@ class SearchService:
             query=query,
             supplier_results=supplier_results,
             procurement_decision=procurement_decision,
-            search_trace=SearchService._component_search_trace(
-                query, supplier_results
-            ),
+            search_trace=search_trace,
             warnings=[message],
         )
 
@@ -493,7 +500,9 @@ class SearchService:
 
     @staticmethod
     def _query_text(query: PlannedQuery) -> str:
-        return (query.part_number or query.keywords or "").strip()
+        return bounded_search_trace_query(
+            (query.part_number or query.keywords or "").strip()
+        )
 
     @staticmethod
     def _planned_strategy(query: PlannedQuery) -> str:
