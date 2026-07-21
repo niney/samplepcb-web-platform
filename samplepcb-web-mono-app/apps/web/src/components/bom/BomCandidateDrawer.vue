@@ -70,10 +70,16 @@ interface OriginalField {
   evidenceCells?: string[];
 }
 
+interface PendingReviewSelection {
+  candidate: BomQuoteCandidateType;
+  offerKey: string | null;
+}
+
 const view = ref<SelectionView>(props.initialView);
 const tab = ref<CandidateTab>('selectable');
 const expanded = ref<Set<string>>(new Set());
 const originalDetailsExpanded = ref(false);
+const pendingReviewSelection = ref<PendingReviewSelection | null>(null);
 
 function resetCandidatePresentation(): void {
   const recommended = props.context?.candidates.find((candidate) =>
@@ -81,6 +87,7 @@ function resetCandidatePresentation(): void {
     && candidate.selectionEligibility === 'manual_review');
   tab.value = recommended === undefined ? 'selectable' : 'review';
   expanded.value = new Set();
+  pendingReviewSelection.value = null;
 }
 
 watch(
@@ -506,10 +513,24 @@ function fmtAge(iso: string): string {
   return `${String(Math.floor(elapsed / 86_400_000))}일 전`;
 }
 
+const pendingReviewOffer = computed(() => {
+  const pending = pendingReviewSelection.value;
+  if (pending === null) return null;
+  const offerKey = pending.offerKey ?? pending.candidate.bestOfferKey;
+  return pending.candidate.offers.find((offer) => offer.offerKey === offerKey) ?? null;
+});
+
+function requestSelection(candidate: BomQuoteCandidateType, offerKey: string | null): void {
+  if (candidate.selectionEligibility === 'manual_review') {
+    pendingReviewSelection.value = { candidate, offerKey };
+    return;
+  }
+  emit('select', candidate.candidateKey, offerKey);
+}
+
 function selectBest(candidate: BomQuoteCandidateType): void {
   if (props.readOnly || props.selecting || !candidate.manualSelectable) return;
-  if (!confirmManualReview(candidate)) return;
-  emit('select', candidate.candidateKey, null);
+  requestSelection(candidate, null);
 }
 
 function bestOfferAlreadySelected(candidate: BomQuoteCandidateType): boolean {
@@ -532,19 +553,14 @@ function selectOffer(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateO
     || !offer.purchasable
     || offer.applied === null
   ) return;
-  if (!confirmManualReview(candidate)) return;
-  emit('select', candidate.candidateKey, offer.offerKey);
+  requestSelection(candidate, offer.offerKey);
 }
 
-function confirmManualReview(candidate: BomQuoteCandidateType): boolean {
-  if (candidate.selectionEligibility !== 'manual_review') return true;
-  const details = [
-    candidate.conflicts.length === 0 ? null : `충돌: ${conflictText(candidate)}`,
-    candidate.missingRequirements.length === 0 ? null : `확인 필요: ${missingText(candidate)}`,
-  ].filter((value): value is string => value !== null);
-  return window.confirm(
-    `엔진이 검토를 권장한 후보입니다.${details.length === 0 ? '' : `\n${details.join('\n')}`}\n확인 후 이 후보를 선택할까요?`,
-  );
+function confirmPendingReviewSelection(): void {
+  const pending = pendingReviewSelection.value;
+  if (pending === null || props.selecting) return;
+  pendingReviewSelection.value = null;
+  emit('select', pending.candidate.candidateKey, pending.offerKey);
 }
 
 function selectCatalogPart(part: PartHitType, pick: OfferPick | null): void {
@@ -552,7 +568,12 @@ function selectCatalogPart(part: PartHitType, pick: OfferPick | null): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (props.open && event.key === 'Escape') emit('close');
+  if (!props.open || event.key !== 'Escape') return;
+  if (pendingReviewSelection.value !== null) {
+    pendingReviewSelection.value = null;
+    return;
+  }
+  emit('close');
 }
 
 onMounted(() => {
@@ -990,6 +1011,69 @@ onBeforeUnmount(() => {
           <template v-else>전체 부품 검색 선택은 엔진 추천을 덮어쓰지 않고 고객의 카탈로그 직접 선택으로 별도 기록됩니다.</template>
         </footer>
       </aside>
+
+      <div
+        v-if="pendingReviewSelection !== null"
+        class="fixed inset-0 z-[90] grid place-items-center bg-slate-950/55 p-4"
+        role="presentation"
+        @mousedown.self="pendingReviewSelection = null"
+      >
+        <section
+          class="w-full max-w-lg overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-2xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="review-selection-title"
+        >
+          <header class="border-b border-amber-200 bg-amber-50 px-5 py-4">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">Manual review</p>
+                <h3 id="review-selection-title" class="mt-1 text-lg font-bold text-slate-950">검토 후보를 선택할까요?</h3>
+                <p class="mt-1 text-xs leading-5 text-amber-900">자동 선정 조건을 충족하지 않은 후보입니다. 아래 근거와 구매조건을 확인해 주세요.</p>
+              </div>
+              <button type="button" class="grid size-8 shrink-0 place-items-center rounded-lg text-lg text-slate-500 hover:bg-amber-100" aria-label="선택 확인창 닫기" @click="pendingReviewSelection = null">×</button>
+            </div>
+          </header>
+
+          <div class="space-y-3 p-5">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="break-all text-base font-bold text-slate-950">{{ pendingReviewSelection.candidate.mpn }}</p>
+                  <p class="mt-0.5 text-xs text-slate-500">{{ pendingReviewSelection.candidate.manufacturerName ?? '제조사 미확인' }}</p>
+                </div>
+                <div class="shrink-0 text-right">
+                  <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">예상 행 금액</p>
+                  <p class="mt-0.5 text-lg font-bold tabular-nums text-slate-950">{{ fmtWon(pendingReviewOffer?.applied?.lineTotalKrw ?? pendingReviewSelection.candidate.bestLineTotalKrw) }}</p>
+                </div>
+              </div>
+              <div v-if="pendingReviewOffer !== null" class="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-200 pt-2 text-xs text-slate-600">
+                <span>공급사 <b class="uppercase text-slate-900">{{ pendingReviewOffer.supplier }}</b></span>
+                <span>주문 <b class="text-slate-900">{{ pendingReviewOffer.applied?.orderQty.toLocaleString('ko-KR') ?? '—' }}개</b></span>
+                <span>재고 <b class="text-slate-900">{{ pendingReviewOffer.stock?.toLocaleString('ko-KR') ?? '미확인' }}</b></span>
+                <span>MOQ <b class="text-slate-900">{{ pendingReviewOffer.moq?.toLocaleString('ko-KR') ?? '—' }}</b></span>
+              </div>
+            </div>
+
+            <div v-if="pendingReviewSelection.candidate.conflicts.length > 0" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-900">
+              <b>충돌 확인:</b> {{ conflictText(pendingReviewSelection.candidate) }}
+            </div>
+            <div v-if="pendingReviewSelection.candidate.missingRequirements.length > 0" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+              <b>추가 확인:</b> {{ missingText(pendingReviewSelection.candidate) }}
+            </div>
+            <p v-if="pendingReviewSelection.candidate.conflicts.length === 0 && pendingReviewSelection.candidate.missingRequirements.length === 0" class="rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600">
+              엔진 판정상 사용자 확인이 필요한 후보입니다. 선택하면 명시적인 고객 선택으로 기록됩니다.
+            </p>
+          </div>
+
+          <footer class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+            <button type="button" class="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" @click="pendingReviewSelection = null">취소</button>
+            <button type="button" class="h-10 rounded-lg bg-amber-600 px-5 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting" @click="confirmPendingReviewSelection">
+              {{ pendingReviewSelection.candidate.selected && provisionalSelectionPending ? '검토 완료' : '확인 후 선택' }}
+            </button>
+          </footer>
+        </section>
+      </div>
     </div>
   </Teleport>
 </template>
