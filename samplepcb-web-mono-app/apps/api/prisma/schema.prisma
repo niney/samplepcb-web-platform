@@ -418,6 +418,8 @@ model SpPart {
   firstSeenAt      DateTime      @default(now())
   lastSeenAt       DateTime      @default(now())
   indexedAt        DateTime? // 마지막 ES 색인 성공 시각(null=미색인)
+  factsFingerprint String?       @db.Char(64) // 전체 실공급사 오퍼+정본 정책 fingerprint
+  indexFingerprint String?       @db.Char(64) // 마지막 성공 ES 문서+색인 정책 fingerprint
   offers           SpPartOffer[]
 
   @@unique([mpnNorm, manufacturerNorm])
@@ -427,21 +429,22 @@ model SpPart {
 
 // 공급사별 판매 정보 — 공급사 추가는 supplier 값 추가일 뿐(스키마 무변경).
 model SpPartOffer {
-  id            BigInt             @id @default(autoincrement())
-  partId        BigInt
-  supplier      String             @db.VarChar(32) // mouser|digikey|unikeyic|…
-  supplierSku   String             @default("") @db.VarChar(191) // null 공급사는 '' 로 정규화(unique 안정)
-  productUrl    String?            @db.VarChar(1000)
-  stock         Int?
-  moq           Int?
-  orderMultiple Int?
-  packaging     String?            @db.VarChar(64)
-  currency      String?            @db.VarChar(8) // 대표 통화(프라이스브레이크 첫 행)
-  leadTime      String?            @db.VarChar(64)
-  rawJson       Json // 공급사 원본 product payload — 감사·재처리용
-  fetchedAt     DateTime
-  part          SpPart             @relation(fields: [partId], references: [id], onDelete: Cascade)
-  priceBreaks   SpPartPriceBreak[]
+  id                 BigInt             @id @default(autoincrement())
+  partId             BigInt
+  supplier           String             @db.VarChar(32) // mouser|digikey|unikeyic|…
+  supplierSku        String             @default("") @db.VarChar(191) // null 공급사는 '' 로 정규화(unique 안정)
+  productUrl         String?            @db.VarChar(1000)
+  stock              Int?
+  moq                Int?
+  orderMultiple      Int?
+  packaging          String?            @db.VarChar(64)
+  currency           String?            @db.VarChar(8) // 대표 통화(프라이스브레이크 첫 행)
+  leadTime           String?            @db.VarChar(64)
+  rawJson            Json // 공급사 원본 product payload — 감사·재처리용
+  fetchedAt          DateTime
+  contentFingerprint String?            @db.Char(64) // fetchedAt 제외 저장 내용+인제스트 정책 fingerprint
+  part               SpPart             @relation(fields: [partId], references: [id], onDelete: Cascade)
+  priceBreaks        SpPartPriceBreak[]
 
   @@unique([partId, supplier, supplierSku])
   @@index([supplier])
@@ -471,6 +474,28 @@ model SpPartIndexQueue {
 
   @@index([partId])
   @@map("sp_part_index_queue")
+}
+
+// 동일 공급사 결과의 중복 인제스트를 서버 재시작·다중 인스턴스에서도 한 번으로 수렴시키는 원장.
+// fingerprint에는 실제 카탈로그 입력과 정책 버전이 들어가며, 원본 BOM 파일 해시는 사용하지 않는다.
+model SpPartIngestRun {
+  id                 BigInt                   @id @default(autoincrement())
+  fingerprint        String                   @unique @db.Char(64)
+  policyVersion      String                   @db.VarChar(64)
+  sourceJobId        String?                  @db.VarChar(64)
+  status             String                   @default("queued") @db.VarChar(16) // queued|running|completed|failed
+  leaseUntil         DateTime?
+  stats              Json?
+  timing             Json?
+  error              String?                  @db.VarChar(500)
+  createdAt          DateTime                 @default(now())
+  startedAt          DateTime?
+  completedAt        DateTime?
+  updatedAt          DateTime                 @updatedAt
+  supplierSearchRuns SpBomSupplierSearchRun[]
+
+  @@index([status, createdAt])
+  @@map("sp_part_ingest_run")
 }
 
 // 고객 스마트 BOM 견적 — 업로드→파싱→매칭→검토→견적요청(RFQ). 설계: docs/BOM_QUOTE.md.
@@ -553,24 +578,27 @@ model SpBomAnalysisRun {
 // 공급사 검색 실행 — 영속 분석 입력에서 만든 독립 계산 잡의 수명·옵션·오류를 추적한다.
 // engineJobId가 소멸해도 같은 analysisRun으로 새 실행을 만들 수 있다.
 model SpBomSupplierSearchRun {
-  id             BigInt           @id @default(autoincrement())
-  quoteId        BigInt
-  analysisRunId  BigInt
-  engineJobId    String?          @db.VarChar(64)
-  status         String           @db.VarChar(16) // preparing|running|completed|failed
-  options        Json
-  preflight      Json?
-  resultSummary  Json?            @map("result_summary") // 실제 호출·캐시·시간·한도 소진 행의 compact 운영 지표
-  error          String?          @db.VarChar(500)
-  createdAt      DateTime         @default(now())
-  startedAt      DateTime?
-  completedAt    DateTime?
-  quote          SpBomQuote       @relation("BomQuoteSupplierSearchRuns", fields: [quoteId], references: [id], onDelete: Cascade)
-  activeForQuote SpBomQuote?      @relation("BomQuoteActiveSupplierSearch")
-  analysisRun    SpBomAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  id                 BigInt           @id @default(autoincrement())
+  quoteId            BigInt
+  analysisRunId      BigInt
+  engineJobId        String?          @db.VarChar(64)
+  status             String           @db.VarChar(16) // preparing|running|completed|failed
+  options            Json
+  preflight          Json?
+  resultSummary      Json?            @map("result_summary") // 실제 호출·캐시·시간·한도 소진 행의 compact 운영 지표
+  catalogIngestRunId BigInt?
+  error              String?          @db.VarChar(500)
+  createdAt          DateTime         @default(now())
+  startedAt          DateTime?
+  completedAt        DateTime?
+  quote              SpBomQuote       @relation("BomQuoteSupplierSearchRuns", fields: [quoteId], references: [id], onDelete: Cascade)
+  activeForQuote     SpBomQuote?      @relation("BomQuoteActiveSupplierSearch")
+  analysisRun        SpBomAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  catalogIngestRun   SpPartIngestRun? @relation(fields: [catalogIngestRunId], references: [id], onDelete: SetNull)
 
   @@index([quoteId, createdAt])
   @@index([analysisRunId, createdAt])
+  @@index([catalogIngestRunId])
   @@index([status, createdAt])
   @@map("sp_bom_supplier_search_run")
 }

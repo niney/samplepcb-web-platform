@@ -29,7 +29,13 @@ import { engineFetch } from '../lib/engine-client';
 import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { buildEngineProcurementPolicy } from '../lib/bom-procurement-policy';
-import { ingestJobResult, recordJobOwner, startIngestPoller } from '../lib/bom-engine-jobs';
+import {
+  fetchSupplierSearchResult,
+  ingestSupplierEnvelopeForJob,
+  recordJobOwner,
+  startIngestPoller,
+} from '../lib/bom-engine-jobs';
+import type { CatalogIngestResult } from '../lib/parts-ingest';
 import {
   inputJson,
   reserveDailySupplierSearch,
@@ -48,6 +54,7 @@ import {
 } from '../lib/bom-quote-delete';
 import {
   buildItemsFromEngineResult,
+  backfillQuotePartIds,
   applyQuoteCandidateSelection,
   canTransition,
   computeQuote,
@@ -140,25 +147,36 @@ function enrichNeeded(
 async function applyCompletedSupplierResult(
   quoteId: bigint,
   searchRunId: bigint,
-  jobId: string,
+  envelope: unknown,
 ): Promise<boolean> {
-  const result = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/result`);
-  if (!result.ok) return false;
-  const envelope: unknown = await result.json();
-  const summary = supplierRunSummarySnapshot(envelope);
+  const run = await prisma.spBomSupplierSearchRun.findUnique({
+    where: { id: searchRunId },
+    select: { startedAt: true },
+  });
+  const applyStartedAt = performance.now();
   const applied = await refreshQuoteFromSupplierResult(quoteId, envelope);
+  const completedAt = new Date();
+  const baseSummary = supplierRunSummarySnapshot(envelope);
+  const summary = baseSummary === null
+    ? null
+    : {
+        ...baseSummary,
+        quoteApplyMs: Math.max(0, Math.round(performance.now() - applyStartedAt)),
+        wallElapsedMs: run?.startedAt === null || run?.startedAt === undefined
+          ? baseSummary.elapsedMs
+          : Math.max(0, completedAt.getTime() - run.startedAt.getTime()),
+      };
   if (applied) {
     await prisma.spBomSupplierSearchRun.updateMany({
       where: { id: searchRunId, quoteId },
       data: {
         status: 'completed',
-        completedAt: new Date(),
+        completedAt,
         error: null,
         ...(summary === null ? {} : { resultSummary: inputJson(summary) }),
       },
     });
   } else {
-    const completedAt = new Date();
     await prisma.$transaction([
       prisma.spBomSupplierSearchRun.updateMany({
         where: { id: searchRunId, quoteId },
@@ -176,6 +194,38 @@ async function applyCompletedSupplierResult(
     ]);
   }
   return applied;
+}
+
+async function completeCatalogIngest(
+  quoteId: bigint,
+  searchRunId: bigint,
+  result: CatalogIngestResult,
+): Promise<number> {
+  const run = await prisma.spBomSupplierSearchRun.findUnique({
+    where: { id: searchRunId },
+    select: { resultSummary: true },
+  });
+  const prior = run?.resultSummary !== null
+    && run?.resultSummary !== undefined
+    && typeof run.resultSummary === 'object'
+    && !Array.isArray(run.resultSummary)
+      ? run.resultSummary
+      : {};
+  await prisma.spBomSupplierSearchRun.updateMany({
+    where: { id: searchRunId, quoteId },
+    data: {
+      ...(result.runId === null ? {} : { catalogIngestRunId: BigInt(result.runId) }),
+      resultSummary: {
+        ...prior,
+        catalogElapsedMs: result.timing.elapsedMs,
+        catalogDbElapsedMs: result.timing.dbElapsedMs,
+        catalogIndexElapsedMs: result.timing.indexElapsedMs,
+        catalogQueued: result.stats.queued,
+        catalogReused: result.reused,
+      },
+    },
+  });
+  return backfillQuotePartIds(quoteId);
 }
 
 async function autoEnrichQuote(
@@ -323,14 +373,20 @@ async function autoEnrichQuote(
     estimateExceedsJobLimit,
     maxCalls: searchOptions.max_calls,
   }, '영속 분석 기반 자동 보강 검색 시작');
-  startIngestPoller(jobId, log, async () => {
-    await applyCompletedSupplierResult(quoteId, searchRun.id, jobId);
+  startIngestPoller(jobId, log, {
+    onResult: async (envelope) => {
+      await applyCompletedSupplierResult(quoteId, searchRun.id, envelope);
+    },
+    onCatalogIngested: async (result) => {
+      const backfilled = await completeCatalogIngest(quoteId, searchRun.id, result);
+      log.info({ quoteId: String(quoteId), searchRunId: String(searchRun.id), backfilled }, '견적 카탈로그 참조 보강 완료');
+    },
   });
   return true;
 }
 
 // ── 게으른 치유 — searching 견적 조회 시 상태를 수렴시킨다(재시작·폴러 유실 내성) ──
-// 엔진 running → 유지 · completed → 인제스트+재매칭(done) · 잡 소멸/엔진 다운 → failed.
+// 엔진 running → 유지 · completed → 견적 반영(done)+백그라운드 인제스트 · 잡 소멸/엔진 다운 → failed.
 // fire-and-forget: 고객의 3초 폴링이 곧 치유 트리거 — 다음 폴이 수렴된 상태를 받는다.
 const healInFlight = new Set<string>();
 
@@ -367,9 +423,16 @@ async function healEnrichment(
     }
     if (status === 'running' || status === 'unknown') return;
     if (status === 'completed') {
-      const ingested = await ingestJobResult(jobId, log);
-      if (!ingested) return; // 결과 준비 지연·일시 실패 — searching 유지, 다음 조회가 재시도
-      await applyCompletedSupplierResult(quoteId, run.id, jobId);
+      const envelope = await fetchSupplierSearchResult(jobId);
+      if (envelope === null) return; // 결과 준비 지연 — searching 유지, 다음 조회가 재시도
+      await applyCompletedSupplierResult(quoteId, run.id, envelope);
+      void ingestSupplierEnvelopeForJob(jobId, envelope, log).then(async (result) => {
+        if (result === null) return;
+        const backfilled = await completeCatalogIngest(quoteId, run.id, result);
+        log.info({ quoteId: key, searchRunId: String(run.id), backfilled }, '치유 경로 카탈로그 참조 보강 완료');
+      }).catch((error: unknown) => {
+        log.warn({ quoteId: key, searchRunId: String(run.id), err: String(error) }, '치유 경로 카탈로그 후처리 실패');
+      });
       return;
     }
     await prisma.spBomSupplierSearchRun.update({
@@ -640,6 +703,11 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (quote.status === 'draft' && quote.enrichStatus === 'searching') {
       void healEnrichment(quote.id, request.user.mbId, request.log).catch((error: unknown) => {
         request.log.warn({ quoteId: String(quote.id), err: String(error) }, '자동 보강 치유 실패');
+      });
+    } else if (quote.status === 'draft' && quote.enrichStatus === 'done') {
+      // 백그라운드 인제스트 직후 프로세스가 재시작돼도 다음 상세 조회에서 partId가 수렴한다.
+      void backfillQuotePartIds(quote.id).catch((error: unknown) => {
+        request.log.warn({ quoteId: String(quote.id), err: String(error) }, '견적 카탈로그 참조 지연 보강 실패');
       });
     }
     return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };

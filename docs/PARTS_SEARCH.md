@@ -39,10 +39,10 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 | 정규화 코어 | `packages/utils/src/spec-units.ts` | kind-aware 파서(`parseSpecToken`/`parseQuery`)·변형 생성(`variantsFor`)·패키지(`normalizePackageCode`)·`SPEC_SI_FIELD`·`siRange` |
 | 골든 벡터 | `packages/utils/src/spec-units.cases.json` | **요구사항 명세** — 함정 케이스 전건(104K 톨러런스 문자, 5mΩ/4.7MΩ, µ/μ/u, 콤마, R47, 1/8W…) |
 | 계약 | `packages/api-contract/src/schemas/parts.ts` | PartSearchQuery/Response·PartDetail (Zod, `routes.adminParts`) |
-| DB | `apps/api/prisma` `SpPart`·`SpPartOffer`·`SpPartPriceBreak`·`SpPartIndexQueue` | upsert 키 part=(mpnNorm,manufacturerNorm)·offer=(partId,supplier,sku). 마이그레이션 `20260718110000_add_sp_parts_catalog` (추가형, `migrate deploy` 전용) |
+| DB | `apps/api/prisma` `SpPart`·`SpPartOffer`·`SpPartPriceBreak`·`SpPartIndexQueue`·`SpPartIngestRun` | upsert 키 part=(mpnNorm,manufacturerNorm)·offer=(partId,supplier,sku), 공급사 결과 fingerprint 원장. 마이그레이션 `20260718110000_add_sp_parts_catalog` + `20260721120000_add_part_ingest_dedup` (추가형, `migrate deploy` 전용) |
 | ES | `apps/api/src/es/client.ts`·`sp-parts-index.ts` | 클라이언트(`ES_NODE_URL`, 기본 127.0.0.1:9200)·매핑(`satisfies estypes`)·필드 상수 `F`·부트스트랩(기동 시 인덱스+alias 생성) |
-| 인제스트 | `apps/api/src/lib/parts-ingest.ts`·`parts-es.ts`·`manufacturer-alias.ts` | envelope→그룹핑(별칭 해소)→upsert(tx)→색인. 실패는 `SpPartIndexQueue` 적재, 기동 시 드레인 |
-| 자동 훅 | `apps/api/src/routes/admin-bom.ts` | ① 공급사 검색 시작 202 → 서버측 폴러(5s·최대 10분) ② 결과 GET 200 → fire-and-forget 백업. 인제스트는 idempotent — 중복 안전 |
+| 인제스트 | `apps/api/src/lib/parts-ingest.ts`·`parts-es.ts`·`manufacturer-alias.ts` | envelope→fingerprint singleflight→그룹핑(별칭 해소)→증분 upsert(tx)→ES bulk. 실패는 `SpPartIndexQueue` 적재, 기동 시 드레인 |
+| 자동 훅 | `apps/api/src/lib/bom-engine-jobs.ts`·`routes/admin-bom.ts`·`routes/bom-quotes.ts` | 폴러가 결과를 한 번 읽고 견적 스냅샷을 먼저 반영한다. 카탈로그는 백그라운드 동기화하며 결과 GET이 백업 훅이다. |
 | 검색 API | `apps/api/src/routes/admin-parts.ts` | `GET /api/admin/parts/search`(다중해석 쿼리 빌더+패싯+정렬, ES 다운 시 503 SEARCH_UNAVAILABLE)·`GET /:id`(DB 상세) |
 | UI | `apps/web/src/pages/admin/AdminParts.vue`·`admin/useAdminParts.ts` | `/app/admin/parts` — 검색창+패싯+테이블+오퍼 확장 |
 | 재색인 | `apps/api/src/scripts/parts-reindex.ts` | `pnpm --filter api parts:reindex [--recreate]` — DB 전량→ES. 매핑 변경 시 `--recreate`(로컬) 또는 v2+alias 스왑(운영) |
@@ -67,7 +67,18 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 
 ## 운영 절차
 
-- **ES 다운**: 앱은 뜬다 — 검색만 503, 인제스트는 DB 저장 + 큐 적재, 기동 시 `drainIndexQueue`.
+- **ES 다운**: 앱은 뜬다 — 검색만 503, 인제스트는 DB 저장 + 큐 적재, 기동 시와 이후 1분마다
+  `drainIndexQueue`를 중복 실행 없이 호출해 장기 실행 서버에서도 자동 수렴한다.
+- **중복·동시 실행(2026-07-21)**: 파일 해시가 아니라 실제 공급사 product/offer와
+  ingest/facts/index 정책 버전으로 `sp_part_ingest_run.fingerprint`를 만든다. 같은 결과는 서버
+  재시작·다중 인스턴스에서도 한 실행을 기다린 뒤 재사용한다. 서로 다른 결과가 같은 part에
+  동시에 들어오면 part 행 잠금으로 직렬화하고, stale 오퍼는 버리며 완전 동일 오퍼는 쓰지 않는다.
+  MySQL Prisma upsert의 최초 create 경합(`P2002`)은 unique key로 승자 행을 재조회해 이어가고,
+  deadlock(`P2034`)은 한정 지수 재시도한다. 공급사 수집 시각만 새로우면 가격구간 replace-all을 생략한다.
+- **증분 파생물**: 정본 fingerprint가 바뀐 부품만 facts/samplepcb 오퍼를 재계산하고, ES 문서
+  fingerprint가 바뀐 부품만 200건 단위 bulk 색인한다. 색인 도중 DB가 다시 바뀌면 성공 시각을
+  확정하지 않고 재시도 큐로 보낸다. 큐 행 자체를 ES 상태 불신 신호로 취급해 드레인 때는 DB의
+  fingerprint 일치 여부와 무관하게 현재 DB 문서를 강제 색인하므로, 늦게 도착한 stale bulk도 복구한다.
 - **매핑 변경**: 로컬 `parts:reindex --recreate`. 운영(추후)은 `sp-parts-v2` 생성→재색인→
   alias(`sp-parts`/`sp-parts-write`) 스왑으로 무중단.
 - **공급사 추가 체크리스트**: ① sp-engine 에 `SupplierClient` 구현 1개 ② (필요시) 계약의
@@ -77,11 +88,17 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   DB cascade + ES 문서 삭제, **견적 라인은 partId 만 해제**(오퍼 스냅샷·합계 보존 — 박제 원칙).
   되돌릴 수 없어 UI 는 2단계 인라인 확인(5초 자동 해제). 카탈로그는 자동 인제스트로 재성장.
 
-## 검증 (게이트 통과 기록, 2026-07-19)
+## 검증 (게이트 통과 기록, 2026-07-21)
 
 - A: `pnpm --filter @sp/utils test` — 골든 벡터 **74/74** (4k7=0.0047M, 2p2=2.2pF=2200fF, 104K→100nF±10%, 16MHz, uF·µF·μF·㎌·공백 변형, Ω 변형, 콤마, 바닥숫자 다중해석)
-- B: 실 DB+ES 통합(`PARTS_IT=1 vitest run parts-ingest.int`) — **2/2**: 잘못된 envelope 무저장, 제조사 별칭·다중 공급사 병합, 동일 오퍼 최신 스냅샷 선택, 가격구간 replace-all, stale 결과 역전 방지, Track A/B 히트
+- B: 실 DB+ES 통합(`PARTS_IT=1 vitest run parts-ingest.int`) — **2/2**: 잘못된 envelope 무저장, 제조사 별칭·다중 공급사 병합, 완전 동일 replay no-op, 영속 fingerprint 재사용, 가격구간 replace-all, stale 결과 역전 방지, Track A/B 히트
+- B-1: DB `indexFingerprint`는 최신으로 둔 채 ES 문서만 stale 값으로 강제 덮고 큐를 적재한
+  회귀 케이스에서, 드레인이 fingerprint 단락 없이 최신 DB 문서를 재색인하고 큐를 제거함을 실증했다.
 - C: 실 ES 검색(`PARTS_IT=1 vitest run admin-parts.search.int`) — **27/27**: 저항·커패시터·인덕터 단위/관행 표기, uF·uf·µF·μF·㎌·공백 마이크로 표기, MPN prefix/infix, 0402↔1005·0603↔1608, 제조사·공급사·재고·SI 범위 필터, 가격·재고 정렬, 페이지네이션, 음성 케이스
+- D: 견적 #109 영속 후보 2,424건(76 component에서 복원한 카탈로그 부품 2,228종)을 재생해
+  최초 증분 DB 6.89s + ES bulk 4.05s = 10.97s, 동일 fingerprint 재호출 0.19s를 확인했다.
+  8-worker 최초 검증에서 실제 InnoDB `P2034` deadlock을 재현했고 part 단위 트랜잭션의 한정
+  지수 재시도(최대 4회)를 추가한 뒤 같은 입력이 큐 0건으로 수렴했다.
 - 통합 테스트는 `PARTS_IT=1` 옵트인 — turbo test/CI 에서 자동 skip.
 
 ## 다음 단계(미착수)

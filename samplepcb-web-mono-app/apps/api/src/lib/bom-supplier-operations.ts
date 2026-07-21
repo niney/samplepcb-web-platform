@@ -23,12 +23,26 @@ const StoredResultSummary = z.object({
   cacheHits: z.number().int().nonnegative(),
   budgetExhaustedCount: z.number().int().nonnegative(),
   elapsedMs: z.number().nonnegative(),
+  engineElapsedMs: z.number().nonnegative().optional(),
+  quoteApplyMs: z.number().nonnegative().optional(),
+  wallElapsedMs: z.number().nonnegative().optional(),
+  catalogElapsedMs: z.number().nonnegative().optional(),
+  catalogDbElapsedMs: z.number().nonnegative().optional(),
+  catalogIndexElapsedMs: z.number().nonnegative().optional(),
+  catalogQueued: z.number().int().nonnegative().optional(),
+  catalogReused: z.boolean().optional(),
   statusCounts: z.record(z.string(), z.number().int().nonnegative()),
 });
 
 const StoredOptions = z.object({
   max_calls: z.number().int().positive().optional(),
 }).passthrough();
+
+const StoredIngestTiming = z.object({
+  dbElapsedMs: z.number().nonnegative(),
+  indexElapsedMs: z.number().nonnegative(),
+  elapsedMs: z.number().nonnegative(),
+});
 
 const ENGINE_STATUS_TIMEOUT_MS = 3_000;
 
@@ -51,6 +65,7 @@ export function supplierRunSummarySnapshot(envelope: unknown): SupplierRunSummar
     cacheHits: data.summary.cache_hits,
     budgetExhaustedCount,
     elapsedMs: data.timing.known_pipeline_elapsed_ms,
+    engineElapsedMs: data.timing.known_pipeline_elapsed_ms,
     statusCounts: data.summary.status_counts,
   };
 }
@@ -118,7 +133,10 @@ export async function getBomSupplierSearchOperations(
     prisma.spBomSupplierSearchRun.findMany({
       orderBy: { createdAt: 'desc' },
       take: 10,
-      include: { quote: { select: { title: true, mbId: true } } },
+      include: {
+        quote: { select: { title: true, mbId: true } },
+        catalogIngestRun: { select: { status: true, timing: true } },
+      },
     }),
     prisma.spBomSupplierDailyUsage.aggregate({
       where: { dayKey },
@@ -144,6 +162,7 @@ export async function getBomSupplierSearchOperations(
       const preflight = StoredPreflight.safeParse(run.preflight);
       const summary = StoredResultSummary.safeParse(run.resultSummary);
       const options = StoredOptions.safeParse(run.options);
+      const ingestTiming = StoredIngestTiming.safeParse(run.catalogIngestRun?.timing);
       const fallbackElapsed = run.startedAt !== null && run.completedAt !== null
         ? Math.max(0, run.completedAt.getTime() - run.startedAt.getTime())
         : null;
@@ -164,6 +183,28 @@ export async function getBomSupplierSearchOperations(
         maxCalls: options.success ? options.data.max_calls ?? null : null,
         budgetExhaustedCount: summary.success ? summary.data.budgetExhaustedCount : null,
         elapsedMs: summary.success ? summary.data.elapsedMs : fallbackElapsed,
+        engineElapsedMs: summary.success
+          ? summary.data.engineElapsedMs ?? summary.data.elapsedMs
+          : null,
+        quoteApplyMs: summary.success ? summary.data.quoteApplyMs ?? null : null,
+        wallElapsedMs: summary.success ? summary.data.wallElapsedMs ?? fallbackElapsed : fallbackElapsed,
+        catalogStatus: run.catalogIngestRun?.status === 'queued'
+          || run.catalogIngestRun?.status === 'running'
+          || run.catalogIngestRun?.status === 'completed'
+          || run.catalogIngestRun?.status === 'failed'
+            ? run.catalogIngestRun.status
+            : null,
+        catalogElapsedMs: summary.success
+          ? summary.data.catalogElapsedMs ?? (ingestTiming.success ? ingestTiming.data.elapsedMs : null)
+          : (ingestTiming.success ? ingestTiming.data.elapsedMs : null),
+        catalogDbElapsedMs: summary.success
+          ? summary.data.catalogDbElapsedMs ?? (ingestTiming.success ? ingestTiming.data.dbElapsedMs : null)
+          : (ingestTiming.success ? ingestTiming.data.dbElapsedMs : null),
+        catalogIndexElapsedMs: summary.success
+          ? summary.data.catalogIndexElapsedMs ?? (ingestTiming.success ? ingestTiming.data.indexElapsedMs : null)
+          : (ingestTiming.success ? ingestTiming.data.indexElapsedMs : null),
+        catalogQueued: summary.success ? summary.data.catalogQueued ?? null : null,
+        catalogReused: summary.success ? summary.data.catalogReused ?? null : null,
         error: run.error,
         createdAt: run.createdAt.toISOString(),
         completedAt: run.completedAt?.toISOString() ?? null,

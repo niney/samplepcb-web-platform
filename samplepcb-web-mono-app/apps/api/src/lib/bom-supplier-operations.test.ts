@@ -66,6 +66,7 @@ describe('BOM 공급사 검색 운영 지표', () => {
       cacheHits: 0,
       budgetExhaustedCount: 1,
       elapsedMs: 3002,
+      engineElapsedMs: 3002,
     });
   });
 });

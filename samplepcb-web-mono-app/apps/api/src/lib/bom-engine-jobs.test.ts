@@ -1,14 +1,14 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { engineFetch } from './engine-client';
-import { ingestSupplierSearchResult } from './parts-ingest';
+import { ingestSupplierSearchResultOnce } from './parts-ingest';
 import { ingestJobResult, startIngestPoller } from './bom-engine-jobs';
 
 vi.mock('./engine-client', () => ({ engineFetch: vi.fn() }));
-vi.mock('./parts-ingest', () => ({ ingestSupplierSearchResult: vi.fn() }));
+vi.mock('./parts-ingest', () => ({ ingestSupplierSearchResultOnce: vi.fn() }));
 
 const engineFetchMock = vi.mocked(engineFetch);
-const ingestSupplierSearchResultMock = vi.mocked(ingestSupplierSearchResult);
+const ingestSupplierSearchResultOnceMock = vi.mocked(ingestSupplierSearchResultOnce);
 const log = { info: vi.fn(), warn: vi.fn() } as unknown as FastifyBaseLogger;
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -32,7 +32,13 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe('BOM 공급사 결과 인제스트 동시성', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    ingestSupplierSearchResultMock.mockResolvedValue({ parts: 3, offers: 5, indexed: 3, queued: 0 });
+    ingestSupplierSearchResultOnceMock.mockResolvedValue({
+      runId: '1',
+      fingerprint: 'fingerprint',
+      reused: false,
+      stats: { parts: 3, offers: 5, indexed: 3, queued: 0, skippedParts: 0, skippedOffers: 0 },
+      timing: { dbElapsedMs: 10, indexElapsedMs: 5, elapsedMs: 15 },
+    });
   });
 
   afterEach(() => {
@@ -53,11 +59,11 @@ describe('BOM 공급사 결과 인제스트 동시성', () => {
     await Promise.resolve();
     expect(engineFetchMock).toHaveBeenCalledTimes(1);
     expect(secondSettled).toBe(false);
-    expect(ingestSupplierSearchResultMock).not.toHaveBeenCalled();
+    expect(ingestSupplierSearchResultOnceMock).not.toHaveBeenCalled();
 
     resultResponse.resolve(jsonResponse({ search: { components: [] } }));
     await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
-    expect(ingestSupplierSearchResultMock).toHaveBeenCalledTimes(1);
+    expect(ingestSupplierSearchResultOnceMock).toHaveBeenCalledTimes(1);
 
     await expect(ingestJobResult('concurrent-job', log)).resolves.toBe(true);
     expect(engineFetchMock).toHaveBeenCalledTimes(1);
@@ -69,14 +75,14 @@ describe('BOM 공급사 결과 인제스트 동시성', () => {
       .mockResolvedValueOnce(jsonResponse({ search: { components: [] } }));
 
     await expect(ingestJobResult('retry-job', log)).resolves.toBe(false);
-    expect(ingestSupplierSearchResultMock).not.toHaveBeenCalled();
+    expect(ingestSupplierSearchResultOnceMock).not.toHaveBeenCalled();
 
     await expect(ingestJobResult('retry-job', log)).resolves.toBe(true);
     expect(engineFetchMock).toHaveBeenCalledTimes(2);
-    expect(ingestSupplierSearchResultMock).toHaveBeenCalledTimes(1);
+    expect(ingestSupplierSearchResultOnceMock).toHaveBeenCalledTimes(1);
   });
 
-  it('완료 폴러는 인제스트 성공 전에는 견적 재매칭 후처리를 실행하지 않는다', async () => {
+  it('완료 폴러는 견적 결과를 먼저 반영하고 카탈로그 인제스트는 뒤에서 완료한다', async () => {
     vi.useFakeTimers();
     let resultCalls = 0;
     engineFetchMock.mockImplementation((path) => {
@@ -88,16 +94,30 @@ describe('BOM 공급사 결과 인제스트 동시성', () => {
           : jsonResponse({ search: { components: [] } }),
       );
     });
-    const onDone = vi.fn(() => Promise.resolve());
+    const catalog = deferred<Awaited<ReturnType<typeof ingestSupplierSearchResultOnce>>>();
+    ingestSupplierSearchResultOnceMock.mockReturnValueOnce(catalog.promise);
+    const onResult = vi.fn(() => Promise.resolve());
+    const onCatalogIngested = vi.fn(() => Promise.resolve());
 
-    startIngestPoller('poller-retry-job', log, onDone);
+    startIngestPoller('poller-retry-job', log, { onResult, onCatalogIngested });
     await vi.advanceTimersByTimeAsync(5_000);
     expect(resultCalls).toBe(1);
-    expect(onDone).not.toHaveBeenCalled();
+    expect(onResult).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(5_000);
     expect(resultCalls).toBe(2);
-    expect(ingestSupplierSearchResultMock).toHaveBeenCalledTimes(1);
-    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onResult).toHaveBeenCalledTimes(1);
+    expect(ingestSupplierSearchResultOnceMock).toHaveBeenCalledTimes(1);
+    expect(onCatalogIngested).not.toHaveBeenCalled();
+
+    catalog.resolve({
+      runId: '2',
+      fingerprint: 'poller-fingerprint',
+      reused: false,
+      stats: { parts: 1, offers: 1, indexed: 1, queued: 0, skippedParts: 0, skippedOffers: 0 },
+      timing: { dbElapsedMs: 3, indexElapsedMs: 2, elapsedMs: 5 },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onCatalogIngested).toHaveBeenCalledTimes(1);
   });
 });

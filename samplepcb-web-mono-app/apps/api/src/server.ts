@@ -95,14 +95,27 @@ await app.register(adminMarketContractRoutes, { prefix: '/api/admin' });
 await app.register(adminMarketSettingsRoutes, { prefix: '/api/admin' });
 
 // ES sp-parts 부트스트랩 + 색인 실패 큐 드레인 — ES 다운이어도 앱은 뜬다(검색만 축퇴).
-void bootstrapPartsIndex(app.log)
-  .then(() => drainIndexQueue())
-  .then((r) => {
-    if (r.drained > 0) app.log.info(`sp-parts 색인 큐 드레인: ${String(r.drained)}건 (잔여 ${String(r.remaining)})`);
-  })
-  .catch((error: unknown) => {
+// 기동 시 1회에 그치면 장기 실행 서버의 일시 실패가 재시작 전까지 남으므로 1분마다 수렴시킨다.
+let partsIndexDrainRunning = false;
+async function drainPartsIndexQueue(): Promise<void> {
+  if (partsIndexDrainRunning) return;
+  partsIndexDrainRunning = true;
+  try {
+    await bootstrapPartsIndex(app.log);
+    const result = await drainIndexQueue();
+    if (result.drained > 0) {
+      app.log.info(`sp-parts 색인 큐 드레인: ${String(result.drained)}건 (잔여 ${String(result.remaining)})`);
+    }
+  } catch (error) {
     app.log.warn(`sp-parts 색인 큐 드레인 실패: ${String(error)}`);
-  });
+  } finally {
+    partsIndexDrainRunning = false;
+  }
+}
+
+void drainPartsIndexQueue();
+const partsIndexDrainTimer = setInterval(() => void drainPartsIndexQueue(), 60_000);
+partsIndexDrainTimer.unref();
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로

@@ -2656,8 +2656,9 @@ export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdK
 const engineRefreshInFlight = new Map<string, Promise<boolean>>();
 
 /**
- * 검색 완료 결과를 componentId로 견적에 직접 반영한다. 카탈로그 인제스트 이후 호출되어
- * partId도 연결하지만, 매칭 판정과 오퍼 선택의 진실원본은 이 엔진 봉투다.
+ * 검색 완료 결과를 componentId로 견적에 직접 반영한다. 카탈로그 동기화와 독립적으로
+ * 먼저 저장하며, 아직 없는 partId는 후속 backfillQuotePartIds가 조건부 연결한다.
+ * 매칭 판정과 오퍼 선택의 진실원본은 이 엔진 봉투다.
  */
 export async function refreshQuoteFromSupplierResult(quoteId: bigint, envelope: unknown): Promise<boolean> {
   const key = String(quoteId);
@@ -2685,6 +2686,50 @@ export async function refreshQuoteFromSupplierResult(quoteId: bigint, envelope: 
   } finally {
     engineRefreshInFlight.delete(key);
   }
+}
+
+/**
+ * 백그라운드 카탈로그 인제스트 뒤 자동 선정 행의 느슨한 partId 참조만 채운다.
+ * 후보·오퍼·가격·사용자 선택에는 손대지 않고, 조회한 스냅샷이 그대로인 행만 갱신한다.
+ */
+export async function backfillQuotePartIds(quoteId: bigint): Promise<number> {
+  const items = await prisma.spBomQuoteItem.findMany({
+    where: { quoteId, partId: null, selectionSource: 'auto', selectedCandidateKey: { not: null } },
+    select: { id: true, mpn: true, manufacturerName: true, selectedCandidateKey: true },
+  });
+  const mpnNorms = [...new Set(items.map((item) => normalizeMpn(item.mpn)).filter((value) => value !== ''))];
+  if (mpnNorms.length === 0) return 0;
+  const parts = await prisma.spPart.findMany({
+    where: { mpnNorm: { in: mpnNorms } },
+    orderBy: { lastSeenAt: 'desc' },
+    select: { id: true, mpnNorm: true, manufacturerNorm: true },
+  });
+  const exact = new Map(parts.map((part) => [`${part.mpnNorm}\u0000${part.manufacturerNorm}`, part.id]));
+  const byMpn = new Map<string, bigint>();
+  for (const part of parts) if (!byMpn.has(part.mpnNorm)) byMpn.set(part.mpnNorm, part.id);
+
+  let updated = 0;
+  for (const item of items) {
+    const mpnNorm = normalizeMpn(item.mpn);
+    if (mpnNorm === '') continue;
+    const manufacturerNorm = resolveManufacturer(item.manufacturerName).norm;
+    const partId = exact.get(`${mpnNorm}\u0000${manufacturerNorm}`) ?? byMpn.get(mpnNorm);
+    if (partId === undefined) continue;
+    const result = await prisma.spBomQuoteItem.updateMany({
+      where: {
+        id: item.id,
+        quoteId,
+        partId: null,
+        selectionSource: 'auto',
+        selectedCandidateKey: item.selectedCandidateKey,
+        mpn: item.mpn,
+        manufacturerName: item.manufacturerName,
+      },
+      data: { partId },
+    });
+    updated += result.count;
+  }
+  return updated;
 }
 
 /**

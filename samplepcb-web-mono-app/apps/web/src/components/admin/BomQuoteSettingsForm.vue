@@ -100,6 +100,11 @@ function formatDate(value: string): string {
 function runStatusLabel(value: string): string {
   return ({ preparing: '준비', running: '검색 중', completed: '완료', failed: '실패' } as Record<string, string>)[value] ?? value;
 }
+
+function catalogStatusLabel(value: string | null): string {
+  if (value === null) return '대기';
+  return ({ queued: '대기', running: '동기화 중', completed: '동기화 완료', failed: '동기화 실패' } as Record<string, string>)[value] ?? value;
+}
 </script>
 
 <template>
@@ -187,8 +192,8 @@ function runStatusLabel(value: string): string {
                 <td class="px-3 py-2 tabular-nums">{{ run.componentCount ?? '—' }}행</td>
                 <td class="px-3 py-2 tabular-nums">{{ run.estimatedApiCalls ?? '—' }} → <strong>{{ run.actualApiCalls ?? '—' }}</strong></td>
                 <td class="px-3 py-2 tabular-nums">{{ run.maxCalls ?? '—' }}회 / 캐시 {{ run.cacheHits ?? '—' }}</td>
-                <td class="px-3 py-2 tabular-nums">{{ formatDuration(run.elapsedMs) }}</td>
-                <td class="px-3 py-2"><span class="font-medium" :class="run.status === 'completed' ? 'text-emerald-700' : run.status === 'failed' ? 'text-red-700' : 'text-blue-700'">{{ runStatusLabel(run.status) }}</span><p v-if="run.budgetExhaustedCount" class="text-[11px] text-amber-700">한도 소진 {{ run.budgetExhaustedCount }}행</p><p v-if="run.error" class="max-w-48 truncate text-[11px] text-red-500" :title="run.error">{{ run.error }}</p></td>
+                <td class="px-3 py-2 tabular-nums"><p>엔진 {{ formatDuration(run.engineElapsedMs ?? run.elapsedMs) }} · 반영 {{ formatDuration(run.quoteApplyMs) }}</p><p class="text-[11px] text-slate-400">화면 완료 {{ formatDuration(run.wallElapsedMs) }} · 카탈로그 {{ formatDuration(run.catalogElapsedMs) }}</p><p v-if="run.catalogDbElapsedMs !== null || run.catalogIndexElapsedMs !== null" class="text-[11px] text-slate-400">DB {{ formatDuration(run.catalogDbElapsedMs) }} · ES {{ formatDuration(run.catalogIndexElapsedMs) }}</p></td>
+                <td class="px-3 py-2"><span class="font-medium" :class="run.status === 'completed' ? 'text-emerald-700' : run.status === 'failed' ? 'text-red-700' : 'text-blue-700'">{{ runStatusLabel(run.status) }}</span><p class="text-[11px]" :class="run.catalogStatus === 'failed' ? 'text-red-600' : (run.catalogQueued ?? 0) > 0 ? 'text-amber-700' : run.catalogStatus === 'running' ? 'text-blue-600' : 'text-slate-400'">{{ catalogStatusLabel(run.catalogStatus) }}<template v-if="run.catalogReused === true"> · 재사용</template><template v-if="(run.catalogQueued ?? 0) > 0"> · ES 재시도 {{ run.catalogQueued }}</template></p><p v-if="run.budgetExhaustedCount" class="text-[11px] text-amber-700">한도 소진 {{ run.budgetExhaustedCount }}행</p><p v-if="run.error" class="max-w-48 truncate text-[11px] text-red-500" :title="run.error">{{ run.error }}</p></td>
               </tr>
               <tr v-if="supplierSearch.recentRuns.length === 0"><td colspan="6" class="px-3 py-6 text-center text-slate-400">검색 실행 이력이 없습니다.</td></tr>
             </tbody>

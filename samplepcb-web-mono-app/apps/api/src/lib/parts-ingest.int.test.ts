@@ -10,7 +10,7 @@ import {
   bootstrapPartsIndex,
   type SpPartDoc,
 } from '../es/sp-parts-index';
-import { ingestSupplierSearchResult } from './parts-ingest';
+import { drainIndexQueue, ingestSupplierSearchResult, ingestSupplierSearchResultOnce } from './parts-ingest';
 
 const RUN = process.env.PARTS_IT === '1';
 const MPN = 'SPINGEST-GRM155R71C104KA88D';
@@ -66,6 +66,7 @@ function envelope(products: unknown[]): unknown {
 }
 
 async function cleanup(): Promise<void> {
+  await prisma.spPartIngestRun.deleteMany({ where: { sourceJobId: 'parts-ingest-it' } });
   const part = await prisma.spPart.findFirst({ where: { mpnNorm: normalizeMpn(MPN) } });
   if (part === null) return;
   await prisma.spPartIndexQueue.deleteMany({ where: { partId: part.id } });
@@ -94,6 +95,8 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
       offers: 0,
       indexed: 0,
       queued: 0,
+      skippedParts: 0,
+      skippedOffers: 0,
     });
     expect(await prisma.spPart.count({ where: { mpnNorm: normalizeMpn(MPN) } })).toBe(0);
   });
@@ -135,9 +138,11 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
     const stats = await ingestSupplierSearchResult(initial);
     expect(stats).toMatchObject({ parts: 1, offers: 2, indexed: 1, queued: 0 });
     expect(await ingestSupplierSearchResult(initial)).toMatchObject({
-      parts: 1,
-      offers: 2,
-      indexed: 1,
+      parts: 0,
+      offers: 0,
+      indexed: 0,
+      skippedParts: 1,
+      skippedOffers: 2,
     });
 
     const part = await prisma.spPart.findFirst({
@@ -208,6 +213,15 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
     expect((refreshedOwn?.rawJson as { derivedFrom?: { supplier?: string } }).derivedFrom?.supplier).toBe('mouser');
     expect(refreshedOwn?.stock).toBe(1_500);
 
+    const [firstLedgerRun, concurrentLedgerRun] = await Promise.all([
+      ingestSupplierSearchResultOnce(initial, 'parts-ingest-it'),
+      ingestSupplierSearchResultOnce(initial, 'parts-ingest-it'),
+    ]);
+    const reusedLedgerRun = await ingestSupplierSearchResultOnce(initial, 'parts-ingest-it');
+    expect(firstLedgerRun.reused).toBe(false);
+    expect(concurrentLedgerRun).toEqual(firstLedgerRun);
+    expect(reusedLedgerRun).toMatchObject({ runId: firstLedgerRun.runId, reused: true });
+
     await esClient().indices.refresh({ index: SP_PARTS_READ });
     const indexed = await esClient().get<SpPartDoc>({ index: SP_PARTS_READ, id: String(part.id) });
     expect(indexed._source).toMatchObject({
@@ -220,6 +234,20 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
       minPriceCurrency: 'USD',
     });
     expect(indexed._source?.suppliers).toEqual(expect.arrayContaining(['mouser', 'digikey']));
+
+    // DB fingerprint는 최신인 채 ES만 stale bulk에 덮였다고 가정한다. 큐 드레인은 fingerprint
+    // 단락 없이 현재 DB 문서를 강제 색인해야 한다.
+    if (indexed._source === undefined) throw new Error('integration test document missing');
+    await esClient().index({
+      index: SP_PARTS_WRITE,
+      id: String(part.id),
+      document: { ...indexed._source, totalStock: -1 },
+    });
+    await prisma.spPartIndexQueue.create({ data: { partId: part.id, reason: 'stale-ordering-regression' } });
+    await expect(drainIndexQueue()).resolves.toMatchObject({ drained: 1 });
+    await esClient().indices.refresh({ index: SP_PARTS_READ });
+    const recovered = await esClient().get<SpPartDoc>({ index: SP_PARTS_READ, id: String(part.id) });
+    expect(recovered._source?.totalStock).toBe(1_700);
 
     // Track A: "104K" 표기 → SI 정준(100nF) range 히트
     const cap = parseSpecToken('104K').find(
