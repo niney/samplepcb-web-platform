@@ -11,6 +11,7 @@ from typing import Any
 from .models import (
     CandidateMatch,
     ComponentProcurementDecision,
+    OfferKeyVersion,
     OfferProcurementDecision,
     OfferRecommendation,
     PlannedQuery,
@@ -28,6 +29,9 @@ from .models import (
     SupplierOffer,
     SupplierProduct,
 )
+
+
+CURRENT_OFFER_KEY_VERSION: OfferKeyVersion = "supplier-offer-key-v2"
 
 
 class ProcurementReevaluationError(ValueError):
@@ -124,12 +128,19 @@ def _validate_candidate_groups(
     return preselected_groups[0] if preselected_groups else None
 
 
-def _validate_unique_offer_keys(candidates: list[CandidateMatch]) -> None:
+def _validate_unique_offer_keys(
+    candidates: list[CandidateMatch],
+    offer_key_version: OfferKeyVersion,
+) -> None:
     occurrences: dict[str, int] = {}
     stored_key_mismatches: list[dict[str, Any]] = []
     for candidate in candidates:
         for offer in candidate.product.offers:
-            offer_key = stable_offer_key(candidate.product, offer)
+            offer_key = stable_offer_key(
+                candidate.product,
+                offer,
+                version=offer_key_version,
+            )
             stored_offer_key = (
                 offer.procurement_decision.offer_key
                 if offer.procurement_decision is not None
@@ -177,15 +188,31 @@ def _stable_token(value: str | None) -> str:
     return re.sub(r"[^\w]+", "", normalized, flags=re.UNICODE).replace("_", "")
 
 
-def stable_offer_key(product: SupplierProduct, offer: SupplierOffer) -> str | None:
+def _stable_supplier_identifier(value: str | None) -> str:
+    """Normalize representation without erasing punctuation that identifies an SKU."""
+
+    return unicodedata.normalize("NFKC", value or "").strip()
+
+
+def stable_offer_key(
+    product: SupplierProduct,
+    offer: SupplierOffer,
+    *,
+    version: OfferKeyVersion = CURRENT_OFFER_KEY_VERSION,
+) -> str | None:
     """Create a URL/price/stock/time-independent supplier-owned offer key."""
 
-    product_id = _stable_token(product.supplier_product_id)
-    supplier_sku = _stable_token(offer.supplier_sku)
+    normalize = (
+        _stable_token
+        if version == "supplier-offer-key-v1"
+        else _stable_supplier_identifier
+    )
+    product_id = normalize(product.supplier_product_id)
+    supplier_sku = normalize(offer.supplier_sku)
     if not product_id and not supplier_sku:
         return None
     payload = {
-        "packaging": _stable_token(offer.packaging),
+        "packaging": normalize(offer.packaging),
         "product_id": product_id,
         "supplier": offer.supplier.value,
         "supplier_sku": supplier_sku,
@@ -193,7 +220,26 @@ def stable_offer_key(product: SupplierProduct, offer: SupplierOffer) -> str | No
     digest = hashlib.sha256(
         json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
     ).hexdigest()[:24]
-    return f"ok1:{digest}"
+    prefix = "ok1" if version == "supplier-offer-key-v1" else "ok2"
+    return f"{prefix}:{digest}"
+
+
+def _stored_offer_key_version(
+    candidates: list[CandidateMatch],
+) -> OfferKeyVersion | None:
+    versions = {
+        offer.procurement_decision.offer_key_version
+        for candidate in candidates
+        for offer in candidate.product.offers
+        if offer.procurement_decision is not None
+    }
+    if len(versions) > 1:
+        raise ProcurementReevaluationError(
+            "mixed_offer_key_versions",
+            "stored candidates use more than one offer key version",
+            context={"offer_key_versions": sorted(versions)},
+        )
+    return next(iter(versions)) if versions else None
 
 
 def _order_quantity(required: int, moq: int | None, multiple: int | None) -> int:
@@ -262,9 +308,14 @@ def _offer_decision(
     candidate: CandidateMatch,
     offer: SupplierOffer,
     policy: ProcurementPolicyInput,
+    offer_key_version: OfferKeyVersion,
 ) -> OfferProcurementDecision:
     reasons: list[str] = []
-    offer_key = stable_offer_key(candidate.product, offer)
+    offer_key = stable_offer_key(
+        candidate.product,
+        offer,
+        version=offer_key_version,
+    )
     required = query.quantity
     order_quantity: int | None = None
     applied_quantity: int | None = None
@@ -364,6 +415,7 @@ def _offer_decision(
     else:
         status = "unavailable"
     return OfferProcurementDecision(
+        offer_key_version=offer_key_version,
         offer_key=offer_key,
         calculation_status=status,
         required_quantity=required,
@@ -543,11 +595,30 @@ def apply_procurement_decisions(
     query: PlannedQuery,
     candidates: list[CandidateMatch],
     policy: ProcurementPolicyInput,
+    *,
+    offer_key_version: OfferKeyVersion | None = None,
 ) -> tuple[list[CandidateMatch], ComponentProcurementDecision]:
     """Calculate offers without allowing purchasing data to mutate technical order."""
 
+    stored_version = _stored_offer_key_version(candidates)
+    if (
+        offer_key_version is not None
+        and stored_version is not None
+        and offer_key_version != stored_version
+    ):
+        raise ProcurementReevaluationError(
+            "offer_key_version_mismatch",
+            "requested offer key version differs from stored candidates",
+            context={
+                "requested_offer_key_version": offer_key_version,
+                "stored_offer_key_version": stored_version,
+            },
+        )
+    effective_offer_key_version = (
+        offer_key_version or stored_version or CURRENT_OFFER_KEY_VERSION
+    )
     preselected_group = _validate_candidate_groups(candidates)
-    _validate_unique_offer_keys(candidates)
+    _validate_unique_offer_keys(candidates, effective_offer_key_version)
     entries: list[
         tuple[int, int, CandidateMatch, SupplierOffer, OfferProcurementDecision]
     ] = []
@@ -559,7 +630,13 @@ def apply_procurement_decisions(
                     offer_index,
                     candidate,
                     offer,
-                    _offer_decision(query, candidate, offer, policy),
+                    _offer_decision(
+                        query,
+                        candidate,
+                        offer,
+                        policy,
+                        effective_offer_key_version,
+                    ),
                 )
             )
 

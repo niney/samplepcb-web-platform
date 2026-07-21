@@ -260,13 +260,14 @@ function attachProcurementDecision(
   offerKey: string,
   recommendation: 'automatic' | 'manual_review' | 'none',
   requiredQuantity = 10,
+  offerKeyVersion: 'supplier-offer-key-v1' | 'supplier-offer-key-v2' = 'supplier-offer-key-v1',
 ): void {
   const offer = value.product.offers[0];
   if (offer === undefined) throw new Error('test offer missing');
   Object.assign(offer, {
     procurement_decision: {
       procurement_policy_version: 'supplier-procurement-decision-v1',
-      offer_key_version: 'supplier-offer-key-v1',
+      offer_key_version: offerKeyVersion,
       rank_scope: 'identity_and_technical_evidence',
       offer_key: offerKey,
       calculation_status: 'calculated',
@@ -385,8 +386,20 @@ describe('BOM 엔진 후보 결정 투영', () => {
       identityKey: 'ik1:engine-choice',
       technicalEvidenceKey: 'ek1:engine-choice',
     });
-    attachProcurementDecision(selected, 'ok1:engine-selected', 'automatic');
-    attachProcurementDecision(cheaper, 'ok1:cheaper-not-selected', 'none');
+    attachProcurementDecision(
+      selected,
+      'ok2:engine-selected',
+      'automatic',
+      10,
+      'supplier-offer-key-v2',
+    );
+    attachProcurementDecision(
+      cheaper,
+      'ok2:cheaper-not-selected',
+      'none',
+      10,
+      'supplier-offer-key-v2',
+    );
 
     const decision = selectEngineMatch(
       {
@@ -394,7 +407,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
         status: 'verified_exact',
         procurement_decision: componentProcurementDecision(
           'automatic_recommended',
-          'ok1:engine-selected',
+          'ok2:engine-selected',
         ),
         candidates: [selected, cheaper],
       },
@@ -403,7 +416,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     );
 
     expect(decision?.pick?.offer.supplier).toBe('digikey');
-    expect(decision?.offerKey).toBe('ok1:engine-selected');
+    expect(decision?.offerKey).toBe('ok2:engine-selected');
     expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v10');
     expect(decision?.evidence.selectionApplicationState).toBe('automatic_selected');
     expect(decision?.evidence.confirmationRequired).toBe(false);
@@ -411,6 +424,32 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.evidence.decisionReasonCodes).toEqual([
       'engine-procurement-recommendation',
     ]);
+  });
+
+  it('오퍼 키와 선언된 키 버전이 다르면 엔진 계약을 거부한다', () => {
+    const selected = candidate('verified_exact', 'MISMATCHED-KEY', 'digikey', 1_000, 1, {
+      currentDecisionContract: true,
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+    });
+    attachProcurementDecision(
+      selected,
+      'ok1:legacy-prefix-with-v2-version',
+      'automatic',
+      10,
+      'supplier-offer-key-v2',
+    );
+
+    expect(selectEngineMatch({
+      component_id: 'component-key-version-mismatch',
+      status: 'verified_exact',
+      procurement_decision: componentProcurementDecision(
+        'automatic_recommended',
+        'ok1:legacy-prefix-with-v2-version',
+      ),
+      candidates: [selected],
+    }, 10, null)).toBeNull();
   });
 
   it('엔진 검색 trace는 판정 없이 compact 요약으로 투영한다', () => {

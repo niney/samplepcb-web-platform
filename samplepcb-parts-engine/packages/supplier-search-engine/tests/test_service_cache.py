@@ -18,6 +18,7 @@ from supplier_search_engine.models import (
     SupplierProduct,
     SupplierSearchResult,
 )
+from supplier_search_engine.procurement import ProcurementReevaluationError
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings
 from supplier_search_engine.suppliers.base import SupplierClient
@@ -527,6 +528,17 @@ def test_batch_failure_result_survives_trace_builder_failure() -> None:
     assert result.status == MatchStatus.SUPPLIER_ERROR
     assert result.search_trace is None
     assert result.warnings == ["supplier search failed"]
+
+
+def test_batch_error_type_preserves_procurement_error_code() -> None:
+    error = ProcurementReevaluationError(
+        "duplicate_offer_key",
+        "stable offer keys must identify exactly one stored offer",
+    )
+
+    assert SearchService._batch_error_type(error) == (
+        "ProcurementReevaluationError:duplicate_offer_key"
+    )
 
 
 async def test_parametric_search_does_not_wait_for_identity_mouser_prefetch(tmp_path):

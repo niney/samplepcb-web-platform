@@ -177,7 +177,12 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   반영하지만 `selectionSource=auto`인 동안은 `선정됨 · 검토 대기`로 표시한다. 사용자가 확인하면
   기존 명시 선택 API가 같은 후보·오퍼를 `selectionSource=customer`로 기록하며, sp-node가
   `manual_review` 조합을 보고 임시 선정을 자체 추론하지 않는다.
-- **구버전 결과 처리**: 1.3 조달 결정이 없거나 `supplier-selection-application-v1`인 저장 후보는
+  - **오퍼 키 v2(2026-07-21)**: 검색 스키마 1.6부터 신규 공급사 오퍼는
+    `supplier-offer-key-v2`(`ok2:`)를 사용한다. SKU의 점·하이픈을 제거하던 v1은
+    `P1.00K`/`P10.0K`/`P100K`처럼 서로 다른 DigiKey SKU를 같은 키로 축약할 수 있었으므로,
+    v2는 NFKC·양끝 공백만 정규화하고 대소문자와 식별 구두점을 보존한다. 기존 충돌 없는 v1
+    후보는 무호출 재평가 시 v1 계산을 유지하며, v1 내부에 실제 중복 키가 있는 행만 격리한다.
+  - **구버전 결과 처리**: 1.3 조달 결정이 없거나 `supplier-selection-application-v1`인 저장 후보는
   sp-node의 옛 구매 규칙으로 복원하지 않는다. 원본 엔진 후보가 있으면 위 배치 재평가로 현재 v2
   적용 후보 정책을 적용하고, 재평가할 수 없으면(청크 실패·컴포넌트별 오류·componentId 누락)
   선택은 그대로 둔 채 stale 축퇴한다. 결정 계약이 없거나

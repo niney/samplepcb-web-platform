@@ -44,7 +44,7 @@ from .models import (
 from .normalization import compact_mpn
 from .planner import QueryPlanner
 from .preflight import PreflightAnalyzer
-from .procurement import apply_procurement_decisions
+from .procurement import ProcurementReevaluationError, apply_procurement_decisions
 from .request_cache import supplier_cache_coordinates
 from .routing import suppliers_for_query
 from .settings import Settings
@@ -205,7 +205,7 @@ class SearchService:
                 unique_results[key] = self._batch_failure_result(
                     query,
                     procurement_policy=batch.procurement_policy,
-                    error_type=type(exc).__name__,
+                    error_type=self._batch_error_type(exc),
                     message="공급사 검색 작업을 완료하지 못했습니다.",
                 )
 
@@ -309,6 +309,12 @@ class SearchService:
             },
             deep=False,
         )
+
+    @staticmethod
+    def _batch_error_type(error: Exception) -> str:
+        if isinstance(error, ProcurementReevaluationError):
+            return f"{type(error).__name__}:{error.code}"[:100]
+        return type(error).__name__[:100]
 
     @staticmethod
     def _batch_failure_result(

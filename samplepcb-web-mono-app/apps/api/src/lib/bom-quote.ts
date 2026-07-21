@@ -119,9 +119,9 @@ const EnginePositiveDecimal = z.coerce.number().positive();
 const EngineOfferProcurementDecision = z
   .object({
     procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
-    offer_key_version: z.literal('supplier-offer-key-v1'),
+    offer_key_version: z.enum(['supplier-offer-key-v1', 'supplier-offer-key-v2']),
     rank_scope: z.literal('identity_and_technical_evidence'),
-    offer_key: z.string().startsWith('ok1:').nullable(),
+    offer_key: z.string().regex(/^ok[12]:/).nullable(),
     calculation_status: z.enum(['calculated', 'unavailable', 'supplier_not_allowed']),
     required_quantity: z.number().int().positive().nullish(),
     order_quantity: z.number().int().positive().nullish(),
@@ -142,7 +142,17 @@ const EngineOfferProcurementDecision = z
     recommendation: z.enum(['automatic', 'manual_review', 'none']),
     reason_codes: z.array(z.string()).default([]),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((decision, ctx) => {
+    const expectedPrefix = decision.offer_key_version === 'supplier-offer-key-v1' ? 'ok1:' : 'ok2:';
+    if (decision.offer_key !== null && !decision.offer_key.startsWith(expectedPrefix)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['offer_key'],
+        message: 'offer_key must match offer_key_version',
+      });
+    }
+  });
 
 const EngineSupplierOffer = z
   .object({
@@ -313,8 +323,8 @@ const EngineComponentProcurementDecisionV1 = z
     currency_rate_source: z.string().min(1),
     technical_preselection_identity_key: z.string().startsWith('ik1:').nullish(),
     technical_preselection_evidence_key: z.string().startsWith('ek1:').nullish(),
-    automatic_offer_key: z.string().startsWith('ok1:').nullish(),
-    review_offer_key: z.string().startsWith('ok1:').nullish(),
+    automatic_offer_key: z.string().regex(/^ok[12]:/).nullish(),
+    review_offer_key: z.string().regex(/^ok[12]:/).nullish(),
     recommendation_reason_codes: z.array(z.string()).default([]),
   })
   .passthrough();
@@ -345,8 +355,8 @@ const EngineComponentProcurementDecisionV2 = z
     application_candidate_identity_key: z.string().startsWith('ik1:').nullish(),
     application_candidate_evidence_key: z.string().startsWith('ek1:').nullish(),
     technical_fallback_used: z.boolean(),
-    automatic_offer_key: z.string().startsWith('ok1:').nullish(),
-    review_offer_key: z.string().startsWith('ok1:').nullish(),
+    automatic_offer_key: z.string().regex(/^ok[12]:/).nullish(),
+    review_offer_key: z.string().regex(/^ok[12]:/).nullish(),
     recommendation_reason_codes: z.array(z.string()).default([]),
   })
   .passthrough();

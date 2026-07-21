@@ -659,6 +659,66 @@ def test_offer_key_ignores_url_price_stock_and_fetch_state():
     )
 
 
+def test_offer_key_preserves_supplier_sku_punctuation_that_changes_identity():
+    products = [
+        product(
+            Supplier.DIGIKEY,
+            mpn=mpn,
+            sku=sku,
+        )
+        for mpn, sku in (
+            ("ERJ-3EKF1001V", "P1.00KHTR-ND"),
+            ("ERJ-3EKF1002V", "P10.0KHTR-ND"),
+            ("ERJ-3EKF1003V", "P100KHTR-ND"),
+        )
+    ]
+    for supplier_product in products:
+        # DigiKey keyword/parametric responses do not always contain ProductId.
+        supplier_product.supplier_product_id = None
+
+    keys = {
+        stable_offer_key(supplier_product, supplier_product.offers[0])
+        for supplier_product in products
+    }
+
+    assert len(keys) == 3
+    assert all(key is not None and key.startswith("ok2:") for key in keys)
+    candidates, _component = decide(query(quantity=1), products)
+    assert len(
+        {
+            offer_decision(candidate).offer_key
+            for candidate in candidates
+        }
+    ) == 3
+
+
+def test_reevaluation_preserves_unique_legacy_offer_key_version():
+    planned = query(quantity=10)
+    candidates = technical_candidates(planned, [product(Supplier.DIGIKEY)])
+    stored, _component = apply_procurement_decisions(
+        planned,
+        candidates,
+        policy(),
+        offer_key_version="supplier-offer-key-v1",
+    )
+    stored_decision = offer_decision(stored[0])
+
+    result = reevaluate_procurement(
+        ProcurementReevaluationRequest(
+            component_id="procurement",
+            candidates=stored,
+            required_quantity=20,
+            procurement_policy=policy(),
+            requested_offer_key=stored_decision.offer_key,
+        )
+    )
+
+    reevaluated = offer_decision(result.candidates[0])
+    assert stored_decision.offer_key_version == "supplier-offer-key-v1"
+    assert reevaluated.offer_key_version == "supplier-offer-key-v1"
+    assert reevaluated.offer_key == stored_decision.offer_key
+
+
 def test_missing_stable_offer_identity_is_not_recommended():
     supplier_product = product(Supplier.DIGIKEY, product_id="", sku="")
     supplier_product.supplier_product_id = None

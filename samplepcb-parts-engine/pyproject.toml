@@ -18,7 +18,11 @@ dependencies = [
 package = false
 
 [tool.uv.workspace]
-members = ["packages/*", "app"]
+members = [
+  "packages/bom-extraction-engine",
+  "packages/supplier-search-engine",
+  "app",
+]
 
 [tool.uv.sources]
 bom-extraction-engine = { workspace = true }

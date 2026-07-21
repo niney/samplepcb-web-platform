@@ -8,6 +8,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+OfferKeyVersion = Literal["supplier-offer-key-v1", "supplier-offer-key-v2"]
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -161,7 +164,7 @@ class OfferProcurementDecision(BaseModel):
     procurement_policy_version: Literal["supplier-procurement-decision-v1"] = (
         "supplier-procurement-decision-v1"
     )
-    offer_key_version: Literal["supplier-offer-key-v1"] = "supplier-offer-key-v1"
+    offer_key_version: OfferKeyVersion = "supplier-offer-key-v2"
     rank_scope: Literal["identity_and_technical_evidence"] = (
         "identity_and_technical_evidence"
     )
@@ -188,8 +191,13 @@ class OfferProcurementDecision(BaseModel):
 
     @model_validator(mode="after")
     def validate_recommendation(self) -> "OfferProcurementDecision":
-        if self.offer_key is not None and not self.offer_key.startswith("ok1:"):
-            raise ValueError("offer_key must use supplier-offer-key-v1")
+        expected_prefix = (
+            "ok1:"
+            if self.offer_key_version == "supplier-offer-key-v1"
+            else "ok2:"
+        )
+        if self.offer_key is not None and not self.offer_key.startswith(expected_prefix):
+            raise ValueError("offer_key must match offer_key_version")
         if self.price_rank is not None and self.line_total is None:
             raise ValueError("price-ranked offers must have a line total")
         if self.purchasable and (
@@ -245,11 +253,12 @@ class ComponentProcurementDecision(BaseModel):
             (self.technical_preselection_evidence_key, "ek1:"),
             (self.application_candidate_identity_key, "ik1:"),
             (self.application_candidate_evidence_key, "ek1:"),
-            (self.automatic_offer_key, "ok1:"),
-            (self.review_offer_key, "ok1:"),
         ):
             if value is not None and not value.startswith(prefix):
                 raise ValueError("recommended keys must use their declared versions")
+        for value in (self.automatic_offer_key, self.review_offer_key):
+            if value is not None and not value.startswith(("ok1:", "ok2:")):
+                raise ValueError("recommended offer keys must use a supported version")
         if (self.technical_preselection_identity_key is None) != (
             self.technical_preselection_evidence_key is None
         ):
@@ -750,8 +759,8 @@ class ProcurementReevaluationCandidateInput(BaseModel):
     @field_validator("requested_offer_key")
     @classmethod
     def validate_requested_offer_key(cls, value: str | None) -> str | None:
-        if value is not None and not value.startswith("ok1:"):
-            raise ValueError("requested_offer_key must use supplier-offer-key-v1")
+        if value is not None and not value.startswith(("ok1:", "ok2:")):
+            raise ValueError("requested_offer_key must use a supported offer key version")
         return value
 
 
@@ -962,7 +971,7 @@ class ComponentSearchResult(BaseModel):
 class BatchSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_schema_version: str = "1.5"
+    search_schema_version: str = "1.6"
     procurement_policy: ProcurementPolicyInput = Field(
         default_factory=ProcurementPolicyInput
     )

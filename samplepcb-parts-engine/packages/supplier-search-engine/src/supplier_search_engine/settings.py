@@ -71,10 +71,10 @@ class Settings:
         # 이식 재홈: 연구 폴더 대신 웹 데이터 디렉터리 기본값.
         # 웹 계층(_search_settings)이 항상 cache_path를 덮어쓰므로
         # 이 기본값은 패키지 단독 사용 시에만 의미가 있다.
-        web_root = Path(__file__).resolve().parents[3]
+        engine_root = Path(__file__).resolve().parents[4]
         cache_value = os.getenv(
             "SEARCH_CACHE_PATH",
-            str(web_root / "data" / "supplier-search-cache.sqlite3"))
+            str(engine_root / "data" / "supplier-search-cache.sqlite3"))
         legacy_concurrency_configured = bool(os.getenv("SEARCH_SUPPLIER_CONCURRENCY", "").strip())
         supplier_concurrency = _optional_int("SEARCH_SUPPLIER_CONCURRENCY", 4) or 4
         digikey_concurrency = _optional_int(
