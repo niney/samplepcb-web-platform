@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import type { FastifyBaseLogger } from 'fastify';
+import { describe, expect, it, vi } from 'vitest';
 import {
   analysisComponentLookupWhere,
   applyEngineSupplierResult,
@@ -464,6 +465,87 @@ describe('BOM 엔진 후보 결정 투영', () => {
       fallbackUsed: true,
       attemptCount: 1,
     });
+  });
+
+  it('알 수 없는 trace enum은 견적 판정을 막지 않고 trace만 경고 후 생략한다', async () => {
+    const items = buildItemsFromEngineResult(ENGINE_RESULT, [1]);
+    const componentId = items[0]?.sourceRow?.componentId;
+    expect(typeof componentId).toBe('string');
+    if (typeof componentId !== 'string') return;
+    const warn = vi.fn();
+    const log = { warn } as unknown as Pick<FastifyBaseLogger, 'warn'>;
+
+    const result = await applyEngineSupplierResult(
+      items,
+      {
+        supplier_search_schema_version: '1.5',
+        procurement_decision_contract_status: 'current',
+        search: {
+          search_schema_version: '1.5',
+          components: [{
+            component_id: componentId,
+            status: 'not_found',
+            search_trace: {
+              version: 'supplier-search-trace-v1',
+              primary_query: 'RC0603FR-0710KL',
+              fallback_query: null,
+              fallback_used: false,
+              attempts: [{
+                sequence: 1,
+                stage: 'primary',
+                supplier: 'digikey',
+                strategy: 'identity_exact',
+                query: 'RC0603FR-0710KL',
+                source: 'future_cache_source',
+                outcome: 'empty',
+                result_count: 0,
+                api_calls: 0,
+                http_attempt_count: 0,
+                elapsed_ms: 1,
+                fallback_reason: null,
+                error_type: null,
+              }],
+            },
+            procurement_decision: {
+              procurement_policy_version: 'supplier-procurement-decision-v1',
+              selection_application_policy_version: 'supplier-selection-application-v2',
+              status: 'no_recommendation',
+              selection_application_state: 'not_selected',
+              confirmation_required: false,
+              required_quantity: 1,
+              target_currency: 'KRW',
+              currency_rate_snapshot_id: 'fixture-snapshot',
+              currency_rate_as_of: '2026-07-21T00:00:00+09:00',
+              currency_rate_source: 'pytest',
+              technical_preselection_identity_key: null,
+              technical_preselection_evidence_key: null,
+              application_candidate_identity_key: null,
+              application_candidate_evidence_key: null,
+              technical_fallback_used: false,
+              automatic_offer_key: null,
+              review_offer_key: null,
+              recommendation_reason_codes: [],
+            },
+            candidates: [],
+          }],
+        },
+      },
+      1,
+      0,
+      null,
+      log,
+    );
+
+    expect(result.applied).toBe(true);
+    expect(result.searchTraceSnapshots).toEqual([]);
+    expect(items[0]?.matchEvidence?.searchTraceSummary).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceFailureCount: 1,
+        traceFailures: [expect.objectContaining({ componentId })],
+      }),
+      expect.stringContaining('trace 계약 불일치'),
+    );
   });
 
   it('엔진의 조달 수동 검토 추천은 임시 선정과 가격으로 그대로 적용한다', () => {

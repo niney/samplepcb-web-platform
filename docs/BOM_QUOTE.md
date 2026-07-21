@@ -110,7 +110,10 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   조건부 스펙 fallback 검색어, 공급사별 논리 시도 순서·전략·API/캐시 출처·결과 수·HTTP 재시도 수·
   소요시간·fallback 사유를 구조화한다. API 키·헤더·원본 요청 body·URL은 기록하지 않는다.
   sp-node는 이를 실행 스냅샷으로 저장하고 판단을 재구성하지 않으며, sp-vue는 결과 행에 최초 검색어와
-  fallback 여부만 한 줄로 표시하고 후보 비교의 접힌 `검색 과정`에서 전체 이력을 보여준다.
+  fallback 여부만 한 줄로 표시하고 후보 비교의 접힌 `검색 과정`에서 전체 이력을 보여준다. 오염된
+  BOM 셀의 긴 품번도 검색 자체는 바꾸지 않고 trace 표기만 500자로 제한한다. trace 조립·파싱 실패는
+  검색 배치나 견적 판정 실패로 승격하지 않으며, sp-node는 componentId와 계약 경로를 경고한 뒤 해당
+  trace만 생략한다. 조달 결정 계약의 엄격 검증은 이 관측 데이터 축퇴와 무관하게 그대로 유지한다.
 - **생명주기 상태 기계(2026-07-19 정석화)**: `sp_bom_quote.enrichStatus`
   (`idle|searching|done|failed`) + `enrichedAt` — **서버 영속 단일 진실**. 전이:
   build 가 보강 필요를 동기 선판정해 **items 와 `searching` 을 함께 커밋**("items 는 있는데

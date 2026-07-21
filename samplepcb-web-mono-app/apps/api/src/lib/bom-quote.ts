@@ -364,7 +364,9 @@ const EngineSupplierComponent = z
     query: EngineSupplierQuery.nullish(),
     initial_query: EngineSupplierQuery.nullish(),
     identity_fallback: z.boolean().default(false),
-    search_trace: EngineSupplierSearchTrace.nullish(),
+    // trace는 관측 전용이다. 엔진이 enum을 확장해도 후보·조달 계약 파싱을 막지 않도록
+    // component 본체와 분리해 아래에서 독립적으로 검증한다.
+    search_trace: z.unknown().nullish(),
     candidates: z.array(EngineSupplierCandidate).default([]),
     procurement_decision: EngineComponentProcurementDecision.nullish(),
   })
@@ -413,6 +415,24 @@ type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 type EngineCandidateDecisionType = z.infer<typeof EngineCandidateDecision>;
 type EngineSupplierSearchTraceType = z.infer<typeof EngineSupplierSearchTrace>;
+
+interface ParsedEngineSearchTrace {
+  trace: EngineSupplierSearchTraceType | null;
+  issues: { code: string; path: string }[];
+}
+
+function parseEngineSearchTrace(value: unknown): ParsedEngineSearchTrace {
+  if (value === null || value === undefined) return { trace: null, issues: [] };
+  const parsed = EngineSupplierSearchTrace.safeParse(value);
+  if (parsed.success) return { trace: parsed.data, issues: [] };
+  return {
+    trace: null,
+    issues: parsed.error.issues.map((issue) => ({
+      code: issue.code,
+      path: issue.path.join('.'),
+    })),
+  };
+}
 
 function quoteSearchTrace(trace: EngineSupplierSearchTraceType): BomQuoteSearchTraceType {
   return {
@@ -1418,7 +1438,7 @@ function evidenceFromDecision(
     technicalPreselectionCandidateKey: technicalTop?.snapshot.candidateKey ?? null,
     technicalFallbackUsed,
     identityFallback,
-    searchTraceSummary: searchTraceSummary(component.search_trace),
+    searchTraceSummary: searchTraceSummary(parseEngineSearchTrace(component.search_trace).trace),
     candidateStatus: evidenceSnapshot?.status ?? reviewCandidate?.status ?? null,
     selectionMode: mode,
     candidateCount: component.candidates.length,
@@ -1617,6 +1637,7 @@ export async function applyEngineSupplierResult(
   setQty: number,
   spareQty: number,
   usdKrwRate: number | null,
+  log?: Pick<FastifyBaseLogger, 'warn'>,
 ): Promise<ApplyEngineSupplierResult> {
   const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
   if (!parsed.success) return { applied: false, candidateSnapshots: [], searchTraceSnapshots: [] };
@@ -1629,6 +1650,7 @@ export async function applyEngineSupplierResult(
   const components = new Map(parsed.data.search.components.map((component) => [component.component_id, component]));
   const candidateSnapshots: QuoteCandidateSnapshotInput[] = [];
   const searchTraceSnapshots: QuoteSearchTraceSnapshotInput[] = [];
+  const searchTraceParseFailures: { componentId: string; issues: ParsedEngineSearchTrace['issues'] }[] = [];
 
   for (const item of items) {
     const componentId = item.sourceRow?.componentId;
@@ -1639,11 +1661,15 @@ export async function applyEngineSupplierResult(
     const sourcePartNumber = item.sourceRow?.inputPartNumber;
     const inputPartNumber = typeof sourcePartNumber === 'string' ? sourcePartNumber.trim() : '';
     const needed = neededQty(item.bomQty, setQty, spareQty);
-    if (component.search_trace !== null && component.search_trace !== undefined) {
+    const parsedTrace = parseEngineSearchTrace(component.search_trace);
+    if (parsedTrace.issues.length > 0) {
+      searchTraceParseFailures.push({ componentId, issues: parsedTrace.issues });
+    }
+    if (parsedTrace.trace !== null) {
       searchTraceSnapshots.push({
         rowIdx: item.rowIdx,
         componentId,
-        trace: component.search_trace,
+        trace: parsedTrace.trace,
       });
     }
     const decision = selectEngineMatch(component, needed, usdKrwRate);
@@ -1732,6 +1758,16 @@ export async function applyEngineSupplierResult(
     item.selectionSource = 'auto';
     item.selectedOffer = decision.pick === null ? null : snapshotFromPick(decision.pick, false, decision.offerKey);
     item.orderQty = decision.pick?.orderQty ?? needed;
+  }
+  if (searchTraceParseFailures.length > 0) {
+    log?.warn(
+      {
+        traceFailureCount: searchTraceParseFailures.length,
+        traceFailures: searchTraceParseFailures.slice(0, 20),
+        omittedTraceFailureCount: Math.max(0, searchTraceParseFailures.length - 20),
+      },
+      'BOM 공급사 검색 trace 계약 불일치 — 후보 판정은 유지하고 trace만 생략합니다',
+    );
   }
   return { applied: true, candidateSnapshots, searchTraceSnapshots };
 }
@@ -2770,6 +2806,7 @@ export async function refreshQuoteFromSupplierResult(
   quoteId: bigint,
   envelope: unknown,
   supplierSearchRunId?: bigint,
+  log?: Pick<FastifyBaseLogger, 'warn'>,
 ): Promise<boolean> {
   const key = `${String(quoteId)}:${supplierSearchRunId === undefined ? 'legacy' : String(supplierSearchRunId)}`;
   const inFlight = engineRefreshInFlight.get(key);
@@ -2779,7 +2816,14 @@ export async function refreshQuoteFromSupplierResult(
     if (quote?.status !== 'draft') return false;
     const config = await getBomQuoteRuntimeConfig();
     const items = quote.items.map((row) => toItemDto(row));
-    const applied = await applyEngineSupplierResult(items, envelope, quote.setQty, quote.spareQty, config.usdKrwRate);
+    const applied = await applyEngineSupplierResult(
+      items,
+      envelope,
+      quote.setQty,
+      quote.spareQty,
+      config.usdKrwRate,
+      log,
+    );
     if (!applied.applied) return false;
     const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
     await persistQuoteComputed(quoteId, result, config.usdKrwRate, {
@@ -2853,7 +2897,10 @@ export async function backfillQuotePartIds(quoteId: bigint): Promise<number> {
  * sp-node 재시작으로 인제스트 폴러(onDone)가 유실됐을 때의 내성 — "카탈로그엔 있는데
  * 견적은 미매칭" 고착 방지. 미매칭 라인이 없으면 건드리지 않는다.
  */
-export async function refreshQuotesForJob(jobId: string): Promise<void> {
+export async function refreshQuotesForJob(
+  jobId: string,
+  log?: Pick<FastifyBaseLogger, 'warn'>,
+): Promise<void> {
   const response = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/result`);
   if (!response.ok) return;
   const envelope: unknown = await response.json();
@@ -2874,6 +2921,7 @@ export async function refreshQuotesForJob(jobId: string): Promise<void> {
       quote.id,
       envelope,
       quote.activeSupplierSearchRunId ?? undefined,
+      log,
     );
   }
 }

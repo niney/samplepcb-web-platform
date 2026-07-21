@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import type { FastifyBaseLogger } from 'fastify';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
@@ -148,13 +149,19 @@ async function applyCompletedSupplierResult(
   quoteId: bigint,
   searchRunId: bigint,
   envelope: unknown,
+  log: FastifyBaseLogger,
 ): Promise<boolean> {
   const run = await prisma.spBomSupplierSearchRun.findUnique({
     where: { id: searchRunId },
     select: { startedAt: true },
   });
   const applyStartedAt = performance.now();
-  const applied = await refreshQuoteFromSupplierResult(quoteId, envelope, searchRunId);
+  const applied = await refreshQuoteFromSupplierResult(
+    quoteId,
+    envelope,
+    searchRunId,
+    log,
+  );
   const completedAt = new Date();
   const baseSummary = supplierRunSummarySnapshot(envelope);
   const summary = baseSummary === null
@@ -375,7 +382,7 @@ async function autoEnrichQuote(
   }, '영속 분석 기반 자동 보강 검색 시작');
   startIngestPoller(jobId, log, {
     onResult: async (envelope) => {
-      await applyCompletedSupplierResult(quoteId, searchRun.id, envelope);
+      await applyCompletedSupplierResult(quoteId, searchRun.id, envelope, log);
     },
     onCatalogIngested: async (result) => {
       const backfilled = await completeCatalogIngest(quoteId, searchRun.id, result);
@@ -425,7 +432,7 @@ async function healEnrichment(
     if (status === 'completed') {
       const envelope = await fetchSupplierSearchResult(jobId);
       if (envelope === null) return; // 결과 준비 지연 — searching 유지, 다음 조회가 재시도
-      await applyCompletedSupplierResult(quoteId, run.id, envelope);
+      await applyCompletedSupplierResult(quoteId, run.id, envelope, log);
       void ingestSupplierEnvelopeForJob(jobId, envelope, log).then(async (result) => {
         if (result === null) return;
         const backfilled = await completeCatalogIngest(quoteId, run.id, result);
