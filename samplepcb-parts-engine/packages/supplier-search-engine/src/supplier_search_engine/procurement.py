@@ -393,6 +393,80 @@ def _dense_ranks(values: list[tuple[int, Any]]) -> dict[int, int]:
     return ranks
 
 
+def _application_group_sort_key(
+    candidates: list[CandidateMatch],
+    group_key: tuple[str, str],
+    best_line_total: Decimal,
+) -> tuple[Any, ...]:
+    """Order fallback groups by technical safety, then effective total, never input order."""
+
+    group = [
+        candidate
+        for candidate in candidates
+        if (
+            candidate.decision.identity_key,
+            candidate.decision.technical_evidence_key,
+        )
+        == group_key
+    ]
+    if not group:
+        raise ProcurementReevaluationError(
+            "application_candidate_group_missing",
+            "an application candidate group must reference stored technical evidence",
+            context={
+                "identity_key": group_key[0],
+                "technical_evidence_key": group_key[1],
+            },
+        )
+    candidate = min(
+        group,
+        key=lambda item: (
+            _stable_token(item.product.manufacturer),
+            _stable_token(item.product.manufacturer_part_number),
+            item.product.supplier.value,
+        ),
+    )
+    decision = candidate.decision
+    eligibility_order = {
+        SelectionEligibility.AUTOMATIC: 0,
+        SelectionEligibility.MANUAL_REVIEW: 1,
+        SelectionEligibility.BLOCKED: 2,
+    }
+    relation_order = {
+        "exact": 0,
+        "variant": 1,
+        "spec-compatible": 2,
+        "unresolved": 3,
+    }
+    lifecycle_order = {"active": 0, "unknown": 1, "caution": 2}
+    required = decision.required_requirement_count
+    verification_ratio = (
+        decision.verified_requirement_count / required if required else 0.0
+    )
+    source_conflicts = sum(
+        value.endswith("_source_conflict") for value in candidate.conflicts
+    )
+    actual_conflicts = sum(
+        not value.endswith("_source_conflict") and value != "manufacturer_mismatch"
+        for value in candidate.conflicts
+    )
+    return (
+        eligibility_order[decision.selection_eligibility],
+        decision.technical_review_rank or 0,
+        relation_order[decision.match_relation.value],
+        actual_conflicts,
+        source_conflicts,
+        len(candidate.missing_requirements),
+        -verification_ratio,
+        -decision.verified_requirement_count,
+        lifecycle_order[decision.lifecycle_state.value],
+        best_line_total,
+        _stable_token(candidate.product.manufacturer),
+        _stable_token(candidate.product.manufacturer_part_number),
+        group_key,
+    )
+
+
 def _validate_procurement_result(
     candidates: list[CandidateMatch],
     component: ComponentProcurementDecision,
@@ -445,6 +519,10 @@ def _validate_procurement_result(
     if (
         selected_candidate.decision.selection_eligibility != expected_eligibility
         or selected_decision.recommendation != expected_recommendation
+        or selected_candidate.decision.identity_key
+        != component.application_candidate_identity_key
+        or selected_candidate.decision.technical_evidence_key
+        != component.application_candidate_evidence_key
     ):
         raise ProcurementReevaluationError(
             "recommendation_type_mismatch",
@@ -540,22 +618,68 @@ def apply_procurement_decisions(
     recommended_entry: tuple[int, int] | None = None
     offer_recommendation = OfferRecommendation.NONE
     recommendation_reasons: list[str] = []
-    recommended_identity_key: str | None = None
-    recommended_evidence_key: str | None = None
+    technical_identity_key: str | None = None
+    technical_evidence_key: str | None = None
+    application_group: tuple[str, str] | None = None
     if preselected_group is None:
         recommendation_reasons.append("technical_preselection_unavailable")
     else:
-        recommended_identity_key, recommended_evidence_key = preselected_group
+        technical_identity_key, technical_evidence_key = preselected_group
         recommendation_reasons.append("technical_preselection_preserved")
-        eligible_entries = [
-            (ci, oi, decision)
-            for (ci, oi), decision in decisions.items()
-            if candidates[ci].decision.identity_key == recommended_identity_key
-            and candidates[ci].decision.technical_evidence_key
-            == recommended_evidence_key
-            and decision.purchasable
-        ]
+
+        def purchasable_entries(
+            group_key: tuple[str, str],
+        ) -> list[tuple[int, int, OfferProcurementDecision]]:
+            identity_key, evidence_key = group_key
+            return [
+                (ci, oi, decision)
+                for (ci, oi), decision in decisions.items()
+                if candidates[ci].decision.identity_key == identity_key
+                and candidates[ci].decision.technical_evidence_key == evidence_key
+                and decision.purchasable
+            ]
+
+        eligible_entries = purchasable_entries(preselected_group)
         if eligible_entries:
+            application_group = preselected_group
+        else:
+            recommendation_reasons.append("technical_preselection_unpurchasable")
+            fallback_groups = [
+                group_key
+                for group_key in groups
+                if group_key != preselected_group
+                and candidates[
+                    entries[groups[group_key][0]][0]
+                ].decision.selection_eligibility
+                != SelectionEligibility.BLOCKED
+                and purchasable_entries(group_key)
+            ]
+            if fallback_groups:
+                application_group = min(
+                    fallback_groups,
+                    key=lambda group_key: _application_group_sort_key(
+                        candidates,
+                        group_key,
+                        min(
+                            decision.line_total
+                            for _ci, _oi, decision in purchasable_entries(group_key)
+                            if decision.line_total is not None
+                        ),
+                    ),
+                )
+                eligible_entries = purchasable_entries(application_group)
+                recommendation_reasons.append(
+                    "next_purchasable_technical_group_selected"
+                )
+            else:
+                recommendation_reasons.append("no_purchasable_candidate_group")
+
+        if application_group is not None:
+            eligible_entries = [
+                (ci, oi, decision)
+                for ci, oi, decision in eligible_entries
+                if decision.purchasable
+            ]
             ci, oi, selected = min(
                 eligible_entries,
                 key=lambda item: (
@@ -589,15 +713,15 @@ def apply_procurement_decisions(
             decisions[(ci, oi)] = selected.model_copy(
                 update={"recommendation": offer_recommendation}, deep=True
             )
-            recommendation_reasons.append("best_purchase_fit_in_technical_group")
+            recommendation_reasons.append(
+                "best_purchase_fit_in_technical_group"
+                if application_group == preselected_group
+                else "best_purchase_fit_in_fallback_group"
+            )
             if offer_recommendation == OfferRecommendation.MANUAL_REVIEW:
                 recommendation_reasons.append("manual_review_required")
             else:
                 recommendation_reasons.append("automatic_candidate")
-        else:
-            recommendation_reasons.append(
-                "preselected_technical_group_has_no_purchasable_offer"
-            )
 
     updated_candidates: list[CandidateMatch] = []
     for candidate_index, candidate in enumerate(candidates):
@@ -650,8 +774,17 @@ def apply_procurement_decisions(
         currency_rate_snapshot_id=policy.currency_rate_snapshot_id,
         currency_rate_as_of=policy.currency_rate_as_of,
         currency_rate_source=policy.currency_rate_source,
-        technical_preselection_identity_key=recommended_identity_key,
-        technical_preselection_evidence_key=recommended_evidence_key,
+        technical_preselection_identity_key=technical_identity_key,
+        technical_preselection_evidence_key=technical_evidence_key,
+        application_candidate_identity_key=(
+            application_group[0] if recommended_entry is not None else None
+        ),
+        application_candidate_evidence_key=(
+            application_group[1] if recommended_entry is not None else None
+        ),
+        technical_fallback_used=(
+            recommended_entry is not None and application_group != preselected_group
+        ),
         automatic_offer_key=(
             selected_offer_key
             if offer_recommendation == OfferRecommendation.AUTOMATIC

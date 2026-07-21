@@ -214,8 +214,8 @@ class ComponentProcurementDecision(BaseModel):
         "supplier-procurement-decision-v1"
     )
     selection_application_policy_version: Literal[
-        "supplier-selection-application-v1"
-    ] = "supplier-selection-application-v1"
+        "supplier-selection-application-v2"
+    ] = "supplier-selection-application-v2"
     status: Literal[
         "automatic_recommended",
         "review_recommended",
@@ -231,6 +231,9 @@ class ComponentProcurementDecision(BaseModel):
     currency_rate_source: str
     technical_preselection_identity_key: str | None = None
     technical_preselection_evidence_key: str | None = None
+    application_candidate_identity_key: str | None = None
+    application_candidate_evidence_key: str | None = None
+    technical_fallback_used: bool = False
     automatic_offer_key: str | None = None
     review_offer_key: str | None = None
     recommendation_reason_codes: list[str] = Field(default_factory=list)
@@ -240,6 +243,8 @@ class ComponentProcurementDecision(BaseModel):
         for value, prefix in (
             (self.technical_preselection_identity_key, "ik1:"),
             (self.technical_preselection_evidence_key, "ek1:"),
+            (self.application_candidate_identity_key, "ik1:"),
+            (self.application_candidate_evidence_key, "ek1:"),
             (self.automatic_offer_key, "ok1:"),
             (self.review_offer_key, "ok1:"),
         ):
@@ -249,10 +254,16 @@ class ComponentProcurementDecision(BaseModel):
             self.technical_preselection_evidence_key is None
         ):
             raise ValueError("technical preselection keys must be provided together")
+        if (self.application_candidate_identity_key is None) != (
+            self.application_candidate_evidence_key is None
+        ):
+            raise ValueError("application candidate keys must be provided together")
         if self.status == "automatic_recommended" and not all(
             (
                 self.technical_preselection_identity_key,
                 self.technical_preselection_evidence_key,
+                self.application_candidate_identity_key,
+                self.application_candidate_evidence_key,
                 self.automatic_offer_key,
             )
         ):
@@ -263,6 +274,8 @@ class ComponentProcurementDecision(BaseModel):
             (
                 self.technical_preselection_identity_key,
                 self.technical_preselection_evidence_key,
+                self.application_candidate_identity_key,
+                self.application_candidate_evidence_key,
                 self.review_offer_key,
             )
         ):
@@ -276,6 +289,24 @@ class ComponentProcurementDecision(BaseModel):
             )
         if self.status != "review_recommended" and self.review_offer_key is not None:
             raise ValueError("only review recommendations can expose review_offer_key")
+        application_key = (
+            self.application_candidate_identity_key,
+            self.application_candidate_evidence_key,
+        )
+        technical_key = (
+            self.technical_preselection_identity_key,
+            self.technical_preselection_evidence_key,
+        )
+        has_application = self.application_candidate_identity_key is not None
+        if self.status in {"no_recommendation", "input_incomplete"}:
+            if has_application or self.technical_fallback_used:
+                raise ValueError(
+                    "non-recommended components cannot expose an application candidate"
+                )
+        elif self.technical_fallback_used != (application_key != technical_key):
+            raise ValueError(
+                "technical fallback flag must match the application candidate"
+            )
         expected_application = {
             "automatic_recommended": SelectionApplicationState.AUTOMATIC_SELECTED,
             "review_recommended": SelectionApplicationState.PROVISIONAL_SELECTED,
@@ -718,6 +749,10 @@ class ProcurementReevaluationResult(BaseModel):
         if (
             candidate.decision.selection_eligibility != expected_eligibility
             or decision.recommendation != expected_recommendation
+            or candidate.decision.identity_key
+            != component.application_candidate_identity_key
+            or candidate.decision.technical_evidence_key
+            != component.application_candidate_evidence_key
         ):
             raise ValueError(
                 "recommendation type must match the selected candidate eligibility"
@@ -767,7 +802,7 @@ class ComponentSearchResult(BaseModel):
 class BatchSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_schema_version: str = "1.3"
+    search_schema_version: str = "1.4"
     procurement_policy: ProcurementPolicyInput = Field(
         default_factory=ProcurementPolicyInput
     )

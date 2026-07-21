@@ -168,6 +168,15 @@ def test_required_quantity_moq_multiple_price_break_and_exchange_rate():
     assert component.selection_application_state == "automatic_selected"
     assert component.confirmation_required is False
     assert component.automatic_offer_key == decision.offer_key
+    assert (
+        component.application_candidate_identity_key
+        == component.technical_preselection_identity_key
+    )
+    assert (
+        component.application_candidate_evidence_key
+        == component.technical_preselection_evidence_key
+    )
+    assert component.technical_fallback_used is False
 
 
 def test_required_quantity_reselects_price_break_without_changing_technical_keys():
@@ -324,7 +333,7 @@ def test_manual_review_purchase_rank_never_promotes_technical_eligibility():
         )
 
 
-def test_best_offer_is_selected_only_inside_preselected_technical_group():
+def test_unpurchasable_technical_preselection_falls_back_to_next_safe_group():
     planned = query(quantity=10)
     candidates, component = decide(
         planned,
@@ -347,14 +356,129 @@ def test_best_offer_is_selected_only_inside_preselected_technical_group():
     assert exact.decision.selection_recommendation.value == "preselect"
     assert variant.decision.selection_recommendation.value == "candidate_only"
     assert offer_decision(variant).purchasable is True
-    assert offer_decision(variant).recommendation == OfferRecommendation.NONE
+    assert offer_decision(variant).recommendation == OfferRecommendation.AUTOMATIC
     assert component.technical_preselection_identity_key == exact.decision.identity_key
-    assert component.automatic_offer_key is None
-    assert component.review_offer_key is None
+    assert component.application_candidate_identity_key == variant.decision.identity_key
     assert (
-        "preselected_technical_group_has_no_purchasable_offer"
-        in component.recommendation_reason_codes
+        component.application_candidate_evidence_key
+        == variant.decision.technical_evidence_key
     )
+    assert component.technical_fallback_used is True
+    assert component.automatic_offer_key == offer_decision(variant).offer_key
+    assert component.review_offer_key is None
+    assert "technical_preselection_unpurchasable" in (
+        component.recommendation_reason_codes
+    )
+    assert "next_purchasable_technical_group_selected" in (
+        component.recommendation_reason_codes
+    )
+    assert "best_purchase_fit_in_fallback_group" in (
+        component.recommendation_reason_codes
+    )
+
+
+def test_manual_review_fallback_is_provisional_and_keeps_technical_rank():
+    planned = query(quantity=3)
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                manufacturer="Other",
+                stock=0,
+                prices=[(1, 280.8, "KRW")],
+            ),
+            product(
+                Supplier.MOUSER,
+                mpn="ABC123456TR",
+                manufacturer="Other",
+                stock=10_000,
+                prices=[(1, 265.2, "KRW")],
+            ),
+        ],
+    )
+
+    technical = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.supplier == Supplier.DIGIKEY
+    )
+    applied = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.supplier == Supplier.MOUSER
+    )
+    assert technical.decision.technical_review_rank == 1
+    assert applied.decision.technical_review_rank == 2
+    assert offer_decision(technical).purchasable is False
+    assert offer_decision(technical).recommendation == OfferRecommendation.NONE
+    assert offer_decision(applied).recommendation == OfferRecommendation.MANUAL_REVIEW
+    assert component.status == "review_recommended"
+    assert component.selection_application_state == "provisional_selected"
+    assert component.confirmation_required is True
+    assert (
+        component.technical_preselection_identity_key == technical.decision.identity_key
+    )
+    assert component.application_candidate_identity_key == applied.decision.identity_key
+    assert component.review_offer_key == offer_decision(applied).offer_key
+    assert component.technical_fallback_used is True
+
+
+def test_all_unpurchasable_groups_remain_unselected():
+    candidates, component = decide(
+        query(quantity=3),
+        [
+            product(Supplier.DIGIKEY, stock=0),
+            product(Supplier.MOUSER, mpn="ABC123456TR", stock=0),
+        ],
+    )
+
+    assert all(
+        offer_decision(candidate).recommendation == OfferRecommendation.NONE
+        for candidate in candidates
+    )
+    assert component.status == "no_recommendation"
+    assert component.selection_application_state == "not_selected"
+    assert component.application_candidate_identity_key is None
+    assert component.application_candidate_evidence_key is None
+    assert component.technical_fallback_used is False
+    assert "no_purchasable_candidate_group" in (component.recommendation_reason_codes)
+
+
+def test_fallback_candidate_is_deterministic_across_candidate_input_order():
+    planned = query(quantity=3)
+    products = [
+        product(Supplier.DIGIKEY, stock=0),
+        product(Supplier.MOUSER, mpn="ABC123456TR", prices=[(1, 2, "KRW")]),
+        product(Supplier.UNIKEYIC, mpn="ABC123456CT", prices=[(1, 1, "KRW")]),
+    ]
+    signatures = []
+    for ordered in (products, list(reversed(products))):
+        candidates, component = decide(planned, ordered)
+        signatures.append(
+            (
+                component.technical_preselection_identity_key,
+                component.application_candidate_identity_key,
+                component.automatic_offer_key,
+                [
+                    (
+                        candidate.decision.identity_key,
+                        candidate.decision.technical_review_rank,
+                    )
+                    for candidate in sorted(
+                        candidates,
+                        key=lambda candidate: candidate.decision.identity_key,
+                    )
+                ],
+            )
+        )
+    assert signatures[0] == signatures[1]
+    selected_identity_key = next(
+        candidate.decision.identity_key
+        for candidate in decide(planned, products)[0]
+        if candidate.product.supplier == Supplier.UNIKEYIC
+    )
+    assert signatures[0][1] == selected_identity_key
 
 
 def test_same_evidence_group_chooses_purchase_fit_across_suppliers():

@@ -78,8 +78,7 @@ const originalDetailsExpanded = ref(false);
 function resetCandidatePresentation(): void {
   const recommended = props.context?.candidates.find((candidate) =>
     candidate.recommended
-    && candidate.reviewRecommended
-    && candidate.selectionRecommendation === 'preselect');
+    && candidate.selectionEligibility === 'manual_review');
   tab.value = recommended === undefined ? 'selectable' : 'review';
   expanded.value = new Set();
 }
@@ -113,11 +112,12 @@ watch(
 const currentCandidate = computed(() =>
   props.context?.candidates.find((candidate) => candidate.selected) ?? null,
 );
-const reviewRecommendedCandidate = computed(() =>
+const recommendedCandidate = computed(() =>
+  props.context?.candidates.find((candidate) => candidate.recommended) ?? null,
+);
+const technicalTopCandidate = computed(() =>
   props.context?.candidates.find((candidate) =>
-    candidate.recommended
-    && candidate.reviewRecommended
-    && candidate.selectionRecommendation === 'preselect') ?? null,
+    candidate.candidateKey === props.context?.technicalTopCandidateKey) ?? null,
 );
 const provisionalSelectionPending = computed(() =>
   props.context?.selectionSource === 'auto'
@@ -128,7 +128,7 @@ const reviewSelectionConfirmed = computed(() =>
   props.context?.selectionApplicationState === 'provisional_selected'
   && props.context.confirmationRequired
   && ['customer', 'admin'].includes(props.context.selectionSource)
-  && props.context.selectedCandidateKey === reviewRecommendedCandidate.value?.candidateKey,
+  && props.context.selectedCandidateKey === recommendedCandidate.value?.candidateKey,
 );
 
 function formatOriginalRows(rows: number[], compact: boolean): string {
@@ -365,6 +365,7 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'offer-choice': '공급사 오퍼 직접 선택',
     'engine-procurement-recommendation': '엔진 구매조건 추천',
     'engine-manual-review': '엔진 수동 검토 권장',
+    'engine-technical-fallback': '기술 1순위 구매 불가 · 다음 후보 적용',
     'engine-procurement-unavailable': '구매 가능한 추천 오퍼 없음',
     'no-safe-candidate': '안전 자동선정 후보 없음',
   };
@@ -376,7 +377,7 @@ function safetyClass(candidate: BomQuoteCandidateType): string {
     return 'border-amber-400 bg-amber-50/70 ring-2 ring-amber-200';
   }
   if (candidate.selected) return 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-200';
-  if (candidate.recommended && candidate.reviewRecommended) {
+  if (candidate.recommended && candidate.selectionEligibility === 'manual_review') {
     return 'border-amber-400 bg-amber-50/60 ring-2 ring-amber-200';
   }
   if (candidate.safety === 'blocked') return 'border-red-200 bg-red-50/30';
@@ -385,9 +386,18 @@ function safetyClass(candidate: BomQuoteCandidateType): string {
 }
 
 function recommendationLabel(candidate: BomQuoteCandidateType): string {
-  if (candidate.reviewRecommended) return candidate.recommended ? '검토 권장' : '기술 검토 1순위';
+  if (candidate.recommended && props.context?.technicalFallbackUsed === true) {
+    return candidate.selectionEligibility === 'manual_review' ? '구매 적용 · 검토' : '구매 적용 후보';
+  }
+  if (candidate.recommended) {
+    return candidate.selectionEligibility === 'manual_review' ? '검토 권장' : '자동 추천';
+  }
+  if (candidate.candidateKey === props.context?.technicalTopCandidateKey) {
+    return candidate.reviewRecommended ? '기술 검토 1순위' : '기술 사전 선정';
+  }
+  if (candidate.reviewRecommended) return '기술 검토 1순위';
   if (candidate.selectionRecommendation === 'preselect') {
-    return candidate.recommended ? '자동 추천' : '기술 사전 선정';
+    return '기술 사전 선정';
   }
   if (candidate.selectionRecommendation === 'candidate_only') return '후보만 표시';
   return candidate.selectionRecommendation === 'exclude' ? '선정 제외' : '';
@@ -464,6 +474,11 @@ function missingText(candidate: BomQuoteCandidateType): string {
 function fmtWon(value: number | null): string {
   if (value === null) return '가격 확인 필요';
   return `${Math.round(value).toLocaleString('ko-KR')}원`;
+}
+
+function candidateTotalLabel(candidate: BomQuoteCandidateType): string {
+  if (candidate.bestLineTotalKrw !== null) return fmtWon(candidate.bestLineTotalKrw);
+  return candidate.offers.length > 0 ? '구매 가능한 오퍼 없음' : '가격 확인 필요';
 }
 
 function fmtDelta(value: number | null): string {
@@ -810,11 +825,15 @@ onBeforeUnmount(() => {
                   </div>
                   <span class="rounded-lg bg-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-600">엔진 순서 고정</span>
                 </div>
-                <div v-if="reviewRecommendedCandidate !== null" class="mx-4 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs" :class="reviewSelectionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-300 bg-amber-50 text-amber-950'">
-                  <p v-if="provisionalSelectionPending"><b>선정됨 · 검토 대기</b> {{ reviewRecommendedCandidate.mpn }} — 엔진 임시 선정으로 예상 견적에 반영했습니다.</p>
-                  <p v-else-if="reviewSelectionConfirmed"><b>검토 완료</b> {{ reviewRecommendedCandidate.mpn }} — 사용자가 엔진 검토 권장 후보를 확인했습니다.</p>
-                  <p v-else><b>검토 권장</b> {{ reviewRecommendedCandidate.mpn }} — 엔진 적용 상태를 다시 반영하면 임시 선정됩니다.</p>
-                  <span v-if="reviewRecommendedCandidate.technicalReviewRank !== null" class="rounded-full bg-amber-200 px-2 py-0.5 font-bold">검토 {{ reviewRecommendedCandidate.technicalReviewRank }}순위</span>
+                <div v-if="recommendedCandidate !== null && recommendedCandidate.selectionEligibility === 'manual_review'" class="mx-4 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs" :class="reviewSelectionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-300 bg-amber-50 text-amber-950'">
+                  <p v-if="provisionalSelectionPending">
+                    <b>선정됨 · 검토 대기</b> {{ recommendedCandidate.mpn }} —
+                    <template v-if="context.technicalFallbackUsed">기술 1순위의 구매 가능한 오퍼가 없어 엔진이 다음 안전 후보를 임시 선정했습니다.</template>
+                    <template v-else>엔진 임시 선정으로 예상 견적에 반영했습니다.</template>
+                  </p>
+                  <p v-else-if="reviewSelectionConfirmed"><b>검토 완료</b> {{ recommendedCandidate.mpn }} — 사용자가 엔진 검토 권장 후보를 확인했습니다.</p>
+                  <p v-else><b>검토 권장</b> {{ recommendedCandidate.mpn }} — 엔진이 실제 적용 후보로 지정했습니다.</p>
+                  <span v-if="recommendedCandidate.technicalReviewRank !== null" class="rounded-full bg-amber-200 px-2 py-0.5 font-bold">검토 {{ recommendedCandidate.technicalReviewRank }}순위</span>
                 </div>
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-100 px-4 pt-3">
                   <button type="button" class="whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold" :class="tab === 'selectable' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'" @click="tab = 'selectable'">선택 가능 {{ selectableCount }}</button>
@@ -838,10 +857,10 @@ onBeforeUnmount(() => {
                               <span
                                 v-if="recommendationLabel(candidate) !== ''"
                                 class="rounded-full px-2.5 py-1 text-[11px] font-bold"
-                                :class="candidate.reviewRecommended ? 'bg-amber-200 text-amber-950' : candidate.selectionRecommendation === 'exclude' ? 'bg-red-100 text-red-800' : candidate.selectionRecommendation === 'candidate_only' ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'"
+                                :class="candidate.recommended && candidate.selectionEligibility === 'manual_review' ? 'bg-amber-200 text-amber-950' : candidate.recommended ? 'bg-emerald-100 text-emerald-800' : candidate.selectionRecommendation === 'exclude' ? 'bg-red-100 text-red-800' : candidate.selectionRecommendation === 'candidate_only' ? 'bg-slate-200 text-slate-700' : 'bg-violet-100 text-violet-800'"
                               >{{ recommendationLabel(candidate) }}</span>
                               <span v-if="candidate.technicalReviewRank !== null" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">검토 {{ candidate.technicalReviewRank }}순위</span>
-                              <span v-if="candidate.technicalRank === 1" class="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-800">기술 1위</span>
+                              <span v-if="candidate.candidateKey === context.technicalTopCandidateKey" class="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-800">기술 1위</span>
                               <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">{{ statusLabel(candidate.status) }}</span>
                               <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
                               <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
@@ -861,8 +880,9 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="w-full shrink-0 rounded-xl border border-slate-200 bg-white p-4 lg:w-60">
                           <p class="text-xs text-slate-400">필요수량 기준 최적 오퍼</p>
-                          <strong class="mt-1 block text-xl tabular-nums text-slate-950">{{ fmtWon(candidate.bestLineTotalKrw) }}</strong>
-                          <p class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
+                          <strong class="mt-1 block text-xl tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
+                          <p v-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
+                          <p v-else class="mt-1 text-xs font-semibold text-amber-700">재고·가격 구매조건 미충족</p>
                           <p v-if="candidate.savingsVsTechnicalKrw !== null && candidate.savingsVsTechnicalKrw > 0" class="mt-1 text-[11px] text-slate-500">기술 1위 대비 {{ fmtWon(candidate.savingsVsTechnicalKrw) }} 절감 {{ fmtRate(candidate.savingsVsTechnicalRate) }}</p>
                           <button
                             v-if="!readOnly"
@@ -871,7 +891,7 @@ onBeforeUnmount(() => {
                             :disabled="selecting || !candidate.manualSelectable || bestOfferAlreadySelected(candidate)"
                             @click="selectBest(candidate)"
                           >
-                            {{ provisionalSelectionPending && candidate.selected ? '검토 완료' : bestOfferAlreadySelected(candidate) ? '현재 구매조건 오퍼' : candidate.reviewRecommended ? '권장 후보 검토 후 선택' : candidate.selectionEligibility === 'manual_review' ? '검토 후 선택' : candidate.selected ? '구매조건 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '구매조건 오퍼로 선택' }}
+                            {{ provisionalSelectionPending && candidate.selected ? '검토 완료' : bestOfferAlreadySelected(candidate) ? '현재 구매조건 오퍼' : candidate.recommended && candidate.selectionEligibility === 'manual_review' ? '권장 후보 검토 후 선택' : candidate.selectionEligibility === 'manual_review' ? '검토 후 선택' : candidate.selected ? '구매조건 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '구매조건 오퍼로 선택' }}
                           </button>
                         </div>
                       </div>
@@ -884,7 +904,9 @@ onBeforeUnmount(() => {
                         자동선정 제외: {{ conflictText(candidate) }}
                       </div>
                       <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-                        <template v-if="candidate.reviewRecommended"><b>엔진 검토 권장:</b> 가장 유력한 후보와 구매조건을 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
+                        <template v-if="candidate.recommended"><b>엔진 검토 권장:</b> 구매 가능한 재고·가격을 포함해 실제 적용 후보로 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
+                        <template v-else-if="context.technicalFallbackUsed && candidate.candidateKey === technicalTopCandidate?.candidateKey"><b>기술 1순위:</b> 기술 근거상 가장 앞선 후보지만 구매 가능한 오퍼가 없어 현재 견적에는 적용하지 않았습니다.</template>
+                        <template v-else-if="candidate.reviewRecommended"><b>엔진 기술 검토 1순위:</b> 기술 근거상 가장 유력하지만 구매조건을 충족하지 못해 적용 후보와 분리했습니다.</template>
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
                       </div>
                       <div v-if="candidate.missingRequirements.length > 0" class="mt-2 rounded-lg bg-amber-100/70 px-3 py-2 text-xs text-amber-800">추가 확인 필요: {{ missingText(candidate) }}</div>

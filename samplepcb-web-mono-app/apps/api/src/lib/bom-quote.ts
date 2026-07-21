@@ -253,7 +253,7 @@ const EngineSupplierQuery = z
   })
   .passthrough();
 
-const EngineComponentProcurementDecision = z
+const EngineComponentProcurementDecisionV1 = z
   .object({
     procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
     selection_application_policy_version: z.literal('supplier-selection-application-v1'),
@@ -281,6 +281,43 @@ const EngineComponentProcurementDecision = z
     recommendation_reason_codes: z.array(z.string()).default([]),
   })
   .passthrough();
+
+const EngineComponentProcurementDecisionV2 = z
+  .object({
+    procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
+    selection_application_policy_version: z.literal('supplier-selection-application-v2'),
+    status: z.enum([
+      'automatic_recommended',
+      'review_recommended',
+      'no_recommendation',
+      'input_incomplete',
+    ]),
+    selection_application_state: z.enum([
+      'automatic_selected',
+      'provisional_selected',
+      'not_selected',
+    ]),
+    confirmation_required: z.boolean(),
+    required_quantity: z.number().int().positive().nullish(),
+    target_currency: z.string(),
+    currency_rate_snapshot_id: z.string().min(1),
+    currency_rate_as_of: z.string().datetime({ offset: true }),
+    currency_rate_source: z.string().min(1),
+    technical_preselection_identity_key: z.string().startsWith('ik1:').nullish(),
+    technical_preselection_evidence_key: z.string().startsWith('ek1:').nullish(),
+    application_candidate_identity_key: z.string().startsWith('ik1:').nullish(),
+    application_candidate_evidence_key: z.string().startsWith('ek1:').nullish(),
+    technical_fallback_used: z.boolean(),
+    automatic_offer_key: z.string().startsWith('ok1:').nullish(),
+    review_offer_key: z.string().startsWith('ok1:').nullish(),
+    recommendation_reason_codes: z.array(z.string()).default([]),
+  })
+  .passthrough();
+
+const EngineComponentProcurementDecision = z.discriminatedUnion(
+  'selection_application_policy_version',
+  [EngineComponentProcurementDecisionV1, EngineComponentProcurementDecisionV2],
+);
 
 const EngineSupplierComponent = z
   .object({
@@ -326,7 +363,7 @@ type EngineSupplierCandidateType = z.infer<typeof EngineSupplierCandidate>;
 type EngineSupplierComponentType = z.infer<typeof EngineSupplierComponent>;
 type EngineCandidateDecisionType = z.infer<typeof EngineCandidateDecision>;
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v9';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v10';
 const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION = 'supplier-candidate-decision-v1';
 const SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION = 'candidate-category-policy-v1';
 const SUPPORTED_ENGINE_IDENTITY_KEY_VERSION = 'candidate-identity-key-v1';
@@ -1048,12 +1085,14 @@ function buildCandidateGroups(
 
 interface EngineProcurementProjection {
   valid: boolean;
+  technicalTop: CandidateGroup | null;
   selected: CandidateGroup | null;
   recommended: CandidateGroup | null;
   offerKey: string | null;
   pick: OfferPick | null;
   applicationState: 'automatic_selected' | 'provisional_selected' | 'not_selected';
   confirmationRequired: boolean;
+  technicalFallbackUsed: boolean;
 }
 
 function storedEngineDecisionPick(
@@ -1128,15 +1167,18 @@ function projectEngineProcurement(
   const decision = component.procurement_decision;
   const invalid: EngineProcurementProjection = {
     valid: false,
+    technicalTop: null,
     selected: null,
     recommended: null,
     offerKey: null,
     pick: null,
     applicationState: 'not_selected',
     confirmationRequired: false,
+    technicalFallbackUsed: false,
   };
   if (
     decision?.required_quantity !== needed
+    || decision.selection_application_policy_version !== 'supplier-selection-application-v2'
     || decision.target_currency.toUpperCase() !== 'KRW'
   ) return invalid;
 
@@ -1150,6 +1192,23 @@ function projectEngineProcurement(
       && group.snapshot.technicalEvidenceKey === evidenceKey)
       ?? null;
   if (identityKey !== null && technicalGroup === null) return invalid;
+  if (
+    technicalGroup !== null
+    && technicalGroup.snapshot.selectionRecommendation !== 'preselect'
+  ) return invalid;
+
+  const applicationIdentityKey = decision.application_candidate_identity_key ?? null;
+  const applicationEvidenceKey = decision.application_candidate_evidence_key ?? null;
+  if ((applicationIdentityKey === null) !== (applicationEvidenceKey === null)) return invalid;
+  const applicationGroup = applicationIdentityKey === null || applicationEvidenceKey === null
+    ? null
+    : groups.find((group) =>
+      group.snapshot.identityKey === applicationIdentityKey
+      && group.snapshot.technicalEvidenceKey === applicationEvidenceKey)
+      ?? null;
+  if (applicationIdentityKey !== null && applicationGroup === null) return invalid;
+  const fallbackExpected = applicationGroup !== null && applicationGroup !== technicalGroup;
+  if (decision.technical_fallback_used !== fallbackExpected) return invalid;
 
   const recommendedOffers = groups.flatMap((group) =>
     group.snapshot.offers.flatMap((offer) =>
@@ -1162,18 +1221,26 @@ function projectEngineProcurement(
     return recommendedOffers.length === 0
       && decision.selection_application_state === 'not_selected'
       && !decision.confirmation_required
+      && applicationGroup === null
+      && !decision.technical_fallback_used
       ? {
           valid: true,
+          technicalTop: technicalGroup,
           selected: null,
           recommended: null,
           offerKey: null,
           pick: null,
           applicationState: 'not_selected',
           confirmationRequired: false,
+          technicalFallbackUsed: false,
         }
       : invalid;
   }
-  if (decision.status === 'input_incomplete' || technicalGroup === null) return invalid;
+  if (
+    decision.status === 'input_incomplete'
+    || technicalGroup === null
+    || applicationGroup === null
+  ) return invalid;
 
   const automatic = decision.status === 'automatic_recommended';
   const expectedApplicationState = automatic
@@ -1188,7 +1255,7 @@ function projectEngineProcurement(
     : decision.review_offer_key ?? null;
   const expectedRecommendation = automatic ? 'automatic' : 'manual_review';
   const matching = recommendedOffers.filter(({ group, offer }) =>
-    group === technicalGroup
+    group === applicationGroup
     && offer.offerKey === expectedOfferKey
     && offer.procurementDecision?.recommendation === expectedRecommendation);
   if (recommendedOffers.length !== 1 || matching.length !== 1) return invalid;
@@ -1196,11 +1263,15 @@ function projectEngineProcurement(
   if (selectedOffer === undefined) return invalid;
   const expectedEligibility = automatic ? 'automatic' : 'manual_review';
   if (
-    technicalGroup.snapshot.selectionEligibility !== expectedEligibility
-    || technicalGroup.snapshot.selectionRecommendation !== 'preselect'
+    applicationGroup.snapshot.selectionEligibility !== expectedEligibility
+    || applicationGroup.snapshot.selectionRecommendation === 'exclude'
+    || (
+      !decision.technical_fallback_used
+      && applicationGroup.snapshot.selectionRecommendation !== 'preselect'
+    )
   ) return invalid;
   const pick = engineDecisionPick(
-    technicalGroup,
+    applicationGroup,
     selectedOffer,
     needed,
     expectedRecommendation,
@@ -1208,12 +1279,14 @@ function projectEngineProcurement(
   if (pick === null) return invalid;
   return {
     valid: true,
-    selected: technicalGroup,
-    recommended: technicalGroup,
+    technicalTop: technicalGroup,
+    selected: applicationGroup,
+    recommended: applicationGroup,
     offerKey: selectedOffer.offerKey,
     pick,
     applicationState: expectedApplicationState,
     confirmationRequired: !automatic,
+    technicalFallbackUsed: decision.technical_fallback_used,
   };
 }
 
@@ -1230,6 +1303,8 @@ function evidenceFromDecision(
   groups: CandidateGroup[],
   eligible: CandidateGroup[],
   selected: CandidateGroup | null,
+  technicalTop: CandidateGroup | null,
+  technicalFallbackUsed: boolean,
   recommendedCandidateKey: string | null,
   pick: OfferPick | null,
   mode: SelectionMode,
@@ -1252,6 +1327,8 @@ function evidenceFromDecision(
     componentStatus: component.status,
     selectionApplicationState,
     confirmationRequired,
+    technicalPreselectionCandidateKey: technicalTop?.snapshot.candidateKey ?? null,
+    technicalFallbackUsed,
     identityFallback,
     candidateStatus: evidenceSnapshot?.status ?? reviewCandidate?.status ?? null,
     selectionMode: mode,
@@ -1316,13 +1393,16 @@ export function selectEngineMatch(
       : selectedMode === 'spec-compatible'
         ? 'technical'
         : 'identity';
-    const reasonCodes: BomQuoteDecisionReasonType[] = procurement.valid
+    const applicationReasonCodes: BomQuoteDecisionReasonType[] = procurement.valid
       ? procurement.applicationState === 'provisional_selected'
         ? ['engine-manual-review']
         : procurement.applicationState === 'automatic_selected'
           ? ['engine-procurement-recommendation']
           : ['engine-procurement-unavailable']
       : ['no-safe-candidate'];
+    const reasonCodes: BomQuoteDecisionReasonType[] = procurement.technicalFallbackUsed
+      ? [...applicationReasonCodes, 'engine-technical-fallback']
+      : applicationReasonCodes;
     const recommendedCandidateKey = recommended?.snapshot.candidateKey ?? null;
     return {
       evidence: evidenceFromDecision(
@@ -1333,6 +1413,8 @@ export function selectEngineMatch(
         groups,
         eligible,
         selected,
+        procurement.technicalTop,
+        procurement.technicalFallbackUsed,
         recommendedCandidateKey,
         procurement.pick,
         selectedMode,
@@ -1362,6 +1444,8 @@ export function selectEngineMatch(
       groups,
       eligible,
       null,
+      groups[0] ?? null,
+      false,
       null,
       null,
       selectedMode,
@@ -1609,6 +1693,8 @@ interface StoredRecommendation {
   candidate: StoredCandidateType;
   pick: OfferPick | null;
   offerKey: string | null;
+  technicalPreselectionCandidateKey: string;
+  technicalFallbackUsed: boolean;
   technicalTopLineTotalKrw: number | null;
   recommendationType: BomQuoteRecommendationTypeType;
   reasonCodes: BomQuoteDecisionReasonType[];
@@ -1631,7 +1717,8 @@ function recommendStoredCandidate(
   if (!hasConsistentProcurementDecision(candidates)) return null;
   const componentDecision = candidates[0]?.procurementDecision;
   if (
-    componentDecision?.required_quantity !== needed
+    componentDecision?.selection_application_policy_version !== 'supplier-selection-application-v2'
+    || componentDecision.required_quantity !== needed
     || componentDecision.target_currency.toUpperCase() !== 'KRW'
     || (componentDecision.status !== 'automatic_recommended'
       && componentDecision.status !== 'review_recommended')
@@ -1642,12 +1729,29 @@ function recommendStoredCandidate(
     applicationState !== (automatic ? 'automatic_selected' : 'provisional_selected')
     || componentDecision.confirmation_required !== !automatic
   ) return null;
-  const identityKey = componentDecision.technical_preselection_identity_key;
-  const evidenceKey = componentDecision.technical_preselection_evidence_key;
+  const technicalIdentityKey = componentDecision.technical_preselection_identity_key;
+  const technicalEvidenceKey = componentDecision.technical_preselection_evidence_key;
+  const identityKey = componentDecision.application_candidate_identity_key;
+  const evidenceKey = componentDecision.application_candidate_evidence_key;
+  if (
+    technicalIdentityKey === null
+    || technicalEvidenceKey === null
+    || identityKey === null
+    || evidenceKey === null
+  ) return null;
+  const fallbackUsed = identityKey !== technicalIdentityKey || evidenceKey !== technicalEvidenceKey;
+  if (componentDecision.technical_fallback_used !== fallbackUsed) return null;
+  const technicalTopCandidates = candidates.filter((candidate) =>
+    candidate.identityKey === technicalIdentityKey
+    && candidate.technicalEvidenceKey === technicalEvidenceKey
+    && candidate.selectionRecommendation === 'preselect');
+  if (technicalTopCandidates.length !== 1) return null;
+  const technicalTop = technicalTopCandidates[0];
+  if (technicalTop === undefined) return null;
   const selected = candidates.filter((candidate) =>
     candidate.identityKey === identityKey
     && candidate.technicalEvidenceKey === evidenceKey
-    && candidate.selectionRecommendation === 'preselect');
+    && candidate.selectionRecommendation !== 'exclude');
   if (selected.length !== 1) return null;
   const candidate = selected[0];
   if (
@@ -1665,20 +1769,25 @@ function recommendStoredCandidate(
     requirePurchasable: true,
   });
   if (pick === null) return null;
+  const technicalTopPick = storedCandidatePick(technicalTop, needed, null).pick;
   const recommendationType: BomQuoteRecommendationTypeType = automatic
     ? candidate.selectionMode === 'spec-compatible' ? 'technical' : 'identity'
     : 'none';
+  const reasonCodes: BomQuoteDecisionReasonType[] = [
+    automatic ? 'engine-procurement-recommendation' : 'engine-manual-review',
+    ...(fallbackUsed ? ['engine-technical-fallback'] as const : []),
+  ];
   return {
     applicationState,
     confirmationRequired: componentDecision.confirmation_required,
     candidate,
     pick,
     offerKey,
-    technicalTopLineTotalKrw: pickLineTotal(pick),
+    technicalPreselectionCandidateKey: technicalTop.candidateKey,
+    technicalFallbackUsed: fallbackUsed,
+    technicalTopLineTotalKrw: pickLineTotal(technicalTopPick),
     recommendationType,
-    reasonCodes: automatic
-      ? ['engine-procurement-recommendation']
-      : ['engine-manual-review'],
+    reasonCodes,
   };
 }
 
@@ -1715,6 +1824,11 @@ function selectedEvidence(
       : {
           recommendedCandidateKey: recommendation?.candidate.candidateKey ?? null,
           recommendationType: recommendation?.recommendationType ?? 'none',
+          technicalPreselectionCandidateKey:
+            recommendation?.technicalPreselectionCandidateKey
+            ?? previous.technicalPreselectionCandidateKey
+            ?? null,
+          technicalFallbackUsed: recommendation?.technicalFallbackUsed ?? false,
         }),
     selectedCandidateKey: candidate.candidateKey,
     selectedTechnicalRank: candidate.technicalRank,
@@ -1747,6 +1861,10 @@ function needsEngineProcurementReevaluation(
   if (!hasConsistentProcurementDecision(candidates)) {
     return candidates.some((candidate) => candidate.engineCandidates.length > 0);
   }
+  if (
+    candidates[0]?.procurementDecision?.selection_application_policy_version
+    !== 'supplier-selection-application-v2'
+  ) return candidates.some((candidate) => candidate.engineCandidates.length > 0);
   return candidates.some((candidate) =>
     candidate.procurementDecision?.required_quantity !== needed
     || candidate.offers.some((offer) => {
@@ -2203,6 +2321,7 @@ export async function getQuoteItemCandidates(
     recommendedCandidateKey: item.recommendedCandidateKey,
     technicalTopCandidateKey: technicalTop?.candidateKey ?? null,
     technicalTopLineTotalKrw: technicalTopTotal,
+    technicalFallbackUsed: item.matchEvidence?.technicalFallbackUsed ?? false,
     decisionReasonCodes: item.matchEvidence?.decisionReasonCodes ?? [],
     candidates,
     events: eventRows.map(selectionEventDto),

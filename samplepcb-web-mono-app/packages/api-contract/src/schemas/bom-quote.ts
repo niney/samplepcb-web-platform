@@ -45,6 +45,7 @@ export const BomQuoteDecisionReason = z.enum([
   'offer-choice',
   'engine-procurement-recommendation',
   'engine-manual-review',
+  'engine-technical-fallback',
   'engine-procurement-unavailable',
   'no-safe-candidate',
 ]);
@@ -72,6 +73,10 @@ export const BomQuoteMatchEvidence = z.object({
   selectionApplicationState: BomQuoteSelectionApplicationState.optional(),
   /** 엔진 선정 결과를 최종 확정하기 전에 사용자 확인이 필요한지 여부. */
   confirmationRequired: z.boolean().optional(),
+  /** 가격·재고와 무관한 엔진 기술 사전 선정 후보. 기존 견적은 생략될 수 있다. */
+  technicalPreselectionCandidateKey: z.string().nullable().optional(),
+  /** 기술 사전 선정 후보가 구매 불가해 다음 기술 후보를 적용했는지 여부. */
+  technicalFallbackUsed: z.boolean().optional(),
   /** 품번 검색에서 신뢰 후보가 없어 엔진이 확정 스펙 검색으로 전환했는지 여부. */
   identityFallback: z.boolean(),
   candidateStatus: z.string().nullable(),
@@ -347,6 +352,7 @@ export const BomQuoteItemCandidates = z.object({
   recommendedCandidateKey: z.string().nullable(),
   technicalTopCandidateKey: z.string().nullable(),
   technicalTopLineTotalKrw: z.number().nullable(),
+  technicalFallbackUsed: z.boolean(),
   decisionReasonCodes: z.array(BomQuoteDecisionReason),
   candidates: z.array(BomQuoteCandidate),
   events: z.array(BomQuoteSelectionEvent),

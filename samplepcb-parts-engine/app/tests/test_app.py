@@ -280,6 +280,11 @@ def test_procurement_reevaluation_api_is_deterministic_and_fails_closed(tmp_path
         == "automatic_selected"
     )
     assert result["procurement_decision"]["confirmation_required"] is False
+    assert (
+        result["procurement_decision"]["application_candidate_identity_key"]
+        == result["procurement_decision"]["technical_preselection_identity_key"]
+    )
+    assert result["procurement_decision"]["technical_fallback_used"] is False
 
     duplicate = deepcopy(payload)
     duplicate_offer = deepcopy(duplicate["candidates"][0]["product"]["offers"][0])
@@ -424,7 +429,7 @@ def test_supplier_envelope_counts_identity_and_spec_fallback_attempts(tmp_path):
     assert digikey["request_count"] == 2
     assert digikey["api_calls"] == 2
     component = envelope["search"]["components"][0]
-    assert envelope["supplier_search_schema_version"] == "1.3"
+    assert envelope["supplier_search_schema_version"] == "1.4"
     assert envelope["decision_contract_status"] == "current"
     assert envelope["procurement_decision_contract_status"] == "current"
     assert component["initial_query"]["part_number"] == "0603X03L_C"

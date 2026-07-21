@@ -295,10 +295,15 @@ function componentProcurementDecision(
   status: 'automatic_recommended' | 'review_recommended' | 'no_recommendation',
   offerKey: string | null,
   requiredQuantity = 10,
+  options: {
+    applicationIdentityKey?: string;
+    applicationEvidenceKey?: string;
+    technicalFallbackUsed?: boolean;
+  } = {},
 ) {
   return {
     procurement_policy_version: 'supplier-procurement-decision-v1',
-    selection_application_policy_version: 'supplier-selection-application-v1',
+    selection_application_policy_version: 'supplier-selection-application-v2',
     status,
     selection_application_state: status === 'automatic_recommended'
       ? 'automatic_selected'
@@ -313,6 +318,15 @@ function componentProcurementDecision(
     currency_rate_source: 'pytest',
     technical_preselection_identity_key: 'ik1:engine-choice',
     technical_preselection_evidence_key: 'ek1:engine-choice',
+    application_candidate_identity_key:
+      status === 'no_recommendation'
+        ? null
+        : options.applicationIdentityKey ?? 'ik1:engine-choice',
+    application_candidate_evidence_key:
+      status === 'no_recommendation'
+        ? null
+        : options.applicationEvidenceKey ?? 'ek1:engine-choice',
+    technical_fallback_used: options.technicalFallbackUsed ?? false,
     automatic_offer_key: status === 'automatic_recommended' ? offerKey : null,
     review_offer_key: status === 'review_recommended' ? offerKey : null,
     recommendation_reason_codes: ['fixture'],
@@ -385,9 +399,10 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.pick?.offer.supplier).toBe('digikey');
     expect(decision?.offerKey).toBe('ok1:engine-selected');
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v9');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v10');
     expect(decision?.evidence.selectionApplicationState).toBe('automatic_selected');
     expect(decision?.evidence.confirmationRequired).toBe(false);
+    expect(decision?.evidence.technicalFallbackUsed).toBe(false);
     expect(decision?.evidence.decisionReasonCodes).toEqual([
       'engine-procurement-recommendation',
     ]);
@@ -427,7 +442,63 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.recommendedCandidateKey).toBe('ik1:engine-choice');
     expect(decision?.evidence.selectionApplicationState).toBe('provisional_selected');
     expect(decision?.evidence.confirmationRequired).toBe(true);
+    expect(decision?.evidence.technicalFallbackUsed).toBe(false);
     expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-manual-review']);
+  });
+
+  it('기술 1순위가 구매 불가하면 엔진이 지정한 다음 구매 가능 후보를 적용한다', () => {
+    const technicalTop = candidate('input_conflict', 'TECHNICAL-TOP', 'mouser', 100, 1, {
+      currentDecisionContract: true,
+      eligibility: 'manual_review',
+      selectionMode: 'exact',
+      technicalReviewRank: 1,
+      selectionRecommendation: 'preselect',
+      reviewRecommended: true,
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      stock: 0,
+    });
+    attachProcurementDecision(technicalTop, 'ok1:unavailable-top', 'none');
+    const fallback = candidate('input_conflict', 'PURCHASABLE-FALLBACK', 'digikey', 80, 1, {
+      currentDecisionContract: true,
+      eligibility: 'manual_review',
+      selectionMode: 'exact',
+      technicalReviewRank: 2,
+      selectionRecommendation: 'candidate_only',
+      reviewRecommended: false,
+      identityKey: 'ik1:fallback',
+      technicalEvidenceKey: 'ek1:fallback',
+    });
+    attachProcurementDecision(fallback, 'ok1:fallback-selected', 'manual_review');
+
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-procurement-fallback',
+        status: 'input_conflict',
+        procurement_decision: componentProcurementDecision(
+          'review_recommended',
+          'ok1:fallback-selected',
+          10,
+          {
+            applicationIdentityKey: 'ik1:fallback',
+            applicationEvidenceKey: 'ek1:fallback',
+            technicalFallbackUsed: true,
+          },
+        ),
+        candidates: [technicalTop, fallback],
+      },
+      10,
+      null,
+    );
+
+    expect(decision?.candidate?.product.manufacturer_part_number).toBe('PURCHASABLE-FALLBACK');
+    expect(decision?.recommendedCandidateKey).toBe('ik1:fallback');
+    expect(decision?.evidence.technicalPreselectionCandidateKey).toBe('ik1:engine-choice');
+    expect(decision?.evidence.technicalFallbackUsed).toBe(true);
+    expect(decision?.evidence.decisionReasonCodes).toEqual([
+      'engine-manual-review',
+      'engine-technical-fallback',
+    ]);
   });
 
   it('검토 권장인데 엔진 적용 상태가 임시 선정이 아니면 fail-closed 처리한다', () => {
@@ -517,7 +588,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.candidate).toBeNull();
     expect(decision?.recommendedCandidateKey).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v9');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v10');
     expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-procurement-unavailable']);
     expect(decision?.snapshots.map((candidate) => candidate.selectionRecommendation)).toEqual([
       'preselect',
@@ -685,7 +756,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.snapshots).toHaveLength(1);
     expect(decision?.snapshots[0]?.offers).toHaveLength(2);
     expect(decision?.pick).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v9');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v10');
   });
 
   it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 오퍼는 합치지 않는다', () => {

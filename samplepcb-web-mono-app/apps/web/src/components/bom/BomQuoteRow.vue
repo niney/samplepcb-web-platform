@@ -43,6 +43,10 @@ const provisionalSelectionPending = computed(() =>
   && props.item.matchEvidence.confirmationRequired,
 );
 
+const technicalFallbackUsed = computed(() =>
+  props.item.matchEvidence?.technicalFallbackUsed === true,
+);
+
 const sortedPriceBreaks = computed(() => {
   const offer = props.item.selectedOffer;
   if (offer === null) return [];
@@ -74,6 +78,7 @@ const evidenceTitle = computed(() => {
     `안전 후보: ${String(evidence.eligibleCandidateCount)}/${String(evidence.candidateCount)}`,
   ];
   if (provisionalSelectionPending.value) details.push('엔진 임시 선정: 사용자 검토 대기');
+  if (technicalFallbackUsed.value) details.push('기술 1순위 구매 불가: 엔진이 다음 구매 가능 후보를 적용');
   if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
   if (evidence.missingRequirements.length > 0) details.push(`누락: ${evidence.missingRequirements.join(', ')}`);
   return details.join('\n');
@@ -102,6 +107,11 @@ const reasonSummary = computed(() => {
     return evidence.selectedTechnicalRank === null
       ? '후보 직접 선택'
       : `기술 ${String(evidence.selectedTechnicalRank)}순위 후보 직접 선택`;
+  }
+  if (evidence.technicalFallbackUsed === true) {
+    return evidence.selectedTechnicalRank === null
+      ? '기술 1순위 구매 불가 · 엔진 구매 가능 후보 적용'
+      : `기술 1순위 구매 불가 · 기술 ${String(evidence.selectedTechnicalRank)}순위 적용`;
   }
   if (evidence.recommendationType === 'price' && evidence.priceEvidence?.savingsKrw !== null) {
     const saving = evidence.priceEvidence?.savingsKrw ?? null;
@@ -272,6 +282,7 @@ function onQtyInput(event: Event): void {
         <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="evidenceTitle">매칭</span>
         <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="evidenceTitle">가격 확인 필요</span>
         <span v-if="item.matchStatus !== 'none'" class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{{ sourceLabel }}</span>
+        <span v-if="technicalFallbackUsed" class="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700" :title="evidenceTitle">구매 가능 차순위</span>
         <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="evidenceTitle">일부 확인 필요</span>
         <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
         <p v-if="item.matchStatus !== 'none'" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="reasonSummary">{{ reasonSummary }}</p>
