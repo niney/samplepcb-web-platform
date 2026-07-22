@@ -312,14 +312,68 @@ async function saveNow(): Promise<void> {
   }
 }
 
-// ── 통계·합계(로컬 표시 — 저장 시 서버가 재계산해 동기화) ────────────────────
+// ── 결과 시트 탭·통계·합계(로컬 표시 — 저장 시 서버가 재계산해 동기화) ───────
 function isStockShort(item: BomQuoteItemType): boolean {
   const o = item.selectedOffer;
   return o !== null && o.stock !== null && o.stock < item.orderQty;
 }
 
-// 통계·합계를 한 번의 순회로 — 행 속성 하나가 바뀔 때마다 전 행을 여러 번 훑지 않게
-const stats = computed(() => {
+type ResultSheetFilter = 'all' | 'manual' | number;
+
+interface ResultSheetTab {
+  key: ResultSheetFilter;
+  label: string;
+  count: number;
+}
+
+const activeResultSheet = ref<ResultSheetFilter>('all');
+const selectedResultSheets = computed(() => detail.value?.sheets.filter((sheet) => sheet.selected) ?? []);
+const resultSheetCounts = computed(() => {
+  const byIndex = new Map<number, number>();
+  let manual = 0;
+  for (const item of items.value) {
+    if (item.sourceSheetIndex === null) manual += 1;
+    else byIndex.set(item.sourceSheetIndex, (byIndex.get(item.sourceSheetIndex) ?? 0) + 1);
+  }
+  return { byIndex, manual };
+});
+const resultSheetTabs = computed<ResultSheetTab[]>(() => {
+  const tabs: ResultSheetTab[] = [{ key: 'all', label: '전체', count: items.value.length }];
+  for (const sheet of selectedResultSheets.value) {
+    tabs.push({
+      key: sheet.sheetIndex,
+      label: sheet.sheetName,
+      count: resultSheetCounts.value.byIndex.get(sheet.sheetIndex) ?? 0,
+    });
+  }
+  if (resultSheetCounts.value.manual > 0) {
+    tabs.push({ key: 'manual', label: '직접 추가', count: resultSheetCounts.value.manual });
+  }
+  return tabs;
+});
+const showResultSheetTabs = computed(() => resultSheetTabs.value.length > 2);
+const activeResultSheetLabel = computed(() => (
+  resultSheetTabs.value.find((tab) => tab.key === activeResultSheet.value)?.label ?? '전체'
+));
+const sheetItems = computed(() => {
+  if (activeResultSheet.value === 'all') return items.value;
+  if (activeResultSheet.value === 'manual') return items.value.filter((item) => item.sourceSheetIndex === null);
+  return items.value.filter((item) => item.sourceSheetIndex === activeResultSheet.value);
+});
+
+watch(
+  resultSheetTabs,
+  (tabs) => {
+    if (!tabs.some((tab) => tab.key === activeResultSheet.value)) activeResultSheet.value = 'all';
+  },
+  { immediate: true },
+);
+watch(quoteId, () => {
+  activeResultSheet.value = 'all';
+});
+
+// 통계·합계를 한 번의 순회로 — 행 속성 하나가 바뀔 때마다 같은 범위를 여러 번 훑지 않게
+function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
   let total = 0;
   let matched = 0;
   let review = 0;
@@ -328,7 +382,7 @@ const stats = computed(() => {
   let uncosted = 0;
   let pendingReview = 0;
   let lineSum = 0;
-  for (const i of items.value) {
+  for (const i of sourceItems) {
     total += 1;
     if (i.matchStatus !== 'none') matched += 1;
     else if (i.matchEvidence?.selectionMode === 'review') review += 1;
@@ -358,10 +412,14 @@ const stats = computed(() => {
     pendingReview,
     itemsTotal: Math.round(lineSum),
   };
-});
+}
 
-const itemsTotal = computed(() => stats.value.itemsTotal);
-const uncostedCount = computed(() => stats.value.uncosted);
+// 분석 카드는 현재 탭 기준, 금액·견적요청 가능 여부는 전체 견적 기준이다.
+const stats = computed(() => calculateStats(sheetItems.value));
+const quoteStats = computed(() => calculateStats(items.value));
+
+const itemsTotal = computed(() => quoteStats.value.itemsTotal);
+const uncostedCount = computed(() => quoteStats.value.uncosted);
 const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee ?? 0) + (detail.value?.managementFee ?? 0));
 
 // ── 조용한 자동 보강 상태 — 서버 영속 enrichStatus 가 단일 진실 ─────────────────
@@ -398,7 +456,7 @@ function itemMatchGroup(item: BomQuoteItemType): SpecificResultMatchFilter {
   return 'unmatched';
 }
 
-const filteredItems = computed(() => items.value.filter((item) => {
+const filteredItems = computed(() => sheetItems.value.filter((item) => {
   if (resultMatchFilter.value !== 'all' && itemMatchGroup(item) !== resultMatchFilter.value) return false;
   // Nostock 집계는 견적 합계에 포함된 행만 세므로 필터도 같은 규칙을 따른다.
   if (resultNostockOnly.value && (!item.included || !isStockShort(item))) return false;
@@ -414,6 +472,11 @@ function scrollResultsToTop(): void {
   void nextTick(() => {
     if (resultsScrollEl.value !== null) resultsScrollEl.value.scrollTop = 0;
   });
+}
+
+function selectResultSheet(key: ResultSheetFilter): void {
+  activeResultSheet.value = key;
+  scrollResultsToTop();
 }
 
 function clearResultFilters(): void {
@@ -950,8 +1013,11 @@ function fmtAmount(v: number | null): string {
               <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">가격·재고 확인 완료 — 최신 결과로 갱신되었습니다</span>
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-1.5 pl-6 text-[13px] text-[#5f6777]">
-              <span>{{ stats.total }}개 부품</span>
-              <span v-for="sheet in detail.sheets.filter((item) => item.selected)" :key="sheet.sheetIndex" class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{{ sheet.sheetName }}</span>
+              <span>{{ quoteStats.total }}개 부품</span>
+              <span v-if="showResultSheetTabs" class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{{ selectedResultSheets.length }}개 시트</span>
+              <template v-else>
+                <span v-for="sheet in selectedResultSheets" :key="sheet.sheetIndex" class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{{ sheet.sheetName }}</span>
+              </template>
             </div>
           </div>
           <div class="flex items-center gap-2">
@@ -998,8 +1064,28 @@ function fmtAmount(v: number | null): string {
           </div>
         </div>
 
+        <!-- 여러 시트 결과를 원본 단위로 탐색하되 견적 합계·선택 상태는 하나로 유지한다 -->
+        <div v-if="showResultSheetTabs" class="mt-3 overflow-x-auto border-b border-[#e1e6ef] [scrollbar-width:thin]" role="tablist" aria-label="BOM 결과 시트">
+          <div class="flex min-w-max items-end gap-1 px-1">
+            <button
+              v-for="tab in resultSheetTabs"
+              :key="tab.key"
+              type="button"
+              role="tab"
+              class="relative flex h-[34px] max-w-[240px] items-center gap-1.5 rounded-t-md px-3 text-[12px] font-semibold transition after:absolute after:inset-x-2 after:bottom-0 after:h-[2px] after:rounded-full"
+              :class="activeResultSheet === tab.key ? 'bg-blue-50/70 text-[#1e64fd] after:bg-[#1e64fd]' : 'text-[#687386] after:bg-transparent hover:bg-gray-50 hover:text-[#334155]'"
+              :aria-selected="activeResultSheet === tab.key"
+              aria-controls="bom-results-table"
+              @click="selectResultSheet(tab.key)"
+            >
+              <span class="truncate" :title="tab.label">{{ tab.label }}</span>
+              <span class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] tabular-nums" :class="activeResultSheet === tab.key ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'">{{ tab.count }}</span>
+            </button>
+          </div>
+        </div>
+
         <!-- 매칭 결과 헤더 -->
-        <div class="mt-4 flex min-h-[26px] flex-wrap items-center justify-between gap-2 px-1">
+        <div :class="showResultSheetTabs ? 'mt-2' : 'mt-4'" class="flex min-h-[26px] flex-wrap items-center justify-between gap-2 px-1">
           <div class="flex flex-wrap items-center gap-2">
             <p class="text-[15px] font-bold text-[#061023]">매칭 결과</p>
             <template v-if="resultFiltersActive">
@@ -1068,6 +1154,7 @@ function fmtAmount(v: number | null): string {
             <h2 class="flex h-[22px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-[#151b28]">
               <img :src="icPanelAi" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               AI 분석결과
+              <span v-if="showResultSheetTabs" class="ml-auto max-w-[120px] truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-600" :title="activeResultSheetLabel">{{ activeResultSheetLabel }}</span>
             </h2>
             <div class="mt-[10px] space-y-[11px]">
               <button
@@ -1200,6 +1287,7 @@ function fmtAmount(v: number | null): string {
             <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-[#151b28]">
               <img :src="icPanelQuote" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               예상 견적
+              <span v-if="showResultSheetTabs" class="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">전체 견적</span>
             </h2>
             <div v-if="pricingPending" class="mt-[10px] rounded-[8px] border border-[#d9e6fb] bg-[#f4f8ff] px-3 py-4 text-center" aria-live="polite">
               <span class="mx-auto block size-[7px] animate-pulse rounded-full bg-[#4d8df7]" />
@@ -1219,8 +1307,8 @@ function fmtAmount(v: number | null): string {
               <p v-if="uncostedCount > 0" class="mt-[9px] rounded-[5px] bg-amber-50 px-2 py-1.5 text-[10px] leading-[15px] text-amber-700">
                 금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다
               </p>
-              <p v-if="stats.pendingReview > 0" class="mt-[9px] rounded-[5px] border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-semibold leading-[15px] text-amber-800">
-                선정됨 · 검토 대기 {{ stats.pendingReview }}건 — 임시 선정 금액이 합계에 포함되어 있습니다
+              <p v-if="quoteStats.pendingReview > 0" class="mt-[9px] rounded-[5px] border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-semibold leading-[15px] text-amber-800">
+                선정됨 · 검토 대기 {{ quoteStats.pendingReview }}건 — 임시 선정 금액이 합계에 포함되어 있습니다
               </p>
               <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[15px] text-[#8993a2]">
                 <li>AI로 산출한 가견적입니다.</li>
@@ -1235,7 +1323,7 @@ function fmtAmount(v: number | null): string {
               v-if="isDraft"
               type="button"
               class="flex h-[40px] w-full items-center justify-center gap-[8px] rounded-[7px] bg-[#287cff] text-[14px] font-bold text-white shadow-[0_6px_14px_rgba(40,124,255,0.24)] transition hover:bg-[#176ff5] disabled:cursor-not-allowed disabled:opacity-45"
-              :disabled="request.isPending.value || stats.included === 0 || editingLocked"
+              :disabled="request.isPending.value || quoteStats.included === 0 || editingLocked"
               :title="editingLocked ? '가격·재고 확인이 끝나면 요청할 수 있습니다' : undefined"
               @click="openRequestModal"
             >
