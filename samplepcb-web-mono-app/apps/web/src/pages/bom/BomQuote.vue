@@ -1663,7 +1663,7 @@ function fmtAmount(v: number | null): string {
               {{ pendingSelection.view === 'candidates' ? '후보 비교 준비' : '부품 변경 준비' }}
             </h3>
             <p v-if="!preparePartData.isPending.value && partDataFailureReason === 'result-gone'" class="mt-2 text-[13px] leading-5 text-slate-600">
-              이 분석의 부품 정보가 만료되었습니다. BOM을 다시 업로드해 주세요.
+              이전 부품 정보가 만료되었습니다. 저장된 BOM 분석으로 다시 준비할 수 있습니다.
             </p>
             <p v-else-if="!preparePartData.isPending.value && partDataFailed" class="mt-2 text-[13px] leading-5 text-slate-600">
               부품 정보를 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.
@@ -1680,9 +1680,9 @@ function fmtAmount(v: number | null): string {
         </div>
         <div v-else class="mt-5 flex justify-end gap-2">
           <button type="button" class="rounded-lg border border-slate-300 px-3 py-2 text-[13px] font-semibold text-slate-600 hover:bg-slate-50" @click="closePartDataPreparation">
-            {{ partDataFailureReason === 'result-gone' ? '확인' : '취소' }}
+            취소
           </button>
-          <button v-if="partDataFailureReason !== 'result-gone'" type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-[13px] font-bold text-white hover:bg-blue-700 disabled:opacity-50" :disabled="preparePartData.isPending.value" @click="retryPartDataPreparation">다시 준비</button>
+          <button type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-[13px] font-bold text-white hover:bg-blue-700 disabled:opacity-50" :disabled="preparePartData.isPending.value" @click="retryPartDataPreparation">다시 준비</button>
         </div>
       </div>
     </div>

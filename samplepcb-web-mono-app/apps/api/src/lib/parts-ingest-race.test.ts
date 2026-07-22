@@ -42,6 +42,7 @@ import {
   drainIndexQueue,
   ingestSupplierSearchResult,
   ingestSupplierSearchResultOnce,
+  isTransientPartIngestError,
   queuePartIndex,
 } from './parts-ingest';
 
@@ -55,6 +56,23 @@ describe('공급사 가격 구간 정규화', () => {
       { quantity: 1, unit_price: 0.01, currency: 'USD' },
       { quantity: 10_000, unit_price: 0.0018, currency: 'USD' },
     ]);
+  });
+});
+
+describe('부품 저장 일시 장애 분류', () => {
+  it('연결 종료와 데드락은 같은 부품을 안전하게 재시도한다', () => {
+    expect(isTransientPartIngestError(new Prisma.PrismaClientKnownRequestError('connection closed', {
+      code: 'P1017',
+      clientVersion: '6.19.3',
+    }))).toBe(true);
+    expect(isTransientPartIngestError(deadlock())).toBe(true);
+  });
+
+  it('데이터 불일치는 자동 재시도하지 않는다', () => {
+    expect(isTransientPartIngestError(new Prisma.PrismaClientKnownRequestError('invalid data', {
+      code: 'P2023',
+      clientVersion: '6.19.3',
+    }))).toBe(false);
   });
 });
 

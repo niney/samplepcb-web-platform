@@ -108,15 +108,23 @@ export interface CatalogIngestResult {
 export const PART_INGEST_POLICY_VERSION = 'part-ingest-v3';
 const PART_FACTS_FINGERPRINT_VERSION = `part-facts-v2:${String(SAMPLEPCB_POLICY_VERSION)}`;
 const PART_INDEX_FINGERPRINT_VERSION = 'sp-parts-doc-v1';
-const INGEST_LEASE_MS = 30 * 60 * 1_000;
+// 실측 대형 결과(2,424 후보)가 약 11초이므로 5분이면 충분하다. DB 연결이 끊겨
+// failed 기록도 못 남긴 running 작업을 30분씩 붙잡지 않고 자동 복구한다.
+const INGEST_LEASE_MS = 5 * 60 * 1_000;
 const INGEST_WAIT_MS = 500;
-const INGEST_WAIT_MAX_MS = 35 * 60 * 1_000;
+const INGEST_WAIT_MAX_MS = 7 * 60 * 1_000;
 const INDEX_BATCH_SIZE = 200;
 // 드레인은 1분 주기라, 연속 실패가 약 20분(=20회) 이어진 색인 큐 행은 dead-letter로 제외한다.
 const INDEX_QUEUE_MAX_ATTEMPTS = 20;
-const DB_WRITE_CONCURRENCY = 4;
+const configuredDbWriteConcurrency = Number(process.env.PART_INGEST_DB_CONCURRENCY ?? '');
+const DB_WRITE_CONCURRENCY = Number.isInteger(configuredDbWriteConcurrency)
+  && configuredDbWriteConcurrency >= 1
+  && configuredDbWriteConcurrency <= 8
+  ? configuredDbWriteConcurrency
+  : process.env.NODE_ENV === 'production' ? 2 : 4;
 const DEADLOCK_MAX_ATTEMPTS = 8;
 const DEADLOCK_BASE_DELAY_MS = 50;
+const TRANSIENT_PRISMA_CODES = new Set(['P1001', 'P1002', 'P1017', 'P2028', 'P2034']);
 
 const completedIngests = new Map<string, Promise<CatalogIngestResult>>();
 
@@ -155,6 +163,24 @@ function isPrismaErrorCode(error: unknown, code: string): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code;
 }
 
+export function isTransientPartIngestError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return TRANSIENT_PRISMA_CODES.has(error.code);
+  }
+  if (
+    error instanceof Prisma.PrismaClientUnknownRequestError
+    || error instanceof Prisma.PrismaClientInitializationError
+  ) {
+    if (
+      error instanceof Prisma.PrismaClientInitializationError
+      && error.errorCode !== undefined
+      && TRANSIENT_PRISMA_CODES.has(error.errorCode)
+    ) return true;
+    return /closed the connection|connection|timeout|timed out|econnreset/i.test(error.message);
+  }
+  return false;
+}
+
 /** MySQL Prisma upsert의 read→create 경합(P2002)은 승자가 만든 행을 재조회해 수렴한다. */
 async function upsertWithRaceRecovery<T>(
   upsert: () => Promise<T>,
@@ -169,7 +195,7 @@ async function upsertWithRaceRecovery<T>(
       if (isPrismaErrorCode(error, 'P2002')) {
         const winner = await findAfterUniqueConflict();
         if (winner !== null) return winner;
-      } else if (!isPrismaErrorCode(error, 'P2034')) {
+      } else if (!isTransientPartIngestError(error)) {
         throw error;
       }
       if (attempt < 3) await wait(25 * (2 ** attempt) + Math.floor(Math.random() * 25));
@@ -451,7 +477,7 @@ async function upsertGroup(group: ProductGroup): Promise<GroupUpsertResult> {
     try {
       return await transact();
     } catch (error) {
-      const retryable = isPrismaErrorCode(error, 'P2034');
+      const retryable = isTransientPartIngestError(error);
       if (!retryable || attempt === DEADLOCK_MAX_ATTEMPTS - 1) throw error;
       const backoffMs = DEADLOCK_BASE_DELAY_MS * (2 ** attempt);
       await wait(backoffMs + Math.floor(Math.random() * DEADLOCK_BASE_DELAY_MS));

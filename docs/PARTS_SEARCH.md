@@ -39,9 +39,9 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 | 정규화 코어 | `packages/utils/src/spec-units.ts` | kind-aware 파서(`parseSpecToken`/`parseQuery`)·변형 생성(`variantsFor`)·패키지(`normalizePackageCode`)·`SPEC_SI_FIELD`·`siRange` |
 | 골든 벡터 | `packages/utils/src/spec-units.cases.json` | **요구사항 명세** — 함정 케이스 전건(104K 톨러런스 문자, 5mΩ/4.7MΩ, µ/μ/u, 콤마, R47, 1/8W…) |
 | 계약 | `packages/api-contract/src/schemas/parts.ts` | PartSearchQuery/Response·PartDetail (Zod, `routes.adminParts`) |
-| DB | `apps/api/prisma` `SpPart`·`SpPartOffer`·`SpPartPriceBreak`·`SpPartIndexQueue`·`SpPartIngestRun` | upsert 키 part=(mpnNorm,manufacturerNorm)·offer=(partId,supplier,sku), 공급사 결과 fingerprint 원장. 마이그레이션 `20260718110000_add_sp_parts_catalog` + `20260721120000_add_part_ingest_dedup` (추가형, `migrate deploy` 전용) |
+| DB | `apps/api/prisma` `SpPart`·`SpPartOffer`·`SpPartPriceBreak`·`SpPartIndexQueue`·`SpPartIngestRun`·`SpBomSupplierResultArtifact` | upsert 키 part=(mpnNorm,manufacturerNorm)·offer=(partId,supplier,sku), 공급사 결과 fingerprint와 gzip 원본 복구 원장. 마이그레이션 `20260718110000_add_sp_parts_catalog` + `20260721120000_add_part_ingest_dedup` + `20260723090000_add_bom_supplier_result_artifact` (추가형, `migrate deploy` 전용) |
 | ES | `apps/api/src/es/client.ts`·`sp-parts-index.ts` | 클라이언트(`ES_NODE_URL`, 기본 127.0.0.1:9200)·매핑(`satisfies estypes`)·필드 상수 `F`·부트스트랩(기동 시 인덱스+alias 생성) |
-| 인제스트 | `apps/api/src/lib/parts-ingest.ts`·`parts-es.ts`·`manufacturer-alias.ts` | envelope→fingerprint singleflight→그룹핑(별칭 해소)→증분 upsert(tx)→ES bulk. 실패는 `SpPartIndexQueue` 적재, 기동 시 드레인 |
+| 인제스트 | `apps/api/src/lib/parts-ingest.ts`·`parts-es.ts`·`bom-part-data.ts`·`manufacturer-alias.ts` | envelope→gzip 영속 원본→fingerprint singleflight→그룹핑(별칭 해소)→증분 upsert(tx)→ES bulk. 실패는 영속 작업과 `SpPartIndexQueue`로 자동 재시도 |
 | 자동 훅 | `apps/api/src/lib/bom-engine-jobs.ts`·`routes/admin-bom.ts`·`routes/bom-quotes.ts` | 폴러가 결과를 한 번 읽고 견적 스냅샷을 먼저 반영한다. 카탈로그는 백그라운드 동기화하며 결과 GET이 백업 훅이다. |
 | 검색 API | `apps/api/src/routes/admin-parts.ts` | `GET /api/admin/parts/search`(다중해석 쿼리 빌더+패싯+정렬, ES 다운 시 503 SEARCH_UNAVAILABLE)·`GET /:id`(DB 상세) |
 | UI | `apps/web/src/pages/admin/AdminParts.vue`·`admin/useAdminParts.ts` | `/app/admin/parts` — 검색창+패싯+테이블+오퍼 확장 |
@@ -68,14 +68,16 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 ## 운영 절차
 
 - **ES 다운**: 앱은 뜬다 — 검색만 503, 인제스트는 DB 저장 + 큐 적재, 기동 시와 이후 1분마다
-  `drainIndexQueue`를 중복 실행 없이 호출해 장기 실행 서버에서도 자동 수렴한다.
+  `drainIndexQueue`를 중복 실행 없이 호출한다. 공급사 결과 영속 작업도 30초마다 재청구하므로 ES가
+  복구되면 색인·견적 partId 연결·후보 화면 `ready`까지 사용자 조작 없이 자동 수렴한다.
 - **중복·동시 실행(2026-07-21)**: 파일 해시가 아니라 실제 공급사 product/offer와
   ingest/facts/index 정책 버전으로 `sp_part_ingest_run.fingerprint`를 만든다. 같은 결과는 서버
   재시작·다중 인스턴스에서도 한 실행을 기다린 뒤 재사용한다. 서로 다른 결과가 같은 part에
   동시에 들어오면 part 행 잠금으로 직렬화하고, stale 오퍼는 버리며 완전 동일 오퍼는 쓰지 않는다.
   MySQL Prisma upsert의 최초 create 경합(`P2002`)은 unique key로 승자 행을 재조회해 이어가고,
-  deadlock(`P2034`)은 `READ COMMITTED` 트랜잭션에서 최대 8회 지수 재시도한다. 운영 DB의 잠금
-  경합을 줄이기 위해 DB 쓰기는 4-worker로 제한한다. 공급사 수집 시각만 새로우면 가격구간
+  deadlock(`P2034`)과 연결 종료·접속/트랜잭션 시간초과(`P1001`·`P1002`·`P1017`·`P2028`)는
+  `READ COMMITTED` 트랜잭션에서 최대 8회 지수 재시도한다. 운영 DB의 잠금 경합을 줄이기 위해
+  DB 쓰기는 `PART_INGEST_DB_CONCURRENCY`(1~8)로 제한하며 미설정 기본은 운영 2·그 외 4다. 공급사 수집 시각만 새로우면 가격구간
   replace-all을 생략한다.
 - **증분 파생물**: 정본 fingerprint가 바뀐 부품만 facts/samplepcb 오퍼를 재계산하고, ES 문서
   fingerprint가 바뀐 부품만 200건 단위 bulk 색인한다. 색인 도중 DB가 다시 바뀌면 성공 시각을
@@ -85,10 +87,14 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   연속 실패가 상한(20회≈20분)에 닿은 poison 행은 dead-letter로 제외한다. dead-letter는 그 부품에
   새 변경이 인제스트되면(`queuePartIndex`) `attempts`가 0으로 복귀해 자동 부활하고, 그 외엔 드레인
   경고 로그로만 남으므로 상한 상습 도달은 운영 점검 신호다.
-- **인제스트 크래시 회복 한계**: 카탈로그 인제스트 도중 프로세스가 죽어도 견적 스냅샷은 이미
-  반영(done)돼 있다. 카탈로그만 재개하는 경로는 관리자 결과 GET 백업 훅과 동일 결과 재검색(엔진
-  인메모리 잡이 살아있을 때)뿐이다. lease가 만료된 채 남은 `running` 원장(`sp_part_ingest_run`) 행은
-  다음 동일 fingerprint 호출이 재청구(claim)하며, 그때까지 공급사 검색 운영 화면은 이를 failed로 표시한다.
+- **백그라운드 무인 복구(2026-07-23)**: 폴러가 공급사 결과를 처음 읽을 때 원문을 gzip `LONGBLOB`
+  (`sp_bom_supplier_result_artifact`)으로 먼저 보존한다. 서버 기동 시와 이후 30초마다 queued·failed 및
+  lease가 만료된 running 작업을 최대 10건씩 직렬 재청구한다. 실패는 5초→최대 1분 지수 간격으로
+  최대 20회 재시도하고, 그 전에는 고객 상태를 `preparing`으로 유지한다. 한도 소진·원본 손상만
+  `dead/failed`로 끝나며 고객의 [다시 준비]가 시도 횟수를 초기화한다. 따라서 sp-node·sp-engine이
+  재시작돼도 이미 한 번 수신한 공급사 결과는 재검색·재업로드 없이 DB·ES·견적 연결을 이어간다.
+  영속 원장 도입 전에 생성돼 원문이 없는 기존 견적은 [다시 준비] 시 저장된 분석 스냅샷으로 공급사
+  검색부터 강제 재개하므로 BOM 파일을 다시 올릴 필요가 없다.
 - **매핑 변경**: 로컬 `parts:reindex --recreate`. 운영(추후)은 `sp-parts-v2` 생성→재색인→
   alias(`sp-parts`/`sp-parts-write`) 스왑으로 무중단.
 - **공급사 추가 체크리스트**: ① sp-engine 에 `SupplierClient` 구현 1개 ② (필요시) 계약의

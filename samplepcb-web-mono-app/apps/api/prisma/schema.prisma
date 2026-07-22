@@ -595,6 +595,7 @@ model SpBomSupplierSearchRun {
   activeForQuote     SpBomQuote?      @relation("BomQuoteActiveSupplierSearch")
   analysisRun        SpBomAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
   catalogIngestRun   SpPartIngestRun? @relation(fields: [catalogIngestRunId], references: [id], onDelete: SetNull)
+  resultArtifact     SpBomSupplierResultArtifact?
   searchTraces       SpBomSupplierSearchTrace[]
 
   @@index([quoteId, createdAt])
@@ -602,6 +603,29 @@ model SpBomSupplierSearchRun {
   @@index([catalogIngestRunId])
   @@index([status, createdAt])
   @@map("sp_bom_supplier_search_run")
+}
+
+// 공급사 검색 완료 원본을 압축 보존하는 영속 작업 원장. sp-engine 인메모리 잡이 사라져도
+// DB·ES 저장과 견적 partId 연결을 동일 payload로 재개한다.
+model SpBomSupplierResultArtifact {
+  id                  BigInt                 @id @default(autoincrement())
+  supplierSearchRunId BigInt                 @unique @map("supplier_search_run_id")
+  payload             Bytes                  @db.LongBlob
+  payloadChecksum     String                 @map("payload_checksum") @db.Char(64)
+  payloadBytes        Int                    @map("payload_bytes")
+  status              String                 @default("queued") @db.VarChar(16) // queued|running|completed|failed|dead
+  attempts            Int                    @default(0)
+  nextAttemptAt       DateTime?              @map("next_attempt_at")
+  leaseUntil          DateTime?              @map("lease_until")
+  lastErrorCode       String?                @map("last_error_code") @db.VarChar(64)
+  lastError           String?                @map("last_error") @db.VarChar(500)
+  completedAt         DateTime?              @map("completed_at")
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+  supplierSearchRun   SpBomSupplierSearchRun @relation(fields: [supplierSearchRunId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@map("sp_bom_supplier_result_artifact")
 }
 
 // 엔진이 실행 순간 확정한 실제 검색어·공급사 내부 fallback provenance.

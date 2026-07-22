@@ -97,9 +97,10 @@ describe('BOM 공급사 결과 인제스트 동시성', () => {
     const catalog = deferred<Awaited<ReturnType<typeof ingestSupplierSearchResultOnce>>>();
     ingestSupplierSearchResultOnceMock.mockReturnValueOnce(catalog.promise);
     const onResult = vi.fn(() => Promise.resolve());
+    const onCatalogStarted = vi.fn(() => Promise.resolve());
     const onCatalogIngested = vi.fn(() => Promise.resolve());
 
-    startIngestPoller('poller-retry-job', log, { onResult, onCatalogIngested });
+    startIngestPoller('poller-retry-job', log, { onResult, onCatalogStarted, onCatalogIngested });
     await vi.advanceTimersByTimeAsync(5_000);
     expect(resultCalls).toBe(1);
     expect(onResult).not.toHaveBeenCalled();
@@ -107,7 +108,10 @@ describe('BOM 공급사 결과 인제스트 동시성', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     expect(resultCalls).toBe(2);
     expect(onResult).toHaveBeenCalledTimes(1);
+    expect(onCatalogStarted).toHaveBeenCalledTimes(1);
     expect(ingestSupplierSearchResultOnceMock).toHaveBeenCalledTimes(1);
+    expect(onCatalogStarted.mock.invocationCallOrder[0])
+      .toBeLessThan(ingestSupplierSearchResultOnceMock.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER);
     expect(onCatalogIngested).not.toHaveBeenCalled();
 
     catalog.resolve({

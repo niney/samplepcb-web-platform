@@ -39,6 +39,7 @@ const catalogIngestInFlight = new Map<string, Promise<CatalogIngestResult | null
 
 export interface IngestPollerHooks {
   onResult?: (envelope: unknown) => Promise<void>;
+  onCatalogStarted?: () => Promise<void>;
   onCatalogIngested?: (result: CatalogIngestResult) => Promise<void>;
   onCatalogIngestFailed?: (error?: unknown) => Promise<void>;
 }
@@ -148,6 +149,7 @@ export function startIngestPoller(jobId: string, log: FastifyBaseLogger, hooks: 
             }
             void (async () => {
               try {
+                if (hooks.onCatalogStarted !== undefined) await hooks.onCatalogStarted();
                 const result = await ingestSupplierEnvelopeForJob(jobId, envelope, log);
                 if (result !== null) {
                   if (hooks.onCatalogIngested !== undefined) await hooks.onCatalogIngested(result);

@@ -29,6 +29,7 @@ import { bomRoutes } from './routes/bom';
 import { bomQuoteRoutes } from './routes/bom-quotes';
 import { bootstrapPartsIndex } from './es/sp-parts-index';
 import { drainIndexQueue } from './lib/parts-ingest';
+import { recoverSupplierResultArtifacts } from './lib/bom-part-data';
 import { adminMarketExpertRoutes } from './routes/admin-market-experts';
 import { adminMarketProjectRoutes } from './routes/admin-market-projects';
 import { adminMarketContractRoutes } from './routes/admin-market-contracts';
@@ -122,6 +123,31 @@ async function drainPartsIndexQueue(): Promise<void> {
 void drainPartsIndexQueue();
 const partsIndexDrainTimer = setInterval(() => void drainPartsIndexQueue(), 60_000);
 partsIndexDrainTimer.unref();
+
+// 공급사 결과는 DB에 압축 보존되므로 요청·프로세스 수명과 무관하게 후처리를 재개한다.
+// 한 번에 10건을 직렬 처리해 운영 DB와 ES에 복구 트래픽이 몰리지 않게 한다.
+let partDataRecoveryRunning = false;
+async function recoverPartData(): Promise<void> {
+  if (partDataRecoveryRunning) return;
+  partDataRecoveryRunning = true;
+  try {
+    const result = await recoverSupplierResultArtifacts(app.log);
+    if (result.completed > 0 || result.scheduled > 0) {
+      app.log.info({ ...result }, '부품 정보 백그라운드 복구 실행');
+    }
+    if (result.dead > 0) {
+      app.log.warn({ ...result }, '부품 정보 백그라운드 복구 한도 초과');
+    }
+  } catch (error) {
+    app.log.warn({ err: String(error) }, '부품 정보 백그라운드 복구 워커 실패');
+  } finally {
+    partDataRecoveryRunning = false;
+  }
+}
+
+void recoverPartData();
+const partDataRecoveryTimer = setInterval(() => void recoverPartData(), 30_000);
+partDataRecoveryTimer.unref();
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로
