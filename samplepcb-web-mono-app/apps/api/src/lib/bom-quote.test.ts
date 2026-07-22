@@ -4,12 +4,25 @@ import {
   analysisComponentLookupWhere,
   applyEngineSupplierResult,
   buildItemsFromEngineResult,
+  catalogIngestRunReady,
   extractEngineSheets,
   filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
   retainQuoteCandidateSnapshots,
   selectEngineMatch,
 } from './bom-quote';
+
+describe('후보 화면 부품 정보 준비 상태', () => {
+  it('DB 처리가 끝나도 검색 색인 대기 항목이 있으면 완료로 보지 않는다', () => {
+    expect(catalogIngestRunReady({ status: 'completed', stats: { queued: 1 } })).toBe(false);
+    expect(catalogIngestRunReady({ status: 'completed', stats: { queued: 0 } })).toBe(true);
+  });
+
+  it('실패하거나 진행 중인 실행은 완료로 보지 않는다', () => {
+    expect(catalogIngestRunReady({ status: 'failed', stats: { queued: 0 } })).toBe(false);
+    expect(catalogIngestRunReady({ status: 'running', stats: null })).toBe(false);
+  });
+});
 
 const ENGINE_RESULT = {
   schema_version: '1.0',

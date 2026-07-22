@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -24,6 +24,7 @@ import {
   useCancelBomQuote,
   useDeleteBomQuote,
   usePatchBomQuote,
+  usePrepareBomPartData,
   usePrepareBomQuoteSheets,
   useRequestBomQuote,
   useSelectBomQuoteCandidate,
@@ -520,6 +521,7 @@ const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee 
 // 재시작·잡 유실은 서버의 게으른 치유(조회 시 수렴)가 처리한다.
 const compareOpen = ref(false);
 const enriching = computed(() => detail.value?.enrichStatus === 'searching');
+const partDataPreparing = computed(() => detail.value?.partDataStatus === 'preparing');
 // 중간 공급사 결과로 계산된 금액은 최종 합계처럼 오인될 수 있으므로 완료 전에는 숨긴다.
 const pricingPending = computed(() => detail.value?.buildStatus !== 'ready' || enriching.value);
 // 검색 결과 적용과 사용자의 같은 행 수정이 경합하지 않도록, 결과 반영이 끝날 때까지
@@ -636,8 +638,10 @@ const refreshedNotice = ref(false);
 // 공급사 보강뿐 아니라 동기 build 요청 도중 새로고침·다른 탭으로 진입한 경우도
 // 서버 ready 전이를 스스로 따라가도록 견적 상태를 폴링한다.
 watch(
-  [enriching, isBuilding],
-  ([isEnriching, isQuoteBuilding]) => (quotePolling.value = isEnriching || isQuoteBuilding),
+  [enriching, isBuilding, partDataPreparing],
+  ([isEnriching, isQuoteBuilding, isPartDataPreparing]) => (
+    quotePolling.value = isEnriching || isQuoteBuilding || isPartDataPreparing
+  ),
   { immediate: true },
 );
 
@@ -655,9 +659,23 @@ watch(
 // ── 후보 비교·선택 드로어 + 카탈로그 폴백 ────────────────────────────────────
 type SelectionSurface = 'candidates' | 'offers';
 type CandidateDrawerView = 'candidates' | 'search';
+interface PendingSelection {
+  itemId: string;
+  view: CandidateDrawerView;
+}
 const candidateItemId = ref<string | null>(null);
 const selectionSurface = ref<SelectionSurface | null>(null);
 const candidateDrawerView = ref<CandidateDrawerView>('candidates');
+const pendingSelection = ref<PendingSelection | null>(null);
+const preparePartData = usePrepareBomPartData();
+type PartDataFailureReason = BomQuoteDetailType['partDataFailureReason'];
+const preparePartDataError = ref<PartDataFailureReason>(null);
+const partDataFailureReason = computed<PartDataFailureReason>(() =>
+  preparePartDataError.value ?? detail.value?.partDataFailureReason ?? null,
+);
+const partDataFailed = computed(() =>
+  detail.value?.partDataStatus === 'failed' || preparePartDataError.value !== null,
+);
 const candidateOpen = computed(() => candidateItemId.value !== null && selectionSurface.value === 'candidates');
 const quoteOfferOpen = computed(() => candidateItemId.value !== null && selectionSurface.value === 'offers');
 const selectionOpen = computed(() => candidateItemId.value !== null && selectionSurface.value !== null);
@@ -697,21 +715,75 @@ function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: stri
   partModal.value = { mode, lineIdx, query };
 }
 
-function openCandidateDrawer(item: BomQuoteItemType): void {
-  if (editingLocked.value) return;
+function activateCandidateDrawer(itemId: string, view: CandidateDrawerView): void {
   candidateSelectionError.value = '';
-  candidateItemId.value = item.id;
-  candidateDrawerView.value = 'candidates';
+  candidateItemId.value = itemId;
+  candidateDrawerView.value = view;
   selectionSurface.value = 'candidates';
 }
 
-function openCatalogSearchDrawer(item: BomQuoteItemType): void {
-  if (editingLocked.value) return;
-  candidateSelectionError.value = '';
-  candidateItemId.value = item.id;
-  candidateDrawerView.value = 'search';
-  selectionSurface.value = 'candidates';
+function requestCandidateDrawer(item: BomQuoteItemType, view: CandidateDrawerView): void {
+  if (updateSheets.isPending.value) return;
+  preparePartDataError.value = null;
+  if (detail.value?.partDataStatus === 'ready') {
+    activateCandidateDrawer(item.id, view);
+    return;
+  }
+  pendingSelection.value = { itemId: item.id, view };
 }
+
+function openCandidateDrawer(item: BomQuoteItemType): void {
+  requestCandidateDrawer(item, 'candidates');
+}
+
+function openCatalogSearchDrawer(item: BomQuoteItemType): void {
+  requestCandidateDrawer(item, 'search');
+}
+
+function closePartDataPreparation(): void {
+  pendingSelection.value = null;
+  preparePartDataError.value = null;
+}
+
+function onPartDataPreparationKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || pendingSelection.value === null) return;
+  event.preventDefault();
+  closePartDataPreparation();
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onPartDataPreparationKeydown);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onPartDataPreparationKeydown);
+});
+
+async function retryPartDataPreparation(): Promise<void> {
+  if (quoteId.value === '' || preparePartData.isPending.value) return;
+  preparePartDataError.value = null;
+  try {
+    await preparePartData.mutateAsync(quoteId.value);
+  } catch (error) {
+    preparePartDataError.value = error instanceof ApiRequestError
+      && error.payload?.error === 'PART_DATA_RESULT_GONE'
+      ? 'result-gone'
+      : 'preparation-failed';
+    await quote.refetch();
+  }
+}
+
+watch(
+  [() => detail.value?.partDataStatus, pendingSelection],
+  ([status, pending]) => {
+    if (status !== 'ready' || pending === null) return;
+    if (!items.value.some((item) => item.id === pending.itemId)) {
+      closePartDataPreparation();
+      return;
+    }
+    pendingSelection.value = null;
+    activateCandidateDrawer(pending.itemId, pending.view);
+  },
+);
 
 function closeSelectionSurface(): void {
   candidateItemId.value = null;
@@ -1579,6 +1651,38 @@ function fmtAmount(v: number | null): string {
           <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" :disabled="request.isPending.value" @click="submitRequest">
             {{ request.isPending.value ? '요청 중…' : '견적요청 보내기' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="pendingSelection !== null" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true" aria-labelledby="part-data-title" @click.self="closePartDataPreparation">
+      <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 id="part-data-title" class="text-[16px] font-bold text-slate-900">
+              {{ pendingSelection.view === 'candidates' ? '후보 비교 준비' : '부품 변경 준비' }}
+            </h3>
+            <p v-if="!preparePartData.isPending.value && partDataFailureReason === 'result-gone'" class="mt-2 text-[13px] leading-5 text-slate-600">
+              이 분석의 부품 정보가 만료되었습니다. BOM을 다시 업로드해 주세요.
+            </p>
+            <p v-else-if="!preparePartData.isPending.value && partDataFailed" class="mt-2 text-[13px] leading-5 text-slate-600">
+              부품 정보를 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.
+            </p>
+            <p v-else class="mt-2 text-[13px] leading-5 text-slate-600">
+              추천 후보와 검색에 필요한 부품 정보를 준비하고 있습니다. 완료되면 자동으로 열립니다.
+            </p>
+          </div>
+          <button type="button" class="shrink-0 rounded-md px-2 py-1 text-[12px] font-semibold text-slate-500 hover:bg-slate-100" aria-label="준비 화면 닫기" @click="closePartDataPreparation">닫기</button>
+        </div>
+        <div v-if="preparePartData.isPending.value || !partDataFailed" class="mt-5 flex items-center gap-3 rounded-xl bg-blue-50 px-4 py-3 text-[13px] font-semibold text-blue-700" aria-live="polite">
+          <span class="size-4 shrink-0 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" aria-hidden="true" />
+          부품 정보 준비 중
+        </div>
+        <div v-else class="mt-5 flex justify-end gap-2">
+          <button type="button" class="rounded-lg border border-slate-300 px-3 py-2 text-[13px] font-semibold text-slate-600 hover:bg-slate-50" @click="closePartDataPreparation">
+            {{ partDataFailureReason === 'result-gone' ? '확인' : '취소' }}
+          </button>
+          <button v-if="partDataFailureReason !== 'result-gone'" type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-[13px] font-bold text-white hover:bg-blue-700 disabled:opacity-50" :disabled="preparePartData.isPending.value" @click="retryPartDataPreparation">다시 준비</button>
         </div>
       </div>
     </div>

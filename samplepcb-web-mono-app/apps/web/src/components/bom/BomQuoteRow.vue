@@ -359,7 +359,7 @@ function onQtyInput(event: Event): void {
           v-if="searchTraceSummary !== null"
           type="button"
           class="flex max-w-[190px] items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-left text-[10px] leading-4 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 disabled:cursor-default disabled:opacity-60"
-          :disabled="editingLocked"
+          :disabled="editingLocked && !enriching"
           :title="searchTraceTitle"
           @click="emit('open-candidates')"
         >
@@ -384,8 +384,8 @@ function onQtyInput(event: Event): void {
           type="button"
           class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
           :class="hasEngineCandidates ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'"
-          :disabled="editingLocked"
-          :title="editingLocked ? EDIT_LOCK_TITLE : '엔진 선정 이유·가격·차순위 후보 비교'"
+          :disabled="editingLocked && !enriching"
+          :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '엔진 선정 이유·가격·차순위 후보 비교'"
           @click="emit('open-candidates')"
         >
           후보 비교
@@ -394,8 +394,8 @@ function onQtyInput(event: Event): void {
           type="button"
           class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
           :class="hasEngineCandidates ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50' : 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'"
-          :disabled="editingLocked"
-          :title="editingLocked ? EDIT_LOCK_TITLE : '전체 카탈로그에서 다른 부품 검색'"
+          :disabled="editingLocked && !enriching"
+          :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '전체 카탈로그에서 다른 부품 검색'"
           @click="emit('open-search')"
         >
           부품 변경

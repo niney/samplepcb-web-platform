@@ -59,6 +59,7 @@ import {
   backfillQuotePartIds,
   applyQuoteCandidateSelection,
   canTransition,
+  catalogIngestRunReady,
   computeQuote,
   filterActiveQuoteItems,
   getQuoteItemCandidates,
@@ -210,6 +211,9 @@ async function completeCatalogIngest(
   searchRunId: bigint,
   result: CatalogIngestResult,
 ): Promise<number> {
+  // partId 보강까지 끝난 뒤에만 ready를 공개한다. 상세 폴링이 중간 상태를 완료로
+  // 오인해 후보 비교·부품 변경 패널을 먼저 여는 짧은 경합을 없앤다.
+  const backfilled = await backfillQuotePartIds(quoteId);
   const run = await prisma.spBomSupplierSearchRun.findUnique({
     where: { id: searchRunId },
     select: { resultSummary: true },
@@ -231,10 +235,48 @@ async function completeCatalogIngest(
         catalogIndexElapsedMs: result.timing.indexElapsedMs,
         catalogQueued: result.stats.queued,
         catalogReused: result.reused,
+        catalogStatus: 'ready',
+        catalogReadyAt: new Date().toISOString(),
       },
     },
   });
-  return backfillQuotePartIds(quoteId);
+  return backfilled;
+}
+
+async function markCatalogPreparation(
+  quoteId: bigint,
+  searchRunId: bigint,
+  status: 'preparing' | 'failed',
+  error?: unknown,
+): Promise<void> {
+  const run = await prisma.spBomSupplierSearchRun.findUnique({
+    where: { id: searchRunId },
+    select: { resultSummary: true },
+  });
+  const prior = run?.resultSummary !== null
+    && run?.resultSummary !== undefined
+    && typeof run.resultSummary === 'object'
+    && !Array.isArray(run.resultSummary)
+      ? run.resultSummary
+      : {};
+  await prisma.spBomSupplierSearchRun.updateMany({
+    where: { id: searchRunId, quoteId },
+    data: {
+      resultSummary: {
+        ...prior,
+        catalogStatus: status,
+        ...(status === 'failed'
+          ? {
+              catalogError: (
+                error instanceof Error
+                  ? `${error.name}: ${error.message}`
+                  : typeof error === 'string' ? error : 'catalog_preparation_failed'
+              ).slice(0, 500),
+            }
+          : { catalogError: null }),
+      },
+    },
+  });
 }
 
 async function autoEnrichQuote(
@@ -390,6 +432,9 @@ async function autoEnrichQuote(
       const backfilled = await completeCatalogIngest(quoteId, searchRun.id, result);
       log.info({ quoteId: String(quoteId), searchRunId: String(searchRun.id), backfilled }, '견적 카탈로그 참조 보강 완료');
     },
+    onCatalogIngestFailed: async (error) => {
+      await markCatalogPreparation(quoteId, searchRun.id, 'failed', error);
+    },
   });
   return true;
 }
@@ -398,6 +443,7 @@ async function autoEnrichQuote(
 // 엔진 running → 유지 · completed → 견적 반영(done)+백그라운드 인제스트 · 잡 소멸/엔진 다운 → failed.
 // fire-and-forget: 고객의 3초 폴링이 곧 치유 트리거 — 다음 폴이 수렴된 상태를 받는다.
 const healInFlight = new Set<string>();
+const catalogHealInFlight = new Set<string>();
 
 async function healEnrichment(
   quoteId: bigint,
@@ -436,10 +482,14 @@ async function healEnrichment(
       if (envelope === null) return; // 결과 준비 지연 — searching 유지, 다음 조회가 재시도
       await applyCompletedSupplierResult(quoteId, run.id, envelope, log);
       void ingestSupplierEnvelopeForJob(jobId, envelope, log).then(async (result) => {
-        if (result === null) return;
+        if (result === null) {
+          await markCatalogPreparation(quoteId, run.id, 'failed');
+          return;
+        }
         const backfilled = await completeCatalogIngest(quoteId, run.id, result);
         log.info({ quoteId: key, searchRunId: String(run.id), backfilled }, '치유 경로 카탈로그 참조 보강 완료');
       }).catch((error: unknown) => {
+        void markCatalogPreparation(quoteId, run.id, 'failed', error);
         log.warn({ quoteId: key, searchRunId: String(run.id), err: String(error) }, '치유 경로 카탈로그 후처리 실패');
       });
       return;
@@ -457,6 +507,51 @@ async function healEnrichment(
     log.warn({ quoteId: key, searchRunId: String(run.id), jobId, engineStatus: status }, '자동 보강 치유 — failed 로 종결');
   } finally {
     healInFlight.delete(key);
+  }
+}
+
+async function healCatalogPreparation(
+  quoteId: bigint,
+  searchRunId: bigint | null,
+  log: Parameters<typeof startIngestPoller>[1],
+): Promise<void> {
+  if (searchRunId === null) return;
+  const key = String(searchRunId);
+  if (catalogHealInFlight.has(key)) return;
+  catalogHealInFlight.add(key);
+  try {
+    const run = await prisma.spBomSupplierSearchRun.findUnique({
+      where: { id: searchRunId },
+      select: {
+        engineJobId: true,
+        catalogIngestRun: { select: { status: true, stats: true } },
+        resultSummary: true,
+      },
+    });
+    if (run === null || catalogIngestRunReady(run.catalogIngestRun) || run.engineJobId === null) return;
+    const storedStatus = run.resultSummary !== null
+      && typeof run.resultSummary === 'object'
+      && !Array.isArray(run.resultSummary)
+      ? run.resultSummary.catalogStatus
+      : null;
+    if (storedStatus === 'failed') return; // 명시적인 사용자 재시도 전에는 반복 부하를 만들지 않는다.
+    const envelope = await fetchSupplierSearchResult(run.engineJobId);
+    if (envelope === null) {
+      await markCatalogPreparation(quoteId, searchRunId, 'failed', 'supplier_result_gone');
+      return;
+    }
+    const result = await ingestSupplierEnvelopeForJob(run.engineJobId, envelope, log);
+    if (result === null) {
+      await markCatalogPreparation(quoteId, searchRunId, 'failed');
+      return;
+    }
+    const backfilled = await completeCatalogIngest(quoteId, searchRunId, result);
+    log.info({ quoteId: String(quoteId), searchRunId: key, backfilled }, '부품 정보 준비 치유 완료');
+  } catch (error) {
+    await markCatalogPreparation(quoteId, searchRunId, 'failed', error).catch(() => undefined);
+    log.warn({ quoteId: String(quoteId), searchRunId: key, err: String(error) }, '부품 정보 준비 치유 실패');
+  } finally {
+    catalogHealInFlight.delete(key);
   }
 }
 
@@ -709,8 +804,55 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       void backfillQuotePartIds(quote.id).catch((error: unknown) => {
         request.log.warn({ quoteId: String(quote.id), err: String(error) }, '견적 카탈로그 참조 지연 보강 실패');
       });
+      // 공급사 결과 저장 뒤 프로세스가 재시작된 경우에도 DB·검색 준비를 다시 이어간다.
+      void healCatalogPreparation(quote.id, quote.activeSupplierSearchRunId, request.log);
     }
     return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };
+  });
+
+  // 후보 비교·부품 변경용 DB/검색 색인 준비 재시도. 사용자 화면에서는 내부 용어 대신
+  // "부품 정보 준비"로 표현하며, 완료 응답 전에는 패널을 열지 않는다.
+  fastify.post('/bom/quotes/:id/part-data/prepare', {
+    schema: { params: IdParams, response: { 200: BomQuoteDetailResponse, 409: BizError, 502: BizError } },
+  }, async (request, reply) => {
+    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    const run = await prisma.spBomSupplierSearchRun.findUnique({
+      where: { id: quote.activeSupplierSearchRunId ?? -1n },
+      select: {
+        id: true,
+        engineJobId: true,
+        catalogIngestRun: { select: { status: true, stats: true } },
+      },
+    });
+    if (run?.engineJobId === null || run?.engineJobId === undefined) {
+      return await reply.status(409).send({ result: false, error: 'PART_DATA_RESULT_GONE' });
+    }
+    if (catalogIngestRunReady(run.catalogIngestRun)) {
+      return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };
+    }
+
+    await markCatalogPreparation(quote.id, run.id, 'preparing');
+    try {
+      const envelope = await fetchSupplierSearchResult(run.engineJobId);
+      if (envelope === null) {
+        await markCatalogPreparation(quote.id, run.id, 'failed', 'supplier_result_gone');
+        return await reply.status(409).send({ result: false, error: 'PART_DATA_RESULT_GONE' });
+      }
+      const result = await ingestSupplierEnvelopeForJob(run.engineJobId, envelope, request.log);
+      if (result === null) {
+        await markCatalogPreparation(quote.id, run.id, 'failed');
+        return await reply.status(502).send({ result: false, error: 'PART_DATA_PREPARATION_FAILED' });
+      }
+      await completeCatalogIngest(quote.id, run.id, result);
+      const fresh = await loadOwnQuote(quote.id, request.user.mbId);
+      if (fresh === null) return await reply.notFound('견적을 찾을 수 없습니다');
+      return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
+    } catch (error) {
+      await markCatalogPreparation(quote.id, run.id, 'failed', error).catch(() => undefined);
+      request.log.warn({ quoteId: String(quote.id), searchRunId: String(run.id), err: String(error) }, '부품 정보 준비 재시도 실패');
+      return await reply.status(502).send({ result: false, error: 'PART_DATA_PREPARATION_FAILED' });
+    }
   });
 
   // 엔진 잡과 무관한 영속 후보 비교 — 요청 후에도 고객이 자신의 선정 근거를 조회할 수 있다.

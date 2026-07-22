@@ -563,6 +563,10 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
   enrichedAt: z.string().nullable(),
   /** 활성 공급사 검색에서 실제 호출 한도 때문에 일부 공급사 확인이 제한된 부품 수. */
   supplierSearchLimitedCount: z.number().int().nonnegative(),
+  /** 후보 비교·부품 변경 화면에서 사용할 부품 정보가 검색까지 가능한 상태인지 나타낸다. */
+  partDataStatus: z.enum(['preparing', 'ready', 'failed']),
+  /** 실패 시 사용자가 다시 준비할 수 있는지, 새 업로드가 필요한지를 구분한다. */
+  partDataFailureReason: z.enum(['preparation-failed', 'result-gone']).nullable(),
   setQty: z.number().int().min(1),
   spareQty: z.number().int().min(0),
   /** 부품 합계(KRW, included 라인) — 서버 재계산 스냅샷. */

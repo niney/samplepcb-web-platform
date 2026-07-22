@@ -38,11 +38,25 @@ vi.mock('./prisma', () => ({
 }));
 
 import {
+  canonicalPriceBreaks,
   drainIndexQueue,
   ingestSupplierSearchResult,
   ingestSupplierSearchResultOnce,
   queuePartIndex,
 } from './parts-ingest';
+
+describe('공급사 가격 구간 정규화', () => {
+  it('동일 수량 구간은 가장 낮은 단가 하나만 저장 대상으로 남긴다', () => {
+    expect(canonicalPriceBreaks([
+      { quantity: 10_000, unit_price: 0.002, currency: 'USD' },
+      { quantity: 1, unit_price: 0.01, currency: 'USD' },
+      { quantity: 10_000, unit_price: 0.0018, currency: 'USD' },
+    ])).toEqual([
+      { quantity: 1, unit_price: 0.01, currency: 'USD' },
+      { quantity: 10_000, unit_price: 0.0018, currency: 'USD' },
+    ]);
+  });
+});
 
 function uniqueConflict(modelName: string): Prisma.PrismaClientKnownRequestError {
   return new Prisma.PrismaClientKnownRequestError('unique race', {
@@ -88,8 +102,13 @@ function mockCurrentOfferTransaction(): void {
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([{ id: 11n }]),
     spPart: {
-      findUniqueOrThrow: vi.fn().mockResolvedValue({ factsFingerprint: 'current-facts' }),
+      findUniqueOrThrow: vi.fn().mockResolvedValue({
+        factsFingerprint: 'current-facts',
+        indexFingerprint: 'current-index',
+        indexedAt: new Date('2026-07-22T00:00:00.000Z'),
+      }),
     },
+    spPartIndexQueue: { findFirst: vi.fn().mockResolvedValue(null) },
     spPartOffer: {
       findUnique: vi.fn().mockResolvedValue({
         id: 21n,

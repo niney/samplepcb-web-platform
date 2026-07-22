@@ -105,7 +105,7 @@ export interface CatalogIngestResult {
   timing: IngestTiming;
 }
 
-export const PART_INGEST_POLICY_VERSION = 'part-ingest-v2';
+export const PART_INGEST_POLICY_VERSION = 'part-ingest-v3';
 const PART_FACTS_FINGERPRINT_VERSION = `part-facts-v2:${String(SAMPLEPCB_POLICY_VERSION)}`;
 const PART_INDEX_FINGERPRINT_VERSION = 'sp-parts-doc-v1';
 const INGEST_LEASE_MS = 30 * 60 * 1_000;
@@ -211,10 +211,31 @@ function mergeOffers(group: ProductGroup): { offer: EngineOfferT; raw: EnginePro
     for (const offer of p.offers) {
       const key = `${offer.supplier}:${offer.supplier_sku ?? ''}`;
       const prev = byKey.get(key);
-      if (prev === undefined || prev.offer.fetched_at < offer.fetched_at) byKey.set(key, { offer, raw: p });
+      if (prev === undefined || prev.offer.fetched_at < offer.fetched_at) {
+        byKey.set(key, { offer: { ...offer, price_breaks: canonicalPriceBreaks(offer.price_breaks) }, raw: p });
+      }
     }
   }
   return [...byKey.values()];
+}
+
+/**
+ * 일부 공급사가 같은 수량 구간을 둘 이상 내려주는 경우가 있다. 저장 제약은 오퍼별 수량이
+ * 유일하므로, 동일 수량에서는 가장 낮은 단가를 택하고 결과 순서를 고정한다.
+ */
+export function canonicalPriceBreaks(priceBreaks: EngineOfferT['price_breaks']): EngineOfferT['price_breaks'] {
+  const byQuantity = new Map<number, EngineOfferT['price_breaks'][number]>();
+  for (const priceBreak of priceBreaks) {
+    const current = byQuantity.get(priceBreak.quantity);
+    if (
+      current === undefined
+      || priceBreak.unit_price < current.unit_price
+      || (priceBreak.unit_price === current.unit_price && priceBreak.currency < current.currency)
+    ) {
+      byQuantity.set(priceBreak.quantity, priceBreak);
+    }
+  }
+  return [...byQuantity.values()].sort((a, b) => a.quantity - b.quantity);
 }
 
 function parsedGroups(envelope: unknown): ProductGroup[] | null {
@@ -271,11 +292,14 @@ interface GroupUpsertResult {
   offers: number;
   skippedOffers: number;
   changed: boolean;
+  needsIndex: boolean;
 }
 
 async function upsertGroup(group: ProductGroup): Promise<GroupUpsertResult> {
   const merged = mergeOffers(group).filter(({ offer }) => Number.isFinite(new Date(offer.fetched_at).getTime()));
-  if (merged.length === 0) return { partId: 0n, offers: 0, skippedOffers: 0, changed: false };
+  if (merged.length === 0) {
+    return { partId: 0n, offers: 0, skippedOffers: 0, changed: false, needsIndex: false };
+  }
 
   // 정본 필드(스펙·설명 등)는 여기서 채우지 않는다. 같은 part의 병렬 인제스트는
   // 아래 FOR UPDATE 한 구역으로 직렬화해 stale 결과가 최신 오퍼를 되돌릴 수 없게 한다.
@@ -306,7 +330,7 @@ async function upsertGroup(group: ProductGroup): Promise<GroupUpsertResult> {
       await tx.$queryRaw<{ id: bigint }[]>`SELECT id FROM sp_part WHERE id = ${part.id} FOR UPDATE`;
       const currentPart = await tx.spPart.findUniqueOrThrow({
         where: { id: part.id },
-        select: { factsFingerprint: true },
+        select: { factsFingerprint: true, indexFingerprint: true, indexedAt: true },
       });
       let offers = 0;
       let skippedOffers = 0;
@@ -392,7 +416,30 @@ async function upsertGroup(group: ProductGroup): Promise<GroupUpsertResult> {
       if (changed || currentPart.factsFingerprint === null) {
         changed = (await applyPartFactsInTx(tx, part.id)) || changed;
       }
-      return { partId: part.id, offers, skippedOffers, changed };
+      // DB 내용이 바뀐 순간 기존 ES 문서는 더 이상 최신이라고 볼 수 없다. 색인 실패 뒤
+      // 같은 결과를 재생해도 null 상태가 남아 다음 실행에서 반드시 복구 대상으로 잡힌다.
+      if (changed) {
+        await tx.spPart.update({
+          where: { id: part.id },
+          data: { indexFingerprint: null, indexedAt: null },
+        });
+      }
+      let needsIndex = changed || currentPart.indexFingerprint === null || currentPart.indexedAt === null;
+      if (!needsIndex) {
+        const queuedIndex = await tx.spPartIndexQueue.findFirst({
+          where: { partId: part.id },
+          select: { id: true },
+        });
+        needsIndex = queuedIndex !== null;
+      }
+      return {
+        partId: part.id,
+        offers,
+        skippedOffers,
+        changed,
+        // 이전 실행이 DB 저장 뒤 실패했다면 같은 공급사 결과의 재생도 색인을 복구해야 한다.
+        needsIndex,
+      };
     },
     {
       maxWait: 10_000,
@@ -652,6 +699,8 @@ async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestStats, '
           data: { indexedAt: new Date(), indexFingerprint: item.indexFingerprint },
         });
         if (updated.count === 1) {
+          // 이전 색인 실패의 대기열을 같은 인제스트 재시도가 복구한 경우 함께 정리한다.
+          await prisma.spPartIndexQueue.deleteMany({ where: { partId: item.partId } });
           indexed += 1;
         } else {
           await queuePartIndex(item.partId, 'part changed during Elasticsearch bulk indexing');
@@ -666,15 +715,25 @@ async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestStats, '
   return { indexed, queued };
 }
 
-async function mapConcurrent<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
+async function mapConcurrentSettled<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
   let nextIndex = 0;
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
     while (nextIndex < items.length) {
       const index = nextIndex;
       nextIndex += 1;
       const item = items[index];
-      if (item !== undefined) results[index] = await fn(item);
+      if (item === undefined) continue;
+      try {
+        results[index] = { status: 'fulfilled', value: await fn(item) };
+      } catch (reason) {
+        // 한 부품의 오류가 같은 worker의 나머지 부품 저장까지 중단시키지 않게 한다.
+        results[index] = { status: 'rejected', reason };
+      }
     }
   });
   await Promise.all(workers);
@@ -691,13 +750,19 @@ async function ingestSupplierSearchResultWithTiming(
   if (groups === null) return { stats, timing: emptyTiming() };
 
   const dbStartedAt = performance.now();
-  const results = await mapConcurrent(groups, DB_WRITE_CONCURRENCY, upsertGroup);
+  const settled = await mapConcurrentSettled(groups, DB_WRITE_CONCURRENCY, upsertGroup);
+  const failures: unknown[] = [];
   const changedPartIds: bigint[] = [];
-  for (const result of results) {
+  for (const entry of settled) {
+    if (entry.status === 'rejected') {
+      failures.push(entry.reason);
+      continue;
+    }
+    const result = entry.value;
     if (result.partId === 0n) continue;
     stats.offers += result.offers;
     stats.skippedOffers += result.skippedOffers;
-    if (result.changed) {
+    if (result.needsIndex) {
       stats.parts += 1;
       changedPartIds.push(result.partId);
     } else {
@@ -711,6 +776,11 @@ async function ingestSupplierSearchResultWithTiming(
   stats.indexed = indexStats.indexed;
   stats.queued = indexStats.queued;
   const indexElapsedMs = elapsedMs(indexStartedAt);
+  // 검색 색인까지 확인되어야 후보 비교·부품 변경 화면을 ready로 공개한다.
+  if (indexStats.queued > 0) {
+    throw new Error(`part search indexing deferred for ${String(indexStats.queued)} item(s)`);
+  }
+  if (failures.length > 0) throw failures[0];
   return { stats, timing: { dbElapsedMs, indexElapsedMs, elapsedMs: elapsedMs(startedAt) } };
 }
 
@@ -781,11 +851,21 @@ export async function ingestSupplierSearchResultOnce(
     while (Date.now() - waitStartedAt < INGEST_WAIT_MAX_MS) {
       const current = await prisma.spPartIngestRun.findUniqueOrThrow({ where: { id: row.id } });
       if (current.status === 'completed') {
+        const stats = storedStats(current.stats);
+        if (stats.queued > 0) {
+          // 예전 실행이 ES 지연 큐를 성공으로 기록했더라도 ready로 재사용하지 않는다.
+          // failed로 되돌리면 다음 반복에서 미색인 part를 찾아 안전하게 복구한다.
+          await prisma.spPartIngestRun.updateMany({
+            where: { id: row.id, status: 'completed' },
+            data: { status: 'failed', error: 'search indexing was deferred' },
+          });
+          continue;
+        }
         return {
           runId: String(current.id),
           fingerprint: ingestFingerprint,
           reused: true,
-          stats: storedStats(current.stats),
+          stats,
           timing: storedTiming(current.timing),
         };
       }

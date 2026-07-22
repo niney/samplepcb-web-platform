@@ -490,6 +490,20 @@ class SupplierOffer(BaseModel):
     fetched_at: datetime = Field(default_factory=utc_now)
     procurement_decision: OfferProcurementDecision | None = None
 
+    @field_validator("price_breaks")
+    @classmethod
+    def canonicalize_price_breaks(cls, values: list[PriceBreak]) -> list[PriceBreak]:
+        """공급사의 중복 수량 구간은 가장 낮은 단가 하나로 정규화한다."""
+        by_quantity: dict[int, PriceBreak] = {}
+        for value in values:
+            current = by_quantity.get(value.quantity)
+            if current is None or (value.unit_price, value.currency) < (
+                current.unit_price,
+                current.currency,
+            ):
+                by_quantity[value.quantity] = value
+        return [by_quantity[quantity] for quantity in sorted(by_quantity)]
+
 
 class SupplierProduct(BaseModel):
     model_config = ConfigDict(extra="allow")

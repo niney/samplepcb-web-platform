@@ -40,6 +40,7 @@ const catalogIngestInFlight = new Map<string, Promise<CatalogIngestResult | null
 export interface IngestPollerHooks {
   onResult?: (envelope: unknown) => Promise<void>;
   onCatalogIngested?: (result: CatalogIngestResult) => Promise<void>;
+  onCatalogIngestFailed?: (error?: unknown) => Promise<void>;
 }
 
 export async function fetchSupplierSearchResult(jobId: string): Promise<Record<string, unknown> | null> {
@@ -63,6 +64,9 @@ export async function ingestSupplierEnvelopeForJob(
   const run = (async (): Promise<CatalogIngestResult | null> => {
     try {
       const result = await ingestSupplierSearchResultOnce(envelope, jobId);
+      if (result.runId === null) {
+        throw new Error('공급사 검색 결과에서 준비할 부품 정보를 읽지 못했습니다.');
+      }
       ingestedJobs.set(jobId, result);
       log.info(
         { jobId, ingestRunId: result.runId, reused: result.reused, ...result.stats, ...result.timing },
@@ -145,8 +149,19 @@ export function startIngestPoller(jobId: string, log: FastifyBaseLogger, hooks: 
             void (async () => {
               try {
                 const result = await ingestSupplierEnvelopeForJob(jobId, envelope, log);
-                if (result !== null && hooks.onCatalogIngested !== undefined) await hooks.onCatalogIngested(result);
+                if (result !== null) {
+                  if (hooks.onCatalogIngested !== undefined) await hooks.onCatalogIngested(result);
+                } else if (hooks.onCatalogIngestFailed !== undefined) {
+                  await hooks.onCatalogIngestFailed();
+                }
               } catch (error) {
+                if (hooks.onCatalogIngestFailed !== undefined) {
+                  try {
+                    await hooks.onCatalogIngestFailed(error);
+                  } catch (hookError) {
+                    log.warn({ jobId, err: String(hookError) }, '부품 정보 준비 실패 상태 저장 실패');
+                  }
+                }
                 log.warn({ jobId, err: String(error) }, '부품 카탈로그 백그라운드 인제스트 실패');
               }
             })();

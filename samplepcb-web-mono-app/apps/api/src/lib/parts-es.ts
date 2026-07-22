@@ -111,7 +111,8 @@ export async function bulkIndexPartDocs(docs: SpPartDoc[]): Promise<number> {
     { index: { _index: SP_PARTS_WRITE, _id: doc.partId } },
     doc,
   ]);
-  const res = await esClient().bulk({ operations });
+  // 완료 상태를 브라우저에 공개하는 즉시 검색 결과에도 보여야 하므로 refresh를 기다린다.
+  const res = await esClient().bulk({ operations, refresh: 'wait_for' });
   if (!res.errors) return 0;
   return res.items.filter((item) => item.index?.error !== undefined).length;
 }

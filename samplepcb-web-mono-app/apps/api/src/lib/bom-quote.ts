@@ -3604,32 +3604,86 @@ function toSheetDto(row: QuoteSheetRow, hasItems: boolean): BomQuoteSheetType {
   };
 }
 
-async function loadSupplierSearchLimitedCount(supplierSearchRunId: bigint | null): Promise<number> {
-  if (supplierSearchRunId === null) return 0;
+type PartDataStatus = BomQuoteDetailType['partDataStatus'];
+type PartDataFailureReason = BomQuoteDetailType['partDataFailureReason'];
+
+function catalogPreparationStatus(value: Prisma.JsonValue | null): PartDataStatus | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const status = (value as Record<string, Prisma.JsonValue>).catalogStatus;
+  return status === 'preparing' || status === 'ready' || status === 'failed' ? status : null;
+}
+
+function catalogPreparationFailureReason(value: Prisma.JsonValue | null): PartDataFailureReason {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, Prisma.JsonValue>;
+  if (record.catalogStatus !== 'failed') return null;
+  return typeof record.catalogError === 'string' && record.catalogError.includes('supplier_result_gone')
+    ? 'result-gone'
+    : 'preparation-failed';
+}
+
+export function catalogIngestRunReady(
+  run: { status: string; stats: Prisma.JsonValue | null } | null,
+): boolean {
+  if (run?.status !== 'completed') return false;
+  if (run.stats === null || typeof run.stats !== 'object' || Array.isArray(run.stats)) return true;
+  const queued = (run.stats as Record<string, Prisma.JsonValue>).queued;
+  return typeof queued !== 'number' || queued === 0;
+}
+
+async function loadSupplierSearchSummary(
+  supplierSearchRunId: bigint | null,
+  enrichStatus: string,
+): Promise<{
+  supplierSearchLimitedCount: number;
+  partDataStatus: PartDataStatus;
+  partDataFailureReason: PartDataFailureReason;
+}> {
+  if (enrichStatus === 'searching') {
+    return { supplierSearchLimitedCount: 0, partDataStatus: 'preparing', partDataFailureReason: null };
+  }
+  if (enrichStatus === 'failed') {
+    return { supplierSearchLimitedCount: 0, partDataStatus: 'failed', partDataFailureReason: 'preparation-failed' };
+  }
+  // 공급사 보강이 필요 없었던 견적과 활성 실행 기록이 없는 구형 견적은 즉시 조회 가능하다.
+  if (enrichStatus === 'idle' || supplierSearchRunId === null) {
+    return { supplierSearchLimitedCount: 0, partDataStatus: 'ready', partDataFailureReason: null };
+  }
   const run = await prisma.spBomSupplierSearchRun.findUnique({
     where: { id: supplierSearchRunId },
-    select: { resultSummary: true },
+    select: {
+      resultSummary: true,
+      catalogIngestRun: { select: { status: true, stats: true } },
+    },
   });
-  if (run === null) return 0;
+  if (run === null) {
+    return { supplierSearchLimitedCount: 0, partDataStatus: 'failed', partDataFailureReason: 'result-gone' };
+  }
+  const storedStatus = catalogPreparationStatus(run.resultSummary);
+  const partDataStatus = storedStatus === 'failed'
+    ? 'failed'
+    : catalogIngestRunReady(run.catalogIngestRun) ? 'ready' : 'preparing';
+  const partDataFailureReason = catalogPreparationFailureReason(run.resultSummary);
   const currentCount = supplierRunLimitedComponentCount(run.resultSummary);
-  if (currentCount !== null) return currentCount;
+  if (currentCount !== null) return { supplierSearchLimitedCount: currentCount, partDataStatus, partDataFailureReason };
   const searchTraces = await prisma.spBomSupplierSearchTrace.findMany({
     where: { supplierSearchRunId },
     select: { payload: true },
   });
-  return supplierRunLimitedComponentCount(
+  const supplierSearchLimitedCount = supplierRunLimitedComponentCount(
     run.resultSummary,
     searchTraces.map((trace) => trace.payload),
   ) ?? 0;
+  return { supplierSearchLimitedCount, partDataStatus, partDataFailureReason };
 }
 
 export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
   const activeItems = filterActiveQuoteItems(items, sheets);
   const itemSheetIndexes = new Set(items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]));
-  const [partMetaMap, candidateDatasheetMap, supplierSearchLimitedCount] = await Promise.all([
+  const [partMetaMap, candidateDatasheetMap, supplierSearchSummary] = await Promise.all([
     loadPartMetaMap(activeItems),
     loadCandidateDatasheetMap(quote.id, activeItems),
-    loadSupplierSearchLimitedCount(quote.activeSupplierSearchRunId),
+    loadSupplierSearchSummary(quote.activeSupplierSearchRunId, quote.enrichStatus),
   ]);
   return {
     ...toSummaryDto(quote, summaryCounts(activeItems)),
@@ -3640,7 +3694,9 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
       .map((sheet) => toSheetDto(sheet, itemSheetIndexes.has(sheet.sheetIndex))),
     enrichStatus: quote.enrichStatus as BomQuoteDetailType['enrichStatus'],
     enrichedAt: quote.enrichedAt?.toISOString() ?? null,
-    supplierSearchLimitedCount,
+    supplierSearchLimitedCount: supplierSearchSummary.supplierSearchLimitedCount,
+    partDataStatus: supplierSearchSummary.partDataStatus,
+    partDataFailureReason: supplierSearchSummary.partDataFailureReason,
     setQty: quote.setQty,
     spareQty: quote.spareQty,
     itemsTotal: quote.itemsTotal,

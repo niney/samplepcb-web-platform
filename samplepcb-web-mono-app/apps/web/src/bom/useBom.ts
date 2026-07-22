@@ -165,6 +165,13 @@ export function usePrepareBomQuoteSheets() {
   );
 }
 
+/** 후보 비교·부품 변경에 필요한 DB/검색 정보를 다시 준비한다. */
+export function usePrepareBomPartData() {
+  return useQuoteMutation((quoteId: string) =>
+    apiSend('POST', `${base}/quotes/${quoteId}/part-data/prepare`, undefined, BomQuoteDetailResponse),
+  );
+}
+
 export function useBomQuoteCandidates(
   quoteId: Ref<string | null>,
   itemId: Ref<string | null>,

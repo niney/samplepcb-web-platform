@@ -8,10 +8,12 @@ import httpx
 from supplier_search_engine.models import (
     ManufacturerEvidence,
     PlannedQuery,
+    PriceBreak,
     RawSupplierResponse,
     Requirement,
     SearchMode,
     Supplier,
+    SupplierOffer,
 )
 from supplier_search_engine.suppliers.digikey import DigiKeyClient
 from supplier_search_engine.suppliers.mouser import MouserClient
@@ -399,6 +401,22 @@ def test_unikeyic_discards_only_invalid_price_breaks():
         (40, 0.2)
     ]
     assert offer.invalid_price_break_count == 4
+
+
+def test_supplier_offer_canonicalizes_duplicate_quantity_price_breaks():
+    offer = SupplierOffer(
+        supplier=Supplier.UNIKEYIC,
+        price_breaks=[
+            PriceBreak(quantity=10_000, unit_price=0.002, currency="USD"),
+            PriceBreak(quantity=1, unit_price=0.01, currency="USD"),
+            PriceBreak(quantity=10_000, unit_price=0.0018, currency="USD"),
+        ],
+    )
+
+    assert [(item.quantity, item.unit_price) for item in offer.price_breaks] == [
+        (1, 0.01),
+        (10_000, 0.0018),
+    ]
 
 
 async def test_retry_reserves_every_physical_supplier_call():
