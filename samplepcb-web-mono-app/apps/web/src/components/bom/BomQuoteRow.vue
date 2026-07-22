@@ -208,8 +208,8 @@ function onQtyInput(event: Event): void {
       </div>
     </td>
     <!-- MPN: 공급사 배지 + 이미지 자리 + 품번 + 데이터시트 -->
-    <td class="px-2 py-3">
-      <div class="flex gap-2.5">
+    <td class="w-[220px] max-w-[220px] px-2 py-3">
+      <div class="flex w-[220px] max-w-full min-w-0 gap-2.5">
         <!-- 고정폭 76px(최장 공급사명 UniKeyIC 기준) — 배지 유무와 무관하게 열 폭 일관 -->
         <div class="w-[76px] shrink-0">
           <div
@@ -226,7 +226,7 @@ function onQtyInput(event: Event): void {
             class="size-[76px] rounded-md border border-gray-200"
           />
         </div>
-        <div class="min-w-0 pt-[22px]">
+        <div class="min-w-0 flex-1 pt-[22px]">
           <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]" :title="partLabel">{{ partLabel }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->

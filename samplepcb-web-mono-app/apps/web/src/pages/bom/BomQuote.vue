@@ -1019,7 +1019,7 @@ function fmtAmount(v: number | null): string {
             <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
               <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
                 <th class="w-[52px] px-1 py-2.5"><span class="sr-only">포함 및 원본 행</span></th>
-                <th class="min-w-[220px] px-2 py-2.5">MPN / 원본 값</th>
+                <th class="w-[220px] max-w-[220px] px-2 py-2.5">MPN / 원본 값</th>
                 <th class="px-2 py-2.5">Manufacturer</th>
                 <th class="px-2 py-2.5">Description</th>
                 <th class="w-[130px] px-2 py-2.5 text-right">Unit Price</th>
