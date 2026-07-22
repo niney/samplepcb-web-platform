@@ -108,6 +108,22 @@ export const BomQuoteSearchTrace = BomQuoteSearchTraceSummary.extend({
 });
 export type BomQuoteSearchTraceType = z.infer<typeof BomQuoteSearchTrace>;
 
+/** sp-engine이 구매 후보를 선정하지 못했을 때의 대표 사유. */
+export const BomQuoteProcurementUnavailabilityReason = z.enum([
+  'out_of_stock',
+  'insufficient_stock',
+  'stock_unverified',
+  'price_unavailable',
+  'technical_unavailable',
+  'supplier_unavailable',
+  'no_offer',
+  'input_incomplete',
+  'other',
+]);
+export type BomQuoteProcurementUnavailabilityReasonType = z.infer<
+  typeof BomQuoteProcurementUnavailabilityReason
+>;
+
 /**
  * 공급사 검색 엔진의 BOM 문맥 판정과 자동 선정 근거.
  * 카탈로그 사실 데이터와 분리해 견적 라인에 스냅샷으로 보존한다.
@@ -120,6 +136,8 @@ export const BomQuoteMatchEvidence = z.object({
   selectionApplicationState: BomQuoteSelectionApplicationState.optional(),
   /** 엔진 선정 결과를 최종 확정하기 전에 사용자 확인이 필요한지 여부. */
   confirmationRequired: z.boolean().optional(),
+  /** 선정되지 않은 행의 대표 구매 불가 사유. 구 엔진 결과에는 없을 수 있다. */
+  procurementUnavailabilityReason: BomQuoteProcurementUnavailabilityReason.nullable().optional(),
   /** 가격·재고와 무관한 엔진 기술 사전 선정 후보. 기존 견적은 생략될 수 있다. */
   technicalPreselectionCandidateKey: z.string().nullable().optional(),
   /** 기술 사전 선정 후보가 구매 불가해 다음 기술 후보를 적용했는지 여부. */
@@ -417,6 +435,8 @@ export const BomQuoteItemCandidates = z.object({
   technicalTopCandidateKey: z.string().nullable(),
   technicalTopLineTotalKrw: z.number().nullable(),
   technicalFallbackUsed: z.boolean(),
+  /** sp-engine이 결정한 현재 행의 대표 구매 불가 사유. */
+  procurementUnavailabilityReason: BomQuoteProcurementUnavailabilityReason.nullable().optional(),
   decisionReasonCodes: z.array(BomQuoteDecisionReason),
   /** 활성 공급사 검색 실행에서 영속 조회한 컴포넌트 검색 과정. 구버전 실행은 null이다. */
   searchTrace: BomQuoteSearchTrace.nullable(),

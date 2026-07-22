@@ -15,6 +15,7 @@ from .models import (
     OfferProcurementDecision,
     OfferRecommendation,
     PlannedQuery,
+    ProcurementUnavailabilityReason,
     ProcurementPolicyInput,
     ProcurementReevaluationBatchItemResult,
     ProcurementReevaluationBatchRequest,
@@ -1001,6 +1002,56 @@ def apply_procurement_decisions(
         if offer_recommendation == OfferRecommendation.MANUAL_REVIEW
         else "no_recommendation"
     )
+    ranked_entries = [
+        (candidate, offer, decisions[(candidate_index, offer_index)])
+        for candidate_index, offer_index, candidate, offer, _decision in entries
+    ]
+    primary_unavailability_reason: ProcurementUnavailabilityReason | None = None
+    if status == "input_incomplete":
+        primary_unavailability_reason = ProcurementUnavailabilityReason.INPUT_INCOMPLETE
+    elif status == "no_recommendation":
+        nonblocked_entries = [
+            entry
+            for entry in ranked_entries
+            if entry[0].decision.selection_eligibility != SelectionEligibility.BLOCKED
+        ]
+        relevant_entries = nonblocked_entries or ranked_entries
+        if not relevant_entries:
+            primary_unavailability_reason = ProcurementUnavailabilityReason.NO_OFFER
+        elif all(decision.stock_short is True for _, _, decision in relevant_entries):
+            primary_unavailability_reason = (
+                ProcurementUnavailabilityReason.OUT_OF_STOCK
+                if all(offer.stock == 0 for _, offer, _ in relevant_entries)
+                else ProcurementUnavailabilityReason.INSUFFICIENT_STOCK
+            )
+        elif not any(
+            decision.stock_short is False for _, _, decision in relevant_entries
+        ) and any(decision.stock_short is None for _, _, decision in relevant_entries):
+            primary_unavailability_reason = (
+                ProcurementUnavailabilityReason.STOCK_UNVERIFIED
+            )
+        elif all(
+            candidate.decision.selection_eligibility == SelectionEligibility.BLOCKED
+            for candidate, _, _ in ranked_entries
+        ):
+            primary_unavailability_reason = (
+                ProcurementUnavailabilityReason.TECHNICAL_UNAVAILABLE
+            )
+        elif all(
+            offer.supplier not in policy.allowed_suppliers
+            for _, offer, _ in relevant_entries
+        ):
+            primary_unavailability_reason = (
+                ProcurementUnavailabilityReason.SUPPLIER_UNAVAILABLE
+            )
+        elif not any(
+            decision.line_total is not None for _, _, decision in relevant_entries
+        ):
+            primary_unavailability_reason = (
+                ProcurementUnavailabilityReason.PRICE_UNAVAILABLE
+            )
+        else:
+            primary_unavailability_reason = ProcurementUnavailabilityReason.OTHER
     component_decision = ComponentProcurementDecision(
         status=status,
         selection_application_state=(
@@ -1011,6 +1062,10 @@ def apply_procurement_decisions(
             else SelectionApplicationState.NOT_SELECTED
         ),
         confirmation_required=status == "review_recommended",
+        unavailability_reason_policy_version=(
+            "supplier-procurement-unavailability-v1"
+        ),
+        primary_unavailability_reason=primary_unavailability_reason,
         procurement_disposition=query.procurement_disposition,
         required_quantity=query.quantity,
         target_currency=policy.target_currency,

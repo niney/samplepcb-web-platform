@@ -123,6 +123,13 @@ BOM MPN은 CAD library reference보다 우선하며 서로 다른 유효값은 `
 재정렬하지 않고 키·수량·금액 불변식만 검증해 저장하며, 수량·환율 변경 시 엔진의 무호출 재평가
 API로 같은 정책을 다시 적용한다.
 
+후보를 적용하지 못하면 `supplier-procurement-unavailability-v1`의
+`primary_unavailability_reason`으로 대표 구매 불가 사유를 함께 반환한다. 차단되지 않은 후보 오퍼가
+모두 재고 0이면 `out_of_stock`, 재고가 양수지만 필요수량보다 작으면 `insufficient_stock`을 가격·기술
+불가보다 우선한다. 재고를 확인할 수 없으면 `stock_unverified`, 재고 가능한 오퍼가 있으나 기술 조건으로
+막히면 `technical_unavailable`이다. 필수조건 불일치가 함께 있더라도 모든 관련 오퍼의 재고가 부족하면
+화면의 대표 상태는 재고 사유이며, 항목별 기술 불일치 근거는 후보 결정에 그대로 남는다.
+
 후보 수는 공급사 응답 순서로 먼저 자르지 않는다. 모든 응답을 정규화·기술 판정한 뒤 공급사마다
 상위 5개 `identity_key`+`technical_evidence_key` 그룹의 합집합만 조달 판단에 사용한다. 합집합에 든
 동일 부품은 다른 공급사의 오퍼도 함께 보존하므로 가격 비교 근거가 사라지지 않는다. 원본 응답 건수는

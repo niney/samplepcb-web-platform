@@ -327,6 +327,21 @@ const EngineSupplierSearchTrace = z.object({
   attempts: z.array(EngineSupplierSearchTraceAttempt),
 });
 
+const EngineProcurementUnavailabilityReason = z.enum([
+  'out_of_stock',
+  'insufficient_stock',
+  'stock_unverified',
+  'price_unavailable',
+  'technical_unavailable',
+  'supplier_unavailable',
+  'no_offer',
+  'input_incomplete',
+  'other',
+]);
+type EngineProcurementUnavailabilityReasonType = z.infer<
+  typeof EngineProcurementUnavailabilityReason
+>;
+
 const EngineComponentProcurementDecisionV1 = z
   .object({
     procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
@@ -343,6 +358,10 @@ const EngineComponentProcurementDecisionV1 = z
       'not_selected',
     ]),
     confirmation_required: z.boolean(),
+    unavailability_reason_policy_version: z
+      .literal('supplier-procurement-unavailability-v1')
+      .optional(),
+    primary_unavailability_reason: EngineProcurementUnavailabilityReason.nullish(),
     required_quantity: z.number().int().positive().nullish(),
     target_currency: z.string(),
     currency_rate_snapshot_id: z.string().min(1),
@@ -372,6 +391,10 @@ const EngineComponentProcurementDecisionV2 = z
       'not_selected',
     ]),
     confirmation_required: z.boolean(),
+    unavailability_reason_policy_version: z
+      .literal('supplier-procurement-unavailability-v1')
+      .optional(),
+    primary_unavailability_reason: EngineProcurementUnavailabilityReason.nullish(),
     required_quantity: z.number().int().positive().nullish(),
     target_currency: z.string(),
     currency_rate_snapshot_id: z.string().min(1),
@@ -511,7 +534,7 @@ function searchTraceSummary(trace: EngineSupplierSearchTraceType | null | undefi
   };
 }
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v10';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v11';
 const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSIONS: ReadonlySet<string> = new Set([
   'supplier-candidate-decision-v1',
   'supplier-candidate-decision-v2',
@@ -1305,6 +1328,7 @@ interface EngineProcurementProjection {
   applicationState: 'automatic_selected' | 'provisional_selected' | 'not_selected';
   confirmationRequired: boolean;
   technicalFallbackUsed: boolean;
+  primaryUnavailabilityReason: EngineProcurementUnavailabilityReasonType | null;
 }
 
 function storedEngineDecisionPick(
@@ -1387,11 +1411,25 @@ function projectEngineProcurement(
     applicationState: 'not_selected',
     confirmationRequired: false,
     technicalFallbackUsed: false,
+    primaryUnavailabilityReason: null,
   };
   if (
     decision?.required_quantity !== needed
     || decision.selection_application_policy_version !== 'supplier-selection-application-v2'
     || decision.target_currency.toUpperCase() !== 'KRW'
+  ) return invalid;
+
+  const hasUnavailabilityPolicy = decision.unavailability_reason_policy_version !== undefined;
+  const hasUnavailabilityReason = decision.primary_unavailability_reason !== undefined;
+  if (hasUnavailabilityPolicy !== hasUnavailabilityReason) return invalid;
+  const primaryUnavailabilityReason = hasUnavailabilityPolicy
+    ? decision.primary_unavailability_reason ?? null
+    : null;
+  const hasRecommendation = decision.status === 'automatic_recommended'
+    || decision.status === 'review_recommended';
+  if (
+    hasUnavailabilityPolicy
+    && hasRecommendation !== (primaryUnavailabilityReason === null)
   ) return invalid;
 
   const identityKey = decision.technical_preselection_identity_key ?? null;
@@ -1429,7 +1467,10 @@ function projectEngineProcurement(
         ? []
         : [{ group, offer }]),
   );
-  if (decision.status === 'no_recommendation') {
+  if (
+    decision.status === 'no_recommendation'
+    || decision.status === 'input_incomplete'
+  ) {
     return recommendedOffers.length === 0
       && decision.selection_application_state === 'not_selected'
       && !decision.confirmation_required
@@ -1445,12 +1486,12 @@ function projectEngineProcurement(
           applicationState: 'not_selected',
           confirmationRequired: false,
           technicalFallbackUsed: false,
+          primaryUnavailabilityReason,
         }
       : invalid;
   }
   if (
-    decision.status === 'input_incomplete'
-    || technicalGroup === null
+    technicalGroup === null
     || applicationGroup === null
   ) return invalid;
 
@@ -1499,6 +1540,7 @@ function projectEngineProcurement(
     applicationState: expectedApplicationState,
     confirmationRequired: !automatic,
     technicalFallbackUsed: decision.technical_fallback_used,
+    primaryUnavailabilityReason,
   };
 }
 
@@ -1512,6 +1554,7 @@ function evidenceFromDecision(
   identityFallback: boolean,
   selectionApplicationState: 'automatic_selected' | 'provisional_selected' | 'not_selected',
   confirmationRequired: boolean,
+  procurementUnavailabilityReason: EngineProcurementUnavailabilityReasonType | null,
   groups: CandidateGroup[],
   eligible: CandidateGroup[],
   selected: CandidateGroup | null,
@@ -1539,6 +1582,7 @@ function evidenceFromDecision(
     componentStatus: component.status,
     selectionApplicationState,
     confirmationRequired,
+    procurementUnavailabilityReason,
     technicalPreselectionCandidateKey: technicalTop?.snapshot.candidateKey ?? null,
     technicalFallbackUsed,
     identityFallback,
@@ -1623,6 +1667,7 @@ export function selectEngineMatch(
         identityFallback,
         procurement.applicationState,
         procurement.confirmationRequired,
+        procurement.primaryUnavailabilityReason,
         groups,
         eligible,
         selected,
@@ -1654,6 +1699,7 @@ export function selectEngineMatch(
       identityFallback,
       'not_selected',
       false,
+      null,
       groups,
       eligible,
       null,
@@ -2061,6 +2107,7 @@ function selectedEvidence(
     : Math.round((technicalTopLineTotalKrw - lineTotal) * 100) / 100;
   return {
     ...previous,
+    procurementUnavailabilityReason: null,
     candidateStatus: candidate.status,
     selectionMode: candidate.selectionMode,
     selectedMpn: candidate.mpn,
@@ -2786,6 +2833,8 @@ export async function getQuoteItemCandidates(
     technicalTopCandidateKey: technicalTop?.candidateKey ?? null,
     technicalTopLineTotalKrw: technicalTopTotal,
     technicalFallbackUsed: item.matchEvidence?.technicalFallbackUsed ?? false,
+    procurementUnavailabilityReason:
+      item.matchEvidence?.procurementUnavailabilityReason ?? null,
     decisionReasonCodes: item.matchEvidence?.decisionReasonCodes ?? [],
     searchTrace,
     candidates,

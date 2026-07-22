@@ -16,6 +16,7 @@ from supplier_search_engine.models import (
     PlannedQuery,
     ProcurementDisposition,
     ProcurementPolicyInput,
+    ProcurementUnavailabilityReason,
     ProcurementReevaluationBatchRequest,
     ProcurementReevaluationCandidateInput,
     ProcurementReevaluationRequest,
@@ -250,6 +251,14 @@ def test_price_and_currency_rate_missing_degrade_without_fake_recommendation():
     assert price_component.review_offer_key is None
     assert rate_component.automatic_offer_key is None
     assert rate_component.review_offer_key is None
+    assert (
+        price_component.primary_unavailability_reason
+        == ProcurementUnavailabilityReason.PRICE_UNAVAILABLE
+    )
+    assert (
+        rate_component.primary_unavailability_reason
+        == ProcurementUnavailabilityReason.PRICE_UNAVAILABLE
+    )
 
 
 def test_invalid_prices_are_never_ranked_or_recommended_as_free():
@@ -335,6 +344,30 @@ def test_exact_mpn_requirement_conflict_is_automatically_selected():
     assert component.automatic_offer_key == offer_decision(candidate).offer_key
 
 
+def test_out_of_stock_precedes_exact_mpn_requirement_conflict():
+    candidates, component = decide(
+        query(
+            quantity=10,
+            requirements={"resistance_ohm": requirement("resistance_ohm", 1_000.0)},
+        ),
+        [
+            product(
+                Supplier.MOUSER,
+                specs={"resistance_ohm": 2_000.0},
+                stock=0,
+            )
+        ],
+    )
+
+    candidate = candidates[0]
+    assert "identity_exact_requirement_conflict" in candidate.decision.reason_codes
+    assert offer_decision(candidate).stock_short is True
+    assert component.status == "no_recommendation"
+    assert component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.OUT_OF_STOCK
+    )
+
+
 def test_manual_review_purchase_rank_never_promotes_technical_eligibility():
     candidates, component = decide(
         query(quantity=10),
@@ -366,6 +399,28 @@ def test_manual_review_purchase_rank_never_promotes_technical_eligibility():
                 "selection_application_state": "automatic_selected",
             }
         )
+
+
+def test_component_unavailability_contract_remains_backward_compatible():
+    _candidates, component = decide(
+        query(quantity=10),
+        [product(Supplier.DIGIKEY)],
+    )
+    legacy_payload = component.model_dump(
+        exclude={
+            "unavailability_reason_policy_version",
+            "primary_unavailability_reason",
+        }
+    )
+
+    legacy = ComponentProcurementDecision.model_validate(legacy_payload)
+
+    assert component.unavailability_reason_policy_version == (
+        "supplier-procurement-unavailability-v1"
+    )
+    assert component.primary_unavailability_reason is None
+    assert legacy.unavailability_reason_policy_version is None
+    assert legacy.primary_unavailability_reason is None
 
 
 def test_unpurchasable_technical_preselection_falls_back_to_next_safe_group():
@@ -479,6 +534,24 @@ def test_all_unpurchasable_groups_remain_unselected():
     assert component.application_candidate_evidence_key is None
     assert component.technical_fallback_used is False
     assert "no_purchasable_candidate_group" in (component.recommendation_reason_codes)
+    assert component.unavailability_reason_policy_version == (
+        "supplier-procurement-unavailability-v1"
+    )
+    assert component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.OUT_OF_STOCK
+    )
+
+
+def test_positive_but_short_stock_is_reported_as_insufficient():
+    _candidates, component = decide(
+        query(quantity=10),
+        [product(Supplier.DIGIKEY, stock=4)],
+    )
+
+    assert component.status == "no_recommendation"
+    assert component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.INSUFFICIENT_STOCK
+    )
 
 
 def test_fallback_candidate_is_deterministic_across_candidate_input_order():
@@ -647,11 +720,11 @@ def test_supplier_input_permutation_keeps_offer_keys_ranks_and_recommendation():
 
 
 def test_unknown_stock_is_distinct_from_zero_stock():
-    unknown, _ = decide(
+    unknown, unknown_component = decide(
         query(quantity=10),
         [product(Supplier.DIGIKEY, stock=None)],
     )
-    zero, _ = decide(
+    zero, zero_component = decide(
         query(quantity=10),
         [product(Supplier.DIGIKEY, stock=0)],
     )
@@ -665,6 +738,12 @@ def test_unknown_stock_is_distinct_from_zero_stock():
     assert zero_decision.stock_short is True
     assert zero_decision.purchasable is False
     assert "stock_shortage_not_allowed" in zero_decision.reason_codes
+    assert unknown_component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.STOCK_UNVERIFIED
+    )
+    assert zero_component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.OUT_OF_STOCK
+    )
 
 
 def test_unverified_stock_can_be_allowed_without_becoming_verified():

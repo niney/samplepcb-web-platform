@@ -357,6 +357,18 @@ function componentProcurementDecision(
     applicationIdentityKey?: string;
     applicationEvidenceKey?: string;
     technicalFallbackUsed?: boolean;
+    includeUnavailabilityContract?: boolean;
+    unavailabilityReason?:
+      | 'out_of_stock'
+      | 'insufficient_stock'
+      | 'stock_unverified'
+      | 'price_unavailable'
+      | 'technical_unavailable'
+      | 'supplier_unavailable'
+      | 'no_offer'
+      | 'input_incomplete'
+      | 'other'
+      | null;
   } = {},
 ) {
   return {
@@ -369,6 +381,14 @@ function componentProcurementDecision(
         ? 'provisional_selected'
         : 'not_selected',
     confirmation_required: status === 'review_recommended',
+    ...(options.includeUnavailabilityContract === false
+      ? {}
+      : {
+          unavailability_reason_policy_version: 'supplier-procurement-unavailability-v1',
+          primary_unavailability_reason: options.unavailabilityReason === undefined
+            ? status === 'no_recommendation' ? 'no_offer' : null
+            : options.unavailabilityReason,
+        }),
     required_quantity: requiredQuantity,
     target_currency: 'KRW',
     currency_rate_snapshot_id: 'fixture-snapshot',
@@ -468,6 +488,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(result.candidateSnapshots.map(({ candidate: snapshot }) => snapshot.technicalRank))
       .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19]);
     expect(items[0].selectedCandidateKey).toBe('ik1:candidate-19');
+    expect(items[0].matchEvidence?.procurementUnavailabilityReason).toBeNull();
   });
 
   it('명시 선택이 없는 none/auto 행만 엔진 적용 상태로 수렴시킨다', () => {
@@ -561,7 +582,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.pick?.offer.supplier).toBe('digikey');
     expect(decision?.offerKey).toBe('ok2:engine-selected');
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v10');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v11');
     expect(decision?.evidence.selectionApplicationState).toBe('automatic_selected');
     expect(decision?.evidence.confirmationRequired).toBe(false);
     expect(decision?.evidence.technicalFallbackUsed).toBe(false);
@@ -576,6 +597,99 @@ describe('BOM 엔진 후보 결정 투영', () => {
       expectedDisplay: '25 V',
       actualDisplay: '50 V',
     }]);
+  });
+
+  it('엔진의 구매 불가 대표 사유를 재판정 없이 견적 근거로 투영한다', () => {
+    const unavailable = candidate('verified_exact', 'NO-STOCK', 'digikey', 1_000, 1, {
+      currentDecisionContract: true,
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      conflicts: ['resistance_ohm'],
+      stock: 0,
+    });
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-no-stock',
+        status: 'verified_exact',
+        procurement_decision: componentProcurementDecision(
+          'no_recommendation',
+          null,
+          10,
+          { unavailabilityReason: 'out_of_stock' },
+        ),
+        candidates: [unavailable],
+      },
+      10,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.evidence.procurementUnavailabilityReason).toBe('out_of_stock');
+    expect(decision?.evidence.conflicts).toEqual(['resistance_ohm']);
+    expect(decision?.evidence.decisionReasonCodes).toEqual([
+      'engine-procurement-unavailable',
+    ]);
+  });
+
+  it('구형 조달 결정은 구매 불가 대표 사유 없이 계속 투영한다', () => {
+    const unavailable = candidate('verified_exact', 'LEGACY-NO-STOCK', 'digikey', 1_000, 1, {
+      currentDecisionContract: true,
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+    });
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-legacy-no-stock',
+        status: 'verified_exact',
+        procurement_decision: componentProcurementDecision(
+          'no_recommendation',
+          null,
+          10,
+          { includeUnavailabilityContract: false },
+        ),
+        candidates: [unavailable],
+      },
+      10,
+      null,
+    );
+
+    expect(decision?.evidence.decisionReasonCodes).toEqual([
+      'engine-procurement-unavailable',
+    ]);
+    expect(decision?.evidence.procurementUnavailabilityReason).toBeNull();
+  });
+
+  it('구매 불가 사유 계약의 버전과 값이 함께 오지 않으면 fail-closed 처리한다', () => {
+    const unavailable = candidate('verified_exact', 'INVALID-NO-STOCK', 'digikey', 1_000, 1, {
+      currentDecisionContract: true,
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+    });
+    const procurementDecision = componentProcurementDecision(
+      'no_recommendation',
+      null,
+      10,
+      { unavailabilityReason: 'out_of_stock' },
+    );
+    Reflect.deleteProperty(procurementDecision, 'primary_unavailability_reason');
+
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-invalid-no-stock',
+        status: 'verified_exact',
+        procurement_decision: procurementDecision,
+        candidates: [unavailable],
+      },
+      10,
+      null,
+    );
+
+    expect(decision?.candidate).toBeNull();
+    expect(decision?.evidence.procurementUnavailabilityReason).toBeNull();
+    expect(decision?.evidence.decisionReasonCodes).toEqual(['no-safe-candidate']);
   });
 
   it('오퍼 키와 선언된 키 버전이 다르면 엔진 계약을 거부한다', () => {
@@ -928,7 +1042,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.candidate).toBeNull();
     expect(decision?.recommendedCandidateKey).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v10');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v11');
     expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-procurement-unavailable']);
     expect(decision?.snapshots.map((candidate) => candidate.selectionRecommendation)).toEqual([
       'preselect',
@@ -1096,7 +1210,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.snapshots).toHaveLength(1);
     expect(decision?.snapshots[0]?.offers).toHaveLength(2);
     expect(decision?.pick).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v10');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v11');
   });
 
   it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 오퍼는 합치지 않는다', () => {

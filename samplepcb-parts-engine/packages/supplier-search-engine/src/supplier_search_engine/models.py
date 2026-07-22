@@ -89,6 +89,18 @@ class SelectionApplicationState(StrEnum):
     NOT_SELECTED = "not_selected"
 
 
+class ProcurementUnavailabilityReason(StrEnum):
+    OUT_OF_STOCK = "out_of_stock"
+    INSUFFICIENT_STOCK = "insufficient_stock"
+    STOCK_UNVERIFIED = "stock_unverified"
+    PRICE_UNAVAILABLE = "price_unavailable"
+    TECHNICAL_UNAVAILABLE = "technical_unavailable"
+    SUPPLIER_UNAVAILABLE = "supplier_unavailable"
+    NO_OFFER = "no_offer"
+    INPUT_INCOMPLETE = "input_incomplete"
+    OTHER = "other"
+
+
 class MatchRelation(StrEnum):
     EXACT = "exact"
     VARIANT = "variant"
@@ -251,6 +263,10 @@ class ComponentProcurementDecision(BaseModel):
     ]
     selection_application_state: SelectionApplicationState
     confirmation_required: bool
+    unavailability_reason_policy_version: Literal[
+        "supplier-procurement-unavailability-v1"
+    ] | None = None
+    primary_unavailability_reason: ProcurementUnavailabilityReason | None = None
     procurement_disposition: ProcurementDisposition = ProcurementDisposition.ELIGIBLE
     required_quantity: int | None = Field(default=None, ge=1)
     target_currency: str
@@ -268,6 +284,25 @@ class ComponentProcurementDecision(BaseModel):
 
     @model_validator(mode="after")
     def validate_recommendation(self) -> "ComponentProcurementDecision":
+        has_unavailability_contract = (
+            self.unavailability_reason_policy_version is not None
+        )
+        if (
+            not has_unavailability_contract
+            and self.primary_unavailability_reason is not None
+        ):
+            raise ValueError(
+                "primary unavailability reason requires its policy version"
+            )
+        if has_unavailability_contract:
+            has_recommendation = self.status in {
+                "automatic_recommended",
+                "review_recommended",
+            }
+            if has_recommendation != (self.primary_unavailability_reason is None):
+                raise ValueError(
+                    "primary unavailability reason must exist only without a recommendation"
+                )
         for value, prefix in (
             (self.technical_preselection_identity_key, "ik1:"),
             (self.technical_preselection_evidence_key, "ek1:"),

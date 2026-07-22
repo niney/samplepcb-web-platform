@@ -322,6 +322,21 @@ def test_procurement_reevaluation_api_is_deterministic_and_fails_closed(tmp_path
         == result["procurement_decision"]["technical_preselection_identity_key"]
     )
     assert result["procurement_decision"]["technical_fallback_used"] is False
+    assert result["procurement_decision"]["unavailability_reason_policy_version"] == (
+        "supplier-procurement-unavailability-v1"
+    )
+    assert result["procurement_decision"]["primary_unavailability_reason"] is None
+
+    out_of_stock = deepcopy(payload)
+    out_of_stock["candidates"][0]["product"]["offers"][0]["stock"] = 0
+    unavailable = client.post(
+        "/supplier-search/procurement/reevaluate",
+        json=out_of_stock,
+    )
+    assert unavailable.status_code == 200, unavailable.text
+    assert unavailable.json()["procurement_decision"][
+        "primary_unavailability_reason"
+    ] == "out_of_stock"
 
     duplicate = deepcopy(payload)
     duplicate_offer = deepcopy(duplicate["candidates"][0]["product"]["offers"][0])

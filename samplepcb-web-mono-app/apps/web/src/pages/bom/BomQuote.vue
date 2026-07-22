@@ -315,7 +315,16 @@ async function saveNow(): Promise<void> {
 }
 
 // ── 결과 시트 탭·통계·합계(로컬 표시 — 저장 시 서버가 재계산해 동기화) ───────
+function hasEngineStockConstraint(item: BomQuoteItemType): boolean {
+  const reason = item.matchEvidence?.procurementUnavailabilityReason;
+  return reason === 'out_of_stock'
+    || reason === 'insufficient_stock'
+    || reason === 'stock_unverified';
+}
+
 function isStockShort(item: BomQuoteItemType): boolean {
+  const reason = item.matchEvidence?.procurementUnavailabilityReason;
+  if (reason === 'out_of_stock' || reason === 'insufficient_stock') return true;
   const o = item.selectedOffer;
   return o !== null && o.stock !== null && o.stock < item.orderQty;
 }
@@ -459,6 +468,7 @@ function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
   let total = 0;
   let matched = 0;
   let review = 0;
+  let unmatched = 0;
   let nostock = 0;
   let included = 0;
   let uncosted = 0;
@@ -467,7 +477,8 @@ function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
   for (const i of sourceItems) {
     total += 1;
     if (i.matchStatus !== 'none') matched += 1;
-    else if (i.matchEvidence?.selectionMode === 'review') review += 1;
+    else if (!hasEngineStockConstraint(i) && i.matchEvidence?.selectionMode === 'review') review += 1;
+    else unmatched += 1;
     if (i.included) {
       included += 1;
       if (
@@ -487,7 +498,7 @@ function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
     nostock,
     nostockPct: total === 0 ? 0 : Math.round((nostock / total) * 100),
     review,
-    unmatched: total - matched - review,
+    unmatched,
     unresolved: total - matched,
     included,
     uncosted,
@@ -519,8 +530,8 @@ const EDIT_LOCK_TITLE = computed(() => updateSheets.isPending.value
   : '공급사 확인이 완료되면 수정할 수 있습니다');
 
 // ── 매칭 결과 필터 ──────────────────────────────────────────────────────────
-// 매칭 상태는 서로 배타적이며, 재고 부족은 매칭된 행에도 함께 존재할 수 있는
-// 독립 조건이다. 우측 요약 카드의 집계 규칙과 같은 판정식을 사용한다.
+// 매칭 상태는 서로 배타적이다. 엔진이 대표 사유를 재고로 판정한 미선정 행은
+// Review 대신 Unmatched에 두고, 재고 부족은 매칭 상태와 독립적으로 함께 집계한다.
 type ResultMatchFilter = 'all' | 'matched' | 'review' | 'unmatched';
 type SpecificResultMatchFilter = Exclude<ResultMatchFilter, 'all'>;
 
@@ -536,7 +547,7 @@ const RESULT_MATCH_FILTER_LABEL: Record<SpecificResultMatchFilter, string> = {
 
 function itemMatchGroup(item: BomQuoteItemType): SpecificResultMatchFilter {
   if (item.matchStatus !== 'none') return 'matched';
-  if (item.matchEvidence?.selectionMode === 'review') return 'review';
+  if (!hasEngineStockConstraint(item) && item.matchEvidence?.selectionMode === 'review') return 'review';
   return 'unmatched';
 }
 
