@@ -541,6 +541,8 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
   enrichStatus: z.enum(['idle', 'searching', 'done', 'failed']),
   /** 마지막 보강 반영(재매칭 저장) 시각. */
   enrichedAt: z.string().nullable(),
+  /** 활성 공급사 검색에서 실제 호출 한도 때문에 일부 공급사 확인이 제한된 부품 수. */
+  supplierSearchLimitedCount: z.number().int().nonnegative(),
   setQty: z.number().int().min(1),
   spareQty: z.number().int().min(0),
   /** 부품 합계(KRW, included 라인) — 서버 재계산 스냅샷. */

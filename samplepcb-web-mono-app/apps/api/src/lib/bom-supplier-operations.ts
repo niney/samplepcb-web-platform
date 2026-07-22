@@ -22,6 +22,7 @@ const StoredResultSummary = z.object({
   apiCalls: z.number().int().nonnegative(),
   cacheHits: z.number().int().nonnegative(),
   budgetExhaustedCount: z.number().int().nonnegative(),
+  budgetExhaustedDetectionVersion: z.literal(2).optional(),
   elapsedMs: z.number().nonnegative(),
   engineElapsedMs: z.number().nonnegative().optional(),
   quoteApplyMs: z.number().nonnegative().optional(),
@@ -33,6 +34,15 @@ const StoredResultSummary = z.object({
   catalogReused: z.boolean().optional(),
   statusCounts: z.record(z.string(), z.number().int().nonnegative()),
 });
+
+const StoredBudgetTrace = z.object({
+  attempts: z.array(z.object({ outcome: z.string() }).passthrough()),
+}).passthrough();
+
+const StoredBudgetSummary = z.object({
+  budgetExhaustedCount: z.number().int().nonnegative(),
+  budgetExhaustedDetectionVersion: z.literal(2).optional(),
+}).passthrough();
 
 const StoredOptions = z.object({
   max_calls: z.number().int().positive().optional(),
@@ -56,18 +66,44 @@ export function supplierRunSummarySnapshot(envelope: unknown): SupplierRunSummar
   const parsed = BomSupplierResult.safeParse(envelope);
   if (!parsed.success) return null;
   const data = parsed.data;
-  const budgetExhaustedCount = data.search.components.filter((component) =>
-    component.warnings?.some((warning) => warning.includes('job_call_limit_exhausted')) ?? false,
-  ).length;
+  const budgetExhaustedCount = data.search.components.filter((component) => {
+    const warningDetected = component.warnings?.some((warning) =>
+      warning.includes('quota_exhausted') || warning.includes('job_call_limit_exhausted')) ?? false;
+    const trace = StoredBudgetTrace.safeParse(component.search_trace);
+    return warningDetected || (
+      trace.success
+      && trace.data.attempts.some((attempt) => attempt.outcome === 'budget_exhausted')
+    );
+  }).length;
   return {
     componentCount: data.summary.component_count,
     apiCalls: data.summary.api_calls,
     cacheHits: data.summary.cache_hits,
     budgetExhaustedCount,
+    budgetExhaustedDetectionVersion: 2,
     elapsedMs: data.timing.known_pipeline_elapsed_ms,
     engineElapsedMs: data.timing.known_pipeline_elapsed_ms,
     statusCounts: data.summary.status_counts,
   };
+}
+
+/** 저장 요약을 우선 사용하고, 구형 오집계는 영속 검색 trace로 복구한다. */
+export function supplierRunLimitedComponentCount(
+  resultSummary: unknown,
+  searchTracePayloads?: readonly unknown[],
+): number | null {
+  const summary = StoredBudgetSummary.safeParse(resultSummary);
+  const summaryCount = summary.success ? summary.data.budgetExhaustedCount : 0;
+  if (summary.success && summary.data.budgetExhaustedDetectionVersion === 2) {
+    return summaryCount;
+  }
+  if (searchTracePayloads === undefined) return null;
+  const traceCount = searchTracePayloads.filter((payload) => {
+    const trace = StoredBudgetTrace.safeParse(payload);
+    return trace.success
+      && trace.data.attempts.some((attempt) => attempt.outcome === 'budget_exhausted');
+  }).length;
+  return Math.max(summaryCount, traceCount);
 }
 
 export async function reserveDailySupplierSearch(mbId: string, limit: number): Promise<boolean> {

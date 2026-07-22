@@ -1159,6 +1159,18 @@ function fmtAmount(v: number | null): string {
           </div>
         </div>
 
+        <div
+          v-else-if="detail.supplierSearchLimitedCount > 0"
+          class="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-900"
+          role="status"
+        >
+          <span class="mt-0.5 shrink-0 text-amber-600" aria-hidden="true">!</span>
+          <p>
+            검색 한도에 도달해 <strong>{{ detail.supplierSearchLimitedCount.toLocaleString('ko-KR') }}개 부품</strong>의 일부 공급사 확인이 제한되었습니다.
+            <span class="text-amber-800/80">표시된 후보는 확인이 완료된 결과 기준입니다.</span>
+          </p>
+        </div>
+
         <!-- 여러 시트 결과를 원본 단위로 탐색하되 견적 합계·선택 상태는 하나로 유지한다 -->
         <div v-if="showResultSheetTabs" class="mt-3 overflow-x-auto border-b border-[#e1e6ef] [scrollbar-width:thin]" role="tablist" aria-label="BOM 결과 시트">
           <div class="flex min-w-max items-end gap-1 px-1">

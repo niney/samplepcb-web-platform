@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { deriveCatalogStatus, kstDayKey, supplierRunSummarySnapshot } from './bom-supplier-operations';
+import {
+  deriveCatalogStatus,
+  kstDayKey,
+  supplierRunLimitedComponentCount,
+  supplierRunSummarySnapshot,
+} from './bom-supplier-operations';
 
 describe('BOM 공급사 검색 운영 지표', () => {
   it('KST 자정 경계에서 일일 사용량 키를 계산한다', () => {
@@ -54,7 +59,10 @@ describe('BOM 공급사 검색 운영 지표', () => {
             reference_designators: [],
             api_calls: 0,
             candidates: [],
-            warnings: ['digikey: job_call_limit_exhausted'],
+            warnings: ['digikey: quota_exhausted'],
+            search_trace: {
+              attempts: [{ outcome: 'budget_exhausted' }],
+            },
           },
         ],
       },
@@ -68,6 +76,31 @@ describe('BOM 공급사 검색 운영 지표', () => {
       elapsedMs: 3002,
       engineElapsedMs: 3002,
     });
+  });
+
+  it('구형 요약의 0건 오집계는 저장된 검색 trace에서 복구한다', () => {
+    expect(supplierRunLimitedComponentCount(
+      { budgetExhaustedCount: 0 },
+      [
+        { attempts: [{ outcome: 'results' }, { outcome: 'budget_exhausted' }] },
+        { attempts: [{ outcome: 'empty' }] },
+      ],
+    )).toBe(1);
+  });
+
+  it('trace가 없어도 저장 요약의 제한 건수를 유지한다', () => {
+    expect(supplierRunLimitedComponentCount({
+      budgetExhaustedCount: 3,
+      budgetExhaustedDetectionVersion: 2,
+    })).toBe(3);
+  });
+
+  it('신규 0건 요약은 trace 복구 조회 없이 확정할 수 있다', () => {
+    expect(supplierRunLimitedComponentCount({
+      budgetExhaustedCount: 0,
+      budgetExhaustedDetectionVersion: 2,
+    })).toBe(0);
+    expect(supplierRunLimitedComponentCount({ budgetExhaustedCount: 0 })).toBeNull();
   });
 });
 

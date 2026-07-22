@@ -55,6 +55,7 @@ import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
 import { normalizeSupplierPackaging } from './supplier-packaging';
+import { supplierRunLimitedComponentCount } from './bom-supplier-operations';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
 // 원칙: 수량·오퍼는 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
@@ -3546,12 +3547,32 @@ function toSheetDto(row: QuoteSheetRow, hasItems: boolean): BomQuoteSheetType {
   };
 }
 
+async function loadSupplierSearchLimitedCount(supplierSearchRunId: bigint | null): Promise<number> {
+  if (supplierSearchRunId === null) return 0;
+  const run = await prisma.spBomSupplierSearchRun.findUnique({
+    where: { id: supplierSearchRunId },
+    select: { resultSummary: true },
+  });
+  if (run === null) return 0;
+  const currentCount = supplierRunLimitedComponentCount(run.resultSummary);
+  if (currentCount !== null) return currentCount;
+  const searchTraces = await prisma.spBomSupplierSearchTrace.findMany({
+    where: { supplierSearchRunId },
+    select: { payload: true },
+  });
+  return supplierRunLimitedComponentCount(
+    run.resultSummary,
+    searchTraces.map((trace) => trace.payload),
+  ) ?? 0;
+}
+
 export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
   const activeItems = filterActiveQuoteItems(items, sheets);
   const itemSheetIndexes = new Set(items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]));
-  const [partMetaMap, candidateDatasheetMap] = await Promise.all([
+  const [partMetaMap, candidateDatasheetMap, supplierSearchLimitedCount] = await Promise.all([
     loadPartMetaMap(activeItems),
     loadCandidateDatasheetMap(quote.id, activeItems),
+    loadSupplierSearchLimitedCount(quote.activeSupplierSearchRunId),
   ]);
   return {
     ...toSummaryDto(quote, summaryCounts(activeItems)),
@@ -3562,6 +3583,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
       .map((sheet) => toSheetDto(sheet, itemSheetIndexes.has(sheet.sheetIndex))),
     enrichStatus: quote.enrichStatus as BomQuoteDetailType['enrichStatus'],
     enrichedAt: quote.enrichedAt?.toISOString() ?? null,
+    supplierSearchLimitedCount,
     setQty: quote.setQty,
     spareQty: quote.spareQty,
     itemsTotal: quote.itemsTotal,

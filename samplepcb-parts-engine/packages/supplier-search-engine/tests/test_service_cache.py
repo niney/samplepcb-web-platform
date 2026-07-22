@@ -636,6 +636,30 @@ async def test_cache_only_can_use_expired_entry_inside_stale_window(tmp_path):
     ) == "stale_cache"
 
 
+async def test_job_call_limit_has_distinct_error_and_trace_code(tmp_path):
+    service = SearchService(
+        Settings(
+            cache_path=tmp_path / "cache.sqlite3",
+            max_api_calls_per_job=1,
+        ),
+        clients=[
+            FakeSupplierClient(Supplier.DIGIKEY, products=[make_product()]),
+            FakeSupplierClient(Supplier.MOUSER, products=[make_product()]),
+        ],
+    )
+
+    result = await service.search_component(service.planner.plan(make_component("limited")))
+
+    limited = next(
+        supplier
+        for supplier in result.supplier_results
+        if supplier.error_type == "job_call_limit_exhausted"
+    )
+    assert limited.search_attempts[0].outcome == "budget_exhausted"
+    assert limited.search_attempts[0].error_type == "job_call_limit_exhausted"
+    assert any("job_call_limit_exhausted" in warning for warning in result.warnings)
+
+
 async def test_batch_timeout_returns_every_component_without_waiting_for_slow_supplier(tmp_path):
     fake = FakeDigiKeyClient(delay=0.2, products=[make_product()])
     service = SearchService(

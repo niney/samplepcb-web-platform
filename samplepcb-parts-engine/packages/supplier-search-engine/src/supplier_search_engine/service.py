@@ -744,7 +744,10 @@ class SearchService:
                     error_type = result.error_type
                     outcome = (
                         "budget_exhausted"
-                        if error_type == "quota_exhausted"
+                        if error_type in {
+                            "job_call_limit_exhausted",
+                            "quota_exhausted",
+                        }
                         else "skipped"
                         if error_type in {
                             "cache_miss",
@@ -999,6 +1002,11 @@ class SearchService:
                 async with self._supplier_slot(supplier, query):
                     raw = await client.fetch(query, reserve_call=reserve_call)
             except (QuotaExceeded, JobBudgetExceeded) as exc:
+                error_type = (
+                    "job_call_limit_exhausted"
+                    if isinstance(exc, JobBudgetExceeded)
+                    else "quota_exhausted"
+                )
                 budget_attempt = SupplierSearchTraceAttempt(
                     supplier=supplier,
                     strategy=self._planned_strategy(query),
@@ -1008,14 +1016,14 @@ class SearchService:
                     api_calls=call_count,
                     http_attempt_count=call_count,
                     fallback_reason="request_budget_exhausted",
-                    error_type="quota_exhausted",
+                    error_type=error_type,
                 )
                 if stale is not None:
                     return stale.model_copy(
                         update={
                             "api_call_performed": call_count > 0,
                             "api_calls": call_count,
-                            "error_type": "quota_exhausted",
+                            "error_type": error_type,
                             "error_message": str(exc),
                             "search_attempts": [
                                 budget_attempt,
@@ -1025,7 +1033,7 @@ class SearchService:
                     )
                 return SupplierSearchResult(
                     supplier=supplier,
-                    error_type="quota_exhausted",
+                    error_type=error_type,
                     error_message=str(exc),
                     api_call_performed=call_count > 0,
                     api_calls=call_count,

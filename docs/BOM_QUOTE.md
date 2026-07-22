@@ -96,6 +96,9 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   검색을 시작하고 sp-engine이 실제 호출 시점의 원자적 job budget으로 `max_calls`를 강제한다.
   실제 한도에 도달한 요청은 `job_call_limit_exhausted`로 구분한다. 회원 일일 한도 소진은
   캐시 전용으로 조용히 축퇴하지 않고 검색 실행 실패 사유로 영속한다.
+  활성 검색의 실제 `budget_exhausted` 부품 수는 견적 상세에도 전달하며, 1건 이상이면 고객 결과
+  상단에 “일부 공급사 확인이 제한됨” 안내를 지속 표시한다. 내부 API 용어는 노출하지 않고 이미
+  확인된 후보·금액은 그대로 사용할 수 있게 한다. 구형 요약의 오집계는 영속 search trace로 복구한다.
 - **관리자 운영 화면(2026-07-21)**: `/app/admin/settings`의 `BOM 견적` 탭에서 관리자 설정
   `supplierSearchMaxCalls`와 sp-engine `/capabilities`가 알리는 런타임 안전 상한을 함께 보여주고,
   둘 중 작은 값을 실제 적용 한도로 표시한다. 엔진 연결·공급사 자격증명 준비 여부·캐시 모드/건수와
