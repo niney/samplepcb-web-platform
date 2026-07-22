@@ -16,9 +16,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import ProcurementPolicyInput
+from .models import (
+    ProcurementDisposition,
+    ProcurementPolicyInput,
+    QuantityResolution,
+    SearchDisposition,
+)
 
-SEARCH_CONTRACT_VERSION = "1.1"
+SEARCH_CONTRACT_VERSION = "1.2"
 FieldStatus = Literal["extracted", "review", "not_found"]
 
 # 검색 계약이 소비하는 추출 필드 — bom_probing_gpt.runtime.VALUE_FIELDS 미러
@@ -66,6 +71,16 @@ class SearchField(BaseModel):
     normalized_value: Any = None
     status: FieldStatus = "not_found"
     evidence: list[SearchEvidence] = Field(default_factory=list)
+    source: Literal["col", "text", "infer"] | None = None
+
+
+class SearchFieldAlternative(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    raw_value: str
+    normalized_value: Any = None
+    source_cell: str
+    source_role: Literal["value", "package", "footprint", "description"]
 
 
 class SearchComponentInput(BaseModel):
@@ -81,6 +96,23 @@ class SearchComponentInput(BaseModel):
     value_raw: str | None = None
     review_status: str
     quality_flags: list[str] = Field(default_factory=list)
+    input_alternatives: dict[str, list[SearchFieldAlternative]] = Field(
+        default_factory=dict
+    )
+    search_disposition: SearchDisposition = SearchDisposition.SEARCH
+    procurement_disposition: ProcurementDisposition = ProcurementDisposition.ELIGIBLE
+    disposition_reason_codes: list[str] = Field(default_factory=list)
+    quantity_resolution: QuantityResolution = QuantityResolution.VERIFIED
+    reference_count: int | None = Field(default=None, ge=0)
+    impedance_ohm: float | None = None
+    impedance_frequency_hz: float | None = None
+    dc_resistance_max_ohm: float | None = None
+    absolute_tolerance_h: float | None = None
+    color: str | None = None
+    pin_count: int | None = Field(default=None, ge=1)
+    row_count: int | None = Field(default=None, ge=1)
+    pitch_mm: float | None = Field(default=None, gt=0)
+    body_dimensions_mm: list[float] | None = None
     required_quantity: int | None = Field(default=None, ge=1)
     fields: dict[str, SearchField]
 
@@ -105,8 +137,7 @@ def _component_id(source_file: str, sheet_index: int, rows: list[int]) -> str:
 
 
 def _field(component: dict[str, Any], name: str) -> SearchField:
-    """field_states 항목 → SearchField. value/status/evidence 키만 취하므로
-    smartbom이 덧붙이는 `source` 키는 자연히 걸러진다."""
+    """field_states 항목 → SearchField, including extraction provenance."""
     states = component.get("field_states") or {}
     state = states.get(name) or {}
     value = state.get("value", (component.get("raw_fields") or {}).get(name))
@@ -121,6 +152,7 @@ def _field(component: dict[str, Any], name: str) -> SearchField:
         normalized_value=normalized_value,
         status=status,
         evidence=evidence,
+        source=(state.get("source") if state.get("source") in {"col", "text", "infer"} else None),
     )
 
 
@@ -146,7 +178,8 @@ def build_batch_from_result(
     """SMARTBOM 공개 결과(G-shape AnalysisResult dict) → 검색 배치 계약.
 
     - components는 flat 리스트 — not_bom/error 시트의 행은 애초에 없어
-      자연 제외된다. 컴포넌트 0건 배치도 유효하다(preflight 0 call).
+      자연 제외된다. DNP/PCB feature/customer-supplied 행도 감사 계보를
+      위해 보존하되 search_disposition=excluded로 공급사 호출을 막는다.
     - component_id는 /g와 동일 규칙(sha256[:24]) — 같은 시트·같은 행
       조합이면 동일 id가 나오는 것도 /g와 같은 기존 특성이다.
     - training_fingerprint는 규칙 엔진이라 학습 지문이 없어
@@ -156,12 +189,40 @@ def build_batch_from_result(
     display = str(source_file or result.get("source_file") or "")
     components: list[SearchComponentInput] = []
     for component in result.get("components") or []:
-        if "do_not_populate" in (component.get("quality_flags") or []):
-            continue
         sheet_index = int(component["sheet_index_0based"])
         if sheet_indexes is not None and sheet_index not in sheet_indexes:
             continue
         rows = [int(row) for row in component.get("source_rows_1based") or []]
+        quality_flags = list(component.get("quality_flags") or [])
+        legacy_excluded = "do_not_populate" in quality_flags
+        search_disposition = SearchDisposition(
+            component.get("search_disposition")
+            or ("excluded" if legacy_excluded else "search")
+        )
+        quantity_resolution = QuantityResolution(
+            component.get("quantity_resolution")
+            or ("missing" if component.get("quantity") is None else "verified")
+        )
+        procurement_disposition = ProcurementDisposition(
+            component.get("procurement_disposition")
+            or (
+                "excluded"
+                if search_disposition == SearchDisposition.EXCLUDED
+                else "quantity_confirmation_required"
+                if quantity_resolution != QuantityResolution.VERIFIED
+                else "eligible"
+            )
+        )
+        disposition_reason_codes = list(
+            component.get("disposition_reason_codes")
+            or (["do_not_populate"] if legacy_excluded else [])
+        )
+        required_quantity = (
+            _required_quantity(component)
+            if procurement_disposition == ProcurementDisposition.ELIGIBLE
+            and quantity_resolution == QuantityResolution.VERIFIED
+            else None
+        )
         components.append(
             SearchComponentInput(
                 component_id=_component_id(display, sheet_index, rows),
@@ -173,8 +234,31 @@ def build_batch_from_result(
                 description=component.get("description"),
                 value_raw=component.get("value_raw"),
                 review_status=str(component.get("review_status") or "review"),
-                quality_flags=list(component.get("quality_flags") or []),
-                required_quantity=_required_quantity(component),
+                quality_flags=quality_flags,
+                input_alternatives={
+                    str(name): [
+                        SearchFieldAlternative.model_validate(item)
+                        for item in alternatives
+                    ]
+                    for name, alternatives in (
+                        component.get("input_alternatives") or {}
+                    ).items()
+                },
+                search_disposition=search_disposition,
+                procurement_disposition=procurement_disposition,
+                disposition_reason_codes=disposition_reason_codes,
+                quantity_resolution=quantity_resolution,
+                reference_count=component.get("reference_count"),
+                impedance_ohm=component.get("impedance_ohm"),
+                impedance_frequency_hz=component.get("impedance_frequency_hz"),
+                dc_resistance_max_ohm=component.get("dc_resistance_max_ohm"),
+                absolute_tolerance_h=component.get("absolute_tolerance_h"),
+                color=component.get("color"),
+                pin_count=component.get("pin_count"),
+                row_count=component.get("row_count"),
+                pitch_mm=component.get("pitch_mm"),
+                body_dimensions_mm=component.get("body_dimensions_mm"),
+                required_quantity=required_quantity,
                 fields={name: _field(component, name) for name in VALUE_FIELDS},
             )
         )

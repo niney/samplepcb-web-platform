@@ -65,6 +65,16 @@ _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
         "package",
     ),
     "inductor": ("inductance_h", "current_a", "tolerance_percent", "package"),
+    "ferrite": (
+        "impedance_ohm",
+        "impedance_frequency_hz",
+        "current_a",
+        "package",
+    ),
+    "led": ("color", "package", "mount_style"),
+    "connector": ("pin_count", "pitch_mm", "row_count", "mount_style"),
+    "varistor": ("voltage_v", "diameter_mm", "mount_style"),
+    "buzzer": ("voltage_v", "frequency_hz", "mount_style"),
     "crystal": ("frequency_hz", "tolerance_percent", "package"),
 }
 _PHYSICAL_REQUIREMENTS = {"mount_style", "diameter_mm"}
@@ -72,6 +82,19 @@ _SOURCE_CONFLICTS = {
     "manufacturer_source_conflict",
     "mount_style_source_conflict",
     "diameter_mm_source_conflict",
+    "resistance_input_source_conflict",
+    "capacitance_input_source_conflict",
+    "inductance_input_source_conflict",
+    "power_input_source_conflict",
+    "tolerance_input_source_conflict",
+    "voltage_input_source_conflict",
+    "current_input_source_conflict",
+    "frequency_input_source_conflict",
+    "temperature_input_source_conflict",
+    "package_input_source_conflict",
+    "unit_category_conflict",
+    "connector_geometry_source_conflict",
+    "part_type_source_conflict",
 }
 
 
@@ -172,7 +195,13 @@ def _category_fields(query: PlannedQuery) -> tuple[str, ...] | None:
             ),
             None,
         )
-    return _CATEGORY_POLICY.get(policy) if policy else None
+    fields = _CATEGORY_POLICY.get(policy) if policy else None
+    if fields and "absolute_tolerance_h" in query.requirements:
+        fields = tuple(
+            "absolute_tolerance_h" if name == "tolerance_percent" else name
+            for name in fields
+        )
+    return fields
 
 
 def _requirement_assessment(
@@ -416,6 +445,12 @@ def _candidate_decision(
         eligibility = SelectionEligibility.MANUAL_REVIEW
     elif identity_relation:
         eligibility = SelectionEligibility.AUTOMATIC
+    elif (
+        relation == MatchRelation.SPEC_COMPATIBLE
+        and query.mode == SearchMode.PARAMETRIC
+        and query.category_policy in {"led", "connector"}
+    ):
+        eligibility = SelectionEligibility.MANUAL_REVIEW
     elif relation == MatchRelation.SPEC_COMPATIBLE:
         eligibility = SelectionEligibility.AUTOMATIC
     else:
@@ -445,6 +480,11 @@ def _candidate_decision(
         reason_codes.append("verification_incomplete")
     if query.mode == SearchMode.PARAMETRIC and not strict:
         reason_codes.append("strict_category_coverage_incomplete")
+    if (
+        query.mode == SearchMode.PARAMETRIC
+        and query.category_policy in {"led", "connector"}
+    ):
+        reason_codes.append("category_manual_selection_only")
     if lifecycle == LifecycleState.CAUTION:
         reason_codes.append("lifecycle_caution")
     if eligibility == SelectionEligibility.MANUAL_REVIEW:
@@ -471,6 +511,16 @@ def _candidate_decision(
         "manufacturer_evidence": product.manufacturer_evidence.value,
         "reason_codes": sorted(set(reason_codes)),
     }
+    if query.input_branch_id is not None:
+        evidence_payload["input_branch"] = {
+            "id": query.input_branch_id,
+            "field": query.input_branch_field,
+            "requirements": {
+                name: requirement.normalized_value
+                for name, requirement in sorted(query.requirements.items())
+                if requirement.hard
+            },
+        }
     return CandidateDecision(
         match_relation=relation,
         selection_eligibility=eligibility,
@@ -895,7 +945,7 @@ def finalize_candidate_decisions(
 
 class CandidateMatcher:
     def evaluate(self, query: PlannedQuery, product: SupplierProduct) -> CandidateMatch:
-        conflicts: list[str] = []
+        conflicts: list[str] = list(query.input_source_conflicts)
         missing: list[str] = []
         reasons: list[str] = []
         identity_confidence = 0.0
@@ -944,6 +994,37 @@ class CandidateMatcher:
                 actual = normalize_package(package_source, query.part_type) or None
             elif name == "dielectric":
                 actual = product.normalized_specs.get("dielectric")
+            elif name == "color":
+                actual = product.normalized_specs.get("color")
+                if actual is not None:
+                    checked += 1
+                    if str(actual).strip().casefold() == str(expected).strip().casefold():
+                        matched += 1
+                        reasons.append("color_match")
+                    elif requirement.hard:
+                        conflicts.append("color_mismatch")
+                    continue
+            elif name == "absolute_tolerance_h":
+                actual = product.normalized_specs.get(name)
+                if actual is None:
+                    tolerance_percent = product.normalized_specs.get(
+                        "tolerance_percent"
+                    )
+                    nominal = query.requirements.get("inductance_h")
+                    if (
+                        isinstance(tolerance_percent, (int, float))
+                        and nominal is not None
+                        and isinstance(nominal.normalized_value, (int, float))
+                        and float(nominal.normalized_value) != 0
+                    ):
+                        actual = abs(
+                            float(nominal.normalized_value)
+                            * float(tolerance_percent)
+                            / 100.0
+                        )
+                        reasons.append(
+                            "absolute_tolerance_h_derived_from_supplier_percent"
+                        )
             elif name == "part_type":
                 category_match = _category_matches(str(expected), product.category, product.description)
                 if category_match is None:
@@ -1019,6 +1100,7 @@ class CandidateMatcher:
                 sorted(set(missing)),
                 reasons,
             ),
+            input_branch_id=query.input_branch_id,
         )
 
     @staticmethod

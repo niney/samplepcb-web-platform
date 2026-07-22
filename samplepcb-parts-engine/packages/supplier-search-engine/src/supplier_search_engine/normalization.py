@@ -369,6 +369,15 @@ def normalized_specs_from_text(text: str | None, component_type: str | None = No
         return {}
     inferred = normalize_component_text(text, component_type)
     result = {key: value for key, value in inferred.items() if value is not None}
+    context = unicodedata.normalize("NFKC", component_type or "").casefold()
+    full_context = f"{context} {unicodedata.normalize('NFKC', text).casefold()}"
+    if re.search(r"\b(?:ferrite|bead|f\.?\s*bead)\b|비드", full_context):
+        impedance = result.pop("resistance_ohm", None)
+        if impedance is not None:
+            result["impedance_ohm"] = impedance
+        impedance_frequency = result.get("frequency_hz")
+        if impedance_frequency is not None:
+            result["impedance_frequency_hz"] = impedance_frequency
     minimum, maximum = parse_temperature_range_c(text)
     if minimum is not None or maximum is not None:
         result["temperature_range_c"] = [minimum, maximum]
@@ -378,6 +387,43 @@ def normalized_specs_from_text(text: str | None, component_type: str | None = No
     dielectric = normalize_dielectric(text)
     if dielectric:
         result["dielectric"] = dielectric
+    color_match = re.search(
+        r"\b(red|green|orange|amber|yellow|blue|white)\b|적색|녹색|주황|황색|청색|백색",
+        text,
+        re.I,
+    )
+    if color_match:
+        color_token = color_match.group(0).casefold()
+        result["color"] = {
+            "적색": "red",
+            "녹색": "green",
+            "주황": "orange",
+            "황색": "yellow",
+            "청색": "blue",
+            "백색": "white",
+        }.get(color_token, color_token)
+    pin_match = re.search(r"\b(\d{1,3})\s*[- ]?pins?\b", text, re.I)
+    if pin_match:
+        result["pin_count"] = int(pin_match.group(1))
+    if re.search(r"\b(?:dual|double)\s*row\b", text, re.I):
+        result["row_count"] = 2
+    elif re.search(r"\bsingle\s*row\b", text, re.I):
+        result["row_count"] = 1
+    pitch_match = re.search(r"\b(\d+(?:\.\d+)?)\s*mm\s*pitch\b", text, re.I)
+    if pitch_match:
+        result["pitch_mm"] = float(pitch_match.group(1))
+    dimensions = re.search(
+        r"\b(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*mm\b",
+        text,
+        re.I,
+    )
+    if dimensions:
+        for name, index in zip(
+            ("body_length_mm", "body_width_mm", "body_height_mm"),
+            (1, 2, 3),
+            strict=True,
+        ):
+            result[name] = float(dimensions.group(index))
     return result
 
 
@@ -448,15 +494,28 @@ def normalized_specs_from_parameters(
         key = unicodedata.normalize("NFKC", str(name)).casefold()
         compact_key = re.sub(r"\s+", "", key)
         raw[str(name)] = value
+        ferrite_context = bool(
+            re.search(r"\b(?:ferrite|bead|f\.?\s*bead)\b|비드", component_context)
+        )
         parsers = (
-            (("resistance", "저항", "impedance", "임피던스"), "resistance_ohm", parse_resistance_ohm),
+            (("impedance", "임피던스"), "impedance_ohm", parse_resistance_ohm),
+            (
+                ("dc resistance", "dcresistance", "dc 저항", "dc저항"),
+                "dc_resistance_max_ohm" if ferrite_context else "resistance_ohm",
+                parse_resistance_ohm,
+            ),
+            (("resistance", "저항"), "resistance_ohm", parse_resistance_ohm),
             (("capacitance", "정전용량", "용량"), "capacitance_f", parse_capacitance_f),
             (("inductance", "인덕턴스"), "inductance_h", parse_inductance_h),
             (("power", "watt", "전력"), "power_w", parse_power_w),
             (("tolerance", "허용오차"), "tolerance_percent", parse_tolerance_percent),
             (("voltage", "전압"), "voltage_v", parse_voltage_v),
             (("current", "전류"), "current_a", parse_current_a),
-            (("frequency", "주파수"), "frequency_hz", parse_frequency_hz),
+            (
+                ("frequency", "주파수"),
+                "impedance_frequency_hz" if ferrite_context else "frequency_hz",
+                parse_frequency_hz,
+            ),
         )
         matched = False
         for aliases, target, parser in parsers:
@@ -489,4 +548,58 @@ def normalized_specs_from_parameters(
             dielectric = normalize_dielectric(value)
             if dielectric:
                 normalized["dielectric"] = dielectric
+        if any(alias in compact_key for alias in ("numberofpositions", "positions", "pincount", "핀수")):
+            pin_match = re.search(r"\d{1,3}", str(value))
+            if pin_match:
+                normalized["pin_count"] = int(pin_match.group(0))
+        if any(alias in compact_key for alias in ("pitch", "피치")):
+            pitch_match = re.search(r"\d+(?:\.\d+)?", str(value))
+            if pitch_match:
+                normalized["pitch_mm"] = float(pitch_match.group(0))
+        if any(alias in compact_key for alias in ("color", "색상", "색")):
+            color_match = re.search(
+                r"red|green|orange|amber|yellow|blue|white|적색|녹색|주황|황색|청색|백색",
+                str(value),
+                re.I,
+            )
+            if color_match:
+                token = color_match.group(0).casefold()
+                normalized["color"] = {
+                    "적색": "red",
+                    "녹색": "green",
+                    "주황": "orange",
+                    "황색": "yellow",
+                    "청색": "blue",
+                    "백색": "white",
+                }.get(token, token)
+    parameter_text = " ".join(
+        f"{name} {value}" for name, value in raw.items()
+    )
+    parameter_ferrite = bool(
+        normalized.get("impedance_ohm") is not None
+        or re.search(
+            r"\b(?:ferrite|bead|f\.?\s*bead|impedance)\b|비드|임피던스",
+            f"{component_context} {parameter_text}",
+            re.I,
+        )
+    )
+    if parameter_ferrite:
+        if "impedance_ohm" not in normalized:
+            impedance = parse_resistance_ohm(parameter_text)
+            if impedance is not None:
+                normalized["impedance_ohm"] = impedance
+        if "impedance_frequency_hz" not in normalized:
+            frequency = parse_frequency_hz(parameter_text)
+            if frequency is not None:
+                normalized["impedance_frequency_hz"] = frequency
+        dcr_values = [
+            parse_resistance_ohm(value)
+            for name, value in raw.items()
+            if re.search(r"dc\s*resistance|dc\s*저항|\bdcr\b", name, re.I)
+        ]
+        dcr = next((value for value in dcr_values if value is not None), None)
+        if dcr is not None:
+            normalized["dc_resistance_max_ohm"] = dcr
+            if normalized.get("resistance_ohm") == dcr:
+                normalized.pop("resistance_ohm", None)
     return normalized, raw

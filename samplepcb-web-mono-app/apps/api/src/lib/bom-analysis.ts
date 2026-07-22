@@ -27,6 +27,13 @@ const EngineAttribute = z.object({
   evidence: z.array(EngineEvidence),
 }).passthrough();
 
+const EngineFieldAlternative = z.object({
+  raw_value: z.string(),
+  normalized_value: z.union([z.string(), z.number(), z.null()]),
+  source_cell: z.string(),
+  source_role: z.enum(['value', 'package', 'footprint', 'description']),
+}).passthrough();
+
 export const BomEngineAnalysisComponent = z.object({
   source_file: z.string(),
   sheet_name: z.string(),
@@ -37,11 +44,17 @@ export const BomEngineAnalysisComponent = z.object({
   manufacturer: z.string().nullish(),
   description: z.string().nullish(),
   quantity: z.number().int().nullish(),
+  reference_count: z.number().int().min(0).nullish().optional(),
+  quantity_resolution: z.enum(['verified', 'conflict', 'missing']).optional(),
+  search_disposition: z.enum(['search', 'excluded']).optional(),
+  procurement_disposition: z.enum(['eligible', 'excluded', 'quantity_confirmation_required']).optional(),
+  disposition_reason_codes: z.array(z.string()).optional(),
   reference_designators: z.array(z.string()),
   package: z.string().nullish(),
   footprint: z.string().nullish(),
   value_raw: z.string().nullish(),
   raw_fields: z.record(z.string(), z.union([z.string(), z.number(), z.null()])),
+  input_alternatives: z.record(z.string(), z.array(EngineFieldAlternative)).optional(),
   field_states: z.record(z.string(), EngineFieldState),
   evidence: z.array(EngineEvidence),
   uncertain_fields: z.array(z.string()),
@@ -52,6 +65,15 @@ export const BomEngineAnalysisComponent = z.object({
   inductance_h: z.number().nullish(),
   power_w: z.number().nullish(),
   tolerance_percent: z.number().nullish(),
+  absolute_tolerance_h: z.number().nullish().optional(),
+  impedance_ohm: z.number().nullish().optional(),
+  impedance_frequency_hz: z.number().nullish().optional(),
+  dc_resistance_max_ohm: z.number().nullish().optional(),
+  color: z.string().nullish().optional(),
+  pin_count: z.number().int().min(0).nullish().optional(),
+  row_count: z.number().int().min(0).nullish().optional(),
+  pitch_mm: z.number().nullish().optional(),
+  body_dimensions_mm: z.array(z.number()).nullish().optional(),
   voltage_v: z.number().nullish(),
   current_a: z.number().nullish(),
   frequency_hz: z.number().nullish(),
@@ -78,9 +100,11 @@ const StrictEngineAttribute = z.object({
   unit: z.string().nullish(),
   evidence: z.array(StrictEngineEvidence),
 }).strict();
+const StrictEngineFieldAlternative = EngineFieldAlternative.strict();
 
 /** 테스트/CI 전용 strict 계약. 런타임 저장은 위 passthrough 계약으로 새 필드를 먼저 보존한다. */
 export const BomEngineAnalysisComponentStrict = BomEngineAnalysisComponent.extend({
+  input_alternatives: z.record(z.string(), z.array(StrictEngineFieldAlternative)).optional(),
   field_states: z.record(z.string(), StrictEngineFieldState),
   evidence: z.array(StrictEngineEvidence),
   attributes: z.array(StrictEngineAttribute),

@@ -26,6 +26,7 @@ class SearchMode(StrEnum):
     HYBRID = "hybrid"
     PARAMETRIC = "parametric"
     INSUFFICIENT = "insufficient"
+    EXCLUDED = "excluded"
 
 
 class MatchStatus(StrEnum):
@@ -38,6 +39,24 @@ class MatchStatus(StrEnum):
     NOT_FOUND = "not_found"
     SUPPLIER_ERROR = "supplier_error"
     INSUFFICIENT_INPUT = "insufficient_input"
+    EXCLUDED = "excluded"
+
+
+class SearchDisposition(StrEnum):
+    SEARCH = "search"
+    EXCLUDED = "excluded"
+
+
+class ProcurementDisposition(StrEnum):
+    ELIGIBLE = "eligible"
+    EXCLUDED = "excluded"
+    QUANTITY_CONFIRMATION_REQUIRED = "quantity_confirmation_required"
+
+
+class QuantityResolution(StrEnum):
+    VERIFIED = "verified"
+    CONFLICT = "conflict"
+    MISSING = "missing"
 
 
 class ManufacturerEvidence(StrEnum):
@@ -232,6 +251,7 @@ class ComponentProcurementDecision(BaseModel):
     ]
     selection_application_state: SelectionApplicationState
     confirmation_required: bool
+    procurement_disposition: ProcurementDisposition = ProcurementDisposition.ELIGIBLE
     required_quantity: int | None = Field(default=None, ge=1)
     target_currency: str
     currency_rate_snapshot_id: str
@@ -333,6 +353,14 @@ class ComponentProcurementDecision(BaseModel):
             raise ValueError(
                 "only provisional selections can require user confirmation"
             )
+        if self.procurement_disposition != ProcurementDisposition.ELIGIBLE and (
+            self.status not in {"input_incomplete", "no_recommendation"}
+            or self.automatic_offer_key is not None
+            or self.review_offer_key is not None
+        ):
+            raise ValueError(
+                "non-eligible procurement dispositions cannot recommend an offer"
+            )
         return self
 
 
@@ -361,19 +389,46 @@ class PlannedQuery(BaseModel):
         "capacitor",
         "electrolytic",
         "inductor",
+        "ferrite",
+        "led",
+        "connector",
+        "varistor",
+        "buzzer",
         "crystal",
     ] | None = None
     package: str | None = None
     quantity: int | None = None
     keywords: str = ""
     requirements: dict[str, Requirement] = Field(default_factory=dict)
+    input_source_conflicts: list[str] = Field(default_factory=list)
+    search_disposition: SearchDisposition = SearchDisposition.SEARCH
+    procurement_disposition: ProcurementDisposition = ProcurementDisposition.ELIGIBLE
+    disposition_reason_codes: list[str] = Field(default_factory=list)
+    quantity_resolution: QuantityResolution = QuantityResolution.VERIFIED
+    input_branch_id: str | None = None
+    input_branch_field: str | None = None
+    branch_limit_exceeded: bool = False
     site: str = "KR"
     language: str = "ko"
     currency: str = "KRW"
     limit: int = 20
 
     def cache_payload(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", exclude={"component_id"}, exclude_none=True)
+        return self.model_dump(
+            mode="json",
+            exclude={
+                "component_id",
+                "input_source_conflicts",
+                "search_disposition",
+                "procurement_disposition",
+                "disposition_reason_codes",
+                "quantity_resolution",
+                "input_branch_id",
+                "input_branch_field",
+                "branch_limit_exceeded",
+            },
+            exclude_none=True,
+        )
 
 
 class PriceBreak(BaseModel):
@@ -494,7 +549,8 @@ class ComponentSearchTraceAttempt(SupplierSearchTraceAttempt):
     model_config = ConfigDict(extra="forbid")
 
     sequence: int = Field(ge=1)
-    stage: Literal["primary", "identity_fallback"]
+    stage: Literal["primary", "identity_fallback", "input_conflict_branch"]
+    input_branch_id: str | None = None
 
 
 class ComponentSearchTrace(BaseModel):
@@ -703,6 +759,7 @@ class CandidateMatch(BaseModel):
     package_comparison: PackageComparison | None = None
     spec_comparisons: dict[str, SpecComparison] = Field(default_factory=dict)
     decision: CandidateDecision
+    input_branch_id: str | None = None
 
 
 _CURRENT_DECISION_FIELDS = frozenset(
@@ -740,6 +797,20 @@ class ProcurementReevaluationCandidateInput(BaseModel):
     candidates: list[CandidateMatch] = Field(default_factory=list)
     required_quantity: int = Field(ge=1)
     requested_offer_key: str | None = None
+    procurement_disposition: ProcurementDisposition = ProcurementDisposition.ELIGIBLE
+    quantity_resolution: QuantityResolution = QuantityResolution.VERIFIED
+    disposition_reason_codes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_procurement_disposition(self) -> "ProcurementReevaluationCandidateInput":
+        if (
+            self.procurement_disposition == ProcurementDisposition.ELIGIBLE
+            and self.quantity_resolution != QuantityResolution.VERIFIED
+        ):
+            raise ValueError(
+                "eligible procurement requires a verified quantity resolution"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -966,9 +1037,14 @@ class ComponentSearchResult(BaseModel):
     component_id: str
     mode: SearchMode
     status: MatchStatus
+    search_disposition: SearchDisposition = SearchDisposition.SEARCH
+    procurement_disposition: ProcurementDisposition = ProcurementDisposition.ELIGIBLE
+    disposition_reason_codes: list[str] = Field(default_factory=list)
+    quantity_resolution: QuantityResolution = QuantityResolution.VERIFIED
     reference_designators: list[str] = Field(default_factory=list)
     source_rows_1based: list[int] = Field(default_factory=list)
     query: PlannedQuery | None = None
+    conflict_branch_queries: list[PlannedQuery] = Field(default_factory=list)
     initial_query: PlannedQuery | None = None
     identity_fallback: bool = False
     search_trace: ComponentSearchTrace | None = None
@@ -985,7 +1061,7 @@ class ComponentSearchResult(BaseModel):
 class BatchSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_schema_version: str = "1.6"
+    search_schema_version: str = "1.7"
     procurement_policy: ProcurementPolicyInput = Field(
         default_factory=ProcurementPolicyInput
     )
@@ -1013,6 +1089,7 @@ class SupplierPreflight(BaseModel):
     retry_worst_case_api_calls: int = 0
     usable_without_api: bool = False
     reason: str
+    input_branch_id: str | None = None
 
 
 class ComponentPreflight(BaseModel):
@@ -1020,6 +1097,10 @@ class ComponentPreflight(BaseModel):
 
     component_id: str
     mode: SearchMode
+    search_disposition: SearchDisposition = SearchDisposition.SEARCH
+    procurement_disposition: ProcurementDisposition = ProcurementDisposition.ELIGIBLE
+    disposition_reason_codes: list[str] = Field(default_factory=list)
+    quantity_resolution: QuantityResolution = QuantityResolution.VERIFIED
     reference_designators: list[str] = Field(default_factory=list)
     source_rows_1based: list[int] = Field(default_factory=list)
     part_number: str | None = None
@@ -1029,6 +1110,7 @@ class ComponentPreflight(BaseModel):
     fallback_mode: SearchMode | None = None
     fallback_keywords: str | None = None
     fallback_suppliers: list[SupplierPreflight] = Field(default_factory=list)
+    conflict_branch_queries: list[PlannedQuery] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -1051,7 +1133,7 @@ class SupplierBudgetProjection(BaseModel):
 class BatchPreflight(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    preflight_schema_version: str = "1.0"
+    preflight_schema_version: str = "1.1"
     source_file: str
     component_count: int
     unique_query_count: int

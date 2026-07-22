@@ -3,14 +3,25 @@ from __future__ import annotations
 import pytest
 
 from supplier_search_engine.contract import VALUE_FIELDS
-from supplier_search_engine.contract import SearchComponentInput, SearchField
+from supplier_search_engine.contract import (
+    SearchComponentInput,
+    SearchField,
+    SearchFieldAlternative,
+)
 
 from supplier_search_engine.matcher import (
     CandidateMatcher,
+    finalize_candidate_decisions,
     infer_supplier_part_type,
     manufacturers_compatible,
 )
-from supplier_search_engine.models import MatchStatus, Supplier, SupplierProduct
+from supplier_search_engine.models import (
+    ManufacturerEvidence,
+    MatchStatus,
+    SelectionEligibility,
+    Supplier,
+    SupplierProduct,
+)
 from supplier_search_engine.planner import QueryPlanner
 
 
@@ -77,6 +88,174 @@ def test_planner_uses_extractor_normalized_value_for_bare_passive_numbers():
     assert query.keywords == "100 0805 resistor"
 
 
+def test_planner_branches_one_parametric_conflict_deterministically():
+    item = component(part_type="resistor", resistance="100k", package="0201")
+    item.quality_flags = ["resistance_input_source_conflict"]
+    item.input_alternatives = {
+        "resistance": [
+            SearchFieldAlternative(
+                raw_value="100k",
+                normalized_value=100_000.0,
+                source_cell="D2",
+                source_role="value",
+            ),
+            SearchFieldAlternative(
+                raw_value="1K",
+                normalized_value=1_000.0,
+                source_cell="E2",
+                source_role="value",
+            ),
+        ]
+    }
+
+    plans = QueryPlanner().plan_variants(item)
+
+    assert [plan.input_branch_id for plan in plans] == ["resistance:1", "resistance:2"]
+    assert [plan.requirements["resistance_ohm"].normalized_value for plan in plans] == [
+        1_000.0,
+        100_000.0,
+    ]
+    assert all(plan.mode.value == "parametric" for plan in plans)
+    assert all(
+        plan.input_source_conflicts == ["resistance_input_source_conflict"]
+        for plan in plans
+    )
+
+
+def test_planner_fails_closed_when_more_than_one_field_would_branch():
+    item = component(part_type="resistor", resistance="100k", package="0201")
+    item.quality_flags = [
+        "resistance_input_source_conflict",
+        "package_input_source_conflict",
+    ]
+    item.input_alternatives = {
+        "resistance": [
+            SearchFieldAlternative(
+                raw_value="1K", normalized_value=1_000.0,
+                source_cell="D2", source_role="value",
+            ),
+            SearchFieldAlternative(
+                raw_value="100K", normalized_value=100_000.0,
+                source_cell="E2", source_role="value",
+            ),
+        ],
+        "package": [
+            SearchFieldAlternative(
+                raw_value="0402", normalized_value="0402",
+                source_cell="F2", source_role="package",
+            ),
+            SearchFieldAlternative(
+                raw_value="0603", normalized_value="0603",
+                source_cell="G2", source_role="footprint",
+            ),
+        ],
+    }
+
+    plans = QueryPlanner().plan_variants(item)
+
+    assert len(plans) == 1
+    assert plans[0].mode.value == "insufficient"
+    assert plans[0].branch_limit_exceeded is True
+    assert "branch_limit_exceeded" in plans[0].disposition_reason_codes
+
+
+def test_identity_query_is_never_branched_by_bom_alternatives():
+    item = component(
+        part_number="ABC-123",
+        part_type="resistor",
+        resistance="100k",
+        package="0201",
+    )
+    item.quality_flags = ["resistance_input_source_conflict"]
+    item.input_alternatives = {
+        "resistance": [
+            SearchFieldAlternative(
+                raw_value="1K", normalized_value=1_000.0,
+                source_cell="D2", source_role="value",
+            ),
+            SearchFieldAlternative(
+                raw_value="100K", normalized_value=100_000.0,
+                source_cell="E2", source_role="value",
+            ),
+        ]
+    }
+
+    plans = QueryPlanner().plan_variants(item)
+
+    assert len(plans) == 1
+    assert plans[0].mode.value == "identity"
+    assert plans[0].part_number == "ABC-123"
+
+
+def test_ferrite_impedance_is_not_compared_as_resistance():
+    item = component(
+        part_type="inductor",
+        description="Ferrite bead 120 Ohm @ 100MHz",
+        resistance="120 Ohm",
+        frequency="100MHz",
+        current="200mA",
+        package="0201",
+    )
+    item.impedance_ohm = 120.0
+    item.impedance_frequency_hz = 100_000_000.0
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="BLM03",
+        category="Ferrite Beads",
+        description="Ferrite bead 120 Ohm at 100 MHz 200mA 0201",
+        package="0201",
+        normalized_specs={
+            "impedance_ohm": 120.0,
+            "impedance_frequency_hz": 100_000_000.0,
+            "current_a": 0.2,
+            "package": "0201",
+        },
+    )
+
+    candidate = finalize_candidate_decisions(
+        query, [CandidateMatcher().evaluate(query, product)]
+    )[0]
+
+    assert query.category_policy == "ferrite"
+    assert "resistance_ohm" not in query.requirements
+    assert candidate.status == MatchStatus.SPEC_COMPATIBLE
+    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+
+
+def test_absolute_inductance_tolerance_uses_supplier_percent_with_trace():
+    item = component(
+        part_type="inductor",
+        inductance="2nH",
+        current="600mA",
+        package="0201",
+    )
+    item.absolute_tolerance_h = 0.1e-9
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="L-2N0",
+        category="Inductors",
+        package="0201",
+        normalized_specs={
+            "inductance_h": 2e-9,
+            "current_a": 0.6,
+            "tolerance_percent": 5.0,
+            "package": "0201",
+        },
+    )
+
+    candidate = finalize_candidate_decisions(
+        query, [CandidateMatcher().evaluate(query, product)]
+    )[0]
+
+    assert query.requirements["absolute_tolerance_h"].normalized_value == 0.1e-9
+    assert "tolerance_percent" not in query.requirements
+    assert "absolute_tolerance_h_derived_from_supplier_percent" in candidate.reasons
+    assert "absolute_tolerance_h_match" in candidate.reasons
+    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+
+
 @pytest.mark.parametrize(
     ("part_number", "part_type", "values", "expected_mode"),
     [
@@ -129,6 +308,36 @@ def test_identity_like_numeric_code_is_not_reclassified_by_safety_guards():
 
     assert query.part_number == "0603X03L_C"
     assert query.mode.value == "identity"
+
+
+def test_input_source_conflict_forces_manual_review_without_changing_identity():
+    item = component(
+        part_number="ABC-123",
+        part_type="ic",
+        package="SOIC-8",
+    )
+    item.quality_flags = ["package_input_source_conflict"]
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="ABC-123",
+        manufacturer="Acme",
+        manufacturer_evidence=ManufacturerEvidence.STRUCTURED,
+        category="Integrated Circuits",
+        package="SOIC-8",
+        normalized_specs={"package": "SOIC-8"},
+    )
+
+    evaluated = CandidateMatcher().evaluate(query, product)
+    candidate = finalize_candidate_decisions(query, [evaluated])[0]
+
+    assert query.part_number == "ABC-123"
+    assert query.input_source_conflicts == ["package_input_source_conflict"]
+    assert query.cache_payload() == query.model_copy(
+        update={"input_source_conflicts": []}
+    ).cache_payload()
+    assert candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert "package_input_source_conflict" in candidate.conflicts
 
 
 def test_internal_electrolytic_footprint_sets_category_without_fake_package():

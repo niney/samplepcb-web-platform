@@ -101,6 +101,7 @@ const EngineComponentLoose = z
     manufacturer: z.string().nullish(),
     description: z.string().nullish(),
     quantity: z.number().int().nullish(),
+    procurement_disposition: z.enum(['eligible', 'excluded', 'quantity_confirmation_required']).optional(),
     reference_designators: z.array(z.string()).optional(),
     package: z.string().nullish(),
     value_raw: z.string().nullish(),
@@ -396,6 +397,9 @@ const EngineSupplierComponent = z
     component_id: z.string(),
     mode: z.string().optional(),
     status: z.string(),
+    procurement_disposition: z.enum(['eligible', 'excluded', 'quantity_confirmation_required']).default('eligible'),
+    quantity_resolution: z.enum(['verified', 'conflict', 'missing']).default('verified'),
+    disposition_reason_codes: z.array(z.string()).default([]),
     query: EngineSupplierQuery.nullish(),
     initial_query: EngineSupplierQuery.nullish(),
     identity_fallback: z.boolean().default(false),
@@ -563,7 +567,7 @@ export function buildItemsFromEngineResult(
       .slice(0, 24);
     items.push({
       rowIdx: items.length,
-      included: true,
+      included: c.procurement_disposition !== 'excluded',
       mpn: mpn.slice(0, 191),
       manufacturerName: c.manufacturer?.trim().slice(0, 191) ?? null,
       description: c.description?.trim().slice(0, 1000) ?? null,
@@ -691,6 +695,9 @@ const StoredCandidate = z.object({
   offers: z.array(StoredCandidateOffer),
   procurementDecision: EngineComponentProcurementDecision.nullable().catch(null),
   engineCandidates: z.array(EngineSupplierCandidate).catch([]),
+  procurementDisposition: z.enum(['eligible', 'excluded', 'quantity_confirmation_required']).catch('eligible'),
+  quantityResolution: z.enum(['verified', 'conflict', 'missing']).catch('verified'),
+  dispositionReasonCodes: z.array(z.string()).catch([]),
 });
 
 type StoredCandidateType = z.infer<typeof StoredCandidate>;
@@ -1248,6 +1255,9 @@ function buildCandidateGroups(
         offers,
         procurementDecision: component.procurement_decision ?? null,
         engineCandidates: evidenceMembers,
+        procurementDisposition: component.procurement_disposition,
+        quantityResolution: component.quantity_resolution,
+        dispositionReasonCodes: component.disposition_reason_codes,
       },
     };
   });
@@ -2099,6 +2109,9 @@ function decisionFromBatchCandidates(
   candidates: EngineSupplierCandidateType[],
   procurementDecision: z.infer<typeof EngineComponentProcurementDecision>,
   identityFallback: boolean,
+  procurementDisposition: StoredCandidateType['procurementDisposition'],
+  quantityResolution: StoredCandidateType['quantityResolution'],
+  dispositionReasonCodes: string[],
   needed: number,
   usdKrwRate: number | null,
 ): EngineMatchDecision | null {
@@ -2107,6 +2120,9 @@ function decisionFromBatchCandidates(
       component_id: componentId,
       status: candidates[0]?.status ?? 'not_found',
       identity_fallback: identityFallback,
+      procurement_disposition: procurementDisposition,
+      quantity_resolution: quantityResolution,
+      disposition_reason_codes: dispositionReasonCodes,
       candidates,
       procurement_decision: procurementDecision,
     },
@@ -2122,6 +2138,9 @@ interface PendingBatchReevaluation {
   requestedOfferKey: string | null;
   identityFallback: boolean;
   engineCandidates: EngineSupplierCandidateType[];
+  procurementDisposition: StoredCandidateType['procurementDisposition'];
+  quantityResolution: StoredCandidateType['quantityResolution'];
+  dispositionReasonCodes: string[];
 }
 
 interface BatchReevaluationOutcome {
@@ -2168,6 +2187,9 @@ async function batchReevaluateStoredProcurement(
               candidates: entry.engineCandidates,
               required_quantity: entry.needed,
               requested_offer_key: entry.requestedOfferKey,
+              procurement_disposition: entry.procurementDisposition,
+              quantity_resolution: entry.quantityResolution,
+              disposition_reason_codes: entry.dispositionReasonCodes,
             })),
           }),
         },
@@ -2209,6 +2231,9 @@ async function batchReevaluateStoredProcurement(
         result.candidates,
         result.procurement_decision,
         entry.identityFallback,
+        entry.procurementDisposition,
+        entry.quantityResolution,
+        entry.dispositionReasonCodes,
         entry.needed,
         usdKrwRate,
       );
@@ -2323,6 +2348,9 @@ export async function repriceCandidateSelections(
       requestedOfferKey: item.selectedOffer?.pinned === true ? item.selectedOffer.offerKey : null,
       identityFallback: item.matchEvidence?.identityFallback ?? false,
       engineCandidates,
+      procurementDisposition: rowCandidates[0]?.procurementDisposition ?? 'eligible',
+      quantityResolution: rowCandidates[0]?.quantityResolution ?? 'verified',
+      dispositionReasonCodes: rowCandidates[0]?.dispositionReasonCodes ?? [],
     });
   }
 

@@ -28,6 +28,11 @@ _CYLINDRICAL_CONTEXT = re.compile(
     r"전해|방사형|원통|캔\s*(?:형|타입)",
     re.I,
 )
+_DISC_DIAMETER_CONTEXT = re.compile(
+    r"\b(?:varistor|mov)\b|배리스터|디스크\s*(?:형|타입)|disc\s*(?:type)?",
+    re.I,
+)
+_BARE_MM = re.compile(r"(?:^|[^0-9.])(\d{1,2}(?:\.\d+)?)\s*mm\b", re.I)
 _DIMENSION = re.compile(
     r"(?:^|[^0-9])(\d{1,2}(?:\.\d+)?)\s*(?:mm\s*)?[x×]\s*"
     r"\d{1,3}(?:\.\d+)?(?:\s*mm|[^0-9]|$)",
@@ -106,6 +111,13 @@ def source_diameters_mm(value: object) -> tuple[float, ...]:
     explicit = _explicit_diameters_mm(text)
     if explicit:
         return explicit
+    if _DISC_DIAMETER_CONTEXT.search(text):
+        values = {
+            parsed
+            for match in _BARE_MM.finditer(text)
+            if (parsed := _positive_number(float(match.group(1)))) is not None
+        }
+        return tuple(sorted(values))
     if not _CYLINDRICAL_CONTEXT.search(text):
         return ()
     values = {

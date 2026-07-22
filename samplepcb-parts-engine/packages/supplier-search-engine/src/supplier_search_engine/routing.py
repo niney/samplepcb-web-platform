@@ -7,7 +7,7 @@ _UNIKEYIC_PARAMETRIC_TYPES = {"resistor", "capacitor", "inductor", "crystal"}
 
 
 def suppliers_for_query(query: PlannedQuery) -> tuple[Supplier, ...]:
-    if query.mode == SearchMode.INSUFFICIENT:
+    if query.mode in {SearchMode.INSUFFICIENT, SearchMode.EXCLUDED}:
         return ()
     suppliers = [Supplier.DIGIKEY, Supplier.MOUSER]
     if query.part_number or (

@@ -14,11 +14,13 @@ from supplier_search_engine.models import (
     CurrencyRate,
     OfferRecommendation,
     PlannedQuery,
+    ProcurementDisposition,
     ProcurementPolicyInput,
     ProcurementReevaluationBatchRequest,
     ProcurementReevaluationCandidateInput,
     ProcurementReevaluationRequest,
     Requirement,
+    QuantityResolution,
     SearchMode,
     SelectionEligibility,
     Supplier,
@@ -771,6 +773,33 @@ def test_reevaluation_preserves_unique_legacy_offer_key_version():
     assert stored_decision.offer_key_version == "supplier-offer-key-v1"
     assert reevaluated.offer_key_version == "supplier-offer-key-v1"
     assert reevaluated.offer_key == stored_decision.offer_key
+
+
+def test_reevaluation_cannot_bypass_unresolved_bom_quantity():
+    planned = query(quantity=10)
+    candidates = technical_candidates(planned, [product(Supplier.DIGIKEY)])
+
+    result = reevaluate_procurement(
+        ProcurementReevaluationRequest(
+            component_id="procurement",
+            candidates=candidates,
+            required_quantity=20,
+            procurement_policy=policy(),
+            procurement_disposition=ProcurementDisposition.QUANTITY_CONFIRMATION_REQUIRED,
+            quantity_resolution=QuantityResolution.CONFLICT,
+            disposition_reason_codes=["quantity_reference_conflict"],
+        )
+    )
+
+    decision = offer_decision(result.candidates[0])
+    assert decision.purchasable is False
+    assert "procurement_quantity_confirmation_required" in decision.reason_codes
+    assert result.procurement_decision.status == "input_incomplete"
+    assert result.procurement_decision.procurement_disposition == (
+        ProcurementDisposition.QUANTITY_CONFIRMATION_REQUIRED
+    )
+    assert result.procurement_decision.automatic_offer_key is None
+    assert result.procurement_decision.review_offer_key is None
 
 
 def test_missing_stable_offer_identity_is_not_recommended():

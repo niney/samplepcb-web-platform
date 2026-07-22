@@ -4,15 +4,23 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from unittest.mock import patch
 
-from supplier_search_engine.contract import VALUE_FIELDS
-from supplier_search_engine.contract import SearchBatchInput, SearchComponentInput, SearchField
+from supplier_search_engine.contract import (
+    VALUE_FIELDS,
+    SearchBatchInput,
+    SearchComponentInput,
+    SearchField,
+    SearchFieldAlternative,
+)
 from supplier_search_engine.matcher import CandidateMatcher, finalize_candidate_decisions
 
 from supplier_search_engine.models import (
     MatchStatus,
     PlannedQuery,
+    ProcurementDisposition,
+    QuantityResolution,
     RawSupplierResponse,
     SearchMode,
+    SearchDisposition,
     Supplier,
     SupplierOffer,
     SupplierProduct,
@@ -158,6 +166,128 @@ async def test_singleflight_collapses_concurrent_identical_requests(tmp_path):
         if attempt.supplier == Supplier.DIGIKEY
     ]
     assert "coalesced" in trace_sources
+
+
+async def test_excluded_component_is_retained_without_supplier_call(tmp_path):
+    fake = FakeDigiKeyClient(products=[make_product()])
+    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
+    excluded = make_component("excluded").model_copy(
+        update={
+            "search_disposition": SearchDisposition.EXCLUDED,
+            "procurement_disposition": ProcurementDisposition.EXCLUDED,
+            "disposition_reason_codes": ["customer_supplied"],
+            "quantity_resolution": QuantityResolution.MISSING,
+            "required_quantity": None,
+        },
+        deep=True,
+    )
+    batch = SearchBatchInput(
+        parser_schema_version="1",
+        parser_version="test",
+        training_fingerprint="test",
+        source_file="bom.xlsx",
+        components=[excluded],
+    )
+
+    preflight = service.preflight_batch(batch)
+    result = await service.search_batch(batch)
+
+    assert preflight.estimated_api_calls == 0
+    assert preflight.components[0].mode == SearchMode.EXCLUDED
+    assert result.components[0].status == MatchStatus.EXCLUDED
+    assert result.components[0].api_calls == 0
+    assert result.components[0].procurement_decision.status == "input_incomplete"
+    assert fake.calls == 0
+
+
+async def test_conflicting_parametric_values_run_two_isolated_manual_branches(tmp_path):
+    fake = FakeDigiKeyClient(
+        products=[
+            SupplierProduct(
+                supplier=Supplier.DIGIKEY,
+                manufacturer_part_number="R-ALT",
+                category="Resistors",
+                package="0201",
+                normalized_specs={"resistance_ohm": 1_000.0, "package": "0201"},
+            )
+        ]
+    )
+    service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])
+    item = make_component("conflict", resistance="100k")
+    item.fields["part_number"] = SearchField(status="not_found")
+    item.fields["manufacturer"] = SearchField(status="not_found")
+    item.fields["part_type"] = SearchField(value="resistor", status="extracted")
+    item.fields["package"] = SearchField(value="0201", status="extracted")
+    item.quality_flags = ["resistance_input_source_conflict"]
+    item.input_alternatives = {
+        "resistance": [
+            SearchFieldAlternative(
+                raw_value="100K", normalized_value=100_000.0,
+                source_cell="D2", source_role="value",
+            ),
+            SearchFieldAlternative(
+                raw_value="1K", normalized_value=1_000.0,
+                source_cell="E2", source_role="value",
+            ),
+        ]
+    }
+    batch = SearchBatchInput(
+        parser_schema_version="1",
+        parser_version="test",
+        training_fingerprint="test",
+        source_file="bom.xlsx",
+        components=[item],
+    )
+
+    preflight = service.preflight_batch(batch)
+    result = await service.search_batch(batch)
+    component_result = result.components[0]
+
+    assert preflight.unique_query_count == 2
+    assert len(preflight.components[0].conflict_branch_queries) == 2
+    assert fake.calls == 2
+    assert component_result.status == MatchStatus.INPUT_CONFLICT
+    assert [query.input_branch_id for query in component_result.conflict_branch_queries] == [
+        "resistance:1",
+        "resistance:2",
+    ]
+    assert all(
+        candidate.decision.selection_eligibility.value != "automatic"
+        for candidate in component_result.candidates
+    )
+    assert component_result.procurement_decision.automatic_offer_key is None
+    assert all(
+        attempt.stage == "input_conflict_branch"
+        for attempt in component_result.search_trace.attempts
+    )
+
+
+async def test_raw_query_reuse_never_reuses_a_different_technical_decision(tmp_path):
+    fake = FakeDigiKeyClient(products=[make_product()])
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
+    )
+    safe = make_component("safe")
+    conflicted = make_component("conflicted").model_copy(
+        update={"quality_flags": ["package_input_source_conflict"]},
+        deep=True,
+    )
+    batch = SearchBatchInput(
+        parser_schema_version="1",
+        parser_version="test",
+        training_fingerprint="test",
+        source_file="bom.xlsx",
+        components=[safe, conflicted],
+    )
+
+    result = await service.search_batch(batch)
+    safe_candidate = result.components[0].candidates[0]
+    conflicted_candidate = result.components[1].candidates[0]
+
+    assert fake.calls == 1
+    assert safe_candidate.decision.selection_eligibility.value == "automatic"
+    assert conflicted_candidate.decision.selection_eligibility.value == "manual_review"
+    assert "package_input_source_conflict" in conflicted_candidate.conflicts
 
 
 async def test_negative_results_are_cached(tmp_path):

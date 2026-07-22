@@ -45,6 +45,7 @@ def test_build_batch_preserves_extractor_normalized_values() -> None:
         "value": "10K OHM",
         "status": "extracted",
         "evidence": [],
+        "source": "col",
     }
     item["resistance_ohm"] = 10_000.0
 
@@ -56,5 +57,6 @@ def test_build_batch_preserves_extractor_normalized_values() -> None:
         }
     )
 
-    assert batch.search_contract_version == "1.1"
+    assert batch.search_contract_version == "1.2"
     assert batch.components[0].fields["resistance"].normalized_value == 10_000.0
+    assert batch.components[0].fields["resistance"].source == "col"

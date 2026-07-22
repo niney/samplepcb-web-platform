@@ -23,7 +23,8 @@ from .serialize import (clean_cell, kept_columns, merge_header_labels,
                         nonempty_data_rows, row_cells)
 
 _RE_FOOTER_WORD = re.compile(
-    r"^(?:total|합\s*계|총\s*계|소\s*계|승인|결재|approved?|reviewed|checked"
+    r"^(?:total(?:\s+(?:components?|parts?|items?|quantity|qty))?"
+    r"|합\s*계|총\s*계|소\s*계|승인|결재|approved?|reviewed|checked"
     r"|notes?|작업\s*제외)$", re.I)
 _RE_ALPHA = re.compile(r"[A-Za-z가-힣]")
 _RE_ALNUM_TOKEN = re.compile(r"(?=.*[A-Za-z])(?=.*\d)")
@@ -50,6 +51,111 @@ def detect_header(df) -> ProbeResult:
             _fusion_prober = FusionProber()
         prober = _fusion_prober
     return prober.detect(df)
+
+
+def _header_key(value) -> str:
+    """헤더 비교용 정준 문자열 — 파일명이나 언어별 템플릿에 의존하지 않는다."""
+    return re.sub(r"[^a-z0-9가-힣]+", "", clean_cell(value).casefold())
+
+
+def non_bom_sheet_reason(df, header_row: int) -> str | None:
+    """강한 의미 신호가 있는 비BOM 표를 fail-closed로 분류한다.
+
+    임베딩 헤더 복구는 표의 열 이름이 BOM과 유사하기만 해도 좌표·재고·견적
+    시트를 받아들일 수 있다. 여기서는 특정 파일명이 아니라 서로 독립적인
+    헤더 조합으로만 기권하며, MPN/reference가 명시된 구매 BOM은 유지한다.
+    """
+
+    headers = {
+        _header_key(df.iat[header_row, column])
+        for column in range(df.shape[1])
+        if clean_cell(df.iat[header_row, column])
+    }
+    if not headers:
+        return None
+
+    def has(*patterns: str) -> bool:
+        return any(
+            re.search(pattern, header)
+            for header in headers
+            for pattern in patterns
+        )
+
+    has_x = has(
+        r"^(?:position|pos|center|coordinate)x$",
+        r"^x(?:position|pos|coordinate)$",
+        r"^(?:x좌표|좌표x)$",
+    )
+    has_y = has(
+        r"^(?:position|pos|center|coordinate)y$",
+        r"^y(?:position|pos|coordinate)$",
+        r"^(?:y좌표|좌표y)$",
+    )
+    placement_context = has(
+        r"orientation",
+        r"rotation",
+        r"layer(?:name|number)?$",
+        r"실장면",
+        r"회전각",
+    )
+    bom_quantity = has(r"^q(?:ty|nty)$", r"quantity", r"수량", r"개수")
+    if has_x and has_y and placement_context and not bom_quantity:
+        return "coordinate_table"
+
+    inventory_measure = has(r"^stock$", r"inventory", r"onhand", r"재고")
+    inventory_context = has(
+        r"leadtime",
+        r"warehouse",
+        r"location",
+        r"bin(?:code|location)?$",
+        r"^year$",
+        r"입고",
+        r"창고",
+    )
+    explicit_reference = has(
+        r"designator",
+        r"reference",
+        r"refdes",
+        r"도면번호",
+        r"위치번호",
+    )
+    if inventory_measure and inventory_context and not explicit_reference and not bom_quantity:
+        return "inventory_table"
+
+    commercial_total = has(
+        r"amount",
+        r"total",
+        r"subtotal",
+        r"합계",
+        r"금액",
+        r"자재비",
+    )
+    administrative_cost = has(
+        r"expense",
+        r"labor",
+        r"overhead",
+        r"profit",
+        r"경비",
+        r"공임",
+        r"노무",
+        r"이윤",
+    )
+    explicit_identity = has(
+        r"partnumber",
+        r"manufacturerpart",
+        r"^mpn$",
+        r"품번",
+        r"manufacturer",
+        r"제조사",
+    )
+    if (
+        commercial_total
+        and administrative_cost
+        and not explicit_reference
+        and not explicit_identity
+    ):
+        return "commercial_document"
+    return None
 
 
 def _similar_header_rows(df, header_row: int) -> list:
@@ -82,7 +188,8 @@ def _is_footer_row(df, r: int) -> bool:
     has_partish = any(len(v) >= 4 and _RE_ALNUM_TOKEN.match(v) for v in vals)
     if has_partish:
         return False
-    if any(_RE_FOOTER_WORD.fullmatch(v) for v in vals):
+    footer_values = [re.sub(r"[:：]+$", "", value).strip() for value in vals]
+    if any(_RE_FOOTER_WORD.fullmatch(v) for v in footer_values):
         return True
     if len(vals) >= 2 and not any(_RE_ALPHA.search(v) for v in vals):
         return True  # 좌표/합계성 순수 숫자 행
@@ -103,6 +210,9 @@ def build_case(path: Path, sheet_idx: int, display_name: str = "",
     res = detect_header(df)
     if not res.found:
         raise HeaderNotFound(res.reason or "헤더 행을 찾지 못함")
+    non_bom_reason = non_bom_sheet_reason(df, res.header_row)
+    if non_bom_reason is not None:
+        raise HeaderNotFound(non_bom_reason)
     header_rows: List[int] = [res.header_row]
     # 반복 헤더(다중 BOM 구간) 지원 — 같은 라벨의 헤더가 여러 번 나오면
     # ① 가장 이른 구간부터 시작(탐지가 뒤 구간을 찍어도 앞 구간 회수),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Callable
 
@@ -15,7 +16,6 @@ from .normalizer import (
     parse_tolerance_percent,
     parse_voltage_v,
 )
-
 from .models import PlannedQuery, Requirement, SearchMode
 from .normalization import dielectric_notation, normalize_dielectric, normalize_package
 from .physical import detect_mount_style, source_diameter_mm
@@ -74,13 +74,22 @@ _PACKAGE_SIZE_VALUE = re.compile(
     r"6032|6332|7343)$",
     re.I,
 )
+_GENERIC_LIBRARY_IDENTITY = re.compile(
+    r"^(?:BUZZER|LED|HEADER|CONNECTOR|SOCKET|VARISTOR)[_-](?:SMD|SMT|THT|DIP|TH)$",
+    re.I,
+)
 
 _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("resistor", ("resistor", "저항")),
     ("inductor", ("inductor", "인덕터", "코일")),
     ("crystal", ("crystal", "oscillator", "크리스털", "수정", "발진기")),
     ("capacitor", ("capacitor", "커패시터", "콘덴서")),
+    ("led", ("led", "발광다이오드")),
+    ("connector", ("connector", "header", "socket", "커넥터", "헤더")),
+    ("varistor", ("varistor", "배리스터")),
+    ("buzzer", ("buzzer", "부저")),
 )
+_FERRITE_CONTEXT = re.compile(r"\b(?:ferrite|bead|f\.?\s*bead)\b|비드", re.I)
 _ELECTROLYTIC_TOKENS = ("electrolytic", "ecap", "전해")
 _ELECTROLYTIC_ABBREVIATION = re.compile(
     r"(?:^|[^A-Z0-9])E\s*/\s*C(?:[^A-Z0-9]|$)|"
@@ -155,6 +164,14 @@ def _canonical_category_policy(
     electrolytic_hint = any(token in bom_text for token in _ELECTROLYTIC_TOKENS) or bool(
         _ELECTROLYTIC_ABBREVIATION.search(bom_text)
     )
+    if _FERRITE_CONTEXT.search(bom_text):
+        return "ferrite"
+    for policy, pattern in (
+        ("varistor", r"\bvaristor\b|배리스터"),
+        ("buzzer", r"\bbuzzer\b|부저"),
+    ):
+        if re.search(pattern, bom_text, re.I):
+            return policy
     if electrolytic_hint and any(
         token in part_type_text
         for token in ("capacitor", "커패시터", "콘덴서", "electrolytic", "전해")
@@ -195,6 +212,18 @@ class QueryPlanner:
         quantity = fields["quantity"]
         requirements: dict[str, Requirement] = {}
 
+        if component.search_disposition.value == "excluded":
+            return PlannedQuery(
+                component_id=component.component_id,
+                mode=SearchMode.EXCLUDED,
+                description=component.description or component.value_raw,
+                quantity=None,
+                search_disposition=component.search_disposition,
+                procurement_disposition=component.procurement_disposition,
+                disposition_reason_codes=component.disposition_reason_codes,
+                quantity_resolution=component.quantity_resolution,
+            )
+
         for source_name, (target_name, parser, comparison) in self._SPEC_PARSERS.items():
             field = fields[source_name]
             if field.value is None:
@@ -234,6 +263,75 @@ class QueryPlanner:
             component.value_raw,
             package_value,
         )
+        if category_policy == "ferrite":
+            requirements.pop("resistance_ohm", None)
+            requirements.pop("frequency_hz", None)
+            if component.impedance_ohm is not None:
+                requirements["impedance_ohm"] = Requirement(
+                    name="impedance_ohm",
+                    raw_value=(fields["resistance"].value or component.impedance_ohm),
+                    normalized_value=component.impedance_ohm,
+                    status=fields["resistance"].status,
+                    hard=fields["resistance"].status == "extracted",
+                    comparison="eq",
+                )
+            if component.impedance_frequency_hz is not None:
+                requirements["impedance_frequency_hz"] = Requirement(
+                    name="impedance_frequency_hz",
+                    raw_value=(fields["frequency"].value or component.impedance_frequency_hz),
+                    normalized_value=component.impedance_frequency_hz,
+                    status=fields["frequency"].status,
+                    hard=fields["frequency"].status == "extracted",
+                    comparison="eq",
+                )
+            if component.dc_resistance_max_ohm is not None:
+                requirements["dc_resistance_max_ohm"] = Requirement(
+                    name="dc_resistance_max_ohm",
+                    raw_value=component.dc_resistance_max_ohm,
+                    normalized_value=component.dc_resistance_max_ohm,
+                    status="extracted",
+                    hard=True,
+                    comparison="lte",
+                )
+        if component.absolute_tolerance_h is not None:
+            requirements.pop("tolerance_percent", None)
+            requirements["absolute_tolerance_h"] = Requirement(
+                name="absolute_tolerance_h",
+                raw_value=component.absolute_tolerance_h,
+                normalized_value=component.absolute_tolerance_h,
+                status="extracted",
+                hard=True,
+                comparison="lte",
+            )
+        for name, value, comparison in (
+            ("color", component.color, "eq"),
+            ("pin_count", component.pin_count, "eq"),
+            ("row_count", component.row_count, "eq"),
+            ("pitch_mm", component.pitch_mm, "eq"),
+        ):
+            if value is not None:
+                requirements[name] = Requirement(
+                    name=name,
+                    raw_value=value,
+                    normalized_value=value,
+                    status="extracted",
+                    hard=True,
+                    comparison=comparison,
+                )
+        if component.body_dimensions_mm and len(component.body_dimensions_mm) == 3:
+            for name, value in zip(
+                ("body_length_mm", "body_width_mm", "body_height_mm"),
+                component.body_dimensions_mm,
+                strict=True,
+            ):
+                requirements[name] = Requirement(
+                    name=name,
+                    raw_value=value,
+                    normalized_value=value,
+                    status="extracted",
+                    hard=True,
+                    comparison="eq",
+                )
         if package.value is not None:
             normalized_package = normalize_package(
                 package.value,
@@ -281,6 +379,10 @@ class QueryPlanner:
             and not _GENERIC_CONNECTOR_NOTATION.fullmatch(raw_part_number)
             and not _REFERENCE_LIST_PART_NUMBER.fullmatch(raw_part_number)
             and not _PASSIVE_SPEC_PART_NUMBER.fullmatch(raw_part_number)
+            and not (
+                pn.source in {"text", "infer"}
+                and _GENERIC_LIBRARY_IDENTITY.fullmatch(raw_part_number)
+            )
             else None
         )
         manufacturer_name = (
@@ -338,7 +440,20 @@ class QueryPlanner:
             mode = SearchMode.IDENTITY
         elif part_number:
             mode = SearchMode.HYBRID
-        elif len(hard_specs) >= 2:
+        elif len(hard_specs) >= 2 or (
+            category_policy in {"led", "connector", "varistor", "buzzer"}
+            and any(
+                name in requirements
+                for name in (
+                    "color",
+                    "pin_count",
+                    "pitch_mm",
+                    "diameter_mm",
+                    "voltage_v",
+                    "frequency_hz",
+                )
+            )
+        ):
             mode = SearchMode.PARAMETRIC
         else:
             mode = SearchMode.INSUFFICIENT
@@ -373,6 +488,34 @@ class QueryPlanner:
                 keyword_parts.append(dielectric)
             if part_type_value:
                 keyword_parts.append(part_type_value)
+            if category_policy == "ferrite":
+                keyword_parts = [
+                    str(requirements[name].raw_value)
+                    for name in ("impedance_ohm", "impedance_frequency_hz")
+                    if name in requirements
+                ]
+                package_requirement = requirements.get("package")
+                if package_requirement and package_requirement.normalized_value:
+                    keyword_parts.append(str(package_requirement.normalized_value))
+                keyword_parts.append("ferrite bead")
+            elif category_policy in {"led", "connector", "varistor", "buzzer"}:
+                keyword_parts = []
+                if "color" in requirements:
+                    keyword_parts.append(str(requirements["color"].raw_value))
+                if "pin_count" in requirements:
+                    keyword_parts.append(f"{requirements['pin_count'].raw_value} pin")
+                if "row_count" in requirements:
+                    rows = requirements["row_count"].raw_value
+                    keyword_parts.append("dual row" if rows == 2 else f"{rows} row")
+                if "pitch_mm" in requirements:
+                    keyword_parts.append(f"{requirements['pitch_mm'].raw_value}mm pitch")
+                if "diameter_mm" in requirements:
+                    keyword_parts.append(
+                        f"{requirements['diameter_mm'].normalized_value}mm"
+                    )
+                if "package" in requirements:
+                    keyword_parts.append(str(requirements["package"].raw_value))
+                keyword_parts.append(category_policy)
             if not keyword_parts and description:
                 keyword_parts.append(description)
 
@@ -391,7 +534,109 @@ class QueryPlanner:
             quantity=qty,
             keywords=" ".join(dict.fromkeys(part for part in keyword_parts if part))[:250],
             requirements=requirements,
+            input_source_conflicts=sorted(
+                flag
+                for flag in component.quality_flags
+                if flag.endswith("_input_source_conflict")
+                or flag
+                in {
+                    "unit_category_conflict",
+                    "connector_geometry_source_conflict",
+                    "part_type_source_conflict",
+                }
+            ),
+            search_disposition=component.search_disposition,
+            procurement_disposition=component.procurement_disposition,
+            disposition_reason_codes=component.disposition_reason_codes,
+            quantity_resolution=component.quantity_resolution,
         )
+
+    def plan_variants(self, component: SearchComponentInput) -> list[PlannedQuery]:
+        """Plan bounded, deterministic searches for one unresolved BOM conflict.
+
+        Identity queries are never branched: the original MPN remains the primary
+        supplier input and BOM conflicts are verified against that identity.
+        Parametric conflicts may branch only when exactly one supported field has
+        exactly two semantic alternatives.  Anything larger fails closed instead
+        of executing an arbitrary subset of the evidence.
+        """
+
+        base = self.plan(component)
+        if base.part_number or base.mode == SearchMode.EXCLUDED:
+            return [base]
+        conflicts = {
+            name: alternatives
+            for name, alternatives in component.input_alternatives.items()
+            if name in component.fields and len(alternatives) > 1
+        }
+        if not conflicts:
+            return [base]
+        if len(conflicts) != 1:
+            return [
+                base.model_copy(
+                    update={
+                        "mode": SearchMode.INSUFFICIENT,
+                        "branch_limit_exceeded": True,
+                        "disposition_reason_codes": list(
+                            dict.fromkeys(
+                                [*base.disposition_reason_codes, "branch_limit_exceeded"]
+                            )
+                        ),
+                    },
+                    deep=True,
+                )
+            ]
+        field_name, alternatives = next(iter(conflicts.items()))
+        unique = {
+            json.dumps(
+                alternative.normalized_value,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            ): alternative
+            for alternative in alternatives
+        }
+        if len(unique) != 2:
+            return [
+                base.model_copy(
+                    update={
+                        "mode": SearchMode.INSUFFICIENT,
+                        "branch_limit_exceeded": True,
+                        "disposition_reason_codes": list(
+                            dict.fromkeys(
+                                [*base.disposition_reason_codes, "branch_limit_exceeded"]
+                            )
+                        ),
+                    },
+                    deep=True,
+                )
+            ]
+        plans: list[PlannedQuery] = []
+        for index, key in enumerate(sorted(unique), start=1):
+            alternative = unique[key]
+            branch_fields = dict(component.fields)
+            branch_fields[field_name] = component.fields[field_name].model_copy(
+                update={
+                    "value": alternative.raw_value,
+                    "normalized_value": alternative.normalized_value,
+                    "status": "extracted",
+                },
+                deep=True,
+            )
+            branch_component = component.model_copy(
+                update={"fields": branch_fields},
+                deep=True,
+            )
+            branch = self.plan(branch_component).model_copy(
+                update={
+                    "input_branch_id": f"{field_name}:{index}",
+                    "input_branch_field": field_name,
+                },
+                deep=True,
+            )
+            plans.append(branch)
+        return plans
+
     @staticmethod
     def parametric_fallback(query: PlannedQuery) -> PlannedQuery | None:
         """Create a spec-only second-stage query for an unresolved MPN.

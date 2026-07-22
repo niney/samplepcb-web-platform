@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """SMARTBOM 어댑터 테스트 — RowAttrs → G-shape(ComponentRecord) 변환."""
+import pytest
+
 from bom_extraction_engine.adapter import adapt_sheet
 from bom_extraction_engine.contract import ComponentRecord, HeaderMapping
 from bom_extraction_engine.rule_extractor import compute_roles, extract_case
@@ -209,3 +211,221 @@ def test_open_pcb_test_point_is_kept_for_audit_but_not_procurement():
     assert len(components) == 1
     assert components[0]["footprint"] == "TP-0.9"
     assert "do_not_populate" in components[0]["quality_flags"]
+
+
+def test_passive_cad_footprint_is_package_evidence_not_part_number():
+    case = _case(
+        [
+            "Description",
+            "PartType",
+            "Value",
+            "Footprint",
+            "Designator",
+            "Quantity",
+        ],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "Capacitor, Ceramic, 2.2uF 2.5V X6T 0201",
+                    "2.2uF",
+                    "2.2uF",
+                    "CAP 0201/0603X03L_C",
+                    "C1",
+                    "1",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "Inductor, 400mA",
+                    "4.7nH",
+                    "4.7nH",
+                    "INDC0603X03L_C",
+                    "L1",
+                    "1",
+                ],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+    capacitor, inductor = components
+
+    assert capacitor["part_number"] is None
+    assert capacitor["package"] == "0201"
+    assert inductor["part_number"] is None
+    assert inductor["package"] == "0201"
+
+
+def test_value_and_package_source_conflicts_are_reviewable():
+    case = _case(
+        ["Value", "Value", "Package", "Designator", "Quantity"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["100k", "1K", "0603", "R1", "1"],
+            },
+            {
+                "row_id": 2,
+                "cells": ["3.3K ±1% 0603", "3.3K", "0402", "R2", "1"],
+            },
+            {
+                "row_id": 3,
+                "cells": ["100", "100", "3216", "R3", "1"],
+            },
+            {
+                "row_id": 4,
+                "cells": ["ADXL335BCPZ LFCSP-16", "", "LPCSP", "U1", "1"],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+    value_conflict, package_conflict, numeric_value, named_package_conflict = (
+        components
+    )
+
+    assert "resistance_input_source_conflict" in value_conflict["quality_flags"]
+    assert value_conflict["field_states"]["resistance"]["status"] == "review"
+    assert "package_input_source_conflict" in package_conflict["quality_flags"]
+    assert package_conflict["field_states"]["package"]["status"] == "review"
+    assert value_conflict["review_status"] == "review"
+    assert package_conflict["review_status"] == "review"
+    assert "package_input_source_conflict" not in numeric_value["quality_flags"]
+    assert (
+        "package_input_source_conflict"
+        in named_package_conflict["quality_flags"]
+    )
+
+
+def test_space_delimited_part_number_and_package_are_split_deterministically():
+    case = _case(
+        ["Specification", "Package", "Designator", "Quantity"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["ET1100-0003 BGA128", "BGA128", "U1", "1"],
+            },
+            {
+                "row_id": 2,
+                "cells": ["G692L308TCUF SOT143", "SOT143", "U2", "1"],
+            },
+            {
+                "row_id": 3,
+                "cells": ["MMBT3904 SOT-23", "SOT-23", "Q1", "1"],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+
+    assert [item["part_number"] for item in components] == [
+        "ET1100-0003",
+        "G692L308TCUF",
+        "MMBT3904",
+    ]
+    assert [item["package"] for item in components] == [
+        "BGA128",
+        "SOT143",
+        "SOT-23",
+    ]
+
+
+def test_repeated_short_identifier_and_zero_quantity_are_handled_safely():
+    case = _case(
+        ["Description", "Comment", "Quantity", "Footprint", "LibRef", "Designator"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["SMB size / SMD", "SS34", "1", "SMB", "SS34", "D1"],
+            },
+            {
+                "row_id": 2,
+                "cells": ["N.C.", "103", "0", "CAP_C3225N", "C_SMD", "C1"],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+    diode, not_populated = components
+
+    assert diode["part_number"] == "SS34"
+    assert diode["package"] == "SMB"
+    assert "do_not_populate" in not_populated["quality_flags"]
+
+
+def test_semantic_fields_and_procurement_dispositions_are_rule_based():
+    case = _case(
+        ["Type", "Description", "Value", "Package", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "BEAD",
+                    "Ferrite bead 120 Ohm @ 100MHz 200mA",
+                    "120 Ohm",
+                    "0201",
+                    "2",
+                    "FB1 FB2",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "Inductor",
+                    "600mA, ±0.1ｎH",
+                    "2.0nH",
+                    "0201",
+                    "1",
+                    "L1",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": ["LED", "green LED", "GREEN", "0603", "3", "D1 D2 D3"],
+            },
+            {
+                "row_id": 4,
+                "cells": ["Connector", "Header, 5-Pin, Dual row", "5X2", "", "1", "J1"],
+            },
+            {
+                "row_id": 5,
+                "cells": ["Other", "customer supplied shield", "", "", "", ""],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+    ferrite, inductor, led, connector, supplied = components
+    assert ferrite["impedance_ohm"] == 120.0
+    assert ferrite["impedance_frequency_hz"] == 100_000_000.0
+    assert "resistance_ohm" not in ferrite
+    assert inductor["absolute_tolerance_h"] == pytest.approx(0.1e-9)
+    assert inductor["tolerance_percent"] is None
+    assert led["color"] == "green"
+    assert connector["pin_count"] == 5
+    assert connector["row_count"] == 2
+    assert "connector_geometry_source_conflict" in connector["quality_flags"]
+    assert supplied["search_disposition"] == "excluded"
+    assert supplied["procurement_disposition"] == "excluded"
+    assert supplied["disposition_reason_codes"] == ["customer_supplied", "quantity_missing"]
+
+
+def test_reference_quantity_conflict_blocks_procurement_but_not_search():
+    case = _case(
+        ["Type", "Value", "Package", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["Capacitor", "10nF", "0603", "2", "C1 C2 C3"],
+            }
+        ],
+    )
+
+    components, _ = _adapt(case)
+    item = components[0]
+    assert item["reference_count"] == 3
+    assert item["quantity_resolution"] == "conflict"
+    assert item["search_disposition"] == "search"
+    assert item["procurement_disposition"] == "quantity_confirmation_required"

@@ -43,6 +43,17 @@ class Attribute(BaseModel):
     evidence: List[Evidence] = []
 
 
+class FieldAlternative(BaseModel):
+    """One independently observed value retained when source cells disagree."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    raw_value: str
+    normalized_value: Union[float, str, None] = None
+    source_cell: str
+    source_role: Literal["value", "package", "footprint", "description"]
+
+
 class ComponentRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -55,11 +66,19 @@ class ComponentRecord(BaseModel):
     manufacturer: Optional[str] = None
     description: Optional[str] = None
     quantity: Optional[int] = None
+    reference_count: Optional[int] = None
+    quantity_resolution: Literal["verified", "conflict", "missing"]
+    search_disposition: Literal["search", "excluded"]
+    procurement_disposition: Literal[
+        "eligible", "excluded", "quantity_confirmation_required"
+    ]
+    disposition_reason_codes: List[str]
     reference_designators: List[str]
     package: Optional[str] = None
     footprint: Optional[str] = None
     value_raw: Optional[str] = None
     raw_fields: Dict[str, RawValue]
+    input_alternatives: Dict[str, List[FieldAlternative]]
     field_states: Dict[str, FieldState]
     evidence: List[Evidence]
     uncertain_fields: List[str]
@@ -70,6 +89,15 @@ class ComponentRecord(BaseModel):
     inductance_h: Optional[float] = None
     power_w: Optional[float] = None
     tolerance_percent: Optional[float] = None
+    absolute_tolerance_h: Optional[float] = None
+    impedance_ohm: Optional[float] = None
+    impedance_frequency_hz: Optional[float] = None
+    dc_resistance_max_ohm: Optional[float] = None
+    color: Optional[str] = None
+    pin_count: Optional[int] = None
+    row_count: Optional[int] = None
+    pitch_mm: Optional[float] = None
+    body_dimensions_mm: Optional[List[float]] = None
     voltage_v: Optional[float] = None
     current_a: Optional[float] = None
     frequency_hz: Optional[float] = None

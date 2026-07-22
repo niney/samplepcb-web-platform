@@ -468,6 +468,11 @@ def test_rectangular_crystal_dimensions_are_not_diameter():
     assert product_diameter_mm(electrolytic) == 8.0
 
 
+def test_varistor_disc_size_is_contextual_diameter_not_generic_dimension():
+    assert source_diameter_mm("VARISTOR 7mm DIP type") == 7.0
+    assert source_diameter_mm("connector 7mm DIP type") is None
+
+
 def test_unknown_manufacturers_have_supplier_stable_separate_identities():
     query = identity_query(manufacturer=None)
     products = [

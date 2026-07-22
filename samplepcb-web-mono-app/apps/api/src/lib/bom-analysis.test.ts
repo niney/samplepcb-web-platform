@@ -103,7 +103,12 @@ describe('BOM 분석 영속 계약', () => {
     );
     const fixture: unknown = JSON.parse(readFileSync(fixtureUrl, 'utf8'));
 
-    expect(BomEngineAnalysisComponentStrict.parse(fixture)).toEqual(fixture);
+    const parsed = BomEngineAnalysisComponentStrict.parse(fixture);
+
+    expect(parsed).toEqual(fixture);
+    expect(parsed.quantity_resolution).toBe('verified');
+    expect(parsed.procurement_disposition).toBe('eligible');
+    expect(parsed.input_alternatives).toEqual({});
   });
 
   it('필수 구조를 검증하면서 새 엔진 필드를 모든 계층에서 보존한다', () => {

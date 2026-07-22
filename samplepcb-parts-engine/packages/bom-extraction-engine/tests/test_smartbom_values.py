@@ -3,8 +3,15 @@
 import pytest
 
 from bom_extraction_engine.normalize_values import values_equal
-from bom_extraction_engine.values import (parse_size_code, temperature_range,
-                                    to_ohm, to_percent, to_watt)
+from bom_extraction_engine.values import (
+    parse_size_code,
+    temperature_range,
+    to_farad,
+    to_ohm,
+    to_percent,
+    to_volt,
+    to_watt,
+)
 
 # bom_probing_claude/test_normalize.py의 대표 케이스 — 이식 무결성 고정
 EQUAL_CASES = [
@@ -64,6 +71,12 @@ def test_to_percent_numeric_and_eia_letter():
     assert to_percent("K") == 10.0
     assert to_percent("F") == 1.0
     assert to_percent("Z") is None
+
+
+def test_decimal_and_bracketed_unit_normalization():
+    assert to_farad(".47uF") == pytest.approx(0.47e-6)
+    assert to_farad("10[uF]") == pytest.approx(10e-6)
+    assert to_volt("6,3V") == 6.3
 
 
 def test_parse_size_code_metric_to_imperial():

@@ -15,7 +15,11 @@ from uuid import uuid4
 from bom_extraction_engine import SmartbomConfig, build_smartbom_result
 from supplier_search_engine.contract import SearchBatchInput, build_batch_from_result
 from supplier_search_engine.cache import CacheLookup, SQLiteCache, stable_cache_key
-from supplier_search_engine.models import ProcurementPolicyInput
+from supplier_search_engine.models import (
+    ProcurementDisposition,
+    ProcurementPolicyInput,
+    QuantityResolution,
+)
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings as SearchSettings
 
@@ -326,9 +330,16 @@ class JobService:
         components = [
             component.model_copy(
                 update={
-                    "required_quantity": job.supplier_required_quantities.get(
-                        component.component_id,
-                        component.required_quantity,
+                    "required_quantity": (
+                        job.supplier_required_quantities.get(
+                            component.component_id,
+                            component.required_quantity,
+                        )
+                        if component.procurement_disposition
+                        == ProcurementDisposition.ELIGIBLE
+                        and component.quantity_resolution
+                        == QuantityResolution.VERIFIED
+                        else component.required_quantity
                     )
                 }
             )

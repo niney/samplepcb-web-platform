@@ -119,7 +119,10 @@ def test_digikey_prefers_ferrite_impedance_over_dc_resistance():
 
     product = client.normalize(raw, ferrite_query)[0]
 
-    assert product.normalized_specs["resistance_ohm"] == 120.0
+    assert product.normalized_specs["impedance_ohm"] == 120.0
+    assert product.normalized_specs["impedance_frequency_hz"] == 100_000_000.0
+    assert product.normalized_specs["dc_resistance_max_ohm"] == 0.03
+    assert "resistance_ohm" not in product.normalized_specs
 
 
 def test_mouser_normalizes_attributes_stock_and_price():

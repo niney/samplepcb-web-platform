@@ -44,10 +44,16 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-function requestBody(init: RequestInit | undefined): { components: { component_id: string; required_quantity: number }[] } {
+function requestBody(init: RequestInit | undefined): { components: {
+  component_id: string;
+  required_quantity: number;
+  procurement_disposition: 'eligible' | 'excluded' | 'quantity_confirmation_required';
+  quantity_resolution: 'verified' | 'conflict' | 'missing';
+  disposition_reason_codes: string[];
+}[] } {
   // engineFetch 는 항상 JSON.stringify(...) 문자열을 body 로 넘긴다(RequestInit.body 는 다른
   // BodyInit도 허용하는 넓은 타입이라 no-base-to-string 회피를 위해 명시적으로 캐스팅한다).
-  return JSON.parse(init?.body as string) as { components: { component_id: string; required_quantity: number }[] };
+  return JSON.parse(init?.body as string) as ReturnType<typeof requestBody>;
 }
 
 // ── 저장 후보·엔진 응답 공용 픽스처 ──────────────────────────────────────────
@@ -299,6 +305,32 @@ describe('repriceCandidateSelections', () => {
     expect(engineFetchMock).not.toHaveBeenCalled();
     expect(result).toBeUndefined();
     expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it('저장된 수량 충돌 상태를 무호출 조달 재평가에도 전달한다', async () => {
+    const decision = buildDecision('component-conflict', 'MPN-CONFLICT', 'digikey', 10, 1, 10);
+    const item = autoSelectedItem('1', 0, 'component-conflict', decision, 20);
+    const candidate = {
+      ...firstSnapshot(decision),
+      procurementDisposition: 'quantity_confirmation_required' as const,
+      quantityResolution: 'conflict' as const,
+      dispositionReasonCodes: ['quantity_reference_conflict'],
+    };
+    mockStoredCandidates([{ id: '1', candidate }]);
+    engineFetchMock.mockImplementation((_path, init) => {
+      expect(requestBody(init).components[0]).toMatchObject({
+        procurement_disposition: 'quantity_confirmation_required',
+        quantity_resolution: 'conflict',
+        disposition_reason_codes: ['quantity_reference_conflict'],
+      });
+      return Promise.resolve(jsonResponse({
+        components: [{ component_id: 'component-conflict', status: 'error', error_code: 'quantity_confirmation_required' }],
+      }));
+    });
+
+    await repriceCandidateSelections(1n, [item], 1, 0, null, null, createLog());
+
+    expect(engineFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('50개 초과 컴포넌트는 50개 청크로 나눠 벌크 재평가하고 컴포넌트→행으로 정확히 매핑한다', async () => {

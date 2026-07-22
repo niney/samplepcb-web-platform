@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from .contract import SearchBatchInput
+from .contract import SearchBatchInput, SearchComponentInput
 
 from .budget import ApiBudgetManager, QuotaExceeded
 from .cache import SQLiteCache, stable_cache_key
@@ -152,23 +152,38 @@ class SearchService:
 
     async def search_batch(self, batch: SearchBatchInput) -> BatchSearchResult:
         started = time.perf_counter()
-        plans = [self.planner.plan(component) for component in batch.components]
-        groups: dict[str, list[tuple[int, PlannedQuery]]] = {}
-        for index, plan in enumerate(plans):
-            key = stable_cache_key(plan.cache_payload())
-            groups.setdefault(key, []).append((index, plan))
+        plan_sets = [self.planner.plan_variants(component) for component in batch.components]
+        flattened_plans = [plan for plans in plan_sets for plan in plans]
+        groups: dict[str, list[tuple[int, int, PlannedQuery]]] = {}
+        for index, plans in enumerate(plan_sets):
+            for branch_index, plan in enumerate(plans):
+                key = stable_cache_key(
+                    {
+                        "supplier_query": plan.cache_payload(),
+                        "procurement_disposition": plan.procurement_disposition.value,
+                        "quantity_resolution": plan.quantity_resolution.value,
+                        "disposition_reason_codes": plan.disposition_reason_codes,
+                        "input_source_conflicts": plan.input_source_conflicts,
+                        "input_branch_id": plan.input_branch_id,
+                        "input_branch_field": plan.input_branch_field,
+                        "branch_limit_exceeded": plan.branch_limit_exceeded,
+                    }
+                )
+                groups.setdefault(key, []).append((index, branch_index, plan))
 
         job_budget = _JobCallBudget(self.settings.max_api_calls_per_job, self.budget)
-        mouser_prefetch = asyncio.create_task(self._prefetch_mouser_exact(plans, job_budget))
+        mouser_prefetch = asyncio.create_task(
+            self._prefetch_mouser_exact(flattened_plans, job_budget)
+        )
         tasks = {
             key: asyncio.create_task(
                 self.search_component(
-                    items[0][1],
+                    items[0][2],
                     procurement_policy=batch.procurement_policy,
                     job_budget=job_budget,
                     supplier_barriers=(
                         {Supplier.MOUSER: mouser_prefetch}
-                        if items[0][1].mode == SearchMode.IDENTITY
+                        if items[0][2].mode == SearchMode.IDENTITY
                         else None
                     ),
                 )
@@ -187,7 +202,7 @@ class SearchService:
 
         unique_results: dict[str, ComponentSearchResult] = {}
         for key, task in tasks.items():
-            query = groups[key][0][1]
+            query = groups[key][0][2]
             if task not in done or task.cancelled():
                 unique_results[key] = self._batch_failure_result(
                     query,
@@ -216,10 +231,12 @@ class SearchService:
             except Exception:
                 prefetched_requests = 0
 
-        component_results: list[ComponentSearchResult | None] = [None] * len(plans)
+        branch_results: dict[
+            int, list[tuple[int, PlannedQuery, ComponentSearchResult]]
+        ] = {index: [] for index in range(len(plan_sets))}
         for key, items in groups.items():
             result = unique_results[key]
-            for offset, (index, plan) in enumerate(items):
+            for offset, (index, branch_index, plan) in enumerate(items):
                 source_component = batch.components[index]
                 warnings = list(result.warnings)
                 api_calls = result.api_calls
@@ -256,9 +273,13 @@ class SearchService:
                         },
                         deep=True,
                     )
-                component_results[index] = result.model_copy(
+                remapped = result.model_copy(
                     update={
                         "component_id": plan.component_id,
+                        "search_disposition": plan.search_disposition,
+                        "procurement_disposition": plan.procurement_disposition,
+                        "disposition_reason_codes": plan.disposition_reason_codes,
+                        "quantity_resolution": plan.quantity_resolution,
                         "reference_designators": source_component.reference_designators,
                         "source_rows_1based": source_component.source_rows_1based,
                         "query": final_query,
@@ -269,8 +290,25 @@ class SearchService:
                     },
                     deep=True,
                 )
+                branch_results[index].append((branch_index, plan, remapped))
 
-        completed = [item for item in component_results if item is not None]
+        component_results: list[ComponentSearchResult] = []
+        for index, plans in enumerate(plan_sets):
+            ordered = sorted(branch_results[index], key=lambda item: item[0])
+            results = [item[2] for item in ordered]
+            if len(results) == 1:
+                component_results.append(results[0])
+            else:
+                component_results.append(
+                    self._merge_conflict_branch_results(
+                        batch.components[index],
+                        plans,
+                        results,
+                        batch.procurement_policy,
+                    )
+                )
+
+        completed = component_results
         cache_hits = sum(
             1
             for result in unique_results.values()
@@ -308,6 +346,106 @@ class SearchService:
                 "initial_supplier_results": initial_supplier_results,
             },
             deep=False,
+        )
+
+    def _merge_conflict_branch_results(
+        self,
+        component: SearchComponentInput,
+        plans: list[PlannedQuery],
+        results: list[ComponentSearchResult],
+        procurement_policy: ProcurementPolicyInput,
+    ) -> ComponentSearchResult:
+        """Merge bounded alternative searches without combining their evidence."""
+
+        candidates: list[CandidateMatch] = []
+        for result in results:
+            for candidate in result.candidates:
+                decision = candidate.decision
+                recommendation = (
+                    SelectionRecommendation.EXCLUDE
+                    if decision.selection_eligibility == SelectionEligibility.BLOCKED
+                    else SelectionRecommendation.CANDIDATE_ONLY
+                )
+                candidates.append(
+                    candidate.model_copy(
+                        update={
+                            "decision": decision.model_copy(
+                                update={
+                                    "selection_recommendation": recommendation,
+                                    "review_recommended": False,
+                                },
+                                deep=True,
+                            )
+                        },
+                        deep=True,
+                    )
+                )
+        _, procurement_decision = apply_procurement_decisions(
+            plans[0], [], procurement_policy
+        )
+        candidates.sort(key=lambda candidate: self._candidate_sort_key(candidate, plans[0]))
+        attempts: list[ComponentSearchTraceAttempt] = []
+        for plan, result in zip(plans, results, strict=True):
+            if result.search_trace is None:
+                continue
+            for attempt in result.search_trace.attempts:
+                attempts.append(
+                    attempt.model_copy(
+                        update={
+                            "sequence": len(attempts) + 1,
+                            "stage": "input_conflict_branch",
+                            "input_branch_id": plan.input_branch_id,
+                        },
+                        deep=True,
+                    )
+                )
+        all_supplier_error = all(
+            result.status == MatchStatus.SUPPLIER_ERROR for result in results
+        )
+        return ComponentSearchResult(
+            component_id=component.component_id,
+            mode=SearchMode.PARAMETRIC,
+            status=(
+                MatchStatus.SUPPLIER_ERROR
+                if all_supplier_error
+                else MatchStatus.INPUT_CONFLICT
+            ),
+            search_disposition=plans[0].search_disposition,
+            procurement_disposition=plans[0].procurement_disposition,
+            disposition_reason_codes=plans[0].disposition_reason_codes,
+            quantity_resolution=plans[0].quantity_resolution,
+            reference_designators=component.reference_designators,
+            source_rows_1based=component.source_rows_1based,
+            query=plans[0],
+            conflict_branch_queries=plans,
+            search_trace=ComponentSearchTrace(
+                primary_query=bounded_search_trace_query(
+                    " | ".join(plan.keywords for plan in plans)
+                ),
+                attempts=attempts,
+            ),
+            candidates=candidates,
+            input_corrections=[
+                correction
+                for result in results
+                for correction in result.input_corrections
+            ],
+            supplier_results=[
+                supplier_result
+                for result in results
+                for supplier_result in result.supplier_results
+            ],
+            procurement_decision=procurement_decision,
+            api_calls=sum(result.api_calls for result in results),
+            elapsed_ms=sum(result.elapsed_ms for result in results),
+            warnings=list(
+                dict.fromkeys(
+                    [
+                        "서로 충돌하는 원본 값의 두 검색 분기를 독립적으로 실행했으며 자동선정은 금지됩니다.",
+                        *(warning for result in results for warning in result.warnings),
+                    ]
+                )
+            ),
         )
 
     @staticmethod
@@ -349,6 +487,10 @@ class SearchService:
             component_id=query.component_id,
             mode=query.mode,
             status=MatchStatus.SUPPLIER_ERROR,
+            search_disposition=query.search_disposition,
+            procurement_disposition=query.procurement_disposition,
+            disposition_reason_codes=query.disposition_reason_codes,
+            quantity_resolution=query.quantity_resolution,
             query=query,
             supplier_results=supplier_results,
             procurement_decision=procurement_decision,
@@ -393,18 +535,36 @@ class SearchService:
         job_budget: _JobCallBudget | None = None,
         supplier_barriers: dict[Supplier, asyncio.Task[int]] | None = None,
     ) -> ComponentSearchResult:
-        if query.mode == SearchMode.INSUFFICIENT:
+        if query.mode in {SearchMode.INSUFFICIENT, SearchMode.EXCLUDED}:
             _, procurement_decision = apply_procurement_decisions(
                 query, [], procurement_policy
             )
+            excluded = query.mode == SearchMode.EXCLUDED
+            branch_limited = query.branch_limit_exceeded
             return ComponentSearchResult(
                 component_id=query.component_id,
                 mode=query.mode,
-                status=MatchStatus.INSUFFICIENT_INPUT,
+                status=(
+                    MatchStatus.EXCLUDED
+                    if excluded
+                    else MatchStatus.INPUT_CONFLICT
+                    if branch_limited
+                    else MatchStatus.INSUFFICIENT_INPUT
+                ),
+                search_disposition=query.search_disposition,
+                procurement_disposition=query.procurement_disposition,
+                disposition_reason_codes=query.disposition_reason_codes,
+                quantity_resolution=query.quantity_resolution,
                 query=query,
                 search_trace=self._component_search_trace(query, []),
                 procurement_decision=procurement_decision,
-                warnings=["부품 식별자 또는 검증 가능한 스펙이 부족합니다."],
+                warnings=[
+                    "엔진 정책에 따라 공급사 검색 및 구매 판단에서 제외했습니다."
+                    if excluded
+                    else "입력 충돌 분기 상한을 초과해 일부 분기를 실행하지 않았습니다."
+                    if branch_limited
+                    else "부품 식별자 또는 검증 가능한 스펙이 부족합니다."
+                ],
             )
 
         budget = job_budget or _JobCallBudget(self.settings.max_api_calls_per_job, self.budget)
@@ -452,6 +612,10 @@ class SearchService:
             component_id=query.component_id,
             mode=query.mode,
             status=status,
+            search_disposition=query.search_disposition,
+            procurement_disposition=query.procurement_disposition,
+            disposition_reason_codes=query.disposition_reason_codes,
+            quantity_resolution=query.quantity_resolution,
             query=query,
             search_trace=self._component_search_trace(query, supplier_results),
             candidates=candidates,
@@ -518,6 +682,8 @@ class SearchService:
             return "hybrid"
         if query.mode == SearchMode.PARAMETRIC:
             return "parametric"
+        if query.mode == SearchMode.EXCLUDED:
+            return "excluded"
         return "insufficient"
 
     @staticmethod
@@ -1236,6 +1402,13 @@ class SearchService:
     ) -> bool:
         decision = candidate.decision
         if decision.selection_eligibility != SelectionEligibility.MANUAL_REVIEW:
+            return False
+        if query.input_source_conflicts:
+            return False
+        if (
+            query.mode == SearchMode.PARAMETRIC
+            and query.category_policy in {"led", "connector"}
+        ):
             return False
         if any(value.endswith("_source_conflict") for value in candidate.conflicts):
             return False

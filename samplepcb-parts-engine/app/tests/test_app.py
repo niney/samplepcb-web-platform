@@ -186,6 +186,9 @@ def test_persisted_quantities_and_procurement_policy_reach_same_search_batch(tmp
     parse_job_id = upload.json()["job_id"]
     assert _await_completed(client, parse_job_id)["status"] == "completed"
     analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    analysis["components"][0]["quantity_resolution"] = "verified"
+    analysis["components"][0]["procurement_disposition"] = "eligible"
+    analysis["components"][0]["disposition_reason_codes"] = []
     component_id = build_batch_from_result(analysis).components[0].component_id
     created = client.post(
         "/supplier-jobs",
@@ -205,6 +208,40 @@ def test_persisted_quantities_and_procurement_policy_reach_same_search_batch(tmp
     assert preflight_batch.components[0].required_quantity == 321
     assert preflight_batch.procurement_policy.currency_rate_snapshot_id == (
         "test-snapshot"
+    )
+
+
+def test_persisted_quantity_does_not_override_engine_quantity_conflict(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    component = analysis["components"][0]
+    component["quantity_resolution"] = "conflict"
+    component["procurement_disposition"] = "quantity_confirmation_required"
+    component["disposition_reason_codes"] = ["quantity_reference_conflict"]
+    component_id = build_batch_from_result(analysis).components[0].component_id
+
+    created = client.post(
+        "/supplier-jobs",
+        json={"analysis": analysis, "required_quantities": {component_id: 321}},
+    )
+    supplier_job = client.app.state.jobs.get(created.json()["job_id"])
+    batch = client.app.state.jobs._supplier_batch(
+        supplier_job,
+        SupplierSearchOptions(max_calls=5),
+    )
+
+    assert batch.components[0].required_quantity is None
+    assert batch.components[0].quantity_resolution.value == "conflict"
+    assert (
+        batch.components[0].procurement_disposition.value
+        == "quantity_confirmation_required"
     )
 
 
@@ -531,7 +568,7 @@ def test_supplier_envelope_counts_identity_and_spec_fallback_attempts(tmp_path):
     assert digikey["request_count"] == 2
     assert digikey["api_calls"] == 2
     component = envelope["search"]["components"][0]
-    assert envelope["supplier_search_schema_version"] == "1.6"
+    assert envelope["supplier_search_schema_version"] == "1.7"
     assert envelope["decision_contract_status"] == "current"
     assert envelope["procurement_decision_contract_status"] == "current"
     assert component["initial_query"]["part_number"] == "0603X03L_C"

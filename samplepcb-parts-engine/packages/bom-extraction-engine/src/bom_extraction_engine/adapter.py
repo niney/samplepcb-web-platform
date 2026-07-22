@@ -14,14 +14,16 @@ EvidenceDrawer·헤더 매핑 그리드가 local_fusion 결과와 동일하게 �
 - evidence: {cell: "C12"(원본 열 기준 A1 좌표), raw_value, supports}
 - confidence: rule_extractor의 필드별 source(col/text/infer) 가중 평균
 """
+import math
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
 from .rule_extractor import (
     classify_columns,
     desig_part_type,
     infer_part_type,
-    package_from_footprint,
+    package_from_source_cell,
 )
 from .row_features import reference_designators, reference_list_count
 from .schema import RowAttrs, VALUE_FIELDS
@@ -66,6 +68,39 @@ _WS = re.compile(r"\s+")
 _ELECTROLYTIC_TYPE_CONTEXT = re.compile(
     r"(?:^|[^A-Z0-9])(?:E\s*/\s*C|ECAP|E(?:LE)?[-_ ]?CAP|ELECTROLYTIC)"
     r"(?:[^A-Z0-9]|$)",
+    re.I,
+)
+_FERRITE_CONTEXT = re.compile(r"\b(?:ferrite|bead|f\.?\s*bead)\b|비드", re.I)
+_ABSOLUTE_INDUCTANCE_TOLERANCE = re.compile(
+    r"(?:±|\+/-)\s*(\d+(?:\.\d+)?)\s*([unpµμm]?)h\b",
+    re.I,
+)
+_COLOR_ALIASES = {
+    "red": "red",
+    "green": "green",
+    "orange": "orange",
+    "amber": "amber",
+    "yellow": "yellow",
+    "blue": "blue",
+    "white": "white",
+    "warm white": "warm_white",
+    "cool white": "cool_white",
+    "적색": "red",
+    "녹색": "green",
+    "주황": "orange",
+    "황색": "yellow",
+    "청색": "blue",
+    "백색": "white",
+}
+_EXPLICIT_PIN_COUNT = re.compile(r"\b(\d{1,3})\s*[- ]?pins?\b", re.I)
+_CONNECTOR_ARRAY = re.compile(r"\b(\d{1,2})\s*[x×]\s*(\d{1,2})\b", re.I)
+_PITCH = re.compile(
+    r"\b(?:pitch\s*)?(\d+(?:\.\d+)?)\s*mm\s*pitch\b|"
+    r"\bp\s*=\s*(\d+(?:\.\d+)?)\s*mm\b",
+    re.I,
+)
+_BODY_DIMENSIONS = re.compile(
+    r"\b(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*mm\b",
     re.I,
 )
 
@@ -143,12 +178,116 @@ def _cell_supports(field: str, value: Any, cell: str,
         return bool(tokens) and tokens <= cell_tokens
     if (
         field == "package"
-        and "footprint" in cell_roles
-        and package_from_footprint(cell, None) == value
+        and {"package", "footprint"} & cell_roles
+        and package_from_source_cell(cell, None) == value
     ):
         return True
+    if field in NORMALIZERS:
+        _, normalizer, _ = NORMALIZERS[field]
+        target_value = normalizer(value)
+        cell_value: Any = cell
+        if (
+            field == "tolerance"
+            and "tolerance" in cell_roles
+            and re.fullmatch(r"0?\.\d+", cell.strip())
+        ):
+            # Excel percentage cells are loaded as decimal fractions while
+            # the extractor intentionally exposes a percent value.
+            cell_value = f"{float(cell) * 100:g}%"
+        normalized_cell = normalizer(cell_value)
+        if target_value is not None and normalized_cell is not None:
+            return math.isclose(
+                float(target_value),
+                float(normalized_cell),
+                rel_tol=1e-9,
+                abs_tol=1e-15,
+            )
     target = _fold(value)
     return bool(target) and target in _fold(cell)
+
+
+def _numeric_source_conflicts(
+    roles: Dict[str, List[int]], cells: List[str]
+) -> List[str]:
+    conflicts: List[str] = []
+    value_indexes = roles.get("value", [])
+    for field, (_, normalizer, _) in NORMALIZERS.items():
+        values = []
+        for index in value_indexes:
+            if index >= len(cells) or not str(cells[index]).strip():
+                continue
+            normalized = normalizer(cells[index])
+            if normalized is not None:
+                values.append(float(normalized))
+        if values and any(
+            not math.isclose(values[0], value, rel_tol=1e-9, abs_tol=1e-15)
+            for value in values[1:]
+        ):
+            conflicts.append(f"{field}_input_source_conflict")
+    return conflicts
+
+
+def _package_source_values(
+    roles: Dict[str, List[int]], cells: List[str], part_type: Optional[str]
+) -> List[Tuple[str, str, int, str]]:
+    values: List[Tuple[str, str, int, str]] = []
+    package_indexes = set(roles.get("package", [])) | set(
+        roles.get("footprint", [])
+    )
+    value_indexes = set(roles.get("value", []))
+    for index in dict.fromkeys(
+        [
+            *roles.get("package", []),
+            *roles.get("footprint", []),
+            *roles.get("value", []),
+        ]
+    ):
+        if index >= len(cells):
+            continue
+        raw = str(cells[index]).strip()
+        parsed = package_from_source_cell(raw, part_type)
+        if (
+            not parsed
+            and index in package_indexes
+            and re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{2,20}", raw)
+            and raw.upper() not in {"ANY", "NONE", "NULL", "TBD", "UNKNOWN"}
+        ):
+            # 공급사/설계도구 고유 패키지명은 사전에 없더라도 package 역할
+            # 열의 명시적 코드다. 다른 셀의 표준 패키지와 비교 근거로 보존한다.
+            parsed = raw
+        if not parsed or parsed.upper() in {"SMD", "SMT", "DIP", "THT"}:
+            continue
+        if (
+            index in value_indexes
+            and index not in package_indexes
+            and re.sub(r"[^A-Za-z0-9]", "", raw).upper()
+            == re.sub(r"[^A-Za-z0-9]", "", parsed).upper()
+        ):
+            # 값 열의 단독 숫자/토큰("100", "1206")은 패키지 근거가
+            # 아니다. "0.1uF (0603)"처럼 별도 문맥에 병기된 경우만 비교한다.
+            continue
+        size = parse_size_code(parsed)
+        key = f"size:{size}" if size else re.sub(
+            r"[^A-Za-z0-9]", "", parsed
+        ).upper()
+        if not key:
+            continue
+        source_role = (
+            "package"
+            if index in roles.get("package", [])
+            else "footprint"
+            if index in roles.get("footprint", [])
+            else "value"
+        )
+        if not any(existing[0] == key for existing in values):
+            values.append((key, parsed, index, source_role))
+    return values
+
+
+def _package_source_conflict(
+    roles: Dict[str, List[int]], cells: List[str], part_type: Optional[str]
+) -> bool:
+    return len(_package_source_values(roles, cells, part_type)) > 1
 
 
 class _SheetAdapter:
@@ -207,6 +346,91 @@ class _SheetAdapter:
                 }
         return None, {"value": None, "status": "not_found", "evidence": []}
 
+    def _input_alternatives(
+        self,
+        cells: List[str],
+        row_1based: int,
+        part_type: Optional[str],
+    ) -> Dict[str, List[dict]]:
+        alternatives: Dict[str, List[dict]] = {}
+        for field, (_target, normalizer, _unit) in NORMALIZERS.items():
+            observed: Dict[float, dict] = {}
+            for index in self.roles.get("value", []):
+                if index >= len(cells):
+                    continue
+                raw = str(cells[index]).strip()
+                normalized = normalizer(raw) if raw else None
+                if normalized is None:
+                    continue
+                key = float(normalized)
+                observed.setdefault(
+                    key,
+                    {
+                        "raw_value": raw,
+                        "normalized_value": key,
+                        "source_cell": f"{self.col_letters[index]}{row_1based}",
+                        "source_role": "value",
+                    },
+                )
+            if len(observed) > 1:
+                alternatives[field] = [observed[key] for key in sorted(observed)]
+
+        package_values = _package_source_values(self.roles, cells, part_type)
+        if len(package_values) > 1:
+            alternatives["package"] = [
+                {
+                    "raw_value": str(cells[index]).strip(),
+                    "normalized_value": parsed,
+                    "source_cell": f"{self.col_letters[index]}{row_1based}",
+                    "source_role": source_role,
+                }
+                for _key, parsed, index, source_role in sorted(
+                    package_values, key=lambda item: (item[0], item[2])
+                )
+            ]
+        return alternatives
+
+    def _connector_geometry_alternatives(
+        self,
+        cells: List[str],
+        row_1based: int,
+        part_type: Optional[str],
+    ) -> List[dict]:
+        if part_type != "connector":
+            return []
+        observed: Dict[int, dict] = {}
+        for index, cell_value in enumerate(cells):
+            raw = str(cell_value).strip()
+            if not raw:
+                continue
+            explicit = _EXPLICIT_PIN_COUNT.search(raw)
+            array = _CONNECTOR_ARRAY.search(raw)
+            values = []
+            if explicit:
+                values.append(int(explicit.group(1)))
+            if array:
+                values.append(int(array.group(1)) * int(array.group(2)))
+            source_role = (
+                "value"
+                if "value" in self.col_roles[index]
+                else "package"
+                if "package" in self.col_roles[index]
+                else "footprint"
+                if "footprint" in self.col_roles[index]
+                else "description"
+            )
+            for value in values:
+                observed.setdefault(
+                    value,
+                    {
+                        "raw_value": raw,
+                        "normalized_value": value,
+                        "source_cell": f"{self.col_letters[index]}{row_1based}",
+                        "source_role": source_role,
+                    },
+                )
+        return [observed[value] for value in sorted(observed)] if len(observed) > 1 else []
+
     def component(self, attrs: RowAttrs, src: Dict[str, str],
                   cells: List[str]) -> Dict[str, Any]:
         row_1based = attrs.row_id + 1
@@ -231,6 +455,16 @@ class _SheetAdapter:
                 uncertain.append(field)
             if src.get(field):
                 field_states[field]["source"] = src[field]
+
+        input_conflicts = _numeric_source_conflicts(self.roles, cells)
+        if _package_source_conflict(self.roles, cells, attrs.part_type):
+            input_conflicts.append("package_input_source_conflict")
+        for conflict in input_conflicts:
+            field = conflict.removesuffix("_input_source_conflict")
+            if field in field_states and field_states[field]["value"] is not None:
+                field_states[field]["status"] = "review"
+                if field not in uncertain:
+                    uncertain.append(field)
 
         reference = attrs.reference
         if reference:
@@ -314,12 +548,46 @@ class _SheetAdapter:
         for state in (description_state, footprint_state, value_state):
             evidence.extend(state["evidence"])
 
+        semantic_text = unicodedata.normalize("NFKC", " ".join(
+            str(value)
+            for value in (attrs.part_type, description, value_raw, *cells)
+            if value is not None and str(value).strip()
+        ))
+        if _FERRITE_CONTEXT.search(semantic_text):
+            impedance = normalized.pop("resistance_ohm", None)
+            if impedance is not None:
+                normalized["impedance_ohm"] = impedance
+                for attribute in attributes:
+                    if attribute["name"] == "resistance":
+                        attribute["name"] = "impedance"
+                        attribute["unit"] = "Ω"
+            frequency = normalized.get("frequency_hz")
+            if frequency is not None:
+                normalized["impedance_frequency_hz"] = frequency
+        absolute_tolerance = _ABSOLUTE_INDUCTANCE_TOLERANCE.search(semantic_text)
+        if absolute_tolerance:
+            tolerance_h = to_henry(
+                f"{absolute_tolerance.group(1)}{absolute_tolerance.group(2)}H"
+            )
+            if tolerance_h is not None:
+                normalized["absolute_tolerance_h"] = tolerance_h
+                attributes.append(
+                    {
+                        "name": "absolute_tolerance",
+                        "raw_value": absolute_tolerance.group(0),
+                        "normalized_value": tolerance_h,
+                        "unit": "H",
+                        "evidence": [],
+                    }
+                )
         quality_flags: List[str] = []
         dnp_markers = {
             "dnp", "dni", "dnf", "do not populate",
             "not fitted", "not mounted", "미삽",
         }
         if any(_fold(cell) in dnp_markers for cell in cells):
+            quality_flags.append("do_not_populate")
+        if attrs.quantity == 0 and "do_not_populate" not in quality_flags:
             quality_flags.append("do_not_populate")
         if (
             value_raw
@@ -334,16 +602,91 @@ class _SheetAdapter:
             # do not spend supplier calls on it. Physical purchasable test
             # points without the OPEN + TP-footprint evidence remain searchable.
             quality_flags.append("do_not_populate")
+        all_text = " ".join(str(cell) for cell in cells if str(cell).strip())
+        folded_all_text = all_text.casefold()
+        color = next(
+            (
+                canonical
+                for token, canonical in sorted(
+                    _COLOR_ALIASES.items(), key=lambda item: len(item[0]), reverse=True
+                )
+                if re.search(rf"(?<![a-z]){re.escape(token)}(?![a-z])", folded_all_text)
+            ),
+            None,
+        )
+        explicit_pin = _EXPLICIT_PIN_COUNT.search(all_text)
+        connector_array = _CONNECTOR_ARRAY.search(all_text)
+        pin_count = int(explicit_pin.group(1)) if explicit_pin else None
+        row_count = None
+        if re.search(r"\b(?:dual|double)\s*row\b|2\s*열|2열", all_text, re.I):
+            row_count = 2
+        elif re.search(r"\bsingle\s*row\b|1\s*열|1열", all_text, re.I):
+            row_count = 1
+        if connector_array and attrs.part_type == "connector":
+            array_pins = int(connector_array.group(1)) * int(connector_array.group(2))
+            array_rows = min(int(connector_array.group(1)), int(connector_array.group(2)))
+            if pin_count is None:
+                pin_count = array_pins
+            elif pin_count != array_pins:
+                input_conflicts.append("connector_geometry_source_conflict")
+            if row_count is None:
+                row_count = array_rows
+            elif row_count != array_rows:
+                input_conflicts.append("connector_geometry_source_conflict")
+        pitch_match = _PITCH.search(all_text)
+        pitch_mm = (
+            float(pitch_match.group(1) or pitch_match.group(2))
+            if pitch_match
+            else None
+        )
+        dimensions_match = _BODY_DIMENSIONS.search(all_text)
+        body_dimensions_mm = (
+            [float(dimensions_match.group(index)) for index in (1, 2, 3)]
+            if dimensions_match
+            else None
+        )
+        customer_supplied = bool(
+            re.search(
+                r"(?:客供|customer\s*(?:supplied|provided|furnished)|consigned)",
+                all_text,
+                re.I,
+            )
+        )
+        pcb_feature = bool(
+            attrs.part_number is None
+            and footprint
+            and re.match(r"^(?:PAD|TEST[_ -]?POINT)[_/ -]", footprint, re.I)
+            and value_raw
+            and re.match(r"^(?:PAD|TEST\s*POINT)\b", value_raw, re.I)
+        )
+        if customer_supplied:
+            quality_flags.append("customer_supplied")
+        if pcb_feature:
+            quality_flags.append("pcb_feature")
         if attrs.quantity is None:
             quality_flags.append("quantity_not_found")
         if src.get("_part_type_conflict"):
             quality_flags.append("part_type_source_conflict")
-        reference_count = reference_list_count(reference)
         if (
+            attrs.part_type == "inductor"
+            and normalized.get("capacitance_f") is not None
+            and normalized.get("inductance_h") is None
+        ) or (
+            attrs.part_type == "capacitor"
+            and normalized.get("inductance_h") is not None
+            and normalized.get("capacitance_f") is None
+        ):
+            quality_flags.append("unit_category_conflict")
+        quality_flags.extend(
+            conflict for conflict in input_conflicts if conflict not in quality_flags
+        )
+        reference_count = reference_list_count(reference)
+        quantity_conflict = bool(
             reference_count is not None
             and attrs.quantity is not None
             and reference_count != attrs.quantity
-        ):
+        )
+        if quantity_conflict:
             quality_flags.append("reference_quantity_mismatch")
         if uncertain:
             quality_flags.append("field_without_direct_evidence")
@@ -351,6 +694,43 @@ class _SheetAdapter:
                        if raw_fields[f] is not None
                        and src.get(f) in _SOURCE_CONFIDENCE]
         package = attrs.package
+        quantity_resolution = (
+            "missing"
+            if attrs.quantity is None
+            else "conflict"
+            if quantity_conflict
+            else "verified"
+        )
+        disposition_reason_codes: List[str] = []
+        if "do_not_populate" in quality_flags:
+            disposition_reason_codes.append("do_not_populate")
+        if pcb_feature:
+            disposition_reason_codes.append("pcb_feature")
+        if customer_supplied:
+            disposition_reason_codes.append("customer_supplied")
+        if quantity_resolution == "conflict":
+            disposition_reason_codes.append("quantity_reference_conflict")
+        elif quantity_resolution == "missing":
+            disposition_reason_codes.append("quantity_missing")
+        excluded = any(
+            reason in {"do_not_populate", "pcb_feature", "customer_supplied"}
+            for reason in disposition_reason_codes
+        )
+        procurement_disposition = (
+            "excluded"
+            if excluded
+            else "quantity_confirmation_required"
+            if quantity_resolution != "verified"
+            else "eligible"
+        )
+        input_alternatives = self._input_alternatives(
+            cells, row_1based, attrs.part_type
+        )
+        connector_alternatives = self._connector_geometry_alternatives(
+            cells, row_1based, attrs.part_type
+        )
+        if connector_alternatives:
+            input_alternatives["pin_count"] = connector_alternatives
         record: Dict[str, Any] = {
             "source_file": self.source_file,
             "sheet_name": self.sheet_name,
@@ -361,11 +741,22 @@ class _SheetAdapter:
             "manufacturer": attrs.manufacturer,
             "description": description,
             "quantity": attrs.quantity,
+            "reference_count": reference_count,
+            "quantity_resolution": quantity_resolution,
+            "search_disposition": "excluded" if excluded else "search",
+            "procurement_disposition": procurement_disposition,
+            "disposition_reason_codes": disposition_reason_codes,
             "reference_designators": _reference_designators(reference),
             "package": package,
             "footprint": footprint,
             "value_raw": value_raw,
+            "color": color,
+            "pin_count": pin_count,
+            "row_count": row_count,
+            "pitch_mm": pitch_mm,
+            "body_dimensions_mm": body_dimensions_mm,
             "raw_fields": raw_fields,
+            "input_alternatives": input_alternatives,
             "field_states": field_states,
             "evidence": evidence,
             "uncertain_fields": uncertain,

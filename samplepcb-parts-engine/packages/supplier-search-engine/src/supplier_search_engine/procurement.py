@@ -455,7 +455,7 @@ def _offer_decision(
     policy: ProcurementPolicyInput,
     offer_key_version: OfferKeyVersion,
 ) -> OfferProcurementDecision:
-    reasons: list[str] = []
+    reasons: list[str] = list(query.disposition_reason_codes)
     offer_key = stable_offer_key(
         candidate.product,
         offer,
@@ -532,6 +532,9 @@ def _offer_decision(
     )
     if technically_blocked:
         reasons.append("technical_candidate_blocked")
+    procurement_eligible = query.procurement_disposition.value == "eligible"
+    if not procurement_eligible:
+        reasons.append(f"procurement_{query.procurement_disposition.value}")
     if stock_short and not policy.allow_stock_shortage:
         reasons.append("stock_shortage_not_allowed")
 
@@ -547,6 +550,7 @@ def _offer_decision(
         calculation_ready
         and supplier_allowed
         and not technically_blocked
+        and procurement_eligible
         and (
             stock_short is False
             or (stock_short is True and policy.allow_stock_shortage)
@@ -763,6 +767,8 @@ def apply_procurement_decisions(
         offer_key_version or stored_version or CURRENT_OFFER_KEY_VERSION
     )
     preselected_group = _validate_candidate_groups(candidates)
+    if query.procurement_disposition.value != "eligible":
+        preselected_group = None
     candidates = _canonicalize_duplicate_offers(
         candidates,
         effective_offer_key_version,
@@ -850,7 +856,14 @@ def apply_procurement_decisions(
     technical_identity_key: str | None = None
     technical_evidence_key: str | None = None
     application_group: tuple[str, str] | None = None
-    if preselected_group is None:
+    if query.procurement_disposition.value != "eligible":
+        recommendation_reasons.extend(
+            [
+                f"procurement_{query.procurement_disposition.value}",
+                *query.disposition_reason_codes,
+            ]
+        )
+    elif preselected_group is None:
         recommendation_reasons.append("technical_preselection_unavailable")
     else:
         technical_identity_key, technical_evidence_key = preselected_group
@@ -981,7 +994,7 @@ def apply_procurement_decisions(
     )
     status = (
         "input_incomplete"
-        if query.quantity is None
+        if query.quantity is None or query.procurement_disposition.value != "eligible"
         else "automatic_recommended"
         if offer_recommendation == OfferRecommendation.AUTOMATIC
         else "review_recommended"
@@ -998,6 +1011,7 @@ def apply_procurement_decisions(
             else SelectionApplicationState.NOT_SELECTED
         ),
         confirmation_required=status == "review_recommended",
+        procurement_disposition=query.procurement_disposition,
         required_quantity=query.quantity,
         target_currency=policy.target_currency,
         currency_rate_snapshot_id=policy.currency_rate_snapshot_id,
@@ -1048,6 +1062,9 @@ def reevaluate_procurement(
         component_id=request.component_id,
         mode=SearchMode.INSUFFICIENT,
         quantity=request.required_quantity,
+        procurement_disposition=request.procurement_disposition,
+        quantity_resolution=request.quantity_resolution,
+        disposition_reason_codes=request.disposition_reason_codes,
     )
     candidates, component_decision = apply_procurement_decisions(
         query,
@@ -1161,6 +1178,9 @@ def reevaluate_procurement_batch(
                     required_quantity=component.required_quantity,
                     procurement_policy=request.procurement_policy,
                     requested_offer_key=component.requested_offer_key,
+                    procurement_disposition=component.procurement_disposition,
+                    quantity_resolution=component.quantity_resolution,
+                    disposition_reason_codes=component.disposition_reason_codes,
                 )
             )
         except ProcurementReevaluationError as error:

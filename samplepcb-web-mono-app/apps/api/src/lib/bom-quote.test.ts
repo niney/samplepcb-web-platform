@@ -162,6 +162,23 @@ describe('BOM 견적 시트 선택', () => {
     expect(items.filter((item) => item.mpn === 'RC0603FR-0710KL')).toHaveLength(1);
     expect(new Set(items.map((item) => item.sourceSheetIndex))).toEqual(new Set([0, 1]));
   });
+
+  it('엔진이 구매 제외로 판정한 행은 보존하되 견적 포함에서는 제외한다', () => {
+    const items = buildItemsFromEngineResult({
+      source_file: 'dnp.xlsx',
+      components: [{
+        sheet_index_0based: 0,
+        sheet_name: 'BOM',
+        source_rows_1based: [2],
+        part_number: 'DNP-PART',
+        quantity: 0,
+        procurement_disposition: 'excluded',
+      }],
+    }, [0]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ included: false, mpn: 'DNP-PART' });
+  });
 });
 
 interface CandidateOptions {

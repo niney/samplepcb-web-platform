@@ -14,7 +14,8 @@ from rapidfuzz import fuzz
 _WS = re.compile(r"\s+")
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}\b)")
 
-_NUM = r"\d+(?:\.\d+)?"
+_NUM = r"(?:\d+(?:\.\d+)?|\.\d+)"
+_DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d{1,2}(?:[^\d]|$))")
 
 
 def _base(s) -> str:
@@ -23,6 +24,7 @@ def _base(s) -> str:
     s = s.lower()
     s = s.replace("ω", "ohm").replace("µ", "u").replace("μ", "u")
     s = _THOUSANDS.sub("", s)
+    s = _DECIMAL_COMMA.sub(".", s)
     s = _WS.sub(" ", s).strip()
     return s
 
@@ -65,7 +67,7 @@ def norm_power(s) -> Optional[float]:
 def norm_capacitance(s) -> Optional[float]:
     """용량 → F. '0.1uF'=='100nF', '4u7'(=4.7uF). 순수 EIA 코드('104')는 None
     → 문자열 폴백 (코드 환산은 v2)."""
-    t = _compact(s)
+    t = _compact(s).replace("[", "").replace("]", "")
     m = re.fullmatch(r"(\d+)(p|n|u|m)(\d+)f?", t)  # 4u7 표기
     if m:
         num = float(f"{m.group(1)}.{m.group(3)}")
