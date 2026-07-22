@@ -1,11 +1,13 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from bom_extraction_engine import embedding
 from bom_extraction_engine.engine import SmartbomConfig, build_smartbom_result
 from bom_extraction_engine.fusion import FusionProber
 from bom_extraction_engine.row_features import (
+    reference_designators,
     reference_list_count,
     reference_quantity_pair,
 )
@@ -34,6 +36,21 @@ def test_reference_cardinality_is_strict_and_part_number_safe() -> None:
     assert reference_list_count("SS34") is None
     assert reference_list_count("BSS138") is None
     assert reference_list_count("G5V-1-DC24") is None
+
+
+def test_reference_shorthand_restores_prefix_without_accepting_part_numbers() -> None:
+    assert reference_designators("R23,24,25, 38") == [
+        "R23",
+        "R24",
+        "R25",
+        "R38",
+    ]
+    assert reference_designators("BD1,2") == ["BD1", "BD2"]
+    assert reference_designators("SW1,2,3,4") == ["SW1", "SW2", "SW3", "SW4"]
+    assert reference_list_count("C46,51,54,56,59") == 5
+    assert reference_designators("SS34") is None
+    assert reference_designators("BSS138") is None
+    assert reference_designators("BAS21J,115") is None
 
 
 def test_reference_quantity_pair_is_column_order_independent() -> None:
@@ -178,3 +195,73 @@ def test_protel_motor_bom_patterns_build_safe_supplier_queries(tmp_path: Path) -
     assert plans[6].mode.value == "insufficient"
     assert plans[7].keywords == "10k 0805 resistor"
     assert plans[9].part_number == "TLP281"
+
+
+def test_misleading_reference_and_part_name_headers_use_row_evidence(tmp_path: Path) -> None:
+    source = tmp_path / "misleading-reference.xlsx"
+    rows = [
+        ["Reference", "Part Number", "Description", "Pcs/unit", "Part Name", "Manufacturer"],
+        ["MCU", "STM32F070CBT6", "LQFP48", 1, "U1", "STM"],
+        ["RESISTOR", "10Ω 1608 F", "SMD", 2, "R1,2", "ANY"],
+        ["TRANSISTOR", "75Ω 1608 F", "SMD", 1, "R3", "ANY"],
+        ["RESISTOR", "10uF/6.3V 1608", "SMD", 2, "C1,2", "ANY"],
+        ["CERAMIC-CAP", "18pF/50V 1608", "SMD", 1, "C3", "ANY"],
+        ["ELE-CAP", "33uF/100V", "SMD(10X10.3)", 1, "EC1", "ANY"],
+        ["X-TAL", "DX-25(25MHz)", "SMD(3.2X2.5)", 1, "X1", "Caltron"],
+        ["LED", "CHIP RED 2012", "SMD", 2, "LD1,2", "ANY"],
+        ["RESISTOR", "1KΩ 1608 F", "SMD", 1, "R4,5", "ANY"],
+    ]
+    pd.DataFrame(rows).to_excel(source, index=False, header=False)
+
+    result = build_smartbom_result(
+        input_path=source,
+        original_filename=source.name,
+        config=SmartbomConfig(m2v_path="off"),
+        progress=lambda *_: None,
+    )
+
+    headers = {header["raw_header"]: header for header in result["headers"]}
+    assert headers["Reference"]["semantic_field"] == "part_type"
+    assert headers["Reference"]["source"] == "local_model"
+    assert headers["Part Name"]["semantic_field"] == "reference"
+    assert headers["Part Name"]["source"] == "local_model"
+
+    by_row = {item["source_rows_1based"][0]: item for item in result["components"]}
+    resistor = by_row[3]
+    assert resistor["part_number"] is None
+    assert resistor["component_type"] == "resistor"
+    assert resistor["reference_designators"] == ["R1", "R2"]
+    assert resistor["resistance_ohm"] == 10.0
+    assert resistor["tolerance_percent"] == 1.0
+    assert resistor["package"] == "1608"
+
+    wrong_class = by_row[4]
+    assert wrong_class["component_type"] == "resistor"
+    assert "part_type_source_conflict" in wrong_class["quality_flags"]
+
+    capacitor = by_row[5]
+    assert capacitor["part_number"] is None
+    assert capacitor["component_type"] == "capacitor"
+    assert capacitor["capacitance_f"] == pytest.approx(10e-6)
+    assert capacitor["voltage_v"] == 6.3
+    assert "part_type_source_conflict" in capacitor["quality_flags"]
+
+    assert by_row[9]["part_number"] is None
+    assert by_row[9]["component_type"] == "led"
+    assert by_row[9]["reference_designators"] == ["LD1", "LD2"]
+    assert "reference_quantity_mismatch" in by_row[10]["quality_flags"]
+
+    batch = build_batch_from_result(result)
+    plans = {
+        component.source_rows_1based[0]: QueryPlanner().plan(component)
+        for component in batch.components
+    }
+    assert plans[3].mode.value == "parametric"
+    assert plans[3].keywords == "10Ω 0603 resistor"
+    assert plans[5].mode.value == "parametric"
+    assert plans[5].keywords == "10uF 0603 capacitor"
+    assert plans[7].category_policy == "electrolytic"
+    assert plans[7].requirements["package"].hard is False
+    assert plans[7].requirements["diameter_mm"].normalized_value == 10.0
+    assert plans[8].part_number == "DX-25"
+    assert plans[8].requirements["package"].normalized_value == "3225"

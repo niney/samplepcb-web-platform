@@ -77,6 +77,60 @@ def test_planner_uses_extractor_normalized_value_for_bare_passive_numbers():
     assert query.keywords == "100 0805 resistor"
 
 
+@pytest.mark.parametrize(
+    ("part_number", "part_type", "values", "expected_mode"),
+    [
+        (
+            "R87,88,89,90,91",
+            "resistor",
+            {"resistance": "10Ω", "package": "1608"},
+            "parametric",
+        ),
+        (
+            "10uF/6.3V 1608",
+            "capacitor",
+            {"capacitance": "10uF", "voltage": "6.3V", "package": "1608"},
+            "parametric",
+        ),
+        (
+            "1X3/2.54MM-S/T",
+            "connector",
+            {"description": "DIP"},
+            "insufficient",
+        ),
+        (
+            "1X9-2.54MM-R/A",
+            "connector",
+            {"description": "DIP"},
+            "insufficient",
+        ),
+    ],
+)
+def test_planner_rejects_reference_spec_and_generic_connector_identity(
+    part_number,
+    part_type,
+    values,
+    expected_mode,
+):
+    query = QueryPlanner().plan(
+        component(part_number=part_number, part_type=part_type, **values)
+    )
+
+    assert query.part_number is None
+    assert query.mode.value == expected_mode
+    if part_type == "connector":
+        assert query.requirements["mount_style"].normalized_value == "through-hole"
+
+
+def test_identity_like_numeric_code_is_not_reclassified_by_safety_guards():
+    query = QueryPlanner().plan(
+        component(part_number="0603X03L_C", part_type="capacitor")
+    )
+
+    assert query.part_number == "0603X03L_C"
+    assert query.mode.value == "identity"
+
+
 def test_internal_electrolytic_footprint_sets_category_without_fake_package():
     item = component(
         part_type="capacitor",

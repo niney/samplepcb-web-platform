@@ -71,6 +71,7 @@ def detect_mount_styles(value: object) -> tuple[MountStyle, ...]:
     )
     has_through_hole = bool(
         re.search(r"(?:^|[^a-z])tht(?:[^a-z]|$)", text)
+        or re.search(r"(?:^|[^a-z])dip(?:[^a-z]|$)", text)
         or re.search(r"through[ -]?hole", text)
         or re.search(r"스루\s*홀|삽입형|리드형", text)
     )

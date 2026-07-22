@@ -23,6 +23,7 @@ from .rule_extractor import (
     infer_part_type,
     package_from_footprint,
 )
+from .row_features import reference_designators, reference_list_count
 from .schema import RowAttrs, VALUE_FIELDS
 from .values import (parse_size_code, temperature_range, to_ampere, to_farad,
                      to_henry, to_hertz, to_ohm, to_percent, to_volt, to_watt)
@@ -62,6 +63,11 @@ _DESC_ROLES = ("description", "_unlabeled_text", "_rescued_text")
 _INT_PREFIX = re.compile(r"[+-]?\d+")
 _REF_SEP = re.compile(r"[,;/\s]+")
 _WS = re.compile(r"\s+")
+_ELECTROLYTIC_TYPE_CONTEXT = re.compile(
+    r"(?:^|[^A-Z0-9])(?:E\s*/\s*C|ECAP|E(?:LE)?[-_ ]?CAP|ELECTROLYTIC)"
+    r"(?:[^A-Z0-9]|$)",
+    re.I,
+)
 
 
 def _col_letter(idx0: int) -> str:
@@ -82,6 +88,9 @@ def _reference_designators(reference: Optional[str]) -> List[str]:
     """"R1, R2-R4" → ["R1", "R2-R4"] — 범위 토큰은 전개하지 않고 유지."""
     if not reference:
         return []
+    canonical = reference_designators(reference)
+    if canonical:
+        return canonical
     seen = []
     for token in _REF_SEP.split(str(reference).strip()):
         if token and token not in seen:
@@ -119,6 +128,12 @@ def _cell_supports(field: str, value: Any, cell: str,
             return bool(m) and int(m.group()) == value
         return s == str(value)
     if field == "reference":
+        target_designators = reference_designators(value)
+        cell_designators = reference_designators(cell)
+        if target_designators and cell_designators:
+            return {
+                token.casefold() for token in target_designators
+            } <= {token.casefold() for token in cell_designators}
         target = _fold(value)
         folded = _fold(cell)
         if target and target in folded:
@@ -259,6 +274,38 @@ class _SheetAdapter:
             "footprint", ("footprint", "package"), cells, row_1based)
         value_raw, value_state = self._role_field_state(
             "value_raw", ("value",), cells, row_1based)
+        if value_raw is None:
+            for field in ("resistance", "capacitance", "inductance", "frequency"):
+                field_evidence = field_states[field]["evidence"]
+                if not field_evidence:
+                    continue
+                value_raw = field_evidence[0]["raw_value"]
+                value_evidence = {
+                    **field_evidence[0],
+                    "supports": "value_raw",
+                }
+                value_state = {
+                    "value": value_raw,
+                    "status": "extracted",
+                    "evidence": [value_evidence],
+                    "source": "col",
+                }
+                break
+        type_context, type_context_state = self._role_field_state(
+            "description", ("part_type",), cells, row_1based)
+        if type_context and _ELECTROLYTIC_TYPE_CONTEXT.search(type_context):
+            description = " | ".join(
+                dict.fromkeys(item for item in (type_context, description) if item)
+            )
+            description_state = {
+                "value": description,
+                "status": "extracted",
+                "evidence": [
+                    *type_context_state["evidence"],
+                    *description_state["evidence"],
+                ],
+                "source": "col",
+            }
         field_states.update({
             "description": description_state,
             "footprint": footprint_state,
@@ -289,6 +336,15 @@ class _SheetAdapter:
             quality_flags.append("do_not_populate")
         if attrs.quantity is None:
             quality_flags.append("quantity_not_found")
+        if src.get("_part_type_conflict"):
+            quality_flags.append("part_type_source_conflict")
+        reference_count = reference_list_count(reference)
+        if (
+            reference_count is not None
+            and attrs.quantity is not None
+            and reference_count != attrs.quantity
+        ):
+            quality_flags.append("reference_quantity_mismatch")
         if uncertain:
             quality_flags.append("field_without_direct_evidence")
         confidences = [_SOURCE_CONFIDENCE[src[f]] for f in VALUE_FIELDS

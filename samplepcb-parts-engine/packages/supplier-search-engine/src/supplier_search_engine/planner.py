@@ -26,7 +26,23 @@ _PLACEHOLDER_PART_NUMBER = re.compile(
     r"^(?:PCB[_\s-]*POINT|TEST[_\s-]*POINT|DNP|DNI|N/?A|NONE|NO[_\s-]*POPULATE)$",
     re.I,
 )
-_GENERIC_CONNECTOR_NOTATION = re.compile(r"^\d+\s*[X×]\s*\d+\s*P?$", re.I)
+_GENERIC_CONNECTOR_NOTATION = re.compile(
+    r"^\d+\s*[X×]\s*\d+\s*P?"
+    r"(?:\s*[-/]\s*\d+(?:\.\d+)?\s*MM"
+    r"(?:\s*[-/]\s*(?:S\s*/\s*T|R\s*/\s*A))?)?$",
+    re.I,
+)
+_REFERENCE_LIST_PART_NUMBER = re.compile(
+    r"^(?:LED|REG|CON|USB|ANT|NTC|TVS|XTAL|CN|FB|IC|JP|TP|SW|VR|RV|"
+    r"BD|TC|EC|LD|ZD|TR|JA|JB|MT|R|C|L|D|Q|U|F|K|P|T|X|Y|BT|J)"
+    r"\$?\d{1,6}(?:\s*[,;/]\s*(?:[A-Z]{1,4})?\$?\d{1,6})+$",
+    re.I,
+)
+_PASSIVE_SPEC_PART_NUMBER = re.compile(
+    r"^(?=.*\d(?:\.\d+)?\s*(?:[uµμnp]F|[uµμnm]H|[KMR]?\s*(?:Ω|OHMS?)))"
+    r"(?=.*(?:\d(?:\.\d+)?\s*k?V|\b\d{3,4}\b)).+$",
+    re.I,
+)
 _PASSIVE_PACKAGE_PART_NUMBER = re.compile(
     r"^[CR]\s*=\s*"
     r"(01005|0201|0402|0603|0805|1005|1206|1210|1608|1808|1812|"
@@ -68,7 +84,7 @@ _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
 _ELECTROLYTIC_TOKENS = ("electrolytic", "ecap", "전해")
 _ELECTROLYTIC_ABBREVIATION = re.compile(
     r"(?:^|[^A-Z0-9])E\s*/\s*C(?:[^A-Z0-9]|$)|"
-    r"(?:^|[^A-Z0-9])E[ -]?CAP(?:[^A-Z0-9]|$)|"
+    r"(?:^|[^A-Z0-9])E(?:LE)?[ -]?CAP(?:[^A-Z0-9]|$)|"
     r"(?:^|[^A-Z0-9])EC(?:[^A-Z0-9]|$)",
     re.I,
 )
@@ -263,6 +279,8 @@ class QueryPlanner:
             and not internal_cad_part_number
             and not _PLACEHOLDER_PART_NUMBER.fullmatch(raw_part_number)
             and not _GENERIC_CONNECTOR_NOTATION.fullmatch(raw_part_number)
+            and not _REFERENCE_LIST_PART_NUMBER.fullmatch(raw_part_number)
+            and not _PASSIVE_SPEC_PART_NUMBER.fullmatch(raw_part_number)
             else None
         )
         manufacturer_name = (

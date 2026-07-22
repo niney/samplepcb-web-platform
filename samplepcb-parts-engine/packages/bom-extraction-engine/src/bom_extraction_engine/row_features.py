@@ -37,15 +37,82 @@ RE_FORMULA = re.compile(r"^=")
 
 MAX_LABEL_LEN = 45  # 이보다 길면 설명문(데이터)으로 간주
 
-_STRICT_REFERENCE_TOKEN = re.compile(
-    r"(?<![A-Za-z0-9])"
-    r"(?P<prefix>LED|CON|CN|FB|IC|JP|J|TP|SW|VR|RV|NTC|RT|TVS|RN|"
-    r"R|C|L|D|Q|U|F|K|P|X|Y|BT)"
-    r"(?P<start>\d{1,6})"
-    r"(?:\s*[-~]\s*(?:(?P<end_prefix>[A-Za-z]{1,4}))?(?P<end>\d{1,6}))?"
-    r"(?![A-Za-z0-9])",
+_REFERENCE_PREFIX = (
+    r"LED|REG|CON|USB|ANT|NTC|TVS|XTAL|CN|FB|IC|JP|TP|SW|VR|RV|RT|RN|"
+    r"BD|TC|EC|LD|ZD|TR|JA|JB|MT|R|C|L|D|Q|U|F|K|P|T|X|Y|BT|J"
+)
+_FULL_REFERENCE = re.compile(
+    rf"(?P<prefix>{_REFERENCE_PREFIX})(?P<start>\$?\d{{1,6}})"
+    rf"(?:\s*[-~]\s*(?:(?P<end_prefix>{_REFERENCE_PREFIX}))?"
+    rf"(?P<end>\$?\d{{1,6}}))?",
     re.I,
 )
+_BARE_REFERENCE_SUFFIX = re.compile(
+    r"(?P<start>\$?\d{1,6})"
+    r"(?:\s*[-~]\s*(?P<end>\$?\d{1,6}))?",
+)
+
+
+def reference_designators(value: object) -> list[str] | None:
+    """Return canonical designator tokens for a reference-only cell.
+
+    Many production BOMs repeat the alphabetic prefix only once, for example
+    ``R23,24,25`` or ``SW1,2``.  A suffix-only token is accepted only after a
+    validated allow-listed prefix and an explicit comma/semicolon/slash
+    separator.  This keeps short part numbers such as SS34 and BSS138 out of
+    the reference path while making the result independent of spreadsheet
+    shorthand.
+
+    Ranges remain compact (``R1-R5``) to preserve the existing public result
+    contract; only omitted prefixes are restored.
+    """
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    segments = [segment.strip() for segment in re.split(r"[,;/]+", text)]
+    if not segments or any(not segment for segment in segments[:-1]):
+        return None
+
+    designators: list[str] = []
+    seen: set[str] = set()
+    inherited_prefix: str | None = None
+    for segment_index, segment in enumerate(segment for segment in segments if segment):
+        # Space-separated lists already repeat their prefix (``R1 R2 R3``).
+        # A range contains optional spaces around '-'/'~' and must stay whole.
+        candidates = [segment]
+        if not _FULL_REFERENCE.fullmatch(segment):
+            candidates = [candidate for candidate in re.split(r"\s+", segment) if candidate]
+        for candidate in candidates:
+            full = _FULL_REFERENCE.fullmatch(candidate)
+            if full:
+                prefix = full.group("prefix").upper()
+                start = full.group("start")
+                end = full.group("end")
+                if end is None:
+                    canonical = f"{prefix}{start}"
+                else:
+                    end_prefix = (full.group("end_prefix") or prefix).upper()
+                    if end_prefix != prefix:
+                        return None
+                    canonical = f"{prefix}{start}-{prefix}{end}"
+                inherited_prefix = prefix
+            else:
+                # Bare suffixes are valid only in a later explicitly separated
+                # segment, never as the first token or after plain whitespace.
+                bare = _BARE_REFERENCE_SUFFIX.fullmatch(candidate)
+                if bare is None or inherited_prefix is None or segment_index == 0:
+                    return None
+                start = bare.group("start")
+                end = bare.group("end")
+                canonical = f"{inherited_prefix}{start}"
+                if end is not None:
+                    canonical += f"-{inherited_prefix}{end}"
+            key = canonical.casefold()
+            if key not in seen:
+                designators.append(canonical)
+                seen.add(key)
+    return designators or None
 
 
 def reference_list_count(value: object) -> int | None:
@@ -54,31 +121,23 @@ def reference_list_count(value: object) -> int | None:
     허용 접두어와 셀 전체 검증을 함께 사용해 SS34, BSS138 같은 짧은
     품번을 참조번호로 오인하지 않는다.
     """
-    text = str(value or "").strip()
-    if not text:
+    designators = reference_designators(value)
+    if not designators:
         return None
-    matches = list(_STRICT_REFERENCE_TOKEN.finditer(text))
-    if not matches:
-        return None
-    cursor = 0
     count = 0
-    for match in matches:
-        if not re.fullmatch(r"[\s,;/]*", text[cursor:match.start()]):
+    for designator in designators:
+        match = _FULL_REFERENCE.fullmatch(designator)
+        if match is None:
             return None
-        prefix = match.group("prefix").upper()
-        start = int(match.group("start"))
+        start = int(match.group("start").lstrip("$"))
         end_text = match.group("end")
         if end_text is None:
             count += 1
         else:
-            end_prefix = (match.group("end_prefix") or prefix).upper()
-            end = int(end_text)
-            if end_prefix != prefix or end < start or end - start > 1000:
+            end = int(end_text.lstrip("$"))
+            if end < start or end - start > 1000:
                 return None
             count += end - start + 1
-        cursor = match.end()
-    if not re.fullmatch(r"[\s,;/]*", text[cursor:]):
-        return None
     return count or None
 
 
@@ -129,15 +188,12 @@ def reference_quantity_pair(
 
 def looks_designator_list(s: str) -> bool:
     """'FB1, FB2, FB11' / 'c1-c12' / 'C15,C19,C22' 형태."""
-    parts = [p for p in re.split(r"[,\s]+", s) if p]
-    if not parts:
+    designators = reference_designators(s)
+    if not designators:
         return False
-    hit = sum(
-        1 for p in parts if RE_DESIGNATOR.match(p) or RE_DESIG_RANGE.match(p)
-    )
-    if len(parts) == 1:
-        return bool(RE_DESIG_RANGE.match(parts[0]))
-    return hit / len(parts) >= 0.6
+    if len(designators) == 1:
+        return bool(RE_DESIG_RANGE.match(designators[0]))
+    return True
 
 
 def is_data_like(norm: str) -> bool:
