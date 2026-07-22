@@ -8,6 +8,7 @@ LLM 검증 파이프라인(verify.py)의 1차 추출기로 쓰이며, 필드별�
   text  — Description/Value 프리텍스트 문법 매칭 (중신뢰)
   infer — part_type 키워드 추론 (저신뢰)
 """
+import math
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -30,6 +31,9 @@ def _norm_label(s: str) -> str:
 _IGNORE_PAT = re.compile(
     r"url|http|datasheet|price|단가|재고|stock|구매|보유|필요|도급|수삽|비고"
     r"|note|msl|process|fitted|octopart|최종|판매|unit|item|ext\b")
+_LIBRARY_REF_PAT = re.compile(
+    r"^(?:lib\s*ref|libref|library\s*(?:ref|reference))$", re.I
+)
 _PN_PAT = re.compile(r"part[\s\-_]*(number|no|name)|mpn|\bp/?no?\b|품번"
                      r"|(?:mfr|mrf|fab)[\s._-]*part|n° de fab")
 _DIST_PAT = re.compile(  # 유통사 열 — PN 열보다 먼저 걸러낸다 (Digikey_PN 등)
@@ -72,6 +76,11 @@ def classify_columns(labels: List[str]) -> Dict[str, List[int]]:
             continue
         if _DIST_PAT.search(lab):
             role = "ignore"      # "Digikey_PN"·"Supplier Part"는 유통 코드 열
+        elif _LIBRARY_REF_PAT.fullmatch(lab):
+            # CAD library references are often generic symbols/footprints.
+            # Keep them as a last-resort identity source instead of allowing
+            # content inference to outrank a concrete Comment/Value MPN.
+            role = "_library_reference"
         elif _PN_PAT.search(lab):
             role = "part_number"
         elif _DESIG_PAT.search(lab):
@@ -164,6 +173,62 @@ _RE_POW_FRACTION = re.compile(r"\d\s*/\s*\d+\s*[mk]?W(?![A-Za-z])", re.I)
 _RE_COLOR_WORD = re.compile(
     r"(?:white|red|green|blue|yellow|amber|orange|rgb)", re.I)
 _RE_FOR_CLAUSE = re.compile(r"\bfor\b[^|]{0,60}(?:$|\|)", re.I)
+
+_DNP_TOKEN = r"(?:DNP|DNI|DNF|N\s*\.?\s*C\s*\.?|SKIP|미삽)"
+_DNP_FULL = re.compile(
+    rf"^[\s(\[{{_/-]*{_DNP_TOKEN}[\s)\]}}_./-]*$", re.I
+)
+_DNP_PREFIX = re.compile(rf"^\s*{_DNP_TOKEN}\s*[/_,:]\s*(.*?)\s*$", re.I)
+_DNP_SUFFIX = re.compile(
+    rf"^\s*(.*?)\s*(?:[/_,:]\s*|\s+-\s+|\(\s*){_DNP_TOKEN}\s*\)?\s*$",
+    re.I,
+)
+_DNP_PHRASE = re.compile(
+    r"\b(?:do\s+not\s+populate|not\s+(?:fitted|mounted))\b", re.I
+)
+
+
+def strip_dnp_annotation(value: str) -> Tuple[str, bool]:
+    """Remove only explicit BOM population-state annotations.
+
+    ``NC`` inside an MPN is untouched, and relay contact descriptions such as
+    ``normally closed`` are not treated as a population instruction.
+    """
+
+    text = str(value or "").strip()
+    if not text or re.search(r"\bnormally\s+closed\b", text, re.I):
+        return text, False
+    if _DNP_PHRASE.search(text):
+        return text, True
+    if _DNP_FULL.fullmatch(text):
+        return "", True
+    for pattern in (_DNP_PREFIX, _DNP_SUFFIX):
+        match = pattern.fullmatch(text)
+        if match:
+            return match.group(1).strip(), True
+    return text, False
+
+
+_GENERIC_LIBRARY_REFERENCE = re.compile(
+    r"^(?:CMP[-_ ]?\d+(?:[-_ ]\d+)*|[CRL]\d{3,4}|LED\d*|DIODE\d*|"
+    r"CAP(?:ACITOR)?(?:[_ -]?POL)?\d*|E[_ -]?CAP|RES(?:ISTOR)?\d*|"
+    r"INDUCTOR\d*|MOSFET[-_ ]?[NP]?|[RCL][-_](?:EU|US)[A-Z0-9_-]*|"
+    r".*[_ -](?:POWER|SYMBOL))$",
+    re.I,
+)
+
+
+def _library_identity_candidate(value: str) -> bool:
+    text = value.strip()
+    return bool(
+        len(text) >= 6
+        and " " not in text
+        and re.search(r"[A-Za-z]", text)
+        and re.search(r"\d", text)
+        and not _GENERIC_LIBRARY_REFERENCE.fullmatch(text)
+        and not _passive_spec_only(text)
+        and not _pn_reject(text)
+    )
 
 
 def _resistance_code_parts(value: str) -> Tuple[str, Optional[str]]:
@@ -276,7 +341,7 @@ _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
     # 신호 스위치/멀티플렉서 IC — "USB Switch"의 USB가 커넥터로 오폭 방지
     ("ic", re.compile(
         r"\b(?:usb|hdmi|can|ethernet|analog|signal)\s+(?:switch|mux(?:er)?"
-        r"|transceiver|redriver)\b", re.I)),
+        r"|transceiver|redriver|fifo|bridge|controller|interface)\b", re.I)),
     ("crystal", re.compile(r"crystal|x-?tal|oscillator|resonator|\bosc\b"
                            r"|크리스탈|발진", re.I)),
     ("ic", re.compile(  # "IC LED DRVR", "LED Driver"는 led가 아니라 ic
@@ -287,7 +352,7 @@ _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
         r"|\bldo\b|dcdc|dc-dc|buck|boost|converter|step[ -]?down|step[ -]?up"
         r"|\bmodule\b|모듈", re.I)),
     ("led", re.compile(r"\bled\b|엘이디", re.I)),
-    ("transistor", re.compile(r"transist[eo]r|mosfet|\bfet\b|\bbjt\b"
+    ("transistor", re.compile(r"transist[eo]r|mosfet|mofet|\bfet\b|\bbjt\b"
                               r"|트랜지스터", re.I)),
     ("diode", re.compile(r"diode|schottky|zener|rectifier|\btvs\b|\besd\b"
                          r"|다이오드|제너|쇼트키", re.I)),
@@ -918,6 +983,47 @@ def package_from_footprint(cell: str, part_type: str | None) -> Optional[str]:
     return parsed
 
 
+_PASSIVE_PREFIXED_SIZE = re.compile(
+    r"^(?P<prefix>R|RES(?:ISTOR)?|C|CAP(?:ACITOR)?|L|IND(?:UCTOR)?|FER(?:RITE)?)"
+    r"[-_ ]*(?P<size>01005|0201|0402|0603|0805|1005|1206|1210|1608|"
+    r"1808|1812|2010|2012|2220|2312|2512|3216|3225|3528|4520|4532|"
+    r"5025|5750|6032|6332|7343)(?:METRIC)?$",
+    re.I,
+)
+
+
+def _passive_prefixed_size(cell: str, part_type: str | None) -> Optional[str]:
+    """Return the physical size from a category-prefixed CAD package token."""
+
+    match = _PASSIVE_PREFIXED_SIZE.fullmatch(cell.strip())
+    if not match:
+        return None
+    prefix = match.group("prefix").upper()
+    expected = (
+        "resistor"
+        if prefix.startswith("R")
+        else "capacitor"
+        if prefix.startswith("C")
+        else "inductor"
+    )
+    return match.group("size") if part_type in (None, expected) else None
+
+
+def passive_size_from_source_cell(
+    cell: str, part_type: str | None
+) -> Optional[str]:
+    """Return only the physical size encoded by a passive CAD value/package."""
+
+    c = cell.strip()
+    composite = _RE_PASSIVE_COMPOSITE.fullmatch(c)
+    if composite:
+        prefix = composite.group("prefix").upper()
+        expected = {"R": "resistor", "C": "capacitor", "L": "inductor"}[prefix]
+        if part_type in (None, expected):
+            return composite.group("size")
+    return _passive_prefixed_size(c, part_type)
+
+
 def package_from_source_cell(cell: str, part_type: str | None) -> Optional[str]:
     """Normalize package evidence with the same provenance rule as extraction.
 
@@ -926,6 +1032,11 @@ def package_from_source_cell(cell: str, part_type: str | None) -> Optional[str]:
     """
 
     c = cell.strip()
+    prefixed_size = _passive_prefixed_size(c, part_type)
+    if prefixed_size:
+        # Preserve the established raw C/R package contract.  Consumers that
+        # compare physical sizes use ``passive_size_from_source_cell``.
+        return c if re.match(r"^(?:C|R)", c, re.I) else prefixed_size
     passive_cad = bool(
         re.match(
             r"^(?:CAP(?:ACITOR)?|RES(?:ISTOR)?|IND(?:UCTOR)?)(?:[ _/-]|C?\d)",
@@ -1152,6 +1263,11 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         c = cell(i)
         if not c:
             continue
+        c, stripped_nc = strip_dnp_annotation(c)
+        if stripped_nc:
+            nc_row = True
+        if not c:
+            continue
         if c.startswith("(") and c.endswith(")"):
             c = c[1:-1].strip()   # "(220nF/20/50V)" 괄호 포장 제거
         if not c:
@@ -1213,22 +1329,30 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
                     annotation_handled = True
                     break
             if not annotation_handled and _RE_RES_CODE.fullmatch(inner):
-                put_resistance_code(inner)
+                # ``6.8uH(6R8)`` repeats the inductance mantissa in compact
+                # EIA notation.  It is not a 6.8-ohm hard requirement.  A
+                # genuinely different parenthetical value remains available
+                # as resistance/DCR evidence.
+                inductance = _RE_IND.fullmatch(base)
+                compact = re.fullmatch(r"(\d+)R(\d+)[BCDFGJKM]?", inner, re.I)
+                leading = re.match(r"\d+(?:\.\d+)?", base)
+                duplicate_inductance = bool(
+                    inductance
+                    and compact
+                    and leading
+                    and math.isclose(
+                        float(leading.group()),
+                        float(f"{compact.group(1)}.{compact.group(2)}"),
+                        rel_tol=1e-9,
+                    )
+                )
+                if not duplicate_inductance:
+                    put_resistance_code(inner)
                 annotation_handled = True
             if not annotation_handled and _RE_MOUNT_ONLY.fullmatch(inner):
                 annotation_handled = True
             if annotation_handled:
                 c = base
-
-        stripped_nc = False
-        if c.upper() == "NC" or c.upper().startswith("NC,"):
-            nc_row = True   # 미실장 행 — 근거 약한 type 추론을 막는다
-            continue
-        if c.upper().startswith("NC/"):
-            stripped_nc = True    # 선행 NC(미실장) — PN 후보에서 제외
-            c = c[3:].strip()
-            if not c:
-                continue
 
         # "C&K=PTS636-…"/"MOLEX=53261-…"처럼 제조사와 MPN을 한 셀에
         # 병기한 경우 RHS가 패키지가 아니면 실제 식별자로 분리한다.
@@ -1562,6 +1686,31 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
                 put("part_number", _strip_pn_alt(candidate), "col")
                 break
 
+    # A CAD library reference is lower-quality identity evidence than a
+    # concrete BOM value/comment.  Use it only as a fallback; when both exist
+    # and disagree, retain the selected BOM value but make the disagreement a
+    # reviewable input-source conflict rather than choosing by column order.
+    library_observations = []
+    library_candidates = []
+    for i in roles.get("_library_reference", []):
+        candidate = cell(i).strip()
+        if candidate and _library_identity_candidate(candidate):
+            library_observations.append(_strip_pn_alt(candidate))
+        if candidate and _library_identity_candidate(candidate):
+            library_candidates.append(_strip_pn_alt(candidate))
+    if "part_number" not in val and library_candidates:
+        put("part_number", library_candidates[0], "col")
+    if val.get("part_number") and library_observations:
+        selected_key = re.sub(
+            r"[^A-Za-z0-9]", "", str(val["part_number"])
+        ).casefold()
+        library_keys = {
+            re.sub(r"[^A-Za-z0-9]", "", candidate).casefold()
+            for candidate in library_observations
+        }
+        if any(key != selected_key for key in library_keys):
+            src["_part_number_conflict"] = "true"
+
     # 5.5) part_type 폴백 사다리 — 값 함의 → 패키지 열 부류어("XTAL/1612")
     #      → 지시자 접두어(R1→resistor). part_type만 판단이 허용된 필드.
     if "part_type" not in val:
@@ -1729,7 +1878,9 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         if pending_bare_res is not None:
             put("resistance", pending_bare_res, "col")
         elif blob:
-            m = (re.search(r"\b\d+(?:\.\d+)?(?:[KM]\d*|m?R\d+|R)\b", blob)
+            m = (re.search(
+                r"\b\d+(?:\.\d+)?(?:[KM]\d*|m?R\d+|R)\b", blob, re.I
+            )
                  or re.search(r"\b\d+\.\d+\b", blob))
             if m and not _RE_PKG_IMP.fullmatch(m.group()):
                 put("resistance", m.group(), "text")
@@ -1753,6 +1904,42 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         if ref:
             put("reference", ref, "col")
             break
+
+    # Some CAD BOMs repeat an inductor value as a compact code inside the
+    # same cell (``0630 6.8uH(6R8)``).  Once the reference/type independently
+    # establishes inductor context, equal mantissas are duplicate notation,
+    # not a resistor requirement.  A different parenthetical value is kept as
+    # potential DCR evidence.
+    early_reference_type = desig_part_type(str(val.get("reference") or ""))
+    if (
+        "inductance" in val
+        and "resistance" in val
+        and (
+            val.get("part_type") == "inductor"
+            or early_reference_type == "inductor"
+        )
+    ):
+        for raw_cell in _cstr:
+            repeated = re.search(
+                r"(?P<ind>\d+(?:\.\d+)?)\s*[unpµμm]?H\s*\(\s*"
+                r"(?P<head>\d+)R(?P<tail>\d+)[BCDFGJKM]?\s*\)",
+                raw_cell,
+                re.I,
+            )
+            if repeated and math.isclose(
+                float(repeated.group("ind")),
+                float(f"{repeated.group('head')}.{repeated.group('tail')}"),
+                rel_tol=1e-9,
+            ):
+                val.pop("resistance", None)
+                src.pop("resistance", None)
+                if (
+                    val.get("part_type") == "resistor"
+                    and src.get("part_type") == "infer"
+                ):
+                    val["part_type"] = "inductor"
+                    src["part_type"] = "infer"
+                break
 
     # Reconcile three independent category signals without trusting any single
     # misleading header: explicit class text, electrical-value grammar, and
@@ -2245,7 +2432,12 @@ def infer_column_roles(roles: Dict[str, List[int]], labels: List[str],
         pn = sum(1 for v in vals if _pn_token_like(v)) / n
         value = sum(1 for v in vals if _value_token_like(v)) / n
         typed = sum(1 for v in vals if infer_part_type(v)) / n
-        if (pn >= 0.5 or value >= 0.5 or pn + value >= 0.6) and typed < 0.3:
+        if (
+            pn >= 0.5
+            or value >= 0.5
+            or pn + value >= 0.6
+            or (pn >= 0.25 and value >= 0.25 and pn + value >= 0.5)
+        ) and typed < 0.3:
             roles["part_type"].remove(i)
             roles.setdefault("value", []).append(i)
 

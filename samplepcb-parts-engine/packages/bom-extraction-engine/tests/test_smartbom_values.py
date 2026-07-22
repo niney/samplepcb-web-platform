@@ -56,6 +56,10 @@ def test_values_equal_port(field, gt, pred, want):
 def test_to_ohm_conventions():
     assert to_ohm("10K OHM") == 10_000.0
     assert to_ohm("4R7") == 4.7
+    assert to_ohm("2.2kR") == 2_200.0
+    assert to_ohm("510kR") == 510_000.0
+    assert to_ohm("1MR") == 1_000_000.0
+    assert to_ohm("10mR") == 0.01
     assert to_ohm("의미없음") is None
 
 

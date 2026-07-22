@@ -124,7 +124,7 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
 - **검색 입력과 실행 분리**: build는 원본 파싱 잡을 다시 읽지 않고 `activeAnalysisRunId`의
   선택 시트 JSON으로 `/supplier-jobs`를 생성한다. 검색 실행은 `sp_bom_supplier_search_run`에
   기록되므로 분석 정본과 실행 상태를 혼합하지 않는다.
-- **입력 충돌·조달 가능 상태 보존(2026-07-22)**: sp-engine 추출 계약 1.1·검색 계약 1.2는 값·패키지·
+- **입력 충돌·조달 가능 상태 보존(2026-07-22)**: sp-engine 추출 계약 1.2·검색 계약 1.2는 값·패키지·
   풋프린트·설명의 충돌 대안을 원본 셀 계보와 함께 보존하고, 제한된 분기별로 검색하되 서로 다른 분기의
   검증 근거를 합쳐 자동 선정을 만들지 않는다. DNP·PCB feature·고객지급품은 분석 행을 삭제하지 않고
   `procurement_disposition=excluded`로 남기며, sp-node는 이를 `included=false`로 투영해 검색·합계에서

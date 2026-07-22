@@ -80,7 +80,14 @@ class SearchFieldAlternative(BaseModel):
     raw_value: str
     normalized_value: Any = None
     source_cell: str
-    source_role: Literal["value", "package", "footprint", "description"]
+    source_role: Literal[
+        "value",
+        "package",
+        "footprint",
+        "description",
+        "part_number",
+        "library_reference",
+    ]
 
 
 class SearchComponentInput(BaseModel):

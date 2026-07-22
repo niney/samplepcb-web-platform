@@ -142,6 +142,23 @@ def test_headers_rule_vs_local_model():
     assert all(h["column_1based"] >= 1 for h in headers)
 
 
+def test_sparse_mixed_parttype_column_is_treated_as_value_data():
+    case = _case(
+        ["PartType", "Quantity", "Designator"],
+        [
+            {"row_id": 1, "cells": ["100nF", "1", "C1"]},
+            {"row_id": 2, "cells": ["FPC-10P", "1", "J1"]},
+            {"row_id": 3, "cells": ["custom", "1", "U1"]},
+            {"row_id": 4, "cells": ["foo", "1", "U2"]},
+        ],
+    )
+
+    roles = compute_roles(case)
+
+    assert roles["value"] == [0]
+    assert roles.get("part_type") == []
+
+
 def test_field_without_evidence_marks_uncertain():
     # 유통사 열(ignore)에만 제조사가 있으면 근거 탐색은 행 전체를 뒤져
     # 찾아내므로, 여기서는 행 안 어디에도 없는 값이 만들어지는 경로 대신
@@ -429,3 +446,235 @@ def test_reference_quantity_conflict_blocks_procurement_but_not_search():
     assert item["quantity_resolution"] == "conflict"
     assert item["search_disposition"] == "search"
     assert item["procurement_disposition"] == "quantity_confirmation_required"
+
+
+def test_connector_topology_rejects_dimensions_and_accepts_explicit_syntaxes():
+    case = _case(
+        ["Type", "Description", "Package", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "Connector",
+                    "Spring contact body 4.0 x 1.5 x 2.0 mm",
+                    "31.5x12mm",
+                    "1",
+                    "J1",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "Connector",
+                    "1.27mm x 6P header",
+                    "HDR1X6",
+                    "1",
+                    "J2",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": [
+                    "Connector",
+                    "12pin, 2.5mm",
+                    "1X12 TH",
+                    "1",
+                    "J3",
+                ],
+            },
+        ],
+    )
+
+    physical_dimension, six_pin, twelve_pin = _adapt(case)[0]
+
+    assert physical_dimension["pin_count"] is None
+    assert physical_dimension["row_count"] is None
+    assert six_pin["pin_count"] == 6
+    assert six_pin["row_count"] == 1
+    assert six_pin["pitch_mm"] == pytest.approx(1.27)
+    assert twelve_pin["pin_count"] == 12
+    assert twelve_pin["row_count"] == 1
+    assert twelve_pin["pitch_mm"] == pytest.approx(2.5)
+    assert all(
+        (item["pin_count"] or 1) >= 1 and (item["row_count"] or 1) >= 1
+        for item in (physical_dimension, six_pin, twelve_pin)
+    )
+
+
+def test_population_markers_are_state_not_identity_and_normally_closed_is_safe():
+    case = _case(
+        ["Type", "Value", "Package", "Q'ty", "Reference"],
+        [
+            {"row_id": 1, "cells": ["Resistor", "NC", "0603", "1", "R1"]},
+            {"row_id": 2, "cells": ["Resistor", "(N.C.)", "0603", "1", "R2"]},
+            {"row_id": 3, "cells": ["Resistor", "0R/0603/NC", "0603", "1", "R3"]},
+            {"row_id": 4, "cells": ["Diode", "SMF12A (N.C)", "SMA", "1", "D1"]},
+            {
+                "row_id": 5,
+                "cells": ["Other", "normally closed relay", "THT", "1", "K1"],
+            },
+            {
+                "row_id": 6,
+                "cells": ["Diode", "SMBJ24CA-NC", "SMB", "1", "D2"],
+            },
+            {
+                "row_id": 7,
+                "cells": ["Capacitor", "100nF", "0603", "2", "C1,C2(NC)"],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+
+    assert all(item["search_disposition"] == "excluded" for item in components[:4])
+    assert components[2]["resistance_ohm"] == 0.0
+    assert components[3]["part_number"] == "SMF12A"
+    assert components[4]["search_disposition"] == "search"
+    assert "do_not_populate" not in components[4]["quality_flags"]
+    assert components[5]["search_disposition"] == "search"
+    assert components[5]["part_number"] == "SMBJ24CA-NC"
+    assert components[6]["search_disposition"] == "search"
+
+
+def test_concrete_bom_mpn_outranks_library_reference_but_conflict_is_preserved():
+    case = _case(
+        ["Comment", "LibRef", "Description", "Q'ty", "Designator"],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "MF-MSMF050-2",
+                    "ERA-6ARW104V",
+                    "Resettable fuse",
+                    "1",
+                    "F1",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": ["SS34", "SS34", "Schottky diode", "1", "D1"],
+            },
+            {
+                "row_id": 3,
+                "cells": ["BLM18SG121TN1D", "Inductor", "Ferrite bead", "1", "FB1"],
+            },
+        ],
+    )
+
+    conflicted, corroborated, generic_library = _adapt(case)[0]
+
+    assert conflicted["part_number"] == "MF-MSMF050-2"
+    assert "part_number_input_source_conflict" in conflicted["quality_flags"]
+    assert conflicted["field_states"]["part_number"]["status"] == "review"
+    assert {
+        item["source_role"] for item in conflicted["input_alternatives"]["part_number"]
+    } == {"value", "library_reference"}
+    assert corroborated["part_number"] == "SS34"
+    assert "part_number_input_source_conflict" not in corroborated["quality_flags"]
+    assert generic_library["part_number"] == "BLM18SG121TN1D"
+    assert "part_number_input_source_conflict" not in generic_library["quality_flags"]
+
+
+def test_passive_context_handles_prefixed_package_and_duplicate_inductor_code():
+    case = _case(
+        ["Type", "Value", "Package", "Footprint", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["Resistor", "2.2kR", "R0603", "0603", "1", "R1"],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "Inductor",
+                    "0630 6.8uH(6R8)",
+                    "FER0603",
+                    "0603",
+                    "1",
+                    "L1",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": ["MOFET", "480mOhm RDS(on)", "SOT-23", "", "1", "Q1"],
+            },
+            {
+                "row_id": 4,
+                "cells": ["USB FIFO IC", "USB FIFO IC", "QFN-32", "", "1", "U1"],
+            },
+        ],
+    )
+
+    resistor, inductor, transistor, usb_ic = _adapt(case)[0]
+
+    assert resistor["resistance_ohm"] == 2_200.0
+    assert resistor["size_code"] == "0603"
+    assert "package_input_source_conflict" not in resistor["quality_flags"]
+    assert inductor["inductance_h"] == pytest.approx(6.8e-6)
+    assert inductor["resistance_ohm"] is None
+    assert inductor["component_type"] == "inductor"
+    assert "part_type_source_conflict" not in inductor["quality_flags"]
+    assert transistor["component_type"] == "transistor"
+    assert transistor["resistance_ohm"] is None
+    assert usb_ic["component_type"] == "ic"
+
+
+def test_non_orderable_rows_are_excluded_only_with_structural_evidence():
+    case = _case(
+        [
+            "Type",
+            "Part Number",
+            "Manufacturer",
+            "Description",
+            "Value",
+            "Footprint",
+            "Q'ty",
+            "Reference",
+        ],
+        [
+            {
+                "row_id": 1,
+                "cells": ["Other", "", "", "Mounting hole", "MOUNT HOLE", "PCB_POINT", "2", "H1 H2"],
+            },
+            {
+                "row_id": 2,
+                "cells": ["Other", "", "", "2 layer FR-4 ENIG PCB fabrication", "PCB", "", "1", "PCB1"],
+            },
+            {
+                "row_id": 3,
+                "cells": ["Other", "5002", "Keystone", "Purchasable test point", "TEST POINT", "TP-1", "1", "TP1"],
+            },
+            {
+                "row_id": 4,
+                "cells": ["Other", "SHIELD-1", "", "사급 실드", "", "", "1", "SH1"],
+            },
+        ],
+    )
+
+    mounting_hole, bare_board, test_point, supplied = _adapt(case)[0]
+
+    assert mounting_hole["disposition_reason_codes"] == ["pcb_feature"]
+    assert bare_board["disposition_reason_codes"] == ["pcb_feature"]
+    assert test_point["search_disposition"] == "search"
+    assert "pcb_feature" not in test_point["quality_flags"]
+    assert supplied["search_disposition"] == "excluded"
+    assert "customer_supplied" in supplied["disposition_reason_codes"]
+
+
+def test_led_color_abbreviations_are_contextual_and_conflicts_remain_reviewable():
+    case = _case(
+        ["Type", "Value", "Description", "Package", "Q'ty", "Reference"],
+        [
+            {"row_id": 1, "cells": ["LED", "GRN", "LED GRN", "0603", "1", "D1"]},
+            {"row_id": 2, "cells": ["LED", "WHT", "GREEN LED", "0603", "1", "D2"]},
+            {"row_id": 3, "cells": ["IC", "GRN123", "Controller", "QFN", "1", "U1"]},
+        ],
+    )
+
+    green, conflicted, non_led = _adapt(case)[0]
+
+    assert green["color"] == "green"
+    assert conflicted["color"] in {"green", "white"}
+    assert "color_input_source_conflict" in conflicted["quality_flags"]
+    assert len(conflicted["input_alternatives"]["color"]) == 2
+    assert non_led["color"] is None

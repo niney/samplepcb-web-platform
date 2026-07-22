@@ -35,6 +35,18 @@ def _compact(s) -> str:
 
 def norm_resistance(s) -> Optional[float]:
     """저항값 → Ω. '10K OHM', '4R7'(=4.7), '1M'(=1e6, 저항 관례상 메가)."""
+    # Decimal multiplier notation is common in BOM value columns.  Preserve
+    # the case of ``mR``/``MR`` long enough to distinguish milliohm from
+    # megaohm before the general lower-cased grammar runs.
+    case_t = unicodedata.normalize("NFKC", str(s))
+    case_t = case_t.replace("Ω", "R").replace("Ω", "R")
+    case_t = re.sub(r"\s+", "", case_t)
+    m = re.fullmatch(rf"({_NUM})(kR|KR|MR|mR)", case_t)
+    if m:
+        multiplier = {"kr": 1e3, "MR": 1e6, "mR": 1e-3}
+        suffix = m.group(2)
+        key = suffix if suffix in {"MR", "mR"} else suffix.casefold()
+        return float(m.group(1)) * multiplier[key]
     t = _compact(s).replace("ohms", "ohm")
     m = re.fullmatch(r"(\d+(?:\.\d+)?)r(\d+)?", t)  # 4R7=4.7, 66.5R=66.5
     if m:

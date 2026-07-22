@@ -109,6 +109,28 @@ describe('BOM 분석 영속 계약', () => {
     expect(parsed.quantity_resolution).toBe('verified');
     expect(parsed.procurement_disposition).toBe('eligible');
     expect(parsed.input_alternatives).toEqual({});
+
+    const withPartNumberLineage = BomEngineAnalysisComponentStrict.parse({
+      ...parsed,
+      input_alternatives: {
+        part_number: [
+          {
+            raw_value: 'MF-MSMF050-2',
+            normalized_value: 'MFMSMF0502',
+            source_cell: 'A2',
+            source_role: 'part_number',
+          },
+          {
+            raw_value: 'ERA-6ARW104V',
+            normalized_value: 'ERA6ARW104V',
+            source_cell: 'B2',
+            source_role: 'library_reference',
+          },
+        ],
+      },
+    });
+    expect(withPartNumberLineage.input_alternatives?.part_number?.map((item) => item.source_role))
+      .toEqual(['part_number', 'library_reference']);
   });
 
   it('필수 구조를 검증하면서 새 엔진 필드를 모든 계층에서 보존한다', () => {

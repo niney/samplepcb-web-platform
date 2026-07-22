@@ -332,7 +332,10 @@ def test_protel_motor_bom_patterns_build_safe_supplier_queries(tmp_path: Path) -
     assert plans[4].requirements["mount_style"].normalized_value == "smd"
     assert plans[4].requirements["diameter_mm"].normalized_value == 8.0
     assert plans[5].part_number == "GF063P-103"
-    assert plans[6].mode.value == "insufficient"
+    assert plans[6].mode.value == "parametric"
+    assert plans[6].keywords == "4 pin dual row connector"
+    assert plans[6].requirements["pin_count"].normalized_value == 4.0
+    assert plans[6].requirements["row_count"].normalized_value == 2.0
     assert plans[7].keywords == "10k 0805 resistor"
     assert plans[9].part_number == "TLP281"
 

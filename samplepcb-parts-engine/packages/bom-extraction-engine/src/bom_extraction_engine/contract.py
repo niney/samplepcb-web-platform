@@ -51,7 +51,14 @@ class FieldAlternative(BaseModel):
     raw_value: str
     normalized_value: Union[float, str, None] = None
     source_cell: str
-    source_role: Literal["value", "package", "footprint", "description"]
+    source_role: Literal[
+        "value",
+        "package",
+        "footprint",
+        "description",
+        "part_number",
+        "library_reference",
+    ]
 
 
 class ComponentRecord(BaseModel):

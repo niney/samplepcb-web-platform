@@ -31,7 +31,14 @@ const EngineFieldAlternative = z.object({
   raw_value: z.string(),
   normalized_value: z.union([z.string(), z.number(), z.null()]),
   source_cell: z.string(),
-  source_role: z.enum(['value', 'package', 'footprint', 'description']),
+  source_role: z.enum([
+    'value',
+    'package',
+    'footprint',
+    'description',
+    'part_number',
+    'library_reference',
+  ]),
 }).passthrough();
 
 export const BomEngineAnalysisComponent = z.object({

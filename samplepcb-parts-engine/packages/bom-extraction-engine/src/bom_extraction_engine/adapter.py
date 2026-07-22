@@ -24,6 +24,8 @@ from .rule_extractor import (
     desig_part_type,
     infer_part_type,
     package_from_source_cell,
+    passive_size_from_source_cell,
+    strip_dnp_annotation,
 )
 from .row_features import reference_designators, reference_list_count
 from .schema import RowAttrs, VALUE_FIELDS
@@ -47,7 +49,7 @@ _SOURCE_CONFIDENCE = {"col": 0.95, "text": 0.8, "infer": 0.6}
 
 # 근거 탐색 시 필드가 우선 찾아볼 열 역할 (그 외 필드는 자기 이름 역할)
 _FIELD_ROLES: Dict[str, Tuple[str, ...]] = {
-    "part_number": ("part_number", "_pn_internal"),
+    "part_number": ("part_number", "_pn_internal", "_library_reference"),
     "package": ("package", "footprint"),
     "reference": ("designator",),
 }
@@ -56,6 +58,7 @@ _FIELD_ROLES: Dict[str, Tuple[str, ...]] = {
 _ROLE_DISPLAY = {
     "designator": "reference",
     "_pn_internal": "part_number",
+    "_library_reference": "part_number",
     "footprint": "footprint",
     "_unlabeled_text": "description",
     "_rescued_text": "description",
@@ -92,17 +95,113 @@ _COLOR_ALIASES = {
     "청색": "blue",
     "백색": "white",
 }
-_EXPLICIT_PIN_COUNT = re.compile(r"\b(\d{1,3})\s*[- ]?pins?\b", re.I)
-_CONNECTOR_ARRAY = re.compile(r"\b(\d{1,2})\s*[x×]\s*(\d{1,2})\b", re.I)
-_PITCH = re.compile(
-    r"\b(?:pitch\s*)?(\d+(?:\.\d+)?)\s*mm\s*pitch\b|"
+_LED_COLOR_ABBREVIATIONS = {
+    "yel": "yellow",
+    "grn": "green",
+    "blu": "blue",
+    "wht": "white",
+    "amb": "amber",
+}
+_EXPLICIT_PIN_COUNT = re.compile(
+    r"(?<![A-Za-z0-9.])([1-9]\d{0,2})\s*(?:[- ]?pins?|p)(?![A-Za-z0-9])",
+    re.I,
+)
+_CONNECTOR_ARRAY = re.compile(
+    r"(?<![\d.])([1-9]\d?)\s*[x×]\s*([1-9]\d?)(?![\d.]|\s*mm\b)",
+    re.I,
+)
+_CONNECTOR_CONTEXT = re.compile(
+    r"\b(?:header|hdr|connector|conn|socket|pin|row|pos(?:ition)?|way)\b",
+    re.I,
+)
+_CONNECTOR_ARRAY_ONLY = re.compile(
+    r"\s*[1-9]\d?\s*[x×]\s*[1-9]\d?\s*(?:TH|THT|SMD|SMT)?\s*$",
+    re.I,
+)
+_PITCH_EXPLICIT = re.compile(
+    r"\bpitch\s*[:=]?\s*(\d+(?:\.\d+)?)\s*mm\b|"
+    r"\b(\d+(?:\.\d+)?)\s*mm\s*pitch\b|"
     r"\bp\s*=\s*(\d+(?:\.\d+)?)\s*mm\b",
+    re.I,
+)
+_PITCH_BEFORE_PINS = re.compile(
+    r"(?<![\d.])(\d+(?:\.\d+)?)\s*mm\s*(?:[,;/]?\s*[x×]\s*)?"
+    r"[1-9]\d{0,2}\s*(?:p|pins?)\b",
+    re.I,
+)
+_PITCH_AFTER_PINS = re.compile(
+    r"[1-9]\d{0,2}\s*(?:p|pins?)\b[^\d]{0,12}"
+    r"(\d+(?:\.\d+)?)\s*mm\b",
     re.I,
 )
 _BODY_DIMENSIONS = re.compile(
     r"\b(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*mm\b",
     re.I,
 )
+
+_GENERIC_PCB_FEATURE = re.compile(
+    r"^(?:MOUNT(?:ING)?[_ -]?(?:HOLE|POINT)|PCB[_ -]?(?:POINT|PAD|HOLE)|"
+    r"TP[_ -]?(?:PAD|HOLE)|PAD(?:[-_/ ].*)?|TEST[_ -]?POINT(?:[-_/ ].*)?|"
+    r"F?PCB)$",
+    re.I,
+)
+_PCB_FEATURE_TEXT = re.compile(
+    r"\b(?:MOUNT(?:ING)?\s+HOLE|PCB[_ -]?(?:POINT|PAD|HOLE)|"
+    r"TP[_ -]?(?:PAD|HOLE)|TEST\s+PAD)\b",
+    re.I,
+)
+_PCB_FABRICATION = re.compile(
+    r"\b(?:FR-?4|ENIG|HASL|\d+\s*layers?|\d+(?:\.\d+)?\s*oz|"
+    r"copper\s+weight|board\s+thickness|pcb\s+fabrication)\b",
+    re.I,
+)
+
+
+def _connector_geometry_values(text: str) -> List[Tuple[int, Optional[int]]]:
+    """Extract connector topology without treating body dimensions as pins."""
+
+    values: List[Tuple[int, Optional[int]]] = []
+    for match in _EXPLICIT_PIN_COUNT.finditer(text):
+        values.append((int(match.group(1)), None))
+    allow_array = bool(
+        _CONNECTOR_CONTEXT.search(text)
+        or _CONNECTOR_ARRAY_ONLY.fullmatch(text)
+        or re.search(r"\bHDR[-_ ]*[1-9]\d?\s*[x×]", text, re.I)
+    )
+    if allow_array:
+        for match in _CONNECTOR_ARRAY.finditer(text):
+            first, second = int(match.group(1)), int(match.group(2))
+            values.append((first * second, min(first, second)))
+    return list(dict.fromkeys(values))
+
+
+def _connector_pitch_values(text: str) -> List[float]:
+    values: List[float] = []
+    for match in _PITCH_EXPLICIT.finditer(text):
+        values.append(float(next(group for group in match.groups() if group)))
+    for pattern in (_PITCH_BEFORE_PINS, _PITCH_AFTER_PINS):
+        values.extend(float(match.group(1)) for match in pattern.finditer(text))
+    return list(dict.fromkeys(values))
+
+
+def _normalized_identity(value: Any) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", str(value or "")).casefold()
+
+
+def _color_values(cells: List[str], part_type: Optional[str]) -> List[str]:
+    aliases = dict(_COLOR_ALIASES)
+    if part_type == "led":
+        aliases.update(_LED_COLOR_ABBREVIATIONS)
+    observed = []
+    for cell in cells:
+        folded = unicodedata.normalize("NFKC", str(cell)).casefold()
+        for token, canonical in sorted(
+            aliases.items(), key=lambda item: len(item[0]), reverse=True
+        ):
+            if re.search(rf"(?<![a-z]){re.escape(token)}(?![a-z])", folded):
+                if canonical not in observed:
+                    observed.append(canonical)
+    return observed
 
 
 def _col_letter(idx0: int) -> str:
@@ -266,7 +365,9 @@ def _package_source_values(
             # 값 열의 단독 숫자/토큰("100", "1206")은 패키지 근거가
             # 아니다. "0.1uF (0603)"처럼 별도 문맥에 병기된 경우만 비교한다.
             continue
-        size = parse_size_code(parsed)
+        size = parse_size_code(
+            passive_size_from_source_cell(raw, part_type) or parsed
+        )
         key = f"size:{size}" if size else re.sub(
             r"[^A-Za-z0-9]", "", parsed
         ).upper()
@@ -390,6 +491,49 @@ class _SheetAdapter:
             ]
         return alternatives
 
+    def _part_number_alternatives(
+        self,
+        cells: List[str],
+        row_1based: int,
+        selected_part_number: Optional[str],
+    ) -> List[dict]:
+        observed: Dict[str, dict] = {}
+        selected_key = _normalized_identity(selected_part_number)
+        ordered_roles = (
+            "part_number",
+            "value",
+            "description",
+            "_library_reference",
+        )
+        for role in ordered_roles:
+            for index in self.roles.get(role, []):
+                if index >= len(cells):
+                    continue
+                raw = str(cells[index]).strip()
+                raw_key = _normalized_identity(raw)
+                if not raw_key:
+                    continue
+                is_library = role == "_library_reference"
+                if not is_library and selected_key not in raw_key:
+                    continue
+                normalized = raw_key if is_library else selected_key
+                observed.setdefault(
+                    normalized,
+                    {
+                        "raw_value": raw,
+                        "normalized_value": normalized.upper(),
+                        "source_cell": f"{self.col_letters[index]}{row_1based}",
+                        "source_role": (
+                            "library_reference"
+                            if is_library
+                            else "part_number"
+                            if role == "part_number"
+                            else role
+                        ),
+                    },
+                )
+        return [observed[key] for key in sorted(observed)]
+
     def _connector_geometry_alternatives(
         self,
         cells: List[str],
@@ -403,13 +547,7 @@ class _SheetAdapter:
             raw = str(cell_value).strip()
             if not raw:
                 continue
-            explicit = _EXPLICIT_PIN_COUNT.search(raw)
-            array = _CONNECTOR_ARRAY.search(raw)
-            values = []
-            if explicit:
-                values.append(int(explicit.group(1)))
-            if array:
-                values.append(int(array.group(1)) * int(array.group(2)))
+            values = [pins for pins, _rows in _connector_geometry_values(raw)]
             source_role = (
                 "value"
                 if "value" in self.col_roles[index]
@@ -459,6 +597,8 @@ class _SheetAdapter:
         input_conflicts = _numeric_source_conflicts(self.roles, cells)
         if _package_source_conflict(self.roles, cells, attrs.part_type):
             input_conflicts.append("package_input_source_conflict")
+        if attrs.part_number is not None and src.get("_part_number_conflict"):
+            input_conflicts.append("part_number_input_source_conflict")
         for conflict in input_conflicts:
             field = conflict.removesuffix("_input_source_conflict")
             if field in field_states and field_states[field]["value"] is not None:
@@ -581,11 +721,12 @@ class _SheetAdapter:
                     }
                 )
         quality_flags: List[str] = []
-        dnp_markers = {
-            "dnp", "dni", "dnf", "do not populate",
-            "not fitted", "not mounted", "미삽",
-        }
-        if any(_fold(cell) in dnp_markers for cell in cells):
+        designator_indexes = set(self.roles.get("designator", []))
+        if any(
+            index not in designator_indexes
+            and strip_dnp_annotation(str(cell))[1]
+            for index, cell in enumerate(cells)
+        ):
             quality_flags.append("do_not_populate")
         if attrs.quantity == 0 and "do_not_populate" not in quality_flags:
             quality_flags.append("do_not_populate")
@@ -603,42 +744,33 @@ class _SheetAdapter:
             # points without the OPEN + TP-footprint evidence remain searchable.
             quality_flags.append("do_not_populate")
         all_text = " ".join(str(cell) for cell in cells if str(cell).strip())
-        folded_all_text = all_text.casefold()
-        color = next(
-            (
-                canonical
-                for token, canonical in sorted(
-                    _COLOR_ALIASES.items(), key=lambda item: len(item[0]), reverse=True
-                )
-                if re.search(rf"(?<![a-z]){re.escape(token)}(?![a-z])", folded_all_text)
-            ),
-            None,
-        )
-        explicit_pin = _EXPLICIT_PIN_COUNT.search(all_text)
-        connector_array = _CONNECTOR_ARRAY.search(all_text)
-        pin_count = int(explicit_pin.group(1)) if explicit_pin else None
-        row_count = None
-        if re.search(r"\b(?:dual|double)\s*row\b|2\s*열|2열", all_text, re.I):
-            row_count = 2
-        elif re.search(r"\bsingle\s*row\b|1\s*열|1열", all_text, re.I):
-            row_count = 1
-        if connector_array and attrs.part_type == "connector":
-            array_pins = int(connector_array.group(1)) * int(connector_array.group(2))
-            array_rows = min(int(connector_array.group(1)), int(connector_array.group(2)))
-            if pin_count is None:
-                pin_count = array_pins
-            elif pin_count != array_pins:
-                input_conflicts.append("connector_geometry_source_conflict")
-            if row_count is None:
-                row_count = array_rows
-            elif row_count != array_rows:
-                input_conflicts.append("connector_geometry_source_conflict")
-        pitch_match = _PITCH.search(all_text)
-        pitch_mm = (
-            float(pitch_match.group(1) or pitch_match.group(2))
-            if pitch_match
-            else None
-        )
+        colors = _color_values(cells, attrs.part_type)
+        color = sorted(colors)[0] if colors else None
+        if len(colors) > 1:
+            input_conflicts.append("color_input_source_conflict")
+
+        pin_values: set[int] = set()
+        row_values: set[int] = set()
+        pitch_values: set[float] = set()
+        if attrs.part_type == "connector":
+            for cell in cells:
+                text = str(cell).strip()
+                for pins, rows in _connector_geometry_values(text):
+                    pin_values.add(pins)
+                    if rows is not None:
+                        row_values.add(rows)
+                pitch_values.update(_connector_pitch_values(text))
+                if re.search(r"\b(?:dual|double)\s*row\b|2\s*열|2열", text, re.I):
+                    row_values.add(2)
+                if re.search(r"\bsingle\s*row\b|1\s*열|1열", text, re.I):
+                    row_values.add(1)
+        pin_count = min(pin_values) if pin_values else None
+        row_count = min(row_values) if row_values else None
+        pitch_mm = min(pitch_values) if pitch_values else None
+        if len(pin_values) > 1 or len(row_values) > 1:
+            input_conflicts.append("connector_geometry_source_conflict")
+        if len(pitch_values) > 1:
+            input_conflicts.append("pitch_input_source_conflict")
         dimensions_match = _BODY_DIMENSIONS.search(all_text)
         body_dimensions_mm = (
             [float(dimensions_match.group(index)) for index in (1, 2, 3)]
@@ -647,17 +779,36 @@ class _SheetAdapter:
         )
         customer_supplied = bool(
             re.search(
-                r"(?:客供|customer\s*(?:supplied|provided|furnished)|consigned)",
+                r"(?:客供|사급|지급품|고객\s*지급|"
+                r"customer\s*(?:supplied|provided|furnished)|consigned)",
                 all_text,
                 re.I,
             )
         )
+        generic_identity = bool(
+            attrs.part_number and _GENERIC_PCB_FEATURE.fullmatch(attrs.part_number)
+        )
+        has_genuine_identity = bool(
+            attrs.manufacturer
+            or (attrs.part_number and not generic_identity)
+        )
+        feature_expression = " ".join(
+            item for item in (value_raw, footprint, description) if item
+        )
         pcb_feature = bool(
-            attrs.part_number is None
-            and footprint
-            and re.match(r"^(?:PAD|TEST[_ -]?POINT)[_/ -]", footprint, re.I)
-            and value_raw
-            and re.match(r"^(?:PAD|TEST\s*POINT)\b", value_raw, re.I)
+            not has_genuine_identity
+            and (
+                any(
+                    _GENERIC_PCB_FEATURE.fullmatch(item.strip())
+                    for item in (value_raw, footprint, description)
+                    if item
+                )
+                or bool(_PCB_FEATURE_TEXT.search(feature_expression))
+                or bool(
+                    re.search(r"\bF?PCB\b", feature_expression, re.I)
+                    and _PCB_FABRICATION.search(feature_expression)
+                )
+            )
         )
         if customer_supplied:
             quality_flags.append("customer_supplied")
@@ -726,6 +877,32 @@ class _SheetAdapter:
         input_alternatives = self._input_alternatives(
             cells, row_1based, attrs.part_type
         )
+        if attrs.part_number is not None and src.get("_part_number_conflict"):
+            part_number_alternatives = self._part_number_alternatives(
+                cells, row_1based, attrs.part_number
+            )
+            if len(part_number_alternatives) > 1:
+                input_alternatives["part_number"] = part_number_alternatives
+        if len(colors) > 1:
+            color_alternatives = []
+            for observed_color in sorted(colors):
+                for index, cell in enumerate(cells):
+                    if observed_color not in _color_values([str(cell)], attrs.part_type):
+                        continue
+                    color_alternatives.append(
+                        {
+                            "raw_value": str(cell).strip(),
+                            "normalized_value": observed_color,
+                            "source_cell": f"{self.col_letters[index]}{row_1based}",
+                            "source_role": (
+                                "value"
+                                if "value" in self.col_roles[index]
+                                else "description"
+                            ),
+                        }
+                    )
+                    break
+            input_alternatives["color"] = color_alternatives
         connector_alternatives = self._connector_geometry_alternatives(
             cells, row_1based, attrs.part_type
         )
@@ -764,7 +941,15 @@ class _SheetAdapter:
             "review_status": ("review" if uncertain or quality_flags
                               else "extracted"),
             **normalized,
-            "size_code": parse_size_code(package or footprint),
+            "size_code": parse_size_code(
+                (
+                    passive_size_from_source_cell(package, attrs.part_type)
+                    or package_from_source_cell(package, attrs.part_type)
+                    or package
+                    if package
+                    else footprint
+                )
+            ),
             "attributes": attributes,
             "evidence_exact_rate": self._evidence_exact_rate(field_states),
             "part_number_supported": (
