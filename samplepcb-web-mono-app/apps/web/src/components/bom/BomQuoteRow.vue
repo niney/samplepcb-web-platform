@@ -208,8 +208,8 @@ function onQtyInput(event: Event): void {
       </div>
     </td>
     <!-- MPN: 공급사 배지 + 이미지 자리 + 품번 + 데이터시트 -->
-    <td class="w-[220px] max-w-[220px] px-2 py-3">
-      <div class="flex w-[220px] max-w-full min-w-0 gap-2.5">
+    <td class="w-[280px] max-w-[280px] px-2 py-3">
+      <div class="flex w-[280px] max-w-full min-w-0 gap-2.5">
         <!-- 고정폭 76px(최장 공급사명 UniKeyIC 기준) — 배지 유무와 무관하게 열 폭 일관 -->
         <div class="w-[76px] shrink-0">
           <div
@@ -242,12 +242,14 @@ function onQtyInput(event: Event): void {
         </div>
       </div>
     </td>
-    <td class="px-2 py-3 pt-[42px] text-[12px] leading-[16px] text-[#5f6777]">{{ item.manufacturerName ?? '—' }}</td>
-    <td class="max-w-[220px] px-2 py-3 pt-[42px]">
+    <td class="w-[104px] min-w-[96px] px-2 py-3 pt-[42px]">
+      <p class="max-w-[104px] truncate text-[12px] leading-[16px] text-[#5f6777]" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
+    </td>
+    <td class="min-w-[140px] max-w-[220px] px-2 py-3 pt-[42px]">
       <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->
-    <td class="px-2 py-2">
+    <td class="w-[130px] min-w-[124px] px-2 py-2">
       <BomPriceBreaks
         v-if="item.selectedOffer !== null"
         :price-breaks="sortedPriceBreaks"
@@ -285,7 +287,7 @@ function onQtyInput(event: Event): void {
       </div>
     </td>
     <!-- TOTAL: 기존 매칭 배지(Found 대체) + 합계 -->
-    <td class="px-2 py-3 text-right">
+    <td class="w-[140px] min-w-[132px] px-2 py-3 text-right">
       <div class="flex flex-col items-end gap-1.5 pt-1">
         <!-- 보강 진행 중엔 "확인 중"(파랑) — 빨간 미매칭은 보강이 끝난 뒤의 최종 판정 -->
         <span v-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
