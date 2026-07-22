@@ -2943,6 +2943,8 @@ export async function refreshQuoteFromSupplierResult(
 /**
  * 백그라운드 카탈로그 인제스트 뒤 자동 선정 행의 느슨한 partId 참조만 채운다.
  * 후보·오퍼·가격·사용자 선택에는 손대지 않고, 조회한 스냅샷이 그대로인 행만 갱신한다.
+ * 느슨한 참조지만 제조사 교차 연결은 하지 않는다 — 제조사가 확인된 행은 exact(mpn+제조사)만,
+ * 제조사 미상 행만 mpn 단독으로 매칭한다(같은 MPN을 여러 제조사가 쓸 때 오연결 방지).
  */
 export async function backfillQuotePartIds(quoteId: bigint): Promise<number> {
   const items = await prisma.spBomQuoteItem.findMany({
@@ -2965,7 +2967,10 @@ export async function backfillQuotePartIds(quoteId: bigint): Promise<number> {
     const mpnNorm = normalizeMpn(item.mpn);
     if (mpnNorm === '') continue;
     const manufacturerNorm = resolveManufacturer(item.manufacturerName).norm;
-    const partId = exact.get(`${mpnNorm}\u0000${manufacturerNorm}`) ?? byMpn.get(mpnNorm);
+    // 제조사가 확인되면 exact(mpn+제조사)만 — 미상 행만 mpn 단독 fallback 을 허용한다.
+    const partId =
+      exact.get(`${mpnNorm}\u0000${manufacturerNorm}`) ??
+      (manufacturerNorm === 'unknown' ? byMpn.get(mpnNorm) : undefined);
     if (partId === undefined) continue;
     const result = await prisma.spBomQuoteItem.updateMany({
       where: {
