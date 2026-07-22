@@ -30,8 +30,8 @@ from rapidfuzz import fuzz
 from .field_lexicon import build_lexicon
 from .normalize import cell_to_str, normalize_cell, label_form
 from .probe_base import ProbeResult
-from .row_features import (RE_NUMBER, RE_PACKAGE, is_data_like,
-                           looks_designator_list)
+from .row_features import (RE_NUMBER, RE_PACKAGE, RE_VALUE_UNIT, is_data_like,
+                           looks_designator_list, reference_quantity_pair)
 
 _EXACT, _SYNS = build_lexicon()
 _FUZZ_SYNS = [(f, w, s) for f, w, s in _SYNS if len(s) >= 3]
@@ -49,6 +49,12 @@ MAX_ROWS = 4000        # 대형 시트 스캔 상한
 MAX_COLS = 120
 
 _RE_PN = re.compile(r"^(?=.{3,40}$)(?=.*[a-z])(?=.*\d)[a-z0-9][a-z0-9 ._/#()+\-]*$")
+_RE_COMPONENT_TYPE = re.compile(
+    r"^(?:cap(?:acitor)?|res(?:istor)?|mosfet|transistor|diode|led|"
+    r"ind(?:uctor)?|ferrite|bead|ic|mcu|connector|socket|relay|"
+    r"crystal|xtal|oscillator|switch|buzzer)$",
+    re.I,
+)
 
 
 class _LRU(OrderedDict):
@@ -198,6 +204,13 @@ class FusionProber:
         if res.found:
             return res
 
+        # 헤더명이 실제 데이터 의미와 뒤바뀐 표를 관계 기반으로 복구한다.
+        # 참조번호 개수와 수량의 반복 일치는 파일명/열 위치와 무관한 BOM
+        # 신호이며, 별도 컴포넌트 필드 근거가 있을 때만 수용한다.
+        profiled = self._profiled_header(prep, lex_scorer)
+        if profiled is not None:
+            return profiled
+
         # 2) 구조 게이트: 후보 행이 전혀 없으면 모델 로딩 없이 기권
         #    (빈 시트, 본문-only, 메타데이터-only가 여기서 걸러진다)
         candidates = self._structural_candidates(prep)
@@ -281,6 +294,83 @@ class FusionProber:
             if any(prep[j][0] for j in range(i + 1, min(i + 4, len(prep)))):
                 out.append(i)
         return out
+
+    def _profiled_header(self, prep, scorer) -> Optional[ProbeResult]:
+        best = None
+        for i in self._structural_candidates(prep):
+            cells, labelish = prep[i]
+            if len(cells) < MIN_NONEMPTY or labelish / len(cells) < 0.5:
+                continue
+            following = []
+            blank_run = 0
+            max_col = max((cell[0] for cell in cells), default=-1) + 1
+            for row_cells, _ in prep[i + 1:i + 65]:
+                if not row_cells:
+                    blank_run += 1
+                    if blank_run >= 3 and following:
+                        break
+                    continue
+                blank_run = 0
+                row_map = {column: norm for column, norm, _, _ in row_cells}
+                max_col = max(max_col, max(row_map, default=-1) + 1)
+                following.append(row_map)
+            dense_rows = [[row.get(column, "") for column in range(max_col)]
+                          for row in following]
+            pair = reference_quantity_pair(dense_rows, max_col)
+            if pair is None:
+                continue
+            ref_col, qty_col, agreement = pair
+
+            matches = {}
+            for column, _, label, data in cells:
+                if data or not label:
+                    continue
+                hit = scorer(label)
+                if hit:
+                    matches[column] = hit
+            fields = {hit[0] for hit in matches.values()}
+            header_component = bool(
+                fields & {"part_name", "part_number", "value",
+                          "description", "package"})
+            data_component = False
+            for column in range(max_col):
+                if column in {ref_col, qty_col}:
+                    continue
+                values = [row[column] for row in dense_rows if row[column]]
+                if len(values) < 3:
+                    continue
+                hits = sum(bool(_RE_COMPONENT_TYPE.fullmatch(value)
+                                or RE_PACKAGE.match(value)
+                                or RE_VALUE_UNIT.match(value)
+                                or _RE_PN.match(value))
+                           for value in values)
+                if hits / len(values) >= 0.6:
+                    data_component = True
+                    break
+            if len(fields) < 3 or not header_component or not data_component:
+                continue
+
+            matches[ref_col] = ("reference", 1.0, agreement)
+            matches[qty_col] = ("quantity", 1.0, agreement)
+            confidence = min(0.95, 0.72 + agreement * 0.2)
+            candidate = (confidence, -i, i, matches)
+            if best is None or candidate[:2] > best[:2]:
+                best = candidate
+        if best is None:
+            return None
+        confidence, _, row_index, matches = best
+        return ProbeResult(
+            found=True,
+            header_row=row_index,
+            confidence=round(confidence, 4),
+            candidates=[(row_index, round(confidence, 4))],
+            column_map={
+                column: {"field": field, "weight": weight,
+                         "score": round(score, 4)}
+                for column, (field, weight, score) in matches.items()
+            },
+            reason="참조번호-수량 데이터 관계 복구",
+        )
 
     def _eval_row(self, prep, i, scorer):
         cells, labelish = prep[i]

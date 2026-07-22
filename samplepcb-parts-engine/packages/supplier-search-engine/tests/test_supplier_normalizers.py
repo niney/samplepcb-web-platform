@@ -393,6 +393,17 @@ async def test_digikey_parametric_search_discovers_then_applies_response_filter_
                     {
                         "ManufacturerProductNumber": "GRM188R71C104KA01D",
                         "Manufacturer": {"Name": "Murata"},
+                        "Category": {"Name": "Ceramic Capacitors"},
+                        "Parameters": [
+                            {"ParameterText": "Capacitance", "ValueText": "100 nF"},
+                            {"ParameterText": "Tolerance", "ValueText": "±10%"},
+                            {"ParameterText": "Voltage - Rated", "ValueText": "16 V"},
+                            {"ParameterText": "Package / Case", "ValueText": "0603"},
+                            {
+                                "ParameterText": "Temperature Characteristic",
+                                "ValueText": "X7R",
+                            },
+                        ],
                     }
                 ]
             },
@@ -432,6 +443,72 @@ async def test_digikey_parametric_search_discovers_then_applies_response_filter_
         "0.1uF 16V 10% 0603 capacitor"
     )
     assert raw.payload["Products"][0]["ManufacturerProductNumber"] == "GRM188R71C104KA01D"
+
+
+async def test_digikey_unverified_filtered_results_continue_to_core_keywords():
+    request_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        request_bodies.append(body)
+        if len(request_bodies) == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "Products": [{"ManufacturerProductNumber": "DISCOVERY-ONLY"}],
+                    "FilterOptions": {
+                        "ParametricFilters": [
+                            {
+                                "Category": {"Id": 60, "Value": "Capacitors"},
+                                "ParameterId": 2049,
+                                "ParameterName": "Capacitance",
+                                "FilterValues": [
+                                    {"ValueId": "100 nF", "ValueName": "100 nF"}
+                                ],
+                            }
+                        ]
+                    },
+                },
+            )
+        if len(request_bodies) == 2:
+            return httpx.Response(
+                200,
+                json={"Products": [{"ManufacturerProductNumber": "FILTERED-BUT-UNVERIFIED"}]},
+            )
+        return httpx.Response(
+            200,
+            json={"Products": [{"ManufacturerProductNumber": "CORE-RESULT"}]},
+        )
+
+    reservations = 0
+
+    async def reserve() -> None:
+        nonlocal reservations
+        reservations += 1
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = DigiKeyClient(
+            client_id="client",
+            client_secret="secret",
+            account_id=None,
+            client=http_client,
+        )
+        client._access_token = "test-token"
+        client._token_expiry = time.time() + 3_600
+        raw = await client.fetch(parametric_query(), reserve_call=reserve)
+
+    assert raw.ok is True
+    assert reservations == 3
+    assert [body["Keywords"] for body in request_bodies] == [
+        "0.1uF 16V 10% 0603 capacitor",
+        "0.1uF 16V 10% 0603 capacitor",
+        "0.1uF 0603 capacitor",
+    ]
+    assert [attempt.strategy for attempt in raw.request_trace] == [
+        "parametric_full",
+        "parametric_filter",
+        "parametric_core",
+    ]
 
 
 async def test_digikey_parametric_search_skips_filter_when_discovery_is_fully_verified():
@@ -585,3 +662,26 @@ async def test_mouser_parametric_search_falls_back_from_full_to_core_keywords():
         "100nF 0603 capacitor",
     ]
     assert raw.payload["SearchResults"]["Parts"][0]["ManufacturerPartNumber"] == "GRM188R71C104KA01D"
+
+
+async def test_mouser_parametric_search_does_not_apply_manufacturer_filter():
+    paths: list[str] = []
+    request_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        request_bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"SearchResults": {"Parts": []}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = MouserClient(api_key="not-a-real-key", client=http_client)
+        raw = await client.fetch(
+            parametric_query().model_copy(
+                update={"manufacturer": "Samsung Electro-Mechanics"}
+            )
+        )
+
+    assert raw.ok is True
+    assert paths == ["/api/v1/search/keyword", "/api/v1/search/keyword"]
+    assert all("SearchByKeywordRequest" in body for body in request_bodies)
+    assert all("SearchByKeywordMfrNameRequest" not in body for body in request_bodies)

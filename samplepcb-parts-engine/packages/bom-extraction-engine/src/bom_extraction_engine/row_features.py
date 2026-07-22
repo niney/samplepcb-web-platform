@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """데이터/라벨 패턴 검출 — BOM 데이터 행에 나타나는 값 패턴들."""
 import re
+from typing import Sequence
 
 # 순수 숫자 (1, 37, 1.5, 50%, -3)
 RE_NUMBER = re.compile(r"^[+-]?\d+(?:[.,]\d+)?\s*%?$")
@@ -35,6 +36,95 @@ RE_DATE = re.compile(r"^\d{4}[-./]\d{1,2}[-./]\d{1,2}")
 RE_FORMULA = re.compile(r"^=")
 
 MAX_LABEL_LEN = 45  # 이보다 길면 설명문(데이터)으로 간주
+
+_STRICT_REFERENCE_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?P<prefix>LED|CON|CN|FB|IC|JP|J|TP|SW|VR|RV|NTC|RT|TVS|RN|"
+    r"R|C|L|D|Q|U|F|K|P|X|Y|BT)"
+    r"(?P<start>\d{1,6})"
+    r"(?:\s*[-~]\s*(?:(?P<end_prefix>[A-Za-z]{1,4}))?(?P<end>\d{1,6}))?"
+    r"(?![A-Za-z0-9])",
+    re.I,
+)
+
+
+def reference_list_count(value: object) -> int | None:
+    """셀 전체가 PCB 참조번호 목록일 때만 지시자 개수를 반환한다.
+
+    허용 접두어와 셀 전체 검증을 함께 사용해 SS34, BSS138 같은 짧은
+    품번을 참조번호로 오인하지 않는다.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    matches = list(_STRICT_REFERENCE_TOKEN.finditer(text))
+    if not matches:
+        return None
+    cursor = 0
+    count = 0
+    for match in matches:
+        if not re.fullmatch(r"[\s,;/]*", text[cursor:match.start()]):
+            return None
+        prefix = match.group("prefix").upper()
+        start = int(match.group("start"))
+        end_text = match.group("end")
+        if end_text is None:
+            count += 1
+        else:
+            end_prefix = (match.group("end_prefix") or prefix).upper()
+            end = int(end_text)
+            if end_prefix != prefix or end < start or end - start > 1000:
+                return None
+            count += end - start + 1
+        cursor = match.end()
+    if not re.fullmatch(r"[\s,;/]*", text[cursor:]):
+        return None
+    return count or None
+
+
+def integer_quantity(value: object) -> int | None:
+    text = str(value or "").strip().replace(",", "")
+    match = re.fullmatch(r"([1-9]\d*)(?:\.0+)?", text)
+    return int(match.group(1)) if match else None
+
+
+def reference_quantity_pair(
+        rows: Sequence[Sequence[object]], column_count: int,
+        ) -> tuple[int, int, float] | None:
+    """반복 행에서 참조번호 개수와 수량이 일치하는 열 쌍을 찾는다."""
+    best = None
+    for ref_col in range(column_count):
+        ref_values = [reference_list_count(row[ref_col]) for row in rows
+                      if ref_col < len(row) and str(row[ref_col] or "").strip()]
+        ref_hits = [value for value in ref_values if value is not None]
+        if len(ref_hits) < 3 or len(ref_hits) / max(len(ref_values), 1) < 0.75:
+            continue
+        for qty_col in range(column_count):
+            if qty_col == ref_col:
+                continue
+            qty_values = [integer_quantity(row[qty_col]) for row in rows
+                          if qty_col < len(row) and str(row[qty_col] or "").strip()]
+            qty_hits = [value for value in qty_values if value is not None]
+            if len(qty_hits) < 3 or len(qty_hits) / max(len(qty_values), 1) < 0.8:
+                continue
+            paired = []
+            for row in rows:
+                if ref_col >= len(row) or qty_col >= len(row):
+                    continue
+                ref_count = reference_list_count(row[ref_col])
+                quantity = integer_quantity(row[qty_col])
+                if ref_count is not None and quantity is not None:
+                    paired.append((ref_count, quantity))
+            agreement_count = sum(ref == qty for ref, qty in paired)
+            agreement = agreement_count / max(len(paired), 1)
+            if len(paired) < 3 or agreement < 0.8:
+                continue
+            score = (agreement, agreement_count,
+                     len(ref_hits) / len(ref_values),
+                     len(qty_hits) / len(qty_values), -ref_col, -qty_col)
+            if best is None or score > best[0]:
+                best = (score, (ref_col, qty_col, agreement))
+    return best[1] if best else None
 
 
 def looks_designator_list(s: str) -> bool:

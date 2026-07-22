@@ -154,3 +154,58 @@ def test_field_without_evidence_marks_uncertain():
     # 색상 꼬리를 벗긴 PN("LTST-S270KGKT")도 원문 셀 containment로 근거 확보
     assert item["part_number"] == "LTST-S270KGKT"
     assert item["field_states"]["part_number"]["status"] == "extracted"
+
+
+def test_pcb_decal_preserves_raw_footprint_and_promotes_only_safe_package():
+    case = _case(
+        ["Part", "PCB DECAL", "Reference", "Q'ty"],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "DRV8825PWPR/28TSSOP",
+                    "28TSSOP-W6.6/E0.65",
+                    "U100",
+                    "1",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": ["TLP281(SMD)", "TLP281", "U101", "1"],
+            },
+        ],
+    )
+
+    components, headers = _adapt(case)
+    driver, optocoupler = components
+
+    assert driver["part_number"] == "DRV8825PWPR"
+    assert driver["package"] == "TSSOP-28"
+    assert driver["footprint"] == "28TSSOP-W6.6/E0.65"
+    assert driver["field_states"]["package"]["status"] == "extracted"
+    assert optocoupler["part_number"] == "TLP281"
+    assert optocoupler["package"] is None
+    assert optocoupler["footprint"] == "TLP281"
+    assert any(
+        header["raw_header"] == "PCB DECAL"
+        and header["semantic_field"] == "footprint"
+        for header in headers
+    )
+
+
+def test_open_pcb_test_point_is_kept_for_audit_but_not_procurement():
+    case = _case(
+        ["Part", "PCB DECAL", "Reference", "Q'ty"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["TEST POINT (OPEN)", "TP-0.9", "TP100", "1"],
+            }
+        ],
+    )
+
+    components, _ = _adapt(case)
+
+    assert len(components) == 1
+    assert components[0]["footprint"] == "TP-0.9"
+    assert "do_not_populate" in components[0]["quality_flags"]

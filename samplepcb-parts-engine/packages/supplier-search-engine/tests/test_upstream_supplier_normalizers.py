@@ -508,6 +508,17 @@ async def test_digikey_parametric_search_discovers_then_applies_response_filter_
                     {
                         "ManufacturerProductNumber": "GRM188R71C104KA01D",
                         "Manufacturer": {"Name": "Murata"},
+                        "Category": {"Name": "Ceramic Capacitors"},
+                        "Parameters": [
+                            {"ParameterText": "Capacitance", "ValueText": "100 nF"},
+                            {"ParameterText": "Tolerance", "ValueText": "±10%"},
+                            {"ParameterText": "Voltage - Rated", "ValueText": "16 V"},
+                            {"ParameterText": "Package / Case", "ValueText": "0603"},
+                            {
+                                "ParameterText": "Temperature Characteristic",
+                                "ValueText": "X7R",
+                            },
+                        ],
                     }
                 ]
             },

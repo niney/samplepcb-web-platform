@@ -63,7 +63,7 @@ class MouserClient(SupplierClient):
         elif query.mode == SearchMode.PARAMETRIC:
             payload.update(
                 {
-                    "strategy": "parametric-full-core-v3",
+                    "strategy": "parametric-full-core-v4",
                     "preferred_keywords": supplier_spec_keywords(
                         query,
                         Supplier.MOUSER,
@@ -114,7 +114,7 @@ class MouserClient(SupplierClient):
                 path = "/api/v1/search/partnumber"
                 root = "SearchByPartRequest"
                 request = {"mouserPartNumber": query.part_number, "partSearchOptions": "Exact"}
-        elif query.manufacturer:
+        elif query.manufacturer and not is_parametric:
             path = "/api/v2/search/keywordandmanufacturer"
             root = "SearchByKeywordMfrNameRequest"
             request = {
@@ -189,7 +189,7 @@ class MouserClient(SupplierClient):
         fallback_reason: str | None = None,
     ) -> RawSupplierResponse:
         search_keywords = keywords or query.part_number or query.keywords
-        if query.manufacturer:
+        if query.manufacturer and query.mode != SearchMode.PARAMETRIC:
             path = "/api/v2/search/keywordandmanufacturer"
             root = "SearchByKeywordMfrNameRequest"
             request = {

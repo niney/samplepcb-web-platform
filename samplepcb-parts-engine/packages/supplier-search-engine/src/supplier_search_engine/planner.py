@@ -66,6 +66,21 @@ _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("capacitor", ("capacitor", "커패시터", "콘덴서")),
 )
 _ELECTROLYTIC_TOKENS = ("electrolytic", "ecap", "전해")
+_ELECTROLYTIC_ABBREVIATION = re.compile(
+    r"(?:^|[^A-Z0-9])E\s*/\s*C(?:[^A-Z0-9]|$)|"
+    r"(?:^|[^A-Z0-9])E[ -]?CAP(?:[^A-Z0-9]|$)|"
+    r"(?:^|[^A-Z0-9])EC(?:[^A-Z0-9]|$)",
+    re.I,
+)
+_MECHANICAL_PACKAGE_DIMENSION = re.compile(
+    r"^(?:\d+(?:\.\d+)?\s*mm|\d+(?:\.\d+)?\s*[x×]\s*"
+    r"\d+(?:\.\d+)?(?:\s*mm)?)$",
+    re.I,
+)
+_MULTISOURCE_MANUFACTURER = re.compile(
+    r"(?:^|[/,;|\s])(?:ANY|MULTI(?:PLE)?|VARIOUS|GENERIC|무관|다수)(?:$|[/,;|\s])",
+    re.I,
+)
 
 
 def _package_from_pseudo_part_number(
@@ -121,7 +136,10 @@ def _canonical_category_policy(
         for value in (part_type, description, value_raw, package)
         if value
     )
-    if any(token in bom_text for token in _ELECTROLYTIC_TOKENS) and any(
+    electrolytic_hint = any(token in bom_text for token in _ELECTROLYTIC_TOKENS) or bool(
+        _ELECTROLYTIC_ABBREVIATION.search(bom_text)
+    )
+    if electrolytic_hint and any(
         token in part_type_text
         for token in ("capacitor", "커패시터", "콘덴서", "electrolytic", "전해")
     ):
@@ -188,11 +206,36 @@ class QueryPlanner:
         )
         if pseudo_package is None:
             raw_part_number = _part_number_without_manufacturer_prefix(raw_part_number)
+        package_value = (
+            str(package.value).strip()
+            if package.value is not None
+            else pseudo_package
+        )
+        description = component.description or component.value_raw
+        category_policy = _canonical_category_policy(
+            part_type_value,
+            component.description,
+            component.value_raw,
+            package_value,
+        )
         if package.value is not None:
             normalized_package = normalize_package(
                 package.value,
                 part_type_value,
             ) or None
+            if (
+                category_policy == "electrolytic"
+                and (
+                    _MECHANICAL_PACKAGE_DIMENSION.fullmatch(
+                        str(package.value).strip()
+                    )
+                    or source_diameter_mm(
+                        f"electrolytic {str(package.value).strip()}"
+                    )
+                    is not None
+                )
+            ):
+                normalized_package = None
             requirements["package"] = self._requirement(
                 "package",
                 package,
@@ -222,22 +265,17 @@ class QueryPlanner:
             and not _GENERIC_CONNECTOR_NOTATION.fullmatch(raw_part_number)
             else None
         )
-        manufacturer_name = str(manufacturer.value).strip() if manufacturer.value is not None else None
-        package_value = (
-            str(package.value).strip()
-            if package.value is not None
-            else pseudo_package
+        manufacturer_name = (
+            str(manufacturer.value).strip()
+            if manufacturer.value is not None
+            else None
         )
-        description = component.description or component.value_raw
-        category_policy = _canonical_category_policy(
-            part_type_value,
-            component.description,
-            component.value_raw,
-            package_value,
-        )
+        if manufacturer_name and _MULTISOURCE_MANUFACTURER.search(manufacturer_name):
+            manufacturer_name = None
         physical_source = " ".join(
             value
             for value in (
+                "electrolytic" if category_policy == "electrolytic" else None,
                 part_type_value,
                 package_value,
                 component.value_raw,
@@ -308,12 +346,10 @@ class QueryPlanner:
                 if field.value is not None:
                     keyword_parts.append(str(field.value))
                     break
-            if package_value:
-                normalized_package = normalize_package(
-                    package_value,
-                    part_type_value,
-                )
-                if normalized_package:
+            package_requirement = requirements.get("package")
+            if package_requirement is not None and package_requirement.hard:
+                normalized_package = package_requirement.normalized_value
+                if isinstance(normalized_package, str) and normalized_package:
                     keyword_parts.append(normalized_package)
             if dielectric:
                 keyword_parts.append(dielectric)

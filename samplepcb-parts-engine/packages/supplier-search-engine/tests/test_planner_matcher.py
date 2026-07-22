@@ -95,6 +95,83 @@ def test_internal_electrolytic_footprint_sets_category_without_fake_package():
     assert "CAPECAPF55" not in query.keywords
 
 
+def test_ec_abbreviation_and_mechanical_size_use_electrolytic_search_policy():
+    item = component(
+        part_type="capacitor",
+        capacitance="100uF",
+        voltage="50V",
+        package="10mm",
+        value_raw="100uF/50V/EC/SMD/10mm",
+    )
+    item.fields["capacitance"].normalized_value = 100e-6
+
+    query = QueryPlanner().plan(item)
+
+    assert query.mode.value == "parametric"
+    assert query.category_policy == "electrolytic"
+    assert query.requirements["package"].normalized_value is None
+    assert query.requirements["package"].hard is False
+    assert query.requirements["mount_style"].normalized_value == "smd"
+    assert query.keywords == "100uF capacitor"
+
+
+def test_protel_ec_footprint_becomes_mount_and_diameter_not_fake_package():
+    item = component(
+        part_type="capacitor",
+        capacitance="100uF",
+        voltage="25V",
+        package="E/C-SMD/8X6.3/H63",
+        value_raw="E/C_100uF/25V",
+    )
+    item.fields["capacitance"].normalized_value = 100e-6
+
+    query = QueryPlanner().plan(item)
+
+    assert query.mode.value == "parametric"
+    assert query.category_policy == "electrolytic"
+    assert query.requirements["package"].normalized_value is None
+    assert query.requirements["package"].hard is False
+    assert query.requirements["mount_style"].normalized_value == "smd"
+    assert query.requirements["diameter_mm"].normalized_value == 8.0
+    assert query.keywords == "100uF capacitor"
+
+
+def test_electrolytic_diameter_by_length_is_not_a_package_code():
+    item = component(
+        part_type="capacitor",
+        capacitance="47uF",
+        voltage="25V",
+        package="5x11",
+        value_raw="47uF 25V EC radial 5x11",
+    )
+    item.fields["capacitance"].normalized_value = 47e-6
+
+    query = QueryPlanner().plan(item)
+
+    assert query.category_policy == "electrolytic"
+    assert query.requirements["package"].normalized_value is None
+    assert query.requirements["package"].hard is False
+    assert query.requirements["diameter_mm"].normalized_value == 5.0
+    assert query.requirements["diameter_mm"].hard is True
+
+
+@pytest.mark.parametrize("manufacturer", ["PILKOR/ MULTI", "Susumu/Any", "Various"])
+def test_multisource_manufacturer_marker_does_not_restrict_parametric_search(
+    manufacturer,
+):
+    query = QueryPlanner().plan(
+        component(
+            manufacturer=manufacturer,
+            part_type="resistor",
+            resistance="10k",
+            package="0603",
+        )
+    )
+
+    assert query.mode.value == "parametric"
+    assert query.manufacturer is None
+
+
 def test_identity_query_can_build_spec_only_fallback_with_sufficient_evidence():
     planner = QueryPlanner()
     query = planner.plan(

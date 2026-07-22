@@ -81,7 +81,7 @@ class DigiKeyClient(SupplierClient):
         elif query.mode == SearchMode.PARAMETRIC and self._primary_requirement(query):
             payload.update(
                 {
-                    "strategy": "parametric-full-filter-core-v7",
+                    "strategy": "parametric-full-filter-core-v8",
                     "preferred_keywords": supplier_spec_keywords(
                         query,
                         Supplier.DIGIKEY,
@@ -223,7 +223,7 @@ class DigiKeyClient(SupplierClient):
                         "Keywords": preferred_keywords,
                         "FilterOptions": discovery.payload.get("FilterOptions") or {},
                     }
-                    return filtered.model_copy(
+                    filtered = filtered.model_copy(
                         update={
                             "payload": filtered_payload,
                             "latency_ms": (discovery.latency_ms or 0.0)
@@ -238,7 +238,13 @@ class DigiKeyClient(SupplierClient):
                             ],
                         }
                     )
-                return self._with_additional_attempts(discovery, filtered)
+                    if self._has_verified_discovery_candidate(query, filtered):
+                        return filtered
+                    discovery = filtered
+                elif not filtered.ok:
+                    return self._with_additional_attempts(discovery, filtered)
+                else:
+                    discovery = self._with_additional_attempts(discovery, filtered)
 
             core_keywords = supplier_core_keywords(query, Supplier.DIGIKEY)
             if core_keywords != preferred_keywords:

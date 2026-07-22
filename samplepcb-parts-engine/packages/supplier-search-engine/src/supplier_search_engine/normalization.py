@@ -119,11 +119,28 @@ _INTERNAL_CAD_PASSIVE_PACKAGE = re.compile(
     r"^(?:CAP|RES|IND)[_-][A-Z0-9_-]+$",
     re.I,
 )
+_PASSIVE_PACKAGE_TYPES = {
+    "capacitor",
+    "inductor",
+    "resistor",
+    "thermistor",
+    "varistor",
+}
+_PASSIVE_IMPERIAL_SHORTHAND = {
+    "402": "0402",
+    "603": "0603",
+    "805": "0805",
+}
 
 
 def _is_crystal_package_context(component_type: str | None) -> bool:
     component = unicodedata.normalize("NFKC", component_type or "").strip().casefold()
     return component in _CRYSTAL_PACKAGE_TYPES
+
+
+def _is_passive_package_context(component_type: str | None) -> bool:
+    component = unicodedata.normalize("NFKC", component_type or "").strip().casefold()
+    return component in _PASSIVE_PACKAGE_TYPES
 
 
 def _crystal_package_from_text(value: object) -> str | None:
@@ -177,6 +194,32 @@ def normalize_package(value: object, component_type: str | None = None) -> str:
         # Pin count alone does not identify a crystal's physical body size.
         if _GENERIC_CRYSTAL_SMD.fullmatch(compact):
             return ""
+
+    if _is_passive_package_context(component_type):
+        # Legacy BOM/CAD libraries often omit the leading zero from imperial
+        # chip sizes (402/603/805), prefix the code with C/R, or store the
+        # metric body size as SMD2012/SMD1608. These forms are safe only in a
+        # passive-component context; elsewhere the same digits may be a pin,
+        # series, or mechanical identifier.
+        shorthand = re.fullmatch(r"(?:[CR])?(402|603|805)", compact)
+        if shorthand:
+            return _PASSIVE_IMPERIAL_SHORTHAND[shorthand.group(1)]
+        if compact in {"SMD", "SMT"}:
+            return ""
+        cad_metric = re.fullmatch(
+            r"(?:CC|CR|CL|CT)(1005|1608|2012|3216|3225|3528|4520|"
+            r"4532|5025|5750|6032|6332|7343)",
+            compact,
+        )
+        if cad_metric:
+            return _METRIC_TO_IMPERIAL[cad_metric.group(1)]
+        smd_metric = re.fullmatch(
+            r"SMD(1005|1608|2012|3216|3225|3528|4520|4532|5025|"
+            r"5750|6032|6332|7343)",
+            compact,
+        )
+        if smd_metric:
+            return _METRIC_TO_IMPERIAL[smd_metric.group(1)]
 
     tfbga = (
         re.search(r"TFBGA[^0-9]{0,8}(\d{1,3}(?:\s*\+\s*\d{1,3})?)", text)
@@ -346,6 +389,10 @@ def normalized_specs_from_parameters(
     raw: dict[str, Any] = {}
     priorities: dict[str, int] = {}
 
+    component_context = unicodedata.normalize(
+        "NFKC", component_type or ""
+    ).strip().casefold()
+
     def priority(target: str, key: str) -> int:
         if target == "resistance_ohm":
             if any(token in key for token in ("impedance", "임피던스")):
@@ -353,6 +400,21 @@ def normalized_specs_from_parameters(
             if any(token in key for token in ("dcresistance", "dcr", "dc저항")):
                 return 40
         if target == "voltage_v":
+            if "diode" in component_context or "다이오드" in component_context:
+                if any(token in key for token in ("forward", "순방향", "vf")):
+                    return -1
+                if any(
+                    token in key
+                    for token in (
+                        "reverse",
+                        "breakdown",
+                        "standoff",
+                        "역방향",
+                        "항복",
+                        "vr",
+                    )
+                ):
+                    return 110
             if any(token in key for token in ("dropout", "드롭아웃", "tolerance", "허용오차")):
                 return -1
             if any(token in key for token in ("output", "출력")):

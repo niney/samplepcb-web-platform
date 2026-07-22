@@ -35,7 +35,7 @@ FIELDS = {
     ]),
     "package": (KEY, [
         "package", "footprint", "pattern", "geometry", "case",
-        "case/package", "pcb footprint",
+        "case/package", "pcb footprint", "pcb decal", "decal",
         "패키지", "풋프린트", "패턴", "외형", "케이스", "사이즈",
     ]),
     "quantity": (KEY, [

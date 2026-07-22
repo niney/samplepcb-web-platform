@@ -59,6 +59,36 @@ def test_internal_cad_footprints_only_expose_verified_physical_sizes(
 
 
 @pytest.mark.parametrize(
+    ("value", "component_type", "expected"),
+    [
+        ("402", "resistor", "0402"),
+        ("603", "capacitor", "0603"),
+        ("805", "inductor", "0805"),
+        ("C805", "capacitor", "0805"),
+        ("R402", "resistor", "0402"),
+        ("SMD1608", "resistor", "0603"),
+        ("SMD2012", "capacitor", "0805"),
+        ("SMD3216", "inductor", "1206"),
+        ("CR2012", "resistor", "0805"),
+        ("CC2012", "capacitor", "0805"),
+        ("CT6032", "capacitor", "2312"),
+        ("SMD", "capacitor", ""),
+    ],
+)
+def test_legacy_passive_package_notation_is_contextually_normalized(
+    value,
+    component_type,
+    expected,
+):
+    assert normalize_package(value, component_type) == expected
+
+
+def test_legacy_passive_package_notation_is_not_guessed_outside_passive_context():
+    assert normalize_package("402", "connector") == "402"
+    assert normalize_package("SMD2012", "ic") == "SMD2012"
+
+
+@pytest.mark.parametrize(
     "value",
     [
         "1612",
@@ -132,6 +162,18 @@ def test_supplier_text_and_parameters_extract_dielectric():
     assert text["dielectric"] == "X5R"
     assert text["package"] == "0402"
     assert parameters["dielectric"] == "X7R"
+
+
+def test_diode_parameter_normalization_prefers_reverse_rating_over_forward_drop():
+    parameters, _raw = normalized_specs_from_parameters(
+        [
+            ("Voltage - Forward (Vf) (Max)", "0.63 V @ 3 A"),
+            ("Voltage - DC Reverse (Vr) (Max)", "60 V"),
+        ],
+        "diode",
+    )
+
+    assert parameters["voltage_v"] == 60.0
 
 
 def test_package_compatibility_accepts_dimension_only_bom_notation():

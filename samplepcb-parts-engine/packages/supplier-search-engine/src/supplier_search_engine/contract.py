@@ -156,6 +156,8 @@ def build_batch_from_result(
     display = str(source_file or result.get("source_file") or "")
     components: list[SearchComponentInput] = []
     for component in result.get("components") or []:
+        if "do_not_populate" in (component.get("quality_flags") or []):
+            continue
         sheet_index = int(component["sheet_index_0based"])
         if sheet_indexes is not None and sheet_index not in sheet_indexes:
             continue
