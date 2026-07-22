@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { useBomPartsSearch } from '../../bom/useBom';
 import BomPartOfferOptions from '../../components/bom/BomPartOfferOptions.vue';
 import BomSearchRow from '../../components/bom/BomSearchRow.vue';
+import BomPartSearchNotice from '../../components/bom/BomPartSearchNotice.vue';
 import logoIcon from '../../assets/bom/logo-partseyes-icon.png';
 import searchIcon from '../../assets/bom/ic-search-20.svg';
 import uploadCard from '../../assets/bom/upload-card.jpg';
@@ -146,6 +147,12 @@ function toggleExpand(partId: string): void {
           </div>
         </form>
 
+        <BomPartSearchNotice
+          v-if="search.data.value !== undefined"
+          :query="q"
+          :mode="search.data.value.data.searchMode"
+          :interpreted-spec-count="search.data.value.data.interpretedSpecCount"
+        />
         <div v-if="search.isFetching.value" class="mt-5 flex items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-5 text-sm font-medium text-blue-700" aria-live="polite">
           <span class="size-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
           카탈로그를 검색하고 있습니다.
@@ -153,44 +160,46 @@ function toggleExpand(partId: string): void {
         <div v-else-if="search.isError.value" class="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
           검색 결과를 불러오지 못했습니다. 잠시 후 다시 검색해 주세요.
         </div>
-        <div v-else-if="items.length === 0" class="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-          검색 결과가 없습니다. 다른 품번 또는 스펙 표기로 시도해 보세요.
-        </div>
-
-        <div v-else class="mt-4">
-          <p class="mb-2 text-right text-[11px] text-slate-400">총 {{ total.toLocaleString('ko-KR') }}건 중 {{ items.length.toLocaleString('ko-KR') }}건 · 필요수량 {{ neededSafe.toLocaleString('ko-KR') }}개 기준</p>
-          <div class="overflow-x-auto rounded-[10px] border border-[#e5e8ed] bg-white">
-            <table class="w-full min-w-[860px] border-collapse">
-              <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
-                <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
-                  <th class="min-w-[220px] px-2 py-2.5">MPN / Part</th>
-                  <th class="px-2 py-2.5">Manufacturer</th>
-                  <th class="px-2 py-2.5">Description</th>
-                  <th class="w-[130px] px-2 py-2.5 text-right">Unit Price</th>
-                  <th class="w-[170px] px-2 py-2.5">Packaging / Stock</th>
-                  <th class="w-[130px] px-2 py-2.5 text-right">Total Price</th>
-                  <th class="w-[100px] px-2 py-2.5" />
-                </tr>
-              </thead>
-              <tbody>
-                <template v-for="part in items" :key="part.id">
-                  <BomSearchRow
-                    :part="part"
-                    :expanded="expandedId === part.id"
-                    @toggle="toggleExpand(part.id)"
-                  />
-                  <tr v-if="expandedId === part.id" class="border-b border-[#e5e8ed]">
-                    <td colspan="7" class="bg-slate-50/70 px-3 py-3">
-                      <div class="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                        <BomPartOfferOptions :part="part" :needed="neededSafe" browse />
-                      </div>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
+        <template v-else>
+          <div v-if="items.length === 0" class="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            로컬 카탈로그에 검색 결과가 없습니다. 규격 검색이라면 공급사 추가 확인을 사용해 보세요.
           </div>
-        </div>
+
+          <div v-else class="mt-4">
+            <p class="mb-2 text-right text-[11px] text-slate-400">총 {{ total.toLocaleString('ko-KR') }}건 중 {{ items.length.toLocaleString('ko-KR') }}건 · 필요수량 {{ neededSafe.toLocaleString('ko-KR') }}개 기준</p>
+            <div class="overflow-x-auto rounded-[10px] border border-[#e5e8ed] bg-white">
+              <table class="w-full min-w-[860px] border-collapse">
+                <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
+                  <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
+                    <th class="min-w-[220px] px-2 py-2.5">MPN / Part</th>
+                    <th class="px-2 py-2.5">Manufacturer</th>
+                    <th class="px-2 py-2.5">Description</th>
+                    <th class="w-[130px] px-2 py-2.5 text-right">Unit Price</th>
+                    <th class="w-[170px] px-2 py-2.5">Packaging / Stock</th>
+                    <th class="w-[130px] px-2 py-2.5 text-right">Total Price</th>
+                    <th class="w-[100px] px-2 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="part in items" :key="part.id">
+                    <BomSearchRow
+                      :part="part"
+                      :expanded="expandedId === part.id"
+                      @toggle="toggleExpand(part.id)"
+                    />
+                    <tr v-if="expandedId === part.id" class="border-b border-[#e5e8ed]">
+                      <td colspan="7" class="bg-slate-50/70 px-3 py-3">
+                        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                          <BomPartOfferOptions :part="part" :needed="neededSafe" browse />
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
       </div>
     </template>
   </div>

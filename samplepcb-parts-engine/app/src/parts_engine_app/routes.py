@@ -20,7 +20,7 @@ from supplier_search_engine.procurement import (
 
 from .capabilities import supplier_search_capabilities
 from .jobs import Job, JobError, JobService, SupplierSearchOptions
-from .refresh import refresh_part
+from .refresh import refresh_part, search_catalog
 
 router = APIRouter()
 
@@ -248,6 +248,13 @@ class PartRefreshBody(BaseModel):
     max_calls: int = Field(default=25, ge=1, le=100)
 
 
+class PartSearchBody(BaseModel):
+    """사용자 카탈로그 규격 검색 — 캐시 우선, 짧은 공급사 호출 상한."""
+
+    query: str = Field(min_length=1, max_length=200)
+    max_calls: int = Field(default=12, ge=1, le=25)
+
+
 @router.post("/parts/refresh")
 async def refresh_single_part(request: Request, body: PartRefreshBody) -> dict[str, Any]:
     """MPN 1건 강제 라이브 검색(캐시 읽기 무시·쓰기 기록). 응답 {search: BatchSearchResult}."""
@@ -259,4 +266,17 @@ async def refresh_single_part(request: Request, body: PartRefreshBody) -> dict[s
             max_calls=body.max_calls,
         )
     except Exception as error:  # 공급사/네트워크 오류를 502 로 정규화
+        raise HTTPException(status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}") from error
+
+
+@router.post("/parts/search")
+async def search_catalog_parts(request: Request, body: PartSearchBody) -> dict[str, Any]:
+    """로컬 색인 exact miss를 공급사 캐시/API로 보강한다."""
+    try:
+        return await search_catalog(
+            _svc(request).config,
+            body.query,
+            max_calls=body.max_calls,
+        )
+    except Exception as error:
         raise HTTPException(status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}") from error

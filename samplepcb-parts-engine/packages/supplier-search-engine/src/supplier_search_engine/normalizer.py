@@ -97,7 +97,14 @@ def parse_tolerance_percent(value: object) -> float | None:
 
 def parse_voltage_v(value: object) -> float | None:
     text = _text(value)
-    match = re.search(rf"({_NUMBER})\s*-?\s*(m|k)?\s*(?:V\b|volts?\b)", text, re.IGNORECASE)
+    # 공급사 파라미터/설명은 단순 V 외에 VDC/VAC 표기를 흔히 쓴다.
+    # 기존 ``V\b``는 VDC 의 V 뒤가 word 문자(D)라 경계가 성립하지 않아
+    # 정격 전압이 누락됐고, 그 결과 정확 일치 후보가 "전압 미확인"으로 밀렸다.
+    match = re.search(
+        rf"({_NUMBER})\s*-?\s*(m|k)?\s*(?:V(?:DC|AC)?\b|volts?\b)",
+        text,
+        re.IGNORECASE,
+    )
     if not match:
         return None
     number = float(match.group(1))

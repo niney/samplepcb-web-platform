@@ -10,6 +10,20 @@ from supplier_search_engine.normalization import (
     normalized_specs_from_parameters,
     normalized_specs_from_text,
 )
+from supplier_search_engine.normalizer import parse_voltage_v
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("16 V", 16.0),
+        ("16 VDC", 16.0),
+        ("250VAC", 250.0),
+        ("500 mVDC", 0.5),
+    ],
+)
+def test_voltage_normalization_accepts_supplier_vdc_and_vac_notation(value, expected):
+    assert parse_voltage_v(value) == expected
 
 
 @pytest.mark.parametrize(

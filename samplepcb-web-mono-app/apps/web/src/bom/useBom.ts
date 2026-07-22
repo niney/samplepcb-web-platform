@@ -13,6 +13,7 @@ import {
   BomSupplierPreflightResponse,
   BomSupplierStartResponse,
   BomPartSearchResponse,
+  BomPartSearchSupplementResponse,
   PartDetailResponse,
   apiRoutes,
   type BomQuoteBuildBodyType,
@@ -276,6 +277,15 @@ export function useBomPartsSearch(q: Ref<string>, enabled: Ref<boolean>, needed?
       ),
     enabled: computed(() => enabled.value && q.value.trim() !== ''),
     retry: false,
+  });
+}
+
+export function useBomPartsSupplement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (q: string) =>
+      apiSend('POST', `${base}/parts-search/supplement`, { q }, BomPartSearchSupplementResponse),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bom', 'parts-search'] }),
   });
 }
 

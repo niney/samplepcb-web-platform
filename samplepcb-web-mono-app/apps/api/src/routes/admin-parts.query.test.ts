@@ -2,7 +2,7 @@
 // 실 DB·ES 통합 테스트가 skip 되는 CI에서도 필터 승격과 정렬 계약을 고정한다.
 import { describe, expect, it } from 'vitest';
 import { PartSearchQuery } from '@sp/api-contract';
-import { buildPartSort, buildSearchQuery } from './admin-parts';
+import { buildExactSearchIntent, buildPartSort, buildSearchQuery } from './admin-parts';
 
 function serializedQuery(input: Record<string, unknown>): string {
   return JSON.stringify(buildSearchQuery(PartSearchQuery.parse(input)));
@@ -52,6 +52,19 @@ describe('buildSearchQuery', () => {
     expect(buildSearchQuery(PartSearchQuery.parse({ q: '', inStockOnly: true }))).toEqual({
       bool: { filter: [{ range: { totalStock: { gt: 0 } } }] },
     });
+  });
+
+  it('BOM 규격 검색은 고신뢰 규격을 모두 exact 필터로 승격한다', () => {
+    const params = PartSearchQuery.parse({ q: '560nF 16V' });
+    const intent = buildExactSearchIntent(params);
+    expect(intent?.interpretedSpecCount).toBe(2);
+    expect(JSON.stringify(intent?.query)).toContain('"filter":[{"range":{"capacitanceF"');
+    expect(JSON.stringify(intent?.query)).toContain('{"range":{"voltageV"');
+    expect(JSON.stringify(intent?.query)).not.toContain('"minimum_should_match"');
+  });
+
+  it('MPN 텍스트 검색은 exact 규격 의도로 오인하지 않는다', () => {
+    expect(buildExactSearchIntent(PartSearchQuery.parse({ q: 'GRM155R71C104KA88D' }))).toBeNull();
   });
 });
 

@@ -5,6 +5,7 @@ import type { OfferPick } from '@sp/utils';
 import { useBomPartsSearch } from '../../bom/useBom';
 import PartImage from '../ui/PartImage.vue';
 import BomPartOfferOptions from './BomPartOfferOptions.vue';
+import BomPartSearchNotice from './BomPartSearchNotice.vue';
 
 // 카탈로그 검색 + 결과 목록 + 부품 1건 구매 조건 비교(BomPartOfferOptions) 셸.
 // 견적의 부품 교체/추가(선택 문맥)와 단일 검색 모달류가 공유한다.
@@ -32,7 +33,8 @@ const emit = defineEmits<{
 const input = ref(props.initialQuery);
 const q = ref(props.initialQuery.trim());
 const selectedPart = ref<PartHitType | null>(null);
-const search = useBomPartsSearch(q, computed(() => true));
+const neededRef = computed(() => props.needed);
+const search = useBomPartsSearch(q, computed(() => true), neededRef);
 const items = computed(() => search.data.value?.data.items ?? []);
 
 watch(
@@ -79,6 +81,13 @@ function returnToResults(): void {
     </form>
 
     <template v-if="selectedPart === null">
+      <BomPartSearchNotice
+        v-if="search.data.value !== undefined"
+        :query="q"
+        :mode="search.data.value.data.searchMode"
+        :interpreted-spec-count="search.data.value.data.interpretedSpecCount"
+        :disabled="selecting"
+      />
       <div v-if="search.isFetching.value" class="mt-5 flex items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-5 text-sm font-medium text-blue-700" aria-live="polite">
         <span class="size-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
         카탈로그를 검색하고 있습니다.
@@ -90,7 +99,7 @@ function returnToResults(): void {
         품번이나 스펙을 입력해 부품을 검색해 주세요.
       </div>
       <div v-else-if="items.length === 0" class="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-        검색 결과가 없습니다. 다른 품번 또는 스펙 표기로 시도해 보세요.
+        로컬 카탈로그에 검색 결과가 없습니다. 규격 검색이라면 위의 공급사 추가 확인을 사용해 보세요.
       </div>
 
       <div v-else class="mt-4 space-y-2.5">

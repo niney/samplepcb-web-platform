@@ -131,12 +131,33 @@ export const BomPartSearchResponse = z.object({
   data: z.object({
     items: z.array(BomPartHit),
     total: z.number().int(),
+    /** exact=해석된 규격 전부 일치, similar=정확 일치가 없어 완화 검색, text=MPN/일반 텍스트. */
+    searchMode: z.enum(['exact', 'similar', 'text']),
+    interpretedSpecCount: z.number().int().min(0),
     page: z.number().int(),
     pageSize: z.number().int(),
     facets: PartSearchFacets,
   }),
 });
 export type BomPartSearchResponseType = z.infer<typeof BomPartSearchResponse>;
+
+// 로컬 색인에 정확 규격이 없을 때 사용자가 명시적으로 공급사 검색을 요청한다.
+// GET 검색은 읽기 전용으로 유지하고, 비용·일일 한도가 있는 보강만 POST 로 분리한다.
+export const BomPartSearchSupplementBody = z.object({
+  q: z.string().trim().min(1).max(200),
+});
+export type BomPartSearchSupplementBodyType = z.infer<typeof BomPartSearchSupplementBody>;
+
+export const BomPartSearchSupplementResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    parts: z.number().int(),
+    offers: z.number().int(),
+    indexed: z.number().int(),
+    queued: z.number().int(),
+  }),
+});
+export type BomPartSearchSupplementResponseType = z.infer<typeof BomPartSearchSupplementResponse>;
 
 export const PartSpecConflictGroup = z.object({
   value: z.unknown(),

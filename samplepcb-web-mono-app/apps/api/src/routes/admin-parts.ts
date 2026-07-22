@@ -32,7 +32,17 @@ const BOOST = { mpnExact: 10, mpnPrefix: 8, specHigh: 6, variantExact: 6, mpnNgr
 
 type Query = estypes.QueryDslQueryContainer;
 
-export function buildSearchQuery(params: PartSearchQueryType): Query {
+interface SearchQueryOptions {
+  /** BOM 사용자 검색에서 신뢰도 높은 규격을 모두 만족해야 하는 필터로 승격한다. */
+  exactSpecs?: boolean;
+}
+
+interface ExactSearchIntent {
+  query: Query;
+  interpretedSpecCount: number;
+}
+
+function buildSearchQueryInternal(params: PartSearchQueryType, options: SearchQueryOptions): Query {
   const parsed = parseQuery(params.q);
   const should: Query[] = [];
   const filter: Query[] = [];
@@ -59,7 +69,11 @@ export function buildSearchQuery(params: PartSearchQueryType): Query {
   // Track A: 스펙 다중 해석 → SI range (high/low 부스트 차등)
   for (const s of parsed.specs) {
     const field = SPEC_SI_FIELD[s.kind];
-    should.push({ range: { [field]: { ...siRange(s.si), boost: s.confidence === 'high' ? BOOST.specHigh : BOOST.specLow } } });
+    const range = { range: { [field]: { ...siRange(s.si), boost: s.confidence === 'high' ? BOOST.specHigh : BOOST.specLow } } };
+    should.push(range);
+    if (options.exactSpecs === true && s.confidence === 'high') {
+      filter.push({ range: { [field]: siRange(s.si) } });
+    }
   }
 
   // 패키지: 알려진 코드(메트릭 대응 존재)만 필터 승격, 나머지는 위 should 가 커버
@@ -90,9 +104,31 @@ export function buildSearchQuery(params: PartSearchQueryType): Query {
   const bool: estypes.QueryDslBoolQuery = { filter };
   if (should.length > 0) {
     bool.should = should;
-    bool.minimum_should_match = 1;
+    // 정확 규격 필터가 있으면 should 는 관련도 계산용이다. broad 검색은 기존처럼
+    // 하나 이상 일치해야 하며 관리자 검색 동작은 그대로 유지된다.
+    if (options.exactSpecs !== true) bool.minimum_should_match = 1;
   }
   return { bool };
+}
+
+export function buildSearchQuery(params: PartSearchQueryType): Query {
+  return buildSearchQueryInternal(params, {});
+}
+
+/**
+ * 해석 신뢰도가 높은 규격/알려진 패키지를 모두 만족하는 BOM 검색 쿼리.
+ * 텍스트/MPN만 있는 검색은 null — 품번 검색의 기존 관련도 정책을 유지한다.
+ */
+export function buildExactSearchIntent(params: PartSearchQueryType): ExactSearchIntent | null {
+  const parsed = parseQuery(params.q);
+  const highSpecCount = parsed.specs.filter((spec) => spec.confidence === 'high').length;
+  const hasKnownPackage = parsed.packageCodes.some((code) => packageVariants(code).length > 1);
+  const interpretedSpecCount = highSpecCount + (hasKnownPackage ? 1 : 0);
+  if (interpretedSpecCount === 0) return null;
+  return {
+    query: buildSearchQueryInternal(params, { exactSpecs: true }),
+    interpretedSpecCount,
+  };
 }
 
 /** 검색 API와 실 ES 통합 테스트가 같은 정렬 계약을 사용한다. */
