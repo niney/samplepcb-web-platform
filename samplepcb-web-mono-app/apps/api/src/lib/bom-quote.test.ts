@@ -184,6 +184,10 @@ describe('BOM 견적 시트 선택', () => {
 
 interface CandidateOptions {
   currentDecisionContract?: boolean;
+  decisionPolicyVersion?:
+    | 'supplier-candidate-decision-v1'
+    | 'supplier-candidate-decision-v2'
+    | 'supplier-candidate-decision-v3';
   eligibility?: 'automatic' | 'manual_review' | 'blocked';
   selectionMode?: 'exact' | 'variant' | 'spec-compatible' | 'review';
   technicalReviewRank?: number | null;
@@ -199,6 +203,7 @@ interface CandidateOptions {
   conflicts?: string[];
   missingRequirements?: string[];
   reasons?: string[];
+  reasonCodes?: string[];
   requiredCount?: number;
   verifiedCount?: number;
   requirementAssessments?: {
@@ -230,7 +235,7 @@ function candidate(
   const technicalEvidenceKey = options.technicalEvidenceKey ?? `${status}:${mpn}`;
   const decision = options.currentDecisionContract
     ? {
-        decision_policy_version: 'supplier-candidate-decision-v1',
+        decision_policy_version: options.decisionPolicyVersion ?? 'supplier-candidate-decision-v1',
         category_policy_version: 'candidate-category-policy-v1',
         identity_key_version: 'candidate-identity-key-v1',
         evidence_key_version: 'candidate-evidence-key-v1',
@@ -238,7 +243,8 @@ function candidate(
         selection_eligibility: eligibility,
         auto_eligible: eligibility === 'automatic',
         manual_selectable: eligibility !== 'blocked',
-        reason_codes: eligibility === 'manual_review' ? ['manufacturer_confirmation_required'] : [],
+        reason_codes: options.reasonCodes
+          ?? (eligibility === 'manual_review' ? ['manufacturer_confirmation_required'] : []),
         identity_key: identityKey,
         technical_evidence_key: technicalEvidenceKey,
         verified_requirement_count: verifiedCount,
@@ -262,7 +268,8 @@ function candidate(
         selection_mode: selectionMode,
         auto_eligible: eligibility === 'automatic',
         manual_selectable: eligibility !== 'blocked',
-        reason_codes: eligibility === 'manual_review' ? ['manufacturer_confirmation_required'] : [],
+        reason_codes: options.reasonCodes
+          ?? (eligibility === 'manual_review' ? ['manufacturer_confirmation_required'] : []),
         identity_key: identityKey,
         technical_evidence_key: technicalEvidenceKey,
         verified_requirement_count: verifiedCount,
@@ -732,25 +739,31 @@ describe('BOM 엔진 후보 결정 투영', () => {
     );
   });
 
-  it('엔진의 조달 수동 검토 추천은 임시 선정과 가격으로 그대로 적용한다', () => {
+  it('v3 정확 MPN 조건 불일치 후보는 자동 선정과 가격으로 그대로 적용한다', () => {
     const review = candidate('input_conflict', 'REVIEW-PICK', 'digikey', 100, 1, {
       currentDecisionContract: true,
-      eligibility: 'manual_review',
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      eligibility: 'automatic',
       selectionMode: 'exact',
-      technicalReviewRank: 1,
       selectionRecommendation: 'preselect',
-      reviewRecommended: true,
+      reviewRecommended: false,
       identityKey: 'ik1:engine-choice',
       technicalEvidenceKey: 'ek1:engine-choice',
+      reasonCodes: [
+        'identity_exact',
+        'identity_exact_requirement_conflict',
+        'conflict:resistance_ohm_mismatch',
+        'manual_review_required',
+      ],
     });
-    attachProcurementDecision(review, 'ok1:review-selected', 'manual_review');
+    attachProcurementDecision(review, 'ok1:review-selected', 'automatic');
 
     const decision = selectEngineMatch(
       {
         component_id: 'component-procurement-review',
         status: 'input_conflict',
         procurement_decision: componentProcurementDecision(
-          'review_recommended',
+          'automatic_recommended',
           'ok1:review-selected',
         ),
         candidates: [review],
@@ -764,10 +777,13 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.offerKey).toBe('ok1:review-selected');
     expect(decision?.pick?.orderQty).toBe(10);
     expect(decision?.recommendedCandidateKey).toBe('ik1:engine-choice');
-    expect(decision?.evidence.selectionApplicationState).toBe('provisional_selected');
-    expect(decision?.evidence.confirmationRequired).toBe(true);
+    expect(decision?.snapshots[0]?.selectionReasonCodes).toContain(
+      'identity_exact_requirement_conflict',
+    );
+    expect(decision?.evidence.selectionApplicationState).toBe('automatic_selected');
+    expect(decision?.evidence.confirmationRequired).toBe(false);
     expect(decision?.evidence.technicalFallbackUsed).toBe(false);
-    expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-manual-review']);
+    expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-procurement-recommendation']);
   });
 
   it('기술 1순위가 구매 불가하면 엔진이 지정한 다음 구매 가능 후보를 적용한다', () => {

@@ -262,7 +262,7 @@ async def test_conflicting_parametric_values_run_two_isolated_manual_branches(tm
     )
 
 
-async def test_raw_query_reuse_never_reuses_a_different_technical_decision(tmp_path):
+async def test_raw_query_reuse_preserves_distinct_exact_mpn_evidence(tmp_path):
     fake = FakeDigiKeyClient(products=[make_product()])
     service = SearchService(
         Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake]
@@ -286,7 +286,11 @@ async def test_raw_query_reuse_never_reuses_a_different_technical_decision(tmp_p
 
     assert fake.calls == 1
     assert safe_candidate.decision.selection_eligibility.value == "automatic"
-    assert conflicted_candidate.decision.selection_eligibility.value == "manual_review"
+    assert conflicted_candidate.decision.selection_eligibility.value == "automatic"
+    assert (
+        safe_candidate.decision.technical_evidence_key
+        != conflicted_candidate.decision.technical_evidence_key
+    )
     assert "package_input_source_conflict" in conflicted_candidate.conflicts
 
 

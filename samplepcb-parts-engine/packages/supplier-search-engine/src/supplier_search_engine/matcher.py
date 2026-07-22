@@ -439,7 +439,11 @@ def _candidate_decision(
         or (not query.manufacturer and not product.manufacturer)
     )
 
-    if actual_conflicts:
+    exact_requirement_conflict = bool(actual_conflicts) and relation == MatchRelation.EXACT
+
+    if relation == MatchRelation.EXACT:
+        eligibility = SelectionEligibility.AUTOMATIC
+    elif actual_conflicts:
         eligibility = SelectionEligibility.BLOCKED
     elif source_conflicts or manufacturer_confirmation:
         eligibility = SelectionEligibility.MANUAL_REVIEW
@@ -467,6 +471,8 @@ def _candidate_decision(
         reason_codes.append("relationship_unresolved")
     if manufacturer_confirmation:
         reason_codes.append("manufacturer_confirmation_required")
+    if exact_requirement_conflict:
+        reason_codes.append("identity_exact_requirement_conflict")
     if product.manufacturer_evidence == ManufacturerEvidence.INFERRED:
         reason_codes.append("manufacturer_inferred")
     for value in sorted(source_conflicts):
@@ -494,7 +500,7 @@ def _candidate_decision(
 
     candidate_identity_key = identity_key or _identity_key(product)
     evidence_payload = {
-        "decision_policy_version": "supplier-candidate-decision-v1",
+        "decision_policy_version": "supplier-candidate-decision-v3",
         "category_policy_version": "candidate-category-policy-v1",
         "evidence_key_version": "candidate-evidence-key-v1",
         "status": status.value,

@@ -270,7 +270,7 @@ def test_invalid_prices_are_never_ranked_or_recommended_as_free():
     assert component.confirmation_required is False
 
 
-def test_blocked_cheapest_offer_is_never_purchase_ranked_or_recommended():
+def test_exact_conflict_candidate_does_not_override_safer_exact_evidence():
     planned = query(
         quantity=10,
         requirements={"resistance_ohm": requirement("resistance_ohm", 1_000.0)},
@@ -293,23 +293,52 @@ def test_blocked_cheapest_offer_is_never_purchase_ranked_or_recommended():
     safe = next(
         item for item in candidates if item.product.supplier == Supplier.DIGIKEY
     )
-    blocked = next(
+    conflicting = next(
         item for item in candidates if item.product.supplier == Supplier.MOUSER
     )
 
     assert safe.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
     assert offer_decision(safe).recommendation == OfferRecommendation.AUTOMATIC
-    assert blocked.decision.selection_eligibility == SelectionEligibility.BLOCKED
-    assert offer_decision(blocked).price_rank == 1
-    assert offer_decision(blocked).purchase_fit_rank is None
-    assert offer_decision(blocked).recommendation == OfferRecommendation.NONE
+    assert conflicting.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert "identity_exact_requirement_conflict" in conflicting.decision.reason_codes
+    assert offer_decision(conflicting).price_rank == 1
+    assert offer_decision(conflicting).purchase_fit_rank == 1
+    assert offer_decision(conflicting).recommendation == OfferRecommendation.NONE
     assert component.automatic_offer_key == offer_decision(safe).offer_key
+
+
+def test_exact_mpn_requirement_conflict_is_automatically_selected():
+    candidates, component = decide(
+        query(
+            quantity=10,
+            requirements={"resistance_ohm": requirement("resistance_ohm", 1_000.0)},
+        ),
+        [
+            product(
+                Supplier.MOUSER,
+                specs={"resistance_ohm": 2_000.0},
+                prices=[(1, 1, "KRW")],
+            )
+        ],
+    )
+
+    candidate = candidates[0]
+    assert candidate.decision.match_relation.value == "exact"
+    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert candidate.decision.selection_recommendation.value == "preselect"
+    assert candidate.decision.review_recommended is False
+    assert "identity_exact_requirement_conflict" in candidate.decision.reason_codes
+    assert offer_decision(candidate).recommendation == OfferRecommendation.AUTOMATIC
+    assert component.status == "automatic_recommended"
+    assert component.selection_application_state == "automatic_selected"
+    assert component.confirmation_required is False
+    assert component.automatic_offer_key == offer_decision(candidate).offer_key
 
 
 def test_manual_review_purchase_rank_never_promotes_technical_eligibility():
     candidates, component = decide(
         query(quantity=10),
-        [product(Supplier.MOUSER, manufacturer="Other")],
+        [product(Supplier.MOUSER, mpn="ABC123456TR", manufacturer="Other")],
     )
 
     candidate = candidates[0]
@@ -390,6 +419,7 @@ def test_manual_review_fallback_is_provisional_and_keeps_technical_rank():
         [
             product(
                 Supplier.DIGIKEY,
+                mpn="ABC123456R",
                 manufacturer="Other",
                 stock=0,
                 prices=[(1, 280.8, "KRW")],
@@ -527,8 +557,18 @@ def test_multi_supplier_manual_group_only_returns_review_recommendation():
     candidates, component = decide(
         query(quantity=10),
         [
-            product(Supplier.DIGIKEY, manufacturer="Other", prices=[(1, 2, "KRW")]),
-            product(Supplier.MOUSER, manufacturer="Other", prices=[(1, 1, "KRW")]),
+            product(
+                Supplier.DIGIKEY,
+                mpn="ABC123456TR",
+                manufacturer="Other",
+                prices=[(1, 2, "KRW")],
+            ),
+            product(
+                Supplier.MOUSER,
+                mpn="ABC123456TR",
+                manufacturer="Other",
+                prices=[(1, 1, "KRW")],
+            ),
         ],
     )
 
@@ -918,7 +958,7 @@ def test_reevaluation_matches_fresh_calculation_and_preserves_technical_decision
 def test_reevaluation_accepts_manual_offer_only_as_manual_review():
     stored, _ = decide(
         query(quantity=10),
-        [product(Supplier.MOUSER, manufacturer="Other")],
+        [product(Supplier.MOUSER, mpn="ABC123456TR", manufacturer="Other")],
     )
     offer_key = offer_decision(stored[0]).offer_key
 

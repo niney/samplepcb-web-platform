@@ -128,15 +128,14 @@ def test_exact_mpn_and_canonical_manufacturer_are_automatic():
     assert candidate.decision.reason_codes[0] == "identity_exact"
 
 
-def test_similar_unregistered_manufacturer_name_requires_manual_review():
+def test_exact_mpn_overrides_unregistered_manufacturer_name_for_selection():
     query = identity_query(manufacturer="Samsung")
     candidate = decide(query, product(manufacturer="Samsung Electro-Mechanics"))[0]
 
     assert manufacturers_compatible("Samsung", "Samsung Electro-Mechanics") is False
     assert candidate.decision.match_relation == MatchRelation.EXACT
-    assert (
-        candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
-    )
+    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert candidate.decision.auto_eligible is True
     assert "manufacturer_confirmation_required" in candidate.decision.reason_codes
 
 
@@ -147,7 +146,7 @@ def test_similar_unregistered_manufacturer_name_requires_manual_review():
         ("Acme", ManufacturerEvidence.INFERRED),
     ],
 )
-def test_missing_or_inferred_supplier_manufacturer_requires_manual_review(
+def test_exact_mpn_overrides_missing_or_inferred_supplier_manufacturer(
     manufacturer: str | None,
     evidence: ManufacturerEvidence,
 ):
@@ -157,14 +156,13 @@ def test_missing_or_inferred_supplier_manufacturer_requires_manual_review(
     )[0]
 
     assert candidate.decision.match_relation == MatchRelation.EXACT
-    assert (
-        candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
-    )
+    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert candidate.decision.auto_eligible is True
     assert candidate.decision.manual_selectable is True
     assert "manufacturer_confirmation_required" in candidate.decision.reason_codes
 
 
-def test_exact_identity_ignores_missing_supplier_detail_but_blocks_real_conflict():
+def test_exact_identity_keeps_missing_and_conflicting_details_automatic():
     query = identity_query(
         requirements={"resistance_ohm": requirement("resistance_ohm", 1_000.0)}
     )
@@ -179,8 +177,29 @@ def test_exact_identity_ignores_missing_supplier_detail_but_blocks_real_conflict
         missing_detail.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
     )
     assert real_conflict.decision.match_relation == MatchRelation.EXACT
-    assert real_conflict.decision.selection_eligibility == SelectionEligibility.BLOCKED
-    assert real_conflict.decision.manual_selectable is False
+    assert real_conflict.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert real_conflict.decision.auto_eligible is True
+    assert real_conflict.decision.manual_selectable is True
+    assert real_conflict.decision.decision_policy_version == (
+        "supplier-candidate-decision-v3"
+    )
+    assert "identity_exact_requirement_conflict" in real_conflict.decision.reason_codes
+    assert "conflict:resistance_ohm_mismatch" in real_conflict.decision.reason_codes
+    assert real_conflict.decision.requirement_assessments[0].state == "mismatch"
+
+
+def test_variant_identity_with_real_requirement_conflict_remains_blocked():
+    candidate = decide(
+        identity_query(
+            requirements={"resistance_ohm": requirement("resistance_ohm", 1_000.0)}
+        ),
+        product(mpn="ABC123456TR", specs={"resistance_ohm": 2_000.0}),
+    )[0]
+
+    assert candidate.decision.match_relation == MatchRelation.VARIANT
+    assert candidate.decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert candidate.decision.manual_selectable is False
+    assert "identity_exact_requirement_conflict" not in candidate.decision.reason_codes
 
 
 def test_verified_packaging_variant_is_automatic():
@@ -329,12 +348,16 @@ def test_mount_source_conflict_is_candidate_specific():
     mismatching = by_supplier(candidates, Supplier.MOUSER)
 
     assert matching.decision.match_relation == MatchRelation.EXACT
-    assert matching.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert matching.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
     ranked = SearchService._assign_technical_review_ranks(query, candidates)
     assert by_supplier(ranked, Supplier.DIGIKEY).decision.technical_review_rank is None
     assert "mount_style_match" in matching.reasons
     assert "mount_style_source_conflict" in matching.conflicts
-    assert mismatching.decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert (
+        mismatching.decision.selection_eligibility
+        == SelectionEligibility.AUTOMATIC
+    )
+    assert "identity_exact_requirement_conflict" in mismatching.decision.reason_codes
     assert "mount_style_mismatch" in mismatching.conflicts
 
 
@@ -363,9 +386,9 @@ def test_all_diameters_are_checked_and_input_order_is_deterministic():
             }
         )
     assert signatures[0] == signatures[1]
-    assert signatures[0][Supplier.DIGIKEY][0] == SelectionEligibility.MANUAL_REVIEW
-    assert signatures[0][Supplier.MOUSER][0] == SelectionEligibility.MANUAL_REVIEW
-    assert signatures[0][Supplier.UNIKEYIC][0] == SelectionEligibility.BLOCKED
+    assert signatures[0][Supplier.DIGIKEY][0] == SelectionEligibility.AUTOMATIC
+    assert signatures[0][Supplier.MOUSER][0] == SelectionEligibility.AUTOMATIC
+    assert signatures[0][Supplier.UNIKEYIC][0] == SelectionEligibility.AUTOMATIC
 
 
 def test_all_physical_values_within_candidate_are_order_independent():
@@ -389,7 +412,7 @@ def test_all_physical_values_within_candidate_are_order_independent():
         for evidence in product_mount_evidence(mount_candidates[0].product)
     } == {"smd", "through-hole"}
     assert all(
-        candidate.decision.selection_eligibility == SelectionEligibility.BLOCKED
+        candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
         for candidate in mount_candidates
     )
     assert all(
@@ -422,7 +445,7 @@ def test_all_physical_values_within_candidate_are_order_independent():
         for evidence in product_diameter_evidence(diameter_candidates[0].product)
     } == {8.0, 9.0}
     assert all(
-        candidate.decision.selection_eligibility == SelectionEligibility.BLOCKED
+        candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
         for candidate in diameter_candidates
     )
     assert all(
@@ -493,7 +516,7 @@ def test_unknown_manufacturers_have_supplier_stable_separate_identities():
     assert first_keys == second_keys
     assert len(set(first_keys.values())) == 2
     assert all(
-        candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+        candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
         for candidate in first
     )
 
@@ -575,17 +598,17 @@ def test_inferred_manufacturer_is_not_merged_into_structured_identity():
 
     assert structured.decision.identity_key != inferred.decision.identity_key
     assert structured.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
-    assert inferred.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert inferred.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
 
 
-def test_multiple_manufacturers_for_mpn_need_review_only_without_bom_manufacturer():
+def test_exact_mpn_is_automatic_across_multiple_supplier_manufacturers():
     no_bom_manufacturer = decide(
         identity_query(manufacturer=None),
         product(Supplier.DIGIKEY, manufacturer="Acme"),
         product(Supplier.MOUSER, manufacturer="Other Corp"),
     )
     assert all(
-        candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+        candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
         for candidate in no_bom_manufacturer
     )
     assert all(
@@ -608,7 +631,7 @@ def test_multiple_manufacturers_for_mpn_need_review_only_without_bom_manufacture
         by_supplier(
             with_bom_manufacturer, Supplier.MOUSER
         ).decision.selection_eligibility
-        == SelectionEligibility.MANUAL_REVIEW
+        == SelectionEligibility.AUTOMATIC
     )
 
 
@@ -634,7 +657,10 @@ def test_different_evidence_does_not_corroborate_or_inflate_safe_candidate():
         len(candidate.corroborating_suppliers) == 1 for candidate in corroborated
     )
     assert ranked[0].decision.selection_eligibility == SelectionEligibility.AUTOMATIC
-    assert ranked[-1].decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert (
+        ranked[-1].decision.selection_eligibility
+        == SelectionEligibility.AUTOMATIC
+    )
 
 
 def test_manual_review_evidence_groups_receive_deterministic_technical_ranks():
@@ -694,7 +720,7 @@ def test_manual_review_evidence_groups_receive_deterministic_technical_ranks():
     ]
 
 
-def test_automatic_and_blocked_candidates_do_not_receive_review_rank():
+def test_exact_conflict_candidate_is_automatic_but_safe_evidence_is_preselected():
     query = identity_query(
         requirements={"resistance_ohm": requirement("resistance_ohm", 1_000.0)}
     )
@@ -707,25 +733,18 @@ def test_automatic_and_blocked_candidates_do_not_receive_review_rank():
     ranked = SearchService._assign_technical_review_ranks(query, candidates)
     ranked = SearchService._assign_selection_recommendations(ranked)
 
-    assert {
-        candidate.decision.selection_eligibility: (
-            candidate.decision.technical_review_rank,
-            candidate.decision.selection_recommendation,
-            candidate.decision.review_recommended,
-        )
-        for candidate in ranked
-    } == {
-        SelectionEligibility.AUTOMATIC: (
-            None,
-            SelectionRecommendation.PRESELECT,
-            False,
-        ),
-        SelectionEligibility.BLOCKED: (
-            None,
-            SelectionRecommendation.EXCLUDE,
-            False,
-        ),
-    }
+    safe, conflicting = ranked
+    assert safe.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert safe.decision.technical_review_rank is None
+    assert safe.decision.selection_recommendation == SelectionRecommendation.PRESELECT
+    assert safe.decision.review_recommended is False
+    assert conflicting.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert conflicting.decision.technical_review_rank is None
+    assert (
+        conflicting.decision.selection_recommendation
+        == SelectionRecommendation.CANDIDATE_ONLY
+    )
+    assert conflicting.decision.review_recommended is False
 
 
 def test_review_rank_prefers_exact_bom_values_over_compatible_margin():
@@ -855,7 +874,7 @@ def test_candidate_decision_rejects_review_rank_for_non_manual_candidate():
 def test_candidate_decision_rejects_preselection_without_required_review():
     candidate = decide(
         identity_query(manufacturer="Other"),
-        product(manufacturer="Acme"),
+        product(mpn="ABC123456TR", manufacturer="Acme"),
     )[0]
     payload = candidate.decision.model_dump(mode="json")
     payload["selection_recommendation"] = "preselect"
@@ -869,9 +888,10 @@ def test_legacy_blocked_decision_defaults_to_excluded_recommendation():
         identity_query(
             requirements={"resistance_ohm": requirement("resistance_ohm", 1_000.0)}
         ),
-        product(specs={"resistance_ohm": 2_000.0}),
+        product(mpn="ABC123456TR", specs={"resistance_ohm": 2_000.0}),
     )[0]
     payload = candidate.decision.model_dump(mode="json")
+    payload["decision_policy_version"] = "supplier-candidate-decision-v1"
     del payload["selection_recommendation"]
     del payload["review_recommended"]
 

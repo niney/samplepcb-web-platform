@@ -310,7 +310,7 @@ def test_identity_like_numeric_code_is_not_reclassified_by_safety_guards():
     assert query.mode.value == "identity"
 
 
-def test_input_source_conflict_forces_manual_review_without_changing_identity():
+def test_exact_mpn_keeps_input_source_conflict_visible_without_blocking_selection():
     item = component(
         part_number="ABC-123",
         part_type="ic",
@@ -336,8 +336,9 @@ def test_input_source_conflict_forces_manual_review_without_changing_identity():
     assert query.cache_payload() == query.model_copy(
         update={"input_source_conflicts": []}
     ).cache_payload()
-    assert candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
     assert "package_input_source_conflict" in candidate.conflicts
+    assert "package_input_source_conflict" in candidate.decision.reason_codes
 
 
 def test_internal_electrolytic_footprint_sets_category_without_fake_package():

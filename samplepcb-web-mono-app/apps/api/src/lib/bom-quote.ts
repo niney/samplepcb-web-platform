@@ -512,7 +512,12 @@ function searchTraceSummary(trace: EngineSupplierSearchTraceType | null | undefi
 }
 
 export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v10';
-const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION = 'supplier-candidate-decision-v1';
+const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSIONS: ReadonlySet<string> = new Set([
+  'supplier-candidate-decision-v1',
+  'supplier-candidate-decision-v2',
+  'supplier-candidate-decision-v3',
+]);
+const SUPPORTED_ENGINE_LEGACY_CANDIDATE_POLICY_VERSION = 'supplier-candidate-decision-v1';
 const SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION = 'candidate-category-policy-v1';
 const SUPPORTED_ENGINE_IDENTITY_KEY_VERSION = 'candidate-identity-key-v1';
 const SUPPORTED_ENGINE_EVIDENCE_KEY_VERSION = 'candidate-evidence-key-v1';
@@ -1031,7 +1036,7 @@ function normalizeEngineDecision(
       ? currentDecision.review_recommended === true
       : false;
     if (
-      currentDecision.decision_policy_version !== SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION
+      !SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSIONS.has(currentDecision.decision_policy_version)
       || currentDecision.category_policy_version !== SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION
       || currentDecision.identity_key_version !== SUPPORTED_ENGINE_IDENTITY_KEY_VERSION
       || currentDecision.evidence_key_version !== SUPPORTED_ENGINE_EVIDENCE_KEY_VERSION
@@ -1080,7 +1085,10 @@ function normalizeEngineDecision(
   }
 
   const legacy = EngineLegacyCandidateDecision.safeParse(decision);
-  if (!legacy.success || legacy.data.policy_version !== SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSION) return null;
+  if (
+    !legacy.success
+    || legacy.data.policy_version !== SUPPORTED_ENGINE_LEGACY_CANDIDATE_POLICY_VERSION
+  ) return null;
   const legacyDecision = legacy.data;
   return {
     policyVersion: legacyDecision.policy_version,

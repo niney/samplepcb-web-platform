@@ -653,9 +653,11 @@ class CandidateDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    decision_policy_version: Literal["supplier-candidate-decision-v1"] = (
-        "supplier-candidate-decision-v1"
-    )
+    decision_policy_version: Literal[
+        "supplier-candidate-decision-v1",
+        "supplier-candidate-decision-v2",
+        "supplier-candidate-decision-v3",
+    ] = "supplier-candidate-decision-v3"
     category_policy_version: Literal["candidate-category-policy-v1"] = (
         "candidate-category-policy-v1"
     )
