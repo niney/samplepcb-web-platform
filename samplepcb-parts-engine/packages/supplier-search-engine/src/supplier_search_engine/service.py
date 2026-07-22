@@ -52,6 +52,9 @@ from .singleflight import AsyncSingleFlight
 from .suppliers import DigiKeyClient, MouserClient, SupplierClient, UniKeyICClient
 
 
+_CANDIDATE_GROUP_LIMIT_PER_SUPPLIER = 5
+
+
 class JobBudgetExceeded(RuntimeError):
     pass
 
@@ -331,7 +334,7 @@ class SearchService:
 
     @classmethod
     def _compact_component_result(cls, result: ComponentSearchResult) -> ComponentSearchResult:
-        """Drop duplicate raw product arrays while preserving every decided candidate."""
+        """Drop raw product arrays after retaining the decided candidate shortlist."""
         supplier_results = [
             supplier_result.model_copy(update={"products": []}, deep=False)
             for supplier_result in result.supplier_results
@@ -380,6 +383,9 @@ class SearchService:
                         deep=True,
                     )
                 )
+        candidates, omitted_candidate_count = self._retain_supplier_technical_top_groups(
+            plans[0], candidates
+        )
         _, procurement_decision = apply_procurement_decisions(
             plans[0], [], procurement_policy
         )
@@ -443,6 +449,11 @@ class SearchService:
                     [
                         "서로 충돌하는 원본 값의 두 검색 분기를 독립적으로 실행했으며 자동선정은 금지됩니다.",
                         *(warning for result in results for warning in result.warnings),
+                        *(
+                            [self._candidate_limit_warning(omitted_candidate_count)]
+                            if omitted_candidate_count
+                            else []
+                        ),
                     ]
                 )
             ),
@@ -586,6 +597,9 @@ class SearchService:
             for product in result.products
         ]
         candidates = finalize_candidate_decisions(query, candidates)
+        candidates, omitted_candidate_count = self._retain_supplier_technical_top_groups(
+            query, candidates
+        )
         candidates = self._add_corroboration(candidates)
         candidates = self._assign_technical_review_ranks(query, candidates)
         candidates = self._assign_selection_recommendations(candidates, query)
@@ -608,6 +622,8 @@ class SearchService:
                 warnings.append(f"{result.supplier.value}: 만료 캐시를 대체 결과로 사용했습니다.")
             if result.error_type:
                 warnings.append(f"{result.supplier.value}: {result.error_type}")
+        if omitted_candidate_count:
+            warnings.append(self._candidate_limit_warning(omitted_candidate_count))
         primary = ComponentSearchResult(
             component_id=query.component_id,
             mode=query.mode,
@@ -1274,6 +1290,57 @@ class SearchService:
             supplier_skus,
             decision.identity_key,
             decision.technical_evidence_key,
+        )
+
+    @classmethod
+    def _retain_supplier_technical_top_groups(
+        cls,
+        query: PlannedQuery,
+        candidates: list[CandidateMatch],
+        *,
+        limit: int = _CANDIDATE_GROUP_LIMIT_PER_SUPPLIER,
+    ) -> tuple[list[CandidateMatch], int]:
+        """Keep each supplier's best evidence groups and preserve cross-supplier offers."""
+
+        if limit < 1:
+            raise ValueError("candidate group limit must be positive")
+
+        supplier_groups: dict[
+            Supplier, dict[tuple[str, str], list[CandidateMatch]]
+        ] = {}
+        for candidate in candidates:
+            decision = candidate.decision
+            key = (decision.identity_key, decision.technical_evidence_key)
+            groups = supplier_groups.setdefault(candidate.product.supplier, {})
+            groups.setdefault(key, []).append(candidate)
+
+        retained_keys: set[tuple[str, str]] = set()
+        for groups in supplier_groups.values():
+            ordered_keys = sorted(
+                groups,
+                key=lambda key: min(
+                    cls._candidate_sort_key(candidate, query)
+                    for candidate in groups[key]
+                ),
+            )
+            retained_keys.update(ordered_keys[:limit])
+
+        retained = [
+            candidate
+            for candidate in candidates
+            if (
+                candidate.decision.identity_key,
+                candidate.decision.technical_evidence_key,
+            )
+            in retained_keys
+        ]
+        return retained, len(candidates) - len(retained)
+
+    @staticmethod
+    def _candidate_limit_warning(omitted_candidate_count: int) -> str:
+        return (
+            f"공급사별 기술 상위 {_CANDIDATE_GROUP_LIMIT_PER_SUPPLIER}개 그룹만 유지해 "
+            f"후보 {omitted_candidate_count}개를 생략했습니다."
         )
 
     @staticmethod

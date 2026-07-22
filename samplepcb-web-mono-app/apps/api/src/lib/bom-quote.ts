@@ -702,6 +702,29 @@ const StoredCandidate = z.object({
 
 type StoredCandidateType = z.infer<typeof StoredCandidate>;
 type StoredCandidateOfferType = z.infer<typeof StoredCandidateOffer>;
+const MAX_STORED_CANDIDATES_PER_ITEM = 15;
+
+/** 영속 후보는 기술 순위 상위 15개로 제한하되 현재·추천 후보는 상한 안에서 보존한다. */
+export function retainQuoteCandidateSnapshots(
+  snapshots: readonly StoredCandidateType[],
+  preserveCandidateKeys: readonly (string | null | undefined)[] = [],
+): StoredCandidateType[] {
+  const ordered = [...snapshots].sort((left, right) => left.technicalRank - right.technicalRank);
+  if (ordered.length <= MAX_STORED_CANDIDATES_PER_ITEM) return ordered;
+
+  const preserveKeys = new Set(
+    preserveCandidateKeys.filter((key): key is string => typeof key === 'string' && key !== ''),
+  );
+  const preserved = ordered
+    .filter((candidate) => preserveKeys.has(candidate.candidateKey))
+    .slice(0, MAX_STORED_CANDIDATES_PER_ITEM);
+  const retainedKeys = new Set(preserved.map((candidate) => candidate.candidateKey));
+  const remaining = ordered
+    .filter((candidate) => !retainedKeys.has(candidate.candidateKey))
+    .slice(0, MAX_STORED_CANDIDATES_PER_ITEM - preserved.length);
+  return [...preserved, ...remaining]
+    .sort((left, right) => left.technicalRank - right.technicalRank);
+}
 
 export interface QuoteComparisonCandidateSnapshotRow {
   itemId: string;
@@ -1746,7 +1769,6 @@ export async function applyEngineSupplierResult(
     }
     const decision = selectEngineMatch(component, needed, usdKrwRate);
     if (decision === null) continue;
-    candidateSnapshots.push(...decision.snapshots.map((candidate) => ({ rowIdx: item.rowIdx, candidate })));
 
     // 고객/관리자의 명시 선택은 후보 목록·자동 추천만 최신화하고 현재 선택은 보존한다.
     // 후보 키는 제조사 별칭/그룹화 정책이 바뀌면 달라질 수 있어 현재 MPN·제조사·오퍼로 재연결한다.
@@ -1754,14 +1776,25 @@ export async function applyEngineSupplierResult(
       item.matchStatus === 'manual' ||
       ['customer', 'catalog', 'admin'].includes(item.selectionSource) ||
       item.selectedOffer?.pinned === true;
+    const remappedExplicit = explicitSelection && item.selectedCandidateKey !== null
+      ? remapExplicitCandidate(item, decision.snapshots)
+      : null;
+    const retainedSnapshots = retainQuoteCandidateSnapshots(decision.snapshots, [
+      item.selectedCandidateKey,
+      remappedExplicit?.candidateKey,
+      decision.candidateKey,
+      decision.recommendedCandidateKey,
+      decision.evidence.technicalPreselectionCandidateKey,
+    ]);
+    candidateSnapshots.push(
+      ...retainedSnapshots.map((candidate) => ({ rowIdx: item.rowIdx, candidate })),
+    );
     if (explicitSelection) {
       item.recommendedCandidateKey = decision.recommendedCandidateKey;
       const currentReasons = item.matchEvidence?.decisionReasonCodes ?? (
         item.selectionSource === 'catalog' ? ['catalog-choice'] as const : ['customer-choice'] as const
       );
-      const remapped = item.selectedCandidateKey === null
-        ? null
-        : remapExplicitCandidate(item, decision.snapshots);
+      const remapped = remappedExplicit;
       if (remapped === null) {
         item.selectedCandidateKey = null;
         item.matchEvidence = {

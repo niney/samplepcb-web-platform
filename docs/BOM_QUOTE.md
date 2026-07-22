@@ -56,7 +56,10 @@
 - `sp_bom_quote_candidate`(SpBomQuoteCandidate): quoteItemId로 안정 행에 연결하며 엔진의 `identity_key`가 묶은
   부품 후보의 견적 문맥 스냅샷. 엔진 선택 자격·기술 순위·오퍼/가격구간·검증 근거를 보존해 엔진 인메모리 잡이
   사라져도 고객과 관리자가 동일한 후보를 비교한다. 스펙은 기술 순위 최상 후보를 정본으로 삼고
-  공급사별 값의 임의 필드 병합은 하지 않으며, 동일 부품의 공급사 오퍼만 한 후보 아래 통합한다.
+  공급사별 값의 임의 필드 병합은 하지 않으며, 동일 부품의 공급사 오퍼만 한 후보 아래 통합한다. 신규
+  검색은 sp-engine이 기술 판정 후 공급사별 상위 5개 그룹의 합집합으로 제한하므로 3개 공급사 기준
+  행당 최대 15개 그룹을 저장한다. sp-node도 구형·과대 응답을 15개로 방어 제한하되 현재 명시 선택,
+  엔진 적용·추천·기술 사전선정 후보는 상한 안에서 우선 보존한다.
 - `sp_bom_quote_selection_event`(SpBomQuoteSelectionEvent): quoteItemId 기준으로 고객 명시 선택의
   이전/선택 후보·MPN·오퍼·행 금액·이유를 누적한다. 행 갱신과 분리되어 선택 감사 이력이 보존된다.
 - `sp_bom_quote_sheet`(SpBomQuoteSheet): 엔진이 분석한 전체 시트의 index/name/status/componentCount·
@@ -185,6 +188,10 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   반영하지만 `selectionSource=auto`인 동안은 `선정됨 · 검토 대기`로 표시한다. 사용자가 확인하면
   기존 명시 선택 API가 같은 후보·오퍼를 `selectionSource=customer`로 기록하며, sp-node가
   `manual_review` 조합을 보고 임시 선정을 자체 추론하지 않는다.
+  - **후보 shortlist(2026-07-22)**: sp-engine은 공급사 원본을 모두 기술 판정한 뒤 공급사별 상위
+    5개 identity/evidence 그룹의 합집합만 순위·조달 판단에 전달한다. 한 공급사가 선택한 동일 그룹의
+    타 공급사 오퍼는 함께 남겨 교차 가격 비교를 보존하고, 원본 결과 수는 trace에 유지한다. sp-node의
+    행당 15개 영속 상한은 구형·비정상 과대 결과에 대한 저장 안전장치이며 별도 기술 판단은 아니다.
   - **오퍼 키 v2(2026-07-21)**: 검색 스키마 1.6부터 신규 공급사 오퍼는
     `supplier-offer-key-v2`(`ok2:`)를 사용한다. SKU의 점·하이픈을 제거하던 v1은
     `P1.00K`/`P10.0K`/`P100K`처럼 서로 다른 DigiKey SKU를 같은 키로 축약할 수 있었으므로,

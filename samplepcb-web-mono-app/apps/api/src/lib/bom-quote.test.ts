@@ -7,6 +7,7 @@ import {
   extractEngineSheets,
   filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
+  retainQuoteCandidateSnapshots,
   selectEngineMatch,
 } from './bom-quote';
 
@@ -384,6 +385,84 @@ function componentProcurementDecision(
 }
 
 describe('BOM 엔진 후보 결정 투영', () => {
+  it('행당 상위 15개만 영속하되 뒤 순위의 현재·추천 후보는 보존한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-persistence-limit',
+        status: 'spec_compatible',
+        candidates: Array.from({ length: 20 }, (_, index) => candidate(
+          'spec_compatible',
+          `CANDIDATE-${String(index + 1).padStart(2, '0')}`,
+          'digikey',
+          index + 1,
+          1,
+        )),
+      },
+      10,
+      null,
+    );
+    expect(decision).not.toBeNull();
+    if (decision === null) return;
+    const retained = retainQuoteCandidateSnapshots(decision.snapshots, [
+      decision.snapshots[18]?.candidateKey,
+      decision.snapshots[19]?.candidateKey,
+    ]);
+
+    expect(retained).toHaveLength(15);
+    expect(retained.map((candidate) => candidate.technicalRank)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 19, 20,
+    ]);
+  });
+
+  it('공급사 결과 반영 경로에서도 명시 선택을 포함해 후보 스냅샷을 15개로 제한한다', async () => {
+    const items = buildItemsFromEngineResult(ENGINE_RESULT, [1]);
+    const componentId = items[0]?.sourceRow?.componentId;
+    expect(typeof componentId).toBe('string');
+    if (typeof componentId !== 'string' || items[0] === undefined) return;
+    items[0].matchStatus = 'manual';
+    items[0].selectionSource = 'customer';
+    items[0].selectedCandidateKey = 'ik1:candidate-19';
+    const candidates = Array.from({ length: 20 }, (_, index) => candidate(
+      'spec_compatible',
+      `CANDIDATE-${String(index + 1).padStart(2, '0')}`,
+      'digikey',
+      index + 1,
+      1,
+      {
+        currentDecisionContract: true,
+        selectionRecommendation: index === 0 ? 'preselect' : 'candidate_only',
+        identityKey: index === 0 ? 'ik1:engine-choice' : `ik1:candidate-${String(index + 1)}`,
+        technicalEvidenceKey: index === 0 ? 'ek1:engine-choice' : `ek1:candidate-${String(index + 1)}`,
+      },
+    ));
+
+    const result = await applyEngineSupplierResult(
+      items,
+      {
+        supplier_search_schema_version: '1.7',
+        procurement_decision_contract_status: 'current',
+        search: {
+          search_schema_version: '1.7',
+          components: [{
+            component_id: componentId,
+            status: 'spec_compatible',
+            procurement_decision: componentProcurementDecision('no_recommendation', null),
+            candidates,
+          }],
+        },
+      },
+      1,
+      0,
+      null,
+    );
+
+    expect(result.applied).toBe(true);
+    expect(result.candidateSnapshots).toHaveLength(15);
+    expect(result.candidateSnapshots.map(({ candidate: snapshot }) => snapshot.technicalRank))
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19]);
+    expect(items[0].selectedCandidateKey).toBe('ik1:candidate-19');
+  });
+
   it('명시 선택이 없는 none/auto 행만 엔진 적용 상태로 수렴시킨다', () => {
     const state = (selectionSource: 'none' | 'auto' | 'customer' | 'catalog') => ({
       selectionSource,

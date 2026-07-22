@@ -821,7 +821,7 @@ async def test_digikey_identity_and_parametric_searches_use_separate_lanes(tmp_p
     assert fake.maximum_total == 5
 
 
-async def test_batch_result_keeps_all_decided_candidates_without_duplicate_products(tmp_path):
+async def test_batch_result_keeps_supplier_technical_top_five_without_raw_products(tmp_path):
     products = [
         make_product().model_copy(update={"manufacturer_part_number": f"ABC-123-{index}"})
         for index in range(6)
@@ -831,9 +831,55 @@ async def test_batch_result_keeps_all_decided_candidates_without_duplicate_produ
 
     result = await service.search_batch(make_batch())
 
-    assert len(result.components[0].candidates) == 6
+    assert len(result.components[0].candidates) == 5
     assert all(candidate.decision.identity_key for candidate in result.components[0].candidates)
     assert result.components[0].supplier_results[0].products == []
+    assert any("기술 상위 5개 그룹" in warning for warning in result.components[0].warnings)
+
+
+def test_supplier_top_groups_preserve_all_offers_for_a_retained_identity():
+    query = PlannedQuery(
+        component_id="supplier-union",
+        mode=SearchMode.IDENTITY,
+        part_number="ABC",
+        keywords="ABC",
+    )
+    digikey_products = [
+        make_product().model_copy(update={"manufacturer_part_number": f"ABC-{index}"})
+        for index in range(7)
+    ]
+    mouser_product = make_product().model_copy(
+        update={
+            "supplier": Supplier.MOUSER,
+            "manufacturer_part_number": "ABC-5",
+        }
+    )
+    candidates = finalize_candidate_decisions(
+        query,
+        [
+            CandidateMatcher().evaluate(query, product)
+            for product in [*digikey_products, mouser_product]
+        ],
+    )
+
+    retained, omitted = SearchService._retain_supplier_technical_top_groups(
+        query, candidates
+    )
+
+    assert omitted == 1
+    assert {candidate.product.manufacturer_part_number for candidate in retained} == {
+        "ABC-0",
+        "ABC-1",
+        "ABC-2",
+        "ABC-3",
+        "ABC-4",
+        "ABC-5",
+    }
+    assert [
+        candidate.product.supplier
+        for candidate in retained
+        if candidate.product.manufacturer_part_number == "ABC-5"
+    ] == [Supplier.DIGIKEY, Supplier.MOUSER]
 
 
 def test_manual_review_candidate_ranks_before_blocked_conflict():
