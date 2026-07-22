@@ -28,6 +28,7 @@ import {
   useRequestBomQuote,
   useSelectBomQuoteCandidate,
   useSupplierSearchStatus,
+  useUpdateBomQuoteSheets,
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
 import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
@@ -74,6 +75,7 @@ const job = useBomJob(
 );
 const prepareSheets = usePrepareBomQuoteSheets();
 const build = useBuildBomQuote();
+const updateSheets = useUpdateBomQuoteSheets();
 const buildError = ref('');
 const selectedSheetIndexes = ref<number[]>([]);
 const autoBuildAttempted = ref(false);
@@ -328,6 +330,83 @@ interface ResultSheetTab {
 
 const activeResultSheet = ref<ResultSheetFilter>('all');
 const selectedResultSheets = computed(() => detail.value?.sheets.filter((sheet) => sheet.selected) ?? []);
+const manageableResultSheets = computed(() => detail.value?.sheets.filter((sheet) => sheet.hasItems) ?? []);
+const sheetManagerOpen = ref(false);
+const managedSheetIndexes = ref<number[]>([]);
+const sheetSelectionError = ref('');
+const managedComponentCount = computed(() => {
+  const selected = new Set(managedSheetIndexes.value);
+  return manageableResultSheets.value
+    .filter((sheet) => selected.has(sheet.sheetIndex))
+    .reduce((sum, sheet) => sum + sheet.componentCount, 0);
+});
+const removedComponentCount = computed(() => {
+  const selected = new Set(managedSheetIndexes.value);
+  return manageableResultSheets.value
+    .filter((sheet) => sheet.selected && !selected.has(sheet.sheetIndex))
+    .reduce((sum, sheet) => sum + sheet.componentCount, 0);
+});
+const removedSheetCount = computed(() => {
+  const selected = new Set(managedSheetIndexes.value);
+  return manageableResultSheets.value.filter((sheet) => sheet.selected && !selected.has(sheet.sheetIndex)).length;
+});
+const restoredSheetCount = computed(() => {
+  const selected = new Set(managedSheetIndexes.value);
+  return manageableResultSheets.value.filter((sheet) => !sheet.selected && selected.has(sheet.sheetIndex)).length;
+});
+
+function openSheetManager(): void {
+  if (!isDraft.value || editingLocked.value || manageableResultSheets.value.length < 2) return;
+  managedSheetIndexes.value = manageableResultSheets.value
+    .filter((sheet) => sheet.selected)
+    .map((sheet) => sheet.sheetIndex);
+  sheetSelectionError.value = '';
+  sheetManagerOpen.value = true;
+}
+
+function toggleManagedSheet(sheetIndex: number): void {
+  if (updateSheets.isPending.value) return;
+  managedSheetIndexes.value = managedSheetIndexes.value.includes(sheetIndex)
+    ? managedSheetIndexes.value.filter((index) => index !== sheetIndex)
+    : [...managedSheetIndexes.value, sheetIndex];
+  sheetSelectionError.value = '';
+}
+
+function closeSheetManager(): void {
+  if (!updateSheets.isPending.value) sheetManagerOpen.value = false;
+}
+
+async function applyManagedSheets(): Promise<void> {
+  if (managedSheetIndexes.value.length === 0 || updateSheets.isPending.value) return;
+  if (patch.isPending.value) {
+    sheetSelectionError.value = '자동 저장이 끝난 후 다시 시도해 주세요.';
+    return;
+  }
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (dirty.value) await saveNow();
+  if (dirty.value) {
+    sheetSelectionError.value = '변경사항을 저장하지 못해 시트 구성을 바꾸지 않았습니다.';
+    return;
+  }
+  try {
+    const saved = await updateSheets.mutateAsync({
+      quoteId: quoteId.value,
+      body: { sheetIndexes: [...managedSheetIndexes.value].sort((a, b) => a - b) },
+    });
+    applyServerDetail(saved.data);
+    activeResultSheet.value = 'all';
+    clearResultFilters();
+    sheetManagerOpen.value = false;
+  } catch (reason) {
+    const code = reason instanceof ApiRequestError ? reason.payload?.error : undefined;
+    sheetSelectionError.value = code === 'INVALID_SHEET_SELECTION'
+      ? '현재 견적에서 제외하거나 복원할 수 없는 시트가 포함되어 있습니다.'
+      : '시트 구성을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  }
+}
 const resultSheetCounts = computed(() => {
   const byIndex = new Map<number, number>();
   let manual = 0;
@@ -370,6 +449,9 @@ watch(
 );
 watch(quoteId, () => {
   activeResultSheet.value = 'all';
+  sheetManagerOpen.value = false;
+  managedSheetIndexes.value = [];
+  sheetSelectionError.value = '';
 });
 
 // 통계·합계를 한 번의 순회로 — 행 속성 하나가 바뀔 때마다 같은 범위를 여러 번 훑지 않게
@@ -431,8 +513,10 @@ const enriching = computed(() => detail.value?.enrichStatus === 'searching');
 const pricingPending = computed(() => detail.value?.buildStatus !== 'ready' || enriching.value);
 // 검색 결과 적용과 사용자의 같은 행 수정이 경합하지 않도록, 결과 반영이 끝날 때까지
 // 모든 BOM 변경 동작을 잠그고 읽기 기능만 유지한다.
-const editingLocked = computed(() => enriching.value);
-const EDIT_LOCK_TITLE = '공급사 확인이 완료되면 수정할 수 있습니다';
+const editingLocked = computed(() => enriching.value || updateSheets.isPending.value);
+const EDIT_LOCK_TITLE = computed(() => updateSheets.isPending.value
+  ? '시트 구성을 반영하는 중입니다'
+  : '공급사 확인이 완료되면 수정할 수 있습니다');
 
 // ── 매칭 결과 필터 ──────────────────────────────────────────────────────────
 // 매칭 상태는 서로 배타적이며, 재고 부족은 매칭된 행에도 함께 존재할 수 있는
@@ -1027,6 +1111,17 @@ function fmtAmount(v: number | null): string {
               <template v-else-if="saveState === 'error'"><span class="text-red-500">저장 실패</span></template>
             </span>
             <button
+              v-if="isDraft && manageableResultSheets.length > 1"
+              type="button"
+              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-[13px] font-semibold text-[#374151] hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
+              :disabled="editingLocked || patch.isPending.value"
+              :title="editingLocked ? EDIT_LOCK_TITLE : '견적에 포함할 시트 관리'"
+              @click="openSheetManager"
+            >
+              <span aria-hidden="true">⊞</span>
+              시트 {{ selectedResultSheets.length }}/{{ manageableResultSheets.length }}
+            </button>
+            <button
               type="button"
               class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 text-[14px] font-semibold text-[#374151] hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
               title="Excel 원본과 공급사 검색 결과 비교"
@@ -1324,11 +1419,11 @@ function fmtAmount(v: number | null): string {
               type="button"
               class="flex h-[40px] w-full items-center justify-center gap-[8px] rounded-[7px] bg-[#287cff] text-[14px] font-bold text-white shadow-[0_6px_14px_rgba(40,124,255,0.24)] transition hover:bg-[#176ff5] disabled:cursor-not-allowed disabled:opacity-45"
               :disabled="request.isPending.value || quoteStats.included === 0 || editingLocked"
-              :title="editingLocked ? '가격·재고 확인이 끝나면 요청할 수 있습니다' : undefined"
+              :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
               @click="openRequestModal"
             >
               <img :src="icFile" alt="" class="size-[14px] brightness-0 invert">
-              {{ editingLocked ? '가격 확인 중…' : '견적요청' }}
+              {{ updateSheets.isPending.value ? '시트 반영 중…' : editingLocked ? '가격 확인 중…' : '견적요청' }}
             </button>
             <!-- draft=하드 삭제(2단계 확인) · requested=요청 취소(관리자 워크플로 존중) -->
             <template v-if="detail.status === 'draft'">
@@ -1361,6 +1456,92 @@ function fmtAmount(v: number | null): string {
           </div>
         </div>
       </aside>
+    </div>
+
+    <!-- 결과 시트 관리: 제외해도 원본 라인·후보·선택 이력은 보존한다. -->
+    <div
+      v-if="sheetManagerOpen && detail !== null"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      @click.self="closeSheetManager"
+    >
+      <div class="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl" role="dialog" aria-modal="true" aria-labelledby="sheet-manager-title">
+        <div class="border-b border-gray-100 px-5 py-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 id="sheet-manager-title" class="text-base font-semibold text-gray-900">견적 시트 관리</h3>
+              <p class="mt-1 text-xs leading-5 text-gray-500">제외한 시트는 견적·합계에서만 빠지며, 원본과 후보 선택 이력은 유지됩니다.</p>
+            </div>
+            <button
+              type="button"
+              class="grid size-8 shrink-0 place-items-center rounded-lg text-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40"
+              :disabled="updateSheets.isPending.value"
+              aria-label="닫기"
+              @click="closeSheetManager"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div class="max-h-[55vh] space-y-2 overflow-y-auto px-5 py-4 [scrollbar-width:thin]">
+          <button
+            v-for="sheet in manageableResultSheets"
+            :key="sheet.sheetIndex"
+            type="button"
+            class="flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition disabled:cursor-wait disabled:opacity-60"
+            :class="managedSheetIndexes.includes(sheet.sheetIndex) ? 'border-blue-300 bg-blue-50/70' : 'border-gray-200 bg-gray-50 hover:border-gray-300'"
+            :disabled="updateSheets.isPending.value"
+            :aria-pressed="managedSheetIndexes.includes(sheet.sheetIndex)"
+            @click="toggleManagedSheet(sheet.sheetIndex)"
+          >
+            <span
+              class="grid size-5 shrink-0 place-items-center rounded border text-[12px] font-bold"
+              :class="managedSheetIndexes.includes(sheet.sheetIndex) ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 bg-white text-transparent'"
+              aria-hidden="true"
+            >✓</span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm font-semibold text-gray-800" :title="sheet.sheetName">{{ sheet.sheetName }}</span>
+              <span class="mt-0.5 block text-[11px] text-gray-500">{{ sheet.componentCount }}개 부품</span>
+            </span>
+            <span
+              class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              :class="managedSheetIndexes.includes(sheet.sheetIndex) ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'"
+            >{{ managedSheetIndexes.includes(sheet.sheetIndex) ? '포함' : '제외' }}</span>
+          </button>
+        </div>
+
+        <div class="border-t border-gray-100 bg-gray-50 px-5 py-4">
+          <p v-if="managedSheetIndexes.length === 0" class="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">최소 1개 시트는 견적에 포함해야 합니다.</p>
+          <p v-else-if="removedSheetCount > 0" class="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+            {{ removedSheetCount }}개 시트의 {{ removedComponentCount }}개 부품을 견적에서 제외합니다. 나중에 다시 포함할 수 있습니다.
+          </p>
+          <p v-else-if="restoredSheetCount > 0" class="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+            {{ restoredSheetCount }}개 시트를 다시 포함하고 현재 수량·가격 기준으로 합계를 갱신합니다.
+          </p>
+          <p v-if="sheetSelectionError !== ''" class="mb-3 text-xs text-red-600">{{ sheetSelectionError }}</p>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <span class="text-xs text-gray-500">{{ managedSheetIndexes.length }}개 시트 · {{ managedComponentCount }}개 부품 포함</span>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                :disabled="updateSheets.isPending.value"
+                @click="closeSheetManager"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
+                :disabled="managedSheetIndexes.length === 0 || updateSheets.isPending.value || patch.isPending.value"
+                @click="applyManagedSheets"
+              >
+                {{ updateSheets.isPending.value ? '반영 중…' : '시트 구성 적용' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 견적명 모달 -->

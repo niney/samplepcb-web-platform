@@ -15,6 +15,7 @@ import {
   BomQuoteListResponse,
   BomQuotePatchBody,
   BomQuoteRequestBody,
+  BomQuoteSheetSelectionBody,
   BomQuoteStatus,
   BomSupplierStartResponse,
   BomSupplierView,
@@ -22,7 +23,7 @@ import {
   type BomQuoteItemType,
   type BomQuoteMatchEvidenceType,
 } from '@sp/api-contract';
-import { neededQty } from '@sp/utils';
+import { neededQty, stampOrderQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
 import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
@@ -59,6 +60,7 @@ import {
   applyQuoteCandidateSelection,
   canTransition,
   computeQuote,
+  filterActiveQuoteItems,
   getQuoteItemCandidates,
   loadQuoteComparisonPage,
   patchNeedsCandidateReprice,
@@ -261,7 +263,7 @@ async function autoEnrichQuote(
     },
   } satisfies Prisma.InputJsonObject;
 
-  const items = quote.items.map((row) => toItemDto(row));
+  const items = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
   if (!enrichNeeded(items, config.freshnessHours)) {
     // 전부 신선 — 0콜로 끝. build 가 선점해 둔 searching 이 있으면 idle 로 되돌린다.
     if (quote.enrichStatus === 'searching') {
@@ -550,7 +552,10 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const [rows, total, deletableCount] = await Promise.all([
       prisma.spBomQuote.findMany({
         where,
-        include: { _count: { select: { items: true } } },
+        include: {
+          sheets: { select: { sheetIndex: true, selected: true } },
+          items: { select: { sourceSheetIndex: true, included: true, matchStatus: true } },
+        },
         orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -558,29 +563,17 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       prisma.spBomQuote.count({ where }),
       prisma.spBomQuote.count({ where: { mbId: request.user.mbId, status: 'draft' } }),
     ]);
-    const quoteIds = rows.map((row) => row.id);
-    const [includedRows, matchedRows] = quoteIds.length === 0
-      ? [[], []]
-      : await Promise.all([
-          prisma.spBomQuote.findMany({
-            where: { id: { in: quoteIds } },
-            select: { id: true, _count: { select: { items: { where: { included: true } } } } },
-          }),
-          prisma.spBomQuote.findMany({
-            where: { id: { in: quoteIds } },
-            select: { id: true, _count: { select: { items: { where: { matchStatus: { not: 'none' } } } } } },
-          }),
-        ]);
-    const includedCountById = new Map(includedRows.map((row) => [row.id, row._count.items] as const));
-    const matchedCountById = new Map(matchedRows.map((row) => [row.id, row._count.items] as const));
     return {
       result: true as const,
       data: {
-        items: rows.map((row) => toSummaryDto(row, {
-          itemCount: row._count.items,
-          includedCount: includedCountById.get(row.id) ?? 0,
-          matchedCount: matchedCountById.get(row.id) ?? 0,
-        })),
+        items: rows.map((row) => {
+          const activeItems = filterActiveQuoteItems(row.items, row.sheets);
+          return toSummaryDto(row, {
+            itemCount: activeItems.length,
+            includedCount: activeItems.filter((item) => item.included).length,
+            matchedCount: activeItems.filter((item) => item.matchStatus !== 'none').length,
+          });
+        }),
         total,
         deletableCount,
         page,
@@ -726,6 +719,9 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
   }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (!filterActiveQuoteItems(quote.items, quote.sheets).some((item) => item.id === request.params.itemId)) {
+      return reply.notFound('견적 항목을 찾을 수 없습니다');
+    }
     const data = await getQuoteItemCandidates(quote.id, request.params.itemId);
     if (data === null) return reply.notFound('견적 항목을 찾을 수 없습니다');
     return { result: true as const, data };
@@ -872,6 +868,91 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
+  // 계산 완료 후 기존 구성 시트를 제외·복원한다. 원본 분석, 라인 ID, 후보와 선택 이력은
+  // 삭제하지 않고 selected만 바꿔 draft 안에서 되돌릴 수 있게 한다.
+  fastify.put('/bom/quotes/:id/sheets', {
+    schema: {
+      params: IdParams,
+      body: BomQuoteSheetSelectionBody,
+      response: { 200: BomQuoteDetailResponse, 409: BizError },
+    },
+  }, async (request, reply) => {
+    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (quote.status !== 'draft') return reply.conflict('견적요청 후에는 시트를 변경할 수 없습니다');
+    if (quote.buildStatus !== 'ready') return reply.conflict('시트 계산이 완료된 후 변경할 수 있습니다');
+    if (quote.enrichStatus === 'searching') return reply.conflict('공급사 확인이 완료된 후 변경할 수 있습니다');
+
+    const builtSheetIndexes = new Set(
+      quote.items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]),
+    );
+    const selectableSheetIndexes = new Set(
+      quote.sheets
+        .filter((sheet) => sheet.status === 'parsed' && builtSheetIndexes.has(sheet.sheetIndex))
+        .map((sheet) => sheet.sheetIndex),
+    );
+    const requestedIndexes = [...request.body.sheetIndexes].sort((left, right) => left - right);
+    if (requestedIndexes.some((index) => !selectableSheetIndexes.has(index))) {
+      return reply.status(409).send({ result: false, error: 'INVALID_SHEET_SELECTION' });
+    }
+
+    const currentIndexes = quote.sheets
+      .filter((sheet) => sheet.selected)
+      .map((sheet) => sheet.sheetIndex)
+      .sort((left, right) => left - right);
+    if (
+      currentIndexes.length === requestedIndexes.length
+      && currentIndexes.every((index, position) => index === requestedIndexes[position])
+    ) {
+      return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };
+    }
+
+    const requested = new Set(requestedIndexes);
+    const restored = new Set(requestedIndexes.filter((index) => !currentIndexes.includes(index)));
+    const items = quote.items
+      .filter((item) => item.sourceSheetIndex === null || requested.has(item.sourceSheetIndex))
+      .map((row) => toItemDto(row));
+    if (items.length === 0) {
+      return reply.status(409).send({ result: false, error: 'NO_COMPONENTS_IN_SELECTED_SHEETS' });
+    }
+
+    // draft 재계산은 일반 PATCH와 같이 현재 실효 환율 스냅샷을 사용한다.
+    const config = await getBomQuoteRuntimeConfig();
+    const rate = config.usdKrwRate;
+    let candidateSnapshots: Awaited<ReturnType<typeof repriceCandidateSelections>> = undefined;
+    if (restored.size > 0) {
+      for (const item of items) {
+        if (item.sourceSheetIndex === null || !restored.has(item.sourceSheetIndex)) continue;
+        const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
+        item.orderQty = item.selectedOffer === null
+          ? needed
+          : stampOrderQty(needed, item.selectedOffer.moq, item.selectedOffer.orderMultiple);
+      }
+      candidateSnapshots = await repriceCandidateSelections(
+        quote.id,
+        items,
+        quote.setQty,
+        quote.spareQty,
+        rate,
+        config.exchangeRateSnapshot,
+        request.log,
+      );
+    }
+
+    const computed = computeQuote(items, rate, quote.shippingFee, quote.managementFee);
+    await persistQuoteComputed(quote.id, computed, rate, {
+      exchangeRateSnapshot: config.exchangeRateSnapshot,
+      selectedSheetIndexes: requestedIndexes,
+      ...(candidateSnapshots === undefined
+        ? {}
+        : { candidateSnapshots, candidateSnapshotScope: 'partial' as const }),
+    });
+
+    const fresh = await loadOwnQuote(quote.id, request.user.mbId);
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
+  });
+
   // 자동저장(디바운스) — 안정 itemId 기반 부분 갱신. 원본·엔진 판정은 서버에서만 보존한다.
   fastify.patch('/bom/quotes/:id', { schema: { params: IdParams, body: BomQuotePatchBody, response: { 200: BomQuoteDetailResponse } } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
@@ -881,7 +962,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (quote.enrichStatus === 'searching') return reply.conflict('공급사 확인이 완료된 후 수정할 수 있습니다');
 
     const config = await getBomQuoteRuntimeConfig();
-    const persistedItems = quote.items.map((row) => toItemDto(row));
+    const persistedItems = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
     const existingById = new Map(persistedItems.map((item) => [item.id, item] as const));
     const items: (BomQuoteItemType | BomQuoteItemInputType)[] = [...persistedItems];
 
@@ -993,7 +1074,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (!canTransition(quote.status, 'requested')) return reply.conflict('견적요청할 수 없는 상태입니다');
     if (quote.buildStatus !== 'ready') return reply.conflict('시트 계산이 완료된 후 견적요청할 수 있습니다');
 
-    const items = quote.items.map((row) => toItemDto(row));
+    const items = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
     if (!items.some((i) => i.included)) return reply.badRequest('견적요청에 포함된 라인이 없습니다');
 
     const rate = quote.usdKrwRateUsed === null ? null : Number(quote.usdKrwRateUsed);

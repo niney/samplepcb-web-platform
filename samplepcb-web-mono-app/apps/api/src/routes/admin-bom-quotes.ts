@@ -10,7 +10,14 @@ import {
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import { downloadFromFileServer } from '../lib/file-server';
-import { canTransition, getQuoteItemCandidates, loadQuoteComparisonPage, toAdminDetailDto, toAdminSummaryDto } from '../lib/bom-quote';
+import {
+  canTransition,
+  filterActiveQuoteItems,
+  getQuoteItemCandidates,
+  loadQuoteComparisonPage,
+  toAdminDetailDto,
+  toAdminSummaryDto,
+} from '../lib/bom-quote';
 
 // ── /api/admin/bom-quotes — 고객 BOM 견적요청 검토 (requireAdmin) ─────────────
 // 1차 범위: 목록·상세·상태 전이·확정가(운송료/관리비/총액)·메모·원본 다운로드.
@@ -43,7 +50,10 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     const [rows, total] = await Promise.all([
       prisma.spBomQuote.findMany({
         where,
-        include: { items: { select: { included: true, matchStatus: true } } },
+        include: {
+          sheets: { select: { sheetIndex: true, selected: true } },
+          items: { select: { sourceSheetIndex: true, included: true, matchStatus: true } },
+        },
         orderBy: [{ requestedAt: 'desc' }, { updatedAt: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -52,7 +62,12 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     ]);
     return {
       result: true as const,
-      data: { items: rows.map((row) => toAdminSummaryDto(row, row.items)), total, page, pageSize },
+      data: {
+        items: rows.map((row) => toAdminSummaryDto(row, filterActiveQuoteItems(row.items, row.sheets))),
+        total,
+        page,
+        pageSize,
+      },
     };
   });
 
@@ -75,6 +90,16 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
   fastify.get('/bom-quotes/:id/items/:itemId/candidates', {
     schema: { params: ItemParams, response: { 200: BomQuoteItemCandidatesResponse } },
   }, async (request, reply) => {
+    const quote = await prisma.spBomQuote.findUnique({
+      where: { id: request.params.id },
+      include: { items: true, sheets: true },
+    });
+    if (
+      quote === null
+      || !filterActiveQuoteItems(quote.items, quote.sheets).some((item) => item.id === request.params.itemId)
+    ) {
+      return reply.notFound('견적 항목을 찾을 수 없습니다');
+    }
     const data = await getQuoteItemCandidates(request.params.id, request.params.itemId);
     if (data === null) return reply.notFound('견적 항목을 찾을 수 없습니다');
     return { result: true as const, data };

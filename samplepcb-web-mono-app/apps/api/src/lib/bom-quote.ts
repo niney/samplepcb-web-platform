@@ -67,6 +67,19 @@ export type QuoteSheetRow = Prisma.SpBomQuoteSheetGetPayload<object>;
 export type QuoteCandidateRow = Prisma.SpBomQuoteCandidateGetPayload<object>;
 export type QuoteSelectionEventRow = Prisma.SpBomQuoteSelectionEventGetPayload<object>;
 
+/**
+ * 견적 화면·계산에 활성인 라인만 고른다. 수동 추가 행은 항상 활성이고, 업로드 행은
+ * sp_bom_quote_sheet.selected가 단일 진실이다. 시트 스냅샷이 없는 구형 견적은 전 행을
+ * 유지해 읽기 호환한다.
+ */
+export function filterActiveQuoteItems<
+  TItem extends { sourceSheetIndex: number | null },
+>(items: readonly TItem[], sheets: readonly { sheetIndex: number; selected: boolean }[]): TItem[] {
+  if (sheets.length === 0) return [...items];
+  const selected = new Set(sheets.filter((sheet) => sheet.selected).map((sheet) => sheet.sheetIndex));
+  return items.filter((item) => item.sourceSheetIndex === null || selected.has(item.sourceSheetIndex));
+}
+
 // ── 상태 전이 ────────────────────────────────────────────────────────────────
 export const QUOTE_TRANSITIONS: Record<string, BomQuoteStatusType[]> = {
   draft: ['requested', 'canceled'],
@@ -510,6 +523,7 @@ export function extractEngineSheets(result: unknown): BomQuoteSheetType[] {
     status: sheet.status === 'parsed' ? 'parsed' : sheet.status === 'not_bom' ? 'not_bom' : 'error',
     componentCount: sheet.component_count,
     selected: false,
+    hasItems: false,
     failureReason: sheet.unparsed_reason?.slice(0, 500) ?? null,
     warnings: sheet.warnings,
   }));
@@ -818,12 +832,25 @@ export async function loadQuoteComparisonPage(
   quoteId: bigint,
   query: QuoteComparisonPageQuery,
 ): Promise<BomQuoteComparisonType | null> {
-  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, select: { id: true } });
+  const quote = await prisma.spBomQuote.findUnique({
+    where: { id: quoteId },
+    select: { id: true, sheets: { select: { sheetIndex: true, selected: true } } },
+  });
   if (quote === null) return null;
   const search = query.search?.trim() ?? '';
+  const selectedSheetIndexes = quote.sheets.filter((sheet) => sheet.selected).map((sheet) => sheet.sheetIndex);
+  const activeWhere: Prisma.SpBomQuoteItemWhereInput = quote.sheets.length === 0
+    ? {}
+    : {
+        OR: [
+          { sourceSheetIndex: null },
+          { sourceSheetIndex: { in: selectedSheetIndexes } },
+        ],
+      };
   const itemRows = await prisma.spBomQuoteItem.findMany({
     where: {
       quoteId,
+      ...activeWhere,
       ...(query.sheet === undefined ? {} : { sourceSheetName: query.sheet }),
       ...(search === ''
         ? {}
@@ -2713,9 +2740,10 @@ export async function applyQuoteCandidateSelection(
   requestedOfferKey: string | null,
   actorId: string,
 ): Promise<QuoteCandidateSelectionResult> {
-  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
+  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
   if (quote === null) return 'quote-not-found';
-  const itemRow = quote.items.find((row) => row.id === itemId);
+  const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+  const itemRow = activeRows.find((row) => row.id === itemId);
   if (itemRow === undefined) return 'item-not-found';
   const candidateRow = await prisma.spBomQuoteCandidate.findUnique({
     where: { quoteItemId_candidateKey: { quoteItemId: itemId, candidateKey: candidateKeyValue } },
@@ -2729,7 +2757,7 @@ export async function applyQuoteCandidateSelection(
     return 'offer-not-found';
   }
   const config = await getBomQuoteRuntimeConfig();
-  const items = quote.items.map((row) => toItemDto(row));
+  const items = activeRows.map((row) => toItemDto(row));
   const item = items.find((entry) => entry.id === String(itemId));
   if (item === undefined) return 'item-not-found';
   const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
@@ -2848,10 +2876,10 @@ export async function refreshQuoteFromSupplierResult(
   const inFlight = engineRefreshInFlight.get(key);
   if (inFlight !== undefined) return inFlight;
   const run = (async (): Promise<boolean> => {
-    const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true } });
+    const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
     if (quote?.status !== 'draft') return false;
     const config = await getBomQuoteRuntimeConfig();
-    const items = quote.items.map((row) => toItemDto(row));
+    const items = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
     const applied = await applyEngineSupplierResult(
       items,
       envelope,
@@ -2946,11 +2974,13 @@ export async function refreshQuotesForJob(
       id: true,
       enrichStatus: true,
       activeSupplierSearchRunId: true,
-      items: { select: { included: true, matchStatus: true } },
+      sheets: { select: { sheetIndex: true, selected: true } },
+      items: { select: { included: true, matchStatus: true, sourceSheetIndex: true } },
     },
   });
   for (const quote of quotes) {
-    const hasUnmatched = quote.items.some((i) => i.included && i.matchStatus === 'none');
+    const activeItems = filterActiveQuoteItems(quote.items, quote.sheets);
+    const hasUnmatched = activeItems.some((i) => i.included && i.matchStatus === 'none');
     // searching 은 미매칭이 없어도 최신 엔진 판정·가격을 반영해 done 으로 종결시킨다.
     if (quote.enrichStatus !== 'searching' && !hasUnmatched) continue;
     await refreshQuoteFromSupplierResult(
@@ -3437,28 +3467,33 @@ export function toSummaryDto(quote: QuoteRow, counts: BomQuoteSummaryCounts): Bo
   };
 }
 
-function toSheetDto(row: QuoteSheetRow): BomQuoteSheetType {
+function toSheetDto(row: QuoteSheetRow, hasItems: boolean): BomQuoteSheetType {
   return {
     sheetIndex: row.sheetIndex,
     sheetName: row.sheetName,
     status: row.status as BomQuoteSheetType['status'],
     componentCount: row.componentCount,
     selected: row.selected,
+    hasItems,
     failureReason: row.failureReason,
     warnings: Array.isArray(row.warnings) ? row.warnings.filter((value): value is string => typeof value === 'string') : [],
   };
 }
 
 export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
+  const activeItems = filterActiveQuoteItems(items, sheets);
+  const itemSheetIndexes = new Set(items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]));
   const [partMetaMap, candidateDatasheetMap] = await Promise.all([
-    loadPartMetaMap(items),
-    loadCandidateDatasheetMap(quote.id, items),
+    loadPartMetaMap(activeItems),
+    loadCandidateDatasheetMap(quote.id, activeItems),
   ]);
   return {
-    ...toSummaryDto(quote, summaryCounts(items)),
+    ...toSummaryDto(quote, summaryCounts(activeItems)),
     engineJobId: quote.engineJobId,
     buildStatus: quote.buildStatus as BomQuoteDetailType['buildStatus'],
-    sheets: [...sheets].sort((a, b) => a.sheetIndex - b.sheetIndex).map(toSheetDto),
+    sheets: [...sheets]
+      .sort((a, b) => a.sheetIndex - b.sheetIndex)
+      .map((sheet) => toSheetDto(sheet, itemSheetIndexes.has(sheet.sheetIndex))),
     enrichStatus: quote.enrichStatus as BomQuoteDetailType['enrichStatus'],
     enrichedAt: quote.enrichedAt?.toISOString() ?? null,
     setQty: quote.setQty,
@@ -3478,7 +3513,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     confirmedManagementFee: quote.confirmedManagementFee,
     confirmedTotal: quote.confirmedTotal,
     answerNote: quote.answerNote,
-    items: [...items]
+    items: [...activeItems]
       .sort((a, b) => a.rowIdx - b.rowIdx)
       .map((row) => {
         const meta = row.partId === null ? null : (partMetaMap.get(row.partId) ?? null);

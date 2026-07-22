@@ -170,6 +170,8 @@ export const BomQuoteSheet = z.object({
   status: BomQuoteSheetStatus,
   componentCount: z.number().int().min(0),
   selected: z.boolean(),
+  /** 한 번 견적 라인으로 구성된 시트 — 결과 화면에서 제외 후 다시 포함할 수 있다. */
+  hasItems: z.boolean(),
   failureReason: z.string().nullable(),
   warnings: z.array(z.string()),
 });
@@ -585,6 +587,10 @@ export const BomQuoteBuildBody = z.object({
     .refine((indexes) => new Set(indexes).size === indexes.length, '중복된 시트가 있습니다'),
 });
 export type BomQuoteBuildBodyType = z.infer<typeof BomQuoteBuildBody>;
+
+/** 계산 완료 후 견적에 활성화할 기존 구성 시트 전체 목록. 원본 분석·후보 스냅샷은 보존한다. */
+export const BomQuoteSheetSelectionBody = BomQuoteBuildBody;
+export type BomQuoteSheetSelectionBodyType = z.infer<typeof BomQuoteSheetSelectionBody>;
 
 /** 엔진 후보를 명시 선택. offerKey=null이면 해당 부품 안의 실효 총비용 최저 오퍼. */
 export const BomQuoteCandidateSelectionBody = z.object({

@@ -236,6 +236,8 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   id로 제자리 갱신하고, 서버 소유 추출·판정·후보 필드는 클라이언트 왕복 대상이 아니다.
 - `POST /quotes/:id/prepare`: 파싱 결과 전체를 분석 run/sheet/component에 먼저 박제한다. →
   `POST /quotes/:id/build {sheetIndexes}`: 영속 분석의 선택 시트로 라인+필요수량 생성(최대 2,000라인) ·
+  `PUT /quotes/:id/sheets {sheetIndexes}`: 계산 완료된 draft의 기존 구성 시트를 제외·복원(최소 1개,
+  원본 라인·후보·선택 이력 보존, 복원 시 현재 수량·가격으로 재계산) ·
   `GET /quotes/:id/items/:itemId/candidates`(영속 후보·현재 수량 가격·선택 이력·활성 검색 실행 trace) ·
   `POST /quotes/:id/items/:itemId/selection {candidateKey,offerKey}`(draft 전용, 가격은 서버 재계산) ·
   `GET /quotes/:id/comparison?page&pageSize&search&status&sheet`(원본 추출+후보의 페이지 조회) ·
@@ -265,6 +267,11 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   표시한다. 탭은 원본 라인의 표시 범위만 바꾸고 매칭·검토·재고 필터와 교차 적용한다. 우측 분석
   통계는 현재 탭 기준으로 계산하지만 예상 금액·미산정·검토 대기·견적요청 가능 여부는 항상 전체
   견적 기준을 유지해 탭 이동이 업무 상태나 합계를 바꾸지 않게 한다.
+- 계산을 끝낸 draft에서는 상단의 `시트 N/M` 관리로 이미 구성한 시트를 견적에서 제외하거나
+  다시 포함할 수 있다. `sp_bom_quote_sheet.selected`가 활성 시트의 단일 진실이며, 제외한 시트의
+  라인·후보·선택 이력은 삭제하지 않는다. 상세·목록 집계·합계·후보 조회·BOM 비교·견적요청은
+  활성 시트와 직접 추가 라인만 대상으로 하고, 복원한 시트는 기존 라인 ID를 유지한 채 현재 주문수량과
+  가격 기준으로 재계산한다. 공급사 검색 중이거나 견적요청 후에는 구성을 바꾸지 못한다.
 - 선택 시트에서 엔진이 컴포넌트로 판정한 행은 MPN 유무와 관계없이 모두 라인으로 보존한다.
   표시·저장 순서는 워크북 시트 순서→Excel 원본 행 번호이며, MPN이 없는 행은 `value_raw`를
   화면 대표값으로만 표시하고 빈 MPN으로 저장해 카탈로그 품번으로 오인하지 않는다. 고객 결과

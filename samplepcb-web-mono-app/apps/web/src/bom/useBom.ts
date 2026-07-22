@@ -19,6 +19,7 @@ import {
   type BomQuoteCandidateSelectionBodyType,
   type BomQuoteDeleteManyBodyType,
   type BomQuotePatchBodyType,
+  type BomQuoteSheetSelectionBodyType,
   type BomQuoteStatusType,
   type BomSupplierOptionsType,
 } from '@sp/api-contract';
@@ -146,6 +147,16 @@ export function useBuildBomQuote() {
   return useQuoteMutation(({ quoteId, body }: { quoteId: string; body: BomQuoteBuildBodyType }) =>
     apiSend('POST', `${base}/quotes/${quoteId}/build`, body, BomQuoteDetailResponse),
   );
+}
+
+export function useUpdateBomQuoteSheets() {
+  return useQuoteMutation(({
+    quoteId,
+    body,
+  }: {
+    quoteId: string;
+    body: BomQuoteSheetSelectionBodyType;
+  }) => apiSend('PUT', `${base}/quotes/${quoteId}/sheets`, body, BomQuoteDetailResponse));
 }
 
 export function usePrepareBomQuoteSheets() {

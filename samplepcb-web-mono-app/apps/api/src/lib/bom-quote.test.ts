@@ -5,6 +5,7 @@ import {
   applyEngineSupplierResult,
   buildItemsFromEngineResult,
   extractEngineSheets,
+  filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
   selectEngineMatch,
 } from './bom-quote';
@@ -79,7 +80,7 @@ describe('BOM 견적 시트 선택', () => {
 
   it('엔진 시트 상태와 제외 사유를 선택 스냅샷으로 변환한다', () => {
     expect(extractEngineSheets(ENGINE_RESULT)).toEqual([
-      expect.objectContaining({ sheetIndex: 0, sheetName: 'BOARD_A', status: 'parsed', componentCount: 2 }),
+      expect.objectContaining({ sheetIndex: 0, sheetName: 'BOARD_A', status: 'parsed', componentCount: 2, hasItems: false }),
       expect.objectContaining({ sheetIndex: 1, sheetName: 'BOARD_B', status: 'parsed', componentCount: 1 }),
       expect.objectContaining({
         sheetIndex: 2,
@@ -89,6 +90,27 @@ describe('BOM 견적 시트 선택', () => {
         failureReason: 'header_not_found',
       }),
     ]);
+  });
+
+  it('제외한 시트 라인만 빠지고 직접 추가한 라인은 유지한다', () => {
+    const items = [
+      { id: 'a', sourceSheetIndex: 0 },
+      { id: 'b', sourceSheetIndex: 1 },
+      { id: 'manual', sourceSheetIndex: null },
+    ];
+    const sheets = [
+      { sheetIndex: 0, selected: true },
+      { sheetIndex: 1, selected: false },
+    ];
+
+    expect(filterActiveQuoteItems(items, sheets).map((item) => item.id)).toEqual(['a', 'manual']);
+    expect(items.map((item) => item.id)).toEqual(['a', 'b', 'manual']);
+  });
+
+  it('시트 스냅샷이 없는 구형 견적은 전체 라인을 유지한다', () => {
+    const items = [{ id: 'legacy', sourceSheetIndex: 7 }];
+
+    expect(filterActiveQuoteItems(items, [])).toEqual(items);
   });
 
   it('선택한 시트의 모든 컴포넌트를 MPN 유무와 관계없이 원본 행 순서로 보존한다', () => {

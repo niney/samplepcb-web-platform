@@ -172,6 +172,7 @@ function quoteSheet(component: z.infer<typeof BomEngineAnalysisSheet>): BomQuote
     status: component.status,
     componentCount: component.component_count,
     selected: false,
+    hasItems: false,
     failureReason: component.unparsed_reason?.slice(0, 500) ?? null,
     warnings: component.warnings,
   };
