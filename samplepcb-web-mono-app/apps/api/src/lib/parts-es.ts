@@ -111,8 +111,12 @@ export async function bulkIndexPartDocs(docs: SpPartDoc[]): Promise<number> {
     { index: { _index: SP_PARTS_WRITE, _id: doc.partId } },
     doc,
   ]);
-  // 완료 상태를 브라우저에 공개하는 즉시 검색 결과에도 보여야 하므로 refresh를 기다린다.
-  const res = await esClient().bulk({ operations, refresh: 'wait_for' });
+  const res = await esClient().bulk({ operations, refresh: false });
   if (!res.errors) return 0;
   return res.items.filter((item) => item.index?.error !== undefined).length;
+}
+
+/** 벌크 실행들이 끝난 뒤 쓰기 alias를 한 번만 refresh한다. */
+export async function refreshPartsIndex(): Promise<void> {
+  await esClient().indices.refresh({ index: SP_PARTS_WRITE });
 }

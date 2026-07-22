@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const prismaMocks = vi.hoisted(() => ({
   partUpsert: vi.fn(),
   partFindUnique: vi.fn(),
+  partFindMany: vi.fn(),
+  partUpdateMany: vi.fn(),
   ingestRunUpsert: vi.fn(),
   ingestRunFindUnique: vi.fn(),
   ingestRunFindUniqueOrThrow: vi.fn(),
@@ -13,6 +15,13 @@ const prismaMocks = vi.hoisted(() => ({
   indexQueueFindFirst: vi.fn(),
   indexQueueCreate: vi.fn(),
   indexQueueUpdateMany: vi.fn(),
+  indexQueueDeleteMany: vi.fn(),
+}));
+
+const esMocks = vi.hoisted(() => ({
+  bulk: vi.fn(),
+  index: vi.fn(),
+  refresh: vi.fn(),
 }));
 
 vi.mock('./prisma', () => ({
@@ -20,6 +29,8 @@ vi.mock('./prisma', () => ({
     spPart: {
       upsert: prismaMocks.partUpsert,
       findUnique: prismaMocks.partFindUnique,
+      findMany: prismaMocks.partFindMany,
+      updateMany: prismaMocks.partUpdateMany,
     },
     spPartIngestRun: {
       upsert: prismaMocks.ingestRunUpsert,
@@ -32,9 +43,18 @@ vi.mock('./prisma', () => ({
       findFirst: prismaMocks.indexQueueFindFirst,
       create: prismaMocks.indexQueueCreate,
       updateMany: prismaMocks.indexQueueUpdateMany,
+      deleteMany: prismaMocks.indexQueueDeleteMany,
     },
     $transaction: prismaMocks.transaction,
   },
+}));
+
+vi.mock('../es/client', () => ({
+  esClient: () => ({
+    bulk: esMocks.bulk,
+    index: esMocks.index,
+    indices: { refresh: esMocks.refresh },
+  }),
 }));
 
 import {
@@ -42,6 +62,7 @@ import {
   drainIndexQueue,
   ingestSupplierSearchResult,
   ingestSupplierSearchResultOnce,
+  indexChangedParts,
   isTransientPartIngestError,
   queuePartIndex,
 } from './parts-ingest';
@@ -116,6 +137,28 @@ function supplierEnvelope(): unknown {
   };
 }
 
+function partRow(id: bigint) {
+  return {
+    id,
+    mpn: `PART-${String(id)}`,
+    mpnNorm: `part${String(id)}`,
+    manufacturerName: 'Test Manufacturer',
+    manufacturerNorm: 'testmanufacturer',
+    description: null,
+    category: null,
+    packageCode: null,
+    lifecycle: null,
+    imageUrl: null,
+    specsSi: {},
+    specConflicts: {},
+    lastSeenAt: new Date('2026-07-23T00:00:00.000Z'),
+    factsFingerprint: `facts-${String(id)}`,
+    indexFingerprint: null,
+    indexedAt: null,
+    offers: [],
+  };
+}
+
 function mockCurrentOfferTransaction(): void {
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([{ id: 11n }]),
@@ -142,7 +185,18 @@ function mockCurrentOfferTransaction(): void {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  esMocks.bulk.mockResolvedValue({ errors: false, items: [] });
+  esMocks.refresh.mockResolvedValue({});
+  prismaMocks.partFindMany.mockImplementation(
+    (args: { where: { id: { in: bigint[] } } }) => Promise.resolve(args.where.id.in.map(partRow)),
+  );
+  prismaMocks.partUpdateMany.mockResolvedValue({ count: 1 });
+  prismaMocks.indexQueueFindFirst.mockResolvedValue(null);
+  prismaMocks.indexQueueCreate.mockResolvedValue({ id: 1n });
+  prismaMocks.indexQueueUpdateMany.mockResolvedValue({ count: 1 });
+  prismaMocks.indexQueueDeleteMany.mockResolvedValue({ count: 1 });
+  prismaMocks.indexQueueCount.mockResolvedValue(0);
 });
 
 afterEach(() => {
@@ -212,6 +266,80 @@ describe('parts ingest P2002 race recovery', () => {
         isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
       }),
     );
+  });
+});
+
+describe('부품 bulk 색인 refresh 경계', () => {
+  it('모든 배치를 refresh 없이 보낸 뒤 성공 배치만 단 한 번 refresh하고 확정한다', async () => {
+    const partIds = Array.from({ length: 401 }, (_, index) => BigInt(index + 1));
+    esMocks.bulk
+      .mockResolvedValueOnce({ errors: false, items: [] })
+      .mockResolvedValueOnce({ errors: true, items: [{ index: { error: { type: 'rejected' } } }] })
+      .mockResolvedValueOnce({ errors: false, items: [] });
+
+    await expect(indexChangedParts(partIds)).resolves.toEqual({ indexed: 201, queued: 200 });
+
+    expect(esMocks.bulk).toHaveBeenCalledTimes(3);
+    for (const [request] of esMocks.bulk.mock.calls) {
+      expect(request).toEqual(expect.objectContaining({ refresh: false }));
+    }
+    expect(esMocks.refresh).toHaveBeenCalledOnce();
+    expect(esMocks.refresh).toHaveBeenCalledWith({ index: 'sp-parts-write' });
+    expect(esMocks.refresh.mock.invocationCallOrder[0]).toBeGreaterThan(
+      Math.max(...esMocks.bulk.mock.invocationCallOrder),
+    );
+    expect(prismaMocks.partUpdateMany).toHaveBeenCalledTimes(201);
+    expect(prismaMocks.indexQueueDeleteMany).toHaveBeenCalledTimes(201);
+    expect(prismaMocks.indexQueueCreate).toHaveBeenCalledTimes(200);
+  });
+
+  it('마지막 refresh가 실패하면 bulk 성공 항목 전원을 큐에 넣고 색인 완료로 기록하지 않는다', async () => {
+    const partIds = Array.from({ length: 201 }, (_, index) => BigInt(index + 1));
+    esMocks.refresh.mockRejectedValueOnce(new Error('refresh unavailable'));
+
+    await expect(indexChangedParts(partIds)).resolves.toEqual({ indexed: 0, queued: 201 });
+
+    expect(esMocks.bulk).toHaveBeenCalledTimes(2);
+    expect(esMocks.refresh).toHaveBeenCalledOnce();
+    expect(prismaMocks.indexQueueCreate).toHaveBeenCalledTimes(201);
+    expect(prismaMocks.partUpdateMany).not.toHaveBeenCalled();
+    expect(prismaMocks.indexQueueDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it('큐 드레인도 모든 bulk 뒤 한 번만 refresh하고 성공 항목의 큐를 정리한다', async () => {
+    const partIds = Array.from({ length: 401 }, (_, index) => BigInt(index + 1));
+    prismaMocks.indexQueueFindMany.mockResolvedValueOnce(
+      partIds.map((partId) => ({ partId, attempts: 0, queuedAt: new Date('2026-07-23T00:00:00.000Z') })),
+    );
+
+    await expect(drainIndexQueue(401)).resolves.toEqual({ drained: 401, remaining: 0, dead: 0 });
+
+    expect(esMocks.bulk).toHaveBeenCalledTimes(3);
+    for (const [request] of esMocks.bulk.mock.calls) {
+      expect(request).toEqual(expect.objectContaining({ refresh: false }));
+    }
+    expect(esMocks.refresh).toHaveBeenCalledOnce();
+    expect(esMocks.index).not.toHaveBeenCalled();
+    expect(prismaMocks.partUpdateMany).toHaveBeenCalledTimes(401);
+    expect(prismaMocks.indexQueueDeleteMany).toHaveBeenCalledTimes(401);
+  });
+
+  it('큐 드레인의 refresh가 실패하면 완료 메타데이터와 큐를 그대로 두고 호출부 로그로 넘긴다', async () => {
+    const partIds = [1n, 2n];
+    prismaMocks.indexQueueFindMany.mockResolvedValueOnce(
+      partIds.map((partId) => ({ partId, attempts: 0, queuedAt: new Date('2026-07-23T00:00:00.000Z') })),
+    );
+    prismaMocks.indexQueueFindFirst.mockResolvedValue({ id: 1n, attempts: 0 });
+    esMocks.refresh.mockRejectedValueOnce(new Error('refresh unavailable'));
+
+    await expect(drainIndexQueue(2)).rejects.toThrow('refresh unavailable');
+
+    expect(esMocks.bulk).toHaveBeenCalledOnce();
+    expect(esMocks.refresh).toHaveBeenCalledOnce();
+    expect(prismaMocks.indexQueueUpdateMany).toHaveBeenCalledTimes(2);
+    expect(prismaMocks.indexQueueCreate).not.toHaveBeenCalled();
+    expect(prismaMocks.partUpdateMany).not.toHaveBeenCalled();
+    expect(prismaMocks.indexQueueDeleteMany).not.toHaveBeenCalled();
   });
 });
 

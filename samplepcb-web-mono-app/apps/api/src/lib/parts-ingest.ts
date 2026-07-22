@@ -4,7 +4,13 @@ import { Prisma } from '@prisma/client';
 import { normalizeMpn, normalizePackageCode } from '@sp/utils';
 import { prisma } from './prisma';
 import { resolveManufacturer } from './manufacturer-alias';
-import { bulkIndexPartDocs, buildPartDoc, indexPartDoc, type PartWithOffers } from './parts-es';
+import {
+  bulkIndexPartDocs,
+  buildPartDoc,
+  indexPartDoc,
+  refreshPartsIndex,
+  type PartWithOffers,
+} from './parts-es';
 import {
   SAMPLEPCB_POLICY_VERSION,
   SAMPLEPCB_SUPPLIER,
@@ -698,9 +704,17 @@ export async function queuePartIndex(partId: bigint, reason: string): Promise<vo
   // attempts < 상한이면 이미 살아있는 행이라 no-op — 드레인 실패 경로의 재호출이 오실레이션하지 않는다.
 }
 
-async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestStats, 'indexed' | 'queued'>> {
+interface PendingPartIndex {
+  partId: bigint;
+  factsFingerprint: string | null;
+  indexFingerprint: string;
+  doc: ReturnType<typeof buildPartDoc>;
+}
+
+export async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestStats, 'indexed' | 'queued'>> {
   let indexed = 0;
   let queued = 0;
+  const successfulItems: PendingPartIndex[] = [];
   const uniquePartIds = [...new Set(partIds)];
   for (let offset = 0; offset < uniquePartIds.length; offset += INDEX_BATCH_SIZE) {
     const batchIds = uniquePartIds.slice(offset, offset + INDEX_BATCH_SIZE);
@@ -719,23 +733,35 @@ async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestStats, '
     try {
       const failures = await bulkIndexPartDocs(pending.map((item) => item.doc));
       if (failures > 0) throw new Error(`Elasticsearch bulk indexing failed for ${String(failures)} item(s)`);
-      for (const item of pending) {
-        const updated = await prisma.spPart.updateMany({
-          where: { id: item.partId, factsFingerprint: item.factsFingerprint },
-          data: { indexedAt: new Date(), indexFingerprint: item.indexFingerprint },
-        });
-        if (updated.count === 1) {
-          // 이전 색인 실패의 대기열을 같은 인제스트 재시도가 복구한 경우 함께 정리한다.
-          await prisma.spPartIndexQueue.deleteMany({ where: { partId: item.partId } });
-          indexed += 1;
-        } else {
-          await queuePartIndex(item.partId, 'part changed during Elasticsearch bulk indexing');
-          queued += 1;
-        }
-      }
+      successfulItems.push(...pending);
     } catch (error) {
       for (const item of pending) await queuePartIndex(item.partId, String(error));
       queued += pending.length;
+    }
+  }
+
+  if (successfulItems.length > 0) {
+    try {
+      await refreshPartsIndex();
+    } catch (error) {
+      for (const item of successfulItems) await queuePartIndex(item.partId, String(error));
+      queued += successfulItems.length;
+      return { indexed, queued };
+    }
+
+    for (const item of successfulItems) {
+      const updated = await prisma.spPart.updateMany({
+        where: { id: item.partId, factsFingerprint: item.factsFingerprint },
+        data: { indexedAt: new Date(), indexFingerprint: item.indexFingerprint },
+      });
+      if (updated.count === 1) {
+        // 이전 색인 실패의 대기열을 같은 인제스트 재시도가 복구한 경우 함께 정리한다.
+        await prisma.spPartIndexQueue.deleteMany({ where: { partId: item.partId } });
+        indexed += 1;
+      } else {
+        await queuePartIndex(item.partId, 'part changed during Elasticsearch bulk indexing');
+        queued += 1;
+      }
     }
   }
   return { indexed, queued };
@@ -970,21 +996,76 @@ export async function drainIndexQueue(limit = 200): Promise<{ drained: number; r
   });
   const partIds = [...new Set(rows.map((r) => r.partId))];
   let drained = 0;
-  for (const partId of partIds) {
-    if ((await loadPartWithOffers(partId)) === null) {
-      await prisma.spPartIndexQueue.deleteMany({ where: { partId } });
-      continue;
+  const successfulItems: PendingPartIndex[] = [];
+  for (let offset = 0; offset < partIds.length; offset += INDEX_BATCH_SIZE) {
+    const batchIds = partIds.slice(offset, offset + INDEX_BATCH_SIZE);
+    const parts = await prisma.spPart.findMany({
+      where: { id: { in: batchIds } },
+      include: { offers: { include: { priceBreaks: true } } },
+    });
+    const foundPartIds = new Set(parts.map((part) => part.id));
+    for (const partId of batchIds) {
+      if (!foundPartIds.has(partId)) await prisma.spPartIndexQueue.deleteMany({ where: { partId } });
     }
+
     // 큐 행은 DB의 indexFingerprint와 무관하게 현재 ES 문서를 신뢰할 수 없다는 신호다.
     // 늦게 도착한 stale bulk가 최신 문서를 덮은 뒤 fingerprint만 최신으로 남은 경우도 강제 복구한다.
-    if (await tryIndexPart(partId, { force: true })) {
-      await prisma.spPartIndexQueue.deleteMany({ where: { partId } });
-      drained += 1;
-    } else {
-      await prisma.spPartIndexQueue.updateMany({
-        where: { partId },
-        data: { attempts: { increment: 1 } },
+    const pending = parts.map((part) => {
+      const doc = buildPartDoc(part);
+      return {
+        partId: part.id,
+        factsFingerprint: part.factsFingerprint,
+        indexFingerprint: fingerprint({ policyVersion: PART_INDEX_FINGERPRINT_VERSION, doc }),
+        doc,
+      };
+    });
+    if (pending.length === 0) continue;
+
+    try {
+      const failures = await bulkIndexPartDocs(pending.map((item) => item.doc));
+      if (failures > 0) throw new Error(`Elasticsearch bulk indexing failed for ${String(failures)} item(s)`);
+      successfulItems.push(...pending);
+    } catch (error) {
+      for (const item of pending) {
+        await queuePartIndex(item.partId, String(error));
+        await prisma.spPartIndexQueue.updateMany({
+          where: { partId: item.partId },
+          data: { attempts: { increment: 1 } },
+        });
+      }
+    }
+  }
+
+  if (successfulItems.length > 0) {
+    try {
+      await refreshPartsIndex();
+    } catch (error) {
+      for (const item of successfulItems) {
+        await queuePartIndex(item.partId, String(error));
+        await prisma.spPartIndexQueue.updateMany({
+          where: { partId: item.partId },
+          data: { attempts: { increment: 1 } },
+        });
+      }
+      // 호출부가 운영 logger로 남기며, 큐 행은 다음 주기 재시도를 위해 유지한다.
+      throw error;
+    }
+
+    for (const item of successfulItems) {
+      const updated = await prisma.spPart.updateMany({
+        where: { id: item.partId, factsFingerprint: item.factsFingerprint },
+        data: { indexedAt: new Date(), indexFingerprint: item.indexFingerprint },
       });
+      if (updated.count === 1) {
+        await prisma.spPartIndexQueue.deleteMany({ where: { partId: item.partId } });
+        drained += 1;
+      } else {
+        await queuePartIndex(item.partId, 'part changed during Elasticsearch bulk indexing');
+        await prisma.spPartIndexQueue.updateMany({
+          where: { partId: item.partId },
+          data: { attempts: { increment: 1 } },
+        });
+      }
     }
   }
   // remaining은 살아있는(재시도 가능) 행만, dead는 상한 도달로 제외된 poison 행 수.
