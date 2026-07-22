@@ -124,6 +124,33 @@ function unavailableEngineStatus(error: string): EngineStatus {
   };
 }
 
+type CatalogStatus = BomSupplierSearchOperationsType['recentRuns'][number]['catalogStatus'];
+
+/**
+ * 카탈로그 인제스트 원장 상태를 운영 화면용으로 정직화한다. 클레임은 항상 lease를 걸므로,
+ * lease가 만료됐거나(now 이후 아님) 없는 running은 프로세스 크래시 잔재다. 재청구자는 동일
+ * fingerprint 재호출뿐이라 화면에는 failed로 보이는 게 정직하다(계약 4리터럴 내 매핑).
+ * now는 매핑 직전 1회 캡처해 recentRuns 전체에 같은 기준을 적용한다.
+ */
+export function deriveCatalogStatus(
+  catalog: { status: string; leaseUntil: Date | null } | null,
+  now: Date,
+): CatalogStatus {
+  if (catalog === null) return null;
+  if (catalog.status === 'running' && (catalog.leaseUntil === null || catalog.leaseUntil < now)) {
+    return 'failed';
+  }
+  if (
+    catalog.status === 'queued'
+    || catalog.status === 'running'
+    || catalog.status === 'completed'
+    || catalog.status === 'failed'
+  ) {
+    return catalog.status;
+  }
+  return null;
+}
+
 export async function getBomSupplierSearchOperations(
   config: BomQuoteConfigType,
 ): Promise<BomSupplierSearchOperationsType> {
@@ -135,7 +162,7 @@ export async function getBomSupplierSearchOperations(
       take: 10,
       include: {
         quote: { select: { title: true, mbId: true } },
-        catalogIngestRun: { select: { status: true, timing: true } },
+        catalogIngestRun: { select: { status: true, timing: true, leaseUntil: true } },
       },
     }),
     prisma.spBomSupplierDailyUsage.aggregate({
@@ -146,6 +173,8 @@ export async function getBomSupplierSearchOperations(
     prisma.spBomSupplierDailyUsage.count({ where: { dayKey } }),
   ]);
 
+  // lease 만료 판정 기준시각은 recentRuns 전체에 동일하게 적용되도록 매핑 직전 1회만 캡처한다.
+  const now = new Date();
   return {
     configuredMaxCalls: config.supplierSearchMaxCalls,
     effectiveMaxCalls: engine.maxCallsPerJob === null
@@ -188,12 +217,7 @@ export async function getBomSupplierSearchOperations(
           : null,
         quoteApplyMs: summary.success ? summary.data.quoteApplyMs ?? null : null,
         wallElapsedMs: summary.success ? summary.data.wallElapsedMs ?? fallbackElapsed : fallbackElapsed,
-        catalogStatus: run.catalogIngestRun?.status === 'queued'
-          || run.catalogIngestRun?.status === 'running'
-          || run.catalogIngestRun?.status === 'completed'
-          || run.catalogIngestRun?.status === 'failed'
-            ? run.catalogIngestRun.status
-            : null,
+        catalogStatus: deriveCatalogStatus(run.catalogIngestRun ?? null, now),
         catalogElapsedMs: summary.success
           ? summary.data.catalogElapsedMs ?? (ingestTiming.success ? ingestTiming.data.elapsedMs : null)
           : (ingestTiming.success ? ingestTiming.data.elapsedMs : null),

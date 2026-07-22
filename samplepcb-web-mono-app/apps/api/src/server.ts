@@ -106,6 +106,12 @@ async function drainPartsIndexQueue(): Promise<void> {
     if (result.drained > 0) {
       app.log.info(`sp-parts 색인 큐 드레인: ${String(result.drained)}건 (잔여 ${String(result.remaining)})`);
     }
+    // poison 행은 분당 최대 1줄이라 스팸이 아니다. 신규 변경 인제스트가 자동 부활시키므로 운영 경고로 남긴다.
+    if (result.dead > 0) {
+      app.log.warn(
+        `sp-parts 색인 큐 dead-letter ${String(result.dead)}건 — 신규 변경 인제스트 시 자동 부활, 그 외는 수동 정리 필요`,
+      );
+    }
   } catch (error) {
     app.log.warn(`sp-parts 색인 큐 드레인 실패: ${String(error)}`);
   } finally {

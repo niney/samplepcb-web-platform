@@ -81,6 +81,14 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   fingerprint가 바뀐 부품만 200건 단위 bulk 색인한다. 색인 도중 DB가 다시 바뀌면 성공 시각을
   확정하지 않고 재시도 큐로 보낸다. 큐 행 자체를 ES 상태 불신 신호로 취급해 드레인 때는 DB의
   fingerprint 일치 여부와 무관하게 현재 DB 문서를 강제 색인하므로, 늦게 도착한 stale bulk도 복구한다.
+  재시도 큐는 `attempts` 오름차순으로 드레인해(신규 행이 늘 우선) 기아를 구조적으로 없애고,
+  연속 실패가 상한(20회≈20분)에 닿은 poison 행은 dead-letter로 제외한다. dead-letter는 그 부품에
+  새 변경이 인제스트되면(`queuePartIndex`) `attempts`가 0으로 복귀해 자동 부활하고, 그 외엔 드레인
+  경고 로그로만 남으므로 상한 상습 도달은 운영 점검 신호다.
+- **인제스트 크래시 회복 한계**: 카탈로그 인제스트 도중 프로세스가 죽어도 견적 스냅샷은 이미
+  반영(done)돼 있다. 카탈로그만 재개하는 경로는 관리자 결과 GET 백업 훅과 동일 결과 재검색(엔진
+  인메모리 잡이 살아있을 때)뿐이다. lease가 만료된 채 남은 `running` 원장(`sp_part_ingest_run`) 행은
+  다음 동일 fingerprint 호출이 재청구(claim)하며, 그때까지 공급사 검색 운영 화면은 이를 failed로 표시한다.
 - **매핑 변경**: 로컬 `parts:reindex --recreate`. 운영(추후)은 `sp-parts-v2` 생성→재색인→
   alias(`sp-parts`/`sp-parts-write`) 스왑으로 무중단.
 - **공급사 추가 체크리스트**: ① sp-engine 에 `SupplierClient` 구현 1개 ② (필요시) 계약의

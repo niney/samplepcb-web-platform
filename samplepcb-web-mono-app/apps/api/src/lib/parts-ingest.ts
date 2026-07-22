@@ -112,6 +112,8 @@ const INGEST_LEASE_MS = 30 * 60 * 1_000;
 const INGEST_WAIT_MS = 500;
 const INGEST_WAIT_MAX_MS = 35 * 60 * 1_000;
 const INDEX_BATCH_SIZE = 200;
+// 드레인은 1분 주기라, 연속 실패가 약 20분(=20회) 이어진 색인 큐 행은 dead-letter로 제외한다.
+const INDEX_QUEUE_MAX_ATTEMPTS = 20;
 const DB_WRITE_CONCURRENCY = 4;
 const DEADLOCK_MAX_ATTEMPTS = 8;
 const DEADLOCK_BASE_DELAY_MS = 50;
@@ -603,10 +605,24 @@ export async function tryIndexPart(partId: bigint, options: { force?: boolean } 
   }
 }
 
-async function queuePartIndex(partId: bigint, reason: string): Promise<void> {
-  const queued = await prisma.spPartIndexQueue.findFirst({ where: { partId }, select: { id: true } });
-  if (queued !== null) return;
-  await prisma.spPartIndexQueue.create({ data: { partId, reason: reason.slice(0, 191) } });
+export async function queuePartIndex(partId: bigint, reason: string): Promise<void> {
+  const queued = await prisma.spPartIndexQueue.findFirst({
+    where: { partId },
+    select: { id: true, attempts: true },
+  });
+  if (queued === null) {
+    await prisma.spPartIndexQueue.create({ data: { partId, reason: reason.slice(0, 191) } });
+    return;
+  }
+  // dead-letter(상한 도달) 행에 새 변경·실패 증거가 오면 attempts를 0으로 되돌려 재시도를 되살린다.
+  // updateMany(update 아님)인 이유: 드레인의 deleteMany와 경합해 행이 사라져도 P2025를 던지지 않는다.
+  if (queued.attempts >= INDEX_QUEUE_MAX_ATTEMPTS) {
+    await prisma.spPartIndexQueue.updateMany({
+      where: { id: queued.id },
+      data: { attempts: 0, reason: reason.slice(0, 191), queuedAt: new Date() },
+    });
+  }
+  // attempts < 상한이면 이미 살아있는 행이라 no-op — 드레인 실패 경로의 재호출이 오실레이션하지 않는다.
 }
 
 async function indexChangedParts(partIds: bigint[]): Promise<Pick<IngestStats, 'indexed' | 'queued'>> {
@@ -833,10 +849,17 @@ export async function ingestSupplierSearchResultOnce(
   }
 }
 
-/** 색인 실패 큐 드레인 — 기동 시·주기 호출. 성공 시 해당 partId 큐 행 제거. */
-export async function drainIndexQueue(limit = 200): Promise<{ drained: number; remaining: number }> {
+/**
+ * 색인 실패 큐 드레인 — 기동 시·주기 호출. 성공 시 해당 partId 큐 행 제거.
+ * 큐 행=ES 문서 불신 신호라는 원칙은 그대로다. 다만 attempts가 상한(INDEX_QUEUE_MAX_ATTEMPTS)에
+ * 닿은 poison 행은 드레인에서 제외(dead-letter)해 재시도 예산을 굶던 신규 행에 돌려준다.
+ * attempts 오름차순 정렬이 기아를 구조적으로 없앤다 — attempts 0인 신규 행이 늘 먼저다.
+ * dead-letter는 새 변경·실패 증거가 오면(queuePartIndex) 자동 부활한다.
+ */
+export async function drainIndexQueue(limit = 200): Promise<{ drained: number; remaining: number; dead: number }> {
   const rows = await prisma.spPartIndexQueue.findMany({
-    orderBy: { queuedAt: 'asc' },
+    where: { attempts: { lt: INDEX_QUEUE_MAX_ATTEMPTS } },
+    orderBy: [{ attempts: 'asc' }, { queuedAt: 'asc' }],
     take: limit,
   });
   const partIds = [...new Set(rows.map((r) => r.partId))];
@@ -858,6 +881,12 @@ export async function drainIndexQueue(limit = 200): Promise<{ drained: number; r
       });
     }
   }
-  const remaining = await prisma.spPartIndexQueue.count();
-  return { drained, remaining };
+  // remaining은 살아있는(재시도 가능) 행만, dead는 상한 도달로 제외된 poison 행 수.
+  const remaining = await prisma.spPartIndexQueue.count({
+    where: { attempts: { lt: INDEX_QUEUE_MAX_ATTEMPTS } },
+  });
+  const dead = await prisma.spPartIndexQueue.count({
+    where: { attempts: { gte: INDEX_QUEUE_MAX_ATTEMPTS } },
+  });
+  return { drained, remaining, dead };
 }

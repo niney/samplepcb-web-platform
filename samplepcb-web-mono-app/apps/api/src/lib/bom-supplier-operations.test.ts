@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { kstDayKey, supplierRunSummarySnapshot } from './bom-supplier-operations';
+import { deriveCatalogStatus, kstDayKey, supplierRunSummarySnapshot } from './bom-supplier-operations';
 
 describe('BOM 공급사 검색 운영 지표', () => {
   it('KST 자정 경계에서 일일 사용량 키를 계산한다', () => {
@@ -68,5 +68,31 @@ describe('BOM 공급사 검색 운영 지표', () => {
       elapsedMs: 3002,
       engineElapsedMs: 3002,
     });
+  });
+});
+
+describe('deriveCatalogStatus 크래시 잔재 정직화', () => {
+  const now = new Date('2026-07-22T00:00:00.000Z');
+
+  it('lease가 만료된 running은 크래시 잔재이므로 failed로 표시한다', () => {
+    expect(
+      deriveCatalogStatus({ status: 'running', leaseUntil: new Date('2026-07-21T23:59:59.000Z') }, now),
+    ).toBe('failed');
+  });
+
+  it('lease가 없는 running도 잔재로 보아 failed로 표시한다', () => {
+    expect(deriveCatalogStatus({ status: 'running', leaseUntil: null }, now)).toBe('failed');
+  });
+
+  it('유효한 lease가 남은 running은 그대로 running이다', () => {
+    expect(
+      deriveCatalogStatus({ status: 'running', leaseUntil: new Date('2026-07-22T00:30:00.000Z') }, now),
+    ).toBe('running');
+  });
+
+  it('running이 아닌 상태와 원장 없음은 기존 매핑을 유지한다', () => {
+    expect(deriveCatalogStatus({ status: 'completed', leaseUntil: null }, now)).toBe('completed');
+    expect(deriveCatalogStatus({ status: 'queued', leaseUntil: null }, now)).toBe('queued');
+    expect(deriveCatalogStatus(null, now)).toBeNull();
   });
 });

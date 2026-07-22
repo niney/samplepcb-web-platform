@@ -8,6 +8,11 @@ const prismaMocks = vi.hoisted(() => ({
   ingestRunFindUnique: vi.fn(),
   ingestRunFindUniqueOrThrow: vi.fn(),
   transaction: vi.fn(),
+  indexQueueFindMany: vi.fn(),
+  indexQueueCount: vi.fn(),
+  indexQueueFindFirst: vi.fn(),
+  indexQueueCreate: vi.fn(),
+  indexQueueUpdateMany: vi.fn(),
 }));
 
 vi.mock('./prisma', () => ({
@@ -21,11 +26,23 @@ vi.mock('./prisma', () => ({
       findUnique: prismaMocks.ingestRunFindUnique,
       findUniqueOrThrow: prismaMocks.ingestRunFindUniqueOrThrow,
     },
+    spPartIndexQueue: {
+      findMany: prismaMocks.indexQueueFindMany,
+      count: prismaMocks.indexQueueCount,
+      findFirst: prismaMocks.indexQueueFindFirst,
+      create: prismaMocks.indexQueueCreate,
+      updateMany: prismaMocks.indexQueueUpdateMany,
+    },
     $transaction: prismaMocks.transaction,
   },
 }));
 
-import { ingestSupplierSearchResult, ingestSupplierSearchResultOnce } from './parts-ingest';
+import {
+  drainIndexQueue,
+  ingestSupplierSearchResult,
+  ingestSupplierSearchResultOnce,
+  queuePartIndex,
+} from './parts-ingest';
 
 function uniqueConflict(modelName: string): Prisma.PrismaClientKnownRequestError {
   return new Prisma.PrismaClientKnownRequestError('unique race', {
@@ -158,5 +175,62 @@ describe('parts ingest P2002 race recovery', () => {
         isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
       }),
     );
+  });
+});
+
+describe('색인 큐 poison 정책', () => {
+  it('드레인은 살아있는 행만 attempts 오름차순으로 조회하고 dead 카운트를 함께 보고한다', async () => {
+    // live 행이 없으면 per-part 처리는 건너뛰고 remaining/dead 집계만 반환한다.
+    prismaMocks.indexQueueFindMany.mockResolvedValueOnce([]);
+    prismaMocks.indexQueueCount
+      .mockResolvedValueOnce(3) // remaining = attempts < 상한(살아있는 행)
+      .mockResolvedValueOnce(7); // dead = attempts >= 상한(dead-letter)
+
+    await expect(drainIndexQueue()).resolves.toEqual({ drained: 0, remaining: 3, dead: 7 });
+
+    // 신규 행(attempts 0)이 늘 먼저 오도록 attempts→queuedAt 오름차순, 상한 미만만 조회한다.
+    expect(prismaMocks.indexQueueFindMany).toHaveBeenCalledWith({
+      where: { attempts: { lt: 20 } },
+      orderBy: [{ attempts: 'asc' }, { queuedAt: 'asc' }],
+      take: 200,
+    });
+    expect(prismaMocks.indexQueueCount).toHaveBeenNthCalledWith(1, { where: { attempts: { lt: 20 } } });
+    expect(prismaMocks.indexQueueCount).toHaveBeenNthCalledWith(2, { where: { attempts: { gte: 20 } } });
+  });
+
+  it('queuePartIndex: 큐 행이 없으면 새로 만든다', async () => {
+    prismaMocks.indexQueueFindFirst.mockResolvedValueOnce(null);
+
+    await queuePartIndex(11n, 'first failure');
+
+    expect(prismaMocks.indexQueueCreate).toHaveBeenCalledWith({
+      data: { partId: 11n, reason: 'first failure' },
+    });
+    expect(prismaMocks.indexQueueUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('queuePartIndex: 살아있는(attempts<상한) 행은 건드리지 않는다(no-op)', async () => {
+    prismaMocks.indexQueueFindFirst.mockResolvedValueOnce({ id: 5n, attempts: 3 });
+
+    await queuePartIndex(11n, 'drain failure retry');
+
+    expect(prismaMocks.indexQueueCreate).not.toHaveBeenCalled();
+    expect(prismaMocks.indexQueueUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('queuePartIndex: dead-letter(attempts>=상한) 행은 attempts를 0으로 되돌려 부활시킨다', async () => {
+    // queuedAt은 new Date()라 시스템 시각을 고정해 전체 인자를 정확히 단언한다.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T00:00:00.000Z'));
+    prismaMocks.indexQueueFindFirst.mockResolvedValueOnce({ id: 5n, attempts: 20 });
+
+    await queuePartIndex(11n, 'new change evidence');
+
+    // update가 아닌 updateMany — 드레인 deleteMany와 경합해도 P2025를 던지지 않는다.
+    expect(prismaMocks.indexQueueUpdateMany).toHaveBeenCalledWith({
+      where: { id: 5n },
+      data: { attempts: 0, reason: 'new change evidence', queuedAt: new Date('2026-07-22T00:00:00.000Z') },
+    });
+    expect(prismaMocks.indexQueueCreate).not.toHaveBeenCalled();
   });
 });
