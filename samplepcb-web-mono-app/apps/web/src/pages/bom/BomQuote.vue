@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useQueryClient } from '@tanstack/vue-query';
 import { ApiRequestError } from '@sp/shared';
 import {
+  type BomQuoteDetailResponseType,
   type BomQuoteDetailType,
   type BomQuoteItemType,
   type BomQuoteSelectedOfferType,
@@ -51,6 +53,7 @@ import icPanelQuote from '../../assets/bom/ic-panel-quote.svg';
 
 const route = useRoute();
 const router = useRouter();
+const qc = useQueryClient();
 const quoteId = computed(() => String(route.params.id ?? ''));
 // 상단바 우측 접기 버튼과 공유 — 이 페이지의 우측 패널(AI 분석결과·주문 정보·예상 견적)
 const { rightOpen } = useBomPanels();
@@ -280,10 +283,11 @@ function markDirty(): void {
 
 async function saveNow(): Promise<void> {
   if (!isDraft.value || !dirty.value) return;
+  const id = quoteId.value;
   saveState.value = 'saving';
   try {
     const saved = await patch.mutateAsync({
-      quoteId: quoteId.value,
+      quoteId: id,
       body: {
         setQty: setQty.value,
         spareQty: spareQty.value,
@@ -306,10 +310,16 @@ async function saveNow(): Promise<void> {
       },
     });
     dirty.value = false;
-    // 캐시는 mutation onSuccess에서 먼저 바뀌지만 위 watcher는 당시 dirty라 응답을
-    // 건너뛴다. 서버가 확정한 후보·오퍼·금액을 저장 응답에서 직접 동기화한다.
-    applyServerDetail(saved.data);
     saveState.value = 'saved';
+    // 저장 응답(raw)은 전 항목이 새 참조라, 이 응답을 그대로 적용하면 행 단위 재렌더
+    // 격리(BomQuoteRow props 참조 유지)가 깨진다. onSuccess 가 이미 setQueryData(structural
+    // sharing)로 갱신한 상세 캐시에서 다시 읽어, 안 바뀐 항목의 참조 안정을 유지한다.
+    // observer(quote.data) 반영은 notifyManager 배치라 resolve 시점에 보장되지 않으므로
+    // getQueryData 로 직접 조회한다. 저장 중 다른 견적으로 이동했다면 이전 응답으로 새
+    // 화면의 items 를 덮지 않도록 건너뛴다.
+    if (quoteId.value !== id) return;
+    const cached = qc.getQueryData<BomQuoteDetailResponseType>(['bom', 'quote', id]);
+    applyServerDetail(cached?.data ?? saved.data);
   } catch {
     saveState.value = 'error';
   }
@@ -401,12 +411,17 @@ async function applyManagedSheets(): Promise<void> {
     sheetSelectionError.value = '변경사항을 저장하지 못해 시트 구성을 바꾸지 않았습니다.';
     return;
   }
+  const id = quoteId.value;
   try {
     const saved = await updateSheets.mutateAsync({
-      quoteId: quoteId.value,
+      quoteId: id,
       body: { sheetIndexes: [...managedSheetIndexes.value].sort((a, b) => a - b) },
     });
-    applyServerDetail(saved.data);
+    // 저장 중 다른 견적으로 이동했다면 이 응답·뷰 리셋으로 새 화면을 건드리지 않는다.
+    if (quoteId.value !== id) return;
+    // saveNow 와 같은 이유 — 캐시(structural sharing)에서 읽어 참조 안정을 유지한다.
+    const cached = qc.getQueryData<BomQuoteDetailResponseType>(['bom', 'quote', id]);
+    applyServerDetail(cached?.data ?? saved.data);
     activeResultSheet.value = 'all';
     clearResultFilters();
     sheetManagerOpen.value = false;

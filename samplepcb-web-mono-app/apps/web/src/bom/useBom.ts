@@ -150,14 +150,27 @@ export function useBuildBomQuote() {
   );
 }
 
+/**
+ * 응답을 상세 캐시에 setQueryData 로 먼저 반영한다 — applyManagedSheets 의 캐시 read-back 이
+ * 참조 안정(structural sharing)을 전제로 하기 때문. 공용 useQuoteMutation 은 다른 뮤테이션이
+ * 공유하므로 전용 useMutation 으로 분리했다. ['bom'] 무효화는 목록·후보 갱신용으로 유지하며,
+ * 뒤따르는 상세 refetch 가 deep-equal 이면 참조가 보존돼 재렌더를 유발하지 않는다.
+ */
 export function useUpdateBomQuoteSheets() {
-  return useQuoteMutation(({
-    quoteId,
-    body,
-  }: {
-    quoteId: string;
-    body: BomQuoteSheetSelectionBodyType;
-  }) => apiSend('PUT', `${base}/quotes/${quoteId}/sheets`, body, BomQuoteDetailResponse));
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      body,
+    }: {
+      quoteId: string;
+      body: BomQuoteSheetSelectionBodyType;
+    }) => apiSend('PUT', `${base}/quotes/${quoteId}/sheets`, body, BomQuoteDetailResponse),
+    onSuccess: (data, { quoteId }) => {
+      qc.setQueryData(['bom', 'quote', quoteId], data);
+      void qc.invalidateQueries({ queryKey: ['bom'] });
+    },
+  });
 }
 
 export function usePrepareBomQuoteSheets() {
