@@ -61,6 +61,20 @@ class FieldAlternative(BaseModel):
     ]
 
 
+class RowShapeEvidence(BaseModel):
+    """가변 폭 행의 원본 구조와 결정적 복구 계보."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["recovered", "invalid"]
+    source_width: int
+    expected_width: int
+    merged_column_1based: Optional[int] = None
+    merged_fragment_count: Optional[int] = None
+    source_cells: List[str]
+    repaired_cells: Optional[List[str]] = None
+
+
 class ComponentRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -105,6 +119,7 @@ class ComponentRecord(BaseModel):
     row_count: Optional[int] = None
     pitch_mm: Optional[float] = None
     body_dimensions_mm: Optional[List[float]] = None
+    row_shape: Optional[RowShapeEvidence] = None
     voltage_v: Optional[float] = None
     current_a: Optional[float] = None
     frequency_hz: Optional[float] = None

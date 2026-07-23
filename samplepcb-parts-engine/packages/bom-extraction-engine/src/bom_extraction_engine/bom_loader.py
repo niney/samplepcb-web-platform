@@ -62,10 +62,18 @@ def _load_csv(path: str) -> pd.DataFrame:
     rows = list(_csv.reader(io.StringIO(text), delimiter=delimiter))
     if not rows:
         return pd.DataFrame()
+    source_row_widths = [len(row) for row in rows]
     width = max(len(r) for r in rows)
     data = [[(c if c != "" else None) for c in r] + [None] * (width - len(r))
             for r in rows]
-    return pd.DataFrame(data, dtype=object)
+    frame = pd.DataFrame(data, dtype=object)
+    # Padding deliberately makes ragged rows rectangular. Keep their original
+    # widths so the workbook layer can distinguish a truly empty trailing
+    # column from an unquoted delimiter inside a data cell after header roles
+    # are known.
+    frame.attrs["source_row_widths"] = source_row_widths
+    frame.attrs["source_delimiter"] = delimiter
+    return frame
 
 
 def get_sheet_names(path: str) -> List[str]:

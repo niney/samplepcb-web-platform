@@ -221,11 +221,18 @@ def norm_inductance(s) -> Optional[float]:
     if m:
         num = float(f"{m.group(1)}.{m.group(3)}")
         return num * {"p": 1e-12, "n": 1e-9, "u": 1e-6, "m": 1e-3}[m.group(2)]
-    m = re.fullmatch(rf"({_NUM})(p|n|u|m)?h(enry)?", t)
+    m = re.fullmatch(rf"({_NUM})(p|n|u|m)h?(?:enry)?", t)
+    if m:
+        return float(m.group(1)) * {
+            "p": 1e-12,
+            "n": 1e-9,
+            "u": 1e-6,
+            "m": 1e-3,
+        }[m.group(2)]
+    m = re.fullmatch(rf"({_NUM})h(enry)?", t)
     if not m:
         return None
-    mult = {None: 1.0, "p": 1e-12, "n": 1e-9, "u": 1e-6, "m": 1e-3}[m.group(2)]
-    return float(m.group(1)) * mult
+    return float(m.group(1))
 
 
 _NUMERIC_NORMS["inductance"] = norm_inductance

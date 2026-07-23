@@ -23,8 +23,8 @@ from .workbook import HeaderNotFound, build_case, get_sheet_names
 
 logger = logging.getLogger(__name__)
 
-PARSER_VERSION = "smartbom-rules/1.5 (bom_probing_claude port)"
-SCHEMA_VERSION = "1.2"
+PARSER_VERSION = "smartbom-rules/1.6 (mixed-column and ragged-row rules)"
+SCHEMA_VERSION = "1.3"
 
 ProgressCallback = Callable[[str, int, str], None]
 

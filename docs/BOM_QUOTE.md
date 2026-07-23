@@ -36,7 +36,9 @@
 - `sp_bom_analysis_run/sheet/component`: 엔진 분석 1회를 append-only로 보존한다. component의
   `payload`는 엔진 `ComponentRecord` JSON을 변환 없이 그대로 박제하고, componentId·시트·원본 행·
   상태·검색 텍스트처럼 정렬/조인에 필요한 안정 필드만 열로 승격한다. 알 수 없는 신규 엔진 필드도
-  런타임에서 보존되며, 조회 계층이 늦게 따라가도 원본 데이터는 유실되지 않는다.
+  런타임에서 보존되며, 조회 계층이 늦게 따라가도 원본 데이터는 유실되지 않는다. 추출 계약 1.3의
+  가변 폭 CSV 복구 계보(`row_shape`: 원본/복구 셀·병합 열)도 같은 payload에 보존하고,
+  `row_shape_recovered|row_shape_invalid` 검토 신호는 화면에서 쉬운 한국어 문구로 표시한다.
 - `sp_bom_supplier_search_run`: 어떤 분석 run과 옵션으로 독립 공급사 검색을 실행했는지,
   엔진 jobId·preflight·상태·오류·시각과 완료 시 실제 API 호출·캐시 적중·소요시간·한도 소진
   요약을 영속한다. 엔진 재시작으로 잡이 사라지면 같은 분석 스냅샷에서 새 실행을 만들 수 있다.

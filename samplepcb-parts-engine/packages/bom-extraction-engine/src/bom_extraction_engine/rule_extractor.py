@@ -39,7 +39,7 @@ _PN_PAT = re.compile(r"part[\s\-_]*(number|no|name)|mpn|\bp/?no?\b|품번"
 _DIST_PAT = re.compile(  # 유통사 열 — PN 열보다 먼저 걸러낸다 (Digikey_PN 등)
     r"digi[\s\-_]?key|mouser|farnell|lcsc|element14|distributor|supplier"
     r"|newark|arrow|tme|unikey|^rs$|구매처|유통")
-_DESIG_PAT = re.compile(r"designator|reference|location|ref\s*des|^ref\b")
+_DESIG_PAT = re.compile(r"designator|reference|location|ref\s*des|^refs?\b")
 _QTY_PAT = re.compile(r"q['`]?n?ty|quantity|수량|소요량|\bcount\b|개수")
 _QTY_NEG = re.compile(  # 구매/재고성 수량 열 — 보드당 수량이 아님 (gpt 증류)
     r"purchase|order|required|total|stock|spare"
@@ -66,6 +66,51 @@ _UNIT_EXACT = {"a": "current", "w": "power", "v": "voltage",
                "rated power": "power", "rated voltage": "voltage",
                "rated current": "current"}
 
+_COMPOSITE_HEADER_SPLIT = re.compile(r"[/\\|\n]+")
+_COMPOSITE_VALUE_TERMS = {
+    "value",
+    "comment",
+    "spec",
+    "specification",
+    "rating",
+    "값",
+    "규격",
+    "사양",
+}
+_COMPOSITE_IDENTITY_TERMS = {
+    "part",
+    "part number",
+    "part no",
+    "part num",
+    "pn",
+    "p n",
+    "mpn",
+    "품번",
+    "부품번호",
+}
+
+
+def _mixed_value_identity_header(label: str) -> bool:
+    """복합 라벨이 value와 identity 의미를 모두 명시하는지 판정한다.
+
+    이 열은 기존 value 열의 셀별 이중 의미 파서로 보낸다. 따라서 열을
+    버리지 않으면서도 모든 셀을 제조사 품번으로 선언하지 않는다.
+    """
+
+    terms = {
+        _norm_label(term).replace(".", "")
+        for term in _COMPOSITE_HEADER_SPLIT.split(str(label or ""))
+        if _norm_label(term)
+    }
+    return bool(
+        terms & _COMPOSITE_VALUE_TERMS
+        and terms & _COMPOSITE_IDENTITY_TERMS
+    )
+
+
+def _explicit_value_identity_header(label: str) -> bool:
+    return _norm_label(label) == "value" or _mixed_value_identity_header(label)
+
 
 def classify_columns(labels: List[str]) -> Dict[str, List[int]]:
     """헤더 라벨 → 역할별 열 인덱스 목록 (열 순서 유지)."""
@@ -74,7 +119,10 @@ def classify_columns(labels: List[str]) -> Dict[str, List[int]]:
         lab = _norm_label(raw)
         if not lab:
             continue
-        if _DIST_PAT.search(lab):
+        if _mixed_value_identity_header(raw):
+            # ``Value/Part``와 ``Value/MPN``은 셀 단위 합집합이다.
+            role = "value"
+        elif _DIST_PAT.search(lab):
             role = "ignore"      # "Digikey_PN"·"Supplier Part"는 유통 코드 열
         elif _LIBRARY_REF_PAT.fullmatch(lab):
             # CAD library references are often generic symbols/footprints.
@@ -251,8 +299,12 @@ _RE_VOLT = re.compile(  # 범위와 소수 쉼표를 보존하고 Y5V 같은 유
 _RE_CUR = re.compile(  # 좌경계 — PN 꼬리("5569-20A", "…105A")의 오탐 차단.
     r"(?<![A-Za-z0-9._-])\d+(?:\.\d+)?\s*(?:[mu]?A|Amps?)\+?(?![A-Za-z0-9])",
     re.I)  # "700mA+"의 '+'(최소 사양 표기)는 원문 보존
-_RE_BARE_UNIT = re.compile(  # 단위 문자 생략 표기 "4.7u", "100n" — 게이팅 전용
-    r"(?<![A-Za-z0-9.])\d+(?:\.\d+)?[unm]\b(?![FHAVW])", re.I)
+_RE_BARE_UNIT = re.compile(  # 단위 문자 생략 표기 "4.7u", "100p" — 게이팅 전용
+    r"(?<![A-Za-z0-9.])\d+(?:\.\d+)?[punm]\b(?![FHAVW])", re.I)
+_RE_PASSIVE_QUALIFIER = re.compile(
+    r"(?:C0G|NP0|X5R|X7R|Y5V|Z5U|FILM|CERAMIC|TANTAL(?:UM)?)",
+    re.I,
+)
 _RE_FREQ = re.compile(  # 대역 범위("2.4GHz ~ 2.4835GHz")는 통째로
     r"\d+(?:\.\d+)?\s*[KMG]?Hz(?:\s*~\s*\d+(?:\.\d+)?\s*[KMG]?Hz)?", re.I)
 _RE_TEMP = re.compile(  # "-40~+85C", "-55℃ ~ 155℃", "-65 to 150 degC"
@@ -358,7 +410,8 @@ _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
                          r"|다이오드|제너|쇼트키", re.I)),
     ("connector", re.compile(
         r"conn\b|connector|socket|plug|header|\bhdr\b|rece|jack|\bbtb\b|\busb\b"
-        r"|\bjst\b|커넥터|콘넥터|컨넥터|컨낵터|하네스", re.I)),
+        r"|\bjst\b|terminal\s*block|terminalblock|커넥터|콘넥터|컨넥터"
+        r"|컨낵터|하네스|단자대", re.I)),
     ("inductor", re.compile(r"inductor|\bind\b|bead|ferrite|choke"
                             r"|인덕터|비드|초크", re.I)),
     ("capacitor", re.compile(r"capacitor|\bcap\b|mlcc"
@@ -447,6 +500,7 @@ _DESIG_TYPE = {"R": "resistor", "C": "capacitor", "L": "inductor",
                "TR": "transistor", "ZD": "diode", "LD": "led",
                "Y": "crystal", "X": "crystal", "XTAL": "crystal",
                "J": "connector", "CN": "connector", "CON": "connector",
+               "TB": "connector",
                "USB": "connector", "LED": "led", "SW": "other",
                "TP": "other", "MT": "other", "ANT": "other", "BT": "other",
                "T": "other"}
@@ -1258,6 +1312,7 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
     pkg_value_col = None
     extra_texts = []          # 미해석 텍스트는 프리텍스트(blob)로 편입
     pending_bare_res = None   # bare 숫자("0.02","470") — resistor 확정 후 적용
+    pending_bare_unit = None  # 부류 확정 뒤 u/n/m의 차원을 결정
     nc_row = False            # NC 단독/접두 셀("NC, [NoValue]") — 미실장 행
     for i in roles.get("value", []):
         c = cell(i)
@@ -1450,8 +1505,12 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
                 cls.append("val")
             elif _RE_RES_CODE.match(s):
                 cls.append("res")
+            elif _RE_BARE_UNIT.fullmatch(s):
+                cls.append("bare_unit")
             elif _RE_RES_BARE.match(s):
                 cls.append("bare")
+            elif _RE_PASSIVE_QUALIFIER.fullmatch(s):
+                cls.append("qualifier")
             elif s.upper() in ("NC", "N.C", "N.C."):
                 cls.append("nc")
             elif _pkg_from_cell(s) == s:
@@ -1479,7 +1538,7 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         # 무시하고 해석한다 — 세그 4개+일 때만 (짧은 셀은 오분해 위험)
         allowed_unknown = 1 if len(segs) >= 4 else 0
         if cls.count("?") <= allowed_unknown \
-                and (any(k in cls for k in ("val", "res", "bare"))
+                and (any(k in cls for k in ("val", "res", "bare", "bare_unit"))
                      or (len(cls) >= 2
                          and cls.count("pkg") == len(cls))):
             # 패키지 병기 셀("6.2X6.2/SMD")도 구체 표기를 회수한다
@@ -1493,6 +1552,8 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
                     put_resistance_code(s)
                 elif k == "bare" and pending_bare_res is None:
                     pending_bare_res = s
+                elif k == "bare_unit" and pending_bare_unit is None:
+                    pending_bare_unit = s
                 elif k == "pkg":
                     if pkg_value_col is None or (
                             pkg_value_col in ("SMD", "DIP")
@@ -1507,7 +1568,7 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         if stripped_nc:
             # "NC/BLM18KG…" — 잔여가 PN형이면 대체 PN, 아니면 버림
             if ((len(c) >= 5
-                 or (_norm_label(labels[i]) == "value" and len(c) >= 4
+                 or (_explicit_value_identity_header(labels[i]) and len(c) >= 4
                      and sum(ch.isalpha() for ch in c) >= 2
                      and sum(ch.isdigit() for ch in c) >= 2))
                     and _looks_like_pn(c) and not _pn_reject(c)):
@@ -1533,7 +1594,7 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
             pn_cand = body_s           # "MP2143DJ/TSOT23-8" — PN/패키지
             pkg_value_col = pkg_value_col or tail_pkg
         elif ((len(c) >= 5
-               or (_norm_label(labels[i]) == "value" and len(c) >= 4
+               or (_explicit_value_identity_header(labels[i]) and len(c) >= 4
                    and sum(ch.isalpha() for ch in c) >= 2
                    and sum(ch.isdigit() for ch in c) >= 2))
               and _looks_like_pn(c) and not _pn_reject(c)):
@@ -1779,7 +1840,11 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
     _bare_fld = {"capacitor": "capacitance",
                  "inductor": "inductance"}.get(val.get("part_type"))
     if _bare_fld and _bare_fld not in val:
-        m = _RE_BARE_UNIT.search(blob or "")
+        m = (
+            _RE_BARE_UNIT.fullmatch(pending_bare_unit)
+            if pending_bare_unit
+            else _RE_BARE_UNIT.search(blob or "")
+        )
         part_number_bare = False
         if not m:
             part_number_value = str(val.get("part_number") or "").strip()
@@ -1793,7 +1858,11 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
                 m = candidate
                 part_number_bare = True
         if m:
-            put(_bare_fld, m.group().strip(), "text")
+            put(
+                _bare_fld,
+                m.group().strip(),
+                "col" if pending_bare_unit else "text",
+            )
             if part_number_bare:
                 # A passive value column can be mislabeled as a part-number
                 # column.  Once type and adjacent specification evidence agree,
@@ -1957,10 +2026,19 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
     electrical_type = next(iter(electrical_types)) if len(electrical_types) == 1 else None
     reference_type = desig_part_type(str(val.get("reference") or ""))
     current_type = str(val.get("part_type") or "") or None
+
+    def type_incompatible(left: Optional[str], right: Optional[str]) -> bool:
+        if not left or not right or left == right:
+            return False
+        # Reference prefixes are deliberately broad. LED is a concrete diode
+        # subtype, so D1 + LED_0603 is hierarchical corroboration rather than
+        # a category conflict.
+        return {left, right} != {"diode", "led"}
+
     type_conflict = bool(
-        (electrical_type and current_type and electrical_type != current_type)
-        or (reference_type and current_type and reference_type != current_type)
-        or (electrical_type and reference_type and electrical_type != reference_type)
+        type_incompatible(electrical_type, current_type)
+        or type_incompatible(reference_type, current_type)
+        or type_incompatible(electrical_type, reference_type)
     )
     if (
         electrical_type
@@ -2522,14 +2600,94 @@ def compute_roles(case: dict) -> Dict[str, List[int]]:
     return roles
 
 
+_INSTANCE_LABEL = re.compile(
+    r"^(?P<stem>[A-Za-z][A-Za-z_-]{2,})(?P<index>\d{1,4})$"
+)
+_REFERENCE_INSTANCE = re.compile(r"^[A-Za-z]{1,4}\$?(?P<index>\d+)$")
+
+
+def _functional_label_rows(
+    roles: Dict[str, List[int]], rows: List[dict]
+) -> set[int]:
+    """혼합 value/identity 열에서 반복 회로 인스턴스 라벨을 찾는다.
+
+    같은 물리 풋프린트와 value stem을 공유하는 행이 세 개 이상이고, 각 값의
+    숫자 접미사가 자신의 단일 참조번호 접미사와 일치할 때만 identity를
+    억제한다. 행 순서, 파일명, 특정 라벨 문자열에는 의존하지 않는다.
+    """
+
+    value_columns = roles.get("value", [])
+    reference_columns = roles.get("designator", [])
+    physical_columns = [
+        *roles.get("footprint", []),
+        *roles.get("package", []),
+    ]
+    if not value_columns or not reference_columns or not physical_columns:
+        return set()
+
+    groups: Dict[tuple[int, str, str], List[int]] = {}
+    for row in rows:
+        cells = [str(value or "").strip() for value in row.get("cells") or []]
+        references: List[str] = []
+        for column in reference_columns:
+            if column >= len(cells):
+                continue
+            references = reference_designators(cells[column]) or []
+            if references:
+                break
+        if len(references) != 1:
+            continue
+        reference_match = _REFERENCE_INSTANCE.fullmatch(references[0])
+        if not reference_match:
+            continue
+        reference_index = int(reference_match.group("index"))
+        physical = next(
+            (
+                re.sub(r"\s+", " ", cells[column]).casefold()
+                for column in physical_columns
+                if column < len(cells) and cells[column]
+            ),
+            "",
+        )
+        if not physical:
+            continue
+        physical_type = infer_part_type(_TYPE_SEP.sub(" ", physical))
+        reference_type = desig_part_type(references[0])
+        if physical_type != "connector" and reference_type not in {
+            "connector",
+            "other",
+        }:
+            continue
+        for column in value_columns:
+            if column >= len(cells):
+                continue
+            match = _INSTANCE_LABEL.fullmatch(cells[column])
+            if not match or int(match.group("index")) != reference_index:
+                continue
+            key = (column, match.group("stem").casefold(), physical)
+            groups.setdefault(key, []).append(int(row["row_id"]))
+
+    return {
+        row_id
+        for row_ids in groups.values()
+        if len(set(row_ids)) >= 3
+        for row_id in row_ids
+    }
+
+
 def extract_case(case: dict, roles: Optional[Dict[str, List[int]]] = None,
                  ) -> Tuple[Dict[int, RowAttrs], Dict[int, Dict[str, str]]]:
     if roles is None:
         roles = compute_roles(case)
+    functional_label_rows = _functional_label_rows(roles, case["rows"])
     preds, sources = {}, {}
     for row in case["rows"]:
         attrs, src = extract_row(case["header_labels"], roles,
                                  row["cells"], row["row_id"])
+        if row["row_id"] in functional_label_rows and attrs.part_number is not None:
+            attrs = attrs.model_copy(update={"part_number": None})
+            src.pop("part_number", None)
+            src["_identity_suppressed"] = "functional_instance_label"
         preds[row["row_id"]] = attrs
         sources[row["row_id"]] = src
     return preds, sources

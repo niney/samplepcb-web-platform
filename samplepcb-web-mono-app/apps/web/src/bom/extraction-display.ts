@@ -40,6 +40,11 @@ const FIELD_LABELS: Record<string, string> = {
   size_code: '사이즈 코드',
 };
 
+const ALERT_LABELS: Record<string, string> = {
+  row_shape_recovered: 'CSV 행 구조 복구됨',
+  row_shape_invalid: 'CSV 행 구조 확인 필요',
+};
+
 const FIELD_ORDER = [
   'part_number',
   'manufacturer',
@@ -259,7 +264,9 @@ export function extractionAlerts(payload: Record<string, unknown>): string[] {
   return [...new Set(['uncertain_fields', 'quality_flags'].flatMap((key) => {
     const values = payload[key];
     return Array.isArray(values)
-      ? values.filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+      ? values
+          .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+          .map((value) => ALERT_LABELS[value] ?? value)
       : [];
   }))];
 }

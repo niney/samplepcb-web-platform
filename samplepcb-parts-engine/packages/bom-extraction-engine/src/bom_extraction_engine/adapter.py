@@ -107,15 +107,17 @@ _EXPLICIT_PIN_COUNT = re.compile(
     re.I,
 )
 _CONNECTOR_ARRAY = re.compile(
-    r"(?<![\d.])([1-9]\d?)\s*[x×]\s*([1-9]\d?)(?![\d.]|\s*mm\b)",
+    r"(?<![\d.])(0?[1-9]\d?)\s*[x×]\s*(0?[1-9]\d?)"
+    r"(?![\d.]|\s*mm\b)",
     re.I,
 )
 _CONNECTOR_CONTEXT = re.compile(
-    r"\b(?:header|hdr|connector|conn|socket|pin|row|pos(?:ition)?|way)\b",
+    r"\b(?:header|hdr|connector|conn|socket|pin|row|pos(?:ition)?|way)\b"
+    r"|pin[_ -]?header|terminal[_ -]?block",
     re.I,
 )
 _CONNECTOR_ARRAY_ONLY = re.compile(
-    r"\s*[1-9]\d?\s*[x×]\s*[1-9]\d?\s*(?:TH|THT|SMD|SMT)?\s*$",
+    r"\s*0?[1-9]\d?\s*[x×]\s*0?[1-9]\d?\s*(?:TH|THT|SMD|SMT)?\s*$",
     re.I,
 )
 _PITCH_EXPLICIT = re.compile(
@@ -132,6 +134,10 @@ _PITCH_BEFORE_PINS = re.compile(
 _PITCH_AFTER_PINS = re.compile(
     r"[1-9]\d{0,2}\s*(?:p|pins?)\b[^\d]{0,12}"
     r"(\d+(?:\.\d+)?)\s*mm\b",
+    re.I,
+)
+_PITCH_CAD_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9])P(\d+(?:\.\d+)?)\s*mm(?![A-Za-z0-9])",
     re.I,
 )
 _BODY_DIMENSIONS = re.compile(
@@ -181,6 +187,7 @@ def _connector_pitch_values(text: str) -> List[float]:
         values.append(float(next(group for group in match.groups() if group)))
     for pattern in (_PITCH_BEFORE_PINS, _PITCH_AFTER_PINS):
         values.extend(float(match.group(1)) for match in pattern.finditer(text))
+    values.extend(float(match.group(1)) for match in _PITCH_CAD_TOKEN.finditer(text))
     return list(dict.fromkeys(values))
 
 
@@ -570,7 +577,8 @@ class _SheetAdapter:
         return [observed[value] for value in sorted(observed)] if len(observed) > 1 else []
 
     def component(self, attrs: RowAttrs, src: Dict[str, str],
-                  cells: List[str]) -> Dict[str, Any]:
+                  cells: List[str],
+                  row_shape: Optional[dict] = None) -> Dict[str, Any]:
         row_1based = attrs.row_id + 1
         raw_fields = {f: getattr(attrs, f) for f in VALUE_FIELDS}
         field_states: Dict[str, dict] = {}
@@ -721,6 +729,12 @@ class _SheetAdapter:
                     }
                 )
         quality_flags: List[str] = []
+        if row_shape:
+            quality_flags.append(
+                "row_shape_recovered"
+                if row_shape.get("status") == "recovered"
+                else "row_shape_invalid"
+            )
         designator_indexes = set(self.roles.get("designator", []))
         if any(
             index not in designator_indexes
@@ -740,7 +754,7 @@ class _SheetAdapter:
             and "do_not_populate" not in quality_flags
         ):
             # Bare PCB test pad: keep it in the analysis result for audit, but
-            # do not spend supplier calls on it. Physical purchasable test
+            # do not spend supplier calls on it.  Physical purchasable test
             # points without the OPEN + TP-footprint evidence remain searchable.
             quality_flags.append("do_not_populate")
         all_text = " ".join(str(cell) for cell in cells if str(cell).strip())
@@ -932,6 +946,7 @@ class _SheetAdapter:
             "row_count": row_count,
             "pitch_mm": pitch_mm,
             "body_dimensions_mm": body_dimensions_mm,
+            "row_shape": row_shape,
             "raw_fields": raw_fields,
             "input_alternatives": input_alternatives,
             "field_states": field_states,
@@ -1012,6 +1027,12 @@ def adapt_sheet(case: dict, roles: Dict[str, List[int]],
         attrs = preds.get(row_id)
         if attrs is None:
             continue
-        components.append(sheet.component(attrs, sources.get(row_id, {}),
-                                          row["cells"]))
+        components.append(
+            sheet.component(
+                attrs,
+                sources.get(row_id, {}),
+                row["cells"],
+                row.get("row_shape"),
+            )
+        )
     return components, sheet.headers()

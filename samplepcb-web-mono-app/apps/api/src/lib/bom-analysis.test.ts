@@ -109,6 +109,7 @@ describe('BOM 분석 영속 계약', () => {
     expect(parsed.quantity_resolution).toBe('verified');
     expect(parsed.procurement_disposition).toBe('eligible');
     expect(parsed.input_alternatives).toEqual({});
+    expect(parsed.row_shape).toBeNull();
 
     const withPartNumberLineage = BomEngineAnalysisComponentStrict.parse({
       ...parsed,
@@ -131,6 +132,20 @@ describe('BOM 분석 영속 계약', () => {
     });
     expect(withPartNumberLineage.input_alternatives?.part_number?.map((item) => item.source_role))
       .toEqual(['part_number', 'library_reference']);
+
+    const withRecoveredRow = BomEngineAnalysisComponentStrict.parse({
+      ...parsed,
+      row_shape: {
+        status: 'recovered',
+        source_width: 5,
+        expected_width: 4,
+        merged_column_1based: 2,
+        merged_fragment_count: 2,
+        source_cells: ['PORT1', 'TerminalBlock_Family', 'Variant_1x02', '1', 'TB1'],
+        repaired_cells: ['PORT1', 'TerminalBlock_Family,Variant_1x02', '1', 'TB1'],
+      },
+    });
+    expect(withRecoveredRow.row_shape?.status).toBe('recovered');
   });
 
   it('필수 구조를 검증하면서 새 엔진 필드를 모든 계층에서 보존한다', () => {

@@ -19,6 +19,7 @@ from typing import List
 from .bom_loader import get_sheet_names, load_sheet  # noqa: F401 (재수출)
 from .fusion import FusionProber
 from .probe_base import ProbeResult
+from .row_features import reference_list_count
 from .serialize import (clean_cell, kept_columns, merge_header_labels,
                         nonempty_data_rows, row_cells)
 
@@ -196,6 +197,123 @@ def _is_footer_row(df, r: int) -> bool:
     return False
 
 
+def _recover_ragged_delimited_rows(df, header_row: int) -> dict[int, dict]:
+    """따옴표 없는 CSV 구분자를 좁고 결정적인 조건에서만 복구한다.
+
+    헤더에 인접한 수량/참조번호 열이 있고, 그 바로 앞의 단일 텍스트 열에만
+    초과 셀이 들어갔으며, 행 끝에서 정수 수량과 유효 참조번호가 확인될 때만
+    초과 셀을 다시 결합한다. 그 밖의 가변 폭 행은 그대로 두고 검토 대상으로
+    표시한다. 파일명·행 번호·관찰 문자열에는 의존하지 않는다.
+    """
+
+    widths = df.attrs.get("source_row_widths")
+    if not isinstance(widths, list) or header_row >= len(widths):
+        return {}
+    header_width = int(widths[header_row])
+    if header_width < 3:
+        return {}
+
+    # 모듈 로드 시점의 workbook→extractor 결합을 피하고, CSV 행 복구가
+    # 실제로 필요할 때만 헤더 역할 분류기를 사용한다.
+    from .rule_extractor import classify_columns
+
+    labels = [
+        clean_cell(df.iat[header_row, column])
+        for column in range(header_width)
+    ]
+    roles = classify_columns(labels)
+    quantity_columns = roles.get("quantity", [])
+    reference_columns = roles.get("designator", [])
+    if len(quantity_columns) != 1 or len(reference_columns) != 1:
+        return {}
+    quantity_column = quantity_columns[0]
+    reference_column = reference_columns[0]
+    join_column = quantity_column - 1
+    if reference_column != quantity_column + 1 or join_column < 0:
+        return {}
+
+    joinable_roles = {"package", "footprint", "description", "value"}
+    join_role = next(
+        (
+            role
+            for role, columns in roles.items()
+            if join_column in columns and role in joinable_roles
+        ),
+        None,
+    )
+    if join_role is None:
+        return {}
+
+    delimiter = str(df.attrs.get("source_delimiter") or ",")
+    outcomes: dict[int, dict] = {}
+    for row_index in range(header_row + 1, min(len(widths), df.shape[0])):
+        source_width = int(widths[row_index])
+        if source_width <= header_width:
+            continue
+        source_cells = [
+            clean_cell(df.iat[row_index, column])
+            for column in range(source_width)
+        ]
+        surplus = source_width - header_width
+        shifted_quantity = quantity_column + surplus
+        shifted_reference = reference_column + surplus
+        quantity_text = (
+            source_cells[shifted_quantity]
+            if shifted_quantity < len(source_cells)
+            else ""
+        )
+        reference_text = (
+            source_cells[shifted_reference]
+            if shifted_reference < len(source_cells)
+            else ""
+        )
+        fragments = source_cells[join_column:shifted_quantity]
+        recoverable = bool(
+            shifted_reference == source_width - 1
+            and re.fullmatch(r"[+-]?\d+", quantity_text)
+            and reference_list_count(reference_text) is not None
+            and len(fragments) >= 2
+            and all(fragments)
+        )
+        if not recoverable:
+            outcomes[row_index] = {
+                "status": "invalid",
+                "source_width": source_width,
+                "expected_width": header_width,
+                "source_cells": source_cells,
+            }
+            continue
+
+        repaired = [
+            *source_cells[:join_column],
+            delimiter.join(fragments),
+            quantity_text,
+            reference_text,
+        ]
+        if len(repaired) != header_width:
+            outcomes[row_index] = {
+                "status": "invalid",
+                "source_width": source_width,
+                "expected_width": header_width,
+                "source_cells": source_cells,
+            }
+            continue
+        for column in range(df.shape[1]):
+            df.iat[row_index, column] = (
+                repaired[column] if column < len(repaired) else None
+            )
+        outcomes[row_index] = {
+            "status": "recovered",
+            "source_width": source_width,
+            "expected_width": header_width,
+            "merged_column_1based": join_column + 1,
+            "merged_fragment_count": len(fragments),
+            "source_cells": source_cells,
+            "repaired_cells": repaired,
+        }
+    return outcomes
+
+
 def build_case(path: Path, sheet_idx: int, display_name: str = "",
                sheet_name: str | None = None) -> dict:
     """엑셀 시트 → 추출 케이스 (rule_extractor.extract_case 입력).
@@ -213,6 +331,7 @@ def build_case(path: Path, sheet_idx: int, display_name: str = "",
     non_bom_reason = non_bom_sheet_reason(df, res.header_row)
     if non_bom_reason is not None:
         raise HeaderNotFound(non_bom_reason)
+    row_shapes = _recover_ragged_delimited_rows(df, res.header_row)
     header_rows: List[int] = [res.header_row]
     # 반복 헤더(다중 BOM 구간) 지원 — 같은 라벨의 헤더가 여러 번 나오면
     # ① 가장 이른 구간부터 시작(탐지가 뒤 구간을 찍어도 앞 구간 회수),
@@ -239,7 +358,13 @@ def build_case(path: Path, sheet_idx: int, display_name: str = "",
         "header_rows": header_rows,
         "header_labels": [labels[c] for c in cols],
         "column_indices": cols,
-        "rows": [{"row_id": r, "cells": row_cells(df, r, cols)}
-                 for r in data_rows],
+        "rows": [
+            {
+                "row_id": r,
+                "cells": row_cells(df, r, cols),
+                **({"row_shape": row_shapes[r]} if r in row_shapes else {}),
+            }
+            for r in data_rows
+        ],
         "detect_confidence": res.confidence,
     }

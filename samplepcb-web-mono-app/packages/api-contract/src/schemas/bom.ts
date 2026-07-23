@@ -33,6 +33,19 @@ export const BomAttribute = z
   })
   .passthrough();
 
+export const BomRowShape = z
+  .object({
+    status: z.enum(['recovered', 'invalid']),
+    source_width: z.number().int().min(0),
+    expected_width: z.number().int().min(0),
+    merged_column_1based: z.number().int().min(1).nullable().optional(),
+    merged_fragment_count: z.number().int().min(2).nullable().optional(),
+    source_cells: z.array(z.string()),
+    repaired_cells: z.array(z.string()).nullable().optional(),
+  })
+  .passthrough();
+export type BomRowShapeType = z.infer<typeof BomRowShape>;
+
 export const BomComponent = z
   .object({
     source_file: z.string().optional(),
@@ -66,6 +79,7 @@ export const BomComponent = z
     frequency_hz: z.number().nullable().optional(),
     temperature_min_c: z.number().nullable().optional(),
     temperature_max_c: z.number().nullable().optional(),
+    row_shape: BomRowShape.nullable().optional(),
     evidence_exact_rate: z.number().nullable().optional(),
     part_number_supported: z.boolean().nullable().optional(),
     confidence: z.number().nullable().optional(),

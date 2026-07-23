@@ -25,6 +25,8 @@ const fieldLabels: Record<string, string> = {
 const flagLabels: Record<string, string> = {
   quantity_not_found: '수량 미추출',
   field_without_direct_evidence: '직접 셀 근거 부족',
+  row_shape_recovered: 'CSV 행 구조 복구됨',
+  row_shape_invalid: 'CSV 행 구조 확인 필요',
 };
 
 const componentTitle = computed(() => {

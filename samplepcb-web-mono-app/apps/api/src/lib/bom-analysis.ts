@@ -41,6 +41,16 @@ const EngineFieldAlternative = z.object({
   ]),
 }).passthrough();
 
+const EngineRowShape = z.object({
+  status: z.enum(['recovered', 'invalid']),
+  source_width: z.number().int().min(0),
+  expected_width: z.number().int().min(0),
+  merged_column_1based: z.number().int().min(1).nullish(),
+  merged_fragment_count: z.number().int().min(2).nullish(),
+  source_cells: z.array(z.string()),
+  repaired_cells: z.array(z.string()).nullish(),
+}).passthrough();
+
 export const BomEngineAnalysisComponent = z.object({
   source_file: z.string(),
   sheet_name: z.string(),
@@ -81,6 +91,7 @@ export const BomEngineAnalysisComponent = z.object({
   row_count: z.number().int().min(0).nullish().optional(),
   pitch_mm: z.number().nullish().optional(),
   body_dimensions_mm: z.array(z.number()).nullish().optional(),
+  row_shape: EngineRowShape.nullish(),
   voltage_v: z.number().nullish(),
   current_a: z.number().nullish(),
   frequency_hz: z.number().nullish(),
@@ -108,6 +119,7 @@ const StrictEngineAttribute = z.object({
   evidence: z.array(StrictEngineEvidence),
 }).strict();
 const StrictEngineFieldAlternative = EngineFieldAlternative.strict();
+const StrictEngineRowShape = EngineRowShape.strict();
 
 /** 테스트/CI 전용 strict 계약. 런타임 저장은 위 passthrough 계약으로 새 필드를 먼저 보존한다. */
 export const BomEngineAnalysisComponentStrict = BomEngineAnalysisComponent.extend({
@@ -115,6 +127,7 @@ export const BomEngineAnalysisComponentStrict = BomEngineAnalysisComponent.exten
   field_states: z.record(z.string(), StrictEngineFieldState),
   evidence: z.array(StrictEngineEvidence),
   attributes: z.array(StrictEngineAttribute),
+  row_shape: StrictEngineRowShape.nullish(),
 }).strict();
 
 export const BomEngineAnalysisSheet = z.object({
