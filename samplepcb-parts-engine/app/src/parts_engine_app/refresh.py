@@ -11,6 +11,7 @@ from supplier_search_engine.cache import CacheLookup, SQLiteCache
 from supplier_search_engine.contract import build_batch_from_result
 from supplier_search_engine.normalization import package_from_text
 from supplier_search_engine.normalizer import normalize_component_text
+from supplier_search_engine.models import ProcurementPolicyInput
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings as SearchSettings
 
@@ -56,7 +57,7 @@ def _single_part_batch(part_number: str, manufacturer: str | None):
     return build_batch_from_result(result)
 
 
-def _catalog_search_batch(query: str):
+def _catalog_search_batch(query: str, needed: int = 1):
     """자유 규격 검색어 1건을 기존 검색 계약으로 변환한다.
 
     공급사 쿼리 계획·정규화·후보 판단은 SearchService가 맡는다. 앱 계층은
@@ -124,7 +125,11 @@ def _catalog_search_batch(query: str):
             "status": "extracted",
             "source": "text",
         }
-    field_states["quantity"] = {"value": 1, "status": "extracted", "source": "infer"}
+    field_states["quantity"] = {
+        "value": needed,
+        "status": "extracted",
+        "source": "request",
+    }
     component.update(
         {
             "sheet_name": "catalog-search",
@@ -133,7 +138,7 @@ def _catalog_search_batch(query: str):
             "review_status": "extracted",
             "description": query,
             "value_raw": query,
-            "quantity": 1,
+            "quantity": needed,
             "field_states": field_states,
         }
     )
@@ -168,14 +173,26 @@ async def search_catalog(
     config: Config,
     query: str,
     *,
+    needed: int = 1,
     max_calls: int = 12,
+    procurement_policy: ProcurementPolicyInput | None = None,
 ) -> dict[str, Any]:
-    """사용자 규격 검색 → 캐시 우선 공급사 보강 결과. 호출부가 동기 인제스트한다."""
-    batch = _catalog_search_batch(query)
+    """사용자 규격 검색 → 캐시 우선 공급사 결과와 현재 수량·환율 조달 판정."""
+    batch = _catalog_search_batch(query, needed)
+    batch = batch.model_copy(
+        update={
+            "procurement_policy": procurement_policy or ProcurementPolicyInput(),
+        },
+        deep=True,
+    )
     settings = SearchSettings.from_env()
     settings.cache_path = config.supplier_cache_path
     settings.max_api_calls_per_job = max_calls
     cache = SQLiteCache(settings.cache_path)
     async with SearchService(settings, cache=cache) as service:
         result = await service.search_batch(batch)
-    return {"search": result.model_dump(mode="json")}
+    return {
+        "supplier_search_schema_version": result.search_schema_version,
+        "procurement_decision_contract_status": "current",
+        "search": result.model_dump(mode="json"),
+    }

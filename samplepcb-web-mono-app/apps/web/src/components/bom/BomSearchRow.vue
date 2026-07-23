@@ -30,7 +30,16 @@ function fmtMoney(value: number, currency: string): string {
 
 const lineTotal = computed(() => {
   const offer = applied.value;
-  return offer === null ? null : fmtMoney(offer.unitPrice * offer.orderQty, offer.currency);
+  if (offer === null) return null;
+  return offer.lineTotalKrw === null
+    ? fmtMoney(offer.unitPrice * offer.orderQty, offer.currency)
+    : fmtMoney(offer.lineTotalKrw, 'KRW');
+});
+
+const convertedUnitPrice = computed(() => {
+  const offer = applied.value;
+  if (offer === null || offer.currency === 'KRW' || offer.unitPriceKrw === null) return null;
+  return fmtMoney(offer.unitPriceKrw, 'KRW');
 });
 </script>
 
@@ -55,6 +64,7 @@ const lineTotal = computed(() => {
         </div>
         <div class="min-w-0 pt-[22px]">
           <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]" :title="part.mpn">{{ part.mpn }}</p>
+          <span v-if="part.source === 'supplier'" class="mt-1 inline-flex rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">공급사 최신 후보</span>
           <p v-if="part.packageCode" class="mt-0.5 text-[11px] font-medium text-[#5f6777]">{{ part.packageCode }}</p>
         </div>
       </div>
@@ -72,6 +82,7 @@ const lineTotal = computed(() => {
         :currency="applied.currency"
         :fetched-at="applied.fetchedAt"
       />
+      <p v-if="convertedUnitPrice !== null" class="mt-1 text-right text-[10px] font-semibold text-blue-600">약 {{ convertedUnitPrice }}</p>
       <p v-else class="pt-[24px] text-right text-[12px] text-gray-300">—</p>
     </td>
     <!-- 포장 / 주문·재고 -->

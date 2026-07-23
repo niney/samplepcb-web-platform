@@ -2,7 +2,7 @@ from parts_engine_app.refresh import _catalog_search_batch
 
 
 def test_catalog_search_batch_preserves_exact_capacitance_and_voltage_specs():
-    batch = _catalog_search_batch("560nF 16V")
+    batch = _catalog_search_batch("560nF 16V", 150)
 
     assert len(batch.components) == 1
     component = batch.components[0]
@@ -10,6 +10,8 @@ def test_catalog_search_batch_preserves_exact_capacitance_and_voltage_specs():
     assert component.fields["capacitance"].normalized_value == 560e-9
     assert component.fields["voltage"].normalized_value == 16.0
     assert component.fields["part_number"].value is None
+    assert component.fields["quantity"].value == 150
+    assert component.required_quantity == 150
 
 
 def test_catalog_search_batch_keeps_plain_text_as_identity_search():

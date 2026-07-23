@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { PartHitType } from '@sp/api-contract';
+import type { BomPartHitType, PartHitType } from '@sp/api-contract';
 import type { OfferPick } from '@sp/utils';
 import { useBomPartsSearch } from '../../bom/useBom';
 import PartImage from '../ui/PartImage.vue';
@@ -32,7 +32,7 @@ const emit = defineEmits<{
 
 const input = ref(props.initialQuery);
 const q = ref(props.initialQuery.trim());
-const selectedPart = ref<PartHitType | null>(null);
+const selectedPart = ref<BomPartHitType | null>(null);
 const neededRef = computed(() => props.needed);
 const search = useBomPartsSearch(q, computed(() => true), neededRef);
 const items = computed(() => search.data.value?.data.items ?? []);
@@ -51,7 +51,7 @@ function submit(): void {
   selectedPart.value = null;
 }
 
-function previewPart(part: PartHitType): void {
+function previewPart(part: BomPartHitType): void {
   if (props.selecting) return;
   selectedPart.value = part;
 }
@@ -86,6 +86,8 @@ function returnToResults(): void {
         :query="q"
         :mode="search.data.value.data.searchMode"
         :interpreted-spec-count="search.data.value.data.interpretedSpecCount"
+        :needed="needed"
+        wait-for-catalog
         :disabled="selecting"
       />
       <div v-if="search.isFetching.value" class="mt-5 flex items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-5 text-sm font-medium text-blue-700" aria-live="polite">

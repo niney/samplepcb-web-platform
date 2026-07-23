@@ -9,13 +9,15 @@ import {
   BomSupplierOptions,
   PartDetailResponse,
 } from '@sp/api-contract';
-import { pickDefaultOffer } from '@sp/utils';
+import { normalizeMpn, pickDefaultOffer } from '@sp/utils';
 import { esClient } from '../es/client';
-import { SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
+import { F, SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
 import { ingestJobResult, jobOwnedBy, proxyEngine, recordJobOwner, startIngestPoller } from '../lib/bom-engine-jobs';
-import { refreshQuotesForJob, toOfferInputs } from '../lib/bom-quote';
+import { projectEnginePartSearchResult, refreshQuotesForJob, toOfferInputs } from '../lib/bom-quote';
+import { buildEngineProcurementPolicy } from '../lib/bom-procurement-policy';
 import { reserveDailySupplierSearch } from '../lib/bom-supplier-operations';
 import { getBomQuoteConfig } from '../lib/sp-config';
+import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
 import { loadPartDetailDto } from '../lib/parts-read';
@@ -120,8 +122,8 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   });
 
   // ── 카탈로그 검색(단일 검색 화면·부품 교체/추가 모달) — admin-parts 쿼리 빌더
-  // 재사용, 패싯 생략. 결과 행에는 필요수량(needed) 기준 대표 구매 조건을 서버가 계산해
-  // 첨부한다(FE 와 동일한 pickDefaultOffer — 환율 문맥이 없어 KRW 환산 없이 원통화).
+  // 재사용, 패싯 생략. 정확 MPN은 로컬 즉시 경로로 분리하고, 결과 행의 대표 구매 조건은
+  // 요청 시작 시 확정한 동일 환율 스냅샷으로 계산한다.
   fastify.get('/bom/parts-search', { schema: { querystring: BomPartSearchQuery, response: { 200: BomPartSearchResponse } } }, async (request) => {
     const q = request.query;
     const exactIntent = buildExactSearchIntent(q);
@@ -132,14 +134,29 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       query,
       sort: buildPartSort(q.sort),
     } as unknown as estypes.SearchRequest);
-    let searchMode: 'exact' | 'similar' | 'text' = exactIntent === null ? 'text' : 'exact';
-    let res = await esClient().search<SpPartDoc>(
-      makeSearchRequest(exactIntent?.query ?? buildSearchQuery(q)),
-    );
+    const mpnNorm = normalizeMpn(q.q);
+    const exactMpnResponse = mpnNorm.length < 2
+      ? null
+      : await esClient().search<SpPartDoc>(makeSearchRequest({
+          term: { [F.mpnNormKeyword]: mpnNorm },
+        }));
+    const exactMpnTotal = exactMpnResponse === null
+      ? 0
+      : typeof exactMpnResponse.hits.total === 'number'
+        ? exactMpnResponse.hits.total
+        : (exactMpnResponse.hits.total?.value ?? 0);
+    let searchMode: 'mpn' | 'exact' | 'similar' | 'text' = exactMpnTotal > 0
+      ? 'mpn'
+      : exactIntent === null ? 'text' : 'exact';
+    let res = exactMpnResponse !== null && exactMpnTotal > 0
+      ? exactMpnResponse
+      : await esClient().search<SpPartDoc>(
+          makeSearchRequest(exactIntent?.query ?? buildSearchQuery(q)),
+        );
     let total = typeof res.hits.total === 'number' ? res.hits.total : (res.hits.total?.value ?? 0);
     // 해석된 모든 규격을 만족하는 문서가 없을 때만 기존 broad 검색을 별도
     // "유사 결과"로 보여준다. 정확/부분 일치를 한 목록에 섞지 않는다.
-    if (exactIntent !== null && total === 0) {
+    if (searchMode === 'exact' && exactIntent !== null && total === 0) {
       searchMode = 'similar';
       res = await esClient().search<SpPartDoc>(makeSearchRequest(buildSearchQuery(q)));
       total = typeof res.hits.total === 'number' ? res.hits.total : (res.hits.total?.value ?? 0);
@@ -151,7 +168,18 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
           where: { id: { in: hits.map((h) => BigInt(h.id)) } },
           include: { offers: { include: { priceBreaks: true } } },
         });
-    const applied = new Map(parts.map((part) => [String(part.id), pickDefaultOffer(toOfferInputs(part), q.needed, null)] as const));
+    const config = await getBomQuoteRuntimeConfig();
+    const pricingContext = {
+      targetCurrency: 'KRW' as const,
+      usdKrwRate: config.usdKrwRate,
+      rateDate: config.exchangeRateSnapshot?.rateDate ?? null,
+      source: config.exchangeRateSnapshot?.source ?? null,
+      stale: config.exchangeRateSnapshot?.stale ?? false,
+    };
+    const applied = new Map(parts.map((part) => [
+      String(part.id),
+      pickDefaultOffer(toOfferInputs(part), q.needed, config.usdKrwRate),
+    ] as const));
     return {
       result: true as const,
       data: {
@@ -159,6 +187,8 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
           const pick = applied.get(hit.id) ?? null;
           return {
             ...hit,
+            source: 'catalog' as const,
+            inlineOffers: null,
             applied:
               pick === null
                 ? null
@@ -173,6 +203,10 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
                     fetchedAt: pick.offer.fetchedAt,
                     priceBreaks: pick.offer.priceBreaks.map((pb) => ({ qty: pb.qty, price: pb.price })),
                     unitPrice: pick.unitPrice,
+                    unitPriceKrw: pick.unitPriceKrw,
+                    lineTotalKrw: pick.unitPriceKrw === null
+                      ? null
+                      : Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100,
                     breakQty: pick.breakQty,
                     orderQty: pick.orderQty,
                     stockShort: pick.stockShort,
@@ -182,6 +216,7 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
         total,
         searchMode,
         interpretedSpecCount: exactIntent?.interpretedSpecCount ?? 0,
+        pricingContext,
         page: q.page,
         pageSize: q.pageSize,
         facets: { manufacturers: [], packages: [], suppliers: [] }, // 모달 용도 — 패싯 불필요
@@ -189,8 +224,8 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     };
   });
 
-  // 로컬 색인 exact miss 보강 — 공급사 캐시/API 검색 → 즉시 인제스트·색인.
-  // 사용자가 명시적으로 눌렀을 때만 호출하며 기존 회원별 일일 한도를 공유한다.
+  // 공급사 캐시/API 검색 결과를 즉시 반환한다. 단일 검색은 DB/ES 반영을 백그라운드로
+  // 넘기고, partId가 필요한 부품 변경 화면만 waitForCatalog=true로 완료까지 기다린다.
   fastify.post(
     '/bom/parts-search/supplement',
     {
@@ -204,30 +239,25 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       },
     },
     async (request, reply) => {
-      const parsedQuery = BomPartSearchQuery.parse({ q: request.body.q });
-      const exactIntent = buildExactSearchIntent(parsedQuery);
-      if (exactIntent === null || exactIntent.interpretedSpecCount < 2) {
-        return reply.badRequest('두 개 이상의 명확한 규격이 있는 검색어만 공급사에서 추가 확인할 수 있습니다');
-      }
-      // 화면 조회 뒤 다른 작업이 같은 규격을 이미 색인했을 수 있다. 외부 API·일일
-      // 횟수를 소모하기 직전에 한 번 더 확인해 중복 보강을 막는다.
-      const existing = await esClient().count({
-        index: SP_PARTS_READ,
-        query: exactIntent.query,
-      } as unknown as estypes.CountRequest);
-      if (existing.count > 0) {
-        return { result: true as const, data: { parts: 0, offers: 0, indexed: 0, queued: 0 } };
-      }
-      const config = await getBomQuoteConfig();
+      const config = await getBomQuoteRuntimeConfig();
       if (!(await reserveDailySupplierSearch(request.user.mbId, config.memberDailySearchLimit))) {
         return reply.status(429).send({ result: false, error: 'SEARCH_DAILY_LIMIT' });
       }
+      const procurement = buildEngineProcurementPolicy(
+        config.usdKrwRate,
+        config.exchangeRateSnapshot,
+      );
       let response: Response;
       try {
         response = await engineFetch('/parts/search', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ query: request.body.q, max_calls: Math.min(config.supplierSearchMaxCalls, 12) }),
+          body: JSON.stringify({
+            query: request.body.q,
+            needed: request.body.needed,
+            max_calls: Math.min(config.supplierSearchMaxCalls, 12),
+            procurement,
+          }),
         });
       } catch {
         return reply.status(503).send({ result: false, error: 'BOM_ENGINE_UNREACHABLE' });
@@ -237,8 +267,57 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
         request.log.warn({ statusCode: response.status, query: request.body.q }, '부품 공급사 추가 검색 실패');
         return reply.status(503).send({ result: false, error: 'BOM_ENGINE_ERROR' });
       }
-      const stats = await ingestSupplierSearchResult(body);
-      return { result: true as const, data: stats };
+      const projected = projectEnginePartSearchResult(body, request.body.needed);
+      if (projected === null) {
+        request.log.warn({ query: request.body.q }, '부품 공급사 검색 계약 불일치');
+        return reply.status(503).send({ result: false, error: 'BOM_ENGINE_CONTRACT_MISMATCH' });
+      }
+      const pricingContext = {
+        targetCurrency: 'KRW' as const,
+        usdKrwRate: config.usdKrwRate,
+        rateDate: config.exchangeRateSnapshot?.rateDate ?? null,
+        source: config.exchangeRateSnapshot?.source ?? null,
+        stale: config.exchangeRateSnapshot?.stale ?? false,
+      };
+      if (request.body.waitForCatalog) {
+        try {
+          const stats = await ingestSupplierSearchResult(body);
+          return {
+            result: true as const,
+            data: {
+              items: projected.items,
+              total: projected.total,
+              pricingContext,
+              engine: {
+                apiCalls: projected.apiCalls,
+                cacheHits: projected.cacheHits,
+                warnings: projected.warnings,
+              },
+              catalog: { status: 'completed' as const, stats },
+            },
+          };
+        } catch (error: unknown) {
+          request.log.warn({ query: request.body.q, err: String(error) }, '부품 공급사 결과 카탈로그 반영 실패');
+          return reply.status(503).send({ result: false, error: 'CATALOG_INGEST_FAILED' });
+        }
+      }
+      void ingestSupplierSearchResult(body).catch((error: unknown) => {
+        request.log.warn({ query: request.body.q, err: String(error) }, '부품 공급사 결과 백그라운드 반영 실패');
+      });
+      return {
+        result: true as const,
+        data: {
+          items: projected.items,
+          total: projected.total,
+          pricingContext,
+          engine: {
+            apiCalls: projected.apiCalls,
+            cacheHits: projected.cacheHits,
+            warnings: projected.warnings,
+          },
+          catalog: { status: 'queued' as const, stats: null },
+        },
+      };
     },
   );
 

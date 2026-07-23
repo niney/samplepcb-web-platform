@@ -280,20 +280,28 @@ export function useBomPartsSearch(q: Ref<string>, enabled: Ref<boolean>, needed?
   });
 }
 
+export interface BomPartsSupplementInput {
+  q: string;
+  needed: number;
+  waitForCatalog: boolean;
+}
+
 export function useBomPartsSupplement() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (q: string) =>
-      apiSend('POST', `${base}/parts-search/supplement`, { q }, BomPartSearchSupplementResponse),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bom', 'parts-search'] }),
+    mutationFn: (input: BomPartsSupplementInput) =>
+      apiSend('POST', `${base}/parts-search/supplement`, input, BomPartSearchSupplementResponse),
+    onSuccess: (response) => response.data.catalog.status === 'completed'
+      ? queryClient.invalidateQueries({ queryKey: ['bom', 'parts-search'] })
+      : undefined,
   });
 }
 
-export function useBomPartDetail(partId: Ref<string | null>) {
+export function useBomPartDetail(partId: Ref<string | null>, enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: computed(() => ['bom', 'part', partId.value]),
     queryFn: () => apiGet(`${base}/parts/${partId.value ?? ''}`, PartDetailResponse),
-    enabled: computed(() => partId.value !== null),
+    enabled: computed(() => partId.value !== null && (enabled?.value ?? true)),
     retry: false,
   });
 }

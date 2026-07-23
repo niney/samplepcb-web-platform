@@ -252,7 +252,11 @@ class PartSearchBody(BaseModel):
     """사용자 카탈로그 규격 검색 — 캐시 우선, 짧은 공급사 호출 상한."""
 
     query: str = Field(min_length=1, max_length=200)
+    needed: int = Field(default=1, ge=1, le=1_000_000)
     max_calls: int = Field(default=12, ge=1, le=25)
+    procurement: ProcurementPolicyInput = Field(
+        default_factory=ProcurementPolicyInput
+    )
 
 
 @router.post("/parts/refresh")
@@ -276,7 +280,9 @@ async def search_catalog_parts(request: Request, body: PartSearchBody) -> dict[s
         return await search_catalog(
             _svc(request).config,
             body.query,
+            needed=body.needed,
             max_calls=body.max_calls,
+            procurement_policy=body.procurement,
         )
     except Exception as error:
         raise HTTPException(status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}") from error

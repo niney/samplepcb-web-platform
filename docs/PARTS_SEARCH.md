@@ -120,7 +120,7 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 ## 다음 단계(미착수)
 
 운영 ES 설치+deploy.sh 케이스 · xpse pcbparts 2,677건 이관 · EIA-96 코드 · nori ·
-dense_vector 시맨틱 · 재고/가격 라이브 갱신 · 공개(비관리자) 검색+rate limit.
+dense_vector 시맨틱 · 공급사 검색 결과 백그라운드 인제스트 관측 화면.
 
 ## 부품 정본·자체(samplepcb) 오퍼 (2026-07-19 추가 — 커밋 참조)
 

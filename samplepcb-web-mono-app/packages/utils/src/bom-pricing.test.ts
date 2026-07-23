@@ -138,6 +138,18 @@ describe('pickDefaultOffer — 실효 총비용 최저', () => {
     expect(noRate?.offer.supplier).toBe('mouser');
   });
 
+  it('환산할 수 없는 서로 다른 원통화끼리는 숫자만으로 비교하지 않는다', () => {
+    const pick = pickDefaultOffer(
+      [
+        offer({ supplier: 'digikey', currency: 'USD', priceBreaks: [{ qty: 1, price: 0.05, currency: 'USD' }] }),
+        offer({ supplier: 'mouser', currency: 'EUR', priceBreaks: [{ qty: 1, price: 0.04, currency: 'EUR' }] }),
+      ],
+      100,
+      null,
+    );
+    expect(pick).toBeNull();
+  });
+
   it('samplepcb 파생 오퍼는 후보 제외(순환 방지)', () => {
     const pick = pickDefaultOffer(
       [

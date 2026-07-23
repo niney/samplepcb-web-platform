@@ -124,6 +124,10 @@ export function pickDefaultOffer(
   const pool = enough.length > 0 ? enough : picks;
 
   const comparable = pool.filter((p) => p.unitPriceKrw !== null);
+  // 환산 가능한 오퍼가 하나도 없을 때 서로 다른 원통화 숫자를 직접 비교하지 않는다.
+  // 같은 통화끼리는 원가격 비교가 가능하고, KRW 등 환산 가능 통화가 있으면 그 집합만 쓴다.
+  const sourceCurrencies = new Set(pool.map((pick) => pick.currency));
+  if (comparable.length === 0 && sourceCurrencies.size > 1) return null;
   const pool2 = comparable.length > 0 ? comparable : pool;
 
   const cost = (p: OfferPick): number => (p.unitPriceKrw ?? p.unitPrice) * p.orderQty;

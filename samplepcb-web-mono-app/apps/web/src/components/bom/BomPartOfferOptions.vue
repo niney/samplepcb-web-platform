@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { PartHitType, PartOfferViewType } from '@sp/api-contract';
+import type { BomPartHitType, PartHitType, PartOfferViewType } from '@sp/api-contract';
 import {
   applyQtyToOffer,
   pickDefaultOffer,
@@ -14,7 +14,7 @@ import { fmtAge } from '../../bom/format';
 // 단일 검색 행 확장이 공유한다. browse=열람 전용(확정 CTA 숨김, 비교 인터랙션은 유지).
 
 const props = withDefaults(defineProps<{
-  part: PartHitType;
+  part: BomPartHitType;
   needed?: number;
   usdKrwRate?: number | null;
   selecting?: boolean;
@@ -47,8 +47,10 @@ interface PackagingGroup {
 
 const selectedOfferKey = ref<string | null>(null);
 const activePackagingKey = ref<string | null>(null);
-const partId = computed<string | null>(() => props.part.id);
-const detail = useBomPartDetail(partId);
+const hasInlineOffers = computed(() => props.part.inlineOffers !== null);
+const partId = computed<string | null>(() => props.part.source === 'catalog' ? props.part.id : null);
+const detailEnabled = computed(() => !hasInlineOffers.value);
+const detail = useBomPartDetail(partId, detailEnabled);
 
 function toOfferInput(offer: PartOfferViewType): BomOfferInput {
   return {
@@ -65,14 +67,34 @@ function toOfferInput(offer: PartOfferViewType): BomOfferInput {
 }
 
 const offerInputs = computed<BomOfferInput[]>(() => {
+  if (props.part.inlineOffers !== null) return props.part.inlineOffers.map(toOfferInput);
   const data = detail.data.value?.data;
-  if (data === undefined || data.id !== props.part.id) return [];
+  if (data?.id !== props.part.id) return [];
   return data.offers
     .filter((offer) => offer.supplier !== 'samplepcb')
     .map(toOfferInput);
 });
 
-const recommendedPick = computed(() => pickDefaultOffer(offerInputs.value, props.needed, props.usdKrwRate));
+const recommendedPick = computed<OfferPick | null>(() => {
+  const engineApplied = props.part.source === 'supplier' ? props.part.applied : null;
+  if (engineApplied !== null) {
+    const offer = offerInputs.value.find((entry) =>
+      entry.supplier === engineApplied.supplier
+      && entry.supplierSku === engineApplied.supplierSku);
+    if (offer !== undefined) {
+      return {
+        offer,
+        orderQty: engineApplied.orderQty,
+        breakQty: engineApplied.breakQty,
+        unitPrice: engineApplied.unitPrice,
+        currency: engineApplied.currency,
+        unitPriceKrw: engineApplied.unitPriceKrw,
+        stockShort: engineApplied.stockShort,
+      };
+    }
+  }
+  return pickDefaultOffer(offerInputs.value, props.needed, props.usdKrwRate);
+});
 
 function offerKey(pick: OfferPick): string {
   return `${pick.offer.supplier}\u001f${pick.offer.supplierSku}`;
@@ -172,11 +194,11 @@ function fmtTotal(pick: OfferPick): string {
 
 <template>
   <div>
-    <div v-if="detail.isLoading.value || detail.isFetching.value" class="flex items-center justify-center gap-2 px-4 py-10 text-sm font-medium text-blue-700" aria-live="polite">
+    <div v-if="!hasInlineOffers && (detail.isLoading.value || detail.isFetching.value)" class="flex items-center justify-center gap-2 px-4 py-10 text-sm font-medium text-blue-700" aria-live="polite">
       <span class="size-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
       공급 포장과 가격을 확인하고 있습니다.
     </div>
-    <div v-else-if="detail.isError.value" class="m-4 rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
+    <div v-else-if="!hasInlineOffers && detail.isError.value" class="m-4 rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
       공급사 구매 조건을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
     </div>
     <div v-else-if="offerRows.length === 0" class="p-4">

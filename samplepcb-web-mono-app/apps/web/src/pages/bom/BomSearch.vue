@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import type { BomPartSearchSupplementResponseType } from '@sp/api-contract';
 import { useBomPartsSearch } from '../../bom/useBom';
 import BomPartOfferOptions from '../../components/bom/BomPartOfferOptions.vue';
 import BomSearchRow from '../../components/bom/BomSearchRow.vue';
@@ -32,21 +33,42 @@ const neededSafe = computed(() => {
   const raw = needed.value;
   return typeof raw === 'number' && Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
 });
+const submittedNeeded = ref(neededSafe.value);
 
-const search = useBomPartsSearch(q, computed(() => true), neededSafe);
-const items = computed(() => search.data.value?.data.items ?? []);
-const total = computed(() => search.data.value?.data.total ?? 0);
+const search = useBomPartsSearch(q, computed(() => true), submittedNeeded);
+const supplierResult = ref<BomPartSearchSupplementResponseType['data'] | null>(null);
+const localItems = computed(() => search.data.value?.data.items ?? []);
+const useSupplierItems = computed(() => (supplierResult.value?.items.length ?? 0) > 0);
+const items = computed(() => useSupplierItems.value ? supplierResult.value?.items ?? [] : localItems.value);
+const total = computed(() => useSupplierItems.value
+  ? supplierResult.value?.total ?? 0
+  : search.data.value?.data.total ?? 0);
+const pricingContext = computed(() => supplierResult.value?.pricingContext
+  ?? search.data.value?.data.pricingContext
+  ?? null);
 
 const expandedId = ref<string | null>(null);
 
 function submit(): void {
+  supplierResult.value = null;
   q.value = input.value.trim();
+  submittedNeeded.value = neededSafe.value;
   expandedId.value = null;
 }
 
 function toggleExpand(partId: string): void {
   expandedId.value = expandedId.value === partId ? null : partId;
 }
+
+function acceptSupplierResult(data: BomPartSearchSupplementResponseType['data']): void {
+  supplierResult.value = data;
+  expandedId.value = null;
+}
+
+watch([q, submittedNeeded], () => {
+  supplierResult.value = null;
+  expandedId.value = null;
+});
 </script>
 
 <template>
@@ -152,6 +174,9 @@ function toggleExpand(partId: string): void {
           :query="q"
           :mode="search.data.value.data.searchMode"
           :interpreted-spec-count="search.data.value.data.interpretedSpecCount"
+          :needed="submittedNeeded"
+          auto
+          @complete="acceptSupplierResult"
         />
         <div v-if="search.isFetching.value" class="mt-5 flex items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-5 text-sm font-medium text-blue-700" aria-live="polite">
           <span class="size-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
@@ -166,7 +191,14 @@ function toggleExpand(partId: string): void {
           </div>
 
           <div v-else class="mt-4">
-            <p class="mb-2 text-right text-[11px] text-slate-400">총 {{ total.toLocaleString('ko-KR') }}건 중 {{ items.length.toLocaleString('ko-KR') }}건 · 필요수량 {{ neededSafe.toLocaleString('ko-KR') }}개 기준</p>
+            <div class="mb-2 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[11px] text-slate-400">
+              <span v-if="useSupplierItems" class="font-semibold text-blue-600">공급사 현재 후보</span>
+              <span>총 {{ total.toLocaleString('ko-KR') }}건 중 {{ items.length.toLocaleString('ko-KR') }}건 · 필요수량 {{ submittedNeeded.toLocaleString('ko-KR') }}개 기준</span>
+              <span v-if="pricingContext?.usdKrwRate !== null && pricingContext?.usdKrwRate !== undefined">
+                USD 1 = {{ pricingContext.usdKrwRate.toLocaleString('ko-KR') }}원 환산<span v-if="pricingContext.stale" class="ml-1 font-semibold text-amber-600">(이전 기준)</span>
+              </span>
+              <span v-else class="font-semibold text-amber-600">환율 미확인 통화는 원통화로 표시</span>
+            </div>
             <div class="overflow-x-auto rounded-[10px] border border-[#e5e8ed] bg-white">
               <table class="w-full min-w-[860px] border-collapse">
                 <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
@@ -190,7 +222,12 @@ function toggleExpand(partId: string): void {
                     <tr v-if="expandedId === part.id" class="border-b border-[#e5e8ed]">
                       <td colspan="7" class="bg-slate-50/70 px-3 py-3">
                         <div class="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                          <BomPartOfferOptions :part="part" :needed="neededSafe" browse />
+                          <BomPartOfferOptions
+                            :part="part"
+                            :needed="submittedNeeded"
+                            :usd-krw-rate="pricingContext?.usdKrwRate ?? null"
+                            browse
+                          />
                         </div>
                       </td>
                     </tr>

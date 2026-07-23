@@ -10,6 +10,7 @@ import {
   filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
   loadSupplierSearchSummary,
+  projectEnginePartSearchResult,
   quoteCandidatePartsSearchable,
   retainQuoteCandidateSnapshots,
   resolvePartDataStatus,
@@ -593,6 +594,53 @@ function componentProcurementDecision(
 }
 
 describe('BOM 엔진 후보 결정 투영', () => {
+  it('단일 공급사 검색 결과를 카탈로그 저장 전 화면 후보로 투영한다', () => {
+    const selected = candidate('verified_exact', 'LIVE-MPN-1', 'digikey', 12, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      selectionRecommendation: 'preselect',
+    });
+    attachProcurementDecision(selected, 'ok2:live-offer', 'automatic', 10, 'supplier-offer-key-v2');
+
+    const result = projectEnginePartSearchResult({
+      procurement_decision_contract_status: 'current',
+      search: {
+        api_calls: 1,
+        cache_hits: 2,
+        components: [{
+          component_id: 'catalog-live',
+          status: 'verified_exact',
+          warnings: ['cached-result'],
+          procurement_decision: componentProcurementDecision(
+            'automatic_recommended',
+            'ok2:live-offer',
+          ),
+          candidates: [selected],
+        }],
+      },
+    }, 10);
+
+    expect(result).not.toBeNull();
+    expect(result?.items).toHaveLength(1);
+    expect(result?.items[0]).toMatchObject({
+      id: 'ik1:engine-choice',
+      mpn: 'LIVE-MPN-1',
+      source: 'supplier',
+      offerCount: 1,
+      applied: {
+        supplier: 'digikey',
+        orderQty: 10,
+        unitPrice: 12,
+        unitPriceKrw: 12,
+        lineTotalKrw: 120,
+      },
+    });
+    expect(result?.items[0]?.inlineOffers).toHaveLength(1);
+    expect(result).toMatchObject({ apiCalls: 1, cacheHits: 2, warnings: ['cached-result'] });
+  });
+
   it('행당 상위 15개만 영속하되 뒤 순위의 현재·추천 후보는 보존한다', () => {
     const decision = selectEngineMatch(
       {

@@ -35,6 +35,7 @@ import {
   type BomQuoteSelectedOfferType,
   type BomQuoteStatusType,
   type BomQuoteSummaryType,
+  type BomPartHitType,
 } from '@sp/api-contract';
 import {
   applyQtyToOffer,
@@ -432,6 +433,7 @@ const EngineSupplierComponent = z
     search_trace: z.unknown().nullish(),
     candidates: z.array(EngineSupplierCandidate).default([]),
     procurement_decision: EngineComponentProcurementDecision.nullish(),
+    warnings: z.array(z.string()).default([]),
   })
   .passthrough();
 
@@ -443,6 +445,8 @@ const EngineSupplierEnvelope = z
       .object({
         search_schema_version: z.string().optional(),
         components: z.array(EngineSupplierComponent).default([]),
+        api_calls: z.number().int().min(0).default(0),
+        cache_hits: z.number().int().min(0).default(0),
       })
       .passthrough(),
   })
@@ -1570,6 +1574,120 @@ function projectEngineProcurement(
 function pickLineTotal(pick: OfferPick | null): number | null {
   if (pick?.unitPriceKrw == null) return null;
   return Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100;
+}
+
+export interface ProjectEnginePartSearchResult {
+  items: BomPartHitType[];
+  total: number;
+  apiCalls: number;
+  cacheHits: number;
+  warnings: string[];
+}
+
+/**
+ * 단일 검색의 현재 엔진 후보를 DB/ES 반영과 독립된 화면 계약으로 투영한다.
+ * 후보 관계·구매 순위는 엔진 결정을 검증해 사용하고 sp-node가 다시 추측하지 않는다.
+ */
+export function projectEnginePartSearchResult(
+  envelopeValue: unknown,
+  needed: number,
+): ProjectEnginePartSearchResult | null {
+  const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
+  if (
+    !parsed.success
+    || parsed.data.procurement_decision_contract_status !== 'current'
+  ) return null;
+  const component = parsed.data.search.components[0];
+  if (component === undefined) {
+    return {
+      items: [],
+      total: 0,
+      apiCalls: parsed.data.search.api_calls,
+      cacheHits: parsed.data.search.cache_hits,
+      warnings: [],
+    };
+  }
+  if (component.procurement_decision === null || component.procurement_decision === undefined) return null;
+
+  const groups = buildCandidateGroups(component, true);
+  const items = groups.slice(0, MAX_STORED_CANDIDATES_PER_ITEM).map(({ snapshot }) => {
+    const { pick } = storedCandidatePick(snapshot, needed, null);
+    const inlineOffers = snapshot.offers.map((offer) => ({
+      supplier: offer.supplier,
+      supplierSku: offer.supplierSku,
+      productUrl: offer.productUrl,
+      stock: offer.stock,
+      moq: offer.moq,
+      orderMultiple: offer.orderMultiple,
+      packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging),
+      currency: offer.priceBreaks[0]?.currency ?? null,
+      priceBreaks: offer.priceBreaks.map((priceBreak) => ({
+        qty: priceBreak.qty,
+        price: priceBreak.price,
+      })),
+      fetchedAt: offer.fetchedAt,
+      derivedFrom: null,
+    }));
+    const numericSpecs = Object.fromEntries(
+      Object.entries(snapshot.normalizedSpecs).flatMap(([key, value]) =>
+        typeof value === 'number' && Number.isFinite(value) ? [[key, value] as const] : []),
+    );
+    const fetchedAt = inlineOffers
+      .map((offer) => offer.fetchedAt)
+      .sort()
+      .at(-1) ?? null;
+    return {
+      id: snapshot.candidateKey,
+      mpn: snapshot.mpn,
+      manufacturerName: snapshot.manufacturerName ?? '제조사 미확인',
+      description: snapshot.description,
+      category: snapshot.category,
+      packageCode: snapshot.packageCode,
+      lifecycle: snapshot.lifecycleStatus,
+      imageUrl: snapshot.imageUrl,
+      specsSi: numericSpecs,
+      suppliers: uniqueStrings(inlineOffers.map((offer) => offer.supplier)),
+      offerCount: inlineOffers.length,
+      minPrice: pick?.unitPrice ?? null,
+      minPriceCurrency: pick?.currency ?? null,
+      totalStock: inlineOffers.reduce((sum, offer) => sum + Math.max(0, offer.stock ?? 0), 0),
+      offersFetchedAt: fetchedAt,
+      hasSpecConflict: false,
+      score: snapshot.specificationConfidence,
+      source: 'supplier' as const,
+      inlineOffers,
+      applied: pick === null
+        ? null
+        : {
+            supplier: pick.offer.supplier,
+            supplierSku: pick.offer.supplierSku,
+            packaging: pick.offer.packaging,
+            currency: pick.currency,
+            stock: pick.offer.stock,
+            moq: pick.offer.moq,
+            orderMultiple: pick.offer.orderMultiple,
+            fetchedAt: pick.offer.fetchedAt,
+            priceBreaks: pick.offer.priceBreaks.map((priceBreak) => ({
+              qty: priceBreak.qty,
+              price: priceBreak.price,
+            })),
+            unitPrice: pick.unitPrice,
+            unitPriceKrw: pick.unitPriceKrw,
+            lineTotalKrw: pickLineTotal(pick),
+            breakQty: pick.breakQty,
+            orderQty: pick.orderQty,
+            stockShort: pick.stockShort,
+          },
+    } satisfies BomPartHitType;
+  });
+
+  return {
+    items,
+    total: groups.length,
+    apiCalls: parsed.data.search.api_calls,
+    cacheHits: parsed.data.search.cache_hits,
+    warnings: component.warnings,
+  };
 }
 
 function evidenceFromDecision(
