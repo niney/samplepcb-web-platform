@@ -733,6 +733,29 @@ type StoredCandidateType = z.infer<typeof StoredCandidate>;
 type StoredCandidateOfferType = z.infer<typeof StoredCandidateOffer>;
 const MAX_STORED_CANDIDATES_PER_ITEM = 15;
 
+type StoredCandidateIdentity = Pick<StoredCandidateType, 'mpn' | 'manufacturerName'>;
+
+interface NormalizedStoredCandidateIdentity {
+  mpnNorm: string;
+  manufacturerNorm: string;
+}
+
+function normalizedStoredCandidateIdentity(
+  candidate: StoredCandidateIdentity,
+): NormalizedStoredCandidateIdentity | null {
+  const mpnNorm = normalizeMpn(candidate.mpn);
+  if (mpnNorm === '') return null;
+  return { mpnNorm, manufacturerNorm: resolveManufacturer(candidate.manufacturerName).norm };
+}
+
+function resolvedStoredCandidatePart<T>(
+  identity: NormalizedStoredCandidateIdentity,
+  exact: T | null | undefined,
+  byMpn: T | null | undefined,
+): T | null {
+  return exact ?? (identity.manufacturerNorm === 'unknown' ? (byMpn ?? null) : null);
+}
+
 /** 영속 후보는 기술 순위 상위 15개로 제한하되 현재·추천 후보는 상한 안에서 보존한다. */
 export function retainQuoteCandidateSnapshots(
   snapshots: readonly StoredCandidateType[],
@@ -1971,20 +1994,60 @@ function storedCandidatePick(
 }
 
 async function partIdForStoredCandidate(candidate: StoredCandidateType): Promise<string | null> {
-  const mpnNorm = normalizeMpn(candidate.mpn);
-  if (mpnNorm === '') return null;
-  const manufacturer = resolveManufacturer(candidate.manufacturerName);
+  const identity = normalizedStoredCandidateIdentity(candidate);
+  if (identity === null) return null;
   const exact = await prisma.spPart.findUnique({
-    where: { mpnNorm_manufacturerNorm: { mpnNorm, manufacturerNorm: manufacturer.norm } },
+    where: {
+      mpnNorm_manufacturerNorm: {
+        mpnNorm: identity.mpnNorm,
+        manufacturerNorm: identity.manufacturerNorm,
+      },
+    },
     select: { id: true },
   });
-  if (exact !== null) return String(exact.id);
-  const byMpn = await prisma.spPart.findFirst({
-    where: { mpnNorm },
+  const byMpn = exact === null && identity.manufacturerNorm === 'unknown'
+    ? await prisma.spPart.findFirst({
+        where: { mpnNorm: identity.mpnNorm },
+        orderBy: { lastSeenAt: 'desc' },
+        select: { id: true },
+      })
+    : null;
+  const part = resolvedStoredCandidatePart(identity, exact, byMpn);
+  return part === null ? null : String(part.id);
+}
+
+/** 견적에 박제된 모든 후보가 현재 검색 색인에 반영됐는지 확인한다. 후보가 없으면 판정하지 않는다. */
+export async function quoteCandidatePartsSearchable(quoteId: bigint): Promise<boolean | null> {
+  const candidates = await prisma.spBomQuoteCandidate.findMany({
+    where: { quoteId },
+    select: { mpn: true, manufacturerName: true },
+  });
+  if (candidates.length === 0) return null;
+
+  const identities: NormalizedStoredCandidateIdentity[] = [];
+  for (const candidate of candidates) {
+    const identity = normalizedStoredCandidateIdentity(candidate);
+    if (identity === null) return false;
+    identities.push(identity);
+  }
+  const mpnNorms = [...new Set(identities.map((identity) => identity.mpnNorm))];
+  const parts = await prisma.spPart.findMany({
+    where: { mpnNorm: { in: mpnNorms } },
     orderBy: { lastSeenAt: 'desc' },
-    select: { id: true },
+    select: { id: true, mpnNorm: true, manufacturerNorm: true, indexedAt: true },
   });
-  return byMpn === null ? null : String(byMpn.id);
+  const exact = new Map(parts.map((part) => [`${part.mpnNorm}\u0000${part.manufacturerNorm}`, part] as const));
+  const byMpn = new Map<string, (typeof parts)[number]>();
+  for (const part of parts) if (!byMpn.has(part.mpnNorm)) byMpn.set(part.mpnNorm, part);
+
+  return identities.every((identity) => {
+    const part = resolvedStoredCandidatePart(
+      identity,
+      exact.get(`${identity.mpnNorm}\u0000${identity.manufacturerNorm}`),
+      byMpn.get(identity.mpnNorm),
+    );
+    return part !== null && part.indexedAt !== null;
+  });
 }
 
 interface StoredRecommendation {
@@ -3631,7 +3694,49 @@ export function catalogIngestRunReady(
   return typeof queued !== 'number' || queued === 0;
 }
 
-async function loadSupplierSearchSummary(
+export function resolvePartDataStatus({
+  storedStatus,
+  runReady,
+  candidatesSearchable,
+}: {
+  storedStatus: PartDataStatus | null;
+  runReady: boolean;
+  candidatesSearchable: boolean | null;
+}): PartDataStatus {
+  if (storedStatus === 'ready') return 'ready';
+  if (runReady) return 'ready';
+  if (candidatesSearchable === true) return 'ready';
+  if (storedStatus === 'failed') return 'failed';
+  return 'preparing';
+}
+
+function jsonObject(value: Prisma.JsonValue | null): Prisma.JsonObject {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+async function stampCandidatePartsReady(
+  quoteId: bigint,
+  supplierSearchRunId: bigint,
+  resultSummary: Prisma.JsonValue | null,
+): Promise<void> {
+  await backfillQuotePartIds(quoteId);
+  const prior = jsonObject(resultSummary);
+  await prisma.spBomSupplierSearchRun.updateMany({
+    where: { id: supplierSearchRunId, quoteId },
+    data: {
+      resultSummary: {
+        ...prior,
+        catalogStatus: 'ready',
+        catalogReadyAt: new Date().toISOString(),
+        catalogScope: 'candidates',
+        catalogRetryAt: null,
+        catalogError: null,
+      },
+    },
+  });
+}
+
+export async function loadSupplierSearchSummary(
   supplierSearchRunId: bigint | null,
   enrichStatus: string,
 ): Promise<{
@@ -3652,6 +3757,7 @@ async function loadSupplierSearchSummary(
   const run = await prisma.spBomSupplierSearchRun.findUnique({
     where: { id: supplierSearchRunId },
     select: {
+      quoteId: true,
       resultSummary: true,
       catalogIngestRun: { select: { status: true, stats: true } },
     },
@@ -3660,10 +3766,18 @@ async function loadSupplierSearchSummary(
     return { supplierSearchLimitedCount: 0, partDataStatus: 'failed', partDataFailureReason: 'result-gone' };
   }
   const storedStatus = catalogPreparationStatus(run.resultSummary);
-  const partDataStatus = storedStatus === 'failed'
-    ? 'failed'
-    : catalogIngestRunReady(run.catalogIngestRun) ? 'ready' : 'preparing';
-  const partDataFailureReason = catalogPreparationFailureReason(run.resultSummary);
+  const runReady = catalogIngestRunReady(run.catalogIngestRun);
+  let candidatesSearchable: boolean | null = null;
+  if (storedStatus !== 'ready' && !runReady) {
+    candidatesSearchable = await quoteCandidatePartsSearchable(run.quoteId);
+    if (candidatesSearchable === true) {
+      await stampCandidatePartsReady(run.quoteId, supplierSearchRunId, run.resultSummary);
+    }
+  }
+  const partDataStatus = resolvePartDataStatus({ storedStatus, runReady, candidatesSearchable });
+  const partDataFailureReason = partDataStatus === 'failed'
+    ? catalogPreparationFailureReason(run.resultSummary)
+    : null;
   const currentCount = supplierRunLimitedComponentCount(run.resultSummary);
   if (currentCount !== null) return { supplierSearchLimitedCount: currentCount, partDataStatus, partDataFailureReason };
   const searchTraces = await prisma.spBomSupplierSearchTrace.findMany({

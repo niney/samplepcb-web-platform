@@ -73,6 +73,7 @@ import {
   filterActiveQuoteItems,
   getQuoteItemCandidates,
   loadQuoteComparisonPage,
+  loadSupplierSearchSummary,
   patchNeedsCandidateReprice,
   persistQuoteComputed,
   refreshQuoteFromSupplierResult,
@@ -786,11 +787,11 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       select: {
         id: true,
         engineJobId: true,
-        catalogIngestRun: { select: { status: true, stats: true } },
       },
     });
     if (run === null) return await reply.status(409).send({ result: false, error: 'PART_DATA_RESULT_GONE' });
-    if (catalogIngestRunReady(run.catalogIngestRun)) {
+    const partData = await loadSupplierSearchSummary(run.id, quote.enrichStatus);
+    if (partData.partDataStatus === 'ready') {
       return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };
     }
 

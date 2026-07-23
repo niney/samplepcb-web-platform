@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { prisma } from './prisma';
 import {
   analysisComponentLookupWhere,
   applyEngineSupplierResult,
@@ -8,7 +9,10 @@ import {
   extractEngineSheets,
   filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
+  loadSupplierSearchSummary,
+  quoteCandidatePartsSearchable,
   retainQuoteCandidateSnapshots,
+  resolvePartDataStatus,
   selectEngineMatch,
 } from './bom-quote';
 
@@ -21,6 +25,170 @@ describe('후보 화면 부품 정보 준비 상태', () => {
   it('실패하거나 진행 중인 실행은 완료로 보지 않는다', () => {
     expect(catalogIngestRunReady({ status: 'failed', stats: { queued: 0 } })).toBe(false);
     expect(catalogIngestRunReady({ status: 'running', stats: null })).toBe(false);
+  });
+
+  it('저장 ready를 가장 먼저 신뢰한다', () => {
+    expect(resolvePartDataStatus({
+      storedStatus: 'ready',
+      runReady: false,
+      candidatesSearchable: false,
+    })).toBe('ready');
+  });
+
+  it('전역 실행 ready가 저장 failed보다 우선한다', () => {
+    expect(resolvePartDataStatus({
+      storedStatus: 'failed',
+      runReady: true,
+      candidatesSearchable: false,
+    })).toBe('ready');
+  });
+
+  it('후보 전부 검색 가능하면 저장 failed보다 ready가 우선한다', () => {
+    expect(resolvePartDataStatus({
+      storedStatus: 'failed',
+      runReady: false,
+      candidatesSearchable: true,
+    })).toBe('ready');
+  });
+
+  it('ready 근거가 없을 때만 저장 failed를 반환한다', () => {
+    expect(resolvePartDataStatus({
+      storedStatus: 'failed',
+      runReady: false,
+      candidatesSearchable: false,
+    })).toBe('failed');
+  });
+
+  it('확정 근거가 없으면 preparing을 유지한다', () => {
+    expect(resolvePartDataStatus({
+      storedStatus: 'preparing',
+      runReady: false,
+      candidatesSearchable: null,
+    })).toBe('preparing');
+  });
+});
+
+describe('견적 후보 부품 검색 가능성', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('후보가 0건이면 기존 전역 판정만 쓰도록 null을 반환한다', async () => {
+    vi.spyOn(prisma.spBomQuoteCandidate, 'findMany').mockResolvedValue([] as never);
+    const partFindMany = vi.spyOn(prisma.spPart, 'findMany').mockResolvedValue([] as never);
+
+    await expect(quoteCandidatePartsSearchable(42n)).resolves.toBeNull();
+    expect(partFindMany).not.toHaveBeenCalled();
+  });
+
+  it('후보 중 하나라도 미색인이면 false를 반환한다', async () => {
+    vi.spyOn(prisma.spBomQuoteCandidate, 'findMany').mockResolvedValue([
+      { mpn: 'RC0402FR-0710KL', manufacturerName: 'Yageo' },
+      { mpn: 'GRM155R71C104KA88D', manufacturerName: 'Murata' },
+    ] as never);
+    vi.spyOn(prisma.spPart, 'findMany').mockResolvedValue([
+      {
+        id: 1n,
+        mpnNorm: 'RC0402FR0710KL',
+        manufacturerNorm: 'yageo',
+        indexedAt: new Date('2026-07-23T00:00:00.000Z'),
+      },
+      {
+        id: 2n,
+        mpnNorm: 'GRM155R71C104KA88D',
+        manufacturerNorm: 'murata',
+        indexedAt: null,
+      },
+    ] as never);
+
+    await expect(quoteCandidatePartsSearchable(42n)).resolves.toBe(false);
+  });
+
+  it('제조사가 확인된 후보는 같은 MPN의 다른 제조사 부품으로 교차 해소하지 않는다', async () => {
+    vi.spyOn(prisma.spBomQuoteCandidate, 'findMany').mockResolvedValue([
+      { mpn: '1N4148', manufacturerName: 'onsemi' },
+    ] as never);
+    vi.spyOn(prisma.spPart, 'findMany').mockResolvedValue([
+      {
+        id: 3n,
+        mpnNorm: '1N4148',
+        manufacturerNorm: 'vishay',
+        indexedAt: new Date('2026-07-23T00:00:00.000Z'),
+      },
+    ] as never);
+
+    await expect(quoteCandidatePartsSearchable(42n)).resolves.toBe(false);
+  });
+
+  it('제조사 미상 후보는 MPN 단독 최신 부품으로 fallback한다', async () => {
+    vi.spyOn(prisma.spBomQuoteCandidate, 'findMany').mockResolvedValue([
+      { mpn: '1N4148', manufacturerName: null },
+    ] as never);
+    vi.spyOn(prisma.spPart, 'findMany').mockResolvedValue([
+      {
+        id: 4n,
+        mpnNorm: '1N4148',
+        manufacturerNorm: 'vishay',
+        indexedAt: new Date('2026-07-23T00:00:00.000Z'),
+      },
+    ] as never);
+
+    await expect(quoteCandidatePartsSearchable(42n)).resolves.toBe(true);
+  });
+
+  it('failed여도 후보 전부 색인 시 ready를 스탬프하고 다음 폴부터 후보 조회를 생략한다', async () => {
+    const summary = {
+      catalogStatus: 'failed',
+      catalogError: 'SEARCH_INDEX_UNAVAILABLE',
+      catalogRetryAt: '2026-07-23T01:00:00.000Z',
+      budgetExhaustedCount: 0,
+      budgetExhaustedDetectionVersion: 2,
+    };
+    vi.spyOn(prisma.spBomSupplierSearchRun, 'findUnique')
+      .mockResolvedValueOnce({
+        quoteId: 42n,
+        resultSummary: summary,
+        catalogIngestRun: { status: 'failed', stats: { queued: 1 } },
+      } as never)
+      .mockResolvedValueOnce({
+        quoteId: 42n,
+        resultSummary: { ...summary, catalogStatus: 'ready', catalogScope: 'candidates' },
+        catalogIngestRun: { status: 'failed', stats: { queued: 1 } },
+      } as never);
+    const candidateFindMany = vi.spyOn(prisma.spBomQuoteCandidate, 'findMany').mockResolvedValue([
+      { mpn: 'RC0402FR-0710KL', manufacturerName: 'Yageo' },
+    ] as never);
+    vi.spyOn(prisma.spPart, 'findMany').mockResolvedValue([
+      {
+        id: 1n,
+        mpnNorm: 'RC0402FR0710KL',
+        manufacturerNorm: 'yageo',
+        indexedAt: new Date('2026-07-23T00:00:00.000Z'),
+      },
+    ] as never);
+    const itemFindMany = vi.spyOn(prisma.spBomQuoteItem, 'findMany').mockResolvedValue([] as never);
+    const runUpdateMany = vi.spyOn(prisma.spBomSupplierSearchRun, 'updateMany').mockResolvedValue({ count: 1 });
+
+    await expect(loadSupplierSearchSummary(9n, 'done')).resolves.toMatchObject({
+      partDataStatus: 'ready',
+      partDataFailureReason: null,
+    });
+    const stampCall = runUpdateMany.mock.calls[0]?.[0];
+    expect(stampCall?.where).toEqual({ id: 9n, quoteId: 42n });
+    const stampedSummary = stampCall?.data.resultSummary;
+    if (typeof stampedSummary !== 'object' || Array.isArray(stampedSummary)) {
+      throw new Error('candidate catalog ready summary was not stamped');
+    }
+    const stampedRecord = stampedSummary as Record<string, unknown>;
+    expect(stampedRecord.catalogStatus).toBe('ready');
+    expect(typeof stampedRecord.catalogReadyAt).toBe('string');
+    expect(stampedRecord.catalogScope).toBe('candidates');
+    expect(stampedRecord.catalogError).toBeNull();
+    expect(stampedRecord.catalogRetryAt).toBeNull();
+    await expect(loadSupplierSearchSummary(9n, 'done')).resolves.toMatchObject({ partDataStatus: 'ready' });
+    expect(candidateFindMany).toHaveBeenCalledOnce();
+    expect(itemFindMany).toHaveBeenCalledOnce();
+    expect(runUpdateMany).toHaveBeenCalledOnce();
   });
 });
 
