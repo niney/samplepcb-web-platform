@@ -12,6 +12,7 @@ from supplier_search_engine.models import (
     ProcurementReevaluationRequest,
     ProcurementReevaluationResult,
 )
+from supplier_search_engine.contract import UserSearchRequirements
 from supplier_search_engine.procurement import (
     ProcurementReevaluationError,
     reevaluate_procurement,
@@ -32,6 +33,7 @@ class SupplierSearchOptionsBody(BaseModel):
     cache_only: bool = False
     reset_cache: bool = False
     sheet_indexes: list[int] = Field(default_factory=list, max_length=100)
+    component_ids: list[str] = Field(default_factory=list, max_length=200)
     procurement: ProcurementPolicyInput = Field(
         default_factory=ProcurementPolicyInput
     )
@@ -44,6 +46,10 @@ class SupplierSearchOptionsBody(BaseModel):
             raise ValueError("sheet_indexes must be zero-based non-negative integers")
         if len(set(self.sheet_indexes)) != len(self.sheet_indexes):
             raise ValueError("sheet_indexes cannot contain duplicates")
+        if any(not component_id.strip() for component_id in self.component_ids):
+            raise ValueError("component_ids cannot contain blanks")
+        if len(set(self.component_ids)) != len(self.component_ids):
+            raise ValueError("component_ids cannot contain duplicates")
         return self
 
     def to_options(self) -> SupplierSearchOptions:
@@ -52,6 +58,7 @@ class SupplierSearchOptionsBody(BaseModel):
             cache_only=self.cache_only,
             reset_cache=self.reset_cache,
             sheet_indexes=tuple(self.sheet_indexes),
+            component_ids=tuple(self.component_ids),
             procurement_policy=self.procurement,
         )
 
@@ -63,6 +70,9 @@ class PersistedAnalysisBody(BaseModel):
 
     analysis: dict[str, Any]
     required_quantities: dict[str, int] = Field(default_factory=dict)
+    requirement_overrides: dict[str, UserSearchRequirements] = Field(
+        default_factory=dict
+    )
 
     @model_validator(mode="after")
     def validate_required_quantities(self) -> "PersistedAnalysisBody":
@@ -159,6 +169,7 @@ async def create_supplier_job(
             _svc(request).submit_analysis_snapshot,
             body.analysis,
             body.required_quantities,
+            body.requirement_overrides,
         )
     except JobError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

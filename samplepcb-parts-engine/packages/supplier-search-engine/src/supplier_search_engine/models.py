@@ -405,7 +405,7 @@ class Requirement(BaseModel):
     name: str
     raw_value: Any
     normalized_value: float | str | list[float | None] | None = None
-    status: Literal["extracted", "review", "not_found"]
+    status: Literal["extracted", "review", "not_found", "user"]
     hard: bool
     comparison: Literal["eq", "gte", "lte", "contains", "category"] = "eq"
 
@@ -423,6 +423,8 @@ class PlannedQuery(BaseModel):
         "resistor",
         "capacitor",
         "electrolytic",
+        "tantalum",
+        "film",
         "inductor",
         "ferrite",
         "led",

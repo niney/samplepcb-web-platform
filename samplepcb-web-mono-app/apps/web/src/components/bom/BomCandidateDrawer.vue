@@ -7,6 +7,7 @@ import type {
   BomQuoteDecisionReasonType,
   BomQuoteItemCandidatesType,
   BomQuoteRequirementAssessmentType,
+  BomQuoteSearchRequirementsBodyType,
   BomQuoteSearchTraceAttemptType,
   BomQuoteSelectionSourceType,
   PartHitType,
@@ -32,6 +33,8 @@ const props = withDefaults(defineProps<{
   catalogSelecting?: boolean;
   hasCatalogPart?: boolean;
   selectionError?: string;
+  requirementsSaving?: boolean;
+  requirementsError?: string;
   initialView?: SelectionView;
   searchInitialQuery?: string;
   currentPartId?: string | null;
@@ -43,6 +46,8 @@ const props = withDefaults(defineProps<{
   catalogSelecting: false,
   hasCatalogPart: false,
   selectionError: '',
+  requirementsSaving: false,
+  requirementsError: '',
   initialView: 'candidates',
   searchInitialQuery: '',
   currentPartId: null,
@@ -55,6 +60,7 @@ const emit = defineEmits<{
   select: [candidateKey: string, offerKey: string | null];
   catalogSelect: [part: PartHitType, pick: OfferPick | null];
   catalogOffers: [];
+  searchRequirements: [requirements: BomQuoteSearchRequirementsBodyType];
 }>();
 
 const i18n = useI18n();
@@ -62,6 +68,8 @@ const { t } = i18n;
 
 type SelectionView = 'candidates' | 'search';
 type CandidateTab = 'selectable' | 'all' | 'review';
+type RequirementComponentType = 'resistor' | 'capacitor';
+type CapacitorType = 'ceramic' | 'electrolytic' | 'tantalum' | 'film';
 
 interface OriginalField {
   key: string;
@@ -92,6 +100,16 @@ const tab = ref<CandidateTab>('selectable');
 const expanded = ref<Set<string>>(new Set());
 const originalDetailsExpanded = ref(false);
 const searchTraceExpanded = ref(false);
+const requirementComponentType = ref<RequirementComponentType | null>(null);
+const capacitorType = ref<CapacitorType | ''>('');
+const resistance = ref('');
+const capacitance = ref('');
+const packageCode = ref('');
+const tolerance = ref('');
+const voltage = ref('');
+const power = ref('');
+const dielectric = ref('');
+const mountStyle = ref<'' | 'smd' | 'through-hole'>('');
 const pendingReviewSelection = ref<PendingReviewSelection | null>(null);
 const requirementTooltipCandidateKey = ref<string | null>(null);
 const requirementTooltipPosition = ref<RequirementTooltipPosition>({ top: 0, left: 0, width: 440 });
@@ -184,6 +202,7 @@ function resetCandidatePresentation(): void {
   expanded.value = new Set();
   pendingReviewSelection.value = null;
   hideRequirementTooltipNow();
+  resetSearchRequirementsForm();
 }
 
 watch(
@@ -372,6 +391,140 @@ const originalFields = computed<OriginalField[]>(() => {
   });
   return fields;
 });
+
+function originalFieldValue(key: string): string {
+  const field = originalFields.value.find((candidate) => candidate.key === key);
+  return field?.value ?? '';
+}
+
+function inferredRequirementComponentType(): RequirementComponentType | null {
+  const stored = props.context?.searchRequirements;
+  if (stored !== null && stored !== undefined) return stored.componentType;
+  const payload = props.context?.extraction?.payload;
+  const payloadType = typeof payload?.component_type === 'string'
+    ? payload.component_type
+    : originalFieldValue('part_type');
+  const normalized = payloadType.toLocaleLowerCase('en-US');
+  if (normalized.includes('resistor') || normalized.includes('저항')) return 'resistor';
+  if (
+    normalized.includes('capacitor')
+    || normalized.includes('capacit')
+    || normalized.includes('커패시터')
+    || normalized.includes('콘덴서')
+  ) return 'capacitor';
+  return null;
+}
+
+function inferCapacitorType(text: string, inferredDielectric: string): CapacitorType | '' {
+  const normalized = text.toLocaleLowerCase('en-US');
+  if (normalized.includes('electrolytic') || normalized.includes('ecap') || normalized.includes('전해')) {
+    return 'electrolytic';
+  }
+  if (normalized.includes('tantalum') || normalized.includes('탄탈')) return 'tantalum';
+  if (normalized.includes('film') || normalized.includes('필름')) return 'film';
+  return inferredDielectric === '' ? '' : 'ceramic';
+}
+
+function resetSearchRequirementsForm(): void {
+  const context = props.context;
+  const stored = context?.searchRequirements;
+  const componentType = inferredRequirementComponentType();
+  requirementComponentType.value = componentType;
+  if (stored?.componentType === 'resistor') {
+    resistance.value = stored.resistance;
+    packageCode.value = stored.packageCode;
+    tolerance.value = stored.tolerance ?? '';
+    power.value = stored.power ?? '';
+    mountStyle.value = stored.mountStyle ?? '';
+    capacitance.value = '';
+    voltage.value = '';
+    dielectric.value = '';
+    capacitorType.value = '';
+    return;
+  }
+  if (stored?.componentType === 'capacitor') {
+    capacitance.value = stored.capacitance;
+    packageCode.value = stored.packageCode;
+    tolerance.value = stored.tolerance ?? '';
+    voltage.value = stored.voltage ?? '';
+    dielectric.value = stored.dielectric ?? '';
+    mountStyle.value = stored.mountStyle ?? '';
+    capacitorType.value = stored.capacitorType;
+    resistance.value = '';
+    power.value = '';
+    return;
+  }
+
+  resistance.value = componentType === 'resistor' ? originalFieldValue('resistance') : '';
+  capacitance.value = componentType === 'capacitor' ? originalFieldValue('capacitance') : '';
+  const extractedPackage = originalFieldValue('package');
+  packageCode.value = extractedPackage === ''
+    ? (context?.originalPackageCode ?? '')
+    : extractedPackage;
+  tolerance.value = originalFieldValue('tolerance');
+  voltage.value = componentType === 'capacitor' ? originalFieldValue('voltage') : '';
+  power.value = componentType === 'resistor' ? originalFieldValue('power') : '';
+  const evidenceText = JSON.stringify(context?.extraction?.payload ?? {});
+  dielectric.value = componentType === 'capacitor'
+    ? (/\b(?:C0G|NP0|X5R|X7R|X8R|Y5V)\b/i.exec(evidenceText)?.[0]?.toUpperCase() ?? '')
+    : '';
+  capacitorType.value = componentType === 'capacitor'
+    ? inferCapacitorType(evidenceText, dielectric.value)
+    : '';
+  const mountText = `${originalFieldValue('package')} ${originalFieldValue('footprint')} ${evidenceText}`;
+  mountStyle.value = /\b(?:THT|THROUGH[ -]?HOLE|DIP)\b/i.test(mountText)
+    ? 'through-hole'
+    : /\b(?:SMD|SMT)\b/i.test(mountText)
+      ? 'smd'
+      : '';
+}
+
+const searchRequirementsVisible = computed(() => requirementComponentType.value !== null);
+const searchRequirementsValid = computed(() =>
+  packageCode.value.trim() !== ''
+  && (
+    requirementComponentType.value === 'resistor'
+      ? resistance.value.trim() !== ''
+      : requirementComponentType.value === 'capacitor'
+        && capacitance.value.trim() !== ''
+        && capacitorType.value !== ''
+  ),
+);
+
+function nullableRequirement(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function submitSearchRequirements(): void {
+  const componentType = requirementComponentType.value;
+  if (!searchRequirementsValid.value || componentType === null) return;
+  const common = {
+    packageCode: packageCode.value.trim(),
+    tolerance: nullableRequirement(tolerance.value),
+    mountStyle: mountStyle.value === '' ? null : mountStyle.value,
+  };
+  if (componentType === 'resistor') {
+    emit('searchRequirements', {
+      ...common,
+      componentType,
+      resistance: resistance.value.trim(),
+      power: nullableRequirement(power.value),
+    });
+    return;
+  }
+  if (capacitorType.value === '') return;
+  emit('searchRequirements', {
+    ...common,
+    componentType,
+    capacitorType: capacitorType.value,
+    capacitance: capacitance.value.trim(),
+    voltage: nullableRequirement(voltage.value),
+    dielectric: capacitorType.value === 'ceramic'
+      ? nullableRequirement(dielectric.value)
+      : null,
+  });
+}
 
 function comparableSpec(value: string): string {
   return value.toLocaleLowerCase('en-US').replaceAll(/\s+/g, '').replaceAll('μ', 'µ');
@@ -1048,6 +1201,99 @@ onBeforeUnmount(() => {
                     </div>
                   </dl>
                 </div>
+              </section>
+              <section
+                v-if="searchRequirementsVisible && !readOnly"
+                class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 shadow-sm"
+                aria-labelledby="search-requirements-title"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <h3 id="search-requirements-title" class="font-bold text-slate-950">검색 조건 보완</h3>
+                      <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                        {{ requirementComponentType === 'resistor' ? '저항' : '캐패시터' }}
+                      </span>
+                      <span v-if="context.searchRequirements !== null" class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">사용자 조건 저장됨</span>
+                    </div>
+                    <p class="mt-1 text-xs leading-5 text-slate-600">
+                      원본 BOM은 유지하고 이 행의 공급사 검색에만 적용합니다. 비워 둔 선택 조건은 자동선정을 막고 후보 검토 항목으로 남습니다.
+                    </p>
+                  </div>
+                </div>
+
+                <form class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4" @submit.prevent="submitSearchRequirements">
+                  <label v-if="requirementComponentType === 'resistor'" class="text-xs font-semibold text-slate-700">
+                    저항값 <b class="text-rose-600">*</b>
+                    <input v-model.trim="resistance" type="text" maxlength="64" placeholder="예: 10kΩ" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                  </label>
+                  <label v-else class="text-xs font-semibold text-slate-700">
+                    정전용량 <b class="text-rose-600">*</b>
+                    <input v-model.trim="capacitance" type="text" maxlength="64" placeholder="예: 100nF" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                  </label>
+
+                  <label class="text-xs font-semibold text-slate-700">
+                    패키지 <b class="text-rose-600">*</b>
+                    <input v-model.trim="packageCode" type="text" maxlength="64" placeholder="예: 0603 / 1608" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                  </label>
+
+                  <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
+                    캐패시터 종류 <b class="text-rose-600">*</b>
+                    <select v-model="capacitorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <option value="">선택 필요</option>
+                      <option value="ceramic">MLCC / 세라믹</option>
+                      <option value="electrolytic">전해</option>
+                      <option value="tantalum">탄탈</option>
+                      <option value="film">필름</option>
+                    </select>
+                  </label>
+
+                  <label class="text-xs font-semibold text-slate-700">
+                    허용오차
+                    <input v-model.trim="tolerance" type="text" maxlength="64" placeholder="모름 또는 예: 10%" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                  </label>
+
+                  <label v-if="requirementComponentType === 'resistor'" class="text-xs font-semibold text-slate-700">
+                    정격전력
+                    <input v-model.trim="power" type="text" maxlength="64" placeholder="조건 없음 또는 예: 0.1W" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                  </label>
+
+                  <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
+                    정격전압
+                    <input v-model.trim="voltage" type="text" maxlength="64" placeholder="모름 또는 예: 25V" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                  </label>
+
+                  <label v-if="requirementComponentType === 'capacitor' && capacitorType === 'ceramic'" class="text-xs font-semibold text-slate-700">
+                    유전체
+                    <select v-model="dielectric" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <option value="">모름 · 직접 검토</option>
+                      <option value="C0G">C0G / NP0</option>
+                      <option value="X5R">X5R</option>
+                      <option value="X7R">X7R</option>
+                      <option value="X8R">X8R</option>
+                      <option value="Y5V">Y5V</option>
+                    </select>
+                  </label>
+
+                  <label class="text-xs font-semibold text-slate-700">
+                    실장방식
+                    <select v-model="mountStyle" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <option value="">자동 판정</option>
+                      <option value="smd">SMD</option>
+                      <option value="through-hole">THT</option>
+                    </select>
+                  </label>
+
+                  <div class="flex flex-col justify-end sm:col-span-2 lg:col-span-4">
+                    <p v-if="requirementsError !== ''" class="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{{ requirementsError }}</p>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <p class="text-[11px] text-slate-500">전압은 이상(≥), 허용오차는 이하(≤), 정격전력은 이상(≥) 조건으로 검증합니다.</p>
+                      <button type="submit" class="h-9 rounded-lg bg-indigo-600 px-4 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="requirementsSaving || !searchRequirementsValid">
+                        {{ requirementsSaving ? '행 재검색 시작 중…' : context.searchRequirements === null ? '조건 저장 후 검색' : '조건 변경 후 재검색' }}
+                      </button>
+                    </div>
+                  </div>
+                </form>
               </section>
               <section v-if="context.searchTrace !== null" class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                 <button

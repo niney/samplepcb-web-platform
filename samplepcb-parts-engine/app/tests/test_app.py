@@ -28,6 +28,7 @@ from supplier_search_engine.models import (
     SupplierProduct,
     SupplierSearchResult,
 )
+from supplier_search_engine.planner import QueryPlanner
 from supplier_search_engine.service import SearchService
 
 _CSV = (
@@ -209,6 +210,76 @@ def test_persisted_quantities_and_procurement_policy_reach_same_search_batch(tmp
     assert preflight_batch.procurement_policy.currency_rate_snapshot_id == (
         "test-snapshot"
     )
+
+
+def test_persisted_user_requirements_and_component_filter_reach_search_batch(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    component_id = build_batch_from_result(analysis).components[0].component_id
+    requirements = {
+        "version": "bom-user-search-requirements-v1",
+        "component_type": "resistor",
+        "resistance": "10kΩ",
+        "package": "0402",
+        "tolerance": "1%",
+    }
+
+    created = client.post(
+        "/supplier-jobs",
+        json={
+            "analysis": analysis,
+            "requirement_overrides": {component_id: requirements},
+        },
+    )
+    assert created.status_code == 201, created.text
+    supplier_job = client.app.state.jobs.get(created.json()["job_id"])
+    batch = client.app.state.jobs._supplier_batch(
+        supplier_job,
+        SupplierSearchOptions(max_calls=5, component_ids=(component_id,)),
+    )
+
+    assert [component.component_id for component in batch.components] == [component_id]
+    assert batch.components[0].user_requirements is not None
+    assert batch.components[0].user_requirements.resistance == "10kΩ"
+    query = QueryPlanner().plan(batch.components[0])
+    assert query.mode == SearchMode.PARAMETRIC
+    assert query.requirements["package"].status == "user"
+
+
+def test_persisted_user_requirements_reject_unknown_component(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+
+    created = client.post(
+        "/supplier-jobs",
+        json={
+            "analysis": analysis,
+            "requirement_overrides": {
+                "missing-component": {
+                    "component_type": "resistor",
+                    "resistance": "10k",
+                    "package": "0603",
+                },
+            },
+        },
+    )
+
+    assert created.status_code == 422
+    assert "analysis_snapshot_requirement_overrides_invalid" in created.text
 
 
 def test_persisted_quantity_does_not_override_engine_quantity_conflict(tmp_path):

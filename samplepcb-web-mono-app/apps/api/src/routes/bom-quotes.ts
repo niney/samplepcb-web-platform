@@ -15,6 +15,8 @@ import {
   BomQuoteListResponse,
   BomQuotePatchBody,
   BomQuoteRequestBody,
+  BomQuoteSearchRequirements,
+  BomQuoteSearchRequirementsBody,
   BomQuoteSheetSelectionBody,
   BomQuoteStatus,
   BomSupplierStartResponse,
@@ -22,6 +24,7 @@ import {
   type BomQuoteItemInputType,
   type BomQuoteItemType,
   type BomQuoteMatchEvidenceType,
+  type BomQuoteSearchRequirementsType,
 } from '@sp/api-contract';
 import { neededQty, stampOrderQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
@@ -111,6 +114,38 @@ const MAX_FILE_BYTES = 50 * 1024 * 1024; // 시안 카피("up to 50 MB")와 정�
 const FILE_REF_TYPE = 'sp_bom_quote';
 const BizError = z.object({ result: z.literal(false), error: z.string() });
 
+function engineRequirementOverride(
+  requirements: BomQuoteSearchRequirementsType,
+): Record<string, unknown> {
+  const common = {
+    version: requirements.version,
+    component_type: requirements.componentType,
+    package: requirements.packageCode,
+    tolerance: requirements.tolerance,
+    mount_style: requirements.mountStyle,
+  };
+  return requirements.componentType === 'resistor'
+    ? {
+        ...common,
+        resistance: requirements.resistance,
+        power: requirements.power,
+      }
+    : {
+        ...common,
+        capacitor_type: requirements.capacitorType,
+        capacitance: requirements.capacitance,
+        voltage: requirements.voltage,
+        dielectric: requirements.dielectric,
+      };
+}
+
+function supplierRunIsTargeted(options: Prisma.JsonValue): boolean {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) return false;
+  const componentIds = options.component_ids;
+  return Array.isArray(componentIds)
+    && componentIds.some((componentId) => typeof componentId === 'string' && componentId !== '');
+}
+
 /** 파일서버 정리는 응답을 막지 않되 동시 요청을 5건으로 제한한다. */
 async function deleteBomFiles(pathTokens: readonly string[]): Promise<void> {
   const batchSize = 5;
@@ -166,7 +201,7 @@ async function applyCompletedSupplierResult(
 ): Promise<boolean> {
   const run = await prisma.spBomSupplierSearchRun.findUnique({
     where: { id: searchRunId },
-    select: { startedAt: true },
+    select: { startedAt: true, options: true },
   });
   const applyStartedAt = performance.now();
   const applied = await refreshQuoteFromSupplierResult(
@@ -174,6 +209,7 @@ async function applyCompletedSupplierResult(
     envelope,
     searchRunId,
     log,
+    { targeted: run !== null && supplierRunIsTargeted(run.options) },
   );
   const completedAt = new Date();
   const baseSummary = supplierRunSummarySnapshot(envelope);
@@ -220,7 +256,7 @@ async function autoEnrichQuote(
   quoteId: bigint,
   mbId: string,
   log: Parameters<typeof startIngestPoller>[1],
-  options: { force?: boolean } = {},
+  options: { force?: boolean; componentIds?: readonly string[] } = {},
 ): Promise<boolean> {
   const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
   if (quote?.status !== 'draft' || quote.activeAnalysisRunId === null) return false;
@@ -236,6 +272,7 @@ async function autoEnrichQuote(
     cache_only: false,
     reset_cache: false,
     sheet_indexes: sheetIndexes,
+    component_ids: [...(options.componentIds ?? [])],
     procurement: {
       ...procurement,
       currency_rates: procurement.currency_rates.map((rate) => ({ ...rate })),
@@ -277,13 +314,26 @@ async function autoEnrichQuote(
       ? [[componentId, neededQty(item.bomQty, quote.setQty, quote.spareQty)] as const]
       : [];
   }));
+  const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+  const requirementOverrides = Object.fromEntries(activeRows.flatMap((item) => {
+    const componentId = toItemDto(item).sourceRow?.componentId;
+    if (typeof componentId !== 'string' || componentId === '') return [];
+    const parsed = BomQuoteSearchRequirements.safeParse(item.searchRequirements);
+    return parsed.success
+      ? [[componentId, engineRequirementOverride(parsed.data)] as const]
+      : [];
+  }));
 
   let jobId: string;
   try {
     const registered = await engineFetch('/supplier-jobs', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ analysis, required_quantities: requiredQuantities }),
+      body: JSON.stringify({
+        analysis,
+        required_quantities: requiredQuantities,
+        requirement_overrides: requirementOverrides,
+      }),
     });
     if (!registered.ok) return await markFailed(`supplier_job_registration_${String(registered.status)}`);
     const body = (await registered.json()) as { job_id?: unknown };
@@ -849,6 +899,72 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const data = await getQuoteItemCandidates(quote.id, request.params.itemId);
     if (data === null) return reply.notFound('견적 항목을 찾을 수 없습니다');
     return { result: true as const, data };
+  });
+
+  // 원본 추출값은 불변으로 두고 사용자가 보완한 저항/캐패시터 조건으로 해당 행만 재검색한다.
+  fastify.put('/bom/quotes/:id/items/:itemId/search-requirements', {
+    schema: {
+      params: ItemParams,
+      body: BomQuoteSearchRequirementsBody,
+      response: { 200: BomQuoteDetailResponse, 409: BizError, 502: BizError },
+    },
+  }, async (request, reply) => {
+    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (quote.status !== 'draft') {
+      return reply.conflict('견적요청 후에는 검색조건을 변경할 수 없습니다');
+    }
+    if (quote.buildStatus !== 'ready') {
+      return reply.conflict('시트 계산이 완료된 후 검색조건을 변경할 수 있습니다');
+    }
+    if (quote.enrichStatus === 'searching') {
+      return reply.conflict('공급사 확인이 완료된 후 검색조건을 변경할 수 있습니다');
+    }
+    const item = filterActiveQuoteItems(quote.items, quote.sheets).find(
+      (row) => row.id === request.params.itemId,
+    );
+    if (item === undefined) return reply.notFound('견적 항목을 찾을 수 없습니다');
+    const componentId = toItemDto(item).sourceRow?.componentId;
+    if (typeof componentId !== 'string' || componentId === '') {
+      return reply.status(409).send({ result: false, error: 'SEARCH_COMPONENT_NOT_FOUND' });
+    }
+
+    const storedRequirements: BomQuoteSearchRequirementsType = {
+      ...request.body,
+      version: 'bom-user-search-requirements-v1',
+      updatedAt: new Date().toISOString(),
+      updatedBy: request.user.mbId,
+    };
+    const updated = await prisma.spBomQuoteItem.updateMany({
+      where: { id: item.id, quoteId: quote.id },
+      data: { searchRequirements: storedRequirements },
+    });
+    if (updated.count !== 1) {
+      return reply.status(409).send({ result: false, error: 'SEARCH_REQUIREMENTS_UPDATE_LOST' });
+    }
+
+    try {
+      const started = await autoEnrichQuote(
+        quote.id,
+        request.user.mbId,
+        request.log,
+        { force: true, componentIds: [componentId] },
+      );
+      if (!started) {
+        return await reply.status(409).send({ result: false, error: 'SUPPLIER_SEARCH_NOT_STARTED' });
+      }
+    } catch (error) {
+      request.log.warn({
+        quoteId: String(quote.id),
+        itemId: String(item.id),
+        err: String(error),
+      }, '사용자 검색조건 행 재검색 시작 실패');
+      return reply.status(502).send({ result: false, error: 'SUPPLIER_SEARCH_FAILED' });
+    }
+
+    const fresh = await loadOwnQuote(quote.id, request.user.mbId);
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 후보/오퍼 명시 선택 — 클라이언트 가격은 받지 않고 서버 스냅샷에서 합계를 재계산한다.

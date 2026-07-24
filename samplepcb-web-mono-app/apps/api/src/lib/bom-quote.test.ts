@@ -1,5 +1,9 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  BomQuoteSearchRequirements,
+  BomQuoteSearchRequirementsBody,
+} from '@sp/api-contract';
 import { prisma } from './prisma';
 import {
   analysisComponentLookupWhere,
@@ -16,6 +20,55 @@ import {
   resolvePartDataStatus,
   selectEngineMatch,
 } from './bom-quote';
+
+describe('사용자 행 검색조건 계약', () => {
+  it('저항 핵심값과 패키지를 받고 TCR은 계약에서 제외한다', () => {
+    expect(BomQuoteSearchRequirementsBody.safeParse({
+      componentType: 'resistor',
+      resistance: '10kΩ',
+      packageCode: '0603',
+      tolerance: '1%',
+      power: null,
+      mountStyle: 'smd',
+    }).success).toBe(true);
+    expect(BomQuoteSearchRequirementsBody.safeParse({
+      componentType: 'resistor',
+      resistance: '10kΩ',
+      packageCode: '0603',
+      tolerance: '1%',
+      power: null,
+      mountStyle: 'smd',
+      tcr: '100ppm/°C',
+    }).success).toBe(false);
+  });
+
+  it('유전체는 MLCC에만 허용한다', () => {
+    expect(BomQuoteSearchRequirementsBody.safeParse({
+      componentType: 'capacitor',
+      capacitorType: 'electrolytic',
+      capacitance: '100uF',
+      packageCode: '8x10.2mm',
+      tolerance: '20%',
+      voltage: '25V',
+      dielectric: 'X7R',
+      mountStyle: 'smd',
+    }).success).toBe(false);
+  });
+
+  it('저장 계약은 검색조건과 수정 provenance를 함께 수신한다', () => {
+    expect(BomQuoteSearchRequirements.safeParse({
+      version: 'bom-user-search-requirements-v1',
+      componentType: 'resistor',
+      resistance: '10kΩ',
+      packageCode: '0603',
+      tolerance: '1%',
+      power: null,
+      mountStyle: 'smd',
+      updatedAt: '2026-07-24T00:00:00.000Z',
+      updatedBy: 'member-1',
+    }).success).toBe(true);
+  });
+});
 
 describe('후보 화면 부품 정보 준비 상태', () => {
   it('DB 처리가 끝나도 검색 색인 대기 항목이 있으면 완료로 보지 않는다', () => {
@@ -738,6 +791,44 @@ describe('BOM 엔진 후보 결정 투영', () => {
     })).toBe(false);
   });
 
+  it('사용자 조건 재검색은 기존 명시 선택을 보존하지 않고 새 엔진 결과로 재검증한다', async () => {
+    const items = buildItemsFromEngineResult(ENGINE_RESULT, [1]);
+    const item = items[0];
+    const componentId = item?.sourceRow?.componentId;
+    expect(typeof componentId).toBe('string');
+    if (item === undefined || typeof componentId !== 'string') return;
+    item.matchStatus = 'manual';
+    item.selectionSource = 'customer';
+    item.selectedCandidateKey = 'old-customer-candidate';
+
+    const result = await applyEngineSupplierResult(
+      items,
+      {
+        supplier_search_schema_version: '1.7',
+        procurement_decision_contract_status: 'current',
+        search: {
+          search_schema_version: '1.7',
+          components: [{
+            component_id: componentId,
+            status: 'not_found',
+            procurement_decision: componentProcurementDecision('no_recommendation', null),
+            candidates: [],
+          }],
+        },
+      },
+      1,
+      0,
+      null,
+      undefined,
+      false,
+    );
+
+    expect(result.processedRowIndexes).toEqual([item.rowIdx]);
+    expect(item.selectedCandidateKey).toBeNull();
+    expect(item.selectionSource).toBe('none');
+    expect(item.matchStatus).toBe('none');
+  });
+
   it.each(['1.2', '1.3'])('%s 봉투가 현재 조달 결정 상태를 명시하지 않으면 전체 반영을 거부한다', async (schemaVersion) => {
     const result = await applyEngineSupplierResult(
       [],
@@ -754,6 +845,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
       applied: false,
       candidateSnapshots: [],
       searchTraceSnapshots: [],
+      processedRowIndexes: [],
     });
   });
 

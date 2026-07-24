@@ -7,6 +7,7 @@ import {
   BomQuoteExchangeRateSnapshot,
   BomQuoteMatchEvidence,
   BomQuoteRequirementAssessment,
+  BomQuoteSearchRequirements,
   BomQuoteSelectionSource,
   BomQuoteSelectedOffer,
   type AdminBomQuoteDetailType,
@@ -1913,6 +1914,7 @@ export interface ApplyEngineSupplierResult {
   applied: boolean;
   candidateSnapshots: QuoteCandidateSnapshotInput[];
   searchTraceSnapshots: QuoteSearchTraceSnapshotInput[];
+  processedRowIndexes: number[];
 }
 
 export interface QuoteSearchTraceSnapshotInput {
@@ -1929,18 +1931,34 @@ export async function applyEngineSupplierResult(
   spareQty: number,
   usdKrwRate: number | null,
   log?: Pick<FastifyBaseLogger, 'warn'>,
+  preserveExplicitSelections = true,
 ): Promise<ApplyEngineSupplierResult> {
   const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
-  if (!parsed.success) return { applied: false, candidateSnapshots: [], searchTraceSnapshots: [] };
+  if (!parsed.success) {
+    return {
+      applied: false,
+      candidateSnapshots: [],
+      searchTraceSnapshots: [],
+      processedRowIndexes: [],
+    };
+  }
   if (
     parsed.data.procurement_decision_contract_status !== 'current'
     || parsed.data.search.components.some((component) =>
       component.procurement_decision === null
       || component.procurement_decision === undefined)
-  ) return { applied: false, candidateSnapshots: [], searchTraceSnapshots: [] };
+  ) {
+    return {
+      applied: false,
+      candidateSnapshots: [],
+      searchTraceSnapshots: [],
+      processedRowIndexes: [],
+    };
+  }
   const components = new Map(parsed.data.search.components.map((component) => [component.component_id, component]));
   const candidateSnapshots: QuoteCandidateSnapshotInput[] = [];
   const searchTraceSnapshots: QuoteSearchTraceSnapshotInput[] = [];
+  const processedRowIndexes: number[] = [];
   const searchTraceParseFailures: { componentId: string; issues: ParsedEngineSearchTrace['issues'] }[] = [];
 
   for (const item of items) {
@@ -1948,6 +1966,7 @@ export async function applyEngineSupplierResult(
     if (typeof componentId !== 'string') continue; // 수동 추가 행은 카탈로그/사용자 선택을 유지
     const component = components.get(componentId);
     if (component === undefined) continue;
+    processedRowIndexes.push(item.rowIdx);
 
     const sourcePartNumber = item.sourceRow?.inputPartNumber;
     const inputPartNumber = typeof sourcePartNumber === 'string' ? sourcePartNumber.trim() : '';
@@ -1968,10 +1987,11 @@ export async function applyEngineSupplierResult(
 
     // 고객/관리자의 명시 선택은 후보 목록·자동 추천만 최신화하고 현재 선택은 보존한다.
     // 후보 키는 제조사 별칭/그룹화 정책이 바뀌면 달라질 수 있어 현재 MPN·제조사·오퍼로 재연결한다.
-    const explicitSelection =
+    const explicitSelection = preserveExplicitSelections && (
       item.matchStatus === 'manual' ||
       ['customer', 'catalog', 'admin'].includes(item.selectionSource) ||
-      item.selectedOffer?.pinned === true;
+      item.selectedOffer?.pinned === true
+    );
     const remappedExplicit = explicitSelection && item.selectedCandidateKey !== null
       ? remapExplicitCandidate(item, decision.snapshots)
       : null;
@@ -2070,7 +2090,12 @@ export async function applyEngineSupplierResult(
       'BOM 공급사 검색 trace 계약 불일치 — 후보 판정은 유지하고 trace만 생략합니다',
     );
   }
-  return { applied: true, candidateSnapshots, searchTraceSnapshots };
+  return {
+    applied: true,
+    candidateSnapshots,
+    searchTraceSnapshots,
+    processedRowIndexes,
+  };
 }
 
 function storedOfferInput(offer: StoredCandidateOfferType): BomOfferInput {
@@ -2855,14 +2880,14 @@ export async function getQuoteItemCandidates(
     prisma.spBomQuoteSelectionEvent.findMany({ where: { quoteId, quoteItemId: itemId }, orderBy: { createdAt: 'desc' }, take: 20 }),
   ]);
   if (itemRow === null) return null;
-  const searchTraceRow = quote.activeSupplierSearchRunId === null
-    || itemRow.analysisComponent?.engineComponentId === undefined
+  const searchTraceRow = itemRow.analysisComponent?.engineComponentId === undefined
     ? null
     : await prisma.spBomSupplierSearchTrace.findFirst({
         where: {
-          supplierSearchRunId: quote.activeSupplierSearchRunId,
+          supplierSearchRun: { quoteId },
           engineComponentId: itemRow.analysisComponent.engineComponentId,
         },
+        orderBy: { createdAt: 'desc' },
         select: { payload: true },
       });
   const storedSearchTrace = searchTraceRow === null
@@ -2871,6 +2896,9 @@ export async function getQuoteItemCandidates(
   const searchTrace = storedSearchTrace?.success === true
     ? quoteSearchTrace(storedSearchTrace.data)
     : null;
+  const storedSearchRequirements = BomQuoteSearchRequirements.safeParse(
+    itemRow.searchRequirements,
+  );
   const item = toItemDto(itemRow);
   const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
   const stored = candidateRows.flatMap((row) => {
@@ -2984,6 +3012,9 @@ export async function getQuoteItemCandidates(
     itemId: String(itemRow.id),
     rowIdx: item.rowIdx,
     extraction: toBomExtractionSource(itemRow.analysisComponent),
+    searchRequirements: storedSearchRequirements.success
+      ? storedSearchRequirements.data
+      : null,
     originalMpn: typeof originalMpnRaw === 'string' && originalMpnRaw.trim() !== '' ? originalMpnRaw : null,
     originalValue: typeof originalValueRaw === 'string' && originalValueRaw.trim() !== '' ? originalValueRaw : null,
     originalSheetName: item.sourceSheetName,
@@ -3171,6 +3202,7 @@ export async function refreshQuoteFromSupplierResult(
   envelope: unknown,
   supplierSearchRunId?: bigint,
   log?: Pick<FastifyBaseLogger, 'warn'>,
+  options: { targeted?: boolean } = {},
 ): Promise<boolean> {
   const key = `${String(quoteId)}:${supplierSearchRunId === undefined ? 'legacy' : String(supplierSearchRunId)}`;
   const inFlight = engineRefreshInFlight.get(key);
@@ -3187,6 +3219,7 @@ export async function refreshQuoteFromSupplierResult(
       quote.spareQty,
       config.usdKrwRate,
       log,
+      options.targeted !== true,
     );
     if (!applied.applied) return false;
     const result = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
@@ -3195,6 +3228,8 @@ export async function refreshQuoteFromSupplierResult(
       enrichStatus: 'done',
       enrichedAt: new Date(),
       candidateSnapshots: applied.candidateSnapshots,
+      candidateSnapshotScope: options.targeted === true ? 'partial' : 'full',
+      candidateSnapshotRowIndexes: applied.processedRowIndexes,
       ...(supplierSearchRunId === undefined
         ? {}
         : {
@@ -3464,6 +3499,8 @@ export interface QuotePersistenceExtra {
    * 무관한 나머지 행의 후보를 지웠다 다시 넣는 전량 재삽입을 피한다.
    */
   candidateSnapshotScope?: 'full' | 'partial';
+  /** 후보가 0건인 부분 검색 행도 기존 스냅샷을 정확히 제거하기 위한 대상 목록. */
+  candidateSnapshotRowIndexes?: number[];
   supplierSearchRunId?: bigint;
   searchTraceSnapshots?: QuoteSearchTraceSnapshotInput[];
   exchangeRateSnapshot?: BomQuoteExchangeRateSnapshotType | null;
@@ -3498,7 +3535,10 @@ export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
     await persistQuoteItemsInTransaction(tx, quoteId, computed.items);
     if (extra?.candidateSnapshots !== undefined) {
       const scope = extra.candidateSnapshotScope ?? 'full';
-      const snapshotRowIndexes = [...new Set(extra.candidateSnapshots.map((snapshot) => snapshot.rowIdx))];
+      const snapshotRowIndexes = [...new Set(
+        extra.candidateSnapshotRowIndexes
+        ?? extra.candidateSnapshots.map((snapshot) => snapshot.rowIdx),
+      )];
       const quoteItemIdByRowIdx = snapshotRowIndexes.length === 0
         ? new Map<number, bigint>()
         : new Map((await tx.spBomQuoteItem.findMany({

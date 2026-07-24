@@ -748,6 +748,7 @@ model SpBomQuoteItem {
   orderQty                Int                        @default(0)
   matchStatus             String                     @default("none") @db.VarChar(8) // auto|manual|none
   matchEvidence           Json? // 엔진 component 판정·후보·자동 선정 정책 스냅샷(BOM 문맥)
+  searchRequirements      Json?                      @map("search_requirements")
   recommendedCandidateKey String?                    @db.VarChar(64) // 하이브리드 정책의 최초/현재 자동추천
   selectedCandidateKey    String?                    @db.VarChar(64) // 고객이 실제 선택한 견적 후보(카탈로그 직접선택은 null)
   selectionSource         String                     @default("none") @db.VarChar(16) // none|auto|customer|catalog|admin|legacy

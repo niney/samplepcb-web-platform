@@ -16,6 +16,16 @@ _SPEC_ORDER = {
         "dielectric",
         "package",
     ),
+    "electrolytic": (
+        "capacitance_f",
+        "voltage_v",
+        "tolerance_percent",
+        "diameter_mm",
+        "package",
+        "mount_style",
+    ),
+    "tantalum": ("capacitance_f", "voltage_v", "tolerance_percent", "package"),
+    "film": ("capacitance_f", "voltage_v", "tolerance_percent", "package"),
     "inductor": ("inductance_h", "current_a", "tolerance_percent", "package"),
     "crystal": ("frequency_hz", "tolerance_percent", "package"),
     "ferrite": ("impedance_ohm", "impedance_frequency_hz", "current_a", "package"),
@@ -89,6 +99,8 @@ def _requirement_token(
         return f"{_number(numeric)}%"
     if name == "voltage_v":
         return f"{_number(numeric)}V"
+    if name == "diameter_mm":
+        return f"{_number(numeric)}mm"
     if name == "current_a":
         return _scaled(numeric, ((1, "A"), (1e-3, "mA"), (1e-6, "uA")))
     if name in {"frequency_hz", "impedance_frequency_hz"}:
@@ -135,6 +147,10 @@ def _category_token(query: PlannedQuery, supplier: Supplier | None) -> str | Non
             if supplier == Supplier.DIGIKEY
             else "electrolytic capacitor"
         )
+    if query.category_policy == "tantalum":
+        return "tantalum capacitor"
+    if query.category_policy == "film":
+        return "film capacitor"
     category = query.category_policy or (query.part_type or "").casefold()
     return {
         "resistor": "resistor",

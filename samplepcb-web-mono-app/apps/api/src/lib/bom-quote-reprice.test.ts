@@ -661,6 +661,31 @@ describe('persistQuoteComputed candidateSnapshotScope', () => {
     );
   });
 
+  it("'partial' 대상 행의 새 후보가 0건이어도 기존 후보를 제거한다", async () => {
+    const tx = buildTxMock();
+    transactionMock.mockImplementation(async (callback: (tx: TxMock) => Promise<void>) => callback(tx));
+
+    await persistQuoteComputed(
+      1n,
+      { items: [minimalItem('10', 0), minimalItem('11', 1)], itemsTotal: 0, finalTotal: 0, uncostedCount: 0 },
+      null,
+      {
+        candidateSnapshots: [],
+        candidateSnapshotScope: 'partial',
+        candidateSnapshotRowIndexes: [1],
+      },
+    );
+
+    expect(tx.spBomQuoteItem.findMany).toHaveBeenCalledWith({
+      where: { quoteId: 1n, rowIdx: { in: [1] } },
+      select: { id: true, rowIdx: true },
+    });
+    expect(tx.spBomQuoteCandidate.deleteMany).toHaveBeenCalledWith({
+      where: { quoteId: 1n, quoteItemId: { in: [11n] } },
+    });
+    expect(tx.spBomQuoteCandidate.createMany).not.toHaveBeenCalled();
+  });
+
   it('scope 미지정(기본 full)이면 기존처럼 quoteId 전체 후보를 교체한다(공급사 검색 완료 반영 경로 보존)', async () => {
     const tx = buildTxMock();
     transactionMock.mockImplementation(async (callback: (tx: TxMock) => Promise<void>) => callback(tx));

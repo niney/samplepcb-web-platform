@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, Callable
 
-from .contract import SearchComponentInput, SearchField
+from .contract import SearchComponentInput, SearchField, UserSearchRequirements
 from .normalizer import (
     parse_capacitance_f,
     parse_current_a,
@@ -91,6 +91,8 @@ _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 _FERRITE_CONTEXT = re.compile(r"\b(?:ferrite|bead|f\.?\s*bead)\b|비드", re.I)
 _ELECTROLYTIC_TOKENS = ("electrolytic", "ecap", "전해")
+_TANTALUM_TOKENS = ("tantalum", "탄탈")
+_FILM_CAPACITOR_TOKENS = ("film capacitor", "film cap", "필름")
 _ELECTROLYTIC_ABBREVIATION = re.compile(
     r"(?:^|[^A-Z0-9])E\s*/\s*C(?:[^A-Z0-9]|$)|"
     r"(?:^|[^A-Z0-9])E(?:LE)?[ -]?CAP(?:[^A-Z0-9]|$)|"
@@ -177,6 +179,10 @@ def _canonical_category_policy(
         for token in ("capacitor", "커패시터", "콘덴서", "electrolytic", "전해")
     ):
         return "electrolytic"
+    if any(token in bom_text for token in _TANTALUM_TOKENS):
+        return "tantalum"
+    if any(token in bom_text for token in _FILM_CAPACITOR_TOKENS):
+        return "film"
     return next(
         (
             policy
@@ -242,7 +248,14 @@ class QueryPlanner:
             requirements["temperature_range_c"] = self._requirement(
                 "temperature_range_c", temperature, normalized_temperature, "contains"
             )
-        part_type_value = str(part_type.value).strip() if part_type.value is not None else None
+        user_requirements = component.user_requirements
+        part_type_value = (
+            user_requirements.component_type
+            if user_requirements is not None
+            else str(part_type.value).strip()
+            if part_type.value is not None
+            else None
+        )
         raw_part_number = str(pn.value).strip() if pn.value is not None else None
         pseudo_package = _package_from_pseudo_part_number(raw_part_number, part_type_value)
         internal_cad_part_number = bool(
@@ -263,6 +276,17 @@ class QueryPlanner:
             component.value_raw,
             package_value,
         )
+        if user_requirements is not None:
+            category_policy = (
+                "resistor"
+                if user_requirements.component_type == "resistor"
+                else {
+                    "ceramic": "capacitor",
+                    "electrolytic": "electrolytic",
+                    "tantalum": "tantalum",
+                    "film": "film",
+                }.get(user_requirements.capacitor_type or "")
+            )
         if category_policy == "ferrite":
             requirements.pop("resistance_ohm", None)
             requirements.pop("frequency_hz", None)
@@ -385,12 +409,19 @@ class QueryPlanner:
             )
             else None
         )
+        # 사용자 검색조건은 MPN 추출 결과를 수정하지 않으면서 별도의 스펙 검색을
+        # 요청하는 명령이다. 기존 MPN identity 분기로 돌아가 조건을 우회하지 않는다.
+        if user_requirements is not None:
+            part_number = None
         manufacturer_name = (
             str(manufacturer.value).strip()
             if manufacturer.value is not None
             else None
         )
         if manufacturer_name and _MULTISOURCE_MANUFACTURER.search(manufacturer_name):
+            manufacturer_name = None
+        if user_requirements is not None:
+            # 사용자 조건 재검색은 제조사 선택을 제공하지 않는 Any Vendor 검색이다.
             manufacturer_name = None
         physical_source = " ".join(
             value
@@ -434,6 +465,22 @@ class QueryPlanner:
                 hard=True,
                 comparison="eq",
             )
+        if user_requirements is not None:
+            self._apply_user_requirements(
+                user_requirements,
+                requirements,
+                part_type_value,
+            )
+            package_requirement = requirements.get("package")
+            if package_requirement is not None:
+                package_value = str(package_requirement.raw_value)
+            dielectric_requirement = requirements.get("dielectric")
+            dielectric = (
+                str(dielectric_requirement.normalized_value)
+                if dielectric_requirement is not None
+                and dielectric_requirement.normalized_value is not None
+                else None
+            )
         hard_specs = [item for item in requirements.values() if item.hard and item.name not in {"part_type"}]
 
         if part_number and pn.status == "extracted":
@@ -468,17 +515,26 @@ class QueryPlanner:
             # the most discriminating value and canonical package, then apply
             # every hard requirement locally.  Long free-text queries reduce
             # recall and make equivalent unit/package spellings brittle.
-            primary_names = {
-                "resistor": ("resistance",),
-                "capacitor": ("capacitance",),
-                "inductor": ("inductance",),
-                "crystal": ("frequency",),
-            }.get((part_type_value or "").casefold(), ())
-            for field_name in (*primary_names, *self._SPEC_PARSERS):
-                field = fields[field_name]
-                if field.value is not None:
-                    keyword_parts.append(str(field.value))
-                    break
+            if user_requirements is not None:
+                primary_requirement = requirements.get(
+                    "resistance_ohm"
+                    if user_requirements.component_type == "resistor"
+                    else "capacitance_f"
+                )
+                if primary_requirement is not None:
+                    keyword_parts.append(str(primary_requirement.raw_value))
+            else:
+                primary_names = {
+                    "resistor": ("resistance",),
+                    "capacitor": ("capacitance",),
+                    "inductor": ("inductance",),
+                    "crystal": ("frequency",),
+                }.get((part_type_value or "").casefold(), ())
+                for field_name in (*primary_names, *self._SPEC_PARSERS):
+                    field = fields[field_name]
+                    if field.value is not None:
+                        keyword_parts.append(str(field.value))
+                        break
             package_requirement = requirements.get("package")
             if package_requirement is not None and package_requirement.hard:
                 normalized_package = package_requirement.normalized_value
@@ -537,6 +593,7 @@ class QueryPlanner:
             input_source_conflicts=sorted(
                 flag
                 for flag in component.quality_flags
+                if user_requirements is None
                 if flag.endswith("_input_source_conflict")
                 or flag
                 in {
@@ -563,7 +620,11 @@ class QueryPlanner:
         """
 
         base = self.plan(component)
-        if base.part_number or base.mode == SearchMode.EXCLUDED:
+        if (
+            component.user_requirements is not None
+            or base.part_number
+            or base.mode == SearchMode.EXCLUDED
+        ):
             return [base]
         conflicts = {
             name: alternatives
@@ -689,3 +750,107 @@ class QueryPlanner:
             hard=field.status == "extracted" and normalized is not None,
             comparison=comparison,
         )
+
+    @staticmethod
+    def _apply_user_requirements(
+        user: UserSearchRequirements,
+        requirements: dict[str, Requirement],
+        part_type: str | None,
+    ) -> None:
+        inferred_mount = (
+            requirements.get("mount_style") if user.mount_style is None else None
+        )
+        requirements.clear()
+        if inferred_mount is not None:
+            requirements["mount_style"] = inferred_mount
+
+        def apply(
+            name: str,
+            raw_value: str | None,
+            parser: Callable[[Any], Any],
+            comparison: str,
+        ) -> None:
+            if raw_value is None:
+                requirements.pop(name, None)
+                return
+            normalized = parser(raw_value)
+            if normalized is None:
+                raise ValueError(f"user_requirement_invalid:{name}")
+            requirements[name] = Requirement(
+                name=name,
+                raw_value=raw_value,
+                normalized_value=normalized,
+                status="user",
+                hard=True,
+                comparison=comparison,
+            )
+
+        apply(
+            "resistance_ohm",
+            user.resistance if user.component_type == "resistor" else None,
+            parse_resistance_ohm,
+            "eq",
+        )
+        apply(
+            "capacitance_f",
+            user.capacitance if user.component_type == "capacitor" else None,
+            lambda value: parse_capacitance_f(value, allow_code=True),
+            "eq",
+        )
+        apply("tolerance_percent", user.tolerance, parse_tolerance_percent, "lte")
+        apply("voltage_v", user.voltage, parse_voltage_v, "gte")
+        apply("power_w", user.power, parse_power_w, "gte")
+
+        mechanical_diameter = (
+            source_diameter_mm(f"electrolytic {user.package}")
+            if user.component_type == "capacitor"
+            and user.capacitor_type == "electrolytic"
+            and _MECHANICAL_PACKAGE_DIMENSION.fullmatch(user.package.strip())
+            else None
+        )
+        if mechanical_diameter is not None:
+            requirements.pop("package", None)
+            requirements["diameter_mm"] = Requirement(
+                name="diameter_mm",
+                raw_value=user.package,
+                normalized_value=mechanical_diameter,
+                status="user",
+                hard=True,
+                comparison="eq",
+            )
+        else:
+            requirements.pop("diameter_mm", None)
+            normalized_package = normalize_package(user.package, part_type)
+            if not normalized_package:
+                raise ValueError("user_requirement_invalid:package")
+            requirements["package"] = Requirement(
+                name="package",
+                raw_value=user.package,
+                normalized_value=normalized_package,
+                status="user",
+                hard=True,
+                comparison="eq",
+            )
+        if user.dielectric is None:
+            requirements.pop("dielectric", None)
+        else:
+            normalized_dielectric = normalize_dielectric(user.dielectric)
+            if not normalized_dielectric:
+                raise ValueError("user_requirement_invalid:dielectric")
+            requirements["dielectric"] = Requirement(
+                name="dielectric",
+                raw_value=user.dielectric,
+                normalized_value=normalized_dielectric,
+                status="user",
+                hard=True,
+                comparison="eq",
+            )
+        if user.mount_style is not None:
+            requirements["mount_style"] = Requirement(
+                name="mount_style",
+                raw_value=user.mount_style,
+                normalized_value=user.mount_style,
+                status="user",
+                hard=True,
+                comparison="eq",
+            )

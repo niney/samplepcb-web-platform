@@ -7,6 +7,7 @@ from supplier_search_engine.contract import (
     SearchComponentInput,
     SearchField,
     SearchFieldAlternative,
+    UserSearchRequirements,
 )
 
 from supplier_search_engine.matcher import (
@@ -55,6 +56,199 @@ def test_planner_uses_only_extracted_values_as_hard_requirements():
     assert query.mode.value == "identity"
     assert query.requirements["resistance_ohm"].hard is True
     assert query.requirements["tolerance_percent"].hard is False
+
+
+def test_user_resistor_requirements_force_parametric_search_and_make_power_conditional():
+    item = component(
+        part_number="LEGACY-MPN",
+        part_type="resistor",
+        manufacturer="Legacy Vendor",
+        temperature="-40 ~ 85°C",
+        resistance=None,
+        package=None,
+    )
+    item.user_requirements = UserSearchRequirements(
+        component_type="resistor",
+        resistance="10kΩ",
+        package="1608",
+        tolerance="5%",
+    )
+    item.quality_flags = [
+        "resistance_input_source_conflict",
+        "package_input_source_conflict",
+    ]
+
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="RC0603-10K-1",
+        manufacturer="Other Vendor",
+        manufacturer_evidence=ManufacturerEvidence.STRUCTURED,
+        category="Chip Resistors",
+        package="0603",
+        normalized_specs={
+            "resistance_ohm": 10_000.0,
+            "tolerance_percent": 1.0,
+            "package": "0603",
+        },
+    )
+    match = finalize_candidate_decisions(
+        query,
+        [CandidateMatcher().evaluate(query, product)],
+    )[0]
+
+    assert query.mode.value == "parametric"
+    assert query.part_number is None
+    assert query.manufacturer is None
+    assert query.keywords == "10kΩ 0603 resistor"
+    assert query.input_source_conflicts == []
+    assert query.requirements["resistance_ohm"].status == "user"
+    assert "temperature_range_c" not in query.requirements
+    assert "power_w" not in query.requirements
+    assert match.decision.strict_category_coverage is True
+    assert match.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+
+
+def test_user_resistor_power_is_required_only_when_selected():
+    item = component(part_type="resistor")
+    item.user_requirements = UserSearchRequirements(
+        component_type="resistor",
+        resistance="10k",
+        package="0603",
+        tolerance="1%",
+        power="0.1W",
+    )
+
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.MOUSER,
+        manufacturer_part_number="RES-10K",
+        category="Resistors",
+        package="0603",
+        normalized_specs={
+            "resistance_ohm": 10_000.0,
+            "tolerance_percent": 1.0,
+            "package": "0603",
+        },
+    )
+    match = CandidateMatcher().evaluate(query, product)
+
+    assert query.requirements["power_w"].comparison == "gte"
+    assert "power_w" in match.missing_requirements
+    assert match.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+
+
+def test_user_ceramic_capacitor_requirements_control_automatic_selection():
+    complete = component(part_type="capacitor")
+    complete.user_requirements = UserSearchRequirements(
+        component_type="capacitor",
+        capacitor_type="ceramic",
+        capacitance="100nF",
+        package="1005",
+        tolerance="10%",
+        voltage="25V",
+        dielectric="X7R",
+    )
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="MLCC-100N",
+        category="Ceramic Capacitors",
+        package="0402",
+        normalized_specs={
+            "capacitance_f": 100e-9,
+            "tolerance_percent": 10.0,
+            "voltage_v": 50.0,
+            "dielectric": "X7R",
+            "package": "0402",
+        },
+    )
+
+    complete_match = CandidateMatcher().evaluate(QueryPlanner().plan(complete), product)
+
+    incomplete = complete.model_copy(deep=True)
+    incomplete.user_requirements = complete.user_requirements.model_copy(
+        update={"voltage": None, "dielectric": None},
+    )
+    incomplete_match = CandidateMatcher().evaluate(
+        QueryPlanner().plan(incomplete),
+        product,
+    )
+
+    assert complete_match.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert incomplete_match.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert {
+        "category_coverage_missing:voltage_v",
+        "category_coverage_missing:dielectric",
+    } <= set(incomplete_match.decision.reason_codes)
+
+
+@pytest.mark.parametrize("capacitor_type", ["tantalum", "film"])
+def test_non_ceramic_user_capacitor_does_not_require_dielectric(capacitor_type):
+    item = component(part_type="capacitor")
+    item.user_requirements = UserSearchRequirements(
+        component_type="capacitor",
+        capacitor_type=capacitor_type,
+        capacitance="10uF",
+        package="1206",
+        tolerance="10%",
+        voltage="25V",
+    )
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.MOUSER,
+        manufacturer_part_number=f"{capacitor_type}-10u",
+        category=f"{capacitor_type} capacitors",
+        package="1206",
+        normalized_specs={
+            "capacitance_f": 10e-6,
+            "tolerance_percent": 10.0,
+            "voltage_v": 35.0,
+            "package": "1206",
+        },
+    )
+
+    match = CandidateMatcher().evaluate(query, product)
+
+    assert query.category_policy == capacitor_type
+    assert "dielectric" not in {
+        assessment.key for assessment in match.decision.requirement_assessments
+    }
+    assert match.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+
+
+def test_user_electrolytic_mechanical_package_becomes_diameter_requirement():
+    item = component(part_type="capacitor")
+    item.user_requirements = UserSearchRequirements(
+        component_type="capacitor",
+        capacitor_type="electrolytic",
+        capacitance="100uF",
+        package="8x10.2mm",
+        tolerance="20%",
+        voltage="25V",
+        mount_style="smd",
+    )
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="ECAP-100U-35V",
+        category="Aluminum Electrolytic Capacitors",
+        description="SMD aluminum electrolytic capacitor 8 x 10.2 mm",
+        normalized_specs={
+            "capacitance_f": 100e-6,
+            "tolerance_percent": 20.0,
+            "voltage_v": 35.0,
+        },
+    )
+
+    match = finalize_candidate_decisions(
+        query,
+        [CandidateMatcher().evaluate(query, product)],
+    )[0]
+
+    assert "package" not in query.requirements
+    assert query.requirements["diameter_mm"].normalized_value == 8.0
+    assert match.decision.strict_category_coverage is True
+    assert match.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
 
 
 def test_planner_freezes_category_policy_from_bom_evidence():

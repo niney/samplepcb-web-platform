@@ -228,6 +228,69 @@ export type BomQuoteCandidateSelectionEligibilityType = z.infer<typeof BomQuoteC
 export const BomQuoteCandidateSelectionRecommendation = z.enum(['preselect', 'candidate_only', 'exclude']);
 export type BomQuoteCandidateSelectionRecommendationType = z.infer<typeof BomQuoteCandidateSelectionRecommendation>;
 
+const BomQuoteSearchRequirementsBase = z.object({
+  packageCode: z.string().trim().min(1).max(64),
+  tolerance: z.string().trim().min(1).max(64).nullable(),
+  mountStyle: z.enum(['smd', 'through-hole']).nullable(),
+});
+
+const BomQuoteResistorSearchRequirements = BomQuoteSearchRequirementsBase.extend({
+  componentType: z.literal('resistor'),
+  resistance: z.string().trim().min(1).max(64),
+  power: z.string().trim().min(1).max(64).nullable(),
+}).strict();
+
+const BomQuoteCapacitorSearchRequirements = BomQuoteSearchRequirementsBase.extend({
+  componentType: z.literal('capacitor'),
+  capacitorType: z.enum(['ceramic', 'electrolytic', 'tantalum', 'film']),
+  capacitance: z.string().trim().min(1).max(64),
+  voltage: z.string().trim().min(1).max(64).nullable(),
+  dielectric: z.string().trim().min(1).max(32).nullable(),
+}).strict();
+
+/** 원본 BOM을 덮어쓰지 않고 해당 견적 행의 스펙 검색에만 적용하는 사용자 명령. */
+export const BomQuoteSearchRequirementsBody = z.discriminatedUnion('componentType', [
+  BomQuoteResistorSearchRequirements,
+  BomQuoteCapacitorSearchRequirements,
+]).superRefine((value, context) => {
+  if (
+    value.componentType === 'capacitor'
+    && value.capacitorType !== 'ceramic'
+    && value.dielectric !== null
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['dielectric'],
+      message: '유전체는 MLCC에만 지정할 수 있습니다',
+    });
+  }
+});
+export type BomQuoteSearchRequirementsBodyType = z.infer<typeof BomQuoteSearchRequirementsBody>;
+
+const BomQuoteSearchRequirementsMetadata = {
+    version: z.literal('bom-user-search-requirements-v1'),
+    updatedAt: z.string(),
+    updatedBy: z.string(),
+};
+
+export const BomQuoteSearchRequirements = z.discriminatedUnion('componentType', [
+  BomQuoteResistorSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+  BomQuoteCapacitorSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+]).superRefine((value, context) => {
+  if (
+    value.componentType === 'capacitor'
+    && value.capacitorType !== 'ceramic'
+    && value.dielectric !== null
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['dielectric'],
+      message: '유전체는 MLCC에만 지정할 수 있습니다',
+    });
+  }
+});
+export type BomQuoteSearchRequirementsType = z.infer<typeof BomQuoteSearchRequirements>;
+
 export const BomQuoteCandidateOfferApplied = z.object({
   orderQty: z.number().int().min(1),
   breakQty: z.number().int().min(1),
@@ -415,6 +478,8 @@ export const BomQuoteItemCandidates = z.object({
   rowIdx: z.number().int().min(0),
   /** 영속 분석에서 읽은 원본 ComponentRecord. 도입 전/수동 행은 null이다. */
   extraction: BomQuoteExtractionSource.nullable(),
+  /** 사용자가 원본 BOM과 별도로 확정한 행 단위 스펙 검색조건. */
+  searchRequirements: BomQuoteSearchRequirements.nullable(),
   originalMpn: z.string().nullable(),
   originalValue: z.string().nullable(),
   originalSheetName: z.string().nullable(),

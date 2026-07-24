@@ -55,8 +55,16 @@ _MANUFACTURER_ALIASES = {
 }
 
 _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
-    "electrolytic": ("capacitance_f", "voltage_v", "package", "mount_style"),
-    "resistor": ("resistance_ohm", "power_w", "tolerance_percent", "package"),
+    "electrolytic": (
+        "capacitance_f",
+        "voltage_v",
+        "tolerance_percent",
+        "package",
+        "mount_style",
+    ),
+    # 정격전력은 BOM/사용자가 지정한 경우 requirements의 hard 조건으로 추가된다.
+    # 모든 저항에 전력을 강제하면 일반 BOM의 안전 후보까지 영구 수동검토가 된다.
+    "resistor": ("resistance_ohm", "tolerance_percent", "package"),
     "capacitor": (
         "capacitance_f",
         "voltage_v",
@@ -64,6 +72,8 @@ _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
         "dielectric",
         "package",
     ),
+    "tantalum": ("capacitance_f", "voltage_v", "tolerance_percent", "package"),
+    "film": ("capacitance_f", "voltage_v", "tolerance_percent", "package"),
     "inductor": ("inductance_h", "current_a", "tolerance_percent", "package"),
     "ferrite": (
         "impedance_ohm",
@@ -197,6 +207,16 @@ def _category_fields(query: PlannedQuery) -> tuple[str, ...] | None:
             None,
         )
     fields = _CATEGORY_POLICY.get(policy) if policy else None
+    if (
+        policy == "electrolytic"
+        and fields is not None
+        and "diameter_mm" in query.requirements
+        and "package" not in query.requirements
+    ):
+        fields = tuple(
+            "diameter_mm" if name == "package" else name
+            for name in fields
+        )
     if fields and "absolute_tolerance_h" in query.requirements:
         fields = tuple(
             "absolute_tolerance_h" if name == "tolerance_percent" else name

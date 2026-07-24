@@ -7,6 +7,7 @@ import {
   type BomQuoteDetailResponseType,
   type BomQuoteDetailType,
   type BomQuoteItemType,
+  type BomQuoteSearchRequirementsBodyType,
   type BomQuoteSelectedOfferType,
   type PartHitType,
 } from '@sp/api-contract';
@@ -32,6 +33,7 @@ import {
   useSelectBomQuoteCandidate,
   useSupplierSearchStatus,
   useUpdateBomQuoteSheets,
+  useUpdateBomQuoteSearchRequirements,
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
 import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
@@ -706,6 +708,8 @@ const candidateQuery = useBomQuoteCandidates(
 );
 const candidateSelection = useSelectBomQuoteCandidate();
 const candidateSelectionError = ref('');
+const searchRequirementsMutation = useUpdateBomQuoteSearchRequirements();
+const searchRequirementsError = ref('');
 const catalogSelectionPending = ref(false);
 
 const offerModal = ref<{ lineIdx: number; partId: string } | null>(null);
@@ -732,6 +736,7 @@ function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: stri
 
 function activateCandidateDrawer(itemId: string, view: CandidateDrawerView): void {
   candidateSelectionError.value = '';
+  searchRequirementsError.value = '';
   candidateItemId.value = itemId;
   candidateDrawerView.value = view;
   selectionSurface.value = 'candidates';
@@ -804,6 +809,7 @@ function closeSelectionSurface(): void {
   candidateItemId.value = null;
   selectionSurface.value = null;
   candidateSelectionError.value = '';
+  searchRequirementsError.value = '';
 }
 
 function openQuoteOfferModal(item: BomQuoteItemType): void {
@@ -852,6 +858,36 @@ async function selectCandidate(candidateKey: string, offerKey: string | null): P
         ? '가격이 없는 오퍼는 선택할 수 없습니다.'
         : '후보 선택을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.';
     return false;
+  }
+}
+
+async function updateSearchRequirements(
+  requirements: BomQuoteSearchRequirementsBodyType,
+): Promise<void> {
+  if (candidateItemId.value === null || editingLocked.value) return;
+  if (dirty.value) {
+    await saveNow();
+    if (saveState.value === 'error') {
+      searchRequirementsError.value = '저장되지 않은 변경사항이 있습니다. 저장 상태를 확인해 주세요.';
+      return;
+    }
+  }
+  searchRequirementsError.value = '';
+  try {
+    await searchRequirementsMutation.mutateAsync({
+      quoteId: quoteId.value,
+      itemId: candidateItemId.value,
+      body: requirements,
+    });
+    dirty.value = false;
+  } catch (reason) {
+    const code = reason instanceof ApiRequestError ? reason.payload?.error : undefined;
+    searchRequirementsError.value = code === 'SUPPLIER_SEARCH_NOT_STARTED'
+      ? '검색조건은 저장했지만 공급사 검색을 시작하지 못했습니다. 값을 확인한 뒤 다시 시도해 주세요.'
+      : code === 'SEARCH_COMPONENT_NOT_FOUND'
+        ? '원본 BOM 컴포넌트와 연결되지 않은 행은 조건 검색을 사용할 수 없습니다.'
+        : '검색조건을 저장하거나 행 재검색을 시작하지 못했습니다. 입력값을 확인해 주세요.';
+    await Promise.all([quote.refetch(), candidateQuery.refetch()]);
   }
 }
 
@@ -1710,6 +1746,8 @@ function fmtAmount(v: number | null): string {
       :selecting="candidateSelection.isPending.value"
       :catalog-selecting="catalogSelectionPending"
       :selection-error="candidateSelectionError"
+      :requirements-saving="searchRequirementsMutation.isPending.value"
+      :requirements-error="searchRequirementsError"
       :initial-view="candidateDrawerView"
       :search-initial-query="candidateItem?.mpn ?? ''"
       :current-part-id="candidateItem?.partId ?? null"
@@ -1719,6 +1757,7 @@ function fmtAmount(v: number | null): string {
       @select="selectCandidate"
       @catalog-select="onCatalogPartSelected"
       @catalog-offers="openCatalogOffersFromDrawer"
+      @search-requirements="updateSearchRequirements"
       @close="closeSelectionSurface"
     />
     <BomQuoteOfferModal

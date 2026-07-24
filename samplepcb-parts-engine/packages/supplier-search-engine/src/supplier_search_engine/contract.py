@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import (
     ProcurementDisposition,
@@ -92,6 +92,52 @@ class SearchFieldAlternative(BaseModel):
     ]
 
 
+class UserSearchRequirements(BaseModel):
+    """사용자가 원본 BOM과 별도로 확정한 행 단위 검색조건.
+
+    원본 추출값과 provenance를 덮어쓰지 않고 QueryPlanner가 마지막에 병합한다.
+    TCR은 v1 범위에서 의도적으로 제외한다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["bom-user-search-requirements-v1"] = (
+        "bom-user-search-requirements-v1"
+    )
+    component_type: Literal["resistor", "capacitor"]
+    capacitor_type: Literal["ceramic", "electrolytic", "tantalum", "film"] | None = (
+        None
+    )
+    resistance: str | None = Field(default=None, min_length=1, max_length=64)
+    capacitance: str | None = Field(default=None, min_length=1, max_length=64)
+    package: str = Field(min_length=1, max_length=64)
+    tolerance: str | None = Field(default=None, min_length=1, max_length=64)
+    voltage: str | None = Field(default=None, min_length=1, max_length=64)
+    power: str | None = Field(default=None, min_length=1, max_length=64)
+    dielectric: str | None = Field(default=None, min_length=1, max_length=32)
+    mount_style: Literal["smd", "through-hole"] | None = None
+
+    @model_validator(mode="after")
+    def validate_component_requirements(self) -> "UserSearchRequirements":
+        if self.component_type == "resistor":
+            if self.resistance is None:
+                raise ValueError("resistance is required for resistor search")
+            if self.capacitance is not None or self.capacitor_type is not None:
+                raise ValueError("capacitor fields are not valid for resistor search")
+            if self.voltage is not None or self.dielectric is not None:
+                raise ValueError("capacitor ratings are not valid for resistor search")
+        else:
+            if self.capacitance is None:
+                raise ValueError("capacitance is required for capacitor search")
+            if self.capacitor_type is None:
+                raise ValueError("capacitor_type is required for capacitor search")
+            if self.resistance is not None or self.power is not None:
+                raise ValueError("resistor fields are not valid for capacitor search")
+            if self.capacitor_type != "ceramic" and self.dielectric is not None:
+                raise ValueError("dielectric is only valid for ceramic capacitors")
+        return self
+
+
 class SearchComponentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -123,6 +169,7 @@ class SearchComponentInput(BaseModel):
     pitch_mm: float | None = Field(default=None, gt=0)
     body_dimensions_mm: list[float] | None = None
     required_quantity: int | None = Field(default=None, ge=1)
+    user_requirements: UserSearchRequirements | None = None
     fields: dict[str, SearchField]
 
 
