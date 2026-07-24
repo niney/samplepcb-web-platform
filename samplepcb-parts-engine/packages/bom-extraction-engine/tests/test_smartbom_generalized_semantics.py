@@ -6,6 +6,8 @@ They protect reusable header, identity, specification, and sheet-integrity
 rules rather than either workbook used to discover the gaps.
 """
 
+import pytest
+
 from bom_extraction_engine.adapter import adapt_sheet
 from bom_extraction_engine.contract import ComponentRecord, HeaderMapping
 from bom_extraction_engine.rule_extractor import compute_roles, extract_case
@@ -193,3 +195,95 @@ def test_conflicting_duplicate_reference_fails_procurement_closed():
         )
         assert "quantity_reference_conflict" in component["disposition_reason_codes"]
         assert component["review_status"] == "review"
+
+
+def test_duplicate_korean_type_headers_recover_value_column_without_changing_standard_layout():
+    components, headers = _analyze(
+        ["Item", "ENCODE", "품목", "SIZE", "품명", "Reference", "Q'T"],
+        [
+            ["1", "", "REGULATOR", "SOT-223", "FR1117S-3.3", "U1", "1"],
+            ["2", "", "DIODE", "SOD-123", "MMSD4148", "D1", "1"],
+            ["3", "", "RESISTOR", "2012 SIZE", "523Ω 1%", "R1", "1"],
+            ["4", "", "MLCC", "1608 SIZE", "100nF 50V K X7R", "C1", "1"],
+        ],
+    )
+    mappings = {header["raw_header"]: header["semantic_field"] for header in headers}
+    assert mappings["품목"] == "part_type"
+    assert mappings["품명"] == "value"
+
+    by_reference = _by_reference(components)
+    assert by_reference["U1"]["part_number"] == "FR1117S-3.3"
+    assert by_reference["D1"]["part_number"] == "MMSD4148"
+    assert by_reference["R1"]["resistance_ohm"] == 523.0
+    assert by_reference["R1"]["tolerance_percent"] == 1.0
+    assert by_reference["C1"]["capacitance_f"] == pytest.approx(100e-9)
+    assert by_reference["C1"]["voltage_v"] == 50.0
+
+    standard_components, standard_headers = _analyze(
+        ["품명", "SIZE", "규격", "Reference", "Q'T"],
+        [
+            ["RESISTOR", "1608 SIZE", "10kΩ 1%", "R1", "1"],
+            ["MLCC", "1608 SIZE", "100nF 50V", "C1", "1"],
+            ["DIODE", "SOD-123", "MMSD4148", "D1", "1"],
+        ],
+    )
+    standard_mappings = {
+        header["raw_header"]: header["semantic_field"]
+        for header in standard_headers
+    }
+    assert standard_mappings["품명"] == "part_type"
+    assert standard_mappings["규격"] == "value"
+    assert len(standard_components) == 3
+
+
+def test_explicit_ferrite_bead_overrides_only_bd_designator_conflict():
+    components, _ = _analyze(
+        ["품명", "SIZE", "규격", "Reference", "Q'T", "Vendors"],
+        [
+            ["Ferrite BEAD", "2012 SIZE", "BLM21PG221SN1D/21", "BD5", "1", "Murata"],
+            ["BEAD", "3216 SIZE", "120 BLM31PG121SN1L", "BD1, BD2", "2", "Murata"],
+            ["BEAD", "1608 SIZE", "1K BLM18HE102SN1", "BD9", "1", "Murata"],
+            ["CAPACITOR", "1608 SIZE", "100nF", "D7", "1", "Murata"],
+        ],
+    )
+    by_reference = _by_reference(components)
+
+    for reference in ("BD5", "BD1", "BD2", "BD9"):
+        bead = by_reference[reference]
+        assert bead["component_type"] == "inductor"
+        assert "part_type_source_conflict" not in bead["quality_flags"]
+    assert by_reference["BD9"]["impedance_ohm"] == 1_000.0
+
+    real_conflict = by_reference["D7"]
+    assert real_conflict["component_type"] == "capacitor"
+    assert "part_type_source_conflict" in real_conflict["quality_flags"]
+
+
+def test_pcb_fabrication_and_nc_instruction_are_excluded_without_excluding_other_parts():
+    components, _ = _analyze(
+        ["Item", "품명", "SIZE", "규격", "Reference", "Q'T"],
+        [
+            ["1", "PCB", "", "PCB 두께: 1.6T PCB LAYER : 4층", "", "1"],
+            ["2", "NC 처리", "R26, R29, C16", "", "", ""],
+            ["3", "VARISTOR", "2012 SIZE", "20V", "VR1", "1"],
+            ["4", "PCB", "", "", "", "1"],
+        ],
+    )
+
+    pcb_rows = [
+        component
+        for component in components
+        if "pcb_feature" in component["disposition_reason_codes"]
+    ]
+    assert len(pcb_rows) == 2
+    assert all(component["search_disposition"] == "excluded" for component in pcb_rows)
+
+    nc = next(
+        component
+        for component in components
+        if "do_not_populate" in component["disposition_reason_codes"]
+    )
+    assert nc["search_disposition"] == "excluded"
+
+    varistor = _by_reference(components)["VR1"]
+    assert varistor["search_disposition"] == "search"

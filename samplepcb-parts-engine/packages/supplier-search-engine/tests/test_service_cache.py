@@ -460,6 +460,77 @@ async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_
     assert restored_component.query.mode == SearchMode.PARAMETRIC
 
 
+async def test_identity_fallback_without_part_type_keeps_candidates_but_not_quote_recommendation(
+    tmp_path,
+):
+    regulator = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="MC7805CTG",
+        manufacturer="onsemi",
+        category="Linear Voltage Regulators",
+        package="TO-220",
+        normalized_specs={
+            "package": "TO-220",
+            "mount_style": "through-hole",
+            "part_type": "ic",
+        },
+        offers=[
+            SupplierOffer(
+                supplier=Supplier.DIGIKEY,
+                supplier_sku="MC7805CTGOS-ND",
+                stock=100,
+                moq=1,
+                order_multiple=1,
+                price_breaks=[
+                    {"quantity": 1, "unit_price": 859, "currency": "KRW"}
+                ],
+            )
+        ],
+    )
+    unrelated = regulator.model_copy(
+        update={"manufacturer_part_number": "UNRELATED-PART"},
+        deep=True,
+    )
+
+    class HeatSinkFallbackClient(FakeDigiKeyClient):
+        def normalize(self, raw, query):
+            return [regulator] if query.mode == SearchMode.PARAMETRIC else [unrelated]
+
+    item = make_component("heat-sink")
+    item.fields["part_number"].value = "1511B-L25/T18/P1"
+    item.fields["manufacturer"].value = None
+    item.fields["manufacturer"].status = "not_found"
+    item.fields["package"].value = "TO-220"
+    item.fields["package"].status = "extracted"
+    item.fields["quantity"].value = 1
+    item.fields["quantity"].status = "extracted"
+    item.footprint = "DIP"
+    fake = HeatSinkFallbackClient()
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[fake],
+    )
+
+    result = await service.search_component(service.planner.plan(item))
+
+    assert result.identity_fallback is True
+    assert result.candidates
+    assert result.procurement_decision.status == "no_recommendation"
+    assert result.procurement_decision.selection_application_state.value == "not_selected"
+    assert result.procurement_decision.confirmation_required is False
+    assert result.procurement_decision.review_offer_key is None
+    assert (
+        "identity_fallback_without_part_type"
+        in result.procurement_decision.recommendation_reason_codes
+    )
+    assert all(
+        offer.procurement_decision is not None
+        and offer.procurement_decision.recommendation.value == "none"
+        for candidate in result.candidates
+        for offer in candidate.product.offers
+    )
+
+
 async def test_normal_zero_results_trigger_parametric_fallback(tmp_path):
     clients = [FakeSupplierClient(supplier) for supplier in Supplier]
     service = SearchService(

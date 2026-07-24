@@ -38,6 +38,7 @@ from .models import (
 )
 from .normalizer import (
     parse_capacitance_f,
+    parse_crystal_tolerance_percent,
     parse_current_a,
     parse_frequency_hz,
     parse_inductance_h,
@@ -454,6 +455,8 @@ def search_requirement_issues(
 
     for field, parser in _SEARCH_REQUIREMENT_VALUE_PARSERS.items():
         value = values.get(field)
+        if field == "tolerance" and typed_component == "crystal":
+            parser = parse_crystal_tolerance_percent
         if value is not None and parser(value) is None:
             issues.append(
                 SearchRequirementIssue(

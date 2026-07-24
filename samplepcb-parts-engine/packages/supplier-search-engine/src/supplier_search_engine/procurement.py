@@ -864,6 +864,7 @@ def apply_procurement_decisions(
     policy: ProcurementPolicyInput,
     *,
     offer_key_version: OfferKeyVersion | None = None,
+    recommendation_block_reason: str | None = None,
 ) -> tuple[list[CandidateMatch], ComponentProcurementDecision]:
     """Calculate offers without allowing purchasing data to mutate technical order."""
 
@@ -983,6 +984,13 @@ def apply_procurement_decisions(
                 *query.disposition_reason_codes,
             ]
         )
+    elif recommendation_block_reason is not None:
+        if preselected_group is None:
+            recommendation_reasons.append("technical_preselection_unavailable")
+        else:
+            technical_identity_key, technical_evidence_key = preselected_group
+            recommendation_reasons.append("technical_preselection_preserved")
+        recommendation_reasons.append(recommendation_block_reason)
     elif preselected_group is None:
         recommendation_reasons.append("technical_preselection_unavailable")
     else:
@@ -1233,6 +1241,10 @@ def apply_procurement_decisions(
             )
         else:
             primary_unavailability_reason = ProcurementUnavailabilityReason.OTHER
+        if recommendation_block_reason is not None:
+            primary_unavailability_reason = (
+                ProcurementUnavailabilityReason.TECHNICAL_UNAVAILABLE
+            )
     component_decision = ComponentProcurementDecision(
         status=status,
         selection_application_state=(

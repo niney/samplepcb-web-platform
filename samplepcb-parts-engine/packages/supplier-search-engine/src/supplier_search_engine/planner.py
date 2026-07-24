@@ -12,6 +12,7 @@ from .contract import (
 )
 from .normalizer import (
     parse_capacitance_f,
+    parse_crystal_tolerance_percent,
     parse_current_a,
     parse_frequency_hz,
     parse_inductance_h,
@@ -918,7 +919,16 @@ class QueryPlanner:
             "eq",
         )
         apply("frequency_hz", user.frequency, parse_frequency_hz, "eq")
-        apply("tolerance_percent", user.tolerance, parse_tolerance_percent, "lte")
+        apply(
+            "tolerance_percent",
+            user.tolerance,
+            (
+                parse_crystal_tolerance_percent
+                if user.component_type == "crystal"
+                else parse_tolerance_percent
+            ),
+            "lte",
+        )
         apply("voltage_v", user.voltage, parse_voltage_v, "gte")
         apply("current_a", user.current, parse_current_a, "gte")
         apply("power_w", user.power, parse_power_w, "gte")

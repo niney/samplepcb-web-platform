@@ -112,6 +112,17 @@ def parse_tolerance_percent(value: object) -> float | None:
     return _finite(abs(float(match.group(1)))) if match else None
 
 
+def parse_crystal_tolerance_percent(value: object) -> float | None:
+    """Parse crystal frequency tolerance while keeping passive tolerance strict."""
+
+    percent = parse_tolerance_percent(value)
+    if percent is not None:
+        return percent
+    text = _text(value)
+    match = re.search(rf"(?:±|\+/-)?\s*({_NUMBER})\s*ppm\b", text, re.IGNORECASE)
+    return _finite(abs(float(match.group(1))) * 1e-4) if match else None
+
+
 def parse_voltage_v(value: object) -> float | None:
     text = _text(value)
     # 공급사 파라미터/설명은 단순 V 외에 VDC/VAC 표기를 흔히 쓴다.
@@ -198,7 +209,11 @@ def normalize_component_text(text: str, component_type: str | None) -> dict[str,
         "capacitance_f": parse_capacitance_f(text, allow_code=component == "capacitor"),
         "inductance_h": parse_inductance_h(text),
         "power_w": parse_power_w(text),
-        "tolerance_percent": parse_tolerance_percent(text),
+        "tolerance_percent": (
+            parse_crystal_tolerance_percent(text)
+            if component == "crystal"
+            else parse_tolerance_percent(text)
+        ),
         "voltage_v": parse_voltage_v(text),
         "current_a": parse_current_a(text),
         "frequency_hz": parse_frequency_hz(text),

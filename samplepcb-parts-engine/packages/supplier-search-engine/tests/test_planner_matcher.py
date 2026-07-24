@@ -669,6 +669,32 @@ def test_new_user_requirement_minimums_reject_unsafe_or_legacy_inputs():
         )
 
 
+def test_crystal_ppm_tolerance_is_normalized_without_relaxing_passive_tolerance():
+    item = component(part_type="crystal")
+    item.user_requirements = UserSearchRequirements(
+        component_type="crystal",
+        crystal_type="crystal",
+        frequency="32.768kHz",
+        tolerance="±20ppm",
+        package="FC-12M",
+    )
+
+    query = QueryPlanner().plan(item)
+
+    assert query.requirements["tolerance_percent"].raw_value == "±20ppm"
+    assert query.requirements["tolerance_percent"].normalized_value == pytest.approx(
+        0.002
+    )
+
+    with pytest.raises(ValueError, match="tolerance 값을"):
+        UserSearchRequirements(
+            component_type="resistor",
+            resistance="10kΩ",
+            tolerance="100ppm/°C",
+            package="0603",
+        )
+
+
 def test_planner_freezes_category_policy_from_bom_evidence():
     ceramic = QueryPlanner().plan(
         component(part_type="capacitor", description="MLCC 10uF X5R")

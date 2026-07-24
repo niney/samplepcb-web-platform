@@ -1139,6 +1139,9 @@ function verificationClass(candidate: BomQuoteCandidateType): string {
 }
 
 function requirementBadgeLabel(candidate: BomQuoteCandidateType): string {
+  if (!candidate.strictCategoryCoverage) {
+    return `확인 조건 ${String(candidate.verifiedRequirementCount)}/${String(candidate.requiredRequirementCount)} · 부품 유형 미확인`;
+  }
   const percent = verificationPercent(candidate);
   if (percent === null) return '필수조건 미확인';
   return `필수조건 ${String(candidate.verifiedRequirementCount)}/${String(candidate.requiredRequirementCount)} · ${String(percent)}%`;
@@ -1996,7 +1999,9 @@ onBeforeUnmount(() => {
                       @blur="scheduleRequirementTooltipClose"
                       @click.stop="showRequirementTooltip(currentCandidate, $event)"
                     >
-                      필수조건 <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }}</b>
+                      {{ currentCandidate.strictCategoryCoverage ? '필수조건' : '확인 조건' }}
+                      <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }}</b>
+                      <span v-if="!currentCandidate.strictCategoryCoverage"> · 부품 유형 미확인</span>
                     </button>
                   </div>
                 </div>
@@ -2284,11 +2289,11 @@ onBeforeUnmount(() => {
     >
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
         <div class="min-w-0">
-          <p class="font-bold text-slate-950">필수조건 상세</p>
+          <p class="font-bold text-slate-950">{{ requirementTooltipCandidate.strictCategoryCoverage ? '필수조건 상세' : '확인 조건 상세' }}</p>
           <p class="mt-0.5 truncate text-[11px] text-slate-500">{{ requirementTooltipCandidate.mpn }}</p>
         </div>
         <span class="shrink-0 rounded-full px-2 py-0.5 font-bold tabular-nums" :class="verificationClass(requirementTooltipCandidate)">
-          {{ requirementTooltipCandidate.verifiedRequirementCount }}/{{ requirementTooltipCandidate.requiredRequirementCount }} · {{ verificationPercent(requirementTooltipCandidate) ?? 0 }}%
+          {{ requirementBadgeLabel(requirementTooltipCandidate) }}
         </span>
       </div>
       <div v-if="requirementTooltipCandidate.requirementAssessments.length > 0" class="max-h-[70vh] overflow-auto">

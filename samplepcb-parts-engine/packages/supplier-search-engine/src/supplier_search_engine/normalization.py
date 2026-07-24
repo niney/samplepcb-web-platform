@@ -7,6 +7,7 @@ from typing import Any, Iterable
 from .normalizer import (
     normalize_component_text,
     parse_capacitance_f,
+    parse_crystal_tolerance_percent,
     parse_current_a,
     parse_frequency_hz,
     parse_inductance_h,
@@ -497,6 +498,13 @@ def normalized_specs_from_parameters(
         ferrite_context = bool(
             re.search(r"\b(?:ferrite|bead|f\.?\s*bead)\b|비드", component_context)
         )
+        crystal_context = bool(
+            re.search(
+                r"\b(?:crystals?|oscillators?|resonators?)\b|크리스탈|발진기|공진기",
+                component_context,
+                re.I,
+            )
+        )
         parsers = (
             (("impedance", "임피던스"), "impedance_ohm", parse_resistance_ohm),
             (
@@ -508,7 +516,15 @@ def normalized_specs_from_parameters(
             (("capacitance", "정전용량", "용량"), "capacitance_f", parse_capacitance_f),
             (("inductance", "인덕턴스"), "inductance_h", parse_inductance_h),
             (("power", "watt", "전력"), "power_w", parse_power_w),
-            (("tolerance", "허용오차"), "tolerance_percent", parse_tolerance_percent),
+            (
+                ("tolerance", "허용오차"),
+                "tolerance_percent",
+                (
+                    parse_crystal_tolerance_percent
+                    if crystal_context
+                    else parse_tolerance_percent
+                ),
+            ),
             (("voltage", "전압"), "voltage_v", parse_voltage_v),
             (("current", "전류"), "current_a", parse_current_a),
             (

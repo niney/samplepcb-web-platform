@@ -556,6 +556,7 @@ class SearchService:
         procurement_policy: ProcurementPolicyInput,
         job_budget: _JobCallBudget | None = None,
         supplier_barriers: dict[Supplier, asyncio.Task[int]] | None = None,
+        recommendation_block_reason: str | None = None,
     ) -> ComponentSearchResult:
         if query.mode in {SearchMode.INSUFFICIENT, SearchMode.EXCLUDED}:
             _, procurement_decision = apply_procurement_decisions(
@@ -612,7 +613,10 @@ class SearchService:
         candidates = self._assign_technical_review_ranks(query, candidates)
         candidates = self._assign_selection_recommendations(candidates, query)
         candidates, procurement_decision = apply_procurement_decisions(
-            query, candidates, procurement_policy
+            query,
+            candidates,
+            procurement_policy,
+            recommendation_block_reason=recommendation_block_reason,
         )
         candidates, omitted_candidate_count = self._retain_supplier_candidate_groups(
             query,
@@ -674,6 +678,17 @@ class SearchService:
             fallback_query,
             procurement_policy=procurement_policy,
             job_budget=budget,
+            recommendation_block_reason=(
+                "identity_fallback_without_part_type"
+                if fallback_query.part_type is None
+                and {
+                    name
+                    for name, requirement in fallback_query.requirements.items()
+                    if requirement.hard and requirement.normalized_value is not None
+                }
+                <= {"package", "mount_style"}
+                else None
+            ),
         )
         return fallback.model_copy(
             update={

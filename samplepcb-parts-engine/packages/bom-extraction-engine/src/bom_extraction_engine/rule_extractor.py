@@ -275,7 +275,9 @@ _DNP_SUFFIX = re.compile(
     re.I,
 )
 _DNP_PHRASE = re.compile(
-    r"\b(?:do\s+not\s+populate|not\s+(?:fitted|mounted))\b", re.I
+    r"\b(?:do\s+not\s+populate|not\s+(?:fitted|mounted))\b"
+    r"|(?:N\s*\.?\s*C\s*\.?|미삽)\s*처리",
+    re.I,
 )
 
 
@@ -869,16 +871,27 @@ def _reconcile_part_type_evidence(
         val["part_type"] = selected_type
         src["part_type"] = "infer"
 
-    observed_types = {
-        component_type
-        for component_type, _role, _raw, score in observations
-        if score >= 4
-    }
     chosen_type = str(val.get("part_type") or "") or None
-    if any(
-        _type_incompatible(chosen_type, component_type)
-        for component_type in observed_types
-    ):
+    explicit_ferrite = chosen_type == "inductor" and any(
+        component_type == "inductor"
+        and role != "designator"
+        and bool(_MAGNETIC_EXPLICIT.search(raw))
+        for component_type, role, raw, score in observations
+        if score >= 4
+    )
+    incompatible_observations = [
+        (component_type, role, raw)
+        for component_type, role, raw, score in observations
+        if score >= 4
+        and _type_incompatible(chosen_type, component_type)
+        and not (
+            explicit_ferrite
+            and component_type == "diode"
+            and role == "designator"
+            and bool(re.match(r"\s*BD\d", raw, re.I))
+        )
+    ]
+    if incompatible_observations:
         src["_part_type_conflict"] = "true"
 
 
@@ -2530,6 +2543,10 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
     # Reconcile independent category signals without trusting any one Class,
     # RefDes, footprint, or keyword cell. The resolver scores source-aware
     # semantic evidence and deliberately ignores population state.
+    explicit_ferrite_context = (
+        val.get("part_type") == "inductor"
+        and any(_MAGNETIC_EXPLICIT.search(raw_cell) for raw_cell in _cstr)
+    )
     electrical_types = {
         component_type
         for field, component_type in (
@@ -2538,6 +2555,11 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
             ("inductance", "inductor"),
         )
         if field in val
+        and not (
+            explicit_ferrite_context
+            and field == "resistance"
+            and component_type == "resistor"
+        )
     }
     electrical_type = next(iter(electrical_types)) if len(electrical_types) == 1 else None
     _reconcile_part_type_evidence(
@@ -2888,6 +2910,15 @@ def _value_token_like(c: str) -> bool:
                 or _RE_RES_CODE.match(c))
 
 
+def _value_or_identity_cell_like(c: str) -> bool:
+    """Whether one cell carries reusable value or manufacturer identity evidence."""
+
+    return bool(
+        any(pattern.search(c) for _field, pattern in _GRAMMAR)
+        or extract_pn_token(c)
+    )
+
+
 _RE_PKG_PREFIX_CODE = re.compile(r"^[A-Z]{1,2}\d{4}$")   # CD2012, CR2012
 
 
@@ -3036,6 +3067,33 @@ def infer_column_roles(roles: Dict[str, List[int]], labels: List[str],
         ) and typed < 0.3:
             roles["part_type"].remove(i)
             roles.setdefault("value", []).append(i)
+
+    # 한국어 ``품목``/``품명``처럼 헤더만으로는 둘 다 part_type이지만 한쪽은
+    # 실제 카테고리, 다른 쪽은 값·MPN인 형식이 있다. value 역할이 완전히
+    # 비었고 두 열의 내용 우세가 서로 반대일 때만 충돌을 해소한다. 일반적인
+    # 단일 품명 열과 실제 복수 타입 열에는 개입하지 않는다.
+    part_type_columns = list(roles.get("part_type", []))
+    if len(part_type_columns) >= 2 and not roles.get("value"):
+        typed_dominant: list[int] = []
+        value_dominant: list[int] = []
+        for i in part_type_columns:
+            vals = col_vals(i)
+            if len(vals) < 3:
+                continue
+            typed_ratio = sum(
+                infer_part_type(value) is not None for value in vals
+            ) / len(vals)
+            value_ratio = sum(
+                _value_or_identity_cell_like(value) for value in vals
+            ) / len(vals)
+            if typed_ratio >= 0.6 and value_ratio < 0.3:
+                typed_dominant.append(i)
+            if value_ratio >= 0.6 and typed_ratio < 0.3:
+                value_dominant.append(i)
+        if len(typed_dominant) == 1 and len(value_dominant) == 1:
+            value_index = value_dominant[0]
+            roles["part_type"].remove(value_index)
+            roles.setdefault("value", []).append(value_index)
 
     # Manufacturer 열이 복수인데 한쪽이 PN형 다수면(다단 헤더 병합 부작용 —
     # "Manufacturer"/"Manufacturer Part Number") 그 열은 part_number로 재배치.
