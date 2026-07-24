@@ -86,6 +86,8 @@ class SearchFieldAlternative(BaseModel):
         "footprint",
         "description",
         "part_number",
+        "supplier_part_number",
+        "internal_part_number",
         "library_reference",
     ]
 

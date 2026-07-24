@@ -110,6 +110,9 @@ describe('BOM 분석 영속 계약', () => {
     expect(parsed.procurement_disposition).toBe('eligible');
     expect(parsed.input_alternatives).toEqual({});
     expect(parsed.row_shape).toBeNull();
+    expect(parsed.supplier_part_numbers).toEqual([]);
+    expect(parsed.internal_part_numbers).toEqual([]);
+    expect(parsed.library_identifiers).toEqual([]);
 
     const withPartNumberLineage = BomEngineAnalysisComponentStrict.parse({
       ...parsed,
@@ -127,11 +130,28 @@ describe('BOM 분석 영속 계약', () => {
             source_cell: 'B2',
             source_role: 'library_reference',
           },
+          {
+            raw_value: 'DIST-123',
+            normalized_value: 'DIST123',
+            source_cell: 'C2',
+            source_role: 'supplier_part_number',
+          },
+          {
+            raw_value: 'HOUSE-123',
+            normalized_value: 'HOUSE123',
+            source_cell: 'D2',
+            source_role: 'internal_part_number',
+          },
         ],
       },
     });
     expect(withPartNumberLineage.input_alternatives?.part_number?.map((item) => item.source_role))
-      .toEqual(['part_number', 'library_reference']);
+      .toEqual([
+        'part_number',
+        'library_reference',
+        'supplier_part_number',
+        'internal_part_number',
+      ]);
 
     const withRecoveredRow = BomEngineAnalysisComponentStrict.parse({
       ...parsed,

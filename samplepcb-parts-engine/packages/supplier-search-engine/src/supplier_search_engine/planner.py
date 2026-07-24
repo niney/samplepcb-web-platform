@@ -541,6 +541,7 @@ class QueryPlanner:
                 or flag
                 in {
                     "unit_category_conflict",
+                    "category_footprint_conflict",
                     "connector_geometry_source_conflict",
                     "part_type_source_conflict",
                 }

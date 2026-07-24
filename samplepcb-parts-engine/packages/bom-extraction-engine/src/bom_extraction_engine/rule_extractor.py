@@ -35,10 +35,25 @@ _LIBRARY_REF_PAT = re.compile(
     r"^(?:lib\s*ref|libref|library\s*(?:ref|reference))$", re.I
 )
 _PN_PAT = re.compile(r"part[\s\-_]*(number|no|name)|mpn|\bp/?no?\b|품번"
-                     r"|(?:mfr|mrf|fab)[\s._-]*part|n° de fab")
+                     r"|(?:manufactur(?:er|ing)?|mfr|mrf|fab)[\s._-]*part"
+                     r"|n° de fab")
 _DIST_PAT = re.compile(  # 유통사 열 — PN 열보다 먼저 걸러낸다 (Digikey_PN 등)
     r"digi[\s\-_]?key|mouser|farnell|lcsc|element14|distributor|supplier"
     r"|newark|arrow|tme|unikey|^rs$|구매처|유통")
+_INTERNAL_PN_HEADER = re.compile(
+    r"(?:^|[\s._-])(?:company|internal|house|material|stock|customer|사내|자재)"
+    r"(?:[\s._-]|$)",
+    re.I,
+)
+_SCOPED_PART_NUMBER_HEADER = re.compile(
+    r"^(?P<scope>.+?)[\s._-]+"
+    r"(?:part(?:[\s._-]*(?:number|no|name))?|p[\s._/-]*n(?:o)?|mpn)$",
+    re.I,
+)
+_MANUFACTURER_SCOPE = re.compile(
+    r"^(?:manufacturer|manufacturing|manuf|mfr|mrf|maker|fab|fabricant)$",
+    re.I,
+)
 _DESIG_PAT = re.compile(r"designator|reference|location|ref\s*des|^refs?\b")
 _QTY_PAT = re.compile(r"q['`]?n?ty|quantity|수량|소요량|\bcount\b|개수")
 _QTY_NEG = re.compile(  # 구매/재고성 수량 열 — 보드당 수량이 아님 (gpt 증류)
@@ -51,7 +66,9 @@ _PKG_PAT = re.compile(r"package|footprint|패키지|\bpkg\b|\bsize\b|dimension|�
                       r"|^pattern$")  # Altium/Protel의 풋프린트 열명
 _TYPE_EXACT = {"class", "type", "part type", "parttype", "구분", "종류"}
 _TYPE_KO = re.compile(r"품명|품목")           # "Item (품명)", "품목명" 포함형
-_DESC_PAT = re.compile(r"description|사양|내용|^item\s*name$|^remarks?$")
+_DESC_PAT = re.compile(
+    r"description|^info(?:rmation)?$|사양|내용|^item\s*name$|^remarks?$"
+)
 # "Item Name"·"Remark"(영문)는 설명 열 — _IGNORE_PAT의 item보다 먼저 판정.
 # 한국어 '비고'는 노이즈("사급"/"입고") 위주라 ignore 유지.
 # 규격/spec/name 계열은 값·PN·타입어가 섞이는 이중 열 — value 역할로 보낸다
@@ -112,6 +129,32 @@ def _explicit_value_identity_header(label: str) -> bool:
     return _norm_label(label) == "value" or _mixed_value_identity_header(label)
 
 
+def _identifier_header_role(label: str) -> Optional[str]:
+    """Return the identity namespace declared by a header.
+
+    A distributor or company-scoped identifier is useful evidence, but it is
+    not a manufacturer MPN.  Unknown organization prefixes such as
+    ``VendorX_Part_Number`` are therefore preserved as supplier identifiers
+    instead of being promoted to the primary identity solely because their
+    cells look like part numbers.
+    """
+
+    normalized = _norm_label(label)
+    if not _PN_PAT.search(normalized):
+        return None
+    if _INTERNAL_PN_HEADER.search(normalized):
+        return "_pn_internal"
+    if _DIST_PAT.search(normalized):
+        return "_supplier_part_number"
+    scoped = _SCOPED_PART_NUMBER_HEADER.fullmatch(normalized)
+    if scoped:
+        scope = re.sub(r"[\s._-]+", " ", scoped.group("scope")).strip()
+        if _MANUFACTURER_SCOPE.fullmatch(scope):
+            return "part_number"
+        return "_supplier_part_number"
+    return "part_number"
+
+
 def classify_columns(labels: List[str]) -> Dict[str, List[int]]:
     """헤더 라벨 → 역할별 열 인덱스 목록 (열 순서 유지)."""
     roles: Dict[str, List[int]] = {}
@@ -122,6 +165,8 @@ def classify_columns(labels: List[str]) -> Dict[str, List[int]]:
         if _mixed_value_identity_header(raw):
             # ``Value/Part``와 ``Value/MPN``은 셀 단위 합집합이다.
             role = "value"
+        elif (identifier_role := _identifier_header_role(raw)) is not None:
+            role = identifier_role
         elif _DIST_PAT.search(lab):
             role = "ignore"      # "Digikey_PN"·"Supplier Part"는 유통 코드 열
         elif _LIBRARY_REF_PAT.fullmatch(lab):
@@ -129,8 +174,6 @@ def classify_columns(labels: List[str]) -> Dict[str, List[int]]:
             # Keep them as a last-resort identity source instead of allowing
             # content inference to outrank a concrete Comment/Value MPN.
             role = "_library_reference"
-        elif _PN_PAT.search(lab):
-            role = "part_number"
         elif _DESIG_PAT.search(lab):
             role = "designator"
         elif _QTY_PAT.search(lab):
@@ -503,7 +546,7 @@ _DESIG_TYPE = {"R": "resistor", "C": "capacitor", "L": "inductor",
                "TB": "connector",
                "USB": "connector", "LED": "led", "SW": "other",
                "TP": "other", "MT": "other", "ANT": "other", "BT": "other",
-               "T": "other"}
+               "T": "other", "K": "other", "H": "other", "CR": "other"}
 _RE_DESIG_PREFIX = re.compile(r"^\s*([A-Za-z]+)\d")
 _RE_MOUNT_ONLY = re.compile(  # 실장 방식 서술 — part_type 근거가 아니다
     r"(?:THRU|THROUGH)[\s\-]?HOLE|SURFACE[\s\-]?MOUNT(?:ED)?|SMD|SMT|THT")
@@ -600,6 +643,7 @@ _PN_REJECT_KW = re.compile(
     r"|\bres\b|\bind\b|socket|holder|jumper|\bcon\b|conn\b|\bdiode\b|\bfuse\b"
     r"|connector|schottky|zener|rectifier|\bswitch\b|\bpush\b"
     r"|test\s*point|testpoint|\bpwr\b|\bext\b|\bpin\b|antenna|shield"
+    r"|mount(?:ing)?\s*hole|pcb\s*(?:point|pad|hole)"
     r"|\bwhite\b|\bred\b|\bgreen\b|\bblue\b|\byellow\b|\bblack\b", re.I)
 _RE_PIN_ARRAY = re.compile(r"^[A-Z]{0,3}\dx\d{1,2}$", re.I)  # "HN1x3", "2x03"
 _RE_LCSC_CODE = re.compile(r"C\d{5,7}")   # LCSC 유통 재고 코드
@@ -735,6 +779,19 @@ def _looks_like_pn(cell: str) -> bool:
     if _RE_RES_CODE.match(c) or _RE_PKG_C.fullmatch(c):
         return False
     return True
+
+
+def _functional_instance_value(cell: str) -> bool:
+    """Whether a Value cell is itself a circuit-instance style label.
+
+    Templates sometimes put labels such as ``CN22`` in Value while the actual
+    manufacturer identity lives in Description or another identifier column.
+    The allow-listed, whole-cell reference grammar is deliberately used here
+    so unrelated short MPNs such as ``SS34`` remain identity candidates.
+    """
+
+    designators = reference_designators(cell)
+    return bool(designators and len(designators) == 1)
 
 
 _RE_PKG_VERBATIM = re.compile(r"^\S+$")
@@ -1327,6 +1384,7 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
             c = c[1:-1].strip()   # "(220nF/20/50V)" 괄호 포장 제거
         if not c:
             continue
+        functional_instance_value = _functional_instance_value(c)
 
         # CAD library value conventions such as C2012_0.47uF and R2012_10k
         # encode component class, metric footprint and electrical value in one
@@ -1578,7 +1636,9 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         # 콤마 병기 다중 PN("KRA101S,FJV4101R SRA2201S")은 첫 표기가 대표.
         # 콤마 없는 공백 병기("MS621FE FL11E")는 한 PN의 두 부분일 수 있다.
         _toks = re.split(r"[,\s]+", c) if "," in c else []
-        if (len(_toks) >= 2 and all(len(t) >= 5 and _looks_like_pn(t)
+        if (not functional_instance_value
+                and len(_toks) >= 2
+                and all(len(t) >= 5 and _looks_like_pn(t)
                                     and not _pn_reject(t) for t in _toks)):
             put("part_number", _toks[0], "col")
             continue
@@ -1593,7 +1653,8 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         elif tail_pkg and _looks_like_pn(body_s) and not _pn_reject(body_s):
             pn_cand = body_s           # "MP2143DJ/TSOT23-8" — PN/패키지
             pkg_value_col = pkg_value_col or tail_pkg
-        elif ((len(c) >= 5
+        elif (not functional_instance_value
+              and (len(c) >= 5
                or (_explicit_value_identity_header(labels[i]) and len(c) >= 4
                    and sum(ch.isalpha() for ch in c) >= 2
                    and sum(ch.isdigit() for ch in c) >= 2))
@@ -1616,9 +1677,12 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         if pn_cand:
             put("part_number",
                 _pn_finalize(pn_cand) or _strip_pn_alt(pn_cand), "col")
-        elif re.fullmatch(r"(?=.*\d)[A-Z][A-Z0-9.]{2,}(?: [A-Z0-9.]{1,6}){1,4}",
-                          c) and not _pn_reject(c) \
-                and not re.search(r"\d(?:\.\d+)?\s*[Xx]\s*\d", c):
+        elif (not functional_instance_value
+                and re.fullmatch(
+                    r"(?=.*\d)[A-Z][A-Z0-9.]{2,}(?: [A-Z0-9.]{1,6}){1,4}",
+                    c)
+                and not _pn_reject(c)
+                and not re.search(r"\d(?:\.\d+)?\s*[Xx]\s*\d", c)):
             # 치수 나열("FPCB 0.5 X 40P")은 형명이 아니다
             # 규격 열의 공백 포함 형명("MCR03 EZP5 J 103") — PN으로
             put("part_number", c, "col")
@@ -1684,9 +1748,23 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
                     for t in blob.split():
                         core = t.strip(".,;()")
                         if _looks_like_pn(core) and "/" not in core:
-                            kept += [s for s in re.split(r"[-_]", core)
-                                     if s and any(p.fullmatch(s)
-                                                  for _, p in _GRAMMAR)]
+                            # Only electrical CAD-value conventions are
+                            # allowed to expose unit-looking suffixes.  A
+                            # general model number such as ``ABC-04V`` stays
+                            # opaque instead of creating a 4 V requirement.
+                            if re.match(
+                                r"^(?:R|C|L|RES|CAP|IND)[_/-]",
+                                core,
+                                re.I,
+                            ):
+                                kept += [
+                                    s
+                                    for s in re.split(r"[-_]", core)
+                                    if s
+                                    and any(
+                                        p.fullmatch(s) for _, p in _GRAMMAR
+                                    )
+                                ]
                         else:
                             kept.append(t)
                     cv_blob = " ".join(kept)
@@ -1710,14 +1788,46 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         fin = _pn_finalize(tok) if tok else None
         if fin:
             put("part_number", fin, "text")
-    # 5.35) 사내 품번 열 — 형명이 어디에도 없을 때만
-    if "part_number" not in val:
-        for i in roles.get("_pn_internal", []):
-            c = cell(i)
-            if (c and len(c) >= 4 and _RE_PN_LIKE.match(c)
-                    and not _pn_reject(c)):
-                put("part_number", _strip_pn_alt(c), "col")
-                break
+    # 5.32) Connector model identifiers may end in a letter that resembles a
+    # unit (for example a vertical-orientation suffix).  Accept an exact,
+    # separator-bearing Description token only in connector context and only
+    # when a structured manufacturer or secondary identifier independently
+    # establishes that the row carries real catalog identity.
+    connector_identity_context = bool(
+        val.get("part_type") == "connector"
+        or any(
+            desig_part_type(cell(i)) == "connector"
+            for i in roles.get("designator", [])
+        )
+        or any(
+            infer_part_type(_TYPE_SEP.sub(" ", cell(i))) == "connector"
+            for role in ("package", "footprint")
+            for i in roles.get(role, [])
+        )
+    )
+    if "part_number" not in val and connector_identity_context:
+        has_identity_context = any(
+            cell(i)
+            for role in ("manufacturer", "_supplier_part_number", "_pn_internal")
+            for i in roles.get(role, [])
+        )
+        if has_identity_context:
+            for i in roles.get("description", []):
+                candidate = cell(i).strip()
+                if (
+                    5 <= len(candidate) <= 48
+                    and " " not in candidate
+                    and re.search(r"[-_/]", candidate)
+                    and _looks_like_pn(candidate)
+                    and not _PN_REJECT_KW.search(
+                        _TYPE_SEP.sub(" ", candidate)
+                    )
+                    and not _functional_instance_value(candidate)
+                ):
+                    put("part_number", _strip_pn_alt(candidate), "text")
+                    break
+    # Internal and supplier-scoped identifiers are preserved by the adapter in
+    # their own namespaces.  They are not manufacturer-MPN fallbacks.
     if "part_number" not in val:
         # Short identifiers and unit-looking suffixes are accepted only when a
         # second independent cell repeats the same normalized token.  This
@@ -1733,6 +1843,7 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
                 or " " in candidate
                 or not _RE_HAS_ALPHA.search(candidate)
                 or not _RE_HAS_DIGIT.search(candidate)
+                or _functional_instance_value(candidate)
                 or _passive_spec_only(candidate)
                 or _pkg_from_cell(candidate) is not None
             ):
@@ -2411,9 +2522,20 @@ def infer_column_roles(roles: Dict[str, List[int]], labels: List[str],
         return [str(r["cells"][i]).strip() for r in rows
                 if i < len(r["cells"]) and str(r["cells"][i] or "").strip()]
 
+    valid_explicit_designators = {
+        index
+        for index in roles.get("designator", [])
+        if _DESIG_PAT.search(_norm_label(labels[index]))
+        and (values := col_vals(index))
+        and sum(reference_list_count(value) is not None for value in values)
+        / len(values)
+        >= 0.6
+    }
     pair = reference_quantity_pair(
         [row.get("cells") or [] for row in rows], len(labels))
-    if pair is not None:
+    if pair is not None and (
+        not valid_explicit_designators or pair[0] in valid_explicit_designators
+    ):
         ref_col, qty_col, _ = pair
         for indices in roles.values():
             if ref_col in indices:
@@ -2491,6 +2613,15 @@ def infer_column_roles(roles: Dict[str, List[int]], labels: List[str],
     for i in list(roles.get("value", [])):
         vals = col_vals(i)
         if len(vals) < 3:
+            continue
+        if (
+            valid_explicit_designators
+            and _norm_label(labels[i]) == "value"
+        ):
+            # A valid explicit Reference(s) column makes an explicit Value
+            # header authoritative.  Connector instance labels such as CN1,
+            # CN2, ... must not create a second designator column merely
+            # because their per-row counts happen to match Quantity.
             continue
         desig = sum(1 for v in vals if reference_list_count(v) is not None
                     and not _pkg_cell_like(v)

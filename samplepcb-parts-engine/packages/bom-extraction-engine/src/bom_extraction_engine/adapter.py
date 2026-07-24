@@ -49,7 +49,7 @@ _SOURCE_CONFIDENCE = {"col": 0.95, "text": 0.8, "infer": 0.6}
 
 # 근거 탐색 시 필드가 우선 찾아볼 열 역할 (그 외 필드는 자기 이름 역할)
 _FIELD_ROLES: Dict[str, Tuple[str, ...]] = {
-    "part_number": ("part_number", "_pn_internal", "_library_reference"),
+    "part_number": ("part_number", "_library_reference"),
     "package": ("package", "footprint"),
     "reference": ("designator",),
 }
@@ -57,8 +57,9 @@ _FIELD_ROLES: Dict[str, Tuple[str, ...]] = {
 # 역할명 → 헤더 매핑 표시용 필드명
 _ROLE_DISPLAY = {
     "designator": "reference",
-    "_pn_internal": "part_number",
-    "_library_reference": "part_number",
+    "_pn_internal": "internal_part_number",
+    "_supplier_part_number": "supplier_part_number",
+    "_library_reference": "library_identifier",
     "footprint": "footprint",
     "_unlabeled_text": "description",
     "_rescued_text": "description",
@@ -140,19 +141,42 @@ _PITCH_CAD_TOKEN = re.compile(
     r"(?<![A-Za-z0-9])P(\d+(?:\.\d+)?)\s*mm(?![A-Za-z0-9])",
     re.I,
 )
+_CONNECTOR_COMPACT_POSITION_PITCH = re.compile(
+    r"(?<!\d)([1-9]\d{0,2})PA[-_.]?(\d{3,4})(?!\d)",
+    re.I,
+)
+_CONNECTOR_COMPACT_POSITION = re.compile(
+    r"(?<!\d)([1-9]\d{0,2})PA(?![A-Za-z0-9])",
+    re.I,
+)
+_CONNECTOR_COMPACT_PITCH = re.compile(
+    r"(?<![A-Za-z])P(\d{3,4})(?!\d)",
+    re.I,
+)
+_CONNECTOR_IDENTIFIER_POSITION = re.compile(
+    r"0?([1-9]\d?)V(?:$|[-_/])",
+    re.I,
+)
 _BODY_DIMENSIONS = re.compile(
     r"\b(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*mm\b",
     re.I,
 )
+_ELECTROLYTIC_BODY_DIMENSIONS = re.compile(
+    r"(?<![\d.])(\d+(?:\.\d+)?)\s*[x×*]\s*"
+    r"(\d+(?:\.\d+)?)(?!\s*[x×*]\s*\d)(?:\s*mm)?",
+    re.I,
+)
 
 _GENERIC_PCB_FEATURE = re.compile(
-    r"^(?:MOUNT(?:ING)?[_ -]?(?:HOLE|POINT)|PCB[_ -]?(?:POINT|PAD|HOLE)|"
+    r"^(?:MOUNT(?:ING)?[_ -]?(?:HOLE|POINT)(?:[_ -]?(?:PAD|TOP|BOTTOM))*|"
+    r"PCB[_ -]?(?:POINT|PAD|HOLE)|"
     r"TP[_ -]?(?:PAD|HOLE)|PAD(?:[-_/ ].*)?|TEST[_ -]?POINT(?:[-_/ ].*)?|"
     r"F?PCB)$",
     re.I,
 )
 _PCB_FEATURE_TEXT = re.compile(
-    r"\b(?:MOUNT(?:ING)?\s+HOLE|PCB[_ -]?(?:POINT|PAD|HOLE)|"
+    r"(?:^|[^A-Z0-9])(?:MOUNT(?:ING)?[_ -]?HOLE|"
+    r"PCB[_ -]?(?:POINT|PAD|HOLE)|"
     r"TP[_ -]?(?:PAD|HOLE)|TEST\s+PAD)\b",
     re.I,
 )
@@ -161,16 +185,31 @@ _PCB_FABRICATION = re.compile(
     r"copper\s+weight|board\s+thickness|pcb\s+fabrication)\b",
     re.I,
 )
+_PASSIVE_FOOTPRINT_PREFIX = re.compile(
+    r"(?:^|[:/])(?P<prefix>"
+    r"R(?:ES(?:ISTOR)?)?|C(?:AP(?:ACITOR)?)?|L|IND(?:UCTOR)?)"
+    r"[_ -](?=\d)",
+    re.I,
+)
+_DC_VOLTAGE_SUFFIX = re.compile(
+    r"DC[_ -]?(\d+(?:\.\d+)?)",
+    re.I,
+)
 
 
-def _connector_geometry_values(text: str) -> List[Tuple[int, Optional[int]]]:
+def _connector_geometry_values(
+    text: str,
+    *,
+    connector_context: bool = False,
+) -> List[Tuple[int, Optional[int]]]:
     """Extract connector topology without treating body dimensions as pins."""
 
     values: List[Tuple[int, Optional[int]]] = []
     for match in _EXPLICIT_PIN_COUNT.finditer(text):
         values.append((int(match.group(1)), None))
     allow_array = bool(
-        _CONNECTOR_CONTEXT.search(text)
+        connector_context
+        or _CONNECTOR_CONTEXT.search(text)
         or _CONNECTOR_ARRAY_ONLY.fullmatch(text)
         or re.search(r"\bHDR[-_ ]*[1-9]\d?\s*[x×]", text, re.I)
     )
@@ -178,17 +217,51 @@ def _connector_geometry_values(text: str) -> List[Tuple[int, Optional[int]]]:
         for match in _CONNECTOR_ARRAY.finditer(text):
             first, second = int(match.group(1)), int(match.group(2))
             values.append((first * second, min(first, second)))
+    if connector_context:
+        values.extend(
+            (int(match.group(1)), None)
+            for match in _CONNECTOR_COMPACT_POSITION_PITCH.finditer(text)
+        )
+        values.extend(
+            (int(match.group(1)), None)
+            for match in _CONNECTOR_COMPACT_POSITION.finditer(text)
+        )
     return list(dict.fromkeys(values))
 
 
-def _connector_pitch_values(text: str) -> List[float]:
+def _connector_pitch_values(
+    text: str,
+    *,
+    connector_context: bool = False,
+) -> List[float]:
     values: List[float] = []
     for match in _PITCH_EXPLICIT.finditer(text):
         values.append(float(next(group for group in match.groups() if group)))
     for pattern in (_PITCH_BEFORE_PINS, _PITCH_AFTER_PINS):
         values.extend(float(match.group(1)) for match in pattern.finditer(text))
     values.extend(float(match.group(1)) for match in _PITCH_CAD_TOKEN.finditer(text))
+    if connector_context:
+        values.extend(
+            float(match.group(2)) / 100
+            for match in _CONNECTOR_COMPACT_POSITION_PITCH.finditer(text)
+        )
+        values.extend(
+            float(match.group(1)) / 100
+            for match in _CONNECTOR_COMPACT_PITCH.finditer(text)
+        )
     return list(dict.fromkeys(values))
+
+
+def _passive_footprint_category(value: Any) -> Optional[str]:
+    match = _PASSIVE_FOOTPRINT_PREFIX.search(str(value or ""))
+    if match is None:
+        return None
+    prefix = match.group("prefix").upper()
+    if prefix.startswith("R"):
+        return "resistor"
+    if prefix.startswith("C"):
+        return "capacitor"
+    return "inductor"
 
 
 def _normalized_identity(value: Any) -> str:
@@ -312,19 +385,136 @@ def _cell_supports(field: str, value: Any, cell: str,
     return bool(target) and target in _fold(cell)
 
 
+def _numeric_tokens(raw: str) -> List[str]:
+    """Return text eligible for semantic numeric parsing.
+
+    A compact identifier with a hyphen/underscore and no whitespace is opaque
+    here: unit-looking suffixes in model numbers are not specifications.
+    Slash-separated electrical values remain eligible (``22uH/4A`` and
+    ``1/16W``), and relay-specific compact voltage is handled separately.
+    """
+
+    text = raw.strip()
+    if (
+        text
+        and not re.search(r"\s", text)
+        and "/" not in text
+        and re.search(r"[-_]", text)
+        and re.search(r"[A-Za-z]", text)
+        and re.search(r"\d", text)
+    ):
+        return []
+    if not text:
+        return []
+    protected = re.sub(
+        r"(\d+)\s*/\s*(\d+\s*[mMkK]?W)\b",
+        lambda match: match.group(0).replace("/", "\x00"),
+        text,
+    )
+    tokens = [text]
+    tokens.extend(
+        token.replace("\x00", "/")
+        for token in re.split(r"[\s,;|/]+", protected)
+        if token
+    )
+    return list(dict.fromkeys(tokens))
+
+
+def _numeric_source_values(
+    roles: Dict[str, List[int]],
+    cells: List[str],
+    field: str,
+    normalizer: Any,
+    part_type: Optional[str],
+) -> List[Tuple[float, int, str, str]]:
+    observations: List[Tuple[float, int, str, str]] = []
+    role_names = ("value", *_DESC_ROLES, field)
+    seen_indexes: set[int] = set()
+    for role in role_names:
+        for index in roles.get(role, []):
+            if index in seen_indexes or index >= len(cells):
+                continue
+            seen_indexes.add(index)
+            raw = str(cells[index]).strip()
+            for token in _numeric_tokens(raw):
+                source_role = (
+                    "value"
+                    if role == "value" or role == field
+                    else "description"
+                )
+                if not _numeric_token_has_field_semantics(
+                    field,
+                    token,
+                    source_role=source_role,
+                    part_type=part_type,
+                ):
+                    continue
+                normalized = normalizer(token)
+                if normalized is None:
+                    continue
+                observations.append(
+                    (float(normalized), index, source_role, raw)
+                )
+                break
+    return observations
+
+
+def _numeric_token_has_field_semantics(
+    field: str,
+    token: str,
+    *,
+    source_role: str,
+    part_type: Optional[str],
+) -> bool:
+    """Require field-specific syntax before comparing independent cells.
+
+    Numeric normalizers deliberately accept terse BOM values, including bare
+    numbers.  That is useful for a selected value but unsafe while scanning
+    descriptions: a metric size such as ``2012`` must not become a resistance
+    or tolerance alternative.  Primary resistor values and capacitor EIA codes
+    retain their category-aware shorthand.
+    """
+
+    text = token.strip()
+    patterns = {
+        "resistance": r"(?:Ω|\bohms?\b|\d(?:\.\d+)?\s*[RKM](?:\d+)?\b)",
+        "capacitance": r"\d(?:\.\d+)?\s*[pnumµμ]?[Ff]\b",
+        "inductance": r"\d(?:\.\d+)?\s*[pnumµμ]?[Hh]\b",
+        "power": r"\d(?:\.\d+)?\s*[mun]?[Ww]\b",
+        "tolerance": r"(?:%|(?:^|[/\s])(?:F|G|J|K|M)(?:$|[/\s]))",
+        "voltage": r"(?:^|[^A-Za-z0-9])\d(?:\.\d+)?\s*[mun]?[Vv]\b",
+        "current": r"(?:^|[^A-Za-z0-9])\d(?:\.\d+)?\s*[mun]?[Aa]\b",
+        "frequency": r"\d(?:\.\d+)?\s*(?:[kKmMgG])?[Hh][Zz]\b",
+    }
+    if re.search(patterns[field], text, re.I):
+        return True
+    if source_role != "value":
+        return False
+    if field == "resistance" and part_type == "resistor":
+        return bool(re.fullmatch(r"\d+(?:\.\d+)?", text))
+    if field == "capacitance" and part_type == "capacitor":
+        return bool(re.fullmatch(r"\d{3,4}", text))
+    return False
+
+
 def _numeric_source_conflicts(
-    roles: Dict[str, List[int]], cells: List[str]
+    roles: Dict[str, List[int]],
+    cells: List[str],
+    part_type: Optional[str],
 ) -> List[str]:
     conflicts: List[str] = []
-    value_indexes = roles.get("value", [])
     for field, (_, normalizer, _) in NORMALIZERS.items():
-        values = []
-        for index in value_indexes:
-            if index >= len(cells) or not str(cells[index]).strip():
-                continue
-            normalized = normalizer(cells[index])
-            if normalized is not None:
-                values.append(float(normalized))
+        values = [
+            value
+            for value, _index, _source_role, _raw
+            in _numeric_source_values(
+                roles,
+                cells,
+                field,
+                normalizer,
+                part_type,
+            )
+        ]
         if values and any(
             not math.isclose(values[0], value, rel_tol=1e-9, abs_tol=1e-15)
             for value in values[1:]
@@ -454,6 +644,21 @@ class _SheetAdapter:
                 }
         return None, {"value": None, "status": "not_found", "evidence": []}
 
+    def _role_values(
+        self,
+        role_names: Tuple[str, ...],
+        cells: List[str],
+    ) -> List[str]:
+        values: List[str] = []
+        for role in role_names:
+            for index in self.roles.get(role, []):
+                if index >= len(cells):
+                    continue
+                raw = str(cells[index]).strip()
+                if raw and raw not in values:
+                    values.append(raw)
+        return values
+
     def _input_alternatives(
         self,
         cells: List[str],
@@ -463,21 +668,20 @@ class _SheetAdapter:
         alternatives: Dict[str, List[dict]] = {}
         for field, (_target, normalizer, _unit) in NORMALIZERS.items():
             observed: Dict[float, dict] = {}
-            for index in self.roles.get("value", []):
-                if index >= len(cells):
-                    continue
-                raw = str(cells[index]).strip()
-                normalized = normalizer(raw) if raw else None
-                if normalized is None:
-                    continue
-                key = float(normalized)
+            for key, index, source_role, raw in _numeric_source_values(
+                self.roles,
+                cells,
+                field,
+                normalizer,
+                part_type,
+            ):
                 observed.setdefault(
                     key,
                     {
                         "raw_value": raw,
                         "normalized_value": key,
                         "source_cell": f"{self.col_letters[index]}{row_1based}",
-                        "source_role": "value",
+                        "source_role": source_role,
                     },
                 )
             if len(observed) > 1:
@@ -554,7 +758,13 @@ class _SheetAdapter:
             raw = str(cell_value).strip()
             if not raw:
                 continue
-            values = [pins for pins, _rows in _connector_geometry_values(raw)]
+            values = [
+                pins
+                for pins, _rows in _connector_geometry_values(
+                    raw,
+                    connector_context=True,
+                )
+            ]
             source_role = (
                 "value"
                 if "value" in self.col_roles[index]
@@ -602,7 +812,11 @@ class _SheetAdapter:
             if src.get(field):
                 field_states[field]["source"] = src[field]
 
-        input_conflicts = _numeric_source_conflicts(self.roles, cells)
+        input_conflicts = _numeric_source_conflicts(
+            self.roles,
+            cells,
+            attrs.part_type,
+        )
         if _package_source_conflict(self.roles, cells, attrs.part_type):
             input_conflicts.append("package_input_source_conflict")
         if attrs.part_number is not None and src.get("_part_number_conflict"):
@@ -728,6 +942,78 @@ class _SheetAdapter:
                         "evidence": [],
                     }
                 )
+        dc_voltage_alternatives: List[dict] = []
+        relay_context = bool(
+            (reference and re.search(r"(?:^|[,;/\s])K\d+", reference, re.I))
+            or re.search(r"\brelay\b|릴레이", semantic_text, re.I)
+        )
+        if relay_context:
+            observed_dc: Dict[float, dict] = {}
+            role_order = (
+                "value",
+                "description",
+                "_unlabeled_text",
+                "_rescued_text",
+                "footprint",
+                "package",
+            )
+            for role in role_order:
+                for index in self.roles.get(role, []):
+                    if index >= len(cells):
+                        continue
+                    raw = str(cells[index]).strip()
+                    match = _DC_VOLTAGE_SUFFIX.search(raw)
+                    if match is None:
+                        continue
+                    value = float(match.group(1))
+                    observed_dc.setdefault(
+                        value,
+                        {
+                            "raw_value": match.group(0),
+                            "normalized_value": value,
+                            "source_cell": (
+                                f"{self.col_letters[index]}{row_1based}"
+                            ),
+                            "source_role": (
+                                "description"
+                                if role in _DESC_ROLES
+                                else role
+                            ),
+                        },
+                    )
+            if observed_dc and normalized.get("voltage_v") is None:
+                selected = next(iter(observed_dc.values()))
+                raw_fields["voltage"] = selected["raw_value"]
+                normalized["voltage_v"] = selected["normalized_value"]
+                voltage_evidence = {
+                    "cell": selected["source_cell"],
+                    "raw_value": selected["raw_value"],
+                    "supports": "voltage",
+                }
+                field_states["voltage"] = {
+                    "value": selected["raw_value"],
+                    "status": "extracted",
+                    "evidence": [voltage_evidence],
+                    "source": "text",
+                }
+                evidence.append(voltage_evidence)
+                attributes.append(
+                    {
+                        "name": "voltage",
+                        "raw_value": selected["raw_value"],
+                        "normalized_value": selected["normalized_value"],
+                        "unit": "V",
+                        "evidence": [voltage_evidence],
+                    }
+                )
+            if len(observed_dc) > 1:
+                input_conflicts.append("voltage_input_source_conflict")
+                field_states["voltage"]["status"] = "review"
+                if "voltage" not in uncertain:
+                    uncertain.append("voltage")
+                dc_voltage_alternatives = [
+                    observed_dc[value] for value in sorted(observed_dc)
+                ]
         quality_flags: List[str] = []
         if row_shape:
             quality_flags.append(
@@ -766,18 +1052,37 @@ class _SheetAdapter:
         pin_values: set[int] = set()
         row_values: set[int] = set()
         pitch_values: set[float] = set()
+        identifier_positions: Dict[int, set[int]] = {}
         if attrs.part_type == "connector":
-            for cell in cells:
+            for index, cell in enumerate(cells):
                 text = str(cell).strip()
-                for pins, rows in _connector_geometry_values(text):
+                for pins, rows in _connector_geometry_values(
+                    text,
+                    connector_context=True,
+                ):
                     pin_values.add(pins)
                     if rows is not None:
                         row_values.add(rows)
-                pitch_values.update(_connector_pitch_values(text))
+                pitch_values.update(
+                    _connector_pitch_values(
+                        text,
+                        connector_context=True,
+                    )
+                )
+                for match in _CONNECTOR_IDENTIFIER_POSITION.finditer(text):
+                    identifier_positions.setdefault(
+                        int(match.group(1)),
+                        set(),
+                    ).add(index)
                 if re.search(r"\b(?:dual|double)\s*row\b|2\s*열|2열", text, re.I):
                     row_values.add(2)
                 if re.search(r"\bsingle\s*row\b|1\s*열|1열", text, re.I):
                     row_values.add(1)
+            pin_values.update(
+                value
+                for value, source_indexes in identifier_positions.items()
+                if len(source_indexes) >= 2
+            )
         pin_count = min(pin_values) if pin_values else None
         row_count = min(row_values) if row_values else None
         pitch_mm = min(pitch_values) if pitch_values else None
@@ -791,6 +1096,22 @@ class _SheetAdapter:
             if dimensions_match
             else None
         )
+        if (
+            body_dimensions_mm is None
+            and attrs.part_type == "capacitor"
+            and (
+                _ELECTROLYTIC_TYPE_CONTEXT.search(semantic_text)
+                or re.search(r"\bCP[_ -]?Elec\b", all_text, re.I)
+            )
+        ):
+            electrolytic_dimensions = _ELECTROLYTIC_BODY_DIMENSIONS.search(
+                all_text
+            )
+            if electrolytic_dimensions:
+                body_dimensions_mm = [
+                    float(electrolytic_dimensions.group(1)),
+                    float(electrolytic_dimensions.group(2)),
+                ]
         customer_supplied = bool(
             re.search(
                 r"(?:客供|사급|지급품|고객\s*지급|"
@@ -842,6 +1163,23 @@ class _SheetAdapter:
             and normalized.get("capacitance_f") is None
         ):
             quality_flags.append("unit_category_conflict")
+        passive_footprint_categories = {
+            category
+            for category in (
+                _passive_footprint_category(
+                    cells[index] if index < len(cells) else ""
+                )
+                for role in ("footprint", "package")
+                for index in self.roles.get(role, [])
+            )
+            if category is not None
+        }
+        if (
+            attrs.part_type in {"resistor", "capacitor", "inductor"}
+            and passive_footprint_categories
+            and attrs.part_type not in passive_footprint_categories
+        ):
+            quality_flags.append("category_footprint_conflict")
         quality_flags.extend(
             conflict for conflict in input_conflicts if conflict not in quality_flags
         )
@@ -853,7 +1191,11 @@ class _SheetAdapter:
         )
         if quantity_conflict:
             quality_flags.append("reference_quantity_mismatch")
-        if uncertain:
+        if any(
+            field_states.get(field, {}).get("status") == "review"
+            and not field_states.get(field, {}).get("evidence")
+            for field in uncertain
+        ):
             quality_flags.append("field_without_direct_evidence")
         confidences = [_SOURCE_CONFIDENCE[src[f]] for f in VALUE_FIELDS
                        if raw_fields[f] is not None
@@ -891,6 +1233,8 @@ class _SheetAdapter:
         input_alternatives = self._input_alternatives(
             cells, row_1based, attrs.part_type
         )
+        if dc_voltage_alternatives:
+            input_alternatives["voltage"] = dc_voltage_alternatives
         if attrs.part_number is not None and src.get("_part_number_conflict"):
             part_number_alternatives = self._part_number_alternatives(
                 cells, row_1based, attrs.part_number
@@ -929,6 +1273,18 @@ class _SheetAdapter:
             "source_rows_1based": [row_1based],
             "component_type": attrs.part_type,
             "part_number": attrs.part_number,
+            "supplier_part_numbers": self._role_values(
+                ("_supplier_part_number",),
+                cells,
+            ),
+            "internal_part_numbers": self._role_values(
+                ("_pn_internal",),
+                cells,
+            ),
+            "library_identifiers": self._role_values(
+                ("_library_reference",),
+                cells,
+            ),
             "manufacturer": attrs.manufacturer,
             "description": description,
             "quantity": attrs.quantity,
@@ -1014,6 +1370,94 @@ class _SheetAdapter:
         return out
 
 
+_REFERENCE_RANGE = re.compile(
+    r"^([A-Z]{1,8})(\d+)-(?:([A-Z]{1,8}))?(\d+)$",
+    re.I,
+)
+
+
+def _atomic_reference_designators(component: Dict[str, Any]) -> List[str]:
+    atomic: List[str] = []
+    for token in component.get("reference_designators") or []:
+        text = str(token).strip().upper()
+        match = _REFERENCE_RANGE.fullmatch(text)
+        if not match:
+            atomic.append(text)
+            continue
+        prefix = match.group(1).upper()
+        end_prefix = (match.group(3) or prefix).upper()
+        start, end = int(match.group(2)), int(match.group(4))
+        if prefix != end_prefix or end < start or end - start > 1000:
+            atomic.append(text)
+            continue
+        atomic.extend(
+            f"{prefix}{index}" for index in range(start, end + 1)
+        )
+    return list(dict.fromkeys(atomic))
+
+
+def _component_identity_signature(component: Dict[str, Any]) -> Tuple[Any, ...]:
+    return (
+        component.get("component_type"),
+        _normalized_identity(component.get("part_number")),
+        component.get("resistance_ohm"),
+        component.get("capacitance_f"),
+        component.get("inductance_h"),
+        component.get("voltage_v"),
+        component.get("current_a"),
+        component.get("frequency_hz"),
+        _normalized_identity(component.get("package")),
+        _normalized_identity(component.get("value_raw")),
+    )
+
+
+def _apply_reference_assignment_audit(components: List[dict]) -> None:
+    """Fail procurement closed when one sheet assigns the same REF twice."""
+
+    by_reference: Dict[str, List[int]] = {}
+    for index, component in enumerate(components):
+        for reference in _atomic_reference_designators(component):
+            by_reference.setdefault(reference, []).append(index)
+
+    affected: Dict[int, str] = {}
+    for indexes in by_reference.values():
+        unique_indexes = list(dict.fromkeys(indexes))
+        if len(unique_indexes) < 2:
+            continue
+        signatures = {
+            _component_identity_signature(components[index])
+            for index in unique_indexes
+        }
+        flag = (
+            "reference_assignment_conflict"
+            if len(signatures) > 1
+            else "duplicate_reference_assignment"
+        )
+        for index in unique_indexes:
+            if (
+                affected.get(index) != "reference_assignment_conflict"
+                or flag == "reference_assignment_conflict"
+            ):
+                affected[index] = flag
+
+    for index, flag in affected.items():
+        component = components[index]
+        quality_flags = component.setdefault("quality_flags", [])
+        if flag not in quality_flags:
+            quality_flags.append(flag)
+        reason_codes = component.setdefault("disposition_reason_codes", [])
+        if flag not in reason_codes:
+            reason_codes.append(flag)
+        if "quantity_reference_conflict" not in reason_codes:
+            reason_codes.append("quantity_reference_conflict")
+        component["quantity_resolution"] = "conflict"
+        if component.get("procurement_disposition") != "excluded":
+            component["procurement_disposition"] = (
+                "quantity_confirmation_required"
+            )
+        component["review_status"] = "review"
+
+
 def adapt_sheet(case: dict, roles: Dict[str, List[int]],
                 preds: Dict[int, RowAttrs], sources: Dict[int, Dict[str, str]],
                 *, source_file: str,
@@ -1035,4 +1479,5 @@ def adapt_sheet(case: dict, roles: Dict[str, List[int]],
                 row.get("row_shape"),
             )
         )
+    _apply_reference_assignment_audit(components)
     return components, sheet.headers()

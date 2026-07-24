@@ -57,6 +57,8 @@ class FieldAlternative(BaseModel):
         "footprint",
         "description",
         "part_number",
+        "supplier_part_number",
+        "internal_part_number",
         "library_reference",
     ]
 
@@ -84,6 +86,9 @@ class ComponentRecord(BaseModel):
     source_rows_1based: List[int]
     component_type: Optional[str] = None
     part_number: Optional[str] = None
+    supplier_part_numbers: List[str] = []
+    internal_part_numbers: List[str] = []
+    library_identifiers: List[str] = []
     manufacturer: Optional[str] = None
     description: Optional[str] = None
     quantity: Optional[int] = None

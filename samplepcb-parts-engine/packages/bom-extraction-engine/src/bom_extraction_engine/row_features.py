@@ -39,7 +39,7 @@ MAX_LABEL_LEN = 45  # 이보다 길면 설명문(데이터)으로 간주
 
 _REFERENCE_PREFIX = (
     r"LED|REG|CON|USB|ANT|NTC|TVS|XTAL|CN|FB|IC|JP|TP|SW|VR|RV|RT|RN|"
-    r"BD|TC|EC|LD|ZD|TR|JA|JB|TB|MT|R|C|L|D|Q|U|F|K|P|T|X|Y|BT|J"
+    r"BD|TC|EC|LD|ZD|TR|CR|JA|JB|TB|MT|R|C|L|D|Q|U|F|H|K|P|T|X|Y|BT|J"
 )
 _FULL_REFERENCE = re.compile(
     rf"(?P<prefix>{_REFERENCE_PREFIX})(?P<start>\$?\d{{1,6}})"

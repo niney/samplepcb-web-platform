@@ -93,6 +93,7 @@ _SOURCE_CONFLICTS = {
     "temperature_input_source_conflict",
     "package_input_source_conflict",
     "unit_category_conflict",
+    "category_footprint_conflict",
     "connector_geometry_source_conflict",
     "part_type_source_conflict",
 }
@@ -431,6 +432,7 @@ def _candidate_decision(
     )
     source_conflicts = conflict_set & _SOURCE_CONFLICTS
     actual_conflicts = conflict_set - _SOURCE_CONFLICTS - {"manufacturer_mismatch"}
+    bom_input_conflicts = conflict_set & set(query.input_source_conflicts)
     identity_relation = relation in {MatchRelation.EXACT, MatchRelation.VARIANT}
     manufacturer_confirmation = identity_relation and (
         "manufacturer_mismatch" in conflict_set
@@ -441,7 +443,9 @@ def _candidate_decision(
 
     exact_requirement_conflict = bool(actual_conflicts) and relation == MatchRelation.EXACT
 
-    if relation == MatchRelation.EXACT:
+    if relation == MatchRelation.EXACT and bom_input_conflicts:
+        eligibility = SelectionEligibility.MANUAL_REVIEW
+    elif relation == MatchRelation.EXACT:
         eligibility = SelectionEligibility.AUTOMATIC
     elif actual_conflicts:
         eligibility = SelectionEligibility.BLOCKED

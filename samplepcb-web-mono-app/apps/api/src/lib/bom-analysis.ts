@@ -37,6 +37,8 @@ const EngineFieldAlternative = z.object({
     'footprint',
     'description',
     'part_number',
+    'supplier_part_number',
+    'internal_part_number',
     'library_reference',
   ]),
 }).passthrough();
@@ -58,6 +60,9 @@ export const BomEngineAnalysisComponent = z.object({
   source_rows_1based: z.array(z.number().int().min(1)).min(1),
   component_type: z.string().nullish(),
   part_number: z.string().nullish(),
+  supplier_part_numbers: z.array(z.string()).optional(),
+  internal_part_numbers: z.array(z.string()).optional(),
+  library_identifiers: z.array(z.string()).optional(),
   manufacturer: z.string().nullish(),
   description: z.string().nullish(),
   quantity: z.number().int().nullish(),

@@ -310,13 +310,17 @@ def test_identity_like_numeric_code_is_not_reclassified_by_safety_guards():
     assert query.mode.value == "identity"
 
 
-def test_exact_mpn_keeps_input_source_conflict_visible_without_blocking_selection():
+@pytest.mark.parametrize(
+    "source_conflict",
+    ["package_input_source_conflict", "category_footprint_conflict"],
+)
+def test_exact_mpn_input_source_conflict_requires_manual_review(source_conflict):
     item = component(
         part_number="ABC-123",
         part_type="ic",
         package="SOIC-8",
     )
-    item.quality_flags = ["package_input_source_conflict"]
+    item.quality_flags = [source_conflict]
     query = QueryPlanner().plan(item)
     product = SupplierProduct(
         supplier=Supplier.DIGIKEY,
@@ -332,13 +336,13 @@ def test_exact_mpn_keeps_input_source_conflict_visible_without_blocking_selectio
     candidate = finalize_candidate_decisions(query, [evaluated])[0]
 
     assert query.part_number == "ABC-123"
-    assert query.input_source_conflicts == ["package_input_source_conflict"]
+    assert query.input_source_conflicts == [source_conflict]
     assert query.cache_payload() == query.model_copy(
         update={"input_source_conflicts": []}
     ).cache_payload()
-    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
-    assert "package_input_source_conflict" in candidate.conflicts
-    assert "package_input_source_conflict" in candidate.decision.reason_codes
+    assert candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert source_conflict in candidate.conflicts
+    assert source_conflict in candidate.decision.reason_codes
 
 
 def test_internal_electrolytic_footprint_sets_category_without_fake_package():

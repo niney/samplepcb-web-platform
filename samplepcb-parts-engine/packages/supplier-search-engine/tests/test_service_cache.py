@@ -286,7 +286,7 @@ async def test_raw_query_reuse_preserves_distinct_exact_mpn_evidence(tmp_path):
 
     assert fake.calls == 1
     assert safe_candidate.decision.selection_eligibility.value == "automatic"
-    assert conflicted_candidate.decision.selection_eligibility.value == "automatic"
+    assert conflicted_candidate.decision.selection_eligibility.value == "manual_review"
     assert (
         safe_candidate.decision.technical_evidence_key
         != conflicted_candidate.decision.technical_evidence_key
