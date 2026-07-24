@@ -264,6 +264,38 @@ def _passive_footprint_category(value: Any) -> Optional[str]:
     return "inductor"
 
 
+def _is_passive_package_numeric_token(
+    raw: str,
+    token: str,
+    field: str,
+    part_type: Optional[str],
+) -> bool:
+    """Reject package sizes before terse passive-value normalization.
+
+    Some Altium exports put a CAD footprint such as ``RES 0603/1608`` in a
+    column labelled ``Value`` while the actual resistance lives in the
+    neighbouring ``PartType`` column.  Bare numbers are valid resistor values,
+    so the generic scanner would otherwise turn the footprint into a 603 ohm
+    alternative.  Only numeric segments confirmed by the package parser and a
+    matching passive prefix are suppressed; ``RES 10K 0603`` still contributes
+    10K while its 0603 segment remains package evidence.
+    """
+
+    category = _passive_footprint_category(raw)
+    expected_field = {
+        "resistor": "resistance",
+        "capacitor": "capacitance",
+        "inductor": "inductance",
+    }.get(category or "")
+    if field != expected_field:
+        return False
+    package = package_from_source_cell(raw, part_type or category)
+    if package is None:
+        return False
+    package_codes = set(re.findall(r"(?<!\d)\d{4,5}(?!\d)", package))
+    return token.strip() in package_codes
+
+
 def _normalized_identity(value: Any) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", str(value or "")).casefold()
 
@@ -442,6 +474,13 @@ def _numeric_source_values(
                     if role == "value" or role == field
                     else "description"
                 )
+                if _is_passive_package_numeric_token(
+                    raw,
+                    token,
+                    field,
+                    part_type,
+                ):
+                    continue
                 if not _numeric_token_has_field_semantics(
                     field,
                     token,
