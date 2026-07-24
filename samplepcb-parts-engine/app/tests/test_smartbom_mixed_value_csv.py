@@ -6,7 +6,10 @@ import pytest
 from bom_extraction_engine.engine import SmartbomConfig, build_smartbom_result
 from bom_extraction_engine.rule_extractor import classify_columns
 from bom_extraction_engine.workbook import build_case
-from supplier_search_engine.contract import build_batch_from_result
+from supplier_search_engine.contract import (
+    PassiveRequirementDefaults,
+    build_batch_from_result,
+)
 from supplier_search_engine.models import SearchMode
 from supplier_search_engine.planner import QueryPlanner
 
@@ -54,6 +57,7 @@ def test_mixed_column_separates_specs_mpn_and_material_without_false_identity(
                 "100n,C_0603_1608Metric,1,C1",
                 "470p,C_0603_1608Metric,1,C3",
                 "4.7u/Film,C_Rect_L7.0mm_W2.5mm_P5.00mm,1,C2",
+                "100u/50V,CP_Elec_8x10,1,C4",
                 "22u,L_Custom_6x6mm,1,L1",
                 "SS34,D_SMA,1,D1",
                 "BLUE,LED_0603_1608Metric,1,D2",
@@ -82,6 +86,11 @@ def test_mixed_column_separates_specs_mpn_and_material_without_false_identity(
     assert film["part_number"] is None
     assert film["capacitance_f"] == pytest.approx(4.7e-6)
 
+    electrolytic = by_value["100u/50V"]
+    assert electrolytic["part_number"] is None
+    assert electrolytic["capacitance_f"] == pytest.approx(100e-6)
+    assert electrolytic["voltage_v"] == 50.0
+
     inductor = by_value["22u"]
     assert inductor["part_number"] is None
     assert inductor["inductance_h"] == pytest.approx(22e-6)
@@ -94,12 +103,27 @@ def test_mixed_column_separates_specs_mpn_and_material_without_false_identity(
     assert "part_type_source_conflict" not in led["quality_flags"]
 
     batch = build_batch_from_result(result)
+    defaults = PassiveRequirementDefaults(
+        resistor_tolerance="1%",
+        capacitor_tolerance="10%",
+        capacitor_voltage="25V",
+        capacitor_dielectric_policy="capacitance-aware-conservative",
+    )
+    for component in batch.components:
+        component.requirement_defaults = defaults
     plans = {
         component.value_raw: QueryPlanner().plan(component)
         for component in batch.components
     }
     assert plans["100R/0.1%"].mode == SearchMode.PARAMETRIC
     assert plans["100n"].mode == SearchMode.PARAMETRIC
+    assert plans["4.7u/Film"].category_policy == "film"
+    assert plans["100u/50V"].category_policy == "electrolytic"
+    for value in ("4.7u/Film", "100u/50V"):
+        assert all(
+            requirement.status != "policy_default"
+            for requirement in plans[value].requirements.values()
+        )
     assert plans["SS34"].part_number == "SS34"
 
 

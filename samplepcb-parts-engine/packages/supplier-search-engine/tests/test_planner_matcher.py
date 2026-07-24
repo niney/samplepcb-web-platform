@@ -43,6 +43,7 @@ def component(**values) -> SearchComponentInput:
         source_rows_1based=[2],
         description=values.get("description"),
         value_raw=values.get("value_raw"),
+        footprint=values.get("footprint"),
         review_status="accepted",
         fields=fields,
     )
@@ -66,6 +67,45 @@ def passive_defaults() -> PassiveRequirementDefaults:
         capacitor_voltage="25V",
         capacitor_dielectric_policy="capacitance-aware-conservative",
     )
+
+
+@pytest.mark.parametrize(
+    ("values", "expected_policy"),
+    [
+        (
+            {
+                "part_type": "capacitor",
+                "capacitance": "100uF",
+                "voltage": "50V",
+                "package": "8x10",
+                "value_raw": "100u/50V",
+                "footprint": "CP_Elec_8x10",
+            },
+            "electrolytic",
+        ),
+        (
+            {
+                "part_type": "capacitor",
+                "capacitance": "4.7uF",
+                "value_raw": "4.7u/Film",
+                "footprint": "C_Rect_L7.0mm_W2.5mm_P5.00mm",
+            },
+            "film",
+        ),
+    ],
+)
+def test_passive_defaults_skip_non_ceramic_raw_bom_evidence(values, expected_policy):
+    item = component(**values)
+    item.requirement_defaults = passive_defaults()
+
+    query = QueryPlanner().plan(item)
+
+    assert query.category_policy == expected_policy
+    assert all(
+        requirement.status != "policy_default"
+        for requirement in query.requirements.values()
+    )
+    assert "dielectric" not in query.requirements
 
 
 def test_resistor_approved_default_requires_proven_one_percent_or_better():
