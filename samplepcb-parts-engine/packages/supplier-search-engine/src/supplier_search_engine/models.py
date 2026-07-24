@@ -1114,6 +1114,34 @@ class InputCorrection(BaseModel):
     auto_applied: bool = False
 
 
+class SearchRequirementGuidance(BaseModel):
+    """행별 검색 가능 상태와 사용자 보완에 필요한 엔진 판정."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    policy_version: Literal["bom-search-requirement-policy-v1"] = (
+        "bom-search-requirement-policy-v1"
+    )
+    component_type: (
+        Literal[
+            "resistor",
+            "capacitor",
+            "inductor",
+            "diode",
+            "transistor",
+            "led",
+            "crystal",
+            "connector",
+            "switch",
+        ]
+        | None
+    ) = None
+    readiness: Literal["searchable", "needs_user_input", "excluded"]
+    required_fields: list[str] = Field(default_factory=list)
+    missing_fields: list[str] = Field(default_factory=list)
+    values: dict[str, Any] = Field(default_factory=dict)
+
+
 class ComponentSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1130,6 +1158,7 @@ class ComponentSearchResult(BaseModel):
     conflict_branch_queries: list[PlannedQuery] = Field(default_factory=list)
     initial_query: PlannedQuery | None = None
     identity_fallback: bool = False
+    requirement_guidance: SearchRequirementGuidance | None = None
     search_trace: ComponentSearchTrace | None = None
     candidates: list[CandidateMatch] = Field(default_factory=list)
     input_corrections: list[InputCorrection] = Field(default_factory=list)
@@ -1195,6 +1224,7 @@ class ComponentPreflight(BaseModel):
     fallback_keywords: str | None = None
     fallback_suppliers: list[SupplierPreflight] = Field(default_factory=list)
     conflict_branch_queries: list[PlannedQuery] = Field(default_factory=list)
+    requirement_guidance: SearchRequirementGuidance | None = None
     warnings: list[str] = Field(default_factory=list)
 
 

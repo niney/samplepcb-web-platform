@@ -64,6 +64,28 @@ def test_preflight_preserves_each_components_source_identity(tmp_path):
     assert [component.source_rows_1based for component in result.components] == [[2], [3]]
 
 
+def test_preflight_exposes_engine_requirement_guidance(tmp_path):
+    item = make_component("resistor", resistance="10kΩ")
+    item.fields["part_number"].value = None
+    item.fields["part_number"].status = "not_found"
+    item.fields["manufacturer"].value = None
+    item.fields["manufacturer"].status = "not_found"
+    item.fields["part_type"].value = "resistor"
+    item.fields["part_type"].status = "extracted"
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[],
+    )
+
+    result = service.preflight_batch(batch(item))
+
+    guidance = result.components[0].requirement_guidance
+    assert guidance is not None
+    assert guidance.readiness == "needs_user_input"
+    assert guidance.required_fields == ["resistance", "package"]
+    assert guidance.missing_fields == ["package"]
+
+
 def test_preflight_recognizes_fresh_negative_or_positive_raw_cache(tmp_path):
     fake = FakeDigiKeyClient(products=[make_product()])
     service = SearchService(Settings(cache_path=tmp_path / "cache.sqlite3"), clients=[fake])

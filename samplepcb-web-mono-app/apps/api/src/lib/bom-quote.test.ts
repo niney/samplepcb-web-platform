@@ -42,7 +42,7 @@ describe('사용자 행 검색조건 계약', () => {
     }).success).toBe(false);
   });
 
-  it('유전체는 MLCC에만 허용한다', () => {
+  it('전송 계약은 유전체 기술 조합을 재판정하지 않는다', () => {
     expect(BomQuoteSearchRequirementsBody.safeParse({
       componentType: 'capacitor',
       capacitorType: 'electrolytic',
@@ -52,7 +52,7 @@ describe('사용자 행 검색조건 계약', () => {
       voltage: '25V',
       dielectric: 'X7R',
       mountStyle: 'smd',
-    }).success).toBe(false);
+    }).success).toBe(true);
   });
 
   it('저장 계약은 검색조건과 수정 provenance를 함께 수신한다', () => {
@@ -139,7 +139,7 @@ describe('사용자 행 검색조건 계약', () => {
     expect(BomQuoteSearchRequirementsBody.safeParse(body).success).toBe(true);
   });
 
-  it('종류별 안전 최소값과 v1 저장 범위를 검증한다', () => {
+  it('조건부 안전 최소값은 엔진에 맡기고 v1 저장 범위만 계약에서 검증한다', () => {
     expect(BomQuoteSearchRequirementsBody.safeParse({
       componentType: 'diode',
       diodeType: 'zener',
@@ -148,7 +148,7 @@ describe('사용자 행 검색조건 계약', () => {
       power: null,
       packageCode: 'SOD-123',
       mountStyle: 'smd',
-    }).success).toBe(false);
+    }).success).toBe(true);
     expect(BomQuoteSearchRequirements.safeParse({
       version: 'bom-user-search-requirements-v1',
       componentType: 'led',
@@ -1106,6 +1106,14 @@ describe('BOM 엔진 후보 결정 투영', () => {
       {
         component_id: 'component-no-stock',
         status: 'verified_exact',
+        requirement_guidance: {
+          policy_version: 'bom-search-requirement-policy-v1',
+          component_type: 'diode',
+          readiness: 'searchable',
+          required_fields: ['diode_type', 'package'],
+          missing_fields: ['package'],
+          values: { diode_type: 'rectifier' },
+        },
         procurement_decision: componentProcurementDecision(
           'no_recommendation',
           null,
@@ -1120,6 +1128,14 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.candidate).toBeNull();
     expect(decision?.evidence.procurementUnavailabilityReason).toBe('out_of_stock');
+    expect(decision?.evidence.searchRequirementGuidance).toEqual({
+      policyVersion: 'bom-search-requirement-policy-v1',
+      componentType: 'diode',
+      readiness: 'searchable',
+      requiredFields: ['diodeType', 'packageCode'],
+      missingFields: ['packageCode'],
+      values: { diodeType: 'rectifier' },
+    });
     expect(decision?.evidence.conflicts).toEqual(['resistance_ohm']);
     expect(decision?.evidence.decisionReasonCodes).toEqual([
       'engine-procurement-unavailable',

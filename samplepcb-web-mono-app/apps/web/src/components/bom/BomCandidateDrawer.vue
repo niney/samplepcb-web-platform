@@ -441,6 +441,8 @@ function originalFieldValue(key: string): string {
 function inferredRequirementComponentType(): RequirementComponentType | null {
   const stored = props.context?.searchRequirements;
   if (stored !== null && stored !== undefined) return stored.componentType;
+  const engineType = props.context?.searchRequirementGuidance?.componentType;
+  if (engineType !== null && engineType !== undefined) return engineType;
   const payload = props.context?.extraction?.payload;
   const payloadType = typeof payload?.component_type === 'string'
     ? payload.component_type
@@ -461,6 +463,13 @@ function inferredRequirementComponentType(): RequirementComponentType | null {
   if (normalized.includes('connector') || normalized.includes('header') || normalized.includes('socket') || normalized.includes('커넥터')) return 'connector';
   if (normalized.includes('switch') || normalized.includes('스위치')) return 'switch';
   return null;
+}
+
+function guidanceTextValue(field: string): string {
+  const value = props.context?.searchRequirementGuidance?.values[field];
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '';
 }
 
 function inferCapacitorType(text: string, inferredDielectric: string): CapacitorType | '' {
@@ -517,9 +526,14 @@ function resetSearchRequirementsForm(): void {
   contactForm.value = '';
 
   const extractedPackage = originalFieldValue('package');
-  packageCode.value = stored?.packageCode ?? (extractedPackage === ''
-    ? (context?.originalPackageCode ?? '')
-    : extractedPackage);
+  const guidedPackage = guidanceTextValue('packageCode');
+  packageCode.value = stored?.packageCode ?? (
+    guidedPackage !== ''
+      ? guidedPackage
+      : extractedPackage === ''
+        ? (context?.originalPackageCode ?? '')
+        : extractedPackage
+  );
   const evidenceText = JSON.stringify(context?.extraction?.payload ?? {});
   const mountText = `${originalFieldValue('package')} ${originalFieldValue('footprint')} ${evidenceText}`;
   mountStyle.value = stored?.mountStyle ?? (/\b(?:THT|THROUGH[ -]?HOLE|DIP)\b/i.test(mountText)
@@ -590,35 +604,63 @@ function resetSearchRequirementsForm(): void {
     return;
   }
 
-  resistance.value = componentType === 'resistor' ? originalFieldValue('resistance') : '';
-  capacitance.value = componentType === 'capacitor' ? originalFieldValue('capacitance') : '';
-  inductance.value = componentType === 'inductor' ? originalFieldValue('inductance') : '';
-  frequency.value = componentType === 'crystal' ? originalFieldValue('frequency') : '';
+  resistance.value = componentType === 'resistor'
+    ? (guidanceTextValue('resistance') || originalFieldValue('resistance'))
+    : '';
+  capacitance.value = componentType === 'capacitor'
+    ? (guidanceTextValue('capacitance') || originalFieldValue('capacitance'))
+    : '';
+  inductance.value = componentType === 'inductor'
+    ? (guidanceTextValue('inductance') || originalFieldValue('inductance'))
+    : '';
+  frequency.value = componentType === 'crystal'
+    ? (guidanceTextValue('frequency') || originalFieldValue('frequency'))
+    : '';
   tolerance.value = ['resistor', 'capacitor', 'inductor', 'crystal'].includes(componentType ?? '')
-    ? originalFieldValue('tolerance')
+    ? (guidanceTextValue('tolerance') || originalFieldValue('tolerance'))
     : '';
   voltage.value = ['capacitor', 'diode', 'transistor', 'led', 'switch'].includes(componentType ?? '')
-    ? originalFieldValue('voltage')
+    ? (guidanceTextValue('voltage') || originalFieldValue('voltage'))
     : '';
   current.value = ['inductor', 'diode', 'transistor', 'led', 'switch'].includes(componentType ?? '')
-    ? originalFieldValue('current')
+    ? (guidanceTextValue('current') || originalFieldValue('current'))
     : '';
   power.value = ['resistor', 'diode', 'transistor'].includes(componentType ?? '')
-    ? originalFieldValue('power')
+    ? (guidanceTextValue('power') || originalFieldValue('power'))
     : '';
   dielectric.value = componentType === 'capacitor'
-    ? (/\b(?:C0G|NP0|X5R|X7R|X8R|Y5V)\b/i.exec(evidenceText)?.[0]?.toUpperCase() ?? '')
+      ? (
+        guidanceTextValue('dielectric')
+        || (/\b(?:C0G|NP0|X5R|X7R|X8R|Y5V)\b/i.exec(evidenceText)?.[0]?.toUpperCase() ?? '')
+      )
     : '';
+  const guidedCapacitorType = guidanceTextValue('capacitorType');
   capacitorType.value = componentType === 'capacitor'
-    ? inferCapacitorType(evidenceText, dielectric.value)
+    ? ['ceramic', 'electrolytic', 'tantalum', 'film'].includes(guidedCapacitorType)
+      ? guidedCapacitorType as CapacitorType
+      : inferCapacitorType(evidenceText, dielectric.value)
     : '';
   if (componentType === 'inductor') {
-    inductorType.value = /\b(?:ferrite|bead)\b|비드/i.test(evidenceText) ? 'ferrite' : 'standard';
-    impedance.value = payloadTextValue('impedance_ohm');
-    impedanceFrequency.value = payloadTextValue('impedance_frequency_hz');
+    const guidedInductorType = guidanceTextValue('inductorType');
+    inductorType.value = ['standard', 'ferrite'].includes(guidedInductorType)
+      ? guidedInductorType as InductorType
+      : /\b(?:ferrite|bead)\b|비드/i.test(evidenceText) ? 'ferrite' : 'standard';
+    impedance.value = guidanceTextValue('impedance') || payloadTextValue('impedance_ohm');
+    impedanceFrequency.value = guidanceTextValue('impedanceFrequency')
+      || payloadTextValue('impedance_frequency_hz');
   }
   if (componentType === 'diode') {
-    diodeType.value = /\btvs\b/i.test(evidenceText)
+    const guidedDiodeType = guidanceTextValue('diodeType');
+    diodeType.value = [
+      'rectifier',
+      'signal',
+      'schottky',
+      'zener',
+      'tvs',
+      'photodiode',
+    ].includes(guidedDiodeType)
+      ? guidedDiodeType as DiodeType
+      : /\btvs\b/i.test(evidenceText)
       ? 'tvs'
       : /\bzener\b|제너/i.test(evidenceText)
         ? 'zener'
@@ -633,12 +675,18 @@ function resetSearchRequirementsForm(): void {
                 : '';
   }
   if (componentType === 'transistor') {
-    transistorType.value = /\b(?:mosfet|fet)\b/i.test(evidenceText)
+    const guidedTransistorType = guidanceTextValue('transistorType');
+    transistorType.value = ['bjt', 'mosfet'].includes(guidedTransistorType)
+      ? guidedTransistorType as TransistorType
+      : /\b(?:mosfet|fet)\b/i.test(evidenceText)
       ? 'mosfet'
       : /\bbjt\b|\btransistor\b|트랜지스터/i.test(evidenceText)
         ? 'bjt'
         : '';
-    transistorPolarity.value = /\bp[- ]?channel\b/i.test(evidenceText)
+    const guidedPolarity = guidanceTextValue('polarity');
+    transistorPolarity.value = ['npn', 'pnp', 'n-channel', 'p-channel'].includes(guidedPolarity)
+      ? guidedPolarity as TransistorPolarity
+      : /\bp[- ]?channel\b/i.test(evidenceText)
       ? 'p-channel'
       : /\bn[- ]?channel\b/i.test(evidenceText)
         ? 'n-channel'
@@ -649,19 +697,41 @@ function resetSearchRequirementsForm(): void {
             : '';
   }
   color.value = componentType === 'led'
-    ? (payloadTextValue('color') || (/\b(?:red|green|blue|yellow|orange|white|amber)\b/i.exec(evidenceText)?.[0] ?? ''))
+    ? (
+        guidanceTextValue('color')
+        || payloadTextValue('color')
+        || (/\b(?:red|green|blue|yellow|orange|white|amber)\b/i.exec(evidenceText)?.[0] ?? '')
+      )
     : '';
   if (componentType === 'crystal') {
-    crystalType.value = /\boscillator\b|발진기/i.test(evidenceText)
+    const guidedCrystalType = guidanceTextValue('crystalType');
+    crystalType.value = ['crystal', 'oscillator', 'resonator'].includes(guidedCrystalType)
+      ? guidedCrystalType as CrystalType
+      : /\boscillator\b|발진기/i.test(evidenceText)
       ? 'oscillator'
       : /\bresonator\b|공진기/i.test(evidenceText)
         ? 'resonator'
         : 'crystal';
   }
   if (componentType === 'connector') {
-    pinCount.value = payloadTextValue('pin_count');
-    pitch.value = payloadTextValue('pitch_mm');
-    rowCount.value = payloadTextValue('row_count');
+    pinCount.value = guidanceTextValue('pinCount') || payloadTextValue('pin_count');
+    pitch.value = guidanceTextValue('pitch') || payloadTextValue('pitch_mm');
+    rowCount.value = guidanceTextValue('rowCount') || payloadTextValue('row_count');
+  }
+  if (componentType === 'switch') {
+    const guidedSwitchType = guidanceTextValue('switchType');
+    switchType.value = [
+      'tactile',
+      'pushbutton',
+      'slide',
+      'toggle',
+      'dip',
+      'rotary',
+      'reed',
+      'other',
+    ].includes(guidedSwitchType)
+      ? guidedSwitchType as SwitchType
+      : '';
   }
 }
 
@@ -680,6 +750,31 @@ const requirementComponentLabel = computed(() => {
   };
   return requirementComponentType.value === null ? '' : labels[requirementComponentType.value];
 });
+const engineRequirementReadiness = computed(() =>
+  props.context?.searchRequirementGuidance?.readiness ?? null);
+const engineMissingRequirementLabels = computed(() => {
+  const labels: Record<string, string> = {
+    resistance: '저항값',
+    capacitance: '정전용량',
+    inductance: '인덕턴스',
+    impedance: '임피던스',
+    frequency: '주파수',
+    packageCode: '패키지',
+    capacitorType: '캐패시터 종류',
+    inductorType: '인덕터 종류',
+    diodeType: '다이오드 종류',
+    transistorType: '소자 종류',
+    polarity: '극성/채널',
+    color: '색상',
+    crystalType: '발진 소자 종류',
+    pinCount: '핀 수',
+    pitch: '피치',
+    switchType: '스위치 종류',
+    voltage: '정격전압',
+  };
+  return (props.context?.searchRequirementGuidance?.missingFields ?? [])
+    .map((field) => labels[field] ?? field);
+});
 const searchRequirementsValid = computed(() => {
   const componentType = requirementComponentType.value;
   if (componentType === null) return false;
@@ -691,18 +786,14 @@ const searchRequirementsValid = computed(() => {
       return packaged && capacitance.value.trim() !== '' && capacitorType.value !== '';
     case 'inductor':
       return packaged
-        && inductorType.value !== ''
-        && (inductorType.value === 'ferrite' ? impedance.value.trim() !== '' : inductance.value.trim() !== '');
+        && inductorType.value !== '';
     case 'diode':
       return packaged
-        && diodeType.value !== ''
-        && (!['zener', 'tvs'].includes(diodeType.value) || voltage.value.trim() !== '');
+        && diodeType.value !== '';
     case 'transistor':
       return packaged
-        && (
-          (transistorType.value === 'bjt' && ['npn', 'pnp'].includes(transistorPolarity.value))
-          || (transistorType.value === 'mosfet' && ['n-channel', 'p-channel'].includes(transistorPolarity.value))
-        );
+        && transistorType.value !== ''
+        && transistorPolarity.value !== '';
     case 'led':
       return packaged && color.value.trim() !== '';
     case 'crystal':
@@ -1588,10 +1679,27 @@ onBeforeUnmount(() => {
                       <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
                         {{ requirementComponentLabel }}
                       </span>
+                      <span
+                        v-if="engineRequirementReadiness !== null"
+                        class="rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset"
+                        :class="engineRequirementReadiness === 'searchable'
+                          ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                          : engineRequirementReadiness === 'needs_user_input'
+                            ? 'bg-amber-50 text-amber-700 ring-amber-200'
+                            : 'bg-slate-100 text-slate-600 ring-slate-200'"
+                      >
+                        {{ engineRequirementReadiness === 'searchable' ? '엔진 검색 가능' : engineRequirementReadiness === 'needs_user_input' ? '엔진 보완 필요' : '검색 제외' }}
+                      </span>
                       <span v-if="context.searchRequirements !== null" class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">사용자 조건 저장됨</span>
                     </div>
                     <p class="mt-1 text-xs leading-5 text-slate-600">
                       원본 BOM은 유지하고 이 행의 공급사 검색에만 적용합니다. 비워 둔 선택 조건은 자동선정을 막고 후보 검토 항목으로 남습니다.
+                    </p>
+                    <p
+                      v-if="engineMissingRequirementLabels.length > 0"
+                      class="mt-1 text-xs font-semibold text-amber-700"
+                    >
+                      엔진이 확인한 보완 항목: {{ engineMissingRequirementLabels.join(', ') }}
                     </p>
                   </div>
                 </div>

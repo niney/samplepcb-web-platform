@@ -9,6 +9,7 @@ from supplier_search_engine.contract import (
     SearchField,
     SearchFieldAlternative,
     UserSearchRequirements,
+    search_requirement_guidance,
 )
 
 from supplier_search_engine.matcher import (
@@ -67,6 +68,38 @@ def passive_defaults() -> PassiveRequirementDefaults:
         capacitor_voltage="25V",
         capacitor_dielectric_policy="capacitance-aware-conservative",
     )
+
+
+def test_requirement_guidance_owns_search_readiness_and_missing_fields():
+    item = component(part_type="resistor", resistance="10kΩ")
+    query = QueryPlanner().plan(item)
+
+    guidance = search_requirement_guidance(item, query)
+
+    assert query.mode.value == "insufficient"
+    assert guidance.component_type == "resistor"
+    assert guidance.readiness == "needs_user_input"
+    assert guidance.required_fields == ["resistance", "package"]
+    assert guidance.missing_fields == ["package"]
+    assert guidance.values["resistance"] == "10kΩ"
+
+
+def test_requirement_guidance_keeps_identity_search_searchable():
+    item = component(
+        part_number="BSS138",
+        part_type="transistor",
+        description="N-channel MOSFET",
+    )
+    query = QueryPlanner().plan(item)
+
+    guidance = search_requirement_guidance(item, query)
+
+    assert query.mode.value == "identity"
+    assert guidance.component_type == "transistor"
+    assert guidance.readiness == "searchable"
+    assert guidance.values["transistor_type"] == "mosfet"
+    assert guidance.values["polarity"] == "n-channel"
+    assert guidance.missing_fields == ["package"]
 
 
 @pytest.mark.parametrize(

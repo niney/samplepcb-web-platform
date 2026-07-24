@@ -137,6 +137,8 @@ async def test_batch_deduplicates_and_second_run_uses_durable_cache(tmp_path):
     assert first.api_calls == 1
     assert first.components[0].api_calls == 1
     assert first.components[1].api_calls == 0
+    assert first.components[0].requirement_guidance is not None
+    assert first.components[0].requirement_guidance.readiness == "searchable"
     assert fake.calls == 1
     assert second.api_calls == 0
     assert second.cache_hits == 1

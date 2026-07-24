@@ -1015,7 +1015,11 @@ async function updateSearchRequirements(
       ? '검색조건은 저장했지만 공급사 검색을 시작하지 못했습니다. 값을 확인한 뒤 다시 시도해 주세요.'
       : code === 'SEARCH_COMPONENT_NOT_FOUND'
         ? '원본 BOM 컴포넌트와 연결되지 않은 행은 조건 검색을 사용할 수 없습니다.'
-        : '검색조건을 저장하거나 행 재검색을 시작하지 못했습니다. 입력값을 확인해 주세요.';
+        : code === 'SEARCH_REQUIREMENTS_INVALID'
+          ? '엔진이 검색조건을 해석하지 못했습니다. 단위와 필수 항목을 확인해 주세요.'
+          : code === 'SEARCH_REQUIREMENTS_VALIDATION_FAILED'
+            ? '검색 엔진에 조건을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+            : '검색조건을 저장하거나 행 재검색을 시작하지 못했습니다. 입력값을 확인해 주세요.';
     await Promise.all([quote.refetch(), candidateQuery.refetch()]);
     rowSearchPhase.value = detail.value?.enrichStatus === 'searching' ? 'searching' : 'failed';
   }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from .contract import SearchBatchInput
+from .contract import SearchBatchInput, search_requirement_guidance
 
 from .budget import ApiBudgetManager
 from .cache import CacheLookup, SQLiteCache, stable_cache_key
@@ -259,6 +259,10 @@ class PreflightAnalyzer:
                     fallback_suppliers=fallback_items,
                     conflict_branch_queries=(
                         component_plans if len(component_plans) > 1 else []
+                    ),
+                    requirement_guidance=search_requirement_guidance(
+                        source_component,
+                        query,
                     ),
                     warnings=warnings,
                 )

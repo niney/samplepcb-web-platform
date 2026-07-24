@@ -8,7 +8,11 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from .contract import SearchBatchInput, SearchComponentInput
+from .contract import (
+    SearchBatchInput,
+    SearchComponentInput,
+    search_requirement_guidance,
+)
 
 from .budget import ApiBudgetManager, QuotaExceeded
 from .cache import SQLiteCache, stable_cache_key
@@ -287,6 +291,10 @@ class SearchService:
                         "quantity_resolution": plan.quantity_resolution,
                         "reference_designators": source_component.reference_designators,
                         "source_rows_1based": source_component.source_rows_1based,
+                        "requirement_guidance": search_requirement_guidance(
+                            source_component,
+                            final_query,
+                        ),
                         "query": final_query,
                         "initial_query": initial_query,
                         "search_trace": search_trace,
@@ -459,6 +467,7 @@ class SearchService:
                     ]
                 )
             ),
+            requirement_guidance=results[0].requirement_guidance,
         )
 
     @staticmethod

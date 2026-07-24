@@ -14,7 +14,10 @@ from supplier_search_engine.models import (
 )
 from supplier_search_engine.contract import (
     PassiveRequirementDefaults,
+    SearchRequirementValidationResult,
     UserSearchRequirements,
+    search_requirement_capabilities,
+    validate_user_search_requirements,
 )
 from supplier_search_engine.procurement import (
     ProcurementReevaluationError,
@@ -87,6 +90,14 @@ class PersistedAnalysisBody(BaseModel):
         return self
 
 
+class SearchRequirementValidationBody(BaseModel):
+    """Node가 저장하기 전 전달하는 기술 검색 조건 원문."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    requirements: dict[str, Any]
+
+
 def _svc(request: Request) -> JobService:
     return request.app.state.jobs
 
@@ -131,6 +142,25 @@ async def health() -> dict[str, str]:
 async def capabilities(request: Request) -> dict[str, object]:
     """Read-only operational metadata. Credentials and filesystem paths are omitted."""
     return supplier_search_capabilities(_svc(request).config)
+
+
+@router.get("/supplier-search/requirements/capabilities")
+async def supplier_search_requirement_capabilities() -> dict[str, object]:
+    """지원 부품별 필수·선택·조건부 필드를 엔진 단일 원본으로 공개한다."""
+
+    return search_requirement_capabilities()
+
+
+@router.post(
+    "/supplier-search/requirements/validate",
+    response_model=SearchRequirementValidationResult,
+)
+async def validate_supplier_search_requirements(
+    body: SearchRequirementValidationBody,
+) -> SearchRequirementValidationResult:
+    """DB 저장이나 공급사 호출 없이 검색 조건을 엔진 정책으로 검증한다."""
+
+    return validate_user_search_requirements(body.requirements)
 
 
 @router.post("/jobs", status_code=202)

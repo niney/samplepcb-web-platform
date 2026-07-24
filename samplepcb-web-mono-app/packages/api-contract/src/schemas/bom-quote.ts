@@ -124,6 +124,34 @@ export type BomQuoteProcurementUnavailabilityReasonType = z.infer<
   typeof BomQuoteProcurementUnavailabilityReason
 >;
 
+export const BomQuoteSearchRequirementComponentType = z.enum([
+  'resistor',
+  'capacitor',
+  'inductor',
+  'diode',
+  'transistor',
+  'led',
+  'crystal',
+  'connector',
+  'switch',
+]);
+export type BomQuoteSearchRequirementComponentTypeType = z.infer<
+  typeof BomQuoteSearchRequirementComponentType
+>;
+
+/** sp-engine이 추출·검색계획으로 확정한 행별 검색 준비 상태. */
+export const BomQuoteSearchRequirementGuidance = z.object({
+  policyVersion: z.literal('bom-search-requirement-policy-v1'),
+  componentType: BomQuoteSearchRequirementComponentType.nullable(),
+  readiness: z.enum(['searchable', 'needs_user_input', 'excluded']),
+  requiredFields: z.array(z.string()),
+  missingFields: z.array(z.string()),
+  values: z.record(z.string(), z.unknown()),
+});
+export type BomQuoteSearchRequirementGuidanceType = z.infer<
+  typeof BomQuoteSearchRequirementGuidance
+>;
+
 /**
  * 공급사 검색 엔진의 BOM 문맥 판정과 자동 선정 근거.
  * 카탈로그 사실 데이터와 분리해 견적 라인에 스냅샷으로 보존한다.
@@ -144,6 +172,8 @@ export const BomQuoteMatchEvidence = z.object({
   technicalFallbackUsed: z.boolean().optional(),
   /** 품번 검색에서 신뢰 후보가 없어 엔진이 확정 스펙 검색으로 전환했는지 여부. */
   identityFallback: z.boolean(),
+  /** 검색 조건의 기술 준비 상태 — Node/화면은 재판정하지 않고 엔진 결과를 표시한다. */
+  searchRequirementGuidance: BomQuoteSearchRequirementGuidance.nullable().optional(),
   /** 전체 이력은 후보 API에서 지연 조회하고 목록에는 엔진 trace의 compact 요약만 둔다. */
   searchTraceSummary: BomQuoteSearchTraceSummary.nullable().optional(),
   candidateStatus: z.string().nullable(),
@@ -335,58 +365,7 @@ const BomQuoteSearchRequirementVariants = [
 /** 원본 BOM을 덮어쓰지 않고 해당 견적 행의 스펙 검색에만 적용하는 사용자 명령. */
 export const BomQuoteSearchRequirementsBody = z.discriminatedUnion('componentType', [
   ...BomQuoteSearchRequirementVariants,
-]).superRefine((value, context) => {
-  if (
-    value.componentType === 'capacitor'
-    && value.capacitorType !== 'ceramic'
-    && value.dielectric !== null
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: ['dielectric'],
-      message: '유전체는 MLCC에만 지정할 수 있습니다',
-    });
-  }
-  if (
-    value.componentType === 'inductor'
-    && (
-      (value.inductorType === 'standard' && value.inductance === null)
-      || (value.inductorType === 'ferrite' && value.impedance === null)
-    )
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: [value.inductorType === 'ferrite' ? 'impedance' : 'inductance'],
-      message: value.inductorType === 'ferrite'
-        ? '페라이트 비드는 임피던스가 필요합니다'
-        : '인덕터는 인덕턴스가 필요합니다',
-    });
-  }
-  if (
-    value.componentType === 'diode'
-    && ['zener', 'tvs'].includes(value.diodeType)
-    && value.voltage === null
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: ['voltage'],
-      message: '제너/TVS 다이오드는 전압이 필요합니다',
-    });
-  }
-  if (
-    value.componentType === 'transistor'
-    && (
-      (value.transistorType === 'bjt' && !['npn', 'pnp'].includes(value.polarity))
-      || (value.transistorType === 'mosfet' && !['n-channel', 'p-channel'].includes(value.polarity))
-    )
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: ['polarity'],
-      message: '소자 종류에 맞는 극성/채널을 선택해 주세요',
-    });
-  }
-});
+]);
 export type BomQuoteSearchRequirementsBodyType = z.infer<typeof BomQuoteSearchRequirementsBody>;
 
 /** 견적 전체의 누락 수동소자 조건에 사용자가 한 번 승인해 적용하는 보수적 기본값. */
@@ -426,54 +405,6 @@ export const BomQuoteSearchRequirements = z.discriminatedUnion('componentType', 
       code: 'custom',
       path: ['version'],
       message: 'v1은 저항과 캐패시터만 지원합니다',
-    });
-  }
-  if (
-    value.componentType === 'capacitor'
-    && value.capacitorType !== 'ceramic'
-    && value.dielectric !== null
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: ['dielectric'],
-      message: '유전체는 MLCC에만 지정할 수 있습니다',
-    });
-  }
-  if (
-    value.componentType === 'inductor'
-    && (
-      (value.inductorType === 'standard' && value.inductance === null)
-      || (value.inductorType === 'ferrite' && value.impedance === null)
-    )
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: [value.inductorType === 'ferrite' ? 'impedance' : 'inductance'],
-      message: '인덕터 종류에 맞는 주 값이 필요합니다',
-    });
-  }
-  if (
-    value.componentType === 'diode'
-    && ['zener', 'tvs'].includes(value.diodeType)
-    && value.voltage === null
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: ['voltage'],
-      message: '제너/TVS 다이오드는 전압이 필요합니다',
-    });
-  }
-  if (
-    value.componentType === 'transistor'
-    && (
-      (value.transistorType === 'bjt' && !['npn', 'pnp'].includes(value.polarity))
-      || (value.transistorType === 'mosfet' && !['n-channel', 'p-channel'].includes(value.polarity))
-    )
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: ['polarity'],
-      message: '소자 종류에 맞는 극성/채널을 선택해 주세요',
     });
   }
 });
@@ -669,6 +600,8 @@ export const BomQuoteItemCandidates = z.object({
   extraction: BomQuoteExtractionSource.nullable(),
   /** 사용자가 원본 BOM과 별도로 확정한 행 단위 스펙 검색조건. */
   searchRequirements: BomQuoteSearchRequirements.nullable(),
+  /** sp-engine이 확정한 검색 가능 상태와 보완 필드. 구버전 결과는 null이다. */
+  searchRequirementGuidance: BomQuoteSearchRequirementGuidance.nullable(),
   originalMpn: z.string().nullable(),
   originalValue: z.string().nullable(),
   originalSheetName: z.string().nullable(),

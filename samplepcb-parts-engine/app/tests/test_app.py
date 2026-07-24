@@ -90,6 +90,78 @@ def test_capabilities_exposes_limits_without_supplier_secrets(tmp_path, monkeypa
     assert "mouser-secret-value" not in serialized
 
 
+def test_search_requirement_capabilities_are_engine_owned(tmp_path):
+    response = _client(tmp_path).get(
+        "/supplier-search/requirements/capabilities"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["policy_version"] == "bom-search-requirement-policy-v1"
+    assert body["component_types"]["resistor"]["required_fields"] == [
+        "resistance",
+        "package",
+    ]
+    assert body["component_types"]["connector"]["required_fields"] == [
+        "pin_count",
+        "pitch",
+    ]
+    assert body["component_types"]["diode"]["conditional_required"] == [
+        {
+            "when": {"field": "diode_type", "in": ["zener", "tvs"]},
+            "required": ["voltage"],
+        }
+    ]
+
+
+def test_search_requirement_validation_returns_all_policy_errors(tmp_path):
+    response = _client(tmp_path).post(
+        "/supplier-search/requirements/validate",
+        json={
+            "requirements": {
+                "version": "bom-user-search-requirements-v2",
+                "component_type": "diode",
+                "diode_type": "zener",
+                "package": "SOD-123",
+                "current": "not-current",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["valid"] is False
+    assert {
+        (error["field"], error["code"]) for error in body["errors"]
+    } == {
+        ("voltage", "missing_required"),
+        ("current", "invalid_value"),
+    }
+    assert body["requirements"] is None
+
+
+def test_search_requirement_validation_normalizes_valid_contract(tmp_path):
+    response = _client(tmp_path).post(
+        "/supplier-search/requirements/validate",
+        json={
+            "requirements": {
+                "version": "bom-user-search-requirements-v2",
+                "component_type": "connector",
+                "pin_count": 4,
+                "pitch": "2.54mm",
+                "mount_style": "through-hole",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["valid"] is True
+    assert body["errors"] == []
+    assert body["requirements"]["pin_count"] == 4
+    assert body["requirements"]["pitch"] == "2.54mm"
+
+
 def test_upload_parse_and_display(tmp_path):
     client = _client(tmp_path)
     resp = client.post(

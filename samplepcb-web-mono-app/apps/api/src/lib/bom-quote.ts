@@ -28,6 +28,7 @@ import {
   type BomQuotePatchBodyType,
   type BomQuoteRecommendationTypeType,
   type BomQuoteRequirementAssessmentType,
+  type BomQuoteSearchRequirementGuidanceType,
   type BomQuoteSelectionEventType,
   type BomQuoteSelectionSourceType,
   type BomQuoteSearchTraceSummaryType,
@@ -471,6 +472,24 @@ const EngineSupplierComponent = z
     query: EngineSupplierQuery.nullish(),
     initial_query: EngineSupplierQuery.nullish(),
     identity_fallback: z.boolean().default(false),
+    requirement_guidance: z.object({
+      policy_version: z.literal('bom-search-requirement-policy-v1'),
+      component_type: z.enum([
+        'resistor',
+        'capacitor',
+        'inductor',
+        'diode',
+        'transistor',
+        'led',
+        'crystal',
+        'connector',
+        'switch',
+      ]).nullable(),
+      readiness: z.enum(['searchable', 'needs_user_input', 'excluded']),
+      required_fields: z.array(z.string()).default([]),
+      missing_fields: z.array(z.string()).default([]),
+      values: z.record(z.string(), z.unknown()).default({}),
+    }).nullish(),
     // trace는 관측 전용이다. 엔진이 enum을 확장해도 후보·조달 계약 파싱을 막지 않도록
     // component 본체와 분리해 아래에서 독립적으로 검증한다.
     search_trace: z.unknown().nullish(),
@@ -1769,6 +1788,31 @@ export function projectEnginePartSearchResult(
   };
 }
 
+function publicRequirementFieldName(field: string): string {
+  if (field === 'package') return 'packageCode';
+  return field.replaceAll(/_([a-z])/g, (_match, letter: string) =>
+    letter.toLocaleUpperCase('en-US'));
+}
+
+function publicSearchRequirementGuidance(
+  guidance: EngineSupplierComponentType['requirement_guidance'],
+): BomQuoteSearchRequirementGuidanceType | null {
+  if (guidance === null || guidance === undefined) return null;
+  return {
+    policyVersion: guidance.policy_version,
+    componentType: guidance.component_type,
+    readiness: guidance.readiness,
+    requiredFields: guidance.required_fields.map(publicRequirementFieldName),
+    missingFields: guidance.missing_fields.map(publicRequirementFieldName),
+    values: Object.fromEntries(
+      Object.entries(guidance.values).map(([field, value]) => [
+        publicRequirementFieldName(field),
+        value,
+      ]),
+    ),
+  };
+}
+
 function evidenceFromDecision(
   component: EngineSupplierComponentType,
   identityFallback: boolean,
@@ -1806,6 +1850,9 @@ function evidenceFromDecision(
     technicalPreselectionCandidateKey: technicalTop?.snapshot.candidateKey ?? null,
     technicalFallbackUsed,
     identityFallback,
+    searchRequirementGuidance: publicSearchRequirementGuidance(
+      component.requirement_guidance,
+    ),
     searchTraceSummary: searchTraceSummary(parseEngineSearchTrace(component.search_trace).trace),
     candidateStatus: evidenceSnapshot?.status ?? reviewCandidate?.status ?? null,
     selectionMode: mode,
@@ -3128,6 +3175,8 @@ export async function getQuoteItemCandidates(
     searchRequirements: storedSearchRequirements.success
       ? storedSearchRequirements.data
       : null,
+    searchRequirementGuidance:
+      item.matchEvidence?.searchRequirementGuidance ?? null,
     originalMpn: typeof originalMpnRaw === 'string' && originalMpnRaw.trim() !== '' ? originalMpnRaw : null,
     originalValue: typeof originalValueRaw === 'string' && originalValueRaw.trim() !== '' ? originalValueRaw : null,
     originalSheetName: item.sourceSheetName,

@@ -13,19 +13,171 @@ build_batch_from_result가 그 역할을 대신한다.
 from __future__ import annotations
 
 import hashlib
+import re
+from collections.abc import Mapping
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    model_validator,
+)
 
 from .models import (
+    PlannedQuery,
     ProcurementDisposition,
     ProcurementPolicyInput,
     QuantityResolution,
+    SearchMode,
+    SearchRequirementGuidance,
     SearchDisposition,
+)
+from .normalizer import (
+    parse_capacitance_f,
+    parse_current_a,
+    parse_frequency_hz,
+    parse_inductance_h,
+    parse_power_w,
+    parse_resistance_ohm,
+    parse_tolerance_percent,
+    parse_voltage_v,
 )
 
 SEARCH_CONTRACT_VERSION = "1.2"
 FieldStatus = Literal["extracted", "review", "not_found"]
+SEARCH_REQUIREMENT_POLICY_VERSION = "bom-search-requirement-policy-v1"
+SearchRequirementComponentType = Literal[
+    "resistor",
+    "capacitor",
+    "inductor",
+    "diode",
+    "transistor",
+    "led",
+    "crystal",
+    "connector",
+    "switch",
+]
+
+_SEARCH_REQUIREMENT_REQUIRED: dict[
+    SearchRequirementComponentType, tuple[str, ...]
+] = {
+    "resistor": ("resistance", "package"),
+    "capacitor": ("capacitor_type", "capacitance", "package"),
+    "inductor": ("inductor_type", "package"),
+    "diode": ("diode_type", "package"),
+    "transistor": ("transistor_type", "polarity", "package"),
+    "led": ("color", "package"),
+    "crystal": ("crystal_type", "frequency", "package"),
+    "connector": ("pin_count", "pitch"),
+    "switch": ("switch_type", "package"),
+}
+
+_SEARCH_REQUIREMENT_CONDITIONAL: dict[
+    SearchRequirementComponentType, tuple[dict[str, object], ...]
+] = {
+    "inductor": (
+        {
+            "when": {"field": "inductor_type", "equals": "standard"},
+            "required": ("inductance",),
+        },
+        {
+            "when": {"field": "inductor_type", "equals": "ferrite"},
+            "required": ("impedance",),
+        },
+    ),
+    "diode": (
+        {
+            "when": {"field": "diode_type", "in": ("zener", "tvs")},
+            "required": ("voltage",),
+        },
+    ),
+}
+
+_SEARCH_REQUIREMENT_TYPE_FIELDS = {
+    "capacitor_type",
+    "inductor_type",
+    "diode_type",
+    "transistor_type",
+    "polarity",
+    "crystal_type",
+    "switch_type",
+    "resistance",
+    "capacitance",
+    "inductance",
+    "impedance",
+    "impedance_frequency",
+    "frequency",
+    "tolerance",
+    "voltage",
+    "current",
+    "power",
+    "dielectric",
+    "color",
+    "pin_count",
+    "pitch",
+    "row_count",
+    "gender",
+    "orientation",
+    "contact_form",
+}
+
+_SEARCH_REQUIREMENT_ALLOWED: dict[SearchRequirementComponentType, set[str]] = {
+    "resistor": {"resistance", "tolerance", "power"},
+    "capacitor": {
+        "capacitor_type",
+        "capacitance",
+        "tolerance",
+        "voltage",
+        "dielectric",
+    },
+    "inductor": {
+        "inductor_type",
+        "inductance",
+        "impedance",
+        "impedance_frequency",
+        "tolerance",
+        "current",
+    },
+    "diode": {"diode_type", "voltage", "current", "power"},
+    "transistor": {
+        "transistor_type",
+        "polarity",
+        "voltage",
+        "current",
+        "power",
+    },
+    "led": {"color", "voltage", "current"},
+    "crystal": {"crystal_type", "frequency", "tolerance"},
+    "connector": {
+        "pin_count",
+        "pitch",
+        "row_count",
+        "gender",
+        "orientation",
+    },
+    "switch": {
+        "switch_type",
+        "contact_form",
+        "voltage",
+        "current",
+    },
+}
+
+_SEARCH_REQUIREMENT_VALUE_PARSERS = {
+    "resistance": parse_resistance_ohm,
+    "capacitance": lambda value: parse_capacitance_f(value, allow_code=True),
+    "inductance": parse_inductance_h,
+    "impedance": parse_resistance_ohm,
+    "impedance_frequency": parse_frequency_hz,
+    "frequency": parse_frequency_hz,
+    "tolerance": parse_tolerance_percent,
+    "voltage": parse_voltage_v,
+    "current": parse_current_a,
+    "power": parse_power_w,
+}
 
 # 검색 계약이 소비하는 추출 필드 — bom_probing_gpt.runtime.VALUE_FIELDS 미러
 VALUE_FIELDS = (
@@ -106,17 +258,7 @@ class UserSearchRequirements(BaseModel):
         "bom-user-search-requirements-v1",
         "bom-user-search-requirements-v2",
     ] = "bom-user-search-requirements-v2"
-    component_type: Literal[
-        "resistor",
-        "capacitor",
-        "inductor",
-        "diode",
-        "transistor",
-        "led",
-        "crystal",
-        "connector",
-        "switch",
-    ]
+    component_type: SearchRequirementComponentType
     capacitor_type: Literal["ceramic", "electrolytic", "tantalum", "film"] | None = None
     inductor_type: Literal["standard", "ferrite"] | None = None
     diode_type: Literal[
@@ -157,140 +299,236 @@ class UserSearchRequirements(BaseModel):
     mount_style: Literal["smd", "through-hole"] | None = None
 
     @model_validator(mode="after")
-    def validate_component_requirements(self) -> "UserSearchRequirements":
-        if (
-            self.version == "bom-user-search-requirements-v1"
-            and self.component_type not in {"resistor", "capacitor"}
-        ):
-            raise ValueError("v1 only supports resistor and capacitor search")
-
-        required: dict[str, tuple[str, ...]] = {
-            "resistor": ("resistance", "package"),
-            "capacitor": ("capacitor_type", "capacitance", "package"),
-            "diode": ("diode_type", "package"),
-            "transistor": ("transistor_type", "polarity", "package"),
-            "led": ("color", "package"),
-            "crystal": ("crystal_type", "frequency", "package"),
-            "connector": ("pin_count", "pitch"),
-            "switch": ("switch_type", "package"),
-        }
-        missing = [
-            name
-            for name in required.get(self.component_type, ())
-            if getattr(self, name) is None
-        ]
-        if self.component_type == "inductor":
-            if self.inductor_type is None:
-                missing.append("inductor_type")
-            if self.package is None:
-                missing.append("package")
-            primary = "impedance" if self.inductor_type == "ferrite" else "inductance"
-            if getattr(self, primary) is None:
-                missing.append(primary)
-        if self.component_type == "diode" and self.diode_type in {"zener", "tvs"}:
-            if self.voltage is None:
-                missing.append("voltage")
-        if missing:
-            raise ValueError(
-                f"{', '.join(dict.fromkeys(missing))} required for "
-                f"{self.component_type} search"
-            )
-
-        type_fields = {
-            "capacitor_type",
-            "inductor_type",
-            "diode_type",
-            "transistor_type",
-            "polarity",
-            "crystal_type",
-            "switch_type",
-            "resistance",
-            "capacitance",
-            "inductance",
-            "impedance",
-            "impedance_frequency",
-            "frequency",
-            "tolerance",
-            "voltage",
-            "current",
-            "power",
-            "dielectric",
-            "color",
-            "pin_count",
-            "pitch",
-            "row_count",
-            "gender",
-            "orientation",
-            "contact_form",
-        }
-        allowed: dict[str, set[str]] = {
-            "resistor": {"resistance", "tolerance", "power"},
-            "capacitor": {
-                "capacitor_type",
-                "capacitance",
-                "tolerance",
-                "voltage",
-                "dielectric",
-            },
-            "inductor": {
-                "inductor_type",
-                "inductance",
-                "impedance",
-                "impedance_frequency",
-                "tolerance",
-                "current",
-            },
-            "diode": {"diode_type", "voltage", "current", "power"},
-            "transistor": {
-                "transistor_type",
-                "polarity",
-                "voltage",
-                "current",
-                "power",
-            },
-            "led": {"color", "voltage", "current"},
-            "crystal": {"crystal_type", "frequency", "tolerance"},
-            "connector": {
-                "pin_count",
-                "pitch",
-                "row_count",
-                "gender",
-                "orientation",
-            },
-            "switch": {
-                "switch_type",
-                "contact_form",
-                "voltage",
-                "current",
-            },
-        }
-        invalid = sorted(
-            name
-            for name in type_fields - allowed[self.component_type]
-            if getattr(self, name) is not None
-        )
-        if invalid:
-            raise ValueError(
-                f"{', '.join(invalid)} not valid for {self.component_type} search"
-            )
-
-        if self.component_type == "transistor":
-            valid_polarities = (
-                {"npn", "pnp"}
-                if self.transistor_type == "bjt"
-                else {"n-channel", "p-channel"}
-            )
-            if self.polarity not in valid_polarities:
-                raise ValueError(
-                    f"{self.polarity} is not valid for {self.transistor_type}"
-                )
-
-        if self.component_type == "resistor":
+    def validate_component_requirements(
+        self, info: ValidationInfo
+    ) -> "UserSearchRequirements":
+        if (info.context or {}).get("skip_requirement_policy") is True:
             return self
-        if self.component_type == "capacitor":
-            if self.capacitor_type != "ceramic" and self.dielectric is not None:
-                raise ValueError("dielectric is only valid for ceramic capacitors")
+        issues = search_requirement_issues(self)
+        if issues:
+            raise ValueError(issues[0].message)
         return self
+
+
+class SearchRequirementIssue(BaseModel):
+    """검색 조건 정책 위반을 필드 단위로 돌려주는 안정 계약."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    code: Literal[
+        "invalid_shape",
+        "missing_required",
+        "field_not_applicable",
+        "invalid_value",
+        "invalid_combination",
+        "unsupported_version",
+    ]
+    message: str
+
+
+class SearchRequirementValidationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_version: Literal["bom-search-requirement-policy-v1"] = (
+        SEARCH_REQUIREMENT_POLICY_VERSION
+    )
+    valid: bool
+    requirements: UserSearchRequirements | None = None
+    errors: list[SearchRequirementIssue] = Field(default_factory=list)
+
+
+def _requirement_mapping(
+    requirements: UserSearchRequirements | Mapping[str, Any],
+) -> dict[str, Any]:
+    if isinstance(requirements, UserSearchRequirements):
+        return requirements.model_dump(mode="python")
+    return dict(requirements)
+
+
+def required_search_requirement_fields(
+    component_type: SearchRequirementComponentType,
+    values: Mapping[str, Any],
+) -> list[str]:
+    """현재 subtype 선택까지 적용한 필수 필드 목록."""
+
+    required = list(_SEARCH_REQUIREMENT_REQUIRED[component_type])
+    for rule in _SEARCH_REQUIREMENT_CONDITIONAL.get(component_type, ()):
+        when = rule["when"]
+        assert isinstance(when, dict)
+        field = str(when["field"])
+        actual = values.get(field)
+        matches = (
+            actual == when["equals"]
+            if "equals" in when
+            else actual in when["in"]
+        )
+        if matches:
+            required.extend(str(name) for name in rule["required"])
+    return list(dict.fromkeys(required))
+
+
+def search_requirement_issues(
+    requirements: UserSearchRequirements | Mapping[str, Any],
+) -> list[SearchRequirementIssue]:
+    """sp-engine 단일 원본 정책으로 필수값·조합·값 형식을 판정한다."""
+
+    values = _requirement_mapping(requirements)
+    component_type = values.get("component_type")
+    if component_type not in _SEARCH_REQUIREMENT_REQUIRED:
+        return [
+            SearchRequirementIssue(
+                field="component_type",
+                code="invalid_value",
+                message="지원하지 않는 부품 유형입니다.",
+            )
+        ]
+    typed_component = component_type
+    issues: list[SearchRequirementIssue] = []
+    if (
+        values.get("version") == "bom-user-search-requirements-v1"
+        and typed_component not in {"resistor", "capacitor"}
+    ):
+        issues.append(
+            SearchRequirementIssue(
+                field="version",
+                code="unsupported_version",
+                message="v1 only supports resistor and capacitor search",
+            )
+        )
+
+    for field in required_search_requirement_fields(typed_component, values):
+        if values.get(field) is None:
+            issues.append(
+                SearchRequirementIssue(
+                    field=field,
+                    code="missing_required",
+                    message=f"{field} required for {typed_component} search",
+                )
+            )
+
+    invalid_fields = sorted(
+        field
+        for field in _SEARCH_REQUIREMENT_TYPE_FIELDS
+        - _SEARCH_REQUIREMENT_ALLOWED[typed_component]
+        if values.get(field) is not None
+    )
+    issues.extend(
+        SearchRequirementIssue(
+            field=field,
+            code="field_not_applicable",
+            message=f"{field} 값은 {typed_component} 검색에 사용할 수 없습니다.",
+        )
+        for field in invalid_fields
+    )
+
+    if typed_component == "transistor":
+        transistor_type = values.get("transistor_type")
+        valid_polarities = (
+            {"npn", "pnp"}
+            if transistor_type == "bjt"
+            else {"n-channel", "p-channel"}
+        )
+        if values.get("polarity") not in valid_polarities:
+            issues.append(
+                SearchRequirementIssue(
+                    field="polarity",
+                    code="invalid_combination",
+                    message="소자 종류에 맞는 극성 또는 채널이 필요합니다.",
+                )
+            )
+
+    if (
+        typed_component == "capacitor"
+        and values.get("capacitor_type") != "ceramic"
+        and values.get("dielectric") is not None
+    ):
+        issues.append(
+            SearchRequirementIssue(
+                field="dielectric",
+                code="invalid_combination",
+                message="유전체는 세라믹 캐패시터에만 지정할 수 있습니다.",
+            )
+        )
+
+    for field, parser in _SEARCH_REQUIREMENT_VALUE_PARSERS.items():
+        value = values.get(field)
+        if value is not None and parser(value) is None:
+            issues.append(
+                SearchRequirementIssue(
+                    field=field,
+                    code="invalid_value",
+                    message=f"{field} 값을 전기 단위와 함께 해석할 수 없습니다.",
+                )
+            )
+    pitch = values.get("pitch")
+    if pitch is not None:
+        match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*(?:mm)?\s*", str(pitch), re.I)
+        if match is None or float(match.group(1).replace(",", ".")) <= 0:
+            issues.append(
+                SearchRequirementIssue(
+                    field="pitch",
+                    code="invalid_value",
+                    message="pitch 값은 양수 mm 단위로 입력해야 합니다.",
+                )
+            )
+    return issues
+
+
+def validate_user_search_requirements(
+    payload: Mapping[str, Any],
+) -> SearchRequirementValidationResult:
+    """Pydantic 전송 형식과 엔진 기술 정책을 분리해 모든 오류를 반환한다."""
+
+    try:
+        shaped = UserSearchRequirements.model_validate(
+            payload,
+            context={"skip_requirement_policy": True},
+        )
+    except ValidationError as error:
+        issues = [
+            SearchRequirementIssue(
+                field=".".join(str(part) for part in item["loc"]) or "requirements",
+                code="invalid_shape",
+                message=str(item["msg"]),
+            )
+            for item in error.errors()
+        ]
+        return SearchRequirementValidationResult(valid=False, errors=issues)
+    issues = search_requirement_issues(shaped)
+    if issues:
+        return SearchRequirementValidationResult(valid=False, errors=issues)
+    validated = UserSearchRequirements.model_validate(shaped.model_dump(mode="python"))
+    return SearchRequirementValidationResult(valid=True, requirements=validated)
+
+
+def search_requirement_capabilities() -> dict[str, object]:
+    """UI/어댑터가 기술 정책을 복제하지 않도록 제공하는 읽기 전용 계약."""
+
+    return {
+        "policy_version": SEARCH_REQUIREMENT_POLICY_VERSION,
+        "component_types": {
+            component_type: {
+                "required_fields": list(required),
+                "optional_fields": sorted(
+                    _SEARCH_REQUIREMENT_ALLOWED[component_type]
+                    - set(required)
+                    | {"mount_style"}
+                    | ({"package"} if "package" not in required else set())
+                ),
+                "conditional_required": [
+                    {
+                        "when": dict(rule["when"]),
+                        "required": list(rule["required"]),
+                    }
+                    for rule in _SEARCH_REQUIREMENT_CONDITIONAL.get(
+                        component_type, ()
+                    )
+                ],
+            }
+            for component_type, required in _SEARCH_REQUIREMENT_REQUIRED.items()
+        },
+    }
 
 
 class PassiveRequirementDefaults(BaseModel):
@@ -344,6 +582,239 @@ class SearchComponentInput(BaseModel):
     user_requirements: UserSearchRequirements | None = None
     requirement_defaults: PassiveRequirementDefaults | None = None
     fields: dict[str, SearchField]
+
+
+_GUIDANCE_CATEGORY_TYPES: dict[str, SearchRequirementComponentType] = {
+    "resistor": "resistor",
+    "capacitor": "capacitor",
+    "electrolytic": "capacitor",
+    "tantalum": "capacitor",
+    "film": "capacitor",
+    "inductor": "inductor",
+    "ferrite": "inductor",
+    "diode": "diode",
+    "transistor": "transistor",
+    "led": "led",
+    "crystal": "crystal",
+    "connector": "connector",
+    "switch": "switch",
+}
+
+
+def _guidance_component_type(
+    component: SearchComponentInput,
+    query: PlannedQuery,
+) -> SearchRequirementComponentType | None:
+    if component.user_requirements is not None:
+        return component.user_requirements.component_type
+    if query.category_policy in _GUIDANCE_CATEGORY_TYPES:
+        return _GUIDANCE_CATEGORY_TYPES[query.category_policy]
+    raw_type = component.fields.get("part_type")
+    text = " ".join(
+        str(value).casefold()
+        for value in (
+            raw_type.value if raw_type is not None else None,
+            component.description,
+            component.value_raw,
+        )
+        if value is not None
+    )
+    for component_type, pattern in (
+        ("resistor", r"\bresistor\b|저항"),
+        ("capacitor", r"\bcapaci(?:tor|tance)\b|커패시터|콘덴서"),
+        ("inductor", r"\binductor\b|\bferrite\b|\bbead\b|인덕터|비드"),
+        ("transistor", r"\btransistor\b|\bmosfet\b|\bfet\b|트랜지스터"),
+        ("led", r"\bled\b|발광다이오드"),
+        ("diode", r"\bdiode\b|다이오드"),
+        ("crystal", r"\bcrystal\b|\boscillator\b|\bresonator\b|크리스털|발진기"),
+        ("connector", r"\bconnector\b|\bheader\b|\bsocket\b|커넥터"),
+        ("switch", r"\bswitch\b|스위치"),
+    ):
+        if re.search(pattern, text, re.I):
+            return component_type
+    return None
+
+
+def _guidance_subtype_values(
+    component_type: SearchRequirementComponentType,
+    component: SearchComponentInput,
+    query: PlannedQuery,
+) -> dict[str, Any]:
+    text = " ".join(
+        str(value)
+        for value in (
+            component.fields["part_type"].value,
+            component.description,
+            component.value_raw,
+        )
+        if value is not None
+    )
+    if component_type == "capacitor":
+        capacitor_type = {
+            "capacitor": "ceramic",
+            "electrolytic": "electrolytic",
+            "tantalum": "tantalum",
+            "film": "film",
+        }.get(query.category_policy or "")
+        return {"capacitor_type": capacitor_type} if capacitor_type else {}
+    if component_type == "inductor":
+        return {
+            "inductor_type": (
+                "ferrite" if query.category_policy == "ferrite" else "standard"
+            )
+        }
+    if component_type == "diode":
+        diode_type = next(
+            (
+                value
+                for value, pattern in (
+                    ("tvs", r"\btvs\b"),
+                    ("zener", r"\bzener\b|제너"),
+                    ("schottky", r"\bschottky\b|쇼트키"),
+                    ("photodiode", r"\bphoto\s*diode\b|포토다이오드"),
+                    ("signal", r"\bsignal\b"),
+                    ("rectifier", r"\brectifier\b|정류"),
+                )
+                if re.search(pattern, text, re.I)
+            ),
+            None,
+        )
+        return {"diode_type": diode_type} if diode_type else {}
+    if component_type == "transistor":
+        transistor_type = (
+            "mosfet"
+            if re.search(r"\b(?:mosfet|fet)\b", text, re.I)
+            else "bjt"
+            if re.search(r"\b(?:bjt|transistor)\b|트랜지스터", text, re.I)
+            else None
+        )
+        polarity = next(
+            (
+                value
+                for value, pattern in (
+                    ("p-channel", r"\bp[- ]?channel\b"),
+                    ("n-channel", r"\bn[- ]?channel\b"),
+                    ("pnp", r"\bpnp\b"),
+                    ("npn", r"\bnpn\b"),
+                )
+                if re.search(pattern, text, re.I)
+            ),
+            None,
+        )
+        return {
+            key: value
+            for key, value in (
+                ("transistor_type", transistor_type),
+                ("polarity", polarity),
+            )
+            if value is not None
+        }
+    if component_type == "crystal":
+        return {
+            "crystal_type": (
+                "oscillator"
+                if re.search(r"\boscillator\b|발진기", text, re.I)
+                else "resonator"
+                if re.search(r"\bresonator\b|공진기", text, re.I)
+                else "crystal"
+            )
+        }
+    if component_type == "switch":
+        switch_type = next(
+            (
+                value
+                for value in (
+                    "tactile",
+                    "pushbutton",
+                    "slide",
+                    "toggle",
+                    "dip",
+                    "rotary",
+                    "reed",
+                )
+                if re.search(rf"\b{value}\b", text, re.I)
+            ),
+            None,
+        )
+        return {"switch_type": switch_type} if switch_type else {}
+    return {}
+
+
+def search_requirement_guidance(
+    component: SearchComponentInput,
+    query: PlannedQuery,
+) -> SearchRequirementGuidance:
+    """추출·계획 결과에서 UI가 재판정 없이 소비할 검색 준비 상태를 만든다."""
+
+    component_type = _guidance_component_type(component, query)
+    if component.user_requirements is not None:
+        values = component.user_requirements.model_dump(
+            mode="python",
+            exclude={"version", "component_type"},
+            exclude_none=True,
+        )
+    else:
+        values = {
+            field: component.fields[field].value
+            for field in (
+                "resistance",
+                "capacitance",
+                "inductance",
+                "frequency",
+                "tolerance",
+                "voltage",
+                "current",
+                "power",
+                "package",
+            )
+            if component.fields[field].value is not None
+        }
+        if query.package is not None:
+            values["package"] = query.package
+        for field, value in (
+            ("impedance", component.impedance_ohm),
+            ("impedance_frequency", component.impedance_frequency_hz),
+            ("color", component.color),
+            ("pin_count", component.pin_count),
+            ("row_count", component.row_count),
+            (
+                "pitch",
+                (
+                    f"{component.pitch_mm:g}mm"
+                    if component.pitch_mm is not None
+                    else None
+                ),
+            ),
+        ):
+            if value is not None:
+                values[field] = value
+        if component_type is not None:
+            values.update(_guidance_subtype_values(component_type, component, query))
+
+    required = (
+        required_search_requirement_fields(component_type, values)
+        if component_type is not None
+        else []
+    )
+    missing = [
+        field
+        for field in required
+        if values.get(field) is None or values.get(field) == ""
+    ]
+    readiness = (
+        "excluded"
+        if query.mode == SearchMode.EXCLUDED
+        else "needs_user_input"
+        if query.mode == SearchMode.INSUFFICIENT
+        else "searchable"
+    )
+    return SearchRequirementGuidance(
+        component_type=component_type,
+        readiness=readiness,
+        required_fields=required,
+        missing_fields=missing,
+        values=values,
+    )
 
 
 class SearchBatchInput(BaseModel):

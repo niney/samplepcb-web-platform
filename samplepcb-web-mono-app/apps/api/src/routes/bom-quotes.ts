@@ -37,6 +37,10 @@ import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { buildEngineProcurementPolicy } from '../lib/bom-procurement-policy';
 import {
+  toEngineSearchRequirements,
+  validateEngineSearchRequirements,
+} from '../lib/bom-search-requirements';
+import {
   fetchSupplierSearchResult,
   ingestSupplierEnvelopeForJob,
   recordJobOwner,
@@ -115,93 +119,6 @@ const MAX_FILE_BYTES = 50 * 1024 * 1024; // 시안 카피("up to 50 MB")와 정�
 
 const FILE_REF_TYPE = 'sp_bom_quote';
 const BizError = z.object({ result: z.literal(false), error: z.string() });
-
-function engineRequirementOverride(
-  requirements: BomQuoteSearchRequirementsType,
-): Record<string, unknown> {
-  const common = {
-    version: requirements.version,
-    component_type: requirements.componentType,
-    package: requirements.packageCode,
-    mount_style: requirements.mountStyle,
-  };
-  switch (requirements.componentType) {
-    case 'resistor':
-      return {
-        ...common,
-        tolerance: requirements.tolerance,
-        resistance: requirements.resistance,
-        power: requirements.power,
-      };
-    case 'capacitor':
-      return {
-        ...common,
-        tolerance: requirements.tolerance,
-        capacitor_type: requirements.capacitorType,
-        capacitance: requirements.capacitance,
-        voltage: requirements.voltage,
-        dielectric: requirements.dielectric,
-      };
-    case 'inductor':
-      return {
-        ...common,
-        inductor_type: requirements.inductorType,
-        inductance: requirements.inductance,
-        impedance: requirements.impedance,
-        impedance_frequency: requirements.impedanceFrequency,
-        current: requirements.current,
-        tolerance: requirements.tolerance,
-      };
-    case 'diode':
-      return {
-        ...common,
-        diode_type: requirements.diodeType,
-        voltage: requirements.voltage,
-        current: requirements.current,
-        power: requirements.power,
-      };
-    case 'transistor':
-      return {
-        ...common,
-        transistor_type: requirements.transistorType,
-        polarity: requirements.polarity,
-        voltage: requirements.voltage,
-        current: requirements.current,
-        power: requirements.power,
-      };
-    case 'led':
-      return {
-        ...common,
-        color: requirements.color,
-        voltage: requirements.voltage,
-        current: requirements.current,
-      };
-    case 'crystal':
-      return {
-        ...common,
-        crystal_type: requirements.crystalType,
-        frequency: requirements.frequency,
-        tolerance: requirements.tolerance,
-      };
-    case 'connector':
-      return {
-        ...common,
-        pin_count: requirements.pinCount,
-        pitch: requirements.pitch,
-        row_count: requirements.rowCount,
-        gender: requirements.gender,
-        orientation: requirements.orientation,
-      };
-    case 'switch':
-      return {
-        ...common,
-        switch_type: requirements.switchType,
-        contact_form: requirements.contactForm,
-        voltage: requirements.voltage,
-        current: requirements.current,
-      };
-  }
-}
 
 const EnginePassiveDefaults = z.object({
   version: z.literal('passive-requirement-defaults-v1'),
@@ -440,7 +357,7 @@ async function autoEnrichQuote(
     if (typeof componentId !== 'string' || componentId === '') return [];
     const parsed = BomQuoteSearchRequirements.safeParse(item.searchRequirements);
     return parsed.success
-      ? [[componentId, engineRequirementOverride(parsed.data)] as const]
+      ? [[componentId, toEngineSearchRequirements(parsed.data)] as const]
       : [];
   }));
 
@@ -1053,6 +970,29 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       updatedAt: new Date().toISOString(),
       updatedBy: request.user.mbId,
     };
+    const engineValidation = await validateEngineSearchRequirements(storedRequirements);
+    if (engineValidation.status === 'invalid') {
+      request.log.info({
+        quoteId: String(quote.id),
+        itemId: String(item.id),
+        errors: engineValidation.errors,
+      }, 'sp-engine 검색조건 정책 검증 실패');
+      return reply.status(409).send({
+        result: false,
+        error: 'SEARCH_REQUIREMENTS_INVALID',
+      });
+    }
+    if (engineValidation.status === 'unavailable') {
+      request.log.warn({
+        quoteId: String(quote.id),
+        itemId: String(item.id),
+        err: engineValidation.error,
+      }, 'sp-engine 검색조건 정책 검증 호출 실패');
+      return reply.status(502).send({
+        result: false,
+        error: 'SEARCH_REQUIREMENTS_VALIDATION_FAILED',
+      });
+    }
     const updated = await prisma.spBomQuoteItem.updateMany({
       where: { id: item.id, quoteId: quote.id },
       data: { searchRequirements: storedRequirements },
