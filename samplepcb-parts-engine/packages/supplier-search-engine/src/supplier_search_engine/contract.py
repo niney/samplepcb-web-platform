@@ -13,6 +13,7 @@ build_batch_from_result가 그 역할을 대신한다.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -601,6 +602,73 @@ _GUIDANCE_CATEGORY_TYPES: dict[str, SearchRequirementComponentType] = {
 }
 
 
+def _guidance_decimal(value: float) -> str:
+    return f"{value:.12f}".rstrip("0").rstrip(".") or "0"
+
+
+def _guidance_scaled_value(
+    value: float,
+    *,
+    unit: str,
+    scales: tuple[tuple[float, str], ...] = (),
+) -> str:
+    absolute = abs(value)
+    for scale, prefix in (item for item in scales if item[0] >= 1):
+        if absolute >= scale:
+            return f"{_guidance_decimal(value / scale)}{prefix}{unit}"
+    if absolute >= 1:
+        return f"{_guidance_decimal(value)}{unit}"
+    for scale, prefix in (item for item in scales if item[0] < 1):
+        if absolute >= scale:
+            return f"{_guidance_decimal(value / scale)}{prefix}{unit}"
+    return f"{_guidance_decimal(value)}{unit}"
+
+
+def _guidance_electrical_value(field_name: str, field: SearchField) -> Any:
+    normalized = field.normalized_value
+    if (
+        isinstance(normalized, (int, float))
+        and not isinstance(normalized, bool)
+        and math.isfinite(float(normalized))
+    ):
+        value = float(normalized)
+        parsed = _SEARCH_REQUIREMENT_VALUE_PARSERS[field_name](field.value)
+        if parsed is None or not math.isclose(
+            float(parsed),
+            value,
+            rel_tol=1e-9,
+            abs_tol=1e-18,
+        ):
+            formatters = {
+                "resistance": lambda number: _guidance_scaled_value(
+                    number,
+                    unit="Ω",
+                    scales=((1e6, "M"), (1e3, "k"), (1e-3, "m")),
+                ),
+                "capacitance": lambda number: _guidance_scaled_value(
+                    number,
+                    unit="F",
+                    scales=((1e-3, "m"), (1e-6, "u"), (1e-9, "n"), (1e-12, "p")),
+                ),
+                "inductance": lambda number: _guidance_scaled_value(
+                    number,
+                    unit="H",
+                    scales=((1e-3, "m"), (1e-6, "u"), (1e-9, "n"), (1e-12, "p")),
+                ),
+                "frequency": lambda number: _guidance_scaled_value(
+                    number,
+                    unit="Hz",
+                    scales=((1e9, "G"), (1e6, "M"), (1e3, "k")),
+                ),
+                "tolerance": lambda number: f"{_guidance_decimal(number)}%",
+                "voltage": lambda number: f"{_guidance_decimal(number)}V",
+                "current": lambda number: f"{_guidance_decimal(number)}A",
+                "power": lambda number: f"{_guidance_decimal(number)}W",
+            }
+            return formatters[field_name](value)
+    return field.value
+
+
 def _guidance_component_type(
     component: SearchComponentInput,
     query: PlannedQuery,
@@ -755,7 +823,7 @@ def search_requirement_guidance(
         )
     else:
         values = {
-            field: component.fields[field].value
+            field: _guidance_electrical_value(field, component.fields[field])
             for field in (
                 "resistance",
                 "capacitance",
@@ -765,15 +833,38 @@ def search_requirement_guidance(
                 "voltage",
                 "current",
                 "power",
-                "package",
             )
             if component.fields[field].value is not None
         }
+        if component.fields["package"].value is not None:
+            values["package"] = component.fields["package"].value
         if query.package is not None:
             values["package"] = query.package
         for field, value in (
-            ("impedance", component.impedance_ohm),
-            ("impedance_frequency", component.impedance_frequency_hz),
+            (
+                "impedance",
+                (
+                    _guidance_scaled_value(
+                        component.impedance_ohm,
+                        unit="Ω",
+                        scales=((1e6, "M"), (1e3, "k"), (1e-3, "m")),
+                    )
+                    if component.impedance_ohm is not None
+                    else None
+                ),
+            ),
+            (
+                "impedance_frequency",
+                (
+                    _guidance_scaled_value(
+                        component.impedance_frequency_hz,
+                        unit="Hz",
+                        scales=((1e9, "G"), (1e6, "M"), (1e3, "k")),
+                    )
+                    if component.impedance_frequency_hz is not None
+                    else None
+                ),
+            ),
             ("color", component.color),
             ("pin_count", component.pin_count),
             ("row_count", component.row_count),
@@ -791,6 +882,16 @@ def search_requirement_guidance(
         if component_type is not None:
             values.update(_guidance_subtype_values(component_type, component, query))
 
+    if component_type is not None:
+        applicable_fields = _SEARCH_REQUIREMENT_ALLOWED[component_type] | {
+            "package",
+            "mount_style",
+        }
+        values = {
+            field: value
+            for field, value in values.items()
+            if field in applicable_fields
+        }
     required = (
         required_search_requirement_fields(component_type, values)
         if component_type is not None

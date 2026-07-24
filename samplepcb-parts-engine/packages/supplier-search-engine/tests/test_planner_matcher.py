@@ -693,11 +693,44 @@ def test_planner_uses_extractor_normalized_value_for_bare_passive_numbers():
     item.fields["resistance"].normalized_value = 100.0
 
     query = QueryPlanner().plan(item)
+    guidance = search_requirement_guidance(item, query)
 
     assert query.mode.value == "parametric"
     assert query.requirements["resistance_ohm"].normalized_value == 100.0
+    assert guidance.values["resistance"] == "100Ω"
     assert query.requirements["package"].normalized_value == "0805"
     assert query.keywords == "100 0805 resistor"
+
+
+def test_requirement_guidance_formats_ambiguous_normalized_capacitance_for_reentry():
+    item = component(
+        part_type="capacitor",
+        capacitance="100",
+        package="0603",
+    )
+    item.fields["capacitance"].normalized_value = 100e-9
+
+    query = QueryPlanner().plan(item)
+    guidance = search_requirement_guidance(item, query)
+
+    assert guidance.values["capacitance"] == "100nF"
+
+
+def test_requirement_guidance_formats_ferrite_numeric_fields_with_units():
+    item = component(
+        part_type="ferrite bead",
+        resistance="120Ω",
+        package="0603",
+    )
+    item.impedance_ohm = 120.0
+    item.impedance_frequency_hz = 100_000_000.0
+
+    query = QueryPlanner().plan(item)
+    guidance = search_requirement_guidance(item, query)
+
+    assert guidance.values["impedance"] == "120Ω"
+    assert guidance.values["impedance_frequency"] == "100MHz"
+    assert "resistance" not in guidance.values
 
 
 def test_planner_branches_one_parametric_conflict_deterministically():
