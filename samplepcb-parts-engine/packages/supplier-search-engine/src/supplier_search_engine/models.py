@@ -253,8 +253,8 @@ class ComponentProcurementDecision(BaseModel):
         "supplier-procurement-decision-v1"
     )
     selection_application_policy_version: Literal[
-        "supplier-selection-application-v2"
-    ] = "supplier-selection-application-v2"
+        "supplier-selection-application-v3"
+    ] = "supplier-selection-application-v3"
     status: Literal[
         "automatic_recommended",
         "review_recommended",
@@ -278,6 +278,7 @@ class ComponentProcurementDecision(BaseModel):
     application_candidate_identity_key: str | None = None
     application_candidate_evidence_key: str | None = None
     technical_fallback_used: bool = False
+    price_optimization_used: bool = False
     automatic_offer_key: str | None = None
     review_offer_key: str | None = None
     recommendation_reason_codes: list[str] = Field(default_factory=list)
@@ -363,13 +364,22 @@ class ComponentProcurementDecision(BaseModel):
         )
         has_application = self.application_candidate_identity_key is not None
         if self.status in {"no_recommendation", "input_incomplete"}:
-            if has_application or self.technical_fallback_used:
+            if (
+                has_application
+                or self.technical_fallback_used
+                or self.price_optimization_used
+            ):
                 raise ValueError(
                     "non-recommended components cannot expose an application candidate"
                 )
-        elif self.technical_fallback_used != (application_key != technical_key):
+        elif application_key == technical_key:
+            if self.technical_fallback_used or self.price_optimization_used:
+                raise ValueError(
+                    "unchanged application candidates cannot be fallback or price optimized"
+                )
+        elif self.technical_fallback_used == self.price_optimization_used:
             raise ValueError(
-                "technical fallback flag must match the application candidate"
+                "changed application candidates require exactly one application reason"
             )
         expected_application = {
             "automatic_recommended": SelectionApplicationState.AUTOMATIC_SELECTED,

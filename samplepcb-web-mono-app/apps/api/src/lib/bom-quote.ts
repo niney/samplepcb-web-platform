@@ -413,9 +413,50 @@ const EngineComponentProcurementDecisionV2 = z
   })
   .passthrough();
 
+const EngineComponentProcurementDecisionV3 = z
+  .object({
+    procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
+    selection_application_policy_version: z.literal('supplier-selection-application-v3'),
+    status: z.enum([
+      'automatic_recommended',
+      'review_recommended',
+      'no_recommendation',
+      'input_incomplete',
+    ]),
+    selection_application_state: z.enum([
+      'automatic_selected',
+      'provisional_selected',
+      'not_selected',
+    ]),
+    confirmation_required: z.boolean(),
+    unavailability_reason_policy_version: z
+      .literal('supplier-procurement-unavailability-v1')
+      .optional(),
+    primary_unavailability_reason: EngineProcurementUnavailabilityReason.nullish(),
+    required_quantity: z.number().int().positive().nullish(),
+    target_currency: z.string(),
+    currency_rate_snapshot_id: z.string().min(1),
+    currency_rate_as_of: z.string().datetime({ offset: true }),
+    currency_rate_source: z.string().min(1),
+    technical_preselection_identity_key: z.string().startsWith('ik1:').nullish(),
+    technical_preselection_evidence_key: z.string().startsWith('ek1:').nullish(),
+    application_candidate_identity_key: z.string().startsWith('ik1:').nullish(),
+    application_candidate_evidence_key: z.string().startsWith('ek1:').nullish(),
+    technical_fallback_used: z.boolean(),
+    price_optimization_used: z.boolean(),
+    automatic_offer_key: z.string().regex(/^ok[12]:/).nullish(),
+    review_offer_key: z.string().regex(/^ok[12]:/).nullish(),
+    recommendation_reason_codes: z.array(z.string()).default([]),
+  })
+  .passthrough();
+
 const EngineComponentProcurementDecision = z.discriminatedUnion(
   'selection_application_policy_version',
-  [EngineComponentProcurementDecisionV1, EngineComponentProcurementDecisionV2],
+  [
+    EngineComponentProcurementDecisionV1,
+    EngineComponentProcurementDecisionV2,
+    EngineComponentProcurementDecisionV3,
+  ],
 );
 
 const EngineSupplierComponent = z
@@ -539,7 +580,7 @@ function searchTraceSummary(trace: EngineSupplierSearchTraceType | null | undefi
   };
 }
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v11';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v12';
 const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSIONS: ReadonlySet<string> = new Set([
   'supplier-candidate-decision-v1',
   'supplier-candidate-decision-v2',
@@ -1356,6 +1397,7 @@ interface EngineProcurementProjection {
   applicationState: 'automatic_selected' | 'provisional_selected' | 'not_selected';
   confirmationRequired: boolean;
   technicalFallbackUsed: boolean;
+  priceOptimizationUsed: boolean;
   primaryUnavailabilityReason: EngineProcurementUnavailabilityReasonType | null;
 }
 
@@ -1439,13 +1481,22 @@ function projectEngineProcurement(
     applicationState: 'not_selected',
     confirmationRequired: false,
     technicalFallbackUsed: false,
+    priceOptimizationUsed: false,
     primaryUnavailabilityReason: null,
   };
+  const currentApplicationPolicy = (
+    decision?.selection_application_policy_version === 'supplier-selection-application-v2'
+    || decision?.selection_application_policy_version === 'supplier-selection-application-v3'
+  );
   if (
     decision?.required_quantity !== needed
-    || decision.selection_application_policy_version !== 'supplier-selection-application-v2'
+    || !currentApplicationPolicy
     || decision.target_currency.toUpperCase() !== 'KRW'
   ) return invalid;
+  const priceOptimizationUsed = (
+    decision.selection_application_policy_version === 'supplier-selection-application-v3'
+    && decision.price_optimization_used
+  );
 
   const hasUnavailabilityPolicy = decision.unavailability_reason_policy_version !== undefined;
   const hasUnavailabilityReason = decision.primary_unavailability_reason !== undefined;
@@ -1485,8 +1536,14 @@ function projectEngineProcurement(
       && group.snapshot.technicalEvidenceKey === applicationEvidenceKey)
       ?? null;
   if (applicationIdentityKey !== null && applicationGroup === null) return invalid;
-  const fallbackExpected = applicationGroup !== null && applicationGroup !== technicalGroup;
-  if (decision.technical_fallback_used !== fallbackExpected) return invalid;
+  const applicationDiffers = applicationGroup !== null && applicationGroup !== technicalGroup;
+  if (
+    decision.selection_application_policy_version === 'supplier-selection-application-v2'
+      ? decision.technical_fallback_used !== applicationDiffers
+      : applicationDiffers
+        ? decision.technical_fallback_used === priceOptimizationUsed
+        : decision.technical_fallback_used || priceOptimizationUsed
+  ) return invalid;
 
   const recommendedOffers = groups.flatMap((group) =>
     group.snapshot.offers.flatMap((offer) =>
@@ -1504,6 +1561,7 @@ function projectEngineProcurement(
       && !decision.confirmation_required
       && applicationGroup === null
       && !decision.technical_fallback_used
+      && !priceOptimizationUsed
       ? {
           valid: true,
           technicalTop: technicalGroup,
@@ -1514,6 +1572,7 @@ function projectEngineProcurement(
           applicationState: 'not_selected',
           confirmationRequired: false,
           technicalFallbackUsed: false,
+          priceOptimizationUsed: false,
           primaryUnavailabilityReason,
         }
       : invalid;
@@ -1548,6 +1607,7 @@ function projectEngineProcurement(
     || applicationGroup.snapshot.selectionRecommendation === 'exclude'
     || (
       !decision.technical_fallback_used
+      && !priceOptimizationUsed
       && applicationGroup.snapshot.selectionRecommendation !== 'preselect'
     )
   ) return invalid;
@@ -1568,6 +1628,7 @@ function projectEngineProcurement(
     applicationState: expectedApplicationState,
     confirmationRequired: !automatic,
     technicalFallbackUsed: decision.technical_fallback_used,
+    priceOptimizationUsed,
     primaryUnavailabilityReason,
   };
 }
@@ -1611,7 +1672,15 @@ export function projectEnginePartSearchResult(
   if (component.procurement_decision === null || component.procurement_decision === undefined) return null;
 
   const groups = buildCandidateGroups(component, true);
-  const items = groups.slice(0, MAX_STORED_CANDIDATES_PER_ITEM).map(({ snapshot }) => {
+  const procurement = projectEngineProcurement(component, groups, needed);
+  const prioritizedGroups = procurement.valid && procurement.selected !== null
+    ? [
+        procurement.selected,
+        ...groups.filter((group) => group !== procurement.selected),
+      ]
+    : groups;
+  const visibleGroups = prioritizedGroups.slice(0, MAX_STORED_CANDIDATES_PER_ITEM);
+  const items = visibleGroups.map(({ snapshot }) => {
     const { pick } = storedCandidatePick(snapshot, needed, null);
     const inlineOffers = snapshot.offers.map((offer) => ({
       supplier: offer.supplier,
@@ -1789,7 +1858,9 @@ export function selectEngineMatch(
       ?? (component.status === 'not_found' ? 'unmatched' : 'review');
     const recommendationType: BomQuoteRecommendationTypeType = selected === null
       ? 'none'
-      : selectedMode === 'spec-compatible'
+      : procurement.priceOptimizationUsed
+        ? 'price'
+        : selectedMode === 'spec-compatible'
         ? 'technical'
         : 'identity';
     const applicationReasonCodes: BomQuoteDecisionReasonType[] = procurement.valid
@@ -1799,10 +1870,19 @@ export function selectEngineMatch(
           ? ['engine-procurement-recommendation']
           : ['engine-procurement-unavailable']
       : ['no-safe-candidate'];
-    const reasonCodes: BomQuoteDecisionReasonType[] = procurement.technicalFallbackUsed
-      ? [...applicationReasonCodes, 'engine-technical-fallback']
-      : applicationReasonCodes;
+    const reasonCodes: BomQuoteDecisionReasonType[] = [
+      ...applicationReasonCodes,
+      ...(procurement.technicalFallbackUsed
+        ? ['engine-technical-fallback'] as const
+        : []),
+      ...(procurement.priceOptimizationUsed
+        ? ['strict-spec-price-saving'] as const
+        : []),
+    ];
     const recommendedCandidateKey = recommended?.snapshot.candidateKey ?? null;
+    const technicalTopPick = procurement.technicalTop === null
+      ? null
+      : storedCandidatePick(procurement.technicalTop.snapshot, needed, null).pick;
     return {
       evidence: evidenceFromDecision(
         component,
@@ -1821,7 +1901,7 @@ export function selectEngineMatch(
         recommendationType,
         reasonCodes,
         needed,
-        procurement.pick,
+        technicalTopPick,
         BOM_ENGINE_SELECTION_POLICY_VERSION,
       ),
       candidate: selected?.representative ?? null,
@@ -2222,8 +2302,15 @@ function recommendStoredCandidate(
 ): StoredRecommendation | null {
   if (!hasConsistentProcurementDecision(candidates)) return null;
   const componentDecision = candidates[0]?.procurementDecision;
+  if (componentDecision === null || componentDecision === undefined) return null;
+  const currentApplicationPolicy = (
+    componentDecision.selection_application_policy_version
+      === 'supplier-selection-application-v2'
+    || componentDecision.selection_application_policy_version
+      === 'supplier-selection-application-v3'
+  );
   if (
-    componentDecision?.selection_application_policy_version !== 'supplier-selection-application-v2'
+    !currentApplicationPolicy
     || componentDecision.required_quantity !== needed
     || componentDecision.target_currency.toUpperCase() !== 'KRW'
     || (componentDecision.status !== 'automatic_recommended'
@@ -2246,7 +2333,19 @@ function recommendStoredCandidate(
     || evidenceKey === null
   ) return null;
   const fallbackUsed = identityKey !== technicalIdentityKey || evidenceKey !== technicalEvidenceKey;
-  if (componentDecision.technical_fallback_used !== fallbackUsed) return null;
+  const priceOptimizationUsed = (
+    componentDecision.selection_application_policy_version
+      === 'supplier-selection-application-v3'
+    && componentDecision.price_optimization_used
+  );
+  if (
+    componentDecision.selection_application_policy_version
+      === 'supplier-selection-application-v2'
+      ? componentDecision.technical_fallback_used !== fallbackUsed
+      : fallbackUsed
+        ? componentDecision.technical_fallback_used === priceOptimizationUsed
+        : componentDecision.technical_fallback_used || priceOptimizationUsed
+  ) return null;
   const technicalTopCandidates = candidates.filter((candidate) =>
     candidate.identityKey === technicalIdentityKey
     && candidate.technicalEvidenceKey === technicalEvidenceKey
@@ -2276,12 +2375,17 @@ function recommendStoredCandidate(
   });
   if (pick === null) return null;
   const technicalTopPick = storedCandidatePick(technicalTop, needed, null).pick;
-  const recommendationType: BomQuoteRecommendationTypeType = automatic
-    ? candidate.selectionMode === 'spec-compatible' ? 'technical' : 'identity'
-    : 'none';
+  const recommendationType: BomQuoteRecommendationTypeType = priceOptimizationUsed
+    ? 'price'
+    : automatic
+      ? candidate.selectionMode === 'spec-compatible' ? 'technical' : 'identity'
+      : 'none';
   const reasonCodes: BomQuoteDecisionReasonType[] = [
     automatic ? 'engine-procurement-recommendation' : 'engine-manual-review',
-    ...(fallbackUsed ? ['engine-technical-fallback'] as const : []),
+    ...(componentDecision.technical_fallback_used
+      ? ['engine-technical-fallback'] as const
+      : []),
+    ...(priceOptimizationUsed ? ['strict-spec-price-saving'] as const : []),
   ];
   return {
     applicationState,
@@ -2290,7 +2394,7 @@ function recommendStoredCandidate(
     pick,
     offerKey,
     technicalPreselectionCandidateKey: technicalTop.candidateKey,
-    technicalFallbackUsed: fallbackUsed,
+    technicalFallbackUsed: componentDecision.technical_fallback_used,
     technicalTopLineTotalKrw: pickLineTotal(technicalTopPick),
     recommendationType,
     reasonCodes,
@@ -2370,7 +2474,7 @@ function needsEngineProcurementReevaluation(
   }
   if (
     candidates[0]?.procurementDecision?.selection_application_policy_version
-    !== 'supplier-selection-application-v2'
+    !== 'supplier-selection-application-v3'
   ) return candidates.some((candidate) => candidate.engineCandidates.length > 0);
   return candidates.some((candidate) =>
     candidate.procurementDecision?.required_quantity !== needed

@@ -34,6 +34,9 @@ from .models import (
 
 CURRENT_OFFER_KEY_VERSION: OfferKeyVersion = "supplier-offer-key-v2"
 _AUTOMATIC_SELECTION_EXCESS_REASON = "automatic_selection_excessive"
+_PRICE_OPTIMIZED_REQUIREMENT_KEYS = frozenset(
+    {"resistance_ohm", "capacitance_f"}
+)
 _MISSING_SUPPLIER_IDENTIFIERS = frozenset(
     {
         "-",
@@ -702,6 +705,90 @@ def _application_group_sort_key(
     )
 
 
+def _group_representative(
+    candidates: list[CandidateMatch],
+    group_key: tuple[str, str],
+) -> CandidateMatch:
+    group = [
+        candidate
+        for candidate in candidates
+        if (
+            candidate.decision.identity_key,
+            candidate.decision.technical_evidence_key,
+        )
+        == group_key
+    ]
+    if not group:
+        raise ProcurementReevaluationError(
+            "application_candidate_group_missing",
+            "an application candidate group must reference stored technical evidence",
+            context={
+                "identity_key": group_key[0],
+                "technical_evidence_key": group_key[1],
+            },
+        )
+    return min(
+        group,
+        key=lambda item: (
+            _stable_token(item.product.manufacturer),
+            _stable_token(item.product.manufacturer_part_number),
+            item.product.supplier.value,
+        ),
+    )
+
+
+def _technical_equivalence_band(candidate: CandidateMatch) -> tuple[Any, ...]:
+    """Return the safety evidence that must stay equal before price can decide."""
+
+    decision = candidate.decision
+    assessments = tuple(
+        sorted(
+            (
+                assessment.key,
+                assessment.comparison,
+                assessment.state,
+                assessment.verified,
+            )
+            for assessment in decision.requirement_assessments
+        )
+    )
+    return (
+        decision.selection_eligibility.value,
+        decision.match_relation.value,
+        tuple(sorted(candidate.conflicts)),
+        tuple(sorted(candidate.missing_requirements)),
+        tuple(sorted(decision.reason_codes)),
+        assessments,
+        decision.verified_requirement_count,
+        decision.required_requirement_count,
+        decision.verification_complete,
+        decision.strict_category_coverage,
+        decision.lifecycle_state.value,
+    )
+
+
+def _price_optimization_enabled(candidate: CandidateMatch) -> bool:
+    """Limit cross-part price selection to safe R/C or generic exact-MPN review."""
+
+    decision = candidate.decision
+    source_conflicts = {
+        conflict
+        for conflict in candidate.conflicts
+        if conflict.endswith("_source_conflict")
+    }
+    if (
+        decision.match_relation.value == "exact"
+        and source_conflicts == {"manufacturer_source_conflict"}
+    ):
+        return True
+    if decision.match_relation.value not in {"spec-compatible", "unresolved"}:
+        return False
+    return any(
+        assessment.key in _PRICE_OPTIMIZED_REQUIREMENT_KEYS
+        for assessment in decision.requirement_assessments
+    )
+
+
 def _validate_procurement_result(
     candidates: list[CandidateMatch],
     component: ComponentProcurementDecision,
@@ -888,6 +975,7 @@ def apply_procurement_decisions(
     technical_identity_key: str | None = None
     technical_evidence_key: str | None = None
     application_group: tuple[str, str] | None = None
+    price_optimization_used = False
     if query.procurement_disposition.value != "eligible":
         recommendation_reasons.extend(
             [
@@ -916,7 +1004,50 @@ def apply_procurement_decisions(
 
         eligible_entries = recommendable_entries(preselected_group)
         if eligible_entries:
-            application_group = preselected_group
+            preselected_candidate = _group_representative(
+                candidates,
+                preselected_group,
+            )
+            if _price_optimization_enabled(preselected_candidate):
+                technical_band = _technical_equivalence_band(
+                    preselected_candidate
+                )
+                equivalent_groups = [
+                    group_key
+                    for group_key in groups
+                    if recommendable_entries(group_key)
+                    and _technical_equivalence_band(
+                        _group_representative(candidates, group_key)
+                    )
+                    == technical_band
+                ]
+                application_group = min(
+                    equivalent_groups,
+                    key=lambda group_key: (
+                        min(
+                            decision.line_total
+                            for _ci, _oi, decision in recommendable_entries(
+                                group_key
+                            )
+                            if decision.line_total is not None
+                        ),
+                        min(
+                            decision.order_quantity or 2**63
+                            for _ci, _oi, decision in recommendable_entries(
+                                group_key
+                            )
+                        ),
+                        group_key,
+                    ),
+                )
+                eligible_entries = recommendable_entries(application_group)
+                price_optimization_used = application_group != preselected_group
+                if price_optimization_used:
+                    recommendation_reasons.append(
+                        "equivalent_group_lower_effective_total_selected"
+                    )
+            else:
+                application_group = preselected_group
         else:
             preselected_purchasable = [
                 decision
@@ -1005,7 +1136,9 @@ def apply_procurement_decisions(
                 update={"recommendation": offer_recommendation}, deep=True
             )
             recommendation_reasons.append(
-                "best_purchase_fit_in_technical_group"
+                "best_effective_total_in_equivalent_group"
+                if price_optimization_used
+                else "best_purchase_fit_in_technical_group"
                 if application_group == preselected_group
                 else "best_purchase_fit_in_fallback_group"
             )
@@ -1129,7 +1262,12 @@ def apply_procurement_decisions(
             application_group[1] if recommended_entry is not None else None
         ),
         technical_fallback_used=(
-            recommended_entry is not None and application_group != preselected_group
+            recommended_entry is not None
+            and application_group != preselected_group
+            and not price_optimization_used
+        ),
+        price_optimization_used=(
+            recommended_entry is not None and price_optimization_used
         ),
         automatic_offer_key=(
             selected_offer_key

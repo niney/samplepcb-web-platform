@@ -159,7 +159,7 @@ function componentProcurementDecisionJson(opts: {
 }) {
   return {
     procurement_policy_version: 'supplier-procurement-decision-v1',
-    selection_application_policy_version: 'supplier-selection-application-v2',
+    selection_application_policy_version: 'supplier-selection-application-v3',
     status: 'automatic_recommended',
     selection_application_state: 'automatic_selected',
     confirmation_required: false,
@@ -173,6 +173,7 @@ function componentProcurementDecisionJson(opts: {
     application_candidate_identity_key: opts.identityKey,
     application_candidate_evidence_key: opts.technicalEvidenceKey,
     technical_fallback_used: false,
+    price_optimization_used: false,
     automatic_offer_key: opts.offerKey,
     review_offer_key: null,
     recommendation_reason_codes: ['fixture'],

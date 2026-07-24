@@ -862,7 +862,10 @@ async def test_batch_result_keeps_supplier_technical_top_five_without_raw_produc
     assert len(result.components[0].candidates) == 5
     assert all(candidate.decision.identity_key for candidate in result.components[0].candidates)
     assert result.components[0].supplier_results[0].products == []
-    assert any("기술 상위 5개 그룹" in warning for warning in result.components[0].warnings)
+    assert any(
+        "기술 상위 5개와 가격 상위 3개 그룹" in warning
+        for warning in result.components[0].warnings
+    )
 
 
 def test_supplier_top_groups_preserve_all_offers_for_a_retained_identity():

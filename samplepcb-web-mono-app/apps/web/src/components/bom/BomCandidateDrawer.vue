@@ -662,7 +662,7 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'identity-variant': '검증된 품번 변형',
     'technical-top': '기술 검증 1순위',
     'same-part-lowest-total': '동일 부품 내 실효 총액 최저',
-    'strict-spec-price-saving': '필수 스펙 완전 검증 후 유의미한 절감',
+    'strict-spec-price-saving': '동급 안전·검토 후보 중 실효 총액 절감',
     'purchase-fit': '동급 후보 중 구매조건 최적',
     'lifecycle-improvement': 'NRND/EOL 대신 활성 부품 우선',
     availability: '구매 가능한 재고·가격 우선',
