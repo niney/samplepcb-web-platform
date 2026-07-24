@@ -97,11 +97,15 @@ _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
 _FERRITE_CONTEXT = re.compile(r"\b(?:ferrite|bead|f\.?\s*bead)\b|비드", re.I)
 _ELECTROLYTIC_TOKENS = ("electrolytic", "ecap", "전해")
 _TANTALUM_TOKENS = ("tantalum", "탄탈")
-_FILM_CAPACITOR_TOKENS = ("film capacitor", "film cap", "필름")
+_FILM_CAPACITOR = re.compile(
+    r"(?:^|[^A-Z0-9])FILM(?:[^A-Z0-9]|$)|필름",
+    re.I,
+)
 _ELECTROLYTIC_ABBREVIATION = re.compile(
     r"(?:^|[^A-Z0-9])E\s*/\s*C(?:[^A-Z0-9]|$)|"
     r"(?:^|[^A-Z0-9])E(?:LE)?[ -]?CAP(?:[^A-Z0-9]|$)|"
-    r"(?:^|[^A-Z0-9])EC(?:[^A-Z0-9]|$)",
+    r"(?:^|[^A-Z0-9])EC(?:[^A-Z0-9]|$)|"
+    r"(?:^|[^A-Z0-9])CP[_ -]?ELEC(?:[^A-Z0-9]|$)",
     re.I,
 )
 _MECHANICAL_PACKAGE_DIMENSION = re.compile(
@@ -161,13 +165,14 @@ def _canonical_category_policy(
     description: str | None,
     value_raw: str | None,
     package: str | None,
+    footprint: str | None,
 ) -> str | None:
     """Choose the category policy from BOM-owned evidence only."""
 
     part_type_text = (part_type or "").casefold()
     bom_text = " ".join(
         value.casefold()
-        for value in (part_type, description, value_raw, package)
+        for value in (part_type, description, value_raw, package, footprint)
         if value
     )
     electrolytic_hint = any(
@@ -188,7 +193,7 @@ def _canonical_category_policy(
         return "electrolytic"
     if any(token in bom_text for token in _TANTALUM_TOKENS):
         return "tantalum"
-    if any(token in bom_text for token in _FILM_CAPACITOR_TOKENS):
+    if _FILM_CAPACITOR.search(bom_text):
         return "film"
     return next(
         (
@@ -292,6 +297,7 @@ class QueryPlanner:
             component.description,
             component.value_raw,
             package_value,
+            component.footprint,
         )
         if user_requirements is not None:
             category_policy = (
@@ -442,6 +448,7 @@ class QueryPlanner:
                 "electrolytic" if category_policy == "electrolytic" else None,
                 part_type_value,
                 package_value,
+                component.footprint,
                 component.value_raw,
                 component.description,
             )

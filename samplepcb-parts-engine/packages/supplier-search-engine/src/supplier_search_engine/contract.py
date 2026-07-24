@@ -164,6 +164,7 @@ class SearchComponentInput(BaseModel):
     reference_designators: list[str] = Field(default_factory=list)
     description: str | None = None
     value_raw: str | None = None
+    footprint: str | None = None
     review_status: str
     quality_flags: list[str] = Field(default_factory=list)
     input_alternatives: dict[str, list[SearchFieldAlternative]] = Field(
@@ -314,6 +315,7 @@ def build_batch_from_result(
                 ),
                 description=component.get("description"),
                 value_raw=component.get("value_raw"),
+                footprint=component.get("footprint"),
                 review_status=str(component.get("review_status") or "review"),
                 quality_flags=quality_flags,
                 input_alternatives={

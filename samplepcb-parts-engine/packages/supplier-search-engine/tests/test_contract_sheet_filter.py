@@ -60,3 +60,18 @@ def test_build_batch_preserves_extractor_normalized_values() -> None:
     assert batch.search_contract_version == "1.2"
     assert batch.components[0].fields["resistance"].normalized_value == 10_000.0
     assert batch.components[0].fields["resistance"].source == "col"
+
+
+def test_build_batch_preserves_extractor_footprint() -> None:
+    item = component(0, 2)
+    item["footprint"] = "CP_Elec_8x10"
+
+    batch = build_batch_from_result(
+        {
+            "schema_version": "1.0",
+            "source_file": "electrolytic.csv",
+            "components": [item],
+        }
+    )
+
+    assert batch.components[0].footprint == "CP_Elec_8x10"
