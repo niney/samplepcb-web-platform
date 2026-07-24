@@ -1360,6 +1360,7 @@ function fmtAmount(v: number | null): string {
                 v-for="item in filteredItems"
                 :key="item.id"
                 :item="item"
+                :needed="neededQty(item.bomQty, setQty, spareQty)"
                 :is-draft="isDraft"
                 :editing-locked="editingLocked"
                 :enriching="enriching"

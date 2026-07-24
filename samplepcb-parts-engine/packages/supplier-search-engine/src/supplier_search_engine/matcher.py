@@ -463,7 +463,10 @@ def _candidate_decision(
 
     exact_requirement_conflict = bool(actual_conflicts) and relation == MatchRelation.EXACT
 
-    if relation == MatchRelation.EXACT and bom_input_conflicts:
+    if relation == MatchRelation.EXACT and (
+        bom_input_conflicts
+        or "manufacturer_source_conflict" in source_conflicts
+    ):
         eligibility = SelectionEligibility.MANUAL_REVIEW
     elif relation == MatchRelation.EXACT:
         eligibility = SelectionEligibility.AUTOMATIC

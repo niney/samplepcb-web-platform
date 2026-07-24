@@ -38,7 +38,7 @@ from supplier_search_engine.procurement import (
 from supplier_search_engine.service import SearchService
 
 
-def requirement(name: str, value: float, comparison: str = "eq") -> Requirement:
+def requirement(name: str, value: float | str, comparison: str = "eq") -> Requirement:
     return Requirement(
         name=name,
         raw_value=value,
@@ -229,6 +229,167 @@ def test_stock_shortage_and_excessive_order_are_engine_decisions():
     assert decision.purchasable is False
     assert decision.recommendation == OfferRecommendation.NONE
     assert "stock_shortage_not_allowed" in decision.reason_codes
+
+
+def test_severe_surplus_skips_automatic_offer_for_smaller_fallback_group():
+    candidates, component = decide(
+        query(quantity=1),
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn="ABC123456",
+                stock=50_000,
+                moq=5_000,
+                multiple=5_000,
+                prices=[(5_000, 1, "KRW")],
+            ),
+            product(
+                Supplier.MOUSER,
+                mpn="ABC123456TR",
+                stock=1_000,
+                moq=1,
+                multiple=1,
+                prices=[(1, 100, "KRW")],
+            ),
+        ],
+    )
+
+    exact = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer_part_number == "ABC123456"
+    )
+    fallback = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer_part_number == "ABC123456TR"
+    )
+    exact_decision = offer_decision(exact)
+    fallback_decision = offer_decision(fallback)
+
+    assert exact_decision.order_quantity == 5_000
+    assert exact_decision.excessive_order is True
+    assert "automatic_selection_excessive" in exact_decision.reason_codes
+    assert exact_decision.purchasable is True
+    assert exact_decision.recommendation == OfferRecommendation.NONE
+    assert fallback_decision.order_quantity == 1
+    assert fallback_decision.recommendation == OfferRecommendation.AUTOMATIC
+    assert component.automatic_offer_key == fallback_decision.offer_key
+    assert component.technical_fallback_used is True
+    assert (
+        "technical_preselection_excessive_order"
+        in component.recommendation_reason_codes
+    )
+
+
+def test_small_moq_surplus_remains_automatically_recommendable():
+    candidates, component = decide(
+        query(quantity=1),
+        [
+            product(
+                Supplier.DIGIKEY,
+                stock=1_000,
+                moq=5,
+                multiple=5,
+                prices=[(5, 1, "KRW")],
+            )
+        ],
+    )
+
+    decision = offer_decision(candidates[0])
+    assert decision.order_quantity == 5
+    assert decision.excessive_order is True
+    assert "automatic_selection_excessive" not in decision.reason_codes
+    assert decision.recommendation == OfferRecommendation.AUTOMATIC
+    assert component.automatic_offer_key == decision.offer_key
+
+
+def test_only_severe_surplus_offer_stays_manually_selectable_without_recommendation():
+    candidates, component = decide(
+        query(quantity=3),
+        [
+            product(
+                Supplier.DIGIKEY,
+                stock=50_000,
+                moq=5_000,
+                multiple=5_000,
+                prices=[(5_000, 1, "KRW")],
+            )
+        ],
+    )
+
+    decision = offer_decision(candidates[0])
+    assert decision.purchasable is True
+    assert decision.recommendation == OfferRecommendation.NONE
+    assert "automatic_selection_excessive" in decision.reason_codes
+    assert component.status == "no_recommendation"
+    assert component.selection_application_state == "not_selected"
+    assert component.automatic_offer_key is None
+
+
+def test_manufacturerless_exact_mpn_conflict_leaves_all_offers_for_manual_choice():
+    planned = query(
+        quantity=3,
+        requirements={"package": requirement("package", "SMA")},
+    ).model_copy(
+        update={
+            "part_number": "SS34",
+            "manufacturer": None,
+            "part_type": "diode",
+        },
+        deep=True,
+    )
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn="SS34",
+                manufacturer="GOODWORK",
+                specs={"package": "SMA", "voltage_v": 200.0, "current_a": 5.0},
+                stock=50_000,
+                moq=5_000,
+                multiple=5_000,
+                prices=[(5_000, 40.5, "KRW")],
+            ),
+            product(
+                Supplier.MOUSER,
+                mpn="SS34",
+                manufacturer="BLUE ROCKET",
+                specs={"voltage_v": 40.0, "current_a": 3.0},
+                stock=1_000,
+                moq=1,
+                multiple=1,
+                prices=[(1, 119, "KRW")],
+            ),
+        ],
+    )
+
+    goodwork = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer == "GOODWORK"
+    )
+    blue_rocket = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer == "BLUE ROCKET"
+    )
+
+    assert all(
+        candidate.decision.selection_eligibility
+        == SelectionEligibility.MANUAL_REVIEW
+        for candidate in candidates
+    )
+    assert goodwork.decision.selection_recommendation.value == "candidate_only"
+    assert blue_rocket.decision.selection_recommendation.value == "candidate_only"
+    assert offer_decision(goodwork).recommendation == OfferRecommendation.NONE
+    assert offer_decision(blue_rocket).recommendation == OfferRecommendation.NONE
+    assert "automatic_selection_excessive" in offer_decision(goodwork).reason_codes
+    assert "automatic_selection_excessive" not in offer_decision(blue_rocket).reason_codes
+    assert component.status == "no_recommendation"
+    assert component.review_offer_key is None
+    assert component.application_candidate_identity_key is None
 
 
 def test_price_and_currency_rate_missing_degrade_without_fake_recommendation():

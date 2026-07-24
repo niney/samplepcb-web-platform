@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { BomQuoteItemType } from '@sp/api-contract';
+import { isSevereOrderSurplus } from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
 import BomPriceBreaks from './BomPriceBreaks.vue';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
@@ -12,6 +13,7 @@ import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
 
 const props = defineProps<{
   item: BomQuoteItemType;
+  needed: number;
   isDraft: boolean;
   editingLocked: boolean;
   enriching: boolean;
@@ -96,6 +98,15 @@ const technicalFallbackUsed = computed(() =>
   props.item.matchEvidence?.technicalFallbackUsed === true,
 );
 
+const surplusQty = computed(() => Math.max(0, props.item.orderQty - props.needed));
+const orderRatio = computed(() => props.item.orderQty / Math.max(1, props.needed));
+const severeOrderSurplus = computed(() =>
+  isSevereOrderSurplus(props.needed, props.item.orderQty),
+);
+const severeOrderSurplusLabel = computed(() =>
+  `필요 ${props.needed.toLocaleString('ko-KR')}개 · 주문 ${props.item.orderQty.toLocaleString('ko-KR')}개 · 초과 ${surplusQty.value.toLocaleString('ko-KR')}개 (${orderRatio.value.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}배)`,
+);
+
 const searchTraceSummary = computed(() =>
   props.item.matchEvidence?.searchTraceSummary ?? null,
 );
@@ -120,6 +131,7 @@ const sortedPriceBreaks = computed(() => {
 const rowClass = computed(() => {
   const item = props.item;
   if (!item.included) return 'opacity-45';
+  if (severeOrderSurplus.value) return 'bg-orange-50/80';
   if (provisionalSelectionPending.value) return 'bg-amber-50/70';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
@@ -143,6 +155,7 @@ const evidenceTitle = computed(() => {
   if (procurementUnavailabilitySummary.value !== null) {
     details.push(`구매 불가: ${procurementUnavailabilitySummary.value}`);
   }
+  if (severeOrderSurplus.value) details.push(`과다 주문수량: ${severeOrderSurplusLabel.value}`);
   if (provisionalSelectionPending.value) details.push('엔진 임시 선정: 사용자 검토 대기');
   if (technicalFallbackUsed.value) details.push('기술 1순위 구매 불가: 엔진이 다음 구매 가능 후보를 적용');
   if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
@@ -167,6 +180,7 @@ const sourceLabel = computed(() => {
 const reasonSummary = computed(() => {
   const item = props.item;
   const evidence = item.matchEvidence;
+  if (severeOrderSurplus.value) return severeOrderSurplusLabel.value;
   if (evidence === null) return item.matchStatus === 'manual' ? '카탈로그에서 직접 선택' : '후보 근거 없음';
   if (procurementUnavailabilitySummary.value !== null) return procurementUnavailabilitySummary.value;
   if (item.selectionSource === 'customer') {
@@ -336,12 +350,16 @@ function onQtyInput(event: Event): void {
         >
         <span class="text-[11px] text-[#8e97a5]">/ {{ item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—' }}</span>
       </div>
+      <p v-if="severeOrderSurplus" class="mt-1.5 w-[160px] text-right text-[10px] font-bold leading-4 text-orange-700" :title="severeOrderSurplusLabel">
+        필요 {{ needed.toLocaleString('ko-KR') }} · 초과 {{ surplusQty.toLocaleString('ko-KR') }} ({{ orderRatio.toLocaleString('ko-KR', { maximumFractionDigits: 1 }) }}배)
+      </p>
     </td>
     <!-- TOTAL: 기존 매칭 배지(Found 대체) + 합계 -->
     <td class="w-[140px] min-w-[132px] px-2 py-3 text-right">
       <div class="flex flex-col items-end gap-1.5 pt-1">
         <!-- 보강 진행 중엔 "확인 중"(파랑) — 빨간 미매칭은 보강이 끝난 뒤의 최종 판정 -->
-        <span v-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
+        <span v-if="severeOrderSurplus" class="rounded-full border border-orange-300 bg-orange-100 px-2.5 py-0.5 text-[12px] font-bold text-orange-800" :title="severeOrderSurplusLabel">수량 검토</span>
+        <span v-else-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
           <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
         </span>
         <span v-else-if="item.matchStatus === 'none' && engineStockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">{{ engineStockStatusLabel }}</span>

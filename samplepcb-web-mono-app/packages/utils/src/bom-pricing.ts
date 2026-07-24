@@ -8,6 +8,8 @@
 // samplepcb 파생 오퍼는 선정 후보에서 제외(자기 자신 재선택 순환 방지).
 
 export const BOM_SAMPLEPCB_SUPPLIER = 'samplepcb';
+export const BOM_AUTOMATIC_SURPLUS_QUANTITY = 100;
+export const BOM_AUTOMATIC_SURPLUS_RATIO = 0.5;
 
 /** 레거시 패키지 우선순위(Cut > Digi > Bulk > Tape) — 동률 tie-break 용. */
 const PKG_PRIORITY = ['cut', 'digi', 'bulk', 'tape'];
@@ -60,6 +62,14 @@ export function stampOrderQty(needed: number, moq: number | null, orderMultiple:
   const base = Math.max(needed, moq !== null && moq > 0 ? moq : 1);
   const mult = orderMultiple !== null && orderMultiple > 1 ? orderMultiple : 1;
   return Math.ceil(base / mult) * mult;
+}
+
+/** 절대 초과량과 비율이 모두 큰 주문은 자동추천하지 않고 사용자 검토로 남긴다. */
+export function isSevereOrderSurplus(needed: number, orderQty: number): boolean {
+  const normalizedNeeded = Math.max(1, needed);
+  const surplus = Math.max(0, orderQty - normalizedNeeded);
+  return surplus > BOM_AUTOMATIC_SURPLUS_QUANTITY
+    && surplus / normalizedNeeded > BOM_AUTOMATIC_SURPLUS_RATIO;
 }
 
 /** 수량에 적용되는 가격구간 — 이상 구간 중 최대, 최소구간 미달 시 최소구간(레거시 보존). */

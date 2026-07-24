@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyQtyToOffer,
   computeTotals,
+  isSevereOrderSurplus,
   neededQty,
   pickBreak,
   pickDefaultOffer,
@@ -41,6 +42,14 @@ describe('수량 박제(레거시 보존 + 주문배수 신규)', () => {
     expect(stampOrderQty(5000, 4000, 4000)).toBe(8000);
     expect(stampOrderQty(100, null, 250)).toBe(250);
     expect(stampOrderQty(100, null, 1)).toBe(100);
+  });
+
+  it('절대 초과량과 비율이 모두 큰 주문만 자동추천 제한 대상으로 분류한다', () => {
+    expect(isSevereOrderSurplus(1, 5)).toBe(false);
+    expect(isSevereOrderSurplus(1, 5_000)).toBe(true);
+    expect(isSevereOrderSurplus(3, 5_000)).toBe(true);
+    expect(isSevereOrderSurplus(1_000, 1_500)).toBe(false);
+    expect(isSevereOrderSurplus(100, 201)).toBe(true);
   });
 });
 

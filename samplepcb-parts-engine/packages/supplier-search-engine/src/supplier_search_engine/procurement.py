@@ -33,6 +33,7 @@ from .models import (
 
 
 CURRENT_OFFER_KEY_VERSION: OfferKeyVersion = "supplier-offer-key-v2"
+_AUTOMATIC_SELECTION_EXCESS_REASON = "automatic_selection_excessive"
 _MISSING_SUPPLIER_IDENTIFIERS = frozenset(
     {
         "-",
@@ -449,6 +450,33 @@ def _is_excessive(
     return quantity_exceeded or ratio_exceeded
 
 
+def _exceeds_automatic_selection_limit(
+    required: int,
+    surplus: int,
+    policy: ProcurementPolicyInput,
+) -> bool:
+    """Block only orders that exceed every configured surplus guard.
+
+    ``excessive_order`` intentionally remains the broad diagnostic/ranking signal:
+    a small cut-tape MOQ can exceed the ratio guard without being unreasonable.
+    Automatic selection is suppressed only when both the absolute and relative
+    surplus are large (or the sole configured guard is exceeded).
+    """
+
+    exceeded: list[bool] = []
+    if policy.excessive_surplus_quantity is not None:
+        exceeded.append(surplus > policy.excessive_surplus_quantity)
+    if policy.excessive_surplus_ratio is not None:
+        exceeded.append(
+            Decimal(surplus) / Decimal(required) > policy.excessive_surplus_ratio
+        )
+    return bool(exceeded) and all(exceeded)
+
+
+def _automatic_selection_allowed(decision: OfferProcurementDecision) -> bool:
+    return _AUTOMATIC_SELECTION_EXCESS_REASON not in decision.reason_codes
+
+
 def _offer_decision(
     query: PlannedQuery,
     candidate: CandidateMatch,
@@ -499,6 +527,8 @@ def _offer_decision(
             reasons.append(
                 "excessive_order" if excessive else "order_quantity_calculated"
             )
+            if _exceeds_automatic_selection_limit(required, surplus, policy):
+                reasons.append(_AUTOMATIC_SELECTION_EXCESS_REASON)
             if offer.stock is None:
                 reasons.append("stock_unverified")
                 if policy.allow_unverified_stock:
@@ -826,6 +856,7 @@ def apply_procurement_decisions(
                     (
                         not decision.purchasable,
                         decision.stock_short is True,
+                        not _automatic_selection_allowed(decision),
                         decision.excessive_order is True,
                         decision.stock_short is None,
                         decision.line_total is None,
@@ -870,7 +901,7 @@ def apply_procurement_decisions(
         technical_identity_key, technical_evidence_key = preselected_group
         recommendation_reasons.append("technical_preselection_preserved")
 
-        def purchasable_entries(
+        def recommendable_entries(
             group_key: tuple[str, str],
         ) -> list[tuple[int, int, OfferProcurementDecision]]:
             identity_key, evidence_key = group_key
@@ -880,13 +911,29 @@ def apply_procurement_decisions(
                 if candidates[ci].decision.identity_key == identity_key
                 and candidates[ci].decision.technical_evidence_key == evidence_key
                 and decision.purchasable
+                and _automatic_selection_allowed(decision)
             ]
 
-        eligible_entries = purchasable_entries(preselected_group)
+        eligible_entries = recommendable_entries(preselected_group)
         if eligible_entries:
             application_group = preselected_group
         else:
-            recommendation_reasons.append("technical_preselection_unpurchasable")
+            preselected_purchasable = [
+                decision
+                for (ci, _oi), decision in decisions.items()
+                if candidates[ci].decision.identity_key == preselected_group[0]
+                and candidates[ci].decision.technical_evidence_key == preselected_group[1]
+                and decision.purchasable
+            ]
+            recommendation_reasons.append(
+                "technical_preselection_excessive_order"
+                if preselected_purchasable
+                and all(
+                    not _automatic_selection_allowed(decision)
+                    for decision in preselected_purchasable
+                )
+                else "technical_preselection_unpurchasable"
+            )
             fallback_groups = [
                 group_key
                 for group_key in groups
@@ -895,7 +942,7 @@ def apply_procurement_decisions(
                     entries[groups[group_key][0]][0]
                 ].decision.selection_eligibility
                 != SelectionEligibility.BLOCKED
-                and purchasable_entries(group_key)
+                and recommendable_entries(group_key)
             ]
             if fallback_groups:
                 application_group = min(
@@ -905,12 +952,12 @@ def apply_procurement_decisions(
                         group_key,
                         min(
                             decision.line_total
-                            for _ci, _oi, decision in purchasable_entries(group_key)
+                            for _ci, _oi, decision in recommendable_entries(group_key)
                             if decision.line_total is not None
                         ),
                     ),
                 )
-                eligible_entries = purchasable_entries(application_group)
+                eligible_entries = recommendable_entries(application_group)
                 recommendation_reasons.append(
                     "next_purchasable_technical_group_selected"
                 )
@@ -922,6 +969,7 @@ def apply_procurement_decisions(
                 (ci, oi, decision)
                 for ci, oi, decision in eligible_entries
                 if decision.purchasable
+                and _automatic_selection_allowed(decision)
             ]
             ci, oi, selected = min(
                 eligible_entries,

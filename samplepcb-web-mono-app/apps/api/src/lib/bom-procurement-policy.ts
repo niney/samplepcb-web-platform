@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { BomQuoteExchangeRateSnapshotType } from '@sp/api-contract';
+import {
+  BOM_AUTOMATIC_SURPLUS_QUANTITY,
+  BOM_AUTOMATIC_SURPLUS_RATIO,
+} from '@sp/utils';
 
 export interface EngineProcurementPolicy {
   procurement_policy_version: 'supplier-procurement-decision-v1';
@@ -42,7 +46,7 @@ export function buildEngineProcurementPolicy(
     allowed_suppliers: ['digikey', 'mouser', 'unikeyic'],
     allow_stock_shortage: false,
     allow_unverified_stock: false,
-    excessive_surplus_quantity: 100,
-    excessive_surplus_ratio: 0.5,
+    excessive_surplus_quantity: BOM_AUTOMATIC_SURPLUS_QUANTITY,
+    excessive_surplus_ratio: BOM_AUTOMATIC_SURPLUS_RATIO,
   };
 }
