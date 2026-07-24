@@ -275,6 +275,102 @@ def test_passive_cad_footprint_is_package_evidence_not_part_number():
     assert inductor["package"] == "0201"
 
 
+def test_passive_package_value_column_does_not_create_electrical_alternative():
+    case = _case(
+        [
+            "Description",
+            "PartType",
+            "Value",
+            "Quantity",
+            "Designator",
+            "Footprint",
+        ],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "Chip Resistor",
+                    "10k",
+                    "RES 0603/1608",
+                    "1",
+                    "R1",
+                    "RES 0603/1608",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "Chip Resistor",
+                    "0/2012",
+                    "RES 0603/1608",
+                    "1",
+                    "R2",
+                    "RES 0603/1608",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": [
+                    "Chip Resistor",
+                    "100",
+                    "RES 0603/1608",
+                    "1",
+                    "R3",
+                    "RES 0603/1608",
+                ],
+            },
+            {
+                "row_id": 4,
+                "cells": [
+                    "Chip Resistor",
+                    "1k",
+                    "RES 0603/1608",
+                    "1",
+                    "R4",
+                    "RES 0603/1608",
+                ],
+            },
+            {
+                "row_id": 5,
+                "cells": [
+                    "Chip Resistor",
+                    "20k",
+                    "RES 0603/1608",
+                    "1",
+                    "R5",
+                    "RES 0603/1608",
+                ],
+            },
+            {
+                "row_id": 6,
+                "cells": [
+                    "Chip Resistor",
+                    "16.9k",
+                    "RES 0603/1608",
+                    "1",
+                    "R6",
+                    "RES 0603/1608",
+                ],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+    regular, zero_ohm, *_ = components
+
+    assert regular["resistance_ohm"] == 10_000.0
+    assert regular["package"] == "0603/1608"
+    assert "resistance_input_source_conflict" not in regular["quality_flags"]
+    assert "resistance" not in regular["input_alternatives"]
+    assert regular["review_status"] == "extracted"
+
+    assert zero_ohm["resistance_ohm"] == 0.0
+    assert "resistance_input_source_conflict" not in zero_ohm["quality_flags"]
+    assert "resistance" not in zero_ohm["input_alternatives"]
+    assert "package_input_source_conflict" in zero_ohm["quality_flags"]
+    assert zero_ohm["review_status"] == "review"
+
+
 def test_value_and_package_source_conflicts_are_reviewable():
     case = _case(
         ["Value", "Value", "Package", "Designator", "Quantity"],
