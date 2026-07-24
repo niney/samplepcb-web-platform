@@ -435,8 +435,26 @@ _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
         r"|hex socket|raspberry pi|나사|볼트|너트|와셔|아크릴|케이스", re.I)),
     # 신호 스위치/멀티플렉서 IC — "USB Switch"의 USB가 커넥터로 오폭 방지
     ("ic", re.compile(
-        r"\b(?:usb|hdmi|can|ethernet|analog|signal)\s+(?:switch|mux(?:er)?"
-        r"|transceiver|redriver|fifo|bridge|controller|interface)\b", re.I)),
+        r"\b(?:usb|hdmi|can|ethernet|analog|signal)\b.{0,48}"
+        r"\b(?:switch|mux(?:er)?|transceiver|redriver|fifo|bridge|"
+        r"controller|interface)\b", re.I)),
+    # 물리 스위치는 별도 타입이다. analog/data/USB switch IC는 바로 위의
+    # 더 구체적인 규칙이 먼저 소비한다.
+    ("switch", re.compile(
+        r"\b(?:tact(?:ile)?|slide|toggle|rocker|dip|push(?:button)?|rotary|"
+        r"momentary|micro)\s*switch\b|\bswitch\s+(?:tact(?:ile)?|slide|"
+        r"toggle|rocker|dip|push(?:button)?|rotary|momentary|micro)\b"
+        r"|\b(?:sw\s*(?:tact|dip|slide|toggle)|(?:tact|dip)[-\s]*sw)\b"
+        r"|\b(?:spst|spdt|dpst|dpdt)\b|\bpush\s*button\b|택트\s*스위치"
+        r"|슬라이드\s*스위치|토글\s*스위치|로커\s*스위치|접점\s*스위치",
+        re.I)),
+    # 위치/풋프린트 문자열은 전자 부품명보다 먼저 차단한다. 예:
+    # TestPoint_Loop_*_Beaded의 "Beaded"는 ferrite bead가 아니다.
+    ("other", re.compile(
+        r"\b(?:test|jig)\s*points?\b|\bpcb[_\s-]*points?\b"
+        r"|\bs(?:ou|u)rge\s*killer\b|\btransient\s+blocking\s+unit\b"
+        r"|\bfr[-\s]?4\b.{0,80}\b(?:layer|copper|enig|psr)\b",
+        re.I)),
     ("crystal", re.compile(r"crystal|x-?tal|oscillator|resonator|\bosc\b"
                            r"|크리스탈|발진", re.I)),
     ("ic", re.compile(  # "IC LED DRVR", "LED Driver"는 led가 아니라 ic
@@ -446,24 +464,29 @@ _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
         r"|eeprom|flash|transceiver|sensor ic|레귤레이터"
         r"|\bldo\b|dcdc|dc-dc|buck|boost|converter|step[ -]?down|step[ -]?up"
         r"|\bmodule\b|모듈", re.I)),
+    # 목적지 문자열에 LED가 있더라도 cable/harness 행은 광소자가 아니라
+    # connector-family 조립품이다.
+    ("connector", re.compile(r"\b(?:cable|harness)\b|케이블|하네스", re.I)),
     ("led", re.compile(r"\bled\b|엘이디", re.I)),
     ("transistor", re.compile(r"transist[eo]r|mosfet|mofet|\bfet\b|\bbjt\b"
                               r"|트랜지스터", re.I)),
     ("diode", re.compile(r"diode|schottky|zener|rectifier|\btvs\b|\besd\b"
                          r"|다이오드|제너|쇼트키", re.I)),
     ("connector", re.compile(
-        r"conn\b|connector|socket|plug|header|\bhdr\b|rece|jack|\bbtb\b|\busb\b"
+        r"conn\b|connector|socket|plug|header|\bhdr\b|receptacle|jack|\bbtb\b|\busb\b"
         r"|\bjst\b|terminal\s*block|terminalblock|커넥터|콘넥터|컨넥터"
         r"|컨낵터|하네스|단자대", re.I)),
-    ("inductor", re.compile(r"inductor|\bind\b|bead|ferrite|choke"
+    ("inductor", re.compile(r"inductor|\bind\b|\bbeads?\b|ferrite|choke"
+                            r"|common\s*mode\s*filter"
+                            r"|filter\s*common\s*mode|coupled\s+inductor"
                             r"|인덕터|비드|초크", re.I)),
     ("capacitor", re.compile(r"capacitor|\bcap\b|mlcc"
                              r"|콘덴서|커패시터|캐패시터|탄탈", re.I)),
     ("resistor", re.compile(r"resistor|\bres\b|저항", re.I)),
-    ("other", re.compile(r"filter|antenna|switch|button|fuse|\bpcb\b|motor"
+    ("other", re.compile(r"filter|antenna|fuse|\bpcb\b|motor"
                          r"|transformer|microphone"
-                         r"|buzzer|speaker|shield|holder|jumper|battery"
-                         r"|hole|\bmount\b|test\s*point|\btp\b|varistor"
+                         r"|relay|buzzer|speaker|shield|holder|jumper|battery"
+                         r"|hole|\bmount\b|test\s*point|varistor"
                          r"|thermistor|\bntc\b|온도센서|\bpad\b|keypad"
                          r"|스위치|퓨즈|안테나|배터리|모터|부저|배리스터", re.I)),
 ]
@@ -537,14 +560,17 @@ def find_manufacturers_all(text: str) -> List[str]:
 # 지시자 접두어 → part_type (최후 폴백 — 가이드상 part_type만 판단 허용)
 _DESIG_TYPE = {"R": "resistor", "C": "capacitor", "L": "inductor",
                "D": "diode", "Q": "transistor", "U": "ic", "IC": "ic",
-               "FB": "inductor", "JP": "connector", "JA": "connector",
+               "FB": "inductor", "LF": "inductor",
+               "JP": "connector", "JA": "connector",
                "JB": "connector", "EC": "capacitor", "TC": "capacitor",
                "VR": "resistor", "REG": "ic", "BD": "diode",
                "TR": "transistor", "ZD": "diode", "LD": "led",
                "Y": "crystal", "X": "crystal", "XTAL": "crystal",
                "J": "connector", "CN": "connector", "CON": "connector",
                "TB": "connector",
-               "USB": "connector", "LED": "led", "SW": "other",
+               "USB": "connector", "LED": "led",
+               "SW": "switch", "S": "switch", "TVS": "diode", "Z": "diode",
+               "FET": "transistor", "DIP": "switch",
                "TP": "other", "MT": "other", "ANT": "other", "BT": "other",
                "T": "other", "K": "other", "H": "other", "CR": "other"}
 _RE_DESIG_PREFIX = re.compile(r"^\s*([A-Za-z]+)\d")
@@ -554,7 +580,284 @@ _RE_MOUNT_ONLY = re.compile(  # 실장 방식 서술 — part_type 근거가 아
 
 def desig_part_type(designator_cell: str) -> Optional[str]:
     m = _RE_DESIG_PREFIX.match(designator_cell or "")
-    return _DESIG_TYPE.get(m.group(1).upper()) if m else None
+    if not m:
+        return None
+    prefix = m.group(1).upper()
+    # CLED/RLED/LLED처럼 기능 접두어가 앞에 붙어도 마지막 LED는 광소자
+    # 정체를 유지한다. 프로젝트별 접두어 목록은 두지 않는다.
+    if prefix.endswith("LED"):
+        return "led"
+    return _DESIG_TYPE.get(prefix)
+
+
+# 행 타입은 첫 키워드 하나가 아니라 독립 증거의 합의로 판정한다. 아래
+# 패턴은 특정 MPN이 아니라 부품군의 물리/전기 의미만 표현한다.
+_ANALOG_SWITCH_IC = re.compile(
+    r"\b(?:usb|hdmi|can|ethernet|analog|signal|data|audio)\b.{0,48}"
+    r"\b(?:switch|mux(?:er)?|multiplexer|transceiver|redriver|fifo|bridge|"
+    r"controller|interface)\b|\blow[-\s]?ohmic\b.*\bswitch\b",
+    re.I,
+)
+_LED_DRIVER = re.compile(r"\bled\b.*\b(?:drivers?|drvr|controller)\b"
+                         r"|\b(?:drivers?|drvr|controller)\b.*\bled\b", re.I)
+_TEST_POINT = re.compile(
+    r"\b(?:test|jig)\s*points?\b|\bpcb[_\s-]*points?\b|\btestpoint\b",
+    re.I,
+)
+_PCB_FABRICATION_CONTEXT = re.compile(
+    r"\b(?:fr[-\s]?4|pcb|printed\s+circuit\s+board)\b.{0,100}"
+    r"\b(?:layers?|copper|enig|psr|solder\s*mask|array)\b",
+    re.I,
+)
+_PHYSICAL_SWITCH = re.compile(
+    r"\b(?:tact(?:ile)?|slide|toggle|rocker|dip|push(?:button)?|rotary|"
+    r"momentary|micro)\s*switch\b|\bswitch\s+(?:tact(?:ile)?|slide|"
+    r"toggle|rocker|dip|push(?:button)?|rotary|momentary|micro)\b"
+    r"|\b(?:sw\s*(?:tact|dip|slide|toggle)|(?:tact|dip)[-\s]*sw)\b"
+    r"|\b(?:spst|spdt|dpst|dpdt)\b|\bpush\s*button\b"
+    r"|택트\s*스위치|슬라이드\s*스위치|토글\s*스위치|로커\s*스위치"
+    r"|접점\s*스위치",
+    re.I,
+)
+_CONNECTOR_PHYSICAL = re.compile(
+    r"\b(?:connector|conn|socket|plug|receptacle|jack|header|pin\s*list|"
+    r"hdr|pin\s*header|terminal\s*block|d[-\s]?sub|cable|harness)\b"
+    r"|\bbtb\b|\bjst\b|커넥터|콘넥터|컨넥터|컨낵터|단자대|케이블|하네스",
+    re.I,
+)
+_MAGNETIC_EXPLICIT = re.compile(
+    r"\b(?:common\s*mode\s*(?:filter|choke)|"
+    r"(?:filter|choke)\s*common\s*mode|coupled\s+inductor|"
+    r"power\s+inductor|fixed\s+ind(?:uctor)?|ferrite\s+beads?|"
+    r"beads?|choke|inductor)\b|인덕터|비드|초크",
+    re.I,
+)
+_DIODE_EXPLICIT = re.compile(
+    r"\b(?:diode|schottky|zener|rectifier|tvs|esd\s+(?:protection\s+)?"
+    r"diode|transient\s+voltage\s+suppressor)\b|다이오드|제너|쇼트키",
+    re.I,
+)
+_TRANSISTOR_EXPLICIT = re.compile(
+    r"\b(?:transist[eo]r|mosfet|mofet|fet|bjt)\b|트랜지스터",
+    re.I,
+)
+_LED_EXPLICIT = re.compile(
+    r"\b(?:led|light\s+emitting\s+diode|7[-\s]?segment)\b|엘이디",
+    re.I,
+)
+_CRYSTAL_EXPLICIT = re.compile(
+    r"\b(?:crystal|x-?tal|oscillator|resonator|osc)\b|크리스탈|발진",
+    re.I,
+)
+_OTHER_PHYSICAL = re.compile(
+    r"\b(?:fuse|relay|antenna|transformer|varistor|thermistor|battery|"
+    r"motor|buzzer|speaker|jumper|mounting\s+hole|s(?:ou|u)rge\s+killer|"
+    r"transient\s+blocking\s+unit)\b|퓨즈|안테나|배터리|모터|부저|배리스터",
+    re.I,
+)
+_CAPACITOR_EXPLICIT = re.compile(
+    r"\b(?:capacitor|cap|mlcc|tantal(?:um)?)\b|콘덴서|커패시터|캐패시터|탄탈",
+    re.I,
+)
+_RESISTOR_EXPLICIT = re.compile(r"\b(?:resistor|res)\b|저항", re.I)
+
+_TYPE_EVIDENCE_ROLE_CAP = {
+    "part_type": 5,
+    "description": 10,
+    "value": 8,
+    "_unlabeled_text": 7,
+    "_rescued_text": 7,
+    "part_number": 4,
+    "_library_reference": 4,
+    "package": 4,
+    "footprint": 3,
+}
+
+
+def _semantic_part_type_evidence(text: str, role: str) -> List[Tuple[str, int]]:
+    """Return every semantic type signal in one source cell.
+
+    Scores express source-independent specificity, then the column-role cap
+    prevents a footprint or unreliable Class cell from overpowering an
+    explicit description. Repeated identical text is deduplicated later.
+    """
+    if not text:
+        return []
+    normalized = _TYPE_SEP.sub(" ", text)
+    cap = _TYPE_EVIDENCE_ROLE_CAP.get(role, 6)
+    analog_switch_ic = bool(_ANALOG_SWITCH_IC.search(normalized))
+    test_point = bool(_TEST_POINT.search(normalized))
+    cable_or_harness = bool(re.search(
+        r"\b(?:cable|harness)\b|케이블|하네스", normalized, re.I
+    ))
+    led_driver = bool(_LED_DRIVER.search(normalized))
+    matches: List[Tuple[str, int]] = []
+
+    def add(component_type: str, score: int) -> None:
+        matches.append((component_type, min(score, cap)))
+
+    pcb_fabrication = bool(_PCB_FABRICATION_CONTEXT.search(normalized))
+    type_label_switch = bool(
+        re.fullmatch(r"\s*(?:switch|sw|스위치)\s*", normalized, re.I)
+    )
+    type_label_transistor = (
+        role == "part_type"
+        and bool(re.search(r"\btr\b", normalized, re.I))
+    )
+    short_type_label = (
+        _DESIG_TYPE.get(normalized.strip().upper())
+        if role == "part_type"
+        else None
+    )
+    if short_type_label and short_type_label != "other":
+        add(short_type_label, 9)
+    if analog_switch_ic or led_driver:
+        add("ic", 10)
+    elif re.search(r"\bopto[-\s]?(?:coupler|isolator)\b", normalized, re.I):
+        add("ic", 9)
+    elif re.search(
+        r"\b(?:ic|microcontroller|regulator|amplifier|opamp|codec|"
+        r"eeprom|flash|transceiver|controller|converter)\b|레귤레이터",
+        normalized,
+        re.I,
+    ):
+        add("ic", 8)
+    if test_point:
+        add("other", 10)
+    if pcb_fabrication:
+        add("other", 10)
+    if _OTHER_PHYSICAL.search(normalized):
+        add("other", 9)
+    if (
+        (_PHYSICAL_SWITCH.search(normalized) or type_label_switch)
+        and not analog_switch_ic
+        and not led_driver
+    ):
+        add("switch", 9)
+    if _CONNECTOR_PHYSICAL.search(normalized) and not analog_switch_ic:
+        add("connector", 9)
+    if _MAGNETIC_EXPLICIT.search(normalized) and not test_point:
+        add("inductor", 9)
+    if _DIODE_EXPLICIT.search(normalized):
+        add("diode", 9)
+    if (
+        _TRANSISTOR_EXPLICIT.search(normalized)
+        or type_label_transistor
+    ) and not re.search(
+        r"\bopto[-\s]?(?:coupler|isolator)\b", normalized, re.I
+    ):
+        add("transistor", 9)
+    if (
+        _LED_EXPLICIT.search(normalized)
+        and not led_driver
+        and not cable_or_harness
+        and not pcb_fabrication
+    ):
+        add("led", 9)
+    if _CRYSTAL_EXPLICIT.search(normalized):
+        add("crystal", 9)
+    if _CAPACITOR_EXPLICIT.search(normalized):
+        add("capacitor", 7)
+    if _RESISTOR_EXPLICIT.search(normalized):
+        add("resistor", 7)
+    if re.search(r"\bfilter\b", normalized, re.I) and not any(
+        component_type == "inductor" for component_type, _score in matches
+    ):
+        add("other", 2)
+    return matches
+
+
+def _type_incompatible(left: Optional[str], right: Optional[str]) -> bool:
+    if not left or not right or left == right:
+        return False
+    # LED는 diode의 구체 subtype이므로 D1 + LED_0603은 충돌이 아니다.
+    return {left, right} != {"diode", "led"}
+
+
+def _reconcile_part_type_evidence(
+    val: Dict[str, object],
+    src: Dict[str, str],
+    roles: Dict[str, List[int]],
+    cells: List[str],
+    electrical_type: Optional[str],
+) -> None:
+    """Resolve row type from source-aware evidence instead of first match.
+
+    Population state (NC/DNP/quantity zero) is intentionally absent here:
+    whether a part is mounted must not erase what kind of part it is.
+    """
+    scores: Dict[str, int] = {}
+    observations: List[Tuple[str, str, str, int]] = []
+    seen: set[Tuple[str, str]] = set()
+    for role in _TYPE_EVIDENCE_ROLE_CAP:
+        for index in roles.get(role, []):
+            if index >= len(cells):
+                continue
+            raw = str(cells[index] or "").strip()
+            normalized = re.sub(r"\s+", " ", raw).casefold()
+            if not normalized:
+                continue
+            for component_type, score in _semantic_part_type_evidence(raw, role):
+                evidence_key = (component_type, normalized)
+                if evidence_key in seen:
+                    continue
+                seen.add(evidence_key)
+                scores[component_type] = scores.get(component_type, 0) + score
+                observations.append((component_type, role, raw, score))
+
+    reference_type = desig_part_type(str(val.get("reference") or ""))
+    if reference_type:
+        reference_score = 2 if reference_type == "other" else 4
+        scores[reference_type] = scores.get(reference_type, 0) + reference_score
+        observations.append((
+            reference_type,
+            "designator",
+            str(val.get("reference") or ""),
+            reference_score,
+        ))
+    if electrical_type:
+        scores[electrical_type] = scores.get(electrical_type, 0) + 6
+        observations.append((electrical_type, "electrical_value", "", 6))
+
+    current_type = str(val.get("part_type") or "") or None
+    if current_type and current_type not in scores:
+        scores[current_type] = 1
+    if not scores:
+        return
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+    selected_type, selected_score = ranked[0]
+    current_score = scores.get(current_type or "", 0)
+
+    # A lone package/footprint token is intentionally insufficient. This
+    # prevents an NC row with only ``CAP_0402`` from acquiring an identity.
+    should_select = current_type is None and selected_score >= 6
+    if current_type == "other" and selected_type != "other":
+        # A generic "Filter", "Transformer" or "Other" label is weaker than
+        # a sufficiently stronger detailed description plus RefDes.
+        should_select = (
+            selected_score >= 4 and selected_score >= current_score + 2
+        )
+    elif current_type and selected_type != current_type:
+        minimum_score = 10 if selected_type == "other" else 6
+        should_select = (
+            selected_score >= minimum_score
+            and selected_score >= current_score + 2
+        )
+    if should_select and selected_type != current_type:
+        val["part_type"] = selected_type
+        src["part_type"] = "infer"
+
+    observed_types = {
+        component_type
+        for component_type, _role, _raw, score in observations
+        if score >= 4
+    }
+    chosen_type = str(val.get("part_type") or "") or None
+    if any(
+        _type_incompatible(chosen_type, component_type)
+        for component_type in observed_types
+    ):
+        src["_part_type_conflict"] = "true"
 
 
 _RE_REF_TOKEN = re.compile(  # "R1", "U$3", "C1-C4", "U10~U12"
@@ -1990,9 +2293,9 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
             if t:
                 put("part_type", t, "infer")
                 break
-    if "part_type" not in val and val and val.get("quantity") != 0 \
-            and not nc_row:
-        # 수량 0(미실장) 행은 지시자만으로 판단하지 않는다 (GT 관례)
+    if "part_type" not in val and val:
+        # NC/DNP/수량 0은 실장 상태일 뿐 부품 정체가 아니다. 검색 처분은
+        # adapter가 별도로 제외하되 타입은 지시자에서 계속 보존한다.
         for i in roles.get("designator", []):
             t = desig_part_type(cell(i))
             if t:
@@ -2202,10 +2505,9 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
                     src["part_type"] = "infer"
                 break
 
-    # Reconcile three independent category signals without trusting any single
-    # misleading header: explicit class text, electrical-value grammar, and
-    # reference prefix.  Two agreeing row-owned signals may correct the class,
-    # while every disagreement remains visible to the adapter as a review flag.
+    # Reconcile independent category signals without trusting any one Class,
+    # RefDes, footprint, or keyword cell. The resolver scores source-aware
+    # semantic evidence and deliberately ignores population state.
     electrical_types = {
         component_type
         for field, component_type in (
@@ -2216,31 +2518,13 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         if field in val
     }
     electrical_type = next(iter(electrical_types)) if len(electrical_types) == 1 else None
-    reference_type = desig_part_type(str(val.get("reference") or ""))
-    current_type = str(val.get("part_type") or "") or None
-
-    def type_incompatible(left: Optional[str], right: Optional[str]) -> bool:
-        if not left or not right or left == right:
-            return False
-        # Reference prefixes are deliberately broad. LED is a concrete diode
-        # subtype, so D1 + LED_0603 is hierarchical corroboration rather than
-        # a category conflict.
-        return {left, right} != {"diode", "led"}
-
-    type_conflict = bool(
-        type_incompatible(electrical_type, current_type)
-        or type_incompatible(reference_type, current_type)
-        or type_incompatible(electrical_type, reference_type)
+    _reconcile_part_type_evidence(
+        val,
+        src,
+        roles,
+        _cstr,
+        electrical_type,
     )
-    if (
-        electrical_type
-        and reference_type == electrical_type
-        and current_type != electrical_type
-    ):
-        val["part_type"] = electrical_type
-        src["part_type"] = "infer"
-    if type_conflict:
-        src["_part_type_conflict"] = "true"
 
     # A physically meaningful passive footprint can contain library suffixes
     # that look like identifiers.  A token found only inside that footprint is

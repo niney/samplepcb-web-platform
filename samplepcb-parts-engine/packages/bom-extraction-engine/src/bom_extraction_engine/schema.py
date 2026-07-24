@@ -12,7 +12,7 @@ from typing import Optional
 from pydantic import BaseModel, field_validator
 
 PART_TYPES = ["resistor", "capacitor", "inductor", "ic", "led", "diode",
-              "transistor", "connector", "crystal", "other"]
+              "transistor", "connector", "crystal", "switch", "other"]
 
 # 문자열 값 필드 — 추출기·어댑터가 공유하는 단일 정의
 STRING_FIELDS = ["part_number", "part_type", "resistance", "capacitance",

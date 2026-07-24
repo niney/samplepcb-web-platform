@@ -942,3 +942,266 @@ def test_led_color_abbreviations_are_contextual_and_conflicts_remain_reviewable(
     assert "color_input_source_conflict" in conflicted["quality_flags"]
     assert len(conflicted["input_alternatives"]["color"]) == 2
     assert non_led["color"] is None
+
+
+def test_part_type_evidence_reconciles_conflicting_sources_by_semantics():
+    case = _case(
+        ["Type", "Description", "Value", "Footprint", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "Diode",
+                    "Ferrite bead 120 Ohm @ 100MHz",
+                    "120 Ohm",
+                    "0603",
+                    "1",
+                    "FB1",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "Capacitor",
+                    "Connector SMD type 1.25mm 2P",
+                    "",
+                    "CONN_2P",
+                    "1",
+                    "CON1",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": [
+                    "Filter",
+                    "Common mode filter",
+                    "",
+                    "0805",
+                    "1",
+                    "L1",
+                ],
+            },
+            {
+                "row_id": 4,
+                "cells": [
+                    "Other",
+                    "Resettable fuse",
+                    "",
+                    "TestPoint_Loop_Beaded",
+                    "1",
+                    "F1",
+                ],
+            },
+            {
+                "row_id": 5,
+                "cells": [
+                    "Transformer",
+                    "3:1 Coupled Inductor",
+                    "",
+                    "5030",
+                    "1",
+                    "L6",
+                ],
+            },
+            {
+                "row_id": 6,
+                "cells": [
+                    "Filter",
+                    "FILTER / COMMON MODE",
+                    "",
+                    "2520",
+                    "1",
+                    "L3",
+                ],
+            },
+            {
+                "row_id": 7,
+                "cells": [
+                    "L",
+                    "",
+                    "",
+                    "RES 0402",
+                    "1",
+                    "L1",
+                ],
+            },
+        ],
+    )
+
+    (
+        ferrite,
+        connector,
+        common_mode,
+        fuse,
+        coupled,
+        reversed_common_mode,
+        short_label,
+    ) = _adapt(case)[0]
+
+    assert ferrite["component_type"] == "inductor"
+    assert connector["component_type"] == "connector"
+    assert common_mode["component_type"] == "inductor"
+    assert fuse["component_type"] == "other"
+    assert coupled["component_type"] == "inductor"
+    assert reversed_common_mode["component_type"] == "inductor"
+    assert short_label["component_type"] == "inductor"
+    assert "part_type_source_conflict" in ferrite["quality_flags"]
+    assert "part_type_source_conflict" in connector["quality_flags"]
+
+
+def test_switch_taxonomy_separates_physical_switches_from_switch_ics():
+    case = _case(
+        ["Type", "Description", "Part Number", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["Switch", "Tactile SPST switch", "", "1", "SW1"],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "IC",
+                    "USB 2.0 analog switch interface",
+                    "",
+                    "1",
+                    "U1",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": ["SW", "DIP switch 8 position", "", "1", "DIP1"],
+            },
+            {
+                "row_id": 4,
+                "cells": ["IC", "Load switch regulator", "", "1", "U2"],
+            },
+            {
+                "row_id": 5,
+                "cells": [
+                    "Connector",
+                    "Board-to-board connector",
+                    "GENERIC-CONNECTOR-TR",
+                    "1",
+                    "J1",
+                ],
+            },
+            {
+                "row_id": 6,
+                "cells": [
+                    "IC",
+                    "Transistor output optocoupler",
+                    "GENERIC-OPTO-TR",
+                    "1",
+                    "U3",
+                ],
+            },
+        ],
+    )
+
+    components = _adapt(case)[0]
+
+    assert [item["component_type"] for item in components] == [
+        "switch",
+        "ic",
+        "switch",
+        "ic",
+        "connector",
+        "ic",
+    ]
+
+
+def test_population_state_does_not_erase_component_identity():
+    case = _case(
+        ["Type", "Description", "Quantity", "Population", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["NC", "Ferrite bead 600 Ohm", "0", "DNP", "FB1"],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "",
+                    "Transient voltage suppressor diode",
+                    "0",
+                    "Not Fitted",
+                    "TVS1",
+                ],
+            },
+        ],
+    )
+
+    ferrite, suppressor = _adapt(case)[0]
+
+    assert ferrite["component_type"] == "inductor"
+    assert suppressor["component_type"] == "diode"
+    assert ferrite["search_disposition"] == "excluded"
+    assert suppressor["search_disposition"] == "excluded"
+    assert "do_not_populate" in ferrite["quality_flags"]
+    assert "do_not_populate" in suppressor["quality_flags"]
+
+
+def test_semantic_source_context_blocks_keyword_false_positives():
+    case = _case(
+        [
+            "Type",
+            "Description",
+            "Value",
+            "Footprint",
+            "Q'ty",
+            "Reference",
+        ],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "Other",
+                    "Purchasable test point",
+                    "TEST POINT",
+                    "TestPoint_Loop_Beaded",
+                    "1",
+                    "TP1",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "Other",
+                    "Main To LED PCB Cable",
+                    "22mm 10P",
+                    "",
+                    "1",
+                    "CBL1",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": [
+                    "Other",
+                    "2 layer FR-4 ENIG PCB fabrication",
+                    "BS_LED",
+                    "",
+                    "1",
+                    "PCB1",
+                ],
+            },
+            {
+                "row_id": 4,
+                "cells": [
+                    "TR",
+                    "NPN transistor with built-in resistor",
+                    "",
+                    "SOT-23",
+                    "1",
+                    "Q1",
+                ],
+            },
+        ],
+    )
+
+    test_point, cable, bare_board, transistor = _adapt(case)[0]
+
+    assert test_point["component_type"] == "other"
+    assert cable["component_type"] == "connector"
+    assert bare_board["component_type"] == "other"
+    assert transistor["component_type"] == "transistor"
