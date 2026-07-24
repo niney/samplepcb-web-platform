@@ -9,6 +9,7 @@ bom_probing_gpt/runtime.py와 순서까지 동일 — bom_extraction_engine/sche
 analyze_for_search는 제외 — SMARTBOM 결과는 components가 flat이라
 build_batch_from_result가 그 역할을 대신한다.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -105,9 +106,7 @@ class UserSearchRequirements(BaseModel):
         "bom-user-search-requirements-v1"
     )
     component_type: Literal["resistor", "capacitor"]
-    capacitor_type: Literal["ceramic", "electrolytic", "tantalum", "film"] | None = (
-        None
-    )
+    capacitor_type: Literal["ceramic", "electrolytic", "tantalum", "film"] | None = None
     resistance: str | None = Field(default=None, min_length=1, max_length=64)
     capacitance: str | None = Field(default=None, min_length=1, max_length=64)
     package: str = Field(min_length=1, max_length=64)
@@ -136,6 +135,22 @@ class UserSearchRequirements(BaseModel):
             if self.capacitor_type != "ceramic" and self.dielectric is not None:
                 raise ValueError("dielectric is only valid for ceramic capacitors")
         return self
+
+
+class PassiveRequirementDefaults(BaseModel):
+    """견적 단위로 한 번 승인한 저항·MLCC 누락 조건의 보수적 기본값."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["passive-requirement-defaults-v1"] = (
+        "passive-requirement-defaults-v1"
+    )
+    resistor_tolerance: str = Field(min_length=1, max_length=64)
+    capacitor_tolerance: str = Field(min_length=1, max_length=64)
+    capacitor_voltage: str = Field(min_length=1, max_length=64)
+    capacitor_dielectric_policy: Literal["capacitance-aware-conservative"] = (
+        "capacitance-aware-conservative"
+    )
 
 
 class SearchComponentInput(BaseModel):
@@ -170,6 +185,7 @@ class SearchComponentInput(BaseModel):
     body_dimensions_mm: list[float] | None = None
     required_quantity: int | None = Field(default=None, ge=1)
     user_requirements: UserSearchRequirements | None = None
+    requirement_defaults: PassiveRequirementDefaults | None = None
     fields: dict[str, SearchField]
 
 
@@ -187,6 +203,7 @@ class SearchBatchInput(BaseModel):
         default_factory=ProcurementPolicyInput
     )
 
+
 def _component_id(source_file: str, sheet_index: int, rows: list[int]) -> str:
     raw = f"{source_file}\0{sheet_index}\0{','.join(map(str, rows))}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:24]
@@ -200,7 +217,9 @@ def _field(component: dict[str, Any], name: str) -> SearchField:
     status = state.get("status") or ("review" if value is not None else "not_found")
     if status not in {"extracted", "review", "not_found"}:
         status = "review" if value is not None else "not_found"
-    evidence = [SearchEvidence.model_validate(item) for item in state.get("evidence") or []]
+    evidence = [
+        SearchEvidence.model_validate(item) for item in state.get("evidence") or []
+    ]
     normalized_name = _NORMALIZED_FIELD_NAMES.get(name)
     normalized_value = component.get(normalized_name) if normalized_name else None
     return SearchField(
@@ -208,7 +227,11 @@ def _field(component: dict[str, Any], name: str) -> SearchField:
         normalized_value=normalized_value,
         status=status,
         evidence=evidence,
-        source=(state.get("source") if state.get("source") in {"col", "text", "infer"} else None),
+        source=(
+            state.get("source")
+            if state.get("source") in {"col", "text", "infer"}
+            else None
+        ),
     )
 
 
@@ -286,7 +309,9 @@ def build_batch_from_result(
                 sheet_name=str(component["sheet_name"]),
                 sheet_index_0based=sheet_index,
                 source_rows_1based=rows,
-                reference_designators=list(component.get("reference_designators") or []),
+                reference_designators=list(
+                    component.get("reference_designators") or []
+                ),
                 description=component.get("description"),
                 value_raw=component.get("value_raw"),
                 review_status=str(component.get("review_status") or "review"),
@@ -320,7 +345,10 @@ def build_batch_from_result(
         )
     summary = result.get("summary") or {}
     parser_version = str(
-        summary.get("parser_version") or result.get("parser_version") or "smartbom/unknown")
+        summary.get("parser_version")
+        or result.get("parser_version")
+        or "smartbom/unknown"
+    )
     return SearchBatchInput(
         parser_schema_version=str(result.get("schema_version") or "1.0"),
         parser_version=parser_version,

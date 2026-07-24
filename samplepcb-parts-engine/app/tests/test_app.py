@@ -15,7 +15,10 @@ from parts_engine_app.config import Config
 from parts_engine_app.jobs import Job, JobService, SupplierSearchOptions
 from parts_engine_app.main import create_app
 from supplier_search_engine.contract import build_batch_from_result
-from supplier_search_engine.matcher import CandidateMatcher, finalize_candidate_decisions
+from supplier_search_engine.matcher import (
+    CandidateMatcher,
+    finalize_candidate_decisions,
+)
 from supplier_search_engine.models import (
     BatchSearchResult,
     ComponentSearchResult,
@@ -253,6 +256,43 @@ def test_persisted_user_requirements_and_component_filter_reach_search_batch(tmp
     assert query.requirements["package"].status == "user"
 
 
+def test_approved_passive_defaults_reach_every_search_component(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    defaults = {
+        "version": "passive-requirement-defaults-v1",
+        "resistor_tolerance": "1%",
+        "capacitor_tolerance": "10%",
+        "capacitor_voltage": "25V",
+        "capacitor_dielectric_policy": "capacitance-aware-conservative",
+    }
+
+    created = client.post(
+        "/supplier-jobs",
+        json={"analysis": analysis, "requirement_defaults": defaults},
+    )
+
+    assert created.status_code == 201, created.text
+    supplier_job = client.app.state.jobs.get(created.json()["job_id"])
+    batch = client.app.state.jobs._supplier_batch(
+        supplier_job,
+        SupplierSearchOptions(max_calls=5),
+    )
+    assert batch.components
+    assert all(
+        component.requirement_defaults is not None
+        and component.requirement_defaults.resistor_tolerance == "1%"
+        for component in batch.components
+    )
+
+
 def test_persisted_user_requirements_reject_unknown_component(tmp_path):
     client = _client(tmp_path)
     upload = client.post(
@@ -405,9 +445,10 @@ def test_procurement_reevaluation_api_is_deterministic_and_fails_closed(tmp_path
         json=out_of_stock,
     )
     assert unavailable.status_code == 200, unavailable.text
-    assert unavailable.json()["procurement_decision"][
-        "primary_unavailability_reason"
-    ] == "out_of_stock"
+    assert (
+        unavailable.json()["procurement_decision"]["primary_unavailability_reason"]
+        == "out_of_stock"
+    )
 
     duplicate = deepcopy(payload)
     duplicate_offer = deepcopy(duplicate["candidates"][0]["product"]["offers"][0])
@@ -461,12 +502,16 @@ def test_procurement_reevaluation_batch_api_isolates_component_failures(tmp_path
         ],
     }
 
-    response = client.post("/supplier-search/procurement/reevaluate-batch", json=batch_payload)
+    response = client.post(
+        "/supplier-search/procurement/reevaluate-batch", json=batch_payload
+    )
     assert response.status_code == 200, response.text
     by_id = {item["component_id"]: item for item in response.json()["components"]}
 
     assert by_id["batch-ok-1"]["status"] == "ok"
-    assert by_id["batch-ok-1"]["procurement_decision"]["status"] == "automatic_recommended"
+    assert (
+        by_id["batch-ok-1"]["procurement_decision"]["status"] == "automatic_recommended"
+    )
     assert by_id["batch-ok-2"]["status"] == "ok"
     assert by_id["batch-broken"]["status"] == "error"
     assert by_id["batch-broken"]["error_code"] == "duplicate_offer_key"
@@ -474,7 +519,9 @@ def test_procurement_reevaluation_batch_api_isolates_component_failures(tmp_path
     assert by_id["batch-broken"]["procurement_decision"] is None
 
     # 결정론 — 같은 입력을 다시 보내도 같은 결과(엔진은 상태를 갖지 않는다).
-    replay = client.post("/supplier-search/procurement/reevaluate-batch", json=batch_payload)
+    replay = client.post(
+        "/supplier-search/procurement/reevaluate-batch", json=batch_payload
+    )
     assert replay.json() == response.json()
 
 

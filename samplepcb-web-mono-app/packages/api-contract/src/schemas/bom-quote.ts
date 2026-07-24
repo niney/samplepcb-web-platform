@@ -267,6 +267,15 @@ export const BomQuoteSearchRequirementsBody = z.discriminatedUnion('componentTyp
 });
 export type BomQuoteSearchRequirementsBodyType = z.infer<typeof BomQuoteSearchRequirementsBody>;
 
+/** 견적 전체의 누락 수동소자 조건에 사용자가 한 번 승인해 적용하는 보수적 기본값. */
+export const BomQuotePassiveDefaultsBody = z.object({
+  resistorTolerance: z.string().trim().min(1).max(64),
+  capacitorTolerance: z.string().trim().min(1).max(64),
+  capacitorVoltage: z.string().trim().min(1).max(64),
+  capacitorDielectricPolicy: z.literal('capacitance-aware-conservative'),
+}).strict();
+export type BomQuotePassiveDefaultsBodyType = z.infer<typeof BomQuotePassiveDefaultsBody>;
+
 const BomQuoteSearchRequirementsMetadata = {
     version: z.literal('bom-user-search-requirements-v1'),
     updatedAt: z.string(),
@@ -330,6 +339,7 @@ export const BomQuoteRequirementAssessment = z.object({
   verified: z.boolean(),
   expectedDisplay: z.string().nullable(),
   actualDisplay: z.string().nullable(),
+  source: z.enum(['bom', 'user', 'policy_default', 'unknown']),
 });
 export type BomQuoteRequirementAssessmentType = z.infer<typeof BomQuoteRequirementAssessment>;
 

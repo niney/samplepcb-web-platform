@@ -4,7 +4,12 @@ import json
 import re
 from typing import Any, Callable
 
-from .contract import SearchComponentInput, SearchField, UserSearchRequirements
+from .contract import (
+    PassiveRequirementDefaults,
+    SearchComponentInput,
+    SearchField,
+    UserSearchRequirements,
+)
 from .normalizer import (
     parse_capacitance_f,
     parse_current_a,
@@ -133,7 +138,9 @@ def _package_from_pseudo_part_number(
         candidate = prefixed.group(2).strip()
         if _NAMED_PACKAGE_VALUE.fullmatch(candidate):
             return candidate
-        if (part_type or "").casefold() in _PASSIVE_TYPES and _PACKAGE_SIZE_VALUE.fullmatch(candidate):
+        if (
+            part_type or ""
+        ).casefold() in _PASSIVE_TYPES and _PACKAGE_SIZE_VALUE.fullmatch(candidate):
             return candidate.upper()
     return None
 
@@ -163,9 +170,9 @@ def _canonical_category_policy(
         for value in (part_type, description, value_raw, package)
         if value
     )
-    electrolytic_hint = any(token in bom_text for token in _ELECTROLYTIC_TOKENS) or bool(
-        _ELECTROLYTIC_ABBREVIATION.search(bom_text)
-    )
+    electrolytic_hint = any(
+        token in bom_text for token in _ELECTROLYTIC_TOKENS
+    ) or bool(_ELECTROLYTIC_ABBREVIATION.search(bom_text))
     if _FERRITE_CONTEXT.search(bom_text):
         return "ferrite"
     for policy, pattern in (
@@ -230,7 +237,11 @@ class QueryPlanner:
                 quantity_resolution=component.quantity_resolution,
             )
 
-        for source_name, (target_name, parser, comparison) in self._SPEC_PARSERS.items():
+        for source_name, (
+            target_name,
+            parser,
+            comparison,
+        ) in self._SPEC_PARSERS.items():
             field = fields[source_name]
             if field.value is None:
                 continue
@@ -239,12 +250,18 @@ class QueryPlanner:
                 if field.normalized_value is not None
                 else parser(field.value)
             )
-            requirements[target_name] = self._requirement(target_name, field, parsed, comparison)
+            requirements[target_name] = self._requirement(
+                target_name, field, parsed, comparison
+            )
 
         temperature = fields["temperature"]
         if temperature.value is not None:
             minimum, maximum = parse_temperature_range_c(temperature.value)
-            normalized_temperature = [minimum, maximum] if minimum is not None or maximum is not None else None
+            normalized_temperature = (
+                [minimum, maximum]
+                if minimum is not None or maximum is not None
+                else None
+            )
             requirements["temperature_range_c"] = self._requirement(
                 "temperature_range_c", temperature, normalized_temperature, "contains"
             )
@@ -257,7 +274,9 @@ class QueryPlanner:
             else None
         )
         raw_part_number = str(pn.value).strip() if pn.value is not None else None
-        pseudo_package = _package_from_pseudo_part_number(raw_part_number, part_type_value)
+        pseudo_package = _package_from_pseudo_part_number(
+            raw_part_number, part_type_value
+        )
         internal_cad_part_number = bool(
             raw_part_number
             and _INTERNAL_CAD_PASSIVE_FOOTPRINT.fullmatch(raw_part_number)
@@ -265,9 +284,7 @@ class QueryPlanner:
         if pseudo_package is None:
             raw_part_number = _part_number_without_manufacturer_prefix(raw_part_number)
         package_value = (
-            str(package.value).strip()
-            if package.value is not None
-            else pseudo_package
+            str(package.value).strip() if package.value is not None else pseudo_package
         )
         description = component.description or component.value_raw
         category_policy = _canonical_category_policy(
@@ -302,7 +319,9 @@ class QueryPlanner:
             if component.impedance_frequency_hz is not None:
                 requirements["impedance_frequency_hz"] = Requirement(
                     name="impedance_frequency_hz",
-                    raw_value=(fields["frequency"].value or component.impedance_frequency_hz),
+                    raw_value=(
+                        fields["frequency"].value or component.impedance_frequency_hz
+                    ),
                     normalized_value=component.impedance_frequency_hz,
                     status=fields["frequency"].status,
                     hard=fields["frequency"].status == "extracted",
@@ -357,21 +376,17 @@ class QueryPlanner:
                     comparison="eq",
                 )
         if package.value is not None:
-            normalized_package = normalize_package(
-                package.value,
-                part_type_value,
-            ) or None
-            if (
-                category_policy == "electrolytic"
-                and (
-                    _MECHANICAL_PACKAGE_DIMENSION.fullmatch(
-                        str(package.value).strip()
-                    )
-                    or source_diameter_mm(
-                        f"electrolytic {str(package.value).strip()}"
-                    )
-                    is not None
+            normalized_package = (
+                normalize_package(
+                    package.value,
+                    part_type_value,
                 )
+                or None
+            )
+            if category_policy == "electrolytic" and (
+                _MECHANICAL_PACKAGE_DIMENSION.fullmatch(str(package.value).strip())
+                or source_diameter_mm(f"electrolytic {str(package.value).strip()}")
+                is not None
             ):
                 normalized_package = None
             requirements["package"] = self._requirement(
@@ -414,9 +429,7 @@ class QueryPlanner:
         if user_requirements is not None:
             part_number = None
         manufacturer_name = (
-            str(manufacturer.value).strip()
-            if manufacturer.value is not None
-            else None
+            str(manufacturer.value).strip() if manufacturer.value is not None else None
         )
         if manufacturer_name and _MULTISOURCE_MANUFACTURER.search(manufacturer_name):
             manufacturer_name = None
@@ -481,7 +494,23 @@ class QueryPlanner:
                 and dielectric_requirement.normalized_value is not None
                 else None
             )
-        hard_specs = [item for item in requirements.values() if item.hard and item.name not in {"part_type"}]
+        self._apply_requirement_defaults(
+            component.requirement_defaults,
+            category_policy,
+            requirements,
+        )
+        dielectric_requirement = requirements.get("dielectric")
+        dielectric = (
+            str(dielectric_requirement.normalized_value)
+            if dielectric_requirement is not None
+            and dielectric_requirement.normalized_value is not None
+            else None
+        )
+        hard_specs = [
+            item
+            for item in requirements.values()
+            if item.hard and item.name not in {"part_type"}
+        ]
 
         if part_number and pn.status == "extracted":
             mode = SearchMode.IDENTITY
@@ -564,7 +593,9 @@ class QueryPlanner:
                     rows = requirements["row_count"].raw_value
                     keyword_parts.append("dual row" if rows == 2 else f"{rows} row")
                 if "pitch_mm" in requirements:
-                    keyword_parts.append(f"{requirements['pitch_mm'].raw_value}mm pitch")
+                    keyword_parts.append(
+                        f"{requirements['pitch_mm'].raw_value}mm pitch"
+                    )
                 if "diameter_mm" in requirements:
                     keyword_parts.append(
                         f"{requirements['diameter_mm'].normalized_value}mm"
@@ -576,7 +607,11 @@ class QueryPlanner:
                 keyword_parts.append(description)
 
         qty = component.required_quantity
-        if qty is None and isinstance(quantity.value, (int, float)) and quantity.value > 0:
+        if (
+            qty is None
+            and isinstance(quantity.value, (int, float))
+            and quantity.value > 0
+        ):
             qty = int(quantity.value)
         return PlannedQuery(
             component_id=component.component_id,
@@ -588,7 +623,9 @@ class QueryPlanner:
             category_policy=category_policy,
             package=package_value,
             quantity=qty,
-            keywords=" ".join(dict.fromkeys(part for part in keyword_parts if part))[:250],
+            keywords=" ".join(dict.fromkeys(part for part in keyword_parts if part))[
+                :250
+            ],
             requirements=requirements,
             input_source_conflicts=sorted(
                 flag
@@ -641,7 +678,10 @@ class QueryPlanner:
                         "branch_limit_exceeded": True,
                         "disposition_reason_codes": list(
                             dict.fromkeys(
-                                [*base.disposition_reason_codes, "branch_limit_exceeded"]
+                                [
+                                    *base.disposition_reason_codes,
+                                    "branch_limit_exceeded",
+                                ]
                             )
                         ),
                     },
@@ -666,7 +706,10 @@ class QueryPlanner:
                         "branch_limit_exceeded": True,
                         "disposition_reason_codes": list(
                             dict.fromkeys(
-                                [*base.disposition_reason_codes, "branch_limit_exceeded"]
+                                [
+                                    *base.disposition_reason_codes,
+                                    "branch_limit_exceeded",
+                                ]
                             )
                         ),
                     },
@@ -708,7 +751,10 @@ class QueryPlanner:
         also useful enough to search (for example, ``1K`` + ``resistor``).
         """
 
-        if query.mode not in {SearchMode.IDENTITY, SearchMode.HYBRID} or not query.part_number:
+        if (
+            query.mode not in {SearchMode.IDENTITY, SearchMode.HYBRID}
+            or not query.part_number
+        ):
             return None
         hard_specs = [
             requirement
@@ -741,7 +787,9 @@ class QueryPlanner:
         )
 
     @staticmethod
-    def _requirement(name: str, field: SearchField, normalized: Any, comparison: str) -> Requirement:
+    def _requirement(
+        name: str, field: SearchField, normalized: Any, comparison: str
+    ) -> Requirement:
         return Requirement(
             name=name,
             raw_value=field.value,
@@ -854,3 +902,74 @@ class QueryPlanner:
                 hard=True,
                 comparison="eq",
             )
+
+    @staticmethod
+    def _apply_requirement_defaults(
+        defaults: PassiveRequirementDefaults | None,
+        category_policy: str | None,
+        requirements: dict[str, Requirement],
+    ) -> None:
+        if defaults is None:
+            return
+
+        def apply(
+            name: str,
+            raw_value: str,
+            parser: Callable[[Any], Any],
+            comparison: str,
+        ) -> None:
+            existing = requirements.get(name)
+            if existing is not None and existing.normalized_value is not None:
+                return
+            normalized = parser(raw_value)
+            if normalized is None:
+                raise ValueError(f"requirement_default_invalid:{name}")
+            requirements[name] = Requirement(
+                name=name,
+                raw_value=raw_value,
+                normalized_value=normalized,
+                status="policy_default",
+                hard=True,
+                comparison=comparison,
+            )
+
+        if category_policy == "resistor":
+            apply(
+                "tolerance_percent",
+                defaults.resistor_tolerance,
+                parse_tolerance_percent,
+                "lte",
+            )
+            return
+        if category_policy != "capacitor":
+            # 전해·탄탈·필름은 전압/공차 누락을 일괄 가정하지 않는다.
+            return
+
+        apply(
+            "tolerance_percent",
+            defaults.capacitor_tolerance,
+            parse_tolerance_percent,
+            "lte",
+        )
+        apply(
+            "voltage_v",
+            defaults.capacitor_voltage,
+            parse_voltage_v,
+            "gte",
+        )
+        if "dielectric" in requirements:
+            return
+        capacitance = requirements.get("capacitance_f")
+        if capacitance is None or not isinstance(
+            capacitance.normalized_value, (int, float)
+        ):
+            return
+        dielectric = "C0G" if float(capacitance.normalized_value) <= 1e-9 else "X7R"
+        requirements["dielectric"] = Requirement(
+            name="dielectric",
+            raw_value=dielectric,
+            normalized_value=dielectric,
+            status="policy_default",
+            hard=True,
+            comparison="eq",
+        )

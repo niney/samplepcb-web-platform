@@ -4,6 +4,7 @@ import pytest
 
 from supplier_search_engine.contract import VALUE_FIELDS
 from supplier_search_engine.contract import (
+    PassiveRequirementDefaults,
     SearchComponentInput,
     SearchField,
     SearchFieldAlternative,
@@ -56,6 +57,176 @@ def test_planner_uses_only_extracted_values_as_hard_requirements():
     assert query.mode.value == "identity"
     assert query.requirements["resistance_ohm"].hard is True
     assert query.requirements["tolerance_percent"].hard is False
+
+
+def passive_defaults() -> PassiveRequirementDefaults:
+    return PassiveRequirementDefaults(
+        resistor_tolerance="1%",
+        capacitor_tolerance="10%",
+        capacitor_voltage="25V",
+        capacitor_dielectric_policy="capacitance-aware-conservative",
+    )
+
+
+def test_resistor_approved_default_requires_proven_one_percent_or_better():
+    item = component(
+        part_type="resistor",
+        resistance="100Ω",
+        package="0603",
+    )
+    item.requirement_defaults = passive_defaults()
+    query = QueryPlanner().plan(item)
+    one_percent = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="R-100-1",
+        category="Chip Resistors",
+        package="0603",
+        normalized_specs={
+            "resistance_ohm": 100.0,
+            "tolerance_percent": 1.0,
+            "package": "0603",
+        },
+    )
+    five_percent = one_percent.model_copy(
+        update={
+            "manufacturer_part_number": "R-100-5",
+            "normalized_specs": {
+                "resistance_ohm": 100.0,
+                "tolerance_percent": 5.0,
+                "package": "0603",
+            },
+        },
+        deep=True,
+    )
+
+    accepted = CandidateMatcher().evaluate(query, one_percent)
+    rejected = CandidateMatcher().evaluate(query, five_percent)
+
+    assert query.requirements["tolerance_percent"].status == "policy_default"
+    assert query.requirements["tolerance_percent"].normalized_value == 1.0
+    assert accepted.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert "policy_default:tolerance_percent" in accepted.decision.reason_codes
+    tolerance_assessment = next(
+        item
+        for item in accepted.decision.requirement_assessments
+        if item.key == "tolerance_percent"
+    )
+    assert tolerance_assessment.source == "policy_default"
+    assert rejected.decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert "tolerance_percent_mismatch" in rejected.conflicts
+
+
+def test_ceramic_defaults_block_y5v_and_low_voltage_instead_of_auto_selecting():
+    item = component(
+        part_type="capacitor",
+        capacitance="100nF",
+        package="0603",
+    )
+    item.requirement_defaults = passive_defaults()
+    query = QueryPlanner().plan(item)
+
+    def capacitor(
+        mpn: str,
+        *,
+        tolerance: float,
+        voltage: float,
+        dielectric: str,
+    ) -> SupplierProduct:
+        return SupplierProduct(
+            supplier=Supplier.DIGIKEY,
+            manufacturer_part_number=mpn,
+            category="Ceramic Capacitors",
+            package="0603",
+            normalized_specs={
+                "capacitance_f": 100e-9,
+                "tolerance_percent": tolerance,
+                "voltage_v": voltage,
+                "dielectric": dielectric,
+                "package": "0603",
+            },
+        )
+
+    safe = CandidateMatcher().evaluate(
+        query,
+        capacitor("C-X7R-50", tolerance=10.0, voltage=50.0, dielectric="X7R"),
+    )
+    y5v = CandidateMatcher().evaluate(
+        query,
+        capacitor("C-Y5V-50", tolerance=80.0, voltage=50.0, dielectric="Y5V"),
+    )
+    low_voltage = CandidateMatcher().evaluate(
+        query,
+        capacitor("C-X7R-6V3", tolerance=10.0, voltage=6.3, dielectric="X7R"),
+    )
+
+    assert query.requirements["tolerance_percent"].normalized_value == 10.0
+    assert query.requirements["voltage_v"].normalized_value == 25.0
+    assert query.requirements["dielectric"].normalized_value == "X7R"
+    assert safe.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert y5v.decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert {"tolerance_percent_mismatch", "dielectric_mismatch"} <= set(y5v.conflicts)
+    assert low_voltage.decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert "voltage_v_mismatch" in low_voltage.conflicts
+
+
+def test_low_capacitance_default_uses_c0g_and_supplier_specs_remain_required():
+    item = component(
+        part_type="capacitor",
+        capacitance="100pF",
+        package="0603",
+    )
+    item.requirement_defaults = passive_defaults()
+    query = QueryPlanner().plan(item)
+    missing_dielectric = SupplierProduct(
+        supplier=Supplier.MOUSER,
+        manufacturer_part_number="C-100P-UNKNOWN",
+        category="Ceramic Capacitors",
+        package="0603",
+        normalized_specs={
+            "capacitance_f": 100e-12,
+            "tolerance_percent": 5.0,
+            "voltage_v": 50.0,
+            "package": "0603",
+        },
+    )
+
+    match = CandidateMatcher().evaluate(query, missing_dielectric)
+
+    assert query.requirements["dielectric"].normalized_value == "C0G"
+    assert match.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert "dielectric" in match.missing_requirements
+
+
+def test_explicit_passive_requirements_override_quote_defaults():
+    item = component(part_type="resistor")
+    item.user_requirements = UserSearchRequirements(
+        component_type="resistor",
+        resistance="10kΩ",
+        package="0603",
+        tolerance="0.1%",
+    )
+    item.requirement_defaults = passive_defaults()
+
+    query = QueryPlanner().plan(item)
+
+    assert query.requirements["tolerance_percent"].status == "user"
+    assert query.requirements["tolerance_percent"].normalized_value == 0.1
+
+
+def test_non_ceramic_capacitors_do_not_receive_silent_rating_defaults():
+    item = component(
+        part_type="electrolytic capacitor",
+        capacitance="100uF",
+        package="8x10mm",
+    )
+    item.requirement_defaults = passive_defaults()
+
+    query = QueryPlanner().plan(item)
+
+    assert query.category_policy == "electrolytic"
+    assert "tolerance_percent" not in query.requirements
+    assert "voltage_v" not in query.requirements
+    assert "dielectric" not in query.requirements
 
 
 def test_user_resistor_requirements_force_parametric_search_and_make_power_conditional():
@@ -174,8 +345,13 @@ def test_user_ceramic_capacitor_requirements_control_automatic_selection():
         product,
     )
 
-    assert complete_match.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
-    assert incomplete_match.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert (
+        complete_match.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    )
+    assert (
+        incomplete_match.decision.selection_eligibility
+        == SelectionEligibility.MANUAL_REVIEW
+    )
     assert {
         "category_coverage_missing:voltage_v",
         "category_coverage_missing:dielectric",
@@ -325,22 +501,30 @@ def test_planner_fails_closed_when_more_than_one_field_would_branch():
     item.input_alternatives = {
         "resistance": [
             SearchFieldAlternative(
-                raw_value="1K", normalized_value=1_000.0,
-                source_cell="D2", source_role="value",
+                raw_value="1K",
+                normalized_value=1_000.0,
+                source_cell="D2",
+                source_role="value",
             ),
             SearchFieldAlternative(
-                raw_value="100K", normalized_value=100_000.0,
-                source_cell="E2", source_role="value",
+                raw_value="100K",
+                normalized_value=100_000.0,
+                source_cell="E2",
+                source_role="value",
             ),
         ],
         "package": [
             SearchFieldAlternative(
-                raw_value="0402", normalized_value="0402",
-                source_cell="F2", source_role="package",
+                raw_value="0402",
+                normalized_value="0402",
+                source_cell="F2",
+                source_role="package",
             ),
             SearchFieldAlternative(
-                raw_value="0603", normalized_value="0603",
-                source_cell="G2", source_role="footprint",
+                raw_value="0603",
+                normalized_value="0603",
+                source_cell="G2",
+                source_role="footprint",
             ),
         ],
     }
@@ -364,12 +548,16 @@ def test_identity_query_is_never_branched_by_bom_alternatives():
     item.input_alternatives = {
         "resistance": [
             SearchFieldAlternative(
-                raw_value="1K", normalized_value=1_000.0,
-                source_cell="D2", source_role="value",
+                raw_value="1K",
+                normalized_value=1_000.0,
+                source_cell="D2",
+                source_role="value",
             ),
             SearchFieldAlternative(
-                raw_value="100K", normalized_value=100_000.0,
-                source_cell="E2", source_role="value",
+                raw_value="100K",
+                normalized_value=100_000.0,
+                source_cell="E2",
+                source_role="value",
             ),
         ]
     }
@@ -531,10 +719,13 @@ def test_exact_mpn_input_source_conflict_requires_manual_review(source_conflict)
 
     assert query.part_number == "ABC-123"
     assert query.input_source_conflicts == [source_conflict]
-    assert query.cache_payload() == query.model_copy(
-        update={"input_source_conflicts": []}
-    ).cache_payload()
-    assert candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert (
+        query.cache_payload()
+        == query.model_copy(update={"input_source_conflicts": []}).cache_payload()
+    )
+    assert (
+        candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    )
     assert source_conflict in candidate.conflicts
     assert source_conflict in candidate.decision.reason_codes
 
@@ -712,7 +903,9 @@ def test_planner_does_not_treat_crystal_body_dimensions_as_diameter():
 
 def test_exact_mpn_with_hard_spec_conflict_is_input_conflict():
     query = QueryPlanner().plan(
-        component(part_number="RC0603FR-0710KL", manufacturer="Yageo", resistance="10kΩ")
+        component(
+            part_number="RC0603FR-0710KL", manufacturer="Yageo", resistance="10kΩ"
+        )
     )
     product = SupplierProduct(
         supplier=Supplier.DIGIKEY,
@@ -754,13 +947,19 @@ def test_supplier_part_type_inference_requires_one_unambiguous_category():
 
 
 def test_parametric_match_checks_minimum_ratings_and_package():
-    query = QueryPlanner().plan(component(part_type="resistor", resistance="10kΩ", power="0.1W", package="0603"))
+    query = QueryPlanner().plan(
+        component(part_type="resistor", resistance="10kΩ", power="0.1W", package="0603")
+    )
     product = SupplierProduct(
         supplier=Supplier.MOUSER,
         manufacturer_part_number="PART-10K",
         category="Thick Film Resistors",
         package="0603",
-        normalized_specs={"resistance_ohm": 10_000.0, "power_w": 0.125, "package": "0603"},
+        normalized_specs={
+            "resistance_ohm": 10_000.0,
+            "power_w": 0.125,
+            "package": "0603",
+        },
     )
 
     match = CandidateMatcher().evaluate(query, product)
@@ -818,7 +1017,9 @@ def test_zero_ohm_jumper_does_not_require_percentage_tolerance():
 
 
 def test_ic_category_accepts_operational_amplifier_taxonomy():
-    query = QueryPlanner().plan(component(part_number="LM358DR", part_type="ic", package="SOIC-8"))
+    query = QueryPlanner().plan(
+        component(part_number="LM358DR", part_type="ic", package="SOIC-8")
+    )
     product = SupplierProduct(
         supplier=Supplier.MOUSER,
         manufacturer_part_number="LM358DR",
@@ -907,7 +1108,9 @@ def test_ti_reel_marker_before_nopb_is_verified_as_variant():
 
 def test_exact_mpn_keeps_real_frequency_conflict_after_category_aliases():
     query = QueryPlanner().plan(
-        component(part_number="ECS-250-10-36-CKM-TR", part_type="crystal", frequency="32MHz")
+        component(
+            part_number="ECS-250-10-36-CKM-TR", part_type="crystal", frequency="32MHz"
+        )
     )
     product = SupplierProduct(
         supplier=Supplier.MOUSER,
@@ -1023,7 +1226,11 @@ def test_package_comparison_keeps_distinct_supplier_alias_and_backend_mismatch()
         normalized_specs={"capacitance_f": 0.1e-6, "package": "0402"},
     )
     mismatch_product = alias_product.model_copy(
-        update={"manufacturer_part_number": "CAP-WRONG", "package": "C1608", "normalized_specs": {"capacitance_f": 0.1e-6, "package": "0603"}}
+        update={
+            "manufacturer_part_number": "CAP-WRONG",
+            "package": "C1608",
+            "normalized_specs": {"capacitance_f": 0.1e-6, "package": "0603"},
+        }
     )
 
     alias = CandidateMatcher().evaluate(query, alias_product)
@@ -1085,11 +1292,17 @@ def test_dielectric_alias_is_backend_owned_and_keeps_original_bom_notation():
         supplier=Supplier.DIGIKEY,
         manufacturer_part_number="C1005C0G1H101J",
         category="Ceramic Capacitors",
-        normalized_specs={"capacitance_f": 100e-12, "package": "0402", "dielectric": "C0G"},
+        normalized_specs={
+            "capacitance_f": 100e-12,
+            "package": "0402",
+            "dielectric": "C0G",
+        },
         attributes={"Temperature Characteristic": "C0G"},
     )
 
-    comparison = CandidateMatcher().evaluate(query, product).spec_comparisons["dielectric"]
+    comparison = (
+        CandidateMatcher().evaluate(query, product).spec_comparisons["dielectric"]
+    )
 
     assert query.requirements["dielectric"].raw_value == "NP0"
     assert comparison.state == "match"
@@ -1107,7 +1320,10 @@ def test_temperature_range_accepts_supplier_range_that_contains_bom_requirement(
         supplier=Supplier.MOUSER,
         manufacturer_part_number="CAP-WIDE-TEMP",
         category="Ceramic Capacitors",
-        normalized_specs={"capacitance_f": 0.1e-6, "temperature_range_c": [-55.0, 125.0]},
+        normalized_specs={
+            "capacitance_f": 0.1e-6,
+            "temperature_range_c": [-55.0, 125.0],
+        },
     )
 
     match = CandidateMatcher().evaluate(query, product)
@@ -1121,7 +1337,9 @@ def test_temperature_range_accepts_supplier_range_that_contains_bom_requirement(
 
 
 def test_unparsed_temperature_is_not_a_hard_requirement():
-    query = QueryPlanner().plan(component(part_type="capacitor", temperature="room temperature"))
+    query = QueryPlanner().plan(
+        component(part_type="capacitor", temperature="room temperature")
+    )
 
     assert query.requirements["temperature_range_c"].normalized_value is None
     assert query.requirements["temperature_range_c"].hard is False
@@ -1271,7 +1489,9 @@ def test_prefixed_named_package_is_not_searched_as_an_mpn():
 
 def test_supplier_manufacturer_aliases_do_not_create_false_input_conflicts():
     assert manufacturers_compatible("MPS", "Monolithic Power Systems (MPS)") is True
-    assert manufacturers_compatible("MAXIM", "Analog Devices / Maxim Integrated") is True
+    assert (
+        manufacturers_compatible("MAXIM", "Analog Devices / Maxim Integrated") is True
+    )
 
 
 def test_prefixed_and_pin_qualified_sot_packages_are_backend_compatible():

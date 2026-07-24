@@ -7,6 +7,7 @@ import {
   type BomQuoteDetailResponseType,
   type BomQuoteDetailType,
   type BomQuoteItemType,
+  type BomQuotePassiveDefaultsBodyType,
   type BomQuoteSearchRequirementsBodyType,
   type BomQuoteSelectedOfferType,
   type PartHitType,
@@ -24,6 +25,7 @@ import {
   useBomQuoteComparison,
   useBomQuoteCandidates,
   useBuildBomQuote,
+  useApplyBomQuotePassiveDefaults,
   useCancelBomQuote,
   useDeleteBomQuote,
   usePatchBomQuote,
@@ -528,6 +530,11 @@ function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
 // 분석 카드는 현재 탭 기준, 금액·견적요청 가능 여부는 전체 견적 기준이다.
 const stats = computed(() => calculateStats(sheetItems.value));
 const quoteStats = computed(() => calculateStats(items.value));
+const hasPassiveDefaultsOpportunity = computed(() => (
+  quoteStats.value.pendingReview > 0
+  || quoteStats.value.review > 0
+  || quoteStats.value.unmatched > 0
+));
 
 const itemsTotal = computed(() => quoteStats.value.itemsTotal);
 const uncostedCount = computed(() => quoteStats.value.uncosted);
@@ -710,7 +717,18 @@ const candidateSelection = useSelectBomQuoteCandidate();
 const candidateSelectionError = ref('');
 const searchRequirementsMutation = useUpdateBomQuoteSearchRequirements();
 const searchRequirementsError = ref('');
+const passiveDefaultsMutation = useApplyBomQuotePassiveDefaults();
+const passiveDefaultsOpen = ref(false);
+const passiveDefaultsError = ref('');
+const resistorDefaultTolerance = ref('1%');
+const capacitorDefaultTolerance = ref('10%');
+const capacitorDefaultVoltage = ref('25V');
 const catalogSelectionPending = ref(false);
+
+watch(quoteId, () => {
+  passiveDefaultsOpen.value = false;
+  passiveDefaultsError.value = '';
+});
 
 const offerModal = ref<{ lineIdx: number; partId: string } | null>(null);
 const partModal = ref<{ mode: 'swap' | 'add'; lineIdx: number | null; query: string } | null>(null);
@@ -723,11 +741,56 @@ const partModalNeeded = computed(() => {
 watch(editingLocked, (locked) => {
   if (!locked) return;
   // 열려 있던 선택 모달에서 검색 도중 변경이 들어가는 경로도 차단한다.
+  passiveDefaultsOpen.value = false;
   candidateItemId.value = null;
   selectionSurface.value = null;
   offerModal.value = null;
   partModal.value = null;
 });
+
+function openPassiveDefaults(): void {
+  if (!isDraft.value || editingLocked.value) return;
+  passiveDefaultsError.value = '';
+  passiveDefaultsOpen.value = true;
+}
+
+async function applyPassiveDefaults(): Promise<void> {
+  if (!isDraft.value || editingLocked.value || passiveDefaultsMutation.isPending.value) return;
+  const body: BomQuotePassiveDefaultsBodyType = {
+    resistorTolerance: resistorDefaultTolerance.value.trim(),
+    capacitorTolerance: capacitorDefaultTolerance.value.trim(),
+    capacitorVoltage: capacitorDefaultVoltage.value.trim(),
+    capacitorDielectricPolicy: 'capacitance-aware-conservative',
+  };
+  if (
+    body.resistorTolerance === ''
+    || body.capacitorTolerance === ''
+    || body.capacitorVoltage === ''
+  ) {
+    passiveDefaultsError.value = '공차와 정격전압 기본값을 모두 입력해 주세요.';
+    return;
+  }
+  if (dirty.value) {
+    await saveNow();
+    if (saveState.value === 'error') {
+      passiveDefaultsError.value = '저장되지 않은 변경사항이 있습니다. 저장 상태를 확인해 주세요.';
+      return;
+    }
+  }
+  passiveDefaultsError.value = '';
+  try {
+    await passiveDefaultsMutation.mutateAsync({ quoteId: quoteId.value, body });
+    passiveDefaultsOpen.value = false;
+    dirty.value = false;
+  } catch (reason) {
+    const code = reason instanceof ApiRequestError ? reason.payload?.error : undefined;
+    passiveDefaultsError.value = code === 'SUPPLIER_SEARCH_NOT_STARTED'
+      ? '기본조건은 확인했지만 공급사 검색을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+      : code === 'SUPPLIER_SEARCH_FAILED'
+        ? '공급사 검색 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+        : '기본 검색조건을 적용하지 못했습니다. 입력값을 확인해 주세요.';
+  }
+}
 
 function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: string): void {
   if (editingLocked.value) return;
@@ -1264,6 +1327,17 @@ function fmtAmount(v: number | null): string {
               <span>◫</span> BOM 비교
             </button>
             <button
+              v-if="isDraft && hasPassiveDefaultsOpportunity"
+              type="button"
+              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 text-[13px] font-semibold text-amber-800 hover:border-amber-400 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
+              :disabled="editingLocked"
+              :title="editingLocked ? EDIT_LOCK_TITLE : '저항·MLCC의 누락 필수조건을 한 번 확인하고 다시 검색'"
+              @click="openPassiveDefaults"
+            >
+              <span aria-hidden="true">✓</span>
+              누락 조건 적용
+            </button>
+            <button
               v-if="isDraft"
               type="button"
               class="flex h-[38px] items-center gap-1 rounded-lg bg-[#1e64fd] px-4 text-[14px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 disabled:hover:bg-blue-300"
@@ -1603,6 +1677,80 @@ function fmtAmount(v: number | null): string {
           </div>
         </div>
       </aside>
+    </div>
+
+    <!-- 사용자가 승인한 값만 누락된 저항·MLCC 조건에 적용한다. -->
+    <div
+      v-if="passiveDefaultsOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
+      @click.self="passiveDefaultsOpen = false"
+    >
+      <div class="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="passive-defaults-title">
+        <div class="border-b border-slate-100 px-5 py-4">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h3 id="passive-defaults-title" class="text-base font-bold text-slate-900">누락된 저항·MLCC 조건 확인</h3>
+              <p class="mt-1 text-xs leading-5 text-slate-500">
+                원본 BOM이나 행별 검색조건에 값이 없는 경우에만 아래 값을 적용해 전체 후보를 다시 확인합니다.
+              </p>
+            </div>
+            <button type="button" class="grid size-8 shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="닫기" @click="passiveDefaultsOpen = false">×</button>
+          </div>
+        </div>
+
+        <div class="space-y-4 px-5 py-4">
+          <div class="grid gap-3 sm:grid-cols-3">
+            <label class="block">
+              <span class="text-xs font-semibold text-slate-700">저항 허용오차</span>
+              <select v-model="resistorDefaultTolerance" class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                <option value="0.1%">±0.1%</option>
+                <option value="0.5%">±0.5%</option>
+                <option value="1%">±1%</option>
+                <option value="5%">±5%</option>
+                <option value="10%">±10%</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold text-slate-700">MLCC 허용오차</span>
+              <select v-model="capacitorDefaultTolerance" class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                <option value="5%">±5%</option>
+                <option value="10%">±10%</option>
+                <option value="20%">±20%</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold text-slate-700">MLCC 최소 정격전압</span>
+              <select v-model="capacitorDefaultVoltage" class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                <option value="6.3V">6.3V 이상</option>
+                <option value="10V">10V 이상</option>
+                <option value="16V">16V 이상</option>
+                <option value="25V">25V 이상</option>
+                <option value="50V">50V 이상</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">
+            <p class="font-bold">유전체는 보수적으로 자동 적용합니다.</p>
+            <p class="mt-1">1nF 이하는 C0G, 그보다 큰 MLCC는 X7R로 확인합니다. 전해·탄탈·필름 캐패시터에는 이 기본값을 적용하지 않습니다.</p>
+          </div>
+          <ul class="space-y-1 text-[11px] leading-5 text-slate-500">
+            <li>• BOM과 사용자가 직접 지정한 값이 항상 우선합니다.</li>
+            <li>• 품번 대체·스펙 후보는 실제 사양이 승인값을 충족할 때만 자동 선정합니다.</li>
+            <li>• 공급사 사양이 없거나 불일치하면 계속 검토 대상으로 남습니다.</li>
+          </ul>
+          <p v-if="passiveDefaultsError !== ''" class="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{{ passiveDefaultsError }}</p>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
+          <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50" :disabled="passiveDefaultsMutation.isPending.value" @click="passiveDefaultsOpen = false">
+            취소
+          </button>
+          <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" :disabled="passiveDefaultsMutation.isPending.value" @click="applyPassiveDefaults">
+            {{ passiveDefaultsMutation.isPending.value ? '검색 시작 중…' : '승인하고 다시 검색' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- 결과 시트 관리: 제외해도 원본 라인·후보·선택 이력은 보존한다. -->

@@ -14,6 +14,7 @@ import {
   BomQuoteItemCandidatesResponse,
   BomQuoteListResponse,
   BomQuotePatchBody,
+  BomQuotePassiveDefaultsBody,
   BomQuoteRequestBody,
   BomQuoteSearchRequirements,
   BomQuoteSearchRequirementsBody,
@@ -24,6 +25,7 @@ import {
   type BomQuoteItemInputType,
   type BomQuoteItemType,
   type BomQuoteMatchEvidenceType,
+  type BomQuotePassiveDefaultsBodyType,
   type BomQuoteSearchRequirementsType,
 } from '@sp/api-contract';
 import { neededQty, stampOrderQty } from '@sp/utils';
@@ -137,6 +139,43 @@ function engineRequirementOverride(
         voltage: requirements.voltage,
         dielectric: requirements.dielectric,
       };
+}
+
+const EnginePassiveDefaults = z.object({
+  version: z.literal('passive-requirement-defaults-v1'),
+  resistor_tolerance: z.string(),
+  capacitor_tolerance: z.string(),
+  capacitor_voltage: z.string(),
+  capacitor_dielectric_policy: z.literal('capacitance-aware-conservative'),
+}).strict();
+
+function enginePassiveDefaults(
+  defaults: BomQuotePassiveDefaultsBodyType,
+): z.infer<typeof EnginePassiveDefaults> {
+  return {
+    version: 'passive-requirement-defaults-v1',
+    resistor_tolerance: defaults.resistorTolerance,
+    capacitor_tolerance: defaults.capacitorTolerance,
+    capacitor_voltage: defaults.capacitorVoltage,
+    capacitor_dielectric_policy: defaults.capacitorDielectricPolicy,
+  };
+}
+
+function passiveDefaultsFromSearchOptions(
+  options: Prisma.JsonValue | undefined,
+): BomQuotePassiveDefaultsBodyType | null {
+  if (options === undefined || options === null || typeof options !== 'object' || Array.isArray(options)) {
+    return null;
+  }
+  const parsed = EnginePassiveDefaults.safeParse(options.passive_defaults);
+  return parsed.success
+    ? {
+        resistorTolerance: parsed.data.resistor_tolerance,
+        capacitorTolerance: parsed.data.capacitor_tolerance,
+        capacitorVoltage: parsed.data.capacitor_voltage,
+        capacitorDielectricPolicy: parsed.data.capacitor_dielectric_policy,
+      }
+    : null;
 }
 
 function supplierRunIsTargeted(options: Prisma.JsonValue): boolean {
@@ -256,9 +295,20 @@ async function autoEnrichQuote(
   quoteId: bigint,
   mbId: string,
   log: Parameters<typeof startIngestPoller>[1],
-  options: { force?: boolean; componentIds?: readonly string[] } = {},
+  options: {
+    force?: boolean;
+    componentIds?: readonly string[];
+    passiveDefaults?: BomQuotePassiveDefaultsBodyType;
+  } = {},
 ): Promise<boolean> {
-  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
+  const quote = await prisma.spBomQuote.findUnique({
+    where: { id: quoteId },
+    include: {
+      items: true,
+      sheets: true,
+      activeSupplierSearchRun: { select: { options: true } },
+    },
+  });
   if (quote?.status !== 'draft' || quote.activeAnalysisRunId === null) return false;
   const config = await getBomQuoteRuntimeConfig();
   const sheetIndexes = quote.sheets.filter((sheet) => sheet.selected).map((sheet) => sheet.sheetIndex);
@@ -267,12 +317,20 @@ async function autoEnrichQuote(
     config.usdKrwRate,
     config.exchangeRateSnapshot,
   );
+  const passiveDefaults = options.passiveDefaults
+    ?? passiveDefaultsFromSearchOptions(quote.activeSupplierSearchRun?.options);
+  const passiveDefaultsPayload = passiveDefaults === null
+    ? null
+    : enginePassiveDefaults(passiveDefaults);
   const searchOptions = {
     max_calls: config.supplierSearchMaxCalls,
     cache_only: false,
     reset_cache: false,
     sheet_indexes: sheetIndexes,
     component_ids: [...(options.componentIds ?? [])],
+    ...(passiveDefaultsPayload === null
+      ? {}
+      : { passive_defaults: passiveDefaultsPayload }),
     procurement: {
       ...procurement,
       currency_rates: procurement.currency_rates.map((rate) => ({ ...rate })),
@@ -333,6 +391,7 @@ async function autoEnrichQuote(
         analysis,
         required_quantities: requiredQuantities,
         requirement_overrides: requirementOverrides,
+        requirement_defaults: passiveDefaultsPayload,
       }),
     });
     if (!registered.ok) return await markFailed(`supplier_job_registration_${String(registered.status)}`);
@@ -962,6 +1021,58 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
     return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
+  });
+
+  // 누락 수동소자 조건을 견적 단위로 한 번 승인하고 전체 공급사 판단을 다시 실행한다.
+  fastify.put('/bom/quotes/:id/passive-defaults', {
+    schema: {
+      params: IdParams,
+      body: BomQuotePassiveDefaultsBody,
+      response: { 200: BomQuoteDetailResponse, 409: BizError, 502: BizError },
+    },
+  }, async (request, reply) => {
+    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (quote.status !== 'draft') {
+      return reply.conflict('견적요청 후에는 기본 검색조건을 변경할 수 없습니다');
+    }
+    if (quote.buildStatus !== 'ready') {
+      return reply.conflict('시트 계산이 완료된 후 기본 검색조건을 적용할 수 있습니다');
+    }
+    if (quote.enrichStatus === 'searching') {
+      return reply.conflict('공급사 확인이 완료된 후 기본 검색조건을 적용할 수 있습니다');
+    }
+
+    try {
+      const started = await autoEnrichQuote(
+        quote.id,
+        request.user.mbId,
+        request.log,
+        { force: true, passiveDefaults: request.body },
+      );
+      if (!started) {
+        return await reply.status(409).send({
+          result: false,
+          error: 'SUPPLIER_SEARCH_NOT_STARTED',
+        });
+      }
+    } catch (error) {
+      request.log.warn({
+        quoteId: String(quote.id),
+        err: String(error),
+      }, '견적 누락 수동소자 기본조건 검색 시작 실패');
+      return reply.status(502).send({
+        result: false,
+        error: 'SUPPLIER_SEARCH_FAILED',
+      });
+    }
+
+    const fresh = await loadOwnQuote(quote.id, request.user.mbId);
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    return {
+      result: true as const,
+      data: await toDetailDto(fresh, fresh.items, fresh.sheets),
+    };
   });
 
   // 후보/오퍼 명시 선택 — 클라이언트 가격은 받지 않고 서버 스냅샷에서 합계를 재계산한다.
