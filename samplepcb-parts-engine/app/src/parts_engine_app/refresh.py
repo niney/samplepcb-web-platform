@@ -5,17 +5,44 @@ BOM 잡 없이 MPN(+제조사) 하나로 IDENTITY 검색 배치를 조립해 공
 "강제 라이브"로 호출한다. 캐시는 읽기만 무시하고 쓰기는 실캐시에 기록 —
 갱신 결과가 이후 BOM 검색의 캐시로도 쓰인다. 엔진 패키지는 무수정(앱 계층 seam).
 """
+import re
 from typing import Any
 
 from supplier_search_engine.cache import CacheLookup, SQLiteCache
 from supplier_search_engine.contract import build_batch_from_result
-from supplier_search_engine.normalization import package_from_text
+from supplier_search_engine.models import (
+    BatchSearchResult,
+    MatchStatus,
+    ProcurementPolicyInput,
+)
+from supplier_search_engine.normalization import normalize_mpn, package_from_text
 from supplier_search_engine.normalizer import normalize_component_text
-from supplier_search_engine.models import ProcurementPolicyInput
+from supplier_search_engine.procurement import apply_procurement_decisions
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings as SearchSettings
 
 from .config import Config
+
+
+_MPN_FALLBACK_TOKEN = re.compile(
+    r"^(?=.{4,191}$)(?=.*[A-Z])(?=.*\d)[A-Z0-9][A-Z0-9._+/#()-]*$",
+    re.IGNORECASE,
+)
+_PACKAGE_ONLY_TOKEN = re.compile(
+    r"^(?:(?:T?SOT|SOD|DO|DIP|SOIC|SOP|SSOP|TSSOP|MSOP|LQFP|TQFP|"
+    r"QFN|DFN|BGA|WSON)[-_]?\d{1,4}(?:[-_]\d{1,3})?|RJ\d+)$",
+    re.IGNORECASE,
+)
+_SPEC_ATOM = re.compile(
+    r"^(?:"
+    r"\d+(?:\.\d+)?(?:(?:P|N|U|Μ|M)F?|F)|"
+    r"\d+(?:\.\d+)?(?:V|W|A|HZ|KHZ|MHZ|GHZ|%)|"
+    r"\d+(?:\.\d+)?(?:R|K|M)(?:OHM|Ω)?|"
+    r"\d+(?:R|K|M)\d+"
+    r")$",
+    re.IGNORECASE,
+)
+_PASSIVE_PACKAGE_ATOM = re.compile(r"^(?:0[12468]\d{2}|1[28]\d{2})$")
 
 
 class LiveReadCache(SQLiteCache):
@@ -33,26 +60,44 @@ class LiveReadCache(SQLiteCache):
         return CacheLookup("miss", None, None)
 
 
-def _single_part_batch(part_number: str, manufacturer: str | None):
+def _single_part_batch(
+    part_number: str,
+    manufacturer: str | None,
+    *,
+    needed: int | None = None,
+    source_file: str = "manual-refresh",
+):
     """MPN 1건 → G-shape 최소 결과를 조립해 기존 build_batch_from_result 재사용."""
     field_states: dict[str, Any] = {
         "part_number": {"value": part_number, "status": "extracted"},
     }
     if manufacturer:
         field_states["manufacturer"] = {"value": manufacturer, "status": "extracted"}
+    component: dict[str, Any] = {
+        "sheet_name": "manual" if source_file == "manual-refresh" else source_file,
+        "sheet_index_0based": 0,
+        "source_rows_1based": [1],
+        "review_status": "extracted",
+        "field_states": field_states,
+    }
+    if needed is not None:
+        field_states["quantity"] = {
+            "value": needed,
+            "status": "extracted",
+            "source": "request",
+        }
+        component.update(
+            {
+                "description": part_number,
+                "value_raw": part_number,
+                "quantity": needed,
+            }
+        )
     result = {
         "schema_version": "1.0",
-        "source_file": "manual-refresh",
-        "summary": {"parser_version": "manual-refresh/1.0"},
-        "components": [
-            {
-                "sheet_name": "manual",
-                "sheet_index_0based": 0,
-                "source_rows_1based": [1],
-                "review_status": "extracted",
-                "field_states": field_states,
-            }
-        ],
+        "source_file": source_file,
+        "summary": {"parser_version": f"{source_file}/1.0"},
+        "components": [component],
     }
     return build_batch_from_result(result)
 
@@ -151,6 +196,139 @@ def _catalog_search_batch(query: str, needed: int = 1):
     return build_batch_from_result(result)
 
 
+def _catalog_mpn_fallback_term(query: str) -> str | None:
+    """사양/패키지를 MPN으로 오인하지 않는 보수적인 단일 토큰 판정."""
+    term = query.strip()
+    if not _MPN_FALLBACK_TOKEN.fullmatch(term):
+        return None
+    if _PACKAGE_ONLY_TOKEN.fullmatch(term):
+        return None
+    atoms = re.split(r"[-/]", term)
+    if atoms and all(
+        _SPEC_ATOM.fullmatch(atom) or _PASSIVE_PACKAGE_ATOM.fullmatch(atom)
+        for atom in atoms
+    ):
+        return None
+    return term
+
+
+def _should_try_catalog_mpn_fallback(
+    query: str,
+    result: BatchSearchResult,
+) -> str | None:
+    """후보 없는 정상 종료에만 정확 MPN 재검색을 허용한다."""
+    if len(result.components) != 1:
+        return None
+    component = result.components[0]
+    if component.candidates:
+        return None
+    if component.status not in {
+        MatchStatus.INSUFFICIENT_INPUT,
+        MatchStatus.NOT_FOUND,
+    }:
+        return None
+    if component.query is not None and component.query.part_number:
+        return None
+    return _catalog_mpn_fallback_term(query)
+
+
+def _combine_catalog_search_results(
+    primary: BatchSearchResult,
+    fallback: BatchSearchResult,
+    exact_mpn: str,
+) -> BatchSearchResult:
+    """정확 MPN 후보만 남기고 두 번의 검색 비용·진단을 하나로 합친다."""
+    primary_component = primary.components[0]
+    fallback_component = fallback.components[0]
+    normalized_mpn = normalize_mpn(exact_mpn)
+    exact_candidates = [
+        candidate
+        for candidate in fallback_component.candidates
+        if normalize_mpn(candidate.product.manufacturer_part_number) == normalized_mpn
+    ]
+    combined_metrics = {
+        "unique_query_count": (
+            primary.unique_query_count + fallback.unique_query_count
+        ),
+        "api_calls": primary.api_calls + fallback.api_calls,
+        "cache_hits": primary.cache_hits + fallback.cache_hits,
+        "prefetched_requests": (
+            primary.prefetched_requests + fallback.prefetched_requests
+        ),
+        "elapsed_ms": primary.elapsed_ms + fallback.elapsed_ms,
+    }
+    if not exact_candidates or fallback_component.query is None:
+        warnings = list(
+            dict.fromkeys(
+                [
+                    *primary_component.warnings,
+                    (
+                        "원문을 정확 MPN으로 재검색했지만 동일 MPN 후보를 "
+                        "확인하지 못했습니다."
+                    ),
+                ]
+            )
+        )
+        component = primary_component.model_copy(
+            update={
+                "api_calls": primary_component.api_calls
+                + fallback_component.api_calls,
+                "elapsed_ms": primary_component.elapsed_ms
+                + fallback_component.elapsed_ms,
+                "warnings": warnings,
+            },
+            deep=True,
+        )
+        return primary.model_copy(
+            update={"components": [component], **combined_metrics},
+            deep=True,
+        )
+
+    exact_candidates, procurement_decision = apply_procurement_decisions(
+        fallback_component.query,
+        exact_candidates,
+        fallback.procurement_policy,
+    )
+    warnings = list(
+        dict.fromkeys(
+            [
+                *fallback_component.warnings,
+                (
+                    "기존 검색 결과가 없어 원문을 정확 MPN으로 다시 "
+                    "확인했습니다."
+                ),
+            ]
+        )
+    )
+    component = fallback_component.model_copy(
+        update={
+            "component_id": primary_component.component_id,
+            "reference_designators": primary_component.reference_designators,
+            "source_rows_1based": primary_component.source_rows_1based,
+            "initial_query": primary_component.query,
+            "initial_supplier_results": primary_component.supplier_results,
+            "candidates": exact_candidates,
+            "status": exact_candidates[0].status,
+            "procurement_decision": procurement_decision,
+            "api_calls": primary_component.api_calls + fallback_component.api_calls,
+            "elapsed_ms": (
+                primary_component.elapsed_ms + fallback_component.elapsed_ms
+            ),
+            "warnings": warnings,
+        },
+        deep=True,
+    )
+    return fallback.model_copy(
+        update={
+            "procurement_policy": primary.procurement_policy,
+            "source_file": primary.source_file,
+            "components": [component],
+            **combined_metrics,
+        },
+        deep=True,
+    )
+
+
 async def refresh_part(
     config: Config,
     part_number: str,
@@ -191,6 +369,26 @@ async def search_catalog(
     cache = SQLiteCache(settings.cache_path)
     async with SearchService(settings, cache=cache) as service:
         result = await service.search_batch(batch)
+        fallback_term = _should_try_catalog_mpn_fallback(query, result)
+        remaining_calls = max_calls - result.api_calls
+        if fallback_term is not None and remaining_calls > 0:
+            settings.max_api_calls_per_job = remaining_calls
+            fallback_batch = _single_part_batch(
+                fallback_term,
+                None,
+                needed=needed,
+                source_file="catalog-search",
+            )
+            fallback_batch = fallback_batch.model_copy(
+                update={"procurement_policy": batch.procurement_policy},
+                deep=True,
+            )
+            fallback = await service.search_batch(fallback_batch)
+            result = _combine_catalog_search_results(
+                result,
+                fallback,
+                fallback_term,
+            )
     return {
         "supplier_search_schema_version": result.search_schema_version,
         "procurement_decision_contract_status": "current",
