@@ -288,12 +288,33 @@ def _is_passive_package_numeric_token(
         "inductor": "inductance",
     }.get(category or "")
     if field != expected_field:
-        return False
+        expected_field = {
+            "resistor": "resistance",
+            "capacitor": "capacitance",
+            "inductor": "inductance",
+        }.get(part_type or "")
+        if field != expected_field:
+            return False
     package = package_from_source_cell(raw, part_type or category)
-    if package is None:
-        return False
-    package_codes = set(re.findall(r"(?<!\d)\d{4,5}(?!\d)", package))
-    return token.strip() in package_codes
+    if package is not None:
+        package_codes = set(re.findall(r"(?<!\d)\d{4,5}(?!\d)", package))
+        if token.strip() in package_codes:
+            return True
+
+    # Descriptive specifications frequently list metric package codes between
+    # tolerance and power (``Resistor, 1%, 1608, 1/10W``).  They are not
+    # electrical values even when the header is mapped to Value.  Keep a bare
+    # primary value such as ``1608`` and explicit ``1608R``/``1608Ω`` intact.
+    text = token.strip()
+    return bool(
+        raw.strip() != text
+        and parse_size_code(text) is not None
+        and infer_part_type(raw) == part_type
+        and (
+            re.search(r"(?:±|\+/-)?\s*\d+(?:\.\d+)?\s*%", raw)
+            or re.search(r"\d+\s*/\s*\d+\s*[mMkK]?[Ww]\b", raw)
+        )
+    )
 
 
 def _normalized_identity(value: Any) -> str:
