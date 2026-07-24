@@ -711,31 +711,28 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const pathTokens: string[] = [];
     let deletedCount = 0;
 
-    // cascade 대상이 큰 scope=all도 청크별 커밋해 기본 트랜잭션 시간 안에 수렴시킨다.
+    // cascade 자식(후보 스냅샷 등)이 견적당 수천 행이라 인터랙티브 트랜잭션(기본 5초)은
+    // 규모에 따라 P2028로 전멸한다. 삭제 문장 자체가 원자적이고 status 가드도 WHERE에
+    // 있으므로 트랜잭션 없이 청크별 autocommit으로 진행을 확정한다 — 중단돼도 재시도가 이어간다.
     for (const ids of chunkBomQuoteDeletionIds(deletableIds)) {
-      const chunk = await prisma.$transaction(async (tx) => {
-        await tx.spBomQuote.deleteMany({
-          where: { id: { in: ids }, mbId: request.user.mbId, status: 'draft' },
-        });
-        const survivors = await tx.spBomQuote.findMany({
-          where: { id: { in: ids } },
-          select: { id: true },
-        });
-        const deletedIds = resolveDeletedBomQuoteIds(ids, survivors.map((quote) => quote.id));
-        const files = deletedIds.length === 0
-          ? []
-          : await tx.spFile.findMany({
-              where: { refType: FILE_REF_TYPE, refId: { in: deletedIds } },
-              select: { pathToken: true },
-            });
-
-        if (deletedIds.length > 0) {
-          await tx.spFile.deleteMany({ where: { refType: FILE_REF_TYPE, refId: { in: deletedIds } } });
-        }
-        return { deletedCount: deletedIds.length, pathTokens: files.map((file) => file.pathToken) };
+      await prisma.spBomQuote.deleteMany({
+        where: { id: { in: ids }, mbId: request.user.mbId, status: 'draft' },
       });
-      deletedCount += chunk.deletedCount;
-      pathTokens.push(...chunk.pathTokens);
+      const survivors = await prisma.spBomQuote.findMany({
+        where: { id: { in: ids } },
+        select: { id: true },
+      });
+      const deletedIds = resolveDeletedBomQuoteIds(ids, survivors.map((quote) => quote.id));
+      deletedCount += deletedIds.length;
+      if (deletedIds.length === 0) continue;
+
+      // sp_file은 FK 없는 느슨한 참조라 견적 삭제 후에도 남는다 — 삭제 확정분만 정리한다.
+      const files = await prisma.spFile.findMany({
+        where: { refType: FILE_REF_TYPE, refId: { in: deletedIds } },
+        select: { pathToken: true },
+      });
+      await prisma.spFile.deleteMany({ where: { refType: FILE_REF_TYPE, refId: { in: deletedIds } } });
+      pathTokens.push(...files.map((file) => file.pathToken));
     }
 
     const deleted = bomQuoteDeleteCounts(selectedIds?.length ?? targets.length, targets.length, deletedCount);
@@ -1355,10 +1352,13 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     if (quote.status !== 'draft') return reply.conflict('draft 상태에서만 삭제할 수 있습니다');
 
     const files = await prisma.spFile.findMany({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
-    await prisma.$transaction(async (tx) => {
-      await tx.spFile.deleteMany({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
-      await tx.spBomQuote.delete({ where: { id: quote.id } }); // items cascade
+    // 대형 견적은 cascade 자식이 수만 행이라 인터랙티브 트랜잭션(기본 5초)을 넘을 수 있다.
+    // 문장 WHERE의 status 가드가 조회 후 상태 전이(draft→requested) 경쟁도 함께 막는다.
+    const removed = await prisma.spBomQuote.deleteMany({
+      where: { id: quote.id, mbId: request.user.mbId, status: 'draft' },
     });
+    if (removed.count === 0) return reply.conflict('draft 상태에서만 삭제할 수 있습니다');
+    await prisma.spFile.deleteMany({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
     for (const f of files) {
       void deleteFromFileServer(f.pathToken).catch(() => undefined); // 정리 실패는 무해(고아 파일)
     }

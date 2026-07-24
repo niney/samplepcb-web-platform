@@ -44,11 +44,11 @@ describe('BOM 견적 일괄 삭제 대상 산정', () => {
     });
   });
 
-  it('삭제 청크를 최대 200건으로 제한한다', () => {
-    const chunks = chunkBomQuoteDeletionIds(Array.from({ length: 451 }, (_, index) => BigInt(index + 1)));
+  it('삭제 청크를 최대 20건으로 제한한다', () => {
+    const chunks = chunkBomQuoteDeletionIds(Array.from({ length: 45 }, (_, index) => BigInt(index + 1)));
 
-    expect(BOM_QUOTE_DELETE_CHUNK_SIZE).toBe(200);
-    expect(chunks.map((chunk) => chunk.length)).toEqual([200, 200, 51]);
+    expect(BOM_QUOTE_DELETE_CHUNK_SIZE).toBe(20);
+    expect(chunks.map((chunk) => chunk.length)).toEqual([20, 20, 5]);
     expect(chunks.every((chunk) => chunk.length <= BOM_QUOTE_DELETE_CHUNK_SIZE)).toBe(true);
   });
 });

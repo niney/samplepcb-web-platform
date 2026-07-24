@@ -1,4 +1,5 @@
-export const BOM_QUOTE_DELETE_CHUNK_SIZE = 200;
+// 후보 스냅샷 등 cascade 자식이 견적당 수천 행이라, 한 DELETE 문장의 작업량을 짧게 묶는다.
+export const BOM_QUOTE_DELETE_CHUNK_SIZE = 20;
 
 export interface BomQuoteDeleteTarget {
   id: bigint;
@@ -18,7 +19,7 @@ export function planBomQuoteDeletion(
   };
 }
 
-/** 한 트랜잭션이 cascade 삭제할 견적 수를 제한한다. */
+/** 한 DELETE 문장이 cascade 삭제할 견적 수를 제한한다. */
 export function chunkBomQuoteDeletionIds(ids: readonly bigint[]): bigint[][] {
   const chunks: bigint[][] = [];
   for (let start = 0; start < ids.length; start += BOM_QUOTE_DELETE_CHUNK_SIZE) {
