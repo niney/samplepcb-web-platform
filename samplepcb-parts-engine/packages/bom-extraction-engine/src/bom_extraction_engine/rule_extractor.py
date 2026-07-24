@@ -425,14 +425,17 @@ def _passive_spec_only(text: str) -> bool:
 
 # ---- part_type ---------------------------------------------------------------
 
+# 기계류·비전자 — 전자부품 규칙보다 먼저 ("Hex socket cap"의 cap,
+# "M5 screw"류가 capacitor/connector로 오폭하지 않게). screw terminal은
+# 커넥터라 제외. 증거 합의(_semantic_part_type_evidence)도 같은 상수를
+# 공유한다 — 두 판정 경로가 갈라지면 가드가 조용히 무력화된다.
+_MECHANICAL = re.compile(
+    r"screw(?!\s*terminal)|\bbolt\b|\bnut\b|washer|standoff|spacer"
+    r"|extrusion|bracket|acrylic|3d[- ]?print|enclosure|\bcase\b"
+    r"|hex socket|raspberry pi|나사|볼트|너트|와셔|아크릴|케이스", re.I)
+
 _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
-    # 기계류·비전자 — 전자부품 규칙보다 먼저 ("Hex socket cap"의 cap,
-    # "M5 screw"류가 capacitor/connector로 오폭하지 않게). screw terminal은
-    # 커넥터라 제외.
-    ("other", re.compile(
-        r"screw(?!\s*terminal)|\bbolt\b|\bnut\b|washer|standoff|spacer"
-        r"|extrusion|bracket|acrylic|3d[- ]?print|enclosure|\bcase\b"
-        r"|hex socket|raspberry pi|나사|볼트|너트|와셔|아크릴|케이스", re.I)),
+    ("other", _MECHANICAL),
     # 신호 스위치/멀티플렉서 IC — "USB Switch"의 USB가 커넥터로 오폭 방지
     ("ic", re.compile(
         r"\b(?:usb|hdmi|can|ethernet|analog|signal)\b.{0,48}"
@@ -649,10 +652,14 @@ _CRYSTAL_EXPLICIT = re.compile(
     r"\b(?:crystal|x-?tal|oscillator|resonator|osc)\b|크리스탈|발진",
     re.I,
 )
+# 부품군 이름은 BOM 설명에서 복수형("Varistors 20V")으로 자주 쓰인다.
+# 단어 경계로 닫는 이상 복수형을 함께 받지 않으면 증거가 통째로 사라진다.
 _OTHER_PHYSICAL = re.compile(
-    r"\b(?:fuse|relay|antenna|transformer|varistor|thermistor|battery|"
-    r"motor|buzzer|speaker|jumper|mounting\s+hole|s(?:ou|u)rge\s+killer|"
-    r"transient\s+blocking\s+unit)\b|퓨즈|안테나|배터리|모터|부저|배리스터",
+    r"\b(?:fuses?|relays?|antennas?|transformers?|varistors?|thermistors?|"
+    r"ntc|batter(?:y|ies)|motors?|buzzers?|speakers?|jumpers?|"
+    r"mounting\s+holes?|s(?:ou|u)rge\s+killer|"
+    r"transient\s+blocking\s+unit)\b"
+    r"|퓨즈|안테나|배터리|모터|부저|배리스터|온도센서",
     re.I,
 )
 _CAPACITOR_EXPLICIT = re.compile(
@@ -660,6 +667,13 @@ _CAPACITOR_EXPLICIT = re.compile(
     re.I,
 )
 _RESISTOR_EXPLICIT = re.compile(r"\b(?:resistor|res)\b|저항", re.I)
+# "패키지/케이스: 0402", "CASE-B"(탄탈 EIA 케이스 코드)의 case는 패키지 표기다.
+# 기계류 판정에서만 이 문맥을 걷어낸다 — 실제 기계 케이스는 acrylic·
+# enclosure 등 다른 어휘가 함께 온다.
+_CASE_AS_PACKAGE = re.compile(
+    r"(?:패키지|package)\s*(?:케이스|case)|\bcase\s*[a-z]\b|케이스\s*[:：]",
+    re.I,
+)
 
 _TYPE_EVIDENCE_ROLE_CAP = {
     "part_type": 5,
@@ -696,6 +710,13 @@ def _semantic_part_type_evidence(text: str, role: str) -> List[Tuple[str, int]]:
     def add(component_type: str, score: int) -> None:
         matches.append((component_type, min(score, cap)))
 
+    if _MECHANICAL.search(_CASE_AS_PACKAGE.sub(" ", normalized)):
+        # 기계류 행이 우연히 품은 전자 어휘("hex socket cap screw"의 socket,
+        # cap)는 부품 근거가 아니다. _TYPE_RULES가 이 규칙을 최우선에 두는
+        # 것과 같은 이유로, 여기서도 다른 증거를 만들지 않고 끝낸다.
+        add("other", 10)
+        return matches
+
     pcb_fabrication = bool(_PCB_FABRICATION_CONTEXT.search(normalized))
     type_label_switch = bool(
         re.fullmatch(r"\s*(?:switch|sw|스위치)\s*", normalized, re.I)
@@ -717,7 +738,8 @@ def _semantic_part_type_evidence(text: str, role: str) -> List[Tuple[str, int]]:
         add("ic", 9)
     elif re.search(
         r"\b(?:ic|microcontroller|regulator|amplifier|opamp|codec|"
-        r"eeprom|flash|transceiver|controller|converter)\b|레귤레이터",
+        r"eeprom|flash|transceiver|controller|converter|modules?)\b"
+        r"|레귤레이터|모듈",
         normalized,
         re.I,
     ):

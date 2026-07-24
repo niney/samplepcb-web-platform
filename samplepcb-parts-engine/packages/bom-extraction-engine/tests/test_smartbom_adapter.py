@@ -1205,3 +1205,125 @@ def test_semantic_source_context_blocks_keyword_false_positives():
     assert cable["component_type"] == "connector"
     assert bare_board["component_type"] == "other"
     assert transistor["component_type"] == "transistor"
+
+
+def test_mechanical_rows_do_not_borrow_electronic_vocabulary():
+    """기계류 행이 우연히 품은 socket/cap/볼트는 부품 근거가 아니다.
+
+    증거 합의 경로가 _TYPE_RULES의 기계류 최우선 규칙과 같은 상수를
+    공유하지 않으면, "hex socket"의 socket이 커넥터 증거로 승격한다.
+    """
+    case = _case(
+        ["Type", "Description", "Value", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["Other", "M3 hex socket cap screw", "", "1", "MP1"],
+            },
+            {
+                "row_id": 2,
+                "cells": ["", "접시머리 십자 볼트", "M3 * 10mm", "1", "D7 고정용"],
+            },
+            {
+                "row_id": 3,
+                "cells": ["", "너트", "M3", "1", "D7 고정용"],
+            },
+            {
+                "row_id": 4,
+                "cells": ["", "screw hole", "", "1", "J17"],
+            },
+        ],
+    )
+
+    screw, bolt, nut, hole = _adapt(case)[0]
+
+    assert screw["component_type"] == "other"
+    assert bolt["component_type"] == "other"
+    assert nut["component_type"] == "other"
+    assert hole["component_type"] == "other"
+
+
+def test_package_notation_case_is_not_a_mechanical_enclosure():
+    """"패키지/케이스: 0402", "CASE-B"의 case는 패키지 표기다."""
+    case = _case(
+        ["Type", "Description", "Value", "Package", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "",
+                    "정격전압: 50V, 패키지/케이스: 0402(1005 미터법)",
+                    "0.1uF",
+                    "",
+                    "12",
+                    "C101",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "",
+                    "Tantalum capacitor",
+                    "22uF 6.3V",
+                    "CASE-B",
+                    "2",
+                    "C127",
+                ],
+            },
+        ],
+    )
+
+    metric_case, eia_case = _adapt(case)[0]
+
+    assert metric_case["component_type"] == "capacitor"
+    assert eia_case["component_type"] == "capacitor"
+    assert "part_type_source_conflict" not in eia_case["quality_flags"]
+
+
+def test_other_family_names_survive_plural_and_abbreviated_spellings():
+    """부품군 이름은 BOM에서 복수형·약어로 온다 — 증거가 사라지면 안 된다."""
+    case = _case(
+        ["Type", "Description", "Value", "Footprint", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "",
+                    "Varistors 20V 100A 750pF 13 Inch Reel",
+                    "V33CH8",
+                    "VARC8250X200N",
+                    "2",
+                    "RV2, RV3",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "",
+                    "TDK NTCG103JX103DTDS",
+                    "NTC_10K",
+                    "R_0402_1005Metric",
+                    "1",
+                    "R126",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": [
+                    "",
+                    "Low Signal Relays - PCB Gullwg NonLatch 2.54 DPDT 12DC",
+                    "G6K-2F-TR_DC24",
+                    "G6K2FTRDC12",
+                    "2",
+                    "K1, K2",
+                ],
+            },
+        ],
+    )
+
+    varistor, thermistor, relay = _adapt(case)[0]
+
+    assert varistor["component_type"] == "other"
+    assert thermistor["component_type"] == "other"
+    # DPDT 접점 표기가 있어도 릴레이는 물리 스위치가 아니다
+    assert relay["component_type"] == "other"
