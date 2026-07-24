@@ -658,12 +658,48 @@ _RE_COLOR_NUM = re.compile(  # "white1608" — 색상+사이즈 결합은 PN이 
 _PN_REJECT_LEAD = re.compile(r"^(?:tp|mt|pad)\b", re.I)
 _RE_DESIG_RANGE = re.compile(r"^[A-Z]{1,3}\d+(?:-[A-Z]{1,3}\d+)+$")
 _RE_MM_DIM = re.compile(r"^\d+(?:\.\d+)?\s*mm$", re.I)
+_RE_DOCUMENT_FILENAME = re.compile(
+    r"^(.+)\.(?:pdf|docx?|xlsx?|xlsm|csv|tsv|txt|rtf|jpe?g|png|gif|bmp|tiff?)$",
+    re.I,
+)
+_RE_CAD_COPY_SUFFIX = re.compile(r"^(.+?)copy\d*$", re.I)
+
+
+def _document_filename_stem(value: str) -> Optional[str]:
+    """Return a basename stem only for a recognized document/image filename."""
+
+    basename = value.strip().replace("\\", "/").rsplit("/", 1)[-1]
+    match = _RE_DOCUMENT_FILENAME.fullmatch(basename)
+    if match is None:
+        return None
+    stem = match.group(1).strip()
+    return stem or None
+
+
+def _cad_copy_artifact(value: str) -> bool:
+    """Recognize CAD duplicate labels such as ``5MMcopy2`` conservatively."""
+
+    match = _RE_CAD_COPY_SUFFIX.fullmatch(value.strip())
+    if match is None:
+        return False
+    base = match.group(1).strip()
+    return bool(
+        _RE_MM_DIM.fullmatch(base)
+        or re.fullmatch(
+            r"(?:LED|RES(?:ISTOR)?|CAP(?:ACITOR)?|IND(?:UCTOR)?|[RCL])"
+            r"[-_ ]?(?:01005|0201|0402|0603|0805|1005|1206|1210|1608|"
+            r"2012|2512|3216|3225|4532)",
+            base,
+            re.I,
+        )
+    )
 
 
 def _pn_reject(c: str) -> bool:
     # CAD 명명은 '_'/'-'가 단어 경계를 깨므로("DIODE_SCHOTTKY") 정규화 사본도 검사
     norm = _TYPE_SEP.sub(" ", c)
-    if _PN_REJECT_KW.search(c) or _PN_REJECT_KW.search(norm) \
+    if _document_filename_stem(c) is not None or _cad_copy_artifact(c) \
+            or _PN_REJECT_KW.search(c) or _PN_REJECT_KW.search(norm) \
             or _PN_REJECT_LEAD.match(norm) \
             or _RE_DESIG_RANGE.match(c) or _RE_MM_DIM.match(c) \
             or _RE_PIN_ARRAY.match(c) or _RE_DIM_TOKEN.match(c) \
@@ -779,6 +815,44 @@ def _looks_like_pn(cell: str) -> bool:
     if _RE_RES_CODE.match(c) or _RE_PKG_C.fullmatch(c):
         return False
     return True
+
+
+def _corroborated_document_part_number(
+    roles: Dict[str, List[int]],
+    cells: List[str],
+) -> Optional[str]:
+    """Recover a filename stem only when another cell repeats it exactly.
+
+    A customer workbook may store ``df206s.pdf`` in Value and ``DF206S`` in
+    Footprint.  The full filename is never an MPN, but the repeated basename is
+    useful identity evidence.  Generic package/document names remain rejected
+    by the ordinary PN grammar.
+    """
+
+    document_indexes = [
+        index
+        for role in ("part_number", "value", "description", "_unlabeled_text")
+        for index in roles.get(role, [])
+        if index < len(cells)
+    ]
+    for index in dict.fromkeys(document_indexes):
+        stem = _document_filename_stem(str(cells[index]))
+        if stem is None or not _looks_like_pn(stem) or _pn_reject(stem):
+            continue
+        stem_key = re.sub(r"[^A-Za-z0-9]", "", stem).casefold()
+        if not stem_key:
+            continue
+        for other_index, other_value in enumerate(cells):
+            if other_index == index:
+                continue
+            other = str(other_value or "").strip()
+            other_key = re.sub(r"[^A-Za-z0-9]", "", other).casefold()
+            if other_key != stem_key:
+                continue
+            if _looks_like_pn(other) and not _pn_reject(other):
+                return _strip_pn_alt(other)
+            return _strip_pn_alt(stem)
+    return None
 
 
 def _functional_instance_value(cell: str) -> bool:
@@ -1788,6 +1862,13 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         fin = _pn_finalize(tok) if tok else None
         if fin:
             put("part_number", fin, "text")
+    if "part_number" not in val:
+        document_part_number = _corroborated_document_part_number(
+            roles,
+            _cstr,
+        )
+        if document_part_number:
+            put("part_number", document_part_number, "col")
     # 5.32) Connector model identifiers may end in a letter that resembles a
     # unit (for example a vertical-orientation suffix).  Accept an exact,
     # separator-bearing Description token only in connector context and only

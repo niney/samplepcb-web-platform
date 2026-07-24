@@ -371,6 +371,174 @@ def test_passive_package_value_column_does_not_create_electrical_alternative():
     assert zero_ohm["review_status"] == "review"
 
 
+def test_document_filenames_are_not_part_numbers_and_safe_stems_are_recovered():
+    case = _case(
+        [
+            "No.",
+            "Quantity",
+            "Designator",
+            "Comment",
+            "Footprint",
+            "",
+            "Value",
+        ],
+        [
+            {
+                "row_id": 2,
+                "cells": [
+                    "2",
+                    "5",
+                    "D1,D2,D3,D4,D5",
+                    "DL4007-13-F",
+                    "GLASS-MELF_L5.0-W2.6-RD",
+                    "SMD",
+                    "DL4007.pdf",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": [
+                    "3",
+                    "1",
+                    "D6",
+                    "Diode Bridge",
+                    "DF206S",
+                    "SMD",
+                    "df206s.pdf",
+                ],
+            },
+            {
+                "row_id": 4,
+                "cells": [
+                    "4",
+                    "2",
+                    "F1,F2",
+                    "FUSE 600mA",
+                    "FUSE-HOLDER-5X20MM",
+                    "SMD",
+                    "FUSE-HOLDER.pdf",
+                ],
+            },
+            {
+                "row_id": 5,
+                "cells": [
+                    "5",
+                    "2",
+                    "LED1,LED2",
+                    "LED 5MMcopy2",
+                    "LED_LED5MM",
+                    "DIP",
+                    "DIP 5mm LED",
+                ],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+    rectifier, bridge, fuse, led = components
+
+    assert rectifier["part_number"] == "DL4007-13-F"
+    assert rectifier["field_states"]["part_number"]["evidence"][0]["cell"] == "D3"
+    assert bridge["part_number"] == "DF206S"
+    assert bridge["field_states"]["part_number"]["status"] == "extracted"
+    assert fuse["part_number"] is None
+    assert led["part_number"] is None
+    assert led["component_type"] == "led"
+    assert led["review_status"] == "review"
+    assert all(
+        not str(component["part_number"] or "").casefold().endswith(".pdf")
+        for component in components
+    )
+
+
+def test_known_document_extension_filter_preserves_dotted_part_numbers():
+    case = _case(
+        ["Part Number", "Quantity", "Designator"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["ABC1.2-3", "1", "U1"],
+            },
+            {
+                "row_id": 2,
+                "cells": ["ABC123.PDFX", "1", "U2"],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+
+    assert [component["part_number"] for component in components] == [
+        "ABC1.2-3",
+        "ABC123.PDFX",
+    ]
+
+
+def test_resistor_description_package_codes_are_not_resistance_alternatives():
+    case = _case(
+        ["#", "PartType", "Value", "Footprint", "Designator", "Quantity"],
+        [
+            {
+                "row_id": 53,
+                "cells": [
+                    "46",
+                    "0R/1608",
+                    "Resistor, 1%, 1608, 1/16W, "
+                    "Resistor, 1%, 1608, 1/10W",
+                    "RES 0603/1608",
+                    "R17,R25",
+                    "2",
+                ],
+            },
+            {
+                "row_id": 61,
+                "cells": [
+                    "54",
+                    "1M/2012",
+                    "Resistor, 1%, 1005, 1/16W, "
+                    "Resistor, 1%, 2012, 1/8W",
+                    "RES 0805/2012",
+                    "R184,R195,R220",
+                    "3",
+                ],
+            },
+            {
+                "row_id": 63,
+                "cells": [
+                    "56",
+                    "1k/1608",
+                    "Resistor, 1%, 1608, 1/10W",
+                    "RES 0603/1608",
+                    "R186,R282",
+                    "2",
+                ],
+            },
+            {
+                "row_id": 64,
+                "cells": [
+                    "57",
+                    "1608Ω",
+                    "Resistor, 1%, 1608, 1/10W",
+                    "RES 0603/1608",
+                    "R188",
+                    "1",
+                ],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+    zero_ohm, one_megohm, one_kilohm, explicit_1608_ohm = components
+
+    assert zero_ohm["resistance_ohm"] == 0.0
+    assert one_megohm["resistance_ohm"] == 1_000_000.0
+    assert one_kilohm["resistance_ohm"] == 1_000.0
+    assert explicit_1608_ohm["resistance_ohm"] == 1_608.0
+    for component in components:
+        assert "resistance_input_source_conflict" not in component["quality_flags"]
+        assert "resistance" not in component["input_alternatives"]
+
+
 def test_value_and_package_source_conflicts_are_reviewable():
     case = _case(
         ["Value", "Value", "Package", "Designator", "Quantity"],
