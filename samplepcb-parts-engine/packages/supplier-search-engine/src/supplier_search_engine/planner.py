@@ -87,10 +87,13 @@ _GENERIC_LIBRARY_IDENTITY = re.compile(
 _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("resistor", ("resistor", "저항")),
     ("inductor", ("inductor", "인덕터", "코일")),
+    ("diode", ("diode", "다이오드")),
+    ("transistor", ("transistor", "mosfet", "fet", "트랜지스터")),
     ("crystal", ("crystal", "oscillator", "크리스털", "수정", "발진기")),
     ("capacitor", ("capacitor", "커패시터", "콘덴서")),
     ("led", ("led", "발광다이오드")),
     ("connector", ("connector", "header", "socket", "커넥터", "헤더")),
+    ("switch", ("switch", "스위치")),
     ("varistor", ("varistor", "배리스터")),
     ("buzzer", ("buzzer", "부저")),
 )
@@ -117,6 +120,26 @@ _MULTISOURCE_MANUFACTURER = re.compile(
     r"(?:^|[/,;|\s])(?:ANY|MULTI(?:PLE)?|VARIOUS|GENERIC|무관|다수)(?:$|[/,;|\s])",
     re.I,
 )
+_USER_CATEGORY_POLICIES = {
+    "resistor": "resistor",
+    "diode": "diode",
+    "transistor": "transistor",
+    "led": "led",
+    "crystal": "crystal",
+    "connector": "connector",
+    "switch": "switch",
+}
+_USER_PRIMARY_REQUIREMENTS = {
+    "resistor": "resistance_ohm",
+    "capacitor": "capacitance_f",
+    "inductor": "inductance_h",
+    "diode": "voltage_v",
+    "transistor": "voltage_v",
+    "led": "color",
+    "crystal": "frequency_hz",
+    "connector": "pin_count",
+    "switch": "device_kind",
+}
 
 
 def _package_from_pseudo_part_number(
@@ -300,16 +323,23 @@ class QueryPlanner:
             component.footprint,
         )
         if user_requirements is not None:
-            category_policy = (
-                "resistor"
-                if user_requirements.component_type == "resistor"
-                else {
+            if user_requirements.component_type == "capacitor":
+                category_policy = {
                     "ceramic": "capacitor",
                     "electrolytic": "electrolytic",
                     "tantalum": "tantalum",
                     "film": "film",
                 }.get(user_requirements.capacitor_type or "")
-            )
+            elif user_requirements.component_type == "inductor":
+                category_policy = (
+                    "ferrite"
+                    if user_requirements.inductor_type == "ferrite"
+                    else "inductor"
+                )
+            else:
+                category_policy = _USER_CATEGORY_POLICIES.get(
+                    user_requirements.component_type
+                )
         if category_policy == "ferrite":
             requirements.pop("resistance_ohm", None)
             requirements.pop("frequency_hz", None)
@@ -519,7 +549,12 @@ class QueryPlanner:
             if item.hard and item.name not in {"part_type"}
         ]
 
-        if part_number and pn.status == "extracted":
+        if user_requirements is not None:
+            # UserSearchRequirements validates the category-specific retrieval
+            # minimum before planning.  The resulting candidates are still
+            # subject to the engine-owned matching/selection policy.
+            mode = SearchMode.PARAMETRIC
+        elif part_number and pn.status == "extracted":
             mode = SearchMode.IDENTITY
         elif part_number:
             mode = SearchMode.HYBRID
@@ -553,9 +588,10 @@ class QueryPlanner:
             # recall and make equivalent unit/package spellings brittle.
             if user_requirements is not None:
                 primary_requirement = requirements.get(
-                    "resistance_ohm"
-                    if user_requirements.component_type == "resistor"
-                    else "capacitance_f"
+                    "impedance_ohm"
+                    if user_requirements.component_type == "inductor"
+                    and user_requirements.inductor_type == "ferrite"
+                    else _USER_PRIMARY_REQUIREMENTS[user_requirements.component_type]
                 )
                 if primary_requirement is not None:
                     keyword_parts.append(str(primary_requirement.raw_value))
@@ -590,8 +626,19 @@ class QueryPlanner:
                 if package_requirement and package_requirement.normalized_value:
                     keyword_parts.append(str(package_requirement.normalized_value))
                 keyword_parts.append("ferrite bead")
-            elif category_policy in {"led", "connector", "varistor", "buzzer"}:
+            elif category_policy in {
+                "led",
+                "connector",
+                "diode",
+                "transistor",
+                "crystal",
+                "switch",
+                "varistor",
+                "buzzer",
+            }:
                 keyword_parts = []
+                if "frequency_hz" in requirements:
+                    keyword_parts.append(str(requirements["frequency_hz"].raw_value))
                 if "color" in requirements:
                     keyword_parts.append(str(requirements["color"].raw_value))
                 if "pin_count" in requirements:
@@ -609,6 +656,16 @@ class QueryPlanner:
                     )
                 if "package" in requirements:
                     keyword_parts.append(str(requirements["package"].raw_value))
+                for name in (
+                    "device_kind",
+                    "polarity",
+                    "gender",
+                    "orientation",
+                    "contact_form",
+                ):
+                    requirement = requirements.get(name)
+                    if requirement is not None:
+                        keyword_parts.append(str(requirement.raw_value))
                 keyword_parts.append(category_policy)
             if not keyword_parts and description:
                 keyword_parts.append(description)
@@ -852,14 +909,25 @@ class QueryPlanner:
             lambda value: parse_capacitance_f(value, allow_code=True),
             "eq",
         )
+        apply("inductance_h", user.inductance, parse_inductance_h, "eq")
+        apply("impedance_ohm", user.impedance, parse_resistance_ohm, "eq")
+        apply(
+            "impedance_frequency_hz",
+            user.impedance_frequency,
+            parse_frequency_hz,
+            "eq",
+        )
+        apply("frequency_hz", user.frequency, parse_frequency_hz, "eq")
         apply("tolerance_percent", user.tolerance, parse_tolerance_percent, "lte")
         apply("voltage_v", user.voltage, parse_voltage_v, "gte")
+        apply("current_a", user.current, parse_current_a, "gte")
         apply("power_w", user.power, parse_power_w, "gte")
 
         mechanical_diameter = (
             source_diameter_mm(f"electrolytic {user.package}")
             if user.component_type == "capacitor"
             and user.capacitor_type == "electrolytic"
+            and user.package is not None
             and _MECHANICAL_PACKAGE_DIMENSION.fullmatch(user.package.strip())
             else None
         )
@@ -875,17 +943,18 @@ class QueryPlanner:
             )
         else:
             requirements.pop("diameter_mm", None)
-            normalized_package = normalize_package(user.package, part_type)
-            if not normalized_package:
-                raise ValueError("user_requirement_invalid:package")
-            requirements["package"] = Requirement(
-                name="package",
-                raw_value=user.package,
-                normalized_value=normalized_package,
-                status="user",
-                hard=True,
-                comparison="eq",
-            )
+            if user.package is not None:
+                normalized_package = normalize_package(user.package, part_type)
+                if not normalized_package:
+                    raise ValueError("user_requirement_invalid:package")
+                requirements["package"] = Requirement(
+                    name="package",
+                    raw_value=user.package,
+                    normalized_value=normalized_package,
+                    status="user",
+                    hard=True,
+                    comparison="eq",
+                )
         if user.dielectric is None:
             requirements.pop("dielectric", None)
         else:
@@ -909,6 +978,86 @@ class QueryPlanner:
                 hard=True,
                 comparison="eq",
             )
+
+        requirements["part_type"] = Requirement(
+            name="part_type",
+            raw_value=user.component_type,
+            normalized_value=user.component_type,
+            status="user",
+            hard=True,
+            comparison="category",
+        )
+        if user.color is not None:
+            requirements["color"] = Requirement(
+                name="color",
+                raw_value=user.color,
+                normalized_value=user.color.strip().casefold(),
+                status="user",
+                hard=True,
+                comparison="eq",
+            )
+        for name, value in (
+            ("pin_count", user.pin_count),
+            ("row_count", user.row_count),
+        ):
+            if value is not None:
+                requirements[name] = Requirement(
+                    name=name,
+                    raw_value=value,
+                    normalized_value=value,
+                    status="user",
+                    hard=True,
+                    comparison="eq",
+                )
+        if user.pitch is not None:
+            match = re.fullmatch(
+                r"\s*(\d+(?:[.,]\d+)?)\s*(?:mm)?\s*",
+                user.pitch,
+                re.I,
+            )
+            if match is None:
+                raise ValueError("user_requirement_invalid:pitch_mm")
+            pitch_mm = float(match.group(1).replace(",", "."))
+            if pitch_mm <= 0:
+                raise ValueError("user_requirement_invalid:pitch_mm")
+            requirements["pitch_mm"] = Requirement(
+                name="pitch_mm",
+                raw_value=user.pitch,
+                normalized_value=pitch_mm,
+                status="user",
+                hard=True,
+                comparison="eq",
+            )
+
+        device_kind = next(
+            (
+                value
+                for value in (
+                    user.diode_type,
+                    user.transistor_type,
+                    user.crystal_type,
+                    user.switch_type,
+                )
+                if value is not None
+            ),
+            None,
+        )
+        for name, value in (
+            ("device_kind", device_kind),
+            ("polarity", user.polarity),
+            ("gender", user.gender),
+            ("orientation", user.orientation),
+            ("contact_form", user.contact_form),
+        ):
+            if value is not None:
+                requirements[name] = Requirement(
+                    name=name,
+                    raw_value=value,
+                    normalized_value=value,
+                    status="user",
+                    hard=False,
+                    comparison="eq",
+                )
 
     @staticmethod
     def _apply_requirement_defaults(

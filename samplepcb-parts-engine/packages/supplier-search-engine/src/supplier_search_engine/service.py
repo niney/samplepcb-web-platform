@@ -1597,7 +1597,24 @@ class SearchService:
             return False
         if (
             query.mode == SearchMode.PARAMETRIC
-            and query.category_policy in {"led", "connector"}
+            and (
+                query.category_policy in {"led", "connector"}
+                or (
+                    query.category_policy
+                    in {
+                        "inductor",
+                        "ferrite",
+                        "diode",
+                        "transistor",
+                        "crystal",
+                        "switch",
+                    }
+                    and any(
+                        requirement.status == "user"
+                        for requirement in query.requirements.values()
+                    )
+                )
+            )
         ):
             return False
         source_conflicts = {

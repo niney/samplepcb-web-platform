@@ -97,41 +97,197 @@ class UserSearchRequirements(BaseModel):
     """사용자가 원본 BOM과 별도로 확정한 행 단위 검색조건.
 
     원본 추출값과 provenance를 덮어쓰지 않고 QueryPlanner가 마지막에 병합한다.
-    TCR은 v1 범위에서 의도적으로 제외한다.
+    TCR은 사용자 보완 범위에서 의도적으로 제외한다.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal["bom-user-search-requirements-v1"] = (
-        "bom-user-search-requirements-v1"
-    )
-    component_type: Literal["resistor", "capacitor"]
+    version: Literal[
+        "bom-user-search-requirements-v1",
+        "bom-user-search-requirements-v2",
+    ] = "bom-user-search-requirements-v2"
+    component_type: Literal[
+        "resistor",
+        "capacitor",
+        "inductor",
+        "diode",
+        "transistor",
+        "led",
+        "crystal",
+        "connector",
+        "switch",
+    ]
     capacitor_type: Literal["ceramic", "electrolytic", "tantalum", "film"] | None = None
+    inductor_type: Literal["standard", "ferrite"] | None = None
+    diode_type: Literal[
+        "rectifier", "signal", "schottky", "zener", "tvs", "photodiode"
+    ] | None = None
+    transistor_type: Literal["bjt", "mosfet"] | None = None
+    polarity: Literal["npn", "pnp", "n-channel", "p-channel"] | None = None
+    crystal_type: Literal["crystal", "oscillator", "resonator"] | None = None
+    switch_type: Literal[
+        "tactile",
+        "pushbutton",
+        "slide",
+        "toggle",
+        "dip",
+        "rotary",
+        "reed",
+        "other",
+    ] | None = None
     resistance: str | None = Field(default=None, min_length=1, max_length=64)
     capacitance: str | None = Field(default=None, min_length=1, max_length=64)
-    package: str = Field(min_length=1, max_length=64)
+    inductance: str | None = Field(default=None, min_length=1, max_length=64)
+    impedance: str | None = Field(default=None, min_length=1, max_length=64)
+    impedance_frequency: str | None = Field(default=None, min_length=1, max_length=64)
+    frequency: str | None = Field(default=None, min_length=1, max_length=64)
+    package: str | None = Field(default=None, min_length=1, max_length=64)
     tolerance: str | None = Field(default=None, min_length=1, max_length=64)
     voltage: str | None = Field(default=None, min_length=1, max_length=64)
+    current: str | None = Field(default=None, min_length=1, max_length=64)
     power: str | None = Field(default=None, min_length=1, max_length=64)
     dielectric: str | None = Field(default=None, min_length=1, max_length=32)
+    color: str | None = Field(default=None, min_length=1, max_length=32)
+    pin_count: int | None = Field(default=None, ge=1, le=1000)
+    pitch: str | None = Field(default=None, min_length=1, max_length=32)
+    row_count: int | None = Field(default=None, ge=1, le=100)
+    gender: Literal["male", "female", "genderless"] | None = None
+    orientation: Literal["straight", "right-angle", "vertical"] | None = None
+    contact_form: str | None = Field(default=None, min_length=1, max_length=64)
     mount_style: Literal["smd", "through-hole"] | None = None
 
     @model_validator(mode="after")
     def validate_component_requirements(self) -> "UserSearchRequirements":
+        if (
+            self.version == "bom-user-search-requirements-v1"
+            and self.component_type not in {"resistor", "capacitor"}
+        ):
+            raise ValueError("v1 only supports resistor and capacitor search")
+
+        required: dict[str, tuple[str, ...]] = {
+            "resistor": ("resistance", "package"),
+            "capacitor": ("capacitor_type", "capacitance", "package"),
+            "diode": ("diode_type", "package"),
+            "transistor": ("transistor_type", "polarity", "package"),
+            "led": ("color", "package"),
+            "crystal": ("crystal_type", "frequency", "package"),
+            "connector": ("pin_count", "pitch"),
+            "switch": ("switch_type", "package"),
+        }
+        missing = [
+            name
+            for name in required.get(self.component_type, ())
+            if getattr(self, name) is None
+        ]
+        if self.component_type == "inductor":
+            if self.inductor_type is None:
+                missing.append("inductor_type")
+            if self.package is None:
+                missing.append("package")
+            primary = "impedance" if self.inductor_type == "ferrite" else "inductance"
+            if getattr(self, primary) is None:
+                missing.append(primary)
+        if self.component_type == "diode" and self.diode_type in {"zener", "tvs"}:
+            if self.voltage is None:
+                missing.append("voltage")
+        if missing:
+            raise ValueError(
+                f"{', '.join(dict.fromkeys(missing))} required for "
+                f"{self.component_type} search"
+            )
+
+        type_fields = {
+            "capacitor_type",
+            "inductor_type",
+            "diode_type",
+            "transistor_type",
+            "polarity",
+            "crystal_type",
+            "switch_type",
+            "resistance",
+            "capacitance",
+            "inductance",
+            "impedance",
+            "impedance_frequency",
+            "frequency",
+            "tolerance",
+            "voltage",
+            "current",
+            "power",
+            "dielectric",
+            "color",
+            "pin_count",
+            "pitch",
+            "row_count",
+            "gender",
+            "orientation",
+            "contact_form",
+        }
+        allowed: dict[str, set[str]] = {
+            "resistor": {"resistance", "tolerance", "power"},
+            "capacitor": {
+                "capacitor_type",
+                "capacitance",
+                "tolerance",
+                "voltage",
+                "dielectric",
+            },
+            "inductor": {
+                "inductor_type",
+                "inductance",
+                "impedance",
+                "impedance_frequency",
+                "tolerance",
+                "current",
+            },
+            "diode": {"diode_type", "voltage", "current", "power"},
+            "transistor": {
+                "transistor_type",
+                "polarity",
+                "voltage",
+                "current",
+                "power",
+            },
+            "led": {"color", "voltage", "current"},
+            "crystal": {"crystal_type", "frequency", "tolerance"},
+            "connector": {
+                "pin_count",
+                "pitch",
+                "row_count",
+                "gender",
+                "orientation",
+            },
+            "switch": {
+                "switch_type",
+                "contact_form",
+                "voltage",
+                "current",
+            },
+        }
+        invalid = sorted(
+            name
+            for name in type_fields - allowed[self.component_type]
+            if getattr(self, name) is not None
+        )
+        if invalid:
+            raise ValueError(
+                f"{', '.join(invalid)} not valid for {self.component_type} search"
+            )
+
+        if self.component_type == "transistor":
+            valid_polarities = (
+                {"npn", "pnp"}
+                if self.transistor_type == "bjt"
+                else {"n-channel", "p-channel"}
+            )
+            if self.polarity not in valid_polarities:
+                raise ValueError(
+                    f"{self.polarity} is not valid for {self.transistor_type}"
+                )
+
         if self.component_type == "resistor":
-            if self.resistance is None:
-                raise ValueError("resistance is required for resistor search")
-            if self.capacitance is not None or self.capacitor_type is not None:
-                raise ValueError("capacitor fields are not valid for resistor search")
-            if self.voltage is not None or self.dielectric is not None:
-                raise ValueError("capacitor ratings are not valid for resistor search")
-        else:
-            if self.capacitance is None:
-                raise ValueError("capacitance is required for capacitor search")
-            if self.capacitor_type is None:
-                raise ValueError("capacitor_type is required for capacitor search")
-            if self.resistance is not None or self.power is not None:
-                raise ValueError("resistor fields are not valid for capacitor search")
+            return self
+        if self.component_type == "capacitor":
             if self.capacitor_type != "ceramic" and self.dielectric is not None:
                 raise ValueError("dielectric is only valid for ceramic capacitors")
         return self

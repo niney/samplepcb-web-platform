@@ -87,6 +87,32 @@ _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
     "buzzer": ("voltage_v", "frequency_hz", "mount_style"),
     "crystal": ("frequency_hz", "tolerance_percent", "package"),
 }
+_USER_CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
+    # 기존 저항·캐패시터 자동선정 안전조건은 그대로 유지한다.
+    "resistor": _CATEGORY_POLICY["resistor"],
+    "capacitor": _CATEGORY_POLICY["capacitor"],
+    "electrolytic": _CATEGORY_POLICY["electrolytic"],
+    "tantalum": _CATEGORY_POLICY["tantalum"],
+    "film": _CATEGORY_POLICY["film"],
+    "inductor": ("inductance_h", "package"),
+    "ferrite": ("impedance_ohm", "package"),
+    "diode": ("package",),
+    "transistor": ("package",),
+    "led": ("color", "package"),
+    "crystal": ("frequency_hz", "package"),
+    "connector": ("pin_count", "pitch_mm"),
+    "switch": ("package",),
+}
+_USER_MANUAL_REVIEW_POLICIES = {
+    "inductor",
+    "ferrite",
+    "diode",
+    "transistor",
+    "led",
+    "crystal",
+    "connector",
+    "switch",
+}
 _PHYSICAL_REQUIREMENTS = {"mount_style", "diameter_mm"}
 _SOURCE_CONFLICTS = {
     "manufacturer_source_conflict",
@@ -206,7 +232,16 @@ def _category_fields(query: PlannedQuery) -> tuple[str, ...] | None:
             ),
             None,
         )
-    fields = _CATEGORY_POLICY.get(policy) if policy else None
+    user_override = any(
+        requirement.status == "user" for requirement in query.requirements.values()
+    )
+    fields = (
+        _USER_CATEGORY_POLICY.get(policy)
+        if user_override and policy
+        else _CATEGORY_POLICY.get(policy)
+        if policy
+        else None
+    )
     if (
         policy == "electrolytic"
         and fields is not None
@@ -488,7 +523,16 @@ def _candidate_decision(
     elif (
         relation == MatchRelation.SPEC_COMPATIBLE
         and query.mode == SearchMode.PARAMETRIC
-        and query.category_policy in {"led", "connector"}
+        and (
+            query.category_policy in {"led", "connector"}
+            or (
+                query.category_policy in _USER_MANUAL_REVIEW_POLICIES
+                and any(
+                    requirement.status == "user"
+                    for requirement in query.requirements.values()
+                )
+            )
+        )
     ):
         eligibility = SelectionEligibility.MANUAL_REVIEW
     elif relation == MatchRelation.SPEC_COMPATIBLE:
@@ -529,10 +573,19 @@ def _candidate_decision(
         reason_codes.append("verification_incomplete")
     if query.mode == SearchMode.PARAMETRIC and not strict:
         reason_codes.append("strict_category_coverage_incomplete")
-    if query.mode == SearchMode.PARAMETRIC and query.category_policy in {
-        "led",
-        "connector",
-    }:
+    if (
+        query.mode == SearchMode.PARAMETRIC
+        and (
+            query.category_policy in {"led", "connector"}
+            or (
+                query.category_policy in _USER_MANUAL_REVIEW_POLICIES
+                and any(
+                    requirement.status == "user"
+                    for requirement in query.requirements.values()
+                )
+            )
+        )
+    ):
         reason_codes.append("category_manual_selection_only")
     if lifecycle == LifecycleState.CAUTION:
         reason_codes.append("lifecycle_caution")
@@ -754,6 +807,15 @@ def _category_matches(
         ),
         "connector": ("connector", "header", "커넥터"),
         "led": ("led", "light emitting"),
+        "switch": (
+            "switch",
+            "pushbutton",
+            "push button",
+            "tactile",
+            "toggle",
+            "rotary",
+            "스위치",
+        ),
         "crystal": (
             "crystal",
             "oscillator",
@@ -784,6 +846,7 @@ def infer_supplier_part_type(product: SupplierProduct) -> str | None:
         "connector",
         "led",
         "crystal",
+        "switch",
     )
     matches = [
         part_type

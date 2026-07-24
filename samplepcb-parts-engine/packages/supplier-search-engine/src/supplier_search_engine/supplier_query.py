@@ -26,11 +26,46 @@ _SPEC_ORDER = {
     ),
     "tantalum": ("capacitance_f", "voltage_v", "tolerance_percent", "package"),
     "film": ("capacitance_f", "voltage_v", "tolerance_percent", "package"),
-    "inductor": ("inductance_h", "current_a", "tolerance_percent", "package"),
-    "crystal": ("frequency_hz", "tolerance_percent", "package"),
+    "inductor": (
+        "inductance_h",
+        "current_a",
+        "tolerance_percent",
+        "package",
+        "device_kind",
+    ),
+    "diode": (
+        "voltage_v",
+        "current_a",
+        "power_w",
+        "package",
+        "device_kind",
+    ),
+    "transistor": (
+        "voltage_v",
+        "current_a",
+        "power_w",
+        "package",
+        "device_kind",
+        "polarity",
+    ),
+    "crystal": ("frequency_hz", "tolerance_percent", "package", "device_kind"),
     "ferrite": ("impedance_ohm", "impedance_frequency_hz", "current_a", "package"),
     "led": ("color", "package", "mount_style"),
-    "connector": ("pin_count", "row_count", "pitch_mm", "mount_style"),
+    "connector": (
+        "pin_count",
+        "row_count",
+        "pitch_mm",
+        "package",
+        "mount_style",
+        "gender",
+        "orientation",
+    ),
+    "switch": (
+        "package",
+        "mount_style",
+        "device_kind",
+        "contact_form",
+    ),
     "varistor": ("voltage_v", "diameter_mm", "mount_style"),
     "buzzer": ("voltage_v", "frequency_hz", "mount_style"),
 }
@@ -39,6 +74,15 @@ _CORE_SPEC = {
     "capacitor": "capacitance_f",
     "inductor": "inductance_h",
     "crystal": "frequency_hz",
+    "led": "color",
+    "connector": "pin_count",
+}
+_SEARCH_HINT_REQUIREMENTS = {
+    "device_kind",
+    "polarity",
+    "gender",
+    "orientation",
+    "contact_form",
 }
 
 
@@ -70,6 +114,8 @@ def _requirement_token(
         return str(value or requirement.raw_value).strip().upper() or None
     if name == "color":
         return str(value or requirement.raw_value).strip().casefold() or None
+    if name in _SEARCH_HINT_REQUIREMENTS:
+        return str(value or requirement.raw_value).strip().replace("-", " ") or None
     if not isinstance(value, (int, float)):
         return None
     numeric = float(value)
@@ -159,6 +205,9 @@ def _category_token(query: PlannedQuery, supplier: Supplier | None) -> str | Non
         "crystal": "crystal",
         "led": "led",
         "connector": "connector",
+        "diode": "diode",
+        "transistor": "transistor",
+        "switch": "switch",
         "varistor": "varistor",
         "buzzer": "buzzer",
     }.get(category)
@@ -173,7 +222,13 @@ def _tokens(
     ferrite_bead = is_ferrite_bead_query(query)
     for name in names:
         requirement = query.requirements.get(name)
-        if requirement is None or not requirement.hard:
+        if requirement is None or (
+            not requirement.hard
+            and not (
+                requirement.status == "user"
+                and name in _SEARCH_HINT_REQUIREMENTS
+            )
+        ):
             continue
         token = _requirement_token(
             name,

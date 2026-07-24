@@ -123,22 +123,84 @@ function engineRequirementOverride(
     version: requirements.version,
     component_type: requirements.componentType,
     package: requirements.packageCode,
-    tolerance: requirements.tolerance,
     mount_style: requirements.mountStyle,
   };
-  return requirements.componentType === 'resistor'
-    ? {
+  switch (requirements.componentType) {
+    case 'resistor':
+      return {
         ...common,
+        tolerance: requirements.tolerance,
         resistance: requirements.resistance,
         power: requirements.power,
-      }
-    : {
+      };
+    case 'capacitor':
+      return {
         ...common,
+        tolerance: requirements.tolerance,
         capacitor_type: requirements.capacitorType,
         capacitance: requirements.capacitance,
         voltage: requirements.voltage,
         dielectric: requirements.dielectric,
       };
+    case 'inductor':
+      return {
+        ...common,
+        inductor_type: requirements.inductorType,
+        inductance: requirements.inductance,
+        impedance: requirements.impedance,
+        impedance_frequency: requirements.impedanceFrequency,
+        current: requirements.current,
+        tolerance: requirements.tolerance,
+      };
+    case 'diode':
+      return {
+        ...common,
+        diode_type: requirements.diodeType,
+        voltage: requirements.voltage,
+        current: requirements.current,
+        power: requirements.power,
+      };
+    case 'transistor':
+      return {
+        ...common,
+        transistor_type: requirements.transistorType,
+        polarity: requirements.polarity,
+        voltage: requirements.voltage,
+        current: requirements.current,
+        power: requirements.power,
+      };
+    case 'led':
+      return {
+        ...common,
+        color: requirements.color,
+        voltage: requirements.voltage,
+        current: requirements.current,
+      };
+    case 'crystal':
+      return {
+        ...common,
+        crystal_type: requirements.crystalType,
+        frequency: requirements.frequency,
+        tolerance: requirements.tolerance,
+      };
+    case 'connector':
+      return {
+        ...common,
+        pin_count: requirements.pinCount,
+        pitch: requirements.pitch,
+        row_count: requirements.rowCount,
+        gender: requirements.gender,
+        orientation: requirements.orientation,
+      };
+    case 'switch':
+      return {
+        ...common,
+        switch_type: requirements.switchType,
+        contact_form: requirements.contactForm,
+        voltage: requirements.voltage,
+        current: requirements.current,
+      };
+  }
 }
 
 const EnginePassiveDefaults = z.object({
@@ -957,7 +1019,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     return { result: true as const, data };
   });
 
-  // 원본 추출값은 불변으로 두고 사용자가 보완한 저항/캐패시터 조건으로 해당 행만 재검색한다.
+  // 원본 추출값은 불변으로 두고 사용자가 보완한 유형별 조건으로 해당 행만 재검색한다.
   fastify.put('/bom/quotes/:id/items/:itemId/search-requirements', {
     schema: {
       params: ItemParams,
@@ -987,7 +1049,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
 
     const storedRequirements: BomQuoteSearchRequirementsType = {
       ...request.body,
-      version: 'bom-user-search-requirements-v1',
+      version: 'bom-user-search-requirements-v2',
       updatedAt: new Date().toISOString(),
       updatedBy: request.user.mbId,
     };

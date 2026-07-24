@@ -256,6 +256,47 @@ def test_persisted_user_requirements_and_component_filter_reach_search_batch(tmp
     assert query.requirements["package"].status == "user"
 
 
+def test_v2_connector_requirements_reach_preflight_batch(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    component_id = build_batch_from_result(analysis).components[0].component_id
+
+    created = client.post(
+        "/supplier-jobs",
+        json={
+            "analysis": analysis,
+            "requirement_overrides": {
+                component_id: {
+                    "version": "bom-user-search-requirements-v2",
+                    "component_type": "connector",
+                    "pin_count": 4,
+                    "pitch": "2.54mm",
+                    "package": None,
+                }
+            },
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    supplier_job = client.app.state.jobs.get(created.json()["job_id"])
+    batch = client.app.state.jobs._supplier_batch(
+        supplier_job,
+        SupplierSearchOptions(max_calls=5, component_ids=(component_id,)),
+    )
+    query = QueryPlanner().plan(batch.components[0])
+    assert query.mode == SearchMode.PARAMETRIC
+    assert query.category_policy == "connector"
+    assert query.requirements["pin_count"].normalized_value == 4
+    assert query.requirements["pitch_mm"].normalized_value == 2.54
+
+
 def test_supplier_preflight_accepts_unitless_capacitance_prefix_override(tmp_path):
     client = _client(tmp_path)
     upload = client.post(

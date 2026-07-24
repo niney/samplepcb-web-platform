@@ -14,6 +14,16 @@ def requirement(name: str, value: float | str) -> Requirement:
     )
 
 
+def user_hint(name: str, value: str) -> Requirement:
+    return Requirement(
+        name=name,
+        raw_value=value,
+        normalized_value=value,
+        status="user",
+        hard=False,
+    )
+
+
 def test_resistor_query_uses_full_verified_spec_then_core_fallback():
     query = PlannedQuery(
         component_id="r1",
@@ -95,4 +105,37 @@ def test_supplier_queries_keep_large_electrolytics_in_microfarads():
     )
     assert supplier_spec_keywords(query, Supplier.MOUSER) == (
         "1000uF 10V electrolytic capacitor"
+    )
+
+
+def test_new_category_queries_include_user_classification_hints():
+    transistor = PlannedQuery(
+        component_id="q1",
+        mode=SearchMode.PARAMETRIC,
+        part_type="transistor",
+        category_policy="transistor",
+        requirements={
+            "package": requirement("package", "SOT-23"),
+            "device_kind": user_hint("device_kind", "mosfet"),
+            "polarity": user_hint("polarity", "n-channel"),
+        },
+    )
+    connector = PlannedQuery(
+        component_id="j1",
+        mode=SearchMode.PARAMETRIC,
+        part_type="connector",
+        category_policy="connector",
+        requirements={
+            "pin_count": requirement("pin_count", 4),
+            "pitch_mm": requirement("pitch_mm", 2.54),
+            "gender": user_hint("gender", "male"),
+            "orientation": user_hint("orientation", "right-angle"),
+        },
+    )
+
+    assert supplier_spec_keywords(transistor, Supplier.DIGIKEY) == (
+        "SOT23 mosfet n channel transistor"
+    )
+    assert supplier_spec_keywords(connector, Supplier.DIGIKEY) == (
+        "4 pin 2.54mm pitch male right angle connector"
     )

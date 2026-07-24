@@ -494,6 +494,148 @@ def test_user_electrolytic_mechanical_package_becomes_diameter_requirement():
     assert match.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
 
 
+@pytest.mark.parametrize(
+    ("requirements", "category", "package", "normalized_specs", "policy"),
+    [
+        (
+            {
+                "component_type": "inductor",
+                "inductor_type": "standard",
+                "inductance": "10uH",
+                "package": "0603",
+            },
+            "Power Inductors",
+            "0603",
+            {"inductance_h": 10e-6, "package": "0603"},
+            "inductor",
+        ),
+        (
+            {
+                "component_type": "inductor",
+                "inductor_type": "ferrite",
+                "impedance": "120 ohm",
+                "package": "0603",
+            },
+            "Ferrite Beads",
+            "0603",
+            {"impedance_ohm": 120.0, "package": "0603"},
+            "ferrite",
+        ),
+        (
+            {
+                "component_type": "diode",
+                "diode_type": "rectifier",
+                "package": "SOD-123",
+            },
+            "Rectifier Diodes",
+            "SOD-123",
+            {"package": "SOD-123"},
+            "diode",
+        ),
+        (
+            {
+                "component_type": "transistor",
+                "transistor_type": "mosfet",
+                "polarity": "n-channel",
+                "package": "SOT-23",
+            },
+            "MOSFETs",
+            "SOT-23",
+            {"package": "SOT-23"},
+            "transistor",
+        ),
+        (
+            {
+                "component_type": "led",
+                "color": "red",
+                "package": "0603",
+            },
+            "LED Indication",
+            "0603",
+            {"color": "red", "package": "0603"},
+            "led",
+        ),
+        (
+            {
+                "component_type": "crystal",
+                "crystal_type": "crystal",
+                "frequency": "16MHz",
+                "package": "3225",
+            },
+            "Crystals",
+            "3225",
+            {"frequency_hz": 16e6, "package": "3225"},
+            "crystal",
+        ),
+        (
+            {
+                "component_type": "connector",
+                "pin_count": 4,
+                "pitch": "2.54mm",
+            },
+            "Rectangular Connectors",
+            None,
+            {"pin_count": 4, "pitch_mm": 2.54},
+            "connector",
+        ),
+        (
+            {
+                "component_type": "switch",
+                "switch_type": "tactile",
+                "package": "6x6mm",
+            },
+            "Tactile Switches",
+            "6x6mm",
+            {"package": "6X6MM"},
+            "switch",
+        ),
+    ],
+)
+def test_user_requirements_start_new_category_search_but_keep_manual_selection(
+    requirements,
+    category,
+    package,
+    normalized_specs,
+    policy,
+):
+    item = component(part_type=policy)
+    item.user_requirements = UserSearchRequirements(**requirements)
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number=f"{policy}-candidate",
+        category=category,
+        package=package,
+        normalized_specs=normalized_specs,
+    )
+
+    match = CandidateMatcher().evaluate(query, product)
+
+    assert query.mode.value == "parametric"
+    assert query.category_policy == policy
+    assert query.requirements["part_type"].status == "user"
+    assert match.decision.match_relation.value == "spec-compatible"
+    assert match.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert "category_manual_selection_only" in match.decision.reason_codes
+
+
+def test_new_user_requirement_minimums_reject_unsafe_or_legacy_inputs():
+    with pytest.raises(ValueError, match="voltage required"):
+        UserSearchRequirements(
+            component_type="diode",
+            diode_type="zener",
+            package="SOD-123",
+        )
+
+    with pytest.raises(ValueError, match="v1 only supports"):
+        UserSearchRequirements(
+            version="bom-user-search-requirements-v1",
+            component_type="led",
+            color="red",
+            package="0603",
+        )
+
+
 def test_planner_freezes_category_policy_from_bom_evidence():
     ceramic = QueryPlanner().plan(
         component(part_type="capacitor", description="MLCC 10uF X5R")

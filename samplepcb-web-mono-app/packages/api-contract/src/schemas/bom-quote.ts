@@ -228,19 +228,25 @@ export type BomQuoteCandidateSelectionEligibilityType = z.infer<typeof BomQuoteC
 export const BomQuoteCandidateSelectionRecommendation = z.enum(['preselect', 'candidate_only', 'exclude']);
 export type BomQuoteCandidateSelectionRecommendationType = z.infer<typeof BomQuoteCandidateSelectionRecommendation>;
 
-const BomQuoteSearchRequirementsBase = z.object({
-  packageCode: z.string().trim().min(1).max(64),
-  tolerance: z.string().trim().min(1).max(64).nullable(),
+const BomQuoteSearchRequirementsPhysicalBase = z.object({
   mountStyle: z.enum(['smd', 'through-hole']).nullable(),
 });
 
-const BomQuoteResistorSearchRequirements = BomQuoteSearchRequirementsBase.extend({
+const BomQuoteSearchRequirementsPackagedBase = BomQuoteSearchRequirementsPhysicalBase.extend({
+  packageCode: z.string().trim().min(1).max(64),
+});
+
+const BomQuoteSearchRequirementsPassiveBase = BomQuoteSearchRequirementsPackagedBase.extend({
+  tolerance: z.string().trim().min(1).max(64).nullable(),
+});
+
+const BomQuoteResistorSearchRequirements = BomQuoteSearchRequirementsPassiveBase.extend({
   componentType: z.literal('resistor'),
   resistance: z.string().trim().min(1).max(64),
   power: z.string().trim().min(1).max(64).nullable(),
 }).strict();
 
-const BomQuoteCapacitorSearchRequirements = BomQuoteSearchRequirementsBase.extend({
+const BomQuoteCapacitorSearchRequirements = BomQuoteSearchRequirementsPassiveBase.extend({
   componentType: z.literal('capacitor'),
   capacitorType: z.enum(['ceramic', 'electrolytic', 'tantalum', 'film']),
   capacitance: z.string().trim().min(1).max(64),
@@ -248,10 +254,87 @@ const BomQuoteCapacitorSearchRequirements = BomQuoteSearchRequirementsBase.exten
   dielectric: z.string().trim().min(1).max(32).nullable(),
 }).strict();
 
-/** 원본 BOM을 덮어쓰지 않고 해당 견적 행의 스펙 검색에만 적용하는 사용자 명령. */
-export const BomQuoteSearchRequirementsBody = z.discriminatedUnion('componentType', [
+const BomQuoteInductorSearchRequirements = BomQuoteSearchRequirementsPassiveBase.extend({
+  componentType: z.literal('inductor'),
+  inductorType: z.enum(['standard', 'ferrite']),
+  inductance: z.string().trim().min(1).max(64).nullable(),
+  impedance: z.string().trim().min(1).max(64).nullable(),
+  impedanceFrequency: z.string().trim().min(1).max(64).nullable(),
+  current: z.string().trim().min(1).max(64).nullable(),
+}).strict();
+
+const BomQuoteDiodeSearchRequirements = BomQuoteSearchRequirementsPackagedBase.extend({
+  componentType: z.literal('diode'),
+  diodeType: z.enum(['rectifier', 'signal', 'schottky', 'zener', 'tvs', 'photodiode']),
+  voltage: z.string().trim().min(1).max(64).nullable(),
+  current: z.string().trim().min(1).max(64).nullable(),
+  power: z.string().trim().min(1).max(64).nullable(),
+}).strict();
+
+const BomQuoteTransistorSearchRequirements = BomQuoteSearchRequirementsPackagedBase.extend({
+  componentType: z.literal('transistor'),
+  transistorType: z.enum(['bjt', 'mosfet']),
+  polarity: z.enum(['npn', 'pnp', 'n-channel', 'p-channel']),
+  voltage: z.string().trim().min(1).max(64).nullable(),
+  current: z.string().trim().min(1).max(64).nullable(),
+  power: z.string().trim().min(1).max(64).nullable(),
+}).strict();
+
+const BomQuoteLedSearchRequirements = BomQuoteSearchRequirementsPackagedBase.extend({
+  componentType: z.literal('led'),
+  color: z.string().trim().min(1).max(32),
+  voltage: z.string().trim().min(1).max(64).nullable(),
+  current: z.string().trim().min(1).max(64).nullable(),
+}).strict();
+
+const BomQuoteCrystalSearchRequirements = BomQuoteSearchRequirementsPassiveBase.extend({
+  componentType: z.literal('crystal'),
+  crystalType: z.enum(['crystal', 'oscillator', 'resonator']),
+  frequency: z.string().trim().min(1).max(64),
+}).strict();
+
+const BomQuoteConnectorSearchRequirements = BomQuoteSearchRequirementsPhysicalBase.extend({
+  componentType: z.literal('connector'),
+  packageCode: z.string().trim().min(1).max(64).nullable(),
+  pinCount: z.number().int().min(1).max(1000),
+  pitch: z.string().trim().min(1).max(32),
+  rowCount: z.number().int().min(1).max(100).nullable(),
+  gender: z.enum(['male', 'female', 'genderless']).nullable(),
+  orientation: z.enum(['straight', 'right-angle', 'vertical']).nullable(),
+}).strict();
+
+const BomQuoteSwitchSearchRequirements = BomQuoteSearchRequirementsPackagedBase.extend({
+  componentType: z.literal('switch'),
+  switchType: z.enum([
+    'tactile',
+    'pushbutton',
+    'slide',
+    'toggle',
+    'dip',
+    'rotary',
+    'reed',
+    'other',
+  ]),
+  contactForm: z.string().trim().min(1).max(64).nullable(),
+  voltage: z.string().trim().min(1).max(64).nullable(),
+  current: z.string().trim().min(1).max(64).nullable(),
+}).strict();
+
+const BomQuoteSearchRequirementVariants = [
   BomQuoteResistorSearchRequirements,
   BomQuoteCapacitorSearchRequirements,
+  BomQuoteInductorSearchRequirements,
+  BomQuoteDiodeSearchRequirements,
+  BomQuoteTransistorSearchRequirements,
+  BomQuoteLedSearchRequirements,
+  BomQuoteCrystalSearchRequirements,
+  BomQuoteConnectorSearchRequirements,
+  BomQuoteSwitchSearchRequirements,
+] as const;
+
+/** 원본 BOM을 덮어쓰지 않고 해당 견적 행의 스펙 검색에만 적용하는 사용자 명령. */
+export const BomQuoteSearchRequirementsBody = z.discriminatedUnion('componentType', [
+  ...BomQuoteSearchRequirementVariants,
 ]).superRefine((value, context) => {
   if (
     value.componentType === 'capacitor'
@@ -262,6 +345,45 @@ export const BomQuoteSearchRequirementsBody = z.discriminatedUnion('componentTyp
       code: 'custom',
       path: ['dielectric'],
       message: '유전체는 MLCC에만 지정할 수 있습니다',
+    });
+  }
+  if (
+    value.componentType === 'inductor'
+    && (
+      (value.inductorType === 'standard' && value.inductance === null)
+      || (value.inductorType === 'ferrite' && value.impedance === null)
+    )
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: [value.inductorType === 'ferrite' ? 'impedance' : 'inductance'],
+      message: value.inductorType === 'ferrite'
+        ? '페라이트 비드는 임피던스가 필요합니다'
+        : '인덕터는 인덕턴스가 필요합니다',
+    });
+  }
+  if (
+    value.componentType === 'diode'
+    && ['zener', 'tvs'].includes(value.diodeType)
+    && value.voltage === null
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['voltage'],
+      message: '제너/TVS 다이오드는 전압이 필요합니다',
+    });
+  }
+  if (
+    value.componentType === 'transistor'
+    && (
+      (value.transistorType === 'bjt' && !['npn', 'pnp'].includes(value.polarity))
+      || (value.transistorType === 'mosfet' && !['n-channel', 'p-channel'].includes(value.polarity))
+    )
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['polarity'],
+      message: '소자 종류에 맞는 극성/채널을 선택해 주세요',
     });
   }
 });
@@ -277,15 +399,35 @@ export const BomQuotePassiveDefaultsBody = z.object({
 export type BomQuotePassiveDefaultsBodyType = z.infer<typeof BomQuotePassiveDefaultsBody>;
 
 const BomQuoteSearchRequirementsMetadata = {
-    version: z.literal('bom-user-search-requirements-v1'),
-    updatedAt: z.string(),
-    updatedBy: z.string(),
+  version: z.enum([
+    'bom-user-search-requirements-v1',
+    'bom-user-search-requirements-v2',
+  ]),
+  updatedAt: z.string(),
+  updatedBy: z.string(),
 };
 
 export const BomQuoteSearchRequirements = z.discriminatedUnion('componentType', [
   BomQuoteResistorSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
   BomQuoteCapacitorSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+  BomQuoteInductorSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+  BomQuoteDiodeSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+  BomQuoteTransistorSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+  BomQuoteLedSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+  BomQuoteCrystalSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+  BomQuoteConnectorSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
+  BomQuoteSwitchSearchRequirements.extend(BomQuoteSearchRequirementsMetadata),
 ]).superRefine((value, context) => {
+  if (
+    value.version === 'bom-user-search-requirements-v1'
+    && !['resistor', 'capacitor'].includes(value.componentType)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['version'],
+      message: 'v1은 저항과 캐패시터만 지원합니다',
+    });
+  }
   if (
     value.componentType === 'capacitor'
     && value.capacitorType !== 'ceramic'
@@ -295,6 +437,43 @@ export const BomQuoteSearchRequirements = z.discriminatedUnion('componentType', 
       code: 'custom',
       path: ['dielectric'],
       message: '유전체는 MLCC에만 지정할 수 있습니다',
+    });
+  }
+  if (
+    value.componentType === 'inductor'
+    && (
+      (value.inductorType === 'standard' && value.inductance === null)
+      || (value.inductorType === 'ferrite' && value.impedance === null)
+    )
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: [value.inductorType === 'ferrite' ? 'impedance' : 'inductance'],
+      message: '인덕터 종류에 맞는 주 값이 필요합니다',
+    });
+  }
+  if (
+    value.componentType === 'diode'
+    && ['zener', 'tvs'].includes(value.diodeType)
+    && value.voltage === null
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['voltage'],
+      message: '제너/TVS 다이오드는 전압이 필요합니다',
+    });
+  }
+  if (
+    value.componentType === 'transistor'
+    && (
+      (value.transistorType === 'bjt' && !['npn', 'pnp'].includes(value.polarity))
+      || (value.transistorType === 'mosfet' && !['n-channel', 'p-channel'].includes(value.polarity))
+    )
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['polarity'],
+      message: '소자 종류에 맞는 극성/채널을 선택해 주세요',
     });
   }
 });

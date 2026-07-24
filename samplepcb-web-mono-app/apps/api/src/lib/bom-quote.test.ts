@@ -68,6 +68,99 @@ describe('사용자 행 검색조건 계약', () => {
       updatedBy: 'member-1',
     }).success).toBe(true);
   });
+
+  it.each([
+    {
+      componentType: 'inductor',
+      inductorType: 'standard',
+      inductance: '10uH',
+      impedance: null,
+      impedanceFrequency: null,
+      current: null,
+      packageCode: '0603',
+      tolerance: null,
+      mountStyle: 'smd',
+    },
+    {
+      componentType: 'diode',
+      diodeType: 'rectifier',
+      voltage: null,
+      current: null,
+      power: null,
+      packageCode: 'SOD-123',
+      mountStyle: 'smd',
+    },
+    {
+      componentType: 'transistor',
+      transistorType: 'mosfet',
+      polarity: 'n-channel',
+      voltage: null,
+      current: null,
+      power: null,
+      packageCode: 'SOT-23',
+      mountStyle: 'smd',
+    },
+    {
+      componentType: 'led',
+      color: 'red',
+      voltage: null,
+      current: null,
+      packageCode: '0603',
+      mountStyle: 'smd',
+    },
+    {
+      componentType: 'crystal',
+      crystalType: 'crystal',
+      frequency: '16MHz',
+      packageCode: '3225',
+      tolerance: null,
+      mountStyle: 'smd',
+    },
+    {
+      componentType: 'connector',
+      pinCount: 4,
+      pitch: '2.54mm',
+      rowCount: 2,
+      gender: null,
+      orientation: 'straight',
+      packageCode: null,
+      mountStyle: 'through-hole',
+    },
+    {
+      componentType: 'switch',
+      switchType: 'tactile',
+      contactForm: null,
+      voltage: null,
+      current: null,
+      packageCode: '6x6mm',
+      mountStyle: 'smd',
+    },
+  ])('$componentType 최소 검색조건을 수신한다', (body) => {
+    expect(BomQuoteSearchRequirementsBody.safeParse(body).success).toBe(true);
+  });
+
+  it('종류별 안전 최소값과 v1 저장 범위를 검증한다', () => {
+    expect(BomQuoteSearchRequirementsBody.safeParse({
+      componentType: 'diode',
+      diodeType: 'zener',
+      voltage: null,
+      current: null,
+      power: null,
+      packageCode: 'SOD-123',
+      mountStyle: 'smd',
+    }).success).toBe(false);
+    expect(BomQuoteSearchRequirements.safeParse({
+      version: 'bom-user-search-requirements-v1',
+      componentType: 'led',
+      color: 'red',
+      voltage: null,
+      current: null,
+      packageCode: '0603',
+      mountStyle: 'smd',
+      updatedAt: '2026-07-25T00:00:00.000Z',
+      updatedBy: 'member-1',
+    }).success).toBe(false);
+  });
 });
 
 describe('후보 화면 부품 정보 준비 상태', () => {

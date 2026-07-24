@@ -74,8 +74,25 @@ const { t } = i18n;
 
 type SelectionView = 'candidates' | 'search';
 type CandidateTab = 'selectable' | 'all' | 'review';
-type RequirementComponentType = 'resistor' | 'capacitor';
+type RequirementComponentType =
+  | 'resistor'
+  | 'capacitor'
+  | 'inductor'
+  | 'diode'
+  | 'transistor'
+  | 'led'
+  | 'crystal'
+  | 'connector'
+  | 'switch';
 type CapacitorType = 'ceramic' | 'electrolytic' | 'tantalum' | 'film';
+type InductorType = 'standard' | 'ferrite';
+type DiodeType = 'rectifier' | 'signal' | 'schottky' | 'zener' | 'tvs' | 'photodiode';
+type TransistorType = 'bjt' | 'mosfet';
+type TransistorPolarity = 'npn' | 'pnp' | 'n-channel' | 'p-channel';
+type CrystalType = 'crystal' | 'oscillator' | 'resonator';
+type ConnectorGender = 'male' | 'female' | 'genderless';
+type ConnectorOrientation = 'straight' | 'right-angle' | 'vertical';
+type SwitchType = 'tactile' | 'pushbutton' | 'slide' | 'toggle' | 'dip' | 'rotary' | 'reed' | 'other';
 
 interface OriginalField {
   key: string;
@@ -108,13 +125,31 @@ const originalDetailsExpanded = ref(false);
 const searchTraceExpanded = ref(false);
 const requirementComponentType = ref<RequirementComponentType | null>(null);
 const capacitorType = ref<CapacitorType | ''>('');
+const inductorType = ref<InductorType | ''>('');
+const diodeType = ref<DiodeType | ''>('');
+const transistorType = ref<TransistorType | ''>('');
+const transistorPolarity = ref<TransistorPolarity | ''>('');
+const crystalType = ref<CrystalType | ''>('');
+const connectorGender = ref<ConnectorGender | ''>('');
+const connectorOrientation = ref<ConnectorOrientation | ''>('');
+const switchType = ref<SwitchType | ''>('');
 const resistance = ref('');
 const capacitance = ref('');
+const inductance = ref('');
+const impedance = ref('');
+const impedanceFrequency = ref('');
+const frequency = ref('');
 const packageCode = ref('');
 const tolerance = ref('');
 const voltage = ref('');
+const current = ref('');
 const power = ref('');
 const dielectric = ref('');
+const color = ref('');
+const pinCount = ref('');
+const pitch = ref('');
+const rowCount = ref('');
+const contactForm = ref('');
 const mountStyle = ref<'' | 'smd' | 'through-hole'>('');
 const pendingReviewSelection = ref<PendingReviewSelection | null>(null);
 const requirementTooltipCandidateKey = ref<string | null>(null);
@@ -418,6 +453,13 @@ function inferredRequirementComponentType(): RequirementComponentType | null {
     || normalized.includes('커패시터')
     || normalized.includes('콘덴서')
   ) return 'capacitor';
+  if (normalized.includes('inductor') || normalized.includes('ferrite') || normalized.includes('인덕터') || normalized.includes('비드')) return 'inductor';
+  if (normalized.includes('transistor') || /\b(?:mosfet|fet)\b/.test(normalized) || normalized.includes('트랜지스터')) return 'transistor';
+  if (normalized.includes('led') || normalized.includes('발광다이오드')) return 'led';
+  if (normalized.includes('diode') || normalized.includes('다이오드')) return 'diode';
+  if (normalized.includes('crystal') || normalized.includes('oscillator') || normalized.includes('resonator') || normalized.includes('크리스털') || normalized.includes('발진기')) return 'crystal';
+  if (normalized.includes('connector') || normalized.includes('header') || normalized.includes('socket') || normalized.includes('커넥터')) return 'connector';
+  if (normalized.includes('switch') || normalized.includes('스위치')) return 'switch';
   return null;
 }
 
@@ -431,71 +473,248 @@ function inferCapacitorType(text: string, inferredDielectric: string): Capacitor
   return inferredDielectric === '' ? '' : 'ceramic';
 }
 
+function payloadTextValue(...keys: string[]): string {
+  const payload = props.context?.extraction?.payload;
+  if (payload === undefined) return '';
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return '';
+}
+
 function resetSearchRequirementsForm(): void {
   const context = props.context;
   const stored = context?.searchRequirements;
   const componentType = inferredRequirementComponentType();
   requirementComponentType.value = componentType;
-  if (stored?.componentType === 'resistor') {
-    resistance.value = stored.resistance;
-    packageCode.value = stored.packageCode;
-    tolerance.value = stored.tolerance ?? '';
-    power.value = stored.power ?? '';
-    mountStyle.value = stored.mountStyle ?? '';
-    capacitance.value = '';
-    voltage.value = '';
-    dielectric.value = '';
-    capacitorType.value = '';
-    return;
-  }
-  if (stored?.componentType === 'capacitor') {
-    capacitance.value = stored.capacitance;
-    packageCode.value = stored.packageCode;
-    tolerance.value = stored.tolerance ?? '';
-    voltage.value = stored.voltage ?? '';
-    dielectric.value = stored.dielectric ?? '';
-    mountStyle.value = stored.mountStyle ?? '';
-    capacitorType.value = stored.capacitorType;
-    resistance.value = '';
-    power.value = '';
+
+  capacitorType.value = '';
+  inductorType.value = '';
+  diodeType.value = '';
+  transistorType.value = '';
+  transistorPolarity.value = '';
+  crystalType.value = '';
+  connectorGender.value = '';
+  connectorOrientation.value = '';
+  switchType.value = '';
+  resistance.value = '';
+  capacitance.value = '';
+  inductance.value = '';
+  impedance.value = '';
+  impedanceFrequency.value = '';
+  frequency.value = '';
+  tolerance.value = '';
+  voltage.value = '';
+  current.value = '';
+  power.value = '';
+  dielectric.value = '';
+  color.value = '';
+  pinCount.value = '';
+  pitch.value = '';
+  rowCount.value = '';
+  contactForm.value = '';
+
+  const extractedPackage = originalFieldValue('package');
+  packageCode.value = stored?.packageCode ?? (extractedPackage === ''
+    ? (context?.originalPackageCode ?? '')
+    : extractedPackage);
+  const evidenceText = JSON.stringify(context?.extraction?.payload ?? {});
+  const mountText = `${originalFieldValue('package')} ${originalFieldValue('footprint')} ${evidenceText}`;
+  mountStyle.value = stored?.mountStyle ?? (/\b(?:THT|THROUGH[ -]?HOLE|DIP)\b/i.test(mountText)
+    ? 'through-hole'
+    : /\b(?:SMD|SMT)\b/i.test(mountText)
+      ? 'smd'
+      : '');
+
+  if (stored !== null && stored !== undefined) {
+    switch (stored.componentType) {
+      case 'resistor':
+        resistance.value = stored.resistance;
+        tolerance.value = stored.tolerance ?? '';
+        power.value = stored.power ?? '';
+        break;
+      case 'capacitor':
+        capacitorType.value = stored.capacitorType;
+        capacitance.value = stored.capacitance;
+        tolerance.value = stored.tolerance ?? '';
+        voltage.value = stored.voltage ?? '';
+        dielectric.value = stored.dielectric ?? '';
+        break;
+      case 'inductor':
+        inductorType.value = stored.inductorType;
+        inductance.value = stored.inductance ?? '';
+        impedance.value = stored.impedance ?? '';
+        impedanceFrequency.value = stored.impedanceFrequency ?? '';
+        tolerance.value = stored.tolerance ?? '';
+        current.value = stored.current ?? '';
+        break;
+      case 'diode':
+        diodeType.value = stored.diodeType;
+        voltage.value = stored.voltage ?? '';
+        current.value = stored.current ?? '';
+        power.value = stored.power ?? '';
+        break;
+      case 'transistor':
+        transistorType.value = stored.transistorType;
+        transistorPolarity.value = stored.polarity;
+        voltage.value = stored.voltage ?? '';
+        current.value = stored.current ?? '';
+        power.value = stored.power ?? '';
+        break;
+      case 'led':
+        color.value = stored.color;
+        voltage.value = stored.voltage ?? '';
+        current.value = stored.current ?? '';
+        break;
+      case 'crystal':
+        crystalType.value = stored.crystalType;
+        frequency.value = stored.frequency;
+        tolerance.value = stored.tolerance ?? '';
+        break;
+      case 'connector':
+        pinCount.value = String(stored.pinCount);
+        pitch.value = stored.pitch;
+        rowCount.value = stored.rowCount === null ? '' : String(stored.rowCount);
+        connectorGender.value = stored.gender ?? '';
+        connectorOrientation.value = stored.orientation ?? '';
+        break;
+      case 'switch':
+        switchType.value = stored.switchType;
+        contactForm.value = stored.contactForm ?? '';
+        voltage.value = stored.voltage ?? '';
+        current.value = stored.current ?? '';
+        break;
+    }
     return;
   }
 
   resistance.value = componentType === 'resistor' ? originalFieldValue('resistance') : '';
   capacitance.value = componentType === 'capacitor' ? originalFieldValue('capacitance') : '';
-  const extractedPackage = originalFieldValue('package');
-  packageCode.value = extractedPackage === ''
-    ? (context?.originalPackageCode ?? '')
-    : extractedPackage;
-  tolerance.value = originalFieldValue('tolerance');
-  voltage.value = componentType === 'capacitor' ? originalFieldValue('voltage') : '';
-  power.value = componentType === 'resistor' ? originalFieldValue('power') : '';
-  const evidenceText = JSON.stringify(context?.extraction?.payload ?? {});
+  inductance.value = componentType === 'inductor' ? originalFieldValue('inductance') : '';
+  frequency.value = componentType === 'crystal' ? originalFieldValue('frequency') : '';
+  tolerance.value = ['resistor', 'capacitor', 'inductor', 'crystal'].includes(componentType ?? '')
+    ? originalFieldValue('tolerance')
+    : '';
+  voltage.value = ['capacitor', 'diode', 'transistor', 'led', 'switch'].includes(componentType ?? '')
+    ? originalFieldValue('voltage')
+    : '';
+  current.value = ['inductor', 'diode', 'transistor', 'led', 'switch'].includes(componentType ?? '')
+    ? originalFieldValue('current')
+    : '';
+  power.value = ['resistor', 'diode', 'transistor'].includes(componentType ?? '')
+    ? originalFieldValue('power')
+    : '';
   dielectric.value = componentType === 'capacitor'
     ? (/\b(?:C0G|NP0|X5R|X7R|X8R|Y5V)\b/i.exec(evidenceText)?.[0]?.toUpperCase() ?? '')
     : '';
   capacitorType.value = componentType === 'capacitor'
     ? inferCapacitorType(evidenceText, dielectric.value)
     : '';
-  const mountText = `${originalFieldValue('package')} ${originalFieldValue('footprint')} ${evidenceText}`;
-  mountStyle.value = /\b(?:THT|THROUGH[ -]?HOLE|DIP)\b/i.test(mountText)
-    ? 'through-hole'
-    : /\b(?:SMD|SMT)\b/i.test(mountText)
-      ? 'smd'
-      : '';
+  if (componentType === 'inductor') {
+    inductorType.value = /\b(?:ferrite|bead)\b|비드/i.test(evidenceText) ? 'ferrite' : 'standard';
+    impedance.value = payloadTextValue('impedance_ohm');
+    impedanceFrequency.value = payloadTextValue('impedance_frequency_hz');
+  }
+  if (componentType === 'diode') {
+    diodeType.value = /\btvs\b/i.test(evidenceText)
+      ? 'tvs'
+      : /\bzener\b|제너/i.test(evidenceText)
+        ? 'zener'
+        : /\bschottky\b|쇼트키/i.test(evidenceText)
+          ? 'schottky'
+          : /\bphoto ?diode\b|포토다이오드/i.test(evidenceText)
+            ? 'photodiode'
+            : /\bsignal\b/i.test(evidenceText)
+              ? 'signal'
+              : /\brectifier\b|정류/i.test(evidenceText)
+                ? 'rectifier'
+                : '';
+  }
+  if (componentType === 'transistor') {
+    transistorType.value = /\b(?:mosfet|fet)\b/i.test(evidenceText)
+      ? 'mosfet'
+      : /\bbjt\b|\btransistor\b|트랜지스터/i.test(evidenceText)
+        ? 'bjt'
+        : '';
+    transistorPolarity.value = /\bp[- ]?channel\b/i.test(evidenceText)
+      ? 'p-channel'
+      : /\bn[- ]?channel\b/i.test(evidenceText)
+        ? 'n-channel'
+        : /\bpnp\b/i.test(evidenceText)
+          ? 'pnp'
+          : /\bnpn\b/i.test(evidenceText)
+            ? 'npn'
+            : '';
+  }
+  color.value = componentType === 'led'
+    ? (payloadTextValue('color') || (/\b(?:red|green|blue|yellow|orange|white|amber)\b/i.exec(evidenceText)?.[0] ?? ''))
+    : '';
+  if (componentType === 'crystal') {
+    crystalType.value = /\boscillator\b|발진기/i.test(evidenceText)
+      ? 'oscillator'
+      : /\bresonator\b|공진기/i.test(evidenceText)
+        ? 'resonator'
+        : 'crystal';
+  }
+  if (componentType === 'connector') {
+    pinCount.value = payloadTextValue('pin_count');
+    pitch.value = payloadTextValue('pitch_mm');
+    rowCount.value = payloadTextValue('row_count');
+  }
 }
 
 const searchRequirementsVisible = computed(() => requirementComponentType.value !== null);
-const searchRequirementsValid = computed(() =>
-  packageCode.value.trim() !== ''
-  && (
-    requirementComponentType.value === 'resistor'
-      ? resistance.value.trim() !== ''
-      : requirementComponentType.value === 'capacitor'
-        && capacitance.value.trim() !== ''
-        && capacitorType.value !== ''
-  ),
-);
+const requirementComponentLabel = computed(() => {
+  const labels: Record<RequirementComponentType, string> = {
+    resistor: '저항',
+    capacitor: '캐패시터',
+    inductor: '인덕터',
+    diode: '다이오드',
+    transistor: 'TR / FET',
+    led: 'LED',
+    crystal: '크리스탈',
+    connector: '커넥터',
+    switch: '스위치',
+  };
+  return requirementComponentType.value === null ? '' : labels[requirementComponentType.value];
+});
+const searchRequirementsValid = computed(() => {
+  const componentType = requirementComponentType.value;
+  if (componentType === null) return false;
+  const packaged = packageCode.value.trim() !== '';
+  switch (componentType) {
+    case 'resistor':
+      return packaged && resistance.value.trim() !== '';
+    case 'capacitor':
+      return packaged && capacitance.value.trim() !== '' && capacitorType.value !== '';
+    case 'inductor':
+      return packaged
+        && inductorType.value !== ''
+        && (inductorType.value === 'ferrite' ? impedance.value.trim() !== '' : inductance.value.trim() !== '');
+    case 'diode':
+      return packaged
+        && diodeType.value !== ''
+        && (!['zener', 'tvs'].includes(diodeType.value) || voltage.value.trim() !== '');
+    case 'transistor':
+      return packaged
+        && (
+          (transistorType.value === 'bjt' && ['npn', 'pnp'].includes(transistorPolarity.value))
+          || (transistorType.value === 'mosfet' && ['n-channel', 'p-channel'].includes(transistorPolarity.value))
+        );
+    case 'led':
+      return packaged && color.value.trim() !== '';
+    case 'crystal':
+      return packaged && crystalType.value !== '' && frequency.value.trim() !== '';
+    case 'connector':
+      return Number.isInteger(Number(pinCount.value))
+        && Number(pinCount.value) > 0
+        && pitch.value.trim() !== '';
+    case 'switch':
+      return packaged && switchType.value !== '';
+  }
+});
 
 function nullableRequirement(value: string): string | null {
   const trimmed = value.trim();
@@ -505,31 +724,116 @@ function nullableRequirement(value: string): string | null {
 function submitSearchRequirements(): void {
   const componentType = requirementComponentType.value;
   if (props.interactionLocked || !searchRequirementsValid.value || componentType === null) return;
-  const common = {
-    packageCode: packageCode.value.trim(),
-    tolerance: nullableRequirement(tolerance.value),
+  const physical = {
     mountStyle: mountStyle.value === '' ? null : mountStyle.value,
   };
-  if (componentType === 'resistor') {
-    emit('searchRequirements', {
-      ...common,
-      componentType,
-      resistance: resistance.value.trim(),
-      power: nullableRequirement(power.value),
-    });
-    return;
+  const packaged = {
+    ...physical,
+    packageCode: packageCode.value.trim(),
+  };
+  switch (componentType) {
+    case 'resistor':
+      emit('searchRequirements', {
+        ...packaged,
+        componentType,
+        resistance: resistance.value.trim(),
+        tolerance: nullableRequirement(tolerance.value),
+        power: nullableRequirement(power.value),
+      });
+      break;
+    case 'capacitor':
+      if (capacitorType.value === '') return;
+      emit('searchRequirements', {
+        ...packaged,
+        componentType,
+        capacitorType: capacitorType.value,
+        capacitance: capacitance.value.trim(),
+        tolerance: nullableRequirement(tolerance.value),
+        voltage: nullableRequirement(voltage.value),
+        dielectric: capacitorType.value === 'ceramic'
+          ? nullableRequirement(dielectric.value)
+          : null,
+      });
+      break;
+    case 'inductor':
+      if (inductorType.value === '') return;
+      emit('searchRequirements', {
+        ...packaged,
+        componentType,
+        inductorType: inductorType.value,
+        inductance: inductorType.value === 'standard' ? nullableRequirement(inductance.value) : null,
+        impedance: inductorType.value === 'ferrite' ? nullableRequirement(impedance.value) : null,
+        impedanceFrequency: inductorType.value === 'ferrite' ? nullableRequirement(impedanceFrequency.value) : null,
+        current: nullableRequirement(current.value),
+        tolerance: nullableRequirement(tolerance.value),
+      });
+      break;
+    case 'diode':
+      if (diodeType.value === '') return;
+      emit('searchRequirements', {
+        ...packaged,
+        componentType,
+        diodeType: diodeType.value,
+        voltage: nullableRequirement(voltage.value),
+        current: nullableRequirement(current.value),
+        power: nullableRequirement(power.value),
+      });
+      break;
+    case 'transistor':
+      if (transistorType.value === '' || transistorPolarity.value === '') return;
+      emit('searchRequirements', {
+        ...packaged,
+        componentType,
+        transistorType: transistorType.value,
+        polarity: transistorPolarity.value,
+        voltage: nullableRequirement(voltage.value),
+        current: nullableRequirement(current.value),
+        power: nullableRequirement(power.value),
+      });
+      break;
+    case 'led':
+      emit('searchRequirements', {
+        ...packaged,
+        componentType,
+        color: color.value.trim(),
+        voltage: nullableRequirement(voltage.value),
+        current: nullableRequirement(current.value),
+      });
+      break;
+    case 'crystal':
+      if (crystalType.value === '') return;
+      emit('searchRequirements', {
+        ...packaged,
+        componentType,
+        crystalType: crystalType.value,
+        frequency: frequency.value.trim(),
+        tolerance: nullableRequirement(tolerance.value),
+      });
+      break;
+    case 'connector':
+      emit('searchRequirements', {
+        ...physical,
+        componentType,
+        packageCode: nullableRequirement(packageCode.value),
+        pinCount: Number(pinCount.value),
+        pitch: pitch.value.trim(),
+        rowCount: rowCount.value.trim() === '' ? null : Number(rowCount.value),
+        gender: connectorGender.value === '' ? null : connectorGender.value,
+        orientation: connectorOrientation.value === '' ? null : connectorOrientation.value,
+      });
+      break;
+    case 'switch':
+      if (switchType.value === '') return;
+      emit('searchRequirements', {
+        ...packaged,
+        componentType,
+        switchType: switchType.value,
+        contactForm: nullableRequirement(contactForm.value),
+        voltage: nullableRequirement(voltage.value),
+        current: nullableRequirement(current.value),
+      });
+      break;
   }
-  if (capacitorType.value === '') return;
-  emit('searchRequirements', {
-    ...common,
-    componentType,
-    capacitorType: capacitorType.value,
-    capacitance: capacitance.value.trim(),
-    voltage: nullableRequirement(voltage.value),
-    dielectric: capacitorType.value === 'ceramic'
-      ? nullableRequirement(dielectric.value)
-      : null,
-  });
 }
 
 function comparableSpec(value: string): string {
@@ -761,8 +1065,14 @@ function requirementLabel(code: string): string {
     resistance_ohm: '저항값',
     power_w: '정격전력',
     inductance_h: '인덕턴스',
+    impedance_ohm: '임피던스',
+    impedance_frequency_hz: '임피던스 기준 주파수',
     current_a: '정격전류',
     frequency_hz: '주파수',
+    color: '발광색',
+    pin_count: '핀 수',
+    row_count: '열 수',
+    pitch_mm: '피치',
     part_type: '부품 유형',
     manufacturer: '제조사',
     part_number: '품번',
@@ -1276,7 +1586,7 @@ onBeforeUnmount(() => {
                     <div class="flex flex-wrap items-center gap-2">
                       <h3 id="search-requirements-title" class="font-bold text-slate-950">검색 조건 보완</h3>
                       <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
-                        {{ requirementComponentType === 'resistor' ? '저항' : '캐패시터' }}
+                        {{ requirementComponentLabel }}
                       </span>
                       <span v-if="context.searchRequirements !== null" class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">사용자 조건 저장됨</span>
                     </div>
@@ -1292,14 +1602,9 @@ onBeforeUnmount(() => {
                       저항값 <b class="text-rose-600">*</b>
                       <input v-model.trim="resistance" type="text" maxlength="64" placeholder="예: 10kΩ" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
-                    <label v-else class="text-xs font-semibold text-slate-700">
+                    <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
                       정전용량 <b class="text-rose-600">*</b>
                       <input v-model.trim="capacitance" type="text" maxlength="64" placeholder="예: 100nF" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                    </label>
-
-                    <label class="text-xs font-semibold text-slate-700">
-                      패키지 <b class="text-rose-600">*</b>
-                      <input v-model.trim="packageCode" type="text" maxlength="64" placeholder="예: 0603 / 1608" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
@@ -1313,19 +1618,151 @@ onBeforeUnmount(() => {
                       </select>
                     </label>
 
+                    <label v-if="requirementComponentType === 'inductor'" class="text-xs font-semibold text-slate-700">
+                      인덕터 종류 <b class="text-rose-600">*</b>
+                      <select v-model="inductorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">선택 필요</option>
+                        <option value="standard">일반 인덕터</option>
+                        <option value="ferrite">페라이트 비드</option>
+                      </select>
+                    </label>
+                    <label v-if="requirementComponentType === 'inductor' && inductorType === 'standard'" class="text-xs font-semibold text-slate-700">
+                      인덕턴스 <b class="text-rose-600">*</b>
+                      <input v-model.trim="inductance" type="text" maxlength="64" placeholder="예: 10uH" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+                    <label v-if="requirementComponentType === 'inductor' && inductorType === 'ferrite'" class="text-xs font-semibold text-slate-700">
+                      임피던스 <b class="text-rose-600">*</b>
+                      <input v-model.trim="impedance" type="text" maxlength="64" placeholder="예: 120Ω" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+                    <label v-if="requirementComponentType === 'inductor' && inductorType === 'ferrite'" class="text-xs font-semibold text-slate-700">
+                      임피던스 기준 주파수
+                      <input v-model.trim="impedanceFrequency" type="text" maxlength="64" placeholder="예: 100MHz" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+
+                    <label v-if="requirementComponentType === 'diode'" class="text-xs font-semibold text-slate-700">
+                      다이오드 종류 <b class="text-rose-600">*</b>
+                      <select v-model="diodeType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">선택 필요</option>
+                        <option value="rectifier">정류</option>
+                        <option value="signal">신호</option>
+                        <option value="schottky">쇼트키</option>
+                        <option value="zener">제너</option>
+                        <option value="tvs">TVS</option>
+                        <option value="photodiode">포토다이오드</option>
+                      </select>
+                    </label>
+
+                    <label v-if="requirementComponentType === 'transistor'" class="text-xs font-semibold text-slate-700">
+                      소자 종류 <b class="text-rose-600">*</b>
+                      <select v-model="transistorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">선택 필요</option>
+                        <option value="bjt">BJT</option>
+                        <option value="mosfet">MOSFET</option>
+                      </select>
+                    </label>
+                    <label v-if="requirementComponentType === 'transistor'" class="text-xs font-semibold text-slate-700">
+                      극성 / 채널 <b class="text-rose-600">*</b>
+                      <select v-model="transistorPolarity" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">선택 필요</option>
+                        <option v-if="transistorType !== 'mosfet'" value="npn">NPN</option>
+                        <option v-if="transistorType !== 'mosfet'" value="pnp">PNP</option>
+                        <option v-if="transistorType !== 'bjt'" value="n-channel">N-Channel</option>
+                        <option v-if="transistorType !== 'bjt'" value="p-channel">P-Channel</option>
+                      </select>
+                    </label>
+
+                    <label v-if="requirementComponentType === 'led'" class="text-xs font-semibold text-slate-700">
+                      발광색 <b class="text-rose-600">*</b>
+                      <input v-model.trim="color" type="text" maxlength="32" placeholder="예: Red / Green / White" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+
+                    <label v-if="requirementComponentType === 'crystal'" class="text-xs font-semibold text-slate-700">
+                      소자 종류 <b class="text-rose-600">*</b>
+                      <select v-model="crystalType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">선택 필요</option>
+                        <option value="crystal">크리스탈</option>
+                        <option value="oscillator">오실레이터</option>
+                        <option value="resonator">레조네이터</option>
+                      </select>
+                    </label>
+                    <label v-if="requirementComponentType === 'crystal'" class="text-xs font-semibold text-slate-700">
+                      주파수 <b class="text-rose-600">*</b>
+                      <input v-model.trim="frequency" type="text" maxlength="64" placeholder="예: 16MHz" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+
+                    <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
+                      핀 수 <b class="text-rose-600">*</b>
+                      <input v-model.trim="pinCount" type="number" min="1" max="1000" step="1" placeholder="예: 4" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+                    <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
+                      피치 <b class="text-rose-600">*</b>
+                      <input v-model.trim="pitch" type="text" maxlength="32" placeholder="예: 2.54mm" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+                    <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
+                      열 수
+                      <input v-model.trim="rowCount" type="number" min="1" max="100" step="1" placeholder="모름 또는 예: 2" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+                    <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
+                      성별
+                      <select v-model="connectorGender" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">모름 · 직접 검토</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="genderless">Genderless</option>
+                      </select>
+                    </label>
+                    <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
+                      방향
+                      <select v-model="connectorOrientation" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">모름 · 직접 검토</option>
+                        <option value="straight">Straight</option>
+                        <option value="right-angle">Right Angle</option>
+                        <option value="vertical">Vertical</option>
+                      </select>
+                    </label>
+
+                    <label v-if="requirementComponentType === 'switch'" class="text-xs font-semibold text-slate-700">
+                      스위치 종류 <b class="text-rose-600">*</b>
+                      <select v-model="switchType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">선택 필요</option>
+                        <option value="tactile">택트</option>
+                        <option value="pushbutton">푸시버튼</option>
+                        <option value="slide">슬라이드</option>
+                        <option value="toggle">토글</option>
+                        <option value="dip">DIP</option>
+                        <option value="rotary">로터리</option>
+                        <option value="reed">리드</option>
+                        <option value="other">기타</option>
+                      </select>
+                    </label>
+                    <label v-if="requirementComponentType === 'switch'" class="text-xs font-semibold text-slate-700">
+                      접점 구성
+                      <input v-model.trim="contactForm" type="text" maxlength="64" placeholder="모름 또는 예: SPST-NO" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+
                     <label class="text-xs font-semibold text-slate-700">
+                      패키지 / 외형 <b v-if="requirementComponentType !== 'connector'" class="text-rose-600">*</b>
+                      <input v-model.trim="packageCode" type="text" maxlength="64" :placeholder="requirementComponentType === 'connector' ? '선택 · 예: 2x2 Header' : '예: 0603 / SOT-23 / 6x6mm'" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+
+                    <label v-if="['resistor', 'capacitor', 'inductor', 'crystal'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
                       허용오차
                       <input v-model.trim="tolerance" type="text" maxlength="64" placeholder="모름 또는 예: 10%" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
-                    <label v-if="requirementComponentType === 'resistor'" class="text-xs font-semibold text-slate-700">
+                    <label v-if="['resistor', 'diode', 'transistor'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
                       정격전력
                       <input v-model.trim="power" type="text" maxlength="64" placeholder="조건 없음 또는 예: 0.1W" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
-                    <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
-                      정격전압
+                    <label v-if="['capacitor', 'diode', 'transistor', 'led', 'switch'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
+                      정격전압 <b v-if="requirementComponentType === 'diode' && ['zener', 'tvs'].includes(diodeType)" class="text-rose-600">*</b>
                       <input v-model.trim="voltage" type="text" maxlength="64" placeholder="모름 또는 예: 25V" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+
+                    <label v-if="['inductor', 'diode', 'transistor', 'led', 'switch'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
+                      정격전류
+                      <input v-model.trim="current" type="text" maxlength="64" placeholder="모름 또는 예: 1A" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="requirementComponentType === 'capacitor' && capacitorType === 'ceramic'" class="text-xs font-semibold text-slate-700">
@@ -1352,7 +1789,7 @@ onBeforeUnmount(() => {
                     <div class="flex flex-col justify-end sm:col-span-2 lg:col-span-4">
                       <p v-if="requirementsError !== ''" class="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{{ requirementsError }}</p>
                       <div class="flex flex-wrap items-center justify-between gap-2">
-                        <p class="text-[11px] text-slate-500">전압은 이상(≥), 허용오차는 이하(≤), 정격전력은 이상(≥) 조건으로 검증합니다.</p>
+                        <p class="text-[11px] text-slate-500">정격은 이상(≥), 허용오차는 이하(≤)로 검증합니다. 신규 유형의 최소 조건 검색은 후보 검토 대상으로 유지됩니다.</p>
                         <button type="submit" class="h-9 rounded-lg bg-indigo-600 px-4 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="requirementsSaving || interactionLocked || !searchRequirementsValid">
                           {{ requirementsSaving ? '행 재검색 시작 중…' : context.searchRequirements === null ? '조건 저장 후 검색' : '조건 변경 후 재검색' }}
                         </button>
