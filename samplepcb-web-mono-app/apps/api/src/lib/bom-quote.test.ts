@@ -552,6 +552,7 @@ function attachProcurementDecision(
   recommendation: 'automatic' | 'manual_review' | 'none',
   requiredQuantity = 10,
   offerKeyVersion: 'supplier-offer-key-v1' | 'supplier-offer-key-v2' = 'supplier-offer-key-v1',
+  purchaseFitRank = recommendation === 'none' ? 2 : 1,
 ): void {
   const offer = value.product.offers[0];
   if (offer === undefined) throw new Error('test offer missing');
@@ -576,7 +577,7 @@ function attachProcurementDecision(
       surplus_quantity: 0,
       excessive_order: false,
       price_rank: 1,
-      purchase_fit_rank: recommendation === 'none' ? 2 : 1,
+      purchase_fit_rank: purchaseFitRank,
       purchasable: true,
       recommendation,
       reason_codes: ['fixture'],
@@ -592,6 +593,7 @@ function componentProcurementDecision(
     applicationIdentityKey?: string;
     applicationEvidenceKey?: string;
     technicalFallbackUsed?: boolean;
+    priceOptimizationUsed?: boolean;
     includeUnavailabilityContract?: boolean;
     unavailabilityReason?:
       | 'out_of_stock'
@@ -608,7 +610,7 @@ function componentProcurementDecision(
 ) {
   return {
     procurement_policy_version: 'supplier-procurement-decision-v1',
-    selection_application_policy_version: 'supplier-selection-application-v2',
+    selection_application_policy_version: 'supplier-selection-application-v3',
     status,
     selection_application_state: status === 'automatic_recommended'
       ? 'automatic_selected'
@@ -640,6 +642,7 @@ function componentProcurementDecision(
         ? null
         : options.applicationEvidenceKey ?? 'ek1:engine-choice',
     technical_fallback_used: options.technicalFallbackUsed ?? false,
+    price_optimization_used: options.priceOptimizationUsed ?? false,
     automatic_offer_key: status === 'automatic_recommended' ? offerKey : null,
     review_offer_key: status === 'review_recommended' ? offerKey : null,
     recommendation_reason_codes: ['fixture'],
@@ -903,7 +906,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.pick?.offer.supplier).toBe('digikey');
     expect(decision?.offerKey).toBe('ok2:engine-selected');
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v11');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v12');
     expect(decision?.evidence.selectionApplicationState).toBe('automatic_selected');
     expect(decision?.evidence.confirmationRequired).toBe(false);
     expect(decision?.evidence.technicalFallbackUsed).toBe(false);
@@ -918,6 +921,78 @@ describe('BOM 엔진 후보 결정 투영', () => {
       expectedDisplay: '25 V',
       actualDisplay: '50 V',
     }]);
+  });
+
+  it('동급 후보의 v3 가격 최적 결정을 가격 추천과 절감액으로 투영한다', () => {
+    const technicalTop = candidate('spec_compatible', 'TECHNICAL-TOP', 'digikey', 100, 1, {
+      currentDecisionContract: true,
+      selectionMode: 'spec-compatible',
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      requiredCount: 4,
+      verifiedCount: 4,
+      verificationComplete: true,
+      strictCategoryCoverage: true,
+    });
+    attachProcurementDecision(
+      technicalTop,
+      'ok2:technical-top',
+      'none',
+      10,
+      'supplier-offer-key-v2',
+      1,
+    );
+
+    const lowestTotal = candidate('spec_compatible', 'LOWEST-TOTAL', 'mouser', 10, 1, {
+      currentDecisionContract: true,
+      selectionMode: 'spec-compatible',
+      selectionRecommendation: 'candidate_only',
+      identityKey: 'ik1:lowest-total',
+      technicalEvidenceKey: 'ek1:lowest-total',
+      requiredCount: 4,
+      verifiedCount: 4,
+      verificationComplete: true,
+      strictCategoryCoverage: true,
+    });
+    attachProcurementDecision(lowestTotal, 'ok2:lowest-total', 'automatic', 10, 'supplier-offer-key-v2');
+
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-price-optimized',
+        status: 'spec_compatible',
+        procurement_decision: componentProcurementDecision(
+          'automatic_recommended',
+          'ok2:lowest-total',
+          10,
+          {
+            applicationIdentityKey: 'ik1:lowest-total',
+            applicationEvidenceKey: 'ek1:lowest-total',
+            priceOptimizationUsed: true,
+          },
+        ),
+        candidates: [technicalTop, lowestTotal],
+      },
+      10,
+      null,
+    );
+
+    expect(decision?.candidateKey).toBe('ik1:lowest-total');
+    expect(decision?.evidence).toMatchObject({
+      recommendationType: 'price',
+      technicalPreselectionCandidateKey: 'ik1:engine-choice',
+      technicalFallbackUsed: false,
+      decisionReasonCodes: [
+        'engine-procurement-recommendation',
+        'strict-spec-price-saving',
+      ],
+      priceEvidence: {
+        lineTotalKrw: 100,
+        technicalTopLineTotalKrw: 1_000,
+        savingsKrw: 900,
+        savingsRate: 0.9,
+      },
+    });
   });
 
   it('엔진의 구매 불가 대표 사유를 재판정 없이 견적 근거로 투영한다', () => {
@@ -1134,7 +1209,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
             },
             procurement_decision: {
               procurement_policy_version: 'supplier-procurement-decision-v1',
-              selection_application_policy_version: 'supplier-selection-application-v2',
+              selection_application_policy_version: 'supplier-selection-application-v3',
               status: 'no_recommendation',
               selection_application_state: 'not_selected',
               confirmation_required: false,
@@ -1148,6 +1223,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
               application_candidate_identity_key: null,
               application_candidate_evidence_key: null,
               technical_fallback_used: false,
+              price_optimization_used: false,
               automatic_offer_key: null,
               review_offer_key: null,
               recommendation_reason_codes: [],
@@ -1363,7 +1439,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.candidate).toBeNull();
     expect(decision?.recommendedCandidateKey).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v11');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v12');
     expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-procurement-unavailable']);
     expect(decision?.snapshots.map((candidate) => candidate.selectionRecommendation)).toEqual([
       'preselect',
@@ -1531,7 +1607,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.snapshots).toHaveLength(1);
     expect(decision?.snapshots[0]?.offers).toHaveLength(2);
     expect(decision?.pick).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v11');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v12');
   });
 
   it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 오퍼는 합치지 않는다', () => {

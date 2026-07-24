@@ -198,7 +198,7 @@ const reasonSummary = computed(() => {
     const saving = evidence.priceEvidence?.savingsKrw ?? null;
     const rateValue = evidence.priceEvidence?.savingsRate ?? null;
     return saving === null
-      ? '필수 스펙 검증 후 가격 최적'
+      ? '동급 후보 중 가격 최적'
       : `기술 1위 대비 ${Math.round(saving).toLocaleString('ko-KR')}원 절감${rateValue === null ? '' : ` · ${(rateValue * 100).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`}`;
   }
   if (evidence.recommendationType === 'lifecycle') return '기술 1순위 NRND/EOL · 활성 부품 추천';

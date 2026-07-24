@@ -22,6 +22,7 @@ from .models import (
     BatchSearchResult,
     BatchPreflight,
     CandidateMatch,
+    ComponentProcurementDecision,
     ComponentSearchTrace,
     ComponentSearchTraceAttempt,
     ComponentSearchResult,
@@ -53,6 +54,7 @@ from .suppliers import DigiKeyClient, MouserClient, SupplierClient, UniKeyICClie
 
 
 _CANDIDATE_GROUP_LIMIT_PER_SUPPLIER = 5
+_PRICE_GROUP_LIMIT_PER_SUPPLIER = 3
 
 
 class JobBudgetExceeded(RuntimeError):
@@ -597,14 +599,16 @@ class SearchService:
             for product in result.products
         ]
         candidates = finalize_candidate_decisions(query, candidates)
-        candidates, omitted_candidate_count = self._retain_supplier_technical_top_groups(
-            query, candidates
-        )
         candidates = self._add_corroboration(candidates)
         candidates = self._assign_technical_review_ranks(query, candidates)
         candidates = self._assign_selection_recommendations(candidates, query)
         candidates, procurement_decision = apply_procurement_decisions(
             query, candidates, procurement_policy
+        )
+        candidates, omitted_candidate_count = self._retain_supplier_candidate_groups(
+            query,
+            candidates,
+            procurement_decision,
         )
         candidates.sort(key=self._candidate_sort_key)
         input_corrections = self._input_corrections(query, candidates)
@@ -623,7 +627,12 @@ class SearchService:
             if result.error_type:
                 warnings.append(f"{result.supplier.value}: {result.error_type}")
         if omitted_candidate_count:
-            warnings.append(self._candidate_limit_warning(omitted_candidate_count))
+            warnings.append(
+                self._candidate_limit_warning(
+                    omitted_candidate_count,
+                    price_aware=True,
+                )
+            )
         primary = ComponentSearchResult(
             component_id=query.component_id,
             mode=query.mode,
@@ -1344,10 +1353,116 @@ class SearchService:
         ]
         return retained, len(candidates) - len(retained)
 
+    @classmethod
+    def _retain_supplier_candidate_groups(
+        cls,
+        query: PlannedQuery,
+        candidates: list[CandidateMatch],
+        component_decision: ComponentProcurementDecision,
+        *,
+        technical_limit: int = _CANDIDATE_GROUP_LIMIT_PER_SUPPLIER,
+        price_limit: int = _PRICE_GROUP_LIMIT_PER_SUPPLIER,
+    ) -> tuple[list[CandidateMatch], int]:
+        """Keep technical leaders plus cheap purchasable groups per supplier."""
+
+        if technical_limit < 1 or price_limit < 1:
+            raise ValueError("candidate group limits must be positive")
+
+        supplier_groups: dict[
+            Supplier, dict[tuple[str, str], list[CandidateMatch]]
+        ] = {}
+        for candidate in candidates:
+            key = (
+                candidate.decision.identity_key,
+                candidate.decision.technical_evidence_key,
+            )
+            groups = supplier_groups.setdefault(candidate.product.supplier, {})
+            groups.setdefault(key, []).append(candidate)
+
+        retained_keys: set[tuple[str, str]] = set()
+        for groups in supplier_groups.values():
+            technical_keys = sorted(
+                groups,
+                key=lambda key: min(
+                    cls._candidate_sort_key(candidate, query)
+                    for candidate in groups[key]
+                ),
+            )
+            retained_keys.update(technical_keys[:technical_limit])
+
+            priced_keys: list[tuple[tuple[str, str], tuple[Any, ...]]] = []
+            for key, group in groups.items():
+                priced_offers = [
+                    decision
+                    for candidate in group
+                    for offer in candidate.product.offers
+                    if (decision := offer.procurement_decision) is not None
+                    and decision.purchasable
+                    and "automatic_selection_excessive"
+                    not in decision.reason_codes
+                    and decision.line_total is not None
+                ]
+                if not priced_offers:
+                    continue
+                priced_keys.append(
+                    (
+                        key,
+                        (
+                            min(decision.line_total for decision in priced_offers),
+                            min(
+                                decision.order_quantity or 2**63
+                                for decision in priced_offers
+                            ),
+                            key,
+                        ),
+                    )
+                )
+            retained_keys.update(
+                key
+                for key, _price_key in sorted(
+                    priced_keys,
+                    key=lambda item: item[1],
+                )[:price_limit]
+            )
+
+        for identity_key, evidence_key in (
+            (
+                component_decision.technical_preselection_identity_key,
+                component_decision.technical_preselection_evidence_key,
+            ),
+            (
+                component_decision.application_candidate_identity_key,
+                component_decision.application_candidate_evidence_key,
+            ),
+        ):
+            if identity_key is not None and evidence_key is not None:
+                retained_keys.add((identity_key, evidence_key))
+
+        retained = [
+            candidate
+            for candidate in candidates
+            if (
+                candidate.decision.identity_key,
+                candidate.decision.technical_evidence_key,
+            )
+            in retained_keys
+        ]
+        return retained, len(candidates) - len(retained)
+
     @staticmethod
-    def _candidate_limit_warning(omitted_candidate_count: int) -> str:
+    def _candidate_limit_warning(
+        omitted_candidate_count: int,
+        *,
+        price_aware: bool = False,
+    ) -> str:
+        preserved = (
+            f"기술 상위 {_CANDIDATE_GROUP_LIMIT_PER_SUPPLIER}개와 "
+            f"가격 상위 {_PRICE_GROUP_LIMIT_PER_SUPPLIER}개 그룹"
+            if price_aware
+            else f"기술 상위 {_CANDIDATE_GROUP_LIMIT_PER_SUPPLIER}개 그룹"
+        )
         return (
-            f"공급사별 기술 상위 {_CANDIDATE_GROUP_LIMIT_PER_SUPPLIER}개 그룹만 유지해 "
+            f"공급사별 {preserved}만 유지해 "
             f"후보 {omitted_candidate_count}개를 생략했습니다."
         )
 
@@ -1485,7 +1600,12 @@ class SearchService:
             and query.category_policy in {"led", "connector"}
         ):
             return False
-        if any(value.endswith("_source_conflict") for value in candidate.conflicts):
+        source_conflicts = {
+            value
+            for value in candidate.conflicts
+            if value.endswith("_source_conflict")
+        }
+        if source_conflicts and source_conflicts != {"manufacturer_source_conflict"}:
             return False
         if decision.match_relation in {MatchRelation.EXACT, MatchRelation.VARIANT}:
             return True

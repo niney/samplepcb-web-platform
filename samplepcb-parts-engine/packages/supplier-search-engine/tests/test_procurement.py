@@ -327,7 +327,7 @@ def test_only_severe_surplus_offer_stays_manually_selectable_without_recommendat
     assert component.automatic_offer_key is None
 
 
-def test_manufacturerless_exact_mpn_conflict_leaves_all_offers_for_manual_choice():
+def test_manufacturerless_exact_mpn_conflict_recommends_safe_low_total_for_review():
     planned = query(
         quantity=3,
         requirements={"package": requirement("package", "SMA")},
@@ -381,15 +381,152 @@ def test_manufacturerless_exact_mpn_conflict_leaves_all_offers_for_manual_choice
         == SelectionEligibility.MANUAL_REVIEW
         for candidate in candidates
     )
-    assert goodwork.decision.selection_recommendation.value == "candidate_only"
+    assert goodwork.decision.selection_recommendation.value == "preselect"
     assert blue_rocket.decision.selection_recommendation.value == "candidate_only"
     assert offer_decision(goodwork).recommendation == OfferRecommendation.NONE
-    assert offer_decision(blue_rocket).recommendation == OfferRecommendation.NONE
+    assert offer_decision(blue_rocket).recommendation == OfferRecommendation.MANUAL_REVIEW
     assert "automatic_selection_excessive" in offer_decision(goodwork).reason_codes
     assert "automatic_selection_excessive" not in offer_decision(blue_rocket).reason_codes
-    assert component.status == "no_recommendation"
-    assert component.review_offer_key is None
-    assert component.application_candidate_identity_key is None
+    assert component.status == "review_recommended"
+    assert component.review_offer_key == offer_decision(blue_rocket).offer_key
+    assert component.application_candidate_identity_key == (
+        blue_rocket.decision.identity_key
+    )
+    assert component.technical_fallback_used is True
+    assert component.price_optimization_used is False
+
+
+def test_equivalent_parametric_resistor_prefers_lowest_effective_total():
+    planned = PlannedQuery(
+        component_id="resistor-price",
+        mode=SearchMode.PARAMETRIC,
+        part_type="resistor",
+        category_policy="resistor",
+        quantity=10,
+        requirements={
+            "part_type": requirement("part_type", "resistor", "category"),
+            "resistance_ohm": requirement("resistance_ohm", 1_000.0),
+            "power_w": requirement("power_w", 0.1, "gte"),
+            "tolerance_percent": requirement("tolerance_percent", 1.0, "lte"),
+            "package": requirement("package", "0603"),
+        },
+    )
+    specs = {
+        "resistance_ohm": 1_000.0,
+        "power_w": 0.125,
+        "tolerance_percent": 1.0,
+        "package": "0603",
+    }
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn="A-TECHNICAL-FIRST",
+                specs=specs,
+                prices=[(1, 10, "KRW")],
+            ).model_copy(
+                update={"category": "resistor", "package": "0603"},
+                deep=True,
+            ),
+            product(
+                Supplier.MOUSER,
+                mpn="Z-LOWEST-TOTAL",
+                specs=specs,
+                prices=[(1, 1, "KRW")],
+            ).model_copy(
+                update={"category": "resistor", "package": "0603"},
+                deep=True,
+            ),
+        ],
+    )
+
+    technical = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer_part_number == "A-TECHNICAL-FIRST"
+    )
+    cheapest = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer_part_number == "Z-LOWEST-TOTAL"
+    )
+    assert technical.decision.selection_recommendation.value == "preselect"
+    assert cheapest.decision.selection_recommendation.value == "candidate_only"
+    assert offer_decision(technical).recommendation == OfferRecommendation.NONE
+    assert offer_decision(cheapest).recommendation == OfferRecommendation.AUTOMATIC
+    assert component.automatic_offer_key == offer_decision(cheapest).offer_key
+    assert component.technical_fallback_used is False
+    assert component.price_optimization_used is True
+    assert "equivalent_group_lower_effective_total_selected" in (
+        component.recommendation_reason_codes
+    )
+    assert "best_effective_total_in_equivalent_group" in (
+        component.recommendation_reason_codes
+    )
+
+
+def test_incomplete_equivalent_resistors_get_lowest_total_review_recommendation():
+    planned = PlannedQuery(
+        component_id="resistor-review-price",
+        mode=SearchMode.PARAMETRIC,
+        part_type="resistor",
+        category_policy="resistor",
+        quantity=10,
+        requirements={
+            "part_type": requirement("part_type", "resistor", "category"),
+            "resistance_ohm": requirement("resistance_ohm", 1_000.0),
+            "power_w": requirement("power_w", 0.1, "gte"),
+            "package": requirement("package", "0603"),
+        },
+    )
+    specs = {
+        "resistance_ohm": 1_000.0,
+        "power_w": 0.125,
+        "package": "0603",
+    }
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn="A-REVIEW-FIRST",
+                specs=specs,
+                prices=[(1, 10, "KRW")],
+            ).model_copy(
+                update={"category": "resistor", "package": "0603"},
+                deep=True,
+            ),
+            product(
+                Supplier.MOUSER,
+                mpn="Z-REVIEW-CHEAP",
+                specs=specs,
+                prices=[(1, 1, "KRW")],
+            ).model_copy(
+                update={"category": "resistor", "package": "0603"},
+                deep=True,
+            ),
+        ],
+    )
+
+    selected = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer_part_number == "Z-REVIEW-CHEAP"
+    )
+    assert all(
+        candidate.decision.selection_eligibility
+        == SelectionEligibility.MANUAL_REVIEW
+        for candidate in candidates
+    )
+    assert offer_decision(selected).recommendation == (
+        OfferRecommendation.MANUAL_REVIEW
+    )
+    assert component.status == "review_recommended"
+    assert component.review_offer_key == offer_decision(selected).offer_key
+    assert component.confirmation_required is True
+    assert component.technical_fallback_used is False
+    assert component.price_optimization_used is True
 
 
 def test_price_and_currency_rate_missing_degrade_without_fake_recommendation():
