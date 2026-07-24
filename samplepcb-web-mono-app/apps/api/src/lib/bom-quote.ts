@@ -220,6 +220,7 @@ const EngineRequirementAssessment = z.object({
   comparison: z.enum(['eq', 'gte', 'lte', 'contains', 'category']),
   state: z.enum(['match', 'mismatch', 'missing', 'not_applicable', 'unverified']),
   verified: z.boolean(),
+  source: z.enum(['bom', 'user', 'policy_default', 'unknown']).default('unknown'),
   expected_display: z.string().nullable(),
   actual_display: z.string().nullable(),
 });
@@ -587,7 +588,10 @@ const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSIONS: ReadonlySet<string> = new Set(
   'supplier-candidate-decision-v3',
 ]);
 const SUPPORTED_ENGINE_LEGACY_CANDIDATE_POLICY_VERSION = 'supplier-candidate-decision-v1';
-const SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION = 'candidate-category-policy-v1';
+const SUPPORTED_ENGINE_CATEGORY_POLICY_VERSIONS: ReadonlySet<string> = new Set([
+  'candidate-category-policy-v1',
+  'candidate-category-policy-v2',
+]);
 const SUPPORTED_ENGINE_IDENTITY_KEY_VERSION = 'candidate-identity-key-v1';
 const SUPPORTED_ENGINE_EVIDENCE_KEY_VERSION = 'candidate-evidence-key-v1';
 const SUPPORTED_ENGINE_SELECTION_RECOMMENDATION_POLICY_VERSION = 'candidate-selection-recommendation-v1';
@@ -729,6 +733,10 @@ const StoredCandidateOffer = z.object({
   procurementDecision: EngineOfferProcurementDecision.nullable().catch(null),
 });
 
+const StoredRequirementAssessment = BomQuoteRequirementAssessment.extend({
+  source: z.enum(['bom', 'user', 'policy_default', 'unknown']).default('unknown'),
+});
+
 const StoredCandidate = z.object({
   candidateKey: z.string(),
   identityKey: z.string().catch(''),
@@ -760,7 +768,7 @@ const StoredCandidate = z.object({
   corroboratingSuppliers: z.array(z.string()),
   verifiedRequirementCount: z.number().int().min(0),
   requiredRequirementCount: z.number().int().min(0),
-  requirementAssessments: z.array(BomQuoteRequirementAssessment).catch([]),
+  requirementAssessments: z.array(StoredRequirementAssessment).catch([]),
   verificationComplete: z.boolean().catch(false),
   strictCategoryCoverage: z.boolean().catch(false),
   technicalEvidenceKey: z.string().catch(''),
@@ -1129,7 +1137,7 @@ function normalizeEngineDecision(
       : false;
     if (
       !SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSIONS.has(currentDecision.decision_policy_version)
-      || currentDecision.category_policy_version !== SUPPORTED_ENGINE_CATEGORY_POLICY_VERSION
+      || !SUPPORTED_ENGINE_CATEGORY_POLICY_VERSIONS.has(currentDecision.category_policy_version)
       || currentDecision.identity_key_version !== SUPPORTED_ENGINE_IDENTITY_KEY_VERSION
       || currentDecision.evidence_key_version !== SUPPORTED_ENGINE_EVIDENCE_KEY_VERSION
       || (currentDecision.selection_eligibility === 'automatic' && currentDecision.match_relation === 'unresolved')
@@ -1164,6 +1172,7 @@ function normalizeEngineDecision(
         comparison: assessment.comparison,
         state: assessment.state,
         verified: assessment.verified,
+        source: assessment.source,
         expectedDisplay: assessment.expected_display,
         actualDisplay: assessment.actual_display,
       })),

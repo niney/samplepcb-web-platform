@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from bom_extraction_engine import SmartbomConfig, build_smartbom_result
 from supplier_search_engine.contract import (
+    PassiveRequirementDefaults,
     SearchBatchInput,
     UserSearchRequirements,
     build_batch_from_result,
@@ -95,6 +96,7 @@ class Job:
     supplier_requirement_overrides: dict[str, UserSearchRequirements] = field(
         default_factory=dict
     )
+    supplier_requirement_defaults: PassiveRequirementDefaults | None = None
 
 
 class JobService:
@@ -144,6 +146,7 @@ class JobService:
         result: dict[str, Any],
         required_quantities: dict[str, int] | None = None,
         requirement_overrides: dict[str, UserSearchRequirements] | None = None,
+        requirement_defaults: PassiveRequirementDefaults | None = None,
     ) -> Job:
         """sp-node가 영속한 분석 스냅샷으로 독립 공급사 검색 잡을 만든다.
 
@@ -194,6 +197,11 @@ class JobService:
             result=deepcopy(result),
             supplier_required_quantities=quantities,
             supplier_requirement_overrides=overrides,
+            supplier_requirement_defaults=(
+                requirement_defaults.model_copy(deep=True)
+                if requirement_defaults is not None
+                else None
+            ),
         )
         self._jobs[job_id] = job
         return job
@@ -357,13 +365,13 @@ class JobService:
                         )
                         if component.procurement_disposition
                         == ProcurementDisposition.ELIGIBLE
-                        and component.quantity_resolution
-                        == QuantityResolution.VERIFIED
+                        and component.quantity_resolution == QuantityResolution.VERIFIED
                         else component.required_quantity
                     ),
                     "user_requirements": job.supplier_requirement_overrides.get(
                         component.component_id
                     ),
+                    "requirement_defaults": job.supplier_requirement_defaults,
                 }
             )
             for component in batch.components

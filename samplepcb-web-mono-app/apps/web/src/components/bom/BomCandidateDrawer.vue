@@ -1715,7 +1715,7 @@ onBeforeUnmount(() => {
       <div v-if="requirementTooltipCandidate.requirementAssessments.length > 0" class="max-h-[70vh] overflow-auto">
         <div class="grid min-w-[400px] grid-cols-[minmax(76px,0.8fr)_minmax(96px,1fr)_minmax(96px,1fr)_auto] gap-x-2 border-b border-slate-200 bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
           <span>항목</span>
-          <span>BOM 요구</span>
+          <span>요구 조건</span>
           <span>후보값</span>
           <span>판정</span>
         </div>
@@ -1724,7 +1724,10 @@ onBeforeUnmount(() => {
           :key="assessment.key"
           class="grid min-w-[400px] grid-cols-[minmax(76px,0.8fr)_minmax(96px,1fr)_minmax(96px,1fr)_auto] items-center gap-x-2 border-b border-slate-100 px-3 py-2 last:border-b-0"
         >
-          <span class="font-semibold text-slate-800">{{ requirementLabel(assessment.key) }}</span>
+          <span class="font-semibold text-slate-800">
+            {{ requirementLabel(assessment.key) }}
+            <span v-if="assessment.source === 'policy_default'" class="mt-0.5 block text-[9px] font-bold text-blue-600">승인 기본값</span>
+          </span>
           <span class="break-words text-slate-600">{{ requirementExpectedLabel(assessment) }}</span>
           <span class="break-words" :class="assessment.actualDisplay === null ? 'text-amber-700' : 'text-slate-800'">{{ assessment.actualDisplay ?? '정보 없음' }}</span>
           <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold" :class="requirementStateClass(assessment)">{{ requirementStateLabel(assessment) }}</span>

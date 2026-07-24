@@ -20,6 +20,7 @@ import {
   type BomQuoteCandidateSelectionBodyType,
   type BomQuoteDeleteManyBodyType,
   type BomQuotePatchBodyType,
+  type BomQuotePassiveDefaultsBodyType,
   type BomQuoteSearchRequirementsBodyType,
   type BomQuoteSheetSelectionBodyType,
   type BomQuoteStatusType,
@@ -238,6 +239,29 @@ export function useUpdateBomQuoteSearchRequirements() {
         queryKey: ['bom', 'quote', quoteId, 'candidates', itemId],
       });
       void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] });
+    },
+  });
+}
+
+export function useApplyBomQuotePassiveDefaults() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      body,
+    }: {
+      quoteId: string;
+      body: BomQuotePassiveDefaultsBodyType;
+    }) => apiSend(
+      'PUT',
+      `${base}/quotes/${quoteId}/passive-defaults`,
+      body,
+      BomQuoteDetailResponse,
+    ),
+    onSuccess: (data, { quoteId }) => {
+      qc.setQueryData(['bom', 'quote', quoteId], data);
+      void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] });
+      void qc.invalidateQueries({ queryKey: ['bom', 'quote', quoteId, 'candidates'] });
     },
   });
 }

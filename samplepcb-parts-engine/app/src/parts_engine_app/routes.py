@@ -12,7 +12,10 @@ from supplier_search_engine.models import (
     ProcurementReevaluationRequest,
     ProcurementReevaluationResult,
 )
-from supplier_search_engine.contract import UserSearchRequirements
+from supplier_search_engine.contract import (
+    PassiveRequirementDefaults,
+    UserSearchRequirements,
+)
 from supplier_search_engine.procurement import (
     ProcurementReevaluationError,
     reevaluate_procurement,
@@ -34,9 +37,8 @@ class SupplierSearchOptionsBody(BaseModel):
     reset_cache: bool = False
     sheet_indexes: list[int] = Field(default_factory=list, max_length=100)
     component_ids: list[str] = Field(default_factory=list, max_length=200)
-    procurement: ProcurementPolicyInput = Field(
-        default_factory=ProcurementPolicyInput
-    )
+    passive_defaults: PassiveRequirementDefaults | None = None
+    procurement: ProcurementPolicyInput = Field(default_factory=ProcurementPolicyInput)
 
     @model_validator(mode="after")
     def validate_cache_mode(self) -> "SupplierSearchOptionsBody":
@@ -73,6 +75,7 @@ class PersistedAnalysisBody(BaseModel):
     requirement_overrides: dict[str, UserSearchRequirements] = Field(
         default_factory=dict
     )
+    requirement_defaults: PassiveRequirementDefaults | None = None
 
     @model_validator(mode="after")
     def validate_required_quantities(self) -> "PersistedAnalysisBody":
@@ -170,6 +173,7 @@ async def create_supplier_job(
             body.analysis,
             body.required_quantities,
             body.requirement_overrides,
+            body.requirement_defaults,
         )
     except JobError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -180,13 +184,17 @@ async def create_supplier_job(
 async def preflight_supplier_search(
     request: Request,
     job_id: str,
-    options: SupplierSearchOptionsBody = Body(default_factory=SupplierSearchOptionsBody),
+    options: SupplierSearchOptionsBody = Body(
+        default_factory=SupplierSearchOptionsBody
+    ),
 ) -> dict[str, Any]:
     try:
         # SearchService는 async http client를 정리하므로 preflight 계산 자체를
         # 워커 스레드에서 실행한다. FastAPI 이벤트 루프 안에서 asyncio.run()을
         # 중첩 호출하지 않기 위한 경계다.
-        return await asyncio.to_thread(_svc(request).preflight_supplier, job_id, options.to_options())
+        return await asyncio.to_thread(
+            _svc(request).preflight_supplier, job_id, options.to_options()
+        )
     except JobError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -195,11 +203,15 @@ async def preflight_supplier_search(
 async def start_supplier_search(
     request: Request,
     job_id: str,
-    options: SupplierSearchOptionsBody = Body(default_factory=SupplierSearchOptionsBody),
+    options: SupplierSearchOptionsBody = Body(
+        default_factory=SupplierSearchOptionsBody
+    ),
 ) -> dict[str, Any]:
     _job(request, job_id)
     try:
-        job = await asyncio.to_thread(_svc(request).submit_supplier, job_id, options.to_options())
+        job = await asyncio.to_thread(
+            _svc(request).submit_supplier, job_id, options.to_options()
+        )
     except JobError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return _supplier_view(job)
@@ -214,9 +226,13 @@ async def get_supplier_search(request: Request, job_id: str) -> dict[str, Any]:
 async def get_supplier_result(request: Request, job_id: str) -> dict[str, Any]:
     job = _job(request, job_id)
     if job.supplier_status == "failed":
-        raise HTTPException(status_code=422, detail=job.supplier_error or "supplier_search_failed")
+        raise HTTPException(
+            status_code=422, detail=job.supplier_error or "supplier_search_failed"
+        )
     if job.supplier_status != "completed" or job.supplier_result is None:
-        raise HTTPException(status_code=409, detail=f"supplier_search_{job.supplier_status}")
+        raise HTTPException(
+            status_code=409, detail=f"supplier_search_{job.supplier_status}"
+        )
     return job.supplier_result
 
 
@@ -265,13 +281,13 @@ class PartSearchBody(BaseModel):
     query: str = Field(min_length=1, max_length=200)
     needed: int = Field(default=1, ge=1, le=1_000_000)
     max_calls: int = Field(default=12, ge=1, le=25)
-    procurement: ProcurementPolicyInput = Field(
-        default_factory=ProcurementPolicyInput
-    )
+    procurement: ProcurementPolicyInput = Field(default_factory=ProcurementPolicyInput)
 
 
 @router.post("/parts/refresh")
-async def refresh_single_part(request: Request, body: PartRefreshBody) -> dict[str, Any]:
+async def refresh_single_part(
+    request: Request, body: PartRefreshBody
+) -> dict[str, Any]:
     """MPN 1건 강제 라이브 검색(캐시 읽기 무시·쓰기 기록). 응답 {search: BatchSearchResult}."""
     try:
         return await refresh_part(
@@ -281,11 +297,15 @@ async def refresh_single_part(request: Request, body: PartRefreshBody) -> dict[s
             max_calls=body.max_calls,
         )
     except Exception as error:  # 공급사/네트워크 오류를 502 로 정규화
-        raise HTTPException(status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}") from error
+        raise HTTPException(
+            status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}"
+        ) from error
 
 
 @router.post("/parts/search")
-async def search_catalog_parts(request: Request, body: PartSearchBody) -> dict[str, Any]:
+async def search_catalog_parts(
+    request: Request, body: PartSearchBody
+) -> dict[str, Any]:
     """로컬 색인 exact miss를 공급사 캐시/API로 보강한다."""
     try:
         return await search_catalog(
@@ -296,4 +316,6 @@ async def search_catalog_parts(request: Request, body: PartSearchBody) -> dict[s
             procurement_policy=body.procurement,
         )
     except Exception as error:
-        raise HTTPException(status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}") from error
+        raise HTTPException(
+            status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}"
+        ) from error

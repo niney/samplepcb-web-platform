@@ -223,11 +223,11 @@ class OfferProcurementDecision(BaseModel):
     @model_validator(mode="after")
     def validate_recommendation(self) -> "OfferProcurementDecision":
         expected_prefix = (
-            "ok1:"
-            if self.offer_key_version == "supplier-offer-key-v1"
-            else "ok2:"
+            "ok1:" if self.offer_key_version == "supplier-offer-key-v1" else "ok2:"
         )
-        if self.offer_key is not None and not self.offer_key.startswith(expected_prefix):
+        if self.offer_key is not None and not self.offer_key.startswith(
+            expected_prefix
+        ):
             raise ValueError("offer_key must match offer_key_version")
         if self.price_rank is not None and self.line_total is None:
             raise ValueError("price-ranked offers must have a line total")
@@ -263,9 +263,9 @@ class ComponentProcurementDecision(BaseModel):
     ]
     selection_application_state: SelectionApplicationState
     confirmation_required: bool
-    unavailability_reason_policy_version: Literal[
-        "supplier-procurement-unavailability-v1"
-    ] | None = None
+    unavailability_reason_policy_version: (
+        Literal["supplier-procurement-unavailability-v1"] | None
+    ) = None
     primary_unavailability_reason: ProcurementUnavailabilityReason | None = None
     procurement_disposition: ProcurementDisposition = ProcurementDisposition.ELIGIBLE
     required_quantity: int | None = Field(default=None, ge=1)
@@ -415,7 +415,7 @@ class Requirement(BaseModel):
     name: str
     raw_value: Any
     normalized_value: float | str | list[float | None] | None = None
-    status: Literal["extracted", "review", "not_found", "user"]
+    status: Literal["extracted", "review", "not_found", "user", "policy_default"]
     hard: bool
     comparison: Literal["eq", "gte", "lte", "contains", "category"] = "eq"
 
@@ -429,20 +429,23 @@ class PlannedQuery(BaseModel):
     manufacturer: str | None = None
     description: str | None = None
     part_type: str | None = None
-    category_policy: Literal[
-        "resistor",
-        "capacitor",
-        "electrolytic",
-        "tantalum",
-        "film",
-        "inductor",
-        "ferrite",
-        "led",
-        "connector",
-        "varistor",
-        "buzzer",
-        "crystal",
-    ] | None = None
+    category_policy: (
+        Literal[
+            "resistor",
+            "capacitor",
+            "electrolytic",
+            "tantalum",
+            "film",
+            "inductor",
+            "ferrite",
+            "led",
+            "connector",
+            "varistor",
+            "buzzer",
+            "crystal",
+        ]
+        | None
+    ) = None
     package: str | None = None
     quantity: int | None = None
     keywords: str = ""
@@ -533,7 +536,9 @@ class SupplierProduct(BaseModel):
     end_of_life: bool | None = None
     datasheet_url: str | None = None
     image_url: str | None = None
-    normalized_specs: dict[str, float | str | list[float | None] | None] = Field(default_factory=dict)
+    normalized_specs: dict[str, float | str | list[float | None] | None] = Field(
+        default_factory=dict
+    )
     attributes: dict[str, Any] = Field(default_factory=dict)
     offers: list[SupplierOffer] = Field(default_factory=list)
 
@@ -634,7 +639,9 @@ class PackageComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state: Literal["match", "mismatch", "missing", "neutral"]
-    relation: Literal["exact", "alias", "compatible", "mismatch", "missing", "unverified"]
+    relation: Literal[
+        "exact", "alias", "compatible", "mismatch", "missing", "unverified"
+    ]
     expected_display: str | None = None
     expected_raw: str | None = None
     actual_display: str | None = None
@@ -675,6 +682,7 @@ class RequirementAssessment(BaseModel):
     verified: bool
     expected_display: str | None = None
     actual_display: str | None = None
+    source: Literal["bom", "user", "policy_default", "unknown"] = "unknown"
 
 
 class RawSupplierResponse(BaseModel):
@@ -719,9 +727,10 @@ class CandidateDecision(BaseModel):
         "supplier-candidate-decision-v2",
         "supplier-candidate-decision-v3",
     ] = "supplier-candidate-decision-v3"
-    category_policy_version: Literal["candidate-category-policy-v1"] = (
-        "candidate-category-policy-v1"
-    )
+    category_policy_version: Literal[
+        "candidate-category-policy-v1",
+        "candidate-category-policy-v2",
+    ] = "candidate-category-policy-v2"
     identity_key_version: Literal["candidate-identity-key-v1"] = (
         "candidate-identity-key-v1"
     )
@@ -787,7 +796,9 @@ class CandidateDecision(BaseModel):
             )
         if self.selection_eligibility == SelectionEligibility.BLOCKED:
             if self.selection_recommendation != SelectionRecommendation.EXCLUDE:
-                raise ValueError("blocked candidates must be excluded from preselection")
+                raise ValueError(
+                    "blocked candidates must be excluded from preselection"
+                )
         elif self.selection_recommendation == SelectionRecommendation.EXCLUDE:
             raise ValueError("selectable candidates cannot be excluded")
         if (
@@ -804,7 +815,9 @@ class CandidateDecision(BaseModel):
         if not self.identity_key.startswith("ik1:"):
             raise ValueError("identity_key must use candidate-identity-key-v1")
         if not self.technical_evidence_key.startswith("ek1:"):
-            raise ValueError("technical_evidence_key must use candidate-evidence-key-v1")
+            raise ValueError(
+                "technical_evidence_key must use candidate-evidence-key-v1"
+            )
         return self
 
 
@@ -865,7 +878,9 @@ class ProcurementReevaluationCandidateInput(BaseModel):
     disposition_reason_codes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_procurement_disposition(self) -> "ProcurementReevaluationCandidateInput":
+    def validate_procurement_disposition(
+        self,
+    ) -> "ProcurementReevaluationCandidateInput":
         if (
             self.procurement_disposition == ProcurementDisposition.ELIGIBLE
             and self.quantity_resolution != QuantityResolution.VERIFIED
@@ -908,7 +923,9 @@ class ProcurementReevaluationCandidateInput(BaseModel):
     @classmethod
     def validate_requested_offer_key(cls, value: str | None) -> str | None:
         if value is not None and not value.startswith(("ok1:", "ok2:")):
-            raise ValueError("requested_offer_key must use a supported offer key version")
+            raise ValueError(
+                "requested_offer_key must use a supported offer key version"
+            )
         return value
 
 
@@ -1136,6 +1153,7 @@ class BatchSearchResult(BaseModel):
     prefetched_requests: int = 0
     elapsed_ms: float = 0.0
     created_at: datetime = Field(default_factory=utc_now)
+
 
 class SupplierPreflight(BaseModel):
     model_config = ConfigDict(extra="forbid")

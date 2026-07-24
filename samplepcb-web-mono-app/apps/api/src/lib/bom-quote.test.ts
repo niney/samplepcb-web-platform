@@ -423,6 +423,7 @@ interface CandidateOptions {
     | 'supplier-candidate-decision-v1'
     | 'supplier-candidate-decision-v2'
     | 'supplier-candidate-decision-v3';
+  categoryPolicyVersion?: 'candidate-category-policy-v1' | 'candidate-category-policy-v2';
   eligibility?: 'automatic' | 'manual_review' | 'blocked';
   selectionMode?: 'exact' | 'variant' | 'spec-compatible' | 'review';
   technicalReviewRank?: number | null;
@@ -446,6 +447,7 @@ interface CandidateOptions {
     comparison: 'eq' | 'gte' | 'lte' | 'contains' | 'category';
     state: 'match' | 'mismatch' | 'missing' | 'not_applicable' | 'unverified';
     verified: boolean;
+    source?: 'bom' | 'user' | 'policy_default' | 'unknown';
     expected_display: string | null;
     actual_display: string | null;
   }[];
@@ -471,7 +473,7 @@ function candidate(
   const decision = options.currentDecisionContract
     ? {
         decision_policy_version: options.decisionPolicyVersion ?? 'supplier-candidate-decision-v1',
-        category_policy_version: 'candidate-category-policy-v1',
+        category_policy_version: options.categoryPolicyVersion ?? 'candidate-category-policy-v1',
         identity_key_version: 'candidate-identity-key-v1',
         evidence_key_version: 'candidate-evidence-key-v1',
         match_relation: selectionMode === 'review' ? 'unresolved' : selectionMode,
@@ -855,6 +857,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
   it('현재 엔진의 가격·재고·MOQ 추천 오퍼를 Node 재정렬 없이 투영한다', () => {
     const selected = candidate('verified_exact', 'ENGINE-PICK', 'digikey', 1_000, 1, {
       currentDecisionContract: true,
+      categoryPolicyVersion: 'candidate-category-policy-v2',
       selectionRecommendation: 'preselect',
       identityKey: 'ik1:engine-choice',
       technicalEvidenceKey: 'ek1:engine-choice',
@@ -865,6 +868,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
         comparison: 'gte',
         state: 'match',
         verified: true,
+        source: 'policy_default',
         expected_display: '25 V',
         actual_display: '50 V',
       }],
@@ -918,6 +922,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
       comparison: 'gte',
       state: 'match',
       verified: true,
+      source: 'policy_default',
       expectedDisplay: '25 V',
       actualDisplay: '50 V',
     }]);
