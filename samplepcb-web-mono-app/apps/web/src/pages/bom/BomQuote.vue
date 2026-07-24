@@ -554,6 +554,34 @@ const editingLocked = computed(() => enriching.value || updateSheets.isPending.v
 const EDIT_LOCK_TITLE = computed(() => updateSheets.isPending.value
   ? '시트 구성을 반영하는 중입니다'
   : '공급사 확인이 완료되면 수정할 수 있습니다');
+type RowSearchPhase = 'idle' | 'starting' | 'searching' | 'refreshing' | 'done' | 'failed';
+const rowSearchItemId = ref<string | null>(null);
+const rowSearchPhase = ref<RowSearchPhase>('idle');
+const rowSearchNotice = ref('');
+const rowSearchPreviousCandidateCount = ref<number | null>(null);
+const rowSearchPreviousMatchGroup = ref<SpecificResultMatchFilter | null>(null);
+let rowSearchNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+const rowSearchRunning = computed(() =>
+  rowSearchPhase.value === 'starting'
+  || rowSearchPhase.value === 'searching'
+  || rowSearchPhase.value === 'refreshing',
+);
+
+function cancelRowSearchNoticeTimer(): void {
+  if (rowSearchNoticeTimer === null) return;
+  clearTimeout(rowSearchNoticeTimer);
+  rowSearchNoticeTimer = null;
+}
+
+function clearRowSearchState(): void {
+  cancelRowSearchNoticeTimer();
+  rowSearchItemId.value = null;
+  rowSearchPhase.value = 'idle';
+  rowSearchNotice.value = '';
+  rowSearchPreviousCandidateCount.value = null;
+  rowSearchPreviousMatchGroup.value = null;
+}
 
 // ── 매칭 결과 필터 ──────────────────────────────────────────────────────────
 // 매칭 상태는 서로 배타적이다. 엔진이 대표 사유를 재고로 판정한 미선정 행은
@@ -619,7 +647,12 @@ function toggleResultNostockFilter(): void {
 watch(quoteId, clearResultFilters);
 watch(enriching, (active) => {
   // 확인 중에는 Review/Unmatched 최종 분류가 아직 확정되지 않는다.
-  if (active && (resultMatchFilter.value === 'review' || resultMatchFilter.value === 'unmatched')) {
+  // 단일 행 조건 재검색은 현재 검토 문맥을 유지하고 완료된 행만 목록에서 자연스럽게 빠진다.
+  if (
+    active
+    && !rowSearchRunning.value
+    && (resultMatchFilter.value === 'review' || resultMatchFilter.value === 'unmatched')
+  ) {
     resultMatchFilter.value = 'all';
     scrollResultsToTop();
   }
@@ -725,9 +758,26 @@ const capacitorDefaultTolerance = ref('10%');
 const capacitorDefaultVoltage = ref('25V');
 const catalogSelectionPending = ref(false);
 
+const candidateRowSearchActive = computed(() =>
+  rowSearchItemId.value !== null
+  && candidateItemId.value === rowSearchItemId.value
+  && selectionSurface.value === 'candidates',
+);
+const candidateRowSearchLocked = computed(() =>
+  candidateRowSearchActive.value && rowSearchRunning.value,
+);
+const candidateRowSearchProgress = computed(() => {
+  if (!candidateRowSearchActive.value) return '';
+  if (rowSearchPhase.value === 'starting') return '검색 조건을 저장하고 있습니다.';
+  if (rowSearchPhase.value === 'searching') return '이 행의 공급사 후보를 다시 검색하고 있습니다.';
+  if (rowSearchPhase.value === 'refreshing') return '검색이 끝나 새 후보를 반영하고 있습니다.';
+  return '';
+});
+
 watch(quoteId, () => {
   passiveDefaultsOpen.value = false;
   passiveDefaultsError.value = '';
+  clearRowSearchState();
 });
 
 const offerModal = ref<{ lineIdx: number; partId: string } | null>(null);
@@ -742,10 +792,12 @@ watch(editingLocked, (locked) => {
   if (!locked) return;
   // 열려 있던 선택 모달에서 검색 도중 변경이 들어가는 경로도 차단한다.
   passiveDefaultsOpen.value = false;
-  candidateItemId.value = null;
-  selectionSurface.value = null;
   offerModal.value = null;
   partModal.value = null;
+  // 현재 행 조건 재검색은 패널·필터·스크롤을 유지하되 패널 안의 변경 동작만 잠근다.
+  if (candidateRowSearchLocked.value) return;
+  candidateItemId.value = null;
+  selectionSurface.value = null;
 });
 
 function openPassiveDefaults(): void {
@@ -798,6 +850,9 @@ function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: stri
 }
 
 function activateCandidateDrawer(itemId: string, view: CandidateDrawerView): void {
+  if (rowSearchItemId.value !== null && rowSearchItemId.value !== itemId && !rowSearchRunning.value) {
+    clearRowSearchState();
+  }
   candidateSelectionError.value = '';
   searchRequirementsError.value = '';
   candidateItemId.value = itemId;
@@ -839,6 +894,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onPartDataPreparationKeydown);
+  cancelRowSearchNoticeTimer();
 });
 
 async function retryPartDataPreparation(): Promise<void> {
@@ -873,6 +929,7 @@ function closeSelectionSurface(): void {
   selectionSurface.value = null;
   candidateSelectionError.value = '';
   searchRequirementsError.value = '';
+  if (!rowSearchRunning.value) clearRowSearchState();
 }
 
 function openQuoteOfferModal(item: BomQuoteItemType): void {
@@ -935,6 +992,14 @@ async function updateSearchRequirements(
       return;
     }
   }
+  cancelRowSearchNoticeTimer();
+  rowSearchItemId.value = candidateItemId.value;
+  rowSearchPhase.value = 'starting';
+  rowSearchNotice.value = '';
+  rowSearchPreviousCandidateCount.value = candidateQuery.data.value?.data.candidates.length ?? null;
+  rowSearchPreviousMatchGroup.value = candidateItem.value === null
+    ? null
+    : itemMatchGroup(candidateItem.value);
   searchRequirementsError.value = '';
   try {
     await searchRequirementsMutation.mutateAsync({
@@ -942,6 +1007,7 @@ async function updateSearchRequirements(
       itemId: candidateItemId.value,
       body: requirements,
     });
+    rowSearchPhase.value = 'searching';
     dirty.value = false;
   } catch (reason) {
     const code = reason instanceof ApiRequestError ? reason.payload?.error : undefined;
@@ -951,8 +1017,66 @@ async function updateSearchRequirements(
         ? '원본 BOM 컴포넌트와 연결되지 않은 행은 조건 검색을 사용할 수 없습니다.'
         : '검색조건을 저장하거나 행 재검색을 시작하지 못했습니다. 입력값을 확인해 주세요.';
     await Promise.all([quote.refetch(), candidateQuery.refetch()]);
+    rowSearchPhase.value = detail.value?.enrichStatus === 'searching' ? 'searching' : 'failed';
   }
 }
+
+function rowSearchMatchLabel(group: SpecificResultMatchFilter): string {
+  if (group === 'matched') return '매칭';
+  if (group === 'review') return '검토 필요';
+  return '미매칭';
+}
+
+function scheduleRowSearchNoticeClear(): void {
+  cancelRowSearchNoticeTimer();
+  rowSearchNoticeTimer = setTimeout(() => {
+    if (rowSearchPhase.value === 'done') clearRowSearchState();
+  }, 6_000);
+}
+
+watch(
+  () => detail.value?.enrichStatus,
+  async (now, previous) => {
+    const itemId = rowSearchItemId.value;
+    if (itemId === null) return;
+    if (now === 'searching') {
+      rowSearchPhase.value = 'searching';
+      return;
+    }
+    if (previous !== 'searching') return;
+    if (now === 'failed') {
+      rowSearchPhase.value = 'failed';
+      searchRequirementsError.value = '행 재검색을 완료하지 못했습니다. 입력값은 유지되어 있으니 잠시 후 다시 시도해 주세요.';
+      return;
+    }
+    if (now !== 'done') return;
+
+    rowSearchPhase.value = 'refreshing';
+    if (candidateItemId.value === itemId && selectionSurface.value === 'candidates') {
+      const refreshed = await candidateQuery.refetch();
+      if (rowSearchItemId.value !== itemId) return;
+      if (refreshed.isError) {
+        rowSearchPhase.value = 'failed';
+        searchRequirementsError.value = '재검색은 완료됐지만 새 후보를 불러오지 못했습니다. 패널을 닫았다가 다시 열어 주세요.';
+        return;
+      }
+      const nextCandidateCount = refreshed.data?.data.candidates.length ?? 0;
+      const previousCandidateCount = rowSearchPreviousCandidateCount.value;
+      const countLabel = previousCandidateCount === null || previousCandidateCount === nextCandidateCount
+        ? `후보 ${String(nextCandidateCount)}개 갱신`
+        : `후보 ${String(previousCandidateCount)}개 → ${String(nextCandidateCount)}개`;
+      const nextItem = candidateItem.value;
+      const previousGroup = rowSearchPreviousMatchGroup.value;
+      const nextGroup = nextItem === null ? null : itemMatchGroup(nextItem);
+      const statusLabel = previousGroup !== null && nextGroup !== null && previousGroup !== nextGroup
+        ? `${rowSearchMatchLabel(previousGroup)} → ${rowSearchMatchLabel(nextGroup)} · `
+        : '';
+      rowSearchNotice.value = `재검색 완료 · ${statusLabel}${countLabel}`;
+    }
+    rowSearchPhase.value = 'done';
+    scheduleRowSearchNoticeClear();
+  },
+);
 
 async function selectQuoteOffer(candidateKey: string, offerKey: string): Promise<void> {
   const selected = await selectCandidate(candidateKey, offerKey);
@@ -1897,6 +2021,9 @@ function fmtAmount(v: number | null): string {
       :selection-error="candidateSelectionError"
       :requirements-saving="searchRequirementsMutation.isPending.value"
       :requirements-error="searchRequirementsError"
+      :requirements-progress="candidateRowSearchProgress"
+      :requirements-notice="candidateRowSearchActive ? rowSearchNotice : ''"
+      :interaction-locked="candidateRowSearchLocked"
       :initial-view="candidateDrawerView"
       :search-initial-query="candidateItem?.mpn ?? ''"
       :current-part-id="candidateItem?.partId ?? null"

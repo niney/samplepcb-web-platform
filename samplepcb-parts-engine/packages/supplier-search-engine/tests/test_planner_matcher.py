@@ -398,6 +398,33 @@ def test_user_ceramic_capacitor_requirements_control_automatic_selection():
     } <= set(incomplete_match.decision.reason_codes)
 
 
+@pytest.mark.parametrize(
+    ("capacitance", "expected"),
+    [
+        ("4.7u", 4.7e-6),
+        ("100n", 100e-9),
+        ("470p", 470e-12),
+        ("4.7u/Film", 4.7e-6),
+    ],
+)
+def test_user_capacitor_requirements_accept_common_unit_shorthand(
+    capacitance, expected
+):
+    item = component(part_type="capacitor")
+    item.user_requirements = UserSearchRequirements(
+        component_type="capacitor",
+        capacitor_type="ceramic",
+        capacitance=capacitance,
+        package="0603",
+    )
+
+    query = QueryPlanner().plan(item)
+
+    assert query.requirements["capacitance_f"].normalized_value == pytest.approx(
+        expected
+    )
+
+
 @pytest.mark.parametrize("capacitor_type", ["tantalum", "film"])
 def test_non_ceramic_user_capacitor_does_not_require_dielectric(capacitor_type):
     item = component(part_type="capacitor")

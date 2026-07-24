@@ -256,6 +256,49 @@ def test_persisted_user_requirements_and_component_filter_reach_search_batch(tmp
     assert query.requirements["package"].status == "user"
 
 
+def test_supplier_preflight_accepts_unitless_capacitance_prefix_override(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("bom.csv", _CSV, "text/csv")},
+        data={"engine": "smartbom"},
+    )
+    parse_job_id = upload.json()["job_id"]
+    assert _await_completed(client, parse_job_id)["status"] == "completed"
+    analysis = client.get(f"/jobs/{parse_job_id}/result").json()
+    component_id = build_batch_from_result(analysis).components[0].component_id
+
+    created = client.post(
+        "/supplier-jobs",
+        json={
+            "analysis": analysis,
+            "requirement_overrides": {
+                component_id: {
+                    "version": "bom-user-search-requirements-v1",
+                    "component_type": "capacitor",
+                    "capacitor_type": "ceramic",
+                    "capacitance": "4.7u",
+                    "package": "0603",
+                }
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    preflight = client.post(
+        f"/jobs/{created.json()['job_id']}/supplier-search/preflight",
+        json={
+            "max_calls": 5,
+            "cache_only": True,
+            "reset_cache": False,
+            "component_ids": [component_id],
+        },
+    )
+
+    assert preflight.status_code == 200, preflight.text
+    assert preflight.json()["plan"]["component_count"] == 1
+
+
 def test_approved_passive_defaults_reach_every_search_component(tmp_path):
     client = _client(tmp_path)
     upload = client.post(

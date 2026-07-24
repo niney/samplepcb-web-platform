@@ -35,6 +35,9 @@ const props = withDefaults(defineProps<{
   selectionError?: string;
   requirementsSaving?: boolean;
   requirementsError?: string;
+  requirementsProgress?: string;
+  requirementsNotice?: string;
+  interactionLocked?: boolean;
   initialView?: SelectionView;
   searchInitialQuery?: string;
   currentPartId?: string | null;
@@ -48,6 +51,9 @@ const props = withDefaults(defineProps<{
   selectionError: '',
   requirementsSaving: false,
   requirementsError: '',
+  requirementsProgress: '',
+  requirementsNotice: '',
+  interactionLocked: false,
   initialView: 'candidates',
   searchInitialQuery: '',
   currentPartId: null,
@@ -498,7 +504,7 @@ function nullableRequirement(value: string): string | null {
 
 function submitSearchRequirements(): void {
   const componentType = requirementComponentType.value;
-  if (!searchRequirementsValid.value || componentType === null) return;
+  if (props.interactionLocked || !searchRequirementsValid.value || componentType === null) return;
   const common = {
     packageCode: packageCode.value.trim(),
     tolerance: nullableRequirement(tolerance.value),
@@ -941,6 +947,7 @@ const pendingReviewOffer = computed(() => {
 });
 
 function requestSelection(candidate: BomQuoteCandidateType, offerKey: string | null): void {
+  if (props.interactionLocked) return;
   if (candidate.selectionEligibility === 'manual_review') {
     pendingReviewSelection.value = { candidate, offerKey };
     return;
@@ -952,6 +959,7 @@ function selectBest(candidate: BomQuoteCandidateType): void {
   if (
     props.readOnly
     || props.selecting
+    || props.interactionLocked
     || !candidate.manualSelectable
     || candidate.bestOfferKey === null
   ) return;
@@ -974,6 +982,7 @@ function selectOffer(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateO
   if (
     props.readOnly
     || props.selecting
+    || props.interactionLocked
     || !candidate.manualSelectable
     || !offer.purchasable
     || offer.applied === null
@@ -983,12 +992,13 @@ function selectOffer(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateO
 
 function confirmPendingReviewSelection(): void {
   const pending = pendingReviewSelection.value;
-  if (pending === null || props.selecting) return;
+  if (pending === null || props.selecting || props.interactionLocked) return;
   pendingReviewSelection.value = null;
   emit('select', pending.candidate.candidateKey, pending.offerKey);
 }
 
 function selectCatalogPart(part: PartHitType, pick: OfferPick | null): void {
+  if (props.interactionLocked) return;
   emit('catalogSelect', part, pick);
 }
 
@@ -1051,8 +1061,9 @@ onBeforeUnmount(() => {
           <button
             v-if="!readOnly"
             type="button"
-            class="border-b-2 px-3 py-2 text-sm font-bold transition"
+            class="border-b-2 px-3 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
             :class="view === 'search' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'"
+            :disabled="interactionLocked"
             @click="view = 'search'"
           >
             전체 부품 검색
@@ -1084,7 +1095,7 @@ onBeforeUnmount(() => {
               <BomPartSearchPanel
                 :initial-query="searchInitialQuery"
                 :current-part-id="currentPartId"
-                :selecting="catalogSelecting"
+                :selecting="catalogSelecting || interactionLocked"
                 :needed="needed"
                 :usd-krw-rate="usdKrwRate"
                 @select="selectCatalogPart"
@@ -1101,6 +1112,27 @@ onBeforeUnmount(() => {
           <template v-else-if="context !== null">
             <div class="space-y-2.5 p-3">
               <div v-if="selectionError !== ''" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ selectionError }}</div>
+              <div
+                v-if="requirementsProgress !== ''"
+                class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="mt-0.5 size-4 shrink-0 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" aria-hidden="true" />
+                <div>
+                  <p class="font-bold">{{ requirementsProgress }}</p>
+                  <p class="mt-0.5 text-xs leading-5 text-blue-700">현재 후보는 이전 검색 결과이며, 완료되면 이 패널 안에서 자동으로 교체됩니다.</p>
+                </div>
+              </div>
+              <div
+                v-else-if="requirementsNotice !== ''"
+                class="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 shadow-sm"
+                role="status"
+                aria-live="polite"
+              >
+                <span aria-hidden="true">✓</span>
+                {{ requirementsNotice }}
+              </div>
               <section class="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm" aria-labelledby="original-bom-title">
                 <div class="flex flex-wrap items-center justify-between gap-1.5">
                   <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -1254,77 +1286,79 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <form class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4" @submit.prevent="submitSearchRequirements">
-                  <label v-if="requirementComponentType === 'resistor'" class="text-xs font-semibold text-slate-700">
-                    저항값 <b class="text-rose-600">*</b>
-                    <input v-model.trim="resistance" type="text" maxlength="64" placeholder="예: 10kΩ" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                  </label>
-                  <label v-else class="text-xs font-semibold text-slate-700">
-                    정전용량 <b class="text-rose-600">*</b>
-                    <input v-model.trim="capacitance" type="text" maxlength="64" placeholder="예: 100nF" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                  </label>
+                <form class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4" :aria-busy="requirementsProgress !== ''" @submit.prevent="submitSearchRequirements">
+                  <fieldset class="contents" :disabled="requirementsSaving || interactionLocked">
+                    <label v-if="requirementComponentType === 'resistor'" class="text-xs font-semibold text-slate-700">
+                      저항값 <b class="text-rose-600">*</b>
+                      <input v-model.trim="resistance" type="text" maxlength="64" placeholder="예: 10kΩ" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
+                    <label v-else class="text-xs font-semibold text-slate-700">
+                      정전용량 <b class="text-rose-600">*</b>
+                      <input v-model.trim="capacitance" type="text" maxlength="64" placeholder="예: 100nF" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
 
-                  <label class="text-xs font-semibold text-slate-700">
-                    패키지 <b class="text-rose-600">*</b>
-                    <input v-model.trim="packageCode" type="text" maxlength="64" placeholder="예: 0603 / 1608" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                  </label>
+                    <label class="text-xs font-semibold text-slate-700">
+                      패키지 <b class="text-rose-600">*</b>
+                      <input v-model.trim="packageCode" type="text" maxlength="64" placeholder="예: 0603 / 1608" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
 
-                  <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
-                    캐패시터 종류 <b class="text-rose-600">*</b>
-                    <select v-model="capacitorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                      <option value="">선택 필요</option>
-                      <option value="ceramic">MLCC / 세라믹</option>
-                      <option value="electrolytic">전해</option>
-                      <option value="tantalum">탄탈</option>
-                      <option value="film">필름</option>
-                    </select>
-                  </label>
+                    <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
+                      캐패시터 종류 <b class="text-rose-600">*</b>
+                      <select v-model="capacitorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">선택 필요</option>
+                        <option value="ceramic">MLCC / 세라믹</option>
+                        <option value="electrolytic">전해</option>
+                        <option value="tantalum">탄탈</option>
+                        <option value="film">필름</option>
+                      </select>
+                    </label>
 
-                  <label class="text-xs font-semibold text-slate-700">
-                    허용오차
-                    <input v-model.trim="tolerance" type="text" maxlength="64" placeholder="모름 또는 예: 10%" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                  </label>
+                    <label class="text-xs font-semibold text-slate-700">
+                      허용오차
+                      <input v-model.trim="tolerance" type="text" maxlength="64" placeholder="모름 또는 예: 10%" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
 
-                  <label v-if="requirementComponentType === 'resistor'" class="text-xs font-semibold text-slate-700">
-                    정격전력
-                    <input v-model.trim="power" type="text" maxlength="64" placeholder="조건 없음 또는 예: 0.1W" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                  </label>
+                    <label v-if="requirementComponentType === 'resistor'" class="text-xs font-semibold text-slate-700">
+                      정격전력
+                      <input v-model.trim="power" type="text" maxlength="64" placeholder="조건 없음 또는 예: 0.1W" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
 
-                  <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
-                    정격전압
-                    <input v-model.trim="voltage" type="text" maxlength="64" placeholder="모름 또는 예: 25V" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                  </label>
+                    <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
+                      정격전압
+                      <input v-model.trim="voltage" type="text" maxlength="64" placeholder="모름 또는 예: 25V" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                    </label>
 
-                  <label v-if="requirementComponentType === 'capacitor' && capacitorType === 'ceramic'" class="text-xs font-semibold text-slate-700">
-                    유전체
-                    <select v-model="dielectric" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                      <option value="">모름 · 직접 검토</option>
-                      <option value="C0G">C0G / NP0</option>
-                      <option value="X5R">X5R</option>
-                      <option value="X7R">X7R</option>
-                      <option value="X8R">X8R</option>
-                      <option value="Y5V">Y5V</option>
-                    </select>
-                  </label>
+                    <label v-if="requirementComponentType === 'capacitor' && capacitorType === 'ceramic'" class="text-xs font-semibold text-slate-700">
+                      유전체
+                      <select v-model="dielectric" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">모름 · 직접 검토</option>
+                        <option value="C0G">C0G / NP0</option>
+                        <option value="X5R">X5R</option>
+                        <option value="X7R">X7R</option>
+                        <option value="X8R">X8R</option>
+                        <option value="Y5V">Y5V</option>
+                      </select>
+                    </label>
 
-                  <label class="text-xs font-semibold text-slate-700">
-                    실장방식
-                    <select v-model="mountStyle" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
-                      <option value="">자동 판정</option>
-                      <option value="smd">SMD</option>
-                      <option value="through-hole">THT</option>
-                    </select>
-                  </label>
+                    <label class="text-xs font-semibold text-slate-700">
+                      실장방식
+                      <select v-model="mountStyle" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                        <option value="">자동 판정</option>
+                        <option value="smd">SMD</option>
+                        <option value="through-hole">THT</option>
+                      </select>
+                    </label>
 
-                  <div class="flex flex-col justify-end sm:col-span-2 lg:col-span-4">
-                    <p v-if="requirementsError !== ''" class="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{{ requirementsError }}</p>
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <p class="text-[11px] text-slate-500">전압은 이상(≥), 허용오차는 이하(≤), 정격전력은 이상(≥) 조건으로 검증합니다.</p>
-                      <button type="submit" class="h-9 rounded-lg bg-indigo-600 px-4 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="requirementsSaving || !searchRequirementsValid">
-                        {{ requirementsSaving ? '행 재검색 시작 중…' : context.searchRequirements === null ? '조건 저장 후 검색' : '조건 변경 후 재검색' }}
-                      </button>
+                    <div class="flex flex-col justify-end sm:col-span-2 lg:col-span-4">
+                      <p v-if="requirementsError !== ''" class="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{{ requirementsError }}</p>
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <p class="text-[11px] text-slate-500">전압은 이상(≥), 허용오차는 이하(≤), 정격전력은 이상(≥) 조건으로 검증합니다.</p>
+                        <button type="submit" class="h-9 rounded-lg bg-indigo-600 px-4 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="requirementsSaving || interactionLocked || !searchRequirementsValid">
+                          {{ requirementsSaving ? '행 재검색 시작 중…' : context.searchRequirements === null ? '조건 저장 후 검색' : '조건 변경 후 재검색' }}
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  </fieldset>
                 </form>
               </section>
               <section v-if="context.searchTrace !== null" class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -1525,7 +1559,7 @@ onBeforeUnmount(() => {
                             v-if="!readOnly"
                             type="button"
                             class="mt-2 h-9 w-full rounded-lg bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                            :disabled="selecting || !candidate.manualSelectable || candidate.bestOfferKey === null || bestOfferAlreadySelected(candidate)"
+                            :disabled="selecting || interactionLocked || !candidate.manualSelectable || candidate.bestOfferKey === null || bestOfferAlreadySelected(candidate)"
                             @click="selectBest(candidate)"
                           >
                             {{ candidate.bestOfferKey === null ? candidateUnavailableLabel(candidate) : provisionalSelectionPending && candidate.selected ? '검토 완료' : bestOfferAlreadySelected(candidate) ? '현재 구매조건 오퍼' : candidate.recommended && candidate.selectionEligibility === 'manual_review' ? '권장 후보 검토 후 선택' : candidate.selectionEligibility === 'manual_review' ? '검토 후 선택' : candidate.selected ? '구매조건 오퍼로 변경' : candidate.recommended ? '자동 추천 적용' : '구매조건 오퍼로 선택' }}
@@ -1586,7 +1620,7 @@ onBeforeUnmount(() => {
                               v-if="!readOnly"
                               type="button"
                               class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
-                              :disabled="selecting || !candidate.manualSelectable || !offer.purchasable || offer.applied === null || offerAlreadyConfirmed(candidate, offer)"
+                              :disabled="selecting || interactionLocked || !candidate.manualSelectable || !offer.purchasable || offer.applied === null || offerAlreadyConfirmed(candidate, offer)"
                               @click="selectOffer(candidate, offer)"
                             >
                               {{ provisionalSelectionPending && candidate.selected && context.selectedOfferKey === offer.offerKey ? '이 오퍼 확인 완료' : offer.purchasable ? '이 오퍼 선택' : offerStockActionLabel(offer) }}
@@ -1615,8 +1649,8 @@ onBeforeUnmount(() => {
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div><h3 class="text-sm font-bold text-slate-900">엔진 후보 밖에서 찾기</h3><p class="mt-1 text-xs text-slate-500">품번·스펙으로 카탈로그를 직접 검색할 수 있습니다.</p></div>
                   <div class="flex flex-wrap gap-2">
-                    <button v-if="hasCatalogPart" type="button" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50" @click="emit('catalogOffers')">현재 부품 오퍼</button>
-                    <button type="button" class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50" @click="view = 'search'">전체 부품 검색</button>
+                    <button v-if="hasCatalogPart" type="button" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="interactionLocked" @click="emit('catalogOffers')">현재 부품 오퍼</button>
+                    <button type="button" class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="interactionLocked" @click="view = 'search'">전체 부품 검색</button>
                   </div>
                 </div>
               </section>
@@ -1686,7 +1720,7 @@ onBeforeUnmount(() => {
 
           <footer class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
             <button type="button" class="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" @click="pendingReviewSelection = null">취소</button>
-            <button type="button" class="h-10 rounded-lg bg-amber-600 px-5 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting" @click="confirmPendingReviewSelection">
+            <button type="button" class="h-10 rounded-lg bg-amber-600 px-5 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting || interactionLocked" @click="confirmPendingReviewSelection">
               {{ pendingReviewSelection.candidate.selected && provisionalSelectionPending ? '검토 완료' : '확인 후 선택' }}
             </button>
           </footer>

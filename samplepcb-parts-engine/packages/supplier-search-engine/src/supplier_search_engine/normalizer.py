@@ -58,6 +58,23 @@ def parse_capacitance_f(value: object, *, allow_code: bool = False) -> float | N
         multiplier = {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6, "μ": 1e-6, "m": 1e-3, "": 1.0}[prefix]
         return _finite(number * multiplier)
     if allow_code:
+        shorthand = re.search(
+            rf"({_NUMBER})\s*(p|n|u|µ|μ|m)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if shorthand:
+            number = float(shorthand.group(1))
+            prefix = shorthand.group(2).casefold()
+            multiplier = {
+                "p": 1e-12,
+                "n": 1e-9,
+                "u": 1e-6,
+                "µ": 1e-6,
+                "μ": 1e-6,
+                "m": 1e-3,
+            }[prefix]
+            return _finite(number * multiplier)
         code = re.fullmatch(r"\s*(\d{3})\s*", text)
         if code:
             digits = code.group(1)
