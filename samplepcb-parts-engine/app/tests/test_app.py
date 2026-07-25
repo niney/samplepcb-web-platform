@@ -53,7 +53,7 @@ def _client(tmp_path) -> TestClient:
         m2v_path="off",  # 오프라인·임베딩 폴백 비활성 → 사전만으로 헤더 탐지
         component_limit=5000,
         max_upload_bytes=30 * 1024 * 1024,
-        supplier_max_calls=700,
+        supplier_max_calls=3_000,
     )
     config.uploads_dir.mkdir(parents=True, exist_ok=True)
     return TestClient(create_app(config))
@@ -73,6 +73,13 @@ def test_health(tmp_path):
     assert _client(tmp_path).get("/health").json() == {"status": "ok"}
 
 
+def test_default_supplier_max_calls_is_three_thousand(tmp_path, monkeypatch):
+    monkeypatch.setenv("PARTS_ENGINE_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("SUPPLIER_MAX_CALLS", raising=False)
+
+    assert Config.from_env().supplier_max_calls == 3_000
+
+
 def test_capabilities_exposes_limits_without_supplier_secrets(tmp_path, monkeypatch):
     monkeypatch.setenv("DIGIKEY_CLIENT_ID", "digikey-client-secret-value")
     monkeypatch.setenv("DIGIKEY_CLIENT_SECRET", "digikey-secret-value")
@@ -81,7 +88,7 @@ def test_capabilities_exposes_limits_without_supplier_secrets(tmp_path, monkeypa
 
     body = _client(tmp_path).get("/capabilities").json()
 
-    assert body["supplier_search"]["max_calls_per_job"] == 700
+    assert body["supplier_search"]["max_calls_per_job"] == 3_000
     assert body["supplier_search"]["cache"]["mode"] == "normal"
     assert body["supplier_search"]["cache"]["entry_count"] == 0
     assert body["supplier_search"]["suppliers"] == [
@@ -820,6 +827,23 @@ def test_supplier_search_rejects_conflicting_cache_modes(tmp_path):
         json={"max_calls": 10, "cache_only": True, "reset_cache": True},
     )
     assert response.status_code == 422
+
+
+def test_supplier_search_accepts_three_thousand_and_rejects_above_limit(tmp_path):
+    client = _client(tmp_path)
+
+    accepted = client.post(
+        "/jobs/missing/supplier-search/preflight",
+        json={"max_calls": 3_000},
+    )
+    rejected = client.post(
+        "/jobs/missing/supplier-search/preflight",
+        json={"max_calls": 3_001},
+    )
+
+    assert accepted.status_code == 409
+    assert accepted.json()["detail"] == "job_not_found: missing"
+    assert rejected.status_code == 422
 
 
 def test_supplier_search_starts_when_preflight_estimate_exceeds_runtime_budget(

@@ -938,8 +938,8 @@ export const BomQuoteConfig = z.object({
   usdKrwSafetyMarginPercent: z.number().min(0).max(20),
   /** 이 기간을 넘긴 자동 환율은 오래된 캐시로 표시(수동값이 있으면 수동 폴백 우선). */
   usdKrwMaxAgeDays: z.number().int().min(1).max(30),
-  /** 공급사 검색 1회 최대 외부 호출 수(엔진 max_calls 상한, 엔진 스키마 최대 1000). */
-  supplierSearchMaxCalls: z.number().int().min(1).max(1000),
+  /** 공급사 검색 1회 최대 외부 호출 수(엔진 max_calls 상한, 엔진 스키마 최대 3000). */
+  supplierSearchMaxCalls: z.number().int().min(1).max(3000),
   /** 회원별 1일 공급사 검색 횟수 제한. */
   memberDailySearchLimit: z.number().int().min(1).max(1000),
   /** 오퍼 데이터 신선 임계(시간) — 초과 라인이 있으면 업로드 시 자동 보강 트리거. */

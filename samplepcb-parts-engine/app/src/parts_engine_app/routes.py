@@ -39,7 +39,7 @@ router = APIRouter()
 class SupplierSearchOptionsBody(BaseModel):
     """공급사 API 호출 전에 관리자에게 노출하는 안전 옵션."""
 
-    max_calls: int = Field(default=700, ge=1, le=1_000)
+    max_calls: int = Field(default=3_000, ge=1, le=3_000)
     cache_only: bool = False
     reset_cache: bool = False
     sheet_indexes: list[int] = Field(default_factory=list, max_length=100)

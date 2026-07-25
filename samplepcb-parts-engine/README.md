@@ -51,7 +51,7 @@ protocol=tcp` 로 확인. 다른 포트를 쓰면 sp-node 의 `BOM_ENGINE_URL` �
 공급사 검색은 `.env`(=`.env.example` 복사)에 자격증명 필요. 추출 엔진은 자격증명 불필요.
 
 `GET /capabilities`는 sp-node 관리자 화면용 읽기 전용 운영 계약이다. 작업별 실제 안전 상한
-(`SUPPLIER_MAX_CALLS`), 공급사별 자격증명 설정 여부, 캐시 모드·항목 수·TTL만 반환하며 API 키와
+(`SUPPLIER_MAX_CALLS`, 기본 3,000회), 공급사별 자격증명 설정 여부, 캐시 모드·항목 수·TTL만 반환하며 API 키와
 캐시 파일 경로는 반환하지 않는다. 이 값은 관리자 업무 한도를 대체하지 않고, sp-node가 둘 중
 작은 값을 실효 한도로 설명하고 잘못된 상향 설정을 차단하는 데 사용한다.
 

@@ -55,7 +55,7 @@ class Settings:
     negative_exact_ttl_seconds: int = 3_600
     negative_keyword_ttl_seconds: int = 3_600
     stale_ttl_seconds: int = 86_400
-    max_api_calls_per_job: int = 700
+    max_api_calls_per_job: int = 3_000
     cache_only: bool = False
     stale_if_error: bool = True
     supplier_concurrency: int = 4
@@ -109,7 +109,9 @@ class Settings:
                 _optional_int("SEARCH_NEGATIVE_KEYWORD_TTL_SECONDS", 3_600) or 3_600
             ),
             stale_ttl_seconds=_optional_int("SEARCH_STALE_TTL_SECONDS", 86_400) or 86_400,
-            max_api_calls_per_job=_optional_int("SEARCH_MAX_API_CALLS_PER_JOB", 700) or 700,
+            max_api_calls_per_job=(
+                _optional_int("SEARCH_MAX_API_CALLS_PER_JOB", 3_000) or 3_000
+            ),
             cache_only=_bool("SEARCH_CACHE_ONLY"),
             stale_if_error=_bool("SEARCH_STALE_IF_ERROR", True),
             supplier_concurrency=supplier_concurrency,

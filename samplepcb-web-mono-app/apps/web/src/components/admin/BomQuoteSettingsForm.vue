@@ -169,7 +169,7 @@ function catalogStatusLabel(value: string | null): string {
       </div>
 
       <div class="mt-4 grid gap-4 sm:grid-cols-3">
-        <label class="block text-sm"><span class="text-gray-600">검색 1회 최대 API 호출</span><input v-model.number="form.supplierSearchMaxCalls" type="number" min="1" :max="engineMaxCalls ?? 1000" class="mt-1 w-full rounded-md border px-3 py-2 text-right tabular-nums" :class="maxCallsInvalid ? 'border-red-400 bg-red-50' : 'border-gray-300'"><small class="mt-1 block text-gray-400">예상치는 경고, 실제 호출은 이 값에서 제한</small></label>
+        <label class="block text-sm"><span class="text-gray-600">검색 1회 최대 API 호출</span><input v-model.number="form.supplierSearchMaxCalls" type="number" min="1" :max="engineMaxCalls ?? 3000" class="mt-1 w-full rounded-md border px-3 py-2 text-right tabular-nums" :class="maxCallsInvalid ? 'border-red-400 bg-red-50' : 'border-gray-300'"><small class="mt-1 block text-gray-400">예상치는 경고, 실제 호출은 이 값에서 제한</small></label>
         <label class="block text-sm"><span class="text-gray-600">회원별 일일 검색 한도</span><input v-model.number="form.memberDailySearchLimit" type="number" min="1" max="1000" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-right tabular-nums"><small class="mt-1 block text-gray-400">KST 자정 기준·DB 영속</small></label>
         <label class="block text-sm"><span class="text-gray-600">데이터 신선 임계(시간)</span><input v-model.number="form.freshnessHours" type="number" min="1" max="720" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-right tabular-nums"><small class="mt-1 block text-gray-400">초과 시 업로드 때 자동 보강</small></label>
       </div>

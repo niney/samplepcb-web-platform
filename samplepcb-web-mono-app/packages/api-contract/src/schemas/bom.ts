@@ -196,7 +196,7 @@ export type BomJobResponseType = z.infer<typeof BomJobResponse>;
 // ── 공급사 검색: 사전점검 → 승인 실행 → 결과 ─────────────────────────────────
 export const BomSupplierOptions = z
   .object({
-    max_calls: z.number().int().min(1).max(1_000).default(700),
+    max_calls: z.number().int().min(1).max(3_000).default(3_000),
     cache_only: z.boolean().default(false),
     reset_cache: z.boolean().default(false),
   })

@@ -305,7 +305,8 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   `/request`(재계산·동결) · `/cancel` · `DELETE`(draft)
 - 잡 프록시: `GET /jobs/:id[/result]`, 공급사 검색 `POST /jobs/:id/supplier-search[/preflight]`
   — **소유 회원만**(타인·미기록 404 은닉), 일일 한도 초과 429 `SEARCH_DAILY_LIMIT`,
-  max_calls 는 sp_config 로 클램프. 자동 인제스트(폴러+백업 훅)는 관리자 플로우와 동일.
+  max_calls 는 sp_config 와 sp-engine 안전 상한(기본 3,000회) 중 작은 값으로 클램프.
+  자동 인제스트(폴러+백업 훅)는 관리자 플로우와 동일.
 - 카탈로그: `GET /parts-search`(교체·추가 모달, admin-parts 쿼리 빌더 재사용) · `GET /parts/:id`
 
 **관리자 `/api/admin/bom-quotes`** (`routes/admin-bom-quotes.ts`, `requireAdmin`):

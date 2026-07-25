@@ -34,7 +34,7 @@ class Config:
             m2v_path=os.getenv("BOM_M2V_PATH", ""),
             component_limit=int(os.getenv("BOM_COMPONENT_LIMIT", "5000")),
             max_upload_bytes=int(os.getenv("MAX_UPLOAD_BYTES", str(30 * _MB))),
-            supplier_max_calls=int(os.getenv("SUPPLIER_MAX_CALLS", "700")),
+            supplier_max_calls=int(os.getenv("SUPPLIER_MAX_CALLS", "3000")),
         )
         cfg.uploads_dir.mkdir(parents=True, exist_ok=True)
         return cfg
