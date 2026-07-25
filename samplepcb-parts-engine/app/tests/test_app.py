@@ -167,6 +167,65 @@ def test_search_requirement_validation_normalizes_valid_contract(tmp_path):
     assert body["requirements"]["pitch"] == "2.54mm"
 
 
+def test_catalog_evaluation_is_network_free_and_review_only(tmp_path):
+    response = _client(tmp_path).post(
+        "/supplier-search/catalog-evaluate-batch",
+        json={
+            "items": [
+                {
+                    "query": {
+                        "component_id": "connector-1",
+                        "mode": "identity",
+                        "part_number": "10038WR-08",
+                        "manufacturer": "YEONHO ELECTRONICS",
+                        "part_type": "connector",
+                        "category_policy": "connector",
+                        "quantity": 1,
+                    },
+                    "products": [
+                        {
+                            "supplier": "yeonho",
+                            "supplier_product_id": "yeonho:10038WR08",
+                            "manufacturer_part_number": "10038WR-08",
+                            "manufacturer": "YEONHO ELECTRONICS",
+                            "description": "Wire to Board Connector",
+                            "category": "Wire to Board",
+                            "normalized_specs": {
+                                "part_type": "connector",
+                                "pin_count": 8,
+                                "pitch_mm": 2.5,
+                            },
+                            "offers": [
+                                {
+                                    "supplier": "yeonho",
+                                    "supplier_sku": "10038WR-08",
+                                    "stock": None,
+                                    "price_breaks": [],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["component_id"] == "connector-1"
+    assert item["candidates"][0]["product"]["supplier"] == "yeonho"
+    assert item["candidates"][0]["product"]["manufacturer_part_number"] == (
+        "10038WR-08"
+    )
+    assert item["procurement_decision"]["status"] == "no_recommendation"
+    assert item["procurement_decision"]["selection_application_state"] == (
+        "not_selected"
+    )
+    assert item["procurement_decision"]["primary_unavailability_reason"] == (
+        "stock_unverified"
+    )
+
+
 def test_upload_parse_and_display(tmp_path):
     client = _client(tmp_path)
     resp = client.post(

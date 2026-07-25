@@ -6,12 +6,16 @@ from typing import Any
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from supplier_search_engine.models import (
+    CatalogCandidateEvaluationBatchRequest,
+    CatalogCandidateEvaluationBatchResult,
     ProcurementPolicyInput,
     ProcurementReevaluationBatchRequest,
     ProcurementReevaluationBatchResult,
     ProcurementReevaluationRequest,
     ProcurementReevaluationResult,
 )
+from supplier_search_engine.service import SearchService
+from supplier_search_engine.settings import Settings as SearchSettings
 from supplier_search_engine.contract import (
     PassiveRequirementDefaults,
     SearchRequirementValidationResult,
@@ -161,6 +165,22 @@ async def validate_supplier_search_requirements(
     """DB 저장이나 공급사 호출 없이 검색 조건을 엔진 정책으로 검증한다."""
 
     return validate_user_search_requirements(body.requirements)
+
+
+@router.post(
+    "/supplier-search/catalog-evaluate-batch",
+    response_model=CatalogCandidateEvaluationBatchResult,
+)
+async def evaluate_local_catalog_candidates(
+    request: Request,
+    body: CatalogCandidateEvaluationBatchRequest,
+) -> CatalogCandidateEvaluationBatchResult:
+    """Apply engine-owned matching to sp-node's exact local catalog hits."""
+
+    settings = SearchSettings.from_env()
+    settings.cache_path = _svc(request).config.supplier_cache_path
+    async with SearchService(settings, clients=[]) as service:
+        return await asyncio.to_thread(service.evaluate_catalog_batch, body)
 
 
 @router.post("/jobs", status_code=202)

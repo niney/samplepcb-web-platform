@@ -16,6 +16,28 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   절대 불변 — 신규는 `sp-` prefix, `replicas: 0`. 운영 ES 는 보류(로컬만).
 - 카탈로그는 사실 데이터 — BOM 매칭 상태(VERIFIED 등 문맥)는 저장하지 않는다.
 
+## BOM 로컬 카탈로그 fallback
+
+외부 공급사 검색 결과의 후보가 비었더라도 DB에 사전 적재한 제조사 카탈로그가 있으면 다음
+경계로 후보를 복구한다.
+
+1. **sp-engine**이 BOM의 대표 MPN·제조사·기술 사양을 정규화한다. `PINS`·`PITCH_mm`는
+   구매 수량이 아니라 각각 `pin_count`·`pitch_mm`로 해석하고, 자리표시자 MPN(`NN`/`HNN`)과
+   같은 행에 구체 MPN이 있으면 구체 MPN을 검색 정체성으로 사용한다.
+2. 외부 검색 후보가 0건인 `not_found`·`supplier_error` 행만 **sp-node**가 로컬 DB에서
+   exact `mpnNorm+manufacturerNorm`으로 배치 조회한다. 제조사 미상은 같은 MPN이 한 제조사에만
+   존재할 때만 허용하며 prefix·infix 또는 제조사 교차 연결은 하지 않는다.
+3. 조회 결과 중 `catalog_metadata.catalogOnly=true`인 제품을 최대 200행씩
+   `POST /supplier-search/catalog-evaluate-batch`로 **sp-engine**에 돌려보낸다. 이 API는 외부
+   공급사를 호출하지 않고 기존 matcher·후보 결정·조달 정책을 그대로 적용한다.
+4. 카탈로그 전용 오퍼는 가격·재고가 확인되지 않았으므로 기술 후보와 검토 근거만 제공한다.
+   평가 API가 가격·재고·MOQ 필드를 제거한 뒤 조달 판정을 실행해 자동 선정·가상 가격을 만들지
+   않으며, 화면에는 재고 확인이 필요한 기술 후보로 남는다.
+
+따라서 로컬 조회·저장은 sp-node, 정규화·호환성·후보/조달 판정은 sp-engine이라는 역할 경계를
+유지한다. `insufficient_input`·`input_conflict`·`excluded` 및 이미 외부 후보가 있는 행은 fallback
+대상이 아니다.
+
 ## 설계 3원칙
 
 1. **단위 지능은 ES 애널라이저가 아니라 TS 코드에** — 색인·검색이 같은 파서
@@ -43,6 +65,7 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 | ES | `apps/api/src/es/client.ts`·`sp-parts-index.ts` | 클라이언트(`ES_NODE_URL`, 기본 127.0.0.1:9200)·매핑(`satisfies estypes`)·필드 상수 `F`·부트스트랩(기동 시 인덱스+alias 생성) |
 | 인제스트 | `apps/api/src/lib/parts-ingest.ts`·`parts-es.ts`·`bom-part-data.ts`·`manufacturer-alias.ts` | envelope→gzip 영속 원본→fingerprint singleflight→그룹핑(별칭 해소)→증분 upsert(tx)→ES bulk. 실패는 영속 작업과 `SpPartIndexQueue`로 자동 재시도 |
 | 자동 훅 | `apps/api/src/lib/bom-engine-jobs.ts`·`routes/admin-bom.ts`·`routes/bom-quotes.ts` | 폴러가 결과를 한 번 읽고 견적 스냅샷을 먼저 반영한다. 카탈로그는 백그라운드 동기화하며 결과 GET이 백업 훅이다. |
+| BOM 로컬 fallback | `apps/api/src/lib/bom-local-catalog.ts`·sp-engine `routes.py`/`service.py` | 외부 후보 0건의 exact 로컬 카탈로그를 배치 조회하고 엔진의 기존 판정기로 재평가한다. |
 | 검색 API | `apps/api/src/routes/admin-parts.ts` | `GET /api/admin/parts/search`(다중해석 쿼리 빌더+패싯+정렬, ES 다운 시 503 SEARCH_UNAVAILABLE)·`GET /:id`(DB 상세) |
 | UI | `apps/web/src/pages/admin/AdminParts.vue`·`admin/useAdminParts.ts` | `/app/admin/parts` — 검색창+패싯+테이블+오퍼 확장 |
 | 재색인 | `apps/api/src/scripts/parts-reindex.ts` | `pnpm --filter api parts:reindex [--recreate]` — DB 전량→ES. 매핑 변경 시 `--recreate`(로컬) 또는 v2+alias 스왑(운영) |

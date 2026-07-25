@@ -21,6 +21,15 @@ class Supplier(StrEnum):
     UNIKEYIC = "unikeyic"
 
 
+class CatalogSupplier(StrEnum):
+    """Local catalog identities that are never routed as external clients."""
+
+    YEONHO = "yeonho"
+
+
+SupplierIdentity = Supplier | CatalogSupplier
+
+
 class SearchMode(StrEnum):
     IDENTITY = "identity"
     HYBRID = "hybrid"
@@ -495,7 +504,7 @@ class PriceBreak(BaseModel):
 class SupplierOffer(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    supplier: Supplier
+    supplier: SupplierIdentity
     supplier_sku: str | None = None
     packaging: str | None = None
     stock: int | None = None
@@ -526,7 +535,7 @@ class SupplierOffer(BaseModel):
 class SupplierProduct(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    supplier: Supplier
+    supplier: SupplierIdentity
     supplier_product_id: str | None = None
     manufacturer_part_number: str
     manufacturer: str | None = None
@@ -834,7 +843,7 @@ class CandidateMatch(BaseModel):
     conflicts: list[str] = Field(default_factory=list)
     missing_requirements: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
-    corroborating_suppliers: list[Supplier] = Field(default_factory=list)
+    corroborating_suppliers: list[SupplierIdentity] = Field(default_factory=list)
     package_comparison: PackageComparison | None = None
     spec_comparisons: dict[str, SpecComparison] = Field(default_factory=dict)
     decision: CandidateDecision
@@ -1185,6 +1194,45 @@ class BatchSearchResult(BaseModel):
     prefetched_requests: int = 0
     elapsed_ms: float = 0.0
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class CatalogCandidateEvaluationItem(BaseModel):
+    """Externally supplied local-catalog products for engine-owned judgment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: PlannedQuery
+    products: list[SupplierProduct] = Field(min_length=1, max_length=20)
+
+
+class CatalogCandidateEvaluationBatchRequest(BaseModel):
+    """No-network candidate evaluation contract used by sp-node fallback."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[CatalogCandidateEvaluationItem] = Field(
+        min_length=1,
+        max_length=200,
+    )
+    procurement_policy: ProcurementPolicyInput = Field(
+        default_factory=ProcurementPolicyInput
+    )
+
+
+class CatalogCandidateEvaluationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    component_id: str
+    status: MatchStatus
+    candidates: list[CandidateMatch] = Field(default_factory=list)
+    procurement_decision: ComponentProcurementDecision
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CatalogCandidateEvaluationBatchResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[CatalogCandidateEvaluationResult]
 
 
 class SupplierPreflight(BaseModel):

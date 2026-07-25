@@ -25,6 +25,9 @@ from .matcher import (
 from .models import (
     BatchSearchResult,
     BatchPreflight,
+    CatalogCandidateEvaluationBatchRequest,
+    CatalogCandidateEvaluationBatchResult,
+    CatalogCandidateEvaluationResult,
     CandidateMatch,
     ComponentProcurementDecision,
     ComponentSearchTrace,
@@ -42,6 +45,7 @@ from .models import (
     SelectionEligibility,
     SelectionRecommendation,
     Supplier,
+    SupplierIdentity,
     SupplierSearchTraceAttempt,
     SupplierSearchResult,
     bounded_search_trace_query,
@@ -158,6 +162,85 @@ class SearchService:
 
     async def __aexit__(self, *_args: object) -> None:
         await self.close()
+
+    def evaluate_catalog_batch(
+        self,
+        request: CatalogCandidateEvaluationBatchRequest,
+    ) -> CatalogCandidateEvaluationBatchResult:
+        """Evaluate caller-supplied catalog products without supplier calls.
+
+        sp-node owns the local DB lookup, while technical matching and
+        procurement decisions remain in this engine.  Local catalog records
+        are deliberately review-only even if a malformed caller payload
+        contains commercial data.
+        """
+
+        results: list[CatalogCandidateEvaluationResult] = []
+        for item in request.items:
+            query = item.query
+            candidates = [
+                self.matcher.evaluate(
+                    query,
+                    product.model_copy(
+                        update={
+                            "offers": [
+                                offer.model_copy(
+                                    update={
+                                        "stock": None,
+                                        "moq": None,
+                                        "order_multiple": None,
+                                        "price_breaks": [],
+                                        "procurement_decision": None,
+                                    },
+                                    deep=True,
+                                )
+                                for offer in product.offers
+                            ]
+                        },
+                        deep=True,
+                    ),
+                )
+                for product in item.products
+            ]
+            candidates = finalize_candidate_decisions(query, candidates)
+            candidates = self._add_corroboration(candidates)
+            candidates = self._assign_technical_review_ranks(query, candidates)
+            candidates = self._assign_selection_recommendations(candidates, query)
+            candidates, procurement_decision = apply_procurement_decisions(
+                query,
+                candidates,
+                request.procurement_policy,
+            )
+            candidates, omitted_candidate_count = (
+                self._retain_supplier_candidate_groups(
+                    query,
+                    candidates,
+                    procurement_decision,
+                )
+            )
+            candidates.sort(key=self._candidate_sort_key)
+            warnings = ["로컬 카탈로그 후보는 가격·재고 확인 전 자동 선정하지 않습니다."]
+            if omitted_candidate_count:
+                warnings.append(
+                    self._candidate_limit_warning(
+                        omitted_candidate_count,
+                        price_aware=False,
+                    )
+                )
+            results.append(
+                CatalogCandidateEvaluationResult(
+                    component_id=query.component_id,
+                    status=(
+                        candidates[0].status
+                        if candidates
+                        else MatchStatus.NOT_FOUND
+                    ),
+                    candidates=candidates,
+                    procurement_decision=procurement_decision,
+                    warnings=warnings,
+                )
+            )
+        return CatalogCandidateEvaluationBatchResult(items=results)
 
     async def search_batch(self, batch: SearchBatchInput) -> BatchSearchResult:
         started = time.perf_counter()
@@ -1480,7 +1563,7 @@ class SearchService:
             raise ValueError("candidate group limit must be positive")
 
         supplier_groups: dict[
-            Supplier, dict[tuple[str, str], list[CandidateMatch]]
+            SupplierIdentity, dict[tuple[str, str], list[CandidateMatch]]
         ] = {}
         for candidate in candidates:
             decision = candidate.decision
@@ -1526,7 +1609,7 @@ class SearchService:
             raise ValueError("candidate group limits must be positive")
 
         supplier_groups: dict[
-            Supplier, dict[tuple[str, str], list[CandidateMatch]]
+            SupplierIdentity, dict[tuple[str, str], list[CandidateMatch]]
         ] = {}
         for candidate in candidates:
             key = (
@@ -1911,7 +1994,7 @@ class SearchService:
         ):
             return []
 
-        by_suggestion: dict[str, dict[Supplier, CandidateMatch]] = {}
+        by_suggestion: dict[str, dict[SupplierIdentity, CandidateMatch]] = {}
         for candidate in candidates:
             if (
                 candidate.identity_confidence < 0.9

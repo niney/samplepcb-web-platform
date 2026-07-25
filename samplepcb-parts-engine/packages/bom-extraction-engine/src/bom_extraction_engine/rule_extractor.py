@@ -59,6 +59,14 @@ _QTY_PAT = re.compile(r"q['`]?n?ty|quantity|수량|소요량|\bcount\b|개수")
 _QTY_NEG = re.compile(  # 구매/재고성 수량 열 — 보드당 수량이 아님 (gpt 증류)
     r"purchase|order|required|total|stock|spare"
     r"|구매|필요|소요|잔여|재고|예비|셋트|세트|견적|합계|총")
+_PIN_COUNT_PAT = re.compile(
+    r"^(?:pin(?:s|[\s_-]*count)?|number[\s_-]*of[\s_-]*pins"
+    r"|position(?:s)?|contact(?:s)?|circuit(?:s)?|핀수|극수)$"
+)
+_PITCH_PAT = re.compile(
+    r"^(?:(?:contact[\s_-]*)?pitch(?:[\s_-]*(?:mm|millimeters?))?"
+    r"|피치(?:[\s_-]*mm)?)$"
+)
 _MFR_PAT = re.compile(r"manufactur|maker|제조|vendor|fabricant")
 _FOOTPRINT_PAT = re.compile(r"^pcb\s*decal$|^decal$")
 _PKG_PAT = re.compile(r"package|footprint|패키지|\bpkg\b|\bsize\b|dimension|치수|사이즈"
@@ -176,6 +184,13 @@ def classify_columns(labels: List[str]) -> Dict[str, List[int]]:
             role = "_library_reference"
         elif _DESIG_PAT.search(lab):
             role = "designator"
+        elif _PIN_COUNT_PAT.fullmatch(lab):
+            # 커넥터 카탈로그의 PINS/POSITIONS는 BOM 구매 수량이 아니라
+            # 기술 사양이다. 아래 내용 기반 수량 추론에서도 제외되도록
+            # 명시 역할로 먼저 고정한다.
+            role = "pin_count"
+        elif _PITCH_PAT.fullmatch(lab):
+            role = "pitch_mm"
         elif _QTY_PAT.search(lab):
             # 네거티브(구매/재고성)는 일단 보류 — 다른 양성 수량 열이 없으면
             # 뒤에서 승격한다 ("Quantity Required"만 있는 파일)
@@ -3064,6 +3079,13 @@ def infer_column_roles(roles: Dict[str, List[int]], labels: List[str],
             # 규칙 근사). 단조 증가 수열(No./Index 열)은 제외하고, BOM
             # 신호(PN/지시자/값 열)가 있는 시트에서만 — 수치 시트(벤치마크
             # 데이터 등)에서의 수량 환각 방지.
+            label = _norm_label(labels[i])
+            if re.search(
+                r"(?:^|[\s_-])(?:id|index|sequence|series|record|pin(?:s)?"
+                r"|position(?:s)?|contact(?:s)?|pitch)(?:$|[\s_-])",
+                label,
+            ):
+                continue
             ints = [int(v) for v in vals if re.fullmatch(r"\d{1,3}", v)]
             if (len(ints) / n >= 0.8 and max(ints, default=0) <= 200
                     and ints != sorted(set(ints))):

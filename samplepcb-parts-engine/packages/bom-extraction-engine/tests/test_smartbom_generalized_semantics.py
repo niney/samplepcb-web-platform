@@ -118,6 +118,88 @@ def test_explicit_value_and_identifier_namespaces_are_preserved():
     assert suffix["voltage_v"] is None
 
 
+def test_catalog_pattern_identity_and_connector_geometry_keep_bom_quantity_unknown():
+    components, headers = _analyze(
+        [
+            "FAMILY_PATTERN",
+            "GENERATED_MPN",
+            "MANUFACTURER",
+            "CATEGORY",
+            "PINS",
+            "PITCH_mm",
+        ],
+        [
+            [
+                "10038WR-NN",
+                "10038WR-08",
+                "YEONHO ELECTRONICS",
+                "Wire to Board Connector",
+                "8",
+                "2.5",
+            ],
+            [
+                "10038WR-NN",
+                "10038WR-10",
+                "YEONHO ELECTRONICS",
+                "Wire to Board Connector",
+                "10",
+                "2.5",
+            ],
+            [
+                "05002HR-NNN2",
+                "05002HR-05N2",
+                "YEONHO ELECTRONICS",
+                "FFC/FPC Connector",
+                "5",
+                "0.5",
+            ],
+            [
+                "20077-HNNA",
+                "20077-H18A",
+                "YEONHO ELECTRONICS",
+                "Board to Board Connector",
+                "18",
+                "2",
+            ],
+        ],
+    )
+
+    mappings = {
+        header["raw_header"]: header["semantic_field"] for header in headers
+    }
+    assert mappings["GENERATED_MPN"] == "supplier_part_number"
+    assert mappings["PINS"] == "pin_count"
+    assert mappings["PITCH_mm"] == "pitch_mm"
+    assert [component["part_number"] for component in components] == [
+        "10038WR-08",
+        "10038WR-10",
+        "05002HR-05N2",
+        "20077-H18A",
+    ]
+    assert [component["pin_count"] for component in components] == [
+        8,
+        10,
+        5,
+        18,
+    ]
+    assert [component["pitch_mm"] for component in components] == [
+        2.5,
+        2.5,
+        0.5,
+        2.0,
+    ]
+    assert all(component["quantity"] is None for component in components)
+    assert all(
+        component["quantity_resolution"] == "missing"
+        for component in components
+    )
+    assert all(
+        component["procurement_disposition"]
+        == "quantity_confirmation_required"
+        for component in components
+    )
+
+
 def test_cross_column_conflicts_pcb_features_and_electrolytic_dimensions():
     components, headers = _analyze(
         ["Reference", "Value", "Footprint", "MPN", "Info"],

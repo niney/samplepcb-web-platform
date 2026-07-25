@@ -50,7 +50,11 @@ _SOURCE_CONFIDENCE = {"col": 0.95, "text": 0.8, "infer": 0.6}
 
 # 근거 탐색 시 필드가 우선 찾아볼 열 역할 (그 외 필드는 자기 이름 역할)
 _FIELD_ROLES: Dict[str, Tuple[str, ...]] = {
-    "part_number": ("part_number", "_library_reference"),
+    "part_number": (
+        "part_number",
+        "_supplier_part_number",
+        "_library_reference",
+    ),
     "package": ("package", "footprint"),
     "reference": ("designator",),
 }
@@ -61,6 +65,8 @@ _ROLE_DISPLAY = {
     "_pn_internal": "internal_part_number",
     "_supplier_part_number": "supplier_part_number",
     "_library_reference": "library_identifier",
+    "pin_count": "pin_count",
+    "pitch_mm": "pitch_mm",
     "footprint": "footprint",
     "_unlabeled_text": "description",
     "_rescued_text": "description",
@@ -70,6 +76,10 @@ _DESC_ROLES = ("description", "_unlabeled_text", "_rescued_text")
 _INT_PREFIX = re.compile(r"[+-]?\d+")
 _REF_SEP = re.compile(r"[,;/\s]+")
 _WS = re.compile(r"\s+")
+_PART_NUMBER_PLACEHOLDER = re.compile(
+    r"(?:^|[-_/])H?N{2,}[A-Z0-9]*(?:$|[-_/])",
+    re.I,
+)
 _ELECTROLYTIC_TYPE_CONTEXT = re.compile(
     r"(?:^|[^A-Z0-9])(?:E\s*/\s*C|ECAP|E(?:LE)?[-_ ]?CAP|ELECTROLYTIC)"
     r"(?:[^A-Z0-9]|$)",
@@ -721,6 +731,31 @@ class _SheetAdapter:
                     values.append(raw)
         return values
 
+    def _preferred_part_number(
+        self,
+        part_number: Optional[str],
+        supplier_part_numbers: List[str],
+    ) -> Optional[str]:
+        """패턴 정체성보다 같은 행의 구체적인 공급사 MPN을 우선한다.
+
+        공급사 코드 열을 일반적으로 제조사 MPN으로 승격하면 DigiKey/LCSC
+        주문코드가 오염될 수 있다. 따라서 현재 대표값이 ``NN``/``HNN`` 같은
+        명시적 자리표시자를 포함하고, 대안은 자리표시자가 없는 경우에만
+        교체한다.
+        """
+
+        if not part_number or not _PART_NUMBER_PLACEHOLDER.search(part_number):
+            return part_number
+        return next(
+            (
+                candidate
+                for candidate in supplier_part_numbers
+                if candidate
+                and not _PART_NUMBER_PLACEHOLDER.search(candidate)
+            ),
+            part_number,
+        )
+
     def _input_alternatives(
         self,
         cells: List[str],
@@ -852,6 +887,19 @@ class _SheetAdapter:
                   cells: List[str],
                   row_shape: Optional[dict] = None) -> Dict[str, Any]:
         row_1based = attrs.row_id + 1
+        supplier_part_numbers = self._role_values(
+            ("_supplier_part_number",),
+            cells,
+        )
+        preferred_part_number = self._preferred_part_number(
+            attrs.part_number,
+            supplier_part_numbers,
+        )
+        if preferred_part_number != attrs.part_number:
+            attrs = attrs.model_copy(
+                update={"part_number": preferred_part_number}
+            )
+            src = {**src, "part_number": "col"}
         raw_fields = {f: getattr(attrs, f) for f in VALUE_FIELDS}
         field_states: Dict[str, dict] = {}
         evidence: List[dict] = []
@@ -1116,6 +1164,26 @@ class _SheetAdapter:
         pitch_values: set[float] = set()
         identifier_positions: Dict[int, set[int]] = {}
         if attrs.part_type == "connector":
+            for index in self.roles.get("pin_count", []):
+                if index >= len(cells):
+                    continue
+                match = re.fullmatch(
+                    r"\s*(\d{1,4})(?:\s*(?:pins?|positions?|contacts?))?\s*",
+                    str(cells[index]),
+                    re.I,
+                )
+                if match and int(match.group(1)) > 0:
+                    pin_values.add(int(match.group(1)))
+            for index in self.roles.get("pitch_mm", []):
+                if index >= len(cells):
+                    continue
+                match = re.fullmatch(
+                    r"\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*",
+                    str(cells[index]),
+                    re.I,
+                )
+                if match and float(match.group(1)) > 0:
+                    pitch_values.add(float(match.group(1)))
             for index, cell in enumerate(cells):
                 text = str(cell).strip()
                 for pins, rows in _connector_geometry_values(
@@ -1379,10 +1447,7 @@ class _SheetAdapter:
             "source_rows_1based": [row_1based],
             "component_type": attrs.part_type,
             "part_number": attrs.part_number,
-            "supplier_part_numbers": self._role_values(
-                ("_supplier_part_number",),
-                cells,
-            ),
+            "supplier_part_numbers": supplier_part_numbers,
             "internal_part_numbers": self._role_values(
                 ("_pn_internal",),
                 cells,

@@ -59,6 +59,7 @@ import { SAMPLEPCB_SUPPLIER } from './parts-facts';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 import { supplierRunLimitedComponentCount } from './bom-supplier-operations';
+import { applyLocalCatalogFallback } from './bom-local-catalog';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
 // 원칙: 수량·오퍼는 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
@@ -3374,9 +3375,10 @@ export async function refreshQuoteFromSupplierResult(
     if (quote?.status !== 'draft') return false;
     const config = await getBomQuoteRuntimeConfig();
     const items = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
+    const resolvedEnvelope = await applyLocalCatalogFallback(envelope, log);
     const applied = await applyEngineSupplierResult(
       items,
-      envelope,
+      resolvedEnvelope,
       quote.setQty,
       quote.spareQty,
       config.usdKrwRate,
