@@ -110,6 +110,15 @@ const severeOrderSurplusLabel = computed(() =>
 const searchTraceSummary = computed(() =>
   props.item.matchEvidence?.searchTraceSummary ?? null,
 );
+const searchLimitReasons = computed(() =>
+  searchTraceSummary.value?.limitReasons ?? [],
+);
+const jobCallLimitReached = computed(() =>
+  searchLimitReasons.value.includes('job_call_limit'),
+);
+const supplierQuotaReached = computed(() =>
+  searchLimitReasons.value.includes('supplier_quota'),
+);
 
 const searchTraceTitle = computed(() => {
   const trace = searchTraceSummary.value;
@@ -369,6 +378,16 @@ function onQtyInput(event: Event): void {
         <span v-else-if="stockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">{{ stockStatusLabel }}</span>
         <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="evidenceTitle">매칭</span>
         <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="evidenceTitle">가격 확인 필요</span>
+        <span
+          v-if="jobCallLimitReached"
+          class="rounded border border-orange-400 bg-orange-100 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-800"
+          title="엔진의 작업당 호출 상한에 도달해 이 부품의 일부 공급사 검색이 실행되지 않았습니다."
+        >호출 상한 미검색</span>
+        <span
+          v-if="supplierQuotaReached"
+          class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800"
+          title="공급사 API 자체 한도로 이 부품의 일부 공급사 검색이 제한되었습니다."
+        >공급사 한도 미검색</span>
         <span v-if="item.matchStatus !== 'none'" class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{{ sourceLabel }}</span>
         <span v-if="technicalFallbackUsed" class="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700" :title="evidenceTitle">구매 가능 차순위</span>
         <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="evidenceTitle">일부 확인 필요</span>

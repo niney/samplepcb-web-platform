@@ -58,7 +58,11 @@ import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
 import { normalizeSupplierPackaging } from './supplier-packaging';
-import { supplierRunLimitedComponentCount } from './bom-supplier-operations';
+import {
+  supplierRunLimitedComponentCount,
+  supplierRunLimitSummary,
+  supplierSearchLimitReasons,
+} from './bom-supplier-operations';
 import { applyLocalCatalogFallback } from './bom-local-catalog';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
@@ -589,15 +593,20 @@ function quoteSearchTrace(trace: EngineSupplierSearchTraceType): BomQuoteSearchT
   };
 }
 
-function searchTraceSummary(trace: EngineSupplierSearchTraceType | null | undefined): BomQuoteSearchTraceSummaryType | null {
+function searchTraceSummary(
+  trace: EngineSupplierSearchTraceType | null | undefined,
+  warnings: readonly string[] = [],
+): BomQuoteSearchTraceSummaryType | null {
   if (trace === null || trace === undefined) return null;
   const projected = quoteSearchTrace(trace);
+  const limitReasons = supplierSearchLimitReasons(trace, warnings);
   return {
     version: projected.version,
     primaryQuery: projected.primaryQuery,
     fallbackQuery: projected.fallbackQuery,
     fallbackUsed: projected.fallbackUsed,
     attemptCount: projected.attemptCount,
+    ...(limitReasons.length > 0 ? { limitReasons } : {}),
   };
 }
 
@@ -1854,7 +1863,10 @@ function evidenceFromDecision(
     searchRequirementGuidance: publicSearchRequirementGuidance(
       component.requirement_guidance,
     ),
-    searchTraceSummary: searchTraceSummary(parseEngineSearchTrace(component.search_trace).trace),
+    searchTraceSummary: searchTraceSummary(
+      parseEngineSearchTrace(component.search_trace).trace,
+      component.warnings,
+    ),
     candidateStatus: evidenceSnapshot?.status ?? reviewCandidate?.status ?? null,
     selectionMode: mode,
     candidateCount: component.candidates.length,
@@ -4063,29 +4075,51 @@ export async function loadSupplierSearchSummary(
   enrichStatus: string,
 ): Promise<{
   supplierSearchLimitedCount: number;
+  supplierSearchLimitSummary: BomQuoteDetailType['supplierSearchLimitSummary'];
   partDataStatus: PartDataStatus;
   partDataFailureReason: PartDataFailureReason;
 }> {
   if (enrichStatus === 'searching') {
-    return { supplierSearchLimitedCount: 0, partDataStatus: 'preparing', partDataFailureReason: null };
+    return {
+      supplierSearchLimitedCount: 0,
+      supplierSearchLimitSummary: null,
+      partDataStatus: 'preparing',
+      partDataFailureReason: null,
+    };
   }
   if (enrichStatus === 'failed') {
-    return { supplierSearchLimitedCount: 0, partDataStatus: 'failed', partDataFailureReason: 'preparation-failed' };
+    return {
+      supplierSearchLimitedCount: 0,
+      supplierSearchLimitSummary: null,
+      partDataStatus: 'failed',
+      partDataFailureReason: 'preparation-failed',
+    };
   }
   // 공급사 보강이 필요 없었던 견적과 활성 실행 기록이 없는 구형 견적은 즉시 조회 가능하다.
   if (enrichStatus === 'idle' || supplierSearchRunId === null) {
-    return { supplierSearchLimitedCount: 0, partDataStatus: 'ready', partDataFailureReason: null };
+    return {
+      supplierSearchLimitedCount: 0,
+      supplierSearchLimitSummary: null,
+      partDataStatus: 'ready',
+      partDataFailureReason: null,
+    };
   }
   const run = await prisma.spBomSupplierSearchRun.findUnique({
     where: { id: supplierSearchRunId },
     select: {
       quoteId: true,
       resultSummary: true,
+      options: true,
       catalogIngestRun: { select: { status: true, stats: true } },
     },
   });
   if (run === null) {
-    return { supplierSearchLimitedCount: 0, partDataStatus: 'failed', partDataFailureReason: 'result-gone' };
+    return {
+      supplierSearchLimitedCount: 0,
+      supplierSearchLimitSummary: null,
+      partDataStatus: 'failed',
+      partDataFailureReason: 'result-gone',
+    };
   }
   const storedStatus = catalogPreparationStatus(run.resultSummary);
   const runReady = catalogIngestRunReady(run.catalogIngestRun);
@@ -4100,8 +4134,16 @@ export async function loadSupplierSearchSummary(
   const partDataFailureReason = partDataStatus === 'failed'
     ? catalogPreparationFailureReason(run.resultSummary)
     : null;
+  const supplierSearchLimitSummary = supplierRunLimitSummary(run.resultSummary, run.options);
   const currentCount = supplierRunLimitedComponentCount(run.resultSummary);
-  if (currentCount !== null) return { supplierSearchLimitedCount: currentCount, partDataStatus, partDataFailureReason };
+  if (currentCount !== null) {
+    return {
+      supplierSearchLimitedCount: currentCount,
+      supplierSearchLimitSummary,
+      partDataStatus,
+      partDataFailureReason,
+    };
+  }
   const searchTraces = await prisma.spBomSupplierSearchTrace.findMany({
     where: { supplierSearchRunId },
     select: { payload: true },
@@ -4110,7 +4152,12 @@ export async function loadSupplierSearchSummary(
     run.resultSummary,
     searchTraces.map((trace) => trace.payload),
   ) ?? 0;
-  return { supplierSearchLimitedCount, partDataStatus, partDataFailureReason };
+  return {
+    supplierSearchLimitedCount,
+    supplierSearchLimitSummary,
+    partDataStatus,
+    partDataFailureReason,
+  };
 }
 
 export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
@@ -4121,6 +4168,43 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     loadCandidateDatasheetMap(quote.id, activeItems),
     loadSupplierSearchSummary(quote.activeSupplierSearchRunId, quote.enrichStatus),
   ]);
+  const itemDtos = [...activeItems]
+    .sort((a, b) => a.rowIdx - b.rowIdx)
+    .map((row) => {
+      const meta = row.partId === null ? null : (partMetaMap.get(row.partId) ?? null);
+      return toItemDto(
+        row,
+        meta?.imageUrl ?? null,
+        meta?.datasheetUrl ?? candidateDatasheetMap.get(row.rowIdx) ?? null,
+      );
+    });
+  const rowLimitCounts = itemDtos.reduce(
+    (counts, item) => {
+      const reasons = item.matchEvidence?.searchTraceSummary?.limitReasons ?? [];
+      if (reasons.length === 0) return counts;
+      counts.affected += 1;
+      if (reasons.includes('job_call_limit')) counts.jobCallLimit += 1;
+      if (reasons.includes('supplier_quota')) counts.supplierQuota += 1;
+      return counts;
+    },
+    { affected: 0, jobCallLimit: 0, supplierQuota: 0 },
+  );
+  // 행 단위 재검색이 활성 실행을 교체해도, 다시 검색하지 않은 다른 행의 최신 제한 근거는
+  // matchEvidence에 남는다. 실행 요약이 0건이면 이 행 스냅샷으로 상단 경고를 유지한다.
+  const supplierSearchLimitSummary = supplierSearchSummary.supplierSearchLimitSummary
+    ?? (rowLimitCounts.affected === 0
+      ? null
+      : {
+          affectedComponentCount: rowLimitCounts.affected,
+          jobCallLimitComponentCount: rowLimitCounts.jobCallLimit,
+          supplierQuotaComponentCount: rowLimitCounts.supplierQuota,
+          actualApiCalls: null,
+          maxCalls: null,
+        });
+  const supplierSearchLimitedCount = Math.max(
+    supplierSearchSummary.supplierSearchLimitedCount,
+    rowLimitCounts.affected,
+  );
   return {
     ...toSummaryDto(quote, summaryCounts(activeItems)),
     engineJobId: quote.engineJobId,
@@ -4130,7 +4214,8 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
       .map((sheet) => toSheetDto(sheet, itemSheetIndexes.has(sheet.sheetIndex))),
     enrichStatus: quote.enrichStatus as BomQuoteDetailType['enrichStatus'],
     enrichedAt: quote.enrichedAt?.toISOString() ?? null,
-    supplierSearchLimitedCount: supplierSearchSummary.supplierSearchLimitedCount,
+    supplierSearchLimitedCount,
+    supplierSearchLimitSummary,
     partDataStatus: supplierSearchSummary.partDataStatus,
     partDataFailureReason: supplierSearchSummary.partDataFailureReason,
     setQty: quote.setQty,
@@ -4150,16 +4235,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     confirmedManagementFee: quote.confirmedManagementFee,
     confirmedTotal: quote.confirmedTotal,
     answerNote: quote.answerNote,
-    items: [...activeItems]
-      .sort((a, b) => a.rowIdx - b.rowIdx)
-      .map((row) => {
-        const meta = row.partId === null ? null : (partMetaMap.get(row.partId) ?? null);
-        return toItemDto(
-          row,
-          meta?.imageUrl ?? null,
-          meta?.datasheetUrl ?? candidateDatasheetMap.get(row.rowIdx) ?? null,
-        );
-      }),
+    items: itemDtos,
   };
 }
 

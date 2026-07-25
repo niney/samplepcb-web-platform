@@ -77,6 +77,13 @@ export const BomQuoteSearchTraceOutcome = z.enum([
   'skipped',
   'budget_exhausted',
 ]);
+export const BomQuoteSupplierSearchLimitReason = z.enum([
+  'job_call_limit',
+  'supplier_quota',
+]);
+export type BomQuoteSupplierSearchLimitReasonType = z.infer<
+  typeof BomQuoteSupplierSearchLimitReason
+>;
 export const BomQuoteSearchTraceAttempt = z.object({
   sequence: z.number().int().min(1),
   stage: z.enum(['primary', 'identity_fallback']),
@@ -100,6 +107,8 @@ export const BomQuoteSearchTraceSummary = z.object({
   fallbackQuery: z.string().nullable(),
   fallbackUsed: z.boolean(),
   attemptCount: z.number().int().min(0),
+  /** 이 행에서 실제 공급사 호출이 실행되지 않았거나 중단된 한도 사유. 구형 견적에는 없다. */
+  limitReasons: z.array(BomQuoteSupplierSearchLimitReason).optional(),
 });
 export type BomQuoteSearchTraceSummaryType = z.infer<typeof BomQuoteSearchTraceSummary>;
 
@@ -750,6 +759,14 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
   enrichedAt: z.string().nullable(),
   /** 활성 공급사 검색에서 실제 호출 한도 때문에 일부 공급사 확인이 제한된 부품 수. */
   supplierSearchLimitedCount: z.number().int().nonnegative(),
+  /** 호출 상한 안내를 정확히 표시하기 위한 활성 검색 실행의 compact 요약. */
+  supplierSearchLimitSummary: z.object({
+    affectedComponentCount: z.number().int().nonnegative(),
+    jobCallLimitComponentCount: z.number().int().nonnegative(),
+    supplierQuotaComponentCount: z.number().int().nonnegative(),
+    actualApiCalls: z.number().int().nonnegative().nullable(),
+    maxCalls: z.number().int().positive().nullable(),
+  }).nullable(),
   /** 후보 비교·부품 변경 화면에서 사용할 부품 정보가 검색까지 가능한 상태인지 나타낸다. */
   partDataStatus: z.enum(['preparing', 'ready', 'failed']),
   /** 실패 시 사용자가 다시 준비할 수 있는지, 새 업로드가 필요한지를 구분한다. */

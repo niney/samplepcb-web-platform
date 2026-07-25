@@ -4,6 +4,7 @@ import {
   BomEngineCapabilities,
   BomSupplierResult,
   type BomQuoteConfigType,
+  type BomQuoteSupplierSearchLimitReasonType,
   type BomSupplierSearchOperationsType,
 } from '@sp/api-contract';
 import { engineFetch } from './engine-client';
@@ -22,7 +23,9 @@ const StoredResultSummary = z.object({
   apiCalls: z.number().int().nonnegative(),
   cacheHits: z.number().int().nonnegative(),
   budgetExhaustedCount: z.number().int().nonnegative(),
-  budgetExhaustedDetectionVersion: z.literal(2).optional(),
+  budgetExhaustedDetectionVersion: z.union([z.literal(2), z.literal(3)]).optional(),
+  jobCallLimitExhaustedCount: z.number().int().nonnegative().optional(),
+  supplierQuotaExhaustedCount: z.number().int().nonnegative().optional(),
   elapsedMs: z.number().nonnegative(),
   engineElapsedMs: z.number().nonnegative().optional(),
   quoteApplyMs: z.number().nonnegative().optional(),
@@ -36,12 +39,18 @@ const StoredResultSummary = z.object({
 });
 
 const StoredBudgetTrace = z.object({
-  attempts: z.array(z.object({ outcome: z.string() }).passthrough()),
+  attempts: z.array(z.object({
+    outcome: z.string(),
+    error_type: z.string().nullish(),
+  }).passthrough()),
 }).passthrough();
 
 const StoredBudgetSummary = z.object({
   budgetExhaustedCount: z.number().int().nonnegative(),
-  budgetExhaustedDetectionVersion: z.literal(2).optional(),
+  budgetExhaustedDetectionVersion: z.union([z.literal(2), z.literal(3)]).optional(),
+  jobCallLimitExhaustedCount: z.number().int().nonnegative().optional(),
+  supplierQuotaExhaustedCount: z.number().int().nonnegative().optional(),
+  apiCalls: z.number().int().nonnegative().optional(),
 }).passthrough();
 
 const StoredOptions = z.object({
@@ -58,6 +67,32 @@ const ENGINE_STATUS_TIMEOUT_MS = 3_000;
 
 export type SupplierRunSummarySnapshot = z.infer<typeof StoredResultSummary>;
 
+export function supplierSearchLimitReasons(
+  searchTrace: unknown,
+  warnings: readonly string[] = [],
+): BomQuoteSupplierSearchLimitReasonType[] {
+  const reasons = new Set<BomQuoteSupplierSearchLimitReasonType>();
+  if (warnings.some((warning) => warning.includes('job_call_limit_exhausted'))) {
+    reasons.add('job_call_limit');
+  }
+  if (warnings.some((warning) => warning.includes('quota_exhausted'))) {
+    reasons.add('supplier_quota');
+  }
+  const trace = StoredBudgetTrace.safeParse(searchTrace);
+  if (trace.success) {
+    for (const attempt of trace.data.attempts) {
+      if (attempt.error_type === 'job_call_limit_exhausted') reasons.add('job_call_limit');
+      if (attempt.error_type === 'quota_exhausted') reasons.add('supplier_quota');
+    }
+  }
+  return [...reasons];
+}
+
+function traceHasBudgetExhaustion(searchTrace: unknown): boolean {
+  const trace = StoredBudgetTrace.safeParse(searchTrace);
+  return trace.success && trace.data.attempts.some((attempt) => attempt.outcome === 'budget_exhausted');
+}
+
 export function kstDayKey(now = new Date()): string {
   return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
@@ -66,24 +101,49 @@ export function supplierRunSummarySnapshot(envelope: unknown): SupplierRunSummar
   const parsed = BomSupplierResult.safeParse(envelope);
   if (!parsed.success) return null;
   const data = parsed.data;
-  const budgetExhaustedCount = data.search.components.filter((component) => {
-    const warningDetected = component.warnings?.some((warning) =>
-      warning.includes('quota_exhausted') || warning.includes('job_call_limit_exhausted')) ?? false;
-    const trace = StoredBudgetTrace.safeParse(component.search_trace);
-    return warningDetected || (
-      trace.success
-      && trace.data.attempts.some((attempt) => attempt.outcome === 'budget_exhausted')
-    );
-  }).length;
+  const componentLimits = data.search.components.map((component) => ({
+    reasons: supplierSearchLimitReasons(component.search_trace, component.warnings ?? []),
+    budgetExhausted: traceHasBudgetExhaustion(component.search_trace),
+  }));
+  const budgetExhaustedCount = componentLimits.filter((limit) =>
+    limit.reasons.length > 0 || limit.budgetExhausted).length;
+  const jobCallLimitExhaustedCount = componentLimits.filter((limit) =>
+    limit.reasons.includes('job_call_limit')).length;
+  const supplierQuotaExhaustedCount = componentLimits.filter((limit) =>
+    limit.reasons.includes('supplier_quota')).length;
   return {
     componentCount: data.summary.component_count,
     apiCalls: data.summary.api_calls,
     cacheHits: data.summary.cache_hits,
     budgetExhaustedCount,
-    budgetExhaustedDetectionVersion: 2,
+    budgetExhaustedDetectionVersion: 3,
+    jobCallLimitExhaustedCount,
+    supplierQuotaExhaustedCount,
     elapsedMs: data.timing.known_pipeline_elapsed_ms,
     engineElapsedMs: data.timing.known_pipeline_elapsed_ms,
     statusCounts: data.summary.status_counts,
+  };
+}
+
+export function supplierRunLimitSummary(
+  resultSummary: unknown,
+  options: unknown,
+): {
+  affectedComponentCount: number;
+  jobCallLimitComponentCount: number;
+  supplierQuotaComponentCount: number;
+  actualApiCalls: number | null;
+  maxCalls: number | null;
+} | null {
+  const summary = StoredBudgetSummary.safeParse(resultSummary);
+  if (!summary.success || summary.data.budgetExhaustedCount === 0) return null;
+  const parsedOptions = StoredOptions.safeParse(options);
+  return {
+    affectedComponentCount: summary.data.budgetExhaustedCount,
+    jobCallLimitComponentCount: summary.data.jobCallLimitExhaustedCount ?? 0,
+    supplierQuotaComponentCount: summary.data.supplierQuotaExhaustedCount ?? 0,
+    actualApiCalls: summary.data.apiCalls ?? null,
+    maxCalls: parsedOptions.success ? parsedOptions.data.max_calls ?? null : null,
   };
 }
 
@@ -94,7 +154,10 @@ export function supplierRunLimitedComponentCount(
 ): number | null {
   const summary = StoredBudgetSummary.safeParse(resultSummary);
   const summaryCount = summary.success ? summary.data.budgetExhaustedCount : 0;
-  if (summary.success && summary.data.budgetExhaustedDetectionVersion === 2) {
+  if (summary.success && (
+    summary.data.budgetExhaustedDetectionVersion === 2
+    || summary.data.budgetExhaustedDetectionVersion === 3
+  )) {
     return summaryCount;
   }
   if (searchTracePayloads === undefined) return null;

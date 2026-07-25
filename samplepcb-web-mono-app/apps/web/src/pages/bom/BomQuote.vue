@@ -591,6 +591,7 @@ type SpecificResultMatchFilter = Exclude<ResultMatchFilter, 'all'>;
 
 const resultMatchFilter = ref<ResultMatchFilter>('all');
 const resultNostockOnly = ref(false);
+const resultSearchLimitedOnly = ref(false);
 const resultsScrollEl = ref<HTMLElement | null>(null);
 
 const RESULT_MATCH_FILTER_LABEL: Record<SpecificResultMatchFilter, string> = {
@@ -605,14 +606,27 @@ function itemMatchGroup(item: BomQuoteItemType): SpecificResultMatchFilter {
   return 'unmatched';
 }
 
+function itemHasSupplierSearchLimit(item: BomQuoteItemType): boolean {
+  return (item.matchEvidence?.searchTraceSummary?.limitReasons?.length ?? 0) > 0;
+}
+
+const searchLimitedItemCount = computed(() =>
+  items.value.filter(itemHasSupplierSearchLimit).length,
+);
+
 const filteredItems = computed(() => sheetItems.value.filter((item) => {
   if (resultMatchFilter.value !== 'all' && itemMatchGroup(item) !== resultMatchFilter.value) return false;
   // Nostock 집계는 견적 합계에 포함된 행만 세므로 필터도 같은 규칙을 따른다.
   if (resultNostockOnly.value && (!item.included || !isStockShort(item))) return false;
+  if (resultSearchLimitedOnly.value && !itemHasSupplierSearchLimit(item)) return false;
   return true;
 }));
 
-const resultFiltersActive = computed(() => resultMatchFilter.value !== 'all' || resultNostockOnly.value);
+const resultFiltersActive = computed(() =>
+  resultMatchFilter.value !== 'all'
+  || resultNostockOnly.value
+  || resultSearchLimitedOnly.value,
+);
 const activeMatchFilterLabel = computed(() => (
   resultMatchFilter.value === 'all' ? null : RESULT_MATCH_FILTER_LABEL[resultMatchFilter.value]
 ));
@@ -631,6 +645,7 @@ function selectResultSheet(key: ResultSheetFilter): void {
 function clearResultFilters(): void {
   resultMatchFilter.value = 'all';
   resultNostockOnly.value = false;
+  resultSearchLimitedOnly.value = false;
   scrollResultsToTop();
 }
 
@@ -641,6 +656,12 @@ function toggleResultMatchFilter(filter: SpecificResultMatchFilter): void {
 
 function toggleResultNostockFilter(): void {
   resultNostockOnly.value = !resultNostockOnly.value;
+  scrollResultsToTop();
+}
+
+function showSupplierSearchLimitedItems(): void {
+  activeResultSheet.value = 'all';
+  resultSearchLimitedOnly.value = true;
   scrollResultsToTop();
 }
 
@@ -1497,14 +1518,58 @@ function fmtAmount(v: number | null): string {
 
         <div
           v-else-if="detail.supplierSearchLimitedCount > 0"
-          class="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-900"
-          role="status"
+          class="mt-3 overflow-hidden rounded-xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 shadow-[0_8px_24px_rgba(217,119,6,0.16)]"
+          role="alert"
         >
-          <span class="mt-0.5 shrink-0 text-amber-600" aria-hidden="true">!</span>
-          <p>
-            검색 한도에 도달해 <strong>{{ detail.supplierSearchLimitedCount.toLocaleString('ko-KR') }}개 부품</strong>의 일부 공급사 확인이 제한되었습니다.
-            <span class="text-amber-800/80">표시된 후보는 확인이 완료된 결과 기준입니다.</span>
-          </p>
+          <div class="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex min-w-0 items-start gap-3">
+              <span class="grid size-9 shrink-0 place-items-center rounded-full bg-amber-500 text-xl font-black text-white shadow-sm" aria-hidden="true">!</span>
+              <div class="min-w-0">
+                <p class="text-[15px] font-extrabold text-amber-950">공급사 검색이 일부 중단되었습니다</p>
+                <p
+                  v-if="(detail.supplierSearchLimitSummary?.jobCallLimitComponentCount ?? 0) > 0"
+                  class="mt-1 text-[13px] font-medium leading-5 text-amber-900"
+                >
+                  엔진 작업당 호출 상한
+                  <strong v-if="typeof detail.supplierSearchLimitSummary?.maxCalls === 'number'">
+                    {{ detail.supplierSearchLimitSummary?.maxCalls.toLocaleString('ko-KR') }}회
+                  </strong>
+                  에 도달해
+                  <strong>{{ detail.supplierSearchLimitSummary?.jobCallLimitComponentCount.toLocaleString('ko-KR') }}개 부품</strong>의 일부 공급사 검색이 실행되지 않았습니다.
+                </p>
+                <p
+                  v-if="(detail.supplierSearchLimitSummary?.supplierQuotaComponentCount ?? 0) > 0"
+                  class="mt-1 text-[13px] font-medium leading-5 text-amber-900"
+                >
+                  공급사 API 자체 한도로
+                  <strong>{{ detail.supplierSearchLimitSummary?.supplierQuotaComponentCount.toLocaleString('ko-KR') }}개 부품</strong>의 확인이 제한되었습니다.
+                </p>
+                <p
+                  v-if="detail.supplierSearchLimitSummary === null || (
+                    detail.supplierSearchLimitSummary.jobCallLimitComponentCount === 0
+                    && detail.supplierSearchLimitSummary.supplierQuotaComponentCount === 0
+                  )"
+                  class="mt-1 text-[13px] font-medium leading-5 text-amber-900"
+                >
+                  검색 한도에 도달해 <strong>{{ detail.supplierSearchLimitedCount.toLocaleString('ko-KR') }}개 부품</strong>의 일부 공급사 확인이 제한되었습니다.
+                </p>
+                <p class="mt-1 text-[11px] font-medium text-amber-800/80">
+                  이는 실제 검색 결과가 없는 경우와 다릅니다. 이미 확인된 후보와 금액은 계속 사용할 수 있습니다.
+                  <template v-if="typeof detail.supplierSearchLimitSummary?.actualApiCalls === 'number'">
+                    · 실제 API 호출 {{ detail.supplierSearchLimitSummary?.actualApiCalls.toLocaleString('ko-KR') }}회
+                  </template>
+                </p>
+              </div>
+            </div>
+            <button
+              v-if="searchLimitedItemCount > 0"
+              type="button"
+              class="h-9 shrink-0 rounded-lg bg-amber-700 px-4 text-[12px] font-bold text-white shadow-sm transition hover:bg-amber-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
+              @click="showSupplierSearchLimitedItems"
+            >
+              영향받은 {{ searchLimitedItemCount.toLocaleString('ko-KR') }}개 행 보기
+            </button>
+          </div>
         </div>
 
         <!-- 여러 시트 결과를 원본 단위로 탐색하되 견적 합계·선택 상태는 하나로 유지한다 -->
@@ -1535,6 +1600,7 @@ function fmtAmount(v: number | null): string {
               <span class="text-[12px] font-medium text-[#5f6777]">{{ stats.total }}개 중 {{ filteredItems.length }}개 표시</span>
               <span v-if="activeMatchFilterLabel !== null" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{{ activeMatchFilterLabel }}</span>
               <span v-if="resultNostockOnly" class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">재고 부족</span>
+              <span v-if="resultSearchLimitedOnly" class="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-800">검색 한도 영향</span>
               <button type="button" class="text-[11px] font-semibold text-[#2477f4] underline-offset-2 hover:underline" @click="clearResultFilters">필터 해제</button>
             </template>
           </div>

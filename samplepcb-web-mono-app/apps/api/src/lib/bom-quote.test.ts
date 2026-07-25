@@ -1261,6 +1261,21 @@ describe('BOM 엔진 후보 결정 투영', () => {
               fallback_reason: null,
               error_type: null,
             },
+            {
+              sequence: 2,
+              stage: 'primary',
+              supplier: 'mouser',
+              strategy: 'identity_exact',
+              query: '0603X03L_C',
+              source: 'not_executed',
+              outcome: 'budget_exhausted',
+              result_count: 0,
+              api_calls: 0,
+              http_attempt_count: 0,
+              elapsed_ms: 0,
+              fallback_reason: 'request_budget_exhausted',
+              error_type: 'job_call_limit_exhausted',
+            },
           ],
         },
         procurement_decision: componentProcurementDecision(
@@ -1278,7 +1293,8 @@ describe('BOM 엔진 후보 결정 투영', () => {
       primaryQuery: '0603X03L_C',
       fallbackQuery: '1k 0603',
       fallbackUsed: true,
-      attemptCount: 1,
+      attemptCount: 2,
+      limitReasons: ['job_call_limit'],
     });
   });
 

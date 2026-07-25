@@ -3,7 +3,9 @@ import {
   deriveCatalogStatus,
   kstDayKey,
   supplierRunLimitedComponentCount,
+  supplierRunLimitSummary,
   supplierRunSummarySnapshot,
+  supplierSearchLimitReasons,
 } from './bom-supplier-operations';
 
 describe('BOM 공급사 검색 운영 지표', () => {
@@ -73,9 +75,46 @@ describe('BOM 공급사 검색 운영 지표', () => {
       apiCalls: 1,
       cacheHits: 0,
       budgetExhaustedCount: 1,
+      budgetExhaustedDetectionVersion: 3,
+      jobCallLimitExhaustedCount: 0,
+      supplierQuotaExhaustedCount: 1,
       elapsedMs: 3002,
       engineElapsedMs: 3002,
     });
+  });
+
+  it('작업 호출 상한과 공급사 자체 쿼터를 trace에서 분리한다', () => {
+    expect(supplierSearchLimitReasons({
+      attempts: [
+        { outcome: 'budget_exhausted', error_type: 'job_call_limit_exhausted' },
+        { outcome: 'budget_exhausted', error_type: 'quota_exhausted' },
+      ],
+    })).toEqual(['job_call_limit', 'supplier_quota']);
+    expect(supplierSearchLimitReasons(
+      { attempts: [{ outcome: 'empty', error_type: null }] },
+      ['mouser: job_call_limit_exhausted'],
+    )).toEqual(['job_call_limit']);
+  });
+
+  it('고객 안내용으로 실제 호출 수와 설정 상한을 함께 투영한다', () => {
+    expect(supplierRunLimitSummary({
+      budgetExhaustedCount: 4,
+      budgetExhaustedDetectionVersion: 3,
+      jobCallLimitExhaustedCount: 3,
+      supplierQuotaExhaustedCount: 1,
+      apiCalls: 3_000,
+    }, { max_calls: 3_000 })).toEqual({
+      affectedComponentCount: 4,
+      jobCallLimitComponentCount: 3,
+      supplierQuotaComponentCount: 1,
+      actualApiCalls: 3_000,
+      maxCalls: 3_000,
+    });
+    expect(supplierRunLimitSummary({
+      budgetExhaustedCount: 0,
+      budgetExhaustedDetectionVersion: 3,
+      apiCalls: 20,
+    }, { max_calls: 3_000 })).toBeNull();
   });
 
   it('구형 요약의 0건 오집계는 저장된 검색 trace에서 복구한다', () => {
