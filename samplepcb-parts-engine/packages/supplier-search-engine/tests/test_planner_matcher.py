@@ -342,6 +342,7 @@ def test_user_resistor_requirements_force_parametric_search_and_make_power_condi
     )[0]
 
     assert query.mode.value == "parametric"
+    assert query.limit == 10
     assert query.part_number is None
     assert query.manufacturer is None
     assert query.keywords == "10kΩ 0603 resistor"
@@ -1142,8 +1143,10 @@ def test_identity_query_can_build_spec_only_fallback_with_sufficient_evidence():
     fallback = planner.parametric_fallback(query)
 
     assert query.mode.value == "identity"
+    assert query.limit == 20
     assert fallback is not None
     assert fallback.mode.value == "parametric"
+    assert fallback.limit == 10
     assert fallback.part_number is None
     assert fallback.manufacturer is None
     assert fallback.keywords == "10uF 0402"

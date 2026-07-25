@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 OfferKeyVersion = Literal["supplier-offer-key-v1", "supplier-offer-key-v2"]
+DEFAULT_SEARCH_RESULT_LIMIT = 20
+PARAMETRIC_SEARCH_RESULT_LIMIT = 10
 
 
 def utc_now() -> datetime:
@@ -473,7 +475,7 @@ class PlannedQuery(BaseModel):
     site: str = "KR"
     language: str = "ko"
     currency: str = "KRW"
-    limit: int = 20
+    limit: int = DEFAULT_SEARCH_RESULT_LIMIT
 
     def cache_payload(self) -> dict[str, Any]:
         return self.model_dump(

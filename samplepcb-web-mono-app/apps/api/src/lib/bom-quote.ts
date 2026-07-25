@@ -814,7 +814,7 @@ const StoredCandidate = z.object({
 
 type StoredCandidateType = z.infer<typeof StoredCandidate>;
 type StoredCandidateOfferType = z.infer<typeof StoredCandidateOffer>;
-const MAX_STORED_CANDIDATES_PER_ITEM = 15;
+const MAX_STORED_CANDIDATES_PER_ITEM = 10;
 
 type StoredCandidateIdentity = Pick<StoredCandidateType, 'mpn' | 'manufacturerName'>;
 
@@ -839,7 +839,7 @@ function resolvedStoredCandidatePart<T>(
   return exact ?? (identity.manufacturerNorm === 'unknown' ? (byMpn ?? null) : null);
 }
 
-/** 영속 후보는 기술 순위 상위 15개로 제한하되 현재·추천 후보는 상한 안에서 보존한다. */
+/** 영속 후보는 기술 순위 상위 10개로 제한하되 현재·추천 후보는 상한 안에서 보존한다. */
 export function retainQuoteCandidateSnapshots(
   snapshots: readonly StoredCandidateType[],
   preserveCandidateKeys: readonly (string | null | undefined)[] = [],

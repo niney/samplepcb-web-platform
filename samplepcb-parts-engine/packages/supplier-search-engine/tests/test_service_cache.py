@@ -969,7 +969,7 @@ async def test_digikey_identity_and_parametric_searches_use_separate_lanes(tmp_p
     assert fake.maximum_total == 5
 
 
-async def test_batch_result_keeps_supplier_technical_top_five_without_raw_products(tmp_path):
+async def test_batch_result_keeps_supplier_technical_top_three_without_raw_products(tmp_path):
     products = [
         make_product().model_copy(update={"manufacturer_part_number": f"ABC-123-{index}"})
         for index in range(6)
@@ -979,13 +979,49 @@ async def test_batch_result_keeps_supplier_technical_top_five_without_raw_produc
 
     result = await service.search_batch(make_batch())
 
-    assert len(result.components[0].candidates) == 5
+    assert len(result.components[0].candidates) == 3
     assert all(candidate.decision.identity_key for candidate in result.components[0].candidates)
     assert result.components[0].supplier_results[0].products == []
     assert any(
-        "기술 상위 5개와 가격 상위 3개 그룹" in warning
+        "기술 상위 3개와 가격 상위 2개 그룹" in warning
         for warning in result.components[0].warnings
     )
+
+
+def test_default_supplier_pool_limits_unikeyic_to_technical_top_ten():
+    query = PlannedQuery(
+        component_id="unikeyic-pool",
+        mode=SearchMode.PARAMETRIC,
+        part_type="resistor",
+        keywords="ABC",
+        limit=10,
+    )
+    products = [
+        make_product().model_copy(
+            update={
+                "supplier": Supplier.UNIKEYIC,
+                "manufacturer_part_number": f"ABC-{index:02d}",
+            }
+        )
+        for index in range(12)
+    ]
+    candidates = finalize_candidate_decisions(
+        query,
+        [CandidateMatcher().evaluate(query, product) for product in products],
+    )
+
+    retained, omitted = SearchService._retain_supplier_technical_top_groups(
+        query,
+        candidates,
+        limit=query.limit,
+    )
+
+    assert query.limit == 10
+    assert len(retained) == 10
+    assert omitted == 2
+    assert {
+        candidate.product.manufacturer_part_number for candidate in retained
+    } == {f"ABC-{index:02d}" for index in range(10)}
 
 
 def test_supplier_top_groups_preserve_all_offers_for_a_retained_identity():
@@ -1017,13 +1053,11 @@ def test_supplier_top_groups_preserve_all_offers_for_a_retained_identity():
         query, candidates
     )
 
-    assert omitted == 1
+    assert omitted == 3
     assert {candidate.product.manufacturer_part_number for candidate in retained} == {
         "ABC-0",
         "ABC-1",
         "ABC-2",
-        "ABC-3",
-        "ABC-4",
         "ABC-5",
     }
     assert [

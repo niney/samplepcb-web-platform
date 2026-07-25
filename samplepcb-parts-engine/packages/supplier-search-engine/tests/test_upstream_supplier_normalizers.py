@@ -37,6 +37,7 @@ def parametric_query() -> PlannedQuery:
         part_type="capacitor",
         package="0603",
         keywords="MLCC capacitor 100nF 10% 16V 0603",
+        limit=10,
         requirements={
             "capacitance_f": Requirement(
                 name="capacitance_f",
@@ -629,6 +630,7 @@ async def test_digikey_parametric_search_skips_filter_when_discovery_is_fully_ve
     assert request_bodies[0]["Keywords"] == (
         "0.1uF 16V 10% 0603 capacitor"
     )
+    assert request_bodies[0]["Limit"] == 10
     assert raw.payload["Products"][0]["ManufacturerProductNumber"] == "GRM188R71C104KA01D"
 
 
@@ -731,4 +733,5 @@ async def test_mouser_parametric_search_falls_back_from_full_to_core_keywords():
         "100nF 16V 10% 0603 capacitor",
         "100nF 0603 capacitor",
     ]
+    assert all(next(iter(body.values()))["records"] == 10 for body in request_bodies)
     assert raw.payload["SearchResults"]["Parts"][0]["ManufacturerPartNumber"] == "GRM188R71C104KA01D"

@@ -22,7 +22,13 @@ from .normalizer import (
     parse_tolerance_percent,
     parse_voltage_v,
 )
-from .models import PlannedQuery, Requirement, SearchMode
+from .models import (
+    DEFAULT_SEARCH_RESULT_LIMIT,
+    PARAMETRIC_SEARCH_RESULT_LIMIT,
+    PlannedQuery,
+    Requirement,
+    SearchMode,
+)
 from .normalization import dielectric_notation, normalize_dielectric, normalize_package
 from .physical import detect_mount_style, source_diameter_mm
 from .supplier_query import supplier_core_keywords
@@ -709,6 +715,11 @@ class QueryPlanner:
             procurement_disposition=component.procurement_disposition,
             disposition_reason_codes=component.disposition_reason_codes,
             quantity_resolution=component.quantity_resolution,
+            limit=(
+                PARAMETRIC_SEARCH_RESULT_LIMIT
+                if mode == SearchMode.PARAMETRIC
+                else DEFAULT_SEARCH_RESULT_LIMIT
+            ),
         )
 
     def plan_variants(self, component: SearchComponentInput) -> list[PlannedQuery]:
@@ -843,6 +854,7 @@ class QueryPlanner:
                 # An unresolvable MPN/manufacturer pair must not narrow the
                 # replacement-part discovery query.
                 "manufacturer": None,
+                "limit": PARAMETRIC_SEARCH_RESULT_LIMIT,
             },
             deep=True,
         )

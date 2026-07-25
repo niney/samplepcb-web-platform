@@ -792,7 +792,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(result).toMatchObject({ apiCalls: 1, cacheHits: 2, warnings: ['cached-result'] });
   });
 
-  it('행당 상위 15개만 영속하되 뒤 순위의 현재·추천 후보는 보존한다', () => {
+  it('행당 상위 10개만 영속하되 뒤 순위의 현재·추천 후보는 보존한다', () => {
     const decision = selectEngineMatch(
       {
         component_id: 'component-persistence-limit',
@@ -815,13 +815,13 @@ describe('BOM 엔진 후보 결정 투영', () => {
       decision.snapshots[19]?.candidateKey,
     ]);
 
-    expect(retained).toHaveLength(15);
+    expect(retained).toHaveLength(10);
     expect(retained.map((candidate) => candidate.technicalRank)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 19, 20,
+      1, 2, 3, 4, 5, 6, 7, 8, 19, 20,
     ]);
   });
 
-  it('공급사 결과 반영 경로에서도 명시 선택을 포함해 후보 스냅샷을 15개로 제한한다', async () => {
+  it('공급사 결과 반영 경로에서도 명시 선택을 포함해 후보 스냅샷을 10개로 제한한다', async () => {
     const items = buildItemsFromEngineResult(ENGINE_RESULT, [1]);
     const componentId = items[0]?.sourceRow?.componentId;
     expect(typeof componentId).toBe('string');
@@ -864,9 +864,9 @@ describe('BOM 엔진 후보 결정 투영', () => {
     );
 
     expect(result.applied).toBe(true);
-    expect(result.candidateSnapshots).toHaveLength(15);
+    expect(result.candidateSnapshots).toHaveLength(10);
     expect(result.candidateSnapshots.map(({ candidate: snapshot }) => snapshot.technicalRank))
-      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19]);
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 19]);
     expect(items[0].selectedCandidateKey).toBe('ik1:candidate-19');
     expect(items[0].matchEvidence?.procurementUnavailabilityReason).toBeNull();
   });

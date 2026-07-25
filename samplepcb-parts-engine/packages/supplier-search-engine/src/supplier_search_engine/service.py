@@ -61,8 +61,8 @@ from .singleflight import AsyncSingleFlight
 from .suppliers import DigiKeyClient, MouserClient, SupplierClient, UniKeyICClient
 
 
-_CANDIDATE_GROUP_LIMIT_PER_SUPPLIER = 5
-_PRICE_GROUP_LIMIT_PER_SUPPLIER = 3
+_CANDIDATE_GROUP_LIMIT_PER_SUPPLIER = 3
+_PRICE_GROUP_LIMIT_PER_SUPPLIER = 2
 
 
 class JobBudgetExceeded(RuntimeError):
@@ -776,6 +776,16 @@ class SearchService:
             for product in result.products
         ]
         candidates = finalize_candidate_decisions(query, candidates)
+        if query.mode == SearchMode.PARAMETRIC:
+            candidates, pool_omitted_candidate_count = (
+                self._retain_supplier_technical_top_groups(
+                    query,
+                    candidates,
+                    limit=query.limit,
+                )
+            )
+        else:
+            pool_omitted_candidate_count = 0
         candidates = self._add_corroboration(candidates)
         candidates = self._assign_technical_review_ranks(query, candidates)
         candidates = self._assign_selection_recommendations(candidates, query)
@@ -790,6 +800,7 @@ class SearchService:
             candidates,
             procurement_decision,
         )
+        omitted_candidate_count += pool_omitted_candidate_count
         candidates.sort(key=self._candidate_sort_key)
         input_corrections = self._input_corrections(query, candidates)
 
