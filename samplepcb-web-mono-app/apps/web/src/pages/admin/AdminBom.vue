@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import { useUploadBom } from '../../admin/useAdminBom';
 
-const ALLOWED_EXTS = ['.xlsx', '.xlsm', '.xls', '.csv', '.tsv'] as const;
+const ALLOWED_EXTS = ['.xlsx', '.xlsm', '.xls', '.csv', '.tsv', '.bom'] as const;
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 
 const router = useRouter();
@@ -30,7 +30,7 @@ function setFile(next: File | null): void {
     return;
   }
   if (!hasAllowedExtension(next.name)) {
-    error.value = '엑셀(.xlsx/.xlsm/.xls) 또는 CSV/TSV 파일만 업로드할 수 있습니다.';
+    error.value = '엑셀(.xlsx/.xlsm/.xls), CSV/TSV 또는 BOM 파일만 업로드할 수 있습니다.';
     return;
   }
   if (next.size > MAX_FILE_BYTES) {
@@ -112,9 +112,9 @@ async function submit(): Promise<void> {
         >
           <span class="grid h-12 w-14 place-items-center rounded-lg border border-blue-100 bg-blue-50 text-xs font-extrabold tracking-wider text-blue-700">BOM</span>
           <strong class="max-w-full truncate text-base text-gray-900">{{ file?.name ?? '파일을 끌어놓거나 선택하세요' }}</strong>
-          <span class="text-sm text-gray-500">{{ file ? `${formatBytes(file.size)} · 선택 완료` : 'XLSX · XLSM · XLS · CSV · TSV / 최대 30 MB' }}</span>
+          <span class="text-sm text-gray-500">{{ file ? `${formatBytes(file.size)} · 선택 완료` : 'XLSX · XLSM · XLS · CSV · TSV · BOM / 최대 30 MB' }}</span>
         </button>
-        <input ref="fileInput" type="file" accept=".xlsx,.xlsm,.xls,.csv,.tsv" class="hidden" @change="onFileChange">
+        <input ref="fileInput" type="file" accept=".xlsx,.xlsm,.xls,.csv,.tsv,.bom" class="hidden" @change="onFileChange">
 
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button type="button" class="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" :disabled="file === null || upload.isPending.value" @click="submit">

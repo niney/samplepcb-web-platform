@@ -23,7 +23,7 @@ from .workbook import HeaderNotFound, build_case, get_sheet_names
 
 logger = logging.getLogger(__name__)
 
-PARSER_VERSION = "smartbom-rules/1.7 (semantic roles and integrity rules)"
+PARSER_VERSION = "smartbom-rules/1.8 (procurement evidence and legacy BOM)"
 SCHEMA_VERSION = "1.4"
 
 ProgressCallback = Callable[[str, int, str], None]

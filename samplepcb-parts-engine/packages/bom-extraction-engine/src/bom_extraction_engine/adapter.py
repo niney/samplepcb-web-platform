@@ -23,6 +23,7 @@ from .rule_extractor import (
     classify_columns,
     desig_part_type,
     infer_part_type,
+    is_non_procurement_item,
     package_from_source_cell,
     passive_size_from_source_cell,
     strip_dnp_annotation,
@@ -1188,6 +1189,41 @@ class _SheetAdapter:
             attrs.manufacturer
             or (attrs.part_number and not generic_identity)
         )
+        generic_component_type = bool(
+            not attrs.part_type
+            or re.fullmatch(
+                r"(?:other|misc(?:ellaneous)?|mechanical|mechanics|기타|기구물?)",
+                attrs.part_type.strip(),
+                re.I,
+            )
+        )
+        generic_type_context = bool(
+            not type_context
+            or re.fullmatch(
+                r"(?:other|misc(?:ellaneous)?|mechanical|mechanics|기타|기구물?)",
+                type_context.strip(),
+                re.I,
+            )
+        )
+        identity_like_fields = (value_raw, attrs.part_number, footprint)
+        non_electronic_item = bool(
+            is_non_procurement_item(type_context or "")
+            or (
+                generic_component_type
+                and generic_type_context
+                and any(
+                    is_non_procurement_item(value)
+                    for value in identity_like_fields
+                    if value
+                )
+            )
+            or (
+                generic_component_type
+                and generic_type_context
+                and not has_genuine_identity
+                and is_non_procurement_item(description or "")
+            )
+        )
         feature_expression = " ".join(
             item for item in (type_context, value_raw, footprint, description) if item
         )
@@ -1210,6 +1246,8 @@ class _SheetAdapter:
             quality_flags.append("customer_supplied")
         if pcb_feature:
             quality_flags.append("pcb_feature")
+        if non_electronic_item:
+            quality_flags.append("non_electronic_item")
         if attrs.quantity is None:
             quality_flags.append("quantity_not_found")
         if src.get("_part_type_conflict"):
@@ -1276,12 +1314,19 @@ class _SheetAdapter:
             disposition_reason_codes.append("pcb_feature")
         if customer_supplied:
             disposition_reason_codes.append("customer_supplied")
+        if non_electronic_item:
+            disposition_reason_codes.append("non_electronic_item")
         if quantity_resolution == "conflict":
             disposition_reason_codes.append("quantity_reference_conflict")
         elif quantity_resolution == "missing":
             disposition_reason_codes.append("quantity_missing")
         excluded = any(
-            reason in {"do_not_populate", "pcb_feature", "customer_supplied"}
+            reason in {
+                "do_not_populate",
+                "pcb_feature",
+                "customer_supplied",
+                "non_electronic_item",
+            }
             for reason in disposition_reason_codes
         )
         procurement_disposition = (
@@ -1532,13 +1577,51 @@ def adapt_sheet(case: dict, roles: Dict[str, List[int]],
         attrs = preds.get(row_id)
         if attrs is None:
             continue
-        components.append(
-            sheet.component(
-                attrs,
-                sources.get(row_id, {}),
-                row["cells"],
-                row.get("row_shape"),
-            )
+        component = sheet.component(
+            attrs,
+            sources.get(row_id, {}),
+            row["cells"],
+            row.get("row_shape"),
         )
+        if not _has_minimum_component_evidence(component):
+            continue
+        components.append(component)
     _apply_reference_assignment_audit(components)
     return components, sheet.headers()
+
+
+def _has_minimum_component_evidence(component: Dict[str, Any]) -> bool:
+    """수량·계산값만 남은 템플릿 행은 컴포넌트로 방출하지 않는다."""
+
+    if component.get("search_disposition") == "excluded":
+        return True
+    if component.get("reference_designators"):
+        return True
+    if any(
+        component.get(field) not in (None, "")
+        for field in (
+            "component_type",
+            "part_number",
+            "manufacturer",
+            "description",
+            "value_raw",
+            "package",
+            "footprint",
+        )
+    ):
+        return True
+    return any(
+        component.get(field) is not None
+        for field in (
+            "resistance_ohm",
+            "capacitance_f",
+            "inductance_h",
+            "power_w",
+            "tolerance_percent",
+            "voltage_v",
+            "current_a",
+            "frequency_hz",
+            "temperature_min_c",
+            "temperature_max_c",
+        )
+    )

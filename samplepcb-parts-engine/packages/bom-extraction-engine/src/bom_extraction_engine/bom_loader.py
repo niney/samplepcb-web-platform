@@ -5,7 +5,7 @@ xlsx/xlsm: openpyxl read_only + data_only(수식 대신 계산값)
       실패 시 calamine 폴백 (openpyxl은 read_only여도 스타일시트를 파싱해서
       비표준 extLst 속성이 있는 파일에서 죽는다 — 레거시도 못 읽던 파일)
 xls : pandas + xlrd, 실패 시 calamine 폴백
-csv/tsv : stdlib csv (인코딩 폴백 + 구분자 추정 + 가변 열 허용)
+csv/tsv/bom : stdlib csv (인코딩 폴백 + 구분자 추정 + 가변 열 허용)
 헤더 추정 없이 header=None 원본 그리드 그대로 DataFrame으로 만든다.
 
 원본(header_probing_claude) 대비 웹 이식 보정: 업로드 허용 확장자인
@@ -78,7 +78,7 @@ def _load_csv(path: str) -> pd.DataFrame:
 
 def get_sheet_names(path: str) -> List[str]:
     ext = path.lower().rsplit(".", 1)[-1]
-    if ext in ("csv", "tsv"):
+    if ext in ("csv", "tsv", "bom"):
         return [ext]
     if ext in ("xlsx", "xlsm"):
         if _styles_bloated(path):
@@ -102,9 +102,9 @@ def get_sheet_names(path: str) -> List[str]:
 def load_sheet(path: str, sheet_idx: int = 0) -> pd.DataFrame:
     """시트 하나를 원본 그리드 그대로 로드한다."""
     ext = path.lower().rsplit(".", 1)[-1]
-    if ext in ("csv", "tsv"):
+    if ext in ("csv", "tsv", "bom"):
         if sheet_idx != 0:
-            raise ValueError("CSV/TSV는 시트가 하나입니다")
+            raise ValueError("CSV/TSV/BOM은 시트가 하나입니다")
         return _load_csv(path)
     if ext in ("xlsx", "xlsm"):
         if _styles_bloated(path):

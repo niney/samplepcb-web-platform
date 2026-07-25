@@ -32,7 +32,7 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_EXTS = {".xlsx", ".xlsm", ".xls", ".csv", ".tsv"}
+_ALLOWED_EXTS = {".xlsx", ".xlsm", ".xls", ".csv", ".tsv", ".bom"}
 
 
 class JobError(RuntimeError):

@@ -40,6 +40,11 @@ _CSV = (
     "2,GRM155R71C104KA88D,Murata,50,C1\n"
     "3,LQG15HS10NJ02D,Murata,20,L1\n"
 )
+_LEGACY_BOM = (
+    "Item\tQuantity\tReference\tPart\tSize\tNotes\n"
+    "1\t2\tR1,R2\t10K\tsmd1608\t1%, 도급\n"
+    "2\t1\tC1\t100nF\tsmd1608\t50V, X7R, 도급\n"
+).encode()
 
 
 def _client(tmp_path) -> TestClient:
@@ -183,6 +188,30 @@ def test_upload_parse_and_display(tmp_path):
     assert body["summary"]["component_count"] >= 3
     pns = {c.get("part_number") for c in body["components"]}
     assert "RC0402FR-0710KL" in pns
+
+
+def test_legacy_bom_extension_is_loaded_as_delimited_text(tmp_path):
+    client = _client(tmp_path)
+    upload = client.post(
+        "/jobs",
+        files={"file": ("legacy.BOM", _LEGACY_BOM, "application/octet-stream")},
+        data={"engine": "smartbom"},
+    )
+    assert upload.status_code == 202, upload.text
+
+    job_id = upload.json()["job_id"]
+    view = _await_completed(client, job_id)
+    assert view["status"] == "completed", view
+
+    result = client.get(f"/jobs/{job_id}/result")
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["source_file"] == "legacy.BOM"
+    assert body["summary"]["component_count"] == 2
+    assert {component["component_type"] for component in body["components"]} == {
+        "resistor",
+        "capacitor",
+    }
 
 
 def test_unsupported_extension_rejected(tmp_path):

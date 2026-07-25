@@ -785,6 +785,14 @@ def test_population_markers_are_state_not_identity_and_normally_closed_is_safe()
                 "row_id": 7,
                 "cells": ["Capacitor", "100nF", "0603", "2", "C1,C2(NC)"],
             },
+            {
+                "row_id": 8,
+                "cells": ["Other", "5002 -NC", "TP/1.0", "1", "TP1"],
+            },
+            {
+                "row_id": 9,
+                "cells": ["Resistor", "RES, NC/1.5K", "0603", "2", "R8,R9"],
+            },
         ],
     )
 
@@ -798,6 +806,54 @@ def test_population_markers_are_state_not_identity_and_normally_closed_is_safe()
     assert components[5]["search_disposition"] == "search"
     assert components[5]["part_number"] == "SMBJ24CA-NC"
     assert components[6]["search_disposition"] == "search"
+    assert components[7]["search_disposition"] == "excluded"
+    assert components[8]["search_disposition"] == "excluded"
+
+
+def test_rows_without_minimum_component_evidence_are_not_emitted():
+    case = _case(
+        [
+            "NO",
+            "CUT",
+            "벌크입고",
+            "NC",
+            "수삽",
+            "Part Number",
+            "매칭값",
+            "소유자",
+            "제작수량",
+            "Q'ty",
+            "소요수량",
+            "과부족",
+            "예비수량",
+            "일부 사급",
+        ],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "5",
+                    "False",
+                    "False",
+                    "False",
+                    "False",
+                    "0",
+                    "",
+                    "",
+                    "500",
+                    "1",
+                    "500",
+                    "-500",
+                    "20",
+                    "False",
+                ],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+
+    assert components == []
 
 
 def test_concrete_bom_mpn_outranks_library_reference_but_conflict_is_preserved():
@@ -1241,6 +1297,146 @@ def test_mechanical_rows_do_not_borrow_electronic_vocabulary():
     assert bolt["component_type"] == "other"
     assert nut["component_type"] == "other"
     assert hole["component_type"] == "other"
+    assert all(
+        component["search_disposition"] == "excluded"
+        and "non_electronic_item" in component["disposition_reason_codes"]
+        for component in (screw, bolt, nut, hole)
+    )
+
+
+def test_confirmed_mechanical_and_assembly_rows_are_not_supplier_search_inputs():
+    case = _case(
+        ["Type", "Description", "Value", "Package", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "방열판",
+                    "TOP254YN heat sink",
+                    "1511B-L25/T18/P1",
+                    "TO-220",
+                    "1",
+                    "MP1",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": ["BOLT", "PCB 고정볼트", "SEMS P+ S/W NI 3*6", "", "4", "MP2"],
+            },
+            {
+                "row_id": 3,
+                "cells": ["절연필름", "PET insulation film", "0.188", "", "1", "MP3"],
+            },
+            {
+                "row_id": 4,
+                "cells": ["케이스", "갈바 enclosure", "", "", "1", "MP4"],
+            },
+            {
+                "row_id": 5,
+                "cells": ["SMD 및 DIP 수샵", "", "", "", "1", ""],
+            },
+            {
+                "row_id": 6,
+                "cells": ["조립", "SMD,수삽,TEST", "", "", "1", ""],
+            },
+            {
+                "row_id": 7,
+                "cells": [
+                    "Connector",
+                    "Connector assembly",
+                    "1054500101",
+                    "",
+                    "1",
+                    "J1",
+                ],
+            },
+            {
+                "row_id": 8,
+                "cells": [
+                    "RELAY",
+                    "볼트용 릴레이",
+                    "FH21L-1B7T-L2R-DC12V",
+                    "",
+                    "4",
+                    "RL1,RL2,RL3,RL4",
+                ],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+
+    assert len(components) == 8
+    assert all(
+        component["search_disposition"] == "excluded"
+        and component["disposition_reason_codes"] == ["non_electronic_item"]
+        for component in components[:6]
+    )
+    assert components[6]["search_disposition"] == "search"
+    assert "non_electronic_item" not in components[6]["quality_flags"]
+    assert components[7]["search_disposition"] == "search"
+    assert "non_electronic_item" not in components[7]["quality_flags"]
+
+
+def test_mechanical_words_in_electronic_identity_or_ignored_columns_do_not_exclude():
+    case = _case(
+        [
+            "Type",
+            "Description",
+            "Value",
+            "Package",
+            "Q'ty",
+            "Reference",
+            "확인요청사항",
+        ],
+        [
+            {
+                "row_id": 1,
+                "cells": [
+                    "",
+                    "IRF3205PBF 방열판 부착 폭25mm 피치9mm",
+                    "IRF3205",
+                    "TO220-AB",
+                    "6",
+                    "QA1,QA2,QA3,QA4,QA5,QA6",
+                    "수삽",
+                ],
+            },
+            {
+                "row_id": 2,
+                "cells": [
+                    "Connector",
+                    "Female PCB Connector with Hex Screw WR-DSUB",
+                    "618009231121",
+                    "",
+                    "1",
+                    "J2",
+                    "수삽",
+                ],
+            },
+            {
+                "row_id": 3,
+                "cells": [
+                    "Capacitor",
+                    "",
+                    "100uF",
+                    "Capacitor_SMD:CP_Elec_5x5.4",
+                    "1",
+                    "C4",
+                    "볼트값",
+                ],
+            },
+        ],
+    )
+
+    components, _ = _adapt(case)
+
+    assert len(components) == 3
+    assert all(component["search_disposition"] == "search" for component in components)
+    assert all(
+        "non_electronic_item" not in component["quality_flags"]
+        for component in components
+    )
 
 
 def test_package_notation_case_is_not_a_mechanical_enclosure():

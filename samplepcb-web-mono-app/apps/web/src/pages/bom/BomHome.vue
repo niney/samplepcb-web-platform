@@ -13,7 +13,7 @@ import pillMouser from '../../assets/bom/pill-mouser.png';
 // 파일 선택/드롭 즉시 업로드→분석 이동(시안에 별도 시작 버튼 없음). 공급사 로고는
 // 사용자 지시로 UNIKEY·DigiKey·MOUSER 3종만. 견적 이력은 좌측 Recent file(레이아웃)로 이동.
 
-const ALLOWED_EXTS = ['.xlsx', '.xls', '.csv', '.xlsm', '.tsv'] as const;
+const ALLOWED_EXTS = ['.xlsx', '.xls', '.csv', '.xlsm', '.tsv', '.bom'] as const;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 const router = useRouter();
@@ -36,7 +36,7 @@ function hasAllowedExtension(name: string): boolean {
 
 async function submit(file: File): Promise<void> {
   if (!hasAllowedExtension(file.name)) {
-    error.value = '엑셀(xlsx/xls) 또는 CSV 파일만 업로드할 수 있습니다.';
+    error.value = '엑셀(xlsx/xls), CSV/TSV 또는 BOM 파일만 업로드할 수 있습니다.';
     return;
   }
   if (file.size > MAX_FILE_BYTES) {
@@ -97,7 +97,7 @@ function onDrop(event: DragEvent): void {
       @dragleave.prevent="dragOver = false"
       @drop.prevent="onDrop"
     >
-      <img :src="uploadCard" alt="Drag & drop Bom File — xlsx, xls, csv formats, up to 50 MB" class="absolute inset-0 size-full">
+      <img :src="uploadCard" alt="Drag & drop BOM file — xlsx, xls, csv, tsv, bom formats, up to 50 MB" class="absolute inset-0 size-full">
       <button
         type="button"
         class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] transition hover:bg-white/25"
@@ -112,7 +112,7 @@ function onDrop(event: DragEvent): void {
         </template>
       </button>
     </div>
-    <input ref="fileInput" type="file" accept=".xlsx,.xlsm,.xls,.csv,.tsv" class="hidden" @change="onFileChange">
+    <input ref="fileInput" type="file" accept=".xlsx,.xlsm,.xls,.csv,.tsv,.bom" class="hidden" @change="onFileChange">
 
     <p v-if="error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{{ error }}</p>
 

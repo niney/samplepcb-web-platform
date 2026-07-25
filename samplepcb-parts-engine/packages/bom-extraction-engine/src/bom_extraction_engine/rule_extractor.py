@@ -271,12 +271,16 @@ _DNP_FULL = re.compile(
 )
 _DNP_PREFIX = re.compile(rf"^\s*{_DNP_TOKEN}\s*[/_,:]\s*(.*?)\s*$", re.I)
 _DNP_SUFFIX = re.compile(
-    rf"^\s*(.*?)\s*(?:[/_,:]\s*|\s+-\s+|\(\s*){_DNP_TOKEN}\s*\)?\s*$",
+    rf"^\s*(.*?)\s*(?:[/_,:]\s*|\s+-\s*|\(\s*){_DNP_TOKEN}\s*\)?\s*$",
     re.I,
 )
 _DNP_PHRASE = re.compile(
     r"\b(?:do\s+not\s+populate|not\s+(?:fitted|mounted))\b"
     r"|(?:N\s*\.?\s*C\s*\.?|미삽)\s*처리",
+    re.I,
+)
+_DNP_EMBEDDED_STATE = re.compile(
+    rf"(?:^|[,;]\s*){_DNP_TOKEN}\s*/",
     re.I,
 )
 
@@ -291,7 +295,7 @@ def strip_dnp_annotation(value: str) -> Tuple[str, bool]:
     text = str(value or "").strip()
     if not text or re.search(r"\bnormally\s+closed\b", text, re.I):
         return text, False
-    if _DNP_PHRASE.search(text):
+    if _DNP_PHRASE.search(text) or _DNP_EMBEDDED_STATE.search(text):
         return text, True
     if _DNP_FULL.fullmatch(text):
         return "", True
@@ -676,6 +680,45 @@ _CASE_AS_PACKAGE = re.compile(
     r"(?:패키지|package)\s*(?:케이스|case)|\bcase\s*[a-z]\b|케이스\s*[:：]",
     re.I,
 )
+_NON_PROCUREMENT_MECHANICAL = re.compile(
+    r"screw(?!\s*terminal)|\bbolts?\b|\bnuts?\b|washers?|standoffs?|spacers?"
+    r"|extrusions?|brackets?|acrylic|3d[- ]?print|enclosures?|\bcases?\b"
+    r"|hex\s*socket|heat\s*sinks?|heatsinks?|insulation\s*films?"
+    r"|나사|볼트|너트|와셔|아크릴|케이스|방열판|절연\s*필름",
+    re.I,
+)
+_NON_PROCUREMENT_SERVICE = re.compile(
+    r"(?:SMD\s*(?:및|[,&+]|\band\b)\s*DIP\s*)?"
+    r"(?:수삽|수샵|조립)(?:\s*(?:작업|비|공정))?"
+    r"|(?:PCB\s*)?assembly(?:\s+service)?",
+    re.I,
+)
+_ELECTRONIC_COMPONENT_CONTEXT = re.compile(
+    r"\b(?:capacitor|connector|crystal|diode|filter|fuse|header|inductor|"
+    r"module|mosfet|relay|resistor|sensor|switch|terminal|transformer|"
+    r"transistor|varistor)\b",
+    re.I,
+)
+
+
+def is_non_procurement_item(value: str) -> bool:
+    """전자부품 공급사 검색 대상이 아닌 기구물·조립 공정을 판정한다.
+
+    패키지 문맥의 ``CASE-B``/``패키지/케이스``는 먼저 제거하고, 조립은
+    셀 전체가 공정명일 때만 인정해 ``connector assembly`` 같은 실제
+    부품 설명을 제외하지 않는다.
+    """
+
+    text = _CASE_AS_PACKAGE.sub(" ", str(value or "")).strip()
+    if _ELECTRONIC_COMPONENT_CONTEXT.search(text):
+        return False
+    return bool(
+        text
+        and (
+            _NON_PROCUREMENT_MECHANICAL.search(text)
+            or _NON_PROCUREMENT_SERVICE.fullmatch(text)
+        )
+    )
 
 _TYPE_EVIDENCE_ROLE_CAP = {
     "part_type": 5,
