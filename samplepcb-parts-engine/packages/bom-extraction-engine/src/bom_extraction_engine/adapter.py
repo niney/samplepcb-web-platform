@@ -1583,35 +1583,60 @@ def _component_identity_signature(component: Dict[str, Any]) -> Tuple[Any, ...]:
 
 
 def _apply_reference_assignment_audit(components: List[dict]) -> None:
-    """Fail procurement closed when one sheet assigns the same REF twice."""
+    """Resolve redundant identical rows and fail ambiguous REF overlap closed.
+
+    A same-identity row whose reference set is contained by another row is a
+    duplicate procurement line: keep the superset owner eligible and exclude
+    only the redundant row. Partial overlap and cross-identity reuse cannot be
+    reconciled without changing BOM intent, so those rows still require review.
+    """
 
     by_reference: Dict[str, List[int]] = {}
+    reference_sets = [
+        set(_atomic_reference_designators(component))
+        for component in components
+    ]
+    signatures = [
+        _component_identity_signature(component)
+        for component in components
+    ]
     for index, component in enumerate(components):
-        for reference in _atomic_reference_designators(component):
+        for reference in reference_sets[index]:
             by_reference.setdefault(reference, []).append(index)
 
-    affected: Dict[int, str] = {}
+    overlapping_pairs: set[Tuple[int, int]] = set()
     for indexes in by_reference.values():
         unique_indexes = list(dict.fromkeys(indexes))
-        if len(unique_indexes) < 2:
-            continue
-        signatures = {
-            _component_identity_signature(components[index])
-            for index in unique_indexes
-        }
-        flag = (
-            "reference_assignment_conflict"
-            if len(signatures) > 1
-            else "duplicate_reference_assignment"
-        )
-        for index in unique_indexes:
-            if (
-                affected.get(index) != "reference_assignment_conflict"
-                or flag == "reference_assignment_conflict"
-            ):
-                affected[index] = flag
+        for position, left in enumerate(unique_indexes):
+            for right in unique_indexes[position + 1:]:
+                overlapping_pairs.add((min(left, right), max(left, right)))
 
-    for index, flag in affected.items():
+    hard_conflicts: set[int] = set()
+    same_identity_pairs: List[Tuple[int, int]] = []
+    for left, right in overlapping_pairs:
+        if signatures[left] != signatures[right]:
+            hard_conflicts.update((left, right))
+        else:
+            same_identity_pairs.append((left, right))
+
+    redundant: set[int] = set()
+    ambiguous_duplicates: set[int] = set()
+    for left, right in same_identity_pairs:
+        if left in hard_conflicts or right in hard_conflicts:
+            continue
+        left_references = reference_sets[left]
+        right_references = reference_sets[right]
+        if left_references == right_references:
+            redundant.add(right)
+        elif left_references < right_references:
+            redundant.add(left)
+        elif right_references < left_references:
+            redundant.add(right)
+        else:
+            ambiguous_duplicates.update((left, right))
+    ambiguous_duplicates.difference_update(redundant)
+
+    def mark_review(index: int, flag: str) -> None:
         component = components[index]
         quality_flags = component.setdefault("quality_flags", [])
         if flag not in quality_flags:
@@ -1626,6 +1651,23 @@ def _apply_reference_assignment_audit(components: List[dict]) -> None:
             component["procurement_disposition"] = (
                 "quantity_confirmation_required"
             )
+        component["review_status"] = "review"
+
+    for index in hard_conflicts:
+        mark_review(index, "reference_assignment_conflict")
+    for index in ambiguous_duplicates:
+        mark_review(index, "duplicate_reference_assignment")
+
+    for index in redundant:
+        component = components[index]
+        quality_flags = component.setdefault("quality_flags", [])
+        if "duplicate_reference_assignment" not in quality_flags:
+            quality_flags.append("duplicate_reference_assignment")
+        reason_codes = component.setdefault("disposition_reason_codes", [])
+        if "duplicate_reference_assignment" not in reason_codes:
+            reason_codes.append("duplicate_reference_assignment")
+        component["search_disposition"] = "excluded"
+        component["procurement_disposition"] = "excluded"
         component["review_status"] = "review"
 
 

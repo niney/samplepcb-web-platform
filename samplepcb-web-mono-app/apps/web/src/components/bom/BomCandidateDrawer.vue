@@ -301,6 +301,13 @@ const procurementAvailabilityAlert = computed(() => {
   if (context === null) return null;
   const needed = context.neededQty.toLocaleString('ko-KR');
   switch (context.procurementUnavailabilityReason) {
+    case 'input_incomplete':
+      return {
+        title: '구매 수량 확인이 필요합니다',
+        detail: '원본 BOM의 수량 또는 참조번호 충돌을 확인한 뒤 구매 가능한 오퍼를 판정할 수 있습니다.',
+        classes: 'border-amber-300 bg-amber-50 text-amber-950',
+        iconClasses: 'bg-amber-500 text-white',
+      };
     case 'out_of_stock':
       return {
         title: '모든 구매 가능 오퍼의 재고가 없습니다',
@@ -319,6 +326,20 @@ const procurementAvailabilityAlert = computed(() => {
       return {
         title: '구매 가능 오퍼의 재고를 확인할 수 없습니다',
         detail: `필요수량 ${needed}개 충족 여부를 공급사에서 확인해 주세요.`,
+        classes: 'border-amber-300 bg-amber-50 text-amber-950',
+        iconClasses: 'bg-amber-500 text-white',
+      };
+    case 'price_unavailable':
+      return {
+        title: '구매 가능한 가격을 확인할 수 없습니다',
+        detail: '재고가 있더라도 필요수량에 적용할 가격 또는 환율이 없어 오퍼를 선정하지 않았습니다.',
+        classes: 'border-amber-300 bg-amber-50 text-amber-950',
+        iconClasses: 'bg-amber-500 text-white',
+      };
+    case 'technical_unavailable':
+      return {
+        title: '기술 조건 확인이 필요합니다',
+        detail: '재고와 가격보다 기술 호환성을 우선해 조건이 충돌하는 후보는 선정하지 않았습니다.',
         classes: 'border-amber-300 bg-amber-50 text-amber-950',
         iconClasses: 'bg-amber-500 text-white',
       };
@@ -1009,7 +1030,7 @@ const candidates = computed(() => {
     if (tab.value === 'review') return candidate.selectionEligibility !== 'automatic';
     return true;
   });
-  return [...filtered].sort((a, b) => a.technicalRank - b.technicalRank);
+  return [...filtered].sort(compareCandidatesForDisplay);
 });
 
 const selectableCount = computed(() =>
@@ -1028,7 +1049,8 @@ function toggleCandidate(candidateKey: string): void {
 
 function offersForDisplay(candidate: BomQuoteCandidateType): BomQuoteCandidateOfferType[] {
   return [...candidate.offers].sort((a, b) =>
-    (a.purchaseFitRank ?? Number.MAX_SAFE_INTEGER) - (b.purchaseFitRank ?? Number.MAX_SAFE_INTEGER)
+    offerPresentationRank(a) - offerPresentationRank(b)
+    || (a.purchaseFitRank ?? Number.MAX_SAFE_INTEGER) - (b.purchaseFitRank ?? Number.MAX_SAFE_INTEGER)
     || (a.priceRank ?? Number.MAX_SAFE_INTEGER) - (b.priceRank ?? Number.MAX_SAFE_INTEGER)
     || a.offerKey.localeCompare(b.offerKey));
 }
@@ -1221,6 +1243,9 @@ function fmtWon(value: number | null): string {
 
 function candidateTotalLabel(candidate: BomQuoteCandidateType): string {
   if (candidate.bestLineTotalKrw !== null) return fmtWon(candidate.bestLineTotalKrw);
+  if (props.context?.procurementUnavailabilityReason === 'input_incomplete') {
+    return '수량 확인 후 계산';
+  }
   return candidate.offers.length > 0 ? '구매 가능한 오퍼 없음' : '가격 확인 필요';
 }
 
@@ -1268,6 +1293,45 @@ function offerStockState(offer: BomQuoteCandidateOfferType): OfferStockState | n
   return null;
 }
 
+function offerPresentationRank(offer: BomQuoteCandidateOfferType): number {
+  if (offer.recommendation !== 'none') return 0;
+  if (offer.purchasable) return 1;
+  const state = offerStockState(offer);
+  if (
+    state === null
+    && (
+      offer.applied?.stockShort === false
+      || offer.decisionReasonCodes.includes('stock_sufficient')
+    )
+  ) return 2;
+  if (state === 'insufficient_stock') return 3;
+  if (state === 'stock_unverified') return 4;
+  if (state === 'out_of_stock') return 5;
+  return 6;
+}
+
+function candidateAvailabilityRank(candidate: BomQuoteCandidateType): number {
+  if (
+    candidate.bestOfferKey !== null
+    || candidate.offers.some((offer) => offer.purchasable)
+  ) return 0;
+  const ranks = candidate.offers.map(offerPresentationRank);
+  return ranks.length > 0 ? Math.min(...ranks) : 7;
+}
+
+function compareCandidatesForDisplay(
+  left: BomQuoteCandidateType,
+  right: BomQuoteCandidateType,
+): number {
+  const leftApplied = left.selected || left.recommended ? 0 : 1;
+  const rightApplied = right.selected || right.recommended ? 0 : 1;
+  return leftApplied - rightApplied
+    || Number(!left.manualSelectable) - Number(!right.manualSelectable)
+    || candidateAvailabilityRank(left) - candidateAvailabilityRank(right)
+    || left.technicalRank - right.technicalRank
+    || left.candidateKey.localeCompare(right.candidateKey);
+}
+
 function offerStockLabel(offer: BomQuoteCandidateOfferType): string {
   const state = offerStockState(offer);
   if (state === 'out_of_stock') return '재고 없음';
@@ -1307,6 +1371,29 @@ function offerStockRowClass(offer: BomQuoteCandidateOfferType): string {
 }
 
 function candidateUnavailableLabel(candidate: BomQuoteCandidateType): string {
+  switch (props.context?.procurementUnavailabilityReason) {
+    case 'input_incomplete':
+      return '수량 확인 필요';
+    case 'out_of_stock':
+      return '재고 없음';
+    case 'insufficient_stock':
+      return '재고 부족';
+    case 'stock_unverified':
+      return '재고 확인 필요';
+    case 'price_unavailable':
+      return '가격 확인 필요';
+    case 'technical_unavailable':
+      return '기술 조건 확인 필요';
+    case 'supplier_unavailable':
+      return '공급사 확인 필요';
+    case 'no_offer':
+      return '오퍼 없음';
+    case 'other':
+      return '구매조건 확인 필요';
+    case null:
+    case undefined:
+      break;
+  }
   const states = candidate.offers.map(offerStockState);
   if (states.length > 0 && states.every((state) => state === 'out_of_stock')) {
     return '재고 없음';
@@ -1319,6 +1406,52 @@ function candidateUnavailableLabel(candidate: BomQuoteCandidateType): string {
     return '재고 확인 필요';
   }
   return '재고·가격 구매조건 미충족';
+}
+
+function procurementBlockingReason(): string | null {
+  switch (props.context?.procurementUnavailabilityReason) {
+    case 'input_incomplete':
+      return '원본 BOM의 수량 또는 참조번호 충돌을 확인해야 구매조건을 적용할 수 있습니다.';
+    case 'price_unavailable':
+      return '필요수량에 적용할 가격 또는 환율 정보를 확인할 수 없습니다.';
+    case 'technical_unavailable':
+      return '재고가 있더라도 필수 기술 조건을 충족하지 않아 선택할 수 없습니다.';
+    case 'supplier_unavailable':
+      return '현재 견적에서 허용된 공급사의 구매 가능한 오퍼가 없습니다.';
+    case 'no_offer':
+      return '구매 가능한 공급사 오퍼를 찾지 못했습니다.';
+    case 'other':
+      return '엔진 구매조건 판정을 통과한 오퍼가 없습니다.';
+    case 'out_of_stock':
+    case 'insufficient_stock':
+    case 'stock_unverified':
+    case null:
+    case undefined:
+      return null;
+  }
+}
+
+function procurementBlockingActionLabel(): string | null {
+  switch (props.context?.procurementUnavailabilityReason) {
+    case 'input_incomplete':
+      return '수량 확인 필요';
+    case 'price_unavailable':
+      return '가격 확인 필요';
+    case 'technical_unavailable':
+      return '기술 조건 확인 필요';
+    case 'supplier_unavailable':
+      return '공급사 확인 필요';
+    case 'no_offer':
+      return '오퍼 없음';
+    case 'other':
+      return '구매조건 확인 필요';
+    case 'out_of_stock':
+    case 'insufficient_stock':
+    case 'stock_unverified':
+    case null:
+    case undefined:
+      return null;
+  }
 }
 
 function candidateBlockingReason(candidate: BomQuoteCandidateType): string {
@@ -1349,6 +1482,14 @@ function offerUnavailableReason(
 ): string {
   if (!candidate.manualSelectable) return candidateBlockingReason(candidate);
   const reasons = new Set(offer.decisionReasonCodes);
+  if (
+    reasons.has('procurement_quantity_confirmation_required')
+    || reasons.has('quantity_reference_conflict')
+  ) {
+    return '원본 BOM의 수량 또는 참조번호 충돌을 확인해야 구매조건을 적용할 수 있습니다.';
+  }
+  const procurementReason = procurementBlockingReason();
+  if (procurementReason !== null) return procurementReason;
   if (reasons.has('stock_short') || reasons.has('stock_shortage_not_allowed')) {
     return offerStockLabel(offer) || '필요수량보다 재고가 부족합니다.';
   }
@@ -1402,7 +1543,7 @@ function candidateActionDisabledReason(candidate: BomQuoteCandidateType): string
   if (selectionTemporarilyLocked()) return '다른 선택을 적용하는 중입니다.';
   if (!candidate.manualSelectable) return candidateBlockingReason(candidate);
   if (candidate.bestOfferKey === null) {
-    return `구매 불가: ${candidateUnavailableLabel(candidate)}`;
+    return procurementBlockingReason() ?? `구매 불가: ${candidateUnavailableLabel(candidate)}`;
   }
   return null;
 }
@@ -1425,7 +1566,9 @@ function offerActionLabel(
   if (selectionTemporarilyLocked()) return '선택 적용 중';
   if (!candidate.manualSelectable) return '선택 불가';
   if (offerAlreadyConfirmed(candidate, offer)) return '현재 사용 중';
-  if (!offer.purchasable || offer.applied === null) return offerStockActionLabel(offer);
+  if (!offer.purchasable || offer.applied === null) {
+    return procurementBlockingActionLabel() ?? offerStockActionLabel(offer);
+  }
   if (
     provisionalSelectionPending.value
     && candidate.selected
@@ -2172,9 +2315,9 @@ onBeforeUnmount(() => {
                 <div class="flex flex-col gap-2 border-b border-slate-200 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="font-bold text-slate-900">부품 후보</h3>
-                    <p class="mt-1 text-xs text-slate-500">sp-engine의 기술 순서와 현재 수량 기준 구매 판정을 그대로 표시합니다.</p>
+                    <p class="mt-1 text-xs text-slate-500">sp-engine의 기술 안전성 안에서 현재 선택·추천과 구매 가능한 재고를 먼저 표시합니다.</p>
                   </div>
-                  <span class="rounded-md bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600">엔진 순서 고정</span>
+                  <span class="rounded-md bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600">추천·재고 우선 · 기술 순위 유지</span>
                 </div>
                 <div
                   v-if="procurementAvailabilityAlert !== null"

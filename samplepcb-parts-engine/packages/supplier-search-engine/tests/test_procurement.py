@@ -1350,8 +1350,14 @@ def test_reevaluation_cannot_bypass_unresolved_bom_quantity():
 
     decision = offer_decision(result.candidates[0])
     assert decision.purchasable is False
+    assert decision.stock_short is False
+    assert decision.line_total is not None
+    assert "stock_sufficient" in decision.reason_codes
     assert "procurement_quantity_confirmation_required" in decision.reason_codes
     assert result.procurement_decision.status == "input_incomplete"
+    assert result.procurement_decision.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.INPUT_INCOMPLETE
+    )
     assert result.procurement_decision.procurement_disposition == (
         ProcurementDisposition.QUANTITY_CONFIRMATION_REQUIRED
     )

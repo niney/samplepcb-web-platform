@@ -47,6 +47,8 @@ const ALERT_LABELS: Record<string, string> = {
   pcb_feature: 'PCB 제작·기구 요소',
   customer_supplied: '고객 지급품',
   non_electronic_item: '비전자 조달 항목',
+  duplicate_reference_assignment: '다른 BOM 행과 중복된 참조번호',
+  reference_assignment_conflict: '참조번호에 서로 다른 부품이 지정됨',
 };
 
 const FIELD_ORDER = [

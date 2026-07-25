@@ -279,6 +279,63 @@ def test_conflicting_duplicate_reference_fails_procurement_closed():
         assert component["review_status"] == "review"
 
 
+def test_same_identity_reference_subset_excludes_only_redundant_row():
+    components, _ = _analyze(
+        ["References", "MPN", "Footprint", "Quantity", "Type"],
+        [
+            [
+                "FB1, FB2, FB4, FB5, FB13, FB14",
+                "BLM18PG121SN1D",
+                "FER 0603/1608",
+                "6",
+                "BEAD",
+            ],
+            [
+                "FB13, FB14",
+                "BLM18PG121SN1D",
+                "FER 0603/1608",
+                "2",
+                "BEAD",
+            ],
+        ],
+    )
+
+    owner, redundant = components
+    assert owner["quantity_resolution"] == "verified"
+    assert owner["search_disposition"] == "search"
+    assert owner["procurement_disposition"] == "eligible"
+    assert "duplicate_reference_assignment" not in owner["quality_flags"]
+
+    assert redundant["quantity_resolution"] == "verified"
+    assert redundant["search_disposition"] == "excluded"
+    assert redundant["procurement_disposition"] == "excluded"
+    assert "duplicate_reference_assignment" in redundant["quality_flags"]
+    assert "duplicate_reference_assignment" in (
+        redundant["disposition_reason_codes"]
+    )
+
+
+def test_same_identity_partial_reference_overlap_still_requires_review():
+    components, _ = _analyze(
+        ["References", "MPN", "Footprint", "Quantity", "Type"],
+        [
+            ["FB1, FB2", "BLM18PG121SN1D", "FER 0603/1608", "2", "BEAD"],
+            ["FB2, FB3", "BLM18PG121SN1D", "FER 0603/1608", "2", "BEAD"],
+        ],
+    )
+
+    for component in components:
+        assert component["search_disposition"] == "search"
+        assert (
+            component["procurement_disposition"]
+            == "quantity_confirmation_required"
+        )
+        assert "duplicate_reference_assignment" in component["quality_flags"]
+        assert "quantity_reference_conflict" in (
+            component["disposition_reason_codes"]
+        )
+
+
 def test_duplicate_korean_type_headers_recover_value_column_without_changing_standard_layout():
     components, headers = _analyze(
         ["Item", "ENCODE", "품목", "SIZE", "품명", "Reference", "Q'T"],
