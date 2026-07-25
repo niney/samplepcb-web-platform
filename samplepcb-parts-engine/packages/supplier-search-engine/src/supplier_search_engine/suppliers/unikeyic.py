@@ -134,6 +134,9 @@ class UniKeyICClient(SupplierClient):
         reserve_call: Callable[[], Awaitable[None]] | None,
         fallback_reason: str | None = None,
     ) -> RawSupplierResponse:
+        # This endpoint is currently called without a server-side size option.
+        # Keep the complete response count in the search trace; technical and
+        # price candidate groups are bounded later by SupplierSearchService.
         raw = await self._request_json(
             "POST",
             f"{self.base_url}/search-v1/products/get-single-goods-usd",

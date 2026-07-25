@@ -19,7 +19,8 @@ export const ko = {
     fallbackBadge: 'MPN → 스펙 재검색',
     process: '검색 과정',
     attempts: '{count}회',
-    finalCandidates: '검색 응답을 기술 검증·중복 제거한 최종 후보는 {count}개입니다.',
+    finalCandidates: '기술 검증·중복 제거 후 최종 후보 {count}개',
+    rawResponseHelp: '아래 건수는 API 또는 캐시에서 받은 가공 전 공급사 응답이며, 최종 후보 수가 아닙니다.',
     stage: {
       primary: '최초 검색',
       identity_fallback: '스펙 재검색',
@@ -47,7 +48,7 @@ export const ko = {
       not_executed: '미실행',
     },
     outcome: {
-      results: '검색 응답 {count}건',
+      results: '공급사 원응답 {count}건',
       empty: '결과 없음',
       error: '오류',
       skipped: '실행 안 함',

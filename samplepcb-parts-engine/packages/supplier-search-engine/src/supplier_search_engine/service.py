@@ -61,6 +61,9 @@ from .singleflight import AsyncSingleFlight
 from .suppliers import DigiKeyClient, MouserClient, SupplierClient, UniKeyICClient
 
 
+# These are post-match shortlist limits, not supplier response-size limits.
+# Search traces intentionally retain each upstream attempt's response count so
+# operators can distinguish API payload size from the final candidate groups.
 _CANDIDATE_GROUP_LIMIT_PER_SUPPLIER = 3
 _PRICE_GROUP_LIMIT_PER_SUPPLIER = 2
 

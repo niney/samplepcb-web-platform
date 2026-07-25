@@ -333,6 +333,8 @@ function traceCodeLabel(section: 'stage' | 'strategy' | 'source' | 'fallbackReas
 }
 
 function traceOutcomeLabel(attempt: BomQuoteSearchTraceAttemptType): string {
+  // resultCount is the supplier-attempt response count captured before the
+  // engine's technical validation, deduplication, and final shortlist.
   const key = `bomSearchTrace.outcome.${attempt.outcome}`;
   if (!i18n.te(key)) return attempt.outcome;
   return t(key, { count: attempt.resultCount });
@@ -1928,9 +1930,10 @@ onBeforeUnmount(() => {
                   </span>
                 </button>
                 <div v-show="searchTraceExpanded" id="supplier-search-trace" class="border-t border-slate-200 bg-slate-50/60 px-3 py-2.5">
-                  <p class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2 text-[11px] font-semibold text-blue-800">
-                    {{ t('bomSearchTrace.finalCandidates', { count: context.candidates.length }) }}
-                  </p>
+                  <div class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2 text-[11px] text-blue-800">
+                    <p class="font-bold">{{ t('bomSearchTrace.finalCandidates', { count: context.candidates.length }) }}</p>
+                    <p class="mt-0.5 text-blue-700">{{ t('bomSearchTrace.rawResponseHelp') }}</p>
+                  </div>
                   <div v-if="context.searchTrace.fallbackQuery !== null" class="mb-2 grid min-w-0 gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] sm:grid-cols-[auto_1fr]">
                     <b class="text-amber-800">{{ t('bomSearchTrace.fallbackBadge') }}</b>
                     <span class="break-words text-amber-900">{{ context.searchTrace.fallbackQuery }}</span>

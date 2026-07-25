@@ -19,7 +19,8 @@ export const en = {
     fallbackBadge: 'MPN → spec fallback',
     process: 'Search process',
     attempts: '{count} attempts',
-    finalCandidates: '{count} final candidates remain after technical validation and deduplication.',
+    finalCandidates: '{count} final candidates after technical validation and deduplication',
+    rawResponseHelp: 'The counts below are unprocessed supplier responses received from the API or cache, not final candidate counts.',
     stage: {
       primary: 'Initial search',
       identity_fallback: 'Spec fallback',
@@ -47,7 +48,7 @@ export const en = {
       not_executed: 'Not executed',
     },
     outcome: {
-      results: '{count} search results',
+      results: '{count} raw supplier results',
       empty: 'No results',
       error: 'Error',
       skipped: 'Skipped',
