@@ -1886,7 +1886,6 @@ class SearchService:
         }
         if (
             source_conflicts
-            and source_conflicts != {"manufacturer_source_conflict"}
             and not exact_identity_review
         ):
             return False

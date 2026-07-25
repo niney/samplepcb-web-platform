@@ -327,7 +327,7 @@ def test_only_severe_surplus_offer_stays_manually_selectable_without_recommendat
     assert component.automatic_offer_key is None
 
 
-def test_manufacturerless_exact_mpn_conflict_recommends_safe_low_total_for_review():
+def test_manufacturerless_exact_mpn_recommends_safe_low_total_automatically():
     planned = query(
         quantity=3,
         requirements={"package": requirement("package", "SMA")},
@@ -378,22 +378,65 @@ def test_manufacturerless_exact_mpn_conflict_recommends_safe_low_total_for_revie
 
     assert all(
         candidate.decision.selection_eligibility
-        == SelectionEligibility.MANUAL_REVIEW
+        == SelectionEligibility.AUTOMATIC
         for candidate in candidates
     )
     assert goodwork.decision.selection_recommendation.value == "preselect"
     assert blue_rocket.decision.selection_recommendation.value == "candidate_only"
     assert offer_decision(goodwork).recommendation == OfferRecommendation.NONE
-    assert offer_decision(blue_rocket).recommendation == OfferRecommendation.MANUAL_REVIEW
+    assert offer_decision(blue_rocket).recommendation == OfferRecommendation.AUTOMATIC
     assert "automatic_selection_excessive" in offer_decision(goodwork).reason_codes
     assert "automatic_selection_excessive" not in offer_decision(blue_rocket).reason_codes
-    assert component.status == "review_recommended"
-    assert component.review_offer_key == offer_decision(blue_rocket).offer_key
+    assert component.status == "automatic_recommended"
+    assert component.automatic_offer_key == offer_decision(blue_rocket).offer_key
     assert component.application_candidate_identity_key == (
         blue_rocket.decision.identity_key
     )
     assert component.technical_fallback_used is True
     assert component.price_optimization_used is False
+
+
+def test_manufacturerless_exact_mpn_compares_separate_identities_by_price():
+    planned = query(quantity=3).model_copy(
+        update={
+            "part_number": "SS34",
+            "manufacturer": None,
+            "part_type": "diode",
+        },
+        deep=True,
+    )
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn="SS34",
+                manufacturer="ALPHA",
+                prices=[(1, 200, "KRW")],
+            ),
+            product(
+                Supplier.MOUSER,
+                mpn="SS34",
+                manufacturer="ZETA",
+                prices=[(1, 100, "KRW")],
+            ),
+        ],
+    )
+
+    assert all(
+        candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+        and not candidate.conflicts
+        for candidate in candidates
+    )
+    assert len({candidate.decision.identity_key for candidate in candidates}) == 2
+    selected = next(
+        candidate
+        for candidate in candidates
+        if offer_decision(candidate).recommendation == OfferRecommendation.AUTOMATIC
+    )
+    assert selected.product.manufacturer == "ZETA"
+    assert component.price_optimization_used is True
+    assert component.status == "automatic_recommended"
 
 
 def test_equivalent_parametric_resistor_prefers_lowest_effective_total():

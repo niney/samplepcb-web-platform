@@ -767,19 +767,14 @@ def _technical_equivalence_band(candidate: CandidateMatch) -> tuple[Any, ...]:
     )
 
 
-def _price_optimization_enabled(candidate: CandidateMatch) -> bool:
-    """Limit cross-part price selection to safe R/C or generic exact-MPN review."""
+def _price_optimization_enabled(
+    query: PlannedQuery,
+    candidate: CandidateMatch,
+) -> bool:
+    """Limit cross-part price selection to safe R/C or manufacturer-free exact MPN."""
 
     decision = candidate.decision
-    source_conflicts = {
-        conflict
-        for conflict in candidate.conflicts
-        if conflict.endswith("_source_conflict")
-    }
-    if (
-        decision.match_relation.value == "exact"
-        and source_conflicts == {"manufacturer_source_conflict"}
-    ):
+    if decision.match_relation.value == "exact" and not query.manufacturer:
         return True
     if decision.match_relation.value not in {"spec-compatible", "unresolved"}:
         return False
@@ -1016,7 +1011,7 @@ def apply_procurement_decisions(
                 candidates,
                 preselected_group,
             )
-            if _price_optimization_enabled(preselected_candidate):
+            if _price_optimization_enabled(query, preselected_candidate):
                 technical_band = _technical_equivalence_band(
                     preselected_candidate
                 )

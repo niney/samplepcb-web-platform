@@ -601,25 +601,23 @@ def test_inferred_manufacturer_is_not_merged_into_structured_identity():
     assert inferred.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
 
 
-def test_exact_mpn_requires_review_across_multiple_supplier_manufacturers():
+def test_exact_mpn_keeps_supplier_manufacturers_separate_without_conflict():
     no_bom_manufacturer = decide(
         identity_query(manufacturer=None),
         product(Supplier.DIGIKEY, manufacturer="Acme"),
         product(Supplier.MOUSER, manufacturer="Other Corp"),
     )
     assert all(
-        candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+        candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
         for candidate in no_bom_manufacturer
     )
     assert all(
-        "manufacturer_source_conflict" in candidate.conflicts
+        not candidate.conflicts
         for candidate in no_bom_manufacturer
     )
-    assert all(
-        "manufacturer_source_conflict" in candidate.decision.reason_codes
-        and "manual_review_required" in candidate.decision.reason_codes
-        for candidate in no_bom_manufacturer
-    )
+    assert len({
+        candidate.decision.identity_key for candidate in no_bom_manufacturer
+    }) == 2
 
     with_bom_manufacturer = decide(
         identity_query(manufacturer="Acme"),

@@ -115,7 +115,6 @@ _USER_MANUAL_REVIEW_POLICIES = {
 }
 _PHYSICAL_REQUIREMENTS = {"mount_style", "diameter_mm"}
 _SOURCE_CONFLICTS = {
-    "manufacturer_source_conflict",
     "mount_style_source_conflict",
     "diameter_mm_source_conflict",
     "resistance_input_source_conflict",
@@ -508,9 +507,7 @@ def _candidate_decision(
         bool(actual_conflicts) and relation == MatchRelation.EXACT
     )
 
-    if relation == MatchRelation.EXACT and (
-        bom_input_conflicts or "manufacturer_source_conflict" in source_conflicts
-    ):
+    if relation == MatchRelation.EXACT and bom_input_conflicts:
         eligibility = SelectionEligibility.MANUAL_REVIEW
     elif relation == MatchRelation.EXACT:
         eligibility = SelectionEligibility.AUTOMATIC
@@ -980,17 +977,8 @@ def finalize_candidate_decisions(
         candidates_by_mpn.setdefault(mpn, []).append(candidate)
 
     groups: list[_CandidateGroup] = []
-    manufacturer_source_conflicts: set[str] = set()
     for mpn in sorted(candidates_by_mpn):
         mpn_candidates = candidates_by_mpn[mpn]
-        known_manufacturers = {
-            _verified_product_manufacturer(candidate.product)
-            for candidate in mpn_candidates
-            if _verified_product_manufacturer(candidate.product)
-        }
-        if not query.manufacturer and len(known_manufacturers) > 1:
-            manufacturer_source_conflicts.add(mpn)
-
         known_groups: dict[str, list[CandidateMatch]] = {}
         unknown_groups: dict[str, list[CandidateMatch]] = {}
         for candidate in mpn_candidates:
@@ -1028,7 +1016,6 @@ def finalize_candidate_decisions(
                 if not (
                     value.startswith("mount_style_")
                     or value.startswith("diameter_mm_")
-                    or value == "manufacturer_source_conflict"
                 )
             ]
             missing = [
@@ -1036,9 +1023,6 @@ def finalize_candidate_decisions(
                 for value in candidate.missing_requirements
                 if value not in _PHYSICAL_REQUIREMENTS
             ]
-            mpn = compact_mpn(candidate.product.manufacturer_part_number)
-            if mpn in manufacturer_source_conflicts:
-                physical_conflicts.append("manufacturer_source_conflict")
             reasons = list(dict.fromkeys([*reasons, *physical_reasons]))
             conflicts = sorted(set([*conflicts, *physical_conflicts]))
             missing = sorted(set([*missing, *physical_missing]))
