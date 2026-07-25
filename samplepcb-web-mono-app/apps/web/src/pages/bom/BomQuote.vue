@@ -344,6 +344,11 @@ function isStockShort(item: BomQuoteItemType): boolean {
   return o !== null && o.stock !== null && o.stock < item.orderQty;
 }
 
+function isEngineSearchExcluded(item: BomQuoteItemType): boolean {
+  return item.matchEvidence?.componentStatus === 'excluded'
+    || item.matchEvidence?.searchRequirementGuidance?.readiness === 'excluded';
+}
+
 type ResultSheetFilter = 'all' | 'manual' | number;
 
 interface ResultSheetTab {
@@ -489,6 +494,7 @@ function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
   let matched = 0;
   let review = 0;
   let unmatched = 0;
+  let excluded = 0;
   let nostock = 0;
   let included = 0;
   let uncosted = 0;
@@ -496,7 +502,8 @@ function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
   let lineSum = 0;
   for (const i of sourceItems) {
     total += 1;
-    if (i.matchStatus !== 'none') matched += 1;
+    if (isEngineSearchExcluded(i)) excluded += 1;
+    else if (i.matchStatus !== 'none') matched += 1;
     else if (!hasEngineStockConstraint(i) && i.matchEvidence?.selectionMode === 'review') review += 1;
     else unmatched += 1;
     if (i.included) {
@@ -519,7 +526,8 @@ function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
     nostockPct: total === 0 ? 0 : Math.round((nostock / total) * 100),
     review,
     unmatched,
-    unresolved: total - matched,
+    excluded,
+    unresolved: review + unmatched,
     included,
     uncosted,
     pendingReview,
@@ -586,7 +594,7 @@ function clearRowSearchState(): void {
 // ── 매칭 결과 필터 ──────────────────────────────────────────────────────────
 // 매칭 상태는 서로 배타적이다. 엔진이 대표 사유를 재고로 판정한 미선정 행은
 // Review 대신 Unmatched에 두고, 재고 부족은 매칭 상태와 독립적으로 함께 집계한다.
-type ResultMatchFilter = 'all' | 'matched' | 'review' | 'unmatched';
+type ResultMatchFilter = 'all' | 'matched' | 'review' | 'unmatched' | 'excluded';
 type SpecificResultMatchFilter = Exclude<ResultMatchFilter, 'all'>;
 
 const resultMatchFilter = ref<ResultMatchFilter>('all');
@@ -598,9 +606,11 @@ const RESULT_MATCH_FILTER_LABEL: Record<SpecificResultMatchFilter, string> = {
   matched: 'Matched',
   review: 'Review',
   unmatched: 'Unmatched',
+  excluded: 'Excluded',
 };
 
 function itemMatchGroup(item: BomQuoteItemType): SpecificResultMatchFilter {
+  if (isEngineSearchExcluded(item)) return 'excluded';
   if (item.matchStatus !== 'none') return 'matched';
   if (!hasEngineStockConstraint(item) && item.matchEvidence?.selectionMode === 'review') return 'review';
   return 'unmatched';
@@ -1049,6 +1059,7 @@ async function updateSearchRequirements(
 function rowSearchMatchLabel(group: SpecificResultMatchFilter): string {
   if (group === 'matched') return '매칭';
   if (group === 'review') return '검토 필요';
+  if (group === 'excluded') return '검색 제외';
   return '미매칭';
 }
 
@@ -1727,6 +1738,22 @@ function fmtAmount(v: number | null): string {
                   <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-orange-500">{{ stats.review }}</span>
                 </div>
                 <span class="grid size-[28px] place-items-center rounded-[6px] bg-orange-100 text-[17px] font-bold text-orange-500">!</span>
+              </button>
+              <button
+                v-if="!enriching && stats.excluded > 0"
+                type="button"
+                class="relative flex h-[51px] w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 px-[12px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-slate-400 after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1"
+                :class="resultMatchFilter === 'excluded' ? 'ring-2 ring-slate-400 ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
+                :aria-pressed="resultMatchFilter === 'excluded'"
+                :aria-label="`검색 제외 ${String(stats.excluded)}개 행 필터`"
+                aria-controls="bom-results-table"
+                @click="toggleResultMatchFilter('excluded')"
+              >
+                <div class="flex h-full flex-col justify-center pt-px">
+                  <span class="text-[10px] font-medium uppercase leading-[12px] tracking-[1.1px] text-[#5f697a]">Excluded</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-[21px] tabular-nums text-slate-500">{{ stats.excluded }}</span>
+                </div>
+                <span class="grid size-[28px] place-items-center rounded-[6px] bg-slate-200 text-[18px] font-bold leading-none text-slate-500">−</span>
               </button>
               <!-- 보강 진행 중엔 Checking(파랑) — 최종 미매칭 판정과 구분 -->
               <button

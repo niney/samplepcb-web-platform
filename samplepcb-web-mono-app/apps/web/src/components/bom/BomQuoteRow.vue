@@ -35,6 +35,11 @@ const procurementUnavailabilityReason = computed(() =>
   props.item.matchEvidence?.procurementUnavailabilityReason ?? null,
 );
 
+const engineSearchExcluded = computed(() =>
+  props.item.matchEvidence?.componentStatus === 'excluded'
+  || props.item.matchEvidence?.searchRequirementGuidance?.readiness === 'excluded',
+);
+
 const engineStockStatusLabel = computed(() => {
   if (procurementUnavailabilityReason.value === 'out_of_stock') return '재고 없음';
   if (procurementUnavailabilityReason.value === 'insufficient_stock') return '재고 부족';
@@ -164,6 +169,7 @@ const evidenceTitle = computed(() => {
   if (procurementUnavailabilitySummary.value !== null) {
     details.push(`구매 불가: ${procurementUnavailabilitySummary.value}`);
   }
+  if (engineSearchExcluded.value) details.push('검색 제외: 엔진이 비조달 행으로 판정');
   if (severeOrderSurplus.value) details.push(`과다 주문수량: ${severeOrderSurplusLabel.value}`);
   if (provisionalSelectionPending.value) details.push('엔진 임시 선정: 사용자 검토 대기');
   if (technicalFallbackUsed.value) details.push('기술 1순위 구매 불가: 엔진이 다음 구매 가능 후보를 적용');
@@ -190,6 +196,7 @@ const reasonSummary = computed(() => {
   const item = props.item;
   const evidence = item.matchEvidence;
   if (severeOrderSurplus.value) return severeOrderSurplusLabel.value;
+  if (engineSearchExcluded.value) return '엔진 판정에 따라 공급사 검색 대상에서 제외된 행입니다';
   if (evidence === null) return item.matchStatus === 'manual' ? '카탈로그에서 직접 선택' : '후보 근거 없음';
   if (procurementUnavailabilitySummary.value !== null) return procurementUnavailabilitySummary.value;
   if (item.selectionSource === 'customer') {
@@ -368,6 +375,7 @@ function onQtyInput(event: Event): void {
       <div class="flex flex-col items-end gap-1.5 pt-1">
         <!-- 보강 진행 중엔 "확인 중"(파랑) — 빨간 미매칭은 보강이 끝난 뒤의 최종 판정 -->
         <span v-if="severeOrderSurplus" class="rounded-full border border-orange-300 bg-orange-100 px-2.5 py-0.5 text-[12px] font-bold text-orange-800" :title="severeOrderSurplusLabel">수량 검토</span>
+        <span v-else-if="engineSearchExcluded" class="rounded-full bg-slate-200 px-2.5 py-0.5 text-[12px] font-bold text-slate-700" :title="evidenceTitle">검색 제외</span>
         <span v-else-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
           <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
         </span>
@@ -404,7 +412,7 @@ function onQtyInput(event: Event): void {
           <span class="min-w-0 truncate">{{ searchTraceSummary.primaryQuery }}</span>
           <span v-if="searchTraceSummary.fallbackUsed" class="shrink-0 rounded bg-amber-100 px-1 font-bold text-amber-700">{{ t('bomSearchTrace.fallbackBadge') }}</span>
         </button>
-        <p v-if="item.matchStatus !== 'none' || procurementUnavailabilitySummary !== null" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="reasonSummary">{{ reasonSummary }}</p>
+        <p v-if="item.matchStatus !== 'none' || procurementUnavailabilitySummary !== null || engineSearchExcluded" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="reasonSummary">{{ reasonSummary }}</p>
         <span v-if="(item.matchEvidence?.alternativeCandidateCount ?? 0) > 0" class="text-[10px] font-semibold text-blue-600">대체 후보 {{ item.matchEvidence?.alternativeCandidateCount }}개</span>
         <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? 'text-gray-300' : 'text-[#38b614]'">
           {{ item.lineTotalKrw === null ? '—' : fmtWon(Math.round(item.lineTotalKrw)) }}

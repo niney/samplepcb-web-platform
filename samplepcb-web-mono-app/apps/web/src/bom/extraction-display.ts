@@ -43,6 +43,10 @@ const FIELD_LABELS: Record<string, string> = {
 const ALERT_LABELS: Record<string, string> = {
   row_shape_recovered: 'CSV 행 구조 복구됨',
   row_shape_invalid: 'CSV 행 구조 확인 필요',
+  do_not_populate: '미실장(DNP/NC) 행',
+  pcb_feature: 'PCB 제작·기구 요소',
+  customer_supplied: '고객 지급품',
+  non_electronic_item: '비전자 조달 항목',
 };
 
 const FIELD_ORDER = [
