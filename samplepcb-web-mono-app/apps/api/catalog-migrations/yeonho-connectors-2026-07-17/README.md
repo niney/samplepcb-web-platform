@@ -17,11 +17,21 @@ MPN은 공식 시리즈 패턴과 적용 핀 수로 전개한 값이다. 가격�
 실제 발주 전 suffix와 도면을 확인해야 한다. `IMAGE_STATUS=수집완료`가 아닌 26건은
 정본 `image_url`을 `null`로 두었다.
 
-## 운영 적용
+## 운영 적용 — 배포 선행 필수
+
+연호전자 부품을 운영의 DB·ES에서 검색하거나 BOM 후보와 연결하려면 이 마이그레이션을 먼저
+적용해야 한다. **Git으로 코드를 받는 것만으로 데이터가 반영되지는 않으며**, 최소
+`0051bce26` 커밋을 포함한 코드를 배포한 뒤 운영 서버에서 `--apply`를 별도로 실행해야 한다.
+
+이 마이그레이션의 범위는 연호전자 카탈로그 부품 820개와 `supplier=yeonho` 오퍼를 DB에
+저장하고 ES에 색인하는 것이다. 원본에 가격·재고가 없으므로 BOM 업로드에서 구매 가능한
+오퍼를 만들거나 자동선정까지 보장하지 않는다. 적용 후 실제 MPN 검색과 카탈로그 연결은
+가능하지만 가격이 필요한 견적 선정에는 별도의 공급사 오퍼가 필요하다.
 
 리포 루트에서 최신 코드를 받은 뒤 모노레포 폴더에서 실행한다.
 
 ```bash
+git pull origin main
 cd samplepcb-web-mono-app
 pnpm install --frozen-lockfile
 pnpm --filter api parts:catalog -- --dry-run
@@ -37,7 +47,11 @@ pnpm --filter api parts:catalog -- --apply
 4. DB 820개 키·연호 오퍼·ES 문서·색인 큐 검증
 5. 6개 카테고리 대표 MPN의 하이픈 포함/제거 검색과 공급사 필터 검증
 
-`--apply` 결과의 `result`와 `verification.result`가 모두 `true`여야 완료다. 별도 재검증도 가능하다.
+`--dry-run`에서 `inputParts=820`을 확인하고, `--apply` 결과의 `result`와
+`verification.result`가 모두 `true`여야 완료다. 운영에 이미 일부 또는 전부 적용된 경우
+`existingParts`와 `newParts`의 값은 달라질 수 있지만 합계는 820이어야 한다. 생성된
+`migration-state.json`은 롤백에 필요하므로 서버 교체·재배포 전에 별도로 보관한다.
+별도 재검증도 가능하다.
 
 ```bash
 pnpm --filter api parts:catalog -- --verify
@@ -54,6 +68,7 @@ pnpm --filter api parts:catalog -- --verify-search
 - Board to Board, FFC/BOARD, FFC/FPC, I/O Connector, Wire to Board, Wire to Wire 검색 통과
 
 전체 카탈로그 초기화, `prisma migrate/reset`, ES 인덱스 삭제·재생성은 필요하지 않으며 실행하지 않는다.
+운영 sp-node 프로세스는 이 커밋의 코드가 실제 서비스에 반영되도록 기존 배포 절차에 따라 재시작한다.
 
 ## 롤백
 
