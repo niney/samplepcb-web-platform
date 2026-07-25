@@ -39,6 +39,9 @@ const ALIASES: Record<string, string> = {
   microchip: 'microchip',
   adi: 'analogdevices',
   analogdevices: 'analogdevices',
+  yeonho: 'yeonho',
+  연호: 'yeonho',
+  연호전자: 'yeonho',
 };
 
 export interface ResolvedManufacturer {
