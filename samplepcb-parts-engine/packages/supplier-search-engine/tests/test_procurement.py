@@ -699,6 +699,103 @@ def test_manual_review_purchase_rank_never_promotes_technical_eligibility():
         )
 
 
+def test_exact_mpn_source_conflict_is_provisionally_selected_for_review():
+    planned = query(quantity=1).model_copy(
+        update={
+            "part_number": "BLM21PG221SN1D",
+            "manufacturer": "Murata",
+            "part_type": "inductor",
+            "input_source_conflicts": ["part_type_source_conflict"],
+        },
+        deep=True,
+    )
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn="BLM21PG221SN1D",
+                manufacturer="Murata Electronics",
+                stock=1_390_562,
+                moq=1,
+                multiple=1,
+                prices=[(1, 175, "KRW")],
+            )
+        ],
+    )
+
+    candidate = candidates[0]
+    assert candidate.decision.match_relation.value == "exact"
+    assert candidate.conflicts == ["part_type_source_conflict"]
+    assert (
+        candidate.decision.selection_eligibility
+        == SelectionEligibility.MANUAL_REVIEW
+    )
+    assert candidate.decision.selection_recommendation.value == "preselect"
+    assert candidate.decision.review_recommended is True
+    assert offer_decision(candidate).recommendation == (
+        OfferRecommendation.MANUAL_REVIEW
+    )
+    assert component.status == "review_recommended"
+    assert component.selection_application_state == "provisional_selected"
+    assert component.confirmation_required is True
+    assert component.automatic_offer_key is None
+    assert component.review_offer_key == offer_decision(candidate).offer_key
+
+
+@pytest.mark.parametrize(
+    ("manufacturer", "requirements"),
+    [
+        ("Other Manufacturer", {}),
+        ("Murata Electronics", {"package": requirement("package", "0805")}),
+    ],
+)
+def test_exact_mpn_source_conflict_stays_unselected_when_identity_is_unsafe(
+    manufacturer,
+    requirements,
+):
+    planned = query(quantity=1, requirements=requirements).model_copy(
+        update={
+            "part_number": "BLM21PG221SN1D",
+            "manufacturer": "Murata",
+            "part_type": "inductor",
+            "input_source_conflicts": ["part_type_source_conflict"],
+        },
+        deep=True,
+    )
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn="BLM21PG221SN1D",
+                manufacturer=manufacturer,
+                stock=1_390_562,
+                moq=1,
+                multiple=1,
+                prices=[(1, 175, "KRW")],
+            )
+        ],
+    )
+
+    candidate = candidates[0]
+    assert candidate.decision.match_relation.value == "exact"
+    assert (
+        candidate.decision.selection_eligibility
+        == SelectionEligibility.MANUAL_REVIEW
+    )
+    if manufacturer == "Other Manufacturer":
+        assert "manufacturer_mismatch" in candidate.conflicts
+    else:
+        assert "package" in candidate.missing_requirements
+    assert candidate.decision.selection_recommendation.value == "candidate_only"
+    assert candidate.decision.review_recommended is False
+    assert offer_decision(candidate).recommendation == OfferRecommendation.NONE
+    assert component.status == "no_recommendation"
+    assert component.selection_application_state == "not_selected"
+    assert component.review_offer_key is None
+
+
 def test_component_unavailability_contract_remains_backward_compatible():
     _candidates, component = decide(
         query(quantity=10),

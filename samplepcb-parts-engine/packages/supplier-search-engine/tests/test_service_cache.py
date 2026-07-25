@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from unittest.mock import patch
 
@@ -27,6 +28,7 @@ from supplier_search_engine.models import (
     SupplierSearchResult,
 )
 from supplier_search_engine.procurement import ProcurementReevaluationError
+from supplier_search_engine.request_cache import supplier_cache_coordinates
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings
 from supplier_search_engine.suppliers.base import SupplierClient
@@ -759,6 +761,51 @@ async def test_batch_timeout_returns_every_component_without_waiting_for_slow_su
     assert result.elapsed_ms < 150
 
 
+async def test_batch_timeout_uses_stale_cache_instead_of_discarding_candidates(
+    tmp_path,
+):
+    fake = FakeDigiKeyClient(delay=0.2, products=[make_product()])
+    service = SearchService(
+        Settings(
+            cache_path=tmp_path / "cache.sqlite3",
+            job_timeout_seconds=0.02,
+        ),
+        clients=[fake],
+    )
+    query = service.planner.plan(make_component("a"))
+    namespace, cache_key = supplier_cache_coordinates(fake, query)
+    cached_raw = RawSupplierResponse(
+        supplier=Supplier.DIGIKEY,
+        ok=True,
+        status_code=200,
+        payload={"hit": True},
+    )
+    service.cache.put(
+        namespace,
+        cache_key,
+        cached_raw.model_dump(mode="json"),
+        ttl_seconds=1,
+        stale_ttl_seconds=3_600,
+        now=time.time() - 10,
+    )
+    source = make_batch().model_copy(
+        update={"components": [make_component("a")]}
+    )
+
+    result = await service.search_batch(source)
+
+    component = result.components[0]
+    supplier = component.supplier_results[0]
+    assert component.status == MatchStatus.VERIFIED_EXACT
+    assert supplier.cache_state == "stale"
+    assert supplier.error_type is None
+    assert all(
+        item.error_type != "job_timeout"
+        for item in component.supplier_results
+    )
+    assert any("사용 가능한 캐시 결과" in warning for warning in component.warnings)
+
+
 async def test_long_part_number_trace_does_not_abort_batch(tmp_path):
     fake = FakeDigiKeyClient(products=[])
     service = SearchService(
@@ -831,7 +878,7 @@ async def test_parametric_search_does_not_wait_for_identity_mouser_prefetch(tmp_
             super().__init__(settings, clients=[])
             self.parametric_mouser_started = asyncio.Event()
 
-        async def _prefetch_mouser_exact(self, plans, job_budget):
+        async def _prefetch_mouser_exact(self, plans, job_budget, *, barriers):
             await asyncio.wait_for(self.parametric_mouser_started.wait(), timeout=0.2)
             return 0
 

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
 
 from supplier_search_engine.contract import SearchBatchInput
 
-from supplier_search_engine.models import Supplier
+from supplier_search_engine.models import MatchStatus, RawSupplierResponse, Supplier
+from supplier_search_engine.request_cache import supplier_cache_coordinates
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings
 from supplier_search_engine.suppliers.mouser import MouserClient
@@ -117,6 +119,108 @@ async def test_mouser_batch_uses_keyword_only_for_part_missing_from_batch(tmp_pa
         for attempt in second.search_trace.attempts
         if attempt.supplier == Supplier.MOUSER
     ] == ["identity_batch_exact", "identity_keyword"]
+
+
+async def test_fresh_identity_cache_does_not_wait_for_unrelated_mouser_prefetch(
+    tmp_path,
+):
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.2)
+        return httpx.Response(
+            200,
+            json={"SearchResults": {"Parts": [part("SLOW-1"), part("SLOW-2")]}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        mouser = MouserClient(api_key="not-a-real-key", client=http_client)
+        service = SearchService(
+            Settings(
+                cache_path=tmp_path / "cache.sqlite3",
+                job_timeout_seconds=0.04,
+            ),
+            clients=[mouser],
+        )
+        cached_component = component("cached", "CACHED-1")
+        cached_query = service.planner.plan(cached_component)
+        namespace, cache_key = supplier_cache_coordinates(mouser, cached_query)
+        cached_raw = RawSupplierResponse(
+            supplier=Supplier.MOUSER,
+            ok=True,
+            status_code=200,
+            payload={"SearchResults": {"Parts": [part("CACHED-1")]}},
+        )
+        service.cache.put(
+            namespace,
+            cache_key,
+            cached_raw.model_dump(mode="json"),
+            ttl_seconds=3_600,
+        )
+        source = batch().model_copy(
+            update={
+                "components": [
+                    cached_component,
+                    component("slow-1", "SLOW-1"),
+                    component("slow-2", "SLOW-2"),
+                ]
+            }
+        )
+
+        result = await service.search_batch(source)
+
+    by_id = {item.component_id: item for item in result.components}
+    assert by_id["cached"].status == MatchStatus.VERIFIED_EXACT
+    cached_supplier = next(
+        item
+        for item in by_id["cached"].supplier_results
+        if item.supplier == Supplier.MOUSER
+    )
+    assert cached_supplier.cache_state == "fresh"
+    assert cached_supplier.error_type is None
+    assert all(
+        by_id[component_id].status == MatchStatus.SUPPLIER_ERROR
+        for component_id in ("slow-1", "slow-2")
+    )
+
+
+async def test_mouser_exact_hit_does_not_wait_for_another_part_keyword_fallback(
+    tmp_path,
+):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        query = next(iter(body.values()))["mouserPartNumber"]
+        if "|" in query:
+            return httpx.Response(
+                200,
+                json={"SearchResults": {"Parts": [part("ABC-1")]}},
+            )
+        await asyncio.sleep(0.2)
+        return httpx.Response(
+            200,
+            json={"SearchResults": {"Parts": [part("ABC-2")]}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        mouser = MouserClient(api_key="not-a-real-key", client=http_client)
+        service = SearchService(
+            Settings(
+                cache_path=tmp_path / "cache.sqlite3",
+                job_timeout_seconds=0.04,
+            ),
+            clients=[mouser],
+        )
+
+        result = await service.search_batch(batch())
+
+    by_id = {item.component_id: item for item in result.components}
+    assert by_id["a"].status == MatchStatus.VERIFIED_EXACT
+    assert by_id["b"].status == MatchStatus.SUPPLIER_ERROR
+    first_supplier = next(
+        item
+        for item in by_id["a"].supplier_results
+        if item.supplier == Supplier.MOUSER
+    )
+    assert first_supplier.cache_state == "fresh"
+    assert first_supplier.error_type is None
 
 
 def test_preflight_projects_one_batch_plus_conditional_keyword_per_part(tmp_path):

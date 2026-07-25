@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .contract import (
@@ -181,24 +181,37 @@ class SearchService:
                 groups.setdefault(key, []).append((index, branch_index, plan))
 
         job_budget = _JobCallBudget(self.settings.max_api_calls_per_job, self.budget)
+        mouser_prefetch_queries = self._mouser_prefetch_queries(flattened_plans)
+        mouser_prefetch_barriers = {
+            cache_key: asyncio.get_running_loop().create_future()
+            for cache_key in mouser_prefetch_queries
+        }
         mouser_prefetch = asyncio.create_task(
-            self._prefetch_mouser_exact(flattened_plans, job_budget)
+            self._prefetch_mouser_exact(
+                list(mouser_prefetch_queries.values()),
+                job_budget,
+                barriers=mouser_prefetch_barriers,
+            )
         )
-        tasks = {
-            key: asyncio.create_task(
+        tasks: dict[str, asyncio.Task[ComponentSearchResult]] = {}
+        for key, items in groups.items():
+            query = items[0][2]
+            mouser_barrier = self._mouser_prefetch_barrier(
+                query,
+                mouser_prefetch_barriers,
+            )
+            tasks[key] = asyncio.create_task(
                 self.search_component(
-                    items[0][2],
+                    query,
                     procurement_policy=batch.procurement_policy,
                     job_budget=job_budget,
                     supplier_barriers=(
-                        {Supplier.MOUSER: mouser_prefetch}
-                        if items[0][2].mode == SearchMode.IDENTITY
+                        {Supplier.MOUSER: mouser_barrier}
+                        if mouser_barrier is not None
                         else None
                     ),
                 )
             )
-            for key, items in groups.items()
-        }
         all_tasks = set(tasks.values()) | {mouser_prefetch}
         done, pending = await asyncio.wait(
             all_tasks,
@@ -209,10 +222,24 @@ class SearchService:
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
+        timed_out_queries = {
+            key: groups[key][0][2]
+            for key, task in tasks.items()
+            if task not in done or task.cancelled()
+        }
+        cached_timeout_results = await self._recover_timed_out_results_from_cache(
+            timed_out_queries,
+            procurement_policy=batch.procurement_policy,
+        )
+
         unique_results: dict[str, ComponentSearchResult] = {}
         for key, task in tasks.items():
             query = groups[key][0][2]
             if task not in done or task.cancelled():
+                cached_result = cached_timeout_results.get(key)
+                if cached_result is not None:
+                    unique_results[key] = self._compact_component_result(cached_result)
+                    continue
                 unique_results[key] = self._batch_failure_result(
                     query,
                     procurement_policy=batch.procurement_policy,
@@ -476,6 +503,63 @@ class SearchService:
             return f"{type(error).__name__}:{error.code}"[:100]
         return type(error).__name__[:100]
 
+    async def _recover_timed_out_results_from_cache(
+        self,
+        queries: dict[str, PlannedQuery],
+        *,
+        procurement_policy: ProcurementPolicyInput,
+    ) -> dict[str, ComponentSearchResult]:
+        if not queries or not self.settings.stale_if_error:
+            return {}
+        cache_only_service = SearchService(
+            replace(self.settings, cache_only=True),
+            clients=list(self.clients.values()),
+            cache=self.cache,
+            budget=self.budget,
+        )
+
+        async def recover(
+            key: str,
+            query: PlannedQuery,
+        ) -> tuple[str, ComponentSearchResult | None]:
+            result = await cache_only_service.search_component(
+                query,
+                procurement_policy=procurement_policy,
+            )
+            supplier_results = [
+                *result.initial_supplier_results,
+                *result.supplier_results,
+            ]
+            if not any(
+                supplier_result.cache_state in {"fresh", "stale", "coalesced"}
+                for supplier_result in supplier_results
+            ):
+                return key, None
+            return (
+                key,
+                result.model_copy(
+                    update={
+                        "warnings": [
+                            *result.warnings,
+                            (
+                                "실시간 공급사 갱신이 작업 시간 상한을 초과해 "
+                                "사용 가능한 캐시 결과를 사용했습니다."
+                            ),
+                        ]
+                    },
+                    deep=True,
+                ),
+            )
+
+        recovered = await asyncio.gather(
+            *(recover(key, query) for key, query in queries.items())
+        )
+        return {
+            key: result
+            for key, result in recovered
+            if result is not None
+        }
+
     @staticmethod
     def _batch_failure_result(
         query: PlannedQuery,
@@ -535,7 +619,7 @@ class SearchService:
         *,
         procurement_policy: ProcurementPolicyInput | None = None,
         job_budget: _JobCallBudget | None = None,
-        supplier_barriers: dict[Supplier, asyncio.Task[int]] | None = None,
+        supplier_barriers: dict[Supplier, Awaitable[object]] | None = None,
     ) -> ComponentSearchResult:
         started = time.perf_counter()
         result = await self._search_component_impl(
@@ -555,7 +639,7 @@ class SearchService:
         *,
         procurement_policy: ProcurementPolicyInput,
         job_budget: _JobCallBudget | None = None,
-        supplier_barriers: dict[Supplier, asyncio.Task[int]] | None = None,
+        supplier_barriers: dict[Supplier, Awaitable[object]] | None = None,
         recommendation_block_reason: str | None = None,
     ) -> ComponentSearchResult:
         if query.mode in {SearchMode.INSUFFICIENT, SearchMode.EXCLUDED}:
@@ -830,35 +914,70 @@ class SearchService:
         supplier: Supplier,
         query: PlannedQuery,
         job_budget: _JobCallBudget,
-        barrier: asyncio.Task[int] | None,
+        barrier: Awaitable[object] | None,
     ) -> SupplierSearchResult:
         if barrier is not None:
             await asyncio.shield(barrier)
         return await self._search_supplier(supplier, query, job_budget)
 
-    async def _prefetch_mouser_exact(
+    def _mouser_prefetch_queries(
         self,
         plans: list[PlannedQuery],
-        job_budget: _JobCallBudget,
-    ) -> int:
+    ) -> dict[str, PlannedQuery]:
         client = self.clients.get(Supplier.MOUSER)
         if (
             not isinstance(client, MouserClient)
             or not client.configured
             or self.settings.cache_only
         ):
-            return 0
+            return {}
         unique: dict[str, PlannedQuery] = {}
         for query in plans:
             if query.mode != SearchMode.IDENTITY or not query.part_number:
                 continue
             namespace, cache_key = supplier_cache_coordinates(client, query)
-            if self._cached_result(client, query, namespace, cache_key, allow_stale=False) is not None:
+            if self._cached_result(
+                client,
+                query,
+                namespace,
+                cache_key,
+                allow_stale=False,
+            ) is not None:
                 continue
             unique.setdefault(cache_key, query)
-        queries = list(unique.values())
-        if len(queries) < 2:
+        return unique if len(unique) >= 2 else {}
+
+    def _mouser_prefetch_barrier(
+        self,
+        query: PlannedQuery,
+        barriers: dict[str, asyncio.Future[None]],
+    ) -> asyncio.Future[None] | None:
+        client = self.clients.get(Supplier.MOUSER)
+        if (
+            not isinstance(client, MouserClient)
+            or query.mode != SearchMode.IDENTITY
+            or not query.part_number
+        ):
+            return None
+        _, cache_key = supplier_cache_coordinates(client, query)
+        return barriers.get(cache_key)
+
+    async def _prefetch_mouser_exact(
+        self,
+        queries: list[PlannedQuery],
+        job_budget: _JobCallBudget,
+        *,
+        barriers: dict[str, asyncio.Future[None]],
+    ) -> int:
+        client = self.clients.get(Supplier.MOUSER)
+        if not isinstance(client, MouserClient) or not queries:
             return 0
+
+        def release(query: PlannedQuery) -> None:
+            _, cache_key = supplier_cache_coordinates(client, query)
+            barrier = barriers.get(cache_key)
+            if barrier is not None and not barrier.done():
+                barrier.set_result(None)
 
         async def reserve_call() -> None:
             await job_budget.reserve(Supplier.MOUSER)
@@ -891,50 +1010,61 @@ class SearchService:
             exact: RawSupplierResponse,
         ) -> int:
             try:
-                async with self._semaphores[Supplier.MOUSER]:
-                    raw = await client.fetch_keyword(
-                        query,
-                        reserve_call=reserve_call,
-                        strategy="identity_keyword",
-                        fallback_reason="batch_exact_no_result",
-                    )
-            except (QuotaExceeded, JobBudgetExceeded):
-                return 0
-            raw = raw.model_copy(
-                update={
-                    "latency_ms": exact.latency_ms + raw.latency_ms,
-                    "http_attempt_count": (
-                        exact.http_attempt_count + raw.http_attempt_count
-                    ),
-                    "request_trace": [*exact.request_trace, *raw.request_trace],
-                },
-                deep=True,
-            )
-            return int(await store(query, raw))
+                try:
+                    async with self._semaphores[Supplier.MOUSER]:
+                        raw = await client.fetch_keyword(
+                            query,
+                            reserve_call=reserve_call,
+                            strategy="identity_keyword",
+                            fallback_reason="batch_exact_no_result",
+                        )
+                except (QuotaExceeded, JobBudgetExceeded):
+                    return 0
+                raw = raw.model_copy(
+                    update={
+                        "latency_ms": exact.latency_ms + raw.latency_ms,
+                        "http_attempt_count": (
+                            exact.http_attempt_count + raw.http_attempt_count
+                        ),
+                        "request_trace": [*exact.request_trace, *raw.request_trace],
+                    },
+                    deep=True,
+                )
+                return int(await store(query, raw))
+            finally:
+                release(query)
 
         async def fetch_chunk(chunk: list[PlannedQuery]) -> int:
             try:
-                async with self._semaphores[Supplier.MOUSER]:
-                    raw = await client.fetch_exact_batch(chunk, reserve_call=reserve_call)
-            except (QuotaExceeded, JobBudgetExceeded):
-                return 0
-            if not raw.ok:
-                return 0
-            stored = 0
-            missing: list[tuple[PlannedQuery, RawSupplierResponse]] = []
-            for query in chunk:
-                filtered = client.exact_batch_result(raw, query)
-                if client.normalize(filtered, query):
-                    stored += int(await store(query, filtered))
-                else:
-                    missing.append((query, filtered))
-            if missing:
-                stored += sum(
-                    await asyncio.gather(
-                        *(fallback(query, exact) for query, exact in missing)
+                try:
+                    async with self._semaphores[Supplier.MOUSER]:
+                        raw = await client.fetch_exact_batch(
+                            chunk,
+                            reserve_call=reserve_call,
+                        )
+                except (QuotaExceeded, JobBudgetExceeded):
+                    return 0
+                if not raw.ok:
+                    return 0
+                stored = 0
+                missing: list[tuple[PlannedQuery, RawSupplierResponse]] = []
+                for query in chunk:
+                    filtered = client.exact_batch_result(raw, query)
+                    if client.normalize(filtered, query):
+                        stored += int(await store(query, filtered))
+                        release(query)
+                    else:
+                        missing.append((query, filtered))
+                if missing:
+                    stored += sum(
+                        await asyncio.gather(
+                            *(fallback(query, exact) for query, exact in missing)
+                        )
                     )
-                )
-            return stored
+                return stored
+            finally:
+                for query in chunk:
+                    release(query)
 
         chunks = [queries[index : index + 10] for index in range(0, len(queries), 10)]
         try:
@@ -942,6 +1072,9 @@ class SearchService:
         except Exception:
             # Prefetch is an optimization boundary; normal per-component search remains available.
             return 0
+        finally:
+            for query in queries:
+                release(query)
 
     async def _search_supplier(
         self,
@@ -1617,7 +1750,18 @@ class SearchService:
         decision = candidate.decision
         if decision.selection_eligibility != SelectionEligibility.MANUAL_REVIEW:
             return False
-        if query.input_source_conflicts:
+        # A full MPN identity is still useful when the BOM's extracted sources
+        # disagree.  Preserve the conflict as manual review, but allow a
+        # provisional recommendation when the supplier confirms the same
+        # manufacturer and every required field is present.  This does not
+        # relax manufacturer mismatches, incomplete candidates, or non-identity
+        # fallback searches.
+        exact_identity_review = (
+            decision.match_relation == MatchRelation.EXACT
+            and "manufacturer_mismatch" not in candidate.conflicts
+            and not candidate.missing_requirements
+        )
+        if query.input_source_conflicts and not exact_identity_review:
             return False
         if (
             query.mode == SearchMode.PARAMETRIC
@@ -1646,7 +1790,11 @@ class SearchService:
             for value in candidate.conflicts
             if value.endswith("_source_conflict")
         }
-        if source_conflicts and source_conflicts != {"manufacturer_source_conflict"}:
+        if (
+            source_conflicts
+            and source_conflicts != {"manufacturer_source_conflict"}
+            and not exact_identity_review
+        ):
             return False
         if decision.match_relation in {MatchRelation.EXACT, MatchRelation.VARIANT}:
             return True
