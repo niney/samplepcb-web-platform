@@ -127,6 +127,25 @@ def make_product() -> SupplierProduct:
     )
 
 
+async def test_explicit_allowed_suppliers_limits_search_without_changing_default(
+    tmp_path,
+):
+    digikey = FakeSupplierClient(Supplier.DIGIKEY)
+    mouser = FakeSupplierClient(Supplier.MOUSER)
+    unikeyic = FakeSupplierClient(Supplier.UNIKEYIC)
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[digikey, mouser, unikeyic],
+        allowed_suppliers={Supplier.MOUSER, Supplier.UNIKEYIC},
+    )
+
+    await service.search_component(service.planner.plan(make_component("selected")))
+
+    assert digikey.calls == 0
+    assert mouser.calls == 1
+    assert unikeyic.calls == 1
+
+
 async def test_batch_deduplicates_and_second_run_uses_durable_cache(tmp_path):
     fake = FakeDigiKeyClient(products=[make_product()])
     settings = Settings(cache_path=tmp_path / "cache.sqlite3")

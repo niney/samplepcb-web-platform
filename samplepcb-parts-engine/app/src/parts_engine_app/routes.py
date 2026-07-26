@@ -13,6 +13,7 @@ from supplier_search_engine.models import (
     ProcurementReevaluationBatchResult,
     ProcurementReevaluationRequest,
     ProcurementReevaluationResult,
+    Supplier,
 )
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings as SearchSettings
@@ -31,7 +32,7 @@ from supplier_search_engine.procurement import (
 
 from .capabilities import supplier_search_capabilities
 from .jobs import Job, JobError, JobService, SupplierSearchOptions
-from .refresh import refresh_part, search_catalog
+from .refresh import refresh_part, refresh_parts, search_catalog
 
 router = APIRouter()
 
@@ -327,6 +328,36 @@ class PartRefreshBody(BaseModel):
     max_calls: int = Field(default=25, ge=1, le=100)
 
 
+class PartRefreshBatchItem(BaseModel):
+    component_id: str = Field(min_length=1, max_length=191)
+    part_number: str = Field(min_length=1, max_length=191)
+    manufacturer: str | None = Field(default=None, max_length=191)
+
+
+class PartRefreshBatchBody(BaseModel):
+    parts: list[PartRefreshBatchItem] = Field(min_length=1, max_length=100)
+    max_calls: int = Field(default=120, ge=1, le=3_000)
+    job_timeout_seconds: float = Field(default=180.0, ge=10.0, le=300.0)
+    suppliers: list[Supplier] = Field(
+        default_factory=lambda: [
+            Supplier.DIGIKEY,
+            Supplier.MOUSER,
+            Supplier.UNIKEYIC,
+        ],
+        min_length=1,
+        max_length=3,
+    )
+
+    @model_validator(mode="after")
+    def validate_component_ids(self) -> "PartRefreshBatchBody":
+        component_ids = [part.component_id for part in self.parts]
+        if len(component_ids) != len(set(component_ids)):
+            raise ValueError("component_id must be unique")
+        if len(self.suppliers) != len(set(self.suppliers)):
+            raise ValueError("suppliers must be unique")
+        return self
+
+
 class PartSearchBody(BaseModel):
     """사용자 카탈로그 규격 검색 — 캐시 우선, 짧은 공급사 호출 상한."""
 
@@ -351,6 +382,30 @@ async def refresh_single_part(
     except Exception as error:  # 공급사/네트워크 오류를 502 로 정규화
         raise HTTPException(
             status_code=502, detail=f"{type(error).__name__}: {str(error)[:300]}"
+        ) from error
+
+
+@router.post("/parts/refresh-batch")
+async def refresh_part_batch(
+    request: Request,
+    body: PartRefreshBatchBody,
+) -> dict[str, Any]:
+    """카탈로그 사전 데이터용 exact MPN 강제 라이브 배치."""
+    try:
+        return await refresh_parts(
+            _svc(request).config,
+            [
+                (part.component_id, part.part_number, part.manufacturer)
+                for part in body.parts
+            ],
+            max_calls=body.max_calls,
+            job_timeout_seconds=body.job_timeout_seconds,
+            suppliers=tuple(body.suppliers),
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{type(error).__name__}: {str(error)[:300]}",
         ) from error
 
 

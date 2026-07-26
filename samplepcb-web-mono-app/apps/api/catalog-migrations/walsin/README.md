@@ -1,8 +1,9 @@
 # Walsin R/C 카탈로그 마이그레이션
 
-정본은 `Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx` 한 파일이다.
-sp-node가 실행 시 워크북을 검증하고 기존 supplier-search ingest envelope로 결정적으로 변환하므로
-중간 JSON·DB/ES 미리보기를 따로 관리하지 않는다.
+기술·취급 정본은 `Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx` 한 파일이다.
+sp-node가 실행 시 워크북을 검증하고 기존 supplier-search ingest envelope로 결정적으로 변환한다.
+공급사 가격은 카탈로그 초기화 전에 한 번 전수 조회한
+`prepared-prices/walsin-price-snapshot-v1.json.gz`를 별도 시점 스냅샷으로 보존한다.
 
 데이터 근거와 판단은 [ANALYSIS.md](ANALYSIS.md)에 있다.
 
@@ -47,8 +48,10 @@ R/C 카탈로그로 사용한다. 가격과 재고는 워크북에서 만들지 
 cd samplepcb-web-mono-app
 pnpm install --frozen-lockfile
 
-pnpm --filter api parts:catalog -- --dry-run --source walsin-rlc
-pnpm --filter api parts:catalog -- --apply   --source walsin-rlc
+pnpm --filter api parts:catalog -- --dry-run --source walsin-rlc \
+  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+pnpm --filter api parts:catalog -- --apply --source walsin-rlc \
+  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
 ```
 
 `--source`를 생략하면 기존 연호 카탈로그가 대상이다.
@@ -66,6 +69,8 @@ dry-run에서 확인할 값:
 - 최상위 `result=true`
 - `verification.result=true`
 - `inputParts=dbParts=esDocuments=2628`
+- `preparedPriceChecks.expectedSupplierOffers=storedSupplierOffers`
+- `preparedPriceChecks.pricedParts=samplepcbPricedParts`
 - `engineCatalogChecks`가 supplier×category 표본을 모두 반환하고 선정 가능 후보가
   `catalog_selected`임
 - `failures=[]`
@@ -75,8 +80,10 @@ dry-run에서 확인할 값:
 검증만 따로:
 
 ```bash
-pnpm --filter api parts:catalog -- --verify        --source walsin-rlc
-pnpm --filter api parts:catalog -- --verify-search --source walsin-rlc
+pnpm --filter api parts:catalog -- --verify --source walsin-rlc \
+  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+pnpm --filter api parts:catalog -- --verify-search --source walsin-rlc \
+  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
 ```
 
 ## 운영 적용 순서
@@ -98,49 +105,93 @@ mysqldump --default-character-set=utf8 samplepcb > ~/backup-walsin-$(date +%F-%H
 curl -fsS http://127.0.0.1:8400/health
 curl -fsS https://centrafab.co.kr/api/health
 
-# 4. 원본 검증 후 DB·ES 적재
+# 4. 원본과 사전 가격 스냅샷 검증 후 DB·ES 적재
 cd samplepcb-web-mono-app
-pnpm --filter api parts:catalog -- --dry-run --source walsin-rlc
-pnpm --filter api parts:catalog -- --apply   --source walsin-rlc
-pnpm --filter api parts:catalog -- --verify-search --source walsin-rlc
+pnpm --filter api parts:catalog -- --dry-run --source walsin-rlc \
+  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+pnpm --filter api parts:catalog -- --apply --source walsin-rlc \
+  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+pnpm --filter api parts:catalog -- --verify-search --source walsin-rlc \
+  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
 ```
 
 `deploy.sh 5`의 마이그레이션 질문에는 이번 변경이 추가·삭제하는 스키마가 없으므로 파괴적
-중단이 필요 없다는 의미로 기본값 `N`을 선택한다. 이미 Walsin 카탈로그가 적재된 운영 DB에
-코드만 갱신하는 경우에는 공급사 투영 변경을 기존 ES 문서에 반영한다.
+중단이 필요 없다는 의미로 기본값 `N`을 선택한다. 위 통합 적용 명령이 변경 부품을 ES까지
+색인하므로 별도 전체 재색인은 필요 없다.
+
+관리자 `/app/admin/parts`에서는 가격을 찾은 부품에 `SamplePCB`와 실제 외부 공급사가 함께
+표시되고, 외부 공급사에는 스냅샷 재고·가격이 보이는지 확인한다. SamplePCB 가격은 같은
+가격곡선이지만 재고는 계속 `재고 확인`이어야 한다. 정상 미발견 부품은 기존처럼
+`SamplePCB`의 `문의 견적`·`재고 확인`으로 남는다.
+
+## 공급사 가격 사전 스냅샷
+
+가격 조회는 DB 적재 뒤 반복하는 런타임 작업이 아니다. 승인 워크북의 2,628개 identity를
+카탈로그 초기화 **전에 한 번 전수 조회**해 Git으로 전달 가능한 압축 스냅샷을 만든다.
+정확 MPN+제조사 후보만 남기므로 파라메트릭 대체품이 카탈로그를 불리지 않는다.
 
 ```bash
-pnpm --filter api parts:reindex
-```
-
-관리자 `/app/admin/parts`에서 Walsin 제조사 필터 결과의 공급사 패싯·행·상세가
-`SamplePCB`만 표시되고, 가격과 재고가 각각 `문의 견적`·`재고 확인`인지 확인한다.
-
-## 공급사 가격 1회 갱신
-
-적재 뒤 MPN별 실제 공급사 가격을 한 번 조회해 SamplePCB 오퍼의 참고 가격으로 보존할 수 있다.
-외부 유통사 재고는 SamplePCB 보유 재고가 아니므로 **가격만 복사하고 자체 재고는 계속 null**이다.
-정확 MPN+제조사 후보만 인제스트하여 파라메트릭 대체 후보가 카탈로그를 불리는 일도 막는다.
-
-```bash
-# DB 대상 수만 확인 — 외부 API 호출 없음
+# 대상·경로만 확인 — DB 변경·외부 API 호출 없음
 pnpm --filter api parts:catalog-prices
 
-# 처음 실행
-pnpm --filter api parts:catalog-prices -- --apply
+# 최초 전수 생성
+pnpm --filter api parts:catalog-prices -- --prepare
 
-# 중단·오류 뒤 재개
-pnpm --filter api parts:catalog-prices -- --apply --resume
+# 중단 또는 공급사 오류 뒤 같은 상태에서 재개
+pnpm --filter api parts:catalog-prices -- --prepare --resume
 
-# not_found/가격 없음도 다시 조회할 때만
-pnpm --filter api parts:catalog-prices -- --apply --resume --retry-misses
+# 특정 공급사가 확인된 rate limit 상태면 나머지 공급사 결과부터 완주
+pnpm --filter api parts:catalog-prices -- --prepare --resume \
+  --suppliers mouser,unikeyic
+
+# 제한 해제 뒤 공급사별 오류가 남은 행만 다시 조회
+pnpm --filter api parts:catalog-prices -- --prepare --resume \
+  --retry-supplier-errors
+
+# 정상 미발견·가격 없음까지 의도적으로 다시 확인할 때만
+pnpm --filter api parts:catalog-prices -- --prepare --resume --retry-misses
+
+# API 호출 없이 원본 2,628개 coverage·exact identity·압축 SHA 검증
+pnpm --filter api parts:catalog-prices -- --verify
 ```
 
-기본 동시성은 2, MPN당 호출 상한은 12다. 운영 상황에 따라 `--concurrency 1..8`,
-`--max-calls 1..100`, 부분 검증은 `--limit N`을 쓴다. 진행 상태
-`price-refresh-state-walsin-rlc.json`은 매 배치 저장되고 Git에서 제외된다.
-따라서 운영 서버에서 시작한 상태 파일은 해당 서버에 보관하고 같은 서버에서 `--resume`한다.
-카탈로그를 다시 초기화했다면 이전 가격 상태 파일을 재사용하지 말고 별도 보관 후 새 실행을 시작한다.
+기본은 요청당 MPN 100개, 요청 동시성 1, MPN당 호출 상한 12, 배치 제한시간 300초다.
+한 요청에서 공급사 클라이언트와 DigiKey OAuth 토큰을 재사용하고 Mouser exact batch를
+활용한다. 병렬 요청에서 공급사 403을 실측했으므로 정확한 최초 산출은 기본값을 유지한다.
+운영 상황에 따라 `--batch-size 1..100`, `--concurrency 1..8`,
+`--max-calls 1..100`, `--job-timeout-seconds 10..300`, 부분 시험은 `--limit N`을 쓴다.
+`not_found`는 정상 결과다. 배치 전체 타임아웃처럼 어느 공급사까지 실행됐는지 판정할 수 없는
+경고는 완료로 인정하지 않고 다음 `--resume`에서 자동 재시도한다. 반면 확인된 공급사별
+`429`·`403`은 다른 공급사의 유효 가격을 버리지 않도록 스냅샷 경고와
+`summary.supplierErrorRecords`에 남긴다. `--suppliers`로 제한된 실행도 제외 공급사를
+`not_requested_for_snapshot`으로 명시하므로 미조회 사실이 숨겨지지 않는다.
+생성 작업 중 제한이 해제되면 로컬 `work-state.json`이 남아 있는 동안 기본 공급사 목록과
+`--retry-supplier-errors`를 함께 사용해 교체할 수 있다.
+
+생성물:
+
+- `prepared-prices/walsin-price-snapshot-v1.json.gz`: exact 공급사 product/offer·가격·재고
+- `prepared-prices/manifest.json`: 원본 SHA·스냅샷 SHA·coverage 집계
+- `prepared-prices/work-state.json`: 생성 중 중단 재개용이며 Git에서 제외; 최종 검증 뒤 삭제 가능
+
+현재 Git 산출물(2026-07-27)은 2,628개 전부를 포함하며 가격 보유 502개,
+가격 없는 exact 결과 13개, exact 미발견 2,113개다. 외부 오퍼 1,521개와 가격구간
+9,372개를 보존한다. 생성 후반 DigiKey가 `429` 제한에 걸려 371개는
+`digikey: not_requested_for_snapshot`으로 명시하고 Mouser·UniKeyIC만 조회했으며,
+배치 전체 타임아웃과 Mouser·UniKeyIC 오류는 0개다. 현재 Git 산출물은 이 시점 스냅샷으로
+고정하며, DigiKey까지 다시 채우려면 새 버전 스냅샷을 전수 생성한다. 실제 값과 SHA-256은
+`prepared-prices/manifest.json`을 단일 원본으로 삼는다.
+
+초기화 후 `parts:catalog -- --apply ... --price-snapshot ...` 한 번이 제조사 원장과
+SamplePCB 취급 오퍼를 먼저 만들고, 스냅샷의 DigiKey·Mouser·UniKeyIC 오퍼를 같은
+`sp_part`에 upsert한다. 가격이 있는 외부 오퍼 한 개의 전체 가격곡선을 SamplePCB 오퍼에
+복사하고 `samplepcbPricing.derivedFrom`으로 공급사·SKU·수집 시각을 보존한다.
+외부 유통사 재고는 SamplePCB 보유 재고가 아니므로 **자체 재고는 계속 null**이다.
+
+DB에는 `(mpnNorm,manufacturerNorm)` 부품이 한 행만 생기고 그 아래 제조사 원장,
+외부 공급사, SamplePCB 오퍼가 공존한다. ES도 부품 문서 한 개의 `suppliers`에 외부 공급사와
+`samplepcb`를 함께 색인한다. 적용 검증은 공급사 오퍼·가격구간·SamplePCB 파생 출처와
+ES 공급사 배열, 색인 큐 0건을 전수 확인한다.
 
 ## 제조사 키 병합 (적재 후 1회)
 
@@ -172,15 +223,16 @@ ES 재색인·삭제까지 한다. 같은 `(supplier, sku)`가 양쪽에 있으�
 
 ## 되돌리기
 
-이 원본은 교체할 구 데이터가 없어 `--apply` 경로로 적용한다. 따라서 manifest 기반
-`--rollback`을 그대로 쓸 수 있다.
+가격 스냅샷을 함께 적용하면 제조사 원장 오퍼 외에 DigiKey·Mouser·UniKeyIC 오퍼도 생긴다.
+기존 manifest 부분 rollback은 이 외부 오퍼까지 제거하는 계약이 아니므로
+`--price-snapshot`과 `--rollback` 조합을 금지한다. 이번처럼 카탈로그 전체 초기화 뒤
+적용하는 작업은 관리자 카탈로그 초기화를 다시 실행하거나 적용 직전 DB 백업을 복원한다.
+
+가격 스냅샷 없이 원장만 적용한 개발 환경에 한해서 기존 명령을 사용할 수 있다.
 
 ```bash
 pnpm --filter api parts:catalog -- --rollback --source walsin-rlc
 ```
-
-적용 직전 상태는 `migration-state-Parts_Eyes_RLC_Size_Split_Expanded_AVL.json`에 기록되며
-Git에서 제외된다. 롤백이 필요할 수 있는 동안에는 이 파일을 보관한다.
 
 다음 개정판에서는 7개 제조사 supplier를 함께 지원하는 교체 경로를 사용한다.
 
@@ -191,8 +243,8 @@ pnpm --filter api parts:catalog -- --replace --source walsin-rlc \
 
 ## 남은 일
 
-- 가격 1회 갱신은 공급사에서 정확 MPN을 반환한 품목만 채운다. `not_found`와
-  `found_without_price`는 상태 파일에 남으므로 제조사 원장 확인 대상으로 활용한다.
+- 가격 사전 스냅샷은 공급사에서 정확 MPN+제조사를 반환한 품목만 채운다. `not_found`와
+  `found_without_price`도 최종 스냅샷에 남으므로 제조사 원장 확인 대상으로 활용한다.
 - 관리자 부품 검색·BOM 후보 화면에서 `verificationStatus=PATTERN_CANDIDATE`를 시각적으로
   구분하는 일은 아직 하지 않았다. 데이터 계약(`catalog_metadata`)에는 값이 들어 있다.
 - AVL 축(`avlGroupId`·`avlRole`·`avlSiblings`)은 DB에만 있고 API 응답 스키마에는 없어 화면에

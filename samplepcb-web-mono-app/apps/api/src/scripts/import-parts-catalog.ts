@@ -33,6 +33,13 @@ import {
 } from '../lib/parts-catalog-migration';
 import { partOffersForDisplay } from '../lib/parts-offer-kind';
 import { buildYeonhoCatalogEnvelope } from '../lib/yeonho-catalog-workbook';
+import {
+  readVerifiedWalsinPriceSnapshot,
+  validateWalsinPriceSnapshotCoverage,
+  walsinPriceSnapshotIngestEnvelope,
+  type WalsinPriceSnapshotArtifactType,
+  type WalsinPriceSnapshotProductType,
+} from '../lib/walsin-catalog-price-snapshot';
 import { buildWalsinRlcCatalogEnvelope } from '../lib/walsin-rlc-catalog-workbook';
 import { buildPartSort, buildSearchQuery } from '../routes/admin-parts';
 
@@ -44,6 +51,7 @@ interface CliOptions {
   file: string;
   manifest: string;
   retireSourceSha: string | undefined;
+  priceSnapshot: string | undefined;
 }
 
 interface CatalogSource {
@@ -202,7 +210,27 @@ function parseOptions(args: string[]): CliOptions {
   if (mode === 'replace' && retireSourceSha === undefined) {
     throw new Error('--replace에는 --retire-source-sha가 필요합니다');
   }
-  return { mode, source: sourceKey, file, manifest, retireSourceSha };
+  const priceSnapshotValue = optionValue(args, '--price-snapshot');
+  const priceSnapshot = priceSnapshotValue === undefined
+    ? undefined
+    : path.resolve(priceSnapshotValue);
+  if (priceSnapshot !== undefined && sourceKey !== 'walsin-rlc') {
+    throw new Error('--price-snapshot은 walsin-rlc 원본에만 사용할 수 있습니다');
+  }
+  if (
+    priceSnapshot !== undefined
+    && ['replace', 'rollback'].includes(mode)
+  ) {
+    throw new Error('--price-snapshot은 --replace/--rollback과 함께 사용할 수 없습니다');
+  }
+  return {
+    mode,
+    source: sourceKey,
+    file,
+    manifest,
+    retireSourceSha,
+    priceSnapshot,
+  };
 }
 
 function chunks<T>(values: T[], size: number): T[][] {
@@ -235,6 +263,31 @@ async function loadInput(
   const fingerprint = supplierSearchIngestFingerprint(raw);
   if (fingerprint === null) throw new Error('기존 부품 인제스트 계약으로 해석할 수 없는 파일입니다');
   return { raw, parsed, fingerprint };
+}
+
+interface PreparedPriceInput {
+  artifact: WalsinPriceSnapshotArtifactType;
+  raw: unknown;
+  fingerprint: string;
+  file: string;
+}
+
+async function loadPreparedPrices(
+  file: string | undefined,
+  parsed: ParsedCatalogMigration,
+): Promise<PreparedPriceInput | null> {
+  if (file === undefined) return null;
+  const verified = await readVerifiedWalsinPriceSnapshot(file);
+  const artifact = validateWalsinPriceSnapshotCoverage(
+    verified.artifact,
+    parsed.records,
+  );
+  const raw = walsinPriceSnapshotIngestEnvelope(artifact);
+  const fingerprint = supplierSearchIngestFingerprint(raw);
+  if (fingerprint === null) {
+    throw new Error('가격 스냅샷을 공급사 인제스트 계약으로 변환할 수 없습니다');
+  }
+  return { artifact, raw, fingerprint, file };
 }
 
 function partKey(part: Pick<PartWithOffers, 'mpnNorm' | 'manufacturerNorm'>): string {
@@ -885,9 +938,203 @@ async function verifySearch(parsed: ParsedCatalogMigration): Promise<{ checks: S
   };
 }
 
+interface ExpectedPreparedOffer {
+  supplier: string;
+  supplierSku: string;
+  stock: number | null;
+  fetchedAt: string;
+  priceBreaks: { qty: number; price: number; currency: string }[];
+}
+
+function canonicalExpectedPriceBreaks(
+  priceBreaks: WalsinPriceSnapshotProductType['offers'][number]['price_breaks'],
+): ExpectedPreparedOffer['priceBreaks'] {
+  const byQuantity = new Map<
+    number,
+    ExpectedPreparedOffer['priceBreaks'][number]
+  >();
+  for (const priceBreak of priceBreaks) {
+    const value = {
+      qty: priceBreak.quantity,
+      price: priceBreak.unit_price,
+      currency: priceBreak.currency.slice(0, 8),
+    };
+    const current = byQuantity.get(value.qty);
+    if (
+      current === undefined
+      || value.price < current.price
+      || (
+        value.price === current.price
+        && value.currency < current.currency
+      )
+    ) {
+      byQuantity.set(value.qty, value);
+    }
+  }
+  return [...byQuantity.values()].sort((a, b) => a.qty - b.qty);
+}
+
+function expectedPreparedOffers(
+  products: WalsinPriceSnapshotProductType[],
+): ExpectedPreparedOffer[] {
+  const byKey = new Map<string, ExpectedPreparedOffer>();
+  for (const product of products) {
+    for (const offer of product.offers) {
+      const supplierSku = (offer.supplier_sku ?? '').slice(0, 191);
+      const key = `${offer.supplier}:${supplierSku}`;
+      const value = {
+        supplier: offer.supplier,
+        supplierSku,
+        stock: offer.stock ?? null,
+        fetchedAt: offer.fetched_at,
+        priceBreaks: canonicalExpectedPriceBreaks(offer.price_breaks),
+      };
+      const current = byKey.get(key);
+      if (
+        current === undefined
+        || new Date(current.fetchedAt) < new Date(value.fetchedAt)
+      ) {
+        byKey.set(key, value);
+      }
+    }
+  }
+  return [...byKey.values()].sort((a, b) =>
+    a.supplier.localeCompare(b.supplier)
+    || a.supplierSku.localeCompare(b.supplierSku));
+}
+
+function canonicalStoredPriceBreaks(
+  priceBreaks: PartWithOffers['offers'][number]['priceBreaks'],
+): ExpectedPreparedOffer['priceBreaks'] {
+  return priceBreaks
+    .map((priceBreak) => ({
+      qty: priceBreak.qty,
+      price: Number(priceBreak.price),
+      currency: priceBreak.currency,
+    }))
+    .sort((a, b) =>
+      a.qty - b.qty
+      || a.currency.localeCompare(b.currency)
+      || a.price - b.price);
+}
+
+function verifyPreparedPriceDatabase(
+  artifact: WalsinPriceSnapshotArtifactType,
+  parts: PartWithOffers[],
+): {
+  pricedParts: number;
+  expectedSupplierOffers: number;
+  storedSupplierOffers: number;
+  samplepcbPricedParts: number;
+  failures: string[];
+} {
+  const partsByKey = new Map(parts.map((part) => [partKey(part), part]));
+  const failures: string[] = [];
+  let expectedSupplierOffers = 0;
+  let storedSupplierOffers = 0;
+  let samplepcbPricedParts = 0;
+  for (const record of artifact.records) {
+    const part = partsByKey.get(record.key);
+    if (part === undefined) {
+      failures.push(`가격 스냅샷 DB 부품 누락: ${record.key}`);
+      continue;
+    }
+    const offersByKey = new Map(
+      part.offers.map((offer) => [
+        `${offer.supplier}:${offer.supplierSku}`,
+        offer,
+      ]),
+    );
+    const expectedOffers = expectedPreparedOffers(record.products);
+    expectedSupplierOffers += expectedOffers.length;
+    for (const expected of expectedOffers) {
+      const key = `${expected.supplier}:${expected.supplierSku}`;
+      const stored = offersByKey.get(key);
+      if (stored === undefined) {
+        failures.push(`가격 스냅샷 공급사 오퍼 누락: ${record.key}/${key}`);
+        continue;
+      }
+      storedSupplierOffers += 1;
+      if (
+        JSON.stringify(canonicalStoredPriceBreaks(stored.priceBreaks))
+        !== JSON.stringify(expected.priceBreaks)
+      ) {
+        failures.push(`가격 스냅샷 가격구간 불일치: ${record.key}/${key}`);
+      }
+      if (stored.stock !== expected.stock) {
+        failures.push(`가격 스냅샷 재고 불일치: ${record.key}/${key}`);
+      }
+      if (stored.fetchedAt.getTime() !== new Date(expected.fetchedAt).getTime()) {
+        failures.push(`가격 스냅샷 수집 시각 불일치: ${record.key}/${key}`);
+      }
+    }
+    if (record.status !== 'priced') continue;
+    const samplepcb = part.offers.find((offer) => offer.supplier === 'samplepcb');
+    if (samplepcb === undefined || samplepcb.priceBreaks.length === 0) {
+      failures.push(`SamplePCB 파생 가격 누락: ${record.key}`);
+      continue;
+    }
+    const raw = jsonObject(samplepcb.rawJson);
+    const pricing = raw === null
+      ? null
+      : jsonObject(raw.samplepcbPricing ?? null);
+    const derived = pricing === null
+      ? null
+      : jsonObject(pricing.derivedFrom ?? null);
+    const derivedKey = typeof derived?.supplier === 'string'
+      && typeof derived.supplierSku === 'string'
+      ? `${derived.supplier}:${derived.supplierSku}`
+      : null;
+    const pricedKeys = new Set(
+      expectedOffers
+        .filter((offer) => offer.priceBreaks.length > 0)
+        .map((offer) => `${offer.supplier}:${offer.supplierSku}`),
+    );
+    if (derivedKey === null || !pricedKeys.has(derivedKey)) {
+      failures.push(`SamplePCB 가격 출처 불일치: ${record.key}/${derivedKey ?? '(missing)'}`);
+      continue;
+    }
+    const source = expectedOffers.find(
+      (offer) => `${offer.supplier}:${offer.supplierSku}` === derivedKey,
+    );
+    if (source === undefined) {
+      failures.push(`SamplePCB 가격 출처 오퍼 누락: ${record.key}/${derivedKey}`);
+      continue;
+    }
+    if (
+      JSON.stringify(canonicalStoredPriceBreaks(samplepcb.priceBreaks))
+      !== JSON.stringify(source.priceBreaks)
+    ) {
+      failures.push(`SamplePCB 전체 가격구간 복사 불일치: ${record.key}/${derivedKey}`);
+      continue;
+    }
+    if (samplepcb.stock !== null) {
+      failures.push(`SamplePCB 오퍼에 외부 재고가 복사됨: ${record.key}`);
+      continue;
+    }
+    const expectedFetchedAt = new Date(source.fetchedAt);
+    if (
+      samplepcb.fetchedAt.getTime() !== expectedFetchedAt.getTime()
+      || derived?.fetchedAt !== expectedFetchedAt.toISOString()
+    ) {
+      failures.push(`SamplePCB 가격 출처 시각 불일치: ${record.key}/${derivedKey}`);
+      continue;
+    }
+    samplepcbPricedParts += 1;
+  }
+  return {
+    pricedParts: artifact.summary.priced,
+    expectedSupplierOffers,
+    storedSupplierOffers,
+    samplepcbPricedParts,
+    failures,
+  };
+}
+
 async function verifyAll(
   parsed: ParsedCatalogMigration,
   includeSearch: boolean,
+  preparedPrices: WalsinPriceSnapshotArtifactType | null = null,
 ): Promise<Record<string, unknown>> {
   const database = await verifyDatabase(parsed);
   const esFailures = await verifyElasticsearch(database.parts);
@@ -895,11 +1142,15 @@ async function verifyAll(
   const engineCatalog = includeSearch
     ? await verifyCatalogEvaluation(parsed)
     : { checks: [], failures: [] };
+  const preparedPriceChecks = preparedPrices === null
+    ? null
+    : verifyPreparedPriceDatabase(preparedPrices, database.parts);
   const failures = [
     ...database.failures,
     ...esFailures,
     ...search.failures,
     ...engineCatalog.failures,
+    ...(preparedPriceChecks?.failures ?? []),
   ];
   const result = {
     result: failures.length === 0,
@@ -908,6 +1159,7 @@ async function verifyAll(
     esDocuments: database.parts.length - esFailures.filter((failure) => failure.startsWith('ES 문서 누락')).length,
     searchChecks: search.checks,
     engineCatalogChecks: engineCatalog.checks,
+    preparedPriceChecks,
     failures,
   };
   if (failures.length > 0) throw new Error(`마이그레이션 검증 실패\n${json(result)}`);
@@ -1124,6 +1376,10 @@ async function rollback(
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   const input = await loadInput(options.file, options.source);
+  const preparedPrices = await loadPreparedPrices(
+    options.priceSnapshot,
+    input.parsed,
+  );
   if (options.mode === 'dry-run') {
     const existing = await loadExistingParts(input.parsed.records);
     const replacement = options.retireSourceSha === undefined
@@ -1131,6 +1387,15 @@ async function main(): Promise<void> {
       : await loadSourceRetirementPlan(input.parsed, options.retireSourceSha);
     console.log(json({
       ...preflightSummary(input.parsed, input.fingerprint, existing),
+      ...(preparedPrices === null
+        ? {}
+        : {
+            preparedPrices: {
+              file: preparedPrices.file,
+              fingerprint: preparedPrices.fingerprint,
+              summary: preparedPrices.artifact.summary,
+            },
+          }),
       ...(replacement === null ? {} : { replacement: retirementSummary(replacement) }),
     }));
     return;
@@ -1157,10 +1422,9 @@ async function main(): Promise<void> {
     const manifest = await ensureApplyManifest(options.manifest, input.parsed, input.fingerprint, existing);
     let reused = false;
     let ingest: Awaited<ReturnType<typeof ingestSupplierSearchResultOnce>> | null = null;
-    let verification: Record<string, unknown> | null = null;
     if (manifest.appliedAt !== null) {
       try {
-        verification = await verifyAll(input.parsed, true);
+        await verifyAll(input.parsed, false);
         reused = true;
       } catch {
         // DB·ES가 적용 완료 원장에서 이탈했다면 동일 fingerprint를 failed로 되돌려
@@ -1176,9 +1440,37 @@ async function main(): Promise<void> {
       manifest.appliedAt = new Date().toISOString();
       manifest.runId = ingest.runId;
       await writeManifest(options.manifest, manifest);
-      verification = await verifyAll(input.parsed, true);
     }
-    if (verification === null) throw new Error('적용 후 검증 결과가 없습니다');
+    let preparedPricesReused = false;
+    let preparedPricesIngest: Awaited<
+      ReturnType<typeof ingestSupplierSearchResultOnce>
+    > | null = null;
+    if (preparedPrices !== null) {
+      try {
+        await verifyAll(input.parsed, false, preparedPrices.artifact);
+        preparedPricesReused = true;
+      } catch {
+        await prisma.spPartIngestRun.updateMany({
+          where: {
+            fingerprint: preparedPrices.fingerprint,
+            status: 'completed',
+          },
+          data: {
+            status: 'failed',
+            error: 'prepared catalog price verification requested replay',
+          },
+        });
+        preparedPricesIngest = await ingestSupplierSearchResultOnce(
+          preparedPrices.raw,
+          `catalog-price:${input.parsed.sourceFile}`,
+        );
+      }
+    }
+    const verification = await verifyAll(
+      input.parsed,
+      true,
+      preparedPrices?.artifact ?? null,
+    );
     if (options.mode === 'apply') {
       console.log(json({
         result: true,
@@ -1186,6 +1478,14 @@ async function main(): Promise<void> {
         reused,
         manifest: options.manifest,
         ingest,
+        preparedPrices: preparedPrices === null
+          ? null
+          : {
+              file: preparedPrices.file,
+              reused: preparedPricesReused,
+              ingest: preparedPricesIngest,
+              summary: preparedPrices.artifact.summary,
+            },
         verification,
       }));
       return;
@@ -1258,7 +1558,11 @@ async function main(): Promise<void> {
     console.log(json(await rollback(input.parsed, options.manifest, input.fingerprint)));
     return;
   }
-  console.log(json(await verifyAll(input.parsed, options.mode === 'verify-search')));
+  console.log(json(await verifyAll(
+    input.parsed,
+    options.mode === 'verify-search',
+    preparedPrices?.artifact ?? null,
+  )));
 }
 
 main()

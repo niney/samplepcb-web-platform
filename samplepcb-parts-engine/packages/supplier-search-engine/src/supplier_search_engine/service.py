@@ -99,6 +99,7 @@ class SearchService:
         clients: list[SupplierClient] | None = None,
         cache: SQLiteCache | None = None,
         budget: ApiBudgetManager | None = None,
+        allowed_suppliers: set[Supplier] | None = None,
     ) -> None:
         self.settings = settings
         self.cache = cache or SQLiteCache(settings.cache_path)
@@ -106,7 +107,15 @@ class SearchService:
         self.planner = QueryPlanner()
         self.matcher = CandidateMatcher()
         self.singleflight = AsyncSingleFlight()
+        self.allowed_suppliers = (
+            None if allowed_suppliers is None else set(allowed_suppliers)
+        )
         supplied_clients = clients if clients is not None else self._default_clients(settings)
+        if allowed_suppliers is not None:
+            supplied_clients = [
+                client for client in supplied_clients
+                if client.supplier in allowed_suppliers
+            ]
         self.clients = {client.supplier: client for client in supplied_clients}
         concurrency = {
             Supplier.DIGIKEY: settings.digikey_concurrency,
@@ -769,6 +778,12 @@ class SearchService:
 
         budget = job_budget or _JobCallBudget(self.settings.max_api_calls_per_job, self.budget)
         suppliers = suppliers_for_query(query)
+        if self.allowed_suppliers is not None:
+            suppliers = tuple(
+                supplier
+                for supplier in suppliers
+                if supplier in self.allowed_suppliers
+            )
         tasks = [
             self._search_supplier_after_barrier(
                 supplier,

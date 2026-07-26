@@ -5,6 +5,7 @@ from parts_engine_app.refresh import (
     _catalog_search_batch,
     _combine_catalog_search_results,
     _single_part_batch,
+    refresh_parts,
     search_catalog,
 )
 from supplier_search_engine.matcher import (
@@ -116,6 +117,73 @@ def _batch_result(
         api_calls=api_calls,
         cache_hits=0,
     )
+
+
+async def test_refresh_parts_reuses_one_service_and_preserves_component_ids(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeSearchService:
+        instances = 0
+        batch = None
+        settings = None
+
+        def __init__(self, settings, *, cache, allowed_suppliers):
+            del cache
+            type(self).instances += 1
+            type(self).settings = settings
+            type(self).allowed_suppliers = allowed_suppliers
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def search_batch(self, batch):
+            type(self).batch = batch
+            return BatchSearchResult(
+                procurement_policy=batch.procurement_policy,
+                source_file=batch.source_file,
+                components=[],
+                unique_query_count=0,
+                api_calls=0,
+                cache_hits=0,
+            )
+
+    monkeypatch.setattr(refresh_module, "SearchService", FakeSearchService)
+    config = Config(
+        data_dir=tmp_path,
+        m2v_path="off",
+        component_limit=5000,
+        max_upload_bytes=30 * 1024 * 1024,
+        supplier_max_calls=700,
+    )
+
+    response = await refresh_parts(
+        config,
+        [
+            ("walsin:WR04X1001FTL", "WR04X1001FTL", "Walsin"),
+            ("yageo:RC0402FR-0710KL", "RC0402FR-0710KL", "Yageo"),
+        ],
+        max_calls=24,
+        job_timeout_seconds=180,
+        suppliers=(Supplier.DIGIKEY, Supplier.MOUSER),
+    )
+
+    assert response["search"]["source_file"] == "manual-refresh-batch"
+    assert FakeSearchService.instances == 1
+    assert FakeSearchService.settings.max_api_calls_per_job == 24
+    assert FakeSearchService.settings.job_timeout_seconds == 180
+    assert FakeSearchService.settings.digikey_identity_concurrency == 1
+    assert FakeSearchService.settings.mouser_concurrency == 1
+    assert FakeSearchService.allowed_suppliers == {
+        Supplier.DIGIKEY,
+        Supplier.MOUSER,
+    }
+    assert [
+        component.component_id for component in FakeSearchService.batch.components
+    ] == ["walsin:WR04X1001FTL", "yageo:RC0402FR-0710KL"]
 
 
 async def test_catalog_search_retries_no_result_as_exact_mpn_with_remaining_budget(

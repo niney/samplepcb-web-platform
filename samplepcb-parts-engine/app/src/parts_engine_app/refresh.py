@@ -3,7 +3,8 @@
 
 BOM 잡 없이 MPN(+제조사) 하나로 IDENTITY 검색 배치를 조립해 공급사 API 를
 "강제 라이브"로 호출한다. 캐시는 읽기만 무시하고 쓰기는 실캐시에 기록 —
-갱신 결과가 이후 BOM 검색의 캐시로도 쓰인다. 엔진 패키지는 무수정(앱 계층 seam).
+갱신 결과가 이후 BOM 검색의 캐시로도 쓰인다. 일괄 갱신은 명시한 공급사만
+선택할 수 있지만 일반 BOM 검색의 기본 공급사 계약은 바꾸지 않는다.
 """
 import re
 from typing import Any
@@ -14,6 +15,7 @@ from supplier_search_engine.models import (
     BatchSearchResult,
     MatchStatus,
     ProcurementPolicyInput,
+    Supplier,
 )
 from supplier_search_engine.normalization import normalize_mpn, package_from_text
 from supplier_search_engine.normalizer import normalize_component_text
@@ -343,6 +345,61 @@ async def refresh_part(
     settings.max_api_calls_per_job = max_calls
     cache = LiveReadCache(settings.cache_path)
     async with SearchService(settings, cache=cache) as service:
+        result = await service.search_batch(batch)
+    return {"search": result.model_dump(mode="json")}
+
+
+async def refresh_parts(
+    config: Config,
+    parts: list[tuple[str, str, str | None]],
+    *,
+    max_calls: int,
+    job_timeout_seconds: float,
+    suppliers: tuple[Supplier, ...],
+) -> dict[str, Any]:
+    """여러 exact MPN을 한 SearchService로 강제 갱신한다.
+
+    단건 `/parts/refresh`를 반복하면 DigiKey OAuth 토큰까지 품번마다 새로
+    발급한다. 일회성 카탈로그 전수 작업은 한 배치에서 클라이언트·토큰과
+    Mouser exact batch를 재사용하고, component_id로 결과를 원래 행에 돌려준다.
+    """
+    if not parts:
+        raise ValueError("parts must not be empty")
+    batches = [
+        _single_part_batch(
+            part_number,
+            manufacturer,
+            source_file="manual-refresh-batch",
+        )
+        for _, part_number, manufacturer in parts
+    ]
+    first = batches[0]
+    components = [
+        batch.components[0].model_copy(update={"component_id": component_id})
+        for (component_id, _, _), batch in zip(parts, batches, strict=True)
+    ]
+    batch = first.model_copy(
+        update={
+            "source_file": "manual-refresh-batch",
+            "components": components,
+        }
+    )
+    settings = SearchSettings.from_env()
+    settings.cache_path = config.supplier_cache_path
+    settings.max_api_calls_per_job = max_calls
+    settings.job_timeout_seconds = job_timeout_seconds
+    # 전수 exact 갱신은 공급사별 burst보다 재현 가능한 완주가 우선이다.
+    # 공급사끼리는 병렬로 동작하되 같은 공급사 요청은 보수적으로 직렬화한다.
+    settings.digikey_concurrency = 1
+    settings.digikey_identity_concurrency = 1
+    settings.mouser_concurrency = 1
+    settings.unikeyic_concurrency = 1
+    cache = LiveReadCache(settings.cache_path)
+    async with SearchService(
+        settings,
+        cache=cache,
+        allowed_suppliers=set(suppliers),
+    ) as service:
         result = await service.search_batch(batch)
     return {"search": result.model_dump(mode="json")}
 
