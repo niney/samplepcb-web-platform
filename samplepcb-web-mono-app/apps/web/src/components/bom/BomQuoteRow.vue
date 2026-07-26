@@ -142,11 +142,67 @@ const sortedPriceBreaks = computed(() => {
   return rows.length > 0 ? rows : [{ qty: offer.breakQty, price: offer.unitPrice }];
 });
 
+function evidenceRequirementLabel(code: string): string {
+  const labels: Record<string, string> = {
+    mount_style: '실장 방식',
+    package: '패키지',
+    diameter_mm: '직경',
+    capacitance_f: '정전용량',
+    voltage_v: '정격전압',
+    tolerance_percent: '허용오차',
+    dielectric: '유전체',
+    resistance_ohm: '저항값',
+    power_w: '정격전력',
+    inductance_h: '인덕턴스',
+    impedance_ohm: '임피던스',
+    impedance_frequency_hz: '임피던스 기준 주파수',
+    current_a: '정격전류',
+    frequency_hz: '주파수',
+    color: '발광색',
+    pin_count: '핀 수',
+    row_count: '열 수',
+    pitch_mm: '피치',
+    part_type: '부품 유형',
+    manufacturer: '제조사',
+    part_number: '품번',
+  };
+  return labels[code] ?? code;
+}
+
+function evidenceConflictLabel(code: string): string {
+  if (code.endsWith('_mismatch')) {
+    return `${evidenceRequirementLabel(code.slice(0, -'_mismatch'.length))} 불일치`;
+  }
+  if (code.endsWith('_source_conflict')) {
+    return `${evidenceRequirementLabel(code.slice(0, -'_source_conflict'.length))} 정보 충돌`;
+  }
+  return evidenceRequirementLabel(code);
+}
+
+const exactIdentityWarning = computed(() => {
+  const item = props.item;
+  const evidence = item.matchEvidence;
+  if (
+    evidence?.selectionMode !== 'exact'
+    || item.selectionSource !== 'auto'
+    || item.selectedOffer === null
+  ) return null;
+  const details: string[] = [];
+  if (evidence.conflicts.length > 0) {
+    details.push(`불일치: ${evidence.conflicts.map(evidenceConflictLabel).join(', ')}`);
+  }
+  if (evidence.missingRequirements.length > 0) {
+    details.push(`미확인: ${evidence.missingRequirements.map(evidenceRequirementLabel).join(', ')}`);
+  }
+  return details.length === 0 ? null : `품번 정확 일치로 선정 · ${details.join(' · ')}`;
+});
+
 const rowClass = computed(() => {
   const item = props.item;
   if (!item.included) return 'opacity-45';
   if (severeOrderSurplus.value) return 'bg-orange-50/80';
   if (provisionalSelectionPending.value) return 'bg-amber-50/70';
+  if (exactIdentityWarning.value !== null) return 'bg-amber-50/40';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
     if (props.enriching) return 'bg-white';
@@ -205,6 +261,7 @@ const reasonSummary = computed(() => {
       ? '후보 직접 선택'
       : `기술 ${String(evidence.selectedTechnicalRank)}순위 후보 직접 선택`;
   }
+  if (exactIdentityWarning.value !== null) return exactIdentityWarning.value;
   if (evidence.technicalFallbackUsed === true) {
     return evidence.selectedTechnicalRank === null
       ? '기술 1순위 구매 불가 · 엔진 구매 가능 후보 적용'
@@ -386,6 +443,11 @@ function onQtyInput(event: Event): void {
         <span v-else-if="stockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">{{ stockStatusLabel }}</span>
         <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="evidenceTitle">매칭</span>
         <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="evidenceTitle">가격 확인 필요</span>
+        <span
+          v-if="exactIdentityWarning !== null"
+          class="rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-800"
+          :title="exactIdentityWarning"
+        >품번 우선 · 정보 확인</span>
         <span
           v-if="jobCallLimitReached"
           class="rounded border border-orange-400 bg-orange-100 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-800"

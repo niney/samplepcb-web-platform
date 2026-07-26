@@ -508,12 +508,7 @@ def _candidate_decision(
         bool(actual_conflicts) and relation == MatchRelation.EXACT
     )
     part_type_requirement = query.requirements.get("part_type")
-    part_type_hint = bool(
-        part_type_requirement is not None
-        and part_type_requirement.status == "review"
-    )
     part_type_conflict = "part_type_mismatch" in conflict_set
-    part_type_unconfirmed = part_type_hint and "part_type" in missing
 
     if (
         relation == MatchRelation.EXACT
@@ -522,13 +517,14 @@ def _candidate_decision(
         and part_type_requirement.hard
     ):
         eligibility = SelectionEligibility.BLOCKED
-    elif relation == MatchRelation.EXACT and (
-        part_type_conflict or part_type_unconfirmed
-    ):
-        eligibility = SelectionEligibility.MANUAL_REVIEW
     elif relation == MatchRelation.EXACT and bom_input_conflicts:
         eligibility = SelectionEligibility.MANUAL_REVIEW
     elif relation == MatchRelation.EXACT:
+        # An exact manufacturer part number is the strongest identity evidence.
+        # Missing or conflicting secondary specifications remain visible in the
+        # evidence, but only an explicit hard part-type contradiction blocks it.
+        # A review-only type hint (for example an F reference designator) is not
+        # strong enough to override the exact identity.
         eligibility = SelectionEligibility.AUTOMATIC
     elif actual_conflicts:
         eligibility = SelectionEligibility.BLOCKED
@@ -874,6 +870,42 @@ def infer_supplier_part_type(product: SupplierProduct) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _supplier_part_type_source_conflict(product: SupplierProduct) -> bool:
+    """Return only conservative category/description taxonomy contradictions."""
+
+    supported = (
+        "resistor",
+        "capacitor",
+        "inductor",
+        "diode",
+        "transistor",
+        "connector",
+        "led",
+        "crystal",
+        "switch",
+        "fuse",
+    )
+    category_matches = {
+        part_type
+        for part_type in supported
+        if _category_matches(part_type, product.category, None) is True
+    }
+    description_matches = {
+        part_type
+        for part_type in supported
+        if _category_matches(part_type, None, product.description) is True
+    }
+    if len(category_matches) != 1 or len(description_matches) != 1:
+        return False
+    category_type = next(iter(category_matches))
+    description_type = next(iter(description_matches))
+    if category_type == description_type:
+        return False
+    # LED is a diode subtype, so the two labels are compatible rather than
+    # contradictory supplier evidence.
+    return {category_type, description_type} != {"diode", "led"}
+
+
 @dataclass
 class _CandidateGroup:
     identity_key: str
@@ -1165,6 +1197,11 @@ class CandidateMatcher:
                             "absolute_tolerance_h_derived_from_supplier_percent"
                         )
             elif name == "part_type":
+                if _supplier_part_type_source_conflict(product):
+                    conflicts.append("part_type_source_conflict")
+                    if requirement.hard or requirement.status == "review":
+                        missing.append(name)
+                    continue
                 category_match = _category_matches(
                     str(expected), product.category, product.description
                 )

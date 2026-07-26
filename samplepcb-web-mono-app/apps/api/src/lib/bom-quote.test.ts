@@ -1789,6 +1789,34 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.snapshots).toHaveLength(2);
   });
 
+  it('정확 MPN의 추가 정보 불일치는 자동선정을 유지하되 주의 상태로 투영한다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-exact-with-warning',
+        status: 'input_conflict',
+        candidates: [
+          candidate('input_conflict', 'EXACT-WITH-WARNING', 'digikey', 100, 1, {
+            selectionMode: 'exact',
+            eligibility: 'automatic',
+            conflicts: ['voltage_v_mismatch'],
+            missingRequirements: ['package'],
+          }),
+        ],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.snapshots[0]).toMatchObject({
+      selectionEligibility: 'automatic',
+      safety: 'caution',
+      autoEligible: true,
+      manualSelectable: true,
+      conflicts: ['voltage_v_mismatch'],
+      missingRequirements: ['package'],
+    });
+  });
+
   it('정확 MPN의 제조사 확인 후보는 자동 선택하지 않고 수동 선택 가능 상태로 보존한다', () => {
     const decision = selectEngineMatch(
       {

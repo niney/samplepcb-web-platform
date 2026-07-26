@@ -1141,6 +1141,12 @@ function cautionLabel(candidate: BomQuoteCandidateType): string {
       ? '제조사 확인 후 선택'
       : '검토 후 선택';
   }
+  if (candidate.selectionEligibility === 'automatic' && candidate.conflicts.length > 0) {
+    return '선정됨 · 정보 불일치';
+  }
+  if (candidate.selectionEligibility === 'automatic' && candidate.missingRequirements.length > 0) {
+    return '선정됨 · 일부 미확인';
+  }
   if (candidate.lifecycleState === 'caution') return '라이프사이클 주의';
   if (candidate.missingRequirements.length > 0) return '검증 보완 필요';
   return '엔진 검토 필요';
@@ -1155,17 +1161,26 @@ function verificationPercent(candidate: BomQuoteCandidateType): number | null {
 }
 
 function verificationClass(candidate: BomQuoteCandidateType): string {
+  if (candidate.selectionEligibility === 'blocked') return 'bg-red-100 font-semibold text-red-800';
   if (candidate.selectionEligibility === 'manual_review') return 'bg-amber-100 font-semibold text-amber-800';
-  if (candidate.conflicts.length > 0) return 'bg-red-100 font-semibold text-red-800';
+  if (candidate.conflicts.length > 0) return 'bg-amber-100 font-semibold text-amber-800';
   if (!candidate.verificationComplete || candidate.requiredRequirementCount <= 0) {
     return 'bg-amber-100 font-semibold text-amber-800';
   }
   return 'bg-emerald-50 font-semibold text-emerald-800';
 }
 
+function partTypeEvidenceLabel(candidate: BomQuoteCandidateType): string {
+  if (candidate.conflicts.includes('part_type_mismatch')) return '부품 유형 불일치';
+  if (candidate.conflicts.includes('part_type_source_conflict')) return '부품 유형 정보 충돌';
+  if (candidate.reasons.includes('part_type_match')) return '부품 유형 확인';
+  if (candidate.missingRequirements.includes('part_type')) return '부품 유형 미확인';
+  return candidate.selectionMode === 'exact' ? '품번 우선 판정' : '부품 유형 미확인';
+}
+
 function requirementBadgeLabel(candidate: BomQuoteCandidateType): string {
   if (!candidate.strictCategoryCoverage) {
-    return `확인 조건 ${String(candidate.verifiedRequirementCount)}/${String(candidate.requiredRequirementCount)} · 부품 유형 미확인`;
+    return `확인 조건 ${String(candidate.verifiedRequirementCount)}/${String(candidate.requiredRequirementCount)} · ${partTypeEvidenceLabel(candidate)}`;
   }
   const percent = verificationPercent(candidate);
   if (percent === null) return '필수조건 미확인';
@@ -1209,8 +1224,23 @@ function conflictText(candidate: BomQuoteCandidateType): string {
   return candidate.conflicts.map(conflictLabel).join(', ');
 }
 
+function conflictNoticePrefix(candidate: BomQuoteCandidateType): string {
+  if (candidate.selectionEligibility === 'automatic' && candidate.selectionMode === 'exact') {
+    return '품번 일치 우선 선정 · 추가 정보 불일치';
+  }
+  if (candidate.selectionEligibility === 'manual_review') return '자동선정 보류';
+  return '자동선정 제외';
+}
+
 function missingText(candidate: BomQuoteCandidateType): string {
   return candidate.missingRequirements.map(requirementLabel).join(', ');
+}
+
+function missingNoticePrefix(candidate: BomQuoteCandidateType): string {
+  if (candidate.selectionEligibility === 'automatic' && candidate.selectionMode === 'exact') {
+    return '품번 일치 우선 선정 · 추가 정보 미확인';
+  }
+  return '추가 확인 필요';
 }
 
 function requirementExpectedLabel(assessment: BomQuoteRequirementAssessmentType): string {
@@ -2300,11 +2330,18 @@ onBeforeUnmount(() => {
                       @blur="scheduleRequirementTooltipClose"
                       @click.stop="showRequirementTooltip(currentCandidate, $event)"
                     >
-                      {{ currentCandidate.strictCategoryCoverage ? '필수조건' : '확인 조건' }}
-                      <b class="text-slate-900">{{ currentCandidate.verifiedRequirementCount }}/{{ currentCandidate.requiredRequirementCount }}</b>
-                      <span v-if="!currentCandidate.strictCategoryCoverage"> · 부품 유형 미확인</span>
+                      {{ requirementBadgeLabel(currentCandidate) }}
                     </button>
                   </div>
+                </div>
+                <div
+                  v-if="currentCandidate !== null && currentCandidate.selectionEligibility === 'automatic' && (currentCandidate.conflicts.length > 0 || currentCandidate.missingRequirements.length > 0)"
+                  class="mx-3 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950"
+                  role="status"
+                >
+                  <b>품번 정확 일치로 선정했습니다.</b>
+                  <span v-if="currentCandidate.conflicts.length > 0"> 추가 정보 불일치: {{ conflictText(currentCandidate) }}.</span>
+                  <span v-if="currentCandidate.missingRequirements.length > 0"> 미확인 정보: {{ missingText(currentCandidate) }}.</span>
                 </div>
                 <div v-if="context.decisionReasonCodes.includes('purchase-fit')" class="mx-3 mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
                   일부 조건은 추가 확인이 필요하지만, 기술 근거가 같은 후보 중 필요수량·MOQ·예상금액이 가장 적합한 부품을 선택했습니다.
@@ -2429,9 +2466,9 @@ onBeforeUnmount(() => {
                       <div
                         v-if="candidate.conflicts.length > 0"
                         class="mt-2 rounded-md px-2.5 py-1.5 text-xs"
-                        :class="candidate.selectionEligibility === 'manual_review' ? 'bg-amber-100/70 text-amber-900' : 'bg-red-100/70 text-red-800'"
+                        :class="candidate.selectionEligibility === 'blocked' ? 'bg-red-100/70 text-red-800' : 'bg-amber-100/70 text-amber-900'"
                       >
-                        자동선정 제외: {{ conflictText(candidate) }}
+                        <b>{{ conflictNoticePrefix(candidate) }}:</b> {{ conflictText(candidate) }}
                       </div>
                       <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs leading-5 text-amber-900">
                         <template v-if="candidate.recommended"><b>엔진 검토 권장:</b> 구매 가능한 재고·가격을 포함해 실제 적용 후보로 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
@@ -2439,7 +2476,7 @@ onBeforeUnmount(() => {
                         <template v-else-if="candidate.reviewRecommended"><b>엔진 기술 검토 1순위:</b> 기술 근거상 가장 유력하지만 구매조건을 충족하지 못해 적용 후보와 분리했습니다.</template>
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
                       </div>
-                      <div v-if="candidate.missingRequirements.length > 0" class="mt-1.5 rounded-md bg-amber-100/70 px-2.5 py-1.5 text-xs text-amber-800">추가 확인 필요: {{ missingText(candidate) }}</div>
+                      <div v-if="candidate.missingRequirements.length > 0" class="mt-1.5 rounded-md bg-amber-100/70 px-2.5 py-1.5 text-xs text-amber-800"><b>{{ missingNoticePrefix(candidate) }}:</b> {{ missingText(candidate) }}</div>
 
                       <button type="button" class="mt-2 inline-flex min-h-9 items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900" @click="toggleCandidate(candidate.candidateKey)">
                         공급사 오퍼 {{ candidate.offers.length }}개 {{ expanded.has(candidate.candidateKey) ? '접기 ▴' : '보기 ▾' }}

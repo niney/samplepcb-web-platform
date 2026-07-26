@@ -1364,9 +1364,13 @@ function buildCandidateGroups(
     const selectionEligibility = decision?.selectionEligibility ?? 'blocked';
     const autoEligible = selectionEligibility === 'automatic' && decision?.autoEligible === true;
     const manualSelectable = selectionEligibility !== 'blocked' && decision?.manualSelectable === true;
+    const hasTechnicalWarning = representative.conflicts.length > 0
+      || representative.missing_requirements.length > 0;
     const safety: BomQuoteCandidateSafetyType = selectionEligibility === 'blocked'
       ? 'blocked'
-      : selectionEligibility === 'manual_review' || decision?.lifecycleState === 'caution'
+      : selectionEligibility === 'manual_review'
+        || decision?.lifecycleState === 'caution'
+        || hasTechnicalWarning
         ? 'caution'
         : 'safe';
     const corroborating = new Set<string>();

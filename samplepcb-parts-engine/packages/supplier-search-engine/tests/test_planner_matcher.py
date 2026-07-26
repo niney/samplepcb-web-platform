@@ -167,7 +167,7 @@ def test_fuse_identity_uses_fuse_taxonomy_and_supplier_category():
     assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
 
 
-def test_fuse_designator_hint_requires_supplier_category_confirmation():
+def test_fuse_designator_hint_keeps_exact_mpn_eligible_with_visible_type_warnings():
     item = component(
         part_number="SMD0805B050TF",
         part_type="fuse",
@@ -203,6 +203,15 @@ def test_fuse_designator_hint_requires_supplier_category_confirmation():
         package="0805",
         normalized_specs={"package": "0805"},
     )
+    supplier_conflict = SupplierProduct(
+        supplier=Supplier.UNIKEYIC,
+        manufacturer_part_number="SMD0805B050TF",
+        manufacturer="Conflicted Supplier",
+        category="PTC Resettable Fuses",
+        description="Ferrite bead 1A 0805",
+        package="0805",
+        normalized_specs={"package": "0805"},
+    )
 
     candidates = finalize_candidate_decisions(
         query,
@@ -210,6 +219,7 @@ def test_fuse_designator_hint_requires_supplier_category_confirmation():
             CandidateMatcher().evaluate(query, fuse),
             CandidateMatcher().evaluate(query, ferrite),
             CandidateMatcher().evaluate(query, unconfirmed),
+            CandidateMatcher().evaluate(query, supplier_conflict),
         ],
     )
     confirmed = next(
@@ -225,18 +235,24 @@ def test_fuse_designator_hint_requires_supplier_category_confirmation():
         for candidate in candidates
         if candidate.product.manufacturer == "Unknown"
     )
+    conflicted = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer == "Conflicted Supplier"
+    )
 
     assert query.requirements["part_type"].hard is False
     assert "part_type_match" in confirmed.reasons
     assert confirmed.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
     assert "part_type_mismatch" in contradicted.conflicts
-    assert (
-        contradicted.decision.selection_eligibility
-        == SelectionEligibility.MANUAL_REVIEW
-    )
-    assert contradicted.decision.auto_eligible is False
+    assert contradicted.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert contradicted.decision.auto_eligible is True
     assert "part_type" in unknown.missing_requirements
-    assert unknown.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert unknown.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert "part_type_source_conflict" in conflicted.conflicts
+    assert "part_type" in conflicted.missing_requirements
+    assert "part_type_match" not in conflicted.reasons
+    assert conflicted.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
     ranked = SearchService._assign_technical_review_ranks(query, candidates)
     ranked = SearchService._assign_selection_recommendations(ranked)
     contradicted = next(
@@ -254,6 +270,13 @@ def test_fuse_designator_hint_requires_supplier_category_confirmation():
     )
     assert unknown.decision.technical_review_rank is None
     assert unknown.decision.selection_recommendation.value == "candidate_only"
+    conflicted = next(
+        candidate
+        for candidate in ranked
+        if candidate.product.manufacturer == "Conflicted Supplier"
+    )
+    assert conflicted.decision.technical_review_rank is None
+    assert conflicted.decision.selection_recommendation.value == "candidate_only"
 
 
 def test_explicit_part_type_mismatch_blocks_exact_mpn():
