@@ -127,8 +127,11 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   supplier 표시 문자열 — **DB/ES 스키마 변경 없음**(supplier 는 행 값).
 - **하드 삭제·초기화(관리자, 2026-07-19, 2026-07-26 보호 강화)**: 부품 상세 [삭제] = 단건,
   검색 결과의 [필터 결과 전체 삭제] = 현재 페이지가 아닌 필터 일치 전건, 페이지 헤더
-  [카탈로그 초기화] = 전체(`POST /parts/reset`, `confirm:'RESET'` 리터럴). 단건은 견적 연결 시
-  `409 PART_IN_USE`, 전체 초기화는 연결이 하나라도 있으면 `409 PARTS_IN_USE`로 전부 거부한다.
+  [카탈로그 초기화] = 전체(`POST /parts/reset`, `confirm:'RESET_WITH_QUOTES'` 리터럴).
+  단건은 견적 연결 시 `409 PART_IN_USE`, 전체 초기화는 `partId` 직접 연결 또는 카탈로그
+  매칭·오퍼 스냅샷이 남은 BOM 견적을 상태와 무관하게 견적 단위로 강제 삭제한 뒤
+  카탈로그를 비운다(`sp_file` 메타데이터는 동기 삭제, 파일서버 원본은 응답을 막지 않는
+  best-effort로 정리).
   필터 삭제는 서버가 ES 전건 ID+DB 오퍼+견적 참조를 미리보기하고 hash·`DELETE N` 확인 후 실행하며,
   연결 부품만 보호하고 나머지를 삭제한다. **어떤 삭제 경로도 견적 partId를 임의 해제하지 않는다.**
   DB 오퍼·가격구간 cascade 뒤 ES 대상 문서를 bulk 삭제하고 refresh 1회 수행하며, ES 실패분은 같은

@@ -67,7 +67,7 @@ sp-php가 sp_*를 직접 SELECT하는 역방향(sp_review·sp_seo)도 정착 —
 
 관리자 `admin-bom-quotes.ts`: 목록(기본 draft 제외)·상세·`PATCH`(전이 검증+확정가 confirmed*+메모)·원본 스트리밍·후보/이력 읽기 전용. 상태 전이 `draft→requested→reviewing→answered→closed`(+canceled)는 서버 검증, requested 이후 고객 수정 409.
 
-**부품 카탈로그** (`admin-parts.ts`): `GET /api/admin/parts/search`(ES 다중해석 쿼리 — Track A SI range ±0.1% + Track B specVariants prefix + should-only 가산점, 패싯·정렬, ES 다운 503) · `GET /:id`(DB 상세=오퍼·가격구간) · 수동 갱신 · `DELETE :id`·`POST /parts/reset`(`confirm:'RESET'`). `admin-bom.ts`: 엔진 프록시+**자동 인제스트 훅**(검색 202→폴러 / 결과 GET→백업, idempotent).
+**부품 카탈로그** (`admin-parts.ts`): `GET /api/admin/parts/search`(ES 다중해석 쿼리 — Track A SI range ±0.1% + Track B specVariants prefix + should-only 가산점, 패싯·정렬, ES 다운 503) · `GET /:id`(DB 상세=오퍼·가격구간) · 수동 갱신 · `DELETE :id`·`POST /parts/reset`(`confirm:'RESET_WITH_QUOTES'`, partId·매칭·오퍼 스냅샷 관련 BOM 견적 상태 무관 강제 삭제 후 전체 초기화). `admin-bom.ts`: 엔진 프록시+**자동 인제스트 훅**(검색 202→폴러 / 결과 GET→백업, idempotent).
 
 **재능마켓** (`market-*`·`admin-market-*`): 전문가 등록·의뢰 CRUD·NDA·블라인드 입찰(가드 사슬: 승인→자기 금지→targeted→system×individual 403→lazy 마감→unique)·계약 checkout·납품·검수·정산 — 상세 [MARKET_FLOW](../../docs/MARKET_FLOW.md) §5·§6.
 
@@ -107,7 +107,7 @@ sp-php가 sp_*를 직접 SELECT하는 역방향(sp_review·sp_seo)도 정착 —
 - ⚠ **`prisma migrate reset`=그누보드 DB 전멸**, `migrate dev`도 금지(g5_* drift→전체 reset 요구). 변경은 추가 전용 migration.sql 수기+`migrate deploy`.
 - ⚠ **인메모리 3형제**: AI 잡·엔진 잡(engineJobId)·BOM 일일 검색 카운터 모두 단일 인스턴스 인메모리 — 재시작 시 소실(파싱 중 견적은 "재업로드 안내", 빌드 완료분은 DB라 무관). AI 호출은 `stream:true` 필수(비스트림=undici ~300s 타임아웃), LLM HTML은 sandbox iframe(srcdoc)+CSP만, rocMd는 라인 파서(v-html 금지).
 - ⚠ **BOM replace-all 경합**: searching 동안 FE·PATCH 모두 잠가야 함(자동저장이 보강 결과를 덮는 사고 방지). done 뒤 `catalog-match` 재호출 금지 — 엔진의 검토/충돌 판정을 카탈로그 매칭이 덮어씀. 대형 후보 저장은 **20건 단위 배치**(443건 단일 createMany가 MariaDB 패킷 한도로 연결 절단 실측).
-- ⚠ **카탈로그 리셋·삭제 시 견적 라인은 partId만 해제** — selectedOffer 스냅샷·합계는 보존(박제 원칙). samplepcb 파생 오퍼·집계는 실공급사만(이중 계산 방지). imageUrl은 기존 적재분 백필 불가(도입 전 rawJson에 없음). 통합 테스트는 `PARTS_IT=1` 옵트인(CI 자동 skip).
+- ⚠ **카탈로그 전체 초기화는 partId·매칭·오퍼 스냅샷 관련 BOM 견적까지 강제 삭제** — 전용 확인 리터럴과 관리자 UI 2단계 경고가 필요하다. 단건·필터 삭제는 연결 부품을 계속 보호하며 partId를 임의 해제하지 않는다. samplepcb 파생 오퍼·집계는 실공급사만(이중 계산 방지). imageUrl은 기존 적재분 백필 불가(도입 전 rawJson에 없음). 통합 테스트는 `PARTS_IT=1` 옵트인(CI 자동 skip).
 - ⚠ **환율**: 수출입은행 result 코드(2=형식·3=인증·4=일일 한도)를 "고시 없음"으로 오진 금지, 실패 시 캐시 삭제 금지, 역탐색은 15초 예산. RFQ 후엔 동결이라 갱신이 기존 견적 금액을 바꾸지 않는 게 정상.
 - ⚠ **이관 specJson `_legacy` 메타**(내부 id·PII) — spec 직렬화 라우트는 strip 필수(500 전례). / **mb_id ≤20자 가정 금지**(이메일 아이디 29자, sp측 VarChar 191). / 만료 견적 정리 배치는 `priceVersion='legacy-migration'` 제외 필수.
 - **마켓 paid 판정은 od 헤더가 아니라 라인**('부분취소'는 행 단위) — ct_status∈PAID ∧ io_id==contractKey ∧ io_price==amount. 계약 취소 시 카트행·옵션행 정리 필수. E2E od_id는 2^53 미만 대역(mysql2 정밀도). E2E 92항목에 LLM 실호출 없음(실생성 검증은 관리자 샘플 테스트).

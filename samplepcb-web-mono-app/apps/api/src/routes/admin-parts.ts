@@ -24,6 +24,7 @@ import { SPEC_SI_FIELD, normalizeMpn, packageVariants, parseQuery, siRange } fro
 import { esClient } from '../es/client';
 import { F, SP_PARTS_READ, SP_PARTS_WRITE, type SpPartDoc } from '../es/sp-parts-index';
 import { prisma } from '../lib/prisma';
+import { deleteBomFiles, forceDeleteCatalogRelatedBomQuotes } from '../lib/bom-quote-delete';
 import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
 import { refreshPartsIndex } from '../lib/parts-es';
@@ -644,35 +645,42 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
-  // 카탈로그 초기화 — 견적 연결이 하나라도 있으면 전체 거부한다. 관리자가 모르는 사이
-  // 견적 partId를 끊는 우회 경로가 되지 않게 단건·필터 삭제와 같은 보호 정책을 쓴다.
+  // 카탈로그 초기화 — 연결된 BOM 견적은 상태와 무관하게 견적 단위로 강제 삭제한다.
+  // API 확인 리터럴과 관리자 UI 2단계 경고가 부품+견적의 파괴 범위를 함께 명시한다.
   fastify.post(
     '/parts/reset',
     {
       schema: {
         body: PartsResetBody,
-        response: { 200: PartsResetResponse, 409: ApiError },
+        response: { 200: PartsResetResponse },
       },
     },
-    async (request, reply) => {
-      const quoteReferences = await prisma.spBomQuoteItem.count({ where: { partId: { not: null } } });
-      if (quoteReferences > 0) {
-        return reply.status(409).send({
-          error: 'PARTS_IN_USE',
-          message: `견적에 연결된 부품이 있어 초기화할 수 없습니다 (${String(quoteReferences)}개 라인)`,
-        });
-      }
-      const parts = await prisma.spPart.count();
-      await prisma.$transaction([
+    async (request) => {
+      const deletedQuotes = await forceDeleteCatalogRelatedBomQuotes();
+      const [, deletedParts] = await prisma.$transaction([
         prisma.spPartIndexQueue.deleteMany({}),
         prisma.spPart.deleteMany({}),
       ]);
+      void deleteBomFiles(deletedQuotes.pathTokens);
       try {
         await esClient().deleteByQuery({ index: SP_PARTS_WRITE, query: { match_all: {} }, refresh: true, conflicts: 'proceed' });
       } catch (err) {
         request.log.warn({ err }, 'parts reset: ES 문서 정리 실패 — parts:reindex 로 정합 회복 가능');
       }
-      return { result: true as const, data: { parts } };
+      request.log.warn({
+        deletedParts: deletedParts.count,
+        deletedQuotes: deletedQuotes.quotes,
+        deletedQuoteItems: deletedQuotes.quoteItems,
+        deletedQuoteFiles: deletedQuotes.pathTokens.length,
+      }, 'parts reset completed with linked BOM quote purge');
+      return {
+        result: true as const,
+        data: {
+          parts: deletedParts.count,
+          quotes: deletedQuotes.quotes,
+          quoteItems: deletedQuotes.quoteItems,
+        },
+      };
     },
   );
 

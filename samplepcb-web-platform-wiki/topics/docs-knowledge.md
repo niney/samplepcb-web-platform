@@ -61,7 +61,7 @@ status: active
 
 ## Talks To — 문서 간 참조 관계 [coverage: high — 14 sources]
 
-- **BOM_QUOTE ↔ PARTS_SEARCH**: BOM 견적의 매칭·오퍼 원천이 부품 카탈로그. samplepcb 파생 오퍼는 `pickDefaultOffer` 후보에서 제외(자기 선택 순환 방지 — 양쪽 기록), 부품 이미지 정본·카탈로그 초기화 시 견적 라인 partId 만 해제(박제 보존)도 상호 서술.
+- **BOM_QUOTE ↔ PARTS_SEARCH**: BOM 견적의 매칭·오퍼 원천이 부품 카탈로그. samplepcb 파생 오퍼는 `pickDefaultOffer` 후보에서 제외(자기 선택 순환 방지 — 양쪽 기록). 카탈로그 전체 초기화는 partId·매칭·오퍼 스냅샷 관련 BOM 견적을 강제 삭제하고, 단건·필터 삭제는 연결 부품을 보호한다.
 - **BOM_QUOTE → bom-quote-code-review**: "알려진 한계" 절이 리뷰 기록을 후속 보완 근거로 지목. 리뷰의 P1-4(buildStatus)·P1-1(반영 동기화)·P1-6(sp-vue 정책)은 이후 BOM_QUOTE 본문에 교정으로 흡수됨.
 - **MARKET_FLOW ↔ AI_DIAGRAM**: 위저드 v2·선분석·첨부 분석·provenance 가 양쪽에 동기 서술 — 정본은 AI_DIAGRAM(MARKET_FLOW 가 §6 을 명시 지목).
 - **GERBER_ORDER_FLOW ↔ MARKET_FLOW**: 카탈로그 ⑲(마켓 계약 결제) 동기 서술 — 마켓 결제는 거버 담기(스냅샷 카트행)와 동형. BOM 2차 결제 연계도 같은 거버식 카트 스냅샷을 로드맵으로 지목.

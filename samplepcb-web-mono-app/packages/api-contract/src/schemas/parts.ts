@@ -233,12 +233,16 @@ export type PartRefreshResponseType = z.infer<typeof PartRefreshResponse>;
 export const PartDeleteResponse = z.object({ result: z.literal(true) });
 export type PartDeleteResponseType = z.infer<typeof PartDeleteResponse>;
 
-// 카탈로그 초기화(관리자) — 견적 연결이 있으면 전체 거부. confirm 리터럴로 오호출 방어.
-export const PartsResetBody = z.object({ confirm: z.literal('RESET') });
+// 카탈로그 초기화(관리자) — 연결된 견적까지 강제 삭제하므로 전용 confirm 리터럴로 오호출 방어.
+export const PartsResetBody = z.object({ confirm: z.literal('RESET_WITH_QUOTES') });
 export type PartsResetBodyType = z.infer<typeof PartsResetBody>;
 export const PartsResetResponse = z.object({
   result: z.literal(true),
-  data: z.object({ parts: z.number().int() }),
+  data: z.object({
+    parts: z.number().int(),
+    quotes: z.number().int(),
+    quoteItems: z.number().int(),
+  }),
 });
 export type PartsResetResponseType = z.infer<typeof PartsResetResponse>;
 

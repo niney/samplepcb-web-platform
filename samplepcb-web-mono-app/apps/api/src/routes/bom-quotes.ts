@@ -69,6 +69,7 @@ import {
 import {
   bomQuoteDeleteCounts,
   chunkBomQuoteDeletionIds,
+  deleteBomFiles,
   planBomQuoteDeletion,
   resolveDeletedBomQuoteIds,
 } from '../lib/bom-quote-delete';
@@ -162,18 +163,6 @@ function supplierRunIsTargeted(options: Prisma.JsonValue): boolean {
   const componentIds = options.component_ids;
   return Array.isArray(componentIds)
     && componentIds.some((componentId) => typeof componentId === 'string' && componentId !== '');
-}
-
-/** 파일서버 정리는 응답을 막지 않되 동시 요청을 5건으로 제한한다. */
-async function deleteBomFiles(pathTokens: readonly string[]): Promise<void> {
-  const batchSize = 5;
-  for (let start = 0; start < pathTokens.length; start += batchSize) {
-    await Promise.all(
-      pathTokens.slice(start, start + batchSize).map((pathToken) =>
-        deleteFromFileServer(pathToken).catch(() => undefined),
-      ),
-    );
-  }
 }
 
 async function loadOwnQuote(id: bigint, mbId: string) {

@@ -59,7 +59,7 @@ sp-vue 자체는 API 를 노출하지 않는 소비자다. 노출 표면은 **�
 | `/admin/seo` | SEO 관리 | sp_seo upsert/DELETE, 소비는 sp-php SSR |
 | **`/admin/bom`, `/admin/bom/:id`** | 공급사 검색 잡 | 엔진 잡 목록·상세(202→폴링), 자동 인제스트 확인 |
 | **`/admin/bom-quotes`** | BOM 견적 검토 | 목록(기본 draft 제외)·상태 전이·확정가·회신 메모·원본 다운로드(서버 스트리밍)·라인 [후보·근거] 읽기 전용 |
-| **`/admin/parts`** | 부품 카탈로그 | ES 검색(2트랙 SI+specVariants)+패싯+오퍼 확장·부품 이미지·specConflicts 배지·단건 삭제·[카탈로그 초기화] |
+| **`/admin/parts`** | 부품 카탈로그 | ES 검색(2트랙 SI+specVariants)+패싯+오퍼 확장·부품 이미지·specConflicts 배지·단건 삭제·[카탈로그 초기화](연결 BOM 견적 강제 삭제 경고) |
 | `/admin/settings` | 설정 | 탭 4종: 사업자정보 / 거버 가격 / AI 연동(연결·유스케이스·샘플 테스트) / **BOM 견적 비용 정책** |
 
 라우터 가드는 UX용 — **실제 보안은 sp-node 의 JWT 검증**(`requireAdmin`·`authenticate`). BOM 잡은 소유 회원만(타인 404 은닉), 일일 검색 한도 429.

@@ -133,13 +133,20 @@ export function useBulkDeleteParts() {
   });
 }
 
-// 카탈로그 초기화 — 견적 연결이 하나라도 있으면 전체 거부, 그 외 부품 전체 삭제.
+// 카탈로그 초기화 — 부품 전체와 partId·매칭·오퍼 스냅샷이 연결된 BOM 견적을 강제 삭제.
 export function useResetParts() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiSend('POST', `${apiRoutes.adminParts}/reset`, { confirm: 'RESET' }, PartsResetResponse),
+    mutationFn: () => apiSend(
+      'POST',
+      `${apiRoutes.adminParts}/reset`,
+      { confirm: 'RESET_WITH_QUOTES' },
+      PartsResetResponse,
+    ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'parts'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+      void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] });
     },
   });
 }

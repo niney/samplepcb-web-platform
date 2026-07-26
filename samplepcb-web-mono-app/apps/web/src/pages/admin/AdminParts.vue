@@ -118,11 +118,9 @@ async function onReset(): Promise<void> {
   resetArm.value = false;
   try {
     const res = await resetParts.mutateAsync();
-    resetMsg.value = `카탈로그 초기화 완료 — 부품 ${String(res.data.parts)}건 삭제`;
-  } catch (error) {
-    resetMsg.value = error instanceof ApiRequestError && error.payload?.error === 'PARTS_IN_USE'
-      ? '초기화 실패 — 견적 연결 부품이 있어 전체 초기화를 중단했습니다.'
-      : '초기화 실패 — 잠시 후 다시 시도하세요.';
+    resetMsg.value = `카탈로그 초기화 완료 — 부품 ${String(res.data.parts)}건 · 관련 견적 ${String(res.data.quotes)}건(${String(res.data.quoteItems)}개 연결 라인) 삭제`;
+  } catch {
+    resetMsg.value = '초기화 실패 — 잠시 후 다시 시도하세요.';
   }
 }
 
@@ -388,7 +386,7 @@ function facetLabel(b: PartFacetBucketType): string {
           class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
           @click="onReset"
         >
-          부품 전체 삭제 — 견적 연결이 있으면 중단됩니다. 확정하려면 클릭
+          부품 전체와 연결된 견적을 모두 삭제합니다 — 되돌릴 수 없습니다. 확정하려면 클릭
         </button>
       </div>
     </div>
