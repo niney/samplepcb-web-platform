@@ -182,7 +182,7 @@ function preferredLocalCatalogPreflight(
 ): Prisma.InputJsonObject {
   const appliedResolved = new Set(appliedResolvedComponentIds);
   return {
-    version: 'samplepcb-local-catalog-trace-v1',
+    version: 'local-catalog-trace-v2',
     evaluated_components: result.evaluatedComponentIds.length,
     resolved_components: appliedResolvedComponentIds.length,
     external_components: externalComponentCount,
@@ -190,6 +190,7 @@ function preferredLocalCatalogPreflight(
       const applyFailed = trace.outcome === 'selected' && !appliedResolved.has(trace.componentId);
       return {
         component_id: trace.componentId,
+        catalog_type: trace.catalogType,
         query: trace.query,
         outcome: applyFailed ? 'error' : trace.outcome,
         candidate_count: trace.candidateCount,
@@ -507,7 +508,7 @@ async function autoEnrichQuote(
       searchRunId: String(searchRun.id),
       jobId,
       localCatalogResolved: localResolved.length,
-    }, 'SamplePCB 로컬 카탈로그만으로 자동 보강 완료');
+    }, '부품 유형별 로컬 카탈로그만으로 자동 보강 완료');
     return true;
   }
 

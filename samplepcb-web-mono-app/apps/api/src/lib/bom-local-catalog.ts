@@ -143,6 +143,8 @@ interface CatalogPartRow {
 
 interface PreferredCatalogPartRow {
   id: bigint;
+  mpnNorm: string;
+  manufacturerNorm: string;
   offers: {
     supplier: string;
     supplierSku: string;
@@ -174,6 +176,13 @@ const CATALOG_EVALUATION_BATCH_SIZE = 200;
 const PREFERRED_CATALOG_SEARCH_SIZE = 20;
 const PREFERRED_CATALOG_SEARCH_CONCURRENCY = 20;
 type EsSearchQuery = NonNullable<estypes.SearchRequest['query']>;
+
+export type PreferredLocalCatalogType = 'samplepcb_rc' | 'connector';
+
+interface PreferredCatalogPlan {
+  query: z.infer<typeof PreferredCatalogQuery>;
+  catalogType: PreferredLocalCatalogType;
+}
 
 function chunks<T>(values: T[], size: number): T[][] {
   const result: T[][] = [];
@@ -366,20 +375,53 @@ function packageFilterValues(value: string): string[] {
     : [...new Set(canonical.flatMap((item) => packageVariants(item)))];
 }
 
+function preferredCatalogTypeForPartType(
+  partType: string,
+): PreferredLocalCatalogType | null {
+  const normalized = partType.toLowerCase();
+  if (normalized === 'resistor' || normalized === 'capacitor') return 'samplepcb_rc';
+  if (normalized === 'connector') return 'connector';
+  return null;
+}
+
+function preferredCatalogType(
+  query: z.infer<typeof PreferredCatalogQuery>,
+  fallbackPartType = '',
+): PreferredLocalCatalogType | null {
+  return preferredCatalogTypeForPartType(
+    query.part_type ?? query.category_policy ?? fallbackPartType,
+  );
+}
+
 /** 엔진이 만든 정규 쿼리를 기계적으로 ES 필터로 투영한다. 판정은 여기서 하지 않는다. */
 function preferredCatalogSearchQuery(
   query: z.infer<typeof PreferredCatalogQuery>,
+  catalogType: PreferredLocalCatalogType,
 ): EsSearchQuery | null {
-  const partType = (query.part_type ?? query.category_policy ?? '').toLowerCase();
-  if (partType !== 'resistor' && partType !== 'capacitor') return null;
   if (query.mode === 'excluded' || query.mode === 'insufficient') return null;
 
+  const mpnNorm = normalizeMpn(query.part_number ?? '');
+  if (catalogType === 'connector') {
+    if (mpnNorm === '') return null;
+    const filter: EsSearchQuery[] = [
+      { term: { [F.partType]: 'connector' } },
+      { term: { [F.hasCatalogInquiryOffer]: true } },
+      { term: { [F.mpnNormKeyword]: mpnNorm } },
+    ];
+    const manufacturerNorm = resolveManufacturer(query.manufacturer).norm;
+    if (manufacturerNorm !== 'unknown') {
+      filter.push({ term: { [F.manufacturerNorm]: manufacturerNorm } });
+    }
+    return { bool: { filter } };
+  }
+
+  const partType = (query.part_type ?? query.category_policy ?? '').toLowerCase();
+  if (partType !== 'resistor' && partType !== 'capacitor') return null;
   const filter: EsSearchQuery[] = [
     { term: { [F.suppliers]: 'samplepcb' } },
     { term: { [F.hasCatalogInquiryOffer]: true } },
     { term: { [F.partType]: partType } },
   ];
-  const mpnNorm = normalizeMpn(query.part_number ?? '');
   if (mpnNorm !== '') {
     filter.push({ term: { [F.mpnNormKeyword]: mpnNorm } });
     const manufacturerNorm = resolveManufacturer(query.manufacturer).norm;
@@ -413,7 +455,7 @@ function preferredCatalogSearchQuery(
   return { bool: { filter } };
 }
 
-function preferredMetadata(value: unknown): Record<string, unknown> | null {
+function catalogMetadata(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const product = value as Record<string, unknown>;
   const metadataValue = product.catalog_metadata;
@@ -421,12 +463,15 @@ function preferredMetadata(value: unknown): Record<string, unknown> | null {
     return null;
   }
   const metadata = metadataValue as Record<string, unknown>;
-  return metadata.catalogOnly === true && metadata.samplepcbPreferred === true
-    ? metadata
-    : null;
+  return metadata.catalogOnly === true ? metadata : null;
 }
 
-function preferredProductForPart(part: PreferredCatalogPartRow): LocalCatalogProductType | null {
+function preferredMetadata(value: unknown): Record<string, unknown> | null {
+  const metadata = catalogMetadata(value);
+  return metadata?.samplepcbPreferred === true ? metadata : null;
+}
+
+function preferredRcProductForPart(part: PreferredCatalogPartRow): LocalCatalogProductType | null {
   const samplepcbOffer = part.offers.find(
     (offer) => offer.supplier === 'samplepcb' && preferredMetadata(offer.rawJson) !== null,
   );
@@ -459,13 +504,49 @@ function preferredProductForPart(part: PreferredCatalogPartRow): LocalCatalogPro
   };
 }
 
+function connectorCatalogProducts(
+  query: z.infer<typeof PreferredCatalogQuery>,
+  parts: PreferredCatalogPartRow[],
+): LocalCatalogProductType[] {
+  const mpnNorm = normalizeMpn(query.part_number ?? '');
+  if (mpnNorm === '') return [];
+  const exactParts = parts.filter((part) => part.mpnNorm === mpnNorm);
+  const manufacturerNorm = resolveManufacturer(query.manufacturer).norm;
+  const matchedParts = manufacturerNorm === 'unknown'
+    ? new Set(exactParts.map((part) => part.manufacturerNorm)).size === 1
+      ? exactParts
+      : []
+    : exactParts.filter((part) => part.manufacturerNorm === manufacturerNorm);
+  const products = new Map<string, LocalCatalogProductType>();
+  for (const part of matchedParts) {
+    for (const offer of part.offers) {
+      const parsed = LocalCatalogProduct.safeParse(offer.rawJson);
+      if (
+        !parsed.success
+        || catalogMetadata(parsed.data) === null
+        || normalizeMpn(parsed.data.manufacturer_part_number) !== part.mpnNorm
+        || resolveManufacturer(parsed.data.manufacturer).norm !== part.manufacturerNorm
+      ) continue;
+      const key = [
+        parsed.data.supplier.toLocaleLowerCase(),
+        part.manufacturerNorm,
+        part.mpnNorm,
+      ].join('\u0000');
+      if (!products.has(key)) products.set(key, parsed.data);
+    }
+  }
+  return [...products.values()].slice(0, PREFERRED_CATALOG_SEARCH_SIZE);
+}
+
 async function searchPreferredPartIds(
-  queries: z.infer<typeof PreferredCatalogQuery>[],
+  plans: PreferredCatalogPlan[],
 ): Promise<Map<string, string[]>> {
   const queryByComponent = new Map<string, EsSearchQuery>();
-  for (const query of queries) {
-    const searchQuery = preferredCatalogSearchQuery(query);
-    if (searchQuery !== null) queryByComponent.set(query.component_id, searchQuery);
+  for (const plan of plans) {
+    const searchQuery = preferredCatalogSearchQuery(plan.query, plan.catalogType);
+    if (searchQuery !== null) {
+      queryByComponent.set(plan.query.component_id, searchQuery);
+    }
   }
   const grouped = new Map<string, { query: EsSearchQuery; componentIds: string[] }>();
   for (const [componentId, query] of queryByComponent) {
@@ -508,6 +589,7 @@ export type PreferredLocalCatalogOutcome =
 
 export interface PreferredLocalCatalogTrace {
   componentId: string;
+  catalogType: PreferredLocalCatalogType;
   query: string;
   outcome: PreferredLocalCatalogOutcome;
   candidateCount: number;
@@ -523,18 +605,6 @@ export interface PreferredLocalCatalogResult {
   unresolvedComponentIds: string[];
   evaluatedComponentIds: string[];
   traces: PreferredLocalCatalogTrace[];
-}
-
-function preferredCatalogPartType(
-  query: z.infer<typeof PreferredCatalogQuery>,
-): string {
-  return (query.part_type ?? query.category_policy ?? '').toLowerCase();
-}
-
-function isPreferredCatalogQuery(
-  query: z.infer<typeof PreferredCatalogQuery>,
-): boolean {
-  return ['resistor', 'capacitor'].includes(preferredCatalogPartType(query));
 }
 
 function preferredCatalogQueryLabel(
@@ -560,10 +630,11 @@ function preferredCatalogQueryLabel(
 }
 
 /**
- * 외부 공급사 호출 전에 SamplePCB R/C 카탈로그를 조회한다.
+ * 외부 공급사 호출 전에 엔진 유형별 자체 카탈로그를 조회한다.
  *
- * Node는 엔진 preflight의 정규 쿼리로 후보만 가져오고, 후보의 기술·조달 판정과
- * 최종 resolved 여부는 catalog-evaluate-batch의 automatic_selected만 신뢰한다.
+ * R/C는 SamplePCB 스펙 카탈로그, connector는 exact MPN 로컬 카탈로그 후보만
+ * 가져오고, 기술·조달 판정과 최종 resolved 여부는 catalog-evaluate-batch의
+ * automatic_selected만 신뢰한다.
  * 입력 충돌로 계획이 둘 이상인 행은 로컬에서 추정하지 않고 외부 기존 경로로 넘긴다.
  */
 export async function evaluatePreferredLocalCatalog(
@@ -584,16 +655,22 @@ export async function evaluatePreferredLocalCatalog(
   const startedAt = Date.now();
   const allComponentIds = parsed.data.plan.components.map((component) => component.component_id);
   const tracesByComponent = new Map<string, PreferredLocalCatalogTrace>();
-  const queries: z.infer<typeof PreferredCatalogQuery>[] = [];
+  const plans: PreferredCatalogPlan[] = [];
   for (const component of parsed.data.plan.components) {
-    const preferredQueries = component.planned_queries.filter(isPreferredCatalogQuery);
     const componentType = component.requirement_guidance?.component_type?.toLowerCase() ?? '';
+    const fallbackCatalogType = preferredCatalogTypeForPartType(componentType);
+    const preferredPlans = component.planned_queries.flatMap((query) => {
+      const catalogType = preferredCatalogType(query, componentType);
+      return catalogType === null ? [] : [{ query, catalogType }];
+    });
     if (
-      preferredQueries.length === 0
-      && componentType !== 'resistor'
-      && componentType !== 'capacitor'
+      preferredPlans.length === 0
+      && fallbackCatalogType === null
     ) continue;
-    const query = preferredQueries[0];
+    const plan = preferredPlans[0];
+    const query = plan?.query;
+    const catalogType = plan?.catalogType ?? fallbackCatalogType;
+    if (catalogType === null) continue;
     const queryLabel = query === undefined
       ? component.keywords.trim() !== ''
         ? component.keywords.trim()
@@ -604,6 +681,7 @@ export async function evaluatePreferredLocalCatalog(
       : preferredCatalogQueryLabel(query);
     const trace: PreferredLocalCatalogTrace = {
       componentId: component.component_id,
+      catalogType,
       query: queryLabel,
       outcome: 'skipped',
       candidateCount: 0,
@@ -615,16 +693,17 @@ export async function evaluatePreferredLocalCatalog(
     tracesByComponent.set(component.component_id, trace);
     if (
       component.planned_queries.length !== 1
-      || preferredQueries.length !== 1
+      || preferredPlans.length !== 1
       || query === undefined
+      || plan === undefined
     ) {
       trace.reason = component.planned_queries.length > 1
         ? 'multiple_query_plans'
         : 'query_not_eligible';
       continue;
     }
-    if (preferredCatalogSearchQuery(query) === null) continue;
-    queries.push(query);
+    if (preferredCatalogSearchQuery(query, catalogType) === null) continue;
+    plans.push(plan);
   }
   const traces = (): PreferredLocalCatalogTrace[] => {
     const elapsedMs = Math.max(0, Date.now() - startedAt);
@@ -634,11 +713,11 @@ export async function evaluatePreferredLocalCatalog(
     }));
   };
   try {
-    const partIdsByComponent = await searchPreferredPartIds(queries);
-    for (const query of queries) {
-      const trace = tracesByComponent.get(query.component_id);
+    const partIdsByComponent = await searchPreferredPartIds(plans);
+    for (const plan of plans) {
+      const trace = tracesByComponent.get(plan.query.component_id);
       if (trace === undefined) continue;
-      const candidateCount = partIdsByComponent.get(query.component_id)?.length ?? 0;
+      const candidateCount = partIdsByComponent.get(plan.query.component_id)?.length ?? 0;
       trace.candidateCount = candidateCount;
       trace.outcome = candidateCount === 0 ? 'no_candidates' : 'skipped';
       trace.reason = candidateCount === 0
@@ -652,6 +731,8 @@ export async function evaluatePreferredLocalCatalog(
           where: { id: { in: partIds.map((id) => BigInt(id)) } },
           select: {
             id: true,
+            mpnNorm: true,
+            manufacturerNorm: true,
             offers: {
               select: {
                 supplier: true,
@@ -673,27 +754,37 @@ export async function evaluatePreferredLocalCatalog(
             },
           },
         });
-    const productsByPartId = new Map(
+    const partsById = new Map(parts.map((part) => [String(part.id), part]));
+    const rcProductsByPartId = new Map(
       parts.flatMap((part) => {
-        const product = preferredProductForPart(part);
+        const product = preferredRcProductForPart(part);
         return product === null ? [] : [[String(part.id), product] as const];
       }),
     );
-    const inputs = queries.flatMap((query) => {
-      const products = (partIdsByComponent.get(query.component_id) ?? [])
-        .flatMap((partId) => {
-          const product = productsByPartId.get(partId);
-          return product === undefined ? [] : [product];
-        })
-        .slice(0, PREFERRED_CATALOG_SEARCH_SIZE);
-      const trace = tracesByComponent.get(query.component_id);
+    const inputs = plans.flatMap((plan) => {
+      const partIds = partIdsByComponent.get(plan.query.component_id) ?? [];
+      const products = plan.catalogType === 'connector'
+        ? connectorCatalogProducts(
+            plan.query,
+            partIds.flatMap((partId) => {
+              const part = partsById.get(partId);
+              return part === undefined ? [] : [part];
+            }),
+          )
+        : partIds
+            .flatMap((partId) => {
+              const product = rcProductsByPartId.get(partId);
+              return product === undefined ? [] : [product];
+            })
+            .slice(0, PREFERRED_CATALOG_SEARCH_SIZE);
+      const trace = tracesByComponent.get(plan.query.component_id);
       if (trace !== undefined) {
         trace.evaluatedCandidateCount = products.length;
         if (products.length === 0 && trace.candidateCount > 0) {
           trace.outcome = 'no_candidates';
         }
       }
-      return products.length === 0 ? [] : [{ query, products }];
+      return products.length === 0 ? [] : [{ query: plan.query, products }];
     });
     if (inputs.length === 0) {
       return {
@@ -758,9 +849,9 @@ export async function evaluatePreferredLocalCatalog(
       traces: traces(),
     };
   } catch (error) {
-    log?.warn({ err: String(error) }, 'SamplePCB 로컬 우선 카탈로그 평가 실패');
-    for (const query of queries) {
-      const trace = tracesByComponent.get(query.component_id);
+    log?.warn({ err: String(error) }, '자체 로컬 우선 카탈로그 평가 실패');
+    for (const plan of plans) {
+      const trace = tracesByComponent.get(plan.query.component_id);
       if (trace === undefined) continue;
       trace.outcome = 'error';
       trace.selectedCandidateCount = 0;

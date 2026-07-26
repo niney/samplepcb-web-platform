@@ -342,10 +342,14 @@ const EngineSupplierSearchTrace = z.object({
 const StoredPreferredLocalCatalogPreflight = z
   .object({
     local_catalog: z.object({
-      version: z.literal('samplepcb-local-catalog-trace-v1'),
+      version: z.enum([
+        'samplepcb-local-catalog-trace-v1',
+        'local-catalog-trace-v2',
+      ]),
       components: z.array(
         z.object({
           component_id: z.string(),
+          catalog_type: z.enum(['samplepcb_rc', 'connector']).optional(),
           query: z.string(),
           outcome: z.enum([
             'selected',
@@ -635,8 +639,13 @@ export function quoteLocalCatalogTrace(
     (component) => component.component_id === componentId,
   );
   if (trace === undefined) return null;
+  const catalogType = parsed.data.local_catalog.version === 'samplepcb-local-catalog-trace-v1'
+    ? 'samplepcb_rc'
+    : trace.catalog_type;
+  if (catalogType === undefined) return null;
   return {
-    version: parsed.data.local_catalog.version,
+    version: 'local-catalog-trace-v2',
+    catalogType,
     query: trace.query,
     outcome: trace.outcome,
     candidateCount: trace.candidate_count,

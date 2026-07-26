@@ -424,16 +424,22 @@ function localCatalogOutcomeClasses(trace: BomQuoteLocalCatalogTraceType): strin
   }
 }
 
+function localCatalogTitle(trace: BomQuoteLocalCatalogTraceType): string {
+  return trace.catalogType === 'connector'
+    ? '커넥터 자체 카탈로그'
+    : 'SamplePCB R/C 자체 카탈로그';
+}
+
 function localCatalogReasonLabel(reason: string | null): string | null {
   if (reason === null) return null;
   const reasons: Record<string, string> = {
     multiple_query_plans: '입력 충돌로 검색 계획이 여러 개여서 로컬 조회를 생략했습니다.',
-    query_not_eligible: 'SamplePCB 조회에 필요한 값과 패키지가 부족하거나 검색 제외 상태입니다.',
-    catalog_candidates_not_found: 'SamplePCB 자체 카탈로그에서 일치 후보를 찾지 못했습니다.',
+    query_not_eligible: '자체 카탈로그 조회에 필요한 조건이 부족하거나 검색 제외 상태입니다.',
+    catalog_candidates_not_found: '자체 카탈로그에서 일치 후보를 찾지 못했습니다.',
     catalog_products_unavailable: '저장된 후보를 엔진 판정 입력으로 만들 수 없습니다.',
     engine_not_selected: '후보는 찾았지만 엔진 자동선정 조건을 통과하지 못했습니다.',
     evaluation_result_missing: '엔진 판정 결과에서 이 부품을 확인할 수 없습니다.',
-    lookup_failed: 'SamplePCB 자체 카탈로그 조회 또는 엔진 판정에 실패했습니다.',
+    lookup_failed: '자체 카탈로그 조회 또는 엔진 판정에 실패했습니다.',
     quote_apply_failed: '로컬 선정 결과를 견적에 반영하지 못해 외부 검색으로 전환했습니다.',
   };
   return reasons[reason] ?? reason;
@@ -2398,7 +2404,7 @@ onBeforeUnmount(() => {
                     >
                       <span class="flex size-5 items-center justify-center rounded-full bg-white/80 font-bold tabular-nums text-slate-600">1</span>
                       <span class="font-semibold text-slate-800">
-                        SamplePCB 자체 카탈로그
+                        {{ localCatalogTitle(context.localCatalogTrace) }}
                         <small class="block font-normal uppercase text-slate-500">로컬 ES · API 0회</small>
                       </span>
                       <span class="min-w-0">

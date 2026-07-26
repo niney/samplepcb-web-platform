@@ -353,7 +353,7 @@ describe('BOM 로컬 카탈로그 fallback', () => {
   });
 });
 
-describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
+describe('BOM 부품 유형별 로컬 우선 검색', () => {
   const preferredProduct = {
     supplier: 'walsin',
     manufacturer_part_number: 'WR06X1002FTL',
@@ -451,12 +451,18 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
   };
 
   it('엔진 정규 쿼리로 ES 후보만 찾고 엔진 automatic_selected만 해결로 인정한다', async () => {
-    mocks.search.mockResolvedValue({
-      hits: { hits: [{ _source: { partId: '77' } }] },
-    });
+    mocks.search.mockImplementation((request: unknown) => Promise.resolve({
+      hits: {
+        hits: JSON.stringify(request).includes('"partType":"connector"')
+          ? []
+          : [{ _source: { partId: '77' } }],
+      },
+    }));
     mocks.findMany.mockResolvedValue([
       {
         id: 77n,
+        mpnNorm: 'WR06X1002FTL',
+        manufacturerNorm: 'walsin',
         offers: [
           {
             supplier: 'samplepcb',
@@ -499,7 +505,7 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
       { target_currency: 'KRW' },
     );
 
-    expect(mocks.search).toHaveBeenCalledTimes(1);
+    expect(mocks.search).toHaveBeenCalledTimes(2);
     const searchRequest = mocks.search.mock.calls[0]?.[0] as {
       query: { bool: { filter: Record<string, unknown>[] } };
     };
@@ -523,6 +529,7 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
     expect(result.traces).toEqual([
       expect.objectContaining({
         componentId: 'resistor-1',
+        catalogType: 'samplepcb_rc',
         query: '10k 0603 1% resistor',
         outcome: 'selected',
         candidateCount: 1,
@@ -530,16 +537,29 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
         selectedCandidateCount: 1,
         reason: null,
       }),
+      expect.objectContaining({
+        componentId: 'connector-1',
+        catalogType: 'connector',
+        outcome: 'no_candidates',
+        candidateCount: 0,
+        reason: 'catalog_candidates_not_found',
+      }),
     ]);
   });
 
   it('엔진이 선정하지 않은 로컬 후보는 외부 검색 대상으로 남긴다', async () => {
-    mocks.search.mockResolvedValue({
-      hits: { hits: [{ _source: { partId: '77' } }] },
-    });
+    mocks.search.mockImplementation((request: unknown) => Promise.resolve({
+      hits: {
+        hits: JSON.stringify(request).includes('"partType":"connector"')
+          ? []
+          : [{ _source: { partId: '77' } }],
+      },
+    }));
     mocks.findMany.mockResolvedValue([
       {
         id: 77n,
+        mpnNorm: 'WR06X1002FTL',
+        manufacturerNorm: 'walsin',
         offers: [
           {
             supplier: 'samplepcb',
@@ -581,11 +601,19 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
     expect(result.traces).toEqual([
       expect.objectContaining({
         componentId: 'resistor-1',
+        catalogType: 'samplepcb_rc',
         outcome: 'rejected',
         candidateCount: 1,
         evaluatedCandidateCount: 1,
         selectedCandidateCount: 0,
         reason: 'engine_not_selected',
+      }),
+      expect.objectContaining({
+        componentId: 'connector-1',
+        catalogType: 'connector',
+        outcome: 'no_candidates',
+        candidateCount: 0,
+        reason: 'catalog_candidates_not_found',
       }),
     ]);
   });
@@ -601,12 +629,117 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
     expect(result.traces).toEqual([
       expect.objectContaining({
         componentId: 'resistor-1',
+        catalogType: 'samplepcb_rc',
         query: '10k 0603 1% resistor',
         outcome: 'no_candidates',
         candidateCount: 0,
         evaluatedCandidateCount: 0,
         selectedCandidateCount: 0,
         reason: 'catalog_candidates_not_found',
+      }),
+      expect.objectContaining({
+        componentId: 'connector-1',
+        catalogType: 'connector',
+        outcome: 'no_candidates',
+        candidateCount: 0,
+        evaluatedCandidateCount: 0,
+        selectedCandidateCount: 0,
+        reason: 'catalog_candidates_not_found',
+      }),
+    ]);
+  });
+
+  it('connector 유형은 공급사명과 무관하게 exact MPN 자체 카탈로그를 먼저 평가한다', async () => {
+    mocks.search.mockImplementation((request: unknown) => Promise.resolve({
+      hits: {
+        hits: JSON.stringify(request).includes('"partType":"connector"')
+          ? [{ _source: { partId: '88' } }]
+          : [],
+      },
+    }));
+    mocks.findMany.mockResolvedValue([
+      {
+        id: 88n,
+        mpnNorm: '10038WR08',
+        manufacturerNorm: 'yeonho',
+        offers: [
+          {
+            supplier: 'yeonho',
+            supplierSku: '10038WR-08',
+            productUrl: 'https://www.yeonho.com/',
+            stock: null,
+            moq: null,
+            orderMultiple: null,
+            packaging: null,
+            currency: null,
+            leadTime: null,
+            fetchedAt: new Date('2026-07-17T00:00:00+09:00'),
+            rawJson: localProduct(),
+            priceBreaks: [],
+          },
+        ],
+      },
+    ]);
+    mocks.engineFetch.mockImplementation((_path: string, init: RequestInit) => {
+      if (typeof init.body !== 'string') throw new Error('요청 본문이 문자열이 아닙니다');
+      const body = JSON.parse(init.body) as {
+        items: { query: { component_id: string }; products: unknown[] }[];
+      };
+      return Promise.resolve(new Response(JSON.stringify({
+        items: body.items.map((item) => ({
+          component_id: item.query.component_id,
+          status: 'verified_exact',
+          candidates: [{ product: item.products[0] }],
+          procurement_decision: {
+            status: 'catalog_selected',
+            selection_application_state: 'automatic_selected',
+          },
+          warnings: [],
+        })),
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    });
+
+    const result = await evaluatePreferredLocalCatalog(preflight, {});
+
+    const searchCalls = mocks.search.mock.calls as [unknown][];
+    const connectorSearchValue = searchCalls
+      .find(([request]) => JSON.stringify(request).includes('"partType":"connector"'))?.[0];
+    const connectorSearch = connectorSearchValue as {
+        query: { bool: { filter: Record<string, unknown>[] } };
+      } | undefined;
+    expect(connectorSearch?.query.bool.filter).toEqual(expect.arrayContaining([
+      { term: { partType: 'connector' } },
+      { term: { hasCatalogInquiryOffer: true } },
+      { term: { 'mpnNorm.keyword': '10038WR08' } },
+      { term: { manufacturerNorm: 'yeonho' } },
+    ]));
+    expect(connectorSearch?.query.bool.filter).not.toContainEqual(
+      { term: { suppliers: 'yeonho' } },
+    );
+    const [, evaluationInit] = mocks.engineFetch.mock.calls[0] as [string, RequestInit];
+    if (typeof evaluationInit.body !== 'string') throw new Error('요청 본문이 문자열이 아닙니다');
+    const evaluationBody = JSON.parse(evaluationInit.body) as {
+      items: { query: { component_id: string }; products: { supplier: string }[] }[];
+    };
+    expect(evaluationBody.items).toHaveLength(1);
+    expect(evaluationBody.items[0]?.query.component_id).toBe('connector-1');
+    expect(evaluationBody.items[0]?.products[0]?.supplier).toBe('yeonho');
+    expect(result.resolvedComponentIds).toEqual(['connector-1']);
+    expect(result.unresolvedComponentIds).toEqual(['resistor-1']);
+    expect(result.traces).toEqual([
+      expect.objectContaining({
+        componentId: 'resistor-1',
+        catalogType: 'samplepcb_rc',
+        outcome: 'no_candidates',
+      }),
+      expect.objectContaining({
+        componentId: 'connector-1',
+        catalogType: 'connector',
+        outcome: 'selected',
+        candidateCount: 1,
+        evaluatedCandidateCount: 1,
+        selectedCandidateCount: 1,
+        reason: null,
       }),
     ]);
   });

@@ -130,9 +130,15 @@ export type BomQuoteLocalCatalogOutcomeType = z.infer<
   typeof BomQuoteLocalCatalogOutcome
 >;
 
-/** 외부 공급사 호출보다 먼저 수행한 SamplePCB 자체 카탈로그 조회 한 단계. */
+export const BomQuoteLocalCatalogType = z.enum(['samplepcb_rc', 'connector']);
+export type BomQuoteLocalCatalogTypeType = z.infer<
+  typeof BomQuoteLocalCatalogType
+>;
+
+/** 외부 공급사 호출보다 먼저 수행한 부품 유형별 자체 카탈로그 조회 한 단계. */
 export const BomQuoteLocalCatalogTrace = z.object({
-  version: z.literal('samplepcb-local-catalog-trace-v1'),
+  version: z.literal('local-catalog-trace-v2'),
+  catalogType: BomQuoteLocalCatalogType,
   query: z.string(),
   outcome: BomQuoteLocalCatalogOutcome,
   candidateCount: z.number().int().min(0),
@@ -665,7 +671,7 @@ export const BomQuoteItemCandidates = z.object({
   /** sp-engine이 결정한 현재 행의 대표 구매 불가 사유. */
   procurementUnavailabilityReason: BomQuoteProcurementUnavailabilityReason.nullable().optional(),
   decisionReasonCodes: z.array(BomQuoteDecisionReason),
-  /** 외부 공급사보다 먼저 조회한 SamplePCB 자체 카탈로그 단계. 구버전 실행은 null이다. */
+  /** 외부 공급사보다 먼저 조회한 부품 유형별 자체 카탈로그 단계. 구버전 실행은 null이다. */
   localCatalogTrace: BomQuoteLocalCatalogTrace.nullable(),
   /** 활성 공급사 검색 실행에서 영속 조회한 컴포넌트 검색 과정. 구버전 실행은 null이다. */
   searchTrace: BomQuoteSearchTrace.nullable(),

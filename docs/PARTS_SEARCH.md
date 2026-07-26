@@ -16,10 +16,17 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   절대 불변 — 신규는 `sp-` prefix, `replicas: 0`. 운영 ES 는 보류(로컬만).
 - 카탈로그는 사실 데이터 — BOM 매칭 상태(VERIFIED 등 문맥)는 저장하지 않는다.
 
-## BOM 로컬 카탈로그 fallback
+## BOM 유형별 로컬 카탈로그 우선 조회와 fallback
 
-외부 공급사 검색 결과의 후보가 비었더라도 DB에 사전 적재한 제조사 카탈로그가 있으면 다음
-경계로 후보를 복구한다.
+sp-engine이 `resistor`·`capacitor`·`connector`로 판정한 행은 외부 공급사보다 자체
+카탈로그를 먼저 조회한다. R/C는 값·패키지를 포함한 엔진 정규 스펙 또는 exact MPN으로
+SamplePCB 카탈로그를 찾고, connector는 exact MPN으로 자체 커넥터 카탈로그를 찾는다.
+`catalog-evaluate-batch`가 `automatic_selected`로 확정한 행만 먼저 반영하고 나머지만 외부
+검색으로 보낸다. 정책은 공급사명이 아니라 부품 유형 기반이므로 현재 연호 원장 외에 다른
+커넥터 원장이 추가돼도 같은 경로를 사용한다.
+
+외부 공급사 검색 결과의 후보가 비었을 때는 다음 후속 fallback도 유지해 DB에 사전 적재한
+제조사 카탈로그 후보를 복구한다.
 
 1. **sp-engine**이 BOM의 대표 MPN·제조사·기술 사양을 정규화한다. `PINS`·`PITCH_mm`는
    구매 수량이 아니라 각각 `pin_count`·`pitch_mm`로 해석하고, 자리표시자 MPN(`NN`/`HNN`)과
@@ -128,8 +135,9 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   `walsin-rlc`(저항·캐패시터 2,628)를 등록했다. **가격 근거가 없는 카탈로그 데이터는
   `offer_kind='manufacturer_catalog'` + `catalogOnly=true`로 실제 구매 오퍼와 분리한다.** Walsin 원본은
   제조사 사실 오퍼와 `samplepcb` 문의 오퍼를 함께 저장한다. sp-node는 엔진 preflight가 돌려준
-  정규화 R/C 쿼리로 로컬 ES 후보를 먼저 찾고, sp-engine `catalog-evaluate-batch`가
-  `automatic_selected`로 확정한 행만 문의 견적으로 선정한다. 나머지만 외부 공급사 검색으로 보낸다.
+  정규화 R/C 쿼리 또는 connector exact MPN으로 유형별 로컬 ES 후보를 먼저 찾고, sp-engine
+  `catalog-evaluate-batch`가 `automatic_selected`로 확정한 행만 문의 견적으로 선정한다.
+  나머지만 외부 공급사 검색으로 보낸다.
   제조사 사실 오퍼는 기술 정본·원본 해시·교체/롤백 추적용이며 구매 채널이 아니다. 따라서
   `PartHit.suppliers`·공급사 패싯·`PartDetail.offers`에서는 숨기고, 같은 원본의 `samplepcb`
   문의 오퍼만 구매 채널로 노출한다. 제조사/카탈로그 원천은 제조사 필드와 삭제 미리보기에 남는다.

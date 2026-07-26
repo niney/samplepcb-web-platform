@@ -22,8 +22,8 @@ import {
   selectEngineMatch,
 } from './bom-quote';
 
-describe('SamplePCB 로컬 카탈로그 검색 과정', () => {
-  it('실행 preflight의 부품별 기록을 후보 API 계약으로 투영한다', () => {
+describe('부품 유형별 로컬 카탈로그 검색 과정', () => {
+  it('SamplePCB v1 실행 기록을 현재 API 계약으로 호환 투영한다', () => {
     expect(quoteLocalCatalogTrace({
       local_catalog: {
         version: 'samplepcb-local-catalog-trace-v1',
@@ -45,7 +45,8 @@ describe('SamplePCB 로컬 카탈로그 검색 과정', () => {
         ],
       },
     }, 'resistor-1')).toEqual({
-      version: 'samplepcb-local-catalog-trace-v1',
+      version: 'local-catalog-trace-v2',
+      catalogType: 'samplepcb_rc',
       query: '10k 0603 1% resistor',
       outcome: 'selected',
       candidateCount: 3,
@@ -53,6 +54,39 @@ describe('SamplePCB 로컬 카탈로그 검색 과정', () => {
       selectedCandidateCount: 1,
       apiCalls: 0,
       elapsedMs: 18,
+      reason: null,
+    });
+  });
+
+  it('connector 실행 기록의 카탈로그 유형을 그대로 투영한다', () => {
+    expect(quoteLocalCatalogTrace({
+      local_catalog: {
+        version: 'local-catalog-trace-v2',
+        components: [
+          {
+            component_id: 'connector-1',
+            catalog_type: 'connector',
+            query: 'YEONHO ELECTRONICS 10038WR-08',
+            outcome: 'selected',
+            candidate_count: 1,
+            evaluated_candidate_count: 1,
+            selected_candidate_count: 1,
+            api_calls: 0,
+            elapsed_ms: 7,
+            reason: null,
+          },
+        ],
+      },
+    }, 'connector-1')).toEqual({
+      version: 'local-catalog-trace-v2',
+      catalogType: 'connector',
+      query: 'YEONHO ELECTRONICS 10038WR-08',
+      outcome: 'selected',
+      candidateCount: 1,
+      evaluatedCandidateCount: 1,
+      selectedCandidateCount: 1,
+      apiCalls: 0,
+      elapsedMs: 7,
       reason: null,
     });
   });
