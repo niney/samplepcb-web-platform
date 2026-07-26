@@ -119,6 +119,33 @@ export const BomQuoteSearchTrace = BomQuoteSearchTraceSummary.extend({
 });
 export type BomQuoteSearchTraceType = z.infer<typeof BomQuoteSearchTrace>;
 
+export const BomQuoteLocalCatalogOutcome = z.enum([
+  'selected',
+  'no_candidates',
+  'rejected',
+  'skipped',
+  'error',
+]);
+export type BomQuoteLocalCatalogOutcomeType = z.infer<
+  typeof BomQuoteLocalCatalogOutcome
+>;
+
+/** 외부 공급사 호출보다 먼저 수행한 SamplePCB 자체 카탈로그 조회 한 단계. */
+export const BomQuoteLocalCatalogTrace = z.object({
+  version: z.literal('samplepcb-local-catalog-trace-v1'),
+  query: z.string(),
+  outcome: BomQuoteLocalCatalogOutcome,
+  candidateCount: z.number().int().min(0),
+  evaluatedCandidateCount: z.number().int().min(0),
+  selectedCandidateCount: z.number().int().min(0),
+  apiCalls: z.literal(0),
+  elapsedMs: z.number().min(0),
+  reason: z.string().nullable(),
+});
+export type BomQuoteLocalCatalogTraceType = z.infer<
+  typeof BomQuoteLocalCatalogTrace
+>;
+
 /** sp-engine이 구매 후보를 선정하지 못했을 때의 대표 사유. */
 export const BomQuoteProcurementUnavailabilityReason = z.enum([
   'out_of_stock',
@@ -638,6 +665,8 @@ export const BomQuoteItemCandidates = z.object({
   /** sp-engine이 결정한 현재 행의 대표 구매 불가 사유. */
   procurementUnavailabilityReason: BomQuoteProcurementUnavailabilityReason.nullable().optional(),
   decisionReasonCodes: z.array(BomQuoteDecisionReason),
+  /** 외부 공급사보다 먼저 조회한 SamplePCB 자체 카탈로그 단계. 구버전 실행은 null이다. */
+  localCatalogTrace: BomQuoteLocalCatalogTrace.nullable(),
   /** 활성 공급사 검색 실행에서 영속 조회한 컴포넌트 검색 과정. 구버전 실행은 null이다. */
   searchTrace: BomQuoteSearchTrace.nullable(),
   candidates: z.array(BomQuoteCandidate),

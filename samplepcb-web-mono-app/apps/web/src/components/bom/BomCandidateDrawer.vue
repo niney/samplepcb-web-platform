@@ -6,6 +6,7 @@ import type {
   BomQuoteCandidateType,
   BomQuoteDecisionReasonType,
   BomQuoteItemCandidatesType,
+  BomQuoteLocalCatalogTraceType,
   BomQuoteRequirementAssessmentType,
   BomQuoteSearchRequirementsBodyType,
   BomQuoteSearchTraceAttemptType,
@@ -284,6 +285,16 @@ const technicalTopCandidate = computed(() =>
   props.context?.candidates.find((candidate) =>
     candidate.candidateKey === props.context?.technicalTopCandidateKey) ?? null,
 );
+const searchTracePrimaryQuery = computed(() => {
+  const localQuery = props.context?.localCatalogTrace?.query.trim() ?? '';
+  return localQuery !== ''
+    ? localQuery
+    : props.context?.searchTrace?.primaryQuery ?? '';
+});
+const searchTraceStageCount = computed(() =>
+  (props.context?.localCatalogTrace === null || props.context?.localCatalogTrace === undefined ? 0 : 1)
+  + (props.context?.searchTrace?.attemptCount ?? 0),
+);
 const provisionalSelectionPending = computed(() =>
   props.context?.selectionSource === 'auto'
   && props.context.selectionApplicationState === 'provisional_selected'
@@ -383,6 +394,49 @@ function traceElapsedLabel(elapsedMs: number): string {
   return elapsedMs < 1000
     ? `${Math.round(elapsedMs).toLocaleString('ko-KR')}ms`
     : `${(elapsedMs / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}s`;
+}
+
+function localCatalogOutcomeLabel(trace: BomQuoteLocalCatalogTraceType): string {
+  switch (trace.outcome) {
+    case 'selected':
+      return `${String(trace.selectedCandidateCount)}개 선정`;
+    case 'no_candidates':
+      return '사용 가능 후보 없음';
+    case 'rejected':
+      return '엔진 판정 미선정';
+    case 'skipped':
+      return '조회 생략';
+    case 'error':
+      return '조회 오류';
+  }
+}
+
+function localCatalogOutcomeClasses(trace: BomQuoteLocalCatalogTraceType): string {
+  switch (trace.outcome) {
+    case 'selected':
+      return 'border-emerald-200 bg-emerald-50/70';
+    case 'no_candidates':
+    case 'rejected':
+    case 'skipped':
+      return 'border-amber-200 bg-amber-50/70';
+    case 'error':
+      return 'border-rose-200 bg-rose-50/70';
+  }
+}
+
+function localCatalogReasonLabel(reason: string | null): string | null {
+  if (reason === null) return null;
+  const reasons: Record<string, string> = {
+    multiple_query_plans: '입력 충돌로 검색 계획이 여러 개여서 로컬 조회를 생략했습니다.',
+    query_not_eligible: 'SamplePCB 조회에 필요한 값과 패키지가 부족하거나 검색 제외 상태입니다.',
+    catalog_candidates_not_found: 'SamplePCB 자체 카탈로그에서 일치 후보를 찾지 못했습니다.',
+    catalog_products_unavailable: '저장된 후보를 엔진 판정 입력으로 만들 수 없습니다.',
+    engine_not_selected: '후보는 찾았지만 엔진 자동선정 조건을 통과하지 못했습니다.',
+    evaluation_result_missing: '엔진 판정 결과에서 이 부품을 확인할 수 없습니다.',
+    lookup_failed: 'SamplePCB 자체 카탈로그 조회 또는 엔진 판정에 실패했습니다.',
+    quote_apply_failed: '로컬 선정 결과를 견적에 반영하지 못해 외부 검색으로 전환했습니다.',
+  };
+  return reasons[reason] ?? reason;
 }
 
 function formatOriginalRows(rows: number[], compact: boolean): string {
@@ -2304,7 +2358,10 @@ onBeforeUnmount(() => {
                   </fieldset>
                 </form>
               </section>
-              <section v-if="context.searchTrace !== null" class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <section
+                v-if="context.localCatalogTrace !== null || context.searchTrace !== null"
+                class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              >
                 <button
                   type="button"
                   class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50"
@@ -2314,11 +2371,11 @@ onBeforeUnmount(() => {
                 >
                   <span class="flex min-w-0 items-center gap-2">
                     <span class="shrink-0 text-xs font-bold text-slate-800">{{ t('bomSearchTrace.process') }}</span>
-                    <span class="min-w-0 truncate text-xs text-slate-600" :title="context.searchTrace.primaryQuery">{{ context.searchTrace.primaryQuery }}</span>
-                    <span v-if="context.searchTrace.fallbackUsed" class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{{ t('bomSearchTrace.fallbackBadge') }}</span>
+                    <span class="min-w-0 truncate text-xs text-slate-600" :title="searchTracePrimaryQuery">{{ searchTracePrimaryQuery }}</span>
+                    <span v-if="context.searchTrace?.fallbackUsed" class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{{ t('bomSearchTrace.fallbackBadge') }}</span>
                   </span>
                   <span class="flex shrink-0 items-center gap-2 text-[11px] font-semibold text-slate-500">
-                    {{ t('bomSearchTrace.attempts', { count: context.searchTrace.attemptCount }) }}
+                    {{ t('bomSearchTrace.attempts', { count: searchTraceStageCount }) }}
                     <span aria-hidden="true">{{ searchTraceExpanded ? '▴' : '▾' }}</span>
                   </span>
                 </button>
@@ -2327,32 +2384,65 @@ onBeforeUnmount(() => {
                     <p class="font-bold">{{ t('bomSearchTrace.finalCandidates', { count: context.candidates.length }) }}</p>
                     <p class="mt-0.5 text-blue-700">{{ t('bomSearchTrace.rawResponseHelp') }}</p>
                   </div>
-                  <div v-if="context.searchTrace.fallbackQuery !== null" class="mb-2 grid min-w-0 gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] sm:grid-cols-[auto_1fr]">
+                  <div v-if="context.searchTrace?.fallbackQuery" class="mb-2 grid min-w-0 gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] sm:grid-cols-[auto_1fr]">
                     <b class="text-amber-800">{{ t('bomSearchTrace.fallbackBadge') }}</b>
                     <span class="break-words text-amber-900">{{ context.searchTrace.fallbackQuery }}</span>
                   </div>
                   <ol class="space-y-1.5">
                     <li
-                      v-for="attempt in context.searchTrace.attempts"
-                      :key="attempt.sequence"
-                      class="grid gap-x-2 gap-y-1 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[11px] sm:grid-cols-[24px_108px_minmax(0,1fr)_auto] sm:items-start"
+                      v-if="context.localCatalogTrace !== null"
+                      :class="[
+                        'grid gap-x-2 gap-y-1 rounded-md border px-2.5 py-2 text-[11px] sm:grid-cols-[24px_132px_minmax(0,1fr)_auto] sm:items-start',
+                        localCatalogOutcomeClasses(context.localCatalogTrace),
+                      ]"
                     >
-                      <span class="flex size-5 items-center justify-center rounded-full bg-slate-100 font-bold tabular-nums text-slate-600">{{ attempt.sequence }}</span>
-                      <span class="font-semibold text-slate-700">
-                        {{ traceCodeLabel('stage', attempt.stage) }}
-                        <small class="block truncate font-normal uppercase text-slate-400">{{ attempt.supplier }}</small>
+                      <span class="flex size-5 items-center justify-center rounded-full bg-white/80 font-bold tabular-nums text-slate-600">1</span>
+                      <span class="font-semibold text-slate-800">
+                        SamplePCB 자체 카탈로그
+                        <small class="block font-normal uppercase text-slate-500">로컬 ES · API 0회</small>
                       </span>
                       <span class="min-w-0">
-                        <span class="mr-1.5 rounded bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700">{{ traceCodeLabel('strategy', attempt.strategy) }}</span>
-                        <span class="break-words text-slate-700">{{ attempt.query }}</span>
-                        <span v-if="attempt.fallbackReason !== null" class="mt-1 block text-amber-700">{{ traceCodeLabel('fallbackReason', attempt.fallbackReason) }}</span>
-                        <span v-if="attempt.errorType !== null" class="mt-1 block text-rose-700">{{ attempt.errorType }}</span>
+                        <span class="mr-1.5 rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700">우선 조회</span>
+                        <span class="break-words text-slate-700">{{ context.localCatalogTrace.query || '엔진 정규 검색조건' }}</span>
+                        <span
+                          v-if="localCatalogReasonLabel(context.localCatalogTrace.reason) !== null"
+                          class="mt-1 block text-slate-600"
+                        >{{ localCatalogReasonLabel(context.localCatalogTrace.reason) }}</span>
                       </span>
                       <span class="whitespace-nowrap text-right text-slate-500">
-                        <b class="text-slate-700">{{ traceOutcomeLabel(attempt) }}</b>
-                        <small class="block">{{ traceCodeLabel('source', attempt.source) }} · {{ traceElapsedLabel(attempt.elapsedMs) }}</small>
+                        <b class="text-slate-800">{{ localCatalogOutcomeLabel(context.localCatalogTrace) }}</b>
+                        <small class="block">
+                          후보 {{ context.localCatalogTrace.candidateCount.toLocaleString('ko-KR') }}개
+                          · 판정 {{ context.localCatalogTrace.evaluatedCandidateCount.toLocaleString('ko-KR') }}개
+                        </small>
+                        <small class="block">{{ traceElapsedLabel(context.localCatalogTrace.elapsedMs) }}</small>
                       </span>
                     </li>
+                    <template v-if="context.searchTrace !== null">
+                      <li
+                        v-for="attempt in context.searchTrace.attempts"
+                        :key="attempt.sequence"
+                        class="grid gap-x-2 gap-y-1 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[11px] sm:grid-cols-[24px_108px_minmax(0,1fr)_auto] sm:items-start"
+                      >
+                        <span class="flex size-5 items-center justify-center rounded-full bg-slate-100 font-bold tabular-nums text-slate-600">
+                          {{ attempt.sequence + (context.localCatalogTrace === null ? 0 : 1) }}
+                        </span>
+                        <span class="font-semibold text-slate-700">
+                          {{ traceCodeLabel('stage', attempt.stage) }}
+                          <small class="block truncate font-normal uppercase text-slate-400">{{ attempt.supplier }}</small>
+                        </span>
+                        <span class="min-w-0">
+                          <span class="mr-1.5 rounded bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700">{{ traceCodeLabel('strategy', attempt.strategy) }}</span>
+                          <span class="break-words text-slate-700">{{ attempt.query }}</span>
+                          <span v-if="attempt.fallbackReason !== null" class="mt-1 block text-amber-700">{{ traceCodeLabel('fallbackReason', attempt.fallbackReason) }}</span>
+                          <span v-if="attempt.errorType !== null" class="mt-1 block text-rose-700">{{ attempt.errorType }}</span>
+                        </span>
+                        <span class="whitespace-nowrap text-right text-slate-500">
+                          <b class="text-slate-700">{{ traceOutcomeLabel(attempt) }}</b>
+                          <small class="block">{{ traceCodeLabel('source', attempt.source) }} · {{ traceElapsedLabel(attempt.elapsedMs) }}</small>
+                        </span>
+                      </li>
+                    </template>
                   </ol>
                 </div>
               </section>

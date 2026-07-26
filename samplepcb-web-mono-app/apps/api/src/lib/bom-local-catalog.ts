@@ -101,6 +101,7 @@ const PreferredCatalogQuery = z
     part_type: z.string().nullish(),
     category_policy: z.string().nullish(),
     package: z.string().nullish(),
+    keywords: z.string().default(''),
     requirements: z.record(z.string(), PlannedRequirement).default({}),
   })
   .passthrough();
@@ -112,7 +113,16 @@ const SupplierPreflightPlan = z
         z
           .object({
             component_id: z.string().min(1),
+            mode: z.string().default(''),
+            part_number: z.string().nullish(),
+            manufacturer: z.string().nullish(),
+            keywords: z.string().default(''),
             planned_queries: z.array(PreferredCatalogQuery).default([]),
+            requirement_guidance: z
+              .object({
+                component_type: z.string().nullish(),
+              })
+              .nullish(),
           })
           .passthrough(),
       ),
@@ -481,12 +491,30 @@ async function searchPreferredPartIds(
     for (const [index, response] of responses.entries()) {
       const group = batch[index];
       if (group === undefined) continue;
-      const ids = response.hits.hits.flatMap((hit) =>
-        hit._source?.partId === undefined ? [] : [hit._source.partId]);
+      const ids = [...new Set(response.hits.hits.flatMap((hit) =>
+        hit._source?.partId === undefined ? [] : [hit._source.partId]))];
       for (const componentId of group.componentIds) result.set(componentId, ids);
     }
   }
   return result;
+}
+
+export type PreferredLocalCatalogOutcome =
+  | 'selected'
+  | 'no_candidates'
+  | 'rejected'
+  | 'skipped'
+  | 'error';
+
+export interface PreferredLocalCatalogTrace {
+  componentId: string;
+  query: string;
+  outcome: PreferredLocalCatalogOutcome;
+  candidateCount: number;
+  evaluatedCandidateCount: number;
+  selectedCandidateCount: number;
+  elapsedMs: number;
+  reason: string | null;
 }
 
 export interface PreferredLocalCatalogResult {
@@ -494,6 +522,41 @@ export interface PreferredLocalCatalogResult {
   resolvedComponentIds: string[];
   unresolvedComponentIds: string[];
   evaluatedComponentIds: string[];
+  traces: PreferredLocalCatalogTrace[];
+}
+
+function preferredCatalogPartType(
+  query: z.infer<typeof PreferredCatalogQuery>,
+): string {
+  return (query.part_type ?? query.category_policy ?? '').toLowerCase();
+}
+
+function isPreferredCatalogQuery(
+  query: z.infer<typeof PreferredCatalogQuery>,
+): boolean {
+  return ['resistor', 'capacitor'].includes(preferredCatalogPartType(query));
+}
+
+function preferredCatalogQueryLabel(
+  query: Pick<
+    z.infer<typeof PreferredCatalogQuery>,
+    'keywords' | 'manufacturer' | 'part_number' | 'part_type' | 'category_policy' | 'package'
+  >,
+): string {
+  const keywords = query.keywords.trim();
+  if (keywords !== '') return keywords;
+  const identity = [query.manufacturer, query.part_number]
+    .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+    .map((value) => value.trim())
+    .join(' ');
+  if (identity !== '') return identity;
+  return [
+    query.part_type ?? query.category_policy,
+    query.package,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+    .map((value) => value.trim())
+    .join(' ');
 }
 
 /**
@@ -515,16 +578,73 @@ export async function evaluatePreferredLocalCatalog(
       resolvedComponentIds: [],
       unresolvedComponentIds: [],
       evaluatedComponentIds: [],
+      traces: [],
     };
   }
+  const startedAt = Date.now();
   const allComponentIds = parsed.data.plan.components.map((component) => component.component_id);
-  const queries = parsed.data.plan.components.flatMap((component) =>
-    component.planned_queries.length === 1
-      ? component.planned_queries
-      : [],
-  );
+  const tracesByComponent = new Map<string, PreferredLocalCatalogTrace>();
+  const queries: z.infer<typeof PreferredCatalogQuery>[] = [];
+  for (const component of parsed.data.plan.components) {
+    const preferredQueries = component.planned_queries.filter(isPreferredCatalogQuery);
+    const componentType = component.requirement_guidance?.component_type?.toLowerCase() ?? '';
+    if (
+      preferredQueries.length === 0
+      && componentType !== 'resistor'
+      && componentType !== 'capacitor'
+    ) continue;
+    const query = preferredQueries[0];
+    const queryLabel = query === undefined
+      ? component.keywords.trim() !== ''
+        ? component.keywords.trim()
+        : [component.manufacturer, component.part_number]
+            .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+            .map((value) => value.trim())
+            .join(' ')
+      : preferredCatalogQueryLabel(query);
+    const trace: PreferredLocalCatalogTrace = {
+      componentId: component.component_id,
+      query: queryLabel,
+      outcome: 'skipped',
+      candidateCount: 0,
+      evaluatedCandidateCount: 0,
+      selectedCandidateCount: 0,
+      elapsedMs: 0,
+      reason: 'query_not_eligible',
+    };
+    tracesByComponent.set(component.component_id, trace);
+    if (
+      component.planned_queries.length !== 1
+      || preferredQueries.length !== 1
+      || query === undefined
+    ) {
+      trace.reason = component.planned_queries.length > 1
+        ? 'multiple_query_plans'
+        : 'query_not_eligible';
+      continue;
+    }
+    if (preferredCatalogSearchQuery(query) === null) continue;
+    queries.push(query);
+  }
+  const traces = (): PreferredLocalCatalogTrace[] => {
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    return [...tracesByComponent.values()].map((trace) => ({
+      ...trace,
+      elapsedMs,
+    }));
+  };
   try {
     const partIdsByComponent = await searchPreferredPartIds(queries);
+    for (const query of queries) {
+      const trace = tracesByComponent.get(query.component_id);
+      if (trace === undefined) continue;
+      const candidateCount = partIdsByComponent.get(query.component_id)?.length ?? 0;
+      trace.candidateCount = candidateCount;
+      trace.outcome = candidateCount === 0 ? 'no_candidates' : 'skipped';
+      trace.reason = candidateCount === 0
+        ? 'catalog_candidates_not_found'
+        : 'catalog_products_unavailable';
+    }
     const partIds = [...new Set([...partIdsByComponent.values()].flat())];
     const parts: PreferredCatalogPartRow[] = partIds.length === 0
       ? []
@@ -566,6 +686,13 @@ export async function evaluatePreferredLocalCatalog(
           return product === undefined ? [] : [product];
         })
         .slice(0, PREFERRED_CATALOG_SEARCH_SIZE);
+      const trace = tracesByComponent.get(query.component_id);
+      if (trace !== undefined) {
+        trace.evaluatedCandidateCount = products.length;
+        if (products.length === 0 && trace.candidateCount > 0) {
+          trace.outcome = 'no_candidates';
+        }
+      }
       return products.length === 0 ? [] : [{ query, products }];
     });
     if (inputs.length === 0) {
@@ -574,6 +701,7 @@ export async function evaluatePreferredLocalCatalog(
         resolvedComponentIds: [],
         unresolvedComponentIds: allComponentIds,
         evaluatedComponentIds: [],
+        traces: traces(),
       };
     }
     const evaluated = await evaluateCatalogBatch(inputs, procurementPolicy);
@@ -587,6 +715,23 @@ export async function evaluatePreferredLocalCatalog(
     });
     const resolvedIds = [...new Set(resolved.map((item) => item.component_id))];
     const resolvedSet = new Set(resolvedIds);
+    const evaluatedIds = [...new Set(evaluated.map((item) => item.component_id))];
+    const evaluatedSet = new Set(evaluatedIds);
+    for (const input of inputs) {
+      const trace = tracesByComponent.get(input.query.component_id);
+      if (trace === undefined) continue;
+      if (resolvedSet.has(input.query.component_id)) {
+        trace.outcome = 'selected';
+        trace.selectedCandidateCount = 1;
+        trace.reason = null;
+      } else if (evaluatedSet.has(input.query.component_id)) {
+        trace.outcome = 'rejected';
+        trace.reason = 'engine_not_selected';
+      } else {
+        trace.outcome = 'error';
+        trace.reason = 'evaluation_result_missing';
+      }
+    }
     return {
       envelope: resolved.length === 0
         ? null
@@ -609,15 +754,24 @@ export async function evaluatePreferredLocalCatalog(
           },
       resolvedComponentIds: resolvedIds,
       unresolvedComponentIds: allComponentIds.filter((componentId) => !resolvedSet.has(componentId)),
-      evaluatedComponentIds: [...new Set(evaluated.map((item) => item.component_id))],
+      evaluatedComponentIds: evaluatedIds,
+      traces: traces(),
     };
   } catch (error) {
     log?.warn({ err: String(error) }, 'SamplePCB 로컬 우선 카탈로그 평가 실패');
+    for (const query of queries) {
+      const trace = tracesByComponent.get(query.component_id);
+      if (trace === undefined) continue;
+      trace.outcome = 'error';
+      trace.selectedCandidateCount = 0;
+      trace.reason = 'lookup_failed';
+    }
     return {
       envelope: null,
       resolvedComponentIds: [],
       unresolvedComponentIds: allComponentIds,
       evaluatedComponentIds: [],
+      traces: traces(),
     };
   }
 }

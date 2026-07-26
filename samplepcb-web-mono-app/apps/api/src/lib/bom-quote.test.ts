@@ -15,11 +15,58 @@ import {
   isEngineManagedQuoteSelection,
   loadSupplierSearchSummary,
   projectEnginePartSearchResult,
+  quoteLocalCatalogTrace,
   quoteCandidatePartsSearchable,
   retainQuoteCandidateSnapshots,
   resolvePartDataStatus,
   selectEngineMatch,
 } from './bom-quote';
+
+describe('SamplePCB 로컬 카탈로그 검색 과정', () => {
+  it('실행 preflight의 부품별 기록을 후보 API 계약으로 투영한다', () => {
+    expect(quoteLocalCatalogTrace({
+      local_catalog: {
+        version: 'samplepcb-local-catalog-trace-v1',
+        evaluated_components: 1,
+        resolved_components: 1,
+        external_components: 0,
+        components: [
+          {
+            component_id: 'resistor-1',
+            query: '10k 0603 1% resistor',
+            outcome: 'selected',
+            candidate_count: 3,
+            evaluated_candidate_count: 3,
+            selected_candidate_count: 1,
+            api_calls: 0,
+            elapsed_ms: 18,
+            reason: null,
+          },
+        ],
+      },
+    }, 'resistor-1')).toEqual({
+      version: 'samplepcb-local-catalog-trace-v1',
+      query: '10k 0603 1% resistor',
+      outcome: 'selected',
+      candidateCount: 3,
+      evaluatedCandidateCount: 3,
+      selectedCandidateCount: 1,
+      apiCalls: 0,
+      elapsedMs: 18,
+      reason: null,
+    });
+  });
+
+  it('구형 실행 또는 다른 부품의 로컬 기록은 null로 읽는다', () => {
+    expect(quoteLocalCatalogTrace({}, 'resistor-1')).toBeNull();
+    expect(quoteLocalCatalogTrace({
+      local_catalog: {
+        version: 'samplepcb-local-catalog-trace-v1',
+        components: [],
+      },
+    }, 'resistor-1')).toBeNull();
+  });
+});
 
 describe('사용자 행 검색조건 계약', () => {
   it('저항 핵심값과 패키지를 받고 TCR은 계약에서 제외한다', () => {

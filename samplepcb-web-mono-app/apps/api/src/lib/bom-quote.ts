@@ -24,6 +24,7 @@ import {
   type BomQuoteItemCandidatesType,
   type BomQuoteItemInputType,
   type BomQuoteItemType,
+  type BomQuoteLocalCatalogTraceType,
   type BomQuoteMatchEvidenceType,
   type BomQuotePatchBodyType,
   type BomQuoteRecommendationTypeType,
@@ -338,6 +339,33 @@ const EngineSupplierSearchTrace = z.object({
   attempts: z.array(EngineSupplierSearchTraceAttempt),
 });
 
+const StoredPreferredLocalCatalogPreflight = z
+  .object({
+    local_catalog: z.object({
+      version: z.literal('samplepcb-local-catalog-trace-v1'),
+      components: z.array(
+        z.object({
+          component_id: z.string(),
+          query: z.string(),
+          outcome: z.enum([
+            'selected',
+            'no_candidates',
+            'rejected',
+            'skipped',
+            'error',
+          ]),
+          candidate_count: z.number().int().min(0),
+          evaluated_candidate_count: z.number().int().min(0),
+          selected_candidate_count: z.number().int().min(0),
+          api_calls: z.literal(0),
+          elapsed_ms: z.number().min(0),
+          reason: z.string().nullish(),
+        }),
+      ),
+    }),
+  })
+  .passthrough();
+
 const EngineProcurementUnavailabilityReason = z.enum([
   'out_of_stock',
   'insufficient_stock',
@@ -594,6 +622,29 @@ function quoteSearchTrace(trace: EngineSupplierSearchTraceType): BomQuoteSearchT
       fallbackReason: attempt.fallback_reason ?? null,
       errorType: attempt.error_type ?? null,
     })),
+  };
+}
+
+export function quoteLocalCatalogTrace(
+  preflight: unknown,
+  componentId: string,
+): BomQuoteLocalCatalogTraceType | null {
+  const parsed = StoredPreferredLocalCatalogPreflight.safeParse(preflight);
+  if (!parsed.success) return null;
+  const trace = parsed.data.local_catalog.components.find(
+    (component) => component.component_id === componentId,
+  );
+  if (trace === undefined) return null;
+  return {
+    version: parsed.data.local_catalog.version,
+    query: trace.query,
+    outcome: trace.outcome,
+    candidateCount: trace.candidate_count,
+    evaluatedCandidateCount: trace.evaluated_candidate_count,
+    selectedCandidateCount: trace.selected_candidate_count,
+    apiCalls: trace.api_calls,
+    elapsedMs: trace.elapsed_ms,
+    reason: trace.reason ?? null,
   };
 }
 
@@ -3138,22 +3189,34 @@ export async function getQuoteItemCandidates(
     prisma.spBomQuoteSelectionEvent.findMany({ where: { quoteId, quoteItemId: itemId }, orderBy: { createdAt: 'desc' }, take: 20 }),
   ]);
   if (itemRow === null) return null;
-  const searchTraceRow = itemRow.analysisComponent?.engineComponentId === undefined
-    ? null
-    : await prisma.spBomSupplierSearchTrace.findFirst({
-        where: {
-          supplierSearchRun: { quoteId },
-          engineComponentId: itemRow.analysisComponent.engineComponentId,
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { payload: true },
-      });
+  const engineComponentId = itemRow.analysisComponent?.engineComponentId;
+  const [searchTraceRow, supplierSearchRun] = engineComponentId === undefined
+    ? [null, null]
+    : await Promise.all([
+        prisma.spBomSupplierSearchTrace.findFirst({
+          where: {
+            supplierSearchRun: { quoteId },
+            engineComponentId,
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { payload: true },
+        }),
+        quote.activeSupplierSearchRunId === null
+          ? Promise.resolve(null)
+          : prisma.spBomSupplierSearchRun.findUnique({
+              where: { id: quote.activeSupplierSearchRunId },
+              select: { preflight: true },
+            }),
+      ]);
   const storedSearchTrace = searchTraceRow === null
     ? null
     : EngineSupplierSearchTrace.safeParse(searchTraceRow.payload);
   const searchTrace = storedSearchTrace?.success === true
     ? quoteSearchTrace(storedSearchTrace.data)
     : null;
+  const localCatalogTrace = supplierSearchRun === null || engineComponentId === undefined
+    ? null
+    : quoteLocalCatalogTrace(supplierSearchRun.preflight, engineComponentId);
   const storedSearchRequirements = BomQuoteSearchRequirements.safeParse(
     itemRow.searchRequirements,
   );
@@ -3308,6 +3371,7 @@ export async function getQuoteItemCandidates(
     procurementUnavailabilityReason:
       item.matchEvidence?.procurementUnavailabilityReason ?? null,
     decisionReasonCodes: item.matchEvidence?.decisionReasonCodes ?? [],
+    localCatalogTrace,
     searchTrace,
     candidates,
     events: eventRows.map(selectionEventDto),

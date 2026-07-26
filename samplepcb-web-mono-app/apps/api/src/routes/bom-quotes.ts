@@ -34,7 +34,10 @@ import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
 import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy';
-import { evaluatePreferredLocalCatalog } from '../lib/bom-local-catalog';
+import {
+  evaluatePreferredLocalCatalog,
+  type PreferredLocalCatalogResult,
+} from '../lib/bom-local-catalog';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { buildEngineProcurementPolicy } from '../lib/bom-procurement-policy';
 import {
@@ -170,6 +173,34 @@ function prismaJsonObject(value: unknown): Prisma.JsonObject | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value
     : null;
+}
+
+function preferredLocalCatalogPreflight(
+  result: PreferredLocalCatalogResult,
+  appliedResolvedComponentIds: readonly string[],
+  externalComponentCount: number,
+): Prisma.InputJsonObject {
+  const appliedResolved = new Set(appliedResolvedComponentIds);
+  return {
+    version: 'samplepcb-local-catalog-trace-v1',
+    evaluated_components: result.evaluatedComponentIds.length,
+    resolved_components: appliedResolvedComponentIds.length,
+    external_components: externalComponentCount,
+    components: result.traces.map((trace) => {
+      const applyFailed = trace.outcome === 'selected' && !appliedResolved.has(trace.componentId);
+      return {
+        component_id: trace.componentId,
+        query: trace.query,
+        outcome: applyFailed ? 'error' : trace.outcome,
+        candidate_count: trace.candidateCount,
+        evaluated_candidate_count: trace.evaluatedCandidateCount,
+        selected_candidate_count: applyFailed ? 0 : trace.selectedCandidateCount,
+        api_calls: 0,
+        elapsed_ms: trace.elapsedMs,
+        reason: applyFailed ? 'quote_apply_failed' : trace.reason,
+      };
+    }),
+  };
 }
 
 async function loadOwnQuote(id: bigint, mbId: string) {
@@ -424,13 +455,21 @@ async function autoEnrichQuote(
 
   if (fullComponentIds.length > 0 && unresolvedComponentIds.length === 0) {
     const completedAt = new Date();
+    const localCatalogPreflight = preferredLocalCatalogPreflight(
+      localCatalog,
+      localResolved,
+      0,
+    );
     await prisma.$transaction([
       prisma.spBomSupplierSearchRun.update({
         where: { id: searchRun.id },
         data: {
           status: 'completed',
           options: baseSearchOptions,
-          preflight: fullPreflight,
+          preflight: {
+            ...fullPreflight,
+            local_catalog: localCatalogPreflight,
+          },
           startedAt: completedAt,
           completedAt,
           error: null,
@@ -492,17 +531,18 @@ async function autoEnrichQuote(
       return await markFailed('supplier_preflight_unreachable');
     }
   }
+  const localCatalogPreflight = preferredLocalCatalogPreflight(
+    localCatalog,
+    localResolved,
+    unresolvedComponentIds.length,
+  );
   await prisma.spBomSupplierSearchRun.update({
     where: { id: searchRun.id },
     data: {
       options: searchOptions,
       preflight: {
         ...pf,
-        local_catalog: {
-          evaluated_components: localCatalog.evaluatedComponentIds.length,
-          resolved_components: localResolved.length,
-          external_components: unresolvedComponentIds.length,
-        },
+        local_catalog: localCatalogPreflight,
       },
     },
   });

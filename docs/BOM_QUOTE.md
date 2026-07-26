@@ -123,6 +123,12 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   BOM 셀의 긴 품번도 검색 자체는 바꾸지 않고 trace 표기만 500자로 제한한다. trace 조립·파싱 실패는
   검색 배치나 견적 판정 실패로 승격하지 않으며, sp-node는 componentId와 계약 경로를 경고한 뒤 해당
   trace만 생략한다. 조달 결정 계약의 엄격 검증은 이 관측 데이터 축퇴와 무관하게 그대로 유지한다.
+- **SamplePCB 우선 조회 provenance(2026-07-26)**: R/C는 외부 공급사 검색 전에 SamplePCB
+  자체 카탈로그를 조회한다. 이 단계는 외부 공급사 trace로 위장하지 않고 검색 실행의 `preflight`
+  JSON에 부품별 정규 검색어·로컬 후보 수·엔진 판정 수·선정 결과·소요시간을 별도 저장한다.
+  후보 비교의 `검색 과정`에서는 항상 첫 단계로 표시하고 `API 0회`를 명시하며, 이후 실제
+  DigiKey·Mouser·UniKeyIC 시도는 기존 순서대로 이어서 보여준다. 구형 실행에는 이 기록이 없어
+  `localCatalogTrace=null`로 읽기 호환한다.
 - **생명주기 상태 기계(2026-07-19 정석화)**: `sp_bom_quote.enrichStatus`
   (`idle|searching|done|failed`) + `enrichedAt` — **서버 영속 단일 진실**. 전이:
   build 가 보강 필요를 동기 선판정해 **items 와 `searching` 을 함께 커밋**("items 는 있는데

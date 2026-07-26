@@ -406,6 +406,7 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
               part_type: 'resistor',
               category_policy: 'resistor',
               package: '0603',
+              keywords: '10k 0603 1% resistor',
               requirements: {
                 part_type: {
                   normalized_value: 'resistor',
@@ -519,6 +520,17 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
     expect(result.resolvedComponentIds).toEqual(['resistor-1']);
     expect(result.unresolvedComponentIds).toEqual(['connector-1']);
     expect(result.envelope).not.toBeNull();
+    expect(result.traces).toEqual([
+      expect.objectContaining({
+        componentId: 'resistor-1',
+        query: '10k 0603 1% resistor',
+        outcome: 'selected',
+        candidateCount: 1,
+        evaluatedCandidateCount: 1,
+        selectedCandidateCount: 1,
+        reason: null,
+      }),
+    ]);
   });
 
   it('엔진이 선정하지 않은 로컬 후보는 외부 검색 대상으로 남긴다', async () => {
@@ -566,5 +578,36 @@ describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
     expect(result.resolvedComponentIds).toEqual([]);
     expect(result.unresolvedComponentIds).toEqual(['resistor-1', 'connector-1']);
     expect(result.envelope).toBeNull();
+    expect(result.traces).toEqual([
+      expect.objectContaining({
+        componentId: 'resistor-1',
+        outcome: 'rejected',
+        candidateCount: 1,
+        evaluatedCandidateCount: 1,
+        selectedCandidateCount: 0,
+        reason: 'engine_not_selected',
+      }),
+    ]);
+  });
+
+  it('SamplePCB ES 후보가 없으면 외부 호출 전 단계를 후보 없음으로 기록한다', async () => {
+    mocks.search.mockResolvedValue({ hits: { hits: [] } });
+
+    const result = await evaluatePreferredLocalCatalog(preflight, {});
+
+    expect(mocks.engineFetch).not.toHaveBeenCalled();
+    expect(result.resolvedComponentIds).toEqual([]);
+    expect(result.unresolvedComponentIds).toEqual(['resistor-1', 'connector-1']);
+    expect(result.traces).toEqual([
+      expect.objectContaining({
+        componentId: 'resistor-1',
+        query: '10k 0603 1% resistor',
+        outcome: 'no_candidates',
+        candidateCount: 0,
+        evaluatedCandidateCount: 0,
+        selectedCandidateCount: 0,
+        reason: 'catalog_candidates_not_found',
+      }),
+    ]);
   });
 });
