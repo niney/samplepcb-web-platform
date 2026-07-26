@@ -182,7 +182,7 @@ function preferredLocalCatalogPreflight(
 ): Prisma.InputJsonObject {
   const appliedResolved = new Set(appliedResolvedComponentIds);
   return {
-    version: 'local-catalog-trace-v2',
+    version: 'local-catalog-trace-v3',
     evaluated_components: result.evaluatedComponentIds.length,
     resolved_components: appliedResolvedComponentIds.length,
     external_components: externalComponentCount,
@@ -199,6 +199,62 @@ function preferredLocalCatalogPreflight(
         api_calls: 0,
         elapsed_ms: trace.elapsedMs,
         reason: applyFailed ? 'quote_apply_failed' : trace.reason,
+        decision_summary: trace.decisionSummary === null
+          ? null
+          : {
+              component_status: trace.decisionSummary.componentStatus,
+              procurement_status: trace.decisionSummary.procurementStatus,
+              selection_application_state:
+                trace.decisionSummary.selectionApplicationState,
+              primary_unavailability_reason:
+                trace.decisionSummary.primaryUnavailabilityReason,
+              recommendation_reason_codes:
+                trace.decisionSummary.recommendationReasonCodes,
+              automatic_candidate_count:
+                trace.decisionSummary.automaticCandidateCount,
+              review_candidate_count: trace.decisionSummary.reviewCandidateCount,
+              blocked_candidate_count: trace.decisionSummary.blockedCandidateCount,
+              unclassified_candidate_count:
+                trace.decisionSummary.unclassifiedCandidateCount,
+              reason_counts: trace.decisionSummary.reasonCounts,
+              representative_candidate:
+                trace.decisionSummary.representativeCandidate === null
+                  ? null
+                  : {
+                      mpn: trace.decisionSummary.representativeCandidate.mpn,
+                      manufacturer_name:
+                        trace.decisionSummary.representativeCandidate.manufacturerName,
+                      status:
+                        trace.decisionSummary.representativeCandidate.status,
+                      selection_eligibility:
+                        trace.decisionSummary.representativeCandidate.selectionEligibility,
+                      verified_requirement_count:
+                        trace.decisionSummary.representativeCandidate
+                          .verifiedRequirementCount,
+                      required_requirement_count:
+                        trace.decisionSummary.representativeCandidate
+                          .requiredRequirementCount,
+                      conflicts:
+                        trace.decisionSummary.representativeCandidate.conflicts,
+                      missing_requirements:
+                        trace.decisionSummary.representativeCandidate
+                          .missingRequirements,
+                      reason_codes:
+                        trace.decisionSummary.representativeCandidate.reasonCodes,
+                      requirement_assessments:
+                        trace.decisionSummary.representativeCandidate
+                          .requirementAssessments
+                          .map((assessment) => ({
+                            key: assessment.key,
+                            comparison: assessment.comparison,
+                            state: assessment.state,
+                            verified: assessment.verified,
+                            expected_display: assessment.expectedDisplay,
+                            actual_display: assessment.actualDisplay,
+                            source: assessment.source,
+                          })),
+                    },
+            },
       };
     }),
   };

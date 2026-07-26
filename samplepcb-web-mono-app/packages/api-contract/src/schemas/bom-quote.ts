@@ -135,9 +135,62 @@ export type BomQuoteLocalCatalogTypeType = z.infer<
   typeof BomQuoteLocalCatalogType
 >;
 
+export const BomQuoteLocalCatalogReasonKind = z.enum([
+  'conflict',
+  'missing_requirement',
+  'decision',
+]);
+
+export const BomQuoteLocalCatalogReasonCount = z.object({
+  kind: BomQuoteLocalCatalogReasonKind,
+  code: z.string(),
+  count: z.number().int().min(1),
+});
+
+export const BomQuoteLocalCatalogRequirementAssessment = z.object({
+  key: z.string(),
+  comparison: z.enum(['eq', 'gte', 'lte', 'contains', 'category']),
+  state: z.enum(['match', 'mismatch', 'missing', 'not_applicable', 'unverified']),
+  verified: z.boolean(),
+  expectedDisplay: z.string().nullable(),
+  actualDisplay: z.string().nullable(),
+  source: z.enum(['bom', 'user', 'policy_default', 'unknown']),
+});
+
+export const BomQuoteLocalCatalogRepresentativeCandidate = z.object({
+  mpn: z.string(),
+  manufacturerName: z.string().nullable(),
+  status: z.string(),
+  selectionEligibility: z.enum(['automatic', 'manual_review', 'blocked']).nullable(),
+  verifiedRequirementCount: z.number().int().min(0),
+  requiredRequirementCount: z.number().int().min(0),
+  conflicts: z.array(z.string()),
+  missingRequirements: z.array(z.string()),
+  reasonCodes: z.array(z.string()),
+  requirementAssessments: z.array(BomQuoteLocalCatalogRequirementAssessment),
+});
+
+/**
+ * 로컬 후보 전체 원문 대신 저장하는 표시용 엔진 판정 요약.
+ * 기술·조달 판단은 sp-engine 결과를 그대로 투영하며 Node가 재판정하지 않는다.
+ */
+export const BomQuoteLocalCatalogDecisionSummary = z.object({
+  componentStatus: z.string(),
+  procurementStatus: z.string().nullable(),
+  selectionApplicationState: BomQuoteSelectionApplicationState.nullable(),
+  primaryUnavailabilityReason: z.string().nullable(),
+  recommendationReasonCodes: z.array(z.string()),
+  automaticCandidateCount: z.number().int().min(0),
+  reviewCandidateCount: z.number().int().min(0),
+  blockedCandidateCount: z.number().int().min(0),
+  unclassifiedCandidateCount: z.number().int().min(0),
+  reasonCounts: z.array(BomQuoteLocalCatalogReasonCount),
+  representativeCandidate: BomQuoteLocalCatalogRepresentativeCandidate.nullable(),
+});
+
 /** 외부 공급사 호출보다 먼저 수행한 부품 유형별 자체 카탈로그 조회 한 단계. */
 export const BomQuoteLocalCatalogTrace = z.object({
-  version: z.literal('local-catalog-trace-v2'),
+  version: z.literal('local-catalog-trace-v3'),
   catalogType: BomQuoteLocalCatalogType,
   query: z.string(),
   outcome: BomQuoteLocalCatalogOutcome,
@@ -147,6 +200,8 @@ export const BomQuoteLocalCatalogTrace = z.object({
   apiCalls: z.literal(0),
   elapsedMs: z.number().min(0),
   reason: z.string().nullable(),
+  /** v1·v2 저장 기록은 null로 호환 투영한다. */
+  decisionSummary: BomQuoteLocalCatalogDecisionSummary.nullable(),
 });
 export type BomQuoteLocalCatalogTraceType = z.infer<
   typeof BomQuoteLocalCatalogTrace

@@ -70,14 +70,62 @@ const LocalFallbackEnvelope = z
   })
   .passthrough();
 
+const CatalogEvaluationRequirementAssessment = z
+  .object({
+    key: z.string(),
+    comparison: z.enum(['eq', 'gte', 'lte', 'contains', 'category']),
+    state: z.enum(['match', 'mismatch', 'missing', 'not_applicable', 'unverified']),
+    verified: z.boolean(),
+    source: z.enum(['bom', 'user', 'policy_default', 'unknown']).default('unknown'),
+    expected_display: z.string().nullish(),
+    actual_display: z.string().nullish(),
+  })
+  .passthrough();
+
+const CatalogEvaluationCandidateDecision = z
+  .object({
+    selection_eligibility: z.enum(['automatic', 'manual_review', 'blocked']),
+    reason_codes: z.array(z.string()).default([]),
+    verified_requirement_count: z.number().int().min(0).default(0),
+    required_requirement_count: z.number().int().min(0).default(0),
+    requirement_assessments: z.array(CatalogEvaluationRequirementAssessment).default([]),
+  })
+  .passthrough();
+
+const CatalogEvaluationCandidate = z
+  .object({
+    status: z.string().default('unknown'),
+    conflicts: z.array(z.string()).default([]),
+    missing_requirements: z.array(z.string()).default([]),
+    product: z
+      .object({
+        manufacturer_part_number: z.string(),
+        manufacturer: z.string().nullish(),
+      })
+      .passthrough(),
+    decision: CatalogEvaluationCandidateDecision.nullish(),
+  })
+  .passthrough();
+
+const CatalogEvaluationProcurementDecision = z
+  .object({
+    status: z.string().nullish(),
+    selection_application_state: z
+      .enum(['automatic_selected', 'provisional_selected', 'not_selected'])
+      .nullish(),
+    primary_unavailability_reason: z.string().nullish(),
+    recommendation_reason_codes: z.array(z.string()).default([]),
+  })
+  .passthrough();
+
 const CatalogEvaluationResponse = z.object({
   items: z.array(
     z
       .object({
         component_id: z.string(),
         status: z.string(),
-        candidates: z.array(z.unknown()),
-        procurement_decision: z.unknown(),
+        candidates: z.array(CatalogEvaluationCandidate),
+        procurement_decision: CatalogEvaluationProcurementDecision.nullish(),
         warnings: z.array(z.string()).default([]),
       })
       .passthrough(),
@@ -175,6 +223,8 @@ const LOCAL_FALLBACK_STATUSES = new Set(['not_found', 'supplier_error']);
 const CATALOG_EVALUATION_BATCH_SIZE = 200;
 const PREFERRED_CATALOG_SEARCH_SIZE = 20;
 const PREFERRED_CATALOG_SEARCH_CONCURRENCY = 20;
+const PREFERRED_CATALOG_REASON_COUNT_LIMIT = 8;
+const PREFERRED_CATALOG_REQUIREMENT_ASSESSMENT_LIMIT = 20;
 type EsSearchQuery = NonNullable<estypes.SearchRequest['query']>;
 
 export type PreferredLocalCatalogType = 'samplepcb_rc' | 'connector';
@@ -597,6 +647,48 @@ export interface PreferredLocalCatalogTrace {
   selectedCandidateCount: number;
   elapsedMs: number;
   reason: string | null;
+  decisionSummary: PreferredLocalCatalogDecisionSummary | null;
+}
+
+export interface PreferredLocalCatalogDecisionSummary {
+  componentStatus: string;
+  procurementStatus: string | null;
+  selectionApplicationState:
+    | 'automatic_selected'
+    | 'provisional_selected'
+    | 'not_selected'
+    | null;
+  primaryUnavailabilityReason: string | null;
+  recommendationReasonCodes: string[];
+  automaticCandidateCount: number;
+  reviewCandidateCount: number;
+  blockedCandidateCount: number;
+  unclassifiedCandidateCount: number;
+  reasonCounts: {
+    kind: 'conflict' | 'missing_requirement' | 'decision';
+    code: string;
+    count: number;
+  }[];
+  representativeCandidate: {
+    mpn: string;
+    manufacturerName: string | null;
+    status: string;
+    selectionEligibility: 'automatic' | 'manual_review' | 'blocked' | null;
+    verifiedRequirementCount: number;
+    requiredRequirementCount: number;
+    conflicts: string[];
+    missingRequirements: string[];
+    reasonCodes: string[];
+    requirementAssessments: {
+      key: string;
+      comparison: 'eq' | 'gte' | 'lte' | 'contains' | 'category';
+      state: 'match' | 'mismatch' | 'missing' | 'not_applicable' | 'unverified';
+      verified: boolean;
+      expectedDisplay: string | null;
+      actualDisplay: string | null;
+      source: 'bom' | 'user' | 'policy_default' | 'unknown';
+    }[];
+  } | null;
 }
 
 export interface PreferredLocalCatalogResult {
@@ -605,6 +697,114 @@ export interface PreferredLocalCatalogResult {
   unresolvedComponentIds: string[];
   evaluatedComponentIds: string[];
   traces: PreferredLocalCatalogTrace[];
+}
+
+function preferredCatalogDecisionSummary(
+  item: CatalogEvaluationItemType,
+): PreferredLocalCatalogDecisionSummary {
+  const reasonCounts = new Map<
+    string,
+    PreferredLocalCatalogDecisionSummary['reasonCounts'][number]
+  >();
+  let automaticCandidateCount = 0;
+  let reviewCandidateCount = 0;
+  let blockedCandidateCount = 0;
+  let unclassifiedCandidateCount = 0;
+
+  const countReasons = (
+    kind: PreferredLocalCatalogDecisionSummary['reasonCounts'][number]['kind'],
+    codes: readonly string[],
+  ): void => {
+    for (const code of new Set(codes.map((value) => value.trim()).filter(Boolean))) {
+      const key = `${kind}:${code}`;
+      const current = reasonCounts.get(key);
+      reasonCounts.set(key, {
+        kind,
+        code,
+        count: (current?.count ?? 0) + 1,
+      });
+    }
+  };
+
+  for (const candidate of item.candidates) {
+    switch (candidate.decision?.selection_eligibility) {
+      case 'automatic':
+        automaticCandidateCount += 1;
+        break;
+      case 'manual_review':
+        reviewCandidateCount += 1;
+        break;
+      case 'blocked':
+        blockedCandidateCount += 1;
+        break;
+      case undefined:
+        unclassifiedCandidateCount += 1;
+        break;
+    }
+    countReasons('conflict', candidate.conflicts);
+    countReasons('missing_requirement', candidate.missing_requirements);
+    countReasons('decision', candidate.decision?.reason_codes ?? []);
+  }
+
+  const kindRank: Record<
+    PreferredLocalCatalogDecisionSummary['reasonCounts'][number]['kind'],
+    number
+  > = {
+    conflict: 0,
+    missing_requirement: 1,
+    decision: 2,
+  };
+  const representative = item.candidates.find((candidate) => candidate.decision != null)
+    ?? item.candidates[0];
+
+  return {
+    componentStatus: item.status,
+    procurementStatus: item.procurement_decision?.status ?? null,
+    selectionApplicationState:
+      item.procurement_decision?.selection_application_state ?? null,
+    primaryUnavailabilityReason:
+      item.procurement_decision?.primary_unavailability_reason ?? null,
+    recommendationReasonCodes: [
+      ...new Set(item.procurement_decision?.recommendation_reason_codes ?? []),
+    ],
+    automaticCandidateCount,
+    reviewCandidateCount,
+    blockedCandidateCount,
+    unclassifiedCandidateCount,
+    reasonCounts: [...reasonCounts.values()]
+      .sort((left, right) =>
+        right.count - left.count
+        || kindRank[left.kind] - kindRank[right.kind]
+        || left.code.localeCompare(right.code))
+      .slice(0, PREFERRED_CATALOG_REASON_COUNT_LIMIT),
+    representativeCandidate: representative === undefined
+      ? null
+      : {
+          mpn: representative.product.manufacturer_part_number,
+          manufacturerName: representative.product.manufacturer ?? null,
+          status: representative.status,
+          selectionEligibility: representative.decision?.selection_eligibility ?? null,
+          verifiedRequirementCount:
+            representative.decision?.verified_requirement_count ?? 0,
+          requiredRequirementCount:
+            representative.decision?.required_requirement_count ?? 0,
+          conflicts: representative.conflicts,
+          missingRequirements: representative.missing_requirements,
+          reasonCodes: representative.decision?.reason_codes ?? [],
+          requirementAssessments:
+            representative.decision?.requirement_assessments
+              .slice(0, PREFERRED_CATALOG_REQUIREMENT_ASSESSMENT_LIMIT)
+              .map((assessment) => ({
+                key: assessment.key,
+                comparison: assessment.comparison,
+                state: assessment.state,
+                verified: assessment.verified,
+                expectedDisplay: assessment.expected_display ?? null,
+                actualDisplay: assessment.actual_display ?? null,
+                source: assessment.source,
+              })) ?? [],
+        },
+  };
 }
 
 function preferredCatalogQueryLabel(
@@ -689,6 +889,7 @@ export async function evaluatePreferredLocalCatalog(
       selectedCandidateCount: 0,
       elapsedMs: 0,
       reason: 'query_not_eligible',
+      decisionSummary: null,
     };
     tracesByComponent.set(component.component_id, trace);
     if (
@@ -797,20 +998,24 @@ export async function evaluatePreferredLocalCatalog(
     }
     const evaluated = await evaluateCatalogBatch(inputs, procurementPolicy);
     const queryByComponent = new Map(inputs.map((input) => [input.query.component_id, input.query]));
-    const resolved = evaluated.filter((item) => {
-      const decision = item.procurement_decision;
-      return decision !== null
-        && typeof decision === 'object'
-        && !Array.isArray(decision)
-        && (decision as Record<string, unknown>).selection_application_state === 'automatic_selected';
-    });
+    const resolved = evaluated.filter(
+      (item) =>
+        item.procurement_decision?.selection_application_state === 'automatic_selected',
+    );
     const resolvedIds = [...new Set(resolved.map((item) => item.component_id))];
     const resolvedSet = new Set(resolvedIds);
     const evaluatedIds = [...new Set(evaluated.map((item) => item.component_id))];
     const evaluatedSet = new Set(evaluatedIds);
+    const evaluatedByComponent = new Map(
+      evaluated.map((item) => [item.component_id, item]),
+    );
     for (const input of inputs) {
       const trace = tracesByComponent.get(input.query.component_id);
       if (trace === undefined) continue;
+      const evaluatedItem = evaluatedByComponent.get(input.query.component_id);
+      trace.decisionSummary = evaluatedItem === undefined
+        ? null
+        : preferredCatalogDecisionSummary(evaluatedItem);
       if (resolvedSet.has(input.query.component_id)) {
         trace.outcome = 'selected';
         trace.selectedCandidateCount = 1;

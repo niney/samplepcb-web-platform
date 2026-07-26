@@ -45,7 +45,7 @@ describe('부품 유형별 로컬 카탈로그 검색 과정', () => {
         ],
       },
     }, 'resistor-1')).toEqual({
-      version: 'local-catalog-trace-v2',
+      version: 'local-catalog-trace-v3',
       catalogType: 'samplepcb_rc',
       query: '10k 0603 1% resistor',
       outcome: 'selected',
@@ -55,6 +55,7 @@ describe('부품 유형별 로컬 카탈로그 검색 과정', () => {
       apiCalls: 0,
       elapsedMs: 18,
       reason: null,
+      decisionSummary: null,
     });
   });
 
@@ -78,7 +79,7 @@ describe('부품 유형별 로컬 카탈로그 검색 과정', () => {
         ],
       },
     }, 'connector-1')).toEqual({
-      version: 'local-catalog-trace-v2',
+      version: 'local-catalog-trace-v3',
       catalogType: 'connector',
       query: 'YEONHO ELECTRONICS 10038WR-08',
       outcome: 'selected',
@@ -88,6 +89,116 @@ describe('부품 유형별 로컬 카탈로그 검색 과정', () => {
       apiCalls: 0,
       elapsedMs: 7,
       reason: null,
+      decisionSummary: null,
+    });
+  });
+
+  it('v3 실행 기록의 자동선정 탈락 사유와 대표 후보를 표시 계약으로 투영한다', () => {
+    expect(quoteLocalCatalogTrace({
+      local_catalog: {
+        version: 'local-catalog-trace-v3',
+        components: [
+          {
+            component_id: 'resistor-1',
+            catalog_type: 'samplepcb_rc',
+            query: '10k 0402 resistor',
+            outcome: 'rejected',
+            candidate_count: 10,
+            evaluated_candidate_count: 10,
+            selected_candidate_count: 0,
+            api_calls: 0,
+            elapsed_ms: 597,
+            reason: 'engine_not_selected',
+            decision_summary: {
+              component_status: 'spec_partial',
+              procurement_status: 'review_recommended',
+              selection_application_state: 'provisional_selected',
+              primary_unavailability_reason: 'technical_unavailable',
+              recommendation_reason_codes: ['manual_review_required'],
+              automatic_candidate_count: 0,
+              review_candidate_count: 10,
+              blocked_candidate_count: 0,
+              unclassified_candidate_count: 0,
+              reason_counts: [
+                {
+                  kind: 'missing_requirement',
+                  code: 'part_type',
+                  count: 10,
+                },
+              ],
+              representative_candidate: {
+                mpn: 'WR04X1002FTL',
+                manufacturer_name: 'Walsin',
+                status: 'spec_partial',
+                selection_eligibility: 'manual_review',
+                verified_requirement_count: 3,
+                required_requirement_count: 4,
+                conflicts: [],
+                missing_requirements: ['part_type'],
+                reason_codes: ['verification_incomplete'],
+                requirement_assessments: [
+                  {
+                    key: 'part_type',
+                    comparison: 'category',
+                    state: 'missing',
+                    verified: false,
+                    expected_display: '저항',
+                    actual_display: null,
+                    source: 'bom',
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    }, 'resistor-1')).toEqual({
+      version: 'local-catalog-trace-v3',
+      catalogType: 'samplepcb_rc',
+      query: '10k 0402 resistor',
+      outcome: 'rejected',
+      candidateCount: 10,
+      evaluatedCandidateCount: 10,
+      selectedCandidateCount: 0,
+      apiCalls: 0,
+      elapsedMs: 597,
+      reason: 'engine_not_selected',
+      decisionSummary: {
+        componentStatus: 'spec_partial',
+        procurementStatus: 'review_recommended',
+        selectionApplicationState: 'provisional_selected',
+        primaryUnavailabilityReason: 'technical_unavailable',
+        recommendationReasonCodes: ['manual_review_required'],
+        automaticCandidateCount: 0,
+        reviewCandidateCount: 10,
+        blockedCandidateCount: 0,
+        unclassifiedCandidateCount: 0,
+        reasonCounts: [
+          { kind: 'missing_requirement', code: 'part_type', count: 10 },
+        ],
+        representativeCandidate: {
+          mpn: 'WR04X1002FTL',
+          manufacturerName: 'Walsin',
+          status: 'spec_partial',
+          selectionEligibility: 'manual_review',
+          verifiedRequirementCount: 3,
+          requiredRequirementCount: 4,
+          conflicts: [],
+          missingRequirements: ['part_type'],
+          reasonCodes: ['verification_incomplete'],
+          requirementAssessments: [
+            {
+              key: 'part_type',
+              comparison: 'category',
+              state: 'missing',
+              verified: false,
+              expectedDisplay: '저항',
+              actualDisplay: null,
+              source: 'bom',
+            },
+          ],
+        },
+      },
     });
   });
 

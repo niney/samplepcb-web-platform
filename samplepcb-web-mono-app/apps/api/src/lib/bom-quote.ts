@@ -339,12 +339,44 @@ const EngineSupplierSearchTrace = z.object({
   attempts: z.array(EngineSupplierSearchTraceAttempt),
 });
 
+const StoredPreferredLocalCatalogDecisionSummary = z.object({
+  component_status: z.string(),
+  procurement_status: z.string().nullish(),
+  selection_application_state: z
+    .enum(['automatic_selected', 'provisional_selected', 'not_selected'])
+    .nullish(),
+  primary_unavailability_reason: z.string().nullish(),
+  recommendation_reason_codes: z.array(z.string()).default([]),
+  automatic_candidate_count: z.number().int().min(0),
+  review_candidate_count: z.number().int().min(0),
+  blocked_candidate_count: z.number().int().min(0),
+  unclassified_candidate_count: z.number().int().min(0),
+  reason_counts: z.array(z.object({
+    kind: z.enum(['conflict', 'missing_requirement', 'decision']),
+    code: z.string(),
+    count: z.number().int().min(1),
+  })).default([]),
+  representative_candidate: z.object({
+    mpn: z.string(),
+    manufacturer_name: z.string().nullish(),
+    status: z.string(),
+    selection_eligibility: z.enum(['automatic', 'manual_review', 'blocked']).nullish(),
+    verified_requirement_count: z.number().int().min(0),
+    required_requirement_count: z.number().int().min(0),
+    conflicts: z.array(z.string()).default([]),
+    missing_requirements: z.array(z.string()).default([]),
+    reason_codes: z.array(z.string()).default([]),
+    requirement_assessments: z.array(EngineRequirementAssessment).default([]),
+  }).nullish(),
+});
+
 const StoredPreferredLocalCatalogPreflight = z
   .object({
     local_catalog: z.object({
       version: z.enum([
         'samplepcb-local-catalog-trace-v1',
         'local-catalog-trace-v2',
+        'local-catalog-trace-v3',
       ]),
       components: z.array(
         z.object({
@@ -364,6 +396,7 @@ const StoredPreferredLocalCatalogPreflight = z
           api_calls: z.literal(0),
           elapsed_ms: z.number().min(0),
           reason: z.string().nullish(),
+          decision_summary: StoredPreferredLocalCatalogDecisionSummary.nullish(),
         }),
       ),
     }),
@@ -643,8 +676,10 @@ export function quoteLocalCatalogTrace(
     ? 'samplepcb_rc'
     : trace.catalog_type;
   if (catalogType === undefined) return null;
+  const decisionSummary = trace.decision_summary;
+  const representative = decisionSummary?.representative_candidate;
   return {
-    version: 'local-catalog-trace-v2',
+    version: 'local-catalog-trace-v3',
     catalogType,
     query: trace.query,
     outcome: trace.outcome,
@@ -654,6 +689,50 @@ export function quoteLocalCatalogTrace(
     apiCalls: trace.api_calls,
     elapsedMs: trace.elapsed_ms,
     reason: trace.reason ?? null,
+    decisionSummary: decisionSummary === null || decisionSummary === undefined
+      ? null
+      : {
+          componentStatus: decisionSummary.component_status,
+          procurementStatus: decisionSummary.procurement_status ?? null,
+          selectionApplicationState:
+            decisionSummary.selection_application_state ?? null,
+          primaryUnavailabilityReason:
+            decisionSummary.primary_unavailability_reason ?? null,
+          recommendationReasonCodes:
+            decisionSummary.recommendation_reason_codes,
+          automaticCandidateCount: decisionSummary.automatic_candidate_count,
+          reviewCandidateCount: decisionSummary.review_candidate_count,
+          blockedCandidateCount: decisionSummary.blocked_candidate_count,
+          unclassifiedCandidateCount:
+            decisionSummary.unclassified_candidate_count,
+          reasonCounts: decisionSummary.reason_counts,
+          representativeCandidate: representative === null || representative === undefined
+            ? null
+            : {
+                mpn: representative.mpn,
+                manufacturerName: representative.manufacturer_name ?? null,
+                status: representative.status,
+                selectionEligibility:
+                  representative.selection_eligibility ?? null,
+                verifiedRequirementCount:
+                  representative.verified_requirement_count,
+                requiredRequirementCount:
+                  representative.required_requirement_count,
+                conflicts: representative.conflicts,
+                missingRequirements: representative.missing_requirements,
+                reasonCodes: representative.reason_codes,
+                requirementAssessments:
+                  representative.requirement_assessments.map((assessment) => ({
+                    key: assessment.key,
+                    comparison: assessment.comparison,
+                    state: assessment.state,
+                    verified: assessment.verified,
+                    expectedDisplay: assessment.expected_display ?? null,
+                    actualDisplay: assessment.actual_display ?? null,
+                    source: assessment.source,
+                  })),
+              },
+        },
   };
 }
 

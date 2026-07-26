@@ -552,7 +552,10 @@ describe('BOM 부품 유형별 로컬 우선 검색', () => {
       hits: {
         hits: JSON.stringify(request).includes('"partType":"connector"')
           ? []
-          : [{ _source: { partId: '77' } }],
+          : [
+              { _source: { partId: '77' } },
+              { _source: { partId: '78' } },
+            ],
       },
     }));
     mocks.findMany.mockResolvedValue([
@@ -577,16 +580,95 @@ describe('BOM 부품 유형별 로컬 우선 검색', () => {
           },
         ],
       },
+      {
+        id: 78n,
+        mpnNorm: 'WR06X1001FTL',
+        manufacturerNorm: 'walsin',
+        offers: [
+          {
+            supplier: 'samplepcb',
+            supplierSku: 'WR06X1001FTL',
+            productUrl: null,
+            stock: null,
+            moq: null,
+            orderMultiple: null,
+            packaging: null,
+            currency: null,
+            leadTime: null,
+            fetchedAt: new Date('2026-07-06T00:00:00+09:00'),
+            rawJson: {
+              ...preferredProduct,
+              manufacturer_part_number: 'WR06X1001FTL',
+            },
+            priceBreaks: [],
+          },
+        ],
+      },
     ]);
     mocks.engineFetch.mockResolvedValue(new Response(JSON.stringify({
       items: [
         {
           component_id: 'resistor-1',
           status: 'spec_partial',
-          candidates: [],
+          candidates: [
+            {
+              status: 'spec_partial',
+              conflicts: [],
+              missing_requirements: ['part_type'],
+              product: preferredProduct,
+              decision: {
+                selection_eligibility: 'manual_review',
+                verified_requirement_count: 3,
+                required_requirement_count: 4,
+                reason_codes: [
+                  'verification_incomplete',
+                  'strict_category_coverage_incomplete',
+                  'manual_review_required',
+                ],
+                requirement_assessments: [
+                  {
+                    key: 'resistance_ohm',
+                    comparison: 'eq',
+                    state: 'match',
+                    verified: true,
+                    source: 'bom',
+                    expected_display: '10 kΩ',
+                    actual_display: '10 kΩ',
+                  },
+                  {
+                    key: 'part_type',
+                    comparison: 'category',
+                    state: 'missing',
+                    verified: false,
+                    source: 'bom',
+                    expected_display: '저항',
+                    actual_display: null,
+                  },
+                ],
+              },
+            },
+            {
+              status: 'input_conflict',
+              conflicts: ['package_mismatch'],
+              missing_requirements: [],
+              product: {
+                ...preferredProduct,
+                manufacturer_part_number: 'WR06X1001FTL',
+              },
+              decision: {
+                selection_eligibility: 'blocked',
+                verified_requirement_count: 2,
+                required_requirement_count: 4,
+                reason_codes: ['technical_selection_blocked'],
+                requirement_assessments: [],
+              },
+            },
+          ],
           procurement_decision: {
-            status: 'no_recommendation',
-            selection_application_state: 'not_selected',
+            status: 'review_recommended',
+            selection_application_state: 'provisional_selected',
+            primary_unavailability_reason: 'technical_unavailable',
+            recommendation_reason_codes: ['manual_review_required'],
           },
           warnings: [],
         },
@@ -603,10 +685,80 @@ describe('BOM 부품 유형별 로컬 우선 검색', () => {
         componentId: 'resistor-1',
         catalogType: 'samplepcb_rc',
         outcome: 'rejected',
-        candidateCount: 1,
-        evaluatedCandidateCount: 1,
+        candidateCount: 2,
+        evaluatedCandidateCount: 2,
         selectedCandidateCount: 0,
         reason: 'engine_not_selected',
+        decisionSummary: {
+          componentStatus: 'spec_partial',
+          procurementStatus: 'review_recommended',
+          selectionApplicationState: 'provisional_selected',
+          primaryUnavailabilityReason: 'technical_unavailable',
+          recommendationReasonCodes: ['manual_review_required'],
+          automaticCandidateCount: 0,
+          reviewCandidateCount: 1,
+          blockedCandidateCount: 1,
+          unclassifiedCandidateCount: 0,
+          reasonCounts: [
+            { kind: 'conflict', code: 'package_mismatch', count: 1 },
+            { kind: 'missing_requirement', code: 'part_type', count: 1 },
+            {
+              kind: 'decision',
+              code: 'manual_review_required',
+              count: 1,
+            },
+            {
+              kind: 'decision',
+              code: 'strict_category_coverage_incomplete',
+              count: 1,
+            },
+            {
+              kind: 'decision',
+              code: 'technical_selection_blocked',
+              count: 1,
+            },
+            {
+              kind: 'decision',
+              code: 'verification_incomplete',
+              count: 1,
+            },
+          ],
+          representativeCandidate: {
+            mpn: 'WR06X1002FTL',
+            manufacturerName: 'Walsin',
+            status: 'spec_partial',
+            selectionEligibility: 'manual_review',
+            verifiedRequirementCount: 3,
+            requiredRequirementCount: 4,
+            conflicts: [],
+            missingRequirements: ['part_type'],
+            reasonCodes: [
+              'verification_incomplete',
+              'strict_category_coverage_incomplete',
+              'manual_review_required',
+            ],
+            requirementAssessments: [
+              {
+                key: 'resistance_ohm',
+                comparison: 'eq',
+                state: 'match',
+                verified: true,
+                expectedDisplay: '10 kΩ',
+                actualDisplay: '10 kΩ',
+                source: 'bom',
+              },
+              {
+                key: 'part_type',
+                comparison: 'category',
+                state: 'missing',
+                verified: false,
+                expectedDisplay: '저항',
+                actualDisplay: null,
+                source: 'bom',
+              },
+            ],
+          },
+        },
       }),
       expect.objectContaining({
         componentId: 'connector-1',

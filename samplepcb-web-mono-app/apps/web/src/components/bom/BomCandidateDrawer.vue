@@ -75,6 +75,13 @@ const { t } = i18n;
 
 type SelectionView = 'candidates' | 'search';
 type CandidateTab = 'selectable' | 'all' | 'review';
+type LocalCatalogDecisionSummary = NonNullable<
+  BomQuoteLocalCatalogTraceType['decisionSummary']
+>;
+type LocalCatalogReasonCount = LocalCatalogDecisionSummary['reasonCounts'][number];
+type LocalCatalogRepresentativeCandidate = NonNullable<
+  LocalCatalogDecisionSummary['representativeCandidate']
+>;
 type RequirementComponentType =
   | 'resistor'
   | 'capacitor'
@@ -295,6 +302,12 @@ const searchTraceStageCount = computed(() =>
   (props.context?.localCatalogTrace === null || props.context?.localCatalogTrace === undefined ? 0 : 1)
   + (props.context?.searchTrace?.attemptCount ?? 0),
 );
+const localCatalogDecisionSummary = computed(
+  () => props.context?.localCatalogTrace?.decisionSummary ?? null,
+);
+const localCatalogRepresentativeCandidate = computed(
+  () => localCatalogDecisionSummary.value?.representativeCandidate ?? null,
+);
 const provisionalSelectionPending = computed(() =>
   props.context?.selectionSource === 'auto'
   && props.context.selectionApplicationState === 'provisional_selected'
@@ -430,8 +443,34 @@ function localCatalogTitle(trace: BomQuoteLocalCatalogTraceType): string {
     : 'SamplePCB R/C 자체 카탈로그';
 }
 
-function localCatalogReasonLabel(reason: string | null): string | null {
+function localCatalogReasonLabel(trace: BomQuoteLocalCatalogTraceType): string | null {
+  const reason = trace.reason;
   if (reason === null) return null;
+  if (reason === 'engine_not_selected' && trace.decisionSummary !== null) {
+    const summary = trace.decisionSummary;
+    const finalCandidateCount = summary.automaticCandidateCount
+      + summary.reviewCandidateCount
+      + summary.blockedCandidateCount
+      + summary.unclassifiedCandidateCount;
+    if (summary.automaticCandidateCount > 0) {
+      const cause = localCatalogUnavailabilityLabel(summary.primaryUnavailabilityReason);
+      return `기술 자동선정 가능 후보 ${summary.automaticCandidateCount.toLocaleString('ko-KR')}개가 있었지만 ${cause ?? '구매조건 판정'} 때문에 자체 카탈로그에서 선정하지 않았습니다.`;
+    }
+    if (finalCandidateCount > 0) {
+      const results = [
+        summary.reviewCandidateCount > 0
+          ? `검토 필요 ${summary.reviewCandidateCount.toLocaleString('ko-KR')}개`
+          : null,
+        summary.blockedCandidateCount > 0
+          ? `선정 제외 ${summary.blockedCandidateCount.toLocaleString('ko-KR')}개`
+          : null,
+        summary.unclassifiedCandidateCount > 0
+          ? `상세 판정 없음 ${summary.unclassifiedCandidateCount.toLocaleString('ko-KR')}개`
+          : null,
+      ].filter((value): value is string => value !== null);
+      return `로컬 입력 ${trace.evaluatedCandidateCount.toLocaleString('ko-KR')}개를 엔진이 최종 ${finalCandidateCount.toLocaleString('ko-KR')}개로 정리했으며, ${results.join(' · ')}로 판정돼 자동선정하지 않았습니다.`;
+    }
+  }
   const reasons: Record<string, string> = {
     multiple_query_plans: '입력 충돌로 검색 계획이 여러 개여서 로컬 조회를 생략했습니다.',
     query_not_eligible: '자체 카탈로그 조회에 필요한 조건이 부족하거나 검색 제외 상태입니다.',
@@ -443,6 +482,116 @@ function localCatalogReasonLabel(reason: string | null): string | null {
     quote_apply_failed: '로컬 선정 결과를 견적에 반영하지 못해 외부 검색으로 전환했습니다.',
   };
   return reasons[reason] ?? reason;
+}
+
+function localCatalogDecisionStatusLabel(status: string | null): string {
+  if (status === null) return '판정 정보 없음';
+  const labels: Record<string, string> = {
+    automatic_recommended: '자동선정 권장',
+    catalog_selected: '카탈로그 선정',
+    review_recommended: '검토 권장',
+    no_recommendation: '추천 없음',
+    input_incomplete: '입력 보완 필요',
+  };
+  return labels[status] ?? status;
+}
+
+function localCatalogUnavailabilityLabel(reason: string | null): string | null {
+  if (reason === null) return null;
+  const labels: Record<string, string> = {
+    out_of_stock: '재고 없음',
+    insufficient_stock: '재고 부족',
+    stock_unverified: '재고 미확인',
+    catalog_inquiry: '재고·가격 문의 필요',
+    price_unavailable: '가격 미확인',
+    technical_unavailable: '기술 조건 미충족',
+    supplier_unavailable: '허용 공급사 오퍼 없음',
+    no_offer: '구매 오퍼 없음',
+    input_incomplete: '입력 정보 부족',
+    other: '구매조건 미충족',
+  };
+  return labels[reason] ?? reason;
+}
+
+function localCatalogDecisionCodeLabel(code: string): string {
+  const [prefix, detail] = code.split(':', 2);
+  if (detail !== undefined) {
+    if (prefix === 'conflict') return conflictLabel(detail);
+    if (prefix === 'missing') return `${requirementLabel(detail)} 미확인`;
+    if (prefix === 'category_coverage_missing') {
+      return `${requirementLabel(detail)} 유형 필수조건 미확인`;
+    }
+    if (prefix === 'policy_default') {
+      return `${requirementLabel(detail)} 정책 기본값 적용`;
+    }
+  }
+  const labels: Record<string, string> = {
+    identity_exact: '품번 정확 일치',
+    identity_variant: '품번 변형 일치',
+    specification_compatible: '사양 호환',
+    relationship_unresolved: '원본과 동일 부품 관계 미확인',
+    manufacturer_confirmation_required: '제조사 확인 필요',
+    identity_exact_requirement_conflict: '품번 일치지만 요구 사양 충돌',
+    manufacturer_inferred: '제조사 추정',
+    verification_incomplete: '필수조건 검증 미완료',
+    strict_category_coverage_incomplete: '부품 유형 필수조건 미완료',
+    category_manual_selection_only: '유형 정책상 수동 검토',
+    lifecycle_caution: '라이프사이클 주의',
+    manual_review_required: '수동 검토 필요',
+    technical_selection_blocked: '기술 선정 차단',
+    technical_preselection_unavailable: '기술 사전선정 후보 없음',
+    technical_preselection_preserved: '기술 1순위 유지',
+    technical_preselection_unpurchasable: '기술 1순위 구매조건 미충족',
+    technical_preselection_excessive_order: '기술 1순위 주문수량 과다',
+    next_purchasable_technical_group_selected: '구매 가능한 차순위 기술 후보 적용',
+    no_purchasable_candidate_group: '구매 가능한 후보군 없음',
+    equivalent_group_lower_effective_total_selected: '동급 후보 중 실효 총액 최저 적용',
+    best_effective_total_in_equivalent_group: '동급 후보 중 실효 총액 최저',
+    best_purchase_fit_in_technical_group: '기술 후보군 내 구매조건 최적',
+    best_purchase_fit_in_fallback_group: '차순위 후보군 내 구매조건 최적',
+    manufacturer_catalog_candidate_selected: '제조사 카탈로그 후보 선정',
+    stock_confirmation_required: '재고 확인 필요',
+    price_inquiry_required: '가격 문의 필요',
+    automatic_candidate: '자동선정 가능 후보',
+  };
+  return labels[code] ?? code;
+}
+
+function localCatalogReasonCountLabel(reason: LocalCatalogReasonCount): string {
+  if (reason.kind === 'conflict') return conflictLabel(reason.code);
+  if (reason.kind === 'missing_requirement') {
+    return `${requirementLabel(reason.code)} 미확인`;
+  }
+  return localCatalogDecisionCodeLabel(reason.code);
+}
+
+function localCatalogEligibilityLabel(
+  eligibility: LocalCatalogRepresentativeCandidate['selectionEligibility'],
+): string {
+  if (eligibility === 'automatic') return '자동선정 가능';
+  if (eligibility === 'manual_review') return '검토 필요';
+  if (eligibility === 'blocked') return '선정 제외';
+  return '판정 정보 없음';
+}
+
+function localCatalogEligibilityClasses(
+  eligibility: LocalCatalogRepresentativeCandidate['selectionEligibility'],
+): string {
+  if (eligibility === 'automatic') return 'bg-emerald-100 text-emerald-800';
+  if (eligibility === 'manual_review') return 'bg-amber-100 text-amber-800';
+  if (eligibility === 'blocked') return 'bg-red-100 text-red-800';
+  return 'bg-slate-100 text-slate-700';
+}
+
+function localCatalogAttentionAssessments(
+  candidate: LocalCatalogRepresentativeCandidate,
+): LocalCatalogRepresentativeCandidate['requirementAssessments'] {
+  return candidate.requirementAssessments
+    .filter((assessment) =>
+      assessment.state === 'mismatch'
+      || assessment.state === 'missing'
+      || assessment.state === 'unverified')
+    .slice(0, 8);
 }
 
 function formatOriginalRows(rows: number[], compact: boolean): string {
@@ -2407,14 +2556,129 @@ onBeforeUnmount(() => {
                         {{ localCatalogTitle(context.localCatalogTrace) }}
                         <small class="block font-normal uppercase text-slate-500">로컬 ES · API 0회</small>
                       </span>
-                      <span class="min-w-0">
+                      <div class="min-w-0">
                         <span class="mr-1.5 rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700">우선 조회</span>
                         <span class="break-words text-slate-700">{{ context.localCatalogTrace.query || '엔진 정규 검색조건' }}</span>
                         <span
-                          v-if="localCatalogReasonLabel(context.localCatalogTrace.reason) !== null"
+                          v-if="localCatalogReasonLabel(context.localCatalogTrace) !== null"
                           class="mt-1 block text-slate-600"
-                        >{{ localCatalogReasonLabel(context.localCatalogTrace.reason) }}</span>
-                      </span>
+                        >{{ localCatalogReasonLabel(context.localCatalogTrace) }}</span>
+                        <div
+                          v-if="localCatalogDecisionSummary !== null"
+                          class="mt-2 space-y-1.5 rounded-md border border-slate-200/80 bg-white/80 p-2"
+                        >
+                          <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="font-bold text-slate-700">
+                              엔진 결론: {{ localCatalogDecisionStatusLabel(localCatalogDecisionSummary.procurementStatus) }}
+                            </span>
+                            <span
+                              v-if="localCatalogUnavailabilityLabel(localCatalogDecisionSummary.primaryUnavailabilityReason) !== null"
+                              class="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800"
+                            >
+                              {{ localCatalogUnavailabilityLabel(localCatalogDecisionSummary.primaryUnavailabilityReason) }}
+                            </span>
+                          </div>
+                          <div class="flex flex-wrap gap-1">
+                            <span class="rounded bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800">
+                              자동 가능 {{ localCatalogDecisionSummary.automaticCandidateCount.toLocaleString('ko-KR') }}
+                            </span>
+                            <span
+                              v-if="localCatalogDecisionSummary.reviewCandidateCount > 0"
+                              class="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800"
+                            >
+                              검토 필요 {{ localCatalogDecisionSummary.reviewCandidateCount.toLocaleString('ko-KR') }}
+                            </span>
+                            <span
+                              v-if="localCatalogDecisionSummary.blockedCandidateCount > 0"
+                              class="rounded bg-red-100 px-1.5 py-0.5 font-semibold text-red-800"
+                            >
+                              선정 제외 {{ localCatalogDecisionSummary.blockedCandidateCount.toLocaleString('ko-KR') }}
+                            </span>
+                            <span
+                              v-if="localCatalogDecisionSummary.unclassifiedCandidateCount > 0"
+                              class="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700"
+                            >
+                              상세 판정 없음 {{ localCatalogDecisionSummary.unclassifiedCandidateCount.toLocaleString('ko-KR') }}
+                            </span>
+                          </div>
+                          <div
+                            v-if="localCatalogDecisionSummary.reasonCounts.length > 0"
+                            class="flex flex-wrap gap-1"
+                            aria-label="자동선정 보류 주요 사유"
+                          >
+                            <span
+                              v-for="reasonCount in localCatalogDecisionSummary.reasonCounts"
+                              :key="`${reasonCount.kind}:${reasonCount.code}`"
+                              class="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-700"
+                            >
+                              {{ localCatalogReasonCountLabel(reasonCount) }}
+                              {{ reasonCount.count.toLocaleString('ko-KR') }}개
+                            </span>
+                          </div>
+                          <div
+                            v-if="localCatalogDecisionSummary.recommendationReasonCodes.length > 0"
+                            class="flex flex-wrap gap-1 text-slate-600"
+                          >
+                            <span
+                              v-for="code in localCatalogDecisionSummary.recommendationReasonCodes.slice(0, 4)"
+                              :key="code"
+                              class="rounded bg-slate-100 px-1.5 py-0.5"
+                            >
+                              {{ localCatalogDecisionCodeLabel(code) }}
+                            </span>
+                          </div>
+                          <details
+                            v-if="localCatalogRepresentativeCandidate !== null"
+                            class="rounded border border-slate-200 bg-slate-50/80 px-2 py-1.5"
+                          >
+                            <summary class="cursor-pointer font-semibold text-slate-700">
+                              대표 후보 {{ localCatalogRepresentativeCandidate.mpn }}
+                              <span v-if="localCatalogRepresentativeCandidate.manufacturerName !== null" class="font-normal text-slate-500">
+                                · {{ localCatalogRepresentativeCandidate.manufacturerName }}
+                              </span>
+                            </summary>
+                            <div class="mt-1.5 space-y-1.5 border-t border-slate-200 pt-1.5">
+                              <div class="flex flex-wrap items-center gap-1.5">
+                                <span
+                                  :class="[
+                                    'rounded px-1.5 py-0.5 font-semibold',
+                                    localCatalogEligibilityClasses(localCatalogRepresentativeCandidate.selectionEligibility),
+                                  ]"
+                                >
+                                  {{ localCatalogEligibilityLabel(localCatalogRepresentativeCandidate.selectionEligibility) }}
+                                </span>
+                                <span class="text-slate-600">
+                                  {{ statusLabel(localCatalogRepresentativeCandidate.status) }}
+                                  · 확인 조건
+                                  {{ localCatalogRepresentativeCandidate.verifiedRequirementCount }}/{{ localCatalogRepresentativeCandidate.requiredRequirementCount }}
+                                </span>
+                              </div>
+                              <div
+                                v-if="localCatalogAttentionAssessments(localCatalogRepresentativeCandidate).length > 0"
+                                class="space-y-1"
+                              >
+                                <div
+                                  v-for="assessment in localCatalogAttentionAssessments(localCatalogRepresentativeCandidate)"
+                                  :key="assessment.key"
+                                  class="grid gap-x-2 rounded bg-white px-2 py-1 sm:grid-cols-[100px_1fr_auto]"
+                                >
+                                  <b class="text-slate-700">{{ requirementLabel(assessment.key) }}</b>
+                                  <span class="text-slate-600">
+                                    요구 {{ requirementExpectedLabel(assessment) }}
+                                    · 후보 {{ assessment.actualDisplay ?? '정보 없음' }}
+                                  </span>
+                                  <span :class="['rounded px-1.5 py-0.5 font-semibold', requirementStateClass(assessment)]">
+                                    {{ requirementStateLabel(assessment) }}
+                                  </span>
+                                </div>
+                              </div>
+                              <p v-else class="text-slate-500">
+                                항목별 미충족 정보는 없으며 엔진 정책 사유로 자동선정되지 않았습니다.
+                              </p>
+                            </div>
+                          </details>
+                        </div>
+                      </div>
                       <span class="whitespace-nowrap text-right text-slate-500">
                         <b class="text-slate-800">{{ localCatalogOutcomeLabel(context.localCatalogTrace) }}</b>
                         <small class="block">
