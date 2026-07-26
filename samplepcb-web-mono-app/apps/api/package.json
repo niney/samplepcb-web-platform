@@ -28,7 +28,7 @@
     "db:migrate": "prisma migrate dev",
     "clean": "rimraf dist .turbo",
     "parts:catalog": "tsx --env-file=.env src/scripts/import-parts-catalog.ts",
-    "parts:catalog-prices": "tsx --env-file=.env src/scripts/refresh-walsin-catalog-prices.ts",
+    "parts:catalog-prices": "tsx --env-file=.env src/scripts/refresh-catalog-prices.ts",
     "parts:reindex": "tsx --env-file=.env src/scripts/parts-reindex.ts",
     "parts:refacts": "tsx --env-file=.env src/scripts/parts-refacts.ts",
     "parts:merge-mfr": "tsx --env-file=.env src/scripts/merge-manufacturer-keys.ts"

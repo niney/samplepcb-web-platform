@@ -1,5 +1,6 @@
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -34,12 +35,15 @@ import {
 import { partOffersForDisplay } from '../lib/parts-offer-kind';
 import { buildYeonhoCatalogEnvelope } from '../lib/yeonho-catalog-workbook';
 import {
-  readVerifiedWalsinPriceSnapshot,
-  validateWalsinPriceSnapshotCoverage,
-  walsinPriceSnapshotIngestEnvelope,
-  type WalsinPriceSnapshotArtifactType,
-  type WalsinPriceSnapshotProductType,
-} from '../lib/walsin-catalog-price-snapshot';
+  WALSIN_PRICE_SNAPSHOT_DEFINITION,
+  YEONHO_PRICE_SNAPSHOT_DEFINITION,
+  catalogPriceSnapshotIngestEnvelope,
+  readVerifiedCatalogPriceSnapshot,
+  validateCatalogPriceSnapshotCoverage,
+  type CatalogPriceSnapshotArtifactType,
+  type CatalogPriceSnapshotDefinition,
+  type CatalogPriceSnapshotProductType,
+} from '../lib/catalog-price-snapshot';
 import { buildWalsinRlcCatalogEnvelope } from '../lib/walsin-rlc-catalog-workbook';
 import { buildPartSort, buildSearchQuery } from '../routes/admin-parts';
 
@@ -59,6 +63,7 @@ interface CatalogSource {
   defaultFile: string;
   /** 워크북 → supplier-search ingest envelope */
   build: (file: string) => Promise<{ envelope: unknown; stats: Record<string, unknown> }>;
+  priceSnapshot: CatalogPriceSnapshotDefinition;
 }
 
 /**
@@ -75,6 +80,7 @@ const CATALOG_SOURCES = {
       const { envelope, stats } = await buildYeonhoCatalogEnvelope(file);
       return { envelope, stats: { ...stats } };
     },
+    priceSnapshot: YEONHO_PRICE_SNAPSHOT_DEFINITION,
   },
   'walsin-rlc': {
     defaultFile: 'catalog-migrations/walsin/Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx',
@@ -82,6 +88,7 @@ const CATALOG_SOURCES = {
       const { envelope, stats } = await buildWalsinRlcCatalogEnvelope(file);
       return { envelope, stats: { ...stats } };
     },
+    priceSnapshot: WALSIN_PRICE_SNAPSHOT_DEFINITION,
   },
 } satisfies Record<string, CatalogSource>;
 
@@ -174,7 +181,7 @@ function optionValue(args: string[], name: string): string | undefined {
   return args[index + 1];
 }
 
-function parseOptions(args: string[]): CliOptions {
+export function parseCatalogImportOptions(args: string[]): CliOptions {
   const modes: [string, Mode][] = [
     ['--dry-run', 'dry-run'],
     ['--apply', 'apply'],
@@ -214,9 +221,6 @@ function parseOptions(args: string[]): CliOptions {
   const priceSnapshot = priceSnapshotValue === undefined
     ? undefined
     : path.resolve(priceSnapshotValue);
-  if (priceSnapshot !== undefined && sourceKey !== 'walsin-rlc') {
-    throw new Error('--price-snapshot은 walsin-rlc 원본에만 사용할 수 있습니다');
-  }
   if (
     priceSnapshot !== undefined
     && ['replace', 'rollback'].includes(mode)
@@ -266,7 +270,7 @@ async function loadInput(
 }
 
 interface PreparedPriceInput {
-  artifact: WalsinPriceSnapshotArtifactType;
+  artifact: CatalogPriceSnapshotArtifactType;
   raw: unknown;
   fingerprint: string;
   file: string;
@@ -275,14 +279,16 @@ interface PreparedPriceInput {
 async function loadPreparedPrices(
   file: string | undefined,
   parsed: ParsedCatalogMigration,
+  definition: CatalogPriceSnapshotDefinition,
 ): Promise<PreparedPriceInput | null> {
   if (file === undefined) return null;
-  const verified = await readVerifiedWalsinPriceSnapshot(file);
-  const artifact = validateWalsinPriceSnapshotCoverage(
+  const verified = await readVerifiedCatalogPriceSnapshot(file, definition);
+  const artifact = validateCatalogPriceSnapshotCoverage(
     verified.artifact,
     parsed.records,
+    definition,
   );
-  const raw = walsinPriceSnapshotIngestEnvelope(artifact);
+  const raw = catalogPriceSnapshotIngestEnvelope(artifact, definition);
   const fingerprint = supplierSearchIngestFingerprint(raw);
   if (fingerprint === null) {
     throw new Error('가격 스냅샷을 공급사 인제스트 계약으로 변환할 수 없습니다');
@@ -947,7 +953,7 @@ interface ExpectedPreparedOffer {
 }
 
 function canonicalExpectedPriceBreaks(
-  priceBreaks: WalsinPriceSnapshotProductType['offers'][number]['price_breaks'],
+  priceBreaks: CatalogPriceSnapshotProductType['offers'][number]['price_breaks'],
 ): ExpectedPreparedOffer['priceBreaks'] {
   const byQuantity = new Map<
     number,
@@ -975,7 +981,7 @@ function canonicalExpectedPriceBreaks(
 }
 
 function expectedPreparedOffers(
-  products: WalsinPriceSnapshotProductType[],
+  products: CatalogPriceSnapshotProductType[],
 ): ExpectedPreparedOffer[] {
   const byKey = new Map<string, ExpectedPreparedOffer>();
   for (const product of products) {
@@ -1019,7 +1025,7 @@ function canonicalStoredPriceBreaks(
 }
 
 function verifyPreparedPriceDatabase(
-  artifact: WalsinPriceSnapshotArtifactType,
+  artifact: CatalogPriceSnapshotArtifactType,
   parts: PartWithOffers[],
 ): {
   pricedParts: number;
@@ -1134,7 +1140,7 @@ function verifyPreparedPriceDatabase(
 async function verifyAll(
   parsed: ParsedCatalogMigration,
   includeSearch: boolean,
-  preparedPrices: WalsinPriceSnapshotArtifactType | null = null,
+  preparedPrices: CatalogPriceSnapshotArtifactType | null = null,
 ): Promise<Record<string, unknown>> {
   const database = await verifyDatabase(parsed);
   const esFailures = await verifyElasticsearch(database.parts);
@@ -1374,11 +1380,12 @@ async function rollback(
 }
 
 async function main(): Promise<void> {
-  const options = parseOptions(process.argv.slice(2));
+  const options = parseCatalogImportOptions(process.argv.slice(2));
   const input = await loadInput(options.file, options.source);
   const preparedPrices = await loadPreparedPrices(
     options.priceSnapshot,
     input.parsed,
+    CATALOG_SOURCES[options.source].priceSnapshot,
   );
   if (options.mode === 'dry-run') {
     const existing = await loadExistingParts(input.parsed.records);
@@ -1565,9 +1572,15 @@ async function main(): Promise<void> {
   )));
 }
 
-main()
-  .catch((error: unknown) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(() => void prisma.$disconnect());
+const invokedFile = process.argv[1];
+if (
+  invokedFile !== undefined
+  && path.resolve(invokedFile) === path.resolve(fileURLToPath(import.meta.url))
+) {
+  void main()
+    .catch((error: unknown) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(() => void prisma.$disconnect());
+}

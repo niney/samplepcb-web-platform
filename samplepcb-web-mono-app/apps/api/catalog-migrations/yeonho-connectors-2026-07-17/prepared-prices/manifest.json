@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "yeonho-catalog-price-snapshot-manifest/v1",
+  "generatedAt": "2026-07-26T21:18:30.200Z",
+  "sourceFile": "연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx",
+  "sourceSha256": "8612d52bb7858f3a994d9fed0e1d7e1bb706bdf233a9794e231600d9a103a9e6",
+  "snapshotFile": "yeonho-price-snapshot-v1.json.gz",
+  "snapshotSha256": "c15f5203bb1c39a98ed79f337e2cbee21cdff10053d57c82eb3853eeff3e6cbb",
+  "snapshotBytes": 19453,
+  "summary": {
+    "targets": 1606,
+    "priced": 3,
+    "foundWithoutPrice": 0,
+    "notFound": 1603,
+    "exactProducts": 3,
+    "supplierOffers": 3,
+    "pricedOffers": 3,
+    "priceBreaks": 17,
+    "apiCalls": 5915,
+    "supplierErrorRecords": 1606
+  }
+}

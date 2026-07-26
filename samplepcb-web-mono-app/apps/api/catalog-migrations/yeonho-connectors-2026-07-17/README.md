@@ -17,6 +17,8 @@ sp-node가 실행 시 워크북을 검증하고 기존 supplier-search ingest en
 - `normalized_specs.part_type`: 전체 `connector`
 - 세부 구성 유형은 `connector_component_type`에 Housing/Wafer/Terminal/Connector/Receptacle로 보존
 - 핀 수가 원본에 없는 32개는 `pin_count`를 만들지 않는다.
+- 모든 공식 MPN은 제조사 원천 오퍼와 `samplepcb` 문의 오퍼를 함께 가지며,
+  공급사 가격 스냅샷이 있으면 SamplePCB 오퍼에만 검증된 가격곡선을 덧붙인다.
 
 파서는 파일 해시, 필수 시트·헤더, MPN 정규화와 유일성, 직접/전개 두 시트의 합집합,
 시리즈 참조, 카테고리·피치, URL, 12505 공식 품번 검증을 모두 통과해야만 입력을 만든다.
@@ -87,6 +89,62 @@ dry-run에서 확인할 값:
 pnpm --filter api parts:catalog -- --verify
 pnpm --filter api parts:catalog -- --verify-search
 ```
+
+## 공급사 가격 사전 데이터
+
+연호 원본에는 가격·재고가 없으므로 운영 요청마다 공급사 API를 호출하지 않는다. 배포 전에
+공식 MPN 1,606개를 `MPN 정확 일치 + manufacturerNorm=yeonho`로 한 번 전수 조회하고,
+검증된 `prepared-prices/yeonho-price-snapshot-v1.json.gz`를 Git 산출물로 보존한다.
+동일 MPN의 다른 제조사와 유사 커넥터는 가격 근거에서 제외한다.
+
+로컬 생성과 재개:
+
+```bash
+cd samplepcb-web-mono-app
+
+pnpm --filter api parts:catalog-prices -- --source yeonho
+pnpm --filter api parts:catalog-prices -- \
+  --prepare --source yeonho --suppliers mouser,unikeyic
+pnpm --filter api parts:catalog-prices -- \
+  --prepare --resume --retry-supplier-errors --source yeonho --suppliers digikey
+pnpm --filter api parts:catalog-prices -- \
+  --verify --source yeonho
+```
+
+공급사별 분할 수집은 이전 공급사의 상품·오퍼를 보존하고 재조회한 공급사 결과만 교체한다.
+작업 중 `work-state.json`은 Git에서 제외하며, 확정 스냅샷은 원본 SHA·coverage·가격구간을
+manifest와 함께 검증한다. 모든 공급사가 오류 없이 조회된 산출물만 요구할 때는 검증 명령에
+`--require-all-suppliers`를 추가한다.
+
+2026-07-27 생성본은 1,606개 전체 coverage와 파일 해시 검증을 통과했다. Mouser·UniKeyIC
+조회에서 exact MPN+연호 제조사 가격 3개(`SMH200-04`, `SMH250-02`, `YST200`)를 확보했고,
+나머지 1,603개는 문의 견적으로 유지한다. 당시 DigiKey는 HTTP 429로 전수 조회가 불가능했고
+Mouser 279건은 HTTP 403을 반환했다. 따라서 현재 manifest의 `supplierErrorRecords=1606`은
+인제스트 실패가 아니라 공급사 미조회·오류 감사 표시이며, 표준 `--verify`는 통과하지만
+`--require-all-suppliers`는 1,885개 경고를 정확히 거부한다.
+
+카탈로그가 비어 있는 운영 환경에는 다음 순서로 적용한다.
+
+```bash
+cd samplepcb-web-mono-app
+
+pnpm --filter api parts:catalog -- --dry-run --source yeonho \
+  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/yeonho-price-snapshot-v1.json.gz
+
+pnpm --filter api parts:catalog -- --apply --source yeonho \
+  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/yeonho-price-snapshot-v1.json.gz
+
+pnpm --filter api parts:catalog -- --verify-search --source yeonho \
+  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/yeonho-price-snapshot-v1.json.gz
+```
+
+구 원본 교체가 필요한 운영 환경에서는 위 `--replace`를 먼저 완료한 다음, 별도 `--apply
+--source yeonho --price-snapshot ...` 실행으로 가격을 추가한다. `--replace`와
+`--price-snapshot`은 한 명령에서 섞지 않는다.
+
+외부 공급사 오퍼에는 조회 시점의 가격·재고를 그대로 저장한다. SamplePCB 오퍼는 선택된
+외부 오퍼 한 개의 전체 가격곡선과 출처만 복사하며 외부 재고는 자체 재고로 복사하지 않는다.
+외부 가격이 없는 연호 품목도 SamplePCB `문의 견적`으로 유지된다.
 
 `--apply`는 입력만 추가·갱신하고 구 source를 제거하지 않으므로 최초 운영 교체에는 사용하지 않는다.
 전체 카탈로그 초기화, `prisma migrate/reset`, ES 인덱스 삭제·재생성은 필요하지 않으며 실행하지 않는다.

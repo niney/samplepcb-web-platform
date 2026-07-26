@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  YEONHO_PRICE_SNAPSHOT_DEFINITION,
+  buildCatalogPriceSnapshotArtifact,
+  catalogPriceSnapshotIngestEnvelope,
+  exactCatalogPriceSnapshotRecord,
+  validateCatalogPriceSnapshotCoverage,
+  type CatalogPriceSnapshotTarget,
+} from '../lib/catalog-price-snapshot';
+import {
   buildWalsinPriceSnapshotArtifact,
   exactWalsinPriceSnapshotRecord,
   summarizeWalsinPriceSnapshotRecords,
@@ -10,10 +18,13 @@ import {
   type WalsinPriceSnapshotTarget,
 } from '../lib/walsin-catalog-price-snapshot';
 import type { CatalogMigrationRecord } from '../lib/parts-catalog-migration';
+import { supplierSearchIngestFingerprint } from '../lib/parts-ingest';
 import {
-  orderWalsinPriceSnapshotTargets,
+  mergeCatalogPriceRefreshRecord,
+  orderCatalogPriceSnapshotTargets,
   parseCatalogPriceRefreshOptions,
-} from './refresh-walsin-catalog-prices';
+} from './refresh-catalog-prices';
+import { parseCatalogImportOptions } from './import-parts-catalog';
 
 const target: WalsinPriceSnapshotTarget = {
   key: 'walsin:WR04X1001FTL',
@@ -23,18 +34,27 @@ const target: WalsinPriceSnapshotTarget = {
   manufacturerNorm: 'walsin',
 };
 
+const yeonhoTarget: CatalogPriceSnapshotTarget = {
+  key: 'yeonho:12505WS08',
+  mpn: '12505WS-08',
+  mpnNorm: '12505WS08',
+  manufacturerName: 'YEONHO ELECTRONICS',
+  manufacturerNorm: 'yeonho',
+};
+
 function product(
   mpn: string,
   manufacturer: string,
   priceBreaks: { quantity: number; unit_price: number; currency: string }[],
+  supplier = 'digikey',
 ): Record<string, unknown> {
   return {
-    supplier: 'digikey',
+    supplier,
     manufacturer_part_number: mpn,
     manufacturer,
     offers: [
       {
-        supplier: 'digikey',
+        supplier,
         supplier_sku: `1292-${mpn}CT-ND`,
         stock: 100,
         moq: 0,
@@ -82,6 +102,50 @@ function catalogRecord(
   };
 }
 
+function yeonhoCatalogRecord(): CatalogMigrationRecord {
+  return {
+    key: yeonhoTarget.key,
+    mpn: yeonhoTarget.mpn,
+    mpnNorm: yeonhoTarget.mpnNorm,
+    manufacturerName: yeonhoTarget.manufacturerName,
+    manufacturerNorm: yeonhoTarget.manufacturerNorm,
+    product: {
+      supplier: 'yeonho',
+      manufacturer_part_number: yeonhoTarget.mpn,
+      manufacturer: yeonhoTarget.manufacturerName,
+      normalized_specs: { part_type: 'connector' },
+      catalog_metadata: {
+        sourceDataset:
+          '연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx',
+        sourceRecordIds: [1],
+        imageStatus: '수집완료',
+        catalogOnly: true,
+        generatedMpn: false,
+        commercialDataAvailable: false,
+        samplepcbPreferred: true,
+      },
+      offers: [
+        {
+          supplier: 'yeonho',
+          supplier_sku: yeonhoTarget.mpn,
+          price_breaks: [],
+          fetched_at: '2026-07-26T00:00:00.000Z',
+        },
+        {
+          supplier: 'samplepcb',
+          supplier_sku: yeonhoTarget.mpn,
+          price_breaks: [],
+          fetched_at: '2026-07-26T00:00:00.000Z',
+        },
+      ],
+    },
+    offers: [
+      { supplier: 'yeonho', supplierSku: yeonhoTarget.mpn },
+      { supplier: 'samplepcb', supplierSku: yeonhoTarget.mpn },
+    ],
+  };
+}
+
 describe('Walsin 전체 가격 스냅샷 옵션', () => {
   it('기본 실행은 API를 호출하지 않는 dry-run이다', () => {
     expect(parseCatalogPriceRefreshOptions([])).toMatchObject({
@@ -102,6 +166,17 @@ describe('Walsin 전체 가격 스냅샷 옵션', () => {
     expect(() => parseCatalogPriceRefreshOptions(['--resume'])).toThrow(
       '--resume, --retry-misses, --retry-supplier-errors는 --prepare에서만 사용할 수 있습니다',
     );
+  });
+
+  it('전 공급사 완료 강제 검증은 verify 전용이다', () => {
+    expect(parseCatalogPriceRefreshOptions([
+      '--verify',
+      '--require-all-suppliers',
+    ]).requireAllSuppliers).toBe(true);
+    expect(() => parseCatalogPriceRefreshOptions([
+      '--prepare',
+      '--require-all-suppliers',
+    ])).toThrow('--require-all-suppliers는 --verify와 함께 사용해야 합니다');
   });
 
   it('prepare는 제한된 병렬도와 부분 실행을 지원한다', () => {
@@ -129,12 +204,29 @@ describe('Walsin 전체 가격 스냅샷 옵션', () => {
     });
   });
 
+  it('연호 원본은 독립된 상태와 스냅샷 기본 경로를 사용한다', () => {
+    const options = parseCatalogPriceRefreshOptions([
+      '--source',
+      'yeonho',
+    ]);
+    expect(options).toMatchObject({
+      source: 'yeonho',
+    });
+    expect(options.sourceFile).toContain('yeonho-connectors-2026-07-17');
+    expect(options.stateFile).toContain(
+      'yeonho-connectors-2026-07-17\\prepared-prices\\work-state.json',
+    );
+    expect(options.snapshotFile).toContain(
+      'yeonho-price-snapshot-v1.json.gz',
+    );
+  });
+
   it('재개 시 미시도 대상을 오류 재시도보다 먼저 처리한다', () => {
     const retryTarget = { ...target, key: 'walsin:RETRY', mpn: 'RETRY' };
     const doneTarget = { ...target, key: 'walsin:DONE', mpn: 'DONE' };
     const unseenTarget = { ...target, key: 'walsin:UNSEEN', mpn: 'UNSEEN' };
 
-    expect(orderWalsinPriceSnapshotTargets(
+    expect(orderCatalogPriceSnapshotTargets(
       [retryTarget, doneTarget, unseenTarget],
       {
         [retryTarget.key]: {
@@ -168,19 +260,19 @@ describe('Walsin 전체 가격 스냅샷 옵션', () => {
       },
     };
 
-    expect(orderWalsinPriceSnapshotTargets(
+    expect(orderCatalogPriceSnapshotTargets(
       [supplierError, timeout],
       records,
       false,
     ).map((value) => value.key)).toEqual([timeout.key]);
-    expect(orderWalsinPriceSnapshotTargets(
+    expect(orderCatalogPriceSnapshotTargets(
       [supplierError, timeout],
       records,
       false,
       true,
       ['mouser', 'unikeyic'],
     ).map((value) => value.key)).toEqual([timeout.key]);
-    expect(orderWalsinPriceSnapshotTargets(
+    expect(orderCatalogPriceSnapshotTargets(
       [supplierError, timeout],
       records,
       false,
@@ -189,6 +281,172 @@ describe('Walsin 전체 가격 스냅샷 옵션', () => {
       supplierError.key,
       timeout.key,
     ]);
+  });
+
+  it('공급사별 분할 수집은 기존 오퍼를 보존하고 재조회 공급사만 교체한다', () => {
+    const mouser = exactWalsinPriceSnapshotRecord(
+      {
+        search: {
+          api_calls: 2,
+          components: [{
+            candidates: [{
+              product: product(
+                target.mpn,
+                'Walsin',
+                [{ quantity: 1, unit_price: 160, currency: 'KRW' }],
+                'mouser',
+              ),
+            }],
+            warnings: [],
+          }],
+        },
+      },
+      target,
+      '2026-07-26T00:00:00.000Z',
+    );
+    const digikey = exactWalsinPriceSnapshotRecord(
+      {
+        search: {
+          api_calls: 3,
+          components: [{
+            candidates: [{
+              product: product(
+                target.mpn,
+                'Walsin',
+                [{ quantity: 1, unit_price: 150, currency: 'KRW' }],
+              ),
+            }],
+            warnings: [],
+          }],
+        },
+      },
+      target,
+      '2026-07-27T00:00:00.000Z',
+    );
+
+    const merged = mergeCatalogPriceRefreshRecord(
+      digikey,
+      {
+        ...mouser,
+        warnings: [
+          'digikey: not_requested_for_snapshot',
+          'unikeyic: not_requested_for_snapshot',
+        ],
+        attemptedSuppliers: ['mouser'],
+        attempts: 1,
+        error: null,
+      },
+      ['digikey'],
+    );
+
+    expect(merged.products.map((value) => value.supplier)).toEqual([
+      'digikey',
+      'mouser',
+    ]);
+    expect(merged.apiCalls).toBe(5);
+    expect(merged.warnings).toEqual([
+      'unikeyic: not_requested_for_snapshot',
+    ]);
+  });
+
+  it('새 공급사만 추가 조회할 때 앞선 검색 미완료 경고를 숨기지 않는다', () => {
+    const incompleteWarning =
+      '공급사 검색이 작업 시간 상한 300초를 초과했습니다.';
+    const digikey = exactWalsinPriceSnapshotRecord(
+      {
+        search: {
+          api_calls: 1,
+          components: [{
+            candidates: [],
+            warnings: [],
+          }],
+        },
+      },
+      target,
+      '2026-07-27T00:00:00.000Z',
+    );
+
+    const merged = mergeCatalogPriceRefreshRecord(
+      digikey,
+      {
+        ...digikey,
+        warnings: [
+          incompleteWarning,
+          'digikey: not_requested_for_snapshot',
+        ],
+        attemptedSuppliers: ['mouser', 'unikeyic'],
+        attempts: 1,
+        error: 'supplier_partial_error',
+        status: 'error',
+      },
+      ['digikey'],
+    );
+
+    expect(merged.warnings).toContain(incompleteWarning);
+  });
+
+  it('앞서 시도한 공급사를 전부 재조회하면 지난 검색 미완료 경고를 제거한다', () => {
+    const incompleteWarning =
+      '공급사 검색이 작업 시간 상한 300초를 초과했습니다.';
+    const current = exactWalsinPriceSnapshotRecord(
+      {
+        search: {
+          api_calls: 2,
+          components: [{
+            candidates: [],
+            warnings: [],
+          }],
+        },
+      },
+      target,
+      '2026-07-27T00:00:00.000Z',
+    );
+
+    const merged = mergeCatalogPriceRefreshRecord(
+      current,
+      {
+        ...current,
+        warnings: [incompleteWarning],
+        attemptedSuppliers: ['mouser', 'unikeyic'],
+        attempts: 1,
+        error: 'supplier_partial_error',
+        status: 'error',
+      },
+      ['mouser', 'unikeyic'],
+    );
+
+    expect(merged.warnings).not.toContain(incompleteWarning);
+  });
+});
+
+describe('카탈로그 가격 스냅샷 적용 옵션', () => {
+  it('연호 원본에도 검증된 가격 스냅샷을 함께 적용할 수 있다', () => {
+    const options = parseCatalogImportOptions([
+      '--dry-run',
+      '--source',
+      'yeonho',
+      '--price-snapshot',
+      'yeonho-price-snapshot-v1.json.gz',
+    ]);
+    expect(options).toMatchObject({
+      mode: 'dry-run',
+      source: 'yeonho',
+    });
+    expect(options.priceSnapshot).toContain(
+      'yeonho-price-snapshot-v1.json.gz',
+    );
+  });
+
+  it('가격 스냅샷과 일방향 교체를 한 실행에서 섞지 않는다', () => {
+    expect(() => parseCatalogImportOptions([
+      '--replace',
+      '--source',
+      'yeonho',
+      '--retire-source-sha',
+      'a'.repeat(64),
+      '--price-snapshot',
+      'yeonho-price-snapshot-v1.json.gz',
+    ])).toThrow('--price-snapshot은 --replace/--rollback과 함께 사용할 수 없습니다');
   });
 });
 
@@ -497,5 +755,143 @@ describe('Walsin 전체 가격 스냅샷 데이터', () => {
       tampered,
       [catalogRecord()],
     )).toThrow('상태와 오퍼 가격이 다릅니다');
+  });
+});
+
+describe('연호 전체 가격 스냅샷 데이터', () => {
+  it('정확 MPN과 연호 제조사가 함께 맞는 외부 상품만 보존한다', () => {
+    const record = exactCatalogPriceSnapshotRecord(
+      {
+        search: {
+          api_calls: 3,
+          components: [{
+            component_id: yeonhoTarget.key,
+            api_calls: 3,
+            candidates: [
+              {
+                product: product(
+                  yeonhoTarget.mpn,
+                  'YEONHO ELECTRONICS',
+                  [{ quantity: 1, unit_price: 320, currency: 'KRW' }],
+                ),
+              },
+              {
+                product: product(
+                  yeonhoTarget.mpn,
+                  'JST',
+                  [{ quantity: 1, unit_price: 100, currency: 'KRW' }],
+                ),
+              },
+            ],
+            warnings: [],
+          }],
+        },
+      },
+      yeonhoTarget,
+      '2026-07-27T00:00:00.000Z',
+      yeonhoTarget.key,
+    );
+
+    expect(record.status).toBe('priced');
+    expect(record.products).toHaveLength(1);
+    expect(record.products[0]?.manufacturer).toBe('YEONHO ELECTRONICS');
+  });
+
+  it('연호 버전·원본 해시·component prefix를 함께 고정한다', () => {
+    const record = exactCatalogPriceSnapshotRecord(
+      {
+        search: {
+          api_calls: 1,
+          components: [{
+            candidates: [{
+              product: product(
+                yeonhoTarget.mpn,
+                'YEONHO ELECTRONICS',
+                [{ quantity: 1, unit_price: 320, currency: 'KRW' }],
+              ),
+            }],
+            warnings: [],
+          }],
+        },
+      },
+      yeonhoTarget,
+      '2026-07-27T00:00:00.000Z',
+    );
+    const artifact = buildCatalogPriceSnapshotArtifact(
+      YEONHO_PRICE_SNAPSHOT_DEFINITION,
+      '연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx',
+      [record],
+      '2026-07-27T00:00:00.000Z',
+    );
+    const verified = validateCatalogPriceSnapshotCoverage(
+      artifact,
+      [yeonhoCatalogRecord()],
+      YEONHO_PRICE_SNAPSHOT_DEFINITION,
+    );
+    const envelope = catalogPriceSnapshotIngestEnvelope(
+      verified,
+      YEONHO_PRICE_SNAPSHOT_DEFINITION,
+    ) as {
+      search: { components: { component_id: string }[] };
+    };
+
+    expect(verified.schemaVersion).toBe(
+      'yeonho-catalog-price-snapshot/v1',
+    );
+    expect(verified.source.sha256).toBe(
+      YEONHO_PRICE_SNAPSHOT_DEFINITION.sourceSha256,
+    );
+    expect(envelope.search.components[0]?.component_id).toBe(
+      `yeonho-price:${yeonhoTarget.key}`,
+    );
+    expect(() => validateCatalogPriceSnapshotCoverage(
+      artifact,
+      [yeonhoCatalogRecord()],
+      {
+        ...YEONHO_PRICE_SNAPSHOT_DEFINITION,
+        source: 'walsin-rlc',
+        artifactVersion: 'walsin-catalog-price-snapshot/v1',
+        manifestVersion: 'walsin-catalog-price-snapshot-manifest/v1',
+        componentIdPrefix: 'walsin-price',
+      },
+    )).toThrow('선택한 카탈로그와 다릅니다');
+  });
+
+  it('전 공급사 exact 결과가 없어도 coverage와 빈 인제스트 입력은 유효하다', () => {
+    const record = exactCatalogPriceSnapshotRecord(
+      {
+        search: {
+          api_calls: 3,
+          components: [{ candidates: [], warnings: [] }],
+        },
+      },
+      yeonhoTarget,
+      '2026-07-27T00:00:00.000Z',
+    );
+    const artifact = buildCatalogPriceSnapshotArtifact(
+      YEONHO_PRICE_SNAPSHOT_DEFINITION,
+      '연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx',
+      [record],
+      '2026-07-27T00:00:00.000Z',
+    );
+    const envelope = catalogPriceSnapshotIngestEnvelope(
+      artifact,
+      YEONHO_PRICE_SNAPSHOT_DEFINITION,
+    );
+
+    expect(artifact.summary).toMatchObject({
+      targets: 1,
+      exactProducts: 0,
+      supplierOffers: 0,
+      notFound: 1,
+    });
+    expect(supplierSearchIngestFingerprint(envelope)).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(validateCatalogPriceSnapshotCoverage(
+      artifact,
+      [yeonhoCatalogRecord()],
+      YEONHO_PRICE_SNAPSHOT_DEFINITION,
+    ).summary.targets).toBe(1);
   });
 });

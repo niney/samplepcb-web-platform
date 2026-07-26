@@ -6,36 +6,82 @@ import { z } from 'zod';
 import { engineFetch } from '../lib/engine-client';
 import { parseCatalogMigrationEnvelope } from '../lib/parts-catalog-migration';
 import {
-  WALSIN_PRICE_SNAPSHOT_MANIFEST_VERSION,
-  WalsinPriceSnapshotManifest,
-  WalsinPriceSnapshotProduct,
-  WalsinPriceSnapshotRecord,
-  buildWalsinPriceSnapshotArtifact,
-  exactWalsinPriceSnapshotRecord,
-  readVerifiedWalsinPriceSnapshot,
+  CatalogPriceSnapshotManifest,
+  CatalogPriceSnapshotProduct,
+  CatalogPriceSnapshotRecord,
+  WALSIN_PRICE_SNAPSHOT_DEFINITION,
+  YEONHO_PRICE_SNAPSHOT_DEFINITION,
+  buildCatalogPriceSnapshotArtifact,
+  canonicalCatalogPriceSnapshotRecord,
+  catalogPriceSnapshotEnvelopeApiCalls,
+  catalogSnapshotBlockingErrors,
+  catalogSnapshotSupplierErrors,
+  exactCatalogPriceSnapshotRecord,
+  readVerifiedCatalogPriceSnapshot,
   sha256,
-  validateWalsinPriceSnapshotCoverage,
-  walsinPriceSnapshotEnvelopeApiCalls,
-  walsinSnapshotBlockingErrors,
-  walsinSnapshotSupplierErrors,
-  type WalsinPriceSnapshotManifestType,
-  type WalsinPriceSnapshotRecordType,
-  type WalsinPriceSnapshotTarget,
-} from '../lib/walsin-catalog-price-snapshot';
+  validateCatalogPriceSnapshotCoverage,
+  type CatalogPriceSnapshotDefinition,
+  type CatalogPriceSnapshotManifestType,
+  type CatalogPriceSnapshotRecordType,
+  type CatalogPriceSnapshotTarget,
+} from '../lib/catalog-price-snapshot';
 import {
-  WALSIN_RLC_SOURCE_SHA256,
   buildWalsinRlcCatalogEnvelope,
 } from '../lib/walsin-rlc-catalog-workbook';
+import {
+  buildYeonhoCatalogEnvelope,
+} from '../lib/yeonho-catalog-workbook';
 
 type Mode = 'dry-run' | 'prepare' | 'verify';
 const PRICE_SUPPLIERS = ['digikey', 'mouser', 'unikeyic'] as const;
 type PriceSupplier = typeof PRICE_SUPPLIERS[number];
+type CatalogPriceSourceKey = 'walsin-rlc' | 'yeonho';
+
+interface CatalogPriceSource {
+  definition: CatalogPriceSnapshotDefinition;
+  defaultFile: string;
+  defaultOutputDir: string;
+  snapshotFileName: string;
+  build: (file: string) => Promise<{ envelope: unknown }>;
+}
+
+const PRICE_SOURCES = {
+  'walsin-rlc': {
+    definition: WALSIN_PRICE_SNAPSHOT_DEFINITION,
+    defaultFile:
+      'catalog-migrations/walsin/Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx',
+    defaultOutputDir: 'catalog-migrations/walsin/prepared-prices',
+    snapshotFileName: 'walsin-price-snapshot-v1.json.gz',
+    build: async (file) => {
+      const { envelope } = await buildWalsinRlcCatalogEnvelope(file);
+      return { envelope };
+    },
+  },
+  yeonho: {
+    definition: YEONHO_PRICE_SNAPSHOT_DEFINITION,
+    defaultFile:
+      'catalog-migrations/yeonho-connectors-2026-07-17/연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx',
+    defaultOutputDir:
+      'catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices',
+    snapshotFileName: 'yeonho-price-snapshot-v1.json.gz',
+    build: async (file) => {
+      const { envelope } = await buildYeonhoCatalogEnvelope(file);
+      return { envelope };
+    },
+  },
+} satisfies Record<CatalogPriceSourceKey, CatalogPriceSource>;
+
+function isCatalogPriceSourceKey(value: string): value is CatalogPriceSourceKey {
+  return Object.hasOwn(PRICE_SOURCES, value);
+}
 
 interface Options {
   mode: Mode;
+  source: CatalogPriceSourceKey;
   resume: boolean;
   retryMisses: boolean;
   retrySupplierErrors: boolean;
+  requireAllSuppliers: boolean;
   limit: number | null;
   concurrency: number;
   batchSize: number;
@@ -60,23 +106,26 @@ const WorkRecord = z.object({
     'not_found',
     'error',
   ]),
-  products: z.array(WalsinPriceSnapshotProduct),
+  products: z.array(CatalogPriceSnapshotProduct),
   warnings: z.array(z.string()),
   apiCalls: z.number().int().nonnegative(),
+  attemptedSuppliers: z.array(z.enum(PRICE_SUPPLIERS)).default([]),
   attempts: z.number().int().positive(),
   error: z.string().nullable(),
   updatedAt: z.string().datetime(),
 });
 
 const WorkState = z.object({
-  version: z.literal(2),
-  sourceSha256: z.literal(WALSIN_RLC_SOURCE_SHA256),
+  version: z.literal(3),
+  source: z.enum(['walsin-rlc', 'yeonho']),
+  sourceSha256: z.string().regex(/^[0-9a-f]{64}$/),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   records: z.record(z.string(), WorkRecord),
 });
 
-type WorkRecordType = z.infer<typeof WorkRecord>;
+export type CatalogPriceWorkRecord = z.infer<typeof WorkRecord>;
+type WorkRecordType = CatalogPriceWorkRecord;
 type WorkStateType = z.infer<typeof WorkState>;
 
 interface WorkSummary {
@@ -94,21 +143,6 @@ interface PendingRecord {
   status: WorkRecordType['status'];
   warnings: string[];
 }
-
-const DEFAULT_SOURCE_FILE = path.resolve(
-  process.cwd(),
-  'catalog-migrations/walsin/Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx',
-);
-const DEFAULT_OUTPUT_DIR = path.resolve(
-  process.cwd(),
-  'catalog-migrations/walsin/prepared-prices',
-);
-const DEFAULT_STATE_FILE = path.join(DEFAULT_OUTPUT_DIR, 'work-state.json');
-const DEFAULT_SNAPSHOT_FILE = path.join(
-  DEFAULT_OUTPUT_DIR,
-  'walsin-price-snapshot-v1.json.gz',
-);
-const DEFAULT_MANIFEST_FILE = path.join(DEFAULT_OUTPUT_DIR, 'manifest.json');
 
 function optionValue(args: string[], name: string): string | undefined {
   const inline = args.find((arg) => arg.startsWith(`${name}=`));
@@ -131,6 +165,14 @@ function positiveInteger(
 }
 
 export function parseCatalogPriceRefreshOptions(args: string[]): Options {
+  const sourceValue = optionValue(args, '--source') ?? 'walsin-rlc';
+  if (!isCatalogPriceSourceKey(sourceValue)) {
+    throw new Error(
+      `--source는 ${Object.keys(PRICE_SOURCES).join('|')} 중 하나여야 합니다`,
+    );
+  }
+  const source = PRICE_SOURCES[sourceValue];
+  const outputDir = path.resolve(process.cwd(), source.defaultOutputDir);
   const selected = [
     args.includes('--prepare') ? 'prepare' as const : null,
     args.includes('--verify') ? 'verify' as const : null,
@@ -142,10 +184,14 @@ export function parseCatalogPriceRefreshOptions(args: string[]): Options {
   const resume = args.includes('--resume');
   const retryMisses = args.includes('--retry-misses');
   const retrySupplierErrors = args.includes('--retry-supplier-errors');
+  const requireAllSuppliers = args.includes('--require-all-suppliers');
   if (mode !== 'prepare' && (resume || retryMisses || retrySupplierErrors)) {
     throw new Error(
       '--resume, --retry-misses, --retry-supplier-errors는 --prepare에서만 사용할 수 있습니다',
     );
+  }
+  if (requireAllSuppliers && mode !== 'verify') {
+    throw new Error('--require-all-suppliers는 --verify와 함께 사용해야 합니다');
   }
   const supplierText = optionValue(args, '--suppliers');
   const supplierValues = supplierText === undefined
@@ -169,9 +215,11 @@ export function parseCatalogPriceRefreshOptions(args: string[]): Options {
   const limitText = optionValue(args, '--limit');
   return {
     mode,
+    source: sourceValue,
     resume,
     retryMisses,
     retrySupplierErrors,
+    requireAllSuppliers,
     limit: limitText === undefined
       ? null
       : positiveInteger(limitText, 1, '--limit'),
@@ -199,13 +247,21 @@ export function parseCatalogPriceRefreshOptions(args: string[]): Options {
       ),
     ),
     suppliers: supplierValues as PriceSupplier[],
-    sourceFile: path.resolve(optionValue(args, '--file') ?? DEFAULT_SOURCE_FILE),
-    stateFile: path.resolve(optionValue(args, '--state') ?? DEFAULT_STATE_FILE),
+    sourceFile: path.resolve(
+      optionValue(args, '--file')
+        ?? path.resolve(process.cwd(), source.defaultFile),
+    ),
+    stateFile: path.resolve(
+      optionValue(args, '--state')
+        ?? path.join(outputDir, 'work-state.json'),
+    ),
     snapshotFile: path.resolve(
-      optionValue(args, '--snapshot') ?? DEFAULT_SNAPSHOT_FILE,
+      optionValue(args, '--snapshot')
+        ?? path.join(outputDir, source.snapshotFileName),
     ),
     manifestFile: path.resolve(
-      optionValue(args, '--manifest') ?? DEFAULT_MANIFEST_FILE,
+      optionValue(args, '--manifest')
+        ?? path.join(outputDir, 'manifest.json'),
     ),
   };
 }
@@ -227,11 +283,14 @@ async function fileExists(file: string): Promise<boolean> {
   }
 }
 
-async function loadTargets(sourceFile: string): Promise<{
-  targets: WalsinPriceSnapshotTarget[];
+async function loadTargets(
+  sourceKey: CatalogPriceSourceKey,
+  sourceFile: string,
+): Promise<{
+  targets: CatalogPriceSnapshotTarget[];
   records: ReturnType<typeof parseCatalogMigrationEnvelope>['records'];
 }> {
-  const built = await buildWalsinRlcCatalogEnvelope(sourceFile);
+  const built = await PRICE_SOURCES[sourceKey].build(sourceFile);
   const parsed = parseCatalogMigrationEnvelope(built.envelope);
   return {
     targets: parsed.records.map((record) => ({
@@ -245,20 +304,32 @@ async function loadTargets(sourceFile: string): Promise<{
   };
 }
 
-function newState(): WorkStateType {
+function newState(
+  source: CatalogPriceSourceKey,
+  sourceSha256: string,
+): WorkStateType {
   const now = new Date().toISOString();
   return {
-    version: 2,
-    sourceSha256: WALSIN_RLC_SOURCE_SHA256,
+    version: 3,
+    source,
+    sourceSha256,
     createdAt: now,
     updatedAt: now,
     records: {},
   };
 }
 
-async function readState(file: string): Promise<WorkStateType> {
+async function readState(
+  file: string,
+  source: CatalogPriceSourceKey,
+  sourceSha256: string,
+): Promise<WorkStateType> {
   const raw: unknown = JSON.parse(await readFile(file, 'utf8'));
-  return WorkState.parse(raw);
+  const state = WorkState.parse(raw);
+  if (state.source !== source || state.sourceSha256 !== sourceSha256) {
+    throw new Error(`작업 상태 원본이 선택한 카탈로그와 다릅니다: ${file}`);
+  }
+  return state;
 }
 
 async function writeState(file: string, state: WorkStateType): Promise<void> {
@@ -269,11 +340,14 @@ async function writeState(file: string, state: WorkStateType): Promise<void> {
   await rename(temporary, file);
 }
 
-function terminalRecord(record: WorkRecordType): WalsinPriceSnapshotRecordType {
+function terminalRecord(record: WorkRecordType): CatalogPriceSnapshotRecordType {
   if (record.status === 'error') {
     throw new Error(`오류 상태는 스냅샷에 넣을 수 없습니다: ${record.key}`);
   }
-  return WalsinPriceSnapshotRecord.parse({
+  const notRequested = PRICE_SUPPLIERS
+    .filter((supplier) => !record.attemptedSuppliers.includes(supplier))
+    .map((supplier) => `${supplier}: not_requested_for_snapshot`);
+  return CatalogPriceSnapshotRecord.parse({
     key: record.key,
     mpn: record.mpn,
     mpnNorm: record.mpnNorm,
@@ -281,7 +355,7 @@ function terminalRecord(record: WorkRecordType): WalsinPriceSnapshotRecordType {
     manufacturerNorm: record.manufacturerNorm,
     status: record.status,
     products: record.products,
-    warnings: record.warnings,
+    warnings: [...new Set([...record.warnings, ...notRequested])].sort(),
     apiCalls: record.apiCalls,
     updatedAt: record.updatedAt,
   });
@@ -308,30 +382,95 @@ function workSummary(
 }
 
 function errorWorkRecord(
-  target: WalsinPriceSnapshotTarget,
+  target: CatalogPriceSnapshotTarget,
   error: unknown,
-  priorAttempts: number,
+  prior: WorkRecordType | undefined,
   updatedAt: string,
-  partial?: WalsinPriceSnapshotRecordType,
+  partial?: CatalogPriceSnapshotRecordType,
+  attemptedSuppliers: PriceSupplier[] = [],
 ): WorkRecordType {
   return WorkRecord.parse({
     ...target,
     status: 'error',
-    products: partial?.products ?? [],
-    warnings: partial?.warnings ?? [],
-    apiCalls: partial?.apiCalls ?? 0,
-    attempts: priorAttempts + 1,
+    products: partial?.products ?? prior?.products ?? [],
+    warnings: partial?.warnings ?? prior?.warnings ?? [],
+    apiCalls: partial?.apiCalls ?? prior?.apiCalls ?? 0,
+    attemptedSuppliers: [
+      ...new Set([
+        ...(prior?.attemptedSuppliers ?? []),
+        ...attemptedSuppliers,
+      ]),
+    ],
+    attempts: (prior?.attempts ?? 0) + 1,
     error: String(error).slice(0, 500),
     updatedAt,
   });
 }
 
+function warningFromSupplier(
+  warning: string,
+  suppliers: PriceSupplier[],
+): boolean {
+  const lower = warning.toLowerCase();
+  return suppliers.some((supplier) => lower.startsWith(`${supplier}:`));
+}
+
+function productFromSupplier(
+  product: CatalogPriceSnapshotRecordType['products'][number],
+  suppliers: PriceSupplier[],
+): boolean {
+  return suppliers.includes(product.supplier.trim().toLowerCase() as PriceSupplier);
+}
+
+export function mergeCatalogPriceRefreshRecord(
+  current: CatalogPriceSnapshotRecordType,
+  prior: WorkRecordType | undefined,
+  suppliers: PriceSupplier[],
+): CatalogPriceSnapshotRecordType {
+  const attemptedSuppliers = [
+    ...new Set([
+      ...(prior?.attemptedSuppliers ?? []),
+      ...suppliers,
+    ]),
+  ];
+  const products = [
+    ...(prior?.products.filter((product) =>
+      !productFromSupplier(product, suppliers)) ?? []),
+    ...current.products,
+  ];
+  const retryCoversPriorSuppliers = (prior?.attemptedSuppliers ?? [])
+    .every((supplier) => suppliers.includes(supplier));
+  const priorWarnings = prior?.warnings.filter((warning) =>
+    !warningFromSupplier(warning, suppliers)
+    && (
+      !retryCoversPriorSuppliers
+      || catalogSnapshotBlockingErrors([warning]).length === 0
+    )) ?? [];
+  const notRequested = PRICE_SUPPLIERS
+    .filter((supplier) => !attemptedSuppliers.includes(supplier))
+    .map((supplier) => `${supplier}: not_requested_for_snapshot`);
+  return canonicalCatalogPriceSnapshotRecord(
+    CatalogPriceSnapshotRecord.parse({
+      ...current,
+      products,
+      warnings: [
+        ...new Set([
+          ...priorWarnings,
+          ...current.warnings,
+          ...notRequested,
+        ]),
+      ],
+      apiCalls: (prior?.apiCalls ?? 0) + current.apiCalls,
+    }),
+  );
+}
+
 async function refreshTargetBatch(
-  targets: WalsinPriceSnapshotTarget[],
+  targets: CatalogPriceSnapshotTarget[],
   maxCalls: number,
   jobTimeoutSeconds: number,
   suppliers: PriceSupplier[],
-  priorAttempts: Map<string, number>,
+  priorRecords: Map<string, WorkRecordType | undefined>,
 ): Promise<readonly (readonly [string, WorkRecordType])[]> {
   const updatedAt = new Date().toISOString();
   try {
@@ -359,23 +498,17 @@ async function refreshTargetBatch(
     }
     const envelope: unknown = await response.json();
     const results = targets.map((target) => {
-      const attempts = priorAttempts.get(target.key) ?? 0;
-      let partial: WalsinPriceSnapshotRecordType | undefined;
+      const prior = priorRecords.get(target.key);
+      let partial: CatalogPriceSnapshotRecordType | undefined;
       try {
-        partial = exactWalsinPriceSnapshotRecord(
+        partial = exactCatalogPriceSnapshotRecord(
           envelope,
           target,
           updatedAt,
           target.key,
         );
-        const skippedWarnings = PRICE_SUPPLIERS
-          .filter((supplier) => !suppliers.includes(supplier))
-          .map((supplier) => `${supplier}: not_requested_for_snapshot`);
-        partial = WalsinPriceSnapshotRecord.parse({
-          ...partial,
-          warnings: [...new Set([...partial.warnings, ...skippedWarnings])],
-        });
-        const blockingErrors = walsinSnapshotBlockingErrors(partial.warnings);
+        partial = mergeCatalogPriceRefreshRecord(partial, prior, suppliers);
+        const blockingErrors = catalogSnapshotBlockingErrors(partial.warnings);
         if (blockingErrors.length > 0) {
           throw new Error(
             `supplier_partial_error:${blockingErrors.join('|')}`,
@@ -385,24 +518,42 @@ async function refreshTargetBatch(
           target.key,
           WorkRecord.parse({
             ...partial,
-            attempts: attempts + 1,
+            attemptedSuppliers: [
+              ...new Set([
+                ...(prior?.attemptedSuppliers ?? []),
+                ...suppliers,
+              ]),
+            ],
+            attempts: (prior?.attempts ?? 0) + 1,
             error: null,
           }),
         ] as const;
       } catch (error) {
         return [
           target.key,
-          errorWorkRecord(target, error, attempts, updatedAt, partial),
+          errorWorkRecord(
+            target,
+            error,
+            prior,
+            updatedAt,
+            partial,
+            partial === undefined ? [] : suppliers,
+          ),
         ] as const;
       }
     });
+    const priorApiCalls = targets.reduce(
+      (total, target) =>
+        total + (priorRecords.get(target.key)?.apiCalls ?? 0),
+      0,
+    );
     const componentApiCalls = results.reduce(
       (total, [, record]) => total + record.apiCalls,
       0,
-    );
+    ) - priorApiCalls;
     const unassignedApiCalls = Math.max(
       0,
-      walsinPriceSnapshotEnvelopeApiCalls(envelope) - componentApiCalls,
+      catalogPriceSnapshotEnvelopeApiCalls(envelope) - componentApiCalls,
     );
     const first = results[0];
     if (first !== undefined && unassignedApiCalls > 0) {
@@ -421,7 +572,7 @@ async function refreshTargetBatch(
       errorWorkRecord(
         target,
         error,
-        priorAttempts.get(target.key) ?? 0,
+        priorRecords.get(target.key),
         updatedAt,
       ),
     ] as const);
@@ -431,13 +582,15 @@ async function refreshTargetBatch(
 async function writeSnapshotBundle(
   options: Options,
   sourceRecords: ReturnType<typeof parseCatalogMigrationEnvelope>['records'],
-  records: WalsinPriceSnapshotRecordType[],
-): Promise<WalsinPriceSnapshotManifestType> {
-  const artifact = buildWalsinPriceSnapshotArtifact(
+  records: CatalogPriceSnapshotRecordType[],
+): Promise<CatalogPriceSnapshotManifestType> {
+  const definition = PRICE_SOURCES[options.source].definition;
+  const artifact = buildCatalogPriceSnapshotArtifact(
+    definition,
     options.sourceFile,
     records,
   );
-  validateWalsinPriceSnapshotCoverage(artifact, sourceRecords);
+  validateCatalogPriceSnapshotCoverage(artifact, sourceRecords, definition);
   const compressed = gzipSync(
     Buffer.from(`${JSON.stringify(artifact)}\n`, 'utf8'),
     { level: 9 },
@@ -447,8 +600,8 @@ async function writeSnapshotBundle(
   await writeFile(temporary, compressed);
   await rename(temporary, options.snapshotFile);
 
-  const manifest = WalsinPriceSnapshotManifest.parse({
-    schemaVersion: WALSIN_PRICE_SNAPSHOT_MANIFEST_VERSION,
+  const manifest = CatalogPriceSnapshotManifest.parse({
+    schemaVersion: definition.manifestVersion,
     generatedAt: artifact.generatedAt,
     sourceFile: artifact.source.file,
     sourceSha256: artifact.source.sha256,
@@ -472,14 +625,28 @@ async function verifySnapshotBundle(
   options: Options,
   sourceRecords: ReturnType<typeof parseCatalogMigrationEnvelope>['records'],
 ): Promise<Record<string, unknown>> {
-  const verified = await readVerifiedWalsinPriceSnapshot(
+  const definition = PRICE_SOURCES[options.source].definition;
+  const verified = await readVerifiedCatalogPriceSnapshot(
     options.snapshotFile,
+    definition,
     options.manifestFile,
   );
-  const artifact = validateWalsinPriceSnapshotCoverage(
+  const artifact = validateCatalogPriceSnapshotCoverage(
     verified.artifact,
     sourceRecords,
+    definition,
   );
+  if (options.requireAllSuppliers) {
+    const supplierErrors = artifact.records.flatMap((record) =>
+      catalogSnapshotSupplierErrors(record.warnings)
+        .map((warning) => `${record.key}/${warning}`));
+    if (supplierErrors.length > 0) {
+      throw new Error(
+        `공급사 미조회·오류가 남았습니다: ${String(supplierErrors.length)}건`
+        + ` (${supplierErrors.slice(0, 3).join(', ')})`,
+      );
+    }
+  }
   const result = {
     result: true,
     snapshotFile: options.snapshotFile,
@@ -494,7 +661,7 @@ async function verifySnapshotBundle(
 
 async function prepare(
   options: Options,
-  targets: WalsinPriceSnapshotTarget[],
+  targets: CatalogPriceSnapshotTarget[],
   sourceRecords: ReturnType<typeof parseCatalogMigrationEnvelope>['records'],
 ): Promise<void> {
   const stateExists = await fileExists(options.stateFile);
@@ -506,7 +673,14 @@ async function prepare(
   if (!stateExists && options.resume) {
     throw new Error(`이어갈 작업 상태가 없습니다: ${options.stateFile}`);
   }
-  const state = stateExists ? await readState(options.stateFile) : newState();
+  const definition = PRICE_SOURCES[options.source].definition;
+  const state = stateExists
+    ? await readState(
+        options.stateFile,
+        options.source,
+        definition.sourceSha256,
+      )
+    : newState(options.source, definition.sourceSha256);
   const targetKeys = new Set(targets.map((target) => target.key));
   const unknownKeys = Object.keys(state.records).filter(
     (key) => !targetKeys.has(key),
@@ -515,7 +689,7 @@ async function prepare(
     throw new Error(`작업 상태에 원본 밖 key가 있습니다: ${unknownKeys[0] ?? ''}`);
   }
 
-  const pending = orderWalsinPriceSnapshotTargets(
+  const pending = orderCatalogPriceSnapshotTargets(
     targets,
     state.records,
     options.retryMisses,
@@ -527,12 +701,12 @@ async function prepare(
     : pending.slice(0, options.limit);
   const targetBatches = chunks(selected, options.batchSize);
   for (const batchWave of chunks(targetBatches, options.concurrency)) {
-    const priorAttempts = new Map(
+    const priorRecords = new Map(
       batchWave
         .flat()
         .map((target) => [
           target.key,
-          state.records[target.key]?.attempts ?? 0,
+          state.records[target.key],
         ] as const),
     );
     const results = (
@@ -543,7 +717,7 @@ async function prepare(
             options.maxCalls,
             options.jobTimeoutSeconds,
             options.suppliers,
-            priorAttempts,
+            priorRecords,
           ),
         ),
       )
@@ -589,15 +763,15 @@ async function prepare(
   }, null, 2));
 }
 
-export function orderWalsinPriceSnapshotTargets(
-  targets: WalsinPriceSnapshotTarget[],
+export function orderCatalogPriceSnapshotTargets(
+  targets: CatalogPriceSnapshotTarget[],
   records: Record<string, PendingRecord>,
   retryMisses: boolean,
   retrySupplierErrors = false,
   suppliers: PriceSupplier[] = [...PRICE_SUPPLIERS],
-): WalsinPriceSnapshotTarget[] {
-  const unseen: WalsinPriceSnapshotTarget[] = [];
-  const retries: WalsinPriceSnapshotTarget[] = [];
+): CatalogPriceSnapshotTarget[] {
+  const unseen: CatalogPriceSnapshotTarget[] = [];
+  const retries: CatalogPriceSnapshotTarget[] = [];
   for (const target of targets) {
     const prior = records[target.key];
     if (prior === undefined) {
@@ -606,10 +780,10 @@ export function orderWalsinPriceSnapshotTargets(
     }
     if (
       prior.status === 'error'
-      || walsinSnapshotBlockingErrors(prior.warnings).length > 0
+      || catalogSnapshotBlockingErrors(prior.warnings).length > 0
       || (
         retrySupplierErrors
-        && walsinSnapshotSupplierErrors(prior.warnings).some((warning) =>
+        && catalogSnapshotSupplierErrors(prior.warnings).some((warning) =>
           suppliers.some((supplier) =>
             warning.toLowerCase().startsWith(`${supplier}:`),
           ),
@@ -631,16 +805,25 @@ export function orderWalsinPriceSnapshotTargets(
 
 async function main(): Promise<void> {
   const options = parseCatalogPriceRefreshOptions(process.argv.slice(2));
-  const source = await loadTargets(options.sourceFile);
+  const definition = PRICE_SOURCES[options.source].definition;
+  const source = await loadTargets(options.source, options.sourceFile);
   if (options.mode === 'dry-run') {
     const state = await fileExists(options.stateFile)
-      ? workSummary(await readState(options.stateFile), source.targets.length)
+      ? workSummary(
+          await readState(
+            options.stateFile,
+            options.source,
+            definition.sourceSha256,
+          ),
+          source.targets.length,
+        )
       : null;
     console.log(JSON.stringify({
       result: true,
       mode: options.mode,
+      source: options.source,
       sourceFile: options.sourceFile,
-      sourceSha256: WALSIN_RLC_SOURCE_SHA256,
+      sourceSha256: definition.sourceSha256,
       targets: source.targets.length,
       concurrency: options.concurrency,
       batchSize: options.batchSize,

@@ -141,10 +141,12 @@ SamplePCB 카탈로그를 찾고, connector는 exact MPN으로 자체 커넥터 
   제조사 사실 오퍼는 기술 정본·원본 해시·교체/롤백 추적용이며 구매 채널이 아니다. 따라서
   `PartHit.suppliers`·공급사 패싯·`PartDetail.offers`에서는 숨기고, 같은 원본의 `samplepcb`
   문의 오퍼만 구매 채널로 노출한다. 제조사/카탈로그 원천은 제조사 필드와 삭제 미리보기에 남는다.
-  Walsin 가격은 DB 적재 뒤 갱신하지 않는다. 초기화 전에
-  `parts:catalog-prices -- --prepare [--resume]`로 2,628개 exact MPN+제조사를 전수 조회해
-  검증된 압축 스냅샷을 만들고, `parts:catalog -- --apply --source walsin-rlc
-  --price-snapshot <file>` 한 번으로 원장과 함께 적용한다. 실제 공급사 오퍼는 원본 가격·재고로
+  제조사 카탈로그 가격은 DB 적재 뒤 실시간 갱신하지 않는다. 초기화 전에
+  `parts:catalog-prices -- --source <walsin-rlc|yeonho> --prepare [--resume]`로
+  exact MPN+제조사를 전수 조회해 검증된 압축 스냅샷을 만들고,
+  `parts:catalog -- --apply --source <key> --price-snapshot <file>` 한 번으로 원장과 함께
+  적용한다. 원본별 작업 상태·스냅샷·manifest는 서로 다른 폴더를 사용하며, 공급사별
+  분할 수집은 이미 확보한 다른 공급사 결과를 보존한 채 병합한다. 실제 공급사 오퍼는 원본 가격·재고로
   저장·색인하고, 그중 가격곡선 한 개를 출처와 함께 SamplePCB 오퍼에 복사한다. 외부 유통사 재고는
   자체 재고로 오인하지 않게 SamplePCB에서는 null로 둔다.
 - **제조사 키 병합(2026-07-26 추가)**: `manufacturer-alias.ts`에 별칭을 추가해도 **이후 인제스트만**

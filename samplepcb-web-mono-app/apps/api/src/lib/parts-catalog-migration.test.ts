@@ -54,7 +54,11 @@ describe('parts catalog migration artifact', () => {
     expect(parsed.records).toHaveLength(1_606);
     expect(new Set(parsed.records.map((record) => record.key)).size).toBe(1_606);
     expect(parsed.records.every((record) => record.manufacturerNorm === 'yeonho')).toBe(true);
-    expect(parsed.records.flatMap((record) => record.offers)).toHaveLength(1_606);
+    expect(parsed.records.flatMap((record) => record.offers)).toHaveLength(3_212);
+    expect(parsed.records.every((record) =>
+      record.product.catalog_metadata.samplepcbPreferred === true
+      && record.offers.some((offer) => offer.supplier === 'samplepcb'),
+    )).toBe(true);
     expect(parsed.sourceSha256).toBe(YEONHO_REV2_SOURCE_SHA256);
     expect(parsed.records.filter((record) => record.product.catalog_metadata.generatedMpn)).toHaveLength(367);
   });
