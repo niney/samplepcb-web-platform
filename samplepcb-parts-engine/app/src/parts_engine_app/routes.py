@@ -43,7 +43,9 @@ class SupplierSearchOptionsBody(BaseModel):
     cache_only: bool = False
     reset_cache: bool = False
     sheet_indexes: list[int] = Field(default_factory=list, max_length=100)
-    component_ids: list[str] = Field(default_factory=list, max_length=200)
+    # 로컬 SamplePCB 카탈로그가 해결하지 못한 대형 BOM의 부분집합을 그대로
+    # 외부 검색에 넘긴다. 추출 엔진의 기본 component 상한(5,000)과 맞춘다.
+    component_ids: list[str] = Field(default_factory=list, max_length=5_000)
     passive_defaults: PassiveRequirementDefaults | None = None
     procurement: ProcurementPolicyInput = Field(default_factory=ProcurementPolicyInput)
 

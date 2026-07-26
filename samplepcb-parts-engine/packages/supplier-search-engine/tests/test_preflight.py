@@ -80,6 +80,15 @@ def test_preflight_exposes_engine_requirement_guidance(tmp_path):
     result = service.preflight_batch(batch(item))
 
     guidance = result.components[0].requirement_guidance
+    assert len(result.components[0].planned_queries) == 1
+    assert result.components[0].planned_queries[0].component_id == "resistor"
+    assert (
+        result.components[0]
+        .planned_queries[0]
+        .requirements["resistance_ohm"]
+        .normalized_value
+        == 10_000
+    )
     assert guidance is not None
     assert guidance.readiness == "needs_user_input"
     assert guidance.required_fields == ["resistance", "package"]

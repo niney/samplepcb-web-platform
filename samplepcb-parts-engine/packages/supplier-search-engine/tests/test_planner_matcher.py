@@ -2033,6 +2033,10 @@ def test_supplier_manufacturer_aliases_do_not_create_false_input_conflicts():
     assert (
         manufacturers_compatible("MAXIM", "Analog Devices / Maxim Integrated") is True
     )
+    assert manufacturers_compatible("Walsin", "Walsin Technology Corporation") is True
+    assert manufacturers_compatible("Samsung", "Samsung Electro-Mechanics") is True
+    assert manufacturers_compatible("Vishay", "Vishay Dale") is True
+    assert manufacturers_compatible("KOA", "KOA Speer Electronics") is True
 
 
 def test_prefixed_and_pin_qualified_sot_packages_are_backend_compatible():

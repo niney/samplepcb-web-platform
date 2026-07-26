@@ -41,6 +41,7 @@ export const PartHit = z.object({
   imageUrl: z.string().nullable(),
   /** SI 정준 스펙 (resistanceOhm·capacitanceF·… — @sp/utils SPEC_SI_FIELD 키) */
   specsSi: z.record(z.string(), z.number()),
+  /** 구매·문의 가능한 공급사 채널. 제조사 카탈로그 원천은 포함하지 않는다. */
   suppliers: z.array(z.string()),
   offerCount: z.number().int(),
   minPrice: z.number().nullable(),

@@ -3,20 +3,16 @@ import type { PartDetailType } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { specsSiRecord } from './parts-es';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
-import { isCatalogInquiryOffer, partOfferKind } from './parts-offer-kind';
+import {
+  isCatalogInquiryOffer,
+  partOfferDerivedFrom,
+  partOfferKind,
+  partOffersForDisplay,
+} from './parts-offer-kind';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // 부품 상세(DB) DTO 빌더 — 관리자 카탈로그 상세와 고객 BOM 오퍼 변경 모달이 공유.
 // 집계는 실공급사만(파생 samplepcb 오퍼는 원천과 이중 계산) — 목록(hit)과 동일 기준.
-
-const DerivedFromRaw = z.object({
-  derivedFrom: z.object({ supplier: z.string(), supplierSku: z.string(), fetchedAt: z.string() }),
-});
-
-function offerDerivedFrom(rawJson: unknown): { supplier: string; supplierSku: string; fetchedAt: string } | null {
-  const parsed = DerivedFromRaw.safeParse(rawJson);
-  return parsed.success ? parsed.data.derivedFrom : null;
-}
 
 const SpecConflictsJson = z.record(
   z.string(),
@@ -29,7 +25,14 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
     include: { offers: { include: { priceBreaks: true } } },
   });
   if (part === null) return null;
-  const realOffers = part.offers.filter((o) => o.supplier !== SAMPLEPCB_SUPPLIER);
+  const visibleOffers = partOffersForDisplay(part.offers);
+  const realOffers = visibleOffers.filter((offer) => offer.supplier !== SAMPLEPCB_SUPPLIER);
+  const ownCatalogOffers = visibleOffers.filter(
+    (offer) =>
+      offer.supplier === SAMPLEPCB_SUPPLIER
+      && isCatalogInquiryOffer(offer.rawJson),
+  );
+  const freshnessOffers = realOffers.length === 0 ? ownCatalogOffers : realOffers;
   const conflicts = SpecConflictsJson.safeParse(part.specConflicts);
   return {
     id: String(part.id),
@@ -47,21 +50,23 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
         : {},
     specConflicts: conflicts.success ? conflicts.data : null,
     hasSpecConflict: conflicts.success && Object.keys(conflicts.data).length > 0,
-    suppliers: [...new Set(part.offers.map((o) => o.supplier))],
-    offerCount: realOffers.length,
+    suppliers: [...new Set(visibleOffers.map((offer) => offer.supplier))],
+    offerCount: realOffers.length + ownCatalogOffers.length,
     minPrice: null,
     minPriceCurrency: null,
     totalStock: realOffers.reduce((sum, o) => sum + (o.stock ?? 0), 0),
     offersFetchedAt:
-      realOffers.length === 0
+      freshnessOffers.length === 0
         ? null
-        : new Date(Math.max(...realOffers.map((o) => o.fetchedAt.getTime()))).toISOString(),
+        : new Date(Math.max(...freshnessOffers.map((offer) => offer.fetchedAt.getTime()))).toISOString(),
     score: null,
-    hasCatalogInquiryOffer: realOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
+    hasCatalogInquiryOffer: visibleOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
     firstSeenAt: part.firstSeenAt.toISOString(),
     lastSeenAt: part.lastSeenAt.toISOString(),
-    offers: part.offers.map((o) => {
-      const derivedFrom = o.supplier === SAMPLEPCB_SUPPLIER ? offerDerivedFrom(o.rawJson) : null;
+    offers: visibleOffers.map((o) => {
+      const derivedFrom = o.supplier === SAMPLEPCB_SUPPLIER
+        ? partOfferDerivedFrom(o.rawJson)
+        : null;
       return {
         supplier: o.supplier,
         offerKind: partOfferKind(o.rawJson),

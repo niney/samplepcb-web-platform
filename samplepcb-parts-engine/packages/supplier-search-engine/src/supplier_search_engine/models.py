@@ -26,7 +26,15 @@ class Supplier(StrEnum):
 class CatalogSupplier(StrEnum):
     """Local catalog identities that are never routed as external clients."""
 
+    SAMPLEPCB = "samplepcb"
     YEONHO = "yeonho"
+    WALSIN = "walsin"
+    YAGEO = "yageo"
+    SAMSUNG = "samsung"
+    MURATA = "murata"
+    TDK = "tdk"
+    VISHAY = "vishay"
+    KOA = "koa"
 
 
 SupplierIdentity = Supplier | CatalogSupplier
@@ -559,6 +567,27 @@ class SupplierOffer(BaseModel):
         return [by_quantity[quantity] for quantity in sorted(by_quantity)]
 
 
+class CatalogProductMetadata(BaseModel):
+    """Selection controls carried by caller-owned manufacturer catalogs."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    catalog_only: bool = Field(default=True, alias="catalogOnly")
+    generated_mpn: bool | None = Field(default=None, alias="generatedMpn")
+    auto_quote_eligible: bool | None = Field(
+        default=None, alias="autoQuoteEligible"
+    )
+    api_verification_required: bool | None = Field(
+        default=None, alias="apiVerificationRequired"
+    )
+    samplepcb_preferred: bool | None = Field(
+        default=None, alias="samplepcbPreferred"
+    )
+    samplepcb_preference_rank: int | None = Field(
+        default=None, ge=0, alias="samplepcbPreferenceRank"
+    )
+
+
 class SupplierProduct(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -578,6 +607,7 @@ class SupplierProduct(BaseModel):
     normalized_specs: dict[str, float | str | list[float | None] | None] = Field(
         default_factory=dict
     )
+    catalog_metadata: CatalogProductMetadata | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     offers: list[SupplierOffer] = Field(default_factory=list)
 
@@ -1329,6 +1359,7 @@ class ComponentPreflight(BaseModel):
     fallback_mode: SearchMode | None = None
     fallback_keywords: str | None = None
     fallback_suppliers: list[SupplierPreflight] = Field(default_factory=list)
+    planned_queries: list[PlannedQuery] = Field(default_factory=list)
     conflict_branch_queries: list[PlannedQuery] = Field(default_factory=list)
     requirement_guidance: SearchRequirementGuidance | None = None
     warnings: list[str] = Field(default_factory=list)

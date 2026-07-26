@@ -10,7 +10,10 @@ import {
 import { esClient } from '../es/client';
 import { SP_PARTS_WRITE, type SpPartDoc } from '../es/sp-parts-index';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
-import { isCatalogInquiryOffer } from './parts-offer-kind';
+import {
+  isCatalogInquiryOffer,
+  partOffersForDisplay,
+} from './parts-offer-kind';
 
 // SpPart(DB 진실원본) → sp-parts 검색 요약 문서 빌드 + 색인.
 // 문서는 언제든 DB 에서 재구축 가능(parts:reindex) — ES 는 파생물이다.
@@ -35,6 +38,17 @@ export function specsSiRecord(specsSi: Prisma.JsonValue): Record<string, number>
 
 export function buildPartDoc(part: PartWithOffers): SpPartDoc {
   const si = specsSiRecord(part.specsSi);
+  const specs = part.specsJson !== null
+    && typeof part.specsJson === 'object'
+    && !Array.isArray(part.specsJson)
+    ? part.specsJson
+    : {};
+  const partType = typeof specs.part_type === 'string'
+    ? specs.part_type.trim().toLowerCase()
+    : null;
+  const dielectric = typeof specs.dielectric === 'string'
+    ? specs.dielectric.trim().toUpperCase()
+    : null;
 
   // Track B: 관행 표기 변형 — SI 값마다 kind 별 생성
   const specVariants = new Set<string>();
@@ -52,10 +66,19 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
   }
 
   // 오퍼 요약 — 대표 단가는 각 오퍼의 최소수량 구간 단가 중 최저(통화 병기).
-  // 집계(재고·건수·최저가)는 실공급사만 — samplepcb 파생 오퍼를 넣으면 원천과
-  // 이중 계산된다. 패싯(suppliers)에는 samplepcb 포함(검색 필터 가치).
-  const suppliers = [...new Set(part.offers.map((o) => o.supplier))];
-  const realOffers = part.offers.filter((o) => o.supplier !== SAMPLEPCB_SUPPLIER);
+  // 제조사 카탈로그 원천은 DB 사실·출처 추적용이며 구매 공급사가 아니다. 같은
+  // 카탈로그의 SamplePCB 문의 오퍼만 공급사로 노출한다.
+  const visibleOffers = partOffersForDisplay(part.offers);
+  const suppliers = [...new Set(visibleOffers.map((offer) => offer.supplier))];
+  // 집계(재고·최저가)는 실공급사만 — samplepcb 파생/문의 오퍼를 넣으면 원천과
+  // 이중 계산된다.
+  const realOffers = visibleOffers.filter((offer) => offer.supplier !== SAMPLEPCB_SUPPLIER);
+  const ownCatalogOffers = visibleOffers.filter(
+    (offer) =>
+      offer.supplier === SAMPLEPCB_SUPPLIER
+      && isCatalogInquiryOffer(offer.rawJson),
+  );
+  const freshnessOffers = realOffers.length === 0 ? ownCatalogOffers : realOffers;
   let minPrice: number | null = null;
   let minPriceCurrency: string | null = null;
   let totalStock = 0;
@@ -81,6 +104,8 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     manufacturerNorm: part.manufacturerNorm,
     description: part.description,
     category: part.category,
+    partType: partType === '' ? null : partType,
+    dielectric: dielectric === '' ? null : dielectric,
     packageCode: part.packageCode,
     packageVariants: pkgVariants,
     lifecycle: part.lifecycle,
@@ -88,16 +113,22 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     specVariants: [...specVariants],
     ...si,
     suppliers,
-    offerCount: realOffers.length,
+    offerCount: realOffers.length + ownCatalogOffers.length,
     minPrice,
     minPriceCurrency,
     totalStock,
-    offersFetchedAt: offersFetchedAt?.toISOString() ?? null,
+    offersFetchedAt: (
+      offersFetchedAt
+      ?? freshnessOffers.reduce<Date | null>(
+        (latest, offer) => latest === null || offer.fetchedAt > latest ? offer.fetchedAt : latest,
+        null,
+      )
+    )?.toISOString() ?? null,
     hasSpecConflict:
       part.specConflicts !== null &&
       typeof part.specConflicts === 'object' &&
       Object.keys(part.specConflicts).length > 0,
-    hasCatalogInquiryOffer: realOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
+    hasCatalogInquiryOffer: visibleOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
     updatedAt: part.lastSeenAt.toISOString(),
   };
 }

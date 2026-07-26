@@ -268,7 +268,10 @@ const activeChips = computed<ActiveChip[]>(() => {
     chips.push({ label: `패키지: ${f.packageCode}`, clear: () => { toggleFacet('packageCode', f.packageCode ?? ''); } });
   }
   if (f.supplier !== undefined) {
-    chips.push({ label: `공급사: ${f.supplier}`, clear: () => { toggleFacet('supplier', f.supplier ?? ''); } });
+    chips.push({
+      label: `공급사: ${supplierLabel(f.supplier)}`,
+      clear: () => { toggleFacet('supplier', f.supplier ?? ''); },
+    });
   }
   if (f.inStockOnly === true) {
     chips.push({
@@ -342,6 +345,24 @@ function specSummary(specsSi: Record<string, number>): string {
 }
 
 const CURRENCY_SYMBOL: Record<string, string> = { KRW: '₩', USD: '$', EUR: '€', JPY: '¥', CNY: '¥' };
+const SUPPLIER_LABEL: Readonly<Record<string, string>> = {
+  samplepcb: 'SamplePCB',
+  digikey: 'DigiKey',
+  mouser: 'Mouser',
+  unikeyic: 'UniKeyIC',
+  walsin: 'Walsin',
+  yageo: 'Yageo',
+  samsung: 'Samsung',
+  murata: 'Murata',
+  tdk: 'TDK',
+  vishay: 'Vishay',
+  koa: 'KOA',
+  yeonho: 'Yeonho',
+};
+
+function supplierLabel(value: string): string {
+  return SUPPLIER_LABEL[value.toLowerCase()] ?? value;
+}
 
 function fmtPrice(p: number | null, currency: string | null): string {
   if (p === null) return '';
@@ -351,8 +372,11 @@ function fmtPrice(p: number | null, currency: string | null): string {
   return sym === undefined ? `${n} ${currency}` : `${sym}${n}`;
 }
 
-function facetLabel(b: PartFacetBucketType): string {
-  return b.value;
+function facetLabel(
+  facet: 'manufacturer' | 'packageCode' | 'supplier',
+  bucket: PartFacetBucketType,
+): string {
+  return facet === 'supplier' ? supplierLabel(bucket.value) : bucket.value;
 }
 </script>
 
@@ -500,7 +524,7 @@ function facetLabel(b: PartFacetBucketType): string {
                 :class="filters[facet[1]] === b.value ? 'bg-blue-50 font-medium text-blue-700 hover:bg-blue-50' : 'text-gray-700'"
                 @click="toggleFacet(facet[1], b.value)"
               >
-                <span class="truncate">{{ facetLabel(b) }}</span>
+                <span class="truncate">{{ facetLabel(facet[1], b) }}</span>
                 <span class="shrink-0 text-xs tabular-nums text-gray-400">{{ b.count }}</span>
               </button>
             </li>
@@ -589,7 +613,7 @@ function facetLabel(b: PartFacetBucketType): string {
                   :key="supplier.value"
                   class="rounded-full bg-gray-100 px-2 py-0.5 text-xs"
                 >
-                  {{ supplier.value }} {{ supplier.count }}
+                  {{ supplierLabel(supplier.value) }} {{ supplier.count }}
                 </span>
                 <span v-if="bulkPreview.supplierOffers.length === 0" class="text-xs text-gray-400">오퍼 없음</span>
               </div>
@@ -598,7 +622,7 @@ function facetLabel(b: PartFacetBucketType): string {
               <p class="text-xs font-semibold text-gray-700">카탈로그 원본</p>
               <ul v-if="bulkPreview.catalogSources.length > 0" class="mt-1 space-y-1 text-xs">
                 <li v-for="source in bulkPreview.catalogSources" :key="`${source.supplier}-${source.sourceDataset}-${source.sourceSha256 ?? ''}`">
-                  {{ source.supplier }} · {{ source.sourceDataset }} · {{ source.count }}건
+                  {{ supplierLabel(source.supplier) }} · {{ source.sourceDataset }} · {{ source.count }}건
                   <span v-if="source.sourceSha256 !== null" class="font-mono text-gray-400">{{ source.sourceSha256.slice(0, 12) }}…</span>
                 </li>
               </ul>
@@ -692,7 +716,7 @@ function facetLabel(b: PartFacetBucketType): string {
                     >문의 견적</span>
                     <template v-else>{{ fmtPrice(p.minPrice, p.minPriceCurrency) }}</template>
                   </td>
-                  <td class="px-3 py-2 text-gray-500">{{ p.suppliers.join(', ') }}</td>
+                  <td class="px-3 py-2 text-gray-500">{{ p.suppliers.map(supplierLabel).join(', ') }}</td>
                   <td class="whitespace-nowrap px-3 py-2 text-gray-400">{{ fmtAge(p.offersFetchedAt) }}</td>
                 </tr>
                 <!-- 상세(오퍼·가격구간) 확장 행 -->
@@ -752,7 +776,7 @@ function facetLabel(b: PartFacetBucketType): string {
                         class="rounded-lg border border-gray-200 bg-white p-3 text-sm"
                       >
                         <div class="flex flex-wrap items-center gap-3">
-                          <span class="font-medium">{{ offer.supplier }}</span>
+                          <span class="font-medium">{{ supplierLabel(offer.supplier) }}</span>
                           <span
                             v-if="offer.derivedFrom !== null"
                             class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"

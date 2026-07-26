@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import ExcelJS from 'exceljs';
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import type ExcelJS from 'exceljs';
 import { normalizeMpn } from '@sp/utils';
+import { loadCatalogWorkbook, sheetRows, type WorkbookRow } from './catalog-workbook-xlsx';
 
 export const YEONHO_REV2_SOURCE_SHA256 =
   '8612d52bb7858f3a994d9fed0e1d7e1bb706bdf233a9794e231600d9a103a9e6';
@@ -29,11 +29,6 @@ const EXPECTED_COMPONENT_TYPES = new Set([
   'Terminal',
   'Wafer',
 ]);
-
-interface WorkbookRow {
-  rowNumber: number;
-  values: Map<string, string>;
-}
 
 interface SeriesRecord {
   id: number;
@@ -84,67 +79,6 @@ export interface YeonhoCatalogWorkbookStats {
 export interface YeonhoCatalogWorkbookResult {
   envelope: unknown;
   stats: YeonhoCatalogWorkbookStats;
-}
-
-function xmlText(data: Uint8Array): Uint8Array {
-  const normalized = strFromU8(data)
-    // 이 파일은 유효한 SpreadsheetML이지만 모든 핵심 태그에 x: prefix를 쓴다.
-    // ExcelJS가 기대하는 기본 namespace로 바꿔 셀 데이터만 안전하게 읽는다.
-    .replace(/(<\/?)x:/g, '$1')
-    .replace(/xmlns:x=/g, 'xmlns=')
-    // 카탈로그 변환에는 셀 값만 필요하다. 표·도형 관계를 제거하면 ExcelJS가
-    // 절대 Target과 prefix가 붙은 drawing XML을 해석하다 실패하는 것을 피한다.
-    .replace(/<tableParts\b[^>]*>[\s\S]*?<\/tableParts>/g, '')
-    .replace(/<drawing\b[^>]*\/>/g, '');
-  return strToU8(normalized);
-}
-
-function excelJsCompatibleArchive(buffer: Buffer): Uint8Array {
-  const archive = unzipSync(new Uint8Array(buffer));
-  const compatible: Record<string, Uint8Array> = {};
-  for (const [name, data] of Object.entries(archive)) {
-    if (
-      name.startsWith('xl/tables/')
-      || name.startsWith('xl/drawings/')
-      || name.startsWith('xl/media/')
-      || name.startsWith('xl/worksheets/_rels/')
-    ) continue;
-    compatible[name] = name.startsWith('xl/') && name.endsWith('.xml') ? xmlText(data) : data;
-  }
-  return zipSync(compatible);
-}
-
-function cellText(row: ExcelJS.Row, column: number): string {
-  return row.getCell(column).text.trim();
-}
-
-function sheetRows(
-  workbook: ExcelJS.Workbook,
-  sheetName: string,
-  requiredHeaders: readonly string[],
-): WorkbookRow[] {
-  const sheet = workbook.getWorksheet(sheetName);
-  if (sheet === undefined) throw new Error(`필수 시트가 없습니다: ${sheetName}`);
-  const headers = new Map<string, number>();
-  for (let column = 1; column <= sheet.columnCount; column += 1) {
-    const header = cellText(sheet.getRow(1), column);
-    if (header !== '') headers.set(header, column);
-  }
-  for (const header of requiredHeaders) {
-    if (!headers.has(header)) throw new Error(`${sheetName} 시트에 필수 열이 없습니다: ${header}`);
-  }
-  const rows: WorkbookRow[] = [];
-  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
-    const row = sheet.getRow(rowNumber);
-    if ([...headers.values()].every((column) => cellText(row, column) === '')) continue;
-    rows.push({
-      rowNumber,
-      values: new Map(
-        [...headers.entries()].map(([header, column]) => [header, cellText(row, column)]),
-      ),
-    });
-  }
-  return rows;
 }
 
 function required(row: WorkbookRow, field: string): string {
@@ -487,11 +421,7 @@ export async function buildYeonhoCatalogEnvelope(
       `승인된 연호 Rev2 원본 해시와 다릅니다: ${sourceSha256} != ${YEONHO_REV2_SOURCE_SHA256}`,
     );
   }
-  const workbook = new ExcelJS.Workbook();
-  const compatible = excelJsCompatibleArchive(buffer);
-  await workbook.xlsx.load(
-    Buffer.from(compatible) as unknown as Parameters<typeof workbook.xlsx.load>[0],
-  );
+  const workbook = await loadCatalogWorkbook(buffer);
 
   const seriesById = parseSeries(workbook);
   const parts = parseOfficialParts(workbook, seriesById);

@@ -34,6 +34,7 @@ import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
 import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy';
+import { evaluatePreferredLocalCatalog } from '../lib/bom-local-catalog';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { buildEngineProcurementPolicy } from '../lib/bom-procurement-policy';
 import {
@@ -165,6 +166,12 @@ function supplierRunIsTargeted(options: Prisma.JsonValue): boolean {
     && componentIds.some((componentId) => typeof componentId === 'string' && componentId !== '');
 }
 
+function prismaJsonObject(value: unknown): Prisma.JsonObject | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : null;
+}
+
 async function loadOwnQuote(id: bigint, mbId: string) {
   const quote = await prisma.spBomQuote.findUnique({ where: { id }, include: { items: true, sheets: true } });
   if (quote?.mbId !== mbId) return null; // 타인 견적은 404 로 은닉
@@ -290,7 +297,7 @@ async function autoEnrichQuote(
   const passiveDefaultsPayload = passiveDefaults === null
     ? null
     : enginePassiveDefaults(passiveDefaults);
-  const searchOptions = {
+  const baseSearchOptions = {
     max_calls: config.supplierSearchMaxCalls,
     cache_only: false,
     reset_cache: false,
@@ -305,6 +312,7 @@ async function autoEnrichQuote(
       allowed_suppliers: [...procurement.allowed_suppliers],
     },
   } satisfies Prisma.InputJsonObject;
+  let searchOptions = baseSearchOptions;
 
   const items = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
   if (options.force !== true && !enrichNeeded(items, config.freshnessHours)) {
@@ -371,24 +379,145 @@ async function autoEnrichQuote(
     return markFailed(`supplier_job_registration_failed: ${String(error)}`);
   }
 
-  let estimatedApiCalls: number;
-  let estimateExceedsJobLimit: boolean;
+  let fullPreflight: Prisma.JsonObject;
   try {
     const pfRes = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/preflight`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(searchOptions),
+      body: JSON.stringify(baseSearchOptions),
     });
     if (!pfRes.ok) return await markFailed(`supplier_preflight_${String(pfRes.status)}`);
-    const pf = (await pfRes.json()) as { plan?: { estimated_within_job_limit?: boolean; estimated_api_calls?: number } };
-    await prisma.spBomSupplierSearchRun.update({
-      where: { id: searchRun.id },
-      data: { preflight: pf },
-    });
-    const liveCalls = (pf.plan?.estimated_api_calls ?? 0) > 0;
+    const body = prismaJsonObject(await pfRes.json());
+    if (body === null) return await markFailed('supplier_preflight_invalid_response');
+    fullPreflight = body;
+  } catch {
+    return await markFailed('supplier_preflight_unreachable');
+  }
+
+  const localCatalog = await evaluatePreferredLocalCatalog(
+    fullPreflight,
+    baseSearchOptions.procurement,
+    log,
+  );
+  let localResolved = localCatalog.resolvedComponentIds;
+  if (localCatalog.envelope !== null && localResolved.length > 0) {
+    const applied = await refreshQuoteFromSupplierResult(
+      quoteId,
+      localCatalog.envelope,
+      searchRun.id,
+      log,
+      { targeted: true },
+    );
+    if (!applied) localResolved = [];
+  }
+  const fullPlan = prismaJsonObject(fullPreflight.plan);
+  const fullComponents = Array.isArray(fullPlan?.components) ? fullPlan.components : [];
+  const fullComponentIds = fullComponents.flatMap((component) => {
+    if (component === null || typeof component !== 'object' || Array.isArray(component)) return [];
+    const componentId = (component as Record<string, unknown>).component_id;
+    return typeof componentId === 'string' && componentId !== '' ? [componentId] : [];
+  });
+  const localResolvedSet = new Set(localResolved);
+  const unresolvedComponentIds = localResolved.length === 0
+    ? fullComponentIds
+    : fullComponentIds.filter((componentId) => !localResolvedSet.has(componentId));
+
+  if (fullComponentIds.length > 0 && unresolvedComponentIds.length === 0) {
+    const completedAt = new Date();
+    await prisma.$transaction([
+      prisma.spBomSupplierSearchRun.update({
+        where: { id: searchRun.id },
+        data: {
+          status: 'completed',
+          options: baseSearchOptions,
+          preflight: fullPreflight,
+          startedAt: completedAt,
+          completedAt,
+          error: null,
+          resultSummary: {
+            componentCount: fullComponentIds.length,
+            apiCalls: 0,
+            cacheHits: 0,
+            budgetExhaustedCount: 0,
+            budgetExhaustedDetectionVersion: 3,
+            jobCallLimitExhaustedCount: 0,
+            supplierQuotaExhaustedCount: 0,
+            elapsedMs: 0,
+            statusCounts: { catalog_selected: localResolved.length },
+            localCatalogEvaluated: localCatalog.evaluatedComponentIds.length,
+            localCatalogResolved: localResolved.length,
+            catalogStatus: 'ready',
+            catalogScope: 'local-candidates',
+            catalogReadyAt: completedAt.toISOString(),
+            catalogRetryAt: null,
+            catalogError: null,
+          },
+        },
+      }),
+      prisma.spBomQuote.update({
+        where: { id: quoteId },
+        data: {
+          enrichStatus: 'done',
+          enrichedAt: completedAt,
+          activeSupplierSearchRunId: searchRun.id,
+        },
+      }),
+    ]);
+    log.info({
+      quoteId: String(quoteId),
+      searchRunId: String(searchRun.id),
+      jobId,
+      localCatalogResolved: localResolved.length,
+    }, 'SamplePCB 로컬 카탈로그만으로 자동 보강 완료');
+    return true;
+  }
+
+  let pf: Prisma.JsonObject = fullPreflight;
+  if (localResolved.length > 0) {
+    searchOptions = {
+      ...baseSearchOptions,
+      component_ids: unresolvedComponentIds,
+    };
+    try {
+      const pfRes = await engineFetch(`/jobs/${encodeURIComponent(jobId)}/supplier-search/preflight`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(searchOptions),
+      });
+      if (!pfRes.ok) return await markFailed(`supplier_preflight_${String(pfRes.status)}`);
+      const body = prismaJsonObject(await pfRes.json());
+      if (body === null) return await markFailed('supplier_preflight_invalid_response');
+      pf = body;
+    } catch {
+      return await markFailed('supplier_preflight_unreachable');
+    }
+  }
+  await prisma.spBomSupplierSearchRun.update({
+    where: { id: searchRun.id },
+    data: {
+      options: searchOptions,
+      preflight: {
+        ...pf,
+        local_catalog: {
+          evaluated_components: localCatalog.evaluatedComponentIds.length,
+          resolved_components: localResolved.length,
+          external_components: unresolvedComponentIds.length,
+        },
+      },
+    },
+  });
+
+  let estimatedApiCalls: number;
+  let estimateExceedsJobLimit: boolean;
+  try {
+    const plan = prismaJsonObject(pf.plan);
+    const estimated = typeof plan?.estimated_api_calls === 'number'
+      ? plan.estimated_api_calls
+      : 0;
+    const liveCalls = estimated > 0;
     const dailySlotAvailable = !liveCalls
       || await reserveDailySupplierSearch(mbId, config.memberDailySearchLimit);
-    const decision = decideAutomaticSupplierSearch(pf.plan, dailySlotAvailable);
+    const decision = decideAutomaticSupplierSearch(plan ?? undefined, dailySlotAvailable);
     estimatedApiCalls = decision.estimatedApiCalls;
     estimateExceedsJobLimit = decision.estimateExceedsJobLimit;
     if (!decision.start) {
@@ -403,7 +532,7 @@ async function autoEnrichQuote(
       }, '공급사 예상 호출이 작업 한도를 초과하지만 실제 엔진 예산으로 검색을 계속합니다');
     }
   } catch {
-    return await markFailed('supplier_preflight_unreachable');
+    return await markFailed('supplier_preflight_policy_failed');
   }
 
   try {

@@ -253,6 +253,71 @@ def test_catalog_evaluation_selects_exact_identity_without_fake_commercials(tmp_
     assert "price_inquiry_required" in offer["procurement_decision"]["reason_codes"]
 
 
+def test_catalog_evaluation_keeps_unverified_walsin_identity_unselected(tmp_path):
+    response = _client(tmp_path).post(
+        "/supplier-search/catalog-evaluate-batch",
+        json={
+            "items": [
+                {
+                    "query": {
+                        "component_id": "resistor-1",
+                        "mode": "identity",
+                        "part_number": "WR04X1002FTL",
+                        "manufacturer": "Walsin Technology Corporation",
+                        "part_type": "resistor",
+                        "category_policy": "resistor",
+                        "quantity": 1,
+                    },
+                    "products": [
+                        {
+                            "supplier": "walsin",
+                            "supplier_product_id": "walsin:WR04X1002FTL",
+                            "manufacturer_part_number": "WR04X1002FTL",
+                            "manufacturer": "Walsin",
+                            "description": "Thick Film Chip Resistor",
+                            "category": "Chip Resistor",
+                            "normalized_specs": {
+                                "part_type": "resistor",
+                                "resistance_ohm": 10_000,
+                                "tolerance_percent": 1,
+                                "package": "0402",
+                            },
+                            "catalog_metadata": {
+                                "catalogOnly": True,
+                                "generatedMpn": True,
+                                "autoQuoteEligible": False,
+                                "apiVerificationRequired": True,
+                            },
+                            "offers": [
+                                {
+                                    "supplier": "walsin",
+                                    "offer_kind": "manufacturer_catalog",
+                                    "supplier_sku": "WR04X1002FTL",
+                                    "stock": None,
+                                    "price_breaks": [],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["candidates"][0]["product"]["supplier"] == "walsin"
+    assert item["candidates"][0]["decision"]["match_relation"] == "exact"
+    assert (
+        item["candidates"][0]["product"]["catalog_metadata"]["autoQuoteEligible"]
+        is False
+    )
+    assert item["procurement_decision"]["status"] == "no_recommendation"
+    assert item["procurement_decision"]["selection_application_state"] == (
+        "not_selected"
+    )
+
+
 def test_upload_parse_and_display(tmp_path):
     client = _client(tmp_path)
     resp = client.post(

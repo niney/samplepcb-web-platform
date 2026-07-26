@@ -223,7 +223,12 @@ class SearchService:
             )
             candidates.sort(key=self._candidate_sort_key)
             warnings = [
-                "정확 일치 제조사 카탈로그 후보는 부품으로 선정하며 재고 확인·가격 문의가 필요합니다."
+                (
+                    "검증된 SamplePCB 카탈로그 후보는 부품으로 선정하며 "
+                    "재고 확인·가격 문의가 필요합니다."
+                    if procurement_decision.status == "catalog_selected"
+                    else "로컬 카탈로그 후보를 엔진 기술·조달 정책으로 평가했습니다."
+                )
             ]
             if omitted_candidate_count:
                 warnings.append(
@@ -1557,6 +1562,14 @@ class SearchService:
             -candidate.identity_confidence,
             -candidate.specification_confidence,
             lifecycle_order[decision.lifecycle_state],
+            (
+                candidate.product.catalog_metadata.samplepcb_preference_rank
+                if candidate.product.catalog_metadata is not None
+                and candidate.product.catalog_metadata.samplepcb_preferred is True
+                and candidate.product.catalog_metadata.samplepcb_preference_rank
+                is not None
+                else 1_000_000
+            ),
             canonical_manufacturer(candidate.product.manufacturer),
             compact_mpn(candidate.product.manufacturer_part_number),
             candidate.product.supplier.value,

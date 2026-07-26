@@ -20,6 +20,8 @@ export const F = {
   manufacturerNorm: 'manufacturerNorm',
   description: 'description',
   category: 'category',
+  partType: 'partType',
+  dielectric: 'dielectric',
   packageCode: 'packageCode',
   packageVariants: 'packageVariants',
   lifecycle: 'lifecycle',
@@ -42,6 +44,10 @@ export interface SpPartDoc {
   manufacturerNorm: string;
   description: string | null;
   category: string | null;
+  /** 엔진 normalized_specs.part_type — 로컬 BOM 후보 조회용. */
+  partType?: string | null;
+  /** 엔진 normalized_specs.dielectric — MLCC 로컬 후보 조회용. */
+  dielectric?: string | null;
   packageCode: string | null;
   packageVariants: string[];
   lifecycle: string | null;
@@ -112,6 +118,8 @@ const mappings = {
     manufacturerNorm: { type: 'keyword' },
     description: { type: 'text' },
     category: { type: 'keyword' },
+    partType: { type: 'keyword' },
+    dielectric: { type: 'keyword' },
     packageCode: { type: 'keyword' },
     packageVariants: { type: 'keyword' },
     lifecycle: { type: 'keyword' },

@@ -18,6 +18,7 @@ import {
   resolvePartFacts,
   type FactsSource,
 } from './parts-facts';
+import { isCatalogInquiryOffer } from './parts-offer-kind';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // BOM 공급사 검색 결과(sp-engine envelope) → 부품 카탈로그 자동 인제스트.
@@ -505,6 +506,25 @@ const RawProductFacts = z
   })
   .passthrough();
 
+function jsonRecord(value: Prisma.JsonValue): Prisma.JsonObject | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : null;
+}
+
+/** SamplePCB가 직접 취급하기로 한 카탈로그 오퍼만 파생 가격의 영속 대상으로 쓴다. */
+function preferredSamplepcbCatalogRaw(value: Prisma.JsonValue): Prisma.JsonObject | null {
+  if (!isCatalogInquiryOffer(value)) return null;
+  const product = jsonRecord(value);
+  const metadataValue = product?.catalog_metadata;
+  const metadata = metadataValue !== null
+    && typeof metadataValue === 'object'
+    && !Array.isArray(metadataValue)
+    ? metadataValue
+    : null;
+  return metadata?.samplepcbPreferred === true ? product : null;
+}
+
 /**
  * 부품 정본(스펙·설명·specConflicts) + 자체(samplepcb) 오퍼 재계산 — 전체 실공급사
  * 오퍼 기준. 인제스트·수동 갱신·백필 모든 경로의 종착점(idempotent).
@@ -516,6 +536,11 @@ async function applyPartFactsInTx(tx: Prisma.TransactionClient, partId: bigint):
   });
   if (part === null) return false;
   const real = part.offers.filter((o) => o.supplier !== SAMPLEPCB_SUPPLIER);
+  const catalogOffer = part.offers.find(
+    (offer) =>
+      offer.supplier === SAMPLEPCB_SUPPLIER
+      && preferredSamplepcbCatalogRaw(offer.rawJson) !== null,
+  );
   if (real.length === 0) return false; // 원천 없음 — 기존 정본을 비우지 않는다(방어)
 
   const factsFingerprint = fingerprint({
@@ -599,26 +624,68 @@ async function applyPartFactsInTx(tx: Prisma.TransactionClient, partId: bigint):
   );
 
   if (chosen === null) {
-    await tx.spPartOffer.deleteMany({ where: { partId, supplier: SAMPLEPCB_SUPPLIER } });
+    if (catalogOffer === undefined) {
+      await tx.spPartOffer.deleteMany({ where: { partId, supplier: SAMPLEPCB_SUPPLIER } });
+      return true;
+    }
+    // 외부 가격 근거가 사라져도 자체 취급 원장은 지우지 않는다. 이전 파생 가격만
+    // 비우고 재고는 계속 미확인(null)로 보존한다.
+    await tx.spPartOffer.deleteMany({
+      where: {
+        partId,
+        supplier: SAMPLEPCB_SUPPLIER,
+        NOT: { id: catalogOffer.id },
+      },
+    });
+    await tx.spPartOffer.update({
+      where: { id: catalogOffer.id },
+      data: {
+        productUrl: null,
+        stock: null,
+        moq: null,
+        orderMultiple: null,
+        packaging: null,
+        currency: null,
+        leadTime: null,
+      },
+    });
+    await tx.spPartPriceBreak.deleteMany({ where: { offerId: catalogOffer.id } });
     return true;
   }
-  const sku = part.mpnNorm.slice(0, 191);
+  const sku = (catalogOffer?.supplierSku ?? part.mpnNorm).slice(0, 191);
+  const catalogRaw = catalogOffer === undefined
+    ? null
+    : preferredSamplepcbCatalogRaw(catalogOffer.rawJson);
   const offerData = {
     productUrl: null, // 자체 오퍼 — 외부 상품 링크는 derivedFrom 으로만 추적
-    stock: chosen.stock,
+    // 자체 카탈로그는 가격 스냅샷만 가져온다. 외부 유통사 재고를 SamplePCB의
+    // 보유 재고로 오인하지 않도록 취급 원장이 있으면 null을 유지한다.
+    stock: catalogRaw === null ? chosen.stock : null,
     moq: chosen.moq,
     orderMultiple: chosen.orderMultiple,
     packaging: normalizeSupplierPackaging(chosen.supplier, chosen.packaging),
     currency: chosen.currency,
     leadTime: chosen.leadTime,
-    rawJson: {
-      derivedFrom: {
-        supplier: chosen.supplier,
-        supplierSku: chosen.supplierSku,
-        fetchedAt: chosen.fetchedAt.toISOString(),
-      },
-      policyVersion: SAMPLEPCB_POLICY_VERSION,
-    } as Prisma.InputJsonValue,
+    rawJson: (catalogRaw === null
+      ? {
+        derivedFrom: {
+          supplier: chosen.supplier,
+          supplierSku: chosen.supplierSku,
+          fetchedAt: chosen.fetchedAt.toISOString(),
+        },
+        policyVersion: SAMPLEPCB_POLICY_VERSION,
+      }
+      : {
+        ...catalogRaw,
+        samplepcbPricing: {
+          derivedFrom: {
+            supplier: chosen.supplier,
+            supplierSku: chosen.supplierSku,
+            fetchedAt: chosen.fetchedAt.toISOString(),
+          },
+          policyVersion: SAMPLEPCB_POLICY_VERSION,
+        },
+      }) as Prisma.InputJsonValue,
     fetchedAt: chosen.fetchedAt, // 데이터 나이 표시의 정직성 — 원천 시각 그대로
     contentFingerprint: factsFingerprint,
   };

@@ -257,6 +257,10 @@ class PreflightAnalyzer:
                     fallback_mode=(fallback_query.mode if fallback_query else None),
                     fallback_keywords=(fallback_query.keywords if fallback_query else None),
                     fallback_suppliers=fallback_items,
+                    # sp-node의 로컬 카탈로그 조회는 이 엔진 정규화 결과만 소비한다.
+                    # 값/패키지/기본값 정책을 응용 계층에서 다시 구현하지 않게 모든
+                    # 실제 분기를 명시적으로 노출한다.
+                    planned_queries=component_plans,
                     conflict_branch_queries=(
                         component_plans if len(component_plans) > 1 else []
                     ),

@@ -29,6 +29,7 @@ import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
 import { refreshPartsIndex } from '../lib/parts-es';
 import { loadPartDetailDto } from '../lib/parts-read';
+import { partOffersForDisplay } from '../lib/parts-offer-kind';
 
 // ── /api/admin/parts — 부품 카탈로그 검색(ES) + 상세(DB) (requireAdmin) ──────
 // 쿼리 이해: @sp/utils parseQuery 의 다중 해석을 전부 should(가산점)로 편성 —
@@ -218,12 +219,18 @@ function objectValue(value: unknown): Record<string, unknown> | null {
 
 function catalogSourceIdentity(
   rawJson: unknown,
-): { sourceDataset: string; sourceSha256: string | null } | null {
+): { supplier: string; sourceDataset: string; sourceSha256: string | null } | null {
   const product = objectValue(rawJson);
   const metadata = objectValue(product?.catalog_metadata);
+  const supplier = product?.supplier;
   const sourceDataset = metadata?.sourceDataset;
-  if (metadata?.catalogOnly !== true || typeof sourceDataset !== 'string') return null;
+  if (
+    metadata?.catalogOnly !== true
+    || typeof supplier !== 'string'
+    || typeof sourceDataset !== 'string'
+  ) return null;
   return {
+    supplier,
     sourceDataset,
     sourceSha256: typeof metadata.sourceDatasetSha256 === 'string'
       ? metadata.sourceDatasetSha256
@@ -284,18 +291,26 @@ export function buildPartDeletionPreview(
   let multiSupplierParts = 0;
   for (const part of parts) {
     const realSuppliers = new Set<string>();
-    for (const offer of part.offers) {
+    for (const offer of partOffersForDisplay(part.offers)) {
       supplierCounts.set(offer.supplier, (supplierCounts.get(offer.supplier) ?? 0) + 1);
       if (offer.supplier !== 'samplepcb') realSuppliers.add(offer.supplier);
+    }
+    const partSources = new Map<string, {
+      supplier: string;
+      sourceDataset: string;
+      sourceSha256: string | null;
+    }>();
+    for (const offer of part.offers) {
       const source = catalogSourceIdentity(offer.rawJson);
       if (source === null) continue;
-      const key = `${offer.supplier}\u0000${source.sourceDataset}\u0000${source.sourceSha256 ?? ''}`;
+      const key = `${source.supplier}\u0000${source.sourceDataset}\u0000${source.sourceSha256 ?? ''}`;
+      partSources.set(key, source);
+    }
+    for (const [key, source] of partSources) {
       const current = sourceCounts.get(key);
       if (current === undefined) {
         sourceCounts.set(key, {
-          supplier: offer.supplier,
-          sourceDataset: source.sourceDataset,
-          sourceSha256: source.sourceSha256,
+          ...source,
           count: 1,
         });
       } else {

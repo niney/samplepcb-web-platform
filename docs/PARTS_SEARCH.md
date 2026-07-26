@@ -69,6 +69,7 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 | 인제스트 | `apps/api/src/lib/parts-ingest.ts`·`parts-es.ts`·`bom-part-data.ts`·`manufacturer-alias.ts` | envelope→gzip 영속 원본→fingerprint singleflight→그룹핑(별칭 해소)→증분 upsert(tx)→ES bulk. 실패는 영속 작업과 `SpPartIndexQueue`로 자동 재시도 |
 | 자동 훅 | `apps/api/src/lib/bom-engine-jobs.ts`·`routes/admin-bom.ts`·`routes/bom-quotes.ts` | 폴러가 결과를 한 번 읽고 견적 스냅샷을 먼저 반영한다. 카탈로그는 백그라운드 동기화하며 결과 GET이 백업 훅이다. |
 | BOM 로컬 fallback | `apps/api/src/lib/bom-local-catalog.ts`·sp-engine `routes.py`/`service.py` | 외부 후보 0건의 exact 로컬 카탈로그를 배치 조회하고 엔진의 기존 판정기로 재평가한다. |
+| 제조사 카탈로그 | `apps/api/src/scripts/import-parts-catalog.ts`·`lib/catalog-workbook-xlsx.ts`·`lib/yeonho-catalog-workbook.ts`·`lib/walsin-rlc-catalog-workbook.ts` | 워크북(xlsx)을 실행 시 검증·변환해 ingest envelope로 만든다. `CATALOG_SOURCES` 레지스트리에 원본별 파서를 등록하고 `--source`로 고른다(기본 `yeonho`). 원본별 계약은 `apps/api/catalog-migrations/*/README.md` |
 | 검색 API | `apps/api/src/routes/admin-parts.ts` | `GET /api/admin/parts/search`(다중해석 쿼리 빌더+패싯+정렬, ES 다운 시 503 SEARCH_UNAVAILABLE)·`GET /:id`(DB 상세) |
 | UI | `apps/web/src/pages/admin/AdminParts.vue`·`admin/useAdminParts.ts` | `/app/admin/parts` — 검색창+패싯+테이블+오퍼 확장 |
 | 재색인 | `apps/api/src/scripts/parts-reindex.ts` | `pnpm --filter api parts:reindex [--recreate]` — DB 전량→ES. 매핑 변경 시 `--recreate`(로컬) 또는 v2+alias 스왑(운영) |
@@ -121,6 +122,27 @@ sp-engine(Python)                sp-node                              ES 9.x (12
   재시작돼도 이미 한 번 수신한 공급사 결과는 재검색·재업로드 없이 DB·ES·견적 연결을 이어간다.
   영속 원장 도입 전에 생성돼 원문이 없는 기존 견적은 [다시 준비] 시 저장된 분석 스냅샷으로 공급사
   검색부터 강제 재개하므로 BOM 파일을 다시 올릴 필요가 없다.
+- **제조사 카탈로그 적재(2026-07-26 walsin 추가)**: `pnpm --filter api parts:catalog -- --dry-run|--apply
+  [--source <key>]`. 원본은 워크북 자체이고 SHA-256과 원본별 불변식(행 수·부품 수·중복 교정 건수 등)을
+  전부 통과해야 입력이 만들어지므로, 파일이 바뀌면 적용 전에 멈춘다. 현재 `yeonho`(커넥터 1,606) ·
+  `walsin-rlc`(저항·캐패시터 2,628)를 등록했다. **가격 근거가 없는 카탈로그 데이터는
+  `offer_kind='manufacturer_catalog'` + `catalogOnly=true`로 실제 구매 오퍼와 분리한다.** Walsin 원본은
+  제조사 사실 오퍼와 `samplepcb` 문의 오퍼를 함께 저장한다. sp-node는 엔진 preflight가 돌려준
+  정규화 R/C 쿼리로 로컬 ES 후보를 먼저 찾고, sp-engine `catalog-evaluate-batch`가
+  `automatic_selected`로 확정한 행만 문의 견적으로 선정한다. 나머지만 외부 공급사 검색으로 보낸다.
+  제조사 사실 오퍼는 기술 정본·원본 해시·교체/롤백 추적용이며 구매 채널이 아니다. 따라서
+  `PartHit.suppliers`·공급사 패싯·`PartDetail.offers`에서는 숨기고, 같은 원본의 `samplepcb`
+  문의 오퍼만 구매 채널로 노출한다. 제조사/카탈로그 원천은 제조사 필드와 삭제 미리보기에 남는다.
+  가격 1회 갱신은 `parts:catalog-prices -- --apply [--resume]`이며, 정확 MPN+제조사 결과의 가격만
+  SamplePCB 오퍼에 복사하고 외부 유통사 재고는 자체 재고로 오인하지 않게 null로 둔다.
+- **제조사 키 병합(2026-07-26 추가)**: `manufacturer-alias.ts`에 별칭을 추가해도 **이후 인제스트만**
+  정규 키로 모이고 이미 저장된 행의 `manufacturerNorm`은 남는다(같은 품번이 둘로 보임). 과거 행 정리는
+  `pnpm --filter api parts:merge-mfr -- --supplier <a,b,c> [--apply]`. 기준 공급사 오퍼를 가진 정규 키
+  부품과 **같은 MPN**이면서 표시명 별칭 해소 결과가 같은 회사인 행만 대상으로, 오퍼·견적 `partId`를
+  옮기고 과거 행을 지운 뒤 facts 재계산·ES 재색인/삭제까지 한다. 되돌릴 수 없으므로 운영은 백업 후
+  dry-run 확인이 필수다. 적용 전 병합 계획과 삭제할 ES ID를 `.tmp` manifest에 기록하므로 중간 실패 뒤
+  같은 명령을 재실행하면 DB 병합·재색인·과거 문서 삭제를 이어간다. **DB 전반은 아직 갈라져 있다** —
+  `Vishay` 28갈래·`Murata` 5갈래 등, 전면 통합은 별칭 표 검토가 선행돼야 하는 미착수 과제다.
 - **매핑 변경**: 로컬 `parts:reindex --recreate`. 운영(추후)은 `sp-parts-v2` 생성→재색인→
   alias(`sp-parts`/`sp-parts-write`) 스왑으로 무중단.
 - **공급사 추가 체크리스트**: ① sp-engine 에 `SupplierClient` 구현 1개 ② (필요시) 계약의
@@ -169,8 +191,10 @@ dense_vector 시맨틱 · 공급사 검색 결과 백그라운드 인제스트 �
 - **`deriveSamplepcbOffer`**: `supplier='samplepcb'` 영속 오퍼 — 재고>0·KRW 우선·최소구간
   단가 최저 원천 **1개에서 통째 복사**(브레이크 혼합 금지), `rawJson.derivedFrom` 추적,
   fetchedAt=원천 시각(데이터 나이 정직). 향후 판매가/마진 정책의 유일한 적용 지점.
-- **집계 규칙**: totalStock·offerCount·minPrice 는 실공급사만(파생 이중 계산 방지),
-  suppliers 패싯에는 samplepcb 포함. BOM 견적 `pickDefaultOffer` 후보에서 제외(순환 방지).
+- **집계 규칙**: totalStock·minPrice 는 실공급사만(파생 이중 계산 방지), offerCount는
+  실공급사와 SamplePCB 문의 오퍼를 세고 제조사 카탈로그 원천은 제외한다. suppliers 패싯에는
+  samplepcb를 포함하되 제조사 원천은 포함하지 않는다. BOM 견적 `pickDefaultOffer` 후보에서
+  samplepcb 파생 오퍼는 제외한다(순환 방지).
 - **이미지(2026-07-20)**: 공급사 제품 사진 직링크를 정본으로 승격 — 엔진 `SupplierProduct.image_url`
   (Mouser `ImagePath`·DigiKey `PhotoUrl`·UniKeyIC `image_url|img`) → rawJson 경유
   `resolvePartFacts` 가 `sp_part.imageUrl`(신뢰순위→최신, 충돌 게이트 비대상) 채움 →

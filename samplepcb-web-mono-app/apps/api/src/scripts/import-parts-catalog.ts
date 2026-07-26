@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { PartSearchQuery } from '@sp/api-contract';
+import { normalizeMpn } from '@sp/utils';
 import type { estypes } from '@elastic/elasticsearch';
 import { esClient } from '../es/client';
 import {
@@ -12,6 +13,7 @@ import {
   bootstrapPartsIndex,
   type SpPartDoc,
 } from '../es/sp-parts-index';
+import { engineFetch } from '../lib/engine-client';
 import { prisma } from '../lib/prisma';
 import {
   applyPartFacts,
@@ -21,22 +23,66 @@ import {
 } from '../lib/parts-ingest';
 import { refreshPartsIndex } from '../lib/parts-es';
 import {
+  catalogOfferRawMatch,
+  catalogMigrationSuppliers,
   catalogSearchSamples,
   isCatalogOfferFromSource,
   parseCatalogMigrationEnvelope,
   type CatalogMigrationRecord,
   type ParsedCatalogMigration,
 } from '../lib/parts-catalog-migration';
+import { partOffersForDisplay } from '../lib/parts-offer-kind';
 import { buildYeonhoCatalogEnvelope } from '../lib/yeonho-catalog-workbook';
+import { buildWalsinRlcCatalogEnvelope } from '../lib/walsin-rlc-catalog-workbook';
 import { buildPartSort, buildSearchQuery } from '../routes/admin-parts';
 
 type Mode = 'dry-run' | 'apply' | 'replace' | 'verify' | 'verify-search' | 'rollback';
 
 interface CliOptions {
   mode: Mode;
+  source: CatalogSourceKey;
   file: string;
   manifest: string;
   retireSourceSha: string | undefined;
+}
+
+interface CatalogSource {
+  /** 워크북 기본 경로(리포 상대) */
+  defaultFile: string;
+  /** 워크북 → supplier-search ingest envelope */
+  build: (file: string) => Promise<{ envelope: unknown; stats: Record<string, unknown> }>;
+}
+
+/**
+ * 제조사 카탈로그 원본 등록부.
+ *
+ * 원본마다 워크북 구조와 불변식이 다르므로 파서를 분리하고, CLI는 키로만 고른다.
+ * `--source`를 주지 않으면 기존 연호 운영 명령이 그대로 동작한다.
+ */
+const CATALOG_SOURCES = {
+  yeonho: {
+    defaultFile:
+      'catalog-migrations/yeonho-connectors-2026-07-17/연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx',
+    build: async (file) => {
+      const { envelope, stats } = await buildYeonhoCatalogEnvelope(file);
+      return { envelope, stats: { ...stats } };
+    },
+  },
+  'walsin-rlc': {
+    defaultFile: 'catalog-migrations/walsin/Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx',
+    build: async (file) => {
+      const { envelope, stats } = await buildWalsinRlcCatalogEnvelope(file);
+      return { envelope, stats: { ...stats } };
+    },
+  },
+} satisfies Record<string, CatalogSource>;
+
+type CatalogSourceKey = keyof typeof CATALOG_SOURCES;
+
+const DEFAULT_SOURCE: CatalogSourceKey = 'yeonho';
+
+function isCatalogSourceKey(value: string): value is CatalogSourceKey {
+  return Object.hasOwn(CATALOG_SOURCES, value);
 }
 
 type PartWithOffers = Prisma.SpPartGetPayload<{
@@ -112,11 +158,6 @@ type MigrationManifest = z.infer<typeof MigrationManifestSchema>;
 type OfferSnapshot = z.infer<typeof OfferSnapshotSchema>;
 type PartSnapshot = z.infer<typeof PartSnapshotSchema>;
 
-const DEFAULT_FILE = path.resolve(
-  process.cwd(),
-  'catalog-migrations/yeonho-connectors-2026-07-17/연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx',
-);
-
 function optionValue(args: string[], name: string): string | undefined {
   const inline = args.find((arg) => arg.startsWith(`${name}=`));
   if (inline !== undefined) return inline.slice(name.length + 1);
@@ -142,7 +183,13 @@ function parseOptions(args: string[]): CliOptions {
   }
   const mode = selected[0]?.[1];
   if (mode === undefined) throw new Error('실행 모드가 없습니다');
-  const file = path.resolve(optionValue(args, '--file') ?? DEFAULT_FILE);
+  const sourceKey = optionValue(args, '--source') ?? DEFAULT_SOURCE;
+  if (!isCatalogSourceKey(sourceKey)) {
+    throw new Error(`알 수 없는 카탈로그 원본입니다: ${sourceKey} (${Object.keys(CATALOG_SOURCES).join('|')})`);
+  }
+  const file = path.resolve(
+    optionValue(args, '--file') ?? path.resolve(process.cwd(), CATALOG_SOURCES[sourceKey].defaultFile),
+  );
   const baseName = path.parse(file).name;
   const manifest = path.resolve(
     optionValue(args, '--manifest')
@@ -155,7 +202,7 @@ function parseOptions(args: string[]): CliOptions {
   if (mode === 'replace' && retireSourceSha === undefined) {
     throw new Error('--replace에는 --retire-source-sha가 필요합니다');
   }
-  return { mode, file, manifest, retireSourceSha };
+  return { mode, source: sourceKey, file, manifest, retireSourceSha };
 }
 
 function chunks<T>(values: T[], size: number): T[][] {
@@ -177,9 +224,12 @@ async function fileExists(file: string): Promise<boolean> {
   }
 }
 
-async function loadInput(file: string): Promise<{ raw: unknown; parsed: ParsedCatalogMigration; fingerprint: string }> {
+async function loadInput(
+  file: string,
+  source: CatalogSourceKey,
+): Promise<{ raw: unknown; parsed: ParsedCatalogMigration; fingerprint: string }> {
   const raw: unknown = path.extname(file).toLowerCase() === '.xlsx'
-    ? (await buildYeonhoCatalogEnvelope(file)).envelope
+    ? (await CATALOG_SOURCES[source].build(file)).envelope
     : JSON.parse(await readFile(file, 'utf8'));
   const parsed = parseCatalogMigrationEnvelope(raw);
   const fingerprint = supplierSearchIngestFingerprint(raw);
@@ -301,11 +351,17 @@ async function ensureApplyManifest(
   if (await fileExists(file)) {
     const current = await readManifest(file);
     if (current.ingestFingerprint !== fingerprint) {
-      throw new Error(`다른 입력의 migration-state가 이미 존재합니다: ${file}`);
+      if (current.appliedAt === null && current.rolledBackAt === null) {
+        throw new Error(`완료되지 않은 다른 입력의 migration-state가 이미 존재합니다: ${file}`);
+      }
+      const supersededAt = current.rolledBackAt ?? current.appliedAt ?? current.createdAt;
+      const archive = `${file}.${supersededAt.replace(/[:.]/g, '-')}.superseded.bak`;
+      await rename(file, archive);
+    } else {
+      if (current.rolledBackAt === null) return current;
+      const archive = `${file}.${current.rolledBackAt.replace(/[:.]/g, '-')}.bak`;
+      await rename(file, archive);
     }
-    if (current.rolledBackAt === null) return current;
-    const archive = `${file}.${current.rolledBackAt.replace(/[:.]/g, '-')}.bak`;
-    await rename(file, archive);
   }
   const manifest = makeManifest(parsed, fingerprint, existing);
   await writeManifest(file, manifest);
@@ -356,34 +412,24 @@ interface SourceRetirementItem {
 }
 
 interface SourceRetirementPlan {
-  supplier: string;
+  suppliers: string[];
   sourceSha256: string;
   targetOffers: number;
   items: SourceRetirementItem[];
   blocked: SourceRetirementItem[];
 }
 
-function migrationSupplier(parsed: ParsedCatalogMigration): string {
-  const suppliers = new Set(parsed.records.flatMap((record) => record.offers.map((offer) => offer.supplier)));
-  if (suppliers.size !== 1) {
-    throw new Error(`교체 마이그레이션은 단일 공급사 입력만 지원합니다: ${[...suppliers].join(', ')}`);
-  }
-  const supplier = [...suppliers][0];
-  if (supplier === undefined) throw new Error('교체 마이그레이션 입력에 공급사 오퍼가 없습니다');
-  return supplier;
-}
-
 async function loadSourceRetirementPlan(
   parsed: ParsedCatalogMigration,
   sourceSha256: string,
 ): Promise<SourceRetirementPlan> {
-  const supplier = migrationSupplier(parsed);
+  const suppliers = catalogMigrationSuppliers(parsed);
   const supplierOffers: SourceOfferWithPart[] = await prisma.spPartOffer.findMany({
-    where: { supplier },
+    where: { supplier: { in: suppliers } },
     include: { part: { include: { offers: true } } },
   });
   const targets = supplierOffers.filter((offer) =>
-    isCatalogOfferFromSource(offer.rawJson, supplier, sourceSha256),
+    isCatalogOfferFromSource(offer.rawJson, offer.supplier, sourceSha256),
   );
   const byPart = new Map<string, SourceOfferWithPart[]>();
   for (const offer of targets) {
@@ -430,7 +476,7 @@ async function loadSourceRetirementPlan(
     (item) => !item.replacementPresent && item.remainingRealOffers === 0 && item.quoteReferences > 0,
   );
   return {
-    supplier,
+    suppliers,
     sourceSha256,
     targetOffers: targets.length,
     items,
@@ -440,7 +486,7 @@ async function loadSourceRetirementPlan(
 
 function retirementSummary(plan: SourceRetirementPlan): Record<string, unknown> {
   return {
-    supplier: plan.supplier,
+    suppliers: plan.suppliers,
     retiredSourceSha256: plan.sourceSha256,
     oldSourceOffers: plan.targetOffers,
     oldSourceParts: plan.items.length,
@@ -473,10 +519,10 @@ async function retireCatalogSource(
     const outcome = await prisma.$transaction(async (tx): Promise<'deleted' | 'reindex' | 'skipped'> => {
       const currentOffers = await tx.spPartOffer.findMany({
         where: { id: { in: item.targetOfferIds } },
-        select: { id: true, rawJson: true },
+        select: { id: true, supplier: true, rawJson: true },
       });
       const currentTargetIds = currentOffers.filter((offer) =>
-        isCatalogOfferFromSource(offer.rawJson, plan.supplier, plan.sourceSha256),
+        isCatalogOfferFromSource(offer.rawJson, offer.supplier, plan.sourceSha256),
       ).map((offer) => offer.id);
       if (currentTargetIds.length === 0) return 'skipped';
 
@@ -569,6 +615,10 @@ async function verifyDatabase(
         failures.push(`DB 오퍼 누락: ${record.key}/${expected.supplier}:${expected.supplierSku}`);
         continue;
       }
+      const rawMatch = catalogOfferRawMatch(offer.rawJson, record.product, expected.supplier);
+      if (rawMatch === 'mismatch') {
+        failures.push(`DB rawJson 원본 변경: ${record.key}/${expected.supplier}:${expected.supplierSku}`);
+      }
       const raw = jsonObject(offer.rawJson);
       const metadata = raw === null ? null : jsonObject(raw.catalog_metadata ?? null);
       if (metadata?.sourceDataset !== parsed.sourceFile) {
@@ -583,7 +633,10 @@ async function verifyDatabase(
       if (raw?.manufacturer_part_number !== record.mpn) {
         failures.push(`DB rawJson MPN 불일치: ${record.key}/${expected.supplier}:${expected.supplierSku}`);
       }
-      if (offer.priceBreaks.length !== 0) {
+      if (
+        offer.priceBreaks.length !== 0
+        && rawMatch !== 'samplepcb-price-overlay'
+      ) {
         failures.push(`가격이 없는 카탈로그 오퍼에 가격구간 존재: ${record.key}`);
       }
       if (offer.stock !== null) failures.push(`가격이 없는 카탈로그 오퍼에 재고 존재: ${record.key}`);
@@ -616,9 +669,15 @@ async function verifyElasticsearch(parts: PartWithOffers[]): Promise<string[]> {
     if (item._source.mpnNorm !== part.mpnNorm || item._source.manufacturerNorm !== part.manufacturerNorm) {
       failures.push(`ES 정체성 불일치: ${item._id}/${part.mpn}`);
     }
-    const expectedSuppliers = new Set(part.offers.map((offer) => offer.supplier));
+    const expectedSuppliers = new Set(
+      partOffersForDisplay(part.offers).map((offer) => offer.supplier),
+    );
+    const indexedSuppliers = new Set(item._source.suppliers);
     for (const supplier of expectedSuppliers) {
-      if (!item._source.suppliers.includes(supplier)) failures.push(`ES 공급사 누락: ${part.mpn}/${supplier}`);
+      if (!indexedSuppliers.has(supplier)) failures.push(`ES 공급사 누락: ${part.mpn}/${supplier}`);
+    }
+    for (const supplier of indexedSuppliers) {
+      if (!expectedSuppliers.has(supplier)) failures.push(`ES 공급사 초과: ${part.mpn}/${supplier}`);
     }
   }
   if (items.length !== parts.length) {
@@ -636,6 +695,32 @@ interface SearchCheck {
   found: boolean;
   topMpn: string | null;
 }
+
+interface EngineCatalogCheck {
+  supplier: string;
+  category: string;
+  expectedMpn: string;
+  status: string | null;
+  candidateFound: boolean;
+}
+
+const CatalogEvaluationResponse = z.object({
+  items: z.array(
+    z.object({
+      component_id: z.string(),
+      candidates: z.array(
+        z.object({
+          product: z.object({
+            manufacturer_part_number: z.string(),
+          }).passthrough(),
+        }).passthrough(),
+      ),
+      procurement_decision: z.object({
+        status: z.string(),
+      }).passthrough(),
+    }).passthrough(),
+  ),
+});
 
 async function searchOnce(query: string, supplier: string, expectedMpnNorm: string): Promise<SearchCheck> {
   const params = PartSearchQuery.parse({ q: query, supplier, page: 1, pageSize: 100, sort: 'relevance' });
@@ -656,11 +741,120 @@ async function searchOnce(query: string, supplier: string, expectedMpnNorm: stri
   };
 }
 
+function searchSupplier(record: CatalogMigrationRecord): string | undefined {
+  return partOffersForDisplay(
+    record.product.offers.map((offer) => ({
+      supplier: offer.supplier,
+      rawJson: record.product,
+    })),
+  )[0]?.supplier;
+}
+
+function catalogEvaluationSamples(records: CatalogMigrationRecord[]): CatalogMigrationRecord[] {
+  const bySupplierCategory = new Map<string, CatalogMigrationRecord>();
+  for (const record of records) {
+    const supplier = record.offers[0]?.supplier;
+    if (supplier === undefined) continue;
+    const normalizedCategory = record.product.category?.trim();
+    const category = normalizedCategory === undefined || normalizedCategory === ''
+      ? '(uncategorized)'
+      : normalizedCategory;
+    const key = `${supplier}\u0000${category}`;
+    const existing = bySupplierCategory.get(key);
+    if (existing === undefined || record.mpn.localeCompare(existing.mpn, undefined, { numeric: true }) < 0) {
+      bySupplierCategory.set(key, record);
+    }
+  }
+  return [...bySupplierCategory.values()].sort(
+    (a, b) => (a.offers[0]?.supplier ?? '').localeCompare(b.offers[0]?.supplier ?? '')
+      || (a.product.category ?? '').localeCompare(b.product.category ?? '')
+      || a.mpn.localeCompare(b.mpn, undefined, { numeric: true }),
+  );
+}
+
+async function verifyCatalogEvaluation(
+  parsed: ParsedCatalogMigration,
+): Promise<{ checks: EngineCatalogCheck[]; failures: string[] }> {
+  const samples = catalogEvaluationSamples(parsed.records);
+  const expectedById = new Map<string, CatalogMigrationRecord>();
+  const items = samples.map((record, index) => {
+    const componentId = `catalog-verify-${String(index + 1)}`;
+    expectedById.set(componentId, record);
+    const partType = record.product.normalized_specs.part_type;
+    return {
+      query: {
+        component_id: componentId,
+        mode: 'identity',
+        part_number: record.mpn,
+        manufacturer: record.manufacturerName,
+        ...(typeof partType === 'string'
+          ? { part_type: partType, category_policy: partType }
+          : {}),
+        quantity: 1,
+      },
+      products: [record.product],
+    };
+  });
+  const response = await engineFetch('/supplier-search/catalog-evaluate-batch', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!response.ok) {
+    return {
+      checks: [],
+      failures: [`엔진 카탈로그 평가 실패: HTTP ${String(response.status)}`],
+    };
+  }
+  const body = CatalogEvaluationResponse.safeParse(await response.json());
+  if (!body.success) {
+    return { checks: [], failures: ['엔진 카탈로그 평가 응답 계약이 올바르지 않습니다'] };
+  }
+  const checks: EngineCatalogCheck[] = [];
+  const failures: string[] = [];
+  const returned = new Set<string>();
+  for (const item of body.data.items) {
+    returned.add(item.component_id);
+    const expected = expectedById.get(item.component_id);
+    if (expected === undefined) {
+      failures.push(`엔진 카탈로그 평가에 알 수 없는 component가 있습니다: ${item.component_id}`);
+      continue;
+    }
+    const supplier = expected.offers[0]?.supplier ?? '(missing)';
+    const candidateFound = item.candidates.some(
+      (candidate) => normalizeMpn(candidate.product.manufacturer_part_number) === expected.mpnNorm,
+    );
+    checks.push({
+      supplier,
+      category: expected.product.category ?? '(uncategorized)',
+      expectedMpn: expected.mpn,
+      status: item.procurement_decision.status,
+      candidateFound,
+    });
+    if (!candidateFound) {
+      failures.push(`엔진 카탈로그 후보 누락: ${supplier}/${expected.mpn}`);
+    }
+    const eligible = expected.product.catalog_metadata.autoQuoteEligible !== false;
+    if (eligible && item.procurement_decision.status !== 'catalog_selected') {
+      failures.push(`선정 가능 카탈로그가 선택되지 않음: ${supplier}/${expected.mpn}`);
+    }
+    if (!eligible && item.procurement_decision.status === 'catalog_selected') {
+      failures.push(`선정 불가 카탈로그가 선택됨: ${supplier}/${expected.mpn}`);
+    }
+  }
+  for (const [componentId, expected] of expectedById) {
+    if (!returned.has(componentId)) {
+      failures.push(`엔진 카탈로그 평가 응답 누락: ${expected.offers[0]?.supplier ?? '(missing)'}/${expected.mpn}`);
+    }
+  }
+  return { checks, failures };
+}
+
 async function verifySearch(parsed: ParsedCatalogMigration): Promise<{ checks: SearchCheck[]; failures: string[] }> {
   const samples = catalogSearchSamples(parsed.records);
   const checks: SearchCheck[] = [];
   for (const sample of samples) {
-    const supplier = sample.offers[0]?.supplier;
+    const supplier = searchSupplier(sample);
     if (supplier === undefined) {
       checks.push({
         query: sample.mpn,
@@ -676,7 +870,7 @@ async function verifySearch(parsed: ParsedCatalogMigration): Promise<{ checks: S
   }
   const representative = samples[0];
   if (representative !== undefined) {
-    const supplier = representative.offers[0]?.supplier;
+    const supplier = searchSupplier(representative);
     if (supplier !== undefined) {
       checks.push(await searchOnce(representative.mpnNorm.slice(0, 8), supplier, representative.mpnNorm));
       if (representative.mpnNorm.length >= 8) {
@@ -698,13 +892,22 @@ async function verifyAll(
   const database = await verifyDatabase(parsed);
   const esFailures = await verifyElasticsearch(database.parts);
   const search = includeSearch ? await verifySearch(parsed) : { checks: [], failures: [] };
-  const failures = [...database.failures, ...esFailures, ...search.failures];
+  const engineCatalog = includeSearch
+    ? await verifyCatalogEvaluation(parsed)
+    : { checks: [], failures: [] };
+  const failures = [
+    ...database.failures,
+    ...esFailures,
+    ...search.failures,
+    ...engineCatalog.failures,
+  ];
   const result = {
     result: failures.length === 0,
     inputParts: parsed.records.length,
     dbParts: database.parts.length,
     esDocuments: database.parts.length - esFailures.filter((failure) => failure.startsWith('ES 문서 누락')).length,
     searchChecks: search.checks,
+    engineCatalogChecks: engineCatalog.checks,
     failures,
   };
   if (failures.length > 0) throw new Error(`마이그레이션 검증 실패\n${json(result)}`);
@@ -829,7 +1032,7 @@ async function rollback(
         const key = `${offer.supplier}:${offer.supplierSku}`;
         if (!targets.has(key)) return false;
         const previous = previousOffers.get(key);
-        return !isDeepStrictEqual(offer.rawJson, record.product)
+        return catalogOfferRawMatch(offer.rawJson, record.product, offer.supplier) === 'mismatch'
           && (previous === undefined || !isDeepStrictEqual(offer.rawJson, previous.rawJson));
       },
     );
@@ -920,7 +1123,7 @@ async function rollback(
 
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
-  const input = await loadInput(options.file);
+  const input = await loadInput(options.file, options.source);
   if (options.mode === 'dry-run') {
     const existing = await loadExistingParts(input.parsed.records);
     const replacement = options.retireSourceSha === undefined

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   engineFetch: vi.fn(),
+  search: vi.fn(),
 }));
 
 vi.mock('./prisma', () => ({
@@ -17,7 +18,16 @@ vi.mock('./engine-client', () => ({
   engineFetch: mocks.engineFetch,
 }));
 
-import { applyLocalCatalogFallback } from './bom-local-catalog';
+vi.mock('../es/client', () => ({
+  esClient: () => ({
+    search: mocks.search,
+  }),
+}));
+
+import {
+  applyLocalCatalogFallback,
+  evaluatePreferredLocalCatalog,
+} from './bom-local-catalog';
 
 function localProduct(
   mpn = '10038WR-08',
@@ -340,5 +350,221 @@ describe('BOM 로컬 카탈로그 fallback', () => {
     expect(batchSizes).toEqual([200, 1]);
     const output = result as { search: { components: { candidates: unknown[] }[] } };
     expect(output.search.components.every((component) => component.candidates.length === 1)).toBe(true);
+  });
+});
+
+describe('BOM SamplePCB R/C 로컬 우선 검색', () => {
+  const preferredProduct = {
+    supplier: 'walsin',
+    manufacturer_part_number: 'WR06X1002FTL',
+    manufacturer: 'Walsin',
+    description: 'Chip Resistor',
+    category: 'Chip Resistor',
+    package: '0603',
+    normalized_specs: {
+      part_type: 'resistor',
+      resistance_ohm: 10_000,
+      tolerance_percent: 1,
+      package: '0603',
+    },
+    catalog_metadata: {
+      catalogOnly: true,
+      samplepcbPreferred: true,
+      samplepcbPreferenceRank: 0,
+      autoQuoteEligible: true,
+      apiVerificationRequired: false,
+    },
+    offers: [
+      {
+        supplier: 'walsin',
+        offer_kind: 'manufacturer_catalog',
+        supplier_sku: 'WR06X1002FTL',
+        price_breaks: [],
+        fetched_at: '2026-07-06T00:00:00+09:00',
+      },
+      {
+        supplier: 'samplepcb',
+        offer_kind: 'manufacturer_catalog',
+        supplier_sku: 'WR06X1002FTL',
+        price_breaks: [],
+        fetched_at: '2026-07-06T00:00:00+09:00',
+      },
+    ],
+  };
+
+  const preflight = {
+    plan: {
+      components: [
+        {
+          component_id: 'resistor-1',
+          planned_queries: [
+            {
+              component_id: 'resistor-1',
+              mode: 'parametric',
+              part_number: null,
+              manufacturer: null,
+              part_type: 'resistor',
+              category_policy: 'resistor',
+              package: '0603',
+              requirements: {
+                part_type: {
+                  normalized_value: 'resistor',
+                  hard: true,
+                  comparison: 'category',
+                },
+                resistance_ohm: {
+                  normalized_value: 10_000,
+                  hard: true,
+                  comparison: 'eq',
+                },
+                package: {
+                  normalized_value: '0603',
+                  hard: true,
+                  comparison: 'eq',
+                },
+                tolerance_percent: {
+                  normalized_value: 1,
+                  hard: true,
+                  comparison: 'lte',
+                },
+              },
+            },
+          ],
+        },
+        {
+          component_id: 'connector-1',
+          planned_queries: [
+            {
+              component_id: 'connector-1',
+              mode: 'identity',
+              part_number: '10038WR-08',
+              manufacturer: 'YEONHO ELECTRONICS',
+              part_type: 'connector',
+              category_policy: 'connector',
+              requirements: {},
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  it('엔진 정규 쿼리로 ES 후보만 찾고 엔진 automatic_selected만 해결로 인정한다', async () => {
+    mocks.search.mockResolvedValue({
+      hits: { hits: [{ _source: { partId: '77' } }] },
+    });
+    mocks.findMany.mockResolvedValue([
+      {
+        id: 77n,
+        offers: [
+          {
+            supplier: 'samplepcb',
+            supplierSku: 'WR06X1002FTL',
+            productUrl: null,
+            stock: null,
+            moq: null,
+            orderMultiple: null,
+            packaging: null,
+            currency: null,
+            leadTime: null,
+            fetchedAt: new Date('2026-07-06T00:00:00+09:00'),
+            rawJson: preferredProduct,
+            priceBreaks: [],
+          },
+        ],
+      },
+    ]);
+    mocks.engineFetch.mockImplementation((_path: string, init: RequestInit) => {
+      if (typeof init.body !== 'string') throw new Error('요청 본문이 문자열이 아닙니다');
+      const body = JSON.parse(init.body) as {
+        items: { query: { component_id: string }; products: unknown[] }[];
+      };
+      return Promise.resolve(new Response(JSON.stringify({
+        items: body.items.map((item) => ({
+          component_id: item.query.component_id,
+          status: 'spec_compatible',
+          candidates: [{ product: item.products[0] }],
+          procurement_decision: {
+            status: 'catalog_selected',
+            selection_application_state: 'automatic_selected',
+          },
+          warnings: [],
+        })),
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    });
+
+    const result = await evaluatePreferredLocalCatalog(
+      preflight,
+      { target_currency: 'KRW' },
+    );
+
+    expect(mocks.search).toHaveBeenCalledTimes(1);
+    const searchRequest = mocks.search.mock.calls[0]?.[0] as {
+      query: { bool: { filter: Record<string, unknown>[] } };
+    };
+    expect(searchRequest.query.bool.filter).toEqual(expect.arrayContaining([
+      { term: { suppliers: 'samplepcb' } },
+      { term: { partType: 'resistor' } },
+      { terms: { packageVariants: ['0603', '1608'] } },
+    ]));
+    const [, evaluationInit] = mocks.engineFetch.mock.calls[0] as [string, RequestInit];
+    if (typeof evaluationInit.body !== 'string') throw new Error('요청 본문이 문자열이 아닙니다');
+    const evaluationBody = JSON.parse(evaluationInit.body) as {
+      items: { products: { supplier: string; offers: { supplier: string; stock: number | null }[] }[] }[];
+    };
+    expect(evaluationBody.items[0]?.products[0]).toMatchObject({
+      supplier: 'samplepcb',
+      offers: [{ supplier: 'samplepcb', stock: null }],
+    });
+    expect(result.resolvedComponentIds).toEqual(['resistor-1']);
+    expect(result.unresolvedComponentIds).toEqual(['connector-1']);
+    expect(result.envelope).not.toBeNull();
+  });
+
+  it('엔진이 선정하지 않은 로컬 후보는 외부 검색 대상으로 남긴다', async () => {
+    mocks.search.mockResolvedValue({
+      hits: { hits: [{ _source: { partId: '77' } }] },
+    });
+    mocks.findMany.mockResolvedValue([
+      {
+        id: 77n,
+        offers: [
+          {
+            supplier: 'samplepcb',
+            supplierSku: 'WR06X1002FTL',
+            productUrl: null,
+            stock: null,
+            moq: null,
+            orderMultiple: null,
+            packaging: null,
+            currency: null,
+            leadTime: null,
+            fetchedAt: new Date('2026-07-06T00:00:00+09:00'),
+            rawJson: preferredProduct,
+            priceBreaks: [],
+          },
+        ],
+      },
+    ]);
+    mocks.engineFetch.mockResolvedValue(new Response(JSON.stringify({
+      items: [
+        {
+          component_id: 'resistor-1',
+          status: 'spec_partial',
+          candidates: [],
+          procurement_decision: {
+            status: 'no_recommendation',
+            selection_application_state: 'not_selected',
+          },
+          warnings: [],
+        },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+    const result = await evaluatePreferredLocalCatalog(preflight, {});
+
+    expect(result.resolvedComponentIds).toEqual([]);
+    expect(result.unresolvedComponentIds).toEqual(['resistor-1', 'connector-1']);
+    expect(result.envelope).toBeNull();
   });
 });

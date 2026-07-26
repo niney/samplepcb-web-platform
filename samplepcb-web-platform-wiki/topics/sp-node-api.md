@@ -69,6 +69,15 @@ sp-php가 sp_*를 직접 SELECT하는 역방향(sp_review·sp_seo)도 정착 —
 
 **부품 카탈로그** (`admin-parts.ts`): `GET /api/admin/parts/search`(ES 다중해석 쿼리 — Track A SI range ±0.1% + Track B specVariants prefix + should-only 가산점, 패싯·정렬, ES 다운 503) · `GET /:id`(DB 상세=오퍼·가격구간) · 수동 갱신 · `DELETE :id`·`POST /parts/reset`(`confirm:'RESET_WITH_QUOTES'`, partId·매칭·오퍼 스냅샷 관련 BOM 견적 상태 무관 강제 삭제 후 전체 초기화). `admin-bom.ts`: 엔진 프록시+**자동 인제스트 훅**(검색 202→폴러 / 결과 GET→백업, idempotent).
 
+**BOM 로컬 카탈로그 우선 검색** (`bom-local-catalog.ts`·`bom-quotes.ts`): sp-engine preflight가
+내려준 `planned_queries`로 sp-node가 SamplePCB R/C ES 후보만 조회하고, 후보를 다시
+`catalog-evaluate-batch`에 보내 `automatic_selected`인 행만 먼저 반영한다. Node는 값 완화나
+호환성 판단을 중복하지 않으며, 미해결 component ID만 기존 외부 공급사 검색으로 넘긴다.
+Walsin 승인 원장은 제조사 사실 오퍼와 SamplePCB 문의 오퍼를 함께 저장한다. 외부 공급사 가격
+1회 갱신은 `parts:catalog-prices -- --apply [--resume]`; 자체 재고는 null을 유지한다.
+제조사 사실 오퍼는 기술 사실·원본 추적용이라 공급사 패싯과 구매 오퍼 상세에서는 숨기고,
+SamplePCB 문의 오퍼만 판매 채널로 노출한다.
+
 **재능마켓** (`market-*`·`admin-market-*`): 전문가 등록·의뢰 CRUD·NDA·블라인드 입찰(가드 사슬: 승인→자기 금지→targeted→system×individual 403→lazy 마감→unique)·계약 checkout·납품·검수·정산 — 상세 [MARKET_FLOW](../../docs/MARKET_FLOW.md) §5·§6.
 
 **AI** (`ai.ts`·`rnd-ai.ts`): `POST /api/ai/:useCase/run`→jobId·`GET /api/ai/jobs/:id` 폴링. LLM 유스케이스 = `market.request-diagram`(전자 분야 폴백 단발)·`-structurize`(답변→DiagramSpec JSON)·`-roc`·`-postings` + **rnd 2종**(`rnd.file-classify`·`rnd.pcb-request-document`). spec→SVG 렌더는 LLM 아닌 `@sp/utils` 결정적 렌더러(잡 없음, 서버가 저장 전 재생성). 특수 경로: `…/preanalyze-questions`(선분석 v2 `understood`)·`…/run-with-attachments`(첨부 제한 추출 multipart).

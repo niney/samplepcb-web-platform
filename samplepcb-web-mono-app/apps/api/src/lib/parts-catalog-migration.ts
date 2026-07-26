@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { normalizeMpn } from '@sp/utils';
 import { resolveManufacturer } from './manufacturer-alias';
@@ -27,11 +28,17 @@ const CatalogMetadata = z
   .object({
     sourceDataset: z.string().min(1),
     sourceRecordIds: z.array(z.number().int().positive()).min(1),
-    seriesIds: z.array(z.number().int().positive()).min(1),
+    // 시리즈는 커넥터 카탈로그(연호) 고유 축이다. R/C 같은 수동소자 카탈로그에는
+    // 시리즈 개념이 없으므로 있을 때만 형식을 강제한다.
+    seriesIds: z.array(z.number().int().positive()).min(1).optional(),
     imageStatus: z.string().min(1),
     catalogOnly: z.literal(true),
     generatedMpn: z.boolean(),
     commercialDataAvailable: z.boolean(),
+    autoQuoteEligible: z.boolean().optional(),
+    apiVerificationRequired: z.boolean().optional(),
+    samplepcbPreferred: z.boolean().optional(),
+    samplepcbPreferenceRank: z.number().int().nonnegative().optional(),
   })
   .passthrough();
 
@@ -87,8 +94,22 @@ const CatalogArtifact = z
   })
   .passthrough();
 
+const SamplepcbPricingOverlay = z
+  .object({
+    derivedFrom: z
+      .object({
+        supplier: z.string().min(1),
+        supplierSku: z.string(),
+        fetchedAt: z.string().datetime(),
+      })
+      .passthrough(),
+    policyVersion: z.number().int().positive(),
+  })
+  .passthrough();
+
 export type CatalogProductType = z.infer<typeof CatalogProduct>;
 export type CatalogOfferType = z.infer<typeof CatalogOffer>;
+export type CatalogOfferRawMatch = 'source' | 'samplepcb-price-overlay' | 'mismatch';
 
 export interface CatalogOfferIdentity {
   supplier: string;
@@ -118,6 +139,14 @@ export interface CatalogSourceProvenance {
   sourceSha256: string;
 }
 
+export function catalogMigrationSuppliers(parsed: ParsedCatalogMigration): string[] {
+  const suppliers = [
+    ...new Set(parsed.records.flatMap((record) => record.offers.map((offer) => offer.supplier))),
+  ].sort();
+  if (suppliers.length === 0) throw new Error('카탈로그 마이그레이션 입력에 공급사 오퍼가 없습니다');
+  return suppliers;
+}
+
 function recordKey(mpnNorm: string, manufacturerNorm: string): string {
   return `${manufacturerNorm}:${mpnNorm}`;
 }
@@ -126,6 +155,30 @@ function unknownObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+/**
+ * 저장된 카탈로그 오퍼가 입력 원본과 같은지 판정한다.
+ *
+ * SamplePCB 자체 오퍼에는 공급사 API에서 한 번 확인한 가격의 출처만
+ * `samplepcbPricing`으로 덧붙일 수 있다. 이 필드 외 원본 변경은 허용하지 않는다.
+ */
+export function catalogOfferRawMatch(
+  rawJson: unknown,
+  expectedProduct: CatalogProductType,
+  offerSupplier: string,
+): CatalogOfferRawMatch {
+  if (isDeepStrictEqual(rawJson, expectedProduct)) return 'source';
+  if (offerSupplier !== 'samplepcb') return 'mismatch';
+  const raw = unknownObject(rawJson);
+  if (raw === null || !SamplepcbPricingOverlay.safeParse(raw.samplepcbPricing).success) {
+    return 'mismatch';
+  }
+  const source = { ...raw };
+  delete source.samplepcbPricing;
+  return isDeepStrictEqual(source, expectedProduct)
+    ? 'samplepcb-price-overlay'
+    : 'mismatch';
 }
 
 /** rawJson에 명시된 catalog-only 원천만 반환한다. 가격 오퍼나 추정 데이터는 제거 대상이 아니다. */
@@ -156,13 +209,23 @@ export function isCatalogOfferFromSource(
   sourceSha256: string,
 ): boolean {
   const provenance = catalogSourceProvenance(rawJson);
-  return provenance !== null
-    && provenance.supplier === supplier
-    && provenance.sourceSha256 === sourceSha256.toLowerCase();
+  if (provenance?.sourceSha256 !== sourceSha256.toLowerCase()) return false;
+  const product = unknownObject(rawJson);
+  const offers = Array.isArray(product?.offers) ? product.offers : [];
+  return provenance.supplier === supplier
+    || offers.some((value) => unknownObject(value)?.supplier === supplier);
 }
 
 function validateCatalogProduct(product: CatalogProductType): void {
   const metadata = product.catalog_metadata;
+  if (
+    metadata.apiVerificationRequired === true
+    && metadata.autoQuoteEligible !== false
+  ) {
+    throw new Error(
+      `API 검증 필요 카탈로그가 자동선정 가능 상태입니다: ${product.manufacturer_part_number}`,
+    );
+  }
   if (!metadata.commercialDataAvailable) {
     const commercialOffer = product.offers.find(
       (offer) => (offer.stock !== null && offer.stock !== undefined) || offer.price_breaks.length > 0,

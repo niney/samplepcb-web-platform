@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from .models import (
+    CatalogSupplier,
     CandidateMatch,
     ComponentProcurementDecision,
     OfferKeyVersion,
@@ -797,7 +798,14 @@ def _catalog_selection_allowed(
     candidates: list[CandidateMatch],
     group_key: tuple[str, str],
 ) -> bool:
-    """Select a safe exact identity even when its commercial terms need inquiry."""
+    """Select a verified catalog identity even when commercial terms need inquiry.
+
+    Older official catalogs did not carry ``autoQuoteEligible``.  Missing means
+    backward-compatible allow, while an explicit false is a hard gate for
+    generated/unverified catalog candidates.  Cross-MPN spec selection is only
+    allowed for SamplePCB's preferred R/C catalog and still requires complete
+    technical and category verification from the matcher.
+    """
 
     group = [
         candidate
@@ -810,16 +818,43 @@ def _catalog_selection_allowed(
     ]
     offers = [offer for candidate in group for offer in candidate.product.offers]
     representative = _group_representative(candidates, group_key)
+    metadata = representative.product.catalog_metadata
+    verified_keys = {
+        assessment.key
+        for assessment in representative.decision.requirement_assessments
+        if assessment.verified
+    }
+    exact_identity = representative.decision.match_relation.value == "exact"
+    samplepcb_spec_compatible = (
+        representative.decision.match_relation.value == "spec-compatible"
+        and representative.product.supplier == CatalogSupplier.SAMPLEPCB
+        and metadata is not None
+        and metadata.samplepcb_preferred is True
+        and representative.decision.verification_complete
+        and representative.decision.strict_category_coverage
+        and "package" in verified_keys
+        and bool(verified_keys & {"resistance_ohm", "capacitance_f"})
+    )
     return (
         representative.decision.selection_eligibility
         == SelectionEligibility.AUTOMATIC
-        and representative.decision.match_relation.value == "exact"
+        and (exact_identity or samplepcb_spec_compatible)
         and representative.decision.selection_recommendation
         == SelectionRecommendation.PRESELECT
         and bool(offers)
         and all(
             offer.offer_kind == OfferKind.MANUFACTURER_CATALOG
             for offer in offers
+        )
+        and all(
+            candidate.product.catalog_metadata is None
+            or (
+                candidate.product.catalog_metadata.catalog_only
+                and candidate.product.catalog_metadata.auto_quote_eligible is not False
+                and candidate.product.catalog_metadata.api_verification_required
+                is not True
+            )
+            for candidate in group
         )
     )
 

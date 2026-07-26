@@ -1,4 +1,5 @@
 import type { PartOfferKindType } from '@sp/api-contract';
+import { z } from 'zod';
 
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -23,4 +24,51 @@ export function partOfferKind(rawJson: unknown): PartOfferKindType {
 
 export function isCatalogInquiryOffer(rawJson: unknown): boolean {
   return partOfferKind(rawJson) === 'manufacturer_catalog';
+}
+
+/**
+ * SamplePCB 취급 카탈로그에서 제조사 쪽 오퍼는 기술 사실과 원본 추적을 위한 원천이다.
+ * 같은 rawJson을 쓰는 SamplePCB 오퍼만 실제 문의·판매 창구이므로 원천 오퍼를 공급사
+ * 패싯과 구매 오퍼 목록에 노출하지 않는다.
+ */
+export function isCatalogProvenanceOffer(
+  supplier: string,
+  rawJson: unknown,
+): boolean {
+  if (!isCatalogInquiryOffer(rawJson)) return false;
+  const product = objectValue(rawJson);
+  const metadata = objectValue(product?.catalog_metadata);
+  const sourceSupplier = product?.supplier;
+  return metadata?.samplepcbPreferred === true
+    && typeof sourceSupplier === 'string'
+    && sourceSupplier.trim().toLowerCase() === supplier.trim().toLowerCase()
+    && supplier.trim().toLowerCase() !== 'samplepcb';
+}
+
+export function partOffersForDisplay<
+  T extends { supplier: string; rawJson: unknown },
+>(offers: readonly T[]): T[] {
+  return offers.filter((offer) =>
+    !isCatalogProvenanceOffer(offer.supplier, offer.rawJson));
+}
+
+const DerivedFrom = z.object({
+  supplier: z.string(),
+  supplierSku: z.string(),
+  fetchedAt: z.string(),
+});
+
+const DerivedFromRaw = z.object({ derivedFrom: DerivedFrom });
+const SamplepcbPricingRaw = z.object({
+  samplepcbPricing: z.object({ derivedFrom: DerivedFrom }),
+});
+
+/** 기존 파생 오퍼와 카탈로그 가격 오버레이의 원천 표기를 모두 복원한다. */
+export function partOfferDerivedFrom(
+  rawJson: unknown,
+): z.infer<typeof DerivedFrom> | null {
+  const direct = DerivedFromRaw.safeParse(rawJson);
+  if (direct.success) return direct.data.derivedFrom;
+  const pricing = SamplepcbPricingRaw.safeParse(rawJson);
+  return pricing.success ? pricing.data.samplepcbPricing.derivedFrom : null;
 }

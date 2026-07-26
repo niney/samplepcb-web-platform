@@ -92,6 +92,7 @@ describe('part bulk delete preview', () => {
         supplier: 'yeonho',
         supplierSku: 'OLD-1',
         rawJson: {
+          supplier: 'yeonho',
           catalog_metadata: {
             catalogOnly: true,
             sourceDataset: 'old.xlsx',
@@ -166,6 +167,44 @@ describe('part bulk delete preview', () => {
     const changed = buildPartDeletionPreview(filter, ['1', '2'], parts, []);
     expect(reordered.data.previewHash).toBe(first.data.previewHash);
     expect(changed.data.previewHash).not.toBe(first.data.previewHash);
+  });
+
+  it('SamplePCB 취급 카탈로그의 제조사 원천을 구매 공급사와 분리한다', () => {
+    const rawJson = {
+      supplier: 'walsin',
+      catalog_metadata: {
+        catalogOnly: true,
+        commercialDataAvailable: false,
+        samplepcbPreferred: true,
+        sourceDataset: 'walsin.xlsx',
+        sourceDatasetSha256: 'b'.repeat(64),
+      },
+    };
+    const preview = buildPartDeletionPreview(
+      PartBulkDeleteFilter.parse({ manufacturer: 'Walsin' }),
+      ['10'],
+      [{
+        id: '10',
+        mpn: 'WR06X1002FTL',
+        manufacturerName: 'Walsin',
+        offers: [
+          { supplier: 'walsin', supplierSku: 'WR06X1002FTL', rawJson },
+          { supplier: 'samplepcb', supplierSku: 'WR06X1002FTL', rawJson },
+        ],
+      }],
+      [],
+    );
+
+    expect(preview.data.supplierOffers).toEqual([
+      { value: 'samplepcb', count: 1 },
+    ]);
+    expect(preview.data.catalogSources).toEqual([{
+      supplier: 'walsin',
+      sourceDataset: 'walsin.xlsx',
+      sourceSha256: 'b'.repeat(64),
+      count: 1,
+    }]);
+    expect(preview.data.multiSupplierParts).toBe(0);
   });
 
   it('검색어·필터가 전혀 없는 전체 삭제 요청은 계약에서 거부한다', () => {

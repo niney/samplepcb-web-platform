@@ -78,6 +78,7 @@ def product(
     product_id: str | None = None,
     url: str | None = None,
     offer_kind: OfferKind = OfferKind.SUPPLIER_OFFER,
+    catalog_metadata: dict[str, object] | None = None,
 ) -> SupplierProduct:
     return SupplierProduct(
         supplier=supplier,
@@ -85,6 +86,7 @@ def product(
         manufacturer_part_number=mpn,
         manufacturer=manufacturer,
         normalized_specs=specs or {},
+        catalog_metadata=catalog_metadata,
         offers=[
             SupplierOffer(
                 supplier=supplier,
@@ -226,6 +228,135 @@ def test_exact_manufacturer_catalog_identity_is_selected_without_fake_offer():
     assert decision.purchasable is False
     assert decision.recommendation == OfferRecommendation.NONE
     assert decision.line_total is None
+
+
+def test_unverified_manufacturer_catalog_identity_is_not_selected():
+    candidates, component = decide(
+        query(quantity=10),
+        [
+            product(
+                CatalogSupplier.WALSIN,
+                stock=None,
+                moq=None,
+                multiple=None,
+                prices=[],
+                offer_kind=OfferKind.MANUFACTURER_CATALOG,
+                catalog_metadata={
+                    "catalogOnly": True,
+                    "generatedMpn": True,
+                    "autoQuoteEligible": False,
+                    "apiVerificationRequired": True,
+                },
+            )
+        ],
+    )
+
+    assert candidates[0].decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert component.status == "no_recommendation"
+    assert component.selection_application_state.value == "not_selected"
+    assert component.automatic_offer_key is None
+    assert component.review_offer_key is None
+
+
+def test_samplepcb_verified_resistor_spec_catalog_is_selected_for_inquiry():
+    planned = PlannedQuery(
+        component_id="samplepcb-spec",
+        mode=SearchMode.PARAMETRIC,
+        part_type="resistor",
+        category_policy="resistor",
+        package="0603",
+        quantity=10,
+        requirements={
+            "part_type": requirement("part_type", "resistor", "category"),
+            "resistance_ohm": requirement("resistance_ohm", 10_000),
+            "package": requirement("package", "0603"),
+            "tolerance_percent": requirement(
+                "tolerance_percent",
+                1,
+                "lte",
+            ),
+        },
+    )
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                CatalogSupplier.SAMPLEPCB,
+                mpn="WR06X1002FTL",
+                manufacturer="Walsin",
+                specs={
+                    "part_type": "resistor",
+                    "resistance_ohm": 10_000,
+                    "package": "0603",
+                    "tolerance_percent": 1,
+                },
+                stock=None,
+                moq=None,
+                multiple=None,
+                prices=[],
+                offer_kind=OfferKind.MANUFACTURER_CATALOG,
+                catalog_metadata={
+                    "catalogOnly": True,
+                    "generatedMpn": True,
+                    "autoQuoteEligible": True,
+                    "apiVerificationRequired": False,
+                    "samplepcbPreferred": True,
+                    "samplepcbPreferenceRank": 0,
+                },
+            ).model_copy(update={"category": "Chip Resistor"})
+        ],
+    )
+
+    assert candidates[0].decision.match_relation.value == "spec-compatible"
+    assert candidates[0].decision.verification_complete is True
+    assert component.status == "catalog_selected"
+    assert component.selection_application_state.value == "automatic_selected"
+    assert component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.CATALOG_INQUIRY
+    )
+
+
+def test_non_samplepcb_spec_catalog_remains_unselected():
+    planned = PlannedQuery(
+        component_id="manufacturer-spec",
+        mode=SearchMode.PARAMETRIC,
+        part_type="resistor",
+        category_policy="resistor",
+        package="0603",
+        quantity=10,
+        requirements={
+            "part_type": requirement("part_type", "resistor", "category"),
+            "resistance_ohm": requirement("resistance_ohm", 10_000),
+            "package": requirement("package", "0603"),
+        },
+    )
+    _candidates, component = decide(
+        planned,
+        [
+            product(
+                CatalogSupplier.WALSIN,
+                mpn="WR06X1002FTL",
+                manufacturer="Walsin",
+                specs={
+                    "part_type": "resistor",
+                    "resistance_ohm": 10_000,
+                    "package": "0603",
+                },
+                stock=None,
+                moq=None,
+                multiple=None,
+                prices=[],
+                offer_kind=OfferKind.MANUFACTURER_CATALOG,
+                catalog_metadata={
+                    "catalogOnly": True,
+                    "autoQuoteEligible": True,
+                    "apiVerificationRequired": False,
+                },
+            ).model_copy(update={"category": "Chip Resistor"})
+        ],
+    )
+
+    assert component.status == "no_recommendation"
 
 
 def test_catalog_identity_with_recommendation_block_remains_unselected():

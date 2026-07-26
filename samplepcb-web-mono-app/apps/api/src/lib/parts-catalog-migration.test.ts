@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { resolveManufacturer } from './manufacturer-alias';
 import {
+  catalogOfferRawMatch,
   catalogSearchSamples,
   catalogSourceProvenance,
   isCatalogOfferFromSource,
@@ -96,6 +97,13 @@ describe('parts catalog migration artifact', () => {
     expect(resolveManufacturer('연호').norm).toBe('yeonho');
   });
 
+  it('수동소자 제조사 유통 표기를 정준 키로 모은다', () => {
+    expect(resolveManufacturer('Walsin Technology Corporation').norm).toBe('walsin');
+    expect(resolveManufacturer('Samsung Electro-Mechanics').norm).toBe('samsung');
+    expect(resolveManufacturer('Vishay Dale').norm).toBe('vishay');
+    expect(resolveManufacturer('KOA Speer Electronics').norm).toBe('koa');
+  });
+
   it('분석 수량과 실제 후보 수량이 다르면 거부한다', () => {
     const artifact = mutableArtifact();
     const analysis = artifact.analysis as Record<string, unknown>;
@@ -137,6 +145,18 @@ describe('parts catalog migration artifact', () => {
     expect(() => parseCatalogMigrationEnvelope(artifact)).toThrow('가격·재고가 존재');
   });
 
+  it('API 검증 필요 후보가 자동선정 가능하면 거부한다', () => {
+    const artifact = mutableArtifact();
+    const candidate = components(artifact).flatMap(candidates)[0];
+    if (candidate === undefined) throw new Error('테스트 픽스처에 candidate가 없습니다');
+    const metadata = product(candidate).catalog_metadata as Record<string, unknown>;
+    metadata.apiVerificationRequired = true;
+    metadata.autoQuoteEligible = true;
+    expect(() => parseCatalogMigrationEnvelope(artifact)).toThrow(
+      'API 검증 필요 카탈로그가 자동선정 가능',
+    );
+  });
+
   it('같은 상품 안의 공급사 오퍼 키 중복을 거부한다', () => {
     const artifact = mutableArtifact();
     const firstComponent = components(artifact)[0];
@@ -165,5 +185,34 @@ describe('parts catalog migration artifact', () => {
       ...raw,
       catalog_metadata: { ...raw.catalog_metadata, catalogOnly: false },
     }, 'yeonho', YEONHO_REV2_SOURCE_SHA256)).toBe(false);
+  });
+
+  it('SamplePCB 가격 근거 오버레이만 원본 보존 상태로 허용한다', () => {
+    const parsed = parseCatalogMigrationEnvelope(catalogArtifact());
+    const raw = parsed.records[0]?.product;
+    if (raw === undefined) throw new Error('테스트 픽스처에 상품이 없습니다');
+    const priced = {
+      ...raw,
+      samplepcbPricing: {
+        derivedFrom: {
+          supplier: 'digikey',
+          supplierSku: '123-ND',
+          fetchedAt: '2026-07-26T00:00:00.000Z',
+        },
+        policyVersion: 1,
+      },
+    };
+
+    expect(catalogOfferRawMatch(raw, raw, 'samplepcb')).toBe('source');
+    expect(catalogOfferRawMatch(priced, raw, 'samplepcb')).toBe('samplepcb-price-overlay');
+    expect(catalogOfferRawMatch(priced, raw, 'digikey')).toBe('mismatch');
+    expect(catalogOfferRawMatch({
+      ...priced,
+      manufacturer_part_number: 'DIFFERENT',
+    }, raw, 'samplepcb')).toBe('mismatch');
+    expect(catalogOfferRawMatch({
+      ...raw,
+      samplepcbPricing: { derivedFrom: { supplier: 'digikey' } },
+    }, raw, 'samplepcb')).toBe('mismatch');
   });
 });

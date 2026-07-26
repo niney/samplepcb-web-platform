@@ -130,9 +130,9 @@ def test_exact_mpn_and_canonical_manufacturer_are_automatic():
 
 def test_exact_mpn_overrides_unregistered_manufacturer_name_for_selection():
     query = identity_query(manufacturer="Samsung")
-    candidate = decide(query, product(manufacturer="Samsung Electro-Mechanics"))[0]
+    candidate = decide(query, product(manufacturer="Samsung Components Division"))[0]
 
-    assert manufacturers_compatible("Samsung", "Samsung Electro-Mechanics") is False
+    assert manufacturers_compatible("Samsung", "Samsung Components Division") is False
     assert candidate.decision.match_relation == MatchRelation.EXACT
     assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
     assert candidate.decision.auto_eligible is True

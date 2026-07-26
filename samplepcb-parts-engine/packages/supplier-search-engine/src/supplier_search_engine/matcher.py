@@ -52,6 +52,22 @@ _MANUFACTURER_ALIASES = {
     "maximintegrated": "maximintegrated",
     "analogdevicesmaximintegrated": "maximintegrated",
     "yageo": "yageo",
+    "walsin": "walsin",
+    "walsintechnology": "walsin",
+    "passivecomponent": "walsin",
+    "samsung": "samsung",
+    "samsungelectromechanics": "samsung",
+    "samsungelectromechanic": "samsung",
+    "vishay": "vishay",
+    "vishayintertechnology": "vishay",
+    "vishaydale": "vishay",
+    "vishaybeyschlag": "vishay",
+    "koa": "koa",
+    "koaspeer": "koa",
+    "koaspeerelectronics": "koa",
+    "tdk": "tdk",
+    "murata": "murata",
+    "muratamanufacturing": "murata",
 }
 
 _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
