@@ -19,8 +19,8 @@
 | theme-sp-lite | sp-lite 테마 — 코어 비수정 오버라이드 지점(cart 스킨·헤더·CSS) |
 | gnuboard-integration | 그누보드 subtree 운영·코어 비수정 전략·g5 한정 예외 |
 | infrastructure | ops/nginx 라우팅(/→PHP·/app→Vue·/api→Node)·파일서버 연동 |
-| docs-knowledge | docs/ 설계 기록 문서군 안내 지도 |
-| parts-engine | samplepcb-parts-engine — Python(uv workspace) BOM 추출·공급사 검색 엔진, FastAPI 잡 API(:8400), sp-node 게이트웨이 소비 |
+| docs-knowledge | docs/ 설계 기록 문서군 안내 지도 (+prompts/ 엔진 계약 지시서) |
+| parts-engine | samplepcb-parts-engine — Python(uv workspace) BOM 추출·공급사 검색 엔진, FastAPI 잡 API(:8400), sp-node 게이트웨이 소비. 2026-07-21부터 기술·조달 **판단의 단일 원본**(AGENTS.md BOM 역할 경계) |
 
 ## Concepts
 | Slug | Description |
@@ -31,10 +31,12 @@
 | admin-vue-consume-php | 관리=sp-vue(쓰기) / 소비=sp-php read-only 직접 SELECT — 공유 DB 브릿지 (슬라이드·후기·SEO) |
 | lazy-derived-state | cron 없는 lazy 파생 상태 — 조회 시점 판정·승격 (paid 승격·자동확정·입찰 마감·reconcile·BOM enrichStatus 치유) |
 | snapshot-freeze | 스냅샷 박제 + 서버 재계산 — 가변 원천을 결정 시점에 동결, 확정은 서버 재계산 (거버→마켓→BOM 3연속) |
-| in-memory-async-jobs | 인메모리 비동기 잡 + 영속 스냅샷 복구 — run→jobId→폴링, 소실 전제 설계 (AI 잡·BOM 엔진 잡) |
+| in-memory-async-jobs | 인메모리 비동기 잡 + 영속 스냅샷 복구 — run→jobId→폴링, 소실 전제 설계 (AI 잡·BOM 엔진 잡). 07-20~23 BOM 트랙은 완료 원문·사용량·중복 방지를 DB 원장으로 승격 |
+| judgment-single-owner | 판단 단일 소유권 — 한 판단은 한 계층만 소유(엔진=기술·조달 판단 원본, 노드=계약·정책, 뷰=표시), 중복 구현 금지·fail-closed·부족하면 원본부터 수정 |
 
 ## Evolution Log
 - 2026-07-03: Initial schema generated from 9 topics, 3 concepts
 - 2026-07-06: 증분 재컴파일 — 토픽/개념 슬러그 무변경. 6개 토픽(sp-node-api·sp-vue-web·spcb-bridge·gnuboard-integration·infrastructure·docs-knowledge) 갱신. 관리 기능 이관(g5 접근 카탈로그 ⑤–⑱·관리자 주문/회원/설정·제작 8단계)·PHP 알림 브리지·신규 docs 4종 반영. sp-node-api·sp-vue-web 설명 갱신
 - 2026-07-13: 토픽 sp-market-web 신설(재능마켓 Vue 앱 /market 신규 서비스). 개념 2종 추가 — admin-vue-consume-php(슬라이드·후기·SEO 3회 반복으로 확립), lazy-derived-state(paid 승격·자동확정·입찰 마감·reconcile). 9개 토픽 갱신(재능마켓·AI 유스케이스·거버 가격모드·레거시 DB 마이그레이션·SEO·위시숨김·후기·운영 배포 반영). shared-packages는 유의미 변경 없어 유지
 - 2026-07-20: 토픽 parts-engine 신설(samplepcb-parts-engine Python 엔진 — 리포 내 신규 프로젝트). 개념 2종 추가 — snapshot-freeze(거버→마켓→BOM 3연속 동형으로 확정), in-memory-async-jobs(AI 잡·BOM 엔진 잡 반복). sp-vue-web 설명 갱신(관리자 전용 전제 폐기 — /app/bom 회원 라우트 그룹), sp-node-api 설명 갱신(BOM 견적·부품 카탈로그·엔진 게이트웨이). 6개 토픽 갱신, api-contract·shared-packages·spcb-bridge·theme-sp-lite·gnuboard-integration 은 유의미 변경 없어 유지
+- 2026-07-27: 개념 judgment-single-owner 신설(판단 단일 소유권 — AGENTS.md "BOM 역할 경계" 명문화 + decision 계약·판정 그대로 렌더·타입 보증, 5토픽 연결). in-memory-async-jobs 방향 전환 기록(인메모리 소실 허용 → BOM 트랙 DB 원장 승격 — 분석 append-only·gzip 아티팩트+복구 워커·fingerprint 인제스트 원장·일일 사용량 DB). snapshot-freeze에 provenance 박제 인스턴스 추가. parts-engine 설명 갱신(판단 단일 원본), docs-knowledge 설명 갱신(prompts/). 6개 토픽 갱신(sp-node-api·sp-vue-web·parts-engine·infrastructure·docs-knowledge·api-contract — 자체 카탈로그 연동·문의 견적·검색 영속화·DB 튜닝·sp-engine 운영 배포)

@@ -1,5 +1,15 @@
 # Compile Log
 
+## 2026-07-27
+
+**Topics updated:** sp-node-api, sp-vue-web, parts-engine, infrastructure, docs-knowledge, api-contract (07-13 이후 첫 갱신 — bom-quote.ts +600·parts.ts +207 계약 확장 반영)
+**New topics:** none
+**New concepts:** judgment-single-owner (판단 단일 소유권 — AGENTS.md "BOM 역할 경계" 명문화: 엔진=기술·조달 판단 원본, 노드=계약·저장·정책, 뷰=표시 전용. decision 계약 fail-closed·판정 그대로 렌더·타입 보증 `z.literal(0)`, 5토픽 연결). 기존 2종 갱신 — in-memory-async-jobs(**방향 전환 기록**: 07-20~23 BOM 트랙이 완료 원문·사용량·중복 방지를 DB 원장으로 승격 — 분석 append-only·gzip 아티팩트+30초 복구 워커·fingerprint 인제스트 원장·일일 사용량 DB; 구 "일일 카운터 인메모리" 인스턴스 대체 표기), snapshot-freeze(provenance 박제 — 검색어 trace·분석 원문·Walsin 가격 Git 스냅샷)
+**Sources scanned:** 44 knowledge files (+ 토픽별 경량 코드 스캔)
+**Sources changed:** 13 (AGENTS.md — sp-engine 별칭+BOM 역할 경계, docs/BOM_QUOTE.md +433, docs/PARTS_SEARCH.md +126, docs/AI_WORKFLOW_PLAYBOOK.md +1행(07-22 2워커 병렬), schema.prisma +364(-157 — 신규 모델 5종: SpPartIngestRun·SpBomSupplierResultArtifact·SpBomSupplierSearchTrace·SpBomSupplierDailyUsage + fingerprint 3컬럼·searchRequirements), apps/api .env.example(PART_INGEST_DB_CONCURRENCY), sp-engine README +150·.env.example(SUPPLIER_MAX_CALLS=3000), ops/README.md(deploy 케이스 10) + 신규 5종: docs/DB_TUNING.md·walsin README 2종·yeonho Rev2 README·docs/prompts/sp-engine-candidate-decision.md)
+**핵심 변화:** ① 제조사 카탈로그 → SamplePCB 자체 취급 편입(연호 Rev2 1,606·Walsin R/C 2,628 — `offer_kind='manufacturer_catalog'` 분리, 부품 유형별 로컬 우선 조회 `catalog-evaluate-batch` API 0회, "문의 견적"=금액 없는 identity 선정, Walsin 가격 사전 스냅샷) ② 엔진 결과 영속 원장 전환(인메모리 소실 대비 구조 해소) ③ 판단 단일 소유권 경계 확립(검색 조건 판정 엔진 일원화 — sp-node switch 제거, 정확 MPN 우선 선정, 제조사 충돌 판정 폐기) ④ 카탈로그 파괴 작업 안전 등급 분리(필터 전건 삭제=견적 보호 vs 초기화=`RESET_WITH_QUOTES` 견적 강제 삭제) ⑤ sp-engine 운영 배포(systemd 유닛+deploy.sh 케이스 10 — 풀 재배포에 미포함 주의) ⑥ InnoDB buffer pool 16M→1G(P2028 후속, 운영 최소 2G 체크리스트). sp-market-web·shared-packages·spcb-bridge·theme-sp-lite·gnuboard-integration 은 유의미 변경 없어 건너뜀
+**미분류/후보:** docs/prompts/ 하위 디렉토리는 `docs/*.md` 패턴 밖이나 parts-engine·docs-knowledge 소스로 수동 편입(패턴에 `docs/prompts/*.md` 추가 검토). 지난 회 후보 "sp_config key-value 전역 스위치"는 이번에도 신규 인스턴스 없음(유지 관찰), "신규 앱 온보딩 체크리스트"는 3회째 반복 미발생. 신규 관찰: "fingerprint 파생 증분"(factsFingerprint→indexFingerprint→contentFingerprint 사슬 — 현재 sp-node-api 단독이라 개념 승격 보류)
+
 ## 2026-07-20
 
 **Topics updated:** sp-node-api, sp-vue-web, sp-market-web, infrastructure, docs-knowledge

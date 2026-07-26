@@ -1,5 +1,5 @@
 {
-  "last_compiled": "2026-07-20",
+  "last_compiled": "2026-07-27",
   "topics": [
     "sp-node-api",
     "sp-vue-web",
@@ -20,7 +20,8 @@
     "admin-vue-consume-php",
     "lazy-derived-state",
     "snapshot-freeze",
-    "in-memory-async-jobs"
+    "in-memory-async-jobs",
+    "judgment-single-owner"
   ],
   "source_locations": [
     "AGENTS.md",
@@ -29,6 +30,7 @@
     "docs/AI_DIAGRAM.md",
     "docs/AI_WORKFLOW_PLAYBOOK.md",
     "docs/BOM_QUOTE.md",
+    "docs/DB_TUNING.md",
     "docs/DELIVERY_CARRIER_INTEGRATION.md",
     "docs/DEPLOY_CENTRAFAB.md",
     "docs/GERBER_ORDER_FLOW.md",
@@ -41,6 +43,7 @@
     "docs/bom-quote-code-review-2026-07-19.md",
     "docs/order-notify-gating.md",
     "docs/pricing-engine-parity.md",
+    "docs/prompts/sp-engine-candidate-decision.md",
     "docs/review-naming.md",
     "docs/samplepcb-pricing-api-body-cases.md",
     "docs/SEO_MANAGEMENT.md",
@@ -61,7 +64,10 @@
     "samplepcb-web/spcb/lib/.htaccess",
     "samplepcb-web-mono-app/AGENTS.md",
     "samplepcb-web-mono-app/apps/api/.env.example",
-    "samplepcb-web-mono-app/apps/api/prisma/schema.prisma"
+    "samplepcb-web-mono-app/apps/api/prisma/schema.prisma",
+    "samplepcb-web-mono-app/apps/api/catalog-migrations/walsin/README.md",
+    "samplepcb-web-mono-app/apps/api/catalog-migrations/walsin/prepared-prices/README.md",
+    "samplepcb-web-mono-app/apps/api/catalog-migrations/yeonho-connectors-2026-07-17/README.md"
   ],
-  "total_sources_scanned": 39
+  "total_sources_scanned": 44
 }

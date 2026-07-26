@@ -1,6 +1,6 @@
 ---
 concept: 스냅샷 박제 + 서버 재계산
-last_compiled: 2026-07-20
+last_compiled: 2026-07-27
 topics_connected: [sp-node-api, sp-vue-web, sp-market-web, gnuboard-integration, docs-knowledge]
 status: active
 ---
@@ -11,6 +11,7 @@ status: active
 외부·가변 원천(가격표, 환율, 공급사 오퍼, AI 산출물, 수수료율)은 **결정(확정) 시점에 스냅샷으로 박제**해 이후 원천 변화와 절연하고, 금액·상태의 최종 진실은 **저장값이 아니라 서버 재계산**으로 유도한다. 스냅샷은 표시·감사·감사추적용 "그때의 사실"이고, 확정 행위(결제·RFQ·계약)는 서버가 다시 계산한 값만 신뢰한다. [[server-single-truth]]가 "클라이언트를 불신한다"면 이 패턴은 **"시간을 불신한다"** — 원천이 언제든 바뀔 수 있으므로 결정 시점의 값을 동결한다.
 
 ## Instances
+- **2026-07-21~26** in [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md): **provenance 도 박제 대상으로 확장** — 엔진이 실행 순간 확정한 실제 검색어·fallback 을 `sp_bom_supplier_search_trace` 로, 분석 원문(ComponentRecord)을 append-only payload 로 박제(엔진 신규 필드가 표시 계층보다 먼저 보존됨). Walsin 자체 카탈로그 가격도 런타임 조회 대신 **초기화 전 1회 전수 조회한 Git 전달 스냅샷**(`parts:catalog-prices`)으로 동결
 - **2026-07-19~20** in [sp-node-api](../topics/sp-node-api.md) / [sp-vue-web](../topics/sp-vue-web.md): **BOM 견적** — selectedOffer·orderQty·엔진 후보(sp_bom_quote_candidate)를 박제하고, 수출입은행 환율도 exchangeRateSnapshot 으로 동결. 합계·확정가는 서버 재계산만 진실이며 RFQ 가 확정 종점. 3영역째 동형 반복으로 패턴 확정
 - **2026-07-08~16** in [sp-market-web](../topics/sp-market-web.md) / [sp-node-api](../topics/sp-node-api.md): **재능마켓 계약** — 채택 시점 수수료율·정산액(fee/payout) 스냅샷 + AI 인터뷰 requestSnapshot 박제(신선도 서명 2계층 — 원천 입력 해시로 실효 판정). 결제는 앵커 상품 `sp-market-svc` 스냅샷 카트행
 - **2026-07-02~03** in [sp-node-api](../topics/sp-node-api.md) / [gnuboard-integration](../topics/gnuboard-integration.md): **거버 견적(패턴 원형)** — quoteId 불변 스냅샷 + 카트행 실등록(io_id=quoteId)으로 코어 가격 재검증 정당 통과. 수량 수정도 PATCH → 전체 재견적(새 quoteId). 가격표 스냅샷 드리프트 실사고([[manual-sync-drift]])가 이 방향을 강화
