@@ -26,6 +26,8 @@ from supplier_search_engine.models import (
     SupplierProduct,
 )
 from supplier_search_engine.planner import QueryPlanner
+from supplier_search_engine.service import SearchService
+from supplier_search_engine.supplier_query import is_ferrite_bead_query
 
 
 def component(**values) -> SearchComponentInput:
@@ -100,6 +102,218 @@ def test_requirement_guidance_keeps_identity_search_searchable():
     assert guidance.values["transistor_type"] == "mosfet"
     assert guidance.values["polarity"] == "n-channel"
     assert guidance.missing_fields == ["package"]
+
+
+def test_fb_designator_selects_ferrite_search_without_changing_parent_type():
+    item = component(
+        part_number="BLM18PG121SN1D",
+        part_type="inductor",
+        package="0603",
+    )
+    item.reference_designators = ["FB1", "FB2", "FB4"]
+
+    query = QueryPlanner().plan(item)
+    guidance = search_requirement_guidance(item, query)
+
+    assert query.part_type == "inductor"
+    assert query.category_policy == "ferrite"
+    assert is_ferrite_bead_query(query) is True
+    assert guidance.component_type == "inductor"
+    assert guidance.values["inductor_type"] == "ferrite"
+    assert guidance.missing_fields == ["impedance"]
+
+
+def test_fb_designator_does_not_override_explicit_inductance():
+    item = component(
+        part_type="inductor",
+        inductance="4.7uH",
+        package="0603",
+    )
+    item.reference_designators = ["FB1"]
+
+    query = QueryPlanner().plan(item)
+    guidance = search_requirement_guidance(item, query)
+
+    assert query.category_policy == "inductor"
+    assert is_ferrite_bead_query(query) is False
+    assert guidance.values["inductor_type"] == "standard"
+
+
+def test_fuse_identity_uses_fuse_taxonomy_and_supplier_category():
+    item = component(
+        part_number="SMD0805B050TF",
+        part_type="fuse",
+        package="0805",
+    )
+    item.reference_designators = ["F1"]
+    query = QueryPlanner().plan(item)
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="SMD0805B050TF",
+        category="PTC Resettable Fuses",
+        description="Resettable fuse 500mA 6V 0805",
+        package="0805",
+        normalized_specs={"package": "0805"},
+    )
+
+    candidate = finalize_candidate_decisions(
+        query, [CandidateMatcher().evaluate(query, product)]
+    )[0]
+
+    assert query.mode.value == "identity"
+    assert query.category_policy == "fuse"
+    assert "part_type_match" in candidate.reasons
+    assert candidate.status == MatchStatus.VERIFIED_EXACT
+    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+
+
+def test_fuse_designator_hint_requires_supplier_category_confirmation():
+    item = component(
+        part_number="SMD0805B050TF",
+        part_type="fuse",
+        package="0805",
+    )
+    item.reference_designators = ["F1"]
+    item.fields["part_type"].status = "review"
+    query = QueryPlanner().plan(item)
+    fuse = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="SMD0805B050TF",
+        manufacturer="YAGEO",
+        category="PTC Resettable Fuses",
+        description="Resettable fuse 500mA 6V 0805",
+        package="0805",
+        normalized_specs={"package": "0805"},
+    )
+    ferrite = SupplierProduct(
+        supplier=Supplier.MOUSER,
+        manufacturer_part_number="SMD0805B050TF",
+        manufacturer="BrightKing",
+        category="Ferrite Beads",
+        description="Ferrite bead 1A 0805",
+        package="0805",
+        normalized_specs={"package": "0805"},
+    )
+    unconfirmed = SupplierProduct(
+        supplier=Supplier.UNIKEYIC,
+        manufacturer_part_number="SMD0805B050TF",
+        manufacturer="Unknown",
+        category="Circuit Protection",
+        description="Overcurrent protection device 0805",
+        package="0805",
+        normalized_specs={"package": "0805"},
+    )
+
+    candidates = finalize_candidate_decisions(
+        query,
+        [
+            CandidateMatcher().evaluate(query, fuse),
+            CandidateMatcher().evaluate(query, ferrite),
+            CandidateMatcher().evaluate(query, unconfirmed),
+        ],
+    )
+    confirmed = next(
+        candidate for candidate in candidates if candidate.product.manufacturer == "YAGEO"
+    )
+    contradicted = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer == "BrightKing"
+    )
+    unknown = next(
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer == "Unknown"
+    )
+
+    assert query.requirements["part_type"].hard is False
+    assert "part_type_match" in confirmed.reasons
+    assert confirmed.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert "part_type_mismatch" in contradicted.conflicts
+    assert (
+        contradicted.decision.selection_eligibility
+        == SelectionEligibility.MANUAL_REVIEW
+    )
+    assert contradicted.decision.auto_eligible is False
+    assert "part_type" in unknown.missing_requirements
+    assert unknown.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    ranked = SearchService._assign_technical_review_ranks(query, candidates)
+    ranked = SearchService._assign_selection_recommendations(ranked)
+    contradicted = next(
+        candidate
+        for candidate in ranked
+        if candidate.product.manufacturer == "BrightKing"
+    )
+    assert contradicted.decision.technical_review_rank is None
+    assert contradicted.decision.selection_recommendation.value == "candidate_only"
+    assert contradicted.decision.review_recommended is False
+    unknown = next(
+        candidate
+        for candidate in ranked
+        if candidate.product.manufacturer == "Unknown"
+    )
+    assert unknown.decision.technical_review_rank is None
+    assert unknown.decision.selection_recommendation.value == "candidate_only"
+
+
+def test_explicit_part_type_mismatch_blocks_exact_mpn():
+    query = QueryPlanner().plan(
+        component(
+            part_number="SMD0805B050TF",
+            part_type="fuse",
+            description="Resettable fuse",
+            package="0805",
+        )
+    )
+    ferrite = SupplierProduct(
+        supplier=Supplier.MOUSER,
+        manufacturer_part_number="SMD0805B050TF",
+        manufacturer="BrightKing",
+        category="Ferrite Beads",
+        description="Ferrite bead 1A 0805",
+        package="0805",
+        normalized_specs={"package": "0805"},
+    )
+
+    candidate = finalize_candidate_decisions(
+        query, [CandidateMatcher().evaluate(query, ferrite)]
+    )[0]
+
+    assert query.requirements["part_type"].hard is True
+    assert "part_type_mismatch" in candidate.conflicts
+    assert candidate.decision.selection_eligibility == SelectionEligibility.BLOCKED
+    assert candidate.decision.manual_selectable is False
+
+
+def test_fuse_spec_search_remains_manual_without_exact_identity():
+    query = QueryPlanner().plan(
+        component(
+            part_type="fuse",
+            current="500mA",
+            voltage="6V",
+            package="0805",
+        )
+    )
+    product = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="PTC-0805-050",
+        category="PTC Resettable Fuses",
+        description="Resettable fuse 500mA 6V 0805",
+        package="0805",
+        normalized_specs={
+            "current_a": 0.5,
+            "voltage_v": 6.0,
+            "package": "0805",
+        },
+    )
+
+    candidate = finalize_candidate_decisions(
+        query, [CandidateMatcher().evaluate(query, product)]
+    )[0]
+
+    assert query.mode.value == "parametric"
+    assert candidate.status == MatchStatus.SPEC_COMPATIBLE
+    assert candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
 
 
 @pytest.mark.parametrize(

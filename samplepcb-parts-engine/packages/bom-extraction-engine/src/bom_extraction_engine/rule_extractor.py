@@ -454,9 +454,19 @@ _MECHANICAL = re.compile(
     r"screw(?!\s*terminal)|\bbolt\b|\bnut\b|washer|standoff|spacer"
     r"|extrusion|bracket|acrylic|3d[- ]?print|enclosure|\bcase\b"
     r"|hex socket|raspberry pi|나사|볼트|너트|와셔|아크릴|케이스", re.I)
+_FUSE_ACCESSORY = re.compile(
+    r"\bfuses?\b[\s,/_-]*(?:holder|clip|block)\b|퓨즈\s*(?:홀더|클립)",
+    re.I,
+)
+_FUSE_COMPONENT = re.compile(
+    r"\b(?:resettable\s+fuse|polyfuse|pptc|fuses?)\b"
+    r"(?!\s*(?:holder|clip|block))|퓨즈",
+    re.I,
+)
 
 _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
     ("other", _MECHANICAL),
+    ("other", _FUSE_ACCESSORY),
     # 신호 스위치/멀티플렉서 IC — "USB Switch"의 USB가 커넥터로 오폭 방지
     ("ic", re.compile(
         r"\b(?:usb|hdmi|can|ethernet|analog|signal)\b.{0,48}"
@@ -507,7 +517,8 @@ _TYPE_RULES = [  # (enum, 키워드 정규식) — 구체적인 것 먼저
     ("capacitor", re.compile(r"capacitor|\bcap\b|mlcc"
                              r"|콘덴서|커패시터|캐패시터|탄탈", re.I)),
     ("resistor", re.compile(r"resistor|\bres\b|저항", re.I)),
-    ("other", re.compile(r"filter|antenna|fuse|\bpcb\b|motor"
+    ("fuse", _FUSE_COMPONENT),
+    ("other", re.compile(r"filter|antenna|\bpcb\b|motor"
                          r"|transformer|microphone"
                          r"|relay|buzzer|speaker|shield|holder|jumper|battery"
                          r"|hole|\bmount\b|test\s*point|varistor"
@@ -585,6 +596,7 @@ def find_manufacturers_all(text: str) -> List[str]:
 _DESIG_TYPE = {"R": "resistor", "C": "capacitor", "L": "inductor",
                "D": "diode", "Q": "transistor", "U": "ic", "IC": "ic",
                "FB": "inductor", "LF": "inductor",
+               "F": "fuse",
                "JP": "connector", "JA": "connector",
                "JB": "connector", "EC": "capacitor", "TC": "capacitor",
                "VR": "resistor", "REG": "ic", "BD": "diode",
@@ -673,14 +685,15 @@ _CRYSTAL_EXPLICIT = re.compile(
     r"\b(?:crystal|x-?tal|oscillator|resonator|osc)\b|크리스탈|발진",
     re.I,
 )
+_FUSE_EXPLICIT = _FUSE_COMPONENT
 # 부품군 이름은 BOM 설명에서 복수형("Varistors 20V")으로 자주 쓰인다.
 # 단어 경계로 닫는 이상 복수형을 함께 받지 않으면 증거가 통째로 사라진다.
 _OTHER_PHYSICAL = re.compile(
-    r"\b(?:fuses?|relays?|antennas?|transformers?|varistors?|thermistors?|"
+    r"\b(?:relays?|antennas?|transformers?|varistors?|thermistors?|"
     r"ntc|batter(?:y|ies)|motors?|buzzers?|speakers?|jumpers?|"
     r"mounting\s+holes?|s(?:ou|u)rge\s+killer|"
     r"transient\s+blocking\s+unit)\b"
-    r"|퓨즈|안테나|배터리|모터|부저|배리스터|온도센서",
+    r"|안테나|배터리|모터|부저|배리스터|온도센서",
     re.I,
 )
 _CAPACITOR_EXPLICIT = re.compile(
@@ -776,6 +789,9 @@ def _semantic_part_type_evidence(text: str, role: str) -> List[Tuple[str, int]]:
         # 것과 같은 이유로, 여기서도 다른 증거를 만들지 않고 끝낸다.
         add("other", 10)
         return matches
+    if _FUSE_ACCESSORY.search(normalized):
+        add("other", 10)
+        return matches
 
     pcb_fabrication = bool(_PCB_FABRICATION_CONTEXT.search(normalized))
     type_label_switch = bool(
@@ -838,6 +854,8 @@ def _semantic_part_type_evidence(text: str, role: str) -> List[Tuple[str, int]]:
         add("led", 9)
     if _CRYSTAL_EXPLICIT.search(normalized):
         add("crystal", 9)
+    if _FUSE_EXPLICIT.search(normalized):
+        add("fuse", 9)
     if _CAPACITOR_EXPLICIT.search(normalized):
         add("capacitor", 7)
     if _RESISTOR_EXPLICIT.search(normalized):

@@ -81,6 +81,7 @@ _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
         "current_a",
         "package",
     ),
+    "fuse": ("current_a", "voltage_v", "package"),
     "led": ("color", "package", "mount_style"),
     "connector": ("pin_count", "pitch_mm", "row_count", "mount_style"),
     "varistor": ("voltage_v", "diameter_mm", "mount_style"),
@@ -506,8 +507,26 @@ def _candidate_decision(
     exact_requirement_conflict = (
         bool(actual_conflicts) and relation == MatchRelation.EXACT
     )
+    part_type_requirement = query.requirements.get("part_type")
+    part_type_hint = bool(
+        part_type_requirement is not None
+        and part_type_requirement.status == "review"
+    )
+    part_type_conflict = "part_type_mismatch" in conflict_set
+    part_type_unconfirmed = part_type_hint and "part_type" in missing
 
-    if relation == MatchRelation.EXACT and bom_input_conflicts:
+    if (
+        relation == MatchRelation.EXACT
+        and part_type_conflict
+        and part_type_requirement is not None
+        and part_type_requirement.hard
+    ):
+        eligibility = SelectionEligibility.BLOCKED
+    elif relation == MatchRelation.EXACT and (
+        part_type_conflict or part_type_unconfirmed
+    ):
+        eligibility = SelectionEligibility.MANUAL_REVIEW
+    elif relation == MatchRelation.EXACT and bom_input_conflicts:
         eligibility = SelectionEligibility.MANUAL_REVIEW
     elif relation == MatchRelation.EXACT:
         eligibility = SelectionEligibility.AUTOMATIC
@@ -521,7 +540,7 @@ def _candidate_decision(
         relation == MatchRelation.SPEC_COMPATIBLE
         and query.mode == SearchMode.PARAMETRIC
         and (
-            query.category_policy in {"led", "connector"}
+            query.category_policy in {"led", "connector", "fuse"}
             or (
                 query.category_policy in _USER_MANUAL_REVIEW_POLICIES
                 and any(
@@ -573,7 +592,7 @@ def _candidate_decision(
     if (
         query.mode == SearchMode.PARAMETRIC
         and (
-            query.category_policy in {"led", "connector"}
+            query.category_policy in {"led", "connector", "fuse"}
             or (
                 query.category_policy in _USER_MANUAL_REVIEW_POLICIES
                 and any(
@@ -813,6 +832,7 @@ def _category_matches(
             "rotary",
             "스위치",
         ),
+        "fuse": ("fuse", "resettable fuse", "polyfuse", "pptc", "퓨즈"),
         "crystal": (
             "crystal",
             "oscillator",
@@ -844,6 +864,7 @@ def infer_supplier_part_type(product: SupplierProduct) -> str | None:
         "led",
         "crystal",
         "switch",
+        "fuse",
     )
     matches = [
         part_type
@@ -1147,16 +1168,20 @@ class CandidateMatcher:
                 category_match = _category_matches(
                     str(expected), product.category, product.description
                 )
-                if category_match is None:
-                    if requirement.hard:
+                if category_match is not True:
+                    actual_type = (
+                        infer_supplier_part_type(product)
+                        if category_match is False
+                        else None
+                    )
+                    if actual_type is not None and actual_type != str(expected):
+                        conflicts.append(f"{name}_mismatch")
+                    elif requirement.hard or requirement.status == "review":
                         missing.append(name)
                     continue
                 checked += 1
-                if category_match:
-                    matched += 1
-                    reasons.append(f"{name}_match")
-                elif requirement.hard:
-                    conflicts.append(f"{name}_mismatch")
+                matched += 1
+                reasons.append(f"{name}_match")
                 continue
             else:
                 actual = product.normalized_specs.get(name)

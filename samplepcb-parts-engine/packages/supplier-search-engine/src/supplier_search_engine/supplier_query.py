@@ -66,6 +66,7 @@ _SPEC_ORDER = {
         "device_kind",
         "contact_form",
     ),
+    "fuse": ("current_a", "voltage_v", "package"),
     "varistor": ("voltage_v", "diameter_mm", "mount_style"),
     "buzzer": ("voltage_v", "frequency_hz", "mount_style"),
 }
@@ -161,6 +162,8 @@ def _requirement_token(
 
 
 def is_ferrite_bead_query(query: PlannedQuery) -> bool:
+    if query.category_policy == "ferrite":
+        return True
     if (query.part_type or "").casefold() != "inductor":
         return False
     resistance = query.requirements.get("impedance_ohm") or query.requirements.get("resistance_ohm")
@@ -208,6 +211,7 @@ def _category_token(query: PlannedQuery, supplier: Supplier | None) -> str | Non
         "diode": "diode",
         "transistor": "transistor",
         "switch": "switch",
+        "fuse": "fuse",
         "varistor": "varistor",
         "buzzer": "buzzer",
     }.get(category)

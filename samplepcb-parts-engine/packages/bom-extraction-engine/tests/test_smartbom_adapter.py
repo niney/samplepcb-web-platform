@@ -1097,12 +1097,54 @@ def test_part_type_evidence_reconciles_conflicting_sources_by_semantics():
     assert ferrite["component_type"] == "inductor"
     assert connector["component_type"] == "connector"
     assert common_mode["component_type"] == "inductor"
-    assert fuse["component_type"] == "other"
+    assert fuse["component_type"] == "fuse"
     assert coupled["component_type"] == "inductor"
     assert reversed_common_mode["component_type"] == "inductor"
     assert short_label["component_type"] == "inductor"
     assert "part_type_source_conflict" in ferrite["quality_flags"]
     assert "part_type_source_conflict" in connector["quality_flags"]
+
+
+def test_fuse_accessories_are_not_classified_as_fuses():
+    case = _case(
+        ["Description", "Part Number", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["PCB mount fuse holder", "FH-001", "1", "H1"],
+            },
+            {
+                "row_id": 2,
+                "cells": ["Resettable fuse", "SMD0805B050TF", "1", "F1"],
+            },
+        ],
+    )
+
+    holder, fuse = _adapt(case)[0]
+
+    assert holder["component_type"] == "other"
+    assert fuse["component_type"] == "fuse"
+    assert fuse["field_states"]["part_type"]["status"] == "extracted"
+
+
+def test_f_designator_is_a_review_hint_until_bom_or_supplier_confirms_fuse():
+    case = _case(
+        ["Part Number", "Footprint", "Q'ty", "Reference"],
+        [
+            {
+                "row_id": 1,
+                "cells": ["SMD0805B050TF", "FER 0805/2012", "1", "F1"],
+            },
+        ],
+    )
+
+    fuse = _adapt(case)[0][0]
+
+    assert fuse["component_type"] == "fuse"
+    assert fuse["field_states"]["part_type"]["status"] == "review"
+    assert fuse["field_states"]["part_type"]["source"] == "infer"
+    assert "part_type" in fuse["uncertain_fields"]
+    assert fuse["review_status"] == "review"
 
 
 def test_switch_taxonomy_separates_physical_switches_from_switch_ics():

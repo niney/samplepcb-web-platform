@@ -101,10 +101,17 @@ _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("led", ("led", "발광다이오드")),
     ("connector", ("connector", "header", "socket", "커넥터", "헤더")),
     ("switch", ("switch", "스위치")),
+    ("fuse", ("fuse", "퓨즈")),
     ("varistor", ("varistor", "배리스터")),
     ("buzzer", ("buzzer", "부저")),
 )
 _FERRITE_CONTEXT = re.compile(r"\b(?:ferrite|bead|f\.?\s*bead)\b|비드", re.I)
+_STANDARD_INDUCTOR_CONTEXT = re.compile(
+    r"\b(?:power|fixed|coupled)\s+ind(?:uctor)?\b"
+    r"|\b\d+(?:[.,]\d+)?\s*(?:p|n|u|µ|μ|m)?h\b|인덕턴스",
+    re.I,
+)
+_FB_REFERENCE = re.compile(r"(?:^|[^A-Z0-9])FB\$?\d", re.I)
 _ELECTROLYTIC_TOKENS = ("electrolytic", "ecap", "전해")
 _TANTALUM_TOKENS = ("tantalum", "탄탈")
 _FILM_CAPACITOR = re.compile(
@@ -196,6 +203,9 @@ def _canonical_category_policy(
     value_raw: str | None,
     package: str | None,
     footprint: str | None,
+    reference_designators: list[str],
+    *,
+    inductance_present: bool,
 ) -> str | None:
     """Choose the category policy from BOM-owned evidence only."""
 
@@ -209,6 +219,16 @@ def _canonical_category_policy(
         token in bom_text for token in _ELECTROLYTIC_TOKENS
     ) or bool(_ELECTROLYTIC_ABBREVIATION.search(bom_text))
     if _FERRITE_CONTEXT.search(bom_text):
+        return "ferrite"
+    if (
+        part_type_text == "inductor"
+        and any(_FB_REFERENCE.search(value) for value in reference_designators)
+        and not inductance_present
+        and not _STANDARD_INDUCTOR_CONTEXT.search(bom_text)
+    ):
+        # FB is the standard BOM designator for ferrite beads.  Keep the
+        # high-level type as inductor, but select impedance-based search unless
+        # the BOM independently proves a conventional inductance value.
         return "ferrite"
     for policy, pattern in (
         ("varistor", r"\bvaristor\b|배리스터"),
@@ -328,6 +348,8 @@ class QueryPlanner:
             component.value_raw,
             package_value,
             component.footprint,
+            component.reference_designators,
+            inductance_present=fields["inductance"].value is not None,
         )
         if user_requirements is not None:
             if user_requirements.component_type == "capacitor":
@@ -640,6 +662,7 @@ class QueryPlanner:
                 "transistor",
                 "crystal",
                 "switch",
+                "fuse",
                 "varistor",
                 "buzzer",
             }:

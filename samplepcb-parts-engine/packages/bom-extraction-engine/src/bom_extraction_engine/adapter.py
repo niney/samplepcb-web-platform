@@ -938,6 +938,24 @@ class _SheetAdapter:
                 if field not in uncertain:
                     uncertain.append(field)
 
+        if attrs.part_type == "fuse" and src.get("part_type") == "infer":
+            # A bare F reference is a conventional fuse hint, but projects can
+            # reuse designator prefixes.  Keep it available to the search
+            # planner while requiring supplier taxonomy confirmation unless a
+            # BOM-owned type/description cell independently says fuse.
+            explicit_fuse_evidence = any(
+                infer_part_type(str(cell)) == "fuse"
+                or (
+                    index in self.roles.get("part_type", [])
+                    and str(cell).strip().upper() == "F"
+                )
+                for index, cell in enumerate(cells)
+            )
+            if not explicit_fuse_evidence:
+                field_states["part_type"]["status"] = "review"
+                if "part_type" not in uncertain:
+                    uncertain.append("part_type")
+
         reference = attrs.reference
         if reference:
             ref_found = self._find_evidence("reference", reference, cells,

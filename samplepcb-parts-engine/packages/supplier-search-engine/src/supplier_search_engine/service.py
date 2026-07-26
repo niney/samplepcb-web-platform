@@ -1847,6 +1847,19 @@ class SearchService:
         decision = candidate.decision
         if decision.selection_eligibility != SelectionEligibility.MANUAL_REVIEW:
             return False
+        part_type_requirement = query.requirements.get("part_type")
+        if (
+            "part_type_mismatch" in candidate.conflicts
+            or (
+                part_type_requirement is not None
+                and part_type_requirement.status == "review"
+                and "part_type" in candidate.missing_requirements
+            )
+        ):
+            # An F-only fuse hint is useful for retrieval, but a supplier that
+            # contradicts or cannot confirm it must never become the provisional
+            # recommendation solely because the MPN string is identical.
+            return False
         # A full MPN identity is still useful when the BOM's extracted sources
         # disagree.  Preserve the conflict as manual review, but allow a
         # provisional recommendation when the supplier confirms the same
@@ -1863,7 +1876,7 @@ class SearchService:
         if (
             query.mode == SearchMode.PARAMETRIC
             and (
-                query.category_policy in {"led", "connector"}
+                query.category_policy in {"led", "connector", "fuse"}
                 or (
                     query.category_policy
                     in {

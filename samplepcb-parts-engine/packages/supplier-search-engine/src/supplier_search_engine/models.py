@@ -454,6 +454,7 @@ class PlannedQuery(BaseModel):
             "led",
             "connector",
             "switch",
+            "fuse",
             "varistor",
             "buzzer",
             "crystal",
