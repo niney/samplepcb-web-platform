@@ -130,7 +130,9 @@ function returnToResults(): void {
               </div>
               <p class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{{ part.description ?? '설명 없음' }}</p>
               <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                <span>재고 <b class="text-slate-700">{{ part.totalStock.toLocaleString('ko-KR') }}</b></span>
+                <span v-if="part.hasCatalogInquiryOffer && part.totalStock === 0" class="font-bold text-blue-700">취급 가능 · 재고 확인</span>
+                <span v-else>재고 <b class="text-slate-700">{{ part.totalStock.toLocaleString('ko-KR') }}</b></span>
+                <span v-if="part.hasCatalogInquiryOffer && part.minPrice === null" class="font-bold text-blue-700">가격 문의 견적</span>
                 <span>공급사 <b class="text-slate-700">{{ part.suppliers.filter((supplier) => supplier !== 'samplepcb').join(', ') || '외부 공급사 없음' }}</b></span>
                 <span class="ml-auto font-bold text-blue-700 group-hover:text-blue-900">{{ part.id === currentPartId ? '공급 포장 변경' : '구매 조건 보기' }} →</span>
               </div>

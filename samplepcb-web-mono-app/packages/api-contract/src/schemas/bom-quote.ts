@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PartOfferKind } from './parts';
 
 // 고객 BOM 견적(스마트 BOM) — 업로드→파싱→매칭→검토→견적요청(RFQ) 계약.
 // 설계: docs/BOM_QUOTE.md. 수량·금액의 단일 진실은 저장된 orderQty·selectedOffer
@@ -43,6 +44,7 @@ export const BomQuoteDecisionReason = z.enum([
   'customer-choice',
   'catalog-choice',
   'offer-choice',
+  'engine-catalog-selection',
   'engine-procurement-recommendation',
   'engine-manual-review',
   'engine-technical-fallback',
@@ -122,6 +124,7 @@ export const BomQuoteProcurementUnavailabilityReason = z.enum([
   'out_of_stock',
   'insufficient_stock',
   'stock_unverified',
+  'catalog_inquiry',
   'price_unavailable',
   'technical_unavailable',
   'supplier_unavailable',
@@ -433,6 +436,7 @@ export const BomQuoteCandidateOfferApplied = z.object({
 export const BomQuoteCandidateOffer = z.object({
   offerKey: z.string(),
   supplier: z.string(),
+  offerKind: PartOfferKind,
   supplierSku: z.string(),
   packaging: z.string().nullable(),
   stock: z.number().int().nullable(),
@@ -680,6 +684,8 @@ export const BomQuoteItem = BomQuoteItemInput.extend({
   partImageUrl: z.string().nullable(),
   /** 데이터시트 외부 링크(카탈로그 partId 우선, 없으면 선정 후보 스냅샷) — 표시 전용·PATCH 왕복 없음. */
   partDatasheetUrl: z.string().nullable(),
+  /** 현재 카탈로그 연결이 가격·실재고 확인 전인 제조사 카탈로그 부품인지 여부. */
+  catalogInquiry: z.boolean(),
 });
 export type BomQuoteItemType = z.infer<typeof BomQuoteItem>;
 

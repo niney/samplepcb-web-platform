@@ -202,13 +202,22 @@ function fmtTotal(pick: OfferPick): string {
       공급사 구매 조건을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
     </div>
     <div v-else-if="offerRows.length === 0" class="p-4">
-      <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-        {{ browse
-          ? '가격이 있는 공급사 오퍼가 아직 없습니다. 공급사 검색이 쌓이면 구매 조건이 표시됩니다.'
-          : '가격이 있는 공급사 오퍼가 없어 공급 포장을 선택할 수 없습니다. 부품만 변경하면 금액은 미산정 상태로 저장됩니다.' }}
+      <div
+        class="rounded-xl border px-4 py-4 text-sm"
+        :class="part.hasCatalogInquiryOffer ? 'border-blue-200 bg-blue-50 text-blue-900' : 'border-amber-200 bg-amber-50 text-amber-800'"
+      >
+        <template v-if="part.hasCatalogInquiryOffer">
+          <p class="font-bold">취급 가능 · 재고 확인</p>
+          <p class="mt-1 text-xs leading-5">제조사 카탈로그에 확인된 부품입니다. 실제 재고와 가격은 문의가 필요하며, 가격은 <b>문의 견적</b>으로 저장됩니다.</p>
+        </template>
+        <template v-else>
+          {{ browse
+            ? '가격이 있는 공급사 오퍼가 아직 없습니다. 공급사 검색이 쌓이면 구매 조건이 표시됩니다.'
+            : '가격이 있는 공급사 오퍼가 없어 공급 포장을 선택할 수 없습니다. 부품만 변경하면 금액은 미산정 상태로 저장됩니다.' }}
+        </template>
       </div>
       <button v-if="!browse" type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting" @click="confirmSelection">
-        {{ selecting ? '적용 중…' : '가격 없이 부품만 변경' }}
+        {{ selecting ? '적용 중…' : part.hasCatalogInquiryOffer ? '문의 견적으로 부품 선택' : '가격 없이 부품만 변경' }}
       </button>
     </div>
     <div v-else class="p-4">

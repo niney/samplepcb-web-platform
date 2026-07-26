@@ -174,7 +174,7 @@ def test_search_requirement_validation_normalizes_valid_contract(tmp_path):
     assert body["requirements"]["pitch"] == "2.54mm"
 
 
-def test_catalog_evaluation_is_network_free_and_review_only(tmp_path):
+def test_catalog_evaluation_selects_exact_identity_without_fake_commercials(tmp_path):
     response = _client(tmp_path).post(
         "/supplier-search/catalog-evaluate-batch",
         json={
@@ -205,6 +205,7 @@ def test_catalog_evaluation_is_network_free_and_review_only(tmp_path):
                             "offers": [
                                 {
                                     "supplier": "yeonho",
+                                    "offer_kind": "manufacturer_catalog",
                                     "supplier_sku": "10038WR-08",
                                     "stock": None,
                                     "price_breaks": [],
@@ -224,13 +225,32 @@ def test_catalog_evaluation_is_network_free_and_review_only(tmp_path):
     assert item["candidates"][0]["product"]["manufacturer_part_number"] == (
         "10038WR-08"
     )
-    assert item["procurement_decision"]["status"] == "no_recommendation"
+    decision = item["procurement_decision"]
+    assert decision["status"] == "catalog_selected"
     assert item["procurement_decision"]["selection_application_state"] == (
-        "not_selected"
+        "automatic_selected"
     )
-    assert item["procurement_decision"]["primary_unavailability_reason"] == (
-        "stock_unverified"
+    assert decision["confirmation_required"] is False
+    assert decision["primary_unavailability_reason"] == "catalog_inquiry"
+    assert decision["application_candidate_identity_key"] == (
+        decision["technical_preselection_identity_key"]
     )
+    assert decision["application_candidate_evidence_key"] == (
+        decision["technical_preselection_evidence_key"]
+    )
+    assert decision["automatic_offer_key"] is None
+    assert decision["review_offer_key"] is None
+    assert "manufacturer_catalog_candidate_selected" in (
+        decision["recommendation_reason_codes"]
+    )
+    offer = item["candidates"][0]["product"]["offers"][0]
+    assert offer["offer_kind"] == "manufacturer_catalog"
+    assert offer["procurement_decision"]["purchasable"] is False
+    assert offer["procurement_decision"]["recommendation"] == "none"
+    assert offer["procurement_decision"]["line_total"] is None
+    assert "manufacturer_catalog_offer" in offer["procurement_decision"]["reason_codes"]
+    assert "stock_confirmation_required" in offer["procurement_decision"]["reason_codes"]
+    assert "price_inquiry_required" in offer["procurement_decision"]["reason_codes"]
 
 
 def test_upload_parse_and_display(tmp_path):

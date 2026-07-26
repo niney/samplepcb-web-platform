@@ -1204,6 +1204,7 @@ function applyCatalogPart(part: PartHitType, pick: OfferPick | null, target: Cat
       lineTotalKrw: null,
       partImageUrl: part.imageUrl,
       partDatasheetUrl: null, // 검색 히트엔 없음 — 다음 상세 조회 때 서버가 카탈로그에서 채움
+      catalogInquiry: part.hasCatalogInquiryOffer && pick === null,
     });
     lineIdx = items.value.length - 1;
   } else {
@@ -1214,6 +1215,7 @@ function applyCatalogPart(part: PartHitType, pick: OfferPick | null, target: Cat
     item.description = part.description;
     item.partImageUrl = part.imageUrl;
     item.partDatasheetUrl = null; // 부품이 바뀌었으니 이전 링크 무효 — 다음 상세 조회 때 재채움
+    item.catalogInquiry = part.hasCatalogInquiryOffer && pick === null;
     item.matchStatus = 'manual';
     item.selectedCandidateKey = null;
     item.selectionSource = 'catalog';

@@ -9,8 +9,12 @@ export const PartPriceBreak = z.object({
 });
 export type PartPriceBreakType = z.infer<typeof PartPriceBreak>;
 
+export const PartOfferKind = z.enum(['supplier_offer', 'manufacturer_catalog']);
+export type PartOfferKindType = z.infer<typeof PartOfferKind>;
+
 export const PartOfferView = z.object({
   supplier: z.string(), // mouser|digikey|unikeyic|samplepcb|… (공급사 추가 = 값 추가, 스키마 무변경)
+  offerKind: PartOfferKind,
   supplierSku: z.string(),
   productUrl: z.string().nullable(),
   stock: z.number().int().nullable(),
@@ -46,6 +50,8 @@ export const PartHit = z.object({
   offersFetchedAt: z.string().nullable(),
   /** 공급사 간 스펙 실충돌 존재 — 관리자 배지용(구 색인 문서는 서버가 false 로 보정). */
   hasSpecConflict: z.boolean(),
+  /** 가격·실재고 없이 취급 가능성만 확인된 제조사 카탈로그 오퍼가 존재한다. */
+  hasCatalogInquiryOffer: z.boolean(),
   score: z.number().nullable(),
 });
 export type PartHitType = z.infer<typeof PartHit>;

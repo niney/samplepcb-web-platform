@@ -174,8 +174,8 @@ class SearchService:
 
         sp-node owns the local DB lookup, while technical matching and
         procurement decisions remain in this engine.  Local catalog records
-        are deliberately review-only even if a malformed caller payload
-        contains commercial data.
+        can establish an exact part identity, but malformed caller commercial
+        data is always discarded and can never become a priced supplier offer.
         """
 
         results: list[CatalogCandidateEvaluationResult] = []
@@ -222,7 +222,9 @@ class SearchService:
                 )
             )
             candidates.sort(key=self._candidate_sort_key)
-            warnings = ["로컬 카탈로그 후보는 가격·재고 확인 전 자동 선정하지 않습니다."]
+            warnings = [
+                "정확 일치 제조사 카탈로그 후보는 부품으로 선정하며 재고 확인·가격 문의가 필요합니다."
+            ]
             if omitted_candidate_count:
                 warnings.append(
                     self._candidate_limit_warning(

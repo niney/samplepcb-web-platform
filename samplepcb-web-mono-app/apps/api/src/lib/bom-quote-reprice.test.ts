@@ -308,6 +308,111 @@ describe('repriceCandidateSelections', () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
+  it('저장된 카탈로그 선정은 오퍼 없이도 자동저장에서 유지한다', async () => {
+    const decision = buildDecision(
+      'component-catalog',
+      '10038WR-08',
+      'yeonho',
+      10,
+      1,
+      10,
+    );
+    const baseSnapshot = firstSnapshot(decision);
+    const baseOffer = baseSnapshot.offers[0];
+    if (
+      baseOffer?.procurementDecision === null
+      || baseOffer?.procurementDecision === undefined
+      || baseSnapshot.procurementDecision === null
+    ) throw new Error('fixture: catalog base decision is incomplete');
+    const catalogSnapshot = {
+      ...baseSnapshot,
+      offers: [{
+        ...baseOffer,
+        offerKind: 'manufacturer_catalog' as const,
+        stock: null,
+        moq: null,
+        orderMultiple: null,
+        priceBreaks: [],
+        procurementDecision: {
+          ...baseOffer.procurementDecision,
+          calculation_status: 'supplier_not_allowed',
+          applied_price_break_quantity: null,
+          source_unit_price: null,
+          source_currency: null,
+          exchange_rate: null,
+          converted_unit_price: null,
+          line_total: null,
+          stock_short: null,
+          stock_short_quantity: null,
+          price_rank: null,
+          purchase_fit_rank: null,
+          purchasable: false,
+          recommendation: 'none',
+          reason_codes: [
+            'manufacturer_catalog_offer',
+            'stock_confirmation_required',
+            'price_inquiry_required',
+          ],
+        },
+      }],
+      procurementDecision: {
+        ...baseSnapshot.procurementDecision,
+        status: 'catalog_selected',
+        selection_application_state: 'automatic_selected',
+        confirmation_required: false,
+        unavailability_reason_policy_version:
+          'supplier-procurement-unavailability-v1',
+        primary_unavailability_reason: 'catalog_inquiry',
+        automatic_offer_key: null,
+        review_offer_key: null,
+        recommendation_reason_codes: [
+          'manufacturer_catalog_candidate_selected',
+          'stock_confirmation_required',
+          'price_inquiry_required',
+        ],
+      },
+    };
+    const item = autoSelectedItem('1', 0, 'component-catalog', decision, 10);
+    item.selectedOffer = null;
+    item.partId = '42';
+    const itemEvidence = item.matchEvidence;
+    if (itemEvidence === null) throw new Error('fixture: catalog evidence is missing');
+    item.matchEvidence = {
+      ...itemEvidence,
+      procurementUnavailabilityReason: 'catalog_inquiry',
+      decisionReasonCodes: ['engine-catalog-selection'],
+      priceEvidence: null,
+    };
+    mockStoredCandidates([{ id: '1', candidate: catalogSnapshot }]);
+
+    const result = await repriceCandidateSelections(
+      1n,
+      [item],
+      1,
+      0,
+      null,
+      null,
+      createLog(),
+    );
+
+    expect(engineFetchMock).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
+    expect(item).toMatchObject({
+      matchStatus: 'auto',
+      selectionSource: 'auto',
+      partId: '42',
+      selectedCandidateKey: baseSnapshot.candidateKey,
+      recommendedCandidateKey: baseSnapshot.candidateKey,
+      selectedOffer: null,
+      matchEvidence: {
+        selectionApplicationState: 'automatic_selected',
+        procurementUnavailabilityReason: 'catalog_inquiry',
+        decisionReasonCodes: ['engine-catalog-selection'],
+        priceEvidence: null,
+      },
+    });
+  });
+
   it('저장된 수량 충돌 상태를 무호출 조달 재평가에도 전달한다', async () => {
     const decision = buildDecision('component-conflict', 'MPN-CONFLICT', 'digikey', 10, 1, 10);
     const item = autoSelectedItem('1', 0, 'component-conflict', decision, 20);

@@ -329,6 +329,24 @@ const procurementAvailabilityAlert = computed(() => {
         classes: 'border-amber-300 bg-amber-50 text-amber-950',
         iconClasses: 'bg-amber-500 text-white',
       };
+    case 'catalog_inquiry':
+      if (
+        context.selectionApplicationState !== 'automatic_selected'
+        || context.selectedCandidateKey === null
+      ) {
+        return {
+          title: '제조사 카탈로그에서 취급 가능한 후보입니다',
+          detail: '자동선정 안전조건을 통과하지 않아 부품은 선정하지 않았습니다. 기술 근거를 검토하고 실제 재고와 가격을 확인해 주세요.',
+          classes: 'border-amber-300 bg-amber-50 text-amber-950',
+          iconClasses: 'bg-amber-500 text-white',
+        };
+      }
+      return {
+        title: '제조사 카탈로그 정확 일치 부품으로 선정했습니다',
+        detail: `부품 선정은 완료됐으며 실제 재고 ${needed}개와 가격만 별도 확인이 필요합니다.`,
+        classes: 'border-blue-300 bg-blue-50 text-blue-950',
+        iconClasses: 'bg-blue-600 text-white',
+      };
     case 'price_unavailable':
       return {
         title: '구매 가능한 가격을 확인할 수 없습니다',
@@ -1071,6 +1089,10 @@ function statusLabel(status: string): string {
 }
 
 function sourceLabel(source: BomQuoteSelectionSourceType): string {
+  if (
+    source === 'auto'
+    && props.context?.procurementUnavailabilityReason === 'catalog_inquiry'
+  ) return '제조사 카탈로그 선정';
   const labels: Record<BomQuoteSelectionSourceType, string> = {
     none: '미선정',
     auto: provisionalSelectionPending.value ? '엔진 임시 선정' : '자동 추천',
@@ -1095,6 +1117,7 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'customer-choice': '고객 직접 선택',
     'catalog-choice': '카탈로그 직접 선택',
     'offer-choice': '공급사 오퍼 직접 선택',
+    'engine-catalog-selection': '제조사 카탈로그 정확 일치 선정',
     'engine-procurement-recommendation': '엔진 구매조건 추천',
     'engine-manual-review': '엔진 수동 검토 권장',
     'engine-technical-fallback': '기술 1순위 구매 불가 · 다음 후보 적용',
@@ -1118,6 +1141,9 @@ function safetyClass(candidate: BomQuoteCandidateType): string {
 }
 
 function recommendationLabel(candidate: BomQuoteCandidateType): string {
+  if (candidate.selected && candidateHasCatalogInquiry(candidate)) {
+    return '카탈로그 선정 · 문의';
+  }
   if (candidate.recommended && props.context?.technicalFallbackUsed === true) {
     return candidate.selectionEligibility === 'manual_review' ? '구매 적용 · 검토' : '구매 적용 후보';
   }
@@ -1271,8 +1297,14 @@ function fmtWon(value: number | null): string {
   return `${Math.round(value).toLocaleString('ko-KR')}원`;
 }
 
+function candidateHasCatalogInquiry(candidate: BomQuoteCandidateType): boolean {
+  return candidate.offers.length > 0
+    && candidate.offers.every((offer) => offer.offerKind === 'manufacturer_catalog');
+}
+
 function candidateTotalLabel(candidate: BomQuoteCandidateType): string {
   if (candidate.bestLineTotalKrw !== null) return fmtWon(candidate.bestLineTotalKrw);
+  if (candidateHasCatalogInquiry(candidate)) return '문의 견적';
   if (props.context?.procurementUnavailabilityReason === 'input_incomplete') {
     return '수량 확인 후 계산';
   }
@@ -1311,9 +1343,14 @@ function candidateBestOfferSurplusLabel(candidate: BomQuoteCandidateType): strin
   return offer === null ? '' : offerSurplusLabel(offer);
 }
 
-type OfferStockState = 'out_of_stock' | 'insufficient_stock' | 'stock_unverified';
+type OfferStockState =
+  | 'out_of_stock'
+  | 'insufficient_stock'
+  | 'stock_unverified'
+  | 'catalog_inquiry';
 
 function offerStockState(offer: BomQuoteCandidateOfferType): OfferStockState | null {
+  if (offer.offerKind === 'manufacturer_catalog') return 'catalog_inquiry';
   if (offer.stock === 0) return 'out_of_stock';
   if (
     offer.applied?.stockShort === true
@@ -1335,9 +1372,10 @@ function offerPresentationRank(offer: BomQuoteCandidateOfferType): number {
     )
   ) return 2;
   if (state === 'insufficient_stock') return 3;
-  if (state === 'stock_unverified') return 4;
-  if (state === 'out_of_stock') return 5;
-  return 6;
+  if (state === 'catalog_inquiry') return 4;
+  if (state === 'stock_unverified') return 5;
+  if (state === 'out_of_stock') return 6;
+  return 7;
 }
 
 function candidateAvailabilityRank(candidate: BomQuoteCandidateType): number {
@@ -1365,6 +1403,7 @@ function compareCandidatesForDisplay(
 function offerStockLabel(offer: BomQuoteCandidateOfferType): string {
   const state = offerStockState(offer);
   if (state === 'out_of_stock') return '재고 없음';
+  if (state === 'catalog_inquiry') return '취급 가능 · 재고 확인';
   if (state === 'stock_unverified') return '재고 확인 필요';
   if (state === 'insufficient_stock') {
     const stock = offer.stock?.toLocaleString('ko-KR') ?? '—';
@@ -1380,6 +1419,7 @@ function offerStockActionLabel(offer: BomQuoteCandidateOfferType): string {
   const state = offerStockState(offer);
   if (state === 'out_of_stock') return '재고 없음';
   if (state === 'insufficient_stock') return '재고 부족';
+  if (state === 'catalog_inquiry') return '문의 견적';
   if (state === 'stock_unverified') return '재고 확인 필요';
   return '선택 불가';
 }
@@ -1389,7 +1429,9 @@ function offerStockBadgeClass(offer: BomQuoteCandidateOfferType): string {
     ? 'bg-red-600 text-white'
     : offerStockState(offer) === 'insufficient_stock'
       ? 'bg-amber-100 text-amber-900'
-      : 'bg-slate-200 text-slate-700';
+      : offerStockState(offer) === 'catalog_inquiry'
+        ? 'bg-blue-100 text-blue-800'
+        : 'bg-slate-200 text-slate-700';
 }
 
 function offerStockRowClass(offer: BomQuoteCandidateOfferType): string {
@@ -1397,7 +1439,9 @@ function offerStockRowClass(offer: BomQuoteCandidateOfferType): string {
     ? 'bg-red-50/70'
     : offerStockState(offer) === 'insufficient_stock'
       ? 'bg-amber-50/50'
-      : '';
+      : offerStockState(offer) === 'catalog_inquiry'
+        ? 'bg-blue-50/40'
+        : '';
 }
 
 function candidateUnavailableLabel(candidate: BomQuoteCandidateType): string {
@@ -1410,6 +1454,8 @@ function candidateUnavailableLabel(candidate: BomQuoteCandidateType): string {
       return '재고 부족';
     case 'stock_unverified':
       return '재고 확인 필요';
+    case 'catalog_inquiry':
+      return '취급 가능 · 재고 확인';
     case 'price_unavailable':
       return '가격 확인 필요';
     case 'technical_unavailable':
@@ -1435,6 +1481,9 @@ function candidateUnavailableLabel(candidate: BomQuoteCandidateType): string {
   if (states.length > 0 && states.every((state) => state === 'stock_unverified')) {
     return '재고 확인 필요';
   }
+  if (states.length > 0 && states.every((state) => state === 'catalog_inquiry')) {
+    return candidate.selected ? '선정됨 · 재고/가격 문의' : '취급 가능 · 재고 확인';
+  }
   return '재고·가격 구매조건 미충족';
 }
 
@@ -1444,6 +1493,8 @@ function procurementBlockingReason(): string | null {
       return '원본 BOM의 수량 또는 참조번호 충돌을 확인해야 구매조건을 적용할 수 있습니다.';
     case 'price_unavailable':
       return '필요수량에 적용할 가격 또는 환율 정보를 확인할 수 없습니다.';
+    case 'catalog_inquiry':
+      return '제조사 카탈로그 정확 일치로 부품은 선정됐으며 실제 재고와 가격 문의가 필요합니다.';
     case 'technical_unavailable':
       return '재고가 있더라도 필수 기술 조건을 충족하지 않아 선택할 수 없습니다.';
     case 'supplier_unavailable':
@@ -1467,6 +1518,8 @@ function procurementBlockingActionLabel(): string | null {
       return '수량 확인 필요';
     case 'price_unavailable':
       return '가격 확인 필요';
+    case 'catalog_inquiry':
+      return '문의 견적';
     case 'technical_unavailable':
       return '기술 조건 확인 필요';
     case 'supplier_unavailable':
@@ -1510,6 +1563,9 @@ function offerUnavailableReason(
   candidate: BomQuoteCandidateType,
   offer: BomQuoteCandidateOfferType,
 ): string {
+  if (offer.offerKind === 'manufacturer_catalog') {
+    return '제조사 카탈로그 취급 부품입니다. 실제 재고 확인과 가격 문의 후 구매조건을 확정할 수 있습니다.';
+  }
   if (!candidate.manualSelectable) return candidateBlockingReason(candidate);
   const reasons = new Set(offer.decisionReasonCodes);
   if (
@@ -1556,6 +1612,9 @@ function candidateActionDisabled(candidate: BomQuoteCandidateType): boolean {
 
 function candidateActionLabel(candidate: BomQuoteCandidateType): string {
   if (selectionTemporarilyLocked()) return '선택 적용 중';
+  if (candidate.bestOfferKey === null && candidateHasCatalogInquiry(candidate)) {
+    return candidate.selected ? '선정됨 · 문의 진행' : '문의 견적';
+  }
   if (!candidate.manualSelectable) return '선택 불가';
   if (candidate.bestOfferKey === null) return candidateUnavailableLabel(candidate);
   if (provisionalSelectionPending.value && candidate.selected) return '검토 완료';
@@ -1571,6 +1630,11 @@ function candidateActionLabel(candidate: BomQuoteCandidateType): string {
 
 function candidateActionDisabledReason(candidate: BomQuoteCandidateType): string | null {
   if (selectionTemporarilyLocked()) return '다른 선택을 적용하는 중입니다.';
+  if (candidate.bestOfferKey === null && candidateHasCatalogInquiry(candidate)) {
+    return candidate.selected
+      ? '부품은 선정됐습니다. 실제 재고 확인과 가격 문의 후 구매조건을 확정합니다.'
+      : '제조사 카탈로그 취급 부품입니다. 실제 재고 확인과 가격 문의가 필요합니다.';
+  }
   if (!candidate.manualSelectable) return candidateBlockingReason(candidate);
   if (candidate.bestOfferKey === null) {
     return procurementBlockingReason() ?? `구매 불가: ${candidateUnavailableLabel(candidate)}`;
@@ -1594,6 +1658,7 @@ function offerActionLabel(
   offer: BomQuoteCandidateOfferType,
 ): string {
   if (selectionTemporarilyLocked()) return '선택 적용 중';
+  if (offer.offerKind === 'manufacturer_catalog') return '문의 견적';
   if (!candidate.manualSelectable) return '선택 불가';
   if (offerAlreadyConfirmed(candidate, offer)) return '현재 사용 중';
   if (!offer.purchasable || offer.applied === null) {
@@ -1637,10 +1702,17 @@ function fmtRate(value: number | null): string {
 }
 
 function fmtUnit(offer: BomQuoteCandidateOfferType): string {
+  if (offer.offerKind === 'manufacturer_catalog') return '문의 견적';
   const applied = offer.applied;
   if (applied === null) return '가격 없음';
   const prefix = applied.currency === 'KRW' ? '₩' : applied.currency === 'USD' ? '$' : `${applied.currency} `;
   return `${prefix}${applied.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`;
+}
+
+function fmtOfferTotal(offer: BomQuoteCandidateOfferType): string {
+  return offer.offerKind === 'manufacturer_catalog'
+    ? '문의 견적'
+    : fmtWon(offer.applied?.lineTotalKrw ?? null);
 }
 
 function fmtAge(iso: string): string {
@@ -2396,7 +2468,7 @@ onBeforeUnmount(() => {
                           />
                           <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-1.5">
-                              <span v-if="candidate.selected" class="rounded-full px-2 py-0.5 text-[11px] font-bold text-white" :class="provisionalSelectionPending ? 'bg-amber-600' : 'bg-blue-600'">{{ provisionalSelectionPending ? '현재 선택 · 검토 대기' : '현재 선택' }}</span>
+                              <span v-if="candidate.selected" class="rounded-full px-2 py-0.5 text-[11px] font-bold text-white" :class="provisionalSelectionPending ? 'bg-amber-600' : 'bg-blue-600'">{{ provisionalSelectionPending ? '현재 선택 · 검토 대기' : candidateHasCatalogInquiry(candidate) ? '현재 선정 · 문의' : '현재 선택' }}</span>
                               <span
                                 v-if="recommendationLabel(candidate) !== ''"
                                 class="rounded-full px-2 py-0.5 text-[11px] font-bold"
@@ -2458,7 +2530,7 @@ onBeforeUnmount(() => {
                             :id="candidateActionReasonId(candidate)"
                             class="mt-1.5 rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold leading-4 text-slate-700"
                           >
-                            선택 비활성: {{ candidateActionDisabledReason(candidate) }}
+                            {{ candidate.selected && candidateHasCatalogInquiry(candidate) ? '선정 완료:' : '선택 비활성:' }} {{ candidateActionDisabledReason(candidate) }}
                           </p>
                         </div>
                       </div>
@@ -2471,7 +2543,8 @@ onBeforeUnmount(() => {
                         <b>{{ conflictNoticePrefix(candidate) }}:</b> {{ conflictText(candidate) }}
                       </div>
                       <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs leading-5 text-amber-900">
-                        <template v-if="candidate.recommended"><b>엔진 검토 권장:</b> 구매 가능한 재고·가격을 포함해 실제 적용 후보로 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
+                        <template v-if="candidateHasCatalogInquiry(candidate)"><b>제조사 카탈로그 취급:</b> 부품 식별은 확인됐지만 실제 재고와 가격은 문의 후 확정해야 합니다.</template>
+                        <template v-else-if="candidate.recommended"><b>엔진 검토 권장:</b> 구매 가능한 재고·가격을 포함해 실제 적용 후보로 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
                         <template v-else-if="context.technicalFallbackUsed && candidate.candidateKey === technicalTopCandidate?.candidateKey"><b>기술 1순위:</b> 기술 근거상 가장 앞선 후보지만 구매 가능한 오퍼가 없어 현재 견적에는 적용하지 않았습니다.</template>
                         <template v-else-if="candidate.reviewRecommended"><b>엔진 기술 검토 1순위:</b> 기술 근거상 가장 유력하지만 구매조건을 충족하지 못해 적용 후보와 분리했습니다.</template>
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
@@ -2502,10 +2575,10 @@ onBeforeUnmount(() => {
                               <span>단가 <b>{{ fmtUnit(offer) }}</b></span>
                               <span>주문 <b>{{ offer.applied?.orderQty.toLocaleString('ko-KR') ?? '—' }}</b></span>
                               <span v-if="severeOfferSurplus(offer)" class="font-bold text-orange-700">{{ offerSurplusLabel(offer) }}</span>
-                              <span>합계 <b>{{ fmtWon(offer.applied?.lineTotalKrw ?? null) }}</b></span>
+                              <span>합계 <b>{{ fmtOfferTotal(offer) }}</b></span>
                               <span v-if="offer.purchaseFitRank !== null">구매적합 <b>{{ offer.purchaseFitRank }}위</b></span>
                               <span v-if="offer.priceRank !== null">가격 <b>{{ offer.priceRank }}위</b></span>
-                              <span>재고 <b>{{ offer.stock?.toLocaleString('ko-KR') ?? '—' }}</b></span>
+                              <span>재고 <b>{{ offer.offerKind === 'manufacturer_catalog' ? '확인 필요' : (offer.stock?.toLocaleString('ko-KR') ?? '—') }}</b></span>
                               <span>MOQ <b>{{ offer.moq?.toLocaleString('ko-KR') ?? '—' }}</b></span>
                               <span class="text-slate-400">기준 {{ fmtAge(offer.fetchedAt) }}</span>
                             </div>

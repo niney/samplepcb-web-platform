@@ -113,7 +113,7 @@ export interface CatalogIngestResult {
 
 export const PART_INGEST_POLICY_VERSION = 'part-ingest-v3';
 const PART_FACTS_FINGERPRINT_VERSION = `part-facts-v2:${String(SAMPLEPCB_POLICY_VERSION)}`;
-const PART_INDEX_FINGERPRINT_VERSION = 'sp-parts-doc-v1';
+const PART_INDEX_FINGERPRINT_VERSION = 'sp-parts-doc-v2';
 // 실측 대형 결과(2,424 후보)가 약 11초이므로 5분이면 충분하다. DB 연결이 끊겨
 // failed 기록도 못 남긴 running 작업을 30분씩 붙잡지 않고 자동 복구한다.
 const INGEST_LEASE_MS = 5 * 60 * 1_000;

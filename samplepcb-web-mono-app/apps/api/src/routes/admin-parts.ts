@@ -170,6 +170,7 @@ export function toHit(doc: SpPartDoc, score: number | null | undefined): PartHit
     totalStock: doc.totalStock,
     offersFetchedAt: doc.offersFetchedAt ?? null,
     hasSpecConflict: doc.hasSpecConflict ?? false, // 구 문서 호환
+    hasCatalogInquiryOffer: doc.hasCatalogInquiryOffer ?? false, // 구 문서 호환
     score: score ?? null,
   };
 }

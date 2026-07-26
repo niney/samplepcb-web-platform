@@ -55,6 +55,7 @@ function fmtWon(value: number | null): string {
 }
 
 function fmtUnit(offer: BomQuoteCandidateOfferType): string {
+  if (offer.offerKind === 'manufacturer_catalog') return '문의 견적';
   const applied = offer.applied;
   if (applied === null) return '가격 없음';
   const symbol = applied.currency === 'KRW' ? '₩' : applied.currency === 'USD' ? '$' : `${applied.currency} `;
@@ -129,6 +130,7 @@ onBeforeUnmount(() => {
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-1.5">
                     <strong class="uppercase text-slate-950">{{ offer.supplier }}</strong>
+                    <span v-if="offer.offerKind === 'manufacturer_catalog'" class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-bold text-blue-700">취급 가능 · 재고 확인</span>
                     <span v-if="offer.recommendation === 'automatic'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">자동 추천 오퍼</span>
                     <span v-else-if="offer.recommendation === 'manual_review'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">검토 권장 오퍼</span>
                     <span v-else-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">구매조건 1위</span>
@@ -139,7 +141,7 @@ onBeforeUnmount(() => {
                   <div class="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
                     <span class="rounded bg-slate-100 px-2 py-1">포장 <b>{{ offer.packaging ?? '미확인' }}</b></span>
                     <span class="rounded bg-slate-100 px-2 py-1">주문 <b>{{ offer.applied?.orderQty.toLocaleString('ko-KR') ?? '—' }}</b></span>
-                    <span class="rounded bg-slate-100 px-2 py-1">재고 <b>{{ offer.stock?.toLocaleString('ko-KR') ?? '—' }}</b></span>
+                    <span class="rounded bg-slate-100 px-2 py-1">재고 <b>{{ offer.offerKind === 'manufacturer_catalog' ? '확인 필요' : (offer.stock?.toLocaleString('ko-KR') ?? '—') }}</b></span>
                     <span class="rounded bg-slate-100 px-2 py-1">MOQ <b>{{ offer.moq?.toLocaleString('ko-KR') ?? '—' }}</b></span>
                     <span v-if="offer.purchaseFitRank !== null" class="rounded bg-slate-100 px-2 py-1">구매적합 <b>{{ offer.purchaseFitRank }}위</b></span>
                     <span v-if="offer.priceRank !== null" class="rounded bg-slate-100 px-2 py-1">가격 <b>{{ offer.priceRank }}위</b></span>
@@ -148,7 +150,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="shrink-0 sm:text-right">
                   <p class="text-xs text-slate-500">단가 <b class="text-slate-800">{{ fmtUnit(offer) }}</b></p>
-                  <strong class="mt-1 block text-lg tabular-nums text-slate-950">{{ fmtWon(offer.applied?.lineTotalKrw ?? null) }}</strong>
+                  <strong class="mt-1 block text-lg tabular-nums text-slate-950">{{ offer.offerKind === 'manufacturer_catalog' ? '문의 견적' : fmtWon(offer.applied?.lineTotalKrw ?? null) }}</strong>
                   <div class="mt-2 flex items-center gap-2 sm:justify-end">
                     <a v-if="offer.productUrl" :href="offer.productUrl" target="_blank" rel="noopener noreferrer" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">제품</a>
                     <button
@@ -157,7 +159,7 @@ onBeforeUnmount(() => {
                       :disabled="selecting || !offer.purchasable || offer.applied === null || isCurrent(offer)"
                       @click="selectOffer(candidate, offer)"
                     >
-                      {{ isCurrent(offer) ? '현재 오퍼' : offer.purchasable ? '이 오퍼 선택' : '선택 불가' }}
+                      {{ isCurrent(offer) ? '현재 오퍼' : offer.offerKind === 'manufacturer_catalog' ? '문의 견적' : offer.purchasable ? '이 오퍼 선택' : '선택 불가' }}
                     </button>
                   </div>
                 </div>

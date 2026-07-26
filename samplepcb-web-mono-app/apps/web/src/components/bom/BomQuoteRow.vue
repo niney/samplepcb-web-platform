@@ -35,6 +35,14 @@ const procurementUnavailabilityReason = computed(() =>
   props.item.matchEvidence?.procurementUnavailabilityReason ?? null,
 );
 
+const catalogInquiry = computed(() =>
+  props.item.catalogInquiry
+  || procurementUnavailabilityReason.value === 'catalog_inquiry',
+);
+const catalogSelectionApplied = computed(() =>
+  catalogInquiry.value && props.item.matchStatus !== 'none',
+);
+
 const engineSearchExcluded = computed(() =>
   props.item.matchEvidence?.componentStatus === 'excluded'
   || props.item.matchEvidence?.searchRequirementGuidance?.readiness === 'excluded',
@@ -70,6 +78,10 @@ const procurementUnavailabilitySummary = computed(() => {
       return '모든 후보 오퍼의 재고가 필요 수량보다 부족합니다';
     case 'stock_unverified':
       return '후보 오퍼의 재고를 확인할 수 없습니다';
+    case 'catalog_inquiry':
+      return catalogSelectionApplied.value
+        ? '제조사 카탈로그로 부품은 선정됐으며 실제 재고 확인과 가격 문의가 필요합니다'
+        : '제조사 카탈로그 취급 후보이며 선정 전 검토와 재고·가격 문의가 필요합니다';
     case 'price_unavailable':
       return '재고 가능한 후보 오퍼의 가격을 확인할 수 없습니다';
     case 'technical_unavailable':
@@ -203,6 +215,7 @@ const rowClass = computed(() => {
   if (severeOrderSurplus.value) return 'bg-orange-50/80';
   if (provisionalSelectionPending.value) return 'bg-amber-50/70';
   if (exactIdentityWarning.value !== null) return 'bg-amber-50/40';
+  if (catalogInquiry.value) return 'bg-blue-50/50';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
     if (props.enriching) return 'bg-white';
@@ -236,6 +249,7 @@ const evidenceTitle = computed(() => {
 
 const sourceLabel = computed(() => {
   if (provisionalSelectionPending.value) return '엔진 임시 선정';
+  if (catalogSelectionApplied.value) return '제조사 카탈로그 선정';
   if (props.item.selectionSource === 'customer') return '고객 선택';
   if (props.item.selectionSource === 'catalog') return '직접 검색';
   if (props.item.selectionSource === 'admin') return '관리자 선택';
@@ -397,7 +411,7 @@ function onQtyInput(event: Event): void {
         :locked="editingLocked"
         :locked-title="EDIT_LOCK_TITLE"
       />
-      <p v-else class="pt-[24px] text-right text-[12px] text-gray-300">—</p>
+      <p v-else class="pt-[24px] text-right text-[12px]" :class="catalogInquiry ? 'font-bold text-blue-700' : 'text-gray-300'">{{ catalogInquiry ? '문의 견적' : '—' }}</p>
     </td>
     <!-- QUANTITY / STOCK: 공급사 포장(→현재 부품 오퍼 선택) + 수량 -->
     <td class="px-2 py-3">
@@ -408,7 +422,7 @@ function onQtyInput(event: Event): void {
         :title="editingLocked ? EDIT_LOCK_TITLE : `공급사·포장 변경 — ${item.selectedOffer?.packaging ?? '오퍼 선택'}`"
         @click="emit('open-offers')"
       >
-        <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : '오퍼 없음') }}</span>
+        <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '오퍼 없음') }}</span>
         <span class="text-[10px] text-gray-400">▾</span>
       </button>
       <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d6dae7] bg-[#fafcff] pl-1 pr-3">
@@ -421,7 +435,7 @@ function onQtyInput(event: Event): void {
           :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
           @change="onQtyInput"
         >
-        <span class="text-[11px] text-[#8e97a5]">/ {{ item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—' }}</span>
+        <span class="text-[11px] text-[#8e97a5]">/ {{ catalogInquiry ? '확인' : (item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—') }}</span>
       </div>
       <p v-if="severeOrderSurplus" class="mt-1.5 w-[160px] text-right text-[10px] font-bold leading-4 text-orange-700" :title="severeOrderSurplusLabel">
         필요 {{ needed.toLocaleString('ko-KR') }} · 초과 {{ surplusQty.toLocaleString('ko-KR') }} ({{ orderRatio.toLocaleString('ko-KR', { maximumFractionDigits: 1 }) }}배)
@@ -436,6 +450,7 @@ function onQtyInput(event: Event): void {
         <span v-else-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
           <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
         </span>
+        <span v-else-if="catalogInquiry" class="rounded-full border border-blue-200 bg-blue-100 px-2.5 py-0.5 text-[12px] font-bold text-blue-700" :title="evidenceTitle">{{ catalogSelectionApplied ? '선정됨 · 재고/가격 문의' : '취급 가능 · 검토 필요' }}</span>
         <span v-else-if="item.matchStatus === 'none' && engineStockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">{{ engineStockStatusLabel }}</span>
         <span v-else-if="provisionalSelectionPending" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">선정됨 · 검토 대기</span>
         <span v-else-if="item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review'" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">검토 필요</span>
@@ -476,8 +491,8 @@ function onQtyInput(event: Event): void {
         </button>
         <p v-if="item.matchStatus !== 'none' || procurementUnavailabilitySummary !== null || engineSearchExcluded" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="reasonSummary">{{ reasonSummary }}</p>
         <span v-if="(item.matchEvidence?.alternativeCandidateCount ?? 0) > 0" class="text-[10px] font-semibold text-blue-600">대체 후보 {{ item.matchEvidence?.alternativeCandidateCount }}개</span>
-        <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? 'text-gray-300' : 'text-[#38b614]'">
-          {{ item.lineTotalKrw === null ? '—' : fmtWon(Math.round(item.lineTotalKrw)) }}
+        <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? catalogInquiry ? 'text-blue-700' : 'text-gray-300' : 'text-[#38b614]'">
+          {{ item.lineTotalKrw === null ? catalogInquiry ? '문의 견적' : '—' : fmtWon(Math.round(item.lineTotalKrw)) }}
         </span>
         <span v-if="item.selectedOffer !== null && item.selectedOffer.currency !== 'KRW'" class="text-[10px] text-gray-400">
           {{ item.selectedOffer.unitPriceKrw === null ? '환산 불가' : `단가 ≈₩${item.selectedOffer.unitPriceKrw.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}` }}

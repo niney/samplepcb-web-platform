@@ -10,8 +10,10 @@ from supplier_search_engine.matcher import (
     finalize_candidate_decisions,
 )
 from supplier_search_engine.models import (
+    CatalogSupplier,
     ComponentProcurementDecision,
     CurrencyRate,
+    OfferKind,
     OfferRecommendation,
     PlannedQuery,
     ProcurementDisposition,
@@ -25,6 +27,7 @@ from supplier_search_engine.models import (
     SearchMode,
     SelectionEligibility,
     Supplier,
+    SupplierIdentity,
     SupplierOffer,
     SupplierProduct,
 )
@@ -62,7 +65,7 @@ def query(*, component_id: str = "procurement", quantity: int | None = 105, requ
 
 
 def product(
-    supplier: Supplier,
+    supplier: SupplierIdentity,
     *,
     mpn: str = "ABC123456",
     manufacturer: str | None = "Acme",
@@ -74,6 +77,7 @@ def product(
     sku: str | None = None,
     product_id: str | None = None,
     url: str | None = None,
+    offer_kind: OfferKind = OfferKind.SUPPLIER_OFFER,
 ) -> SupplierProduct:
     return SupplierProduct(
         supplier=supplier,
@@ -84,6 +88,7 @@ def product(
         offers=[
             SupplierOffer(
                 supplier=supplier,
+                offer_kind=offer_kind,
                 supplier_sku=sku or f"{supplier.value}-sku",
                 packaging="Cut Tape",
                 stock=stock,
@@ -184,6 +189,99 @@ def test_required_quantity_moq_multiple_price_break_and_exchange_rate():
         == component.technical_preselection_evidence_key
     )
     assert component.technical_fallback_used is False
+
+
+def test_exact_manufacturer_catalog_identity_is_selected_without_fake_offer():
+    candidates, component = decide(
+        query(quantity=10),
+        [
+            product(
+                CatalogSupplier.YEONHO,
+                stock=None,
+                moq=None,
+                multiple=None,
+                prices=[],
+                offer_kind=OfferKind.MANUFACTURER_CATALOG,
+            )
+        ],
+    )
+
+    candidate = candidates[0]
+    decision = offer_decision(candidate)
+    assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
+    assert component.status == "catalog_selected"
+    assert component.selection_application_state == "automatic_selected"
+    assert component.confirmation_required is False
+    assert component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.CATALOG_INQUIRY
+    )
+    assert component.application_candidate_identity_key == (
+        component.technical_preselection_identity_key
+    )
+    assert component.application_candidate_evidence_key == (
+        component.technical_preselection_evidence_key
+    )
+    assert component.automatic_offer_key is None
+    assert component.review_offer_key is None
+    assert decision.purchasable is False
+    assert decision.recommendation == OfferRecommendation.NONE
+    assert decision.line_total is None
+
+
+def test_catalog_identity_with_recommendation_block_remains_unselected():
+    planned = query(quantity=10)
+    candidates = technical_candidates(
+        planned,
+        [
+            product(
+                CatalogSupplier.YEONHO,
+                stock=None,
+                moq=None,
+                multiple=None,
+                prices=[],
+                offer_kind=OfferKind.MANUFACTURER_CATALOG,
+            )
+        ],
+    )
+
+    _updated, component = apply_procurement_decisions(
+        planned,
+        candidates,
+        policy(),
+        recommendation_block_reason="input_source_conflict",
+    )
+
+    assert component.status == "no_recommendation"
+    assert component.selection_application_state == "not_selected"
+    assert component.application_candidate_identity_key is None
+    assert component.application_candidate_evidence_key is None
+    assert component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.TECHNICAL_UNAVAILABLE
+    )
+
+
+def test_catalog_identity_without_quantity_remains_input_incomplete():
+    candidates, component = decide(
+        query(quantity=None),
+        [
+            product(
+                CatalogSupplier.YEONHO,
+                stock=None,
+                moq=None,
+                multiple=None,
+                prices=[],
+                offer_kind=OfferKind.MANUFACTURER_CATALOG,
+            )
+        ],
+    )
+
+    assert component.status == "input_incomplete"
+    assert component.selection_application_state == "not_selected"
+    assert component.application_candidate_identity_key is None
+    assert component.application_candidate_evidence_key is None
+    assert component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.INPUT_INCOMPLETE
+    )
 
 
 def test_required_quantity_reselects_price_break_without_changing_technical_keys():

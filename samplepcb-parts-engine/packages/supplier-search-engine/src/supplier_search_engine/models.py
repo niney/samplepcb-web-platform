@@ -94,6 +94,11 @@ class OfferRecommendation(StrEnum):
     NONE = "none"
 
 
+class OfferKind(StrEnum):
+    SUPPLIER_OFFER = "supplier_offer"
+    MANUFACTURER_CATALOG = "manufacturer_catalog"
+
+
 class SelectionApplicationState(StrEnum):
     AUTOMATIC_SELECTED = "automatic_selected"
     PROVISIONAL_SELECTED = "provisional_selected"
@@ -104,6 +109,7 @@ class ProcurementUnavailabilityReason(StrEnum):
     OUT_OF_STOCK = "out_of_stock"
     INSUFFICIENT_STOCK = "insufficient_stock"
     STOCK_UNVERIFIED = "stock_unverified"
+    CATALOG_INQUIRY = "catalog_inquiry"
     PRICE_UNAVAILABLE = "price_unavailable"
     TECHNICAL_UNAVAILABLE = "technical_unavailable"
     SUPPLIER_UNAVAILABLE = "supplier_unavailable"
@@ -269,6 +275,7 @@ class ComponentProcurementDecision(BaseModel):
     status: Literal[
         "automatic_recommended",
         "review_recommended",
+        "catalog_selected",
         "no_recommendation",
         "input_incomplete",
     ]
@@ -356,6 +363,21 @@ class ComponentProcurementDecision(BaseModel):
             )
         ):
             raise ValueError("review recommendations must identify candidate and offer")
+        if self.status == "catalog_selected" and (
+            not all(
+                (
+                    self.technical_preselection_identity_key,
+                    self.technical_preselection_evidence_key,
+                    self.application_candidate_identity_key,
+                    self.application_candidate_evidence_key,
+                )
+            )
+            or self.primary_unavailability_reason
+            != ProcurementUnavailabilityReason.CATALOG_INQUIRY
+        ):
+            raise ValueError(
+                "catalog selections must identify the preselected candidate and inquiry state"
+            )
         if (
             self.status != "automatic_recommended"
             and self.automatic_offer_key is not None
@@ -395,6 +417,7 @@ class ComponentProcurementDecision(BaseModel):
         expected_application = {
             "automatic_recommended": SelectionApplicationState.AUTOMATIC_SELECTED,
             "review_recommended": SelectionApplicationState.PROVISIONAL_SELECTED,
+            "catalog_selected": SelectionApplicationState.AUTOMATIC_SELECTED,
             "no_recommendation": SelectionApplicationState.NOT_SELECTED,
             "input_incomplete": SelectionApplicationState.NOT_SELECTED,
         }[self.status]
@@ -508,6 +531,7 @@ class SupplierOffer(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     supplier: SupplierIdentity
+    offer_kind: OfferKind = OfferKind.SUPPLIER_OFFER
     supplier_sku: str | None = None
     packaging: str | None = None
     stock: int | None = None
@@ -1017,6 +1041,37 @@ class ProcurementReevaluationResult(BaseModel):
                 raise ValueError(
                     "offer recommendations require a component recommendation key"
                 )
+            if component.status == "catalog_selected":
+                selected = [
+                    candidate
+                    for candidate in self.candidates
+                    if candidate.decision.identity_key
+                    == component.application_candidate_identity_key
+                    and candidate.decision.technical_evidence_key
+                    == component.application_candidate_evidence_key
+                ]
+                offers = [
+                    offer for candidate in selected for offer in candidate.product.offers
+                ]
+                if (
+                    not selected
+                    or not offers
+                    or any(
+                        candidate.decision.selection_eligibility
+                        != SelectionEligibility.AUTOMATIC
+                        or candidate.decision.match_relation != MatchRelation.EXACT
+                        or candidate.decision.selection_recommendation
+                        != SelectionRecommendation.PRESELECT
+                        for candidate in selected
+                    )
+                    or any(
+                        offer.offer_kind != OfferKind.MANUFACTURER_CATALOG
+                        for offer in offers
+                    )
+                ):
+                    raise ValueError(
+                        "catalog selection must reference an exact automatic catalog group"
+                    )
             return self
         matching = [
             (candidate, decision)

@@ -56,6 +56,7 @@ import { engineFetch } from './engine-client';
 import { buildEngineProcurementPolicy } from './bom-procurement-policy';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { isCatalogInquiryOffer } from './parts-offer-kind';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 import {
@@ -182,6 +183,7 @@ const EngineOfferProcurementDecision = z
 const EngineSupplierOffer = z
   .object({
     supplier: z.string(),
+    offer_kind: z.enum(['supplier_offer', 'manufacturer_catalog']).default('supplier_offer'),
     supplier_sku: z.string().nullish(),
     packaging: z.string().nullish(),
     stock: z.number().int().nullish(),
@@ -340,6 +342,7 @@ const EngineProcurementUnavailabilityReason = z.enum([
   'out_of_stock',
   'insufficient_stock',
   'stock_unverified',
+  'catalog_inquiry',
   'price_unavailable',
   'technical_unavailable',
   'supplier_unavailable',
@@ -427,6 +430,7 @@ const EngineComponentProcurementDecisionV3 = z
     status: z.enum([
       'automatic_recommended',
       'review_recommended',
+      'catalog_selected',
       'no_recommendation',
       'input_incomplete',
     ]),
@@ -750,6 +754,7 @@ type SelectionMode = BomQuoteMatchEvidenceType['selectionMode'];
 const StoredCandidateOffer = z.object({
   offerKey: z.string(),
   supplier: z.string(),
+  offerKind: z.enum(['supplier_offer', 'manufacturer_catalog']).default('supplier_offer'),
   supplierSku: z.string(),
   packaging: z.string().nullable(),
   stock: z.number().int().nullable(),
@@ -942,6 +947,7 @@ export function buildQuoteComparisonRows(
       offers: candidate.offers.map((offer) => ({
         offerKey: offer.offerKey,
         supplier: offer.supplier,
+        offerKind: offer.offerKind,
         supplierSku: offer.supplierSku,
         packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging),
         stock: offer.stock,
@@ -1342,6 +1348,7 @@ function buildCandidateGroups(
         offers.push({
           offerKey: key,
           supplier: input.supplier,
+          offerKind: offer.offer_kind,
           supplierSku: input.supplierSku,
           packaging: input.packaging,
           stock: input.stock,
@@ -1619,6 +1626,39 @@ function projectEngineProcurement(
         }
       : invalid;
   }
+  if (decision.status === 'catalog_selected') {
+    const catalogOffers = applicationGroup?.snapshot.offers ?? [];
+    return (
+      primaryUnavailabilityReason === 'catalog_inquiry'
+      && technicalGroup !== null
+      && applicationGroup === technicalGroup
+      && applicationGroup.snapshot.selectionEligibility === 'automatic'
+      && applicationGroup.snapshot.selectionRecommendation === 'preselect'
+      && catalogOffers.length > 0
+      && catalogOffers.every((offer) => offer.offerKind === 'manufacturer_catalog')
+      && recommendedOffers.length === 0
+      && decision.selection_application_state === 'automatic_selected'
+      && !decision.confirmation_required
+      && (decision.automatic_offer_key ?? null) === null
+      && (decision.review_offer_key ?? null) === null
+      && !decision.technical_fallback_used
+      && !priceOptimizationUsed
+    )
+      ? {
+          valid: true,
+          technicalTop: technicalGroup,
+          selected: applicationGroup,
+          recommended: applicationGroup,
+          offerKey: null,
+          pick: null,
+          applicationState: 'automatic_selected',
+          confirmationRequired: false,
+          technicalFallbackUsed: false,
+          priceOptimizationUsed: false,
+          primaryUnavailabilityReason,
+        }
+      : invalid;
+  }
   if (
     technicalGroup === null
     || applicationGroup === null
@@ -1726,6 +1766,7 @@ export function projectEnginePartSearchResult(
     const { pick } = storedCandidatePick(snapshot, needed, null);
     const inlineOffers = snapshot.offers.map((offer) => ({
       supplier: offer.supplier,
+      offerKind: offer.offerKind,
       supplierSku: offer.supplierSku,
       productUrl: offer.productUrl,
       stock: offer.stock,
@@ -1765,6 +1806,9 @@ export function projectEnginePartSearchResult(
       totalStock: inlineOffers.reduce((sum, offer) => sum + Math.max(0, offer.stock ?? 0), 0),
       offersFetchedAt: fetchedAt,
       hasSpecConflict: false,
+      hasCatalogInquiryOffer: inlineOffers.some(
+        (offer) => offer.offerKind === 'manufacturer_catalog',
+      ),
       score: snapshot.specificationConfidence,
       source: 'supplier' as const,
       inlineOffers,
@@ -1940,7 +1984,9 @@ export function selectEngineMatch(
       ? procurement.applicationState === 'provisional_selected'
         ? ['engine-manual-review']
         : procurement.applicationState === 'automatic_selected'
-          ? ['engine-procurement-recommendation']
+          ? procurement.primaryUnavailabilityReason === 'catalog_inquiry'
+            ? ['engine-catalog-selection']
+            : ['engine-procurement-recommendation']
           : ['engine-procurement-unavailable']
       : ['no-safe-candidate'];
     const reasonCodes: BomQuoteDecisionReasonType[] = [
@@ -2349,6 +2395,7 @@ export async function quoteCandidatePartsSearchable(quoteId: bigint): Promise<bo
 interface StoredRecommendation {
   applicationState: 'automatic_selected' | 'provisional_selected';
   confirmationRequired: boolean;
+  procurementUnavailabilityReason: EngineProcurementUnavailabilityReasonType | null;
   candidate: StoredCandidateType;
   pick: OfferPick | null;
   offerKey: string | null;
@@ -2387,9 +2434,12 @@ function recommendStoredCandidate(
     || componentDecision.required_quantity !== needed
     || componentDecision.target_currency.toUpperCase() !== 'KRW'
     || (componentDecision.status !== 'automatic_recommended'
-      && componentDecision.status !== 'review_recommended')
+      && componentDecision.status !== 'review_recommended'
+      && componentDecision.status !== 'catalog_selected')
   ) return null;
-  const automatic = componentDecision.status === 'automatic_recommended';
+  const catalogSelected = componentDecision.status === 'catalog_selected';
+  const automatic = componentDecision.status === 'automatic_recommended'
+    || catalogSelected;
   const applicationState = componentDecision.selection_application_state;
   if (
     applicationState !== (automatic ? 'automatic_selected' : 'provisional_selected')
@@ -2435,6 +2485,34 @@ function recommendStoredCandidate(
   if (
     candidate?.selectionEligibility !== (automatic ? 'automatic' : 'manual_review')
   ) return null;
+  if (catalogSelected) {
+    if (
+      componentDecision.unavailability_reason_policy_version
+        !== 'supplier-procurement-unavailability-v1'
+      || componentDecision.primary_unavailability_reason !== 'catalog_inquiry'
+      || candidate !== technicalTop
+      || candidate.selectionRecommendation !== 'preselect'
+      || candidate.offers.length === 0
+      || candidate.offers.some((offer) =>
+        offer.offerKind !== 'manufacturer_catalog'
+        || offer.procurementDecision?.recommendation !== 'none')
+      || (componentDecision.automatic_offer_key ?? null) !== null
+      || (componentDecision.review_offer_key ?? null) !== null
+    ) return null;
+    return {
+      applicationState,
+      confirmationRequired: false,
+      procurementUnavailabilityReason: 'catalog_inquiry',
+      candidate,
+      pick: null,
+      offerKey: null,
+      technicalPreselectionCandidateKey: technicalTop.candidateKey,
+      technicalFallbackUsed: false,
+      technicalTopLineTotalKrw: null,
+      recommendationType: 'identity',
+      reasonCodes: ['engine-catalog-selection'],
+    };
+  }
   const offerKey = automatic
     ? componentDecision.automatic_offer_key
     : componentDecision.review_offer_key;
@@ -2463,6 +2541,7 @@ function recommendStoredCandidate(
   return {
     applicationState,
     confirmationRequired: componentDecision.confirmation_required,
+    procurementUnavailabilityReason: null,
     candidate,
     pick,
     offerKey,
@@ -2490,7 +2569,8 @@ function selectedEvidence(
     : Math.round((technicalTopLineTotalKrw - lineTotal) * 100) / 100;
   return {
     ...previous,
-    procurementUnavailabilityReason: null,
+    procurementUnavailabilityReason:
+      recommendation?.procurementUnavailabilityReason ?? null,
     candidateStatus: candidate.status,
     selectionMode: candidate.selectionMode,
     selectedMpn: candidate.mpn,
@@ -2980,6 +3060,7 @@ function candidateOfferView(
   return {
     offerKey: offer.offerKey,
     supplier: offer.supplier,
+    offerKind: offer.offerKind,
     supplierSku: offer.supplierSku,
     packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging),
     stock: offer.stock,
@@ -3895,7 +3976,12 @@ function legacyCompatibleEvidence(value: Prisma.JsonValue | null): Prisma.JsonVa
   };
 }
 
-export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null, partDatasheetUrl: string | null = null): BomQuoteItemType {
+export function toItemDto(
+  row: QuoteItemRow,
+  partImageUrl: string | null = null,
+  partDatasheetUrl: string | null = null,
+  catalogInquiry = false,
+): BomQuoteItemType {
   const offer = BomQuoteSelectedOffer.safeParse(legacyCompatibleOffer(row.selectedOffer));
   const evidence = BomQuoteMatchEvidence.safeParse(legacyCompatibleEvidence(row.matchEvidence));
   const selectedOffer = offer.success
@@ -3926,18 +4012,37 @@ export function toItemDto(row: QuoteItemRow, partImageUrl: string | null = null,
     lineTotalKrw: row.lineTotalKrw === null ? null : Number(row.lineTotalKrw),
     partImageUrl,
     partDatasheetUrl,
+    catalogInquiry,
   };
 }
 
-/** 라인 partId → 카탈로그 이미지·데이터시트 일괄 조회 — 스냅샷이 아니라 항상 현재 카탈로그를 따른다. */
-async function loadPartMetaMap(items: QuoteItemRow[]): Promise<Map<bigint, { imageUrl: string | null; datasheetUrl: string | null }>> {
+interface QuotePartMeta {
+  imageUrl: string | null;
+  datasheetUrl: string | null;
+  catalogInquiry: boolean;
+}
+
+/** 라인 partId → 카탈로그 이미지·데이터시트·문의 상태 일괄 조회 — 항상 현재 카탈로그를 따른다. */
+async function loadPartMetaMap(items: QuoteItemRow[]): Promise<Map<bigint, QuotePartMeta>> {
   const partIds = [...new Set(items.flatMap((i) => (i.partId === null ? [] : [i.partId])))];
   if (partIds.length === 0) return new Map();
   const parts = await prisma.spPart.findMany({
     where: { id: { in: partIds } },
-    select: { id: true, imageUrl: true, datasheetUrl: true },
+    select: {
+      id: true,
+      imageUrl: true,
+      datasheetUrl: true,
+      offers: { select: { rawJson: true } },
+    },
   });
-  return new Map(parts.map((p) => [p.id, { imageUrl: p.imageUrl, datasheetUrl: p.datasheetUrl }] as const));
+  return new Map(parts.map((part) => [
+    part.id,
+    {
+      imageUrl: part.imageUrl,
+      datasheetUrl: part.datasheetUrl,
+      catalogInquiry: part.offers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
+    },
+  ] as const));
 }
 
 /** 엔진 매칭 라인(partId 없음)용 — 안정 itemId로 후보를 찾고 표시 rowIdx에 투영한다. */
@@ -4180,6 +4285,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
         row,
         meta?.imageUrl ?? null,
         meta?.datasheetUrl ?? candidateDatasheetMap.get(row.rowIdx) ?? null,
+        row.selectedOffer === null && (meta?.catalogInquiry ?? false),
       );
     });
   const rowLimitCounts = itemDtos.reduce(

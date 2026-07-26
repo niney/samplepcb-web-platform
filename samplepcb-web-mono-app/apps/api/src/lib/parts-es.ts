@@ -10,6 +10,7 @@ import {
 import { esClient } from '../es/client';
 import { SP_PARTS_WRITE, type SpPartDoc } from '../es/sp-parts-index';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { isCatalogInquiryOffer } from './parts-offer-kind';
 
 // SpPart(DB 진실원본) → sp-parts 검색 요약 문서 빌드 + 색인.
 // 문서는 언제든 DB 에서 재구축 가능(parts:reindex) — ES 는 파생물이다.
@@ -96,6 +97,7 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
       part.specConflicts !== null &&
       typeof part.specConflicts === 'object' &&
       Object.keys(part.specConflicts).length > 0,
+    hasCatalogInquiryOffer: realOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
     updatedAt: part.lastSeenAt.toISOString(),
   };
 }

@@ -29,6 +29,7 @@ export const F = {
   offerCount: 'offerCount',
   minPrice: 'minPrice',
   totalStock: 'totalStock',
+  hasCatalogInquiryOffer: 'hasCatalogInquiryOffer',
   updatedAt: 'updatedAt',
 } as const;
 
@@ -65,6 +66,8 @@ export interface SpPartDoc {
   offersFetchedAt: string | null;
   /** 공급사 간 스펙 실충돌 존재 여부(specConflicts) — 관리자 배지용. 구 색인 문서는 undefined. */
   hasSpecConflict: boolean | undefined;
+  /** 제조사 카탈로그의 재고 확인·가격 문의 오퍼 존재 여부. 구 색인 문서는 undefined. */
+  hasCatalogInquiryOffer?: boolean;
   updatedAt: string;
 }
 
@@ -134,6 +137,7 @@ const mappings = {
     offersFetchedAt: { type: 'date' },
     totalStock: { type: 'long' },
     hasSpecConflict: { type: 'boolean' },
+    hasCatalogInquiryOffer: { type: 'boolean' },
     updatedAt: { type: 'date' },
   },
 } satisfies estypes.MappingTypeMapping;

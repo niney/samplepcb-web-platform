@@ -30,9 +30,12 @@ sp-engine(Python)                sp-node                              ES 9.x (12
 3. 조회 결과 중 `catalog_metadata.catalogOnly=true`인 제품을 최대 200행씩
    `POST /supplier-search/catalog-evaluate-batch`로 **sp-engine**에 돌려보낸다. 이 API는 외부
    공급사를 호출하지 않고 기존 matcher·후보 결정·조달 정책을 그대로 적용한다.
-4. 카탈로그 전용 오퍼는 가격·재고가 확인되지 않았으므로 기술 후보와 검토 근거만 제공한다.
-   평가 API가 가격·재고·MOQ 필드를 제거한 뒤 조달 판정을 실행해 자동 선정·가상 가격을 만들지
-   않으며, 화면에는 재고 확인이 필요한 기술 후보로 남는다.
+4. 카탈로그 전용 오퍼는 가격·재고가 확인되지 않았으므로 평가 API가 가격·재고·MOQ 필드를
+   제거하고 가상 구매 오퍼를 만들지 않는다. 대신 정확 MPN·제조사와 엔진 자동선정 안전등급을
+   모두 통과한 기술 1순위는 `catalog_selected`로 **부품만 선정**한다. 이때 candidate/partId는
+   저장하지만 offerKey·selectedOffer·가격·재고는 비워 두고 `catalog_inquiry`를 함께 반환한다.
+   화면은 **`선정됨 · 재고/가격 문의` / `문의 견적`**으로 표시하며 견적 합계에는 금액을 넣지
+   않는다. 충돌·수동검토·비정확 후보는 기존처럼 선정하지 않는다.
 
 따라서 로컬 조회·저장은 sp-node, 정규화·호환성·후보/조달 판정은 sp-engine이라는 역할 경계를
 유지한다. `insufficient_input`·`input_conflict`·`excluded` 및 이미 외부 후보가 있는 행은 fallback

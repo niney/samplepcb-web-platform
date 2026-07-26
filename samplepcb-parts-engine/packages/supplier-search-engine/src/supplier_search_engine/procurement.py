@@ -12,6 +12,7 @@ from .models import (
     CandidateMatch,
     ComponentProcurementDecision,
     OfferKeyVersion,
+    OfferKind,
     OfferProcurementDecision,
     OfferRecommendation,
     PlannedQuery,
@@ -506,6 +507,14 @@ def _offer_decision(
     surplus: int | None = None
     excessive: bool | None = None
 
+    if offer.offer_kind == OfferKind.MANUFACTURER_CATALOG:
+        reasons.extend(
+            [
+                "manufacturer_catalog_offer",
+                "stock_confirmation_required",
+                "price_inquiry_required",
+            ]
+        )
     if offer_key is None:
         reasons.append("stable_offer_identity_unavailable")
     if offer.supplier != candidate.product.supplier:
@@ -784,6 +793,37 @@ def _price_optimization_enabled(
     )
 
 
+def _catalog_selection_allowed(
+    candidates: list[CandidateMatch],
+    group_key: tuple[str, str],
+) -> bool:
+    """Select a safe exact identity even when its commercial terms need inquiry."""
+
+    group = [
+        candidate
+        for candidate in candidates
+        if (
+            candidate.decision.identity_key,
+            candidate.decision.technical_evidence_key,
+        )
+        == group_key
+    ]
+    offers = [offer for candidate in group for offer in candidate.product.offers]
+    representative = _group_representative(candidates, group_key)
+    return (
+        representative.decision.selection_eligibility
+        == SelectionEligibility.AUTOMATIC
+        and representative.decision.match_relation.value == "exact"
+        and representative.decision.selection_recommendation
+        == SelectionRecommendation.PRESELECT
+        and bool(offers)
+        and all(
+            offer.offer_kind == OfferKind.MANUFACTURER_CATALOG
+            for offer in offers
+        )
+    )
+
+
 def _validate_procurement_result(
     candidates: list[CandidateMatch],
     component: ComponentProcurementDecision,
@@ -815,6 +855,27 @@ def _validate_procurement_result(
                 "an offer recommendation exists without a component recommendation key",
                 context={"recommended_offer_count": len(recommended_offers)},
             )
+        if component.status == "catalog_selected":
+            application_key = (
+                component.application_candidate_identity_key,
+                component.application_candidate_evidence_key,
+            )
+            if (
+                application_key[0] is None
+                or application_key[1] is None
+                or not _catalog_selection_allowed(
+                    candidates,
+                    (application_key[0], application_key[1]),
+                )
+            ):
+                raise ProcurementReevaluationError(
+                    "catalog_selection_mismatch",
+                    "a catalog selection must reference an exact automatic catalog group",
+                    context={
+                        "identity_key": application_key[0],
+                        "technical_evidence_key": application_key[1],
+                    },
+                )
         return
 
     matching_offers = [
@@ -972,6 +1033,7 @@ def apply_procurement_decisions(
     technical_evidence_key: str | None = None
     application_group: tuple[str, str] | None = None
     price_optimization_used = False
+    catalog_selected = False
     if query.procurement_disposition.value != "eligible":
         recommendation_reasons.extend(
             [
@@ -1051,6 +1113,19 @@ def apply_procurement_decisions(
                     )
             else:
                 application_group = preselected_group
+        elif (
+            query.quantity is not None
+            and _catalog_selection_allowed(candidates, preselected_group)
+        ):
+            application_group = preselected_group
+            catalog_selected = True
+            recommendation_reasons.extend(
+                [
+                    "manufacturer_catalog_candidate_selected",
+                    "stock_confirmation_required",
+                    "price_inquiry_required",
+                ]
+            )
         else:
             preselected_purchasable = [
                 decision
@@ -1098,7 +1173,7 @@ def apply_procurement_decisions(
             else:
                 recommendation_reasons.append("no_purchasable_candidate_group")
 
-        if application_group is not None:
+        if application_group is not None and not catalog_selected:
             eligible_entries = [
                 (ci, oi, decision)
                 for ci, oi, decision in eligible_entries
@@ -1180,6 +1255,8 @@ def apply_procurement_decisions(
     status = (
         "input_incomplete"
         if query.quantity is None or query.procurement_disposition.value != "eligible"
+        else "catalog_selected"
+        if catalog_selected
         else "automatic_recommended"
         if offer_recommendation == OfferRecommendation.AUTOMATIC
         else "review_recommended"
@@ -1193,6 +1270,8 @@ def apply_procurement_decisions(
     primary_unavailability_reason: ProcurementUnavailabilityReason | None = None
     if status == "input_incomplete":
         primary_unavailability_reason = ProcurementUnavailabilityReason.INPUT_INCOMPLETE
+    elif status == "catalog_selected":
+        primary_unavailability_reason = ProcurementUnavailabilityReason.CATALOG_INQUIRY
     elif status == "no_recommendation":
         nonblocked_entries = [
             entry
@@ -1202,6 +1281,13 @@ def apply_procurement_decisions(
         relevant_entries = nonblocked_entries or ranked_entries
         if not relevant_entries:
             primary_unavailability_reason = ProcurementUnavailabilityReason.NO_OFFER
+        elif all(
+            offer.offer_kind == OfferKind.MANUFACTURER_CATALOG
+            for _, offer, _ in relevant_entries
+        ):
+            primary_unavailability_reason = (
+                ProcurementUnavailabilityReason.CATALOG_INQUIRY
+            )
         elif all(decision.stock_short is True for _, _, decision in relevant_entries):
             primary_unavailability_reason = (
                 ProcurementUnavailabilityReason.OUT_OF_STOCK
@@ -1244,7 +1330,7 @@ def apply_procurement_decisions(
         status=status,
         selection_application_state=(
             SelectionApplicationState.AUTOMATIC_SELECTED
-            if status == "automatic_recommended"
+            if status in {"automatic_recommended", "catalog_selected"}
             else SelectionApplicationState.PROVISIONAL_SELECTED
             if status == "review_recommended"
             else SelectionApplicationState.NOT_SELECTED
@@ -1263,10 +1349,14 @@ def apply_procurement_decisions(
         technical_preselection_identity_key=technical_identity_key,
         technical_preselection_evidence_key=technical_evidence_key,
         application_candidate_identity_key=(
-            application_group[0] if recommended_entry is not None else None
+            application_group[0]
+            if recommended_entry is not None or catalog_selected
+            else None
         ),
         application_candidate_evidence_key=(
-            application_group[1] if recommended_entry is not None else None
+            application_group[1]
+            if recommended_entry is not None or catalog_selected
+            else None
         ),
         technical_fallback_used=(
             recommended_entry is not None

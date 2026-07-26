@@ -7,6 +7,9 @@ import { prisma } from './prisma';
 const LocalCatalogOffer = z
   .object({
     supplier: z.string().min(1),
+    // 이 경로는 catalog_metadata.catalogOnly=true인 제조사 원장만 허용한다.
+    // 기존 적재 데이터에 필드가 없어도 엔진에는 구매 오퍼와 구분해 전달한다.
+    offer_kind: z.literal('manufacturer_catalog').default('manufacturer_catalog'),
     supplier_sku: z.string().nullish(),
     packaging: z.string().nullish(),
     stock: z.number().int().nonnegative().nullish(),

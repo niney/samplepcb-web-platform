@@ -140,6 +140,12 @@ v3는 저항·커패시터 파라메트릭 후보와 제조사 미기재 정확 
 가격으로 동급 후보가 바뀌면 `price_optimization_used=true`, 기술 1순위가 구매 불가해 차순위로
 내려가면 기존대로 `technical_fallback_used=true`이며 두 사유는 동시에 참일 수 없다.
 
+제조사 카탈로그 전용 오퍼는 실제 가격·재고·MOQ를 제공하지 않는다. 정확 MPN·제조사이며 자동선정
+안전등급인 기술 사전 선정 후보는 `catalog_selected`로 identity만 적용한다. 이 상태는
+`selection_application_state=automatic_selected`와 candidate 키를 제공하지만 offer 키와 추천 오퍼,
+가격·재고는 만들지 않고 `primary_unavailability_reason=catalog_inquiry`를 함께 반환한다. 충돌이나
+수동검토가 필요한 카탈로그 후보는 이 경로로 선정하지 않는다.
+
 `supplier-candidate-decision-v3`부터 제조사 품번이 정확히 일치하면 필수조건 불일치 내역과
 세부 평가를 그대로 보존하면서 자동 선정한다. 단, BOM 원본끼리 충돌한 입력 플래그가 있거나
 제조사 미기재 품번이 여러 구조화 제조사에 걸쳐 발견되면 정확 MPN도 자동 확정하지 않고 검토 대상으로
@@ -157,10 +163,11 @@ v3는 저항·커패시터 파라메트릭 후보와 제조사 미기재 정확 
 재정렬하지 않고 키·수량·금액 불변식만 검증해 저장하며, 수량·환율 변경 시 엔진의 무호출 재평가
 API로 같은 정책을 다시 적용한다.
 
-후보를 적용하지 못하면 `supplier-procurement-unavailability-v1`의
-`primary_unavailability_reason`으로 대표 구매 불가 사유를 함께 반환한다. 차단되지 않은 후보 오퍼가
+구매 오퍼를 적용하지 못하면 `supplier-procurement-unavailability-v1`의
+`primary_unavailability_reason`으로 대표 구매 불가·문의 사유를 함께 반환한다. 차단되지 않은 후보 오퍼가
 모두 재고 0이면 `out_of_stock`, 재고가 양수지만 필요수량보다 작으면 `insufficient_stock`을 가격·기술
-불가보다 우선한다. 재고를 확인할 수 없으면 `stock_unverified`, 재고 가능한 오퍼가 있으나 기술 조건으로
+불가보다 우선한다. 일반 공급사 재고를 확인할 수 없으면 `stock_unverified`, 제조사 카탈로그의
+상업 조건 문의는 `catalog_inquiry`, 재고 가능한 오퍼가 있으나 기술 조건으로
 막히면 `technical_unavailable`이다. 필수조건 불일치가 함께 있더라도 모든 관련 오퍼의 재고가 부족하면
 화면의 대표 상태는 재고 사유이며, 항목별 기술 불일치 근거는 후보 결정에 그대로 남는다.
 

@@ -195,13 +195,18 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   저장된 원본 엔진 후보를 재평가해 공급사 API·캐시·쿼터 호출 없이 재판정하고 같은 트랜잭션에 후보·라인·
   합계를 갱신한다(자동저장 PATCH가 쓰는 배치 재평가 메커니즘은 아래 항목 참조). 엔진 응답 자체의
   계약 누락·중복 키·수량 불일치는 fail-closed다.
-  - **구매 불가 대표 사유(2026-07-22)**: sp-engine은 후보를 선정하지 못한 컴포넌트에
+  - **구매 불가·문의 대표 사유(2026-07-22, 카탈로그 선정 2026-07-26)**: sp-engine은 구매
+    오퍼를 선정하지 못한 컴포넌트에
     `supplier-procurement-unavailability-v1`과 `primary_unavailability_reason`을 함께 반환한다. 관련
     후보 오퍼의 재고가 전부 0이면 `out_of_stock`, 모두 필요수량 미만이면 `insufficient_stock`으로
-    가격·기술 불가보다 우선 판정한다. 재고 미확인은 `stock_unverified`로 분리한다. sp-node는 두 필드의
-    동시 존재와 추천 상태 불변식만 검증해 `matchEvidence.procurementUnavailabilityReason`으로 저장하고
-    재고·필수조건을 다시 조합해 사유를 추론하지 않는다. sp-vue는 `재고 없음/부족/확인 필요`를
-    `검토 필요`보다 먼저 표시하고 해당 행을 Review가 아닌 Unmatched에 반영한다. 이 중 확인된
+    가격·기술 불가보다 우선 판정한다. 재고 미확인은 `stock_unverified`로 분리하고, 가격·실재고가 없는
+    제조사 카탈로그 취급 후보는 `catalog_inquiry`로 분리한다. 정확 MPN·제조사와 자동선정
+    안전등급을 통과하면 `catalog_selected`로 부품 identity만 선정하되 구매 오퍼·가격·재고는
+    만들지 않는다. sp-node는 후보 키와 문의 상태 불변식만 검증해 partId와
+    `matchEvidence.procurementUnavailabilityReason`을 저장하고
+    재고·필수조건을 다시 조합해 사유를 추론하지 않는다. sp-vue는 `재고 없음/부족/확인 필요`와
+    카탈로그 문의 상태의 `선정됨 · 재고/가격 문의` / `문의 견적`을
+    `검토 필요`보다 먼저 표시하고 해당 행을 선정으로 집계한다. 이 중 확인된
     `out_of_stock`·`insufficient_stock`만 독립 NOSTOCK 집계에도 포함한다.
     항목별 필수조건 불일치와 기대값·실제값은 후보 비교 근거에 계속 표시한다. 이 필드가 없는 기존
     저장 결과는 종전 상태 표시를 유지하며, 버전과 값 중 하나만 온 결과는 fail-closed 처리한다.
@@ -348,10 +353,11 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   이유·대체 후보 수를 표시한다. 기존 [변경]+[상세]+가격구간 확장을 **[후보 비교] 우측 패널**로
   통합했다. 패널은 현재 선택과 금액, 자동 추천 이유, 기술/가격 순위, 검증 수, 차액, 공급사별
   MOQ·재고·적용 단가·행 총액을 함께 보여주며 안전 후보와 특정 공급사 오퍼를 명시 선택할 수 있다.
-  엔진 대표 사유가 `out_of_stock|insufficient_stock|stock_unverified`이면 후보 영역 상단에 필요수량과
+  엔진 대표 사유가 `out_of_stock|insufficient_stock|stock_unverified|catalog_inquiry`이면 후보 영역 상단에 필요수량과
   함께 `재고 없음/부족/확인 필요` 경고를 표시한다. 각 후보의 모든 오퍼가 같은 재고 제약이면 최적
   오퍼 요약도 구체적인 재고 문구로 바꾸며, 펼친 공급사 오퍼는 재고 0을 `재고 없음`, 양수지만
-  주문수량 미달을 `재고 부족 · 보유/주문`, 미확인을 `재고 확인 필요`로 구분하고 행 배경에도 반영한다.
+  주문수량 미달을 `재고 부족 · 보유/주문`, 미확인을 `재고 확인 필요`, 선정된 제조사 카탈로그
+  identity를 `선정됨 · 재고/가격 문의`와 `문의 견적`으로 구분하고 행 배경에도 반영한다.
   컴포넌트 대표 사유는 후보 API가 `matchEvidence.procurementUnavailabilityReason`을 그대로 투영해
   sp-vue가 다시 판정하지 않는다. 오퍼별 배지는 엔진 `stock_short` 근거와 원본 재고 0/미확인 사실만
   구체적인 문구로 표현한다.

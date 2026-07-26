@@ -149,11 +149,17 @@ describe('BOM 로컬 카탈로그 fallback', () => {
     const [, init] = mocks.engineFetch.mock.calls[0] as [string, RequestInit];
     if (typeof init.body !== 'string') throw new Error('요청 본문이 문자열이 아닙니다');
     const body = JSON.parse(init.body) as {
-      items: { query: { component_id: string }; products: unknown[] }[];
+      items: {
+        query: { component_id: string };
+        products: { offers: { offer_kind?: string }[] }[];
+      }[];
     };
     expect(body.items).toHaveLength(1);
     expect(body.items[0]?.query.component_id).toBe('component-1');
     expect(body.items[0]?.products).toHaveLength(1);
+    expect(body.items[0]?.products[0]?.offers[0]?.offer_kind).toBe(
+      'manufacturer_catalog',
+    );
 
     const output = result as {
       search: {

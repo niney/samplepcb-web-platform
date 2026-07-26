@@ -681,7 +681,11 @@ function attachProcurementDecision(
 }
 
 function componentProcurementDecision(
-  status: 'automatic_recommended' | 'review_recommended' | 'no_recommendation',
+  status:
+    | 'automatic_recommended'
+    | 'review_recommended'
+    | 'catalog_selected'
+    | 'no_recommendation',
   offerKey: string | null,
   requiredQuantity = 10,
   options: {
@@ -694,6 +698,7 @@ function componentProcurementDecision(
       | 'out_of_stock'
       | 'insufficient_stock'
       | 'stock_unverified'
+      | 'catalog_inquiry'
       | 'price_unavailable'
       | 'technical_unavailable'
       | 'supplier_unavailable'
@@ -707,7 +712,8 @@ function componentProcurementDecision(
     procurement_policy_version: 'supplier-procurement-decision-v1',
     selection_application_policy_version: 'supplier-selection-application-v3',
     status,
-    selection_application_state: status === 'automatic_recommended'
+    selection_application_state:
+      status === 'automatic_recommended' || status === 'catalog_selected'
       ? 'automatic_selected'
       : status === 'review_recommended'
         ? 'provisional_selected'
@@ -789,7 +795,178 @@ describe('BOM 엔진 후보 결정 투영', () => {
       },
     });
     expect(result?.items[0]?.inlineOffers).toHaveLength(1);
+    expect(result?.items[0]).toMatchObject({
+      hasCatalogInquiryOffer: false,
+      inlineOffers: [{ offerKind: 'supplier_offer' }],
+    });
     expect(result).toMatchObject({ apiCalls: 1, cacheHits: 2, warnings: ['cached-result'] });
+  });
+
+  it('제조사 카탈로그 정확 후보는 가격·재고 없이 부품과 partId만 선정한다', async () => {
+    const selected = candidate('verified_exact', '10038WR-08', 'yeonho', 1, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      selectionRecommendation: 'preselect',
+    });
+    const offer = selected.product.offers[0];
+    if (offer === undefined) throw new Error('test offer missing');
+    Object.assign(offer, {
+      offer_kind: 'manufacturer_catalog',
+      stock: null,
+      moq: null,
+      order_multiple: null,
+      price_breaks: [],
+      procurement_decision: {
+        procurement_policy_version: 'supplier-procurement-decision-v1',
+        offer_key_version: 'supplier-offer-key-v2',
+        rank_scope: 'identity_and_technical_evidence',
+        offer_key: 'ok2:catalog-offer',
+        calculation_status: 'supplier_not_allowed',
+        required_quantity: 10,
+        order_quantity: 10,
+        applied_price_break_quantity: null,
+        source_unit_price: null,
+        source_currency: null,
+        exchange_rate: null,
+        target_currency: 'KRW',
+        converted_unit_price: null,
+        line_total: null,
+        stock_short: null,
+        stock_short_quantity: null,
+        surplus_quantity: 0,
+        excessive_order: false,
+        price_rank: null,
+        purchase_fit_rank: null,
+        purchasable: false,
+        recommendation: 'none',
+        reason_codes: [
+          'manufacturer_catalog_offer',
+          'stock_confirmation_required',
+          'price_inquiry_required',
+        ],
+      },
+    });
+
+    const component = {
+      component_id: 'catalog-inquiry',
+      status: 'verified_exact',
+      warnings: [],
+      procurement_decision: componentProcurementDecision(
+        'catalog_selected',
+        null,
+        10,
+        { unavailabilityReason: 'catalog_inquiry' },
+      ),
+      candidates: [selected],
+    };
+    const result = projectEnginePartSearchResult({
+      procurement_decision_contract_status: 'current',
+      search: {
+        api_calls: 0,
+        cache_hits: 0,
+        components: [component],
+      },
+    }, 10);
+
+    expect(result?.items[0]).toMatchObject({
+      hasCatalogInquiryOffer: true,
+      minPrice: null,
+      totalStock: 0,
+      applied: null,
+      inlineOffers: [{
+        offerKind: 'manufacturer_catalog',
+        stock: null,
+        priceBreaks: [],
+      }],
+    });
+
+    const decision = selectEngineMatch(component, 10, null);
+    expect(decision).toMatchObject({
+      candidateKey: 'ik1:engine-choice',
+      recommendedCandidateKey: 'ik1:engine-choice',
+      offerKey: null,
+      pick: null,
+      evidence: {
+        selectionApplicationState: 'automatic_selected',
+        confirmationRequired: false,
+        procurementUnavailabilityReason: 'catalog_inquiry',
+        selectedCandidateKey: 'ik1:engine-choice',
+        decisionReasonCodes: ['engine-catalog-selection'],
+        priceEvidence: null,
+      },
+    });
+
+    const items = buildItemsFromEngineResult(ENGINE_RESULT, [1]);
+    const item = items[0];
+    const componentId = item?.sourceRow?.componentId;
+    if (item === undefined || typeof componentId !== 'string') {
+      throw new Error('테스트 견적 행의 componentId가 없습니다');
+    }
+    const partFindUnique = vi.spyOn(prisma.spPart, 'findUnique').mockResolvedValue({
+      id: 42n,
+    } as never);
+    try {
+      const applied = await applyEngineSupplierResult(
+        items,
+        {
+          supplier_search_schema_version: '1.7',
+          procurement_decision_contract_status: 'current',
+          search: {
+            search_schema_version: '1.7',
+            components: [{ ...component, component_id: componentId }],
+          },
+        },
+        10,
+        0,
+        null,
+      );
+
+      expect(applied.applied).toBe(true);
+      expect(item).toMatchObject({
+        mpn: '10038WR-08',
+        matchStatus: 'auto',
+        selectionSource: 'auto',
+        partId: '42',
+        selectedCandidateKey: 'ik1:engine-choice',
+        recommendedCandidateKey: 'ik1:engine-choice',
+        selectedOffer: null,
+        orderQty: 10,
+        matchEvidence: {
+          selectionApplicationState: 'automatic_selected',
+          procurementUnavailabilityReason: 'catalog_inquiry',
+          decisionReasonCodes: ['engine-catalog-selection'],
+        },
+      });
+    } finally {
+      partFindUnique.mockRestore();
+    }
+
+    const forgedSupplierCandidate = {
+      ...structuredClone(selected),
+      product: {
+        ...structuredClone(selected.product),
+        offers: selected.product.offers.map((offer) => ({
+          ...structuredClone(offer),
+          offer_kind: 'supplier_offer' as const,
+        })),
+      },
+    };
+    const rejected = selectEngineMatch(
+      { ...component, candidates: [forgedSupplierCandidate] },
+      10,
+      null,
+    );
+    expect(rejected).toMatchObject({
+      candidate: null,
+      candidateKey: null,
+      pick: null,
+      evidence: {
+        selectionApplicationState: 'not_selected',
+        decisionReasonCodes: ['no-safe-candidate'],
+      },
+    });
   });
 
   it('행당 상위 10개만 영속하되 뒤 순위의 현재·추천 후보는 보존한다', () => {

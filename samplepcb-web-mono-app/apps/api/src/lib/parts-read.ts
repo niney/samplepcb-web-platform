@@ -3,6 +3,7 @@ import type { PartDetailType } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { specsSiRecord } from './parts-es';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
+import { isCatalogInquiryOffer, partOfferKind } from './parts-offer-kind';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // 부품 상세(DB) DTO 빌더 — 관리자 카탈로그 상세와 고객 BOM 오퍼 변경 모달이 공유.
@@ -56,12 +57,14 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
         ? null
         : new Date(Math.max(...realOffers.map((o) => o.fetchedAt.getTime()))).toISOString(),
     score: null,
+    hasCatalogInquiryOffer: realOffers.some((offer) => isCatalogInquiryOffer(offer.rawJson)),
     firstSeenAt: part.firstSeenAt.toISOString(),
     lastSeenAt: part.lastSeenAt.toISOString(),
     offers: part.offers.map((o) => {
       const derivedFrom = o.supplier === SAMPLEPCB_SUPPLIER ? offerDerivedFrom(o.rawJson) : null;
       return {
         supplier: o.supplier,
+        offerKind: partOfferKind(o.rawJson),
         supplierSku: o.supplierSku,
         productUrl: o.productUrl,
         stock: o.stock,
