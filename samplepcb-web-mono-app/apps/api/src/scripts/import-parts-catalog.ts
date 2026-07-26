@@ -22,18 +22,21 @@ import {
 import { refreshPartsIndex } from '../lib/parts-es';
 import {
   catalogSearchSamples,
+  isCatalogOfferFromSource,
   parseCatalogMigrationEnvelope,
   type CatalogMigrationRecord,
   type ParsedCatalogMigration,
 } from '../lib/parts-catalog-migration';
+import { buildYeonhoCatalogEnvelope } from '../lib/yeonho-catalog-workbook';
 import { buildPartSort, buildSearchQuery } from '../routes/admin-parts';
 
-type Mode = 'dry-run' | 'apply' | 'verify' | 'verify-search' | 'rollback';
+type Mode = 'dry-run' | 'apply' | 'replace' | 'verify' | 'verify-search' | 'rollback';
 
 interface CliOptions {
   mode: Mode;
   file: string;
   manifest: string;
+  retireSourceSha: string | undefined;
 }
 
 type PartWithOffers = Prisma.SpPartGetPayload<{
@@ -86,6 +89,12 @@ const RecordSnapshotSchema = z.object({
   offers: z.array(OfferSnapshotSchema),
 });
 
+const RetirementStateSchema = z.object({
+  sourceSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  candidatePartIds: z.array(z.string().regex(/^\d+$/)),
+  completedAt: z.string().nullable(),
+});
+
 const MigrationManifestSchema = z.object({
   version: z.literal(1),
   sourceFile: z.string(),
@@ -96,6 +105,7 @@ const MigrationManifestSchema = z.object({
   rolledBackAt: z.string().nullable(),
   runId: z.string().nullable(),
   records: z.array(RecordSnapshotSchema),
+  retirement: RetirementStateSchema.optional(),
 });
 
 type MigrationManifest = z.infer<typeof MigrationManifestSchema>;
@@ -104,7 +114,7 @@ type PartSnapshot = z.infer<typeof PartSnapshotSchema>;
 
 const DEFAULT_FILE = path.resolve(
   process.cwd(),
-  'catalog-migrations/yeonho-connectors-2026-07-17/catalog-envelope.json',
+  'catalog-migrations/yeonho-connectors-2026-07-17/연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx',
 );
 
 function optionValue(args: string[], name: string): string | undefined {
@@ -119,21 +129,33 @@ function parseOptions(args: string[]): CliOptions {
   const modes: [string, Mode][] = [
     ['--dry-run', 'dry-run'],
     ['--apply', 'apply'],
+    ['--replace', 'replace'],
     ['--verify', 'verify'],
     ['--verify-search', 'verify-search'],
     ['--rollback', 'rollback'],
   ];
   const selected = modes.filter(([flag]) => args.includes(flag));
   if (selected.length !== 1) {
-    throw new Error('실행 모드를 하나만 지정하세요: --dry-run|--apply|--verify|--verify-search|--rollback');
+    throw new Error(
+      '실행 모드를 하나만 지정하세요: --dry-run|--apply|--replace|--verify|--verify-search|--rollback',
+    );
   }
   const mode = selected[0]?.[1];
   if (mode === undefined) throw new Error('실행 모드가 없습니다');
   const file = path.resolve(optionValue(args, '--file') ?? DEFAULT_FILE);
+  const baseName = path.parse(file).name;
   const manifest = path.resolve(
-    optionValue(args, '--manifest') ?? path.join(path.dirname(file), 'migration-state.json'),
+    optionValue(args, '--manifest')
+      ?? path.join(path.dirname(file), `migration-state-${baseName}.json`),
   );
-  return { mode, file, manifest };
+  const retireSourceSha = optionValue(args, '--retire-source-sha')?.toLowerCase();
+  if (retireSourceSha !== undefined && !/^[0-9a-f]{64}$/.test(retireSourceSha)) {
+    throw new Error('--retire-source-sha는 64자리 SHA-256이어야 합니다');
+  }
+  if (mode === 'replace' && retireSourceSha === undefined) {
+    throw new Error('--replace에는 --retire-source-sha가 필요합니다');
+  }
+  return { mode, file, manifest, retireSourceSha };
 }
 
 function chunks<T>(values: T[], size: number): T[][] {
@@ -156,7 +178,9 @@ async function fileExists(file: string): Promise<boolean> {
 }
 
 async function loadInput(file: string): Promise<{ raw: unknown; parsed: ParsedCatalogMigration; fingerprint: string }> {
-  const raw: unknown = JSON.parse(await readFile(file, 'utf8'));
+  const raw: unknown = path.extname(file).toLowerCase() === '.xlsx'
+    ? (await buildYeonhoCatalogEnvelope(file)).envelope
+    : JSON.parse(await readFile(file, 'utf8'));
   const parsed = parseCatalogMigrationEnvelope(raw);
   const fingerprint = supplierSearchIngestFingerprint(raw);
   if (fingerprint === null) throw new Error('기존 부품 인제스트 계약으로 해석할 수 없는 파일입니다');
@@ -314,6 +338,209 @@ function preflightSummary(
     generatedMpnParts: parsed.records.filter((record) => record.product.catalog_metadata.generatedMpn).length,
     commercialOffers: parsed.records.flatMap((record) => record.product.offers)
       .filter((offer) => offer.price_breaks.length > 0 || offer.stock !== null && offer.stock !== undefined).length,
+  };
+}
+
+type SourceOfferWithPart = Prisma.SpPartOfferGetPayload<{
+  include: { part: { include: { offers: true } } };
+}>;
+
+interface SourceRetirementItem {
+  key: string;
+  partId: bigint;
+  mpn: string;
+  targetOfferIds: bigint[];
+  replacementPresent: boolean;
+  remainingRealOffers: number;
+  quoteReferences: number;
+}
+
+interface SourceRetirementPlan {
+  supplier: string;
+  sourceSha256: string;
+  targetOffers: number;
+  items: SourceRetirementItem[];
+  blocked: SourceRetirementItem[];
+}
+
+function migrationSupplier(parsed: ParsedCatalogMigration): string {
+  const suppliers = new Set(parsed.records.flatMap((record) => record.offers.map((offer) => offer.supplier)));
+  if (suppliers.size !== 1) {
+    throw new Error(`교체 마이그레이션은 단일 공급사 입력만 지원합니다: ${[...suppliers].join(', ')}`);
+  }
+  const supplier = [...suppliers][0];
+  if (supplier === undefined) throw new Error('교체 마이그레이션 입력에 공급사 오퍼가 없습니다');
+  return supplier;
+}
+
+async function loadSourceRetirementPlan(
+  parsed: ParsedCatalogMigration,
+  sourceSha256: string,
+): Promise<SourceRetirementPlan> {
+  const supplier = migrationSupplier(parsed);
+  const supplierOffers: SourceOfferWithPart[] = await prisma.spPartOffer.findMany({
+    where: { supplier },
+    include: { part: { include: { offers: true } } },
+  });
+  const targets = supplierOffers.filter((offer) =>
+    isCatalogOfferFromSource(offer.rawJson, supplier, sourceSha256),
+  );
+  const byPart = new Map<string, SourceOfferWithPart[]>();
+  for (const offer of targets) {
+    const id = String(offer.partId);
+    const values = byPart.get(id) ?? [];
+    values.push(offer);
+    byPart.set(id, values);
+  }
+  const partIds = [...byPart.values()].flatMap((offers) => {
+    const first = offers[0];
+    return first === undefined ? [] : [first.partId];
+  });
+  const quoteRows = partIds.length === 0
+    ? []
+    : await prisma.spBomQuoteItem.findMany({
+        where: { partId: { in: partIds } },
+        select: { partId: true },
+      });
+  const quotesByPart = new Map<string, number>();
+  for (const row of quoteRows) {
+    if (row.partId === null) continue;
+    const id = String(row.partId);
+    quotesByPart.set(id, (quotesByPart.get(id) ?? 0) + 1);
+  }
+  const replacementKeys = new Set(parsed.records.map((record) => record.key));
+  const items = [...byPart.values()].flatMap((offers): SourceRetirementItem[] => {
+    const first = offers[0];
+    if (first === undefined) return [];
+    const targetIds = new Set(offers.map((offer) => String(offer.id)));
+    const key = partKey(first.part);
+    return [{
+      key,
+      partId: first.partId,
+      mpn: first.part.mpn,
+      targetOfferIds: offers.map((offer) => offer.id),
+      replacementPresent: replacementKeys.has(key),
+      remainingRealOffers: first.part.offers.filter(
+        (offer) => offer.supplier !== 'samplepcb' && !targetIds.has(String(offer.id)),
+      ).length,
+      quoteReferences: quotesByPart.get(String(first.partId)) ?? 0,
+    }];
+  }).sort((a, b) => a.key.localeCompare(b.key));
+  const blocked = items.filter(
+    (item) => !item.replacementPresent && item.remainingRealOffers === 0 && item.quoteReferences > 0,
+  );
+  return {
+    supplier,
+    sourceSha256,
+    targetOffers: targets.length,
+    items,
+    blocked,
+  };
+}
+
+function retirementSummary(plan: SourceRetirementPlan): Record<string, unknown> {
+  return {
+    supplier: plan.supplier,
+    retiredSourceSha256: plan.sourceSha256,
+    oldSourceOffers: plan.targetOffers,
+    oldSourceParts: plan.items.length,
+    overlappingReplacementParts: plan.items.filter((item) => item.replacementPresent).length,
+    retireOnlyParts: plan.items.filter((item) => !item.replacementPresent).length,
+    retainedByOtherSupplier: plan.items.filter(
+      (item) => !item.replacementPresent && item.remainingRealOffers > 0,
+    ).length,
+    blockedQuoteReferences: plan.blocked.map((item) => ({
+      key: item.key,
+      quoteReferences: item.quoteReferences,
+    })),
+  };
+}
+
+async function retireCatalogSource(
+  plan: SourceRetirementPlan,
+  candidatePartIds: string[],
+): Promise<Record<string, unknown>> {
+  if (plan.blocked.length > 0) {
+    throw new Error(
+      `구 원본 제거 안전 검사 실패\n${plan.blocked
+        .map((item) => `${item.key}: 견적 참조 ${String(item.quoteReferences)}건`)
+        .join('\n')}`,
+    );
+  }
+  let removedPartsThisRun = 0;
+  let deletedOffers = 0;
+  for (const item of plan.items) {
+    const outcome = await prisma.$transaction(async (tx): Promise<'deleted' | 'reindex' | 'skipped'> => {
+      const currentOffers = await tx.spPartOffer.findMany({
+        where: { id: { in: item.targetOfferIds } },
+        select: { id: true, rawJson: true },
+      });
+      const currentTargetIds = currentOffers.filter((offer) =>
+        isCatalogOfferFromSource(offer.rawJson, plan.supplier, plan.sourceSha256),
+      ).map((offer) => offer.id);
+      if (currentTargetIds.length === 0) return 'skipped';
+
+      const remainingRealOffers = await tx.spPartOffer.count({
+        where: {
+          partId: item.partId,
+          supplier: { not: 'samplepcb' },
+          id: { notIn: currentTargetIds },
+        },
+      });
+      if (remainingRealOffers === 0) {
+        const quoteReferences = await tx.spBomQuoteItem.count({ where: { partId: item.partId } });
+        if (quoteReferences > 0) {
+          throw new Error(`${item.key}: 제거 직전 견적 참조 ${String(quoteReferences)}건 감지`);
+        }
+        const removed = await tx.spPartOffer.deleteMany({ where: { id: { in: currentTargetIds } } });
+        deletedOffers += removed.count;
+        await tx.spPartIndexQueue.deleteMany({ where: { partId: item.partId } });
+        await tx.spPart.delete({ where: { id: item.partId } });
+        return 'deleted';
+      }
+      const removed = await tx.spPartOffer.deleteMany({ where: { id: { in: currentTargetIds } } });
+      deletedOffers += removed.count;
+      return 'reindex';
+    });
+    if (outcome === 'deleted') {
+      removedPartsThisRun += 1;
+    }
+  }
+
+  const candidateIds = [...new Set(candidatePartIds)].map((id) => BigInt(id));
+  const retainedParts = candidateIds.length === 0
+    ? []
+    : await prisma.spPart.findMany({
+        where: { id: { in: candidateIds } },
+        select: { id: true, mpn: true },
+      });
+  for (const part of retainedParts) {
+    await applyPartFacts(part.id);
+    if (!await tryIndexPart(part.id, { force: true })) {
+      throw new Error(`구 카탈로그 제거 후 재색인 실패: ${part.mpn}`);
+    }
+  }
+  const retainedIds = new Set(retainedParts.map((part) => String(part.id)));
+  const deletedPartIds = candidatePartIds.filter((id) => !retainedIds.has(id));
+  if (deletedPartIds.length > 0) {
+    const response = await esClient().bulk({
+      operations: deletedPartIds.map((id) => ({ delete: { _index: SP_PARTS_WRITE, _id: id } })),
+      refresh: false,
+    });
+    const failures = response.items.filter((item) => {
+      const operation = item.delete;
+      return operation?.error !== undefined && operation.status !== 404;
+    });
+    if (failures.length > 0) {
+      throw new Error(`구 카탈로그 ES 문서 삭제 중 ${String(failures.length)}건 오류가 발생했습니다`);
+    }
+  }
+  if (candidatePartIds.length > 0) await refreshPartsIndex();
+  return {
+    deletedOffers,
+    deletedParts: deletedPartIds.length,
+    removedPartsThisRun,
+    reindexedParts: retainedParts.length,
   };
 }
 
@@ -572,6 +799,11 @@ async function rollback(
   const manifest = await readManifest(manifestFile);
   if (manifest.ingestFingerprint !== fingerprint) throw new Error('입력 파일과 rollback manifest가 다릅니다');
   if (manifest.rolledBackAt !== null) throw new Error(`이미 rollback되었습니다: ${manifest.rolledBackAt}`);
+  if (manifest.retirement !== undefined) {
+    throw new Error(
+      '--replace는 구 source 제거를 포함하므로 이 CLI의 부분 rollback을 허용하지 않습니다. 운영 DB 백업을 복원하세요.',
+    );
+  }
 
   const recordsByKey = new Map(parsed.records.map((record) => [record.key, record]));
   const blocked: string[] = [];
@@ -691,24 +923,42 @@ async function main(): Promise<void> {
   const input = await loadInput(options.file);
   if (options.mode === 'dry-run') {
     const existing = await loadExistingParts(input.parsed.records);
-    console.log(json(preflightSummary(input.parsed, input.fingerprint, existing)));
+    const replacement = options.retireSourceSha === undefined
+      ? null
+      : await loadSourceRetirementPlan(input.parsed, options.retireSourceSha);
+    console.log(json({
+      ...preflightSummary(input.parsed, input.fingerprint, existing),
+      ...(replacement === null ? {} : { replacement: retirementSummary(replacement) }),
+    }));
     return;
   }
   await bootstrapPartsIndex(console);
-  if (options.mode === 'apply') {
+  if (options.mode === 'apply' || options.mode === 'replace') {
+    if (
+      options.mode === 'replace'
+      && options.retireSourceSha === input.parsed.sourceSha256
+    ) {
+      throw new Error('새 원본과 제거 원본의 SHA-256이 같습니다');
+    }
+    const replacementBefore = options.mode === 'replace'
+      ? await loadSourceRetirementPlan(input.parsed, options.retireSourceSha ?? '')
+      : null;
+    if (replacementBefore !== null && replacementBefore.blocked.length > 0) {
+      throw new Error(
+        `교체 적용 전 안전 검사 실패\n${replacementBefore.blocked
+          .map((item) => `${item.key}: 견적 참조 ${String(item.quoteReferences)}건`)
+          .join('\n')}`,
+      );
+    }
     const existing = await loadExistingParts(input.parsed.records);
     const manifest = await ensureApplyManifest(options.manifest, input.parsed, input.fingerprint, existing);
+    let reused = false;
+    let ingest: Awaited<ReturnType<typeof ingestSupplierSearchResultOnce>> | null = null;
+    let verification: Record<string, unknown> | null = null;
     if (manifest.appliedAt !== null) {
       try {
-        const verification = await verifyAll(input.parsed, true);
-        console.log(json({
-          result: true,
-          mode: options.mode,
-          reused: true,
-          manifest: options.manifest,
-          verification,
-        }));
-        return;
+        verification = await verifyAll(input.parsed, true);
+        reused = true;
       } catch {
         // DB·ES가 적용 완료 원장에서 이탈했다면 동일 fingerprint를 failed로 되돌려
         // 기존 idempotent 인제스트가 누락분을 복구할 수 있게 한다.
@@ -718,17 +968,86 @@ async function main(): Promise<void> {
         });
       }
     }
-    const result = await ingestSupplierSearchResultOnce(input.raw, `catalog:${input.parsed.sourceFile}`);
-    manifest.appliedAt = new Date().toISOString();
-    manifest.runId = result.runId;
+    if (!reused) {
+      ingest = await ingestSupplierSearchResultOnce(input.raw, `catalog:${input.parsed.sourceFile}`);
+      manifest.appliedAt = new Date().toISOString();
+      manifest.runId = ingest.runId;
+      await writeManifest(options.manifest, manifest);
+      verification = await verifyAll(input.parsed, true);
+    }
+    if (verification === null) throw new Error('적용 후 검증 결과가 없습니다');
+    if (options.mode === 'apply') {
+      console.log(json({
+        result: true,
+        mode: options.mode,
+        reused,
+        manifest: options.manifest,
+        ingest,
+        verification,
+      }));
+      return;
+    }
+
+    const replacementAfter = await loadSourceRetirementPlan(
+      input.parsed,
+      options.retireSourceSha ?? '',
+    );
+    if (
+      manifest.retirement !== undefined
+      && manifest.retirement.sourceSha256 !== options.retireSourceSha
+    ) {
+      throw new Error('manifest에 다른 구 원본 제거 작업이 기록되어 있습니다');
+    }
+    const candidatePartIds = [...new Set([
+      ...(manifest.retirement?.candidatePartIds ?? []),
+      ...replacementAfter.items.map((item) => String(item.partId)),
+    ])];
+    const alreadyRetired = manifest.retirement?.completedAt !== null
+      && manifest.retirement?.completedAt !== undefined
+      && replacementAfter.targetOffers === 0;
+    let retirement: Record<string, unknown>;
+    if (alreadyRetired) {
+      retirement = {
+        reused: true,
+        candidateParts: candidatePartIds.length,
+        completedAt: manifest.retirement?.completedAt,
+      };
+    } else {
+      manifest.retirement = {
+        sourceSha256: options.retireSourceSha ?? '',
+        candidatePartIds,
+        completedAt: null,
+      };
+      // DB 제거 전에 대상 part ID를 저장한다. DB 성공 후 ES 실패·프로세스 종료가 나도
+      // 다음 실행이 사라진 DB 행의 ES 문서까지 다시 삭제할 수 있다.
+      await writeManifest(options.manifest, manifest);
+      retirement = await retireCatalogSource(replacementAfter, candidatePartIds);
+    }
+    const remaining = await loadSourceRetirementPlan(
+      input.parsed,
+      options.retireSourceSha ?? '',
+    );
+    if (remaining.targetOffers > 0) {
+      throw new Error(`구 원본 오퍼가 ${String(remaining.targetOffers)}건 남았습니다`);
+    }
+    const finalVerification = await verifyAll(input.parsed, true);
+    manifest.retirement = {
+      sourceSha256: options.retireSourceSha ?? '',
+      candidatePartIds,
+      completedAt: new Date().toISOString(),
+    };
     await writeManifest(options.manifest, manifest);
-    const verification = await verifyAll(input.parsed, true);
     console.log(json({
       result: true,
       mode: options.mode,
+      reused,
       manifest: options.manifest,
-      ingest: result,
+      ingest,
       verification,
+      replacementBefore: replacementBefore === null ? null : retirementSummary(replacementBefore),
+      retirement,
+      retiredSourceRemainingOffers: remaining.targetOffers,
+      finalVerification,
     }));
     return;
   }

@@ -112,8 +112,53 @@ export interface ParsedCatalogMigration {
   sourceSha256: string;
 }
 
+export interface CatalogSourceProvenance {
+  supplier: string;
+  sourceDataset: string;
+  sourceSha256: string;
+}
+
 function recordKey(mpnNorm: string, manufacturerNorm: string): string {
   return `${manufacturerNorm}:${mpnNorm}`;
+}
+
+function unknownObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+/** rawJson에 명시된 catalog-only 원천만 반환한다. 가격 오퍼나 추정 데이터는 제거 대상이 아니다. */
+export function catalogSourceProvenance(rawJson: unknown): CatalogSourceProvenance | null {
+  const product = unknownObject(rawJson);
+  const metadata = unknownObject(product?.catalog_metadata);
+  const supplier = product?.supplier;
+  const sourceDataset = metadata?.sourceDataset;
+  const sourceSha256 = metadata?.sourceDatasetSha256;
+  if (
+    typeof supplier !== 'string'
+    || typeof sourceDataset !== 'string'
+    || typeof sourceSha256 !== 'string'
+    || metadata?.catalogOnly !== true
+    || !/^[0-9a-f]{64}$/i.test(sourceSha256)
+  ) return null;
+  return {
+    supplier,
+    sourceDataset,
+    sourceSha256: sourceSha256.toLowerCase(),
+  };
+}
+
+/** supplier와 원본 해시가 모두 일치하는 카탈로그 오퍼에만 파괴 작업을 허용한다. */
+export function isCatalogOfferFromSource(
+  rawJson: unknown,
+  supplier: string,
+  sourceSha256: string,
+): boolean {
+  const provenance = catalogSourceProvenance(rawJson);
+  return provenance !== null
+    && provenance.supplier === supplier
+    && provenance.sourceSha256 === sourceSha256.toLowerCase();
 }
 
 function validateCatalogProduct(product: CatalogProductType): void {
