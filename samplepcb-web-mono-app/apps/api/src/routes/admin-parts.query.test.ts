@@ -1,8 +1,13 @@
 // 부품 검색 쿼리 빌더의 비연결 회귀 테스트.
 // 실 DB·ES 통합 테스트가 skip 되는 CI에서도 필터 승격과 정렬 계약을 고정한다.
 import { describe, expect, it } from 'vitest';
-import { PartSearchQuery } from '@sp/api-contract';
-import { buildExactSearchIntent, buildPartSort, buildSearchQuery } from './admin-parts';
+import { PartBulkDeleteFilter, PartSearchQuery } from '@sp/api-contract';
+import {
+  buildExactSearchIntent,
+  buildPartDeletionPreview,
+  buildPartSort,
+  buildSearchQuery,
+} from './admin-parts';
 
 function serializedQuery(input: Record<string, unknown>): string {
   return JSON.stringify(buildSearchQuery(PartSearchQuery.parse(input)));
@@ -73,5 +78,98 @@ describe('buildPartSort', () => {
     expect(buildPartSort('relevance')).toEqual(['_score']);
     expect(buildPartSort('price')).toEqual([{ minPrice: { order: 'asc', missing: '_last' } }]);
     expect(buildPartSort('stock')).toEqual([{ totalStock: { order: 'desc' } }]);
+  });
+});
+
+describe('part bulk delete preview', () => {
+  const filter = PartBulkDeleteFilter.parse({ manufacturer: 'YEONHO ELECTRONICS' });
+  const parts = [
+    {
+      id: '1',
+      mpn: 'OLD-1',
+      manufacturerName: 'YEONHO ELECTRONICS',
+      offers: [{
+        supplier: 'yeonho',
+        supplierSku: 'OLD-1',
+        rawJson: {
+          catalog_metadata: {
+            catalogOnly: true,
+            sourceDataset: 'old.xlsx',
+            sourceDatasetSha256: 'a'.repeat(64),
+          },
+        },
+      }],
+    },
+    {
+      id: '2',
+      mpn: 'SHARED-2',
+      manufacturerName: 'YEONHO ELECTRONICS',
+      offers: [
+        { supplier: 'yeonho', supplierSku: 'SHARED-2', rawJson: {} },
+        { supplier: 'digikey', supplierSku: 'DK-SHARED-2', rawJson: {} },
+      ],
+    },
+  ];
+
+  it('견적 연결 부품은 보호하고 DB에 없는 ES 문서는 삭제 가능 대상으로 분리한다', () => {
+    const preview = buildPartDeletionPreview(
+      filter,
+      ['3', '2', '1'],
+      parts,
+      [
+        { partId: '2', quoteId: '100' },
+        { partId: '2', quoteId: '101' },
+      ],
+    );
+    expect(preview.deletableIds).toEqual(['1', '3']);
+    expect(preview.data).toMatchObject({
+      matchedParts: 3,
+      existingParts: 2,
+      deletableParts: 2,
+      protectedParts: 1,
+      protectedQuoteItems: 2,
+      staleIndexDocuments: 1,
+      multiSupplierParts: 1,
+      confirmation: 'DELETE 2',
+      supplierOffers: [
+        { value: 'digikey', count: 1 },
+        { value: 'yeonho', count: 2 },
+      ],
+      catalogSources: [{
+        supplier: 'yeonho',
+        sourceDataset: 'old.xlsx',
+        sourceSha256: 'a'.repeat(64),
+        count: 1,
+      }],
+      protectedSample: [{
+        partId: '2',
+        mpn: 'SHARED-2',
+        quoteCount: 2,
+        quoteIds: ['100', '101'],
+      }],
+    });
+  });
+
+  it('입력 순서와 무관하게 같은 hash이며 견적 연결이 바뀌면 hash도 바뀐다', () => {
+    const first = buildPartDeletionPreview(
+      filter,
+      ['2', '1'],
+      parts,
+      [{ partId: '2', quoteId: '100' }],
+    );
+    const reordered = buildPartDeletionPreview(
+      filter,
+      ['1', '2'],
+      [...parts].reverse(),
+      [{ partId: '2', quoteId: '100' }],
+    );
+    const changed = buildPartDeletionPreview(filter, ['1', '2'], parts, []);
+    expect(reordered.data.previewHash).toBe(first.data.previewHash);
+    expect(changed.data.previewHash).not.toBe(first.data.previewHash);
+  });
+
+  it('검색어·필터가 전혀 없는 전체 삭제 요청은 계약에서 거부한다', () => {
+    expect(PartBulkDeleteFilter.safeParse({}).success).toBe(false);
+    expect(PartBulkDeleteFilter.safeParse({ supplier: 'yeonho' }).success).toBe(true);
   });
 });

@@ -1,7 +1,13 @@
+import { createHash } from 'node:crypto';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import type { estypes } from '@elastic/elasticsearch';
 import { z } from 'zod';
 import {
+  ApiError,
+  PartBulkDeleteBody,
+  PartBulkDeletePreviewBody,
+  PartBulkDeletePreviewResponse,
+  PartBulkDeleteResponse,
   PartDeleteResponse,
   PartDetailResponse,
   PartRefreshResponse,
@@ -9,6 +15,8 @@ import {
   PartSearchResponse,
   PartsResetBody,
   PartsResetResponse,
+  type PartBulkDeleteFilterType,
+  type PartBulkDeletePreviewDataType,
   type PartHitType,
   type PartSearchQueryType,
 } from '@sp/api-contract';
@@ -18,6 +26,7 @@ import { F, SP_PARTS_READ, SP_PARTS_WRITE, type SpPartDoc } from '../es/sp-parts
 import { prisma } from '../lib/prisma';
 import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
+import { refreshPartsIndex } from '../lib/parts-es';
 import { loadPartDetailDto } from '../lib/parts-read';
 
 // ── /api/admin/parts — 부품 카탈로그 검색(ES) + 상세(DB) (requireAdmin) ──────
@@ -173,6 +182,281 @@ function facetBuckets(aggs: Record<string, estypes.AggregationsAggregate> | unde
   return buckets.map((b) => ({ value: String(b.key), count: b.doc_count }));
 }
 
+export interface PartDeletionPreviewPart {
+  id: string;
+  mpn: string;
+  manufacturerName: string;
+  offers: { supplier: string; supplierSku: string; rawJson: unknown }[];
+}
+
+export interface PartDeletionQuoteReference {
+  partId: string;
+  quoteId: string;
+}
+
+interface PartBulkDeletePreviewInternal {
+  data: PartBulkDeletePreviewDataType;
+  matchedIds: string[];
+  deletableIds: string[];
+}
+
+function chunks<T>(values: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let offset = 0; offset < values.length; offset += size) {
+    result.push(values.slice(offset, offset + size));
+  }
+  return result;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function catalogSourceIdentity(
+  rawJson: unknown,
+): { sourceDataset: string; sourceSha256: string | null } | null {
+  const product = objectValue(rawJson);
+  const metadata = objectValue(product?.catalog_metadata);
+  const sourceDataset = metadata?.sourceDataset;
+  if (metadata?.catalogOnly !== true || typeof sourceDataset !== 'string') return null;
+  return {
+    sourceDataset,
+    sourceSha256: typeof metadata.sourceDatasetSha256 === 'string'
+      ? metadata.sourceDatasetSha256
+      : null,
+  };
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  const record = objectValue(value);
+  if (record === null) return value;
+  return Object.fromEntries(
+    Object.keys(record).sort().map((key) => [key, canonicalize(record[key])]),
+  );
+}
+
+function numericIdSort(a: string, b: string): number {
+  if (/^\d+$/.test(a) && /^\d+$/.test(b)) {
+    const left = BigInt(a);
+    const right = BigInt(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+  }
+  return a.localeCompare(b);
+}
+
+/**
+ * ES 검색 결과와 DB 사실을 결합해 삭제 가능/견적 보호 대상을 나눈다.
+ * fingerprint에는 대상 ID·오퍼 원천·견적 참조가 모두 들어가 미리보기 이후 변화가 있으면 실행을 거부한다.
+ */
+export function buildPartDeletionPreview(
+  filter: PartBulkDeleteFilterType,
+  matchedIdsInput: string[],
+  partsInput: PartDeletionPreviewPart[],
+  quoteReferencesInput: PartDeletionQuoteReference[],
+): PartBulkDeletePreviewInternal {
+  const matchedIds = [...new Set(matchedIdsInput)].sort(numericIdSort);
+  const parts = [...partsInput].sort((a, b) => numericIdSort(a.id, b.id));
+  const partById = new Map(parts.map((part) => [part.id, part]));
+  const references = [...quoteReferencesInput].sort(
+    (a, b) => numericIdSort(a.partId, b.partId) || numericIdSort(a.quoteId, b.quoteId),
+  );
+  const referencesByPart = new Map<string, string[]>();
+  for (const reference of references) {
+    const values = referencesByPart.get(reference.partId) ?? [];
+    values.push(reference.quoteId);
+    referencesByPart.set(reference.partId, values);
+  }
+  const protectedIds = new Set(referencesByPart.keys());
+  const deletableIds = matchedIds.filter((id) => !protectedIds.has(id));
+
+  const supplierCounts = new Map<string, number>();
+  const sourceCounts = new Map<string, {
+    supplier: string;
+    sourceDataset: string;
+    sourceSha256: string | null;
+    count: number;
+  }>();
+  let multiSupplierParts = 0;
+  for (const part of parts) {
+    const realSuppliers = new Set<string>();
+    for (const offer of part.offers) {
+      supplierCounts.set(offer.supplier, (supplierCounts.get(offer.supplier) ?? 0) + 1);
+      if (offer.supplier !== 'samplepcb') realSuppliers.add(offer.supplier);
+      const source = catalogSourceIdentity(offer.rawJson);
+      if (source === null) continue;
+      const key = `${offer.supplier}\u0000${source.sourceDataset}\u0000${source.sourceSha256 ?? ''}`;
+      const current = sourceCounts.get(key);
+      if (current === undefined) {
+        sourceCounts.set(key, {
+          supplier: offer.supplier,
+          sourceDataset: source.sourceDataset,
+          sourceSha256: source.sourceSha256,
+          count: 1,
+        });
+      } else {
+        current.count += 1;
+      }
+    }
+    if (realSuppliers.size > 1) multiSupplierParts += 1;
+  }
+
+  const protectedSample = [...protectedIds]
+    .sort(numericIdSort)
+    .flatMap((partId) => {
+      const part = partById.get(partId);
+      if (part === undefined) return [];
+      const quoteIds = [...new Set(referencesByPart.get(partId) ?? [])].sort(numericIdSort);
+      return [{
+        partId,
+        mpn: part.mpn,
+        manufacturerName: part.manufacturerName,
+        quoteCount: referencesByPart.get(partId)?.length ?? 0,
+        quoteIds: quoteIds.slice(0, 20),
+      }];
+    })
+    .slice(0, 50);
+  const supplierOffers = [...supplierCounts.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([value, count]) => ({ value, count }));
+  const catalogSources = [...sourceCounts.values()].sort(
+    (a, b) =>
+      a.supplier.localeCompare(b.supplier)
+      || a.sourceDataset.localeCompare(b.sourceDataset)
+      || (a.sourceSha256 ?? '').localeCompare(b.sourceSha256 ?? ''),
+  );
+  const fingerprint = createHash('sha256').update(JSON.stringify(canonicalize({
+    filter,
+    matchedIds,
+    parts: parts.map((part) => ({
+      id: part.id,
+      offers: part.offers
+        .map((offer) => ({
+          supplier: offer.supplier,
+          supplierSku: offer.supplierSku,
+          source: catalogSourceIdentity(offer.rawJson),
+        }))
+        .sort((a, b) =>
+          a.supplier.localeCompare(b.supplier)
+          || a.supplierSku.localeCompare(b.supplierSku)
+          || JSON.stringify(canonicalize(a.source)).localeCompare(JSON.stringify(canonicalize(b.source))),
+        ),
+    })),
+    references,
+  }))).digest('hex');
+  const protectedQuoteItems = references.length;
+  const protectedParts = protectedIds.size;
+  return {
+    matchedIds,
+    deletableIds,
+    data: {
+      matchedParts: matchedIds.length,
+      existingParts: parts.length,
+      deletableParts: deletableIds.length,
+      protectedParts,
+      protectedQuoteItems,
+      staleIndexDocuments: matchedIds.filter((id) => !partById.has(id)).length,
+      multiSupplierParts,
+      supplierOffers,
+      catalogSources,
+      protectedSample,
+      previewHash: fingerprint,
+      confirmation: `DELETE ${String(deletableIds.length)}`,
+    },
+  };
+}
+
+async function collectMatchingPartIds(filter: PartBulkDeleteFilterType): Promise<string[]> {
+  const params = PartSearchQuery.parse({ ...filter, page: 1, pageSize: 100, sort: 'relevance' });
+  let scrollId: string | undefined;
+  const ids: string[] = [];
+  try {
+    let response = await esClient().search<SpPartDoc>({
+      index: SP_PARTS_READ,
+      query: buildSearchQuery(params),
+      size: 500,
+      sort: ['_doc'],
+      scroll: '1m',
+      _source: [F.partId],
+    } as unknown as estypes.SearchRequest);
+    scrollId = response._scroll_id;
+    for (;;) {
+      const hits = response.hits.hits;
+      for (const hit of hits) {
+        const id = hit._source?.partId ?? hit._id;
+        if (id !== undefined) ids.push(id);
+      }
+      if (hits.length === 0 || scrollId === undefined) break;
+      response = await esClient().scroll<SpPartDoc>({ scroll_id: scrollId, scroll: '1m' });
+      scrollId = response._scroll_id ?? scrollId;
+    }
+  } finally {
+    if (scrollId !== undefined) {
+      await esClient().clearScroll({ scroll_id: scrollId }).catch(() => undefined);
+    }
+  }
+  return [...new Set(ids)];
+}
+
+async function loadPartBulkDeletePreview(
+  filter: PartBulkDeleteFilterType,
+): Promise<PartBulkDeletePreviewInternal> {
+  const matchedIds = await collectMatchingPartIds(filter);
+  const numericIds = matchedIds.filter((id) => /^\d+$/.test(id)).map((id) => BigInt(id));
+  const parts: PartDeletionPreviewPart[] = [];
+  for (const batch of chunks(numericIds, 500)) {
+    const rows = await prisma.spPart.findMany({
+      where: { id: { in: batch } },
+      select: {
+        id: true,
+        mpn: true,
+        manufacturerName: true,
+        offers: { select: { supplier: true, supplierSku: true, rawJson: true } },
+      },
+    });
+    parts.push(...rows.map((part) => ({
+      id: String(part.id),
+      mpn: part.mpn,
+      manufacturerName: part.manufacturerName,
+      offers: part.offers,
+    })));
+  }
+  const quoteReferences: PartDeletionQuoteReference[] = [];
+  for (const batch of chunks(numericIds, 500)) {
+    const rows = await prisma.spBomQuoteItem.findMany({
+      where: { partId: { in: batch } },
+      select: { partId: true, quoteId: true },
+    });
+    quoteReferences.push(...rows.flatMap((row) =>
+      row.partId === null ? [] : [{ partId: String(row.partId), quoteId: String(row.quoteId) }],
+    ));
+  }
+  return buildPartDeletionPreview(filter, matchedIds, parts, quoteReferences);
+}
+
+async function deletePartDocuments(ids: string[]): Promise<boolean> {
+  if (ids.length === 0) return false;
+  let cleanupPending = false;
+  try {
+    for (const batch of chunks(ids, 500)) {
+      const response = await esClient().bulk({
+        operations: batch.map((id) => ({ delete: { _index: SP_PARTS_WRITE, _id: id } })),
+        refresh: false,
+      });
+      if (response.items.some((item) => {
+        const operation = item.delete;
+        return operation?.error !== undefined && operation.status !== 404;
+      })) cleanupPending = true;
+    }
+    await refreshPartsIndex();
+  } catch {
+    cleanupPending = true;
+  }
+  return cleanupPending;
+}
+
 export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
 
@@ -190,6 +474,7 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         index: SP_PARTS_READ,
         from: (q.page - 1) * q.pageSize,
         size: q.pageSize,
+        track_total_hits: true,
         query: buildSearchQuery(q),
         sort,
         aggs: {
@@ -222,6 +507,131 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
+  // 현재 검색 조건 전체 삭제 미리보기. 페이지 100건 제한을 사용하지 않고 ES scroll로
+  // 정확한 ID 전체를 잡은 뒤 DB 오퍼·견적 참조를 결합한다.
+  fastify.post(
+    '/parts/bulk-delete/preview',
+    {
+      schema: {
+        body: PartBulkDeletePreviewBody,
+        response: { 200: PartBulkDeletePreviewResponse, 503: ApiError },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const preview = await loadPartBulkDeletePreview(request.body.filter);
+        return { result: true as const, data: preview.data };
+      } catch (error) {
+        request.log.warn({ err: error }, 'parts bulk delete preview: 검색 실패');
+        return reply.status(503).send({
+          error: 'SEARCH_UNAVAILABLE',
+          message: '필터 삭제 대상을 조회할 수 없습니다',
+        });
+      }
+    },
+  );
+
+  // 미리보기와 동일한 필터·대상·오퍼·견적 참조일 때만 삭제한다. 견적 연결 부품은
+  // 미리보기 시점과 실행 직전 모두 제외하며 partId를 임의 해제하지 않는다.
+  fastify.post(
+    '/parts/bulk-delete',
+    {
+      schema: {
+        body: PartBulkDeleteBody,
+        response: {
+          200: PartBulkDeleteResponse,
+          409: ApiError,
+          503: ApiError,
+        },
+      },
+    },
+    async (request, reply) => {
+      let preview: PartBulkDeletePreviewInternal;
+      try {
+        preview = await loadPartBulkDeletePreview(request.body.filter);
+      } catch (error) {
+        request.log.warn({ err: error }, 'parts bulk delete: 대상 재조회 실패');
+        return reply.status(503).send({
+          error: 'SEARCH_UNAVAILABLE',
+          message: '필터 삭제 대상을 다시 조회할 수 없습니다',
+        });
+      }
+      if (preview.data.previewHash !== request.body.previewHash) {
+        return reply.status(409).send({
+          error: 'BULK_DELETE_PREVIEW_STALE',
+          message: '미리보기 이후 대상이나 견적 연결이 변경되었습니다. 다시 확인하세요.',
+        });
+      }
+      if (request.body.confirmation !== preview.data.confirmation) {
+        return reply.status(409).send({
+          error: 'BULK_DELETE_CONFIRMATION_MISMATCH',
+          message: `확인 문구 ${preview.data.confirmation}을 정확히 입력하세요.`,
+        });
+      }
+      if (preview.deletableIds.length === 0) {
+        return reply.status(409).send({
+          error: 'NO_DELETABLE_PARTS',
+          message: '삭제 가능한 부품이 없습니다. 연결된 견적 부품은 보호됩니다.',
+        });
+      }
+
+      let deletedParts = 0;
+      const newlyProtectedIds = new Set<string>();
+      const numericDeletableIds = preview.deletableIds
+        .filter((id) => /^\d+$/.test(id))
+        .map((id) => BigInt(id));
+      for (const batch of chunks(numericDeletableIds, 200)) {
+        const result = await prisma.$transaction(async (tx) => {
+          const references = await tx.spBomQuoteItem.findMany({
+            where: { partId: { in: batch } },
+            select: { partId: true },
+          });
+          const protectedIds = new Set(
+            references.flatMap((row) => row.partId === null ? [] : [String(row.partId)]),
+          );
+          const safeIds = batch.filter((id) => !protectedIds.has(String(id)));
+          if (safeIds.length === 0) return { deleted: 0, protectedIds };
+          await tx.spPartIndexQueue.deleteMany({ where: { partId: { in: safeIds } } });
+          const deleted = await tx.spPart.deleteMany({ where: { id: { in: safeIds } } });
+          return { deleted: deleted.count, protectedIds };
+        });
+        deletedParts += result.deleted;
+        for (const id of result.protectedIds) newlyProtectedIds.add(id);
+      }
+
+      const previewDeletableIds = new Set(preview.deletableIds);
+      const initialProtectedIds = preview.matchedIds.filter(
+        (id) => !previewDeletableIds.has(id),
+      );
+      const protectedIds = [...new Set([...initialProtectedIds, ...newlyProtectedIds])];
+      const protectedNumericIds = protectedIds.filter((id) => /^\d+$/.test(id)).map((id) => BigInt(id));
+      const protectedQuoteItems = protectedNumericIds.length === 0
+        ? 0
+        : await prisma.spBomQuoteItem.count({ where: { partId: { in: protectedNumericIds } } });
+      const esDeleteIds = preview.deletableIds.filter((id) => !newlyProtectedIds.has(id));
+      const esCleanupPending = await deletePartDocuments(esDeleteIds);
+      request.log.warn({
+        filter: request.body.filter,
+        matchedParts: preview.data.matchedParts,
+        deletedParts,
+        protectedParts: protectedIds.length,
+        protectedQuoteItems,
+        esCleanupPending,
+      }, 'parts bulk delete completed');
+      return {
+        result: true as const,
+        data: {
+          matchedParts: preview.data.matchedParts,
+          deletedParts,
+          protectedParts: protectedIds.length,
+          protectedQuoteItems,
+          staleIndexDocuments: preview.data.staleIndexDocuments,
+          esCleanupPending,
+        },
+      };
+    },
+  );
+
   // 상세 — DB(진실원본)에서 오퍼·가격구간 포함
   fastify.get(
     '/parts/:id',
@@ -233,17 +643,27 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
-  // 카탈로그 초기화 — 부품 전체 하드 삭제(오퍼·가격구간 DB cascade + ES 문서).
-  // 견적 라인은 partId 만 해제(오퍼 스냅샷·합계 보존 — 스냅샷 박제 원칙).
-  // 카탈로그는 BOM 공급사 검색 자동 인제스트로 다시 성장한다.
+  // 카탈로그 초기화 — 견적 연결이 하나라도 있으면 전체 거부한다. 관리자가 모르는 사이
+  // 견적 partId를 끊는 우회 경로가 되지 않게 단건·필터 삭제와 같은 보호 정책을 쓴다.
   fastify.post(
     '/parts/reset',
-    { schema: { body: PartsResetBody, response: { 200: PartsResetResponse } } },
-    async (request) => {
+    {
+      schema: {
+        body: PartsResetBody,
+        response: { 200: PartsResetResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const quoteReferences = await prisma.spBomQuoteItem.count({ where: { partId: { not: null } } });
+      if (quoteReferences > 0) {
+        return reply.status(409).send({
+          error: 'PARTS_IN_USE',
+          message: `견적에 연결된 부품이 있어 초기화할 수 없습니다 (${String(quoteReferences)}개 라인)`,
+        });
+      }
       const parts = await prisma.spPart.count();
       await prisma.$transaction([
         prisma.spPartIndexQueue.deleteMany({}),
-        prisma.spBomQuoteItem.updateMany({ where: { partId: { not: null } }, data: { partId: null } }),
         prisma.spPart.deleteMany({}),
       ]);
       try {
@@ -255,19 +675,32 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
-  // 부품 단건 하드 삭제 — 오퍼·가격구간 DB cascade + ES 문서. 견적 라인은 partId 만 해제.
+  // 부품 단건 하드 삭제 — 견적이 참조 중이면 409로 보호하고 partId를 임의 해제하지 않는다.
   fastify.delete(
     '/parts/:id',
-    { schema: { params: IdParams, response: { 200: PartDeleteResponse } } },
+    {
+      schema: {
+        params: IdParams,
+        response: { 200: PartDeleteResponse, 409: ApiError },
+      },
+    },
     async (request, reply) => {
       const id = request.params.id;
       const part = await prisma.spPart.findUnique({ where: { id }, select: { id: true } });
       if (part === null) return reply.notFound('부품을 찾을 수 없습니다');
-      await prisma.$transaction([
-        prisma.spPartIndexQueue.deleteMany({ where: { partId: id } }),
-        prisma.spBomQuoteItem.updateMany({ where: { partId: id }, data: { partId: null } }),
-        prisma.spPart.delete({ where: { id } }),
-      ]);
+      const deleted = await prisma.$transaction(async (tx) => {
+        const quoteReferences = await tx.spBomQuoteItem.count({ where: { partId: id } });
+        if (quoteReferences > 0) return { deleted: false, quoteReferences };
+        await tx.spPartIndexQueue.deleteMany({ where: { partId: id } });
+        await tx.spPart.delete({ where: { id } });
+        return { deleted: true, quoteReferences: 0 };
+      });
+      if (!deleted.deleted) {
+        return reply.status(409).send({
+          error: 'PART_IN_USE',
+          message: `견적에 연결된 부품은 삭제할 수 없습니다 (${String(deleted.quoteReferences)}개 라인)`,
+        });
+      }
       try {
         await esClient().delete({ index: SP_PARTS_WRITE, id: String(id), refresh: true });
       } catch (err) {

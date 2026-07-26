@@ -2,12 +2,16 @@ import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiSend } from '@sp/shared';
 import {
+  PartBulkDeletePreviewResponse,
+  PartBulkDeleteResponse,
   PartDeleteResponse,
   PartDetailResponse,
   PartRefreshResponse,
   PartSearchResponse,
   PartsResetResponse,
   apiRoutes,
+  type PartBulkDeleteBodyType,
+  type PartBulkDeleteFilterType,
   type PartSearchQueryType,
 } from '@sp/api-contract';
 
@@ -94,7 +98,7 @@ export function useRefreshPart() {
   });
 }
 
-// 하드 삭제 — 오퍼·가격구간 cascade, 견적 라인은 partId 만 해제(스냅샷 보존)
+// 하드 삭제 — 오퍼·가격구간 cascade. 견적 연결 부품은 서버가 409로 보호한다.
 export function useDeletePart() {
   const qc = useQueryClient();
   return useMutation({
@@ -105,7 +109,31 @@ export function useDeletePart() {
   });
 }
 
-// 카탈로그 초기화 — 부품 전체 하드 삭제(자동 인제스트로 재성장)
+// 현재 검색 필터 전체 삭제 — preview hash와 건수 확인 문구를 실행 요청에 다시 보낸다.
+export function usePreviewPartBulkDelete() {
+  return useMutation({
+    mutationFn: (filter: PartBulkDeleteFilterType) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminParts}/bulk-delete/preview`,
+        { filter },
+        PartBulkDeletePreviewResponse,
+      ),
+  });
+}
+
+export function useBulkDeleteParts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PartBulkDeleteBodyType) =>
+      apiSend('POST', `${apiRoutes.adminParts}/bulk-delete`, body, PartBulkDeleteResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'parts'] });
+    },
+  });
+}
+
+// 카탈로그 초기화 — 견적 연결이 하나라도 있으면 전체 거부, 그 외 부품 전체 삭제.
 export function useResetParts() {
   const qc = useQueryClient();
   return useMutation({

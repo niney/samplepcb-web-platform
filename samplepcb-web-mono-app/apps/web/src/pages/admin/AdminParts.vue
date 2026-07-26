@@ -1,8 +1,23 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { PartFacetBucketType, PartHitType } from '@sp/api-contract';
+import type {
+  PartBulkDeleteFilterType,
+  PartBulkDeletePreviewDataType,
+  PartFacetBucketType,
+  PartHitType,
+} from '@sp/api-contract';
+import { ApiRequestError } from '@sp/shared';
 import { parseSpecToken, type SpecKind } from '@sp/utils';
-import { useDeletePart, usePartDetail, usePartSearch, useRefreshPart, useResetParts, type PartSearchFilters } from '../../admin/useAdminParts';
+import {
+  useBulkDeleteParts,
+  useDeletePart,
+  usePartDetail,
+  usePartSearch,
+  usePreviewPartBulkDelete,
+  useRefreshPart,
+  useResetParts,
+  type PartSearchFilters,
+} from '../../admin/useAdminParts';
 import PartImage from '../../components/ui/PartImage.vue';
 
 // 부품 카탈로그 검색 — "검색 콘솔" 카드가 페이지의 시그니처: 단위·표기 자유 검색이
@@ -86,8 +101,10 @@ async function onDeletePart(partId: string): Promise<void> {
   try {
     await del.mutateAsync(partId);
     detailId.value = null;
-  } catch {
-    deleteError.value = '삭제 실패 — 잠시 후 다시 시도하세요.';
+  } catch (error) {
+    deleteError.value = error instanceof ApiRequestError && error.payload?.error === 'PART_IN_USE'
+      ? '견적에 연결된 부품은 삭제할 수 없습니다.'
+      : '삭제 실패 — 잠시 후 다시 시도하세요.';
   }
 }
 
@@ -101,9 +118,100 @@ async function onReset(): Promise<void> {
   resetArm.value = false;
   try {
     const res = await resetParts.mutateAsync();
-    resetMsg.value = `카탈로그 초기화 완료 — 부품 ${String(res.data.parts)}건 삭제(견적 스냅샷은 보존)`;
+    resetMsg.value = `카탈로그 초기화 완료 — 부품 ${String(res.data.parts)}건 삭제`;
+  } catch (error) {
+    resetMsg.value = error instanceof ApiRequestError && error.payload?.error === 'PARTS_IN_USE'
+      ? '초기화 실패 — 견적 연결 부품이 있어 전체 초기화를 중단했습니다.'
+      : '초기화 실패 — 잠시 후 다시 시도하세요.';
+  }
+}
+
+// ── 현재 필터 결과 전체 삭제 — 서버 미리보기 hash + 건수 확인 문구 ──────────
+const bulkPreviewMutation = usePreviewPartBulkDelete();
+const bulkDeleteMutation = useBulkDeleteParts();
+const bulkPreview = ref<PartBulkDeletePreviewDataType | null>(null);
+const bulkConfirmation = ref('');
+const bulkDeleteError = ref('');
+const bulkDeleteMsg = ref('');
+
+function currentBulkDeleteFilter(): PartBulkDeleteFilterType {
+  const value = filters.value;
+  return {
+    q: q.value,
+    inStockOnly: value.inStockOnly ?? false,
+    ...(value.manufacturer === undefined ? {} : { manufacturer: value.manufacturer }),
+    ...(value.packageCode === undefined ? {} : { packageCode: value.packageCode }),
+    ...(value.supplier === undefined ? {} : { supplier: value.supplier }),
+    ...(value.resistanceMin === undefined ? {} : { resistanceMin: value.resistanceMin }),
+    ...(value.resistanceMax === undefined ? {} : { resistanceMax: value.resistanceMax }),
+    ...(value.capacitanceMin === undefined ? {} : { capacitanceMin: value.capacitanceMin }),
+    ...(value.capacitanceMax === undefined ? {} : { capacitanceMax: value.capacitanceMax }),
+    ...(value.inductanceMin === undefined ? {} : { inductanceMin: value.inductanceMin }),
+    ...(value.inductanceMax === undefined ? {} : { inductanceMax: value.inductanceMax }),
+    ...(value.voltageMin === undefined ? {} : { voltageMin: value.voltageMin }),
+    ...(value.voltageMax === undefined ? {} : { voltageMax: value.voltageMax }),
+  };
+}
+
+const hasBulkDeleteFilter = computed(() => {
+  const value = currentBulkDeleteFilter();
+  return value.q !== ''
+    || value.manufacturer !== undefined
+    || value.packageCode !== undefined
+    || value.supplier !== undefined
+    || value.inStockOnly
+    || value.resistanceMin !== undefined
+    || value.resistanceMax !== undefined
+    || value.capacitanceMin !== undefined
+    || value.capacitanceMax !== undefined
+    || value.inductanceMin !== undefined
+    || value.inductanceMax !== undefined
+    || value.voltageMin !== undefined
+    || value.voltageMax !== undefined;
+});
+
+function closeBulkDelete(): void {
+  bulkPreview.value = null;
+  bulkConfirmation.value = '';
+  bulkDeleteError.value = '';
+}
+
+async function previewBulkDelete(): Promise<void> {
+  bulkDeleteError.value = '';
+  bulkDeleteMsg.value = '';
+  try {
+    const response = await bulkPreviewMutation.mutateAsync(currentBulkDeleteFilter());
+    bulkPreview.value = response.data;
+    bulkConfirmation.value = '';
   } catch {
-    resetMsg.value = '초기화 실패 — 잠시 후 다시 시도하세요.';
+    bulkDeleteError.value = '삭제 대상을 확인할 수 없습니다. 검색 서비스 상태를 확인하세요.';
+  }
+}
+
+async function executeBulkDelete(): Promise<void> {
+  const preview = bulkPreview.value;
+  if (preview === null) return;
+  bulkDeleteError.value = '';
+  try {
+    const response = await bulkDeleteMutation.mutateAsync({
+      filter: currentBulkDeleteFilter(),
+      previewHash: preview.previewHash,
+      confirmation: bulkConfirmation.value,
+    });
+    const result = response.data;
+    bulkDeleteMsg.value = `필터 결과 ${String(result.deletedParts)}건 삭제 · 견적 연결 ${String(result.protectedParts)}건 보호${
+      result.esCleanupPending ? ' · 검색 색인 정리 재시도 필요' : ''
+    }`;
+    detailId.value = null;
+    closeBulkDelete();
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.payload?.error === 'BULK_DELETE_PREVIEW_STALE') {
+      bulkDeleteError.value = '대상 또는 견적 연결이 변경되었습니다. 미리보기를 다시 확인하세요.';
+      return;
+    }
+    bulkDeleteError.value = error instanceof ApiRequestError
+      ? error.payload?.message ?? '필터 결과 삭제에 실패했습니다.'
+      : '필터 결과 삭제에 실패했습니다.';
   }
 }
 
@@ -199,6 +307,10 @@ function toggleDetail(id: string): void {
 watch(q, () => {
   detailId.value = null;
 });
+watch([q, filters], () => {
+  if (bulkPreview.value !== null) closeBulkDelete();
+  bulkDeleteMsg.value = '';
+});
 
 const totalPages = computed(() => {
   const d = data.value;
@@ -276,7 +388,7 @@ function facetLabel(b: PartFacetBucketType): string {
           class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
           @click="onReset"
         >
-          부품 전체 삭제 — 되돌릴 수 없습니다. 확정하려면 클릭
+          부품 전체 삭제 — 견적 연결이 있으면 중단됩니다. 확정하려면 클릭
         </button>
       </div>
     </div>
@@ -416,7 +528,118 @@ function facetLabel(b: PartFacetBucketType): string {
             {{ chip.label }}
             <span class="text-blue-400 group-hover:text-blue-600">✕</span>
           </button>
+          <span v-if="bulkDeleteMsg !== ''" class="text-xs text-emerald-700">{{ bulkDeleteMsg }}</span>
+          <span v-if="bulkPreview === null && bulkDeleteError !== ''" class="text-xs text-red-600">{{ bulkDeleteError }}</span>
+          <button
+            v-if="hasBulkDeleteFilter && data.total > 0"
+            type="button"
+            class="ml-auto rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            :disabled="bulkPreviewMutation.isPending.value || bulkDeleteMutation.isPending.value"
+            @click="previewBulkDelete"
+          >
+            {{ bulkPreviewMutation.isPending.value ? '대상 확인 중…' : `필터 결과 ${String(data.total)}건 전체 삭제` }}
+          </button>
         </div>
+
+        <section
+          v-if="bulkPreview !== null"
+          class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-gray-700"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 class="font-semibold text-red-800">필터 결과 전체 삭제 확인</h3>
+              <p class="mt-1 text-xs text-red-700">
+                현재 페이지가 아니라 필터에 맞는 전체 {{ bulkPreview.matchedParts }}건이 대상입니다.
+                견적 연결 부품은 삭제하지 않고 그대로 보호합니다.
+              </p>
+            </div>
+            <button type="button" class="text-xs text-gray-500 hover:text-gray-800" @click="closeBulkDelete">닫기</button>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div class="rounded-lg bg-white px-3 py-2">
+              <p class="text-[11px] text-gray-500">필터 일치</p>
+              <p class="font-semibold tabular-nums">{{ bulkPreview.matchedParts }}건</p>
+            </div>
+            <div class="rounded-lg bg-white px-3 py-2">
+              <p class="text-[11px] text-gray-500">삭제 가능</p>
+              <p class="font-semibold tabular-nums text-red-700">{{ bulkPreview.deletableParts }}건</p>
+            </div>
+            <div class="rounded-lg bg-white px-3 py-2">
+              <p class="text-[11px] text-gray-500">견적 연결 보호</p>
+              <p class="font-semibold tabular-nums text-amber-700">{{ bulkPreview.protectedParts }}건</p>
+            </div>
+            <div class="rounded-lg bg-white px-3 py-2">
+              <p class="text-[11px] text-gray-500">견적 라인</p>
+              <p class="font-semibold tabular-nums">{{ bulkPreview.protectedQuoteItems }}건</p>
+            </div>
+          </div>
+
+          <div v-if="bulkPreview.multiSupplierParts > 0" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            여러 실공급사 오퍼를 함께 가진 부품 {{ bulkPreview.multiSupplierParts }}건도 삭제 대상에 포함될 수 있습니다.
+          </div>
+          <div v-if="bulkPreview.staleIndexDocuments > 0" class="mt-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+            DB에는 없고 검색 색인에만 남은 문서 {{ bulkPreview.staleIndexDocuments }}건도 함께 정리합니다.
+          </div>
+
+          <div class="mt-3 grid gap-3 lg:grid-cols-2">
+            <div class="rounded-lg border border-red-100 bg-white p-3">
+              <p class="text-xs font-semibold text-gray-700">포함 오퍼</p>
+              <div class="mt-1 flex flex-wrap gap-1.5">
+                <span
+                  v-for="supplier in bulkPreview.supplierOffers"
+                  :key="supplier.value"
+                  class="rounded-full bg-gray-100 px-2 py-0.5 text-xs"
+                >
+                  {{ supplier.value }} {{ supplier.count }}
+                </span>
+                <span v-if="bulkPreview.supplierOffers.length === 0" class="text-xs text-gray-400">오퍼 없음</span>
+              </div>
+            </div>
+            <div class="rounded-lg border border-red-100 bg-white p-3">
+              <p class="text-xs font-semibold text-gray-700">카탈로그 원본</p>
+              <ul v-if="bulkPreview.catalogSources.length > 0" class="mt-1 space-y-1 text-xs">
+                <li v-for="source in bulkPreview.catalogSources" :key="`${source.supplier}-${source.sourceDataset}-${source.sourceSha256 ?? ''}`">
+                  {{ source.supplier }} · {{ source.sourceDataset }} · {{ source.count }}건
+                  <span v-if="source.sourceSha256 !== null" class="font-mono text-gray-400">{{ source.sourceSha256.slice(0, 12) }}…</span>
+                </li>
+              </ul>
+              <span v-else class="text-xs text-gray-400">카탈로그 원본 메타 없음</span>
+            </div>
+          </div>
+
+          <div v-if="bulkPreview.protectedSample.length > 0" class="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+            <p class="text-xs font-semibold text-amber-800">삭제하지 않는 견적 연결 부품</p>
+            <ul class="mt-1 max-h-32 space-y-1 overflow-y-auto text-xs">
+              <li v-for="part in bulkPreview.protectedSample" :key="part.partId">
+                <span class="font-medium">{{ part.mpn }}</span>
+                <span class="text-gray-500"> · {{ part.manufacturerName }} · 견적 #{{ part.quoteIds.join(', #') }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="mt-3 flex flex-wrap items-end gap-2">
+            <label class="min-w-56 flex-1 text-xs font-medium text-gray-700">
+              삭제하려면 <span class="font-mono font-semibold text-red-700">{{ bulkPreview.confirmation }}</span> 입력
+              <input
+                v-model="bulkConfirmation"
+                type="text"
+                class="mt-1 w-full rounded-lg border border-red-300 bg-white px-3 py-2 font-mono text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                :placeholder="bulkPreview.confirmation"
+                @keydown.enter="executeBulkDelete"
+              >
+            </label>
+            <button
+              type="button"
+              class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="bulkConfirmation !== bulkPreview.confirmation || bulkPreview.deletableParts === 0 || bulkDeleteMutation.isPending.value"
+              @click="executeBulkDelete"
+            >
+              {{ bulkDeleteMutation.isPending.value ? '삭제 중…' : `${String(bulkPreview.deletableParts)}건 삭제` }}
+            </button>
+          </div>
+          <p v-if="bulkDeleteError !== ''" class="mt-2 text-xs text-red-700">{{ bulkDeleteError }}</p>
+        </section>
 
         <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -477,7 +700,7 @@ function facetLabel(b: PartFacetBucketType): string {
                         >
                           {{ refresh.isPending.value ? '공급사 조회 중…' : '공급사 갱신' }}
                         </button>
-                        <!-- 하드 삭제 — 2단계 확인. 견적 라인은 스냅샷 보존(partId 만 해제) -->
+                        <!-- 하드 삭제 — 2단계 확인. 견적 연결 부품은 서버가 삭제를 거부한다. -->
                         <button
                           v-if="deleteArmId !== p.id"
                           type="button"

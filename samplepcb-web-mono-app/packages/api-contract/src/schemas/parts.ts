@@ -223,11 +223,11 @@ export const PartRefreshResponse = z.object({
 });
 export type PartRefreshResponseType = z.infer<typeof PartRefreshResponse>;
 
-// 하드 삭제(관리자) — 오퍼·가격구간 cascade, 견적 라인은 partId 만 해제(스냅샷 보존)
+// 하드 삭제(관리자) — 오퍼·가격구간 cascade, 견적 연결 부품은 409로 보호.
 export const PartDeleteResponse = z.object({ result: z.literal(true) });
 export type PartDeleteResponseType = z.infer<typeof PartDeleteResponse>;
 
-// 카탈로그 초기화(관리자) — 전체 하드 삭제. confirm 리터럴로 오호출 방어.
+// 카탈로그 초기화(관리자) — 견적 연결이 있으면 전체 거부. confirm 리터럴로 오호출 방어.
 export const PartsResetBody = z.object({ confirm: z.literal('RESET') });
 export type PartsResetBodyType = z.infer<typeof PartsResetBody>;
 export const PartsResetResponse = z.object({
@@ -235,3 +235,93 @@ export const PartsResetResponse = z.object({
   data: z.object({ parts: z.number().int() }),
 });
 export type PartsResetResponseType = z.infer<typeof PartsResetResponse>;
+
+// 현재 관리자 검색 조건과 정확히 일치하는 부품 전체 삭제. 페이지·정렬은 대상 범위가 아니며,
+// 무필터 전체 삭제는 기존 카탈로그 초기화와 구분하기 위해 계약에서 거부한다.
+const PartBulkDeleteFilterBase = PartSearchQuery.omit({
+  sort: true,
+  page: true,
+  pageSize: true,
+});
+export const PartBulkDeleteFilter = PartBulkDeleteFilterBase.refine(
+  (value) =>
+    value.q !== ''
+    || value.manufacturer !== undefined
+    || value.packageCode !== undefined
+    || value.supplier !== undefined
+    || value.inStockOnly
+    || value.resistanceMin !== undefined
+    || value.resistanceMax !== undefined
+    || value.capacitanceMin !== undefined
+    || value.capacitanceMax !== undefined
+    || value.inductanceMin !== undefined
+    || value.inductanceMax !== undefined
+    || value.voltageMin !== undefined
+    || value.voltageMax !== undefined,
+  { message: '필터 결과 삭제에는 검색어나 필터가 하나 이상 필요합니다' },
+);
+export type PartBulkDeleteFilterType = z.infer<typeof PartBulkDeleteFilter>;
+
+export const PartBulkDeletePreviewBody = z.object({ filter: PartBulkDeleteFilter });
+export type PartBulkDeletePreviewBodyType = z.infer<typeof PartBulkDeletePreviewBody>;
+
+const PartBulkDeleteFacetCount = z.object({
+  value: z.string(),
+  count: z.number().int().nonnegative(),
+});
+
+const PartBulkDeleteCatalogSource = z.object({
+  supplier: z.string(),
+  sourceDataset: z.string(),
+  sourceSha256: z.string().nullable(),
+  count: z.number().int().nonnegative(),
+});
+
+const PartBulkDeleteProtectedPart = z.object({
+  partId: z.string(),
+  mpn: z.string(),
+  manufacturerName: z.string(),
+  quoteCount: z.number().int().positive(),
+  quoteIds: z.array(z.string()),
+});
+
+export const PartBulkDeletePreviewData = z.object({
+  matchedParts: z.number().int().nonnegative(),
+  existingParts: z.number().int().nonnegative(),
+  deletableParts: z.number().int().nonnegative(),
+  protectedParts: z.number().int().nonnegative(),
+  protectedQuoteItems: z.number().int().nonnegative(),
+  staleIndexDocuments: z.number().int().nonnegative(),
+  multiSupplierParts: z.number().int().nonnegative(),
+  supplierOffers: z.array(PartBulkDeleteFacetCount),
+  catalogSources: z.array(PartBulkDeleteCatalogSource),
+  protectedSample: z.array(PartBulkDeleteProtectedPart),
+  previewHash: z.string().regex(/^[0-9a-f]{64}$/),
+  confirmation: z.string(),
+});
+export type PartBulkDeletePreviewDataType = z.infer<typeof PartBulkDeletePreviewData>;
+export const PartBulkDeletePreviewResponse = z.object({
+  result: z.literal(true),
+  data: PartBulkDeletePreviewData,
+});
+export type PartBulkDeletePreviewResponseType = z.infer<typeof PartBulkDeletePreviewResponse>;
+
+export const PartBulkDeleteBody = z.object({
+  filter: PartBulkDeleteFilter,
+  previewHash: z.string().regex(/^[0-9a-f]{64}$/),
+  confirmation: z.string().max(64),
+});
+export type PartBulkDeleteBodyType = z.infer<typeof PartBulkDeleteBody>;
+
+export const PartBulkDeleteResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    matchedParts: z.number().int().nonnegative(),
+    deletedParts: z.number().int().nonnegative(),
+    protectedParts: z.number().int().nonnegative(),
+    protectedQuoteItems: z.number().int().nonnegative(),
+    staleIndexDocuments: z.number().int().nonnegative(),
+    esCleanupPending: z.boolean(),
+  }),
+});
+export type PartBulkDeleteResponseType = z.infer<typeof PartBulkDeleteResponse>;
