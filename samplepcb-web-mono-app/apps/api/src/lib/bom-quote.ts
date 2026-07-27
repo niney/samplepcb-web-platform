@@ -419,7 +419,11 @@ const StoredPreferredLocalCatalogPreflight = z
       components: z.array(
         z.object({
           component_id: z.string(),
-          catalog_type: z.enum(['samplepcb_rc', 'connector']).optional(),
+          catalog_type: z.enum([
+            'samplepcb_rc',
+            'connector',
+            'ingested_rc',
+          ]).optional(),
           query: z.string(),
           outcome: z.enum([
             'selected',
@@ -772,6 +776,77 @@ export function quoteLocalCatalogTrace(
               },
         },
   };
+}
+
+function supplierSearchRunTargetsComponent(
+  options: Prisma.JsonValue,
+  componentId: string,
+): boolean {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    return true;
+  }
+  const componentIds = options.component_ids;
+  if (!Array.isArray(componentIds) || componentIds.length === 0) return true;
+  return componentIds.some((value) => value === componentId);
+}
+
+function supplierSearchRunBypassesLocalCatalog(
+  options: Prisma.JsonValue,
+): boolean {
+  return options !== null
+    && typeof options === 'object'
+    && !Array.isArray(options)
+    && options.local_catalog_bypass === true;
+}
+
+/**
+ * 다른 행의 후속 재검색이 active run을 바꿔도 이 행의 실험 출처를 잃지 않도록
+ * 가장 최근에 이 component를 대상으로 한 실행을 찾는다. 명시적 외부 검색 실행은
+ * 이전 로컬 trace를 가려 버튼이 반복 노출되지 않게 한다.
+ */
+export async function loadLatestQuoteLocalCatalogTrace(
+  quoteId: bigint,
+  componentId: string,
+): Promise<BomQuoteLocalCatalogTraceType | null> {
+  const pageSize = 25;
+  let cursorId: bigint | null = null;
+  for (;;) {
+    const runs: {
+      id: bigint;
+      status: string;
+      options: Prisma.JsonValue;
+      preflight: Prisma.JsonValue | null;
+    }[] = await prisma.spBomSupplierSearchRun.findMany({
+      where: { quoteId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: pageSize,
+      ...(cursorId === null ? {} : { cursor: { id: cursorId }, skip: 1 }),
+      select: { id: true, status: true, options: true, preflight: true },
+    });
+    for (const run of runs) {
+      // 로컬 선정 행은 이후 외부 검색 대상에서 제거되므로 persisted
+      // options.component_ids에는 포함되지 않는다. preflight에 이 행의 로컬
+      // trace가 있으면 해당 실행이 실제로 평가한 것이므로 이를 먼저 신뢰한다.
+      const localTrace = quoteLocalCatalogTrace(run.preflight, componentId);
+      if (localTrace !== null) {
+        if (run.status === 'failed' && localTrace.outcome !== 'selected') {
+          continue;
+        }
+        return localTrace;
+      }
+      if (!supplierSearchRunTargetsComponent(run.options, componentId)) {
+        continue;
+      }
+      if (run.status === 'failed') {
+        continue;
+      }
+      if (supplierSearchRunBypassesLocalCatalog(run.options)) return null;
+      return null;
+    }
+    if (runs.length < pageSize) return null;
+    cursorId = runs.at(-1)?.id ?? null;
+    if (cursorId === null) return null;
+  }
 }
 
 function searchTraceSummary(
@@ -3396,7 +3471,7 @@ export async function getQuoteItemCandidates(
   ]);
   if (itemRow === null) return null;
   const engineComponentId = itemRow.analysisComponent?.engineComponentId;
-  const [searchTraceRow, supplierSearchRun] = engineComponentId === undefined
+  const [searchTraceRow, localCatalogTrace] = engineComponentId === undefined
     ? [null, null]
     : await Promise.all([
         prisma.spBomSupplierSearchTrace.findFirst({
@@ -3407,12 +3482,7 @@ export async function getQuoteItemCandidates(
           orderBy: { createdAt: 'desc' },
           select: { payload: true },
         }),
-        quote.activeSupplierSearchRunId === null
-          ? Promise.resolve(null)
-          : prisma.spBomSupplierSearchRun.findUnique({
-              where: { id: quote.activeSupplierSearchRunId },
-              select: { preflight: true },
-            }),
+        loadLatestQuoteLocalCatalogTrace(quoteId, engineComponentId),
       ]);
   const storedSearchTrace = searchTraceRow === null
     ? null
@@ -3420,9 +3490,6 @@ export async function getQuoteItemCandidates(
   const searchTrace = storedSearchTrace?.success === true
     ? quoteSearchTrace(storedSearchTrace.data)
     : null;
-  const localCatalogTrace = supplierSearchRun === null || engineComponentId === undefined
-    ? null
-    : quoteLocalCatalogTrace(supplierSearchRun.preflight, engineComponentId);
   const storedSearchRequirements = BomQuoteSearchRequirements.safeParse(
     itemRow.searchRequirements,
   );

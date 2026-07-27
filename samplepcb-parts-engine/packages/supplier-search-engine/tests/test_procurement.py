@@ -316,6 +316,125 @@ def test_samplepcb_verified_resistor_spec_catalog_is_selected_for_inquiry():
     )
 
 
+@pytest.mark.parametrize(
+    ("part_type", "category_policy", "core_name", "core_value", "category"),
+    [
+        (
+            "resistor",
+            "resistor_minimum",
+            "resistance_ohm",
+            10_000.0,
+            "Chip Resistor",
+        ),
+        (
+            "capacitor",
+            "capacitor_minimum",
+            "capacitance_f",
+            100e-9,
+            "Ceramic Capacitors",
+        ),
+    ],
+)
+def test_ingested_rc_minimum_catalog_is_selected_without_commercial_terms(
+    part_type: str,
+    category_policy: str,
+    core_name: str,
+    core_value: float,
+    category: str,
+):
+    planned = PlannedQuery(
+        component_id=f"ingested-{part_type}",
+        mode=SearchMode.PARAMETRIC,
+        part_type=part_type,
+        category_policy=category_policy,
+        package="0603",
+        quantity=10,
+        requirements={
+            "part_type": requirement("part_type", part_type, "category"),
+            core_name: requirement(core_name, core_value),
+            "package": requirement("package", "0603"),
+        },
+    )
+    candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn=f"INGESTED-{part_type.upper()}",
+                manufacturer="Acme",
+                specs={
+                    "part_type": part_type,
+                    core_name: core_value,
+                    "package": "0603",
+                },
+                stock=None,
+                moq=None,
+                multiple=None,
+                prices=[],
+                offer_kind=OfferKind.MANUFACTURER_CATALOG,
+                catalog_metadata={
+                    "catalogOnly": True,
+                    "autoQuoteEligible": True,
+                    "apiVerificationRequired": False,
+                    "ingestedRcMinimum": True,
+                },
+            ).model_copy(update={"category": category})
+        ],
+    )
+
+    assert candidates[0].decision.match_relation.value == "spec-compatible"
+    assert candidates[0].decision.verification_complete is True
+    assert candidates[0].decision.strict_category_coverage is True
+    assert component.status == "catalog_selected"
+    assert component.selection_application_state.value == "automatic_selected"
+    assert component.primary_unavailability_reason == (
+        ProcurementUnavailabilityReason.CATALOG_INQUIRY
+    )
+
+
+def test_ingested_rc_minimum_policy_requires_explicit_catalog_marker():
+    planned = PlannedQuery(
+        component_id="ingested-unmarked",
+        mode=SearchMode.PARAMETRIC,
+        part_type="resistor",
+        category_policy="resistor_minimum",
+        package="0603",
+        quantity=10,
+        requirements={
+            "part_type": requirement("part_type", "resistor", "category"),
+            "resistance_ohm": requirement("resistance_ohm", 10_000),
+            "package": requirement("package", "0603"),
+        },
+    )
+    _candidates, component = decide(
+        planned,
+        [
+            product(
+                Supplier.DIGIKEY,
+                mpn="INGESTED-UNMARKED",
+                manufacturer="Acme",
+                specs={
+                    "part_type": "resistor",
+                    "resistance_ohm": 10_000,
+                    "package": "0603",
+                },
+                stock=None,
+                moq=None,
+                multiple=None,
+                prices=[],
+                offer_kind=OfferKind.MANUFACTURER_CATALOG,
+                catalog_metadata={
+                    "catalogOnly": True,
+                    "autoQuoteEligible": True,
+                    "apiVerificationRequired": False,
+                },
+            ).model_copy(update={"category": "Chip Resistor"})
+        ],
+    )
+
+    assert component.status == "no_recommendation"
+
+
 def test_non_samplepcb_spec_catalog_remains_unselected():
     planned = PlannedQuery(
         component_id="manufacturer-spec",

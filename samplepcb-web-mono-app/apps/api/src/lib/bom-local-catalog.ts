@@ -10,8 +10,8 @@ import { prisma } from './prisma';
 const LocalCatalogOffer = z
   .object({
     supplier: z.string().min(1),
-    // 이 경로는 catalog_metadata.catalogOnly=true인 제조사 원장만 허용한다.
-    // 기존 적재 데이터에 필드가 없어도 엔진에는 구매 오퍼와 구분해 전달한다.
+    // 로컬 판정 입력은 catalogOnly 기술 후보만 허용한다. 실제 구매 오퍼의
+    // 가격·재고는 이 경로에서 전달하지 않고 외부 공급사 검색이 다시 확인한다.
     offer_kind: z.literal('manufacturer_catalog').default('manufacturer_catalog'),
     supplier_sku: z.string().nullish(),
     packaging: z.string().nullish(),
@@ -219,6 +219,28 @@ interface PreferredCatalogPartRow {
   }[];
 }
 
+interface IngestedRcPartRow {
+  id: bigint;
+  mpn: string;
+  mpnNorm: string;
+  manufacturerName: string;
+  description: string | null;
+  category: string | null;
+  packageCode: string | null;
+  lifecycle: string | null;
+  datasheetUrl: string | null;
+  imageUrl: string | null;
+  specsJson: unknown;
+  offers: {
+    supplier: string;
+    supplierSku: string;
+    productUrl: string | null;
+    packaging: string | null;
+    leadTime: string | null;
+    fetchedAt: Date;
+  }[];
+}
+
 interface LocalCatalogEvaluationInput {
   component: LocalFallbackComponentType;
   query: z.infer<typeof LocalFallbackQuery>;
@@ -235,13 +257,38 @@ const PREFERRED_CATALOG_SEARCH_SIZE = 20;
 const PREFERRED_CATALOG_SEARCH_CONCURRENCY = 20;
 const PREFERRED_CATALOG_REASON_COUNT_LIMIT = 8;
 const PREFERRED_CATALOG_REQUIREMENT_ASSESSMENT_LIMIT = 20;
+const INGESTED_RC_EXPERIMENT_ENV = 'BOM_INGESTED_RC_EXPERIMENT';
+const ENGINE_SUPPLIER_IDENTITIES = new Set([
+  'digikey',
+  'mouser',
+  'unikeyic',
+  'samplepcb',
+  'yeonho',
+  'walsin',
+  'yageo',
+  'samsung',
+  'murata',
+  'tdk',
+  'vishay',
+  'koa',
+  'eleparts',
+  'icbanq',
+]);
 type EsSearchQuery = NonNullable<estypes.SearchRequest['query']>;
 
-export type PreferredLocalCatalogType = 'samplepcb_rc' | 'connector';
+export type PreferredLocalCatalogType =
+  | 'samplepcb_rc'
+  | 'connector'
+  | 'ingested_rc';
 
 interface PreferredCatalogPlan {
   query: z.infer<typeof PreferredCatalogQuery>;
-  catalogType: PreferredLocalCatalogType;
+  catalogType: Exclude<PreferredLocalCatalogType, 'ingested_rc'>;
+}
+
+interface IngestedRcCatalogPlan {
+  evaluationQuery: z.infer<typeof PreferredCatalogQuery>;
+  partType: 'resistor' | 'capacitor';
 }
 
 function chunks<T>(values: T[], size: number): T[][] {
@@ -437,7 +484,7 @@ function packageFilterValues(value: string): string[] {
 
 function preferredCatalogTypeForPartType(
   partType: string,
-): PreferredLocalCatalogType | null {
+): Exclude<PreferredLocalCatalogType, 'ingested_rc'> | null {
   const normalized = partType.toLowerCase();
   if (normalized === 'resistor' || normalized === 'capacitor') return 'samplepcb_rc';
   if (normalized === 'connector') return 'connector';
@@ -447,7 +494,7 @@ function preferredCatalogTypeForPartType(
 function preferredCatalogType(
   query: z.infer<typeof PreferredCatalogQuery>,
   fallbackPartType = '',
-): PreferredLocalCatalogType | null {
+): Exclude<PreferredLocalCatalogType, 'ingested_rc'> | null {
   return preferredCatalogTypeForPartType(
     query.part_type ?? query.category_policy ?? fallbackPartType,
   );
@@ -456,7 +503,7 @@ function preferredCatalogType(
 /** 엔진이 만든 정규 쿼리를 기계적으로 ES 필터로 투영한다. 판정은 여기서 하지 않는다. */
 function preferredCatalogSearchQuery(
   query: z.infer<typeof PreferredCatalogQuery>,
-  catalogType: PreferredLocalCatalogType,
+  catalogType: Exclude<PreferredLocalCatalogType, 'ingested_rc'>,
 ): EsSearchQuery | null {
   if (query.mode === 'excluded' || query.mode === 'insufficient') return null;
 
@@ -513,6 +560,179 @@ function preferredCatalogSearchQuery(
     filter.push({ term: { [F.dielectric]: dielectric.trim().toUpperCase() } });
   }
   return { bool: { filter } };
+}
+
+/** `false`로만 끌 수 있는 실험 플래그. 운영 롤백은 코드 되돌림 없이 가능하다. */
+export function ingestedRcCatalogExperimentEnabled(): boolean {
+  return process.env[INGESTED_RC_EXPERIMENT_ENV]?.trim().toLowerCase() !== 'false';
+}
+
+function ingestedRcCatalogPlan(
+  query: z.infer<typeof PreferredCatalogQuery>,
+): IngestedRcCatalogPlan | null {
+  if (
+    query.mode === 'excluded'
+    || query.mode === 'insufficient'
+    || normalizeMpn(query.part_number ?? '') !== ''
+  ) return null;
+  const partType = (query.part_type ?? '').trim().toLowerCase();
+  if (partType !== 'resistor' && partType !== 'capacitor') return null;
+  const partTypeRequirement = query.requirements.part_type;
+  const coreName = partType === 'resistor' ? 'resistance_ohm' : 'capacitance_f';
+  const coreRequirement = query.requirements[coreName];
+  const packageRequirement = query.requirements.package;
+  if (
+    partTypeRequirement === undefined
+    || !partTypeRequirement.hard
+    || partTypeRequirement.comparison !== 'category'
+    || typeof partTypeRequirement.normalized_value !== 'string'
+    || partTypeRequirement.normalized_value.trim().toLowerCase() !== partType
+    || coreRequirement === undefined
+    || !coreRequirement.hard
+    || coreRequirement.comparison !== 'eq'
+    || typeof coreRequirement.normalized_value !== 'number'
+    || !Number.isFinite(coreRequirement.normalized_value)
+    || packageRequirement === undefined
+    || !packageRequirement.hard
+    || packageRequirement.comparison !== 'eq'
+    || typeof packageRequirement.normalized_value !== 'string'
+    || packageRequirement.normalized_value.trim() === ''
+  ) return null;
+
+  return {
+    partType,
+    evaluationQuery: {
+      ...query,
+      mode: 'parametric',
+      part_number: null,
+      manufacturer: null,
+      part_type: partType,
+      category_policy:
+        partType === 'resistor' ? 'resistor_minimum' : 'capacitor_minimum',
+      package: packageRequirement.normalized_value,
+      requirements: {
+        part_type: partTypeRequirement,
+        [coreName]: coreRequirement,
+        package: packageRequirement,
+      },
+      // 값/패키지가 서로 갈린 입력은 planner가 복수 분기를 만들므로 위에서
+      // 이미 제외된다. 완화 대상이 아닌 공차·전압 등의 충돌은 이 실험 판정에
+      // 끌고 오지 않는다.
+      input_source_conflicts: [],
+    },
+  };
+}
+
+function ingestedRcSearchQuery(plan: IngestedRcCatalogPlan): EsSearchQuery {
+  const coreName = plan.partType === 'resistor'
+    ? 'resistance_ohm'
+    : 'capacitance_f';
+  const coreField = plan.partType === 'resistor'
+    ? 'resistanceOhm'
+    : 'capacitanceF';
+  const core = numericRequirement(plan.evaluationQuery, coreName);
+  const packageValue =
+    plan.evaluationQuery.requirements.package?.normalized_value;
+  if (core === null || typeof packageValue !== 'string') {
+    throw new Error('ingested_rc_plan_invariant');
+  }
+  return {
+    bool: {
+      filter: [
+        { term: { [F.partType]: plan.partType } },
+        { range: { [F.offerCount]: { gte: 1 } } },
+        numericFilter(coreField, core),
+        {
+          terms: {
+            [F.packageVariants]: packageFilterValues(packageValue),
+          },
+        },
+      ],
+    },
+  };
+}
+
+function engineNormalizedSpecs(value: unknown): Record<
+  string,
+  number | string | (number | null)[] | null
+> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const result: Record<string, number | string | (number | null)[] | null> = {};
+  for (const [key, item] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (
+      item === null
+      || typeof item === 'string'
+      || (typeof item === 'number' && Number.isFinite(item))
+    ) {
+      result[key] = item;
+      continue;
+    }
+    if (Array.isArray(item)) {
+      const values: unknown[] = item;
+      const numericItems = values.flatMap((entry) =>
+        entry === null
+        || (typeof entry === 'number' && Number.isFinite(entry))
+          ? [entry]
+          : []);
+      if (numericItems.length === values.length) result[key] = numericItems;
+    }
+  }
+  return result;
+}
+
+function ingestedRcProductForPart(
+  part: IngestedRcPartRow,
+  partType: 'resistor' | 'capacitor',
+): LocalCatalogProductType | null {
+  const offer = part.offers.find((candidate) =>
+    ENGINE_SUPPLIER_IDENTITIES.has(candidate.supplier.trim().toLowerCase()));
+  if (offer === undefined) return null;
+  const supplier = offer.supplier.trim().toLowerCase();
+  const specs = engineNormalizedSpecs(part.specsJson);
+  specs.part_type = partType;
+  if (part.packageCode !== null && part.packageCode.trim() !== '') {
+    specs.package = part.packageCode;
+  }
+  const parsed = LocalCatalogProduct.safeParse({
+    supplier,
+    supplier_product_id:
+      `${supplier}:${offer.supplierSku.trim() === '' ? part.mpnNorm : offer.supplierSku}`,
+    manufacturer_part_number: part.mpn,
+    manufacturer: part.manufacturerName,
+    description: part.description,
+    category: part.category ?? (partType === 'resistor' ? 'Resistor' : 'Capacitor'),
+    package: part.packageCode,
+    lifecycle_status: part.lifecycle,
+    datasheet_url: part.datasheetUrl,
+    image_url: part.imageUrl,
+    normalized_specs: specs,
+    catalog_metadata: {
+      catalogOnly: true,
+      autoQuoteEligible: true,
+      apiVerificationRequired: false,
+      ingestedRcMinimum: true,
+    },
+    offers: [
+      {
+        supplier,
+        offer_kind: 'manufacturer_catalog',
+        supplier_sku: offer.supplierSku.trim() === '' ? part.mpn : offer.supplierSku,
+        packaging: offer.packaging,
+        stock: null,
+        moq: null,
+        order_multiple: null,
+        price_breaks: [],
+        lead_time: offer.leadTime,
+        product_url: offer.productUrl,
+        fetched_at: offer.fetchedAt.toISOString(),
+      },
+    ],
+  });
+  return parsed.success ? parsed.data : null;
 }
 
 function catalogMetadata(value: unknown): Record<string, unknown> | null {
@@ -638,6 +858,88 @@ async function searchPreferredPartIds(
     }
   }
   return result;
+}
+
+async function searchIngestedRcPartIds(
+  plans: IngestedRcCatalogPlan[],
+): Promise<Map<string, string[]>> {
+  const grouped = new Map<
+    string,
+    { query: EsSearchQuery; componentIds: string[] }
+  >();
+  for (const plan of plans) {
+    const query = ingestedRcSearchQuery(plan);
+    const key = JSON.stringify(query);
+    const componentId = plan.evaluationQuery.component_id;
+    const existing = grouped.get(key);
+    if (existing === undefined) {
+      grouped.set(key, { query, componentIds: [componentId] });
+    } else {
+      existing.componentIds.push(componentId);
+    }
+  }
+  const groups = [...grouped.values()];
+  const result = new Map<string, string[]>();
+  for (const batch of chunks(groups, PREFERRED_CATALOG_SEARCH_CONCURRENCY)) {
+    const responses = await Promise.all(
+      batch.map(({ query }) =>
+        esClient().search<SpPartDoc>({
+          index: SP_PARTS_READ,
+          size: PREFERRED_CATALOG_SEARCH_SIZE,
+          track_total_hits: false,
+          query,
+          _source: [F.partId],
+        }),
+      ),
+    );
+    for (const [index, response] of responses.entries()) {
+      const group = batch[index];
+      if (group === undefined) continue;
+      const ids = [...new Set(response.hits.hits.flatMap((hit) =>
+        hit._source?.partId === undefined ? [] : [hit._source.partId]))];
+      for (const componentId of group.componentIds) {
+        result.set(componentId, ids);
+      }
+    }
+  }
+  return result;
+}
+
+async function loadIngestedRcParts(
+  partIds: string[],
+): Promise<IngestedRcPartRow[]> {
+  if (partIds.length === 0) return [];
+  return prisma.spPart.findMany({
+    where: { id: { in: partIds.map((id) => BigInt(id)) } },
+    select: {
+      id: true,
+      mpn: true,
+      mpnNorm: true,
+      manufacturerName: true,
+      description: true,
+      category: true,
+      packageCode: true,
+      lifecycle: true,
+      datasheetUrl: true,
+      imageUrl: true,
+      specsJson: true,
+      offers: {
+        select: {
+          supplier: true,
+          supplierSku: true,
+          productUrl: true,
+          packaging: true,
+          leadTime: true,
+          fetchedAt: true,
+        },
+        orderBy: [
+          { fetchedAt: 'desc' },
+          { supplier: 'asc' },
+          { supplierSku: 'asc' },
+        ],
+      },
+    },
+  });
 }
 
 export type PreferredLocalCatalogOutcome =
@@ -1111,6 +1413,291 @@ export async function evaluatePreferredLocalCatalog(
       traces: traces(),
     };
   }
+}
+
+/**
+ * MPN 없는 R/C를 모든 로컬 인제스트 공급사 데이터에서 값+패키지로 찾는다.
+ *
+ * ES는 후보 조회만 담당한다. 원본 검색계획에서 최소조건만 남긴 별도 쿼리를
+ * sp-engine이 다시 검증하고 `automatic_selected`한 경우에만 외부 호출을
+ * 생략한다. 저장된 가격·재고는 오래됐을 수 있으므로 평가 입력에서 제외한다.
+ */
+export async function evaluateIngestedRcCatalog(
+  preflightValue: unknown,
+  procurementPolicy: unknown,
+  excludedComponentIds: readonly string[] = [],
+  log?: LocalCatalogFallbackLog,
+): Promise<PreferredLocalCatalogResult> {
+  const parsed = SupplierPreflightPlan.safeParse(preflightValue);
+  if (!parsed.success || !ingestedRcCatalogExperimentEnabled()) {
+    return {
+      envelope: null,
+      resolvedComponentIds: [],
+      unresolvedComponentIds: [],
+      evaluatedComponentIds: [],
+      traces: [],
+    };
+  }
+
+  const startedAt = Date.now();
+  const allComponentIds = parsed.data.plan.components.map(
+    (component) => component.component_id,
+  );
+  const excluded = new Set(excludedComponentIds);
+  const tracesByComponent = new Map<string, PreferredLocalCatalogTrace>();
+  const plans: IngestedRcCatalogPlan[] = [];
+  for (const component of parsed.data.plan.components) {
+    if (excluded.has(component.component_id)) continue;
+    if (component.planned_queries.length !== 1) continue;
+    const sourceQuery = component.planned_queries[0];
+    if (sourceQuery === undefined) continue;
+    const plan = ingestedRcCatalogPlan(sourceQuery);
+    if (plan === null) continue;
+    plans.push(plan);
+    tracesByComponent.set(component.component_id, {
+      componentId: component.component_id,
+      catalogType: 'ingested_rc',
+      query: preferredCatalogQueryLabel(sourceQuery),
+      outcome: 'skipped',
+      candidateCount: 0,
+      evaluatedCandidateCount: 0,
+      selectedCandidateCount: 0,
+      elapsedMs: 0,
+      reason: 'query_not_eligible',
+      decisionSummary: null,
+    });
+  }
+
+  const traces = (): PreferredLocalCatalogTrace[] => {
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    return [...tracesByComponent.values()].map((trace) => ({
+      ...trace,
+      elapsedMs,
+    }));
+  };
+  if (plans.length === 0) {
+    return {
+      envelope: null,
+      resolvedComponentIds: [],
+      unresolvedComponentIds: allComponentIds,
+      evaluatedComponentIds: [],
+      traces: [],
+    };
+  }
+
+  try {
+    const partIdsByComponent = await searchIngestedRcPartIds(plans);
+    for (const plan of plans) {
+      const componentId = plan.evaluationQuery.component_id;
+      const trace = tracesByComponent.get(componentId);
+      if (trace === undefined) continue;
+      const candidateCount = partIdsByComponent.get(componentId)?.length ?? 0;
+      trace.candidateCount = candidateCount;
+      trace.outcome = candidateCount === 0 ? 'no_candidates' : 'skipped';
+      trace.reason = candidateCount === 0
+        ? 'catalog_candidates_not_found'
+        : 'catalog_products_unavailable';
+    }
+
+    const uniquePartIds = [
+      ...new Set([...partIdsByComponent.values()].flat()),
+    ];
+    const parts = await loadIngestedRcParts(uniquePartIds);
+    const partsById = new Map(parts.map((part) => [String(part.id), part]));
+    const inputs = plans.flatMap((plan) => {
+      const componentId = plan.evaluationQuery.component_id;
+      const products = (partIdsByComponent.get(componentId) ?? [])
+        .flatMap((partId) => {
+          const part = partsById.get(partId);
+          if (part === undefined) return [];
+          const product = ingestedRcProductForPart(part, plan.partType);
+          return product === null ? [] : [product];
+        })
+        .slice(0, PREFERRED_CATALOG_SEARCH_SIZE);
+      const trace = tracesByComponent.get(componentId);
+      if (trace !== undefined) {
+        trace.evaluatedCandidateCount = products.length;
+        if (products.length === 0 && trace.candidateCount > 0) {
+          trace.outcome = 'no_candidates';
+        }
+      }
+      return products.length === 0
+        ? []
+        : [{ query: plan.evaluationQuery, products }];
+    });
+    if (inputs.length === 0) {
+      return {
+        envelope: null,
+        resolvedComponentIds: [],
+        unresolvedComponentIds: allComponentIds,
+        evaluatedComponentIds: [],
+        traces: traces(),
+      };
+    }
+
+    const queryByComponent = new Map(
+      inputs.map((input) => [input.query.component_id, input.query]),
+    );
+    const evaluated = await evaluateCatalogBatch(inputs, procurementPolicy);
+    const isQuantityDeferredSelection = (
+      item: CatalogEvaluationItemType,
+    ): boolean => {
+      const query = queryByComponent.get(item.component_id);
+      const decision = item.procurement_decision;
+      if (
+        query?.procurement_disposition !== 'quantity_confirmation_required'
+        || query.quantity_resolution !== 'missing'
+        || decision?.status !== 'input_incomplete'
+        || decision.selection_application_state !== 'not_selected'
+        || decision.primary_unavailability_reason !== 'input_incomplete'
+        || decision.technical_preselection_identity_key === null
+        || decision.technical_preselection_identity_key === undefined
+        || decision.technical_preselection_evidence_key === null
+        || decision.technical_preselection_evidence_key === undefined
+      ) return false;
+      return item.candidates.some((candidate) =>
+        candidate.decision?.selection_eligibility === 'automatic'
+        && candidate.decision.identity_key
+          === decision.technical_preselection_identity_key
+        && candidate.decision.technical_evidence_key
+          === decision.technical_preselection_evidence_key);
+    };
+    const quantityDeferredIds = new Set(
+      evaluated
+        .filter(isQuantityDeferredSelection)
+        .map((item) => item.component_id),
+    );
+    const resolved = evaluated.filter((item) =>
+      item.procurement_decision?.selection_application_state
+        === 'automatic_selected'
+      || quantityDeferredIds.has(item.component_id));
+    const resolvedIds = [...new Set(
+      resolved.map((item) => item.component_id),
+    )];
+    const resolvedSet = new Set(resolvedIds);
+    const evaluatedIds = [...new Set(
+      evaluated.map((item) => item.component_id),
+    )];
+    const evaluatedSet = new Set(evaluatedIds);
+    const evaluatedByComponent = new Map(
+      evaluated.map((item) => [item.component_id, item]),
+    );
+    for (const input of inputs) {
+      const componentId = input.query.component_id;
+      const trace = tracesByComponent.get(componentId);
+      if (trace === undefined) continue;
+      const item = evaluatedByComponent.get(componentId);
+      trace.decisionSummary = item === undefined
+        ? null
+        : preferredCatalogDecisionSummary(item);
+      if (resolvedSet.has(componentId)) {
+        trace.outcome = 'selected';
+        trace.selectedCandidateCount = 1;
+        trace.reason = quantityDeferredIds.has(componentId)
+          ? 'quantity_confirmation_required'
+          : 'minimum_requirements_matched';
+      } else if (evaluatedSet.has(componentId)) {
+        trace.outcome = 'rejected';
+        trace.reason = 'engine_not_selected';
+      } else {
+        trace.outcome = 'error';
+        trace.reason = 'evaluation_result_missing';
+      }
+    }
+
+    return {
+      envelope: resolved.length === 0
+        ? null
+        : {
+            supplier_search_schema_version: 'sp-supplier-search-envelope/v1',
+            procurement_decision_contract_status: 'current',
+            search: {
+              search_schema_version: '1.7',
+              procurement_policy: procurementPolicy,
+              components: resolved.map((item) => ({
+                ...item,
+                mode: queryByComponent.get(item.component_id)?.mode,
+                query: queryByComponent.get(item.component_id),
+                procurement_disposition:
+                  queryByComponent.get(item.component_id)
+                    ?.procurement_disposition,
+                quantity_resolution:
+                  queryByComponent.get(item.component_id)?.quantity_resolution,
+                disposition_reason_codes:
+                  queryByComponent.get(item.component_id)
+                    ?.disposition_reason_codes,
+              })),
+              unique_query_count: inputs.length,
+              api_calls: 0,
+              cache_hits: 0,
+              elapsed_ms: 0,
+            },
+          },
+      resolvedComponentIds: resolvedIds,
+      unresolvedComponentIds: allComponentIds.filter(
+        (componentId) => !resolvedSet.has(componentId),
+      ),
+      evaluatedComponentIds: evaluatedIds,
+      traces: traces(),
+    };
+  } catch (error) {
+    log?.warn(
+      { err: String(error) },
+      '인제스트 R/C 최소조건 카탈로그 평가 실패',
+    );
+    for (const plan of plans) {
+      const trace = tracesByComponent.get(plan.evaluationQuery.component_id);
+      if (trace === undefined) continue;
+      trace.outcome = 'error';
+      trace.selectedCandidateCount = 0;
+      trace.reason = 'lookup_failed';
+    }
+    return {
+      envelope: null,
+      resolvedComponentIds: [],
+      unresolvedComponentIds: allComponentIds,
+      evaluatedComponentIds: [],
+      traces: traces(),
+    };
+  }
+}
+
+/** 두 로컬 단계를 한 개의 저장/표시 trace로 합친다. 뒤 단계가 같은 행을 대체한다. */
+export function mergeLocalCatalogResults(
+  first: PreferredLocalCatalogResult,
+  second: PreferredLocalCatalogResult,
+): PreferredLocalCatalogResult {
+  const resolvedComponentIds = [
+    ...new Set([
+      ...first.resolvedComponentIds,
+      ...second.resolvedComponentIds,
+    ]),
+  ];
+  const resolved = new Set(resolvedComponentIds);
+  const allComponentIds = new Set([
+    ...first.resolvedComponentIds,
+    ...first.unresolvedComponentIds,
+    ...second.resolvedComponentIds,
+    ...second.unresolvedComponentIds,
+  ]);
+  const traces = new Map(
+    first.traces.map((trace) => [trace.componentId, trace]),
+  );
+  for (const trace of second.traces) traces.set(trace.componentId, trace);
+  return {
+    envelope: null,
+    resolvedComponentIds,
+    unresolvedComponentIds: [...allComponentIds].filter(
+      (componentId) => !resolved.has(componentId),
+    ),
+    evaluatedComponentIds: [
+      ...new Set([
+        ...first.evaluatedComponentIds,
+        ...second.evaluatedComponentIds,
+      ]),
+    ],
+    traces: [...traces.values()],
+  };
 }
 
 /**

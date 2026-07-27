@@ -243,6 +243,31 @@ export function useUpdateBomQuoteSearchRequirements() {
   });
 }
 
+export function useRunBomQuoteExternalSupplierSearch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      itemId,
+    }: {
+      quoteId: string;
+      itemId: string;
+    }) => apiSend(
+      'POST',
+      `${base}/quotes/${quoteId}/items/${itemId}/supplier-search/external`,
+      undefined,
+      BomQuoteDetailResponse,
+    ),
+    onSuccess: (data, { quoteId, itemId }) => {
+      qc.setQueryData(['bom', 'quote', quoteId], data);
+      void qc.invalidateQueries({
+        queryKey: ['bom', 'quote', quoteId, 'candidates', itemId],
+      });
+      void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] });
+    },
+  });
+}
+
 export function useApplyBomQuotePassiveDefaults() {
   const qc = useQueryClient();
   return useMutation({

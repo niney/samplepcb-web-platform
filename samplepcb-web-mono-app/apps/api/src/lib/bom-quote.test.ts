@@ -13,6 +13,7 @@ import {
   extractEngineSheets,
   filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
+  loadLatestQuoteLocalCatalogTrace,
   loadSupplierSearchSummary,
   projectEnginePartSearchResult,
   quoteNeedsEnrichment,
@@ -141,6 +142,40 @@ describe('부품 유형별 로컬 카탈로그 검색 과정', () => {
     });
   });
 
+  it('인제스트 R/C 실험 실행 기록을 외부 추가 검색용 유형으로 투영한다', () => {
+    expect(quoteLocalCatalogTrace({
+      local_catalog: {
+        version: 'local-catalog-trace-v3',
+        components: [
+          {
+            component_id: 'resistor-ingested',
+            catalog_type: 'ingested_rc',
+            query: '10k 0603 resistor',
+            outcome: 'selected',
+            candidate_count: 4,
+            evaluated_candidate_count: 4,
+            selected_candidate_count: 1,
+            api_calls: 0,
+            elapsed_ms: 9,
+            reason: 'minimum_requirements_matched',
+          },
+        ],
+      },
+    }, 'resistor-ingested')).toEqual({
+      version: 'local-catalog-trace-v3',
+      catalogType: 'ingested_rc',
+      query: '10k 0603 resistor',
+      outcome: 'selected',
+      candidateCount: 4,
+      evaluatedCandidateCount: 4,
+      selectedCandidateCount: 1,
+      apiCalls: 0,
+      elapsedMs: 9,
+      reason: 'minimum_requirements_matched',
+      decisionSummary: null,
+    });
+  });
+
   it('v3 실행 기록의 자동선정 탈락 사유와 대표 후보를 표시 계약으로 투영한다', () => {
     expect(quoteLocalCatalogTrace({
       local_catalog: {
@@ -258,6 +293,138 @@ describe('부품 유형별 로컬 카탈로그 검색 과정', () => {
         components: [],
       },
     }, 'resistor-1')).toBeNull();
+  });
+});
+
+describe('행별 로컬 카탈로그 실행 이력', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const ingestedPreflight = {
+    local_catalog: {
+      version: 'local-catalog-trace-v3',
+      components: [{
+        component_id: 'resistor-ingested',
+        catalog_type: 'ingested_rc',
+        query: '10k 0603 resistor',
+        outcome: 'selected',
+        candidate_count: 2,
+        evaluated_candidate_count: 2,
+        selected_candidate_count: 1,
+        api_calls: 0,
+        elapsed_ms: 5,
+        reason: 'minimum_requirements_matched',
+      }],
+    },
+  };
+
+  it('자체 선정 후 외부 대상 목록에서 제거된 행도 저장된 trace를 노출한다', async () => {
+    vi.spyOn(prisma.spBomSupplierSearchRun, 'findMany').mockResolvedValue([
+      {
+        status: 'completed',
+        options: { component_ids: ['external-component'] },
+        preflight: ingestedPreflight,
+      },
+    ] as never);
+
+    await expect(loadLatestQuoteLocalCatalogTrace(
+      1n,
+      'resistor-ingested',
+    )).resolves.toMatchObject({
+      catalogType: 'ingested_rc',
+      outcome: 'selected',
+      reason: 'minimum_requirements_matched',
+    });
+  });
+
+  it('다른 행의 최신 재검색은 건너뛰고 이 행의 실험 trace를 유지한다', async () => {
+    vi.spyOn(prisma.spBomSupplierSearchRun, 'findMany').mockResolvedValue([
+      {
+        options: { component_ids: ['other-component'] },
+        preflight: {},
+      },
+      {
+        options: { component_ids: [] },
+        preflight: ingestedPreflight,
+      },
+    ] as never);
+
+    const trace = await loadLatestQuoteLocalCatalogTrace(
+      1n,
+      'resistor-ingested',
+    );
+
+    expect(trace).toMatchObject({
+      catalogType: 'ingested_rc',
+      outcome: 'selected',
+      reason: 'minimum_requirements_matched',
+    });
+  });
+
+  it('이 행의 명시적 외부 검색 실행은 과거 실험 trace를 가린다', async () => {
+    vi.spyOn(prisma.spBomSupplierSearchRun, 'findMany').mockResolvedValue([
+      {
+        options: {
+          component_ids: ['resistor-ingested'],
+          local_catalog_bypass: true,
+        },
+        preflight: {},
+      },
+      {
+        options: { component_ids: [] },
+        preflight: ingestedPreflight,
+      },
+    ] as never);
+
+    await expect(loadLatestQuoteLocalCatalogTrace(
+      1n,
+      'resistor-ingested',
+    )).resolves.toBeNull();
+  });
+
+  it('실패한 외부 검색은 과거 실험 trace를 가리지 않아 재시도할 수 있다', async () => {
+    vi.spyOn(prisma.spBomSupplierSearchRun, 'findMany').mockResolvedValue([
+      {
+        status: 'failed',
+        options: {
+          component_ids: ['resistor-ingested'],
+          local_catalog_bypass: true,
+        },
+        preflight: {},
+      },
+      {
+        status: 'completed',
+        options: { component_ids: [] },
+        preflight: ingestedPreflight,
+      },
+    ] as never);
+
+    await expect(loadLatestQuoteLocalCatalogTrace(
+      1n,
+      'resistor-ingested',
+    )).resolves.toMatchObject({
+      catalogType: 'ingested_rc',
+      outcome: 'selected',
+    });
+  });
+
+  it('다른 행의 외부 실패가 섞여도 이미 적용된 실험 선정을 유지한다', async () => {
+    vi.spyOn(prisma.spBomSupplierSearchRun, 'findMany').mockResolvedValue([
+      {
+        status: 'failed',
+        options: { component_ids: [] },
+        preflight: ingestedPreflight,
+      },
+    ] as never);
+
+    await expect(loadLatestQuoteLocalCatalogTrace(
+      1n,
+      'resistor-ingested',
+    )).resolves.toMatchObject({
+      catalogType: 'ingested_rc',
+      outcome: 'selected',
+    });
   });
 });
 

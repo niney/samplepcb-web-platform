@@ -38,6 +38,8 @@ const props = withDefaults(defineProps<{
   requirementsError?: string;
   requirementsProgress?: string;
   requirementsNotice?: string;
+  externalSearchRunning?: boolean;
+  externalSearchError?: string;
   interactionLocked?: boolean;
   initialView?: SelectionView;
   searchInitialQuery?: string;
@@ -54,6 +56,8 @@ const props = withDefaults(defineProps<{
   requirementsError: '',
   requirementsProgress: '',
   requirementsNotice: '',
+  externalSearchRunning: false,
+  externalSearchError: '',
   interactionLocked: false,
   initialView: 'candidates',
   searchInitialQuery: '',
@@ -68,6 +72,7 @@ const emit = defineEmits<{
   catalogSelect: [part: PartHitType, pick: OfferPick | null];
   catalogOffers: [];
   searchRequirements: [requirements: BomQuoteSearchRequirementsBodyType];
+  externalSupplierSearch: [];
 }>();
 
 const i18n = useI18n();
@@ -438,6 +443,9 @@ function localCatalogOutcomeClasses(trace: BomQuoteLocalCatalogTraceType): strin
 }
 
 function localCatalogTitle(trace: BomQuoteLocalCatalogTraceType): string {
+  if (trace.catalogType === 'ingested_rc') {
+    return '저장된 부품 우선 검색';
+  }
   return trace.catalogType === 'connector'
     ? '커넥터 자체 카탈로그'
     : 'SamplePCB R/C 자체 카탈로그';
@@ -468,18 +476,19 @@ function localCatalogReasonLabel(trace: BomQuoteLocalCatalogTraceType): string |
           ? `상세 판정 없음 ${summary.unclassifiedCandidateCount.toLocaleString('ko-KR')}개`
           : null,
       ].filter((value): value is string => value !== null);
-      return `로컬 입력 ${trace.evaluatedCandidateCount.toLocaleString('ko-KR')}개를 엔진이 최종 ${finalCandidateCount.toLocaleString('ko-KR')}개로 정리했으며, ${results.join(' · ')}로 판정돼 자동선정하지 않았습니다.`;
+      return `저장된 후보 ${trace.evaluatedCandidateCount.toLocaleString('ko-KR')}개를 엔진이 최종 ${finalCandidateCount.toLocaleString('ko-KR')}개로 정리했으며, ${results.join(' · ')}로 판정돼 자동선정하지 않았습니다.`;
     }
   }
   const reasons: Record<string, string> = {
-    multiple_query_plans: '입력 충돌로 검색 계획이 여러 개여서 로컬 조회를 생략했습니다.',
+    multiple_query_plans: '입력 충돌로 검색 계획이 여러 개여서 저장된 부품 조회를 생략했습니다.',
     query_not_eligible: '자체 카탈로그 조회에 필요한 조건이 부족하거나 검색 제외 상태입니다.',
     catalog_candidates_not_found: '자체 카탈로그에서 일치 후보를 찾지 못했습니다.',
     catalog_products_unavailable: '저장된 후보를 엔진 판정 입력으로 만들 수 없습니다.',
+    minimum_requirements_matched: '저장된 부품 중 값과 패키지가 일치해 외부 공급사 호출을 생략했습니다.',
     engine_not_selected: '후보는 찾았지만 엔진 자동선정 조건을 통과하지 못했습니다.',
     evaluation_result_missing: '엔진 판정 결과에서 이 부품을 확인할 수 없습니다.',
     lookup_failed: '자체 카탈로그 조회 또는 엔진 판정에 실패했습니다.',
-    quote_apply_failed: '로컬 선정 결과를 견적에 반영하지 못해 외부 검색으로 전환했습니다.',
+    quote_apply_failed: '저장된 부품 선정 결과를 견적에 반영하지 못해 외부 검색으로 전환했습니다.',
   };
   return reasons[reason] ?? reason;
 }
@@ -2515,6 +2524,30 @@ onBeforeUnmount(() => {
                 </form>
               </section>
               <section
+                v-if="context.localCatalogTrace?.catalogType === 'ingested_rc' && context.localCatalogTrace.outcome === 'selected' && !readOnly"
+                class="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs text-violet-950 shadow-sm"
+              >
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p class="font-bold">실험: 저장된 부품을 먼저 검색했습니다</p>
+                    <p class="mt-0.5 text-violet-800">
+                      기존에 저장된 공급사 부품 중 값과 패키지가 일치하는 후보를 엔진이 확인해 외부 API 호출을 생략했습니다. 추가 검색을 실행하면 기존 외부 공급사 판단 결과로 이 행의 후보와 선정을 갱신합니다.
+                    </p>
+                    <p v-if="externalSearchError !== ''" class="mt-1.5 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-rose-800">
+                      {{ externalSearchError }}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    class="shrink-0 rounded-md bg-violet-700 px-3 py-2 font-bold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    :disabled="externalSearchRunning || interactionLocked"
+                    @click="emit('externalSupplierSearch')"
+                  >
+                    {{ externalSearchRunning ? '외부 공급사 검색 중…' : '외부 공급사 추가 검색' }}
+                  </button>
+                </div>
+              </section>
+              <section
                 v-if="context.localCatalogTrace !== null || context.searchTrace !== null"
                 class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
               >
@@ -2555,7 +2588,7 @@ onBeforeUnmount(() => {
                       <span class="flex size-5 items-center justify-center rounded-full bg-white/80 font-bold tabular-nums text-slate-600">1</span>
                       <span class="font-semibold text-slate-800">
                         {{ localCatalogTitle(context.localCatalogTrace) }}
-                        <small class="block font-normal uppercase text-slate-500">로컬 ES · API 0회</small>
+                        <small class="block font-normal uppercase text-slate-500">저장된 부품 조회 · 외부 API 0회</small>
                       </span>
                       <div class="min-w-0">
                         <span class="mr-1.5 rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700">우선 조회</span>

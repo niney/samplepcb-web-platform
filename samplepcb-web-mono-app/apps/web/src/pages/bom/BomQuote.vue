@@ -32,6 +32,7 @@ import {
   usePrepareBomPartData,
   usePrepareBomQuoteSheets,
   useRequestBomQuote,
+  useRunBomQuoteExternalSupplierSearch,
   useSelectBomQuoteCandidate,
   useSupplierSearchStatus,
   useUpdateBomQuoteSheets,
@@ -578,8 +579,10 @@ const EDIT_LOCK_TITLE = computed(() => updateSheets.isPending.value
   ? '시트 구성을 반영하는 중입니다'
   : '공급사 확인이 완료되면 수정할 수 있습니다');
 type RowSearchPhase = 'idle' | 'starting' | 'searching' | 'refreshing' | 'done' | 'failed';
+type RowSearchKind = 'requirements' | 'external';
 const rowSearchItemId = ref<string | null>(null);
 const rowSearchPhase = ref<RowSearchPhase>('idle');
+const rowSearchKind = ref<RowSearchKind | null>(null);
 const rowSearchNotice = ref('');
 const rowSearchPreviousCandidateCount = ref<number | null>(null);
 const rowSearchPreviousMatchGroup = ref<SpecificResultMatchFilter | null>(null);
@@ -601,6 +604,7 @@ function clearRowSearchState(): void {
   cancelRowSearchNoticeTimer();
   rowSearchItemId.value = null;
   rowSearchPhase.value = 'idle';
+  rowSearchKind.value = null;
   rowSearchNotice.value = '';
   rowSearchPreviousCandidateCount.value = null;
   rowSearchPreviousMatchGroup.value = null;
@@ -796,6 +800,8 @@ const candidateSelection = useSelectBomQuoteCandidate();
 const candidateSelectionError = ref('');
 const searchRequirementsMutation = useUpdateBomQuoteSearchRequirements();
 const searchRequirementsError = ref('');
+const externalSupplierSearchMutation = useRunBomQuoteExternalSupplierSearch();
+const externalSupplierSearchError = ref('');
 const passiveDefaultsMutation = useApplyBomQuotePassiveDefaults();
 const passiveDefaultsOpen = ref(false);
 const passiveDefaultsError = ref('');
@@ -814,8 +820,16 @@ const candidateRowSearchLocked = computed(() =>
 );
 const candidateRowSearchProgress = computed(() => {
   if (!candidateRowSearchActive.value) return '';
-  if (rowSearchPhase.value === 'starting') return '검색 조건을 저장하고 있습니다.';
-  if (rowSearchPhase.value === 'searching') return '이 행의 공급사 후보를 다시 검색하고 있습니다.';
+  if (rowSearchPhase.value === 'starting') {
+    return rowSearchKind.value === 'external'
+      ? '외부 공급사 추가 검색을 시작하고 있습니다.'
+      : '검색 조건을 저장하고 있습니다.';
+  }
+  if (rowSearchPhase.value === 'searching') {
+    return rowSearchKind.value === 'external'
+      ? '이 행을 외부 공급사에서 추가 검색하고 있습니다.'
+      : '이 행의 공급사 후보를 다시 검색하고 있습니다.';
+  }
   if (rowSearchPhase.value === 'refreshing') return '검색이 끝나 새 후보를 반영하고 있습니다.';
   return '';
 });
@@ -901,6 +915,7 @@ function activateCandidateDrawer(itemId: string, view: CandidateDrawerView): voi
   }
   candidateSelectionError.value = '';
   searchRequirementsError.value = '';
+  externalSupplierSearchError.value = '';
   candidateItemId.value = itemId;
   candidateDrawerView.value = view;
   selectionSurface.value = 'candidates';
@@ -975,6 +990,7 @@ function closeSelectionSurface(): void {
   selectionSurface.value = null;
   candidateSelectionError.value = '';
   searchRequirementsError.value = '';
+  externalSupplierSearchError.value = '';
   if (!rowSearchRunning.value) clearRowSearchState();
 }
 
@@ -1041,6 +1057,7 @@ async function updateSearchRequirements(
   cancelRowSearchNoticeTimer();
   rowSearchItemId.value = candidateItemId.value;
   rowSearchPhase.value = 'starting';
+  rowSearchKind.value = 'requirements';
   rowSearchNotice.value = '';
   rowSearchPreviousCandidateCount.value = candidateQuery.data.value?.data.candidates.length ?? null;
   rowSearchPreviousMatchGroup.value = candidateItem.value === null
@@ -1071,6 +1088,50 @@ async function updateSearchRequirements(
   }
 }
 
+async function runExternalSupplierSearch(): Promise<void> {
+  if (candidateItemId.value === null || editingLocked.value) return;
+  if (dirty.value) {
+    await saveNow();
+    if (saveState.value === 'error') {
+      externalSupplierSearchError.value =
+        '저장되지 않은 변경사항이 있습니다. 저장 상태를 확인해 주세요.';
+      return;
+    }
+  }
+  cancelRowSearchNoticeTimer();
+  rowSearchItemId.value = candidateItemId.value;
+  rowSearchPhase.value = 'starting';
+  rowSearchKind.value = 'external';
+  rowSearchNotice.value = '';
+  rowSearchPreviousCandidateCount.value =
+    candidateQuery.data.value?.data.candidates.length ?? null;
+  rowSearchPreviousMatchGroup.value = candidateItem.value === null
+    ? null
+    : itemMatchGroup(candidateItem.value);
+  externalSupplierSearchError.value = '';
+  try {
+    await externalSupplierSearchMutation.mutateAsync({
+      quoteId: quoteId.value,
+      itemId: candidateItemId.value,
+    });
+    rowSearchPhase.value = 'searching';
+    dirty.value = false;
+  } catch (reason) {
+    const code = reason instanceof ApiRequestError
+      ? reason.payload?.error
+      : undefined;
+    externalSupplierSearchError.value =
+      code === 'EXTERNAL_SUPPLIER_SEARCH_NOT_AVAILABLE'
+        ? '현재 행은 외부 검색 생략 실험 대상이 아닙니다. 후보 정보를 새로고침해 주세요.'
+        : code === 'SUPPLIER_SEARCH_NOT_STARTED'
+          ? '외부 공급사 검색을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+          : '외부 공급사 검색 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    await Promise.all([quote.refetch(), candidateQuery.refetch()]);
+    rowSearchPhase.value =
+      detail.value?.enrichStatus === 'searching' ? 'searching' : 'failed';
+  }
+}
+
 function rowSearchMatchLabel(group: SpecificResultMatchFilter): string {
   if (group === 'matched') return '매칭';
   if (group === 'review') return '검토 필요';
@@ -1097,7 +1158,13 @@ watch(
     if (previous !== 'searching') return;
     if (now === 'failed') {
       rowSearchPhase.value = 'failed';
-      searchRequirementsError.value = '행 재검색을 완료하지 못했습니다. 입력값은 유지되어 있으니 잠시 후 다시 시도해 주세요.';
+      const message = '행 재검색을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+      if (rowSearchKind.value === 'external') {
+        externalSupplierSearchError.value = message;
+      } else {
+        searchRequirementsError.value =
+          '행 재검색을 완료하지 못했습니다. 입력값은 유지되어 있으니 잠시 후 다시 시도해 주세요.';
+      }
       return;
     }
     if (now !== 'done') return;
@@ -1108,7 +1175,13 @@ watch(
       if (rowSearchItemId.value !== itemId) return;
       if (refreshed.isError) {
         rowSearchPhase.value = 'failed';
-        searchRequirementsError.value = '재검색은 완료됐지만 새 후보를 불러오지 못했습니다. 패널을 닫았다가 다시 열어 주세요.';
+        const message =
+          '재검색은 완료됐지만 새 후보를 불러오지 못했습니다. 패널을 닫았다가 다시 열어 주세요.';
+        if (rowSearchKind.value === 'external') {
+          externalSupplierSearchError.value = message;
+        } else {
+          searchRequirementsError.value = message;
+        }
         return;
       }
       const nextCandidateCount = refreshed.data?.data.candidates.length ?? 0;
@@ -2144,6 +2217,8 @@ function fmtAmount(v: number | null): string {
       :requirements-error="searchRequirementsError"
       :requirements-progress="candidateRowSearchProgress"
       :requirements-notice="candidateRowSearchActive ? rowSearchNotice : ''"
+      :external-search-running="candidateRowSearchActive && rowSearchKind === 'external' && rowSearchRunning"
+      :external-search-error="externalSupplierSearchError"
       :interaction-locked="candidateRowSearchLocked"
       :initial-view="candidateDrawerView"
       :search-initial-query="candidateItem?.mpn ?? ''"
@@ -2155,6 +2230,7 @@ function fmtAmount(v: number | null): string {
       @catalog-select="onCatalogPartSelected"
       @catalog-offers="openCatalogOffersFromDrawer"
       @search-requirements="updateSearchRequirements"
+      @external-supplier-search="runExternalSupplierSearch"
       @close="closeSelectionSurface"
     />
     <BomQuoteOfferModal

@@ -26,8 +26,13 @@ vi.mock('../es/client', () => ({
 
 import {
   applyLocalCatalogFallback,
+  evaluateIngestedRcCatalog,
   evaluatePreferredLocalCatalog,
+  mergeLocalCatalogResults,
 } from './bom-local-catalog';
+
+const originalIngestedRcExperiment =
+  process.env.BOM_INGESTED_RC_EXPERIMENT;
 
 function localProduct(
   mpn = '10038WR-08',
@@ -114,6 +119,12 @@ function envelope(
 
 afterEach(() => {
   vi.clearAllMocks();
+  if (originalIngestedRcExperiment === undefined) {
+    delete process.env.BOM_INGESTED_RC_EXPERIMENT;
+  } else {
+    process.env.BOM_INGESTED_RC_EXPERIMENT =
+      originalIngestedRcExperiment;
+  }
 });
 
 describe('BOM 로컬 카탈로그 fallback', () => {
@@ -986,6 +997,305 @@ describe('BOM 부품 유형별 로컬 우선 검색', () => {
         selectedCandidateCount: 1,
         reason: null,
       }),
+    ]);
+  });
+});
+
+describe('BOM 인제스트 R/C 최소조건 실험', () => {
+  const minimumPreflight = {
+    plan: {
+      components: [
+        {
+          component_id: 'resistor-ingested',
+          planned_queries: [
+            {
+              component_id: 'resistor-ingested',
+              mode: 'parametric',
+              part_number: null,
+              manufacturer: null,
+              part_type: 'resistor',
+              category_policy: 'resistor',
+              package: '0603',
+              quantity: 10,
+              keywords: '10k 0603 resistor',
+              requirements: {
+                part_type: {
+                  name: 'part_type',
+                  raw_value: 'resistor',
+                  normalized_value: 'resistor',
+                  status: 'extracted',
+                  hard: true,
+                  comparison: 'category',
+                },
+                resistance_ohm: {
+                  name: 'resistance_ohm',
+                  raw_value: '10k',
+                  normalized_value: 10_000,
+                  status: 'extracted',
+                  hard: true,
+                  comparison: 'eq',
+                },
+                package: {
+                  name: 'package',
+                  raw_value: '0603',
+                  normalized_value: '0603',
+                  status: 'extracted',
+                  hard: true,
+                  comparison: 'eq',
+                },
+                tolerance_percent: {
+                  name: 'tolerance_percent',
+                  raw_value: '1%',
+                  normalized_value: 1,
+                  status: 'extracted',
+                  hard: true,
+                  comparison: 'lte',
+                },
+              },
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const ingestedPart = {
+    id: 91n,
+    mpn: 'RC0603FR-0710KL',
+    mpnNorm: 'RC0603FR0710KL',
+    manufacturerName: 'Yageo',
+    manufacturerNorm: 'yageo',
+    description: '10 kOhm chip resistor',
+    category: 'Chip Resistor',
+    packageCode: '0603',
+    lifecycle: 'Active',
+    datasheetUrl: 'https://example.test/rc0603.pdf',
+    imageUrl: 'https://example.test/rc0603.jpg',
+    specsJson: {
+      part_type: 'resistor',
+      resistance_ohm: 10_000,
+      tolerance_percent: 1,
+      package: '0603',
+    },
+    offers: [
+      {
+        supplier: 'digikey',
+        supplierSku: '311-10.0KHRCT-ND',
+        productUrl: 'https://example.test/product',
+        packaging: 'Cut Tape',
+        leadTime: null,
+        fetchedAt: new Date('2026-07-20T00:00:00Z'),
+      },
+    ],
+  };
+
+  it('공급사 제한 없이 값+패키지를 찾고 엔진 최소조건 선정만 해결로 인정한다', async () => {
+    mocks.search.mockResolvedValue({
+      hits: { hits: [{ _source: { partId: '91' } }] },
+    });
+    mocks.findMany.mockResolvedValue([ingestedPart]);
+    mocks.engineFetch.mockImplementation((_path: string, init: RequestInit) => {
+      if (typeof init.body !== 'string') {
+        throw new Error('요청 본문이 문자열이 아닙니다');
+      }
+      const body = JSON.parse(init.body) as {
+        items: {
+          query: { component_id: string };
+          products: Record<string, unknown>[];
+        }[];
+      };
+      return Promise.resolve(new Response(JSON.stringify({
+        items: body.items.map((item) => ({
+          component_id: item.query.component_id,
+          status: 'spec_compatible',
+          candidates: [{
+            status: 'spec_compatible',
+            conflicts: [],
+            missing_requirements: [],
+            product: item.products[0],
+            decision: {
+              selection_eligibility: 'automatic',
+              verified_requirement_count: 3,
+              required_requirement_count: 3,
+              reason_codes: ['specification_compatible'],
+              requirement_assessments: [],
+            },
+          }],
+          procurement_decision: {
+            status: 'catalog_selected',
+            selection_application_state: 'automatic_selected',
+            primary_unavailability_reason: 'catalog_inquiry',
+          },
+          warnings: [],
+        })),
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+    });
+
+    const result = await evaluateIngestedRcCatalog(
+      minimumPreflight,
+      { target_currency: 'KRW' },
+    );
+
+    const searchRequest = mocks.search.mock.calls[0]?.[0] as {
+      query: { bool: { filter: Record<string, unknown>[] } };
+    };
+    expect(searchRequest.query.bool.filter).toEqual(expect.arrayContaining([
+      { term: { partType: 'resistor' } },
+      { range: { offerCount: { gte: 1 } } },
+      { terms: { packageVariants: ['0603', '1608'] } },
+    ]));
+    expect(searchRequest.query.bool.filter).not.toContainEqual(
+      { term: { suppliers: 'samplepcb' } },
+    );
+
+    const [, evaluationInit] = mocks.engineFetch.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    if (typeof evaluationInit.body !== 'string') {
+      throw new Error('요청 본문이 문자열이 아닙니다');
+    }
+    const evaluation = JSON.parse(evaluationInit.body) as {
+      items: {
+        query: {
+          mode: string;
+          category_policy: string;
+          requirements: Record<string, unknown>;
+        };
+        products: {
+          supplier: string;
+          catalog_metadata: Record<string, unknown>;
+          offers: {
+            supplier: string;
+            offer_kind: string;
+            stock: number | null;
+            price_breaks: unknown[];
+          }[];
+        }[];
+      }[];
+    };
+    expect(evaluation.items[0]?.query).toMatchObject({
+      mode: 'parametric',
+      category_policy: 'resistor_minimum',
+    });
+    expect(Object.keys(
+      evaluation.items[0]?.query.requirements ?? {},
+    ).sort()).toEqual(['package', 'part_type', 'resistance_ohm']);
+    expect(evaluation.items[0]?.products[0]).toMatchObject({
+      supplier: 'digikey',
+      catalog_metadata: {
+        catalogOnly: true,
+        ingestedRcMinimum: true,
+      },
+      offers: [{
+        supplier: 'digikey',
+        offer_kind: 'manufacturer_catalog',
+        stock: null,
+        price_breaks: [],
+      }],
+    });
+    expect(result.resolvedComponentIds).toEqual(['resistor-ingested']);
+    expect(result.unresolvedComponentIds).toEqual([]);
+    expect(result.envelope).not.toBeNull();
+    expect(result.traces).toEqual([
+      expect.objectContaining({
+        componentId: 'resistor-ingested',
+        catalogType: 'ingested_rc',
+        outcome: 'selected',
+        candidateCount: 1,
+        evaluatedCandidateCount: 1,
+        selectedCandidateCount: 1,
+        reason: 'minimum_requirements_matched',
+      }),
+    ]);
+  });
+
+  it('MPN이 있거나 최소 필수값이 없으면 실험 조회를 실행하지 않는다', async () => {
+    const query = minimumPreflight.plan.components[0]?.planned_queries[0];
+    if (query === undefined) throw new Error('테스트 쿼리가 없습니다');
+    const withMpn = {
+      plan: {
+        components: [{
+          component_id: 'resistor-with-mpn',
+          planned_queries: [{
+            ...query,
+            component_id: 'resistor-with-mpn',
+            part_number: 'RC0603FR-0710KL',
+          }],
+        }],
+      },
+    };
+
+    const result = await evaluateIngestedRcCatalog(withMpn, {});
+
+    expect(mocks.search).not.toHaveBeenCalled();
+    expect(mocks.findMany).not.toHaveBeenCalled();
+    expect(mocks.engineFetch).not.toHaveBeenCalled();
+    expect(result.resolvedComponentIds).toEqual([]);
+    expect(result.unresolvedComponentIds).toEqual(['resistor-with-mpn']);
+  });
+
+  it('환경 플래그 false면 코드 롤백 없이 실험을 완전히 우회한다', async () => {
+    process.env.BOM_INGESTED_RC_EXPERIMENT = 'false';
+
+    const result = await evaluateIngestedRcCatalog(minimumPreflight, {});
+
+    expect(mocks.search).not.toHaveBeenCalled();
+    expect(mocks.engineFetch).not.toHaveBeenCalled();
+    expect(result.resolvedComponentIds).toEqual([]);
+    expect(result.traces).toEqual([]);
+  });
+
+  it('후행 인제스트 trace가 같은 행의 SamplePCB trace를 대체한다', () => {
+    const shared = {
+      envelope: null,
+      resolvedComponentIds: [],
+      unresolvedComponentIds: ['resistor-ingested'],
+      evaluatedComponentIds: [],
+    };
+    const merged = mergeLocalCatalogResults(
+      {
+        ...shared,
+        traces: [{
+          componentId: 'resistor-ingested',
+          catalogType: 'samplepcb_rc',
+          query: '10k 0603',
+          outcome: 'no_candidates',
+          candidateCount: 0,
+          evaluatedCandidateCount: 0,
+          selectedCandidateCount: 0,
+          elapsedMs: 1,
+          reason: 'catalog_candidates_not_found',
+          decisionSummary: null,
+        }],
+      },
+      {
+        ...shared,
+        resolvedComponentIds: ['resistor-ingested'],
+        unresolvedComponentIds: [],
+        evaluatedComponentIds: ['resistor-ingested'],
+        traces: [{
+          componentId: 'resistor-ingested',
+          catalogType: 'ingested_rc',
+          query: '10k 0603',
+          outcome: 'selected',
+          candidateCount: 1,
+          evaluatedCandidateCount: 1,
+          selectedCandidateCount: 1,
+          elapsedMs: 2,
+          reason: 'minimum_requirements_matched',
+          decisionSummary: null,
+        }],
+      },
+    );
+
+    expect(merged.resolvedComponentIds).toEqual(['resistor-ingested']);
+    expect(merged.unresolvedComponentIds).toEqual([]);
+    expect(merged.traces).toEqual([
+      expect.objectContaining({ catalogType: 'ingested_rc' }),
     ]);
   });
 });

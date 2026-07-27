@@ -140,7 +140,11 @@ export type BomQuoteLocalCatalogOutcomeType = z.infer<
   typeof BomQuoteLocalCatalogOutcome
 >;
 
-export const BomQuoteLocalCatalogType = z.enum(['samplepcb_rc', 'connector']);
+export const BomQuoteLocalCatalogType = z.enum([
+  'samplepcb_rc',
+  'connector',
+  'ingested_rc',
+]);
 export type BomQuoteLocalCatalogTypeType = z.infer<
   typeof BomQuoteLocalCatalogType
 >;

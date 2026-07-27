@@ -35,7 +35,9 @@ import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
 import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy';
 import {
+  evaluateIngestedRcCatalog,
   evaluatePreferredLocalCatalog,
+  mergeLocalCatalogResults,
   type PreferredLocalCatalogResult,
 } from '../lib/bom-local-catalog';
 import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
@@ -86,6 +88,7 @@ import {
   computeQuote,
   filterActiveQuoteItems,
   getQuoteItemCandidates,
+  loadLatestQuoteLocalCatalogTrace,
   loadQuoteComparisonPage,
   loadSupplierSearchSummary,
   patchNeedsCandidateReprice,
@@ -163,11 +166,43 @@ function passiveDefaultsFromSearchOptions(
     : null;
 }
 
+function componentIdsFromSearchOptions(
+  options: Prisma.JsonValue | undefined,
+): string[] {
+  if (
+    options === undefined
+    || options === null
+    || typeof options !== 'object'
+    || Array.isArray(options)
+    || !Array.isArray(options.component_ids)
+  ) return [];
+  return options.component_ids.filter(
+    (componentId): componentId is string =>
+      typeof componentId === 'string' && componentId !== '',
+  );
+}
+
+function localCatalogBypassFromSearchOptions(
+  options: Prisma.JsonValue | undefined,
+): boolean {
+  return options !== undefined
+    && options !== null
+    && typeof options === 'object'
+    && !Array.isArray(options)
+    && options.local_catalog_bypass === true;
+}
+
+function persistedSearchOptions(
+  engineOptions: Prisma.InputJsonObject,
+  bypassLocalCatalog: boolean,
+): Prisma.InputJsonObject {
+  return bypassLocalCatalog
+    ? { ...engineOptions, local_catalog_bypass: true }
+    : engineOptions;
+}
+
 function supplierRunIsTargeted(options: Prisma.JsonValue): boolean {
-  if (options === null || typeof options !== 'object' || Array.isArray(options)) return false;
-  const componentIds = options.component_ids;
-  return Array.isArray(componentIds)
-    && componentIds.some((componentId) => typeof componentId === 'string' && componentId !== '');
+  return componentIdsFromSearchOptions(options).length > 0;
 }
 
 function prismaJsonObject(value: unknown): Prisma.JsonObject | null {
@@ -341,6 +376,7 @@ async function autoEnrichQuote(
     force?: boolean;
     componentIds?: readonly string[];
     passiveDefaults?: BomQuotePassiveDefaultsBodyType;
+    bypassLocalCatalog?: boolean;
   } = {},
 ): Promise<boolean> {
   const quote = await prisma.spBomQuote.findUnique({
@@ -364,6 +400,7 @@ async function autoEnrichQuote(
   const passiveDefaultsPayload = passiveDefaults === null
     ? null
     : enginePassiveDefaults(passiveDefaults);
+  const bypassLocalCatalog = options.bypassLocalCatalog === true;
   const baseSearchOptions = {
     max_calls: config.supplierSearchMaxCalls,
     cache_only: false,
@@ -395,7 +432,7 @@ async function autoEnrichQuote(
       quoteId,
       analysisRunId: quote.activeAnalysisRunId,
       status: 'preparing',
-      options: searchOptions,
+      options: persistedSearchOptions(searchOptions, bypassLocalCatalog),
     },
   });
   const markFailed = async (error: string): Promise<false> => {
@@ -461,22 +498,60 @@ async function autoEnrichQuote(
     return await markFailed('supplier_preflight_unreachable');
   }
 
-  const localCatalog = await evaluatePreferredLocalCatalog(
-    fullPreflight,
-    baseSearchOptions.procurement,
-    log,
-  );
-  let localResolved = localCatalog.resolvedComponentIds;
-  if (localCatalog.envelope !== null && localResolved.length > 0) {
+  const emptyLocalCatalog: PreferredLocalCatalogResult = {
+    envelope: null,
+    resolvedComponentIds: [],
+    unresolvedComponentIds: [],
+    evaluatedComponentIds: [],
+    traces: [],
+  };
+  const preferredLocalCatalog = bypassLocalCatalog
+    ? emptyLocalCatalog
+    : await evaluatePreferredLocalCatalog(
+        fullPreflight,
+        baseSearchOptions.procurement,
+        log,
+      );
+  let preferredResolved = preferredLocalCatalog.resolvedComponentIds;
+  if (
+    preferredLocalCatalog.envelope !== null
+    && preferredResolved.length > 0
+  ) {
     const applied = await refreshQuoteFromSupplierResult(
       quoteId,
-      localCatalog.envelope,
+      preferredLocalCatalog.envelope,
       searchRun.id,
       log,
       { targeted: true },
     );
-    if (!applied) localResolved = [];
+    if (!applied) preferredResolved = [];
   }
+  const ingestedRcCatalog = bypassLocalCatalog
+    ? emptyLocalCatalog
+    : await evaluateIngestedRcCatalog(
+        fullPreflight,
+        baseSearchOptions.procurement,
+        preferredResolved,
+        log,
+      );
+  let ingestedResolved = ingestedRcCatalog.resolvedComponentIds;
+  if (ingestedRcCatalog.envelope !== null && ingestedResolved.length > 0) {
+    const applied = await refreshQuoteFromSupplierResult(
+      quoteId,
+      ingestedRcCatalog.envelope,
+      searchRun.id,
+      log,
+      { targeted: true },
+    );
+    if (!applied) ingestedResolved = [];
+  }
+  const localCatalog = mergeLocalCatalogResults(
+    preferredLocalCatalog,
+    ingestedRcCatalog,
+  );
+  const localResolved = [
+    ...new Set([...preferredResolved, ...ingestedResolved]),
+  ];
   const fullPlan = prismaJsonObject(fullPreflight.plan);
   const fullComponents = Array.isArray(fullPlan?.components) ? fullPlan.components : [];
   const fullComponentIds = fullComponents.flatMap((component) => {
@@ -501,7 +576,10 @@ async function autoEnrichQuote(
         where: { id: searchRun.id },
         data: {
           status: 'completed',
-          options: baseSearchOptions,
+          options: persistedSearchOptions(
+            baseSearchOptions,
+            bypassLocalCatalog,
+          ),
           preflight: {
             ...fullPreflight,
             local_catalog: localCatalogPreflight,
@@ -575,7 +653,7 @@ async function autoEnrichQuote(
   await prisma.spBomSupplierSearchRun.update({
     where: { id: searchRun.id },
     data: {
-      options: searchOptions,
+      options: persistedSearchOptions(searchOptions, bypassLocalCatalog),
       preflight: {
         ...pf,
         local_catalog: localCatalogPreflight,
@@ -627,7 +705,7 @@ async function autoEnrichQuote(
       where: { id: searchRun.id },
       data: {
         status: 'running',
-        options: searchOptions,
+        options: persistedSearchOptions(searchOptions, bypassLocalCatalog),
         startedAt: new Date(),
       },
     }),
@@ -735,7 +813,15 @@ async function healEnrichment(
     });
     if (status === 'gone') {
       log.warn({ quoteId: key, searchRunId: String(run.id), jobId }, '엔진 잡 소멸 — 영속 분석으로 공급사 검색 재시작');
-      await autoEnrichQuote(quoteId, mbId, log);
+      const passiveDefaults = passiveDefaultsFromSearchOptions(run.options);
+      await autoEnrichQuote(quoteId, mbId, log, {
+        force: true,
+        componentIds: componentIdsFromSearchOptions(run.options),
+        ...(passiveDefaults === null ? {} : { passiveDefaults }),
+        ...(localCatalogBypassFromSearchOptions(run.options)
+          ? { bypassLocalCatalog: true }
+          : {}),
+      });
       return;
     }
     await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'failed' } });
@@ -1217,6 +1303,87 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
     return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
+  });
+
+  // 인제스트 R/C 최소조건 후보로 외부 호출을 생략한 행에서만 사용자가 명시적으로
+  // 기존 공급사 검색+인제스트 경로를 실행할 수 있다.
+  fastify.post('/bom/quotes/:id/items/:itemId/supplier-search/external', {
+    schema: {
+      params: ItemParams,
+      response: { 200: BomQuoteDetailResponse, 409: BizError, 502: BizError },
+    },
+  }, async (request, reply) => {
+    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (quote.status !== 'draft') {
+      return reply.conflict('견적요청 후에는 공급사 추가 검색을 실행할 수 없습니다');
+    }
+    if (quote.buildStatus !== 'ready') {
+      return reply.conflict('시트 계산이 완료된 후 공급사 추가 검색을 실행할 수 있습니다');
+    }
+    if (quote.enrichStatus === 'searching') {
+      return reply.conflict('진행 중인 공급사 확인이 완료된 후 다시 시도해 주세요');
+    }
+    const item = filterActiveQuoteItems(quote.items, quote.sheets).find(
+      (row) => row.id === request.params.itemId,
+    );
+    if (item === undefined) return reply.notFound('견적 항목을 찾을 수 없습니다');
+    const componentId = toItemDto(item).sourceRow?.componentId;
+    if (typeof componentId !== 'string' || componentId === '') {
+      return reply.status(409).send({
+        result: false,
+        error: 'SEARCH_COMPONENT_NOT_FOUND',
+      });
+    }
+    const localTrace = await loadLatestQuoteLocalCatalogTrace(
+      quote.id,
+      componentId,
+    );
+    if (
+      localTrace?.catalogType !== 'ingested_rc'
+      || localTrace.outcome !== 'selected'
+    ) {
+      return reply.status(409).send({
+        result: false,
+        error: 'EXTERNAL_SUPPLIER_SEARCH_NOT_AVAILABLE',
+      });
+    }
+
+    try {
+      const started = await autoEnrichQuote(
+        quote.id,
+        request.user.mbId,
+        request.log,
+        {
+          force: true,
+          componentIds: [componentId],
+          bypassLocalCatalog: true,
+        },
+      );
+      if (!started) {
+        return await reply.status(409).send({
+          result: false,
+          error: 'SUPPLIER_SEARCH_NOT_STARTED',
+        });
+      }
+    } catch (error) {
+      request.log.warn({
+        quoteId: String(quote.id),
+        itemId: String(item.id),
+        err: String(error),
+      }, '인제스트 R/C 행 외부 공급사 추가 검색 시작 실패');
+      return reply.status(502).send({
+        result: false,
+        error: 'SUPPLIER_SEARCH_FAILED',
+      });
+    }
+
+    const fresh = await loadOwnQuote(quote.id, request.user.mbId);
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    return {
+      result: true as const,
+      data: await toDetailDto(fresh, fresh.items, fresh.sheets),
+    };
   });
 
   // 누락 수동소자 조건을 견적 단위로 한 번 승인하고 전체 공급사 판단을 다시 실행한다.

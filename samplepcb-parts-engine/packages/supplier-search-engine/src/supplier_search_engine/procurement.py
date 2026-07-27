@@ -802,8 +802,9 @@ def _catalog_selection_allowed(
 
     Older official catalogs did not carry ``autoQuoteEligible``.  Missing means
     backward-compatible allow, while an explicit false is a hard gate for
-    generated/unverified catalog candidates.  Cross-MPN spec selection is only
-    allowed for SamplePCB's preferred R/C catalog and still requires complete
+    generated/unverified catalog candidates. Cross-MPN spec selection is
+    allowed for SamplePCB's preferred R/C catalog and for the explicit
+    ingested-R/C minimum-condition experiment. Both still require complete
     technical and category verification from the matcher.
     """
 
@@ -835,10 +836,23 @@ def _catalog_selection_allowed(
         and "package" in verified_keys
         and bool(verified_keys & {"resistance_ohm", "capacitance_f"})
     )
+    ingested_rc_minimum_compatible = (
+        representative.decision.match_relation.value == "spec-compatible"
+        and metadata is not None
+        and metadata.ingested_rc_minimum is True
+        and representative.decision.verification_complete
+        and representative.decision.strict_category_coverage
+        and "package" in verified_keys
+        and bool(verified_keys & {"resistance_ohm", "capacitance_f"})
+    )
     return (
         representative.decision.selection_eligibility
         == SelectionEligibility.AUTOMATIC
-        and (exact_identity or samplepcb_spec_compatible)
+        and (
+            exact_identity
+            or samplepcb_spec_compatible
+            or ingested_rc_minimum_compatible
+        )
         and representative.decision.selection_recommendation
         == SelectionRecommendation.PRESELECT
         and bool(offers)

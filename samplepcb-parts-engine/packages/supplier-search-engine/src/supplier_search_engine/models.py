@@ -35,6 +35,8 @@ class CatalogSupplier(StrEnum):
     TDK = "tdk"
     VISHAY = "vishay"
     KOA = "koa"
+    ELEPARTS = "eleparts"
+    ICBANQ = "icbanq"
 
 
 SupplierIdentity = Supplier | CatalogSupplier
@@ -474,7 +476,9 @@ class PlannedQuery(BaseModel):
     category_policy: (
         Literal[
             "resistor",
+            "resistor_minimum",
             "capacitor",
+            "capacitor_minimum",
             "electrolytic",
             "tantalum",
             "film",
@@ -568,7 +572,7 @@ class SupplierOffer(BaseModel):
 
 
 class CatalogProductMetadata(BaseModel):
-    """Selection controls carried by caller-owned manufacturer catalogs."""
+    """Selection controls carried by caller-owned local catalog candidates."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -585,6 +589,11 @@ class CatalogProductMetadata(BaseModel):
     )
     samplepcb_preference_rank: int | None = Field(
         default=None, ge=0, alias="samplepcbPreferenceRank"
+    )
+    # sp-node가 DB/ES에 이미 인제스트된 R/C를 최소 기술조건으로 조회한 경우에만
+    # 설정한다. 상업정보는 catalog-evaluate에서 버리고 기술 후보로만 판정한다.
+    ingested_rc_minimum: bool | None = Field(
+        default=None, alias="ingestedRcMinimum"
     )
 
 

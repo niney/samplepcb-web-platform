@@ -81,6 +81,9 @@ _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
     # 정격전력은 BOM/사용자가 지정한 경우 requirements의 hard 조건으로 추가된다.
     # 모든 저항에 전력을 강제하면 일반 BOM의 안전 후보까지 영구 수동검토가 된다.
     "resistor": ("resistance_ohm", "tolerance_percent", "package"),
+    # 로컬 인제스트 활용 실험 전용. planner는 이 정책을 만들지 않고,
+    # sp-node가 값+패키지로 조회한 후보의 엔진 재검증에만 사용한다.
+    "resistor_minimum": ("resistance_ohm", "package"),
     "capacitor": (
         "capacitance_f",
         "voltage_v",
@@ -88,6 +91,7 @@ _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
         "dielectric",
         "package",
     ),
+    "capacitor_minimum": ("capacitance_f", "package"),
     "tantalum": ("capacitance_f", "voltage_v", "tolerance_percent", "package"),
     "film": ("capacitance_f", "voltage_v", "tolerance_percent", "package"),
     "inductor": ("inductance_h", "current_a", "tolerance_percent", "package"),
@@ -107,7 +111,9 @@ _CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
 _USER_CATEGORY_POLICY: dict[str, tuple[str, ...]] = {
     # 기존 저항·캐패시터 자동선정 안전조건은 그대로 유지한다.
     "resistor": _CATEGORY_POLICY["resistor"],
+    "resistor_minimum": _CATEGORY_POLICY["resistor_minimum"],
     "capacitor": _CATEGORY_POLICY["capacitor"],
+    "capacitor_minimum": _CATEGORY_POLICY["capacitor_minimum"],
     "electrolytic": _CATEGORY_POLICY["electrolytic"],
     "tantalum": _CATEGORY_POLICY["tantalum"],
     "film": _CATEGORY_POLICY["film"],

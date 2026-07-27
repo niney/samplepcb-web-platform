@@ -231,12 +231,23 @@ class SearchService:
                 )
             )
             candidates.sort(key=self._candidate_sort_key)
+            ingested_rc_selected = (
+                procurement_decision.status == "catalog_selected"
+                and any(
+                    candidate.product.catalog_metadata is not None
+                    and candidate.product.catalog_metadata.ingested_rc_minimum is True
+                    for candidate in candidates
+                )
+            )
             warnings = [
                 (
-                    "검증된 SamplePCB 카탈로그 후보는 부품으로 선정하며 "
+                    "저장된 저항·캐패시터 후보를 값과 패키지 기준으로 선정했습니다. "
+                    "재고·가격이 필요하면 외부 공급사를 추가 검색해야 합니다."
+                    if ingested_rc_selected
+                    else "검증된 SamplePCB 카탈로그 후보는 부품으로 선정하며 "
                     "재고 확인·가격 문의가 필요합니다."
                     if procurement_decision.status == "catalog_selected"
-                    else "로컬 카탈로그 후보를 엔진 기술·조달 정책으로 평가했습니다."
+                    else "저장된 부품 후보를 엔진 기술·조달 정책으로 평가했습니다."
                 )
             ]
             if omitted_candidate_count:
