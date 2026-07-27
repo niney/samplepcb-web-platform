@@ -381,7 +381,7 @@ function onQtyInput(event: Event): void {
         </span>
       </div>
     </td>
-    <!-- MPN: 공급사 배지 + 이미지 자리 + 품번 + 데이터시트 -->
+    <!-- MPN: 공급사 배지 + 이미지 + 품번/제조사 + 데이터시트 -->
     <td class="w-[280px] max-w-[280px] px-2 py-3">
       <div class="flex w-[280px] max-w-full min-w-0 gap-2.5">
         <!-- 고정폭 76px(최장 공급사명 UniKeyIC 기준) — 배지 유무와 무관하게 열 폭 일관 -->
@@ -402,6 +402,7 @@ function onQtyInput(event: Event): void {
         </div>
         <div class="min-w-0 flex-1 pt-[22px]">
           <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]" :title="partLabel">{{ partLabel }}</p>
+          <p class="truncate text-[11px] leading-[16px] text-[#5f6777]" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->
           <a
@@ -415,9 +416,6 @@ function onQtyInput(event: Event): void {
           <p v-else class="cursor-default text-[12px] leading-[16px] text-[#c3cbd6]" title="데이터시트 없음">데이터시트</p>
         </div>
       </div>
-    </td>
-    <td class="w-[104px] min-w-[96px] px-2 py-3 pt-[42px]">
-      <p class="max-w-[104px] truncate text-[12px] leading-[16px] text-[#5f6777]" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
     </td>
     <td class="min-w-[140px] max-w-[220px] px-2 py-3 pt-[42px]">
       <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
@@ -478,13 +476,13 @@ function onQtyInput(event: Event): void {
     <td class="w-[140px] min-w-[132px] px-2 py-3 text-right">
       <div class="flex flex-col items-end gap-1.5 pt-1">
         <!-- 보강 진행 중엔 "확인 중"(파랑) — 빨간 미매칭은 보강이 끝난 뒤의 최종 판정 -->
-        <span v-if="quantityMissing" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="reasonSummary">{{ item.matchStatus === 'none' ? '수량 확인 필요' : '선정됨 · 수량 확인 필요' }}</span>
+        <span v-if="quantityMissing" class="whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="reasonSummary">{{ item.matchStatus === 'none' ? '수량 확인 필요' : '선정됨 · 수량 확인 필요' }}</span>
         <span v-else-if="severeOrderSurplus" class="rounded-full border border-orange-300 bg-orange-100 px-2.5 py-0.5 text-[12px] font-bold text-orange-800" :title="severeOrderSurplusLabel">수량 검토</span>
         <span v-else-if="engineSearchExcluded" class="rounded-full bg-slate-200 px-2.5 py-0.5 text-[12px] font-bold text-slate-700" :title="evidenceTitle">검색 제외</span>
         <span v-else-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
           <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
         </span>
-        <span v-else-if="catalogInquiry" class="rounded-full border border-blue-200 bg-blue-100 px-2.5 py-0.5 text-[12px] font-bold text-blue-700" :title="evidenceTitle">{{ catalogSelectionApplied ? '선정됨 · 재고/가격 문의' : '취급 가능 · 검토 필요' }}</span>
+        <span v-else-if="catalogInquiry" class="whitespace-nowrap rounded-full border border-blue-200 bg-blue-100 px-2.5 py-0.5 text-[12px] font-bold text-blue-700" :title="evidenceTitle">{{ catalogSelectionApplied ? '선정됨 · 재고/가격 문의' : '취급 가능 · 검토 필요' }}</span>
         <span v-else-if="item.matchStatus === 'none' && engineStockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">{{ engineStockStatusLabel }}</span>
         <span v-else-if="provisionalSelectionPending" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">선정됨 · 검토 대기</span>
         <span v-else-if="item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review'" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">검토 필요</span>
