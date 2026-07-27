@@ -44,3 +44,4 @@ export { renderDiagramSpecHtml } from './diagram-renderer';
 export * from './spec-units';
 
 export * from './bom-pricing';
+export * from './bom-quote-presentation';

@@ -13,9 +13,12 @@ import {
   type PartHitType,
 } from '@sp/api-contract';
 import {
+  bomQuoteItemMatchGroup,
+  isBomQuoteStockShort,
   neededQty,
   pickBreak,
   stampOrderQty,
+  summarizeBomQuoteItems,
   toKrw,
   type OfferPick,
 } from '@sp/utils';
@@ -346,24 +349,6 @@ async function saveNow(): Promise<void> {
 }
 
 // ── 결과 시트 탭·통계·합계(로컬 표시 — 저장 시 서버가 재계산해 동기화) ───────
-function hasEngineStockConstraint(item: BomQuoteItemType): boolean {
-  const reason = item.matchEvidence?.procurementUnavailabilityReason;
-  return reason === 'out_of_stock'
-    || reason === 'insufficient_stock'
-    || reason === 'stock_unverified';
-}
-
-function isStockShort(item: BomQuoteItemType): boolean {
-  const reason = item.matchEvidence?.procurementUnavailabilityReason;
-  if (reason === 'out_of_stock' || reason === 'insufficient_stock') return true;
-  const o = item.selectedOffer;
-  return o !== null && o.stock !== null && o.stock < item.orderQty;
-}
-
-function isEngineSearchExcluded(item: BomQuoteItemType): boolean {
-  return item.matchEvidence?.componentStatus === 'excluded'
-    || item.matchEvidence?.searchRequirementGuidance?.readiness === 'excluded';
-}
 
 type ResultSheetFilter = 'all' | 'manual' | number;
 
@@ -504,56 +489,9 @@ watch(quoteId, () => {
   sheetSelectionError.value = '';
 });
 
-// 통계·합계를 한 번의 순회로 — 행 속성 하나가 바뀔 때마다 같은 범위를 여러 번 훑지 않게
-function calculateStats(sourceItems: readonly BomQuoteItemType[]) {
-  let total = 0;
-  let matched = 0;
-  let review = 0;
-  let unmatched = 0;
-  let excluded = 0;
-  let nostock = 0;
-  let included = 0;
-  let uncosted = 0;
-  let pendingReview = 0;
-  let lineSum = 0;
-  for (const i of sourceItems) {
-    total += 1;
-    if (isEngineSearchExcluded(i)) excluded += 1;
-    else if (i.matchStatus !== 'none') matched += 1;
-    else if (!hasEngineStockConstraint(i) && i.matchEvidence?.selectionMode === 'review') review += 1;
-    else unmatched += 1;
-    if (i.included) {
-      included += 1;
-      if (
-        i.selectionSource === 'auto'
-        && i.matchEvidence?.selectionApplicationState === 'provisional_selected'
-        && i.matchEvidence.confirmationRequired
-      ) pendingReview += 1;
-      if (isStockShort(i)) nostock += 1;
-      if (i.lineTotalKrw === null) uncosted += 1;
-      else lineSum += i.lineTotalKrw;
-    }
-  }
-  return {
-    total,
-    matched,
-    matchedPct: total === 0 ? 0 : Math.round((matched / total) * 100),
-    nostock,
-    nostockPct: total === 0 ? 0 : Math.round((nostock / total) * 100),
-    review,
-    unmatched,
-    excluded,
-    unresolved: review + unmatched,
-    included,
-    uncosted,
-    pendingReview,
-    itemsTotal: Math.round(lineSum),
-  };
-}
-
 // 분석 카드는 현재 탭 기준, 금액·견적요청 가능 여부는 전체 견적 기준이다.
-const stats = computed(() => calculateStats(sheetItems.value));
-const quoteStats = computed(() => calculateStats(items.value));
+const stats = computed(() => summarizeBomQuoteItems(sheetItems.value));
+const quoteStats = computed(() => summarizeBomQuoteItems(items.value));
 const hasPassiveDefaultsOpportunity = computed(() => (
   quoteStats.value.pendingReview > 0
   || quoteStats.value.review > 0
@@ -629,10 +567,7 @@ const RESULT_MATCH_FILTER_LABEL: Record<SpecificResultMatchFilter, string> = {
 };
 
 function itemMatchGroup(item: BomQuoteItemType): SpecificResultMatchFilter {
-  if (isEngineSearchExcluded(item)) return 'excluded';
-  if (item.matchStatus !== 'none') return 'matched';
-  if (!hasEngineStockConstraint(item) && item.matchEvidence?.selectionMode === 'review') return 'review';
-  return 'unmatched';
+  return bomQuoteItemMatchGroup(item);
 }
 
 function itemHasSupplierSearchLimit(item: BomQuoteItemType): boolean {
@@ -646,7 +581,7 @@ const searchLimitedItemCount = computed(() =>
 const filteredItems = computed(() => sheetItems.value.filter((item) => {
   if (resultMatchFilter.value !== 'all' && itemMatchGroup(item) !== resultMatchFilter.value) return false;
   // Nostock 집계는 견적 합계에 포함된 행만 세므로 필터도 같은 규칙을 따른다.
-  if (resultNostockOnly.value && (!item.included || !isStockShort(item))) return false;
+  if (resultNostockOnly.value && (!item.included || !isBomQuoteStockShort(item))) return false;
   if (resultSearchLimitedOnly.value && !itemHasSupplierSearchLimit(item)) return false;
   return true;
 }));

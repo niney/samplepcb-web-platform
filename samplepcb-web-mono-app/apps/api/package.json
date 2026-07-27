@@ -30,6 +30,7 @@
     "parts:catalog": "tsx --env-file=.env src/scripts/import-parts-catalog.ts",
     "parts:catalog-prices": "tsx --env-file=.env src/scripts/refresh-catalog-prices.ts",
     "parts:catalog-market-prices": "tsx src/scripts/collect-catalog-market-prices.ts",
+    "bom:verify": "node --use-system-ca --env-file=.env --import tsx src/scripts/verify-bom-upload.ts",
     "parts:reindex": "tsx --env-file=.env src/scripts/parts-reindex.ts",
     "parts:refacts": "tsx --env-file=.env src/scripts/parts-refacts.ts",
     "parts:merge-mfr": "tsx --env-file=.env src/scripts/merge-manufacturer-keys.ts"
