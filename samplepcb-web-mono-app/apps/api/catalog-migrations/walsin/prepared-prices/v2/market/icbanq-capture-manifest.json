@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "catalog-market-price-capture-manifest/v1",
+  "site": "icbanq",
+  "generatedAt": "2026-07-27T05:53:49.382Z",
+  "sourceFile": "Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx",
+  "sourceSha256": "7aa0c323e02e11ec67086546f5dae47d38f83748732dea0eb463b3ef19433e6c",
+  "captureFile": "icbanq-capture-v1.json.gz",
+  "captureSha256": "df1e60e077d8cb9071050df1cfe2b769cd1d2d0058269d3d8838e919960c67a6",
+  "captureBytes": 89563,
+  "summary": {
+    "targets": 2628,
+    "priced": 443,
+    "foundWithoutPrice": 0,
+    "manufacturerConflict": 4,
+    "notFound": 2181,
+    "errors": 0,
+    "observations": 443,
+    "requests": 3078,
+    "manufacturerCounts": {
+      "koa": {
+        "targets": 224,
+        "priced": 10,
+        "observations": 10
+      },
+      "murata": {
+        "targets": 232,
+        "priced": 2,
+        "observations": 2
+      },
+      "samsung": {
+        "targets": 456,
+        "priced": 39,
+        "observations": 39
+      },
+      "tdk": {
+        "targets": 348,
+        "priced": 5,
+        "observations": 5
+      },
+      "vishay": {
+        "targets": 224,
+        "priced": 53,
+        "observations": 53
+      },
+      "walsin": {
+        "targets": 572,
+        "priced": 106,
+        "observations": 106
+      },
+      "yageo": {
+        "targets": 572,
+        "priced": 228,
+        "observations": 228
+      }
+    }
+  }
+}

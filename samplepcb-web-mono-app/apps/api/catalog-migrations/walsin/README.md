@@ -2,8 +2,10 @@
 
 기술·취급 정본은 `Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx` 한 파일이다.
 sp-node가 실행 시 워크북을 검증하고 기존 supplier-search ingest envelope로 결정적으로 변환한다.
-공급사 가격은 카탈로그 초기화 전에 한 번 전수 조회한
-`prepared-prices/walsin-price-snapshot-v1.json.gz`를 별도 시점 스냅샷으로 보존한다.
+공급사 가격은 카탈로그 초기화 전에 한 번 전수 조회한다. DigiKey·Mouser·UniKeyIC 결과인
+`prepared-prices/walsin-price-snapshot-v1.json.gz`는 기초 스냅샷으로 보존하고,
+Eleparts·ICBanQ 검증 가격을 합친 현재 적용본은
+`prepared-prices/v2/walsin-price-snapshot-v2.json.gz`다.
 
 데이터 근거와 판단은 [ANALYSIS.md](ANALYSIS.md)에 있다.
 
@@ -49,9 +51,9 @@ cd samplepcb-web-mono-app
 pnpm install --frozen-lockfile
 
 pnpm --filter api parts:catalog -- --dry-run --source walsin-rlc \
-  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/walsin/prepared-prices/v2/walsin-price-snapshot-v2.json.gz
 pnpm --filter api parts:catalog -- --apply --source walsin-rlc \
-  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/walsin/prepared-prices/v2/walsin-price-snapshot-v2.json.gz
 ```
 
 `--source`를 생략하면 기존 연호 카탈로그가 대상이다.
@@ -81,9 +83,9 @@ dry-run에서 확인할 값:
 
 ```bash
 pnpm --filter api parts:catalog -- --verify --source walsin-rlc \
-  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/walsin/prepared-prices/v2/walsin-price-snapshot-v2.json.gz
 pnpm --filter api parts:catalog -- --verify-search --source walsin-rlc \
-  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/walsin/prepared-prices/v2/walsin-price-snapshot-v2.json.gz
 ```
 
 ## 운영 적용 순서
@@ -108,11 +110,11 @@ curl -fsS https://centrafab.co.kr/api/health
 # 4. 원본과 사전 가격 스냅샷 검증 후 DB·ES 적재
 cd samplepcb-web-mono-app
 pnpm --filter api parts:catalog -- --dry-run --source walsin-rlc \
-  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/walsin/prepared-prices/v2/walsin-price-snapshot-v2.json.gz
 pnpm --filter api parts:catalog -- --apply --source walsin-rlc \
-  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/walsin/prepared-prices/v2/walsin-price-snapshot-v2.json.gz
 pnpm --filter api parts:catalog -- --verify-search --source walsin-rlc \
-  --price-snapshot catalog-migrations/walsin/prepared-prices/walsin-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/walsin/prepared-prices/v2/walsin-price-snapshot-v2.json.gz
 ```
 
 `deploy.sh 5`의 마이그레이션 질문에는 이번 변경이 추가·삭제하는 스키마가 없으므로 파괴적
@@ -181,6 +183,76 @@ pnpm --filter api parts:catalog-prices -- --verify
 배치 전체 타임아웃과 Mouser·UniKeyIC 오류는 0개다. 현재 Git 산출물은 이 시점 스냅샷으로
 고정하며, DigiKey까지 다시 채우려면 새 버전 스냅샷을 전수 생성한다. 실제 값과 SHA-256은
 `prepared-prices/manifest.json`을 단일 원본으로 삼는다.
+
+### 국내 판매처 가격 보강(v2)
+
+Eleparts·ICBanQ 가격은 sp-labs 산출물에 의존하지 않고 sp-node의 공통 수집기로 만든다.
+대상은 위 워크북 파서가 확정한 7개 제조사 2,628개이며 CSV를 중간 입력으로 사용하지 않는다.
+기본 실행은 네트워크를 호출하지 않는 dry-run이고, `--run`을 지정해야만 사이트를 호출한다.
+
+```bash
+# 대상·경로·제조사별 수량 확인
+pnpm --filter api parts:catalog-market-prices -- --site eleparts
+pnpm --filter api parts:catalog-market-prices -- --site icbanq
+
+# 사이트별 직렬 전수 수집 — 서로 다른 터미널에서 병렬 실행 가능
+pnpm --filter api parts:catalog-market-prices -- --run --site eleparts --delay-ms 500
+pnpm --filter api parts:catalog-market-prices -- --run --site icbanq --delay-ms 500
+
+# 오류·차단·프로세스 종료 뒤 같은 체크포인트에서 재개
+pnpm --filter api parts:catalog-market-prices -- --run --resume \
+  --site eleparts --delay-ms 500
+pnpm --filter api parts:catalog-market-prices -- --run --resume \
+  --site icbanq --delay-ms 500
+
+# 원본 coverage·exact identity·capture/manifest SHA 검증
+pnpm --filter api parts:catalog-market-prices -- --verify --site eleparts
+pnpm --filter api parts:catalog-market-prices -- --verify --site icbanq
+
+# 두 capture를 기존 v1에 합쳐 재적재 가능한 v2 생성·자체 검증
+pnpm --filter api parts:catalog-market-prices -- --merge
+```
+
+같은 사이트 안에서는 검색과 상세 페이지를 포함한 모든 요청 시작 간격이 최소 500ms이며
+동시 요청은 1개다. 50개마다 1초 냉각하고 HTTP 403·429를 만나면 현재 레코드까지 원자 저장한
+뒤 즉시 중단한다. `*-work-state.json`과 로그는 재개용이라 Git에서 제외한다.
+
+Eleparts는 검색 결과에 제조사와 MPN이 모두 정확히 일치하고 양수인 부가세 포함 대표가격만
+사용한다. ICBanQ 자동완성에는 제조사가 없고 가격이 부가세 별도이므로, 후보를 가격순으로
+검사해 상세 페이지의 제조사·MPN·`Tax_Sales_Price`를 모두 확인한 첫 상품만 사용한다.
+동일 MPN의 타 제조사는 오퍼로 만들지 않는다.
+
+두 판매처 오퍼는 `eleparts`·`icbanq`로 각각 보존한다. 사이트 안의 DigiKey·Mouser 등의
+라벨은 원 공급사 오퍼로 승격하지 않고 감사 메타데이터에만 둔다. 재고·MOQ·주문배수는
+추정하지 않고 null로 유지하며, SamplePCB 가격 파생에서는 검증된 KRW 최소수량 단가가
+낮은 쪽을 쓴다. 같은 가격이면 identity 증거가 검색 응답에 직접 있는 Eleparts가 우선이다.
+
+최종 파일은 `prepared-prices/v2/walsin-price-snapshot-v2.json.gz`와 같은 폴더의
+`manifest.json`이다. `prepared-prices/v2/market/`의 사이트별 압축 capture와 manifest는
+가격 출처를 재검증하기 위한 근거다. DB·ES 초기화 후에도 외부 사이트를 다시 호출하지 않고
+v2 스냅샷을 `parts:catalog -- --price-snapshot ...`에 전달해 같은 데이터를 복원할 수 있다.
+
+2026-07-27 전수 결과:
+
+| 제조사 | 대상 | v1 가격 | Eleparts | ICBanQ | 국내 합집합 | v1에 없던 가격 | v2 가격 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Walsin | 572 | 152 | 136 | 106 | 141 | 10 | 162 |
+| Yageo | 572 | 240 | 237 | 228 | 237 | 0 | 240 |
+| Samsung | 456 | 33 | 38 | 39 | 43 | 10 | 43 |
+| TDK | 348 | 5 | 5 | 5 | 5 | 0 | 5 |
+| Murata | 232 | 2 | 2 | 2 | 2 | 0 | 2 |
+| Vishay | 224 | 59 | 58 | 53 | 58 | 0 | 59 |
+| KOA | 224 | 11 | 11 | 10 | 11 | 0 | 11 |
+| **합계** | **2,628** | **502** | **487** | **443** | **497** | **20** | **522** |
+
+두 사이트 공통 가격 대상은 433개다. 부가세 포함 단가 비교 결과 ICBanQ가 더 싼 부품
+235개, Eleparts가 더 싼 부품 140개, 동률 58개다. ICBanQ 상세 제조사 검증에서
+`samsung:RC0603F220CS`, `samsung:RC2012F220CS`, `walsin:1206B102K500CT`,
+`walsin:WR02X4701FTL` 4개는 동일 MPN의 타 제조사 상품이라 제외했다.
+
+v2는 가격 보유 522개, exact product 1,962개, 오퍼 2,451개, 가격구간 10,302개다.
+`parts:catalog` dry-run으로 원본 2,628개 coverage, v2 manifest SHA, 가격 스냅샷 ingest
+fingerprint를 검증했다. 이 생성 작업에서는 DB·ES 적용을 수행하지 않았다.
 
 초기화 후 `parts:catalog -- --apply ... --price-snapshot ...` 한 번이 제조사 원장과
 SamplePCB 취급 오퍼를 먼저 만들고, 스냅샷의 DigiKey·Mouser·UniKeyIC 오퍼를 같은

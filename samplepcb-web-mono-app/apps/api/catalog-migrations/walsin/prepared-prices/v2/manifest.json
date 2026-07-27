@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "walsin-catalog-price-snapshot-manifest/v1",
+  "generatedAt": "2026-07-27T05:53:49.382Z",
+  "sourceFile": "Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx",
+  "sourceSha256": "7aa0c323e02e11ec67086546f5dae47d38f83748732dea0eb463b3ef19433e6c",
+  "snapshotFile": "walsin-price-snapshot-v2.json.gz",
+  "snapshotSha256": "60922524787370d7c099de39b10ed578134870cfc646663c832deceec13225b0",
+  "snapshotBytes": 283664,
+  "summary": {
+    "targets": 2628,
+    "priced": 522,
+    "foundWithoutPrice": 13,
+    "notFound": 2093,
+    "exactProducts": 1962,
+    "supplierOffers": 2451,
+    "pricedOffers": 2422,
+    "priceBreaks": 10302,
+    "apiCalls": 17588,
+    "supplierErrorRecords": 371
+  }
+}

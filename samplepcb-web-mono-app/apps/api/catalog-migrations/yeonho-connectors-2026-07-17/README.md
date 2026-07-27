@@ -94,7 +94,9 @@ pnpm --filter api parts:catalog -- --verify-search
 
 연호 원본에는 가격·재고가 없으므로 운영 요청마다 공급사 API를 호출하지 않는다. 배포 전에
 공식 MPN 1,606개를 `MPN 정확 일치 + manufacturerNorm=yeonho`로 한 번 전수 조회하고,
-검증된 `prepared-prices/yeonho-price-snapshot-v1.json.gz`를 Git 산출물로 보존한다.
+검증된 `prepared-prices/yeonho-price-snapshot-v1.json.gz`를 기초 산출물로 보존하고,
+Eleparts·ICBanQ 가격을 합친 현재 적용본은
+`prepared-prices/v2/yeonho-price-snapshot-v2.json.gz`로 보존한다.
 동일 MPN의 다른 제조사와 유사 커넥터는 가격 근거에서 제외한다.
 
 로컬 생성과 재개:
@@ -123,19 +125,54 @@ Mouser 279건은 HTTP 403을 반환했다. 따라서 현재 manifest의 `supplie
 인제스트 실패가 아니라 공급사 미조회·오류 감사 표시이며, 표준 `--verify`는 통과하지만
 `--require-all-suppliers`는 1,885개 경고를 정확히 거부한다.
 
+국내 판매처 가격은 Walsin과 같은 공용 수집기로 별도 전수 확인한다. 스크립트는 연호
+워크북과 가격 스냅샷 정의를 `--source yeonho`로 선택하며, 사이트별 요청은 500ms 이상
+간격으로 직렬 실행한다. 정확 MPN과 `manufacturerNorm=yeonho`가 모두 맞아야 가격으로
+인정하고 재고·MOQ·주문배수는 추정하지 않는다.
+
+```bash
+pnpm --filter api parts:catalog-market-prices -- --source yeonho --site eleparts
+pnpm --filter api parts:catalog-market-prices -- --source yeonho --site icbanq
+
+pnpm --filter api parts:catalog-market-prices -- \
+  --source yeonho --run --site eleparts --delay-ms 500
+pnpm --filter api parts:catalog-market-prices -- \
+  --source yeonho --run --site icbanq --delay-ms 500
+
+pnpm --filter api parts:catalog-market-prices -- \
+  --source yeonho --verify --site eleparts
+pnpm --filter api parts:catalog-market-prices -- \
+  --source yeonho --verify --site icbanq
+pnpm --filter api parts:catalog-market-prices -- --source yeonho --merge
+```
+
+2026-07-27 전수 결과:
+
+- Eleparts: 가격 101개, 미발견 1,505개, 오류 0개, 요청 1,606회
+- ICBanQ: 가격 101개, 제조사 충돌 54개, 미발견 1,451개, 오류 0개,
+  요청 1,843회
+- 국내 판매처 합집합: 162개(공통 40 · Eleparts 전용 61 · ICBanQ 전용 61)
+- 공통 40개 가격 비교: Eleparts 저가 39개 · 동가 1개 · ICBanQ 저가 0개
+- 공식 직접 품번 160개, 공식 전개 품번 2개
+- v1 대비 가격 보유: 3개 → 162개(+159)
+
+ICBanQ 제조사 충돌은 동일 MPN 자동완성 결과의 상세 페이지 제조사가 연호가 아닌 경우며,
+전부 가격에서 제외했다. 두 국내 판매처 오퍼는 각각 보존하고 SamplePCB 가격 파생에서는
+부가세 포함 KRW 단가가 낮은 쪽을 사용하며 동가면 Eleparts를 우선한다.
+
 카탈로그가 비어 있는 운영 환경에는 다음 순서로 적용한다.
 
 ```bash
 cd samplepcb-web-mono-app
 
 pnpm --filter api parts:catalog -- --dry-run --source yeonho \
-  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/yeonho-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/v2/yeonho-price-snapshot-v2.json.gz
 
 pnpm --filter api parts:catalog -- --apply --source yeonho \
-  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/yeonho-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/v2/yeonho-price-snapshot-v2.json.gz
 
 pnpm --filter api parts:catalog -- --verify-search --source yeonho \
-  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/yeonho-price-snapshot-v1.json.gz
+  --price-snapshot catalog-migrations/yeonho-connectors-2026-07-17/prepared-prices/v2/yeonho-price-snapshot-v2.json.gz
 ```
 
 구 원본 교체가 필요한 운영 환경에서는 위 `--replace`를 먼저 완료한 다음, 별도 `--apply

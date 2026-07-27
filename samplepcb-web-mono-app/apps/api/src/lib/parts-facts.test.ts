@@ -195,4 +195,36 @@ describe('deriveSamplepcbOffer — 자체 오퍼 원천 선정', () => {
     ]);
     expect(chosen?.supplier).toBe('mouser');
   });
+
+  it('Eleparts·ICBanQ는 검증된 KRW 최저가, 동률이면 Eleparts를 쓴다', () => {
+    const cheapest = deriveSamplepcbOffer([
+      offer({
+        supplier: 'eleparts',
+        stock: null,
+        priceBreaks: [{ qty: 1, price: 70, currency: 'KRW' }],
+      }),
+      offer({
+        supplier: 'icbanq',
+        stock: null,
+        priceBreaks: [{ qty: 1, price: 65, currency: 'KRW' }],
+      }),
+    ]);
+    expect(cheapest?.supplier).toBe('icbanq');
+
+    const tie = deriveSamplepcbOffer([
+      offer({
+        supplier: 'icbanq',
+        stock: null,
+        fetchedAt: new Date('2026-07-28T00:00:00.000Z'),
+        priceBreaks: [{ qty: 1, price: 70, currency: 'KRW' }],
+      }),
+      offer({
+        supplier: 'eleparts',
+        stock: null,
+        fetchedAt: new Date('2026-07-27T00:00:00.000Z'),
+        priceBreaks: [{ qty: 1, price: 70, currency: 'KRW' }],
+      }),
+    ]);
+    expect(tie?.supplier).toBe('eleparts');
+  });
 });

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "catalog-market-price-capture-manifest/v1",
+  "site": "eleparts",
+  "generatedAt": "2026-07-27T05:50:40.286Z",
+  "sourceFile": "Parts_Eyes_RLC_Size_Split_Expanded_AVL.xlsx",
+  "sourceSha256": "7aa0c323e02e11ec67086546f5dae47d38f83748732dea0eb463b3ef19433e6c",
+  "captureFile": "eleparts-capture-v1.json.gz",
+  "captureSha256": "a14224d7c1842024fd113622e0a7514a48834d637051968d3ef02a28ff24eed0",
+  "captureBytes": 73824,
+  "summary": {
+    "targets": 2628,
+    "priced": 487,
+    "foundWithoutPrice": 2,
+    "manufacturerConflict": 0,
+    "notFound": 2139,
+    "errors": 0,
+    "observations": 487,
+    "requests": 2628,
+    "manufacturerCounts": {
+      "koa": {
+        "targets": 224,
+        "priced": 11,
+        "observations": 11
+      },
+      "murata": {
+        "targets": 232,
+        "priced": 2,
+        "observations": 2
+      },
+      "samsung": {
+        "targets": 456,
+        "priced": 38,
+        "observations": 38
+      },
+      "tdk": {
+        "targets": 348,
+        "priced": 5,
+        "observations": 5
+      },
+      "vishay": {
+        "targets": 224,
+        "priced": 58,
+        "observations": 58
+      },
+      "walsin": {
+        "targets": 572,
+        "priced": 136,
+        "observations": 136
+      },
+      "yageo": {
+        "targets": 572,
+        "priced": 237,
+        "observations": 237
+      }
+    }
+  }
+}

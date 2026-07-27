@@ -31,7 +31,10 @@ vi.mock('./prisma', () => ({
   },
 }));
 
-import { applyPartFacts } from './parts-ingest';
+import {
+  applyPartFacts,
+  shouldRestoreSamplepcbCatalogOffer,
+} from './parts-ingest';
 
 function catalogRaw(): Record<string, unknown> {
   return {
@@ -115,6 +118,27 @@ beforeEach(() => {
 });
 
 describe('SamplePCB 자체 카탈로그 오퍼 보존', () => {
+  it('가격이 원장보다 먼저 저장된 중단 상태만 카탈로그 정본으로 복구한다', () => {
+    const incoming = catalogRaw();
+    const directPrice = {
+      derivedFrom: {
+        supplier: 'digikey',
+        supplierSku: '123-ND',
+        fetchedAt: '2026-07-26T00:00:00.000Z',
+      },
+      policyVersion: 1,
+    };
+    const normalOverlay = {
+      ...incoming,
+      samplepcbPricing: directPrice,
+    };
+
+    expect(shouldRestoreSamplepcbCatalogOffer('samplepcb', incoming, directPrice)).toBe(true);
+    expect(shouldRestoreSamplepcbCatalogOffer('samplepcb', incoming, normalOverlay)).toBe(false);
+    expect(shouldRestoreSamplepcbCatalogOffer('digikey', incoming, directPrice)).toBe(false);
+    expect(shouldRestoreSamplepcbCatalogOffer('samplepcb', incoming, { manuallyEntered: true })).toBe(false);
+  });
+
   it('외부 가격이 없어도 자체 취급 오퍼를 삭제하지 않는다', async () => {
     mocks.tx.spPart.findUnique.mockResolvedValue(part());
 

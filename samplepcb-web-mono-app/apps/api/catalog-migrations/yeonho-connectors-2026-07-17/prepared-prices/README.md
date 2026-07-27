@@ -6,6 +6,8 @@
 - `yeonho-price-snapshot-v1.json.gz`: exact 공급사 product/offer와 가격·재고
 - `manifest.json`: 원본·스냅샷 SHA-256, 크기, coverage 집계
 - `work-state.json`: 생성 중 재개 상태로 Git에서 제외
+- `v2/yeonho-price-snapshot-v2.json.gz`: v1에 Eleparts·ICBanQ 검증 가격을 합친 현재 적용본
+- `v2/market/`: 국내 판매처별 capture·manifest 감사 근거
 
 다른 제조사의 동일 MPN, 유사 시리즈·핀 수 대체품은 가격 근거로 사용하지 않는다.
 외부 공급사 오퍼는 원문 가격·재고를 저장하지만, SamplePCB 오퍼에는 선택된 한

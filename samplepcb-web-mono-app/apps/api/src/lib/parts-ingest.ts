@@ -18,7 +18,7 @@ import {
   resolvePartFacts,
   type FactsSource,
 } from './parts-facts';
-import { isCatalogInquiryOffer } from './parts-offer-kind';
+import { isCatalogInquiryOffer, partOfferDerivedFrom } from './parts-offer-kind';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // BOM 공급사 검색 결과(sp-engine envelope) → 부품 카탈로그 자동 인제스트.
@@ -320,6 +320,23 @@ function offerContentFingerprint(raw: EngineProductT, offer: EngineOfferT): stri
   });
 }
 
+/**
+ * 가격 인제스트가 제조사 원장보다 먼저 저장된 중단 복구 상태에서는 SamplePCB 오퍼가
+ * 직접 derivedFrom 형식으로 존재할 수 있다. 이 경우에만 오래된 원장 기준시각보다
+ * 카탈로그 정본을 우선해 복원하고, 같은 트랜잭션의 applyPartFacts가 가격 오버레이를
+ * 다시 계산하게 한다. 일반 공급사 stale 응답과 정상 카탈로그 오버레이는 그대로 보호한다.
+ */
+export function shouldRestoreSamplepcbCatalogOffer(
+  supplier: string,
+  incomingRaw: unknown,
+  existingRaw: unknown,
+): boolean {
+  return supplier === SAMPLEPCB_SUPPLIER
+    && preferredSamplepcbCatalogRaw(incomingRaw as Prisma.JsonValue) !== null
+    && !isCatalogInquiryOffer(existingRaw)
+    && partOfferDerivedFrom(existingRaw) !== null;
+}
+
 interface GroupUpsertResult {
   partId: bigint;
   offers: number;
@@ -382,18 +399,21 @@ async function upsertGroup(group: ProductGroup): Promise<GroupUpsertResult> {
         };
         const existing = await tx.spPartOffer.findUnique({
           where: unique,
-          select: { id: true, fetchedAt: true, contentFingerprint: true },
+          select: { id: true, fetchedAt: true, contentFingerprint: true, rawJson: true },
         });
+        const restoreSamplepcbCatalog = existing !== null
+          && shouldRestoreSamplepcbCatalogOffer(offer.supplier, raw, existing.rawJson);
 
         // 늦게 도착한 과거 결과와 완전히 같은 재생 결과는 쓰기 자체를 생략한다.
-        if (existing !== null && existing.fetchedAt > fetchedAt) {
+        if (existing !== null && existing.fetchedAt > fetchedAt && !restoreSamplepcbCatalog) {
           skippedOffers += 1;
           continue;
         }
         if (
           existing !== null &&
           existing.fetchedAt.getTime() === fetchedAt.getTime() &&
-          existing.contentFingerprint === contentFingerprint
+          existing.contentFingerprint === contentFingerprint &&
+          !restoreSamplepcbCatalog
         ) {
           skippedOffers += 1;
           continue;
@@ -529,7 +549,11 @@ function preferredSamplepcbCatalogRaw(value: Prisma.JsonValue): Prisma.JsonObjec
  * 부품 정본(스펙·설명·specConflicts) + 자체(samplepcb) 오퍼 재계산 — 전체 실공급사
  * 오퍼 기준. 인제스트·수동 갱신·백필 모든 경로의 종착점(idempotent).
  */
-async function applyPartFactsInTx(tx: Prisma.TransactionClient, partId: bigint): Promise<boolean> {
+async function applyPartFactsInTx(
+  tx: Prisma.TransactionClient,
+  partId: bigint,
+  forceSamplepcbReconcile = false,
+): Promise<boolean> {
   const part = await tx.spPart.findUnique({
     where: { id: partId },
     include: { offers: { include: { priceBreaks: true } } },
@@ -568,43 +592,45 @@ async function applyPartFactsInTx(tx: Prisma.TransactionClient, partId: bigint):
       }))
       .sort((a, b) => `${a.supplier}:${a.supplierSku}`.localeCompare(`${b.supplier}:${b.supplierSku}`)),
   });
-  if (part.factsFingerprint === factsFingerprint) return false;
+  if (part.factsFingerprint === factsFingerprint && !forceSamplepcbReconcile) return false;
 
-  const sources: FactsSource[] = real.map((o) => {
-    const raw = RawProductFacts.safeParse(o.rawJson);
-    const d = raw.success ? raw.data : undefined;
-    return {
-      supplier: o.supplier,
-      fetchedAt: o.fetchedAt,
-      specs: d?.normalized_specs ?? {},
-      description: d?.description ?? null,
-      category: d?.category ?? null,
-      packageCode: d?.package ?? null,
-      lifecycle: d?.lifecycle_status ?? null,
-      datasheetUrl: d?.datasheet_url ?? null,
-      imageUrl: d?.image_url ?? null,
-    };
-  });
-  const facts = resolvePartFacts(sources);
-  const canonPkg = facts.packageCode === null ? null : normalizePackageCode(facts.packageCode);
-  const packageCode = (canonPkg?.[0] ?? facts.packageCode?.toUpperCase() ?? null)?.slice(0, 32) ?? null;
-  const hasConflicts = Object.keys(facts.specConflicts).length > 0;
+  if (part.factsFingerprint !== factsFingerprint) {
+    const sources: FactsSource[] = real.map((o) => {
+      const raw = RawProductFacts.safeParse(o.rawJson);
+      const d = raw.success ? raw.data : undefined;
+      return {
+        supplier: o.supplier,
+        fetchedAt: o.fetchedAt,
+        specs: d?.normalized_specs ?? {},
+        description: d?.description ?? null,
+        category: d?.category ?? null,
+        packageCode: d?.package ?? null,
+        lifecycle: d?.lifecycle_status ?? null,
+        datasheetUrl: d?.datasheet_url ?? null,
+        imageUrl: d?.image_url ?? null,
+      };
+    });
+    const facts = resolvePartFacts(sources);
+    const canonPkg = facts.packageCode === null ? null : normalizePackageCode(facts.packageCode);
+    const packageCode = (canonPkg?.[0] ?? facts.packageCode?.toUpperCase() ?? null)?.slice(0, 32) ?? null;
+    const hasConflicts = Object.keys(facts.specConflicts).length > 0;
 
-  await tx.spPart.update({
-    where: { id: partId },
-    data: {
-      description: facts.description,
-      category: facts.category,
-      packageCode,
-      lifecycle: facts.lifecycle,
-      datasheetUrl: facts.datasheetUrl?.slice(0, 500) ?? null,
-      imageUrl: facts.imageUrl?.slice(0, 500) ?? null,
-      specsJson: facts.specsJson as Prisma.InputJsonValue,
-      specsSi: facts.specsSi,
-      specConflicts: hasConflicts ? (facts.specConflicts as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
-      factsFingerprint,
-    },
-  });
+    await tx.spPart.update({
+      where: { id: partId },
+      data: {
+        description: facts.description,
+        category: facts.category,
+        packageCode,
+        lifecycle: facts.lifecycle,
+        datasheetUrl: facts.datasheetUrl?.slice(0, 500) ?? null,
+        imageUrl: facts.imageUrl?.slice(0, 500) ?? null,
+        specsJson: facts.specsJson as Prisma.InputJsonValue,
+        specsSi: facts.specsSi,
+        specConflicts: hasConflicts ? (facts.specConflicts as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+        factsFingerprint,
+      },
+    });
+  }
 
   // 자체(samplepcb) 오퍼 — 원천 1개에서 통째 복사(공급사 간 브레이크 혼합 금지)
   const chosen = deriveSamplepcbOffer(
@@ -717,7 +743,9 @@ export async function applyPartFacts(partId: bigint): Promise<void> {
   await prisma.$transaction(
     async (tx) => {
       await tx.$queryRaw<{ id: bigint }[]>`SELECT id FROM sp_part WHERE id = ${partId} FOR UPDATE`;
-      await applyPartFactsInTx(tx, partId);
+      // 명시적 정본 재계산은 factsFingerprint가 같더라도 SamplePCB 가격 오퍼를
+      // 다시 맞춘다. 중단된 인제스트에서 실공급사 오퍼만 먼저 저장된 상태를 복구한다.
+      await applyPartFactsInTx(tx, partId, true);
     },
     { maxWait: 10_000, timeout: 30_000 },
   );

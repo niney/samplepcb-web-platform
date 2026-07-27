@@ -15,6 +15,14 @@ export const SAMPLEPCB_POLICY_VERSION = 1;
 
 /** 데이터 품질 신뢰 순위(스펙 판정용) — 목록에 없는 공급사는 그 뒤 순위. */
 export const SUPPLIER_TRUST_ORDER: readonly string[] = ['digikey', 'mouser', 'unikeyic'];
+/** 자체 판매가격 동률 순위. 국내 판매처는 identity 증거가 직접적인 Eleparts 우선. */
+export const SAMPLEPCB_PRICE_SOURCE_ORDER: readonly string[] = [
+  'digikey',
+  'mouser',
+  'unikeyic',
+  'eleparts',
+  'icbanq',
+];
 
 /** 같은 값의 표기·정밀도 차이 허용(상대 오차) — 이내면 동일 값으로 본다. */
 export const SPEC_REL_TOLERANCE = 0.005;
@@ -67,6 +75,11 @@ export interface PartFacts {
 function trustRank(supplier: string): number {
   const i = SUPPLIER_TRUST_ORDER.indexOf(supplier.toLowerCase());
   return i === -1 ? SUPPLIER_TRUST_ORDER.length : i;
+}
+
+function priceSourceRank(supplier: string): number {
+  const i = SAMPLEPCB_PRICE_SOURCE_ORDER.indexOf(supplier.toLowerCase());
+  return i === -1 ? SAMPLEPCB_PRICE_SOURCE_ORDER.length : i;
 }
 
 interface Vote {
@@ -223,7 +236,7 @@ function offerCurrency(s: DeriveSource): string {
 /**
  * 자체 samplepcb 오퍼의 원천 선정 — 수량 무관 안정 규칙(카탈로그 레벨).
  * 재고>0 우선 → KRW 우선(환율 불확실성 회피) → 최소구간 단가 최저 →
- * 동률 시 재고 많은 순 → 공급사 신뢰 순위 → 최신. 원천 1개에서 통째 복사(혼합 금지).
+ * 동률 시 재고 많은 순 → 가격 원천 순위 → 최신. 원천 1개에서 통째 복사(혼합 금지).
  * BOM 견적 라인의 수량 기반 선정(pickDefaultOffer)은 별도 축이다.
  */
 export function deriveSamplepcbOffer(sources: DeriveSource[]): DeriveSource | null {
@@ -246,7 +259,7 @@ export function deriveSamplepcbOffer(sources: DeriveSource[]): DeriveSource | nu
     return (
       pa - pb ||
       (b.stock ?? 0) - (a.stock ?? 0) ||
-      trustRank(a.supplier) - trustRank(b.supplier) ||
+      priceSourceRank(a.supplier) - priceSourceRank(b.supplier) ||
       b.fetchedAt.getTime() - a.fetchedAt.getTime()
     );
   });

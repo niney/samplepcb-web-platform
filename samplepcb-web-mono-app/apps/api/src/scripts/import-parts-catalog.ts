@@ -18,6 +18,7 @@ import { engineFetch } from '../lib/engine-client';
 import { prisma } from '../lib/prisma';
 import {
   applyPartFacts,
+  indexChangedParts,
   ingestSupplierSearchResultOnce,
   supplierSearchIngestFingerprint,
   tryIndexPart,
@@ -1172,6 +1173,30 @@ async function verifyAll(
   return result;
 }
 
+async function reconcilePreparedPriceSamplepcbOffers(
+  parsed: ParsedCatalogMigration,
+  artifact: CatalogPriceSnapshotArtifactType,
+): Promise<{ parts: number; indexed: number }> {
+  const pricedKeys = new Set(
+    artifact.records
+      .filter((record) => record.status === 'priced')
+      .map((record) => record.key),
+  );
+  const records = parsed.records.filter((record) => pricedKeys.has(record.key));
+  const partsByKey = await loadExistingParts(records);
+  const partIds = records.map((record) => {
+    const part = partsByKey.get(record.key);
+    if (part === undefined) throw new Error(`가격 정본 재계산 대상 부품 누락: ${record.key}`);
+    return part.id;
+  });
+  for (const partId of partIds) await applyPartFacts(partId);
+  const indexed = await indexChangedParts(partIds);
+  if (indexed.queued > 0) {
+    throw new Error(`가격 정본 재계산 후 ES 색인 지연: ${String(indexed.queued)}건`);
+  }
+  return { parts: partIds.length, indexed: indexed.indexed };
+}
+
 async function restoreOffer(partId: bigint, snapshot: OfferSnapshot): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const unique = {
@@ -1452,6 +1477,9 @@ async function main(): Promise<void> {
     let preparedPricesIngest: Awaited<
       ReturnType<typeof ingestSupplierSearchResultOnce>
     > | null = null;
+    let preparedPricesReconciled: Awaited<
+      ReturnType<typeof reconcilePreparedPriceSamplepcbOffers>
+    > | null = null;
     if (preparedPrices !== null) {
       try {
         await verifyAll(input.parsed, false, preparedPrices.artifact);
@@ -1470,6 +1498,10 @@ async function main(): Promise<void> {
         preparedPricesIngest = await ingestSupplierSearchResultOnce(
           preparedPrices.raw,
           `catalog-price:${input.parsed.sourceFile}`,
+        );
+        preparedPricesReconciled = await reconcilePreparedPriceSamplepcbOffers(
+          input.parsed,
+          preparedPrices.artifact,
         );
       }
     }
@@ -1491,6 +1523,7 @@ async function main(): Promise<void> {
               file: preparedPrices.file,
               reused: preparedPricesReused,
               ingest: preparedPricesIngest,
+              reconciled: preparedPricesReconciled,
               summary: preparedPrices.artifact.summary,
             },
         verification,

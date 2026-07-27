@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "catalog-market-price-capture-manifest/v1",
+  "site": "icbanq",
+  "generatedAt": "2026-07-27T07:24:22.555Z",
+  "sourceFile": "연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx",
+  "sourceSha256": "8612d52bb7858f3a994d9fed0e1d7e1bb706bdf233a9794e231600d9a103a9e6",
+  "captureFile": "icbanq-capture-v1.json.gz",
+  "captureSha256": "03e0dc50eb7bec11412f8289226495c95dd6e350503965f79d18bd0ef3152f77",
+  "captureBytes": 36573,
+  "summary": {
+    "targets": 1606,
+    "priced": 101,
+    "foundWithoutPrice": 0,
+    "manufacturerConflict": 54,
+    "notFound": 1451,
+    "errors": 0,
+    "observations": 101,
+    "requests": 1843,
+    "manufacturerCounts": {
+      "yeonho": {
+        "targets": 1606,
+        "priced": 101,
+        "observations": 101
+      }
+    }
+  }
+}

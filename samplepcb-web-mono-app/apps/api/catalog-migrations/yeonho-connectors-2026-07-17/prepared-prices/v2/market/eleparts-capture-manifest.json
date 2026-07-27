@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "catalog-market-price-capture-manifest/v1",
+  "site": "eleparts",
+  "generatedAt": "2026-07-27T07:22:00.767Z",
+  "sourceFile": "연호전자_커넥터_전품목_BOM매칭_DB_Rev2_공식품번.xlsx",
+  "sourceSha256": "8612d52bb7858f3a994d9fed0e1d7e1bb706bdf233a9794e231600d9a103a9e6",
+  "captureFile": "eleparts-capture-v1.json.gz",
+  "captureSha256": "587983bf4e714064ebf249c235991612c30f59eefeeedf8e83e26eb1c0015968",
+  "captureBytes": 31925,
+  "summary": {
+    "targets": 1606,
+    "priced": 101,
+    "foundWithoutPrice": 0,
+    "manufacturerConflict": 0,
+    "notFound": 1505,
+    "errors": 0,
+    "observations": 101,
+    "requests": 1606,
+    "manufacturerCounts": {
+      "yeonho": {
+        "targets": 1606,
+        "priced": 101,
+        "observations": 101
+      }
+    }
+  }
+}

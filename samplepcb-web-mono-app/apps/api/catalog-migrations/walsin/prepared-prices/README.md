@@ -6,6 +6,9 @@
 - `walsin-price-snapshot-v1.json.gz`: exact 공급사 product/offer와 가격·재고
 - `manifest.json`: 원본·스냅샷 SHA-256, 크기, coverage 집계
 - `work-state.json`: 생성 중 재개 상태로 Git 제외하며 최종 검증 뒤 삭제 가능
+- `v2/walsin-price-snapshot-v2.json.gz`: v1에 Eleparts·ICBanQ 검증 가격을 합친 현재 적용본
+- `v2/manifest.json`: v2 원본·스냅샷 SHA-256과 coverage
+- `v2/market/*-capture-v1.json.gz`: 사이트별 2,628개 전수 결과와 가격 근거
 
 공급사별 rate limit 또는 의도적 미조회는 레코드 `warnings`와 manifest의
 `supplierErrorRecords`에 보존한다. 배치 전체 타임아웃은 완료로 인정하지 않아
