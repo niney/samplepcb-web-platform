@@ -91,6 +91,44 @@ export function filterActiveQuoteItems<
   return items.filter((item) => item.sourceSheetIndex === null || selected.has(item.sourceSheetIndex));
 }
 
+/**
+ * 자체·외부 카탈로그 보강이 필요한지 판정한다.
+ *
+ * 수량 미입력 행은 견적 합계에서는 제외하지만, 기술 후보를 미리 선정하려면 최초 검색은
+ * 필요하다. 이미 기술 선정된 수량 미입력 행은 다시 검색하지 않는다.
+ */
+export function quoteNeedsEnrichment(
+  items: readonly {
+    included: boolean;
+    matchStatus: string;
+    matchEvidence: unknown;
+    sourceRow: Record<string, unknown> | null;
+    selectedOffer: { fetchedAt: string } | null;
+  }[],
+  freshnessHours: number,
+): boolean {
+  const now = Date.now();
+  const freshMs = freshnessHours * 3_600_000;
+  return items.some((item) => {
+    const quantityDeferredNeedsTechnicalSelection =
+      item.sourceRow?.procurementDisposition === 'quantity_confirmation_required'
+      && item.sourceRow.quantityConfirmed !== true
+      && (item.matchEvidence === null || item.matchStatus === 'none');
+    return quantityDeferredNeedsTechnicalSelection
+      || (
+        item.included
+        && (
+          item.matchEvidence === null
+          || item.matchStatus === 'none'
+          || (
+            item.selectedOffer !== null
+            && now - new Date(item.selectedOffer.fetchedAt).getTime() > freshMs
+          )
+        )
+      );
+  });
+}
+
 // ── 상태 전이 ────────────────────────────────────────────────────────────────
 export const QUOTE_TRANSITIONS: Record<string, BomQuoteStatusType[]> = {
   draft: ['requested', 'canceled'],
@@ -818,7 +856,7 @@ export function buildItemsFromEngineResult(
       .slice(0, 24);
     items.push({
       rowIdx: items.length,
-      included: c.procurement_disposition !== 'excluded',
+      included: c.procurement_disposition === 'eligible',
       mpn: mpn.slice(0, 191),
       manufacturerName: c.manufacturer?.trim().slice(0, 191) ?? null,
       description: c.description?.trim().slice(0, 1000) ?? null,
@@ -842,6 +880,9 @@ export function buildItemsFromEngineResult(
         valueRaw: c.value_raw ?? null,
         inputPartNumber: mpn === '' ? null : mpn,
         inputManufacturer: c.manufacturer ?? null,
+        procurementDisposition: c.procurement_disposition,
+        quantityResolution: c.quantity_resolution,
+        quantityConfirmed: false,
       },
     });
   }
@@ -1676,8 +1717,11 @@ function projectEngineProcurement(
     decision?.selection_application_policy_version === 'supplier-selection-application-v2'
     || decision?.selection_application_policy_version === 'supplier-selection-application-v3'
   );
+  const quantityDeferred = component.procurement_disposition === 'quantity_confirmation_required'
+    && component.quantity_resolution === 'missing'
+    && decision?.required_quantity === null;
   if (
-    decision?.required_quantity !== needed
+    (decision?.required_quantity !== needed && !quantityDeferred)
     || !currentApplicationPolicy
     || decision.target_currency.toUpperCase() !== 'KRW'
   ) return invalid;
@@ -2107,8 +2151,21 @@ export function selectEngineMatch(
   const eligible = groups.filter((group) => group.snapshot.autoEligible);
   if (usesProcurementContract) {
     const procurement = projectEngineProcurement(component, groups, needed);
-    const selected = procurement.valid ? procurement.selected : null;
-    const recommended = procurement.valid ? procurement.recommended : null;
+    const quantityDeferredSelection = procurement.valid
+      && component.procurement_disposition === 'quantity_confirmation_required'
+      && component.quantity_resolution === 'missing'
+      && procurement.applicationState === 'not_selected'
+      && procurement.primaryUnavailabilityReason === 'input_incomplete'
+      && procurement.technicalTop?.snapshot.autoEligible === true
+      && procurement.technicalTop.snapshot.selectionRecommendation === 'preselect'
+      ? procurement.technicalTop
+      : null;
+    const selected = procurement.valid
+      ? procurement.selected ?? quantityDeferredSelection
+      : null;
+    const recommended = procurement.valid
+      ? procurement.recommended ?? quantityDeferredSelection
+      : null;
     const selectedMode = selected?.snapshot.selectionMode
       ?? recommended?.snapshot.selectionMode
       ?? (component.status === 'not_found' ? 'unmatched' : 'review');
@@ -2120,13 +2177,15 @@ export function selectEngineMatch(
         ? 'technical'
         : 'identity';
     const applicationReasonCodes: BomQuoteDecisionReasonType[] = procurement.valid
-      ? procurement.applicationState === 'provisional_selected'
-        ? ['engine-manual-review']
-        : procurement.applicationState === 'automatic_selected'
-          ? procurement.primaryUnavailabilityReason === 'catalog_inquiry'
-            ? ['engine-catalog-selection']
-            : ['engine-procurement-recommendation']
-          : ['engine-procurement-unavailable']
+      ? quantityDeferredSelection !== null
+        ? ['quantity-confirmation-required']
+        : procurement.applicationState === 'provisional_selected'
+          ? ['engine-manual-review']
+          : procurement.applicationState === 'automatic_selected'
+            ? procurement.primaryUnavailabilityReason === 'catalog_inquiry'
+              ? ['engine-catalog-selection']
+              : ['engine-procurement-recommendation']
+            : ['engine-procurement-unavailable']
       : ['no-safe-candidate'];
     const reasonCodes: BomQuoteDecisionReasonType[] = [
       ...applicationReasonCodes,
@@ -2532,7 +2591,7 @@ export async function quoteCandidatePartsSearchable(quoteId: bigint): Promise<bo
 }
 
 interface StoredRecommendation {
-  applicationState: 'automatic_selected' | 'provisional_selected';
+  applicationState: 'automatic_selected' | 'provisional_selected' | 'not_selected';
   confirmationRequired: boolean;
   procurementUnavailabilityReason: EngineProcurementUnavailabilityReasonType | null;
   candidate: StoredCandidateType;
@@ -2568,6 +2627,50 @@ function recommendStoredCandidate(
     || componentDecision.selection_application_policy_version
       === 'supplier-selection-application-v3'
   );
+  const quantityDeferred = currentApplicationPolicy
+    && componentDecision.required_quantity === needed
+    && componentDecision.target_currency.toUpperCase() === 'KRW'
+    && componentDecision.status === 'input_incomplete'
+    && componentDecision.selection_application_state === 'not_selected'
+    && !componentDecision.confirmation_required
+    && componentDecision.unavailability_reason_policy_version
+      === 'supplier-procurement-unavailability-v1'
+    && componentDecision.primary_unavailability_reason === 'input_incomplete'
+    && componentDecision.application_candidate_identity_key === null
+    && componentDecision.application_candidate_evidence_key === null
+    && (componentDecision.automatic_offer_key ?? null) === null
+    && (componentDecision.review_offer_key ?? null) === null
+    && candidates.every((candidate) =>
+      candidate.procurementDisposition === 'quantity_confirmation_required'
+      && candidate.quantityResolution === 'missing');
+  if (quantityDeferred) {
+    const technicalIdentityKey = componentDecision.technical_preselection_identity_key;
+    const technicalEvidenceKey = componentDecision.technical_preselection_evidence_key;
+    if (technicalIdentityKey === null || technicalEvidenceKey === null) return null;
+    const technicalTopCandidates = candidates.filter((candidate) =>
+      candidate.identityKey === technicalIdentityKey
+      && candidate.technicalEvidenceKey === technicalEvidenceKey
+      && candidate.selectionRecommendation === 'preselect'
+      && candidate.selectionEligibility === 'automatic'
+      && candidate.autoEligible);
+    if (technicalTopCandidates.length !== 1) return null;
+    const technicalTop = technicalTopCandidates[0];
+    if (technicalTop === undefined) return null;
+    return {
+      applicationState: 'not_selected',
+      confirmationRequired: false,
+      procurementUnavailabilityReason: 'input_incomplete',
+      candidate: technicalTop,
+      pick: null,
+      offerKey: null,
+      technicalPreselectionCandidateKey: technicalTop.candidateKey,
+      technicalFallbackUsed: false,
+      technicalTopLineTotalKrw: null,
+      recommendationType:
+        technicalTop.selectionMode === 'spec-compatible' ? 'technical' : 'identity',
+      reasonCodes: ['quantity-confirmation-required'],
+    };
+  }
   if (
     !currentApplicationPolicy
     || componentDecision.required_quantity !== needed
@@ -3023,7 +3126,14 @@ export async function repriceCandidateSelections(
     const rowCandidates = candidates.get(item.id);
     if (rowCandidates === undefined) continue;
     const needed = neededQty(item.bomQty, setQty, spareQty);
-    if (!needsEngineProcurementReevaluation(rowCandidates, needed, usdKrwRate)) continue;
+    const quantityConfirmed = item.sourceRow?.quantityConfirmed === true
+      && rowCandidates.some((candidate) =>
+        candidate.procurementDisposition === 'quantity_confirmation_required'
+        || candidate.quantityResolution === 'missing');
+    if (
+      !quantityConfirmed
+      && !needsEngineProcurementReevaluation(rowCandidates, needed, usdKrwRate)
+    ) continue;
     itemsNeedingReevaluation.add(item.id);
     const componentId = item.matchEvidence?.componentId
       ?? (typeof item.sourceRow?.componentId === 'string' ? item.sourceRow.componentId : null);
@@ -3039,9 +3149,17 @@ export async function repriceCandidateSelections(
       requestedOfferKey: item.selectedOffer?.pinned === true ? item.selectedOffer.offerKey : null,
       identityFallback: item.matchEvidence?.identityFallback ?? false,
       engineCandidates,
-      procurementDisposition: rowCandidates[0]?.procurementDisposition ?? 'eligible',
-      quantityResolution: rowCandidates[0]?.quantityResolution ?? 'verified',
-      dispositionReasonCodes: rowCandidates[0]?.dispositionReasonCodes ?? [],
+      procurementDisposition: quantityConfirmed
+        ? 'eligible'
+        : rowCandidates[0]?.procurementDisposition ?? 'eligible',
+      quantityResolution: quantityConfirmed
+        ? 'verified'
+        : rowCandidates[0]?.quantityResolution ?? 'verified',
+      dispositionReasonCodes: quantityConfirmed
+        ? (rowCandidates[0]?.dispositionReasonCodes ?? []).filter(
+            (code) => code !== 'quantity_missing',
+          )
+        : rowCandidates[0]?.dispositionReasonCodes ?? [],
     });
   }
 
@@ -4139,6 +4257,18 @@ export function toItemDto(
   const selectedOffer = offer.success
     ? { ...offer.data, packaging: normalizeSupplierPackaging(offer.data.supplier, offer.data.packaging) }
     : null;
+  const sourceRow =
+    typeof row.sourceRow === 'object' && row.sourceRow !== null && !Array.isArray(row.sourceRow)
+      ? row.sourceRow
+      : null;
+  const quantityState: BomQuoteItemType['quantityState'] =
+    sourceRow?.procurementDisposition === 'excluded'
+      ? 'excluded'
+      : sourceRow?.quantityConfirmed === true
+        ? 'confirmed'
+        : sourceRow?.quantityResolution === 'missing'
+          ? 'missing'
+          : 'verified';
   return {
     id: String(row.id),
     rowIdx: row.rowIdx,
@@ -4157,14 +4287,12 @@ export function toItemDto(
     selectedOffer,
     sourceSheetIndex: row.sourceSheetIndex,
     sourceSheetName: row.sourceSheetName,
-    sourceRow:
-      typeof row.sourceRow === 'object' && row.sourceRow !== null && !Array.isArray(row.sourceRow)
-        ? (row.sourceRow)
-        : null,
+    sourceRow,
     lineTotalKrw: row.lineTotalKrw === null ? null : Number(row.lineTotalKrw),
     partImageUrl,
     partDatasheetUrl,
     catalogInquiry,
+    quantityState,
   };
 }
 

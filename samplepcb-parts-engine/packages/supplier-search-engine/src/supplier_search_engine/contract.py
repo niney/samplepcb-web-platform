@@ -678,6 +678,11 @@ def _guidance_component_type(
 ) -> SearchRequirementComponentType | None:
     if component.user_requirements is not None:
         return component.user_requirements.component_type
+    # ``film``은 capacitor taxonomy에도 쓰이지만, 계획이 이미 resistor로
+    # 확정됐다면 명시 부품 유형이 상위 근거다. category_policy가 이를
+    # capacitor로 뒤집으면 Thick Film 저항의 보완 폼이 잘못 표시된다.
+    if query.part_type in _GUIDANCE_CATEGORY_TYPES:
+        return _GUIDANCE_CATEGORY_TYPES[query.part_type]
     if query.category_policy in _GUIDANCE_CATEGORY_TYPES:
         return _GUIDANCE_CATEGORY_TYPES[query.category_policy]
     raw_type = component.fields.get("part_type")

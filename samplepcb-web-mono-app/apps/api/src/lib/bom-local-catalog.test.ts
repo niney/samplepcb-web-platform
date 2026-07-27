@@ -547,6 +547,99 @@ describe('BOM 부품 유형별 로컬 우선 검색', () => {
     ]);
   });
 
+  it('수량 누락이어도 엔진의 안전 기술 1순위는 로컬에서 해결해 외부 호출을 막는다', async () => {
+    const baseQuery = preflight.plan.components[0]?.planned_queries[0];
+    if (baseQuery === undefined) throw new Error('테스트 쿼리가 없습니다');
+    const quantityMissingPreflight = {
+      plan: {
+        components: [{
+          component_id: 'resistor-missing',
+          requirement_guidance: { component_type: 'resistor' },
+          planned_queries: [{
+            ...baseQuery,
+            component_id: 'resistor-missing',
+            procurement_disposition: 'quantity_confirmation_required',
+            quantity_resolution: 'missing',
+          }],
+        }],
+      },
+    };
+    mocks.search.mockResolvedValue({
+      hits: { hits: [{ _source: { partId: '77' } }] },
+    });
+    mocks.findMany.mockResolvedValue([{
+      id: 77n,
+      mpnNorm: 'WR06X1002FTL',
+      manufacturerNorm: 'walsin',
+      offers: [{
+        supplier: 'samplepcb',
+        supplierSku: 'WR06X1002FTL',
+        productUrl: null,
+        stock: null,
+        moq: null,
+        orderMultiple: null,
+        packaging: null,
+        currency: null,
+        leadTime: null,
+        fetchedAt: new Date('2026-07-06T00:00:00+09:00'),
+        rawJson: preferredProduct,
+        priceBreaks: [],
+      }],
+    }]);
+    mocks.engineFetch.mockResolvedValue(new Response(JSON.stringify({
+      items: [{
+        component_id: 'resistor-missing',
+        status: 'input_incomplete',
+        candidates: [{
+          status: 'spec_compatible',
+          conflicts: [],
+          missing_requirements: [],
+          product: preferredProduct,
+          decision: {
+            selection_eligibility: 'automatic',
+            identity_key: 'ik1:walsin',
+            technical_evidence_key: 'ek1:walsin',
+            selection_recommendation: 'preselect',
+          },
+        }],
+        procurement_decision: {
+          status: 'input_incomplete',
+          selection_application_state: 'not_selected',
+          primary_unavailability_reason: 'input_incomplete',
+          technical_preselection_identity_key: 'ik1:walsin',
+          technical_preselection_evidence_key: 'ek1:walsin',
+        },
+        warnings: [],
+      }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+    const result = await evaluatePreferredLocalCatalog(
+      quantityMissingPreflight,
+      { target_currency: 'KRW' },
+    );
+
+    expect(result.resolvedComponentIds).toEqual(['resistor-missing']);
+    expect(result.unresolvedComponentIds).toEqual([]);
+    expect(result.envelope).not.toBeNull();
+    expect(result.envelope).toMatchObject({
+      search: {
+        components: [{
+          component_id: 'resistor-missing',
+          procurement_disposition: 'quantity_confirmation_required',
+          quantity_resolution: 'missing',
+        }],
+      },
+    });
+    expect(result.traces).toEqual([
+      expect.objectContaining({
+        componentId: 'resistor-missing',
+        outcome: 'selected',
+        selectedCandidateCount: 1,
+        reason: 'quantity_confirmation_required',
+      }),
+    ]);
+  });
+
   it('엔진이 선정하지 않은 로컬 후보는 외부 검색 대상으로 남긴다', async () => {
     mocks.search.mockImplementation((request: unknown) => Promise.resolve({
       hits: {

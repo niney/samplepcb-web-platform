@@ -1330,6 +1330,7 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'engine-procurement-recommendation': '엔진 구매조건 추천',
     'engine-manual-review': '엔진 수동 검토 권장',
     'engine-technical-fallback': '기술 1순위 구매 불가 · 다음 후보 적용',
+    'quantity-confirmation-required': '수량 확인 전 기술 선정',
     'engine-procurement-unavailable': '구매 가능한 추천 오퍼 없음',
     'no-safe-candidate': '안전 자동선정 후보 없음',
   };

@@ -90,6 +90,7 @@ import {
   loadSupplierSearchSummary,
   patchNeedsCandidateReprice,
   persistQuoteComputed,
+  quoteNeedsEnrichment,
   refreshQuoteFromSupplierResult,
   repriceCandidateSelections,
   replaceQuoteItems,
@@ -267,34 +268,12 @@ async function loadOwnQuote(id: bigint, mbId: string) {
 }
 
 // ── 조용한 자동 보강 — build 가 "시작"까지 동기 확정(응답 enriching 플래그) ─────
-// 필요 조건: included 미매칭 라인 존재 OR 오퍼 데이터 나이 > freshnessHours.
+// 필요 조건: 수량 미입력 기술 미선정 OR included 미매칭 OR 오래된 오퍼.
 // 비용 게이트: preflight 예상치는 관측·경고용이며 실제 호출 상한은 엔진 job budget이
 // 강제한다. 회원 일일 한도 소진은 명시 실패로 남기고 cache_only로 의미를 바꾸지 않는다.
 // 검색 시작을 응답 전에 확정하므로 FE 첫 상태 폴이 반드시 running
 // 을 관측한다(폴링 경합 원천 제거). 완료 결과는 엔진 결정 그대로 반영한다.
 // 반환: 검색을 실제로 시작했는지.
-/** 보강 필요 판정 — included 미매칭 또는 오퍼 나이 > freshnessHours (build 선판정·autoEnrich 공용). */
-function enrichNeeded(
-  items: {
-    included: boolean;
-    matchStatus: string;
-    matchEvidence: unknown;
-    sourceRow: Record<string, unknown> | null;
-    selectedOffer: { fetchedAt: string } | null;
-  }[],
-  freshnessHours: number,
-): boolean {
-  const now = Date.now();
-  const freshMs = freshnessHours * 3_600_000;
-  return items.some(
-    (i) =>
-      i.included &&
-      (i.matchEvidence === null ||
-        i.matchStatus === 'none' ||
-        (i.selectedOffer !== null && now - new Date(i.selectedOffer.fetchedAt).getTime() > freshMs)),
-  );
-}
-
 async function applyCompletedSupplierResult(
   quoteId: bigint,
   searchRunId: bigint,
@@ -403,7 +382,7 @@ async function autoEnrichQuote(
   let searchOptions = baseSearchOptions;
 
   const items = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
-  if (options.force !== true && !enrichNeeded(items, config.freshnessHours)) {
+  if (options.force !== true && !quoteNeedsEnrichment(items, config.freshnessHours)) {
     // 전부 신선 — 0콜로 끝. build 가 선점해 둔 searching 이 있으면 idle 로 되돌린다.
     if (quote.enrichStatus === 'searching') {
       await prisma.spBomQuote.update({ where: { id: quoteId }, data: { enrichStatus: 'idle' } }).catch(() => undefined);
@@ -1405,7 +1384,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       for (const item of items) item.orderQty = neededQty(item.bomQty, quote.setQty, quote.spareQty);
       const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
       // 라인·선택 시트·ready를 한 트랜잭션으로 공개한다.
-      const willEnrich = enrichNeeded(computed.items, config.freshnessHours);
+      const willEnrich = quoteNeedsEnrichment(computed.items, config.freshnessHours);
       await persistQuoteComputed(quote.id, computed, config.usdKrwRate, {
         exchangeRateSnapshot: config.exchangeRateSnapshot,
         enrichStatus: willEnrich ? 'searching' : 'idle',
@@ -1530,6 +1509,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const persistedItems = filterActiveQuoteItems(quote.items, quote.sheets).map((row) => toItemDto(row));
     const existingById = new Map(persistedItems.map((item) => [item.id, item] as const));
     const items: (BomQuoteItemType | BomQuoteItemInputType)[] = [...persistedItems];
+    let confirmedQuantityNeedsInitialSearch = false;
 
     if (request.body.items !== undefined) {
       const seenIds = new Set<string>();
@@ -1565,7 +1545,28 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         seenIds.add(edit.id);
         const current = existingById.get(edit.id);
         if (current === undefined) return reply.badRequest('견적에 속하지 않은 행이 포함되어 있습니다');
-        current.included = edit.included;
+        if (edit.confirmedBomQty !== undefined) {
+          if (current.quantityState !== 'missing' && current.quantityState !== 'confirmed') {
+            return reply.badRequest('수량 확인 대상이 아닌 견적 행입니다');
+          }
+          if (
+            quote.activeSupplierSearchRunId === null
+            && current.matchStatus === 'none'
+          ) {
+            confirmedQuantityNeedsInitialSearch = true;
+          }
+          current.bomQty = edit.confirmedBomQty;
+          current.included = true;
+          current.sourceRow = {
+            ...(current.sourceRow ?? {}),
+            quantityConfirmed: true,
+          };
+          current.quantityState = 'confirmed';
+        } else {
+          current.included = current.quantityState === 'missing'
+            ? false
+            : edit.included;
+        }
         current.orderQty = edit.orderQty;
 
         const catalog = edit.catalogSelection;
@@ -1603,6 +1604,19 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     }
     const nextSetQty = request.body.setQty ?? quote.setQty;
     const nextSpareQty = request.body.spareQty ?? quote.spareQty;
+    // 구버전 빌드 또는 엔진 장애로 후보 스냅샷이 없는 견적은 먼저 최초 검색을 수행한다.
+    // DB의 원본 수량은 아직 missing이어도 quoteNeedsEnrichment가 기술 검색 대상으로 보며,
+    // 바로 아래 재평가가 새 후보를 confirmed 수량으로 다시 판정한 뒤 한 번에 저장한다.
+    if (confirmedQuantityNeedsInitialSearch) {
+      try {
+        await autoEnrichQuote(quote.id, request.user.mbId, request.log);
+      } catch (error: unknown) {
+        request.log.warn(
+          { quoteId: String(quote.id), err: String(error) },
+          'BOM 수량 확인 후 최초 자동 보강 실패',
+        );
+      }
+    }
     // items/setQty/spareQty 를 하나도 건드리지 않는 PATCH(제목·메모 전용)는 재평가 대상 자체가
     // 없다 — 엔진 호출 없이 스킵한다. 엔진이 완전히 죽어 있어도 repriceCandidateSelections는
     // 더 이상 예외를 던지지 않으므로(실패 행은 stale 축퇴) 이 PATCH는 항상 200을 반환한다.

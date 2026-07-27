@@ -31,6 +31,12 @@ def _norm_label(s: str) -> str:
 _IGNORE_PAT = re.compile(
     r"url|http|datasheet|price|단가|재고|stock|구매|보유|필요|도급|수삽|비고"
     r"|note|msl|process|fitted|octopart|최종|판매|unit|item|ext\b")
+_CONTENT_INFERENCE_BLOCK = re.compile(
+    r"(?:^|[\s_-])(?:risk|warning|status|verification|validation|audit|"
+    r"eligibility|review|reason|auto[\s_-]*quote|note|remark)"
+    r"(?:$|[\s_-])",
+    re.I,
+)
 _LIBRARY_REF_PAT = re.compile(
     r"^(?:lib\s*ref|libref|library\s*(?:ref|reference))$", re.I
 )
@@ -72,7 +78,17 @@ _FOOTPRINT_PAT = re.compile(r"^pcb\s*decal$|^decal$")
 _PKG_PAT = re.compile(r"package|footprint|패키지|\bpkg\b|\bsize\b|dimension|치수|사이즈"
                       r"|^geo(?:metry)?$"
                       r"|^pattern$")  # Altium/Protel의 풋프린트 열명
-_TYPE_EXACT = {"class", "type", "part type", "parttype", "구분", "종류"}
+_TYPE_EXACT = {
+    "class",
+    "type",
+    "part type",
+    "parttype",
+    "component type",
+    "component_type",
+    "componenttype",
+    "구분",
+    "종류",
+}
 _TYPE_KO = re.compile(r"품명|품목")           # "Item (품명)", "품목명" 포함형
 _DESC_PAT = re.compile(
     r"description|^info(?:rmation)?$|사양|내용|^item\s*name$|^remarks?$"
@@ -1826,7 +1842,18 @@ def extract_row(labels: List[str], roles: Dict[str, List[int]],
         if t:
             put("part_type", t, "col")
             break
-    for f in ("current", "power", "voltage", "tolerance"):
+    # 명시 단위 열은 Value/Comment 혼합 열의 문법 추론보다 강한 원본 근거다.
+    # classify_columns가 역할을 확정한 모든 전기값 열을 빠짐없이 소비한다.
+    for f in (
+        "current",
+        "power",
+        "voltage",
+        "tolerance",
+        "resistance",
+        "capacitance",
+        "inductance",
+        "frequency",
+    ):
         for i in roles.get(f, []):
             c = cell(i)
             if not c:
@@ -3064,7 +3091,11 @@ def infer_column_roles(roles: Dict[str, List[int]], labels: List[str],
     for i in range(len(labels)):
         if i in mapped:
             continue
-        if _DIST_PAT.search(_norm_label(labels[i])):
+        normalized_label = _norm_label(labels[i])
+        if (
+            _DIST_PAT.search(normalized_label)
+            or _CONTENT_INFERENCE_BLOCK.search(normalized_label)
+        ):
             continue   # 유통 코드 열("N° Mouser")은 내용이 PN형이어도
             #            제조사 PN이 아니다 — 승격 금지
         vals = col_vals(i)
@@ -3252,7 +3283,12 @@ def compute_roles(case: dict) -> Dict[str, List[int]]:
     mapped = {i for role, idxs in roles.items()
               if role != "ignore" for i in idxs}
     for i in roles.get("ignore", []):
-        if i in mapped or _DIST_PAT.search(_norm_label(labels[i])):
+        normalized_label = _norm_label(labels[i])
+        if (
+            i in mapped
+            or _DIST_PAT.search(normalized_label)
+            or _CONTENT_INFERENCE_BLOCK.search(normalized_label)
+        ):
             continue
         if _texty_col(i):
             roles.setdefault("_rescued_text", []).append(i)

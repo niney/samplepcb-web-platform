@@ -21,6 +21,15 @@ export const BomQuoteSelectionApplicationState = z.enum([
 ]);
 export type BomQuoteSelectionApplicationStateType = z.infer<typeof BomQuoteSelectionApplicationState>;
 
+/** 원본 BOM 수량의 조달 적용 상태. missing은 기술선정만 유지하고 합계에서 제외한다. */
+export const BomQuoteQuantityState = z.enum([
+  'verified',
+  'missing',
+  'confirmed',
+  'excluded',
+]);
+export type BomQuoteQuantityStateType = z.infer<typeof BomQuoteQuantityState>;
+
 export const BomQuoteRecommendationType = z.enum([
   'none',
   'identity',
@@ -48,6 +57,7 @@ export const BomQuoteDecisionReason = z.enum([
   'engine-procurement-recommendation',
   'engine-manual-review',
   'engine-technical-fallback',
+  'quantity-confirmation-required',
   'engine-procurement-unavailable',
   'no-safe-candidate',
 ]);
@@ -776,6 +786,8 @@ export const BomQuoteItem = BomQuoteItemInput.extend({
   partDatasheetUrl: z.string().nullable(),
   /** 현재 카탈로그 연결이 가격·실재고 확인 전인 제조사 카탈로그 부품인지 여부. */
   catalogInquiry: z.boolean(),
+  /** 원본 수량 누락 행은 기술선정 상태를 유지하되 확인 전까지 견적 합계에서 제외한다. */
+  quantityState: BomQuoteQuantityState,
 });
 export type BomQuoteItemType = z.infer<typeof BomQuoteItem>;
 
@@ -794,6 +806,8 @@ export const BomQuoteItemEdit = z.object({
   id: z.string().regex(/^\d+$/).nullable(),
   included: z.boolean(),
   orderQty: z.number().int().min(0),
+  /** 원본 수량 누락 행의 명시적 사용자 확인. 단순 자동저장과 구분한다. */
+  confirmedBomQty: z.number().int().min(1).optional(),
   catalogSelection: BomQuoteCatalogSelection.optional(),
 }).superRefine((item, ctx) => {
   if (item.id === null && item.catalogSelection === undefined) {

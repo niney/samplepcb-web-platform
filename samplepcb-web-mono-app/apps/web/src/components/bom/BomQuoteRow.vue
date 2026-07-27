@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { BomQuoteItemType } from '@sp/api-contract';
 import { isSevereOrderSurplus } from '@sp/utils';
@@ -22,12 +22,21 @@ const props = defineProps<{
 const emit = defineEmits<{
   'toggle-include': [];
   'qty-change': [qty: number];
+  'confirm-quantity': [qty: number];
   'open-offers': [];
   'open-candidates': [];
   'open-search': [];
 }>();
 
 const { t } = useI18n();
+const quantityDraft = ref(props.item.bomQty);
+
+watch(
+  () => props.item.bomQty,
+  (value) => {
+    quantityDraft.value = value;
+  },
+);
 
 const EDIT_LOCK_TITLE = '공급사 확인이 완료되면 수정할 수 있습니다';
 
@@ -42,6 +51,7 @@ const catalogInquiry = computed(() =>
 const catalogSelectionApplied = computed(() =>
   catalogInquiry.value && props.item.matchStatus !== 'none',
 );
+const quantityMissing = computed(() => props.item.quantityState === 'missing');
 
 const engineSearchExcluded = computed(() =>
   props.item.matchEvidence?.componentStatus === 'excluded'
@@ -211,6 +221,7 @@ const exactIdentityWarning = computed(() => {
 
 const rowClass = computed(() => {
   const item = props.item;
+  if (quantityMissing.value) return 'bg-amber-50/70';
   if (!item.included) return 'opacity-45';
   if (severeOrderSurplus.value) return 'bg-orange-50/80';
   if (provisionalSelectionPending.value) return 'bg-amber-50/70';
@@ -248,6 +259,7 @@ const evidenceTitle = computed(() => {
 });
 
 const sourceLabel = computed(() => {
+  if (quantityMissing.value) return '기술 선정';
   if (provisionalSelectionPending.value) return '엔진 임시 선정';
   if (catalogSelectionApplied.value) return '제조사 카탈로그 선정';
   if (props.item.selectionSource === 'customer') return '고객 선택';
@@ -265,6 +277,11 @@ const sourceLabel = computed(() => {
 const reasonSummary = computed(() => {
   const item = props.item;
   const evidence = item.matchEvidence;
+  if (quantityMissing.value) {
+    return item.matchStatus === 'none'
+      ? '원본 수량이 없어 견적에서 제외됐습니다. 수량 확인 후 검색·견적에 포함됩니다'
+      : '부품은 선정됐지만 원본 수량이 없어 견적에서 제외됐습니다';
+  }
   if (severeOrderSurplus.value) return severeOrderSurplusLabel.value;
   if (engineSearchExcluded.value) return '엔진 판정에 따라 공급사 검색 대상에서 제외된 행입니다';
   if (evidence === null) return item.matchStatus === 'manual' ? '카탈로그에서 직접 선택' : '후보 근거 없음';
@@ -334,7 +351,12 @@ function fmtWon(v: number | null): string {
 function onQtyInput(event: Event): void {
   const raw = Number((event.target as HTMLInputElement).value);
   if (!Number.isFinite(raw)) return; // 빈 값·비정상 입력은 무시(다음 동기화가 복원)
-  emit('qty-change', Math.max(1, Math.round(raw)));
+  const qty = Math.max(1, Math.round(raw));
+  if (quantityMissing.value) {
+    quantityDraft.value = qty;
+    return;
+  }
+  emit('qty-change', qty);
 }
 </script>
 
@@ -347,8 +369,8 @@ function onQtyInput(event: Event): void {
           :checked="item.included"
           type="checkbox"
           class="h-4 w-4 rounded border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="!isDraft || editingLocked"
-          :title="editingLocked ? EDIT_LOCK_TITLE : '합계·견적요청 포함'"
+          :disabled="!isDraft || editingLocked || quantityMissing"
+          :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : '합계·견적요청 포함'"
           @change="emit('toggle-include')"
         >
         <span
@@ -427,16 +449,27 @@ function onQtyInput(event: Event): void {
       </button>
       <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d6dae7] bg-[#fafcff] pl-1 pr-3">
         <input
-          :value="item.orderQty"
+          :value="quantityMissing ? quantityDraft : item.orderQty"
           type="number"
           min="1"
           class="w-[70px] bg-transparent px-2 text-right text-[15px] font-bold tabular-nums focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-          :disabled="!isDraft || editingLocked || item.selectedOffer === null"
+          :disabled="!isDraft || editingLocked || (!quantityMissing && item.selectedOffer === null)"
           :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
-          @change="onQtyInput"
+          @input="quantityMissing && onQtyInput($event)"
+          @change="!quantityMissing && onQtyInput($event)"
         >
-        <span class="text-[11px] text-[#8e97a5]">/ {{ catalogInquiry ? '확인' : (item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—') }}</span>
+        <span class="text-[11px] text-[#8e97a5]">/ {{ quantityMissing ? 'BOM 수량' : catalogInquiry ? '확인' : (item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—') }}</span>
       </div>
+      <button
+        v-if="quantityMissing"
+        type="button"
+        class="mt-1.5 h-[26px] w-[160px] rounded border border-amber-300 bg-amber-100 text-[11px] font-bold text-amber-800 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+        :disabled="!isDraft || editingLocked"
+        :title="editingLocked ? EDIT_LOCK_TITLE : `${quantityDraft.toLocaleString('ko-KR')}개로 확인하고 견적에 포함`"
+        @click="emit('confirm-quantity', quantityDraft)"
+      >
+        {{ quantityDraft.toLocaleString('ko-KR') }}개로 수량 확인
+      </button>
       <p v-if="severeOrderSurplus" class="mt-1.5 w-[160px] text-right text-[10px] font-bold leading-4 text-orange-700" :title="severeOrderSurplusLabel">
         필요 {{ needed.toLocaleString('ko-KR') }} · 초과 {{ surplusQty.toLocaleString('ko-KR') }} ({{ orderRatio.toLocaleString('ko-KR', { maximumFractionDigits: 1 }) }}배)
       </p>
@@ -445,7 +478,8 @@ function onQtyInput(event: Event): void {
     <td class="w-[140px] min-w-[132px] px-2 py-3 text-right">
       <div class="flex flex-col items-end gap-1.5 pt-1">
         <!-- 보강 진행 중엔 "확인 중"(파랑) — 빨간 미매칭은 보강이 끝난 뒤의 최종 판정 -->
-        <span v-if="severeOrderSurplus" class="rounded-full border border-orange-300 bg-orange-100 px-2.5 py-0.5 text-[12px] font-bold text-orange-800" :title="severeOrderSurplusLabel">수량 검토</span>
+        <span v-if="quantityMissing" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="reasonSummary">{{ item.matchStatus === 'none' ? '수량 확인 필요' : '선정됨 · 수량 확인 필요' }}</span>
+        <span v-else-if="severeOrderSurplus" class="rounded-full border border-orange-300 bg-orange-100 px-2.5 py-0.5 text-[12px] font-bold text-orange-800" :title="severeOrderSurplusLabel">수량 검토</span>
         <span v-else-if="engineSearchExcluded" class="rounded-full bg-slate-200 px-2.5 py-0.5 text-[12px] font-bold text-slate-700" :title="evidenceTitle">검색 제외</span>
         <span v-else-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
           <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
@@ -522,7 +556,7 @@ function onQtyInput(event: Event): void {
         >
           부품 변경
         </button>
-        <button type="button" class="h-[24px] w-[88px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[11px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
+        <button type="button" class="h-[24px] w-[88px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[11px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
       </div>
     </td>
   </tr>

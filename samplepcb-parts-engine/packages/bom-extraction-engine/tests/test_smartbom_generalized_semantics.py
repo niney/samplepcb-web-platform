@@ -118,6 +118,76 @@ def test_explicit_value_and_identifier_namespaces_are_preserved():
     assert suffix["voltage_v"] is None
 
 
+def test_catalog_style_component_type_and_explicit_electrical_columns():
+    components, headers = _analyze(
+        [
+            "normalized_eia",
+            "metric_jis",
+            "component_type",
+            "capacitance",
+            "tolerance",
+            "voltage",
+            "dielectric",
+            "risk_note",
+            "primary_mfr",
+            "primary_mpn_walsin",
+        ],
+        [
+            [
+                "0402",
+                "1005",
+                "C",
+                "10pF",
+                "5%",
+                "50V",
+                "C0G/NP0",
+                "C0G candidate; check crystal/RF use before substitution.",
+                "Walsin",
+                "0402B100J500CT",
+            ],
+            [
+                "0603",
+                "1608",
+                "C",
+                "100nF",
+                "10%",
+                "25V",
+                "X7R",
+                "General purpose MLCC.",
+                "Walsin",
+                "0603B104K250CT",
+            ],
+        ],
+    )
+
+    mappings = {
+        header["raw_header"]: header["semantic_field"] for header in headers
+    }
+    assert mappings["component_type"] == "part_type"
+    assert mappings["capacitance"] == "capacitance"
+    assert [component["component_type"] for component in components] == [
+        "capacitor",
+        "capacitor",
+    ]
+    assert [component["capacitance_f"] for component in components] == [
+        pytest.approx(10e-12),
+        pytest.approx(100e-9),
+    ]
+    assert [component["part_number"] for component in components] == [
+        "0402B100J500CT",
+        "0603B104K250CT",
+    ]
+    assert all(
+        component["procurement_disposition"]
+        == "quantity_confirmation_required"
+        for component in components
+    )
+    assert all(
+        "part_type_source_conflict" not in component["quality_flags"]
+        for component in components
+    )
+
+
 def test_catalog_pattern_identity_and_connector_geometry_keep_bom_quantity_unknown():
     components, headers = _analyze(
         [

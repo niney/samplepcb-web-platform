@@ -89,6 +89,9 @@ const CatalogEvaluationCandidateDecision = z
     verified_requirement_count: z.number().int().min(0).default(0),
     required_requirement_count: z.number().int().min(0).default(0),
     requirement_assessments: z.array(CatalogEvaluationRequirementAssessment).default([]),
+    identity_key: z.string().nullish(),
+    technical_evidence_key: z.string().nullish(),
+    selection_recommendation: z.string().nullish(),
   })
   .passthrough();
 
@@ -115,6 +118,8 @@ const CatalogEvaluationProcurementDecision = z
       .nullish(),
     primary_unavailability_reason: z.string().nullish(),
     recommendation_reason_codes: z.array(z.string()).default([]),
+    technical_preselection_identity_key: z.string().nullish(),
+    technical_preselection_evidence_key: z.string().nullish(),
   })
   .passthrough();
 
@@ -151,6 +156,11 @@ const PreferredCatalogQuery = z
     package: z.string().nullish(),
     keywords: z.string().default(''),
     requirements: z.record(z.string(), PlannedRequirement).default({}),
+    procurement_disposition: z
+      .enum(['eligible', 'excluded', 'quantity_confirmation_required'])
+      .default('eligible'),
+    quantity_resolution: z.enum(['verified', 'conflict', 'missing']).default('verified'),
+    disposition_reason_codes: z.array(z.string()).default([]),
   })
   .passthrough();
 
@@ -833,8 +843,8 @@ function preferredCatalogQueryLabel(
  * 외부 공급사 호출 전에 엔진 유형별 자체 카탈로그를 조회한다.
  *
  * R/C는 SamplePCB 스펙 카탈로그, connector는 exact MPN 로컬 카탈로그 후보만
- * 가져오고, 기술·조달 판정과 최종 resolved 여부는 catalog-evaluate-batch의
- * automatic_selected만 신뢰한다.
+ * 가져오고, 기술·조달 판정은 catalog-evaluate-batch만 신뢰한다. 최종 resolved는
+ * automatic_selected 또는 수량 미확인 상태의 안전한 technical preselection만 인정한다.
  * 입력 충돌로 계획이 둘 이상인 행은 로컬에서 추정하지 않고 외부 기존 경로로 넘긴다.
  */
 export async function evaluatePreferredLocalCatalog(
@@ -996,11 +1006,34 @@ export async function evaluatePreferredLocalCatalog(
         traces: traces(),
       };
     }
-    const evaluated = await evaluateCatalogBatch(inputs, procurementPolicy);
     const queryByComponent = new Map(inputs.map((input) => [input.query.component_id, input.query]));
+    const evaluated = await evaluateCatalogBatch(inputs, procurementPolicy);
+    const isQuantityDeferredSelection = (item: CatalogEvaluationItemType): boolean => {
+      const query = queryByComponent.get(item.component_id);
+      const decision = item.procurement_decision;
+      if (
+        query?.procurement_disposition !== 'quantity_confirmation_required'
+        || query.quantity_resolution !== 'missing'
+        || decision?.status !== 'input_incomplete'
+        || decision.selection_application_state !== 'not_selected'
+        || decision.primary_unavailability_reason !== 'input_incomplete'
+        || decision.technical_preselection_identity_key === null
+        || decision.technical_preselection_identity_key === undefined
+        || decision.technical_preselection_evidence_key === null
+        || decision.technical_preselection_evidence_key === undefined
+      ) return false;
+      return item.candidates.some((candidate) =>
+        candidate.decision?.selection_eligibility === 'automatic'
+        && candidate.decision.identity_key === decision.technical_preselection_identity_key
+        && candidate.decision.technical_evidence_key === decision.technical_preselection_evidence_key);
+    };
+    const quantityDeferredIds = new Set(
+      evaluated.filter(isQuantityDeferredSelection).map((item) => item.component_id),
+    );
     const resolved = evaluated.filter(
       (item) =>
-        item.procurement_decision?.selection_application_state === 'automatic_selected',
+        item.procurement_decision?.selection_application_state === 'automatic_selected'
+        || quantityDeferredIds.has(item.component_id),
     );
     const resolvedIds = [...new Set(resolved.map((item) => item.component_id))];
     const resolvedSet = new Set(resolvedIds);
@@ -1019,7 +1052,9 @@ export async function evaluatePreferredLocalCatalog(
       if (resolvedSet.has(input.query.component_id)) {
         trace.outcome = 'selected';
         trace.selectedCandidateCount = 1;
-        trace.reason = null;
+        trace.reason = quantityDeferredIds.has(input.query.component_id)
+          ? 'quantity_confirmation_required'
+          : null;
       } else if (evaluatedSet.has(input.query.component_id)) {
         trace.outcome = 'rejected';
         trace.reason = 'engine_not_selected';
@@ -1041,6 +1076,12 @@ export async function evaluatePreferredLocalCatalog(
                 ...item,
                 mode: queryByComponent.get(item.component_id)?.mode,
                 query: queryByComponent.get(item.component_id),
+                procurement_disposition:
+                  queryByComponent.get(item.component_id)?.procurement_disposition,
+                quantity_resolution:
+                  queryByComponent.get(item.component_id)?.quantity_resolution,
+                disposition_reason_codes:
+                  queryByComponent.get(item.component_id)?.disposition_reason_codes,
               })),
               unique_query_count: inputs.length,
               api_calls: 0,

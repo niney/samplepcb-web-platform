@@ -15,12 +15,60 @@ import {
   isEngineManagedQuoteSelection,
   loadSupplierSearchSummary,
   projectEnginePartSearchResult,
+  quoteNeedsEnrichment,
   quoteLocalCatalogTrace,
   quoteCandidatePartsSearchable,
   retainQuoteCandidateSnapshots,
   resolvePartDataStatus,
   selectEngineMatch,
 } from './bom-quote';
+
+describe('견적 자동 보강 필요 판정', () => {
+  const base = {
+    included: false,
+    matchStatus: 'none',
+    matchEvidence: null,
+    sourceRow: null,
+    selectedOffer: null,
+  };
+
+  it('수량 미입력 행도 기술 후보가 없으면 최초 보강 대상으로 삼는다', () => {
+    expect(quoteNeedsEnrichment([{
+      ...base,
+      sourceRow: {
+        procurementDisposition: 'quantity_confirmation_required',
+        quantityConfirmed: false,
+      },
+    }], 24)).toBe(true);
+  });
+
+  it('기술 후보가 이미 선정된 수량 미입력 행은 다시 보강하지 않는다', () => {
+    expect(quoteNeedsEnrichment([{
+      ...base,
+      matchStatus: 'auto',
+      matchEvidence: {},
+      sourceRow: {
+        procurementDisposition: 'quantity_confirmation_required',
+        quantityConfirmed: false,
+      },
+    }], 24)).toBe(false);
+  });
+
+  it('일반 제외 행은 미매칭이어도 보강하지 않는다', () => {
+    expect(quoteNeedsEnrichment([base], 24)).toBe(false);
+  });
+
+  it('수량 확인 후 포함된 미매칭 행은 보강한다', () => {
+    expect(quoteNeedsEnrichment([{
+      ...base,
+      included: true,
+      sourceRow: {
+        procurementDisposition: 'quantity_confirmation_required',
+        quantityConfirmed: true,
+      },
+    }], 24)).toBe(true);
+  });
+});
 
 describe('부품 유형별 로컬 카탈로그 검색 과정', () => {
   it('SamplePCB v1 실행 기록을 현재 API 계약으로 호환 투영한다', () => {
@@ -700,6 +748,33 @@ describe('BOM 견적 시트 선택', () => {
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ included: false, mpn: 'DNP-PART' });
   });
+
+  it('원본 수량 누락 행은 보존하되 확인 전 견적 포함에서는 제외한다', () => {
+    const items = buildItemsFromEngineResult({
+      source_file: 'catalog.xlsx',
+      components: [{
+        sheet_index_0based: 0,
+        sheet_name: 'R_1005',
+        source_rows_1based: [2],
+        part_number: 'WR04X1001FTL',
+        quantity: null,
+        procurement_disposition: 'quantity_confirmation_required',
+        quantity_resolution: 'missing',
+      }],
+    }, [0]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      included: false,
+      bomQty: 1,
+      mpn: 'WR04X1001FTL',
+      sourceRow: {
+        procurementDisposition: 'quantity_confirmation_required',
+        quantityResolution: 'missing',
+        quantityConfirmed: false,
+      },
+    });
+  });
 });
 
 interface CandidateOptions {
@@ -877,7 +952,8 @@ function componentProcurementDecision(
     | 'automatic_recommended'
     | 'review_recommended'
     | 'catalog_selected'
-    | 'no_recommendation',
+    | 'no_recommendation'
+    | 'input_incomplete',
   offerKey: string | null,
   requiredQuantity = 10,
   options: {
@@ -916,7 +992,9 @@ function componentProcurementDecision(
       : {
           unavailability_reason_policy_version: 'supplier-procurement-unavailability-v1',
           primary_unavailability_reason: options.unavailabilityReason === undefined
-            ? status === 'no_recommendation' ? 'no_offer' : null
+            ? status === 'input_incomplete'
+              ? 'input_incomplete'
+              : status === 'no_recommendation' ? 'no_offer' : null
             : options.unavailabilityReason,
         }),
     required_quantity: requiredQuantity,
@@ -927,11 +1005,11 @@ function componentProcurementDecision(
     technical_preselection_identity_key: 'ik1:engine-choice',
     technical_preselection_evidence_key: 'ek1:engine-choice',
     application_candidate_identity_key:
-      status === 'no_recommendation'
+      status === 'no_recommendation' || status === 'input_incomplete'
         ? null
         : options.applicationIdentityKey ?? 'ik1:engine-choice',
     application_candidate_evidence_key:
-      status === 'no_recommendation'
+      status === 'no_recommendation' || status === 'input_incomplete'
         ? null
         : options.applicationEvidenceKey ?? 'ek1:engine-choice',
     technical_fallback_used: options.technicalFallbackUsed ?? false,
@@ -943,6 +1021,45 @@ function componentProcurementDecision(
 }
 
 describe('BOM 엔진 후보 결정 투영', () => {
+  it('수량 누락이어도 엔진의 안전 기술 1순위를 견적 제외 상태로 선정한다', () => {
+    const technical = candidate('spec_compatible', 'WR04X1001FTL', 'samplepcb', 1, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      selectionRecommendation: 'preselect',
+      verificationComplete: true,
+      strictCategoryCoverage: true,
+    });
+    attachProcurementDecision(technical, 'ok2:deferred', 'none', 10, 'supplier-offer-key-v2');
+
+    const decision = selectEngineMatch({
+      component_id: 'quantity-missing',
+      status: 'input_incomplete',
+      procurement_disposition: 'quantity_confirmation_required',
+      quantity_resolution: 'missing',
+      disposition_reason_codes: ['quantity_missing'],
+      procurement_decision: {
+        ...componentProcurementDecision('input_incomplete', null, 10),
+        required_quantity: null,
+      },
+      candidates: [technical],
+    }, 10, null);
+
+    expect(decision).toMatchObject({
+      candidateKey: 'ik1:engine-choice',
+      recommendedCandidateKey: 'ik1:engine-choice',
+      offerKey: null,
+      pick: null,
+      evidence: {
+        selectionApplicationState: 'not_selected',
+        procurementUnavailabilityReason: 'input_incomplete',
+        selectedCandidateKey: 'ik1:engine-choice',
+        decisionReasonCodes: ['quantity-confirmation-required'],
+      },
+    });
+  });
+
   it('단일 공급사 검색 결과를 카탈로그 저장 전 화면 후보로 투영한다', () => {
     const selected = candidate('verified_exact', 'LIVE-MPN-1', 'digikey', 12, 1, {
       currentDecisionContract: true,

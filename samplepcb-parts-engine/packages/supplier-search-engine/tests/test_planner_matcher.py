@@ -86,6 +86,22 @@ def test_requirement_guidance_owns_search_readiness_and_missing_fields():
     assert guidance.values["resistance"] == "10kΩ"
 
 
+def test_resistor_guidance_uses_explicit_type_before_film_category():
+    item = component(
+        part_type="resistor",
+        resistance="10kΩ",
+        package="0603",
+        description="Thick Film Chip Resistor",
+    )
+    query = QueryPlanner().plan(item)
+
+    guidance = search_requirement_guidance(item, query)
+
+    assert query.part_type == "resistor"
+    assert query.category_policy == "film"
+    assert guidance.component_type == "resistor"
+
+
 def test_requirement_guidance_keeps_identity_search_searchable():
     item = component(
         part_number="BSS138",

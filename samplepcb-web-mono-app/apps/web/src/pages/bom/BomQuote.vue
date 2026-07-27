@@ -269,7 +269,19 @@ function onRowQtyChange(item: BomQuoteItemType, qty: number): void {
 
 function toggleInclude(item: BomQuoteItemType): void {
   if (!isDraft.value || editingLocked.value) return;
+  if (item.quantityState === 'missing') return;
   item.included = !item.included;
+  markDirty();
+}
+
+function confirmQuantity(item: BomQuoteItemType, qty: number): void {
+  if (!isDraft.value || editingLocked.value || item.quantityState !== 'missing') return;
+  const confirmedQty = Math.max(1, Math.round(qty));
+  item.bomQty = confirmedQty;
+  item.orderQty = neededQty(confirmedQty, setQty.value, spareQty.value);
+  item.quantityState = 'confirmed';
+  item.included = true;
+  recalcLine(item);
   markDirty();
 }
 
@@ -299,6 +311,9 @@ async function saveNow(): Promise<void> {
           id: /^\d+$/.test(item.id) ? item.id : null,
           included: item.included,
           orderQty: item.orderQty,
+          ...(item.quantityState === 'confirmed'
+            ? { confirmedBomQty: item.bomQty }
+            : {}),
           ...(item.selectionSource === 'catalog' && item.partId !== null
             ? {
                 catalogSelection: {
@@ -1205,6 +1220,7 @@ function applyCatalogPart(part: PartHitType, pick: OfferPick | null, target: Cat
       partImageUrl: part.imageUrl,
       partDatasheetUrl: null, // 검색 히트엔 없음 — 다음 상세 조회 때 서버가 카탈로그에서 채움
       catalogInquiry: part.hasCatalogInquiryOffer && pick === null,
+      quantityState: 'verified',
     });
     lineIdx = items.value.length - 1;
   } else {
@@ -1647,6 +1663,7 @@ function fmtAmount(v: number | null): string {
                 :enriching="enriching"
                 @toggle-include="toggleInclude(item)"
                 @qty-change="onRowQtyChange(item, $event)"
+                @confirm-quantity="confirmQuantity(item, $event)"
                 @open-offers="openQuoteOfferModal(item)"
                 @open-candidates="openCandidateDrawer(item)"
                 @open-search="openCatalogSearchDrawer(item)"

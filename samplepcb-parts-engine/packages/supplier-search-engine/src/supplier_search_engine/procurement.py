@@ -977,8 +977,6 @@ def apply_procurement_decisions(
         offer_key_version or stored_version or CURRENT_OFFER_KEY_VERSION
     )
     preselected_group = _validate_candidate_groups(candidates)
-    if query.procurement_disposition.value != "eligible":
-        preselected_group = None
     candidates = _canonicalize_duplicate_offers(
         candidates,
         effective_offer_key_version,
@@ -1070,6 +1068,11 @@ def apply_procurement_decisions(
     price_optimization_used = False
     catalog_selected = False
     if query.procurement_disposition.value != "eligible":
+        if preselected_group is None:
+            recommendation_reasons.append("technical_preselection_unavailable")
+        else:
+            technical_identity_key, technical_evidence_key = preselected_group
+            recommendation_reasons.append("technical_preselection_preserved")
         recommendation_reasons.extend(
             [
                 f"procurement_{query.procurement_disposition.value}",

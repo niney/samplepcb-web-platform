@@ -413,6 +413,81 @@ describe('repriceCandidateSelections', () => {
     });
   });
 
+  it('수량 미입력 기술 선정은 다른 행 자동저장 때 소거하지 않는다', async () => {
+    const decision = buildDecision(
+      'component-deferred',
+      'WR04X220JTL',
+      'samplepcb',
+      10,
+      1,
+      1,
+    );
+    const baseSnapshot = firstSnapshot(decision);
+    if (baseSnapshot.procurementDecision === null) {
+      throw new Error('fixture: deferred base decision is missing');
+    }
+    const deferredSnapshot = {
+      ...baseSnapshot,
+      procurementDisposition: 'quantity_confirmation_required' as const,
+      quantityResolution: 'missing' as const,
+      dispositionReasonCodes: ['quantity_missing'],
+      procurementDecision: {
+        ...baseSnapshot.procurementDecision,
+        status: 'input_incomplete',
+        selection_application_state: 'not_selected',
+        confirmation_required: false,
+        unavailability_reason_policy_version:
+          'supplier-procurement-unavailability-v1',
+        primary_unavailability_reason: 'input_incomplete',
+        application_candidate_identity_key: null,
+        application_candidate_evidence_key: null,
+        automatic_offer_key: null,
+        review_offer_key: null,
+        recommendation_reason_codes: [
+          'technical_preselection_preserved',
+          'procurement_quantity_confirmation_required',
+          'quantity_missing',
+        ],
+      },
+    };
+    const item = autoSelectedItem('1', 0, 'component-deferred', decision, 1);
+    item.included = false;
+    item.selectedOffer = null;
+    item.sourceRow = {
+      ...(item.sourceRow ?? {}),
+      procurementDisposition: 'quantity_confirmation_required',
+      quantityResolution: 'missing',
+      quantityConfirmed: false,
+    };
+    mockStoredCandidates([{ id: '1', candidate: deferredSnapshot }]);
+
+    const result = await repriceCandidateSelections(
+      1n,
+      [item],
+      1,
+      0,
+      null,
+      null,
+      createLog(),
+    );
+
+    expect(engineFetchMock).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
+    expect(item).toMatchObject({
+      included: false,
+      matchStatus: 'auto',
+      selectionSource: 'auto',
+      selectedCandidateKey: baseSnapshot.candidateKey,
+      recommendedCandidateKey: baseSnapshot.candidateKey,
+      selectedOffer: null,
+      matchEvidence: {
+        selectionApplicationState: 'not_selected',
+        procurementUnavailabilityReason: 'input_incomplete',
+        decisionReasonCodes: ['quantity-confirmation-required'],
+      },
+    });
+  });
+
   it('저장된 수량 충돌 상태를 무호출 조달 재평가에도 전달한다', async () => {
     const decision = buildDecision('component-conflict', 'MPN-CONFLICT', 'digikey', 10, 1, 10);
     const item = autoSelectedItem('1', 0, 'component-conflict', decision, 20);
@@ -437,6 +512,62 @@ describe('repriceCandidateSelections', () => {
     await repriceCandidateSelections(1n, [item], 1, 0, null, null, createLog());
 
     expect(engineFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('사용자가 누락 수량을 확인하면 같은 수량이어도 eligible로 재평가한다', async () => {
+    const decision = buildDecision('component-missing', 'WR04X1001FTL', 'samplepcb', 10, 1, 10);
+    const item = autoSelectedItem('1', 0, 'component-missing', decision, 10);
+    item.included = true;
+    item.selectedOffer = null;
+    item.sourceRow = {
+      ...(item.sourceRow ?? {}),
+      quantityConfirmed: true,
+    };
+    const candidate = {
+      ...firstSnapshot(decision),
+      procurementDisposition: 'quantity_confirmation_required' as const,
+      quantityResolution: 'missing' as const,
+      dispositionReasonCodes: ['quantity_missing'],
+    };
+    mockStoredCandidates([{ id: '1', candidate }]);
+    engineFetchMock.mockImplementation((_path, init) => {
+      expect(requestBody(init).components[0]).toMatchObject({
+        required_quantity: 10,
+        procurement_disposition: 'eligible',
+        quantity_resolution: 'verified',
+        disposition_reason_codes: [],
+      });
+      return Promise.resolve(jsonResponse({
+        components: [{
+          component_id: 'component-missing',
+          status: 'ok',
+          ...decisionPayloadFor('WR04X1001FTL', 'samplepcb', 10, 1, 10),
+        }],
+      }));
+    });
+
+    const result = await repriceCandidateSelections(
+      1n,
+      [item],
+      1,
+      0,
+      null,
+      null,
+      createLog(),
+    );
+
+    expect(engineFetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toHaveLength(1);
+    expect(item).toMatchObject({
+      included: true,
+      matchStatus: 'auto',
+      selectionSource: 'auto',
+      orderQty: 10,
+      selectedOffer: {
+        supplier: 'samplepcb',
+      },
+    });
+    expect(typeof item.selectedCandidateKey).toBe('string');
   });
 
   it('50개 초과 컴포넌트는 50개 청크로 나눠 벌크 재평가하고 컴포넌트→행으로 정확히 매핑한다', async () => {

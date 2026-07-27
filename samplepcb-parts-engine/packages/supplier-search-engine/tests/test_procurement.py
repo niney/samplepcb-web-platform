@@ -384,6 +384,12 @@ def test_catalog_identity_with_recommendation_block_remains_unselected():
 
     assert component.status == "no_recommendation"
     assert component.selection_application_state == "not_selected"
+    assert component.technical_preselection_identity_key == (
+        candidates[0].decision.identity_key
+    )
+    assert component.technical_preselection_evidence_key == (
+        candidates[0].decision.technical_evidence_key
+    )
     assert component.application_candidate_identity_key is None
     assert component.application_candidate_evidence_key is None
     assert component.primary_unavailability_reason == (
@@ -1589,6 +1595,12 @@ def test_reevaluation_cannot_bypass_unresolved_bom_quantity():
     )
     assert result.procurement_decision.procurement_disposition == (
         ProcurementDisposition.QUANTITY_CONFIRMATION_REQUIRED
+    )
+    assert result.procurement_decision.technical_preselection_identity_key == (
+        candidates[0].decision.identity_key
+    )
+    assert result.procurement_decision.technical_preselection_evidence_key == (
+        candidates[0].decision.technical_evidence_key
     )
     assert result.procurement_decision.automatic_offer_key is None
     assert result.procurement_decision.review_offer_key is None
