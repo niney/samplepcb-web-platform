@@ -33,7 +33,10 @@ import { prisma } from '../lib/prisma';
 import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
-import { decideAutomaticSupplierSearch } from '../lib/bom-supplier-search-policy';
+import {
+  decideAutomaticSupplierSearch,
+  supplierSearchRunPolicyFromOptions,
+} from '../lib/bom-supplier-search-policy';
 import {
   evaluateIngestedRcCatalog,
   evaluatePreferredLocalCatalog,
@@ -182,23 +185,16 @@ function componentIdsFromSearchOptions(
   );
 }
 
-function localCatalogBypassFromSearchOptions(
-  options: Prisma.JsonValue | undefined,
-): boolean {
-  return options !== undefined
-    && options !== null
-    && typeof options === 'object'
-    && !Array.isArray(options)
-    && options.local_catalog_bypass === true;
-}
-
 function persistedSearchOptions(
   engineOptions: Prisma.InputJsonObject,
   bypassLocalCatalog: boolean,
+  storedPartPrioritySearchEnabled: boolean,
 ): Prisma.InputJsonObject {
-  return bypassLocalCatalog
-    ? { ...engineOptions, local_catalog_bypass: true }
-    : engineOptions;
+  return {
+    ...engineOptions,
+    stored_part_priority_search_enabled: storedPartPrioritySearchEnabled,
+    ...(bypassLocalCatalog ? { local_catalog_bypass: true } : {}),
+  };
 }
 
 function supplierRunIsTargeted(options: Prisma.JsonValue): boolean {
@@ -377,6 +373,7 @@ async function autoEnrichQuote(
     componentIds?: readonly string[];
     passiveDefaults?: BomQuotePassiveDefaultsBodyType;
     bypassLocalCatalog?: boolean;
+    storedPartPrioritySearchEnabled?: boolean;
   } = {},
 ): Promise<boolean> {
   const quote = await prisma.spBomQuote.findUnique({
@@ -401,6 +398,9 @@ async function autoEnrichQuote(
     ? null
     : enginePassiveDefaults(passiveDefaults);
   const bypassLocalCatalog = options.bypassLocalCatalog === true;
+  const storedPartPrioritySearchEnabled =
+    options.storedPartPrioritySearchEnabled
+    ?? config.storedPartPrioritySearchEnabled;
   const baseSearchOptions = {
     max_calls: config.supplierSearchMaxCalls,
     cache_only: false,
@@ -432,7 +432,11 @@ async function autoEnrichQuote(
       quoteId,
       analysisRunId: quote.activeAnalysisRunId,
       status: 'preparing',
-      options: persistedSearchOptions(searchOptions, bypassLocalCatalog),
+      options: persistedSearchOptions(
+        searchOptions,
+        bypassLocalCatalog,
+        storedPartPrioritySearchEnabled,
+      ),
     },
   });
   const markFailed = async (error: string): Promise<false> => {
@@ -531,8 +535,11 @@ async function autoEnrichQuote(
     : await evaluateIngestedRcCatalog(
         fullPreflight,
         baseSearchOptions.procurement,
-        preferredResolved,
-        log,
+        {
+          enabled: storedPartPrioritySearchEnabled,
+          excludedComponentIds: preferredResolved,
+          log,
+        },
       );
   let ingestedResolved = ingestedRcCatalog.resolvedComponentIds;
   if (ingestedRcCatalog.envelope !== null && ingestedResolved.length > 0) {
@@ -579,6 +586,7 @@ async function autoEnrichQuote(
           options: persistedSearchOptions(
             baseSearchOptions,
             bypassLocalCatalog,
+            storedPartPrioritySearchEnabled,
           ),
           preflight: {
             ...fullPreflight,
@@ -653,7 +661,11 @@ async function autoEnrichQuote(
   await prisma.spBomSupplierSearchRun.update({
     where: { id: searchRun.id },
     data: {
-      options: persistedSearchOptions(searchOptions, bypassLocalCatalog),
+      options: persistedSearchOptions(
+        searchOptions,
+        bypassLocalCatalog,
+        storedPartPrioritySearchEnabled,
+      ),
       preflight: {
         ...pf,
         local_catalog: localCatalogPreflight,
@@ -705,7 +717,11 @@ async function autoEnrichQuote(
       where: { id: searchRun.id },
       data: {
         status: 'running',
-        options: persistedSearchOptions(searchOptions, bypassLocalCatalog),
+        options: persistedSearchOptions(
+          searchOptions,
+          bypassLocalCatalog,
+          storedPartPrioritySearchEnabled,
+        ),
         startedAt: new Date(),
       },
     }),
@@ -721,6 +737,7 @@ async function autoEnrichQuote(
     estimatedApiCalls,
     estimateExceedsJobLimit,
     maxCalls: searchOptions.max_calls,
+    storedPartPrioritySearchEnabled,
   }, '영속 분석 기반 자동 보강 검색 시작');
   startIngestPoller(jobId, log, {
     onResult: async (envelope) => {
@@ -814,13 +831,20 @@ async function healEnrichment(
     if (status === 'gone') {
       log.warn({ quoteId: key, searchRunId: String(run.id), jobId }, '엔진 잡 소멸 — 영속 분석으로 공급사 검색 재시작');
       const passiveDefaults = passiveDefaultsFromSearchOptions(run.options);
+      const runPolicy = supplierSearchRunPolicyFromOptions(run.options);
       await autoEnrichQuote(quoteId, mbId, log, {
         force: true,
         componentIds: componentIdsFromSearchOptions(run.options),
         ...(passiveDefaults === null ? {} : { passiveDefaults }),
-        ...(localCatalogBypassFromSearchOptions(run.options)
+        ...(runPolicy.localCatalogBypass
           ? { bypassLocalCatalog: true }
           : {}),
+        ...(runPolicy.storedPartPrioritySearchEnabled === null
+          ? {}
+          : {
+              storedPartPrioritySearchEnabled:
+                runPolicy.storedPartPrioritySearchEnabled,
+            }),
       });
       return;
     }

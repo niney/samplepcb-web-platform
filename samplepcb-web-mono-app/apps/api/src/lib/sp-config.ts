@@ -38,6 +38,8 @@ export const BOM_QUOTE_CONFIG_DEFAULTS: BomQuoteConfigType = {
   supplierSearchMaxCalls: 300,
   memberDailySearchLimit: 20,
   freshnessHours: 24, // 재고·가격 하루 변동은 "예상 견적" 수준에서 허용(확정은 관리자 검토)
+  // 현재 실험 동작을 유지한다. 관리자는 BOM 견적 설정에서 다음 검색부터 끌 수 있다.
+  storedPartPrioritySearchEnabled: true,
 };
 
 export async function getBomQuoteConfig(): Promise<BomQuoteConfigType> {

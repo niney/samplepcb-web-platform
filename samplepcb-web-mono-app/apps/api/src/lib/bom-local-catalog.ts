@@ -251,13 +251,18 @@ export interface LocalCatalogFallbackLog {
   warn(fields: Record<string, unknown>, message: string): void;
 }
 
+export interface IngestedRcCatalogEvaluationOptions {
+  enabled: boolean;
+  excludedComponentIds?: readonly string[];
+  log?: LocalCatalogFallbackLog;
+}
+
 const LOCAL_FALLBACK_STATUSES = new Set(['not_found', 'supplier_error']);
 const CATALOG_EVALUATION_BATCH_SIZE = 200;
 const PREFERRED_CATALOG_SEARCH_SIZE = 20;
 const PREFERRED_CATALOG_SEARCH_CONCURRENCY = 20;
 const PREFERRED_CATALOG_REASON_COUNT_LIMIT = 8;
 const PREFERRED_CATALOG_REQUIREMENT_ASSESSMENT_LIMIT = 20;
-const INGESTED_RC_EXPERIMENT_ENV = 'BOM_INGESTED_RC_EXPERIMENT';
 const ENGINE_SUPPLIER_IDENTITIES = new Set([
   'digikey',
   'mouser',
@@ -560,11 +565,6 @@ function preferredCatalogSearchQuery(
     filter.push({ term: { [F.dielectric]: dielectric.trim().toUpperCase() } });
   }
   return { bool: { filter } };
-}
-
-/** `false`로만 끌 수 있는 실험 플래그. 운영 롤백은 코드 되돌림 없이 가능하다. */
-export function ingestedRcCatalogExperimentEnabled(): boolean {
-  return process.env[INGESTED_RC_EXPERIMENT_ENV]?.trim().toLowerCase() !== 'false';
 }
 
 function ingestedRcCatalogPlan(
@@ -1425,11 +1425,10 @@ export async function evaluatePreferredLocalCatalog(
 export async function evaluateIngestedRcCatalog(
   preflightValue: unknown,
   procurementPolicy: unknown,
-  excludedComponentIds: readonly string[] = [],
-  log?: LocalCatalogFallbackLog,
+  options: IngestedRcCatalogEvaluationOptions,
 ): Promise<PreferredLocalCatalogResult> {
   const parsed = SupplierPreflightPlan.safeParse(preflightValue);
-  if (!parsed.success || !ingestedRcCatalogExperimentEnabled()) {
+  if (!parsed.success || !options.enabled) {
     return {
       envelope: null,
       resolvedComponentIds: [],
@@ -1443,7 +1442,7 @@ export async function evaluateIngestedRcCatalog(
   const allComponentIds = parsed.data.plan.components.map(
     (component) => component.component_id,
   );
-  const excluded = new Set(excludedComponentIds);
+  const excluded = new Set(options.excludedComponentIds ?? []);
   const tracesByComponent = new Map<string, PreferredLocalCatalogTrace>();
   const plans: IngestedRcCatalogPlan[] = [];
   for (const component of parsed.data.plan.components) {
@@ -1641,7 +1640,7 @@ export async function evaluateIngestedRcCatalog(
       traces: traces(),
     };
   } catch (error) {
-    log?.warn(
+    options.log?.warn(
       { err: String(error) },
       '인제스트 R/C 최소조건 카탈로그 평가 실패',
     );

@@ -175,6 +175,45 @@ function catalogStatusLabel(value: string | null): string {
       </div>
       <p v-if="maxCallsInvalid" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">현재 엔진 안전 상한 {{ engineMaxCalls }}회를 넘을 수 없습니다.</p>
 
+      <div
+        class="mt-4 flex flex-col gap-4 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
+        :class="form.storedPartPrioritySearchEnabled ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-slate-50'"
+      >
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="font-semibold text-slate-900">저장된 부품 우선 검색</h3>
+            <span class="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">실험 기능</span>
+          </div>
+          <p class="mt-1 text-sm text-slate-600">
+            MPN 없는 저항·캐패시터를 저장된 공급사 부품에서 값과 패키지로 먼저 찾고, 엔진이 확인한 후보가 있으면 외부 API 호출을 생략합니다.
+          </p>
+          <p class="mt-1 text-xs text-slate-500">
+            끄면 저장 후 시작하는 검색부터 기존 외부 공급사 검색을 사용합니다. SamplePCB R/C·커넥터 자체 카탈로그와 과거 선정 결과에는 영향이 없습니다.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="form.storedPartPrioritySearchEnabled"
+          aria-label="저장된 부품 우선 검색 실험 사용 여부"
+          class="inline-flex shrink-0 items-center gap-2 rounded-full border bg-white px-3 py-2 text-sm font-semibold shadow-sm"
+          :class="form.storedPartPrioritySearchEnabled ? 'border-violet-300 text-violet-800' : 'border-slate-300 text-slate-600'"
+          @click="form.storedPartPrioritySearchEnabled = !form.storedPartPrioritySearchEnabled"
+        >
+          <span
+            class="relative h-6 w-11 rounded-full transition-colors"
+            :class="form.storedPartPrioritySearchEnabled ? 'bg-violet-600' : 'bg-slate-300'"
+            aria-hidden="true"
+          >
+            <span
+              class="absolute top-1 size-4 rounded-full bg-white shadow transition-transform"
+              :class="form.storedPartPrioritySearchEnabled ? 'translate-x-6' : 'translate-x-1'"
+            />
+          </span>
+          {{ form.storedPartPrioritySearchEnabled ? '켜짐' : '꺼짐' }}
+        </button>
+      </div>
+
       <div v-if="supplierSearch !== null" class="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-xs">
         <span v-for="supplier in supplierSearch.engine.suppliers" :key="supplier.supplier" class="rounded-full border px-2.5 py-1 font-medium" :class="supplier.configured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'">{{ supplierLabel(supplier.supplier) }} {{ supplier.configured ? '연결' : '키 없음' }}</span>
         <span v-if="supplierSearch.engine.cache !== null" class="ml-auto text-slate-500">캐시 {{ supplierSearch.engine.cache.mode === 'normal' ? '일반' : '전용' }} · {{ supplierSearch.engine.cache.entryCount.toLocaleString('ko-KR') }}건 · 키워드 TTL {{ Math.round(supplierSearch.engine.cache.keywordTtlSeconds / 3600) }}시간</span>

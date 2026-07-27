@@ -1075,6 +1075,8 @@ export const BomQuoteConfig = z.object({
   memberDailySearchLimit: z.number().int().min(1).max(1000),
   /** 오퍼 데이터 신선 임계(시간) — 초과 라인이 있으면 업로드 시 자동 보강 트리거. */
   freshnessHours: z.number().int().min(1).max(720),
+  /** MPN 없는 R/C를 저장된 공급사 부품에서 값·패키지로 우선 검색하는 실험 기능. */
+  storedPartPrioritySearchEnabled: z.boolean(),
 });
 export type BomQuoteConfigType = z.infer<typeof BomQuoteConfig>;
 

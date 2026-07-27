@@ -35,6 +35,7 @@ const baseConfig: BomQuoteConfigType = {
   supplierSearchMaxCalls: 300,
   memberDailySearchLimit: 20,
   freshnessHours: 24,
+  storedPartPrioritySearchEnabled: true,
 };
 
 const cache: ExchangeRateCacheType = {

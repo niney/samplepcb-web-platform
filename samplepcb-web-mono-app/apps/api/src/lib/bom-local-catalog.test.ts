@@ -31,9 +31,6 @@ import {
   mergeLocalCatalogResults,
 } from './bom-local-catalog';
 
-const originalIngestedRcExperiment =
-  process.env.BOM_INGESTED_RC_EXPERIMENT;
-
 function localProduct(
   mpn = '10038WR-08',
   manufacturer = 'YEONHO ELECTRONICS',
@@ -119,12 +116,6 @@ function envelope(
 
 afterEach(() => {
   vi.clearAllMocks();
-  if (originalIngestedRcExperiment === undefined) {
-    delete process.env.BOM_INGESTED_RC_EXPERIMENT;
-  } else {
-    process.env.BOM_INGESTED_RC_EXPERIMENT =
-      originalIngestedRcExperiment;
-  }
 });
 
 describe('BOM 로컬 카탈로그 fallback', () => {
@@ -1137,6 +1128,7 @@ describe('BOM 인제스트 R/C 최소조건 실험', () => {
     const result = await evaluateIngestedRcCatalog(
       minimumPreflight,
       { target_currency: 'KRW' },
+      { enabled: true },
     );
 
     const searchRequest = mocks.search.mock.calls[0]?.[0] as {
@@ -1229,7 +1221,11 @@ describe('BOM 인제스트 R/C 최소조건 실험', () => {
       },
     };
 
-    const result = await evaluateIngestedRcCatalog(withMpn, {});
+    const result = await evaluateIngestedRcCatalog(
+      withMpn,
+      {},
+      { enabled: true },
+    );
 
     expect(mocks.search).not.toHaveBeenCalled();
     expect(mocks.findMany).not.toHaveBeenCalled();
@@ -1238,10 +1234,12 @@ describe('BOM 인제스트 R/C 최소조건 실험', () => {
     expect(result.unresolvedComponentIds).toEqual(['resistor-with-mpn']);
   });
 
-  it('환경 플래그 false면 코드 롤백 없이 실험을 완전히 우회한다', async () => {
-    process.env.BOM_INGESTED_RC_EXPERIMENT = 'false';
-
-    const result = await evaluateIngestedRcCatalog(minimumPreflight, {});
+  it('관리자 설정이 꺼지면 저장 부품 실험을 완전히 우회한다', async () => {
+    const result = await evaluateIngestedRcCatalog(
+      minimumPreflight,
+      {},
+      { enabled: false },
+    );
 
     expect(mocks.search).not.toHaveBeenCalled();
     expect(mocks.engineFetch).not.toHaveBeenCalled();
