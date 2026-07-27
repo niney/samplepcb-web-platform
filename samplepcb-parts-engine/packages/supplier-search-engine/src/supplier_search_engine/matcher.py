@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from .connector import CONNECTOR_FAMILY_LABELS
 from .models import (
     CandidateDecision,
     CandidateMatch,
@@ -347,6 +348,8 @@ def _requirement_value_display(
     if name == "mount_style":
         labels = {"smd": "SMD", "through-hole": "THT"}
         return " / ".join(labels.get(item, item) for item in str(value).split(" / "))
+    if name == "connector_family":
+        return CONNECTOR_FAMILY_LABELS.get(str(value), str(value))
     if isinstance(value, list):
         separator = " – " if name == "temperature_range_c" else " / "
         return separator.join(
@@ -607,16 +610,13 @@ def _candidate_decision(
         reason_codes.append("verification_incomplete")
     if query.mode == SearchMode.PARAMETRIC and not strict:
         reason_codes.append("strict_category_coverage_incomplete")
-    if (
-        query.mode == SearchMode.PARAMETRIC
-        and (
-            query.category_policy in {"led", "connector", "fuse"}
-            or (
-                query.category_policy in _USER_MANUAL_REVIEW_POLICIES
-                and any(
-                    requirement.status == "user"
-                    for requirement in query.requirements.values()
-                )
+    if query.mode == SearchMode.PARAMETRIC and (
+        query.category_policy in {"led", "connector", "fuse"}
+        or (
+            query.category_policy in _USER_MANUAL_REVIEW_POLICIES
+            and any(
+                requirement.status == "user"
+                for requirement in query.requirements.values()
             )
         )
     ):
@@ -1089,8 +1089,7 @@ def finalize_candidate_decisions(
                 value
                 for value in candidate.conflicts
                 if not (
-                    value.startswith("mount_style_")
-                    or value.startswith("diameter_mm_")
+                    value.startswith("mount_style_") or value.startswith("diameter_mm_")
                 )
             ]
             missing = [
@@ -1196,6 +1195,19 @@ class CandidateMatcher:
                         reasons.append("color_match")
                     elif requirement.hard:
                         conflicts.append("color_mismatch")
+                    continue
+            elif name == "connector_family":
+                actual = product.normalized_specs.get(name)
+                if actual is not None:
+                    checked += 1
+                    if (
+                        str(actual).strip().casefold()
+                        == str(expected).strip().casefold()
+                    ):
+                        matched += 1
+                        reasons.append("connector_family_match")
+                    elif requirement.hard:
+                        conflicts.append("connector_family_mismatch")
                     continue
             elif name == "absolute_tolerance_h":
                 actual = product.normalized_specs.get(name)

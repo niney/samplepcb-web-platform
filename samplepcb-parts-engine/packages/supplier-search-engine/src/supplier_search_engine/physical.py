@@ -76,6 +76,7 @@ def detect_mount_styles(value: object) -> tuple[MountStyle, ...]:
     )
     has_through_hole = bool(
         re.search(r"(?:^|[^a-z])tht(?:[^a-z]|$)", text)
+        or re.search(r"(?<![a-z0-9])th(?![a-z0-9])", text)
         or re.search(r"(?:^|[^a-z])dip(?:[^a-z]|$)", text)
         or re.search(r"through[ -]?hole", text)
         or re.search(r"스루\s*홀|삽입형|리드형", text)
@@ -167,6 +168,7 @@ def product_mount_evidence(product: SupplierProduct) -> tuple[MountStyleEvidence
 def product_mount_style(product: SupplierProduct) -> MountStyle | None:
     values = {item.value for item in product_mount_evidence(product)}
     return next(iter(values)) if len(values) == 1 else None
+
 
 def _structured_diameter_values(value: object, source: str) -> set[DiameterEvidence]:
     raw_values = value if isinstance(value, list) else [value]

@@ -10,6 +10,7 @@ from .contract import (
     SearchField,
     UserSearchRequirements,
 )
+from .connector import connector_family_from_text, pin_header_search_keywords
 from .normalizer import (
     parse_capacitance_f,
     parse_crystal_tolerance_percent,
@@ -523,6 +524,20 @@ class QueryPlanner:
                 hard=True,
                 comparison="eq",
             )
+        connector_family = (
+            connector_family_from_text(physical_source)
+            if category_policy == "connector"
+            else None
+        )
+        if connector_family is not None:
+            requirements["connector_family"] = Requirement(
+                name="connector_family",
+                raw_value=physical_source,
+                normalized_value=connector_family,
+                status="extracted",
+                hard=True,
+                comparison="eq",
+            )
         diameter_mm = source_diameter_mm(physical_source)
         if diameter_mm is not None:
             requirements["diameter_mm"] = Requirement(
@@ -575,7 +590,7 @@ class QueryPlanner:
         hard_specs = [
             item
             for item in requirements.values()
-            if item.hard and item.name not in {"part_type"}
+            if item.hard and item.name not in {"part_type", "connector_family"}
         ]
 
         if user_requirements is not None:
@@ -667,36 +682,71 @@ class QueryPlanner:
                 "buzzer",
             }:
                 keyword_parts = []
-                if "frequency_hz" in requirements:
-                    keyword_parts.append(str(requirements["frequency_hz"].raw_value))
-                if "color" in requirements:
-                    keyword_parts.append(str(requirements["color"].raw_value))
-                if "pin_count" in requirements:
-                    keyword_parts.append(f"{requirements['pin_count'].raw_value} pin")
-                if "row_count" in requirements:
-                    rows = requirements["row_count"].raw_value
-                    keyword_parts.append("dual row" if rows == 2 else f"{rows} row")
-                if "pitch_mm" in requirements:
-                    keyword_parts.append(
-                        f"{requirements['pitch_mm'].raw_value}mm pitch"
-                    )
-                if "diameter_mm" in requirements:
-                    keyword_parts.append(
-                        f"{requirements['diameter_mm'].normalized_value}mm"
-                    )
-                if "package" in requirements:
-                    keyword_parts.append(str(requirements["package"].raw_value))
-                for name in (
-                    "device_kind",
-                    "polarity",
-                    "gender",
-                    "orientation",
-                    "contact_form",
+                connector_family_requirement = requirements.get("connector_family")
+                if (
+                    category_policy == "connector"
+                    and connector_family_requirement is not None
+                    and connector_family_requirement.normalized_value == "pin_header"
                 ):
-                    requirement = requirements.get(name)
-                    if requirement is not None:
-                        keyword_parts.append(str(requirement.raw_value))
-                keyword_parts.append(category_policy)
+                    keyword_parts.append(
+                        pin_header_search_keywords(
+                            pin_count=(
+                                requirements["pin_count"].normalized_value
+                                if "pin_count" in requirements
+                                else None
+                            ),
+                            row_count=(
+                                requirements["row_count"].normalized_value
+                                if "row_count" in requirements
+                                else None
+                            ),
+                            pitch_mm=(
+                                requirements["pitch_mm"].normalized_value
+                                if "pitch_mm" in requirements
+                                else None
+                            ),
+                            mount_style=(
+                                requirements["mount_style"].normalized_value
+                                if "mount_style" in requirements
+                                else None
+                            ),
+                        )
+                    )
+                else:
+                    if "frequency_hz" in requirements:
+                        keyword_parts.append(
+                            str(requirements["frequency_hz"].raw_value)
+                        )
+                    if "color" in requirements:
+                        keyword_parts.append(str(requirements["color"].raw_value))
+                    if "pin_count" in requirements:
+                        keyword_parts.append(
+                            f"{requirements['pin_count'].raw_value} pin"
+                        )
+                    if "row_count" in requirements:
+                        rows = requirements["row_count"].raw_value
+                        keyword_parts.append("dual row" if rows == 2 else f"{rows} row")
+                    if "pitch_mm" in requirements:
+                        keyword_parts.append(
+                            f"{requirements['pitch_mm'].raw_value}mm pitch"
+                        )
+                    if "diameter_mm" in requirements:
+                        keyword_parts.append(
+                            f"{requirements['diameter_mm'].normalized_value}mm"
+                        )
+                    if "package" in requirements:
+                        keyword_parts.append(str(requirements["package"].raw_value))
+                    for name in (
+                        "device_kind",
+                        "polarity",
+                        "gender",
+                        "orientation",
+                        "contact_form",
+                    ):
+                        requirement = requirements.get(name)
+                        if requirement is not None:
+                            keyword_parts.append(str(requirement.raw_value))
+                    keyword_parts.append(category_policy)
             if not keyword_parts and description:
                 keyword_parts.append(description)
 
@@ -908,9 +958,16 @@ class QueryPlanner:
         inferred_mount = (
             requirements.get("mount_style") if user.mount_style is None else None
         )
+        inferred_connector_family = (
+            requirements.get("connector_family")
+            if user.component_type == "connector"
+            else None
+        )
         requirements.clear()
         if inferred_mount is not None:
             requirements["mount_style"] = inferred_mount
+        if inferred_connector_family is not None:
+            requirements["connector_family"] = inferred_connector_family
 
         def apply(
             name: str,

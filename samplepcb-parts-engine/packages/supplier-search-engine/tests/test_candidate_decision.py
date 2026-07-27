@@ -25,6 +25,7 @@ from supplier_search_engine.models import (
     SupplierProduct,
 )
 from supplier_search_engine.physical import (
+    detect_mount_style,
     product_diameter_evidence,
     product_diameter_mm,
     product_mount_evidence,
@@ -494,6 +495,11 @@ def test_rectangular_crystal_dimensions_are_not_diameter():
 def test_varistor_disc_size_is_contextual_diameter_not_generic_dimension():
     assert source_diameter_mm("VARISTOR 7mm DIP type") == 7.0
     assert source_diameter_mm("connector 7mm DIP type") is None
+
+
+def test_standalone_th_is_mount_evidence_but_board_thickness_is_not():
+    assert detect_mount_style("Pin Header 1x5 TH Pitch 2.54mm") == "through-hole"
+    assert detect_mount_style("PCB 1.6TH") is None
 
 
 def test_unknown_manufacturers_have_supplier_stable_separate_identities():

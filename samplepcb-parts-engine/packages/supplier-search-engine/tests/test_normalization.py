@@ -213,3 +213,63 @@ def test_parameter_normalization_prefers_output_ratings_over_dropout_and_quiesce
     )
     assert "voltage_v" not in excluded
     assert "current_a" not in excluded
+
+
+def test_digikey_pin_header_parameters_keep_metric_pitch_and_connector_family():
+    parameters, _raw = normalized_specs_from_parameters(
+        [
+            ("Connector Type", "Header"),
+            ("Contact Type", "Male Pin"),
+            ("Number of Positions", "2"),
+            ("Number of Rows", "1"),
+            ("Pitch - Mating", '0.100" (2.54mm)'),
+            ("Mounting Type", "Through Hole"),
+        ],
+        "connector",
+    )
+
+    assert parameters["connector_family"] == "pin_header"
+    assert parameters["pin_count"] == 2
+    assert parameters["row_count"] == 1
+    assert parameters["pitch_mm"] == pytest.approx(2.54)
+
+
+def test_connector_text_normalization_distinguishes_header_and_ffc_geometry():
+    header = normalized_specs_from_text(
+        "ECONOSTIK HEADER SR VT TH 1X5, 2.54mm Pitch",
+        "connector",
+    )
+    ffc = normalized_specs_from_text(
+        "FFC/FPC Single Row, 6 Positions, 2.54mm (.100in) Pitch",
+        "connector",
+    )
+
+    assert header == {
+        "connector_family": "pin_header",
+        "pin_count": 5,
+        "pitch_mm": 2.54,
+        "row_count": 1,
+    }
+    assert ffc["connector_family"] == "ffc_fpc"
+    assert ffc["pin_count"] == 6
+    assert ffc["row_count"] == 1
+    assert ffc["pitch_mm"] == pytest.approx(2.54)
+
+
+@pytest.mark.parametrize(
+    ("description", "pin_count", "row_count"),
+    [
+        ("M20 02 SIL HORIZONTAL PIN HEADER", 2, 1),
+        ("M20 05+05 DIL VERTICAL PIN HEADER", 10, 2),
+    ],
+)
+def test_connector_text_normalization_understands_supplier_sil_dil_notation(
+    description,
+    pin_count,
+    row_count,
+):
+    specs = normalized_specs_from_text(description, "connector")
+
+    assert specs["connector_family"] == "pin_header"
+    assert specs["pin_count"] == pin_count
+    assert specs["row_count"] == row_count

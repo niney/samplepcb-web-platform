@@ -239,7 +239,9 @@ def test_fuse_designator_hint_keeps_exact_mpn_eligible_with_visible_type_warning
         ],
     )
     confirmed = next(
-        candidate for candidate in candidates if candidate.product.manufacturer == "YAGEO"
+        candidate
+        for candidate in candidates
+        if candidate.product.manufacturer == "YAGEO"
     )
     contradicted = next(
         candidate
@@ -280,9 +282,7 @@ def test_fuse_designator_hint_keeps_exact_mpn_eligible_with_visible_type_warning
     assert contradicted.decision.selection_recommendation.value == "candidate_only"
     assert contradicted.decision.review_recommended is False
     unknown = next(
-        candidate
-        for candidate in ranked
-        if candidate.product.manufacturer == "Unknown"
+        candidate for candidate in ranked if candidate.product.manufacturer == "Unknown"
     )
     assert unknown.decision.technical_review_rank is None
     assert unknown.decision.selection_recommendation.value == "candidate_only"
@@ -352,7 +352,9 @@ def test_fuse_spec_search_remains_manual_without_exact_identity():
 
     assert query.mode.value == "parametric"
     assert candidate.status == MatchStatus.SPEC_COMPATIBLE
-    assert candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert (
+        candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    )
 
 
 @pytest.mark.parametrize(
@@ -1942,6 +1944,86 @@ def test_description_without_identifier_or_hard_spec_is_insufficient():
     )
 
     assert query.mode.value == "insufficient"
+
+
+@pytest.mark.parametrize(
+    (
+        "value_raw",
+        "footprint",
+        "pin_count",
+        "expected_keywords",
+        "expected_mount",
+    ),
+    [
+        (
+            "2.54mm x 2p",
+            "HDR PIN 1X2",
+            2,
+            "2.54mm 1x2 pin header",
+            None,
+        ),
+        (
+            "2.54mm x 5p",
+            "Pin Header 1x5 TH Pitch 2.54mm",
+            5,
+            "2.54mm 1x5 pin header through hole",
+            "through-hole",
+        ),
+    ],
+)
+def test_pin_header_bom_evidence_uses_supplier_probed_keyword_shape(
+    value_raw,
+    footprint,
+    pin_count,
+    expected_keywords,
+    expected_mount,
+):
+    item = component(
+        part_type="connector",
+        value_raw=value_raw,
+        footprint=footprint,
+    )
+    item.pin_count = pin_count
+    item.row_count = 1
+    item.pitch_mm = 2.54
+
+    query = QueryPlanner().plan(item)
+
+    assert query.mode.value == "parametric"
+    assert query.keywords == expected_keywords
+    assert query.requirements["connector_family"].normalized_value == "pin_header"
+    mount = query.requirements.get("mount_style")
+    assert (mount.normalized_value if mount else None) == expected_mount
+
+
+def test_pin_header_family_blocks_ffc_candidate_with_matching_pitch():
+    item = component(
+        part_type="connector",
+        value_raw="2.54mm x 2p",
+        footprint="HDR PIN 1X2",
+    )
+    item.pin_count = 2
+    item.row_count = 1
+    item.pitch_mm = 2.54
+    query = QueryPlanner().plan(item)
+    ffc = SupplierProduct(
+        supplier=Supplier.DIGIKEY,
+        manufacturer_part_number="WRONG-FFC",
+        category="FFC, FPC (Flat Flexible) Connectors",
+        description="FFC/FPC Single Row, 2 Positions, 2.54mm Pitch",
+        normalized_specs={
+            "connector_family": "ffc_fpc",
+            "pin_count": 2,
+            "row_count": 1,
+            "pitch_mm": 2.54,
+        },
+    )
+
+    candidate = CandidateMatcher().evaluate(query, ffc)
+
+    assert candidate.status == MatchStatus.AMBIGUOUS
+    assert "connector_family_mismatch" in candidate.conflicts
+    assert candidate.decision.selection_eligibility == SelectionEligibility.BLOCKED
 
 
 def test_single_package_hint_is_not_enough_for_parametric_search():

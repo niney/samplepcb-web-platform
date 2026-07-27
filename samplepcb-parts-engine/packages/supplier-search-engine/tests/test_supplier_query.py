@@ -1,7 +1,15 @@
 from __future__ import annotations
 
-from supplier_search_engine.models import PlannedQuery, Requirement, SearchMode, Supplier
-from supplier_search_engine.supplier_query import supplier_core_keywords, supplier_spec_keywords
+from supplier_search_engine.models import (
+    PlannedQuery,
+    Requirement,
+    SearchMode,
+    Supplier,
+)
+from supplier_search_engine.supplier_query import (
+    supplier_core_keywords,
+    supplier_spec_keywords,
+)
 
 
 def requirement(name: str, value: float | str) -> Requirement:
@@ -83,9 +91,7 @@ def test_ferrite_bead_query_uses_impedance_and_avoids_inductor_value_tokens():
     assert supplier_spec_keywords(query, Supplier.DIGIKEY) == (
         "0805 680 Ohms ferrite bead"
     )
-    assert supplier_spec_keywords(query, Supplier.MOUSER) == (
-        "0805 680R ferrite bead"
-    )
+    assert supplier_spec_keywords(query, Supplier.MOUSER) == ("0805 680R ferrite bead")
 
 
 def test_supplier_queries_keep_large_electrolytics_in_microfarads():
@@ -138,4 +144,30 @@ def test_new_category_queries_include_user_classification_hints():
     )
     assert supplier_spec_keywords(connector, Supplier.DIGIKEY) == (
         "4 pin 2.54mm pitch male right angle connector"
+    )
+
+
+def test_pin_header_query_uses_supplier_probed_array_notation_for_both_rungs():
+    query = PlannedQuery(
+        component_id="j2",
+        mode=SearchMode.PARAMETRIC,
+        part_type="connector",
+        category_policy="connector",
+        requirements={
+            "connector_family": requirement("connector_family", "pin_header"),
+            "pin_count": requirement("pin_count", 5),
+            "row_count": requirement("row_count", 1),
+            "pitch_mm": requirement("pitch_mm", 2.54),
+            "mount_style": requirement("mount_style", "through-hole"),
+        },
+    )
+
+    assert supplier_spec_keywords(query, Supplier.DIGIKEY) == (
+        "2.54mm 1x5 pin header through hole"
+    )
+    assert supplier_spec_keywords(query, Supplier.MOUSER) == (
+        "2.54mm 1x5 pin header through hole"
+    )
+    assert supplier_core_keywords(query, Supplier.DIGIKEY) == (
+        "2.54mm 1x5 pin header through hole"
     )

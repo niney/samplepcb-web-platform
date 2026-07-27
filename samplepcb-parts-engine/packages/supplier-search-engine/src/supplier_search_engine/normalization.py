@@ -4,6 +4,7 @@ import re
 import unicodedata
 from typing import Any, Iterable
 
+from .connector import connector_family_from_attributes, connector_family_from_text
 from .normalizer import (
     normalize_component_text,
     parse_capacitance_f,
@@ -47,7 +48,9 @@ _METRIC_TO_IMPERIAL = {
     "6332": "2512",
     "7343": "2917",
 }
-_IMPERIAL_TO_METRIC = {imperial: metric for metric, imperial in _METRIC_TO_IMPERIAL.items()}
+_IMPERIAL_TO_METRIC = {
+    imperial: metric for metric, imperial in _METRIC_TO_IMPERIAL.items()
+}
 _IMPERIAL_PACKAGES = {
     "01005",
     "0201",
@@ -132,6 +135,7 @@ _PASSIVE_IMPERIAL_SHORTHAND = {
     "603": "0603",
     "805": "0805",
 }
+_CONNECTOR_CONTEXT = re.compile(r"\b(?:connector|header|socket)\b|커넥터|헤더", re.I)
 
 
 def _is_crystal_package_context(component_type: str | None) -> bool:
@@ -142,6 +146,88 @@ def _is_crystal_package_context(component_type: str | None) -> bool:
 def _is_passive_package_context(component_type: str | None) -> bool:
     component = unicodedata.normalize("NFKC", component_type or "").strip().casefold()
     return component in _PASSIVE_PACKAGE_TYPES
+
+
+def _is_connector_context(component_type: str | None) -> bool:
+    component = unicodedata.normalize("NFKC", component_type or "")
+    return bool(_CONNECTOR_CONTEXT.search(component))
+
+
+def _pitch_mm(value: object, *, allow_bare: bool = False) -> float | None:
+    text = unicodedata.normalize("NFKC", "" if value is None else str(value))
+    millimetres = re.search(r"(\d+(?:[.,]\d+)?)\s*mm\b", text, re.I)
+    if millimetres:
+        return float(millimetres.group(1).replace(",", "."))
+    inches = re.search(
+        r"(\d+(?:[.,]\d+)?)\s*(?:\"|in(?:ch(?:es)?)?\b)",
+        text,
+        re.I,
+    )
+    if inches:
+        return float(inches.group(1).replace(",", ".")) * 25.4
+    if allow_bare:
+        bare = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*", text)
+        if bare:
+            return float(bare.group(1).replace(",", "."))
+    return None
+
+
+def _connector_geometry_from_text(text: str) -> dict[str, int | float]:
+    result: dict[str, int | float] = {}
+    array = re.search(
+        r"(?<![\d.])(\d{1,2})\s*[x×]\s*(\d{1,3})(?![\d.])",
+        text,
+        re.I,
+    )
+    if array:
+        rows = int(array.group(1))
+        per_row = int(array.group(2))
+        if rows > 0 and per_row > 0:
+            result["row_count"] = rows
+            result["pin_count"] = rows * per_row
+    if "pin_count" not in result:
+        positions = re.search(
+            r"\b(\d{1,3})\s*[- ]?(?:positions?|pos|pins?)\b",
+            text,
+            re.I,
+        )
+        if positions:
+            result["pin_count"] = int(positions.group(1))
+    if "pin_count" not in result:
+        sil = re.search(r"\b(\d{1,3})\s+sil\b", text, re.I)
+        if sil:
+            result["pin_count"] = int(sil.group(1))
+            result["row_count"] = 1
+    if "pin_count" not in result:
+        dil = re.search(r"\b(\d{1,3})\s*\+\s*(\d{1,3})\s+dil\b", text, re.I)
+        if dil:
+            result["pin_count"] = int(dil.group(1)) + int(dil.group(2))
+            result["row_count"] = 2
+    if re.search(r"\b(?:dual|double)\s*row\b|\bdil\b", text, re.I):
+        result.setdefault("row_count", 2)
+    elif re.search(r"\bsingle\s*row\b|\bsil\b", text, re.I):
+        result.setdefault("row_count", 1)
+
+    pitch = None
+    pitch_value = re.search(
+        r"(\d+(?:[.,]\d+)?)\s*mm(?:\s*\([^)]*\))?\s*(?:pitch|피치)\b",
+        text,
+        re.I,
+    )
+    if pitch_value:
+        pitch = float(pitch_value.group(1).replace(",", "."))
+    else:
+        pitch_prefix = re.search(
+            r"(?:pitch|피치)\s*[:=-]?\s*"
+            r"(\d+(?:[.,]\d+)?\s*(?:mm|\"|in(?:ch(?:es)?)?))",
+            text,
+            re.I,
+        )
+        if pitch_prefix:
+            pitch = _pitch_mm(pitch_prefix.group(1))
+    if pitch is not None:
+        result["pitch_mm"] = pitch
+    return result
 
 
 def _crystal_package_from_text(value: object) -> str | None:
@@ -158,7 +244,9 @@ def _crystal_package_from_text(value: object) -> str | None:
 
 
 def normalize_mpn(value: object) -> str:
-    text = unicodedata.normalize("NFKC", "" if value is None else str(value)).translate(_DASHES)
+    text = unicodedata.normalize("NFKC", "" if value is None else str(value)).translate(
+        _DASHES
+    )
     return re.sub(r"\s+", "", text).upper()
 
 
@@ -222,10 +310,9 @@ def normalize_package(value: object, component_type: str | None = None) -> str:
         if smd_metric:
             return _METRIC_TO_IMPERIAL[smd_metric.group(1)]
 
-    tfbga = (
-        re.search(r"TFBGA[^0-9]{0,8}(\d{1,3}(?:\s*\+\s*\d{1,3})?)", text)
-        or re.search(r"(\d{1,3}(?:\s*\+\s*\d{1,3})?)[^A-Z0-9]{0,8}TFBGA", text)
-    )
+    tfbga = re.search(
+        r"TFBGA[^0-9]{0,8}(\d{1,3}(?:\s*\+\s*\d{1,3})?)", text
+    ) or re.search(r"(\d{1,3}(?:\s*\+\s*\d{1,3})?)[^A-Z0-9]{0,8}TFBGA", text)
     if tfbga:
         pin_count = re.sub(r"\D", "", tfbga.group(1))
         return f"TFBGA{pin_count}"
@@ -365,7 +452,9 @@ def package_from_text(value: object, component_type: str | None = None) -> str |
     return normalize_package(f"{match.group(1)}-{match.group(2)}", component_type)
 
 
-def normalized_specs_from_text(text: str | None, component_type: str | None = None) -> dict[str, Any]:
+def normalized_specs_from_text(
+    text: str | None, component_type: str | None = None
+) -> dict[str, Any]:
     if not text:
         return {}
     inferred = normalize_component_text(text, component_type)
@@ -403,16 +492,22 @@ def normalized_specs_from_text(text: str | None, component_type: str | None = No
             "청색": "blue",
             "백색": "white",
         }.get(color_token, color_token)
-    pin_match = re.search(r"\b(\d{1,3})\s*[- ]?pins?\b", text, re.I)
-    if pin_match:
-        result["pin_count"] = int(pin_match.group(1))
-    if re.search(r"\b(?:dual|double)\s*row\b", text, re.I):
-        result["row_count"] = 2
-    elif re.search(r"\bsingle\s*row\b", text, re.I):
-        result["row_count"] = 1
-    pitch_match = re.search(r"\b(\d+(?:\.\d+)?)\s*mm\s*pitch\b", text, re.I)
-    if pitch_match:
-        result["pitch_mm"] = float(pitch_match.group(1))
+    if _is_connector_context(component_type):
+        result.update(_connector_geometry_from_text(text))
+        connector_family = connector_family_from_text(text)
+        if connector_family:
+            result["connector_family"] = connector_family
+    else:
+        pin_match = re.search(r"\b(\d{1,3})\s*[- ]?pins?\b", text, re.I)
+        if pin_match:
+            result["pin_count"] = int(pin_match.group(1))
+        if re.search(r"\b(?:dual|double)\s*row\b", text, re.I):
+            result["row_count"] = 2
+        elif re.search(r"\bsingle\s*row\b", text, re.I):
+            result["row_count"] = 1
+        pitch_match = re.search(r"\b(\d+(?:\.\d+)?)\s*mm\s*pitch\b", text, re.I)
+        if pitch_match:
+            result["pitch_mm"] = float(pitch_match.group(1))
     dimensions = re.search(
         r"\b(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*mm\b",
         text,
@@ -436,9 +531,9 @@ def normalized_specs_from_parameters(
     raw: dict[str, Any] = {}
     priorities: dict[str, int] = {}
 
-    component_context = unicodedata.normalize(
-        "NFKC", component_type or ""
-    ).strip().casefold()
+    component_context = (
+        unicodedata.normalize("NFKC", component_type or "").strip().casefold()
+    )
 
     def priority(target: str, key: str) -> int:
         if target == "resistance_ohm":
@@ -462,7 +557,10 @@ def normalized_specs_from_parameters(
                     )
                 ):
                     return 110
-            if any(token in key for token in ("dropout", "드롭아웃", "tolerance", "허용오차")):
+            if any(
+                token in key
+                for token in ("dropout", "드롭아웃", "tolerance", "허용오차")
+            ):
                 return -1
             if any(token in key for token in ("output", "출력")):
                 return 100
@@ -485,7 +583,9 @@ def normalized_specs_from_parameters(
                 )
             ):
                 return -1
-            if any(token in key for token in ("output", "출력", "rated", "rating", "정격")):
+            if any(
+                token in key for token in ("output", "출력", "rated", "rating", "정격")
+            ):
                 return 100
             if any(token in key for token in ("continuous", "연속")):
                 return 90
@@ -553,25 +653,40 @@ def normalized_specs_from_parameters(
             minimum, maximum = parse_temperature_range_c(value)
             if minimum is not None or maximum is not None:
                 normalized["temperature_range_c"] = [minimum, maximum]
-        if any(alias in compact_key for alias in ("package", "case", "size", "패키지", "크기")):
+        if any(
+            alias in compact_key
+            for alias in ("package", "case", "size", "패키지", "크기")
+        ):
             package = normalize_package(value, component_type)
             if package:
                 normalized["package"] = package
         if any(
             alias in compact_key
-            for alias in ("dielectric", "temperaturecharacteristic", "유전체", "온도특성")
+            for alias in (
+                "dielectric",
+                "temperaturecharacteristic",
+                "유전체",
+                "온도특성",
+            )
         ):
             dielectric = normalize_dielectric(value)
             if dielectric:
                 normalized["dielectric"] = dielectric
-        if any(alias in compact_key for alias in ("numberofpositions", "positions", "pincount", "핀수")):
+        if any(
+            alias in compact_key
+            for alias in ("numberofpositions", "positions", "pincount", "핀수")
+        ):
             pin_match = re.search(r"\d{1,3}", str(value))
             if pin_match:
                 normalized["pin_count"] = int(pin_match.group(0))
+        if any(alias in compact_key for alias in ("numberofrows", "rowcount", "행수")):
+            row_match = re.search(r"\d{1,3}", str(value))
+            if row_match:
+                normalized["row_count"] = int(row_match.group(0))
         if any(alias in compact_key for alias in ("pitch", "피치")):
-            pitch_match = re.search(r"\d+(?:\.\d+)?", str(value))
-            if pitch_match:
-                normalized["pitch_mm"] = float(pitch_match.group(0))
+            pitch_mm = _pitch_mm(value, allow_bare=True)
+            if pitch_mm is not None:
+                normalized["pitch_mm"] = pitch_mm
         if any(alias in compact_key for alias in ("color", "색상", "색")):
             color_match = re.search(
                 r"red|green|orange|amber|yellow|blue|white|적색|녹색|주황|황색|청색|백색",
@@ -588,9 +703,14 @@ def normalized_specs_from_parameters(
                     "청색": "blue",
                     "백색": "white",
                 }.get(token, token)
-    parameter_text = " ".join(
-        f"{name} {value}" for name, value in raw.items()
-    )
+    parameter_text = " ".join(f"{name} {value}" for name, value in raw.items())
+    if _is_connector_context(component_type):
+        connector_geometry = _connector_geometry_from_text(parameter_text)
+        for name, value in connector_geometry.items():
+            normalized.setdefault(name, value)
+        connector_family = connector_family_from_attributes(raw)
+        if connector_family:
+            normalized["connector_family"] = connector_family
     parameter_ferrite = bool(
         normalized.get("impedance_ohm") is not None
         or re.search(

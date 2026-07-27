@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
+from .connector import pin_header_search_keywords
 from .models import PlannedQuery, Requirement, Supplier
 from .normalization import normalize_package
 
@@ -52,6 +53,7 @@ _SPEC_ORDER = {
     "ferrite": ("impedance_ohm", "impedance_frequency_hz", "current_a", "package"),
     "led": ("color", "package", "mount_style"),
     "connector": (
+        "connector_family",
         "pin_count",
         "row_count",
         "pitch_mm",
@@ -137,9 +139,13 @@ def _requirement_token(
             return f"{_number(numeric / 1e-6)}uF"
         if supplier is not None and 1e-6 <= abs(numeric) <= 10e-3:
             return f"{_number(numeric / 1e-6)}uF"
-        return _scaled(numeric, ((1, "F"), (1e-3, "mF"), (1e-6, "uF"), (1e-9, "nF"), (1e-12, "pF")))
+        return _scaled(
+            numeric, ((1, "F"), (1e-3, "mF"), (1e-6, "uF"), (1e-9, "nF"), (1e-12, "pF"))
+        )
     if name == "inductance_h":
-        return _scaled(numeric, ((1, "H"), (1e-3, "mH"), (1e-6, "uH"), (1e-9, "nH"), (1e-12, "pH")))
+        return _scaled(
+            numeric, ((1, "H"), (1e-3, "mH"), (1e-6, "uH"), (1e-9, "nH"), (1e-12, "pH"))
+        )
     if name == "power_w":
         return f"{_number(numeric)}W"
     if name == "tolerance_percent":
@@ -166,7 +172,9 @@ def is_ferrite_bead_query(query: PlannedQuery) -> bool:
         return True
     if (query.part_type or "").casefold() != "inductor":
         return False
-    resistance = query.requirements.get("impedance_ohm") or query.requirements.get("resistance_ohm")
+    resistance = query.requirements.get("impedance_ohm") or query.requirements.get(
+        "resistance_ohm"
+    )
     text = " ".join(
         str(value)
         for value in (
@@ -228,10 +236,7 @@ def _tokens(
         requirement = query.requirements.get(name)
         if requirement is None or (
             not requirement.hard
-            and not (
-                requirement.status == "user"
-                and name in _SEARCH_HINT_REQUIREMENTS
-            )
+            and not (requirement.status == "user" and name in _SEARCH_HINT_REQUIREMENTS)
         ):
             continue
         token = _requirement_token(
@@ -249,11 +254,34 @@ def _tokens(
     return list(dict.fromkeys(tokens))
 
 
+def _pin_header_keywords(query: PlannedQuery) -> str | None:
+    if query.category_policy != "connector":
+        return None
+    family = query.requirements.get("connector_family")
+    if family is None or family.normalized_value != "pin_header":
+        return None
+
+    def value(name: str) -> object:
+        requirement = query.requirements.get(name)
+        return requirement.normalized_value if requirement is not None else None
+
+    return pin_header_search_keywords(
+        pin_count=value("pin_count"),
+        row_count=value("row_count"),
+        pitch_mm=value("pitch_mm"),
+        mount_style=value("mount_style"),
+    )
+
+
 def supplier_spec_keywords(
     query: PlannedQuery,
     supplier: Supplier | None = None,
 ) -> str:
     """Build a precise first-pass query while local matching stays authoritative."""
+
+    pin_header = _pin_header_keywords(query)
+    if pin_header is not None:
+        return pin_header[:250]
 
     part_type = (query.part_type or "").casefold()
     names = (
@@ -279,11 +307,16 @@ def supplier_spec_keywords(
     tokens = _tokens(query, names, supplier)
     return " ".join(tokens)[:250] or query.keywords
 
+
 def supplier_core_keywords(
     query: PlannedQuery,
     supplier: Supplier | None = None,
 ) -> str:
     """Return the broad second-rung query: primary electrical value + package."""
+
+    pin_header = _pin_header_keywords(query)
+    if pin_header is not None:
+        return pin_header[:250]
 
     part_type = (query.part_type or "").casefold()
     if is_ferrite_bead_query(query):
