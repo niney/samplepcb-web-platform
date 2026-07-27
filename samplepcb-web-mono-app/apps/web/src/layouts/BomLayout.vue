@@ -99,6 +99,18 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
         >
           <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="rightOpen ? '-scale-x-100' : ''">
         </button>
+        <!-- 관리자 콘솔 진입 — 최고관리자(cf_admin)만 노출, BOM 작업 유지를 위해 새 창 -->
+        <RouterLink
+          v-if="auth.me?.isAdmin"
+          :to="{ name: 'admin' }"
+          target="_blank"
+          rel="noopener"
+          class="inline-flex h-[28px] items-center gap-[4px] rounded-md border border-[#cfe0fb] px-[10px] text-[13px] font-semibold text-[#2477f4] hover:bg-blue-50"
+          title="관리자 페이지 (새 창)"
+        >
+          <span>관리자</span>
+          <span aria-hidden="true" class="text-[11px] leading-none">↗</span>
+        </RouterLink>
         <div
           class="flex size-[32px] items-center justify-center overflow-hidden rounded-full bg-[#9aa3b2]"
           :title="auth.me?.mbNick ?? ''"
