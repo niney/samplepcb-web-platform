@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useI18n } from 'vue-i18n';
 import type { BomQuoteItemType } from '@sp/api-contract';
 import { isSevereOrderSurplus } from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
@@ -28,7 +27,6 @@ const emit = defineEmits<{
   'open-search': [];
 }>();
 
-const { t } = useI18n();
 const quantityDraft = ref(props.item.bomQty);
 
 watch(
@@ -147,15 +145,6 @@ const supplierQuotaReached = computed(() =>
   searchLimitReasons.value.includes('supplier_quota'),
 );
 
-const searchTraceTitle = computed(() => {
-  const trace = searchTraceSummary.value;
-  if (trace === null) return '';
-  const lines = [`${t('bomSearchTrace.search')}: ${trace.primaryQuery}`];
-  if (trace.fallbackQuery !== null) lines.push(`${t('bomSearchTrace.fallbackBadge')}: ${trace.fallbackQuery}`);
-  lines.push(t('bomSearchTrace.attempts', { count: trace.attemptCount }));
-  return lines.join('\n');
-});
-
 const sortedPriceBreaks = computed(() => {
   const offer = props.item.selectedOffer;
   if (offer === null) return [];
@@ -256,22 +245,6 @@ const evidenceTitle = computed(() => {
   if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
   if (evidence.missingRequirements.length > 0) details.push(`누락: ${evidence.missingRequirements.join(', ')}`);
   return details.join('\n');
-});
-
-const sourceLabel = computed(() => {
-  if (quantityMissing.value) return '기술 선정';
-  if (provisionalSelectionPending.value) return '엔진 임시 선정';
-  if (catalogSelectionApplied.value) return '제조사 카탈로그 선정';
-  if (props.item.selectionSource === 'customer') return '고객 선택';
-  if (props.item.selectionSource === 'catalog') return '직접 검색';
-  if (props.item.selectionSource === 'admin') return '관리자 선택';
-  if (props.item.matchEvidence?.recommendationType === 'price') return '가격 최적';
-  if (props.item.matchEvidence?.recommendationType === 'purchase-fit') return '구매조건 우선';
-  if (props.item.matchEvidence?.recommendationType === 'lifecycle') return '수명주기 추천';
-  if (props.item.matchEvidence?.selectionMode === 'exact') return '정확 일치';
-  if (props.item.matchEvidence?.selectionMode === 'variant') return '검증 변형';
-  if (props.item.matchEvidence?.selectionMode === 'spec-compatible') return '기술 추천';
-  return props.item.matchStatus === 'manual' ? '직접 선택' : '자동 매칭';
 });
 
 const reasonSummary = computed(() => {
@@ -505,24 +478,8 @@ function onQtyInput(event: Event): void {
           class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800"
           title="공급사 API 자체 한도로 이 부품의 일부 공급사 검색이 제한되었습니다."
         >공급사 한도 미검색</span>
-        <span v-if="item.matchStatus !== 'none'" class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{{ sourceLabel }}</span>
-        <span v-if="technicalFallbackUsed" class="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700" :title="evidenceTitle">구매 가능 차순위</span>
         <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="evidenceTitle">일부 확인 필요</span>
         <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
-        <button
-          v-if="searchTraceSummary !== null"
-          type="button"
-          class="flex max-w-[190px] items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-left text-[10px] leading-4 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 disabled:cursor-default disabled:opacity-60"
-          :disabled="editingLocked && !enriching"
-          :title="searchTraceTitle"
-          @click="emit('open-candidates')"
-        >
-          <span class="shrink-0 font-bold text-slate-500">{{ t('bomSearchTrace.search') }}</span>
-          <span class="min-w-0 truncate">{{ searchTraceSummary.primaryQuery }}</span>
-          <span v-if="searchTraceSummary.fallbackUsed" class="shrink-0 rounded bg-amber-100 px-1 font-bold text-amber-700">{{ t('bomSearchTrace.fallbackBadge') }}</span>
-        </button>
-        <p v-if="item.matchStatus !== 'none' || procurementUnavailabilitySummary !== null || engineSearchExcluded" class="max-w-[190px] text-right text-[10px] leading-4 text-slate-500" :title="reasonSummary">{{ reasonSummary }}</p>
-        <span v-if="(item.matchEvidence?.alternativeCandidateCount ?? 0) > 0" class="text-[10px] font-semibold text-blue-600">대체 후보 {{ item.matchEvidence?.alternativeCandidateCount }}개</span>
         <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? catalogInquiry ? 'text-blue-700' : 'text-gray-300' : 'text-[#38b614]'">
           {{ item.lineTotalKrw === null ? catalogInquiry ? '문의 견적' : '—' : fmtWon(Math.round(item.lineTotalKrw)) }}
         </span>
