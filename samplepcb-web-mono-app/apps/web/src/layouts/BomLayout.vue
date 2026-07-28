@@ -103,7 +103,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       <div class="flex w-[220px] shrink-0 items-center pl-[24px]">
         <RouterLink :to="{ name: 'bom' }" class="flex items-center gap-[7px]">
           <img :src="logoIcon" alt="Parts Eyes" class="h-[26px] w-auto">
-          <span class="text-[21px] font-bold tracking-tight text-[#061023]">Parts Eyes</span>
+          <span class="text-[21px] font-bold tracking-tight text-ink-strong">Parts Eyes</span>
         </RouterLink>
       </div>
       <div class="h-[30px] w-px bg-gray-200" />
@@ -147,7 +147,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
         <!-- sp-php 도메인 루트 홈으로 이동 — /app 내부 라우트가 아닌 전체 페이지 이동 -->
         <a
           href="/"
-          class="grid size-[32px] place-items-center rounded-md text-[#687386] hover:bg-gray-100 hover:text-[#2477f4]"
+          class="grid size-[32px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand"
           aria-label="홈으로 이동"
           title="홈으로 이동"
         >
@@ -162,14 +162,14 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
           :to="{ name: 'admin' }"
           target="_blank"
           rel="noopener"
-          class="inline-flex h-[28px] items-center gap-[4px] rounded-md border border-[#cfe0fb] px-[10px] text-[13px] font-semibold text-[#2477f4] hover:bg-blue-50"
+          class="inline-flex h-[28px] items-center gap-[4px] rounded-md border border-[#cfe0fb] px-[10px] text-[13px] font-semibold text-brand hover:bg-blue-50"
           title="관리자 페이지 (새 창)"
         >
           <span>관리자</span>
           <span aria-hidden="true" class="text-[11px] leading-none">↗</span>
         </RouterLink>
         <div
-          class="flex size-[32px] items-center justify-center overflow-hidden rounded-full bg-[#9aa3b2]"
+          class="flex size-[32px] items-center justify-center overflow-hidden rounded-full bg-ink-faint"
           :title="auth.me?.mbNick ?? ''"
         >
           <img :src="icProfile" alt="프로필" class="size-[32px]">
@@ -190,12 +190,12 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-white pt-[36px] lg:flex">
         <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onBomPrimary ? 'bg-[#eaf2ff]' : 'hover:bg-gray-50'">
           <img :src="icMenuBom" alt="" class="size-[18px]">
-          <span class="ml-[6px] text-[16px] font-medium" :class="onBomPrimary ? 'text-[#0e6efd]' : 'text-[#27292e]'">BOM 분석</span>
+          <span class="ml-[6px] text-[16px] font-medium" :class="onBomPrimary ? 'text-brand-strong' : 'text-ink'">BOM 분석</span>
           <img :src="icMenuUpload" alt="" class="ml-auto size-[14px]">
         </RouterLink>
         <RouterLink :to="{ name: 'bom-search' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onSearch ? 'bg-[#eaf2ff]' : 'hover:bg-gray-50'">
           <img :src="icMenuSearch" alt="" class="size-[18px]">
-          <span class="ml-[6px] text-[16px] font-medium" :class="onSearch ? 'text-[#0e6efd]' : 'text-[#27292e]'">단일 검색</span>
+          <span class="ml-[6px] text-[16px] font-medium" :class="onSearch ? 'text-brand-strong' : 'text-ink'">단일 검색</span>
           <img :src="icTrailSearch" alt="" class="ml-auto size-[14px]">
         </RouterLink>
 
@@ -217,7 +217,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
           <div class="mt-1 h-[30px] w-[179px] shrink-0" style="margin-left: 21px">
             <RouterLink
               :to="{ name: 'bom-history' }"
-              class="flex h-full items-center justify-between rounded-[4px] px-[8px] text-[12px] font-semibold text-[#2477f4] hover:bg-blue-50"
+              class="flex h-full items-center justify-between rounded-[4px] px-[8px] text-[12px] font-semibold text-brand hover:bg-blue-50"
               :class="onHistory ? 'bg-blue-50' : ''"
             >
               <span>모두 보기</span>
@@ -229,7 +229,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
 
       <!-- 중앙 흰 패널 (Rectangle 197) — 페이지가 내부 스크롤을 관리한다 -->
       <main class="min-h-0 min-w-0 flex-1 p-[10px]">
-        <div class="h-full overflow-hidden rounded-[12px] bg-[#fdfdff] shadow-sm">
+        <div class="h-full overflow-hidden rounded-[12px] bg-surface shadow-sm">
           <RouterView />
         </div>
       </main>

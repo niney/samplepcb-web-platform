@@ -7,9 +7,58 @@
     "Apple Color Emoji", "Segoe UI Emoji";
 
   /* BOM 상세(일반·관리자)의 좌우 2단 배치 전환점.
-     좌 사이드바(220~240) + 결과 테이블 최소폭(1024) + 우 패널(286) + 여백/갭 ≈ 1,626px 이
-     실제 필요 폭이라, xl(1280)에서 전환하면 1,280~1,626 구간 내내 공간이 모자란 채
-     좌우 배치가 유지된다. 그 구간에서 리사이즈하면 가로 스크롤·열 너비·행 높이·sticky 헤더가
-     매 프레임 함께 재계산돼 버벅인다. 스크롤바까지 감안해 1,660px 에서 전환한다. */
-  --breakpoint-bomwide: 1660px;
+     좌 사이드바(220~240) + 결과 테이블 최소폭(1104) + 우 패널(286) + 여백/갭 ≈ 1,706px 이
+     실제 필요 폭이라, xl(1280)에서 전환하면 그 아래 구간 내내 공간이 모자란 채 좌우 배치가
+     유지된다. 그러면 리사이즈할 때 가로 스크롤·열 너비·행 높이·sticky 헤더가 매 프레임 함께
+     재계산돼 버벅인다. 스크롤바까지 감안해 1,740px 에서 전환한다.
+     (MANUFACTURER 열을 독립시키며 테이블 최소폭이 1024→1104 로 늘어 1,660→1,740 으로 올렸다.) */
+  --breakpoint-bomwide: 1740px;
+
+  /* ── 색 토큰 ────────────────────────────────────────────────────────────────
+     BOM 화면군은 색을 값으로 직접 박아 왔고(고유 205색), 같은 역할의 색이 육안으로
+     구분되지 않는 수준에서 여러 벌 난립했다(보조 텍스트 #5f6777·#5f697a·#667085·
+     #687386, 경계선 #e1e6ef·#dfe4ec·#e8ebf0 …). 역할별 토큰으로 모아 두면 색을
+     한 곳에서 바꿀 수 있고, 다크 팔레트도 이 목록만 다시 고르면 된다.
+     통합 기준은 "같은 역할 + RGB 차 20 이내(육안 구분 불가)" 이고, 역할이 다르면
+     값이 비슷해도 합치지 않았다.
+     Tailwind v4 는 --color-* 를 곧바로 유틸로 만든다 → text-ink-muted, bg-surface … */
+
+  /* 글자 — strong(제목·주요 수치) → faint(placeholder) 순으로 옅어진다 */
+  --color-ink-strong: #061023;
+  --color-ink: #293346;
+  --color-ink-soft: #3b4252;
+  --color-ink-muted: #5f6777;
+  --color-ink-subtle: #8e97a5;
+  --color-ink-faint: #9aa5b5;
+  --color-ink-neutral: #4c4c4c;
+
+  /* 면 — surface 가 기본 배경, sunken/raised 는 그 위의 층 */
+  --color-surface: #fdfdff;
+  --color-surface-sunken: #f8fafc;
+  --color-surface-raised: #f3f6fa;
+  --color-surface-neutral: #f4f4f4;
+  --color-surface-brand: #eaf1fb;
+  --color-surface-brand-soft: #f4f8ff;
+  --color-surface-warn: #fdf8e7;
+
+  /* 선 */
+  --color-line: #e1e6ef;
+  --color-line-soft: #e5e8ed;
+  --color-line-strong: #d3d5dc;
+  --color-line-neutral: #dedede;
+  --color-line-brand: #dce7f8;
+
+  /* 브랜드 */
+  --color-brand: #2477f4;
+  --color-brand-strong: #1e64fd;
+  --color-brand-soft: #4798ff;
+  --color-brand-deep: #315f9f;
+
+  /* 매칭 상태 — 표의 판정 결과. 다크에서는 배경 대비 때문에 그대로 못 쓰고 다시 골라야 한다. */
+  --color-state-matched: #38b614;
+  --color-state-supply: #08ad79;
+  --color-state-review: #ff6900;
+  --color-state-unmatched: #ff5873;
+  --color-state-danger: #e73362;
+  --color-state-nostock: #c8aa00;
 }

@@ -76,7 +76,7 @@ watch([q, submittedNeeded], () => {
     <!-- + BOM (87:11220) — 업로드 화면으로 이동 -->
     <RouterLink
       :to="{ name: 'bom' }"
-      class="absolute right-[26px] top-[16px] z-20 flex h-[36px] items-center justify-center gap-1 rounded-[6px] bg-[#1e64fd] px-[20px] text-[13px] font-medium text-white transition hover:bg-blue-700"
+      class="absolute right-[26px] top-[16px] z-20 flex h-[36px] items-center justify-center gap-1 rounded-[6px] bg-brand-strong px-[20px] text-[13px] font-medium text-white transition hover:bg-blue-700"
     >
       <span class="text-[15px] leading-none">+</span> BOM
     </RouterLink>
@@ -86,11 +86,11 @@ watch([q, submittedNeeded], () => {
       <div class="flex h-[42px] items-center rounded-full bg-[#f0f4fa]">
         <RouterLink
           :to="{ name: 'bom' }"
-          class="flex h-[42px] items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-[#27292e] opacity-80 transition hover:opacity-60"
+          class="flex h-[42px] items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-ink opacity-80 transition hover:opacity-60"
         >
           BOM 분석
         </RouterLink>
-        <span class="flex h-[42px] items-center rounded-full bg-[#061023] px-[24px] text-[16px] font-bold leading-[24px] text-white">단일 검색</span>
+        <span class="flex h-[42px] items-center rounded-full bg-ink-strong px-[24px] text-[16px] font-bold leading-[24px] text-white">단일 검색</span>
       </div>
     </div>
 
@@ -111,7 +111,7 @@ watch([q, submittedNeeded], () => {
         </div>
 
         <form class="absolute left-1/2 top-[226px] z-10 flex h-[48px] w-[426px] max-w-[calc(100%-32px)] -translate-x-1/2" role="search" @submit.prevent="submit">
-          <label class="flex min-w-0 flex-1 items-center gap-[8px] rounded-l-[8px] bg-[#fdfdff] pl-[20px] pr-[12px]">
+          <label class="flex min-w-0 flex-1 items-center gap-[8px] rounded-l-[8px] bg-surface pl-[20px] pr-[12px]">
             <img :src="searchIcon" alt="" class="size-[20px] shrink-0">
             <input
               v-model="input"
@@ -121,15 +121,15 @@ watch([q, submittedNeeded], () => {
               class="min-w-0 flex-1 bg-transparent text-[14px] leading-[24px] text-[#263248] outline-none placeholder:text-[#5b6a7e]"
             >
           </label>
-          <button type="submit" class="flex h-[48px] shrink-0 items-center rounded-r-[8px] bg-[#1e64fd] px-[16px] text-[16px] font-bold leading-[24px] text-white transition hover:bg-blue-700">
+          <button type="submit" class="flex h-[48px] shrink-0 items-center rounded-r-[8px] bg-brand-strong px-[16px] text-[16px] font-bold leading-[24px] text-white transition hover:bg-blue-700">
             Search
           </button>
         </form>
       </section>
 
       <!-- contents (BOM 분석과 동일한 3개 공급사만 노출) -->
-      <h2 class="mt-[50px] text-center text-[26px] font-bold leading-[32px] text-[#061023]">전자부품 2,000만+ 다양한 제조사</h2>
-      <p class="mt-[8px] text-center text-[18px] leading-[32px] text-[#616164]">공인 유통사의 견적 정보를 최적의 조건으로, 빠르게 받아 비교하세요</p>
+      <h2 class="mt-[50px] text-center text-[26px] font-bold leading-[32px] text-ink-strong">전자부품 2,000만+ 다양한 제조사</h2>
+      <p class="mt-[8px] text-center text-[18px] leading-[32px] text-ink-neutral">공인 유통사의 견적 정보를 최적의 조건으로, 빠르게 받아 비교하세요</p>
       <div class="mt-[22px] flex flex-wrap items-center justify-center gap-[12px]">
         <img
           v-for="logo in SUPPLIER_LOGOS"
@@ -142,8 +142,8 @@ watch([q, submittedNeeded], () => {
     </template>
 
     <template v-else>
-      <h2 class="mt-[40px] text-center text-[26px] font-bold leading-[32px] text-[#061023]">전자부품 단일 검색</h2>
-      <p class="mt-[8px] text-center text-[15px] leading-[24px] text-[#616164]">품번·스펙·패키지로 검색하고 공급사별 구매 조건을 한눈에 비교하세요</p>
+      <h2 class="mt-[40px] text-center text-[26px] font-bold leading-[32px] text-ink-strong">전자부품 단일 검색</h2>
+      <p class="mt-[8px] text-center text-[15px] leading-[24px] text-ink-neutral">품번·스펙·패키지로 검색하고 공급사별 구매 조건을 한눈에 비교하세요</p>
 
       <div class="mx-auto mt-7 w-full max-w-[1160px]">
         <form class="flex flex-col gap-2 sm:flex-row sm:items-center" role="search" @submit.prevent="submit">
@@ -199,10 +199,10 @@ watch([q, submittedNeeded], () => {
               </span>
               <span v-else class="font-semibold text-amber-600">환율 미확인 통화는 원통화로 표시</span>
             </div>
-            <div class="overflow-x-auto rounded-[10px] border border-[#e5e8ed] bg-white">
+            <div class="overflow-x-auto rounded-[10px] border border-line-soft bg-white">
               <table class="w-full min-w-[860px] border-collapse">
                 <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
-                  <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
+                  <tr class="text-left text-[11px] uppercase tracking-wide text-ink-subtle">
                     <th class="min-w-[220px] px-2 py-2.5">MPN / Part</th>
                     <th class="px-2 py-2.5">Manufacturer</th>
                     <th class="px-2 py-2.5">Description</th>
@@ -219,7 +219,7 @@ watch([q, submittedNeeded], () => {
                       :expanded="expandedId === part.id"
                       @toggle="toggleExpand(part.id)"
                     />
-                    <tr v-if="expandedId === part.id" class="border-b border-[#e5e8ed]">
+                    <tr v-if="expandedId === part.id" class="border-b border-line-soft">
                       <td colspan="7" class="bg-slate-50/70 px-3 py-3">
                         <div class="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                           <BomPartOfferOptions

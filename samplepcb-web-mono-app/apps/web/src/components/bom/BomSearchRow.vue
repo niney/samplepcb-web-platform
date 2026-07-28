@@ -20,7 +20,7 @@ const emit = defineEmits<{
 
 const applied = computed(() => props.part.applied);
 
-const rowClass = computed(() => (applied.value?.stockShort === true ? 'bg-[#fdf8e7]' : 'bg-white'));
+const rowClass = computed(() => (applied.value?.stockShort === true ? 'bg-surface-warn' : 'bg-white'));
 
 function fmtMoney(value: number, currency: string): string {
   if (currency === 'KRW') return `${Math.round(value).toLocaleString('ko-KR')}원`;
@@ -44,7 +44,7 @@ const convertedUnitPrice = computed(() => {
 </script>
 
 <template>
-  <tr class="border-b border-[#e5e8ed] align-top transition-colors" :class="rowClass">
+  <tr class="border-b border-line-soft align-top transition-colors" :class="rowClass">
     <!-- 부품: 공급사 배지 + 이미지 + 품번 (BomQuoteRow MPN 열과 동형) -->
     <td class="px-2 py-3">
       <div class="flex gap-2.5">
@@ -55,7 +55,7 @@ const convertedUnitPrice = computed(() => {
             :title="applied.supplierSku"
           >
             <img :src="SUPPLIER_META[applied.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] rounded-[2px]">
-            <span class="truncate text-[10px] font-semibold text-[#3b4252]">{{ SUPPLIER_META[applied.supplier]?.name ?? applied.supplier }}</span>
+            <span class="truncate text-[10px] font-semibold text-ink-soft">{{ SUPPLIER_META[applied.supplier]?.name ?? applied.supplier }}</span>
           </div>
           <PartImage
             :src="part.imageUrl"
@@ -63,15 +63,15 @@ const convertedUnitPrice = computed(() => {
           />
         </div>
         <div class="min-w-0 pt-[22px]">
-          <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]" :title="part.mpn">{{ part.mpn }}</p>
+          <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="part.mpn">{{ part.mpn }}</p>
           <span v-if="part.source === 'supplier'" class="mt-1 inline-flex rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">공급사 최신 후보</span>
-          <p v-if="part.packageCode" class="mt-0.5 text-[11px] font-medium text-[#5f6777]">{{ part.packageCode }}</p>
+          <p v-if="part.packageCode" class="mt-0.5 text-[11px] font-medium text-ink-muted">{{ part.packageCode }}</p>
         </div>
       </div>
     </td>
-    <td class="px-2 py-3 pt-[42px] text-[12px] leading-[16px] text-[#5f6777]">{{ part.manufacturerName }}</td>
+    <td class="px-2 py-3 pt-[42px] text-[12px] leading-[16px] text-ink-muted">{{ part.manufacturerName }}</td>
     <td class="max-w-[220px] px-2 py-3 pt-[42px]">
-      <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="part.description ?? ''">{{ part.description ?? '—' }}</p>
+      <p class="truncate text-[12px] leading-[16px] text-ink-subtle" :title="part.description ?? ''">{{ part.description ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: 공용 가격구간 셀 — 적용 구간(필요수량 기준)은 서버가 계산 -->
     <td class="px-2 py-2">
@@ -87,20 +87,20 @@ const convertedUnitPrice = computed(() => {
     </td>
     <!-- 포장 / 주문·재고 -->
     <td class="px-2 py-3 pt-[38px]">
-      <p class="truncate text-[13px] font-bold text-[#4c4c4c]">{{ applied?.packaging ?? (applied !== null ? applied.supplier : '오퍼 없음') }}</p>
-      <p v-if="applied !== null" class="mt-1 text-[12px] tabular-nums text-[#5f6777]">
-        주문 <b class="text-[#3b4252]">{{ applied.orderQty.toLocaleString('ko-KR') }}</b>
+      <p class="truncate text-[13px] font-bold text-ink-neutral">{{ applied?.packaging ?? (applied !== null ? applied.supplier : '오퍼 없음') }}</p>
+      <p v-if="applied !== null" class="mt-1 text-[12px] tabular-nums text-ink-muted">
+        주문 <b class="text-ink-soft">{{ applied.orderQty.toLocaleString('ko-KR') }}</b>
         / 재고 {{ applied.stock?.toLocaleString('ko-KR') ?? '—' }}
       </p>
-      <p v-if="applied !== null && applied.moq !== null" class="mt-0.5 text-[11px] text-[#8e97a5]">MOQ {{ applied.moq.toLocaleString('ko-KR') }}</p>
+      <p v-if="applied !== null && applied.moq !== null" class="mt-0.5 text-[11px] text-ink-subtle">MOQ {{ applied.moq.toLocaleString('ko-KR') }}</p>
     </td>
     <!-- TOTAL: 상태 배지 + 초록 합계 (필요수량 기준) -->
     <td class="px-2 py-3 text-right">
       <div class="flex flex-col items-end gap-1.5 pt-1">
         <span v-if="applied === null" class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700">가격 확인 필요</span>
         <span v-else-if="applied.stockShort" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">재고 부족</span>
-        <span v-else class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]">구매 가능</span>
-        <span class="text-[14px] font-bold tabular-nums" :class="lineTotal === null ? 'text-gray-300' : 'text-[#38b614]'">
+        <span v-else class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-state-matched">구매 가능</span>
+        <span class="text-[14px] font-bold tabular-nums" :class="lineTotal === null ? 'text-gray-300' : 'text-state-matched'">
           {{ lineTotal ?? '—' }}
         </span>
       </div>

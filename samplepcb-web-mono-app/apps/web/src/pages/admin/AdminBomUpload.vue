@@ -68,10 +68,10 @@ function onDrop(event: DragEvent): void {
 </script>
 
 <template>
-  <div class="flex h-full flex-col items-center overflow-y-auto bg-[#fdfdff] px-6 pb-[60px]">
+  <div class="flex h-full flex-col items-center overflow-y-auto bg-surface px-6 pb-[60px]">
     <div
       class="relative mt-[46px] h-[524px] w-[640px] max-w-full cursor-pointer overflow-hidden rounded-[8px] transition"
-      :class="dragOver ? 'ring-4 ring-[#0e6efd]/40' : ''"
+      :class="dragOver ? 'ring-4 ring-brand-strong/40' : ''"
       role="button"
       tabindex="0"
       @click="fileInput?.click()"
@@ -85,14 +85,14 @@ function onDrop(event: DragEvent): void {
       <button
         type="button"
         class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] transition hover:bg-white/25"
-        :class="create.isPending.value ? 'bg-[#fdfdff] shadow-sm' : ''"
+        :class="create.isPending.value ? 'bg-surface shadow-sm' : ''"
         :disabled="create.isPending.value"
         aria-label="Select file"
         @click.stop="fileInput?.click()"
       >
         <template v-if="create.isPending.value">
           <img :src="icUpload" alt="" class="size-[20px]">
-          <span class="text-[16px] font-bold leading-[24px] text-[#0e6efd]">Uploading…</span>
+          <span class="text-[16px] font-bold leading-[24px] text-brand-strong">Uploading…</span>
         </template>
       </button>
     </div>
@@ -100,8 +100,8 @@ function onDrop(event: DragEvent): void {
 
     <p v-if="error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{{ error }}</p>
 
-    <h2 class="mt-[50px] text-center text-[26px] font-bold leading-[32px] text-[#061023]">전자부품 2,000만+ 다양한 제조사</h2>
-    <p class="mt-[8px] text-center text-[18px] leading-[32px] text-[#616164]">공인 유통사의 견적 정보를 최적의 조건으로, 빠르게 받아 비교하세요</p>
+    <h2 class="mt-[50px] text-center text-[26px] font-bold leading-[32px] text-ink-strong">전자부품 2,000만+ 다양한 제조사</h2>
+    <p class="mt-[8px] text-center text-[18px] leading-[32px] text-ink-neutral">공인 유통사의 견적 정보를 최적의 조건으로, 빠르게 받아 비교하세요</p>
     <div class="mt-[22px] flex flex-wrap items-center justify-center gap-[12px]">
       <img
         v-for="logo in SUPPLIER_LOGOS"

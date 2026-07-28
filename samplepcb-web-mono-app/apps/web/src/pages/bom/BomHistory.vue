@@ -188,8 +188,8 @@ async function confirmDelete(): Promise<void> {
     <header class="flex flex-wrap items-start justify-between gap-4 px-1">
       <div>
         <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-600">BOM history</p>
-        <h1 class="mt-1 text-[22px] font-bold text-[#061023]">BOM 분석 내역</h1>
-        <p class="mt-1 text-[13px] text-[#687386]">업로드한 BOM과 견적 진행 상태를 확인하고 관리합니다.</p>
+        <h1 class="mt-1 text-[22px] font-bold text-ink-strong">BOM 분석 내역</h1>
+        <p class="mt-1 text-[13px] text-ink-muted">업로드한 BOM과 견적 진행 상태를 확인하고 관리합니다.</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -200,7 +200,7 @@ async function confirmDelete(): Promise<void> {
         >
           전체 삭제<span v-if="deletableCount > 0"> ({{ deletableCount }})</span>
         </button>
-        <button type="button" class="h-[38px] rounded-lg bg-[#1e64fd] px-4 text-[13px] font-semibold text-white hover:bg-blue-700" @click="router.push({ name: 'bom' })">
+        <button type="button" class="h-[38px] rounded-lg bg-brand-strong px-4 text-[13px] font-semibold text-white hover:bg-blue-700" @click="router.push({ name: 'bom' })">
           + 새 BOM 업로드
         </button>
       </div>
@@ -216,8 +216,8 @@ async function confirmDelete(): Promise<void> {
       <button type="button" class="ml-4 font-bold" aria-label="알림 닫기" @click="deleteResult = null">×</button>
     </div>
 
-    <section class="mt-4 flex min-h-0 flex-1 flex-col rounded-xl border border-[#e1e6ef] bg-white shadow-[0_4px_18px_rgba(19,33,68,0.05)]">
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8ebf0] px-4 py-3">
+    <section class="mt-4 flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-white shadow-[0_4px_18px_rgba(19,33,68,0.05)]">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div class="flex flex-1 flex-wrap items-center gap-2">
           <label class="relative min-w-[220px] max-w-[380px] flex-1">
             <span class="sr-only">파일명 또는 견적명 검색</span>
@@ -234,7 +234,7 @@ async function confirmDelete(): Promise<void> {
           </select>
         </div>
         <div class="flex items-center gap-3">
-          <span class="text-[12px] text-[#778194]">총 <b class="tabular-nums text-[#293346]">{{ total }}</b>건</span>
+          <span class="text-[12px] text-[#778194]">총 <b class="tabular-nums text-ink">{{ total }}</b>건</span>
           <button
             type="button"
             class="h-[34px] rounded-lg bg-rose-600 px-3 text-[12px] font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-35"
@@ -248,8 +248,8 @@ async function confirmDelete(): Promise<void> {
 
       <div class="min-h-0 flex-1 overflow-auto">
         <table class="w-full min-w-[900px] table-fixed">
-          <thead class="sticky top-0 z-10 bg-[#f8fafc] shadow-[0_1px_0_#e5e8ed]">
-            <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
+          <thead class="sticky top-0 z-10 bg-surface-sunken shadow-[0_1px_0_#e5e8ed]">
+            <tr class="text-left text-[11px] uppercase tracking-wide text-ink-subtle">
               <th class="w-[48px] px-3 py-3 text-center">
                 <input
                   type="checkbox"
@@ -283,7 +283,7 @@ async function confirmDelete(): Promise<void> {
                 <span v-else class="text-[11px] text-gray-300" title="진행 중이거나 완료된 견적은 보호됩니다">—</span>
               </td>
               <td class="px-3 py-3">
-                <RouterLink :to="{ name: 'bom-quote', params: { id: item.id } }" class="block truncate text-[13px] font-semibold text-[#172033] hover:text-blue-600" :title="displayName(item)">
+                <RouterLink :to="{ name: 'bom-quote', params: { id: item.id } }" class="block truncate text-[13px] font-semibold text-ink-strong hover:text-blue-600" :title="displayName(item)">
                   {{ displayName(item) }}
                 </RouterLink>
                 <p v-if="item.fileName !== null && item.title !== item.fileName" class="mt-0.5 truncate text-[11px] text-[#8a94a5]">{{ item.title }}</p>
@@ -291,11 +291,11 @@ async function confirmDelete(): Promise<void> {
               <td class="px-3 py-3">
                 <span class="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold" :class="statusClass(item.status)">{{ STATUS_LABEL[item.status] }}</span>
               </td>
-              <td class="px-3 py-3 text-[12px] text-[#5f697a]">
-                <p><b class="tabular-nums text-[#293346]">{{ item.itemCount }}</b>개 부품</p>
+              <td class="px-3 py-3 text-[12px] text-ink-muted">
+                <p><b class="tabular-nums text-ink">{{ item.itemCount }}</b>개 부품</p>
                 <p class="mt-0.5 text-[11px] text-[#8a94a5]">매칭 {{ item.matchedCount }}/{{ item.itemCount }}</p>
               </td>
-              <td class="px-3 py-3 text-right text-[13px] font-semibold tabular-nums text-[#293346]">{{ fmtWon(item.finalTotal) }}</td>
+              <td class="px-3 py-3 text-right text-[13px] font-semibold tabular-nums text-ink">{{ fmtWon(item.finalTotal) }}</td>
               <td class="px-3 py-3 text-[12px] tabular-nums text-[#697487]">{{ fmtDate(item.updatedAt) }}</td>
               <td class="px-3 py-3 text-right">
                 <button
@@ -312,7 +312,7 @@ async function confirmDelete(): Promise<void> {
             <tr v-if="items.length === 0 && !list.isLoading.value">
               <td colspan="7" class="px-4 py-16 text-center">
                 <p class="text-[14px] font-semibold text-[#6f798b]">조건에 맞는 BOM 내역이 없습니다.</p>
-                <p class="mt-1 text-[12px] text-[#9aa3b2]">검색어 또는 상태 필터를 변경해 보세요.</p>
+                <p class="mt-1 text-[12px] text-ink-faint">검색어 또는 상태 필터를 변경해 보세요.</p>
               </td>
             </tr>
             <tr v-if="list.isLoading.value">
@@ -322,7 +322,7 @@ async function confirmDelete(): Promise<void> {
         </table>
       </div>
 
-      <footer class="flex min-h-[54px] items-center justify-between gap-3 border-t border-[#e8ebf0] px-4 py-2">
+      <footer class="flex min-h-[54px] items-center justify-between gap-3 border-t border-line px-4 py-2">
         <p class="text-[11px] text-[#8a94a5]">작성 중 상태만 삭제할 수 있으며 요청·검토·답변 견적은 보호됩니다.</p>
         <nav v-if="pageCount > 1" class="flex items-center gap-1" aria-label="BOM 내역 페이지">
           <button type="button" class="grid size-8 place-items-center rounded-md border border-gray-200 text-[12px] text-gray-600 hover:bg-gray-50 disabled:opacity-35" :disabled="page <= 1" aria-label="이전 페이지" @click="page -= 1">‹</button>
@@ -348,7 +348,7 @@ async function confirmDelete(): Promise<void> {
           <div class="flex items-start justify-between gap-4">
             <div>
               <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-rose-500">Delete BOM</p>
-              <h2 id="delete-bom-title" class="mt-1 text-[18px] font-bold text-[#172033]">{{ deleteIntent.label }} 삭제</h2>
+              <h2 id="delete-bom-title" class="mt-1 text-[18px] font-bold text-ink-strong">{{ deleteIntent.label }} 삭제</h2>
             </div>
             <button type="button" class="grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100" aria-label="삭제 확인 닫기" :disabled="deleteQuotes.isPending.value" @click="deleteIntent = null">×</button>
           </div>

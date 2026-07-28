@@ -594,6 +594,42 @@ const resultFiltersActive = computed(() =>
   || resultNostockOnly.value
   || resultSearchLimitedOnly.value,
 );
+
+// 정렬 — 시안(87:12875)의 "가격순". 합계가 없는 행(오퍼 미선정·문의 견적)은 값으로 비교할 수
+// 없으니 방향과 무관하게 뒤로 보낸다. 원소 참조는 그대로라 행 격리(재렌더 스킵)가 유지된다.
+type ResultSort = 'default' | 'price-desc' | 'price-asc';
+const RESULT_SORT_LABEL: Record<ResultSort, string> = {
+  default: '기본순',
+  'price-desc': '가격 높은순',
+  'price-asc': '가격 낮은순',
+};
+const resultSort = ref<ResultSort>('default');
+
+const sortedItems = computed(() => {
+  if (resultSort.value === 'default') return filteredItems.value;
+  const dir = resultSort.value === 'price-desc' ? -1 : 1;
+  return [...filteredItems.value].sort((a, b) => {
+    if (a.lineTotalKrw === null && b.lineTotalKrw === null) return 0;
+    if (a.lineTotalKrw === null) return 1;
+    if (b.lineTotalKrw === null) return -1;
+    return (a.lineTotalKrw - b.lineTotalKrw) * dir;
+  });
+});
+
+// 전체 선택 — 각 행의 체크박스와 같은 뜻(견적 포함 여부)이다. 수량 미확인 행은 개별 토글에서도
+// 막혀 있으므로 대상에서 뺀다. 로컬 편집 후 markDirty 라 저장은 1초 디바운스로 한 번만 나간다.
+const includableItems = computed(() => sortedItems.value.filter((item) => item.quantityState !== 'missing'));
+const allIncluded = computed(() =>
+  includableItems.value.length > 0 && includableItems.value.every((item) => item.included),
+);
+const someIncluded = computed(() => includableItems.value.some((item) => item.included));
+
+function toggleIncludeAll(): void {
+  if (!isDraft.value || editingLocked.value || includableItems.value.length === 0) return;
+  const next = !allIncluded.value;
+  for (const item of includableItems.value) item.included = next;
+  markDirty();
+}
 const activeMatchFilterLabel = computed(() => (
   resultMatchFilter.value === 'all' ? null : RESULT_MATCH_FILTER_LABEL[resultMatchFilter.value]
 ));
@@ -615,17 +651,17 @@ const rowVirtualizer = useVirtualizer(computed(() => {
   // 읽으면 ref 가 null → 요소로 바뀌어도 옵션이 갱신되지 않아 스크롤에 반응하지 않는다.
   const scrollElement = resultsScrollEl.value;
   return {
-    count: filteredItems.value.length,
+    count: sortedItems.value.length,
     getScrollElement: () => scrollElement,
     estimateSize: () => ROW_ESTIMATED_HEIGHT,
     overscan: 6,
-    getItemKey: (index: number) => filteredItems.value[index]?.id ?? index,
+    getItemKey: (index: number) => sortedItems.value[index]?.id ?? index,
   };
 }));
 
 // 가상 행과 실제 항목을 짝지어 둔다 — 목록이 줄어드는 순간의 인덱스 불일치를 여기서 흡수한다.
 const virtualRowItems = computed(() => rowVirtualizer.value.getVirtualItems().flatMap((row) => {
-  const item = filteredItems.value[row.index];
+  const item = sortedItems.value[row.index];
   return item === undefined ? [] : [{ row, item }];
 }));
 
@@ -1531,10 +1567,10 @@ function fmtAmount(v: number | null): string {
           <div>
             <div class="flex flex-wrap items-center gap-2">
               <button type="button" class="text-sm text-gray-400 hover:text-gray-700" title="목록으로" @click="router.push({ name: 'bom' })">←</button>
-              <h1 class="text-[19px] font-bold text-[#061023]">{{ detail.fileName ?? detail.title }}</h1>
+              <h1 class="text-[19px] font-bold text-ink-strong">{{ detail.fileName ?? detail.title }}</h1>
               <button
                 type="button"
-                class="flex h-8 w-[82px] shrink-0 items-center justify-center gap-1 rounded-md border border-[#4798ff] bg-white text-[14px] font-bold leading-6 text-[#4798ff] hover:bg-[#f4f8ff]"
+                class="flex h-8 w-[82px] shrink-0 items-center justify-center gap-1 rounded-md border border-brand-soft bg-white text-[14px] font-bold leading-6 text-brand-soft hover:bg-surface-brand-soft"
                 title="새 BOM 업로드"
                 @click="router.push({ name: 'bom' })"
               >
@@ -1542,7 +1578,7 @@ function fmtAmount(v: number | null): string {
               </button>
               <button
                 type="button"
-                class="flex h-8 w-[95px] shrink-0 items-center justify-center gap-1 rounded-md border border-[#4798ff] bg-white text-[14px] font-bold leading-6 text-[#4798ff] hover:bg-[#f4f8ff] disabled:cursor-wait disabled:opacity-60"
+                class="flex h-8 w-[95px] shrink-0 items-center justify-center gap-1 rounded-md border border-brand-soft bg-white text-[14px] font-bold leading-6 text-brand-soft hover:bg-surface-brand-soft disabled:cursor-wait disabled:opacity-60"
                 :disabled="downloadPending"
                 :title="downloadPending ? '원본 BOM 다운로드 중' : '원본 BOM 다운로드'"
                 @click="downloadOriginal"
@@ -1553,7 +1589,7 @@ function fmtAmount(v: number | null): string {
               <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">가격·재고 확인 완료 — 최신 결과로 갱신되었습니다</span>
             </div>
             <p v-if="downloadError !== ''" class="mt-1 pl-6 text-xs text-red-600">{{ downloadError }}</p>
-            <div class="mt-1 flex flex-wrap items-center gap-1.5 pl-6 text-[13px] text-[#5f6777]">
+            <div class="mt-1 flex flex-wrap items-center gap-1.5 pl-6 text-[13px] text-ink-muted">
               <span>{{ quoteStats.total }}개 부품</span>
               <span v-if="showResultSheetTabs" class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{{ selectedResultSheets.length }}개 시트</span>
               <template v-else>
@@ -1570,7 +1606,7 @@ function fmtAmount(v: number | null): string {
             <button
               v-if="isDraft && manageableResultSheets.length > 1"
               type="button"
-              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-[13px] font-semibold text-[#374151] hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
+              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-[13px] font-semibold text-ink-soft hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
               :disabled="editingLocked || patch.isPending.value"
               :title="editingLocked ? EDIT_LOCK_TITLE : '견적에 포함할 시트 관리'"
               @click="openSheetManager"
@@ -1580,7 +1616,7 @@ function fmtAmount(v: number | null): string {
             </button>
             <button
               type="button"
-              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 text-[14px] font-semibold text-[#374151] hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 text-[14px] font-semibold text-ink-soft hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
               title="Excel 원본과 공급사 검색 결과 비교"
               @click="compareOpen = true"
             >
@@ -1601,7 +1637,7 @@ function fmtAmount(v: number | null): string {
             <button
               v-if="isDraft"
               type="button"
-              class="flex h-[38px] items-center gap-1 rounded-lg bg-[#1e64fd] px-4 text-[14px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 disabled:hover:bg-blue-300"
+              class="flex h-[38px] items-center gap-1 rounded-lg bg-brand-strong px-4 text-[14px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 disabled:hover:bg-blue-300"
               :disabled="editingLocked"
               :title="editingLocked ? EDIT_LOCK_TITLE : '부품 추가'"
               @click="openPartModal('add', null, '')"
@@ -1685,7 +1721,7 @@ function fmtAmount(v: number | null): string {
         </div>
 
         <!-- 여러 시트 결과를 원본 단위로 탐색하되 견적 합계·선택 상태는 하나로 유지한다 -->
-        <div v-if="showResultSheetTabs" class="mt-3 overflow-x-auto border-b border-[#e1e6ef] [scrollbar-width:thin]" role="tablist" aria-label="BOM 결과 시트">
+        <div v-if="showResultSheetTabs" class="mt-3 overflow-x-auto border-b border-line [scrollbar-width:thin]" role="tablist" aria-label="BOM 결과 시트">
           <div class="flex min-w-max items-end gap-1 px-1">
             <button
               v-for="tab in resultSheetTabs"
@@ -1693,7 +1729,7 @@ function fmtAmount(v: number | null): string {
               type="button"
               role="tab"
               class="relative flex h-[34px] max-w-[240px] items-center gap-1.5 rounded-t-md px-3 text-[12px] font-semibold transition after:absolute after:inset-x-2 after:bottom-0 after:h-[2px] after:rounded-full"
-              :class="activeResultSheet === tab.key ? 'bg-blue-50/70 text-[#1e64fd] after:bg-[#1e64fd]' : 'text-[#687386] after:bg-transparent hover:bg-gray-50 hover:text-[#334155]'"
+              :class="activeResultSheet === tab.key ? 'bg-blue-50/70 text-brand-strong after:bg-brand-strong' : 'text-ink-muted after:bg-transparent hover:bg-gray-50 hover:text-[#334155]'"
               :aria-selected="activeResultSheet === tab.key"
               aria-controls="bom-results-table"
               @click="selectResultSheet(tab.key)"
@@ -1707,28 +1743,42 @@ function fmtAmount(v: number | null): string {
         <!-- 매칭 결과 헤더 -->
         <div :class="showResultSheetTabs ? 'mt-2' : 'mt-4'" class="flex min-h-[26px] flex-wrap items-center justify-between gap-2 px-1">
           <div class="flex flex-wrap items-center gap-2">
-            <p class="text-[15px] font-bold text-[#061023]">매칭 결과</p>
+            <p class="text-[15px] font-bold text-ink-strong">매칭 결과</p>
             <template v-if="resultFiltersActive">
-              <span class="text-[12px] font-medium text-[#5f6777]">{{ stats.total }}개 중 {{ filteredItems.length }}개 표시</span>
+              <span class="text-[12px] font-medium text-ink-muted">{{ stats.total }}개 중 {{ filteredItems.length }}개 표시</span>
               <span v-if="activeMatchFilterLabel !== null" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{{ activeMatchFilterLabel }}</span>
               <span v-if="resultNostockOnly" class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">재고 부족</span>
               <span v-if="resultSearchLimitedOnly" class="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-800">검색 한도 영향</span>
-              <button type="button" class="text-[11px] font-semibold text-[#2477f4] underline-offset-2 hover:underline" @click="clearResultFilters">필터 해제</button>
+              <button type="button" class="text-[11px] font-semibold text-brand underline-offset-2 hover:underline" @click="clearResultFilters">필터 해제</button>
             </template>
           </div>
-          <!-- 선택 삭제 — 미구현(디자인만) -->
-          <button type="button" class="h-[26px] cursor-default rounded border border-gray-300 bg-white px-2.5 text-[12px] text-gray-500 opacity-70" title="선택 삭제 (준비 중)">선택 삭제</button>
+          <div class="flex items-center gap-2">
+            <!-- 정렬 — 시안 87:12875 의 "가격순" -->
+            <label class="sr-only" for="bom-result-sort">결과 정렬</label>
+            <select
+              id="bom-result-sort"
+              v-model="resultSort"
+              class="h-[26px] rounded border border-line bg-white px-2 text-[12px] text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              title="매칭 결과 정렬"
+              @change="scrollResultsToTop"
+            >
+              <option v-for="(label, value) in RESULT_SORT_LABEL" :key="value" :value="value">{{ label }}</option>
+            </select>
+            <!-- 선택 삭제 — 미구현(디자인만) -->
+            <button type="button" class="h-[26px] cursor-default rounded border border-gray-300 bg-white px-2.5 text-[12px] text-gray-500 opacity-70" title="선택 삭제 (준비 중)">선택 삭제</button>
+          </div>
         </div>
 
         <!-- 테이블 (list01 스타일) — 이 영역만 내부 스크롤, 헤더는 sticky -->
         <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white [contain:layout_paint]">
           <!-- table-fixed — auto 레이아웃은 폭이 바뀔 때마다 모든 행의 셀 내용을 다시 측정해서
                행이 많아지면 리사이즈가 눈에 띄게 버벅인다. 열 폭은 아래 colgroup 이 단일 소스이고,
-               값은 각 td 의 좌우 padding 까지 포함한 실제 필요 폭이다(합 884 + Description 140 = 1024). -->
-          <table id="bom-results-table" class="min-w-[1024px] w-full table-fixed" :aria-busy="editingLocked">
+               값은 각 td 의 좌우 padding 까지 포함한 실제 필요 폭이다(합 964 + Description 140 = 1104). -->
+          <table id="bom-results-table" class="min-w-[1104px] w-full table-fixed" :aria-busy="editingLocked">
             <colgroup>
               <col class="w-[56px]">
-              <col class="w-[296px]">
+              <col class="w-[236px]"><!-- MPN — 제조사를 독립 열로 뺀 만큼 296→236 -->
+              <col class="w-[140px]"><!-- MANUFACTURER -->
               <col><!-- Description — 남는 폭을 가져간다(최소 140px) -->
               <col class="w-[130px]">
               <col class="w-[176px]">
@@ -1736,9 +1786,23 @@ function fmtAmount(v: number | null): string {
               <col class="w-[86px]">
             </colgroup>
             <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
-              <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
-                <th class="px-1 py-2.5"><span class="sr-only">포함 및 원본 행</span></th>
+              <tr class="text-left text-[11px] uppercase tracking-wide text-ink-subtle">
+                <th class="px-1 py-2.5">
+                  <div class="flex justify-center">
+                    <input
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
+                      :checked="allIncluded"
+                      :indeterminate.prop="someIncluded && !allIncluded"
+                      :disabled="!isDraft || editingLocked || includableItems.length === 0"
+                      :title="editingLocked ? EDIT_LOCK_TITLE : allIncluded ? '표시된 행 전체를 견적에서 제외' : '표시된 행 전체를 견적에 포함'"
+                      @change="toggleIncludeAll"
+                    >
+                    <span class="sr-only">표시된 행 전체 포함 및 원본 행</span>
+                  </div>
+                </th>
                 <th class="px-2 py-2.5">MPN / 원본 값</th>
+                <th class="px-2 py-2.5">Manufacturer</th>
                 <th class="px-2 py-2.5">Description</th>
                 <th class="px-2 py-2.5 text-right">Unit Price</th>
                 <th class="px-2 py-2.5">Quantity / Stock</th>
@@ -1748,7 +1812,7 @@ function fmtAmount(v: number | null): string {
             </thead>
             <tbody>
               <tr v-if="virtualPaddingTop > 0" aria-hidden="true">
-                <td colspan="7" :style="{ height: `${String(virtualPaddingTop)}px` }" />
+                <td colspan="8" :style="{ height: `${String(virtualPaddingTop)}px` }" />
               </tr>
               <BomQuoteRow
                 v-for="entry in virtualRowItems"
@@ -1768,10 +1832,10 @@ function fmtAmount(v: number | null): string {
                 @open-search="openCatalogSearchDrawer(entry.item)"
               />
               <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
-                <td colspan="7" :style="{ height: `${String(virtualPaddingBottom)}px` }" />
+                <td colspan="8" :style="{ height: `${String(virtualPaddingBottom)}px` }" />
               </tr>
               <tr v-if="filteredItems.length === 0">
-                <td colspan="7" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
+                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
               </tr>
             </tbody>
           </table>
@@ -1780,7 +1844,7 @@ function fmtAmount(v: number | null): string {
 
       <!-- 우: Figma right side bar(93:23505)의 치수·위계를 라이트 테마로 번역 -->
       <aside v-show="rightOpen" class="w-full shrink-0 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#cbd3df] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] bomwide:min-h-0 bomwide:w-[286px] bomwide:overflow-y-auto bomwide:pb-1">
-        <div class="flex min-h-full flex-col rounded-xl border border-[#e1e6ef] bg-white p-[15px] shadow-[0_4px_18px_rgba(19,33,68,0.06)]">
+        <div class="flex min-h-full flex-col rounded-xl border border-line bg-white p-[15px] shadow-[0_4px_18px_rgba(19,33,68,0.06)]">
           <!-- 회신(answered) -->
           <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="mb-[18px] rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12px]">
             <p class="font-bold text-emerald-800">담당자 회신</p>
@@ -1793,7 +1857,7 @@ function fmtAmount(v: number | null): string {
 
           <!-- AI 분석결과 (93:23545) -->
           <section>
-            <h2 class="flex h-[22px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-[#151b28]">
+            <h2 class="flex h-[22px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-ink-strong">
               <img :src="icPanelAi" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               AI 분석결과
               <span v-if="showResultSheetTabs" class="ml-auto max-w-[120px] truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-600" :title="activeResultSheetLabel">{{ activeResultSheetLabel }}</span>
@@ -1801,23 +1865,23 @@ function fmtAmount(v: number | null): string {
             <div class="mt-[10px] grid grid-cols-2 gap-[8px]">
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-[#dce7f8] bg-[#f8faff] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#2f7eff] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2477f4] focus-visible:ring-offset-1"
-                :class="!resultFiltersActive ? 'ring-2 ring-[#2477f4] ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
+                class="relative flex h-[56px] min-w-0 w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-line-brand bg-surface-sunken px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-brand after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
+                :class="!resultFiltersActive ? 'ring-2 ring-brand ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
                 :aria-pressed="!resultFiltersActive"
                 :aria-label="`전체 ${String(stats.total)}개 행 보기`"
                 aria-controls="bom-results-table"
                 @click="clearResultFilters"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-[#5f697a]">Total Lines</span>
-                  <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums text-[#2477f4]">{{ stats.total }}</span>
+                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Total Lines</span>
+                  <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums text-brand">{{ stats.total }}</span>
                 </div>
-                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-[#e7f0ff] text-[17px] leading-none text-[#2477f4]">≋</span>
+                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-surface-brand text-[17px] leading-none text-brand">≋</span>
               </button>
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-[#d7eee6] bg-[#f6fcf9] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#08b77f] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#08ad79] focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultMatchFilter === 'matched' ? 'ring-2 ring-[#08ad79] ring-offset-1 shadow-sm' : stats.matched > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
+                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-[#d7eee6] bg-[#f6fcf9] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#08b77f] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-supply focus-visible:ring-offset-1 disabled:cursor-default"
+                :class="resultMatchFilter === 'matched' ? 'ring-2 ring-state-supply ring-offset-1 shadow-sm' : stats.matched > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
                 :disabled="stats.matched === 0"
                 :aria-pressed="resultMatchFilter === 'matched'"
                 :aria-label="`매칭 완료 ${String(stats.matched)}개 행 필터`"
@@ -1826,10 +1890,10 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultMatchFilter('matched')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-[#5f697a]">Matched</span>
-                  <span class="mt-[1px] whitespace-nowrap text-[17px] font-extrabold leading-[20px] tabular-nums text-[#08ad79]">{{ stats.matched }} <span class="text-[11px] font-semibold">{{ stats.matchedPct }}%</span></span>
+                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Matched</span>
+                  <span class="mt-[1px] whitespace-nowrap text-[17px] font-extrabold leading-[20px] tabular-nums text-state-supply">{{ stats.matched }} <span class="text-[11px] font-semibold">{{ stats.matchedPct }}%</span></span>
                 </div>
-                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-[#e4f7ef] text-[17px] font-semibold leading-none text-[#08ad79]">✓</span>
+                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-[#e4f7ef] text-[17px] font-semibold leading-none text-state-supply">✓</span>
               </button>
               <button
                 type="button"
@@ -1843,7 +1907,7 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultMatchFilter('review')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-[#5f697a]">Review</span>
+                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Review</span>
                   <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums text-orange-500">{{ stats.review }}</span>
                 </div>
                 <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-orange-100 text-[15px] font-bold text-orange-500">!</span>
@@ -1853,8 +1917,8 @@ function fmtAmount(v: number | null): string {
                 type="button"
                 class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="[
-                  enriching ? 'cursor-wait border border-[#dce7f8] bg-[#f8faff] after:from-[#2f7eff]' : 'border border-[#f2dce3] bg-[#fff7f9] after:from-[#f23a6b] focus-visible:ring-[#e73362]',
-                  !enriching && resultMatchFilter === 'unmatched' ? 'ring-2 ring-[#e73362] ring-offset-1 shadow-sm' : !enriching && stats.unmatched > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : !enriching ? 'opacity-45' : '',
+                  enriching ? 'cursor-wait border border-line-brand bg-surface-sunken after:from-brand' : 'border border-[#f2dce3] bg-[#fff7f9] after:from-[#f23a6b] focus-visible:ring-state-danger',
+                  !enriching && resultMatchFilter === 'unmatched' ? 'ring-2 ring-state-danger ring-offset-1 shadow-sm' : !enriching && stats.unmatched > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : !enriching ? 'opacity-45' : '',
                 ]"
                 :disabled="enriching || stats.unmatched === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'unmatched'"
@@ -1864,15 +1928,15 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultMatchFilter('unmatched')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-[#5f697a]">{{ enriching ? 'Checking' : 'Unmatched' }}</span>
-                  <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums" :class="enriching ? 'text-[#2477f4]' : 'text-[#e73362]'">{{ enriching ? stats.unresolved : stats.unmatched }}</span>
+                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">{{ enriching ? 'Checking' : 'Unmatched' }}</span>
+                  <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums" :class="enriching ? 'text-brand' : 'text-state-danger'">{{ enriching ? stats.unresolved : stats.unmatched }}</span>
                 </div>
-                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] text-[17px] leading-none" :class="enriching ? 'bg-[#e7f0ff] text-[#2477f4]' : 'bg-[#fbe6ec] text-[#e73362]'">{{ enriching ? '…' : '×' }}</span>
+                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] text-[17px] leading-none" :class="enriching ? 'bg-surface-brand text-brand' : 'bg-[#fbe6ec] text-state-danger'">{{ enriching ? '…' : '×' }}</span>
               </button>
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-[#f1e8b9] bg-[#fffdf3] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#e2c100] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c8aa00] focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultNostockOnly ? 'ring-2 ring-[#c8aa00] ring-offset-1 shadow-sm' : stats.nostock > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
+                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-[#f1e8b9] bg-[#fffdf3] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#e2c100] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-nostock focus-visible:ring-offset-1 disabled:cursor-default"
+                :class="resultNostockOnly ? 'ring-2 ring-state-nostock ring-offset-1 shadow-sm' : stats.nostock > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
                 :disabled="stats.nostock === 0"
                 :aria-pressed="resultNostockOnly"
                 :aria-label="`재고 부족 ${String(stats.nostock)}개 행 필터`"
@@ -1881,8 +1945,8 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultNostockFilter"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-[#5f697a]">Nostock</span>
-                  <span class="mt-[1px] whitespace-nowrap text-[17px] font-extrabold leading-[20px] tabular-nums text-[#c8aa00]">{{ stats.nostock }} <span class="text-[11px] font-semibold">{{ stats.nostockPct }}%</span></span>
+                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Nostock</span>
+                  <span class="mt-[1px] whitespace-nowrap text-[17px] font-extrabold leading-[20px] tabular-nums text-state-nostock">{{ stats.nostock }} <span class="text-[11px] font-semibold">{{ stats.nostockPct }}%</span></span>
                 </div>
                 <img :src="icPanelNostock" alt="" class="size-[24px] shrink-0">
               </button>
@@ -1898,7 +1962,7 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultMatchFilter('excluded')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-[#5f697a]">Excluded</span>
+                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Excluded</span>
                   <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums text-slate-500">{{ stats.excluded }}</span>
                 </div>
                 <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-slate-200 text-[16px] font-bold leading-none text-slate-500">−</span>
@@ -1906,67 +1970,67 @@ function fmtAmount(v: number | null): string {
             </div>
           </section>
 
-          <div class="my-[18px] h-px shrink-0 bg-[#e8ebf0]" />
+          <div class="my-[18px] h-px shrink-0 bg-line" />
 
           <!-- 주문 정보 (93:23562) -->
           <section title="주문수량은 BOM 수량과 세트·예비 수량을 반영한 뒤 MOQ와 주문배수에 맞춰 계산됩니다.">
-            <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-[#151b28]">
+            <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-ink-strong">
               <img :src="icPanelOrder" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               주문 정보
             </h2>
-            <div class="mt-[10px] space-y-[11px] rounded-[8px] border border-[#e1e6ef] bg-[#f8fafc] px-[11px] py-[11px]">
+            <div class="mt-[10px] space-y-[11px] rounded-[8px] border border-line bg-surface-sunken px-[11px] py-[11px]">
               <div class="flex items-center justify-between">
-                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-[#5f6777]">세트 수량</span>
+                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">세트 수량</span>
                 <div class="flex items-center gap-[7px]">
-                  <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-[#cfd7e4] bg-white shadow-[inset_0_1px_1px_rgba(20,35,65,0.03)] focus-within:border-[#4d8df7] focus-within:ring-2 focus-within:ring-[#4d8df7]/15">
-                    <button type="button" class="w-[27px] shrink-0 border-r border-[#e1e6ef] bg-[#f3f6fa] text-[14px] text-[#9aa5b5] transition hover:bg-[#eaf1fb] hover:text-[#315f9f] disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 줄이기" @click="stepSet(-1)">−</button>
-                    <input v-model.number="setQty" type="number" min="1" class="min-w-0 flex-1 appearance-none bg-white text-center text-[14px] font-semibold tabular-nums text-[#172033] outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:bg-[#f8fafc] disabled:text-[#9aa5b5] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량" @change="restampAll">
-                    <button type="button" class="w-[27px] shrink-0 border-l border-[#e1e6ef] bg-[#f3f6fa] text-[14px] text-[#9aa5b5] transition hover:bg-[#eaf1fb] hover:text-[#315f9f] disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 늘리기" @click="stepSet(1)">+</button>
+                  <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-line bg-white shadow-[inset_0_1px_1px_rgba(20,35,65,0.03)] focus-within:border-brand-soft focus-within:ring-2 focus-within:ring-brand-soft/15">
+                    <button type="button" class="w-[27px] shrink-0 border-r border-line bg-surface-raised text-[14px] text-ink-faint transition hover:bg-surface-brand hover:text-brand-deep disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 줄이기" @click="stepSet(-1)">−</button>
+                    <input v-model.number="setQty" type="number" min="1" class="min-w-0 flex-1 appearance-none bg-white text-center text-[14px] font-semibold tabular-nums text-ink-strong outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-faint [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량" @change="restampAll">
+                    <button type="button" class="w-[27px] shrink-0 border-l border-line bg-surface-raised text-[14px] text-ink-faint transition hover:bg-surface-brand hover:text-brand-deep disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 늘리기" @click="stepSet(1)">+</button>
                   </div>
-                  <span class="w-[18px] text-[10px] font-semibold text-[#9aa3b2]">Set</span>
+                  <span class="w-[18px] text-[10px] font-semibold text-ink-faint">Set</span>
                 </div>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-[#5f6777]">예비 수량</span>
+                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">예비 수량</span>
                 <div class="flex items-center gap-[7px]">
-                  <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-[#cfd7e4] bg-white shadow-[inset_0_1px_1px_rgba(20,35,65,0.03)] focus-within:border-[#4d8df7] focus-within:ring-2 focus-within:ring-[#4d8df7]/15">
-                    <button type="button" class="w-[27px] shrink-0 border-r border-[#e1e6ef] bg-[#f3f6fa] text-[14px] text-[#9aa5b5] transition hover:bg-[#eaf1fb] hover:text-[#315f9f] disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 줄이기" @click="stepSpare(-1)">−</button>
-                    <input v-model.number="spareQty" type="number" min="0" class="min-w-0 flex-1 appearance-none bg-white text-center text-[14px] font-semibold tabular-nums text-[#172033] outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:bg-[#f8fafc] disabled:text-[#9aa5b5] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량" @change="restampAll">
-                    <button type="button" class="w-[27px] shrink-0 border-l border-[#e1e6ef] bg-[#f3f6fa] text-[14px] text-[#9aa5b5] transition hover:bg-[#eaf1fb] hover:text-[#315f9f] disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 늘리기" @click="stepSpare(1)">+</button>
+                  <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-line bg-white shadow-[inset_0_1px_1px_rgba(20,35,65,0.03)] focus-within:border-brand-soft focus-within:ring-2 focus-within:ring-brand-soft/15">
+                    <button type="button" class="w-[27px] shrink-0 border-r border-line bg-surface-raised text-[14px] text-ink-faint transition hover:bg-surface-brand hover:text-brand-deep disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 줄이기" @click="stepSpare(-1)">−</button>
+                    <input v-model.number="spareQty" type="number" min="0" class="min-w-0 flex-1 appearance-none bg-white text-center text-[14px] font-semibold tabular-nums text-ink-strong outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-faint [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량" @change="restampAll">
+                    <button type="button" class="w-[27px] shrink-0 border-l border-line bg-surface-raised text-[14px] text-ink-faint transition hover:bg-surface-brand hover:text-brand-deep disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 늘리기" @click="stepSpare(1)">+</button>
                   </div>
-                  <span class="w-[18px] text-[10px] font-semibold text-[#9aa3b2]">Set</span>
+                  <span class="w-[18px] text-[10px] font-semibold text-ink-faint">Set</span>
                 </div>
               </div>
               <div class="flex h-[19px] items-center justify-between pt-px">
-                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-[#5f6777]">예상 납기</span>
+                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">예상 납기</span>
                 <span class="flex items-center gap-[6px] text-[11px] font-semibold text-[#169ab6]"><span class="size-[6px] rounded-full bg-[#20aeca]" />확정 시 안내</span>
               </div>
             </div>
           </section>
 
-          <div class="my-[18px] h-px shrink-0 bg-[#e8ebf0]" />
+          <div class="my-[18px] h-px shrink-0 bg-line" />
 
           <!-- 예상 견적 (93:23573) -->
           <section :aria-busy="pricingPending">
-            <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-[#151b28]">
+            <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-ink-strong">
               <img :src="icPanelQuote" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               예상 견적
               <span v-if="showResultSheetTabs" class="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">전체 견적</span>
             </h2>
-            <div v-if="pricingPending" class="mt-[10px] rounded-[8px] border border-[#d9e6fb] bg-[#f4f8ff] px-3 py-4 text-center" aria-live="polite">
-              <span class="mx-auto block size-[7px] animate-pulse rounded-full bg-[#4d8df7]" />
-              <p class="mt-2 text-[12px] font-semibold text-[#315f9f]">공급사 가격을 확인하고 있습니다</p>
+            <div v-if="pricingPending" class="mt-[10px] rounded-[8px] border border-[#d9e6fb] bg-surface-brand-soft px-3 py-4 text-center" aria-live="polite">
+              <span class="mx-auto block size-[7px] animate-pulse rounded-full bg-brand-soft" />
+              <p class="mt-2 text-[12px] font-semibold text-brand-deep">공급사 가격을 확인하고 있습니다</p>
               <p class="mt-1 text-[10px] leading-[15px] text-[#7c94b7]">모든 결과가 반영되면 합계를 표시합니다.</p>
             </div>
             <div v-else class="mt-[10px]">
-              <div class="space-y-[8px] rounded-[8px] border border-[#e1e6ef] bg-[#f8fafc] px-[11px] py-[11px] text-[12px]">
-                <div class="flex items-baseline justify-between"><span class="text-[#5f6777]">합계</span><span class="font-bold tabular-nums text-[#293346]">{{ fmtAmount(itemsTotal) }} <small class="text-[9px] font-normal text-[#9aa3b2]">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="text-[#5f6777]">운송료</span><span class="font-bold tabular-nums text-[#293346]">{{ fmtAmount(detail.shippingFee) }} <small class="text-[9px] font-normal text-[#9aa3b2]">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="text-[#5f6777]">관리비</span><span class="font-bold tabular-nums text-[#293346]">{{ fmtAmount(detail.managementFee) }} <small class="text-[9px] font-normal text-[#9aa3b2]">원</small></span></div>
+              <div class="space-y-[8px] rounded-[8px] border border-line bg-surface-sunken px-[11px] py-[11px] text-[12px]">
+                <div class="flex items-baseline justify-between"><span class="text-ink-muted">합계</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(itemsTotal) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="text-ink-muted">운송료</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(detail.shippingFee) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="text-ink-muted">관리비</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(detail.managementFee) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
               </div>
               <div class="relative mt-[11px] h-[70px] rounded-[8px] border border-[#d6e3fb] bg-[#f4f7ff] px-[11px] py-[11px]">
                 <span class="text-[12px] font-medium text-[#263248]">최종합계 <span class="text-[10px] font-normal text-[#8a95a6]">(VAT 별도)</span></span>
-                <span class="absolute bottom-[11px] right-[11px] text-[20px] font-bold leading-[22px] tabular-nums text-[#287cff]">{{ fmtAmount(finalTotal) }}<small class="ml-[3px] text-[11px] font-semibold">원</small></span>
+                <span class="absolute bottom-[11px] right-[11px] text-[20px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtAmount(finalTotal) }}<small class="ml-[3px] text-[11px] font-semibold">원</small></span>
               </div>
               <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[15px] text-[#8993a2]">
                 <li>AI로 산출한 가견적입니다.</li>
@@ -1980,7 +2044,7 @@ function fmtAmount(v: number | null): string {
             <button
               v-if="isDraft"
               type="button"
-              class="flex h-[40px] w-full items-center justify-center gap-[8px] rounded-[7px] bg-[#287cff] text-[14px] font-bold text-white shadow-[0_6px_14px_rgba(40,124,255,0.24)] transition hover:bg-[#176ff5] disabled:cursor-not-allowed disabled:opacity-45"
+              class="flex h-[40px] w-full items-center justify-center gap-[8px] rounded-[7px] bg-brand text-[14px] font-bold text-white shadow-[0_6px_14px_rgba(40,124,255,0.24)] transition hover:bg-[#176ff5] disabled:cursor-not-allowed disabled:opacity-45"
               :disabled="request.isPending.value || quoteStats.included === 0 || editingLocked"
               :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
               @click="openRequestModal"
@@ -1993,7 +2057,7 @@ function fmtAmount(v: number | null): string {
               <button
                 v-if="!deleteArm"
                 type="button"
-                class="w-full rounded-[7px] border border-[#dbe1ea] bg-white px-4 py-2 text-[12px] text-[#7a8493] transition hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                class="w-full rounded-[7px] border border-line bg-white px-4 py-2 text-[12px] text-ink-subtle transition hover:border-red-300 hover:bg-red-50 hover:text-red-600"
                 :disabled="del.isPending.value"
                 @click="armDelete"
               >
@@ -2011,7 +2075,7 @@ function fmtAmount(v: number | null): string {
             <button
               v-else-if="detail.status === 'requested'"
               type="button"
-              class="w-full rounded-[7px] border border-[#dbe1ea] bg-white px-4 py-2 text-[12px] text-[#7a8493] transition hover:bg-gray-50 hover:text-[#273248]"
+              class="w-full rounded-[7px] border border-line bg-white px-4 py-2 text-[12px] text-ink-subtle transition hover:bg-gray-50 hover:text-[#273248]"
               @click="onCancel"
             >
               요청 취소

@@ -214,12 +214,12 @@ const rowClass = computed(() => {
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
     if (props.enriching) return 'bg-white';
-    if (engineStockStatusLabel.value !== null) return 'bg-[#fdf8e7]';
+    if (engineStockStatusLabel.value !== null) return 'bg-surface-warn';
     return item.recommendedCandidateKey !== null || item.matchEvidence?.selectionMode === 'review'
       ? 'bg-amber-50/60'
       : 'bg-[#fdf2f2]';
   }
-  if (stockShort.value) return 'bg-[#fdf8e7]'; // 재고 부족 — 시안 노랑
+  if (stockShort.value) return 'bg-surface-warn'; // 재고 부족 — 시안 노랑
   return 'bg-white';
 });
 
@@ -302,9 +302,9 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       label: item.matchStatus === 'none' ? 'Review' : 'Matched',
       helperLabel: '수량 확인 필요',
       toneClass: item.matchStatus === 'none'
-        ? 'border border-[#dedede] bg-white text-[#ff6900]'
-        : 'border border-[#dedede] bg-white text-[#38b614]',
-      priceClass: item.matchStatus === 'none' ? 'text-[#ff6900]' : 'text-[#38b614]',
+        ? 'border border-line-neutral bg-white text-state-review'
+        : 'border border-line-neutral bg-white text-state-matched',
+      priceClass: item.matchStatus === 'none' ? 'text-state-review' : 'text-state-matched',
       title: reasonSummary.value,
       pulse: false,
     };
@@ -313,8 +313,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Review',
       helperLabel: '수량 검토',
-      toneClass: 'border border-[#dedede] bg-white text-[#ff6900]',
-      priceClass: 'text-[#ff6900]',
+      toneClass: 'border border-line-neutral bg-white text-state-review',
+      priceClass: 'text-state-review',
       title: severeOrderSurplusLabel.value,
       pulse: false,
     };
@@ -345,9 +345,9 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       label: selected ? 'Matched' : 'Review',
       helperLabel: selected ? '재고·가격 문의' : '취급 가능',
       toneClass: selected
-        ? 'border border-[#dedede] bg-white text-[#38b614]'
-        : 'border border-[#dedede] bg-white text-[#ff6900]',
-      priceClass: selected ? 'text-[#38b614]' : 'text-[#ff6900]',
+        ? 'border border-line-neutral bg-white text-state-matched'
+        : 'border border-line-neutral bg-white text-state-review',
+      priceClass: selected ? 'text-state-matched' : 'text-state-review',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -361,9 +361,9 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
         ? '재고 확인 필요'
         : insufficientStock ? '재고 부족' : null,
       toneClass: stockUnverified
-        ? 'bg-[#ff5873]/15 text-[#ff5873]'
-        : 'bg-[#d5c724]/15 text-[#d2c000]',
-      priceClass: stockUnverified ? 'text-[#ff5873]' : 'text-[#d2c000]',
+        ? 'bg-state-unmatched/15 text-state-unmatched'
+        : 'bg-[#d5c724]/15 text-state-nostock',
+      priceClass: stockUnverified ? 'text-state-unmatched' : 'text-state-nostock',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -372,8 +372,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Matched',
       helperLabel: '검토 대기',
-      toneClass: 'border border-[#dedede] bg-white text-[#38b614]',
-      priceClass: 'text-[#38b614]',
+      toneClass: 'border border-line-neutral bg-white text-state-matched',
+      priceClass: 'text-state-matched',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -382,8 +382,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Review',
       helperLabel: '검토 필요',
-      toneClass: 'border border-[#dedede] bg-white text-[#ff6900]',
-      priceClass: 'text-[#ff6900]',
+      toneClass: 'border border-line-neutral bg-white text-state-review',
+      priceClass: 'text-state-review',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -392,8 +392,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Unmatched',
       helperLabel: null,
-      toneClass: 'bg-[#ff5873]/15 text-[#ff5873]',
-      priceClass: 'text-[#ff5873]',
+      toneClass: 'bg-state-unmatched/15 text-state-unmatched',
+      priceClass: 'text-state-unmatched',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -406,9 +406,9 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
         ? stockStatusLabel.value
         : null,
       toneClass: stockUnverified
-        ? 'border border-[#dedede] bg-white text-[#38b614]'
-        : 'bg-[#d5c724]/15 text-[#d2c000]',
-      priceClass: stockUnverified ? 'text-[#38b614]' : 'text-[#d2c000]',
+        ? 'border border-line-neutral bg-white text-state-matched'
+        : 'bg-[#d5c724]/15 text-state-nostock',
+      priceClass: stockUnverified ? 'text-state-matched' : 'text-state-nostock',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -417,8 +417,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Matched',
       helperLabel: item.selectionSource === 'customer' ? '고객 선택 완료' : null,
-      toneClass: 'bg-[#01bd46]/15 text-[#38b614]',
-      priceClass: 'text-[#38b614]',
+      toneClass: 'bg-[#01bd46]/15 text-state-matched',
+      priceClass: 'text-state-matched',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -426,8 +426,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
   return {
     label: 'Matched',
     helperLabel: '가격 확인 필요',
-    toneClass: 'border border-[#dedede] bg-white text-[#38b614]',
-    priceClass: 'text-[#38b614]',
+    toneClass: 'border border-line-neutral bg-white text-state-matched',
+    priceClass: 'text-state-matched',
     title: evidenceTitle.value,
     pulse: false,
   };
@@ -472,7 +472,7 @@ function onQtyInput(event: Event): void {
 </script>
 
 <template>
-  <tr class="border-b border-[#e5e8ed] align-top transition-colors" :class="rowClass">
+  <tr class="border-b border-line-soft align-top transition-colors" :class="rowClass">
     <!-- 포함 체크 + 원본 행. 시트명은 좁은 표를 위해 툴팁으로만 보존한다. -->
     <td class="px-1 py-3">
       <div class="flex flex-col items-center gap-1.5 pt-1">
@@ -485,7 +485,7 @@ function onQtyInput(event: Event): void {
           @change="emit('toggle-include')"
         >
         <span
-          class="block max-w-[48px] cursor-default truncate text-center text-[11px] font-semibold leading-[14px] tabular-nums text-[#667085]"
+          class="block max-w-[48px] cursor-default truncate text-center text-[11px] font-semibold leading-[14px] tabular-nums text-ink-muted"
           :title="sourceLocationTitle"
         >
           {{ sourceRowText }}
@@ -493,8 +493,8 @@ function onQtyInput(event: Event): void {
       </div>
     </td>
     <!-- MPN: 공급사 배지 + 이미지 + 품번/제조사 + 데이터시트 -->
-    <td class="w-[280px] max-w-[280px] px-2 py-3">
-      <div class="flex w-[280px] max-w-full min-w-0 gap-2.5">
+    <td class="px-2 py-3">
+      <div class="flex w-[220px] max-w-full min-w-0 gap-2.5">
         <!-- 고정폭 76px(최장 공급사명 UniKeyIC 기준) — 배지 유무와 무관하게 열 폭 일관 -->
         <div class="w-[76px] shrink-0">
           <div
@@ -503,7 +503,7 @@ function onQtyInput(event: Event): void {
             :title="item.selectedOffer.supplierSku"
           >
             <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] rounded-[2px]">
-            <span class="truncate text-[10px] font-semibold text-[#3b4252]">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
+            <span class="truncate text-[10px] font-semibold text-ink-soft">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
           </div>
           <!-- 부품 이미지(카탈로그 정본 imageUrl) — 실사진이 정사각이라 1:1 유지 -->
           <PartImage
@@ -512,8 +512,7 @@ function onQtyInput(event: Event): void {
           />
         </div>
         <div class="min-w-0 flex-1 pt-[22px]">
-          <p class="truncate text-[14px] font-medium leading-[20px] text-[#061023]" :title="partLabel">{{ partLabel }}</p>
-          <p class="truncate text-[11px] leading-[16px] text-[#5f6777]" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
+          <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->
           <a
@@ -528,9 +527,13 @@ function onQtyInput(event: Event): void {
         </div>
       </div>
     </td>
+    <!-- MANUFACTURER — 시안 87:12875 에서 MPN 과 분리된 열. Description 과 같은 높이에 맞춘다. -->
+    <td class="px-2 py-3 pt-[42px]">
+      <p class="truncate text-[12px] leading-[16px] text-ink-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
+    </td>
     <!-- 폭은 표의 colgroup 이 정한다(table-fixed) — 여기서 다시 제한하면 남는 폭을 못 쓴다 -->
     <td class="px-2 py-3 pt-[42px]">
-      <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
+      <p class="truncate text-[12px] leading-[16px] text-ink-subtle" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->
     <td class="w-[130px] min-w-[124px] px-2 py-2">
@@ -549,7 +552,7 @@ function onQtyInput(event: Event): void {
     <td class="px-2 py-3">
       <button
         type="button"
-        class="flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d3d5dc] bg-[#f4f4f4] px-3 text-[13px] font-bold text-[#4c4c4c] disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line-strong bg-surface-neutral px-3 text-[13px] font-bold text-ink-neutral disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="!isDraft || editingLocked"
         :title="editingLocked ? EDIT_LOCK_TITLE : `공급사·포장 변경 — ${item.selectedOffer?.packaging ?? '오퍼 선택'}`"
         @click="emit('open-offers')"
@@ -557,7 +560,7 @@ function onQtyInput(event: Event): void {
         <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '오퍼 없음') }}</span>
         <span class="text-[10px] text-gray-400">▾</span>
       </button>
-      <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-[#d6dae7] bg-[#fafcff] pl-1 pr-3">
+      <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line bg-[#fafcff] pl-1 pr-3">
         <input
           :value="quantityMissing ? quantityDraft : item.orderQty"
           type="number"
@@ -568,7 +571,7 @@ function onQtyInput(event: Event): void {
           @input="quantityMissing && onQtyInput($event)"
           @change="!quantityMissing && onQtyInput($event)"
         >
-        <span class="text-[11px] text-[#8e97a5]">/ {{ quantityMissing ? 'BOM 수량' : catalogInquiry ? '확인' : (item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—') }}</span>
+        <span class="text-[11px] text-ink-subtle">/ {{ quantityMissing ? 'BOM 수량' : catalogInquiry ? '확인' : (item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—') }}</span>
       </div>
       <button
         v-if="quantityMissing"
@@ -636,7 +639,7 @@ function onQtyInput(event: Event): void {
       <div v-if="isDraft" class="flex flex-col gap-[6px]">
         <button
           type="button"
-          class="h-[24px] w-[70px] rounded-[4px] bg-[#5f6777] text-[13px] font-medium text-white transition hover:bg-[#4f5867] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#5f6777]"
+          class="h-[24px] w-[70px] rounded-[4px] bg-ink-muted text-[13px] font-medium text-white transition hover:bg-[#4f5867] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink-muted"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '엔진 선정 이유·가격·차순위 후보 비교'"
           @click="emit('open-candidates')"
@@ -645,14 +648,14 @@ function onQtyInput(event: Event): void {
         </button>
         <button
           type="button"
-          class="h-[24px] w-[70px] rounded-[4px] border border-[#d3d5dc] bg-white text-[13px] font-medium text-[#4c4c4c] transition hover:bg-[#f8f8f8] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
+          class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-white text-[13px] font-medium text-ink-neutral transition hover:bg-[#f8f8f8] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '전체 카탈로그에서 다른 부품 검색'"
           @click="emit('open-search')"
         >
           부품 변경
         </button>
-        <button type="button" class="h-[24px] w-[70px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[13px] font-medium text-[#4c4c4c] transition hover:bg-[#e9e9e9] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
+        <button type="button" class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-surface-neutral text-[13px] font-medium text-ink-neutral transition hover:bg-[#e9e9e9] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-neutral" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
       </div>
     </td>
   </tr>
