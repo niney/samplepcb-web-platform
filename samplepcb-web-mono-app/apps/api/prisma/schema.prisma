@@ -512,6 +512,7 @@ model SpBomQuote {
   activeAnalysisRunId       BigInt?                    @unique @map("active_analysis_run_id")
   activeSupplierSearchRunId BigInt?                    @unique @map("active_supplier_search_run_id")
   buildStatus               String                     @default("ready") @db.VarChar(12) // parsing|selecting|building|ready|failed
+  procurementMode           String                     @default("sample") @db.VarChar(8) // sample|mass — 엔진 조달 정책
   setQty                    Int                        @default(1)
   spareQty                  Int                        @default(0)
   itemsTotal                Int                        @default(0) // KRW 정수(반올림)

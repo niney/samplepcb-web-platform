@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
-import type { BomQuoteExchangeRateSnapshotType } from '@sp/api-contract';
+import type {
+  BomQuoteExchangeRateSnapshotType,
+  BomQuoteProcurementModeType,
+} from '@sp/api-contract';
 import {
   BOM_AUTOMATIC_SURPLUS_QUANTITY,
   BOM_AUTOMATIC_SURPLUS_RATIO,
@@ -12,6 +15,7 @@ export interface EngineProcurementPolicy {
   currency_rate_snapshot_id: string;
   currency_rate_as_of: string;
   currency_rate_source: string;
+  procurement_mode: BomQuoteProcurementModeType;
   allowed_suppliers: ['digikey', 'mouser', 'unikeyic'];
   allow_stock_shortage: false;
   allow_unverified_stock: false;
@@ -26,6 +30,7 @@ export interface EngineProcurementPolicy {
 export function buildEngineProcurementPolicy(
   usdKrwRate: number | null,
   snapshot: BomQuoteExchangeRateSnapshotType | null,
+  procurementMode: BomQuoteProcurementModeType = 'sample',
   now = new Date(),
 ): EngineProcurementPolicy {
   const asOf = snapshot?.fetchedAt
@@ -43,6 +48,7 @@ export function buildEngineProcurementPolicy(
     currency_rate_snapshot_id: `sp-node:${snapshotId}`,
     currency_rate_as_of: asOf,
     currency_rate_source: `sp-node:${snapshot?.source ?? 'same-currency-only'}`,
+    procurement_mode: procurementMode,
     allowed_suppliers: ['digikey', 'mouser', 'unikeyic'],
     allow_stock_shortage: false,
     allow_unverified_stock: false,

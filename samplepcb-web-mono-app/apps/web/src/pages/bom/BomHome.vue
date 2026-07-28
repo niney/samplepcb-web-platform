@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import { useCreateBomQuote } from '../../bom/useBom';
+import { useBomProcurementMode } from '../../bom/useProcurementMode';
 import icUpload from '../../assets/bom/ic-upload-20.svg';
 import uploadCard from '../../assets/bom/upload-card.jpg';
 import pillUnikey from '../../assets/bom/pill-unikey.png';
@@ -21,6 +22,7 @@ const dragOver = ref(false);
 const error = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
 const create = useCreateBomQuote();
+const { preferredMode } = useBomProcurementMode();
 
 // Figma 합성 렌더(필 배경+로고, 148×66 — 내부 그림자 여백 포함) — 사용자 지시로 3종만
 const SUPPLIER_LOGOS = [
@@ -45,7 +47,10 @@ async function submit(file: File): Promise<void> {
   }
   error.value = '';
   try {
-    const res = await create.mutateAsync(file);
+    const res = await create.mutateAsync({
+      file,
+      procurementMode: preferredMode.value,
+    });
     await router.push({ name: 'bom-quote', params: { id: res.data.quoteId } });
   } catch (reason) {
     error.value =

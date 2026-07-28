@@ -21,6 +21,7 @@ import {
   type BomQuoteDeleteManyBodyType,
   type BomQuotePatchBodyType,
   type BomQuotePassiveDefaultsBodyType,
+  type BomQuoteProcurementModeType,
   type BomQuoteSearchRequirementsBodyType,
   type BomQuoteSheetSelectionBodyType,
   type BomQuoteStatusType,
@@ -109,9 +110,16 @@ export function useBomQuoteComparison(
 export function useCreateBomQuote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: ({
+      file,
+      procurementMode,
+    }: {
+      file: File;
+      procurementMode: BomQuoteProcurementModeType;
+    }) => {
       const form = new FormData();
       form.append('file', file);
+      form.append('procurementMode', procurementMode);
       return apiSendForm('POST', `${base}/quotes`, form, BomQuoteCreateResponse);
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] }),
@@ -142,6 +150,7 @@ export function usePatchBomQuote() {
       // 목록 합계·후보 스냅샷(현재 금액)은 다음 조회 때 갱신 — 열려 있지 않으면 비용 0
       void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] });
       void qc.invalidateQueries({ queryKey: ['bom', 'quote', quoteId, 'candidates'] });
+      void qc.invalidateQueries({ queryKey: ['bom', 'quote-comparison', quoteId] });
     },
   });
 }

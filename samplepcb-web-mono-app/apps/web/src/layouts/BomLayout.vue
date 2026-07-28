@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
-import { useMyBomQuotes } from '../bom/useBom';
+import { useBomQuote, useMyBomQuotes, usePatchBomQuote } from '../bom/useBom';
+import { useBomProcurementMode } from '../bom/useProcurementMode';
 import { useBomPanels } from '../bom/usePanels';
 import logoIcon from '../assets/bom/logo-partseyes-icon.png';
 import icProfile from '../assets/bom/ic-profile.svg';
@@ -17,7 +18,7 @@ import promoVideo from '../assets/bom/promo-video.png';
 
 // 스마트 BOM 전용 앱 셸 — Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(87:9037) 이식.
 // 시안의 다크 배경(상단바·사이드바)은 사용자 결정으로 라이트 모드 치환, 구조·치수는 동일.
-// 미구현(표시만): 샘플 토글·프로필 메뉴·프로모 카드 링크.
+// 미구현(표시만): 프로필 메뉴·프로모 카드 링크.
 
 const route = useRoute();
 const auth = useAuthStore();
@@ -53,6 +54,41 @@ onBeforeUnmount(() => {
 });
 
 const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? route.params.id : null));
+const currentQuote = useBomQuote(currentQuoteId);
+const patchQuote = usePatchBomQuote();
+const { preferredMode, setPreferredMode } = useBomProcurementMode();
+const procurementMode = computed(() =>
+  currentQuoteId.value === null
+    ? preferredMode.value
+    : currentQuote.data.value?.data.procurementMode ?? preferredMode.value,
+);
+const procurementModeDisabled = computed(() => {
+  if (patchQuote.isPending.value) return true;
+  if (currentQuoteId.value === null) return false;
+  const quote = currentQuote.data.value?.data;
+  return quote?.status !== 'draft'
+    || quote.buildStatus !== 'ready'
+    || quote.enrichStatus === 'searching';
+});
+
+async function toggleProcurementMode(): Promise<void> {
+  if (procurementModeDisabled.value) return;
+  const next = procurementMode.value === 'sample' ? 'mass' : 'sample';
+  if (currentQuoteId.value === null) {
+    setPreferredMode(next);
+    return;
+  }
+  try {
+    await patchQuote.mutateAsync({
+      quoteId: currentQuoteId.value,
+      body: { procurementMode: next },
+    });
+    setPreferredMode(next);
+  } catch {
+    // 상세 캐시는 서버 응답 전 상태를 유지한다. 재시도는 같은 토글에서 가능하다.
+  }
+}
+
 const onSearch = computed(() => route.name === 'bom-search');
 const onHistory = computed(() => route.name === 'bom-history');
 const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
@@ -79,14 +115,31 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       >
         <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="leftOpen ? '' : '-scale-x-100'">
       </button>
-      <!-- 샘플 토글 — 미구현(표시만) -->
-      <div
-        class="ml-[26px] flex h-[36px] w-[80px] items-center rounded-full bg-gradient-to-b from-[#f3f3f3] to-white pl-[12px] shadow-[inset_0px_2px_0px_0px_white] ring-1 ring-gray-200"
-        title="샘플 BOM 체험 (준비 중)"
+      <!-- 견적별 조달 모드 — 기술 적합성은 동일하고 양산에서만 안전한 Reel 오퍼를 우선한다. -->
+      <button
+        type="button"
+        role="switch"
+        class="relative ml-[26px] h-[36px] w-[80px] rounded-full bg-gradient-to-b from-[#f3f3f3] to-white shadow-[inset_0px_2px_0px_0px_white] ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-50"
+        :aria-checked="procurementMode === 'mass'"
+        :disabled="procurementModeDisabled"
+        :title="procurementMode === 'sample'
+          ? '샘플 모드: 실효 구매가 우선'
+          : '양산 모드: 구매 가능한 Reel 포장 우선'"
+        @click="toggleProcurementMode"
       >
-        <span class="text-[16px] font-extrabold text-[#3288d6]">샘플</span>
-        <span class="ml-[9px] size-[28px] rounded-full bg-[#4daaff] shadow-[0px_2px_4px_rgba(30,120,220,0.45)]" />
-      </div>
+        <span
+          class="absolute top-1/2 -translate-y-1/2 text-[16px] font-extrabold"
+          :class="procurementMode === 'sample'
+            ? 'left-[9px] text-[#3288d6]'
+            : 'right-[9px] text-[#635bdb]'"
+        >{{ procurementMode === 'sample' ? '샘플' : '양산' }}</span>
+        <span
+          class="absolute top-[4px] size-[28px] rounded-full shadow-[0px_2px_4px_rgba(30,120,220,0.45)] transition-all"
+          :class="procurementMode === 'sample'
+            ? 'right-[4px] bg-[#4daaff]'
+            : 'left-[4px] bg-[#756cf3]'"
+        />
+      </button>
 
       <p class="absolute left-1/2 -translate-x-1/2 text-[18px] font-medium text-[#7c8698]">AI 기반 전자부품 검색 엔진</p>
 
@@ -212,6 +265,6 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       </aside>
     </div>
   </div>
-  <!-- 시안 대비 미구현 기능(리스트업): 샘플 토글 · 프로필 메뉴 ·
+  <!-- 시안 대비 미구현 기능(리스트업): 프로필 메뉴 ·
        프로모 카드 링크(튜토리얼/Gerber Eyes) — 사이드바/패널 접기·단일 검색은 구현됨 -->
 </template>

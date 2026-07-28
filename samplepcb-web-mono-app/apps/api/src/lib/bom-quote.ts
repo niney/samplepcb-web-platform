@@ -27,6 +27,7 @@ import {
   type BomQuoteLocalCatalogTraceType,
   type BomQuoteMatchEvidenceType,
   type BomQuotePatchBodyType,
+  type BomQuoteProcurementModeType,
   type BomQuoteRecommendationTypeType,
   type BomQuoteRequirementAssessmentType,
   type BomQuoteSearchRequirementGuidanceType,
@@ -184,6 +185,7 @@ const EnginePositiveDecimal = z.coerce.number().positive();
 const EngineOfferProcurementDecision = z
   .object({
     procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
+    procurement_mode: z.enum(['sample', 'mass']).default('sample'),
     offer_key_version: z.enum(['supplier-offer-key-v1', 'supplier-offer-key-v2']),
     rank_scope: z.literal('identity_and_technical_evidence'),
     offer_key: z.string().regex(/^ok[12]:/).nullable(),
@@ -568,12 +570,53 @@ const EngineComponentProcurementDecisionV3 = z
   })
   .passthrough();
 
+const EngineComponentProcurementDecisionV4 = z
+  .object({
+    procurement_policy_version: z.literal('supplier-procurement-decision-v1'),
+    selection_application_policy_version: z.literal('supplier-selection-application-v4'),
+    procurement_mode: z.enum(['sample', 'mass']),
+    status: z.enum([
+      'automatic_recommended',
+      'review_recommended',
+      'catalog_selected',
+      'no_recommendation',
+      'input_incomplete',
+    ]),
+    selection_application_state: z.enum([
+      'automatic_selected',
+      'provisional_selected',
+      'not_selected',
+    ]),
+    confirmation_required: z.boolean(),
+    unavailability_reason_policy_version: z
+      .literal('supplier-procurement-unavailability-v1')
+      .optional(),
+    primary_unavailability_reason: EngineProcurementUnavailabilityReason.nullish(),
+    required_quantity: z.number().int().positive().nullish(),
+    target_currency: z.string(),
+    currency_rate_snapshot_id: z.string().min(1),
+    currency_rate_as_of: z.string().datetime({ offset: true }),
+    currency_rate_source: z.string().min(1),
+    technical_preselection_identity_key: z.string().startsWith('ik1:').nullish(),
+    technical_preselection_evidence_key: z.string().startsWith('ek1:').nullish(),
+    application_candidate_identity_key: z.string().startsWith('ik1:').nullish(),
+    application_candidate_evidence_key: z.string().startsWith('ek1:').nullish(),
+    technical_fallback_used: z.boolean(),
+    price_optimization_used: z.boolean(),
+    packaging_preference_used: z.boolean(),
+    automatic_offer_key: z.string().regex(/^ok[12]:/).nullish(),
+    review_offer_key: z.string().regex(/^ok[12]:/).nullish(),
+    recommendation_reason_codes: z.array(z.string()).default([]),
+  })
+  .passthrough();
+
 const EngineComponentProcurementDecision = z.discriminatedUnion(
   'selection_application_policy_version',
   [
     EngineComponentProcurementDecisionV1,
     EngineComponentProcurementDecisionV2,
     EngineComponentProcurementDecisionV3,
+    EngineComponentProcurementDecisionV4,
   ],
 );
 
@@ -866,7 +909,7 @@ function searchTraceSummary(
   };
 }
 
-export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v12';
+export const BOM_ENGINE_SELECTION_POLICY_VERSION = 'engine-procurement-projection-v13';
 const SUPPORTED_ENGINE_CANDIDATE_POLICY_VERSIONS: ReadonlySet<string> = new Set([
   'supplier-candidate-decision-v1',
   'supplier-candidate-decision-v2',
@@ -1702,6 +1745,7 @@ interface EngineProcurementProjection {
   confirmationRequired: boolean;
   technicalFallbackUsed: boolean;
   priceOptimizationUsed: boolean;
+  packagingPreferenceUsed: boolean;
   primaryUnavailabilityReason: EngineProcurementUnavailabilityReasonType | null;
 }
 
@@ -1786,11 +1830,13 @@ function projectEngineProcurement(
     confirmationRequired: false,
     technicalFallbackUsed: false,
     priceOptimizationUsed: false,
+    packagingPreferenceUsed: false,
     primaryUnavailabilityReason: null,
   };
   const currentApplicationPolicy = (
     decision?.selection_application_policy_version === 'supplier-selection-application-v2'
     || decision?.selection_application_policy_version === 'supplier-selection-application-v3'
+    || decision?.selection_application_policy_version === 'supplier-selection-application-v4'
   );
   const quantityDeferred = component.procurement_disposition === 'quantity_confirmation_required'
     && component.quantity_resolution === 'missing'
@@ -1801,9 +1847,22 @@ function projectEngineProcurement(
     || decision.target_currency.toUpperCase() !== 'KRW'
   ) return invalid;
   const priceOptimizationUsed = (
-    decision.selection_application_policy_version === 'supplier-selection-application-v3'
+    (
+      decision.selection_application_policy_version === 'supplier-selection-application-v3'
+      || decision.selection_application_policy_version === 'supplier-selection-application-v4'
+    )
     && decision.price_optimization_used
   );
+  const packagingPreferenceUsed = (
+    decision.selection_application_policy_version === 'supplier-selection-application-v4'
+    && decision.packaging_preference_used
+  );
+  const commercialOptimizationUsed = priceOptimizationUsed || packagingPreferenceUsed;
+  if (
+    decision.selection_application_policy_version === 'supplier-selection-application-v4'
+    && groups.some((group) => group.snapshot.offers.some((offer) =>
+      offer.procurementDecision?.procurement_mode !== decision.procurement_mode))
+  ) return invalid;
 
   const hasUnavailabilityPolicy = decision.unavailability_reason_policy_version !== undefined;
   const hasUnavailabilityReason = decision.primary_unavailability_reason !== undefined;
@@ -1848,7 +1907,9 @@ function projectEngineProcurement(
     decision.selection_application_policy_version === 'supplier-selection-application-v2'
       ? decision.technical_fallback_used !== applicationDiffers
       : applicationDiffers
-        ? decision.technical_fallback_used === priceOptimizationUsed
+        ? Number(decision.technical_fallback_used)
+          + Number(priceOptimizationUsed)
+          + Number(packagingPreferenceUsed) !== 1
         : decision.technical_fallback_used || priceOptimizationUsed
   ) return invalid;
 
@@ -1868,7 +1929,7 @@ function projectEngineProcurement(
       && !decision.confirmation_required
       && applicationGroup === null
       && !decision.technical_fallback_used
-      && !priceOptimizationUsed
+      && !commercialOptimizationUsed
       ? {
           valid: true,
           technicalTop: technicalGroup,
@@ -1880,6 +1941,7 @@ function projectEngineProcurement(
           confirmationRequired: false,
           technicalFallbackUsed: false,
           priceOptimizationUsed: false,
+          packagingPreferenceUsed: false,
           primaryUnavailabilityReason,
         }
       : invalid;
@@ -1900,7 +1962,7 @@ function projectEngineProcurement(
       && (decision.automatic_offer_key ?? null) === null
       && (decision.review_offer_key ?? null) === null
       && !decision.technical_fallback_used
-      && !priceOptimizationUsed
+      && !commercialOptimizationUsed
     )
       ? {
           valid: true,
@@ -1913,6 +1975,7 @@ function projectEngineProcurement(
           confirmationRequired: false,
           technicalFallbackUsed: false,
           priceOptimizationUsed: false,
+          packagingPreferenceUsed: false,
           primaryUnavailabilityReason,
         }
       : invalid;
@@ -1947,7 +2010,7 @@ function projectEngineProcurement(
     || applicationGroup.snapshot.selectionRecommendation === 'exclude'
     || (
       !decision.technical_fallback_used
-      && !priceOptimizationUsed
+      && !commercialOptimizationUsed
       && applicationGroup.snapshot.selectionRecommendation !== 'preselect'
     )
   ) return invalid;
@@ -1969,6 +2032,7 @@ function projectEngineProcurement(
     confirmationRequired: !automatic,
     technicalFallbackUsed: decision.technical_fallback_used,
     priceOptimizationUsed,
+    packagingPreferenceUsed,
     primaryUnavailabilityReason,
   };
 }
@@ -1976,6 +2040,21 @@ function projectEngineProcurement(
 function pickLineTotal(pick: OfferPick | null): number | null {
   if (pick?.unitPriceKrw == null) return null;
   return Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100;
+}
+
+function massPackagingReasonCodes(
+  decision: z.infer<typeof EngineComponentProcurementDecision> | null | undefined,
+): BomQuoteDecisionReasonType[] {
+  if (decision?.selection_application_policy_version !== 'supplier-selection-application-v4') {
+    return [];
+  }
+  if (decision.recommendation_reason_codes.includes('mass_production_reel_preferred')) {
+    return ['mass-production-reel-preferred'];
+  }
+  if (decision.recommendation_reason_codes.includes('mass_production_reel_unavailable')) {
+    return ['mass-production-reel-unavailable'];
+  }
+  return [];
 }
 
 export interface ProjectEnginePartSearchResult {
@@ -2246,7 +2325,9 @@ export function selectEngineMatch(
       ?? (component.status === 'not_found' ? 'unmatched' : 'review');
     const recommendationType: BomQuoteRecommendationTypeType = selected === null
       ? 'none'
-      : procurement.priceOptimizationUsed
+      : procurement.packagingPreferenceUsed
+        ? 'purchase-fit'
+        : procurement.priceOptimizationUsed
         ? 'price'
         : selectedMode === 'spec-compatible'
         ? 'technical'
@@ -2270,6 +2351,7 @@ export function selectEngineMatch(
       ...(procurement.priceOptimizationUsed
         ? ['strict-spec-price-saving'] as const
         : []),
+      ...massPackagingReasonCodes(component.procurement_decision),
     ];
     const recommendedCandidateKey = recommended?.snapshot.candidateKey ?? null;
     const technicalTopPick = procurement.technicalTop === null
@@ -2692,6 +2774,7 @@ function hasConsistentProcurementDecision(candidates: StoredCandidateType[]): bo
 function recommendStoredCandidate(
   candidates: StoredCandidateType[],
   needed: number,
+  procurementMode: BomQuoteProcurementModeType,
 ): StoredRecommendation | null {
   if (!hasConsistentProcurementDecision(candidates)) return null;
   const componentDecision = candidates[0]?.procurementDecision;
@@ -2701,7 +2784,19 @@ function recommendStoredCandidate(
       === 'supplier-selection-application-v2'
     || componentDecision.selection_application_policy_version
       === 'supplier-selection-application-v3'
+    || componentDecision.selection_application_policy_version
+      === 'supplier-selection-application-v4'
   );
+  if (
+    componentDecision.selection_application_policy_version
+      === 'supplier-selection-application-v4'
+    && componentDecision.procurement_mode !== procurementMode
+  ) return null;
+  if (
+    componentDecision.selection_application_policy_version
+      !== 'supplier-selection-application-v4'
+    && procurementMode !== 'sample'
+  ) return null;
   const quantityDeferred = currentApplicationPolicy
     && componentDecision.required_quantity === needed
     && componentDecision.target_currency.toUpperCase() === 'KRW'
@@ -2774,16 +2869,27 @@ function recommendStoredCandidate(
   ) return null;
   const fallbackUsed = identityKey !== technicalIdentityKey || evidenceKey !== technicalEvidenceKey;
   const priceOptimizationUsed = (
-    componentDecision.selection_application_policy_version
-      === 'supplier-selection-application-v3'
+    (
+      componentDecision.selection_application_policy_version
+        === 'supplier-selection-application-v3'
+      || componentDecision.selection_application_policy_version
+        === 'supplier-selection-application-v4'
+    )
     && componentDecision.price_optimization_used
+  );
+  const packagingPreferenceUsed = (
+    componentDecision.selection_application_policy_version
+      === 'supplier-selection-application-v4'
+    && componentDecision.packaging_preference_used
   );
   if (
     componentDecision.selection_application_policy_version
       === 'supplier-selection-application-v2'
       ? componentDecision.technical_fallback_used !== fallbackUsed
       : fallbackUsed
-        ? componentDecision.technical_fallback_used === priceOptimizationUsed
+        ? Number(componentDecision.technical_fallback_used)
+          + Number(priceOptimizationUsed)
+          + Number(packagingPreferenceUsed) !== 1
         : componentDecision.technical_fallback_used || priceOptimizationUsed
   ) return null;
   const technicalTopCandidates = candidates.filter((candidate) =>
@@ -2843,8 +2949,10 @@ function recommendStoredCandidate(
   });
   if (pick === null) return null;
   const technicalTopPick = storedCandidatePick(technicalTop, needed, null).pick;
-  const recommendationType: BomQuoteRecommendationTypeType = priceOptimizationUsed
-    ? 'price'
+  const recommendationType: BomQuoteRecommendationTypeType = packagingPreferenceUsed
+    ? 'purchase-fit'
+    : priceOptimizationUsed
+      ? 'price'
     : automatic
       ? candidate.selectionMode === 'spec-compatible' ? 'technical' : 'identity'
       : 'none';
@@ -2854,6 +2962,7 @@ function recommendStoredCandidate(
       ? ['engine-technical-fallback'] as const
       : []),
     ...(priceOptimizationUsed ? ['strict-spec-price-saving'] as const : []),
+    ...massPackagingReasonCodes(componentDecision),
   ];
   return {
     applicationState,
@@ -2937,17 +3046,26 @@ function needsEngineProcurementReevaluation(
   candidates: StoredCandidateType[],
   needed: number,
   usdKrwRate: number | null,
+  procurementMode: BomQuoteProcurementModeType,
 ): boolean {
   if (candidates.length === 0) return false;
   if (!hasConsistentProcurementDecision(candidates)) {
     return candidates.some((candidate) => candidate.engineCandidates.length > 0);
   }
+  const applicationPolicy =
+    candidates[0]?.procurementDecision?.selection_application_policy_version;
   if (
-    candidates[0]?.procurementDecision?.selection_application_policy_version
-    !== 'supplier-selection-application-v3'
+    applicationPolicy !== 'supplier-selection-application-v4'
+    && (applicationPolicy !== 'supplier-selection-application-v3'
+      || procurementMode !== 'sample')
   ) return candidates.some((candidate) => candidate.engineCandidates.length > 0);
   return candidates.some((candidate) =>
-    candidate.procurementDecision?.required_quantity !== needed
+    (
+      candidate.procurementDecision?.selection_application_policy_version
+        === 'supplier-selection-application-v4'
+      && candidate.procurementDecision.procurement_mode !== procurementMode
+    )
+    || candidate.procurementDecision?.required_quantity !== needed
     || candidate.offers.some((offer) => {
       const decision = offer.procurementDecision;
       if (decision?.source_currency?.toUpperCase() !== 'USD') return false;
@@ -3033,11 +3151,16 @@ async function batchReevaluateStoredProcurement(
   pending: PendingBatchReevaluation[],
   usdKrwRate: number | null,
   exchangeRateSnapshot: BomQuoteExchangeRateSnapshotType | null,
+  procurementMode: BomQuoteProcurementModeType,
 ): Promise<BatchReevaluationOutcome> {
   const succeeded = new Map<string, EngineMatchDecision>();
   const degradedItemIds = new Set<string>();
   const errorCodes = new Set<string>();
-  const procurementPolicy = buildEngineProcurementPolicy(usdKrwRate, exchangeRateSnapshot);
+  const procurementPolicy = buildEngineProcurementPolicy(
+    usdKrwRate,
+    exchangeRateSnapshot,
+    procurementMode,
+  );
 
   for (let offset = 0; offset < pending.length; offset += BATCH_REEVALUATION_CHUNK_SIZE) {
     const chunk = pending.slice(offset, offset + BATCH_REEVALUATION_CHUNK_SIZE);
@@ -3154,9 +3277,12 @@ export function isEngineManagedQuoteSelection(
  *  repriceCandidateSelections 자체를 건너뛸 수 있다 — 제목·메모 전용 자동저장이 매번 엔진을
  *  때리던 낭비 제거. computeQuote+persist(저렴한 재계산)는 이 판단과 무관하게 항상 수행한다. */
 export function patchNeedsCandidateReprice(
-  body: Pick<BomQuotePatchBodyType, 'items' | 'setQty' | 'spareQty'>,
+  body: Pick<BomQuotePatchBodyType, 'items' | 'setQty' | 'spareQty' | 'procurementMode'>,
 ): boolean {
-  return body.items !== undefined || body.setQty !== undefined || body.spareQty !== undefined;
+  return body.items !== undefined
+    || body.setQty !== undefined
+    || body.spareQty !== undefined
+    || body.procurementMode !== undefined;
 }
 
 /**
@@ -3172,6 +3298,7 @@ export async function repriceCandidateSelections(
   usdKrwRate: number | null,
   exchangeRateSnapshot: BomQuoteExchangeRateSnapshotType | null,
   log: FastifyBaseLogger,
+  procurementMode: BomQuoteProcurementModeType = 'sample',
 ): Promise<QuoteCandidateSnapshotInput[] | undefined> {
   const candidateItemIds = items.flatMap((item) =>
     item.id === undefined ? [] : [BigInt(item.id)],
@@ -3207,7 +3334,12 @@ export async function repriceCandidateSelections(
         || candidate.quantityResolution === 'missing');
     if (
       !quantityConfirmed
-      && !needsEngineProcurementReevaluation(rowCandidates, needed, usdKrwRate)
+      && !needsEngineProcurementReevaluation(
+        rowCandidates,
+        needed,
+        usdKrwRate,
+        procurementMode,
+      )
     ) continue;
     itemsNeedingReevaluation.add(item.id);
     const componentId = item.matchEvidence?.componentId
@@ -3242,7 +3374,12 @@ export async function repriceCandidateSelections(
   const missingComponentIdCount = degradedItemIds.size;
   const batchOutcome = pending.length === 0
     ? { succeeded: new Map<string, EngineMatchDecision>(), degradedItemIds: new Set<string>(), errorCodes: new Set<string>() }
-    : await batchReevaluateStoredProcurement(pending, usdKrwRate, exchangeRateSnapshot);
+    : await batchReevaluateStoredProcurement(
+        pending,
+        usdKrwRate,
+        exchangeRateSnapshot,
+        procurementMode,
+      );
   for (const itemId of batchOutcome.degradedItemIds) degradedItemIds.add(itemId);
 
   // 3단계 — 결과를 행에 반영한다. 축퇴 행은 recommendStoredCandidate/재선정 경로로 절대
@@ -3284,6 +3421,7 @@ export async function repriceCandidateSelections(
     const recommendation = recommendStoredCandidate(
       rowCandidates,
       needed,
+      procurementMode,
     );
     item.recommendedCandidateKey = recommendation?.candidate.candidateKey ?? null;
     const currentEvidence = reevaluatedEvidence ?? item.matchEvidence;
@@ -4082,6 +4220,7 @@ export interface QuoteComputed<T extends BomQuoteItemInputType = BomQuoteItemInp
 
 export interface QuotePersistenceExtra {
   title?: string;
+  procurementMode?: BomQuoteProcurementModeType;
   setQty?: number;
   spareQty?: number;
   customerMemo?: string | null;
@@ -4234,6 +4373,9 @@ export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
             }
           : {}),
         ...(extra?.title !== undefined ? { title: extra.title } : {}),
+        ...(extra?.procurementMode !== undefined
+          ? { procurementMode: extra.procurementMode }
+          : {}),
         ...(extra?.setQty !== undefined ? { setQty: extra.setQty } : {}),
         ...(extra?.spareQty !== undefined ? { spareQty: extra.spareQty } : {}),
         ...(extra?.customerMemo !== undefined ? { customerMemo: extra.customerMemo } : {}),
@@ -4666,6 +4808,7 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     ...toSummaryDto(quote, summaryCounts(activeItems)),
     engineJobId: quote.engineJobId,
     buildStatus: quote.buildStatus as BomQuoteDetailType['buildStatus'],
+    procurementMode: quote.procurementMode as BomQuoteProcurementModeType,
     sheets: [...sheets]
       .sort((a, b) => a.sheetIndex - b.sheetIndex)
       .map((sheet) => toSheetDto(sheet, itemSheetIndexes.has(sheet.sheetIndex))),

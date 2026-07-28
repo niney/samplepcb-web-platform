@@ -1341,6 +1341,8 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'engine-technical-fallback': '기술 1순위 구매 불가 · 다음 후보 적용',
     'quantity-confirmation-required': '수량 확인 전 기술 선정',
     'engine-procurement-unavailable': '구매 가능한 추천 오퍼 없음',
+    'mass-production-reel-preferred': '양산 모드 · Reel 포장 우선',
+    'mass-production-reel-unavailable': '양산 모드 · 구매 가능한 Reel 없음',
     'no-safe-candidate': '안전 자동선정 후보 없음',
   };
   return labels[reason];

@@ -8,6 +8,10 @@ import { PartOfferKind } from './parts';
 export const BomQuoteStatus = z.enum(['draft', 'requested', 'reviewing', 'answered', 'closed', 'canceled']);
 export type BomQuoteStatusType = z.infer<typeof BomQuoteStatus>;
 
+/** 견적 조달 모드 — 샘플은 현행 실효비용 우선, 양산은 안전한 Reel 오퍼를 우선한다. */
+export const BomQuoteProcurementMode = z.enum(['sample', 'mass']);
+export type BomQuoteProcurementModeType = z.infer<typeof BomQuoteProcurementMode>;
+
 export const BomQuoteMatchStatus = z.enum(['auto', 'manual', 'none']);
 export type BomQuoteMatchStatusType = z.infer<typeof BomQuoteMatchStatus>;
 
@@ -59,6 +63,8 @@ export const BomQuoteDecisionReason = z.enum([
   'engine-technical-fallback',
   'quantity-confirmation-required',
   'engine-procurement-unavailable',
+  'mass-production-reel-preferred',
+  'mass-production-reel-unavailable',
   'no-safe-candidate',
 ]);
 export type BomQuoteDecisionReasonType = z.infer<typeof BomQuoteDecisionReason>;
@@ -864,6 +870,8 @@ export type BomQuoteExchangeRateSnapshotType = z.infer<typeof BomQuoteExchangeRa
 
 export const BomQuoteDetail = BomQuoteSummary.extend({
   engineJobId: z.string().nullable(),
+  /** 견적별 조달 정책. 새 업로드 기본은 sample이며 draft에서만 전환할 수 있다. */
+  procurementMode: BomQuoteProcurementMode,
   /** 전체 시트 파싱→선택→선택 시트 계산의 서버 영속 단일 진실. */
   buildStatus: BomQuoteBuildStatus,
   sheets: z.array(BomQuoteSheet),
@@ -915,6 +923,7 @@ export type BomQuoteDetailType = z.infer<typeof BomQuoteDetail>;
 /** draft 자동저장(디바운스) — 안정 ID 행 부분 갱신. draft 상태에서만 허용. */
 export const BomQuotePatchBody = z.object({
   title: z.string().trim().min(1).max(191).optional(),
+  procurementMode: BomQuoteProcurementMode.optional(),
   setQty: z.number().int().min(1).max(100000).optional(),
   spareQty: z.number().int().min(0).max(100000).optional(),
   customerMemo: z.string().max(2000).nullable().optional(),

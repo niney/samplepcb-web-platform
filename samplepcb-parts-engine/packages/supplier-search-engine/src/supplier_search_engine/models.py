@@ -50,6 +50,11 @@ class SearchMode(StrEnum):
     EXCLUDED = "excluded"
 
 
+class ProcurementMode(StrEnum):
+    SAMPLE = "sample"
+    MASS = "mass"
+
+
 class MatchStatus(StrEnum):
     VERIFIED_EXACT = "verified_exact"
     VERIFIED_VARIANT = "verified_variant"
@@ -172,6 +177,7 @@ class ProcurementPolicyInput(BaseModel):
     currency_rate_snapshot_id: str = "same-currency-only"
     currency_rate_as_of: datetime = Field(default_factory=utc_now)
     currency_rate_source: str = "application"
+    procurement_mode: ProcurementMode = ProcurementMode.SAMPLE
     allowed_suppliers: list[Supplier] = Field(default_factory=lambda: list(Supplier))
     allow_stock_shortage: bool = False
     allow_unverified_stock: bool = False
@@ -222,6 +228,7 @@ class OfferProcurementDecision(BaseModel):
     procurement_policy_version: Literal["supplier-procurement-decision-v1"] = (
         "supplier-procurement-decision-v1"
     )
+    procurement_mode: ProcurementMode = ProcurementMode.SAMPLE
     offer_key_version: OfferKeyVersion = "supplier-offer-key-v2"
     rank_scope: Literal["identity_and_technical_evidence"] = (
         "identity_and_technical_evidence"
@@ -280,8 +287,9 @@ class ComponentProcurementDecision(BaseModel):
         "supplier-procurement-decision-v1"
     )
     selection_application_policy_version: Literal[
-        "supplier-selection-application-v3"
-    ] = "supplier-selection-application-v3"
+        "supplier-selection-application-v4"
+    ] = "supplier-selection-application-v4"
+    procurement_mode: ProcurementMode = ProcurementMode.SAMPLE
     status: Literal[
         "automatic_recommended",
         "review_recommended",
@@ -307,12 +315,20 @@ class ComponentProcurementDecision(BaseModel):
     application_candidate_evidence_key: str | None = None
     technical_fallback_used: bool = False
     price_optimization_used: bool = False
+    packaging_preference_used: bool = False
     automatic_offer_key: str | None = None
     review_offer_key: str | None = None
     recommendation_reason_codes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_recommendation(self) -> "ComponentProcurementDecision":
+        if self.packaging_preference_used and (
+            self.procurement_mode != ProcurementMode.MASS
+            or self.status not in {"automatic_recommended", "review_recommended"}
+        ):
+            raise ValueError(
+                "packaging preference requires a mass-production recommendation"
+            )
         has_unavailability_contract = (
             self.unavailability_reason_policy_version is not None
         )
@@ -411,6 +427,7 @@ class ComponentProcurementDecision(BaseModel):
                 has_application
                 or self.technical_fallback_used
                 or self.price_optimization_used
+                or self.packaging_preference_used
             ):
                 raise ValueError(
                     "non-recommended components cannot expose an application candidate"
@@ -420,7 +437,13 @@ class ComponentProcurementDecision(BaseModel):
                 raise ValueError(
                     "unchanged application candidates cannot be fallback or price optimized"
                 )
-        elif self.technical_fallback_used == self.price_optimization_used:
+        elif sum(
+            (
+                self.technical_fallback_used,
+                self.price_optimization_used,
+                self.packaging_preference_used,
+            )
+        ) != 1:
             raise ValueError(
                 "changed application candidates require exactly one application reason"
             )

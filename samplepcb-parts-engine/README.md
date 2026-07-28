@@ -126,7 +126,7 @@ BOM MPN은 CAD library reference보다 우선하며 서로 다른 유효값은 `
 
 ### 기술 순위와 구매 적용 후보
 
-공급사 검색 스키마 1.7과 `supplier-selection-application-v3`는 기술 판단과 실제 구매 적용을
+공급사 검색 스키마 1.7과 `supplier-selection-application-v4`는 기술 판단과 실제 구매 적용을
 분리한다. 엔진은 기존 `preselect`와 기술/검토 순위를 감사 근거로 보존한다. 기술 1순위 후보군에
 현재 필요수량을 충족하는 재고·유효 가격 오퍼가 없으면, 차단되지 않은 다음 기술 후보군 중
 구매 가능한 그룹을 `application_candidate_identity_key`와
@@ -134,7 +134,14 @@ BOM MPN은 CAD library reference보다 우선하며 서로 다른 유효값은 `
 실효 총액을 반영한 구매적합 1위 오퍼를 적용하며, 안전성·기술 근거가 동급인 차순위 그룹끼리는
 실효 총액이 낮은 그룹을 우선한다.
 
-v3는 저항·커패시터 파라메트릭 후보와 제조사 미기재 정확 MPN 검토 후보에 한해, 기술 1순위와
+v4는 v3의 가격 최적화에 견적별 `procurement_mode=sample|mass`를 추가한다. `sample`은 기존
+실효 총액 순위를 유지하고, `mass`는 동일한 기술 안전 밴드와 재고·MOQ·과다주문 제한 안에서
+명확한 제조사 Reel을 먼저, Digi-Reel/MouseReel 재포장 서비스를 다음으로 선호한다. 혼합 포장
+문자열은 Reel로 단정하지 않고, 구매 가능한 Reel이 없으면 일반 포장을 유지한다.
+`packaging_preference_used`와 `mass_production_reel_preferred|unavailable` 근거가 응용 계층에
+전달되며 기술 사전 선정은 바뀌지 않는다.
+
+v3부터 저항·커패시터 파라메트릭 후보와 제조사 미기재 정확 MPN 검토 후보에 한해, 기술 1순위와
 선택 자격·매칭 관계·필수조건 판정·충돌·누락·수명주기 상태가 같은 후보군 전체에서 실효 총액
 최저 그룹을 적용한다. 정확한 제조사+MPN 후보와 안전 밴드가 다른 후보는 가격으로 교체하지 않는다.
 가격으로 동급 후보가 바뀌면 `price_optimization_used=true`, 기술 1순위가 구매 불가해 차순위로

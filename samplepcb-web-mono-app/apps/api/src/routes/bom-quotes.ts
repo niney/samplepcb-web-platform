@@ -15,6 +15,7 @@ import {
   BomQuoteListResponse,
   BomQuotePatchBody,
   BomQuotePassiveDefaultsBody,
+  BomQuoteProcurementMode,
   BomQuoteRequestBody,
   BomQuoteSearchRequirements,
   BomQuoteSearchRequirementsBody,
@@ -26,6 +27,7 @@ import {
   type BomQuoteItemType,
   type BomQuoteMatchEvidenceType,
   type BomQuotePassiveDefaultsBodyType,
+  type BomQuoteProcurementModeType,
   type BomQuoteSearchRequirementsType,
 } from '@sp/api-contract';
 import { neededQty, stampOrderQty } from '@sp/utils';
@@ -374,6 +376,7 @@ async function autoEnrichQuote(
     passiveDefaults?: BomQuotePassiveDefaultsBodyType;
     bypassLocalCatalog?: boolean;
     storedPartPrioritySearchEnabled?: boolean;
+    procurementMode?: BomQuoteProcurementModeType;
   } = {},
 ): Promise<boolean> {
   const quote = await prisma.spBomQuote.findUnique({
@@ -391,6 +394,7 @@ async function autoEnrichQuote(
   const procurement = buildEngineProcurementPolicy(
     config.usdKrwRate,
     config.exchangeRateSnapshot,
+    options.procurementMode ?? (quote.procurementMode as BomQuoteProcurementModeType),
   );
   const passiveDefaults = options.passiveDefaults
     ?? passiveDefaultsFromSearchOptions(quote.activeSupplierSearchRun?.options);
@@ -918,9 +922,13 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
   // 업로드 → 견적(draft) + 엔진 파싱 잡 생성
   fastify.post('/bom/quotes', { schema: { response: { 201: BomQuoteCreateResponse, 502: BizError } } }, async (request, reply) => {
     if (!request.isMultipart()) return reply.badRequest('multipart/form-data 요청이어야 합니다');
-    const { files } = await collectMultipart(request);
+    const { files, fields } = await collectMultipart(request);
     const file = files.find((f) => f.field === 'file') ?? files[0];
     if (file === undefined) return reply.badRequest('file 파트가 없습니다');
+    const procurementMode = BomQuoteProcurementMode.safeParse(
+      fields.procurementMode ?? 'sample',
+    );
+    if (!procurementMode.success) return reply.badRequest('조달 모드가 올바르지 않습니다');
     const ext = file.filename.split('.').pop()?.toLowerCase() ?? '';
     if (!ALLOWED_EXT.has(ext)) return reply.badRequest('지원하지 않는 파일 형식입니다 (xlsx/xlsm/xls/csv/tsv/bom)');
     if (file.buffer.length > MAX_FILE_BYTES) return reply.badRequest('파일이 50MB 를 초과합니다');
@@ -963,6 +971,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
           contentHash,
           engineJobId: jobId,
           buildStatus: 'parsing',
+          procurementMode: procurementMode.data,
           shippingFee: config.defaultShippingFee,
           managementFee: config.defaultManagementFee,
           finalTotal: config.defaultShippingFee + config.defaultManagementFee,
@@ -1690,6 +1699,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         rate,
         config.exchangeRateSnapshot,
         request.log,
+        quote.procurementMode as BomQuoteProcurementModeType,
       );
     }
 
@@ -1814,12 +1824,19 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     }
     const nextSetQty = request.body.setQty ?? quote.setQty;
     const nextSpareQty = request.body.spareQty ?? quote.spareQty;
+    const nextProcurementMode = request.body.procurementMode
+      ?? (quote.procurementMode as BomQuoteProcurementModeType);
     // 구버전 빌드 또는 엔진 장애로 후보 스냅샷이 없는 견적은 먼저 최초 검색을 수행한다.
     // DB의 원본 수량은 아직 missing이어도 quoteNeedsEnrichment가 기술 검색 대상으로 보며,
     // 바로 아래 재평가가 새 후보를 confirmed 수량으로 다시 판정한 뒤 한 번에 저장한다.
     if (confirmedQuantityNeedsInitialSearch) {
       try {
-        await autoEnrichQuote(quote.id, request.user.mbId, request.log);
+        await autoEnrichQuote(
+          quote.id,
+          request.user.mbId,
+          request.log,
+          { procurementMode: nextProcurementMode },
+        );
       } catch (error: unknown) {
         request.log.warn(
           { quoteId: String(quote.id), err: String(error) },
@@ -1839,6 +1856,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
           config.usdKrwRate,
           config.exchangeRateSnapshot,
           request.log,
+          nextProcurementMode,
         )
       : undefined;
     const computed = computeQuote(items, config.usdKrwRate, quote.shippingFee, quote.managementFee);
@@ -1846,6 +1864,9 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       exchangeRateSnapshot: config.exchangeRateSnapshot,
       ...(candidateSnapshots === undefined ? {} : { candidateSnapshots, candidateSnapshotScope: 'partial' as const }),
       ...(request.body.title !== undefined ? { title: request.body.title } : {}),
+      ...(request.body.procurementMode !== undefined
+        ? { procurementMode: request.body.procurementMode }
+        : {}),
       ...(request.body.setQty !== undefined ? { setQty: request.body.setQty } : {}),
       ...(request.body.spareQty !== undefined ? { spareQty: request.body.spareQty } : {}),
       ...(request.body.customerMemo !== undefined ? { customerMemo: request.body.customerMemo } : {}),

@@ -1656,7 +1656,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.pick?.offer.supplier).toBe('digikey');
     expect(decision?.offerKey).toBe('ok2:engine-selected');
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v12');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v13');
     expect(decision?.evidence.selectionApplicationState).toBe('automatic_selected');
     expect(decision?.evidence.confirmationRequired).toBe(false);
     expect(decision?.evidence.technicalFallbackUsed).toBe(false);
@@ -2222,7 +2222,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
 
     expect(decision?.candidate).toBeNull();
     expect(decision?.recommendedCandidateKey).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v12');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v13');
     expect(decision?.evidence.decisionReasonCodes).toEqual(['engine-procurement-unavailable']);
     expect(decision?.snapshots.map((candidate) => candidate.selectionRecommendation)).toEqual([
       'preselect',
@@ -2390,7 +2390,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.snapshots).toHaveLength(1);
     expect(decision?.snapshots[0]?.offers).toHaveLength(2);
     expect(decision?.pick).toBeNull();
-    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v12');
+    expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v13');
   });
 
   it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 오퍼는 합치지 않는다', () => {

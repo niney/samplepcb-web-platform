@@ -51,6 +51,7 @@ export interface BomUploadVerificationOptions {
   quotePollMs: number;
   candidateConcurrency: number;
   retryPartData: boolean;
+  compareProcurementModes?: boolean;
   fetchImpl?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   onProgress?: (message: string) => void;
@@ -86,6 +87,7 @@ export interface BomVerificationFileSummary {
     attention: number;
     notFound: number;
   };
+  procurementModeComparison: ProcurementModeComparison | null;
   checks: {
     code: string;
     passed: boolean;
@@ -119,6 +121,7 @@ export interface BomVerificationManifest {
   baseUrl: string;
   authMode: BomVerificationAuthMode;
   sheetSelectionPolicy: 'all-parsed';
+  procurementModePolicy: 'sample-only' | 'sample-then-mass-reevaluation';
   fileCount: number;
   completedCount: number;
   failedCount: number;
@@ -157,6 +160,22 @@ interface ComparisonCapture {
   notFound: number;
 }
 
+export interface ProcurementModeComparison {
+  sampleFinalTotal: number;
+  massFinalTotal: number;
+  selectedCandidateChangedCount: number;
+  selectedCandidateSemanticChangedCount: number;
+  selectedOfferChangedCount: number;
+  selectedPackagingChangedCount: number;
+  technicalPreselectionKeyChangedCount: number;
+  technicalPreselectionChangedCount: number;
+  pinnedOfferChangedCount: number;
+  sampleReelSelectedCount: number;
+  massReelSelectedCount: number;
+  reelPreferredReasonCount: number;
+  reelUnavailableReasonCount: number;
+}
+
 class VerifierApiError extends Error {
   readonly status: number;
   readonly endpoint: string;
@@ -183,7 +202,7 @@ class VerificationApiClient {
   ) {}
 
   async request(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PATCH',
     endpoint: string,
     schema: string,
     payload?: ApiPayload,
@@ -374,6 +393,9 @@ export async function runBomUploadVerification(
     baseUrl: normalizedOptions.baseUrl,
     authMode: normalizedOptions.auth.mode,
     sheetSelectionPolicy: 'all-parsed',
+    procurementModePolicy: normalizedOptions.compareProcurementModes === true
+      ? 'sample-then-mass-reevaluation'
+      : 'sample-only',
     fileCount: files.length,
     completedCount: 0,
     failedCount: 0,
@@ -457,6 +479,12 @@ async function verifyOneFile(
   await mkdir(artifactDirectory, { recursive: true });
   await mkdir(path.join(artifactDirectory, 'candidates'), { recursive: true });
   await mkdir(path.join(artifactDirectory, 'comparison-pages'), { recursive: true });
+  if (options.compareProcurementModes === true) {
+    await mkdir(path.join(artifactDirectory, 'candidates-sample'), { recursive: true });
+    await mkdir(path.join(artifactDirectory, 'candidates-mass'), { recursive: true });
+    await mkdir(path.join(artifactDirectory, 'comparison-pages-sample'), { recursive: true });
+    await mkdir(path.join(artifactDirectory, 'comparison-pages-mass'), { recursive: true });
+  }
   await writeJson(path.join(artifactDirectory, 'source.json'), {
     path: sourcePath,
     fileName: path.basename(sourcePath),
@@ -482,6 +510,7 @@ async function verifyOneFile(
       new Blob([new Uint8Array(buffer)], { type: mimeTypeFor(sourcePath) }),
       path.basename(sourcePath),
     );
+    form.append('procurementMode', 'sample');
     const createRaw = await client.request(
       'POST',
       '/api/bom/quotes',
@@ -600,12 +629,97 @@ async function verifyOneFile(
       finalDetailRaw = settled.raw;
       finalDetail = settled.detail;
     }
-    await writeJson(path.join(artifactDirectory, 'quote-detail.json'), finalDetailRaw);
+    let procurementModeComparison: ProcurementModeComparison | null = null;
+    let candidateCaptures: CandidateCapture[];
+    let comparison: ComparisonCapture;
+    if (options.compareProcurementModes === true) {
+      if (finalDetail.procurementMode !== 'sample') {
+        throw new Error(`샘플 검증 시작 모드가 아닙니다: ${finalDetail.procurementMode}`);
+      }
+      await writeJson(path.join(artifactDirectory, 'quote-detail-sample.json'), finalDetailRaw);
+      const sampleDetail = finalDetail;
+      const sampleCandidateCaptures = sampleDetail.partDataStatus === 'ready'
+        ? await captureCandidates(
+          client,
+          quoteId,
+          sampleDetail,
+          artifactDirectory,
+          deadline,
+          options,
+          ['candidates-sample'],
+        )
+        : [];
+      await captureComparison(
+        client,
+        quoteId,
+        artifactDirectory,
+        deadline,
+        ['comparison-pages-sample'],
+        ['comparison-sample.json'],
+      );
 
-    const candidateCaptures = finalDetail.partDataStatus === 'ready'
-      ? await captureCandidates(client, quoteId, finalDetail, artifactDirectory, deadline, options)
-      : [];
-    const comparison = await captureComparison(client, quoteId, artifactDirectory, deadline);
+      ensureBeforeDeadline(deadline, '양산 조달 모드 재평가');
+      const massRaw = await client.request(
+        'PATCH',
+        `/api/bom/quotes/${encodeURIComponent(quoteId)}`,
+        'BomQuoteDetailResponse',
+        { kind: 'json', value: { procurementMode: 'mass' } },
+      );
+      const mass = BomQuoteDetailResponse.parse(massRaw);
+      if (mass.data.procurementMode !== 'mass') {
+        throw new Error(`양산 모드 전환이 반영되지 않았습니다: ${mass.data.procurementMode}`);
+      }
+      finalDetailRaw = massRaw;
+      finalDetail = mass.data;
+      await writeJson(path.join(artifactDirectory, 'quote-detail-mass.json'), massRaw);
+      candidateCaptures = finalDetail.partDataStatus === 'ready'
+        ? await captureCandidates(
+            client,
+            quoteId,
+            finalDetail,
+            artifactDirectory,
+            deadline,
+            options,
+            ['candidates-mass', 'candidates'],
+          )
+        : [];
+      procurementModeComparison = compareProcurementModes(
+        sampleDetail,
+        finalDetail,
+        sampleCandidateCaptures,
+        candidateCaptures,
+      );
+      await writeJson(
+        path.join(artifactDirectory, 'procurement-mode-comparison.json'),
+        procurementModeComparison,
+      );
+      comparison = await captureComparison(
+        client,
+        quoteId,
+        artifactDirectory,
+        deadline,
+        ['comparison-pages-mass', 'comparison-pages'],
+        ['comparison-mass.json', 'comparison.json'],
+      );
+    } else {
+      candidateCaptures = finalDetail.partDataStatus === 'ready'
+        ? await captureCandidates(
+            client,
+            quoteId,
+            finalDetail,
+            artifactDirectory,
+            deadline,
+            options,
+          )
+        : [];
+      comparison = await captureComparison(
+        client,
+        quoteId,
+        artifactDirectory,
+        deadline,
+      );
+    }
+    await writeJson(path.join(artifactDirectory, 'quote-detail.json'), finalDetailRaw);
     const summary = buildFileSummary(
       quoteId,
       jobId,
@@ -613,6 +727,7 @@ async function verifyOneFile(
       candidateCaptures,
       comparison,
       selectedSheetIndexes.length,
+      procurementModeComparison,
     );
     await writeJson(path.join(artifactDirectory, 'summary.json'), summary);
     await writeFile(
@@ -722,6 +837,7 @@ async function captureCandidates(
   artifactDirectory: string,
   deadline: number,
   options: NormalizedOptions,
+  directoryNames: readonly string[] = ['candidates'],
 ): Promise<CandidateCapture[]> {
   return mapLimit(detail.items, options.candidateConcurrency, async (item) => {
     ensureBeforeDeadline(deadline, `후보 ${item.id} 조회`);
@@ -731,7 +847,8 @@ async function captureCandidates(
         `/api/bom/quotes/${encodeURIComponent(quoteId)}/items/${encodeURIComponent(item.id)}/candidates`,
         'BomQuoteItemCandidatesResponse',
       );
-      await writeJson(path.join(artifactDirectory, 'candidates', `${item.id}.json`), raw);
+      await Promise.all(directoryNames.map((directoryName) =>
+        writeJson(path.join(artifactDirectory, directoryName, `${item.id}.json`), raw)));
       return {
         itemId: item.id,
         ok: true,
@@ -740,13 +857,18 @@ async function captureCandidates(
       };
     } catch (error) {
       const message = errorText(error);
-      await writeJson(path.join(artifactDirectory, 'candidates', `${item.id}.error.json`), {
+      const errorPayload = {
         error: message,
         ...(error instanceof VerifierApiError ? {
           status: error.status,
           response: error.responseBody,
         } : {}),
-      });
+      };
+      await Promise.all(directoryNames.map((directoryName) =>
+        writeJson(
+          path.join(artifactDirectory, directoryName, `${item.id}.error.json`),
+          errorPayload,
+        )));
       return { itemId: item.id, ok: false, error: message, data: null };
     }
   });
@@ -757,6 +879,8 @@ async function captureComparison(
   quoteId: string,
   artifactDirectory: string,
   deadline: number,
+  pageDirectoryNames: readonly string[] = ['comparison-pages'],
+  outputFileNames: readonly string[] = ['comparison.json'],
 ): Promise<ComparisonCapture> {
   const pages: unknown[] = [];
   let page = 1;
@@ -773,10 +897,11 @@ async function captureComparison(
       `/api/bom/quotes/${encodeURIComponent(quoteId)}/comparison?page=${String(page)}&pageSize=50`,
       'BomQuoteComparisonResponse',
     );
-    await writeJson(
-      path.join(artifactDirectory, 'comparison-pages', `${String(page).padStart(3, '0')}.json`),
-      raw,
-    );
+    await Promise.all(pageDirectoryNames.map((directoryName) =>
+      writeJson(
+        path.join(artifactDirectory, directoryName, `${String(page).padStart(3, '0')}.json`),
+        raw,
+      )));
     const parsed = BomQuoteComparisonResponse.parse(raw);
     pages.push(raw);
     rowCount += parsed.data.rows.length;
@@ -789,8 +914,127 @@ async function captureComparison(
     page += 1;
   } while (page <= totalPages);
 
-  await writeJson(path.join(artifactDirectory, 'comparison.json'), { pages });
+  await Promise.all(outputFileNames.map((fileName) =>
+    writeJson(path.join(artifactDirectory, fileName), { pages })));
   return { pages, rowCount, matched, attention, notFound };
+}
+
+function selectedOfferIdentity(
+  item: BomQuoteDetailType['items'][number],
+): string | null {
+  const offer = item.selectedOffer;
+  if (offer === null) return null;
+  return offer.offerKey
+    ?? [offer.supplier, offer.supplierSku, offer.packaging ?? ''].join('\u0000');
+}
+
+function selectedPackagingIsReel(
+  item: BomQuoteDetailType['items'][number],
+): boolean {
+  const packaging = item.selectedOffer?.packaging?.toLocaleLowerCase() ?? '';
+  if (!packaging.includes('reel')) return false;
+  return !/(?:cut\s*tape|bulk|tray|tube|bag|box)/u.test(packaging);
+}
+
+function normalizedCandidateText(value: string | null): string {
+  return (value ?? '').normalize('NFKC').trim().toLocaleUpperCase();
+}
+
+function candidateSemanticKey(
+  item: BomQuoteDetailType['items'][number],
+  capture: CandidateCapture | undefined,
+  kind: 'selected' | 'technical-preselection',
+): string | null {
+  const candidateKey = kind === 'selected'
+    ? item.selectedCandidateKey
+    : item.matchEvidence?.technicalPreselectionCandidateKey ?? null;
+  if (candidateKey === null) return null;
+  const candidates = capture?.data?.candidates ?? [];
+  const candidate = candidates.find((entry) => entry.candidateKey === candidateKey)
+    ?? (kind === 'technical-preselection'
+      ? candidates.find((entry) => entry.selectionRecommendation === 'preselect')
+      : undefined);
+  if (candidate === undefined) return `key:${candidateKey}`;
+  return [
+    normalizedCandidateText(candidate.mpn),
+    normalizedCandidateText(candidate.manufacturerName),
+    candidate.technicalEvidenceKey,
+  ].join('\u0000');
+}
+
+function compareProcurementModes(
+  sample: BomQuoteDetailType,
+  mass: BomQuoteDetailType,
+  sampleCaptures: readonly CandidateCapture[],
+  massCaptures: readonly CandidateCapture[],
+): ProcurementModeComparison {
+  const massById = new Map(mass.items.map((item) => [item.id, item] as const));
+  const sampleCaptureById = new Map(sampleCaptures.map((capture) => [capture.itemId, capture]));
+  const massCaptureById = new Map(massCaptures.map((capture) => [capture.itemId, capture]));
+  let selectedCandidateChangedCount = 0;
+  let selectedCandidateSemanticChangedCount = 0;
+  let selectedOfferChangedCount = 0;
+  let selectedPackagingChangedCount = 0;
+  let technicalPreselectionKeyChangedCount = 0;
+  let technicalPreselectionChangedCount = 0;
+  let pinnedOfferChangedCount = 0;
+  for (const sampleItem of sample.items) {
+    const massItem = massById.get(sampleItem.id);
+    if (massItem === undefined) continue;
+    const sampleCapture = sampleCaptureById.get(sampleItem.id);
+    const massCapture = massCaptureById.get(massItem.id);
+    if (sampleItem.selectedCandidateKey !== massItem.selectedCandidateKey) {
+      selectedCandidateChangedCount += 1;
+    }
+    if (
+      candidateSemanticKey(sampleItem, sampleCapture, 'selected')
+      !== candidateSemanticKey(massItem, massCapture, 'selected')
+    ) {
+      selectedCandidateSemanticChangedCount += 1;
+    }
+    const sampleOffer = selectedOfferIdentity(sampleItem);
+    const massOffer = selectedOfferIdentity(massItem);
+    if (sampleOffer !== massOffer) selectedOfferChangedCount += 1;
+    if (sampleItem.selectedOffer?.packaging !== massItem.selectedOffer?.packaging) {
+      selectedPackagingChangedCount += 1;
+    }
+    if (
+      sampleItem.matchEvidence?.technicalPreselectionCandidateKey
+      !== massItem.matchEvidence?.technicalPreselectionCandidateKey
+    ) {
+      technicalPreselectionKeyChangedCount += 1;
+    }
+    if (
+      candidateSemanticKey(sampleItem, sampleCapture, 'technical-preselection')
+      !== candidateSemanticKey(massItem, massCapture, 'technical-preselection')
+    ) {
+      technicalPreselectionChangedCount += 1;
+    }
+    if (sampleItem.selectedOffer?.pinned === true && sampleOffer !== massOffer) {
+      pinnedOfferChangedCount += 1;
+    }
+  }
+  return {
+    sampleFinalTotal: sample.finalTotal,
+    massFinalTotal: mass.finalTotal,
+    selectedCandidateChangedCount,
+    selectedCandidateSemanticChangedCount,
+    selectedOfferChangedCount,
+    selectedPackagingChangedCount,
+    technicalPreselectionKeyChangedCount,
+    technicalPreselectionChangedCount,
+    pinnedOfferChangedCount,
+    sampleReelSelectedCount: sample.items.filter(selectedPackagingIsReel).length,
+    massReelSelectedCount: mass.items.filter(selectedPackagingIsReel).length,
+    reelPreferredReasonCount: mass.items.filter((item) =>
+      item.matchEvidence?.decisionReasonCodes.includes(
+        'mass-production-reel-preferred',
+      ) === true).length,
+    reelUnavailableReasonCount: mass.items.filter((item) =>
+      item.matchEvidence?.decisionReasonCodes.includes(
+        'mass-production-reel-unavailable',
+      ) === true).length,
+  };
 }
 
 function buildFileSummary(
@@ -800,6 +1044,7 @@ function buildFileSummary(
   candidateCaptures: readonly CandidateCapture[],
   comparison: ComparisonCapture,
   selectedSheetCount: number,
+  procurementModeComparison: ProcurementModeComparison | null = null,
 ): BomVerificationFileSummary {
   const screen = summarizeBomQuoteItems(detail.items);
   const succeeded = candidateCaptures.filter((capture) => capture.ok).length;
@@ -853,6 +1098,7 @@ function buildFileSummary(
       attention: comparison.attention,
       notFound: comparison.notFound,
     },
+    procurementModeComparison,
     checks: [
       {
         code: 'build-ready',
@@ -879,6 +1125,20 @@ function buildFileSummary(
         passed: comparison.rowCount === detail.items.length,
         detail: `비교 행=${String(comparison.rowCount)}, 상세 행=${String(detail.items.length)}`,
       },
+      ...(procurementModeComparison === null
+        ? []
+        : [
+            {
+              code: 'procurement-technical-preselection-stable',
+              passed: procurementModeComparison.technicalPreselectionChangedCount === 0,
+              detail: `기술 의미 변경=${String(procurementModeComparison.technicalPreselectionChangedCount)}건, 키 정규화=${String(procurementModeComparison.technicalPreselectionKeyChangedCount)}건`,
+            },
+            {
+              code: 'procurement-pinned-offer-stable',
+              passed: procurementModeComparison.pinnedOfferChangedCount === 0,
+              detail: `고정 오퍼 변경=${String(procurementModeComparison.pinnedOfferChangedCount)}건`,
+            },
+          ]),
     ],
     warnings,
   };
@@ -897,6 +1157,7 @@ function buildFileReport(
     `- 원본: \`${escapeMarkdown(sourcePath)}\``,
     `- 견적 ID: ${summary.quoteId}`,
     `- 엔진 잡 ID: ${summary.jobId}`,
+    `- 최종 조달 모드: ${detail.procurementMode}`,
     `- 최종 상태: build=${summary.states.buildStatus}, enrich=${summary.states.enrichStatus}, partData=${summary.states.partDataStatus}`,
     `- 자동 선택 시트 정책: BOM으로 인식된 시트 전체(${String(summary.selectedSheetCount)}개)`,
     '',
@@ -909,6 +1170,16 @@ function buildFileReport(
     '## 기계 검증',
     '',
     ...summary.checks.map((check) => `- ${check.passed ? '✅' : '❌'} \`${check.code}\`: ${check.detail}`),
+    ...(summary.procurementModeComparison === null
+      ? []
+      : [
+          '',
+          '## 샘플 ↔ 양산 재평가',
+          '',
+          '| 샘플 합계 | 양산 합계 | 선정 오퍼 변경 | 포장 변경 | Reel 선정(샘플→양산) | Reel 우선 | Reel 없음 |',
+          '| ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+          `| ${String(summary.procurementModeComparison.sampleFinalTotal)} | ${String(summary.procurementModeComparison.massFinalTotal)} | ${String(summary.procurementModeComparison.selectedOfferChangedCount)} | ${String(summary.procurementModeComparison.selectedPackagingChangedCount)} | ${String(summary.procurementModeComparison.sampleReelSelectedCount)}→${String(summary.procurementModeComparison.massReelSelectedCount)} | ${String(summary.procurementModeComparison.reelPreferredReasonCount)} | ${String(summary.procurementModeComparison.reelUnavailableReasonCount)} |`,
+        ]),
     '',
     '## 행별 후보 비교',
     '',
@@ -951,6 +1222,13 @@ function buildFileReport(
     '## 원본 산출물',
     '',
     '- `quote-detail.json`: 화면 상세 조회와 동일한 최종 API 응답',
+    ...(summary.procurementModeComparison === null
+      ? []
+      : [
+          '- `quote-detail-sample.json` / `quote-detail-mass.json`: 동일 후보의 모드별 상세 응답',
+          '- `procurement-mode-comparison.json`: 모드 전환 전후 행 단위 변화 집계',
+          '- `candidates-sample/` / `candidates-mass/`: 모드별 후보 패널 API 응답',
+        ]),
     '- `candidates/<itemId>.json`: 각 행 후보 패널과 동일한 API 응답',
     '- `comparison-pages/*.json`: BOM 비교 모달과 동일한 페이지별 API 응답',
     '- `api-trace.jsonl`: 요청 순서·상태·소요시간(인증정보와 응답 본문은 기록하지 않음)',
@@ -969,6 +1247,7 @@ function buildRunReport(manifest: BomVerificationManifest): string {
     `- API: ${manifest.baseUrl}`,
     `- git: ${manifest.gitCommit ?? '확인 불가'}`,
     `- 인증 방식: ${manifest.authMode}`,
+    `- 조달 모드 정책: ${manifest.procurementModePolicy}`,
     `- 결과: ${String(manifest.completedCount)}건 성공 / ${String(manifest.failedCount)}건 실패`,
     '',
     '| 파일 | 상태 | 견적 ID | 선정 / 검토 / 미선정 / 제외 | 상세 |',

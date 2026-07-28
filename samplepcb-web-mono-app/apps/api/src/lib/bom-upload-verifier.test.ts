@@ -42,6 +42,7 @@ function quoteDetail(
     requestedAt: null,
     answeredAt: null,
     engineJobId: 'job-101',
+    procurementMode: 'sample',
     buildStatus,
     sheets: [{
       sheetIndex: 0,
@@ -166,13 +167,14 @@ describe('BOM headless 검증 도구', () => {
     expect(called).toBe(false);
   });
 
-  it('업로드부터 시트 계산, 최종 상세, 전 행 후보, 전체 비교를 같은 API 순서로 캡처한다', async () => {
+  it('한 번 업로드한 동일 후보를 샘플→양산으로 재평가하고 모드별 후보·비교 응답을 캡처한다', async () => {
     const root = await temporaryDirectory();
     const input = path.join(root, 'sample.csv');
     const output = path.join(root, 'out');
     await writeFile(input, 'Value,Qty\n10k,1\n', 'utf8');
     const selecting = quoteDetail('selecting', 'preparing');
     const ready = quoteDetail('ready', 'ready');
+    const massReady: BomQuoteDetailType = { ...ready, procurementMode: 'mass' };
     const requests: string[] = [];
     const fetchImpl: typeof fetch = (inputValue, init) => {
       const requestUrl = typeof inputValue === 'string'
@@ -215,6 +217,8 @@ describe('BOM headless 검증 도구', () => {
         body = { result: true, data: ready };
       } else if (key === 'GET /api/bom/quotes/101') {
         body = { result: true, data: ready };
+      } else if (key === 'PATCH /api/bom/quotes/101') {
+        body = { result: true, data: massReady };
       } else if (key === 'GET /api/bom/quotes/101/items/501/candidates') {
         body = {
           result: true,
@@ -288,6 +292,7 @@ describe('BOM headless 검증 도구', () => {
       quotePollMs: 1,
       candidateConcurrency: 2,
       retryPartData: true,
+      compareProcurementModes: true,
       fetchImpl,
       sleep: () => Promise.resolve(),
     });
@@ -302,6 +307,9 @@ describe('BOM headless 검증 도구', () => {
       'GET /api/bom/quotes/101',
       'GET /api/bom/quotes/101/items/501/candidates',
       'GET /api/bom/quotes/101/comparison?page=1&pageSize=50',
+      'PATCH /api/bom/quotes/101',
+      'GET /api/bom/quotes/101/items/501/candidates',
+      'GET /api/bom/quotes/101/comparison?page=1&pageSize=50',
     ]);
     const file = manifest.files[0];
     expect(file?.summary?.candidateCapture).toMatchObject({
@@ -310,9 +318,24 @@ describe('BOM headless 검증 도구', () => {
       failed: 0,
     });
     expect(file?.summary?.screen).toMatchObject({ total: 1, unmatched: 1 });
+    expect(file?.summary?.procurementModeComparison).toMatchObject({
+      selectedCandidateSemanticChangedCount: 0,
+      selectedOfferChangedCount: 0,
+      technicalPreselectionKeyChangedCount: 0,
+      technicalPreselectionChangedCount: 0,
+      pinnedOfferChangedCount: 0,
+    });
     expect(JSON.parse(await readFile(
       path.join(file?.artifactDirectory ?? '', 'candidates', '501.json'),
       'utf8',
     ))).toMatchObject({ result: true, data: { itemId: '501' } });
+    expect(JSON.parse(await readFile(
+      path.join(file?.artifactDirectory ?? '', 'quote-detail-sample.json'),
+      'utf8',
+    ))).toMatchObject({ data: { procurementMode: 'sample' } });
+    expect(JSON.parse(await readFile(
+      path.join(file?.artifactDirectory ?? '', 'quote-detail-mass.json'),
+      'utf8',
+    ))).toMatchObject({ data: { procurementMode: 'mass' } });
   });
 });

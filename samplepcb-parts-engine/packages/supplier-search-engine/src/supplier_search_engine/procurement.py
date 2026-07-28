@@ -17,6 +17,7 @@ from .models import (
     OfferProcurementDecision,
     OfferRecommendation,
     PlannedQuery,
+    ProcurementMode,
     ProcurementUnavailabilityReason,
     ProcurementPolicyInput,
     ProcurementReevaluationBatchItemResult,
@@ -51,6 +52,11 @@ _MISSING_SUPPLIER_IDENTIFIERS = frozenset(
         "unknown",
     }
 )
+_CUSTOM_REEL_PATTERN = re.compile(r"\b(?:digi\s*reel|mouse\s*reel|mousereel)\b")
+_NON_REEL_PATTERN = re.compile(
+    r"\b(?:cut\s*tape|cut\s*t\s*&?\s*r|bulk|tray|tube|bag|box)\b"
+)
+_REEL_PATTERN = re.compile(r"\breel\b")
 
 
 class ProcurementReevaluationError(ValueError):
@@ -73,6 +79,50 @@ class ProcurementReevaluationError(ValueError):
             "message": str(self),
             "context": self.context,
         }
+
+
+def _mass_packaging_rank(packaging: str | None) -> int:
+    """Prefer an unambiguous manufacturer reel, then a custom re-reel service.
+
+    Supplier payloads such as ``Reel, Cut Tape, MouseReel`` describe several
+    choices in one record and cannot prove which packaging the quoted price uses.
+    Those mixed values deliberately remain in the ordinary fallback tier.
+    """
+
+    if not packaging:
+        return 2
+    normalized = unicodedata.normalize("NFKC", packaging).casefold()
+    normalized = re.sub(r"[^a-z0-9&]+", " ", normalized).strip()
+    has_non_reel = _NON_REEL_PATTERN.search(normalized) is not None
+    custom_reel = _CUSTOM_REEL_PATTERN.search(normalized) is not None
+    has_reel = _REEL_PATTERN.search(normalized) is not None or custom_reel
+    if has_non_reel or not has_reel:
+        return 2
+    return 1 if custom_reel else 0
+
+
+def _packaging_preference_rank(
+    packaging: str | None,
+    mode: ProcurementMode,
+) -> int:
+    return _mass_packaging_rank(packaging) if mode == ProcurementMode.MASS else 0
+
+
+def _best_group_packaging_rank(
+    entries: list[tuple[int, int, OfferProcurementDecision]],
+    candidates: list[CandidateMatch],
+    mode: ProcurementMode,
+) -> int:
+    return min(
+        (
+            _packaging_preference_rank(
+                candidates[candidate_index].product.offers[offer_index].packaging,
+                mode,
+            )
+            for candidate_index, offer_index, _decision in entries
+        ),
+        default=2,
+    )
 
 
 _GROUP_INVARIANT_FIELDS = (
@@ -608,6 +658,7 @@ def _offer_decision(
     else:
         status = "unavailable"
     return OfferProcurementDecision(
+        procurement_mode=policy.procurement_mode,
         offer_key_version=offer_key_version,
         offer_key=offer_key,
         calculation_status=status,
@@ -645,8 +696,9 @@ def _application_group_sort_key(
     candidates: list[CandidateMatch],
     group_key: tuple[str, str],
     best_line_total: Decimal,
+    packaging_rank: int = 0,
 ) -> tuple[Any, ...]:
-    """Order fallback groups by technical safety, then effective total, never input order."""
+    """Order by technical safety, optional packaging preference, then effective total."""
 
     group = [
         candidate
@@ -708,6 +760,7 @@ def _application_group_sort_key(
         -verification_ratio,
         -decision.verified_requirement_count,
         lifecycle_order[decision.lifecycle_state.value],
+        packaging_rank,
         best_line_total,
         _stable_token(candidate.product.manufacturer),
         _stable_token(candidate.product.manufacturer_part_number),
@@ -877,6 +930,16 @@ def _validate_procurement_result(
     candidates: list[CandidateMatch],
     component: ComponentProcurementDecision,
 ) -> None:
+    if any(
+        offer.procurement_decision is None
+        or offer.procurement_decision.procurement_mode != component.procurement_mode
+        for candidate in candidates
+        for offer in candidate.product.offers
+    ):
+        raise ProcurementReevaluationError(
+            "procurement_mode_mismatch",
+            "component and offer procurement modes must match",
+        )
     recommended_offers = [
         (candidate, offer.procurement_decision)
         for candidate in candidates
@@ -1051,6 +1114,10 @@ def apply_procurement_decisions(
                         decision.excessive_order is True,
                         decision.stock_short is None,
                         decision.line_total is None,
+                        _packaging_preference_rank(
+                            offer.packaging,
+                            policy.procurement_mode,
+                        ),
                         (
                             decision.line_total
                             if decision.line_total is not None
@@ -1080,6 +1147,7 @@ def apply_procurement_decisions(
     technical_evidence_key: str | None = None
     application_group: tuple[str, str] | None = None
     price_optimization_used = False
+    packaging_preference_used = False
     catalog_selected = False
     if query.procurement_disposition.value != "eligible":
         if preselected_group is None:
@@ -1141,6 +1209,11 @@ def apply_procurement_decisions(
                 application_group = min(
                     equivalent_groups,
                     key=lambda group_key: (
+                        _best_group_packaging_rank(
+                            recommendable_entries(group_key),
+                            candidates,
+                            policy.procurement_mode,
+                        ),
                         min(
                             decision.line_total
                             for _ci, _oi, decision in recommendable_entries(
@@ -1158,8 +1231,27 @@ def apply_procurement_decisions(
                     ),
                 )
                 eligible_entries = recommendable_entries(application_group)
-                price_optimization_used = application_group != preselected_group
-                if price_optimization_used:
+                group_changed = application_group != preselected_group
+                packaging_preference_used = (
+                    group_changed
+                    and policy.procurement_mode == ProcurementMode.MASS
+                    and _best_group_packaging_rank(
+                        eligible_entries,
+                        candidates,
+                        policy.procurement_mode,
+                    )
+                    < _best_group_packaging_rank(
+                        recommendable_entries(preselected_group),
+                        candidates,
+                        policy.procurement_mode,
+                    )
+                )
+                price_optimization_used = group_changed and not packaging_preference_used
+                if packaging_preference_used:
+                    recommendation_reasons.append(
+                        "equivalent_group_reel_preferred"
+                    )
+                elif price_optimization_used:
                     recommendation_reasons.append(
                         "equivalent_group_lower_effective_total_selected"
                     )
@@ -1216,6 +1308,11 @@ def apply_procurement_decisions(
                             for _ci, _oi, decision in recommendable_entries(group_key)
                             if decision.line_total is not None
                         ),
+                        _best_group_packaging_rank(
+                            recommendable_entries(group_key),
+                            candidates,
+                            policy.procurement_mode,
+                        ),
                     ),
                 )
                 eligible_entries = recommendable_entries(application_group)
@@ -1241,6 +1338,21 @@ def apply_procurement_decisions(
                 ),
             )
             recommended_entry = (ci, oi)
+            selected_offer = candidates[ci].product.offers[oi]
+            selected_packaging_rank = _packaging_preference_rank(
+                selected_offer.packaging,
+                policy.procurement_mode,
+            )
+            if policy.procurement_mode == ProcurementMode.MASS:
+                if selected_packaging_rank < 2:
+                    packaging_preference_used = True
+                    recommendation_reasons.append(
+                        "mass_production_reel_preferred"
+                    )
+                else:
+                    recommendation_reasons.append(
+                        "mass_production_reel_unavailable"
+                    )
             selected_candidate = candidates[ci]
             if (
                 selected_candidate.decision.selection_eligibility
@@ -1379,6 +1491,7 @@ def apply_procurement_decisions(
                 ProcurementUnavailabilityReason.TECHNICAL_UNAVAILABLE
             )
     component_decision = ComponentProcurementDecision(
+        procurement_mode=policy.procurement_mode,
         status=status,
         selection_application_state=(
             SelectionApplicationState.AUTOMATIC_SELECTED
@@ -1414,9 +1527,13 @@ def apply_procurement_decisions(
             recommended_entry is not None
             and application_group != preselected_group
             and not price_optimization_used
+            and not packaging_preference_used
         ),
         price_optimization_used=(
             recommended_entry is not None and price_optimization_used
+        ),
+        packaging_preference_used=(
+            recommended_entry is not None and packaging_preference_used
         ),
         automatic_offer_key=(
             selected_offer_key

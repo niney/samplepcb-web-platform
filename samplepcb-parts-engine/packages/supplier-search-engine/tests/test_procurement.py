@@ -17,6 +17,7 @@ from supplier_search_engine.models import (
     OfferRecommendation,
     PlannedQuery,
     ProcurementDisposition,
+    ProcurementMode,
     ProcurementPolicyInput,
     ProcurementUnavailabilityReason,
     ProcurementReevaluationBatchRequest,
@@ -79,6 +80,7 @@ def product(
     url: str | None = None,
     offer_kind: OfferKind = OfferKind.SUPPLIER_OFFER,
     catalog_metadata: dict[str, object] | None = None,
+    packaging: str | None = "Cut Tape",
 ) -> SupplierProduct:
     return SupplierProduct(
         supplier=supplier,
@@ -92,7 +94,7 @@ def product(
                 supplier=supplier,
                 offer_kind=offer_kind,
                 supplier_sku=sku or f"{supplier.value}-sku",
-                packaging="Cut Tape",
+                packaging=packaging,
                 stock=stock,
                 moq=moq,
                 order_multiple=multiple,
@@ -109,13 +111,18 @@ def product(
 
 
 def policy(
-    *, allow_short=False, allow_unverified=False, rates=None
+    *,
+    allow_short=False,
+    allow_unverified=False,
+    rates=None,
+    procurement_mode: ProcurementMode = ProcurementMode.SAMPLE,
 ) -> ProcurementPolicyInput:
     return ProcurementPolicyInput(
         target_currency="KRW",
         currency_rates=rates or [],
         currency_rate_snapshot_id="fixture-2026-07-21",
         currency_rate_source="pytest",
+        procurement_mode=procurement_mode,
         allow_stock_shortage=allow_short,
         allow_unverified_stock=allow_unverified,
     )
@@ -1416,6 +1423,172 @@ def test_same_evidence_group_chooses_purchase_fit_across_suppliers():
         )
         == 1
     )
+
+
+def test_mass_mode_prefers_reel_while_sample_mode_keeps_lower_total():
+    products = [
+        product(
+            Supplier.DIGIKEY,
+            packaging="Cut Tape",
+            prices=[(1, 1, "KRW")],
+        ),
+        product(
+            Supplier.MOUSER,
+            packaging="Tape & Reel",
+            prices=[(1, 2, "KRW")],
+        ),
+    ]
+
+    sample_candidates, sample_component = decide(
+        query(quantity=10),
+        products,
+        policy(procurement_mode=ProcurementMode.SAMPLE),
+    )
+    mass_candidates, mass_component = decide(
+        query(quantity=10),
+        products,
+        policy(procurement_mode=ProcurementMode.MASS),
+    )
+    sample_selected = next(
+        candidate.product.supplier
+        for candidate in sample_candidates
+        if offer_decision(candidate).recommendation == OfferRecommendation.AUTOMATIC
+    )
+    mass_selected = next(
+        candidate.product.supplier
+        for candidate in mass_candidates
+        if offer_decision(candidate).recommendation == OfferRecommendation.AUTOMATIC
+    )
+
+    assert sample_selected == Supplier.DIGIKEY
+    assert sample_component.procurement_mode == ProcurementMode.SAMPLE
+    assert sample_component.packaging_preference_used is False
+    assert mass_selected == Supplier.MOUSER
+    assert mass_component.procurement_mode == ProcurementMode.MASS
+    assert mass_component.packaging_preference_used is True
+    assert "mass_production_reel_preferred" in (
+        mass_component.recommendation_reason_codes
+    )
+
+
+def test_mass_mode_does_not_choose_reel_when_stock_is_short():
+    candidates, component = decide(
+        query(quantity=10),
+        [
+            product(
+                Supplier.DIGIKEY,
+                packaging="Cut Tape",
+                stock=1_000,
+                prices=[(1, 2, "KRW")],
+            ),
+            product(
+                Supplier.MOUSER,
+                packaging="Reel",
+                stock=5,
+                prices=[(1, 1, "KRW")],
+            ),
+        ],
+        policy(procurement_mode=ProcurementMode.MASS),
+    )
+
+    selected = next(
+        candidate
+        for candidate in candidates
+        if offer_decision(candidate).recommendation == OfferRecommendation.AUTOMATIC
+    )
+    assert selected.product.supplier == Supplier.DIGIKEY
+    assert component.packaging_preference_used is False
+    assert "mass_production_reel_unavailable" in (
+        component.recommendation_reason_codes
+    )
+
+
+def test_mass_mode_does_not_report_reel_unavailable_without_a_recommendation():
+    _candidates, component = decide(
+        query(quantity=10),
+        [
+            product(
+                Supplier.DIGIKEY,
+                packaging="Cut Tape",
+                stock=0,
+                prices=[(1, 1, "KRW")],
+            ),
+        ],
+        policy(procurement_mode=ProcurementMode.MASS),
+    )
+
+    assert component.status == "no_recommendation"
+    assert "mass_production_reel_unavailable" not in (
+        component.recommendation_reason_codes
+    )
+
+
+def test_mass_mode_treats_custom_reel_below_manufacturer_reel_but_above_mixed_offer():
+    products = [
+        product(
+            Supplier.DIGIKEY,
+            packaging="Digi-Reel",
+            prices=[(1, 2, "KRW")],
+        ),
+        product(
+            Supplier.MOUSER,
+            packaging="Reel, Cut Tape, MouseReel",
+            prices=[(1, 1, "KRW")],
+        ),
+    ]
+    candidates, component = decide(
+        query(quantity=10),
+        products,
+        policy(procurement_mode=ProcurementMode.MASS),
+    )
+
+    selected = next(
+        candidate
+        for candidate in candidates
+        if offer_decision(candidate).recommendation == OfferRecommendation.AUTOMATIC
+    )
+    assert selected.product.supplier == Supplier.DIGIKEY
+    assert component.packaging_preference_used is True
+
+
+def test_mass_reevaluation_preserves_a_purchasable_requested_offer():
+    products = [
+        product(
+            Supplier.DIGIKEY,
+            packaging="Cut Tape",
+            prices=[(1, 1, "KRW")],
+        ),
+        product(
+            Supplier.MOUSER,
+            packaging="Tape & Reel",
+            prices=[(1, 2, "KRW")],
+        ),
+    ]
+    stored, _component = decide(
+        query(quantity=10),
+        products,
+        policy(procurement_mode=ProcurementMode.SAMPLE),
+    )
+    requested_key = next(
+        offer_decision(candidate).offer_key
+        for candidate in stored
+        if candidate.product.supplier == Supplier.DIGIKEY
+    )
+
+    result = reevaluate_procurement(
+        ProcurementReevaluationRequest(
+            component_id="procurement",
+            candidates=stored,
+            required_quantity=10,
+            procurement_policy=policy(procurement_mode=ProcurementMode.MASS),
+            requested_offer_key=requested_key,
+        )
+    )
+
+    assert result.procurement_decision.procurement_mode == ProcurementMode.MASS
+    assert result.requested_offer.status == "accepted"
+    assert result.requested_offer.requested_offer_key == requested_key
+    assert result.procurement_decision.automatic_offer_key != requested_key
 
 
 def test_multi_supplier_manual_group_only_returns_review_recommendation():

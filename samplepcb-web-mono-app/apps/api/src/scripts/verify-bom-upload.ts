@@ -22,6 +22,7 @@ interface CliOptions {
   quotePollMs: number;
   candidateConcurrency: number;
   retryPartData: boolean;
+  compareProcurementModes: boolean;
   allowLocalToken: boolean;
   localMemberId: string | null;
   showHelp: boolean;
@@ -52,6 +53,7 @@ SP BOM headless 업로드 검증
   --quote-poll-ms <ms>             견적 보강 폴링(기본: 3000, sp-vue 동일)
   --candidate-concurrency <개수>   행별 후보 조회 동시성(기본: 4)
   --no-part-data-retry             부품 정보 실패 시 화면의 재시도 동작을 생략
+  --compare-procurement-modes      한 번 업로드 후 샘플→양산 재평가와 후보 차이를 함께 캡처
   --help                           도움말
 
 폴더 입력은 지원 확장자를 재귀 탐색하고 정렬한 뒤 파일 단위로 순차 실행합니다.
@@ -78,6 +80,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     quotePollMs: 3_000,
     candidateConcurrency: 4,
     retryPartData: true,
+    compareProcurementModes: false,
     allowLocalToken: false,
     localMemberId: null,
     showHelp: false,
@@ -104,6 +107,8 @@ function parseArgs(argv: readonly string[]): CliOptions {
       options.candidateConcurrency = Math.floor(parsePositiveNumber(argv[++index], argument));
     } else if (argument === '--no-part-data-retry') {
       options.retryPartData = false;
+    } else if (argument === '--compare-procurement-modes') {
+      options.compareProcurementModes = true;
     } else if (argument === '--allow-local-token') {
       options.allowLocalToken = true;
     } else if (argument === '--local-member-id') {
@@ -185,6 +190,7 @@ async function main(): Promise<void> {
     quotePollMs: options.quotePollMs,
     candidateConcurrency: options.candidateConcurrency,
     retryPartData: options.retryPartData,
+    compareProcurementModes: options.compareProcurementModes,
     onProgress: (message) => {
       console.log(message);
     },

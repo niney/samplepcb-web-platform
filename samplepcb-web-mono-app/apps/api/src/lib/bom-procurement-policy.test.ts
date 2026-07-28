@@ -25,5 +25,7 @@ describe('BOM 엔진 조달 정책 입력', () => {
     ]);
     expect(first.currency_rate_as_of).toBe(snapshot.fetchedAt);
     expect(first.currency_rate_snapshot_id).toMatch(/^sp-node:[a-f0-9]{24}$/);
+    expect(first.procurement_mode).toBe('sample');
+    expect(buildEngineProcurementPolicy(1_326, snapshot, 'mass').procurement_mode).toBe('mass');
   });
 });

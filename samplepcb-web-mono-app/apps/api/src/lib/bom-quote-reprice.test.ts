@@ -44,13 +44,17 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-function requestBody(init: RequestInit | undefined): { components: {
-  component_id: string;
-  required_quantity: number;
-  procurement_disposition: 'eligible' | 'excluded' | 'quantity_confirmation_required';
-  quantity_resolution: 'verified' | 'conflict' | 'missing';
-  disposition_reason_codes: string[];
-}[] } {
+function requestBody(init: RequestInit | undefined): {
+  procurement_policy: { procurement_mode: 'sample' | 'mass' };
+  components: {
+    component_id: string;
+    required_quantity: number;
+    requested_offer_key: string | null;
+    procurement_disposition: 'eligible' | 'excluded' | 'quantity_confirmation_required';
+    quantity_resolution: 'verified' | 'conflict' | 'missing';
+    disposition_reason_codes: string[];
+  }[];
+} {
   // engineFetch 는 항상 JSON.stringify(...) 문자열을 body 로 넘긴다(RequestInit.body 는 다른
   // BodyInit도 허용하는 넓은 타입이라 no-base-to-string 회피를 위해 명시적으로 캐스팅한다).
   return JSON.parse(init?.body as string) as ReturnType<typeof requestBody>;
@@ -70,6 +74,9 @@ function engineCandidateJson(opts: {
   offerKey: string;
   requiredQuantity: number;
   recommendation: 'automatic' | 'manual_review' | 'none';
+  procurementMode?: 'sample' | 'mass';
+  packaging?: string;
+  purchaseFitRank?: number;
 }) {
   const unitPriceStr = String(opts.unitPrice);
   return {
@@ -114,7 +121,7 @@ function engineCandidateJson(opts: {
         {
           supplier: opts.supplier,
           supplier_sku: `${opts.supplier}-${opts.mpn}`,
-          packaging: 'Cut Tape',
+          packaging: opts.packaging ?? 'Cut Tape',
           stock: 1_000,
           moq: opts.moq,
           order_multiple: 1,
@@ -122,6 +129,7 @@ function engineCandidateJson(opts: {
           fetched_at: '2026-07-20T00:00:00.000Z',
           procurement_decision: {
             procurement_policy_version: 'supplier-procurement-decision-v1',
+            procurement_mode: opts.procurementMode ?? 'sample',
             offer_key_version: 'supplier-offer-key-v1',
             rank_scope: 'identity_and_technical_evidence',
             offer_key: opts.offerKey,
@@ -140,7 +148,7 @@ function engineCandidateJson(opts: {
             surplus_quantity: 0,
             excessive_order: false,
             price_rank: 1,
-            purchase_fit_rank: 1,
+            purchase_fit_rank: opts.purchaseFitRank ?? 1,
             purchasable: true,
             recommendation: opts.recommendation,
             reason_codes: ['fixture'],
@@ -156,10 +164,20 @@ function componentProcurementDecisionJson(opts: {
   requiredQuantity: number;
   identityKey: string;
   technicalEvidenceKey: string;
+  procurementMode?: 'sample' | 'mass';
+  packagingPreferenceUsed?: boolean;
 }) {
   return {
     procurement_policy_version: 'supplier-procurement-decision-v1',
-    selection_application_policy_version: 'supplier-selection-application-v3',
+    selection_application_policy_version: opts.procurementMode === undefined
+      ? 'supplier-selection-application-v3'
+      : 'supplier-selection-application-v4',
+    ...(opts.procurementMode === undefined
+      ? {}
+      : {
+          procurement_mode: opts.procurementMode,
+          packaging_preference_used: opts.packagingPreferenceUsed ?? false,
+        }),
     status: 'automatic_recommended',
     selection_application_state: 'automatic_selected',
     confirmation_required: false,
@@ -181,21 +199,58 @@ function componentProcurementDecisionJson(opts: {
 }
 
 /** 배치 응답의 'ok' 컴포넌트 하나(candidates + procurement_decision)를 구성한다. */
-function decisionPayloadFor(mpn: string, supplier: string, unitPrice: number, moq: number, requiredQuantity: number) {
+function decisionPayloadFor(
+  mpn: string,
+  supplier: string,
+  unitPrice: number,
+  moq: number,
+  requiredQuantity: number,
+  procurementMode?: 'sample' | 'mass',
+) {
   const identityKey = `ik1:${mpn}`;
   const technicalEvidenceKey = `ek1:${mpn}`;
   const offerKey = `ok1:${mpn}-${supplier}`;
   return {
     candidates: [engineCandidateJson({
-      mpn, supplier, unitPrice, moq, identityKey, technicalEvidenceKey, offerKey, requiredQuantity, recommendation: 'automatic',
+      mpn,
+      supplier,
+      unitPrice,
+      moq,
+      identityKey,
+      technicalEvidenceKey,
+      offerKey,
+      requiredQuantity,
+      recommendation: 'automatic',
+      ...(procurementMode === undefined ? {} : { procurementMode }),
     })],
-    procurement_decision: componentProcurementDecisionJson({ offerKey, requiredQuantity, identityKey, technicalEvidenceKey }),
+    procurement_decision: componentProcurementDecisionJson({
+      offerKey,
+      requiredQuantity,
+      identityKey,
+      technicalEvidenceKey,
+      ...(procurementMode === undefined ? {} : { procurementMode }),
+    }),
   };
 }
 
 /** DB에 저장된 것으로 취급할 자동 선정 상태를 selectEngineMatch로 만든다(검증된 경로 재사용). */
-function buildDecision(componentId: string, mpn: string, supplier: string, unitPrice: number, moq: number, needed: number) {
-  const payload = decisionPayloadFor(mpn, supplier, unitPrice, moq, needed);
+function buildDecision(
+  componentId: string,
+  mpn: string,
+  supplier: string,
+  unitPrice: number,
+  moq: number,
+  needed: number,
+  procurementMode?: 'sample' | 'mass',
+) {
+  const payload = decisionPayloadFor(
+    mpn,
+    supplier,
+    unitPrice,
+    moq,
+    needed,
+    procurementMode,
+  );
   const decision = selectEngineMatch(
     { component_id: componentId, status: 'verified_exact', candidates: payload.candidates, procurement_decision: payload.procurement_decision },
     needed,
@@ -288,6 +343,7 @@ describe('patchNeedsCandidateReprice', () => {
     expect(patchNeedsCandidateReprice({ items: [] })).toBe(true);
     expect(patchNeedsCandidateReprice({ setQty: 2 })).toBe(true);
     expect(patchNeedsCandidateReprice({ spareQty: 1 })).toBe(true);
+    expect(patchNeedsCandidateReprice({ procurementMode: 'mass' })).toBe(true);
   });
 });
 
@@ -817,6 +873,63 @@ describe('repriceCandidateSelections', () => {
     expect(engineFetchMock).toHaveBeenCalledTimes(1);
     expect(result).toHaveLength(1);
     expect(result?.[0]?.rowIdx).toBe(1); // 행 B만 — 행 A는 손대지 않았으니 재삽입 대상이 아니다.
+  });
+
+  it('양산 모드 전환은 저장 후보를 mass 정책으로 재평가하고 고객 고정 오퍼를 보존한다', async () => {
+    const stored = buildDecision(
+      'component-mode',
+      'MPN-MODE',
+      'digikey',
+      10,
+      1,
+      10,
+      'sample',
+    );
+    const item = autoSelectedItem('1', 0, 'component-mode', stored, 10);
+    item.selectionSource = 'customer';
+    if (item.selectedOffer === null) throw new Error('fixture: selected offer required');
+    item.selectedOffer = { ...item.selectedOffer, pinned: true };
+    const requestedOfferKey = item.selectedOffer.offerKey;
+    mockStoredCandidates([{ id: '1', candidate: firstSnapshot(stored) }]);
+
+    engineFetchMock.mockImplementation((_path, init) => {
+      const body = requestBody(init);
+      expect(body.procurement_policy.procurement_mode).toBe('mass');
+      expect(body.components).toHaveLength(1);
+      expect(body.components[0]?.requested_offer_key).toBe(requestedOfferKey);
+      const requiredQuantity = body.components[0]?.required_quantity;
+      if (requiredQuantity === undefined) throw new Error('fixture: required quantity missing');
+      return Promise.resolve(jsonResponse({
+        components: [{
+          component_id: 'component-mode',
+          status: 'ok',
+          ...decisionPayloadFor(
+            'MPN-MODE',
+            'digikey',
+            10,
+            1,
+            requiredQuantity,
+            'mass',
+          ),
+        }],
+      }));
+    });
+
+    const result = await repriceCandidateSelections(
+      1n,
+      [item],
+      1,
+      0,
+      null,
+      null,
+      createLog(),
+      'mass',
+    );
+
+    expect(result).toHaveLength(1);
+    expect(item.selectionSource).toBe('customer');
+    expect(item.selectedOffer.offerKey).toBe(requestedOfferKey);
+    expect(item.selectedOffer.pinned).toBe(true);
   });
 });
 
