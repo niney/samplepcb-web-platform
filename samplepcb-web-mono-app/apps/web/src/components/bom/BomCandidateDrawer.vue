@@ -1313,7 +1313,7 @@ function sourceLabel(source: BomQuoteSelectionSourceType): string {
   ) return '제조사 카탈로그 선정';
   const labels: Record<BomQuoteSelectionSourceType, string> = {
     none: '미선정',
-    auto: provisionalSelectionPending.value ? '엔진 임시 선정' : '자동 추천',
+    auto: provisionalSelectionPending.value ? '엔진 선정' : '자동 추천',
     customer: '고객 직접 선택',
     catalog: '카탈로그 직접 선택',
     admin: '관리자 선택',
@@ -1348,7 +1348,7 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
 
 function safetyClass(candidate: BomQuoteCandidateType): string {
   if (candidate.selected && provisionalSelectionPending.value) {
-    return 'border-amber-400 bg-amber-50/70 ring-2 ring-amber-200';
+    return 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-200';
   }
   if (candidate.selected) return 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-200';
   if (candidate.recommended && candidate.selectionEligibility === 'manual_review') {
@@ -2755,7 +2755,7 @@ onBeforeUnmount(() => {
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <span class="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">{{ sourceLabel(context.selectionSource) }}</span>
-                      <span v-if="provisionalSelectionPending" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">선정됨 · 검토 대기</span>
+                      <span v-if="provisionalSelectionPending" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">선정됨 · 검토 권장</span>
                       <span v-else-if="reviewSelectionConfirmed" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">검토 완료</span>
                       <span v-else-if="currentCandidate?.recommended" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">자동 추천과 동일</span>
                       <span v-else-if="currentCandidate !== null" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">추천에서 변경됨</span>
@@ -2834,11 +2834,11 @@ onBeforeUnmount(() => {
                     <p class="mt-0.5 text-xs leading-5 opacity-90">{{ procurementAvailabilityAlert.detail }}</p>
                   </div>
                 </div>
-                <div v-if="recommendedCandidate !== null && recommendedCandidate.selectionEligibility === 'manual_review'" class="mx-3 mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs" :class="reviewSelectionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-300 bg-amber-50 text-amber-950'">
+                <div v-if="recommendedCandidate !== null && recommendedCandidate.selectionEligibility === 'manual_review'" class="mx-3 mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs" :class="reviewSelectionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : provisionalSelectionPending ? 'border-blue-200 bg-blue-50 text-blue-900' : 'border-amber-300 bg-amber-50 text-amber-950'">
                   <p v-if="provisionalSelectionPending">
-                    <b>선정됨 · 검토 대기</b> {{ recommendedCandidate.mpn }} —
-                    <template v-if="context.technicalFallbackUsed">기술 1순위의 구매 가능한 오퍼가 없어 엔진이 다음 안전 후보를 임시 선정했습니다.</template>
-                    <template v-else>엔진 임시 선정으로 예상 견적에 반영했습니다.</template>
+                    <b>선정됨 · 검토 권장</b> {{ recommendedCandidate.mpn }} —
+                    <template v-if="context.technicalFallbackUsed">기술 1순위의 구매 가능한 오퍼가 없어 엔진이 다음 안전 후보를 선정했습니다.</template>
+                    <template v-else>엔진 선정으로 예상 견적에 반영했습니다.</template>
                   </p>
                   <p v-else-if="reviewSelectionConfirmed"><b>검토 완료</b> {{ recommendedCandidate.mpn }} — 사용자가 엔진 검토 권장 후보를 확인했습니다.</p>
                   <p v-else><b>검토 권장</b> {{ recommendedCandidate.mpn }} — 엔진이 실제 적용 후보로 지정했습니다.</p>
@@ -2862,7 +2862,7 @@ onBeforeUnmount(() => {
                           />
                           <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-1.5">
-                              <span v-if="candidate.selected" class="rounded-full px-2 py-0.5 text-[11px] font-bold text-white" :class="provisionalSelectionPending ? 'bg-amber-600' : 'bg-blue-600'">{{ provisionalSelectionPending ? '현재 선택 · 검토 대기' : candidateHasCatalogInquiry(candidate) ? '현재 선정 · 문의' : '현재 선택' }}</span>
+                              <span v-if="candidate.selected" class="rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-bold text-white">{{ provisionalSelectionPending ? '현재 선택 · 검토 권장' : candidateHasCatalogInquiry(candidate) ? '현재 선정 · 문의' : '현재 선택' }}</span>
                               <span
                                 v-if="recommendationLabel(candidate) !== ''"
                                 class="rounded-full px-2 py-0.5 text-[11px] font-bold"
@@ -2938,7 +2938,7 @@ onBeforeUnmount(() => {
                       </div>
                       <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs leading-5 text-amber-900">
                         <template v-if="candidateHasCatalogInquiry(candidate)"><b>제조사 카탈로그 취급:</b> 부품 식별은 확인됐지만 실제 재고와 가격은 문의 후 확정해야 합니다.</template>
-                        <template v-else-if="candidate.recommended"><b>엔진 검토 권장:</b> 구매 가능한 재고·가격을 포함해 실제 적용 후보로 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
+                        <template v-else-if="candidate.recommended"><b>엔진 검토 권장:</b> 구매 가능한 재고·가격을 포함해 실제 적용 후보로 선정했습니다. 예상 견적에는 반영되며, 필요하면 세부 근거를 확인할 수 있습니다.</template>
                         <template v-else-if="context.technicalFallbackUsed && candidate.candidateKey === technicalTopCandidate?.candidateKey"><b>기술 1순위:</b> 기술 근거상 가장 앞선 후보지만 구매 가능한 오퍼가 없어 현재 견적에는 적용하지 않았습니다.</template>
                         <template v-else-if="candidate.reviewRecommended"><b>엔진 기술 검토 1순위:</b> 기술 근거상 가장 유력하지만 구매조건을 충족하지 못해 적용 후보와 분리했습니다.</template>
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>

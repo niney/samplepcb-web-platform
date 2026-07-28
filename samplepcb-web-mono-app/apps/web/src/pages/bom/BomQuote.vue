@@ -1876,8 +1876,8 @@ function fmtAmount(v: number | null): string {
               <p v-if="uncostedCount > 0" class="mt-[9px] rounded-[5px] bg-amber-50 px-2 py-1.5 text-[10px] leading-[15px] text-amber-700">
                 금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다
               </p>
-              <p v-if="quoteStats.pendingReview > 0" class="mt-[9px] rounded-[5px] border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-semibold leading-[15px] text-amber-800">
-                선정됨 · 검토 대기 {{ quoteStats.pendingReview }}건 — 임시 선정 금액이 합계에 포함되어 있습니다
+              <p v-if="quoteStats.pendingReview > 0" class="mt-[9px] rounded-[5px] border border-blue-200 bg-blue-50 px-2 py-1.5 text-[10px] font-semibold leading-[15px] text-blue-800">
+                선정됨 · 검토 권장 {{ quoteStats.pendingReview }}건 — 선정 금액이 합계에 포함되어 있습니다
               </p>
               <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[15px] text-[#8993a2]">
                 <li>AI로 산출한 가견적입니다.</li>

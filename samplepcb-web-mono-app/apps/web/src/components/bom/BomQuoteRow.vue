@@ -213,7 +213,7 @@ const rowClass = computed(() => {
   if (quantityMissing.value) return 'bg-amber-50/70';
   if (!item.included) return 'opacity-45';
   if (severeOrderSurplus.value) return 'bg-orange-50/80';
-  if (provisionalSelectionPending.value) return 'bg-amber-50/70';
+  if (provisionalSelectionPending.value) return 'bg-white';
   if (exactIdentityWarning.value !== null) return 'bg-amber-50/40';
   if (catalogInquiry.value) return 'bg-blue-50/50';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
@@ -240,7 +240,7 @@ const evidenceTitle = computed(() => {
   }
   if (engineSearchExcluded.value) details.push('검색 제외: 엔진이 비조달 행으로 판정');
   if (severeOrderSurplus.value) details.push(`과다 주문수량: ${severeOrderSurplusLabel.value}`);
-  if (provisionalSelectionPending.value) details.push('엔진 임시 선정: 사용자 검토 대기');
+  if (provisionalSelectionPending.value) details.push('엔진 선정: 사용자 검토 권장');
   if (technicalFallbackUsed.value) details.push('기술 1순위 구매 불가: 엔진이 다음 구매 가능 후보를 적용');
   if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
   if (evidence.missingRequirements.length > 0) details.push(`누락: ${evidence.missingRequirements.join(', ')}`);
@@ -457,7 +457,7 @@ function onQtyInput(event: Event): void {
         </span>
         <span v-else-if="catalogInquiry" class="whitespace-nowrap rounded-full border border-blue-200 bg-blue-100 px-2.5 py-0.5 text-[12px] font-bold text-blue-700" :title="evidenceTitle">{{ catalogSelectionApplied ? '선정됨 · 재고/가격 문의' : '취급 가능 · 검토 필요' }}</span>
         <span v-else-if="item.matchStatus === 'none' && engineStockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">{{ engineStockStatusLabel }}</span>
-        <span v-else-if="provisionalSelectionPending" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">선정됨 · 검토 대기</span>
+        <span v-else-if="provisionalSelectionPending" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="evidenceTitle">선정됨 · 검토 권장</span>
         <span v-else-if="item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review'" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">검토 필요</span>
         <span v-else-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600" :title="evidenceTitle">미매칭</span>
         <span v-else-if="stockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">{{ stockStatusLabel }}</span>
