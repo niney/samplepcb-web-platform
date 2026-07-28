@@ -91,14 +91,18 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       <p class="absolute left-1/2 -translate-x-1/2 text-[18px] font-medium text-[#7c8698]">AI 기반 전자부품 검색 엔진</p>
 
       <div class="ml-auto flex items-center gap-[12px] pr-[18px]">
-        <button
-          type="button"
-          class="grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
-          :title="rightOpen ? '패널 접기' : '패널 펼치기'"
-          @click="rightOpen = !rightOpen"
+        <!-- sp-php 도메인 루트 홈으로 이동 — /app 내부 라우트가 아닌 전체 페이지 이동 -->
+        <a
+          href="/"
+          class="grid size-[32px] place-items-center rounded-md text-[#687386] hover:bg-gray-100 hover:text-[#2477f4]"
+          aria-label="홈으로 이동"
+          title="홈으로 이동"
         >
-          <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="rightOpen ? '-scale-x-100' : ''">
-        </button>
+          <svg viewBox="0 0 24 24" class="size-[19px]" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="m3.5 10.5 8.5-7 8.5 7" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M5.5 9.5v10h13v-10M9.5 19.5v-6h5v6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
         <!-- 관리자 콘솔 진입 — 최고관리자(cf_admin)만 노출, BOM 작업 유지를 위해 새 창 -->
         <RouterLink
           v-if="auth.me?.isAdmin"
@@ -117,6 +121,14 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
         >
           <img :src="icProfile" alt="프로필" class="size-[32px]">
         </div>
+        <button
+          type="button"
+          class="grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
+          :title="rightOpen ? '패널 접기' : '패널 펼치기'"
+          @click="rightOpen = !rightOpen"
+        >
+          <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="rightOpen ? '-scale-x-100' : ''">
+        </button>
       </div>
     </header>
 
