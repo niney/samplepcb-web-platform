@@ -1548,10 +1548,11 @@ function fmtAmount(v: number | null): string {
             >
               <span>◫</span> BOM 비교
             </button>
+            <!-- 사용자 화면에서는 숨기되 재활성화를 위해 누락조건 적용 흐름은 유지한다. -->
             <button
               v-if="isDraft && hasPassiveDefaultsOpportunity"
               type="button"
-              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 text-[13px] font-semibold text-amber-800 hover:border-amber-400 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
+              class="hidden h-[38px] items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 text-[13px] font-semibold text-amber-800 hover:border-amber-400 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
               :disabled="editingLocked"
               :title="editingLocked ? EDIT_LOCK_TITLE : '저항·MLCC의 누락 필수조건을 한 번 확인하고 다시 검색'"
               @click="openPassiveDefaults"
