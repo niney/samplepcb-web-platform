@@ -5,6 +5,7 @@ import { isSevereOrderSurplus } from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
 import BomPriceBreaks from './BomPriceBreaks.vue';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
+import statusCheckIcon from '../../assets/bom/ic-status-check.svg';
 
 // 매칭 결과 테이블의 한 행 — 컴포넌트 경계로 재렌더를 행 단위로 격리한다.
 // item 은 부모 소유의 로컬 편집 객체(참조 안정 유지) — 여기서는 읽기만, 변경은 emit.
@@ -106,12 +107,6 @@ const procurementUnavailabilitySummary = computed(() => {
       return null;
   }
 });
-
-const hasEngineCandidates = computed(() =>
-  (props.item.matchEvidence?.groupedCandidateCount ?? 0) > 0
-  || props.item.selectedCandidateKey !== null
-  || props.item.recommendedCandidateKey !== null,
-);
 
 const provisionalSelectionPending = computed(() =>
   props.item.selectionSource === 'auto'
@@ -291,6 +286,153 @@ const reasonSummary = computed(() => {
     : `안전 후보 ${String(evidence.eligibleCandidateCount)}개 중 기술 우선`;
 });
 
+interface TotalStatusPresentation {
+  label: string;
+  helperLabel: string | null;
+  toneClass: string;
+  priceClass: string;
+  title: string;
+  pulse: boolean;
+}
+
+const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
+  const item = props.item;
+  if (quantityMissing.value) {
+    return {
+      label: item.matchStatus === 'none' ? 'Review' : 'Matched',
+      helperLabel: '수량 확인 필요',
+      toneClass: item.matchStatus === 'none'
+        ? 'border border-[#dedede] bg-white text-[#ff6900]'
+        : 'border border-[#dedede] bg-white text-[#38b614]',
+      priceClass: item.matchStatus === 'none' ? 'text-[#ff6900]' : 'text-[#38b614]',
+      title: reasonSummary.value,
+      pulse: false,
+    };
+  }
+  if (severeOrderSurplus.value) {
+    return {
+      label: 'Review',
+      helperLabel: '수량 검토',
+      toneClass: 'border border-[#dedede] bg-white text-[#ff6900]',
+      priceClass: 'text-[#ff6900]',
+      title: severeOrderSurplusLabel.value,
+      pulse: false,
+    };
+  }
+  if (engineSearchExcluded.value) {
+    return {
+      label: 'Excluded',
+      helperLabel: null,
+      toneClass: 'bg-slate-200 text-slate-700',
+      priceClass: 'text-slate-500',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
+  if (item.matchStatus === 'none' && props.enriching) {
+    return {
+      label: 'Searching',
+      helperLabel: null,
+      toneClass: 'bg-blue-500/15 text-blue-600',
+      priceClass: 'text-blue-600',
+      title: '',
+      pulse: true,
+    };
+  }
+  if (catalogInquiry.value) {
+    const selected = catalogSelectionApplied.value;
+    return {
+      label: selected ? 'Matched' : 'Review',
+      helperLabel: selected ? '재고·가격 문의' : '취급 가능',
+      toneClass: selected
+        ? 'border border-[#dedede] bg-white text-[#38b614]'
+        : 'border border-[#dedede] bg-white text-[#ff6900]',
+      priceClass: selected ? 'text-[#38b614]' : 'text-[#ff6900]',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
+  if (item.matchStatus === 'none' && engineStockStatusLabel.value !== null) {
+    const stockUnverified = procurementUnavailabilityReason.value === 'stock_unverified';
+    const insufficientStock = procurementUnavailabilityReason.value === 'insufficient_stock';
+    return {
+      label: stockUnverified ? 'Unmatched' : 'No Stock',
+      helperLabel: stockUnverified
+        ? '재고 확인 필요'
+        : insufficientStock ? '재고 부족' : null,
+      toneClass: stockUnverified
+        ? 'bg-[#ff5873]/15 text-[#ff5873]'
+        : 'bg-[#d5c724]/15 text-[#d2c000]',
+      priceClass: stockUnverified ? 'text-[#ff5873]' : 'text-[#d2c000]',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
+  if (provisionalSelectionPending.value) {
+    return {
+      label: 'Matched',
+      helperLabel: '검토 대기',
+      toneClass: 'border border-[#dedede] bg-white text-[#38b614]',
+      priceClass: 'text-[#38b614]',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
+  if (item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review') {
+    return {
+      label: 'Review',
+      helperLabel: '검토 필요',
+      toneClass: 'border border-[#dedede] bg-white text-[#ff6900]',
+      priceClass: 'text-[#ff6900]',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
+  if (item.matchStatus === 'none') {
+    return {
+      label: 'Unmatched',
+      helperLabel: null,
+      toneClass: 'bg-[#ff5873]/15 text-[#ff5873]',
+      priceClass: 'text-[#ff5873]',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
+  if (stockStatusLabel.value !== null) {
+    const stockUnverified = stockStatusLabel.value === '재고 확인 필요';
+    return {
+      label: stockUnverified ? 'Matched' : 'No Stock',
+      helperLabel: stockStatusLabel.value === '재고 부족' || stockUnverified
+        ? stockStatusLabel.value
+        : null,
+      toneClass: stockUnverified
+        ? 'border border-[#dedede] bg-white text-[#38b614]'
+        : 'bg-[#d5c724]/15 text-[#d2c000]',
+      priceClass: stockUnverified ? 'text-[#38b614]' : 'text-[#d2c000]',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
+  if (item.selectedOffer !== null) {
+    return {
+      label: 'Matched',
+      helperLabel: item.selectionSource === 'customer' ? '고객 선택 완료' : null,
+      toneClass: 'bg-[#01bd46]/15 text-[#38b614]',
+      priceClass: 'text-[#38b614]',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
+  return {
+    label: 'Matched',
+    helperLabel: '가격 확인 필요',
+    toneClass: 'border border-[#dedede] bg-white text-[#38b614]',
+    priceClass: 'text-[#38b614]',
+    title: evidenceTitle.value,
+    pulse: false,
+  };
+});
+
 const sourceRowText = computed(() => {
   const value = props.item.sourceRow?.sourceRows;
   const rows = Array.isArray(value)
@@ -316,10 +458,6 @@ const partLabel = computed(() => {
   const sourceValue = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
   return sourceValue ?? (description !== '' ? description : '품번 미기재');
 });
-
-function fmtWon(v: number | null): string {
-  return v === null ? '—' : `${v.toLocaleString('ko-KR')}원`;
-}
 
 function onQtyInput(event: Event): void {
   const raw = Number((event.target as HTMLInputElement).value);
@@ -446,23 +584,24 @@ function onQtyInput(event: Event): void {
       </p>
     </td>
     <!-- TOTAL: 기존 매칭 배지(Found 대체) + 합계 -->
-    <td class="w-[140px] min-w-[132px] px-2 py-3 text-right">
-      <div class="flex flex-col items-end gap-1.5 pt-1">
-        <!-- 보강 진행 중엔 "확인 중"(파랑) — 빨간 미매칭은 보강이 끝난 뒤의 최종 판정 -->
-        <span v-if="quantityMissing" class="whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="reasonSummary">{{ item.matchStatus === 'none' ? '수량 확인 필요' : '선정됨 · 수량 확인 필요' }}</span>
-        <span v-else-if="severeOrderSurplus" class="rounded-full border border-orange-300 bg-orange-100 px-2.5 py-0.5 text-[12px] font-bold text-orange-800" :title="severeOrderSurplusLabel">수량 검토</span>
-        <span v-else-if="engineSearchExcluded" class="rounded-full bg-slate-200 px-2.5 py-0.5 text-[12px] font-bold text-slate-700" :title="evidenceTitle">검색 제외</span>
-        <span v-else-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
-          <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
+    <td class="w-[140px] min-w-[132px] px-2 py-3 text-center">
+      <div class="flex flex-col items-center gap-1.5 pt-1">
+        <!-- 내부 판정 우선순위는 유지하고 Figma의 보조 설명 + 영문 상태 pill로 표현한다. -->
+        <span
+          v-if="totalStatusPresentation.helperLabel !== null"
+          class="inline-flex h-[14px] items-center justify-center gap-px whitespace-nowrap text-[10px] font-medium leading-[14px] text-[#6a7385]"
+        >
+          <img :src="statusCheckIcon" alt="" class="size-[10px] shrink-0">
+          {{ totalStatusPresentation.helperLabel }}
         </span>
-        <span v-else-if="catalogInquiry" class="whitespace-nowrap rounded-full border border-blue-200 bg-blue-100 px-2.5 py-0.5 text-[12px] font-bold text-blue-700" :title="evidenceTitle">{{ catalogSelectionApplied ? '선정됨 · 재고/가격 문의' : '취급 가능 · 검토 필요' }}</span>
-        <span v-else-if="item.matchStatus === 'none' && engineStockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">{{ engineStockStatusLabel }}</span>
-        <span v-else-if="provisionalSelectionPending" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="evidenceTitle">선정됨 · 검토 권장</span>
-        <span v-else-if="item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review'" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">검토 필요</span>
-        <span v-else-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600" :title="evidenceTitle">미매칭</span>
-        <span v-else-if="stockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">{{ stockStatusLabel }}</span>
-        <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#38b614]" :title="evidenceTitle">매칭</span>
-        <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="evidenceTitle">가격 확인 필요</span>
+        <span
+          class="inline-flex min-h-[30px] items-center justify-center gap-1 whitespace-nowrap rounded-[50px] px-[10px] py-[2px] text-[13px] font-medium leading-[24px]"
+          :class="totalStatusPresentation.toneClass"
+          :title="totalStatusPresentation.title"
+        >
+          <span v-if="totalStatusPresentation.pulse" class="size-1.5 animate-pulse rounded-full bg-blue-500" />
+          {{ totalStatusPresentation.label }}
+        </span>
         <span
           v-if="exactIdentityWarning !== null"
           class="rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-800"
@@ -480,8 +619,11 @@ function onQtyInput(event: Event): void {
         >공급사 한도 미검색</span>
         <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="evidenceTitle">일부 확인 필요</span>
         <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
-        <span class="text-[14px] font-bold tabular-nums" :class="item.lineTotalKrw === null ? catalogInquiry ? 'text-blue-700' : 'text-gray-300' : 'text-[#38b614]'">
-          {{ item.lineTotalKrw === null ? catalogInquiry ? '문의 견적' : '—' : fmtWon(Math.round(item.lineTotalKrw)) }}
+        <span class="text-[14px] leading-normal tabular-nums" :class="totalStatusPresentation.priceClass">
+          <template v-if="item.lineTotalKrw !== null">
+            <b>{{ Math.round(item.lineTotalKrw).toLocaleString('ko-KR') }}</b><span class="font-normal">원</span>
+          </template>
+          <span v-else class="font-normal">{{ catalogInquiry ? '문의 견적' : '—' }}</span>
         </span>
         <span v-if="item.selectedOffer !== null && item.selectedOffer.currency !== 'KRW'" class="text-[10px] text-gray-400">
           {{ item.selectedOffer.unitPriceKrw === null ? '환산 불가' : `단가 ≈₩${item.selectedOffer.unitPriceKrw.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}` }}
@@ -490,11 +632,10 @@ function onQtyInput(event: Event): void {
     </td>
     <!-- 후보 비교와 전체 카탈로그 변경은 한 드로어의 다른 진입점. 제외는 실제 삭제가 아니라 견적 제외. -->
     <td class="px-2 py-3">
-      <div v-if="isDraft" class="flex flex-col gap-[5px] pt-1">
+      <div v-if="isDraft" class="flex flex-col gap-[6px]">
         <button
           type="button"
-          class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
-          :class="hasEngineCandidates ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'"
+          class="h-[24px] w-[70px] rounded-[4px] bg-[#5f6777] text-[13px] font-medium text-white transition hover:bg-[#4f5867] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#5f6777]"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '엔진 선정 이유·가격·차순위 후보 비교'"
           @click="emit('open-candidates')"
@@ -503,15 +644,14 @@ function onQtyInput(event: Event): void {
         </button>
         <button
           type="button"
-          class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
-          :class="hasEngineCandidates ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50' : 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'"
+          class="h-[24px] w-[70px] rounded-[4px] border border-[#d3d5dc] bg-white text-[13px] font-medium text-[#4c4c4c] transition hover:bg-[#f8f8f8] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '전체 카탈로그에서 다른 부품 검색'"
           @click="emit('open-search')"
         >
           부품 변경
         </button>
-        <button type="button" class="h-[24px] w-[88px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[11px] font-medium text-[#4c4c4c] hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
+        <button type="button" class="h-[24px] w-[70px] rounded-[4px] border border-[#d3d5dc] bg-[#f4f4f4] text-[13px] font-medium text-[#4c4c4c] transition hover:bg-[#e9e9e9] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f4f4f4]" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
       </div>
     </td>
   </tr>
