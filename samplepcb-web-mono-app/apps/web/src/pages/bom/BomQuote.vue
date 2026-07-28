@@ -2,8 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
-import { ApiRequestError } from '@sp/shared';
+import { ApiRequestError, apiGetBlob } from '@sp/shared';
 import {
+  apiRoutes,
   type BomQuoteDetailResponseType,
   type BomQuoteDetailType,
   type BomQuoteItemType,
@@ -48,11 +49,13 @@ import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
+import icDownloadOutline from '../../assets/bom/ic-download-outline.svg';
 import icFile from '../../assets/bom/ic-file.svg';
 import icPanelAi from '../../assets/bom/ic-panel-ai.svg';
 import icPanelNostock from '../../assets/bom/ic-panel-nostock.svg';
 import icPanelOrder from '../../assets/bom/ic-panel-order.svg';
 import icPanelQuote from '../../assets/bom/ic-panel-quote.svg';
+import icUploadOutline from '../../assets/bom/ic-upload-outline.svg';
 
 // 고객 스마트 BOM 견적 워크벤치 — Figma "02 BOM 파일 분석_검색 결과"(87:12875) 레이아웃에
 // 기존 기능(자동저장·오퍼/부품 모달·자동 보강·견적요청)을 병합. 사용자 지시:
@@ -499,7 +502,6 @@ const hasPassiveDefaultsOpportunity = computed(() => (
 ));
 
 const itemsTotal = computed(() => quoteStats.value.itemsTotal);
-const uncostedCount = computed(() => quoteStats.value.uncosted);
 const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee ?? 0) + (detail.value?.managementFee ?? 0));
 
 // ── 조용한 자동 보강 상태 — 서버 영속 enrichStatus 가 단일 진실 ─────────────────
@@ -1346,6 +1348,30 @@ async function onDelete(): Promise<void> {
   }
 }
 
+const downloadPending = ref(false);
+const downloadError = ref('');
+
+async function downloadOriginal(): Promise<void> {
+  if (downloadPending.value || quoteId.value === '') return;
+  downloadPending.value = true;
+  downloadError.value = '';
+  try {
+    const blob = await apiGetBlob(
+      `${apiRoutes.bom}/quotes/${encodeURIComponent(quoteId.value)}/file`,
+    );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = detail.value?.fileName ?? 'bom.xlsx';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    downloadError.value = '원본 BOM을 내려받지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  } finally {
+    downloadPending.value = false;
+  }
+}
+
 // ── 표시 헬퍼 ────────────────────────────────────────────────────────────────
 const STATUS_LABEL: Record<string, string> = {
   draft: '작성 중',
@@ -1470,15 +1496,25 @@ function fmtAmount(v: number | null): string {
               <h1 class="text-[19px] font-bold text-[#061023]">{{ detail.fileName ?? detail.title }}</h1>
               <button
                 type="button"
-                class="flex h-[30px] items-center gap-1 rounded-md border border-[#1e64fd] px-2.5 text-[13px] font-semibold text-[#1e64fd] hover:bg-blue-50"
+                class="flex h-8 w-[82px] shrink-0 items-center justify-center gap-1 rounded-md border border-[#4798ff] bg-white text-[14px] font-bold leading-6 text-[#4798ff] hover:bg-[#f4f8ff]"
                 title="새 BOM 업로드"
                 @click="router.push({ name: 'bom' })"
               >
-                <span class="text-[14px]">↥</span> 업로드
+                <img :src="icUploadOutline" alt="" class="size-[15px] shrink-0"> 업로드
+              </button>
+              <button
+                type="button"
+                class="flex h-8 w-[95px] shrink-0 items-center justify-center gap-1 rounded-md border border-[#4798ff] bg-white text-[14px] font-bold leading-6 text-[#4798ff] hover:bg-[#f4f8ff] disabled:cursor-wait disabled:opacity-60"
+                :disabled="downloadPending"
+                :title="downloadPending ? '원본 BOM 다운로드 중' : '원본 BOM 다운로드'"
+                @click="downloadOriginal"
+              >
+                <img :src="icDownloadOutline" alt="" class="size-[15px] shrink-0"> {{ downloadPending ? '준비 중' : '다운로드' }}
               </button>
               <span class="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{{ STATUS_LABEL[detail.status] }}</span>
               <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">가격·재고 확인 완료 — 최신 결과로 갱신되었습니다</span>
             </div>
+            <p v-if="downloadError !== ''" class="mt-1 pl-6 text-xs text-red-600">{{ downloadError }}</p>
             <div class="mt-1 flex flex-wrap items-center gap-1.5 pl-6 text-[13px] text-[#5f6777]">
               <span>{{ quoteStats.total }}개 부품</span>
               <span v-if="showResultSheetTabs" class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{{ selectedResultSheets.length }}개 시트</span>
@@ -1873,12 +1909,6 @@ function fmtAmount(v: number | null): string {
                 <span class="text-[12px] font-medium text-[#263248]">최종합계 <span class="text-[10px] font-normal text-[#8a95a6]">(VAT 별도)</span></span>
                 <span class="absolute bottom-[11px] right-[11px] text-[20px] font-bold leading-[22px] tabular-nums text-[#287cff]">{{ fmtAmount(finalTotal) }}<small class="ml-[3px] text-[11px] font-semibold">원</small></span>
               </div>
-              <p v-if="uncostedCount > 0" class="mt-[9px] rounded-[5px] bg-amber-50 px-2 py-1.5 text-[10px] leading-[15px] text-amber-700">
-                금액 미산정 라인 {{ uncostedCount }}건 — 미매칭이거나 환산 불가한 통화입니다
-              </p>
-              <p v-if="quoteStats.pendingReview > 0" class="mt-[9px] rounded-[5px] border border-blue-200 bg-blue-50 px-2 py-1.5 text-[10px] font-semibold leading-[15px] text-blue-800">
-                선정됨 · 검토 권장 {{ quoteStats.pendingReview }}건 — 선정 금액이 합계에 포함되어 있습니다
-              </p>
               <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[15px] text-[#8993a2]">
                 <li>AI로 산출한 가견적입니다.</li>
                 <li>정확한 가격은 담당자 확정 시 안내드립니다.</li>

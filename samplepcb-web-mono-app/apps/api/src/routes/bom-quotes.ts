@@ -31,7 +31,7 @@ import {
 import { neededQty, stampOrderQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
 import { collectMultipart } from '../lib/market';
-import { deleteFromFileServer, uploadToFileServer } from '../lib/file-server';
+import { deleteFromFileServer, downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
 import {
   decideAutomaticSupplierSearch,
@@ -108,7 +108,7 @@ import {
 // ── /api/bom/quotes — 고객(회원) BOM 견적 CRUD (설계: docs/BOM_QUOTE.md) ─────
 // 업로드(견적+엔진 잡 생성) → build(파싱 결과→라인+필요수량) → 공급사 검색
 // 결과 반영(엔진 기술·구매조건 판단) → 검토(PATCH 자동저장) → request(동결).
-// 원본 파일은 파일서버(serviceType 'bom')+sp_file 로 보존 — 관리자 다운로드용.
+// 원본 파일은 파일서버(serviceType 'bom')+sp_file 로 보존 — 고객 본인과 관리자 다운로드용.
 
 const IdParams = z.object({ id: z.coerce.bigint() });
 const ItemParams = IdParams.extend({ itemId: z.coerce.bigint() });
@@ -1162,6 +1162,25 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       void healCatalogPreparation(quote.id, quote.activeSupplierSearchRunId, request.log);
     }
     return { result: true as const, data: await toDetailDto(quote, quote.items, quote.sheets) };
+  });
+
+  // 원본 BOM 다운로드 — 견적 소유권을 먼저 확인하고 pathToken은 클라이언트에 노출하지 않는다.
+  fastify.get('/bom/quotes/:id/file', { schema: { params: IdParams } }, async (request, reply) => {
+    const quote = await prisma.spBomQuote.findUnique({
+      where: { id: request.params.id },
+      select: { id: true, mbId: true },
+    });
+    if (quote?.mbId !== request.user.mbId) return reply.notFound('견적을 찾을 수 없습니다');
+    const file = await prisma.spFile.findFirst({
+      where: { refType: FILE_REF_TYPE, refId: quote.id },
+    });
+    if (file === null) return reply.notFound('원본 파일이 없습니다');
+    const downloaded = await downloadFromFileServer(file.pathToken);
+    if (downloaded === null) return reply.notFound('파일서버에서 파일을 찾을 수 없습니다');
+    return reply
+      .header('content-type', downloaded.contentType)
+      .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.originFileName)}`)
+      .send(downloaded.buffer);
   });
 
   // 후보 비교·부품 변경용 DB/검색 색인 준비 재시도. 사용자 화면에서는 내부 용어 대신
