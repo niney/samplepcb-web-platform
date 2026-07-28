@@ -7,6 +7,8 @@ export interface AdminMenuItem {
   to: RouteLocationRaw;
   labelKey: string;
   badge?: 'rfqCount';
+  /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
+  activeRouteNames?: readonly string[];
 }
 
 // 실제 존재하는 기능만 노출한다 — 미구현 메뉴(주문/상품/통계/설정)는 기능 추가 시
@@ -21,7 +23,12 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },
   { to: { name: 'admin-market-contracts' }, labelKey: 'admin.menu.marketContracts' },
   { to: { name: 'admin-market-settings' }, labelKey: 'admin.menu.marketSettings' },
-  { to: { name: 'admin-bom' }, labelKey: 'admin.menu.bom' },
+  {
+    to: { name: 'admin-bom' },
+    labelKey: 'admin.menu.bom',
+    // admin-bom 자체는 RouterLink exact-active가 처리하고 상세 형제 라우트만 보완한다.
+    activeRouteNames: ['admin-bom-quote'],
+  },
   { to: { name: 'admin-bom-quotes' }, labelKey: 'admin.menu.bomQuotes' },
   { to: { name: 'admin-parts' }, labelKey: 'admin.menu.parts' },
   { to: { name: 'admin-slides' }, labelKey: 'admin.menu.slides' },

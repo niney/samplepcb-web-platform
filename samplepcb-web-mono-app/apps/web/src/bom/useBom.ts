@@ -28,7 +28,7 @@ import {
 } from '@sp/api-contract';
 
 // 고객 스마트 BOM — /api/bom (회원). 잡 폴링·견적 CRUD·카탈로그 검색 vue-query 훅.
-// 관리자 useAdminBom 과 같은 폴링 관례(running 1.5s), 견적 변경은 ['bom'] 무효화.
+// 파싱 잡은 running 동안 1.5초 폴링하며, 견적 변경은 ['bom'] 무효화.
 
 const base = apiRoutes.bom;
 

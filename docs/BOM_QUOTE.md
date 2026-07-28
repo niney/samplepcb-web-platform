@@ -336,6 +336,13 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
 - 고객: `/app/bom`(업로드), `/app/bom/history`(내 견적 전체 목록), `/app/bom/:id`(워크벤치 —
   좌 결과 테이블+우 주문 패널, 레거시 기본 구조). sp-vue 에 **일반(회원) 라우트 그룹 신설** — "sp-vue=관리자 전용"
   전제 공식 변경(router.ts 주석). `meta.requiresMember` 가드 = 그누보드 로그인 왕복.
+- 관리자 BOM: `/app/admin/bom`과 `/app/admin/bom/:id`는 2026-07-28 시점 고객 업로드·
+  워크벤치를 페이지·표시 컴포넌트·에셋·라우트까지 별도로 복제한 독립 스냅샷이다. 기존
+  `AdminLayout`의 왼쪽 관리자 패널은 유지하되 고객 `BomLayout`의 BOM·검색·최근 파일
+  사이드바는 사용하지 않으므로, 일반 화면의 후속 UI 변경이 관리자 작업 화면에 전파되지
+  않는다. API 계약·저장 훅은 같은 견적 원본을 다루기 위해 공통으로 유지하며, 업로드는 같은
+  `POST /api/bom/quotes`로 관리자 계정 소유 draft를 만든 뒤 `/app/admin/bom/:id`로 이동한다.
+  기존 관리자 원시 잡 UI는 제거하고 `/app/admin/bom-quotes` 검토 화면은 유지한다.
 - 워크북에 BOM으로 인식된 시트가 하나면 자동 선택하고, 둘 이상이면 계산 전 체크박스
   다중 선택 단계를 표시한다. `not_bom`·`error` 시트는 사유와 함께 비활성화한다. 선택값은
   `sp_bom_quote_sheet`, 전체 추출 정본은 분석 run/sheet/component에 영속한다.
@@ -478,6 +485,9 @@ Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(node 87:9037)를 픽셀 충실도 �
 - `pages/bom/BomHome.vue`: 토글 · 드래그&드롭 카드(그라데이션+글로우+로고+Select file,
   선택 즉시 업로드→분석 이동 — 시안에 시작 버튼 없음) · 헤드라인 · 공급사 필 3종
   (사용자 지시: UNIKEY·DigiKey·MOUSER만).
+- `pages/admin/AdminBomUpload.vue`, `AdminBomQuote.vue`: 위 고객 업로드·워크벤치 화면의
+  2026-07-28 관리자 전용 스냅샷. `components/admin/bom/`과 `assets/admin/bom/`도 분리해
+  이후 고객 UI 개편이 관리자 BOM 화면에 전파되지 않는다.
 - 에셋: `assets/bom/`(Figma 익스포트 커밋 — 아이콘 SVG는 라이트용 재색상, 로고는 그라데이션
   베이크드 크롭(블렌드모드가 img 내 검은 backdrop과 합성되는 문제 회피), 공급사 필은 합성 렌더 2x).
 - 업로드 한도 30MB→50MB(시안 카피 정합, 서버 동기).

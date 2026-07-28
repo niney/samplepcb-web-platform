@@ -8,7 +8,7 @@ import {
   useAdminBomQuotes,
   usePatchAdminBomQuote,
 } from '../../admin/useAdminBomQuotes';
-import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
+import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
 
 // 고객 BOM 견적요청 검토(1차 최소 화면) — 목록(상태 탭)·상세·상태 전이·확정가·메모·원본
 // 다운로드. 협력사 RFQ·발주·선적 풀 워크벤치는 이 데이터 모델 위에서 후속(docs/BOM_QUOTE.md).

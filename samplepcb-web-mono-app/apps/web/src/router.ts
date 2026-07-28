@@ -16,10 +16,7 @@ import AdminMembers from './pages/admin/AdminMembers.vue';
 import AdminSettings from './pages/admin/AdminSettings.vue';
 import AdminSlides from './pages/admin/AdminSlides.vue';
 import AdminSeo from './pages/admin/AdminSeo.vue';
-import AdminBom from './pages/admin/AdminBom.vue';
-import AdminBomQuotes from './pages/admin/AdminBomQuotes.vue';
 import AdminParts from './pages/admin/AdminParts.vue';
-import AdminBomJob from './pages/admin/AdminBomJob.vue';
 import AdminMarketExperts from './pages/admin/AdminMarketExperts.vue';
 import AdminMarketProjects from './pages/admin/AdminMarketProjects.vue';
 import AdminMarketContracts from './pages/admin/AdminMarketContracts.vue';
@@ -33,6 +30,8 @@ declare module 'vue-router' {
     requiresMember?: boolean;
     /** 넓은 본문 레이아웃(BOM 워크벤치 등 테이블 중심 화면). */
     wide?: boolean;
+    /** 관리자 셸의 기본 본문 여백을 제거하고 페이지가 전체 높이를 사용한다. */
+    adminContentFlush?: boolean;
   }
 }
 
@@ -76,10 +75,24 @@ const routes: RouteRecordRaw[] = [
       { path: 'market/settings', name: 'admin-market-settings', component: AdminMarketSettings },
       { path: 'slides', name: 'admin-slides', component: AdminSlides },
       { path: 'seo', name: 'admin-seo', component: AdminSeo },
-      { path: 'bom', name: 'admin-bom', component: AdminBom },
-      { path: 'bom-quotes', name: 'admin-bom-quotes', component: AdminBomQuotes },
+      {
+        path: 'bom',
+        name: 'admin-bom',
+        component: () => import('./pages/admin/AdminBomUpload.vue'),
+        meta: { adminContentFlush: true },
+      },
+      {
+        path: 'bom/:id',
+        name: 'admin-bom-quote',
+        component: () => import('./pages/admin/AdminBomQuote.vue'),
+        meta: { adminContentFlush: true },
+      },
+      {
+        path: 'bom-quotes',
+        name: 'admin-bom-quotes',
+        component: () => import('./pages/admin/AdminBomQuotes.vue'),
+      },
       { path: 'parts', name: 'admin-parts', component: AdminParts },
-      { path: 'bom/:id', name: 'admin-bom-job', component: AdminBomJob },
       { path: 'settings', name: 'admin-settings', component: AdminSettings },
     ],
   },
