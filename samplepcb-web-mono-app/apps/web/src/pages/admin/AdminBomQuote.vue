@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
+import { useVirtualizer } from '@tanstack/vue-virtual';
 import { ApiRequestError } from '@sp/shared';
 import {
   type BomQuoteDetailResponseType,
@@ -598,6 +599,43 @@ function scrollResultsToTop(): void {
   void nextTick(() => {
     if (resultsScrollEl.value !== null) resultsScrollEl.value.scrollTop = 0;
   });
+}
+
+// 결과 행 가상 스크롤 — 화면에 보이는 행(+ overscan)만 DOM 에 둔다. 행 하나가 50여 노드라
+// 수백 행이면 리사이즈·스크롤마다 그 전부를 다시 레이아웃하느라 버벅였다.
+// 행 높이는 가격구간 확장·수량 확인 버튼·상태 배지 수에 따라 달라서 고정값을 쓸 수 없고,
+// estimateSize 는 첫 배치용 추정치일 뿐 실제 높이는 measureRow 가 ResizeObserver 로 잰다.
+const ROW_ESTIMATED_HEIGHT = 128;
+
+const rowVirtualizer = useVirtualizer(computed(() => {
+  // 스크롤 요소를 여기서 꺼내 둬야 이 computed 의 의존성으로 등록된다. getScrollElement 안에서만
+  // 읽으면 ref 가 null → 요소로 바뀌어도 옵션이 갱신되지 않아 스크롤에 반응하지 않는다.
+  const scrollElement = resultsScrollEl.value;
+  return {
+    count: filteredItems.value.length,
+    getScrollElement: () => scrollElement,
+    estimateSize: () => ROW_ESTIMATED_HEIGHT,
+    overscan: 6,
+    getItemKey: (index: number) => filteredItems.value[index]?.id ?? index,
+  };
+}));
+
+// 가상 행과 실제 항목을 짝지어 둔다 — 목록이 줄어드는 순간의 인덱스 불일치를 여기서 흡수한다.
+const virtualRowItems = computed(() => rowVirtualizer.value.getVirtualItems().flatMap((row) => {
+  const item = filteredItems.value[row.index];
+  return item === undefined ? [] : [{ row, item }];
+}));
+
+// 위아래 여백은 스페이서 행으로 채운다 — table-fixed 라 열 폭은 렌더된 행 수와 무관하다.
+const virtualPaddingTop = computed(() => virtualRowItems.value[0]?.row.start ?? 0);
+const virtualPaddingBottom = computed(() => {
+  const last = virtualRowItems.value.at(-1);
+  return last === undefined ? 0 : rowVirtualizer.value.getTotalSize() - last.row.end;
+});
+
+function measureRow(el: unknown): void {
+  const dom = el !== null && typeof el === 'object' && '$el' in el ? el.$el : el;
+  if (dom instanceof HTMLElement) rowVirtualizer.value.measureElement(dom);
 }
 
 function selectResultSheet(key: ResultSheetFilter): void {
@@ -1672,21 +1710,29 @@ function fmtAmount(v: number | null): string {
               </tr>
             </thead>
             <tbody>
+              <tr v-if="virtualPaddingTop > 0" aria-hidden="true">
+                <td colspan="7" :style="{ height: `${String(virtualPaddingTop)}px` }" />
+              </tr>
               <BomQuoteRow
-                v-for="item in filteredItems"
-                :key="item.id"
-                :item="item"
-                :needed="neededQty(item.bomQty, setQty, spareQty)"
+                v-for="entry in virtualRowItems"
+                :key="entry.item.id"
+                :ref="measureRow"
+                :data-index="entry.row.index"
+                :item="entry.item"
+                :needed="neededQty(entry.item.bomQty, setQty, spareQty)"
                 :is-draft="isDraft"
                 :editing-locked="editingLocked"
                 :enriching="enriching"
-                @toggle-include="toggleInclude(item)"
-                @qty-change="onRowQtyChange(item, $event)"
-                @confirm-quantity="confirmQuantity(item, $event)"
-                @open-offers="openQuoteOfferModal(item)"
-                @open-candidates="openCandidateDrawer(item)"
-                @open-search="openCatalogSearchDrawer(item)"
+                @toggle-include="toggleInclude(entry.item)"
+                @qty-change="onRowQtyChange(entry.item, $event)"
+                @confirm-quantity="confirmQuantity(entry.item, $event)"
+                @open-offers="openQuoteOfferModal(entry.item)"
+                @open-candidates="openCandidateDrawer(entry.item)"
+                @open-search="openCatalogSearchDrawer(entry.item)"
               />
+              <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
+                <td colspan="7" :style="{ height: `${String(virtualPaddingBottom)}px` }" />
+              </tr>
               <tr v-if="filteredItems.length === 0">
                 <td colspan="7" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
               </tr>
