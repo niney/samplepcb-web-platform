@@ -5,4 +5,11 @@
   --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui,
     "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji";
+
+  /* BOM 상세(일반·관리자)의 좌우 2단 배치 전환점.
+     좌 사이드바(220~240) + 결과 테이블 최소폭(1024) + 우 패널(286) + 여백/갭 ≈ 1,626px 이
+     실제 필요 폭이라, xl(1280)에서 전환하면 1,280~1,626 구간 내내 공간이 모자란 채
+     좌우 배치가 유지된다. 그 구간에서 리사이즈하면 가로 스크롤·열 너비·행 높이·sticky 헤더가
+     매 프레임 함께 재계산돼 버벅인다. 스크롤바까지 감안해 1,660px 에서 전환한다. */
+  --breakpoint-bomwide: 1660px;
 }

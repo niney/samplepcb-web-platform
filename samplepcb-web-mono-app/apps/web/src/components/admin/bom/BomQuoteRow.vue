@@ -417,7 +417,8 @@ function onQtyInput(event: Event): void {
         </div>
       </div>
     </td>
-    <td class="min-w-[140px] max-w-[220px] px-2 py-3 pt-[42px]">
+    <!-- 폭은 표의 colgroup 이 정한다(table-fixed) — 여기서 다시 제한하면 남는 폭을 못 쓴다 -->
+    <td class="px-2 py-3 pt-[42px]">
       <p class="truncate text-[12px] leading-[16px] text-[#8e97a5]" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->

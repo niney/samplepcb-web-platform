@@ -1485,7 +1485,7 @@ function fmtAmount(v: number | null): string {
     </section>
 
     <!-- 워크벤치 — 시안(87:12875): 좌 매칭 결과 테이블(내부 스크롤) + 우 정보 패널(고정) -->
-    <div v-else-if="detail && detail.buildStatus === 'ready'" class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 xl:flex-row xl:overflow-visible">
+    <div v-else-if="detail && detail.buildStatus === 'ready'" class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 bomwide:flex-row bomwide:overflow-visible">
       <!-- 좌: 파일명·액션(고정) + 테이블(내부 스크롤) -->
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
         <!-- file name + 액션 (87:13178~) -->
@@ -1683,17 +1683,29 @@ function fmtAmount(v: number | null): string {
         </div>
 
         <!-- 테이블 (list01 스타일) — 이 영역만 내부 스크롤, 헤더는 sticky -->
-        <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white">
-          <table id="bom-results-table" class="min-w-[1024px] w-full" :aria-busy="editingLocked">
+        <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-gray-200 bg-white [contain:layout_paint]">
+          <!-- table-fixed — auto 레이아웃은 폭이 바뀔 때마다 모든 행의 셀 내용을 다시 측정해서
+               행이 많아지면 리사이즈가 눈에 띄게 버벅인다. 열 폭은 아래 colgroup 이 단일 소스이고,
+               값은 각 td 의 좌우 padding 까지 포함한 실제 필요 폭이다(합 884 + Description 140 = 1024). -->
+          <table id="bom-results-table" class="min-w-[1024px] w-full table-fixed" :aria-busy="editingLocked">
+            <colgroup>
+              <col class="w-[56px]">
+              <col class="w-[296px]">
+              <col><!-- Description — 남는 폭을 가져간다(최소 140px) -->
+              <col class="w-[130px]">
+              <col class="w-[176px]">
+              <col class="w-[140px]">
+              <col class="w-[86px]">
+            </colgroup>
             <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
               <tr class="text-left text-[11px] uppercase tracking-wide text-[#8e97a5]">
-                <th class="w-[52px] px-1 py-2.5"><span class="sr-only">포함 및 원본 행</span></th>
-                <th class="w-[280px] max-w-[280px] px-2 py-2.5">MPN / 원본 값</th>
-                <th class="min-w-[140px] px-2 py-2.5">Description</th>
-                <th class="w-[130px] min-w-[124px] px-2 py-2.5 text-right">Unit Price</th>
-                <th class="w-[170px] px-2 py-2.5">Quantity / Stock</th>
-                <th class="w-[140px] min-w-[132px] px-2 py-2.5 text-right">Total Price</th>
-                <th class="w-[100px] px-2 py-2.5" />
+                <th class="px-1 py-2.5"><span class="sr-only">포함 및 원본 행</span></th>
+                <th class="px-2 py-2.5">MPN / 원본 값</th>
+                <th class="px-2 py-2.5">Description</th>
+                <th class="px-2 py-2.5 text-right">Unit Price</th>
+                <th class="px-2 py-2.5">Quantity / Stock</th>
+                <th class="px-2 py-2.5 text-right">Total Price</th>
+                <th class="px-2 py-2.5" />
               </tr>
             </thead>
             <tbody>
@@ -1721,7 +1733,7 @@ function fmtAmount(v: number | null): string {
       </section>
 
       <!-- 우: Figma right side bar(93:23505)의 치수·위계를 라이트 테마로 번역 -->
-      <aside v-show="rightOpen" class="w-full shrink-0 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#cbd3df] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] xl:min-h-0 xl:w-[286px] xl:overflow-y-auto xl:pb-1">
+      <aside v-show="rightOpen" class="w-full shrink-0 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#cbd3df] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] bomwide:min-h-0 bomwide:w-[286px] bomwide:overflow-y-auto bomwide:pb-1">
         <div class="flex min-h-full flex-col rounded-xl border border-[#e1e6ef] bg-white p-[15px] shadow-[0_4px_18px_rgba(19,33,68,0.06)]">
           <!-- 회신(answered) -->
           <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="mb-[18px] rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12px]">

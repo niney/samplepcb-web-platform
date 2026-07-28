@@ -25,6 +25,7 @@ const imageSrc = computed(() => (broken.value ? null : props.src));
     :src="imageSrc"
     :alt="alt"
     loading="lazy"
+    decoding="async"
     referrerpolicy="no-referrer"
     class="bg-white object-contain"
     @error="broken = true"
