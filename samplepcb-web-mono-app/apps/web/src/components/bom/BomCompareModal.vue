@@ -6,6 +6,10 @@ import type {
   BomQuoteComparisonType,
   BomQuoteItemType,
 } from '@sp/api-contract';
+import icCompareClose from '../../assets/bom/ic-compare-close.svg';
+import icCompareEye from '../../assets/bom/ic-compare-eye.svg';
+import icSearch from '../../assets/bom/ic-search-20.svg';
+import icSelectCaret from '../../assets/bom/ic-select-caret.svg';
 
 type Candidate = BomQuoteComparisonCandidateType;
 type CellState = 'match' | 'mismatch' | 'missing' | 'neutral';
@@ -151,8 +155,8 @@ const totalCount = computed(() => matchedCount.value + attentionCount.value + no
 const preferredSuppliers = ['mouser', 'digikey', 'unikeyic'];
 const supplierLabels: Record<string, string> = {
   mouser: 'Mouser',
-  digikey: 'DigiKey',
-  unikeyic: 'UniKeyIC',
+  digikey: 'Digikey',
+  unikeyic: 'UnikeyIC',
 };
 const suppliers = computed(() => {
   const discovered = new Set(
@@ -182,8 +186,8 @@ const visibleSuppliers = computed(() =>
   supplierFilter.value === 'all' ? suppliers.value : suppliers.value.filter((name) => name === supplierFilter.value),
 );
 const gridStyle = computed(() => ({
-  gridTemplateColumns: `112px minmax(260px, 1.08fr) repeat(${String(visibleSuppliers.value.length)}, minmax(235px, 1fr))`,
-  minWidth: `${String(372 + visibleSuppliers.value.length * 245)}px`,
+  gridTemplateColumns: `152px repeat(${String(visibleSuppliers.value.length + 1)}, minmax(300px, 1fr))`,
+  minWidth: `${String(152 + (visibleSuppliers.value.length + 1) * 430)}px`,
 }));
 
 let queryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -244,18 +248,27 @@ const fieldLabels: Record<string, string> = {
   description: '설명',
   quantity: 'BOM 수량',
   source_cells: 'Excel 원본 위치',
-  resistance_ohm: '저항',
-  capacitance_f: '정전용량',
-  inductance_h: '인덕턴스',
-  power_w: '정격 전력',
-  tolerance_percent: '허용오차',
-  voltage_v: '정격 전압',
-  current_a: '정격 전류',
-  frequency_hz: '주파수',
-  temperature_c: '온도',
-  temperature_range_c: '동작 온도 범위',
-  temperature_min_c: '최저 동작 온도',
-  temperature_max_c: '최고 동작 온도',
+  resistance: 'resistance',
+  resistance_ohm: 'resistance',
+  capacitance: 'capacitance',
+  capacitance_f: 'capacitance',
+  inductance: 'inductance',
+  inductance_h: 'inductance',
+  power: 'power',
+  power_w: 'power',
+  tolerance: 'tolerance',
+  tolerance_percent: 'tolerance',
+  voltage: 'voltage',
+  voltage_v: 'voltage',
+  current: 'current',
+  current_a: 'current',
+  frequency: 'frequency',
+  frequency_hz: 'frequency',
+  temperature: 'temperature',
+  temperature_c: 'temperature',
+  temperature_range_c: 'temperature',
+  temperature_min_c: 'temperature',
+  temperature_max_c: 'temperature',
   dielectric: '유전체 특성',
   stock: '재고',
   moq: '최소 주문 수량',
@@ -263,16 +276,29 @@ const fieldLabels: Record<string, string> = {
   lifecycle: '수명주기',
 };
 const specOrder = [
+  'resistance',
   'resistance_ohm',
+  'capacitance',
   'capacitance_f',
+  'inductance',
   'inductance_h',
+  'power',
   'power_w',
+  'tolerance',
   'tolerance_percent',
+  'voltage',
   'voltage_v',
+  'current',
   'current_a',
+  'frequency',
   'frequency_hz',
+  'temperature',
   'temperature_c',
   'temperature_range_c',
+  'temperature_min_c',
+  'temperature_max_c',
+  'footprint',
+  'value_raw',
   'dielectric',
 ];
 
@@ -340,7 +366,7 @@ function attributeFor(item: ComparisonItem, key: string): Record<string, unknown
 
 function sourceProvenance(item: ComparisonItem, key: string): string {
   const state = fieldState(item, key);
-  if (state === null) return item.comparison?.extraction?.reviewStatus === 'extracted' ? '엔진 추출' : '';
+  if (state === null) return '';
   if (state.status === 'review') return '검토 필요';
   if (state.status !== 'extracted') return '';
   if (state.source === 'col') return '근거 셀 확인';
@@ -383,7 +409,8 @@ function sourceValue(item: ComparisonItem, key: string): string {
   if (key === 'source_cells') {
     const rows = quoteRows(item);
     const refs = quoteRefs(item);
-    return `${quoteSheet(item)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · ${refs.length > 0 ? refs.join(', ') : 'REFDES 없음'}`;
+    const rowText = rows.length > 0 ? `행${rows.join(', ')}` : '행 미확인';
+    return `${quoteSheet(item)} ${rowText} ${refs.length > 0 ? refs.join(', ') : 'REFDES 없음'}`;
   }
   if (['stock', 'moq', 'best_price', 'lifecycle'].includes(key)) return '—';
   return formatValue(
@@ -502,16 +529,6 @@ function relationLabel(item: ComparisonItem, supplier: string, key: string): str
   return typeof relation === 'string' ? (labels[relation] ?? relation) : '';
 }
 
-function supplierStatus(item: ComparisonItem, supplier: string): string {
-  const candidate = candidateFor(item, supplier);
-  if (candidate === undefined) return '검색 결과 없음';
-  const status = statusLabels[candidate.status] ?? candidate.status;
-  if (candidate.reviewRecommended) return `${status} · 검토 권장`;
-  if (candidate.selectionRecommendation === 'preselect') return `${status} · 기술 사전 선정`;
-  if (candidate.selectionRecommendation === 'exclude') return `${status} · 선정 제외`;
-  return status;
-}
-
 function itemRecommendation(item: ComparisonItem): 'preselect' | 'review' | null {
   const candidate = item.comparison?.candidates.find((entry) =>
     entry.selectionRecommendation === 'preselect');
@@ -535,7 +552,8 @@ function itemRefs(item: ComparisonItem): string {
 
 function itemMeta(item: ComparisonItem): string {
   const rows = quoteRows(item);
-  return `${quoteSheet(item)} · 행 ${rows.length > 0 ? rows.join(', ') : '—'} · BOM 수량 ${formatValue(item.quoteItem.bomQty)}`;
+  const rowText = rows.length > 0 ? rows.map((row) => `${String(row)}행`).join(', ') : '행 미확인';
+  return `${quoteSheet(item)}·${rowText}·수량 ${formatValue(item.quoteItem.bomQty)}`;
 }
 
 function supplierLabel(value: string): string {
@@ -557,14 +575,76 @@ function statusLabel(item: ComparisonItem): string {
       aria-modal="true"
       aria-labelledby="bom-compare-title"
     >
-      <header class="modal-header">
-        <div class="min-w-0">
-          <p class="kicker">SMART BOM · BOM COMPARISON</p>
+      <header class="compare-header">
+        <div class="compare-heading">
+          <div class="compare-kicker">
+            <img :src="icCompareEye" alt="">
+            <span>BOM 비교</span>
+          </div>
           <h2 id="bom-compare-title" :title="title">{{ title }}</h2>
-          <p>Excel 원본과 공급사 검색 결과를 같은 라인에서 비교합니다. 색상과 판정은 엔진의 검증 결과를 사용합니다.</p>
         </div>
-        <button ref="closeButton" type="button" class="close-button" aria-label="BOM 비교 닫기" @click="emit('close')">×</button>
+        <button ref="closeButton" type="button" class="close-button" aria-label="BOM 비교 닫기" @click="emit('close')">
+          <img :src="icCompareClose" alt="">
+        </button>
+        <div class="header-rule" />
+        <section class="summary-strip" aria-label="BOM 비교 요약">
+          <article>
+            <span>전체 부품</span>
+            <strong>{{ totalCount }}</strong>
+          </article>
+          <article class="matched">
+            <span>검증·호환</span>
+            <strong>{{ matchedCount }}</strong>
+          </article>
+          <article class="attention">
+            <span>확인 필요</span>
+            <strong>{{ attentionCount }}</strong>
+          </article>
+          <article class="not-found">
+            <span>검색 결과 없음</span>
+            <strong>{{ notFoundCount }}</strong>
+          </article>
+        </section>
       </header>
+
+      <section class="toolbar" aria-label="BOM 비교 필터">
+        <label class="search-field">
+          <span class="sr-only">BOM 비교 검색</span>
+          <input
+            v-model="search"
+            type="search"
+            placeholder="REFDES, 품번, 제조사, 설명 검색"
+            :disabled="comparison === null || loading"
+          >
+          <img :src="icSearch" alt="">
+        </label>
+        <label class="filter-select">
+          <span class="sr-only">판정 필터</span>
+          <select v-model="statusFilter" :disabled="comparison === null || loading">
+            <option value="all">전체 판정</option>
+            <option value="matched">검증·호환</option>
+            <option value="attention">확인 필요</option>
+            <option value="not_found">검색 결과 없음</option>
+          </select>
+          <img :src="icSelectCaret" alt="">
+        </label>
+        <label class="filter-select">
+          <span class="sr-only">시트 필터</span>
+          <select v-model="sheetFilter" :disabled="comparison === null || loading">
+            <option value="all">전체 시트</option>
+            <option v-for="sheet in sheets" :key="sheet" :value="sheet">{{ sheet }}</option>
+          </select>
+          <img :src="icSelectCaret" alt="">
+        </label>
+        <label class="filter-select">
+          <span class="sr-only">공급사 필터</span>
+          <select v-model="supplierFilter" :disabled="comparison === null || loading">
+            <option value="all">전체 공급사</option>
+            <option v-for="supplier in suppliers" :key="supplier" :value="supplier">{{ supplierLabel(supplier) }}</option>
+          </select>
+          <img :src="icSelectCaret" alt="">
+        </label>
+      </section>
 
       <main class="modal-content">
         <div v-if="loading" class="state-panel">
@@ -584,76 +664,25 @@ function statusLabel(item: ComparisonItem): string {
         </div>
 
         <template v-else>
-          <section class="summary-grid" aria-label="BOM 비교 요약">
-            <article><span>전체 부품</span><strong>{{ totalCount }}</strong></article>
-            <article class="matched"><span>검증·호환</span><strong>{{ matchedCount }}</strong></article>
-            <article class="attention"><span>확인 필요</span><strong>{{ attentionCount }}</strong></article>
-            <article class="not-found"><span>검색 결과 없음</span><strong>{{ notFoundCount }}</strong></article>
-          </section>
-
-          <section class="toolbar" aria-label="BOM 비교 필터">
-            <label class="search-field">
-              <span aria-hidden="true">⌕</span>
-              <input v-model="search" type="search" placeholder="REFDES, 품번, 제조사, 설명 검색">
-            </label>
-            <label>
-              <span>판정</span>
-              <select v-model="statusFilter">
-                <option value="all">전체 판정</option>
-                <option value="matched">검증·호환</option>
-                <option value="attention">확인 필요</option>
-                <option value="not_found">검색 결과 없음</option>
-              </select>
-            </label>
-            <label>
-              <span>시트</span>
-              <select v-model="sheetFilter">
-                <option value="all">전체 시트</option>
-                <option v-for="sheet in sheets" :key="sheet" :value="sheet">{{ sheet }}</option>
-              </select>
-            </label>
-            <label>
-              <span>공급사 열</span>
-              <select v-model="supplierFilter">
-                <option value="all">전체 공급사</option>
-                <option v-for="supplier in suppliers" :key="supplier" :value="supplier">{{ supplierLabel(supplier) }}</option>
-              </select>
-            </label>
-            <strong class="result-count">{{ comparison.total }}개</strong>
-          </section>
-
-          <p class="comparison-guide">
-            <span class="match">일치·호환</span>
-            <span class="mismatch">불일치</span>
-            <span class="missing">확인 불가</span>
-            <em>가로로 스크롤하면 모든 공급사 결과를 확인할 수 있습니다.</em>
-          </p>
-
           <section v-if="visibleItems.length > 0" class="comparison-list">
             <article v-for="item in visibleItems" :key="item.id" class="comparison-item">
               <header class="item-header">
-                <div class="item-identity">
-                  <strong class="refs" :title="itemRefs(item)">{{ itemRefs(item) }}</strong>
-                  <div>
-                    <strong class="item-title" :title="itemTitle(item)">{{ itemTitle(item) }}</strong>
-                    <span class="item-meta" :title="itemMeta(item)">{{ itemMeta(item) }}</span>
+                <div class="item-heading">
+                  <h3 :title="itemTitle(item)">{{ itemTitle(item) }}</h3>
+                  <div class="item-statuses">
+                    <span v-if="itemRecommendation(item) === 'review'" class="recommendation-chip review">검토 필요</span>
+                    <span class="status-chip" :class="statusCategory(item)">{{ statusLabel(item) }}</span>
                   </div>
                 </div>
-                <div class="item-statuses">
-                  <span v-if="itemRecommendation(item) === 'review'" class="recommendation-chip review">검토 권장</span>
-                  <span v-else-if="itemRecommendation(item) === 'preselect'" class="recommendation-chip automatic">기술 사전 선정</span>
-                  <span class="status-chip" :class="statusCategory(item)">{{ statusLabel(item) }}</span>
-                </div>
+                <span class="item-meta" :title="`${itemMeta(item)} · ${itemRefs(item)}`">{{ itemMeta(item) }}</span>
               </header>
 
               <div class="comparison-scroll">
                 <div class="comparison-grid" :style="gridStyle">
-                  <div class="column-head field-column"><span>COMPARE FIELD</span><strong>항목</strong></div>
-                  <div class="column-head source-column"><span>EXCEL SOURCE</span><strong>Excel 원본</strong></div>
+                  <div class="column-head field-column">항목</div>
+                  <div class="column-head source-column">Excel 원본</div>
                   <div v-for="supplier in visibleSuppliers" :key="`header-${supplier}`" class="column-head">
-                    <span>SUPPLIER RESULT</span>
-                    <strong>{{ supplierLabel(supplier) }}</strong>
-                    <small>{{ supplierStatus(item, supplier) }}</small>
+                    {{ supplierLabel(supplier) }}
                   </div>
 
                   <template v-for="field in fieldsFor(item)" :key="field.key">
@@ -673,11 +702,17 @@ function statusLabel(item: ComparisonItem): string {
                       :key="`${field.key}-${supplier}`"
                       class="value-cell"
                       :class="[cellState(item, supplier, field.key), { multiline: field.multiline }]"
-                      :title="supplierValue(item, supplier, field.key)"
+                      :title="[supplierValue(item, supplier, field.key), relationLabel(item, supplier, field.key)].filter(Boolean).join(' · ')"
                     >
                       <span>{{ supplierValue(item, supplier, field.key) }}</span>
-                      <small v-if="relationLabel(item, supplier, field.key)" class="relation-chip">
-                        {{ relationLabel(item, supplier, field.key) }}
+                      <small v-if="cellState(item, supplier, field.key) === 'mismatch'" class="relation-chip">
+                        검토 권장
+                      </small>
+                      <small
+                        v-else-if="cellState(item, supplier, field.key) === 'missing' && supplierValue(item, supplier, field.key) !== '—'"
+                        class="relation-chip missing"
+                      >
+                        확인 필요
                       </small>
                     </div>
                   </template>
@@ -703,102 +738,556 @@ function statusLabel(item: ComparisonItem): string {
 </template>
 
 <style scoped>
-.compare-modal { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; color: #142033; background: #f4f7fb; }
-.modal-header { flex: 0 0 auto; min-height: 92px; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; gap: 24px; color: white; background: #061023; box-shadow: 0 3px 16px rgb(15 23 42 / 18%); }
-.modal-header > div { min-width: 0; }
-.modal-header .kicker { margin: 0 0 4px; color: #8fb8ff; font-size: 10px; font-weight: 800; letter-spacing: .11em; }
-.modal-header h2 { margin: 0; max-width: min(900px, 75vw); overflow: hidden; color: white; font-size: 21px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
-.modal-header p:last-child { margin: 5px 0 0; color: #aebbd0; font-size: 12px; }
-.close-button { width: 44px; height: 44px; flex: 0 0 auto; border: 1px solid rgb(255 255 255 / 24%); border-radius: 11px; color: white; background: rgb(255 255 255 / 8%); font-size: 30px; line-height: 1; cursor: pointer; }
-.close-button:hover, .close-button:focus-visible { background: rgb(255 255 255 / 18%); outline: 2px solid #8fb8ff; outline-offset: 2px; }
-.modal-content { min-height: 0; flex: 1; padding: 20px 24px 32px; overflow: auto; }
-.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.summary-grid article { min-height: 80px; padding: 14px 16px; display: flex; align-items: flex-end; justify-content: space-between; border: 1px solid #dfe4ec; border-radius: 12px; background: white; }
-.summary-grid span { color: #6b7280; font-size: 12px; font-weight: 700; }
-.summary-grid strong { color: #142033; font-size: 25px; }
-.summary-grid .matched strong { color: #078461; }
-.summary-grid .attention strong { color: #b16a08; }
-.summary-grid .not-found strong { color: #c03b42; }
-.toolbar { position: sticky; top: -20px; z-index: 20; margin-top: 12px; padding: 12px; display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; border: 1px solid #dfe4ec; border-radius: 12px; background: rgb(255 255 255 / 96%); box-shadow: 0 7px 18px rgb(15 23 42 / 6%); backdrop-filter: blur(8px); }
-.toolbar > label:not(.search-field) { display: grid; gap: 4px; }
-.toolbar label > span { color: #737d8f; font-size: 10px; font-weight: 800; }
-.toolbar select { height: 38px; min-width: 136px; padding: 0 30px 0 10px; border: 1px solid #d5dbe5; border-radius: 8px; color: #374151; background: #f8fafc; font-size: 12px; }
-.search-field { width: min(350px, 100%); height: 38px; padding: 0 12px; display: flex; align-items: center; gap: 7px; border: 1px solid #d5dbe5; border-radius: 8px; background: #f8fafc; }
-.search-field input { min-width: 0; width: 100%; height: 100%; border: 0; outline: 0; background: transparent; font-size: 12px; }
-.result-count { margin: 0 4px 10px auto; color: #1e64fd; font-size: 12px; }
-.comparison-guide { margin: 13px 2px 0; display: flex; align-items: center; gap: 13px; color: #788395; font-size: 11px; }
-.comparison-guide > span { display: inline-flex; align-items: center; gap: 5px; font-weight: 800; }
-.comparison-guide > span::before { content: ''; width: 8px; height: 8px; border-radius: 50%; }
-.comparison-guide .match::before { background: #42a486; }
-.comparison-guide .mismatch::before { background: #d76d72; }
-.comparison-guide .missing::before { background: #d6a94f; }
-.comparison-guide em { margin-left: auto; font-style: normal; }
-.comparison-list { margin-top: 12px; display: grid; gap: 16px; }
-.comparison-item { padding: 14px; overflow: hidden; border: 1px solid #dfe4ec; border-radius: 14px; background: white; box-shadow: 0 3px 12px rgb(15 23 42 / 4%); }
-.item-header { min-height: 54px; padding: 0 2px 12px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-.item-identity { min-width: 0; display: flex; align-items: center; gap: 14px; }
-.item-identity .refs { width: 150px; overflow: hidden; color: #1e64fd; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.item-identity > div { min-width: 0; display: grid; gap: 4px; }
-.item-title, .item-meta { max-width: 740px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item-title { color: #142033; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
-.item-meta { color: #8490a2; font-size: 10px; }
-.item-statuses { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
-.status-chip { flex: 0 0 auto; padding: 5px 9px; border-radius: 99px; color: #596579; background: #edf0f4; font-size: 10px; font-weight: 800; }
-.recommendation-chip { padding: 5px 9px; border-radius: 99px; font-size: 10px; font-weight: 900; }
-.recommendation-chip.automatic { color: #08785b; background: #d9f4e9; }
-.recommendation-chip.review { color: #8a5708; background: #ffe9ae; box-shadow: inset 0 0 0 1px #e7bd57; }
-.status-chip.matched { color: #08785b; background: #e1f5ee; }
-.status-chip.attention { color: #98600d; background: #fff3d7; }
-.status-chip.not_found { color: #a33b42; background: #feecee; }
-.comparison-scroll { overflow: auto; border: 1px solid #dfe4ec; border-radius: 11px; }
-.comparison-grid { display: grid; align-items: stretch; }
-.column-head { min-width: 0; min-height: 68px; padding: 11px 13px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; border-right: 1px solid #dfe4ec; border-bottom: 1px solid #dfe4ec; background: #f2f5f9; }
-.column-head span { color: #8b95a4; font-size: 8px; font-weight: 900; letter-spacing: .09em; }
-.column-head strong { color: #263348; font-size: 14px; }
-.column-head small { overflow: hidden; color: #788395; font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.field-cell, .value-cell { min-width: 0; min-height: 50px; border-right: 1px solid #e5e9ef; border-bottom: 1px solid #e5e9ef; }
-.field-cell { padding: 9px 10px; display: flex; align-items: center; color: #687386; background: #f5f7fa; font-size: 10px; font-weight: 800; }
-.value-cell { padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 7px; color: #344054; background: white; font-size: 12px; font-weight: 650; }
-.value-cell > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.field-cell.multiline, .value-cell.multiline { min-height: 62px; }
-.value-cell.multiline > span { display: -webkit-box; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.value-cell.match { background: #ecf9f4; }
-.value-cell.mismatch { background: #fff0f1; }
-.value-cell.missing { color: #8a681e; background: #fff9ea; }
-.relation-chip { flex: 0 0 auto; padding: 3px 5px; border-radius: 5px; color: #5c6879; background: #e9edf2; font-size: 8px; white-space: nowrap; }
-.source-provenance { flex: 0 0 auto; padding: 3px 5px; border-radius: 5px; color: #526273; background: #e8edf3; font-size: 8px; font-weight: 800; white-space: nowrap; }
-.value-cell.match .relation-chip { color: #08785b; background: #d4eee5; }
-.value-cell.mismatch .relation-chip { color: #963d43; background: #f6d6d8; }
-.field-column { position: sticky; left: 0; z-index: 3; }
-.source-column { position: sticky; left: 112px; z-index: 2; box-shadow: 7px 0 13px rgb(23 48 46 / 4%); }
-.column-head.field-column { z-index: 5; background: #e4eaf2; }
-.column-head.source-column { z-index: 4; background: #eaf1fb; }
-.value-cell.source-column { background: #fbfcfe; }
-.value-cell.source-column.verified { color: #076c53; background: #edf9f5; box-shadow: inset 3px 0 #20a77d; }
-.value-cell.source-column.verified .source-provenance { color: #076c53; background: #d4eee5; }
-.state-panel { min-height: 300px; padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid #dfe4ec; border-radius: 14px; color: #667085; background: white; text-align: center; }
-.state-panel strong { color: #263348; font-size: 17px; }
-.state-panel p { margin: 0; font-size: 12px; }
-.state-panel.error { border-color: #fecdd3; background: #fffafb; }
-.state-panel.error strong { color: #b42336; }
-.state-panel.compact { min-height: 180px; margin-top: 12px; }
-.spinner { width: 28px; height: 28px; border: 3px solid #dbe7ff; border-top-color: #1e64fd; border-radius: 50%; animation: spin .8s linear infinite; }
-.primary-button, .pagination button { height: 36px; padding: 0 14px; border: 1px solid #cfd6e2; border-radius: 8px; color: #374151; background: white; font-size: 12px; font-weight: 700; cursor: pointer; }
-.primary-button { margin-top: 7px; border-color: #1e64fd; color: white; background: #1e64fd; }
-.pagination { min-height: 62px; display: flex; align-items: center; justify-content: center; gap: 16px; color: #667085; font-size: 12px; }
-.pagination button:disabled { cursor: default; opacity: .4; }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 800px) {
-  .modal-header { padding: 14px 16px; }
-  .modal-header p:last-child { display: none; }
-  .modal-content { padding: 14px 12px 24px; }
-  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .toolbar { top: -14px; }
-  .result-count { width: 100%; margin: 0; }
-  .comparison-guide { align-items: flex-start; flex-wrap: wrap; }
-  .comparison-guide em { width: 100%; margin-left: 0; }
-  .item-header { align-items: flex-start; }
-  .item-identity { align-items: flex-start; flex-direction: column; gap: 5px; }
-  .item-identity .refs { width: 190px; }
+.compare-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #37393e;
+  background: #ebeef2;
+  font-family: "Noto Sans KR", Pretendard, sans-serif;
+}
+.compare-header {
+  position: relative;
+  min-height: 172px;
+  flex: 0 0 172px;
+  padding: 15px 24px 0;
+  border: 1px solid #d3d5dc;
+  background: #f2f7fc;
+}
+.compare-heading {
+  min-width: 0;
+  padding-right: 48px;
+}
+.compare-kicker {
+  height: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgb(6 16 35 / 70%);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.compare-kicker img {
+  width: 16px;
+  height: 11px;
+  flex: 0 0 auto;
+}
+.compare-heading h2 {
+  margin: 6px 0 0;
+  overflow: hidden;
+  color: #061023;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.close-button {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+.close-button img {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+.close-button:hover {
+  background: rgb(70 69 76 / 8%);
+}
+.close-button:focus-visible {
+  outline: 2px solid #4798ff;
+  outline-offset: 2px;
+}
+.header-rule {
+  position: absolute;
+  top: 78px;
+  right: 24px;
+  left: 24px;
+  height: 1px;
+  background: #b8cbdb;
+}
+.summary-strip {
+  position: absolute;
+  top: 94px;
+  left: 24px;
+  height: 56px;
+  display: flex;
+  align-items: flex-start;
+}
+.summary-strip article {
+  width: 170px;
+  height: 51px;
+  padding: 0 20px 0 0;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  border-right: 1px solid #b8cbdb;
+}
+.summary-strip article + article {
+  padding-left: 20px;
+}
+.summary-strip span {
+  color: #5f6777;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.summary-strip strong {
+  color: #061023;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 36px;
+}
+.summary-strip .matched strong { color: #38b614; }
+.summary-strip .attention strong { color: #ff6900; }
+.summary-strip .not-found strong { color: #ff5873; }
+.toolbar {
+  min-height: 71px;
+  flex: 0 0 71px;
+  padding: 15px 24px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid #e1e4e9;
+  background: white;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 5%);
+}
+.search-field {
+  position: relative;
+  width: 480px;
+  height: 39px;
+  flex: 0 0 480px;
+  display: flex;
+  align-items: center;
+  border: 1px solid #d6dae7;
+  border-radius: 6px;
+  background: white;
+}
+.search-field input {
+  width: 100%;
+  height: 100%;
+  padding: 0 45px 0 15px;
+  border: 0;
+  border-radius: inherit;
+  outline: 0;
+  color: #3f3f40;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 400;
+}
+.search-field input::placeholder { color: #8e97a5; }
+.search-field img {
+  position: absolute;
+  top: 9px;
+  right: 14px;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+.filter-select {
+  position: relative;
+  width: 180px;
+  height: 39px;
+  flex: 0 0 180px;
+}
+.filter-select select {
+  width: 100%;
+  height: 100%;
+  padding: 0 38px 0 16px;
+  appearance: none;
+  border: 1px solid #d6dae7;
+  border-radius: 6px;
+  outline: 0;
+  color: #3f3f40;
+  background: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.filter-select img {
+  position: absolute;
+  top: 17px;
+  right: 13px;
+  width: 9px;
+  height: 6px;
+  pointer-events: none;
+}
+.search-field:focus-within,
+.filter-select:focus-within {
+  border-color: #4798ff;
+  box-shadow: 0 0 0 2px rgb(71 152 255 / 12%);
+}
+.search-field input:disabled,
+.filter-select select:disabled {
+  cursor: default;
+  opacity: .55;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.modal-content {
+  min-height: 0;
+  flex: 1;
+  padding: 24px 24px 32px;
+  overflow: auto;
+}
+.comparison-list {
+  display: grid;
+  gap: 24px;
+}
+.comparison-item {
+  overflow: hidden;
+  border: 1px solid #c3c4c6;
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 5%);
+}
+.item-header {
+  min-height: 68px;
+  padding: 14px 17px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.item-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.item-heading h3 {
+  max-width: min(720px, 52vw);
+  margin: 0;
+  overflow: hidden;
+  color: #37393e;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 28px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item-statuses {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.recommendation-chip,
+.status-chip {
+  min-height: 24px;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 19px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.recommendation-chip.review {
+  color: #ff6900;
+  background: rgb(250 119 28 / 15%);
+}
+.status-chip {
+  color: #5f6777;
+  background: #edf0f4;
+}
+.status-chip.matched {
+  color: #3ca11f;
+  background: rgb(56 182 20 / 10%);
+}
+.status-chip.attention {
+  color: #ff6900;
+  background: rgb(250 119 28 / 15%);
+}
+.status-chip.not_found {
+  color: #e13f5c;
+  background: rgb(255 88 115 / 12%);
+}
+.item-meta {
+  max-width: 380px;
+  min-height: 24px;
+  padding: 4px 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  color: white;
+  background: #4798ff;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comparison-scroll {
+  overflow-x: auto;
+  border-top: 1px solid #c3c4c6;
+}
+.comparison-grid {
+  display: grid;
+  align-items: stretch;
+}
+.column-head {
+  min-width: 0;
+  min-height: 50px;
+  padding: 13px 17px;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid #c8ccd3;
+  border-bottom: 1px solid #c3c4c6;
+  color: #242527;
+  background: #dfe3e7;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+.field-cell,
+.value-cell {
+  min-width: 0;
+  min-height: 44px;
+  border-right: 1px solid #d6dce5;
+  border-bottom: 1px solid #d6dce5;
+}
+.field-cell {
+  padding: 10px 17px;
+  display: flex;
+  align-items: center;
+  color: #4a5465;
+  background: #f4f7fb;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.value-cell {
+  padding: 9px 17px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #37393e;
+  background: white;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 16px;
+}
+.value-cell > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-cell.multiline,
+.value-cell.multiline {
+  min-height: 44px;
+}
+.value-cell.multiline > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.value-cell.match {
+  background: #eff9ed;
+}
+.value-cell.mismatch {
+  background: #feebdd;
+}
+.value-cell.missing {
+  color: #6c5b35;
+  background: #fff8e8;
+}
+.relation-chip,
+.source-provenance {
+  min-height: 24px;
+  padding: 5px 8px;
+  flex: 0 0 auto;
+  border-radius: 40px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.relation-chip {
+  color: #f36907;
+  background: rgb(255 255 255 / 60%);
+}
+.relation-chip.missing {
+  color: #996d10;
+}
+.source-provenance {
+  color: #3ca11f;
+  background: rgb(255 255 255 / 60%);
+}
+.field-column {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+}
+.source-column {
+  position: sticky;
+  left: 152px;
+  z-index: 2;
+  box-shadow: 6px 0 12px rgb(34 55 81 / 4%);
+}
+.column-head.field-column {
+  z-index: 5;
+  background: #dfe3e7;
+}
+.column-head.source-column {
+  z-index: 4;
+  background: #e1ebf6;
+}
+.value-cell.source-column {
+  background: #f8fbff;
+}
+.value-cell.source-column.verified {
+  color: #37393e;
+  background: #eff9ed;
+}
+.state-panel {
+  min-height: 320px;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid #c3c4c6;
+  border-radius: 10px;
+  color: #667085;
+  background: white;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 5%);
+  text-align: center;
+}
+.state-panel strong {
+  color: #263348;
+  font-size: 17px;
+}
+.state-panel p {
+  margin: 0;
+  font-size: 12px;
+}
+.state-panel.error {
+  border-color: #fecdd3;
+  background: #fffafb;
+}
+.state-panel.error strong {
+  color: #b42336;
+}
+.state-panel.compact {
+  min-height: 180px;
+}
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #dbe7ff;
+  border-top-color: #4798ff;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+.primary-button,
+.pagination button {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid #cfd6e2;
+  border-radius: 6px;
+  color: #374151;
+  background: white;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.primary-button {
+  margin-top: 7px;
+  border-color: #4798ff;
+  color: white;
+  background: #4798ff;
+}
+.pagination {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #667085;
+  font-size: 12px;
+}
+.pagination button:disabled {
+  cursor: default;
+  opacity: .4;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@media (max-width: 900px) {
+  .compare-header {
+    min-height: 178px;
+    flex-basis: 178px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .header-rule {
+    right: 16px;
+    left: 16px;
+  }
+  .summary-strip {
+    left: 16px;
+    max-width: calc(100vw - 32px);
+    overflow-x: auto;
+  }
+  .summary-strip article {
+    width: 145px;
+    flex: 0 0 145px;
+  }
+  .summary-strip strong {
+    font-size: 27px;
+  }
+  .toolbar {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .search-field {
+    width: 320px;
+    flex-basis: 320px;
+  }
+  .modal-content {
+    padding: 16px 12px 24px;
+  }
+  .item-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .item-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .item-heading h3 {
+    max-width: calc(100vw - 60px);
+  }
+  .item-meta {
+    max-width: 100%;
+  }
 }
 </style>
