@@ -851,7 +851,7 @@ function facetLabel(
     <!-- 첫 진입(검색 전) 안내 -->
     <div
       v-else-if="!searchFailed"
-      class="rounded-xl border border-dashed border-gray-300 bg-white/60 px-6 py-12 text-center text-sm text-gray-400"
+      class="rounded-xl border border-dashed border-gray-300 bg-surface/60 px-6 py-12 text-center text-sm text-gray-400"
     >
       검색어를 입력하거나 위의 예시를 눌러보세요 — 카탈로그는 BOM 공급사 검색으로 자동 성장합니다.
     </div>

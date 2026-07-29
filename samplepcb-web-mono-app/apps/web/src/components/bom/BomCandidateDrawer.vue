@@ -2227,12 +2227,12 @@ onBeforeUnmount(() => {
                 <div v-if="engineSearchExcluded" class="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5">
                   <span class="text-[11px] font-bold text-slate-800">검색 제외</span>
                   <span v-if="originalExtractionAlerts.length === 0" class="text-[11px] text-slate-600">엔진이 공급사 검색 대상이 아닌 행으로 판정했습니다.</span>
-                  <span v-for="alert in originalExtractionAlerts" :key="`excluded-${alert}`" class="rounded-full bg-white/80 px-2 py-0.5 text-[11px] text-slate-700">{{ alert }}</span>
+                  <span v-for="alert in originalExtractionAlerts" :key="`excluded-${alert}`" class="rounded-full bg-surface/80 px-2 py-0.5 text-[11px] text-slate-700">{{ alert }}</span>
                 </div>
                 <div v-else-if="originalReviewFields.length > 0 || originalExtractionAlerts.length > 0" class="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1.5">
                   <span class="text-[11px] font-bold text-rose-700">검토 필요</span>
                   <span v-for="field in originalReviewFields" :key="`review-${field.key}`" class="text-[11px] text-rose-700">{{ field.label }} {{ field.value }}</span>
-                  <span v-for="alert in originalExtractionAlerts" :key="alert" class="rounded-full bg-white/80 px-2 py-0.5 text-[11px] text-rose-700">{{ alert }}</span>
+                  <span v-for="alert in originalExtractionAlerts" :key="alert" class="rounded-full bg-surface/80 px-2 py-0.5 text-[11px] text-rose-700">{{ alert }}</span>
                 </div>
 
                 <div v-show="originalDetailsExpanded" id="original-bom-details" class="mt-2 border-t border-slate-200 pt-2">
@@ -2587,7 +2587,7 @@ onBeforeUnmount(() => {
                         localCatalogOutcomeClasses(context.localCatalogTrace),
                       ]"
                     >
-                      <span class="flex size-5 items-center justify-center rounded-full bg-white/80 font-bold tabular-nums text-slate-600">1</span>
+                      <span class="flex size-5 items-center justify-center rounded-full bg-surface/80 font-bold tabular-nums text-slate-600">1</span>
                       <span class="font-semibold text-slate-800">
                         {{ localCatalogTitle(context.localCatalogTrace) }}
                         <small class="block font-normal uppercase text-slate-500">저장된 부품 조회 · 외부 API 0회</small>
@@ -2601,7 +2601,7 @@ onBeforeUnmount(() => {
                         >{{ localCatalogReasonLabel(context.localCatalogTrace) }}</span>
                         <div
                           v-if="localCatalogDecisionSummary !== null"
-                          class="mt-2 space-y-1.5 rounded-md border border-slate-200/80 bg-white/80 p-2"
+                          class="mt-2 space-y-1.5 rounded-md border border-slate-200/80 bg-surface/80 p-2"
                         >
                           <div class="flex flex-wrap items-center gap-1.5">
                             <span class="font-bold text-slate-700">

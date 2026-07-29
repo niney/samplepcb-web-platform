@@ -1748,7 +1748,7 @@ function fmtAmount(v: number | null): string {
               <col class="w-[140px]">
               <col class="w-[86px]">
             </colgroup>
-            <thead class="sticky top-0 z-10 bg-surface shadow-[0_1px_0_#e5e8ed]">
+            <thead class="sticky top-0 z-10 bg-surface shadow-[0_1px_0_var(--color-line-soft)]">
               <tr class="text-left text-[11px] uppercase tracking-wide text-ink-subtle">
                 <th class="px-1 py-2.5">
                   <div class="flex justify-center">

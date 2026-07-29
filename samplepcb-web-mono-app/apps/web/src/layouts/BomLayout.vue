@@ -121,7 +121,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       <button
         type="button"
         role="switch"
-        class="relative ml-[26px] h-[36px] w-[80px] rounded-full bg-gradient-to-b from-surface-neutral to-surface shadow-[inset_0px_2px_0px_0px_white] ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-50"
+        class="relative ml-[26px] h-[36px] w-[80px] rounded-full bg-gradient-to-b from-surface-neutral to-surface shadow-[inset_0px_2px_0px_0px_var(--color-surface)] ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-50"
         :aria-checked="procurementMode === 'mass'"
         :disabled="procurementModeDisabled"
         :title="procurementMode === 'sample'
@@ -259,7 +259,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
         <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-surface-raised to-surface-sunken ring-1 ring-black/5" title="튜토리얼 (준비 중)">
           <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-surface-brand to-surface-sunken blur-[10px]" />
           <img :src="promoZip" alt="" class="absolute right-[24px] top-[49px] size-[58px] rounded-[10px] shadow-[0px_4px_10px_rgba(89,129,208,0.4)]">
-          <div class="absolute right-[18px] top-[16px] flex h-[18px] items-center gap-[3px] rounded-[10px] bg-surface px-[7px] shadow-[0px_0px_10px_#eeedf5]">
+          <div class="absolute right-[18px] top-[16px] flex h-[18px] items-center gap-[3px] rounded-[10px] bg-surface px-[7px] shadow-[0px_0px_10px_var(--color-line-soft)]">
             <span class="size-[4px] rounded-full bg-brand" />
             <span class="text-[10px] font-bold text-brand">PICK</span>
           </div>
@@ -272,7 +272,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
         <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-surface-brand-soft to-surface-raised ring-1 ring-black/5" title="Gerber Eyes 소개 영상 (준비 중)">
           <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-surface-brand to-surface-raised blur-[10px]" />
           <img :src="promoVideo" alt="" class="absolute right-[28px] top-[44px] size-[54px] rounded-[10px] shadow-[0px_4px_10px_rgba(183,183,183,0.5)]">
-          <div class="absolute left-[188px] top-[35px] rounded-[10px] bg-white/80 px-[6px] py-[3px] backdrop-blur-[10px]">
+          <div class="absolute left-[188px] top-[35px] rounded-[10px] bg-surface/80 px-[6px] py-[3px] backdrop-blur-[10px]">
             <span class="bg-gradient-to-br from-[#ff1e22] to-[#af002f] bg-clip-text text-[10px] font-bold text-transparent">NEW</span>
           </div>
           <div class="absolute left-[16px] top-[52px] w-[188px]">

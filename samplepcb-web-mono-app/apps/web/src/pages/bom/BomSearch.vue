@@ -201,7 +201,7 @@ watch([q, submittedNeeded], () => {
             </div>
             <div class="overflow-x-auto rounded-[10px] border border-line-soft bg-surface">
               <table class="w-full min-w-[860px] border-collapse">
-                <thead class="sticky top-0 z-10 bg-surface shadow-[0_1px_0_#e5e8ed]">
+                <thead class="sticky top-0 z-10 bg-surface shadow-[0_1px_0_var(--color-line-soft)]">
                   <tr class="text-left text-[11px] uppercase tracking-wide text-ink-subtle">
                     <th class="min-w-[220px] px-2 py-2.5">MPN / Part</th>
                     <th class="px-2 py-2.5">Manufacturer</th>

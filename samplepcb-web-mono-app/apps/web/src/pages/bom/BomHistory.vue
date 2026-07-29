@@ -248,7 +248,7 @@ async function confirmDelete(): Promise<void> {
 
       <div class="min-h-0 flex-1 overflow-auto">
         <table class="w-full min-w-[900px] table-fixed">
-          <thead class="sticky top-0 z-10 bg-surface-sunken shadow-[0_1px_0_#e5e8ed]">
+          <thead class="sticky top-0 z-10 bg-surface-sunken shadow-[0_1px_0_var(--color-line-soft)]">
             <tr class="text-left text-[11px] uppercase tracking-wide text-ink-subtle">
               <th class="w-[48px] px-3 py-3 text-center">
                 <input
