@@ -4,6 +4,7 @@ import type { BomQuoteStatusType } from '@sp/api-contract';
 // 12단계는 저장 상태가 아니라 상태 계층(quote.status → 이후 RFQ·주문·선적)에서
 // 계산하는 "파생 표시 타임라인"이다(시안 채택 §8 조정 ①).
 
+// ⑦·⑧ 순서는 시안(발주→결제)을 우리 프로세스(결제 확인 후 발주 — D18-7)에 맞게 스왑.
 export const SMARTBOM_STEPS = [
   'BOM 견적요청',
   '견적접수',
@@ -11,8 +12,8 @@ export const SMARTBOM_STEPS = [
   '파트너 견적회신',
   '고객 견적서 발송',
   '주문서 접수',
-  '파트너 발주',
   '결제',
+  '파트너 발주',
   '선적',
   '검수',
   '국내배송',
@@ -20,15 +21,19 @@ export const SMARTBOM_STEPS = [
 ] as const;
 
 /**
- * 현재 단계(1-base). 0 = 미진입(draft). ③④(RFQ)는 RFQ 집계, ⑥(주문서 접수)·⑧(결제)은
- * 주문 파생(orderState·isPaid)으로 세분화한다 — 전부 파생 표시(저장 상태 아님).
+ * 현재 단계(1-base). 0 = 미진입(draft). ③④(RFQ)는 RFQ 집계, ⑥주문·⑦결제·⑧발주는
+ * 주문(orderState·isPaid)·발주(hasPo) 파생으로 세분화한다 — 전부 파생 표시(저장 상태 아님).
  */
 export const smartbomStepOf = (
   status: BomQuoteStatusType,
   orderState: 'none' | 'cart' | 'ordered' = 'none',
   isPaid = false,
+  hasPo = false,
 ): number => {
-  if (orderState === 'ordered') return isPaid ? 8 : 6;
+  if (orderState === 'ordered') {
+    if (hasPo) return 8;
+    return isPaid ? 7 : 6;
+  }
   switch (status) {
     case 'requested':
       return 1;

@@ -52,9 +52,9 @@ function openCase(id: string): void {
   void router.push({ name: 'admin-smartbom-case', params: { id } });
 }
 
-// 행 단계 — 주문 파생(orderState)까지 반영(⑥). ⑧(결제)은 Case 상세에서 od 헤더로 판정.
+// 행 단계 — 주문(⑥)·발주(⑧) 파생 반영. ⑦(결제)은 od 헤더가 필요해 Case 상세에서만 정확.
 type CaseRow = (typeof rows.value)[number];
-const stepOf = (q: CaseRow): number => smartbomStepOf(q.status, q.orderState);
+const stepOf = (q: CaseRow): number => smartbomStepOf(q.status, q.orderState, false, q.poCount > 0);
 
 // 인라인 다음 액션 — requested 는 목록에서 바로 검토 시작(시안 채택), 이후엔 Case 진입.
 const startError = ref('');
@@ -169,6 +169,14 @@ async function startReview(id: string): Promise<void> {
                 title="확정 총액을 등록해야 고객이 주문할 수 있습니다"
               >
                 확정가 미등록
+              </span>
+              <!-- 주문은 됐는데 발주서가 없는 건 — 결제 확인 후 발주가 다음 액션(D18) -->
+              <span
+                v-else-if="q.orderState === 'ordered' && q.poCount === 0"
+                class="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700"
+                title="결제 확인 후 Case 에서 발주서를 발행하세요"
+              >
+                발주 전
               </span>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ smartbomFmtDate(q.requestedAt) }}</td>

@@ -385,9 +385,31 @@ PCB 는 기존 `/api/pcb-projects/order`, BOM 은 **배치 API `POST /api/bom/qu
 부품 필터 딥링크. BOM 행 단건 [주문하기]는 체크+바로 주문 문법으로 통일하며 제거
 (/app/bom 상세의 단건 주문은 유지).
 
-**후속(범위 밖)**: ⑦ 협력사 발주서 + 외부공급사 자동화(Mouser=카트 담기 CartKey,
-DigiKey=third-party 리스트 URL — supplierCode 라우팅, 하드코딩 mbNo 없음) · **3차 물류**
-= 선적 그룹 모델(D13, 발주 스키마에 선적 참조 금지가 유일한 선행 제약).
+### 6.1 협력사 발주 — D18 (2026-07-30 확정)
+
+| # | 결정 | 근거 |
+|---|------|------|
+| D18-1 | 발주서 단위 = **Case × 협력사 1건**(`sp_bom_po`+`sp_bom_po_item`, UK(quoteId,partnerId)) | RFQ 와 동일 문법 — 협력사가 받는 문서 축이 같다 |
+| D18-2 | 발주서 = **박제 문서**(생성 시점의 MPN·수량·단가 스냅샷, 이후 견적 변경과 무관·불변) | snapshot-freeze — 정산·감사 근거 |
+| D18-3 | 대상 = included 행 중 **협력사 회신 선정 행**(selectedRfqItemId 보유)만 협력사별 집계. 공급사/카탈로그 선정 행은 발주서 미생성 — 생성 모달에 "외부 구매 목록"으로 요약만(자동화 후속) | 공급사 발주 자동화(Mouser 카트·DigiKey 리스트)는 별도 단계 |
+| D18-4 | 게이트 = **결제 확인(od isPaid) 후 발주** | 미결제 선발주 실수 방지 — 급하면 입금확인 먼저 |
+| D18-5 | 상태 = `issued → confirmed(협력사 확인) → closed(관리자 마감)`. **issued(미확인)만 삭제 가능**, confirmed 는 불가(협력사가 이미 봄) | 상태 최소 + 재발행 = 미확인 삭제 후 재생성 |
+| D18-6 | 단가 = 선정 박제 단가(회신가) × orderQty, KRW 정수 합계, **VAT 별도**(협력사 B2B) | 선정 스냅샷이 단일 진실 |
+| D18-7 | **타임라인 순서 조정: ⑦ 결제 → ⑧ 파트너 발주**(시안은 발주→결제였으나 우리 프로세스는 결제 확인 후 발주 — 파생 표시라 라벨 스왑) | stepOf: isPaid→7, 발주 존재→8 |
+| D18-8 | 포털에 "받은 발주" 추가(목록·상세·[발주 확인]) + 발행 시 메일 알림 | RFQ 포털과 같은 문법 |
+
+**✅ 구현 완료(2026-07-30)**: migration `20260730100000_add_bom_po`, 계약 `bom-po.ts`
+(+`AdminBomQuoteSummary.poCount`), `lib/bom-po.ts`(집계 `collectPoDraftGroups`·생성
+`createBomPos` all-or-nothing tx), `admin-bom-pos.ts`(목록/생성+메일/발행 취소/마감),
+`partner-pos.ts`(포털 목록/상세/확인), Case 상세 `BomPoPanel`+`BomPoCreateModal`(협력사
+그룹 미리보기+외부 구매 요약), 진행현황 "발주 전" 배지·⑧ 파생, 포털 "받은 발주" 섹션
++`PartnerPoDetail`. 검증: **발주 E2E 17케이스 ALL PASS**(NOT_PAID 게이트·NO_ELIGIBLE_ROWS·
+스냅샷 금액·중복 발행 거부·poCount·메일·포털 확인·confirmed 삭제 거부·마감·타조직 404),
+vitest 557 green.
+
+**후속(범위 밖)**: 외부공급사 발주 자동화(Mouser=카트 담기 CartKey, DigiKey=third-party
+리스트 URL — supplierCode 라우팅, 하드코딩 mbNo 없음) · **3차 물류** = 선적 그룹 모델
+(D13, 발주 스키마에 선적 참조 금지가 유일한 선행 제약 — sp_bom_po 는 이를 준수).
 
 ## 7. 레거시 교훈 승계 가드
 

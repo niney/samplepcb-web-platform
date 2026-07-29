@@ -80,9 +80,17 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       counts[key.data] += g._count._all;
       if (key.data !== 'draft') counts.all += g._count._all;
     }
-    // 주문 전환 파생 상태(D16) — ctId 있는 행만 g5 카트 batch 1회 조회.
+    // 주문(D16)·발주(D18) 파생 — ctId 있는 행만 g5 카트 batch 1회, 발주 수는 groupBy 1회.
     const ctIds = rows.flatMap((row) => (row.ctId === null ? [] : [row.ctId]));
-    const cartStates = await getCartStates(ctIds);
+    const [cartStates, poGroups] = await Promise.all([
+      getCartStates(ctIds),
+      prisma.spBomPo.groupBy({
+        by: ['quoteId'],
+        where: { quoteId: { in: rows.map((row) => row.id) } },
+        _count: { _all: true },
+      }),
+    ]);
+    const poCounts = new Map(poGroups.map((g) => [g.quoteId, g._count._all]));
     return {
       result: true as const,
       data: {
@@ -91,6 +99,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             row,
             filterActiveQuoteItems(row.items, row.sheets),
             row.ctId === null ? 'none' : (cartStates.get(row.ctId) ?? 'none'),
+            poCounts.get(row.id) ?? 0,
           ),
         ),
         total,

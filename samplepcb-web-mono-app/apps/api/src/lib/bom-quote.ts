@@ -4860,8 +4860,9 @@ export function toAdminSummaryDto(
   quote: QuoteRow,
   items: SummaryItemRow[],
   orderState: AdminBomQuoteSummaryType['orderState'] = 'none',
+  poCount = 0,
 ): AdminBomQuoteSummaryType {
-  return { ...toSummaryDto(quote, summaryCounts(items), orderState), mbId: quote.mbId };
+  return { ...toSummaryDto(quote, summaryCounts(items), orderState), mbId: quote.mbId, poCount };
 }
 
 export async function toAdminDetailDto(

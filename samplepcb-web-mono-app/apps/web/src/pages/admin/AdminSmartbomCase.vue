@@ -11,6 +11,7 @@ import {
   usePatchAdminBomQuote,
 } from '../../admin/useAdminBomQuotes';
 import { useAdminBomRfqs, useAdminRfqReply } from '../../admin/useAdminBomRfqs';
+import { useAdminBomPos, useCloseBomPo, useCreateBomPos, useDeleteBomPo } from '../../admin/useAdminBomPos';
 import {
   SMARTBOM_STATUS_META,
   SMARTBOM_STEPS,
@@ -20,6 +21,8 @@ import {
   smartbomStepOf,
 } from '../../admin/smartbom';
 import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
+import BomPoCreateModal from '../../components/admin/smartbom/BomPoCreateModal.vue';
+import BomPoPanel from '../../components/admin/smartbom/BomPoPanel.vue';
 import BomRfqCompareModal from '../../components/admin/smartbom/BomRfqCompareModal.vue';
 import BomRfqPanel from '../../components/admin/smartbom/BomRfqPanel.vue';
 import BomRfqSendModal from '../../components/admin/smartbom/BomRfqSendModal.vue';
@@ -44,13 +47,16 @@ const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateItemId);
 // RFQ 반영 파생 단계 — reviewing 에서 RFQ 가 있으면 ③(발송)·④(회신 도착)로 세분화(§3.3).
 const rfqQuery = useAdminBomRfqs(detailId);
 const rfqs = computed(() => rfqQuery.data.value?.data.rfqs ?? []);
+const poQuery = useAdminBomPos(detailId);
+const pos = computed(() => poQuery.data.value?.data.pos ?? []);
 const currentStep = computed(() => {
   if (detail.value === null) return 0;
-  // 주문 파생이 우선(⑥ 주문서 접수 · ⑧ 결제) — 이후 RFQ 세분화(③④), 마지막이 상태 기반.
+  // 주문·발주 파생이 우선(⑥ 주문 · ⑦ 결제 · ⑧ 발주) — 이후 RFQ 세분화(③④), 마지막이 상태 기반.
   const orderStep = smartbomStepOf(
     detail.value.status,
     detail.value.orderState,
     detail.value.orderInfo?.isPaid ?? false,
+    pos.value.length > 0,
   );
   if (orderStep >= 6) return orderStep;
   const base = smartbomStepOf(detail.value.status);
@@ -69,6 +75,44 @@ const scopeItems = computed(() => {
       (sheets.length === 0 || item.sourceSheetIndex === null || selected.has(item.sourceSheetIndex)),
   );
 });
+
+// ── 발주(D18) — 결제 확인 후 발행, all-or-nothing ───────────────────────────
+const poCreateOpen = ref(false);
+const poError = ref('');
+const createPos = useCreateBomPos();
+const deletePo = useDeleteBomPo();
+const closePo = useCloseBomPo();
+const poBusy = computed(
+  () => createPos.isPending.value || deletePo.isPending.value || closePo.isPending.value,
+);
+const canIssuePo = computed(() => detail.value?.orderInfo?.isPaid === true);
+const issueDisabledReason = computed(() => {
+  if (detail.value?.orderState !== 'ordered') return '고객 주문 후에 발주할 수 있습니다';
+  if (detail.value.orderInfo?.isPaid !== true) return '결제 확인(입금) 후에 발주할 수 있습니다';
+  return '';
+});
+
+async function removePo(po: { poId: number; partnerName: string }): Promise<void> {
+  if (detailId.value === null) return;
+  if (!window.confirm(`'${po.partnerName}' 발주서 발행을 취소할까요? (미확인 발주서만 가능)`)) return;
+  poError.value = '';
+  try {
+    await deletePo.mutateAsync({ quoteId: detailId.value, poId: po.poId });
+  } catch (e) {
+    poError.value = e instanceof ApiRequestError ? e.message : '발행 취소에 실패했습니다.';
+  }
+}
+
+async function closePoRow(po: { poId: number; partnerName: string }): Promise<void> {
+  if (detailId.value === null) return;
+  if (!window.confirm(`'${po.partnerName}' 발주서를 마감할까요?`)) return;
+  poError.value = '';
+  try {
+    await closePo.mutateAsync({ quoteId: detailId.value, poId: po.poId });
+  } catch (e) {
+    poError.value = e instanceof ApiRequestError ? e.message : '마감에 실패했습니다.';
+  }
+}
 
 // ── RFQ 발송·대리 입력·비교 선정 ────────────────────────────────────────────
 const sendOpen = ref(false);
@@ -334,6 +378,19 @@ async function downloadOriginal(): Promise<void> {
         @reply="(rfq) => { replyRfq = rfq; replyError = ''; }"
       />
 
+      <!-- 협력사 발주(D18) — 결제 확인 후 -->
+      <BomPoPanel
+        :pos="pos"
+        :loading="poQuery.isLoading.value"
+        :can-issue="canIssuePo"
+        :issue-disabled-reason="issueDisabledReason"
+        :busy="poBusy"
+        @create="poCreateOpen = true; poError = '';"
+        @remove="removePo"
+        @close="closePoRow"
+      />
+      <p v-if="poError !== ''" class="text-xs font-semibold text-red-600">{{ poError }}</p>
+
       <div class="grid gap-4 xl:grid-cols-[1fr_340px]">
         <!-- 품목 -->
         <div class="overflow-hidden rounded-xl border border-gray-200 bg-surface">
@@ -493,6 +550,16 @@ async function downloadOriginal(): Promise<void> {
       :rfqs="rfqs"
       :scope-items="scopeItems"
       @close="compareOpen = false"
+    />
+
+    <BomPoCreateModal
+      v-if="detail !== null && detailId !== null"
+      :open="poCreateOpen"
+      :quote-id="detailId"
+      :scope-items="scopeItems"
+      :rfqs="rfqs"
+      :existing-pos="pos"
+      @close="poCreateOpen = false"
     />
 
     <!-- 대리 입력(회신 보기·수정) 모달 — 포털 회신과 같은 폼·저장 경로 -->

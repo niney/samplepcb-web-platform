@@ -1067,6 +1067,8 @@ export type BomQuoteComparisonResponseType = z.infer<typeof BomQuoteComparisonRe
 
 export const AdminBomQuoteSummary = BomQuoteSummary.extend({
   mbId: z.string(),
+  /** 발주서 수(D18) — 진행현황의 "발주 전" 표시·타임라인 ⑧ 판정용 파생. */
+  poCount: z.number().int(),
 });
 export type AdminBomQuoteSummaryType = z.infer<typeof AdminBomQuoteSummary>;
 

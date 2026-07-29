@@ -79,6 +79,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/partner/PartnerRfqDetail.vue'),
         meta: { requiresMember: true },
       },
+      {
+        path: 'pos/:id',
+        name: 'partner-po',
+        component: () => import('./pages/partner/PartnerPoDetail.vue'),
+        meta: { requiresMember: true },
+      },
     ],
   },
   {

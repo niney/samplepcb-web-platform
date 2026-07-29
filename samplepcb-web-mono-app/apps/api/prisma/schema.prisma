@@ -542,6 +542,7 @@ model SpBomQuote {
   candidates                SpBomQuoteCandidate[]
   selectionEvents           SpBomQuoteSelectionEvent[]
   rfqs                      SpBomRfq[]
+  pos                       SpBomPo[]
   analysisRuns              SpBomAnalysisRun[]         @relation("BomQuoteAnalysisRuns")
   activeAnalysisRun         SpBomAnalysisRun?          @relation("BomQuoteActiveAnalysis", fields: [activeAnalysisRunId], references: [id], onDelete: SetNull)
   supplierSearchRuns        SpBomSupplierSearchRun[]   @relation("BomQuoteSupplierSearchRuns")
@@ -863,6 +864,7 @@ model SpPartner {
   updatedAt       DateTime            @updatedAt
   members         SpPartnerMember[]
   rfqs            SpBomRfq[]
+  pos             SpBomPo[]
   childRelations  SpPartnerRelation[] @relation("PartnerRelationParent")
   parentRelations SpPartnerRelation[] @relation("PartnerRelationChild")
 
@@ -925,6 +927,51 @@ model SpBomRfq {
   @@unique([quoteId, partnerId, parentPartnerId])
   @@index([partnerId, status]) // 협력사 포털 워크큐
   @@map("sp_bom_rfq")
+}
+
+// 협력사 발주서(D18) — Case × 협력사 1건. **박제 문서**(생성 시점 스냅샷, 이후 견적
+// 변경과 무관·불변 — snapshot-freeze). 결제 확인(od isPaid) 후에만 발행하며,
+// issued(미확인)만 삭제 가능. 선적 참조는 두지 않는다(D13 선행 제약 준수).
+model SpBomPo {
+  id          BigInt         @id @default(autoincrement())
+  quoteId     BigInt
+  partnerId   BigInt
+  status      String         @default("issued") @db.VarChar(16) // issued|confirmed|closed
+  totalAmount Int // 발주 합계(KRW 정수, VAT 별도) — 생성 시 박제
+  currency    String         @default("KRW") @db.VarChar(8)
+  memo        String?        @db.Text // 관리자 발주 메모(협력사 노출)
+  issuedAt    DateTime       @default(now())
+  confirmedAt DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  quote       SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  partner     SpPartner      @relation(fields: [partnerId], references: [id])
+  items       SpBomPoItem[]
+
+  @@unique([quoteId, partnerId])
+  @@index([partnerId, status]) // 협력사 포털 워크큐
+  @@map("sp_bom_po")
+}
+
+// 발주 행 — 생성 시점의 부품·수량·단가 스냅샷(견적 행이 이후 바뀌어도 불변).
+// quoteItemId·rfqItemId 는 근거 추적용 참조(FK 없음 — 박제 문서의 독립성 유지).
+model SpBomPoItem {
+  id               BigInt   @id @default(autoincrement())
+  poId             BigInt
+  quoteItemId      BigInt // 근거 견적 행(참조만)
+  rfqItemId        BigInt? // 근거 회신 행(참조만)
+  mpn              String   @db.VarChar(191)
+  manufacturerName String?  @db.VarChar(191)
+  description      String?  @db.VarChar(1000)
+  qty              Int // 발주 수량(= 생성 시점 orderQty 박제)
+  unitPrice        Decimal  @db.Decimal(14, 4) // 선정 회신 단가 박제(VAT 별도)
+  lineTotal        Int // round(unitPrice × qty) KRW 정수
+  createdAt        DateTime @default(now())
+  po               SpBomPo  @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  @@index([poId])
+  @@map("sp_bom_po_item")
 }
 
 // 협력사 회신 행 — 부품행(quoteItemId) 단위, 안정 ID 연결(rowIdx 아님).

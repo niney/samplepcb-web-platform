@@ -11,6 +11,7 @@ export * from './schemas/bom';
 export * from './schemas/parts';
 export * from './schemas/bom-quote';
 export * from './schemas/bom-rfq';
+export * from './schemas/bom-po';
 export * from './schemas/partner';
 export * from './schemas/market';
 export * from './schemas/ai';
