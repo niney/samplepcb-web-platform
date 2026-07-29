@@ -50,7 +50,15 @@ foreach (array(
     <div class="account-main">
         <div id="wrapper_title"><?php echo $g5['title']; ?></div>
 
-<div class="sp-quotes">
+<?php /* 견적 유형 탭 — PCB(거버, 이 페이지)와 부품 BOM(sp_bom_quote, /app/bom 트랙)을
+        한 화면에서. BOM 목록은 같은 셸 패턴(JS→sp-node /api/bom)으로 렌더만 하고,
+        작업·상세는 /app/bom SPA 로 이동한다(docs/SMARTBOM_PARTNER_RFQ.md §6 Phase A). */ ?>
+<div class="sp-quotes-tabs" role="tablist">
+    <button type="button" class="sp-quotes-tab is-active" id="sp-tab-btn-pcb" data-tab="pcb">PCB 견적</button>
+    <button type="button" class="sp-quotes-tab" id="sp-tab-btn-bom" data-tab="bom">부품 BOM 견적</button>
+</div>
+
+<div class="sp-quotes" id="sp-tab-pcb">
     <p class="sp-quotes__status" id="sp-quotes-status">불러오는 중…</p>
 
     <div class="sp-cart-empty sp-quotes__empty" id="sp-quotes-empty" hidden>
@@ -110,6 +118,32 @@ foreach (array(
 
         </div>
     </form>
+</div>
+
+<?php /* 부품 BOM 견적 탭 — 목록 전용(작업은 /app/bom). 회신 완료+확정가 건은 [주문하기]로
+        영카트 주문서 직행(D16 — 서버가 확정가×1.1 부가세 포함 총액으로 담는다). */ ?>
+<div class="sp-quotes" id="sp-tab-bom" hidden>
+    <p class="sp-quotes__status" id="sp-bom-status">불러오는 중…</p>
+
+    <div class="sp-cart-empty sp-quotes__empty" id="sp-bom-empty" hidden>
+        <i class="fa fa-file-excel-o" aria-hidden="true"></i>
+        <p>부품 BOM 견적이 없습니다.</p>
+        <span class="sp-cart-empty-sub">
+            BOM 파일(Excel)을 업로드하면 부품 견적을 받아볼 수 있습니다.
+            <a href="<?php echo G5_URL; ?>/app/bom" class="sp-link-archive">스마트 BOM 바로가기</a>
+        </span>
+    </div>
+
+    <div class="sp-cart-body" id="sp-bom-body" hidden>
+        <section class="sp-cart-list">
+            <h2 class="sound_only">부품 BOM 견적 목록</h2>
+            <ul class="sp-cart-items" id="sp-bom-rows"></ul>
+            <p class="sp-cart-summary-note" style="margin-top:12px;">
+                견적 내용 확인·수정은 <a href="<?php echo G5_URL; ?>/app/bom">스마트 BOM</a>에서 진행합니다.
+                회신 완료된 견적은 [주문하기]로 주문서에 담기며, 결제는 주문서에서 진행됩니다(부가세 포함 전환).
+            </p>
+        </section>
+    </div>
 </div>
 
 <script>
@@ -390,7 +424,130 @@ foreach (array(
         });
     });
 
+    // ── 부품 BOM 견적 탭 (docs/SMARTBOM_PARTNER_RFQ.md §6 Phase A) ──────────
+    // 목록 전용 — 작업·상세는 /app/bom. 회신 완료+확정가 건만 [주문하기](서버 게이트 D16).
+    var BOM_API = '/api/bom/quotes';
+    var bomStatusEl = document.getElementById('sp-bom-status');
+    var bomEmptyEl = document.getElementById('sp-bom-empty');
+    var bomBodyEl = document.getElementById('sp-bom-body');
+    var bomRowsEl = document.getElementById('sp-bom-rows');
+    var bomLoaded = false;
+
+    var BOM_STATUS_LABEL = {
+        draft: '작성 중', requested: '견적요청', reviewing: '검토 중',
+        answered: '회신 완료', closed: '종료', canceled: '취소'
+    };
+    var BOM_ORDER_LABEL = { none: '', cart: '장바구니 담김', ordered: '주문됨' };
+    var BOM_ERROR_MSG = {
+        NOT_ANSWERED: '회신 완료된 견적만 주문할 수 있습니다.',
+        NOT_CONFIRMED: '확정가 안내 전입니다. 담당자 회신(확정가) 후 주문할 수 있습니다.',
+        ALREADY_ORDERED: '이미 주문된 견적입니다.',
+        NO_CART_ID: '세션이 만료되었습니다. 새로고침 후 다시 시도해 주세요.',
+        TEMPLATE_ITEM_MISSING: '상품 설정 오류입니다. 관리자에게 문의해 주세요.',
+        CART_INSERT_FAILED: '장바구니 담기에 실패했습니다.'
+    };
+
+    function bomApi(method, path) {
+        return fetch(BOM_API + path, {
+            method: method,
+            headers: { 'Authorization': 'Bearer ' + token }
+        }).then(function (res) {
+            return res.json().then(function (json) { return { ok: res.ok, json: json }; });
+        });
+    }
+
+    function renderBom(items) {
+        bomRowsEl.innerHTML = '';
+        if (items.length === 0) {
+            bomStatusEl.textContent = '';
+            bomEmptyEl.hidden = false;
+            bomBodyEl.hidden = true;
+            return;
+        }
+        bomStatusEl.textContent = '';
+        bomEmptyEl.hidden = true;
+        bomBodyEl.hidden = false;
+
+        items.forEach(function (q) {
+            var canOrder = q.status === 'answered' && q.confirmedTotal !== null && q.orderState !== 'ordered';
+            var price = q.confirmedTotal !== null ? q.confirmedTotal : q.finalTotal;
+            var li = document.createElement('li');
+            li.className = 'sp-cart-item sp-quotes__item';
+            li.innerHTML =
+                '<div class="sp-cart-info">' +
+                    '<span class="prd_name"><a class="sp-bom__name" href="<?php echo G5_URL; ?>/app/bom/' + q.id + '"><b></b></a></span>' +
+                    '<div class="sp-cart-meta">' +
+                        '<span>품목 ' + q.includedCount + '/' + q.itemCount + '종</span>' +
+                        (q.requestedAt ? '<span>요청 ' + fmtDate(q.requestedAt) + '</span>' : '<span>수정 ' + fmtDate(q.updatedAt) + '</span>') +
+                    '</div>' +
+                    '<div class="sp-quotes__badges">' +
+                        badge(BOM_STATUS_LABEL[q.status] || q.status, q.status === 'answered' ? 'quoted' : q.status) +
+                        badge(BOM_ORDER_LABEL[q.orderState], 'cart') +
+                    '</div>' +
+                '</div>' +
+                '<div class="sp-cart-calc">' +
+                    (price !== null && price > 0
+                        ? '<strong class="sp-cart-sum">' + fmtNum(price) + '원</strong>' +
+                          (q.confirmedTotal !== null ? '<span class="sp-quotes__pending">확정가 · VAT 별도</span>' : '<span class="sp-quotes__pending">예상 · VAT 별도</span>')
+                        : '<span class="sp-quotes__pending">금액 산정 전</span>') +
+                    '<div class="sp-bom__acts">' +
+                        '<a class="sp-btn" href="<?php echo G5_URL; ?>/app/bom/' + q.id + '">견적 보기</a>' +
+                        (canOrder ? '<button type="button" class="sp-btn sp-btn-primary sp-bom__order" data-id="' + q.id + '">주문하기</button>' : '') +
+                    '</div>' +
+                '</div>';
+            li.querySelector('.sp-bom__name b').textContent = q.title; // XSS 안전 주입
+            bomRowsEl.appendChild(li);
+        });
+    }
+
+    function loadBom() {
+        bomStatusEl.textContent = '불러오는 중…';
+        return refreshToken()
+            .then(function () { return bomApi('GET', '?page=1&pageSize=50'); })
+            .then(function (r) {
+                if (!r.ok) { throw new Error(errMsg(r.json)); }
+                bomLoaded = true;
+                renderBom(r.json.data.items);
+            })
+            .catch(function (e) {
+                bomStatusEl.textContent = '목록을 불러오지 못했습니다: ' + e.message;
+            });
+    }
+
+    // BOM [주문하기] — 서버가 게이트(회신 완료+확정가) 검증 후 카트 담기 → 주문서 직행
+    bomRowsEl.addEventListener('click', function (ev) {
+        var btn = ev.target.closest('.sp-bom__order');
+        if (!btn) { return; }
+        btn.disabled = true;
+        refreshToken().then(function () {
+            return bomApi('POST', '/' + btn.dataset.id + '/order');
+        }).then(function (r) {
+            if (!r.ok) {
+                alert((r.json && BOM_ERROR_MSG[r.json.error]) || errMsg(r.json));
+                btn.disabled = false;
+                loadBom();
+                return;
+            }
+            location.href = r.json.data.redirectUrl;
+        });
+    });
+
+    // 탭 전환 — BOM 은 최초 진입 시 1회 로드. #bom 해시 딥링크(알림 메일 등) 지원.
+    var tabPanes = { pcb: document.getElementById('sp-tab-pcb'), bom: document.getElementById('sp-tab-bom') };
+    function switchTab(key) {
+        Object.keys(tabPanes).forEach(function (k) {
+            tabPanes[k].hidden = k !== key;
+            document.getElementById('sp-tab-btn-' + k).classList.toggle('is-active', k === key);
+        });
+        if (key === 'bom' && !bomLoaded) { loadBom(); }
+    }
+    document.querySelector('.sp-quotes-tabs').addEventListener('click', function (ev) {
+        var btn = ev.target.closest('.sp-quotes-tab');
+        if (btn) { switchTab(btn.dataset.tab); }
+    });
+
     load();
+    if (location.hash === '#bom') { switchTab('bom'); }
 })();
 </script>
 

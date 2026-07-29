@@ -658,6 +658,43 @@
    ========================================================================== */
 .sp-quotes { margin: 0 0 48px; }
 
+/* 견적 유형 탭 — PCB(거버) · 부품 BOM(스마트 BOM 트랙, SMARTBOM_PARTNER_RFQ.md §6) */
+.sp-quotes-tabs {
+    display: flex;
+    gap: 6px;
+    margin: 0 0 18px;
+    border-bottom: 2px solid var(--sp-line);
+}
+.sp-quotes-tab {
+    margin-bottom: -2px;
+    padding: 10px 16px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--sp-muted);
+    cursor: pointer;
+}
+.sp-quotes-tab.is-active {
+    border-bottom-color: var(--sp-primary);
+    color: var(--sp-primary);
+}
+.sp-quotes-tab:hover { color: var(--sp-ink); }
+
+/* BOM 행 액션(견적 보기·주문하기) — 금액 아래 우측 정렬 */
+.sp-bom__acts {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-top: 10px;
+}
+.sp-bom__acts .sp-btn {
+    padding: 7px 12px;
+    font-size: 13px;
+    line-height: 1;
+}
+
 /* 페이지 제목은 테마 head.php 의 #container_title 이 출력 — 여기선 설명만 */
 .sp-quotes__desc {
     margin: -12px 0 24px;
