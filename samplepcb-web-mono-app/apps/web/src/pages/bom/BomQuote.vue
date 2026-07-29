@@ -1870,10 +1870,9 @@ function fmtAmount(v: number | null): string {
       <!-- 우: Figma right side bar(93:23505)의 치수·위계를 라이트 테마로 번역 -->
       <aside v-show="rightOpen" class="w-full shrink-0 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] bomwide:min-h-0 bomwide:w-[286px] bomwide:overflow-y-auto bomwide:pb-1">
         <div class="flex min-h-full flex-col rounded-xl border border-line bg-surface p-[15px] shadow-[0_4px_18px_rgba(19,33,68,0.06)]">
-          <!-- 회신(answered) -->
-          <div v-if="detail.answerNote !== null || detail.confirmedTotal !== null" class="mb-[18px] rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12px]">
-            <p class="font-bold text-emerald-800">담당자 회신</p>
-            <p v-if="detail.answerNote" class="mt-1 whitespace-pre-wrap leading-[18px] text-emerald-900">{{ detail.answerNote }}</p>
+          <!-- 회신(answered) — 회신 완료 상태면 내용이 없어도 박스를 보여 상태를 설명한다 -->
+          <div v-if="detail.status === 'answered' || detail.answerNote !== null || detail.confirmedTotal !== null" class="mb-[18px] rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12px]">
+            <p v-if="detail.answerNote" class="whitespace-pre-wrap leading-[18px] text-emerald-900">{{ detail.answerNote }}</p>
             <p v-if="detail.confirmedTotal !== null" class="mt-2 text-emerald-900">
               확정 견적: <b class="tabular-nums">{{ fmtWon(detail.confirmedTotal) }}</b>
               <span v-if="detail.confirmedShippingFee !== null" class="mt-1 block text-[10px] text-emerald-700">(운송료 {{ fmtWon(detail.confirmedShippingFee) }} · 관리비 {{ fmtWon(detail.confirmedManagementFee) }})</span>
@@ -1895,6 +1894,10 @@ function fmtAmount(v: number | null): string {
               <p class="mt-1 text-center text-[10px] text-emerald-700">주문서에서 결제수단을 선택합니다.</p>
               <p v-if="orderError !== ''" class="mt-1 text-[10px] font-semibold text-red-600">{{ orderError }}</p>
             </template>
+            <!-- 확정가 게이트(D16-1) 안내 — 버튼이 "왜 없는지"를 설명한다 -->
+            <p v-else-if="detail.status === 'answered'" class="mt-2 rounded bg-emerald-100/70 px-2 py-1.5 text-[11px] leading-[16px] text-emerald-800">
+              확정 금액 산정 중입니다 — 담당자가 확정가를 안내하면 여기에 [주문하기] 버튼이 표시됩니다.
+            </p>
           </div>
 
           <!-- AI 분석결과 (93:23545) -->

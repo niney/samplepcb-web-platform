@@ -112,6 +112,18 @@ function itemMatchLabel(item: BomQuoteItemType): string {
 
 async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
   if (detailId.value === null) return;
+  // 확정가 없이 회신하면 고객 [주문하기](D16-1 게이트)가 열리지 않는다 — 실수 방지 확인.
+  if (nextStatus === 'answered') {
+    const total = form.value.confirmedTotal;
+    if (
+      (typeof total !== 'number' || !Number.isFinite(total)) &&
+      !window.confirm(
+        '확정 총액 없이 회신을 완료하면 고객이 [주문하기]를 사용할 수 없습니다.\n확정가 없이 회신할까요?',
+      )
+    ) {
+      return;
+    }
+  }
   actionError.value = '';
   try {
     await patch.mutateAsync({
@@ -238,7 +250,7 @@ async function downloadOriginal(): Promise<void> {
                         <input v-model.number="form.confirmedManagementFee" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
                       </label>
                     </div>
-                    <label class="block text-xs text-gray-500">확정 총액(VAT 별도)
+                    <label class="block text-xs text-gray-500">확정 총액(VAT 별도) <span class="text-amber-700">— 등록해야 고객 [주문하기]가 열립니다</span>
                       <input v-model.number="form.confirmedTotal" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
                     </label>
                     <label class="block text-xs text-gray-500">고객 회신 메모(고객에게 표시)

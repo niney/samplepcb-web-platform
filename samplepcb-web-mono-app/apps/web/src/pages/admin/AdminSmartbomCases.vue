@@ -162,6 +162,14 @@ async function startReview(id: string): Promise<void> {
               <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="SMARTBOM_STATUS_META[q.status].cls">
                 {{ SMARTBOM_STATUS_META[q.status].label }}
               </span>
+              <!-- 회신은 됐지만 확정가가 없어 고객 주문이 잠긴 건 — 워크큐에서 바로 보이게 -->
+              <span
+                v-if="q.status === 'answered' && q.confirmedTotal === null && q.orderState === 'none'"
+                class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700"
+                title="확정 총액을 등록해야 고객이 주문할 수 있습니다"
+              >
+                확정가 미등록
+              </span>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ smartbomFmtDate(q.requestedAt) }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 text-right">

@@ -184,6 +184,18 @@ function itemLabel(item: BomQuoteItemType): string {
 
 async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
   if (detailId.value === null) return;
+  // 확정가 없이 회신하면 고객 [주문하기](D16-1 게이트)가 열리지 않는다 — 실수 방지 확인.
+  if (nextStatus === 'answered') {
+    const total = confirmedOverride.value ? numOrNull(form.value.confirmedTotal) : null;
+    if (
+      total === null &&
+      !window.confirm(
+        '확정 총액 없이 회신을 완료하면 고객이 [주문하기]를 사용할 수 없습니다.\n확정가 없이 회신할까요?',
+      )
+    ) {
+      return;
+    }
+  }
   actionError.value = '';
   try {
     await patch.mutateAsync({
@@ -380,12 +392,16 @@ async function downloadOriginal(): Promise<void> {
             <div class="flex justify-between text-gray-400"><span>참고: VAT 포함 시</span><span class="tabular-nums">{{ withVat(detail.finalTotal) }}</span></div>
           </div>
 
-          <label class="flex cursor-pointer items-center gap-2 text-xs font-medium text-gray-700">
+          <!-- 확정가 = 고객 주문 게이트(D16-1). "선택적 커스텀"이 아니라 필수 단계임이
+               보이도록, 미등록 상태를 경고 톤으로 상시 표시한다(사용자 피드백 반영) -->
+          <label class="flex cursor-pointer items-center gap-2 text-xs font-bold text-gray-800">
             <input type="checkbox" class="size-3.5" :checked="confirmedOverride" @change="toggleConfirmedOverride">
-            확정가 직접 입력 <span class="font-normal text-gray-400">(고객에게 확정 금액으로 안내)</span>
+            확정가 등록
+            <span class="font-medium text-amber-700">— 등록해야 고객 [주문하기]가 열립니다</span>
           </label>
-          <p v-if="!confirmedOverride" class="text-[11px] text-gray-400">
-            꺼진 상태로 저장하면 확정가가 해제되고 고객에게는 위 예상 금액으로 안내됩니다.
+          <p v-if="!confirmedOverride" class="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-[16px] text-amber-800">
+            ⚠ 확정가 미등록 — 고객은 예상 금액만 볼 수 있고 주문(결제)할 수 없습니다.
+            체크 후 확정 총액을 저장하세요. 끈 채 저장하면 기존 확정가도 해제됩니다.
           </p>
           <template v-else>
             <div class="grid grid-cols-2 gap-2">
@@ -399,7 +415,10 @@ async function downloadOriginal(): Promise<void> {
             <label class="block text-xs text-gray-500">확정 총액(VAT 별도)
               <input v-model.number="form.confirmedTotal" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
             </label>
-            <p class="text-[11px] text-gray-400">참고: VAT 포함 시 {{ confirmedTotalVat }} — 부가세는 저장하지 않습니다(전 금액 VAT 별도).</p>
+            <p class="text-[11px] text-gray-400">
+              참고: VAT 포함 시 {{ confirmedTotalVat }} — 부가세는 저장하지 않습니다(전 금액 VAT 별도).
+              저장하면 고객에게 확정 금액이 안내되고 [주문하기]가 열립니다.
+            </p>
           </template>
           <label class="block text-xs text-gray-500">고객 회신 메모(고객에게 표시)
             <textarea v-model="form.answerNote" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1" />
