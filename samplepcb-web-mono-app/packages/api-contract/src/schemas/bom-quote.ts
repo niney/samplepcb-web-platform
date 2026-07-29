@@ -934,6 +934,36 @@ export const BomQuoteOrderResponse = z.object({
 });
 export type BomQuoteOrderResponseType = z.infer<typeof BomQuoteOrderResponse>;
 
+// 배치 주문(D17) — 여러 확정 견적을 한 주문으로(각 견적은 통째 1카트행 — D16-3 유지,
+// 거버 /pcb-projects/order 미러). 실패 건은 failed 로 보고하고 가능한 건만 진행한다.
+export const BomQuoteOrderBatchBody = z.object({
+  ids: z.array(z.string().regex(/^\d+$/)).min(1).max(50),
+});
+export type BomQuoteOrderBatchBodyType = z.infer<typeof BomQuoteOrderBatchBody>;
+
+export const BomQuoteOrderBatchFailed = z.object({
+  quoteId: z.string(),
+  error: z.string(), // NOT_FOUND|NOT_ANSWERED|NOT_CONFIRMED|ALREADY_ORDERED|…
+});
+export type BomQuoteOrderBatchFailedType = z.infer<typeof BomQuoteOrderBatchFailed>;
+
+export const BomQuoteOrderBatchResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    orderedCtIds: z.array(z.number().int()),
+    redirectUrl: z.string(),
+    failed: z.array(BomQuoteOrderBatchFailed).optional(),
+  }),
+});
+export type BomQuoteOrderBatchResponseType = z.infer<typeof BomQuoteOrderBatchResponse>;
+
+export const BomQuoteOrderBatchError = z.object({
+  result: z.literal(false),
+  error: z.string(),
+  failed: z.array(BomQuoteOrderBatchFailed).optional(),
+});
+export type BomQuoteOrderBatchErrorType = z.infer<typeof BomQuoteOrderBatchError>;
+
 // ── 요청 바디 ──────────────────────────────────────────────────────────────
 
 /** draft 자동저장(디바운스) — 안정 ID 행 부분 갱신. draft 상태에서만 허용. */

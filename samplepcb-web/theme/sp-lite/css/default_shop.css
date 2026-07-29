@@ -194,6 +194,12 @@
     transition: border-color .15s, box-shadow .15s;
 }
 
+/* display:flex 가 hidden 속성(UA display:none)을 덮어써 견적관리 유형 필터(D17)가
+   무력화되는 것을 방지 — hidden 이 항상 이기게 한다(반응형 변형 포함). */
+.sp-cart-item[hidden] {
+    display: none !important;
+}
+
 .sp-cart-item:hover {
     border-color: #b9c8e6;
     box-shadow: 0 4px 16px rgba(15, 23, 42, .06);
@@ -739,6 +745,13 @@
 .sp-badge--priced { background: var(--sp-primary-soft); color: var(--sp-primary); } /* 자동견적 */
 .sp-badge--quoted { background: #dcfce7; color: #15803d; } /* 견적 확정 */
 .sp-badge--cart   { background: var(--sp-bg-soft); color: #4b5563; } /* 담김·주문됨 */
+/* 통합 목록(D17)의 유형 구분(PCB/부품) + BOM 진행 상태 — 견적 상태 배지와 톤 분리 */
+.sp-badge--type      { background: transparent; color: var(--sp-muted); border: 1px solid var(--sp-line); }
+.sp-badge--requested { background: #dbeafe; color: #1d4ed8; } /* 견적요청 */
+.sp-badge--reviewing { background: #fef3c7; color: #b45309; } /* 검토 중 */
+.sp-badge--draft     { background: var(--sp-bg-soft); color: #6b7280; } /* 작성 중 */
+.sp-badge--closed    { background: var(--sp-bg-soft); color: #6b7280; } /* 종료 */
+.sp-badge--canceled  { background: #fee2e2; color: #b91c1c; } /* 취소 */
 
 .sp-quotes__badges { margin: 8px 0 0; }
 

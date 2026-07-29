@@ -8,14 +8,14 @@ import {
   getTemplateItem,
   insertCartRow,
   insertQuoteOption,
-  selectCartRows,
   updateCartQuoteRow,
 } from './g5-db';
 
-// ── 스마트 BOM 주문 전환(D16, docs/SMARTBOM_PARTNER_RFQ.md §6) ──────────────
+// ── 스마트 BOM 주문 전환(D16·D17, docs/SMARTBOM_PARTNER_RFQ.md §6) ──────────
 // 거버 addSpecToCart 패턴의 BOM 판: 확정 견적 1건 = 카트 1행(ct_qty=1, 총액 스냅샷).
 // 카트 금액 = round(확정 총액 × 1.1) — 카트/주문서는 부가세 포함 총액(거버 하류 정합).
 // 주문·결제 상태는 저장하지 않고 ct/od 조인 파생(g5 미러 금지 D10).
+// ct_select(주문 대상 선택)는 호출자 몫 — 단건은 [ctId] 하나, 배치(D17)는 전체를 한 번에.
 
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'https://local-web.samplepcb.co.kr';
 
@@ -32,7 +32,8 @@ export type BomOrderResult =
 
 type QuoteWithLines = SpBomQuote & { items: SpBomQuoteItem[]; sheets: SpBomQuoteSheet[] };
 
-const orderformUrl = `${WEB_BASE_URL}/shop/orderform.php`;
+/** 영카트 주문서 URL — 단건·배치 주문 라우트가 공유한다. */
+export const bomOrderformUrl = `${WEB_BASE_URL}/shop/orderform.php`;
 
 export async function orderBomQuote(
   quote: QuoteWithLines,
@@ -69,8 +70,7 @@ export async function orderBomQuote(
       await deleteQuoteOption(item.itId, ioId);
       await insertQuoteOption(item.itId, ioId, cartPrice);
       await updateCartQuoteRow(quote.ctId, ioId, cartPrice, option);
-      await selectCartRows(cartId, [quote.ctId]);
-      return { ok: true, ctId: quote.ctId, redirectUrl: orderformUrl };
+      return { ok: true, ctId: quote.ctId, redirectUrl: bomOrderformUrl };
     }
     // none(카트에서 삭제됨) → 아래 재담기
   }
@@ -95,6 +95,5 @@ export async function orderBomQuote(
     return { ok: false, error: 'CART_INSERT_FAILED' };
   }
   await prisma.spBomQuote.update({ where: { id: quote.id }, data: { ctId } });
-  await selectCartRows(cartId, [ctId]);
-  return { ok: true, ctId, redirectUrl: orderformUrl };
+  return { ok: true, ctId, redirectUrl: bomOrderformUrl };
 }

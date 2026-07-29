@@ -13,6 +13,9 @@ import {
   BomQuoteDetailResponse,
   BomQuoteItemCandidatesResponse,
   BomQuoteListResponse,
+  BomQuoteOrderBatchBody,
+  BomQuoteOrderBatchError,
+  BomQuoteOrderBatchResponse,
   BomQuoteOrderResponse,
   BomQuotePatchBody,
   BomQuotePassiveDefaultsBody,
@@ -33,8 +36,8 @@ import {
 } from '@sp/api-contract';
 import { neededQty, stampOrderQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
-import { orderBomQuote } from '../lib/bom-order';
-import { getCartStates } from '../lib/g5-db';
+import { bomOrderformUrl, orderBomQuote } from '../lib/bom-order';
+import { getCartStates, selectCartRows } from '../lib/g5-db';
 import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
@@ -1929,7 +1932,49 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     }
     const result = await orderBomQuote(quote, cartId, request.ip, request.log);
     if (!result.ok) return reply.status(409).send({ result: false, error: result.error });
+    await selectCartRows(cartId, [result.ctId]);
     return { result: true as const, data: { ctId: result.ctId, redirectUrl: result.redirectUrl } };
+  });
+
+  // ── 배치 주문(D17) — 여러 확정 견적을 한 주문으로(거버 /pcb-projects/order 미러) ──
+  // 각 견적은 통째 카트 1행(D16-3 유지). 실패 건은 failed 로 보고하고 가능한 건만 진행,
+  // 전부 실패면 409. ct_select 는 성공분 전체를 한 번에 세팅 → 주문서 직행.
+  fastify.post('/bom/quotes/order', { schema: { body: BomQuoteOrderBatchBody, response: { 200: BomQuoteOrderBatchResponse, 409: BomQuoteOrderBatchError } } }, async (request, reply) => {
+    const cartId = request.user.cartId;
+    if (cartId === undefined || cartId === '') {
+      return reply.status(409).send({ result: false as const, error: 'NO_CART_ID' });
+    }
+    const failed: { quoteId: string; error: string }[] = [];
+    const ctIds: number[] = [];
+    for (const id of request.body.ids) {
+      const quote = await loadOwnQuote(BigInt(id), request.user.mbId);
+      if (quote === null) {
+        failed.push({ quoteId: id, error: 'NOT_FOUND' });
+        continue;
+      }
+      const result = await orderBomQuote(quote, cartId, request.ip, request.log);
+      if (!result.ok) {
+        failed.push({ quoteId: id, error: result.error });
+        continue;
+      }
+      ctIds.push(result.ctId);
+    }
+    if (ctIds.length === 0) {
+      return reply.status(409).send({
+        result: false as const,
+        error: 'NO_ORDERABLE_ITEMS',
+        ...(failed.length > 0 ? { failed } : {}),
+      });
+    }
+    await selectCartRows(cartId, ctIds);
+    return {
+      result: true as const,
+      data: {
+        orderedCtIds: ctIds,
+        redirectUrl: bomOrderformUrl,
+        ...(failed.length > 0 ? { failed } : {}),
+      },
+    };
   });
 
   // 취소 — draft/requested 에서만(고객)
