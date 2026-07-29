@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* 브라우저가 그리는 UI(스크롤바·select 팝업·날짜 선택기·입력 캐럿)는 CSS 로 색을 주지 못하고
+   color-scheme 을 봐야 따라온다. 이게 normal 이면 다크 화면에서도 스크롤바와 드롭다운 목록만
+   밝게 떠서 튄다. data-theme 과 짝을 맞춘다. */
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 /* 기본 글꼴을 Pretendard 로. Tailwind v4 는 --font-sans 가 곧 본문 기본 폰트. */
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui,
