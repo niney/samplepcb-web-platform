@@ -639,7 +639,7 @@ function onQtyInput(event: Event): void {
       <div v-if="isDraft" class="flex flex-col gap-[6px]">
         <button
           type="button"
-          class="h-[24px] w-[70px] rounded-[4px] bg-ink-muted text-[13px] font-medium text-white transition hover:bg-[#4f5867] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink-muted"
+          class="h-[24px] w-[70px] rounded-[4px] bg-action-primary text-[13px] font-medium text-white transition hover:bg-action-primary-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-action-primary"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '엔진 선정 이유·가격·차순위 후보 비교'"
           @click="emit('open-candidates')"
@@ -648,14 +648,14 @@ function onQtyInput(event: Event): void {
         </button>
         <button
           type="button"
-          class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-surface text-[13px] font-medium text-ink-neutral transition hover:bg-surface-neutral disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface"
+          class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-transparent text-[13px] font-medium text-ink transition hover:bg-action-quiet disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '전체 카탈로그에서 다른 부품 검색'"
           @click="emit('open-search')"
         >
           부품 변경
         </button>
-        <button type="button" class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-surface-neutral text-[13px] font-medium text-ink-neutral transition hover:bg-surface-neutral disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-neutral" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
+        <button type="button" class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-action-quiet text-[13px] font-medium text-ink transition hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-action-quiet" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
       </div>
     </td>
   </tr>
