@@ -97,7 +97,7 @@ function requestSupplement(automatic = false): void {
     <button
       v-if="canSupplement && (!auto || mode === 'mpn' || supplement.isSuccess.value || supplement.isError.value)"
       type="button"
-      class="h-9 shrink-0 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-900 transition hover:border-amber-500 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+      class="h-9 shrink-0 rounded-lg border border-amber-300 bg-surface px-3 text-xs font-bold text-amber-900 transition hover:border-amber-500 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
       :disabled="disabled || supplement.isPending.value"
       @click="requestSupplement(false)"
     >

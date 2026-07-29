@@ -4,11 +4,13 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { adminMenu } from '../admin/menu';
 import { useRfqCount } from '../admin/useAdminQuotes';
+import { useTheme } from '../bom/useTheme';
 
 const auth = useAuthStore();
 const route = useRoute();
 const contentFlush = computed(() => route.meta.adminContentFlush === true);
 const currentRouteName = computed(() => (typeof route.name === 'string' ? route.name : ''));
+const { isDark, toggleTheme } = useTheme();
 
 // "견적 관리" 메뉴의 견적 대기(rfq) 수 뱃지 — 관리자로 로그인했을 때만 조회
 const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true));
@@ -20,7 +22,7 @@ const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true)
     :class="contentFlush ? 'h-screen overflow-hidden' : 'min-h-screen'"
   >
     <!-- 좌측 사이드바 -->
-    <aside class="flex w-60 shrink-0 flex-col border-r border-gray-200 bg-white">
+    <aside class="flex w-60 shrink-0 flex-col border-r border-gray-200 bg-surface">
       <div class="border-b border-gray-200 px-5 py-4">
         <div class="flex items-center justify-between gap-2">
           <RouterLink to="/" class="text-lg font-bold text-blue-600">{{ $t('app.name') }}</RouterLink>
@@ -60,14 +62,30 @@ const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true)
     <!-- 우측 콘텐츠 -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <header
-        class="flex items-center justify-end border-b border-gray-200 bg-white px-6 py-3 text-sm"
+        class="flex items-center justify-end border-b border-gray-200 bg-surface px-6 py-3 text-sm"
       >
         <span v-if="auth.isLoggedIn" class="text-gray-700">
           {{ $t('auth.greeting', { nick: auth.me?.mbNick ?? '' }) }}
         </span>
+        <!-- 테마 전환 — BOM 셸과 같은 상태를 공유한다(useTheme 싱글턴) -->
+        <button
+          type="button"
+          class="ml-3 grid size-[30px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand"
+          :aria-label="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
+          :title="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
+          @click="toggleTheme"
+        >
+          <svg v-if="isDark" viewBox="0 0 24 24" class="size-[17px]" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" class="size-[17px]" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M20 13.5A8 8 0 0 1 10.5 4a8.5 8.5 0 1 0 9.5 9.5Z" stroke-linejoin="round" />
+          </svg>
+        </button>
       </header>
-      <main v-if="contentFlush" class="min-h-0 flex-1 overflow-hidden bg-[#eef1f6] p-[10px]">
-        <div class="h-full overflow-hidden rounded-[12px] bg-[#fdfdff] shadow-sm">
+      <main v-if="contentFlush" class="min-h-0 flex-1 overflow-hidden bg-surface-sunken p-[10px]">
+        <div class="h-full overflow-hidden rounded-[12px] bg-surface shadow-sm">
           <RouterView />
         </div>
       </main>

@@ -229,14 +229,14 @@ const rowClass = computed(() => {
   if (catalogInquiry.value) return 'bg-blue-50/50';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
-    if (props.enriching) return 'bg-white';
+    if (props.enriching) return 'bg-surface';
     if (engineStockStatusLabel.value !== null) return 'bg-surface-warn';
     return item.recommendedCandidateKey !== null || item.matchEvidence?.selectionMode === 'review'
       ? 'bg-amber-50/60'
-      : 'bg-[#fdf2f2]';
+      : 'bg-surface-danger';
   }
   if (stockShort.value) return 'bg-surface-warn'; // 재고 부족 — 시안 노랑
-  return 'bg-white';
+  return 'bg-surface';
 });
 
 const evidenceTitle = computed(() => {
@@ -388,7 +388,7 @@ function onQtyInput(event: Event): void {
         <div class="w-[76px] shrink-0">
           <div
             v-if="item.selectedOffer !== null"
-            class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-white px-1 shadow-sm"
+            class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-surface px-1 shadow-sm"
             :title="item.selectedOffer.supplierSku"
           >
             <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] rounded-[2px]">
@@ -409,10 +409,10 @@ function onQtyInput(event: Event): void {
             :href="item.partDatasheetUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-[12px] leading-[16px] text-[#2f6fed] hover:underline"
+            class="text-[12px] leading-[16px] text-brand-strong hover:underline"
             title="데이터시트 새 창에서 열기"
           >데이터시트</a>
-          <p v-else class="cursor-default text-[12px] leading-[16px] text-[#c3cbd6]" title="데이터시트 없음">데이터시트</p>
+          <p v-else class="cursor-default text-[12px] leading-[16px] text-ink-faint" title="데이터시트 없음">데이터시트</p>
         </div>
       </div>
     </td>
@@ -449,7 +449,7 @@ function onQtyInput(event: Event): void {
         <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '오퍼 없음') }}</span>
         <span class="text-[10px] text-gray-400">▾</span>
       </button>
-      <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line bg-[#fafcff] pl-1 pr-3">
+      <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line bg-surface-brand-soft pl-1 pr-3">
         <input
           :value="quantityMissing ? quantityDraft : item.orderQty"
           type="number"
@@ -492,7 +492,7 @@ function onQtyInput(event: Event): void {
         <span v-else-if="item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review'" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">검토 필요</span>
         <span v-else-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600" :title="evidenceTitle">미매칭</span>
         <span v-else-if="stockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">{{ stockStatusLabel }}</span>
-        <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-state-matched" :title="evidenceTitle">매칭</span>
+        <span v-else-if="item.selectedOffer !== null" class="rounded-full bg-state-matched/15 px-2.5 py-0.5 text-[12px] font-medium text-state-matched" :title="evidenceTitle">매칭</span>
         <span v-else class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700" :title="evidenceTitle">가격 확인 필요</span>
         <span
           v-if="exactIdentityWarning !== null"
@@ -541,7 +541,7 @@ function onQtyInput(event: Event): void {
         <button
           type="button"
           class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
-          :class="hasEngineCandidates ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'"
+          :class="hasEngineCandidates ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'border-slate-300 bg-surface text-slate-600 hover:bg-slate-50'"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '엔진 선정 이유·가격·차순위 후보 비교'"
           @click="emit('open-candidates')"
@@ -551,7 +551,7 @@ function onQtyInput(event: Event): void {
         <button
           type="button"
           class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
-          :class="hasEngineCandidates ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50' : 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'"
+          :class="hasEngineCandidates ? 'border-slate-300 bg-surface text-slate-600 hover:bg-slate-50' : 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '전체 카탈로그에서 다른 부품 검색'"
           @click="emit('open-search')"

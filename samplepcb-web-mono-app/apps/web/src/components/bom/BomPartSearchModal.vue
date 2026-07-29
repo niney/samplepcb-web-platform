@@ -25,7 +25,7 @@ function onSelect(part: PartHitType, pick: OfferPick | null): void {
 
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="emit('close')">
-    <div class="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+    <div class="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-xl">
       <div class="flex items-center justify-between">
         <h3 class="text-base font-semibold text-gray-900">{{ mode === 'swap' ? '부품 교체' : '부품 추가' }}</h3>
         <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>

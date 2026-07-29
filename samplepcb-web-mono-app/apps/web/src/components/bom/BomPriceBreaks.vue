@@ -61,7 +61,7 @@ function toggle(): void {
         </span>
       </div>
     </div>
-    <div v-if="hasMore" class="mt-[6px] border-t border-[#d7dce4] pt-[4px] text-center">
+    <div v-if="hasMore" class="mt-[6px] border-t border-line pt-[4px] text-center">
       <button
         type="button"
         class="inline-flex h-[14px] items-center gap-1 text-[12px] font-semibold leading-[14px] text-brand-strong hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"

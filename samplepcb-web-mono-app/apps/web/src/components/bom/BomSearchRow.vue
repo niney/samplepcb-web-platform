@@ -20,7 +20,7 @@ const emit = defineEmits<{
 
 const applied = computed(() => props.part.applied);
 
-const rowClass = computed(() => (applied.value?.stockShort === true ? 'bg-surface-warn' : 'bg-white'));
+const rowClass = computed(() => (applied.value?.stockShort === true ? 'bg-surface-warn' : 'bg-surface'));
 
 function fmtMoney(value: number, currency: string): string {
   if (currency === 'KRW') return `${Math.round(value).toLocaleString('ko-KR')}원`;
@@ -51,7 +51,7 @@ const convertedUnitPrice = computed(() => {
         <div class="w-[76px] shrink-0">
           <div
             v-if="applied !== null"
-            class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-white px-1 shadow-sm"
+            class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-surface px-1 shadow-sm"
             :title="applied.supplierSku"
           >
             <img :src="SUPPLIER_META[applied.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] rounded-[2px]">
@@ -99,7 +99,7 @@ const convertedUnitPrice = computed(() => {
       <div class="flex flex-col items-end gap-1.5 pt-1">
         <span v-if="applied === null" class="rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-medium text-sky-700">가격 확인 필요</span>
         <span v-else-if="applied.stockShort" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">재고 부족</span>
-        <span v-else class="rounded-full bg-[#01bd46]/15 px-2.5 py-0.5 text-[12px] font-medium text-state-matched">구매 가능</span>
+        <span v-else class="rounded-full bg-state-matched/15 px-2.5 py-0.5 text-[12px] font-medium text-state-matched">구매 가능</span>
         <span class="text-[14px] font-bold tabular-nums" :class="lineTotal === null ? 'text-gray-300' : 'text-state-matched'">
           {{ lineTotal ?? '—' }}
         </span>
@@ -111,7 +111,7 @@ const convertedUnitPrice = computed(() => {
         <button
           type="button"
           class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition"
-          :class="expanded ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50' : 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'"
+          :class="expanded ? 'border-slate-300 bg-surface text-slate-600 hover:bg-slate-50' : 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'"
           :title="expanded ? '오퍼 비교 접기' : '공급 포장·전체 오퍼 비교'"
           @click="emit('toggle')"
         >

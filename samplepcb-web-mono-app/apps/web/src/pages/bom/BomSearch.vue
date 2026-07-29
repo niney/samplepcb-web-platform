@@ -83,7 +83,7 @@ watch([q, submittedNeeded], () => {
 
     <!-- togle btn (87:11163) — 단일 검색 활성 -->
     <div class="mt-[46px] flex shrink-0 justify-center">
-      <div class="flex h-[42px] items-center rounded-full bg-[#f0f4fa]">
+      <div class="flex h-[42px] items-center rounded-full bg-surface-raised">
         <RouterLink
           :to="{ name: 'bom' }"
           class="flex h-[42px] items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-ink opacity-80 transition hover:opacity-60"
@@ -96,7 +96,7 @@ watch([q, submittedNeeded], () => {
 
     <!-- BOM 분석 카드와 동일한 배경 자산을 사용한다. 검색 후에는 결과 비교 화면으로 전환한다. -->
     <template v-if="q === ''">
-      <section class="relative mt-[50px] h-[524px] w-[640px] max-w-full shrink-0 overflow-hidden rounded-[8px] bg-[#9bd6fb]">
+      <section class="relative mt-[50px] h-[524px] w-[640px] max-w-full shrink-0 overflow-hidden rounded-[8px] bg-brand-soft">
         <div class="pointer-events-none absolute inset-x-0 bottom-0 h-[260px] overflow-hidden [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]">
           <img :src="uploadCard" alt="" class="absolute inset-x-0 bottom-0 h-[524px] w-full max-w-none object-cover object-bottom">
         </div>
@@ -118,7 +118,7 @@ watch([q, submittedNeeded], () => {
               type="search"
               aria-label="부품 검색어"
               placeholder="예: GRM155R71C104KA88, 100nF..."
-              class="min-w-0 flex-1 bg-transparent text-[14px] leading-[24px] text-[#263248] outline-none placeholder:text-[#5b6a7e]"
+              class="min-w-0 flex-1 bg-transparent text-[14px] leading-[24px] text-ink outline-none placeholder:text-ink-muted"
             >
           </label>
           <button type="submit" class="flex h-[48px] shrink-0 items-center rounded-r-[8px] bg-brand-strong px-[16px] text-[16px] font-bold leading-[24px] text-white transition hover:bg-blue-700">
@@ -151,7 +151,7 @@ watch([q, submittedNeeded], () => {
             v-model="input"
             type="search"
             placeholder="품번·스펙·패키지 자유 검색 (예: GRM155 / 4k7 0402 / 100nF 16V)"
-            class="h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            class="h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-surface px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
           <div class="flex items-center gap-2">
             <label for="bom-search-needed" class="shrink-0 text-xs font-medium text-slate-600">필요수량</label>
@@ -161,7 +161,7 @@ watch([q, submittedNeeded], () => {
               type="number"
               min="1"
               step="1"
-              class="h-11 w-24 rounded-xl border border-slate-300 bg-white px-3 text-right text-sm tabular-nums outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              class="h-11 w-24 rounded-xl border border-slate-300 bg-surface px-3 text-right text-sm tabular-nums outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
             <button type="submit" class="h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white transition hover:bg-blue-700">
               검색
@@ -199,9 +199,9 @@ watch([q, submittedNeeded], () => {
               </span>
               <span v-else class="font-semibold text-amber-600">환율 미확인 통화는 원통화로 표시</span>
             </div>
-            <div class="overflow-x-auto rounded-[10px] border border-line-soft bg-white">
+            <div class="overflow-x-auto rounded-[10px] border border-line-soft bg-surface">
               <table class="w-full min-w-[860px] border-collapse">
-                <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_#e5e8ed]">
+                <thead class="sticky top-0 z-10 bg-surface shadow-[0_1px_0_#e5e8ed]">
                   <tr class="text-left text-[11px] uppercase tracking-wide text-ink-subtle">
                     <th class="min-w-[220px] px-2 py-2.5">MPN / Part</th>
                     <th class="px-2 py-2.5">Manufacturer</th>

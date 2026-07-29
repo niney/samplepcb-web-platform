@@ -162,7 +162,7 @@ async function downloadOriginal(): Promise<void> {
     </div>
 
     <!-- 목록 -->
-    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
       <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
           <tr>
@@ -198,8 +198,8 @@ async function downloadOriginal(): Promise<void> {
                       <span v-if="detail.uncostedCount > 0" class="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">미산정 {{ detail.uncostedCount }}건</span>
                       <button v-if="detail.fileUrl !== null" type="button" class="text-xs text-blue-600 hover:underline" @click="downloadOriginal">원본 BOM 다운로드</button>
                     </div>
-                    <p v-if="detail.customerMemo" class="rounded bg-white p-2 text-xs text-gray-600">고객 메모: {{ detail.customerMemo }}</p>
-                    <div class="max-h-80 overflow-y-auto rounded-lg border border-gray-200 bg-white">
+                    <p v-if="detail.customerMemo" class="rounded bg-surface p-2 text-xs text-gray-600">고객 메모: {{ detail.customerMemo }}</p>
+                    <div class="max-h-80 overflow-y-auto rounded-lg border border-gray-200 bg-surface">
                       <table class="min-w-full divide-y divide-gray-100 text-xs">
                         <thead class="sticky top-0 bg-gray-50 text-left text-gray-500">
                           <tr><th class="px-2 py-1.5">Excel 위치</th><th class="px-2 py-1.5">부품</th><th class="px-2 py-1.5">오퍼</th><th class="px-2 py-1.5 text-right">주문수량</th><th class="px-2 py-1.5 text-right">합계</th><th class="px-2 py-1.5" /></tr>
@@ -229,7 +229,7 @@ async function downloadOriginal(): Promise<void> {
                   </div>
 
                   <!-- 검토 폼 -->
-                  <div class="space-y-3 rounded-lg border border-gray-200 bg-white p-3 text-sm">
+                  <div class="space-y-3 rounded-lg border border-gray-200 bg-surface p-3 text-sm">
                     <div class="grid grid-cols-2 gap-2">
                       <label class="text-xs text-gray-500">확정 운송료
                         <input v-model.number="form.confirmedShippingFee" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
@@ -268,9 +268,9 @@ async function downloadOriginal(): Promise<void> {
 
     <!-- 페이지네이션 -->
     <div v-if="totalPages > 1" class="flex items-center gap-2 text-sm">
-      <button type="button" class="rounded-md border border-gray-300 bg-white px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40" :disabled="page <= 1" @click="page -= 1">이전</button>
+      <button type="button" class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40" :disabled="page <= 1" @click="page -= 1">이전</button>
       <span class="text-gray-500">{{ page }} / {{ totalPages }}</span>
-      <button type="button" class="rounded-md border border-gray-300 bg-white px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40" :disabled="page >= totalPages" @click="page += 1">다음</button>
+      <button type="button" class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40" :disabled="page >= totalPages" @click="page += 1">다음</button>
     </div>
     <BomCandidateDrawer
       :open="candidateItemId !== null"

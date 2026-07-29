@@ -194,7 +194,7 @@ async function confirmDelete(): Promise<void> {
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="h-[38px] rounded-lg border border-rose-200 bg-white px-4 text-[13px] font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+          class="h-[38px] rounded-lg border border-rose-200 bg-surface px-4 text-[13px] font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
           :disabled="deletableCount === 0"
           @click="requestAllDelete"
         >
@@ -216,7 +216,7 @@ async function confirmDelete(): Promise<void> {
       <button type="button" class="ml-4 font-bold" aria-label="알림 닫기" @click="deleteResult = null">×</button>
     </div>
 
-    <section class="mt-4 flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-white shadow-[0_4px_18px_rgba(19,33,68,0.05)]">
+    <section class="mt-4 flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-surface shadow-[0_4px_18px_rgba(19,33,68,0.05)]">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div class="flex flex-1 flex-wrap items-center gap-2">
           <label class="relative min-w-[220px] max-w-[380px] flex-1">
@@ -225,16 +225,16 @@ async function confirmDelete(): Promise<void> {
               v-model="searchInput"
               type="search"
               placeholder="파일명 또는 견적명 검색"
-              class="h-[38px] w-full rounded-lg border border-[#d6dde8] bg-white pl-3 pr-9 text-[13px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              class="h-[38px] w-full rounded-lg border border-line bg-surface pl-3 pr-9 text-[13px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
             <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">⌕</span>
           </label>
-          <select v-model="statusSelection" class="h-[38px] rounded-lg border border-[#d6dde8] bg-white px-3 text-[13px] font-medium text-[#4f5b6e] outline-none focus:border-blue-500" aria-label="견적 상태 필터">
+          <select v-model="statusSelection" class="h-[38px] rounded-lg border border-line bg-surface px-3 text-[13px] font-medium text-ink-muted outline-none focus:border-blue-500" aria-label="견적 상태 필터">
             <option v-for="option in STATUS_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </div>
         <div class="flex items-center gap-3">
-          <span class="text-[12px] text-[#778194]">총 <b class="tabular-nums text-ink">{{ total }}</b>건</span>
+          <span class="text-[12px] text-ink-subtle">총 <b class="tabular-nums text-ink">{{ total }}</b>건</span>
           <button
             type="button"
             class="h-[34px] rounded-lg bg-rose-600 px-3 text-[12px] font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-35"
@@ -269,8 +269,8 @@ async function confirmDelete(): Promise<void> {
               <th class="w-[90px] px-3 py-3 text-right">관리</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-[#edf0f4]">
-            <tr v-for="item in items" :key="item.id" class="group hover:bg-[#f9fbff]" :class="selectedIds.includes(item.id) ? 'bg-blue-50/60' : ''">
+          <tbody class="divide-y divide-line-soft">
+            <tr v-for="item in items" :key="item.id" class="group hover:bg-surface-raised" :class="selectedIds.includes(item.id) ? 'bg-blue-50/60' : ''">
               <td class="px-3 py-3 text-center">
                 <input
                   v-if="item.status === 'draft'"
@@ -286,17 +286,17 @@ async function confirmDelete(): Promise<void> {
                 <RouterLink :to="{ name: 'bom-quote', params: { id: item.id } }" class="block truncate text-[13px] font-semibold text-ink-strong hover:text-blue-600" :title="displayName(item)">
                   {{ displayName(item) }}
                 </RouterLink>
-                <p v-if="item.fileName !== null && item.title !== item.fileName" class="mt-0.5 truncate text-[11px] text-[#8a94a5]">{{ item.title }}</p>
+                <p v-if="item.fileName !== null && item.title !== item.fileName" class="mt-0.5 truncate text-[11px] text-ink-subtle">{{ item.title }}</p>
               </td>
               <td class="px-3 py-3">
                 <span class="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold" :class="statusClass(item.status)">{{ STATUS_LABEL[item.status] }}</span>
               </td>
               <td class="px-3 py-3 text-[12px] text-ink-muted">
                 <p><b class="tabular-nums text-ink">{{ item.itemCount }}</b>개 부품</p>
-                <p class="mt-0.5 text-[11px] text-[#8a94a5]">매칭 {{ item.matchedCount }}/{{ item.itemCount }}</p>
+                <p class="mt-0.5 text-[11px] text-ink-subtle">매칭 {{ item.matchedCount }}/{{ item.itemCount }}</p>
               </td>
               <td class="px-3 py-3 text-right text-[13px] font-semibold tabular-nums text-ink">{{ fmtWon(item.finalTotal) }}</td>
-              <td class="px-3 py-3 text-[12px] tabular-nums text-[#697487]">{{ fmtDate(item.updatedAt) }}</td>
+              <td class="px-3 py-3 text-[12px] tabular-nums text-ink-subtle">{{ fmtDate(item.updatedAt) }}</td>
               <td class="px-3 py-3 text-right">
                 <button
                   v-if="item.status === 'draft'"
@@ -306,24 +306,24 @@ async function confirmDelete(): Promise<void> {
                 >
                   삭제
                 </button>
-                <span v-else class="text-[10px] text-[#a0a8b5]">보호됨</span>
+                <span v-else class="text-[10px] text-ink-faint">보호됨</span>
               </td>
             </tr>
             <tr v-if="items.length === 0 && !list.isLoading.value">
               <td colspan="7" class="px-4 py-16 text-center">
-                <p class="text-[14px] font-semibold text-[#6f798b]">조건에 맞는 BOM 내역이 없습니다.</p>
+                <p class="text-[14px] font-semibold text-ink-subtle">조건에 맞는 BOM 내역이 없습니다.</p>
                 <p class="mt-1 text-[12px] text-ink-faint">검색어 또는 상태 필터를 변경해 보세요.</p>
               </td>
             </tr>
             <tr v-if="list.isLoading.value">
-              <td colspan="7" class="px-4 py-16 text-center text-[13px] text-[#7d8798]">BOM 내역을 불러오는 중입니다…</td>
+              <td colspan="7" class="px-4 py-16 text-center text-[13px] text-ink-subtle">BOM 내역을 불러오는 중입니다…</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <footer class="flex min-h-[54px] items-center justify-between gap-3 border-t border-line px-4 py-2">
-        <p class="text-[11px] text-[#8a94a5]">작성 중 상태만 삭제할 수 있으며 요청·검토·답변 견적은 보호됩니다.</p>
+        <p class="text-[11px] text-ink-subtle">작성 중 상태만 삭제할 수 있으며 요청·검토·답변 견적은 보호됩니다.</p>
         <nav v-if="pageCount > 1" class="flex items-center gap-1" aria-label="BOM 내역 페이지">
           <button type="button" class="grid size-8 place-items-center rounded-md border border-gray-200 text-[12px] text-gray-600 hover:bg-gray-50 disabled:opacity-35" :disabled="page <= 1" aria-label="이전 페이지" @click="page -= 1">‹</button>
           <button
@@ -344,7 +344,7 @@ async function confirmDelete(): Promise<void> {
 
     <Teleport to="body">
       <div v-if="deleteIntent !== null" class="fixed inset-0 z-[90] grid place-items-center bg-slate-950/50 p-4" @mousedown.self="!deleteQuotes.isPending.value && (deleteIntent = null)">
-        <section class="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="delete-bom-title">
+        <section class="w-full max-w-md rounded-2xl bg-surface p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="delete-bom-title">
           <div class="flex items-start justify-between gap-4">
             <div>
               <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-rose-500">Delete BOM</p>
@@ -352,7 +352,7 @@ async function confirmDelete(): Promise<void> {
             </div>
             <button type="button" class="grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100" aria-label="삭제 확인 닫기" :disabled="deleteQuotes.isPending.value" @click="deleteIntent = null">×</button>
           </div>
-          <p class="mt-4 text-[13px] leading-6 text-[#596578]">이 작업은 되돌릴 수 없으며 업로드한 원본 파일과 분석 결과가 함께 삭제됩니다.</p>
+          <p class="mt-4 text-[13px] leading-6 text-ink-muted">이 작업은 되돌릴 수 없으며 업로드한 원본 파일과 분석 결과가 함께 삭제됩니다.</p>
           <p v-if="deleteIntent.scope === 'all'" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800">견적 요청 이후 단계의 내역은 업무 이력 보호를 위해 삭제하지 않고 유지합니다.</p>
           <div class="mt-5 flex justify-end gap-2">
             <button type="button" class="h-9 rounded-lg border border-gray-300 px-4 text-[13px] font-semibold text-gray-600 hover:bg-gray-50" :disabled="deleteQuotes.isPending.value" @click="deleteIntent = null">취소</button>

@@ -69,7 +69,7 @@ function returnToResults(): void {
         v-model="input"
         type="search"
         placeholder="품번·스펙·패키지 자유 검색 (예: GRM155 / 4k7 0402 / 100nF 16V)"
-        class="h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        class="h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-surface px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
       >
       <button
         type="submit"
@@ -110,7 +110,7 @@ function returnToResults(): void {
           :key="part.id"
           type="button"
           class="group w-full rounded-xl border p-3.5 text-left transition"
-          :class="part.id === currentPartId ? 'border-blue-200 bg-blue-50/70 hover:border-blue-400' : 'border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50/40'"
+          :class="part.id === currentPartId ? 'border-blue-200 bg-blue-50/70 hover:border-blue-400' : 'border-slate-200 bg-surface hover:border-blue-400 hover:bg-blue-50/40'"
           :disabled="selecting"
           @click="previewPart(part)"
         >
@@ -119,7 +119,7 @@ function returnToResults(): void {
               :src="part.imageUrl"
               :alt="`${part.mpn} 부품 이미지`"
               :placeholder="null"
-              class="size-12 shrink-0 rounded-lg border border-slate-200 bg-white"
+              class="size-12 shrink-0 rounded-lg border border-slate-200 bg-surface"
             />
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2 text-sm">
@@ -143,14 +143,14 @@ function returnToResults(): void {
     </template>
 
     <section v-else class="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-      <div class="border-b border-slate-200 bg-white p-4">
+      <div class="border-b border-slate-200 bg-surface p-4">
         <button type="button" class="text-xs font-bold text-blue-700 hover:text-blue-900" :disabled="selecting" @click="returnToResults">← 검색 결과로</button>
         <div class="mt-3 flex items-start gap-3">
           <PartImage
             :src="selectedPart.imageUrl"
             :alt="`${selectedPart.mpn} 부품 이미지`"
             :placeholder="null"
-            class="size-14 shrink-0 rounded-lg border border-slate-200 bg-white"
+            class="size-14 shrink-0 rounded-lg border border-slate-200 bg-surface"
           />
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2">

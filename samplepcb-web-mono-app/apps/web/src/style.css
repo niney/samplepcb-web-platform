@@ -61,4 +61,231 @@
   --color-state-unmatched: #ff5873;
   --color-state-danger: #e73362;
   --color-state-nostock: #c8aa00;
+
+  /* 상태 틴트 — 매칭 결과를 배경·테두리로 옅게 깔 때. 글자용 state-* 와 짝이다. */
+  --color-surface-matched: #f6fcf9;
+  --color-surface-matched-strong: #e4f7ef;
+  --color-surface-danger: #fff7f9;
+  --color-line-matched: #d7eee6;
+  --color-line-danger: #f2dce3;
+  --color-line-warn: #f1e8b9;
+}
+
+/* ── 다크 테마 ──────────────────────────────────────────────────────────────
+   Figma 87:12875 의 다크 시안. 색 유틸이 전부 var() 참조라, 변수만 다시 정의하면
+   기존 마크업을 건드리지 않고 전환된다.
+   테마는 data-theme 속성으로만 정한다 — index.html 의 부팅 스크립트가 저장값(없으면 OS
+   설정)을 읽어 항상 명시적으로 심으므로, 여기서 prefers-color-scheme 를 또 보지 않는다.
+   (그래야 같은 값을 미디어쿼리용으로 한 벌 더 쓰지 않아도 된다.)
+
+   주의 — --color-white 는 건드리지 않는다. 면(bg-white 236곳)은 bg-surface 로 옮겼지만
+   글자(text-white)는 파란 버튼 위 대비용이라 다크에서도 흰색이어야 하고, 둘은 같은
+   변수를 공유하기 때문이다. */
+[data-theme="dark"] {
+  /* 글자 */
+  --color-ink-strong: #f2f5fa;
+  --color-ink: #dde4ee;
+  --color-ink-soft: #c6cfdc;
+  --color-ink-muted: #9ba6b8;
+  --color-ink-subtle: #808b9d;
+  --color-ink-faint: #69737f;
+  --color-ink-neutral: #b8bdc6;
+
+  /* 면 — 라이트와 달리 sunken 이 가장 어둡고 raised 가 한 단 밝다 */
+  --color-surface: #171c26;
+  --color-surface-sunken: #0f131b;
+  --color-surface-raised: #1f2632;
+  --color-surface-neutral: #1c2029;
+  --color-surface-brand: #16233c;
+  --color-surface-brand-soft: #131b2c;
+  --color-surface-warn: #2a2413;
+
+  /* 선 */
+  --color-line: #2c3441;
+  --color-line-soft: #232a35;
+  --color-line-strong: #3d4757;
+  --color-line-neutral: #363636;
+  --color-line-brand: #2c4266;
+
+  /* 브랜드 */
+  --color-brand: #5c9bff;
+  --color-brand-strong: #82b4ff;
+  --color-brand-soft: #4d8df7;
+  --color-brand-deep: #a9c9ff;
+
+  /* 매칭 상태 — 라이트 값은 흰 배경 기준이라 어두운 면에서 대비가 무너진다.
+     뒤집는 게 아니라 어두운 면 위에서 읽히도록 다시 고른 값이다. */
+  --color-state-matched: #58cf35;
+  --color-state-supply: #2ed6a0;
+  --color-state-review: #ff9a4d;
+  --color-state-unmatched: #ff8ba0;
+  --color-state-danger: #ff7093;
+  --color-state-nostock: #ded03f;
+
+  /* 상태 틴트 — 어두운 면 위에 얹히므로 흰 배경 기준의 옅은 틴트를 그대로 쓸 수 없다 */
+  --color-surface-matched: #12241d;
+  --color-surface-matched-strong: #163027;
+  --color-surface-danger: #2a161c;
+  --color-line-matched: #24463a;
+  --color-line-danger: #4a2530;
+  --color-line-warn: #46401f;
+
+  /* Tailwind 팔레트는 명도 축을 뒤집는다(50↔950, 100↔900 …). 그래야 bg-slate-100 처럼
+     "옅은 면"으로 쓰인 것은 어두워지고, text-slate-700 처럼 "짙은 글자"로 쓰인 것은
+     밝아진다 — 두 용도가 같은 계열의 다른 shade 라서 성립한다. */
+    /* slate */
+    --color-slate-50: oklch(12.9% 0.042 264.695);
+    --color-slate-100: oklch(20.8% 0.042 265.755);
+    --color-slate-200: oklch(27.9% 0.041 260.031);
+    --color-slate-300: oklch(37.2% 0.044 257.287);
+    --color-slate-400: oklch(44.6% 0.043 257.281);
+    --color-slate-500: oklch(55.4% 0.046 257.417);
+    --color-slate-600: oklch(70.4% 0.04 256.788);
+    --color-slate-700: oklch(86.9% 0.022 252.894);
+    --color-slate-800: oklch(92.9% 0.013 255.508);
+    --color-slate-900: oklch(96.8% 0.007 247.896);
+    --color-slate-950: oklch(98.4% 0.003 247.858);
+
+    /* gray */
+    --color-gray-50: oklch(13% 0.028 261.692);
+    --color-gray-100: oklch(21% 0.034 264.665);
+    --color-gray-200: oklch(27.8% 0.033 256.848);
+    --color-gray-300: oklch(37.3% 0.034 259.733);
+    --color-gray-400: oklch(44.6% 0.03 256.802);
+    --color-gray-500: oklch(55.1% 0.027 264.364);
+    --color-gray-600: oklch(70.7% 0.022 261.325);
+    --color-gray-700: oklch(87.2% 0.01 258.338);
+    --color-gray-800: oklch(92.8% 0.006 264.531);
+    --color-gray-900: oklch(96.7% 0.003 264.542);
+    --color-gray-950: oklch(98.5% 0.002 247.839);
+
+    /* blue */
+    --color-blue-50: oklch(28.2% 0.091 267.935);
+    --color-blue-100: oklch(37.9% 0.146 265.522);
+    --color-blue-200: oklch(42.4% 0.199 265.638);
+    --color-blue-300: oklch(48.8% 0.243 264.376);
+    --color-blue-400: oklch(54.6% 0.245 262.881);
+    --color-blue-500: oklch(62.3% 0.214 259.815);
+    --color-blue-600: oklch(70.7% 0.165 254.624);
+    --color-blue-700: oklch(80.9% 0.105 251.813);
+    --color-blue-800: oklch(88.2% 0.059 254.128);
+    --color-blue-900: oklch(93.2% 0.032 255.585);
+    --color-blue-950: oklch(97% 0.014 254.604);
+
+    /* amber */
+    --color-amber-50: oklch(27.9% 0.077 45.635);
+    --color-amber-100: oklch(41.4% 0.112 45.904);
+    --color-amber-200: oklch(47.3% 0.137 46.201);
+    --color-amber-300: oklch(55.5% 0.163 48.998);
+    --color-amber-400: oklch(66.6% 0.179 58.318);
+    --color-amber-500: oklch(76.9% 0.188 70.08);
+    --color-amber-600: oklch(82.8% 0.189 84.429);
+    --color-amber-700: oklch(87.9% 0.169 91.605);
+    --color-amber-800: oklch(92.4% 0.12 95.746);
+    --color-amber-900: oklch(96.2% 0.059 95.617);
+    --color-amber-950: oklch(98.7% 0.022 95.277);
+
+    /* red */
+    --color-red-50: oklch(25.8% 0.092 26.042);
+    --color-red-100: oklch(39.6% 0.141 25.723);
+    --color-red-200: oklch(44.4% 0.177 26.899);
+    --color-red-300: oklch(50.5% 0.213 27.518);
+    --color-red-400: oklch(57.7% 0.245 27.325);
+    --color-red-500: oklch(63.7% 0.237 25.331);
+    --color-red-600: oklch(70.4% 0.191 22.216);
+    --color-red-700: oklch(80.8% 0.114 19.571);
+    --color-red-800: oklch(88.5% 0.062 18.334);
+    --color-red-900: oklch(93.6% 0.032 17.717);
+    --color-red-950: oklch(97.1% 0.013 17.38);
+
+    /* emerald */
+    --color-emerald-50: oklch(26.2% 0.051 172.552);
+    --color-emerald-100: oklch(37.8% 0.077 168.94);
+    --color-emerald-200: oklch(43.2% 0.095 166.913);
+    --color-emerald-300: oklch(50.8% 0.118 165.612);
+    --color-emerald-400: oklch(59.6% 0.145 163.225);
+    --color-emerald-500: oklch(69.6% 0.17 162.48);
+    --color-emerald-600: oklch(76.5% 0.177 163.223);
+    --color-emerald-700: oklch(84.5% 0.143 164.978);
+    --color-emerald-800: oklch(90.5% 0.093 164.15);
+    --color-emerald-900: oklch(95% 0.052 163.051);
+    --color-emerald-950: oklch(97.9% 0.021 166.113);
+
+    /* rose */
+    --color-rose-50: oklch(27.1% 0.105 12.094);
+    --color-rose-100: oklch(41% 0.159 10.272);
+    --color-rose-200: oklch(45.5% 0.188 13.697);
+    --color-rose-300: oklch(51.4% 0.222 16.935);
+    --color-rose-400: oklch(58.6% 0.253 17.585);
+    --color-rose-500: oklch(64.5% 0.246 16.439);
+    --color-rose-600: oklch(71.2% 0.194 13.428);
+    --color-rose-700: oklch(81% 0.117 11.638);
+    --color-rose-800: oklch(89.2% 0.058 10.001);
+    --color-rose-900: oklch(94.1% 0.03 12.58);
+    --color-rose-950: oklch(96.9% 0.015 12.422);
+
+    /* indigo */
+    --color-indigo-50: oklch(25.7% 0.09 281.288);
+    --color-indigo-100: oklch(35.9% 0.144 278.697);
+    --color-indigo-200: oklch(39.8% 0.195 277.366);
+    --color-indigo-300: oklch(45.7% 0.24 277.023);
+    --color-indigo-400: oklch(51.1% 0.262 276.966);
+    --color-indigo-500: oklch(58.5% 0.233 277.117);
+    --color-indigo-600: oklch(67.3% 0.182 276.935);
+    --color-indigo-700: oklch(78.5% 0.115 274.713);
+    --color-indigo-800: oklch(87% 0.065 274.039);
+    --color-indigo-900: oklch(93% 0.034 272.788);
+    --color-indigo-950: oklch(96.2% 0.018 272.314);
+
+    /* orange */
+    --color-orange-50: oklch(26.6% 0.079 36.259);
+    --color-orange-100: oklch(40.8% 0.123 38.172);
+    --color-orange-200: oklch(47% 0.157 37.304);
+    --color-orange-300: oklch(55.3% 0.195 38.402);
+    --color-orange-400: oklch(64.6% 0.222 41.116);
+    --color-orange-500: oklch(70.5% 0.213 47.604);
+    --color-orange-600: oklch(75% 0.183 55.934);
+    --color-orange-700: oklch(83.7% 0.128 66.29);
+    --color-orange-800: oklch(90.1% 0.076 70.697);
+    --color-orange-900: oklch(95.4% 0.038 75.164);
+    --color-orange-950: oklch(98% 0.016 73.684);
+
+    /* violet */
+    --color-violet-50: oklch(28.3% 0.141 291.089);
+    --color-violet-100: oklch(38% 0.189 293.745);
+    --color-violet-200: oklch(43.2% 0.232 292.759);
+    --color-violet-300: oklch(49.1% 0.27 292.581);
+    --color-violet-400: oklch(54.1% 0.281 293.009);
+    --color-violet-500: oklch(60.6% 0.25 292.717);
+    --color-violet-600: oklch(70.2% 0.183 293.541);
+    --color-violet-700: oklch(81.1% 0.111 293.571);
+    --color-violet-800: oklch(89.4% 0.057 293.283);
+    --color-violet-900: oklch(94.3% 0.029 294.588);
+    --color-violet-950: oklch(96.9% 0.016 293.756);
+
+    /* teal */
+    --color-teal-50: oklch(27.7% 0.046 192.524);
+    --color-teal-100: oklch(38.6% 0.063 188.416);
+    --color-teal-200: oklch(43.7% 0.078 188.216);
+    --color-teal-300: oklch(51.1% 0.096 186.391);
+    --color-teal-400: oklch(60% 0.118 184.704);
+    --color-teal-500: oklch(70.4% 0.14 182.503);
+    --color-teal-600: oklch(77.7% 0.152 181.912);
+    --color-teal-700: oklch(85.5% 0.138 181.071);
+    --color-teal-800: oklch(91% 0.096 180.426);
+    --color-teal-900: oklch(95.3% 0.051 180.801);
+    --color-teal-950: oklch(98.4% 0.014 180.72);
+
+    /* sky */
+    --color-sky-50: oklch(29.3% 0.066 243.157);
+    --color-sky-100: oklch(39.1% 0.09 240.876);
+    --color-sky-200: oklch(44.3% 0.11 240.79);
+    --color-sky-300: oklch(50% 0.134 242.749);
+    --color-sky-400: oklch(58.8% 0.158 241.966);
+    --color-sky-500: oklch(68.5% 0.169 237.323);
+    --color-sky-600: oklch(74.6% 0.16 232.661);
+    --color-sky-700: oklch(82.8% 0.111 230.318);
+    --color-sky-800: oklch(90.1% 0.058 230.902);
+    --color-sky-900: oklch(95.1% 0.026 236.824);
+    --color-sky-950: oklch(97.7% 0.013 236.62);
 }

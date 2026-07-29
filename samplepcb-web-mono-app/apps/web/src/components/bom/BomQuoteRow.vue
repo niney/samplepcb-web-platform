@@ -208,19 +208,19 @@ const rowClass = computed(() => {
   if (quantityMissing.value) return 'bg-amber-50/70';
   if (!item.included) return 'opacity-45';
   if (severeOrderSurplus.value) return 'bg-orange-50/80';
-  if (provisionalSelectionPending.value) return 'bg-white';
+  if (provisionalSelectionPending.value) return 'bg-surface';
   if (exactIdentityWarning.value !== null) return 'bg-amber-50/40';
   if (catalogInquiry.value) return 'bg-blue-50/50';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
-    if (props.enriching) return 'bg-white';
+    if (props.enriching) return 'bg-surface';
     if (engineStockStatusLabel.value !== null) return 'bg-surface-warn';
     return item.recommendedCandidateKey !== null || item.matchEvidence?.selectionMode === 'review'
       ? 'bg-amber-50/60'
-      : 'bg-[#fdf2f2]';
+      : 'bg-surface-danger';
   }
   if (stockShort.value) return 'bg-surface-warn'; // 재고 부족 — 시안 노랑
-  return 'bg-white';
+  return 'bg-surface';
 });
 
 const evidenceTitle = computed(() => {
@@ -302,8 +302,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       label: item.matchStatus === 'none' ? 'Review' : 'Matched',
       helperLabel: '수량 확인 필요',
       toneClass: item.matchStatus === 'none'
-        ? 'border border-line-neutral bg-white text-state-review'
-        : 'border border-line-neutral bg-white text-state-matched',
+        ? 'border border-line-neutral bg-surface text-state-review'
+        : 'border border-line-neutral bg-surface text-state-matched',
       priceClass: item.matchStatus === 'none' ? 'text-state-review' : 'text-state-matched',
       title: reasonSummary.value,
       pulse: false,
@@ -313,7 +313,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Review',
       helperLabel: '수량 검토',
-      toneClass: 'border border-line-neutral bg-white text-state-review',
+      toneClass: 'border border-line-neutral bg-surface text-state-review',
       priceClass: 'text-state-review',
       title: severeOrderSurplusLabel.value,
       pulse: false,
@@ -345,8 +345,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       label: selected ? 'Matched' : 'Review',
       helperLabel: selected ? '재고·가격 문의' : '취급 가능',
       toneClass: selected
-        ? 'border border-line-neutral bg-white text-state-matched'
-        : 'border border-line-neutral bg-white text-state-review',
+        ? 'border border-line-neutral bg-surface text-state-matched'
+        : 'border border-line-neutral bg-surface text-state-review',
       priceClass: selected ? 'text-state-matched' : 'text-state-review',
       title: evidenceTitle.value,
       pulse: false,
@@ -362,7 +362,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
         : insufficientStock ? '재고 부족' : null,
       toneClass: stockUnverified
         ? 'bg-state-unmatched/15 text-state-unmatched'
-        : 'bg-[#d5c724]/15 text-state-nostock',
+        : 'bg-state-nostock/15 text-state-nostock',
       priceClass: stockUnverified ? 'text-state-unmatched' : 'text-state-nostock',
       title: evidenceTitle.value,
       pulse: false,
@@ -372,7 +372,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Matched',
       helperLabel: '검토 대기',
-      toneClass: 'border border-line-neutral bg-white text-state-matched',
+      toneClass: 'border border-line-neutral bg-surface text-state-matched',
       priceClass: 'text-state-matched',
       title: evidenceTitle.value,
       pulse: false,
@@ -382,7 +382,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Review',
       helperLabel: '검토 필요',
-      toneClass: 'border border-line-neutral bg-white text-state-review',
+      toneClass: 'border border-line-neutral bg-surface text-state-review',
       priceClass: 'text-state-review',
       title: evidenceTitle.value,
       pulse: false,
@@ -406,8 +406,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
         ? stockStatusLabel.value
         : null,
       toneClass: stockUnverified
-        ? 'border border-line-neutral bg-white text-state-matched'
-        : 'bg-[#d5c724]/15 text-state-nostock',
+        ? 'border border-line-neutral bg-surface text-state-matched'
+        : 'bg-state-nostock/15 text-state-nostock',
       priceClass: stockUnverified ? 'text-state-matched' : 'text-state-nostock',
       title: evidenceTitle.value,
       pulse: false,
@@ -417,7 +417,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Matched',
       helperLabel: item.selectionSource === 'customer' ? '고객 선택 완료' : null,
-      toneClass: 'bg-[#01bd46]/15 text-state-matched',
+      toneClass: 'bg-state-matched/15 text-state-matched',
       priceClass: 'text-state-matched',
       title: evidenceTitle.value,
       pulse: false,
@@ -426,7 +426,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
   return {
     label: 'Matched',
     helperLabel: '가격 확인 필요',
-    toneClass: 'border border-line-neutral bg-white text-state-matched',
+    toneClass: 'border border-line-neutral bg-surface text-state-matched',
     priceClass: 'text-state-matched',
     title: evidenceTitle.value,
     pulse: false,
@@ -499,7 +499,7 @@ function onQtyInput(event: Event): void {
         <div class="w-[76px] shrink-0">
           <div
             v-if="item.selectedOffer !== null"
-            class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-white px-1 shadow-sm"
+            class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-surface px-1 shadow-sm"
             :title="item.selectedOffer.supplierSku"
           >
             <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] rounded-[2px]">
@@ -520,10 +520,10 @@ function onQtyInput(event: Event): void {
             :href="item.partDatasheetUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-[12px] leading-[16px] text-[#2f6fed] hover:underline"
+            class="text-[12px] leading-[16px] text-brand-strong hover:underline"
             title="데이터시트 새 창에서 열기"
           >데이터시트</a>
-          <p v-else class="cursor-default text-[12px] leading-[16px] text-[#c3cbd6]" title="데이터시트 없음">데이터시트</p>
+          <p v-else class="cursor-default text-[12px] leading-[16px] text-ink-faint" title="데이터시트 없음">데이터시트</p>
         </div>
       </div>
     </td>
@@ -560,7 +560,7 @@ function onQtyInput(event: Event): void {
         <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '오퍼 없음') }}</span>
         <span class="text-[10px] text-gray-400">▾</span>
       </button>
-      <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line bg-[#fafcff] pl-1 pr-3">
+      <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line bg-surface-brand-soft pl-1 pr-3">
         <input
           :value="quantityMissing ? quantityDraft : item.orderQty"
           type="number"
@@ -593,7 +593,7 @@ function onQtyInput(event: Event): void {
         <!-- 내부 판정 우선순위는 유지하고 Figma의 보조 설명 + 영문 상태 pill로 표현한다. -->
         <span
           v-if="totalStatusPresentation.helperLabel !== null"
-          class="inline-flex h-[14px] items-center justify-center gap-px whitespace-nowrap text-[10px] font-medium leading-[14px] text-[#6a7385]"
+          class="inline-flex h-[14px] items-center justify-center gap-px whitespace-nowrap text-[10px] font-medium leading-[14px] text-ink-subtle"
         >
           <img :src="statusCheckIcon" alt="" class="size-[10px] shrink-0">
           {{ totalStatusPresentation.helperLabel }}
@@ -648,14 +648,14 @@ function onQtyInput(event: Event): void {
         </button>
         <button
           type="button"
-          class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-white text-[13px] font-medium text-ink-neutral transition hover:bg-[#f8f8f8] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
+          class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-surface text-[13px] font-medium text-ink-neutral transition hover:bg-surface-neutral disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface"
           :disabled="editingLocked && !enriching"
           :title="editingLocked && !enriching ? EDIT_LOCK_TITLE : '전체 카탈로그에서 다른 부품 검색'"
           @click="emit('open-search')"
         >
           부품 변경
         </button>
-        <button type="button" class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-surface-neutral text-[13px] font-medium text-ink-neutral transition hover:bg-[#e9e9e9] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-neutral" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
+        <button type="button" class="h-[24px] w-[70px] rounded-[4px] border border-line-strong bg-surface-neutral text-[13px] font-medium text-ink-neutral transition hover:bg-surface-neutral disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-neutral" :disabled="editingLocked || quantityMissing" :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : (item.included ? '합계·견적요청에서 제외' : '합계·견적요청에 복원')" @click="emit('toggle-include')">{{ item.included ? '제외' : '복원' }}</button>
       </div>
     </td>
   </tr>

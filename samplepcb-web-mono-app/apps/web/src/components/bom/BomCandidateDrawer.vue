@@ -1358,7 +1358,7 @@ function safetyClass(candidate: BomQuoteCandidateType): string {
   }
   if (candidate.safety === 'blocked') return 'border-red-200 bg-red-50/30';
   if (candidate.safety === 'caution') return 'border-amber-200 bg-amber-50/30';
-  return 'border-slate-200 bg-white';
+  return 'border-slate-200 bg-surface';
 }
 
 function recommendationLabel(candidate: BomQuoteCandidateType): string {
@@ -2036,8 +2036,8 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-[70] flex justify-end bg-slate-950/50" role="presentation" @mousedown.self="emit('close')">
-      <aside class="flex h-full w-full max-w-4xl flex-col bg-[#f6f8fb] shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="candidate-drawer-title">
-        <header class="shrink-0 border-b border-slate-200 bg-white px-5 py-2.5 sm:px-6">
+      <aside class="flex h-full w-full max-w-4xl flex-col bg-surface-raised shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="candidate-drawer-title">
+        <header class="shrink-0 border-b border-slate-200 bg-surface px-5 py-2.5 sm:px-6">
           <div class="flex items-center justify-between gap-4">
             <div class="min-w-0">
               <div class="flex min-w-0 items-baseline gap-2">
@@ -2049,11 +2049,11 @@ onBeforeUnmount(() => {
               </p>
               <p v-else-if="searchInitialQuery !== ''" class="mt-0.5 truncate text-sm text-slate-500">현재 품번 {{ searchInitialQuery }}</p>
             </div>
-            <button type="button" class="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-xl text-slate-500 hover:bg-slate-100" aria-label="후보 패널 닫기" @click="emit('close')">×</button>
+            <button type="button" class="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-surface text-xl text-slate-500 hover:bg-slate-100" aria-label="후보 패널 닫기" @click="emit('close')">×</button>
           </div>
         </header>
 
-        <nav class="grid shrink-0 grid-cols-2 gap-1 border-b border-slate-200 bg-white px-5 pt-1 sm:px-6" aria-label="부품 선택 방식">
+        <nav class="grid shrink-0 grid-cols-2 gap-1 border-b border-slate-200 bg-surface px-5 pt-1 sm:px-6" aria-label="부품 선택 방식">
           <button
             type="button"
             class="border-b-2 px-3 py-2 text-sm font-bold transition"
@@ -2085,14 +2085,14 @@ onBeforeUnmount(() => {
                   <h3 class="mt-1 text-base font-bold text-slate-950">엔진 후보 밖에서 직접 찾기</h3>
                   <p class="mt-1 text-xs leading-5 text-slate-600">품번·스펙·패키지로 전체 카탈로그를 검색합니다. 선택 결과는 엔진 추천과 섞지 않고 <b class="text-slate-800">직접 검색</b>으로 기록됩니다.</p>
                 </div>
-                <div class="shrink-0 rounded-xl border border-blue-100 bg-white px-3 py-2 text-xs text-slate-600 sm:text-right">
+                <div class="shrink-0 rounded-xl border border-blue-100 bg-surface px-3 py-2 text-xs text-slate-600 sm:text-right">
                   <span class="block text-[10px] font-bold uppercase tracking-wide text-slate-400">현재 부품</span>
                   <b class="mt-0.5 block max-w-64 break-all text-slate-900">{{ context?.currentMpn || searchInitialQuery || '미선정' }}</b>
                 </div>
               </div>
             </section>
 
-            <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <section class="rounded-2xl border border-slate-200 bg-surface p-4 shadow-sm sm:p-5">
               <div class="mb-4">
                 <h3 class="font-bold text-slate-900">카탈로그 검색</h3>
                 <p class="mt-1 text-xs text-slate-500">부품을 고른 뒤 공급 포장·공급사·실제 주문수량과 총액을 확인하고 적용합니다.</p>
@@ -2138,7 +2138,7 @@ onBeforeUnmount(() => {
                 <span aria-hidden="true">✓</span>
                 {{ requirementsNotice }}
               </div>
-              <section class="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm" aria-labelledby="original-bom-title">
+              <section class="rounded-xl border border-slate-200 bg-surface px-3 py-2 shadow-sm" aria-labelledby="original-bom-title">
                 <div class="flex flex-wrap items-center justify-between gap-1.5">
                   <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
                     <div class="flex items-baseline gap-2">
@@ -2169,7 +2169,7 @@ onBeforeUnmount(() => {
                     </template>
                     <button
                       type="button"
-                      class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                      class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-surface px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700"
                       :aria-expanded="originalDetailsExpanded"
                       aria-controls="original-bom-details"
                       @click="originalDetailsExpanded = !originalDetailsExpanded"
@@ -2251,7 +2251,7 @@ onBeforeUnmount(() => {
                           ? 'border-amber-200 bg-amber-50/40'
                           : field.certainty === 'review'
                             ? 'border-rose-200 bg-rose-50/50'
-                            : 'border-slate-100 bg-white',
+                            : 'border-slate-100 bg-surface',
                       ]"
                     >
                       <dt class="flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
@@ -2302,7 +2302,7 @@ onBeforeUnmount(() => {
                       >
                         {{ engineRequirementReadiness === 'searchable' ? '엔진 검색 가능' : engineRequirementReadiness === 'needs_user_input' ? '엔진 보완 필요' : '검색 제외' }}
                       </span>
-                      <span v-if="context.searchRequirements !== null" class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">사용자 조건 저장됨</span>
+                      <span v-if="context.searchRequirements !== null" class="rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">사용자 조건 저장됨</span>
                     </div>
                     <p v-if="engineSearchExcluded" class="mt-1 text-xs font-semibold leading-5 text-slate-600">
                       이 행은 엔진 판정에 따라 공급사 검색에서 제외되었습니다. 필요한 경우 전체 부품 검색에서 직접 선택할 수 있습니다.
@@ -2323,16 +2323,16 @@ onBeforeUnmount(() => {
                   <fieldset class="contents" :disabled="requirementsSaving || interactionLocked || engineSearchExcluded">
                     <label v-if="requirementComponentType === 'resistor'" class="text-xs font-semibold text-slate-700">
                       저항값 <b class="text-rose-600">*</b>
-                      <input v-model.trim="resistance" type="text" maxlength="64" placeholder="예: 10kΩ" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="resistance" type="text" maxlength="64" placeholder="예: 10kΩ" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
                     <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
                       정전용량 <b class="text-rose-600">*</b>
-                      <input v-model.trim="capacitance" type="text" maxlength="64" placeholder="예: 100nF" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="capacitance" type="text" maxlength="64" placeholder="예: 100nF" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="requirementComponentType === 'capacitor'" class="text-xs font-semibold text-slate-700">
                       캐패시터 종류 <b class="text-rose-600">*</b>
-                      <select v-model="capacitorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="capacitorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">선택 필요</option>
                         <option value="ceramic">MLCC / 세라믹</option>
                         <option value="electrolytic">전해</option>
@@ -2343,7 +2343,7 @@ onBeforeUnmount(() => {
 
                     <label v-if="requirementComponentType === 'inductor'" class="text-xs font-semibold text-slate-700">
                       인덕터 종류 <b class="text-rose-600">*</b>
-                      <select v-model="inductorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="inductorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">선택 필요</option>
                         <option value="standard">일반 인덕터</option>
                         <option value="ferrite">페라이트 비드</option>
@@ -2351,20 +2351,20 @@ onBeforeUnmount(() => {
                     </label>
                     <label v-if="requirementComponentType === 'inductor' && inductorType === 'standard'" class="text-xs font-semibold text-slate-700">
                       인덕턴스 <b class="text-rose-600">*</b>
-                      <input v-model.trim="inductance" type="text" maxlength="64" placeholder="예: 10uH" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="inductance" type="text" maxlength="64" placeholder="예: 10uH" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
                     <label v-if="requirementComponentType === 'inductor' && inductorType === 'ferrite'" class="text-xs font-semibold text-slate-700">
                       임피던스 <b class="text-rose-600">*</b>
-                      <input v-model.trim="impedance" type="text" maxlength="64" placeholder="예: 120Ω" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="impedance" type="text" maxlength="64" placeholder="예: 120Ω" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
                     <label v-if="requirementComponentType === 'inductor' && inductorType === 'ferrite'" class="text-xs font-semibold text-slate-700">
                       임피던스 기준 주파수
-                      <input v-model.trim="impedanceFrequency" type="text" maxlength="64" placeholder="예: 100MHz" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="impedanceFrequency" type="text" maxlength="64" placeholder="예: 100MHz" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="requirementComponentType === 'diode'" class="text-xs font-semibold text-slate-700">
                       다이오드 종류 <b class="text-rose-600">*</b>
-                      <select v-model="diodeType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="diodeType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">선택 필요</option>
                         <option value="rectifier">정류</option>
                         <option value="signal">신호</option>
@@ -2377,7 +2377,7 @@ onBeforeUnmount(() => {
 
                     <label v-if="requirementComponentType === 'transistor'" class="text-xs font-semibold text-slate-700">
                       소자 종류 <b class="text-rose-600">*</b>
-                      <select v-model="transistorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="transistorType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">선택 필요</option>
                         <option value="bjt">BJT</option>
                         <option value="mosfet">MOSFET</option>
@@ -2385,7 +2385,7 @@ onBeforeUnmount(() => {
                     </label>
                     <label v-if="requirementComponentType === 'transistor'" class="text-xs font-semibold text-slate-700">
                       극성 / 채널 <b class="text-rose-600">*</b>
-                      <select v-model="transistorPolarity" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="transistorPolarity" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">선택 필요</option>
                         <option v-if="transistorType !== 'mosfet'" value="npn">NPN</option>
                         <option v-if="transistorType !== 'mosfet'" value="pnp">PNP</option>
@@ -2396,12 +2396,12 @@ onBeforeUnmount(() => {
 
                     <label v-if="requirementComponentType === 'led'" class="text-xs font-semibold text-slate-700">
                       발광색 <b class="text-rose-600">*</b>
-                      <input v-model.trim="color" type="text" maxlength="32" placeholder="예: Red / Green / White" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="color" type="text" maxlength="32" placeholder="예: Red / Green / White" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="requirementComponentType === 'crystal'" class="text-xs font-semibold text-slate-700">
                       소자 종류 <b class="text-rose-600">*</b>
-                      <select v-model="crystalType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="crystalType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">선택 필요</option>
                         <option value="crystal">크리스탈</option>
                         <option value="oscillator">오실레이터</option>
@@ -2410,24 +2410,24 @@ onBeforeUnmount(() => {
                     </label>
                     <label v-if="requirementComponentType === 'crystal'" class="text-xs font-semibold text-slate-700">
                       주파수 <b class="text-rose-600">*</b>
-                      <input v-model.trim="frequency" type="text" maxlength="64" placeholder="예: 16MHz" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="frequency" type="text" maxlength="64" placeholder="예: 16MHz" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
                       핀 수 <b class="text-rose-600">*</b>
-                      <input v-model.trim="pinCount" type="number" min="1" max="1000" step="1" placeholder="예: 4" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="pinCount" type="number" min="1" max="1000" step="1" placeholder="예: 4" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
                     <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
                       피치 <b class="text-rose-600">*</b>
-                      <input v-model.trim="pitch" type="text" maxlength="32" placeholder="예: 2.54mm" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="pitch" type="text" maxlength="32" placeholder="예: 2.54mm" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
                     <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
                       열 수
-                      <input v-model.trim="rowCount" type="number" min="1" max="100" step="1" placeholder="모름 또는 예: 2" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="rowCount" type="number" min="1" max="100" step="1" placeholder="모름 또는 예: 2" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
                     <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
                       성별
-                      <select v-model="connectorGender" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="connectorGender" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">모름 · 직접 검토</option>
                         <option value="male">Male</option>
                         <option value="female">Female</option>
@@ -2436,7 +2436,7 @@ onBeforeUnmount(() => {
                     </label>
                     <label v-if="requirementComponentType === 'connector'" class="text-xs font-semibold text-slate-700">
                       방향
-                      <select v-model="connectorOrientation" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="connectorOrientation" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">모름 · 직접 검토</option>
                         <option value="straight">Straight</option>
                         <option value="right-angle">Right Angle</option>
@@ -2446,7 +2446,7 @@ onBeforeUnmount(() => {
 
                     <label v-if="requirementComponentType === 'switch'" class="text-xs font-semibold text-slate-700">
                       스위치 종류 <b class="text-rose-600">*</b>
-                      <select v-model="switchType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="switchType" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">선택 필요</option>
                         <option value="tactile">택트</option>
                         <option value="pushbutton">푸시버튼</option>
@@ -2460,37 +2460,37 @@ onBeforeUnmount(() => {
                     </label>
                     <label v-if="requirementComponentType === 'switch'" class="text-xs font-semibold text-slate-700">
                       접점 구성
-                      <input v-model.trim="contactForm" type="text" maxlength="64" placeholder="모름 또는 예: SPST-NO" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="contactForm" type="text" maxlength="64" placeholder="모름 또는 예: SPST-NO" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label class="text-xs font-semibold text-slate-700">
                       패키지 / 외형 <b v-if="requirementComponentType !== 'connector'" class="text-rose-600">*</b>
-                      <input v-model.trim="packageCode" type="text" maxlength="64" :placeholder="requirementComponentType === 'connector' ? '선택 · 예: 2x2 Header' : '예: 0603 / SOT-23 / 6x6mm'" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="packageCode" type="text" maxlength="64" :placeholder="requirementComponentType === 'connector' ? '선택 · 예: 2x2 Header' : '예: 0603 / SOT-23 / 6x6mm'" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="['resistor', 'capacitor', 'inductor', 'crystal'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
                       허용오차
-                      <input v-model.trim="tolerance" type="text" maxlength="64" placeholder="모름 또는 예: 10%" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="tolerance" type="text" maxlength="64" placeholder="모름 또는 예: 10%" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="['resistor', 'diode', 'transistor'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
                       정격전력
-                      <input v-model.trim="power" type="text" maxlength="64" placeholder="조건 없음 또는 예: 0.1W" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="power" type="text" maxlength="64" placeholder="조건 없음 또는 예: 0.1W" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="['capacitor', 'diode', 'transistor', 'led', 'switch'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
                       정격전압 <b v-if="requirementComponentType === 'diode' && ['zener', 'tvs'].includes(diodeType)" class="text-rose-600">*</b>
-                      <input v-model.trim="voltage" type="text" maxlength="64" placeholder="모름 또는 예: 25V" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="voltage" type="text" maxlength="64" placeholder="모름 또는 예: 25V" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="['inductor', 'diode', 'transistor', 'led', 'switch'].includes(requirementComponentType ?? '')" class="text-xs font-semibold text-slate-700">
                       정격전류
-                      <input v-model.trim="current" type="text" maxlength="64" placeholder="모름 또는 예: 1A" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <input v-model.trim="current" type="text" maxlength="64" placeholder="모름 또는 예: 1A" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                     </label>
 
                     <label v-if="requirementComponentType === 'capacitor' && capacitorType === 'ceramic'" class="text-xs font-semibold text-slate-700">
                       유전체
-                      <select v-model="dielectric" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="dielectric" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">모름 · 직접 검토</option>
                         <option value="C0G">C0G / NP0</option>
                         <option value="X5R">X5R</option>
@@ -2502,7 +2502,7 @@ onBeforeUnmount(() => {
 
                     <label class="text-xs font-semibold text-slate-700">
                       실장방식
-                      <select v-model="mountStyle" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
+                      <select v-model="mountStyle" class="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm font-normal text-slate-900 outline-none focus:border-indigo-500">
                         <option value="">자동 판정</option>
                         <option value="smd">SMD</option>
                         <option value="through-hole">THT</option>
@@ -2551,7 +2551,7 @@ onBeforeUnmount(() => {
               </section>
               <section
                 v-if="context.localCatalogTrace !== null || context.searchTrace !== null"
-                class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+                class="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm"
               >
                 <button
                   type="button"
@@ -2696,7 +2696,7 @@ onBeforeUnmount(() => {
                                 <div
                                   v-for="assessment in localCatalogAttentionAssessments(localCatalogRepresentativeCandidate)"
                                   :key="assessment.key"
-                                  class="grid gap-x-2 rounded bg-white px-2 py-1 sm:grid-cols-[100px_1fr_auto]"
+                                  class="grid gap-x-2 rounded bg-surface px-2 py-1 sm:grid-cols-[100px_1fr_auto]"
                                 >
                                   <b class="text-slate-700">{{ requirementLabel(assessment.key) }}</b>
                                   <span class="text-slate-600">
@@ -2728,7 +2728,7 @@ onBeforeUnmount(() => {
                       <li
                         v-for="attempt in context.searchTrace.attempts"
                         :key="attempt.sequence"
-                        class="grid gap-x-2 gap-y-1 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[11px] sm:grid-cols-[24px_108px_minmax(0,1fr)_auto] sm:items-start"
+                        class="grid gap-x-2 gap-y-1 rounded-md border border-slate-200 bg-surface px-2.5 py-2 text-[11px] sm:grid-cols-[24px_108px_minmax(0,1fr)_auto] sm:items-start"
                       >
                         <span class="flex size-5 items-center justify-center rounded-full bg-slate-100 font-bold tabular-nums text-slate-600">
                           {{ attempt.sequence + (context.localCatalogTrace === null ? 0 : 1) }}
@@ -2752,7 +2752,7 @@ onBeforeUnmount(() => {
                   </ol>
                 </div>
               </section>
-              <section class="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+              <section class="overflow-hidden rounded-xl border border-blue-200 bg-surface shadow-sm">
                 <div class="flex flex-col gap-2 bg-gradient-to-r from-blue-700 to-blue-600 px-3 py-2.5 text-white sm:flex-row sm:items-start sm:justify-between">
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-1.5">
@@ -2816,7 +2816,7 @@ onBeforeUnmount(() => {
                 </div>
               </section>
 
-              <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+              <section class="rounded-xl border border-slate-200 bg-surface shadow-sm">
                 <div class="flex flex-col gap-2 border-b border-slate-200 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="font-bold text-slate-900">부품 후보</h3>
@@ -2898,7 +2898,7 @@ onBeforeUnmount(() => {
                             </div>
                           </div>
                         </div>
-                        <div class="w-full shrink-0 rounded-lg border border-slate-200 bg-white p-3 md:w-52">
+                        <div class="w-full shrink-0 rounded-lg border border-slate-200 bg-surface p-3 md:w-52">
                           <p class="text-xs text-slate-400">필요수량 기준 최적 오퍼</p>
                           <strong class="mt-0.5 block text-lg tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
                           <p v-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
@@ -2952,7 +2952,7 @@ onBeforeUnmount(() => {
                       </button>
                     </div>
 
-                    <div v-if="expanded.has(candidate.candidateKey)" class="border-t border-slate-200 bg-white">
+                    <div v-if="expanded.has(candidate.candidateKey)" class="border-t border-slate-200 bg-surface">
                       <div v-if="candidate.offers.length > 0" class="divide-y divide-slate-100">
                         <div v-for="offer in offersForDisplay(candidate)" :key="offer.offerKey" class="grid gap-2 p-3 sm:grid-cols-[1fr_auto] sm:items-center" :class="offerStockRowClass(offer)">
                           <div>
@@ -3009,7 +3009,7 @@ onBeforeUnmount(() => {
                 <div v-else class="p-10 text-center text-sm text-slate-400">이 조건에 해당하는 후보가 없습니다.</div>
               </section>
 
-              <section v-if="context.events.length > 0" class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <section v-if="context.events.length > 0" class="rounded-xl border border-slate-200 bg-surface p-3 shadow-sm">
                 <h3 class="font-bold text-slate-900">선택 이력</h3>
                 <div class="mt-3 space-y-2">
                   <div v-for="event in context.events.slice(0, 5)" :key="event.id" class="flex flex-col gap-1 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
@@ -3019,7 +3019,7 @@ onBeforeUnmount(() => {
                 </div>
               </section>
 
-              <section v-if="!readOnly" class="rounded-xl border border-dashed border-slate-300 bg-white p-3">
+              <section v-if="!readOnly" class="rounded-xl border border-dashed border-slate-300 bg-surface p-3">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div><h3 class="text-sm font-bold text-slate-900">엔진 후보 밖에서 찾기</h3><p class="mt-1 text-xs text-slate-500">품번·스펙으로 카탈로그를 직접 검색할 수 있습니다.</p></div>
                   <div class="flex flex-wrap gap-2">
@@ -3032,7 +3032,7 @@ onBeforeUnmount(() => {
           </template>
         </div>
 
-        <footer class="shrink-0 border-t border-slate-200 bg-white px-5 py-2 text-[11px] leading-5 text-slate-500 sm:px-6">
+        <footer class="shrink-0 border-t border-slate-200 bg-surface px-5 py-2 text-[11px] leading-5 text-slate-500 sm:px-6">
           <template v-if="view === 'candidates'">가격은 필요수량·MOQ·주문배수·재고·환율을 반영한 부품 예상금액입니다. 운송료·관리비·세금은 전체 견적에서 별도로 계산됩니다.</template>
           <template v-else>전체 부품 검색 선택은 엔진 추천을 덮어쓰지 않고 고객의 카탈로그 직접 선택으로 별도 기록됩니다.</template>
         </footer>
@@ -3045,7 +3045,7 @@ onBeforeUnmount(() => {
         @mousedown.self="pendingReviewSelection = null"
       >
         <section
-          class="w-full max-w-lg overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-2xl"
+          class="w-full max-w-lg overflow-hidden rounded-2xl border border-amber-200 bg-surface shadow-2xl"
           role="dialog"
           aria-modal="true"
           aria-labelledby="review-selection-title"
@@ -3093,7 +3093,7 @@ onBeforeUnmount(() => {
           </div>
 
           <footer class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
-            <button type="button" class="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" @click="pendingReviewSelection = null">취소</button>
+            <button type="button" class="h-10 rounded-lg border border-slate-300 bg-surface px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" @click="pendingReviewSelection = null">취소</button>
             <button type="button" class="h-10 rounded-lg bg-amber-600 px-5 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting || interactionLocked" @click="confirmPendingReviewSelection">
               {{ pendingReviewSelection.candidate.selected && provisionalSelectionPending ? '검토 완료' : '확인 후 선택' }}
             </button>
@@ -3106,7 +3106,7 @@ onBeforeUnmount(() => {
       :id="requirementTooltipId"
       ref="requirementTooltipRef"
       role="tooltip"
-      class="fixed z-[90] overflow-hidden rounded-xl border border-slate-300 bg-white text-xs text-slate-700 shadow-2xl ring-1 ring-slate-950/5"
+      class="fixed z-[90] overflow-hidden rounded-xl border border-slate-300 bg-surface text-xs text-slate-700 shadow-2xl ring-1 ring-slate-950/5"
       :style="requirementTooltipStyle"
       @mouseenter="cancelRequirementTooltipClose"
       @mouseleave="scheduleRequirementTooltipClose"
@@ -3121,7 +3121,7 @@ onBeforeUnmount(() => {
         </span>
       </div>
       <div v-if="requirementTooltipCandidate.requirementAssessments.length > 0" class="max-h-[70vh] overflow-auto">
-        <div class="grid min-w-[400px] grid-cols-[minmax(76px,0.8fr)_minmax(96px,1fr)_minmax(96px,1fr)_auto] gap-x-2 border-b border-slate-200 bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+        <div class="grid min-w-[400px] grid-cols-[minmax(76px,0.8fr)_minmax(96px,1fr)_minmax(96px,1fr)_auto] gap-x-2 border-b border-slate-200 bg-surface px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
           <span>항목</span>
           <span>요구 조건</span>
           <span>후보값</span>

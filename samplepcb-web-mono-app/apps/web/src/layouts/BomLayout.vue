@@ -5,6 +5,7 @@ import { useAuthStore } from '@sp/shared';
 import { useBomQuote, useMyBomQuotes, usePatchBomQuote } from '../bom/useBom';
 import { useBomProcurementMode } from '../bom/useProcurementMode';
 import { useBomPanels } from '../bom/usePanels';
+import { useTheme } from '../bom/useTheme';
 import logoIcon from '../assets/bom/logo-partseyes-icon.png';
 import icProfile from '../assets/bom/ic-profile.svg';
 import icFold from '../assets/bom/ic-fold.svg';
@@ -26,6 +27,7 @@ const auth = useAuthStore();
 // 사이드바 접기 — 좌(메뉴)/우(페이지별 우측 패널) 토글. 상세 페이지의 정보 패널
 // (AI 분석결과·주문 정보·예상 견적)도 같은 rightOpen 을 공유한다(usePanels 싱글턴).
 const { leftOpen, rightOpen } = useBomPanels();
+const { isDark, toggleTheme } = useTheme();
 
 // Recent file — 남은 사이드바 높이에 맞춰 최신 견적을 최대한 채우고, 전체 이력 화면 진입점은 항상 유지한다.
 const list = useMyBomQuotes(ref(1), computed(() => auth.isLoggedIn), { pageSize: 50 });
@@ -96,9 +98,9 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
 
 <template>
   <!-- 앱형 고정 레이아웃 — 문서 스크롤 없이 각 영역(테이블·패널)이 내부 스크롤한다 -->
-  <div class="flex h-screen flex-col overflow-hidden bg-[#eef1f6] text-[#131519] [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
+  <div class="flex h-screen flex-col overflow-hidden bg-surface-sunken text-ink-strong [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
     <!-- top (87:9560) — 시안 다크 → 라이트 치환 -->
-    <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-gray-200 bg-white">
+    <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-gray-200 bg-surface">
       <!-- 로고 블록은 시안처럼 사이드바 폭(220px)과 정렬 — 구분선이 경계에 온다 -->
       <div class="flex w-[220px] shrink-0 items-center pl-[24px]">
         <RouterLink :to="{ name: 'bom' }" class="flex items-center gap-[7px]">
@@ -119,7 +121,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       <button
         type="button"
         role="switch"
-        class="relative ml-[26px] h-[36px] w-[80px] rounded-full bg-gradient-to-b from-[#f3f3f3] to-white shadow-[inset_0px_2px_0px_0px_white] ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-50"
+        class="relative ml-[26px] h-[36px] w-[80px] rounded-full bg-gradient-to-b from-surface-neutral to-surface shadow-[inset_0px_2px_0px_0px_white] ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-50"
         :aria-checked="procurementMode === 'mass'"
         :disabled="procurementModeDisabled"
         :title="procurementMode === 'sample'
@@ -130,20 +132,36 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
         <span
           class="absolute top-1/2 -translate-y-1/2 text-[16px] font-extrabold"
           :class="procurementMode === 'sample'
-            ? 'left-[9px] text-[#3288d6]'
+            ? 'left-[9px] text-brand'
             : 'right-[9px] text-[#635bdb]'"
         >{{ procurementMode === 'sample' ? '샘플' : '양산' }}</span>
         <span
           class="absolute top-[4px] size-[28px] rounded-full shadow-[0px_2px_4px_rgba(30,120,220,0.45)] transition-all"
           :class="procurementMode === 'sample'
-            ? 'right-[4px] bg-[#4daaff]'
+            ? 'right-[4px] bg-brand-soft'
             : 'left-[4px] bg-[#756cf3]'"
         />
       </button>
 
-      <p class="absolute left-1/2 -translate-x-1/2 text-[18px] font-medium text-[#7c8698]">AI 기반 전자부품 검색 엔진</p>
+      <p class="absolute left-1/2 -translate-x-1/2 text-[18px] font-medium text-ink-subtle">AI 기반 전자부품 검색 엔진</p>
 
       <div class="ml-auto flex items-center gap-[12px] pr-[18px]">
+        <!-- 테마 전환 — 고르기 전까지는 OS 설정을 따르고, 한 번 고르면 그 선택이 유지된다 -->
+        <button
+          type="button"
+          class="grid size-[32px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand"
+          :aria-label="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
+          :title="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
+          @click="toggleTheme"
+        >
+          <svg v-if="isDark" viewBox="0 0 24 24" class="size-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" class="size-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M20 13.5A8 8 0 0 1 10.5 4a8.5 8.5 0 1 0 9.5 9.5Z" stroke-linejoin="round" />
+          </svg>
+        </button>
         <!-- sp-php 도메인 루트 홈으로 이동 — /app 내부 라우트가 아닌 전체 페이지 이동 -->
         <a
           href="/"
@@ -162,7 +180,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
           :to="{ name: 'admin' }"
           target="_blank"
           rel="noopener"
-          class="inline-flex h-[28px] items-center gap-[4px] rounded-md border border-[#cfe0fb] px-[10px] text-[13px] font-semibold text-brand hover:bg-blue-50"
+          class="inline-flex h-[28px] items-center gap-[4px] rounded-md border border-line-brand px-[10px] text-[13px] font-semibold text-brand hover:bg-blue-50"
           title="관리자 페이지 (새 창)"
         >
           <span>관리자</span>
@@ -187,30 +205,30 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
 
     <div class="flex min-h-0 flex-1">
       <!-- left side bar (87:9485) — 라이트 치환 -->
-      <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-white pt-[36px] lg:flex">
-        <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onBomPrimary ? 'bg-[#eaf2ff]' : 'hover:bg-gray-50'">
+      <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-surface pt-[36px] lg:flex">
+        <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onBomPrimary ? 'bg-surface-brand' : 'hover:bg-gray-50'">
           <img :src="icMenuBom" alt="" class="size-[18px]">
           <span class="ml-[6px] text-[16px] font-medium" :class="onBomPrimary ? 'text-brand-strong' : 'text-ink'">BOM 분석</span>
           <img :src="icMenuUpload" alt="" class="ml-auto size-[14px]">
         </RouterLink>
-        <RouterLink :to="{ name: 'bom-search' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onSearch ? 'bg-[#eaf2ff]' : 'hover:bg-gray-50'">
+        <RouterLink :to="{ name: 'bom-search' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onSearch ? 'bg-surface-brand' : 'hover:bg-gray-50'">
           <img :src="icMenuSearch" alt="" class="size-[18px]">
           <span class="ml-[6px] text-[16px] font-medium" :class="onSearch ? 'text-brand-strong' : 'text-ink'">단일 검색</span>
           <img :src="icTrailSearch" alt="" class="ml-auto size-[14px]">
         </RouterLink>
 
         <section class="mt-[38px] flex min-h-0 flex-1 flex-col pb-4">
-          <p class="pl-[21px] text-[13px] font-bold text-[#8f94a2]">Recent file</p>
+          <p class="pl-[21px] text-[13px] font-bold text-ink-faint">Recent file</p>
           <div ref="recentViewport" class="mt-[12px] flex min-h-0 w-[179px] flex-1 flex-col gap-[2px] self-start overflow-hidden" style="margin-left: 21px">
             <RouterLink
               v-for="q in recent"
               :key="q.id"
               :to="{ name: 'bom-quote', params: { id: q.id } }"
               class="flex h-[30px] shrink-0 items-center gap-[4px] rounded-[4px] border px-[8px]"
-              :class="currentQuoteId === q.id ? 'border-[#dfe3ec] bg-[#f4f6fa]' : 'border-transparent hover:bg-gray-50'"
+              :class="currentQuoteId === q.id ? 'border-line bg-surface-raised' : 'border-transparent hover:bg-gray-50'"
             >
               <img :src="icFile" alt="" class="size-[15px] opacity-60">
-              <span class="truncate text-[12px] text-[#6b7280]">{{ q.fileName ?? q.title }}</span>
+              <span class="truncate text-[12px] text-ink-subtle">{{ q.fileName ?? q.title }}</span>
             </RouterLink>
             <p v-if="recent.length === 0" class="px-[8px] py-[6px] text-[12px] text-gray-400">아직 업로드한 BOM이 없습니다</p>
           </div>
@@ -221,7 +239,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
               :class="onHistory ? 'bg-blue-50' : ''"
             >
               <span>모두 보기</span>
-              <span class="tabular-nums text-[#7d8da8]">{{ recentTotal }}개 ›</span>
+              <span class="tabular-nums text-ink-subtle">{{ recentTotal }}개 ›</span>
             </RouterLink>
           </div>
         </section>
@@ -238,28 +256,28 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
            상세(bom-quote)에서는 페이지 자체 우측 패널(주문 정보·예상 견적)이 대신한다. -->
       <aside v-show="rightOpen && (route.name === 'bom' || route.name === 'bom-search')" class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
         <!-- con01: Parts Eyes 튜토리얼 — 링크 미구현 -->
-        <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-[#f2fdfd] to-[#f7f7fb] ring-1 ring-black/5" title="튜토리얼 (준비 중)">
-          <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-[#e3f3ff] to-[#f7f9fb] blur-[10px]" />
+        <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-surface-raised to-surface-sunken ring-1 ring-black/5" title="튜토리얼 (준비 중)">
+          <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-surface-brand to-surface-sunken blur-[10px]" />
           <img :src="promoZip" alt="" class="absolute right-[24px] top-[49px] size-[58px] rounded-[10px] shadow-[0px_4px_10px_rgba(89,129,208,0.4)]">
-          <div class="absolute right-[18px] top-[16px] flex h-[18px] items-center gap-[3px] rounded-[10px] bg-white px-[7px] shadow-[0px_0px_10px_#eeedf5]">
-            <span class="size-[4px] rounded-full bg-[#3a7cff]" />
-            <span class="text-[10px] font-bold text-[#3a7cff]">PICK</span>
+          <div class="absolute right-[18px] top-[16px] flex h-[18px] items-center gap-[3px] rounded-[10px] bg-surface px-[7px] shadow-[0px_0px_10px_#eeedf5]">
+            <span class="size-[4px] rounded-full bg-brand" />
+            <span class="text-[10px] font-bold text-brand">PICK</span>
           </div>
           <div class="absolute left-[16px] top-[52px] w-[188px]">
-            <p class="text-[11px] leading-[24px] text-[#3199ff]">Parts Eyes 이용 방법 튜토리얼</p>
-            <p class="text-[12px] leading-[18px] text-[#293a5b]">다양한 제조사의 전자부품을<br>파츠아이에서 빠르게 검색하세요</p>
+            <p class="text-[11px] leading-[24px] text-brand">Parts Eyes 이용 방법 튜토리얼</p>
+            <p class="text-[12px] leading-[18px] text-ink">다양한 제조사의 전자부품을<br>파츠아이에서 빠르게 검색하세요</p>
           </div>
         </div>
         <!-- con02: Gerber Eyes Online 3.0 — 링크 미구현 -->
-        <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-[#edf5fd] to-[#f6f7fa] ring-1 ring-black/5" title="Gerber Eyes 소개 영상 (준비 중)">
-          <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-[#e1edff] to-[#f2fafc] blur-[10px]" />
+        <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-surface-brand-soft to-surface-raised ring-1 ring-black/5" title="Gerber Eyes 소개 영상 (준비 중)">
+          <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-surface-brand to-surface-raised blur-[10px]" />
           <img :src="promoVideo" alt="" class="absolute right-[28px] top-[44px] size-[54px] rounded-[10px] shadow-[0px_4px_10px_rgba(183,183,183,0.5)]">
           <div class="absolute left-[188px] top-[35px] rounded-[10px] bg-white/80 px-[6px] py-[3px] backdrop-blur-[10px]">
             <span class="bg-gradient-to-br from-[#ff1e22] to-[#af002f] bg-clip-text text-[10px] font-bold text-transparent">NEW</span>
           </div>
           <div class="absolute left-[16px] top-[52px] w-[188px]">
             <p class="text-[11px] leading-[24px] text-[#e95e49]">Gerber Eyes Online 3.0 출시</p>
-            <p class="text-[12px] leading-[18px] text-[#293a5b]">영상을 통해 편리해진<br>DFM 분석 기능을 확인해 보세요</p>
+            <p class="text-[12px] leading-[18px] text-ink">영상을 통해 편리해진<br>DFM 분석 기능을 확인해 보세요</p>
           </div>
         </div>
       </aside>

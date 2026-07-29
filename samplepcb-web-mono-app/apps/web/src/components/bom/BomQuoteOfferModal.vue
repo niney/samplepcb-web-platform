@@ -88,7 +88,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-[75] grid place-items-center bg-slate-950/50 p-4" role="presentation" @mousedown.self="emit('close')">
-      <section class="flex max-h-[86vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="quote-offer-modal-title">
+      <section class="flex max-h-[86vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="quote-offer-modal-title">
         <header class="shrink-0 border-b border-slate-200 px-5 py-4 sm:px-6">
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0">
@@ -170,7 +170,7 @@ onBeforeUnmount(() => {
 
         <footer class="flex shrink-0 flex-col gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p class="text-[11px] text-slate-500">다른 제조사·MPN·물리 패키지를 검토하려면 후보 비교를 이용하세요.</p>
-          <button type="button" class="shrink-0 rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50" @click="emit('compare')">다른 부품 후보 비교</button>
+          <button type="button" class="shrink-0 rounded-lg border border-blue-300 bg-surface px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50" @click="emit('compare')">다른 부품 후보 비교</button>
         </footer>
       </section>
     </div>

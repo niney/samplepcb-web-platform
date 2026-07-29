@@ -236,7 +236,7 @@ function fmtTotal(pick: OfferPick): string {
           type="button"
           role="tab"
           class="rounded-xl border px-3 py-2 text-left transition"
-          :class="group.key === activePackagingKey ? 'border-blue-500 bg-blue-600 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'"
+          :class="group.key === activePackagingKey ? 'border-blue-500 bg-blue-600 text-white shadow-sm' : 'border-slate-200 bg-surface text-slate-700 hover:border-blue-300'"
           :aria-selected="group.key === activePackagingKey"
           :disabled="selecting"
           @click="selectPackaging(group)"
@@ -254,14 +254,14 @@ function fmtTotal(pick: OfferPick): string {
           :key="row.key"
           type="button"
           role="radio"
-          class="w-full rounded-xl border bg-white p-3 text-left transition"
+          class="w-full rounded-xl border bg-surface p-3 text-left transition"
           :class="row.key === selectedOfferKey ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200 hover:border-blue-300'"
           :aria-checked="row.key === selectedOfferKey"
           :disabled="selecting"
           @click="selectedOfferKey = row.key"
         >
           <div class="flex flex-wrap items-center gap-2 text-sm">
-            <span class="grid size-4 place-items-center rounded-full border" :class="row.key === selectedOfferKey ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300'"><span v-if="row.key === selectedOfferKey" class="size-1.5 rounded-full bg-white" /></span>
+            <span class="grid size-4 place-items-center rounded-full border" :class="row.key === selectedOfferKey ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300'"><span v-if="row.key === selectedOfferKey" class="size-1.5 rounded-full bg-surface" /></span>
             <strong class="uppercase text-slate-900">{{ row.pick.offer.supplier }}</strong>
             <span class="text-xs text-slate-500">{{ row.pick.offer.supplierSku }}</span>
             <span v-if="row.recommended" class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">전체 추천</span>
