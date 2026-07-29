@@ -2,6 +2,7 @@ import fp from 'fastify-plugin';
 import fastifyJwt from '@fastify/jwt';
 import type { FastifyInstance } from 'fastify';
 import { JwtClaims, type JwtClaimsType } from '@sp/api-contract';
+import { prisma } from '../lib/prisma';
 
 // 타입 보강 ----------------------------------------------------------------
 // `authenticate` 데코레이터(라우트 preHandler 로 사용)와 `request.user`(JWT 클레임) 타입.
@@ -9,6 +10,11 @@ declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requirePartner: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  }
+  interface FastifyRequest {
+    /** requirePartner 통과 시 세팅되는 소속 조직 컨텍스트. */
+    partnerContext?: { partnerId: bigint; partnerName: string; role: string };
   }
 }
 
@@ -52,4 +58,26 @@ export default fp(async (app: FastifyInstance) => {
     }
   };
   app.decorate('requireAdmin', requireAdmin);
+
+  // 파트너(협력사) 가드 — JWT 에 조직 클레임을 싣지 않고 sp_partner_member 를 매 요청
+  // 서버 판정한다(server-single-truth, docs/SMARTBOM_PARTNER_RFQ.md §1.2). 연결 해제·
+  // 정지가 토큰 재발급 없이 즉시 반영된다. sp_* 는 Node 소유 테이블이라 "그누보드 DB
+  // 비접근" 원칙과 무관하다. 1계정=1조직 운영 가드(관리자 API)로 소속은 최대 1행.
+  const requirePartner: FastifyInstance['requirePartner'] = async (request, reply) => {
+    await authenticate(request, reply);
+    const membership = await prisma.spPartnerMember.findFirst({
+      where: { mbId: request.user.mbId },
+      include: { partner: true },
+      orderBy: { id: 'asc' },
+    });
+    if (membership === null || membership.partner.status !== 'approved') {
+      throw app.httpErrors.forbidden('승인된 파트너 계정이 아닙니다');
+    }
+    request.partnerContext = {
+      partnerId: membership.partnerId,
+      partnerName: membership.partner.name,
+      role: membership.role,
+    };
+  };
+  app.decorate('requirePartner', requirePartner);
 });

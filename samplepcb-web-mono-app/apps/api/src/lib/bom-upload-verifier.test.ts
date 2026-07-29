@@ -43,6 +43,7 @@ function quoteDetail(
     answeredAt: null,
     engineJobId: 'job-101',
     procurementMode: 'sample',
+    orderState: 'none',
     buildStatus,
     sheets: [{
       sheetIndex: 0,

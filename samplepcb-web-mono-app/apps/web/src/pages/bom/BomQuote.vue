@@ -33,6 +33,7 @@ import {
   useApplyBomQuotePassiveDefaults,
   useCancelBomQuote,
   useDeleteBomQuote,
+  useOrderBomQuote,
   usePatchBomQuote,
   usePrepareBomPartData,
   usePrepareBomQuoteSheets,
@@ -1365,6 +1366,30 @@ function onCatalogPartSelected(part: PartHitType, pick: OfferPick | null): void 
 // ── 견적요청·취소 ────────────────────────────────────────────────────────────
 const request = useRequestBomQuote();
 const cancel = useCancelBomQuote();
+
+// ── 주문 전환(D16) — 확정 견적 → 영카트 주문서 직행 ─────────────────────────
+const orderMut = useOrderBomQuote();
+const orderError = ref('');
+const canOrder = computed(
+  () =>
+    detail.value?.status === 'answered' &&
+    detail.value.confirmedTotal !== null &&
+    detail.value.orderState !== 'ordered',
+);
+
+async function orderNow(): Promise<void> {
+  if (detail.value === null) return;
+  orderError.value = '';
+  try {
+    const res = await orderMut.mutateAsync(detail.value.id);
+    window.location.href = res.data.redirectUrl; // 영카트 주문서로 전체 이동
+  } catch (e) {
+    orderError.value =
+      e instanceof ApiRequestError && e.status === 409
+        ? '주문으로 전환할 수 없습니다 — 새로고침 후 다시 시도해 주세요.'
+        : '주문 전환에 실패했습니다.';
+  }
+}
 const requestModal = ref(false);
 const requestTitle = ref('');
 const requestError = ref('');
@@ -1853,6 +1878,23 @@ function fmtAmount(v: number | null): string {
               확정 견적: <b class="tabular-nums">{{ fmtWon(detail.confirmedTotal) }}</b>
               <span v-if="detail.confirmedShippingFee !== null" class="mt-1 block text-[10px] text-emerald-700">(운송료 {{ fmtWon(detail.confirmedShippingFee) }} · 관리비 {{ fmtWon(detail.confirmedManagementFee) }})</span>
             </p>
+            <!-- 주문 전환(D16) — 확정가 있는 회신만. 결제는 영카트 주문서에서(VAT 포함 전환) -->
+            <div v-if="detail.orderState === 'ordered'" class="mt-2">
+              <span class="inline-block rounded bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white">주문 완료</span>
+              <span class="ml-1 text-[10px] text-emerald-700">주문내역에서 진행 상황을 확인하세요.</span>
+            </div>
+            <template v-else-if="canOrder">
+              <button
+                type="button"
+                class="mt-2 w-full rounded-[8px] bg-emerald-600 py-2 text-[12px] font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+                :disabled="orderMut.isPending.value"
+                @click="orderNow"
+              >
+                주문하기 (VAT 포함 {{ fmtWon(Math.round((detail.confirmedTotal ?? 0) * 1.1)) }})
+              </button>
+              <p class="mt-1 text-center text-[10px] text-emerald-700">주문서에서 결제수단을 선택합니다.</p>
+              <p v-if="orderError !== ''" class="mt-1 text-[10px] font-semibold text-red-600">{{ orderError }}</p>
+            </template>
           </div>
 
           <!-- AI 분석결과 (93:23545) -->

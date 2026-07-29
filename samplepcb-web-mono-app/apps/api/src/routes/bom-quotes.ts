@@ -13,6 +13,7 @@ import {
   BomQuoteDetailResponse,
   BomQuoteItemCandidatesResponse,
   BomQuoteListResponse,
+  BomQuoteOrderResponse,
   BomQuotePatchBody,
   BomQuotePassiveDefaultsBody,
   BomQuoteProcurementMode,
@@ -32,6 +33,8 @@ import {
 } from '@sp/api-contract';
 import { neededQty, stampOrderQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
+import { orderBomQuote } from '../lib/bom-order';
+import { getCartStates } from '../lib/g5-db';
 import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
@@ -1024,16 +1027,23 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       prisma.spBomQuote.count({ where }),
       prisma.spBomQuote.count({ where: { mbId: request.user.mbId, status: 'draft' } }),
     ]);
+    // 주문 전환 파생 상태(D16) — ctId 있는 행만 g5 카트 batch 1회 조회.
+    const ctIds = rows.flatMap((row) => (row.ctId === null ? [] : [row.ctId]));
+    const cartStates = await getCartStates(ctIds);
     return {
       result: true as const,
       data: {
         items: rows.map((row) => {
           const activeItems = filterActiveQuoteItems(row.items, row.sheets);
-          return toSummaryDto(row, {
-            itemCount: activeItems.length,
-            includedCount: activeItems.filter((item) => item.included).length,
-            matchedCount: activeItems.filter((item) => item.matchStatus !== 'none').length,
-          });
+          return toSummaryDto(
+            row,
+            {
+              itemCount: activeItems.length,
+              includedCount: activeItems.filter((item) => item.included).length,
+              matchedCount: activeItems.filter((item) => item.matchStatus !== 'none').length,
+            },
+            row.ctId === null ? 'none' : (cartStates.get(row.ctId) ?? 'none'),
+          );
         }),
         total,
         deletableCount,
@@ -1905,6 +1915,21 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
     return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
+  });
+
+  // ── 주문 전환(D16, docs/SMARTBOM_PARTNER_RFQ.md §6) — 확정 견적 → 영카트 주문서 ──
+  // 게이트: answered + confirmedTotal(관리자 확정가) 필수. 견적 전체 1건 = 카트 1행.
+  // 이미 담긴 건 재사용(금액 동기화), 주문된 건 거부 — 상태는 ct/od 조인 파생.
+  fastify.post('/bom/quotes/:id/order', { schema: { params: IdParams, response: { 200: BomQuoteOrderResponse, 409: BizError } } }, async (request, reply) => {
+    const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    const cartId = request.user.cartId;
+    if (cartId === undefined || cartId === '') {
+      return reply.status(409).send({ result: false, error: 'NO_CART_ID' });
+    }
+    const result = await orderBomQuote(quote, cartId, request.ip, request.log);
+    if (!result.ok) return reply.status(409).send({ result: false, error: result.error });
+    return { result: true as const, data: { ctId: result.ctId, redirectUrl: result.redirectUrl } };
   });
 
   // 취소 — draft/requested 에서만(고객)

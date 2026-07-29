@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
-import { adminMenu } from '../admin/menu';
+import { adminModules, resolveAdminModuleKey } from '../admin/menu';
 import { useRfqCount } from '../admin/useAdminQuotes';
 import { useTheme } from '../bom/useTheme';
 
@@ -11,6 +11,21 @@ const route = useRoute();
 const contentFlush = computed(() => route.meta.adminContentFlush === true);
 const currentRouteName = computed(() => (typeof route.name === 'string' ? route.name : ''));
 const { isDark, toggleTheme } = useTheme();
+
+// 활성 모듈 = 현재 라우트에서 순수 파생(단일 진실) — 북마크/새로고침 진입에도 안전.
+// localStorage 는 "마지막 사용 모듈" 기억용 기록만(후속: 진입 리다이렉트에 활용 가능).
+const MODULE_STORAGE_KEY = 'sp:admin-module';
+const activeModuleKey = computed(() => resolveAdminModuleKey(currentRouteName.value));
+const activeModule = computed(
+  () => adminModules.find((m) => m.key === activeModuleKey.value) ?? adminModules[0],
+);
+watch(activeModuleKey, (key) => {
+  try {
+    localStorage.setItem(MODULE_STORAGE_KEY, key);
+  } catch {
+    /* 프라이빗 모드 등 저장 불가 환경 무시 */
+  }
+});
 
 // "견적 관리" 메뉴의 견적 대기(rfq) 수 뱃지 — 관리자로 로그인했을 때만 조회
 const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true));
@@ -41,7 +56,7 @@ const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true)
         <!-- exact-active 사용: 대시보드는 /admin 의 빈 경로 자식이라 기본(포함) 매칭으로는
              /admin/* 어디서나 활성 처리된다. 상세 형제 라우트는 activeRouteNames 로 보완. -->
         <RouterLink
-          v-for="item in adminMenu"
+          v-for="item in activeModule?.menu ?? []"
           :key="item.labelKey"
           :to="item.to"
           class="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
@@ -62,8 +77,23 @@ const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true)
     <!-- 우측 콘텐츠 -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <header
-        class="flex items-center justify-end border-b border-gray-200 bg-surface px-6 py-3 text-sm"
+        class="flex items-center justify-between border-b border-gray-200 bg-surface px-6 py-3 text-sm"
       >
+        <!-- 모듈 스위처 — 활성 모듈은 라우트에서 파생(클릭 = 모듈 홈 이동).
+             확장 자리(PCB주문·PCBA주문·기술개발)는 모듈이 실제로 생길 때 추가. -->
+        <nav class="flex rounded-lg border border-gray-200 bg-surface-sunken p-0.5 text-xs font-semibold">
+          <RouterLink
+            v-for="mod in adminModules"
+            :key="mod.key"
+            :to="mod.homeTo"
+            class="rounded-md px-3 py-1.5"
+            :class="activeModuleKey === mod.key
+              ? 'bg-surface text-blue-700 shadow-sm'
+              : 'text-gray-500 hover:text-gray-800'"
+          >
+            {{ $t(mod.labelKey) }}
+          </RouterLink>
+        </nav>
         <span v-if="auth.isLoggedIn" class="text-gray-700">
           {{ $t('auth.greeting', { nick: auth.me?.mbNick ?? '' }) }}
         </span>

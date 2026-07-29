@@ -17,6 +17,10 @@ export const apiRoutes = {
   bom: '/api/bom',
   // 고객 BOM 견적요청 관리자 검토
   adminBomQuotes: '/api/admin/bom-quotes',
+  // 스마트 BOM 파트너(조직) 관리 — docs/SMARTBOM_PARTNER_RFQ.md
+  adminPartners: '/api/admin/partners',
+  // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신
+  partnerRfqs: '/api/partner/rfqs',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',

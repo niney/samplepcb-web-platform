@@ -10,6 +10,8 @@ export * from './schemas/seo';
 export * from './schemas/bom';
 export * from './schemas/parts';
 export * from './schemas/bom-quote';
+export * from './schemas/bom-rfq';
+export * from './schemas/partner';
 export * from './schemas/market';
 export * from './schemas/ai';
 export * from './schemas/ai-interview-questions';

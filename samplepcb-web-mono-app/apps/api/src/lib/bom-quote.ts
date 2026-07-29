@@ -55,6 +55,7 @@ import {
 } from '@sp/utils';
 import { prisma } from './prisma';
 import { engineFetch } from './engine-client';
+import { getCartStates, getOrderInfoByCtId } from './g5-db';
 import { buildEngineProcurementPolicy } from './bom-procurement-policy';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
@@ -4571,7 +4572,11 @@ function summaryCounts(items: SummaryItemRow[]): BomQuoteSummaryCounts {
   };
 }
 
-export function toSummaryDto(quote: QuoteRow, counts: BomQuoteSummaryCounts): BomQuoteSummaryType {
+export function toSummaryDto(
+  quote: QuoteRow,
+  counts: BomQuoteSummaryCounts,
+  orderState: BomQuoteSummaryType['orderState'] = 'none',
+): BomQuoteSummaryType {
   return {
     id: String(quote.id),
     title: quote.title,
@@ -4583,6 +4588,8 @@ export function toSummaryDto(quote: QuoteRow, counts: BomQuoteSummaryCounts): Bo
     updatedAt: quote.updatedAt.toISOString(),
     requestedAt: quote.requestedAt?.toISOString() ?? null,
     answeredAt: quote.answeredAt?.toISOString() ?? null,
+    confirmedTotal: quote.confirmedTotal,
+    orderState,
   };
 }
 
@@ -4761,10 +4768,11 @@ export async function loadSupplierSearchSummary(
 export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
   const activeItems = filterActiveQuoteItems(items, sheets);
   const itemSheetIndexes = new Set(items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]));
-  const [partMetaMap, candidateDatasheetMap, supplierSearchSummary] = await Promise.all([
+  const [partMetaMap, candidateDatasheetMap, supplierSearchSummary, orderState] = await Promise.all([
     loadPartMetaMap(activeItems),
     loadCandidateDatasheetMap(quote.id, activeItems),
     loadSupplierSearchSummary(quote.activeSupplierSearchRunId, quote.enrichStatus),
+    deriveQuoteOrderState(quote.ctId),
   ]);
   const itemDtos = [...activeItems]
     .sort((a, b) => a.rowIdx - b.rowIdx)
@@ -4835,12 +4843,25 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     confirmedManagementFee: quote.confirmedManagementFee,
     confirmedTotal: quote.confirmedTotal,
     answerNote: quote.answerNote,
+    orderState,
     items: itemDtos,
   };
 }
 
-export function toAdminSummaryDto(quote: QuoteRow, items: SummaryItemRow[]): AdminBomQuoteSummaryType {
-  return { ...toSummaryDto(quote, summaryCounts(items)), mbId: quote.mbId };
+// 영카트 주문 전환 파생 상태(D16) — ctId 없으면 g5 접근 없이 'none'(draft 대다수 경로 무비용).
+export async function deriveQuoteOrderState(
+  ctId: number | null,
+): Promise<BomQuoteDetailType['orderState']> {
+  if (ctId === null) return 'none';
+  return (await getCartStates([ctId])).get(ctId) ?? 'none';
+}
+
+export function toAdminSummaryDto(
+  quote: QuoteRow,
+  items: SummaryItemRow[],
+  orderState: AdminBomQuoteSummaryType['orderState'] = 'none',
+): AdminBomQuoteSummaryType {
+  return { ...toSummaryDto(quote, summaryCounts(items), orderState), mbId: quote.mbId };
 }
 
 export async function toAdminDetailDto(
@@ -4849,5 +4870,22 @@ export async function toAdminDetailDto(
   sheets: QuoteSheetRow[],
   fileUrl: string | null,
 ): Promise<AdminBomQuoteDetailType> {
-  return { ...(await toDetailDto(quote, items, sheets)), mbId: quote.mbId, adminMemo: quote.adminMemo, fileUrl };
+  // 주문 헤더 파생(⑧ 결제 판정) — 담김 상태(주문 헤더 없음)면 getOrderInfoByCtId 가 null.
+  const info = quote.ctId === null ? null : await getOrderInfoByCtId(quote.ctId);
+  return {
+    ...(await toDetailDto(quote, items, sheets)),
+    mbId: quote.mbId,
+    adminMemo: quote.adminMemo,
+    fileUrl,
+    orderInfo:
+      info === null
+        ? null
+        : {
+            odId: info.odId,
+            odStatus: info.odStatus,
+            isPaid: info.isPaid,
+            receiptPrice: info.receiptPrice,
+            settleCase: info.settleCase,
+          },
+  };
 }

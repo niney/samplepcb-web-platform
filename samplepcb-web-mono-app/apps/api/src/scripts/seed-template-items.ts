@@ -10,6 +10,7 @@ const NAMES: Record<string, string> = {
   metalmask: 'Metal Mask',
   advance: 'Advance PCB',
   flexible: 'Flexible PCB',
+  bom: '부품 BOM 주문',
 };
 
 const url = process.env.G5_DATABASE_URL;

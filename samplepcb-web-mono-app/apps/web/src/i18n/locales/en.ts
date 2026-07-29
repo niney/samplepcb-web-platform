@@ -64,6 +64,10 @@ export const en = {
   },
   admin: {
     title: 'Admin',
+    modules: {
+      core: 'Console',
+      smartbom: 'Smart BOM',
+    },
     menu: {
       dashboard: 'Dashboard',
       quotes: 'Quotes',
@@ -79,6 +83,8 @@ export const en = {
       slides: 'Main slides',
       seo: 'SEO',
       settings: 'Settings',
+      smartbomCases: 'Case board',
+      smartbomPartners: 'Partners',
     },
     placeholder: 'Coming soon.',
     settings: {

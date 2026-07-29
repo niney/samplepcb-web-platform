@@ -3,6 +3,7 @@ import { useAuthStore } from '@sp/shared';
 import DefaultLayout from './layouts/DefaultLayout.vue';
 import AdminLayout from './layouts/AdminLayout.vue';
 import BomLayout from './layouts/BomLayout.vue';
+import PartnerLayout from './layouts/PartnerLayout.vue';
 import Home from './pages/Home.vue';
 import BomHome from './pages/bom/BomHome.vue';
 import BomHistory from './pages/bom/BomHistory.vue';
@@ -59,6 +60,27 @@ const routes: RouteRecordRaw[] = [
       { path: ':id', name: 'bom-quote', component: BomQuote, meta: { requiresMember: true } },
     ],
   },
+  // 협력사 포털(docs/SMARTBOM_PARTNER_RFQ.md §4) — 로그인만 프론트에서 보장하고,
+  // 파트너 소속·승인은 서버 requirePartner 가 매 요청 판정한다(403 → 페이지 안내).
+  {
+    path: '/partner',
+    component: PartnerLayout,
+    meta: { requiresMember: true },
+    children: [
+      {
+        path: '',
+        name: 'partner',
+        component: () => import('./pages/partner/PartnerRfqs.vue'),
+        meta: { requiresMember: true },
+      },
+      {
+        path: 'rfqs/:id',
+        name: 'partner-rfq',
+        component: () => import('./pages/partner/PartnerRfqDetail.vue'),
+        meta: { requiresMember: true },
+      },
+    ],
+  },
   {
     path: '/admin',
     component: AdminLayout,
@@ -94,6 +116,23 @@ const routes: RouteRecordRaw[] = [
       },
       { path: 'parts', name: 'admin-parts', component: AdminParts },
       { path: 'settings', name: 'admin-settings', component: AdminSettings },
+      // 스마트 BOM 모듈(docs/SMARTBOM_PARTNER_RFQ.md §3) — 헤더 모듈 스위처의 두 번째
+      // 모듈. 라우트 이름 prefix 'admin-smartbom' 이 모듈 소속 판정 기준(admin/menu.ts).
+      {
+        path: 'smartbom',
+        name: 'admin-smartbom',
+        component: () => import('./pages/admin/AdminSmartbomCases.vue'),
+      },
+      {
+        path: 'smartbom/cases/:id',
+        name: 'admin-smartbom-case',
+        component: () => import('./pages/admin/AdminSmartbomCase.vue'),
+      },
+      {
+        path: 'smartbom/partners',
+        name: 'admin-smartbom-partners',
+        component: () => import('./pages/admin/AdminPartners.vue'),
+      },
     ],
   },
 ];

@@ -8,6 +8,7 @@ import {
   BomQuoteDeleteManyResponse,
   BomQuoteOkResponse,
   BomQuoteDetailResponse,
+  BomQuoteOrderResponse,
   BomQuoteItemCandidatesResponse,
   BomQuoteListResponse,
   BomSupplierPreflightResponse,
@@ -310,6 +311,16 @@ export function useCancelBomQuote() {
   return useQuoteMutation((quoteId: string) =>
     apiSend('POST', `${base}/quotes/${quoteId}/cancel`, undefined, BomQuoteDetailResponse),
   );
+}
+
+// 주문 전환(D16) — 확정(answered+confirmedTotal) 견적을 영카트 카트에 담고 주문서 URL 반환.
+export function useOrderBomQuote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (quoteId: string) =>
+      apiSend('POST', `${base}/quotes/${quoteId}/order`, undefined, BomQuoteOrderResponse),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bom', 'quotes'] }),
+  });
 }
 
 export function useDeleteBomQuote() {

@@ -186,6 +186,8 @@ export const TEMPLATE_ITEMS: Record<string, string> = {
   metalmask: 'sp-mask',
   advance: 'sp-pcb-adv',
   flexible: 'sp-pcb-flex',
+  // 스마트 BOM 부품 주문 앵커(D16, docs/SMARTBOM_PARTNER_RFQ.md §6) — 확정 견적 1건 = 카트 1행
+  bom: 'sp-bom-parts',
 };
 
 export interface TemplateItem {

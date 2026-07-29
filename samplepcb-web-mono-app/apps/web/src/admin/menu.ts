@@ -1,6 +1,7 @@
 import type { RouteLocationRaw } from 'vue-router';
 
-// 관리자 사이드바 메뉴. label 은 i18n 키로 두어 다국어에 대비.
+// 관리자 사이드바 메뉴 — 헤더 모듈 스위처로 모듈별 메뉴를 전환한다
+// (docs/SMARTBOM_PARTNER_RFQ.md §3.1). label 은 i18n 키로 두어 다국어에 대비.
 // badge 는 메뉴 옆 카운트 뱃지의 데이터 소스 식별자 — 해석은 AdminLayout 이 한다
 // (현재는 rfqCount = 견적 대기 수 하나뿐).
 export interface AdminMenuItem {
@@ -9,6 +10,16 @@ export interface AdminMenuItem {
   badge?: 'rfqCount';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
+}
+
+export type AdminModuleKey = 'core' | 'smartbom';
+
+export interface AdminModule {
+  key: AdminModuleKey;
+  labelKey: string;
+  /** 헤더 스위처 클릭 시 이동하는 모듈 홈. */
+  homeTo: RouteLocationRaw;
+  menu: AdminMenuItem[];
 }
 
 // 실제 존재하는 기능만 노출한다 — 미구현 메뉴(주문/상품/통계/설정)는 기능 추가 시
@@ -35,3 +46,31 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-seo' }, labelKey: 'admin.menu.seo' },
   { to: { name: 'admin-settings' }, labelKey: 'admin.menu.settings' },
 ];
+
+// 스마트 BOM 모듈 — 부품 견적 Case 운영(진행현황·기준정보). 주문·결제(2차)와
+// 입고·배송(3차) 메뉴는 해당 단계 구현 시 추가한다(placeholder 금지 관례 동일).
+const smartbomMenu: AdminMenuItem[] = [
+  {
+    to: { name: 'admin-smartbom' },
+    labelKey: 'admin.menu.smartbomCases',
+    activeRouteNames: ['admin-smartbom-case'],
+  },
+  { to: { name: 'admin-smartbom-partners' }, labelKey: 'admin.menu.smartbomPartners' },
+];
+
+// 모듈 사전 — core(통합 관리) = 기존 메뉴 무수정 래핑, smartbom = 신규 모듈.
+// 확장 자리(PCB주문·PCBA주문·기술개발)는 각 모듈이 실제로 생길 때 추가한다.
+export const adminModules: readonly AdminModule[] = [
+  { key: 'core', labelKey: 'admin.modules.core', homeTo: { name: 'admin' }, menu: adminMenu },
+  {
+    key: 'smartbom',
+    labelKey: 'admin.modules.smartbom',
+    homeTo: { name: 'admin-smartbom' },
+    menu: smartbomMenu,
+  },
+];
+
+// 라우트 이름 → 소속 모듈. 스위처 활성 상태는 이 파생이 단일 진실 — 북마크·새로고침
+// 진입에서도 메뉴가 어긋나지 않는다(레거시 useAppMode gotcha 회수).
+export const resolveAdminModuleKey = (routeName: string): AdminModuleKey =>
+  routeName.startsWith('admin-smartbom') ? 'smartbom' : 'core';

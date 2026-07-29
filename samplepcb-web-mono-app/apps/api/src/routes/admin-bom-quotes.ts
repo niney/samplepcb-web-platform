@@ -8,6 +8,7 @@ import {
   BomQuoteItemCandidatesResponse,
   BomQuoteStatus,
 } from '@sp/api-contract';
+import type { AdminBomQuoteCountsType } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import { downloadFromFileServer } from '../lib/file-server';
 import {
@@ -18,6 +19,8 @@ import {
   toAdminDetailDto,
   toAdminSummaryDto,
 } from '../lib/bom-quote';
+import { closeRfqsForQuote } from '../lib/bom-rfq';
+import { getCartStates } from '../lib/g5-db';
 
 // ── /api/admin/bom-quotes — 고객 BOM 견적요청 검토 (requireAdmin) ─────────────
 // 1차 범위: 목록·상세·상태 전이·확정가(운송료/관리비/총액)·메모·원본 다운로드.
@@ -47,7 +50,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     const { status, page, pageSize } = request.query;
     // draft 는 고객 작업중 문서 — 관리자 목록에서는 요청 이후 상태만 보인다(명시 필터 제외)
     const where = status !== undefined ? { status } : { status: { not: 'draft' } };
-    const [rows, total] = await Promise.all([
+    const [rows, total, grouped] = await Promise.all([
       prisma.spBomQuote.findMany({
         where,
         include: {
@@ -59,14 +62,41 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         take: pageSize,
       }),
       prisma.spBomQuote.count({ where }),
+      // 진행현황 요약 카드·탭 — 상태별 전체 분포(상태 필터 미반영, draft 포함 집계)
+      prisma.spBomQuote.groupBy({ by: ['status'], _count: { _all: true } }),
     ]);
+    const counts: AdminBomQuoteCountsType = {
+      all: 0,
+      draft: 0,
+      requested: 0,
+      reviewing: 0,
+      answered: 0,
+      closed: 0,
+      canceled: 0,
+    };
+    for (const g of grouped) {
+      const key = BomQuoteStatus.safeParse(g.status);
+      if (!key.success) continue;
+      counts[key.data] += g._count._all;
+      if (key.data !== 'draft') counts.all += g._count._all;
+    }
+    // 주문 전환 파생 상태(D16) — ctId 있는 행만 g5 카트 batch 1회 조회.
+    const ctIds = rows.flatMap((row) => (row.ctId === null ? [] : [row.ctId]));
+    const cartStates = await getCartStates(ctIds);
     return {
       result: true as const,
       data: {
-        items: rows.map((row) => toAdminSummaryDto(row, filterActiveQuoteItems(row.items, row.sheets))),
+        items: rows.map((row) =>
+          toAdminSummaryDto(
+            row,
+            filterActiveQuoteItems(row.items, row.sheets),
+            row.ctId === null ? 'none' : (cartStates.get(row.ctId) ?? 'none'),
+          ),
+        ),
         total,
         page,
         pageSize,
+        counts,
       },
     };
   });
@@ -139,6 +169,11 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         ...(body.confirmedTotal !== undefined ? { confirmedTotal: body.confirmedTotal } : {}),
       },
     });
+
+    // 고객 회신 확정/종료 시 하위 협력사 RFQ 도 마감한다(docs/SMARTBOM_PARTNER_RFQ.md §2.3).
+    if (body.status === 'answered' || body.status === 'closed' || body.status === 'canceled') {
+      await closeRfqsForQuote(quote.id);
+    }
 
     const fresh = await prisma.spBomQuote.findUnique({ where: { id: quote.id }, include: { items: true, sheets: true } });
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');

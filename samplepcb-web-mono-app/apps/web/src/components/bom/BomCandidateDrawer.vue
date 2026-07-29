@@ -1318,6 +1318,7 @@ function sourceLabel(source: BomQuoteSelectionSourceType): string {
     catalog: '카탈로그 직접 선택',
     admin: '관리자 선택',
     legacy: '기존 견적',
+    partner: '협력사 견적',
   };
   return labels[source];
 }

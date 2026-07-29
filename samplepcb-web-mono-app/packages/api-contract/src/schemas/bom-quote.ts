@@ -15,7 +15,8 @@ export type BomQuoteProcurementModeType = z.infer<typeof BomQuoteProcurementMode
 export const BomQuoteMatchStatus = z.enum(['auto', 'manual', 'none']);
 export type BomQuoteMatchStatusType = z.infer<typeof BomQuoteMatchStatus>;
 
-export const BomQuoteSelectionSource = z.enum(['none', 'auto', 'customer', 'catalog', 'admin', 'legacy']);
+// partner = 협력사 RFQ 회신 선정(docs/SMARTBOM_PARTNER_RFQ.md §2.2)
+export const BomQuoteSelectionSource = z.enum(['none', 'auto', 'customer', 'catalog', 'admin', 'legacy', 'partner']);
 export type BomQuoteSelectionSourceType = z.infer<typeof BomQuoteSelectionSource>;
 
 export const BomQuoteSelectionApplicationState = z.enum([
@@ -843,6 +844,10 @@ export const BomQuoteSummary = z.object({
   updatedAt: z.string(),
   requestedAt: z.string().nullable(),
   answeredAt: z.string().nullable(),
+  /** 관리자 확정 총액(VAT 별도) — 목록에서 주문 가능 판정(D16 게이트)용. */
+  confirmedTotal: z.number().nullable(),
+  /** 영카트 주문 전환 파생 상태(D16) — 저장 아님, ct/od 조인 파생. */
+  orderState: z.enum(['none', 'cart', 'ordered']),
 });
 export type BomQuoteSummaryType = z.infer<typeof BomQuoteSummary>;
 
@@ -917,6 +922,17 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
   items: z.array(BomQuoteItem),
 });
 export type BomQuoteDetailType = z.infer<typeof BomQuoteDetail>;
+
+// 주문 전환(D16) — 확정 견적을 영카트 카트에 담고 주문서로 직행.
+export const BomQuoteOrderResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    ctId: z.number().int(),
+    /** 영카트 주문서 URL — 클라이언트는 이 주소로 전체 이동한다. */
+    redirectUrl: z.string(),
+  }),
+});
+export type BomQuoteOrderResponseType = z.infer<typeof BomQuoteOrderResponse>;
 
 // ── 요청 바디 ──────────────────────────────────────────────────────────────
 
@@ -1024,14 +1040,38 @@ export const AdminBomQuoteSummary = BomQuoteSummary.extend({
 });
 export type AdminBomQuoteSummaryType = z.infer<typeof AdminBomQuoteSummary>;
 
+/** 주문 헤더 파생(관리자 — ⑧ 결제 판정·주문 링크). 저장 아님, ct→od 조인 파생. */
+export const AdminBomQuoteOrderInfo = z.object({
+  odId: z.string(),
+  odStatus: z.string(), // 영카트 od_status(주문|입금|준비|배송|완료|취소…)
+  isPaid: z.boolean(), // od_status !== '주문'
+  receiptPrice: z.number(),
+  settleCase: z.string(), // 결제수단
+});
+export type AdminBomQuoteOrderInfoType = z.infer<typeof AdminBomQuoteOrderInfo>;
+
 export const AdminBomQuoteDetail = BomQuoteDetail.extend({
   mbId: z.string(),
   /** 내부 메모 — 고객 응답에는 싣지 않는다. */
   adminMemo: z.string().nullable(),
   /** 원본 파일 다운로드 URL(서명) — 없으면 null. */
   fileUrl: z.string().nullable(),
+  /** 주문 헤더 파생 — 주문 전(카트 포함) null. */
+  orderInfo: AdminBomQuoteOrderInfo.nullable(),
 });
 export type AdminBomQuoteDetailType = z.infer<typeof AdminBomQuoteDetail>;
+
+// 진행현황(스마트 BOM 모듈) 요약 카드·탭 — 상태별 전체 분포(상태 필터 미반영).
+export const AdminBomQuoteCounts = z.object({
+  all: z.number().int(),
+  draft: z.number().int(),
+  requested: z.number().int(),
+  reviewing: z.number().int(),
+  answered: z.number().int(),
+  closed: z.number().int(),
+  canceled: z.number().int(),
+});
+export type AdminBomQuoteCountsType = z.infer<typeof AdminBomQuoteCounts>;
 
 export const AdminBomQuoteListResponse = z.object({
   result: z.literal(true),
@@ -1040,6 +1080,7 @@ export const AdminBomQuoteListResponse = z.object({
     total: z.number().int(),
     page: z.number().int(),
     pageSize: z.number().int(),
+    counts: AdminBomQuoteCounts,
   }),
 });
 export type AdminBomQuoteListResponseType = z.infer<typeof AdminBomQuoteListResponse>;

@@ -1,0 +1,173 @@
+import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
+import { z } from 'zod';
+import {
+  AdminBomRfqListResponse,
+  AdminBomRfqReplyResponse,
+  AdminBomRfqSelectionBody,
+  AdminBomRfqSelectionResponse,
+  AdminBomRfqSendBody,
+  AdminBomRfqSendResponse,
+  ApiError,
+  BomRfqReplyBody,
+} from '@sp/api-contract';
+import { prisma } from '../lib/prisma';
+import {
+  applyPartnerRfqSelection,
+  diffSendRfqs,
+  loadAdminRfqs,
+  loadRfqScopeItems,
+  saveRfqReply,
+  toAdminRfqView,
+  validateRfqPartners,
+} from '../lib/bom-rfq';
+import { buildBomRfqRequestEmail, sendBomRfqMail } from '../lib/rfq-email';
+
+// ── /api/admin/bom-quotes/:id/rfqs — 협력사 RFQ 발송·현황·대리 입력 ──────────
+// 설계 docs/SMARTBOM_PARTNER_RFQ.md §2.4·§2.5. 발송은 diff(유지분 보존·신규만 메일),
+// 대리 입력은 포털 회신과 같은 코어(saveRfqReply)를 쓴다 — 저장 경로 단일.
+// 전 라우트 requireAdmin.
+
+const IdParams = z.object({ id: z.coerce.bigint() });
+const RfqParams = z.object({ id: z.coerce.bigint(), rfqId: z.coerce.bigint() });
+
+export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
+  fastify.addHook('preHandler', fastify.requireAdmin);
+
+  // ── GET — RFQ 현황(문서+회신 행) ────────────────────────────────────────────
+  fastify.get(
+    '/bom-quotes/:id/rfqs',
+    { schema: { params: IdParams, response: { 200: AdminBomRfqListResponse } } },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      return { result: true as const, data: { rfqs: await loadAdminRfqs(quote.id) } };
+    },
+  );
+
+  // ── POST — diff 발송 ────────────────────────────────────────────────────────
+  fastify.post(
+    '/bom-quotes/:id/rfqs',
+    {
+      schema: {
+        params: IdParams,
+        body: AdminBomRfqSendBody,
+        response: { 200: AdminBomRfqSendResponse, 400: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      if (quote.status !== 'requested' && quote.status !== 'reviewing') {
+        return reply.status(409).send({
+          error: 'INVALID_QUOTE_STATUS',
+          message: '검토 중(또는 견적요청) 상태에서만 협력사 견적요청을 보낼 수 있습니다.',
+        });
+      }
+
+      const { error } = await validateRfqPartners(request.body.partnerIds);
+      if (error !== null) {
+        return reply.status(400).send({ error: 'INVALID_PARTNER', message: error });
+      }
+
+      const diff = await diffSendRfqs(quote.id, request.body.partnerIds);
+
+      // 알림 메일 — 신규 발송분만, 비차단(실패는 로그).
+      if (diff.addedPartners.length > 0) {
+        const scope = await loadRfqScopeItems(quote.id);
+        for (const partner of diff.addedPartners) {
+          void sendBomRfqMail(
+            request.log,
+            partner.contactEmail,
+            buildBomRfqRequestEmail({
+              partnerName: partner.name,
+              quoteTitle: quote.title,
+              itemCount: scope.length,
+            }),
+          );
+        }
+      }
+
+      return {
+        result: true as const,
+        data: {
+          added: diff.added,
+          kept: diff.kept,
+          removed: diff.removed,
+          rfqs: await loadAdminRfqs(quote.id),
+        },
+      };
+    },
+  );
+
+  // ── PUT — 관리자 대리 입력(전화·메일 회신의 기록) ───────────────────────────
+  fastify.put(
+    '/bom-quotes/:id/rfqs/:rfqId/reply',
+    {
+      schema: {
+        params: RfqParams,
+        body: BomRfqReplyBody,
+        response: { 200: AdminBomRfqReplyResponse, 400: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const rfq = await prisma.spBomRfq.findUnique({ where: { id: request.params.rfqId } });
+      if (rfq === null || rfq.quoteId !== request.params.id) {
+        return reply.notFound('RFQ 를 찾을 수 없습니다');
+      }
+      const saved = await saveRfqReply(rfq.id, request.body);
+      if (!saved.ok) {
+        if (saved.error === 'RFQ_CLOSED') {
+          return reply
+            .status(409)
+            .send({ error: saved.error, message: '마감된 RFQ 에는 회신을 저장할 수 없습니다.' });
+        }
+        return reply
+          .status(400)
+          .send({ error: saved.error, message: '요청 범위에 없는 부품행이 포함되어 있습니다.' });
+      }
+      const updated = await prisma.spBomRfq.findUnique({
+        where: { id: rfq.id },
+        include: { partner: true, items: { orderBy: { id: 'asc' } } },
+      });
+      if (updated === null) return reply.notFound('RFQ 를 찾을 수 없습니다');
+      return { result: true as const, data: toAdminRfqView(updated) };
+    },
+  );
+
+  // ── POST — 행별 협력사 회신 선정/해제(스냅샷 박제 + 서버 재계산) ────────────
+  fastify.post(
+    '/bom-quotes/:id/rfq-selection',
+    {
+      schema: {
+        params: IdParams,
+        body: AdminBomRfqSelectionBody,
+        response: { 200: AdminBomRfqSelectionResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      if (quote.status !== 'requested' && quote.status !== 'reviewing') {
+        return reply.status(409).send({
+          error: 'INVALID_QUOTE_STATUS',
+          message: '회신 확정 전(검토 중)에만 선정을 변경할 수 있습니다.',
+        });
+      }
+      const result = await applyPartnerRfqSelection(
+        quote.id,
+        BigInt(request.body.itemId),
+        request.body.rfqItemId === null ? null : BigInt(request.body.rfqItemId),
+        request.user.mbId,
+      );
+      if (result !== 'ok') {
+        return reply.status(409).send({
+          error: result.toUpperCase().replaceAll('-', '_'),
+          message: '선정에 실패했습니다 — 회신 상태를 새로고침해 주세요.',
+        });
+      }
+      return { result: true as const };
+    },
+  );
+
+  done();
+};

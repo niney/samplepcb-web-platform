@@ -64,6 +64,10 @@ export const ko = {
   },
   admin: {
     title: '관리자',
+    modules: {
+      core: '통합 관리',
+      smartbom: '스마트 BOM',
+    },
     menu: {
       dashboard: '대시보드',
       quotes: '견적 관리',
@@ -79,6 +83,8 @@ export const ko = {
       slides: '메인 슬라이드',
       seo: 'SEO 설정',
       settings: '설정',
+      smartbomCases: '진행현황',
+      smartbomPartners: '파트너',
     },
     placeholder: '준비 중입니다.',
     settings: {

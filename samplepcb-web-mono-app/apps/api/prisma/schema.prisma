@@ -513,6 +513,9 @@ model SpBomQuote {
   activeSupplierSearchRunId BigInt?                    @unique @map("active_supplier_search_run_id")
   buildStatus               String                     @default("ready") @db.VarChar(12) // parsing|selecting|building|ready|failed
   procurementMode           String                     @default("sample") @db.VarChar(8) // sample|mass — 엔진 조달 정책
+  // 영카트 주문 전환(D16) — g5_shop_cart 파생 조인 키(거버 sp_order_spec.ctId 관례).
+  // 주문·결제 상태는 저장하지 않고 ct/od 조인으로 파생한다(g5 미러 금지 D10).
+  ctId                      Int?
   setQty                    Int                        @default(1)
   spareQty                  Int                        @default(0)
   itemsTotal                Int                        @default(0) // KRW 정수(반올림)
@@ -538,6 +541,7 @@ model SpBomQuote {
   sheets                    SpBomQuoteSheet[]
   candidates                SpBomQuoteCandidate[]
   selectionEvents           SpBomQuoteSelectionEvent[]
+  rfqs                      SpBomRfq[]
   analysisRuns              SpBomAnalysisRun[]         @relation("BomQuoteAnalysisRuns")
   activeAnalysisRun         SpBomAnalysisRun?          @relation("BomQuoteActiveAnalysis", fields: [activeAnalysisRunId], references: [id], onDelete: SetNull)
   supplierSearchRuns        SpBomSupplierSearchRun[]   @relation("BomQuoteSupplierSearchRuns")
@@ -545,6 +549,7 @@ model SpBomQuote {
 
   @@index([mbId, status])
   @@index([status, requestedAt])
+  @@index([ctId])
   @@map("sp_bom_quote")
 }
 
@@ -752,9 +757,10 @@ model SpBomQuoteItem {
   searchRequirements      Json?                      @map("search_requirements")
   recommendedCandidateKey String?                    @db.VarChar(64) // 하이브리드 정책의 최초/현재 자동추천
   selectedCandidateKey    String?                    @db.VarChar(64) // 고객이 실제 선택한 견적 후보(카탈로그 직접선택은 null)
-  selectionSource         String                     @default("none") @db.VarChar(16) // none|auto|customer|catalog|admin|legacy
+  selectionSource         String                     @default("none") @db.VarChar(16) // none|auto|customer|catalog|admin|legacy|partner
   partId                  BigInt?
   selectedOffer           Json?
+  selectedRfqItemId       BigInt? // 협력사 회신 선정(selectionSource='partner') — 스냅샷은 selectedOffer 에 박제
   lineTotalKrw            Decimal?                   @db.Decimal(14, 2)
   sourceRow               Json?
   sourceSheetIndex        Int?
@@ -765,6 +771,8 @@ model SpBomQuoteItem {
   analysisComponent       SpBomAnalysisComponent?    @relation(fields: [analysisComponentId], references: [id], onDelete: SetNull)
   candidates              SpBomQuoteCandidate[]
   selectionEvents         SpBomQuoteSelectionEvent[]
+  rfqItems                SpBomRfqItem[]             @relation("QuoteItemRfqItems")
+  selectedRfqItem         SpBomRfqItem?              @relation("QuoteItemSelectedRfqItem", fields: [selectedRfqItemId], references: [id], onDelete: SetNull)
 
   @@unique([quoteId, rowIdx])
   @@index([quoteId, sourceSheetIndex])
@@ -823,4 +831,125 @@ model SpBomQuoteSelectionEvent {
   @@index([quoteItemId, createdAt])
   @@index([quoteId, createdAt])
   @@map("sp_bom_quote_selection_event")
+}
+
+// ── 스마트 BOM 파트너·협력사 RFQ (sp_partner*, sp_bom_rfq*, 2026-07-29) ──────
+// 설계 정본: docs/SMARTBOM_PARTNER_RFQ.md. 레거시(g5_member 여분컬럼 협력사 + 가짜 회원
+// 하드코딩 공급사)와 무관한 신규 모델 — 조직(sp_partner)/계정(sp_partner_member)/
+// 자동화(supplierCode) 3축 분리. 코드 사전은 @sp/api-contract PARTNER_*·BOM_RFQ_* 정본.
+
+// 협력사·공급사·자사의 조직 정본 — 견적/발주/물류 전 프로세스가 partnerId 하나만 참조.
+// type: partner(사람 협력사)|supplier(API 공급사)|house(자사). 로그인 능력은 멤버 연결
+// 존재로, 자동화 능력은 supplierCode 존재로 판정한다(하이브리드 = 둘 다).
+model SpPartner {
+  id              BigInt              @id @default(autoincrement())
+  type            String              @db.VarChar(12) // partner|supplier|house
+  name            String              @db.VarChar(191) // 회사명
+  // supplier·house 만 보유 — SpPartOffer.supplier 와 같은 어휘(공급사 추가 = 행 추가, 코드 무배포)
+  supplierCode    String?             @unique @db.VarChar(32)
+  country         String?             @db.VarChar(2) // ISO alpha-2
+  defaultCurrency String              @default("KRW") @db.VarChar(8)
+  capabilities    Json // ["bom_rfq","pcb_rfq","part_sale"] — 레거시 partnerAuth 등급 재해석
+  status          String              @default("pending") @db.VarChar(20) // pending|approved|suspended
+  contactName     String?             @db.VarChar(100)
+  contactPhone    String?             @db.VarChar(50)
+  contactEmail    String?             @db.VarChar(255) // RFQ 알림 수신처
+  memo            String?             @db.Text // 내부 메모 — 협력사 비노출
+  statusReason    String?             @db.VarChar(255) // 정지/반려 사유(SpMarketExpert 관례)
+  decidedBy       String?             @db.VarChar(191) // 처리 관리자 mbId
+  decidedAt       DateTime?
+  legacyJson      Json? // partnerAuth 승격 이관 원본 보존(SpMemberProfile 관례)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  members         SpPartnerMember[]
+  rfqs            SpBomRfq[]
+  childRelations  SpPartnerRelation[] @relation("PartnerRelationParent")
+  parentRelations SpPartnerRelation[] @relation("PartnerRelationChild")
+
+  @@index([type, status]) // 관리자 목록 탭×유형 필터
+  @@map("sp_partner")
+}
+
+// 계정 연결 — 로그인 가능 주체(정상 가입한 g5_member 를 조직에 연결, 가짜 회원 없음).
+// 공급사는 연결 0명이 자연 표현. mbId 는 JWT 클레임 유래 문자열 — FK 금지(공유 DB 조인 키).
+// 스키마는 1:N(role), 1차 운영은 owner 1행.
+model SpPartnerMember {
+  id        BigInt    @id @default(autoincrement())
+  partnerId BigInt
+  mbId      String    @db.VarChar(191) // mb_id 계열(이메일 아이디 수용)
+  role      String    @default("owner") @db.VarChar(12) // owner|staff
+  createdAt DateTime  @default(now())
+  partner   SpPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, mbId])
+  @@index([mbId]) // requirePartner 매 요청 판정(mbId → 소속 조직)
+  @@map("sp_partner_member")
+}
+
+// 마스터딜러 2단 중개 링크 — 스키마만 선반영(D4), 구현은 후속. settlementCurrency 는
+// 레거시 최종형(링크별 결제통화 KRW/USD/CNY)의 자리.
+model SpPartnerRelation {
+  id                 BigInt    @id @default(autoincrement())
+  parentPartnerId    BigInt
+  childPartnerId     BigInt
+  settlementCurrency String?   @db.VarChar(8)
+  createdAt          DateTime  @default(now())
+  parent             SpPartner @relation("PartnerRelationParent", fields: [parentPartnerId], references: [id], onDelete: Cascade)
+  child              SpPartner @relation("PartnerRelationChild", fields: [childPartnerId], references: [id], onDelete: Cascade)
+
+  @@unique([parentPartnerId, childPartnerId])
+  @@map("sp_partner_relation")
+}
+
+// 협력사 견적요청(RFQ) 문서 — (quote × 협력사 × 중개 경로) 1건. diff 발송으로 갱신하며
+// 재발송 시 유지분은 보존한다. **사람 협력사 전용** — 공급사 시세는 후보/오퍼 원장 파생(D6),
+// RFQ 행으로 물질화하지 않는다.
+model SpBomRfq {
+  id              BigInt         @id @default(autoincrement())
+  quoteId         BigInt
+  partnerId       BigInt
+  parentPartnerId BigInt         @default(0) // 0=관리자 직접(센티넬 — FK 없음). MD 중개는 후속
+  status          String         @default("requested") @db.VarChar(16) // requested|quoted|closed
+  totalAmount     Int? // 회신 합계(KRW 정수) — 회신 저장 시 박제
+  currency        String         @default("KRW") @db.VarChar(8) // 1차 KRW 단일(D7) — 외화 회신 자리
+  deliveryDate    DateTime? // 협력사 회신 납기
+  memo            String?        @db.Text // 협력사 회신 메모
+  requestedAt     DateTime       @default(now()) // 최근 발송 시각(diff 재발송 시 갱신)
+  respondedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  quote           SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  partner         SpPartner      @relation(fields: [partnerId], references: [id])
+  items           SpBomRfqItem[]
+
+  @@unique([quoteId, partnerId, parentPartnerId])
+  @@index([partnerId, status]) // 협력사 포털 워크큐
+  @@map("sp_bom_rfq")
+}
+
+// 협력사 회신 행 — 부품행(quoteItemId) 단위, 안정 ID 연결(rowIdx 아님).
+// source: manual(포털 회신/관리자 대리 입력 — 자동 동기화 불가침)|api(하이브리드 대비 예약).
+model SpBomRfqItem {
+  id          BigInt           @id @default(autoincrement())
+  rfqId       BigInt
+  quoteItemId BigInt           @map("quote_item_id")
+  source      String           @default("manual") @db.VarChar(8) // manual|api
+  unitPrice   Decimal?         @db.Decimal(14, 4)
+  currency    String           @default("KRW") @db.VarChar(8)
+  replyQty    Int? // 회신 수량(요청수량과 다르게 회신 가능)
+  moq         Int?
+  stock       Int?
+  dateCode    String?          @db.VarChar(100)
+  leadTime    String?          @db.VarChar(64)
+  memo        String?          @db.VarChar(500)
+  offerId     BigInt? // source=api 근거 SpPartOffer 참조 — 카탈로그 정리와 분리(FK 없음)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  rfq         SpBomRfq         @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  quoteItem   SpBomQuoteItem   @relation("QuoteItemRfqItems", fields: [quoteItemId], references: [id], onDelete: Cascade)
+  selectedFor SpBomQuoteItem[] @relation("QuoteItemSelectedRfqItem")
+
+  @@unique([rfqId, quoteItemId])
+  @@index([quoteItemId]) // 행별 비교 조회
+  @@map("sp_bom_rfq_item")
 }

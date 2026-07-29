@@ -1,0 +1,129 @@
+import { computed, type Ref } from 'vue';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
+import {
+  AdminPartnerDeleteResponse,
+  AdminPartnerDetailResponse,
+  AdminPartnerListResponse,
+  AdminPartnerMutationResponse,
+  apiRoutes,
+  type AdminPartnerCreateBodyType,
+  type AdminPartnerMemberAddBodyType,
+  type AdminPartnerStatusBodyType,
+  type AdminPartnerUpdateBodyType,
+  type PartnerTypeType,
+} from '@sp/api-contract';
+import { apiGet, apiSend } from '@sp/shared';
+
+// 스마트 BOM 파트너 관리(/admin/smartbom/partners) 서버 상태 훅 —
+// 계약은 @sp/api-contract(partner.ts), 호출 관례는 useAdminMarket 그대로.
+
+const base = apiRoutes.adminPartners;
+
+export interface AdminPartnerFilters {
+  page: number;
+  pageSize: number;
+  tab: 'all' | 'pending' | 'approved' | 'suspended';
+  type: 'all' | PartnerTypeType;
+  q: string;
+}
+
+const listPath = (f: AdminPartnerFilters): string => {
+  const params = new URLSearchParams();
+  params.set('page', String(f.page));
+  params.set('pageSize', String(f.pageSize));
+  params.set('tab', f.tab);
+  params.set('type', f.type);
+  if (f.q.trim() !== '') params.set('q', f.q.trim());
+  return `${base}?${params.toString()}`;
+};
+
+export function useAdminPartnerList(filters: Ref<AdminPartnerFilters>) {
+  return useQuery({
+    queryKey: ['admin', 'partners', 'list', filters],
+    queryFn: () => apiGet(listPath(filters.value), AdminPartnerListResponse),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAdminPartnerDetail(partnerId: Ref<number | null>) {
+  return useQuery({
+    queryKey: ['admin', 'partners', 'detail', partnerId],
+    queryFn: () => apiGet(`${base}/${String(partnerId.value)}`, AdminPartnerDetailResponse),
+    enabled: computed(() => partnerId.value !== null),
+  });
+}
+
+const invalidate = (qc: ReturnType<typeof useQueryClient>): void => {
+  void qc.invalidateQueries({ queryKey: ['admin', 'partners'] });
+};
+
+export function useCreatePartner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AdminPartnerCreateBodyType) =>
+      apiSend('POST', base, body, AdminPartnerMutationResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useUpdatePartner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ partnerId, body }: { partnerId: number; body: AdminPartnerUpdateBodyType }) =>
+      apiSend('PUT', `${base}/${String(partnerId)}`, body, AdminPartnerMutationResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function usePartnerStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ partnerId, body }: { partnerId: number; body: AdminPartnerStatusBodyType }) =>
+      apiSend('POST', `${base}/${String(partnerId)}/status`, body, AdminPartnerMutationResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useAddPartnerMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ partnerId, body }: { partnerId: number; body: AdminPartnerMemberAddBodyType }) =>
+      apiSend('POST', `${base}/${String(partnerId)}/members`, body, AdminPartnerMutationResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useRemovePartnerMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ partnerId, mbId }: { partnerId: number; mbId: string }) =>
+      apiSend(
+        'DELETE',
+        `${base}/${String(partnerId)}/members/${encodeURIComponent(mbId)}`,
+        undefined,
+        AdminPartnerMutationResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useDeletePartner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (partnerId: number) =>
+      apiSend('DELETE', `${base}/${String(partnerId)}`, undefined, AdminPartnerDeleteResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}

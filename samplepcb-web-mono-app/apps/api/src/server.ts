@@ -25,6 +25,9 @@ import { adminSeoRoutes } from './routes/admin-seo';
 import { adminBomRoutes } from './routes/admin-bom';
 import { adminPartsRoutes } from './routes/admin-parts';
 import { adminBomQuoteRoutes } from './routes/admin-bom-quotes';
+import { adminBomRfqRoutes } from './routes/admin-bom-rfqs';
+import { adminPartnerRoutes } from './routes/admin-partners';
+import { partnerRfqRoutes } from './routes/partner-rfqs';
 import { bomRoutes } from './routes/bom';
 import { bomQuoteRoutes } from './routes/bom-quotes';
 import { bootstrapPartsIndex } from './es/sp-parts-index';
@@ -87,6 +90,12 @@ await app.register(bomRoutes, { prefix: '/api' });
 await app.register(bomQuoteRoutes, { prefix: '/api' });
 await app.register(adminBomRoutes, { prefix: '/api/admin' });
 await app.register(adminBomQuoteRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 협력사 RFQ 발송·현황·대리 입력 (docs/SMARTBOM_PARTNER_RFQ.md)
+await app.register(adminBomRfqRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 스마트 BOM 파트너(조직) 관리 (docs/SMARTBOM_PARTNER_RFQ.md)
+await app.register(adminPartnerRoutes, { prefix: '/api/admin' });
+// 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신
+await app.register(partnerRfqRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 부품 카탈로그 검색(ES sp-parts) + 상세(DB sp_part*)
 await app.register(adminPartsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일
