@@ -84,6 +84,7 @@ export const ko = {
       seo: 'SEO 설정',
       settings: '설정',
       smartbomCases: '진행현황',
+      smartbomOrders: '주문·결제',
       smartbomPartners: '파트너',
     },
     placeholder: '준비 중입니다.',

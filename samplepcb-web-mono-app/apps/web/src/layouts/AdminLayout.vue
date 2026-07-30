@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { adminModules, resolveAdminModuleKey } from '../admin/menu';
 import { useRfqCount } from '../admin/useAdminQuotes';
+import { useBomOrdersAwaitingCount } from '../admin/useAdminBomOrders';
 import { useTheme } from '../bom/useTheme';
 
 const auth = useAuthStore();
@@ -27,8 +28,13 @@ watch(activeModuleKey, (key) => {
   }
 });
 
-// "견적 관리" 메뉴의 견적 대기(rfq) 수 뱃지 — 관리자로 로그인했을 때만 조회
-const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true));
+// 메뉴 뱃지 데이터 — 관리자로 로그인했을 때만 조회.
+// rfqCount = 거버 견적 대기 수, bomOrdersAwaiting = 스마트 BOM 입금 대기 주문 수(D19).
+const isAdminUser = computed(() => auth.me?.isAdmin === true);
+const { data: rfqCount } = useRfqCount(isAdminUser);
+const { data: bomOrdersAwaiting } = useBomOrdersAwaitingCount(isAdminUser);
+const badgeValue = (badge: 'rfqCount' | 'bomOrdersAwaiting'): number | undefined =>
+  badge === 'rfqCount' ? rfqCount.value : bomOrdersAwaiting.value;
 </script>
 
 <template>
@@ -65,10 +71,10 @@ const { data: rfqCount } = useRfqCount(computed(() => auth.me?.isAdmin === true)
         >
           <span>{{ $t(item.labelKey) }}</span>
           <span
-            v-if="item.badge === 'rfqCount' && rfqCount !== undefined && rfqCount > 0"
+            v-if="item.badge !== undefined && (badgeValue(item.badge) ?? 0) > 0"
             class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700"
           >
-            {{ rfqCount }}
+            {{ badgeValue(item.badge) }}
           </span>
         </RouterLink>
       </nav>

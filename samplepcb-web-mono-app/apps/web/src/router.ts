@@ -135,6 +135,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminSmartbomCase.vue'),
       },
       {
+        path: 'smartbom/orders',
+        name: 'admin-smartbom-orders',
+        component: () => import('./pages/admin/AdminSmartbomOrders.vue'),
+      },
+      {
         path: 'smartbom/partners',
         name: 'admin-smartbom-partners',
         component: () => import('./pages/admin/AdminPartners.vue'),

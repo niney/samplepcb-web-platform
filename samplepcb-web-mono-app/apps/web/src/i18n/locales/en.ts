@@ -84,6 +84,7 @@ export const en = {
       seo: 'SEO',
       settings: 'Settings',
       smartbomCases: 'Case board',
+      smartbomOrders: 'Orders & payment',
       smartbomPartners: 'Partners',
     },
     placeholder: 'Coming soon.',

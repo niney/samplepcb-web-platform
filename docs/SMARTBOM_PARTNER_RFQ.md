@@ -407,6 +407,28 @@ PCB 는 기존 `/api/pcb-projects/order`, BOM 은 **배치 API `POST /api/bom/qu
 스냅샷 금액·중복 발행 거부·poCount·메일·포털 확인·confirmed 삭제 거부·마감·타조직 404),
 vitest 557 green.
 
+### 6.2 스마트 BOM 주문·결제 메뉴 — D19 (2026-07-30 확정)
+
+- **주문 축 화면 신설**(`/admin/smartbom/orders`, 메뉴명 "주문·결제" — 시안 명칭): D17 배치
+  주문으로 **주문:Case = 1:N** 이 되어 Case 축(진행현황)과 별도의 주문 축 워크큐가 필요하다.
+  입금확인 같은 주문 단위 업무를 Case 축 화면에 얹으면 배치 주문에서 파탄.
+- **데이터 = 전부 파생**: `sp_bom_quote.ctId → g5_shop_cart(od_id) → g5_shop_order 헤더`
+  batch 조회로 BOM 주문만 수집, Case 칩(연결 견적 N개)·poCount 와 결합. 저장 없음.
+- **워크큐 탭**: 전체 · 입금 대기(od_status='주문') · 발주 대기(결제완료 + 발주서 없는
+  Case 존재) · 완료(그 외). 메뉴 배지 = 입금 대기 수.
+- **액션 최소주의(1차)**: [입금확인]은 기존 `PATCH /api/admin/orders/status`(target='입금',
+  코어 미러 전이 + 알림 브리지)를 **그대로 재사용** — 화면은 두 곳(통합 주문내역·여기)이지만
+  조작 경로는 하나라 정합 안전. 주문 편집·취소·배송 처리는 통합 관리 위임(취소는 "취소 후
+  재주문 갭" 수정과 세트로 후속, 배송은 3차 물류에서 결정).
+
+**✅ 구현 완료(2026-07-30)**: g5 batch 헬퍼(`getCartOrderLinks`·`getOrderHeadersLite` —
+read-only, ⑫ 연장), 계약 `bom-orders.ts`, `admin-bom-orders.ts` 파생 목록(메모리 페이지
+네이션 — 규모 커지면 커서 재설계 주석), `AdminSmartbomOrders.vue`(워크큐 4탭·Case 칩·
+[입금확인]=기존 전이 API·[통합 주문내역 →] 위임 링크), 메뉴 "주문·결제"+**입금 대기
+배지**(60s 갱신, badge 시스템 다중 소스화). 검증: **E2E 10케이스 ALL PASS**(배치 주문
+그룹핑=주문 1건·Case 칩 2개·poCount 파생·입금 대기 counts/탭·입금확인 전이 후 수납/미수
+반전·발주 대기 탭 이동·Case isPaid 파생), vitest 557 green.
+
 **후속(범위 밖)**: 외부공급사 발주 자동화(Mouser=카트 담기 CartKey, DigiKey=third-party
 리스트 URL — supplierCode 라우팅, 하드코딩 mbNo 없음) · **3차 물류** = 선적 그룹 모델
 (D13, 발주 스키마에 선적 참조 금지가 유일한 선행 제약 — sp_bom_po 는 이를 준수).

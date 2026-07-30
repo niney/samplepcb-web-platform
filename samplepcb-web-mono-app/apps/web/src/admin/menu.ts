@@ -7,7 +7,7 @@ import type { RouteLocationRaw } from 'vue-router';
 export interface AdminMenuItem {
   to: RouteLocationRaw;
   labelKey: string;
-  badge?: 'rfqCount';
+  badge?: 'rfqCount' | 'bomOrdersAwaiting';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -54,6 +54,12 @@ const smartbomMenu: AdminMenuItem[] = [
     to: { name: 'admin-smartbom' },
     labelKey: 'admin.menu.smartbomCases',
     activeRouteNames: ['admin-smartbom-case'],
+  },
+  // 주문 축 워크큐(D19) — 입금 대기 수 배지
+  {
+    to: { name: 'admin-smartbom-orders' },
+    labelKey: 'admin.menu.smartbomOrders',
+    badge: 'bomOrdersAwaiting',
   },
   { to: { name: 'admin-smartbom-partners' }, labelKey: 'admin.menu.smartbomPartners' },
 ];

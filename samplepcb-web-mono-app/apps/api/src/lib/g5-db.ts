@@ -378,6 +378,67 @@ export async function getCartStates(ctIds: number[]): Promise<Map<number, CartSt
   return states;
 }
 
+// ── 스마트 BOM 주문·결제 목록용 batch 조회 (D19 — read-only, ⑫의 연장) ───────
+// BOM 주문 축 파생: sp_bom_quote.ctId → cart(od_id) → od 헤더. 저장 없음.
+
+export interface BomOrderLink {
+  odId: string;
+  ordered: boolean; // ct_status ≠ '쇼핑' — 실주문 라인 여부
+}
+
+export async function getCartOrderLinks(ctIds: number[]): Promise<Map<number, BomOrderLink>> {
+  const links = new Map<number, BomOrderLink>();
+  if (ctIds.length === 0) return links;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT ct_id, od_id, ct_status FROM g5_shop_cart WHERE ct_id IN (${ctIds.map(() => '?').join(',')})`,
+    ctIds,
+  );
+  for (const row of rows) {
+    links.set(Number(row.ct_id), {
+      odId: String(row.od_id),
+      ordered: String(row.ct_status) !== '쇼핑',
+    });
+  }
+  return links;
+}
+
+export interface OrderHeaderLite {
+  odId: string;
+  mbId: string;
+  odStatus: string;
+  isPaid: boolean; // od_status !== '주문'
+  settleCase: string;
+  cartPrice: number;
+  receiptPrice: number;
+  misu: number;
+  orderedAt: string | null; // od_time(zero-date → null)
+}
+
+export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, OrderHeaderLite>> {
+  const headers = new Map<string, OrderHeaderLite>();
+  if (odIds.length === 0) return headers;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT od_id, mb_id, od_status, od_settle_case, od_cart_price, od_receipt_price, od_misu, od_time
+       FROM g5_shop_order WHERE od_id IN (${odIds.map(() => '?').join(',')})`,
+    odIds,
+  );
+  for (const row of rows) {
+    const odTime = String(row.od_time ?? '');
+    headers.set(String(row.od_id), {
+      odId: String(row.od_id),
+      mbId: String(row.mb_id ?? ''),
+      odStatus: String(row.od_status ?? ''),
+      isPaid: String(row.od_status) !== '주문',
+      settleCase: String(row.od_settle_case ?? ''),
+      cartPrice: Number(row.od_cart_price ?? 0),
+      receiptPrice: Number(row.od_receipt_price ?? 0),
+      misu: Number(row.od_misu ?? 0),
+      orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
+    });
+  }
+  return headers;
+}
+
 // ── 주문 삭제 프리뷰용 조회 (한정 예외 ⑩) ───────────────────────────────────
 // 관리자 견적 완전삭제 프리뷰 — 주문됨(ordered) 견적이 묶인 주문의 결제상태·수납액·
 // PG거래 유무와, 같은 주문(od_id)에 함께 묶인 다른 cart 행(다른 견적)을 파악한다.
