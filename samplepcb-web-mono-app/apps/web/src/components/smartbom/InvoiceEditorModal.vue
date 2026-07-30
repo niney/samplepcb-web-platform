@@ -203,9 +203,10 @@ async function genPdf(): Promise<void> {
           type="button"
           class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
           :disabled="busy !== '' || loading"
+          title="편집 내용만 보관합니다(파일 생성·첨부 없음) — 다음에 열면 이어서 작성"
           @click="save"
         >
-          {{ busy === 'save' ? '저장 중…' : '저장' }}
+          {{ busy === 'save' ? '저장 중…' : '임시 저장' }}
         </button>
         <button
           type="button"
@@ -322,6 +323,10 @@ async function genPdf(): Promise<void> {
 
           <p class="text-[11px] text-amber-600">
             * HS CODE·순중량·총중량은 직접 입력하세요. PDF는 아래 미리보기를 그대로 캡처합니다.
+          </p>
+          <p class="text-[11px] text-gray-400">
+            [임시 저장]은 편집 내용만 보관합니다 — 선적 서류로 첨부하려면
+            <b class="text-rose-600">[PDF 생성·첨부]</b>를 눌러 주세요(엑셀은 다운로드 전용).
           </p>
         </div>
 
