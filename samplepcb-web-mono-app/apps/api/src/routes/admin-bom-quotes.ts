@@ -21,7 +21,8 @@ import {
 } from '../lib/bom-quote';
 import { closeRfqsForQuote } from '../lib/bom-rfq';
 import { loadShipmentAdminPending } from '../lib/bom-po';
-import { getCartStates } from '../lib/g5-db';
+import { getCartStates, getMembersByIds, getNotifyConfig } from '../lib/g5-db';
+import { buildBomQuoteAnsweredEmail, sendBomRfqMail } from '../lib/rfq-email';
 
 // ── /api/admin/bom-quotes — 고객 BOM 견적요청 검토 (requireAdmin) ─────────────
 // 1차 범위: 목록·상세·상태 전이·확정가(운송료/관리비/총액)·메모·원본 다운로드.
@@ -199,6 +200,28 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
 
     const fresh = await prisma.spBomQuote.findUnique({ where: { id: quote.id }, include: { items: true, sheets: true } });
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+
+    // 고객 회신 알림 — answered 로 "전이"되는 순간 1회(재저장·확정가만 수정 시엔 안 보냄).
+    // 게이트는 코어 회원 알림 설정(cf_email_use) — 운영이 메일을 꺼두면 존중한다.
+    if (body.status === 'answered' && quote.status !== 'answered') {
+      const [notify, members] = await Promise.all([
+        getNotifyConfig(),
+        getMembersByIds([quote.mbId]),
+      ]);
+      if (notify.mailAvailable) {
+        const member = members.get(quote.mbId);
+        void sendBomRfqMail(
+          request.log,
+          member?.email,
+          buildBomQuoteAnsweredEmail({
+            customerName: member?.name ?? '',
+            quoteTitle: fresh.title,
+            quoteId: String(fresh.id),
+            confirmedTotal: fresh.confirmedTotal,
+          }),
+        );
+      }
+    }
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
     return { result: true as const, data: await toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl) };

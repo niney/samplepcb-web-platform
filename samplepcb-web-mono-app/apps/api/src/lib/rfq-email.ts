@@ -214,6 +214,72 @@ export function buildShipmentReceivedEmail(p: ShipmentReceivedEmailParams): {
   };
 }
 
+// ── 고객 회신 알림(백로그 회수) — 견적이 answered 로 전이되는 순간 1회 발송 ────
+// 인지 장치 시리즈의 마지막 조각: 관리자(배지)·협력사(칩)는 있는데 고객만 접속해야
+// 회신 여부를 알 수 있었다. 확정가 유무로 내용 분기(확정가 = 고객 [주문하기] 게이트).
+
+export interface BomQuoteAnsweredEmailParams {
+  customerName: string; // 비면 '고객'
+  quoteTitle: string;
+  quoteId: string;
+  confirmedTotal: number | null; // 확정가(VAT 별도) — null 이면 회신만 안내
+}
+
+export function buildBomQuoteAnsweredEmail(p: BomQuoteAnsweredEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const detailUrl = `${WEB_BASE_URL}/app/bom/${p.quoteId}`;
+  const name = p.customerName.trim() === '' ? '고객' : p.customerName;
+  const won =
+    p.confirmedTotal === null
+      ? null
+      : p.confirmedTotal.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return {
+    subject: `[샘플피씨비] 부품 견적 회신 — ${p.quoteTitle}`,
+    html: `
+<div style="margin:0;padding:24px 12px;background:#f5f7fb;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:0 auto;border-collapse:collapse;">
+    <tr><td style="padding:0 4px 12px;font-size:15px;font-weight:800;color:#081226;">SAMPLEPCB 스마트 BOM</td></tr>
+    <tr><td style="background:#ffffff;border:1px solid #e4eaf3;border-radius:12px;padding:24px;">
+      <div style="font-size:17px;font-weight:700;color:#14243e;padding-bottom:12px;">견적 회신이 도착했습니다</div>
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(name)}님, 요청하신 부품 견적의 검토가 완료되었습니다.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">견적 건</td>
+          <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${esc(p.quoteTitle)}</td>
+        </tr>
+        ${
+          won === null
+            ? ''
+            : `<tr>
+          <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">확정 견적가</td>
+          <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;"><b>${esc(won)}원</b> (VAT 별도)</td>
+        </tr>`
+        }
+      </table>
+      <div style="padding-top:20px;">
+        <a href="${esc(detailUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          ${won === null ? '회신 내용 확인하기' : '견적 확인하고 주문하기'}</a>
+      </div>
+      <p style="margin:14px 0 0;font-size:11px;color:#8593ab;">
+        ${
+          won === null
+            ? '상세 회신 내용은 로그인 후 견적 상세에서 확인하실 수 있습니다.'
+            : '확정가로 바로 주문하실 수 있습니다. 문의는 회신 메모를 참고해 주세요.'
+        }
+      </p>
+    </td></tr>
+    <tr><td style="padding:12px 4px 0;font-size:11px;color:#8593ab;">
+      본 메일은 샘플피씨비 스마트 BOM 견적 회신 알림입니다.</td></tr>
+  </table>
+</div>`,
+  };
+}
+
 export async function sendBomRfqMail(
   log: FastifyBaseLogger,
   to: string | null | undefined,
