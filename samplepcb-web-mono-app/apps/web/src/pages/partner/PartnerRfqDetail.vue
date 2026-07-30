@@ -57,7 +57,7 @@ const statusCls = (s: string): string =>
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
         :to="{ name: 'partner' }"
-        class="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+        class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
       >
         ← 목록
       </RouterLink>
@@ -73,7 +73,7 @@ const statusCls = (s: string): string =>
     <p v-else-if="detail === null" class="text-sm text-gray-400">견적요청을 찾을 수 없습니다.</p>
 
     <template v-else>
-      <p class="text-xs text-gray-500">
+      <p class="text-sm text-gray-500">
         {{ detail.items.length }}개 품목 · 요청일 {{ detail.requestedAt.slice(0, 10) }}
         <template v-if="detail.status === 'closed'"> · 마감된 요청입니다(수정 불가)</template>
       </p>
@@ -88,8 +88,8 @@ const statusCls = (s: string): string =>
           :read-only="detail.status === 'closed'"
           @submit="submit"
         />
-        <p v-if="saveError !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ saveError }}</p>
-        <p v-else-if="saved" class="mt-2 text-xs font-semibold text-emerald-600">
+        <p v-if="saveError !== ''" class="mt-2 text-sm font-semibold text-red-600">{{ saveError }}</p>
+        <p v-else-if="saved" class="mt-2 text-sm font-semibold text-emerald-600">
           회신이 저장되었습니다. 마감 전까지 다시 수정할 수 있습니다.
         </p>
       </div>

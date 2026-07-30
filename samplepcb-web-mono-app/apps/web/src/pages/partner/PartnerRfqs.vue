@@ -83,16 +83,16 @@ const statusCls = (s: string): string =>
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.quoteTitle }}</p>
-              <p class="mt-0.5 text-xs text-gray-500">
+              <p class="mt-0.5 text-sm text-gray-500">
                 {{ rfq.itemCount }}개 품목 · 요청일 {{ fmtDate(rfq.requestedAt) }}
               </p>
             </div>
             <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(rfq.status)">
               {{ BOM_RFQ_STATUS_LABELS[rfq.status] }}
             </span>
-            <span class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white">회신하기</span>
+            <span class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">회신하기</span>
           </RouterLink>
-          <p v-if="pending.length === 0" class="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-400">
+          <p v-if="pending.length === 0" class="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
             회신 대기 중인 요청이 없습니다.
           </p>
         </div>
@@ -113,7 +113,7 @@ const statusCls = (s: string): string =>
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ po.quoteTitle }}</p>
-              <p class="mt-0.5 text-xs text-gray-500">
+              <p class="mt-0.5 text-sm text-gray-500">
                 {{ po.itemCount }}개 품목 ·
                 합계 {{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }} (VAT 별도) ·
                 발행 {{ fmtDate(po.issuedAt) }}
@@ -135,8 +135,8 @@ const statusCls = (s: string): string =>
             >
               {{ BOM_PO_STATUS_LABELS[po.status] }}
             </span>
-            <span v-if="po.status === 'issued'" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white">확인하기</span>
-            <span v-else-if="po.shipmentMyTurn" class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white">진행하기</span>
+            <span v-if="po.status === 'issued'" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">확인하기</span>
+            <span v-else-if="po.shipmentMyTurn" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">진행하기</span>
           </RouterLink>
         </div>
       </section>
@@ -152,7 +152,7 @@ const statusCls = (s: string): string =>
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.quoteTitle }}</p>
-              <p class="mt-0.5 text-xs text-gray-500">
+              <p class="mt-0.5 text-sm text-gray-500">
                 회신 {{ rfq.repliedItemCount }}/{{ rfq.itemCount }}행 ·
                 합계 {{ fmtWon(rfq.totalAmount, rfq.currency) }} ·
                 회신일 {{ fmtDate(rfq.respondedAt) }}
@@ -162,7 +162,7 @@ const statusCls = (s: string): string =>
               {{ BOM_RFQ_STATUS_LABELS[rfq.status] }}
             </span>
           </RouterLink>
-          <p v-if="done.length === 0" class="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-400">
+          <p v-if="done.length === 0" class="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
             아직 회신한 요청이 없습니다.
           </p>
         </div>

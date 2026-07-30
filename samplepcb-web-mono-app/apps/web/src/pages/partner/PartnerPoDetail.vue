@@ -204,7 +204,7 @@ const statusCls = (s: string): string =>
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
         :to="{ name: 'partner' }"
-        class="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+        class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
       >
         ← 목록
       </RouterLink>
@@ -220,14 +220,14 @@ const statusCls = (s: string): string =>
     <p v-else-if="detail === null" class="text-sm text-gray-400">발주서를 찾을 수 없습니다.</p>
 
     <template v-else>
-      <p class="text-xs text-gray-500">
+      <p class="text-sm text-gray-500">
         발행 {{ detail.issuedAt.slice(0, 10) }}
         <template v-if="detail.confirmedAt !== null"> · 확인 {{ detail.confirmedAt.slice(0, 10) }}</template>
       </p>
-      <p v-if="detail.memo !== null" class="rounded bg-gray-50 px-3 py-2 text-xs text-gray-600">{{ detail.memo }}</p>
+      <p v-if="detail.memo !== null" class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">{{ detail.memo }}</p>
 
       <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface">
-        <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <table class="min-w-full divide-y divide-gray-100 text-sm">
           <thead class="bg-gray-50 text-left text-gray-500">
             <tr>
               <th class="px-3 py-2">부품</th>
@@ -271,20 +271,20 @@ const statusCls = (s: string): string =>
         <p v-else-if="detail.status === 'confirmed'" class="text-sm font-semibold text-emerald-700">
           확인 완료 — 진행 부탁드립니다.
         </p>
-        <p v-if="error !== ''" class="text-xs font-semibold text-red-600">{{ error }}</p>
+        <p v-if="error !== ''" class="text-sm font-semibold text-red-600">{{ error }}</p>
       </div>
 
       <!-- 선적 진행(D22) — 핑퐁: 협력사는 자기 차례 단계만, 나머지는 샘플피씨비가 진행 -->
       <div class="rounded-xl border border-gray-200 bg-surface p-4">
         <div class="flex flex-wrap items-center gap-2">
           <p class="text-sm font-bold text-gray-800">선적 진행</p>
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-600">
+          <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-gray-600">
             {{ BOM_SHIPMENT_MODE_LABELS[shipMode] }}
           </span>
           <button
             v-if="canRevert"
             type="button"
-            class="ml-auto rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-40"
+            class="ml-auto rounded border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-40"
             :disabled="shipBusy"
             @click="revert"
           >
@@ -293,7 +293,7 @@ const statusCls = (s: string): string =>
         </div>
 
         <!-- 단계 스텝 -->
-        <ol class="mt-3 flex flex-wrap items-center gap-1 text-[11px]">
+        <ol class="mt-3 flex flex-wrap items-center gap-1 text-xs">
           <li v-for="(step, idx) in stepChain" :key="step" class="flex items-center gap-1">
             <span
               class="rounded-full px-2 py-0.5 font-semibold"
@@ -302,7 +302,7 @@ const statusCls = (s: string): string =>
             <span v-if="idx < stepChain.length - 1" class="text-gray-300">→</span>
           </li>
         </ol>
-        <p class="mt-1.5 text-[11px] text-gray-400">
+        <p class="mt-1.5 text-xs text-gray-400">
           <template v-if="shipment?.shipDate != null">출고예정 {{ shipment.shipDate }} · </template>
           <template v-if="shipment?.shippedAt != null">발송 {{ shipment.shippedAt.slice(0, 10) }} · </template>
           <template v-if="shipment?.carrier != null">{{ shipment.carrier }} </template>
@@ -318,13 +318,13 @@ const statusCls = (s: string): string =>
 
         <!-- 첨부 — 종류별 1건, 재업로드=교체. 인보이스는 '선적 요청' 진행의 필수 조건 -->
         <div class="mt-3 space-y-1.5">
-          <div v-for="kind in BOM_SHIPMENT_FILE_TYPES" :key="kind" class="flex flex-wrap items-center gap-2 text-xs">
+          <div v-for="kind in BOM_SHIPMENT_FILE_TYPES" :key="kind" class="flex flex-wrap items-center gap-2 text-sm">
             <span class="w-20 shrink-0 font-semibold text-gray-600">{{ fileLabel(kind) }}</span>
             <template v-if="fileOf(kind) !== null">
               <button type="button" class="text-blue-600 underline" @click="downloadFile(kind)">
                 {{ fileOf(kind)?.name }}
               </button>
-              <span class="text-[10px] text-gray-400">{{ fileOf(kind)?.uploadedBy === 'ADMIN' ? '샘플피씨비 첨부' : '협력사 첨부' }}</span>
+              <span class="text-xs text-gray-400">{{ fileOf(kind)?.uploadedBy === 'ADMIN' ? '샘플피씨비 첨부' : '협력사 첨부' }}</span>
               <button type="button" class="text-red-500 underline disabled:opacity-40" :disabled="shipBusy" @click="removeFile(kind)">삭제</button>
             </template>
             <span v-else class="text-gray-300">없음</span>
@@ -349,7 +349,7 @@ const statusCls = (s: string): string =>
         </div>
 
         <!-- 입고 확인(검수) 결과 — 편차 메모가 있으면 재발송 협의 근거 -->
-        <p v-if="shipment?.receivedAt != null" class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+        <p v-if="shipment?.receivedAt != null" class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           입고 확인 완료 — {{ shipment.receivedAt.slice(0, 10) }}
           <template v-if="shipment.receivedNote != null && shipment.receivedNote !== ''">
             · 검수 메모: <b>{{ shipment.receivedNote }}</b>
@@ -358,40 +358,40 @@ const statusCls = (s: string): string =>
 
         <!-- 다음 단계 — 내 차례일 때만 폼+버튼(서버도 같은 규칙으로 인가) -->
         <div v-if="isMyTurn && nextStatus !== null" class="mt-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3">
-          <p class="text-xs font-bold text-blue-800">
+          <p class="text-sm font-bold text-blue-800">
             다음 단계: {{ statusLabel(nextStatus) }}
             <span v-if="nextStatus === 'arrived'" class="font-normal text-blue-700"> — 물품이 국내(목적지)에 도착했으면 진행해 주세요. 추가 입력은 없습니다.</span>
           </p>
           <div v-if="nextStatus === 'requested'" class="mt-2 grid gap-2 sm:grid-cols-2">
-            <label class="text-xs text-gray-600">출고예정일 (필수)
-              <input v-model="shipDate" type="date" class="mt-1 h-9 w-full rounded-lg border border-gray-200 px-3 text-xs">
+            <label class="text-sm text-gray-600">출고예정일 (필수)
+              <input v-model="shipDate" type="date" class="mt-1 h-9 w-full rounded-lg border border-gray-200 px-3 text-sm">
             </label>
-            <p class="self-end pb-1 text-[11px] text-gray-500">
+            <p class="self-end pb-1 text-xs text-gray-500">
               {{ fileLabel('invoice') }} 첨부가 필요합니다{{ fileOf('invoice') === null ? ' — 위에서 먼저 첨부해 주세요.' : ' ✓' }}
             </p>
           </div>
           <div v-else-if="nextStatus === 'shipping'" class="mt-2 grid gap-2 sm:grid-cols-3">
-            <input v-model="carrier" type="text" maxlength="50" placeholder="택배사 (필수)" class="h-9 rounded-lg border border-gray-200 px-3 text-xs">
-            <input v-model="trackingNumber" type="text" maxlength="100" placeholder="송장번호 (필수)" class="h-9 rounded-lg border border-gray-200 px-3 font-mono text-xs">
-            <input v-model="trackingUrl" type="url" maxlength="500" placeholder="추적 URL (선택)" class="h-9 rounded-lg border border-gray-200 px-3 text-xs">
+            <input v-model="carrier" type="text" maxlength="50" placeholder="택배사 (필수)" class="h-9 rounded-lg border border-gray-200 px-3 text-sm">
+            <input v-model="trackingNumber" type="text" maxlength="100" placeholder="송장번호 (필수)" class="h-9 rounded-lg border border-gray-200 px-3 font-mono text-sm">
+            <input v-model="trackingUrl" type="url" maxlength="500" placeholder="추적 URL (선택)" class="h-9 rounded-lg border border-gray-200 px-3 text-sm">
           </div>
           <button
             type="button"
-            class="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+            class="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
             :disabled="shipBusy"
             @click="advance"
           >
             '{{ statusLabel(nextStatus) }}'(으)로 진행 →
           </button>
         </div>
-        <p v-else-if="nextStatus !== null" class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+        <p v-else-if="nextStatus !== null" class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-500">
           ⏳ 샘플피씨비의 '{{ statusLabel(nextStatus) }}' 처리를 기다리고 있습니다.
         </p>
-        <p v-else class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+        <p v-else class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
           🎉 선적이 완료되었습니다.
         </p>
 
-        <p v-if="shipError !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ shipError }}</p>
+        <p v-if="shipError !== ''" class="mt-2 text-sm font-semibold text-red-600">{{ shipError }}</p>
       </div>
 
       <InvoiceEditorModal
