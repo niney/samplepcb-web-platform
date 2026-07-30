@@ -1,12 +1,14 @@
 import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
-import { apiGet, apiGetBlob, apiSend, apiSendForm } from '@sp/shared';
+import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
 import {
+  BomInvoiceDraftResponse,
   PartnerPoDetailResponse,
   PartnerPoListResponse,
   PartnerRfqDetailResponse,
   PartnerRfqListResponse,
   apiRoutes,
+  type BomInvoiceDataType,
   type BomRfqReplyBodyType,
   type BomShipmentFileTypeType,
   type PartnerShipmentAdvanceBodyType,
@@ -138,6 +140,19 @@ export function usePartnerShipmentFileDelete() {
     },
   });
 }
+
+/** 상업송장 생성기(D23) API 묶음 — InvoiceEditorModal 콜백 주입용. */
+export const partnerInvoiceApi = (poId: string) => ({
+  loadDraft: (fresh: boolean): Promise<BomInvoiceDataType> =>
+    apiGet(
+      `${poBase}/${poId}/shipment/invoice?fresh=${String(fresh)}`,
+      BomInvoiceDraftResponse,
+    ).then((res) => res.data),
+  saveDraft: (data: BomInvoiceDataType) =>
+    apiSend('PUT', `${poBase}/${poId}/shipment/invoice`, data, BomInvoiceDraftResponse),
+  renderXlsx: (data: BomInvoiceDataType): Promise<Blob> =>
+    apiSendBlob('POST', `${poBase}/${poId}/shipment/invoice/xlsx`, data),
+});
 
 /** 첨부 다운로드 — Bearer 필요라 <a href> 불가, blob → objectURL 저장(관례). */
 export async function downloadPartnerShipmentFile(

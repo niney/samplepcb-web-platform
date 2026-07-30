@@ -1,14 +1,16 @@
 import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
-import { apiGet, apiGetBlob, apiSend, apiSendForm } from '@sp/shared';
+import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
 import {
   AdminBomPoCreateResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
+  BomInvoiceDraftResponse,
   apiRoutes,
   type AdminBomPoCreateBodyType,
   type AdminBomShipmentReceiveBodyType,
   type AdminBomShipmentUpsertBodyType,
+  type BomInvoiceDataType,
   type BomShipmentFileTypeType,
 } from '@sp/api-contract';
 
@@ -168,6 +170,24 @@ export async function downloadBomShipmentFile(
     URL.revokeObjectURL(url);
   }
 }
+
+/** 상업송장 생성기(D23) API 묶음 — InvoiceEditorModal 콜백 주입용(관리자 대리 작성). */
+export const adminInvoiceApi = (quoteId: string, poId: number) => ({
+  loadDraft: (fresh: boolean): Promise<BomInvoiceDataType> =>
+    apiGet(
+      `${base}/${quoteId}/pos/${String(poId)}/shipment/invoice?fresh=${String(fresh)}`,
+      BomInvoiceDraftResponse,
+    ).then((res) => res.data),
+  saveDraft: (data: BomInvoiceDataType) =>
+    apiSend(
+      'PUT',
+      `${base}/${quoteId}/pos/${String(poId)}/shipment/invoice`,
+      data,
+      BomInvoiceDraftResponse,
+    ),
+  renderXlsx: (data: BomInvoiceDataType): Promise<Blob> =>
+    apiSendBlob('POST', `${base}/${quoteId}/pos/${String(poId)}/shipment/invoice/xlsx`, data),
+});
 
 // 외부 실행 재시도/재발급(D20) — Mouser 카트 담기·DigiKey single-use 리스트.
 export function useExecuteExternalPo() {

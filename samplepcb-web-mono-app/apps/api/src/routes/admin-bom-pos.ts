@@ -8,6 +8,8 @@ import {
   AdminBomShipmentReceiveBody,
   AdminBomShipmentUpsertBody,
   ApiError,
+  BomInvoiceData,
+  BomInvoiceDraftResponse,
   BomShipmentFileType,
   bomShipmentActorOf,
   bomShipmentNextStatus,
@@ -28,6 +30,7 @@ import {
   upsertShipment,
 } from '../lib/bom-po';
 import { collectMultipart } from '../lib/market';
+import { buildInvoiceDraft, loadPoForInvoice, renderInvoiceXlsx, saveInvoiceData } from '../lib/bom-invoice';
 import {
   buildBomPoIssuedEmail,
   buildShipmentReceivedEmail,
@@ -347,6 +350,81 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         )
         .type(file.contentType)
         .send(file.buffer);
+    },
+  );
+
+  // ── 상업송장 생성기(D23) — 초안·저장·엑셀(협력사와 같은 데이터, 관리자 대리 작성) ──
+  const InvoiceQuery = z.object({ fresh: z.coerce.boolean().default(false) });
+
+  const ensureAdminShipment = async (quoteId: bigint, poId: bigint) => {
+    const po = await prisma.spBomPo.findUnique({
+      where: { id: poId },
+      include: { shipment: true, partner: true },
+    });
+    if (po?.quoteId !== quoteId) return null;
+    if (po.shipment !== null) return po.shipment;
+    return prisma.spBomShipment.create({
+      data: {
+        poId: po.id,
+        quoteId: po.quoteId,
+        mode: po.partner.country === 'KR' ? 'domestic' : 'international',
+        status: 'preparing',
+      },
+    });
+  };
+
+  fastify.get(
+    '/bom-quotes/:id/pos/:poId/shipment/invoice',
+    {
+      schema: {
+        params: PoParams,
+        querystring: InvoiceQuery,
+        response: { 200: BomInvoiceDraftResponse },
+      },
+    },
+    async (request, reply) => {
+      const po = await loadPoForInvoice(request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (po.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      return { result: true as const, data: await buildInvoiceDraft(po, request.query.fresh) };
+    },
+  );
+
+  fastify.put(
+    '/bom-quotes/:id/pos/:poId/shipment/invoice',
+    {
+      schema: {
+        params: PoParams,
+        body: BomInvoiceData,
+        response: { 200: BomInvoiceDraftResponse },
+      },
+    },
+    async (request, reply) => {
+      const shipment = await ensureAdminShipment(request.params.id, request.params.poId);
+      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      await saveInvoiceData(shipment.id, request.body);
+      return { result: true as const, data: request.body };
+    },
+  );
+
+  fastify.post(
+    '/bom-quotes/:id/pos/:poId/shipment/invoice/xlsx',
+    { schema: { params: PoParams, body: BomInvoiceData } },
+    async (request, reply) => {
+      const shipment = await ensureAdminShipment(request.params.id, request.params.poId);
+      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      await saveInvoiceData(shipment.id, request.body);
+      const buffer = await renderInvoiceXlsx(request.body);
+      const base = (request.body.invoiceNo || `invoice-${String(shipment.id)}`).replace(
+        /[^\w.-]+/g,
+        '_',
+      );
+      return reply
+        .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.xlsx`)}`)
+        .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .send(buffer);
     },
   );
 

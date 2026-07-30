@@ -20,12 +20,14 @@ import {
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
+  adminInvoiceApi,
   downloadBomShipmentFile,
   useDeleteBomShipmentFile,
   useReceiveBomShipment,
   useUploadBomShipmentFile,
   useUpsertBomShipment,
 } from '../../../admin/useAdminBomPos';
+import InvoiceEditorModal from '../../smartbom/InvoiceEditorModal.vue';
 
 // 선적 관리 모달(D21·D22) — 발주서당 1건. 모드는 생성 시 박제(협력사 국가 기본값은 서버가
 // 제안), 상태는 모드별 사전(국제 6단계/국내 3단계). 관리자는 전 단계 임의 조작(핑퐁 인가는
@@ -163,6 +165,21 @@ async function downloadFile(kind: BomShipmentFileTypeType): Promise<void> {
   } catch {
     error.value = '파일 다운로드에 실패했습니다.';
   }
+}
+
+// ── 상업송장 생성기(D23) — 관리자 대리 작성(협력사와 같은 편집본 공유) ────────
+const invoiceOpen = ref(false);
+const invoiceApi = computed(() =>
+  props.po === null ? null : adminInvoiceApi(props.quoteId, props.po.poId),
+);
+async function attachInvoicePdf(file: File): Promise<void> {
+  if (props.po === null) return;
+  await uploadFile.mutateAsync({
+    quoteId: props.quoteId,
+    poId: props.po.poId,
+    fileType: 'invoice',
+    file,
+  });
 }
 
 async function save(): Promise<void> {
@@ -305,12 +322,35 @@ async function confirmReceive(): Promise<void> {
             <button type="button" class="text-red-500 underline disabled:opacity-40" :disabled="fileBusy" @click="removeFile(kind)">삭제</button>
           </template>
           <span v-else class="text-gray-300">없음</span>
-          <label class="ml-auto cursor-pointer rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50">
+          <button
+            v-if="kind === 'invoice' && mode === 'international'"
+            type="button"
+            class="ml-auto rounded border border-indigo-200 px-2 py-1 font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
+            :disabled="fileBusy"
+            title="발주 데이터로 자동 초안을 만들어 편집 후 PDF로 첨부합니다(협력사 대리 작성)"
+            @click="invoiceOpen = true"
+          >
+            🧾 생성
+          </button>
+          <label
+            class="cursor-pointer rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+            :class="kind === 'invoice' && mode === 'international' ? '' : 'ml-auto'"
+          >
             {{ fileOf(kind) === null ? '첨부' : '교체' }}
             <input type="file" class="hidden" :disabled="fileBusy" @change="(e) => onFilePicked(kind, e)">
           </label>
         </div>
       </div>
+
+      <InvoiceEditorModal
+        v-if="invoiceApi !== null"
+        :open="invoiceOpen"
+        :load-draft="invoiceApi.loadDraft"
+        :save-draft="invoiceApi.saveDraft"
+        :render-xlsx="invoiceApi.renderXlsx"
+        :attach-pdf="attachInvoicePdf"
+        @close="invoiceOpen = false"
+      />
 
       <div class="mt-4 flex justify-end gap-2">
         <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-xs font-bold hover:bg-gray-50" @click="emit('close')">

@@ -2,6 +2,8 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   ApiError,
+  BomInvoiceData,
+  BomInvoiceDraftResponse,
   BomShipmentFileType,
   PartnerPoDetailResponse,
   PartnerPoListResponse,
@@ -25,6 +27,7 @@ import {
   type PartnerShipmentError,
 } from '../lib/bom-po';
 import { collectMultipart } from '../lib/market';
+import { buildInvoiceDraft, loadPoForInvoice, renderInvoiceXlsx, saveInvoiceData } from '../lib/bom-invoice';
 import { buildShipmentTurnAdminEmail, sendBomRfqMail } from '../lib/rfq-email';
 import { getShopEstimateProfile } from '../lib/g5-db';
 
@@ -237,6 +240,71 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         )
         .type(file.contentType)
         .send(file.buffer);
+    },
+  );
+
+  // ── 상업송장 생성기(D23) — 초안(저장본 우선·fresh 재조립)·저장·엑셀 렌더 ────
+  const InvoiceQuery = z.object({ fresh: z.coerce.boolean().default(false) });
+
+  fastify.get(
+    '/partner/pos/:poId/shipment/invoice',
+    {
+      schema: {
+        params: PoIdParams,
+        querystring: InvoiceQuery,
+        response: { 200: BomInvoiceDraftResponse },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const po = await loadPoForInvoice(request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (po.partnerId !== ctx.partnerId) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      return { result: true as const, data: await buildInvoiceDraft(po, request.query.fresh) };
+    },
+  );
+
+  fastify.put(
+    '/partner/pos/:poId/shipment/invoice',
+    {
+      schema: {
+        params: PoIdParams,
+        body: BomInvoiceData,
+        response: { 200: BomInvoiceDraftResponse },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
+      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      await saveInvoiceData(shipment.id, request.body);
+      return { result: true as const, data: request.body };
+    },
+  );
+
+  // 엑셀 생성 — 편집본 저장 후 렌더(레거시 POST xlsx 미러). 응답은 xlsx 바이너리.
+  fastify.post(
+    '/partner/pos/:poId/shipment/invoice/xlsx',
+    { schema: { params: PoIdParams, body: BomInvoiceData } },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
+      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      await saveInvoiceData(shipment.id, request.body);
+      const buffer = await renderInvoiceXlsx(request.body);
+      const base = (request.body.invoiceNo || `invoice-${String(shipment.id)}`).replace(
+        /[^\w.-]+/g,
+        '_',
+      );
+      return reply
+        .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.xlsx`)}`)
+        .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .send(buffer);
     },
   );
 

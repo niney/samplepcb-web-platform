@@ -18,6 +18,7 @@ import {
 } from '@sp/api-contract';
 import {
   downloadPartnerShipmentFile,
+  partnerInvoiceApi,
   usePartnerPoConfirm,
   usePartnerPoDetail,
   usePartnerShipmentAdvance,
@@ -25,6 +26,7 @@ import {
   usePartnerShipmentFileUpload,
   usePartnerShipmentRevert,
 } from '../../partner/usePartnerRfqs';
+import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
 
 // 파트너 포털 발주서 상세(D18) — 박제 문서(품목·수량·단가) + [발주 확인].
 // 노출은 자기 발주서의 발주 내용뿐(고객 식별정보 없음).
@@ -180,6 +182,14 @@ async function revert(): Promise<void> {
   }
 }
 
+// ── 상업송장 생성기(D23) — 자동 초안 편집 → PDF 생성·Invoice 자동 첨부 ────────
+const invoiceOpen = ref(false);
+const invoiceApi = computed(() => (poId.value === null ? null : partnerInvoiceApi(poId.value)));
+async function attachInvoicePdf(file: File): Promise<void> {
+  if (poId.value === null) return;
+  await uploadMut.mutateAsync({ poId: poId.value, fileType: 'invoice', file });
+}
+
 const fmt = (v: number): string => v.toLocaleString('ko-KR');
 const statusCls = (s: string): string =>
   s === 'confirmed'
@@ -318,7 +328,20 @@ const statusCls = (s: string): string =>
               <button type="button" class="text-red-500 underline disabled:opacity-40" :disabled="shipBusy" @click="removeFile(kind)">삭제</button>
             </template>
             <span v-else class="text-gray-300">없음</span>
-            <label class="ml-auto cursor-pointer rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50">
+            <button
+              v-if="kind === 'invoice' && shipMode === 'international'"
+              type="button"
+              class="ml-auto rounded border border-indigo-200 px-2 py-1 font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
+              :disabled="shipBusy"
+              title="발주 데이터로 자동 초안을 만들어 편집 후 PDF로 첨부합니다"
+              @click="invoiceOpen = true"
+            >
+              🧾 생성
+            </button>
+            <label
+              class="cursor-pointer rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+              :class="kind === 'invoice' && shipMode === 'international' ? '' : 'ml-auto'"
+            >
               {{ fileOf(kind) === null ? '첨부' : '교체' }}
               <input type="file" class="hidden" :disabled="shipBusy" @change="(e) => onFilePicked(kind, e)">
             </label>
@@ -370,6 +393,16 @@ const statusCls = (s: string): string =>
 
         <p v-if="shipError !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ shipError }}</p>
       </div>
+
+      <InvoiceEditorModal
+        v-if="invoiceApi !== null"
+        :open="invoiceOpen"
+        :load-draft="invoiceApi.loadDraft"
+        :save-draft="invoiceApi.saveDraft"
+        :render-xlsx="invoiceApi.renderXlsx"
+        :attach-pdf="attachInvoicePdf"
+        @close="invoiceOpen = false"
+      />
     </template>
   </div>
 </template>

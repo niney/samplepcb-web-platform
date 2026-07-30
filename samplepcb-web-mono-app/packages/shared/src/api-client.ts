@@ -103,3 +103,21 @@ export async function apiGetBlob(path: string): Promise<Blob> {
   }
   return res.blob();
 }
+
+// JSON body 를 보내고 파일(Blob)을 받는 변형 — 서버 렌더 다운로드(인보이스 엑셀 등).
+export async function apiSendBlob(
+  method: 'POST' | 'PUT',
+  path: string,
+  body: unknown,
+): Promise<Blob> {
+  const res = await authFetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const parsed: unknown = await res.json().catch(() => null);
+    throw new ApiRequestError(res.status, toApiErrorPayload(parsed));
+  }
+  return res.blob();
+}

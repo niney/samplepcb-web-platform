@@ -976,6 +976,7 @@ model SpBomShipment {
   receivedAt     DateTime? // 입고 확인(검수) — 타임라인 ⑩ 파생 근거
   receivedNote   String?   @db.Text // 편차 메모(수량 부족·불량 등)
   completedAt    DateTime? // 최종 단계(done/delivered) 진입 시점 박제
+  invoiceData    Json? // 상업송장 편집본(D23) — 생성기 프리필용, 레거시 invoice_data 미러
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   po             SpBomPo   @relation(fields: [poId], references: [id], onDelete: Cascade)

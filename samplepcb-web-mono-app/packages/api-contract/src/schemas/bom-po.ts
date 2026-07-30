@@ -214,6 +214,51 @@ export const PartnerShipmentAdvanceBody = z.object({
 });
 export type PartnerShipmentAdvanceBodyType = z.infer<typeof PartnerShipmentAdvanceBody>;
 
+// ── 상업송장 생성기(D23) — 레거시 InvoiceEditorModal 필드 승계 ───────────────
+// 자동 초안(발주 스냅샷·사업자정보)을 편집해 PDF(프론트 캡처)/엑셀(서버 렌더)로
+// 생성·첨부한다. 편집본은 sp_bom_shipment.invoiceData 에 영속(다음 열기 프리필).
+// qty 는 문자열(레거시 — "1 SET" 같은 표기 허용), 금액·통화는 자유 편집.
+
+export const BomInvoiceItem = z.object({
+  description: z.string().max(500),
+  hsCode: z.string().max(50),
+  qty: z.string().max(50),
+  currency: z.string().max(8),
+  unitValue: z.number().nullable(),
+  totalValue: z.number().nullable(),
+});
+export type BomInvoiceItemType = z.infer<typeof BomInvoiceItem>;
+
+export const BomInvoiceData = z.object({
+  companyName: z.string().max(191), // 발송인 회사(문서 헤더)
+  shipperName: z.string().max(100),
+  shipperAddress: z.string().max(500),
+  shipperTel: z.string().max(50),
+  countryOfOrigin: z.string().max(50),
+  countryOfDestination: z.string().max(50),
+  consigneeCompany: z.string().max(191),
+  consigneeContact: z.string().max(100),
+  consigneeAddress: z.string().max(500),
+  consigneeTel: z.string().max(50),
+  consigneeFax: z.string().max(50),
+  consigneeEmail: z.string().max(255),
+  countryOfManufacture: z.string().max(50),
+  invoiceNo: z.string().max(100),
+  netWeight: z.string().max(50), // 자유 표기("17.05KG")
+  grossWeight: z.string().max(50),
+  currency: z.string().max(8),
+  invoiceDate: z.string().max(10), // 'YYYY-MM-DD'
+  items: z.array(BomInvoiceItem).max(200),
+  totalValue: z.number(),
+});
+export type BomInvoiceDataType = z.infer<typeof BomInvoiceData>;
+
+export const BomInvoiceDraftResponse = z.object({
+  result: z.literal(true),
+  data: BomInvoiceData,
+});
+export type BomInvoiceDraftResponseType = z.infer<typeof BomInvoiceDraftResponse>;
+
 // ── 관리자 (/api/admin/bom-quotes/:id/pos) ──────────────────────────────────
 
 export const AdminBomPoView = z.object({
