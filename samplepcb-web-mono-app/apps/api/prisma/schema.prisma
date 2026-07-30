@@ -918,6 +918,10 @@ model SpBomRfq {
   memo            String?        @db.Text // 협력사 회신 메모
   requestedAt     DateTime       @default(now()) // 최근 발송 시각(diff 재발송 시 갱신)
   respondedAt     DateTime?
+  // 매직링크 무로그인 회신(§6.9) — 랜덤 64hex, 재발급 시 회전(구 토큰 즉시 무효).
+  // 무효 조건: 불일치 · RFQ closed(PUT만) · 발급 30일 경과(magicTokenAt 기준).
+  magicToken      String?        @unique @db.VarChar(64)
+  magicTokenAt    DateTime?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   quote           SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)

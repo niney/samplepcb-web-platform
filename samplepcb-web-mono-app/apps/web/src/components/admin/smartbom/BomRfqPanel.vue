@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { BOM_RFQ_STATUS_LABELS, type AdminBomRfqViewType } from '@sp/api-contract';
 import { smartbomFmtDate } from '../../../admin/smartbom';
 
@@ -10,8 +10,41 @@ const props = defineProps<{
   rfqs: AdminBomRfqViewType[];
   loading: boolean;
   canSend: boolean; // requested|reviewing 에서만 발송 가능
+  busy?: boolean;
 }>();
-const emit = defineEmits<{ send: []; reply: [rfq: AdminBomRfqViewType]; compare: [] }>();
+const emit = defineEmits<{
+  send: [];
+  reply: [rfq: AdminBomRfqViewType];
+  compare: [];
+  reissueLink: [rfq: AdminBomRfqViewType]; // 매직링크 재발급(§6.9 — 구 토큰 즉시 무효)
+}>();
+
+// 매직링크 [복사](§6.9) — 메일 유실·전화 안내 시 수동 전달용. URL 은 현재 origin 기준.
+const copiedRfqId = ref<number | null>(null);
+async function copyMagicLink(rfq: AdminBomRfqViewType): Promise<void> {
+  if (rfq.magicToken === null) return;
+  const url = `${window.location.origin}/app/rfq-reply/${rfq.magicToken}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    copiedRfqId.value = rfq.rfqId;
+    setTimeout(() => {
+      if (copiedRfqId.value === rfq.rfqId) copiedRfqId.value = null;
+    }, 1500);
+  } catch {
+    window.prompt('복사에 실패했습니다 — 아래 링크를 직접 복사하세요.', url);
+  }
+}
+
+function reissue(rfq: AdminBomRfqViewType): void {
+  if (
+    !window.confirm(
+      `${rfq.partnerName}의 회신 링크를 재발급할까요?\n기존에 보낸 링크는 즉시 무효가 됩니다.`,
+    )
+  ) {
+    return;
+  }
+  emit('reissueLink', rfq);
+}
 
 const quotedCount = computed(() => props.rfqs.filter((r) => r.status === 'quoted').length);
 const pendingCount = computed(() => props.rfqs.filter((r) => r.status === 'requested').length);
@@ -94,9 +127,28 @@ const fmtWon = (v: number | null): string => (v === null ? '—' : `${v.toLocale
               <template v-if="rfq.respondedAt !== null"> → {{ smartbomFmtDate(rfq.respondedAt) }}</template>
             </td>
             <td class="whitespace-nowrap px-3 py-2 text-right">
+              <!-- 매직링크(§6.9) — 무로그인 회신 URL 수동 전달·회수 -->
+              <button
+                v-if="rfq.magicToken !== null"
+                type="button"
+                class="rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+                title="가입 없이 회신할 수 있는 전용 링크를 복사합니다"
+                @click="copyMagicLink(rfq)"
+              >
+                {{ copiedRfqId === rfq.rfqId ? '복사됨 ✓' : '링크 복사' }}
+              </button>
               <button
                 type="button"
-                class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
+                class="ml-1 rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                :disabled="busy === true"
+                :title="rfq.magicToken === null ? '이 RFQ 는 링크 발급 전입니다 — 재발급으로 만들 수 있습니다' : '기존 링크를 무효화하고 새 링크를 만듭니다'"
+                @click="reissue(rfq)"
+              >
+                재발급
+              </button>
+              <button
+                type="button"
+                class="ml-1 rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
                 @click="emit('reply', rfq)"
               >
                 {{ rfq.status === 'quoted' ? '회신 보기·수정' : '대리 입력' }}

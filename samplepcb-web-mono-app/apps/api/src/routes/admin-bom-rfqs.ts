@@ -16,11 +16,12 @@ import {
   diffSendRfqs,
   loadAdminRfqs,
   loadRfqScopeItems,
+  reissueMagicToken,
   saveRfqReply,
   toAdminRfqView,
   validateRfqPartners,
 } from '../lib/bom-rfq';
-import { buildBomRfqRequestEmail, sendBomRfqMail } from '../lib/rfq-email';
+import { buildBomRfqRequestEmail, magicReplyUrl, sendBomRfqMail } from '../lib/rfq-email';
 
 // ── /api/admin/bom-quotes/:id/rfqs — 협력사 RFQ 발송·현황·대리 입력 ──────────
 // 설계 docs/SMARTBOM_PARTNER_RFQ.md §2.4·§2.5. 발송은 diff(유지분 보존·신규만 메일),
@@ -71,10 +72,11 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
 
       const diff = await diffSendRfqs(quote.id, request.body.partnerIds);
 
-      // 알림 메일 — 신규 발송분만, 비차단(실패는 로그).
+      // 알림 메일 — 신규 발송분만, 비차단(실패는 로그). 주 CTA = 매직링크(§6.9).
       if (diff.addedPartners.length > 0) {
         const scope = await loadRfqScopeItems(quote.id);
         for (const partner of diff.addedPartners) {
+          const token = diff.addedTokens.get(partner.id.toString());
           void sendBomRfqMail(
             request.log,
             partner.contactEmail,
@@ -82,6 +84,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
               partnerName: partner.name,
               quoteTitle: quote.title,
               itemCount: scope.length,
+              magicUrl: token === undefined ? null : magicReplyUrl(token),
             }),
           );
         }
@@ -132,6 +135,21 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       });
       if (updated === null) return reply.notFound('RFQ 를 찾을 수 없습니다');
       return { result: true as const, data: toAdminRfqView(updated) };
+    },
+  );
+
+  // ── POST — 매직링크 재발급(§6.9) — 구 토큰 즉시 무효(유출 회수·소급 발급 공용) ──
+  fastify.post(
+    '/bom-quotes/:id/rfqs/:rfqId/magic-link',
+    { schema: { params: RfqParams, response: { 200: AdminBomRfqListResponse } } },
+    async (request, reply) => {
+      const rfq = await prisma.spBomRfq.findUnique({ where: { id: request.params.rfqId } });
+      if (rfq === null) return reply.notFound('RFQ 를 찾을 수 없습니다');
+      if (rfq.quoteId !== request.params.id) {
+        return reply.notFound('RFQ 를 찾을 수 없습니다');
+      }
+      await reissueMagicToken(rfq.id);
+      return { result: true as const, data: { rfqs: await loadAdminRfqs(rfq.quoteId) } };
     },
   );
 

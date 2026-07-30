@@ -11,7 +11,11 @@ import {
   useAdminBomQuoteCandidates,
   usePatchAdminBomQuote,
 } from '../../admin/useAdminBomQuotes';
-import { useAdminBomRfqs, useAdminRfqReply } from '../../admin/useAdminBomRfqs';
+import {
+  useAdminBomRfqs,
+  useAdminRfqReply,
+  useReissueRfqMagicLink,
+} from '../../admin/useAdminBomRfqs';
 import {
   useAdminBomPos,
   useCloseBomPo,
@@ -158,6 +162,13 @@ const compareOpen = ref(false);
 const replyRfq = ref<AdminBomRfqViewType | null>(null);
 const replyError = ref('');
 const rfqReply = useAdminRfqReply();
+
+// 매직링크 재발급(§6.9) — 확인은 패널이 담당, 여기선 호출만.
+const reissueLink = useReissueRfqMagicLink();
+function reissueMagicLink(rfq: AdminBomRfqViewType): void {
+  if (detailId.value === null) return;
+  void reissueLink.mutateAsync({ quoteId: detailId.value, rfqId: rfq.rfqId });
+}
 
 const replyRows = computed<RfqReplyFormRow[]>(() => {
   const rfq = replyRfq.value;
@@ -426,9 +437,11 @@ async function downloadOriginal(): Promise<void> {
         :rfqs="rfqs"
         :loading="rfqQuery.isLoading.value"
         :can-send="detail.status === 'requested' || detail.status === 'reviewing'"
+        :busy="reissueLink.isPending.value"
         @send="sendOpen = true"
         @compare="compareOpen = true"
         @reply="(rfq) => { replyRfq = rfq; replyError = ''; }"
+        @reissue-link="reissueMagicLink"
       />
 
       <!-- 협력사 발주(D18) — 결제 확인 후 -->

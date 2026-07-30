@@ -31,6 +31,7 @@ import { adminBomOrderRoutes } from './routes/admin-bom-orders';
 import { adminPartnerRoutes } from './routes/admin-partners';
 import { partnerRfqRoutes } from './routes/partner-rfqs';
 import { partnerPoRoutes } from './routes/partner-pos';
+import { rfqReplyRoutes } from './routes/rfq-reply';
 import { bomRoutes } from './routes/bom';
 import { bomQuoteRoutes } from './routes/bom-quotes';
 import { bootstrapPartsIndex } from './es/sp-parts-index';
@@ -104,6 +105,8 @@ await app.register(adminPartnerRoutes, { prefix: '/api/admin' });
 // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인
 await app.register(partnerRfqRoutes, { prefix: '/api' });
 await app.register(partnerPoRoutes, { prefix: '/api' });
+// 매직링크 무로그인 회신(§6.9) — 인증 = 토큰(메일함 소유), 권한은 RFQ 1건 스코프
+await app.register(rfqReplyRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 부품 카탈로그 검색(ES sp-parts) + 상세(DB sp_part*)
 await app.register(adminPartsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일

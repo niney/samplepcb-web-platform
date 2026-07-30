@@ -50,6 +50,23 @@ export function useSelectRfqReply() {
   });
 }
 
+// 매직링크 재발급(§6.9) — 구 토큰 즉시 무효(유출 회수·구 데이터 소급 발급 공용).
+export function useReissueRfqMagicLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, rfqId }: { quoteId: string; rfqId: number }) =>
+      apiSend(
+        'POST',
+        `${base}/${quoteId}/rfqs/${String(rfqId)}/magic-link`,
+        undefined,
+        AdminBomRfqListResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs'] });
+    },
+  });
+}
+
 export function useAdminRfqReply() {
   const qc = useQueryClient();
   return useMutation({

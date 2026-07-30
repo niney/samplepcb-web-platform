@@ -19,6 +19,8 @@ export interface BomRfqRequestEmailParams {
   partnerName: string;
   quoteTitle: string;
   itemCount: number;
+  /** 매직링크 URL(§6.9) — 있으면 주 버튼(가입 없이 회신), 포털은 보조 링크로. */
+  magicUrl?: string | null;
 }
 
 export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
@@ -26,6 +28,28 @@ export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
   html: string;
 } {
   const portalUrl = `${WEB_BASE_URL}/app/partner`;
+  const magicUrl = p.magicUrl ?? null;
+  const cta =
+    magicUrl === null
+      ? `
+      <div style="padding-top:20px;">
+        <a href="${esc(portalUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털에서 회신하기</a>
+      </div>
+      <p style="margin:14px 0 0;font-size:11px;color:#8593ab;">
+        회신은 파트너 계정으로 로그인한 뒤 진행됩니다. 계정 문의는 샘플피씨비 담당자에게 연락해 주세요.
+      </p>`
+      : `
+      <div style="padding-top:20px;">
+        <a href="${esc(magicUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          가입 없이 바로 회신하기</a>
+      </div>
+      <p style="margin:14px 0 0;font-size:11px;color:#8593ab;">
+        위 버튼은 이 견적요청 전용 링크입니다(로그인 불필요, 30일 유효 — 외부 공유는 삼가 주세요).
+        파트너 계정이 있다면 <a href="${esc(portalUrl)}" style="color:#2563eb;">포털 로그인으로 회신</a>할 수도 있습니다.
+      </p>`;
   return {
     subject: `[샘플피씨비] 부품 견적요청 — ${p.quoteTitle} (${String(p.itemCount)}개 품목)`,
     html: `
@@ -46,15 +70,7 @@ export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
           <td style="padding:7px 10px;background:#f3f6f9;color:#555;font-size:13px;white-space:nowrap;border:1px solid #e1e6ea;">요청 품목</td>
           <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${String(p.itemCount)}개</td>
         </tr>
-      </table>
-      <div style="padding-top:20px;">
-        <a href="${esc(portalUrl)}"
-           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
-          파트너 포털에서 회신하기</a>
-      </div>
-      <p style="margin:14px 0 0;font-size:11px;color:#8593ab;">
-        회신은 파트너 계정으로 로그인한 뒤 진행됩니다. 계정 문의는 샘플피씨비 담당자에게 연락해 주세요.
-      </p>
+      </table>${cta}
     </td></tr>
     <tr><td style="padding:12px 4px 0;font-size:11px;color:#8593ab;">
       본 메일은 샘플피씨비 스마트 BOM 견적요청 알림입니다.</td></tr>
@@ -62,6 +78,9 @@ export function buildBomRfqRequestEmail(p: BomRfqRequestEmailParams): {
 </div>`,
   };
 }
+
+/** 매직링크 회신 페이지 URL(§6.9) — 발송·재발급·[링크 복사]가 같은 조립을 쓴다. */
+export const magicReplyUrl = (token: string): string => `${WEB_BASE_URL}/app/rfq-reply/${token}`;
 
 export interface BomPoIssuedEmailParams {
   partnerName: string;

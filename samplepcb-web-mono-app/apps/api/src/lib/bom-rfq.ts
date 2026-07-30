@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { SpBomQuoteItem, SpBomRfq, SpBomRfqItem, SpPartner } from '@prisma/client';
 import type {
@@ -52,8 +53,40 @@ export const toAdminRfqView = (
   requestedAt: rfq.requestedAt.toISOString(),
   respondedAt: rfq.respondedAt?.toISOString() ?? null,
   repliedItemCount: rfq.items.filter((i) => i.unitPrice !== null).length,
+  magicToken: rfq.magicToken,
   items: rfq.items.map(toItemView),
 });
+
+// ── 매직링크(§6.9) — 메일함 소유 = 신원, 권한은 RFQ 1건 스코프 ───────────────
+
+export const newMagicToken = (): string => randomBytes(32).toString('hex');
+
+/** 발급 30일 경과는 무효(안전 상한). RFQ closed 는 열람 허용·회신만 거부(라우트 판단). */
+const MAGIC_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
+
+export const loadRfqByMagicToken = async (token: string) => {
+  if (!/^[0-9a-f]{64}$/.test(token)) return null;
+  const rfq = await prisma.spBomRfq.findUnique({
+    where: { magicToken: token },
+    include: {
+      items: { orderBy: { id: 'asc' } },
+      quote: { select: { title: true } },
+      partner: true,
+    },
+  });
+  if (rfq === null) return null;
+  if (rfq.magicTokenAt === null) return null;
+  if (Date.now() - rfq.magicTokenAt.getTime() > MAGIC_TOKEN_TTL_MS) return null;
+  return rfq;
+};
+
+/** 재발급 — 구 토큰 즉시 무효(유출 회수·30일 경과 갱신·소급 발급 공용). */
+export const reissueMagicToken = async (rfqId: bigint): Promise<void> => {
+  await prisma.spBomRfq.update({
+    where: { id: rfqId },
+    data: { magicToken: newMagicToken(), magicTokenAt: new Date() },
+  });
+};
 
 export const loadAdminRfqs = async (quoteId: bigint): Promise<AdminBomRfqViewType[]> => {
   const rfqs = await prisma.spBomRfq.findMany({
@@ -82,6 +115,8 @@ export interface RfqDiffResult {
   kept: number;
   removed: number;
   addedPartners: SpPartner[]; // 알림 메일 대상(신규 발송분만)
+  /** 신규 RFQ 의 매직링크 토큰(파트너별) — 메일 CTA 조립용(§6.9). */
+  addedTokens: Map<string, string>;
 }
 
 export const validateRfqPartners = async (
@@ -125,9 +160,16 @@ export const diffSendRfqs = async (
     }
 
     const toAddIds = [...wanted].filter((partnerId) => !existingByPartner.has(partnerId));
+    // 매직링크 토큰(§6.9)은 발송(생성) 시점에 함께 발급 — 메일 CTA 가 바로 유효하다.
+    const addedTokens = new Map<string, string>();
     if (toAddIds.length > 0) {
+      const now = new Date();
       await tx.spBomRfq.createMany({
-        data: toAddIds.map((partnerId) => ({ quoteId, partnerId, status: 'requested' })),
+        data: toAddIds.map((partnerId) => {
+          const token = newMagicToken();
+          addedTokens.set(partnerId.toString(), token);
+          return { quoteId, partnerId, status: 'requested', magicToken: token, magicTokenAt: now };
+        }),
       });
     }
 
@@ -141,6 +183,7 @@ export const diffSendRfqs = async (
       kept: existing.length - toRemove.length,
       removed: toRemove.length,
       addedPartners,
+      addedTokens,
     };
   });
 };

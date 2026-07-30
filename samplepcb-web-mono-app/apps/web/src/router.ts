@@ -87,6 +87,13 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
+  // 매직링크 무로그인 회신(§6.9) — 공개 라우트(가드 없음). 인증은 URL 토큰이 담당하며
+  // 서버가 매 요청 검증한다(무효 404). 권한은 그 RFQ 1건 스코프.
+  {
+    path: '/rfq-reply/:token',
+    name: 'rfq-reply',
+    component: () => import('./pages/PublicRfqReply.vue'),
+  },
   {
     path: '/admin',
     component: AdminLayout,

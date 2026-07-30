@@ -77,6 +77,8 @@ export const AdminBomRfqView = z.object({
   requestedAt: z.string(),
   respondedAt: z.string().nullable(),
   repliedItemCount: z.number().int(),
+  /** 매직링크 토큰(§6.9) — [링크 복사]용. 구 데이터(발급 전)는 null → [재발급]으로 소급. */
+  magicToken: z.string().nullable(),
   items: z.array(AdminBomRfqItemView),
 });
 export type AdminBomRfqViewType = z.infer<typeof AdminBomRfqView>;
@@ -182,3 +184,14 @@ export const PartnerRfqDetailResponse = z.object({
   data: PartnerRfqDetail,
 });
 export type PartnerRfqDetailResponseType = z.infer<typeof PartnerRfqDetailResponse>;
+
+// ── 매직링크 무로그인 회신(§6.9) — 메일함 소유 = 신원, 권한은 RFQ 1건 스코프 ──
+// 상세는 포털 DTO 재사용(고객 정보 없음이 이미 보장) + 인사용 협력사명만 추가.
+export const MagicRfqResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    partnerName: z.string(),
+    rfq: PartnerRfqDetail,
+  }),
+});
+export type MagicRfqResponseType = z.infer<typeof MagicRfqResponse>;
