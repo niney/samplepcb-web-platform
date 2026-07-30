@@ -237,7 +237,7 @@ export const toPartnerDetail = (
       description: item.description,
       orderQty: item.orderQty,
       reply:
-        reply === undefined || reply.unitPrice === null
+        reply?.unitPrice == null
           ? null
           : {
               unitPrice: Number(reply.unitPrice),
@@ -305,11 +305,8 @@ export const applyPartnerRfqSelection = async (
       where: { id: rfqItemId },
       include: { rfq: { include: { partner: true } } },
     });
-    if (
-      rfqItem === null ||
-      rfqItem.rfq.quoteId !== quoteId ||
-      rfqItem.quoteItemId !== itemId
-    ) {
+    if (rfqItem === null) return 'rfq-item-not-found';
+    if (rfqItem.rfq.quoteId !== quoteId || rfqItem.quoteItemId !== itemId) {
       return 'rfq-item-not-found';
     }
     if (rfqItem.unitPrice === null) return 'not-priced';

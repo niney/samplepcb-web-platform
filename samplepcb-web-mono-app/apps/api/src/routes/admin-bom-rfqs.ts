@@ -111,7 +111,8 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     },
     async (request, reply) => {
       const rfq = await prisma.spBomRfq.findUnique({ where: { id: request.params.rfqId } });
-      if (rfq === null || rfq.quoteId !== request.params.id) {
+      if (rfq === null) return reply.notFound('RFQ 를 찾을 수 없습니다');
+      if (rfq.quoteId !== request.params.id) {
         return reply.notFound('RFQ 를 찾을 수 없습니다');
       }
       const saved = await saveRfqReply(rfq.id, request.body);

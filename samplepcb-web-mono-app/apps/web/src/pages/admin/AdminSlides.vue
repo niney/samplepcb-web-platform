@@ -233,23 +233,31 @@ async function move(index: number, dir: -1 | 1): Promise<void> {
               class="h-7 w-7 rounded border border-gray-200 text-xs disabled:opacity-30"
               :disabled="i === 0 || reorder.isPending.value"
               @click="move(i, -1)"
-            >↑</button>
+            >
+              ↑
+            </button>
             <button
               type="button"
               class="h-7 w-7 rounded border border-gray-200 text-xs disabled:opacity-30"
               :disabled="i === slides.length - 1 || reorder.isPending.value"
               @click="move(i, 1)"
-            >↓</button>
+            >
+              ↓
+            </button>
             <button
               type="button"
               class="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50"
               @click="startEdit(s)"
-            >수정</button>
+            >
+              수정
+            </button>
             <button
               type="button"
               class="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
               @click="onDelete(s.id)"
-            >삭제</button>
+            >
+              삭제
+            </button>
           </div>
         </li>
       </ul>

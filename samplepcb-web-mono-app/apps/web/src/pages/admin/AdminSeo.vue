@@ -218,12 +218,16 @@ const inputCls = 'mt-1 h-10 w-full rounded-lg border border-gray-200 px-3 text-s
               type="button"
               class="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50"
               @click="startEdit(r)"
-            >수정</button>
+            >
+              수정
+            </button>
             <button
               type="button"
               class="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
               @click="onDelete(r)"
-            >삭제</button>
+            >
+              삭제
+            </button>
           </div>
         </li>
       </ul>

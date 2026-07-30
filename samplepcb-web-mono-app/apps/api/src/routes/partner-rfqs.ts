@@ -57,7 +57,8 @@ export const partnerRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         where: { id: request.params.rfqId },
         include: { items: { orderBy: { id: 'asc' } }, quote: { select: { title: true } } },
       });
-      if (rfq === null || rfq.partnerId !== ctx.partnerId) {
+      if (rfq === null) return reply.notFound('견적요청을 찾을 수 없습니다');
+      if (rfq.partnerId !== ctx.partnerId) {
         return reply.notFound('견적요청을 찾을 수 없습니다');
       }
       const scope = await loadRfqScopeItems(rfq.quoteId);
@@ -79,7 +80,8 @@ export const partnerRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const ctx = request.partnerContext;
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
       const rfq = await prisma.spBomRfq.findUnique({ where: { id: request.params.rfqId } });
-      if (rfq === null || rfq.partnerId !== ctx.partnerId) {
+      if (rfq === null) return reply.notFound('견적요청을 찾을 수 없습니다');
+      if (rfq.partnerId !== ctx.partnerId) {
         return reply.notFound('견적요청을 찾을 수 없습니다');
       }
       const saved = await saveRfqReply(rfq.id, request.body);

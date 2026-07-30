@@ -70,7 +70,10 @@ export default fp(async (app: FastifyInstance) => {
       include: { partner: true },
       orderBy: { id: 'asc' },
     });
-    if (membership === null || membership.partner.status !== 'approved') {
+    if (membership === null) {
+      throw app.httpErrors.forbidden('승인된 파트너 계정이 아닙니다');
+    }
+    if (membership.partner.status !== 'approved') {
       throw app.httpErrors.forbidden('승인된 파트너 계정이 아닙니다');
     }
     request.partnerContext = {
