@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { BOM_PO_STATUS_LABELS, type AdminBomPoViewType } from '@sp/api-contract';
+import { computed } from 'vue';
+import {
+  BOM_PO_STATUS_LABELS,
+  BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL,
+  BOM_SHIPMENT_MODE_LABELS,
+  BOM_SHIPMENT_STATUS_LABELS,
+  bomShipmentActorOf,
+  bomShipmentNextStatus,
+  bomShipmentStatusLabel,
+  type AdminBomPoViewType,
+} from '@sp/api-contract';
 import { smartbomFmtDate, smartbomFmtWon } from '../../../admin/smartbom';
 
 // Case 상세의 협력사 발주서 패널(D18) — 발행·확인·마감 현황.
 // 발주서는 박제 문서라 수정이 없고, 재발행 = 미확인(issued) 삭제 후 재생성.
 
-defineProps<{
+const props = defineProps<{
   pos: AdminBomPoViewType[];
   loading: boolean;
   canIssue: boolean; // 결제 확인(isPaid) 후에만 발행 가능(D18-4)
@@ -17,11 +27,41 @@ const emit = defineEmits<{
   remove: [po: AdminBomPoViewType];
   close: [po: AdminBomPoViewType];
   external: [po: AdminBomPoViewType]; // 외부 실행 재시도/재발급(D20)
+  shipment: [po: AdminBomPoViewType]; // 선적 관리(D21)
 }>();
 
 function openExternal(url: string): void {
   window.open(url, '_blank', 'noopener');
 }
+
+// 선적 요약 라벨 — 국내 preparing 은 '배송준비'(레거시 국내 3단계 표기)
+function shipmentLabel(po: AdminBomPoViewType): string {
+  const shipment = po.shipment;
+  if (shipment === null) return '—';
+  const statusText =
+    shipment.mode === 'domestic' && shipment.status === 'preparing'
+      ? BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL
+      : BOM_SHIPMENT_STATUS_LABELS[shipment.status];
+  return `${BOM_SHIPMENT_MODE_LABELS[shipment.mode]} · ${statusText}`;
+}
+
+// 핑퐁 차례(D22 인지) — 다음 단계 주체가 관리자면 행·버튼 강조, 협력사면 대기 힌트.
+function shipmentNextActor(po: AdminBomPoViewType): 'ADMIN' | 'PARTNER' | null {
+  const shipment = po.shipment;
+  if (shipment === null) return null;
+  if (shipment.receivedAt !== null) return null;
+  const next = bomShipmentNextStatus(shipment.mode, shipment.status);
+  return next === null ? null : bomShipmentActorOf(shipment.mode, next);
+}
+function shipmentNextLabel(po: AdminBomPoViewType): string {
+  const shipment = po.shipment;
+  if (shipment === null) return '';
+  const next = bomShipmentNextStatus(shipment.mode, shipment.status);
+  return next === null ? '' : bomShipmentStatusLabel(shipment.mode, next);
+}
+const adminPendingCount = computed(
+  () => props.pos.filter((po) => shipmentNextActor(po) === 'ADMIN').length,
+);
 
 const statusCls = (status: AdminBomPoViewType['status']): string =>
   status === 'confirmed'
@@ -38,6 +78,9 @@ const statusCls = (status: AdminBomPoViewType['status']): string =>
       <p v-if="pos.length > 0" class="text-xs text-gray-500">
         발주서 <b>{{ pos.length }}</b> ·
         확인 <b class="text-emerald-600">{{ pos.filter((p) => p.status !== 'issued').length }}</b>
+        <template v-if="adminPendingCount > 0">
+          · <b class="text-blue-700">선적 처리 필요 {{ adminPendingCount }}</b>
+        </template>
       </p>
       <button
         type="button"
@@ -62,6 +105,7 @@ const statusCls = (status: AdminBomPoViewType['status']): string =>
             <th class="px-3 py-2">상태</th>
             <th class="px-3 py-2 text-right">품목</th>
             <th class="px-3 py-2 text-right">발주 합계(VAT 별도)</th>
+            <th class="px-3 py-2">선적·입고</th>
             <th class="px-3 py-2">발행/확인</th>
             <th class="px-3 py-2" />
           </tr>
@@ -104,11 +148,44 @@ const statusCls = (status: AdminBomPoViewType['status']): string =>
             </td>
             <td class="px-3 py-2 text-right tabular-nums">{{ po.itemCount }}</td>
             <td class="px-3 py-2 text-right tabular-nums">{{ smartbomFmtWon(po.totalAmount) }}</td>
+            <!-- 선적(D21·D22) — 모드·상태·송장 + 차례 표시 + 입고 확인 -->
+            <td class="whitespace-nowrap px-3 py-2">
+              <span :class="po.shipment === null ? 'text-gray-300' : shipmentNextActor(po) === 'ADMIN' ? 'font-bold text-blue-700' : 'text-gray-700'">{{ shipmentLabel(po) }}</span>
+              <span
+                v-if="shipmentNextActor(po) === 'ADMIN'"
+                class="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700"
+                :title="`협력사가 단계를 넘겼습니다 — [선적 관리]에서 '${shipmentNextLabel(po)}' 처리를 진행해 주세요`"
+              >
+                {{ shipmentNextLabel(po) }} 처리 필요
+              </span>
+              <span
+                v-else-if="shipmentNextActor(po) === 'PARTNER'"
+                class="ml-1 text-[10px] text-gray-400"
+                :title="`협력사의 '${shipmentNextLabel(po)}' 처리를 기다리는 중`"
+              >
+                협력사 차례
+              </span>
+              <span v-if="po.shipment?.trackingNumber != null" class="ml-1 font-mono text-[10px] text-gray-400" :title="po.shipment.carrier ?? ''">
+                {{ po.shipment.trackingNumber }}
+              </span>
+              <span v-if="po.shipment?.receivedAt != null" class="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-bold text-emerald-700" :title="po.shipment.receivedNote ?? ''">
+                입고 완료
+              </span>
+            </td>
             <td class="whitespace-nowrap px-3 py-2 text-gray-400">
               {{ smartbomFmtDate(po.issuedAt) }}
               <template v-if="po.confirmedAt !== null"> → {{ smartbomFmtDate(po.confirmedAt) }}</template>
             </td>
             <td class="whitespace-nowrap px-3 py-2 text-right">
+              <button
+                type="button"
+                class="rounded px-2 py-1 font-semibold disabled:opacity-40"
+                :class="shipmentNextActor(po) === 'ADMIN' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-blue-200 text-blue-700 hover:bg-blue-50'"
+                :disabled="busy"
+                @click="emit('shipment', po)"
+              >
+                선적 관리
+              </button>
               <button
                 v-if="po.status === 'issued'"
                 type="button"

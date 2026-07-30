@@ -1,6 +1,6 @@
 import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
-import { apiGet, apiSend } from '@sp/shared';
+import { apiGet, apiGetBlob, apiSend, apiSendForm } from '@sp/shared';
 import {
   PartnerPoDetailResponse,
   PartnerPoListResponse,
@@ -8,6 +8,8 @@ import {
   PartnerRfqListResponse,
   apiRoutes,
   type BomRfqReplyBodyType,
+  type BomShipmentFileTypeType,
+  type PartnerShipmentAdvanceBodyType,
 } from '@sp/api-contract';
 
 // 협력사 포털(/partner) 서버 상태 훅 — 받은 RFQ(회신)·받은 발주(확인, D18).
@@ -72,4 +74,85 @@ export function usePartnerPoConfirm() {
       void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
     },
   });
+}
+
+// ── 선적 핑퐁(D22) — 자기 차례 전이·되돌리기·첨부 ───────────────────────────
+
+export function usePartnerShipmentAdvance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, body }: { poId: string; body: PartnerShipmentAdvanceBodyType }) =>
+      apiSend('POST', `${poBase}/${poId}/shipment/advance`, body, PartnerPoDetailResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+    },
+  });
+}
+
+export function usePartnerShipmentRevert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (poId: string) =>
+      apiSend('POST', `${poBase}/${poId}/shipment/revert`, undefined, PartnerPoDetailResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+    },
+  });
+}
+
+export function usePartnerShipmentFileUpload() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      poId,
+      fileType,
+      file,
+    }: {
+      poId: string;
+      fileType: BomShipmentFileTypeType;
+      file: File;
+    }) => {
+      const form = new FormData();
+      form.append('fileType', fileType);
+      form.append('file', file);
+      return apiSendForm('POST', `${poBase}/${poId}/shipment/files`, form, PartnerPoDetailResponse);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+    },
+  });
+}
+
+export function usePartnerShipmentFileDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, fileId }: { poId: string; fileId: number }) =>
+      apiSend(
+        'DELETE',
+        `${poBase}/${poId}/shipment/files/${String(fileId)}`,
+        undefined,
+        PartnerPoDetailResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+    },
+  });
+}
+
+/** 첨부 다운로드 — Bearer 필요라 <a href> 불가, blob → objectURL 저장(관례). */
+export async function downloadPartnerShipmentFile(
+  poId: string,
+  fileId: number,
+  name: string,
+): Promise<void> {
+  const blob = await apiGetBlob(`${poBase}/${poId}/shipment/files/${String(fileId)}`);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

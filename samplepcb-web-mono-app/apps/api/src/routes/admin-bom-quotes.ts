@@ -20,6 +20,7 @@ import {
   toAdminSummaryDto,
 } from '../lib/bom-quote';
 import { closeRfqsForQuote } from '../lib/bom-rfq';
+import { loadShipmentAdminPending } from '../lib/bom-po';
 import { getCartStates } from '../lib/g5-db';
 
 // ── /api/admin/bom-quotes — 고객 BOM 견적요청 검토 (requireAdmin) ─────────────
@@ -73,6 +74,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       answered: 0,
       closed: 0,
       canceled: 0,
+      shipmentPending: 0, // D22 파생 배치에서 채운다(아래)
     };
     for (const g of grouped) {
       const key = BomQuoteStatus.safeParse(g.status);
@@ -80,17 +82,26 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       counts[key.data] += g._count._all;
       if (key.data !== 'draft') counts.all += g._count._all;
     }
-    // 주문(D16)·발주(D18) 파생 — ctId 있는 행만 g5 카트 batch 1회, 발주 수는 groupBy 1회.
+    // 주문(D16)·발주(D18)·입고(D21)·관리자 차례 선적(D22) 파생 — batch 4회.
     const ctIds = rows.flatMap((row) => (row.ctId === null ? [] : [row.ctId]));
-    const [cartStates, poGroups] = await Promise.all([
+    const quoteIds = rows.map((row) => row.id);
+    const [cartStates, poGroups, receivedGroups, shipmentPending] = await Promise.all([
       getCartStates(ctIds),
       prisma.spBomPo.groupBy({
         by: ['quoteId'],
-        where: { quoteId: { in: rows.map((row) => row.id) } },
+        where: { quoteId: { in: quoteIds } },
         _count: { _all: true },
       }),
+      prisma.spBomShipment.groupBy({
+        by: ['quoteId'],
+        where: { quoteId: { in: quoteIds }, receivedAt: { not: null } },
+        _count: { _all: true },
+      }),
+      loadShipmentAdminPending(),
     ]);
     const poCounts = new Map(poGroups.map((g) => [g.quoteId, g._count._all]));
+    const receivedCounts = new Map(receivedGroups.map((g) => [g.quoteId, g._count._all]));
+    counts.shipmentPending = shipmentPending.total;
     return {
       result: true as const,
       data: {
@@ -100,6 +111,8 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             filterActiveQuoteItems(row.items, row.sheets),
             row.ctId === null ? 'none' : (cartStates.get(row.ctId) ?? 'none'),
             poCounts.get(row.id) ?? 0,
+            receivedCounts.get(row.id) ?? 0,
+            shipmentPending.byQuote.has(row.id.toString()),
           ),
         ),
         total,

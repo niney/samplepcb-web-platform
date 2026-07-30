@@ -12,6 +12,7 @@ export const AdminBomOrderCase = z.object({
   createdAt: z.string(),
   confirmedTotal: z.number().nullable(),
   poCount: z.number().int(), // 발주서 수 — "발주 대기" 판정
+  poReceivedCount: z.number().int(), // 입고 확인된 발주서 수(D21) — "입고 완료" 표시
 });
 export type AdminBomOrderCaseType = z.infer<typeof AdminBomOrderCase>;
 

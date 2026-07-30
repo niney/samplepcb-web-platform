@@ -4,12 +4,14 @@ import { apiGet, apiSend } from '@sp/shared';
 import {
   AdminBomOrderListResponse,
   AdminOrderActionResponse,
+  AdminOrderEditResponse,
   apiRoutes,
   type AdminBomOrderListQueryType,
+  type AdminOrderForceStatusRequestType,
 } from '@sp/api-contract';
 
 // 스마트 BOM 주문·결제(주문 축, D19) — 목록은 /api/admin/bom-orders 파생,
-// 입금확인은 기존 /api/admin/orders/status(target='입금') 재사용(조작 경로 단일).
+// 입금확인·배송·완료는 기존 /api/admin/orders/status 재사용(조작 경로 단일, D21-3).
 
 export interface AdminBomOrderFilters {
   page: number;
@@ -57,6 +59,51 @@ export function useConfirmBomOrderReceipt() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] }); // 타임라인 ⑦ 파생 갱신
+    },
+  });
+}
+
+// 전이 후 파생 갱신 — 주문 축 + 타임라인(⑪⑫) + 통합 주문내역까지 함께 무효화.
+function invalidateOrderDerived(qc: ReturnType<typeof useQueryClient>): void {
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'orders'] });
+}
+
+export type BomOrderDelivery = NonNullable<AdminOrderForceStatusRequestType['delivery']>;
+
+// [배송 처리](D21-3) — 부품 주문은 제작 7단계(가격확인~생산완료)를 밟지 않으므로 선형 전이
+// 대신 임의 상태 변경(force-status, 코어 정상 분기 미러)으로 배송 진입: 운송장 반영 + 재고
+// 앵커 포함. 코어 관례상 이 경로는 알림 미발송(알림은 선형 전이 전용 — 통합 주문내역).
+export function useShipBomOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ odId, delivery }: { odId: string; delivery: BomOrderDelivery }) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/force-status`,
+        { target: '배송', delivery },
+        AdminOrderEditResponse,
+      ),
+    onSuccess: () => {
+      invalidateOrderDerived(qc);
+    },
+  });
+}
+
+// [구매확정](D21-3) — 배송 → 완료(역시 알림 없음).
+export function useCompleteBomOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (odId: string) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/force-status`,
+        { target: '완료' },
+        AdminOrderEditResponse,
+      ),
+    onSuccess: () => {
+      invalidateOrderDerived(qc);
     },
   });
 }

@@ -1,12 +1,15 @@
 import { computed, type Ref } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
-import { apiGet, apiSend } from '@sp/shared';
+import { apiGet, apiGetBlob, apiSend, apiSendForm } from '@sp/shared';
 import {
   AdminBomPoCreateResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
   apiRoutes,
   type AdminBomPoCreateBodyType,
+  type AdminBomShipmentReceiveBodyType,
+  type AdminBomShipmentUpsertBodyType,
+  type BomShipmentFileTypeType,
 } from '@sp/api-contract';
 
 // 협력사 발주서(D18) — /api/admin/bom-quotes/:id/pos (requireAdmin)
@@ -58,6 +61,112 @@ export function useCloseBomPo() {
       invalidate(qc);
     },
   });
+}
+
+// 선적 등록/수정(D21) — 발주서당 1건, mode 는 생성 시 박제.
+export function useUpsertBomShipment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      poId,
+      body,
+    }: {
+      quoteId: string;
+      poId: number;
+      body: AdminBomShipmentUpsertBodyType;
+    }) =>
+      apiSend('PUT', `${base}/${quoteId}/pos/${String(poId)}/shipment`, body, AdminBomPoMutationResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+// 입고 확인(검수 ⑩, D21-2) — 편차 메모와 함께 최종 단계로 마감.
+export function useReceiveBomShipment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      poId,
+      body,
+    }: {
+      quoteId: string;
+      poId: number;
+      body: AdminBomShipmentReceiveBodyType;
+    }) =>
+      apiSend('POST', `${base}/${quoteId}/pos/${String(poId)}/shipment/receive`, body, AdminBomPoMutationResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+// 선적 첨부(D22) — 종류별 1건(재업로드=교체), 실파일은 파일서버·메타는 sp_file.
+export function useUploadBomShipmentFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      poId,
+      fileType,
+      file,
+    }: {
+      quoteId: string;
+      poId: number;
+      fileType: BomShipmentFileTypeType;
+      file: File;
+    }) => {
+      const form = new FormData();
+      form.append('fileType', fileType);
+      form.append('file', file);
+      return apiSendForm(
+        'POST',
+        `${base}/${quoteId}/pos/${String(poId)}/shipment/files`,
+        form,
+        AdminBomPoMutationResponse,
+      );
+    },
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useDeleteBomShipmentFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, poId, fileId }: { quoteId: string; poId: number; fileId: number }) =>
+      apiSend(
+        'DELETE',
+        `${base}/${quoteId}/pos/${String(poId)}/shipment/files/${String(fileId)}`,
+        undefined,
+        AdminBomPoMutationResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+/** 첨부 다운로드 — Bearer 필요라 <a href> 불가, blob → objectURL 저장(관례). */
+export async function downloadBomShipmentFile(
+  quoteId: string,
+  poId: number,
+  fileId: number,
+  name: string,
+): Promise<void> {
+  const blob = await apiGetBlob(`${base}/${quoteId}/pos/${String(poId)}/shipment/files/${String(fileId)}`);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 // 외부 실행 재시도/재발급(D20) — Mouser 카트 담기·DigiKey single-use 리스트.

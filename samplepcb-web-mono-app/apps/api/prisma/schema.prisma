@@ -951,10 +951,37 @@ model SpBomPo {
   quote       SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   partner     SpPartner      @relation(fields: [partnerId], references: [id])
   items       SpBomPoItem[]
+  shipment    SpBomShipment?
 
   @@unique([quoteId, partnerId])
   @@index([partnerId, status]) // 협력사 포털 워크큐
   @@map("sp_bom_po")
+}
+
+// 선적(D21) — 경량 모델: 1차는 발주서당 1건(poId UNIQUE). 발주 스키마 무참조(D13)라
+// 부분 입고(UNIQUE 해제+행 배정)·선적 그룹(groupId 추가)으로 발주서 무변경 확장 가능.
+// mode 는 생성 시 박제(레거시 관례): international=6단계, domestic=3단계 — 코드 사전
+// @sp/api-contract BOM_SHIPMENT_* 정본. 입고 확인(검수 ⑩)=receivedAt+편차 메모.
+model SpBomShipment {
+  id             BigInt    @id @default(autoincrement())
+  poId           BigInt    @unique
+  quoteId        BigInt // Case 축 조회 편의(파생 집계)
+  mode           String    @default("international") @db.VarChar(16) // international|domestic
+  status         String    @db.VarChar(20) // 모드별 코드 사전(intl 6단계/domestic 3단계)
+  carrier        String?   @db.VarChar(50)
+  trackingNumber String?   @db.VarChar(100)
+  trackingUrl    String?   @db.VarChar(500)
+  shipDate       DateTime? // 출고예정일 — 협력사 '선적 요청' 진입 시 입력(D22)
+  shippedAt      DateTime? // 발송(shipped/shipping 진입) 시점 박제
+  receivedAt     DateTime? // 입고 확인(검수) — 타임라인 ⑩ 파생 근거
+  receivedNote   String?   @db.Text // 편차 메모(수량 부족·불량 등)
+  completedAt    DateTime? // 최종 단계(done/delivered) 진입 시점 박제
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  po             SpBomPo   @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("sp_bom_shipment")
 }
 
 // 발주 행 — 생성 시점의 부품·수량·단가 스냅샷(견적 행이 이후 바뀌어도 불변).

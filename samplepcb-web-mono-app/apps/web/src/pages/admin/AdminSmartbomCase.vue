@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { apiGetBlob } from '@sp/shared';
 import type { BomQuoteItemType, BomQuoteStatusType } from '@sp/api-contract';
-import type { AdminBomRfqViewType, BomRfqReplyBodyType } from '@sp/api-contract';
+import type { AdminBomPoViewType, AdminBomRfqViewType, BomRfqReplyBodyType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
   useAdminBomQuote,
@@ -29,6 +29,7 @@ import {
 import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
 import BomPoCreateModal from '../../components/admin/smartbom/BomPoCreateModal.vue';
 import BomPoPanel from '../../components/admin/smartbom/BomPoPanel.vue';
+import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.vue';
 import BomRfqCompareModal from '../../components/admin/smartbom/BomRfqCompareModal.vue';
 import BomRfqPanel from '../../components/admin/smartbom/BomRfqPanel.vue';
 import BomRfqSendModal from '../../components/admin/smartbom/BomRfqSendModal.vue';
@@ -57,13 +58,15 @@ const poQuery = useAdminBomPos(detailId);
 const pos = computed(() => poQuery.data.value?.data.pos ?? []);
 const currentStep = computed(() => {
   if (detail.value === null) return 0;
-  // 주문·발주 파생이 우선(⑥ 주문 · ⑦ 결제 · ⑧ 발주) — 이후 RFQ 세분화(③④), 마지막이 상태 기반.
-  const orderStep = smartbomStepOf(
-    detail.value.status,
-    detail.value.orderState,
-    detail.value.orderInfo?.isPaid ?? false,
-    pos.value.length > 0,
-  );
+  // 주문·발주·물류 파생이 우선(⑥~⑫) — 이후 RFQ 세분화(③④), 마지막이 상태 기반.
+  const orderStep = smartbomStepOf(detail.value.status, {
+    orderState: detail.value.orderState,
+    isPaid: detail.value.orderInfo?.isPaid ?? false,
+    poCount: pos.value.length,
+    poReceivedCount: pos.value.filter((po) => po.shipment?.receivedAt != null).length,
+    hasShipment: pos.value.some((po) => po.shipment !== null),
+    odStatus: detail.value.orderInfo?.odStatus,
+  });
   if (orderStep >= 6) return orderStep;
   const base = smartbomStepOf(detail.value.status);
   if (detail.value.status !== 'reviewing' || rfqs.value.length === 0) return base;
@@ -85,6 +88,8 @@ const scopeItems = computed(() => {
 // ── 발주(D18) — 결제 확인 후 발행, all-or-nothing ───────────────────────────
 const poCreateOpen = ref(false);
 const poError = ref('');
+// 선적 관리(D21) — 대상 발주서를 모달로
+const shipmentPo = ref<AdminBomPoViewType | null>(null);
 const createPos = useCreateBomPos();
 const deletePo = useDeleteBomPo();
 const closePo = useCloseBomPo();
@@ -410,6 +415,7 @@ async function downloadOriginal(): Promise<void> {
         @remove="removePo"
         @close="closePoRow"
         @external="retryExternalPo"
+        @shipment="(po) => { shipmentPo = po; }"
       />
       <p v-if="poError !== ''" class="text-xs font-semibold text-red-600">{{ poError }}</p>
 
@@ -582,6 +588,14 @@ async function downloadOriginal(): Promise<void> {
       :rfqs="rfqs"
       :existing-pos="pos"
       @close="poCreateOpen = false"
+    />
+
+    <BomShipmentModal
+      v-if="detailId !== null"
+      :open="shipmentPo !== null"
+      :quote-id="detailId"
+      :po="pos.find((entry) => entry.poId === shipmentPo?.poId) ?? shipmentPo"
+      @close="shipmentPo = null"
     />
 
     <!-- 대리 입력(회신 보기·수정) 모달 — 포털 회신과 같은 폼·저장 경로 -->

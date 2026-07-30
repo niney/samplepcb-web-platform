@@ -457,8 +457,97 @@ externalRef 표시(Mouser 카트 확인 링크·DigiKey 1회용 리스트 열기
 1,498 정확, DigiKey single-use URL 실발급, 재실행 갱신, 협력사 발주 NOT_AUTOMATED
 가드), vitest 557 green. Mouser 주문 키는 레거시 xpse yaml 에서 `.env` 로 승계(미커밋).
 
-**후속(범위 밖)**: **3차 물류** = 선적 그룹 모델(D13, 발주 스키마에 선적 참조 금지가
-유일한 선행 제약 — sp_bom_po 는 이를 준수).
+### 6.4 3차 물류 — D21 (2026-07-30 확정, 사용자 결정 4건 반영)
+
+| # | 결정 | 근거 |
+|---|------|------|
+| D21-1 | **경량 선적 모델로 시작**: `sp_bom_shipment` 별도 테이블, 1차는 발주서당 1건(poId UNIQUE) | 사용자: "지금은 발주서 단위, 나중에 부분 입고·발송 가능한지 검토" — **확장 경로 검증됨**: D13(발주 스키마에 선적 참조 금지) 덕에 ①부분 입고 = poId UNIQUE 해제 + 발주 행 배정(레거시 ship_qty 방식)으로 발주서 무변경 확장 ②선적 그룹 = shipmentGroupId 추가(레거시 동일) ③부분 고객 발송 = 영카트 주문이 1건이라 자체 배송 문서 신설이 필요(가장 큰 확장 — 그때 결정) |
+| D21-2 | 검수(⑩) = **[입고 확인] + 편차 메모**(receivedAt·receivedNote) — 행별 수량 대사는 안 함 | 실무 부담 최소 |
+| D21-3 | 고객 배송(⑪)·완료(⑫) = **영카트 재사용** — 주문·결제 화면에 [배송 처리(송장)]·[완료] 추가(기존 전이 API·알림), 상태는 od 파생 | 추가 모델 없음, 고객은 주문내역 조회 |
+| D21-4 | 해외 구간 = **국제 6단계 풀 추적**(레거시 명칭 승계: 선적 준비→선적 요청→선적→국내도착→통관→완료), 국내 3단계(배송준비→배송중→배송완료). 모드는 생성 시 박제(협력사 국가로 기본값 제안) | 사용자 선택(권장 2이벤트 대신 풀 추적) |
+| D21-5 | 상태는 영문 코드 사전 + 한글 라벨(D10 관례 — 레거시 한글 리터럴 승계 안 함) | preparing→requested→shipped→arrived→customs→done / preparing→shipping→delivered |
+| D21-6 | 협력사 포털에 **[발송 처리]**(carrier·송장 입력 — 선적 생성·발송 단계 진입)만 1차 제공, 중간 단계 전이·입고 확인은 관리자 | 송장의 원 주인은 협력사 — 최소로 열고 나머지는 후속 |
+| D21-7 | 타임라인: ⑨ 선적 = 선적 존재, ⑩ 검수 = 전 발주 입고 확인, ⑪ 배송 = od '배송', ⑫ 완료 = od '완료' — 전부 파생. 별도 "입고·배송" 메뉴는 물량 생기면 후속(1차는 Case 상세+주문·결제로 커버) | 파생 표시 원칙 유지 |
+
+**후속(범위 밖)**: 부분 입고·선적 그룹·부분 고객 발송(D21-1 확장 경로), 협력사 포털
+중간 단계 전이(→ **D22 로 구현됨**, §6.5), 상업송장 생성기(레거시 invoice_data).
+
+**✅ 구현 완료 (2026-07-30)**
+
+- 모델: `sp_bom_shipment`(poId UNIQUE·quoteId 인덱스, mode/status/carrier/trackingNumber/
+  trackingUrl/shippedAt/receivedAt/receivedNote/completedAt) — migration `20260730180000`.
+- 계약(bom-po.ts): 모드·상태 사전(INTL 6/DOMESTIC 3, 국내 preparing 라벨='배송준비'),
+  `BomShipmentView`, 관리자 upsert/receive body, 포털 `PartnerPoShipBody`;
+  `AdminBomPoView.shipment`·`PartnerPoDetail.shipment`(pick)·quote/orders 요약에 `poReceivedCount`.
+- 서버(lib/bom-po.ts): `upsertShipment`(mode 생성 시 박제 — 기존>요청>국가 기본값(KR=국내),
+  상태 모드 정합 409 INVALID_STATUS, shippedAt 최초 발송 진입 박제·completedAt 최종 단계
+  이탈 시 해제), `receiveShipment`(선적 없어도 생성 — 시스템 밖 수령, 최종 단계 마감+
+  receivedAt+편차 메모), `partnerShipPo`(소유 검증 → 발송 단계 진입).
+  라우트: 관리자 `PUT …/pos/:poId/shipment`·`POST …/shipment/receive`, 포털 `POST /partner/pos/:poId/ship`.
+- 화면: Case 상세 발주 패널에 "선적·입고" 열+[선적 관리] 모달(모드 잠금 표시·입고 확인 섹션),
+  포털 발주 상세에 발송 정보+발송 처리 폼, 주문·결제에 [배송 처리(송장 다이얼로그·미입고 경고)]
+  ·[구매확정]·Case 칩 "입고 완료 / 입고 n/m" 배지. 타임라인 ⑨~⑫ 파생(`smartbomStepOf` derived).
+- **D21-3 구현 정정**: 고객 배송·완료 전이는 일괄 전이 API가 아니라 **임의 상태 변경
+  (`PATCH /orders/:odId/force-status`)** 사용 — 주문 전이가 PCB 제작 7단계 선형 체인
+  (준비→가격확인→…→생산완료→배송)으로 강제되어 있어 부품 주문은 제작 단계를 밟지 않고
+  배송으로 직행해야 하기 때문(운송장 반영·재고 앵커는 force-status 가 코어 정상 분기 그대로
+  수행). 이 경로는 코어 관례상 **알림 미발송** — 다이얼로그에 명시, 배송 안내가 필요하면
+  통합 주문내역(선형 전이+알림 브리지)에서.
+- 검증: contract/api/web typecheck·lint green, vitest 557 green, E2E 18케이스 ALL PASS
+  (기본 모드·모드 정합 409·mode 박제·shippedAt 유지·completedAt 해제·포털 발송·소유권 404·
+  입고 확인(메모/선적 無 생성)·목록 poReceivedCount 집계·bom-orders 케이스 집계·
+  force-status 배송(송장 g5 박제)·완료·주문 축 반영).
+
+### 6.5 선적 핑퐁 워크플로우 — D22 (2026-07-31 확정·구현, 레거시 절차 승계)
+
+사용자 결정: "레거시했던 절차대로" + 4건(핑퐁 알림=메일 추가 / 관리자 수신처=영카트
+운영자 메일(de_admin_info_email) 승격 / 상업송장 생성기=후속 분리 / 협력사 참여 범위=
+레거시 그대로). 레거시 실측 정본: sp-smartbom-web `Shipment.types.ts`(fieldsForTransition·
+actorForStatus)·`ShipmentPanel.vue`·doc/shipment*.md.
+
+| # | 결정 | 근거 |
+|---|------|------|
+| D22-1 | **단계별 진입 주체 승계**(actorForStatus 미러): 국제 — 선적요청=협력사(출고예정일+Invoice 필수)·선적=관리자(AWB+송장)·국내도착=협력사(클릭만)·통관/완료=관리자 / 국내 — 배송중=협력사(택배사+송장 필수)·배송완료=관리자. 사전은 api-contract `BOM_SHIPMENT_ACTORS`+`bomShipmentNextStatus/PrevStatus/ActorOf/StatusLabel`(서버·프론트 공용) | 레거시 절차 그대로 |
+| D22-2 | **서버 인가 신설**(레거시 취약점 교정 — 레거시는 프론트만 검증, 자기 doc에 "우회 취약점" 명기): 협력사 advance=다음 단계 주체 PARTNER 검증+단계별 필수(MISSING_SHIP_DATE/MISSING_INVOICE_FILE/MISSING_TRACKING), revert=현 단계 진입 주체 PARTNER(직전에 자기가 진행)만 1단계(입력값·첨부 유지). 관리자는 upsert 로 전 단계 임의 조작 유지(레거시도 사실상 동일) — AWB 필수는 관리자에겐 모달 경고로만 | 절차는 승계, 결함은 교정 |
+| D22-3 | **첨부 = 기존 sp_file 폴리모픽 재사용**: refType='sp_bom_shipment'·fileType invoice/airwaybill(국내 라벨: 거래명세서/송장내역)·uploadedBy ADMIN/PARTNER(예약 컬럼 첫 사용)·종류별 1건(재업로드=교체, 새 실파일 성공 후 구 파일 정리)·파일서버 serviceType 'bom_shipment'(env BOM_SHIPMENT_FILE_SERVICE_TYPE, 레거시 버킷명 승계). 다운로드=권한 프록시 스트림(관리자·소유 협력사만 — 레거시 익명 pathToken 노출 교정) | 인프라 관례 재사용 |
+| D22-4 | **알림 메일 양방향 신설**(레거시엔 없음 — 폴링 배지뿐이라 멈춤): 협력사 전이→관리자(de_admin_info_email, Case CTA), 관리자 전이로 협력사 차례 도래→협력사(contactEmail, 포털 CTA), 입고 확인→협력사 통지(편차 메모 동봉). rfq-email.ts 셸 재사용, 비차단 | 핑퐁은 상대가 알아야 흐른다 |
+| D22-5 | Case ID 미승계(선적이 Case 강결합이라 구조적 불필요), 상업송장 생성기(자동 초안+PDF/엑셀)·파일 교체 이력·국내 거점주소 안내는 후속 | 범위 통제 |
+| D22-6 | sp_bom_shipment += `shipDate`(출고예정일, UTC 자정 저장 — KST 자정 저장 시 ISO 직렬화에서 하루 밀리는 함정 실측) — migration `20260731090000` | 최소 스키마 |
+
+**✅ 구현 완료 (2026-07-31)**: 계약(ACTORS 사전·헬퍼·파일 메타·advance body·뷰 확장) /
+서버 lib(advance/revert/ensure/파일 save·delete·download·배치 로드) / 라우트(포털
+advance·revert·files 3종 + 관리자 files 3종·PUT 알림·receive 통지) / 프론트(포털 상세 =
+선적 진행 카드: 스텝 바·내 차례 폼·첨부·되돌리기, 관리자 모달 += 출고예정일·서류 섹션·AWB
+경고). 구 `POST /partner/pos/:poId/ship` 은 advance 로 대체(제거). 검증: typecheck·lint·
+vitest 557 green, D22 E2E 25케이스 ALL PASS(필수 게이트 2·실 파일서버 업로드/다운로드/
+권한 404/삭제·Mailpit 실메일 3종·되돌리기 주체 규칙·국내 흐름), D21 E2E 재정렬 후 회귀 green.
+
+**D22 후속 개선(같은 날) — 관리자 인지 장치 + 모달 핑퐁 위계**: ①메뉴 배지 — 진행현황
+메뉴에 "관리자 차례 선적 수"(counts.shipmentPending, badge 소스 `bomShipmentPending` —
+D19 입금 대기 배지와 같은 다중 소스 구조) ②Case 목록 행 "선적 처리 필요" 칩
+(summary.shipmentAdminPending) — 판정=`isShipmentAdminPending`(다음 단계 주체 ADMIN ∧
+검수 전, lib/bom-po `loadShipmentAdminPending` 전역 1스캔) ③선적 모달 — 상단에 "다음
+단계: {라벨} — 누구 차례" 안내 + 관리자 차례면 [진행] 주 버튼(선적 진입 시 AWB 부재
+confirm), 협력사 차례면 대기 안내 ④입고 확인 위계 — 도착 단계(국제 arrived·국내
+shipping) 전엔 흐림+amber 경고("시스템 밖 수령 예외용")+confirm 경고문(조기 입고 확인
+기능 자체는 D21-2 유스케이스로 보존). 배지 파생 E2E 5케이스 ALL PASS(없음/requested=
+관리자 차례/shipped=협력사 차례 제외/customs/입고 후 제외).
+
+**D22 후속 개선 2 — 협력사 인지 장치(같은 날)**: 갭 = 포털 발주 목록에 선적 정보가 없어
+"선적 요청해야 하는 발주"가 구분 안 됨 + **선적 첫 단계(선적 요청)는 협력사가 시작하는
+것이라 트리거할 관리자 전이가 없어 메일도 안 옴**. 반영: ①`PartnerPoListItem` +=
+shipmentMode/Status(문서 없으면 국가 기본 모드+preparing)·shipmentReceived·
+**shipmentMyTurn**(판정 = 발주 확인(issued 아님) ∧ 검수 전 ∧ 다음 단계 주체 PARTNER —
+관리자 배지 판정의 협력사 미러, 선적 문서 없어도 첫 전이는 협력사 몫으로 true)
+②포털 목록 — "받은 발주 (n · 처리 필요 m)" 헤더, 내 차례 행 상단 정렬+파란 테두리+
+"{다음 단계} 필요" 칩+[진행하기] 버튼, 진행 중 선적 요약("선적 {단계}"/"입고 완료")
+③발주 발행 메일에 "확인 후 선적 진행(해외는 Invoice 첨부+선적 요청)까지" 안내 한 줄
+(첫 단계 메일 갭 보완). 협력사 인지 E2E 5케이스 ALL PASS(issued=확인 우선 false/
+confirmed+문서 없음 true/shipped→국내도착 차례 true/customs false/입고 후 false).
+④Case 상세 발주 패널(BomPoPanel)에도 동일 판정 적용 — 관리자 차례 행은 상태 파란
+볼드+"{다음 단계} 처리 필요" 칩+[선적 관리] solid 버튼, 협력사 차례 행은 "협력사 차례"
+회색 힌트, 헤더에 "선적 처리 필요 k" 카운트(사용자 실화면 검수 피드백 — 목록·배지·모달만
+있고 정작 상세 패널 행에 신호가 없던 갭).
 
 ## 7. 레거시 교훈 승계 가드
 

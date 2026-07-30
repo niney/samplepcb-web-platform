@@ -5,6 +5,7 @@ import { useAuthStore } from '@sp/shared';
 import { adminModules, resolveAdminModuleKey } from '../admin/menu';
 import { useRfqCount } from '../admin/useAdminQuotes';
 import { useBomOrdersAwaitingCount } from '../admin/useAdminBomOrders';
+import { useBomShipmentPendingCount } from '../admin/useAdminBomQuotes';
 import { useTheme } from '../bom/useTheme';
 
 const auth = useAuthStore();
@@ -29,12 +30,20 @@ watch(activeModuleKey, (key) => {
 });
 
 // 메뉴 뱃지 데이터 — 관리자로 로그인했을 때만 조회.
-// rfqCount = 거버 견적 대기 수, bomOrdersAwaiting = 스마트 BOM 입금 대기 주문 수(D19).
+// rfqCount = 거버 견적 대기 수, bomOrdersAwaiting = 스마트 BOM 입금 대기 주문 수(D19),
+// bomShipmentPending = 관리자 차례 선적 수(D22 — 협력사 전이 인지).
 const isAdminUser = computed(() => auth.me?.isAdmin === true);
 const { data: rfqCount } = useRfqCount(isAdminUser);
 const { data: bomOrdersAwaiting } = useBomOrdersAwaitingCount(isAdminUser);
-const badgeValue = (badge: 'rfqCount' | 'bomOrdersAwaiting'): number | undefined =>
-  badge === 'rfqCount' ? rfqCount.value : bomOrdersAwaiting.value;
+const { data: bomShipmentPending } = useBomShipmentPendingCount(isAdminUser);
+const badgeValue = (
+  badge: 'rfqCount' | 'bomOrdersAwaiting' | 'bomShipmentPending',
+): number | undefined =>
+  badge === 'rfqCount'
+    ? rfqCount.value
+    : badge === 'bomOrdersAwaiting'
+      ? bomOrdersAwaiting.value
+      : bomShipmentPending.value;
 </script>
 
 <template>

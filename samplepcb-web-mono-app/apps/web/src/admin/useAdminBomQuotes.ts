@@ -36,6 +36,17 @@ export function useAdminBomQuote(quoteId: Ref<string | null>) {
   });
 }
 
+/** 메뉴 배지용 관리자 차례 선적 수(D22) — counts 만 필요해 최소 페이지로 조회. */
+export function useBomShipmentPendingCount(enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: ['admin', 'bom-quotes', 'shipment-pending-count'],
+    queryFn: () => apiGet(`${base}?page=1&pageSize=1`, AdminBomQuoteListResponse),
+    enabled,
+    select: (res) => res.data.counts.shipmentPending,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useAdminBomQuoteCandidates(quoteId: Ref<string | null>, itemId: Ref<string | null>) {
   return useQuery({
     queryKey: computed(() => ['admin', 'bom-quotes', 'candidates', quoteId.value, itemId.value]),

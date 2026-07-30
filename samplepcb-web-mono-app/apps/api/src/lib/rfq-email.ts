@@ -103,11 +103,114 @@ export function buildBomPoIssuedEmail(p: BomPoIssuedEmailParams): {
            style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
           파트너 포털에서 확인하기</a>
       </div>
+      <p style="margin:14px 0 0;font-size:11px;color:#8593ab;">
+        발주 확인 후 포털의 선적 진행에서 발송 처리(해외 발송은 Invoice 첨부 + 선적 요청)까지 부탁드립니다.
+      </p>
     </td></tr>
     <tr><td style="padding:12px 4px 0;font-size:11px;color:#8593ab;">
       본 메일은 샘플피씨비 스마트 BOM 발주 알림입니다.</td></tr>
   </table>
 </div>`,
+  };
+}
+
+// ── 선적 핑퐁 알림(D22) — 단계가 상대 차례로 넘어갈 때 발송(레거시엔 없던 개선) ──
+// 협력사 수신처 = sp_partner.contactEmail, 관리자 수신처 = 영카트 운영자 메일
+// (g5_shop_default.de_admin_info_email — getShopEstimateProfile().managerEmail 승격).
+
+const shipmentShell = (title: string, bodyLines: string[], ctaLabel: string, ctaUrl: string) => `
+<div style="margin:0;padding:24px 12px;background:#f5f7fb;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:0 auto;border-collapse:collapse;">
+    <tr><td style="padding:0 4px 12px;font-size:15px;font-weight:800;color:#081226;">SAMPLEPCB 스마트 BOM</td></tr>
+    <tr><td style="background:#ffffff;border:1px solid #e4eaf3;border-radius:12px;padding:24px;">
+      <div style="font-size:17px;font-weight:700;color:#14243e;padding-bottom:12px;">${title}</div>
+      ${bodyLines.map((line) => `<p style="margin:0 0 10px;font-size:13px;color:#333;line-height:1.6;">${line}</p>`).join('')}
+      <div style="padding-top:16px;">
+        <a href="${esc(ctaUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          ${ctaLabel}</a>
+      </div>
+    </td></tr>
+    <tr><td style="padding:12px 4px 0;font-size:11px;color:#8593ab;">
+      본 메일은 샘플피씨비 스마트 BOM 물류 알림입니다.</td></tr>
+  </table>
+</div>`;
+
+export interface ShipmentTurnAdminEmailParams {
+  quoteId: string;
+  quoteTitle: string;
+  partnerName: string;
+  statusLabel: string; // 협력사가 진입시킨 단계 라벨
+}
+
+/** 협력사 전이 → 관리자 알림(다음 차례가 관리자). */
+export function buildShipmentTurnAdminEmail(p: ShipmentTurnAdminEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const caseUrl = `${WEB_BASE_URL}/app/admin/smartbom/cases/${p.quoteId}`;
+  return {
+    subject: `[샘플피씨비] 선적 진행 — ${p.quoteTitle} · ${p.partnerName} → ${p.statusLabel}`,
+    html: shipmentShell(
+      `선적이 '${esc(p.statusLabel)}' 단계로 진행되었습니다`,
+      [
+        `${esc(p.partnerName)} 협력사가 <b>${esc(p.quoteTitle)}</b> 발주 건의 선적을 '${esc(p.statusLabel)}' 단계로 진행했습니다.`,
+        `다음 단계 처리는 샘플피씨비 차례입니다 — Case 상세의 [선적 관리]에서 진행해 주세요.`,
+      ],
+      'Case 상세 열기',
+      caseUrl,
+    ),
+  };
+}
+
+export interface ShipmentTurnPartnerEmailParams {
+  partnerName: string;
+  quoteTitle: string;
+  statusLabel: string; // 현재(관리자가 진입시킨) 단계 라벨
+  nextLabel: string; // 협력사에게 요청하는 다음 단계 라벨
+}
+
+/** 관리자 전이 → 협력사 알림(다음 차례가 협력사). */
+export function buildShipmentTurnPartnerEmail(p: ShipmentTurnPartnerEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const portalUrl = `${WEB_BASE_URL}/app/partner`;
+  return {
+    subject: `[샘플피씨비] 선적 진행 요청 — ${p.quoteTitle} · ${p.nextLabel}`,
+    html: shipmentShell(
+      `'${esc(p.nextLabel)}' 처리를 부탁드립니다`,
+      [
+        `${esc(p.partnerName)} 담당자님, <b>${esc(p.quoteTitle)}</b> 발주 건의 선적이 '${esc(p.statusLabel)}' 단계가 되었습니다.`,
+        `다음 단계인 '${esc(p.nextLabel)}' 처리를 파트너 포털에서 진행해 주세요.`,
+      ],
+      '파트너 포털 열기',
+      portalUrl,
+    ),
+  };
+}
+
+export interface ShipmentReceivedEmailParams {
+  partnerName: string;
+  quoteTitle: string;
+  note: string | null; // 편차 메모 — 있으면 재발송 협의 근거로 전달
+}
+
+/** 입고 확인(검수) → 협력사 통지. */
+export function buildShipmentReceivedEmail(p: ShipmentReceivedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const portalUrl = `${WEB_BASE_URL}/app/partner`;
+  const lines = [
+    `${esc(p.partnerName)} 담당자님, <b>${esc(p.quoteTitle)}</b> 발주 건의 물품 입고 확인(검수)이 완료되었습니다.`,
+  ];
+  if (p.note !== null && p.note.trim() !== '') {
+    lines.push(`검수 메모: <b>${esc(p.note)}</b> — 확인 후 회신 부탁드립니다.`);
+  }
+  return {
+    subject: `[샘플피씨비] 입고 확인 — ${p.quoteTitle}`,
+    html: shipmentShell('입고 확인이 완료되었습니다', lines, '파트너 포털 열기', portalUrl),
   };
 }
 

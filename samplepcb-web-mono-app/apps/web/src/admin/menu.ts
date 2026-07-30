@@ -7,7 +7,7 @@ import type { RouteLocationRaw } from 'vue-router';
 export interface AdminMenuItem {
   to: RouteLocationRaw;
   labelKey: string;
-  badge?: 'rfqCount' | 'bomOrdersAwaiting';
+  badge?: 'rfqCount' | 'bomOrdersAwaiting' | 'bomShipmentPending';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -54,6 +54,8 @@ const smartbomMenu: AdminMenuItem[] = [
     to: { name: 'admin-smartbom' },
     labelKey: 'admin.menu.smartbomCases',
     activeRouteNames: ['admin-smartbom-case'],
+    // 관리자 차례 선적 수(D22) — 협력사 전이 후 메일을 놓쳐도 화면에서 인지
+    badge: 'bomShipmentPending',
   },
   // 주문 축 워크큐(D19) — 입금 대기 수 배지
   {

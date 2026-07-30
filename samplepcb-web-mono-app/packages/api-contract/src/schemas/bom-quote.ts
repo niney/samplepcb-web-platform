@@ -1069,6 +1069,10 @@ export const AdminBomQuoteSummary = BomQuoteSummary.extend({
   mbId: z.string(),
   /** 발주서 수(D18) — 진행현황의 "발주 전" 표시·타임라인 ⑧ 판정용 파생. */
   poCount: z.number().int(),
+  /** 입고 확인된 발주서 수(D21) — 타임라인 ⑩(검수) 판정용 파생. */
+  poReceivedCount: z.number().int(),
+  /** 선적 중 다음 단계가 관리자 차례인 건 존재(D22) — 목록 "선적 처리 필요" 칩. */
+  shipmentAdminPending: z.boolean(),
 });
 export type AdminBomQuoteSummaryType = z.infer<typeof AdminBomQuoteSummary>;
 
@@ -1102,6 +1106,8 @@ export const AdminBomQuoteCounts = z.object({
   answered: z.number().int(),
   closed: z.number().int(),
   canceled: z.number().int(),
+  /** 관리자 차례 선적 수(D22, 전역 — 필터 미반영) — 메뉴 배지 소스. */
+  shipmentPending: z.number().int(),
 });
 export type AdminBomQuoteCountsType = z.infer<typeof AdminBomQuoteCounts>;
 

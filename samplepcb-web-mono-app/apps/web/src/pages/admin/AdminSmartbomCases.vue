@@ -52,9 +52,15 @@ function openCase(id: string): void {
   void router.push({ name: 'admin-smartbom-case', params: { id } });
 }
 
-// 행 단계 — 주문(⑥)·발주(⑧) 파생 반영. ⑦(결제)은 od 헤더가 필요해 Case 상세에서만 정확.
+// 행 단계 — 주문(⑥)·발주(⑧)·검수(⑩) 파생 반영. ⑦결제·⑨선적·⑪⑫는 od/선적 상세가
+// 필요해 Case 상세에서만 정확(목록은 아는 만큼만 계산 — SmartbomDerived 선택 입력).
 type CaseRow = (typeof rows.value)[number];
-const stepOf = (q: CaseRow): number => smartbomStepOf(q.status, q.orderState, false, q.poCount > 0);
+const stepOf = (q: CaseRow): number =>
+  smartbomStepOf(q.status, {
+    orderState: q.orderState,
+    poCount: q.poCount,
+    poReceivedCount: q.poReceivedCount,
+  });
 
 // 인라인 다음 액션 — requested 는 목록에서 바로 검토 시작(시안 채택), 이후엔 Case 진입.
 const startError = ref('');
@@ -161,6 +167,14 @@ async function startReview(id: string): Promise<void> {
             <td class="px-4 py-2.5">
               <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="SMARTBOM_STATUS_META[q.status].cls">
                 {{ SMARTBOM_STATUS_META[q.status].label }}
+              </span>
+              <!-- 협력사가 선적 단계를 넘겨 관리자 처리 차례인 건(D22) — 메일 놓쳐도 보이게 -->
+              <span
+                v-if="q.shipmentAdminPending"
+                class="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700"
+                title="협력사가 선적 단계를 진행했습니다 — Case 상세 [선적 관리]에서 다음 단계를 처리해 주세요"
+              >
+                선적 처리 필요
               </span>
               <!-- 회신은 됐지만 확정가가 없어 고객 주문이 잠긴 건 — 워크큐에서 바로 보이게 -->
               <span

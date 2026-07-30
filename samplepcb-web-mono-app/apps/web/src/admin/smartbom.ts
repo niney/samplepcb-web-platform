@@ -20,19 +20,36 @@ export const SMARTBOM_STEPS = [
   '완료',
 ] as const;
 
+/** 파생 입력 — 전부 선택적: 모르는 값은 생략하면 그 단계까지만 계산된다(목록 vs 상세).
+ * `| undefined` 명시는 exactOptionalPropertyTypes 에서 `a ?? undefined` 전달을 허용하기 위함. */
+export interface SmartbomDerived {
+  orderState?: 'none' | 'cart' | 'ordered' | undefined;
+  isPaid?: boolean | undefined;
+  poCount?: number | undefined;
+  poReceivedCount?: number | undefined;
+  /** 선적 문서 1건 이상 존재(⑨). */
+  hasShipment?: boolean | undefined;
+  /** 영카트 od_status 원문('배송'|'완료' 만 해석 — ⑪⑫). */
+  odStatus?: string | undefined;
+}
+
 /**
- * 현재 단계(1-base). 0 = 미진입(draft). ③④(RFQ)는 RFQ 집계, ⑥주문·⑦결제·⑧발주는
- * 주문(orderState·isPaid)·발주(hasPo) 파생으로 세분화한다 — 전부 파생 표시(저장 상태 아님).
+ * 현재 단계(1-base). 0 = 미진입(draft). ③④(RFQ)·⑥~⑫ 전부 파생 표시(저장 상태 아님):
+ * ⑥주문 ⑦결제 ⑧발주 ⑨선적 ⑩검수(전 발주 입고) ⑪배송(od) ⑫완료(od).
  */
 export const smartbomStepOf = (
   status: BomQuoteStatusType,
-  orderState: 'none' | 'cart' | 'ordered' = 'none',
-  isPaid = false,
-  hasPo = false,
+  derived: SmartbomDerived = {},
 ): number => {
-  if (orderState === 'ordered') {
-    if (hasPo) return 8;
-    return isPaid ? 7 : 6;
+  if (derived.orderState === 'ordered') {
+    if (derived.odStatus === '완료') return 12;
+    if (derived.odStatus === '배송') return 11;
+    const poCount = derived.poCount ?? 0;
+    if (poCount > 0 && (derived.poReceivedCount ?? 0) >= poCount) return 10;
+    if (derived.hasShipment === true) return 9;
+    if (poCount > 0) return 8;
+    if (derived.isPaid === true) return 7;
+    return 6;
   }
   switch (status) {
     case 'requested':

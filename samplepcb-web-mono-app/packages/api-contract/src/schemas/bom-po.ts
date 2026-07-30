@@ -46,6 +46,174 @@ export const BomPoExternalRef = z.object({
 });
 export type BomPoExternalRefType = z.infer<typeof BomPoExternalRef>;
 
+// ── 선적(D21) — 경량 모델: 1차는 발주서당 1건 ───────────────────────────────
+// 모드는 생성 시 박제. 상태는 영문 코드 + 한글 라벨(D21-5 — 레거시 한글 리터럴 승계 안 함).
+
+export const BOM_SHIPMENT_MODES = ['international', 'domestic'] as const;
+export type BomShipmentModeType = (typeof BOM_SHIPMENT_MODES)[number];
+export const BomShipmentMode = z.enum(BOM_SHIPMENT_MODES);
+
+export const BOM_SHIPMENT_MODE_LABELS = {
+  international: '국제',
+  domestic: '국내',
+} as const satisfies Record<BomShipmentModeType, string>;
+
+// 국제 6단계(레거시 명칭 승계) / 국내 3단계.
+export const BOM_SHIPMENT_INTL_STATUSES = [
+  'preparing',
+  'requested',
+  'shipped',
+  'arrived',
+  'customs',
+  'done',
+] as const;
+export const BOM_SHIPMENT_DOMESTIC_STATUSES = ['preparing', 'shipping', 'delivered'] as const;
+export const BomShipmentStatus = z.enum([
+  ...BOM_SHIPMENT_INTL_STATUSES,
+  ...BOM_SHIPMENT_DOMESTIC_STATUSES,
+]);
+export type BomShipmentStatusType = z.infer<typeof BomShipmentStatus>;
+
+export const BOM_SHIPMENT_STATUS_LABELS = {
+  preparing: '선적 준비',
+  requested: '선적 요청',
+  shipped: '선적',
+  arrived: '국내도착',
+  customs: '통관',
+  done: '완료',
+  shipping: '배송중',
+  delivered: '배송완료',
+} as const satisfies Record<BomShipmentStatusType, string>;
+
+/** domestic 모드의 preparing 라벨은 '배송준비'(레거시 국내 3단계) — 표시 시 모드로 분기. */
+export const BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL = '배송준비';
+
+// ── 핑퐁 전이(D22 — 레거시 절차 승계) ───────────────────────────────────────
+// "해당 상태로 진입시키는 주체" 사전(레거시 actorForStatus 미러). 협력사는 자기 차례
+// 전이만(서버 인가 — 레거시는 프론트만 검증한 취약점 교정), 관리자는 전 단계 임의 조작.
+
+export type BomShipmentActorType = 'ADMIN' | 'PARTNER';
+
+export const BOM_SHIPMENT_ACTORS: Record<
+  BomShipmentModeType,
+  Partial<Record<BomShipmentStatusType, BomShipmentActorType>>
+> = {
+  // 협력사: 선적 요청(출고예정일+인보이스)·국내도착 확인 / 관리자: 선적(AWB)·통관·완료
+  international: {
+    requested: 'PARTNER',
+    shipped: 'ADMIN',
+    arrived: 'PARTNER',
+    customs: 'ADMIN',
+    done: 'ADMIN',
+  },
+  // 협력사: 배송중(택배사+송장) / 관리자: 배송완료(수령확인)
+  domestic: { shipping: 'PARTNER', delivered: 'ADMIN' },
+};
+
+export const bomShipmentStatusesOf = (
+  mode: BomShipmentModeType,
+): readonly BomShipmentStatusType[] =>
+  mode === 'domestic' ? BOM_SHIPMENT_DOMESTIC_STATUSES : BOM_SHIPMENT_INTL_STATUSES;
+
+export const bomShipmentNextStatus = (
+  mode: BomShipmentModeType,
+  current: BomShipmentStatusType,
+): BomShipmentStatusType | null => {
+  const chain = bomShipmentStatusesOf(mode);
+  const idx = chain.indexOf(current);
+  return idx >= 0 && idx < chain.length - 1 ? (chain[idx + 1] ?? null) : null;
+};
+
+export const bomShipmentPrevStatus = (
+  mode: BomShipmentModeType,
+  current: BomShipmentStatusType,
+): BomShipmentStatusType | null => {
+  const chain = bomShipmentStatusesOf(mode);
+  const idx = chain.indexOf(current);
+  return idx > 0 ? (chain[idx - 1] ?? null) : null;
+};
+
+export const bomShipmentActorOf = (
+  mode: BomShipmentModeType,
+  status: BomShipmentStatusType,
+): BomShipmentActorType | null => BOM_SHIPMENT_ACTORS[mode][status] ?? null;
+
+/** 모드 반영 상태 라벨(국내 preparing='배송준비' 분기 포함) — 화면·메일 공용. */
+export const bomShipmentStatusLabel = (
+  mode: BomShipmentModeType,
+  status: BomShipmentStatusType,
+): string =>
+  mode === 'domestic' && status === 'preparing'
+    ? BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL
+    : BOM_SHIPMENT_STATUS_LABELS[status];
+
+// ── 선적 첨부(D22) — sp_file(refType 'sp_bom_shipment'), 종류별 1건(재업로드=교체) ──
+
+export const BOM_SHIPMENT_FILE_TYPES = ['invoice', 'airwaybill'] as const;
+export type BomShipmentFileTypeType = (typeof BOM_SHIPMENT_FILE_TYPES)[number];
+export const BomShipmentFileType = z.enum(BOM_SHIPMENT_FILE_TYPES);
+
+/** 국제 라벨. 국내 모드는 레거시 라벨(거래명세서/송장내역)로 분기. */
+export const BOM_SHIPMENT_FILE_LABELS = {
+  invoice: 'Invoice',
+  airwaybill: 'AWB',
+} as const satisfies Record<BomShipmentFileTypeType, string>;
+export const BOM_SHIPMENT_FILE_DOMESTIC_LABELS = {
+  invoice: '거래명세서',
+  airwaybill: '송장내역',
+} as const satisfies Record<BomShipmentFileTypeType, string>;
+
+export const BomShipmentFileMeta = z.object({
+  fileId: z.number(),
+  fileType: BomShipmentFileType,
+  name: z.string(), // 원본 파일명
+  size: z.number(),
+  uploadedBy: z.enum(['ADMIN', 'PARTNER']).nullable(),
+});
+export type BomShipmentFileMetaType = z.infer<typeof BomShipmentFileMeta>;
+
+export const BomShipmentView = z.object({
+  shipmentId: z.number(),
+  mode: BomShipmentMode,
+  status: BomShipmentStatus,
+  carrier: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  trackingUrl: z.string().nullable(),
+  shipDate: z.string().nullable(), // 출고예정일(협력사 '선적 요청' 입력, D22)
+  shippedAt: z.string().nullable(),
+  receivedAt: z.string().nullable(), // 입고 확인(검수 ⑩)
+  receivedNote: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  files: z.array(BomShipmentFileMeta),
+});
+export type BomShipmentViewType = z.infer<typeof BomShipmentView>;
+
+// 관리자 등록/수정 — mode 는 생성 시에만 반영(이후 무시), status 모드 정합은 서버 검증.
+export const AdminBomShipmentUpsertBody = z.object({
+  mode: BomShipmentMode.optional(),
+  status: BomShipmentStatus.optional(),
+  carrier: z.string().trim().max(50).nullish(),
+  trackingNumber: z.string().trim().max(100).nullish(),
+  trackingUrl: z.string().trim().max(500).nullish(),
+  shipDate: z.string().trim().max(10).nullish(), // 'YYYY-MM-DD'
+});
+export type AdminBomShipmentUpsertBodyType = z.infer<typeof AdminBomShipmentUpsertBody>;
+
+export const AdminBomShipmentReceiveBody = z.object({
+  note: z.string().trim().max(2000).nullish(), // 편차 메모(수량 부족·불량)
+});
+export type AdminBomShipmentReceiveBodyType = z.infer<typeof AdminBomShipmentReceiveBody>;
+
+// 협력사 포털 [다음 단계 진행](D22) — 자기 차례 전이만. 단계별 필수는 서버 검증:
+// requested=출고예정일+Invoice 첨부 / shipping=택배사+송장번호. 나머지 전이는 입력 없음.
+export const PartnerShipmentAdvanceBody = z.object({
+  shipDate: z.string().trim().max(10).nullish(), // 'YYYY-MM-DD'
+  carrier: z.string().trim().max(50).nullish(),
+  trackingNumber: z.string().trim().max(100).nullish(),
+  trackingUrl: z.string().trim().max(500).nullish(),
+});
+export type PartnerShipmentAdvanceBodyType = z.infer<typeof PartnerShipmentAdvanceBody>;
+
 // ── 관리자 (/api/admin/bom-quotes/:id/pos) ──────────────────────────────────
 
 export const AdminBomPoView = z.object({
@@ -60,6 +228,8 @@ export const AdminBomPoView = z.object({
   memo: z.string().nullable(),
   /** 외부 실행 결과(D20) — 자동화 대상 공급사 발주에만. */
   externalRef: BomPoExternalRef.nullable(),
+  /** 선적(D21) — 발주서당 1건, 없으면 null. */
+  shipment: BomShipmentView.nullable(),
   itemCount: z.number().int(),
   issuedAt: z.string(),
   confirmedAt: z.string().nullable(),
@@ -109,6 +279,13 @@ export const PartnerPoListItem = z.object({
   itemCount: z.number().int(),
   issuedAt: z.string(),
   confirmedAt: z.string().nullable(),
+  /** 선적 모드·상태(D22) — 문서가 없으면 국가 기본 모드 + 'preparing'(표시 동일). */
+  shipmentMode: BomShipmentMode,
+  shipmentStatus: BomShipmentStatus,
+  /** 입고 확인(검수) 완료 여부. */
+  shipmentReceived: z.boolean(),
+  /** 다음 선적 단계가 협력사 차례(D22) — 발주 확인(issued) 전·검수 후는 false. */
+  shipmentMyTurn: z.boolean(),
 });
 export type PartnerPoListItemType = z.infer<typeof PartnerPoListItem>;
 
@@ -127,6 +304,19 @@ export const PartnerPoDetail = z.object({
   memo: z.string().nullable(),
   issuedAt: z.string(),
   confirmedAt: z.string().nullable(),
+  /** 선적(D21·D22) — 핑퐁 진행에 필요한 전부(입고 확인·편차 메모 포함 — 재발송 협의 근거). */
+  shipment: BomShipmentView.pick({
+    mode: true,
+    status: true,
+    carrier: true,
+    trackingNumber: true,
+    trackingUrl: true,
+    shipDate: true,
+    shippedAt: true,
+    receivedAt: true,
+    receivedNote: true,
+    files: true,
+  }).nullable(),
   items: z.array(BomPoItemView),
 });
 export type PartnerPoDetailType = z.infer<typeof PartnerPoDetail>;

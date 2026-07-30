@@ -5,16 +5,35 @@ import {
   AdminBomPoCreateResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
+  AdminBomShipmentReceiveBody,
+  AdminBomShipmentUpsertBody,
   ApiError,
+  BomShipmentFileType,
+  bomShipmentActorOf,
+  bomShipmentNextStatus,
+  bomShipmentStatusLabel,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
   EXTERNAL_AUTOMATED_SUPPLIERS,
+  asShipmentMode,
+  asShipmentStatus,
   createBomPos,
+  deleteShipmentFile,
   executeExternalPo,
+  getShipmentFileDownload,
   loadAdminPos,
+  receiveShipment,
+  saveShipmentFile,
+  upsertShipment,
 } from '../lib/bom-po';
-import { buildBomPoIssuedEmail, sendBomRfqMail } from '../lib/rfq-email';
+import { collectMultipart } from '../lib/market';
+import {
+  buildBomPoIssuedEmail,
+  buildShipmentReceivedEmail,
+  buildShipmentTurnPartnerEmail,
+  sendBomRfqMail,
+} from '../lib/rfq-email';
 
 // ── /api/admin/bom-quotes/:id/pos — 협력사 발주서(D18) ───────────────────────
 // 생성은 all-or-nothing(신중 액션): 결제 확인(od isPaid) 게이트 + 대상 행 재집계·박제.
@@ -23,6 +42,11 @@ import { buildBomPoIssuedEmail, sendBomRfqMail } from '../lib/rfq-email';
 
 const IdParams = z.object({ id: z.coerce.bigint() });
 const PoParams = z.object({ id: z.coerce.bigint(), poId: z.coerce.bigint() });
+const PoFileParams = z.object({
+  id: z.coerce.bigint(),
+  poId: z.coerce.bigint(),
+  fileId: z.coerce.bigint(),
+});
 
 const CREATE_ERROR_MESSAGE: Record<string, string> = {
   QUOTE_NOT_FOUND: '견적을 찾을 수 없습니다.',
@@ -155,6 +179,174 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         });
       }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  // ── PUT — 선적 등록/수정(D21) — mode 는 생성 시 박제, 상태 모드 정합은 서버 검증 ──
+  // 상태가 실제로 바뀌고 다음 단계 주체가 협력사면 알림 메일(D22 핑퐁 — 상대 차례 통지).
+  fastify.put(
+    '/bom-quotes/:id/pos/:poId/shipment',
+    {
+      schema: {
+        params: PoParams,
+        body: AdminBomShipmentUpsertBody,
+        response: { 200: AdminBomPoMutationResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: { shipment: true, partner: true, quote: { select: { title: true } } },
+      });
+      if (po?.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const prevStatus = po.shipment?.status ?? null;
+      const result = await upsertShipment(po.id, request.body);
+      if (!result.ok) {
+        return reply.status(409).send({
+          error: result.error,
+          message:
+            result.error === 'INVALID_STATUS'
+              ? '선적 모드에 맞지 않는 상태입니다.'
+              : '발주서를 찾을 수 없습니다.',
+        });
+      }
+      const fresh = await prisma.spBomShipment.findUnique({ where: { poId: po.id } });
+      if (fresh !== null && fresh.status !== prevStatus) {
+        const mode = asShipmentMode(fresh.mode);
+        const status = asShipmentStatus(mode, fresh.status);
+        const next = bomShipmentNextStatus(mode, status);
+        if (next !== null && bomShipmentActorOf(mode, next) === 'PARTNER') {
+          void sendBomRfqMail(
+            request.log,
+            po.partner.contactEmail,
+            buildShipmentTurnPartnerEmail({
+              partnerName: po.partner.name,
+              quoteTitle: po.quote.title,
+              statusLabel: bomShipmentStatusLabel(mode, status),
+              nextLabel: bomShipmentStatusLabel(mode, next),
+            }),
+          );
+        }
+      }
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  // ── POST — 입고 확인(검수 ⑩, D21-2) — 선적 없이도 가능, 편차 메모 기록 ──────
+  // 확인 후 협력사 통지(D22) — 편차 메모가 있으면 재발송 협의 근거로 함께 보낸다.
+  fastify.post(
+    '/bom-quotes/:id/pos/:poId/shipment/receive',
+    {
+      schema: {
+        params: PoParams,
+        body: AdminBomShipmentReceiveBody,
+        response: { 200: AdminBomPoMutationResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: { partner: true, quote: { select: { title: true } } },
+      });
+      if (po?.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const result = await receiveShipment(po.id, request.body.note ?? null);
+      if (!result.ok) {
+        return reply
+          .status(409)
+          .send({ error: result.error, message: '입고 확인에 실패했습니다.' });
+      }
+      if (po.partner.type === 'partner') {
+        void sendBomRfqMail(
+          request.log,
+          po.partner.contactEmail,
+          buildShipmentReceivedEmail({
+            partnerName: po.partner.name,
+            quoteTitle: po.quote.title,
+            note: request.body.note ?? null,
+          }),
+        );
+      }
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  // ── 선적 첨부(D22) — 업로드(종류별 1건, 재업로드=교체)·삭제·다운로드 ─────────
+  fastify.post(
+    '/bom-quotes/:id/pos/:poId/shipment/files',
+    { schema: { params: PoParams, response: { 200: AdminBomPoMutationResponse, 400: ApiError } } },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: { shipment: true, partner: true },
+      });
+      if (po?.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const { files, fields } = await collectMultipart(request);
+      const kind = BomShipmentFileType.safeParse(fields.fileType);
+      const file = files[0];
+      if (!kind.success || file === undefined) {
+        return reply
+          .status(400)
+          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.' });
+      }
+      // 선적 문서가 없으면 preparing 으로 생성해 파일부터 받는다(협력사 흐름과 동일).
+      const shipment =
+        po.shipment ??
+        (await prisma.spBomShipment.create({
+          data: {
+            poId: po.id,
+            quoteId: po.quoteId,
+            mode: po.partner.country === 'KR' ? 'domestic' : 'international',
+            status: 'preparing',
+          },
+        }));
+      await saveShipmentFile(shipment.id, kind.data, file, 'ADMIN');
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  fastify.delete(
+    '/bom-quotes/:id/pos/:poId/shipment/files/:fileId',
+    { schema: { params: PoFileParams, response: { 200: AdminBomPoMutationResponse } } },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: { shipment: true },
+      });
+      if (po?.quoteId !== request.params.id || po.shipment === null) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const removed = await deleteShipmentFile(po.shipment.id, request.params.fileId);
+      if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  fastify.get(
+    '/bom-quotes/:id/pos/:poId/shipment/files/:fileId',
+    { schema: { params: PoFileParams } },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: { shipment: true },
+      });
+      if (po?.quoteId !== request.params.id || po.shipment === null) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const file = await getShipmentFileDownload(po.shipment.id, request.params.fileId);
+      if (file === null) return reply.notFound('파일을 찾을 수 없습니다');
+      return reply
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(file.originFileName)}`,
+        )
+        .type(file.contentType)
+        .send(file.buffer);
     },
   );
 
