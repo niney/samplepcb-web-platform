@@ -6,6 +6,7 @@ import {
   AdminBomQuotePatchBody,
   BomQuoteComparisonResponse,
   BomQuoteItemCandidatesResponse,
+  BomQuotePrintResponse,
   BomQuoteStatus,
 } from '@sp/api-contract';
 import type { AdminBomQuoteCountsType } from '@sp/api-contract';
@@ -18,11 +19,29 @@ import {
   loadQuoteComparisonPage,
   toAdminDetailDto,
   toAdminSummaryDto,
+  toBomQuotePrintDto,
 } from '../lib/bom-quote';
 import { closeRfqsForQuote } from '../lib/bom-rfq';
 import { loadShipmentAdminPending } from '../lib/bom-po';
-import { getCartStates, getMembersByIds, getNotifyConfig } from '../lib/g5-db';
+import {
+  getCartStates,
+  getMembersByIds,
+  getNotifyConfig,
+  getShopEstimateProfile,
+} from '../lib/g5-db';
 import { buildBomQuoteAnsweredEmail, sendBomRfqMail } from '../lib/rfq-email';
+
+// 발신처 폴백(설정 미입력 로컬 등) — 빈 값이면 시트가 해당 행을 생략한다.
+const EMPTY_SELLER = {
+  name: '',
+  owner: '',
+  tel: '',
+  zip: '',
+  addr: '',
+  managerName: '',
+  managerEmail: '',
+  bankAccount: '',
+};
 
 // ── /api/admin/bom-quotes — 고객 BOM 견적요청 검토 (requireAdmin) ─────────────
 // 1차 범위: 목록·상세·상태 전이·확정가(운송료/관리비/총액)·메모·원본 다운로드.
@@ -169,6 +188,34 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.originFileName)}`)
       .send(downloaded.buffer);
   });
+
+  // 견적서 인쇄 데이터(§6.8) — 관리자는 상태 무관(확정 전이면 화면이 "가안" 표시).
+  fastify.get(
+    '/bom-quotes/:id/print',
+    { schema: { params: IdParams, response: { 200: BomQuotePrintResponse } } },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({
+        where: { id: request.params.id },
+        include: { items: true, sheets: true },
+      });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      const [profile, members] = await Promise.all([
+        getShopEstimateProfile(),
+        getMembersByIds([quote.mbId]),
+      ]);
+      const customerName = members.get(quote.mbId)?.name ?? quote.mbId;
+      return {
+        result: true as const,
+        data: toBomQuotePrintDto(
+          quote,
+          quote.items,
+          quote.sheets,
+          customerName,
+          profile ?? EMPTY_SELLER,
+        ),
+      };
+    },
+  );
 
   // 검토 — 상태 전이 검증 + 확정가·메모. answered 전이 시 answeredAt 스탬프.
   fastify.patch('/bom-quotes/:id', { schema: { params: IdParams, body: AdminBomQuotePatchBody, response: { 200: AdminBomQuoteDetailResponse } } }, async (request, reply) => {

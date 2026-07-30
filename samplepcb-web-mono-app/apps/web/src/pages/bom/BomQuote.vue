@@ -3,8 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useVirtualizer } from '@tanstack/vue-virtual';
-import { ApiRequestError, apiGetBlob } from '@sp/shared';
+import { ApiRequestError, apiGet, apiGetBlob } from '@sp/shared';
 import {
+  BomQuotePrintResponse,
   apiRoutes,
   type BomQuoteDetailResponseType,
   type BomQuoteDetailType,
@@ -51,6 +52,7 @@ import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
+import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
 import icDownloadOutline from '../../assets/bom/ic-download-outline.svg';
 import icFile from '../../assets/bom/ic-file.svg';
 import icPanelAi from '../../assets/bom/ic-panel-ai.svg';
@@ -1390,6 +1392,22 @@ async function orderNow(): Promise<void> {
         : '주문 전환에 실패했습니다.';
   }
 }
+// ── 견적서 인쇄(§6.8) — 회신 완료+확정가 시만(서버 게이트와 동일 조건) ─────────
+const estimateOpen = ref(false);
+const canViewEstimate = computed(
+  () =>
+    detail.value !== null &&
+    (detail.value.status === 'answered' || detail.value.status === 'closed') &&
+    detail.value.confirmedTotal !== null,
+);
+const loadEstimatePrint = async () => {
+  const res = await apiGet(
+    `${apiRoutes.bom}/quotes/${detail.value?.id ?? ''}/print`,
+    BomQuotePrintResponse,
+  );
+  return res.data;
+};
+
 const requestModal = ref(false);
 const requestTitle = ref('');
 const requestError = ref('');
@@ -1877,6 +1895,15 @@ function fmtAmount(v: number | null): string {
               확정 견적: <b class="tabular-nums">{{ fmtWon(detail.confirmedTotal) }}</b>
               <span v-if="detail.confirmedShippingFee !== null" class="mt-1 block text-[10px] text-emerald-700">(운송료 {{ fmtWon(detail.confirmedShippingFee) }} · 관리비 {{ fmtWon(detail.confirmedManagementFee) }})</span>
             </p>
+            <!-- 견적서(§6.8) — 확정 회신을 서식 문서로 열람·인쇄(브라우저에서 PDF 저장 가능) -->
+            <button
+              v-if="canViewEstimate"
+              type="button"
+              class="mt-2 w-full rounded-[8px] border border-emerald-300 py-1.5 text-[12px] font-bold text-emerald-800 hover:bg-emerald-100"
+              @click="estimateOpen = true"
+            >
+              🧾 견적서 보기·인쇄
+            </button>
             <!-- 주문 전환(D16) — 확정가 있는 회신만. 결제는 영카트 주문서에서(VAT 포함 전환) -->
             <div v-if="detail.orderState === 'ordered'" class="mt-2">
               <span class="inline-block rounded bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white">주문 완료</span>
@@ -1899,6 +1926,8 @@ function fmtAmount(v: number | null): string {
               확정 금액 산정 중입니다 — 담당자가 확정가를 안내하면 여기에 [주문하기] 버튼이 표시됩니다.
             </p>
           </div>
+
+          <BomEstimateModal :open="estimateOpen" :load="loadEstimatePrint" @close="estimateOpen = false" />
 
           <!-- AI 분석결과 (93:23545) -->
           <section>

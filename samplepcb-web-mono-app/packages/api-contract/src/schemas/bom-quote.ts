@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AdminEstimateCompany } from './admin';
 import { PartOfferKind } from './parts';
 
 // 고객 BOM 견적(스마트 BOM) — 업로드→파싱→매칭→검토→견적요청(RFQ) 계약.
@@ -922,6 +923,51 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
   items: z.array(BomQuoteItem),
 });
 export type BomQuoteDetailType = z.infer<typeof BomQuoteDetail>;
+
+// ── 견적서 인쇄(§6.8) — 거버 EstimateSheet 관례 동형(A4·직인·window.print) ────
+// 관리자=상태 무관(확정 전이면 "가안" 표시), 고객=회신 완료+확정가 등록 시만.
+// 품목·합계는 서버 조립(server-single-truth) — 화면은 뿌리기만 한다.
+
+export const BomQuotePrintItem = z.object({
+  mpn: z.string(),
+  manufacturerName: z.string().nullable(),
+  description: z.string().nullable(),
+  qty: z.number().int(),
+  /** 선정 오퍼 KRW 단가 스냅샷 — 미선정·미환산이면 null('—' 표시). */
+  unitPriceKrw: z.number().nullable(),
+  lineTotalKrw: z.number().nullable(),
+});
+export type BomQuotePrintItemType = z.infer<typeof BomQuotePrintItem>;
+
+export const BomQuotePrint = z.object({
+  quoteId: z.string(),
+  title: z.string(),
+  requestedAt: z.string().nullable(),
+  createdAt: z.string(),
+  answeredAt: z.string().nullable(),
+  customerName: z.string(),
+  /** 발신처 — 영카트 기본환경설정 재사용(주문서 인쇄와 동일 스키마). */
+  seller: AdminEstimateCompany,
+  items: z.array(BomQuotePrintItem),
+  /** 부품 합계(included, 서버 스냅샷 — 고객 화면과 동일 값). */
+  itemsTotal: z.number(),
+  /** 예상 수수료·합계(확정 전 가안 표시용). */
+  estimatedShippingFee: z.number(),
+  estimatedManagementFee: z.number(),
+  estimatedTotal: z.number(),
+  /** 확정 회신 — null 이면 가안(고객 라우트는 404). */
+  confirmedShippingFee: z.number().nullable(),
+  confirmedManagementFee: z.number().nullable(),
+  confirmedTotal: z.number().nullable(),
+  answerNote: z.string().nullable(),
+});
+export type BomQuotePrintType = z.infer<typeof BomQuotePrint>;
+
+export const BomQuotePrintResponse = z.object({
+  result: z.literal(true),
+  data: BomQuotePrint,
+});
+export type BomQuotePrintResponseType = z.infer<typeof BomQuotePrintResponse>;
 
 // 주문 전환(D16) — 확정 견적을 영카트 카트에 담고 주문서로 직행.
 export const BomQuoteOrderResponse = z.object({

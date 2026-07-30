@@ -582,6 +582,26 @@ POST xlsx) / 프론트 — 공용 InvoiceEditorModal(편집 폼+흰 문서 미�
 없으면 [회신 내용 확인하기]. CTA `/app/bom/{quoteId}`. E2E 5케이스 ALL PASS
 (Mailpit 실수신·재저장 미발송·확정가 분기·게이트 미발송).
 
+### 6.8 견적서 열람·인쇄 (2026-07-31 — 백로그 회수)
+
+거버 견적서 관례(EstimateSheet/EstimateModal — A4·직인 stamp.jpg·`window.print()`+인쇄
+전역 스타일 주입, 브라우저 인쇄에서 PDF 저장 가능) **동형**의 BOM판. 유효기간은 표기
+안 함(사용자 결정 — 대신 "시세 변동" 일반 안내문 한 줄).
+
+- 문서: 견적번호=CASE-B 파생 채번·발행일=answeredAt, 수신(고객명 수기 초기화)/공급자
+  (영카트 사업자정보+직인), 품목표=included·활성 시트 행(선정 오퍼 KRW 단가 스냅샷,
+  미선정 '—'), 합계=부품 합계+운송료+관리비=**공급가액→부가세(10%)→합계**(D16 주문
+  결제액 확정가×1.1 과 일치 — "견적서 합계=실결제액"), 회신 메모·결제계좌.
+- 서버: 공용 `toBomQuotePrintDto`(합계는 저장 스냅샷 그대로 — 화면·문서 일치),
+  관리자 `GET /api/admin/bom-quotes/:id/print`(상태 무관 — 확정 전이면 예상값+**"가안"
+  표기**), 고객 `GET /api/bom/quotes/:id/print`(**회신 완료+확정가 시만** — 주문 게이트와
+  동일 조건, 미충족·타인은 404 은닉).
+- 화면: 공용 BomEstimateSheet/BomEstimateModal(components/smartbom, 로더 콜백 주입) —
+  관리자 Case 상세 헤더 [🧾 견적서], 고객 /app/bom/:id 회신 박스 [🧾 견적서 보기·인쇄]
+  (canViewEstimate 조건부).
+- 검증: typecheck·lint·vitest 557 green, E2E 9케이스 ALL PASS(관리자 DTO 정합·고객
+  200·타인 404·확정가 해제 시 고객 404/관리자 가안·회신 전 상태 게이트).
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { apiGetBlob } from '@sp/shared';
+import { apiGet, apiGetBlob } from '@sp/shared';
+import { BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
 import type { BomQuoteItemType, BomQuoteStatusType } from '@sp/api-contract';
 import type { AdminBomPoViewType, AdminBomRfqViewType, BomRfqReplyBodyType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
@@ -27,6 +28,7 @@ import {
   smartbomStepOf,
 } from '../../admin/smartbom';
 import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
+import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
 import BomPoCreateModal from '../../components/admin/smartbom/BomPoCreateModal.vue';
 import BomPoPanel from '../../components/admin/smartbom/BomPoPanel.vue';
 import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.vue';
@@ -47,6 +49,16 @@ const detailId = computed(() => {
 
 const detailQuery = useAdminBomQuote(detailId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
+
+// 견적서 인쇄(§6.8) — 모달 open 시 로더 콜백으로 fetch(관리자 print 라우트).
+const estimateOpen = ref(false);
+const loadEstimatePrint = async () => {
+  const res = await apiGet(
+    `${apiRoutes.adminBomQuotes}/${detailId.value ?? ''}/print`,
+    BomQuotePrintResponse,
+  );
+  return res.data;
+};
 const patch = usePatchAdminBomQuote();
 const candidateItemId = ref<string | null>(null);
 const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateItemId);
@@ -316,8 +328,23 @@ async function downloadOriginal(): Promise<void> {
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="SMARTBOM_STATUS_META[detail.status].cls">
           {{ SMARTBOM_STATUS_META[detail.status].label }}
         </span>
+        <!-- 견적서(§6.8) — 확정 전이면 시트가 "가안" 표기 -->
+        <button
+          type="button"
+          class="ml-auto rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+          @click="estimateOpen = true"
+        >
+          🧾 견적서
+        </button>
       </template>
     </div>
+
+    <BomEstimateModal
+      v-if="detailId !== null"
+      :open="estimateOpen"
+      :load="loadEstimatePrint"
+      @close="estimateOpen = false"
+    />
 
     <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
     <p v-else-if="detail === null" class="text-sm text-gray-400">Case 를 찾을 수 없습니다.</p>

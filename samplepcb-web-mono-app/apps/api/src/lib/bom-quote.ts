@@ -27,6 +27,7 @@ import {
   type BomQuoteLocalCatalogTraceType,
   type BomQuoteMatchEvidenceType,
   type BomQuotePatchBodyType,
+  type BomQuotePrintType,
   type BomQuoteProcurementModeType,
   type BomQuoteRecommendationTypeType,
   type BomQuoteRequirementAssessmentType,
@@ -4870,6 +4871,45 @@ export function toAdminSummaryDto(
     poCount,
     poReceivedCount,
     shipmentAdminPending,
+  };
+}
+
+// 견적서 인쇄 DTO(§6.8) — 품목=included·활성 시트 행(고객 화면과 동일 규율), 단가=선정
+// 오퍼 KRW 스냅샷, 합계=저장 스냅샷 그대로(화면·문서 일치). seller 는 라우트가 주입.
+export function toBomQuotePrintDto(
+  quote: QuoteRow,
+  items: QuoteItemRow[],
+  sheets: QuoteSheetRow[],
+  customerName: string,
+  seller: BomQuotePrintType['seller'],
+): BomQuotePrintType {
+  const active = filterActiveQuoteItems(items, sheets)
+    .filter((row) => row.included)
+    .map((row) => toItemDto(row));
+  return {
+    quoteId: String(quote.id),
+    title: quote.title,
+    requestedAt: quote.requestedAt?.toISOString() ?? null,
+    createdAt: quote.createdAt.toISOString(),
+    answeredAt: quote.answeredAt?.toISOString() ?? null,
+    customerName,
+    seller,
+    items: active.map((dto) => ({
+      mpn: dto.mpn,
+      manufacturerName: dto.manufacturerName,
+      description: dto.description,
+      qty: dto.orderQty,
+      unitPriceKrw: dto.selectedOffer?.unitPriceKrw ?? null,
+      lineTotalKrw: dto.lineTotalKrw,
+    })),
+    itemsTotal: quote.itemsTotal,
+    estimatedShippingFee: quote.shippingFee,
+    estimatedManagementFee: quote.managementFee,
+    estimatedTotal: quote.finalTotal,
+    confirmedShippingFee: quote.confirmedShippingFee,
+    confirmedManagementFee: quote.confirmedManagementFee,
+    confirmedTotal: quote.confirmedTotal,
+    answerNote: quote.answerNote,
   };
 }
 

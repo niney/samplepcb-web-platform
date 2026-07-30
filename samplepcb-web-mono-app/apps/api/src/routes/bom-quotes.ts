@@ -19,6 +19,7 @@ import {
   BomQuoteOrderResponse,
   BomQuotePatchBody,
   BomQuotePassiveDefaultsBody,
+  BomQuotePrintResponse,
   BomQuoteProcurementMode,
   BomQuoteRequestBody,
   BomQuoteSearchRequirements,
@@ -37,7 +38,12 @@ import {
 import { neededQty, stampOrderQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
 import { bomOrderformUrl, orderBomQuote } from '../lib/bom-order';
-import { getCartStates, selectCartRows } from '../lib/g5-db';
+import {
+  getCartStates,
+  getMembersByIds,
+  getShopEstimateProfile,
+  selectCartRows,
+} from '../lib/g5-db';
 import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
@@ -108,6 +114,7 @@ import {
   refreshQuoteFromSupplierResult,
   repriceCandidateSelections,
   replaceQuoteItems,
+  toBomQuotePrintDto,
   toDetailDto,
   toItemDto,
   toSummaryDto,
@@ -1166,6 +1173,46 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       },
     };
   });
+
+  // 견적서 인쇄 데이터(§6.8) — 회신 완료+확정가 등록 시에만(주문 게이트와 동일 조건).
+  // 조건 미충족은 404 로 은닉(버튼도 같은 조건으로만 노출).
+  fastify.get(
+    '/bom/quotes/:id/print',
+    { schema: { params: IdParams, response: { 200: BomQuotePrintResponse } } },
+    async (request, reply) => {
+      const quote = await loadOwnQuote(request.params.id, request.user.mbId);
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      if (
+        (quote.status !== 'answered' && quote.status !== 'closed') ||
+        quote.confirmedTotal === null
+      ) {
+        return reply.notFound('견적서를 찾을 수 없습니다');
+      }
+      const [profile, members] = await Promise.all([
+        getShopEstimateProfile(),
+        getMembersByIds([quote.mbId]),
+      ]);
+      return {
+        result: true as const,
+        data: toBomQuotePrintDto(
+          quote,
+          quote.items,
+          quote.sheets,
+          members.get(quote.mbId)?.name ?? quote.mbId,
+          profile ?? {
+            name: '',
+            owner: '',
+            tel: '',
+            zip: '',
+            addr: '',
+            managerName: '',
+            managerEmail: '',
+            bankAccount: '',
+          },
+        ),
+      };
+    },
+  );
 
   fastify.get('/bom/quotes/:id', { schema: { params: IdParams, response: { 200: BomQuoteDetailResponse } } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
