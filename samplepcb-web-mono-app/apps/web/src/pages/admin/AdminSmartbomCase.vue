@@ -11,7 +11,13 @@ import {
   usePatchAdminBomQuote,
 } from '../../admin/useAdminBomQuotes';
 import { useAdminBomRfqs, useAdminRfqReply } from '../../admin/useAdminBomRfqs';
-import { useAdminBomPos, useCloseBomPo, useCreateBomPos, useDeleteBomPo } from '../../admin/useAdminBomPos';
+import {
+  useAdminBomPos,
+  useCloseBomPo,
+  useCreateBomPos,
+  useDeleteBomPo,
+  useExecuteExternalPo,
+} from '../../admin/useAdminBomPos';
 import {
   SMARTBOM_STATUS_META,
   SMARTBOM_STEPS,
@@ -82,9 +88,24 @@ const poError = ref('');
 const createPos = useCreateBomPos();
 const deletePo = useDeleteBomPo();
 const closePo = useCloseBomPo();
+const executeExternal = useExecuteExternalPo();
 const poBusy = computed(
-  () => createPos.isPending.value || deletePo.isPending.value || closePo.isPending.value,
+  () =>
+    createPos.isPending.value ||
+    deletePo.isPending.value ||
+    closePo.isPending.value ||
+    executeExternal.isPending.value,
 );
+
+async function retryExternalPo(po: { poId: number; partnerName: string }): Promise<void> {
+  if (detailId.value === null) return;
+  poError.value = '';
+  try {
+    await executeExternal.mutateAsync({ quoteId: detailId.value, poId: po.poId });
+  } catch (e) {
+    poError.value = e instanceof ApiRequestError ? e.message : '외부 실행에 실패했습니다.';
+  }
+}
 const canIssuePo = computed(() => detail.value?.orderInfo?.isPaid === true);
 const issueDisabledReason = computed(() => {
   if (detail.value?.orderState !== 'ordered') return '고객 주문 후에 발주할 수 있습니다';
@@ -388,6 +409,7 @@ async function downloadOriginal(): Promise<void> {
         @create="poCreateOpen = true; poError = '';"
         @remove="removePo"
         @close="closePoRow"
+        @external="retryExternalPo"
       />
       <p v-if="poError !== ''" class="text-xs font-semibold text-red-600">{{ poError }}</p>
 

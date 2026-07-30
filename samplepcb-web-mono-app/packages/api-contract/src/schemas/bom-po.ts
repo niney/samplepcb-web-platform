@@ -20,11 +20,31 @@ export const BomPoItemView = z.object({
   mpn: z.string(),
   manufacturerName: z.string().nullable(),
   description: z.string().nullable(),
+  /** 공급사 발주(D20) 실행용 SKU 스냅샷 — 협력사 발주는 null. */
+  supplierSku: z.string().nullable(),
   qty: z.number().int(),
   unitPrice: z.number(), // 스냅샷 단가(VAT 별도)
   lineTotal: z.number().int(),
 });
 export type BomPoItemViewType = z.infer<typeof BomPoItemView>;
+
+// 외부공급사 실행 결과 박제(D20) — Mouser=카트, DigiKey=single-use 리스트 URL(1회용).
+export const BomPoExternalRef = z.object({
+  state: z.enum(['ok', 'failed']),
+  supplier: z.string(),
+  executedAt: z.string(),
+  skippedNoSku: z.number().int().optional(), // SKU 없어 제외된 행 수
+  cartKey: z.string().optional(),
+  cartWebUrl: z.string().optional(),
+  listName: z.string().optional(),
+  singleUseUrl: z.string().optional(),
+  lineCount: z.number().int().optional(),
+  merchandiseTotal: z.number().nullable().optional(),
+  currencyCode: z.string().nullable().optional(),
+  errors: z.array(z.string()).optional(), // 공급사 행 단위 거부(품절·SKU 오류)
+  error: z.string().optional(),
+});
+export type BomPoExternalRefType = z.infer<typeof BomPoExternalRef>;
 
 // ── 관리자 (/api/admin/bom-quotes/:id/pos) ──────────────────────────────────
 
@@ -32,10 +52,14 @@ export const AdminBomPoView = z.object({
   poId: z.number(),
   partnerId: z.number(),
   partnerName: z.string(),
+  /** 공급사 발주면 코드(mouser|digikey|…), 사람 협력사면 null. */
+  supplierCode: z.string().nullable(),
   status: BomPoStatus,
   totalAmount: z.number().int(), // KRW, VAT 별도
   currency: z.string(),
   memo: z.string().nullable(),
+  /** 외부 실행 결과(D20) — 자동화 대상 공급사 발주에만. */
+  externalRef: BomPoExternalRef.nullable(),
   itemCount: z.number().int(),
   issuedAt: z.string(),
   confirmedAt: z.string().nullable(),

@@ -12,7 +12,16 @@ defineProps<{
   issueDisabledReason: string;
   busy: boolean;
 }>();
-const emit = defineEmits<{ create: []; remove: [po: AdminBomPoViewType]; close: [po: AdminBomPoViewType] }>();
+const emit = defineEmits<{
+  create: [];
+  remove: [po: AdminBomPoViewType];
+  close: [po: AdminBomPoViewType];
+  external: [po: AdminBomPoViewType]; // 외부 실행 재시도/재발급(D20)
+}>();
+
+function openExternal(url: string): void {
+  window.open(url, '_blank', 'noopener');
+}
 
 const statusCls = (status: AdminBomPoViewType['status']): string =>
   status === 'confirmed'
@@ -59,7 +68,35 @@ const statusCls = (status: AdminBomPoViewType['status']): string =>
         </thead>
         <tbody class="divide-y divide-gray-50">
           <tr v-for="po in pos" :key="po.poId">
-            <td class="px-3 py-2 font-medium text-gray-900">{{ po.partnerName }}</td>
+            <td class="px-3 py-2 font-medium text-gray-900">
+              {{ po.partnerName }}
+              <span v-if="po.supplierCode !== null" class="ml-1 rounded bg-gray-100 px-1 py-0.5 font-mono text-[10px] text-gray-500">{{ po.supplierCode }}</span>
+              <!-- 외부 실행 결과(D20) — 카트/리스트까지, 실결제는 공급사 사이트에서 -->
+              <div v-if="po.externalRef !== null" class="mt-1 text-[11px] font-normal">
+                <template v-if="po.externalRef.state === 'ok' && po.externalRef.cartKey !== undefined">
+                  <span class="text-emerald-700">카트 담김 · {{ po.externalRef.lineCount ?? 0 }}행</span>
+                  <span v-if="po.externalRef.merchandiseTotal !== null && po.externalRef.merchandiseTotal !== undefined" class="text-gray-500">
+                    · {{ po.externalRef.merchandiseTotal }} {{ po.externalRef.currencyCode ?? '' }}
+                  </span>
+                  <button v-if="po.externalRef.cartWebUrl !== undefined" type="button" class="ml-1 text-blue-600 underline" @click="openExternal(po.externalRef.cartWebUrl)">
+                    Mouser 카트 확인
+                  </button>
+                  <span v-if="(po.externalRef.errors?.length ?? 0) > 0" class="ml-1 text-amber-700" :title="po.externalRef.errors?.join('\n')">행 오류 {{ po.externalRef.errors?.length }}</span>
+                </template>
+                <template v-else-if="po.externalRef.state === 'ok' && po.externalRef.singleUseUrl !== undefined">
+                  <span class="text-emerald-700">리스트 생성됨 · {{ po.externalRef.lineCount ?? 0 }}행</span>
+                  <button type="button" class="ml-1 text-blue-600 underline" title="1회용 URL — 열면 소진되며 [재발급]으로 다시 만들 수 있습니다" @click="openExternal(po.externalRef.singleUseUrl)">
+                    DigiKey 리스트 열기(1회용)
+                  </button>
+                  <button type="button" class="ml-1 text-gray-500 underline" :disabled="busy" @click="emit('external', po)">재발급</button>
+                </template>
+                <template v-else>
+                  <span class="text-red-600" :title="po.externalRef.error">실행 실패: {{ (po.externalRef.error ?? '').slice(0, 40) }}</span>
+                  <button type="button" class="ml-1 text-blue-600 underline" :disabled="busy" @click="emit('external', po)">재시도</button>
+                </template>
+                <span v-if="(po.externalRef.skippedNoSku ?? 0) > 0" class="ml-1 text-amber-700">SKU 없음 {{ po.externalRef.skippedNoSku }}행 제외</span>
+              </div>
+            </td>
             <td class="px-3 py-2">
               <span class="rounded px-1.5 py-0.5 font-semibold" :class="statusCls(po.status)">
                 {{ BOM_PO_STATUS_LABELS[po.status] }}

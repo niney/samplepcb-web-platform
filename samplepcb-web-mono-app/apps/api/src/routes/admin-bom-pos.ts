@@ -8,7 +8,12 @@ import {
   ApiError,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
-import { createBomPos, loadAdminPos } from '../lib/bom-po';
+import {
+  EXTERNAL_AUTOMATED_SUPPLIERS,
+  createBomPos,
+  executeExternalPo,
+  loadAdminPos,
+} from '../lib/bom-po';
 import { buildBomPoIssuedEmail, sendBomRfqMail } from '../lib/rfq-email';
 
 // ── /api/admin/bom-quotes/:id/pos — 협력사 발주서(D18) ───────────────────────
@@ -66,9 +71,23 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         });
       }
 
-      // 발행 알림 — 비차단(실패는 로그).
-      const pos = await loadAdminPos(quote.id);
+      // 외부공급사(D20) 자동 실행 — 생성과 분리: 실패해도 발주서는 유효, 결과는 externalRef.
+      let pos = await loadAdminPos(quote.id);
+      const externalTargets = result.partners.filter(
+        (partner) =>
+          partner.supplierCode !== null &&
+          (EXTERNAL_AUTOMATED_SUPPLIERS as readonly string[]).includes(partner.supplierCode),
+      );
+      for (const partner of externalTargets) {
+        const po = pos.find((entry) => entry.partnerId === Number(partner.id));
+        if (po === undefined) continue;
+        await executeExternalPo(BigInt(po.poId));
+      }
+      if (externalTargets.length > 0) pos = await loadAdminPos(quote.id);
+
+      // 발행 알림 — 사람 협력사만(공급사 조직 메일은 알림 대상 아님), 비차단(실패는 로그).
       for (const partner of result.partners) {
+        if (partner.type !== 'partner') continue;
         const po = pos.find((entry) => entry.partnerId === Number(partner.id));
         if (po === undefined) continue;
         void sendBomRfqMail(
@@ -86,6 +105,32 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         result: true as const,
         data: { created: result.partners.length, pos },
       };
+    },
+  );
+
+  // ── POST — 외부 실행 재시도/재발급(D20 — Mouser 카트·DigiKey 리스트) ────────
+  fastify.post(
+    '/bom-quotes/:id/pos/:poId/external',
+    {
+      schema: { params: PoParams, response: { 200: AdminBomPoMutationResponse, 409: ApiError } },
+    },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({ where: { id: request.params.poId } });
+      if (po?.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const result = await executeExternalPo(po.id);
+      if (!result.ok && result.error !== 'EXECUTE_FAILED') {
+        // EXECUTE_FAILED 는 externalRef 에 박제되어 화면이 보여준다 — 목록 갱신으로 응답.
+        return reply.status(409).send({
+          error: result.error,
+          message:
+            result.error === 'NOT_AUTOMATED'
+              ? '자동 실행 대상 공급사(mouser·digikey)가 아닙니다.'
+              : '실행할 SKU 가 있는 행이 없습니다.',
+        });
+      }
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
     },
   );
 

@@ -429,9 +429,36 @@ read-only, ⑫ 연장), 계약 `bom-orders.ts`, `admin-bom-orders.ts` 파생 목
 그룹핑=주문 1건·Case 칩 2개·poCount 파생·입금 대기 counts/탭·입금확인 전이 후 수납/미수
 반전·발주 대기 탭 이동·Case isPaid 파생), vitest 557 green.
 
-**후속(범위 밖)**: 외부공급사 발주 자동화(Mouser=카트 담기 CartKey, DigiKey=third-party
-리스트 URL — supplierCode 라우팅, 하드코딩 mbNo 없음) · **3차 물류** = 선적 그룹 모델
-(D13, 발주 스키마에 선적 참조 금지가 유일한 선행 제약 — sp_bom_po 는 이를 준수).
+### 6.3 외부공급사 발주 자동화 — D20 (2026-07-30 확정)
+
+- **범위 = "카트/리스트까지"**(레거시 최종형 승계 — Mouser 실주문 코드는 레거시도 보존만·
+  미호출): Mouser = 카트 담기(`POST /api/v1/cart/items/insert`, **주문 API 키는 검색 키와
+  별개** — 레거시 xpse yaml 에서 승계, `.env MOUSER_ORDER_API_KEY`), DigiKey = third-party
+  리스트(`POST digikey.com/mylists/api/thirdparty` — **무인증**, single-use URL). 실결제는
+  구매담당이 공급사 사이트에서.
+- **실행 주체 = sp-node 직접**: 두 API 모두 판단 없는 실행 1콜이고 Mouser 주문 키가 검색
+  키와 별개라 sp-engine 재사용 이점이 없음(판단=엔진 경계 무관, 형제 리포 수정 회피).
+- **공급사 발주도 발주서(sp_bom_po)로 기록**: 시드 조직(digikey/mouser 파트너 행)에 발행,
+  `externalRef Json`(실행 결과 박제 — cartKey/singleUseUrl/실패)과 행 `supplierSku` 추가.
+  같은 워크큐·감사·타임라인에 자동 합류. 공급사 확인(confirmed)은 구매담당 내부 액션.
+- **발주서 생성(tx)과 외부 실행을 분리**: 생성 직후 자동 실행하되 실패해도 발주서는 유효 —
+  패널에서 [재시도]. DigiKey single-use URL 은 1회용이라 [재발급] 제공.
+- 1차 자동 대상 = mouser·digikey 만. 기타 공급사(unikeyic 등)는 발주서만 생성(수동 진행),
+  파트너 조직에 매핑 안 되는 supplier(제조사 카탈로그 등)는 대상 외로 안내.
+
+**✅ 구현 완료(2026-07-30)**: migration `20260730150000_add_bom_po_external`
+(`externalRef Json`·행 `supplierSku`), `lib/supplier-order.ts`(Mouser cart insert /
+DigiKey third-party), 집계 확장(`collectPoDraftGroups` — 공급사 오퍼 선정 행을
+supplierCode→파트너 조직으로 그룹, house·미매핑 제외, 단가=unitPriceKrw 박제),
+`executeExternalPo`(생성 직후 자동 실행 + `POST …/pos/:poId/external` 재시도/재발급),
+생성 모달 공급사 그룹("발행 시 자동 실행"/"수동 진행" 뱃지·SKU 없음 표시), 패널
+externalRef 표시(Mouser 카트 확인 링크·DigiKey 1회용 리스트 열기+재발급·실패 재시도).
+검증: **E2E 8케이스 ALL PASS — 실 API 포함**(Mouser 실카트 담김 cartKey·KRW 합계
+1,498 정확, DigiKey single-use URL 실발급, 재실행 갱신, 협력사 발주 NOT_AUTOMATED
+가드), vitest 557 green. Mouser 주문 키는 레거시 xpse yaml 에서 `.env` 로 승계(미커밋).
+
+**후속(범위 밖)**: **3차 물류** = 선적 그룹 모델(D13, 발주 스키마에 선적 참조 금지가
+유일한 선행 제약 — sp_bom_po 는 이를 준수).
 
 ## 7. 레거시 교훈 승계 가드
 

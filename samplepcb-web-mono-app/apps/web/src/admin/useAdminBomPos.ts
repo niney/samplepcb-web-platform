@@ -59,3 +59,15 @@ export function useCloseBomPo() {
     },
   });
 }
+
+// 외부 실행 재시도/재발급(D20) — Mouser 카트 담기·DigiKey single-use 리스트.
+export function useExecuteExternalPo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, poId }: { quoteId: string; poId: number }) =>
+      apiSend('POST', `${base}/${quoteId}/pos/${String(poId)}/external`, undefined, AdminBomPoMutationResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}

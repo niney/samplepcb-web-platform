@@ -940,6 +940,9 @@ model SpBomPo {
   totalAmount Int // 발주 합계(KRW 정수, VAT 별도) — 생성 시 박제
   currency    String         @default("KRW") @db.VarChar(8)
   memo        String?        @db.Text // 관리자 발주 메모(협력사 노출)
+  // 외부공급사 실행 결과 박제(D20) — Mouser {cartKey…}/DigiKey {singleUseUrl…}/실패 {error}.
+  // 사람 협력사 발주는 null. 재시도 시 덮어쓴다.
+  externalRef Json?
   issuedAt    DateTime       @default(now())
   confirmedAt DateTime?
   closedAt    DateTime?
@@ -964,8 +967,9 @@ model SpBomPoItem {
   mpn              String   @db.VarChar(191)
   manufacturerName String?  @db.VarChar(191)
   description      String?  @db.VarChar(1000)
+  supplierSku      String?  @db.VarChar(191) // 공급사 발주(D20) 실행용 SKU 박제 — 협력사 발주는 null
   qty              Int // 발주 수량(= 생성 시점 orderQty 박제)
-  unitPrice        Decimal  @db.Decimal(14, 4) // 선정 회신 단가 박제(VAT 별도)
+  unitPrice        Decimal  @db.Decimal(14, 4) // 선정 단가 박제(VAT 별도)
   lineTotal        Int // round(unitPrice × qty) KRW 정수
   createdAt        DateTime @default(now())
   po               SpBomPo  @relation(fields: [poId], references: [id], onDelete: Cascade)
