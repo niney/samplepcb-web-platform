@@ -165,6 +165,14 @@ const statusCls = (status: AdminBomPoViewType['status']): string =>
               >
                 협력사 차례
               </span>
+              <!-- 선적 그룹(§6.10) — 여러 발주서 한 물류 묶음 -->
+              <span
+                v-if="(po.shipment?.groupPos.length ?? 0) > 1"
+                class="ml-1 rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-bold text-indigo-700"
+                :title="po.shipment?.groupPos.map((g) => g.quoteTitle).join('\n')"
+              >
+                📦 묶음 {{ po.shipment?.groupPos.length }}건
+              </span>
               <span v-if="po.shipment?.trackingNumber != null" class="ml-1 font-mono text-[10px] text-gray-400" :title="po.shipment.carrier ?? ''">
                 {{ po.shipment.trackingNumber }}
               </span>

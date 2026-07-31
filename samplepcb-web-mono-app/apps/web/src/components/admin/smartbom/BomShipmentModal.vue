@@ -23,6 +23,7 @@ import {
   adminInvoiceApi,
   downloadBomShipmentFile,
   useDeleteBomShipmentFile,
+  useDetachBomShipmentPo,
   useReceiveBomShipment,
   useUploadBomShipmentFile,
   useUpsertBomShipment,
@@ -44,6 +45,20 @@ const upsert = useUpsertBomShipment();
 const receive = useReceiveBomShipment();
 const uploadFile = useUploadBomShipmentFile();
 const deleteFile = useDeleteBomShipmentFile();
+const detach = useDetachBomShipmentPo();
+
+// 묶음 제외(§6.10) — 대표 불가·발송 준비 단계만(서버 재검증).
+async function detachGroupPo(poId: number, title: string): Promise<void> {
+  if (!window.confirm(`'${title}' 발주서를 묶음에서 제외할까요? 별도 선적으로 다시 진행하게 됩니다.`)) {
+    return;
+  }
+  error.value = '';
+  try {
+    await detach.mutateAsync({ quoteId: props.quoteId, poId });
+  } catch (e) {
+    error.value = e instanceof ApiRequestError ? e.message : '묶음 제외에 실패했습니다.';
+  }
+}
 
 const mode = ref<BomShipmentModeType>('international');
 const status = ref<BomShipmentStatusType>('preparing');
@@ -308,6 +323,27 @@ async function confirmReceive(): Promise<void> {
         발송 {{ existing.shippedAt.slice(0, 10) }}
         <template v-if="existing.completedAt !== null"> · 최종 {{ existing.completedAt.slice(0, 10) }}</template>
       </p>
+
+      <!-- 선적 그룹(§6.10) — 묶음 소속 발주서 목록 + 제외(발송 준비 단계·비대표만) -->
+      <div v-if="(existing?.groupPos.length ?? 0) > 1" class="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3">
+        <p class="text-xs font-bold text-indigo-800">📦 묶음 발송 — 발주서 {{ existing?.groupPos.length }}건</p>
+        <ul class="mt-1 space-y-1 text-xs text-gray-700">
+          <li v-for="entry in existing?.groupPos ?? []" :key="entry.poId" class="flex items-center gap-2">
+            <span :class="entry.poId === po.poId ? 'font-bold' : ''">{{ entry.quoteTitle }}</span>
+            <span class="text-gray-400">{{ entry.totalAmount.toLocaleString('ko-KR') }}원</span>
+            <button
+              v-if="existing?.status === 'preparing'"
+              type="button"
+              class="ml-auto rounded border border-gray-300 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-40"
+              :disabled="detach.isPending.value"
+              @click="detachGroupPo(entry.poId, entry.quoteTitle)"
+            >
+              제외
+            </button>
+          </li>
+        </ul>
+        <p class="mt-1 text-[10px] text-indigo-500">입고 확인은 묶음 전체가 함께 처리됩니다(선적 단위 검수).</p>
+      </div>
 
       <!-- 첨부(D22) — 종류별 1건, 재업로드=교체. 협력사 포털과 같은 문서를 본다 -->
       <div class="mt-3 space-y-1.5 rounded-xl border border-gray-200 p-3">

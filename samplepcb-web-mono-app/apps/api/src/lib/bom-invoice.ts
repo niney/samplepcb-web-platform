@@ -1,5 +1,11 @@
 import ExcelJS from 'exceljs';
-import type { SpBomPo, SpBomPoItem, SpBomShipment, SpPartner } from '@prisma/client';
+import type {
+  SpBomPo,
+  SpBomPoItem,
+  SpBomShipment,
+  SpBomShipmentPo,
+  SpPartner,
+} from '@prisma/client';
 import { BomInvoiceData } from '@sp/api-contract';
 import type { BomInvoiceDataType, BomInvoiceItemType } from '@sp/api-contract';
 import { prisma } from './prisma';
@@ -29,13 +35,17 @@ const todayKst = (): string =>
 type PoForInvoice = SpBomPo & {
   items: SpBomPoItem[];
   partner: SpPartner;
-  shipment: SpBomShipment | null;
+  shipmentLink: (SpBomShipmentPo & { shipment: SpBomShipment }) | null;
 };
 
 export const loadPoForInvoice = async (poId: bigint): Promise<PoForInvoice | null> =>
   prisma.spBomPo.findUnique({
     where: { id: poId },
-    include: { items: { orderBy: { id: 'asc' } }, partner: true, shipment: true },
+    include: {
+      items: { orderBy: { id: 'asc' } },
+      partner: true,
+      shipmentLink: { include: { shipment: true } },
+    },
   });
 
 /** 초안 — 저장본(편집본) 우선, fresh 면 발주 데이터로 재조립(레거시 stale 함정 교정). */
@@ -43,8 +53,9 @@ export const buildInvoiceDraft = async (
   po: PoForInvoice,
   fresh: boolean,
 ): Promise<BomInvoiceDataType> => {
-  if (!fresh && po.shipment?.invoiceData != null) {
-    const saved = BomInvoiceData.safeParse(po.shipment.invoiceData);
+  const shipment = po.shipmentLink?.shipment ?? null;
+  if (!fresh && shipment?.invoiceData != null) {
+    const saved = BomInvoiceData.safeParse(shipment.invoiceData);
     if (saved.success) return saved.data;
   }
 
@@ -74,7 +85,7 @@ export const buildInvoiceDraft = async (
     consigneeFax: business?.fax ?? '',
     consigneeEmail: profile?.managerEmail ?? '',
     countryOfManufacture: countryName(po.partner.country),
-    invoiceNo: `SPB-${String(po.id)}-${po.shipment === null ? '0' : String(po.shipment.id)}`,
+    invoiceNo: `SPB-${String(po.id)}-${shipment === null ? '0' : String(shipment.id)}`,
     netWeight: '',
     grossWeight: '',
     currency: po.currency,

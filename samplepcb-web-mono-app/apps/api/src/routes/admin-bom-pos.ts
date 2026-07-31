@@ -22,6 +22,7 @@ import {
   asShipmentStatus,
   createBomPos,
   deleteShipmentFile,
+  detachShipmentPo,
   executeExternalPo,
   getShipmentFileDownload,
   loadAdminPos,
@@ -60,6 +61,26 @@ const CREATE_ERROR_MESSAGE: Record<string, string> = {
 
 export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
+
+  // 선적 해석·보장(§6.10 조인 기반) — 소속 선적을 찾고, 없으면 preparing 으로 생성.
+  const ensureAdminShipment = async (quoteId: bigint, poId: bigint) => {
+    const po = await prisma.spBomPo.findUnique({
+      where: { id: poId },
+      include: { shipmentLink: { include: { shipment: true } }, partner: true },
+    });
+    if (po?.quoteId !== quoteId) return null;
+    if (po.shipmentLink !== null) return po.shipmentLink.shipment;
+    const created = await prisma.spBomShipment.create({
+      data: {
+        poId: po.id,
+        quoteId: po.quoteId,
+        mode: po.partner.country === 'KR' ? 'domestic' : 'international',
+        status: 'preparing',
+      },
+    });
+    await prisma.spBomShipmentPo.create({ data: { shipmentId: created.id, poId: po.id } });
+    return created;
+  };
 
   // ── GET — 발주서 목록(행 포함) ──────────────────────────────────────────────
   fastify.get(
@@ -199,12 +220,16 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     async (request, reply) => {
       const po = await prisma.spBomPo.findUnique({
         where: { id: request.params.poId },
-        include: { shipment: true, partner: true, quote: { select: { title: true } } },
+        include: {
+          shipmentLink: { include: { shipment: true } },
+          partner: true,
+          quote: { select: { title: true } },
+        },
       });
       if (po?.quoteId !== request.params.id) {
         return reply.notFound('발주서를 찾을 수 없습니다');
       }
-      const prevStatus = po.shipment?.status ?? null;
+      const prevStatus = po.shipmentLink?.shipment.status ?? null;
       const result = await upsertShipment(po.id, request.body);
       if (!result.ok) {
         return reply.status(409).send({
@@ -215,7 +240,11 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               : '발주서를 찾을 수 없습니다.',
         });
       }
-      const fresh = await prisma.spBomShipment.findUnique({ where: { poId: po.id } });
+      const freshLink = await prisma.spBomShipmentPo.findUnique({
+        where: { poId: po.id },
+        include: { shipment: true },
+      });
+      const fresh = freshLink?.shipment ?? null;
       if (fresh !== null && fresh.status !== prevStatus) {
         const mode = asShipmentMode(fresh.mode);
         const status = asShipmentStatus(mode, fresh.status);
@@ -282,13 +311,6 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     '/bom-quotes/:id/pos/:poId/shipment/files',
     { schema: { params: PoParams, response: { 200: AdminBomPoMutationResponse, 400: ApiError } } },
     async (request, reply) => {
-      const po = await prisma.spBomPo.findUnique({
-        where: { id: request.params.poId },
-        include: { shipment: true, partner: true },
-      });
-      if (po?.quoteId !== request.params.id) {
-        return reply.notFound('발주서를 찾을 수 없습니다');
-      }
       const { files, fields } = await collectMultipart(request);
       const kind = BomShipmentFileType.safeParse(fields.fileType);
       const file = files[0];
@@ -298,16 +320,8 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.' });
       }
       // 선적 문서가 없으면 preparing 으로 생성해 파일부터 받는다(협력사 흐름과 동일).
-      const shipment =
-        po.shipment ??
-        (await prisma.spBomShipment.create({
-          data: {
-            poId: po.id,
-            quoteId: po.quoteId,
-            mode: po.partner.country === 'KR' ? 'domestic' : 'international',
-            status: 'preparing',
-          },
-        }));
+      const shipment = await ensureAdminShipment(request.params.id, request.params.poId);
+      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
       await saveShipmentFile(shipment.id, kind.data, file, 'ADMIN');
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
     },
@@ -319,13 +333,36 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     async (request, reply) => {
       const po = await prisma.spBomPo.findUnique({
         where: { id: request.params.poId },
-        include: { shipment: true },
+        include: { shipmentLink: true },
       });
-      if (po?.quoteId !== request.params.id || po.shipment === null) {
+      if (po?.quoteId !== request.params.id || po.shipmentLink === null) {
         return reply.notFound('발주서를 찾을 수 없습니다');
       }
-      const removed = await deleteShipmentFile(po.shipment.id, request.params.fileId);
+      const removed = await deleteShipmentFile(po.shipmentLink.shipmentId, request.params.fileId);
       if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  // 묶음에서 제외(§6.10) — 협력사와 같은 규칙(대표 불가·발송 준비 단계만).
+  fastify.delete(
+    '/bom-quotes/:id/pos/:poId/shipment/membership',
+    { schema: { params: PoParams, response: { 200: AdminBomPoMutationResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: { shipmentLink: true },
+      });
+      if (po?.quoteId !== request.params.id || po.shipmentLink === null) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const result = await detachShipmentPo(po.shipmentLink.shipmentId, po.id);
+      if (!result.ok) {
+        return reply.status(409).send({
+          error: result.error,
+          message: '발송 준비 단계에서만 묶음을 변경할 수 있습니다.',
+        });
+      }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
     },
   );
@@ -336,12 +373,12 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     async (request, reply) => {
       const po = await prisma.spBomPo.findUnique({
         where: { id: request.params.poId },
-        include: { shipment: true },
+        include: { shipmentLink: true },
       });
-      if (po?.quoteId !== request.params.id || po.shipment === null) {
+      if (po?.quoteId !== request.params.id || po.shipmentLink === null) {
         return reply.notFound('발주서를 찾을 수 없습니다');
       }
-      const file = await getShipmentFileDownload(po.shipment.id, request.params.fileId);
+      const file = await getShipmentFileDownload(po.shipmentLink.shipmentId, request.params.fileId);
       if (file === null) return reply.notFound('파일을 찾을 수 없습니다');
       return reply
         .header(
@@ -355,23 +392,6 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
 
   // ── 상업송장 생성기(D23) — 초안·저장·엑셀(협력사와 같은 데이터, 관리자 대리 작성) ──
   const InvoiceQuery = z.object({ fresh: z.coerce.boolean().default(false) });
-
-  const ensureAdminShipment = async (quoteId: bigint, poId: bigint) => {
-    const po = await prisma.spBomPo.findUnique({
-      where: { id: poId },
-      include: { shipment: true, partner: true },
-    });
-    if (po?.quoteId !== quoteId) return null;
-    if (po.shipment !== null) return po.shipment;
-    return prisma.spBomShipment.create({
-      data: {
-        poId: po.id,
-        quoteId: po.quoteId,
-        mode: po.partner.country === 'KR' ? 'domestic' : 'international',
-        status: 'preparing',
-      },
-    });
-  };
 
   fastify.get(
     '/bom-quotes/:id/pos/:poId/shipment/invoice',

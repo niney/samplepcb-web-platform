@@ -7,6 +7,8 @@ import {
   PartnerPoListResponse,
   PartnerRfqDetailResponse,
   PartnerRfqListResponse,
+  PartnerShipmentCreateResponse,
+  PartnerShipmentListResponse,
   apiRoutes,
   type BomInvoiceDataType,
   type BomRfqReplyBodyType,
@@ -73,7 +75,45 @@ export function usePartnerPoConfirm() {
     mutationFn: (poId: string) =>
       apiSend('POST', `${poBase}/${poId}/confirm`, undefined, PartnerPoDetailResponse),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+      void qc.invalidateQueries({ queryKey: ['partner'] });
+    },
+  });
+}
+
+// ── 발송 1급(§6.11) — 담기(생성)·목록. 조작은 대표 poId 로 기존 훅 재사용 ────
+
+export function usePartnerShipments() {
+  return useQuery({
+    queryKey: ['partner', 'shipments'],
+    queryFn: () => apiGet('/api/partner/shipments', PartnerShipmentListResponse),
+    retry: false,
+  });
+}
+
+export function useCreatePartnerShipment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (poIds: number[]) =>
+      apiSend('POST', '/api/partner/shipments', { poIds }, PartnerShipmentCreateResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner'] });
+    },
+  });
+}
+
+// 박스에 담기(§6.11 두 칸 UI) — 준비 중 발송에 발주서 추가.
+export function useAttachShipmentPo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shipmentId, poId }: { shipmentId: number; poId: number }) =>
+      apiSend(
+        'POST',
+        `/api/partner/shipments/${String(shipmentId)}/pos`,
+        { poId },
+        PartnerShipmentListResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner'] });
     },
   });
 }
@@ -86,7 +126,7 @@ export function usePartnerShipmentAdvance() {
     mutationFn: ({ poId, body }: { poId: string; body: PartnerShipmentAdvanceBodyType }) =>
       apiSend('POST', `${poBase}/${poId}/shipment/advance`, body, PartnerPoDetailResponse),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+      void qc.invalidateQueries({ queryKey: ['partner'] });
     },
   });
 }
@@ -97,7 +137,19 @@ export function usePartnerShipmentRevert() {
     mutationFn: (poId: string) =>
       apiSend('POST', `${poBase}/${poId}/shipment/revert`, undefined, PartnerPoDetailResponse),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+      void qc.invalidateQueries({ queryKey: ['partner'] });
+    },
+  });
+}
+
+// 묶음에서 제외(§6.10) — 자기 발주서를 그룹에서 뺀다(대표 불가·발송 준비 단계만).
+export function usePartnerShipmentDetach() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (poId: string) =>
+      apiSend('DELETE', `${poBase}/${poId}/shipment/membership`, undefined, PartnerPoDetailResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner'] });
     },
   });
 }
@@ -120,7 +172,7 @@ export function usePartnerShipmentFileUpload() {
       return apiSendForm('POST', `${poBase}/${poId}/shipment/files`, form, PartnerPoDetailResponse);
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+      void qc.invalidateQueries({ queryKey: ['partner'] });
     },
   });
 }
@@ -136,7 +188,7 @@ export function usePartnerShipmentFileDelete() {
         PartnerPoDetailResponse,
       ),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['partner', 'pos'] });
+      void qc.invalidateQueries({ queryKey: ['partner'] });
     },
   });
 }

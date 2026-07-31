@@ -105,6 +105,23 @@ export function useReceiveBomShipment() {
   });
 }
 
+// 묶음에서 제외(§6.10) — 대표 불가·발송 준비 단계만(협력사와 같은 규칙).
+export function useDetachBomShipmentPo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, poId }: { quoteId: string; poId: number }) =>
+      apiSend(
+        'DELETE',
+        `${base}/${quoteId}/pos/${String(poId)}/shipment/membership`,
+        undefined,
+        AdminBomPoMutationResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
 // 선적 첨부(D22) — 종류별 1건(재업로드=교체), 실파일은 파일서버·메타는 sp_file.
 export function useUploadBomShipmentFile() {
   const qc = useQueryClient();

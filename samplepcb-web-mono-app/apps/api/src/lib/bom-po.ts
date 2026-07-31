@@ -1,4 +1,11 @@
-import type { SpBomPo, SpBomPoItem, SpBomShipment, SpFile, SpPartner } from '@prisma/client';
+import type {
+  SpBomPo,
+  SpBomPoItem,
+  SpBomShipment,
+  SpBomShipmentPo,
+  SpFile,
+  SpPartner,
+} from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import {
   BOM_SHIPMENT_DOMESTIC_STATUSES,
@@ -15,6 +22,7 @@ import type {
   BomPoStatusType,
   BomShipmentFileMetaType,
   BomShipmentFileTypeType,
+  BomShipmentGroupPoType,
   BomShipmentModeType,
   BomShipmentStatusType,
   BomShipmentViewType,
@@ -40,7 +48,11 @@ import {
 export const asBomPoStatus = (v: string): BomPoStatusType =>
   v === 'confirmed' ? 'confirmed' : v === 'closed' ? 'closed' : 'issued';
 
-type PoWithItems = SpBomPo & { items: SpBomPoItem[]; shipment?: SpBomShipment | null };
+// §6.10 이후 선적 소속의 진실은 shipmentLink(조인) — po.shipment(대표 관계)는 쓰지 않는다.
+type ShipmentLink = SpBomShipmentPo & { shipment: SpBomShipment };
+type PoWithItems = SpBomPo & { items: SpBomPoItem[]; shipmentLink?: ShipmentLink | null };
+const linkedShipment = (po: { shipmentLink?: ShipmentLink | null }): SpBomShipment | null =>
+  po.shipmentLink?.shipment ?? null;
 
 const toItemView = (item: SpBomPoItem): BomPoItemViewType => ({
   poItemId: Number(item.id),
@@ -106,6 +118,7 @@ export const loadShipmentFilesMap = async (
 export const toShipmentView = (
   shipment: SpBomShipment,
   files: BomShipmentFileMetaType[] = [],
+  groupPos: BomShipmentGroupPoType[] = [],
 ): BomShipmentViewType => {
   const mode = asShipmentMode(shipment.mode);
   return {
@@ -121,42 +134,89 @@ export const toShipmentView = (
     receivedNote: shipment.receivedNote,
     completedAt: shipment.completedAt?.toISOString() ?? null,
     files,
+    groupPos,
   };
+};
+
+/** 묶음 소속 배치 로드(§6.10) — Map<shipmentId, 소속 발주서(대표 표시 포함)>. */
+export const loadShipmentGroupMap = async (
+  shipmentIds: bigint[],
+): Promise<Map<string, BomShipmentGroupPoType[]>> => {
+  const map = new Map<string, BomShipmentGroupPoType[]>();
+  if (shipmentIds.length === 0) return map;
+  const links = await prisma.spBomShipmentPo.findMany({
+    where: { shipmentId: { in: shipmentIds } },
+    include: {
+      shipment: { select: { poId: true } },
+      po: { select: { id: true, totalAmount: true, quote: { select: { title: true } } } },
+    },
+    orderBy: { id: 'asc' },
+  });
+  for (const link of links) {
+    const key = link.shipmentId.toString();
+    map.set(key, [
+      ...(map.get(key) ?? []),
+      {
+        poId: Number(link.po.id),
+        quoteTitle: link.po.quote.title,
+        totalAmount: link.po.totalAmount,
+        isPrimary: link.po.id === link.shipment.poId,
+      },
+    ]);
+  }
+  return map;
 };
 
 export const toAdminPoView = (
   po: PoWithItems & { partner: SpPartner },
   shipmentFiles: BomShipmentFileMetaType[] = [],
-): AdminBomPoViewType => ({
-  poId: Number(po.id),
-  partnerId: Number(po.partnerId),
-  partnerName: po.partner.name,
-  supplierCode: po.partner.supplierCode,
-  status: asBomPoStatus(po.status),
-  totalAmount: po.totalAmount,
-  currency: po.currency,
-  memo: po.memo,
-  externalRef: toExternalRefView(po.externalRef),
-  shipment: po.shipment == null ? null : toShipmentView(po.shipment, shipmentFiles),
-  itemCount: po.items.length,
-  issuedAt: po.issuedAt.toISOString(),
-  confirmedAt: po.confirmedAt?.toISOString() ?? null,
-  closedAt: po.closedAt?.toISOString() ?? null,
-  items: po.items.map(toItemView),
-});
+  groupPos: BomShipmentGroupPoType[] = [],
+): AdminBomPoViewType => {
+  const shipment = linkedShipment(po);
+  return {
+    poId: Number(po.id),
+    partnerId: Number(po.partnerId),
+    partnerName: po.partner.name,
+    supplierCode: po.partner.supplierCode,
+    status: asBomPoStatus(po.status),
+    totalAmount: po.totalAmount,
+    currency: po.currency,
+    memo: po.memo,
+    externalRef: toExternalRefView(po.externalRef),
+    shipment: shipment === null ? null : toShipmentView(shipment, shipmentFiles, groupPos),
+    itemCount: po.items.length,
+    issuedAt: po.issuedAt.toISOString(),
+    confirmedAt: po.confirmedAt?.toISOString() ?? null,
+    closedAt: po.closedAt?.toISOString() ?? null,
+    items: po.items.map(toItemView),
+  };
+};
 
 export const loadAdminPos = async (quoteId: bigint): Promise<AdminBomPoViewType[]> => {
   const pos = await prisma.spBomPo.findMany({
     where: { quoteId },
-    include: { partner: true, items: { orderBy: { id: 'asc' } }, shipment: true },
+    include: {
+      partner: true,
+      items: { orderBy: { id: 'asc' } },
+      shipmentLink: { include: { shipment: true } },
+    },
     orderBy: { id: 'asc' },
   });
-  const filesMap = await loadShipmentFilesMap(
-    pos.flatMap((po) => (po.shipment === null ? [] : [po.shipment.id])),
-  );
-  return pos.map((po) =>
-    toAdminPoView(po, po.shipment === null ? [] : (filesMap.get(po.shipment.id.toString()) ?? [])),
-  );
+  const shipmentIds = [
+    ...new Set(pos.flatMap((po) => (po.shipmentLink === null ? [] : [po.shipmentLink.shipmentId]))),
+  ];
+  const [filesMap, groupMap] = await Promise.all([
+    loadShipmentFilesMap(shipmentIds),
+    loadShipmentGroupMap(shipmentIds),
+  ]);
+  return pos.map((po) => {
+    const key = po.shipmentLink?.shipmentId.toString();
+    return toAdminPoView(
+      po,
+      key === undefined ? [] : (filesMap.get(key) ?? []),
+      key === undefined ? [] : (groupMap.get(key) ?? []),
+    );
+  });
 };
 
 // ── 발주 대상 집계 ───────────────────────────────────────────────────────────
@@ -408,17 +468,18 @@ const finalStatusOf = (mode: BomShipmentModeType): BomShipmentStatusType =>
 const shippedStatusOf = (mode: BomShipmentModeType): BomShipmentStatusType =>
   mode === 'domestic' ? 'shipping' : 'shipped';
 
-/** 등록/수정 — 상태의 모드 정합 검증 + shippedAt(최초 발송 진입)·completedAt(최종 단계) 박제. */
+/** 등록/수정 — 상태의 모드 정합 검증 + shippedAt(최초 발송 진입)·completedAt(최종 단계) 박제.
+ * 선적 해석은 조인(§6.10) — 묶음의 어느 발주서로 접근해도 같은 선적을 조작한다. */
 export const upsertShipment = async (
   poId: bigint,
   body: AdminBomShipmentUpsertBodyType,
 ): Promise<ShipmentUpsertResult> => {
   const po = await prisma.spBomPo.findUnique({
     where: { id: poId },
-    include: { partner: true, shipment: true },
+    include: { partner: true, shipmentLink: { include: { shipment: true } } },
   });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
-  const existing = po.shipment;
+  const existing = linkedShipment(po);
 
   // mode: 기존 박제 우선 → 요청값 → 협력사 국가 기본값(KR=국내, 그 외=국제)
   const mode: BomShipmentModeType =
@@ -448,9 +509,10 @@ export const upsertShipment = async (
   if (existing !== null) {
     await prisma.spBomShipment.update({ where: { id: existing.id }, data });
   } else {
-    await prisma.spBomShipment.create({
+    const created = await prisma.spBomShipment.create({
       data: { poId: po.id, quoteId: po.quoteId, mode, ...data },
     });
+    await prisma.spBomShipmentPo.create({ data: { shipmentId: created.id, poId: po.id } });
   }
   return { ok: true };
 };
@@ -463,16 +525,18 @@ const parseShipDate = (v: string | null | undefined): Date | null => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
-/** 입고 확인(검수 ⑩ — D21-2) — 선적이 없어도 가능(시스템 밖 배송 수령). 최종 단계로 마감. */
+/** 입고 확인(검수 ⑩ — D21-2) — 선적이 없어도 가능(시스템 밖 배송 수령). 최종 단계로
+ * 마감하며, 묶음이면 소속 발주서 전체가 함께 입고 처리된다(선적 단위 검수 — §6.10). */
 export const receiveShipment = async (poId: bigint, note: string | null): Promise<ShipmentUpsertResult> => {
   const po = await prisma.spBomPo.findUnique({
     where: { id: poId },
-    include: { partner: true, shipment: true },
+    include: { partner: true, shipmentLink: { include: { shipment: true } } },
   });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  const existing = linkedShipment(po);
   const mode: BomShipmentModeType =
-    po.shipment !== null
-      ? asShipmentMode(po.shipment.mode)
+    existing !== null
+      ? asShipmentMode(existing.mode)
       : po.partner.country === 'KR'
         ? 'domestic'
         : 'international';
@@ -481,13 +545,16 @@ export const receiveShipment = async (poId: bigint, note: string | null): Promis
     status: finalStatusOf(mode),
     receivedAt: now,
     receivedNote: note,
-    completedAt: po.shipment?.completedAt ?? now,
-    shippedAt: po.shipment?.shippedAt ?? now,
+    completedAt: existing?.completedAt ?? now,
+    shippedAt: existing?.shippedAt ?? now,
   };
-  if (po.shipment !== null) {
-    await prisma.spBomShipment.update({ where: { id: po.shipment.id }, data });
+  if (existing !== null) {
+    await prisma.spBomShipment.update({ where: { id: existing.id }, data });
   } else {
-    await prisma.spBomShipment.create({ data: { poId: po.id, quoteId: po.quoteId, mode, ...data } });
+    const created = await prisma.spBomShipment.create({
+      data: { poId: po.id, quoteId: po.quoteId, mode, ...data },
+    });
+    await prisma.spBomShipmentPo.create({ data: { shipmentId: created.id, poId: po.id } });
   }
   return { ok: true };
 };
@@ -496,31 +563,36 @@ export const receiveShipment = async (poId: bigint, note: string | null): Promis
 // 협력사는 "다음 단계 진입 주체 = PARTNER"인 전이만, 되돌리기는 "현 단계 진입 주체 =
 // PARTNER"(직전에 자기가 진행한 것)만 1단계. 관리자는 upsertShipment 로 전 단계 임의 조작.
 
-type PoWithShipment = SpBomPo & { partner: SpPartner; shipment: SpBomShipment | null };
+type PoWithShipment = SpBomPo & { partner: SpPartner; shipmentLink: ShipmentLink | null };
 
 const loadPartnerPo = async (poId: bigint, partnerId: bigint): Promise<PoWithShipment | null> => {
   const po = await prisma.spBomPo.findUnique({
     where: { id: poId },
-    include: { partner: true, shipment: true },
+    include: { partner: true, shipmentLink: { include: { shipment: true } } },
   });
   if (po === null) return null;
   if (po.partnerId !== partnerId) return null;
   return po;
 };
 
-const defaultModeOf = (po: PoWithShipment): BomShipmentModeType =>
-  po.shipment !== null
-    ? asShipmentMode(po.shipment.mode)
+const defaultModeOf = (po: PoWithShipment): BomShipmentModeType => {
+  const shipment = linkedShipment(po);
+  return shipment !== null
+    ? asShipmentMode(shipment.mode)
     : po.partner.country === 'KR'
       ? 'domestic'
       : 'international';
+};
 
 /** 선적 문서 보장 — 파일 첨부가 전이보다 먼저 올 수 있어 preparing 으로 생성해 둔다. */
 const ensureShipment = async (po: PoWithShipment): Promise<SpBomShipment> => {
-  if (po.shipment !== null) return po.shipment;
-  return prisma.spBomShipment.create({
+  const existing = linkedShipment(po);
+  if (existing !== null) return existing;
+  const created = await prisma.spBomShipment.create({
     data: { poId: po.id, quoteId: po.quoteId, mode: defaultModeOf(po), status: 'preparing' },
   });
+  await prisma.spBomShipmentPo.create({ data: { shipmentId: created.id, poId: po.id } });
+  return created;
 };
 
 export type PartnerShipmentError =
@@ -530,12 +602,15 @@ export type PartnerShipmentError =
   | 'NOTHING_TO_REVERT'
   | 'MISSING_SHIP_DATE'
   | 'MISSING_INVOICE_FILE'
-  | 'MISSING_TRACKING';
+  | 'MISSING_TRACKING'
+  | 'INVALID_GROUP_PO'
+  | 'NOT_PREPARING';
 export type PartnerShipmentResult =
   | { ok: true; advancedTo?: BomShipmentStatusType }
   | { ok: false; error: PartnerShipmentError };
 
-/** [다음 단계 진행] — 단계별 필수(레거시 fieldsForTransition 미러)를 서버가 검증한다. */
+/** [다음 단계 진행] — 단계별 필수(레거시 fieldsForTransition 미러)를 서버가 검증한다.
+ * §6.10: 최초 발송 전이에서 withPoIds(같은 박스 발주서)를 선적에 함께 묶을 수 있다. */
 export const advancePartnerShipment = async (
   poId: bigint,
   partnerId: bigint,
@@ -549,6 +624,25 @@ export const advancePartnerShipment = async (
   const next = bomShipmentNextStatus(mode, current);
   if (next === null) return { ok: false, error: 'ALREADY_FINAL' };
   if (bomShipmentActorOf(mode, next) !== 'PARTNER') return { ok: false, error: 'NOT_YOUR_TURN' };
+
+  // 함께 발송(§6.10) — 최초 발송 전이(선적 요청/배송중 진입)에서만, 같은 협력사·미소속.
+  const withPoIds = [...new Set(body.withPoIds ?? [])].filter((id) => BigInt(id) !== po.id);
+  if (withPoIds.length > 0) {
+    if (next !== 'requested' && next !== 'shipping') {
+      return { ok: false, error: 'INVALID_GROUP_PO' };
+    }
+    const companions = await prisma.spBomPo.findMany({
+      where: { id: { in: withPoIds.map((id) => BigInt(id)) } },
+      include: { shipmentLink: true },
+    });
+    const valid =
+      companions.length === withPoIds.length &&
+      companions.every((c) => c.partnerId === partnerId && c.shipmentLink === null);
+    if (!valid) return { ok: false, error: 'INVALID_GROUP_PO' };
+    await prisma.spBomShipmentPo.createMany({
+      data: companions.map((c) => ({ shipmentId: shipment.id, poId: c.id })),
+    });
+  }
 
   if (next === 'requested') {
     // 선적 요청 = 출고예정일 + Invoice 첨부 필수(레거시 필수 게이트 승계)
@@ -590,14 +684,90 @@ export const revertPartnerShipment = async (
 ): Promise<PartnerShipmentResult> => {
   const po = await loadPartnerPo(poId, partnerId);
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
-  if (po.shipment === null) return { ok: false, error: 'NOTHING_TO_REVERT' };
-  const mode = asShipmentMode(po.shipment.mode);
-  const current = asShipmentStatus(mode, po.shipment.status);
+  const shipment = linkedShipment(po);
+  if (shipment === null) return { ok: false, error: 'NOTHING_TO_REVERT' };
+  const mode = asShipmentMode(shipment.mode);
+  const current = asShipmentStatus(mode, shipment.status);
   const prev = bomShipmentPrevStatus(mode, current);
   if (prev === null) return { ok: false, error: 'NOTHING_TO_REVERT' };
   if (bomShipmentActorOf(mode, current) !== 'PARTNER') return { ok: false, error: 'NOT_YOUR_TURN' };
   const saved = await upsertShipment(poId, { status: prev });
   if (!saved.ok) return { ok: false, error: 'PO_NOT_FOUND' };
+  return { ok: true };
+};
+
+/** 박스에서 꺼내기(§6.10·§6.11 개정) — 선적 준비 단계에서만. "기준(대표)" 개념은
+ * 사용자에게서 숨긴다: 대표를 꺼내면 남은 발주서로 자동 승계, 마지막을 꺼내면 발송
+ * 자체를 정리(첨부 실파일 → sp_file → 선적 순서 — 고아 방지). */
+export const detachShipmentPo = async (
+  shipmentId: bigint,
+  poId: bigint,
+): Promise<PartnerShipmentResult> => {
+  const shipment = await prisma.spBomShipment.findUnique({
+    where: { id: shipmentId },
+    include: { pos: { orderBy: { id: 'asc' } } },
+  });
+  if (shipment === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  const mode = asShipmentMode(shipment.mode);
+  if (asShipmentStatus(mode, shipment.status) !== 'preparing') {
+    return { ok: false, error: 'NOT_PREPARING' };
+  }
+  const target = shipment.pos.find((link) => link.poId === poId);
+  if (target === undefined) return { ok: false, error: 'PO_NOT_FOUND' };
+  const remaining = shipment.pos.filter((link) => link.poId !== poId);
+
+  if (remaining.length === 0) {
+    // 빈 박스는 소멸 — 첨부 실파일 먼저 정리(고아 pathToken 방지)
+    const files = await prisma.spFile.findMany({
+      where: { refType: SHIPMENT_FILE_REF_TYPE, refId: shipment.id },
+    });
+    for (const file of files) {
+      await deleteFromFileServer(file.pathToken);
+      await prisma.spFile.delete({ where: { id: file.id } });
+    }
+    await prisma.spBomShipment.delete({ where: { id: shipment.id } }); // 조인 cascade
+    return { ok: true };
+  }
+
+  await prisma.spBomShipmentPo.delete({ where: { id: target.id } });
+  if (shipment.poId === poId) {
+    // 대표 승계 — 내부 참조일 뿐이라 사용자 규칙에 노출하지 않는다
+    const heir = await prisma.spBomPo.findUnique({ where: { id: remaining[0]?.poId ?? 0n } });
+    if (heir !== null) {
+      await prisma.spBomShipment.update({
+        where: { id: shipment.id },
+        data: { poId: heir.id, quoteId: heir.quoteId },
+      });
+    }
+  }
+  return { ok: true };
+};
+
+/** 박스에 담기(§6.11) — 준비 단계 발송에 발주서 추가(소유·미담김·확인 완료 검증). */
+export const attachShipmentPo = async (
+  shipmentId: bigint,
+  poId: bigint,
+  partnerId: bigint,
+): Promise<PartnerShipmentResult> => {
+  const shipment = await prisma.spBomShipment.findUnique({
+    where: { id: shipmentId },
+    include: { po: true },
+  });
+  if (shipment === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  if (shipment.po.partnerId !== partnerId) return { ok: false, error: 'PO_NOT_FOUND' };
+  const mode = asShipmentMode(shipment.mode);
+  if (asShipmentStatus(mode, shipment.status) !== 'preparing') {
+    return { ok: false, error: 'NOT_PREPARING' };
+  }
+  const po = await prisma.spBomPo.findUnique({
+    where: { id: poId },
+    include: { shipmentLink: true },
+  });
+  if (po === null) return { ok: false, error: 'INVALID_GROUP_PO' };
+  if (po.partnerId !== partnerId || po.shipmentLink !== null || po.status === 'issued') {
+    return { ok: false, error: 'INVALID_GROUP_PO' };
+  }
+  await prisma.spBomShipmentPo.create({ data: { shipmentId, poId } });
   return { ok: true };
 };
 
@@ -678,6 +848,67 @@ export const ensurePartnerShipment = async (
   return ensureShipment(po);
 };
 
+// ── 발송 1급(§6.11) — [보내기] 위저드의 "담기"가 발송(선적+조인)을 먼저 만든다 ──
+
+export const createPartnerShipment = async (
+  partnerId: bigint,
+  poIds: number[],
+): Promise<{ ok: true; shipmentId: bigint } | { ok: false; error: 'INVALID_GROUP_PO' }> => {
+  const unique = [...new Set(poIds)].map((id) => BigInt(id));
+  const pos = await prisma.spBomPo.findMany({
+    where: { id: { in: unique } },
+    include: { shipmentLink: true, partner: true },
+  });
+  const valid =
+    pos.length === unique.length &&
+    pos.every(
+      (po) => po.partnerId === partnerId && po.shipmentLink === null && po.status !== 'issued',
+    );
+  const primary = pos.find((po) => po.id === unique[0]);
+  if (!valid || primary === undefined) return { ok: false, error: 'INVALID_GROUP_PO' };
+  const created = await prisma.spBomShipment.create({
+    data: {
+      poId: primary.id,
+      quoteId: primary.quoteId,
+      mode: primary.partner.country === 'KR' ? 'domestic' : 'international',
+      status: 'preparing',
+    },
+  });
+  await prisma.spBomShipmentPo.createMany({
+    data: unique.map((poId) => ({ shipmentId: created.id, poId })),
+  });
+  return { ok: true, shipmentId: created.id };
+};
+
+/** 협력사의 발송 목록(§6.11) — 소속·파일·묶음 배치 포함, 진행 중이 위로. */
+export const loadPartnerShipments = async (partnerId: bigint) => {
+  const shipments = await prisma.spBomShipment.findMany({
+    where: { pos: { some: { po: { partnerId } } } },
+    orderBy: [{ receivedAt: 'asc' }, { id: 'desc' }],
+  });
+  const ids = shipments.map((s) => s.id);
+  const [filesMap, groupMap] = await Promise.all([
+    loadShipmentFilesMap(ids),
+    loadShipmentGroupMap(ids),
+  ]);
+  return shipments.map((shipment) => {
+    const view = toShipmentView(
+      shipment,
+      filesMap.get(shipment.id.toString()) ?? [],
+      groupMap.get(shipment.id.toString()) ?? [],
+    );
+    const next = bomShipmentNextStatus(view.mode, view.status);
+    return {
+      ...view,
+      primaryPoId: Number(shipment.poId),
+      myTurn:
+        shipment.receivedAt === null &&
+        next !== null &&
+        bomShipmentActorOf(view.mode, next) === 'PARTNER',
+    };
+  });
+};
+
 // ── 관리자 차례 선적(D22 인지 장치) — 메뉴 배지·목록 칩 파생 ─────────────────
 // "다음 단계 진입 주체 = ADMIN"이고 아직 검수(receivedAt) 전인 선적. 협력사 차례·
 // 최종 단계·검수 완료 건은 대기 아님.
@@ -693,23 +924,46 @@ export const isShipmentAdminPending = (row: {
   return next !== null && bomShipmentActorOf(mode, next) === 'ADMIN';
 };
 
-/** 전역 파생 1회 로드 — byQuote(칩)·total(배지). 선적 행 수가 작아 전량 스캔으로 충분. */
+/** 전역 파생 1회 로드 — byQuote(칩)·total(배지). §6.10: 묶음이 여러 Case 를 걸칠 수
+ * 있어 byQuote 는 조인 소속 발주서들의 quoteId 전부에 찍는다. total 은 선적 단위. */
 export const loadShipmentAdminPending = async (): Promise<{
   byQuote: Set<string>;
   total: number;
 }> => {
   const rows = await prisma.spBomShipment.findMany({
     where: { receivedAt: null },
-    select: { quoteId: true, mode: true, status: true, receivedAt: true },
+    select: {
+      mode: true,
+      status: true,
+      receivedAt: true,
+      pos: { select: { po: { select: { quoteId: true } } } },
+    },
   });
   const byQuote = new Set<string>();
   let total = 0;
   for (const row of rows) {
     if (!isShipmentAdminPending(row)) continue;
     total += 1;
-    byQuote.add(row.quoteId.toString());
+    for (const link of row.pos) byQuote.add(link.po.quoteId.toString());
   }
   return { byQuote, total };
+};
+
+/** 입고 확인된 발주서 수(quoteId별, §6.10 조인 기반) — quote 목록·주문 축 poReceivedCount. */
+export const loadReceivedPoCounts = async (quoteIds: bigint[]): Promise<Map<bigint, number>> => {
+  const map = new Map<bigint, number>();
+  if (quoteIds.length === 0) return map;
+  const links = await prisma.spBomShipmentPo.findMany({
+    where: {
+      shipment: { receivedAt: { not: null } },
+      po: { quoteId: { in: quoteIds } },
+    },
+    select: { po: { select: { quoteId: true } } },
+  });
+  for (const link of links) {
+    map.set(link.po.quoteId, (map.get(link.po.quoteId) ?? 0) + 1);
+  }
+  return map;
 };
 
 // ── 협력사 포털 직렬화 ───────────────────────────────────────────────────────
@@ -718,12 +972,12 @@ export const loadShipmentAdminPending = async (): Promise<{
 // 발주 확인(issued) 전엔 확인이 먼저라 false, 검수(receivedAt) 후엔 할 일 없음.
 // 선적 문서가 없어도 첫 전이(선적 요청/배송중)는 협력사 몫이라 국가 기본 모드로 판정한다.
 const partnerShipmentSummary = (
-  po: SpBomPo & { partner: SpPartner; shipment?: SpBomShipment | null },
+  po: SpBomPo & { partner: SpPartner; shipmentLink?: ShipmentLink | null },
 ): Pick<
   PartnerPoListItemType,
-  'shipmentMode' | 'shipmentStatus' | 'shipmentReceived' | 'shipmentMyTurn'
+  'shipmentMode' | 'shipmentStatus' | 'shipmentReceived' | 'shipmentMyTurn' | 'shipmentAttached'
 > => {
-  const shipment = po.shipment ?? null;
+  const shipment = linkedShipment(po);
   const mode =
     shipment !== null
       ? asShipmentMode(shipment.mode)
@@ -743,6 +997,7 @@ const partnerShipmentSummary = (
     shipmentStatus: status,
     shipmentReceived: received,
     shipmentMyTurn: myTurn,
+    shipmentAttached: shipment !== null,
   };
 };
 
@@ -763,8 +1018,10 @@ export const toPartnerPoListItem = (
 export const toPartnerPoDetail = (
   po: PoWithItems & { quote: { title: string } },
   shipmentFiles: BomShipmentFileMetaType[] = [],
+  groupPos: BomShipmentGroupPoType[] = [],
 ): PartnerPoDetailType => {
-  const shipment = po.shipment == null ? null : toShipmentView(po.shipment, shipmentFiles);
+  const linked = linkedShipment(po);
+  const shipment = linked === null ? null : toShipmentView(linked, shipmentFiles, groupPos);
   return {
     poId: Number(po.id),
     quoteTitle: po.quote.title,
@@ -788,6 +1045,7 @@ export const toPartnerPoDetail = (
             receivedAt: shipment.receivedAt,
             receivedNote: shipment.receivedNote,
             files: shipment.files,
+            groupPos: shipment.groupPos,
           },
     items: po.items.map(toItemView),
   };

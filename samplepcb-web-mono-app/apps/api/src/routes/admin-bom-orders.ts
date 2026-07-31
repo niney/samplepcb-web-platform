@@ -8,6 +8,7 @@ import type {
   AdminBomOrderListItemType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
+import { loadReceivedPoCounts } from '../lib/bom-po';
 import { getCartOrderLinks, getOrderHeadersLite } from '../lib/g5-db';
 
 // ── /api/admin/bom-orders — 스마트 BOM 주문·결제(주문 축) 파생 목록 (D19) ────
@@ -38,23 +39,17 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
       const ctIds = quotes.flatMap((quote) => (quote.ctId === null ? [] : [quote.ctId]));
       const quoteIds = quotes.map((quote) => quote.id);
-      const [links, poGroups, receivedGroups] = await Promise.all([
+      const [links, poGroups, receivedCounts] = await Promise.all([
         getCartOrderLinks(ctIds),
         prisma.spBomPo.groupBy({
           by: ['quoteId'],
           where: { quoteId: { in: quoteIds } },
           _count: { _all: true },
         }),
-        prisma.spBomShipment.groupBy({
-          by: ['quoteId'],
-          where: { quoteId: { in: quoteIds }, receivedAt: { not: null } },
-          _count: { _all: true },
-        }),
+        // 입고 발주서 수 — §6.10 조인 기반(묶음이 여러 Case 를 걸칠 수 있음)
+        loadReceivedPoCounts(quoteIds),
       ]);
       const poCounts = new Map(poGroups.map((group) => [group.quoteId, group._count._all]));
-      const receivedCounts = new Map(
-        receivedGroups.map((group) => [group.quoteId, group._count._all]),
-      );
 
       // 실주문 라인(ct_status ≠ '쇼핑')만 주문 축으로 승격 — 담김(cart)은 주문 아님.
       const quotesByOd = new Map<string, typeof quotes>();

@@ -172,6 +172,16 @@ export const BomShipmentFileMeta = z.object({
 });
 export type BomShipmentFileMetaType = z.infer<typeof BomShipmentFileMeta>;
 
+/** 선적 그룹 소속 발주서(§6.10) — 같은 협력사의 묶음 표시·제외용. */
+export const BomShipmentGroupPo = z.object({
+  poId: z.number(),
+  quoteTitle: z.string(),
+  totalAmount: z.number().int(),
+  /** 대표(생성) 발주서 — 묶음에서 제외 불가(선적 자체의 기준). */
+  isPrimary: z.boolean(),
+});
+export type BomShipmentGroupPoType = z.infer<typeof BomShipmentGroupPo>;
+
 export const BomShipmentView = z.object({
   shipmentId: z.number(),
   mode: BomShipmentMode,
@@ -185,6 +195,8 @@ export const BomShipmentView = z.object({
   receivedNote: z.string().nullable(),
   completedAt: z.string().nullable(),
   files: z.array(BomShipmentFileMeta),
+  /** 묶음 소속 전체(대표 포함, §6.10) — 1건이면 단독 선적. */
+  groupPos: z.array(BomShipmentGroupPo),
 });
 export type BomShipmentViewType = z.infer<typeof BomShipmentView>;
 
@@ -211,6 +223,9 @@ export const PartnerShipmentAdvanceBody = z.object({
   carrier: z.string().trim().max(50).nullish(),
   trackingNumber: z.string().trim().max(100).nullish(),
   trackingUrl: z.string().trim().max(500).nullish(),
+  /** 함께 발송할 발주서(§6.10 — 같은 박스). 최초 발송 전이에서만 유효, 같은 협력사·
+   * 미소속 발주서만(서버 검증). */
+  withPoIds: z.array(z.number().int().positive()).max(50).optional(),
 });
 export type PartnerShipmentAdvanceBodyType = z.infer<typeof PartnerShipmentAdvanceBody>;
 
@@ -331,6 +346,8 @@ export const PartnerPoListItem = z.object({
   shipmentReceived: z.boolean(),
   /** 다음 선적 단계가 협력사 차례(D22) — 발주 확인(issued) 전·검수 후는 false. */
   shipmentMyTurn: z.boolean(),
+  /** 선적(그룹)에 소속됨(§6.10) — "함께 발송" 후보 필터(미소속만 후보). */
+  shipmentAttached: z.boolean(),
 });
 export type PartnerPoListItemType = z.infer<typeof PartnerPoListItem>;
 
@@ -349,7 +366,7 @@ export const PartnerPoDetail = z.object({
   memo: z.string().nullable(),
   issuedAt: z.string(),
   confirmedAt: z.string().nullable(),
-  /** 선적(D21·D22) — 핑퐁 진행에 필요한 전부(입고 확인·편차 메모 포함 — 재발송 협의 근거). */
+  /** 선적(D21·D22·§6.10) — 핑퐁 진행에 필요한 전부(입고·편차 메모·묶음 소속 포함). */
   shipment: BomShipmentView.pick({
     mode: true,
     status: true,
@@ -361,6 +378,7 @@ export const PartnerPoDetail = z.object({
     receivedAt: true,
     receivedNote: true,
     files: true,
+    groupPos: true,
   }).nullable(),
   items: z.array(BomPoItemView),
 });
@@ -371,3 +389,31 @@ export const PartnerPoDetailResponse = z.object({
   data: PartnerPoDetail,
 });
 export type PartnerPoDetailResponseType = z.infer<typeof PartnerPoDetailResponse>;
+
+// ── 발송(1급 개념, §6.11) — 포털의 "박스" 단위 뷰. 조작은 대표 발주서(primaryPoId)
+// 경유로 기존 poId 라우트를 재사용한다(신규 표면 최소화).
+
+export const PartnerShipmentView = BomShipmentView.extend({
+  primaryPoId: z.number(),
+  /** 다음 단계가 협력사 차례(검수 전) — 홈 "내 차례" 강조. */
+  myTurn: z.boolean(),
+});
+export type PartnerShipmentViewType = z.infer<typeof PartnerShipmentView>;
+
+export const PartnerShipmentListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ items: z.array(PartnerShipmentView) }),
+});
+export type PartnerShipmentListResponseType = z.infer<typeof PartnerShipmentListResponse>;
+
+/** [보내기] 담기(§6.11) — 선택 발주서로 발송(preparing 선적+조인) 생성. 첫 번째가 대표. */
+export const PartnerShipmentCreateBody = z.object({
+  poIds: z.array(z.number().int().positive()).min(1).max(50),
+});
+export type PartnerShipmentCreateBodyType = z.infer<typeof PartnerShipmentCreateBody>;
+
+export const PartnerShipmentCreateResponse = z.object({
+  result: z.literal(true),
+  data: PartnerShipmentView,
+});
+export type PartnerShipmentCreateResponseType = z.infer<typeof PartnerShipmentCreateResponse>;

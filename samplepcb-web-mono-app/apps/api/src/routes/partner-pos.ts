@@ -8,22 +8,31 @@ import {
   PartnerPoDetailResponse,
   PartnerPoListResponse,
   PartnerShipmentAdvanceBody,
+  PartnerShipmentCreateBody,
+  PartnerShipmentCreateResponse,
+  PartnerShipmentListResponse,
   bomShipmentStatusLabel,
   type BomShipmentFileMetaType,
+  type BomShipmentGroupPoType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
   advancePartnerShipment,
   asShipmentMode,
   asShipmentStatus,
+  attachShipmentPo,
+  createPartnerShipment,
   deleteShipmentFile,
+  detachShipmentPo,
   ensurePartnerShipment,
   getShipmentFileDownload,
+  loadPartnerShipments,
   revertPartnerShipment,
   saveShipmentFile,
   toPartnerPoDetail,
   toPartnerPoListItem,
   loadShipmentFilesMap,
+  loadShipmentGroupMap,
   type PartnerShipmentError,
 } from '../lib/bom-po';
 import { collectMultipart } from '../lib/market';
@@ -47,6 +56,8 @@ const ADVANCE_ERROR_MESSAGE: Record<PartnerShipmentError, string> = {
   MISSING_SHIP_DATE: '출고예정일을 입력해 주세요.',
   MISSING_INVOICE_FILE: 'Invoice 파일을 먼저 첨부해 주세요.',
   MISSING_TRACKING: '택배사와 송장번호를 입력해 주세요.',
+  INVALID_GROUP_PO: '담을 수 없는 발주서입니다 — 목록을 새로고침해 주세요.',
+  NOT_PREPARING: '발송 준비 단계에서만 박스를 변경할 수 있습니다.',
 };
 
 export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
@@ -58,18 +69,24 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       include: {
         items: { orderBy: { id: 'asc' } },
         quote: { select: { title: true } },
-        shipment: true,
+        shipmentLink: { include: { shipment: true } },
       },
     });
     if (po === null) return null;
     if (po.partnerId !== partnerId) return null;
-    const filesMap =
-      po.shipment === null
-        ? new Map<string, BomShipmentFileMetaType[]>()
-        : await loadShipmentFilesMap([po.shipment.id]);
+    const shipmentId = po.shipmentLink?.shipmentId ?? null;
+    const [filesMap, groupMap] =
+      shipmentId === null
+        ? [
+            new Map<string, BomShipmentFileMetaType[]>(),
+            new Map<string, BomShipmentGroupPoType[]>(),
+          ]
+        : await Promise.all([loadShipmentFilesMap([shipmentId]), loadShipmentGroupMap([shipmentId])]);
+    const key = shipmentId?.toString();
     return toPartnerPoDetail(
       po,
-      po.shipment === null ? [] : (filesMap.get(po.shipment.id.toString()) ?? []),
+      key === undefined ? [] : (filesMap.get(key) ?? []),
+      key === undefined ? [] : (groupMap.get(key) ?? []),
     );
   };
 
@@ -81,10 +98,14 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
   ): Promise<void> => {
     const po = await prisma.spBomPo.findUnique({
       where: { id: poId },
-      include: { shipment: true, quote: { select: { id: true, title: true } } },
+      include: {
+        shipmentLink: { include: { shipment: true } },
+        quote: { select: { id: true, title: true } },
+      },
     });
-    if (po?.shipment == null) return;
-    const mode = asShipmentMode(po.shipment.mode);
+    const shipment = po?.shipmentLink?.shipment ?? null;
+    if (po === null || shipment === null) return;
+    const mode = asShipmentMode(shipment.mode);
     const profile = await getShopEstimateProfile();
     void sendBomRfqMail(
       log,
@@ -93,7 +114,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         quoteId: String(po.quote.id),
         quoteTitle: po.quote.title,
         partnerName,
-        statusLabel: bomShipmentStatusLabel(mode, asShipmentStatus(mode, po.shipment.status)),
+        statusLabel: bomShipmentStatusLabel(mode, asShipmentStatus(mode, shipment.status)),
       }),
     );
   };
@@ -110,7 +131,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           items: true,
           quote: { select: { title: true } },
           partner: true,
-          shipment: true,
+          shipmentLink: { include: { shipment: true } },
         },
         orderBy: [{ status: 'asc' }, { issuedAt: 'desc' }],
       });
@@ -169,6 +190,93 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       const ctx = request.partnerContext;
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
       const result = await revertPartnerShipment(request.params.poId, ctx.partnerId);
+      if (!result.ok) {
+        if (result.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
+        return reply
+          .status(409)
+          .send({ error: result.error, message: ADVANCE_ERROR_MESSAGE[result.error] });
+      }
+      const detail = await loadDetail(request.params.poId, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  // ── 발송 1급(§6.11) — [보내기] 담기(생성) + 발송 목록(홈 추적 카드) ──────────
+  fastify.post(
+    '/partner/shipments',
+    {
+      schema: {
+        body: PartnerShipmentCreateBody,
+        response: { 200: PartnerShipmentCreateResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const result = await createPartnerShipment(ctx.partnerId, request.body.poIds);
+      if (!result.ok) {
+        return reply.status(409).send({
+          error: result.error,
+          message: '선택한 발주서를 담을 수 없습니다 — 목록을 새로고침해 주세요.',
+        });
+      }
+      const items = await loadPartnerShipments(ctx.partnerId);
+      const created = items.find((item) => item.shipmentId === Number(result.shipmentId));
+      if (created === undefined) return reply.notFound('발송을 찾을 수 없습니다');
+      return { result: true as const, data: created };
+    },
+  );
+
+  fastify.get(
+    '/partner/shipments',
+    { schema: { response: { 200: PartnerShipmentListResponse } } },
+    async (request) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      return { result: true as const, data: { items: await loadPartnerShipments(ctx.partnerId) } };
+    },
+  );
+
+  // 박스에 담기(§6.11 두 칸 UI) — 준비 중 발송에 발주서 추가.
+  const ShipmentPoBody = z.object({ poId: z.number().int().positive() });
+  fastify.post(
+    '/partner/shipments/:shipmentId/pos',
+    {
+      schema: {
+        params: z.object({ shipmentId: z.coerce.bigint() }),
+        body: ShipmentPoBody,
+        response: { 200: PartnerShipmentListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const result = await attachShipmentPo(
+        request.params.shipmentId,
+        BigInt(request.body.poId),
+        ctx.partnerId,
+      );
+      if (!result.ok) {
+        if (result.error === 'PO_NOT_FOUND') return reply.notFound('발송을 찾을 수 없습니다');
+        return reply
+          .status(409)
+          .send({ error: result.error, message: ADVANCE_ERROR_MESSAGE[result.error] });
+      }
+      return { result: true as const, data: { items: await loadPartnerShipments(ctx.partnerId) } };
+    },
+  );
+
+  // 묶음에서 제외(§6.10) — 자기 발주서를 그룹에서 뺀다(대표 불가·발송 준비 단계만).
+  fastify.delete(
+    '/partner/pos/:poId/shipment/membership',
+    { schema: { params: PoIdParams, response: { 200: PartnerPoDetailResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
+      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const result = await detachShipmentPo(shipment.id, request.params.poId);
       if (!result.ok) {
         if (result.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
         return reply

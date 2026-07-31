@@ -85,6 +85,13 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/partner/PartnerPoDetail.vue'),
         meta: { requiresMember: true },
       },
+      {
+        // [📦 보내기](§6.11) — 발주서를 박스에 담아 발송을 만드는 순방향 플로우
+        path: 'ship',
+        name: 'partner-ship',
+        component: () => import('./pages/partner/PartnerShip.vue'),
+        meta: { requiresMember: true },
+      },
     ],
   },
   // 매직링크 무로그인 회신(§6.9) — 공개 라우트(가드 없음). 인증은 URL 토큰이 담당하며

@@ -955,7 +955,8 @@ model SpBomPo {
   quote       SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   partner     SpPartner      @relation(fields: [partnerId], references: [id])
   items       SpBomPoItem[]
-  shipment    SpBomShipment?
+  shipment    SpBomShipment? // 대표(생성) 관계 — 소속 판정은 shipmentLink 가 진실(§6.10)
+  shipmentLink SpBomShipmentPo?
 
   @@unique([quoteId, partnerId])
   @@index([partnerId, status]) // 협력사 포털 워크큐
@@ -968,8 +969,10 @@ model SpBomPo {
 // @sp/api-contract BOM_SHIPMENT_* 정본. 입고 확인(검수 ⑩)=receivedAt+편차 메모.
 model SpBomShipment {
   id             BigInt    @id @default(autoincrement())
+  // §6.10 그룹 도입 후 poId = 생성(대표) 발주서, quoteId = 대표의 Case. 소속의 진실은
+  // 조인(SpBomShipmentPo) — 파생 집계는 조인 기반으로 계산한다(다중 Case 묶음 가능).
   poId           BigInt    @unique
-  quoteId        BigInt // Case 축 조회 편의(파생 집계)
+  quoteId        BigInt
   mode           String    @default("international") @db.VarChar(16) // international|domestic
   status         String    @db.VarChar(20) // 모드별 코드 사전(intl 6단계/domestic 3단계)
   carrier        String?   @db.VarChar(50)
@@ -984,9 +987,25 @@ model SpBomShipment {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   po             SpBomPo   @relation(fields: [poId], references: [id], onDelete: Cascade)
+  pos            SpBomShipmentPo[]
 
   @@index([quoteId])
   @@map("sp_bom_shipment")
+}
+
+// 선적 그룹(§6.10) — 선적:발주서 = 1:N 소속의 진실. poId UNIQUE = 발주서는 최대
+// 1개 선적 소속(부분 입고 확장 전까지). 발주서 스키마에 선적 참조를 넣지 않는
+// D13 원칙은 조인 테이블이라 유지된다.
+model SpBomShipmentPo {
+  id         BigInt        @id @default(autoincrement())
+  shipmentId BigInt
+  poId       BigInt        @unique
+  createdAt  DateTime      @default(now())
+  shipment   SpBomShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  po         SpBomPo       @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+  @@map("sp_bom_shipment_po")
 }
 
 // 발주 행 — 생성 시점의 부품·수량·단가 스냅샷(견적 행이 이후 바뀌어도 불변).

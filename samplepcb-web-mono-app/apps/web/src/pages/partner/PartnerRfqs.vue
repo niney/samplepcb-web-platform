@@ -1,55 +1,53 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { ApiRequestError } from '@sp/shared';
+import { BOM_PO_STATUS_LABELS, BOM_RFQ_STATUS_LABELS } from '@sp/api-contract';
 import {
-  BOM_PO_STATUS_LABELS,
-  BOM_RFQ_STATUS_LABELS,
-  bomShipmentNextStatus,
-  bomShipmentStatusLabel,
-  type PartnerPoListItemType,
-} from '@sp/api-contract';
-import { usePartnerPos, usePartnerRfqs } from '../../partner/usePartnerRfqs';
+  usePartnerPos,
+  usePartnerRfqs,
+  usePartnerShipments,
+} from '../../partner/usePartnerRfqs';
+import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
 
-// 파트너 포털 워크큐 — 받은 견적요청(회신할 것/한 것) + 받은 발주(D18) + 선적 차례(D22).
-// 서버가 소속을 판정하므로 403 은 "파트너 계정 아님" 안내로 처리한다.
+// 파트너 포털 홈(§6.11 재구성) — 문서 나열이 아니라 "오늘 할 일" 중심:
+// ① 회신할 견적 ② 확인할 발주 ③ 보낼 물건([보내기] 위저드) ④ 진행 중 발송(핑퐁).
+// 발주서는 문서 열람용 보조 목록로 내려간다. 서버가 소속을 판정(403=파트너 아님).
 
 const { data, error, isLoading } = usePartnerRfqs();
 const poQuery = usePartnerPos();
-// 처리할 것(미확인·선적 내 차례)이 위로 — 서버 상태순 정렬 위에 액션 우선 정렬을 얹는다.
-const poItems = computed(() => {
-  const items = poQuery.data.value?.data.items ?? [];
-  const weight = (po: PartnerPoListItemType): number =>
-    po.status === 'issued' ? 0 : po.shipmentMyTurn ? 1 : 2;
-  return [...items].sort((a, b) => weight(a) - weight(b));
-});
-const poActionCount = computed(
-  () => poItems.value.filter((po) => po.status === 'issued' || po.shipmentMyTurn).length,
-);
-
-// 선적 다음 단계 라벨(내 차례 칩) — "선적 요청 필요"·"배송중 처리 필요" 등.
-const shipmentNextLabel = (po: PartnerPoListItemType): string => {
-  const next = bomShipmentNextStatus(po.shipmentMode, po.shipmentStatus);
-  return next === null ? '' : bomShipmentStatusLabel(po.shipmentMode, next);
-};
-// 선적 진행 요약 — 시작 전(preparing·문서 없음)은 표시 생략, 진행 중부터 노출.
-const shipmentSummary = (po: PartnerPoListItemType): string | null => {
-  if (po.shipmentReceived) return '입고 완료';
-  if (po.shipmentStatus === 'preparing') return null;
-  return `선적 ${bomShipmentStatusLabel(po.shipmentMode, po.shipmentStatus)}`;
-};
+const shipmentsQuery = usePartnerShipments();
 
 const notPartner = computed(
   () => error.value instanceof ApiRequestError && error.value.status === 403,
 );
-const items = computed(() => data.value?.data.items ?? []);
-const pending = computed(() => items.value.filter((r) => r.status === 'requested'));
-const done = computed(() => items.value.filter((r) => r.status !== 'requested'));
+
+// ── 할 일 파생 ───────────────────────────────────────────────────────────────
+const rfqItems = computed(() => data.value?.data.items ?? []);
+const pendingRfqs = computed(() => rfqItems.value.filter((r) => r.status === 'requested'));
+const doneRfqs = computed(() => rfqItems.value.filter((r) => r.status !== 'requested'));
+
+const poItems = computed(() => poQuery.data.value?.data.items ?? []);
+const toConfirm = computed(() => poItems.value.filter((po) => po.status === 'issued'));
+const toShip = computed(
+  () => poItems.value.filter((po) => po.status !== 'issued' && !po.shipmentAttached),
+);
+
+const shipments = computed(() => shipmentsQuery.data.value?.data.items ?? []);
+// 준비 중 박스는 홈에 카드로 두지 않는다 — 편집·발송은 [📦 보내기] 화면이 전담(바로 유도).
+const preparingCount = computed(
+  () => shipments.value.filter((s) => s.status === 'preparing').length,
+);
+const activeShipments = computed(() =>
+  shipments.value.filter((s) => s.receivedAt === null && s.status !== 'preparing'),
+);
+const myTurnCount = computed(() => activeShipments.value.filter((s) => s.myTurn).length);
+const doneShipments = computed(() => shipments.value.filter((s) => s.receivedAt !== null));
 
 const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
 const fmtWon = (v: number | null, currency: string): string =>
   v === null ? '—' : `${v.toLocaleString('ko-KR')} ${currency}`;
 
-const statusCls = (s: string): string =>
+const rfqStatusCls = (s: string): string =>
   s === 'quoted'
     ? 'bg-emerald-100 text-emerald-700'
     : s === 'requested'
@@ -60,9 +58,9 @@ const statusCls = (s: string): string =>
 <template>
   <div class="space-y-6">
     <div>
-      <h1 class="text-xl font-bold">받은 견적요청</h1>
+      <h1 class="text-xl font-bold">파트너 홈</h1>
       <p v-if="data !== undefined" class="mt-0.5 text-sm text-gray-500">
-        {{ data.data.partnerName }} 님에게 요청된 부품 견적입니다.
+        {{ data.data.partnerName }} 님, 오늘 처리할 일입니다.
       </p>
     </div>
 
@@ -72,11 +70,61 @@ const statusCls = (s: string): string =>
     <p v-else-if="isLoading" class="text-sm text-gray-400">불러오는 중…</p>
 
     <template v-else>
-      <section>
-        <h2 class="text-sm font-bold text-gray-700">회신할 것 ({{ pending.length }})</h2>
+      <!-- 오늘 할 일 — 카드 4개 -->
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <a
+          href="#reply"
+          class="rounded-xl border bg-surface p-4 hover:border-blue-300"
+          :class="pendingRfqs.length > 0 ? 'border-blue-200' : 'border-gray-200'"
+        >
+          <p class="text-sm text-gray-500">회신할 견적</p>
+          <p class="mt-1 text-2xl font-bold" :class="pendingRfqs.length > 0 ? 'text-blue-700' : 'text-gray-300'">
+            {{ pendingRfqs.length }}<span class="text-sm font-semibold">건</span>
+          </p>
+        </a>
+        <a
+          href="#confirm"
+          class="rounded-xl border bg-surface p-4 hover:border-emerald-300"
+          :class="toConfirm.length > 0 ? 'border-emerald-200' : 'border-gray-200'"
+        >
+          <p class="text-sm text-gray-500">확인할 발주</p>
+          <p class="mt-1 text-2xl font-bold" :class="toConfirm.length > 0 ? 'text-emerald-700' : 'text-gray-300'">
+            {{ toConfirm.length }}<span class="text-sm font-semibold">건</span>
+          </p>
+        </a>
+        <RouterLink
+          :to="{ name: 'partner-ship' }"
+          class="rounded-xl border bg-surface p-4 hover:border-indigo-300"
+          :class="toShip.length > 0 || preparingCount > 0 ? 'border-indigo-200' : 'border-gray-200'"
+        >
+          <p class="text-sm text-gray-500">📦 보낼 물건</p>
+          <p class="mt-1 text-2xl font-bold" :class="toShip.length > 0 ? 'text-indigo-700' : 'text-gray-300'">
+            {{ toShip.length }}<span class="text-sm font-semibold">건</span>
+          </p>
+          <p v-if="preparingCount > 0" class="mt-0.5 text-xs font-bold text-indigo-600">
+            준비 중인 박스 {{ preparingCount }}건 — 계속하기 →
+          </p>
+          <p v-else-if="toShip.length > 0" class="mt-0.5 text-xs font-semibold text-indigo-600">보내기 →</p>
+        </RouterLink>
+        <a
+          href="#shipments"
+          class="rounded-xl border bg-surface p-4 hover:border-blue-300"
+          :class="myTurnCount > 0 ? 'border-blue-300' : 'border-gray-200'"
+        >
+          <p class="text-sm text-gray-500">진행 중 발송</p>
+          <p class="mt-1 text-2xl font-bold" :class="activeShipments.length > 0 ? 'text-gray-800' : 'text-gray-300'">
+            {{ activeShipments.length }}<span class="text-sm font-semibold">건</span>
+          </p>
+          <p v-if="myTurnCount > 0" class="mt-0.5 text-xs font-bold text-blue-600">내 차례 {{ myTurnCount }}건!</p>
+        </a>
+      </div>
+
+      <!-- ① 회신할 견적 -->
+      <section v-if="pendingRfqs.length > 0" id="reply">
+        <h2 class="text-sm font-bold text-gray-700">회신할 견적 ({{ pendingRfqs.length }})</h2>
         <div class="mt-2 grid gap-2">
           <RouterLink
-            v-for="rfq in pending"
+            v-for="rfq in pendingRfqs"
             :key="rfq.rfqId"
             :to="{ name: 'partner-rfq', params: { id: String(rfq.rfqId) } }"
             class="flex items-center gap-3 rounded-xl border border-gray-200 bg-surface px-4 py-3 hover:border-blue-300 hover:bg-blue-50/40"
@@ -87,86 +135,101 @@ const statusCls = (s: string): string =>
                 {{ rfq.itemCount }}개 품목 · 요청일 {{ fmtDate(rfq.requestedAt) }}
               </p>
             </div>
-            <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(rfq.status)">
-              {{ BOM_RFQ_STATUS_LABELS[rfq.status] }}
-            </span>
             <span class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">회신하기</span>
           </RouterLink>
-          <p v-if="pending.length === 0" class="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
-            회신 대기 중인 요청이 없습니다.
-          </p>
         </div>
       </section>
 
-      <!-- 받은 발주(D18) — 처리할 것(미확인·선적 내 차례)이 위로 -->
-      <section v-if="poItems.length > 0">
-        <h2 class="text-sm font-bold text-gray-700">
-          받은 발주 ({{ poItems.length }}<template v-if="poActionCount > 0"> · <span class="text-blue-700">처리 필요 {{ poActionCount }}</span></template>)
-        </h2>
+      <!-- ② 확인할 발주 -->
+      <section v-if="toConfirm.length > 0" id="confirm">
+        <h2 class="text-sm font-bold text-gray-700">확인할 발주 ({{ toConfirm.length }})</h2>
         <div class="mt-2 grid gap-2">
           <RouterLink
-            v-for="po in poItems"
+            v-for="po in toConfirm"
             :key="po.poId"
             :to="{ name: 'partner-po', params: { id: String(po.poId) } }"
-            class="flex items-center gap-3 rounded-xl border bg-surface px-4 py-3 hover:border-emerald-300 hover:bg-emerald-50/40"
-            :class="po.status === 'issued' || po.shipmentMyTurn ? 'border-blue-200' : 'border-gray-200'"
+            class="flex items-center gap-3 rounded-xl border border-emerald-200 bg-surface px-4 py-3 hover:bg-emerald-50/40"
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ po.quoteTitle }}</p>
               <p class="mt-0.5 text-sm text-gray-500">
-                {{ po.itemCount }}개 품목 ·
-                합계 {{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }} (VAT 별도) ·
-                발행 {{ fmtDate(po.issuedAt) }}
-                <template v-if="shipmentSummary(po) !== null">
-                  · <span :class="po.shipmentReceived ? 'font-semibold text-emerald-600' : 'text-gray-600'">{{ shipmentSummary(po) }}</span>
-                </template>
+                {{ po.itemCount }}개 품목 · {{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }} (VAT 별도)
               </p>
             </div>
-            <!-- 선적 내 차례(D22) — 다음 단계를 구체적으로 -->
-            <span
-              v-if="po.shipmentMyTurn"
-              class="rounded bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700"
-            >
-              {{ shipmentNextLabel(po) }} 필요
-            </span>
-            <span
-              class="rounded px-2 py-0.5 text-xs font-semibold"
-              :class="po.status === 'issued' ? 'bg-blue-100 text-blue-700' : po.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'"
-            >
-              {{ BOM_PO_STATUS_LABELS[po.status] }}
-            </span>
-            <span v-if="po.status === 'issued'" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">확인하기</span>
-            <span v-else-if="po.shipmentMyTurn" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">진행하기</span>
+            <span class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">확인하기</span>
           </RouterLink>
         </div>
       </section>
 
-      <section>
-        <h2 class="text-sm font-bold text-gray-700">회신한 것 ({{ done.length }})</h2>
-        <div class="mt-2 grid gap-2">
+      <!-- ④ 진행 중 발송 — 발송(박스) 단위 추적·핑퐁 -->
+      <section v-if="activeShipments.length > 0" id="shipments">
+        <h2 class="text-sm font-bold text-gray-700">진행 중 발송 ({{ activeShipments.length }})</h2>
+        <div class="mt-2 space-y-3">
+          <PartnerShipmentCard v-for="s in activeShipments" :key="s.shipmentId" :shipment="s" />
+        </div>
+      </section>
+
+      <!-- 보조: 모든 발주서(문서 열람) -->
+      <details v-if="poItems.length > 0" class="rounded-xl border border-gray-200 bg-surface">
+        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
+          모든 발주서 ({{ poItems.length }})
+        </summary>
+        <div class="grid gap-2 px-4 pb-4">
           <RouterLink
-            v-for="rfq in done"
+            v-for="po in poItems"
+            :key="po.poId"
+            :to="{ name: 'partner-po', params: { id: String(po.poId) } }"
+            class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
+          >
+            <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ po.quoteTitle }}</span>
+            <span class="text-xs text-gray-400">{{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }}</span>
+            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="po.status === 'issued' ? 'bg-blue-100 text-blue-700' : po.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'">
+              {{ BOM_PO_STATUS_LABELS[po.status] }}
+            </span>
+            <span v-if="po.shipmentAttached" class="text-xs text-indigo-500">📦</span>
+          </RouterLink>
+        </div>
+      </details>
+
+      <!-- 보조: 회신한 견적 -->
+      <details v-if="doneRfqs.length > 0" class="rounded-xl border border-gray-200 bg-surface">
+        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
+          회신한 견적 ({{ doneRfqs.length }})
+        </summary>
+        <div class="grid gap-2 px-4 pb-4">
+          <RouterLink
+            v-for="rfq in doneRfqs"
             :key="rfq.rfqId"
             :to="{ name: 'partner-rfq', params: { id: String(rfq.rfqId) } }"
-            class="flex items-center gap-3 rounded-xl border border-gray-200 bg-surface px-4 py-3 hover:bg-gray-50"
+            class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
           >
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.quoteTitle }}</p>
-              <p class="mt-0.5 text-sm text-gray-500">
-                회신 {{ rfq.repliedItemCount }}/{{ rfq.itemCount }}행 ·
-                합계 {{ fmtWon(rfq.totalAmount, rfq.currency) }} ·
-                회신일 {{ fmtDate(rfq.respondedAt) }}
-              </p>
-            </div>
-            <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(rfq.status)">
+            <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ rfq.quoteTitle }}</span>
+            <span class="text-xs text-gray-400">
+              회신 {{ rfq.repliedItemCount }}/{{ rfq.itemCount }}행 · {{ fmtWon(rfq.totalAmount, rfq.currency) }}
+            </span>
+            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="rfqStatusCls(rfq.status)">
               {{ BOM_RFQ_STATUS_LABELS[rfq.status] }}
             </span>
           </RouterLink>
-          <p v-if="done.length === 0" class="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
-            아직 회신한 요청이 없습니다.
-          </p>
         </div>
-      </section>
+      </details>
+
+      <!-- 보조: 완료된 발송 -->
+      <details v-if="doneShipments.length > 0" class="rounded-xl border border-gray-200 bg-surface">
+        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
+          완료된 발송 ({{ doneShipments.length }})
+        </summary>
+        <div class="space-y-3 px-4 pb-4">
+          <PartnerShipmentCard v-for="s in doneShipments" :key="s.shipmentId" :shipment="s" />
+        </div>
+      </details>
+
+      <p
+        v-if="pendingRfqs.length === 0 && toConfirm.length === 0 && toShip.length === 0 && activeShipments.length === 0"
+        class="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400"
+      >
+        지금 처리할 일이 없습니다 🎉
+      </p>
     </template>
   </div>
 </template>

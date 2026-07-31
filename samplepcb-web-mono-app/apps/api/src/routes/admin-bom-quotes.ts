@@ -22,7 +22,7 @@ import {
   toBomQuotePrintDto,
 } from '../lib/bom-quote';
 import { closeRfqsForQuote } from '../lib/bom-rfq';
-import { loadShipmentAdminPending } from '../lib/bom-po';
+import { loadReceivedPoCounts, loadShipmentAdminPending } from '../lib/bom-po';
 import {
   getCartStates,
   getMembersByIds,
@@ -102,25 +102,20 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       counts[key.data] += g._count._all;
       if (key.data !== 'draft') counts.all += g._count._all;
     }
-    // 주문(D16)·발주(D18)·입고(D21)·관리자 차례 선적(D22) 파생 — batch 4회.
+    // 주문(D16)·발주(D18)·입고(D21·§6.10 조인 기반)·관리자 차례 선적(D22) 파생 — batch 4회.
     const ctIds = rows.flatMap((row) => (row.ctId === null ? [] : [row.ctId]));
     const quoteIds = rows.map((row) => row.id);
-    const [cartStates, poGroups, receivedGroups, shipmentPending] = await Promise.all([
+    const [cartStates, poGroups, receivedCounts, shipmentPending] = await Promise.all([
       getCartStates(ctIds),
       prisma.spBomPo.groupBy({
         by: ['quoteId'],
         where: { quoteId: { in: quoteIds } },
         _count: { _all: true },
       }),
-      prisma.spBomShipment.groupBy({
-        by: ['quoteId'],
-        where: { quoteId: { in: quoteIds }, receivedAt: { not: null } },
-        _count: { _all: true },
-      }),
+      loadReceivedPoCounts(quoteIds),
       loadShipmentAdminPending(),
     ]);
     const poCounts = new Map(poGroups.map((g) => [g.quoteId, g._count._all]));
-    const receivedCounts = new Map(receivedGroups.map((g) => [g.quoteId, g._count._all]));
     counts.shipmentPending = shipmentPending.total;
     return {
       result: true as const,
