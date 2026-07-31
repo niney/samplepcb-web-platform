@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { ApiRequestError } from '@sp/shared';
-import { BOM_PO_STATUS_LABELS, BOM_RFQ_STATUS_LABELS } from '@sp/api-contract';
+import { BOM_RFQ_STATUS_LABELS, type PartnerPoListItemType } from '@sp/api-contract';
 import {
   usePartnerPos,
   usePartnerRfqs,
   usePartnerShipments,
 } from '../../partner/usePartnerRfqs';
+import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
 
 // 파트너 포털 홈(§6.11 재구성) — 문서 나열이 아니라 "오늘 할 일" 중심:
@@ -42,6 +43,15 @@ const activeShipments = computed(() =>
 );
 const myTurnCount = computed(() => activeShipments.value.filter((s) => s.myTurn).length);
 const doneShipments = computed(() => shipments.value.filter((s) => s.receivedAt !== null));
+
+// 발주서 배지 = 협력사 관점 상태(관리자 문서 상태 '마감' 등은 노출하지 않음)
+const poBadge = (po: PartnerPoListItemType): { label: string; cls: string } =>
+  partnerPoDisplayStatus({
+    poStatus: po.status,
+    attached: po.shipmentAttached,
+    shipmentStatus: po.shipmentStatus,
+    received: po.shipmentReceived,
+  });
 
 const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
 const fmtWon = (v: number | null, currency: string): string =>
@@ -183,10 +193,9 @@ const rfqStatusCls = (s: string): string =>
           >
             <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ po.quoteTitle }}</span>
             <span class="text-xs text-gray-400">{{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }}</span>
-            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="po.status === 'issued' ? 'bg-blue-100 text-blue-700' : po.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'">
-              {{ BOM_PO_STATUS_LABELS[po.status] }}
+            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="poBadge(po).cls">
+              {{ poBadge(po).label }}
             </span>
-            <span v-if="po.shipmentAttached" class="text-xs text-indigo-500">📦</span>
           </RouterLink>
         </div>
       </details>

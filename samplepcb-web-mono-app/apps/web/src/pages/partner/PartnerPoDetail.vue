@@ -2,12 +2,9 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
-import {
-  BOM_PO_STATUS_LABELS,
-  BOM_SHIPMENT_MODE_LABELS,
-  bomShipmentStatusLabel,
-} from '@sp/api-contract';
+import { BOM_SHIPMENT_MODE_LABELS, bomShipmentStatusLabel } from '@sp/api-contract';
 import { usePartnerPoConfirm, usePartnerPoDetail } from '../../partner/usePartnerRfqs';
+import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
 
 // 파트너 포털 발주서 상세(D18·§6.11 축소) — 문서 열람 전용: 박제 품목·금액 + [발주 확인].
 // 발송(선적) 작업은 홈의 [📦 보내기]·진행 중 발송 카드가 담당한다 — 여기엔 소속 안내만.
@@ -35,13 +32,19 @@ async function confirmPo(): Promise<void> {
 
 const shipment = computed(() => detail.value?.shipment ?? null);
 
+// 배지 = 협력사 관점 상태 — 관리자 문서 상태(마감 등)를 그대로 노출하지 않는다
+const badge = computed(() =>
+  detail.value === null
+    ? null
+    : partnerPoDisplayStatus({
+        poStatus: detail.value.status,
+        attached: shipment.value !== null,
+        shipmentStatus: shipment.value?.status ?? null,
+        received: (shipment.value?.receivedAt ?? null) !== null,
+      }),
+);
+
 const fmt = (v: number): string => v.toLocaleString('ko-KR');
-const statusCls = (s: string): string =>
-  s === 'confirmed'
-    ? 'bg-emerald-100 text-emerald-700'
-    : s === 'issued'
-      ? 'bg-blue-100 text-blue-700'
-      : 'bg-gray-200 text-gray-600';
 </script>
 
 <template>
@@ -55,8 +58,8 @@ const statusCls = (s: string): string =>
       </RouterLink>
       <template v-if="detail !== null">
         <h1 class="text-xl font-bold">발주서 — {{ detail.quoteTitle }}</h1>
-        <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(detail.status)">
-          {{ BOM_PO_STATUS_LABELS[detail.status] }}
+        <span v-if="badge !== null" class="rounded px-2 py-0.5 text-xs font-semibold" :class="badge.cls">
+          {{ badge.label }}
         </span>
       </template>
     </div>
