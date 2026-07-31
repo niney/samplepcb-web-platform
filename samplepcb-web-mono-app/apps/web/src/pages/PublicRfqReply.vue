@@ -88,7 +88,7 @@ const statusCls = (s: string): string =>
 <template>
   <div class="min-h-screen bg-gray-50 text-gray-900">
     <header class="border-b border-gray-200 bg-surface">
-      <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+      <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
         <span class="text-lg font-bold text-blue-600">
           SAMPLEPCB <span class="text-sm font-semibold text-gray-500">부품 견적 회신</span>
         </span>
@@ -96,7 +96,7 @@ const statusCls = (s: string): string =>
       </div>
     </header>
 
-    <main class="mx-auto max-w-5xl space-y-4 px-4 py-6">
+    <main class="mx-auto max-w-7xl space-y-4 px-4 py-6">
       <p v-if="loading" class="text-sm text-gray-400">불러오는 중…</p>
 
       <div v-else-if="invalid" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">

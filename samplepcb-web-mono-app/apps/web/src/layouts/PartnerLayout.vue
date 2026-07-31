@@ -12,7 +12,7 @@ const { isDark, toggleTheme } = useTheme();
 <template>
   <div class="min-h-screen bg-gray-50 text-gray-900">
     <header class="border-b border-gray-200 bg-surface">
-      <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+      <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
         <RouterLink :to="{ name: 'partner' }" class="text-lg font-bold text-blue-600">
           SAMPLEPCB <span class="text-sm font-semibold text-gray-500">파트너 포털</span>
         </RouterLink>
@@ -42,7 +42,7 @@ const { isDark, toggleTheme } = useTheme();
         </div>
       </div>
     </header>
-    <main class="mx-auto max-w-5xl px-4 py-6">
+    <main class="mx-auto max-w-7xl px-4 py-6">
       <RouterView />
     </main>
   </div>

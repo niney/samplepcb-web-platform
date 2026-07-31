@@ -122,7 +122,7 @@ function submit(): void {
     <div class="overflow-x-auto rounded-lg border border-gray-200">
       <table class="min-w-full divide-y divide-gray-100 text-xs">
         <thead class="bg-gray-50 text-left text-gray-500">
-          <tr>
+          <tr class="whitespace-nowrap">
             <th class="px-2 py-2">부품</th>
             <th class="px-2 py-2 text-right">필요수량</th>
             <th class="px-2 py-2 text-right">단가({{ currency }})</th>
