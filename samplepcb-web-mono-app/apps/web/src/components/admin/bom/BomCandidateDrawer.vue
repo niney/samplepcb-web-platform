@@ -41,6 +41,8 @@ const props = withDefaults(defineProps<{
   catalogSelecting?: boolean;
   hasCatalogPart?: boolean;
   selectionError?: string;
+  selectionLockedReason?: string;
+  forceSelectionAllowed?: boolean;
   requirementsSaving?: boolean;
   requirementsError?: string;
   requirementsProgress?: string;
@@ -48,6 +50,7 @@ const props = withDefaults(defineProps<{
   externalSearchRunning?: boolean;
   externalSearchError?: string;
   interactionLocked?: boolean;
+  searchRefreshEnabled?: boolean;
   initialView?: SelectionView;
   searchInitialQuery?: string;
   currentPartId?: string | null;
@@ -59,6 +62,8 @@ const props = withDefaults(defineProps<{
   catalogSelecting: false,
   hasCatalogPart: false,
   selectionError: '',
+  selectionLockedReason: '',
+  forceSelectionAllowed: false,
   requirementsSaving: false,
   requirementsError: '',
   requirementsProgress: '',
@@ -66,6 +71,7 @@ const props = withDefaults(defineProps<{
   externalSearchRunning: false,
   externalSearchError: '',
   interactionLocked: false,
+  searchRefreshEnabled: true,
   initialView: 'candidates',
   searchInitialQuery: '',
   currentPartId: null,
@@ -1344,6 +1350,8 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'lifecycle-improvement': 'NRND/EOL 대신 활성 부품 우선',
     availability: '구매 가능한 재고·가격 우선',
     'customer-choice': '고객 직접 선택',
+    'admin-choice': '관리자 직접 선택',
+    'admin-force-choice': '관리자 강제 변경',
     'catalog-choice': '카탈로그 직접 선택',
     'offer-choice': '공급사 오퍼 직접 선택',
     'engine-catalog-selection': '제조사 카탈로그 정확 일치 선정',
@@ -2092,7 +2100,6 @@ onBeforeUnmount(() => {
             <span v-if="context !== null" class="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{{ context.candidates.length }}</span>
           </button>
           <button
-            v-if="!readOnly"
             type="button"
             class="border-b-2 px-3 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
             :class="view === 'search' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'"
@@ -2102,6 +2109,19 @@ onBeforeUnmount(() => {
             전체 부품 검색
           </button>
         </nav>
+
+        <div
+          v-if="selectionLockedReason !== ''"
+          class="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900 sm:mx-6"
+          role="status"
+        >
+          <template v-if="forceSelectionAllowed">
+            <b>관리자 강제 변경으로 적용할 수 있습니다.</b> 적용 전 영향 범위를 다시 확인합니다: {{ selectionLockedReason }}
+          </template>
+          <template v-else>
+            <b>검색·비교는 가능합니다.</b> 현재 견적에는 적용할 수 없습니다: {{ selectionLockedReason }}
+          </template>
+        </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto" @scroll="hideRequirementTooltipNow">
           <div v-if="view === 'search'" class="space-y-4 p-4 sm:p-6">
@@ -2129,6 +2149,7 @@ onBeforeUnmount(() => {
                 :initial-query="searchInitialQuery"
                 :current-part-id="currentPartId"
                 :selecting="catalogSelecting || interactionLocked"
+                :browse="readOnly"
                 :needed="needed"
                 :usd-krw-rate="usdKrwRate"
                 @select="selectCatalogPart"
@@ -2308,7 +2329,7 @@ onBeforeUnmount(() => {
                 </div>
               </section>
               <section
-                v-if="searchRequirementsVisible && !readOnly"
+                v-if="searchRequirementsVisible && !readOnly && searchRefreshEnabled"
                 class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 shadow-sm"
                 aria-labelledby="search-requirements-title"
               >
@@ -2554,7 +2575,7 @@ onBeforeUnmount(() => {
                 </form>
               </section>
               <section
-                v-if="context.localCatalogTrace?.catalogType === 'ingested_rc' && context.localCatalogTrace.outcome === 'selected' && !readOnly"
+                v-if="context.localCatalogTrace?.catalogType === 'ingested_rc' && context.localCatalogTrace.outcome === 'selected' && !readOnly && searchRefreshEnabled"
                 class="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs text-violet-950 shadow-sm"
               >
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -3077,7 +3098,7 @@ onBeforeUnmount(() => {
 
         <footer class="shrink-0 border-t border-slate-200 bg-surface px-5 py-2 text-[11px] leading-5 text-slate-500 sm:px-6">
           <template v-if="view === 'candidates'">가격은 필요수량·MOQ·주문배수·재고·환율을 반영한 부품 예상금액입니다. 운송료·관리비·세금은 전체 견적에서 별도로 계산됩니다.</template>
-          <template v-else>전체 부품 검색 선택은 엔진 추천을 덮어쓰지 않고 고객의 카탈로그 직접 선택으로 별도 기록됩니다.</template>
+          <template v-else>전체 부품 검색 선택은 엔진 추천을 덮어쓰지 않고 관리자의 카탈로그 직접 선택으로 별도 기록됩니다.</template>
         </footer>
       </aside>
 

@@ -57,6 +57,8 @@ export const BomQuoteDecisionReason = z.enum([
   'lifecycle-improvement',
   'availability',
   'customer-choice',
+  'admin-choice',
+  'admin-force-choice',
   'catalog-choice',
   'offer-choice',
   'engine-catalog-selection',
@@ -1242,6 +1244,39 @@ export const AdminBomQuotePatchBody = z.object({
   confirmedTotal: z.number().int().min(0).nullable().optional(),
 });
 export type AdminBomQuotePatchBodyType = z.infer<typeof AdminBomQuotePatchBody>;
+
+/**
+ * 관리자 품목 교체 명령. 후보 선택은 견적 후보 스냅샷 키만 받고, 카탈로그 선택은
+ * 영속 부품과 공급사 오퍼의 정체성만 받는다. 가격·재고·합계는 서버가 다시 조회·계산한다.
+ */
+const AdminBomQuoteItemSelectionVersion = z.object({
+  expectedQuoteUpdatedAt: z.string().datetime(),
+  /** RFQ·주문·PO·완료 상태의 영향까지 확인한 관리자 강제 변경. */
+  force: z.boolean().default(false),
+});
+
+export const AdminBomQuoteItemCandidateSelection = BomQuoteCandidateSelectionBody.extend({
+  kind: z.literal('candidate'),
+  ...AdminBomQuoteItemSelectionVersion.shape,
+}).strict();
+
+export const AdminBomQuoteCatalogOfferIdentity = z.object({
+  supplier: z.string().trim().min(1).max(32),
+  supplierSku: z.string().max(191),
+}).strict();
+
+export const AdminBomQuoteItemCatalogSelection = z.object({
+  kind: z.literal('catalog'),
+  partId: z.string().regex(/^\d+$/),
+  offer: AdminBomQuoteCatalogOfferIdentity.nullable(),
+  ...AdminBomQuoteItemSelectionVersion.shape,
+}).strict();
+
+export const AdminBomQuoteItemSelectionBody = z.discriminatedUnion('kind', [
+  AdminBomQuoteItemCandidateSelection,
+  AdminBomQuoteItemCatalogSelection,
+]);
+export type AdminBomQuoteItemSelectionBodyType = z.infer<typeof AdminBomQuoteItemSelectionBody>;
 
 // ── 관리자 Case 영구 삭제 ─────────────────────────────────────────────────
 

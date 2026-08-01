@@ -3,13 +3,21 @@ import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiGet, apiGetBlob } from '@sp/shared';
 import { BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
-import type { BomQuoteItemType, BomQuoteStatusType } from '@sp/api-contract';
+import type {
+  AdminBomQuoteItemSelectionBodyType,
+  BomQuoteCandidateType,
+  BomQuoteItemType,
+  BomQuoteStatusType,
+  PartHitType,
+} from '@sp/api-contract';
+import { neededQty, type OfferPick } from '@sp/utils';
 import type { AdminBomPoViewType, AdminBomRfqViewType, BomRfqReplyBodyType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
   useAdminBomQuote,
   useAdminBomQuoteCandidates,
   usePatchAdminBomQuote,
+  useSelectAdminBomQuoteItem,
 } from '../../admin/useAdminBomQuotes';
 import {
   useAdminBomRfqs,
@@ -120,7 +128,10 @@ const loadEstimatePrint = async () => {
 };
 const patch = usePatchAdminBomQuote();
 const candidateItemId = ref<string | null>(null);
+const candidateDrawerView = ref<'candidates' | 'search'>('candidates');
 const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateItemId);
+const candidateSelection = useSelectAdminBomQuoteItem();
+const candidateSelectionError = ref('');
 
 // RFQ 반영 파생 단계 — reviewing 에서 RFQ 가 있으면 ③(발송)·④(회신 도착)로 세분화(§3.3).
 const rfqQuery = useAdminBomRfqs(detailId);
@@ -331,6 +342,236 @@ function itemRfqBadgeTitle(badge: ItemRfqBadge): string {
       ? ''
       : ` · ${badge.unitPrice.toLocaleString('ko-KR')} ${badge.currency}`;
   return `${badge.rfq.partnerName} · ${requestScope} · ${badge.label}${price} — 클릭하면 회신을 엽니다`;
+}
+
+// ── 관리자 부품 교체(D25) — 업무 영향은 2차 확인 뒤 강제 변경 가능 ─────────
+const candidateItem = computed(() =>
+  candidateItemId.value === null
+    ? null
+    : detail.value?.items.find((item) => item.id === candidateItemId.value) ?? null,
+);
+
+function partChangeUnavailableReason(_item: BomQuoteItemType): string | null {
+  const quote = detail.value;
+  if (quote === null) return '견적 정보를 불러온 뒤 변경할 수 있습니다';
+  if (quote.buildStatus !== 'ready' || quote.enrichStatus === 'searching') {
+    return 'BOM 계산과 공급사 확인이 완료된 뒤 변경할 수 있습니다';
+  }
+  if (poQuery.isLoading.value || poQuery.isFetching.value) return '발주 이력을 확인하고 있습니다';
+  if (poQuery.isError.value) return '발주 이력을 확인할 수 없어 변경을 잠갔습니다';
+  if (rfqQuery.isLoading.value || rfqQuery.isFetching.value) return '협력사 RFQ 이력을 확인하고 있습니다';
+  if (rfqQuery.isError.value) return '협력사 RFQ 이력을 확인할 수 없어 변경을 잠갔습니다';
+  return null;
+}
+
+function partChangeForceReason(item: BomQuoteItemType): string | null {
+  const quote = detail.value;
+  if (quote === null) return null;
+  if (quote.status !== 'requested' && quote.status !== 'reviewing') {
+    return '이미 고객 회신 또는 종료 단계에 진입한 견적입니다';
+  }
+  if (quote.orderState !== 'none' || quote.orderInfo !== null) {
+    return '장바구니 또는 주문으로 전환된 견적입니다';
+  }
+  if (pos.value.length > 0) return '발주서가 생성된 견적입니다';
+  if (rfqBadgesFor(item.id).length > 0) return '이 품목은 협력사 RFQ에 포함되어 있습니다';
+  return null;
+}
+
+const candidateSelectionUnavailableReason = computed(() => {
+  const item = candidateItem.value;
+  return item === null ? '변경할 품목을 선택해 주세요' : partChangeUnavailableReason(item);
+});
+const candidateSelectionForceReason = computed(() => {
+  const item = candidateItem.value;
+  return item === null || candidateSelectionUnavailableReason.value !== null
+    ? null
+    : partChangeForceReason(item);
+});
+const candidateSelectionNotice = computed(
+  () => candidateSelectionUnavailableReason.value ?? candidateSelectionForceReason.value,
+);
+const candidateForceSelectionAllowed = computed(
+  () => candidateSelectionUnavailableReason.value === null && candidateSelectionForceReason.value !== null,
+);
+
+interface AdminPartSelectionImpact {
+  forceReason: string | null;
+  affectedRfqCount: number;
+  invalidatedReplyCount: number;
+  poCount: number;
+  hasOrderSnapshot: boolean;
+  reopensQuote: boolean;
+}
+
+function partSelectionImpact(item: BomQuoteItemType): AdminPartSelectionImpact {
+  const quote = detail.value;
+  const badges = rfqBadgesFor(item.id);
+  return {
+    forceReason: partChangeForceReason(item),
+    affectedRfqCount: badges.length,
+    invalidatedReplyCount: badges.filter((badge) => badge.unitPrice !== null).length,
+    poCount: pos.value.length,
+    hasOrderSnapshot: quote !== null && (quote.orderState !== 'none' || quote.orderInfo !== null),
+    reopensQuote: quote !== null && quote.status !== 'requested' && quote.status !== 'reviewing',
+  };
+}
+
+function partChangeButtonTitle(item: BomQuoteItemType): string {
+  const unavailable = partChangeUnavailableReason(item);
+  if (unavailable !== null) return `검색·비교 가능 · 현재 적용 불가: ${unavailable}`;
+  const forceReason = partChangeForceReason(item);
+  return forceReason === null
+    ? '추천 후보 또는 전체 카탈로그에서 부품 검색·변경'
+    : `검색·비교 가능 · 관리자 강제 변경: ${forceReason}`;
+}
+
+function openPartSelection(item: BomQuoteItemType, view: 'candidates' | 'search'): void {
+  candidateSelectionError.value = '';
+  candidateDrawerView.value = view;
+  candidateItemId.value = item.id;
+}
+
+function closePartSelection(): void {
+  candidateItemId.value = null;
+  candidateSelectionError.value = '';
+  pendingPartSelection.value = null;
+  forcePartSelectionConfirmed.value = false;
+}
+
+interface PendingAdminPartSelection {
+  body: AdminBomQuoteItemSelectionBodyType;
+  previousMpn: string;
+  nextMpn: string;
+  nextManufacturer: string | null;
+  nextSupplier: string | null;
+  nextOrderQty: number;
+  previousLineTotalKrw: number | null;
+  nextLineTotalKrw: number | null;
+  sourceLabel: string;
+  impact: AdminPartSelectionImpact;
+}
+
+const pendingPartSelection = ref<PendingAdminPartSelection | null>(null);
+const forcePartSelectionConfirmed = ref(false);
+const pendingLineDelta = computed(() => {
+  const pending = pendingPartSelection.value;
+  const previousLineTotalKrw = pending?.previousLineTotalKrw;
+  const nextLineTotalKrw = pending?.nextLineTotalKrw;
+  if (
+    previousLineTotalKrw === null
+    || previousLineTotalKrw === undefined
+    || nextLineTotalKrw === null
+    || nextLineTotalKrw === undefined
+  ) return null;
+  return Math.round((nextLineTotalKrw - previousLineTotalKrw) * 100) / 100;
+});
+
+function requestCandidateSelection(candidateKey: string, offerKey: string | null): void {
+  const item = candidateItem.value;
+  const quote = detail.value;
+  const context = candidateQuery.data.value?.data;
+  if (item === null || quote === null || context === undefined) return;
+  const unavailableReason = partChangeUnavailableReason(item);
+  if (unavailableReason !== null) {
+    candidateSelectionError.value = unavailableReason;
+    return;
+  }
+  const candidate: BomQuoteCandidateType | undefined = context.candidates.find(
+    (entry) => entry.candidateKey === candidateKey,
+  );
+  if (candidate === undefined) {
+    candidateSelectionError.value = '선택 후보를 찾을 수 없습니다. 후보를 새로고침해 주세요.';
+    return;
+  }
+  const appliedOfferKey = offerKey ?? candidate.bestOfferKey;
+  const offer = appliedOfferKey === null
+    ? null
+    : candidate.offers.find((entry) => entry.offerKey === appliedOfferKey) ?? null;
+  const impact = partSelectionImpact(item);
+  forcePartSelectionConfirmed.value = false;
+  pendingPartSelection.value = {
+    body: {
+      kind: 'candidate',
+      candidateKey,
+      offerKey,
+      expectedQuoteUpdatedAt: quote.updatedAt,
+      force: impact.forceReason !== null,
+    },
+    previousMpn: item.mpn,
+    nextMpn: candidate.mpn,
+    nextManufacturer: candidate.manufacturerName,
+    nextSupplier: offer?.supplier ?? null,
+    nextOrderQty: offer?.applied?.orderQty ?? neededQty(item.bomQty, quote.setQty, quote.spareQty),
+    previousLineTotalKrw: item.lineTotalKrw,
+    nextLineTotalKrw: offer?.applied?.lineTotalKrw ?? null,
+    sourceLabel: '엔진 후보',
+    impact,
+  };
+}
+
+function requestCatalogSelection(part: PartHitType, pick: OfferPick | null): void {
+  const item = candidateItem.value;
+  const quote = detail.value;
+  if (item === null || quote === null) return;
+  const unavailableReason = partChangeUnavailableReason(item);
+  if (unavailableReason !== null) {
+    candidateSelectionError.value = unavailableReason;
+    return;
+  }
+  const nextLineTotalKrw = pick?.unitPriceKrw === null || pick?.unitPriceKrw === undefined
+    ? null
+    : Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100;
+  const impact = partSelectionImpact(item);
+  forcePartSelectionConfirmed.value = false;
+  pendingPartSelection.value = {
+    body: {
+      kind: 'catalog',
+      partId: part.id,
+      offer: pick === null
+        ? null
+        : { supplier: pick.offer.supplier, supplierSku: pick.offer.supplierSku },
+      expectedQuoteUpdatedAt: quote.updatedAt,
+      force: impact.forceReason !== null,
+    },
+    previousMpn: item.mpn,
+    nextMpn: part.mpn,
+    nextManufacturer: part.manufacturerName,
+    nextSupplier: pick?.offer.supplier ?? (part.hasCatalogInquiryOffer ? '문의 견적' : null),
+    nextOrderQty: pick?.orderQty ?? neededQty(item.bomQty, quote.setQty, quote.spareQty),
+    previousLineTotalKrw: item.lineTotalKrw,
+    nextLineTotalKrw,
+    sourceLabel: '전체 카탈로그',
+    impact,
+  };
+}
+
+function cancelPendingPartSelection(): void {
+  if (candidateSelection.isPending.value) return;
+  pendingPartSelection.value = null;
+  forcePartSelectionConfirmed.value = false;
+}
+
+async function confirmPartSelection(): Promise<void> {
+  const pending = pendingPartSelection.value;
+  const quoteId = detailId.value;
+  const itemId = candidateItemId.value;
+  if (pending === null || quoteId === null || itemId === null) return;
+  if (pending.body.force && !forcePartSelectionConfirmed.value) return;
+  candidateSelectionError.value = '';
+  try {
+    await candidateSelection.mutateAsync({ quoteId, itemId, body: pending.body });
+    if (pending.body.force) await rfqQuery.refetch();
+    pendingPartSelection.value = null;
+    closePartSelection();
+  } catch (error) {
+    candidateSelectionError.value = error instanceof ApiRequestError
+      ? error.payload?.message ?? error.message
+      : '부품 변경을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    pendingPartSelection.value = null;
+    forcePartSelectionConfirmed.value = false;
+    await Promise.all([detailQuery.refetch(), rfqQuery.refetch(), poQuery.refetch()]);
+  }
 }
 
 // ── 발주(D18) — 결제 확인 후 발행, all-or-nothing ───────────────────────────
@@ -890,13 +1131,23 @@ async function downloadOriginal(): Promise<void> {
                   {{ item.lineTotalKrw === null ? '—' : smartbomFmtWon(Math.round(item.lineTotalKrw)) }}
                 </td>
                 <td class="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
-                    @click="candidateItemId = item.id"
-                  >
-                    후보·근거
-                  </button>
+                  <div class="flex flex-col items-end gap-1">
+                    <button
+                      type="button"
+                      class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
+                      @click="openPartSelection(item, 'candidates')"
+                    >
+                      후보·근거
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded border border-violet-200 px-2 py-1 font-semibold text-violet-700 hover:bg-violet-50"
+                      :title="partChangeButtonTitle(item)"
+                      @click="openPartSelection(item, 'search')"
+                    >
+                      부품 검색·변경
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1019,9 +1270,110 @@ async function downloadOriginal(): Promise<void> {
       :context="candidateQuery.data.value?.data ?? null"
       :loading="candidateQuery.isLoading.value"
       :failed="candidateQuery.isError.value"
-      read-only
-      @close="candidateItemId = null"
+      :read-only="candidateSelectionUnavailableReason !== null"
+      :selecting="candidateSelection.isPending.value"
+      :catalog-selecting="candidateSelection.isPending.value"
+      :selection-error="candidateSelectionError"
+      :selection-locked-reason="candidateSelectionNotice ?? ''"
+      :force-selection-allowed="candidateForceSelectionAllowed"
+      :interaction-locked="candidateSelection.isPending.value"
+      :initial-view="candidateDrawerView"
+      :search-initial-query="candidateItem?.mpn ?? ''"
+      :current-part-id="candidateItem?.partId ?? null"
+      :needed="candidateItem === null || detail === null ? 1 : neededQty(candidateItem.bomQty, detail.setQty, detail.spareQty)"
+      :usd-krw-rate="detail?.usdKrwRateUsed ?? null"
+      :search-refresh-enabled="false"
+      @select="requestCandidateSelection"
+      @catalog-select="requestCatalogSelection"
+      @close="closePartSelection"
     />
+
+    <Teleport to="body">
+      <div
+        v-if="pendingPartSelection !== null"
+        class="fixed inset-0 z-[95] grid place-items-center bg-slate-950/55 p-4"
+        role="presentation"
+        @mousedown.self="cancelPendingPartSelection"
+      >
+        <section
+          class="w-full max-w-lg overflow-hidden rounded-2xl border border-violet-200 bg-surface shadow-2xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-part-selection-title"
+        >
+          <header class="border-b border-violet-200 bg-violet-50 px-5 py-4">
+            <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-violet-700">Admin part replacement</p>
+            <h3 id="admin-part-selection-title" class="mt-1 text-lg font-bold text-slate-950">이 부품으로 변경할까요?</h3>
+            <p class="mt-1 text-xs leading-5 text-violet-900">{{ pendingPartSelection.sourceLabel }} 선택을 서버가 다시 검증하고 견적 금액을 재계산합니다.</p>
+          </header>
+          <div class="space-y-3 p-5 text-sm">
+            <div class="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <span class="text-xs font-semibold text-slate-500">기존 부품</span>
+              <strong class="break-all text-slate-800">{{ pendingPartSelection.previousMpn || '품번 미기재' }}</strong>
+              <span class="text-xs font-semibold text-slate-500">변경 부품</span>
+              <div>
+                <strong class="break-all text-violet-800">{{ pendingPartSelection.nextMpn }}</strong>
+                <p class="mt-0.5 text-xs text-slate-500">{{ pendingPartSelection.nextManufacturer ?? '제조사 미확인' }}</p>
+              </div>
+              <span class="text-xs font-semibold text-slate-500">구매 조건</span>
+              <span class="text-slate-700">{{ pendingPartSelection.nextSupplier ?? '가격·공급사 미확정' }} · {{ pendingPartSelection.nextOrderQty.toLocaleString('ko-KR') }}개</span>
+              <span class="text-xs font-semibold text-slate-500">행 금액</span>
+              <div class="flex flex-wrap items-center gap-2">
+                <strong class="tabular-nums text-slate-800">{{ pendingPartSelection.nextLineTotalKrw === null ? '미산정' : smartbomFmtWon(Math.round(pendingPartSelection.nextLineTotalKrw)) }}</strong>
+                <span v-if="pendingLineDelta !== null" class="rounded px-1.5 py-0.5 text-[11px] font-bold" :class="pendingLineDelta > 0 ? 'bg-rose-100 text-rose-700' : pendingLineDelta < 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'">
+                  {{ pendingLineDelta > 0 ? '+' : '' }}{{ smartbomFmtWon(Math.round(pendingLineDelta)) }}
+                </span>
+              </div>
+            </div>
+            <p class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold leading-5 text-amber-900">
+              적용하면 기존 확정금액은 초기화되며 다시 확인해야 합니다. 원본 BOM과 이전 선택 이력은 보존됩니다.
+            </p>
+            <section
+              v-if="pendingPartSelection.body.force"
+              class="space-y-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-950"
+            >
+              <div>
+                <p class="font-bold">관리자 강제 변경</p>
+                <p class="mt-0.5">{{ pendingPartSelection.impact.forceReason }}</p>
+              </div>
+              <ul class="list-disc space-y-1 pl-4">
+                <li v-if="pendingPartSelection.impact.affectedRfqCount > 0">
+                  협력사 RFQ {{ pendingPartSelection.impact.affectedRfqCount }}건은 같은 링크에서 새 부품으로 바뀌며 재안내가 필요합니다.
+                </li>
+                <li v-if="pendingPartSelection.impact.invalidatedReplyCount > 0">
+                  이 품목의 기존 협력사 회신 {{ pendingPartSelection.impact.invalidatedReplyCount }}건은 무효화되고 다시 회신받아야 합니다.
+                </li>
+                <li v-if="pendingPartSelection.impact.hasOrderSnapshot">
+                  기존 장바구니·주문 금액은 과거 스냅샷으로 유지되어 변경 견적과 다를 수 있습니다.
+                </li>
+                <li v-if="pendingPartSelection.impact.poCount > 0">
+                  기존 발주서 {{ pendingPartSelection.impact.poCount }}건은 발행 당시 부품·금액 스냅샷을 그대로 보존합니다.
+                </li>
+                <li v-if="pendingPartSelection.impact.reopensQuote">
+                  고객 회신·종료 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.
+                </li>
+              </ul>
+              <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">
+                <input v-model="forcePartSelectionConfirmed" type="checkbox" class="mt-0.5 size-4 accent-rose-700">
+                <span>관련 RFQ 회신 무효화와 기존 주문·발주 스냅샷 유지 영향을 확인했습니다.</span>
+              </label>
+            </section>
+          </div>
+          <footer class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+            <button type="button" class="h-10 rounded-lg border border-slate-300 bg-surface px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" :disabled="candidateSelection.isPending.value" @click="cancelPendingPartSelection">취소</button>
+            <button
+              type="button"
+              class="h-10 rounded-lg px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              :class="pendingPartSelection.body.force ? 'bg-rose-700 hover:bg-rose-800' : 'bg-violet-700 hover:bg-violet-800'"
+              :disabled="candidateSelection.isPending.value || (pendingPartSelection.body.force && !forcePartSelectionConfirmed)"
+              @click="confirmPartSelection"
+            >
+              {{ candidateSelection.isPending.value ? '적용 중…' : pendingPartSelection.body.force ? '강제 변경 적용' : '변경 적용' }}
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
 
     <BomRfqSendModal
       v-if="detail !== null && detailId !== null"

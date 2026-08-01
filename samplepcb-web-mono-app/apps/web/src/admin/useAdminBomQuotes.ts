@@ -17,6 +17,7 @@ import {
   type AdminBomCaseDeletePreviewType,
   type AdminBomCaseDeleteResponseType,
   type AdminBomQuotePatchBodyType,
+  type AdminBomQuoteItemSelectionBodyType,
   type BomQuoteStatusType,
 } from '@sp/api-contract';
 
@@ -148,6 +149,37 @@ export function usePatchAdminBomQuote() {
     mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomQuotePatchBodyType }) =>
       apiSend('PATCH', `${base}/${quoteId}`, body, AdminBomQuoteDetailResponse),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] }),
+  });
+}
+
+/** 관리자 품목 교체 — 후보/카탈로그 정체성만 전송하고 서버 계산 상세로 갱신한다. */
+export function useSelectAdminBomQuoteItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      itemId,
+      body,
+    }: {
+      quoteId: string;
+      itemId: string;
+      body: AdminBomQuoteItemSelectionBodyType;
+    }) => apiSend(
+      'POST',
+      `${base}/${quoteId}/items/${itemId}/selection`,
+      body,
+      AdminBomQuoteDetailResponse,
+    ),
+    onSuccess: (response, variables) => {
+      qc.setQueryData(['admin', 'bom-quotes', 'detail', variables.quoteId], response);
+      void qc.invalidateQueries({
+        queryKey: ['admin', 'bom-quotes', 'candidates', variables.quoteId, variables.itemId],
+      });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs', variables.quoteId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos', variables.quoteId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
+    },
   });
 }
 

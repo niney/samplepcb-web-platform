@@ -118,8 +118,13 @@ export const loadAdminRfqs = async (quoteId: bigint): Promise<AdminBomRfqViewTyp
 };
 
 // ── 요청 부품행 범위(파생) — 시트 선택 + included 행 ─────────────────────────
-export const loadRfqScopeItems = async (quoteId: bigint): Promise<SpBomQuoteItem[]> => {
-  const quote = await prisma.spBomQuote.findUnique({
+type RfqScopeClient = Pick<Prisma.TransactionClient, 'spBomQuote'>;
+
+export const loadRfqScopeItems = async (
+  quoteId: bigint,
+  db: RfqScopeClient = prisma,
+): Promise<SpBomQuoteItem[]> => {
+  const quote = await db.spBomQuote.findUnique({
     where: { id: quoteId },
     include: { items: { orderBy: { rowIdx: 'asc' } }, sheets: true },
   });
@@ -171,6 +176,10 @@ export const diffSendRfqs = async (
 ): Promise<RfqDiffResult> => {
   const wanted = new Set(partnerIds.map((id) => BigInt(id)));
   return prisma.$transaction(async (tx) => {
+    const quoteLock = await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id FROM sp_bom_quote WHERE id = ${quoteId} FOR UPDATE
+    `);
+    if (quoteLock.length === 0) throw new Error(`BOM quote ${String(quoteId)} not found during RFQ send`);
     const existing = await tx.spBomRfq.findMany({ where: { quoteId } });
     const existingByPartner = new Map(existing.map((r) => [r.partnerId, r]));
 
@@ -223,28 +232,37 @@ export const saveRfqReply = async (
   rfqId: bigint,
   body: BomRfqReplyBodyType,
 ): Promise<{ ok: true } | { ok: false; error: string }> => {
-  const rfq = await prisma.spBomRfq.findUnique({ where: { id: rfqId } });
-  if (rfq === null) return { ok: false, error: 'RFQ_NOT_FOUND' };
-  if (rfq.status === 'closed') return { ok: false, error: 'RFQ_CLOSED' };
+  const initial = await prisma.spBomRfq.findUnique({
+    where: { id: rfqId },
+    select: { quoteId: true },
+  });
+  if (initial === null) return { ok: false, error: 'RFQ_NOT_FOUND' };
 
-  // 범위 = scope ∩ 부분 선택(§6.13) — 요청하지 않은 행의 회신은 거부.
-  const scopeItems = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId), rfq);
-  const scopeById = new Map(scopeItems.map((item) => [String(item.id), item]));
-  const unknown = body.items.find((item) => !scopeById.has(item.quoteItemId));
-  if (unknown !== undefined) {
-    return { ok: false, error: 'ITEM_OUT_OF_SCOPE' };
-  }
+  return prisma.$transaction(async (tx): Promise<{ ok: true } | { ok: false; error: string }> => {
+    // 관리자 강제 변경과 같은 잠금 순서로 직렬화한 뒤 최신 품목 범위를 다시 검증한다.
+    const quoteLock = await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id FROM sp_bom_quote WHERE id = ${initial.quoteId} FOR UPDATE
+    `);
+    if (quoteLock.length === 0) return { ok: false, error: 'RFQ_NOT_FOUND' };
+    const rfq = await tx.spBomRfq.findUnique({ where: { id: rfqId } });
+    if (rfq === null) return { ok: false, error: 'RFQ_NOT_FOUND' };
+    if (rfq.status === 'closed') return { ok: false, error: 'RFQ_CLOSED' };
 
-  let total = 0;
-  for (const item of body.items) {
-    const scope = scopeById.get(item.quoteItemId);
-    const qty = item.replyQty ?? scope?.orderQty ?? 0;
-    total += item.unitPrice * qty;
-  }
-  const totalAmount = Math.round(total);
-  const hasReply = body.items.length > 0;
+    // 범위 = scope ∩ 부분 선택(§6.13) — 요청하지 않은 행의 회신은 거부.
+    const scopeItems = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId, tx), rfq);
+    const scopeById = new Map(scopeItems.map((item) => [String(item.id), item]));
+    const unknown = body.items.find((item) => !scopeById.has(item.quoteItemId));
+    if (unknown !== undefined) return { ok: false, error: 'ITEM_OUT_OF_SCOPE' };
 
-  await prisma.$transaction(async (tx) => {
+    let total = 0;
+    for (const item of body.items) {
+      const scope = scopeById.get(item.quoteItemId);
+      const qty = item.replyQty ?? scope?.orderQty ?? 0;
+      total += item.unitPrice * qty;
+    }
+    const totalAmount = Math.round(total);
+    const hasReply = body.items.length > 0;
+
     await tx.spBomRfqItem.deleteMany({ where: { rfqId } });
     if (hasReply) {
       await tx.spBomRfqItem.createMany({
@@ -276,8 +294,8 @@ export const saveRfqReply = async (
         respondedAt: hasReply ? new Date() : null,
       },
     });
+    return { ok: true };
   });
-  return { ok: true };
 };
 
 // ── 협력사 포털 직렬화 — 고객 식별정보·목표단가 없는 뷰(D8) ─────────────────

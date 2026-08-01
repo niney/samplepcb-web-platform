@@ -1,12 +1,14 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AdminBomQuoteItemSelectionBody,
   BomQuoteSearchRequirements,
   BomQuoteSearchRequirementsBody,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 import {
   analysisComponentLookupWhere,
+  adminQuoteSelectionBlockReason,
   applyEngineSupplierResult,
   buildItemsFromEngineResult,
   catalogIngestRunReady,
@@ -21,8 +23,86 @@ import {
   quoteCandidatePartsSearchable,
   retainQuoteCandidateSnapshots,
   resolvePartDataStatus,
+  rfqRequestsQuoteItem,
   selectEngineMatch,
 } from './bom-quote';
+
+describe('관리자 견적 부품 교체 정책', () => {
+  const allowed = {
+    status: 'reviewing',
+    buildStatus: 'ready',
+    enrichStatus: 'done',
+    ctId: null,
+    poCount: 0,
+    rfqTargetsItem: false,
+    quoteUpdatedAt: '2026-08-02T10:00:00.000Z',
+    expectedQuoteUpdatedAt: '2026-08-02T10:00:00.000Z',
+    force: false,
+  };
+
+  it('요청·검토 중이며 RFQ·주문·발주가 없는 최신 행만 허용한다', () => {
+    expect(adminQuoteSelectionBlockReason(allowed)).toBeNull();
+    expect(adminQuoteSelectionBlockReason({ ...allowed, status: 'requested' })).toBeNull();
+  });
+
+  it('오래된 화면과 진행 중 계산을 먼저 차단한다', () => {
+    expect(adminQuoteSelectionBlockReason({
+      ...allowed,
+      expectedQuoteUpdatedAt: '2026-08-02T09:59:59.000Z',
+    })).toBe('stale-quote');
+    expect(adminQuoteSelectionBlockReason({ ...allowed, buildStatus: 'building' })).toBe('quote-busy');
+    expect(adminQuoteSelectionBlockReason({ ...allowed, enrichStatus: 'searching' })).toBe('quote-busy');
+  });
+
+  it('회신 이후 상태와 주문·발주·RFQ 연결을 각각 차단한다', () => {
+    expect(adminQuoteSelectionBlockReason({ ...allowed, status: 'answered' })).toBe('invalid-status');
+    expect(adminQuoteSelectionBlockReason({ ...allowed, ctId: 123 })).toBe('order-started');
+    expect(adminQuoteSelectionBlockReason({ ...allowed, poCount: 1 })).toBe('po-issued');
+    expect(adminQuoteSelectionBlockReason({ ...allowed, rfqTargetsItem: true })).toBe('rfq-sent');
+  });
+
+  it('관리자 강제 변경은 업무 상태를 우회하되 오래된 화면과 진행 중 계산은 우회하지 않는다', () => {
+    const forced = {
+      ...allowed,
+      force: true,
+      status: 'closed',
+      ctId: 123,
+      poCount: 1,
+      rfqTargetsItem: true,
+    };
+    expect(adminQuoteSelectionBlockReason(forced)).toBeNull();
+    expect(adminQuoteSelectionBlockReason({ ...forced, buildStatus: 'building' })).toBe('quote-busy');
+    expect(adminQuoteSelectionBlockReason({
+      ...forced,
+      expectedQuoteUpdatedAt: '2026-08-02T09:59:59.000Z',
+    })).toBe('stale-quote');
+  });
+
+  it('전체 RFQ는 포함 행만, 부분 RFQ는 저장된 행 ID만 대상으로 판정한다', () => {
+    expect(rfqRequestsQuoteItem(null, '10', true)).toBe(true);
+    expect(rfqRequestsQuoteItem(null, '10', false)).toBe(false);
+    expect(rfqRequestsQuoteItem(['10', '12'], '10', false)).toBe(true);
+    expect(rfqRequestsQuoteItem(['11', '12'], '10', true)).toBe(false);
+  });
+
+  it('교체 계약은 force를 기본 false로 두고 클라이언트 계산값을 받지 않는다', () => {
+    const parsed = AdminBomQuoteItemSelectionBody.parse({
+      kind: 'candidate',
+      candidateKey: 'candidate-1',
+      offerKey: null,
+      expectedQuoteUpdatedAt: allowed.expectedQuoteUpdatedAt,
+    });
+    expect(parsed.force).toBe(false);
+    expect(AdminBomQuoteItemSelectionBody.safeParse({
+      kind: 'catalog',
+      partId: '123',
+      offer: null,
+      expectedQuoteUpdatedAt: allowed.expectedQuoteUpdatedAt,
+      force: true,
+      lineTotalKrw: 1,
+    }).success).toBe(false);
+  });
+});
 
 describe('견적 자동 보강 필요 판정', () => {
   const base = {

@@ -1344,6 +1344,8 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'lifecycle-improvement': 'NRND/EOL 대신 활성 부품 우선',
     availability: '구매 가능한 재고·가격 우선',
     'customer-choice': '고객 직접 선택',
+    'admin-choice': '관리자 직접 선택',
+    'admin-force-choice': '관리자 강제 변경',
     'catalog-choice': '카탈로그 직접 선택',
     'offer-choice': '공급사 오퍼 직접 선택',
     'engine-catalog-selection': '제조사 카탈로그 정확 일치 선정',

@@ -11,6 +11,7 @@ import {
   BomQuoteSelectionSource,
   BomQuoteSelectedOffer,
   type AdminBomQuoteDetailType,
+  type AdminBomQuoteItemSelectionBodyType,
   type AdminBomQuoteSummaryType,
   type BomQuoteDetailType,
   type BomQuoteCandidateOfferType,
@@ -2884,10 +2885,15 @@ function storedCandidatePick(
     : { pick, offerKey: engineOffer.offerKey };
 }
 
-async function partIdForStoredCandidate(candidate: StoredCandidateType): Promise<string | null> {
+type PartLookupClient = Pick<Prisma.TransactionClient, 'spPart'>;
+
+async function partIdForStoredCandidate(
+  candidate: StoredCandidateType,
+  db: PartLookupClient = prisma,
+): Promise<string | null> {
   const identity = normalizedStoredCandidateIdentity(candidate);
   if (identity === null) return null;
-  const exact = await prisma.spPart.findUnique({
+  const exact = await db.spPart.findUnique({
     where: {
       mpnNorm_manufacturerNorm: {
         mpnNorm: identity.mpnNorm,
@@ -2897,7 +2903,7 @@ async function partIdForStoredCandidate(candidate: StoredCandidateType): Promise
     select: { id: true },
   });
   const byMpn = exact === null && identity.manufacturerNorm === 'unknown'
-    ? await prisma.spPart.findFirst({
+    ? await db.spPart.findFirst({
         where: { mpnNorm: identity.mpnNorm },
         orderBy: { lastSeenAt: 'desc' },
         select: { id: true },
@@ -3197,6 +3203,9 @@ function selectedEvidence(
     selectedManufacturer: candidate.manufacturerName,
     selectedSupplier: pick?.offer.supplier ?? null,
     selectedSupplierSku: pick?.offer.supplierSku ?? null,
+    selectedLifecycle: storedLifecycleSummary([candidate]),
+    selectedReplacementSources: candidate.replacementSources,
+    selectedReplacementForMpn: candidate.replacementForMpn,
     identityConfidence: candidate.identityConfidence,
     specificationConfidence: candidate.specificationConfidence,
     conflicts: candidate.conflicts,
@@ -3998,20 +4007,31 @@ export type QuoteCandidateSelectionResult =
   | 'offer-not-found'
   | 'offer-not-priced';
 
-/** 고객 명시 선택 — 후보/오퍼 키만 신뢰하고 가격·합계는 서버 스냅샷에서 재계산한다. */
+interface QuoteCandidateSelectionOptions {
+  source?: 'customer' | 'admin';
+  force?: boolean;
+  transaction?: Prisma.TransactionClient;
+  runtimeConfig?: Awaited<ReturnType<typeof getBomQuoteRuntimeConfig>>;
+}
+
+/** 명시 선택 — 후보/오퍼 키만 신뢰하고 가격·합계는 서버 스냅샷에서 재계산한다. */
 export async function applyQuoteCandidateSelection(
   quoteId: bigint,
   itemId: bigint,
   candidateKeyValue: string,
   requestedOfferKey: string | null,
   actorId: string,
+  options?: QuoteCandidateSelectionOptions,
 ): Promise<QuoteCandidateSelectionResult> {
-  const quote = await prisma.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
+  const db: Pick<Prisma.TransactionClient, 'spBomQuote' | 'spBomQuoteCandidate' | 'spPart'> =
+    options?.transaction ?? prisma;
+  const source = options?.source ?? 'customer';
+  const quote = await db.spBomQuote.findUnique({ where: { id: quoteId }, include: { items: true, sheets: true } });
   if (quote === null) return 'quote-not-found';
   const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
   const itemRow = activeRows.find((row) => row.id === itemId);
   if (itemRow === undefined) return 'item-not-found';
-  const candidateRow = await prisma.spBomQuoteCandidate.findUnique({
+  const candidateRow = await db.spBomQuoteCandidate.findUnique({
     where: { quoteItemId_candidateKey: { quoteItemId: itemId, candidateKey: candidateKeyValue } },
   });
   if (candidateRow === null) return 'candidate-not-found';
@@ -4022,14 +4042,14 @@ export async function applyQuoteCandidateSelection(
   if (requestedOfferKey !== null && !candidate.offers.some((offer) => offer.offerKey === requestedOfferKey)) {
     return 'offer-not-found';
   }
-  const config = await getBomQuoteRuntimeConfig();
+  const config = options?.runtimeConfig ?? await getBomQuoteRuntimeConfig();
   const items = activeRows.map((row) => toItemDto(row));
   const item = items.find((entry) => entry.id === String(itemId));
   if (item === undefined) return 'item-not-found';
   const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
   const selected = storedCandidatePick(candidate, needed, config.usdKrwRate, requestedOfferKey);
   if (requestedOfferKey !== null && selected.pick === null) return 'offer-not-priced';
-  const technicalTop = await prisma.spBomQuoteCandidate.findFirst({
+  const technicalTop = await db.spBomQuoteCandidate.findFirst({
     where: { quoteId, quoteItemId: itemId, autoEligible: true },
     orderBy: { technicalRank: 'asc' },
   });
@@ -4044,16 +4064,18 @@ export async function applyQuoteCandidateSelection(
     lineTotalKrw: item.lineTotalKrw,
   };
   const reasonCodes: BomQuoteDecisionReasonType[] = [
-    'customer-choice',
+    source === 'admin'
+      ? options?.force === true ? 'admin-force-choice' : 'admin-choice'
+      : 'customer-choice',
     ...(requestedOfferKey === null ? [] : ['offer-choice'] as const),
   ];
   item.mpn = candidate.mpn;
   item.manufacturerName = candidate.manufacturerName;
   item.description = candidate.description;
-  item.partId = await partIdForStoredCandidate(candidate);
+  item.partId = await partIdForStoredCandidate(candidate, db);
   item.matchStatus = 'manual';
   item.selectedCandidateKey = candidate.candidateKey;
-  item.selectionSource = 'customer';
+  item.selectionSource = source;
   item.selectedOffer = selected.pick === null
     ? null
     : snapshotFromPick(selected.pick, requestedOfferKey !== null, selected.offerKey);
@@ -4072,7 +4094,7 @@ export async function applyQuoteCandidateSelection(
     exchangeRateSnapshot: config.exchangeRateSnapshot,
     selectionEvent: {
       itemId: String(itemId),
-      source: 'customer',
+      source,
       actorId,
       previousCandidateKey: previous.candidateKey,
       selectedCandidateKey: candidate.candidateKey,
@@ -4084,8 +4106,345 @@ export async function applyQuoteCandidateSelection(
       selectedLineTotalKrw: selectedComputed?.lineTotalKrw ?? null,
       reasonCodes,
     },
-  });
+  }, options?.transaction);
   return 'ok';
+}
+
+export type AdminQuoteItemSelectionResult =
+  | QuoteCandidateSelectionResult
+  | 'part-not-found'
+  | 'catalog-offer-not-found'
+  | 'stale-quote'
+  | 'invalid-status'
+  | 'quote-busy'
+  | 'order-started'
+  | 'po-issued'
+  | 'rfq-sent';
+
+export interface AdminQuoteSelectionPolicyInput {
+  status: string;
+  buildStatus: string;
+  enrichStatus: string;
+  ctId: number | null;
+  poCount: number;
+  rfqTargetsItem: boolean;
+  quoteUpdatedAt: string;
+  expectedQuoteUpdatedAt: string;
+  force: boolean;
+}
+
+/** 화면 상태와 무관하게 서버가 최종 적용 직전에 재검사하는 관리자 교체 정책. */
+export function adminQuoteSelectionBlockReason(
+  input: AdminQuoteSelectionPolicyInput,
+): Exclude<AdminQuoteItemSelectionResult, QuoteCandidateSelectionResult | 'part-not-found' | 'catalog-offer-not-found'> | null {
+  if (input.quoteUpdatedAt !== input.expectedQuoteUpdatedAt) return 'stale-quote';
+  if (input.buildStatus !== 'ready' || input.enrichStatus === 'searching') return 'quote-busy';
+  if (input.force) return null;
+  if (input.status !== 'requested' && input.status !== 'reviewing') return 'invalid-status';
+  if (input.ctId !== null) return 'order-started';
+  if (input.poCount > 0) return 'po-issued';
+  if (input.rfqTargetsItem) return 'rfq-sent';
+  return null;
+}
+
+/** requestedItemIds=null은 발송 당시 전체 scope를 뜻한다. */
+export function rfqRequestsQuoteItem(
+  requestedItemIds: Prisma.JsonValue,
+  itemId: string,
+  itemIncluded: boolean,
+): boolean {
+  if (!Array.isArray(requestedItemIds)) return itemIncluded;
+  return requestedItemIds.some((value) => value === itemId);
+}
+
+type QuoteCatalogSelectionResult =
+  | 'ok'
+  | 'quote-not-found'
+  | 'item-not-found'
+  | 'part-not-found'
+  | 'catalog-offer-not-found'
+  | 'offer-not-priced';
+
+interface QuoteCatalogSelectionOptions {
+  transaction: Prisma.TransactionClient;
+  runtimeConfig: Awaited<ReturnType<typeof getBomQuoteRuntimeConfig>>;
+  force: boolean;
+}
+
+function catalogOfferAuditKey(
+  partId: string,
+  supplier: string,
+  supplierSku: string,
+): string {
+  const digest = createHash('sha256')
+    .update(`${partId}\u0000${supplier}\u0000${supplierSku}`)
+    .digest('hex');
+  return `catalog:${digest.slice(0, 56)}`;
+}
+
+function selectedOfferAuditKey(item: BomQuoteItemType): string | null {
+  const offer = item.selectedOffer;
+  if (offer === null) return null;
+  if (offer.offerKey !== null) return offer.offerKey;
+  if (item.partId === null) return null;
+  return catalogOfferAuditKey(item.partId, offer.supplier, offer.supplierSku);
+}
+
+/** 관리자 카탈로그 선택 — 영속 부품/오퍼만 다시 읽어 선택 스냅샷과 합계를 만든다. */
+async function applyQuoteCatalogSelection(
+  quoteId: bigint,
+  itemId: bigint,
+  partId: bigint,
+  requestedOffer: { supplier: string; supplierSku: string } | null,
+  actorId: string,
+  options: QuoteCatalogSelectionOptions,
+): Promise<QuoteCatalogSelectionResult> {
+  const tx = options.transaction;
+  const quote = await tx.spBomQuote.findUnique({
+    where: { id: quoteId },
+    include: { items: true, sheets: true },
+  });
+  if (quote === null) return 'quote-not-found';
+  const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+  const targetRow = activeRows.find((row) => row.id === itemId);
+  if (targetRow === undefined) return 'item-not-found';
+
+  const part = await tx.spPart.findUnique({
+    where: { id: partId },
+    include: { offers: { include: { priceBreaks: true } } },
+  });
+  if (part === null) return 'part-not-found';
+
+  const items = activeRows.map((row) => toItemDto(row));
+  const item = items.find((entry) => entry.id === String(itemId));
+  if (item === undefined) return 'item-not-found';
+  const previous = {
+    candidateKey: item.selectedCandidateKey,
+    mpn: item.mpn,
+    offerKey: selectedOfferAuditKey(item),
+    lineTotalKrw: item.lineTotalKrw,
+  };
+  const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
+  const offerInputs = toOfferInputs(part);
+  const selectedInput = requestedOffer === null
+    ? null
+    : offerInputs.find((offer) =>
+        offer.supplier === requestedOffer.supplier
+        && offer.supplierSku === requestedOffer.supplierSku);
+  if (requestedOffer !== null && selectedInput === undefined) return 'catalog-offer-not-found';
+  const pick = selectedInput === undefined || selectedInput === null
+    ? pickDefaultOffer(offerInputs, needed, options.runtimeConfig.usdKrwRate)
+    : applyQtyToOffer(selectedInput, needed, options.runtimeConfig.usdKrwRate);
+  if (requestedOffer !== null && pick === null) return 'offer-not-priced';
+
+  const reasonCodes: BomQuoteDecisionReasonType[] = [
+    options.force ? 'admin-force-choice' : 'admin-choice',
+    'catalog-choice',
+    ...(requestedOffer === null ? [] : ['offer-choice'] as const),
+  ];
+  item.mpn = part.mpn;
+  item.manufacturerName = part.manufacturerName;
+  item.description = part.description;
+  item.partId = String(part.id);
+  item.matchStatus = 'manual';
+  item.selectedCandidateKey = null;
+  item.selectionSource = 'admin';
+  item.selectedOffer = pick === null
+    ? null
+    : snapshotFromPick(pick, requestedOffer !== null, null);
+  item.orderQty = pick?.orderQty ?? needed;
+  item.matchEvidence = item.matchEvidence === null
+    ? null
+    : {
+        ...item.matchEvidence,
+        procurementUnavailabilityReason: null,
+        candidateStatus: null,
+        selectionMode: 'review',
+        selectedMpn: part.mpn,
+        selectedManufacturer: part.manufacturerName,
+        selectedSupplier: pick?.offer.supplier ?? null,
+        selectedSupplierSku: pick?.offer.supplierSku ?? null,
+        selectedLifecycle: null,
+        selectedReplacementSources: [],
+        selectedReplacementForMpn: null,
+        identityConfidence: null,
+        specificationConfidence: null,
+        conflicts: [],
+        missingRequirements: [],
+        reasons: [],
+        corroboratingSuppliers: [],
+        selectedCandidateKey: null,
+        selectedTechnicalRank: null,
+        decisionReasonCodes: reasonCodes,
+        priceEvidence: null,
+      };
+
+  const computed = computeQuote(
+    items,
+    options.runtimeConfig.usdKrwRate,
+    quote.shippingFee,
+    quote.managementFee,
+  );
+  const selectedComputed = computed.items.find((entry) => entry.id === String(itemId));
+  const selectedOfferKey = pick === null
+    ? null
+    : catalogOfferAuditKey(String(part.id), pick.offer.supplier, pick.offer.supplierSku);
+  await persistQuoteComputed(quoteId, computed, options.runtimeConfig.usdKrwRate, {
+    exchangeRateSnapshot: options.runtimeConfig.exchangeRateSnapshot,
+    selectionEvent: {
+      itemId: String(itemId),
+      source: 'admin',
+      actorId,
+      previousCandidateKey: previous.candidateKey,
+      selectedCandidateKey: null,
+      previousMpn: previous.mpn,
+      selectedMpn: part.mpn,
+      previousOfferKey: previous.offerKey,
+      selectedOfferKey,
+      previousLineTotalKrw: previous.lineTotalKrw,
+      selectedLineTotalKrw: selectedComputed?.lineTotalKrw ?? null,
+      reasonCodes,
+    },
+  }, tx);
+  return 'ok';
+}
+
+/**
+ * SmartBOM 관리자 부품 교체. 부모 견적 행을 잠근 뒤 RFQ·주문·발주 경계를 재검사해
+ * 교체와 새 RFQ 발송이 서로 엇갈려 과거 요청 의미를 바꾸지 않게 한다.
+ */
+export async function applyAdminQuoteItemSelection(
+  quoteId: bigint,
+  itemId: bigint,
+  body: AdminBomQuoteItemSelectionBodyType,
+  actorId: string,
+): Promise<AdminQuoteItemSelectionResult> {
+  const runtimeConfig = await getBomQuoteRuntimeConfig();
+  return prisma.$transaction(async (tx): Promise<AdminQuoteItemSelectionResult> => {
+    const locked = await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id
+      FROM sp_bom_quote
+      WHERE id = ${quoteId}
+      FOR UPDATE
+    `);
+    if (locked.length === 0) return 'quote-not-found';
+
+    const lockedItem = await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id
+      FROM sp_bom_quote_item
+      WHERE id = ${itemId} AND quoteId = ${quoteId}
+      FOR UPDATE
+    `);
+    if (lockedItem.length === 0) return 'item-not-found';
+    // 협력사 회신 저장과 강제 변경이 엇갈리지 않도록 같은 잠금 순서(견적→품목→RFQ)를 잡는다.
+    await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id
+      FROM sp_bom_rfq
+      WHERE quoteId = ${quoteId}
+      ORDER BY id
+      FOR UPDATE
+    `);
+
+    const quote = await tx.spBomQuote.findUnique({
+      where: { id: quoteId },
+      include: { items: true, sheets: true },
+    });
+    if (quote === null) return 'quote-not-found';
+    const target = filterActiveQuoteItems(quote.items, quote.sheets)
+      .find((item) => item.id === itemId);
+    if (target === undefined) return 'item-not-found';
+
+    const rfqs = await tx.spBomRfq.findMany({
+      where: { quoteId },
+      select: { id: true, requestedItemIds: true },
+    });
+    const rfqItems = await tx.spBomRfqItem.findMany({
+      where: { quoteItemId: itemId },
+      select: { rfqId: true },
+    });
+    const poCount = await tx.spBomPo.count({ where: { quoteId } });
+    const itemIdText = String(itemId);
+    const quoteRfqIds = new Set(rfqs.map((rfq) => rfq.id));
+    // 데이터 이상이 있더라도 다른 견적의 RFQ까지 초기화하지 않도록 현재 견적 ID로 한 번 더 제한한다.
+    const affectedRfqIds = new Set(
+      rfqItems.map((item) => item.rfqId).filter((rfqId) => quoteRfqIds.has(rfqId)),
+    );
+    for (const rfq of rfqs) {
+      if (rfqRequestsQuoteItem(rfq.requestedItemIds, itemIdText, target.included)) {
+        affectedRfqIds.add(rfq.id);
+      }
+    }
+    const rfqTargetsItem = affectedRfqIds.size > 0;
+    const blocked = adminQuoteSelectionBlockReason({
+      status: quote.status,
+      buildStatus: quote.buildStatus,
+      enrichStatus: quote.enrichStatus,
+      ctId: quote.ctId,
+      poCount,
+      rfqTargetsItem,
+      quoteUpdatedAt: quote.updatedAt.toISOString(),
+      expectedQuoteUpdatedAt: body.expectedQuoteUpdatedAt,
+      force: body.force,
+    });
+    if (blocked !== null) return blocked;
+
+    const selected = body.kind === 'candidate'
+      ? await applyQuoteCandidateSelection(
+          quoteId,
+          itemId,
+          body.candidateKey,
+          body.offerKey,
+          actorId,
+          { source: 'admin', force: body.force, transaction: tx, runtimeConfig },
+        )
+      : await applyQuoteCatalogSelection(
+          quoteId,
+          itemId,
+          BigInt(body.partId),
+          body.offer,
+          actorId,
+          { transaction: tx, runtimeConfig, force: body.force },
+        );
+    if (selected !== 'ok') return selected;
+
+    // 선택 검증과 저장이 모두 성공한 뒤에만 현재 품목의 기존 협력사 회신을 무효화한다.
+    // RFQ 문서·매직링크·요청 범위는 유지해 협력사가 같은 링크에서 새 부품으로 다시 회신한다.
+    if (body.force && affectedRfqIds.size > 0) {
+      const ids = [...affectedRfqIds];
+      await tx.spBomRfqItem.deleteMany({
+        where: { quoteItemId: itemId, rfqId: { in: ids } },
+      });
+      await tx.spBomRfq.updateMany({
+        where: { id: { in: ids } },
+        data: {
+          status: 'requested',
+          totalAmount: null,
+          deliveryDate: null,
+          memo: null,
+          respondedAt: null,
+          requestedAt: new Date(),
+        },
+      });
+    }
+
+    const pointerReset = await tx.spBomQuoteItem.updateMany({
+      where: { id: itemId, quoteId },
+      data: { selectedRfqItemId: null },
+    });
+    if (pointerReset.count !== 1) throw new Error(`BOM quote item ${itemIdText} selection pointer reset lost`);
+    await tx.spBomQuote.update({
+      where: { id: quoteId },
+      data: {
+        confirmedShippingFee: null,
+        confirmedManagementFee: null,
+        confirmedTotal: null,
+        ...(body.force && quote.status !== 'requested' && quote.status !== 'reviewing'
+          ? { status: 'reviewing', answeredAt: null, answerNote: null }
+          : {}),
+      },
+    });
+    return 'ok';
+  }, { maxWait: 10_000, timeout: 60_000 });
 }
 
 /**
@@ -4467,6 +4826,7 @@ export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
   computed: QuoteComputed<T>,
   usdKrwRate: number | null,
   extra?: QuotePersistenceExtra,
+  transaction?: Prisma.TransactionClient,
 ): Promise<void> {
   const persist = async (tx: Prisma.TransactionClient): Promise<void> => {
     await persistQuoteItemsInTransaction(tx, quoteId, computed.items);
@@ -4605,6 +4965,10 @@ export async function persistQuoteComputed<T extends BomQuoteItemInputType>(
       });
     }
   };
+  if (transaction !== undefined) {
+    await persist(transaction);
+    return;
+  }
   await prisma.$transaction(
     persist,
     // 후보·검색 trace JSON을 배치 저장하는 경로는 운영 DB 부하에서 Prisma 기본 5초를
