@@ -107,16 +107,7 @@ mv /home/samplepcb/samplepcb-web-platform/samplepcb-web/data/dbconfig.php ~/dbco
 - ⚠ 최고관리자 id는 **레거시 최고관리자 id와 동일하게**(운영 `SELECT cf_admin FROM g5_config`로 확인). 그래야 마이그레이션이 그 계정을 존재검사로 스킵하고 주문/글이 자연 귀속됨.
 - 설치 후 보안상: `rm -rf /home/samplepcb/samplepcb-web-platform/samplepcb-web/install`
 
-## STEP 5 — sp_* 스키마 + 템플릿 상품
-
-```bash
-cd /home/samplepcb/samplepcb-web-platform/samplepcb-web-mono-app/apps/api
-pnpm exec prisma migrate deploy        # sp_* 스키마 (⚠ reset/dev 금지 — g5_* 드랍)
-# 템플릿 상품 4종(sp-pcb-std·sp-mask·sp-pcb-adv·sp-pcb-flex) — 게이트가 부재 시 중단
-pnpm exec tsx --env-file=.env.migration src/scripts/seed-template-items.ts
-```
-
-## STEP 6 — 시크릿 & 환경변수 (⚠ 어긋나면 로그인/401)
+## STEP 5 — 시크릿 & 환경변수 (⚠ 어긋나면 로그인/401)
 
 ```bash
 openssl rand -hex 32                    # JWT 공유 시크릿 1개 생성 → 아래 두 곳에 동일 사용
@@ -145,6 +136,64 @@ ALIMTALK_ENABLED=false
 
 **(c) 그누보드 DB 접속** `samplepcb-web/data/dbconfig.php` (STEP 4 설치가 생성, 값 확인):
 `G5_MYSQL_HOST=localhost · USER=samplepcb · PASSWORD=<DB비번> · DB=samplepcb`
+
+## STEP 6 — sp_* 스키마 + 필수 초기 데이터 시드·검증
+
+> 이 단계는 생략 금지. Prisma 마이그레이션은 `sp_*` 스키마만 관리하며, 영카트
+> `g5_shop_item`의 앵커 상품이나 운영 사업자/무통장 설정을 만들지 않는다. `db:seed-initial`은
+> 템플릿 상품 누락분과 `g5_shop_default` 사업자정보 11필드·무통장 2필드를 함께 적용하며
+> 멱등하게 재실행할 수 있다.
+
+```bash
+cd /home/samplepcb/samplepcb-web-platform/samplepcb-web-mono-app/apps/api
+pnpm exec prisma migrate deploy        # sp_* 스키마 (⚠ reset/dev 금지 — g5_* 드랍)
+pnpm db:seed-initial                   # 템플릿 5종 + 사업자정보 11필드 + 무통장 2필드
+```
+
+현재 필수 템플릿 상품은 **5종**이다. 초기 설치는 아래 5행이 모두 확인될 때만 다음
+단계로 진행한다. 특히 `sp-bom-parts`가 없으면 SmartBOM 주문 API가
+`TEMPLATE_ITEM_MISSING`으로 중단된다.
+
+| 용도 | `g5_shop_item.it_id` |
+|---|---|
+| Standard PCB | `sp-pcb-std` |
+| Metal Mask | `sp-mask` |
+| Advance PCB | `sp-pcb-adv` |
+| Flexible PCB | `sp-pcb-flex` |
+| 부품 BOM 주문 | `sp-bom-parts` |
+
+```bash
+mysql -u samplepcb -p samplepcb -e "
+SELECT it_id, it_name, it_use, it_soldout
+  FROM g5_shop_item
+ WHERE it_id IN ('sp-pcb-std','sp-mask','sp-pcb-adv','sp-pcb-flex','sp-bom-parts')
+ ORDER BY it_id;
+
+SELECT de_admin_company_name, de_admin_company_saupja_no, de_admin_company_owner,
+       de_admin_company_tel, de_admin_company_fax, de_admin_tongsin_no,
+       de_admin_buga_no, de_admin_company_zip, de_admin_company_addr,
+       de_admin_info_name, de_admin_info_email,
+       de_bank_use,
+       CASE
+         WHEN TRIM(de_bank_account) = '' THEN 'EMPTY'
+         WHEN TRIM(de_bank_account) = 'OO은행 12345-67-89012 예금주명' THEN 'INSTALLER_PLACEHOLDER'
+         ELSE 'CONFIGURED'
+       END AS bank_account_state,
+       de_bank_account
+  FROM g5_shop_default;"
+```
+
+- 시드 출력의 `skip (exists)`·`skip (already seeded)`는 정상이다.
+- 사업자정보는 11필드를 개별 판정하여 빈 값·영카트 설치 예시값만 로컬 기준값으로 채운다.
+  이미 다른 운영값이 있는 필드는 그대로 보존한다.
+- 무통장 시드는 빈 계좌 또는 영카트 설치 예시 계좌만 로컬 기준값으로 교체하고
+  `de_bank_use=1`로 설정한다. 이미 다른 실계좌가 있으면 운영자 설정으로 보고 보존한다.
+- 다른 사업자정보·실계좌까지 로컬 기준값으로 명시적으로 교체할 때만
+  `pnpm db:seed-initial -- --force-shop-defaults`를 사용한다.
+- 조회 결과가 템플릿 5행이 아니거나 무통장이 `1 / CONFIGURED`가 아니면 다음 단계로
+  진행하지 말고 시드 오류를 먼저 해결한다.
+- 이후 `TEMPLATE_ITEMS`가 추가·변경된 배포에서도 시드를 다시 실행한다. 현재
+  `deploy.sh`의 일반 재배포는 이 시드를 자동 실행하지 않는다.
 
 ## STEP 7 — php-fpm 풀을 samplepcb로 (502 방지)
 
@@ -314,7 +363,7 @@ pnpm migrate:verify    # 검증 (행수·금액 항등·참조 정합)
 
 **재이관(초기화 후 다시)이 필요하면:**
 ```bash
-# 완전 초기화: 백업 → DB 재생성 → 클린설치(STEP4) → prisma deploy+시드(STEP5) → 원장삭제 → gate/run
+# 완전 초기화: 백업 → DB 재생성 → 클린설치(STEP4) → 환경설정(STEP5) → prisma deploy+초기시드·템플릿/사업자/무통장 검증(STEP6) → 원장삭제 → gate/run
 mysqldump --default-character-set=utf8 samplepcb > ~/samplepcb-backup-$(date +%F).sql
 sudo mysql -e "DROP DATABASE samplepcb; CREATE DATABASE samplepcb CHARACTER SET utf8;"
 rm -f /home/samplepcb/samplepcb-web-platform/.tmp/migrate/ledger-samplepcb.json   # ★ 안 지우면 재이관이 스킵됨
@@ -455,7 +504,9 @@ systemctl status sp-api php8.1-fpm nginx mariadb --no-pager | grep -E 'Active|�
 | seed/그누보드 INSERT `Field 'it_basic' doesn't have a default value` (1364) | strict sql_mode | `sql_mode=''` 전역(즉시+영구) |
 | `Access denied ... (using password: NO)` | OS유저로 mysql 비번없이 | 관리=`sudo mysql`, 앱=`-u samplepcb -p` |
 | sp-node `401 Invalid or missing authentication token` | 시크릿 불일치 or 토큰만료(TTL 10분) or .env 변경 후 미재시작 | `secret.php`↔`.env` JWT_SECRET 동일 확인 → `systemctl restart sp-api`, 브라우저에서 재테스트 |
-| 마이그레이션 게이트 `템플릿 상품 누락` | 시드 안 함 | `seed-template-items.ts` 실행 후 재게이트 |
+| BOM 주문 `TEMPLATE_ITEM_MISSING` 또는 마이그레이션 게이트 `템플릿 상품 누락` | `g5_shop_item` 필수 앵커 시드 누락(특히 `sp-bom-parts`) | STEP 6의 `pnpm db:seed-initial` 실행 → 필수 5종 조회 확인 후 재시도 |
+| 푸터·견적서의 회사/사업자정보가 비었거나 설치 예시값임 | `g5_shop_default` 사업자정보 초기 시드 누락 | STEP 6의 `pnpm db:seed-initial` 실행 → 사업자정보 11필드 조회 확인 |
+| 주문서에 무통장입금이 없거나 실제 입금계좌가 안 보임 | `g5_shop_default.de_bank_use` 비활성 또는 계좌가 빈 값/설치 예시값 | STEP 6의 `pnpm db:seed-initial` 실행 → `de_bank_use=1`, `bank_account_state=CONFIGURED` 확인 |
 
 ---
 

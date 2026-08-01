@@ -108,7 +108,7 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 ② 이관 테이블의 레거시 전용 컬럼 허용목록 대조(소리 없이 버려질 데이터 검출)
 ③ **절단 위험**: 레거시 컬럼 정의가 타깃보다 넓으면 실데이터 최대 길이 대조(sql_mode='' 환경에서 유일한 방어선)
 ④ od/ct 상태값 전수 대조(미지 상태 중단) ⑤ 쿠폰 cp_id UNIQUE 충돌(기이관 동일 행은 통과)
-⑥ 템플릿 상품 4종 존재 ⑦ 엔진·규모 정보. 위반은 `--allow-unknown`으로만 강등 가능(검토 후 의식적으로).
+⑥ 필수 템플릿 상품 전수 존재(현재 PCB 4종 + BOM `sp-bom-parts` = 5종) ⑦ 엔진·규모 정보. 위반은 `--allow-unknown`으로만 강등 가능(검토 후 의식적으로).
 
 ## 5. 변환 규칙 요약
 
@@ -274,7 +274,7 @@ pnpm migrate:verify               # 전량 검증(--light = 행수+금액 항등
 
 - [ ] **코드 배포**: 마이그레이션 커밋(코어 최소 수정 `lib/common.lib.php` get_member 필터 포함!)이 운영 코드에 포함됐는지 — 이 수정 없이는 이메일 아이디 회원 전원 로그인 불가(§8).
 - [ ] **sp 스키마**: 운영 공유 DB에 `prisma migrate deploy`(4개 마이그레이션 — reset/dev 금지).
-- [ ] **템플릿 상품 4종 시드**(`seed-template-items`) — 게이트가 부재 시 중단하므로 선행.
+- [ ] **필수 초기 데이터 시드·검증**(`pnpm db:seed-initial`) — 템플릿 `sp-pcb-std`·`sp-mask`·`sp-pcb-adv`·`sp-pcb-flex`·`sp-bom-parts` 5종과 `g5_shop_default` 사업자정보 11필드·무통장 사용/입금계좌 2필드를 함께 확인한다. 템플릿 부재 시 게이트·SmartBOM 주문이 중단되고, 쇼핑몰 기본설정 누락 시 푸터/견적서 정보 또는 주문서 결제수단이 사라지므로 선행.
 - [ ] **덤프 루틴 확정**: `mysqldump -u<계정> -p --default-character-set=utf8 hyoh9150 > hyoh9150-$(date).dump` — 리허설·최종 동일 명령. 리허설 덤프로 `migrate:gate` 돌려 **드리프트 0** 확인(20260702 이후 스키마 변경이 있으면 여기서 잡힘).
 - [ ] **파일 미러**: 운영 `/gerber_files/`(rsync)·`data/file/open_market/`·`data/member_image/` 로컬/스테이징 미러 확보.
 - [ ] **거버 파일 사전 이관 — 사이드로드가 정석**(2026-07-07 확정): 파일서버(niney-file)의 pathToken 은

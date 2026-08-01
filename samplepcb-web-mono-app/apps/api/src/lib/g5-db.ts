@@ -163,8 +163,12 @@
 //   lib/banner-image.ts(삭제 시 행+파일 동반 — 코어 bannerformupdate.php:52 auto_increment=1 리셋
 //   대비 고아/부활 방지, 교체 시 bn_time 캐시버스팅). 영카트 배너관리(/adm)와 동일 테이블 공유
 //   (점진 이관, 순수 UI 콘텐츠라 코어 부수효과 없음).
+// 초기설치·마이그레이션 one-shot CLI 는 런타임 접근 일원화의 예외다. scripts/seed-initial-data.ts는
+// 자체 mysql2 풀을 즉시 닫고 g5_shop_item INSERT + g5_shop_default의 사업자정보 11컬럼과
+// de_bank_use/de_bank_account 2컬럼만 UPDATE한다(설치값/빈값만, 다른 운영값은 필드별 보존;
+// --force-shop-defaults 명시 시에만 교체).
 // 카탈로그 밖 접근을 추가할 때는 위 규율 (3)(4)를 따를 것. 불변 원칙: 민감 컬럼(비밀번호·
-// 본인확인·인증 계열) SELECT 배제 · 이 파일 밖에서의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
+// 본인확인·인증 계열) SELECT 배제 · 런타임에서 이 파일 밖의 g5 직접 접근 금지 · Prisma 에 g5 비편입.
 //
 // LEGACY_DATABASE_URL(운영 읽기 전용, 검증 스크립트용)과 반드시 구분한다.
 // 이 모듈은 서비스가 실제로 쓰는 DB(G5_DATABASE_URL — 로컬 개발은 로컬 XAMPP)를 본다.

@@ -13,6 +13,7 @@
     "rnd:probe": "tsx --env-file=.env src/scripts/probe-rnd-file-classifier.ts",
     "rnd:request-probe": "tsx --env-file=.env src/scripts/probe-rnd-pcb-request-document.ts",
     "db:generate": "prisma generate",
+    "db:seed-initial": "tsx --env-file=.env src/scripts/seed-initial-data.ts",
     "legacy:sample": "tsx --env-file=.env src/scripts/extract-legacy-gerber-samples.ts",
     "migrate:gate": "tsx --env-file=.env.migration src/scripts/migrate/run.ts --phase=gate",
     "migrate:dry": "tsx --env-file=.env.migration src/scripts/migrate/run.ts --dry-run",

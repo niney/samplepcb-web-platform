@@ -175,7 +175,7 @@
 
 | # | 충돌 지점 (코어 동작) | 기법 |
 |---|---|---|
-| 1 | 상품이 미리 있어야 담긴다 | **템플릿 상품 4종**(카테고리 앵커, `sp-pcb-std` 등) — 가격·사양은 읽지 않고 존재만 시킨다. 주문 실체는 `sp_order_spec` |
+| 1 | 상품이 미리 있어야 담긴다 | **PCB 템플릿 상품 4종**(카테고리 앵커, `sp-pcb-std` 등) — 가격·사양은 읽지 않고 존재만 시킨다. 주문 실체는 `sp_order_spec`. 공용 시드는 SmartBOM 앵커 `sp-bom-parts`까지 현재 총 5종이다. |
 | 2 | cart 는 담는 시점 값을 복사(스냅샷) | 이를 **역이용** — `cartupdate.php` 를 우회해 직접 INSERT 하며 행마다 다른 `it_name`("템플릿명 · 파일명")·사양요약(`ct_option`)·가격 주입 |
 | 3 | `before_check_cart_price` 가 조회마다 `ct_price`≠상품가면 **상품가로 덮어씀**, 옵션가도 옵션표와 대조 (`lib/shop.lib.php:2582`) | 견적가를 **`io_price`(옵션가)** 에 싣는다 — `ct_price=0(=템플릿가)`, 견적마다 `g5_shop_item_option` 에 **옵션 행을 실등록**(`io_id=quoteId`, `io_price=견적가`)해 코어 재검증을 정당하게 통과. 합계 = (ct_price+io_price)×qty, 표준 계산식 그대로. (미등록 io_id 로 스킵시키는 초기안은 PHP 8 null 경고로 폐기) |
 | 4 | 장바구니 키 `od_id` = PHP 세션 `ss_cart_id` — 외부 서버는 알 수 없음 | **인증 브리지 확장** — `me.php`(커스텀 영역) JWT 에 `cartId` 클레임 추가. cart.php 무수정 |
@@ -210,7 +210,7 @@
 | `g5_point` · `g5_member.mb_point` | 그누보드 | ⑩ 프리뷰는 `주문번호 {odId} 결제`, `@shop_order`+rel_id, `@delivery`+`{odId},ctId` 관계의 포인트 원장 수만 집계한다. ⑪ 결제 강제삭제 시 대상 원장을 DELETE하고 코어 `delete_point` 의미대로 사용분을 남은 적립행에 환원/재배분한 뒤 각 `po_mb_point`와 회원 `mb_point`를 재계산한다. 해당 회원 원장 전체를 `FOR UPDATE`로 잠근 트랜잭션 전용 경로다. |
 | `g5_member` (회원 정보·상태) | 그누보드 | sp-node 는 **관리자 API 한정**. read-only SELECT: ⑤ 견적 신청자 표시(mb_name/nick/email/hp/tel 최소 컬럼, `getMembersByIds`) · ⑧ 회원 관리 목록/상세(컬럼 화이트리스트 — 연락처·주소·수신동의·여분필드 mb_1~9 등, 민감 컬럼(mb_password·mb_dupinfo·mb_lost_certify·mb_certify·mb_email_certify2)은 SELECT 자체 배제, `searchMembers`/`getMemberDetailRow`). **UPDATE(화이트리스트)**: ⑨-a 차단/레벨(mb_intercept_date·mb_level — 가드 3종 탈퇴/self/cf_admin 409, `setMemberIntercept`/`setMemberLevel`) · ⑨-b 회원 정보/메모 편집(mb_name·mb_nick·mb_email·mb_hp·mb_tel·mb_zip1/2·mb_addr1~3·mb_addr_jibeon·mb_memo — 가드 2종 미존재 404+탈퇴 409, **self·cf_admin 허용**(권한 공격 벡터 아님), `updateMemberInfo`/`updateMemberMemo`). 코어 정합성(adm/member_form_update.php 이식): 닉/이메일/hp 중복 거부(⑧ COUNT)·hp 하이픈 정규화·zip 3+2 분해·주소 변경 시 mb_addr_jibeon 초기화·mb_nick_date 미갱신. 화이트리스트 밖 컬럼 쓰기 금지. ⑪ SmartBOM 결제 강제삭제에서만 위 포인트 원장 재계산 결과를 mb_point에 반영. `lib/g5-db.ts` |
 | `g5_config` (사이트 기본설정) | 그누보드 | sp-node 는 **관리자 회원 관리 한정 read-only SELECT** — cf_admin(최고관리자 mb_id) 1컬럼만, 차단/레벨 변경의 cf_admin 가드용 (한정 예외 ⑧, `lib/g5-db.ts` `getCfAdminId`) |
-| `g5_shop_default` (쇼핑몰 기본설정) | 영카트 코어 | sp-node 는 **① 견적서 발신처 read-only SELECT**(de_admin_company_*/de_admin_info_*/de_bank_account, 견적서 발신처 표기용 — 한정 예외 ⑦ `getShopEstimateProfile`) **② 관리자 설정 사업자정보 read/write**(de_admin_* 11컬럼, 영카트 configform.php 이식 — 한정 예외 ⑱ `getBusinessInfo`/`updateBusinessInfo`). ⑱ write 는 11컬럼만 UPDATE(코어는 ~150컬럼 일괄, 무관 설정 미훼손). 저장 규칙(tel 검증·owner 가드·XSS 정제)은 `lib/shop-config.ts`+`routes/admin-settings.ts` |
+| `g5_shop_default` (쇼핑몰 기본설정) | 영카트 코어 | sp-node 는 **① 견적서 발신처 read-only SELECT**(de_admin_company_*/de_admin_info_*/de_bank_account, 견적서 발신처 표기용 — 한정 예외 ⑦ `getShopEstimateProfile`) **② 관리자 설정 사업자정보 read/write**(de_admin_* 11컬럼, 영카트 configform.php 이식 — 한정 예외 ⑱ `getBusinessInfo`/`updateBusinessInfo`) **③ 초기 설치 CLI 쓰기**(`seed-initial-data.ts` — 사업자정보 11컬럼+de_bank_use/de_bank_account 2컬럼). ⑱ write 는 11컬럼만 UPDATE(코어는 ~150컬럼 일괄, 무관 설정 미훼손). 초기 시드는 각 필드의 빈 값·영카트 설치 예시값·동일 계좌 비활성만 로컬 정본으로 갱신하고, 다른 운영값은 필드별 기본 보존(`--force-shop-defaults`만 명시적 교체). 저장 규칙(tel 검증·owner 가드·XSS 정제)은 `lib/shop-config.ts`+`routes/admin-settings.ts` |
 | 회원/세션 | 그누보드 | sp-node 는 JWT 클레임으로만 **식별** (DB 직접 결합 없음 — 표시용 read-only 예외는 위 `g5_member` 행) |
 | cart↔spec 관계 | **저장하지 않음** | `spec.ctId → g5_shop_cart` 조회 시점 조인으로 파생 — 동기화 로직 자체가 없어 불일치 불가능 |
 
@@ -342,5 +342,5 @@ sp-php 헤더 뱃지(관리자 사이드바 뱃지는 구현됨) + quoted 견적
 | 사양 요약 공용 헬퍼 | `…/apps/api/src/lib/option-summary.ts` (`buildOptionSummary` — cart·사용자·관리자 표기 통일) |
 | DB 스키마 | `…/apps/api/prisma/schema.prisma` (sp_quote/sp_order_spec/sp_file) |
 | 요청 계약 | `…/packages/api-contract/src/schemas/pcb-project.ts` · `auth.ts` · `admin.ts`(견적 관리) · `members.ts`(회원 관리) |
-| 템플릿 상품 시드 | `…/apps/api/src/scripts/seed-template-items.ts` |
+| 필수 초기 데이터 시드 | `…/apps/api/src/scripts/seed-initial-data.ts`(템플릿 5종+사업자정보+무통장 설정) · `seed-template-items.ts`(템플릿 단독 호환) · 판단/테스트 `lib/shop-default-seed.ts`·`shop-default-seed.test.ts` |
 | 거버 제출부 | `samplepcb_gerber/apps/view/src/ResultPanel/submit.tsx` (별도 repo) |
