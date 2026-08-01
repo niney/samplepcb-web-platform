@@ -417,8 +417,11 @@ export interface OrderHeaderLite {
 export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, OrderHeaderLite>> {
   const headers = new Map<string, OrderHeaderLite>();
   if (odIds.length === 0) return headers;
+  // od_time 은 DATE_FORMAT 필수 — raw 로 받으면 mysql2 가 JS Date 로 돌려주고
+  // String() 결과("Wed Jul 30 …")가 정렬·표시를 모두 깨뜨린다(다른 쿼리 관례 동일).
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
-    `SELECT od_id, mb_id, od_status, od_settle_case, od_cart_price, od_receipt_price, od_misu, od_time
+    `SELECT od_id, mb_id, od_status, od_settle_case, od_cart_price, od_receipt_price, od_misu,
+            DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        FROM g5_shop_order WHERE od_id IN (${odIds.map(() => '?').join(',')})`,
     odIds,
   );

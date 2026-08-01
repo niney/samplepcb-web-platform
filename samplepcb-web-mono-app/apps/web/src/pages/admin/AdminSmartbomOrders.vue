@@ -58,7 +58,17 @@ const statusCls = (item: AdminBomOrderListItemType): string =>
       ? 'bg-red-100 text-red-600'
       : 'bg-emerald-100 text-emerald-700';
 
-const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 16).replace('T', ' '));
+// 주문일시 — 한국 스타일("2026. 7. 30. 오후 6:32"). 서버 값은 'YYYY-MM-DD HH:mm:ss'.
+const fmtDate = (v: string | null): string =>
+  v === null
+    ? '—'
+    : new Date(v.replace(' ', 'T')).toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
 
 // ── 입금확인 — 기존 주문 전이 API(코어 미러 + 알림 브리지) 재사용 ─────────────
 const receipt = useConfirmBomOrderReceipt();
