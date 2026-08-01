@@ -97,6 +97,80 @@ def test_digikey_normalizes_parameters_and_offers():
     assert product.offers[0].stock == 42
 
 
+async def test_digikey_eol_product_includes_supplier_substitutions():
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path.endswith("/productdetails"):
+            return httpx.Response(
+                200,
+                json={
+                    "Product": {
+                        "ProductId": 100,
+                        "ManufacturerProductNumber": "RC0603-10K",
+                        "Manufacturer": {"Name": "Acme"},
+                        "Description": {"ProductDescription": "10k Ohm resistor 0603"},
+                        "ProductStatus": {"Status": "End of Life"},
+                        "EndOfLife": True,
+                        "DateLastBuyChance": "2026-12-31T00:00:00Z",
+                        "ProductVariations": [
+                            {"DigiKeyProductNumber": "OLD-ND"}
+                        ],
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "ProductSubstitutes": [
+                    {
+                        "SubstituteType": "Direct",
+                        "ManufacturerProductNumber": "RC0603-10K-V2",
+                        "Manufacturer": {"Name": "Acme"},
+                        "Description": "10k Ohm resistor 0603",
+                        "DigiKeyProductNumber": "NEW-ND",
+                        "QuantityAvailable": 50,
+                        "UnitPrice": "0.12",
+                        "ProductUrl": "https://example.invalid/new",
+                    }
+                ]
+            },
+        )
+
+    reservations = 0
+
+    async def reserve() -> None:
+        nonlocal reservations
+        reservations += 1
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = DigiKeyClient(
+            client_id="client",
+            client_secret="secret",
+            account_id=None,
+            client=http_client,
+        )
+        client._access_token = "test-token"
+        client._token_expiry = time.time() + 3_600
+        raw = await client.fetch(query(), reserve_call=reserve)
+        products = client.normalize(raw, query())
+
+    assert requests == [
+        "/products/v4/search/RC0603-10K/productdetails",
+        "/products/v4/search/OLD-ND/substitutions",
+    ]
+    assert reservations == 2
+    assert len(products) == 2
+    assert products[0].end_of_life is True
+    assert products[0].last_buy_date is not None
+    assert products[1].manufacturer_part_number == "RC0603-10K-V2"
+    assert products[1].replacement_for_mpn == "RC0603-10K"
+    assert products[1].replacement_source == "digikey_substitution"
+    assert products[1].replacement_type == "Direct"
+    assert products[1].offers[0].supplier_sku == "NEW-ND"
+
+
 def test_digikey_prefers_ferrite_impedance_over_dc_resistance():
     client = DigiKeyClient(client_id=None, client_secret=None, account_id=None)
     raw = RawSupplierResponse(
@@ -153,6 +227,64 @@ def test_mouser_normalizes_attributes_stock_and_price():
     assert product.normalized_specs["resistance_ohm"] == 10_000
     assert product.offers[0].stock == 1234
     assert product.offers[0].price_breaks[0].unit_price == 0.12
+
+
+async def test_mouser_fetches_and_tags_suggested_replacement():
+    request_parts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requested = body["SearchByPartRequest"]["mouserPartNumber"]
+        request_parts.append(requested)
+        if requested == "RC0603-10K":
+            return httpx.Response(
+                200,
+                json={
+                    "SearchResults": {
+                        "Parts": [
+                            {
+                                "MouserPartNumber": "OLD",
+                                "ManufacturerPartNumber": "RC0603-10K",
+                                "Manufacturer": "Acme",
+                                "LifecycleStatus": "End of Life",
+                                "IsDiscontinued": "true",
+                                "SuggestedReplacement": "RC0603-10K-V2",
+                            }
+                        ]
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "SearchResults": {
+                    "Parts": [
+                        {
+                            "MouserPartNumber": "NEW",
+                            "ManufacturerPartNumber": "RC0603-10K-V2",
+                            "Manufacturer": "Acme",
+                            "Description": "10k Ohm resistor 0603",
+                            "LifecycleStatus": "Active",
+                            "AvailabilityInStock": "100",
+                            "PriceBreaks": [
+                                {"Quantity": 1, "Price": "$0.10", "Currency": "USD"}
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = MouserClient(api_key="not-a-real-key", client=http_client)
+        raw = await client.fetch(query())
+        products = client.normalize(raw, query())
+
+    assert request_parts == ["RC0603-10K", "RC0603-10K-V2"]
+    assert len(products) == 2
+    assert products[1].replacement_for_mpn == "RC0603-10K"
+    assert products[1].replacement_source == "mouser_suggested"
+    assert products[1].lifecycle_status == "Active"
 
 
 def test_unikeyic_preserves_returned_variants_for_the_matcher():

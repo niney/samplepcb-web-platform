@@ -961,7 +961,12 @@ interface CandidateOptions {
   verificationComplete?: boolean;
   strictCategoryCoverage?: boolean;
   lifecycleState?: 'active' | 'caution' | 'unknown';
+  lifecycleCode?: 'active' | 'nrnd' | 'eol' | 'discontinued' | 'obsolete' | 'inactive' | 'unknown';
   lifecycleStatus?: string;
+  lastBuyDate?: string;
+  replacementSource?: 'digikey_substitution' | 'mouser_suggested';
+  replacementForMpn?: string;
+  replacementType?: string;
   manufacturer?: string | null;
   conflicts?: string[];
   missingRequirements?: string[];
@@ -1017,6 +1022,7 @@ function candidate(
         verification_complete: options.verificationComplete ?? verifiedCount === requiredCount,
         strict_category_coverage: options.strictCategoryCoverage ?? false,
         lifecycle_state: options.lifecycleState ?? 'unknown',
+        lifecycle_code: options.lifecycleCode ?? 'unknown',
         technical_review_rank: options.technicalReviewRank ?? null,
         ...(options.selectionRecommendation === undefined
           ? {}
@@ -1057,6 +1063,10 @@ function candidate(
       manufacturer: options.manufacturer === undefined ? 'Test Mfr' : options.manufacturer,
       description: mpn,
       lifecycle_status: options.lifecycleStatus,
+      last_buy_date: options.lastBuyDate,
+      replacement_source: options.replacementSource,
+      replacement_for_mpn: options.replacementForMpn,
+      replacement_type: options.replacementType,
       normalized_specs: {},
       attributes: {},
       offers: [
@@ -1672,6 +1682,115 @@ describe('BOM 엔진 후보 결정 투영', () => {
       expectedDisplay: '25 V',
       actualDisplay: '50 V',
     }]);
+  });
+
+  it('원품번과 선정품의 상세 수명주기 및 마지막 구매일을 행 근거에 보존한다', () => {
+    const selected = candidate('verified_exact', 'EOL-PART', 'digikey', 100, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      categoryPolicyVersion: 'candidate-category-policy-v2',
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      lifecycleState: 'caution',
+      lifecycleCode: 'eol',
+      lifecycleStatus: 'End of Life',
+      lastBuyDate: '2026-12-31T00:00:00Z',
+    });
+    attachProcurementDecision(selected, 'ok2:eol-selected', 'automatic', 10, 'supplier-offer-key-v2');
+
+    const decision = selectEngineMatch({
+      component_id: 'component-eol',
+      status: 'verified_exact',
+      procurement_decision: componentProcurementDecision(
+        'automatic_recommended',
+        'ok2:eol-selected',
+      ),
+      candidates: [selected],
+    }, 10, null);
+
+    expect(decision?.evidence.requestedLifecycle).toMatchObject({
+      state: 'caution',
+      code: 'eol',
+      status: 'End of Life',
+      lastBuyDate: '2026-12-31T00:00:00Z',
+    });
+    expect(decision?.evidence.selectedLifecycle).toMatchObject({
+      code: 'eol',
+      sources: [{ supplier: 'digikey', code: 'eol' }],
+    });
+  });
+
+  it('공급사 제안 대체품 출처를 일반 스펙 후보와 구분해 저장한다', () => {
+    const original = candidate('verified_exact', 'EOL-PART', 'digikey', 150, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      categoryPolicyVersion: 'candidate-category-policy-v2',
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      lifecycleState: 'caution',
+      lifecycleCode: 'eol',
+      lifecycleStatus: 'End of Life',
+    });
+    attachProcurementDecision(original, 'ok2:eol-original', 'none', 10, 'supplier-offer-key-v2');
+
+    const replacement = candidate('spec_compatible', 'ACTIVE-REPLACEMENT', 'mouser', 120, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      categoryPolicyVersion: 'candidate-category-policy-v2',
+      eligibility: 'manual_review',
+      selectionMode: 'spec-compatible',
+      technicalReviewRank: 1,
+      selectionRecommendation: 'candidate_only',
+      lifecycleState: 'active',
+      lifecycleCode: 'active',
+      lifecycleStatus: 'Active',
+      replacementSource: 'mouser_suggested',
+      replacementForMpn: 'EOL-PART',
+      replacementType: 'SuggestedReplacement',
+      identityKey: 'ik1:supplier-replacement',
+      technicalEvidenceKey: 'ek1:supplier-replacement',
+    });
+    attachProcurementDecision(
+      replacement,
+      'ok2:supplier-replacement',
+      'manual_review',
+      10,
+      'supplier-offer-key-v2',
+    );
+
+    const decision = selectEngineMatch({
+      component_id: 'component-replacement',
+      status: 'spec_compatible',
+      procurement_decision: componentProcurementDecision(
+        'review_recommended',
+        'ok2:supplier-replacement',
+        10,
+        {
+          applicationIdentityKey: 'ik1:supplier-replacement',
+          applicationEvidenceKey: 'ek1:supplier-replacement',
+          technicalFallbackUsed: true,
+        },
+      ),
+      candidates: [original, replacement],
+    }, 10, null);
+
+    expect(decision?.snapshots.find((snapshot) =>
+      snapshot.candidateKey === 'ik1:supplier-replacement')).toMatchObject({
+      lifecycleCode: 'active',
+      replacementSources: ['mouser_suggested'],
+      replacementForMpn: 'EOL-PART',
+      replacementType: 'SuggestedReplacement',
+    });
+    expect(decision?.evidence).toMatchObject({
+      selectionApplicationState: 'provisional_selected',
+      confirmationRequired: true,
+      requestedLifecycle: { code: 'eol' },
+      selectedLifecycle: { code: 'active' },
+      selectedReplacementSources: ['mouser_suggested'],
+      selectedReplacementForMpn: 'EOL-PART',
+    });
   });
 
   it('동급 후보의 v3 가격 최적 결정을 가격 추천과 절감액으로 투영한다', () => {

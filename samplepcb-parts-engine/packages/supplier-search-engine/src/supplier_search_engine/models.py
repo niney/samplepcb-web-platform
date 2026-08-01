@@ -146,6 +146,21 @@ class LifecycleState(StrEnum):
     UNKNOWN = "unknown"
 
 
+class LifecycleCode(StrEnum):
+    ACTIVE = "active"
+    NRND = "nrnd"
+    EOL = "eol"
+    DISCONTINUED = "discontinued"
+    OBSOLETE = "obsolete"
+    INACTIVE = "inactive"
+    UNKNOWN = "unknown"
+
+
+class ReplacementSource(StrEnum):
+    DIGIKEY_SUBSTITUTION = "digikey_substitution"
+    MOUSER_SUGGESTED = "mouser_suggested"
+
+
 class CurrencyRate(BaseModel):
     """Explicit source-to-target exchange rate from an immutable snapshot."""
 
@@ -634,6 +649,10 @@ class SupplierProduct(BaseModel):
     lifecycle_status: str | None = None
     discontinued: bool | None = None
     end_of_life: bool | None = None
+    last_buy_date: datetime | None = None
+    replacement_for_mpn: str | None = None
+    replacement_source: ReplacementSource | None = None
+    replacement_type: str | None = None
     datasheet_url: str | None = None
     image_url: str | None = None
     normalized_specs: dict[str, float | str | list[float | None] | None] = Field(
@@ -854,6 +873,7 @@ class CandidateDecision(BaseModel):
     verification_complete: bool
     strict_category_coverage: bool
     lifecycle_state: LifecycleState
+    lifecycle_code: LifecycleCode = LifecycleCode.UNKNOWN
     technical_review_rank: int | None = Field(default=None, ge=1)
     selection_recommendation: SelectionRecommendation = (
         SelectionRecommendation.CANDIDATE_ONLY

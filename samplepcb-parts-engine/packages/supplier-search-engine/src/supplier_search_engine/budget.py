@@ -9,7 +9,11 @@ from .models import Supplier
 from .settings import QuotaLimit
 
 
-class QuotaExceeded(RuntimeError):
+class SupplierCallBudgetExceeded(RuntimeError):
+    """A supplier request was skipped because a configured call budget was exhausted."""
+
+
+class QuotaExceeded(SupplierCallBudgetExceeded):
     pass
 
 

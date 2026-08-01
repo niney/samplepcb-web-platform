@@ -9,12 +9,14 @@ from urllib.parse import quote
 
 import httpx
 
+from ..budget import SupplierCallBudgetExceeded
 from ..matcher import CandidateMatcher
 from ..models import (
     ManufacturerEvidence,
     MatchStatus,
     PlannedQuery,
     RawSupplierResponse,
+    ReplacementSource,
     Requirement,
     SearchMode,
     Supplier,
@@ -42,7 +44,7 @@ _PRIMARY_REQUIREMENTS = {
 class DigiKeyClient(SupplierClient):
     supplier = Supplier.DIGIKEY
     api_version = "product-information-v4"
-    normalizer_version = "2"
+    normalizer_version = "3"
 
     def __init__(
         self,
@@ -77,7 +79,7 @@ class DigiKeyClient(SupplierClient):
     def cache_payload(self, query: PlannedQuery) -> dict[str, Any]:
         payload = super().cache_payload(query)
         if query.mode == SearchMode.IDENTITY and query.part_number:
-            payload["strategy"] = "product-details-keyword-fallback-v1"
+            payload["strategy"] = "product-details-substitutions-v2"
         elif query.mode == SearchMode.PARAMETRIC and self._primary_requirement(query):
             payload.update(
                 {
@@ -178,7 +180,12 @@ class DigiKeyClient(SupplierClient):
                 result_count=self._product_count(exact),
             )
             if exact.ok and exact.payload and exact.payload.get("Product"):
-                return exact
+                return await self._with_substitutions(
+                    exact,
+                    query,
+                    headers,
+                    reserve_call,
+                )
             if not exact.ok and exact.status_code not in {400, 404}:
                 return exact
             fallback = await self._keyword_fetch(
@@ -272,6 +279,133 @@ class DigiKeyClient(SupplierClient):
             reserve_call,
             strategy="keyword",
         )
+
+    async def _with_substitutions(
+        self,
+        exact: RawSupplierResponse,
+        query: PlannedQuery,
+        headers: dict[str, str],
+        reserve_call: Callable[[], Awaitable[None]] | None,
+    ) -> RawSupplierResponse:
+        product = (exact.payload or {}).get("Product")
+        if not isinstance(product, dict) or not self._needs_substitution_lookup(product):
+            return exact
+        lookup_number = self._product_lookup_number(product) or query.part_number
+        if not lookup_number:
+            return exact
+        try:
+            substitutions = await self._request_json(
+                "GET",
+                f"{self.base_url}/products/v4/search/{quote(lookup_number, safe='')}/substitutions",
+                headers=headers,
+                reserve_call=reserve_call,
+            )
+        except SupplierCallBudgetExceeded:
+            # Replacement discovery is optional. Preserve the exact lifecycle
+            # result when the per-job or supplier budget has no remaining call.
+            return exact
+        substitutes = (substitutions.payload or {}).get("ProductSubstitutes")
+        substitutions = self.traced_response(
+            substitutions,
+            strategy="supplier_substitutions",
+            query=lookup_number,
+            result_count=sum(1 for item in substitutes or [] if isinstance(item, dict)),
+            fallback_reason="lifecycle_caution",
+        )
+        if not substitutions.ok or not isinstance(substitutes, list):
+            return self._with_additional_attempts(exact, substitutions)
+
+        original_mpn = str(product.get("ManufacturerProductNumber") or query.part_number or "").strip()
+        replacements: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for substitute in substitutes:
+            if not isinstance(substitute, dict):
+                continue
+            mpn = str(substitute.get("ManufacturerProductNumber") or "").strip()
+            normalized = mpn.casefold()
+            if not mpn or normalized == original_mpn.casefold() or normalized in seen:
+                continue
+            seen.add(normalized)
+            manufacturer = substitute.get("Manufacturer")
+            description = substitute.get("Description")
+            variation = {
+                "DigiKeyProductNumber": substitute.get("DigiKeyProductNumber"),
+                "QuantityAvailableforPackageType": substitute.get("QuantityAvailable"),
+                "StandardPricing": [
+                    {
+                        "BreakQuantity": 1,
+                        "UnitPrice": substitute.get("UnitPrice"),
+                    }
+                ],
+            }
+            replacements.append(
+                {
+                    "_SupplierProductId": substitute.get("DigiKeyProductNumber"),
+                    "_ReplacementForMpn": original_mpn,
+                    "_ReplacementSource": ReplacementSource.DIGIKEY_SUBSTITUTION.value,
+                    "_ReplacementType": substitute.get("SubstituteType"),
+                    "ManufacturerProductNumber": mpn,
+                    "Manufacturer": manufacturer,
+                    "Description": (
+                        description
+                        if isinstance(description, dict)
+                        else {"ProductDescription": description}
+                    ),
+                    "ProductUrl": substitute.get("ProductUrl"),
+                    "ProductVariations": [variation],
+                }
+            )
+            if len(replacements) >= 3:
+                break
+
+        payload = dict(exact.payload or {})
+        payload["ReplacementProducts"] = replacements
+        return exact.model_copy(
+            update={
+                "payload": payload,
+                "latency_ms": exact.latency_ms + substitutions.latency_ms,
+                "http_attempt_count": (
+                    exact.http_attempt_count + substitutions.http_attempt_count
+                ),
+                "request_trace": [*exact.request_trace, *substitutions.request_trace],
+            },
+            deep=True,
+        )
+
+    @staticmethod
+    def _needs_substitution_lookup(product: dict[str, Any]) -> bool:
+        if product.get("Discontinued") is True or product.get("EndOfLife") is True:
+            return True
+        if product.get("DateLastBuyChance"):
+            return True
+        status = product.get("ProductStatus") or {}
+        value = status.get("Status") if isinstance(status, dict) else status
+        normalized = str(value or "").casefold()
+        return any(
+            token in normalized
+            for token in (
+                "nrnd",
+                "not recommended",
+                "not for new designs",
+                "end of life",
+                "eol",
+                "obsolete",
+                "discontinued",
+                "inactive",
+                "last time buy",
+                "last buy",
+            )
+        )
+
+    @staticmethod
+    def _product_lookup_number(product: dict[str, Any]) -> str | None:
+        for variation in product.get("ProductVariations") or []:
+            if not isinstance(variation, dict):
+                continue
+            value = str(variation.get("DigiKeyProductNumber") or "").strip()
+            if value:
+                return value
+        return None
 
     @staticmethod
     def _merge_keyword_responses(
@@ -563,6 +697,9 @@ class DigiKeyClient(SupplierClient):
                 values = payload.get(key)
                 if isinstance(values, list):
                     raw_products.extend(item for item in values if isinstance(item, dict))
+        replacements = payload.get("ReplacementProducts")
+        if isinstance(replacements, list):
+            raw_products.extend(item for item in replacements if isinstance(item, dict))
         seen: set[tuple[str, str]] = set()
         result: list[SupplierProduct] = []
         for product in raw_products:
@@ -606,6 +743,7 @@ class DigiKeyClient(SupplierClient):
                     supplier_product_id=self.structured_product_identifier(
                         product.get("ProductId"),
                         product.get("ProductID"),
+                        product.get("_SupplierProductId"),
                     ),
                     manufacturer_part_number=mpn,
                     manufacturer=manufacturer,
@@ -620,6 +758,10 @@ class DigiKeyClient(SupplierClient):
                     lifecycle_status=lifecycle,
                     discontinued=product.get("Discontinued"),
                     end_of_life=product.get("EndOfLife"),
+                    last_buy_date=product.get("DateLastBuyChance"),
+                    replacement_for_mpn=product.get("_ReplacementForMpn"),
+                    replacement_source=product.get("_ReplacementSource"),
+                    replacement_type=product.get("_ReplacementType"),
                     datasheet_url=product.get("DatasheetUrl"),
                     image_url=product.get("PhotoUrl") or None,
                     normalized_specs=specs,

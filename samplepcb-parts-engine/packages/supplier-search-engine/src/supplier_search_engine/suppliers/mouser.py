@@ -6,12 +6,14 @@ from typing import Any
 
 import httpx
 
+from ..budget import SupplierCallBudgetExceeded
 from ..matcher import CandidateMatcher
 from ..models import (
     ManufacturerEvidence,
     MatchStatus,
     PlannedQuery,
     RawSupplierResponse,
+    ReplacementSource,
     SearchMode,
     Supplier,
     SupplierOffer,
@@ -33,7 +35,7 @@ _LEADING_INTEGER = re.compile(r"\d+")
 class MouserClient(SupplierClient):
     supplier = Supplier.MOUSER
     api_version = "search-v1-v2"
-    normalizer_version = "2"
+    normalizer_version = "3"
 
     def __init__(
         self,
@@ -59,7 +61,7 @@ class MouserClient(SupplierClient):
     def cache_payload(self, query: PlannedQuery) -> dict[str, Any]:
         payload = super().cache_payload(query)
         if query.mode == SearchMode.IDENTITY and query.part_number:
-            payload["strategy"] = "exact-keyword-fallback-v2"
+            payload["strategy"] = "exact-suggested-replacement-v3"
         elif query.mode == SearchMode.PARAMETRIC:
             payload.update(
                 {
@@ -169,7 +171,13 @@ class MouserClient(SupplierClient):
                 if fallback.ok and self._has_parts(fallback):
                     return self._merge_keyword_responses(raw, fallback)
                 return self._with_additional_attempts(raw, fallback)
-        if not is_identity or not raw.ok or self._has_parts(raw):
+        if is_identity and raw.ok and self._has_parts(raw):
+            return await self.enrich_suggested_replacement(
+                query,
+                raw,
+                reserve_call=reserve_call,
+            )
+        if not is_identity or not raw.ok:
             return raw
         fallback = await self.fetch_keyword(
             query,
@@ -178,6 +186,115 @@ class MouserClient(SupplierClient):
             fallback_reason="exact_no_result",
         )
         return self._with_previous_attempts(raw, fallback)
+
+    async def enrich_suggested_replacement(
+        self,
+        query: PlannedQuery,
+        raw: RawSupplierResponse,
+        *,
+        reserve_call: Callable[[], Awaitable[None]] | None,
+    ) -> RawSupplierResponse:
+        replacement_mpn = self._suggested_replacement_mpn(raw, query.part_number)
+        if replacement_mpn is None:
+            return raw
+        try:
+            replacement = await self._request_json(
+                "POST",
+                f"{self.base_url}/api/v1/search/partnumber",
+                params={"apiKey": self.api_key},
+                json_body={
+                    "SearchByPartRequest": {
+                        "mouserPartNumber": replacement_mpn,
+                        "partSearchOptions": "Exact",
+                    }
+                },
+                reserve_call=reserve_call,
+            )
+        except SupplierCallBudgetExceeded:
+            return raw
+        replacement = self.traced_response(
+            replacement,
+            strategy="supplier_suggested_replacement",
+            query=replacement_mpn,
+            result_count=self._part_count(replacement),
+            fallback_reason="suggested_replacement",
+        )
+        if not replacement.ok or not self._has_parts(replacement):
+            return self._with_additional_attempts(raw, replacement)
+
+        payload = dict(raw.payload or {})
+        search_results = dict(payload.get("SearchResults") or {})
+        original_parts = [
+            part
+            for part in search_results.get("Parts") or []
+            if isinstance(part, dict)
+        ]
+        original_mpn = str(
+            original_parts[0].get("ManufacturerPartNumber")
+            if original_parts
+            else query.part_number or ""
+        ).strip()
+        replacement_results = (replacement.payload or {}).get("SearchResults") or {}
+        replacement_parts: list[dict[str, Any]] = []
+        for part in replacement_results.get("Parts") or []:
+            if not isinstance(part, dict):
+                continue
+            candidate_mpn = str(part.get("ManufacturerPartNumber") or "").strip()
+            identifiers = (
+                candidate_mpn,
+                str(part.get("MouserPartNumber") or "").strip(),
+            )
+            if not any(
+                compact_mpn(identifier) == compact_mpn(replacement_mpn)
+                for identifier in identifiers
+                if identifier
+            ):
+                continue
+            if compact_mpn(candidate_mpn) == compact_mpn(original_mpn):
+                continue
+            tagged = dict(part)
+            tagged["_ReplacementForMpn"] = original_mpn
+            tagged["_ReplacementSource"] = ReplacementSource.MOUSER_SUGGESTED.value
+            tagged["_ReplacementType"] = "SuggestedReplacement"
+            replacement_parts.append(tagged)
+            if len(replacement_parts) >= 3:
+                break
+        if not replacement_parts:
+            return self._with_additional_attempts(raw, replacement)
+        search_results["Parts"] = [*original_parts, *replacement_parts]
+        search_results["NumberOfResult"] = len(search_results["Parts"])
+        payload["SearchResults"] = search_results
+        return raw.model_copy(
+            update={
+                "payload": payload,
+                "latency_ms": raw.latency_ms + replacement.latency_ms,
+                "http_attempt_count": raw.http_attempt_count + replacement.http_attempt_count,
+                "request_trace": [*raw.request_trace, *replacement.request_trace],
+            },
+            deep=True,
+        )
+
+    @staticmethod
+    def _suggested_replacement_mpn(
+        raw: RawSupplierResponse,
+        original_mpn: str | None,
+    ) -> str | None:
+        search_results = (raw.payload or {}).get("SearchResults") or {}
+        for part in search_results.get("Parts") or []:
+            if not isinstance(part, dict):
+                continue
+            value = part.get("SuggestedReplacement")
+            if not isinstance(value, str):
+                continue
+            candidate = re.split(r"[|,;]", value, maxsplit=1)[0].strip()
+            if (
+                not candidate
+                or candidate.casefold() in {"n/a", "na", "none", "not available", "-"}
+                or compact_mpn(candidate) == compact_mpn(original_mpn)
+            ):
+                continue
+            return candidate
+        return None
 
     async def fetch_keyword(
         self,
@@ -446,6 +563,9 @@ class MouserClient(SupplierClient):
                     category=part.get("MouserProductCategory") or part.get("Category"),
                     lifecycle_status=part.get("LifecycleStatus"),
                     discontinued=self._boolean(part.get("IsDiscontinued")),
+                    replacement_for_mpn=part.get("_ReplacementForMpn"),
+                    replacement_source=part.get("_ReplacementSource"),
+                    replacement_type=part.get("_ReplacementType"),
                     datasheet_url=part.get("DataSheetUrl") or None,
                     image_url=part.get("ImagePath") or None,
                     normalized_specs=specs,

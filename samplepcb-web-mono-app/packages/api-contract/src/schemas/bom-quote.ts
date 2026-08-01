@@ -274,6 +274,42 @@ export type BomQuoteSearchRequirementGuidanceType = z.infer<
   typeof BomQuoteSearchRequirementGuidance
 >;
 
+/** 공급사 원문을 sp-engine이 표시용으로 정규화한 부품 수명주기. */
+export const BomQuoteLifecycleCode = z.enum([
+  'active',
+  'nrnd',
+  'eol',
+  'discontinued',
+  'obsolete',
+  'inactive',
+  'unknown',
+]);
+export type BomQuoteLifecycleCodeType = z.infer<typeof BomQuoteLifecycleCode>;
+
+export const BomQuoteReplacementSource = z.enum([
+  'digikey_substitution',
+  'mouser_suggested',
+]);
+export type BomQuoteReplacementSourceType = z.infer<typeof BomQuoteReplacementSource>;
+
+export const BomQuoteLifecycleSource = z.object({
+  supplier: z.string(),
+  code: BomQuoteLifecycleCode,
+  status: z.string().nullable(),
+  lastBuyDate: z.string().nullable(),
+  fetchedAt: z.string().nullable(),
+});
+export type BomQuoteLifecycleSourceType = z.infer<typeof BomQuoteLifecycleSource>;
+
+export const BomQuoteLifecycleSummary = z.object({
+  state: z.enum(['active', 'caution', 'unknown']),
+  code: BomQuoteLifecycleCode,
+  status: z.string().nullable(),
+  lastBuyDate: z.string().nullable(),
+  sources: z.array(BomQuoteLifecycleSource),
+});
+export type BomQuoteLifecycleSummaryType = z.infer<typeof BomQuoteLifecycleSummary>;
+
 /**
  * 공급사 검색 엔진의 BOM 문맥 판정과 자동 선정 근거.
  * 카탈로그 사실 데이터와 분리해 견적 라인에 스냅샷으로 보존한다.
@@ -306,6 +342,11 @@ export const BomQuoteMatchEvidence = z.object({
   selectedManufacturer: z.string().nullable(),
   selectedSupplier: z.string().nullable(),
   selectedSupplierSku: z.string().nullable(),
+  /** BOM 원품번과 실제 선정품의 수명주기를 분리해 단종 대체를 숨기지 않는다. */
+  requestedLifecycle: BomQuoteLifecycleSummary.nullable().optional(),
+  selectedLifecycle: BomQuoteLifecycleSummary.nullable().optional(),
+  selectedReplacementSources: z.array(BomQuoteReplacementSource).optional(),
+  selectedReplacementForMpn: z.string().nullable().optional(),
   identityConfidence: z.number().nullable(),
   specificationConfidence: z.number().nullable(),
   conflicts: z.array(z.string()),
@@ -603,6 +644,12 @@ export const BomQuoteCandidate = z.object({
   packageCode: z.string().nullable(),
   lifecycleStatus: z.string().nullable(),
   lifecycleState: z.enum(['active', 'caution', 'unknown']),
+  lifecycleCode: BomQuoteLifecycleCode,
+  lastBuyDate: z.string().nullable(),
+  lifecycleSources: z.array(BomQuoteLifecycleSource),
+  replacementSources: z.array(BomQuoteReplacementSource),
+  replacementForMpn: z.string().nullable(),
+  replacementType: z.string().nullable(),
   datasheetUrl: z.string().nullable(),
   /** 공급사 제품 사진 직링크 — 표시 전용. */
   imageUrl: z.string().nullable(),
@@ -652,6 +699,12 @@ export const BomQuoteComparisonCandidate = BomQuoteCandidate.pick({
   category: true,
   packageCode: true,
   lifecycleStatus: true,
+  lifecycleCode: true,
+  lastBuyDate: true,
+  lifecycleSources: true,
+  replacementSources: true,
+  replacementForMpn: true,
+  replacementType: true,
   identityConfidence: true,
   specificationConfidence: true,
   conflicts: true,

@@ -21,6 +21,13 @@ import {
   type ExtractionCertainty,
   type ExtractionDisplayField,
 } from '../../bom/extraction-display';
+import {
+  formatLifecycleDate,
+  lifecycleBadgeClass,
+  lifecycleLabel,
+  lifecycleSummaryTitle,
+  replacementSourcesTitle,
+} from '../../bom/lifecycle-presentation';
 import BomPartSearchPanel from './BomPartSearchPanel.vue';
 import PartImage from '../ui/PartImage.vue';
 
@@ -533,6 +540,7 @@ function localCatalogDecisionCodeLabel(code: string): string {
     if (prefix === 'policy_default') {
       return `${requirementLabel(detail)} 정책 기본값 적용`;
     }
+    if (prefix === 'replacement_source') return `대체품 출처: ${detail}`;
   }
   const labels: Record<string, string> = {
     identity_exact: '품번 정확 일치',
@@ -546,6 +554,8 @@ function localCatalogDecisionCodeLabel(code: string): string {
     strict_category_coverage_incomplete: '부품 유형 필수조건 미완료',
     category_manual_selection_only: '유형 정책상 수동 검토',
     lifecycle_caution: '라이프사이클 주의',
+    supplier_suggested_replacement: '공급사 제안 대체품',
+    replacement_manual_confirmation_required: '대체품 수동 확인 필요',
     manual_review_required: '수동 검토 필요',
     technical_selection_blocked: '기술 선정 차단',
     technical_preselection_unavailable: '기술 사전선정 후보 없음',
@@ -1398,6 +1408,23 @@ function cautionLabel(candidate: BomQuoteCandidateType): string {
   if (candidate.lifecycleState === 'caution') return '라이프사이클 주의';
   if (candidate.missingRequirements.length > 0) return '검증 보완 필요';
   return '엔진 검토 필요';
+}
+
+function candidateLifecycleTitle(candidate: BomQuoteCandidateType): string {
+  return lifecycleSummaryTitle({
+    state: candidate.lifecycleState,
+    code: candidate.lifecycleCode,
+    status: candidate.lifecycleStatus,
+    lastBuyDate: candidate.lastBuyDate,
+    sources: candidate.lifecycleSources,
+  }, '후보품');
+}
+
+function candidateReplacementTitle(candidate: BomQuoteCandidateType): string {
+  const title = replacementSourcesTitle(candidate.replacementSources);
+  return candidate.replacementForMpn === null
+    ? title
+    : `원품번: ${candidate.replacementForMpn}\n${title}`;
 }
 
 function verificationPercent(candidate: BomQuoteCandidateType): number | null {
@@ -2874,11 +2901,23 @@ onBeforeUnmount(() => {
                               <span v-if="candidate.technicalReviewRank !== null" class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">검토 {{ candidate.technicalReviewRank }}순위</span>
                               <span v-if="candidate.candidateKey === context.technicalTopCandidateKey" class="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-800">기술 1위</span>
                               <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{{ statusLabel(candidate.status) }}</span>
+                              <span
+                                v-if="candidate.lifecycleCode !== 'unknown'"
+                                class="rounded-full border px-2 py-0.5 text-[11px] font-bold"
+                                :class="lifecycleBadgeClass(candidate.lifecycleCode)"
+                                :title="candidateLifecycleTitle(candidate)"
+                              >{{ lifecycleLabel(candidate.lifecycleCode) }}</span>
+                              <span
+                                v-if="candidate.replacementSources.length > 0"
+                                class="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-bold text-violet-800"
+                                :title="candidateReplacementTitle(candidate)"
+                              >공급사 제안 대체품</span>
                               <span v-if="candidate.safety === 'caution'" class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">{{ cautionLabel(candidate) }}</span>
                               <span v-if="candidate.safety === 'blocked'" class="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-800">호환성 확인 필요</span>
                             </div>
                             <h4 class="mt-1.5 break-words text-base font-bold text-slate-950">{{ candidate.mpn }}</h4>
                             <p class="mt-1 text-sm text-slate-500">{{ candidate.manufacturerName ?? '제조사 미확인' }}<span v-if="candidate.packageCode"> · {{ candidate.packageCode }}</span><span v-if="candidate.lifecycleStatus"> · {{ candidate.lifecycleStatus }}</span></p>
+                            <p v-if="formatLifecycleDate(candidate.lastBuyDate) !== null" class="mt-1 text-xs font-semibold text-red-700">최종 구매 가능일 {{ formatLifecycleDate(candidate.lastBuyDate) }}</p>
                             <p v-if="candidate.description" class="mt-1 line-clamp-1 text-xs leading-5 text-slate-500" :title="candidate.description">{{ candidate.description }}</p>
                             <div class="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                               <button
@@ -2945,6 +2984,9 @@ onBeforeUnmount(() => {
                         <template v-else-if="context.technicalFallbackUsed && candidate.candidateKey === technicalTopCandidate?.candidateKey"><b>기술 1순위:</b> 기술 근거상 가장 앞선 후보지만 구매 가능한 오퍼가 없어 현재 견적에는 적용하지 않았습니다.</template>
                         <template v-else-if="candidate.reviewRecommended"><b>엔진 기술 검토 1순위:</b> 기술 근거상 가장 유력하지만 구매조건을 충족하지 못해 적용 후보와 분리했습니다.</template>
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
+                      </div>
+                      <div v-if="candidate.replacementSources.length > 0" class="mt-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs leading-5 text-violet-900">
+                        <b>공급사 제안 대체품:</b> 공급사 API가 <template v-if="candidate.replacementForMpn !== null">원품번 {{ candidate.replacementForMpn }}의 </template>대체 후보로 제공했습니다. 자동 호환을 의미하지 않으므로 사양·패키지·인증 조건을 확인한 뒤 선택해야 합니다.
                       </div>
                       <div v-if="candidate.missingRequirements.length > 0" class="mt-1.5 rounded-md bg-amber-100/70 px-2.5 py-1.5 text-xs text-amber-800"><b>{{ missingNoticePrefix(candidate) }}:</b> {{ missingText(candidate) }}</div>
 

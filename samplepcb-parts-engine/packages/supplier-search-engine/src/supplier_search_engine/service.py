@@ -14,7 +14,7 @@ from .contract import (
     search_requirement_guidance,
 )
 
-from .budget import ApiBudgetManager, QuotaExceeded
+from .budget import ApiBudgetManager, QuotaExceeded, SupplierCallBudgetExceeded
 from .cache import SQLiteCache, stable_cache_key
 from .matcher import (
     CandidateMatcher,
@@ -68,7 +68,7 @@ _CANDIDATE_GROUP_LIMIT_PER_SUPPLIER = 3
 _PRICE_GROUP_LIMIT_PER_SUPPLIER = 2
 
 
-class JobBudgetExceeded(RuntimeError):
+class JobBudgetExceeded(SupplierCallBudgetExceeded):
     pass
 
 
@@ -1181,7 +1181,13 @@ class SearchService:
                 for query in chunk:
                     filtered = client.exact_batch_result(raw, query)
                     if client.normalize(filtered, query):
-                        stored += int(await store(query, filtered))
+                        async with self._semaphores[Supplier.MOUSER]:
+                            enriched = await client.enrich_suggested_replacement(
+                                query,
+                                filtered,
+                                reserve_call=reserve_call,
+                            )
+                        stored += int(await store(query, enriched))
                         release(query)
                     else:
                         missing.append((query, filtered))

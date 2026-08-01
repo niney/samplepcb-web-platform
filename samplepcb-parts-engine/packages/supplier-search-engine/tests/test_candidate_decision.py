@@ -12,11 +12,14 @@ from supplier_search_engine.matcher import (
 )
 from supplier_search_engine.models import (
     CandidateDecision,
+    LifecycleCode,
     LifecycleState,
     ManufacturerEvidence,
     MatchRelation,
+    MatchStatus,
     PlannedQuery,
     Requirement,
+    ReplacementSource,
     SearchMode,
     SelectionEligibility,
     SelectionRecommendation,
@@ -833,8 +836,67 @@ def test_lifecycle_caution_does_not_block_exact_identity():
     )[0]
 
     assert candidate.decision.lifecycle_state == LifecycleState.CAUTION
+    assert candidate.decision.lifecycle_code == LifecycleCode.NRND
     assert candidate.decision.selection_eligibility == SelectionEligibility.AUTOMATIC
     assert "lifecycle_caution" in candidate.decision.reason_codes
+
+
+def test_supplier_suggested_replacement_requires_manual_confirmation():
+    candidate = decide(
+        identity_query(
+            requirements={
+                "resistance_ohm": requirement("resistance_ohm", 10_000.0),
+                "tolerance_percent": requirement("tolerance_percent", 5.0),
+                "package": requirement("package", "0603"),
+            }
+        ),
+        product(
+            mpn="ABC123456-V2",
+            manufacturer="Other Manufacturer",
+            package="0603",
+            specs={
+                "resistance_ohm": 10_000.0,
+                "tolerance_percent": 5.0,
+                "package": "0603",
+            },
+        ).model_copy(
+            update={
+                "replacement_for_mpn": "ABC123456",
+                "replacement_source": ReplacementSource.DIGIKEY_SUBSTITUTION,
+            }
+        ),
+    )[0]
+
+    assert candidate.decision.match_relation == MatchRelation.SPEC_COMPATIBLE
+    assert candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert "manufacturer_mismatch" not in candidate.conflicts
+    assert "supplier_replacement_manufacturer" in candidate.decision.reason_codes
+    assert "supplier_suggested_replacement" in candidate.decision.reason_codes
+    assert "replacement_manual_confirmation_required" in candidate.decision.reason_codes
+
+
+def test_supplier_suggested_replacement_with_incomplete_category_specs_stays_partial():
+    candidate = decide(
+        identity_query(
+            requirements={
+                "resistance_ohm": requirement("resistance_ohm", 10_000.0),
+            }
+        ),
+        product(
+            mpn="ABC123456-V2",
+            specs={"resistance_ohm": 10_000.0},
+        ).model_copy(
+            update={
+                "replacement_for_mpn": "ABC123456",
+                "replacement_source": ReplacementSource.DIGIKEY_SUBSTITUTION,
+            }
+        ),
+    )[0]
+
+    assert candidate.status == MatchStatus.SPEC_PARTIAL
+    assert candidate.decision.match_relation == MatchRelation.UNRESOLVED
+    assert candidate.decision.selection_eligibility == SelectionEligibility.MANUAL_REVIEW
+    assert "strict_category_coverage_incomplete" in candidate.decision.reason_codes
 
 
 def test_identity_keys_and_final_sort_are_permutation_stable():

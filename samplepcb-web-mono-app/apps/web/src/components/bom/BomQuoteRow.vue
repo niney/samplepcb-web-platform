@@ -5,6 +5,14 @@ import { isSevereOrderSurplus } from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
 import BomPriceBreaks from './BomPriceBreaks.vue';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
+import {
+  formatLifecycleDate,
+  lifecycleBadgeClass,
+  lifecycleLabel,
+  lifecycleRequiresAttention,
+  lifecycleSummaryTitle,
+  replacementSourcesTitle,
+} from '../../bom/lifecycle-presentation';
 import statusCheckIcon from '../../assets/bom/ic-status-check.svg';
 
 // 매칭 결과 테이블의 한 행 — 컴포넌트 경계로 재렌더를 행 단위로 격리한다.
@@ -459,6 +467,34 @@ const partLabel = computed(() => {
   return sourceValue ?? (description !== '' ? description : '품번 미기재');
 });
 
+const requestedLifecycleWarning = computed(() => {
+  const lifecycle = props.item.matchEvidence?.requestedLifecycle ?? null;
+  return lifecycle !== null && lifecycleRequiresAttention(lifecycle.code) ? lifecycle : null;
+});
+
+const selectedReplacementSources = computed(() =>
+  props.item.matchEvidence?.selectedReplacementSources ?? [],
+);
+
+const selectedLifecycleForDisplay = computed(() => {
+  const lifecycle = props.item.matchEvidence?.selectedLifecycle ?? null;
+  if (lifecycle === null || lifecycle.code === 'unknown') return null;
+  if (selectedReplacementSources.value.length > 0) return lifecycle;
+  if (
+    requestedLifecycleWarning.value !== null
+    && requestedLifecycleWarning.value.code !== lifecycle.code
+  ) return lifecycle;
+  return requestedLifecycleWarning.value === null && lifecycleRequiresAttention(lifecycle.code)
+    ? lifecycle
+    : null;
+});
+
+const selectedReplacementTitle = computed(() => {
+  const title = replacementSourcesTitle(selectedReplacementSources.value);
+  const originalMpn = props.item.matchEvidence?.selectedReplacementForMpn?.trim() ?? '';
+  return originalMpn === '' ? title : `원품번: ${originalMpn}\n${title}`;
+});
+
 function onQtyInput(event: Event): void {
   const raw = Number((event.target as HTMLInputElement).value);
   if (!Number.isFinite(raw)) return; // 빈 값·비정상 입력은 무시(다음 동기화가 복원)
@@ -514,6 +550,28 @@ function onQtyInput(event: Event): void {
         <div class="min-w-0 flex-1 pt-[22px]">
           <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
+          <div
+            v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null || selectedReplacementSources.length > 0"
+            class="mt-1 flex flex-wrap gap-1"
+          >
+            <span
+              v-if="requestedLifecycleWarning !== null"
+              class="rounded border px-1.5 py-0.5 text-[10px] font-bold leading-4"
+              :class="lifecycleBadgeClass(requestedLifecycleWarning.code)"
+              :title="lifecycleSummaryTitle(requestedLifecycleWarning, '요청품')"
+            >요청품 {{ lifecycleLabel(requestedLifecycleWarning.code) }}<template v-if="formatLifecycleDate(requestedLifecycleWarning.lastBuyDate) !== null"> · 최종구매 {{ formatLifecycleDate(requestedLifecycleWarning.lastBuyDate) }}</template></span>
+            <span
+              v-if="selectedLifecycleForDisplay !== null"
+              class="rounded border px-1.5 py-0.5 text-[10px] font-bold leading-4"
+              :class="lifecycleBadgeClass(selectedLifecycleForDisplay.code)"
+              :title="lifecycleSummaryTitle(selectedLifecycleForDisplay, '선정품')"
+            >선정품 {{ lifecycleLabel(selectedLifecycleForDisplay.code) }}</span>
+            <span
+              v-if="selectedReplacementSources.length > 0"
+              class="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold leading-4 text-violet-800"
+              :title="selectedReplacementTitle"
+            >공급사 제안 대체</span>
+          </div>
           <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->
           <a
             v-if="item.partDatasheetUrl !== null"

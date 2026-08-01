@@ -24,12 +24,15 @@ import {
   type BomQuoteItemCandidatesType,
   type BomQuoteItemInputType,
   type BomQuoteItemType,
+  type BomQuoteLifecycleCodeType,
+  type BomQuoteLifecycleSummaryType,
   type BomQuoteLocalCatalogTraceType,
   type BomQuoteMatchEvidenceType,
   type BomQuotePatchBodyType,
   type BomQuotePrintType,
   type BomQuoteProcurementModeType,
   type BomQuoteRecommendationTypeType,
+  type BomQuoteReplacementSourceType,
   type BomQuoteRequirementAssessmentType,
   type BomQuoteSearchRequirementGuidanceType,
   type BomQuoteSelectionEventType,
@@ -263,6 +266,15 @@ const EngineLegacyCandidateDecision = z
     verification_complete: z.boolean(),
     strict_category_coverage: z.boolean(),
     lifecycle_state: z.enum(['active', 'caution', 'unknown']),
+    lifecycle_code: z.enum([
+      'active',
+      'nrnd',
+      'eol',
+      'discontinued',
+      'obsolete',
+      'inactive',
+      'unknown',
+    ]).optional(),
   })
   .passthrough();
 
@@ -296,6 +308,15 @@ const EngineCandidateDecisionV1 = z
     verification_complete: z.boolean(),
     strict_category_coverage: z.boolean(),
     lifecycle_state: z.enum(['active', 'caution', 'unknown']),
+    lifecycle_code: z.enum([
+      'active',
+      'nrnd',
+      'eol',
+      'discontinued',
+      'obsolete',
+      'inactive',
+      'unknown',
+    ]).optional(),
     technical_review_rank: z.number().int().min(1).nullish(),
     selection_recommendation: z.enum(['preselect', 'candidate_only', 'exclude']).optional(),
     review_recommended: z.boolean().optional(),
@@ -328,6 +349,13 @@ const EngineSupplierCandidate = z
         lifecycle_status: z.string().nullish(),
         discontinued: z.boolean().nullish(),
         end_of_life: z.boolean().nullish(),
+        last_buy_date: z.string().nullish(),
+        replacement_for_mpn: z.string().nullish(),
+        replacement_source: z.enum([
+          'digikey_substitution',
+          'mouser_suggested',
+        ]).nullish(),
+        replacement_type: z.string().nullish(),
         datasheet_url: z.string().nullish(),
         image_url: z.string().nullish(),
         normalized_specs: z.record(z.string(), z.unknown()).default({}),
@@ -1092,6 +1120,37 @@ const StoredCandidate = z.object({
   packageCode: z.string().nullable(),
   lifecycleStatus: z.string().nullable(),
   lifecycleState: z.enum(['active', 'caution', 'unknown']).catch('unknown'),
+  lifecycleCode: z.enum([
+    'active',
+    'nrnd',
+    'eol',
+    'discontinued',
+    'obsolete',
+    'inactive',
+    'unknown',
+  ]).catch('unknown'),
+  lastBuyDate: z.string().nullable().catch(null),
+  lifecycleSources: z.array(z.object({
+    supplier: z.string(),
+    code: z.enum([
+      'active',
+      'nrnd',
+      'eol',
+      'discontinued',
+      'obsolete',
+      'inactive',
+      'unknown',
+    ]),
+    status: z.string().nullable(),
+    lastBuyDate: z.string().nullable(),
+    fetchedAt: z.string().nullable(),
+  })).catch([]),
+  replacementSources: z.array(z.enum([
+    'digikey_substitution',
+    'mouser_suggested',
+  ])).catch([]),
+  replacementForMpn: z.string().nullable().catch(null),
+  replacementType: z.string().nullable().catch(null),
   datasheetUrl: z.string().nullable(),
   imageUrl: z.string().nullable().catch(null), // 도입 전 저장 스냅샷 호환
   identityConfidence: z.number(),
@@ -1235,6 +1294,12 @@ export function buildQuoteComparisonRows(
       category: candidate.category,
       packageCode: candidate.packageCode,
       lifecycleStatus: candidate.lifecycleStatus,
+      lifecycleCode: candidate.lifecycleCode,
+      lastBuyDate: candidate.lastBuyDate,
+      lifecycleSources: candidate.lifecycleSources,
+      replacementSources: candidate.replacementSources,
+      replacementForMpn: candidate.replacementForMpn,
+      replacementType: candidate.replacementType,
       identityConfidence: candidate.identityConfidence,
       specificationConfidence: candidate.specificationConfidence,
       conflicts: candidate.conflicts,
@@ -1431,6 +1496,7 @@ interface NormalizedEngineCandidateDecision {
   verificationComplete: boolean;
   strictCategoryCoverage: boolean;
   lifecycleState: 'active' | 'caution' | 'unknown';
+  lifecycleCode: BomQuoteLifecycleCodeType;
   technicalReviewRank: number | null;
   selectionRecommendation: 'preselect' | 'candidate_only' | 'exclude' | null;
   reviewRecommended: boolean;
@@ -1514,6 +1580,9 @@ function normalizeEngineDecision(
       verificationComplete: currentDecision.verification_complete,
       strictCategoryCoverage: currentDecision.strict_category_coverage,
       lifecycleState: currentDecision.lifecycle_state,
+      lifecycleCode: currentDecision.lifecycle_code ?? (
+        currentDecision.lifecycle_state === 'active' ? 'active' : 'unknown'
+      ),
       technicalReviewRank: currentDecision.technical_review_rank ?? null,
       selectionRecommendation: recommendation,
       reviewRecommended,
@@ -1541,9 +1610,101 @@ function normalizeEngineDecision(
     verificationComplete: legacyDecision.verification_complete,
     strictCategoryCoverage: legacyDecision.strict_category_coverage,
     lifecycleState: legacyDecision.lifecycle_state,
+    lifecycleCode: legacyDecision.lifecycle_state === 'active' ? 'active' : 'unknown',
     technicalReviewRank: null,
     selectionRecommendation: null,
     reviewRecommended: false,
+  };
+}
+
+const LIFECYCLE_SEVERITY: Record<BomQuoteLifecycleCodeType, number> = {
+  active: 0,
+  unknown: 1,
+  inactive: 2,
+  nrnd: 3,
+  obsolete: 4,
+  discontinued: 5,
+  eol: 6,
+};
+
+function lifecycleStateForCode(
+  code: BomQuoteLifecycleCodeType,
+): 'active' | 'caution' | 'unknown' {
+  if (code === 'active') return 'active';
+  if (code === 'unknown') return 'unknown';
+  return 'caution';
+}
+
+function latestOfferFetchedAt(candidate: EngineSupplierCandidateType): string | null {
+  const values = candidate.product.offers
+    .map((offer) => offer.fetched_at)
+    .filter((value) => value.trim() !== '')
+    .sort();
+  return values.at(-1) ?? null;
+}
+
+function candidateLifecycleSnapshot(
+  members: readonly EngineSupplierCandidateType[],
+): Pick<
+  StoredCandidateType,
+  'lifecycleStatus' | 'lifecycleState' | 'lifecycleCode' | 'lastBuyDate' | 'lifecycleSources'
+> {
+  const sources = members.map((member) => {
+    const decision = normalizeEngineDecision(member.decision);
+    const code = decision?.lifecycleCode ?? 'unknown';
+    return {
+      supplier: member.product.supplier,
+      code,
+      status: member.product.lifecycle_status?.trim().slice(0, 64) ?? null,
+      lastBuyDate: member.product.last_buy_date?.trim().slice(0, 40) ?? null,
+      fetchedAt: latestOfferFetchedAt(member),
+    };
+  });
+  const uniqueSources = [...new Map(
+    sources.map((source) => [
+      `${source.supplier}\u0000${source.code}\u0000${source.status ?? ''}\u0000${source.lastBuyDate ?? ''}`,
+      source,
+    ]),
+  ).values()];
+  const primary = [...uniqueSources].sort((left, right) =>
+    LIFECYCLE_SEVERITY[right.code] - LIFECYCLE_SEVERITY[left.code]
+    || left.supplier.localeCompare(right.supplier))[0] ?? null;
+  const code = primary?.code ?? 'unknown';
+  const lastBuyDates = uniqueSources
+    .flatMap((source) => source.lastBuyDate === null ? [] : [source.lastBuyDate])
+    .sort();
+  return {
+    lifecycleStatus: primary?.status ?? null,
+    lifecycleState: lifecycleStateForCode(code),
+    lifecycleCode: code,
+    lastBuyDate: lastBuyDates[0] ?? null,
+    lifecycleSources: uniqueSources,
+  };
+}
+
+function storedLifecycleSummary(
+  candidates: readonly StoredCandidateType[],
+): BomQuoteLifecycleSummaryType | null {
+  if (candidates.length === 0) return null;
+  const primary = [...candidates].sort((left, right) =>
+    LIFECYCLE_SEVERITY[right.lifecycleCode] - LIFECYCLE_SEVERITY[left.lifecycleCode]
+    || left.technicalRank - right.technicalRank)[0];
+  if (primary === undefined) return null;
+  const sources = [...new Map(
+    candidates.flatMap((candidate) => candidate.lifecycleSources).map((source) => [
+      `${source.supplier}\u0000${source.code}\u0000${source.status ?? ''}\u0000${source.lastBuyDate ?? ''}`,
+      source,
+    ]),
+  ).values()];
+  const lastBuyDates = candidates
+    .flatMap((candidate) => candidate.lastBuyDate === null ? [] : [candidate.lastBuyDate])
+    .sort();
+  return {
+    state: primary.lifecycleState,
+    code: primary.lifecycleCode,
+    status: primary.lifecycleStatus,
+    lastBuyDate: lastBuyDates[0] ?? primary.lastBuyDate,
+    sources,
   };
 }
 
@@ -1668,6 +1829,20 @@ function buildCandidateGroups(
     }
     const metadataMember = evidenceMembers.find((member) => Object.keys(member.product.attributes).length > 0)
       ?? representative;
+    const lifecycle = candidateLifecycleSnapshot(evidenceMembers);
+    const replacementSources = uniqueStrings(
+      evidenceMembers.flatMap((member) =>
+        member.product.replacement_source === null
+        || member.product.replacement_source === undefined
+          ? []
+          : [member.product.replacement_source]),
+    ) as BomQuoteReplacementSourceType[];
+    const replacementForMpn = evidenceMembers
+      .map((member) => member.product.replacement_for_mpn?.trim() ?? '')
+      .find((value) => value !== '') ?? null;
+    const replacementType = evidenceMembers
+      .map((member) => member.product.replacement_type?.trim() ?? '')
+      .find((value) => value !== '') ?? null;
     const selectionEligibility = decision?.selectionEligibility ?? 'blocked';
     const autoEligible = selectionEligibility === 'automatic' && decision?.autoEligible === true;
     const manualSelectable = selectionEligibility !== 'blocked' && decision?.manualSelectable === true;
@@ -1706,8 +1881,10 @@ function buildCandidateGroups(
         description: metadataMember.product.description?.trim().slice(0, 1000) ?? null,
         category: metadataMember.product.category?.trim().slice(0, 191) ?? null,
         packageCode: metadataMember.product.package?.trim().slice(0, 64) ?? null,
-        lifecycleStatus: representative.product.lifecycle_status?.trim().slice(0, 64) ?? null,
-        lifecycleState: decision?.lifecycleState ?? 'unknown',
+        ...lifecycle,
+        replacementSources,
+        replacementForMpn,
+        replacementType,
         datasheetUrl: metadataMember.product.datasheet_url?.trim().slice(0, 500) ?? null,
         imageUrl: metadataMember.product.image_url?.trim().slice(0, 500) ?? null,
         identityConfidence: representative.identity_confidence,
@@ -2237,6 +2414,13 @@ function evidenceFromDecision(
   const technicalTotal = pickLineTotal(technicalTopPick);
   const savings = selectedTotal === null || technicalTotal === null ? null : Math.round((technicalTotal - selectedTotal) * 100) / 100;
   const savingsRate = savings === null || technicalTotal === null || technicalTotal <= 0 ? null : savings / technicalTotal;
+  const exactRequested = groups.filter((group) =>
+    group.snapshot.selectionMode === 'exact'
+    && group.snapshot.replacementSources.length === 0);
+  const variantRequested = groups.filter((group) =>
+    group.snapshot.selectionMode === 'variant'
+    && group.snapshot.replacementSources.length === 0);
+  const requestedGroups = exactRequested.length > 0 ? exactRequested : variantRequested;
   return {
     policyVersion,
     componentId: component.component_id,
@@ -2262,6 +2446,14 @@ function evidenceFromDecision(
     selectedManufacturer: selected?.snapshot.manufacturerName ?? null,
     selectedSupplier: pick?.offer.supplier ?? null,
     selectedSupplierSku: pick?.offer.supplierSku ?? null,
+    requestedLifecycle: storedLifecycleSummary(
+      requestedGroups.map((group) => group.snapshot),
+    ),
+    selectedLifecycle: selected === null
+      ? null
+      : storedLifecycleSummary([selected.snapshot]),
+    selectedReplacementSources: selected?.snapshot.replacementSources ?? [],
+    selectedReplacementForMpn: selected?.snapshot.replacementForMpn ?? null,
     identityConfidence: reviewCandidate?.identity_confidence ?? null,
     specificationConfidence: reviewCandidate?.specification_confidence ?? null,
     conflicts: evidenceSnapshot?.conflicts ?? reviewCandidate?.conflicts ?? [],
@@ -3704,6 +3896,12 @@ export async function getQuoteItemCandidates(
       packageCode: candidate.packageCode,
       lifecycleStatus: candidate.lifecycleStatus,
       lifecycleState: candidate.lifecycleState,
+      lifecycleCode: candidate.lifecycleCode,
+      lastBuyDate: candidate.lastBuyDate,
+      lifecycleSources: candidate.lifecycleSources,
+      replacementSources: candidate.replacementSources,
+      replacementForMpn: candidate.replacementForMpn,
+      replacementType: candidate.replacementType,
       datasheetUrl: candidate.datasheetUrl,
       imageUrl: candidate.imageUrl ?? catalogImageByCandidate.get(candidate.candidateKey) ?? null,
       identityConfidence: candidate.identityConfidence,

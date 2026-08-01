@@ -11,6 +11,7 @@ from .connector import CONNECTOR_FAMILY_LABELS
 from .models import (
     CandidateDecision,
     CandidateMatch,
+    LifecycleCode,
     LifecycleState,
     ManufacturerEvidence,
     MatchRelation,
@@ -214,32 +215,42 @@ def _identity_key(product: SupplierProduct) -> str:
     return f"ik1:{_stable_digest(payload)}"
 
 
-def _lifecycle_state(product: SupplierProduct) -> LifecycleState:
-    if product.discontinued is True or product.end_of_life is True:
-        return LifecycleState.CAUTION
+def _lifecycle_code(product: SupplierProduct) -> LifecycleCode:
     normalized = (product.lifecycle_status or "").casefold()
-    if any(
-        token in normalized
-        for token in (
-            "nrnd",
-            "eol",
-            "end of life",
-            "obsolete",
-            "discontinued",
-            "기존 설계",
-            "inactive",
-            "비활성",
-        )
+    if product.end_of_life is True or "end of life" in normalized or "eol" in normalized:
+        return LifecycleCode.EOL
+    if product.discontinued is True or "discontinued" in normalized:
+        return LifecycleCode.DISCONTINUED
+    if "obsolete" in normalized:
+        return LifecycleCode.OBSOLETE
+    if (
+        "nrnd" in normalized
+        or "not recommended" in normalized
+        or "not for new designs" in normalized
+        or "기존 설계" in normalized
     ):
-        return LifecycleState.CAUTION
+        return LifecycleCode.NRND
+    if "inactive" in normalized or "비활성" in normalized:
+        return LifecycleCode.INACTIVE
+    if product.last_buy_date is not None or "last time buy" in normalized or "last buy" in normalized:
+        return LifecycleCode.EOL
     if (
         re.search(r"(?:^|\W)active(?:\W|$)", normalized)
         or normalized == "활성"
         or "신규 설계" in normalized
         or "양산" in normalized
     ):
+        return LifecycleCode.ACTIVE
+    return LifecycleCode.UNKNOWN
+
+
+def _lifecycle_state(product: SupplierProduct) -> LifecycleState:
+    code = _lifecycle_code(product)
+    if code == LifecycleCode.ACTIVE:
         return LifecycleState.ACTIVE
-    return LifecycleState.UNKNOWN
+    if code == LifecycleCode.UNKNOWN:
+        return LifecycleState.UNKNOWN
+    return LifecycleState.CAUTION
 
 
 def _category_fields(query: PlannedQuery) -> tuple[str, ...] | None:
@@ -302,7 +313,11 @@ def _requirement_assessment(
 
     category_fields = _category_fields(query)
     category_missing: set[str] = set()
-    if query.mode == SearchMode.PARAMETRIC:
+    strict_spec_validation = (
+        query.mode == SearchMode.PARAMETRIC
+        or product.replacement_source is not None
+    )
+    if strict_spec_validation:
         if category_fields is None:
             category_missing.add("unsupported_category")
         else:
@@ -310,7 +325,7 @@ def _requirement_assessment(
             category_missing.update(set(category_fields) - verified)
     verification_complete = required <= verified
     strict_category_coverage = bool(
-        query.mode == SearchMode.PARAMETRIC
+        strict_spec_validation
         and category_fields is not None
         and not category_missing
     )
@@ -483,7 +498,7 @@ def _match_relation(
         return MatchRelation.EXACT
     if "manufacturer_part_number_format_variant" in reasons:
         return MatchRelation.VARIANT
-    if query.mode != SearchMode.PARAMETRIC:
+    if query.mode != SearchMode.PARAMETRIC and product.replacement_source is None:
         return MatchRelation.UNRESOLVED
     actual_conflicts = set(conflicts) - _SOURCE_CONFLICTS
     _, _, _, complete, strict = _requirement_assessment(query, product, reasons)
@@ -506,6 +521,7 @@ def _candidate_decision(
     verified, required, category_missing, complete, strict = _requirement_assessment(
         query, product, reasons
     )
+    lifecycle_code = _lifecycle_code(product)
     lifecycle = _lifecycle_state(product)
     conflict_set = set(conflicts)
     requirement_assessments = _build_requirement_assessments(
@@ -577,6 +593,15 @@ def _candidate_decision(
     else:
         eligibility = SelectionEligibility.MANUAL_REVIEW
 
+    # Distributor suggestions are useful discovery evidence, not proof of
+    # drop-in compatibility. Even a fully verified suggestion remains an
+    # explicit user-review choice until a separate policy approves it.
+    if (
+        product.replacement_source is not None
+        and eligibility == SelectionEligibility.AUTOMATIC
+    ):
+        eligibility = SelectionEligibility.MANUAL_REVIEW
+
     reason_codes: list[str] = []
     if relation == MatchRelation.EXACT:
         reason_codes.append("identity_exact")
@@ -592,6 +617,8 @@ def _candidate_decision(
         reason_codes.append("identity_exact_requirement_conflict")
     if product.manufacturer_evidence == ManufacturerEvidence.INFERRED:
         reason_codes.append("manufacturer_inferred")
+    if "supplier_replacement_manufacturer" in reasons:
+        reason_codes.append("supplier_replacement_manufacturer")
     for value in sorted(source_conflicts):
         reason_codes.append(value)
     reason_codes.extend(
@@ -608,7 +635,10 @@ def _candidate_decision(
     )
     if not complete:
         reason_codes.append("verification_incomplete")
-    if query.mode == SearchMode.PARAMETRIC and not strict:
+    if (
+        query.mode == SearchMode.PARAMETRIC
+        or product.replacement_source is not None
+    ) and not strict:
         reason_codes.append("strict_category_coverage_incomplete")
     if query.mode == SearchMode.PARAMETRIC and (
         query.category_policy in {"led", "connector", "fuse"}
@@ -623,6 +653,14 @@ def _candidate_decision(
         reason_codes.append("category_manual_selection_only")
     if lifecycle == LifecycleState.CAUTION:
         reason_codes.append("lifecycle_caution")
+    if product.replacement_source is not None:
+        reason_codes.extend(
+            [
+                "supplier_suggested_replacement",
+                f"replacement_source:{product.replacement_source.value}",
+                "replacement_manual_confirmation_required",
+            ]
+        )
     if eligibility == SelectionEligibility.MANUAL_REVIEW:
         reason_codes.append("manual_review_required")
     elif eligibility == SelectionEligibility.BLOCKED:
@@ -644,6 +682,12 @@ def _candidate_decision(
         "verification_complete": complete,
         "strict_category_coverage": strict,
         "lifecycle_state": lifecycle.value,
+        "lifecycle_code": lifecycle_code.value,
+        "replacement_source": (
+            product.replacement_source.value
+            if product.replacement_source is not None
+            else None
+        ),
         "manufacturer_evidence": product.manufacturer_evidence.value,
         "reason_codes": sorted(set(reason_codes)),
     }
@@ -676,6 +720,7 @@ def _candidate_decision(
         verification_complete=complete,
         strict_category_coverage=strict,
         lifecycle_state=lifecycle,
+        lifecycle_code=lifecycle_code,
     )
 
 
@@ -1004,6 +1049,7 @@ def _status_after_group_evidence(
     candidate: CandidateMatch,
     conflicts: list[str],
     missing: list[str],
+    reasons: list[str],
 ) -> MatchStatus:
     hard_conflicts = [
         item
@@ -1035,7 +1081,18 @@ def _status_after_group_evidence(
         return MatchStatus.AMBIGUOUS
     if missing:
         return MatchStatus.SPEC_PARTIAL
-    if query.mode in {SearchMode.PARAMETRIC, SearchMode.HYBRID}:
+    if candidate.product.replacement_source is not None:
+        _, _, _, complete, strict = _requirement_assessment(
+            query,
+            candidate.product,
+            reasons,
+        )
+        if not complete or not strict:
+            return MatchStatus.SPEC_PARTIAL
+    if (
+        query.mode in {SearchMode.PARAMETRIC, SearchMode.HYBRID}
+        or candidate.product.replacement_source is not None
+    ):
         return MatchStatus.SPEC_COMPATIBLE
     return MatchStatus.SPEC_PARTIAL
 
@@ -1100,7 +1157,13 @@ def finalize_candidate_decisions(
             reasons = list(dict.fromkeys([*reasons, *physical_reasons]))
             conflicts = sorted(set([*conflicts, *physical_conflicts]))
             missing = sorted(set([*missing, *physical_missing]))
-            status = _status_after_group_evidence(query, candidate, conflicts, missing)
+            status = _status_after_group_evidence(
+                query,
+                candidate,
+                conflicts,
+                missing,
+                reasons,
+            )
             completed.append(
                 candidate.model_copy(
                     update={
@@ -1147,8 +1210,10 @@ class CandidateMatcher:
             ):
                 identity_confidence = 0.92
                 reasons.append("manufacturer_part_number_format_variant")
-            else:
+            elif product.replacement_source is None:
                 conflicts.append("part_number_mismatch")
+            else:
+                reasons.append("supplier_replacement_part_number")
         manufacturer_match = manufacturers_compatible(
             query.manufacturer, product.manufacturer
         )
@@ -1160,7 +1225,10 @@ class CandidateMatcher:
                 missing.append("manufacturer")
                 reasons.append("manufacturer_inferred")
         elif manufacturer_match is False:
-            conflicts.append("manufacturer_mismatch")
+            if product.replacement_source is None:
+                conflicts.append("manufacturer_mismatch")
+            else:
+                reasons.append("supplier_replacement_manufacturer")
         elif query.manufacturer:
             missing.append("manufacturer")
 
@@ -1282,6 +1350,16 @@ class CandidateMatcher:
             for item in conflicts
             if item != "part_number_mismatch" or query.mode == SearchMode.IDENTITY
         ]
+        replacement_verification_incomplete = False
+        if product.replacement_source is not None:
+            _, _, _, replacement_complete, replacement_strict = _requirement_assessment(
+                query,
+                product,
+                reasons,
+            )
+            replacement_verification_incomplete = (
+                not replacement_complete or not replacement_strict
+            )
         if (
             query.mode == SearchMode.IDENTITY
             and identity_confidence >= 1.0
@@ -1307,7 +1385,12 @@ class CandidateMatcher:
             status = MatchStatus.AMBIGUOUS
         elif missing:
             status = MatchStatus.SPEC_PARTIAL
-        elif query.mode in {SearchMode.PARAMETRIC, SearchMode.HYBRID} and checked:
+        elif replacement_verification_incomplete:
+            status = MatchStatus.SPEC_PARTIAL
+        elif (
+            query.mode in {SearchMode.PARAMETRIC, SearchMode.HYBRID}
+            or product.replacement_source is not None
+        ) and checked:
             status = MatchStatus.SPEC_COMPATIBLE
         else:
             status = MatchStatus.SPEC_PARTIAL
