@@ -30,18 +30,25 @@ export const AdminBomOrderListItem = z.object({
 });
 export type AdminBomOrderListItemType = z.infer<typeof AdminBomOrderListItem>;
 
+// 탭은 역할별 메뉴가 나눠 쓴다(관리자 메뉴 재편): 주문·결제=awaiting_payment|paid|
+// completed, 발주=paid_unissued, 선적·배송(고객 배송 큐)=to_ship|shipping.
 export const AdminBomOrderCounts = z.object({
   all: z.number().int(),
   awaitingPayment: z.number().int(), // od_status='주문'
-  paidUnissued: z.number().int(), // 결제완료 + 발주서 없는 Case 존재
-  done: z.number().int(),
+  paid: z.number().int(), // 결제 완료(취소 제외 — 배송·완료 포함 조회)
+  paidUnissued: z.number().int(), // 결제완료 + 발주서 없는 Case 존재 → 발주 메뉴 큐
+  toShip: z.number().int(), // 결제완료 + od_status 입금|준비 — 고객 배송 처리 대상
+  shipping: z.number().int(), // od_status='배송' — 구매확정 대상
+  completed: z.number().int(), // od_status='완료'
 });
 export type AdminBomOrderCountsType = z.infer<typeof AdminBomOrderCounts>;
 
 export const AdminBomOrderListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  tab: z.enum(['all', 'awaiting_payment', 'paid_unissued', 'done']).default('all'),
+  tab: z
+    .enum(['all', 'awaiting_payment', 'paid', 'paid_unissued', 'to_ship', 'shipping', 'completed'])
+    .default('all'),
 });
 export type AdminBomOrderListQueryType = z.infer<typeof AdminBomOrderListQuery>;
 

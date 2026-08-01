@@ -47,6 +47,17 @@ export function useBomShipmentPendingCount(enabled: Ref<boolean>) {
   });
 }
 
+/** 메뉴 배지용 검토 대기(requested) 수 — 견적관리 메뉴(관리자 메뉴 재편). */
+export function useBomQuotesRequestedCount(enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: ['admin', 'bom-quotes', 'requested-count'],
+    queryFn: () => apiGet(`${base}?page=1&pageSize=1`, AdminBomQuoteListResponse),
+    enabled,
+    select: (res) => res.data.counts.requested,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useAdminBomQuoteCandidates(quoteId: Ref<string | null>, itemId: Ref<string | null>) {
   return useQuery({
     queryKey: computed(() => ['admin', 'bom-quotes', 'candidates', quoteId.value, itemId.value]),

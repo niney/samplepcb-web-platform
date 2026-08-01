@@ -46,6 +46,18 @@ export function useBomOrdersAwaitingCount(enabled: Ref<boolean>) {
   });
 }
 
+/** 메뉴 배지용 발주 대기(결제 완료+미발주) 수 — 발주 메뉴(관리자 메뉴 재편). */
+export function useBomPosAwaitingCount(enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: ['admin', 'bom-orders', 'pos-awaiting-count'],
+    queryFn: () =>
+      apiGet(`${apiRoutes.adminBomOrders}?page=1&pageSize=1&tab=all`, AdminBomOrderListResponse),
+    enabled,
+    select: (res) => res.data.counts.paidUnissued,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useConfirmBomOrderReceipt() {
   const qc = useQueryClient();
   return useMutation({

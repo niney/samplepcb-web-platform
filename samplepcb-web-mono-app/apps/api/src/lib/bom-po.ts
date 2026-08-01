@@ -16,7 +16,9 @@ import {
   bomShipmentPrevStatus,
 } from '@sp/api-contract';
 import type {
+  AdminBomPoCrossItemType,
   AdminBomPoViewType,
+  AdminBomShipmentCrossItemType,
   AdminBomShipmentUpsertBodyType,
   BomPoItemViewType,
   BomPoStatusType,
@@ -216,6 +218,83 @@ export const loadAdminPos = async (quoteId: bigint): Promise<AdminBomPoViewType[
       key === undefined ? [] : (filesMap.get(key) ?? []),
       key === undefined ? [] : (groupMap.get(key) ?? []),
     );
+  });
+};
+
+// ── 횡단 워크큐(관리자 메뉴 재편) — 전 Case 발주·선적 목록 ───────────────────
+// 역할별 메뉴(발주/선적·배송)의 큐. 규모가 작아(월 수십 건) 전체 파생 후 라우트에서
+// 메모리 페이지네이션 — admin-bom-orders 관례 동일(커지면 커서 재설계).
+
+export const loadAdminPoCrossList = async (): Promise<AdminBomPoCrossItemType[]> => {
+  const pos = await prisma.spBomPo.findMany({
+    include: {
+      partner: { select: { name: true, supplierCode: true } },
+      quote: { select: { title: true } },
+      shipmentLink: { include: { shipment: true } },
+      _count: { select: { items: true } },
+    },
+    orderBy: { id: 'desc' },
+  });
+  return pos.map((po) => {
+    const shipment = linkedShipment(po);
+    let shipmentLite: AdminBomPoCrossItemType['shipment'] = null;
+    if (shipment !== null) {
+      const mode = asShipmentMode(shipment.mode);
+      shipmentLite = {
+        shipmentId: Number(shipment.id),
+        mode,
+        status: asShipmentStatus(mode, shipment.status),
+        receivedAt: shipment.receivedAt?.toISOString() ?? null,
+      };
+    }
+    return {
+      poId: Number(po.id),
+      quoteId: String(po.quoteId),
+      quoteTitle: po.quote.title,
+      partnerId: Number(po.partnerId),
+      partnerName: po.partner.name,
+      supplierCode: po.partner.supplierCode,
+      status: asBomPoStatus(po.status),
+      totalAmount: po.totalAmount,
+      currency: po.currency,
+      itemCount: po._count.items,
+      issuedAt: po.issuedAt.toISOString(),
+      confirmedAt: po.confirmedAt?.toISOString() ?? null,
+      closedAt: po.closedAt?.toISOString() ?? null,
+      shipment: shipmentLite,
+    };
+  });
+};
+
+export const loadAdminShipmentCrossList = async (): Promise<AdminBomShipmentCrossItemType[]> => {
+  const shipments = await prisma.spBomShipment.findMany({
+    include: {
+      // 대표 발주서 경유로 협력사·Case 표시(§6.10 — 묶음 전체는 groupPos 가 담당)
+      po: {
+        select: {
+          partnerId: true,
+          partner: { select: { name: true } },
+          quote: { select: { title: true } },
+        },
+      },
+    },
+    orderBy: { id: 'desc' },
+  });
+  const shipmentIds = shipments.map((s) => s.id);
+  const [filesMap, groupMap] = await Promise.all([
+    loadShipmentFilesMap(shipmentIds),
+    loadShipmentGroupMap(shipmentIds),
+  ]);
+  return shipments.map((s) => {
+    const key = s.id.toString();
+    return {
+      ...toShipmentView(s, filesMap.get(key) ?? [], groupMap.get(key) ?? []),
+      partnerId: Number(s.po.partnerId),
+      partnerName: s.po.partner.name,
+      quoteId: String(s.quoteId),
+      quoteTitle: s.po.quote.title,
+      adminPending: isShipmentAdminPending(s),
+    };
   });
 };
 

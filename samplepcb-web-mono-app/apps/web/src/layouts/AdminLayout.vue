@@ -2,10 +2,10 @@
 import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
-import { adminModules, resolveAdminModuleKey } from '../admin/menu';
+import { adminModules, resolveAdminModuleKey, type AdminMenuItem } from '../admin/menu';
 import { useRfqCount } from '../admin/useAdminQuotes';
-import { useBomOrdersAwaitingCount } from '../admin/useAdminBomOrders';
-import { useBomShipmentPendingCount } from '../admin/useAdminBomQuotes';
+import { useBomOrdersAwaitingCount, useBomPosAwaitingCount } from '../admin/useAdminBomOrders';
+import { useBomQuotesRequestedCount, useBomShipmentPendingCount } from '../admin/useAdminBomQuotes';
 import { useTheme } from '../bom/useTheme';
 
 const auth = useAuthStore();
@@ -29,21 +29,26 @@ watch(activeModuleKey, (key) => {
   }
 });
 
-// 메뉴 뱃지 데이터 — 관리자로 로그인했을 때만 조회.
-// rfqCount = 거버 견적 대기 수, bomOrdersAwaiting = 스마트 BOM 입금 대기 주문 수(D19),
-// bomShipmentPending = 관리자 차례 선적 수(D22 — 협력사 전이 인지).
+// 메뉴 뱃지 데이터 — 관리자로 로그인했을 때만 조회. 역할별 메뉴마다 "지금 움직여야
+// 하는 수" 하나: rfqCount=거버 견적 대기, bomQuotesRequested=BOM 검토 대기(견적관리),
+// bomOrdersAwaiting=입금 대기(주문·결제), bomPosAwaiting=발주 대기(발주),
+// bomShipmentPending=관리자 차례 선적(선적·배송, D22).
 const isAdminUser = computed(() => auth.me?.isAdmin === true);
 const { data: rfqCount } = useRfqCount(isAdminUser);
+const { data: bomQuotesRequested } = useBomQuotesRequestedCount(isAdminUser);
 const { data: bomOrdersAwaiting } = useBomOrdersAwaitingCount(isAdminUser);
+const { data: bomPosAwaiting } = useBomPosAwaitingCount(isAdminUser);
 const { data: bomShipmentPending } = useBomShipmentPendingCount(isAdminUser);
-const badgeValue = (
-  badge: 'rfqCount' | 'bomOrdersAwaiting' | 'bomShipmentPending',
-): number | undefined =>
+const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefined =>
   badge === 'rfqCount'
     ? rfqCount.value
-    : badge === 'bomOrdersAwaiting'
-      ? bomOrdersAwaiting.value
-      : bomShipmentPending.value;
+    : badge === 'bomQuotesRequested'
+      ? bomQuotesRequested.value
+      : badge === 'bomOrdersAwaiting'
+        ? bomOrdersAwaiting.value
+        : badge === 'bomPosAwaiting'
+          ? bomPosAwaiting.value
+          : bomShipmentPending.value;
 </script>
 
 <template>

@@ -4864,6 +4864,7 @@ export function toAdminSummaryDto(
   poCount = 0,
   poReceivedCount = 0,
   shipmentAdminPending = false,
+  rfq: { total: number; replied: number } = { total: 0, replied: 0 },
 ): AdminBomQuoteSummaryType {
   return {
     ...toSummaryDto(quote, summaryCounts(items), orderState),
@@ -4871,6 +4872,8 @@ export function toAdminSummaryDto(
     poCount,
     poReceivedCount,
     shipmentAdminPending,
+    rfqTotal: rfq.total,
+    rfqReplied: rfq.replied,
   };
 }
 

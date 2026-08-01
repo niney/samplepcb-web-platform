@@ -94,24 +94,36 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         return left < right ? 1 : left > right ? -1 : (a.odId < b.odId ? 1 : -1);
       });
 
+      // 탭 판정 — 역할별 메뉴가 나눠 쓴다: 주문·결제(awaiting_payment|paid|completed),
+      // 발주(paid_unissued), 선적·배송 고객 배송 큐(to_ship|shipping).
       const isAwaiting = (item: AdminBomOrderListItemType): boolean => !item.isPaid;
+      const isPaid = (item: AdminBomOrderListItemType): boolean =>
+        item.isPaid && item.odStatus !== '취소';
       const isPaidUnissued = (item: AdminBomOrderListItemType): boolean =>
         item.isPaid && item.cases.some((entry) => entry.poCount === 0);
+      const isToShip = (item: AdminBomOrderListItemType): boolean =>
+        item.isPaid && (item.odStatus === '입금' || item.odStatus === '준비');
+      const isShipping = (item: AdminBomOrderListItemType): boolean => item.odStatus === '배송';
+      const isCompleted = (item: AdminBomOrderListItemType): boolean => item.odStatus === '완료';
       const counts: AdminBomOrderCountsType = {
         all: all.length,
         awaitingPayment: all.filter(isAwaiting).length,
+        paid: all.filter(isPaid).length,
         paidUnissued: all.filter(isPaidUnissued).length,
-        done: all.filter((item) => !isAwaiting(item) && !isPaidUnissued(item)).length,
+        toShip: all.filter(isToShip).length,
+        shipping: all.filter(isShipping).length,
+        completed: all.filter(isCompleted).length,
       };
 
-      const filtered =
-        tab === 'awaiting_payment'
-          ? all.filter(isAwaiting)
-          : tab === 'paid_unissued'
-            ? all.filter(isPaidUnissued)
-            : tab === 'done'
-              ? all.filter((item) => !isAwaiting(item) && !isPaidUnissued(item))
-              : all;
+      const TAB_FILTERS = {
+        awaiting_payment: isAwaiting,
+        paid: isPaid,
+        paid_unissued: isPaidUnissued,
+        to_ship: isToShip,
+        shipping: isShipping,
+        completed: isCompleted,
+      } as const;
+      const filtered = tab === 'all' ? all : all.filter(TAB_FILTERS[tab]);
       const items = filtered.slice((page - 1) * pageSize, page * pageSize);
 
       return {

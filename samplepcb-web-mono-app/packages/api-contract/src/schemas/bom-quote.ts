@@ -1119,6 +1119,10 @@ export const AdminBomQuoteSummary = BomQuoteSummary.extend({
   poReceivedCount: z.number().int(),
   /** 선적 중 다음 단계가 관리자 차례인 건 존재(D22) — 목록 "선적 처리 필요" 칩. */
   shipmentAdminPending: z.boolean(),
+  /** 발송한 RFQ 수 — 견적관리 목록의 RFQ 실황(0=미발송 강조). */
+  rfqTotal: z.number().int(),
+  /** 회신 완료(quoted) RFQ 수 — "회신 m/n" 표시. */
+  rfqReplied: z.number().int(),
 });
 export type AdminBomQuoteSummaryType = z.infer<typeof AdminBomQuoteSummary>;
 

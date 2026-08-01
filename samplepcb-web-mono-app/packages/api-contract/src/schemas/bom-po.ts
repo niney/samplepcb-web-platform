@@ -327,6 +327,105 @@ export const AdminBomPoMutationResponse = z.object({
 });
 export type AdminBomPoMutationResponseType = z.infer<typeof AdminBomPoMutationResponse>;
 
+// ── 발주 워크큐(/api/admin/bom-pos) — 전 Case 횡단 발주서 목록(관리자 메뉴 재편) ──
+// 발주 담당의 큐: 확인 대기(issued)→진행 중(confirmed)→마감(closed). "발주 대기"
+// (결제 완료+미발주)는 PO 가 없어 주문 축(/admin/bom-orders?tab=paid_unissued)이 담당.
+
+export const AdminBomPoCrossItem = z.object({
+  poId: z.number(),
+  quoteId: z.string(),
+  quoteTitle: z.string(),
+  partnerId: z.number(),
+  partnerName: z.string(),
+  supplierCode: z.string().nullable(),
+  status: BomPoStatus,
+  totalAmount: z.number().int(),
+  currency: z.string(),
+  itemCount: z.number().int(),
+  issuedAt: z.string(),
+  confirmedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  /** 소속 선적(경량, §6.10 조인 기반) — 없으면 null. */
+  shipment: z
+    .object({
+      shipmentId: z.number(),
+      mode: BomShipmentMode,
+      status: BomShipmentStatus,
+      receivedAt: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type AdminBomPoCrossItemType = z.infer<typeof AdminBomPoCrossItem>;
+
+export const AdminBomPoCrossCounts = z.object({
+  issued: z.number().int(),
+  confirmed: z.number().int(),
+  closed: z.number().int(),
+});
+export type AdminBomPoCrossCountsType = z.infer<typeof AdminBomPoCrossCounts>;
+
+export const AdminBomPoCrossListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  tab: z.enum(['issued', 'confirmed', 'closed']).default('issued'),
+});
+export type AdminBomPoCrossListQueryType = z.infer<typeof AdminBomPoCrossListQuery>;
+
+export const AdminBomPoCrossListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(AdminBomPoCrossItem),
+    total: z.number().int(),
+    page: z.number().int(),
+    pageSize: z.number().int(),
+    counts: AdminBomPoCrossCounts,
+  }),
+});
+export type AdminBomPoCrossListResponseType = z.infer<typeof AdminBomPoCrossListResponse>;
+
+// ── 선적 워크큐(/api/admin/bom-shipments) — 전 Case 횡단 선적 목록 ────────────
+// 물류 담당의 큐: 내 차례(관리자 액션 필요)→진행 중(입고 전)→입고 완료. 고객 배송
+// 처리는 주문 축(/admin/bom-orders?tab=to_ship|shipping)이 담당(같은 화면 하단).
+
+export const AdminBomShipmentCrossItem = BomShipmentView.extend({
+  partnerId: z.number(),
+  partnerName: z.string(),
+  /** 대표 발주서의 Case — 상세 이동용(묶음 전체는 groupPos). */
+  quoteId: z.string(),
+  quoteTitle: z.string(),
+  /** 다음 단계가 관리자 차례(D22) — 큐 강조. */
+  adminPending: z.boolean(),
+});
+export type AdminBomShipmentCrossItemType = z.infer<typeof AdminBomShipmentCrossItem>;
+
+export const AdminBomShipmentCrossCounts = z.object({
+  adminPending: z.number().int(),
+  active: z.number().int(), // 입고 전 전체(preparing 포함)
+  received: z.number().int(),
+});
+export type AdminBomShipmentCrossCountsType = z.infer<typeof AdminBomShipmentCrossCounts>;
+
+export const AdminBomShipmentCrossListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  tab: z.enum(['admin_pending', 'active', 'received']).default('admin_pending'),
+});
+export type AdminBomShipmentCrossListQueryType = z.infer<typeof AdminBomShipmentCrossListQuery>;
+
+export const AdminBomShipmentCrossListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(AdminBomShipmentCrossItem),
+    total: z.number().int(),
+    page: z.number().int(),
+    pageSize: z.number().int(),
+    counts: AdminBomShipmentCrossCounts,
+  }),
+});
+export type AdminBomShipmentCrossListResponseType = z.infer<
+  typeof AdminBomShipmentCrossListResponse
+>;
+
 // ── 협력사 포털 (/api/partner/pos, requirePartner) ──────────────────────────
 // 노출 = 발주 품목·수량·단가(자기 발주서뿐). 고객 식별정보는 스키마에 없다.
 

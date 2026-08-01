@@ -54,6 +54,33 @@ const detailId = computed(() => {
 const detailQuery = useAdminBomQuote(detailId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
 
+// 역할별 메뉴 진입 컨텍스트(§6.12 개정) — ?from=quotes|orders|pos|logistics 로 들어오면
+// 무관 섹션을 한 줄 접힘 바로 축소(존재 신호+한 클릭 복원). 접힘만으로 관련 섹션이
+// 화면 상단에 오므로 별도 스크롤·강조는 두지 않는다(사용자 결정으로 제거).
+// 진행현황·북마크(from 없음)는 전체 표시. 상세는 여전히 단일 척추 — 렌더만 다르다.
+type CaseSection = 'rfq' | 'po' | 'items';
+type CaseFrom = 'quotes' | 'orders' | 'pos' | 'logistics';
+const fromParam = ((): CaseFrom | null => {
+  const raw = route.query.from;
+  return raw === 'quotes' || raw === 'orders' || raw === 'pos' || raw === 'logistics'
+    ? raw
+    : null;
+})();
+const INITIAL_COLLAPSED: Record<CaseFrom, CaseSection[]> = {
+  quotes: ['po'], // 견적 담당 — 품목·검토+RFQ 가 본업
+  orders: ['rfq', 'items'], // 경리 — 주문 정보(요약 스트립)+발주 현황만
+  pos: ['rfq', 'items'], // 구매 — 발주 패널이 본업(선정가는 발주 스냅샷에 박제됨)
+  logistics: ['rfq', 'items'], // 물류 — 발주 패널의 [선적 관리]가 진입점
+};
+const collapsed = ref<Set<CaseSection>>(
+  new Set(fromParam === null ? [] : INITIAL_COLLAPSED[fromParam]),
+);
+const expandSection = (section: CaseSection): void => {
+  const next = new Set(collapsed.value);
+  next.delete(section);
+  collapsed.value = next;
+};
+
 // 견적서 인쇄(§6.8) — 모달 open 시 로더 콜백으로 fetch(관리자 print 라우트).
 const estimateOpen = ref(false);
 const loadEstimatePrint = async () => {
@@ -432,8 +459,18 @@ async function downloadOriginal(): Promise<void> {
         고객 메모: {{ detail.customerMemo }}
       </p>
 
-      <!-- 협력사 RFQ 현황 -->
+      <!-- 협력사 RFQ 현황 — 무관 파트 진입 시 한 줄 접힘(§6.12) -->
+      <button
+        v-if="collapsed.has('rfq')"
+        type="button"
+        class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+        @click="expandSection('rfq')"
+      >
+        <span>▸ 협력사 RFQ ({{ rfqs.length }}건)</span>
+        <span class="text-xs text-gray-400">펼치기</span>
+      </button>
       <BomRfqPanel
+        v-else
         :rfqs="rfqs"
         :loading="rfqQuery.isLoading.value"
         :can-send="detail.status === 'requested' || detail.status === 'reviewing'"
@@ -445,7 +482,17 @@ async function downloadOriginal(): Promise<void> {
       />
 
       <!-- 협력사 발주(D18) — 결제 확인 후 -->
+      <button
+        v-if="collapsed.has('po')"
+        type="button"
+        class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+        @click="expandSection('po')"
+      >
+        <span>▸ 협력사 발주 ({{ pos.length }}건)</span>
+        <span class="text-xs text-gray-400">펼치기</span>
+      </button>
       <BomPoPanel
+        v-else
         :pos="pos"
         :loading="poQuery.isLoading.value"
         :can-issue="canIssuePo"
@@ -459,7 +506,17 @@ async function downloadOriginal(): Promise<void> {
       />
       <p v-if="poError !== ''" class="text-xs font-semibold text-red-600">{{ poError }}</p>
 
-      <div class="grid gap-4 xl:grid-cols-[1fr_340px]">
+      <!-- 품목 표+검토 — 견적 담당 외 진입에선 접힘(가장 큰 몸통, §6.12) -->
+      <button
+        v-if="collapsed.has('items')"
+        type="button"
+        class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+        @click="expandSection('items')"
+      >
+        <span>▸ 품목·검토 ({{ detail.items.length }}행)</span>
+        <span class="text-xs text-gray-400">펼치기</span>
+      </button>
+      <div v-else class="grid gap-4 xl:grid-cols-[1fr_340px]">
         <!-- 품목 -->
         <div class="overflow-hidden rounded-xl border border-gray-200 bg-surface">
           <table class="min-w-full divide-y divide-gray-100 text-xs">

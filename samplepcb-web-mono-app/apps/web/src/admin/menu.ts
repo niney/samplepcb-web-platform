@@ -7,7 +7,12 @@ import type { RouteLocationRaw } from 'vue-router';
 export interface AdminMenuItem {
   to: RouteLocationRaw;
   labelKey: string;
-  badge?: 'rfqCount' | 'bomOrdersAwaiting' | 'bomShipmentPending';
+  badge?:
+    | 'rfqCount'
+    | 'bomOrdersAwaiting'
+    | 'bomShipmentPending'
+    | 'bomQuotesRequested'
+    | 'bomPosAwaiting';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -47,21 +52,38 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-settings' }, labelKey: 'admin.menu.settings' },
 ];
 
-// 스마트 BOM 모듈 — 부품 견적 Case 운영(진행현황·기준정보). 주문·결제(2차)와
-// 입고·배송(3차) 메뉴는 해당 단계 구현 시 추가한다(placeholder 금지 관례 동일).
+// 스마트 BOM 모듈 — 역할별 업무 메뉴(관리자 메뉴 재편): 진행현황(총괄 조감) +
+// 견적관리(견적 담당)/주문·결제(경리)/발주(구매)/선적·배송(물류) 워크큐 + 기준정보.
+// 배지 = 각 역할이 "지금 움직여야 하는 수" 하나씩.
 const smartbomMenu: AdminMenuItem[] = [
   {
     to: { name: 'admin-smartbom' },
     labelKey: 'admin.menu.smartbomCases',
     activeRouteNames: ['admin-smartbom-case'],
-    // 관리자 차례 선적 수(D22) — 협력사 전이 후 메일을 놓쳐도 화면에서 인지
-    badge: 'bomShipmentPending',
   },
-  // 주문 축 워크큐(D19) — 입금 대기 수 배지
+  // 견적 흐름 워크큐 — 검토 대기 수 배지
+  {
+    to: { name: 'admin-smartbom-quotes' },
+    labelKey: 'admin.menu.smartbomQuotes',
+    badge: 'bomQuotesRequested',
+  },
+  // 주문 축 워크큐(D19, 결제 관점) — 입금 대기 수 배지
   {
     to: { name: 'admin-smartbom-orders' },
     labelKey: 'admin.menu.smartbomOrders',
     badge: 'bomOrdersAwaiting',
+  },
+  // 발주 워크큐 — 발주 대기(결제 완료+미발주) 수 배지
+  {
+    to: { name: 'admin-smartbom-pos' },
+    labelKey: 'admin.menu.smartbomPos',
+    badge: 'bomPosAwaiting',
+  },
+  // 선적·배송 워크큐 — 관리자 차례 선적 수(D22) 배지(협력사 전이 후 메일을 놓쳐도 인지)
+  {
+    to: { name: 'admin-smartbom-logistics' },
+    labelKey: 'admin.menu.smartbomLogistics',
+    badge: 'bomShipmentPending',
   },
   { to: { name: 'admin-smartbom-partners' }, labelKey: 'admin.menu.smartbomPartners' },
 ];

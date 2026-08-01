@@ -3,8 +3,12 @@ import { z } from 'zod';
 import {
   AdminBomPoCreateBody,
   AdminBomPoCreateResponse,
+  AdminBomPoCrossListQuery,
+  AdminBomPoCrossListResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
+  AdminBomShipmentCrossListQuery,
+  AdminBomShipmentCrossListResponse,
   AdminBomShipmentReceiveBody,
   AdminBomShipmentUpsertBody,
   ApiError,
@@ -14,6 +18,10 @@ import {
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
+} from '@sp/api-contract';
+import type {
+  AdminBomPoCrossCountsType,
+  AdminBomShipmentCrossCountsType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
@@ -25,7 +33,9 @@ import {
   detachShipmentPo,
   executeExternalPo,
   getShipmentFileDownload,
+  loadAdminPoCrossList,
   loadAdminPos,
+  loadAdminShipmentCrossList,
   receiveShipment,
   saveShipmentFile,
   upsertShipment,
@@ -469,6 +479,64 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           .send({ error: 'PO_ALREADY_CLOSED', message: '이미 마감된 발주서입니다.' });
       }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
+  // ── 횡단 워크큐(관리자 메뉴 재편) — 발주/선적·배송 메뉴의 전 Case 목록 ──────
+  // 규모가 작아 전체 파생 후 메모리 페이지네이션(admin-bom-orders 관례 동일).
+
+  fastify.get(
+    '/bom-pos',
+    {
+      schema: {
+        querystring: AdminBomPoCrossListQuery,
+        response: { 200: AdminBomPoCrossListResponse },
+      },
+    },
+    async (request) => {
+      const { page, pageSize, tab } = request.query;
+      const all = await loadAdminPoCrossList();
+      const counts: AdminBomPoCrossCountsType = {
+        issued: all.filter((po) => po.status === 'issued').length,
+        confirmed: all.filter((po) => po.status === 'confirmed').length,
+        closed: all.filter((po) => po.status === 'closed').length,
+      };
+      const filtered = all.filter((po) => po.status === tab);
+      const items = filtered.slice((page - 1) * pageSize, page * pageSize);
+      return {
+        result: true as const,
+        data: { items, total: filtered.length, page, pageSize, counts },
+      };
+    },
+  );
+
+  fastify.get(
+    '/bom-shipments',
+    {
+      schema: {
+        querystring: AdminBomShipmentCrossListQuery,
+        response: { 200: AdminBomShipmentCrossListResponse },
+      },
+    },
+    async (request) => {
+      const { page, pageSize, tab } = request.query;
+      const all = await loadAdminShipmentCrossList();
+      const counts: AdminBomShipmentCrossCountsType = {
+        adminPending: all.filter((s) => s.adminPending).length,
+        active: all.filter((s) => s.receivedAt === null).length,
+        received: all.filter((s) => s.receivedAt !== null).length,
+      };
+      const filtered =
+        tab === 'admin_pending'
+          ? all.filter((s) => s.adminPending)
+          : tab === 'active'
+            ? all.filter((s) => s.receivedAt === null)
+            : all.filter((s) => s.receivedAt !== null);
+      const items = filtered.slice((page - 1) * pageSize, page * pageSize);
+      return {
+        result: true as const,
+        data: { items, total: filtered.length, page, pageSize, counts },
+      };
     },
   );
 

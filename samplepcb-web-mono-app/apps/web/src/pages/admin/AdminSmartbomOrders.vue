@@ -5,18 +5,16 @@ import { ApiRequestError } from '@sp/shared';
 import type { AdminBomOrderListItemType } from '@sp/api-contract';
 import {
   useAdminBomOrders,
-  useCompleteBomOrder,
   useConfirmBomOrderReceipt,
-  useShipBomOrder,
   type AdminBomOrderFilters,
 } from '../../admin/useAdminBomOrders';
-import { nowLocalDateTime, toG5DateTime } from '../../admin/useAdminOrders';
 import { smartbomFmtWon } from '../../admin/smartbom';
 import UiPagination from '../../components/ui/UiPagination.vue';
 
-// 스마트 BOM 주문·결제(주문 축, D19) — BOM 주문만 파생한 워크큐. D17 배치 주문이면
-// 한 주문에 Case 여러 개(칩). 입금확인·배송·완료(D21-3)는 기존 주문 전이 API 재사용 —
-// 성공 시 연결 Case 전부 타임라인 진전(⑦/⑪/⑫). 주문 편집·취소는 통합 관리 주문내역 위임.
+// 스마트 BOM 주문·결제(주문 축, D19 — 관리자 메뉴 재편으로 결제 관점만 남김) —
+// 경리/CS 의 화면: 입금 대기 → 입금확인. D17 배치 주문이면 한 주문에 Case 여러 개(칩).
+// 발주 대기 큐는 [발주] 메뉴, 배송 처리·구매확정은 [선적·배송] 메뉴가 담당한다.
+// 주문 편집·취소는 통합 관리 주문내역 위임.
 
 const router = useRouter();
 const filters = ref<AdminBomOrderFilters>({ page: 1, pageSize: 20, tab: 'all' });
@@ -29,8 +27,8 @@ const total = computed(() => data.value?.data.total ?? 0);
 const TABS = [
   { key: 'all', label: '전체' },
   { key: 'awaiting_payment', label: '입금 대기' },
-  { key: 'paid_unissued', label: '발주 대기' },
-  { key: 'done', label: '완료' },
+  { key: 'paid', label: '결제 완료' },
+  { key: 'completed', label: '완료' },
 ] as const;
 
 const tabCount = (key: (typeof TABS)[number]['key']): number | null => {
@@ -39,17 +37,18 @@ const tabCount = (key: (typeof TABS)[number]['key']): number | null => {
     ? counts.value.all
     : key === 'awaiting_payment'
       ? counts.value.awaitingPayment
-      : key === 'paid_unissued'
-        ? counts.value.paidUnissued
-        : counts.value.done;
+      : key === 'paid'
+        ? counts.value.paid
+        : counts.value.completed;
 };
 
 const setTab = (tab: AdminBomOrderFilters['tab']): void => {
   filters.value = { ...filters.value, tab, page: 1 };
 };
 
+// from=orders — Case 상세가 주문 정보+발주 현황만 펼침(§6.12)
 function openCase(quoteId: string): void {
-  void router.push({ name: 'admin-smartbom-case', params: { id: quoteId } });
+  void router.push({ name: 'admin-smartbom-case', params: { id: quoteId }, query: { from: 'orders' } });
 }
 
 const statusCls = (item: AdminBomOrderListItemType): string =>
@@ -84,83 +83,28 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
     actionError.value = e instanceof ApiRequestError ? e.message : '입금확인에 실패했습니다.';
   }
 }
-
-// ── 배송 처리(D21-3) — 운송장 입력 → force-status '배송'(부품 주문은 제작 단계 생략) ──
-const shipMut = useShipBomOrder();
-const completeMut = useCompleteBomOrder();
-const shipTarget = ref<AdminBomOrderListItemType | null>(null);
-const shipCompany = ref('');
-const shipInvoiceNo = ref('');
-const shipInvoiceTime = ref('');
-const shipError = ref('');
-
-// 배송 처리 가능 = 결제됨 + 입금/준비 상태(그 외는 통합 주문내역의 임의 변경으로).
-const canShip = (item: AdminBomOrderListItemType): boolean =>
-  item.isPaid && (item.odStatus === '입금' || item.odStatus === '준비');
-
-// 연결 Case 전 발주 입고 완료 여부 — 미입고 배송 시 확인 경고에 사용.
-const allReceived = (item: AdminBomOrderListItemType): boolean =>
-  item.cases.every((c) => c.poCount > 0 && c.poReceivedCount >= c.poCount);
-
-function openShip(item: AdminBomOrderListItemType): void {
-  shipTarget.value = item;
-  shipCompany.value = '';
-  shipInvoiceNo.value = '';
-  shipInvoiceTime.value = nowLocalDateTime();
-  shipError.value = '';
-}
-
-async function submitShip(): Promise<void> {
-  const item = shipTarget.value;
-  if (item === null) return;
-  shipError.value = '';
-  if (shipCompany.value.trim() === '' || shipInvoiceNo.value.trim() === '') {
-    shipError.value = '택배사와 송장번호를 입력해 주세요.';
-    return;
-  }
-  if (
-    !allReceived(item) &&
-    !window.confirm('아직 입고 확인되지 않은 발주가 있습니다. 그래도 배송 처리할까요?')
-  ) {
-    return;
-  }
-  try {
-    await shipMut.mutateAsync({
-      odId: item.odId,
-      delivery: {
-        deliveryCompany: shipCompany.value.trim(),
-        invoiceNo: shipInvoiceNo.value.trim(),
-        invoiceTime: toG5DateTime(shipInvoiceTime.value),
-      },
-    });
-    shipTarget.value = null;
-  } catch (e) {
-    shipError.value = e instanceof ApiRequestError ? e.message : '배송 처리에 실패했습니다.';
-  }
-}
-
-async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
-  if (!window.confirm(`주문 ${item.odId} 을 구매확정(완료) 처리할까요?`)) return;
-  actionError.value = '';
-  try {
-    await completeMut.mutateAsync(item.odId);
-  } catch (e) {
-    actionError.value = e instanceof ApiRequestError ? e.message : '구매확정에 실패했습니다.';
-  }
-}
 </script>
 
 <template>
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-bold">주문·결제</h1>
-      <RouterLink
-        :to="{ name: 'admin-orders' }"
-        class="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-        title="주문 편집·취소·배송 처리는 통합 관리 주문내역에서"
-      >
-        통합 주문내역 →
-      </RouterLink>
+      <div class="flex items-center gap-2">
+        <RouterLink
+          :to="{ name: 'admin-smartbom-logistics' }"
+          class="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+          title="고객 배송 처리·구매확정은 선적·배송 메뉴에서"
+        >
+          선적·배송 →
+        </RouterLink>
+        <RouterLink
+          :to="{ name: 'admin-orders' }"
+          class="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+          title="주문 편집·취소는 통합 관리 주문내역에서"
+        >
+          통합 주문내역 →
+        </RouterLink>
+      </div>
     </div>
 
     <!-- 워크큐 탭 -->
@@ -211,9 +155,6 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
                 @click="openCase(entry.quoteId)"
               >
                 <span class="max-w-40 truncate align-middle">{{ entry.title }}</span>
-                <span v-if="item.isPaid && entry.poCount === 0" class="ml-1 rounded bg-emerald-100 px-1 text-[10px] font-bold text-emerald-700">발주 전</span>
-                <span v-else-if="entry.poCount > 0 && entry.poReceivedCount >= entry.poCount" class="ml-1 rounded bg-emerald-100 px-1 text-[10px] font-bold text-emerald-700">입고 완료</span>
-                <span v-else-if="entry.poReceivedCount > 0" class="ml-1 rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-700">입고 {{ entry.poReceivedCount }}/{{ entry.poCount }}</span>
               </button>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-600">{{ item.settleCase || '—' }}</td>
@@ -237,25 +178,6 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
               >
                 입금확인
               </button>
-              <!-- 배송(⑪)·완료(⑫) = 영카트 전이 재사용(D21-3) -->
-              <button
-                v-if="canShip(item)"
-                type="button"
-                class="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
-                :disabled="shipMut.isPending.value"
-                @click="openShip(item)"
-              >
-                배송 처리
-              </button>
-              <button
-                v-else-if="item.odStatus === '배송'"
-                type="button"
-                class="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
-                :disabled="completeMut.isPending.value"
-                @click="completeOrder(item)"
-              >
-                구매확정
-              </button>
             </td>
           </tr>
           <tr v-if="items.length === 0">
@@ -275,51 +197,6 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
         :total="total"
         @update:page="(p) => (filters = { ...filters, page: p })"
       />
-    </div>
-
-    <!-- 배송 처리 다이얼로그(D21-3) — 운송장 입력 → 준비(필요 시)→배송 전이 -->
-    <div
-      v-if="shipTarget !== null"
-      class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4"
-      @click.self="shipTarget = null"
-    >
-      <div class="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-2xl">
-        <div class="flex items-center justify-between">
-          <h2 class="text-lg font-bold">배송 처리 — {{ shipTarget.odId }}</h2>
-          <button type="button" class="text-gray-400 hover:text-gray-700" @click="shipTarget = null">✕</button>
-        </div>
-        <p v-if="!allReceived(shipTarget)" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-          입고 확인이 끝나지 않은 발주가 있습니다 — 검수 후 발송을 권장합니다.
-        </p>
-        <div class="mt-3 grid gap-2 text-xs">
-          <label class="text-gray-500">택배사
-            <input v-model="shipCompany" type="text" maxlength="50" placeholder="예: CJ대한통운" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
-          </label>
-          <label class="text-gray-500">송장번호
-            <input v-model="shipInvoiceNo" type="text" maxlength="100" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono">
-          </label>
-          <label class="text-gray-500">발송일시
-            <input v-model="shipInvoiceTime" type="datetime-local" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
-          </label>
-          <p class="text-[11px] text-gray-400">
-            알림 메일은 발송되지 않습니다 — 배송 안내가 필요하면 통합 주문내역에서 처리해 주세요.
-          </p>
-        </div>
-        <div class="mt-4 flex justify-end gap-2">
-          <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-xs font-bold hover:bg-gray-50" @click="shipTarget = null">
-            취소
-          </button>
-          <button
-            type="button"
-            class="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
-            :disabled="shipMut.isPending.value"
-            @click="submitShip"
-          >
-            배송 처리
-          </button>
-        </div>
-        <p v-if="shipError !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ shipError }}</p>
-      </div>
     </div>
   </div>
 </template>

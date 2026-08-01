@@ -1,13 +1,17 @@
 import { computed, type Ref } from 'vue';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
 import {
   AdminBomPoCreateResponse,
+  AdminBomPoCrossListResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
+  AdminBomShipmentCrossListResponse,
   BomInvoiceDraftResponse,
   apiRoutes,
   type AdminBomPoCreateBodyType,
+  type AdminBomPoCrossListQueryType,
+  type AdminBomShipmentCrossListQueryType,
   type AdminBomShipmentReceiveBodyType,
   type AdminBomShipmentUpsertBodyType,
   type BomInvoiceDataType,
@@ -30,7 +34,55 @@ export function useAdminBomPos(quoteId: Ref<string | null>) {
 const invalidate = (qc: ReturnType<typeof useQueryClient>): void => {
   void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos'] });
   void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] }); // poCount 파생 갱신
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-shipments'] }); // 횡단 워크큐 갱신
 };
+
+// ── 횡단 워크큐(관리자 메뉴 재편) — 발주/선적·배송 메뉴 목록 ─────────────────
+
+export interface AdminBomPoCrossFilters {
+  page: number;
+  pageSize: number;
+  tab: AdminBomPoCrossListQueryType['tab'];
+}
+
+export function useAdminBomPoCross(filters: Ref<AdminBomPoCrossFilters>) {
+  return useQuery({
+    queryKey: ['admin', 'bom-pos', 'cross', filters],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(filters.value.page),
+        pageSize: String(filters.value.pageSize),
+        tab: filters.value.tab,
+      });
+      return apiGet(`${apiRoutes.adminBomPos}?${params.toString()}`, AdminBomPoCrossListResponse);
+    },
+    placeholderData: keepPreviousData,
+  });
+}
+
+export interface AdminBomShipmentCrossFilters {
+  page: number;
+  pageSize: number;
+  tab: AdminBomShipmentCrossListQueryType['tab'];
+}
+
+export function useAdminBomShipmentCross(filters: Ref<AdminBomShipmentCrossFilters>) {
+  return useQuery({
+    queryKey: ['admin', 'bom-shipments', 'cross', filters],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(filters.value.page),
+        pageSize: String(filters.value.pageSize),
+        tab: filters.value.tab,
+      });
+      return apiGet(
+        `${apiRoutes.adminBomShipments}?${params.toString()}`,
+        AdminBomShipmentCrossListResponse,
+      );
+    },
+    placeholderData: keepPreviousData,
+  });
+}
 
 export function useCreateBomPos() {
   const qc = useQueryClient();
