@@ -59,18 +59,33 @@ export const buildInvoiceDraft = async (
     if (saved.success) return saved.data;
   }
 
+  // 품목 = 선적(박스) 단위(§6.10) — 묶음 소속 발주서 전체의 스냅샷 합산. D23 이
+  // 선적 그룹보다 먼저 구현돼 발주 1건 단위 조립이 남아 묶음의 나머지 품목이
+  // 통째로 빠지던 결함 교정(같은 협력사 묶음이라 발송인 정보는 po 기준 그대로).
+  let poRows: { currency: string; items: SpBomPoItem[] }[] = [po];
+  if (shipment !== null) {
+    const links = await prisma.spBomShipmentPo.findMany({
+      where: { shipmentId: shipment.id },
+      include: { po: { include: { items: { orderBy: { id: 'asc' } } } } },
+      orderBy: { id: 'asc' },
+    });
+    if (links.length > 0) poRows = links.map((link) => link.po);
+  }
+
   const [business, profile] = await Promise.all([getBusinessInfo(), getShopEstimateProfile()]);
-  const items: BomInvoiceItemType[] = po.items.map((item) => ({
-    description:
-      item.manufacturerName === null || item.manufacturerName === ''
-        ? item.mpn
-        : `${item.mpn} (${item.manufacturerName})`,
-    hsCode: '',
-    qty: String(item.qty),
-    currency: po.currency,
-    unitValue: Number(item.unitPrice),
-    totalValue: item.lineTotal,
-  }));
+  const items: BomInvoiceItemType[] = poRows.flatMap((row) =>
+    row.items.map((item) => ({
+      description:
+        item.manufacturerName === null || item.manufacturerName === ''
+          ? item.mpn
+          : `${item.mpn} (${item.manufacturerName})`,
+      hsCode: '',
+      qty: String(item.qty),
+      currency: row.currency,
+      unitValue: Number(item.unitPrice),
+      totalValue: item.lineTotal,
+    })),
+  );
   return {
     companyName: po.partner.name,
     shipperName: po.partner.contactName ?? '',
