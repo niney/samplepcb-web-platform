@@ -82,11 +82,26 @@ export function usePartnerPoConfirm() {
 
 // ── 발송 1급(§6.11) — 담기(생성)·목록. 조작은 대표 poId 로 기존 훅 재사용 ────
 
+// 진행 중(active) 발송 — 홈·보내기 공용(협력사 관점 완료는 제외, counts.done 로 안내).
 export function usePartnerShipments() {
   return useQuery({
-    queryKey: ['partner', 'shipments'],
-    queryFn: () => apiGet('/api/partner/shipments', PartnerShipmentListResponse),
+    queryKey: ['partner', 'shipments', 'active'],
+    queryFn: () => apiGet('/api/partner/shipments?tab=active', PartnerShipmentListResponse),
     retry: false,
+  });
+}
+
+// 완료된 발송(§6.11 분리) — 별도 페이지, 페이지네이션.
+export function usePartnerDoneShipments(page: Ref<number>, pageSize = 10) {
+  return useQuery({
+    queryKey: computed(() => ['partner', 'shipments', 'done', page.value, pageSize]),
+    queryFn: () =>
+      apiGet(
+        `/api/partner/shipments?tab=done&page=${String(page.value)}&pageSize=${String(pageSize)}`,
+        PartnerShipmentListResponse,
+      ),
+    retry: false,
+    placeholderData: (prev) => prev,
   });
 }
 

@@ -33,22 +33,23 @@ const toShip = computed(
   () => poItems.value.filter((po) => po.status !== 'issued' && !po.shipmentAttached),
 );
 
+// 서버 tab=active — 협력사 관점 완료(최종 상태·입고 확인)는 제외돼 온다(§6.11 분리).
 const shipments = computed(() => shipmentsQuery.data.value?.data.items ?? []);
 // 준비 중 박스는 홈에 카드로 두지 않는다 — 편집·발송은 [📦 보내기] 화면이 전담(바로 유도).
 const preparingCount = computed(
   () => shipments.value.filter((s) => s.status === 'preparing').length,
 );
-const activeShipments = computed(() =>
-  shipments.value.filter((s) => s.receivedAt === null && s.status !== 'preparing'),
-);
+const activeShipments = computed(() => shipments.value.filter((s) => s.status !== 'preparing'));
 const myTurnCount = computed(() => activeShipments.value.filter((s) => s.myTurn).length);
-const doneShipments = computed(() => shipments.value.filter((s) => s.receivedAt !== null));
+// 완료된 발송은 양이 누적되므로 별도 페이지 — 홈엔 건수 링크만.
+const doneCount = computed(() => shipmentsQuery.data.value?.data.counts.done ?? 0);
 
 // 발주서 배지 = 협력사 관점 상태(관리자 문서 상태 '마감' 등은 노출하지 않음)
 const poBadge = (po: PartnerPoListItemType): { label: string; cls: string } =>
   partnerPoDisplayStatus({
     poStatus: po.status,
     attached: po.shipmentAttached,
+    shipmentMode: po.shipmentMode,
     shipmentStatus: po.shipmentStatus,
     received: po.shipmentReceived,
   });
@@ -223,15 +224,14 @@ const rfqStatusCls = (s: string): string =>
         </div>
       </details>
 
-      <!-- 보조: 완료된 발송 -->
-      <details v-if="doneShipments.length > 0" class="rounded-xl border border-gray-200 bg-surface">
-        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
-          완료된 발송 ({{ doneShipments.length }})
-        </summary>
-        <div class="space-y-3 px-4 pb-4">
-          <PartnerShipmentCard v-for="s in doneShipments" :key="s.shipmentId" :shipment="s" />
-        </div>
-      </details>
+      <!-- 보조: 완료된 발송 — 누적 목록은 별도 페이지(§6.11 분리) -->
+      <RouterLink
+        v-if="doneCount > 0"
+        :to="{ name: 'partner-shipments-done' }"
+        class="block rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
+      >
+        완료된 발송 {{ doneCount }}건 보기 →
+      </RouterLink>
 
       <p
         v-if="pendingRfqs.length === 0 && toConfirm.length === 0 && toShip.length === 0 && activeShipments.length === 0"

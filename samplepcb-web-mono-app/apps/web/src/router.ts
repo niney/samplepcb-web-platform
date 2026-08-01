@@ -92,6 +92,13 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/partner/PartnerShip.vue'),
         meta: { requiresMember: true },
       },
+      {
+        // 완료된 발송(§6.11 분리) — 누적 아카이브, 페이지네이션
+        path: 'shipments/done',
+        name: 'partner-shipments-done',
+        component: () => import('./pages/partner/PartnerShipmentsDone.vue'),
+        meta: { requiresMember: true },
+      },
     ],
   },
   // 매직링크 무로그인 회신(§6.9) — 공개 라우트(가드 없음). 인증은 URL 토큰이 담당하며

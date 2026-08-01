@@ -10,10 +10,14 @@ import {
   PartnerShipmentAdvanceBody,
   PartnerShipmentCreateBody,
   PartnerShipmentCreateResponse,
+  PartnerShipmentListQuery,
   PartnerShipmentListResponse,
+  bomShipmentNextStatus,
   bomShipmentStatusLabel,
   type BomShipmentFileMetaType,
   type BomShipmentGroupPoType,
+  type PartnerShipmentListQueryType,
+  type PartnerShipmentViewType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
@@ -228,13 +232,43 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
     },
   );
 
+  // 협력사 관점 완료(§6.11) = 최종 상태(done|delivered) 도달 또는 입고 확인 —
+  // 협력사가 더 할 일이 없는 발송. 완료는 누적되므로 done 탭(별도 페이지)으로 분리.
+  const isShipmentDoneForPartner = (s: PartnerShipmentViewType): boolean =>
+    s.receivedAt !== null || bomShipmentNextStatus(s.mode, s.status) === null;
+
+  const buildShipmentListData = async (
+    partnerId: bigint,
+    query?: PartnerShipmentListQueryType,
+  ) => {
+    const all = await loadPartnerShipments(partnerId);
+    const dones = all.filter(isShipmentDoneForPartner);
+    const actives = all.filter((s) => !isShipmentDoneForPartner(s));
+    const tab = query?.tab ?? 'active';
+    const page = query?.page ?? 1;
+    const pageSize = query?.pageSize ?? 50;
+    const filtered = tab === 'done' ? dones : actives;
+    return {
+      items: filtered.slice((page - 1) * pageSize, page * pageSize),
+      total: filtered.length,
+      page,
+      pageSize,
+      counts: { active: actives.length, done: dones.length },
+    };
+  };
+
   fastify.get(
     '/partner/shipments',
-    { schema: { response: { 200: PartnerShipmentListResponse } } },
+    {
+      schema: {
+        querystring: PartnerShipmentListQuery,
+        response: { 200: PartnerShipmentListResponse },
+      },
+    },
     async (request) => {
       const ctx = request.partnerContext;
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
-      return { result: true as const, data: { items: await loadPartnerShipments(ctx.partnerId) } };
+      return { result: true as const, data: await buildShipmentListData(ctx.partnerId, request.query) };
     },
   );
 
@@ -263,7 +297,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           .status(409)
           .send({ error: result.error, message: ADVANCE_ERROR_MESSAGE[result.error] });
       }
-      return { result: true as const, data: { items: await loadPartnerShipments(ctx.partnerId) } };
+      return { result: true as const, data: await buildShipmentListData(ctx.partnerId) };
     },
   );
 

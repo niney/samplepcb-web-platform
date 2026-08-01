@@ -39,6 +39,7 @@ const badge = computed(() =>
     : partnerPoDisplayStatus({
         poStatus: detail.value.status,
         attached: shipment.value !== null,
+        shipmentMode: shipment.value?.mode ?? null,
         shipmentStatus: shipment.value?.status ?? null,
         received: (shipment.value?.receivedAt ?? null) !== null,
       }),

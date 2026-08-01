@@ -499,9 +499,24 @@ export const PartnerShipmentView = BomShipmentView.extend({
 });
 export type PartnerShipmentViewType = z.infer<typeof PartnerShipmentView>;
 
+// 협력사 관점 완료 = 최종 상태(done|delivered) 도달 또는 입고 확인 — 완료는 양이
+// 누적되므로 별도 페이지(페이지네이션)로 분리, 홈은 active(할 일)만 본다.
+export const PartnerShipmentListQuery = z.object({
+  tab: z.enum(['active', 'done']).default('active'),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(50),
+});
+export type PartnerShipmentListQueryType = z.infer<typeof PartnerShipmentListQuery>;
+
 export const PartnerShipmentListResponse = z.object({
   result: z.literal(true),
-  data: z.object({ items: z.array(PartnerShipmentView) }),
+  data: z.object({
+    items: z.array(PartnerShipmentView),
+    total: z.number().int(),
+    page: z.number().int(),
+    pageSize: z.number().int(),
+    counts: z.object({ active: z.number().int(), done: z.number().int() }),
+  }),
 });
 export type PartnerShipmentListResponseType = z.infer<typeof PartnerShipmentListResponse>;
 

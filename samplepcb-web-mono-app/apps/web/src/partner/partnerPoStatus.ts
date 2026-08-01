@@ -1,4 +1,5 @@
-import type { BomPoStatusType, BomShipmentStatusType } from '@sp/api-contract';
+import { bomShipmentNextStatus } from '@sp/api-contract';
+import type { BomPoStatusType, BomShipmentModeType, BomShipmentStatusType } from '@sp/api-contract';
 
 // 협력사 관점 발주서 상태(§6.11) — 관리자 문서 상태(발행됨/협력사 확인/마감)를 그대로
 // 노출하지 않고 "내가 뭘 해야 하나"로 번역한다. '마감'은 관리자 내부 용어라 협력사
@@ -8,6 +9,7 @@ export interface PartnerPoDisplayInput {
   poStatus: BomPoStatusType;
   /** 발송(박스)에 담겨 있는가 — 목록 shipmentAttached / 상세 shipment !== null. */
   attached: boolean;
+  shipmentMode: BomShipmentModeType | null;
   shipmentStatus: BomShipmentStatusType | null;
   received: boolean;
 }
@@ -23,6 +25,14 @@ export const partnerPoDisplayStatus = (input: PartnerPoDisplayInput): PartnerPoD
   if (!input.attached) return { label: '발송 대기', cls: 'bg-amber-100 text-amber-700' };
   if (input.shipmentStatus === 'preparing') {
     return { label: '발송 준비 중', cls: 'bg-indigo-100 text-indigo-700' };
+  }
+  // 발송이 최종 상태(done|delivered)에 닿았으면 협력사 관점 완료(입고 확인 전이라도).
+  if (
+    input.shipmentMode !== null &&
+    input.shipmentStatus !== null &&
+    bomShipmentNextStatus(input.shipmentMode, input.shipmentStatus) === null
+  ) {
+    return { label: '완료', cls: 'bg-emerald-100 text-emerald-700' };
   }
   return { label: '발송 중', cls: 'bg-blue-100 text-blue-700' };
 };
