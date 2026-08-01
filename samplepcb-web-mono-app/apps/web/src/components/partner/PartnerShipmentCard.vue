@@ -275,7 +275,6 @@ async function attachInvoicePdf(file: File): Promise<void> {
     <div v-if="isMyTurn && nextStatus !== null" class="mt-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3">
       <p class="text-sm font-bold text-blue-800">
         다음 단계: {{ statusLabel(nextStatus) }}
-        <span v-if="nextStatus === 'arrived'" class="font-normal text-blue-700"> — 물품이 국내(목적지)에 도착했으면 진행해 주세요.</span>
       </p>
       <div v-if="nextStatus === 'requested'" class="mt-2 grid gap-2 sm:grid-cols-2">
         <label class="text-sm text-gray-600">출고예정일 (필수)

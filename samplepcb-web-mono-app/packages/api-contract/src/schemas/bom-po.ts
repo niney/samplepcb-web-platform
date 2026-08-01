@@ -98,11 +98,13 @@ export const BOM_SHIPMENT_ACTORS: Record<
   BomShipmentModeType,
   Partial<Record<BomShipmentStatusType, BomShipmentActorType>>
 > = {
-  // 협력사: 선적 요청(출고예정일+인보이스)·국내도착 확인 / 관리자: 선적(AWB)·통관·완료
+  // 협력사: 선적 요청(출고예정일+인보이스) 한 번뿐 / 관리자: 선적(AWB)·국내도착·통관·완료.
+  // 국내도착은 레거시에선 협력사 차례였으나 운송 계약 주체=샘플피씨비(도착 정보도
+  // 관리자에게 먼저 옴)라 협력사 추적 부담만 남아 ADMIN 으로 정정(2026-08-02, §6.5).
   international: {
     requested: 'PARTNER',
     shipped: 'ADMIN',
-    arrived: 'PARTNER',
+    arrived: 'ADMIN',
     customs: 'ADMIN',
     done: 'ADMIN',
   },
