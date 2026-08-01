@@ -157,6 +157,96 @@ function selectUnofferedRfqRows(): void {
   );
 }
 
+// 품목 관점 RFQ 현황 — RFQ 패널(협력사 관점)의 역방향 인덱스. 현재 유효 scope 안에서
+// 이 행을 요청한 협력사와 행별 회신 상태를 한눈에 보여준다. 문서가 quoted 여도 특정
+// 행 회신이 없을 수 있으므로 '행 미회신'을 별도로 둔다.
+type ItemRfqBadgeTone = 'waiting' | 'replied' | 'missing' | 'closed';
+interface ItemRfqBadge {
+  rfq: AdminBomRfqViewType;
+  tone: ItemRfqBadgeTone;
+  label: string;
+  unitPrice: number | null;
+  currency: string;
+}
+
+const ITEM_RFQ_BADGE_CLASSES = {
+  waiting: 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100',
+  replied: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+  missing: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100',
+  closed: 'border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100',
+} as const satisfies Record<ItemRfqBadgeTone, string>;
+
+const ITEM_RFQ_BADGE_ORDER = {
+  missing: 0,
+  waiting: 1,
+  replied: 2,
+  closed: 3,
+} as const satisfies Record<ItemRfqBadgeTone, number>;
+
+const itemRfqBadges = computed(() => {
+  const byItem = new Map<string, ItemRfqBadge[]>();
+  const activeScopeIds = scopeItemIds.value;
+
+  for (const rfq of rfqs.value) {
+    const replyByItem = new Map(rfq.items.map((item) => [item.quoteItemId, item]));
+    const requestedIds = rfq.requestedItemIds ?? [...activeScopeIds];
+
+    for (const itemId of requestedIds) {
+      if (!activeScopeIds.has(itemId)) continue;
+      const reply = replyByItem.get(itemId);
+      const hasReply = reply !== undefined && reply.unitPrice !== null;
+
+      let tone: ItemRfqBadgeTone;
+      let label: string;
+      if (hasReply) {
+        tone = 'replied';
+        label = rfq.status === 'closed' ? '회신·마감' : '회신';
+      } else if (rfq.status === 'closed') {
+        tone = 'closed';
+        label = '마감';
+      } else if (rfq.status === 'quoted') {
+        tone = 'missing';
+        label = '행 미회신';
+      } else {
+        tone = 'waiting';
+        label = '요청중';
+      }
+
+      const badge: ItemRfqBadge = {
+        rfq,
+        tone,
+        label,
+        unitPrice: reply?.unitPrice ?? null,
+        currency: reply?.currency ?? rfq.currency,
+      };
+      const existing = byItem.get(itemId);
+      if (existing === undefined) byItem.set(itemId, [badge]);
+      else existing.push(badge);
+    }
+  }
+
+  for (const badges of byItem.values()) {
+    badges.sort(
+      (a, b) =>
+        ITEM_RFQ_BADGE_ORDER[a.tone] - ITEM_RFQ_BADGE_ORDER[b.tone] ||
+        a.rfq.partnerName.localeCompare(b.rfq.partnerName, 'ko'),
+    );
+  }
+  return byItem;
+});
+
+const rfqBadgesFor = (itemId: string): readonly ItemRfqBadge[] =>
+  itemRfqBadges.value.get(itemId) ?? [];
+
+function itemRfqBadgeTitle(badge: ItemRfqBadge): string {
+  const requestScope = badge.rfq.requestedItemIds === null ? '전체 요청' : '부분 요청';
+  const price =
+    badge.unitPrice === null
+      ? ''
+      : ` · ${badge.unitPrice.toLocaleString('ko-KR')} ${badge.currency}`;
+  return `${badge.rfq.partnerName} · ${requestScope} · ${badge.label}${price} — 클릭하면 회신을 엽니다`;
+}
+
 // ── 발주(D18) — 결제 확인 후 발행, all-or-nothing ───────────────────────────
 const poCreateOpen = ref(false);
 const poError = ref('');
@@ -219,6 +309,11 @@ const replyRfq = ref<AdminBomRfqViewType | null>(null);
 const replyError = ref('');
 const rfqReply = useAdminRfqReply();
 
+function openRfqReply(rfq: AdminBomRfqViewType): void {
+  replyRfq.value = rfq;
+  replyError.value = '';
+}
+
 // 매직링크 재발급(§6.9) — 확인은 패널이 담당, 여기선 호출만.
 const reissueLink = useReissueRfqMagicLink();
 function reissueMagicLink(rfq: AdminBomRfqViewType): void {
@@ -230,7 +325,11 @@ const replyRows = computed<RfqReplyFormRow[]>(() => {
   const rfq = replyRfq.value;
   if (rfq === null) return [];
   const replyByItem = new Map(rfq.items.map((item) => [item.quoteItemId, item]));
-  return scopeItems.value.map((item) => {
+  const visibleItems =
+    rfq.requestedItemIds === null
+      ? scopeItems.value
+      : scopeItems.value.filter((item) => rfq.requestedItemIds?.includes(item.id) === true);
+  return visibleItems.map((item) => {
     const reply = replyByItem.get(item.id);
     const price = reply?.unitPrice ?? null;
     return {
@@ -506,7 +605,7 @@ async function downloadOriginal(): Promise<void> {
         :busy="reissueLink.isPending.value"
         @send="sendOpen = true"
         @compare="compareOpen = true"
-        @reply="(rfq) => { replyRfq = rfq; replyError = ''; }"
+        @reply="openRfqReply"
         @reissue-link="reissueMagicLink"
       />
 
@@ -551,7 +650,7 @@ async function downloadOriginal(): Promise<void> {
           <!-- RFQ 행 선택 툴바(§6.13) — 체크는 이 표에서, 발송 모달은 확인만.
                min-h 로 배지("n행 선택됨") 등장 시 높이 점프 방지(사용자 피드백) -->
           <div class="flex min-h-9 flex-wrap items-center gap-2 border-b border-gray-100 bg-gray-50/60 px-3 py-1 text-[11px] text-gray-500">
-            <span>협력사 견적요청(RFQ) 행 선택 — 선택 없으면 전체 {{ scopeItems.length }}행 발송</span>
+            <span>다음 RFQ 발송 행 선택 — 선택 없으면 전체 {{ scopeItems.length }}행 발송</span>
             <span v-if="rfqItemSelection.size > 0" class="rounded bg-blue-100 px-1.5 py-0.5 font-bold text-blue-700">
               {{ rfqItemSelection.size }}행 선택됨
             </span>
@@ -576,7 +675,7 @@ async function downloadOriginal(): Promise<void> {
                   <input
                     type="checkbox"
                     class="size-3.5 align-middle"
-                    title="견적요청 행 전체 선택/해제"
+                    title="다음 RFQ 발송 행 전체 선택/해제"
                     :checked="allRfqRowsSelected"
                     @change="toggleAllRfqRows"
                   >
@@ -584,6 +683,7 @@ async function downloadOriginal(): Promise<void> {
                 <th class="px-3 py-2">Excel 위치</th>
                 <th class="px-3 py-2">부품</th>
                 <th class="px-3 py-2">선정 오퍼</th>
+                <th class="px-3 py-2">협력사 RFQ</th>
                 <th class="px-3 py-2 text-right">주문수량</th>
                 <th class="px-3 py-2 text-right">합계</th>
                 <th class="px-3 py-2" />
@@ -610,6 +710,24 @@ async function downloadOriginal(): Promise<void> {
                     {{ item.selectedOffer.supplier }} · {{ item.selectedOffer.unitPrice }} {{ item.selectedOffer.currency }} @{{ item.selectedOffer.breakQty }}+
                   </template>
                   <span v-else class="text-amber-600">{{ item.matchStatus === 'none' ? '미매칭' : '오퍼 없음' }}</span>
+                </td>
+                <td class="min-w-52 px-3 py-2">
+                  <div v-if="rfqBadgesFor(item.id).length > 0" class="flex flex-wrap gap-1">
+                    <button
+                      v-for="badge in rfqBadgesFor(item.id)"
+                      :key="badge.rfq.rfqId"
+                      type="button"
+                      class="inline-flex max-w-48 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold"
+                      :class="ITEM_RFQ_BADGE_CLASSES[badge.tone]"
+                      :title="itemRfqBadgeTitle(badge)"
+                      @click="openRfqReply(badge.rfq)"
+                    >
+                      <span class="truncate">{{ badge.rfq.partnerName }}</span>
+                      <span class="shrink-0">· {{ badge.label }}</span>
+                    </button>
+                  </div>
+                  <span v-else-if="rfqSelectable(item)" class="text-[11px] text-gray-300">미요청</span>
+                  <span v-else class="text-gray-200">—</span>
                 </td>
                 <td class="px-3 py-2 text-right tabular-nums">{{ item.orderQty.toLocaleString('ko-KR') }}</td>
                 <td class="px-3 py-2 text-right tabular-nums">
