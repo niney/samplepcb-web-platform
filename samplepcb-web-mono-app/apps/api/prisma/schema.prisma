@@ -995,22 +995,26 @@ model SpBomShipment {
   // §6.10 그룹 도입 후 poId = 생성(대표) 발주서, quoteId = 대표의 Case. 소속의 진실은
   // 조인(SpBomShipmentPo) — 파생 집계는 조인 기반으로 계산한다(다중 Case 묶음 가능).
   poId           BigInt    @unique
-  quoteId        BigInt
+  quoteId            BigInt
   mode           String    @default("international") @db.VarChar(16) // international|domestic
   status         String    @db.VarChar(20) // 모드별 코드 사전(intl 6단계/domestic 3단계)
   carrier        String?   @db.VarChar(50)
   trackingNumber String?   @db.VarChar(100)
   trackingUrl    String?   @db.VarChar(500)
-  shipDate       DateTime? // 출고예정일 — 협력사 '선적 요청' 진입 시 입력(D22)
-  shippedAt      DateTime? // 발송(shipped/shipping 진입) 시점 박제
-  receivedAt     DateTime? // 입고 확인(검수) — 타임라인 ⑩ 파생 근거
+  shipDate           DateTime? // 출고예정일 — 협력사 '선적 요청' 진입 시 입력(D22)
+  shippedAt          DateTime? // 발송(shipped/shipping 진입) 시점 박제
+  receivedAt         DateTime? // 입고 확인(검수) — 타임라인 ⑩ 파생 근거
   receivedNote   String?   @db.Text // 편차 메모(수량 부족·불량 등)
-  completedAt    DateTime? // 최종 단계(done/delivered) 진입 시점 박제
-  invoiceData    Json? // 상업송장 편집본(D23) — 생성기 프리필용, 레거시 invoice_data 미러
+  completedAt        DateTime? // 최종 단계(done/delivered) 진입 시점 박제
+  invoiceData        Json? // 상업송장 편집본(D23) — 생성기 프리필용, 레거시 invoice_data 미러
+  packingRevision    Int                 @default(0) // 선적 리스트 저장 리비전(재인쇄는 증가시키지 않음)
+  packingUpdatedAt   DateTime? // 마지막 선적 리스트 저장 시각
+  packingFinalizedAt DateTime? // preparing 이탈 시 현재 리비전 확정, 되돌리면 해제
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   po             SpBomPo   @relation(fields: [poId], references: [id], onDelete: Cascade)
-  pos            SpBomShipmentPo[]
+  pos                SpBomShipmentPo[]
+  packingItems       SpBomShipmentItem[]
 
   @@index([quoteId])
   @@map("sp_bom_shipment")
@@ -1034,22 +1038,91 @@ model SpBomShipmentPo {
 // 발주 행 — 생성 시점의 부품·수량·단가 스냅샷(견적 행이 이후 바뀌어도 불변).
 // quoteItemId·rfqItemId 는 근거 추적용 참조(FK 없음 — 박제 문서의 독립성 유지).
 model SpBomPoItem {
-  id               BigInt   @id @default(autoincrement())
+  id               BigInt              @id @default(autoincrement())
   poId             BigInt
   quoteItemId      BigInt // 근거 견적 행(참조만)
   rfqItemId        BigInt? // 근거 회신 행(참조만)
-  mpn              String   @db.VarChar(191)
-  manufacturerName String?  @db.VarChar(191)
-  description      String?  @db.VarChar(1000)
-  supplierSku      String?  @db.VarChar(191) // 공급사 발주(D20) 실행용 SKU 박제 — 협력사 발주는 null
+  mpn              String              @db.VarChar(191)
+  manufacturerName String?             @db.VarChar(191)
+  description      String?             @db.VarChar(1000)
+  supplierSku      String?             @db.VarChar(191) // 공급사 발주(D20) 실행용 SKU 박제 — 협력사 발주는 null
   qty              Int // 발주 수량(= 생성 시점 orderQty 박제)
-  unitPrice        Decimal  @db.Decimal(14, 4) // 선정 단가 박제(VAT 별도)
+  unitPrice        Decimal             @db.Decimal(14, 4) // 선정 단가 박제(VAT 별도)
   lineTotal        Int // round(unitPrice × qty) KRW 정수
-  createdAt        DateTime @default(now())
-  po               SpBomPo  @relation(fields: [poId], references: [id], onDelete: Cascade)
+  createdAt        DateTime            @default(now())
+  po               SpBomPo             @relation(fields: [poId], references: [id], onDelete: Cascade)
+  shipmentItems    SpBomShipmentItem[]
 
   @@index([poId])
   @@map("sp_bom_po_item")
+}
+
+// 선적 리스트 품목 — 발주 품목의 물류 투영. 발주 품목은 박제 원본이고 이 행은 선적별
+// 포장(QR)을 묶는 안정 ID다. partId 는 견적의 카탈로그 연결을 복사한 느슨한 참조이며
+// 카탈로그 정리와 독립시키기 위해 FK를 두지 않는다.
+model SpBomShipmentItem {
+  id          BigInt             @id @default(autoincrement())
+  shipmentId  BigInt
+  poItemId    BigInt
+  partId      BigInt?
+  expectedQty Int
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  shipment    SpBomShipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  poItem      SpBomPoItem        @relation(fields: [poItemId], references: [id], onDelete: Cascade)
+  packages    SpBomPartPackage[]
+
+  @@unique([shipmentId, poItemId])
+  @@index([poItemId])
+  @@index([partId])
+  @@map("sp_bom_shipment_item")
+}
+
+// 실물 관리 단위 — 릴·트레이·튜브·봉투·박스 1개마다 QR 1개. token 은 스캔 URL에만
+// 쓰는 256-bit 불투명 식별자이며 labelCode 는 QR 손상 시 수기 조회용이다.
+model SpBomPartPackage {
+  id              BigInt            @id @default(autoincrement())
+  shipmentItemId  BigInt
+  token           String            @unique @db.Char(64)
+  labelCode       String            @unique @db.VarChar(24)
+  packageNo       Int
+  quantity        Int
+  lotNo           String?           @db.VarChar(100)
+  dateCode        String?           @db.VarChar(100)
+  status          String            @default("prepared") @db.VarChar(16) // prepared|received|inspected|stored|issued|voided
+  storageLocation String?           @db.VarChar(191)
+  receivedAt      DateTime?
+  inspectedAt     DateTime?
+  issuedAt        DateTime?
+  voidedAt        DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  shipmentItem    SpBomShipmentItem @relation(fields: [shipmentItemId], references: [id], onDelete: Cascade)
+  events          SpBomPartEvent[]
+
+  @@index([shipmentItemId, status])
+  @@index([status, updatedAt])
+  @@map("sp_bom_part_package")
+}
+
+// QR 포장 추적 원장 — 현재 상태와 별개로 생성·인쇄·입고·검수·보관·출고·무효 이력을
+// append-only로 남긴다. QR은 식별자일 뿐 권한이 아니므로 모든 기록은 인증된 actor를 박제.
+model SpBomPartEvent {
+  id         BigInt           @id @default(autoincrement())
+  packageId  BigInt
+  eventType  String           @db.VarChar(16) // created|updated|printed|received|inspected|stored|issued|voided
+  actorType  String           @db.VarChar(16) // ADMIN|PARTNER|SYSTEM
+  actorMbId  String?          @db.VarChar(191)
+  fromStatus String?          @db.VarChar(16)
+  toStatus   String?          @db.VarChar(16)
+  quantity   Int?
+  location   String?          @db.VarChar(191)
+  note       String?          @db.Text
+  occurredAt DateTime         @default(now())
+  package    SpBomPartPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId, occurredAt])
+  @@map("sp_bom_part_event")
 }
 
 // 협력사 회신 행 — 부품행(quoteItemId) 단위, 안정 ID 연결(rowIdx 아님).

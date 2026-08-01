@@ -4,6 +4,8 @@ import {
   ApiError,
   BomInvoiceData,
   BomInvoiceDraftResponse,
+  BomShipmentPackingListResponse,
+  BomShipmentPackingListSaveBody,
   BomShipmentFileType,
   PartnerPoDetailResponse,
   PartnerPoListResponse,
@@ -43,6 +45,13 @@ import { collectMultipart } from '../lib/market';
 import { buildInvoiceDraft, loadPoForInvoice, renderInvoiceXlsx, saveInvoiceData } from '../lib/bom-invoice';
 import { buildShipmentTurnAdminEmail, sendBomRfqMail } from '../lib/rfq-email';
 import { getShopEstimateProfile } from '../lib/g5-db';
+import {
+  BomPackingError,
+  loadShipmentPackingList,
+  markShipmentPackingListPrinted,
+  partnerCanAccessPacking,
+  saveShipmentPackingList,
+} from '../lib/bom-packing';
 
 // ── /api/partner/pos — 협력사 포털: 받은 발주(D18-8) + 선적 핑퐁(D22) ────────
 // requirePartner 가 매 요청 소속을 서버 판정. 노출은 자기 발주서의 품목·수량·단가뿐
@@ -59,6 +68,7 @@ const ADVANCE_ERROR_MESSAGE: Record<PartnerShipmentError, string> = {
   NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
   MISSING_SHIP_DATE: '출고예정일을 입력해 주세요.',
   MISSING_INVOICE_FILE: 'Invoice 파일을 먼저 첨부해 주세요.',
+  MISSING_PACKING_LIST: '선적 리스트와 QR 라벨을 먼저 생성해 주세요.',
   MISSING_TRACKING: '택배사와 송장번호를 입력해 주세요.',
   INVALID_GROUP_PO: '담을 수 없는 발주서입니다 — 목록을 새로고침해 주세요.',
   NOT_PREPARING: '발송 준비 단계에서만 박스를 변경할 수 있습니다.',
@@ -274,6 +284,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
 
   // 박스에 담기(§6.11 두 칸 UI) — 준비 중 발송에 발주서 추가.
   const ShipmentPoBody = z.object({ poId: z.number().int().positive() });
+  const ShipmentIdParams = z.object({ shipmentId: z.coerce.bigint() });
   fastify.post(
     '/partner/shipments/:shipmentId/pos',
     {
@@ -298,6 +309,94 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           .send({ error: result.error, message: ADVANCE_ERROR_MESSAGE[result.error] });
       }
       return { result: true as const, data: await buildShipmentListData(ctx.partnerId) };
+    },
+  );
+
+  // 선적 리스트·QR 라벨(D24) — 자기 조직 발송만. 저장은 preparing 에서만 가능하고
+  // 인쇄는 확정 뒤에도 같은 token/revision을 재사용한다.
+  fastify.get(
+    '/partner/shipments/:shipmentId/packing-list',
+    {
+      schema: {
+        params: ShipmentIdParams,
+        response: { 200: BomShipmentPackingListResponse },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      if (!(await partnerCanAccessPacking(request.params.shipmentId, ctx.partnerId))) {
+        return reply.notFound('발송을 찾을 수 없습니다');
+      }
+      const data = await loadShipmentPackingList(request.params.shipmentId);
+      if (data === null) return reply.notFound('발송을 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
+  fastify.put(
+    '/partner/shipments/:shipmentId/packing-list',
+    {
+      schema: {
+        params: ShipmentIdParams,
+        body: BomShipmentPackingListSaveBody,
+        response: { 200: BomShipmentPackingListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      if (!(await partnerCanAccessPacking(request.params.shipmentId, ctx.partnerId))) {
+        return reply.notFound('발송을 찾을 수 없습니다');
+      }
+      try {
+        const data = await saveShipmentPackingList(request.params.shipmentId, request.body, {
+          type: 'PARTNER',
+          mbId: request.user.mbId,
+        });
+        return { result: true as const, data };
+      } catch (error) {
+        if (!(error instanceof BomPackingError)) throw error;
+        return reply.status(409).send({
+          error: error.code,
+          message:
+            error.code === 'PACKING_INVALID_QUANTITY'
+              ? '포장 수량 합계가 발주 수량과 같아야 합니다.'
+              : error.code === 'PACKING_NOT_PREPARING' || error.code === 'PACKING_TRACKING_LOCKED'
+                ? '발송 준비 단계의 미입고 포장만 수정할 수 있습니다.'
+                : '선적 리스트가 변경되었습니다. 새로고침 후 다시 시도해 주세요.',
+        });
+      }
+    },
+  );
+
+  fastify.post(
+    '/partner/shipments/:shipmentId/packing-list/print',
+    {
+      schema: {
+        params: ShipmentIdParams,
+        response: { 200: BomShipmentPackingListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      if (!(await partnerCanAccessPacking(request.params.shipmentId, ctx.partnerId))) {
+        return reply.notFound('발송을 찾을 수 없습니다');
+      }
+      try {
+        const data = await markShipmentPackingListPrinted(request.params.shipmentId, {
+          type: 'PARTNER',
+          mbId: request.user.mbId,
+        });
+        return { result: true as const, data };
+      } catch (error) {
+        if (!(error instanceof BomPackingError)) throw error;
+        return reply.status(409).send({
+          error: error.code,
+          message: 'QR을 먼저 저장한 뒤 인쇄해 주세요.',
+        });
+      }
     },
   );
 
@@ -335,9 +434,10 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       const kind = BomShipmentFileType.safeParse(fields.fileType);
       const file = files[0];
       if (!kind.success || file === undefined) {
-        return reply
-          .status(400)
-          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.' });
+        return reply.status(400).send({
+          error: 'BAD_UPLOAD',
+          message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.',
+        });
       }
       const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
       if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');

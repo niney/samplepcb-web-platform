@@ -202,6 +202,208 @@ export const BomShipmentView = z.object({
 });
 export type BomShipmentViewType = z.infer<typeof BomShipmentView>;
 
+// ── 선적 리스트·실물 포장 QR 추적(D24) ─────────────────────────────────────
+// 상업송장(invoiceData)의 편집 가능한 행과 분리한다. 발주 품목(poItemId)을 안정 원본으로
+// 삼고 릴·트레이·튜브·봉투·박스 같은 실물 관리 단위마다 불투명 QR token 을 1개 발급.
+
+export const BOM_PART_PACKAGE_STATUSES = [
+  'prepared',
+  'received',
+  'inspected',
+  'stored',
+  'issued',
+  'voided',
+] as const;
+export const BomPartPackageStatus = z.enum(BOM_PART_PACKAGE_STATUSES);
+export type BomPartPackageStatusType = z.infer<typeof BomPartPackageStatus>;
+
+export const BOM_PART_PACKAGE_STATUS_LABELS = {
+  prepared: '발송 준비',
+  received: '입고',
+  inspected: '검수 완료',
+  stored: '보관 중',
+  issued: '자재 출고',
+  voided: '무효',
+} as const satisfies Record<BomPartPackageStatusType, string>;
+
+export const BOM_PART_EVENT_TYPES = [
+  'created',
+  'updated',
+  'printed',
+  'received',
+  'inspected',
+  'stored',
+  'issued',
+  'voided',
+] as const;
+export const BomPartEventType = z.enum(BOM_PART_EVENT_TYPES);
+export type BomPartEventTypeType = z.infer<typeof BomPartEventType>;
+
+export const BOM_PART_EVENT_LABELS = {
+  created: 'QR 포장 생성',
+  updated: '포장 정보 수정',
+  printed: '선적 리스트·라벨 인쇄',
+  received: '입고 처리',
+  inspected: '검수 완료',
+  stored: '보관 위치 등록',
+  issued: '자재 출고 처리',
+  voided: 'QR 무효 처리',
+} as const satisfies Record<BomPartEventTypeType, string>;
+
+export const BomPartPackageEvent = z.object({
+  eventId: z.number(),
+  eventType: BomPartEventType,
+  actorType: z.enum(['ADMIN', 'PARTNER', 'SYSTEM']),
+  actorMbId: z.string().nullable(),
+  fromStatus: BomPartPackageStatus.nullable(),
+  toStatus: BomPartPackageStatus.nullable(),
+  quantity: z.number().int().positive().nullable(),
+  location: z.string().nullable(),
+  note: z.string().nullable(),
+  occurredAt: z.string(),
+});
+export type BomPartPackageEventType = z.infer<typeof BomPartPackageEvent>;
+
+export const BomShipmentPackingPackage = z.object({
+  /** 아직 저장되지 않은 자동 초안은 null. 저장 후 같은 ID·token 으로 재인쇄한다. */
+  packageId: z.number().nullable(),
+  token: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable(),
+  labelCode: z.string().max(24).nullable(),
+  packageNo: z.number().int().positive(),
+  quantity: z.number().int().positive(),
+  lotNo: z.string().max(100).nullable(),
+  dateCode: z.string().max(100).nullable(),
+  status: BomPartPackageStatus,
+  storageLocation: z.string().nullable(),
+  receivedAt: z.string().nullable(),
+  inspectedAt: z.string().nullable(),
+  issuedAt: z.string().nullable(),
+  events: z.array(BomPartPackageEvent),
+});
+export type BomShipmentPackingPackageType = z.infer<typeof BomShipmentPackingPackage>;
+
+export const BomShipmentPackingItem = z.object({
+  shipmentItemId: z.number().nullable(),
+  poItemId: z.number(),
+  poId: z.number(),
+  quoteId: z.string(),
+  quoteTitle: z.string(),
+  /** sp_part 느슨한 참조. 없으면 응용 계층에서 MPN 으로 추측하지 않는다. */
+  partId: z.string().nullable(),
+  mpn: z.string(),
+  manufacturerName: z.string().nullable(),
+  description: z.string().nullable(),
+  expectedQty: z.number().int().positive(),
+  packages: z.array(BomShipmentPackingPackage).min(1),
+});
+export type BomShipmentPackingItemType = z.infer<typeof BomShipmentPackingItem>;
+
+export const BomShipmentPackingList = z.object({
+  shipmentId: z.number(),
+  packingNo: z.string(),
+  revision: z.number().int().nonnegative(),
+  editable: z.boolean(),
+  partnerName: z.string(),
+  mode: BomShipmentMode,
+  shipmentStatus: BomShipmentStatus,
+  shipDate: z.string().nullable(),
+  consigneeCompany: z.string(),
+  consigneeAddress: z.string(),
+  updatedAt: z.string().nullable(),
+  finalizedAt: z.string().nullable(),
+  totalItems: z.number().int().nonnegative(),
+  totalPackages: z.number().int().nonnegative(),
+  totalQuantity: z.number().int().nonnegative(),
+  items: z.array(BomShipmentPackingItem).max(200),
+});
+export type BomShipmentPackingListType = z.infer<typeof BomShipmentPackingList>;
+
+export const BomShipmentPackingListResponse = z.object({
+  result: z.literal(true),
+  data: BomShipmentPackingList,
+});
+export type BomShipmentPackingListResponseType = z.infer<typeof BomShipmentPackingListResponse>;
+
+export const BomShipmentPackingListSaveBody = z.object({
+  items: z
+    .array(
+      z.object({
+        poItemId: z.number().int().positive(),
+        packages: z
+          .array(
+            z.object({
+              packageId: z.number().int().positive().nullable(),
+              quantity: z.number().int().positive(),
+              lotNo: z.string().trim().max(100).nullable(),
+              dateCode: z.string().trim().max(100).nullable(),
+            }),
+          )
+          .min(1)
+          .max(20),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+export type BomShipmentPackingListSaveBodyType = z.infer<typeof BomShipmentPackingListSaveBody>;
+
+export const BOM_PART_PACKAGE_ACTIONS = ['receive', 'inspect', 'store', 'issue'] as const;
+export const AdminBomPartPackageActionBody = z.object({
+  action: z.enum(BOM_PART_PACKAGE_ACTIONS),
+  location: z.string().trim().max(191).nullable(),
+  note: z.string().trim().max(2000).nullable(),
+});
+export type AdminBomPartPackageActionBodyType = z.infer<typeof AdminBomPartPackageActionBody>;
+
+export const AdminBomPartPackageDetail = z.object({
+  packageId: z.number(),
+  labelCode: z.string(),
+  status: BomPartPackageStatus,
+  quantity: z.number().int().positive(),
+  lotNo: z.string().nullable(),
+  dateCode: z.string().nullable(),
+  storageLocation: z.string().nullable(),
+  receivedAt: z.string().nullable(),
+  inspectedAt: z.string().nullable(),
+  issuedAt: z.string().nullable(),
+  item: z.object({
+    shipmentItemId: z.number(),
+    poItemId: z.number(),
+    partId: z.string().nullable(),
+    mpn: z.string(),
+    manufacturerName: z.string().nullable(),
+    description: z.string().nullable(),
+    expectedQty: z.number().int().positive(),
+  }),
+  po: z.object({
+    poId: z.number(),
+    quoteId: z.string(),
+    quoteTitle: z.string(),
+  }),
+  shipment: z.object({
+    shipmentId: z.number(),
+    packingNo: z.string(),
+    mode: BomShipmentMode,
+    status: BomShipmentStatus,
+    partnerName: z.string(),
+    carrier: z.string().nullable(),
+    trackingNumber: z.string().nullable(),
+    shippedAt: z.string().nullable(),
+    receivedAt: z.string().nullable(),
+  }),
+  events: z.array(BomPartPackageEvent),
+});
+export type AdminBomPartPackageDetailType = z.infer<typeof AdminBomPartPackageDetail>;
+
+export const AdminBomPartPackageResponse = z.object({
+  result: z.literal(true),
+  data: AdminBomPartPackageDetail,
+});
+export type AdminBomPartPackageResponseType = z.infer<typeof AdminBomPartPackageResponse>;
+
 // 관리자 등록/수정 — mode 는 생성 시에만 반영(이후 무시), status 모드 정합은 서버 검증.
 export const AdminBomShipmentUpsertBody = z.object({
   mode: BomShipmentMode.optional(),

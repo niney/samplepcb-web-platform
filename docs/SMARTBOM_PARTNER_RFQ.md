@@ -882,6 +882,40 @@ logistics→RFQ+**품목·검토**(가장 큰 몸통도 접음, 결정) / from �
   남을 수 있다. 프리뷰가 `SENT_EMAILS_REMAIN`/`EXTERNAL_ACTIONS_REMAIN`을 명시하며,
   어느 삭제 모드도 외부 시스템의 기록 소거까지 보장하지 않는다.
 
+### 6.15 선적 리스트 · 실물 포장 QR 추적 — D24 (2026-08-02)
+
+협력사가 보내는 부품을 문서에서 끝내지 않고 입고·검수·보관·자재 출고까지 같은 식별자로
+추적한다. Commercial Invoice는 통관·금액 문서이고 품목 행을 자유롭게 편집할 수 있으므로,
+QR 정본은 Invoice JSON이 아니라 선적에 담긴 불변 발주 품목(`sp_bom_po_item`)이다.
+
+| 결정  | 내용                                                                                                                                                                                                      | 이유                                                                              |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| D24-1 | QR 1개 = 저항 한 알이 아니라 **릴·트레이·튜브·봉투·박스 등 실물 취급 단위 1개**. 발주 품목은 최대 20개 포장으로 나누며 각 포장 수량 합계는 발주 수량과 정확히 같아야 한다.                                | 소형 부품 낱알 라벨은 현실적으로 인쇄·스캔할 수 없고 실제 창고 이동 단위와도 다름 |
+| D24-2 | 식별 정본 = `sp_bom_shipment_item`(선적×PO 품목 UNIQUE) + `sp_bom_part_package`. 최초 저장 때 256-bit 불투명 token과 수기 조회용 `PKG-…` labelCode를 발급하고 재인쇄해도 바꾸지 않는다.                   | QR 재인쇄·문서 revision과 실물의 동일성을 유지하고 순번/MPN 재사용 충돌을 제거    |
+| D24-3 | `partId`는 최초 선적 리스트 저장 시 명시적으로 연결된 견적 부품 ID만 스냅샷한다. 없으면 MPN으로 추측해 채우지 않는다.                                                                                     | BOM 역할 경계와 잘못된 카탈로그 품목 연결 방지                                    |
+| D24-4 | 상태 = `prepared → received → inspected → stored → issued`, 포장 제거는 `voided`. `sp_bom_part_event`에 created/updated/printed/received/inspected/stored/issued/voided를 append-only로 기록한다.         | 현재 위치뿐 아니라 누가 언제 무엇을 처리했는지 추적                               |
+| D24-5 | QR URL은 `/app/admin/smartbom/packages/:token`으로 가지만 token은 권한이 아니다. 조회·상태 변경 API는 관리자 JWT를 요구하고, 협력사 Packing List API는 매 요청 서버에서 자기 조직 선적 소유권을 판정한다. | 인쇄물·사진으로 QR이 유출돼도 익명 재고 조회/변조를 허용하지 않음                 |
+| D24-6 | 국제·국내 모두 최초 발송 전이 전에 **저장 완료된 Packing List가 필수**다. 선적 소속 전 품목과 수량을 다시 검증한 뒤 진행하며, 진행 후 편집은 잠그고 같은 QR 재인쇄만 허용한다.                            | 문서 누락·부분 저장·발송 후 QR 바꿔치기 방지                                      |
+
+- **데이터**: migration `20260802150000_add_bom_part_package_tracking`이
+  `sp_bom_shipment`에 packing revision/수정·확정시각을 추가하고
+  `sp_bom_shipment_item` → `sp_bom_part_package` → `sp_bom_part_event` 3단계를 만든다.
+  선적 또는 PO 품목 삭제 시 FK cascade로 QR와 이벤트가 함께 제거된다.
+- **파트너 흐름**: `/partner/ship` 발송 카드의 [선적 리스트]에서 포장 수량·LOT·DATE CODE를
+  나누어 저장 → QR이 포함된 A4 Packing List와 별도 부착 라벨 시트를 인쇄 → 국제는
+  Invoice와 출고예정일, 국내는 택배사·송장번호와 함께 다음 단계 진행. 포털은 자기 선적만
+  `GET/PUT/POST …/partner/shipments/:shipmentId/packing-list[/print]`로 접근한다.
+- **관리자 흐름**: 선적 모달에서 대리 작성·재인쇄할 수 있고, `/app/admin/smartbom/logistics`
+  상단에 QR 리더기 키보드 입력 또는 `PKG-…` 수기 조회 진입점을 둔다. 휴대폰 카메라는 QR의
+  관리자 상세 URL로 곧바로 이동한다. 상세 화면에서 부품/PO/Case/협력사/LOT/DATE/수량을
+  대조하고 입고→검수→위치 저장→자재 출고를 기록한다.
+- **기존 입고와 정합**: 선적 단위 [입고 확인]은 아직 `prepared`인 해당 선적 QR 포장만
+  `received`로 함께 올리고 이미 검수·보관·출고된 포장은 내리지 않는다. PO를 준비 중 박스에서
+  빼면 이미 인쇄한 QR을 `voided` 처리한다.
+- **Case 하드 삭제 정합**: §6.14 프리뷰·완료 결과가 선적 품목/QR 포장/추적 이벤트 수를
+  별도로 표시하고 이를 previewToken revision에 묶는다. 공유 선적에서 대상 PO만 하드 삭제할
+  때는 중간 `voided` 이력을 만들지 않고 PO 품목 cascade로 완전히 제거해 `reset` 의미를 지킨다.
+
 ## 7. 레거시 교훈 승계 가드
 
 - 수동값 보호: `source='manual'` 행은 자동 동기화 불가침(레거시는 24h sync가 대리 입력을 덮음).

@@ -21,6 +21,7 @@ import {
 import { ApiRequestError } from '@sp/shared';
 import {
   adminInvoiceApi,
+  adminPackingApi,
   downloadBomShipmentFile,
   useDeleteBomShipmentFile,
   useDetachBomShipmentPo,
@@ -29,6 +30,7 @@ import {
   useUpsertBomShipment,
 } from '../../../admin/useAdminBomPos';
 import InvoiceEditorModal from '../../smartbom/InvoiceEditorModal.vue';
+import ShipmentPackingModal from '../../smartbom/ShipmentPackingModal.vue';
 
 // 선적 관리 모달(D21·D22) — 발주서당 1건. 모드는 생성 시 박제(협력사 국가 기본값은 서버가
 // 제안), 상태는 모드별 사전(국제 6단계/국내 3단계). 관리자는 전 단계 임의 조작(핑퐁 인가는
@@ -71,6 +73,10 @@ const error = ref('');
 
 const existing = computed(() => props.po?.shipment ?? null);
 const modeLocked = computed(() => existing.value !== null); // 생성 시 박제
+const packingOpen = ref(false);
+const packingApi = computed(() =>
+  existing.value === null ? null : adminPackingApi(existing.value.shipmentId),
+);
 
 // ── 핑퐁 안내(D22) — 저장된 상태 기준 "다음 단계·주체"를 모달이 말해준다 ─────
 const savedNext = computed(() =>
@@ -109,6 +115,7 @@ watch(
     trackingUrl.value = shipment?.trackingUrl ?? '';
     shipDate.value = shipment?.shipDate ?? '';
     receiveNote.value = shipment?.receivedNote ?? '';
+    packingOpen.value = false;
     error.value = '';
   },
 );
@@ -348,6 +355,20 @@ async function confirmReceive(): Promise<void> {
       <!-- 첨부(D22) — 종류별 1건, 재업로드=교체. 협력사 포털과 같은 문서를 본다 -->
       <div class="mt-3 space-y-1.5 rounded-xl border border-gray-200 p-3">
         <p class="text-xs font-bold text-gray-700">선적 서류</p>
+        <div
+          v-if="existing !== null"
+          class="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-2 py-2 text-xs"
+        >
+          <span class="w-20 shrink-0 font-semibold text-emerald-800">선적 리스트</span>
+          <span class="text-emerald-700">부품별 실물 포장 QR·라벨</span>
+          <button
+            type="button"
+            class="ml-auto rounded bg-emerald-600 px-2 py-1 font-bold text-white hover:bg-emerald-700"
+            @click="packingOpen = true"
+          >
+            {{ existing.status === 'preparing' ? '대리 작성·인쇄' : '보기·재인쇄' }}
+          </button>
+        </div>
         <div v-for="kind in BOM_SHIPMENT_FILE_TYPES" :key="kind" class="flex flex-wrap items-center gap-2 text-xs">
           <span class="w-20 shrink-0 font-semibold text-gray-600">{{ fileLabel(kind) }}</span>
           <template v-if="fileOf(kind) !== null">
@@ -386,6 +407,15 @@ async function confirmReceive(): Promise<void> {
         :render-xlsx="invoiceApi.renderXlsx"
         :attach-pdf="attachInvoicePdf"
         @close="invoiceOpen = false"
+      />
+
+      <ShipmentPackingModal
+        v-if="packingApi !== null"
+        :open="packingOpen"
+        :load="packingApi.load"
+        :save="packingApi.save"
+        :mark-printed="packingApi.markPrinted"
+        @close="packingOpen = false"
       />
 
       <div class="mt-4 flex justify-end gap-2">

@@ -1233,6 +1233,9 @@ export const AdminBomCaseDeleteImpact = z.object({
   quoteFiles: z.number().int().nonnegative(),
   shipments: z.number().int().nonnegative(),
   shipmentFiles: z.number().int().nonnegative(),
+  shipmentItems: z.number().int().nonnegative(),
+  shipmentPackages: z.number().int().nonnegative(),
+  shipmentPackageEvents: z.number().int().nonnegative(),
 });
 export type AdminBomCaseDeleteImpactType = z.infer<typeof AdminBomCaseDeleteImpact>;
 

@@ -215,6 +215,13 @@ onBeforeUnmount(() => {
                 <p class="text-[11px] text-gray-500">영구 삭제 파일</p>
                 <p class="mt-1 font-bold tabular-nums">{{ preview.impact.quoteFiles + preview.impact.shipmentFiles }}</p>
               </div>
+              <div class="rounded-lg border border-gray-200 p-3">
+                <p class="text-[11px] text-gray-500">선적 품목 · QR 포장 · 추적 이력</p>
+                <p class="mt-1 font-bold tabular-nums">
+                  {{ preview.impact.shipmentItems }} · {{ preview.impact.shipmentPackages }} ·
+                  {{ preview.impact.shipmentPackageEvents }}
+                </p>
+              </div>
             </div>
 
             <div class="mt-4 grid gap-3 sm:grid-cols-2">

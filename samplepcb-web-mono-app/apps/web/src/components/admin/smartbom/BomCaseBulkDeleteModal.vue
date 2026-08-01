@@ -74,6 +74,9 @@ const EMPTY_IMPACT: AdminBomCaseDeleteImpactType = {
   quoteFiles: 0,
   shipments: 0,
   shipmentFiles: 0,
+  shipmentItems: 0,
+  shipmentPackages: 0,
+  shipmentPackageEvents: 0,
 };
 
 const addImpact = (
@@ -94,6 +97,9 @@ const addImpact = (
   quoteFiles: left.quoteFiles + right.quoteFiles,
   shipments: left.shipments + right.shipments,
   shipmentFiles: left.shipmentFiles + right.shipmentFiles,
+  shipmentItems: left.shipmentItems + right.shipmentItems,
+  shipmentPackages: left.shipmentPackages + right.shipmentPackages,
+  shipmentPackageEvents: left.shipmentPackageEvents + right.shipmentPackageEvents,
 });
 
 const previewImpact = computed(() =>
@@ -303,6 +309,9 @@ onBeforeUnmount(() => {
                   <p class="mt-1 font-bold tabular-nums">{{ previewImpact.quoteFiles + previewImpact.shipmentFiles }} · {{ previewImpact.engineJobs }}</p>
                 </div>
               </div>
+              <p v-if="previewImpact.shipmentPackages > 0" class="mt-3 text-xs font-semibold text-red-700">
+                선적 품목 {{ previewImpact.shipmentItems }}건 · QR 포장 {{ previewImpact.shipmentPackages }}건 · 추적 이력 {{ previewImpact.shipmentPackageEvents }}건도 영구 삭제합니다.
+              </p>
               <p v-if="orderDeleteCount + cartRemoveCount > 0" class="mt-3 text-xs font-semibold text-amber-700">
                 단독 미입금 주문 {{ orderDeleteCount }}건과 장바구니 행 {{ cartRemoveCount }}건도 함께 정리합니다.
               </p>
@@ -482,7 +491,7 @@ onBeforeUnmount(() => {
           <div v-if="result.deleted.length > 0" class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
             <p class="font-extrabold">SmartBOM Case {{ result.deleted.length }}건을 영구 삭제했습니다.</p>
             <p class="mt-2 text-xs leading-5">
-              품목 {{ resultImpact.quoteItems }}건 · RFQ {{ resultImpact.rfqs }}건 · 발주 {{ resultImpact.pos }}건 · 엔진 잡 {{ resultImpact.engineJobs }}건 · 파일 {{ resultImpact.quoteFiles + resultImpact.shipmentFiles }}건을 정리했습니다.
+              품목 {{ resultImpact.quoteItems }}건 · RFQ {{ resultImpact.rfqs }}건 · 발주 {{ resultImpact.pos }}건 · QR 포장 {{ resultImpact.shipmentPackages }}건 · 추적 이력 {{ resultImpact.shipmentPackageEvents }}건 · 엔진 잡 {{ resultImpact.engineJobs }}건 · 파일 {{ resultImpact.quoteFiles + resultImpact.shipmentFiles }}건을 정리했습니다.
             </p>
           </div>
 

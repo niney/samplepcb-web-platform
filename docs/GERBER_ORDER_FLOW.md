@@ -198,6 +198,7 @@
 | 데이터 | 소유 | 접근 규칙 |
 |---|---|---|
 | 사양·파일연결·견적 (`sp_quote`/`sp_order_spec`/`sp_file`) | **sp-node (Prisma)** | 그누보드/PHP 는 접근하지 않음 |
+| SmartBOM 구매·실물 추적 (`sp_bom_quote*`/`sp_bom_rfq*`/`sp_bom_po*`/`sp_bom_shipment*`/`sp_bom_part_package`/`sp_bom_part_event`) | **sp-node (Prisma)** | 견적→RFQ→발주→선적의 업무 원장과 실물 포장 QR를 소유한다. QR 정본은 편집 가능한 Invoice가 아니라 PO 품목이며, 실물 포장 상태 변경은 append-only 이벤트를 함께 기록한다. PHP는 접근하지 않는다. Case 하드 삭제 시 해당 Case의 선적 품목·QR·이벤트도 FK cascade로 제거한다. |
 | 수신처 회사명 2층 (`sp_order_spec.companyName` 스냅샷 · `sp_member_profile` 프로필) | **sp-node (Prisma)** | 관리자 견적서 수신처 표기·프리필용(2026-07-04). 스냅샷=문서 박제(견적서에 고정), 프로필=회원 기본값(같은 회원 다음 견적서에 프리필). 표시값 = `스냅샷 ?? (회원이면)프로필`. 그누보드 여분필드(mb_1/mb_2) 대신 sp측 명시 필드 사용 |
 | 실파일 | file.samplepcb.kr | sp-node 가 업로드 대행, pathToken 만 보관 (다운로드 보안은 추후 과제) |
 | 실파일 삭제 | file.samplepcb.kr | 보관함 영구 삭제 시 sp-node 가 `GET /api/delete/:pathToken` 호출. ⚠ **보안 미처리 과제**: 이 API 는 인증 없이 pathToken 만으로 삭제되는 GET — pathToken 유출 시 임의 파일 삭제 가능. 내부망 제한 또는 서버 간 인증 추가 필요(2026-07 결정: 기능 먼저, 접근 제한은 인프라 트랙에서 후속 처리) |

@@ -17,12 +17,14 @@ import {
 import {
   downloadPartnerShipmentFile,
   partnerInvoiceApi,
+  partnerPackingApi,
   usePartnerShipmentAdvance,
   usePartnerShipmentFileDelete,
   usePartnerShipmentFileUpload,
   usePartnerShipmentRevert,
 } from '../../partner/usePartnerRfqs';
 import InvoiceEditorModal from '../smartbom/InvoiceEditorModal.vue';
+import ShipmentPackingModal from '../smartbom/ShipmentPackingModal.vue';
 
 // 발송(박스) 진행 카드(§6.11) — 담긴 발주서·단계 스텝·서류·내 차례 폼·되돌리기를
 // 발송 단위로 묶어 보여준다. 서버 조작은 대표 발주서(primaryPoId) 경유로 기존
@@ -164,6 +166,8 @@ async function revert(): Promise<void> {
 // 상업송장 생성기(D23) — 대표 발주서 기준 초안(품목은 발주 데이터), 편집·PDF 첨부.
 const invoiceOpen = ref(false);
 const invoiceApi = computed(() => partnerInvoiceApi(poId.value));
+const packingOpen = ref(false);
+const packingApi = computed(() => partnerPackingApi(props.shipment.shipmentId));
 async function attachInvoicePdf(file: File): Promise<void> {
   await uploadMut.mutateAsync({ poId: poId.value, fileType: 'invoice', file });
 }
@@ -235,6 +239,19 @@ async function attachInvoicePdf(file: File): Promise<void> {
 
     <!-- 서류 -->
     <div class="mt-3 space-y-1.5">
+      <div
+        class="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-2 py-2 text-sm"
+      >
+        <span class="w-20 shrink-0 font-semibold text-emerald-800">선적 리스트</span>
+        <span class="text-xs text-emerald-700">부품별 실물 포장 QR·라벨</span>
+        <button
+          type="button"
+          class="ml-auto rounded bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-700"
+          @click="packingOpen = true"
+        >
+          {{ status === 'preparing' ? '📦 만들기·인쇄' : '📦 보기·재인쇄' }}
+        </button>
+      </div>
       <div v-for="kind in BOM_SHIPMENT_FILE_TYPES" :key="kind" class="flex flex-wrap items-center gap-2 text-sm">
         <span class="w-20 shrink-0 font-semibold text-gray-600">{{ fileLabel(kind) }}</span>
         <template v-if="fileOf(kind) !== null">
@@ -282,6 +299,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
         </label>
         <p class="self-end pb-1 text-xs text-gray-500">
           {{ fileLabel('invoice') }} 첨부가 필요합니다{{ fileOf('invoice') === null ? ' — 위에서 먼저 첨부해 주세요.' : ' ✓' }}
+          <br><span class="font-semibold text-emerald-700">선적 리스트·QR 저장도 필수입니다.</span>
         </p>
       </div>
       <div v-else-if="nextStatus === 'shipping'" class="mt-2 grid gap-2 sm:grid-cols-3">
@@ -289,6 +307,9 @@ async function attachInvoicePdf(file: File): Promise<void> {
         <input v-model="trackingNumber" type="text" maxlength="100" placeholder="송장번호 (필수)" class="h-9 rounded-lg border border-gray-200 px-3 font-mono text-sm">
         <input v-model="trackingUrl" type="url" maxlength="500" placeholder="추적 URL (선택)" class="h-9 rounded-lg border border-gray-200 px-3 text-sm">
       </div>
+      <p v-if="nextStatus === 'shipping'" class="mt-1 text-xs font-semibold text-emerald-700">
+        배송 진행 전 선적 리스트·QR 저장이 필요합니다.
+      </p>
       <button
         type="button"
         class="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
@@ -311,6 +332,13 @@ async function attachInvoicePdf(file: File): Promise<void> {
       :render-xlsx="invoiceApi.renderXlsx"
       :attach-pdf="attachInvoicePdf"
       @close="invoiceOpen = false"
+    />
+    <ShipmentPackingModal
+      :open="packingOpen"
+      :load="packingApi.load"
+      :save="packingApi.save"
+      :mark-printed="packingApi.markPrinted"
+      @close="packingOpen = false"
     />
   </div>
 </template>

@@ -30,6 +30,33 @@ import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.v
 
 const router = useRouter();
 
+// QR 리더기(키보드 입력)·라벨 수기 코드를 같은 진입점으로 받는다. 휴대폰 카메라로
+// QR URL을 읽으면 이 입력을 거치지 않고 admin-smartbom-package 라우트로 바로 온다.
+const packageScan = ref('');
+const packageScanError = ref('');
+
+function normalizePackageCode(raw: string): string {
+  const value = raw.trim();
+  if (value === '') return '';
+  if (value.toUpperCase().startsWith('SPB1:')) return value.slice(5).trim();
+  try {
+    const url = new URL(value);
+    return decodeURIComponent(url.pathname.split('/').filter(Boolean).at(-1) ?? '');
+  } catch {
+    return value;
+  }
+}
+
+function openPackageScan(): void {
+  const code = normalizePackageCode(packageScan.value);
+  if (code === '') {
+    packageScanError.value = 'QR 또는 라벨 코드를 입력해 주세요.';
+    return;
+  }
+  packageScanError.value = '';
+  void router.push({ name: 'admin-smartbom-package', params: { code } });
+}
+
 // ── ① 협력사 선적 — 횡단 목록 + BomShipmentModal(대표 발주서 경유) ───────────
 const shipFilters = ref<AdminBomShipmentCrossFilters>({ page: 1, pageSize: 20, tab: 'admin_pending' });
 const shipQuery = useAdminBomShipmentCross(shipFilters);
@@ -162,6 +189,34 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
 <template>
   <div class="space-y-6">
     <h1 class="text-xl font-bold">선적·배송</h1>
+
+    <section class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+      <div class="flex flex-wrap items-end gap-2">
+        <label class="min-w-64 flex-1 text-xs font-bold text-emerald-900">부품 QR·라벨 조회
+          <input
+            v-model="packageScan"
+            type="text"
+            autocomplete="off"
+            class="mt-1 h-10 w-full rounded-lg border border-emerald-300 bg-white px-3 font-mono text-sm"
+            placeholder="QR 스캔 또는 PKG-... 입력"
+            @keyup.enter="openPackageScan"
+          >
+        </label>
+        <button
+          type="button"
+          class="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800"
+          @click="openPackageScan"
+        >
+          추적 조회
+        </button>
+      </div>
+      <p class="mt-1 text-[11px] text-emerald-700">
+        휴대폰 카메라로 인쇄된 QR을 읽으면 추적 화면이 바로 열립니다.
+      </p>
+      <p v-if="packageScanError !== ''" class="mt-1 text-xs font-semibold text-red-600">
+        {{ packageScanError }}
+      </p>
+    </section>
 
     <!-- ① 협력사 선적 -->
     <section class="space-y-3">

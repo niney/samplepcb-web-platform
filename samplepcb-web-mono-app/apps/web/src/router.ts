@@ -176,6 +176,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminSmartbomLogistics.vue'),
       },
       {
+        // 선적 리스트 QR 스캔 도착점(D24) — token은 식별자, 실제 접근은 관리자 가드.
+        path: 'smartbom/packages/:code',
+        name: 'admin-smartbom-package',
+        component: () => import('./pages/admin/AdminSmartbomPackage.vue'),
+      },
+      {
         path: 'smartbom/partners',
         name: 'admin-smartbom-partners',
         component: () => import('./pages/admin/AdminPartners.vue'),

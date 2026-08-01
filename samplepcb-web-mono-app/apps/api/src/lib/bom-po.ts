@@ -42,6 +42,12 @@ import {
   uploadToFileServer,
   type UploadTarget,
 } from './file-server';
+import {
+  finalizeShipmentPackingList,
+  reopenShipmentPackingList,
+  shipmentPackingListIsComplete,
+  voidShipmentPackagesForPo,
+} from './bom-packing';
 
 // ── 협력사 발주 코어(D18, docs/SMARTBOM_PARTNER_RFQ.md §6.1) ────────────────
 // 발주서 = 박제 문서: 생성 시점의 부품·수량·단가(선정 회신가 스냅샷)를 복사해
@@ -681,6 +687,7 @@ export type PartnerShipmentError =
   | 'NOTHING_TO_REVERT'
   | 'MISSING_SHIP_DATE'
   | 'MISSING_INVOICE_FILE'
+  | 'MISSING_PACKING_LIST'
   | 'MISSING_TRACKING'
   | 'INVALID_GROUP_PO'
   | 'NOT_PREPARING';
@@ -723,6 +730,16 @@ export const advancePartnerShipment = async (
     });
   }
 
+  // 최초 발송 전이는 선적 리스트가 전 발주 품목·수량을 포장 QR로 정확히 덮을 때만.
+  // 상업송장 JSON 행은 편집 가능하므로 이 게이트의 근거로 사용하지 않는다(D24).
+  if (
+    current === 'preparing' &&
+    (next === 'requested' || next === 'shipping') &&
+    !(await shipmentPackingListIsComplete(shipment.id))
+  ) {
+    return { ok: false, error: 'MISSING_PACKING_LIST' };
+  }
+
   if (next === 'requested') {
     // 선적 요청 = 출고예정일 + Invoice 첨부 필수(레거시 필수 게이트 승계)
     if (body.shipDate == null || body.shipDate === '') {
@@ -753,6 +770,7 @@ export const advancePartnerShipment = async (
     ...(body.trackingUrl !== undefined ? { trackingUrl: body.trackingUrl } : {}),
   });
   if (!saved.ok) return { ok: false, error: 'PO_NOT_FOUND' };
+  if (current === 'preparing') await finalizeShipmentPackingList(shipment.id);
   return { ok: true, advancedTo: next };
 };
 
@@ -772,6 +790,7 @@ export const revertPartnerShipment = async (
   if (bomShipmentActorOf(mode, current) !== 'PARTNER') return { ok: false, error: 'NOT_YOUR_TURN' };
   const saved = await upsertShipment(poId, { status: prev });
   if (!saved.ok) return { ok: false, error: 'PO_NOT_FOUND' };
+  if (prev === 'preparing') await reopenShipmentPackingList(shipment.id);
   return { ok: true };
 };
 
@@ -815,6 +834,11 @@ export const detachShipmentPo = async (
     return { ok: true };
   }
 
+  // Case 하드 삭제는 바로 뒤에서 PO 품목 cascade로 QR·이력을 영구 삭제한다. 여기서 먼저
+  // 무효화하면 이후 단계 실패 시 보존된 공유 선적에 거짓 이력만 남으므로 일반 분리에만 기록한다.
+  if (!options.allowAnyStatus) {
+    await voidShipmentPackagesForPo(shipment.id, poId, { type: 'SYSTEM', mbId: null });
+  }
   await prisma.spBomShipmentPo.delete({ where: { id: target.id } });
   if (shipment.poId === poId) {
     // 대표 승계 — 내부 참조일 뿐이라 사용자 규칙에 노출하지 않는다

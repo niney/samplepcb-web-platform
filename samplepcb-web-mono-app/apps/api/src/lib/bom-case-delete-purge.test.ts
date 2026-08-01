@@ -68,6 +68,9 @@ const basePreview = (): AdminBomCaseDeletePreviewType => ({
     quoteFiles: 1,
     shipments: 1,
     shipmentFiles: 0,
+    shipmentItems: 3,
+    shipmentPackages: 3,
+    shipmentPackageEvents: 6,
   },
   order: {
     state: 'cart',

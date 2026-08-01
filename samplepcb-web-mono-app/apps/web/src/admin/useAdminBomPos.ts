@@ -2,19 +2,24 @@ import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
 import {
+  AdminBomPartPackageResponse,
   AdminBomPoCreateResponse,
   AdminBomPoCrossListResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
   AdminBomShipmentCrossListResponse,
   BomInvoiceDraftResponse,
+  BomShipmentPackingListResponse,
   apiRoutes,
+  type AdminBomPartPackageActionBodyType,
   type AdminBomPoCreateBodyType,
   type AdminBomPoCrossListQueryType,
   type AdminBomShipmentCrossListQueryType,
   type AdminBomShipmentReceiveBodyType,
   type AdminBomShipmentUpsertBodyType,
   type BomInvoiceDataType,
+  type BomShipmentPackingListSaveBodyType,
+  type BomShipmentPackingListType,
   type BomShipmentFileTypeType,
 } from '@sp/api-contract';
 
@@ -257,6 +262,60 @@ export const adminInvoiceApi = (quoteId: string, poId: number) => ({
   renderXlsx: (data: BomInvoiceDataType): Promise<Blob> =>
     apiSendBlob('POST', `${base}/${quoteId}/pos/${String(poId)}/shipment/invoice/xlsx`, data),
 });
+
+/** 선적 리스트·QR 라벨(D24) — 관리자 대리 작성·재인쇄. */
+export const adminPackingApi = (shipmentId: number) => ({
+  load: (): Promise<BomShipmentPackingListType> =>
+    apiGet(
+      `${apiRoutes.adminBomShipments}/${String(shipmentId)}/packing-list`,
+      BomShipmentPackingListResponse,
+    ).then((res) => res.data),
+  save: (body: BomShipmentPackingListSaveBodyType) =>
+    apiSend(
+      'PUT',
+      `${apiRoutes.adminBomShipments}/${String(shipmentId)}/packing-list`,
+      body,
+      BomShipmentPackingListResponse,
+    ).then((res) => res.data),
+  markPrinted: () =>
+    apiSend(
+      'POST',
+      `${apiRoutes.adminBomShipments}/${String(shipmentId)}/packing-list/print`,
+      undefined,
+      BomShipmentPackingListResponse,
+    ).then((res) => res.data),
+});
+
+/** QR token 또는 인쇄된 labelCode로 실물 포장 추적 원장을 조회한다. */
+export function useAdminBomPackage(code: Ref<string | null>) {
+  return useQuery({
+    queryKey: computed(() => ['admin', 'bom-package', code.value]),
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.adminBomPackages}/${encodeURIComponent(code.value ?? '')}`,
+        AdminBomPartPackageResponse,
+      ),
+    enabled: computed(() => code.value !== null && code.value !== ''),
+    retry: false,
+  });
+}
+
+export function useAdminBomPackageAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ code, body }: { code: string; body: AdminBomPartPackageActionBodyType }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminBomPackages}/${encodeURIComponent(code)}/actions`,
+        body,
+        AdminBomPartPackageResponse,
+      ),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-package', variables.code] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-shipments'] });
+    },
+  });
+}
 
 // 외부 실행 재시도/재발급(D20) — Mouser 카트 담기·DigiKey single-use 리스트.
 export function useExecuteExternalPo() {

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
 import {
   BomInvoiceDraftResponse,
+  BomShipmentPackingListResponse,
   PartnerPoDetailResponse,
   PartnerPoListResponse,
   PartnerRfqDetailResponse,
@@ -11,6 +12,8 @@ import {
   PartnerShipmentListResponse,
   apiRoutes,
   type BomInvoiceDataType,
+  type BomShipmentPackingListSaveBodyType,
+  type BomShipmentPackingListType,
   type BomRfqReplyBodyType,
   type BomShipmentFileTypeType,
   type PartnerShipmentAdvanceBodyType,
@@ -219,6 +222,29 @@ export const partnerInvoiceApi = (poId: string) => ({
     apiSend('PUT', `${poBase}/${poId}/shipment/invoice`, data, BomInvoiceDraftResponse),
   renderXlsx: (data: BomInvoiceDataType): Promise<Blob> =>
     apiSendBlob('POST', `${poBase}/${poId}/shipment/invoice/xlsx`, data),
+});
+
+/** 선적 리스트·QR 라벨(D24) — 현재 로그인 협력사의 발송만 서버가 허용한다. */
+export const partnerPackingApi = (shipmentId: number) => ({
+  load: (): Promise<BomShipmentPackingListType> =>
+    apiGet(
+      `${apiRoutes.partnerShipments}/${String(shipmentId)}/packing-list`,
+      BomShipmentPackingListResponse,
+    ).then((res) => res.data),
+  save: (body: BomShipmentPackingListSaveBodyType) =>
+    apiSend(
+      'PUT',
+      `${apiRoutes.partnerShipments}/${String(shipmentId)}/packing-list`,
+      body,
+      BomShipmentPackingListResponse,
+    ).then((res) => res.data),
+  markPrinted: () =>
+    apiSend(
+      'POST',
+      `${apiRoutes.partnerShipments}/${String(shipmentId)}/packing-list/print`,
+      undefined,
+      BomShipmentPackingListResponse,
+    ).then((res) => res.data),
 });
 
 /** 첨부 다운로드 — Bearer 필요라 <a href> 불가, blob → objectURL 저장(관례). */

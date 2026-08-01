@@ -7,6 +7,8 @@ import {
   AdminBomPoCrossListResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
+  AdminBomPartPackageActionBody,
+  AdminBomPartPackageResponse,
   AdminBomShipmentCrossListQuery,
   AdminBomShipmentCrossListResponse,
   AdminBomShipmentReceiveBody,
@@ -14,6 +16,8 @@ import {
   ApiError,
   BomInvoiceData,
   BomInvoiceDraftResponse,
+  BomShipmentPackingListResponse,
+  BomShipmentPackingListSaveBody,
   BomShipmentFileType,
   bomShipmentActorOf,
   bomShipmentNextStatus,
@@ -48,6 +52,15 @@ import {
   buildShipmentTurnPartnerEmail,
   sendBomRfqMail,
 } from '../lib/rfq-email';
+import {
+  BomPackingError,
+  loadPartPackage,
+  loadShipmentPackingList,
+  markShipmentPackingListPrinted,
+  receiveAllShipmentPackages,
+  saveShipmentPackingList,
+  updatePartPackage,
+} from '../lib/bom-packing';
 
 // ── /api/admin/bom-quotes/:id/pos — 협력사 발주서(D18) ───────────────────────
 // 생성은 all-or-nothing(신중 액션): 결제 확인(od isPaid) 게이트 + 대상 행 재집계·박제.
@@ -61,6 +74,8 @@ const PoFileParams = z.object({
   poId: z.coerce.bigint(),
   fileId: z.coerce.bigint(),
 });
+const ShipmentIdParams = z.object({ shipmentId: z.coerce.bigint() });
+const PackageCodeParams = z.object({ code: z.string().trim().min(1).max(100) });
 
 const CREATE_ERROR_MESSAGE: Record<string, string> = {
   QUOTE_NOT_FOUND: '견적을 찾을 수 없습니다.',
@@ -301,6 +316,14 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           .status(409)
           .send({ error: result.error, message: '입고 확인에 실패했습니다.' });
       }
+      const shipmentLink = await prisma.spBomShipmentPo.findUnique({ where: { poId: po.id } });
+      if (shipmentLink !== null) {
+        await receiveAllShipmentPackages(
+          shipmentLink.shipmentId,
+          { type: 'ADMIN', mbId: request.user.mbId },
+          request.body.note ?? null,
+        );
+      }
       if (po.partner.type === 'partner') {
         void sendBomRfqMail(
           request.log,
@@ -325,9 +348,10 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const kind = BomShipmentFileType.safeParse(fields.fileType);
       const file = files[0];
       if (!kind.success || file === undefined) {
-        return reply
-          .status(400)
-          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.' });
+        return reply.status(400).send({
+          error: 'BAD_UPLOAD',
+          message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.',
+        });
       }
       // 선적 문서가 없으면 preparing 으로 생성해 파일부터 받는다(협력사 흐름과 동일).
       const shipment = await ensureAdminShipment(request.params.id, request.params.poId);
@@ -455,6 +479,129 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.xlsx`)}`)
         .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         .send(buffer);
+    },
+  );
+
+  // ── 선적 리스트·QR 라벨(D24) — 관리자 대리 작성·재인쇄 ──────────────────
+  fastify.get(
+    '/bom-shipments/:shipmentId/packing-list',
+    {
+      schema: {
+        params: ShipmentIdParams,
+        response: { 200: BomShipmentPackingListResponse },
+      },
+    },
+    async (request, reply) => {
+      const data = await loadShipmentPackingList(request.params.shipmentId);
+      if (data === null) return reply.notFound('발송을 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
+  fastify.put(
+    '/bom-shipments/:shipmentId/packing-list',
+    {
+      schema: {
+        params: ShipmentIdParams,
+        body: BomShipmentPackingListSaveBody,
+        response: { 200: BomShipmentPackingListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const data = await saveShipmentPackingList(request.params.shipmentId, request.body, {
+          type: 'ADMIN',
+          mbId: request.user.mbId,
+        });
+        return { result: true as const, data };
+      } catch (error) {
+        if (!(error instanceof BomPackingError)) throw error;
+        if (error.code === 'PACKING_NOT_FOUND') {
+          return reply.notFound('발송을 찾을 수 없습니다');
+        }
+        return reply.status(409).send({
+          error: error.code,
+          message:
+            error.code === 'PACKING_INVALID_QUANTITY'
+              ? '포장 수량 합계가 발주 수량과 같아야 합니다.'
+              : error.code === 'PACKING_NOT_PREPARING' || error.code === 'PACKING_TRACKING_LOCKED'
+                ? '발송 준비 단계의 미입고 포장만 수정할 수 있습니다.'
+                : '선적 리스트가 변경되었습니다. 새로고침 후 다시 시도해 주세요.',
+        });
+      }
+    },
+  );
+
+  fastify.post(
+    '/bom-shipments/:shipmentId/packing-list/print',
+    {
+      schema: {
+        params: ShipmentIdParams,
+        response: { 200: BomShipmentPackingListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const data = await markShipmentPackingListPrinted(request.params.shipmentId, {
+          type: 'ADMIN',
+          mbId: request.user.mbId,
+        });
+        return { result: true as const, data };
+      } catch (error) {
+        if (!(error instanceof BomPackingError)) throw error;
+        if (error.code === 'PACKING_NOT_FOUND') {
+          return reply.notFound('발송을 찾을 수 없습니다');
+        }
+        return reply
+          .status(409)
+          .send({ error: error.code, message: 'QR을 먼저 저장한 뒤 인쇄해 주세요.' });
+      }
+    },
+  );
+
+  // QR/수기 labelCode 조회 + 물류 이벤트. token은 권한이 아니며 requireAdmin 후에만 노출·변경.
+  fastify.get(
+    '/bom-packages/:code',
+    {
+      schema: {
+        params: PackageCodeParams,
+        response: { 200: AdminBomPartPackageResponse },
+      },
+    },
+    async (request, reply) => {
+      const data = await loadPartPackage(request.params.code);
+      if (data === null) return reply.notFound('QR 포장을 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
+  fastify.post(
+    '/bom-packages/:code/actions',
+    {
+      schema: {
+        params: PackageCodeParams,
+        body: AdminBomPartPackageActionBody,
+        response: { 200: AdminBomPartPackageResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const data = await updatePartPackage(request.params.code, request.body, {
+          type: 'ADMIN',
+          mbId: request.user.mbId,
+        });
+        if (data === null) return await reply.notFound('QR 포장을 찾을 수 없습니다');
+        return { result: true as const, data };
+      } catch (error) {
+        if (!(error instanceof BomPackingError)) throw error;
+        return reply.status(409).send({
+          error: error.code,
+          message:
+            error.code === 'PACKAGE_LOCATION_REQUIRED'
+              ? '보관 위치를 입력해 주세요.'
+              : '현재 상태에서는 이 처리를 할 수 없습니다.',
+        });
+      }
     },
   );
 

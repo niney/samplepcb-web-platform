@@ -141,6 +141,7 @@ const loadShipmentRows = async (quoteId: bigint, targetPoIds: readonly bigint[])
       quoteId: true,
       mode: true,
       status: true,
+      packingRevision: true,
       pos: {
         select: { poId: true, po: { select: { quoteId: true } } },
         orderBy: { id: 'asc' },
@@ -194,6 +195,7 @@ export async function loadBomCaseDeletePlan(
     poItems,
     quoteFiles,
     shipments,
+    packingRows,
     cartRow,
     orderInfo,
   ] = await Promise.all([
@@ -228,6 +230,29 @@ export async function loadBomCaseDeletePlan(
       orderBy: { id: 'asc' },
     }),
     loadShipmentRows(quoteId, targetPoIds),
+    prisma.spBomShipmentItem.findMany({
+      where: { poItem: { poId: { in: targetPoIds } } },
+      select: {
+        id: true,
+        shipmentId: true,
+        poItemId: true,
+        partId: true,
+        expectedQty: true,
+        updatedAt: true,
+        packages: {
+          select: {
+            id: true,
+            packageNo: true,
+            quantity: true,
+            status: true,
+            updatedAt: true,
+            _count: { select: { events: true } },
+          },
+          orderBy: { id: 'asc' },
+        },
+      },
+      orderBy: { id: 'asc' },
+    }),
     quote.ctId === null ? Promise.resolve<CartRowInfo | null>(null) : getCartRowByCtId(quote.ctId),
     quote.ctId === null ? Promise.resolve(null) : getOrderDeletionInfoByCtId(quote.ctId),
   ]);
@@ -276,6 +301,17 @@ export async function loadBomCaseDeletePlan(
       : await prisma.spFile.count({
           where: { refType: SHIPMENT_FILE_REF_TYPE, refId: { in: shipmentIdsToDelete } },
         });
+  const shipmentItemCount = packingRows.length;
+  const shipmentPackageCount = packingRows.reduce((total, item) => total + item.packages.length, 0);
+  const shipmentPackageEventCount = packingRows.reduce(
+    (total, item) =>
+      total +
+      item.packages.reduce(
+        (packageTotal, itemPackage) => packageTotal + itemPackage._count.events,
+        0,
+      ),
+    0,
+  );
 
   const engineJobIds = [
     ...new Set(
@@ -380,6 +416,9 @@ export async function loadBomCaseDeletePlan(
       quoteFiles: quoteFiles.length,
       shipments: shipments.length,
       shipmentFiles: shipmentFileCount,
+      shipmentItems: shipmentItemCount,
+      shipmentPackages: shipmentPackageCount,
+      shipmentPackageEvents: shipmentPackageEventCount,
     },
     order: {
       state: cartState,
@@ -424,7 +463,24 @@ export async function loadBomCaseDeletePlan(
       quoteId: String(shipment.quoteId),
       mode: shipment.mode,
       status: shipment.status,
+      packingRevision: shipment.packingRevision,
       poIds: shipment.pos.map((link) => String(link.poId)),
+    })),
+    packingRows: packingRows.map((item) => ({
+      id: String(item.id),
+      shipmentId: String(item.shipmentId),
+      poItemId: String(item.poItemId),
+      partId: item.partId === null ? null : String(item.partId),
+      expectedQty: item.expectedQty,
+      updatedAt: item.updatedAt.toISOString(),
+      packages: item.packages.map((itemPackage) => ({
+        id: String(itemPackage.id),
+        packageNo: itemPackage.packageNo,
+        quantity: itemPackage.quantity,
+        status: itemPackage.status,
+        updatedAt: itemPackage.updatedAt.toISOString(),
+        eventCount: itemPackage._count.events,
+      })),
     })),
     order:
       orderInfo === null

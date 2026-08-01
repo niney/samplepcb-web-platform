@@ -24,9 +24,11 @@ export const apiRoutes = {
   // 발주·선적 횡단 워크큐(관리자 메뉴 재편 — 발주/선적·배송 메뉴)
   adminBomPos: '/api/admin/bom-pos',
   adminBomShipments: '/api/admin/bom-shipments',
+  adminBomPackages: '/api/admin/bom-packages',
   // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인(D18)
   partnerRfqs: '/api/partner/rfqs',
   partnerPos: '/api/partner/pos',
+  partnerShipments: '/api/partner/shipments',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',

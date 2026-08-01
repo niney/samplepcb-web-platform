@@ -33,6 +33,9 @@ const preview = (
     quoteFiles: 1,
     shipments: 0,
     shipmentFiles: 0,
+    shipmentItems: 0,
+    shipmentPackages: 0,
+    shipmentPackageEvents: 0,
   },
   order: {
     state: 'none',
