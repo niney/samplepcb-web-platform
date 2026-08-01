@@ -25,6 +25,10 @@ const cellOf = (item: BomQuoteItemType, rfq: AdminBomRfqViewType) => {
   return reply === undefined || price === null ? null : reply;
 };
 
+// 부분 행 선택(§6.13) — 요청하지 않은 칸은 "미요청"으로 구분(회신율 오독 방지).
+const isRequested = (item: BomQuoteItemType, rfq: AdminBomRfqViewType): boolean =>
+  rfq.requestedItemIds === null || rfq.requestedItemIds.includes(item.id);
+
 const lineTotalOf = (item: BomQuoteItemType, unitPrice: number): number =>
   Math.round(unitPrice * Math.max(1, item.orderQty));
 
@@ -213,6 +217,7 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
                     </span>
                   </label>
                 </template>
+                <span v-else-if="!isRequested(item, rfq)" class="rounded bg-gray-100 px-1 py-0.5 text-[10px] text-gray-400" title="이 협력사에게 요청하지 않은 부품행입니다">미요청</span>
                 <span v-else class="text-gray-300">—</span>
               </td>
             </tr>

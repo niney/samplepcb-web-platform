@@ -79,6 +79,8 @@ export const AdminBomRfqView = z.object({
   repliedItemCount: z.number().int(),
   /** 매직링크 토큰(§6.9) — [링크 복사]용. 구 데이터(발급 전)는 null → [재발급]으로 소급. */
   magicToken: z.string().nullable(),
+  /** 부분 행 선택(§6.13) — 요청 부품행 id. null=전체(비교 모달 미요청 칸 구분용). */
+  requestedItemIds: z.array(z.string()).nullable(),
   items: z.array(AdminBomRfqItemView),
 });
 export type AdminBomRfqViewType = z.infer<typeof AdminBomRfqView>;
@@ -92,7 +94,11 @@ export type AdminBomRfqListResponseType = z.infer<typeof AdminBomRfqListResponse
 // diff 발송 — 선택 협력사 집합으로 수렴: 빠진 미회신(requested) 문서만 삭제, 회신
 // (quoted) 문서는 보존, 신규만 생성·메일. 재발송해도 유지분은 건드리지 않는다(§2.4).
 export const AdminBomRfqSendBody = z.object({
-  partnerIds: z.array(z.number().int().positive()).min(1).max(50),
+  /** 0곳 허용 — 전부 해제 발송 = 미회신(requested) RFQ 전부 회수(quoted 는 보존). */
+  partnerIds: z.array(z.number().int().positive()).max(50),
+  /** 부분 행 선택(§6.13) — 요청 부품행 id. 생략=전체. 이번에 새로 생성되는 RFQ 에만
+   * 적용된다(유지분의 기존 세트는 불변 — diff 보존 규칙 동일). */
+  itemIds: z.array(z.string().regex(/^\d+$/)).min(1).max(500).optional(),
 });
 export type AdminBomRfqSendBodyType = z.infer<typeof AdminBomRfqSendBody>;
 

@@ -8,6 +8,7 @@ import {
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
+  filterScopeForRfq,
   loadRfqScopeItems,
   saveRfqReply,
   toPartnerDetail,
@@ -38,7 +39,8 @@ export const partnerRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       });
       const items = await Promise.all(
         rfqs.map(async (rfq) => {
-          const scope = await loadRfqScopeItems(rfq.quoteId);
+          // 부분 행 선택(§6.13) — 협력사가 보는 품목 수 = 자기 요청 범위만
+          const scope = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId), rfq);
           return toPartnerListItem(rfq, scope.length);
         }),
       );
@@ -61,7 +63,7 @@ export const partnerRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (rfq.partnerId !== ctx.partnerId) {
         return reply.notFound('견적요청을 찾을 수 없습니다');
       }
-      const scope = await loadRfqScopeItems(rfq.quoteId);
+      const scope = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId), rfq);
       return { result: true as const, data: toPartnerDetail(rfq, scope) };
     },
   );
@@ -100,7 +102,7 @@ export const partnerRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         include: { items: { orderBy: { id: 'asc' } }, quote: { select: { title: true } } },
       });
       if (updated === null) return reply.notFound('견적요청을 찾을 수 없습니다');
-      const scope = await loadRfqScopeItems(updated.quoteId);
+      const scope = filterScopeForRfq(await loadRfqScopeItems(updated.quoteId), updated);
       return { result: true as const, data: toPartnerDetail(updated, scope) };
     },
   );

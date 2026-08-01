@@ -70,11 +70,28 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         return reply.status(400).send({ error: 'INVALID_PARTNER', message: error });
       }
 
-      const diff = await diffSendRfqs(quote.id, request.body.partnerIds);
+      // 부분 행 선택(§6.13) — 요청 행은 scope 안에서만. 전체 선택은 null(=전체 파생)로
+      // 정규화해 "행이 나중에 추가되면 자동 포함"이라는 전체 발송의 성질을 유지한다.
+      const scope = await loadRfqScopeItems(quote.id);
+      let requestedItemIds: string[] | null = null;
+      if (request.body.itemIds !== undefined) {
+        const scopeIds = new Set(scope.map((item) => String(item.id)));
+        const outside = request.body.itemIds.find((id) => !scopeIds.has(id));
+        if (outside !== undefined) {
+          return reply.status(400).send({
+            error: 'ITEM_OUT_OF_SCOPE',
+            message: '요청 범위에 없는 부품행이 포함되어 있습니다.',
+          });
+        }
+        const unique = [...new Set(request.body.itemIds)];
+        requestedItemIds = unique.length === scope.length ? null : unique;
+      }
+
+      const diff = await diffSendRfqs(quote.id, request.body.partnerIds, requestedItemIds);
 
       // 알림 메일 — 신규 발송분만, 비차단(실패는 로그). 주 CTA = 매직링크(§6.9).
       if (diff.addedPartners.length > 0) {
-        const scope = await loadRfqScopeItems(quote.id);
+        const mailItemCount = requestedItemIds === null ? scope.length : requestedItemIds.length;
         for (const partner of diff.addedPartners) {
           const token = diff.addedTokens.get(partner.id.toString());
           void sendBomRfqMail(
@@ -83,7 +100,7 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
             buildBomRfqRequestEmail({
               partnerName: partner.name,
               quoteTitle: quote.title,
-              itemCount: scope.length,
+              itemCount: mailItemCount,
               magicUrl: token === undefined ? null : magicReplyUrl(token),
             }),
           );

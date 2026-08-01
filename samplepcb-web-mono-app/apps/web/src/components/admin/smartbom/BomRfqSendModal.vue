@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AdminBomRfqViewType } from '@sp/api-contract';
+import type { AdminBomRfqViewType, BomQuoteItemType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import { useAdminPartnerList, type AdminPartnerFilters } from '../../../admin/useAdminPartners';
 import { useSendBomRfqs } from '../../../admin/useAdminBomRfqs';
@@ -8,14 +8,18 @@ import { useSendBomRfqs } from '../../../admin/useAdminBomRfqs';
 // 협력사 견적요청 발송 모달 — 승인 협력사(BOM 견적 트랙) 선택 → diff 발송.
 // 유지분은 보존, 빠진 미회신 문서만 삭제, 신규만 메일(docs/SMARTBOM_PARTNER_RFQ.md §2.4).
 // 회신(quoted) 문서는 해제해도 서버가 보존한다 — UI 에서 해제 자체를 잠근다.
+// 부분 행 선택(§6.13 개정) — 행 체크는 판단 근거가 있는 **품목 테이블**에서 하고
+// (selectedItemIds 로 전달, 빈 배열=전체), 모달은 요약·확인만(편집 창구 단일).
+// 부분 선택은 이번에 새로 생성되는 RFQ 에만 적용된다(유지분 세트 불변).
 
 const props = defineProps<{
   open: boolean;
   quoteId: string;
-  itemCount: number; // 요청 부품행 수(included)
+  scopeItems: BomQuoteItemType[]; // 요청 가능 부품행(included·활성 시트)
+  selectedItemIds: string[]; // 품목 테이블 체크 — 빈 배열=전체 발송
   rfqs: AdminBomRfqViewType[];
 }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; sent: [] }>();
 
 // 승인된 협력사 전체(관리 목록 재사용, capability 는 클라 필터).
 const partnerFilters = ref<AdminPartnerFilters>({
@@ -33,6 +37,11 @@ const candidates = computed(() =>
 const selected = ref<Set<number>>(new Set());
 const quotedPartnerIds = computed(
   () => new Set(props.rfqs.filter((r) => r.status !== 'requested').map((r) => r.partnerId)),
+);
+
+// 부분 행 선택(§6.13) — 품목 테이블 체크가 진실. 빈 배열=전체(itemIds 생략).
+const partialSelection = computed(
+  () => props.selectedItemIds.length > 0 && props.selectedItemIds.length < props.scopeItems.length,
 );
 
 watch(
@@ -58,15 +67,18 @@ const error = ref('');
 
 async function submit(): Promise<void> {
   error.value = '';
-  if (selected.value.size === 0) {
-    error.value = '협력사를 1곳 이상 선택해 주세요.';
-    return;
-  }
+  // 0곳 발송 = 미회신 요청 전부 회수(diff 수렴) — 버튼 라벨("미회신 요청 회수")이
+  // 의미를 이미 말하므로 별도 confirm 없이 진행한다(사용자 결정).
   try {
     await send.mutateAsync({
       quoteId: props.quoteId,
-      body: { partnerIds: [...selected.value] },
+      body: {
+        partnerIds: [...selected.value],
+        // 부분 선택일 때만 itemIds — 전체는 생략(=전체 파생, 이후 행 추가 자동 포함)
+        ...(partialSelection.value ? { itemIds: [...props.selectedItemIds] } : {}),
+      },
     });
+    emit('sent');
     emit('close');
   } catch (e) {
     error.value = e instanceof ApiRequestError ? e.message : '발송에 실패했습니다.';
@@ -82,8 +94,15 @@ async function submit(): Promise<void> {
         <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>
       </div>
       <p class="mt-1 text-xs text-gray-500">
-        요청 부품행 <b>{{ itemCount }}</b>행 · 선택한 협력사 집합으로 발송 상태를 맞춥니다
+        요청 부품행
+        <b v-if="partialSelection" class="text-blue-700">선택 {{ selectedItemIds.length }}/{{ scopeItems.length }}행</b>
+        <b v-else>전체 {{ scopeItems.length }}행</b>
+        · 선택한 협력사 집합으로 발송 상태를 맞춥니다
         (신규만 메일 발송, 이미 회신한 협력사는 해제할 수 없습니다).
+      </p>
+      <!-- 행 선택은 품목 테이블에서(§6.13 개정 — 편집 창구 단일). 여기선 확인만 -->
+      <p v-if="partialSelection" class="mt-1 rounded bg-blue-50 px-2 py-1 text-[11px] text-blue-800">
+        부분 선택은 이번에 <b>새로 발송되는</b> 협력사에게만 적용됩니다 — 행 변경은 품목 표에서.
       </p>
 
       <div class="mt-4 max-h-72 space-y-1 overflow-y-auto">
@@ -122,7 +141,7 @@ async function submit(): Promise<void> {
           :disabled="send.isPending.value"
           @click="submit"
         >
-          발송 ({{ selected.size }}곳)
+          {{ selected.size === 0 ? '미회신 요청 회수' : `발송 (${String(selected.size)}곳)` }}
         </button>
       </div>
     </div>

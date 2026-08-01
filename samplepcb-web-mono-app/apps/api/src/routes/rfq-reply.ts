@@ -2,7 +2,13 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ApiError, BomRfqReplyBody, MagicRfqResponse } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
-import { loadRfqByMagicToken, loadRfqScopeItems, saveRfqReply, toPartnerDetail } from '../lib/bom-rfq';
+import {
+  filterScopeForRfq,
+  loadRfqByMagicToken,
+  loadRfqScopeItems,
+  saveRfqReply,
+  toPartnerDetail,
+} from '../lib/bom-rfq';
 
 // ── /api/rfq-reply/:token — 매직링크 무로그인 회신(§6.9) ─────────────────────
 // 인증 = 토큰 자체(메일함 소유 = 신원). 로그인·세션 없음, 권한은 이 RFQ 1건 스코프.
@@ -18,7 +24,7 @@ export const rfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     async (request, reply) => {
       const rfq = await loadRfqByMagicToken(request.params.token);
       if (rfq === null) return reply.notFound('유효하지 않은 링크입니다');
-      const scope = await loadRfqScopeItems(rfq.quoteId);
+      const scope = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId), rfq);
       return {
         result: true as const,
         data: { partnerName: rfq.partner.name, rfq: toPartnerDetail(rfq, scope) },
@@ -59,7 +65,7 @@ export const rfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         },
       });
       if (fresh === null) return reply.notFound('유효하지 않은 링크입니다');
-      const scope = await loadRfqScopeItems(fresh.quoteId);
+      const scope = filterScopeForRfq(await loadRfqScopeItems(fresh.quoteId), fresh);
       return {
         result: true as const,
         data: { partnerName: fresh.partner.name, rfq: toPartnerDetail(fresh, scope) },

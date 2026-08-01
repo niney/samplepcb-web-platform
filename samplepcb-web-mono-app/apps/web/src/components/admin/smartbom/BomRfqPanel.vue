@@ -116,7 +116,11 @@ const fmtWon = (v: number | null): string => (v === null ? '—' : `${v.toLocale
                 {{ BOM_RFQ_STATUS_LABELS[rfq.status] }}
               </span>
             </td>
-            <td class="px-3 py-2 text-right tabular-nums">{{ rfq.repliedItemCount }}</td>
+            <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+              {{ rfq.repliedItemCount }}<template v-if="rfq.requestedItemIds !== null">/{{ rfq.requestedItemIds.length }}</template>
+              <!-- 부분 행 선택(§6.13) — 전체가 아닌 요청은 배지로 구분 -->
+              <span v-if="rfq.requestedItemIds !== null" class="ml-1 rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold text-indigo-700">부분</span>
+            </td>
             <td class="px-3 py-2 text-right tabular-nums">{{ fmtWon(rfq.totalAmount) }}</td>
             <td class="whitespace-nowrap px-3 py-2 text-gray-500">
               {{ rfq.deliveryDate === null ? '—' : rfq.deliveryDate.slice(0, 10) }}

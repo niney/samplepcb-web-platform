@@ -17,7 +17,8 @@ import { toCapabilities } from './partner';
 
 // ── 협력사 RFQ 코어 — 설계 docs/SMARTBOM_PARTNER_RFQ.md §2 ──────────────────
 // diff 발송(유지분 보존)·회신 replace-all 저장(포털/대리 공용)·직렬화.
-// 요청 부품행 범위는 저장하지 않고 견적의 included 행에서 파생한다(1차 — 부분 선택 후속).
+// 요청 부품행 범위 = 견적의 included 행 파생 ∩ requestedItemIds(부분 선택, §6.13 —
+// null=전체). 협력사별 전문 분야만 발송해 회신율·정보 최소화를 챙긴다(레거시 승계).
 
 export const asBomRfqStatus = (v: string): BomRfqStatusType =>
   v === 'quoted' ? 'quoted' : v === 'closed' ? 'closed' : 'requested';
@@ -39,6 +40,24 @@ const toItemView = (item: SpBomRfqItem): AdminBomRfqItemViewType => ({
   updatedAt: item.updatedAt.toISOString(),
 });
 
+// 부분 행 선택(§6.13) — 저장값(Json) 해석. null·비배열(방어)=전체.
+export const parseRequestedItemIds = (rfq: Pick<SpBomRfq, 'requestedItemIds'>): string[] | null => {
+  const raw = rfq.requestedItemIds;
+  if (!Array.isArray(raw)) return null;
+  return raw.filter((v): v is string => typeof v === 'string');
+};
+
+/** 표시·검증 범위 = scope 파생 ∩ requestedItemIds — 견적 행이 나중에 빠져도 자연 방어. */
+export const filterScopeForRfq = (
+  scopeItems: readonly SpBomQuoteItem[],
+  rfq: Pick<SpBomRfq, 'requestedItemIds'>,
+): SpBomQuoteItem[] => {
+  const requested = parseRequestedItemIds(rfq);
+  if (requested === null) return [...scopeItems];
+  const set = new Set(requested);
+  return scopeItems.filter((item) => set.has(String(item.id)));
+};
+
 export const toAdminRfqView = (
   rfq: RfqWithItems & { partner: SpPartner },
 ): AdminBomRfqViewType => ({
@@ -54,6 +73,7 @@ export const toAdminRfqView = (
   respondedAt: rfq.respondedAt?.toISOString() ?? null,
   repliedItemCount: rfq.items.filter((i) => i.unitPrice !== null).length,
   magicToken: rfq.magicToken,
+  requestedItemIds: parseRequestedItemIds(rfq),
   items: rfq.items.map(toItemView),
 });
 
@@ -146,6 +166,8 @@ export const validateRfqPartners = async (
 export const diffSendRfqs = async (
   quoteId: bigint,
   partnerIds: readonly number[],
+  /** 부분 행 선택(§6.13) — 신규 생성 RFQ 에만 적용(유지분 세트 불변). null=전체. */
+  requestedItemIds: readonly string[] | null = null,
 ): Promise<RfqDiffResult> => {
   const wanted = new Set(partnerIds.map((id) => BigInt(id)));
   return prisma.$transaction(async (tx) => {
@@ -168,7 +190,14 @@ export const diffSendRfqs = async (
         data: toAddIds.map((partnerId) => {
           const token = newMagicToken();
           addedTokens.set(partnerId.toString(), token);
-          return { quoteId, partnerId, status: 'requested', magicToken: token, magicTokenAt: now };
+          return {
+            quoteId,
+            partnerId,
+            status: 'requested',
+            magicToken: token,
+            magicTokenAt: now,
+            requestedItemIds: requestedItemIds === null ? Prisma.DbNull : [...requestedItemIds],
+          };
         }),
       });
     }
@@ -198,7 +227,8 @@ export const saveRfqReply = async (
   if (rfq === null) return { ok: false, error: 'RFQ_NOT_FOUND' };
   if (rfq.status === 'closed') return { ok: false, error: 'RFQ_CLOSED' };
 
-  const scopeItems = await loadRfqScopeItems(rfq.quoteId);
+  // 범위 = scope ∩ 부분 선택(§6.13) — 요청하지 않은 행의 회신은 거부.
+  const scopeItems = filterScopeForRfq(await loadRfqScopeItems(rfq.quoteId), rfq);
   const scopeById = new Map(scopeItems.map((item) => [String(item.id), item]));
   const unknown = body.items.find((item) => !scopeById.has(item.quoteItemId));
   if (unknown !== undefined) {

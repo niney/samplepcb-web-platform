@@ -128,6 +128,35 @@ const scopeItems = computed(() => {
   );
 });
 
+// RFQ 부분 행 선택(§6.13 개정) — 판단 근거(선정 오퍼·매칭)가 있는 품목 테이블에서
+// 체크하고, 발송 모달은 요약·확인만 한다(편집 창구 단일). 선택 없음 = 전체 발송.
+const rfqItemSelection = ref<Set<string>>(new Set());
+const scopeItemIds = computed(() => new Set(scopeItems.value.map((item) => item.id)));
+const rfqSelectable = (item: BomQuoteItemType): boolean => scopeItemIds.value.has(item.id);
+const allRfqRowsSelected = computed(
+  () => scopeItems.value.length > 0 && rfqItemSelection.value.size === scopeItems.value.length,
+);
+
+function toggleRfqRow(itemId: string): void {
+  const next = new Set(rfqItemSelection.value);
+  if (next.has(itemId)) next.delete(itemId);
+  else next.add(itemId);
+  rfqItemSelection.value = next;
+}
+
+function toggleAllRfqRows(): void {
+  rfqItemSelection.value = allRfqRowsSelected.value
+    ? new Set()
+    : new Set(scopeItems.value.map((item) => item.id));
+}
+
+// 실무 퀵 액션 — 공급사 오퍼가 없는 행만 협력사에 문의하는 흔한 패턴.
+function selectUnofferedRfqRows(): void {
+  rfqItemSelection.value = new Set(
+    scopeItems.value.filter((item) => item.selectedOffer === null).map((item) => item.id),
+  );
+}
+
 // ── 발주(D18) — 결제 확인 후 발행, all-or-nothing ───────────────────────────
 const poCreateOpen = ref(false);
 const poError = ref('');
@@ -519,9 +548,39 @@ async function downloadOriginal(): Promise<void> {
       <div v-else class="grid gap-4 xl:grid-cols-[1fr_340px]">
         <!-- 품목 -->
         <div class="overflow-hidden rounded-xl border border-gray-200 bg-surface">
+          <!-- RFQ 행 선택 툴바(§6.13) — 체크는 이 표에서, 발송 모달은 확인만.
+               min-h 로 배지("n행 선택됨") 등장 시 높이 점프 방지(사용자 피드백) -->
+          <div class="flex min-h-9 flex-wrap items-center gap-2 border-b border-gray-100 bg-gray-50/60 px-3 py-1 text-[11px] text-gray-500">
+            <span>협력사 견적요청(RFQ) 행 선택 — 선택 없으면 전체 {{ scopeItems.length }}행 발송</span>
+            <span v-if="rfqItemSelection.size > 0" class="rounded bg-blue-100 px-1.5 py-0.5 font-bold text-blue-700">
+              {{ rfqItemSelection.size }}행 선택됨
+            </span>
+            <span class="ml-auto flex gap-2">
+              <button type="button" class="text-blue-600 hover:underline" @click="selectUnofferedRfqRows">
+                오퍼 없음 행만 선택
+              </button>
+              <button
+                v-if="rfqItemSelection.size > 0"
+                type="button"
+                class="text-gray-500 hover:underline"
+                @click="rfqItemSelection = new Set()"
+              >
+                선택 해제
+              </button>
+            </span>
+          </div>
           <table class="min-w-full divide-y divide-gray-100 text-xs">
             <thead class="bg-gray-50 text-left text-gray-500">
               <tr>
+                <th class="px-2 py-2">
+                  <input
+                    type="checkbox"
+                    class="size-3.5 align-middle"
+                    title="견적요청 행 전체 선택/해제"
+                    :checked="allRfqRowsSelected"
+                    @change="toggleAllRfqRows"
+                  >
+                </th>
                 <th class="px-3 py-2">Excel 위치</th>
                 <th class="px-3 py-2">부품</th>
                 <th class="px-3 py-2">선정 오퍼</th>
@@ -532,6 +591,15 @@ async function downloadOriginal(): Promise<void> {
             </thead>
             <tbody class="divide-y divide-gray-50">
               <tr v-for="item in detail.items" :key="item.id" :class="{ 'opacity-40': !item.included }">
+                <td class="px-2 py-2">
+                  <input
+                    v-if="rfqSelectable(item)"
+                    type="checkbox"
+                    class="size-3.5 align-middle"
+                    :checked="rfqItemSelection.has(item.id)"
+                    @change="toggleRfqRow(item.id)"
+                  >
+                </td>
                 <td class="whitespace-nowrap px-3 py-2 text-gray-500">{{ itemLocation(item) }}</td>
                 <td class="px-3 py-2">
                   <div class="font-medium">{{ itemLabel(item) }}</div>
@@ -663,9 +731,11 @@ async function downloadOriginal(): Promise<void> {
       v-if="detail !== null && detailId !== null"
       :open="sendOpen"
       :quote-id="detailId"
-      :item-count="scopeItems.length"
+      :scope-items="scopeItems"
+      :selected-item-ids="[...rfqItemSelection]"
       :rfqs="rfqs"
       @close="sendOpen = false"
+      @sent="rfqItemSelection = new Set()"
     />
 
     <BomRfqCompareModal
