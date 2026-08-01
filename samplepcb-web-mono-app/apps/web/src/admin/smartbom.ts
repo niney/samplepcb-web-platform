@@ -1,4 +1,8 @@
-import type { BomQuoteStatusType } from '@sp/api-contract';
+import type {
+  AdminBomCaseDeleteBlockerType,
+  AdminBomCaseDeleteWarningType,
+  BomQuoteStatusType,
+} from '@sp/api-contract';
 
 // 스마트 BOM 모듈 공용 표시 규칙 — docs/SMARTBOM_PARTNER_RFQ.md §3.
 // 12단계는 저장 상태가 아니라 상태 계층(quote.status → 이후 RFQ·주문·선적)에서
@@ -71,6 +75,25 @@ export const SMARTBOM_STATUS_META: Record<BomQuoteStatusType, { label: string; c
   answered: { label: '회신 완료', cls: 'bg-emerald-100 text-emerald-700' },
   closed: { label: '종료', cls: 'bg-gray-200 text-gray-600' },
   canceled: { label: '취소', cls: 'bg-red-100 text-red-600' },
+};
+
+/** 단건·일괄 영구 삭제 경고 레이어가 공유하는 서버 판정 설명. */
+export const SMARTBOM_DELETE_BLOCKER_TEXT: Record<AdminBomCaseDeleteBlockerType, string> = {
+  PAID_ORDER: '결제 이력이 있는 주문입니다. 별도 강제 삭제 확인 시 로컬 주문·결제 기록까지 삭제할 수 있습니다.',
+  SHARED_ORDER: '같은 주문에 다른 품목 또는 Case가 함께 있어 단건 삭제할 수 없습니다.',
+  ORDER_LINK_INCONSISTENT: 'Case와 영카트 품목의 연결 정보가 일치하지 않습니다. 주문 연결을 먼저 점검해 주세요.',
+  ENGINE_JOB_IN_PROGRESS: 'BOM 분석 또는 공급사 검색이 진행 중입니다. 완료·실패 상태가 된 뒤 다시 확인해 주세요.',
+  SHIPMENT_LINK_INCONSISTENT: '선적 대표 발주서와 소속 정보가 일치하지 않습니다. 물류 연결을 먼저 점검해 주세요.',
+};
+
+export const SMARTBOM_DELETE_WARNING_TEXT: Record<AdminBomCaseDeleteWarningType, string> = {
+  SENT_EMAILS_REMAIN: '이미 발송된 협력사·고객 이메일은 회수되지 않습니다.',
+  EXTERNAL_ACTIONS_REMAIN: '외부 공급사 장바구니·발급 링크는 외부 시스템에 남을 수 있습니다.',
+  SHARED_SHIPMENT_PRESERVED: '다른 Case와 공유 중인 선적은 삭제하지 않고 이 Case의 발주서만 분리합니다.',
+  UNPAID_ORDER_DELETED: '단독 미입금 주문과 연결 장바구니 행도 함께 영구 삭제합니다.',
+  PAID_ORDER_PERMANENTLY_DELETED: '로컬 결제 주문·쿠폰·PG 로그·포인트 원장까지 삭제합니다. 외부 PG 승인 취소나 환불은 실행하지 않습니다.',
+  SHIPMENT_HISTORY_PERMANENTLY_DELETED: '진행 또는 완료된 선적 이력도 이 Case 소유분은 함께 영구 삭제합니다.',
+  FILES_PERMANENTLY_DELETED: '원본 BOM, 엔진 임시 잡과 이 Case만 소유한 선적 첨부가 영구 삭제됩니다.',
 };
 
 /** 표시용 파생 Case 번호(저장 키 아님) — CASE-B-YYMMDD-{id}. */

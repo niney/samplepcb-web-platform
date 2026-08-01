@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { apiGet, apiGetBlob } from '@sp/shared';
 import { BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
 import type { BomQuoteItemType, BomQuoteStatusType } from '@sp/api-contract';
@@ -32,6 +32,7 @@ import {
   smartbomStepOf,
 } from '../../admin/smartbom';
 import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
+import BomCaseDeleteModal from '../../components/admin/smartbom/BomCaseDeleteModal.vue';
 import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
 import BomPoCreateModal from '../../components/admin/smartbom/BomPoCreateModal.vue';
 import BomPoPanel from '../../components/admin/smartbom/BomPoPanel.vue';
@@ -46,6 +47,7 @@ import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/Rf
 // 협력사 RFQ 패널·발송 모달·비교 뷰는 이 화면 위에 단계적으로 확장한다(§5-4~6).
 
 const route = useRoute();
+const router = useRouter();
 const detailId = computed(() => {
   const raw = route.params.id;
   return typeof raw === 'string' && raw !== '' ? raw : null;
@@ -53,6 +55,32 @@ const detailId = computed(() => {
 
 const detailQuery = useAdminBomQuote(detailId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
+const detailNotFound = computed(() => {
+  const reason = detailQuery.error.value;
+  return reason instanceof ApiRequestError && reason.status === 404;
+});
+const detailErrorMessage = computed(() => {
+  const reason = detailQuery.error.value;
+  if (!(reason instanceof ApiRequestError)) {
+    return '상세 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  if (reason.status === 401) return '로그인 정보가 만료되었습니다. 다시 로그인해 주세요.';
+  if (reason.status === 403) return '이 Case를 조회할 권한이 없습니다.';
+  if (reason.status >= 500) {
+    return 'Case 상세 조회 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  return reason.payload?.message ?? reason.message;
+});
+const caseDeleteOpen = ref(false);
+
+function retryDetail(): void {
+  void detailQuery.refetch();
+}
+
+async function onCaseDeleted(): Promise<void> {
+  caseDeleteOpen.value = false;
+  await router.push({ name: 'admin-smartbom' });
+}
 
 // 역할별 메뉴 진입 컨텍스트(§6.12 개정) — ?from=quotes|orders|pos|logistics 로 들어오면
 // 무관 섹션을 한 줄 접힘 바로 축소(존재 신호+한 클릭 복원). 접힘만으로 관련 섹션이
@@ -571,7 +599,24 @@ async function downloadOriginal(): Promise<void> {
     />
 
     <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
-    <p v-else-if="detail === null" class="text-sm text-gray-400">Case 를 찾을 수 없습니다.</p>
+    <p v-else-if="detailQuery.isError.value && detailNotFound" class="text-sm text-gray-400">
+      Case를 찾을 수 없습니다.
+    </p>
+    <div
+      v-else-if="detailQuery.isError.value"
+      class="flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+    >
+      <span>{{ detailErrorMessage }}</span>
+      <button
+        type="button"
+        class="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-red-100 disabled:opacity-50"
+        :disabled="detailQuery.isFetching.value"
+        @click="retryDetail"
+      >
+        {{ detailQuery.isFetching.value ? '다시 불러오는 중…' : '다시 시도' }}
+      </button>
+    </div>
+    <p v-else-if="detail === null" class="text-sm text-gray-400">Case를 찾을 수 없습니다.</p>
 
     <template v-else>
       <!-- 12단계 파생 타임라인 -->
@@ -945,7 +990,29 @@ async function downloadOriginal(): Promise<void> {
           <p v-if="actionError !== ''" class="text-xs text-red-600">{{ actionError }}</p>
         </div>
       </div>
+
+      <!-- 위험 구역 — 목록 행에서 오작동하지 않도록 Case 상세 단건에만 둔다. -->
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+        <div>
+          <p class="text-xs font-extrabold text-red-800">위험 구역</p>
+          <p class="mt-0.5 text-[11px] text-red-600">주문·선적 관계를 다시 검사한 뒤 Case와 관련 업무 데이터를 영구 삭제합니다.</p>
+        </div>
+        <button
+          type="button"
+          class="rounded-lg border border-red-300 bg-surface px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100"
+          @click="caseDeleteOpen = true"
+        >
+          Case 강제 영구 삭제
+        </button>
+      </div>
     </template>
+
+    <BomCaseDeleteModal
+      v-if="caseDeleteOpen && detailId !== null"
+      :quote-id="detailId"
+      @close="caseDeleteOpen = false"
+      @deleted="onCaseDeleted"
+    />
 
     <BomCandidateDrawer
       :open="candidateItemId !== null"

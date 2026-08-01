@@ -1,11 +1,21 @@
 import { computed, type Ref } from 'vue';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
-import { apiGet, apiSend } from '@sp/shared';
 import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/vue-query';
+import { ApiRequestError, apiGet, apiSend } from '@sp/shared';
+import {
+  AdminBomCaseDeletePreviewResponse,
+  AdminBomCaseDeleteResponse,
   AdminBomQuoteDetailResponse,
   AdminBomQuoteListResponse,
   BomQuoteItemCandidatesResponse,
   apiRoutes,
+  type AdminBomCaseDeleteBodyType,
+  type AdminBomCaseDeletePreviewType,
+  type AdminBomCaseDeleteResponseType,
   type AdminBomQuotePatchBodyType,
   type BomQuoteStatusType,
 } from '@sp/api-contract';
@@ -13,6 +23,68 @@ import {
 // 고객 BOM 견적요청 검토 — /api/admin/bom-quotes (requireAdmin)
 
 const base = apiRoutes.adminBomQuotes;
+
+export interface AdminBomCaseDeletePreviewLoad {
+  quoteId: string;
+  preview: AdminBomCaseDeletePreviewType | null;
+  error: string | null;
+}
+
+export interface AdminBomCaseBulkDeleteTarget {
+  quoteId: string;
+  previewToken: string;
+}
+
+export type AdminBomCaseBulkDeleteInput =
+  | {
+      targets: AdminBomCaseBulkDeleteTarget[];
+      mode: 'audited';
+      reason: string;
+      forceDeletePaidOrder?: boolean;
+    }
+  | {
+      targets: AdminBomCaseBulkDeleteTarget[];
+      mode: 'reset';
+      forceDeletePaidOrder?: boolean;
+    };
+
+export interface AdminBomCaseBulkDeleteResult {
+  deleted: AdminBomCaseDeleteResponseType['data'][];
+  failed: { quoteId: string; message: string }[];
+}
+
+const invalidateBomCaseQueries = (qc: QueryClient): void => {
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs'] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos'] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-shipments'] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
+  void qc.invalidateQueries({ queryKey: ['bom'] });
+  void qc.invalidateQueries({ queryKey: ['partner'] });
+};
+
+const deleteErrorMessage = (error: unknown): string => {
+  if (error instanceof ApiRequestError) {
+    return error.payload?.message ?? error.message;
+  }
+  return '관련 데이터 삭제 중 알 수 없는 오류가 발생했습니다.';
+};
+
+const loadDeletePreview = async (quoteId: string): Promise<AdminBomCaseDeletePreviewLoad> => {
+  try {
+    const response = await apiGet(
+      `${base}/${quoteId}/force-delete-preview`,
+      AdminBomCaseDeletePreviewResponse,
+    );
+    return { quoteId, preview: response.data, error: null };
+  } catch (error) {
+    return {
+      quoteId,
+      preview: null,
+      error: deleteErrorMessage(error),
+    };
+  }
+};
 
 export function useAdminBomQuotes(status: Ref<BomQuoteStatusType | null>, page: Ref<number>) {
   return useQuery({
@@ -76,5 +148,100 @@ export function usePatchAdminBomQuote() {
     mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomQuotePatchBodyType }) =>
       apiSend('PATCH', `${base}/${quoteId}`, body, AdminBomQuoteDetailResponse),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] }),
+  });
+}
+
+/** Case 삭제 1단계 영향 프리뷰 — 열려 있을 때만 주문·선적 관계까지 조회한다. */
+export function useAdminBomCaseDeletePreview(
+  quoteId: Ref<string | null>,
+  enabled: Ref<boolean>,
+) {
+  return useQuery({
+    queryKey: computed(() => ['admin', 'bom-case-delete-preview', quoteId.value]),
+    queryFn: () =>
+      apiGet(
+        `${base}/${quoteId.value ?? ''}/force-delete-preview`,
+        AdminBomCaseDeletePreviewResponse,
+      ),
+    enabled: computed(() => enabled.value && quoteId.value !== null),
+    retry: false,
+  });
+}
+
+/** 목록 일괄 삭제 프리뷰. DB 연결을 몰아치지 않도록 최대 4건씩 조회한다. */
+export function useAdminBomCaseDeletePreviews(
+  quoteIds: Ref<readonly string[]>,
+  enabled: Ref<boolean>,
+) {
+  return useQuery({
+    queryKey: computed(() => ['admin', 'bom-case-delete-previews', [...quoteIds.value]]),
+    queryFn: async (): Promise<AdminBomCaseDeletePreviewLoad[]> => {
+      const ids = [...quoteIds.value];
+      const results: AdminBomCaseDeletePreviewLoad[] = [];
+      for (let index = 0; index < ids.length; index += 4) {
+        const batch = ids.slice(index, index + 4);
+        results.push(...await Promise.all(batch.map(loadDeletePreview)));
+      }
+      return results;
+    },
+    enabled: computed(() => enabled.value && quoteIds.value.length > 0),
+    retry: false,
+  });
+}
+
+/** Case 삭제 2단계 실행 — 관련 관리자·고객·협력사 파생 캐시를 전부 무효화한다. */
+export function useDeleteAdminBomCase() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomCaseDeleteBodyType }) =>
+      apiSend(
+        'POST',
+        `${base}/${quoteId}/force-delete`,
+        body,
+        AdminBomCaseDeleteResponse,
+      ),
+    onSuccess: () => {
+      invalidateBomCaseQueries(qc);
+    },
+  });
+}
+
+/** 체크한 Case를 하나씩 재검증·삭제한다. 한 건의 실패가 나머지 Case를 막지 않는다. */
+export function useDeleteAdminBomCases() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: AdminBomCaseBulkDeleteInput,
+    ): Promise<AdminBomCaseBulkDeleteResult> => {
+      const result: AdminBomCaseBulkDeleteResult = { deleted: [], failed: [] };
+      for (const target of input.targets) {
+        const common = {
+          previewToken: target.previewToken,
+          acknowledgeIrreversible: true as const,
+          ...(input.forceDeletePaidOrder === true ? { forceDeletePaidOrder: true as const } : {}),
+        };
+        const body: AdminBomCaseDeleteBodyType = input.mode === 'audited'
+          ? { mode: 'audited', reason: input.reason, ...common }
+          : { mode: 'reset', ...common };
+        try {
+          const response = await apiSend(
+            'POST',
+            `${base}/${target.quoteId}/force-delete`,
+            body,
+            AdminBomCaseDeleteResponse,
+          );
+          result.deleted.push(response.data);
+        } catch (error) {
+          result.failed.push({
+            quoteId: target.quoteId,
+            message: deleteErrorMessage(error),
+          });
+        }
+      }
+      return result;
+    },
+    onSuccess: () => {
+      invalidateBomCaseQueries(qc);
+    },
   });
 }

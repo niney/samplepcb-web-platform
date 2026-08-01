@@ -16,7 +16,8 @@
 // UPDATE(주문 선택 플래그 — 바로 주문) ⑤ g5_member read-only SELECT(관리자
 // 견적 관리의 신청자 표시용 — 최소 컬럼, 쓰기 절대 금지) ⑥ g5_shop_cart 견적 행
 // UPDATE(io_id/io_price/ct_option — 담긴 견적 수량 변경 시 재견적 동기화)·DELETE
-// (장바구니에서 견적 행 제거 — ct_id 단위. 코어 cartupdate 는 it_id 단위라 같은
+// (장바구니에서 견적 행 제거 — ct_id 단위. Case 강제삭제는 ct_id+기대 it_id/io_id+
+// ct_status='쇼핑'을 단일 DELETE로 가드. 코어 cartupdate 는 it_id 단위라 같은
 // 템플릿 견적이 뭉텅이로 처리되므로 ct_id 정밀 조작이 필요) ⑦ g5_shop_default
 // read-only SELECT(관리자 견적서의 발신처 정보 — 회사명·대표·주소·연락처·담당자·
 // 결제계좌 컬럼만, 쓰기 절대 금지) ⑧ g5_member·g5_config read-only SELECT(관리자
@@ -30,13 +31,23 @@
 // 공격 벡터가 아니라 차등). 코어 정합성(adm/member_form_update.php): 닉/이메일/hp 중복
 // 거부·hp 하이픈 정규화·zip 3+2 분해·주소 변경 시 mb_addr_jibeon 초기화·mb_nick_date
 // 미갱신. 화이트리스트(updateMemberInfo 맵) 밖 컬럼 쓰기 금지.
-// ⑩ g5_shop_order·g5_shop_cart read-only SELECT(관리자 견적 삭제 프리뷰 — 주문됨 견적이
+// ⑩ g5_shop_order·g5_shop_cart 및 주문 보조 원장 read-only SELECT(관리자 견적 삭제 프리뷰 — 주문됨 견적이
 // 묶인 주문의 결제상태·수납액·PG거래·같은 주문의 다른 견적 파악: od_status·od_receipt_price·
-// od_cart_price·od_settle_case·od_tno·od_pg·od_misu + cart od_id/it_name/io_id, 쓰기 없음).
-// ⑪ g5_shop_order 미입금 주문 삭제(관리자 견적 완전삭제 — 코어 adm/shop_admin/orderlistdelete.php
-// 이식: od_status='주문'만, g5_shop_order_delete 백업(serialize) → g5_shop_cart ct_status='삭제'
-// → g5_shop_order DELETE. 결제완료(od_status≠'주문')는 PG환불 취소 도메인이라 차단. 포인트/쿠폰
-// 환급 불필요=미입금 부수효과 없음). 코어 정합성(규율 3): 미입금만·백업·cart 소프트 그대로 재현.
+// od_receipt_point·od_cart_coupon·od_coupon·od_send_coupon·od_cart_price·od_settle_case·
+// od_tno·od_pg·od_misu +
+// cart od_id/ct_status/it_id/it_name/io_id/io_price. 완전삭제 프리뷰에 한해 g5_shop_order_data·
+// g5_shop_coupon_log·g5_shop_coupon·g5_shop_personalpay·g5_shop_order_post_log·
+// g5_shop_inicis_log·g5_shop_order_delete·g5_point의 od_id/oid/de_key/주문 관계키별 건수도 읽는다).
+// ⑪ g5_shop_order 주문 삭제(관리자 견적 완전삭제 — 기본은 코어 adm/shop_admin/orderlistdelete.php
+// 이식+레이스 강화: od_status='주문'만, g5_shop_order_delete 백업(serialize) → 보호 WHERE를 둔
+// g5_shop_order DELETE → g5_shop_cart ct_status='삭제'. 결제완료(상태 전이·수납액·포인트/쿠폰 수납·PG tno)는 PG환불 취소
+// 도메인이라 기본 차단. 단일 Case 전용 명시적 force 경로만 InnoDB 트랜잭션에서 대상
+// ct_id+it_id+io_id+ct_status와 형제 부재를 FOR UPDATE로 재검증한 뒤 결제 주문도 물리삭제한다.
+// 이때 g5_shop_order_data·coupon_log·coupon·personalpay·order_post_log·inicis_log와 주문 포인트
+// 원장을 함께 삭제하고, 포인트 사용 배분/회원 합계·차감 재고·it_sum_qty를 복구한다. 외부 PG
+// 거래 취소/환불은 수행하지 않는다. audited면 최신 order_delete 백업 1건, reset이면 백업 0건.
+// 코어 정합성(규율 3): 일반 주문 삭제는 미입금·백업·cart 소프트 삭제를 그대로 유지하며,
+// 결제 강제삭제는 SmartBOM의 배타 단일 cart에만 별도 허용한다.
 // ⑫ g5_shop_order·g5_shop_cart read-only SELECT(관리자 주문내역 — adm/shop_admin/orderlist.php
 // 이식. 목록/상세/카운트/누적주문수, **읽기 전용**. 쓰기(상태 전이·삭제)는 별도 WP). 함수:
 // searchOrders(목록+배타 counts), getOrderRow(상세 헤더), getCartRowsByOdId(카트 라인),
@@ -139,7 +150,7 @@
 //   • getOrderInfoByCtId(⑩) additive 확장 — 자기 카트행의 ct_status·io_id·io_price 를 함께 반환
 //       (rowCtStatus/rowIoId/rowIoPrice). 승격 라인 검증(PAID_ORDER_STATUSES∧io_id==contractKey∧
 //       io_price==amount)용. 기존 반환 필드·호출부(admin-pcb-projects.ts) 불변, read-only.
-//   • getCartRowByCtId(ctId) — 카트행 자체(주문 헤더 유무 무관)의 od_id·ct_status·io_id·io_price
+//   • getCartRowByCtId(ctId) — 카트행 자체(주문 헤더 유무 무관)의 od_id·ct_status·it_id·io_id·io_price
 //       read-only SELECT. getOrderInfoByCtId 는 주문 헤더가 없으면 null 이라 '쇼핑'(담김) 행을
 //       구분 못 하므로, checkout 재사용/재주입 판정('쇼핑'∧od_id 버킷 일치 → 재사용)이 이걸 쓴다.
 //   • PAID_ORDER_STATUSES export('입금'·'준비'·제작8·'배송'·'완료' = ACTIVE − '주문'). 승격 게이트 SSOT.
@@ -159,7 +170,7 @@
 // 이 모듈은 서비스가 실제로 쓰는 DB(G5_DATABASE_URL — 로컬 개발은 로컬 XAMPP)를 본다.
 
 import { createPool } from 'mysql2/promise';
-import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { kstDateTimeStr } from './kst';
 
 let pool: Pool | null = null;
@@ -349,6 +360,22 @@ export async function deleteCartRow(ctId: number): Promise<void> {
   await getG5Pool().query(`DELETE FROM g5_shop_cart WHERE ct_id = ?`, [ctId]);
 }
 
+// Case 강제삭제 전용 안전 가드 — 영카트의 주문 여부 정본인 ct_status가 여전히 '쇼핑'인
+// 정확한 BOM 행만 물리삭제한다. 쇼핑 cart의 임시 od_id는 과거 주문번호와 충돌할 수 있어
+// 주문 헤더 존재만으로 차단하지 않는다. checkout이 ct_status를 바꾼 뒤에는 0행으로 중단한다.
+export async function deleteCartRowIfUnordered(
+  ctId: number,
+  expectedItId: string,
+  expectedIoId: string,
+): Promise<boolean> {
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `DELETE FROM g5_shop_cart
+      WHERE ct_id = ? AND it_id = ? AND io_id = ? AND ct_status = '쇼핑'`,
+    [ctId, expectedItId, expectedIoId],
+  );
+  return res.affectedRows > 0;
+}
+
 // 계약 checkout 멱등 청소 — 같은 io_id(=contractKey)의 '쇼핑' 행만 삭제(더블클릭·우회 담기로
 // 생긴 중복 카트 행 제거). 주문 라인(ct_status≠'쇼핑')은 불변. affectedRows 반환.
 export async function deleteCartRowsByIoId(ioId: string): Promise<number> {
@@ -466,7 +493,28 @@ export interface OrderInfo {
   rowIoPrice: number; // io_price(= amount 대조)
 }
 
-export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null> {
+/** 완전삭제 전용 금전·권리 흔적. 일반 Case 상세와 분리해 삭제 플랜에서만 읽는다. */
+export interface OrderDeletionInfo extends OrderInfo {
+  receiptPoint: number; // od_receipt_point 사용 포인트
+  cartCoupon: number; // od_cart_coupon 상품 쿠폰 합계
+  orderCoupon: number; // od_coupon 주문 쿠폰
+  sendCoupon: number; // od_send_coupon 배송비 쿠폰
+  /** 주문 헤더/cart 외 od_id·oid·관계키로 연결된 로컬 보조 원장 수. */
+  relatedRecordCount: number;
+}
+
+async function loadOrderInfoByCtId(
+  ctId: number,
+  includeDeletionEvidence: false,
+): Promise<OrderInfo | null>;
+async function loadOrderInfoByCtId(
+  ctId: number,
+  includeDeletionEvidence: true,
+): Promise<OrderDeletionInfo | null>;
+async function loadOrderInfoByCtId(
+  ctId: number,
+  includeDeletionEvidence: boolean,
+): Promise<OrderInfo | OrderDeletionInfo | null> {
   const pool = getG5Pool();
   const [cartRows] = await pool.query<RowDataPacket[]>(
     `SELECT od_id, ct_status, io_id, io_price FROM g5_shop_cart WHERE ct_id = ?`,
@@ -474,19 +522,30 @@ export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null
   );
   const cart = cartRows[0];
   if (cart === undefined) return null;
+  // 영카트에서 '쇼핑'은 아직 주문으로 승격되지 않은 장바구니 행이다. 이때 od_id는
+  // 세션 cart id라 과거 주문 헤더의 od_id와 우연히 같을 수 있으므로 헤더를 조회하지 않는다.
+  if (String(cart.ct_status ?? '') === '쇼핑') return null;
   const odId = String(cart.od_id);
-  const [orderRows] = await pool.query<RowDataPacket[]>(
-    `SELECT od_status, od_receipt_price, od_cart_price, od_settle_case, od_tno, od_pg, od_misu
-       FROM g5_shop_order WHERE od_id = ?`,
-    [odId],
-  );
+  const [orderRows] = includeDeletionEvidence
+    ? await pool.query<RowDataPacket[]>(
+        `SELECT mb_id, od_status, od_receipt_price, od_receipt_point,
+                od_cart_coupon, od_coupon, od_send_coupon,
+                od_cart_price, od_settle_case, od_tno, od_pg, od_misu
+           FROM g5_shop_order WHERE od_id = ?`,
+        [odId],
+      )
+    : await pool.query<RowDataPacket[]>(
+        `SELECT od_status, od_receipt_price, od_cart_price, od_settle_case, od_tno, od_pg, od_misu
+           FROM g5_shop_order WHERE od_id = ?`,
+        [odId],
+      );
   const order = orderRows[0];
   if (order === undefined) return null; // 주문 헤더 없음 = 아직 담김(임시 cart_id)
   const [siblings] = await pool.query<RowDataPacket[]>(
     `SELECT ct_id, it_name, io_id FROM g5_shop_cart WHERE od_id = ? AND ct_id <> ?`,
     [odId, ctId],
   );
-  return {
+  const info: OrderInfo = {
     odId,
     odStatus: String(order.od_status),
     isPaid: String(order.od_status) !== '주문',
@@ -505,6 +564,47 @@ export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null
     rowIoId: String(cart.io_id ?? ''),
     rowIoPrice: Number(cart.io_price ?? 0),
   };
+  if (!includeDeletionEvidence) return info;
+  const memberId = String(order.mb_id ?? '');
+  const pointContent = `주문번호 ${odId} 결제`;
+  const deliveryPrefix = `${odId},%`;
+  const [relatedRows] = await pool.query<RowDataPacket[]>(
+    `SELECT
+       (SELECT COUNT(*) FROM g5_shop_order_data WHERE od_id = ?) +
+       (SELECT COUNT(*) FROM g5_shop_coupon_log WHERE od_id = ?) +
+       (SELECT COUNT(*) FROM g5_shop_coupon WHERE od_id = ?) +
+       (SELECT COUNT(*) FROM g5_shop_personalpay WHERE od_id = ?) +
+       (SELECT COUNT(*) FROM g5_shop_order_post_log WHERE oid = ?) +
+       (SELECT COUNT(*) FROM g5_shop_inicis_log WHERE oid = ?) +
+       (SELECT COUNT(*) FROM g5_shop_order_delete WHERE de_key = ?) +
+       (SELECT COUNT(*) FROM g5_point
+         WHERE mb_id = ? AND (
+           po_content = ?
+           OR (po_rel_table = '@shop_order' AND po_rel_id = ?)
+           OR (po_rel_table = '@delivery' AND po_rel_action LIKE ?)
+         )) AS related_count`,
+    [odId, odId, odId, odId, odId, odId, odId, memberId, pointContent, odId, deliveryPrefix],
+  );
+  return {
+    ...info,
+    receiptPoint: Number(order.od_receipt_point ?? 0),
+    cartCoupon: Number(order.od_cart_coupon ?? 0),
+    orderCoupon: Number(order.od_coupon ?? 0),
+    sendCoupon: Number(order.od_send_coupon ?? 0),
+    relatedRecordCount: Number(relatedRows[0]?.related_count ?? 0),
+  };
+}
+
+/** Case 및 계약 일반 조회 — 삭제 전용 포인트·쿠폰 컬럼은 읽지 않는다. */
+export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null> {
+  return loadOrderInfoByCtId(ctId, false);
+}
+
+/** Case 완전삭제 플랜 전용 — 영카트 실제 금액 컬럼으로 보호 흔적을 읽는다. */
+export async function getOrderDeletionInfoByCtId(
+  ctId: number,
+): Promise<OrderDeletionInfo | null> {
+  return loadOrderInfoByCtId(ctId, true);
 }
 
 // ── 카트행 단독 조회 (한정 예외 ⑲) ──────────────────────────────────────────
@@ -514,13 +614,14 @@ export async function getOrderInfoByCtId(ctId: number): Promise<OrderInfo | null
 export interface CartRowInfo {
   odId: string;
   ctStatus: string;
+  itId: string;
   ioId: string;
   ioPrice: number;
 }
 
 export async function getCartRowByCtId(ctId: number): Promise<CartRowInfo | null> {
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
-    `SELECT od_id, ct_status, io_id, io_price FROM g5_shop_cart WHERE ct_id = ?`,
+    `SELECT od_id, ct_status, it_id, io_id, io_price FROM g5_shop_cart WHERE ct_id = ?`,
     [ctId],
   );
   const row = rows[0];
@@ -528,26 +629,305 @@ export async function getCartRowByCtId(ctId: number): Promise<CartRowInfo | null
   return {
     odId: String(row.od_id),
     ctStatus: String(row.ct_status ?? ''),
+    itId: String(row.it_id ?? ''),
     ioId: String(row.io_id ?? ''),
     ioPrice: Number(row.io_price ?? 0),
   };
 }
 
-// ── 미입금 주문 삭제 (한정 예외 ⑪) ─────────────────────────────────────────
+// ── 주문 삭제 (한정 예외 ⑪) ───────────────────────────────────────────────
 // 관리자 견적 완전삭제가 주문됨 견적을 지울 때, 코어 adm/shop_admin/orderlistdelete.php
-// (:29-45)를 그대로 이식한다. 미입금(od_status='주문')만 대상 — 결제완료는 PG환불 포함
-// 취소 도메인이라 여기서 삭제하지 않는다(반환 'paid' 로 호출부가 차단). 순서(코어 동일):
-//   ① g5_shop_order_delete 백업(serialize($od) 형식) ② g5_shop_cart ct_status='삭제'
-//   (그 주문의 '주문' 행 전부 — 물리삭제 아님) ③ g5_shop_order DELETE.
-// 포인트/쿠폰 환급은 코어도 하지 않는다(미입금이라 결제 부수효과가 없음).
-// ⚠ 견적↔주문 1:N — 이 od_id 에 묶인 다른 견적의 cart 행도 함께 '삭제' 처리된다(프리뷰 고지).
-export type OrderDeleteOutcome = 'deleted' | 'paid' | 'not_found';
+// (:29-45)를 이식한다. 미입금(od_status='주문')만 대상 — 결제완료는 PG환불 포함
+// 취소 도메인이라 여기서 삭제하지 않는다(반환 'paid' 로 호출부가 차단). 복원 백업을 먼저
+// 만들되 주문 DELETE에 상태·수납·PG 조건을 반복해 조회 직후 결제 레이스를 막고, 성공 뒤
+// cart를 소프트 삭제한다. 조건 불일치면 방금 만든 백업도 제거한다. SmartBOM 하드 삭제는
+// 별도 트랜잭션에서 주문 헤더+정확한 단일 cart 행과 관련 원장을 물리삭제한다.
+// 포인트/쿠폰 환급은 하지 않는다. 포인트 사용·쿠폰 적용값이 0인 주문만
+// 통과하므로 부수효과가 없다.
+// ⚠ 견적↔주문 1:N — exclusiveCart가 없으면 같은 주문의 cart 행도 함께 '삭제' 처리된다.
+// 단일 Case 삭제는 ct/상품/옵션 식별자를 함께 넘겨 실행 순간 형제 행 또는 연결 변경이
+// 생겨도 shared/stale로 중단한다.
+export type OrderDeleteOutcome = 'deleted' | 'paid' | 'shared' | 'stale' | 'not_found';
+
+export interface OrderDeleteExclusiveCart {
+  ctId: number;
+  itId: string;
+  ioId: string;
+  /** 프리뷰가 본 행 상태까지 고정해 결제/배송 상태 변경 레이스를 차단한다. */
+  ctStatus?: string;
+}
+
+export interface OrderDeleteOptions {
+  /** 기본 true. false면 g5_shop_order_delete 복원행도 만들지 않는다. */
+  retainBackup?: boolean;
+  /** exclusiveCart와 함께 쓸 때 주문 헤더와 대상 cart 행을 한 SQL에서 물리삭제한다. */
+  deleteExclusiveCart?: boolean;
+  /** SmartBOM 2차 강제 확인 전용. 외부 PG 환불 없이 로컬 결제 주문까지 삭제한다. */
+  allowPaymentEvidence?: boolean;
+}
+
+const hasOrderPaymentEvidence = (order: RowDataPacket): boolean =>
+  String(order.od_status) !== '주문' ||
+  Number(order.od_receipt_price ?? 0) !== 0 ||
+  Number(order.od_receipt_point ?? 0) !== 0 ||
+  Number(order.od_cart_coupon ?? 0) !== 0 ||
+  Number(order.od_coupon ?? 0) !== 0 ||
+  Number(order.od_send_coupon ?? 0) !== 0 ||
+  String(order.od_tno ?? '') !== '';
+
+interface LockedPointRow extends RowDataPacket {
+  po_id: number;
+  po_content: string;
+  po_point: number;
+  po_use_point: number;
+  po_expired: number;
+  po_expire_date: string | Date;
+  po_rel_table: string;
+  po_rel_id: string;
+  po_rel_action: string;
+}
+
+const pointExpireDate = (value: string | Date): string => {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return value.slice(0, 10);
+};
+
+/**
+ * 주문에 의해 생성된 포인트 원장을 지우면서 코어 delete_point의 사용분 재배분과
+ * 회원 누적 포인트를 같은 트랜잭션 안에서 재구성한다.
+ */
+async function deleteExclusiveOrderPoints(
+  connection: PoolConnection,
+  odId: string,
+  mbId: string,
+): Promise<void> {
+  if (mbId === '') return;
+
+  const [rows] = await connection.query<LockedPointRow[]>(
+    `SELECT po_id, po_content, po_point, po_use_point, po_expired, po_expire_date,
+            po_rel_table, po_rel_id, po_rel_action
+       FROM g5_point
+      WHERE mb_id = ?
+      ORDER BY po_id ASC
+      FOR UPDATE`,
+    [mbId],
+  );
+  const targetRows = rows.filter(
+    (row) =>
+      row.po_content === `주문번호 ${odId} 결제` ||
+      (row.po_rel_table === '@shop_order' && row.po_rel_id === odId) ||
+      (row.po_rel_table === '@delivery' && row.po_rel_action.startsWith(`${odId},`)),
+  );
+  if (targetRows.length === 0) return;
+
+  const targetIds = new Set(targetRows.map((row) => row.po_id));
+  const remainingRows = rows
+    .filter((row) => !targetIds.has(row.po_id))
+    .map((row) => ({ ...row }));
+  const today = kstDateTimeStr(new Date()).slice(0, 10);
+
+  // 결제 시 차감된 포인트를 가장 최근에 사용 처리된 비대상 적립행부터 환원한다.
+  let release = targetRows.reduce(
+    (sum, row) => sum + (row.po_point < 0 ? Math.abs(row.po_point) : 0),
+    0,
+  );
+  for (const row of [...remainingRows].reverse()) {
+    if (release === 0) break;
+    if (row.po_expired === 1 || row.po_use_point <= 0) continue;
+    const restored = Math.min(row.po_use_point, release);
+    const restoredExpired =
+      row.po_expired === 100 &&
+      (pointExpireDate(row.po_expire_date) === '9999-12-31' ||
+        pointExpireDate(row.po_expire_date) >= today)
+        ? 0
+        : row.po_expired;
+    await connection.query(
+      `UPDATE g5_point
+          SET po_use_point = po_use_point - ?, po_expired = ?
+        WHERE po_id = ?`,
+      [restored, restoredExpired, row.po_id],
+    );
+    row.po_use_point -= restored;
+    row.po_expired = restoredExpired;
+    release -= restored;
+  }
+
+  // 삭제할 적립행에서 이미 사용된 양은 가장 오래된 다른 적립행에 다시 배분한다.
+  let consume = targetRows.reduce(
+    (sum, row) => sum + (row.po_point >= 0 ? row.po_use_point : 0),
+    0,
+  );
+  for (const row of remainingRows) {
+    if (consume === 0) break;
+    if (row.po_expired !== 0 || row.po_point <= row.po_use_point) continue;
+    const available = row.po_point - row.po_use_point;
+    const used = Math.min(available, consume);
+    const nextUsePoint = row.po_use_point + used;
+    const nextExpired = nextUsePoint >= row.po_point ? 100 : row.po_expired;
+    await connection.query(
+      `UPDATE g5_point SET po_use_point = ?, po_expired = ? WHERE po_id = ?`,
+      [nextUsePoint, nextExpired, row.po_id],
+    );
+    row.po_use_point = nextUsePoint;
+    row.po_expired = nextExpired;
+    consume -= used;
+  }
+
+  const targetIdList = [...targetIds];
+  const placeholders = targetIdList.map(() => '?').join(', ');
+  await connection.query(`DELETE FROM g5_point WHERE po_id IN (${placeholders})`, targetIdList);
+
+  // po_mb_point는 각 시점의 누계이므로 삭제 후 남은 원장을 처음부터 다시 맞춘다.
+  let memberPoint = 0;
+  for (const row of remainingRows) {
+    memberPoint += row.po_point;
+    await connection.query(`UPDATE g5_point SET po_mb_point = ? WHERE po_id = ?`, [
+      memberPoint,
+      row.po_id,
+    ]);
+  }
+  await connection.query(`UPDATE g5_member SET mb_point = ? WHERE mb_id = ?`, [memberPoint, mbId]);
+}
+
+/** SmartBOM 배타 주문의 로컬 주문·결제 관련 행을 원자적으로 물리삭제한다. */
+async function deleteExclusiveOrder(
+  odId: string,
+  actorMbId: string,
+  ip: string,
+  exclusiveCart: OrderDeleteExclusiveCart,
+  options: OrderDeleteOptions,
+): Promise<OrderDeleteOutcome> {
+  const connection = await getG5Pool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [orderRows] = await connection.query<RowDataPacket[]>(
+      {
+        sql: `SELECT * FROM g5_shop_order WHERE od_id = ? FOR UPDATE`,
+        typeCast: (field: { string: () => string | null }) => field.string(),
+      },
+      [odId],
+    );
+    const order = orderRows[0];
+    if (order === undefined) {
+      await connection.rollback();
+      return 'not_found';
+    }
+    if (hasOrderPaymentEvidence(order) && options.allowPaymentEvidence !== true) {
+      await connection.rollback();
+      return 'paid';
+    }
+
+    const expectedCtStatus = exclusiveCart.ctStatus ?? '주문';
+    const [cartRows] = await connection.query<RowDataPacket[]>(
+      `SELECT ct_id, ct_status, ct_stock_use, ct_qty, it_id, io_id
+         FROM g5_shop_cart
+        WHERE od_id = ?
+        ORDER BY ct_id ASC
+        FOR UPDATE`,
+      [odId],
+    );
+    const target = cartRows.find((row) => Number(row.ct_id) === exclusiveCart.ctId);
+    if (
+      target === undefined ||
+      String(target.it_id) !== exclusiveCart.itId ||
+      String(target.io_id) !== exclusiveCart.ioId ||
+      String(target.ct_status) !== expectedCtStatus
+    ) {
+      await connection.rollback();
+      return 'stale';
+    }
+    if (cartRows.length !== 1) {
+      await connection.rollback();
+      return 'shared';
+    }
+
+    // reset은 과거 복원 흔적도 없애며, audited는 중복 백업을 지운 뒤 현재 스냅샷 1건만 남긴다.
+    await connection.query(`DELETE FROM g5_shop_order_delete WHERE de_key = ?`, [odId]);
+    if (options.retainBackup !== false) {
+      await connection.query(
+        `INSERT INTO g5_shop_order_delete
+           SET de_key = ?, de_data = ?, mb_id = ?, de_ip = ?, de_datetime = NOW()`,
+        [
+          odId,
+          phpSerializeAssoc(order as Record<string, string | null>),
+          actorMbId,
+          ip,
+        ],
+      );
+    }
+
+    const mbId = String(order.mb_id ?? '');
+    await deleteExclusiveOrderPoints(connection, odId, mbId);
+    await connection.query(`DELETE FROM g5_shop_coupon_log WHERE od_id = ?`, [odId]);
+    await connection.query(`DELETE FROM g5_shop_coupon WHERE od_id = ?`, [odId]);
+    await connection.query(`DELETE FROM g5_shop_order_data WHERE od_id = ?`, [odId]);
+    await connection.query(`DELETE FROM g5_shop_personalpay WHERE od_id = ?`, [odId]);
+    await connection.query(`DELETE FROM g5_shop_order_post_log WHERE oid = ?`, [odId]);
+    await connection.query(`DELETE FROM g5_shop_inicis_log WHERE oid = ?`, [odId]);
+
+    const quantity = Number(target.ct_qty ?? 0);
+    if (Number(target.ct_stock_use ?? 0) === 1 && quantity > 0) {
+      if (String(target.io_id ?? '') !== '') {
+        await connection.query(
+          `UPDATE g5_shop_item_option
+              SET io_stock_qty = io_stock_qty + ?
+            WHERE it_id = ? AND io_id = ?`,
+          [quantity, String(target.it_id), String(target.io_id)],
+        );
+      } else {
+        await connection.query(
+          `UPDATE g5_shop_item SET it_stock_qty = it_stock_qty + ? WHERE it_id = ?`,
+          [quantity, String(target.it_id)],
+        );
+      }
+    }
+
+    const [deletedCart] = await connection.query<ResultSetHeader>(
+      `DELETE FROM g5_shop_cart
+        WHERE od_id = ? AND ct_id = ? AND it_id = ? AND io_id = ? AND ct_status = ?`,
+      [
+        odId,
+        exclusiveCart.ctId,
+        exclusiveCart.itId,
+        exclusiveCart.ioId,
+        expectedCtStatus,
+      ],
+    );
+    if (deletedCart.affectedRows !== 1) throw new Error('exclusive order cart changed during delete');
+
+    const [deletedOrder] = await connection.query<ResultSetHeader>(
+      `DELETE FROM g5_shop_order WHERE od_id = ?`,
+      [odId],
+    );
+    if (deletedOrder.affectedRows !== 1) throw new Error('exclusive order changed during delete');
+
+    await connection.query(
+      `UPDATE g5_shop_item SET it_sum_qty =
+         (SELECT COALESCE(SUM(ct_qty), 0) FROM g5_shop_cart
+           WHERE it_id = ? AND ct_status = '완료')
+       WHERE it_id = ?`,
+      [String(target.it_id), String(target.it_id)],
+    );
+    await connection.commit();
+    return 'deleted';
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
 
 export async function deleteUnpaidOrder(
   odId: string,
   actorMbId: string,
   ip: string,
+  exclusiveCart?: OrderDeleteExclusiveCart,
+  options?: OrderDeleteOptions,
 ): Promise<OrderDeleteOutcome> {
+  if (exclusiveCart !== undefined && options?.deleteExclusiveCart === true) {
+    return deleteExclusiveOrder(odId, actorMbId, ip, exclusiveCart, options);
+  }
   const pool = getG5Pool();
   // 백업 정확도를 위해 모든 컬럼을 DB 문자열 표현 그대로 받는다(PHP sql_fetch 와 동일 —
   // datetime 도 'Y-m-d H:i:s' 문자열). serialize 바이트가 코어와 일치해 복원 UI 와 호환.
@@ -560,19 +940,114 @@ export async function deleteUnpaidOrder(
   );
   const od = rows[0];
   if (od === undefined) return 'not_found';
-  if (String(od.od_status) !== '주문') return 'paid'; // 결제완료 — 삭제 금지(호출부 차단)
+  if (hasOrderPaymentEvidence(od)) return 'paid'; // 결제·수납 흔적 — 삭제 금지(호출부 차단)
 
-  const deData = phpSerializeAssoc(od);
-  await pool.query(
-    `INSERT INTO g5_shop_order_delete
-       SET de_key = ?, de_data = ?, mb_id = ?, de_ip = ?, de_datetime = NOW()`,
-    [odId, deData, actorMbId, ip],
+  if (exclusiveCart !== undefined) {
+    const [targetRows] = await pool.query<RowDataPacket[]>(
+      `SELECT ct_id FROM g5_shop_cart
+        WHERE od_id = ? AND ct_id = ? AND it_id = ? AND io_id = ? AND ct_status = '주문'
+        LIMIT 1`,
+      [odId, exclusiveCart.ctId, exclusiveCart.itId, exclusiveCart.ioId],
+    );
+    if (targetRows.length === 0) return 'stale';
+    const [siblings] = await pool.query<RowDataPacket[]>(
+      `SELECT ct_id FROM g5_shop_cart WHERE od_id = ? AND ct_id <> ? LIMIT 1`,
+      [odId, exclusiveCart.ctId],
+    );
+    if (siblings.length > 0) return 'shared';
+  }
+
+  const retainBackup = options?.retainBackup !== false;
+  let backupId: number | null = null;
+  if (retainBackup) {
+    const deData = phpSerializeAssoc(od);
+    const [backup] = await pool.query<ResultSetHeader>(
+      `INSERT INTO g5_shop_order_delete
+         SET de_key = ?, de_data = ?, mb_id = ?, de_ip = ?, de_datetime = NOW()`,
+      [odId, deData, actorMbId, ip],
+    );
+    backupId = backup.insertId;
+  }
+
+  const exclusiveGuard =
+    exclusiveCart === undefined
+      ? ''
+      : ` AND EXISTS (
+            SELECT 1 FROM g5_shop_cart target
+             WHERE target.od_id = ? AND target.ct_id = ?
+               AND target.it_id = ? AND target.io_id = ? AND target.ct_status = '주문'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM g5_shop_cart c WHERE c.od_id = ? AND c.ct_id <> ?
+          )`;
+  const deleteParams: (string | number)[] = [odId];
+  if (exclusiveCart !== undefined) {
+    deleteParams.push(
+      odId,
+      exclusiveCart.ctId,
+      exclusiveCart.itId,
+      exclusiveCart.ioId,
+      odId,
+      exclusiveCart.ctId,
+    );
+  }
+  const [deleted] = await pool.query<ResultSetHeader>(
+    `DELETE FROM g5_shop_order
+      WHERE od_id = ?
+        AND od_status = '주문'
+        AND COALESCE(od_receipt_price, 0) = 0
+        AND COALESCE(od_receipt_point, 0) = 0
+        AND COALESCE(od_cart_coupon, 0) = 0
+        AND COALESCE(od_coupon, 0) = 0
+        AND COALESCE(od_send_coupon, 0) = 0
+        AND COALESCE(od_tno, '') = ''${exclusiveGuard}`,
+    deleteParams,
   );
-  await pool.query(
-    `UPDATE g5_shop_cart SET ct_status = '삭제' WHERE od_id = ? AND ct_status = '주문'`,
-    [odId],
-  );
-  await pool.query(`DELETE FROM g5_shop_order WHERE od_id = ?`, [odId]);
+  if (deleted.affectedRows === 0) {
+    // 보호 조건이 프리뷰 뒤 바뀐 경우 잘못 남은 복원행까지 제거하고 현재 상태를 분류한다.
+    if (backupId !== null) {
+      await pool.query(`DELETE FROM g5_shop_order_delete WHERE de_id = ?`, [backupId]);
+    }
+    const [currentRows] = await pool.query<RowDataPacket[]>(
+      `SELECT od_status, od_receipt_price, od_receipt_point,
+              od_cart_coupon, od_coupon, od_send_coupon, od_tno
+         FROM g5_shop_order WHERE od_id = ?`,
+      [odId],
+    );
+    const current = currentRows[0];
+    if (current === undefined) return 'not_found';
+    if (exclusiveCart !== undefined) {
+      const [targetRows] = await pool.query<RowDataPacket[]>(
+        `SELECT ct_id FROM g5_shop_cart
+          WHERE od_id = ? AND ct_id = ? AND it_id = ? AND io_id = ? AND ct_status = '주문'
+          LIMIT 1`,
+        [odId, exclusiveCart.ctId, exclusiveCart.itId, exclusiveCart.ioId],
+      );
+      if (targetRows.length === 0) return 'stale';
+      const [siblings] = await pool.query<RowDataPacket[]>(
+        `SELECT ct_id FROM g5_shop_cart WHERE od_id = ? AND ct_id <> ? LIMIT 1`,
+        [odId, exclusiveCart.ctId],
+      );
+      if (siblings.length > 0) return 'shared';
+    }
+    return 'paid';
+  }
+
+  if (exclusiveCart === undefined) {
+    await pool.query(
+      `UPDATE g5_shop_cart SET ct_status = '삭제' WHERE od_id = ? AND ct_status = '주문'`,
+      [odId],
+    );
+  } else {
+    // 단일 Case 경로는 DELETE 가 형제 부재를 확인한 바로 그 행만 바꾼다. 주문 헤더
+    // 삭제 직후 새 행이 같은 od_id에 유입되는 극소 경합에서도 타 행을 건드리지 않는다.
+    await pool.query(
+      `UPDATE g5_shop_cart
+          SET ct_status = '삭제'
+        WHERE od_id = ? AND ct_id = ? AND it_id = ? AND io_id = ? AND ct_status = '주문'`,
+      [odId, exclusiveCart.ctId, exclusiveCart.itId, exclusiveCart.ioId],
+    );
+  }
   return 'deleted';
 }
 
@@ -2196,8 +2671,9 @@ export async function deleteOrders(
   for (const odId of [...new Set(odIds)]) {
     const outcome = await deleteUnpaidOrder(odId, actorMbId, ip);
     if (outcome === 'deleted') result.processed.push(odId);
-    else if (outcome === 'paid') result.skipped.push({ odId, reason: 'NOT_ORDER_STATUS' });
-    else result.skipped.push({ odId, reason: 'NOT_FOUND' });
+    else if (outcome === 'paid' || outcome === 'shared') {
+      result.skipped.push({ odId, reason: 'NOT_ORDER_STATUS' });
+    } else result.skipped.push({ odId, reason: 'NOT_FOUND' });
   }
   return result;
 }

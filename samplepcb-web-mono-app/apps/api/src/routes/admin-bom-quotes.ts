@@ -1,9 +1,13 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  AdminBomCaseDeleteBody,
+  AdminBomCaseDeletePreviewResponse,
+  AdminBomCaseDeleteResponse,
   AdminBomQuoteDetailResponse,
   AdminBomQuoteListResponse,
   AdminBomQuotePatchBody,
+  ApiError,
   BomQuoteComparisonResponse,
   BomQuoteItemCandidatesResponse,
   BomQuotePrintResponse,
@@ -30,6 +34,12 @@ import {
   getShopEstimateProfile,
 } from '../lib/g5-db';
 import { buildBomQuoteAnsweredEmail, sendBomRfqMail } from '../lib/rfq-email';
+import {
+  BomCaseDeleteExecutionError,
+  loadBomCaseDeletePlan,
+  purgeBomCase,
+  validateBomCaseDeleteRequest,
+} from '../lib/bom-case-delete';
 
 // 발신처 폴백(설정 미입력 로컬 등) — 빈 값이면 시트가 해당 행을 생략한다.
 const EMPTY_SELLER = {
@@ -159,6 +169,104 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(quote.id)}/file`;
     return { result: true as const, data: await toAdminDetailDto(quote, quote.items, quote.sheets, fileUrl) };
   });
+
+  // Case 강제 영구 삭제 1단계 — 주문·결제·엔진 잡·선적·파일까지 서버가 다시 읽은 영향 프리뷰.
+  // 화면 계산값을 신뢰하지 않고, 실행 시 같은 프리뷰 해시를 재검증한다.
+  fastify.get(
+    '/bom-quotes/:id/force-delete-preview',
+    {
+      schema: {
+        params: IdParams,
+        response: { 200: AdminBomCaseDeletePreviewResponse },
+      },
+    },
+    async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      const plan = await loadBomCaseDeletePlan(request.params.id);
+      if (plan === null) return reply.notFound('Case를 찾을 수 없습니다');
+      return { result: true as const, data: plan.preview };
+    },
+  );
+
+  // Case 강제 영구 삭제 2단계 — audited는 최소 감사행과 영카트 주문 복원행을 남기고,
+  // reset은 같은 삭제 그래프를 기록 없이 정리한다. 결제 주문은 별도 force 체크로만
+  // 우회하며 공유 주문과 관계 불일치는 계속 차단한다. 파일/G5는 트랜잭션 밖이라 멱등 순서로 정리한다.
+  fastify.post(
+    '/bom-quotes/:id/force-delete',
+    {
+      schema: {
+        params: IdParams,
+        body: AdminBomCaseDeleteBody,
+        response: {
+          200: AdminBomCaseDeleteResponse,
+          409: ApiError,
+          502: ApiError,
+        },
+      },
+    },
+    async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      const plan = await loadBomCaseDeletePlan(request.params.id);
+      if (plan === null) return reply.notFound('Case를 찾을 수 없습니다');
+
+      const validationError = validateBomCaseDeleteRequest(plan.preview, request.body);
+      if (validationError !== null) {
+        const messages = {
+          STALE_PREVIEW: '삭제 영향이 변경되었습니다. 최신 내용을 다시 확인해 주세요.',
+          DELETE_BLOCKED: '강제 결제 삭제로도 우회할 수 없는 공유 주문·실행 중 작업 또는 물류 연결 때문에 이 Case를 영구 삭제할 수 없습니다.',
+        } as const;
+        return reply.status(409).send({ error: validationError, message: messages[validationError] });
+      }
+
+      try {
+        const data = await purgeBomCase(plan, request.body, {
+          mbId: request.user.mbId,
+          ip: request.ip,
+        });
+        if (request.body.mode === 'audited') {
+          request.log.warn(
+            {
+              audit: 'admin_bom_case_delete',
+              actor: request.user.mbId,
+              quoteId: data.caseId,
+              reason: request.body.reason,
+              forceDeletePaidOrder: request.body.forceDeletePaidOrder === true,
+              deleted: data.deleted,
+            },
+            '관리자 SmartBOM Case 영구 삭제',
+          );
+        }
+        return { result: true as const, data };
+      } catch (error) {
+        if (error instanceof BomCaseDeleteExecutionError) {
+          const code = error.code;
+          if (code === 'PAID_ORDER' || code === 'ENGINE_JOB_ACTIVE' || code === 'STALE_PREVIEW') {
+            return reply.status(409).send({
+              error: code,
+              message:
+                code === 'PAID_ORDER'
+                  ? '결제 주문 강제 삭제 확인이 없거나 삭제 직전 결제 상태가 변경되어 작업을 중단했습니다.'
+                  : code === 'ENGINE_JOB_ACTIVE'
+                    ? 'BOM 분석 또는 공급사 검색이 아직 실행 중이어서 삭제를 중단했습니다.'
+                    : '삭제 중 관련 상태가 변경되었습니다. 최신 내용을 다시 확인해 주세요.',
+            });
+          }
+        }
+        request.log.error(
+          {
+            err: error,
+            mode: request.body.mode,
+            forceDeletePaidOrder: request.body.forceDeletePaidOrder === true,
+          },
+          'SmartBOM Case 영구 삭제 실패 — 영향 프리뷰를 다시 조회한 뒤 재시도 필요',
+        );
+        return reply.status(502).send({
+          error: 'CASE_DELETE_FAILED',
+          message: '관련 데이터 정리 중 실패했습니다. 최신 삭제 영향을 다시 확인한 뒤 재시도해 주세요.',
+        });
+      }
+    },
+  );
 
   fastify.get('/bom-quotes/:id/comparison', {
     schema: { params: IdParams, querystring: ComparisonQuery, response: { 200: BomQuoteComparisonResponse } },

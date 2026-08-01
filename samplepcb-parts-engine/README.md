@@ -41,6 +41,11 @@ uv run uvicorn parts_engine_app.main:app --host 127.0.0.1 --port 8400 --reload
 # → http://127.0.0.1:8400/health, /capabilities, /jobs, /docs (Swagger)
 ```
 
+`DELETE /jobs/{job_id}`는 sp-node의 SmartBOM Case 영구 삭제 전용 수명주기 계약이다.
+완료·실패 잡은 인메모리 결과와 `uploads/` 임시 원본을 함께 지우고 204를 반환한다.
+이미 없는 잡은 404(호출부가 멱등 성공으로 처리), 파싱·공급사 검색 실행 중 잡은 취소를
+지원하지 않으므로 409로 거부한다.
+
 `.env`(공급사 키)는 `main.py`가 `load_dotenv()`로 자동 로드한다. BOM 추출은 키 불요,
 공급사 검색만 Mouser/DigiKey/UniKeyIC 키 필요.
 

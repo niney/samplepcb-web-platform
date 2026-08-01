@@ -33,6 +33,7 @@ export async function proxyEngine(
 const POLL_MS = 5_000;
 const POLL_MAX_TRIES = 120;
 const pollers = new Map<string, NodeJS.Timeout>();
+const activePollerJobs = new Set<string>();
 const ingestedJobs = new Map<string, CatalogIngestResult>();
 const ingestInFlight = new Map<string, Promise<boolean>>();
 const catalogIngestInFlight = new Map<string, Promise<CatalogIngestResult | null>>();
@@ -127,6 +128,7 @@ export function startIngestPoller(jobId: string, log: FastifyBaseLogger, hooks: 
   const timer = setInterval(() => {
     if (polling) return;
     polling = true;
+    activePollerJobs.add(jobId);
     void (async () => {
       tries += 1;
       try {
@@ -179,6 +181,7 @@ export function startIngestPoller(jobId: string, log: FastifyBaseLogger, hooks: 
       }
       if (tries >= POLL_MAX_TRIES) stop();
     })().finally(() => {
+      activePollerJobs.delete(jobId);
       polling = false;
     });
   }, POLL_MS);
@@ -198,4 +201,32 @@ export function recordJobOwner(jobId: string, mbId: string): void {
 /** 소유 확인 — 미기록·타인 잡은 false(호출부는 404 로 은닉). */
 export function jobOwnedBy(jobId: string, mbId: string): boolean {
   return jobOwners.get(jobId) === mbId;
+}
+
+/**
+ * Case 삭제 뒤 더는 유효하지 않은 엔진 잡의 폴러·소유 캐시를 즉시 정리한다.
+ * 이미 실행 중인 폴러·카탈로그 반영 Promise는 취소할 수 없으므로 false로 거부하고,
+ * 호출부가 Case DB 삭제를 미뤄 완료 후 다시 시도하게 한다.
+ */
+export function forgetBomEngineJobs(jobIds: readonly string[]): boolean {
+  if (
+    jobIds.some(
+      (jobId) =>
+        activePollerJobs.has(jobId) ||
+        ingestInFlight.has(jobId) ||
+        catalogIngestInFlight.has(jobId),
+    )
+  ) {
+    return false;
+  }
+  for (const jobId of jobIds) {
+    const timer = pollers.get(jobId);
+    if (timer !== undefined) clearInterval(timer);
+    pollers.delete(jobId);
+    ingestedJobs.delete(jobId);
+    ingestInFlight.delete(jobId);
+    catalogIngestInFlight.delete(jobId);
+    jobOwners.delete(jobId);
+  }
+  return true;
 }

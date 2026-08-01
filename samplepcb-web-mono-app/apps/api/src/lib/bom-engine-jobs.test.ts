@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { engineFetch } from './engine-client';
 import { ingestSupplierSearchResultOnce } from './parts-ingest';
-import { ingestJobResult, startIngestPoller } from './bom-engine-jobs';
+import { forgetBomEngineJobs, ingestJobResult, startIngestPoller } from './bom-engine-jobs';
 
 vi.mock('./engine-client', () => ({ engineFetch: vi.fn() }));
 vi.mock('./parts-ingest', () => ({ ingestSupplierSearchResultOnce: vi.fn() }));
@@ -123,5 +123,23 @@ describe('BOM 공급사 결과 인제스트 동시성', () => {
     });
     await vi.advanceTimersByTimeAsync(0);
     expect(onCatalogIngested).toHaveBeenCalledTimes(1);
+  });
+
+  it('실행 중인 결과 폴러가 있으면 Case 삭제용 캐시 정리를 거부한다', async () => {
+    vi.useFakeTimers();
+    const statusResponse = deferred<Response>();
+    engineFetchMock.mockReturnValueOnce(statusResponse.promise);
+
+    startIngestPoller('delete-race-job', log);
+    vi.advanceTimersByTime(5_000);
+    await Promise.resolve();
+
+    expect(engineFetchMock).toHaveBeenCalledTimes(1);
+    expect(forgetBomEngineJobs(['delete-race-job'])).toBe(false);
+
+    statusResponse.resolve(jsonResponse({ status: 'failed' }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(forgetBomEngineJobs(['delete-race-job'])).toBe(true);
   });
 });

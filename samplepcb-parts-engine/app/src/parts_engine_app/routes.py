@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from supplier_search_engine.models import (
     CatalogCandidateEvaluationBatchRequest,
@@ -213,6 +213,23 @@ async def get_result(request: Request, job_id: str) -> dict[str, Any]:
     if job.status != "completed" or job.result is None:
         raise HTTPException(status_code=409, detail=f"analysis_{job.status}")
     return job.result
+
+
+@router.delete("/jobs/{job_id}", status_code=204)
+async def delete_job(request: Request, job_id: str) -> Response:
+    """Case 영구 삭제 연동 — 완료 잡의 레지스트리와 업로드 임시 원본을 제거한다."""
+    try:
+        _svc(request).delete(job_id)
+    except JobError as error:
+        detail = str(error)
+        if detail.startswith("job_not_found:"):
+            status = 404
+        elif detail == "job_running":
+            status = 409
+        else:
+            status = 500
+        raise HTTPException(status_code=status, detail=detail) from error
+    return Response(status_code=204)
 
 
 @router.post("/supplier-jobs", status_code=201)

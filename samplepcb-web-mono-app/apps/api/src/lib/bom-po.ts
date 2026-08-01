@@ -775,12 +775,19 @@ export const revertPartnerShipment = async (
   return { ok: true };
 };
 
-/** 박스에서 꺼내기(§6.10·§6.11 개정) — 선적 준비 단계에서만. "기준(대표)" 개념은
- * 사용자에게서 숨긴다: 대표를 꺼내면 남은 발주서로 자동 승계, 마지막을 꺼내면 발송
- * 자체를 정리(첨부 실파일 → sp_file → 선적 순서 — 고아 방지). */
+export interface DetachShipmentPoOptions {
+  /** 관리자 Case 하드 삭제 전용. 일반 물류 화면은 완료·진행 선적을 분리할 수 없다. */
+  allowAnyStatus?: boolean;
+}
+
+/** 박스에서 꺼내기(§6.10·§6.11 개정) — 일반 호출은 선적 준비 단계에서만 허용한다.
+ * Case 하드 삭제는 allowAnyStatus로 상태와 관계없이 정확한 PO 소속을 정리한다.
+ * "기준(대표)" 개념은 사용자에게서 숨긴다: 대표를 꺼내면 남은 발주서로 자동 승계,
+ * 마지막을 꺼내면 발송 자체를 정리(첨부 실파일 → sp_file → 선적 순서 — 고아 방지). */
 export const detachShipmentPo = async (
   shipmentId: bigint,
   poId: bigint,
+  options: DetachShipmentPoOptions = {},
 ): Promise<PartnerShipmentResult> => {
   const shipment = await prisma.spBomShipment.findUnique({
     where: { id: shipmentId },
@@ -788,7 +795,7 @@ export const detachShipmentPo = async (
   });
   if (shipment === null) return { ok: false, error: 'PO_NOT_FOUND' };
   const mode = asShipmentMode(shipment.mode);
-  if (asShipmentStatus(mode, shipment.status) !== 'preparing') {
+  if (!options.allowAnyStatus && asShipmentStatus(mode, shipment.status) !== 'preparing') {
     return { ok: false, error: 'NOT_PREPARING' };
   }
   const target = shipment.pos.find((link) => link.poId === poId);

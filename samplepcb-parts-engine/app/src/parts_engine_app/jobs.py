@@ -97,6 +97,7 @@ class Job:
         default_factory=dict
     )
     supplier_requirement_defaults: PassiveRequirementDefaults | None = None
+    deleted: bool = False
 
 
 class JobService:
@@ -122,9 +123,30 @@ class JobService:
     # ── 조회 ──────────────────────────────────────────────
     def get(self, job_id: str) -> Job:
         job = self._jobs.get(job_id)
-        if job is None:
+        if job is None or job.deleted:
             raise JobError(f"job_not_found: {job_id}")
         return job
+
+    def delete(self, job_id: str) -> None:
+        """완료·실패 잡과 업로드 임시 원본을 함께 제거한다.
+
+        실행 중 스레드는 취소할 수 없으므로 삭제를 거부한다. supplier 시작과의 경합은
+        같은 상태 락에서 deleted를 박제해 레지스트리 밖 고아 작업 생성을 막는다.
+        """
+        with self._supplier_state_lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.deleted:
+                raise JobError(f"job_not_found: {job_id}")
+            if job.status == "running" or job.supplier_status == "running":
+                raise JobError("job_running")
+            job.deleted = True
+            try:
+                if job.upload_path != Path():
+                    job.upload_path.unlink(missing_ok=True)
+            except OSError as error:
+                job.deleted = False
+                raise JobError("job_file_delete_failed") from error
+            self._jobs.pop(job_id, None)
 
     # ── 파싱(추출) ────────────────────────────────────────
     def submit_parse(self, data: bytes, filename: str, engine: str = "smartbom") -> Job:
@@ -268,6 +290,8 @@ class JobService:
         preflight = self.preflight_supplier(job_id, options)
 
         with self._supplier_state_lock:
+            if job.deleted:
+                raise JobError(f"job_not_found: {job_id}")
             if job.supplier_status == "running":
                 raise JobError("supplier_search_already_running")
             if self._cache_reset_running or (
@@ -277,13 +301,15 @@ class JobService:
             self._active_supplier_searches += 1
             if options.reset_cache:
                 self._cache_reset_running = True
+            # delete()와 같은 락 안에서 실행 상태를 먼저 박제해야, 락 해제 직후
+            # 삭제가 완료된 잡에 워커가 뒤늦게 제출되는 경합이 생기지 않는다.
+            job.supplier_status = "running"
+            job.supplier_progress = 5
+            job.supplier_message = "확정된 공급사 검색 계획을 준비 중"
+            job.supplier_error = None
+            job.supplier_options = options
+            job.supplier_preflight = preflight
 
-        job.supplier_status = "running"
-        job.supplier_progress = 5
-        job.supplier_message = "확정된 공급사 검색 계획을 준비 중"
-        job.supplier_error = None
-        job.supplier_options = options
-        job.supplier_preflight = preflight
         self._executor.submit(self._run_supplier, job)
         return job
 

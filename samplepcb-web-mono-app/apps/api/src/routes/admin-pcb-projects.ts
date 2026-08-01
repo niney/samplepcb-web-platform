@@ -802,7 +802,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           if (state === 'ordered' && info !== null) {
             if (!processedOrderIds.has(info.odId)) {
               const outcome = await deleteUnpaidOrder(info.odId, request.user.mbId, request.ip);
-              if (outcome === 'paid') {
+              if (outcome === 'paid' || outcome === 'shared') {
                 // 레이스: 프리뷰 후 결제 확정됨 — 차단
                 results.push({
                   projectId,

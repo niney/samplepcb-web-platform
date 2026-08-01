@@ -1190,6 +1190,131 @@ export const AdminBomQuotePatchBody = z.object({
 });
 export type AdminBomQuotePatchBodyType = z.infer<typeof AdminBomQuotePatchBody>;
 
+// ── 관리자 Case 영구 삭제 ─────────────────────────────────────────────────
+
+/** audited=최소 삭제 감사기록 보존, reset=업무 DB에 삭제 감사기록을 남기지 않는 초기화. */
+export const AdminBomCaseDeleteMode = z.enum(['audited', 'reset']);
+export type AdminBomCaseDeleteModeType = z.infer<typeof AdminBomCaseDeleteMode>;
+
+/** 견적 상태보다 우선하는 거래·관계 무결성 차단. 강제 삭제도 타 데이터 경계는 넘지 않는다. */
+export const AdminBomCaseDeleteBlocker = z.enum([
+  'PAID_ORDER',
+  'SHARED_ORDER',
+  'ORDER_LINK_INCONSISTENT',
+  'ENGINE_JOB_IN_PROGRESS',
+  'SHIPMENT_LINK_INCONSISTENT',
+]);
+export type AdminBomCaseDeleteBlockerType = z.infer<typeof AdminBomCaseDeleteBlocker>;
+
+/** 시스템 밖에서 이미 발생한 행위와 공유 데이터 보존을 1차 경고 레이어에 표시한다. */
+export const AdminBomCaseDeleteWarning = z.enum([
+  'SENT_EMAILS_REMAIN',
+  'EXTERNAL_ACTIONS_REMAIN',
+  'SHARED_SHIPMENT_PRESERVED',
+  'UNPAID_ORDER_DELETED',
+  'PAID_ORDER_PERMANENTLY_DELETED',
+  'SHIPMENT_HISTORY_PERMANENTLY_DELETED',
+  'FILES_PERMANENTLY_DELETED',
+]);
+export type AdminBomCaseDeleteWarningType = z.infer<typeof AdminBomCaseDeleteWarning>;
+
+export const AdminBomCaseDeleteImpact = z.object({
+  quoteItems: z.number().int().nonnegative(),
+  quoteSheets: z.number().int().nonnegative(),
+  candidates: z.number().int().nonnegative(),
+  selectionEvents: z.number().int().nonnegative(),
+  analysisRecords: z.number().int().nonnegative(),
+  supplierSearchRecords: z.number().int().nonnegative(),
+  engineJobs: z.number().int().nonnegative(),
+  rfqs: z.number().int().nonnegative(),
+  rfqItems: z.number().int().nonnegative(),
+  pos: z.number().int().nonnegative(),
+  poItems: z.number().int().nonnegative(),
+  quoteFiles: z.number().int().nonnegative(),
+  shipments: z.number().int().nonnegative(),
+  shipmentFiles: z.number().int().nonnegative(),
+});
+export type AdminBomCaseDeleteImpactType = z.infer<typeof AdminBomCaseDeleteImpact>;
+
+export const AdminBomCaseDeletePreview = z.object({
+  case: z.object({
+    id: z.string(),
+    caseNo: z.string(),
+    title: z.string(),
+    mbId: z.string(),
+    status: BomQuoteStatus,
+    createdAt: z.string().datetime(),
+    requestedAt: z.string().datetime().nullable(),
+  }),
+  impact: AdminBomCaseDeleteImpact,
+  order: z.object({
+    state: z.enum(['none', 'cart', 'ordered']),
+    action: z.enum(['none', 'remove-cart-row', 'delete-unpaid-order', 'delete-paid-order']),
+    odId: z.string().nullable(),
+    odStatus: z.string().nullable(),
+    /** 상태 전이뿐 아니라 수납액·포인트/쿠폰·PG 거래번호 흔적까지 포함한 삭제 보호 판정. */
+    paymentProtected: z.boolean(),
+    siblingCount: z.number().int().nonnegative(),
+    /** 주문 헤더·cart 외 od_id로 직접 연결된 쿠폰/PG/포인트/주문 보조 원장 수. */
+    relatedRecords: z.number().int().nonnegative(),
+  }),
+  shipment: z.object({
+    total: z.number().int().nonnegative(),
+    shared: z.number().int().nonnegative(),
+    willDelete: z.number().int().nonnegative(),
+    inProgress: z.number().int().nonnegative(),
+  }),
+  sentRfqCount: z.number().int().nonnegative(),
+  externalPoCount: z.number().int().nonnegative(),
+  canDelete: z.boolean(),
+  blockers: z.array(AdminBomCaseDeleteBlocker),
+  warnings: z.array(AdminBomCaseDeleteWarning),
+  previewToken: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type AdminBomCaseDeletePreviewType = z.infer<typeof AdminBomCaseDeletePreview>;
+
+export const AdminBomCaseDeletePreviewResponse = z.object({
+  result: z.literal(true),
+  data: AdminBomCaseDeletePreview,
+});
+export type AdminBomCaseDeletePreviewResponseType = z.infer<
+  typeof AdminBomCaseDeletePreviewResponse
+>;
+
+const AdminBomCaseDeleteExecutionBase = z.object({
+  previewToken: z.string().regex(/^[a-f0-9]{64}$/),
+  acknowledgeIrreversible: z.literal(true),
+  /** PAID_ORDER 차단만 명시적으로 해제한다. 공유 주문·연결 불일치는 우회하지 않는다. */
+  forceDeletePaidOrder: z.boolean().optional(),
+});
+
+export const AdminBomCaseDeleteBody = z.discriminatedUnion('mode', [
+  AdminBomCaseDeleteExecutionBase.extend({
+    mode: z.literal('audited'),
+    reason: z.string().trim().min(2).max(1000),
+  }),
+  AdminBomCaseDeleteExecutionBase.extend({ mode: z.literal('reset') }),
+]);
+export type AdminBomCaseDeleteBodyType = z.infer<typeof AdminBomCaseDeleteBody>;
+
+export const AdminBomCaseDeleteResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    caseId: z.string(),
+    mode: AdminBomCaseDeleteMode,
+    deleted: AdminBomCaseDeleteImpact,
+    cartRemoved: z.boolean(),
+    orderDeleted: z.boolean(),
+    paidOrderDeleted: z.boolean(),
+    shipmentMembershipsDetached: z.number().int().nonnegative(),
+    shipmentsDeleted: z.number().int().nonnegative(),
+    engineJobsDeleted: z.number().int().nonnegative(),
+    filesDeleted: z.number().int().nonnegative(),
+    auditRetained: z.boolean(),
+  }),
+});
+export type AdminBomCaseDeleteResponseType = z.infer<typeof AdminBomCaseDeleteResponse>;
+
 // ── 설정(sp_config bom_quote — 관리자 편집) ────────────────────────────────
 
 export const BomQuoteConfig = z.object({

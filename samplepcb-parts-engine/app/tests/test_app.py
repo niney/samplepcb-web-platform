@@ -7,12 +7,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from threading import Lock
 import time
 
 from fastapi.testclient import TestClient
 
 from parts_engine_app.config import Config
-from parts_engine_app.jobs import Job, JobService, SupplierSearchOptions
+from parts_engine_app.jobs import Job, JobError, JobService, SupplierSearchOptions
 from parts_engine_app.main import create_app
 from supplier_search_engine.contract import build_batch_from_result
 from supplier_search_engine.matcher import (
@@ -71,6 +72,111 @@ def _await_completed(client: TestClient, job_id: str, timeout: float = 30.0) -> 
 
 def test_health(tmp_path):
     assert _client(tmp_path).get("/health").json() == {"status": "ok"}
+
+
+def test_delete_completed_job_removes_registry_and_upload(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/jobs",
+        files={"file": ("parts.csv", _CSV.encode(), "text/csv")},
+    )
+    assert created.status_code == 202
+    job_id = created.json()["job_id"]
+    completed = _await_completed(client, job_id)
+    assert completed["status"] == "completed"
+    upload_path = tmp_path / "uploads" / f"{job_id}.csv"
+    assert upload_path.exists()
+
+    deleted = client.delete(f"/jobs/{job_id}")
+
+    assert deleted.status_code == 204
+    assert not upload_path.exists()
+    assert client.get(f"/jobs/{job_id}").status_code == 404
+    assert client.delete(f"/jobs/{job_id}").status_code == 404
+
+
+def test_delete_running_job_is_rejected(tmp_path):
+    service = JobService(
+        Config(
+            data_dir=tmp_path,
+            m2v_path="off",
+            component_limit=5000,
+            max_upload_bytes=30 * 1024 * 1024,
+            supplier_max_calls=3_000,
+        )
+    )
+    upload_path = tmp_path / "uploads" / "running.csv"
+    upload_path.parent.mkdir(parents=True, exist_ok=True)
+    upload_path.write_text(_CSV, encoding="utf-8")
+    service._jobs["running"] = Job(
+        id="running",
+        engine="smartbom",
+        filename="parts.csv",
+        upload_path=upload_path,
+    )
+
+    try:
+        service.delete("running")
+    except JobError as error:
+        assert str(error) == "job_running"
+    else:
+        raise AssertionError("running job deletion should fail")
+    assert upload_path.exists()
+
+
+def test_supplier_start_marks_running_before_delete_can_enter(tmp_path, monkeypatch):
+    service = JobService(
+        Config(
+            data_dir=tmp_path,
+            m2v_path="off",
+            component_limit=5000,
+            max_upload_bytes=30 * 1024 * 1024,
+            supplier_max_calls=3_000,
+        )
+    )
+    job = Job(
+        id="completed",
+        engine="smartbom",
+        filename="parts.csv",
+        upload_path=tmp_path / "missing.csv",
+        status="completed",
+        result={},
+    )
+    service._jobs[job.id] = job
+    monkeypatch.setattr(service, "preflight_supplier", lambda *_args: {})
+    monkeypatch.setattr(service._executor, "submit", lambda *_args: None)
+
+    class DeleteAtLockBoundary:
+        """submit_supplier가 상태 락을 놓는 즉시 삭제를 끼워 넣는다."""
+
+        def __init__(self) -> None:
+            self.lock = Lock()
+            self.armed = True
+            self.delete_error: str | None = None
+
+        def __enter__(self):
+            self.lock.acquire()
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            self.lock.release()
+            if not self.armed:
+                return
+            self.armed = False
+            try:
+                service.delete(job.id)
+            except JobError as error:
+                self.delete_error = str(error)
+
+    boundary = DeleteAtLockBoundary()
+    service._supplier_state_lock = boundary
+
+    submitted = service.submit_supplier(job.id, SupplierSearchOptions(max_calls=1))
+
+    assert boundary.delete_error == "job_running"
+    assert submitted.supplier_status == "running"
+    assert submitted.deleted is False
+    assert service.get(job.id) is submitted
 
 
 def test_default_supplier_max_calls_is_three_thousand(tmp_path, monkeypatch):

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AdminBomQuoteSummaryType, BomQuoteStatusType } from '@sp/api-contract';
 import { useAdminBomQuotes, usePatchAdminBomQuote } from '../../admin/useAdminBomQuotes';
+import BomCaseBulkDeleteModal from '../../components/admin/smartbom/BomCaseBulkDeleteModal.vue';
 import {
   SMARTBOM_STATUS_META,
   smartbomCaseNo,
@@ -24,6 +25,17 @@ const rows = computed(() => list.data.value?.data.items ?? []);
 const total = computed(() => list.data.value?.data.total ?? 0);
 const counts = computed(() => list.data.value?.data.counts ?? null);
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / 20)));
+const selectedIds = ref<Set<string>>(new Set());
+const bulkDeleteIds = ref<string[]>([]);
+const bulkDeleteCoversPage = ref(false);
+const bulkDeleteOpen = ref(false);
+const selectedCount = computed(() => selectedIds.value.size);
+const allRowsSelected = computed(() =>
+  rows.value.length > 0 && rows.value.every((row) => selectedIds.value.has(row.id)),
+);
+const someRowsSelected = computed(() =>
+  !allRowsSelected.value && rows.value.some((row) => selectedIds.value.has(row.id)),
+);
 
 const TABS: { key: BomQuoteStatusType | null; label: string }[] = [
   { key: 'requested', label: '검토 대기' },
@@ -59,6 +71,57 @@ function openCase(id: string): void {
   void router.push({ name: 'admin-smartbom-case', params: { id }, query: { from: 'quotes' } });
 }
 
+function toggleRow(id: string): void {
+  const next = new Set(selectedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedIds.value = next;
+}
+
+function toggleAllRows(): void {
+  const next = new Set(selectedIds.value);
+  if (allRowsSelected.value) {
+    for (const row of rows.value) next.delete(row.id);
+  } else {
+    for (const row of rows.value) next.add(row.id);
+  }
+  selectedIds.value = next;
+}
+
+function clearSelection(): void {
+  selectedIds.value = new Set();
+}
+
+function openBulkDelete(): void {
+  bulkDeleteIds.value = rows.value
+    .filter((row) => selectedIds.value.has(row.id))
+    .map((row) => row.id);
+  bulkDeleteCoversPage.value = rows.value.length > 0
+    && rows.value.every((row) => selectedIds.value.has(row.id));
+  bulkDeleteOpen.value = bulkDeleteIds.value.length > 0;
+}
+
+function closeBulkDelete(): void {
+  bulkDeleteOpen.value = false;
+  bulkDeleteIds.value = [];
+  bulkDeleteCoversPage.value = false;
+}
+
+function finishBulkDelete(deletedIds: string[]): void {
+  const deleted = new Set(deletedIds);
+  const next = new Set(selectedIds.value);
+  for (const id of deleted) next.delete(id);
+  const currentPageEmptied = bulkDeleteCoversPage.value
+    && bulkDeleteIds.value.every((id) => deleted.has(id));
+  selectedIds.value = next;
+  closeBulkDelete();
+  if (currentPageEmptied && page.value > 1) page.value -= 1;
+}
+
+watch([statusFilter, page], () => {
+  clearSelection();
+});
+
 const startError = ref('');
 async function startReview(id: string): Promise<void> {
   startError.value = '';
@@ -90,6 +153,21 @@ async function startReview(id: string): Promise<void> {
       </button>
     </div>
 
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+      <p class="text-xs text-gray-500">
+        현재 페이지에서 Case를 체크해 함께 삭제할 수 있습니다.
+        <b v-if="selectedCount > 0" class="ml-1 text-gray-800">{{ selectedCount }}건 선택</b>
+      </p>
+      <button
+        type="button"
+        class="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
+        :disabled="selectedCount === 0"
+        @click="openBulkDelete"
+      >
+        선택 {{ selectedCount }}건 영구 삭제
+      </button>
+    </div>
+
     <p v-if="startError !== ''" class="text-xs font-semibold text-red-600">{{ startError }}</p>
 
     <!-- 견적 목록 -->
@@ -97,6 +175,17 @@ async function startReview(id: string): Promise<void> {
       <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
           <tr>
+            <th class="w-10 px-3 py-2.5 text-center" @click.stop>
+              <input
+                type="checkbox"
+                class="size-4 accent-red-600"
+                aria-label="현재 페이지 Case 전체 선택"
+                :checked="allRowsSelected"
+                :indeterminate="someRowsSelected"
+                :disabled="rows.length === 0"
+                @change="toggleAllRows"
+              >
+            </th>
             <th class="whitespace-nowrap px-4 py-2.5">Case</th>
             <th class="px-4 py-2.5">견적명</th>
             <th class="px-4 py-2.5">고객</th>
@@ -113,8 +202,18 @@ async function startReview(id: string): Promise<void> {
             v-for="q in rows"
             :key="q.id"
             class="cursor-pointer hover:bg-blue-50/40"
+            :class="selectedIds.has(q.id) ? 'bg-red-50/40' : ''"
             @click="openCase(q.id)"
           >
+            <td class="px-3 py-2.5 text-center" @click.stop>
+              <input
+                type="checkbox"
+                class="size-4 accent-red-600"
+                :aria-label="`${smartbomCaseNo(q.id, q.requestedAt, q.createdAt)} 선택`"
+                :checked="selectedIds.has(q.id)"
+                @change="toggleRow(q.id)"
+              >
+            </td>
             <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">
               {{ smartbomCaseNo(q.id, q.requestedAt, q.createdAt) }}
             </td>
@@ -172,7 +271,7 @@ async function startReview(id: string): Promise<void> {
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td colspan="9" class="px-4 py-10 text-center text-sm text-gray-400">
+            <td colspan="10" class="px-4 py-10 text-center text-sm text-gray-400">
               해당 상태의 견적이 없습니다.
             </td>
           </tr>
@@ -200,5 +299,12 @@ async function startReview(id: string): Promise<void> {
         다음
       </button>
     </div>
+
+    <BomCaseBulkDeleteModal
+      v-if="bulkDeleteOpen"
+      :quote-ids="bulkDeleteIds"
+      @close="closeBulkDelete"
+      @deleted="finishBulkDelete"
+    />
   </div>
 </template>

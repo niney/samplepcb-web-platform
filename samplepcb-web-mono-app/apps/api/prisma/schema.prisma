@@ -554,6 +554,26 @@ model SpBomQuote {
   @@map("sp_bom_quote")
 }
 
+// 관리자 Case 영구 삭제의 최소 감사 원장. 삭제 대상과 FK를 맺으면 cascade로 함께
+// 사라지므로 quoteId는 의도적으로 느슨한 참조다. "감사기록 없이 초기화" 모드는
+// 이 행을 만들지 않는다(서버/DB 백업·외부 메일 흔적까지 없음을 뜻하지는 않음).
+model SpBomCaseDeleteAudit {
+  id          BigInt   @id @default(autoincrement())
+  quoteId     BigInt
+  title       String   @db.VarChar(191)
+  mbId        String   @db.VarChar(60)
+  quoteStatus String   @db.VarChar(16)
+  actorMbId   String   @db.VarChar(191)
+  actorIp     String   @db.VarChar(64)
+  reason      String   @db.Text
+  snapshot    Json
+  createdAt   DateTime @default(now())
+
+  @@index([quoteId, createdAt])
+  @@index([actorMbId, createdAt])
+  @@map("sp_bom_case_delete_audit")
+}
+
 // BOM 추출 실행 — sp-engine은 계산 서비스이며, 완료 결과의 영속 단일 진실은 sp-node가 소유한다.
 // 실행은 append-only이고 quote.activeAnalysisRunId만 성공한 최신 실행으로 원자 전환한다.
 model SpBomAnalysisRun {
