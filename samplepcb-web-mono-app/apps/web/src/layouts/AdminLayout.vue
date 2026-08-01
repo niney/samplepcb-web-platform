@@ -2,6 +2,7 @@
 import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
+import type { RouteLocationRaw } from 'vue-router';
 import { adminModules, resolveAdminModuleKey, type AdminMenuItem } from '../admin/menu';
 import { useRfqCount } from '../admin/useAdminQuotes';
 import { useBomOrdersAwaitingCount, useBomPosAwaitingCount } from '../admin/useAdminBomOrders';
@@ -12,6 +13,25 @@ const auth = useAuthStore();
 const route = useRoute();
 const contentFlush = computed(() => route.meta.adminContentFlush === true);
 const currentRouteName = computed(() => (typeof route.name === 'string' ? route.name : ''));
+
+// Case 상세의 활성 메뉴 = 진입 워크큐(§6.12 ?from=)와 동기화 — 견적관리에서 들어온
+// 상세는 견적관리가 켜져야 길을 잃지 않는다. from 없음(진행현황·북마크)=진행현황.
+const CASE_FROM_MENU: Record<string, string> = {
+  quotes: 'admin-smartbom-quotes',
+  orders: 'admin-smartbom-orders',
+  pos: 'admin-smartbom-pos',
+  logistics: 'admin-smartbom-logistics',
+};
+const effectiveRouteName = computed(() => {
+  if (currentRouteName.value !== 'admin-smartbom-case') return currentRouteName.value;
+  const from = route.query.from;
+  return (typeof from === 'string' ? CASE_FROM_MENU[from] : undefined) ?? currentRouteName.value;
+});
+const menuRouteName = (to: RouteLocationRaw): string | null =>
+  typeof to === 'object' && 'name' in to && typeof to.name === 'string' ? to.name : null;
+const isMenuActive = (item: AdminMenuItem): boolean =>
+  menuRouteName(item.to) === effectiveRouteName.value ||
+  item.activeRouteNames?.includes(effectiveRouteName.value) === true;
 const { isDark, toggleTheme } = useTheme();
 
 // 활성 모듈 = 현재 라우트에서 순수 파생(단일 진실) — 북마크/새로고침 진입에도 안전.
@@ -80,7 +100,7 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
           :key="item.labelKey"
           :to="item.to"
           class="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-          :class="item.activeRouteNames?.includes(currentRouteName) === true ? 'bg-blue-50 text-blue-700' : ''"
+          :class="isMenuActive(item) ? 'bg-blue-50 text-blue-700' : ''"
           exact-active-class="bg-blue-50 text-blue-700"
         >
           <span>{{ $t(item.labelKey) }}</span>
