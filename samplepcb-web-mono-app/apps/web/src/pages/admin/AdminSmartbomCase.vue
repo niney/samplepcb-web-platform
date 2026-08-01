@@ -137,6 +137,62 @@ const allRfqRowsSelected = computed(
   () => scopeItems.value.length > 0 && rfqItemSelection.value.size === scopeItems.value.length,
 );
 
+// 부품 유형 판단은 Vue 문자열 추측이 아니라 sp-engine의 정규화 결과만 소비한다.
+// 과거 견적·수동 행처럼 guidance가 없으면 미분류로 남겨 자동 선택하지 않는다.
+type RfqPassiveComponentType = 'resistor' | 'capacitor';
+
+const rfqEngineComponentType = (item: BomQuoteItemType) =>
+  item.matchEvidence?.searchRequirementGuidance?.componentType ?? null;
+
+interface RfqQuickSelectionGroups {
+  resistorIds: string[];
+  capacitorIds: string[];
+  passiveIds: string[];
+  unofferedIds: string[];
+  unclassifiedCount: number;
+}
+
+const rfqQuickSelectionGroups = computed<RfqQuickSelectionGroups>(() => {
+  const groups: RfqQuickSelectionGroups = {
+    resistorIds: [],
+    capacitorIds: [],
+    passiveIds: [],
+    unofferedIds: [],
+    unclassifiedCount: 0,
+  };
+  for (const item of scopeItems.value) {
+    const componentType = rfqEngineComponentType(item);
+    if (componentType === 'resistor') {
+      groups.resistorIds.push(item.id);
+      groups.passiveIds.push(item.id);
+    } else if (componentType === 'capacitor') {
+      groups.capacitorIds.push(item.id);
+      groups.passiveIds.push(item.id);
+    } else if (componentType === null) {
+      groups.unclassifiedCount += 1;
+    }
+    if (item.selectedOffer === null) groups.unofferedIds.push(item.id);
+  }
+  return groups;
+});
+
+function applyRfqQuickSelection(ids: readonly string[]): void {
+  // 빈 선택은 계약상 '전체 발송'이므로 0건 퀵 액션이 기존 선택을 지우지 않게 방어한다.
+  if (ids.length === 0) return;
+  rfqItemSelection.value = new Set(ids);
+}
+
+function selectRfqComponentRows(componentType: RfqPassiveComponentType | 'passive'): void {
+  const groups = rfqQuickSelectionGroups.value;
+  applyRfqQuickSelection(
+    componentType === 'resistor'
+      ? groups.resistorIds
+      : componentType === 'capacitor'
+        ? groups.capacitorIds
+        : groups.passiveIds,
+  );
+}
+
 function toggleRfqRow(itemId: string): void {
   const next = new Set(rfqItemSelection.value);
   if (next.has(itemId)) next.delete(itemId);
@@ -150,11 +206,13 @@ function toggleAllRfqRows(): void {
     : new Set(scopeItems.value.map((item) => item.id));
 }
 
+function useFullRfqScope(): void {
+  rfqItemSelection.value = new Set();
+}
+
 // 실무 퀵 액션 — 공급사 오퍼가 없는 행만 협력사에 문의하는 흔한 패턴.
 function selectUnofferedRfqRows(): void {
-  rfqItemSelection.value = new Set(
-    scopeItems.value.filter((item) => item.selectedOffer === null).map((item) => item.id),
-  );
+  applyRfqQuickSelection(rfqQuickSelectionGroups.value.unofferedIds);
 }
 
 // 품목 관점 RFQ 현황 — RFQ 패널(협력사 관점)의 역방향 인덱스. 현재 유효 scope 안에서
@@ -654,17 +712,58 @@ async function downloadOriginal(): Promise<void> {
             <span v-if="rfqItemSelection.size > 0" class="rounded bg-blue-100 px-1.5 py-0.5 font-bold text-blue-700">
               {{ rfqItemSelection.size }}행 선택됨
             </span>
-            <span class="ml-auto flex gap-2">
-              <button type="button" class="text-blue-600 hover:underline" @click="selectUnofferedRfqRows">
-                오퍼 없음 행만 선택
+            <span class="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                class="rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 font-semibold text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-35"
+                :disabled="rfqQuickSelectionGroups.resistorIds.length === 0"
+                title="sp-engine이 저항으로 분류한 행만 선택합니다"
+                @click="selectRfqComponentRows('resistor')"
+              >
+                저항 {{ rfqQuickSelectionGroups.resistorIds.length }}
               </button>
+              <button
+                type="button"
+                class="rounded border border-cyan-200 bg-cyan-50 px-1.5 py-0.5 font-semibold text-cyan-700 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-35"
+                :disabled="rfqQuickSelectionGroups.capacitorIds.length === 0"
+                title="sp-engine이 캐패시터로 분류한 행만 선택합니다"
+                @click="selectRfqComponentRows('capacitor')"
+              >
+                캐패시터 {{ rfqQuickSelectionGroups.capacitorIds.length }}
+              </button>
+              <button
+                type="button"
+                class="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 font-semibold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-35"
+                :disabled="rfqQuickSelectionGroups.passiveIds.length === 0"
+                title="sp-engine이 저항 또는 캐패시터로 분류한 행을 함께 선택합니다"
+                @click="selectRfqComponentRows('passive')"
+              >
+                저항+캐패시터 {{ rfqQuickSelectionGroups.passiveIds.length }}
+              </button>
+              <button
+                type="button"
+                class="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-300"
+                :disabled="rfqQuickSelectionGroups.unofferedIds.length === 0"
+                title="선정 오퍼가 없는 행만 선택합니다"
+                @click="selectUnofferedRfqRows"
+              >
+                오퍼 없음 {{ rfqQuickSelectionGroups.unofferedIds.length }}
+              </button>
+              <span
+                v-if="rfqQuickSelectionGroups.unclassifiedCount > 0"
+                class="text-gray-400"
+                title="엔진 부품 유형이 없는 과거 견적·수동 행은 유형 자동 선택에서 제외됩니다"
+              >
+                분류 미확인 {{ rfqQuickSelectionGroups.unclassifiedCount }}행 제외
+              </span>
               <button
                 v-if="rfqItemSelection.size > 0"
                 type="button"
-                class="text-gray-500 hover:underline"
-                @click="rfqItemSelection = new Set()"
+                class="rounded border border-gray-200 bg-surface px-1.5 py-0.5 font-semibold text-gray-600 hover:bg-gray-100"
+                title="체크 선택을 지우고 전체 발송 상태로 돌아갑니다"
+                @click="useFullRfqScope"
               >
-                선택 해제
+                선택 해제(전체 발송)
               </button>
             </span>
           </div>
@@ -702,7 +801,19 @@ async function downloadOriginal(): Promise<void> {
                 </td>
                 <td class="whitespace-nowrap px-3 py-2 text-gray-500">{{ itemLocation(item) }}</td>
                 <td class="px-3 py-2">
-                  <div class="font-medium">{{ itemLabel(item) }}</div>
+                  <div class="flex flex-wrap items-center gap-1">
+                    <span class="font-medium">{{ itemLabel(item) }}</span>
+                    <span
+                      v-if="rfqEngineComponentType(item) === 'resistor'"
+                      class="rounded border border-orange-200 bg-orange-50 px-1 py-0.5 text-[9px] font-semibold text-orange-700"
+                      title="sp-engine 분류"
+                    >저항</span>
+                    <span
+                      v-else-if="rfqEngineComponentType(item) === 'capacitor'"
+                      class="rounded border border-cyan-200 bg-cyan-50 px-1 py-0.5 text-[9px] font-semibold text-cyan-700"
+                      title="sp-engine 분류"
+                    >캐패시터</span>
+                  </div>
                   <div class="text-gray-400">{{ item.manufacturerName }}</div>
                 </td>
                 <td class="px-3 py-2">
@@ -853,7 +964,7 @@ async function downloadOriginal(): Promise<void> {
       :selected-item-ids="[...rfqItemSelection]"
       :rfqs="rfqs"
       @close="sendOpen = false"
-      @sent="rfqItemSelection = new Set()"
+      @sent="useFullRfqScope"
     />
 
     <BomRfqCompareModal
