@@ -26,6 +26,7 @@ export const apiRoutes = {
   adminBomShipments: '/api/admin/bom-shipments',
   adminBomPackages: '/api/admin/bom-packages',
   // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인(D18)
+  partnerAccess: '/api/partner/access',
   partnerRfqs: '/api/partner/rfqs',
   partnerPos: '/api/partner/pos',
   partnerShipments: '/api/partner/shipments',

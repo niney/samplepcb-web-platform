@@ -8,6 +8,7 @@ export const en = {
   },
   nav: {
     smartBom: 'Smart BOM',
+    partnerPortal: 'Partner portal',
   },
   auth: {
     greeting: '{nick}',

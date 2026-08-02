@@ -512,7 +512,7 @@ Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(node 87:9037)를 픽셀 충실도 �
 - `layouts/BomLayout.vue`: 상단바(로고·견적별 샘플/양산 조달 모드·테마·프로필 메뉴) + 좌측(BOM 분석/단일 검색
   /Recent file=남은 브라우저 높이에 맞춘 최신 견적, 데이터 수와 무관하게 [모두 보기] 상시 노출) + 중앙 흰 패널 +
   우측 프로모 카드 2종. /bom 라우트 전용 셸(DefaultLayout에서 분리).
-- `components/AppProfileMenu.vue`: BOM·관리자·일반 홈이 공유하는 프로필 어코디언. 닉네임·회원 ID·관리자
+- `components/AppProfileMenu.vue`: BOM·관리자·일반 홈·파트너 포탈이 공유하는 프로필 어코디언. 닉네임·회원 ID·관리자
   배지를 보여주고 회원정보 수정, 화면 이동, 그누보드 세션 로그아웃을 제공한다. 일반 홈·사이트 홈은 메뉴에서
   제외하고 `components/AppSiteHomeButton.vue`로 각 상단바에 아이콘을 배치한다. BOM 상단의 별도 홈·관리자
   링크와 중앙 타이틀, 관리자 상단의 중앙 인사말·사이트로 링크는 셸 목적에 맞게 정리했다.

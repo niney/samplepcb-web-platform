@@ -31,6 +31,7 @@ import { adminBomOrderRoutes } from './routes/admin-bom-orders';
 import { adminPartnerRoutes } from './routes/admin-partners';
 import { partnerRfqRoutes } from './routes/partner-rfqs';
 import { partnerPoRoutes } from './routes/partner-pos';
+import { partnerAccessRoutes } from './routes/partner-access';
 import { rfqReplyRoutes } from './routes/rfq-reply';
 import { bomRoutes } from './routes/bom';
 import { bomQuoteRoutes } from './routes/bom-quotes';
@@ -103,6 +104,7 @@ await app.register(adminBomOrderRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 스마트 BOM 파트너(조직) 관리 (docs/SMARTBOM_PARTNER_RFQ.md)
 await app.register(adminPartnerRoutes, { prefix: '/api/admin' });
 // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인
+await app.register(partnerAccessRoutes, { prefix: '/api' });
 await app.register(partnerRfqRoutes, { prefix: '/api' });
 await app.register(partnerPoRoutes, { prefix: '/api' });
 // 매직링크 무로그인 회신(§6.9) — 인증 = 토큰(메일함 소유), 권한은 RFQ 1건 스코프

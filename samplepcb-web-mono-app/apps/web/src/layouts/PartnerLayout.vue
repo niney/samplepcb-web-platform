@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from '@sp/shared';
 import { useTheme } from '../bom/useTheme';
+import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 
 // 협력사 포털 경량 셸(docs/SMARTBOM_PARTNER_RFQ.md §4) — 관리자 셸과 분리된
@@ -18,9 +19,6 @@ const { isDark, toggleTheme } = useTheme();
           SAMPLEPCB <span class="text-sm font-semibold text-gray-500">파트너 포털</span>
         </RouterLink>
         <div class="flex items-center gap-3 text-sm">
-          <span v-if="auth.isLoggedIn" class="text-gray-700">
-            {{ auth.me?.mbNick ?? '' }}님
-          </span>
           <AppSiteHomeButton />
           <!-- 테마 전환 — 관리자·BOM 셸과 같은 상태를 공유한다(useTheme 싱글턴) -->
           <button
@@ -38,6 +36,7 @@ const { isDark, toggleTheme } = useTheme();
               <path d="M20 13.5A8 8 0 0 1 10.5 4a8.5 8.5 0 1 0 9.5 9.5Z" stroke-linejoin="round" />
             </svg>
           </button>
+          <AppProfileMenu :show-admin="auth.me?.isAdmin === true" />
         </div>
       </div>
     </header>

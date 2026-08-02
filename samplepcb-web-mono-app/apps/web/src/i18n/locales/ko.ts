@@ -8,6 +8,7 @@ export const ko = {
   },
   nav: {
     smartBom: '스마트 BOM',
+    partnerPortal: '파트너 포탈',
   },
   auth: {
     greeting: '{nick}님',

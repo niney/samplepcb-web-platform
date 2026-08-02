@@ -212,6 +212,7 @@ POST /api/admin/bom-quotes/:id/refresh-offers  공급사 시세 백그라운드 
 GET  /api/partner/rfqs                         포털 워크큐 (requirePartner)
 GET  /api/partner/rfqs/:id                     상세(부품행 — 목표단가 미노출 D8)
 PUT  /api/partner/rfqs/:id                     회신 저장(행 일괄) → quoted
+GET  /api/partner/access                       상단 메뉴용 승인 파트너 접근 여부·조직명
 
 GET/POST/PUT /api/admin/partners(...)          파트너 CRUD·승인·계정 연결
 ```
@@ -288,6 +289,9 @@ GET/POST/PUT /api/admin/partners(...)          파트너 CRUD·승인·계정 �
 ```
 
 - `PartnerLayout`(BomLayout급 경량 셸) + `requiresPartner` 가드(기존 requiresMember 패턴 확장).
+- 승인된 파트너 계정만 공통 프로필 메뉴와 `/app` 일반 홈 상단에 `파트너 포탈` 링크를
+  표시하며, 노출 여부는 `/api/partner/access`가 `sp_partner_member`와 조직 승인 상태를
+  서버에서 판정한다. PHP 사이트 홈의 공용 GNB도 같은 승인 상태를 조회해 링크를 표시한다.
 - 노출: MPN·제조사·설명·필요수량만(D8). 목표단가·고객정보 미노출.
 - 회신 저장 → `quoted` 전환 + 관리자 배지 반영. 재회신 허용(선정 전까지).
 

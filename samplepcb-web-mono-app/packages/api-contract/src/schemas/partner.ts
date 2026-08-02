@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+// 로그인 계정의 협력사 포털 노출 여부 — 조직 소속·승인 상태는 서버가 매 요청 판정한다.
+export const PartnerAccessResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    isPartner: z.boolean(),
+    partnerName: z.string().nullable(),
+  }),
+});
+export type PartnerAccessResponseType = z.infer<typeof PartnerAccessResponse>;
+
 // ── 스마트 BOM 파트너(조직) — sp_partner* 계약 ──────────────────────────────
 // 설계 정본: docs/SMARTBOM_PARTNER_RFQ.md §1. 조직(sp_partner)/계정(sp_partner_member)/
 // 자동화(supplierCode) 3축 분리 — 유형·상태·capability 코드 사전은 이 파일이 단일 정본.

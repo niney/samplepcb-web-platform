@@ -4,10 +4,12 @@ import { useAuthStore } from '@sp/shared';
 import { useTheme } from '../bom/useTheme';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
+import { usePartnerAccess } from '../partner/usePartnerAccess';
 
 const auth = useAuthStore();
 const route = useRoute();
 const { isDark, toggleTheme } = useTheme();
+const { isPartner } = usePartnerAccess();
 </script>
 
 <template>
@@ -30,6 +32,13 @@ const { isDark, toggleTheme } = useTheme();
           class="rounded-md border border-blue-200 px-2.5 py-1 text-sm font-medium text-blue-700 hover:bg-blue-50"
         >
           {{ $t('admin.title') }}
+        </RouterLink>
+        <RouterLink
+          v-if="isPartner"
+          :to="{ name: 'partner' }"
+          class="rounded-md border border-indigo-200 px-2.5 py-1 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+        >
+          {{ $t('nav.partnerPortal') }}
         </RouterLink>
       </div>
       <div class="flex items-center gap-2">

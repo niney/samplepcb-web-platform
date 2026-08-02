@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { appPath, loginUrl, logoutUrl, memberInfoUrl } from '../lib/auth-urls';
+import { usePartnerAccess } from '../partner/usePartnerAccess';
 import icProfile from '../assets/bom/ic-profile.svg';
 
 const props = withDefaults(defineProps<{
@@ -15,6 +16,7 @@ const props = withDefaults(defineProps<{
 
 const auth = useAuthStore();
 const route = useRoute();
+const { isPartner } = usePartnerAccess();
 const root = ref<HTMLElement | null>(null);
 const menuOpen = ref(false);
 const displayNick = computed(() => {
@@ -101,6 +103,15 @@ onBeforeUnmount(() => {
           @click="closeMenu"
         >
           {{ $t('nav.smartBom') }}
+        </RouterLink>
+        <RouterLink
+          v-if="isPartner"
+          :to="{ name: 'partner' }"
+          class="block rounded-lg px-3 py-2 hover:bg-surface-sunken"
+          role="menuitem"
+          @click="closeMenu"
+        >
+          {{ $t('nav.partnerPortal') }}
         </RouterLink>
         <RouterLink
           v-if="props.showAdmin && auth.me?.isAdmin"
