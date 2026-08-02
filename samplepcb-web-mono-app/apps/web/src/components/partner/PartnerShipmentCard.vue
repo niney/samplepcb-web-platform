@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import {
-  BOM_SHIPMENT_FILE_DOMESTIC_LABELS,
   BOM_SHIPMENT_FILE_LABELS,
   BOM_SHIPMENT_FILE_TYPES,
   BOM_SHIPMENT_MODE_LABELS,
@@ -67,9 +66,7 @@ const canRevert = computed(
 );
 const statusLabel = (s: BomShipmentStatusType): string => bomShipmentStatusLabel(mode.value, s);
 const fileLabel = (kind: BomShipmentFileTypeType): string =>
-  mode.value === 'domestic'
-    ? BOM_SHIPMENT_FILE_DOMESTIC_LABELS[kind]
-    : BOM_SHIPMENT_FILE_LABELS[kind];
+  BOM_SHIPMENT_FILE_LABELS[kind];
 const fileOf = (kind: BomShipmentFileTypeType) =>
   props.shipment.files.find((f) => f.fileType === kind) ?? null;
 
@@ -257,7 +254,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
       </li>
     </ol>
     <p class="mt-1.5 text-xs text-gray-400">
-      <template v-if="shipment.shipDate !== null">출고예정 {{ shipment.shipDate }} · </template>
+      <template v-if="mode === 'international' && shipment.shipDate !== null">출고예정 {{ shipment.shipDate }} · </template>
       <template v-if="shipment.shippedAt !== null">
         발송 {{ shipment.shippedAt.slice(0, 10) }} ·
       </template>
@@ -291,9 +288,11 @@ async function attachInvoicePdf(file: File): Promise<void> {
           </button>
         </div>
         <div
+          v-if="mode === 'domestic'"
           class="flex flex-wrap items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50/50 px-2 py-2 text-sm"
         >
           <span class="w-20 shrink-0 font-semibold text-violet-800">거래 문서</span>
+          <span class="text-[11px] text-violet-500">선택</span>
           <button
             v-for="entry in tradeDocumentPos"
             :key="`quotation-${entry.poId}`"
@@ -313,48 +312,50 @@ async function attachInvoicePdf(file: File): Promise<void> {
           </button>
         </div>
       </div>
-      <div
-        v-for="kind in BOM_SHIPMENT_FILE_TYPES"
-        :key="kind"
-        class="flex flex-wrap items-center gap-2 text-sm"
-      >
-        <span class="w-20 shrink-0 font-semibold text-gray-600">{{ fileLabel(kind) }}</span>
-        <template v-if="fileOf(kind) !== null">
-          <button type="button" class="text-blue-600 underline" @click="downloadFile(kind)">
-            {{ fileOf(kind)?.name }}
-          </button>
+      <template v-if="mode === 'international'">
+        <div
+          v-for="kind in BOM_SHIPMENT_FILE_TYPES"
+          :key="kind"
+          class="flex flex-wrap items-center gap-2 text-sm"
+        >
+          <span class="w-20 shrink-0 font-semibold text-gray-600">{{ fileLabel(kind) }}</span>
+          <template v-if="fileOf(kind) !== null">
+            <button type="button" class="text-blue-600 underline" @click="downloadFile(kind)">
+              {{ fileOf(kind)?.name }}
+            </button>
+            <button
+              type="button"
+              class="text-red-500 underline disabled:opacity-40"
+              :disabled="busy"
+              @click="removeFile(kind)"
+            >
+              삭제
+            </button>
+          </template>
+          <span v-else class="text-gray-300">없음</span>
           <button
+            v-if="kind === 'invoice'"
             type="button"
-            class="text-red-500 underline disabled:opacity-40"
+            class="ml-auto rounded border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
             :disabled="busy"
-            @click="removeFile(kind)"
+            @click="invoiceOpen = true"
           >
-            삭제
+            🧾 만들기
           </button>
-        </template>
-        <span v-else class="text-gray-300">없음</span>
-        <button
-          v-if="kind === 'invoice' && mode === 'international'"
-          type="button"
-          class="ml-auto rounded border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
-          :disabled="busy"
-          @click="invoiceOpen = true"
-        >
-          🧾 만들기
-        </button>
-        <label
-          class="cursor-pointer rounded border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-          :class="kind === 'invoice' && mode === 'international' ? '' : 'ml-auto'"
-        >
-          {{ fileOf(kind) === null ? '첨부' : '교체' }}
-          <input
-            type="file"
-            class="hidden"
-            :disabled="busy"
-            @change="(e) => onFilePicked(kind, e)"
+          <label
+            class="cursor-pointer rounded border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            :class="kind === 'invoice' ? '' : 'ml-auto'"
           >
-        </label>
-      </div>
+            {{ fileOf(kind) === null ? '첨부' : '교체' }}
+            <input
+              type="file"
+              class="hidden"
+              :disabled="busy"
+              @change="(e) => onFilePicked(kind, e)"
+            >
+          </label>
+        </div>
+      </template>
     </div>
 
     <!-- 검수 결과 -->
@@ -434,6 +435,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
     <p v-if="error !== ''" class="mt-2 text-sm font-semibold text-red-600">{{ error }}</p>
 
     <InvoiceEditorModal
+      v-if="mode === 'international'"
       :open="invoiceOpen"
       :load-draft="invoiceApi.loadDraft"
       :save-draft="invoiceApi.saveDraft"
@@ -449,11 +451,13 @@ async function attachInvoicePdf(file: File): Promise<void> {
       @close="packingOpen = false"
     />
     <TradeDocumentModal
+      v-if="mode === 'domestic'"
       :open="quotationPoId !== null"
       :load="loadQuotation"
       @close="quotationPoId = null"
     />
     <TradeDocumentModal
+      v-if="mode === 'domestic'"
       :open="statementOpen"
       :load="loadStatement"
       @close="statementOpen = false"

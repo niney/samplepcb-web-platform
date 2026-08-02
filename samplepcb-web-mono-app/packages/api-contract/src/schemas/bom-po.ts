@@ -54,8 +54,8 @@ export type BomShipmentModeType = (typeof BOM_SHIPMENT_MODES)[number];
 export const BomShipmentMode = z.enum(BOM_SHIPMENT_MODES);
 
 export const BOM_SHIPMENT_MODE_LABELS = {
-  international: '국제',
-  domestic: '국내',
+  international: '국외 발송',
+  domestic: '국내 발송',
 } as const satisfies Record<BomShipmentModeType, string>;
 
 // 국제 6단계(레거시 명칭 승계) / 국내 3단계.
@@ -81,12 +81,12 @@ export const BOM_SHIPMENT_STATUS_LABELS = {
   arrived: '국내도착',
   customs: '통관',
   done: '완료',
-  shipping: '배송중',
-  delivered: '배송완료',
+  shipping: '배송 중',
+  delivered: '입고 완료',
 } as const satisfies Record<BomShipmentStatusType, string>;
 
-/** domestic 모드의 preparing 라벨은 '배송준비'(레거시 국내 3단계) — 표시 시 모드로 분기. */
-export const BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL = '배송준비';
+/** domestic 모드의 preparing 라벨은 '배송 준비' — 표시 시 모드로 분기. */
+export const BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL = '배송 준비';
 
 // ── 핑퐁 전이(D22 — 레거시 절차 승계) ───────────────────────────────────────
 // "해당 상태로 진입시키는 주체" 사전(레거시 actorForStatus 미러). 협력사는 자기 차례
@@ -108,7 +108,7 @@ export const BOM_SHIPMENT_ACTORS: Record<
     customs: 'ADMIN',
     done: 'ADMIN',
   },
-  // 협력사: 배송중(택배사+송장) / 관리자: 배송완료(수령확인)
+  // 협력사: 배송 중(택배사+송장) / 관리자: 입고 완료(수령확인 전용 API)
   domestic: { shipping: 'PARTNER', delivered: 'ADMIN' },
 };
 
@@ -140,7 +140,7 @@ export const bomShipmentActorOf = (
   status: BomShipmentStatusType,
 ): BomShipmentActorType | null => BOM_SHIPMENT_ACTORS[mode][status] ?? null;
 
-/** 모드 반영 상태 라벨(국내 preparing='배송준비' 분기 포함) — 화면·메일 공용. */
+/** 모드 반영 상태 라벨(국내 preparing='배송 준비' 분기 포함) — 화면·메일 공용. */
 export const bomShipmentStatusLabel = (
   mode: BomShipmentModeType,
   status: BomShipmentStatusType,
@@ -155,14 +155,10 @@ export const BOM_SHIPMENT_FILE_TYPES = ['invoice', 'airwaybill'] as const;
 export type BomShipmentFileTypeType = (typeof BOM_SHIPMENT_FILE_TYPES)[number];
 export const BomShipmentFileType = z.enum(BOM_SHIPMENT_FILE_TYPES);
 
-/** 국제 라벨. 국내 모드는 레거시 라벨(거래명세서/송장내역)로 분기. */
+/** 국제 발송 전용 첨부 라벨. 국내 발송은 생성형 견적서·거래명세서를 사용한다. */
 export const BOM_SHIPMENT_FILE_LABELS = {
   invoice: 'Invoice',
   airwaybill: 'AWB',
-} as const satisfies Record<BomShipmentFileTypeType, string>;
-export const BOM_SHIPMENT_FILE_DOMESTIC_LABELS = {
-  invoice: '별도 거래서류',
-  airwaybill: '송장내역',
 } as const satisfies Record<BomShipmentFileTypeType, string>;
 
 export const BomShipmentFileMeta = z.object({
@@ -404,9 +400,9 @@ export const AdminBomPartPackageResponse = z.object({
 });
 export type AdminBomPartPackageResponseType = z.infer<typeof AdminBomPartPackageResponse>;
 
-// 관리자 등록/수정 — mode 는 생성 시에만 반영(이후 무시), status 모드 정합은 서버 검증.
+// 관리자 등록/수정 — mode는 협력사 국가로 서버가 결정하므로 클라이언트가 보내지 않는다.
+// 국내 최종 단계(delivered)는 이 요청이 아니라 입고 확인 전용 API로만 진입한다.
 export const AdminBomShipmentUpsertBody = z.object({
-  mode: BomShipmentMode.optional(),
   status: BomShipmentStatus.optional(),
   carrier: z.string().trim().max(50).nullish(),
   trackingNumber: z.string().trim().max(100).nullish(),
@@ -601,6 +597,12 @@ export const AdminBomPoView = z.object({
   partnerName: z.string(),
   /** 공급사 발주면 코드(mouser|digikey|…), 사람 협력사면 null. */
   supplierCode: z.string().nullable(),
+  /** 실제 발송 출발국의 단일 기준. 레거시 조직은 미입력일 수 있다. */
+  partnerCountry: z.string().nullable(),
+  /** 기존 선적 mode 또는 국가에서 서버가 파생한 신규 선적 mode. 국가 미입력은 null. */
+  shipmentMode: BomShipmentMode.nullable(),
+  /** 기존 박제 mode와 현재 등록 국가가 다른 레거시/운영 데이터 경고. */
+  shipmentModeMismatch: z.boolean(),
   status: BomPoStatus,
   totalAmount: z.number().int(), // KRW, VAT 별도
   currency: z.string(),
@@ -757,9 +759,11 @@ export const PartnerPoListItem = z.object({
   itemCount: z.number().int(),
   issuedAt: z.string(),
   confirmedAt: z.string().nullable(),
-  /** 선적 모드·상태(D22) — 문서가 없으면 국가 기본 모드 + 'preparing'(표시 동일). */
-  shipmentMode: BomShipmentMode,
-  shipmentStatus: BomShipmentStatus,
+  /** 선적 모드·상태(D22). 문서가 없고 국가도 미입력이면 둘 다 null이다. */
+  shipmentMode: BomShipmentMode.nullable(),
+  shipmentStatus: BomShipmentStatus.nullable(),
+  /** 새 발송을 만들 수 있도록 협력사 국가가 등록됐거나 기존 선적이 이미 존재한다. */
+  shipmentCountryReady: z.boolean(),
   /** 입고 확인(검수) 완료 여부. */
   shipmentReceived: z.boolean(),
   /** 다음 선적 단계가 협력사 차례(D22) — 발주 확인(issued) 전·검수 후는 false. */

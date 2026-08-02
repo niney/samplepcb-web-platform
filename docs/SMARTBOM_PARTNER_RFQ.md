@@ -468,7 +468,7 @@ externalRef 표시(Mouser 카트 확인 링크·DigiKey 1회용 리스트 열기
 | D21-1 | **경량 선적 모델로 시작**: `sp_bom_shipment` 별도 테이블, 1차는 발주서당 1건(poId UNIQUE) | 사용자: "지금은 발주서 단위, 나중에 부분 입고·발송 가능한지 검토" — **확장 경로 검증됨**: D13(발주 스키마에 선적 참조 금지) 덕에 ①부분 입고 = poId UNIQUE 해제 + 발주 행 배정(레거시 ship_qty 방식)으로 발주서 무변경 확장 ②선적 그룹 = shipmentGroupId 추가(레거시 동일) ③부분 고객 발송 = 영카트 주문이 1건이라 자체 배송 문서 신설이 필요(가장 큰 확장 — 그때 결정) |
 | D21-2 | 검수(⑩) = **[입고 확인] + 편차 메모**(receivedAt·receivedNote) — 행별 수량 대사는 안 함 | 실무 부담 최소 |
 | D21-3 | 고객 배송(⑪)·완료(⑫) = **영카트 재사용** — 주문·결제 화면에 [배송 처리(송장)]·[완료] 추가(기존 전이 API·알림), 상태는 od 파생 | 추가 모델 없음, 고객은 주문내역 조회 |
-| D21-4 | 해외 구간 = **국제 6단계 풀 추적**(레거시 명칭 승계: 선적 준비→선적 요청→선적→국내도착→통관→완료), 국내 3단계(배송준비→배송중→배송완료). 모드는 생성 시 박제(협력사 국가로 기본값 제안) | 사용자 선택(권장 2이벤트 대신 풀 추적) |
+| D21-4 | 해외 구간 = **국제 6단계 풀 추적**(레거시 명칭 승계: 선적 준비→선적 요청→선적→국내도착→통관→완료), 국내 3단계(배송 준비→배송 중→입고 완료). 모드는 생성 시 협력사 국가에서 서버가 결정해 박제(D28 정정) | 사용자 선택(권장 2이벤트 대신 풀 추적) |
 | D21-5 | 상태는 영문 코드 사전 + 한글 라벨(D10 관례 — 레거시 한글 리터럴 승계 안 함) | preparing→requested→shipped→arrived→customs→done / preparing→shipping→delivered |
 | D21-6 | 협력사 포털에 **[발송 처리]**(carrier·송장 입력 — 선적 생성·발송 단계 진입)만 1차 제공, 중간 단계 전이·입고 확인은 관리자 | 송장의 원 주인은 협력사 — 최소로 열고 나머지는 후속 |
 | D21-7 | 타임라인: ⑨ 선적 = 선적 존재, ⑩ 검수 = 전 발주 입고 확인, ⑪ 배송 = od '배송', ⑫ 완료 = od '완료' — 전부 파생. 별도 "입고·배송" 메뉴는 물량 생기면 후속(1차는 Case 상세+주문·결제로 커버) | 파생 표시 원칙 유지 |
@@ -480,10 +480,10 @@ externalRef 표시(Mouser 카트 확인 링크·DigiKey 1회용 리스트 열기
 
 - 모델: `sp_bom_shipment`(poId UNIQUE·quoteId 인덱스, mode/status/carrier/trackingNumber/
   trackingUrl/shippedAt/receivedAt/receivedNote/completedAt) — migration `20260730180000`.
-- 계약(bom-po.ts): 모드·상태 사전(INTL 6/DOMESTIC 3, 국내 preparing 라벨='배송준비'),
+- 계약(bom-po.ts): 모드·상태 사전(INTL 6/DOMESTIC 3, 국내 preparing 라벨='배송 준비'),
   `BomShipmentView`, 관리자 upsert/receive body, 포털 `PartnerPoShipBody`;
   `AdminBomPoView.shipment`·`PartnerPoDetail.shipment`(pick)·quote/orders 요약에 `poReceivedCount`.
-- 서버(lib/bom-po.ts): `upsertShipment`(mode 생성 시 박제 — 기존>요청>국가 기본값(KR=국내),
+- 서버(lib/bom-po.ts): `upsertShipment`(mode 생성 시 박제 — 기존 선적>협력사 국가(KR=국내),
   상태 모드 정합 409 INVALID_STATUS, shippedAt 최초 발송 진입 박제·completedAt 최종 단계
   이탈 시 해제), `receiveShipment`(선적 없어도 생성 — 시스템 밖 수령, 최종 단계 마감+
   receivedAt+편차 메모), `partnerShipPo`(소유 검증 → 발송 단계 진입).
@@ -511,9 +511,9 @@ actorForStatus)·`ShipmentPanel.vue`·doc/shipment*.md.
 
 | # | 결정 | 근거 |
 |---|------|------|
-| D22-1 | **단계별 진입 주체 승계**(actorForStatus 미러): 국제 — 선적요청=협력사(출고예정일+Invoice 필수)·선적=관리자(AWB+송장)·국내도착=~~협력사(클릭만)~~ **관리자(08-02 정정 ↓)**·통관/완료=관리자 / 국내 — 배송중=협력사(택배사+송장 필수)·배송완료=관리자. 사전은 api-contract `BOM_SHIPMENT_ACTORS`+`bomShipmentNextStatus/PrevStatus/ActorOf/StatusLabel`(서버·프론트 공용) | 레거시 절차 그대로 |
+| D22-1 | **단계별 진입 주체 승계**(actorForStatus 미러): 국제 — 선적요청=협력사(출고예정일+Invoice 필수)·선적=관리자(AWB+송장)·국내도착=~~협력사(클릭만)~~ **관리자(08-02 정정 ↓)**·통관/완료=관리자 / 국내 — 배송 중=협력사(택배사+송장 필수)·입고 완료=관리자 전용 입고 확인(D28 정정). 사전은 api-contract `BOM_SHIPMENT_ACTORS`+`bomShipmentNextStatus/PrevStatus/ActorOf/StatusLabel`(서버·프론트 공용) | 레거시 절차를 국내 실무에 맞게 정정 |
 | D22-2 | **서버 인가 신설**(레거시 취약점 교정 — 레거시는 프론트만 검증, 자기 doc에 "우회 취약점" 명기): 협력사 advance=다음 단계 주체 PARTNER 검증+단계별 필수(MISSING_SHIP_DATE/MISSING_INVOICE_FILE/MISSING_TRACKING), revert=현 단계 진입 주체 PARTNER(직전에 자기가 진행)만 1단계(입력값·첨부 유지). 관리자는 upsert 로 전 단계 임의 조작 유지(레거시도 사실상 동일) — AWB 필수는 관리자에겐 모달 경고로만 | 절차는 승계, 결함은 교정 |
-| D22-3 | **첨부 = 기존 sp_file 폴리모픽 재사용**: refType='sp_bom_shipment'·fileType invoice/airwaybill(국내 라벨: 별도 거래서류/송장내역)·uploadedBy ADMIN/PARTNER(예약 컬럼 첫 사용)·종류별 1건(재업로드=교체, 새 실파일 성공 후 구 파일 정리)·파일서버 serviceType 'bom_shipment'(env BOM_SHIPMENT_FILE_SERVICE_TYPE, 레거시 버킷명 승계). 다운로드=권한 프록시 스트림(관리자·소유 협력사만 — 레거시 익명 pathToken 노출 교정) | 인프라 관례 재사용 |
+| D22-3 | **첨부 = 기존 sp_file 폴리모픽 재사용**: refType='sp_bom_shipment'·fileType invoice/airwaybill·uploadedBy ADMIN/PARTNER(예약 컬럼 첫 사용)·종류별 1건(재업로드=교체, 새 실파일 성공 후 구 파일 정리)·파일서버 serviceType 'bom_shipment'(env BOM_SHIPMENT_FILE_SERVICE_TYPE, 레거시 버킷명 승계). 다운로드=권한 프록시 스트림(관리자·소유 협력사만 — 레거시 익명 pathToken 노출 교정). **D28에서 Invoice/AWB는 국외 전용으로 정정** | 인프라 관례 재사용 |
 | D22-4 | **알림 메일 양방향 신설**(레거시엔 없음 — 폴링 배지뿐이라 멈춤): 협력사 전이→관리자(de_admin_info_email, Case CTA), 관리자 전이로 협력사 차례 도래→협력사(contactEmail, 포털 CTA), 입고 확인→협력사 통지(편차 메모 동봉). rfq-email.ts 셸 재사용, 비차단 | 핑퐁은 상대가 알아야 흐른다 |
 | D22-5 | Case ID 미승계(선적이 Case 강결합이라 구조적 불필요), 상업송장 생성기(자동 초안+PDF/엑셀)·파일 교체 이력·국내 거점주소 안내는 후속 | 범위 통제 |
 | D22-6 | sp_bom_shipment += `shipDate`(출고예정일, UTC 자정 저장 — KST 자정 저장 시 ISO 직렬화에서 하루 밀리는 함정 실측) — migration `20260731090000` | 최소 스키마 |
@@ -654,7 +654,7 @@ fresh=전체 28행·합계/비-fresh=저장본 유지) ALL PASS.
 그룹 보드"(그룹/선적/배정 3층)로 풀었지만 협력사 학습 부담이 컸다 — 사용자 우려에
 대한 답으로 **보드 자체를 없애고 발송 시점에 묶는다**.
 
-- UX: 발주서 상세의 최초 발송 전이(선적 요청/배송중) 폼에 **"함께 발송할 발주서"
+- UX: 발주서 상세의 최초 발송 전이(선적 요청/배송 중) 폼에 **"함께 발송할 발주서"
   체크 리스트**(같은 협력사·미소속·발주 확인된 것) — 체크하고 진행하면 선적 1건에
   N건 연결. 이후 서류·핑퐁·입고 확인 전부 1번. 새 화면 0개.
 - 모델: `sp_bom_shipment_po` 조인(선적:발주서=1:N, poId UNIQUE=발주서는 최대 1선적,
@@ -991,22 +991,22 @@ SamplePCB가 공급받는 자**다.
 | D27-2 | 거래명세서는 `선적 1건당 1건`(`STMT-SPB-{shipmentId}-R{packingRevision}`)이다. 묶인 PO·Case를 한 문서에 표시하되 행마다 PO와 Case를 남긴다. | 실제 한 박스에 들어간 물품과 문서 범위를 일치 |
 | D27-3 | 견적서 품목·가격·납기·MOQ·재고·Date Code·리드타임·회신 메모는 PO 발행 순간 `sp_bom_po*`에 복사하고 `quotationData` JSON에 발행자·수신자까지 스냅샷한다. 기능 도입 전에 발행된 PO는 GET에서 DB를 바꾸지 않고 불변 PO 거래조건과 현재 조직 사업자정보로 렌더링한다. | 신규 문서는 재회신·기준정보 변경의 소급 영향을 막고, 기존 문서 조회도 무부작용 원칙 유지 |
 | D27-4 | 거래명세서 수량은 저장된 Packing List의 활성 포장 수량 합계이며, 없으면 발주수량을 쓰되 `초안`으로 표시한다. Packing List가 확정되면 그 revision·포장·PO 스냅샷이 불변 원본이므로 별도 중복 원장을 만들지 않는다. | QR 추적 원장과 거래 문서 수량 불일치 방지 |
-| D27-5 | 국내 협력사(`country=KR`)만 공급가액과 VAT 10%를 분리하고, 해외 협력사에는 국내 VAT를 임의 적용하지 않는다. 국제 통관 문서는 D23 Commercial Invoice를 계속 사용한다. | 국내·국제 세금/통관 문서 의미 분리 |
+| D27-5 | 협력사 견적서·거래명세서는 국내 협력사(`country=KR`)의 국내 거래 문서이며 공급가액과 VAT 10%를 분리한다. 국제 통관 문서는 D23 Commercial Invoice를 사용한다. | 국내·국제 세금/통관 문서 의미 분리 |
 | D27-6 | `sp_partner`에 사업자번호·대표자·우편번호·사업장주소·업태·종목·팩스를 조직 단위로 저장한다. 계정별 회원 프로필에서 임의 추론하지 않는다. | 다계정 조직에서도 공식 발행자정보가 하나여야 함 |
 
-- **화면**: 파트너 발송 카드와 관리자 선적 모달의 [거래 문서]에서 묶음 PO별 [견적서]와
-  선적별 [거래명세서]를 연다. 공용 A4 컴포넌트를 사용하므로 양쪽 내용·인쇄 결과가 같다.
-  기존 국내 `invoice` 업로드 슬롯은 생성 문서와 혼동되지 않게 [별도 거래서류]로 이름을 바꿨다.
-- **API**: 파트너는 소유권을 재검증하는
+- **화면**: **국내 발송에서만** 파트너 발송 카드와 관리자 선적 모달의 [거래 문서]가
+  나타나고 묶음 PO별 [견적서]와 선적별 [거래명세서]를 연다. 공용 A4 컴포넌트를 사용하므로
+  양쪽 내용·인쇄 결과가 같다. 두 문서의 인쇄 여부는 발송 필수 조건이 아니다.
+- **API**: 다음 조회 API도 국내 거래만 허용한다. 파트너는 소유권을 재검증하는
   `GET /partner/pos/:poId/quotation`, `GET /partner/shipments/:shipmentId/statement`, 관리자는
   `GET /admin/bom-pos/:poId/quotation`, `GET /admin/bom-shipments/:shipmentId/statement`를 쓴다.
 - **데이터**: migration `20260802190000_add_bom_trade_documents`. 고객 BOM 견적서 모델·API와
-  기존 Commercial Invoice JSON/첨부는 변경하지 않는다.
+  기존 Commercial Invoice JSON/첨부는 삭제하지 않으며 국외 발송에서만 사용한다.
 - **검증**: 로컬 migration 적용, sp-node 608건 통과(통합환경 29건 제외), 공용 계약·sp-node·
   sp-vue typecheck/lint와 production build 통과. 관리자 파트너 사업자정보 모달을 실제 Chrome에서
   확인했고 콘솔 오류가 없었다. 로컬 DB에 선적 fixture가 없어 문서 버튼 실데이터 E2E는 수행하지 않았다.
 
-### 6.15 빠른 메일 보내기 (2026-08-02, 사용자 제안)
+### 6.19 빠른 메일 보내기 (2026-08-02, 사용자 제안)
 
 진행현황·견적관리 리스트에서 Case 맥락의 수동 CS 메일 — 자동 알림(전이 트리거)만
 있던 갭을 메운다. 결정 2건: **발송 이력 저장**(sp_mail_log — CS 기록, Case 상세
@@ -1029,6 +1029,41 @@ SamplePCB가 공급받는 자**다.
   기록.
 - E2E 11케이스(템플릿 생성·목록·삭제/컨텍스트/발송 200+Mailpit 실수신·첨부·HTML 셸/
   이력 정합/비허용 형식 400/수신자 형식 400) ALL PASS.
+
+### 6.20 국내·국외 발송 프로세스 분리 — D28 (2026-08-02)
+
+파트너 조직의 `country`를 실제 발송 출발국과 같은 개념으로 확정했다. 별도 출발국 필드나
+관리자 수동 모드 선택을 두지 않으며, 국내 거래 문서와 국제 통관 문서가 한 화면·API에서
+섞이던 D22/D27 초기 구현을 바로잡는다.
+
+| 결정 | 내용 | 이유 |
+| ---- | ---- | ---- |
+| D28-1 | 서버가 협력사 국가를 정규화해 `KR=domestic`, 그 외 등록 국가=`international`로 결정하고 선적 생성 시 박제한다. 국가 미입력은 국제로 추측하지 않는다. 관리자 요청 계약에서 `mode`를 제거하고 화면은 국가·파생 구분을 읽기 전용으로 표시한다. | 화면 기본값이 서버 결정을 덮던 결함 제거, 서버 단일 진실 유지 |
+| D28-2 | 승인된 사람 협력사에는 ISO 2자리 국가가 필수다. 관리자 생성·수정·승인과 PO 발행·신규 발송이 각각 서버에서 재검증한다. 레거시 승격 시드는 국가를 추측하지 않고 `pending`으로 생성한다. | 다음 초기 운영 세팅과 직접 API 호출에서도 누락 차단 |
+| D28-3 | 국내는 `배송 준비 → 배송 중 → 입고 완료` 3단계다. 최초 진행에 Packing List·QR, 택배사, 송장번호가 필수이고 견적서·거래명세서는 국내에서만 선택적으로 인쇄한다. Invoice·AWB·출고예정일은 노출하거나 새로 저장하지 않는다. | 국내 택배 실무에 필요한 최소 절차 |
+| D28-4 | 국외는 기존 `선적 준비 → 선적 요청 → 선적 → 국내도착 → 통관 → 완료` 6단계를 유지한다. Packing List·QR, 출고예정일, Commercial Invoice, AWB 흐름도 유지하며 국내 견적서·거래명세서는 제공하지 않는다. | 기존 국제 통관 프로세스 회귀 방지 |
+| D28-5 | 국내 최종 상태는 일반 상태 저장으로 진입할 수 없고 관리자 [입고 확인] 전용 API만 사용한다. 선적 `delivered`·`receivedAt`과 아직 `prepared`인 QR 포장의 `received` 이벤트를 한 DB 트랜잭션으로 커밋한다. | 파트너 화면 완료와 관리자 입고 큐·실물 추적 원장 불일치 방지 |
+| D28-6 | 기존 선적은 기록 보존을 위해 자동 재분류하지 않는다. 감사 스크립트의 `--apply`도 국가가 등록돼 있고, `preparing`이며 발송·Invoice·첨부·Packing List·QR 기록이 전혀 없는 모드 불일치만 변경한다. | 진행 중·완료 물류 기록의 의미를 소급 변경하지 않음 |
+
+- **업무 화면**: 파트너 [보내기]는 국내에 `QR·택배 정보`, 국외에
+  `QR·Invoice·출고예정일`을 안내한다. 발송 카드와 관리자 모달은 Packing List를 공통으로,
+  국내 거래 문서 또는 국외 Invoice/AWB를 상호 배타적으로 표시한다. 관리자 국내 최종 CTA는
+  일반 [진행]이 아니라 [입고 확인]으로 연결된다.
+- **API 방어**: 국내 선적의 Invoice/AWB 업로드 및 Commercial Invoice 초안·저장·엑셀을
+  거부하고, 국외 PO/선적의 협력사 견적서·거래명세서 조회는 제공하지 않는다. 과거 잘못 첨부된
+  실파일·JSON은 하드 삭제하지 않고 현재 응답에서만 숨긴다.
+- **기존 데이터 감사**:
+
+  ```bash
+  pnpm --filter api run smartbom:audit-shipment-modes
+  pnpm --filter api run smartbom:audit-shipment-modes -- --apply
+  ```
+
+  첫 명령은 항상 읽기 전용이다. 두 번째도 위 안전 조건을 만족한 불일치만 보정하며 국가 미입력과
+  진행 중 선적은 보고만 한다. 2026-08-02 로컬 감사에서는 승인 협력사 국가 누락 7건, 그 조직의
+  기존 선적 3건을 확인했고 국가를 추측할 수 없어 **변경 0건**으로 보존했다.
+- **데이터 모델**: 기존 `sp_partner.country`, `sp_bom_shipment.mode/receivedAt`, QR 원장을
+  재사용하므로 신규 DB 스키마 마이그레이션은 없다.
 
 ## 7. 레거시 교훈 승계 가드
 

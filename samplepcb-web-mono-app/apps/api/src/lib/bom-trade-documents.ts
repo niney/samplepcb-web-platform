@@ -9,6 +9,7 @@ import {
 import type { BusinessInfo } from './g5-db';
 import { getBusinessInfo } from './g5-db';
 import { prisma } from './prisma';
+import { shipmentModeFromCountry } from './bom-shipment-policy';
 
 // 협력사 발행 거래 문서의 서버 단일 원본. 고객용 BOM 견적서와 방향이 반대이며,
 // PO(수락한 견적)와 Packing List(실제 선적)를 각각 불변 근거로 사용한다.
@@ -89,7 +90,7 @@ export const samplePcbTradeParty = (business: BusinessInfo | null): BomTradePart
 });
 
 const vatOf = (supplyAmount: number, partnerCountry: string | null): number =>
-  partnerCountry === 'KR' ? Math.round(supplyAmount * 0.1) : 0;
+  shipmentModeFromCountry(partnerCountry) === 'domestic' ? Math.round(supplyAmount * 0.1) : 0;
 
 export const buildPartnerQuotationDocument = (
   source: TradeQuotationSource,
@@ -145,6 +146,7 @@ export const loadPartnerQuotationDocument = async (
     },
   });
   if (po === null || (partnerId !== undefined && po.partnerId !== partnerId)) return null;
+  if (shipmentModeFromCountry(po.partner.country) !== 'domestic') return null;
   const saved = BomPartnerQuotation.safeParse(po.quotationData);
   if (saved.success) return saved.data;
 
@@ -210,6 +212,7 @@ export const loadShipmentStatementDocument = async (
   });
   if (shipment === null) return null;
   if (partnerId !== undefined && shipment.po.partnerId !== partnerId) return null;
+  if (shipment.mode !== 'domestic') return null;
 
   const business = await getBusinessInfo();
   const packingByPoItem = new Map(
@@ -253,7 +256,7 @@ export const loadShipmentStatementDocument = async (
     isDraft: shipment.packingFinalizedAt === null,
     issuedAt: issuedAt.toISOString(),
     finalizedAt: shipment.packingFinalizedAt?.toISOString() ?? null,
-    mode: shipment.mode === 'domestic' ? 'domestic' : 'international',
+    mode: 'domestic',
     currency: pos[0]?.currency ?? shipment.po.partner.defaultCurrency,
     issuer: primaryQuotation.success
       ? primaryQuotation.data.issuer

@@ -185,7 +185,9 @@ async function submit(): Promise<void> {
       files: files.value,
     });
     sent.value = true;
-    window.setTimeout(() => emit('close'), 900);
+    window.setTimeout(() => {
+      emit('close');
+    }, 900);
   } catch (e) {
     error.value = e instanceof ApiRequestError ? e.message : '메일 발송에 실패했습니다.';
   }

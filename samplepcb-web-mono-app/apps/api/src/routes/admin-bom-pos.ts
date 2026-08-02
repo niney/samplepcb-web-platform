@@ -65,10 +65,10 @@ import {
   loadPartPackage,
   loadShipmentPackingList,
   markShipmentPackingListPrinted,
-  receiveAllShipmentPackages,
   saveShipmentPackingList,
   updatePartPackage,
 } from '../lib/bom-packing';
+import { shipmentModeFromCountry } from '../lib/bom-shipment-policy';
 
 // ── /api/admin/bom-quotes/:id/pos — 협력사 발주서(D18) ───────────────────────
 // 생성은 all-or-nothing(신중 액션): 결제 확인(od isPaid) 게이트 + 대상 행 재집계·박제.
@@ -90,29 +90,38 @@ const CREATE_ERROR_MESSAGE: Record<string, string> = {
   NOT_PAID: '결제 확인(입금) 후에 발주할 수 있습니다.',
   NO_ELIGIBLE_ROWS: '협력사 회신으로 선정된 부품행이 없는 협력사가 포함되어 있습니다.',
   ALREADY_ISSUED: '이미 발주서가 발행된 협력사가 포함되어 있습니다(재발행은 삭제 후).',
+  PARTNER_COUNTRY_REQUIRED: '발주 전에 선택한 협력사의 국가를 등록해 주세요.',
 };
 
 export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
 
   // 선적 해석·보장(§6.10 조인 기반) — 소속 선적을 찾고, 없으면 preparing 으로 생성.
-  const ensureAdminShipment = async (quoteId: bigint, poId: bigint) => {
+  const ensureAdminShipment = async (
+    quoteId: bigint,
+    poId: bigint,
+  ): Promise<
+    | { ok: true; shipment: Awaited<ReturnType<typeof prisma.spBomShipment.create>> }
+    | { ok: false; error: 'PO_NOT_FOUND' | 'PARTNER_COUNTRY_REQUIRED' }
+  > => {
     const po = await prisma.spBomPo.findUnique({
       where: { id: poId },
       include: { shipmentLink: { include: { shipment: true } }, partner: true },
     });
-    if (po?.quoteId !== quoteId) return null;
-    if (po.shipmentLink !== null) return po.shipmentLink.shipment;
+    if (po?.quoteId !== quoteId) return { ok: false, error: 'PO_NOT_FOUND' };
+    if (po.shipmentLink !== null) return { ok: true, shipment: po.shipmentLink.shipment };
+    const mode = shipmentModeFromCountry(po.partner.country);
+    if (mode === null) return { ok: false, error: 'PARTNER_COUNTRY_REQUIRED' };
     const created = await prisma.spBomShipment.create({
       data: {
         poId: po.id,
         quoteId: po.quoteId,
-        mode: po.partner.country === 'KR' ? 'domestic' : 'international',
+        mode,
         status: 'preparing',
       },
     });
     await prisma.spBomShipmentPo.create({ data: { shipmentId: created.id, poId: po.id } });
-    return created;
+    return { ok: true, shipment: created };
   };
 
   // ── GET — 발주서 목록(행 포함) ──────────────────────────────────────────────
@@ -164,7 +173,10 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (!result.ok) {
         return reply.status(409).send({
           error: result.error,
-          message: CREATE_ERROR_MESSAGE[result.error] ?? '발주서 생성에 실패했습니다.',
+          message:
+            result.error === 'PARTNER_COUNTRY_REQUIRED' && result.detail !== undefined
+              ? `${CREATE_ERROR_MESSAGE[result.error] ?? '협력사 국가를 먼저 등록해 주세요.'} (${result.detail})`
+              : (CREATE_ERROR_MESSAGE[result.error] ?? '발주서 생성에 실패했습니다.'),
         });
       }
 
@@ -281,12 +293,17 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const prevStatus = po.shipmentLink?.shipment.status ?? null;
       const result = await upsertShipment(po.id, request.body);
       if (!result.ok) {
+        const messages: Record<typeof result.error, string> = {
+          PO_NOT_FOUND: '발주서를 찾을 수 없습니다.',
+          INVALID_STATUS: '발송 구분에 맞지 않는 상태입니다.',
+          PARTNER_COUNTRY_REQUIRED: '협력사 관리에서 국가를 먼저 등록해 주세요.',
+          MISSING_PACKING_LIST: '선적 리스트와 QR 라벨을 먼저 저장해 주세요.',
+          MISSING_TRACKING: '국내 발송은 택배사와 송장번호가 필요합니다.',
+          RECEIVE_REQUIRED: '국내 입고 완료는 입고 확인 버튼으로 처리해 주세요.',
+        };
         return reply.status(409).send({
           error: result.error,
-          message:
-            result.error === 'INVALID_STATUS'
-              ? '선적 모드에 맞지 않는 상태입니다.'
-              : '발주서를 찾을 수 없습니다.',
+          message: messages[result.error],
         });
       }
       const freshLink = await prisma.spBomShipmentPo.findUnique({
@@ -334,19 +351,20 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (po?.quoteId !== request.params.id) {
         return reply.notFound('발주서를 찾을 수 없습니다');
       }
-      const result = await receiveShipment(po.id, request.body.note ?? null);
+      const result = await receiveShipment(po.id, request.body.note ?? null, {
+        type: 'ADMIN',
+        mbId: request.user.mbId,
+      });
       if (!result.ok) {
         return reply
           .status(409)
-          .send({ error: result.error, message: '입고 확인에 실패했습니다.' });
-      }
-      const shipmentLink = await prisma.spBomShipmentPo.findUnique({ where: { poId: po.id } });
-      if (shipmentLink !== null) {
-        await receiveAllShipmentPackages(
-          shipmentLink.shipmentId,
-          { type: 'ADMIN', mbId: request.user.mbId },
-          request.body.note ?? null,
-        );
+          .send({
+            error: result.error,
+            message:
+              result.error === 'PARTNER_COUNTRY_REQUIRED'
+                ? '협력사 관리에서 국가를 먼저 등록해 주세요.'
+                : '입고 확인에 실패했습니다.',
+          });
       }
       if (po.partner.type === 'partner') {
         void sendBomRfqMail(
@@ -366,7 +384,12 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
   // ── 선적 첨부(D22) — 업로드(종류별 1건, 재업로드=교체)·삭제·다운로드 ─────────
   fastify.post(
     '/bom-quotes/:id/pos/:poId/shipment/files',
-    { schema: { params: PoParams, response: { 200: AdminBomPoMutationResponse, 400: ApiError } } },
+    {
+      schema: {
+        params: PoParams,
+        response: { 200: AdminBomPoMutationResponse, 400: ApiError, 409: ApiError },
+      },
+    },
     async (request, reply) => {
       const { files, fields } = await collectMultipart(request);
       const kind = BomShipmentFileType.safeParse(fields.fileType);
@@ -378,9 +401,21 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         });
       }
       // 선적 문서가 없으면 preparing 으로 생성해 파일부터 받는다(협력사 흐름과 동일).
-      const shipment = await ensureAdminShipment(request.params.id, request.params.poId);
-      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      await saveShipmentFile(shipment.id, kind.data, file, 'ADMIN');
+      const ensured = await ensureAdminShipment(request.params.id, request.params.poId);
+      if (!ensured.ok) {
+        if (ensured.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
+        return reply.status(409).send({
+          error: ensured.error,
+          message: '협력사 관리에서 국가를 먼저 등록해 주세요.',
+        });
+      }
+      const saved = await saveShipmentFile(ensured.shipment.id, kind.data, file, 'ADMIN');
+      if (!saved) {
+        return reply.status(409).send({
+          error: 'INTERNATIONAL_DOCUMENT_ONLY',
+          message: 'Invoice와 AWB는 국외 발송에서만 사용합니다.',
+        });
+      }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
     },
   );
@@ -450,6 +485,12 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
 
   // ── 상업송장 생성기(D23) — 초안·저장·엑셀(협력사와 같은 데이터, 관리자 대리 작성) ──
   const InvoiceQuery = z.object({ fresh: z.coerce.boolean().default(false) });
+  const invoiceModeOf = (
+    po: NonNullable<Awaited<ReturnType<typeof loadPoForInvoice>>>,
+  ) =>
+    po.shipmentLink === null
+      ? shipmentModeFromCountry(po.partner.country)
+      : asShipmentMode(po.shipmentLink.shipment.mode);
 
   fastify.get(
     '/bom-quotes/:id/pos/:poId/shipment/invoice',
@@ -457,7 +498,7 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       schema: {
         params: PoParams,
         querystring: InvoiceQuery,
-        response: { 200: BomInvoiceDraftResponse },
+        response: { 200: BomInvoiceDraftResponse, 409: ApiError },
       },
     },
     async (request, reply) => {
@@ -465,6 +506,19 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.quoteId !== request.params.id) {
         return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const mode = invoiceModeOf(po);
+      if (mode === null) {
+        return reply.status(409).send({
+          error: 'PARTNER_COUNTRY_REQUIRED',
+          message: '협력사 관리에서 국가를 먼저 등록해 주세요.',
+        });
+      }
+      if (mode !== 'international') {
+        return reply.status(409).send({
+          error: 'INTERNATIONAL_DOCUMENT_ONLY',
+          message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
+        });
       }
       return { result: true as const, data: await buildInvoiceDraft(po, request.query.fresh) };
     },
@@ -476,13 +530,25 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       schema: {
         params: PoParams,
         body: BomInvoiceData,
-        response: { 200: BomInvoiceDraftResponse },
+        response: { 200: BomInvoiceDraftResponse, 409: ApiError },
       },
     },
     async (request, reply) => {
-      const shipment = await ensureAdminShipment(request.params.id, request.params.poId);
-      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      await saveInvoiceData(shipment.id, request.body);
+      const ensured = await ensureAdminShipment(request.params.id, request.params.poId);
+      if (!ensured.ok) {
+        if (ensured.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
+        return reply.status(409).send({
+          error: ensured.error,
+          message: '협력사 관리에서 국가를 먼저 등록해 주세요.',
+        });
+      }
+      if (asShipmentMode(ensured.shipment.mode) !== 'international') {
+        return reply.status(409).send({
+          error: 'INTERNATIONAL_DOCUMENT_ONLY',
+          message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
+        });
+      }
+      await saveInvoiceData(ensured.shipment.id, request.body);
       return { result: true as const, data: request.body };
     },
   );
@@ -491,11 +557,23 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     '/bom-quotes/:id/pos/:poId/shipment/invoice/xlsx',
     { schema: { params: PoParams, body: BomInvoiceData } },
     async (request, reply) => {
-      const shipment = await ensureAdminShipment(request.params.id, request.params.poId);
-      if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      await saveInvoiceData(shipment.id, request.body);
+      const ensured = await ensureAdminShipment(request.params.id, request.params.poId);
+      if (!ensured.ok) {
+        if (ensured.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
+        return reply.status(409).send({
+          error: ensured.error,
+          message: '협력사 관리에서 국가를 먼저 등록해 주세요.',
+        });
+      }
+      if (asShipmentMode(ensured.shipment.mode) !== 'international') {
+        return reply.status(409).send({
+          error: 'INTERNATIONAL_DOCUMENT_ONLY',
+          message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
+        });
+      }
+      await saveInvoiceData(ensured.shipment.id, request.body);
       const buffer = await renderInvoiceXlsx(request.body);
-      const base = (request.body.invoiceNo || `invoice-${String(shipment.id)}`).replace(
+      const base = (request.body.invoiceNo || `invoice-${String(ensured.shipment.id)}`).replace(
         /[^\w.-]+/g,
         '_',
       );

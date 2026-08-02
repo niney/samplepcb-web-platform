@@ -63,6 +63,7 @@ import {
   partnerCanAccessPacking,
   saveShipmentPackingList,
 } from '../lib/bom-packing';
+import { shipmentModeFromCountry } from '../lib/bom-shipment-policy';
 
 // ── /api/partner/pos — 협력사 포털: 받은 발주(D18-8) + 선적 핑퐁(D22) ────────
 // requirePartner 가 매 요청 소속을 서버 판정. 노출은 자기 발주서의 품목·수량·단가뿐
@@ -83,6 +84,7 @@ const ADVANCE_ERROR_MESSAGE: Record<PartnerShipmentError, string> = {
   MISSING_TRACKING: '택배사와 송장번호를 입력해 주세요.',
   INVALID_GROUP_PO: '담을 수 없는 발주서입니다 — 목록을 새로고침해 주세요.',
   NOT_PREPARING: '발송 준비 단계에서만 박스를 변경할 수 있습니다.',
+  PARTNER_COUNTRY_REQUIRED: '협력사 국가 정보가 없습니다. 샘플피씨비 담당자에게 문의해 주세요.',
 };
 
 export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
@@ -255,7 +257,10 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       if (!result.ok) {
         return reply.status(409).send({
           error: result.error,
-          message: '선택한 발주서를 담을 수 없습니다 — 목록을 새로고침해 주세요.',
+          message:
+            result.error === 'PARTNER_COUNTRY_REQUIRED'
+              ? ADVANCE_ERROR_MESSAGE.PARTNER_COUNTRY_REQUIRED
+              : '선택한 발주서를 담을 수 없습니다 — 목록을 새로고침해 주세요.',
         });
       }
       const items = await loadPartnerShipments(ctx.partnerId);
@@ -463,7 +468,12 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
   // requirePartner 훅이 본문 소비 전에 인증을 마친다(관리자 훅+multipart 라우트와 동일 구성).
   fastify.post(
     '/partner/pos/:poId/shipment/files',
-    { schema: { params: PoIdParams, response: { 200: PartnerPoDetailResponse, 400: ApiError } } },
+    {
+      schema: {
+        params: PoIdParams,
+        response: { 200: PartnerPoDetailResponse, 400: ApiError, 409: ApiError },
+      },
+    },
     async (request, reply) => {
       const ctx = request.partnerContext;
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
@@ -478,7 +488,13 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       }
       const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
       if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
-      await saveShipmentFile(shipment.id, kind.data, file, 'PARTNER');
+      const saved = await saveShipmentFile(shipment.id, kind.data, file, 'PARTNER');
+      if (!saved) {
+        return reply.status(409).send({
+          error: 'INTERNATIONAL_DOCUMENT_ONLY',
+          message: 'Invoice와 AWB는 국외 발송에서만 사용합니다.',
+        });
+      }
       const detail = await loadDetail(request.params.poId, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
       return { result: true as const, data: detail };
@@ -524,6 +540,12 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
 
   // ── 상업송장 생성기(D23) — 초안(저장본 우선·fresh 재조립)·저장·엑셀 렌더 ────
   const InvoiceQuery = z.object({ fresh: z.coerce.boolean().default(false) });
+  const invoiceModeOf = (
+    po: NonNullable<Awaited<ReturnType<typeof loadPoForInvoice>>>,
+  ) =>
+    po.shipmentLink === null
+      ? shipmentModeFromCountry(po.partner.country)
+      : asShipmentMode(po.shipmentLink.shipment.mode);
 
   fastify.get(
     '/partner/pos/:poId/shipment/invoice',
@@ -531,7 +553,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       schema: {
         params: PoIdParams,
         querystring: InvoiceQuery,
-        response: { 200: BomInvoiceDraftResponse },
+        response: { 200: BomInvoiceDraftResponse, 409: ApiError },
       },
     },
     async (request, reply) => {
@@ -541,6 +563,19 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.partnerId !== ctx.partnerId) {
         return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      const mode = invoiceModeOf(po);
+      if (mode === null) {
+        return reply.status(409).send({
+          error: 'PARTNER_COUNTRY_REQUIRED',
+          message: ADVANCE_ERROR_MESSAGE.PARTNER_COUNTRY_REQUIRED,
+        });
+      }
+      if (mode !== 'international') {
+        return reply.status(409).send({
+          error: 'INTERNATIONAL_DOCUMENT_ONLY',
+          message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
+        });
       }
       return { result: true as const, data: await buildInvoiceDraft(po, request.query.fresh) };
     },
@@ -552,7 +587,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       schema: {
         params: PoIdParams,
         body: BomInvoiceData,
-        response: { 200: BomInvoiceDraftResponse },
+        response: { 200: BomInvoiceDraftResponse, 409: ApiError },
       },
     },
     async (request, reply) => {
@@ -560,6 +595,12 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
       const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
       if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (asShipmentMode(shipment.mode) !== 'international') {
+        return reply.status(409).send({
+          error: 'INTERNATIONAL_DOCUMENT_ONLY',
+          message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
+        });
+      }
       await saveInvoiceData(shipment.id, request.body);
       return { result: true as const, data: request.body };
     },
@@ -574,6 +615,12 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
       const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
       if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (asShipmentMode(shipment.mode) !== 'international') {
+        return reply.status(409).send({
+          error: 'INTERNATIONAL_DOCUMENT_ONLY',
+          message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
+        });
+      }
       await saveInvoiceData(shipment.id, request.body);
       const buffer = await renderInvoiceXlsx(request.body);
       const base = (request.body.invoiceNo || `invoice-${String(shipment.id)}`).replace(

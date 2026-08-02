@@ -116,6 +116,10 @@ async function submitCreate(): Promise<void> {
     createError.value = '이름(회사명)을 입력해 주세요.';
     return;
   }
+  if (createForm.value.type === 'partner' && createForm.value.country.trim() === '') {
+    createError.value = '승인 협력사는 국가(ISO 2)를 입력해 주세요.';
+    return;
+  }
   const body: AdminPartnerCreateBodyType = {
     type: createForm.value.type,
     name: createForm.value.name.trim(),
@@ -184,6 +188,14 @@ watch(detail, (d) => {
 async function submitUpdate(): Promise<void> {
   if (selectedId.value === null) return;
   editError.value = '';
+  if (
+    detail.value?.status === 'approved' &&
+    editForm.value.type === 'partner' &&
+    editForm.value.country.trim() === ''
+  ) {
+    editError.value = '승인 협력사는 국가(ISO 2)를 입력해 주세요.';
+    return;
+  }
   try {
     await updateMut.mutateAsync({
       partnerId: selectedId.value,
@@ -222,6 +234,14 @@ async function changeStatus(status: PartnerStatusType): Promise<void> {
   statusError.value = '';
   if (status === 'suspended' && statusReason.value.trim() === '') {
     statusError.value = '정지 사유를 입력해 주세요.';
+    return;
+  }
+  if (
+    status === 'approved' &&
+    detail.value?.type === 'partner' &&
+    (detail.value.country ?? '').trim() === ''
+  ) {
+    statusError.value = '조직 정보에서 국가를 저장한 뒤 승인해 주세요.';
     return;
   }
   try {
@@ -481,7 +501,7 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
                 class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono"
               >
             </label>
-            <label class="text-gray-500">국가(ISO 2)
+            <label class="text-gray-500">국가(ISO 2){{ editForm.type === 'partner' ? ' *' : '' }}
               <input
                 v-model="editForm.country"
                 type="text"
@@ -769,7 +789,7 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
               class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono"
             >
           </label>
-          <label class="text-gray-500">국가(ISO 2)
+          <label class="text-gray-500">국가(ISO 2){{ createForm.type === 'partner' ? ' *' : '' }}
             <input
               v-model="createForm.country"
               type="text"

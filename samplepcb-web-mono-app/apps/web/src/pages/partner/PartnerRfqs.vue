@@ -32,6 +32,9 @@ const toConfirm = computed(() => poItems.value.filter((po) => po.status === 'iss
 const toShip = computed(
   () => poItems.value.filter((po) => po.status !== 'issued' && !po.shipmentAttached),
 );
+const countryBlockedCount = computed(
+  () => toShip.value.filter((po) => !po.shipmentCountryReady).length,
+);
 
 // 서버 tab=active — 협력사 관점 완료(최종 상태·입고 확인)는 제외돼 온다(§6.11 분리).
 const shipments = computed(() => shipmentsQuery.data.value?.data.items ?? []);
@@ -114,6 +117,9 @@ const rfqStatusCls = (s: string): string =>
           </p>
           <p v-if="preparingCount > 0" class="mt-0.5 text-xs font-bold text-indigo-600">
             준비 중인 박스 {{ preparingCount }}건 — 계속하기 →
+          </p>
+          <p v-else-if="countryBlockedCount > 0" class="mt-0.5 text-xs font-semibold text-red-600">
+            국가 정보 필요 {{ countryBlockedCount }}건
           </p>
           <p v-else-if="toShip.length > 0" class="mt-0.5 text-xs font-semibold text-indigo-600">보내기 →</p>
         </RouterLink>

@@ -277,7 +277,9 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
                 </span>
                 <span v-if="item.adminPending" class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">처리 필요</span>
               </td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(item.shipDate) }}</td>
+              <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">
+                {{ item.mode === 'international' ? fmtDate(item.shipDate) : '—' }}
+              </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
                 <template v-if="item.trackingNumber !== null">{{ item.carrier ?? '' }} {{ item.trackingNumber }}</template>
                 <span v-else class="text-gray-300">—</span>

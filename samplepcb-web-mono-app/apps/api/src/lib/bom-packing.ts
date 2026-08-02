@@ -575,37 +575,47 @@ export const voidShipmentPackagesForPo = async (
 };
 
 /** 기존 선적 전체 입고 액션과 QR 원장을 동기화(이미 입고 이후 상태는 내리지 않음). */
-export const receiveAllShipmentPackages = async (
+export const receiveAllShipmentPackagesInTransaction = async (
+  tx: Prisma.TransactionClient,
   shipmentId: bigint,
   actor: BomPackingActor,
   note: string | null,
+  now = new Date(),
 ): Promise<void> => {
-  const packages = await prisma.spBomPartPackage.findMany({
+  const packages = await tx.spBomPartPackage.findMany({
     where: {
       shipmentItem: { shipmentId },
       voidedAt: null,
       status: 'prepared',
     },
   });
-  const now = new Date();
-  await prisma.$transaction(async (tx) => {
-    for (const pkg of packages) {
-      const updated = await tx.spBomPartPackage.updateMany({
-        where: { id: pkg.id, status: 'prepared', voidedAt: null },
-        data: { status: 'received', receivedAt: pkg.receivedAt ?? now },
-      });
-      if (updated.count !== 1) continue;
-      await createEvent(tx, {
-        packageId: pkg.id,
-        eventType: 'received',
-        actor,
-        fromStatus: 'prepared',
-        toStatus: 'received',
-        quantity: pkg.quantity,
-        note,
-      });
-    }
-  });
+  for (const pkg of packages) {
+    const updated = await tx.spBomPartPackage.updateMany({
+      where: { id: pkg.id, status: 'prepared', voidedAt: null },
+      data: { status: 'received', receivedAt: pkg.receivedAt ?? now },
+    });
+    if (updated.count !== 1) continue;
+    await createEvent(tx, {
+      packageId: pkg.id,
+      eventType: 'received',
+      actor,
+      fromStatus: 'prepared',
+      toStatus: 'received',
+      quantity: pkg.quantity,
+      note,
+    });
+  }
+};
+
+/** 단독 QR 입고 동기화. 선적 상태와 함께 바꿀 때는 위 transaction 버전을 사용한다. */
+export const receiveAllShipmentPackages = async (
+  shipmentId: bigint,
+  actor: BomPackingActor,
+  note: string | null,
+): Promise<void> => {
+  await prisma.$transaction((tx) =>
+    receiveAllShipmentPackagesInTransaction(tx, shipmentId, actor, note),
+  );
 };
 
 export interface PackageTransition {

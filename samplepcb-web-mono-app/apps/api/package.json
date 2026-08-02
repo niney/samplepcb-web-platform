@@ -26,6 +26,7 @@
     "pricing:capture": "tsx src/scripts/capture-legacy-pricing-goldens.ts",
     "market:seed": "tsx --env-file=.env src/scripts/seed-market-house-expert.ts",
     "smartbom:seed-partners": "tsx --env-file=.env src/scripts/seed-smartbom-partners.ts",
+    "smartbom:audit-shipment-modes": "tsx --env-file=.env src/scripts/audit-bom-shipment-modes.ts",
     "market:seed-anchor": "tsx --env-file=.env src/scripts/seed-market-anchor-item.ts",
     "db:migrate": "prisma migrate dev",
     "clean": "rimraf dist .turbo",

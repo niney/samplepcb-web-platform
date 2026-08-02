@@ -34,7 +34,7 @@ function openExternal(url: string): void {
   window.open(url, '_blank', 'noopener');
 }
 
-// 선적 요약 라벨 — 국내 preparing 은 '배송준비'(레거시 국내 3단계 표기)
+// 선적 요약 라벨 — 국내 preparing 은 '배송 준비'
 function shipmentLabel(po: AdminBomPoViewType): string {
   const shipment = po.shipment;
   if (shipment === null) return '—';

@@ -142,7 +142,7 @@ export type AdminPartnerDetailResponseType = z.infer<typeof AdminPartnerDetailRe
 
 // 생성 — 등록 원천이 관리자라 기본 approved(즉시 RFQ 대상). supplierCode 는
 // supplier·house 에서만 의미가 있으며 라우트가 유형 정합을 검증한다.
-export const AdminPartnerCreateBody = z.object({
+const AdminPartnerCreateFields = z.object({
   type: PartnerType,
   name: z.string().trim().min(1).max(191),
   supplierCode: PartnerSupplierCode.nullish(),
@@ -172,10 +172,19 @@ export const AdminPartnerCreateBody = z.object({
   fax: z.string().trim().max(50).nullish(),
   memo: z.string().max(5000).nullish(),
 });
+export const AdminPartnerCreateBody = AdminPartnerCreateFields.superRefine((value, ctx) => {
+  if (value.type === 'partner' && value.status === 'approved' && value.country == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: '승인 협력사는 국가가 필요합니다.',
+      path: ['country'],
+    });
+  }
+});
 export type AdminPartnerCreateBodyType = z.infer<typeof AdminPartnerCreateBody>;
 
 // 수정 — 부분 갱신. status 는 전용 엔드포인트(감사 기록)로만 변경한다.
-export const AdminPartnerUpdateBody = AdminPartnerCreateBody.omit({ status: true }).partial();
+export const AdminPartnerUpdateBody = AdminPartnerCreateFields.omit({ status: true }).partial();
 export type AdminPartnerUpdateBodyType = z.infer<typeof AdminPartnerUpdateBody>;
 
 // 상태 변경 — suspended 는 사유 필수(감사·통지).

@@ -46,9 +46,15 @@ import {
 import {
   finalizeShipmentPackingList,
   reopenShipmentPackingList,
+  receiveAllShipmentPackagesInTransaction,
   shipmentPackingListIsComplete,
   voidShipmentPackagesForPo,
 } from './bom-packing';
+import type { BomPackingActor } from './bom-packing';
+import {
+  shipmentModeDiffersFromCountry,
+  shipmentModeFromCountry,
+} from './bom-shipment-policy';
 
 // ── 협력사 발주 코어(D18, docs/SMARTBOM_PARTNER_RFQ.md §6.1) ────────────────
 // 발주서 = 박제 문서: 생성 시점의 부품·수량·단가(선정 회신가 스냅샷)를 복사해
@@ -142,7 +148,8 @@ export const toShipmentView = (
     receivedAt: shipment.receivedAt?.toISOString() ?? null,
     receivedNote: shipment.receivedNote,
     completedAt: shipment.completedAt?.toISOString() ?? null,
-    files,
+    // Invoice/AWB는 국제 전용이다. 과거 국내 첨부는 삭제하지 않되 현재 업무 UI에는 내리지 않는다.
+    files: mode === 'international' ? files : [],
     groupPos,
   };
 };
@@ -182,11 +189,17 @@ export const toAdminPoView = (
   groupPos: BomShipmentGroupPoType[] = [],
 ): AdminBomPoViewType => {
   const shipment = linkedShipment(po);
+  const existingMode = shipment === null ? null : asShipmentMode(shipment.mode);
+  const shipmentMode = existingMode ?? shipmentModeFromCountry(po.partner.country);
   return {
     poId: Number(po.id),
     partnerId: Number(po.partnerId),
     partnerName: po.partner.name,
     supplierCode: po.partner.supplierCode,
+    partnerCountry: po.partner.country,
+    shipmentMode,
+    shipmentModeMismatch:
+      existingMode !== null && shipmentModeDiffersFromCountry(existingMode, po.partner.country),
     status: asBomPoStatus(po.status),
     totalAmount: po.totalAmount,
     currency: po.currency,
@@ -437,7 +450,12 @@ export type CreatePosResult =
   | { ok: true; partners: SpPartner[] }
   | {
       ok: false;
-      error: 'QUOTE_NOT_FOUND' | 'NOT_PAID' | 'NO_ELIGIBLE_ROWS' | 'ALREADY_ISSUED';
+      error:
+        | 'QUOTE_NOT_FOUND'
+        | 'NOT_PAID'
+        | 'NO_ELIGIBLE_ROWS'
+        | 'ALREADY_ISSUED'
+        | 'PARTNER_COUNTRY_REQUIRED';
       detail?: string;
     };
 
@@ -476,10 +494,21 @@ export const createBomPos = async (
     };
   }
 
-  const [partners, business] = await Promise.all([
-    prisma.spPartner.findMany({ where: { id: { in: wanted } } }),
-    getBusinessInfo(),
-  ]);
+  const partners = await prisma.spPartner.findMany({ where: { id: { in: wanted } } });
+  const missingCountries = partners.filter(
+    (partner) => shipmentModeFromCountry(partner.country) === null,
+  );
+  if (missingCountries.length > 0) {
+    return {
+      ok: false,
+      error: 'PARTNER_COUNTRY_REQUIRED',
+      detail: missingCountries.map((partner) => partner.name).join(', '),
+    };
+  }
+  const needsDomesticDocument = partners.some(
+    (partner) => shipmentModeFromCountry(partner.country) === 'domestic',
+  );
+  const business = needsDomesticDocument ? await getBusinessInfo() : null;
   const partnerById = new Map(partners.map((partner) => [partner.id, partner] as const));
   await prisma.$transaction(async (tx) => {
     for (const partnerId of wanted) {
@@ -525,26 +554,29 @@ export const createBomPos = async (
         orderBy: { id: 'asc' },
       });
       if (partner === undefined) throw new Error(`Partner not found: ${String(partnerId)}`);
-      const quotation = buildPartnerQuotationDocument(
-        {
-          id: po.id,
-          quoteId,
-          quoteTitle: quote.title,
-          issuedAt: po.issuedAt,
-          currency: po.currency,
-          totalAmount,
-          quotationDeliveryDate: po.quotationDeliveryDate,
-          quotationMemo: po.quotationMemo,
-          partner,
-          items,
-        },
-        business,
-        po.issuedAt,
-      );
-      await tx.spBomPo.update({
-        where: { id: po.id },
-        data: { quotationData: quotation },
-      });
+      // 국내 거래 문서만 발행 시점에 박제한다. 국외 발송은 Commercial Invoice가 정본이다.
+      if (shipmentModeFromCountry(partner.country) === 'domestic') {
+        const quotation = buildPartnerQuotationDocument(
+          {
+            id: po.id,
+            quoteId,
+            quoteTitle: quote.title,
+            issuedAt: po.issuedAt,
+            currency: po.currency,
+            totalAmount,
+            quotationDeliveryDate: po.quotationDeliveryDate,
+            quotationMemo: po.quotationMemo,
+            partner,
+            items,
+          },
+          business,
+          po.issuedAt,
+        );
+        await tx.spBomPo.update({
+          where: { id: po.id },
+          data: { quotationData: quotation },
+        });
+      }
     }
   });
   return { ok: true, partners };
@@ -614,7 +646,17 @@ export const executeExternalPo = async (poId: bigint): Promise<ExecuteExternalRe
 
 // ── 선적 관리(D21) — 경량: 발주서당 1건, mode 는 생성 시 박제 ─────────────────
 export type ShipmentUpsertResult =
-  { ok: true } | { ok: false; error: 'PO_NOT_FOUND' | 'INVALID_STATUS' };
+  | { ok: true }
+  | {
+      ok: false;
+      error:
+        | 'PO_NOT_FOUND'
+        | 'INVALID_STATUS'
+        | 'PARTNER_COUNTRY_REQUIRED'
+        | 'MISSING_PACKING_LIST'
+        | 'MISSING_TRACKING'
+        | 'RECEIVE_REQUIRED';
+    };
 
 const finalStatusOf = (mode: BomShipmentModeType): BomShipmentStatusType =>
   mode === 'domestic' ? 'delivered' : 'done';
@@ -634,16 +676,42 @@ export const upsertShipment = async (
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
   const existing = linkedShipment(po);
 
-  // mode: 기존 박제 우선 → 요청값 → 협력사 국가 기본값(KR=국내, 그 외=국제)
-  const mode: BomShipmentModeType =
-    existing !== null
-      ? asShipmentMode(existing.mode)
-      : (body.mode ?? (po.partner.country === 'KR' ? 'domestic' : 'international'));
+  // mode: 기존 박제 우선 → 신규는 협력사 국가만. 국가 미입력을 국제로 추측하지 않는다.
+  const mode =
+    existing !== null ? asShipmentMode(existing.mode) : shipmentModeFromCountry(po.partner.country);
+  if (mode === null) return { ok: false, error: 'PARTNER_COUNTRY_REQUIRED' };
   const allowed = shipmentStatusesFor(mode);
   const status: BomShipmentStatusType =
     body.status ?? (existing !== null ? asShipmentStatus(mode, existing.status) : 'preparing');
   if (!(allowed as readonly string[]).includes(status)) {
     return { ok: false, error: 'INVALID_STATUS' };
+  }
+  // 국내 최종 상태는 입고 시각·QR 포장 원장을 함께 갱신하는 전용 유스케이스만 허용한다.
+  if (mode === 'domestic' && status === 'delivered' && existing?.receivedAt == null) {
+    return { ok: false, error: 'RECEIVE_REQUIRED' };
+  }
+
+  if (
+    status !== 'preparing' &&
+    (existing === null ||
+      (existing.status === 'preparing' && !(await shipmentPackingListIsComplete(existing.id))))
+  ) {
+    return { ok: false, error: 'MISSING_PACKING_LIST' };
+  }
+  const effectiveCarrier =
+    body.carrier === undefined ? existing?.carrier ?? null : body.carrier ?? null;
+  const effectiveTracking =
+    body.trackingNumber === undefined
+      ? existing?.trackingNumber ?? null
+      : body.trackingNumber ?? null;
+  if (
+    mode === 'domestic' &&
+    status === 'shipping' &&
+    (effectiveCarrier === null ||
+      effectiveCarrier === '' ||
+      effectiveTracking === null || effectiveTracking === '')
+  ) {
+    return { ok: false, error: 'MISSING_TRACKING' };
   }
 
   const shippedIdx = allowed.indexOf(shippedStatusOf(mode));
@@ -654,7 +722,10 @@ export const upsertShipment = async (
     ...(body.carrier !== undefined ? { carrier: body.carrier ?? null } : {}),
     ...(body.trackingNumber !== undefined ? { trackingNumber: body.trackingNumber ?? null } : {}),
     ...(body.trackingUrl !== undefined ? { trackingUrl: body.trackingUrl ?? null } : {}),
-    ...(body.shipDate !== undefined ? { shipDate: parseShipDate(body.shipDate) } : {}),
+    // 출고예정일은 국외 통관 흐름에만 존재한다. 과거 국내 값은 지우지 않되 새로 저장하지 않는다.
+    ...(mode === 'international' && body.shipDate !== undefined
+      ? { shipDate: parseShipDate(body.shipDate) }
+      : {}),
     // 발송 시점은 최초 진입에 박제(되돌려도 유지), 최종완료는 이탈 시 해제(레거시 관례)
     shippedAt: existing?.shippedAt ?? (isShippedOrLater ? new Date() : null),
     completedAt: isFinal ? (existing?.completedAt ?? new Date()) : null,
@@ -690,6 +761,7 @@ const parseShipDate = (v: string | null | undefined): Date | null => {
 export const receiveShipment = async (
   poId: bigint,
   note: string | null,
+  actor: BomPackingActor,
 ): Promise<ShipmentUpsertResult> => {
   const po = await prisma.spBomPo.findUnique({
     where: { id: poId },
@@ -697,12 +769,9 @@ export const receiveShipment = async (
   });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
   const existing = linkedShipment(po);
-  const mode: BomShipmentModeType =
-    existing !== null
-      ? asShipmentMode(existing.mode)
-      : po.partner.country === 'KR'
-        ? 'domestic'
-        : 'international';
+  const mode =
+    existing !== null ? asShipmentMode(existing.mode) : shipmentModeFromCountry(po.partner.country);
+  if (mode === null) return { ok: false, error: 'PARTNER_COUNTRY_REQUIRED' };
   const now = new Date();
   const data = {
     status: finalStatusOf(mode),
@@ -711,14 +780,18 @@ export const receiveShipment = async (
     completedAt: existing?.completedAt ?? now,
     shippedAt: existing?.shippedAt ?? now,
   };
-  if (existing !== null) {
-    await prisma.spBomShipment.update({ where: { id: existing.id }, data });
-  } else {
-    const created = await prisma.spBomShipment.create({
-      data: { poId: po.id, quoteId: po.quoteId, mode, ...data },
-    });
-    await prisma.spBomShipmentPo.create({ data: { shipmentId: created.id, poId: po.id } });
-  }
+  await prisma.$transaction(async (tx) => {
+    const shipment =
+      existing !== null
+        ? await tx.spBomShipment.update({ where: { id: existing.id }, data })
+        : await tx.spBomShipment.create({
+            data: { poId: po.id, quoteId: po.quoteId, mode, ...data },
+          });
+    if (existing === null) {
+      await tx.spBomShipmentPo.create({ data: { shipmentId: shipment.id, poId: po.id } });
+    }
+    await receiveAllShipmentPackagesInTransaction(tx, shipment.id, actor, note, now);
+  });
   return { ok: true };
 };
 
@@ -738,21 +811,19 @@ const loadPartnerPo = async (poId: bigint, partnerId: bigint): Promise<PoWithShi
   return po;
 };
 
-const defaultModeOf = (po: PoWithShipment): BomShipmentModeType => {
+const defaultModeOf = (po: PoWithShipment): BomShipmentModeType | null => {
   const shipment = linkedShipment(po);
-  return shipment !== null
-    ? asShipmentMode(shipment.mode)
-    : po.partner.country === 'KR'
-      ? 'domestic'
-      : 'international';
+  return shipment !== null ? asShipmentMode(shipment.mode) : shipmentModeFromCountry(po.partner.country);
 };
 
 /** 선적 문서 보장 — 파일 첨부가 전이보다 먼저 올 수 있어 preparing 으로 생성해 둔다. */
-const ensureShipment = async (po: PoWithShipment): Promise<SpBomShipment> => {
+const ensureShipment = async (po: PoWithShipment): Promise<SpBomShipment | null> => {
   const existing = linkedShipment(po);
   if (existing !== null) return existing;
+  const mode = defaultModeOf(po);
+  if (mode === null) return null;
   const created = await prisma.spBomShipment.create({
-    data: { poId: po.id, quoteId: po.quoteId, mode: defaultModeOf(po), status: 'preparing' },
+    data: { poId: po.id, quoteId: po.quoteId, mode, status: 'preparing' },
   });
   await prisma.spBomShipmentPo.create({ data: { shipmentId: created.id, poId: po.id } });
   return created;
@@ -768,7 +839,8 @@ export type PartnerShipmentError =
   | 'MISSING_PACKING_LIST'
   | 'MISSING_TRACKING'
   | 'INVALID_GROUP_PO'
-  | 'NOT_PREPARING';
+  | 'NOT_PREPARING'
+  | 'PARTNER_COUNTRY_REQUIRED';
 export type PartnerShipmentResult =
   { ok: true; advancedTo?: BomShipmentStatusType } | { ok: false; error: PartnerShipmentError };
 
@@ -782,13 +854,14 @@ export const advancePartnerShipment = async (
   const po = await loadPartnerPo(poId, partnerId);
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
   const shipment = await ensureShipment(po);
+  if (shipment === null) return { ok: false, error: 'PARTNER_COUNTRY_REQUIRED' };
   const mode = asShipmentMode(shipment.mode);
   const current = asShipmentStatus(mode, shipment.status);
   const next = bomShipmentNextStatus(mode, current);
   if (next === null) return { ok: false, error: 'ALREADY_FINAL' };
   if (bomShipmentActorOf(mode, next) !== 'PARTNER') return { ok: false, error: 'NOT_YOUR_TURN' };
 
-  // 함께 발송(§6.10) — 최초 발송 전이(선적 요청/배송중 진입)에서만, 같은 협력사·미소속.
+  // 함께 발송(§6.10) — 최초 발송 전이(선적 요청/배송 중 진입)에서만, 같은 협력사·미소속.
   const withPoIds = [...new Set(body.withPoIds ?? [])].filter((id) => BigInt(id) !== po.id);
   if (withPoIds.length > 0) {
     if (next !== 'requested' && next !== 'shipping') {
@@ -828,7 +901,7 @@ export const advancePartnerShipment = async (
     if (invoice === null) return { ok: false, error: 'MISSING_INVOICE_FILE' };
   }
   if (next === 'shipping') {
-    // 국내 배송중 = 택배사 + 송장번호 필수
+    // 국내 배송 중 = 택배사 + 송장번호 필수
     if (
       body.carrier == null ||
       body.carrier === '' ||
@@ -969,7 +1042,13 @@ export const saveShipmentFile = async (
   kind: BomShipmentFileTypeType,
   file: UploadTarget,
   uploadedBy: 'ADMIN' | 'PARTNER',
-): Promise<void> => {
+): Promise<boolean> => {
+  const shipment = await prisma.spBomShipment.findUnique({
+    where: { id: shipmentId },
+    select: { mode: true },
+  });
+  // Invoice/AWB 슬롯은 국제 발송 전용. 모드는 생성 후 불변이라 검사 뒤 경합이 없다.
+  if (shipment === null || asShipmentMode(shipment.mode) !== 'international') return false;
   const [uploaded] = await uploadToFileServer([file], SHIPMENT_FILE_SERVICE_TYPE);
   if (uploaded === undefined) throw new Error('shipment file upload failed: empty result');
   const existing = await prisma.spFile.findFirst({
@@ -992,6 +1071,7 @@ export const saveShipmentFile = async (
       uploadedBy,
     },
   });
+  return true;
 };
 
 export const deleteShipmentFile = async (shipmentId: bigint, fileId: bigint): Promise<boolean> => {
@@ -1042,7 +1122,10 @@ export const ensurePartnerShipment = async (
 export const createPartnerShipment = async (
   partnerId: bigint,
   poIds: number[],
-): Promise<{ ok: true; shipmentId: bigint } | { ok: false; error: 'INVALID_GROUP_PO' }> => {
+): Promise<
+  | { ok: true; shipmentId: bigint }
+  | { ok: false; error: 'INVALID_GROUP_PO' | 'PARTNER_COUNTRY_REQUIRED' }
+> => {
   const unique = [...new Set(poIds)].map((id) => BigInt(id));
   const pos = await prisma.spBomPo.findMany({
     where: { id: { in: unique } },
@@ -1055,11 +1138,13 @@ export const createPartnerShipment = async (
     );
   const primary = pos.find((po) => po.id === unique[0]);
   if (!valid || primary === undefined) return { ok: false, error: 'INVALID_GROUP_PO' };
+  const mode = shipmentModeFromCountry(primary.partner.country);
+  if (mode === null) return { ok: false, error: 'PARTNER_COUNTRY_REQUIRED' };
   const created = await prisma.spBomShipment.create({
     data: {
       poId: primary.id,
       quoteId: primary.quoteId,
-      mode: primary.partner.country === 'KR' ? 'domestic' : 'international',
+      mode,
       status: 'preparing',
     },
   });
@@ -1159,31 +1244,39 @@ export const loadReceivedPoCounts = async (quoteIds: bigint[]): Promise<Map<bigi
 
 // 협력사 차례 판정(D22 인지 장치 — isShipmentAdminPending 의 협력사 미러).
 // 발주 확인(issued) 전엔 확인이 먼저라 false, 검수(receivedAt) 후엔 할 일 없음.
-// 선적 문서가 없어도 첫 전이(선적 요청/배송중)는 협력사 몫이라 국가 기본 모드로 판정한다.
+// 선적 문서가 없어도 첫 전이(선적 요청/배송 중)는 협력사 몫이라 국가 기본 모드로 판정한다.
 const partnerShipmentSummary = (
   po: SpBomPo & { partner: SpPartner; shipmentLink?: ShipmentLink | null },
 ): Pick<
   PartnerPoListItemType,
-  'shipmentMode' | 'shipmentStatus' | 'shipmentReceived' | 'shipmentMyTurn' | 'shipmentAttached'
+  | 'shipmentMode'
+  | 'shipmentStatus'
+  | 'shipmentCountryReady'
+  | 'shipmentReceived'
+  | 'shipmentMyTurn'
+  | 'shipmentAttached'
 > => {
   const shipment = linkedShipment(po);
   const mode =
+    shipment !== null ? asShipmentMode(shipment.mode) : shipmentModeFromCountry(po.partner.country);
+  const status =
     shipment !== null
-      ? asShipmentMode(shipment.mode)
-      : po.partner.country === 'KR'
-        ? 'domestic'
-        : 'international';
-  const status = shipment !== null ? asShipmentStatus(mode, shipment.status) : 'preparing';
+      ? asShipmentStatus(asShipmentMode(shipment.mode), shipment.status)
+      : mode === null
+        ? null
+        : 'preparing';
   const received = shipment?.receivedAt != null;
-  const next = bomShipmentNextStatus(mode, status);
+  const next = mode === null || status === null ? null : bomShipmentNextStatus(mode, status);
   const myTurn =
     po.status !== 'issued' &&
     !received &&
+    mode !== null &&
     next !== null &&
     bomShipmentActorOf(mode, next) === 'PARTNER';
   return {
     shipmentMode: mode,
     shipmentStatus: status,
+    shipmentCountryReady: mode !== null,
     shipmentReceived: received,
     shipmentMyTurn: myTurn,
     shipmentAttached: shipment !== null,

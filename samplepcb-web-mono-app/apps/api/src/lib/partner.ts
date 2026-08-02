@@ -9,6 +9,7 @@ import type {
   PartnerStatusType,
   PartnerTypeType,
 } from '@sp/api-contract';
+import { normalizePartnerCountry } from './bom-shipment-policy';
 
 // ── 스마트 BOM 파트너 직렬화·내로잉 — 설계 docs/SMARTBOM_PARTNER_RFQ.md §1 ──
 // DB 는 String/Json 저장(sp_* 관례), 응답 직전 계약 유니온으로 내로잉한다.
@@ -83,3 +84,14 @@ export const validateSupplierCode = (
   }
   return null;
 };
+
+// 실제 발송 구분은 조직 국가에서만 파생한다. 승인된 사람 협력사는 국가 없이 운영에
+// 진입할 수 없고, 공급사/자사 레거시 행은 PO 발행 시 별도 게이트가 막는다.
+export const validatePartnerCountry = (
+  type: PartnerTypeType,
+  status: PartnerStatusType,
+  country: string | null,
+): string | null =>
+  type === 'partner' && status === 'approved' && normalizePartnerCountry(country) === null
+    ? '승인 협력사는 국가(ISO 2)를 등록해야 합니다.'
+    : null;

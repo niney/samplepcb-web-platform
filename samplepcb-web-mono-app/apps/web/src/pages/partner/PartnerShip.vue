@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { ApiRequestError } from '@sp/shared';
+import { BOM_SHIPMENT_MODE_LABELS } from '@sp/api-contract';
 import {
   useAttachShipmentPo,
   useCreatePartnerShipment,
@@ -109,11 +110,14 @@ async function takeOut(poId: number): Promise<void> {
               <p class="text-sm text-gray-500">
                 {{ po.itemCount }}개 품목 · {{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }}
               </p>
+              <p v-if="!po.shipmentCountryReady" class="mt-0.5 text-xs font-semibold text-red-600">
+                국가 정보 필요 — 샘플피씨비 담당자에게 문의해 주세요.
+              </p>
             </div>
             <button
               type="button"
               class="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-40"
-              :disabled="busy"
+              :disabled="busy || !po.shipmentCountryReady"
               @click="putIn(po.poId)"
             >
               담기 →
@@ -133,6 +137,9 @@ async function takeOut(poId: number): Promise<void> {
         <h2 class="text-sm font-bold" :class="box === null ? 'text-gray-500' : 'text-indigo-800'">
           📦 박스 (이번 발송)
           <span v-if="box !== null" class="font-normal text-indigo-500">— {{ box.groupPos.length }}건 담김</span>
+          <span v-if="box !== null" class="ml-1 rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700">
+            {{ BOM_SHIPMENT_MODE_LABELS[box.mode] }}
+          </span>
         </h2>
         <div class="mt-2 space-y-2">
           <div
@@ -169,7 +176,8 @@ async function takeOut(poId: number): Promise<void> {
             :disabled="busy"
             @click="readyMode = true"
           >
-            이 박스로 발송 준비 → (서류·출고예정일)
+            이 박스로 발송 준비 →
+            {{ box.mode === 'domestic' ? '(QR·택배 정보)' : '(QR·Invoice·출고예정일)' }}
           </button>
         </div>
       </section>

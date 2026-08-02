@@ -20,8 +20,10 @@ import {
   asPartnerType,
   toAdminPartnerDetail,
   toAdminPartnerItem,
+  validatePartnerCountry,
   validateSupplierCode,
 } from '../lib/partner';
+import { normalizePartnerCountry } from '../lib/bom-shipment-policy';
 import { prisma } from '../lib/prisma';
 
 // ── /api/admin/partners — 스마트 BOM 파트너(조직) 관리 ──────────────────────
@@ -132,13 +134,19 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (invalid !== null) {
         return reply.status(400).send({ error: 'INVALID_SUPPLIER_CODE', message: invalid });
       }
+      const invalidCountry = validatePartnerCountry(b.type, b.status, b.country ?? null);
+      if (invalidCountry !== null) {
+        return reply
+          .status(400)
+          .send({ error: 'PARTNER_COUNTRY_REQUIRED', message: invalidCountry });
+      }
       try {
         const created = await prisma.spPartner.create({
           data: {
             type: b.type,
             name: b.name,
             supplierCode,
-            country: b.country ?? null,
+            country: normalizePartnerCountry(b.country),
             defaultCurrency: b.defaultCurrency,
             capabilities: b.capabilities,
             status: b.status,
@@ -194,12 +202,23 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (invalid !== null) {
         return reply.status(400).send({ error: 'INVALID_SUPPLIER_CODE', message: invalid });
       }
+      const effCountry = b.country === undefined ? existing.country : (b.country ?? null);
+      const invalidCountry = validatePartnerCountry(
+        effType,
+        asPartnerStatus(existing.status),
+        effCountry,
+      );
+      if (invalidCountry !== null) {
+        return reply
+          .status(400)
+          .send({ error: 'PARTNER_COUNTRY_REQUIRED', message: invalidCountry });
+      }
 
       const data: Prisma.SpPartnerUpdateInput = {};
       if (b.type !== undefined) data.type = b.type;
       if (b.name !== undefined) data.name = b.name;
       if (b.supplierCode !== undefined) data.supplierCode = b.supplierCode ?? null;
-      if (b.country !== undefined) data.country = b.country ?? null;
+      if (b.country !== undefined) data.country = normalizePartnerCountry(b.country);
       if (b.defaultCurrency !== undefined) data.defaultCurrency = b.defaultCurrency;
       if (b.capabilities !== undefined) data.capabilities = b.capabilities;
       if (b.contactName !== undefined) data.contactName = b.contactName ?? null;
@@ -238,12 +257,24 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       schema: {
         params: PartnerIdParams,
         body: AdminPartnerStatusBody,
-        response: { 200: AdminPartnerMutationResponse, 409: ApiError },
+        response: { 200: AdminPartnerMutationResponse, 400: ApiError, 409: ApiError },
       },
     },
     async (request, reply) => {
       const id = BigInt(request.params.id);
       const { status, reason } = request.body;
+      const partner = await prisma.spPartner.findUnique({ where: { id } });
+      if (partner === null) return reply.notFound('파트너가 없습니다');
+      const invalidCountry = validatePartnerCountry(
+        asPartnerType(partner.type),
+        status,
+        partner.country,
+      );
+      if (invalidCountry !== null) {
+        return reply
+          .status(400)
+          .send({ error: 'PARTNER_COUNTRY_REQUIRED', message: invalidCountry });
+      }
       const updated = await prisma.spPartner.updateMany({
         where: { id, NOT: { status } },
         data: {

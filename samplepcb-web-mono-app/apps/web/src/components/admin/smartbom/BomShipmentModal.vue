@@ -1,17 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import {
-  BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL,
   BOM_SHIPMENT_DOMESTIC_STATUSES,
-  BOM_SHIPMENT_FILE_DOMESTIC_LABELS,
   BOM_SHIPMENT_FILE_LABELS,
   BOM_SHIPMENT_FILE_TYPES,
   BOM_SHIPMENT_INTL_STATUSES,
   BOM_SHIPMENT_MODE_LABELS,
-  BOM_SHIPMENT_MODES,
-  BOM_SHIPMENT_STATUS_LABELS,
   bomShipmentActorOf,
   bomShipmentNextStatus,
+  bomShipmentStatusLabel,
   bomShipmentStatusesOf,
   type AdminBomPoViewType,
   type BomShipmentFileTypeType,
@@ -35,8 +32,8 @@ import InvoiceEditorModal from '../../smartbom/InvoiceEditorModal.vue';
 import ShipmentPackingModal from '../../smartbom/ShipmentPackingModal.vue';
 import TradeDocumentModal from '../../smartbom/TradeDocumentModal.vue';
 
-// 선적 관리 모달(D21·D22) — 발주서당 1건. 모드는 생성 시 박제(협력사 국가 기본값은 서버가
-// 제안), 상태는 모드별 사전(국제 6단계/국내 3단계). 관리자는 전 단계 임의 조작(핑퐁 인가는
+// 선적 관리 모달(D21·D22) — 발주서당 1건. 모드는 협력사 국가에서 서버가 결정해 생성 시
+// 박제하고 화면은 읽기만 한다. 상태는 모드별 사전(국제 6단계/국내 3단계). 관리자는 전 단계 임의 조작(핑퐁 인가는
 // 협력사 쪽만). 첨부 = Invoice/AWB 종류별 1건(교체), 입고 확인 = 검수(⑩) + 편차 메모.
 
 const props = defineProps<{
@@ -67,7 +64,7 @@ async function detachGroupPo(poId: number, title: string): Promise<void> {
   }
 }
 
-const mode = ref<BomShipmentModeType>('international');
+const mode = computed<BomShipmentModeType | null>(() => props.po?.shipmentMode ?? null);
 const status = ref<BomShipmentStatusType>('preparing');
 const carrier = ref('');
 const trackingNumber = ref('');
@@ -77,7 +74,6 @@ const receiveNote = ref('');
 const error = ref('');
 
 const existing = computed(() => props.po?.shipment ?? null);
-const modeLocked = computed(() => existing.value !== null); // 생성 시 박제
 const packingOpen = ref(false);
 const quotationPoId = ref<number | null>(null);
 const statementOpen = ref(false);
@@ -114,7 +110,7 @@ const savedNextActor = computed(() =>
     : bomShipmentActorOf(existing.value.mode, savedNext.value),
 );
 const savedLabel = (s: BomShipmentStatusType): string =>
-  existing.value === null ? BOM_SHIPMENT_STATUS_LABELS[s] : statusLabel(existing.value.mode, s);
+  existing.value === null ? s : statusLabel(existing.value.mode, s);
 
 // 입고 확인 위계 — 도착 단계(국제 arrived·국내 shipping) 전엔 "조기 입고"로 접고 경고.
 const arrivedOrLater = computed(() => {
@@ -130,7 +126,6 @@ watch(
   ([open]) => {
     if (!open) return;
     const shipment = props.po?.shipment ?? null;
-    mode.value = shipment?.mode ?? 'international';
     status.value = shipment?.status ?? 'preparing';
     carrier.value = shipment?.carrier ?? '';
     trackingNumber.value = shipment?.trackingNumber ?? '';
@@ -144,29 +139,28 @@ watch(
   },
 );
 
-const statusOptions = computed(() =>
-  (mode.value === 'domestic' ? BOM_SHIPMENT_DOMESTIC_STATUSES : BOM_SHIPMENT_INTL_STATUSES).map(
-    (value) => ({ value, label: statusLabel(mode.value, value) }),
-  ),
-);
+const statusOptions = computed(() => {
+  const selectedMode = mode.value;
+  if (selectedMode === null) return [];
+  const statuses =
+    selectedMode === 'domestic' ? BOM_SHIPMENT_DOMESTIC_STATUSES : BOM_SHIPMENT_INTL_STATUSES;
+  return statuses
+    .filter(
+      (value) =>
+        selectedMode !== 'domestic' || value !== 'delivered' || existing.value?.receivedAt != null,
+    )
+    .map((value) => ({ value, label: statusLabel(selectedMode, value) }));
+});
 
 function statusLabel(m: BomShipmentModeType, s: BomShipmentStatusType): string {
-  if (m === 'domestic' && s === 'preparing') return BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL;
-  return BOM_SHIPMENT_STATUS_LABELS[s];
+  return bomShipmentStatusLabel(m, s);
 }
-
-watch(mode, () => {
-  // 모드 전환(생성 전) 시 상태를 해당 사전의 시작 단계로
-  if (!modeLocked.value) status.value = 'preparing';
-});
 
 const toNullable = (v: string): string | null => (v.trim() === '' ? null : v.trim());
 
-// 첨부(D22) — 종류별 1건. 라벨은 모드별(국내: 거래명세서/송장내역).
+// 첨부(D22) — Invoice/AWB 종류별 1건, 국외 발송 전용.
 const fileLabel = (kind: BomShipmentFileTypeType): string =>
-  mode.value === 'domestic'
-    ? BOM_SHIPMENT_FILE_DOMESTIC_LABELS[kind]
-    : BOM_SHIPMENT_FILE_LABELS[kind];
+  BOM_SHIPMENT_FILE_LABELS[kind];
 const fileOf = (kind: BomShipmentFileTypeType) =>
   existing.value?.files.find((f) => f.fileType === kind) ?? null;
 const fileBusy = computed(() => uploadFile.isPending.value || deleteFile.isPending.value);
@@ -238,13 +232,18 @@ async function attachInvoicePdf(file: File): Promise<void> {
 async function save(): Promise<void> {
   if (props.po === null) return;
   error.value = '';
+  if (mode.value === null) {
+    error.value = '협력사 관리에서 국가를 먼저 등록해 주세요.';
+    return;
+  }
   try {
     await upsert.mutateAsync({
       quoteId: props.quoteId,
       poId: props.po.poId,
       body: {
-        ...(modeLocked.value ? {} : { mode: mode.value }),
-        status: status.value,
+        ...(mode.value === 'domestic' && status.value === 'delivered'
+          ? {}
+          : { status: status.value }),
         carrier: toNullable(carrier.value),
         trackingNumber: toNullable(trackingNumber.value),
         trackingUrl: toNullable(trackingUrl.value),
@@ -260,6 +259,10 @@ async function save(): Promise<void> {
 // 관리자 차례 다음 단계로 진행 — 상태 셀렉트를 다음 단계로 맞추고 저장(임의 조작과 동일 경로).
 async function advanceAsAdmin(): Promise<void> {
   if (savedNext.value === null) return;
+  if (existing.value?.mode === 'domestic' && savedNext.value === 'delivered') {
+    await confirmReceive();
+    return;
+  }
   if (
     savedNext.value === 'shipped' &&
     fileOf('airwaybill') === null &&
@@ -273,6 +276,10 @@ async function advanceAsAdmin(): Promise<void> {
 
 async function confirmReceive(): Promise<void> {
   if (props.po === null) return;
+  if (mode.value === null) {
+    error.value = '협력사 관리에서 국가를 먼저 등록해 주세요.';
+    return;
+  }
   const warn = earlyReceive.value
     ? `선적이 아직 '${existing.value === null ? '준비' : savedLabel(existing.value.status)}' 단계입니다. 시스템 밖으로 이미 수령한 경우에만 진행하세요.\n\n`
     : '';
@@ -328,7 +335,9 @@ async function confirmReceive(): Promise<void> {
             :disabled="upsert.isPending.value"
             @click="advanceAsAdmin"
           >
-            '{{ savedLabel(savedNext) }}'(으)로 진행 →
+            {{ existing?.mode === 'domestic' && savedNext === 'delivered'
+              ? '입고 확인 →'
+              : `'${savedLabel(savedNext)}'(으)로 진행 →` }}
           </button>
         </template>
         <p v-else class="text-gray-500">
@@ -338,19 +347,22 @@ async function confirmReceive(): Promise<void> {
       </div>
 
       <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
-        <label class="text-gray-500">모드{{ modeLocked ? ' (박제됨)' : '' }}
-          <select
-            v-model="mode"
-            :disabled="modeLocked"
-            class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+        <div class="text-gray-500">
+          발송 구분 (국가 기준)
+          <div
+            class="mt-1 flex h-8 items-center rounded-md border px-2 font-semibold"
+            :class="mode === null ? 'border-red-200 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-700'"
           >
-            <option v-for="m in BOM_SHIPMENT_MODES" :key="m" :value="m">
-              {{ BOM_SHIPMENT_MODE_LABELS[m] }}
-            </option>
-          </select>
-        </label>
+            {{ mode === null ? '국가 미등록' : BOM_SHIPMENT_MODE_LABELS[mode] }}
+            <span class="ml-auto font-mono text-[10px] text-gray-400">{{ po.partnerCountry ?? '—' }}</span>
+          </div>
+        </div>
         <label class="text-gray-500">상태
-          <select v-model="status" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+          <select
+            v-model="status"
+            :disabled="mode === null"
+            class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 disabled:bg-gray-100"
+          >
             <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
             </option>
@@ -372,7 +384,7 @@ async function confirmReceive(): Promise<void> {
             class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono"
           >
         </label>
-        <label class="text-gray-500">출고예정일
+        <label v-if="mode === 'international'" class="text-gray-500">출고예정일
           <input
             v-model="shipDate"
             type="date"
@@ -388,6 +400,24 @@ async function confirmReceive(): Promise<void> {
           >
         </label>
       </div>
+      <p
+        v-if="mode === null"
+        class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700"
+      >
+        협력사 관리에서 실제 발송 국가를 등록해야 발송을 시작할 수 있습니다.
+      </p>
+      <p
+        v-else-if="po.partnerCountry === null"
+        class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700"
+      >
+        협력사 국가가 미등록입니다. 이 발송은 기존 구분을 유지하지만 새 발주·발송 전에는 국가를 등록해 주세요.
+      </p>
+      <p
+        v-if="po.shipmentModeMismatch"
+        class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700"
+      >
+        기존 발송 구분과 현재 협력사 국가가 다릅니다. 진행 중 기록은 자동 변경하지 않았습니다.
+      </p>
       <p
         v-if="awbWarning"
         class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700"
@@ -433,9 +463,9 @@ async function confirmReceive(): Promise<void> {
         </p>
       </div>
 
-      <!-- 첨부(D22) — 종류별 1건, 재업로드=교체. 협력사 포털과 같은 문서를 본다 -->
+      <!-- 발송 문서 — Packing List는 공통, 거래 문서는 국내 선택, Invoice/AWB는 국외 전용 -->
       <div class="mt-3 space-y-1.5 rounded-xl border border-gray-200 p-3">
-        <p class="text-xs font-bold text-gray-700">선적 서류</p>
+        <p class="text-xs font-bold text-gray-700">발송 문서</p>
         <div
           v-if="existing !== null"
           class="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-2 py-2 text-xs"
@@ -451,9 +481,11 @@ async function confirmReceive(): Promise<void> {
           </button>
         </div>
         <div
+          v-if="mode === 'domestic'"
           class="flex flex-wrap items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50/50 px-2 py-2 text-xs"
         >
           <span class="w-20 shrink-0 font-semibold text-violet-800">거래 문서</span>
+          <span class="text-[10px] text-violet-500">선택</span>
           <button
             v-for="entry in tradeDocumentPos"
             :key="`quotation-${entry.poId}`"
@@ -473,56 +505,58 @@ async function confirmReceive(): Promise<void> {
             거래명세서
           </button>
         </div>
-        <div
-          v-for="kind in BOM_SHIPMENT_FILE_TYPES"
-          :key="kind"
-          class="flex flex-wrap items-center gap-2 text-xs"
-        >
-          <span class="w-20 shrink-0 font-semibold text-gray-600">{{ fileLabel(kind) }}</span>
-          <template v-if="fileOf(kind) !== null">
-            <button type="button" class="text-blue-600 underline" @click="downloadFile(kind)">
-              {{ fileOf(kind)?.name }}
-            </button>
-            <span class="text-[10px] text-gray-400">{{
-              fileOf(kind)?.uploadedBy === 'PARTNER' ? '협력사 첨부' : '관리자 첨부'
-            }}</span>
+        <template v-if="mode === 'international'">
+          <div
+            v-for="kind in BOM_SHIPMENT_FILE_TYPES"
+            :key="kind"
+            class="flex flex-wrap items-center gap-2 text-xs"
+          >
+            <span class="w-20 shrink-0 font-semibold text-gray-600">{{ fileLabel(kind) }}</span>
+            <template v-if="fileOf(kind) !== null">
+              <button type="button" class="text-blue-600 underline" @click="downloadFile(kind)">
+                {{ fileOf(kind)?.name }}
+              </button>
+              <span class="text-[10px] text-gray-400">{{
+                fileOf(kind)?.uploadedBy === 'PARTNER' ? '협력사 첨부' : '관리자 첨부'
+              }}</span>
+              <button
+                type="button"
+                class="text-red-500 underline disabled:opacity-40"
+                :disabled="fileBusy"
+                @click="removeFile(kind)"
+              >
+                삭제
+              </button>
+            </template>
+            <span v-else class="text-gray-300">없음</span>
             <button
+              v-if="kind === 'invoice'"
               type="button"
-              class="text-red-500 underline disabled:opacity-40"
+              class="ml-auto rounded border border-indigo-200 px-2 py-1 font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
               :disabled="fileBusy"
-              @click="removeFile(kind)"
+              title="발주 데이터로 자동 초안을 만들어 편집 후 PDF로 첨부합니다(협력사 대리 작성)"
+              @click="invoiceOpen = true"
             >
-              삭제
+              🧾 생성
             </button>
-          </template>
-          <span v-else class="text-gray-300">없음</span>
-          <button
-            v-if="kind === 'invoice' && mode === 'international'"
-            type="button"
-            class="ml-auto rounded border border-indigo-200 px-2 py-1 font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
-            :disabled="fileBusy"
-            title="발주 데이터로 자동 초안을 만들어 편집 후 PDF로 첨부합니다(협력사 대리 작성)"
-            @click="invoiceOpen = true"
-          >
-            🧾 생성
-          </button>
-          <label
-            class="cursor-pointer rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
-            :class="kind === 'invoice' && mode === 'international' ? '' : 'ml-auto'"
-          >
-            {{ fileOf(kind) === null ? '첨부' : '교체' }}
-            <input
-              type="file"
-              class="hidden"
-              :disabled="fileBusy"
-              @change="(e) => onFilePicked(kind, e)"
+            <label
+              class="cursor-pointer rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50"
+              :class="kind === 'invoice' ? '' : 'ml-auto'"
             >
-          </label>
-        </div>
+              {{ fileOf(kind) === null ? '첨부' : '교체' }}
+              <input
+                type="file"
+                class="hidden"
+                :disabled="fileBusy"
+                @change="(e) => onFilePicked(kind, e)"
+              >
+            </label>
+          </div>
+        </template>
       </div>
 
       <InvoiceEditorModal
-        v-if="invoiceApi !== null"
+        v-if="invoiceApi !== null && mode === 'international'"
         :open="invoiceOpen"
         :load-draft="invoiceApi.loadDraft"
         :save-draft="invoiceApi.saveDraft"
@@ -541,12 +575,14 @@ async function confirmReceive(): Promise<void> {
       />
 
       <TradeDocumentModal
+        v-if="mode === 'domestic'"
         :open="quotationPoId !== null"
         :load="loadQuotation"
         @close="quotationPoId = null"
       />
 
       <TradeDocumentModal
+        v-if="mode === 'domestic'"
         :open="statementOpen"
         :load="loadStatement"
         @close="statementOpen = false"
@@ -563,7 +599,7 @@ async function confirmReceive(): Promise<void> {
         <button
           type="button"
           class="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
-          :disabled="upsert.isPending.value"
+          :disabled="upsert.isPending.value || mode === null"
           @click="save"
         >
           저장
@@ -602,7 +638,7 @@ async function confirmReceive(): Promise<void> {
           :class="
             earlyReceive ? 'bg-gray-400 hover:bg-gray-500' : 'bg-emerald-600 hover:bg-emerald-700'
           "
-          :disabled="receive.isPending.value"
+          :disabled="receive.isPending.value || mode === null"
           @click="confirmReceive"
         >
           {{ existing?.receivedAt != null ? '입고 확인 갱신' : '입고 확인' }}

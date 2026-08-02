@@ -1,16 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  findPo: vi.fn(),
   findShipment: vi.fn(),
   getBusinessInfo: vi.fn(),
 }));
 
 vi.mock('./prisma', () => ({
-  prisma: { spBomShipment: { findUnique: mocks.findShipment } },
+  prisma: {
+    spBomPo: { findUnique: mocks.findPo },
+    spBomShipment: { findUnique: mocks.findShipment },
+  },
 }));
 vi.mock('./g5-db', () => ({ getBusinessInfo: mocks.getBusinessInfo }));
 
-import { loadShipmentStatementDocument } from './bom-trade-documents';
+import {
+  loadPartnerQuotationDocument,
+  loadShipmentStatementDocument,
+} from './bom-trade-documents';
 
 const partner = {
   id: 8n,
@@ -52,6 +59,7 @@ const po = {
 describe('loadShipmentStatementDocument', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.findPo.mockResolvedValue(po);
     mocks.getBusinessInfo.mockResolvedValue({
       companyName: '주식회사 샘플피씨비',
       ownerName: '대표자',
@@ -109,6 +117,26 @@ describe('loadShipmentStatementDocument', () => {
 
   it('다른 협력사의 선적은 조회하지 않는다', async () => {
     await expect(loadShipmentStatementDocument(77n, 999n)).resolves.toBeNull();
+    expect(mocks.getBusinessInfo).not.toHaveBeenCalled();
+  });
+
+  it('국외 발송에는 국내 거래명세서를 제공하지 않는다', async () => {
+    mocks.findShipment.mockResolvedValueOnce({
+      ...(await mocks.findShipment()),
+      mode: 'international',
+    });
+
+    await expect(loadShipmentStatementDocument(77n, 8n)).resolves.toBeNull();
+    expect(mocks.getBusinessInfo).not.toHaveBeenCalled();
+  });
+
+  it('국외 협력사 PO에는 국내 견적서를 제공하지 않는다', async () => {
+    mocks.findPo.mockResolvedValueOnce({
+      ...po,
+      partner: { ...partner, country: 'US' },
+    });
+
+    await expect(loadPartnerQuotationDocument(12n, 8n)).resolves.toBeNull();
     expect(mocks.getBusinessInfo).not.toHaveBeenCalled();
   });
 });

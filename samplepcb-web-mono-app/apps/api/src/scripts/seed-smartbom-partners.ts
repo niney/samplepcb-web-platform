@@ -3,7 +3,8 @@
 //     mbNo(6035/6036/6045/6253)의 대체 정본. upsert 키 = supplierCode, 기존 행은 무수정
 //     보존(관리자 수동 편집 우선).
 //  2) 레거시 협력사 승격: SpMemberProfile.partnerAuth > 0 회원 → SpPartner(type=partner)
-//     생성 + SpPartnerMember(owner) 연결. 멱등 키 = 해당 mbId 의 연결 존재.
+//     생성 + SpPartnerMember(owner) 연결. 레거시에 ISO 국가 정본이 없으므로 pending으로
+//     두고 관리자가 국가를 입력한 뒤 승인한다. 멱등 키 = 해당 mbId 의 연결 존재.
 // 실행: pnpm --filter api run smartbom:seed-partners [-- --dry]
 import { PrismaClient } from '@prisma/client';
 import type { PartnerCapabilityType } from '@sp/api-contract';
@@ -93,7 +94,8 @@ for (const profile of profiles) {
         name: partnerName,
         defaultCurrency: 'KRW',
         capabilities: capabilitiesOf(profile.partnerAuth),
-        status: 'approved',
+        // 국가를 추측해 KR/국외를 잘못 나누지 않는다. 관리자 국가 등록 후 승인 필수.
+        status: 'pending',
         contactName: profile.managerName,
         contactPhone: profile.managerPhone,
         contactEmail: profile.managerEmail,

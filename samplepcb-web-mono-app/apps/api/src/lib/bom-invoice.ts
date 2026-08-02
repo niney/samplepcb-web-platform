@@ -114,10 +114,11 @@ export const saveInvoiceData = async (
   shipmentId: bigint,
   data: BomInvoiceDataType,
 ): Promise<void> => {
-  await prisma.spBomShipment.update({
-    where: { id: shipmentId },
+  const saved = await prisma.spBomShipment.updateMany({
+    where: { id: shipmentId, mode: 'international' },
     data: { invoiceData: data },
   });
+  if (saved.count !== 1) throw new Error('Commercial Invoice is only available internationally');
 };
 
 // ── 엑셀 렌더 — 레거시 SpInvoiceXlsxRenderer(POI) 레이아웃의 exceljs 이식 ─────
