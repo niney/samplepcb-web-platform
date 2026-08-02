@@ -1167,3 +1167,34 @@ model SpBomRfqItem {
   @@index([quoteItemId]) // 행별 비교 조회
   @@map("sp_bom_rfq_item")
 }
+
+// ── 빠른 메일(§6.15) — 관리자 수동 메일: 템플릿 + 발송 이력 ───────────────────
+// 자동 알림(전이 트리거)과 별개로 Case 맥락에서 자유 작성해 보내는 CS 메일.
+// 템플릿 변수({고객명} 등) 치환은 클라이언트가 하고 서버는 받은 그대로 발송한다.
+model SpMailTemplate {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @db.VarChar(100)
+  subject   String   @db.VarChar(255)
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sp_mail_template")
+}
+
+// 발송 이력 — 감사·CS 기록. quoteId·mbId 는 FK 없는 참조(Case 삭제 후에도 로그 보존).
+// 첨부 실파일은 보관하지 않는다(메일로만 전달) — 메타([{name,size,mime}])만 남긴다.
+model SpMailLog {
+  id          BigInt   @id @default(autoincrement())
+  quoteId     BigInt? // 연결 Case(스마트 BOM) — 진입 컨텍스트
+  toEmail     String   @db.VarChar(255)
+  toMbId      String?  @db.VarChar(191)
+  subject     String   @db.VarChar(255)
+  body        String   @db.Text
+  attachments Json?
+  sentBy      String   @db.VarChar(191) // 발송 관리자 mbId
+  createdAt   DateTime @default(now())
+
+  @@index([quoteId])
+  @@map("sp_mail_log")
+}

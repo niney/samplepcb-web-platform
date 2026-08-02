@@ -17,4 +17,5 @@ export * from './schemas/partner';
 export * from './schemas/market';
 export * from './schemas/ai';
 export * from './schemas/ai-interview-questions';
+export * from './schemas/admin-mail';
 export * from './routes';

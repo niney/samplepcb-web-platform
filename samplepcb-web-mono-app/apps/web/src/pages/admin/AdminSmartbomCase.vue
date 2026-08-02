@@ -53,6 +53,7 @@ import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.v
 import BomRfqCompareModal from '../../components/admin/smartbom/BomRfqCompareModal.vue';
 import BomRfqPanel from '../../components/admin/smartbom/BomRfqPanel.vue';
 import BomRfqSendModal from '../../components/admin/smartbom/BomRfqSendModal.vue';
+import QuickMailComposer from '../../components/admin/smartbom/QuickMailComposer.vue';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
 
 // 스마트 BOM Case 상세 — 고객 견적요청 1건의 운영 화면(docs/SMARTBOM_PARTNER_RFQ.md §3.4).
@@ -124,6 +125,8 @@ const expandSection = (section: CaseSection): void => {
 
 // 견적서 인쇄(§6.8) — 모달 open 시 로더 콜백으로 fetch(관리자 print 라우트).
 const estimateOpen = ref(false);
+// 빠른 메일(§6.15) — 헤더 [✉ 메일] → 우하단 컴포즈.
+const mailOpen = ref(false);
 const loadEstimatePrint = async () => {
   const res = await apiGet(
     `${apiRoutes.adminBomQuotes}/${detailId.value ?? ''}/print`,
@@ -1032,7 +1035,15 @@ async function downloadOriginal(): Promise<void> {
           class="ml-auto rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
           @click="estimateOpen = true"
         >
-          🧾 견적서
+          견적서
+        </button>
+        <!-- 빠른 메일(§6.15) — 고객에게 바로 한 통 -->
+        <button
+          type="button"
+          class="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+          @click="mailOpen = true"
+        >
+          메일
         </button>
       </template>
     </div>
@@ -1042,6 +1053,16 @@ async function downloadOriginal(): Promise<void> {
       :open="estimateOpen"
       :load="loadEstimatePrint"
       @close="estimateOpen = false"
+    />
+
+    <!-- 빠른 메일 컴포즈(§6.15) — 우하단 도킹 -->
+    <QuickMailComposer
+      v-if="mailOpen && detail !== null && detailId !== null"
+      :quote-id="detailId"
+      :case-no="smartbomCaseNo(detail.id, detail.requestedAt, detail.createdAt)"
+      :case-title="detail.title"
+      :confirmed-total="detail.confirmedTotal"
+      @close="mailOpen = false"
     />
 
     <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import type { AdminBomQuoteSummaryType, BomQuoteStatusType } from '@sp/api-contract';
 import { useAdminBomQuotes, usePatchAdminBomQuote } from '../../admin/useAdminBomQuotes';
 import BomCaseBulkDeleteModal from '../../components/admin/smartbom/BomCaseBulkDeleteModal.vue';
+import QuickMailComposer from '../../components/admin/smartbom/QuickMailComposer.vue';
 import {
   SMARTBOM_STATUS_META,
   smartbomCaseNo,
@@ -132,6 +133,22 @@ async function startReview(id: string): Promise<void> {
     startError.value = '검토 시작에 실패했습니다 — 목록을 새로고침해 주세요.';
   }
 }
+
+// 빠른 메일(§6.15) — 행 [✉] → 우하단 컴포즈 레이어(다른 행 클릭 시 교체).
+const mailTarget = ref<{
+  quoteId: string;
+  caseNo: string;
+  title: string;
+  confirmedTotal: number | null;
+} | null>(null);
+function openMail(q: AdminBomQuoteSummaryType): void {
+  mailTarget.value = {
+    quoteId: q.id,
+    caseNo: smartbomCaseNo(q.id, q.requestedAt, q.createdAt),
+    title: q.title,
+    confirmedTotal: q.confirmedTotal,
+  };
+}
 </script>
 
 <template>
@@ -243,6 +260,16 @@ async function startReview(id: string): Promise<void> {
               </span>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-right">
+              <!-- 빠른 메일(§6.15) — 고객에게 바로 한 통. py-[3px]=border 포함 24px
+                   (solid 인 [검토 시작] py-1 과 같은 높이) -->
+              <button
+                type="button"
+                class="mr-1 rounded-md border border-gray-200 px-2.5 py-[3px] text-xs font-semibold text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                title="고객에게 빠른 메일 보내기"
+                @click.stop="openMail(q)"
+              >
+                메일
+              </button>
               <button
                 v-if="q.status === 'requested'"
                 type="button"
@@ -263,7 +290,7 @@ async function startReview(id: string): Promise<void> {
               <button
                 v-else
                 type="button"
-                class="rounded-md border border-blue-200 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                class="rounded-md border border-blue-200 px-2.5 py-[3px] text-xs font-semibold text-blue-700 hover:bg-blue-50"
                 @click.stop="openCase(q.id)"
               >
                 Case 열기
@@ -305,6 +332,17 @@ async function startReview(id: string): Promise<void> {
       :quote-ids="bulkDeleteIds"
       @close="closeBulkDelete"
       @deleted="finishBulkDelete"
+    />
+
+    <!-- 빠른 메일 컴포즈(§6.15) — 우하단 도킹, 행 전환 시 key 로 리셋 -->
+    <QuickMailComposer
+      v-if="mailTarget !== null"
+      :key="mailTarget.quoteId"
+      :quote-id="mailTarget.quoteId"
+      :case-no="mailTarget.caseNo"
+      :case-title="mailTarget.title"
+      :confirmed-total="mailTarget.confirmedTotal"
+      @close="mailTarget = null"
     />
   </div>
 </template>

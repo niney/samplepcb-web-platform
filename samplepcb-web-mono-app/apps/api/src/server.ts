@@ -28,6 +28,7 @@ import { adminBomQuoteRoutes } from './routes/admin-bom-quotes';
 import { adminBomRfqRoutes } from './routes/admin-bom-rfqs';
 import { adminBomPoRoutes } from './routes/admin-bom-pos';
 import { adminBomOrderRoutes } from './routes/admin-bom-orders';
+import { adminMailRoutes } from './routes/admin-mail';
 import { adminPartnerRoutes } from './routes/admin-partners';
 import { partnerRfqRoutes } from './routes/partner-rfqs';
 import { partnerPoRoutes } from './routes/partner-pos';
@@ -101,6 +102,8 @@ await app.register(adminBomRfqRoutes, { prefix: '/api/admin' });
 await app.register(adminBomPoRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 스마트 BOM 주문·결제(주문 축 파생, D19)
 await app.register(adminBomOrderRoutes, { prefix: '/api/admin' });
+// 관리자 전용(requireAdmin) — 빠른 메일(§6.15): 템플릿 + Case 컨텍스트 발송·이력
+await app.register(adminMailRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 스마트 BOM 파트너(조직) 관리 (docs/SMARTBOM_PARTNER_RFQ.md)
 await app.register(adminPartnerRoutes, { prefix: '/api/admin' });
 // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인

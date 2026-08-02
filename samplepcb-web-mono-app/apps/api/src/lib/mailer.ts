@@ -27,12 +27,20 @@ function getTransporter(): Transporter {
   return transporter;
 }
 
+export interface SendMailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 export interface SendMailParams {
   to: string;
   subject: string;
   html: string;
   fromName: string;
   fromAddress: string;
+  /** 첨부(빠른 메일 §6.15) — 메모리 버퍼 그대로 전달(보관 없음). */
+  attachments?: SendMailAttachment[];
 }
 
 // 성공이면 정상 반환, 실패면 throw(nodemailer 가 reject). 라우트가 try/catch 로 잡아
@@ -43,5 +51,8 @@ export async function sendMail(params: SendMailParams): Promise<void> {
     to: params.to,
     subject: params.subject,
     html: params.html,
+    ...(params.attachments === undefined || params.attachments.length === 0
+      ? {}
+      : { attachments: params.attachments }),
   });
 }
