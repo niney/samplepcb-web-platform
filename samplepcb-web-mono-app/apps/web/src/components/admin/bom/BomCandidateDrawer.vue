@@ -1591,6 +1591,17 @@ function candidateBestOffer(candidate: BomQuoteCandidateType): BomQuoteCandidate
   return candidate.offers.find((offer) => offer.offerKey === candidate.bestOfferKey) ?? null;
 }
 
+function candidateBestOfferUnitLabel(candidate: BomQuoteCandidateType): string | null {
+  const offer = candidateBestOffer(candidate);
+  const applied = offer?.applied;
+  if (offer === null || applied === null || applied === undefined) return null;
+  if (applied.unitPriceKrw === null) return `${fmtUnit(offer)}/개`;
+  const unitPrice = applied.unitPriceKrw.toLocaleString('ko-KR', {
+    maximumFractionDigits: 4,
+  });
+  return `${applied.currency === 'KRW' ? '' : '약 '}${unitPrice}원/개`;
+}
+
 function candidateHasSevereBestOffer(candidate: BomQuoteCandidateType): boolean {
   const offer = candidateBestOffer(candidate);
   return offer !== null && severeOfferSurplus(offer);
@@ -2963,6 +2974,7 @@ onBeforeUnmount(() => {
                         <div class="w-full shrink-0 rounded-lg border border-slate-200 bg-surface p-3 md:w-52">
                           <p class="text-xs text-slate-400">필요수량 기준 최적 오퍼</p>
                           <strong class="mt-0.5 block text-lg tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
+                          <p v-if="candidateBestOfferUnitLabel(candidate) !== null" class="mt-0.5 text-xs tabular-nums text-slate-500">단가 {{ candidateBestOfferUnitLabel(candidate) }}</p>
                           <p v-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
                           <p v-else class="mt-1 text-xs font-bold" :class="candidateUnavailableLabel(candidate) === '재고 없음' ? 'text-red-700' : 'text-amber-700'">{{ candidateUnavailableLabel(candidate) }}</p>
                           <p
