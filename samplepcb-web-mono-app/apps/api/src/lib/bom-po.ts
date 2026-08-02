@@ -34,7 +34,8 @@ import type {
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { filterActiveQuoteItems, toItemDto } from './bom-quote';
-import { getOrderInfoByCtId } from './g5-db';
+import { getBusinessInfo, getOrderInfoByCtId } from './g5-db';
+import { buildPartnerQuotationDocument } from './bom-trade-documents';
 import { digikeyThirdPartyList, mouserCartInsert } from './supplier-order';
 import {
   deleteFromFileServer,
@@ -318,6 +319,13 @@ export interface PoDraftLine {
   qty: number;
   unitPrice: number; // 선정 박제 단가(selectedOffer, VAT 별도·KRW 환산가)
   lineTotal: number;
+  moq: number | null;
+  stock: number | null;
+  dateCode: string | null;
+  leadTime: string | null;
+  quotationMemo: string | null;
+  quotationDeliveryDate: Date | null;
+  quotationHeaderMemo: string | null;
 }
 
 export const collectPoDraftGroups = async (
@@ -385,6 +393,13 @@ export const collectPoDraftGroups = async (
         qty,
         unitPrice,
         lineTotal: Math.round(unitPrice * qty),
+        moq: rfqItem.moq,
+        stock: rfqItem.stock,
+        dateCode: rfqItem.dateCode,
+        leadTime: rfqItem.leadTime,
+        quotationMemo: rfqItem.memo,
+        quotationDeliveryDate: rfqItem.rfq.deliveryDate,
+        quotationHeaderMemo: rfqItem.rfq.memo,
       });
       continue;
     }
@@ -405,6 +420,13 @@ export const collectPoDraftGroups = async (
       qty,
       unitPrice,
       lineTotal: Math.round(unitPrice * qty),
+      moq: null,
+      stock: null,
+      dateCode: null,
+      leadTime: null,
+      quotationMemo: null,
+      quotationDeliveryDate: null,
+      quotationHeaderMemo: null,
     });
   }
   return groups;
@@ -454,13 +476,29 @@ export const createBomPos = async (
     };
   }
 
-  const partners = await prisma.spPartner.findMany({ where: { id: { in: wanted } } });
+  const [partners, business] = await Promise.all([
+    prisma.spPartner.findMany({ where: { id: { in: wanted } } }),
+    getBusinessInfo(),
+  ]);
+  const partnerById = new Map(partners.map((partner) => [partner.id, partner] as const));
   await prisma.$transaction(async (tx) => {
     for (const partnerId of wanted) {
       const lines = groups.get(partnerId) ?? [];
       const totalAmount = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+      const quotationDeliveryDate =
+        lines.find((line) => line.quotationDeliveryDate !== null)?.quotationDeliveryDate ?? null;
+      const quotationMemo =
+        lines.find((line) => line.quotationHeaderMemo !== null)?.quotationHeaderMemo ?? null;
       const po = await tx.spBomPo.create({
-        data: { quoteId, partnerId, status: 'issued', totalAmount, memo },
+        data: {
+          quoteId,
+          partnerId,
+          status: 'issued',
+          totalAmount,
+          memo,
+          quotationDeliveryDate,
+          quotationMemo,
+        },
       });
       await tx.spBomPoItem.createMany({
         data: lines.map((line) => ({
@@ -474,7 +512,38 @@ export const createBomPos = async (
           qty: line.qty,
           unitPrice: new Prisma.Decimal(line.unitPrice),
           lineTotal: line.lineTotal,
+          moq: line.moq,
+          stock: line.stock,
+          dateCode: line.dateCode,
+          leadTime: line.leadTime,
+          quotationMemo: line.quotationMemo,
         })),
+      });
+      const partner = partnerById.get(partnerId);
+      const items = await tx.spBomPoItem.findMany({
+        where: { poId: po.id },
+        orderBy: { id: 'asc' },
+      });
+      if (partner === undefined) throw new Error(`Partner not found: ${String(partnerId)}`);
+      const quotation = buildPartnerQuotationDocument(
+        {
+          id: po.id,
+          quoteId,
+          quoteTitle: quote.title,
+          issuedAt: po.issuedAt,
+          currency: po.currency,
+          totalAmount,
+          quotationDeliveryDate: po.quotationDeliveryDate,
+          quotationMemo: po.quotationMemo,
+          partner,
+          items,
+        },
+        business,
+        po.issuedAt,
+      );
+      await tx.spBomPo.update({
+        where: { id: po.id },
+        data: { quotationData: quotation },
       });
     }
   });
@@ -545,8 +614,7 @@ export const executeExternalPo = async (poId: bigint): Promise<ExecuteExternalRe
 
 // ── 선적 관리(D21) — 경량: 발주서당 1건, mode 는 생성 시 박제 ─────────────────
 export type ShipmentUpsertResult =
-  | { ok: true }
-  | { ok: false; error: 'PO_NOT_FOUND' | 'INVALID_STATUS' };
+  { ok: true } | { ok: false; error: 'PO_NOT_FOUND' | 'INVALID_STATUS' };
 
 const finalStatusOf = (mode: BomShipmentModeType): BomShipmentStatusType =>
   mode === 'domestic' ? 'delivered' : 'done';
@@ -599,6 +667,13 @@ export const upsertShipment = async (
     });
     await prisma.spBomShipmentPo.create({ data: { shipmentId: created.id, poId: po.id } });
   }
+  if (existing !== null && existing.status === 'preparing' && status !== 'preparing') {
+    if (await shipmentPackingListIsComplete(existing.id)) {
+      await finalizeShipmentPackingList(existing.id);
+    }
+  } else if (existing !== null && existing.status !== 'preparing' && status === 'preparing') {
+    await reopenShipmentPackingList(existing.id);
+  }
   return { ok: true };
 };
 
@@ -612,7 +687,10 @@ const parseShipDate = (v: string | null | undefined): Date | null => {
 
 /** 입고 확인(검수 ⑩ — D21-2) — 선적이 없어도 가능(시스템 밖 배송 수령). 최종 단계로
  * 마감하며, 묶음이면 소속 발주서 전체가 함께 입고 처리된다(선적 단위 검수 — §6.10). */
-export const receiveShipment = async (poId: bigint, note: string | null): Promise<ShipmentUpsertResult> => {
+export const receiveShipment = async (
+  poId: bigint,
+  note: string | null,
+): Promise<ShipmentUpsertResult> => {
   const po = await prisma.spBomPo.findUnique({
     where: { id: poId },
     include: { partner: true, shipmentLink: { include: { shipment: true } } },
@@ -692,8 +770,7 @@ export type PartnerShipmentError =
   | 'INVALID_GROUP_PO'
   | 'NOT_PREPARING';
 export type PartnerShipmentResult =
-  | { ok: true; advancedTo?: BomShipmentStatusType }
-  | { ok: false; error: PartnerShipmentError };
+  { ok: true; advancedTo?: BomShipmentStatusType } | { ok: false; error: PartnerShipmentError };
 
 /** [다음 단계 진행] — 단계별 필수(레거시 fieldsForTransition 미러)를 서버가 검증한다.
  * §6.10: 최초 발송 전이에서 withPoIds(같은 박스 발주서)를 선적에 함께 묶을 수 있다. */
@@ -770,7 +847,6 @@ export const advancePartnerShipment = async (
     ...(body.trackingUrl !== undefined ? { trackingUrl: body.trackingUrl } : {}),
   });
   if (!saved.ok) return { ok: false, error: 'PO_NOT_FOUND' };
-  if (current === 'preparing') await finalizeShipmentPackingList(shipment.id);
   return { ok: true, advancedTo: next };
 };
 
@@ -790,7 +866,6 @@ export const revertPartnerShipment = async (
   if (bomShipmentActorOf(mode, current) !== 'PARTNER') return { ok: false, error: 'NOT_YOUR_TURN' };
   const saved = await upsertShipment(poId, { status: prev });
   if (!saved.ok) return { ok: false, error: 'PO_NOT_FOUND' };
-  if (prev === 'preparing') await reopenShipmentPackingList(shipment.id);
   return { ok: true };
 };
 
@@ -878,6 +953,10 @@ export const attachShipmentPo = async (
     return { ok: false, error: 'INVALID_GROUP_PO' };
   }
   await prisma.spBomShipmentPo.create({ data: { shipmentId, poId } });
+  await prisma.spBomShipment.update({
+    where: { id: shipmentId },
+    data: { packingFinalizedAt: null },
+  });
   return { ok: true };
 };
 

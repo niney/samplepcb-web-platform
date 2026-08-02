@@ -16,17 +16,16 @@ import {
   ApiError,
   BomInvoiceData,
   BomInvoiceDraftResponse,
+  BomPartnerQuotationResponse,
   BomShipmentPackingListResponse,
   BomShipmentPackingListSaveBody,
+  BomShipmentStatementResponse,
   BomShipmentFileType,
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
 } from '@sp/api-contract';
-import type {
-  AdminBomPoCrossCountsType,
-  AdminBomShipmentCrossCountsType,
-} from '@sp/api-contract';
+import type { AdminBomPoCrossCountsType, AdminBomShipmentCrossCountsType } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
   EXTERNAL_AUTOMATED_SUPPLIERS,
@@ -45,7 +44,16 @@ import {
   upsertShipment,
 } from '../lib/bom-po';
 import { collectMultipart } from '../lib/market';
-import { buildInvoiceDraft, loadPoForInvoice, renderInvoiceXlsx, saveInvoiceData } from '../lib/bom-invoice';
+import {
+  buildInvoiceDraft,
+  loadPoForInvoice,
+  renderInvoiceXlsx,
+  saveInvoiceData,
+} from '../lib/bom-invoice';
+import {
+  loadPartnerQuotationDocument,
+  loadShipmentStatementDocument,
+} from '../lib/bom-trade-documents';
 import {
   buildBomPoIssuedEmail,
   buildShipmentReceivedEmail,
@@ -115,6 +123,22 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
       if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
       return { result: true as const, data: { pos: await loadAdminPos(quote.id) } };
+    },
+  );
+
+  // PO별 협력사 견적서 — 묶음 선적의 다른 Case도 poId 하나로 조회하도록 횡단 경로 제공.
+  fastify.get(
+    '/bom-pos/:poId/quotation',
+    {
+      schema: {
+        params: z.object({ poId: z.coerce.bigint() }),
+        response: { 200: BomPartnerQuotationResponse },
+      },
+    },
+    async (request, reply) => {
+      const data = await loadPartnerQuotationDocument(request.params.poId);
+      if (data === null) return reply.notFound('견적서를 찾을 수 없습니다');
+      return { result: true as const, data };
     },
   );
 
@@ -476,13 +500,31 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         '_',
       );
       return reply
-        .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.xlsx`)}`)
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.xlsx`)}`,
+        )
         .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         .send(buffer);
     },
   );
 
   // ── 선적 리스트·QR 라벨(D24) — 관리자 대리 작성·재인쇄 ──────────────────
+  fastify.get(
+    '/bom-shipments/:shipmentId/statement',
+    {
+      schema: {
+        params: ShipmentIdParams,
+        response: { 200: BomShipmentStatementResponse },
+      },
+    },
+    async (request, reply) => {
+      const data = await loadShipmentStatementDocument(request.params.shipmentId);
+      if (data === null) return reply.notFound('거래명세서를 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
   fastify.get(
     '/bom-shipments/:shipmentId/packing-list',
     {

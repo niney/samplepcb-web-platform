@@ -119,6 +119,13 @@ export type AdminPartnerListResponseType = z.infer<typeof AdminPartnerListRespon
 export const AdminPartnerDetail = AdminPartnerListItem.extend({
   contactName: z.string().nullable(),
   contactPhone: z.string().nullable(),
+  businessNo: z.string().nullable(),
+  ownerName: z.string().nullable(),
+  businessZip: z.string().nullable(),
+  businessAddress: z.string().nullable(),
+  businessType: z.string().nullable(),
+  businessItem: z.string().nullable(),
+  fax: z.string().nullable(),
   memo: z.string().nullable(), // 내부 메모 — 협력사 비노출
   statusReason: z.string().nullable(),
   decidedBy: z.string().nullable(),
@@ -145,12 +152,24 @@ export const AdminPartnerCreateBody = z.object({
     .toUpperCase()
     .regex(/^[A-Z]{2}$/)
     .nullish(), // ISO alpha-2
-  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).default('KRW'),
+  defaultCurrency: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/)
+    .default('KRW'),
   capabilities: z.array(PartnerCapability).default([]),
   status: PartnerStatus.default('approved'),
   contactName: z.string().trim().max(100).nullish(),
   contactPhone: z.string().trim().max(50).nullish(),
   contactEmail: z.string().trim().email().max(255).nullish(), // RFQ 알림 수신처
+  businessNo: z.string().trim().max(30).nullish(),
+  ownerName: z.string().trim().max(100).nullish(),
+  businessZip: z.string().trim().max(10).nullish(),
+  businessAddress: z.string().trim().max(500).nullish(),
+  businessType: z.string().trim().max(100).nullish(),
+  businessItem: z.string().trim().max(100).nullish(),
+  fax: z.string().trim().max(50).nullish(),
   memo: z.string().max(5000).nullish(),
 });
 export type AdminPartnerCreateBodyType = z.infer<typeof AdminPartnerCreateBody>;

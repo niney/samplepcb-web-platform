@@ -513,7 +513,7 @@ actorForStatus)·`ShipmentPanel.vue`·doc/shipment*.md.
 |---|------|------|
 | D22-1 | **단계별 진입 주체 승계**(actorForStatus 미러): 국제 — 선적요청=협력사(출고예정일+Invoice 필수)·선적=관리자(AWB+송장)·국내도착=~~협력사(클릭만)~~ **관리자(08-02 정정 ↓)**·통관/완료=관리자 / 국내 — 배송중=협력사(택배사+송장 필수)·배송완료=관리자. 사전은 api-contract `BOM_SHIPMENT_ACTORS`+`bomShipmentNextStatus/PrevStatus/ActorOf/StatusLabel`(서버·프론트 공용) | 레거시 절차 그대로 |
 | D22-2 | **서버 인가 신설**(레거시 취약점 교정 — 레거시는 프론트만 검증, 자기 doc에 "우회 취약점" 명기): 협력사 advance=다음 단계 주체 PARTNER 검증+단계별 필수(MISSING_SHIP_DATE/MISSING_INVOICE_FILE/MISSING_TRACKING), revert=현 단계 진입 주체 PARTNER(직전에 자기가 진행)만 1단계(입력값·첨부 유지). 관리자는 upsert 로 전 단계 임의 조작 유지(레거시도 사실상 동일) — AWB 필수는 관리자에겐 모달 경고로만 | 절차는 승계, 결함은 교정 |
-| D22-3 | **첨부 = 기존 sp_file 폴리모픽 재사용**: refType='sp_bom_shipment'·fileType invoice/airwaybill(국내 라벨: 거래명세서/송장내역)·uploadedBy ADMIN/PARTNER(예약 컬럼 첫 사용)·종류별 1건(재업로드=교체, 새 실파일 성공 후 구 파일 정리)·파일서버 serviceType 'bom_shipment'(env BOM_SHIPMENT_FILE_SERVICE_TYPE, 레거시 버킷명 승계). 다운로드=권한 프록시 스트림(관리자·소유 협력사만 — 레거시 익명 pathToken 노출 교정) | 인프라 관례 재사용 |
+| D22-3 | **첨부 = 기존 sp_file 폴리모픽 재사용**: refType='sp_bom_shipment'·fileType invoice/airwaybill(국내 라벨: 별도 거래서류/송장내역)·uploadedBy ADMIN/PARTNER(예약 컬럼 첫 사용)·종류별 1건(재업로드=교체, 새 실파일 성공 후 구 파일 정리)·파일서버 serviceType 'bom_shipment'(env BOM_SHIPMENT_FILE_SERVICE_TYPE, 레거시 버킷명 승계). 다운로드=권한 프록시 스트림(관리자·소유 협력사만 — 레거시 익명 pathToken 노출 교정) | 인프라 관례 재사용 |
 | D22-4 | **알림 메일 양방향 신설**(레거시엔 없음 — 폴링 배지뿐이라 멈춤): 협력사 전이→관리자(de_admin_info_email, Case CTA), 관리자 전이로 협력사 차례 도래→협력사(contactEmail, 포털 CTA), 입고 확인→협력사 통지(편차 메모 동봉). rfq-email.ts 셸 재사용, 비차단 | 핑퐁은 상대가 알아야 흐른다 |
 | D22-5 | Case ID 미승계(선적이 Case 강결합이라 구조적 불필요), 상업송장 생성기(자동 초안+PDF/엑셀)·파일 교체 이력·국내 거점주소 안내는 후속 | 범위 통제 |
 | D22-6 | sp_bom_shipment += `shipDate`(출고예정일, UTC 자정 저장 — KST 자정 저장 시 ISO 직렬화에서 하루 밀리는 함정 실측) — migration `20260731090000` | 최소 스키마 |
@@ -575,7 +575,7 @@ confirmed+문서 없음 true/shipped→국내도착 차례 true/customs false/�
 | D23-2 | 자동 초안: 품목=발주 스냅샷 행(MPN+제조사·수량·단가 — 레거시 PCB 1행과 달리 다행), 수하인=영카트 사업자정보(레거시 거점 하드코딩 제거), 발송인=협력사 기준정보(주소는 직접 입력→저장본 재활용), Invoice No=`SPB-{poId}-{shipmentId}`, 날짜=오늘 KST | 레거시보다 자동화 폭 확대 |
 | D23-3 | **fresh 재조립** — `GET …/invoice?fresh=true` 로 저장본 무시하고 발주 데이터 재조립(모달 [발주 데이터로 다시 채우기]). 레거시 "저장본이 자동조립을 영원히 가림" 함정 교정 | 레거시 doc 명기 함정 |
 | D23-4 | PDF=프론트 html2canvas-pro+jspdf(레거시 방식 — 미리보기 DOM 캡처·A4 분할·지연 로딩 청크) → **Invoice 자동 첨부**(D22 파일 라우트 재사용) / 엑셀=서버 exceljs(레거시 POI 레이아웃 이식 — 영·简中 병기 통관 양식) → **다운로드**(첨부 슬롯은 PDF 몫 — 레거시는 둘 다 첨부였으나 종류별 1건 모델에 맞게 단순화) | 스택 재사용 |
-| D23-5 | 국제 모드 전용 노출(국내 거래명세서는 별개 서식 — 후속), HS CODE·중량·주소는 직접 입력(레거시 동일), qty 는 문자열("1 SET" 표기 허용) | 레거시 승계 |
+| D23-5 | 국제 모드 전용 노출(국내 거래명세서는 별개 서식 — §6.18 D27로 구현), HS CODE·중량·주소는 직접 입력(레거시 동일), qty 는 문자열("1 SET" 표기 허용) | 레거시 승계 |
 | D23-6 | 엑셀 POST 는 편집본 저장을 겸한다(레거시 POST xlsx 미러) — shared 에 `apiSendBlob`(JSON→Blob) 신설 | 관례 확장 |
 
 **✅ 구현 완료 (2026-07-31)**: 계약 BomInvoiceItem/Data·Draft 응답 / lib/bom-invoice.ts
@@ -978,6 +978,33 @@ QR 정본은 Invoice JSON이 아니라 선적에 담긴 불변 발주 품목(`sp
   전체 604건 통과(통합환경 29건 제외), 8개 워크스페이스 typecheck/lint와 sp-node·sp-vue
   production build 통과. 공유 로컬 Case 데이터를 보존하기 위해 실제 추가·삭제 요청은 전송하지
   않았으며 브라우저 실화면 E2E는 후속 검증 대상으로 남겼다.
+
+### 6.18 협력사 견적서 · 선적 거래명세서 — D27 (2026-08-02)
+
+파트너 포탈과 관리자 선적·배송이 서로 다른 문서를 만들지 않고 같은 서버 문서 원본을
+조회·인쇄한다. 고객에게 SamplePCB가 발행하는 BOM 견적서와 달리 두 문서는 **협력사가 공급자,
+SamplePCB가 공급받는 자**다.
+
+| 결정 | 내용 | 이유 |
+| ---- | ---- | ---- |
+| D27-1 | 협력사 견적서는 `PO 1건당 1건`(`PQT-SPB-{poId}`)이다. 묶음 선적도 포함 PO마다 견적서를 각각 제공하며 선적 기준으로 재합산하지 않는다. | 견적은 선적 전에 수락된 거래 조건이고 PO가 그 불변 경계 |
+| D27-2 | 거래명세서는 `선적 1건당 1건`(`STMT-SPB-{shipmentId}-R{packingRevision}`)이다. 묶인 PO·Case를 한 문서에 표시하되 행마다 PO와 Case를 남긴다. | 실제 한 박스에 들어간 물품과 문서 범위를 일치 |
+| D27-3 | 견적서 품목·가격·납기·MOQ·재고·Date Code·리드타임·회신 메모는 PO 발행 순간 `sp_bom_po*`에 복사하고 `quotationData` JSON에 발행자·수신자까지 스냅샷한다. 기능 도입 전에 발행된 PO는 GET에서 DB를 바꾸지 않고 불변 PO 거래조건과 현재 조직 사업자정보로 렌더링한다. | 신규 문서는 재회신·기준정보 변경의 소급 영향을 막고, 기존 문서 조회도 무부작용 원칙 유지 |
+| D27-4 | 거래명세서 수량은 저장된 Packing List의 활성 포장 수량 합계이며, 없으면 발주수량을 쓰되 `초안`으로 표시한다. Packing List가 확정되면 그 revision·포장·PO 스냅샷이 불변 원본이므로 별도 중복 원장을 만들지 않는다. | QR 추적 원장과 거래 문서 수량 불일치 방지 |
+| D27-5 | 국내 협력사(`country=KR`)만 공급가액과 VAT 10%를 분리하고, 해외 협력사에는 국내 VAT를 임의 적용하지 않는다. 국제 통관 문서는 D23 Commercial Invoice를 계속 사용한다. | 국내·국제 세금/통관 문서 의미 분리 |
+| D27-6 | `sp_partner`에 사업자번호·대표자·우편번호·사업장주소·업태·종목·팩스를 조직 단위로 저장한다. 계정별 회원 프로필에서 임의 추론하지 않는다. | 다계정 조직에서도 공식 발행자정보가 하나여야 함 |
+
+- **화면**: 파트너 발송 카드와 관리자 선적 모달의 [거래 문서]에서 묶음 PO별 [견적서]와
+  선적별 [거래명세서]를 연다. 공용 A4 컴포넌트를 사용하므로 양쪽 내용·인쇄 결과가 같다.
+  기존 국내 `invoice` 업로드 슬롯은 생성 문서와 혼동되지 않게 [별도 거래서류]로 이름을 바꿨다.
+- **API**: 파트너는 소유권을 재검증하는
+  `GET /partner/pos/:poId/quotation`, `GET /partner/shipments/:shipmentId/statement`, 관리자는
+  `GET /admin/bom-pos/:poId/quotation`, `GET /admin/bom-shipments/:shipmentId/statement`를 쓴다.
+- **데이터**: migration `20260802190000_add_bom_trade_documents`. 고객 BOM 견적서 모델·API와
+  기존 Commercial Invoice JSON/첨부는 변경하지 않는다.
+- **검증**: 로컬 migration 적용, sp-node 608건 통과(통합환경 29건 제외), 공용 계약·sp-node·
+  sp-vue typecheck/lint와 production build 통과. 관리자 파트너 사업자정보 모달을 실제 Chrome에서
+  확인했고 콘솔 오류가 없었다. 로컬 DB에 선적 fixture가 없어 문서 버튼 실데이터 E2E는 수행하지 않았다.
 
 ## 7. 레거시 교훈 승계 가드
 

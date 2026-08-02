@@ -875,6 +875,13 @@ model SpPartner {
   contactName     String?             @db.VarChar(100)
   contactPhone    String?             @db.VarChar(50)
   contactEmail    String?             @db.VarChar(255) // RFQ 알림 수신처
+  businessNo      String?             @db.VarChar(30) // 견적서·거래명세서 발행자 사업자번호
+  ownerName       String?             @db.VarChar(100)
+  businessZip     String?             @db.VarChar(10)
+  businessAddress String?             @db.VarChar(500)
+  businessType    String?             @db.VarChar(100) // 업태
+  businessItem    String?             @db.VarChar(100) // 종목
+  fax             String?             @db.VarChar(50)
   memo            String?             @db.Text // 내부 메모 — 협력사 비노출
   statusReason    String?             @db.VarChar(255) // 정지/반려 사유(SpMarketExpert 관례)
   decidedBy       String?             @db.VarChar(191) // 처리 관리자 mbId
@@ -970,6 +977,10 @@ model SpBomPo {
   // 외부공급사 실행 결과 박제(D20) — Mouser {cartKey…}/DigiKey {singleUseUrl…}/실패 {error}.
   // 사람 협력사 발주는 null. 재시도 시 덮어쓴다.
   externalRef Json?
+  // 협력사 견적서 발행 시점 스냅샷. 기존 PO는 최초 조회 시 불변 발주 데이터로 보강한다.
+  quotationData Json?
+  quotationDeliveryDate DateTime?
+  quotationMemo String? @db.Text
   issuedAt    DateTime       @default(now())
   confirmedAt DateTime?
   closedAt    DateTime?
@@ -1049,6 +1060,11 @@ model SpBomPoItem {
   qty              Int // 발주 수량(= 생성 시점 orderQty 박제)
   unitPrice        Decimal             @db.Decimal(14, 4) // 선정 단가 박제(VAT 별도)
   lineTotal        Int // round(unitPrice × qty) KRW 정수
+  moq              Int?
+  stock            Int?
+  dateCode         String?             @db.VarChar(100)
+  leadTime         String?             @db.VarChar(64)
+  quotationMemo    String?             @db.VarChar(500)
   createdAt        DateTime            @default(now())
   po               SpBomPo             @relation(fields: [poId], references: [id], onDelete: Cascade)
   shipmentItems    SpBomShipmentItem[]

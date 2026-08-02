@@ -4,8 +4,10 @@ import {
   ApiError,
   BomInvoiceData,
   BomInvoiceDraftResponse,
+  BomPartnerQuotationResponse,
   BomShipmentPackingListResponse,
   BomShipmentPackingListSaveBody,
+  BomShipmentStatementResponse,
   BomShipmentFileType,
   PartnerPoDetailResponse,
   PartnerPoListResponse,
@@ -42,7 +44,16 @@ import {
   type PartnerShipmentError,
 } from '../lib/bom-po';
 import { collectMultipart } from '../lib/market';
-import { buildInvoiceDraft, loadPoForInvoice, renderInvoiceXlsx, saveInvoiceData } from '../lib/bom-invoice';
+import {
+  buildInvoiceDraft,
+  loadPoForInvoice,
+  renderInvoiceXlsx,
+  saveInvoiceData,
+} from '../lib/bom-invoice';
+import {
+  loadPartnerQuotationDocument,
+  loadShipmentStatementDocument,
+} from '../lib/bom-trade-documents';
 import { buildShipmentTurnAdminEmail, sendBomRfqMail } from '../lib/rfq-email';
 import { getShopEstimateProfile } from '../lib/g5-db';
 import {
@@ -95,7 +106,10 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
             new Map<string, BomShipmentFileMetaType[]>(),
             new Map<string, BomShipmentGroupPoType[]>(),
           ]
-        : await Promise.all([loadShipmentFilesMap([shipmentId]), loadShipmentGroupMap([shipmentId])]);
+        : await Promise.all([
+            loadShipmentFilesMap([shipmentId]),
+            loadShipmentGroupMap([shipmentId]),
+          ]);
     const key = shipmentId?.toString();
     return toPartnerPoDetail(
       po,
@@ -165,6 +179,19 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
     },
   );
 
+  // 협력사가 제출하고 PO 발행 시 동결된 견적서. 고객 BOM 견적서와 발행 방향이 다르다.
+  fastify.get(
+    '/partner/pos/:poId/quotation',
+    { schema: { params: PoIdParams, response: { 200: BomPartnerQuotationResponse } } },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const data = await loadPartnerQuotationDocument(request.params.poId, ctx.partnerId);
+      if (data === null) return reply.notFound('견적서를 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
   // [다음 단계 진행](D22) — 자기 차례 전이만. 단계별 필수는 서버 검증(409 + 코드).
   fastify.post(
     '/partner/pos/:poId/shipment/advance',
@@ -178,11 +205,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
     async (request, reply) => {
       const ctx = request.partnerContext;
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
-      const result = await advancePartnerShipment(
-        request.params.poId,
-        ctx.partnerId,
-        request.body,
-      );
+      const result = await advancePartnerShipment(request.params.poId, ctx.partnerId, request.body);
       if (!result.ok) {
         if (result.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
         return reply
@@ -247,10 +270,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
   const isShipmentDoneForPartner = (s: PartnerShipmentViewType): boolean =>
     s.receivedAt !== null || bomShipmentNextStatus(s.mode, s.status) === null;
 
-  const buildShipmentListData = async (
-    partnerId: bigint,
-    query?: PartnerShipmentListQueryType,
-  ) => {
+  const buildShipmentListData = async (partnerId: bigint, query?: PartnerShipmentListQueryType) => {
     const all = await loadPartnerShipments(partnerId);
     const dones = all.filter(isShipmentDoneForPartner);
     const actives = all.filter((s) => !isShipmentDoneForPartner(s));
@@ -278,13 +298,30 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
     async (request) => {
       const ctx = request.partnerContext;
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
-      return { result: true as const, data: await buildShipmentListData(ctx.partnerId, request.query) };
+      return {
+        result: true as const,
+        data: await buildShipmentListData(ctx.partnerId, request.query),
+      };
     },
   );
 
   // 박스에 담기(§6.11 두 칸 UI) — 준비 중 발송에 발주서 추가.
   const ShipmentPoBody = z.object({ poId: z.number().int().positive() });
   const ShipmentIdParams = z.object({ shipmentId: z.coerce.bigint() });
+
+  // 발송에 실제 담긴 PO와 Packing List 수량을 합친 거래명세서. 준비 중에는 초안 표기.
+  fastify.get(
+    '/partner/shipments/:shipmentId/statement',
+    { schema: { params: ShipmentIdParams, response: { 200: BomShipmentStatementResponse } } },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const data = await loadShipmentStatementDocument(request.params.shipmentId, ctx.partnerId);
+      if (data === null) return reply.notFound('거래명세서를 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
   fastify.post(
     '/partner/shipments/:shipmentId/pos',
     {
@@ -544,7 +581,10 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         '_',
       );
       return reply
-        .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.xlsx`)}`)
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.xlsx`)}`,
+        )
         .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         .send(buffer);
     },

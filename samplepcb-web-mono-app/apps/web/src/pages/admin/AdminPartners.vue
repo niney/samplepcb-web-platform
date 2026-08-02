@@ -78,6 +78,13 @@ const emptyForm = (): {
   contactName: string;
   contactPhone: string;
   contactEmail: string;
+  businessNo: string;
+  ownerName: string;
+  businessZip: string;
+  businessAddress: string;
+  businessType: string;
+  businessItem: string;
+  fax: string;
   memo: string;
 } => ({
   type: 'partner',
@@ -89,6 +96,13 @@ const emptyForm = (): {
   contactName: '',
   contactPhone: '',
   contactEmail: '',
+  businessNo: '',
+  ownerName: '',
+  businessZip: '',
+  businessAddress: '',
+  businessType: '',
+  businessItem: '',
+  fax: '',
   memo: '',
 });
 const createForm = ref(emptyForm());
@@ -107,12 +121,22 @@ async function submitCreate(): Promise<void> {
     name: createForm.value.name.trim(),
     supplierCode: toNullable(createForm.value.supplierCode),
     country: toNullable(createForm.value.country),
-    defaultCurrency: createForm.value.defaultCurrency.trim() === '' ? 'KRW' : createForm.value.defaultCurrency.trim(),
+    defaultCurrency:
+      createForm.value.defaultCurrency.trim() === ''
+        ? 'KRW'
+        : createForm.value.defaultCurrency.trim(),
     capabilities: createForm.value.capabilities,
     status: 'approved',
     contactName: toNullable(createForm.value.contactName),
     contactPhone: toNullable(createForm.value.contactPhone),
     contactEmail: toNullable(createForm.value.contactEmail),
+    businessNo: toNullable(createForm.value.businessNo),
+    ownerName: toNullable(createForm.value.ownerName),
+    businessZip: toNullable(createForm.value.businessZip),
+    businessAddress: toNullable(createForm.value.businessAddress),
+    businessType: toNullable(createForm.value.businessType),
+    businessItem: toNullable(createForm.value.businessItem),
+    fax: toNullable(createForm.value.fax),
     memo: toNullable(createForm.value.memo),
   };
   try {
@@ -142,6 +166,13 @@ watch(detail, (d) => {
     contactName: d.contactName ?? '',
     contactPhone: d.contactPhone ?? '',
     contactEmail: d.contactEmail ?? '',
+    businessNo: d.businessNo ?? '',
+    ownerName: d.ownerName ?? '',
+    businessZip: d.businessZip ?? '',
+    businessAddress: d.businessAddress ?? '',
+    businessType: d.businessType ?? '',
+    businessItem: d.businessItem ?? '',
+    fax: d.fax ?? '',
     memo: d.memo ?? '',
   };
   editError.value = '';
@@ -166,6 +197,13 @@ async function submitUpdate(): Promise<void> {
         contactName: toNullable(editForm.value.contactName),
         contactPhone: toNullable(editForm.value.contactPhone),
         contactEmail: toNullable(editForm.value.contactEmail),
+        businessNo: toNullable(editForm.value.businessNo),
+        ownerName: toNullable(editForm.value.ownerName),
+        businessZip: toNullable(editForm.value.businessZip),
+        businessAddress: toNullable(editForm.value.businessAddress),
+        businessType: toNullable(editForm.value.businessType),
+        businessItem: toNullable(editForm.value.businessItem),
+        fax: toNullable(editForm.value.fax),
         memo: toNullable(editForm.value.memo),
       },
     });
@@ -256,7 +294,10 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
       <button
         type="button"
         class="rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-blue-700"
-        @click="createOpen = true; createError = ''"
+        @click="
+          createOpen = true;
+          createError = '';
+        "
       >
         파트너 등록
       </button>
@@ -349,7 +390,10 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
               {{ p.memberCount }}
             </td>
             <td class="px-4 py-3">
-              <span class="rounded-full px-2 py-0.5 text-[11px] font-bold" :class="statusBadge(p.status)">
+              <span
+                class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                :class="statusBadge(p.status)"
+              >
                 {{ PARTNER_STATUS_LABELS[p.status] }}
               </span>
             </td>
@@ -383,14 +427,25 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
       <div class="h-full w-full max-w-lg overflow-y-auto bg-surface p-6 shadow-2xl">
         <div class="flex items-center justify-between">
           <h2 class="text-lg font-bold">파트너 상세</h2>
-          <button type="button" class="text-gray-400 hover:text-gray-700" @click="selectedId = null">✕</button>
+          <button
+            type="button"
+            class="text-gray-400 hover:text-gray-700"
+            @click="selectedId = null"
+          >
+            ✕
+          </button>
         </div>
 
-        <div v-if="detail === undefined" class="py-10 text-center text-sm text-gray-400">불러오는 중…</div>
+        <div v-if="detail === undefined" class="py-10 text-center text-sm text-gray-400">
+          불러오는 중…
+        </div>
         <template v-else>
           <div class="mt-4 flex items-center gap-2">
             <span class="text-base font-bold text-gray-900">{{ detail.name }}</span>
-            <span class="rounded-full px-2 py-0.5 text-[11px] font-bold" :class="statusBadge(detail.status)">
+            <span
+              class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+              :class="statusBadge(detail.status)"
+            >
               {{ PARTNER_STATUS_LABELS[detail.status] }}
             </span>
             <span class="text-xs text-gray-500">{{ PARTNER_TYPE_LABELS[detail.type] }}</span>
@@ -402,45 +457,155 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
           <!-- 조직 정보 수정 -->
           <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
             <label class="text-gray-500">유형
-              <select v-model="editForm.type" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
-                <option v-for="t in PARTNER_TYPES" :key="t" :value="t">{{ PARTNER_TYPE_LABELS[t] }}</option>
+              <select
+                v-model="editForm.type"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
+                <option v-for="t in PARTNER_TYPES" :key="t" :value="t">
+                  {{ PARTNER_TYPE_LABELS[t] }}
+                </option>
               </select>
             </label>
             <label class="text-gray-500">이름(회사명)
-              <input v-model="editForm.name" type="text" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+              <input
+                v-model="editForm.name"
+                type="text"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
             </label>
             <label v-if="showsSupplierCode" class="text-gray-500">supplierCode
-              <input v-model="editForm.supplierCode" type="text" placeholder="digikey" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono">
+              <input
+                v-model="editForm.supplierCode"
+                type="text"
+                placeholder="digikey"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono"
+              >
             </label>
             <label class="text-gray-500">국가(ISO 2)
-              <input v-model="editForm.country" type="text" placeholder="KR" maxlength="2" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 uppercase">
+              <input
+                v-model="editForm.country"
+                type="text"
+                placeholder="KR"
+                maxlength="2"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 uppercase"
+              >
             </label>
             <label class="text-gray-500">기본 통화
-              <input v-model="editForm.defaultCurrency" type="text" maxlength="3" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 uppercase">
+              <input
+                v-model="editForm.defaultCurrency"
+                type="text"
+                maxlength="3"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 uppercase"
+              >
             </label>
             <label class="text-gray-500">담당자
-              <input v-model="editForm.contactName" type="text" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+              <input
+                v-model="editForm.contactName"
+                type="text"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
             </label>
             <label class="text-gray-500">전화
-              <input v-model="editForm.contactPhone" type="text" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+              <input
+                v-model="editForm.contactPhone"
+                type="text"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
             </label>
             <label class="text-gray-500">이메일(RFQ 알림 수신)
-              <input v-model="editForm.contactEmail" type="email" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+              <input
+                v-model="editForm.contactEmail"
+                type="email"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
+            </label>
+            <p class="col-span-2 mt-2 border-t border-gray-100 pt-3 font-bold text-gray-700">
+              거래 문서 사업자정보
+            </p>
+            <p class="col-span-2 -mt-1 text-[11px] text-amber-700">
+              견적서는 PO 발행 시점의 정보로 고정됩니다. 발주 전에 확인해 주세요.
+            </p>
+            <label class="text-gray-500">사업자등록번호
+              <input
+                v-model="editForm.businessNo"
+                type="text"
+                maxlength="30"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
+            </label>
+            <label class="text-gray-500">대표자명
+              <input
+                v-model="editForm.ownerName"
+                type="text"
+                maxlength="100"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
+            </label>
+            <label class="text-gray-500">우편번호
+              <input
+                v-model="editForm.businessZip"
+                type="text"
+                maxlength="10"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
+            </label>
+            <label class="text-gray-500">팩스번호
+              <input
+                v-model="editForm.fax"
+                type="text"
+                maxlength="50"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
+            </label>
+            <label class="col-span-2 text-gray-500">사업장주소
+              <input
+                v-model="editForm.businessAddress"
+                type="text"
+                maxlength="500"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
+            </label>
+            <label class="text-gray-500">업태
+              <input
+                v-model="editForm.businessType"
+                type="text"
+                maxlength="100"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
+            </label>
+            <label class="text-gray-500">종목
+              <input
+                v-model="editForm.businessItem"
+                type="text"
+                maxlength="100"
+                class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+              >
             </label>
           </div>
           <div class="mt-3">
             <p class="text-xs font-bold text-gray-500">참여 트랙(capabilities)</p>
             <div class="mt-1.5 flex flex-wrap gap-3 text-xs">
               <label v-for="c in PARTNER_CAPABILITIES" :key="c" class="flex items-center gap-1.5">
-                <input v-model="editForm.capabilities" type="checkbox" :value="c" class="size-3.5">
+                <input
+                  v-model="editForm.capabilities"
+                  type="checkbox"
+                  :value="c"
+                  class="size-3.5"
+                >
                 {{ PARTNER_CAPABILITY_LABELS[c] }}
               </label>
             </div>
           </div>
           <label class="mt-3 block text-xs text-gray-500">내부 메모(협력사 비노출)
-            <textarea v-model="editForm.memo" rows="2" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-xs" />
+            <textarea
+              v-model="editForm.memo"
+              rows="2"
+              class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+            />
           </label>
-          <p v-if="editError !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ editError }}</p>
+          <p v-if="editError !== ''" class="mt-2 text-xs font-semibold text-red-600">
+            {{ editError }}
+          </p>
           <button
             type="button"
             class="mt-2 rounded-lg border border-gray-300 px-4 py-2 text-xs font-bold hover:bg-gray-50 disabled:opacity-40"
@@ -462,7 +627,9 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
                 :key="m.mbId"
                 class="flex items-center gap-2 rounded-lg border border-gray-100 px-3 py-1.5 text-xs"
               >
-                <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500">{{ m.role }}</span>
+                <span
+                  class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500"
+                >{{ m.role }}</span>
                 <span class="min-w-0 flex-1 truncate">{{ m.mbId }}</span>
                 <button
                   type="button"
@@ -494,7 +661,9 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
                 연결
               </button>
             </div>
-            <p v-if="memberError !== ''" class="mt-1.5 text-xs font-semibold text-red-600">{{ memberError }}</p>
+            <p v-if="memberError !== ''" class="mt-1.5 text-xs font-semibold text-red-600">
+              {{ memberError }}
+            </p>
           </div>
 
           <!-- 상태 처리 -->
@@ -507,7 +676,9 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
               placeholder="정지 사유 (정지 시 필수)"
               class="mt-2 h-9 w-full rounded-lg border border-gray-200 px-3 text-xs"
             >
-            <p v-if="statusError !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ statusError }}</p>
+            <p v-if="statusError !== ''" class="mt-2 text-xs font-semibold text-red-600">
+              {{ statusError }}
+            </p>
             <div class="mt-3 flex flex-wrap gap-2">
               <button
                 v-if="detail.status === 'pending'"
@@ -559,45 +730,152 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
       class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4"
       @click.self="createOpen = false"
     >
-      <div class="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl">
+      <div
+        class="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-surface p-6 shadow-2xl"
+      >
         <div class="flex items-center justify-between">
           <h2 class="text-lg font-bold">파트너 등록</h2>
-          <button type="button" class="text-gray-400 hover:text-gray-700" @click="createOpen = false">✕</button>
+          <button
+            type="button"
+            class="text-gray-400 hover:text-gray-700"
+            @click="createOpen = false"
+          >
+            ✕
+          </button>
         </div>
         <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
           <label class="text-gray-500">유형
-            <select v-model="createForm.type" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
-              <option v-for="t in PARTNER_TYPES" :key="t" :value="t">{{ PARTNER_TYPE_LABELS[t] }}</option>
+            <select
+              v-model="createForm.type"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
+              <option v-for="t in PARTNER_TYPES" :key="t" :value="t">
+                {{ PARTNER_TYPE_LABELS[t] }}
+              </option>
             </select>
           </label>
           <label class="text-gray-500">이름(회사명)
-            <input v-model="createForm.name" type="text" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+            <input
+              v-model="createForm.name"
+              type="text"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
           </label>
           <label v-if="createForm.type !== 'partner'" class="text-gray-500">supplierCode
-            <input v-model="createForm.supplierCode" type="text" placeholder="digikey" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono">
+            <input
+              v-model="createForm.supplierCode"
+              type="text"
+              placeholder="digikey"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 font-mono"
+            >
           </label>
           <label class="text-gray-500">국가(ISO 2)
-            <input v-model="createForm.country" type="text" placeholder="KR" maxlength="2" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 uppercase">
+            <input
+              v-model="createForm.country"
+              type="text"
+              placeholder="KR"
+              maxlength="2"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 uppercase"
+            >
           </label>
           <label class="text-gray-500">기본 통화
-            <input v-model="createForm.defaultCurrency" type="text" maxlength="3" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 uppercase">
+            <input
+              v-model="createForm.defaultCurrency"
+              type="text"
+              maxlength="3"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2 uppercase"
+            >
           </label>
           <label class="text-gray-500">담당자 이메일
-            <input v-model="createForm.contactEmail" type="email" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
+            <input
+              v-model="createForm.contactEmail"
+              type="email"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
+          </label>
+          <p class="col-span-2 mt-2 border-t border-gray-100 pt-3 font-bold text-gray-700">
+            거래 문서 사업자정보
+          </p>
+          <label class="text-gray-500">사업자등록번호
+            <input
+              v-model="createForm.businessNo"
+              type="text"
+              maxlength="30"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
+          </label>
+          <label class="text-gray-500">대표자명
+            <input
+              v-model="createForm.ownerName"
+              type="text"
+              maxlength="100"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
+          </label>
+          <label class="text-gray-500">우편번호
+            <input
+              v-model="createForm.businessZip"
+              type="text"
+              maxlength="10"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
+          </label>
+          <label class="text-gray-500">팩스번호
+            <input
+              v-model="createForm.fax"
+              type="text"
+              maxlength="50"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
+          </label>
+          <label class="col-span-2 text-gray-500">사업장주소
+            <input
+              v-model="createForm.businessAddress"
+              type="text"
+              maxlength="500"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
+          </label>
+          <label class="text-gray-500">업태
+            <input
+              v-model="createForm.businessType"
+              type="text"
+              maxlength="100"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
+          </label>
+          <label class="text-gray-500">종목
+            <input
+              v-model="createForm.businessItem"
+              type="text"
+              maxlength="100"
+              class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2"
+            >
           </label>
         </div>
         <div class="mt-3">
           <p class="text-xs font-bold text-gray-500">참여 트랙</p>
           <div class="mt-1.5 flex flex-wrap gap-3 text-xs">
             <label v-for="c in PARTNER_CAPABILITIES" :key="c" class="flex items-center gap-1.5">
-              <input v-model="createForm.capabilities" type="checkbox" :value="c" class="size-3.5">
+              <input
+                v-model="createForm.capabilities"
+                type="checkbox"
+                :value="c"
+                class="size-3.5"
+              >
               {{ PARTNER_CAPABILITY_LABELS[c] }}
             </label>
           </div>
         </div>
-        <p v-if="createError !== ''" class="mt-3 text-xs font-semibold text-red-600">{{ createError }}</p>
+        <p v-if="createError !== ''" class="mt-3 text-xs font-semibold text-red-600">
+          {{ createError }}
+        </p>
         <div class="mt-4 flex justify-end gap-2">
-          <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-xs font-bold hover:bg-gray-50" @click="createOpen = false">
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-xs font-bold hover:bg-gray-50"
+            @click="createOpen = false"
+          >
             취소
           </button>
           <button

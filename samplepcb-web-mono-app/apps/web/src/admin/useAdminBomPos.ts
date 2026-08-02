@@ -9,7 +9,9 @@ import {
   AdminBomPoMutationResponse,
   AdminBomShipmentCrossListResponse,
   BomInvoiceDraftResponse,
+  BomPartnerQuotationResponse,
   BomShipmentPackingListResponse,
+  BomShipmentStatementResponse,
   apiRoutes,
   type AdminBomPartPackageActionBodyType,
   type AdminBomPoCreateBodyType,
@@ -18,8 +20,10 @@ import {
   type AdminBomShipmentReceiveBodyType,
   type AdminBomShipmentUpsertBodyType,
   type BomInvoiceDataType,
+  type BomPartnerQuotationType,
   type BomShipmentPackingListSaveBodyType,
   type BomShipmentPackingListType,
+  type BomShipmentStatementType,
   type BomShipmentFileTypeType,
 } from '@sp/api-contract';
 
@@ -262,6 +266,22 @@ export const adminInvoiceApi = (quoteId: string, poId: number) => ({
   renderXlsx: (data: BomInvoiceDataType): Promise<Blob> =>
     apiSendBlob('POST', `${base}/${quoteId}/pos/${String(poId)}/shipment/invoice/xlsx`, data),
 });
+
+/** 묶음 선적의 Case 경계와 무관하게 PO별 협력사 견적서를 조회한다. */
+export const loadAdminPartnerQuotation = (poId: number): Promise<BomPartnerQuotationType> =>
+  apiGet(
+    `${apiRoutes.adminBomPos}/${String(poId)}/quotation`,
+    BomPartnerQuotationResponse,
+  ).then((res) => res.data);
+
+/** 선적별 거래명세서 — 협력사 포털과 같은 서버 스냅샷. */
+export const loadAdminShipmentStatement = (
+  shipmentId: number,
+): Promise<BomShipmentStatementType> =>
+  apiGet(
+    `${apiRoutes.adminBomShipments}/${String(shipmentId)}/statement`,
+    BomShipmentStatementResponse,
+  ).then((res) => res.data);
 
 /** 선적 리스트·QR 라벨(D24) — 관리자 대리 작성·재인쇄. */
 export const adminPackingApi = (shipmentId: number) => ({

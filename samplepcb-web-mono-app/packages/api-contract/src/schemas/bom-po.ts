@@ -161,7 +161,7 @@ export const BOM_SHIPMENT_FILE_LABELS = {
   airwaybill: 'AWB',
 } as const satisfies Record<BomShipmentFileTypeType, string>;
 export const BOM_SHIPMENT_FILE_DOMESTIC_LABELS = {
-  invoice: '거래명세서',
+  invoice: '별도 거래서류',
   airwaybill: '송장내역',
 } as const satisfies Record<BomShipmentFileTypeType, string>;
 
@@ -477,6 +477,121 @@ export const BomInvoiceDraftResponse = z.object({
   data: BomInvoiceData,
 });
 export type BomInvoiceDraftResponseType = z.infer<typeof BomInvoiceDraftResponse>;
+
+// ── 협력사 거래 문서 — PO별 견적서 + 선적별 거래명세서 ─────────────────────
+// 고객 BOM 견적서와 발행 방향이 반대다. 협력사가 발행자, 샘플피씨비가 수신자이며
+// 관리자와 협력사 포털이 같은 서버 스냅샷을 조회·인쇄한다.
+
+export const BomTradeParty = z.object({
+  companyName: z.string(),
+  businessNo: z.string(),
+  ownerName: z.string(),
+  zip: z.string(),
+  address: z.string(),
+  businessType: z.string(),
+  businessItem: z.string(),
+  contactName: z.string(),
+  tel: z.string(),
+  fax: z.string(),
+  email: z.string(),
+  country: z.string(),
+});
+export type BomTradePartyType = z.infer<typeof BomTradeParty>;
+
+export const BomPartnerQuotationItem = z.object({
+  poItemId: z.number(),
+  mpn: z.string(),
+  manufacturerName: z.string().nullable(),
+  description: z.string().nullable(),
+  qty: z.number().int().positive(),
+  unitPrice: z.number(),
+  lineTotal: z.number().int(),
+  moq: z.number().int().positive().nullable(),
+  stock: z.number().int().nonnegative().nullable(),
+  dateCode: z.string().nullable(),
+  leadTime: z.string().nullable(),
+  memo: z.string().nullable(),
+});
+export type BomPartnerQuotationItemType = z.infer<typeof BomPartnerQuotationItem>;
+
+export const BomPartnerQuotation = z.object({
+  kind: z.literal('quotation'),
+  quotationNo: z.string(),
+  poId: z.number(),
+  quoteId: z.string(),
+  quoteTitle: z.string(),
+  issuedAt: z.string(),
+  deliveryDate: z.string().nullable(),
+  currency: z.string(),
+  issuer: BomTradeParty,
+  recipient: BomTradeParty,
+  items: z.array(BomPartnerQuotationItem).max(500),
+  supplyAmount: z.number().int(),
+  vatAmount: z.number().int(),
+  totalAmount: z.number().int(),
+  memo: z.string().nullable(),
+  snapshotAt: z.string(),
+});
+export type BomPartnerQuotationType = z.infer<typeof BomPartnerQuotation>;
+
+export const BomPartnerQuotationResponse = z.object({
+  result: z.literal(true),
+  data: BomPartnerQuotation,
+});
+export type BomPartnerQuotationResponseType = z.infer<typeof BomPartnerQuotationResponse>;
+
+export const BomShipmentStatementItem = z.object({
+  poId: z.number(),
+  quoteId: z.string(),
+  quoteTitle: z.string(),
+  poItemId: z.number(),
+  mpn: z.string(),
+  manufacturerName: z.string().nullable(),
+  description: z.string().nullable(),
+  orderedQty: z.number().int().positive(),
+  shippedQty: z.number().int().positive(),
+  unitPrice: z.number(),
+  lineTotal: z.number().int(),
+  lotNos: z.array(z.string()),
+  dateCodes: z.array(z.string()),
+});
+export type BomShipmentStatementItemType = z.infer<typeof BomShipmentStatementItem>;
+
+export const BomShipmentStatement = z.object({
+  kind: z.literal('statement'),
+  statementNo: z.string(),
+  shipmentId: z.number(),
+  packingRevision: z.number().int().nonnegative(),
+  isDraft: z.boolean(),
+  issuedAt: z.string(),
+  finalizedAt: z.string().nullable(),
+  mode: BomShipmentMode,
+  currency: z.string(),
+  issuer: BomTradeParty,
+  recipient: BomTradeParty,
+  shipDate: z.string().nullable(),
+  carrier: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  items: z.array(BomShipmentStatementItem).max(500),
+  totalQuantity: z.number().int().nonnegative(),
+  supplyAmount: z.number().int(),
+  vatAmount: z.number().int(),
+  totalAmount: z.number().int(),
+  snapshotAt: z.string(),
+});
+export type BomShipmentStatementType = z.infer<typeof BomShipmentStatement>;
+
+export const BomShipmentStatementResponse = z.object({
+  result: z.literal(true),
+  data: BomShipmentStatement,
+});
+export type BomShipmentStatementResponseType = z.infer<typeof BomShipmentStatementResponse>;
+
+export const BomTradeDocument = z.discriminatedUnion('kind', [
+  BomPartnerQuotation,
+  BomShipmentStatement,
+]);
+export type BomTradeDocumentType = z.infer<typeof BomTradeDocument>;
 
 // ── 관리자 (/api/admin/bom-quotes/:id/pos) ──────────────────────────────────
 

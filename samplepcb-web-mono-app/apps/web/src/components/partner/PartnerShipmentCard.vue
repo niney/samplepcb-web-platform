@@ -16,6 +16,8 @@ import {
 } from '@sp/api-contract';
 import {
   downloadPartnerShipmentFile,
+  loadPartnerQuotation,
+  loadPartnerShipmentStatement,
   partnerInvoiceApi,
   partnerPackingApi,
   usePartnerShipmentAdvance,
@@ -25,6 +27,7 @@ import {
 } from '../../partner/usePartnerRfqs';
 import InvoiceEditorModal from '../smartbom/InvoiceEditorModal.vue';
 import ShipmentPackingModal from '../smartbom/ShipmentPackingModal.vue';
+import TradeDocumentModal from '../smartbom/TradeDocumentModal.vue';
 
 // 발송(박스) 진행 카드(§6.11) — 담긴 발주서·단계 스텝·서류·내 차례 폼·되돌리기를
 // 발송 단위로 묶어 보여준다. 서버 조작은 대표 발주서(primaryPoId) 경유로 기존
@@ -168,23 +171,47 @@ const invoiceOpen = ref(false);
 const invoiceApi = computed(() => partnerInvoiceApi(poId.value));
 const packingOpen = ref(false);
 const packingApi = computed(() => partnerPackingApi(props.shipment.shipmentId));
+const quotationPoId = ref<number | null>(null);
+const statementOpen = ref(false);
+const tradeDocumentPos = computed<{ poId: number; quoteTitle: string }[]>(() =>
+  props.shipment.groupPos.length > 0
+    ? props.shipment.groupPos.map((entry) => ({
+        poId: entry.poId,
+        quoteTitle: entry.quoteTitle,
+      }))
+    : [{ poId: props.shipment.primaryPoId, quoteTitle: '' }],
+);
+const loadQuotation = () => {
+  if (quotationPoId.value === null) return Promise.reject(new Error('quotation not selected'));
+  return loadPartnerQuotation(quotationPoId.value);
+};
+const loadStatement = () => loadPartnerShipmentStatement(props.shipment.shipmentId);
 async function attachInvoicePdf(file: File): Promise<void> {
   await uploadMut.mutateAsync({ poId: poId.value, fileType: 'invoice', file });
 }
 </script>
 
 <template>
-  <div class="rounded-xl border bg-surface p-4" :class="isMyTurn ? 'border-blue-300' : 'border-gray-200'">
+  <div
+    class="rounded-xl border bg-surface p-4"
+    :class="isMyTurn ? 'border-blue-300' : 'border-gray-200'"
+  >
     <!-- 헤더: 발송 번호·모드·차례 -->
     <div class="flex flex-wrap items-center gap-2">
       <p class="text-sm font-bold text-gray-800">📦 발송 #{{ shipment.shipmentId }}</p>
       <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-gray-600">
         {{ BOM_SHIPMENT_MODE_LABELS[mode] }}
       </span>
-      <span v-if="isMyTurn" class="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-bold text-blue-700">
+      <span
+        v-if="isMyTurn"
+        class="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-bold text-blue-700"
+      >
         내 차례
       </span>
-      <span v-if="shipment.receivedAt !== null" class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-bold text-emerald-700">
+      <span
+        v-if="shipment.receivedAt !== null"
+        class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-bold text-emerald-700"
+      >
         입고 완료
       </span>
       <button
@@ -218,16 +245,26 @@ async function attachInvoicePdf(file: File): Promise<void> {
       <li v-for="(step, idx) in stepChain" :key="step" class="flex items-center gap-1">
         <span
           class="rounded-full px-2 py-0.5 font-semibold"
-          :class="idx < stepIndex ? 'bg-emerald-100 text-emerald-700' : idx === stepIndex ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'"
+          :class="
+            idx < stepIndex
+              ? 'bg-emerald-100 text-emerald-700'
+              : idx === stepIndex
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 text-gray-400'
+          "
         >{{ statusLabel(step) }}</span>
         <span v-if="idx < stepChain.length - 1" class="text-gray-300">→</span>
       </li>
     </ol>
     <p class="mt-1.5 text-xs text-gray-400">
       <template v-if="shipment.shipDate !== null">출고예정 {{ shipment.shipDate }} · </template>
-      <template v-if="shipment.shippedAt !== null">발송 {{ shipment.shippedAt.slice(0, 10) }} · </template>
+      <template v-if="shipment.shippedAt !== null">
+        발송 {{ shipment.shippedAt.slice(0, 10) }} ·
+      </template>
       <template v-if="shipment.carrier !== null">{{ shipment.carrier }} </template>
-      <span v-if="shipment.trackingNumber !== null" class="font-mono">{{ shipment.trackingNumber }}</span>
+      <span v-if="shipment.trackingNumber !== null" class="font-mono">{{
+        shipment.trackingNumber
+      }}</span>
       <a
         v-if="shipment.trackingUrl !== null"
         :href="shipment.trackingUrl"
@@ -239,26 +276,61 @@ async function attachInvoicePdf(file: File): Promise<void> {
 
     <!-- 서류 -->
     <div class="mt-3 space-y-1.5">
-      <div
-        class="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-2 py-2 text-sm"
-      >
-        <span class="w-20 shrink-0 font-semibold text-emerald-800">선적 리스트</span>
-        <span class="text-xs text-emerald-700">부품별 실물 포장 QR·라벨</span>
-        <button
-          type="button"
-          class="ml-auto rounded bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-700"
-          @click="packingOpen = true"
+      <div class="grid gap-1.5 lg:grid-cols-2">
+        <div
+          class="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-2 py-2 text-sm"
         >
-          {{ status === 'preparing' ? '📦 만들기·인쇄' : '📦 보기·재인쇄' }}
-        </button>
+          <span class="w-20 shrink-0 font-semibold text-emerald-800">선적 리스트</span>
+          <span class="text-xs text-emerald-700">부품별 실물 포장 QR·라벨</span>
+          <button
+            type="button"
+            class="ml-auto rounded bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-700"
+            @click="packingOpen = true"
+          >
+            {{ status === 'preparing' ? '📦 만들기·인쇄' : '📦 보기·재인쇄' }}
+          </button>
+        </div>
+        <div
+          class="flex flex-wrap items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50/50 px-2 py-2 text-sm"
+        >
+          <span class="w-20 shrink-0 font-semibold text-violet-800">거래 문서</span>
+          <button
+            v-for="entry in tradeDocumentPos"
+            :key="`quotation-${entry.poId}`"
+            type="button"
+            class="max-w-44 truncate rounded border border-violet-200 bg-white px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-100"
+            :title="`${entry.quoteTitle} 협력사 견적서`"
+            @click="quotationPoId = entry.poId"
+          >
+            견적서{{ tradeDocumentPos.length > 1 ? ` #${entry.poId}` : '' }}
+          </button>
+          <button
+            type="button"
+            class="rounded bg-violet-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-violet-700"
+            @click="statementOpen = true"
+          >
+            거래명세서
+          </button>
+        </div>
       </div>
-      <div v-for="kind in BOM_SHIPMENT_FILE_TYPES" :key="kind" class="flex flex-wrap items-center gap-2 text-sm">
+      <div
+        v-for="kind in BOM_SHIPMENT_FILE_TYPES"
+        :key="kind"
+        class="flex flex-wrap items-center gap-2 text-sm"
+      >
         <span class="w-20 shrink-0 font-semibold text-gray-600">{{ fileLabel(kind) }}</span>
         <template v-if="fileOf(kind) !== null">
           <button type="button" class="text-blue-600 underline" @click="downloadFile(kind)">
             {{ fileOf(kind)?.name }}
           </button>
-          <button type="button" class="text-red-500 underline disabled:opacity-40" :disabled="busy" @click="removeFile(kind)">삭제</button>
+          <button
+            type="button"
+            class="text-red-500 underline disabled:opacity-40"
+            :disabled="busy"
+            @click="removeFile(kind)"
+          >
+            삭제
+          </button>
         </template>
         <span v-else class="text-gray-300">없음</span>
         <button
@@ -275,13 +347,21 @@ async function attachInvoicePdf(file: File): Promise<void> {
           :class="kind === 'invoice' && mode === 'international' ? '' : 'ml-auto'"
         >
           {{ fileOf(kind) === null ? '첨부' : '교체' }}
-          <input type="file" class="hidden" :disabled="busy" @change="(e) => onFilePicked(kind, e)">
+          <input
+            type="file"
+            class="hidden"
+            :disabled="busy"
+            @change="(e) => onFilePicked(kind, e)"
+          >
         </label>
       </div>
     </div>
 
     <!-- 검수 결과 -->
-    <p v-if="shipment.receivedAt !== null" class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+    <p
+      v-if="shipment.receivedAt !== null"
+      class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+    >
       입고 확인 완료 — {{ shipment.receivedAt.slice(0, 10) }}
       <template v-if="shipment.receivedNote !== null && shipment.receivedNote !== ''">
         · 검수 메모: <b>{{ shipment.receivedNote }}</b>
@@ -289,23 +369,48 @@ async function attachInvoicePdf(file: File): Promise<void> {
     </p>
 
     <!-- 내 차례 폼 -->
-    <div v-if="isMyTurn && nextStatus !== null" class="mt-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3">
-      <p class="text-sm font-bold text-blue-800">
-        다음 단계: {{ statusLabel(nextStatus) }}
-      </p>
+    <div
+      v-if="isMyTurn && nextStatus !== null"
+      class="mt-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3"
+    >
+      <p class="text-sm font-bold text-blue-800">다음 단계: {{ statusLabel(nextStatus) }}</p>
       <div v-if="nextStatus === 'requested'" class="mt-2 grid gap-2 sm:grid-cols-2">
         <label class="text-sm text-gray-600">출고예정일 (필수)
-          <input v-model="shipDate" type="date" class="mt-1 h-9 w-full rounded-lg border border-gray-200 px-3 text-sm">
+          <input
+            v-model="shipDate"
+            type="date"
+            class="mt-1 h-9 w-full rounded-lg border border-gray-200 px-3 text-sm"
+          >
         </label>
         <p class="self-end pb-1 text-xs text-gray-500">
-          {{ fileLabel('invoice') }} 첨부가 필요합니다{{ fileOf('invoice') === null ? ' — 위에서 먼저 첨부해 주세요.' : ' ✓' }}
+          {{ fileLabel('invoice') }} 첨부가 필요합니다{{
+            fileOf('invoice') === null ? ' — 위에서 먼저 첨부해 주세요.' : ' ✓'
+          }}
           <br><span class="font-semibold text-emerald-700">선적 리스트·QR 저장도 필수입니다.</span>
         </p>
       </div>
       <div v-else-if="nextStatus === 'shipping'" class="mt-2 grid gap-2 sm:grid-cols-3">
-        <input v-model="carrier" type="text" maxlength="50" placeholder="택배사 (필수)" class="h-9 rounded-lg border border-gray-200 px-3 text-sm">
-        <input v-model="trackingNumber" type="text" maxlength="100" placeholder="송장번호 (필수)" class="h-9 rounded-lg border border-gray-200 px-3 font-mono text-sm">
-        <input v-model="trackingUrl" type="url" maxlength="500" placeholder="추적 URL (선택)" class="h-9 rounded-lg border border-gray-200 px-3 text-sm">
+        <input
+          v-model="carrier"
+          type="text"
+          maxlength="50"
+          placeholder="택배사 (필수)"
+          class="h-9 rounded-lg border border-gray-200 px-3 text-sm"
+        >
+        <input
+          v-model="trackingNumber"
+          type="text"
+          maxlength="100"
+          placeholder="송장번호 (필수)"
+          class="h-9 rounded-lg border border-gray-200 px-3 font-mono text-sm"
+        >
+        <input
+          v-model="trackingUrl"
+          type="url"
+          maxlength="500"
+          placeholder="추적 URL (선택)"
+          class="h-9 rounded-lg border border-gray-200 px-3 text-sm"
+        >
       </div>
       <p v-if="nextStatus === 'shipping'" class="mt-1 text-xs font-semibold text-emerald-700">
         배송 진행 전 선적 리스트·QR 저장이 필요합니다.
@@ -319,7 +424,10 @@ async function attachInvoicePdf(file: File): Promise<void> {
         '{{ statusLabel(nextStatus) }}'(으)로 진행 →
       </button>
     </div>
-    <p v-else-if="shipment.receivedAt === null && nextStatus !== null" class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-500">
+    <p
+      v-else-if="shipment.receivedAt === null && nextStatus !== null"
+      class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-500"
+    >
       ⏳ 샘플피씨비의 '{{ statusLabel(nextStatus) }}' 처리를 기다리고 있습니다.
     </p>
 
@@ -339,6 +447,16 @@ async function attachInvoicePdf(file: File): Promise<void> {
       :save="packingApi.save"
       :mark-printed="packingApi.markPrinted"
       @close="packingOpen = false"
+    />
+    <TradeDocumentModal
+      :open="quotationPoId !== null"
+      :load="loadQuotation"
+      @close="quotationPoId = null"
+    />
+    <TradeDocumentModal
+      :open="statementOpen"
+      :load="loadStatement"
+      @close="statementOpen = false"
     />
   </div>
 </template>

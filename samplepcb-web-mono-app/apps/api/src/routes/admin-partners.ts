@@ -145,6 +145,13 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             contactName: b.contactName ?? null,
             contactPhone: b.contactPhone ?? null,
             contactEmail: b.contactEmail ?? null,
+            businessNo: b.businessNo ?? null,
+            ownerName: b.ownerName ?? null,
+            businessZip: b.businessZip ?? null,
+            businessAddress: b.businessAddress ?? null,
+            businessType: b.businessType ?? null,
+            businessItem: b.businessItem ?? null,
+            fax: b.fax ?? null,
             memo: b.memo ?? null,
             ...(b.status === 'pending'
               ? {}
@@ -198,6 +205,13 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (b.contactName !== undefined) data.contactName = b.contactName ?? null;
       if (b.contactPhone !== undefined) data.contactPhone = b.contactPhone ?? null;
       if (b.contactEmail !== undefined) data.contactEmail = b.contactEmail ?? null;
+      if (b.businessNo !== undefined) data.businessNo = b.businessNo ?? null;
+      if (b.ownerName !== undefined) data.ownerName = b.ownerName ?? null;
+      if (b.businessZip !== undefined) data.businessZip = b.businessZip ?? null;
+      if (b.businessAddress !== undefined) data.businessAddress = b.businessAddress ?? null;
+      if (b.businessType !== undefined) data.businessType = b.businessType ?? null;
+      if (b.businessItem !== undefined) data.businessItem = b.businessItem ?? null;
+      if (b.fax !== undefined) data.fax = b.fax ?? null;
       if (b.memo !== undefined) data.memo = b.memo ?? null;
 
       try {
