@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from '@sp/shared';
 import { useTheme } from '../bom/useTheme';
+import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 
 // 협력사 포털 경량 셸(docs/SMARTBOM_PARTNER_RFQ.md §4) — 관리자 셸과 분리된
 // 단일 목적 레이아웃. 소속·권한 판정은 서버(requirePartner)가 한다.
@@ -20,9 +21,7 @@ const { isDark, toggleTheme } = useTheme();
           <span v-if="auth.isLoggedIn" class="text-gray-700">
             {{ auth.me?.mbNick ?? '' }}님
           </span>
-          <a href="/" class="rounded-md border border-gray-200 px-2 py-0.5 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">
-            사이트로
-          </a>
+          <AppSiteHomeButton />
           <!-- 테마 전환 — 관리자·BOM 셸과 같은 상태를 공유한다(useTheme 싱글턴) -->
           <button
             type="button"

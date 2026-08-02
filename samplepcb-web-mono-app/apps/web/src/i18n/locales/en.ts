@@ -4,7 +4,7 @@ export const en = {
     name: 'SAMPLEPCB',
   },
   common: {
-    backToSite: 'Back to site',
+    siteHome: 'Site home',
   },
   nav: {
     smartBom: 'Smart BOM',
@@ -13,6 +13,10 @@ export const en = {
     greeting: '{nick}',
     notLoggedIn: 'Not signed in',
     admin: 'Admin',
+    profile: 'Profile',
+    account: 'Edit account',
+    login: 'Sign in',
+    logout: 'Sign out',
   },
   bomSearchTrace: {
     search: 'Search',

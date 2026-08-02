@@ -10,3 +10,11 @@ export function appPath(routeFullPath: string): string {
 export function loginUrl(returnPath: string): string {
   return `/bbs/login.php?url=${encodeURIComponent(returnPath)}`;
 }
+
+export function logoutUrl(returnPath: string): string {
+  return `/bbs/logout.php?url=${encodeURIComponent(returnPath)}`;
+}
+
+export function memberInfoUrl(): string {
+  return `/bbs/member_confirm.php?url=${encodeURIComponent('/bbs/register_form.php')}`;
+}

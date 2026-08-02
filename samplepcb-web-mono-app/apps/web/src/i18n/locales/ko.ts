@@ -4,7 +4,7 @@ export const ko = {
     name: 'SAMPLEPCB',
   },
   common: {
-    backToSite: '사이트로',
+    siteHome: '사이트 홈',
   },
   nav: {
     smartBom: '스마트 BOM',
@@ -13,6 +13,10 @@ export const ko = {
     greeting: '{nick}님',
     notLoggedIn: '로그인하지 않음',
     admin: '관리자',
+    profile: '프로필',
+    account: '회원정보 수정',
+    login: '로그인',
+    logout: '로그아웃',
   },
   bomSearchTrace: {
     search: '검색',

@@ -6,8 +6,9 @@ import { useBomQuote, useMyBomQuotes, usePatchBomQuote } from '../bom/useBom';
 import { useBomProcurementMode } from '../bom/useProcurementMode';
 import { useBomPanels } from '../bom/usePanels';
 import { useTheme } from '../bom/useTheme';
+import AppProfileMenu from '../components/AppProfileMenu.vue';
+import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 import logoIcon from '../assets/bom/logo-partseyes-icon.png';
-import icProfile from '../assets/bom/ic-profile.svg';
 import icFold from '../assets/bom/ic-fold.svg';
 import icMenuBom from '../assets/bom/ic-menu-bom.svg';
 import icMenuSearch from '../assets/bom/ic-menu-search.svg';
@@ -19,7 +20,7 @@ import promoVideo from '../assets/bom/promo-video.png';
 
 // 스마트 BOM 전용 앱 셸 — Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(87:9037) 이식.
 // 시안의 다크 배경(상단바·사이드바)은 사용자 결정으로 라이트 모드 치환, 구조·치수는 동일.
-// 미구현(표시만): 프로필 메뉴·프로모 카드 링크.
+// 미구현(표시만): 프로모 카드 링크.
 
 const route = useRoute();
 const auth = useAuthStore();
@@ -143,8 +144,6 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
         />
       </button>
 
-      <p class="absolute left-1/2 -translate-x-1/2 text-[18px] font-medium text-ink-subtle">AI 기반 전자부품 검색 엔진</p>
-
       <div class="ml-auto flex items-center gap-[12px] pr-[18px]">
         <!-- 테마 전환 — 고르기 전까지는 OS 설정을 따르고, 한 번 고르면 그 선택이 유지된다 -->
         <button
@@ -162,36 +161,8 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
             <path d="M20 13.5A8 8 0 0 1 10.5 4a8.5 8.5 0 1 0 9.5 9.5Z" stroke-linejoin="round" />
           </svg>
         </button>
-        <!-- sp-php 도메인 루트 홈으로 이동 — /app 내부 라우트가 아닌 전체 페이지 이동 -->
-        <a
-          href="/"
-          class="grid size-[32px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand"
-          aria-label="홈으로 이동"
-          title="홈으로 이동"
-        >
-          <svg viewBox="0 0 24 24" class="size-[19px]" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <path d="m3.5 10.5 8.5-7 8.5 7" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M5.5 9.5v10h13v-10M9.5 19.5v-6h5v6" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </a>
-        <!-- 관리자 콘솔 진입 — 최고관리자(cf_admin)만 노출, BOM 작업 유지를 위해 새 창 -->
-        <RouterLink
-          v-if="auth.me?.isAdmin"
-          :to="{ name: 'admin' }"
-          target="_blank"
-          rel="noopener"
-          class="inline-flex h-[28px] items-center gap-[4px] rounded-md border border-line-brand px-[10px] text-[13px] font-semibold text-brand hover:bg-blue-50"
-          title="관리자 페이지 (새 창)"
-        >
-          <span>관리자</span>
-          <span aria-hidden="true" class="text-[11px] leading-none">↗</span>
-        </RouterLink>
-        <div
-          class="flex size-[32px] items-center justify-center overflow-hidden rounded-full bg-ink-faint"
-          :title="auth.me?.mbNick ?? ''"
-        >
-          <img :src="icProfile" alt="프로필" class="size-[32px]">
-        </div>
+        <AppSiteHomeButton />
+        <AppProfileMenu :show-admin="auth.me?.isAdmin === true" />
         <button
           type="button"
           class="grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
@@ -283,6 +254,6 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       </aside>
     </div>
   </div>
-  <!-- 시안 대비 미구현 기능(리스트업): 프로필 메뉴 ·
-       프로모 카드 링크(튜토리얼/Gerber Eyes) — 사이드바/패널 접기·단일 검색은 구현됨 -->
+  <!-- 시안 대비 미구현 기능(리스트업): 프로모 카드 링크(튜토리얼/Gerber Eyes) —
+       사이드바/패널 접기·단일 검색·프로필 메뉴는 구현됨 -->
 </template>
