@@ -11,6 +11,8 @@ import {
   BomQuoteSelectionSource,
   BomQuoteSelectedOffer,
   type AdminBomQuoteDetailType,
+  type AdminBomQuoteItemAddBodyType,
+  type AdminBomQuoteItemRemoveBodyType,
   type AdminBomQuoteItemSelectionBodyType,
   type AdminBomQuoteSummaryType,
   type BomQuoteDetailType,
@@ -4133,10 +4135,18 @@ export interface AdminQuoteSelectionPolicyInput {
   force: boolean;
 }
 
-/** 화면 상태와 무관하게 서버가 최종 적용 직전에 재검사하는 관리자 교체 정책. */
+export type AdminQuoteMutationBlockReason =
+  | 'stale-quote'
+  | 'invalid-status'
+  | 'quote-busy'
+  | 'order-started'
+  | 'po-issued'
+  | 'rfq-sent';
+
+/** 화면 상태와 무관하게 서버가 최종 적용 직전에 재검사하는 관리자 품목 변경 정책. */
 export function adminQuoteSelectionBlockReason(
   input: AdminQuoteSelectionPolicyInput,
-): Exclude<AdminQuoteItemSelectionResult, QuoteCandidateSelectionResult | 'part-not-found' | 'catalog-offer-not-found'> | null {
+): AdminQuoteMutationBlockReason | null {
   if (input.quoteUpdatedAt !== input.expectedQuoteUpdatedAt) return 'stale-quote';
   if (input.buildStatus !== 'ready' || input.enrichStatus === 'searching') return 'quote-busy';
   if (input.force) return null;
@@ -4155,6 +4165,18 @@ export function rfqRequestsQuoteItem(
 ): boolean {
   if (!Array.isArray(requestedItemIds)) return itemIncluded;
   return requestedItemIds.some((value) => value === itemId);
+}
+
+/** null·구형 비배열 값은 현재 included 전체를 따라가는 동적 전체 범위다. */
+export function rfqUsesDynamicFullScope(requestedItemIds: Prisma.JsonValue): boolean {
+  return !Array.isArray(requestedItemIds);
+}
+
+/** 업로드 분석 원본과 연결되지 않은 행만 관리자 수동 제거 대상으로 본다. */
+export function isManualQuoteItemRow(
+  row: Pick<QuoteItemRow, 'sourceSheetIndex' | 'analysisComponentId'>,
+): boolean {
+  return row.sourceSheetIndex === null && row.analysisComponentId === null;
 }
 
 type QuoteCatalogSelectionResult =
@@ -4190,6 +4212,36 @@ function selectedOfferAuditKey(item: BomQuoteItemType): string | null {
   return catalogOfferAuditKey(item.partId, offer.supplier, offer.supplierSku);
 }
 
+/** 카탈로그 정체성만 받아 현재 원장의 부품·오퍼와 수량 적용 결과를 확정한다. */
+async function resolveAdminCatalogSelection(
+  tx: Prisma.TransactionClient,
+  partId: bigint,
+  requestedOffer: { supplier: string; supplierSku: string } | null,
+  needed: number,
+  usdKrwRate: number | null,
+) {
+  const part = await tx.spPart.findUnique({
+    where: { id: partId },
+    include: { offers: { include: { priceBreaks: true } } },
+  });
+  if (part === null) return { result: 'part-not-found' as const };
+
+  const offerInputs = toOfferInputs(part);
+  const selectedInput = requestedOffer === null
+    ? null
+    : offerInputs.find((offer) =>
+        offer.supplier === requestedOffer.supplier
+        && offer.supplierSku === requestedOffer.supplierSku);
+  if (requestedOffer !== null && selectedInput === undefined) {
+    return { result: 'catalog-offer-not-found' as const };
+  }
+  const pick = selectedInput === undefined || selectedInput === null
+    ? pickDefaultOffer(offerInputs, needed, usdKrwRate)
+    : applyQtyToOffer(selectedInput, needed, usdKrwRate);
+  if (requestedOffer !== null && pick === null) return { result: 'offer-not-priced' as const };
+  return { result: 'ok' as const, part, pick };
+}
+
 /** 관리자 카탈로그 선택 — 영속 부품/오퍼만 다시 읽어 선택 스냅샷과 합계를 만든다. */
 async function applyQuoteCatalogSelection(
   quoteId: bigint,
@@ -4209,12 +4261,6 @@ async function applyQuoteCatalogSelection(
   const targetRow = activeRows.find((row) => row.id === itemId);
   if (targetRow === undefined) return 'item-not-found';
 
-  const part = await tx.spPart.findUnique({
-    where: { id: partId },
-    include: { offers: { include: { priceBreaks: true } } },
-  });
-  if (part === null) return 'part-not-found';
-
   const items = activeRows.map((row) => toItemDto(row));
   const item = items.find((entry) => entry.id === String(itemId));
   if (item === undefined) return 'item-not-found';
@@ -4225,17 +4271,15 @@ async function applyQuoteCatalogSelection(
     lineTotalKrw: item.lineTotalKrw,
   };
   const needed = neededQty(item.bomQty, quote.setQty, quote.spareQty);
-  const offerInputs = toOfferInputs(part);
-  const selectedInput = requestedOffer === null
-    ? null
-    : offerInputs.find((offer) =>
-        offer.supplier === requestedOffer.supplier
-        && offer.supplierSku === requestedOffer.supplierSku);
-  if (requestedOffer !== null && selectedInput === undefined) return 'catalog-offer-not-found';
-  const pick = selectedInput === undefined || selectedInput === null
-    ? pickDefaultOffer(offerInputs, needed, options.runtimeConfig.usdKrwRate)
-    : applyQtyToOffer(selectedInput, needed, options.runtimeConfig.usdKrwRate);
-  if (requestedOffer !== null && pick === null) return 'offer-not-priced';
+  const resolved = await resolveAdminCatalogSelection(
+    tx,
+    partId,
+    requestedOffer,
+    needed,
+    options.runtimeConfig.usdKrwRate,
+  );
+  if (resolved.result !== 'ok') return resolved.result;
+  const { part, pick } = resolved;
 
   const reasonCodes: BomQuoteDecisionReasonType[] = [
     options.force ? 'admin-force-choice' : 'admin-choice',
@@ -4442,6 +4486,311 @@ export async function applyAdminQuoteItemSelection(
           ? { status: 'reviewing', answeredAt: null, answerNote: null }
           : {}),
       },
+    });
+    return 'ok';
+  }, { maxWait: 10_000, timeout: 60_000 });
+}
+
+export type AdminQuoteItemAddResult =
+  | 'ok'
+  | 'quote-not-found'
+  | 'part-not-found'
+  | 'catalog-offer-not-found'
+  | 'offer-not-priced'
+  | 'item-limit'
+  | 'quantity-too-large'
+  | AdminQuoteMutationBlockReason;
+
+export type AdminQuoteItemRemoveResult =
+  | 'ok'
+  | 'quote-not-found'
+  | 'item-not-found'
+  | 'original-item'
+  | AdminQuoteMutationBlockReason;
+
+const MAX_ACTIVE_BOM_QUOTE_ITEMS = 2000;
+const MAX_DATABASE_INT = 2_147_483_647;
+
+function adminQuoteMutationResetData(force: boolean, status: string) {
+  return {
+    confirmedShippingFee: null,
+    confirmedManagementFee: null,
+    confirmedTotal: null,
+    ...(force && status !== 'requested' && status !== 'reviewing'
+      ? { status: 'reviewing', answeredAt: null, answerNote: null }
+      : {}),
+  };
+}
+
+/**
+ * 관리자 카탈로그 수동 행 추가. 업로드 원본은 건드리지 않고 sourceSheetIndex=null 행을
+ * 생성하며, 동적 전체 범위 RFQ만 새 행을 자동 승계해 재회신 상태로 되돌린다.
+ */
+export async function addAdminQuoteItem(
+  quoteId: bigint,
+  body: AdminBomQuoteItemAddBodyType,
+  actorId: string,
+): Promise<AdminQuoteItemAddResult> {
+  const runtimeConfig = await getBomQuoteRuntimeConfig();
+  return prisma.$transaction(async (tx): Promise<AdminQuoteItemAddResult> => {
+    const locked = await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id FROM sp_bom_quote WHERE id = ${quoteId} FOR UPDATE
+    `);
+    if (locked.length === 0) return 'quote-not-found';
+    await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id FROM sp_bom_rfq WHERE quoteId = ${quoteId} ORDER BY id FOR UPDATE
+    `);
+
+    const quote = await tx.spBomQuote.findUnique({
+      where: { id: quoteId },
+      include: { items: true, sheets: true },
+    });
+    if (quote === null) return 'quote-not-found';
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    if (activeRows.length >= MAX_ACTIVE_BOM_QUOTE_ITEMS) return 'item-limit';
+
+    const rfqs = await tx.spBomRfq.findMany({
+      where: { quoteId },
+      select: { id: true, requestedItemIds: true },
+    });
+    const poCount = await tx.spBomPo.count({ where: { quoteId } });
+    const blocked = adminQuoteSelectionBlockReason({
+      status: quote.status,
+      buildStatus: quote.buildStatus,
+      enrichStatus: quote.enrichStatus,
+      ctId: quote.ctId,
+      poCount,
+      // 부분 RFQ도 새 행을 자동 포함하지 않는다는 영향 확인이 필요하므로 발송 이력 전체를 본다.
+      rfqTargetsItem: rfqs.length > 0,
+      quoteUpdatedAt: quote.updatedAt.toISOString(),
+      expectedQuoteUpdatedAt: body.expectedQuoteUpdatedAt,
+      force: body.force,
+    });
+    if (blocked !== null) return blocked;
+
+    const needed = neededQty(body.bomQty, quote.setQty, quote.spareQty);
+    const resolved = await resolveAdminCatalogSelection(
+      tx,
+      BigInt(body.partId),
+      body.offer,
+      needed,
+      runtimeConfig.usdKrwRate,
+    );
+    if (resolved.result !== 'ok') return resolved.result;
+    const { part, pick } = resolved;
+    const orderQty = pick?.orderQty ?? needed;
+    if (orderQty > MAX_DATABASE_INT) return 'quantity-too-large';
+
+    const now = new Date();
+    const rowIdx = quote.items.reduce((max, item) => Math.max(max, item.rowIdx), -1) + 1;
+    const addedItem: BomQuoteItemInputType = {
+      rowIdx,
+      included: true,
+      mpn: part.mpn,
+      manufacturerName: part.manufacturerName,
+      description: part.description,
+      bomQty: body.bomQty,
+      orderQty,
+      matchStatus: 'manual',
+      matchEvidence: null,
+      recommendedCandidateKey: null,
+      selectedCandidateKey: null,
+      selectionSource: 'admin',
+      partId: String(part.id),
+      selectedOffer: pick === null ? null : snapshotFromPick(pick, body.offer !== null, null),
+      sourceRow: {
+        manualAdded: true,
+        addedBy: actorId,
+        addedAt: now.toISOString(),
+      },
+      sourceSheetIndex: null,
+      sourceSheetName: null,
+    };
+    const computed = computeQuote(
+      [...activeRows.map((row) => toItemDto(row)), addedItem],
+      runtimeConfig.usdKrwRate,
+      quote.shippingFee,
+      quote.managementFee,
+    );
+    await persistQuoteComputed(quoteId, computed, runtimeConfig.usdKrwRate, {
+      exchangeRateSnapshot: runtimeConfig.exchangeRateSnapshot,
+    }, tx);
+
+    const created = await tx.spBomQuoteItem.findUnique({
+      where: { quoteId_rowIdx: { quoteId, rowIdx } },
+      select: { id: true },
+    });
+    if (created === null) throw new Error(`BOM quote ${String(quoteId)} manual item create lost`);
+    const computedAdded = computed.items.find((item) => item.rowIdx === rowIdx);
+    const reasonCodes: BomQuoteDecisionReasonType[] = [
+      body.force ? 'admin-force-choice' : 'admin-choice',
+      'admin-add',
+      'catalog-choice',
+      ...(body.offer === null ? [] : ['offer-choice'] as const),
+    ];
+    await tx.spBomQuoteSelectionEvent.create({
+      data: {
+        quoteId,
+        quoteItemId: created.id,
+        source: 'admin',
+        actorId,
+        previousCandidateKey: null,
+        selectedCandidateKey: null,
+        previousMpn: null,
+        selectedMpn: part.mpn,
+        previousOfferKey: null,
+        selectedOfferKey: pick === null
+          ? null
+          : catalogOfferAuditKey(String(part.id), pick.offer.supplier, pick.offer.supplierSku),
+        previousLineTotalKrw: null,
+        selectedLineTotalKrw: computedAdded?.lineTotalKrw ?? null,
+        reasonCodes,
+      },
+    });
+
+    // null=전체 RFQ는 현재 included 범위를 따르므로 새 행을 포함한다. 기존 회신 행은
+    // 같은 부품에 대한 유효 정보로 보존하되 문서 합계·납기·메모를 해제해 재회신받는다.
+    const dynamicRfqIds = rfqs
+      .filter((rfq) => rfqUsesDynamicFullScope(rfq.requestedItemIds))
+      .map((rfq) => rfq.id);
+    if (body.force && dynamicRfqIds.length > 0) {
+      await tx.spBomRfq.updateMany({
+        where: { id: { in: dynamicRfqIds } },
+        data: {
+          status: 'requested',
+          totalAmount: null,
+          deliveryDate: null,
+          memo: null,
+          respondedAt: null,
+          requestedAt: now,
+        },
+      });
+    }
+    await tx.spBomQuote.update({
+      where: { id: quoteId },
+      data: adminQuoteMutationResetData(body.force, quote.status),
+    });
+    return 'ok';
+  }, { maxWait: 10_000, timeout: 60_000 });
+}
+
+/**
+ * 관리자 수동 추가 행 제거. 원본 분석 행은 보호하고, 영향 RFQ의 대상 회신만 제거한 뒤
+ * 남은 범위가 있으면 재요청·없으면 마감한다. 주문·PO 스냅샷은 소급 변경하지 않는다.
+ */
+export async function removeAdminQuoteItem(
+  quoteId: bigint,
+  itemId: bigint,
+  body: AdminBomQuoteItemRemoveBodyType,
+): Promise<AdminQuoteItemRemoveResult> {
+  const runtimeConfig = await getBomQuoteRuntimeConfig();
+  return prisma.$transaction(async (tx): Promise<AdminQuoteItemRemoveResult> => {
+    const locked = await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id FROM sp_bom_quote WHERE id = ${quoteId} FOR UPDATE
+    `);
+    if (locked.length === 0) return 'quote-not-found';
+    const lockedItem = await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id FROM sp_bom_quote_item
+      WHERE id = ${itemId} AND quoteId = ${quoteId}
+      FOR UPDATE
+    `);
+    if (lockedItem.length === 0) return 'item-not-found';
+    await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+      SELECT id FROM sp_bom_rfq WHERE quoteId = ${quoteId} ORDER BY id FOR UPDATE
+    `);
+
+    const quote = await tx.spBomQuote.findUnique({
+      where: { id: quoteId },
+      include: { items: true, sheets: true },
+    });
+    if (quote === null) return 'quote-not-found';
+    const target = quote.items.find((item) => item.id === itemId);
+    if (target === undefined) return 'item-not-found';
+    if (!isManualQuoteItemRow(target)) return 'original-item';
+
+    const rfqs = await tx.spBomRfq.findMany({
+      where: { quoteId },
+      select: { id: true, requestedItemIds: true },
+    });
+    const rfqItems = await tx.spBomRfqItem.findMany({
+      where: { quoteItemId: itemId },
+      select: { rfqId: true },
+    });
+    const quoteRfqIds = new Set(rfqs.map((rfq) => rfq.id));
+    const affectedRfqIds = new Set(
+      rfqItems.map((item) => item.rfqId).filter((rfqId) => quoteRfqIds.has(rfqId)),
+    );
+    const itemIdText = String(itemId);
+    for (const rfq of rfqs) {
+      if (rfqRequestsQuoteItem(rfq.requestedItemIds, itemIdText, target.included)) {
+        affectedRfqIds.add(rfq.id);
+      }
+    }
+    const poCount = await tx.spBomPo.count({ where: { quoteId } });
+    const blocked = adminQuoteSelectionBlockReason({
+      status: quote.status,
+      buildStatus: quote.buildStatus,
+      enrichStatus: quote.enrichStatus,
+      ctId: quote.ctId,
+      poCount,
+      rfqTargetsItem: affectedRfqIds.size > 0,
+      quoteUpdatedAt: quote.updatedAt.toISOString(),
+      expectedQuoteUpdatedAt: body.expectedQuoteUpdatedAt,
+      force: body.force,
+    });
+    if (blocked !== null) return blocked;
+
+    const remainingRows = filterActiveQuoteItems(quote.items, quote.sheets)
+      .filter((item) => item.id !== itemId);
+    const computed = computeQuote(
+      remainingRows.map((row) => toItemDto(row)),
+      runtimeConfig.usdKrwRate,
+      quote.shippingFee,
+      quote.managementFee,
+    );
+    await persistQuoteComputed(quoteId, computed, runtimeConfig.usdKrwRate, {
+      exchangeRateSnapshot: runtimeConfig.exchangeRateSnapshot,
+    }, tx);
+
+    if (affectedRfqIds.size > 0) {
+      const affectedIds = [...affectedRfqIds];
+      await tx.spBomRfqItem.deleteMany({
+        where: { quoteItemId: itemId, rfqId: { in: affectedIds } },
+      });
+      const remainingIncludedIds = new Set(
+        remainingRows.filter((item) => item.included).map((item) => String(item.id)),
+      );
+      const now = new Date();
+      for (const rfq of rfqs) {
+        if (!affectedRfqIds.has(rfq.id)) continue;
+        const requestedIds = Array.isArray(rfq.requestedItemIds)
+          ? rfq.requestedItemIds.filter(
+              (value): value is string => typeof value === 'string' && value !== itemIdText,
+            )
+          : null;
+        const remainingScopeCount = requestedIds === null
+          ? remainingIncludedIds.size
+          : requestedIds.filter((id) => remainingIncludedIds.has(id)).length;
+        await tx.spBomRfq.update({
+          where: { id: rfq.id },
+          data: {
+            status: remainingScopeCount === 0 ? 'closed' : 'requested',
+            totalAmount: null,
+            deliveryDate: null,
+            memo: null,
+            respondedAt: null,
+            ...(remainingScopeCount === 0 ? {} : { requestedAt: now }),
+            ...(requestedIds === null ? {} : { requestedItemIds: requestedIds }),
+          },
+        });
+      }
+    }
+
+    const removed = await tx.spBomQuoteItem.deleteMany({ where: { id: itemId, quoteId } });
+    if (removed.count !== 1) throw new Error(`BOM quote item ${itemIdText} removal lost`);
+    await tx.spBomQuote.update({
+      where: { id: quoteId },
+      data: adminQuoteMutationResetData(body.force, quote.status),
     });
     return 'ok';
   }, { maxWait: 10_000, timeout: 60_000 });
@@ -5066,6 +5415,7 @@ export function toItemDto(
     partDatasheetUrl,
     catalogInquiry,
     quantityState,
+    manualEntry: isManualQuoteItemRow(row),
   };
 }
 

@@ -17,6 +17,8 @@ import {
   type AdminBomCaseDeletePreviewType,
   type AdminBomCaseDeleteResponseType,
   type AdminBomQuotePatchBodyType,
+  type AdminBomQuoteItemAddBodyType,
+  type AdminBomQuoteItemRemoveBodyType,
   type AdminBomQuoteItemSelectionBodyType,
   type BomQuoteStatusType,
 } from '@sp/api-contract';
@@ -173,6 +175,53 @@ export function useSelectAdminBomQuoteItem() {
     onSuccess: (response, variables) => {
       qc.setQueryData(['admin', 'bom-quotes', 'detail', variables.quoteId], response);
       void qc.invalidateQueries({
+        queryKey: ['admin', 'bom-quotes', 'candidates', variables.quoteId, variables.itemId],
+      });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs', variables.quoteId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos', variables.quoteId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
+    },
+  });
+}
+
+/** 관리자 카탈로그 부품 추가 — 응답 상세과 관련 업무 목록을 같은 시점으로 갱신한다. */
+export function useAddAdminBomQuoteItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomQuoteItemAddBodyType }) =>
+      apiSend('POST', `${base}/${quoteId}/items`, body, AdminBomQuoteDetailResponse),
+    onSuccess: (response, variables) => {
+      qc.setQueryData(['admin', 'bom-quotes', 'detail', variables.quoteId], response);
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs', variables.quoteId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos', variables.quoteId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
+    },
+  });
+}
+
+/** 관리자 수동 추가 행 제거 — 삭제된 행의 후보 캐시도 함께 비운다. */
+export function useRemoveAdminBomQuoteItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      itemId,
+      body,
+    }: {
+      quoteId: string;
+      itemId: string;
+      body: AdminBomQuoteItemRemoveBodyType;
+    }) => apiSend(
+      'DELETE',
+      `${base}/${quoteId}/items/${itemId}`,
+      body,
+      AdminBomQuoteDetailResponse,
+    ),
+    onSuccess: (response, variables) => {
+      qc.setQueryData(['admin', 'bom-quotes', 'detail', variables.quoteId], response);
+      qc.removeQueries({
         queryKey: ['admin', 'bom-quotes', 'candidates', variables.quoteId, variables.itemId],
       });
       void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });

@@ -1346,6 +1346,7 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'customer-choice': '고객 직접 선택',
     'admin-choice': '관리자 직접 선택',
     'admin-force-choice': '관리자 강제 변경',
+    'admin-add': '관리자 수동 추가',
     'catalog-choice': '카탈로그 직접 선택',
     'offer-choice': '공급사 오퍼 직접 선택',
     'engine-catalog-selection': '제조사 카탈로그 정확 일치 선정',

@@ -1,6 +1,8 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AdminBomQuoteItemAddBody,
+  AdminBomQuoteItemRemoveBody,
   AdminBomQuoteItemSelectionBody,
   BomQuoteSearchRequirements,
   BomQuoteSearchRequirementsBody,
@@ -15,6 +17,7 @@ import {
   extractEngineSheets,
   filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
+  isManualQuoteItemRow,
   loadLatestQuoteLocalCatalogTrace,
   loadSupplierSearchSummary,
   projectEnginePartSearchResult,
@@ -24,6 +27,7 @@ import {
   retainQuoteCandidateSnapshots,
   resolvePartDataStatus,
   rfqRequestsQuoteItem,
+  rfqUsesDynamicFullScope,
   selectEngineMatch,
 } from './bom-quote';
 
@@ -85,6 +89,19 @@ describe('관리자 견적 부품 교체 정책', () => {
     expect(rfqRequestsQuoteItem(['11', '12'], '10', true)).toBe(false);
   });
 
+  it('null·구형 비배열 RFQ만 현재 전체 품목을 따라가는 동적 범위로 판정한다', () => {
+    expect(rfqUsesDynamicFullScope(null)).toBe(true);
+    expect(rfqUsesDynamicFullScope({ legacy: true })).toBe(true);
+    expect(rfqUsesDynamicFullScope([])).toBe(false);
+    expect(rfqUsesDynamicFullScope(['10', '12'])).toBe(false);
+  });
+
+  it('시트와 분석 원본 연결이 모두 없는 행만 수동 제거 대상으로 판정한다', () => {
+    expect(isManualQuoteItemRow({ sourceSheetIndex: null, analysisComponentId: null })).toBe(true);
+    expect(isManualQuoteItemRow({ sourceSheetIndex: 0, analysisComponentId: null })).toBe(false);
+    expect(isManualQuoteItemRow({ sourceSheetIndex: null, analysisComponentId: 1n })).toBe(false);
+  });
+
   it('교체 계약은 force를 기본 false로 두고 클라이언트 계산값을 받지 않는다', () => {
     const parsed = AdminBomQuoteItemSelectionBody.parse({
       kind: 'candidate',
@@ -100,6 +117,29 @@ describe('관리자 견적 부품 교체 정책', () => {
       expectedQuoteUpdatedAt: allowed.expectedQuoteUpdatedAt,
       force: true,
       lineTotalKrw: 1,
+    }).success).toBe(false);
+  });
+
+  it('추가·제거 계약도 버전 가드와 force 기본값만 받고 계산·표시값을 거부한다', () => {
+    const added = AdminBomQuoteItemAddBody.parse({
+      partId: '123',
+      offer: { supplier: 'mouser', supplierSku: 'SKU-1' },
+      bomQty: 4,
+      expectedQuoteUpdatedAt: allowed.expectedQuoteUpdatedAt,
+    });
+    expect(added.force).toBe(false);
+    expect(AdminBomQuoteItemAddBody.safeParse({
+      ...added,
+      orderQty: 400,
+    }).success).toBe(false);
+
+    const removed = AdminBomQuoteItemRemoveBody.parse({
+      expectedQuoteUpdatedAt: allowed.expectedQuoteUpdatedAt,
+    });
+    expect(removed.force).toBe(false);
+    expect(AdminBomQuoteItemRemoveBody.safeParse({
+      ...removed,
+      itemId: '10',
     }).success).toBe(false);
   });
 });

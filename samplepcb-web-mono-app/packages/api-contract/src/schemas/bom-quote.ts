@@ -59,6 +59,7 @@ export const BomQuoteDecisionReason = z.enum([
   'customer-choice',
   'admin-choice',
   'admin-force-choice',
+  'admin-add',
   'catalog-choice',
   'offer-choice',
   'engine-catalog-selection',
@@ -855,6 +856,8 @@ export const BomQuoteItem = BomQuoteItemInput.extend({
   catalogInquiry: z.boolean(),
   /** 원본 수량 누락 행은 기술선정 상태를 유지하되 확인 전까지 견적 합계에서 제외한다. */
   quantityState: BomQuoteQuantityState,
+  /** 업로드 분석 원본과 연결되지 않은 수동 행. 관리자는 이 행만 제거할 수 있다. */
+  manualEntry: z.boolean().optional(),
 });
 export type BomQuoteItemType = z.infer<typeof BomQuoteItem>;
 
@@ -1249,7 +1252,7 @@ export type AdminBomQuotePatchBodyType = z.infer<typeof AdminBomQuotePatchBody>;
  * 관리자 품목 교체 명령. 후보 선택은 견적 후보 스냅샷 키만 받고, 카탈로그 선택은
  * 영속 부품과 공급사 오퍼의 정체성만 받는다. 가격·재고·합계는 서버가 다시 조회·계산한다.
  */
-const AdminBomQuoteItemSelectionVersion = z.object({
+const AdminBomQuoteItemMutationGuard = z.object({
   expectedQuoteUpdatedAt: z.string().datetime(),
   /** RFQ·주문·PO·완료 상태의 영향까지 확인한 관리자 강제 변경. */
   force: z.boolean().default(false),
@@ -1257,7 +1260,7 @@ const AdminBomQuoteItemSelectionVersion = z.object({
 
 export const AdminBomQuoteItemCandidateSelection = BomQuoteCandidateSelectionBody.extend({
   kind: z.literal('candidate'),
-  ...AdminBomQuoteItemSelectionVersion.shape,
+  ...AdminBomQuoteItemMutationGuard.shape,
 }).strict();
 
 export const AdminBomQuoteCatalogOfferIdentity = z.object({
@@ -1269,7 +1272,7 @@ export const AdminBomQuoteItemCatalogSelection = z.object({
   kind: z.literal('catalog'),
   partId: z.string().regex(/^\d+$/),
   offer: AdminBomQuoteCatalogOfferIdentity.nullable(),
-  ...AdminBomQuoteItemSelectionVersion.shape,
+  ...AdminBomQuoteItemMutationGuard.shape,
 }).strict();
 
 export const AdminBomQuoteItemSelectionBody = z.discriminatedUnion('kind', [
@@ -1277,6 +1280,20 @@ export const AdminBomQuoteItemSelectionBody = z.discriminatedUnion('kind', [
   AdminBomQuoteItemCatalogSelection,
 ]);
 export type AdminBomQuoteItemSelectionBodyType = z.infer<typeof AdminBomQuoteItemSelectionBody>;
+
+/** 관리자 카탈로그 수동 행 추가. 서버가 part/offer를 재조회하고 MOQ·주문배수·합계를 계산한다. */
+export const AdminBomQuoteItemAddBody = z.object({
+  partId: z.string().regex(/^\d+$/),
+  offer: AdminBomQuoteCatalogOfferIdentity.nullable(),
+  /** 세트당 BOM 수량. 실제 필요수량은 견적의 세트·예비 수량을 서버가 적용한다. */
+  bomQty: z.number().int().min(1).max(100000),
+  ...AdminBomQuoteItemMutationGuard.shape,
+}).strict();
+export type AdminBomQuoteItemAddBodyType = z.infer<typeof AdminBomQuoteItemAddBody>;
+
+/** 관리자 수동 추가 행 제거. 업로드 원본 행에는 적용할 수 없다. */
+export const AdminBomQuoteItemRemoveBody = AdminBomQuoteItemMutationGuard.strict();
+export type AdminBomQuoteItemRemoveBodyType = z.infer<typeof AdminBomQuoteItemRemoveBody>;
 
 // ── 관리자 Case 영구 삭제 ─────────────────────────────────────────────────
 

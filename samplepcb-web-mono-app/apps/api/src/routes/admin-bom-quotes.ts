@@ -5,6 +5,8 @@ import {
   AdminBomCaseDeletePreviewResponse,
   AdminBomCaseDeleteResponse,
   AdminBomQuoteDetailResponse,
+  AdminBomQuoteItemAddBody,
+  AdminBomQuoteItemRemoveBody,
   AdminBomQuoteItemSelectionBody,
   AdminBomQuoteListResponse,
   AdminBomQuotePatchBody,
@@ -18,11 +20,13 @@ import type { AdminBomQuoteCountsType } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import { downloadFromFileServer } from '../lib/file-server';
 import {
+  addAdminQuoteItem,
   canTransition,
   applyAdminQuoteItemSelection,
   filterActiveQuoteItems,
   getQuoteItemCandidates,
   loadQuoteComparisonPage,
+  removeAdminQuoteItem,
   toAdminDetailDto,
   toAdminSummaryDto,
   toBomQuotePrintDto,
@@ -361,6 +365,139 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         'catalog-offer-not-found': {
           error: 'CATALOG_OFFER_NOT_FOUND',
           message: '선택한 카탈로그 오퍼가 최신 부품 정보에 없습니다.',
+        },
+      };
+      return reply.status(409).send(errors[result]);
+    }
+
+    const fresh = await prisma.spBomQuote.findUnique({
+      where: { id: request.params.id },
+      include: { items: true, sheets: true },
+    });
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
+    const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
+    return { result: true as const, data: await toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl) };
+  });
+
+  // 관리자 부품 추가 — 카탈로그 정체성과 세트당 수량만 받고 현재 원장으로 가격·MOQ를 확정한다.
+  fastify.post('/bom-quotes/:id/items', {
+    schema: {
+      params: IdParams,
+      body: AdminBomQuoteItemAddBody,
+      response: { 200: AdminBomQuoteDetailResponse, 409: ApiError },
+    },
+  }, async (request, reply) => {
+    const result = await addAdminQuoteItem(
+      request.params.id,
+      request.body,
+      request.user.mbId,
+    );
+    if (result !== 'ok') {
+      if (result === 'quote-not-found') return reply.notFound('견적을 찾을 수 없습니다');
+      const errors: Record<Exclude<typeof result, 'quote-not-found'>, { error: string; message: string }> = {
+        'stale-quote': {
+          error: 'STALE_QUOTE',
+          message: '견적 내용이 변경되었습니다. 최신 내용을 확인한 뒤 다시 추가해 주세요.',
+        },
+        'invalid-status': {
+          error: 'INVALID_QUOTE_STATUS',
+          message: '견적요청 또는 검토 중 상태에서만 부품을 추가할 수 있습니다.',
+        },
+        'quote-busy': {
+          error: 'QUOTE_BUSY',
+          message: 'BOM 계산이나 공급사 확인이 완료된 뒤 부품을 추가할 수 있습니다.',
+        },
+        'order-started': {
+          error: 'ORDER_ALREADY_STARTED',
+          message: '장바구니 또는 주문으로 전환된 견적에 부품을 추가하려면 강제 변경 확인이 필요합니다.',
+        },
+        'po-issued': {
+          error: 'PO_ALREADY_ISSUED',
+          message: '발주서가 생성된 견적에 부품을 추가하려면 강제 변경 확인이 필요합니다.',
+        },
+        'rfq-sent': {
+          error: 'RFQ_ALREADY_SENT',
+          message: '협력사 RFQ가 발송된 견적에 부품을 추가하려면 영향 확인이 필요합니다.',
+        },
+        'part-not-found': {
+          error: 'PART_NOT_FOUND',
+          message: '선택한 카탈로그 부품을 찾을 수 없습니다.',
+        },
+        'catalog-offer-not-found': {
+          error: 'CATALOG_OFFER_NOT_FOUND',
+          message: '선택한 카탈로그 오퍼가 최신 부품 정보에 없습니다.',
+        },
+        'offer-not-priced': {
+          error: 'OFFER_NOT_PRICED',
+          message: '가격을 계산할 수 없는 공급사 오퍼는 선택할 수 없습니다.',
+        },
+        'item-limit': {
+          error: 'QUOTE_ITEM_LIMIT',
+          message: '한 견적에는 최대 2,000개 품목까지 추가할 수 있습니다.',
+        },
+        'quantity-too-large': {
+          error: 'QUOTE_ITEM_QUANTITY_TOO_LARGE',
+          message: '세트 수와 MOQ를 적용한 주문 수량이 허용 범위를 초과합니다.',
+        },
+      };
+      return reply.status(409).send(errors[result]);
+    }
+
+    const fresh = await prisma.spBomQuote.findUnique({
+      where: { id: request.params.id },
+      include: { items: true, sheets: true },
+    });
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
+    const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
+    return { result: true as const, data: await toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl) };
+  });
+
+  // 관리자 수동 추가 행 제거 — 업로드 원본 행은 보호하고 RFQ 영향은 서버 트랜잭션으로 정리한다.
+  fastify.delete('/bom-quotes/:id/items/:itemId', {
+    schema: {
+      params: ItemParams,
+      body: AdminBomQuoteItemRemoveBody,
+      response: { 200: AdminBomQuoteDetailResponse, 409: ApiError },
+    },
+  }, async (request, reply) => {
+    const result = await removeAdminQuoteItem(
+      request.params.id,
+      request.params.itemId,
+      request.body,
+    );
+    if (result !== 'ok') {
+      if (result === 'quote-not-found') return reply.notFound('견적을 찾을 수 없습니다');
+      if (result === 'item-not-found') return reply.notFound('견적 항목을 찾을 수 없습니다');
+      const errors: Record<Exclude<typeof result, 'quote-not-found' | 'item-not-found'>, { error: string; message: string }> = {
+        'stale-quote': {
+          error: 'STALE_QUOTE',
+          message: '견적 내용이 변경되었습니다. 최신 내용을 확인한 뒤 다시 제거해 주세요.',
+        },
+        'invalid-status': {
+          error: 'INVALID_QUOTE_STATUS',
+          message: '견적요청 또는 검토 중 상태에서만 부품을 제거할 수 있습니다.',
+        },
+        'quote-busy': {
+          error: 'QUOTE_BUSY',
+          message: 'BOM 계산이나 공급사 확인이 완료된 뒤 부품을 제거할 수 있습니다.',
+        },
+        'order-started': {
+          error: 'ORDER_ALREADY_STARTED',
+          message: '장바구니 또는 주문으로 전환된 견적의 부품을 제거하려면 강제 변경 확인이 필요합니다.',
+        },
+        'po-issued': {
+          error: 'PO_ALREADY_ISSUED',
+          message: '발주서가 생성된 견적의 부품을 제거하려면 강제 변경 확인이 필요합니다.',
+        },
+        'rfq-sent': {
+          error: 'RFQ_ALREADY_SENT',
+          message: '협력사 RFQ에 포함된 부품을 제거하려면 영향 확인이 필요합니다.',
+        },
+        'original-item': {
+          error: 'ORIGINAL_QUOTE_ITEM',
+          message: '업로드 원본 품목은 제거할 수 없습니다. 견적 포함 여부 또는 부품 교체를 사용해 주세요.',
         },
       };
       return reply.status(409).send(errors[result]);

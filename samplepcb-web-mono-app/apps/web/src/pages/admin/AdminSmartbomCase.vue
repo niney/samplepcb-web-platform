@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { apiGet, apiGetBlob } from '@sp/shared';
 import { BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
 import type {
+  AdminBomQuoteItemAddBodyType,
+  AdminBomQuoteItemRemoveBodyType,
   AdminBomQuoteItemSelectionBodyType,
   BomQuoteCandidateType,
   BomQuoteItemType,
@@ -14,9 +16,11 @@ import { neededQty, type OfferPick } from '@sp/utils';
 import type { AdminBomPoViewType, AdminBomRfqViewType, BomRfqReplyBodyType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
+  useAddAdminBomQuoteItem,
   useAdminBomQuote,
   useAdminBomQuoteCandidates,
   usePatchAdminBomQuote,
+  useRemoveAdminBomQuoteItem,
   useSelectAdminBomQuoteItem,
 } from '../../admin/useAdminBomQuotes';
 import {
@@ -41,6 +45,7 @@ import {
 } from '../../admin/smartbom';
 import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
 import BomCaseDeleteModal from '../../components/admin/smartbom/BomCaseDeleteModal.vue';
+import BomPartAddModal from '../../components/admin/smartbom/BomPartAddModal.vue';
 import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
 import BomPoCreateModal from '../../components/admin/smartbom/BomPoCreateModal.vue';
 import BomPoPanel from '../../components/admin/smartbom/BomPoPanel.vue';
@@ -132,6 +137,8 @@ const candidateDrawerView = ref<'candidates' | 'search'>('candidates');
 const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateItemId);
 const candidateSelection = useSelectAdminBomQuoteItem();
 const candidateSelectionError = ref('');
+const partAdd = useAddAdminBomQuoteItem();
+const partRemove = useRemoveAdminBomQuoteItem();
 
 // RFQ 반영 파생 단계 — reviewing 에서 RFQ 가 있으면 ③(발송)·④(회신 도착)로 세분화(§3.3).
 const rfqQuery = useAdminBomRfqs(detailId);
@@ -351,7 +358,7 @@ const candidateItem = computed(() =>
     : detail.value?.items.find((item) => item.id === candidateItemId.value) ?? null,
 );
 
-function partChangeUnavailableReason(_item: BomQuoteItemType): string | null {
+function partMutationUnavailableReason(): string | null {
   const quote = detail.value;
   if (quote === null) return '견적 정보를 불러온 뒤 변경할 수 있습니다';
   if (quote.buildStatus !== 'ready' || quote.enrichStatus === 'searching') {
@@ -362,6 +369,10 @@ function partChangeUnavailableReason(_item: BomQuoteItemType): string | null {
   if (rfqQuery.isLoading.value || rfqQuery.isFetching.value) return '협력사 RFQ 이력을 확인하고 있습니다';
   if (rfqQuery.isError.value) return '협력사 RFQ 이력을 확인할 수 없어 변경을 잠갔습니다';
   return null;
+}
+
+function partChangeUnavailableReason(_item: BomQuoteItemType): string | null {
+  return partMutationUnavailableReason();
 }
 
 function partChangeForceReason(item: BomQuoteItemType): string | null {
@@ -570,6 +581,200 @@ async function confirmPartSelection(): Promise<void> {
       : '부품 변경을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.';
     pendingPartSelection.value = null;
     forcePartSelectionConfirmed.value = false;
+    await Promise.all([detailQuery.refetch(), rfqQuery.refetch(), poQuery.refetch()]);
+  }
+}
+
+// ── 관리자 부품 추가·수동 행 제거(D26) ───────────────────────────────────
+// 업로드 원본 행은 제거하지 않는다. 추가는 카탈로그 정체성과 세트당 수량만 전송하며
+// 서버가 현재 오퍼·MOQ·주문배수·환율과 RFQ 범위를 트랜잭션 안에서 다시 판단한다.
+interface AdminPartAddImpact {
+  forceReason: string | null;
+  dynamicFullRfqCount: number;
+  partialRfqCount: number;
+  poCount: number;
+  hasOrderSnapshot: boolean;
+  reopensQuote: boolean;
+}
+
+interface PendingAdminPartAdd {
+  body: AdminBomQuoteItemAddBodyType;
+  mpn: string;
+  manufacturerName: string | null;
+  supplier: string | null;
+  needed: number;
+  orderQty: number;
+  lineTotalKrw: number | null;
+  impact: AdminPartAddImpact;
+}
+
+const partAddOpen = ref(false);
+const partAddError = ref('');
+const pendingPartAdd = ref<PendingAdminPartAdd | null>(null);
+const forcePartAddConfirmed = ref(false);
+const partAddUnavailableReason = computed(() => partMutationUnavailableReason());
+
+function partAddForceReason(): string | null {
+  const quote = detail.value;
+  if (quote === null) return null;
+  if (quote.status !== 'requested' && quote.status !== 'reviewing') {
+    return '이미 고객 회신 또는 종료 단계에 진입한 견적입니다';
+  }
+  if (quote.orderState !== 'none' || quote.orderInfo !== null) {
+    return '장바구니 또는 주문으로 전환된 견적입니다';
+  }
+  if (pos.value.length > 0) return '발주서가 생성된 견적입니다';
+  if (rfqs.value.length > 0) return '협력사 RFQ가 이미 발송된 견적입니다';
+  return null;
+}
+
+function partAddImpact(): AdminPartAddImpact {
+  const quote = detail.value;
+  return {
+    forceReason: partAddForceReason(),
+    dynamicFullRfqCount: rfqs.value.filter((rfq) => rfq.requestedItemIds === null).length,
+    partialRfqCount: rfqs.value.filter((rfq) => rfq.requestedItemIds !== null).length,
+    poCount: pos.value.length,
+    hasOrderSnapshot: quote !== null && (quote.orderState !== 'none' || quote.orderInfo !== null),
+    reopensQuote: quote !== null && quote.status !== 'requested' && quote.status !== 'reviewing',
+  };
+}
+
+function openPartAdd(): void {
+  partAddError.value = '';
+  pendingPartAdd.value = null;
+  forcePartAddConfirmed.value = false;
+  partAddOpen.value = true;
+}
+
+function closePartAdd(): void {
+  if (partAdd.isPending.value) return;
+  partAddOpen.value = false;
+  partAddError.value = '';
+  pendingPartAdd.value = null;
+  forcePartAddConfirmed.value = false;
+}
+
+function requestPartAdd(part: PartHitType, pick: OfferPick | null, bomQty: number): void {
+  const quote = detail.value;
+  const unavailableReason = partMutationUnavailableReason();
+  if (quote === null || unavailableReason !== null) {
+    partAddError.value = unavailableReason ?? '견적 정보를 다시 불러와 주세요.';
+    return;
+  }
+  const needed = neededQty(bomQty, quote.setQty, quote.spareQty);
+  const impact = partAddImpact();
+  const lineTotalKrw = pick?.unitPriceKrw === null || pick?.unitPriceKrw === undefined
+    ? null
+    : Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100;
+  forcePartAddConfirmed.value = false;
+  pendingPartAdd.value = {
+    body: {
+      partId: part.id,
+      offer: pick === null
+        ? null
+        : { supplier: pick.offer.supplier, supplierSku: pick.offer.supplierSku },
+      bomQty,
+      expectedQuoteUpdatedAt: quote.updatedAt,
+      force: impact.forceReason !== null,
+    },
+    mpn: part.mpn,
+    manufacturerName: part.manufacturerName,
+    supplier: pick?.offer.supplier ?? (part.hasCatalogInquiryOffer ? '문의 견적' : null),
+    needed,
+    orderQty: pick?.orderQty ?? needed,
+    lineTotalKrw,
+    impact,
+  };
+}
+
+function cancelPendingPartAdd(): void {
+  if (partAdd.isPending.value) return;
+  pendingPartAdd.value = null;
+  forcePartAddConfirmed.value = false;
+}
+
+async function confirmPartAdd(): Promise<void> {
+  const pending = pendingPartAdd.value;
+  const quoteId = detailId.value;
+  if (pending === null || quoteId === null) return;
+  if (pending.body.force && !forcePartAddConfirmed.value) return;
+  partAddError.value = '';
+  try {
+    await partAdd.mutateAsync({ quoteId, body: pending.body });
+    if (pending.impact.dynamicFullRfqCount > 0) await rfqQuery.refetch();
+    closePartAdd();
+  } catch (error) {
+    partAddError.value = error instanceof ApiRequestError
+      ? error.payload?.message ?? error.message
+      : '부품을 추가하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    pendingPartAdd.value = null;
+    forcePartAddConfirmed.value = false;
+    await Promise.all([detailQuery.refetch(), rfqQuery.refetch(), poQuery.refetch()]);
+  }
+}
+
+interface PendingAdminPartRemove {
+  item: BomQuoteItemType;
+  body: AdminBomQuoteItemRemoveBodyType;
+  impact: AdminPartSelectionImpact;
+}
+
+const pendingPartRemove = ref<PendingAdminPartRemove | null>(null);
+const forcePartRemoveConfirmed = ref(false);
+const partRemoveError = ref('');
+
+function isManualQuoteItem(item: BomQuoteItemType): boolean {
+  return item.manualEntry === true;
+}
+
+function requestPartRemove(item: BomQuoteItemType): void {
+  const quote = detail.value;
+  if (quote === null || !isManualQuoteItem(item)) return;
+  const unavailableReason = partChangeUnavailableReason(item);
+  if (unavailableReason !== null) {
+    partRemoveError.value = unavailableReason;
+    return;
+  }
+  const impact = partSelectionImpact(item);
+  partRemoveError.value = '';
+  forcePartRemoveConfirmed.value = false;
+  pendingPartRemove.value = {
+    item,
+    body: {
+      expectedQuoteUpdatedAt: quote.updatedAt,
+      force: impact.forceReason !== null,
+    },
+    impact,
+  };
+}
+
+function cancelPendingPartRemove(): void {
+  if (partRemove.isPending.value) return;
+  pendingPartRemove.value = null;
+  forcePartRemoveConfirmed.value = false;
+}
+
+async function confirmPartRemove(): Promise<void> {
+  const pending = pendingPartRemove.value;
+  const quoteId = detailId.value;
+  if (pending === null || quoteId === null) return;
+  if (pending.body.force && !forcePartRemoveConfirmed.value) return;
+  partRemoveError.value = '';
+  try {
+    await partRemove.mutateAsync({ quoteId, itemId: pending.item.id, body: pending.body });
+    const nextSelection = new Set(rfqItemSelection.value);
+    nextSelection.delete(pending.item.id);
+    rfqItemSelection.value = nextSelection;
+    if (pending.impact.affectedRfqCount > 0) await rfqQuery.refetch();
+    pendingPartRemove.value = null;
+    forcePartRemoveConfirmed.value = false;
+  } catch (error) {
+    partRemoveError.value = error instanceof ApiRequestError
+      ? error.payload?.message ?? error.message
+      : '수동 추가 부품을 제거하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    pendingPartRemove.value = null;
+    forcePartRemoveConfirmed.value = false;
     await Promise.all([detailQuery.refetch(), rfqQuery.refetch(), poQuery.refetch()]);
   }
 }
@@ -1001,6 +1206,14 @@ async function downloadOriginal(): Promise<void> {
             <span class="ml-auto flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
+                class="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700 hover:bg-emerald-100"
+                :title="partAddUnavailableReason ?? '카탈로그에서 부품을 검색해 견적에 수동 행으로 추가합니다'"
+                @click="openPartAdd"
+              >
+                ＋ 부품 추가
+              </button>
+              <button
+                type="button"
                 class="rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 font-semibold text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-35"
                 :disabled="rfqQuickSelectionGroups.resistorIds.length === 0"
                 title="sp-engine이 저항으로 분류한 행만 선택합니다"
@@ -1053,6 +1266,9 @@ async function downloadOriginal(): Promise<void> {
               </button>
             </span>
           </div>
+          <p v-if="partRemoveError !== ''" class="border-b border-red-100 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700">
+            {{ partRemoveError }}
+          </p>
           <table class="min-w-full divide-y divide-gray-100 text-xs">
             <thead class="bg-gray-50 text-left text-gray-500">
               <tr>
@@ -1146,6 +1362,16 @@ async function downloadOriginal(): Promise<void> {
                       @click="openPartSelection(item, 'search')"
                     >
                       부품 검색·변경
+                    </button>
+                    <button
+                      v-if="isManualQuoteItem(item)"
+                      type="button"
+                      class="rounded border border-red-200 px-2 py-1 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      :disabled="partRemove.isPending.value || partMutationUnavailableReason() !== null"
+                      :title="partMutationUnavailableReason() ?? '관리자가 수동 추가한 이 품목을 견적에서 제거합니다'"
+                      @click="requestPartRemove(item)"
+                    >
+                      수동 행 제거
                     </button>
                   </div>
                 </td>
@@ -1264,6 +1490,141 @@ async function downloadOriginal(): Promise<void> {
       @close="caseDeleteOpen = false"
       @deleted="onCaseDeleted"
     />
+
+    <BomPartAddModal
+      v-if="partAddOpen && detail !== null"
+      :set-qty="detail.setQty"
+      :spare-qty="detail.spareQty"
+      :usd-krw-rate="detail.usdKrwRateUsed"
+      :selecting="partAdd.isPending.value"
+      :read-only="partAddUnavailableReason !== null"
+      :locked-reason="partAddUnavailableReason ?? ''"
+      :error="partAddError"
+      @select="requestPartAdd"
+      @close="closePartAdd"
+    />
+
+    <Teleport to="body">
+      <div
+        v-if="pendingPartAdd !== null"
+        class="fixed inset-0 z-[95] grid place-items-center bg-slate-950/60 p-4"
+        role="presentation"
+        @mousedown.self="cancelPendingPartAdd"
+      >
+        <section class="w-full max-w-lg overflow-hidden rounded-2xl border border-emerald-200 bg-surface shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="admin-part-add-confirm-title">
+          <header class="border-b border-emerald-200 bg-emerald-50 px-5 py-4">
+            <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Admin item addition</p>
+            <h3 id="admin-part-add-confirm-title" class="mt-1 text-lg font-bold text-slate-950">이 부품을 견적에 추가할까요?</h3>
+            <p class="mt-1 text-xs leading-5 text-emerald-900">카탈로그·오퍼·수량을 서버가 다시 읽고 최종 주문수량과 견적 합계를 계산합니다.</p>
+          </header>
+          <div class="space-y-3 p-5 text-sm">
+            <div class="grid grid-cols-[92px_1fr] gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <span class="text-xs font-semibold text-slate-500">추가 부품</span>
+              <div>
+                <strong class="break-all text-emerald-800">{{ pendingPartAdd.mpn }}</strong>
+                <p class="mt-0.5 text-xs text-slate-500">{{ pendingPartAdd.manufacturerName ?? '제조사 미확인' }}</p>
+              </div>
+              <span class="text-xs font-semibold text-slate-500">수량</span>
+              <span class="tabular-nums text-slate-700">세트당 {{ pendingPartAdd.body.bomQty.toLocaleString('ko-KR') }}개 · 필요 {{ pendingPartAdd.needed.toLocaleString('ko-KR') }}개 · 주문 {{ pendingPartAdd.orderQty.toLocaleString('ko-KR') }}개</span>
+              <span class="text-xs font-semibold text-slate-500">구매 조건</span>
+              <span class="text-slate-700">{{ pendingPartAdd.supplier ?? '가격·공급사 미확정' }}</span>
+              <span class="text-xs font-semibold text-slate-500">행 금액</span>
+              <strong class="tabular-nums text-slate-800">{{ pendingPartAdd.lineTotalKrw === null ? '미산정' : smartbomFmtWon(Math.round(pendingPartAdd.lineTotalKrw)) }}</strong>
+            </div>
+            <p class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold leading-5 text-amber-900">
+              추가하면 기존 확정금액은 초기화됩니다. 업로드 원본에는 합치지 않고 “수동 추가” 행으로 분리하며, 필요하면 이 행만 다시 제거할 수 있습니다.
+            </p>
+            <section v-if="pendingPartAdd.body.force" class="space-y-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-950">
+              <div>
+                <p class="font-bold">관리자 강제 추가</p>
+                <p class="mt-0.5">{{ pendingPartAdd.impact.forceReason }}</p>
+              </div>
+              <ul class="list-disc space-y-1 pl-4">
+                <li v-if="pendingPartAdd.impact.dynamicFullRfqCount > 0">
+                  전체 품목 RFQ {{ pendingPartAdd.impact.dynamicFullRfqCount }}건은 새 부품을 자동 포함하고 요청중으로 되돌립니다. 기존 행별 회신은 보존되지만 문서 합계·납기·메모는 다시 받아야 합니다.
+                </li>
+                <li v-if="pendingPartAdd.impact.partialRfqCount > 0">
+                  부분 품목 RFQ {{ pendingPartAdd.impact.partialRfqCount }}건에는 새 부품을 자동 추가하지 않습니다. 필요하면 새 범위로 별도 RFQ를 보내야 합니다.
+                </li>
+                <li v-if="pendingPartAdd.impact.hasOrderSnapshot">기존 장바구니·주문은 당시 품목·금액 스냅샷을 유지하므로 변경 견적과 다를 수 있습니다.</li>
+                <li v-if="pendingPartAdd.impact.poCount > 0">기존 발주서 {{ pendingPartAdd.impact.poCount }}건은 발행 당시 품목·금액 스냅샷을 그대로 보존합니다.</li>
+                <li v-if="pendingPartAdd.impact.reopensQuote">고객 회신·종료 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
+              </ul>
+              <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">
+                <input v-model="forcePartAddConfirmed" type="checkbox" class="mt-0.5 size-4 accent-rose-700">
+                <span>RFQ 범위와 기존 주문·발주 스냅샷 유지 영향을 확인했습니다.</span>
+              </label>
+            </section>
+          </div>
+          <footer class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+            <button type="button" class="h-10 rounded-lg border border-slate-300 bg-surface px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" :disabled="partAdd.isPending.value" @click="cancelPendingPartAdd">취소</button>
+            <button
+              type="button"
+              class="h-10 rounded-lg px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              :class="pendingPartAdd.body.force ? 'bg-rose-700 hover:bg-rose-800' : 'bg-emerald-700 hover:bg-emerald-800'"
+              :disabled="partAdd.isPending.value || (pendingPartAdd.body.force && !forcePartAddConfirmed)"
+              @click="confirmPartAdd"
+            >
+              {{ partAdd.isPending.value ? '추가 중…' : pendingPartAdd.body.force ? '강제 추가 적용' : '부품 추가' }}
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="pendingPartRemove !== null"
+        class="fixed inset-0 z-[95] grid place-items-center bg-slate-950/60 p-4"
+        role="presentation"
+        @mousedown.self="cancelPendingPartRemove"
+      >
+        <section class="w-full max-w-lg overflow-hidden rounded-2xl border border-red-200 bg-surface shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="admin-part-remove-title">
+          <header class="border-b border-red-200 bg-red-50 px-5 py-4">
+            <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-red-700">Admin item removal</p>
+            <h3 id="admin-part-remove-title" class="mt-1 text-lg font-bold text-slate-950">수동 추가 부품을 제거할까요?</h3>
+            <p class="mt-1 text-xs leading-5 text-red-900">업로드 원본 행에는 영향을 주지 않지만 이 수동 행은 복구되지 않습니다.</p>
+          </header>
+          <div class="space-y-3 p-5 text-sm">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <strong class="break-all text-slate-900">{{ itemLabel(pendingPartRemove.item) }}</strong>
+              <p class="mt-1 text-xs text-slate-500">{{ pendingPartRemove.item.manufacturerName ?? '제조사 미확인' }} · 주문 {{ pendingPartRemove.item.orderQty.toLocaleString('ko-KR') }}개 · {{ pendingPartRemove.item.lineTotalKrw === null ? '금액 미산정' : smartbomFmtWon(Math.round(pendingPartRemove.item.lineTotalKrw)) }}</p>
+            </div>
+            <p class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold leading-5 text-amber-900">
+              제거하면 견적 합계를 다시 계산하고 기존 확정금액을 초기화합니다.
+            </p>
+            <section v-if="pendingPartRemove.body.force" class="space-y-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-950">
+              <div>
+                <p class="font-bold">관리자 강제 제거</p>
+                <p class="mt-0.5">{{ pendingPartRemove.impact.forceReason }}</p>
+              </div>
+              <ul class="list-disc space-y-1 pl-4">
+                <li v-if="pendingPartRemove.impact.affectedRfqCount > 0">이 부품을 요청한 RFQ {{ pendingPartRemove.impact.affectedRfqCount }}건에서 대상과 해당 행 회신을 제거하고, 남은 품목이 있으면 요청중으로 되돌립니다.</li>
+                <li v-if="pendingPartRemove.impact.invalidatedReplyCount > 0">이 부품의 기존 협력사 회신 {{ pendingPartRemove.impact.invalidatedReplyCount }}건도 함께 삭제됩니다.</li>
+                <li v-if="pendingPartRemove.impact.hasOrderSnapshot">기존 장바구니·주문은 당시 품목·금액 스냅샷을 유지합니다.</li>
+                <li v-if="pendingPartRemove.impact.poCount > 0">기존 발주서 {{ pendingPartRemove.impact.poCount }}건은 발행 당시 품목·금액 스냅샷을 유지합니다.</li>
+                <li v-if="pendingPartRemove.impact.reopensQuote">고객 회신·종료 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
+              </ul>
+              <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">
+                <input v-model="forcePartRemoveConfirmed" type="checkbox" class="mt-0.5 size-4 accent-rose-700">
+                <span>RFQ 회신 삭제와 기존 주문·발주 스냅샷 유지 영향을 확인했습니다.</span>
+              </label>
+            </section>
+          </div>
+          <footer class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+            <button type="button" class="h-10 rounded-lg border border-slate-300 bg-surface px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" :disabled="partRemove.isPending.value" @click="cancelPendingPartRemove">취소</button>
+            <button
+              type="button"
+              class="h-10 rounded-lg bg-red-700 px-5 text-sm font-bold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              :disabled="partRemove.isPending.value || (pendingPartRemove.body.force && !forcePartRemoveConfirmed)"
+              @click="confirmPartRemove"
+            >
+              {{ partRemove.isPending.value ? '제거 중…' : pendingPartRemove.body.force ? '강제 제거 적용' : '수동 행 제거' }}
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
 
     <BomCandidateDrawer
       :open="candidateItemId !== null"
