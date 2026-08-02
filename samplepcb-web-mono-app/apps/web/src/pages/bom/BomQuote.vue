@@ -59,12 +59,13 @@ import icPanelAi from '../../assets/bom/ic-panel-ai.svg';
 import icPanelNostock from '../../assets/bom/ic-panel-nostock.svg';
 import icPanelOrder from '../../assets/bom/ic-panel-order.svg';
 import icPanelQuote from '../../assets/bom/ic-panel-quote.svg';
+import icSearch from '../../assets/bom/ic-search-20.svg';
 import icUploadOutline from '../../assets/bom/ic-upload-outline.svg';
 
 // 고객 스마트 BOM 견적 워크벤치 — Figma "02 BOM 파일 분석_검색 결과"(87:12875) 레이아웃에
 // 기존 기능(자동저장·오퍼/부품 모달·자동 보강·견적요청)을 병합. 사용자 지시:
 // 채팅·가격순 정렬 제외, Found 대신 기존 매칭 배지, 공급사 배지는 파비콘(vueline 방식),
-// 미구현 요소(핸들·이미지·데이터시트·선택 삭제)는 디자인만.
+// 미구현 요소(행 정렬 핸들)는 디자인만.
 
 const route = useRoute();
 const router = useRouter();
@@ -563,7 +564,73 @@ type SpecificResultMatchFilter = Exclude<ResultMatchFilter, 'all'>;
 const resultMatchFilter = ref<ResultMatchFilter>('all');
 const resultNostockOnly = ref(false);
 const resultSearchLimitedOnly = ref(false);
+const resultTextQuery = ref('');
 const resultsScrollEl = ref<HTMLElement | null>(null);
+
+const RESULT_SEARCH_SOURCE_FIELDS = [
+  'sheetName',
+  'sourceRows',
+  'referenceDesignators',
+  'packageCode',
+  'valueRaw',
+  'inputPartNumber',
+  'inputManufacturer',
+] as const;
+
+function resultSearchValueText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (Array.isArray(value)) return value.map(resultSearchValueText).filter((entry) => entry !== '').join(' ');
+  return '';
+}
+
+function normalizeResultSearchText(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase('ko-KR').replace(/\s+/gu, ' ').trim();
+}
+
+function compactResultSearchText(value: string): string {
+  return value.replace(/[\s\-_/.,()[\]{}]+/gu, '');
+}
+
+function buildResultSearchText(item: BomQuoteItemType): string {
+  const sourceValues = item.sourceRow === null
+    ? []
+    : RESULT_SEARCH_SOURCE_FIELDS.map((field) => item.sourceRow?.[field]);
+  return normalizeResultSearchText([
+    item.mpn,
+    item.manufacturerName,
+    item.description,
+    item.sourceSheetName,
+    item.selectedOffer?.supplier,
+    item.selectedOffer?.supplierSku,
+    item.selectedOffer?.packaging,
+    ...sourceValues,
+  ].map(resultSearchValueText).filter((entry) => entry !== '').join(' '));
+}
+
+const resultSearchTokens = computed(() => normalizeResultSearchText(resultTextQuery.value)
+  .split(' ')
+  .filter((token) => token !== ''));
+const resultTextSearchActive = computed(() => resultSearchTokens.value.length > 0);
+const resultSearchIndex = computed(() => {
+  const index = new Map<string, { text: string; compact: string }>();
+  for (const item of items.value) {
+    const text = buildResultSearchText(item);
+    index.set(item.id, { text, compact: compactResultSearchText(text) });
+  }
+  return index;
+});
+
+function itemMatchesResultTextQuery(item: BomQuoteItemType): boolean {
+  if (!resultTextSearchActive.value) return true;
+  const searchable = resultSearchIndex.value.get(item.id);
+  if (searchable === undefined) return false;
+  return resultSearchTokens.value.every((token) => {
+    if (searchable.text.includes(token)) return true;
+    const compactToken = compactResultSearchText(token);
+    return compactToken !== '' && searchable.compact.includes(compactToken);
+  });
+}
 
 const RESULT_MATCH_FILTER_LABEL: Record<SpecificResultMatchFilter, string> = {
   matched: 'Matched',
@@ -585,6 +652,7 @@ const searchLimitedItemCount = computed(() =>
 );
 
 const filteredItems = computed(() => sheetItems.value.filter((item) => {
+  if (!itemMatchesResultTextQuery(item)) return false;
   if (resultMatchFilter.value !== 'all' && itemMatchGroup(item) !== resultMatchFilter.value) return false;
   // Nostock 집계는 견적 합계에 포함된 행만 세므로 필터도 같은 규칙을 따른다.
   if (resultNostockOnly.value && (!item.included || !isBomQuoteStockShort(item))) return false;
@@ -593,7 +661,8 @@ const filteredItems = computed(() => sheetItems.value.filter((item) => {
 }));
 
 const resultFiltersActive = computed(() =>
-  resultMatchFilter.value !== 'all'
+  resultTextSearchActive.value
+  || resultMatchFilter.value !== 'all'
   || resultNostockOnly.value
   || resultSearchLimitedOnly.value,
 );
@@ -686,6 +755,7 @@ function selectResultSheet(key: ResultSheetFilter): void {
 }
 
 function clearResultFilters(): void {
+  resultTextQuery.value = '';
   resultMatchFilter.value = 'all';
   resultNostockOnly.value = false;
   resultSearchLimitedOnly.value = false;
@@ -709,6 +779,7 @@ function showSupplierSearchLimitedItems(): void {
 }
 
 watch(quoteId, clearResultFilters);
+watch(resultTextQuery, scrollResultsToTop);
 watch(enriching, (active) => {
   // 확인 중에는 Review/Unmatched 최종 분류가 아직 확정되지 않는다.
   // 단일 행 조건 재검색은 현재 검토 문맥을 유지하고 완료된 행만 목록에서 자연스럽게 빠진다.
@@ -1795,7 +1866,31 @@ function fmtAmount(v: number | null): string {
               <button type="button" class="text-[11px] font-semibold text-brand underline-offset-2 hover:underline" @click="clearResultFilters">필터 해제</button>
             </template>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+            <div class="relative min-w-[220px] flex-1 sm:w-[280px] sm:flex-none">
+              <label class="sr-only" for="bom-result-search">현재 BOM에서 찾기</label>
+              <img :src="icSearch" alt="" class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 opacity-55">
+              <input
+                id="bom-result-search"
+                v-model="resultTextQuery"
+                type="search"
+                maxlength="120"
+                class="h-[30px] w-full rounded-md border border-line bg-surface py-1 pl-8 pr-8 text-[12px] text-ink placeholder:text-ink-faint focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 [&::-webkit-search-cancel-button]:hidden"
+                placeholder="MPN · 원본값 · REFDES 찾기"
+                title="공급사 검색 없이 현재 BOM 목록에서 찾습니다"
+                @keydown.esc.prevent="resultTextQuery = ''"
+              >
+              <button
+                v-if="resultTextSearchActive"
+                type="button"
+                class="absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-[12px] text-ink-muted hover:bg-gray-100 hover:text-ink-strong"
+                aria-label="BOM 검색어 지우기"
+                title="검색어 지우기"
+                @click="resultTextQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
             <!-- 정렬 — 시안 87:12875 의 "가격순" -->
             <label class="sr-only" for="bom-result-sort">결과 정렬</label>
             <select
@@ -1807,8 +1902,6 @@ function fmtAmount(v: number | null): string {
             >
               <option v-for="(label, value) in RESULT_SORT_LABEL" :key="value" :value="value">{{ label }}</option>
             </select>
-            <!-- 선택 삭제 — 미구현(디자인만) -->
-            <button type="button" class="h-[26px] cursor-default rounded border border-gray-300 bg-surface px-2.5 text-[12px] text-gray-500 opacity-70" title="선택 삭제 (준비 중)">선택 삭제</button>
           </div>
         </div>
 
@@ -1878,7 +1971,7 @@ function fmtAmount(v: number | null): string {
                 <td colspan="8" :style="{ height: `${String(virtualPaddingBottom)}px` }" />
               </tr>
               <tr v-if="filteredItems.length === 0">
-                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
+                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultTextSearchActive ? '검색어에 해당하는 BOM 라인이 없습니다.' : resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
               </tr>
             </tbody>
           </table>
