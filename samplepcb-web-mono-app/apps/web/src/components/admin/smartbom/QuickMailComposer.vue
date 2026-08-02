@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import {
   QUICK_MAIL_MAX_FILE_BYTES,
@@ -36,6 +36,126 @@ const customerName = ref('');
 const loading = ref(true);
 const error = ref('');
 const sent = ref(false);
+
+// ── 창 이동·확대(사용자 요청) — 헤더 드래그로 위치 이동, [확대] 토글로 넓게 ───
+const expanded = ref(false);
+const rootEl = ref<HTMLElement | null>(null);
+const pos = ref<{ x: number; y: number } | null>(null); // null = 기본(우하단 도킹)
+let dragFrom: { px: number; py: number; x: number; y: number } | null = null;
+
+function onDragStart(e: PointerEvent): void {
+  const el = rootEl.value;
+  if (el === null) return;
+  const rect = el.getBoundingClientRect();
+  pos.value = { x: rect.left, y: rect.top };
+  dragFrom = { px: e.clientX, py: e.clientY, x: rect.left, y: rect.top };
+  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+}
+function onDragMove(e: PointerEvent): void {
+  if (dragFrom === null) return;
+  const width = rootEl.value?.offsetWidth ?? 520;
+  // 헤더가 항상 화면에 남도록 클램프(좌우 80px·상단 0·하단 40px 여유)
+  const x = Math.min(Math.max(dragFrom.x + e.clientX - dragFrom.px, 80 - width), window.innerWidth - 80);
+  const y = Math.min(Math.max(dragFrom.y + e.clientY - dragFrom.py, 0), window.innerHeight - 40);
+  pos.value = { x, y };
+}
+function onDragEnd(): void {
+  dragFrom = null;
+}
+// 수동 리사이즈(사용자 요청) — 4모서리 그립 드래그. 기본 노출이 우하단 도킹이라
+// 좌·상 방향 확장(nw·ne·sw)이 오히려 주 사용처다: 잡은 모서리의 반대편을 고정하고
+// 그 방향으로 자란다. 수동 크기(size)가 있으면 [확대] 프리셋(w 클래스)보다 우선.
+type ResizeCorner = 'nw' | 'ne' | 'sw' | 'se';
+const MIN_W = 420;
+const MIN_H = 340;
+const size = ref<{ w: number; h: number } | null>(null);
+let resizeFrom: {
+  corner: ResizeCorner;
+  px: number;
+  py: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+} | null = null;
+
+function onResizeStart(corner: ResizeCorner, e: PointerEvent): void {
+  const el = rootEl.value;
+  if (el === null) return;
+  const rect = el.getBoundingClientRect();
+  // 좌상단(left/top) 기준으로 전환(도킹 해제) — 이후 이동·리사이즈 좌표 일원화
+  pos.value = { x: rect.left, y: rect.top };
+  size.value = { w: rect.width, h: rect.height };
+  resizeFrom = {
+    corner,
+    px: e.clientX,
+    py: e.clientY,
+    x: rect.left,
+    y: rect.top,
+    w: rect.width,
+    h: rect.height,
+  };
+  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+}
+function onResizeMove(e: PointerEvent): void {
+  if (resizeFrom === null) return;
+  const { corner, px, py, x, y, w, h } = resizeFrom;
+  const dx = e.clientX - px;
+  const dy = e.clientY - py;
+  let newX = x;
+  let newY = y;
+  let newW = w;
+  let newH = h;
+  if (corner.includes('e')) {
+    newW = Math.min(Math.max(w + dx, MIN_W), Math.max(MIN_W, window.innerWidth - x - 8));
+  }
+  if (corner.includes('w')) {
+    newW = Math.min(Math.max(w - dx, MIN_W), Math.max(MIN_W, x + w - 8));
+    newX = x + (w - newW); // 우측 변 고정 — 왼쪽으로 자란다
+  }
+  if (corner.includes('s')) {
+    newH = Math.min(Math.max(h + dy, MIN_H), Math.max(MIN_H, window.innerHeight - y - 8));
+  }
+  if (corner.includes('n')) {
+    newH = Math.min(Math.max(h - dy, MIN_H), Math.max(MIN_H, y + h - 8));
+    newY = y + (h - newH); // 하단 변 고정 — 위로 자란다
+  }
+  pos.value = { x: newX, y: newY };
+  size.value = { w: newW, h: newH };
+}
+function onResizeEnd(): void {
+  resizeFrom = null;
+}
+
+const rootStyle = computed(() => ({
+  ...(pos.value === null
+    ? {}
+    : {
+        left: `${String(pos.value.x)}px`,
+        top: `${String(pos.value.y)}px`,
+        right: 'auto',
+        bottom: 'auto',
+      }),
+  ...(size.value === null
+    ? {}
+    : { width: `${String(size.value.w)}px`, height: `${String(size.value.h)}px` }),
+}));
+
+// 확대/축소 시 위치 보정(사용자 요청) — 드래그로 옮겨둔 창(left/top 고정)은 폭·높이가
+// 커지면 화면을 벗어날 수 있어, 토글 후 실제 크기로 재클램프한다. 기본 도킹(pos null)
+// 은 right/bottom 기준이라 자연 보정. 수동 리사이즈 크기는 프리셋 복귀를 위해 리셋.
+async function toggleExpanded(): Promise<void> {
+  expanded.value = !expanded.value;
+  size.value = null;
+  if (pos.value === null) return;
+  await nextTick();
+  const rect = rootEl.value?.getBoundingClientRect();
+  if (rect === undefined) return;
+  pos.value = {
+    x: Math.min(Math.max(pos.value.x, 8), Math.max(8, window.innerWidth - rect.width - 8)),
+    y: Math.min(Math.max(pos.value.y, 8), Math.max(8, window.innerHeight - rect.height - 8)),
+  };
+}
 
 // 열릴 때 프리필 — 고객 이메일·이름 1회 조회.
 watch(
@@ -81,48 +201,72 @@ const fillVars = (text: string): string =>
       props.confirmedTotal === null ? '' : `${props.confirmedTotal.toLocaleString('ko-KR')}원`,
     );
 
+// 확인·입력은 브라우저 alert 대신 컴포즈 내부 레이어 팝업(사용자 요청).
+const dialog = ref<'confirm-apply' | 'prompt-save' | 'confirm-delete' | null>(null);
+const templateName = ref('');
+const selectedTemplate = computed(
+  () => templates.value.find((t) => t.templateId === selectedTemplateId.value) ?? null,
+);
+
 function applyTemplate(): void {
-  const tpl = templates.value.find((t) => t.templateId === selectedTemplateId.value);
-  if (tpl === undefined) return;
-  if (
-    (subject.value.trim() !== '' || body.value.trim() !== '') &&
-    !window.confirm('작성 중인 제목·본문을 템플릿 내용으로 바꿀까요?')
-  ) {
+  if (selectedTemplate.value === null) return;
+  if (subject.value.trim() !== '' || body.value.trim() !== '') {
+    dialog.value = 'confirm-apply';
     return;
   }
-  subject.value = fillVars(tpl.subject);
-  body.value = fillVars(tpl.body);
+  doApplyTemplate();
 }
 
-async function saveCurrentAsTemplate(): Promise<void> {
-  const name = window.prompt('템플릿 이름을 입력하세요 (예: 견적 안내)');
-  if (name === null || name.trim() === '') return;
+function doApplyTemplate(): void {
+  const tpl = selectedTemplate.value;
+  if (tpl === null) return;
+  subject.value = fillVars(tpl.subject);
+  body.value = fillVars(tpl.body);
+  dialog.value = null;
+}
+
+function saveCurrentAsTemplate(): void {
   if (subject.value.trim() === '' || body.value.trim() === '') {
     error.value = '제목과 본문을 작성한 뒤 템플릿으로 저장해 주세요.';
     return;
   }
   error.value = '';
+  templateName.value = '';
+  dialog.value = 'prompt-save';
+}
+
+async function doSaveTemplate(): Promise<void> {
+  const name = templateName.value.trim();
+  if (name === '') return;
   try {
     const res = await saveTemplate.mutateAsync({
-      name: name.trim(),
+      name,
       subject: subject.value,
       body: body.value,
     });
     selectedTemplateId.value = res.data.templateId;
+    dialog.value = null;
   } catch {
+    dialog.value = null;
     error.value = '템플릿 저장에 실패했습니다.';
   }
 }
 
-async function removeTemplate(): Promise<void> {
-  const tpl = templates.value.find((t) => t.templateId === selectedTemplateId.value);
-  if (tpl === undefined) return;
-  if (!window.confirm(`'${tpl.name}' 템플릿을 삭제할까요?`)) return;
+function removeTemplate(): void {
+  if (selectedTemplate.value === null) return;
+  dialog.value = 'confirm-delete';
+}
+
+async function doRemoveTemplate(): Promise<void> {
+  const tpl = selectedTemplate.value;
+  if (tpl === null) return;
   error.value = '';
   try {
     await deleteTemplate.mutateAsync(tpl.templateId);
     selectedTemplateId.value = '';
+    dialog.value = null;
   } catch {
+    dialog.value = null;
     error.value = '템플릿 삭제에 실패했습니다.';
   }
 }
@@ -134,10 +278,8 @@ const totalBytes = computed(() => files.value.reduce((sum, f) => sum + f.size, 0
 const fmtSize = (bytes: number): string =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${String(Math.ceil(bytes / 1024))}KB`;
 
-function onFilesPicked(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  const picked = [...(input.files ?? [])];
-  input.value = '';
+// 파일 선택·드래그앤드롭 공용 검증(형식·개당 크기·합계).
+function addFiles(picked: File[]): void {
   error.value = '';
   for (const file of picked) {
     if (!/^(image\/|application\/pdf$)/.test(file.type)) {
@@ -153,6 +295,33 @@ function onFilesPicked(event: Event): void {
   if (totalBytes.value > QUICK_MAIL_MAX_TOTAL_BYTES) {
     error.value = '첨부 합계는 20MB 이하만 가능합니다 — 일부를 제거해 주세요.';
   }
+}
+
+function onFilesPicked(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const picked = [...(input.files ?? [])];
+  input.value = '';
+  addFiles(picked);
+}
+
+// 드래그앤드롭 첨부(사용자 요청) — 창 어디든 파일을 끌어다 놓으면 첨부.
+// dragenter/leave 는 자식 요소를 오갈 때마다 발화하므로 카운터로 깜빡임을 막는다.
+const isDragOver = ref(false);
+let dragDepth = 0;
+
+function onDragEnter(e: DragEvent): void {
+  if (!(e.dataTransfer?.types ?? []).includes('Files')) return;
+  dragDepth += 1;
+  isDragOver.value = true;
+}
+function onDragLeave(): void {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) isDragOver.value = false;
+}
+function onDrop(e: DragEvent): void {
+  dragDepth = 0;
+  isDragOver.value = false;
+  addFiles([...(e.dataTransfer?.files ?? [])]);
 }
 
 function removeFile(idx: number): void {
@@ -196,16 +365,104 @@ async function submit(): Promise<void> {
 
 <template>
   <div
-    class="fixed bottom-4 right-4 z-[70] flex w-[520px] max-w-[calc(100vw-2rem)] flex-col rounded-t-xl border border-gray-300 bg-surface shadow-2xl"
+    ref="rootEl"
+    class="fixed bottom-4 right-4 z-[70] flex max-w-[calc(100vw-2rem)] flex-col rounded-t-xl border border-gray-300 bg-surface shadow-2xl"
+    :class="size === null ? (expanded ? 'w-[860px]' : 'w-[520px]') : ''"
+    :style="rootStyle"
+    @dragenter="onDragEnter"
+    @dragover.prevent
+    @dragleave="onDragLeave"
+    @drop.prevent="onDrop"
   >
-    <!-- 헤더(Gmail 컴포즈 감성) -->
-    <div class="flex items-center gap-2 rounded-t-xl bg-gray-800 px-4 py-2.5 text-sm text-white">
-      <span class="font-bold">✉ 빠른 메일</span>
-      <span class="truncate text-xs text-gray-300">{{ caseNo }} · {{ caseTitle }}</span>
-      <button type="button" class="ml-auto text-gray-300 hover:text-white" @click="emit('close')">✕</button>
+    <!-- 드롭 오버레이 — 파일을 끌어온 동안만 -->
+    <div
+      v-if="isDragOver"
+      class="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-t-xl border-2 border-dashed border-blue-400 bg-blue-50/80"
+    >
+      <p class="text-sm font-bold text-blue-700">여기에 놓아 첨부 (이미지·PDF)</p>
     </div>
 
-    <div class="space-y-2 p-4 text-sm">
+    <!-- 확인·입력 레이어(브라우저 alert 대체) — 컴포즈 내부 미니 다이얼로그 -->
+    <div
+      v-if="dialog !== null"
+      class="absolute inset-0 z-30 grid place-items-center rounded-t-xl bg-black/30 p-6"
+      @click.self="dialog = null"
+    >
+      <div class="w-full max-w-xs rounded-xl bg-surface p-4 shadow-2xl">
+        <template v-if="dialog === 'confirm-apply'">
+          <p class="text-sm text-gray-800">작성 중인 제목·본문을 템플릿 내용으로 바꿀까요?</p>
+          <div class="mt-3 flex justify-end gap-2">
+            <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-bold hover:bg-gray-50" @click="dialog = null">취소</button>
+            <button type="button" class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700" @click="doApplyTemplate">바꾸기</button>
+          </div>
+        </template>
+        <template v-else-if="dialog === 'prompt-save'">
+          <p class="text-sm font-bold text-gray-800">템플릿으로 저장</p>
+          <input
+            v-model="templateName"
+            type="text"
+            maxlength="100"
+            placeholder="템플릿 이름 (예: 견적 안내)"
+            class="mt-2 h-9 w-full rounded-lg border border-gray-300 px-3 text-sm"
+            @keyup.enter="doSaveTemplate"
+          >
+          <div class="mt-3 flex justify-end gap-2">
+            <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-bold hover:bg-gray-50" @click="dialog = null">취소</button>
+            <button
+              type="button"
+              class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+              :disabled="templateName.trim() === '' || saveTemplate.isPending.value"
+              @click="doSaveTemplate"
+            >
+              저장
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <p class="text-sm text-gray-800">'{{ selectedTemplate?.name }}' 템플릿을 삭제할까요?</p>
+          <div class="mt-3 flex justify-end gap-2">
+            <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-bold hover:bg-gray-50" @click="dialog = null">취소</button>
+            <button
+              type="button"
+              class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-40"
+              :disabled="deleteTemplate.isPending.value"
+              @click="doRemoveTemplate"
+            >
+              삭제
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+    <!-- 헤더(Gmail 컴포즈 감성) — 드래그 핸들: 잡고 끌면 창이 이동한다 -->
+    <div
+      class="flex cursor-move touch-none select-none items-center gap-2 rounded-t-xl bg-gray-800 px-4 py-2.5 text-sm text-white"
+      @pointerdown="onDragStart"
+      @pointermove="onDragMove"
+      @pointerup="onDragEnd"
+      @pointercancel="onDragEnd"
+    >
+      <span class="font-bold">빠른 메일</span>
+      <span class="truncate text-xs text-gray-300">{{ caseNo }} · {{ caseTitle }}</span>
+      <button
+        type="button"
+        class="ml-auto shrink-0 cursor-pointer text-xs text-gray-300 hover:text-white"
+        @pointerdown.stop
+        @click="toggleExpanded"
+      >
+        {{ expanded ? '축소' : '확대' }}
+      </button>
+      <button
+        type="button"
+        class="shrink-0 cursor-pointer text-gray-300 hover:text-white"
+        @pointerdown.stop
+        @click="emit('close')"
+      >
+        ✕
+      </button>
+    </div>
+
+    <div class="flex min-h-0 flex-1 flex-col space-y-2 overflow-y-auto p-4 text-sm">
       <p v-if="loading" class="py-4 text-center text-xs text-gray-400">불러오는 중…</p>
       <template v-else>
         <label class="block text-xs text-gray-500">받는 사람
@@ -252,11 +509,12 @@ async function submit(): Promise<void> {
           변수: {고객명} {Case번호} {Case제목} {확정금액} — 템플릿 적용 시 이 Case 값으로 채워집니다.
         </p>
 
+        <!-- 수동 리사이즈 시(창 높이 고정) 본문이 남는 공간을 채운다(flex-1) -->
         <textarea
           v-model="body"
-          rows="9"
+          :rows="expanded ? 20 : 9"
           maxlength="10000"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          class="min-h-[100px] w-full flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm"
           placeholder="본문을 입력하세요 — 발송 시 샘플피씨비 메일 서식에 담겨 전송됩니다."
         />
 
@@ -293,6 +551,44 @@ async function submit(): Promise<void> {
           </button>
         </div>
       </template>
+    </div>
+
+    <!-- 리사이즈 그립 4모서리 — 우하단 도킹이라 좌·상 방향 확장이 주 사용처 -->
+    <div
+      class="absolute left-0 top-0 z-10 size-3 cursor-nwse-resize touch-none"
+      title="드래그로 크기 조절"
+      @pointerdown="(e) => onResizeStart('nw', e)"
+      @pointermove="onResizeMove"
+      @pointerup="onResizeEnd"
+      @pointercancel="onResizeEnd"
+    />
+    <div
+      class="absolute right-0 top-0 z-10 size-3 cursor-nesw-resize touch-none"
+      title="드래그로 크기 조절"
+      @pointerdown="(e) => onResizeStart('ne', e)"
+      @pointermove="onResizeMove"
+      @pointerup="onResizeEnd"
+      @pointercancel="onResizeEnd"
+    />
+    <div
+      class="absolute bottom-0 left-0 z-10 size-3 cursor-nesw-resize touch-none"
+      title="드래그로 크기 조절"
+      @pointerdown="(e) => onResizeStart('sw', e)"
+      @pointermove="onResizeMove"
+      @pointerup="onResizeEnd"
+      @pointercancel="onResizeEnd"
+    />
+    <div
+      class="absolute bottom-0 right-0 z-10 size-4 cursor-nwse-resize touch-none"
+      title="드래그로 크기 조절"
+      @pointerdown="(e) => onResizeStart('se', e)"
+      @pointermove="onResizeMove"
+      @pointerup="onResizeEnd"
+      @pointercancel="onResizeEnd"
+    >
+      <svg viewBox="0 0 12 12" class="absolute bottom-0.5 right-0.5 size-3 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path d="M11 5L5 11M11 9l-2 2" stroke-linecap="round" />
+      </svg>
     </div>
   </div>
 </template>
