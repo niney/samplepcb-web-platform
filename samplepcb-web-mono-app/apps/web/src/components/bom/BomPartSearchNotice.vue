@@ -11,11 +11,13 @@ const props = withDefaults(defineProps<{
   needed?: number;
   auto?: boolean;
   waitForCatalog?: boolean;
+  compact?: boolean;
   disabled?: boolean;
 }>(), {
   needed: 1,
   auto: false,
   waitForCatalog: false,
+  compact: false,
   disabled: false,
 });
 
@@ -70,9 +72,31 @@ function requestSupplement(automatic = false): void {
 </script>
 
 <template>
+  <div v-if="compact" class="flex h-[32px] items-center justify-end gap-[8px] font-noto text-[11px]" aria-live="polite">
+    <span v-if="supplement.isPending.value" class="flex items-center gap-[5px] whitespace-nowrap text-ink-muted">
+      <span class="size-[12px] animate-spin rounded-full border-2 border-line border-t-brand" />
+      공급사 검색 중…
+    </span>
+    <span v-else-if="supplement.isError.value" class="max-w-[300px] truncate text-state-danger" :title="errorMessage">{{ errorMessage }}</span>
+    <span v-else-if="supplement.isSuccess.value" class="whitespace-nowrap text-ink-subtle">공급사 {{ supplement.data.value?.data.total ?? 0 }}개 확인</span>
+    <button
+      v-if="canSupplement && (!auto || mode === 'mpn' || supplement.isSuccess.value || supplement.isError.value)"
+      type="button"
+      class="h-[28px] shrink-0 rounded-[5px] border border-line-strong bg-search-row px-[9px] text-[10px] font-bold text-ink-muted transition hover:border-brand-soft hover:text-brand-soft disabled:cursor-not-allowed disabled:opacity-50"
+      :disabled="disabled || supplement.isPending.value"
+      @click="requestSupplement(false)"
+    >
+      {{ supplement.isSuccess.value ? '다시 검색' : supplement.isError.value ? '재시도' : '공급사 추가 검색' }}
+    </button>
+  </div>
+
   <div
-    class="mt-4 flex flex-col gap-3 rounded-xl border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-    :class="mode === 'mpn' || mode === 'exact' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : mode === 'similar' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-blue-900'"
+    v-else
+    class="flex flex-col border sm:flex-row sm:items-center sm:justify-between"
+    :class="[
+      'mt-4 gap-3 rounded-xl px-4 py-3 text-sm',
+      mode === 'mpn' || mode === 'exact' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : mode === 'similar' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-blue-900',
+    ]"
     aria-live="polite"
   >
     <div>

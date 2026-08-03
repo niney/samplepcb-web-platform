@@ -982,6 +982,39 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
 });
 export type BomQuoteDetailType = z.infer<typeof BomQuoteDetail>;
 
+// ── 단일검색 견적 바구니 ─────────────────────────────────────────────────
+// 브라우저 임시 카트가 아니라 기존 견적 draft를 사용한다. 클라이언트는 가격을 보내지 않고
+// 카탈로그 부품·오퍼 정체성만 보내며, sp-node가 현재 저장 오퍼로 수량과 금액을 계산한다.
+
+export const BomSearchCartSelection = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('supplier_offer'),
+    supplier: z.string().trim().min(1).max(32),
+    supplierSku: z.string().max(191),
+  }),
+  z.object({ kind: z.literal('manufacturer_catalog') }),
+]);
+export type BomSearchCartSelectionType = z.infer<typeof BomSearchCartSelection>;
+
+export const BomSearchCartAddBody = z.object({
+  partId: z.string().regex(/^\d+$/),
+  bomQty: z.number().int().min(1).max(1_000_000),
+  selection: BomSearchCartSelection,
+});
+export type BomSearchCartAddBodyType = z.infer<typeof BomSearchCartAddBody>;
+
+export const BomSearchCartItemPatchBody = z.object({
+  bomQty: z.number().int().min(1).max(1_000_000),
+});
+export type BomSearchCartItemPatchBodyType = z.infer<typeof BomSearchCartItemPatchBody>;
+
+/** 활성 draft가 아직 없으면 data=null. 첫 품목을 담을 때만 견적을 생성한다. */
+export const BomSearchCartResponse = z.object({
+  result: z.literal(true),
+  data: BomQuoteDetail.nullable(),
+});
+export type BomSearchCartResponseType = z.infer<typeof BomSearchCartResponse>;
+
 // ── 견적서 인쇄(§6.8) — 거버 EstimateSheet 관례 동형(A4·직인·window.print) ────
 // 관리자=상태 무관(확정 전이면 "가안" 표시), 고객=회신 완료+확정가 등록 시만.
 // 품목·합계는 서버 조립(server-single-truth) — 화면은 뿌리기만 한다.

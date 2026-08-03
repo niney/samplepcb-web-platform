@@ -21,6 +21,7 @@ export const PartOfferView = z.object({
   moq: z.number().int().nullable(),
   orderMultiple: z.number().int().nullable(),
   packaging: z.string().nullable(),
+  leadTime: z.string().nullable(),
   currency: z.string().nullable(),
   priceBreaks: z.array(PartPriceBreak),
   fetchedAt: z.string(),
@@ -133,6 +134,12 @@ export const PartAppliedOffer = z.object({
 });
 export type PartAppliedOfferType = z.infer<typeof PartAppliedOffer>;
 
+/** 단일검색 결과표의 공급사별 한 행. 오퍼 원문과 필요수량 적용 결과를 함께 내린다. */
+export const BomPartOfferOption = PartOfferView.extend({
+  applied: PartAppliedOffer.nullable(),
+});
+export type BomPartOfferOptionType = z.infer<typeof BomPartOfferOption>;
+
 export const BomPartSearchQuery = PartSearchQuery.extend({
   needed: z.coerce.number().int().min(1).max(1_000_000).default(1),
 });
@@ -143,6 +150,8 @@ export const BomPartHit = PartHit.extend({
   source: z.enum(['catalog', 'supplier']),
   /** 공급사 즉시 결과는 DB 상세 저장을 기다리지 않고 오퍼를 함께 제공한다. */
   inlineOffers: z.array(PartOfferView).nullable(),
+  /** 공급사별 가격·재고 행. 제조사 카탈로그 문의 오퍼는 applied=null이다. */
+  offerOptions: z.array(BomPartOfferOption),
   /** 필요수량 기준 대표 구매 조건 — 가격 있는 실공급사 오퍼가 없으면 null. */
   applied: PartAppliedOffer.nullable(),
 });

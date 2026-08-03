@@ -15,6 +15,7 @@ import {
   BomSupplierStartResponse,
   BomPartSearchResponse,
   BomPartSearchSupplementResponse,
+  BomSearchCartResponse,
   PartDetailResponse,
   apiRoutes,
   type BomQuoteBuildBodyType,
@@ -27,6 +28,9 @@ import {
   type BomQuoteSheetSelectionBodyType,
   type BomQuoteStatusType,
   type BomSupplierOptionsType,
+  type BomSearchCartAddBodyType,
+  type BomSearchCartItemPatchBodyType,
+  type BomSearchCartResponseType,
 } from '@sp/api-contract';
 
 // 고객 스마트 BOM — /api/bom (회원). 잡 폴링·견적 CRUD·카탈로그 검색 vue-query 훅.
@@ -405,6 +409,45 @@ export function useBomPartsSupplement() {
       ? queryClient.invalidateQueries({ queryKey: ['bom', 'parts-search'] })
       : undefined,
   });
+}
+
+// ── 단일검색 견적 바구니 ──────────────────────────────────────────────────
+
+export function useBomSearchCart(enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: ['bom', 'search-cart'],
+    queryFn: () => apiGet(`${base}/search-cart`, BomSearchCartResponse),
+    enabled,
+    retry: false,
+  });
+}
+
+function useBomSearchCartMutation<TInput>(
+  mutationFn: (input: TInput) => Promise<BomSearchCartResponseType>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: (response) => {
+      queryClient.setQueryData(['bom', 'search-cart'], response);
+      void queryClient.invalidateQueries({ queryKey: ['bom', 'quotes'] });
+    },
+  });
+}
+
+export function useAddBomSearchCartItem() {
+  return useBomSearchCartMutation((body: BomSearchCartAddBodyType) =>
+    apiSend('POST', `${base}/search-cart/items`, body, BomSearchCartResponse));
+}
+
+export function usePatchBomSearchCartItem() {
+  return useBomSearchCartMutation((input: { itemId: string; body: BomSearchCartItemPatchBodyType }) =>
+    apiSend('PATCH', `${base}/search-cart/items/${input.itemId}`, input.body, BomSearchCartResponse));
+}
+
+export function useRemoveBomSearchCartItem() {
+  return useBomSearchCartMutation((itemId: string) =>
+    apiSend('DELETE', `${base}/search-cart/items/${itemId}`, undefined, BomSearchCartResponse));
 }
 
 export function useBomPartDetail(partId: Ref<string | null>, enabled?: Ref<boolean>) {

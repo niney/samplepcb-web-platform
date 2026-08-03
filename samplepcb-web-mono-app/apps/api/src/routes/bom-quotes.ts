@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import type { FastifyBaseLogger } from 'fastify';
+import type { FastifyBaseLogger, FastifyReply } from 'fastify';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
@@ -26,6 +26,9 @@ import {
   BomQuoteSearchRequirementsBody,
   BomQuoteSheetSelectionBody,
   BomQuoteStatus,
+  BomSearchCartAddBody,
+  BomSearchCartItemPatchBody,
+  BomSearchCartResponse,
   BomSupplierStartResponse,
   BomSupplierView,
   type BomQuoteItemInputType,
@@ -98,6 +101,7 @@ import {
 } from '../lib/bom-quote-delete';
 import {
   buildItemsFromEngineResult,
+  addBomSearchCartItem,
   backfillQuotePartIds,
   applyQuoteCandidateSelection,
   canTransition,
@@ -106,14 +110,17 @@ import {
   filterActiveQuoteItems,
   getQuoteItemCandidates,
   loadLatestQuoteLocalCatalogTrace,
+  loadActiveBomSearchCart,
   loadQuoteComparisonPage,
   loadSupplierSearchSummary,
   patchNeedsCandidateReprice,
   persistQuoteComputed,
   quoteNeedsEnrichment,
   refreshQuoteFromSupplierResult,
+  removeBomSearchCartItem,
   repriceCandidateSelections,
   replaceQuoteItems,
+  patchBomSearchCartItem,
   toBomQuotePrintDto,
   toDetailDto,
   toItemDto,
@@ -931,6 +938,75 @@ async function healCatalogPreparation(
 
 export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.authenticate);
+
+  const activeSearchCartResponse = async (mbId: string) => {
+    const quote = await loadActiveBomSearchCart(mbId);
+    return {
+      result: true as const,
+      data: quote === null ? null : await toDetailDto(quote, quote.items, quote.sheets),
+    };
+  };
+
+  const sendSearchCartMutationError = (
+    reply: FastifyReply,
+    result: Exclude<Awaited<ReturnType<typeof addBomSearchCartItem>>, 'ok'>,
+  ) => {
+    if (result === 'cart-not-found' || result === 'item-not-found' || result === 'part-not-found') {
+      return reply.notFound('단일검색 견적 품목을 찾을 수 없습니다');
+    }
+    if (result === 'item-limit' || result === 'quantity-too-large') {
+      return reply.badRequest(result === 'item-limit'
+        ? '견적 바구니에 더 이상 품목을 담을 수 없습니다'
+        : '수량이 너무 큽니다');
+    }
+    return reply.conflict(
+      result === 'catalog-inquiry-not-found'
+        ? '문의 가능한 제조사 카탈로그 오퍼가 없습니다'
+        : result === 'catalog-offer-not-found'
+          ? '선택한 공급사 오퍼가 더 이상 없습니다'
+          : '선택한 공급사 오퍼에 적용 가능한 가격이 없습니다',
+    );
+  };
+
+  // 단일검색 견적 바구니 — 첫 담기 전에는 null이며, 모든 금액은 서버 저장 오퍼로 계산한다.
+  fastify.get('/bom/search-cart', {
+    schema: { response: { 200: BomSearchCartResponse } },
+  }, async (request) => activeSearchCartResponse(request.user.mbId));
+
+  fastify.post('/bom/search-cart/items', {
+    schema: { body: BomSearchCartAddBody, response: { 200: BomSearchCartResponse } },
+  }, async (request, reply) => {
+    const result = await addBomSearchCartItem(request.user.mbId, request.body);
+    if (result !== 'ok') return sendSearchCartMutationError(reply, result);
+    return activeSearchCartResponse(request.user.mbId);
+  });
+
+  fastify.patch('/bom/search-cart/items/:itemId', {
+    schema: {
+      params: z.object({ itemId: z.coerce.bigint() }),
+      body: BomSearchCartItemPatchBody,
+      response: { 200: BomSearchCartResponse },
+    },
+  }, async (request, reply) => {
+    const result = await patchBomSearchCartItem(
+      request.user.mbId,
+      request.params.itemId,
+      request.body,
+    );
+    if (result !== 'ok') return sendSearchCartMutationError(reply, result);
+    return activeSearchCartResponse(request.user.mbId);
+  });
+
+  fastify.delete('/bom/search-cart/items/:itemId', {
+    schema: {
+      params: z.object({ itemId: z.coerce.bigint() }),
+      response: { 200: BomSearchCartResponse },
+    },
+  }, async (request, reply) => {
+    const result = await removeBomSearchCartItem(request.user.mbId, request.params.itemId);
+    if (result !== 'ok') return sendSearchCartMutationError(reply, result);
+    return activeSearchCartResponse(request.user.mbId);
+  });
 
   // 업로드 → 견적(draft) + 엔진 파싱 잡 생성
   fastify.post('/bom/quotes', { schema: { response: { 201: BomQuoteCreateResponse, 502: BizError } } }, async (request, reply) => {
@@ -1955,6 +2031,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
       data: {
         title: request.body.title,
         status: 'requested',
+        activeSearchCartKey: null,
         requestedAt: new Date(),
         itemsTotal: computed.itemsTotal,
         finalTotal: computed.finalTotal,
@@ -2029,7 +2106,10 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
     if (!canTransition(quote.status, 'canceled')) return reply.conflict('취소할 수 없는 상태입니다');
-    await prisma.spBomQuote.update({ where: { id: quote.id }, data: { status: 'canceled' } });
+    await prisma.spBomQuote.update({
+      where: { id: quote.id },
+      data: { status: 'canceled', activeSearchCartKey: null },
+    });
     const fresh = await loadOwnQuote(quote.id, request.user.mbId);
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
     return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };

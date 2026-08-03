@@ -567,6 +567,9 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       where: { id: quote.id },
       data: {
         ...(body.status !== undefined ? { status: body.status } : {}),
+        ...(body.status !== undefined && body.status !== 'draft'
+          ? { activeSearchCartKey: null }
+          : {}),
         ...(body.status === 'answered' && quote.answeredAt === null ? { answeredAt: new Date() } : {}),
         ...(body.adminMemo !== undefined ? { adminMemo: body.adminMemo } : {}),
         ...(body.answerNote !== undefined ? { answerNote: body.answerNote } : {}),

@@ -1404,6 +1404,14 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(result?.items[0]).toMatchObject({
       hasCatalogInquiryOffer: false,
       inlineOffers: [{ offerKind: 'supplier_offer' }],
+      offerOptions: [{
+        offerKind: 'supplier_offer',
+        applied: {
+          supplier: 'digikey',
+          orderQty: 10,
+          lineTotalKrw: 120,
+        },
+      }],
     });
     expect(result).toMatchObject({ apiCalls: 1, cacheHits: 2, warnings: ['cached-result'] });
   });
@@ -1485,6 +1493,10 @@ describe('BOM 엔진 후보 결정 투영', () => {
         offerKind: 'manufacturer_catalog',
         stock: null,
         priceBreaks: [],
+      }],
+      offerOptions: [{
+        offerKind: 'manufacturer_catalog',
+        applied: null,
       }],
     });
 

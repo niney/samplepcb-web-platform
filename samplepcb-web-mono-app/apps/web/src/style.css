@@ -55,6 +55,15 @@
   --color-surface-brand-soft: #f4f8ff;
   --color-surface-warn: #fdf8e7;
 
+  /* 단일검색 결과(피그마 2316:106290) — 표·카트는 일반 BOM 면보다 역할이 세분된다. */
+  --color-search-row: #ffffff;
+  --color-search-section: #e2e6ec;
+  --color-search-head: #f9f9f9;
+  --color-search-input: #ffffff;
+  --color-search-cart: #fdfdff;
+  --color-search-input-border: #d3d5dc;
+  --color-line-search-strong: #d3d5dc;
+
   /* 선 */
   --color-line: #e1e6ef;
   --color-line-soft: #e5e8ed;
@@ -120,6 +129,15 @@
   --color-surface-brand: #16233c;
   --color-surface-brand-soft: #131b2c;
   --color-surface-warn: #2a2413;
+
+  /* 단일검색 다크 시안(2285:95005)의 원본 면·입력·외곽선 값. */
+  --color-search-row: #131519;
+  --color-search-section: #0f1117;
+  --color-search-head: #1d2025;
+  --color-search-input: #252a31;
+  --color-search-cart: #131519;
+  --color-search-input-border: #353b46;
+  --color-line-search-strong: #2f3949;
 
   /* 선 */
   --color-line: #2c3441;

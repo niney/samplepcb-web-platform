@@ -47,6 +47,8 @@ import {
   type BomQuoteStatusType,
   type BomQuoteSummaryType,
   type BomPartHitType,
+  type BomSearchCartAddBodyType,
+  type BomSearchCartItemPatchBodyType,
 } from '@sp/api-contract';
 import {
   applyQtyToOffer,
@@ -66,7 +68,7 @@ import { getCartStates, getOrderInfoByCtId } from './g5-db';
 import { buildEngineProcurementPolicy } from './bom-procurement-policy';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
-import { isCatalogInquiryOffer } from './parts-offer-kind';
+import { isCatalogInquiryOffer, partOffersForDisplay } from './parts-offer-kind';
 import { getBomQuoteRuntimeConfig } from './exchange-rate';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 import {
@@ -2224,6 +2226,30 @@ function pickLineTotal(pick: OfferPick | null): number | null {
   return Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100;
 }
 
+export function partAppliedOffer(pick: OfferPick | null) {
+  if (pick === null) return null;
+  return {
+    supplier: pick.offer.supplier,
+    supplierSku: pick.offer.supplierSku,
+    packaging: pick.offer.packaging,
+    currency: pick.currency,
+    stock: pick.offer.stock,
+    moq: pick.offer.moq,
+    orderMultiple: pick.offer.orderMultiple,
+    fetchedAt: pick.offer.fetchedAt,
+    priceBreaks: pick.offer.priceBreaks.map((priceBreak) => ({
+      qty: priceBreak.qty,
+      price: priceBreak.price,
+    })),
+    unitPrice: pick.unitPrice,
+    unitPriceKrw: pick.unitPriceKrw,
+    lineTotalKrw: pickLineTotal(pick),
+    breakQty: pick.breakQty,
+    orderQty: pick.orderQty,
+    stockShort: pick.stockShort,
+  };
+}
+
 function massPackagingReasonCodes(
   decision: z.infer<typeof EngineComponentProcurementDecision> | null | undefined,
 ): BomQuoteDecisionReasonType[] {
@@ -2254,6 +2280,7 @@ export interface ProjectEnginePartSearchResult {
 export function projectEnginePartSearchResult(
   envelopeValue: unknown,
   needed: number,
+  usdKrwRate: number | null = null,
 ): ProjectEnginePartSearchResult | null {
   const parsed = EngineSupplierEnvelope.safeParse(envelopeValue);
   if (
@@ -2282,7 +2309,7 @@ export function projectEnginePartSearchResult(
     : groups;
   const visibleGroups = prioritizedGroups.slice(0, MAX_STORED_CANDIDATES_PER_ITEM);
   const items = visibleGroups.map(({ snapshot }) => {
-    const { pick } = storedCandidatePick(snapshot, needed, null);
+    const { pick } = storedCandidatePick(snapshot, needed, usdKrwRate);
     const inlineOffers = snapshot.offers.map((offer) => ({
       supplier: offer.supplier,
       offerKind: offer.offerKind,
@@ -2292,6 +2319,7 @@ export function projectEnginePartSearchResult(
       moq: offer.moq,
       orderMultiple: offer.orderMultiple,
       packaging: normalizeSupplierPackaging(offer.supplier, offer.packaging),
+      leadTime: offer.leadTime,
       currency: offer.priceBreaks[0]?.currency ?? null,
       priceBreaks: offer.priceBreaks.map((priceBreak) => ({
         qty: priceBreak.qty,
@@ -2300,6 +2328,27 @@ export function projectEnginePartSearchResult(
       fetchedAt: offer.fetchedAt,
       derivedFrom: null,
     }));
+    const offerOptions = inlineOffers.map((offer, index) => {
+      const source = snapshot.offers[index];
+      const optionPick = source === undefined || offer.offerKind === 'manufacturer_catalog'
+        ? null
+        : applyQtyToOffer({
+            supplier: offer.supplier,
+            supplierSku: offer.supplierSku,
+            packaging: offer.packaging,
+            currency: offer.currency,
+            stock: offer.stock,
+            moq: offer.moq,
+            orderMultiple: offer.orderMultiple,
+            fetchedAt: offer.fetchedAt,
+            priceBreaks: source.priceBreaks.map((priceBreak) => ({
+              qty: priceBreak.qty,
+              price: priceBreak.price,
+              currency: priceBreak.currency,
+            })),
+          }, needed, usdKrwRate);
+      return { ...offer, applied: partAppliedOffer(optionPick) };
+    });
     const numericSpecs = Object.fromEntries(
       Object.entries(snapshot.normalizedSpecs).flatMap(([key, value]) =>
         typeof value === 'number' && Number.isFinite(value) ? [[key, value] as const] : []),
@@ -2331,28 +2380,8 @@ export function projectEnginePartSearchResult(
       score: snapshot.specificationConfidence,
       source: 'supplier' as const,
       inlineOffers,
-      applied: pick === null
-        ? null
-        : {
-            supplier: pick.offer.supplier,
-            supplierSku: pick.offer.supplierSku,
-            packaging: pick.offer.packaging,
-            currency: pick.currency,
-            stock: pick.offer.stock,
-            moq: pick.offer.moq,
-            orderMultiple: pick.offer.orderMultiple,
-            fetchedAt: pick.offer.fetchedAt,
-            priceBreaks: pick.offer.priceBreaks.map((priceBreak) => ({
-              qty: priceBreak.qty,
-              price: priceBreak.price,
-            })),
-            unitPrice: pick.unitPrice,
-            unitPriceKrw: pick.unitPriceKrw,
-            lineTotalKrw: pickLineTotal(pick),
-            breakQty: pick.breakQty,
-            orderQty: pick.orderQty,
-            stockShort: pick.stockShort,
-          },
+      offerOptions,
+      applied: partAppliedOffer(pick),
     } satisfies BomPartHitType;
   });
 
@@ -4510,6 +4539,268 @@ export type AdminQuoteItemRemoveResult =
 
 const MAX_ACTIVE_BOM_QUOTE_ITEMS = 2000;
 const MAX_DATABASE_INT = 2_147_483_647;
+
+export type BomSearchCartMutationResult =
+  | 'ok'
+  | 'cart-not-found'
+  | 'item-not-found'
+  | 'part-not-found'
+  | 'catalog-offer-not-found'
+  | 'offer-not-priced'
+  | 'catalog-inquiry-not-found'
+  | 'item-limit'
+  | 'quantity-too-large';
+
+/** 회원별 활성 단일검색 draft. 첫 담기 전에는 행을 만들지 않아 견적 이력을 오염시키지 않는다. */
+export async function loadActiveBomSearchCart(mbId: string) {
+  const quote = await prisma.spBomQuote.findUnique({
+    where: { activeSearchCartKey: mbId },
+    include: { items: true, sheets: true },
+  });
+  if (
+    quote?.mbId !== mbId
+    || quote.sourceKind !== 'single_search'
+    || quote.status !== 'draft'
+  ) return null;
+  return quote;
+}
+
+async function lockActiveBomSearchCart(
+  tx: Prisma.TransactionClient,
+  mbId: string,
+) {
+  const existing = await tx.spBomQuote.findUnique({
+    where: { activeSearchCartKey: mbId },
+    select: { id: true },
+  });
+  if (existing === null) return null;
+  await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+    SELECT id FROM sp_bom_quote WHERE id = ${existing.id} FOR UPDATE
+  `);
+  return tx.spBomQuote.findUnique({
+    where: { id: existing.id },
+    include: { items: true, sheets: true },
+  });
+}
+
+type LockedBomSearchCart = NonNullable<Awaited<ReturnType<typeof lockActiveBomSearchCart>>>;
+
+function validSearchCart(
+  quote: Awaited<ReturnType<typeof lockActiveBomSearchCart>>,
+  mbId: string,
+): quote is LockedBomSearchCart {
+  return quote !== null
+    && quote.mbId === mbId
+    && quote.sourceKind === 'single_search'
+    && quote.status === 'draft'
+    && quote.activeSearchCartKey === mbId;
+}
+
+/** 단일검색 품목 담기/구매조건 변경. 가격은 partId+오퍼 키로 DB를 다시 읽어 확정한다. */
+export async function addBomSearchCartItem(
+  mbId: string,
+  body: BomSearchCartAddBodyType,
+): Promise<BomSearchCartMutationResult> {
+  const runtimeConfig = await getBomQuoteRuntimeConfig();
+  const execute = () => prisma.$transaction(async (tx): Promise<BomSearchCartMutationResult> => {
+    let quote = await lockActiveBomSearchCart(tx, mbId);
+    quote ??= await tx.spBomQuote.create({
+        data: {
+          mbId,
+          title: '단일검색 견적 바구니',
+          sourceKind: 'single_search',
+          activeSearchCartKey: mbId,
+          buildStatus: 'ready',
+          procurementMode: 'sample',
+          shippingFee: runtimeConfig.defaultShippingFee,
+          managementFee: runtimeConfig.defaultManagementFee,
+          finalTotal: runtimeConfig.defaultShippingFee + runtimeConfig.defaultManagementFee,
+          usdKrwRateUsed: runtimeConfig.usdKrwRate,
+          exchangeRateSnapshot: runtimeConfig.exchangeRateSnapshot === null
+            ? Prisma.DbNull
+            : (runtimeConfig.exchangeRateSnapshot as Prisma.InputJsonValue),
+        },
+        include: { items: true, sheets: true },
+      });
+    if (!validSearchCart(quote, mbId)) return 'cart-not-found';
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    const existing = activeRows.find((item) => item.partId === BigInt(body.partId));
+    if (existing === undefined && activeRows.length >= MAX_ACTIVE_BOM_QUOTE_ITEMS) return 'item-limit';
+
+    const part = await tx.spPart.findUnique({
+      where: { id: BigInt(body.partId) },
+      include: { offers: { include: { priceBreaks: true } } },
+    });
+    if (part === null) return 'part-not-found';
+
+    const needed = neededQty(body.bomQty, quote.setQty, quote.spareQty);
+    let pick: OfferPick | null = null;
+    const selection = body.selection;
+    if (selection.kind === 'manufacturer_catalog') {
+      const inquiryExists = partOffersForDisplay(part.offers).some((offer) =>
+        offer.supplier === SAMPLEPCB_SUPPLIER && isCatalogInquiryOffer(offer.rawJson));
+      if (!inquiryExists) return 'catalog-inquiry-not-found';
+    } else {
+      const selectedInput = toOfferInputs(part).find((offer) =>
+        offer.supplier === selection.supplier
+        && offer.supplierSku === selection.supplierSku);
+      if (selectedInput === undefined) return 'catalog-offer-not-found';
+      pick = applyQtyToOffer(selectedInput, needed, runtimeConfig.usdKrwRate);
+      if (pick === null) return 'offer-not-priced';
+    }
+    const orderQty = pick?.orderQty ?? needed;
+    if (orderQty > MAX_DATABASE_INT) return 'quantity-too-large';
+
+    const now = new Date();
+    const rowIdx = existing?.rowIdx
+      ?? quote.items.reduce((max, item) => Math.max(max, item.rowIdx), -1) + 1;
+    const nextItem: BomQuoteItemInputType = {
+      rowIdx,
+      included: true,
+      mpn: part.mpn,
+      manufacturerName: part.manufacturerName,
+      description: part.description,
+      bomQty: body.bomQty,
+      orderQty,
+      matchStatus: 'manual',
+      matchEvidence: null,
+      recommendedCandidateKey: null,
+      selectedCandidateKey: null,
+      selectionSource: 'catalog',
+      partId: String(part.id),
+      selectedOffer: pick === null ? null : snapshotFromPick(pick, true, null),
+      sourceRow: {
+        manualAdded: true,
+        singleSearch: true,
+        addedBy: mbId,
+        addedAt: existing?.createdAt.toISOString() ?? now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      sourceSheetIndex: null,
+      sourceSheetName: null,
+    };
+    const currentDtos = activeRows.map((row) => toItemDto(row));
+    const nextItems = existing === undefined
+      ? [...currentDtos, nextItem]
+      : currentDtos.map((item) => item.id === String(existing.id)
+          ? { ...item, ...nextItem }
+          : item);
+    const computed = computeQuote(
+      nextItems,
+      runtimeConfig.usdKrwRate,
+      quote.shippingFee,
+      quote.managementFee,
+    );
+    await persistQuoteComputed(quote.id, computed, runtimeConfig.usdKrwRate, {
+      exchangeRateSnapshot: runtimeConfig.exchangeRateSnapshot,
+    }, tx);
+    return 'ok';
+  }, { maxWait: 10_000, timeout: 60_000 });
+
+  try {
+    return await execute();
+  } catch (error: unknown) {
+    // 여러 탭의 첫 담기가 겹치면 활성 키 unique가 한 건만 승리한다. 패자는 그 행을 다시 잠근다.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return execute();
+    }
+    throw error;
+  }
+}
+
+/** 카트 수량 변경 — 선택한 오퍼의 서버 저장 스냅샷 안에서 MOQ·배수·구간을 다시 계산한다. */
+export async function patchBomSearchCartItem(
+  mbId: string,
+  itemId: bigint,
+  body: BomSearchCartItemPatchBodyType,
+): Promise<BomSearchCartMutationResult> {
+  const runtimeConfig = await getBomQuoteRuntimeConfig();
+  return prisma.$transaction(async (tx): Promise<BomSearchCartMutationResult> => {
+    const quote = await lockActiveBomSearchCart(tx, mbId);
+    if (!validSearchCart(quote, mbId)) return 'cart-not-found';
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    const target = activeRows.find((item) => item.id === itemId);
+    if (target === undefined) return 'item-not-found';
+    const targetDto = toItemDto(target);
+    const needed = neededQty(body.bomQty, quote.setQty, quote.spareQty);
+    const pick = targetDto.selectedOffer === null
+      ? null
+      : applyQtyToOffer({
+          supplier: targetDto.selectedOffer.supplier,
+          supplierSku: targetDto.selectedOffer.supplierSku,
+          packaging: targetDto.selectedOffer.packaging,
+          currency: targetDto.selectedOffer.currency,
+          stock: targetDto.selectedOffer.stock,
+          moq: targetDto.selectedOffer.moq,
+          orderMultiple: targetDto.selectedOffer.orderMultiple,
+          fetchedAt: targetDto.selectedOffer.fetchedAt,
+          priceBreaks: targetDto.selectedOffer.priceBreaks.map((priceBreak) => ({
+            ...priceBreak,
+            currency: targetDto.selectedOffer?.currency ?? '',
+          })),
+        }, needed, runtimeConfig.usdKrwRate);
+    if (targetDto.selectedOffer !== null && pick === null) return 'offer-not-priced';
+    const orderQty = pick?.orderQty ?? needed;
+    if (orderQty > MAX_DATABASE_INT) return 'quantity-too-large';
+
+    const nextItems = activeRows.map((row) => {
+      const item = toItemDto(row);
+      if (row.id !== itemId) return item;
+      return {
+        ...item,
+        bomQty: body.bomQty,
+        orderQty,
+        selectedOffer: pick === null
+          ? null
+          : snapshotFromPick(pick, true, targetDto.selectedOffer?.offerKey ?? null),
+      };
+    });
+    const computed = computeQuote(
+      nextItems,
+      runtimeConfig.usdKrwRate,
+      quote.shippingFee,
+      quote.managementFee,
+    );
+    await persistQuoteComputed(quote.id, computed, runtimeConfig.usdKrwRate, {
+      exchangeRateSnapshot: runtimeConfig.exchangeRateSnapshot,
+    }, tx);
+    return 'ok';
+  }, { maxWait: 10_000, timeout: 60_000 });
+}
+
+export async function removeBomSearchCartItem(
+  mbId: string,
+  itemId: bigint,
+): Promise<BomSearchCartMutationResult> {
+  const runtimeConfig = await getBomQuoteRuntimeConfig();
+  return prisma.$transaction(async (tx): Promise<BomSearchCartMutationResult> => {
+    const quote = await lockActiveBomSearchCart(tx, mbId);
+    if (!validSearchCart(quote, mbId)) return 'cart-not-found';
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    if (!activeRows.some((item) => item.id === itemId)) return 'item-not-found';
+    const remaining = activeRows
+      .filter((item) => item.id !== itemId)
+      .map((item) => toItemDto(item));
+    if (remaining.length === 0) {
+      // 마지막 품목을 지운 단일검색 바구니는 견적 이력에도 빈 draft를 남기지 않는다.
+      // quote 삭제가 품목과 부속 스냅샷을 cascade 정리한다.
+      await tx.spBomQuote.delete({ where: { id: quote.id } });
+      return 'ok';
+    }
+    const computed = computeQuote(
+      remaining,
+      runtimeConfig.usdKrwRate,
+      quote.shippingFee,
+      quote.managementFee,
+    );
+    await persistQuoteComputed(quote.id, computed, runtimeConfig.usdKrwRate, {
+      exchangeRateSnapshot: runtimeConfig.exchangeRateSnapshot,
+    }, tx);
+    const removed = await tx.spBomQuoteItem.deleteMany({ where: { id: itemId, quoteId: quote.id } });
+    if (removed.count !== 1) return 'item-not-found';
+    return 'ok';
+  }, { maxWait: 10_000, timeout: 60_000 });
+}
 
 function adminQuoteMutationResetData(force: boolean, status: string) {
   return {

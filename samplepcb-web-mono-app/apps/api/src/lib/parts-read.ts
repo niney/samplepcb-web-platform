@@ -76,6 +76,7 @@ export async function loadPartDetailDto(id: bigint): Promise<PartDetailType | nu
         moq: o.moq,
         orderMultiple: o.orderMultiple,
         packaging: normalizeSupplierPackaging(derivedFrom?.supplier ?? o.supplier, o.packaging),
+        leadTime: o.leadTime,
         currency: o.currency,
         priceBreaks: [...o.priceBreaks]
           .sort((a, b) => a.qty - b.qty)

@@ -217,15 +217,15 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       </aside>
 
       <!-- 중앙 흰 패널 (Rectangle 197) — 페이지가 내부 스크롤을 관리한다 -->
-      <main class="min-h-0 min-w-0 flex-1" :class="route.name === 'bom-quote' ? 'p-0' : 'p-[10px]'">
-        <div class="h-full overflow-hidden bg-surface" :class="route.name === 'bom-quote' ? '' : 'rounded-[12px] shadow-sm'">
+      <main class="min-h-0 min-w-0 flex-1" :class="route.name === 'bom-quote' || route.name === 'bom-search' ? 'p-0' : 'p-[10px]'">
+        <div class="h-full overflow-hidden bg-surface" :class="route.name === 'bom-quote' || route.name === 'bom-search' ? '' : 'rounded-[12px] shadow-sm'">
           <RouterView />
         </div>
       </main>
 
       <!-- right side bar (87:21445) — 라이트 치환, 프로모 카드는 시안 그대로.
            상세(bom-quote)에서는 페이지 자체 우측 패널(주문 정보·예상 견적)이 대신한다. -->
-      <aside v-show="rightOpen && (route.name === 'bom' || route.name === 'bom-search')" class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
+      <aside v-show="rightOpen && route.name === 'bom'" class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
         <!-- con01: Parts Eyes 튜토리얼 — 링크 미구현 -->
         <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-surface-raised to-surface-sunken ring-1 ring-black/5" title="튜토리얼 (준비 중)">
           <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-surface-brand to-surface-sunken blur-[10px]" />

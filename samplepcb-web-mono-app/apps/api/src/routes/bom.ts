@@ -9,11 +9,16 @@ import {
   BomSupplierOptions,
   PartDetailResponse,
 } from '@sp/api-contract';
-import { normalizeMpn, pickDefaultOffer } from '@sp/utils';
+import { applyQtyToOffer, normalizeMpn, pickDefaultOffer } from '@sp/utils';
 import { esClient } from '../es/client';
 import { F, SP_PARTS_READ, type SpPartDoc } from '../es/sp-parts-index';
 import { ingestJobResult, jobOwnedBy, proxyEngine, recordJobOwner, startIngestPoller } from '../lib/bom-engine-jobs';
-import { projectEnginePartSearchResult, refreshQuotesForJob, toOfferInputs } from '../lib/bom-quote';
+import {
+  partAppliedOffer,
+  projectEnginePartSearchResult,
+  refreshQuotesForJob,
+  toOfferInputs,
+} from '../lib/bom-quote';
 import { buildEngineProcurementPolicy } from '../lib/bom-procurement-policy';
 import { reserveDailySupplierSearch } from '../lib/bom-supplier-operations';
 import { getBomQuoteConfig } from '../lib/sp-config';
@@ -21,6 +26,13 @@ import { getBomQuoteRuntimeConfig } from '../lib/exchange-rate';
 import { engineFetch } from '../lib/engine-client';
 import { ingestSupplierSearchResult } from '../lib/parts-ingest';
 import { loadPartDetailDto } from '../lib/parts-read';
+import { normalizeSupplierPackaging } from '../lib/supplier-packaging';
+import { SAMPLEPCB_SUPPLIER } from '../lib/parts-facts';
+import {
+  partOfferDerivedFrom,
+  partOfferKind,
+  partOffersForDisplay,
+} from '../lib/parts-offer-kind';
 import { prisma } from '../lib/prisma';
 import { buildExactSearchIntent, buildPartSort, buildSearchQuery, toHit } from './admin-parts';
 
@@ -176,41 +188,62 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
       source: config.exchangeRateSnapshot?.source ?? null,
       stale: config.exchangeRateSnapshot?.stale ?? false,
     };
-    const applied = new Map(parts.map((part) => [
-      String(part.id),
-      pickDefaultOffer(toOfferInputs(part), q.needed, config.usdKrwRate),
-    ] as const));
+    const partsById = new Map(parts.map((part) => [String(part.id), part] as const));
     return {
       result: true as const,
       data: {
         items: hits.map((hit) => {
-          const pick = applied.get(hit.id) ?? null;
+          const part = partsById.get(hit.id);
+          const offerInputs = part === undefined ? [] : toOfferInputs(part);
+          const pick = pickDefaultOffer(offerInputs, q.needed, config.usdKrwRate);
+          const offerOptions = part === undefined
+            ? []
+            : partOffersForDisplay(part.offers).flatMap((offer) => {
+                const offerKind = partOfferKind(offer.rawJson);
+                // SamplePCB 가격 오버레이는 외부 원천과 중복이므로 기존 견적 계산 규칙처럼
+                // 제외하고, 가격 없는 SamplePCB 제조사 카탈로그 문의 채널만 별도 행으로 낸다.
+                if (offer.supplier === SAMPLEPCB_SUPPLIER && offerKind !== 'manufacturer_catalog') {
+                  return [];
+                }
+                const derivedFrom = offer.supplier === SAMPLEPCB_SUPPLIER
+                  ? partOfferDerivedFrom(offer.rawJson)
+                  : null;
+                const view = {
+                  supplier: offer.supplier,
+                  offerKind,
+                  supplierSku: offer.supplierSku,
+                  productUrl: offer.productUrl,
+                  stock: offer.stock,
+                  moq: offer.moq,
+                  orderMultiple: offer.orderMultiple,
+                  packaging: normalizeSupplierPackaging(
+                    derivedFrom?.supplier ?? offer.supplier,
+                    offer.packaging,
+                  ),
+                  leadTime: offer.leadTime,
+                  currency: offer.currency,
+                  priceBreaks: [...offer.priceBreaks]
+                    .sort((a, b) => a.qty - b.qty)
+                    .map((priceBreak) => ({ qty: priceBreak.qty, price: Number(priceBreak.price) })),
+                  fetchedAt: offer.fetchedAt.toISOString(),
+                  derivedFrom,
+                };
+                const input = offerKind === 'manufacturer_catalog'
+                  ? undefined
+                  : offerInputs.find((candidate) =>
+                      candidate.supplier === offer.supplier
+                      && candidate.supplierSku === offer.supplierSku);
+                const optionPick = input === undefined
+                  ? null
+                  : applyQtyToOffer(input, q.needed, config.usdKrwRate);
+                return [{ ...view, applied: partAppliedOffer(optionPick) }];
+              });
           return {
             ...hit,
             source: 'catalog' as const,
             inlineOffers: null,
-            applied:
-              pick === null
-                ? null
-                : {
-                    supplier: pick.offer.supplier,
-                    supplierSku: pick.offer.supplierSku,
-                    packaging: pick.offer.packaging,
-                    currency: pick.currency,
-                    stock: pick.offer.stock,
-                    moq: pick.offer.moq,
-                    orderMultiple: pick.offer.orderMultiple,
-                    fetchedAt: pick.offer.fetchedAt,
-                    priceBreaks: pick.offer.priceBreaks.map((pb) => ({ qty: pb.qty, price: pb.price })),
-                    unitPrice: pick.unitPrice,
-                    unitPriceKrw: pick.unitPriceKrw,
-                    lineTotalKrw: pick.unitPriceKrw === null
-                      ? null
-                      : Math.round(pick.unitPriceKrw * pick.orderQty * 100) / 100,
-                    breakQty: pick.breakQty,
-                    orderQty: pick.orderQty,
-                    stockShort: pick.stockShort,
-                  },
+            offerOptions,
+            applied: partAppliedOffer(pick),
           };
         }),
         total,
@@ -267,7 +300,11 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
         request.log.warn({ statusCode: response.status, query: request.body.q }, '부품 공급사 추가 검색 실패');
         return reply.status(503).send({ result: false, error: 'BOM_ENGINE_ERROR' });
       }
-      const projected = projectEnginePartSearchResult(body, request.body.needed);
+      const projected = projectEnginePartSearchResult(
+        body,
+        request.body.needed,
+        config.usdKrwRate,
+      );
       if (projected === null) {
         request.log.warn({ query: request.body.q }, '부품 공급사 검색 계약 불일치');
         return reply.status(503).send({ result: false, error: 'BOM_ENGINE_CONTRACT_MISMATCH' });

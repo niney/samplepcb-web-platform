@@ -505,6 +505,10 @@ model SpBomQuote {
   id                        BigInt                     @id @default(autoincrement())
   mbId                      String                     @db.VarChar(60)
   title                     String                     @db.VarChar(191)
+  sourceKind                String                     @default("upload") @map("source_kind") @db.VarChar(16) // upload|single_search
+  // 단일검색 견적 바구니는 회원당 활성 draft 한 건만 허용한다. 견적요청 시 null로 비워
+  // 새 바구니를 만들 수 있게 하고, 과거 요청 견적에는 키를 남기지 않는다.
+  activeSearchCartKey       String?                    @unique @map("active_search_cart_key") @db.VarChar(60)
   status                    String                     @default("draft") @db.VarChar(16) // draft|requested|reviewing|answered|closed|canceled
   fileName                  String?                    @db.VarChar(255)
   contentHash               String?                    @db.VarChar(64) // 원본 SHA-256 — 동일 파일 안내용
@@ -549,6 +553,7 @@ model SpBomQuote {
   activeSupplierSearchRun   SpBomSupplierSearchRun?    @relation("BomQuoteActiveSupplierSearch", fields: [activeSupplierSearchRunId], references: [id], onDelete: SetNull)
 
   @@index([mbId, status])
+  @@index([mbId, sourceKind, status])
   @@index([status, requestedAt])
   @@index([ctId])
   @@map("sp_bom_quote")
