@@ -609,7 +609,7 @@ function onQtyInput(event: Event): void {
         :locked="editingLocked"
         :locked-title="EDIT_LOCK_TITLE"
       />
-      <p v-else class="pt-[24px] text-right text-[12px]" :class="catalogInquiry ? 'font-bold text-blue-700' : 'text-gray-300'">{{ catalogInquiry ? '문의 견적' : '—' }}</p>
+      <p v-else class="flex h-[94px] w-[120px] items-center justify-center text-[12px]" :class="catalogInquiry ? 'font-bold text-blue-700' : 'text-gray-300'">{{ catalogInquiry ? '문의 견적' : '—' }}</p>
     </td>
     <!-- QUANTITY / STOCK: 공급사 포장(→현재 부품 오퍼 선택) + 수량 -->
     <td class="p-0 pt-[13px]">
