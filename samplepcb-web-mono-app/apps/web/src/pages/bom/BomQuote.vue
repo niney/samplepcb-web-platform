@@ -17,7 +17,6 @@ import {
 } from '@sp/api-contract';
 import {
   bomQuoteItemMatchGroup,
-  isBomQuoteStockShort,
   neededQty,
   pickBreak,
   stampOrderQty,
@@ -655,13 +654,11 @@ function clearRowSearchState(): void {
 }
 
 // ── 매칭 결과 필터 ──────────────────────────────────────────────────────────
-// 매칭 상태는 서로 배타적이다. 엔진이 대표 사유를 재고로 판정한 미선정 행은
-// Review 대신 Unmatched에 두고, 재고 부족은 매칭 상태와 독립적으로 함께 집계한다.
-type ResultMatchFilter = 'all' | 'matched' | 'review' | 'unmatched' | 'excluded';
-type SpecificResultMatchFilter = Exclude<ResultMatchFilter, 'all'>;
+// 대표 상태는 서로 배타적이다. 재고 없음·부족·미확인은 선정/검토/미선정보다 먼저 Nostock으로 분류한다.
+type SpecificResultMatchFilter = ReturnType<typeof bomQuoteItemMatchGroup>;
+type ResultMatchFilter = 'all' | SpecificResultMatchFilter;
 
 const resultMatchFilter = ref<ResultMatchFilter>('all');
-const resultNostockOnly = ref(false);
 const resultSearchLimitedOnly = ref(false);
 const resultTextQuery = ref('');
 const resultsScrollEl = ref<HTMLElement | null>(null);
@@ -735,6 +732,7 @@ const RESULT_MATCH_FILTER_LABEL: Record<SpecificResultMatchFilter, string> = {
   matched: 'Matched',
   review: 'Review',
   unmatched: 'Unmatched',
+  nostock: 'Nostock',
   excluded: 'Excluded',
 };
 
@@ -753,8 +751,6 @@ const searchLimitedItemCount = computed(() =>
 const filteredItems = computed(() => sheetItems.value.filter((item) => {
   if (!itemMatchesResultTextQuery(item)) return false;
   if (resultMatchFilter.value !== 'all' && itemMatchGroup(item) !== resultMatchFilter.value) return false;
-  // Nostock 집계는 견적 합계에 포함된 행만 세므로 필터도 같은 규칙을 따른다.
-  if (resultNostockOnly.value && (!item.included || !isBomQuoteStockShort(item))) return false;
   if (resultSearchLimitedOnly.value && !itemHasSupplierSearchLimit(item)) return false;
   return true;
 }));
@@ -762,7 +758,6 @@ const filteredItems = computed(() => sheetItems.value.filter((item) => {
 const resultFiltersActive = computed(() =>
   resultTextSearchActive.value
   || resultMatchFilter.value !== 'all'
-  || resultNostockOnly.value
   || resultSearchLimitedOnly.value,
 );
 
@@ -856,18 +851,12 @@ function selectResultSheet(key: ResultSheetFilter): void {
 function clearResultFilters(): void {
   resultTextQuery.value = '';
   resultMatchFilter.value = 'all';
-  resultNostockOnly.value = false;
   resultSearchLimitedOnly.value = false;
   scrollResultsToTop();
 }
 
 function toggleResultMatchFilter(filter: SpecificResultMatchFilter): void {
   resultMatchFilter.value = resultMatchFilter.value === filter ? 'all' : filter;
-  scrollResultsToTop();
-}
-
-function toggleResultNostockFilter(): void {
-  resultNostockOnly.value = !resultNostockOnly.value;
   scrollResultsToTop();
 }
 
@@ -880,12 +869,16 @@ function showSupplierSearchLimitedItems(): void {
 watch(quoteId, clearResultFilters);
 watch(resultTextQuery, scrollResultsToTop);
 watch(enriching, (active) => {
-  // 확인 중에는 Review/Unmatched 최종 분류가 아직 확정되지 않는다.
+  // 확인 중에는 Review/Unmatched/Nostock 최종 분류가 아직 확정되지 않는다.
   // 단일 행 조건 재검색은 현재 검토 문맥을 유지하고 완료된 행만 목록에서 자연스럽게 빠진다.
   if (
     active
     && !rowSearchRunning.value
-    && (resultMatchFilter.value === 'review' || resultMatchFilter.value === 'unmatched')
+    && (
+      resultMatchFilter.value === 'review'
+      || resultMatchFilter.value === 'unmatched'
+      || resultMatchFilter.value === 'nostock'
+    )
   ) {
     resultMatchFilter.value = 'all';
     scrollResultsToTop();
@@ -1319,6 +1312,7 @@ async function runExternalSupplierSearch(): Promise<void> {
 function rowSearchMatchLabel(group: SpecificResultMatchFilter): string {
   if (group === 'matched') return '매칭';
   if (group === 'review') return '검토 필요';
+  if (group === 'nostock') return '재고 확인 필요';
   if (group === 'excluded') return '검색 제외';
   return '미매칭';
 }
@@ -2015,7 +2009,6 @@ function fmtAmount(v: number | null): string {
             <template v-if="resultFiltersActive">
               <span class="text-[12px] font-medium text-ink-muted">{{ stats.total }}개 중 {{ filteredItems.length }}개 표시</span>
               <span v-if="activeMatchFilterLabel !== null" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{{ activeMatchFilterLabel }}</span>
-              <span v-if="resultNostockOnly" class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">재고 부족</span>
               <span v-if="resultSearchLimitedOnly" class="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-800">검색 한도 영향</span>
               <button type="button" class="text-[11px] font-semibold text-brand underline-offset-2 hover:underline" @click="clearResultFilters">필터 해제</button>
             </template>
@@ -2264,13 +2257,13 @@ function fmtAmount(v: number | null): string {
               <button
                 type="button"
                 class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#b8a900] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d2c000] focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultNostockOnly ? 'cursor-pointer border-[#d2c000] bg-[rgba(226,207,0,0.15)]' : stats.nostock > 0 ? 'cursor-pointer border-[rgba(190,175,12,0.4)] bg-white hover:bg-[rgba(226,207,0,0.08)]' : 'border-[rgba(190,175,12,0.4)] bg-white'"
+                :class="resultMatchFilter === 'nostock' ? 'cursor-pointer border-[#d2c000] bg-[rgba(226,207,0,0.15)]' : stats.nostock > 0 ? 'cursor-pointer border-[rgba(190,175,12,0.4)] bg-white hover:bg-[rgba(226,207,0,0.08)]' : 'border-[rgba(190,175,12,0.4)] bg-white'"
                 :disabled="stats.nostock === 0"
-                :aria-pressed="resultNostockOnly"
-                :aria-label="`재고 부족 ${String(stats.nostock)}개 행 필터`"
+                :aria-pressed="resultMatchFilter === 'nostock'"
+                :aria-label="`재고 확인 필요 ${String(stats.nostock)}개 행 필터`"
                 aria-controls="bom-results-table"
-                :title="stats.nostock === 0 ? '재고 부족 항목이 없습니다' : undefined"
-                @click="toggleResultNostockFilter"
+                :title="stats.nostock === 0 ? '재고 확인 필요 항목이 없습니다' : undefined"
+                @click="toggleResultMatchFilter('nostock')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center">
                   <span class="truncate text-[10px] font-medium uppercase leading-[normal] tracking-[1.1px] text-[#39404d]">Nostock</span>

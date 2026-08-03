@@ -1,6 +1,6 @@
 import type { BomQuoteItemType } from '@sp/api-contract';
 
-export type BomQuoteItemMatchGroup = 'matched' | 'review' | 'unmatched' | 'excluded';
+export type BomQuoteItemMatchGroup = 'matched' | 'review' | 'unmatched' | 'nostock' | 'excluded';
 
 export interface BomQuotePresentationStats {
   total: number;
@@ -39,10 +39,9 @@ export function isBomQuoteEngineSearchExcluded(item: BomQuoteItemType): boolean 
 
 export function bomQuoteItemMatchGroup(item: BomQuoteItemType): BomQuoteItemMatchGroup {
   if (isBomQuoteEngineSearchExcluded(item)) return 'excluded';
+  if (hasBomQuoteEngineStockConstraint(item) || isBomQuoteStockShort(item)) return 'nostock';
   if (item.matchStatus !== 'none') return 'matched';
-  if (!hasBomQuoteEngineStockConstraint(item) && item.matchEvidence?.selectionMode === 'review') {
-    return 'review';
-  }
+  if (item.matchEvidence?.selectionMode === 'review') return 'review';
   return 'unmatched';
 }
 
@@ -64,6 +63,7 @@ export function summarizeBomQuoteItems(
     if (group === 'matched') matched += 1;
     else if (group === 'review') review += 1;
     else if (group === 'unmatched') unmatched += 1;
+    else if (group === 'nostock') nostock += 1;
     else excluded += 1;
 
     if (!item.included) continue;
@@ -75,7 +75,6 @@ export function summarizeBomQuoteItems(
     ) {
       pendingReview += 1;
     }
-    if (isBomQuoteStockShort(item)) nostock += 1;
     if (item.lineTotalKrw === null) uncosted += 1;
     else lineSum += item.lineTotalKrw;
   }

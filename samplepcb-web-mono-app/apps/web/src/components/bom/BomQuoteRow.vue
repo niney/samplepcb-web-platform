@@ -226,7 +226,7 @@ const rowClass = computed(() => {
       ? 'bg-amber-50/60'
       : 'bg-surface-danger';
   }
-  if (stockShort.value) return 'bg-surface-warn'; // 재고 부족 — 시안 노랑
+  if (stockStatusLabel.value !== null) return 'bg-surface-warn'; // 재고 없음·부족·미확인 — 시안 노랑
   return 'bg-surface';
 });
 
@@ -359,18 +359,12 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       pulse: false,
     };
   }
-  if (item.matchStatus === 'none' && engineStockStatusLabel.value !== null) {
-    const stockUnverified = procurementUnavailabilityReason.value === 'stock_unverified';
-    const insufficientStock = procurementUnavailabilityReason.value === 'insufficient_stock';
+  if (stockStatusLabel.value !== null) {
     return {
-      label: stockUnverified ? 'Unmatched' : 'No Stock',
-      helperLabel: stockUnverified
-        ? '재고 확인 필요'
-        : insufficientStock ? '재고 부족' : null,
-      toneClass: stockUnverified
-        ? 'bg-state-unmatched/15 text-state-unmatched'
-        : 'bg-state-nostock/15 text-state-nostock',
-      priceClass: stockUnverified ? 'text-state-unmatched' : 'text-state-nostock',
+      label: 'No Stock',
+      helperLabel: stockStatusLabel.value,
+      toneClass: 'bg-state-nostock/15 text-state-nostock',
+      priceClass: 'text-state-nostock',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -401,21 +395,6 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       helperLabel: null,
       toneClass: 'bg-state-unmatched/15 text-state-unmatched',
       priceClass: 'text-state-unmatched',
-      title: evidenceTitle.value,
-      pulse: false,
-    };
-  }
-  if (stockStatusLabel.value !== null) {
-    const stockUnverified = stockStatusLabel.value === '재고 확인 필요';
-    return {
-      label: stockUnverified ? 'Matched' : 'No Stock',
-      helperLabel: stockStatusLabel.value === '재고 부족' || stockUnverified
-        ? stockStatusLabel.value
-        : null,
-      toneClass: stockUnverified
-        ? 'bg-state-matched/15 text-state-matched'
-        : 'bg-state-nostock/15 text-state-nostock',
-      priceClass: stockUnverified ? 'text-state-matched' : 'text-state-nostock',
       title: evidenceTitle.value,
       pulse: false,
     };

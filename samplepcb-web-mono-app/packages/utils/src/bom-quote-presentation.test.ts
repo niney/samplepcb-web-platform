@@ -36,7 +36,7 @@ function item(overrides: Partial<BomQuoteItemType> = {}): BomQuoteItemType {
 }
 
 describe('BOM 견적 화면 표시 집계', () => {
-  it('엔진 제외, 선정, 검토, 미선정을 화면과 같은 우선순위로 분류한다', () => {
+  it('엔진 제외, 재고, 선정, 검토, 미선정을 화면과 같은 우선순위로 분류한다', () => {
     expect(bomQuoteItemMatchGroup(item({
       matchEvidence: {
         componentStatus: 'excluded',
@@ -51,22 +51,44 @@ describe('BOM 견적 화면 표시 집계', () => {
     expect(bomQuoteItemMatchGroup(item())).toBe('unmatched');
   });
 
-  it('재고 제약이 있는 review 행은 검토가 아니라 미선정으로 분류한다', () => {
-    expect(bomQuoteItemMatchGroup(item({
-      matchEvidence: {
-        selectionMode: 'review',
-        procurementUnavailabilityReason: 'out_of_stock',
-      } as BomQuoteItemType['matchEvidence'],
-    }))).toBe('unmatched');
-  });
+  it.each(['out_of_stock', 'insufficient_stock', 'stock_unverified'] as const)(
+    '%s 재고 제약은 검토나 미선정보다 재고 상태를 우선한다',
+    (reason) => {
+      expect(bomQuoteItemMatchGroup(item({
+        matchEvidence: {
+          selectionMode: 'review',
+          procurementUnavailabilityReason: reason,
+        } as BomQuoteItemType['matchEvidence'],
+      }))).toBe('nostock');
+    },
+  );
 
   it('선정 오퍼의 수량 부족도 재고 부족으로 집계한다', () => {
-    expect(isBomQuoteStockShort(item({
+    const stockShortItem = item({
+      matchStatus: 'auto',
       orderQty: 5,
       selectedOffer: {
         stock: 4,
       } as BomQuoteItemType['selectedOffer'],
-    }))).toBe(true);
+    });
+
+    expect(isBomQuoteStockShort(stockShortItem)).toBe(true);
+    expect(bomQuoteItemMatchGroup(stockShortItem)).toBe('nostock');
+  });
+
+  it('재고 상태는 미선정과 중복 집계하지 않는다', () => {
+    const stats = summarizeBomQuoteItems([
+      item({
+        matchEvidence: {
+          selectionMode: 'review',
+          procurementUnavailabilityReason: 'stock_unverified',
+        } as BomQuoteItemType['matchEvidence'],
+      }),
+    ]);
+
+    expect(stats.nostock).toBe(1);
+    expect(stats.review).toBe(0);
+    expect(stats.unmatched).toBe(0);
   });
 
   it('화면 카드 수치와 금액을 한 번에 집계한다', () => {
