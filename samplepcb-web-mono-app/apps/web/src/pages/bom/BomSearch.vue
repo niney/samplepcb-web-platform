@@ -222,10 +222,10 @@ watch([q, submittedNeeded], () => {
       <div class="flex h-[44px] items-start justify-between gap-[16px]">
         <div class="flex items-start gap-[16px] font-noto">
           <div>
-            <h1 class="text-[16px] font-bold leading-[21px] text-ink-strong">전자부품 단일 검색</h1>
-            <p class="mt-[2px] text-[12px] font-normal leading-[16px] text-ink-subtle">검색 결과 - {{ total.toLocaleString('ko-KR') }}개 부품</p>
+            <h1 class="font-sans text-[18px] font-medium leading-[21px] text-ink-strong">전자부품 단일 검색</h1>
+            <p class="mt-[4px] font-noto text-[13px] font-medium leading-[16px] text-ink-subtle">검색 결과 - {{ total.toLocaleString('ko-KR') }}개 부품</p>
           </div>
-          <RouterLink :to="{ name: 'bom' }" class="flex h-[32px] items-center gap-[5px] rounded-[6px] border border-brand-soft bg-search-row px-[10px] font-sans text-[14px] font-medium text-brand-soft hover:bg-surface-brand-soft"><span class="text-[18px] font-normal leading-none">+</span> BOM</RouterLink>
+          <RouterLink :to="{ name: 'bom' }" class="flex h-[32px] items-center gap-[4px] rounded-[6px] border border-brand-soft bg-search-row px-[10px] font-noto text-[14px] font-bold leading-[24px] text-brand-soft hover:bg-surface-brand-soft"><span class="text-[18px] font-normal leading-none">+</span> BOM</RouterLink>
         </div>
         <div v-if="search.data.value !== undefined" class="hidden max-w-[560px] lg:block">
           <BomPartSearchNotice
