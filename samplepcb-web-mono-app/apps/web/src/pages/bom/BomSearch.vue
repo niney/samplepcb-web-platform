@@ -18,9 +18,10 @@ import { useBomPanels } from '../../bom/usePanels';
 import BomPartSearchNotice from '../../components/bom/BomPartSearchNotice.vue';
 import BomSearchCartPanel from '../../components/bom/BomSearchCartPanel.vue';
 import BomSearchOfferTable from '../../components/bom/BomSearchOfferTable.vue';
-import logoIcon from '../../assets/bom/logo-partseyes-icon.png';
 import searchIcon from '../../assets/bom/ic-search-20.svg';
 import uploadCard from '../../assets/bom/upload-card.jpg';
+import singleSearchCardGlow from '../../assets/bom/single-search-card-glow.svg';
+import singleSearchLogo from '../../assets/bom/single-search-logo.svg';
 import pillUnikey from '../../assets/bom/pill-unikey.png';
 import pillDigikey from '../../assets/bom/pill-digikey.png';
 import pillMouser from '../../assets/bom/pill-mouser.png';
@@ -176,7 +177,7 @@ watch([q, submittedNeeded], () => {
 </script>
 
 <template>
-  <div v-if="q === ''" class="relative flex h-full flex-col items-center overflow-y-auto px-6 pb-[60px]">
+  <div v-if="q === ''" class="relative flex h-full flex-col items-center overflow-y-auto px-6 pb-[60px] font-noto">
     <RouterLink :to="{ name: 'bom' }" class="absolute right-[26px] top-[16px] z-20 flex h-[36px] items-center justify-center gap-1 rounded-[6px] bg-brand-strong px-[20px] text-[13px] font-medium text-white transition hover:bg-blue-700">
       <span class="text-[15px] leading-none">+</span> BOM
     </RouterLink>
@@ -184,28 +185,28 @@ watch([q, submittedNeeded], () => {
     <div class="mt-[46px] flex shrink-0 justify-center">
       <div class="flex h-[42px] items-center rounded-full bg-surface-raised">
         <RouterLink :to="{ name: 'bom' }" class="flex h-[42px] items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-ink opacity-80 transition hover:opacity-60">BOM 분석</RouterLink>
-        <span class="flex h-[42px] items-center rounded-full bg-ink-strong px-[24px] text-[16px] font-bold leading-[24px] text-white">단일 검색</span>
+        <span class="flex h-[42px] items-center rounded-full bg-[#061023] px-[24px] text-[16px] font-bold leading-[24px] text-white">단일 검색</span>
       </div>
     </div>
 
-    <section class="relative mt-[50px] h-[524px] w-[640px] max-w-full shrink-0 overflow-hidden rounded-[8px] bg-brand-soft">
-      <div class="pointer-events-none absolute inset-x-0 bottom-0 h-[260px] overflow-hidden [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]">
+    <section class="relative mt-[50px] h-[524px] w-[640px] max-w-full shrink-0 overflow-hidden rounded-[8px] bg-[linear-gradient(180deg,#71c5ff_0%,#a8dafc_22.596%,#c7e6fb_41.827%,#a7d2f7_92.308%)]" aria-labelledby="single-search-card-title">
+      <img :src="singleSearchCardGlow" alt="" class="pointer-events-none absolute inset-0 size-full">
+      <div class="pointer-events-none absolute inset-x-0 bottom-0 h-[200px] overflow-hidden">
         <img :src="uploadCard" alt="" class="absolute inset-x-0 bottom-0 h-[524px] w-full max-w-none object-cover object-bottom">
       </div>
-      <div class="pointer-events-none absolute inset-x-0 top-[68px] flex items-center justify-center gap-[10px] text-white">
-        <img :src="logoIcon" alt="" class="size-[50px] mix-blend-multiply">
-        <span class="text-[46px] font-light leading-[50px] tracking-[-1.8px]">Parts Eyes</span>
+      <div class="pointer-events-none absolute left-1/2 top-[68px] h-[50px] w-[290px] -translate-x-1/2">
+        <img :src="singleSearchLogo" alt="Parts Eyes" class="size-full">
       </div>
       <div class="pointer-events-none absolute inset-x-0 top-[134px] text-center text-white">
-        <p class="text-[20px] font-medium leading-[32px]">부품 검색</p>
-        <p class="mt-[6px] text-[16px] leading-[24px] text-white/70">MPN 또는 부품명을 입력하면 바로 검색할 수 있습니다</p>
+        <p id="single-search-card-title" class="text-[20px] font-medium leading-[32px]">부품 검색</p>
+        <p class="mt-[6px] text-[16px] font-normal leading-[24px] text-[#fdfdff]/70">MPN 또는 부품명을 입력하면 바로 검색할 수 있습니다</p>
       </div>
       <form class="absolute left-1/2 top-[226px] z-10 flex h-[48px] w-[426px] max-w-[calc(100%-32px)] -translate-x-1/2" role="search" @submit.prevent="submit">
-        <label class="flex min-w-0 flex-1 items-center gap-[8px] rounded-l-[8px] bg-surface pl-[20px] pr-[12px]">
+        <label class="flex min-w-0 w-[340px] flex-1 items-center gap-[8px] rounded-l-[8px] bg-[#fdfdff] pl-[20px] pr-[16px]">
           <img :src="searchIcon" alt="" class="size-[20px] shrink-0">
-          <input v-model="input" type="search" aria-label="부품 검색어" placeholder="예: GRM155R71C104KA88, 100nF..." class="min-w-0 flex-1 bg-transparent text-[14px] leading-[24px] text-ink outline-none placeholder:text-ink-muted">
+          <input v-model="input" type="search" aria-label="부품 검색어" placeholder="예: GRM155R71C104KA88, 100nF..." class="min-w-0 flex-1 bg-transparent text-[14px] font-normal leading-[24px] text-[#061023] outline-none placeholder:text-[#5b6a7e]">
         </label>
-        <button type="submit" class="flex h-[48px] shrink-0 items-center rounded-r-[8px] bg-brand-strong px-[16px] text-[16px] font-bold leading-[24px] text-white transition hover:bg-blue-700">검색</button>
+        <button type="submit" class="flex h-[48px] w-[86px] shrink-0 items-center justify-center rounded-r-[8px] bg-[#1e64fd] text-[16px] font-bold leading-[24px] text-white transition hover:bg-blue-700">검색</button>
       </form>
     </section>
 

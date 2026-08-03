@@ -78,7 +78,7 @@ function onDrop(event: DragEvent): void {
   <div class="flex h-full flex-col items-center overflow-y-auto px-6 pb-[60px]">
     <!-- togle btn (87:9712) -->
     <div class="mt-[46px] flex h-[42px] items-center rounded-full bg-surface-raised">
-      <span class="flex h-[42px] items-center rounded-full bg-ink-strong px-[24px] text-[16px] font-bold leading-[24px] text-white">BOM 분석</span>
+      <span class="flex h-[42px] items-center rounded-full bg-[#061023] px-[24px] text-[16px] font-bold leading-[24px] text-white">BOM 분석</span>
       <RouterLink
         :to="{ name: 'bom-search' }"
         class="flex h-[42px] items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-ink transition hover:opacity-70"
