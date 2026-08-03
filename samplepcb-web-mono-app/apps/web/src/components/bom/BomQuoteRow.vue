@@ -13,7 +13,6 @@ import {
   lifecycleSummaryTitle,
   replacementSourcesTitle,
 } from '../../bom/lifecycle-presentation';
-import statusCheckIcon from '../../assets/bom/ic-status-check.svg';
 
 // 매칭 결과 테이블의 한 행 — 컴포넌트 경계로 재렌더를 행 단위로 격리한다.
 // item 은 부모 소유의 로컬 편집 객체(참조 안정 유지) — 여기서는 읽기만, 변경은 emit.
@@ -441,6 +440,12 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
   };
 });
 
+const totalStatusTitle = computed(() => {
+  const { helperLabel, title } = totalStatusPresentation.value;
+  if (helperLabel === null) return title;
+  return title === '' ? helperLabel : `${helperLabel}\n${title}`;
+});
+
 const sourceRowText = computed(() => {
   const value = props.item.sourceRow?.sourceRows;
   const rows = Array.isArray(value)
@@ -530,7 +535,7 @@ function onQtyInput(event: Event): void {
     </td>
     <!-- MPN: 공급사 배지 + 이미지 + 품번/제조사 + 데이터시트 -->
     <td class="px-2 py-3">
-      <div class="flex w-[220px] max-w-full min-w-0 gap-2.5">
+      <div class="flex w-[320px] max-w-full min-w-0 gap-2.5">
         <!-- 고정폭 76px(최장 공급사명 UniKeyIC 기준) — 배지 유무와 무관하게 열 폭 일관 -->
         <div class="w-[76px] shrink-0">
           <div
@@ -548,7 +553,7 @@ function onQtyInput(event: Event): void {
           />
         </div>
         <div class="min-w-0 flex-1 pt-[22px]">
-          <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
+          <p class="line-clamp-2 break-all text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <div
             v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null || selectedReplacementSources.length > 0"
@@ -579,9 +584,9 @@ function onQtyInput(event: Event): void {
             target="_blank"
             rel="noopener noreferrer"
             class="text-[12px] leading-[16px] text-brand-strong hover:underline"
-            title="데이터시트 새 창에서 열기"
-          >데이터시트</a>
-          <p v-else class="cursor-default text-[12px] leading-[16px] text-ink-faint" title="데이터시트 없음">데이터시트</p>
+            title="Open datasheet in a new window"
+          >Datasheet</a>
+          <p v-else class="cursor-default text-[12px] leading-[16px] text-ink-faint" title="No datasheet available">Datasheet</p>
         </div>
       </div>
     </td>
@@ -591,7 +596,7 @@ function onQtyInput(event: Event): void {
     </td>
     <!-- 폭은 표의 colgroup 이 정한다(table-fixed) — 여기서 다시 제한하면 남는 폭을 못 쓴다 -->
     <td class="px-2 py-3 pt-[42px]">
-      <p class="truncate text-[12px] leading-[16px] text-ink-subtle" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
+      <p class="line-clamp-2 break-words text-[12px] leading-[16px] text-ink-subtle" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->
     <td class="w-[130px] min-w-[124px] px-2 py-2">
@@ -648,18 +653,11 @@ function onQtyInput(event: Event): void {
     <!-- TOTAL: 기존 매칭 배지(Found 대체) + 합계 -->
     <td class="w-[140px] min-w-[132px] px-2 py-3 text-center">
       <div class="flex flex-col items-center gap-1.5 pt-1">
-        <!-- 내부 판정 우선순위는 유지하고 Figma의 보조 설명 + 영문 상태 pill로 표현한다. -->
-        <span
-          v-if="totalStatusPresentation.helperLabel !== null"
-          class="inline-flex h-[14px] items-center justify-center gap-px whitespace-nowrap text-[10px] font-medium leading-[14px] text-ink-subtle"
-        >
-          <img :src="statusCheckIcon" alt="" class="size-[10px] shrink-0">
-          {{ totalStatusPresentation.helperLabel }}
-        </span>
+        <!-- 보조 상태는 별도 문구 대신 영문 상태 pill의 툴팁에 포함한다. -->
         <span
           class="inline-flex min-h-[30px] items-center justify-center gap-1 whitespace-nowrap rounded-[50px] px-[10px] py-[2px] text-[13px] font-medium leading-[24px]"
           :class="totalStatusPresentation.toneClass"
-          :title="totalStatusPresentation.title"
+          :title="totalStatusTitle"
         >
           <span v-if="totalStatusPresentation.pulse" class="size-1.5 animate-pulse rounded-full bg-blue-500" />
           {{ totalStatusPresentation.label }}

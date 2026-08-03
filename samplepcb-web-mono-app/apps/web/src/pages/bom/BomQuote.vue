@@ -508,6 +508,9 @@ const hasPassiveDefaultsOpportunity = computed(() => (
 
 const itemsTotal = computed(() => quoteStats.value.itemsTotal);
 const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee ?? 0) + (detail.value?.managementFee ?? 0));
+const averageSetUnitPrice = computed(() =>
+  Math.round(itemsTotal.value / Math.max(1, setQty.value + spareQty.value)),
+);
 
 // ── 조용한 자동 보강 상태 — 서버 영속 enrichStatus 가 단일 진실 ─────────────────
 // searching 이면 "확인 중" UI + 3초 폴링. done 은 매칭 라인과 원자적으로 도착하고,
@@ -1909,11 +1912,11 @@ function fmtAmount(v: number | null): string {
         <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface [contain:layout_paint] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-[8px] [&::-webkit-scrollbar]:w-[8px]">
           <!-- table-fixed — auto 레이아웃은 폭이 바뀔 때마다 모든 행의 셀 내용을 다시 측정해서
                행이 많아지면 리사이즈가 눈에 띄게 버벅인다. 열 폭은 아래 colgroup 이 단일 소스이고,
-               값은 각 td 의 좌우 padding 까지 포함한 실제 필요 폭이다(합 964 + Description 140 = 1104). -->
-          <table id="bom-results-table" class="min-w-[1104px] w-full table-fixed" :aria-busy="editingLocked">
+               값은 각 td 의 좌우 padding 까지 포함한 실제 필요 폭이다(합 1064 + Description 140 = 1204). -->
+          <table id="bom-results-table" class="min-w-[1204px] w-full table-fixed" :aria-busy="editingLocked">
             <colgroup>
               <col class="w-[56px]">
-              <col class="w-[236px]"><!-- MPN — 제조사를 독립 열로 뺀 만큼 296→236 -->
+              <col class="w-[336px]"><!-- MPN — 긴 품번은 우선 한 줄, 초과 시 두 줄로 표시 -->
               <col class="w-[140px]"><!-- MANUFACTURER -->
               <col><!-- Description — 남는 폭을 가져간다(최소 140px) -->
               <col class="w-[130px]">
@@ -2191,6 +2194,7 @@ function fmtAmount(v: number | null): string {
             </div>
             <div v-else class="mt-[10px]">
               <div class="space-y-[8px] rounded-[8px] border border-line bg-surface-sunken px-[11px] py-[11px] text-[12px]">
+                <div class="flex items-baseline justify-between" title="부품 합계를 세트 수량과 예비 수량의 합으로 나눈 평균 단가입니다."><span class="text-ink-muted">단가</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(averageSetUnitPrice) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
                 <div class="flex items-baseline justify-between"><span class="text-ink-muted">합계</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(itemsTotal) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
                 <div class="flex items-baseline justify-between"><span class="text-ink-muted">운송료</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(detail.shippingFee) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
                 <div class="flex items-baseline justify-between"><span class="text-ink-muted">관리비</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(detail.managementFee) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
