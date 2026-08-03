@@ -206,7 +206,7 @@ function openMail(q: AdminBomQuoteSummaryType): void {
             <th class="whitespace-nowrap px-4 py-2.5">Case</th>
             <th class="px-4 py-2.5">견적명</th>
             <th class="px-4 py-2.5">고객</th>
-            <th class="whitespace-nowrap px-4 py-2.5">품목(매칭)</th>
+            <th class="whitespace-nowrap px-4 py-2.5">품목(선정)</th>
             <th class="whitespace-nowrap px-4 py-2.5">RFQ</th>
             <th class="whitespace-nowrap px-4 py-2.5">예상 합계</th>
             <th class="whitespace-nowrap px-4 py-2.5">요청일</th>

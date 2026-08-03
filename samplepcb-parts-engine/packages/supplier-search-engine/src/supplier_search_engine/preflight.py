@@ -63,7 +63,11 @@ class PreflightAnalyzer:
             for branch_index, _plan in enumerate(plans)
         ]
         queries = [plan for plans in plan_sets for plan in plans]
-        fallback_queries = [self.planner.parametric_fallback(query) for query in queries]
+        fallback_queries = [
+            self.planner.parametric_fallback(query)
+            or self.planner.mpn_family_fallback(query)
+            for query in queries
+        ]
         unique_queries = {stable_cache_key(query.cache_payload()) for query in queries}
         group_members: dict[str, list[int]] = defaultdict(list)
         group_data: dict[
@@ -233,7 +237,7 @@ class PreflightAnalyzer:
                 warnings.append("입력 충돌 분기 상한을 초과해 일부 분기를 실행하지 않습니다.")
             if fallback_query is not None:
                 warnings.append(
-                    "품번 일치 후보가 없을 때의 스펙 재검색 호출량을 포함했습니다."
+                    "품번 미발견 또는 재고 부족 시의 2차 검색 호출량을 포함했습니다."
                 )
             for item in [*supplier_items, *fallback_items]:
                 if not item.configured and not item.usable_without_api:

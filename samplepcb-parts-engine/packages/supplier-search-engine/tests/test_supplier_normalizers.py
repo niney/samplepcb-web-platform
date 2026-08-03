@@ -171,6 +171,87 @@ async def test_digikey_eol_product_includes_supplier_substitutions():
     assert products[1].offers[0].supplier_sku == "NEW-ND"
 
 
+async def test_digikey_active_product_can_add_substitutions_after_stock_failure():
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path.endswith("/productdetails"):
+            return httpx.Response(
+                200,
+                json={
+                    "Product": {
+                        "ProductId": 101,
+                        "ManufacturerProductNumber": "RC0603-10K",
+                        "Manufacturer": {"Name": "Acme"},
+                        "Description": {"ProductDescription": "10k Ohm resistor 0603"},
+                        "ProductStatus": {"Status": "Active"},
+                        "ProductVariations": [
+                            {
+                                "DigiKeyProductNumber": "ZERO-ND",
+                                "QuantityAvailableforPackageType": 0,
+                                "StandardPricing": [
+                                    {"BreakQuantity": 1, "UnitPrice": 0.1}
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "ProductSubstitutes": [
+                    {
+                        "SubstituteType": "Direct",
+                        "ManufacturerProductNumber": "RC0603-10K-STOCK",
+                        "Manufacturer": {"Name": "Acme"},
+                        "Description": "10k Ohm resistor 0603",
+                        "DigiKeyProductNumber": "STOCK-ND",
+                        "QuantityAvailable": 100,
+                        "UnitPrice": "0.12",
+                    }
+                ]
+            },
+        )
+
+    reservations = 0
+
+    async def reserve() -> None:
+        nonlocal reservations
+        reservations += 1
+
+    stock_query = query().model_copy(update={"quantity": 10})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = DigiKeyClient(
+            client_id="client",
+            client_secret="secret",
+            account_id=None,
+            client=http_client,
+        )
+        client._access_token = "test-token"
+        client._token_expiry = time.time() + 3_600
+        exact = await client.fetch(stock_query, reserve_call=reserve)
+        assert len(client.normalize(exact, stock_query)) == 1
+
+        enriched = await client.enrich_stock_substitutions(
+            exact,
+            stock_query,
+            reserve_call=reserve,
+        )
+        products = client.normalize(enriched, stock_query)
+
+    assert requests == [
+        "/products/v4/search/RC0603-10K/productdetails",
+        "/products/v4/search/ZERO-ND/substitutions",
+    ]
+    assert reservations == 2
+    assert len(products) == 2
+    assert products[1].manufacturer_part_number == "RC0603-10K-STOCK"
+    assert products[1].replacement_source == "digikey_substitution"
+    assert enriched.request_trace[-1].fallback_reason == "stock_unavailable"
+
+
 def test_digikey_prefers_ferrite_impedance_over_dc_resistance():
     client = DigiKeyClient(client_id=None, client_secret=None, account_id=None)
     raw = RawSupplierResponse(

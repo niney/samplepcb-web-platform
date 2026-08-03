@@ -192,4 +192,4 @@ def test_preflight_includes_conditional_spec_fallback_calls(tmp_path):
         Supplier.MOUSER,
         Supplier.UNIKEYIC,
     ]
-    assert "스펙 재검색 호출량" in " ".join(component_plan.warnings)
+    assert "2차 검색 호출량" in " ".join(component_plan.warnings)

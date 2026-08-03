@@ -21,7 +21,7 @@ export const ko = {
   },
   bomSearchTrace: {
     search: '검색',
-    fallbackBadge: 'MPN → 스펙 재검색',
+    fallbackBadge: '2차 검색',
     process: '검색 과정',
     attempts: '{count}회',
     finalCandidates: '기술 검증·중복 제거 후 최종 후보 {count}개',
@@ -29,6 +29,7 @@ export const ko = {
     stage: {
       primary: '최초 검색',
       identity_fallback: '스펙 재검색',
+      stock_alternative: 'MPN 계열 탐색',
     },
     strategy: {
       identity: '품번 검색',
@@ -38,6 +39,7 @@ export const ko = {
       identity_exact: '정확 품번',
       identity_keyword: '품번 키워드',
       identity_batch_exact: '배치 정확 품번',
+      hybrid_keyword: 'MPN 계열 키워드',
       parametric_full: '전체 스펙',
       parametric_filter: '파라미터 필터',
       parametric_core: '핵심 스펙',

@@ -159,6 +159,8 @@ class LifecycleCode(StrEnum):
 class ReplacementSource(StrEnum):
     DIGIKEY_SUBSTITUTION = "digikey_substitution"
     MOUSER_SUGGESTED = "mouser_suggested"
+    ENGINE_STOCK_FALLBACK = "engine_stock_fallback"
+    ENGINE_MPN_FALLBACK = "engine_mpn_fallback"
 
 
 class CurrencyRate(BaseModel):
@@ -735,7 +737,12 @@ class ComponentSearchTraceAttempt(SupplierSearchTraceAttempt):
     model_config = ConfigDict(extra="forbid")
 
     sequence: int = Field(ge=1)
-    stage: Literal["primary", "identity_fallback", "input_conflict_branch"]
+    stage: Literal[
+        "primary",
+        "identity_fallback",
+        "stock_alternative",
+        "input_conflict_branch",
+    ]
     input_branch_id: str | None = None
 
 
@@ -1322,7 +1329,7 @@ class ComponentSearchResult(BaseModel):
 class BatchSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_schema_version: str = "1.7"
+    search_schema_version: str = "1.9"
     procurement_policy: ProcurementPolicyInput = Field(
         default_factory=ProcurementPolicyInput
     )

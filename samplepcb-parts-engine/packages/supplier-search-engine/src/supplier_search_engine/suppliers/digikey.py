@@ -79,7 +79,7 @@ class DigiKeyClient(SupplierClient):
     def cache_payload(self, query: PlannedQuery) -> dict[str, Any]:
         payload = super().cache_payload(query)
         if query.mode == SearchMode.IDENTITY and query.part_number:
-            payload["strategy"] = "product-details-substitutions-v2"
+            payload["strategy"] = "product-details-substitutions-v3"
         elif query.mode == SearchMode.PARAMETRIC and self._primary_requirement(query):
             payload.update(
                 {
@@ -148,21 +148,7 @@ class DigiKeyClient(SupplierClient):
                 error_type="oauth_error",
                 error_message="DigiKey OAuth token acquisition failed",
             )
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "X-DIGIKEY-Client-Id": self.client_id or "",
-            "X-DIGIKEY-Locale-Site": query.site,
-            # Live probing showed that the Korean keyword parser can split
-            # engineering units incorrectly (10uF -> 0.1uF results). Product
-            # text remains locally normalized, so parametric discovery uses
-            # DigiKey's English parser while preserving site and currency.
-            "X-DIGIKEY-Locale-Language": (
-                "en" if query.mode == SearchMode.PARAMETRIC else query.language
-            ),
-            "X-DIGIKEY-Locale-Currency": query.currency,
-        }
-        if self.account_id:
-            headers["X-DIGIKEY-Account-Id"] = self.account_id
+        headers = self._request_headers(query, token)
 
         if query.mode == SearchMode.IDENTITY and query.part_number:
             params: dict[str, str] = {}
@@ -280,15 +266,61 @@ class DigiKeyClient(SupplierClient):
             strategy="keyword",
         )
 
+    def _request_headers(self, query: PlannedQuery, token: str) -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "X-DIGIKEY-Client-Id": self.client_id or "",
+            "X-DIGIKEY-Locale-Site": query.site,
+            # Live probing showed that the Korean keyword parser can split
+            # engineering units incorrectly (10uF -> 0.1uF results). Product
+            # text remains locally normalized, so parametric discovery uses
+            # DigiKey's English parser while preserving site and currency.
+            "X-DIGIKEY-Locale-Language": (
+                "en" if query.mode == SearchMode.PARAMETRIC else query.language
+            ),
+            "X-DIGIKEY-Locale-Currency": query.currency,
+        }
+        if self.account_id:
+            headers["X-DIGIKEY-Account-Id"] = self.account_id
+        return headers
+
+    async def enrich_stock_substitutions(
+        self,
+        exact: RawSupplierResponse,
+        query: PlannedQuery,
+        reserve_call: Callable[[], Awaitable[None]] | None = None,
+    ) -> RawSupplierResponse:
+        """Attach DigiKey substitutes after aggregate procurement confirms no stock."""
+
+        if not self.configured:
+            return exact
+        try:
+            token = await self._token()
+        except (httpx.HTTPError, KeyError, ValueError):
+            return exact
+        return await self._with_substitutions(
+            exact,
+            query,
+            self._request_headers(query, token),
+            reserve_call,
+            force=True,
+            fallback_reason="stock_unavailable",
+        )
+
     async def _with_substitutions(
         self,
         exact: RawSupplierResponse,
         query: PlannedQuery,
         headers: dict[str, str],
         reserve_call: Callable[[], Awaitable[None]] | None,
+        *,
+        force: bool = False,
+        fallback_reason: str = "lifecycle_caution",
     ) -> RawSupplierResponse:
         product = (exact.payload or {}).get("Product")
-        if not isinstance(product, dict) or not self._needs_substitution_lookup(product):
+        if not isinstance(product, dict) or (
+            not force and not self._needs_substitution_lookup(product)
+        ):
             return exact
         lookup_number = self._product_lookup_number(product) or query.part_number
         if not lookup_number:
@@ -310,7 +342,7 @@ class DigiKeyClient(SupplierClient):
             strategy="supplier_substitutions",
             query=lookup_number,
             result_count=sum(1 for item in substitutes or [] if isinstance(item, dict)),
-            fallback_reason="lifecycle_caution",
+            fallback_reason=fallback_reason,
         )
         if not substitutions.ok or not isinstance(substitutes, list):
             return self._with_additional_attempts(exact, substitutions)

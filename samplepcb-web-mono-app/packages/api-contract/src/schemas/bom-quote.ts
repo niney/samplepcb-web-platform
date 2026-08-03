@@ -113,7 +113,7 @@ export type BomQuoteSupplierSearchLimitReasonType = z.infer<
 >;
 export const BomQuoteSearchTraceAttempt = z.object({
   sequence: z.number().int().min(1),
-  stage: z.enum(['primary', 'identity_fallback']),
+  stage: z.enum(['primary', 'identity_fallback', 'stock_alternative']),
   supplier: z.string(),
   strategy: z.string(),
   query: z.string(),
@@ -296,6 +296,8 @@ export type BomQuoteLifecycleCodeType = z.infer<typeof BomQuoteLifecycleCode>;
 export const BomQuoteReplacementSource = z.enum([
   'digikey_substitution',
   'mouser_suggested',
+  'engine_stock_fallback',
+  'engine_mpn_fallback',
 ]);
 export type BomQuoteReplacementSourceType = z.infer<typeof BomQuoteReplacementSource>;
 

@@ -21,7 +21,7 @@ export const en = {
   },
   bomSearchTrace: {
     search: 'Search',
-    fallbackBadge: 'MPN → spec fallback',
+    fallbackBadge: 'Secondary search',
     process: 'Search process',
     attempts: '{count} attempts',
     finalCandidates: '{count} final candidates after technical validation and deduplication',
@@ -29,6 +29,7 @@ export const en = {
     stage: {
       primary: 'Initial search',
       identity_fallback: 'Spec fallback',
+      stock_alternative: 'MPN family search',
     },
     strategy: {
       identity: 'Part number',
@@ -38,6 +39,7 @@ export const en = {
       identity_exact: 'Exact part number',
       identity_keyword: 'Part number keyword',
       identity_batch_exact: 'Batch exact part number',
+      hybrid_keyword: 'MPN family keyword',
       parametric_full: 'Full specification',
       parametric_filter: 'Parametric filter',
       parametric_core: 'Core specification',

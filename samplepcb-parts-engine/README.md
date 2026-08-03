@@ -131,13 +131,25 @@ BOM MPN은 CAD library reference보다 우선하며 서로 다른 유효값은 `
 
 ### 기술 순위와 구매 적용 후보
 
-공급사 검색 스키마 1.7과 `supplier-selection-application-v4`는 기술 판단과 실제 구매 적용을
+공급사 검색 스키마 1.9와 `supplier-selection-application-v4`는 기술 판단과 실제 구매 적용을
 분리한다. 엔진은 기존 `preselect`와 기술/검토 순위를 감사 근거로 보존한다. 기술 1순위 후보군에
 현재 필요수량을 충족하는 재고·유효 가격 오퍼가 없으면, 차단되지 않은 다음 기술 후보군 중
 구매 가능한 그룹을 `application_candidate_identity_key`와
 `application_candidate_evidence_key`로 지정한다. 선택한 그룹 안에서는 MOQ·주문배수·재고·
 실효 총액을 반영한 구매적합 1위 오퍼를 적용하며, 안전성·기술 근거가 동급인 차순위 그룹끼리는
 실효 총액이 낮은 그룹을 우선한다.
+
+정확 품번의 전체 공급사 오퍼가 `out_of_stock` 또는 `insufficient_stock`이면 엔진은 DigiKey의
+Substitutions API를 조건부로 한 번 더 조회한다. 여기서 구매 가능한 대체품을 확보하지 못하고 BOM에
+검증 가능한 핵심 스펙이 있으면, 기존 파라메트릭 공급사 검색을 2차로 실행해
+`engine_stock_fallback` 후보로 합친다. 다른 공급사가 필요수량을 충족하거나 재고가 단지
+`stock_unverified`인 경우에는 이 2차 검색을 실행하지 않는다. 두 경로의 대체 후보는 원품번과
+구분해 엄격한 스펙 검증을 거치며 확정 자동 교체하지 않고 수동 확인 대상으로만 추천한다.
+검증 스펙이 부족해 파라메트릭 검색을 만들 수 없으면 명시적 구분자 앞의 제한된 MPN 계열
+토큰으로 한 번 더 검색한다. 이 경로는 원품번과 다른 MPN이면서 같은 계열·같은 제조사인 결과만
+`engine_mpn_fallback`으로 남기고, 검색 trace에 `stock_alternative`로 기록한다. 계열 유사성만으로
+호환성을 확정하지 않는다. 구매 가능한 후보 하나를 가격 계산용 `provisional_selected`로 표시할
+수는 있지만 `confirmation_required=true`이므로 관리자 확인 전에는 확정 선택으로 전환되지 않는다.
 
 v4는 v3의 가격 최적화에 견적별 `procurement_mode=sample|mass`를 추가한다. `sample`은 기존
 실효 총액 순위를 유지하고, `mass`는 동일한 기술 안전 밴드와 재고·MOQ·과다주문 제한 안에서

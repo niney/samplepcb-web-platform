@@ -1110,7 +1110,7 @@ interface CandidateOptions {
   lifecycleCode?: 'active' | 'nrnd' | 'eol' | 'discontinued' | 'obsolete' | 'inactive' | 'unknown';
   lifecycleStatus?: string;
   lastBuyDate?: string;
-  replacementSource?: 'digikey_substitution' | 'mouser_suggested';
+  replacementSource?: 'digikey_substitution' | 'mouser_suggested' | 'engine_stock_fallback' | 'engine_mpn_fallback';
   replacementForMpn?: string;
   replacementType?: string;
   manufacturer?: string | null;
@@ -1951,6 +1951,77 @@ describe('BOM 엔진 후보 결정 투영', () => {
     });
   });
 
+  it.each([
+    ['스펙 검색', 'engine_stock_fallback', 'ParametricStockFallback'],
+    ['MPN 계열 검색', 'engine_mpn_fallback', 'MpnFamilyStockFallback'],
+  ] as const)('재고 부족 %s 대체품 출처를 검토 후보로 저장한다', (
+    _label,
+    replacementSource,
+    replacementType,
+  ) => {
+    const original = candidate('verified_exact', 'OUT-OF-STOCK-PART', 'mouser', 100, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      categoryPolicyVersion: 'candidate-category-policy-v2',
+      selectionRecommendation: 'preselect',
+      identityKey: 'ik1:engine-choice',
+      technicalEvidenceKey: 'ek1:engine-choice',
+      stock: 0,
+    });
+    attachProcurementDecision(
+      original,
+      'ok2:out-of-stock-original',
+      'none',
+      10,
+      'supplier-offer-key-v2',
+    );
+
+    const replacement = candidate('spec_compatible', 'STOCK-FALLBACK', 'digikey', 110, 1, {
+      currentDecisionContract: true,
+      decisionPolicyVersion: 'supplier-candidate-decision-v3',
+      categoryPolicyVersion: 'candidate-category-policy-v2',
+      eligibility: 'manual_review',
+      selectionMode: 'spec-compatible',
+      technicalReviewRank: 1,
+      selectionRecommendation: 'candidate_only',
+      replacementSource,
+      replacementForMpn: 'OUT-OF-STOCK-PART',
+      replacementType,
+      identityKey: 'ik1:stock-fallback',
+      technicalEvidenceKey: 'ek1:stock-fallback',
+    });
+    attachProcurementDecision(
+      replacement,
+      'ok2:stock-fallback',
+      'manual_review',
+      10,
+      'supplier-offer-key-v2',
+    );
+
+    const decision = selectEngineMatch({
+      component_id: 'component-stock-fallback',
+      status: 'spec_compatible',
+      procurement_decision: componentProcurementDecision(
+        'review_recommended',
+        'ok2:stock-fallback',
+        10,
+        {
+          applicationIdentityKey: 'ik1:stock-fallback',
+          applicationEvidenceKey: 'ek1:stock-fallback',
+          technicalFallbackUsed: true,
+        },
+      ),
+      candidates: [original, replacement],
+    }, 10, null);
+
+    expect(decision?.evidence).toMatchObject({
+      selectionApplicationState: 'provisional_selected',
+      confirmationRequired: true,
+      selectedReplacementSources: [replacementSource],
+      selectedReplacementForMpn: 'OUT-OF-STOCK-PART',
+    });
+  });
+
   it('동급 후보의 v3 가격 최적 결정을 가격 추천과 절감액으로 투영한다', () => {
     const technicalTop = candidate('spec_compatible', 'TECHNICAL-TOP', 'digikey', 100, 1, {
       currentDecisionContract: true,
@@ -2206,6 +2277,21 @@ describe('BOM 엔진 후보 결정 투영', () => {
               fallback_reason: 'request_budget_exhausted',
               error_type: 'job_call_limit_exhausted',
             },
+            {
+              sequence: 3,
+              stage: 'stock_alternative',
+              supplier: 'mouser',
+              strategy: 'hybrid_keyword',
+              query: 'TRACE',
+              source: 'live_api',
+              outcome: 'results',
+              result_count: 1,
+              api_calls: 1,
+              http_attempt_count: 1,
+              elapsed_ms: 9.5,
+              fallback_reason: null,
+              error_type: null,
+            },
           ],
         },
         procurement_decision: componentProcurementDecision(
@@ -2223,7 +2309,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
       primaryQuery: '0603X03L_C',
       fallbackQuery: '1k 0603',
       fallbackUsed: true,
-      attemptCount: 2,
+      attemptCount: 3,
       limitReasons: ['job_call_limit'],
     });
   });

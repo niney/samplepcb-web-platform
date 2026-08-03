@@ -5,6 +5,8 @@ import time
 from collections.abc import Awaitable, Callable
 from unittest.mock import patch
 
+import httpx
+
 from supplier_search_engine.contract import (
     VALUE_FIELDS,
     SearchBatchInput,
@@ -20,6 +22,8 @@ from supplier_search_engine.models import (
     ProcurementDisposition,
     QuantityResolution,
     RawSupplierResponse,
+    ReplacementSource,
+    Requirement,
     SearchMode,
     SearchDisposition,
     Supplier,
@@ -32,6 +36,7 @@ from supplier_search_engine.request_cache import supplier_cache_coordinates
 from supplier_search_engine.service import SearchService
 from supplier_search_engine.settings import Settings
 from supplier_search_engine.suppliers.base import SupplierClient
+from supplier_search_engine.suppliers.digikey import DigiKeyClient
 
 
 class FakeDigiKeyClient(SupplierClient):
@@ -124,6 +129,191 @@ def make_product() -> SupplierProduct:
         supplier=Supplier.DIGIKEY,
         manufacturer_part_number="ABC-123",
         manufacturer="Acme",
+    )
+
+
+class ModeAwareStockClient(FakeSupplierClient):
+    def __init__(
+        self,
+        supplier: Supplier,
+        *,
+        exact_stock: int | None,
+        replacement_stock: int = 100,
+    ) -> None:
+        super().__init__(supplier)
+        self.exact_stock = exact_stock
+        self.replacement_stock = replacement_stock
+
+    def normalize(
+        self,
+        raw: RawSupplierResponse,
+        query: PlannedQuery,
+    ) -> list[SupplierProduct]:
+        is_parametric = query.mode == SearchMode.PARAMETRIC
+        mpn = "ABC-ALT" if is_parametric else "ABC-123"
+        stock = self.replacement_stock if is_parametric else self.exact_stock
+        return [
+            SupplierProduct(
+                supplier=self.supplier,
+                supplier_product_id=f"{self.supplier.value}-{mpn}",
+                manufacturer_part_number=mpn,
+                manufacturer="Acme",
+                description="10k Ohm 1% resistor 0603",
+                category="Chip Resistor",
+                package="0603",
+                normalized_specs={
+                    "resistance_ohm": 10_000.0,
+                    "tolerance_percent": 1.0,
+                    "package": "0603",
+                },
+                offers=[
+                    SupplierOffer(
+                        supplier=self.supplier,
+                        supplier_sku=f"{mpn}-{self.supplier.value}",
+                        packaging="Cut Tape",
+                        stock=stock,
+                        moq=1,
+                        order_multiple=1,
+                        price_breaks=[
+                            {"quantity": 1, "unit_price": 100, "currency": "KRW"}
+                        ],
+                    )
+                ],
+            )
+        ]
+
+
+class MpnFamilyStockClient(FakeSupplierClient):
+    @staticmethod
+    def _product(
+        supplier: Supplier,
+        mpn: str,
+        manufacturer: str,
+        stock: int,
+    ) -> SupplierProduct:
+        return SupplierProduct(
+            supplier=supplier,
+            supplier_product_id=f"{supplier.value}-{mpn}",
+            manufacturer_part_number=mpn,
+            manufacturer=manufacturer,
+            description="Power inductor SMD",
+            category="Power Inductors - SMD",
+            normalized_specs={"mount_style": "smd"},
+            offers=[
+                SupplierOffer(
+                    supplier=supplier,
+                    supplier_sku=f"{mpn}-{manufacturer}-{supplier.value}",
+                    packaging="Cut Tape",
+                    stock=stock,
+                    moq=1,
+                    order_multiple=1,
+                    price_breaks=[
+                        {"quantity": 1, "unit_price": 100, "currency": "KRW"}
+                    ],
+                )
+            ],
+        )
+
+    def normalize(
+        self,
+        raw: RawSupplierResponse,
+        query: PlannedQuery,
+    ) -> list[SupplierProduct]:
+        if query.mode == SearchMode.IDENTITY:
+            return [
+                self._product(
+                    self.supplier,
+                    "XAL6060-223MEC",
+                    "Coilcraft",
+                    0,
+                )
+            ]
+        return [
+            self._product(
+                self.supplier,
+                "XAL6060-223MEB",
+                "Coilcraft",
+                100,
+            ),
+            self._product(
+                self.supplier,
+                "XAL7070-223MEB",
+                "Coilcraft",
+                100,
+            ),
+            self._product(
+                self.supplier,
+                "XAL6060-223MEB",
+                "Other Manufacturer",
+                100,
+            ),
+        ]
+
+
+def stock_replacement_query(*, quantity: int = 10) -> PlannedQuery:
+    return PlannedQuery(
+        component_id="stock-fallback",
+        mode=SearchMode.IDENTITY,
+        part_number="ABC-123",
+        manufacturer="Acme",
+        part_type="resistor",
+        category_policy="resistor",
+        package="0603",
+        quantity=quantity,
+        keywords="10k 1% 0603",
+        requirements={
+            "resistance_ohm": Requirement(
+                name="resistance_ohm",
+                raw_value="10k",
+                normalized_value=10_000.0,
+                status="extracted",
+                hard=True,
+            ),
+            "tolerance_percent": Requirement(
+                name="tolerance_percent",
+                raw_value="1%",
+                normalized_value=1.0,
+                status="extracted",
+                hard=True,
+                comparison="lte",
+            ),
+            "package": Requirement(
+                name="package",
+                raw_value="0603",
+                normalized_value="0603",
+                status="extracted",
+                hard=True,
+            ),
+        },
+    )
+
+
+def mpn_family_stock_query() -> PlannedQuery:
+    return PlannedQuery(
+        component_id="mpn-family-stock-fallback",
+        mode=SearchMode.IDENTITY,
+        part_number="XAL6060-223MEC",
+        part_type="inductor",
+        category_policy="inductor",
+        quantity=1,
+        keywords="XAL6060-223MEC",
+        requirements={
+            "part_type": Requirement(
+                name="part_type",
+                raw_value="inductor",
+                normalized_value="inductor",
+                status="extracted",
+                hard=True,
+                comparison="category",
+            ),
+            "mount_style": Requirement(
+                name="mount_style",
+                raw_value="SMD",
+                normalized_value="smd",
+                status="extracted",
+                hard=True,
+            ),
+        },
     )
 
 
@@ -570,6 +760,258 @@ async def test_normal_zero_results_trigger_parametric_fallback(tmp_path):
     assert result.identity_fallback is True
     assert result.initial_query is not None
     assert result.initial_query.part_number == "0603X03L_C"
+
+
+async def test_out_of_stock_exact_match_triggers_manual_stock_replacement_search(
+    tmp_path,
+):
+    mouser = ModeAwareStockClient(Supplier.MOUSER, exact_stock=0)
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[mouser],
+        allowed_suppliers={Supplier.MOUSER},
+    )
+
+    result = await service.search_component(stock_replacement_query())
+    cached = await service.search_component(stock_replacement_query())
+
+    assert mouser.calls == 2
+    replacement = next(
+        candidate
+        for candidate in result.candidates
+        if candidate.product.replacement_source
+        == ReplacementSource.ENGINE_STOCK_FALLBACK
+    )
+    assert replacement.product.manufacturer_part_number == "ABC-ALT"
+    assert replacement.product.replacement_for_mpn == "ABC-123"
+    assert replacement.decision.selection_eligibility.value == "manual_review"
+    assert any(
+        candidate.product.manufacturer_part_number == "ABC-123"
+        and candidate.product.replacement_source is None
+        for candidate in result.candidates
+    )
+    assert result.procurement_decision is not None
+    assert result.procurement_decision.status == "review_recommended"
+    assert result.procurement_decision.confirmation_required is True
+    assert result.identity_fallback is False
+    assert result.search_trace is not None
+    assert result.search_trace.fallback_used is True
+    assert cached.api_calls == 0
+    assert any(
+        candidate.product.replacement_source
+        == ReplacementSource.ENGINE_STOCK_FALLBACK
+        for candidate in cached.candidates
+    )
+
+
+async def test_insufficient_exact_stock_also_triggers_stock_replacement_search(
+    tmp_path,
+):
+    mouser = ModeAwareStockClient(Supplier.MOUSER, exact_stock=5)
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[mouser],
+        allowed_suppliers={Supplier.MOUSER},
+    )
+
+    result = await service.search_component(stock_replacement_query(quantity=10))
+
+    assert mouser.calls == 2
+    assert any(
+        candidate.product.replacement_source
+        == ReplacementSource.ENGINE_STOCK_FALLBACK
+        for candidate in result.candidates
+    )
+
+
+async def test_stock_replacement_search_is_skipped_when_any_supplier_can_fulfill(
+    tmp_path,
+):
+    digikey = ModeAwareStockClient(Supplier.DIGIKEY, exact_stock=0)
+    mouser = ModeAwareStockClient(Supplier.MOUSER, exact_stock=100)
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[digikey, mouser],
+        allowed_suppliers={Supplier.DIGIKEY, Supplier.MOUSER},
+    )
+
+    result = await service.search_component(stock_replacement_query())
+
+    assert digikey.calls == 1
+    assert mouser.calls == 1
+    assert all(
+        candidate.product.replacement_source
+        != ReplacementSource.ENGINE_STOCK_FALLBACK
+        for candidate in result.candidates
+    )
+    assert result.search_trace is not None
+    assert result.search_trace.fallback_used is False
+
+
+async def test_unverified_stock_does_not_trigger_stock_replacement_search(tmp_path):
+    mouser = ModeAwareStockClient(Supplier.MOUSER, exact_stock=None)
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[mouser],
+        allowed_suppliers={Supplier.MOUSER},
+    )
+
+    result = await service.search_component(stock_replacement_query())
+
+    assert mouser.calls == 1
+    assert result.procurement_decision is not None
+    assert (
+        result.procurement_decision.primary_unavailability_reason.value
+        == "stock_unverified"
+    )
+    assert result.search_trace is not None
+    assert result.search_trace.fallback_used is False
+
+
+async def test_out_of_stock_with_insufficient_specs_adds_mpn_family_review_candidates(
+    tmp_path,
+):
+    mouser = MpnFamilyStockClient(Supplier.MOUSER)
+    service = SearchService(
+        Settings(cache_path=tmp_path / "cache.sqlite3"),
+        clients=[mouser],
+        allowed_suppliers={Supplier.MOUSER},
+    )
+
+    result = await service.search_component(mpn_family_stock_query())
+    cached = await service.search_component(mpn_family_stock_query())
+
+    assert mouser.calls == 2
+    replacements = [
+        candidate
+        for candidate in result.candidates
+        if candidate.product.replacement_source
+        == ReplacementSource.ENGINE_MPN_FALLBACK
+    ]
+    assert len(replacements) == 1
+    assert replacements[0].product.manufacturer_part_number == "XAL6060-223MEB"
+    assert replacements[0].product.manufacturer == "Coilcraft"
+    assert replacements[0].decision.selection_eligibility.value == "manual_review"
+    assert result.procurement_decision is not None
+    assert result.procurement_decision.status == "review_recommended"
+    assert result.procurement_decision.confirmation_required is True
+    assert result.search_trace is not None
+    assert result.search_trace.fallback_query == "XAL6060"
+    assert result.search_trace.fallback_used is True
+    assert any(
+        attempt.stage == "stock_alternative"
+        for attempt in result.search_trace.attempts
+    )
+    assert any("관리자 검토용" in warning for warning in result.warnings)
+    assert cached.api_calls == 0
+    assert any(
+        candidate.product.replacement_source
+        == ReplacementSource.ENGINE_MPN_FALLBACK
+        for candidate in cached.candidates
+    )
+
+
+async def test_aggregate_out_of_stock_enriches_digikey_substitutions_before_spec_fallback(
+    tmp_path,
+):
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path.endswith("/productdetails"):
+            return httpx.Response(
+                200,
+                json={
+                    "Product": {
+                        "ProductId": 101,
+                        "ManufacturerProductNumber": "ABC-123",
+                        "Manufacturer": {"Name": "Acme"},
+                        "Description": {
+                            "ProductDescription": "10k Ohm 1% resistor 0603"
+                        },
+                        "ProductStatus": {"Status": "Active"},
+                        "Parameters": [
+                            {"ParameterText": "Resistance", "ValueText": "10 kOhms"},
+                            {"ParameterText": "Tolerance", "ValueText": "±1%"},
+                            {"ParameterText": "Package / Case", "ValueText": "0603"},
+                        ],
+                        "ProductVariations": [
+                            {
+                                "DigiKeyProductNumber": "ZERO-ND",
+                                "QuantityAvailableforPackageType": 0,
+                                "MinimumOrderQuantity": 1,
+                                "StandardPricing": [
+                                    {"BreakQuantity": 1, "UnitPrice": 100}
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+        if request.url.path.endswith("/substitutions"):
+            return httpx.Response(
+                200,
+                json={
+                    "ProductSubstitutes": [
+                        {
+                            "SubstituteType": "Direct",
+                            "ManufacturerProductNumber": "ABC-ALT",
+                            "Manufacturer": {"Name": "Acme"},
+                            "Description": "10k Ohm 1% resistor 0603",
+                            "DigiKeyProductNumber": "STOCK-ND",
+                            "QuantityAvailable": 100,
+                            "UnitPrice": "100",
+                        }
+                    ]
+                },
+            )
+        raise AssertionError(f"unexpected DigiKey request: {request.url.path}")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        digikey = DigiKeyClient(
+            client_id="client",
+            client_secret="secret",
+            account_id=None,
+            client=http_client,
+        )
+        digikey._access_token = "test-token"
+        digikey._token_expiry = time.time() + 3_600
+        service = SearchService(
+            Settings(cache_path=tmp_path / "cache.sqlite3"),
+            clients=[digikey],
+            allowed_suppliers={Supplier.DIGIKEY},
+        )
+
+        result = await service.search_component(stock_replacement_query())
+        cached = await service.search_component(stock_replacement_query())
+
+    assert requests == [
+        "/products/v4/search/ABC-123/productdetails",
+        "/products/v4/search/ZERO-ND/substitutions",
+    ]
+    assert result.api_calls == 2
+    replacement = next(
+        candidate
+        for candidate in result.candidates
+        if candidate.product.replacement_source
+        == ReplacementSource.DIGIKEY_SUBSTITUTION
+    )
+    assert replacement.product.manufacturer_part_number == "ABC-ALT"
+    assert replacement.decision.selection_eligibility.value == "manual_review"
+    assert result.procurement_decision is not None
+    assert result.procurement_decision.status == "review_recommended"
+    assert result.search_trace is not None
+    assert result.search_trace.fallback_used is False
+    assert any(
+        attempt.fallback_reason == "stock_unavailable"
+        for attempt in result.search_trace.attempts
+    )
+    assert cached.api_calls == 0
+    assert any(
+        candidate.product.replacement_source
+        == ReplacementSource.DIGIKEY_SUBSTITUTION
+        for candidate in cached.candidates
+    )
 
 
 async def test_supplier_errors_only_do_not_trigger_parametric_fallback(tmp_path):

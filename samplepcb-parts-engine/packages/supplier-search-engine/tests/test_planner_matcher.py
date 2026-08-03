@@ -21,6 +21,7 @@ from supplier_search_engine.matcher import (
 from supplier_search_engine.models import (
     ManufacturerEvidence,
     MatchStatus,
+    SearchMode,
     SelectionEligibility,
     Supplier,
     SupplierProduct,
@@ -1413,6 +1414,39 @@ def test_identity_query_without_two_hard_specs_has_no_parametric_fallback():
     query = planner.plan(component(part_number="ABC-123", package="0603"))
 
     assert planner.parametric_fallback(query) is None
+
+
+def test_identity_query_can_build_bounded_mpn_family_review_fallback():
+    planner = QueryPlanner()
+    query = planner.plan(
+        component(
+            part_number="XAL6060-223MEC",
+            part_type="inductor",
+        )
+    )
+
+    fallback = planner.mpn_family_fallback(query, manufacturer="Coilcraft")
+
+    assert fallback is not None
+    assert fallback.mode == SearchMode.HYBRID
+    assert fallback.part_number == "XAL6060"
+    assert fallback.manufacturer == "Coilcraft"
+    assert fallback.keywords == "XAL6060"
+    assert fallback.limit == 10
+
+
+@pytest.mark.parametrize(
+    "part_number",
+    [
+        "BTS3104SDL",
+        "1234-ABC",
+        "ABC-123",
+    ],
+)
+def test_mpn_family_review_fallback_rejects_unbounded_prefixes(part_number):
+    query = QueryPlanner().plan(component(part_number=part_number))
+
+    assert QueryPlanner.mpn_family_fallback(query) is None
 
 
 def test_identity_query_can_fallback_with_one_type_specific_primary_value():

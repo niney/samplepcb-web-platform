@@ -225,7 +225,7 @@ function openMail(q: CaseRow): void {
             <th class="whitespace-nowrap px-4 py-2.5">Case</th>
             <th class="px-4 py-2.5">견적명</th>
             <th class="px-4 py-2.5">고객</th>
-            <th class="whitespace-nowrap px-4 py-2.5">품목(매칭)</th>
+            <th class="whitespace-nowrap px-4 py-2.5">품목(선정)</th>
             <th class="whitespace-nowrap px-4 py-2.5">예상 합계</th>
             <th class="whitespace-nowrap px-4 py-2.5">현재 단계</th>
             <th class="px-4 py-2.5">상태</th>

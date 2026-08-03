@@ -181,7 +181,7 @@ async function downloadOriginal(): Promise<void> {
             <th class="px-4 py-2.5">견적명</th>
             <th class="px-4 py-2.5">회원</th>
             <th class="px-4 py-2.5">상태</th>
-            <th class="whitespace-nowrap px-4 py-2.5">품목(매칭)</th>
+            <th class="whitespace-nowrap px-4 py-2.5">품목(선정)</th>
             <th class="whitespace-nowrap px-4 py-2.5">예상 합계</th>
             <th class="whitespace-nowrap px-4 py-2.5">요청일</th>
           </tr>

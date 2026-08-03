@@ -54,6 +54,7 @@ import {
 import {
   applyQtyToOffer,
   computeTotals,
+  isBomQuoteAlternativeReviewPending,
   neededQty,
   normalizeMpn,
   pickBreak,
@@ -360,6 +361,8 @@ const EngineSupplierCandidate = z
         replacement_source: z.enum([
           'digikey_substitution',
           'mouser_suggested',
+          'engine_stock_fallback',
+          'engine_mpn_fallback',
         ]).nullish(),
         replacement_type: z.string().nullish(),
         datasheet_url: z.string().nullish(),
@@ -385,7 +388,7 @@ const EngineSupplierQuery = z
 
 const EngineSupplierSearchTraceAttempt = z.object({
   sequence: z.number().int().min(1),
-  stage: z.enum(['primary', 'identity_fallback']),
+  stage: z.enum(['primary', 'identity_fallback', 'stock_alternative']),
   supplier: z.string(),
   strategy: z.string(),
   query: z.string(),
@@ -1154,6 +1157,8 @@ const StoredCandidate = z.object({
   replacementSources: z.array(z.enum([
     'digikey_substitution',
     'mouser_suggested',
+    'engine_stock_fallback',
+    'engine_mpn_fallback',
   ])).catch([]),
   replacementForMpn: z.string().nullable().catch(null),
   replacementType: z.string().nullable().catch(null),
@@ -1357,7 +1362,8 @@ export interface QuoteComparisonPageQuery {
 
 const COMPARISON_MATCHED_STATUSES = new Set(['verified_exact', 'verified_variant', 'spec_compatible']);
 
-function comparisonStatus(matchStatus: string, matchEvidence: Prisma.JsonValue | null): 'matched' | 'attention' | 'not_found' {
+export function comparisonStatus(matchStatus: string, matchEvidence: Prisma.JsonValue | null): 'matched' | 'attention' | 'not_found' {
+  if (isBomQuoteAlternativeReviewPending(matchStatus, matchEvidence)) return 'attention';
   const componentStatus = typeof matchEvidence === 'object' && matchEvidence !== null && !Array.isArray(matchEvidence)
     ? matchEvidence.componentStatus
     : null;

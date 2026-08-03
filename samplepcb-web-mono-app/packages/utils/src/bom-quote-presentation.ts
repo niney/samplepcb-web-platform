@@ -37,8 +37,52 @@ export function isBomQuoteEngineSearchExcluded(item: BomQuoteItemType): boolean 
     || item.matchEvidence?.searchRequirementGuidance?.readiness === 'excluded';
 }
 
+function isBomQuoteReviewPending(
+  matchStatus: string,
+  matchEvidence: unknown,
+): boolean {
+  // 고객·관리자가 명시적으로 선택한 행은 임시 엔진 선정을 확정한 것으로 본다.
+  // 구버전 저장 근거에 검토 플래그가 남아 있어도 수동 확정을 다시 Review로 되돌리지 않는다.
+  if (
+    matchStatus === 'manual'
+    || typeof matchEvidence !== 'object'
+    || matchEvidence === null
+    || Array.isArray(matchEvidence)
+  ) {
+    return false;
+  }
+  const evidence = matchEvidence as Record<string, unknown>;
+  return evidence.confirmationRequired === true
+    || evidence.selectionApplicationState === 'provisional_selected';
+}
+
+export function isBomQuotePendingReview(item: BomQuoteItemType): boolean {
+  return isBomQuoteReviewPending(item.matchStatus, item.matchEvidence);
+}
+
+/**
+ * 재고 부족 이후 찾은 대체품 중 아직 명시 확정되지 않은 선택만 메인 결과의 Review로 올린다.
+ * 일반 스펙 검색의 안전 후보는 검토 권장 상태를 보존하되 기존처럼 Matched로 집계한다.
+ */
+export function isBomQuoteAlternativeReviewPending(
+  matchStatus: string,
+  matchEvidence: unknown,
+): boolean {
+  if (!isBomQuoteReviewPending(matchStatus, matchEvidence)) return false;
+  const evidence = matchEvidence as Record<string, unknown>;
+  const replacementSources = evidence.selectedReplacementSources;
+  const replacementForMpn = evidence.selectedReplacementForMpn;
+  return (Array.isArray(replacementSources) && replacementSources.length > 0)
+    || (typeof replacementForMpn === 'string' && replacementForMpn.trim() !== '');
+}
+
+export function isBomQuoteAlternativePendingReview(item: BomQuoteItemType): boolean {
+  return isBomQuoteAlternativeReviewPending(item.matchStatus, item.matchEvidence);
+}
+
 export function bomQuoteItemMatchGroup(item: BomQuoteItemType): BomQuoteItemMatchGroup {
   if (isBomQuoteEngineSearchExcluded(item)) return 'excluded';
+  if (isBomQuoteAlternativePendingReview(item)) return 'review';
   if (hasBomQuoteEngineStockConstraint(item) || isBomQuoteStockShort(item)) return 'nostock';
   if (item.matchStatus !== 'none') return 'matched';
   if (item.matchEvidence?.selectionMode === 'review') return 'review';
@@ -68,11 +112,7 @@ export function summarizeBomQuoteItems(
 
     if (!item.included) continue;
     included += 1;
-    if (
-      item.selectionSource === 'auto'
-      && item.matchEvidence?.selectionApplicationState === 'provisional_selected'
-      && item.matchEvidence.confirmationRequired
-    ) {
+    if (isBomQuotePendingReview(item)) {
       pendingReview += 1;
     }
     if (item.lineTotalKrw === null) uncosted += 1;

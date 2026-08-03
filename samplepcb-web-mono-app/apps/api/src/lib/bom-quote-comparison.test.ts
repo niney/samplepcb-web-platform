@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildQuoteComparisonRows, toBomExtractionSource } from './bom-quote';
+import type { Prisma } from '@prisma/client';
+import {
+  buildQuoteComparisonRows,
+  comparisonStatus,
+  toBomExtractionSource,
+} from './bom-quote';
 
 function candidatePayload(candidateKey: string, technicalRank: number) {
   return {
@@ -51,6 +56,33 @@ function candidatePayload(candidateKey: string, technicalRank: number) {
 }
 
 describe('BOM 전체 비교 영속 스냅샷', () => {
+  it.each([
+    ['confirmationRequired', { componentStatus: 'verified_exact', confirmationRequired: true, selectedReplacementSources: ['engine_stock_fallback'] }],
+    ['provisional_selected', { componentStatus: 'verified_exact', selectionApplicationState: 'provisional_selected', selectedReplacementSources: ['engine_mpn_fallback'] }],
+  ] satisfies [string, Prisma.JsonValue][])('%s 대체품 행은 기술상 일치해도 비교 화면에서 확인 필요로 분류한다', (_label, evidence) => {
+    expect(comparisonStatus('auto', evidence)).toBe('attention');
+  });
+
+  it('일반 스펙 후보의 임시 선정 플래그는 비교 화면에서 기존 매칭을 유지한다', () => {
+    expect(comparisonStatus('auto', {
+      componentStatus: 'spec_compatible',
+      selectionApplicationState: 'provisional_selected',
+      confirmationRequired: true,
+      selectedReplacementSources: [],
+      selectedReplacementForMpn: null,
+    })).toBe('matched');
+  });
+
+  it('관리자가 명시 확정한 행은 구버전 검토 플래그가 남아도 비교 화면에서 매칭으로 본다', () => {
+    expect(comparisonStatus('manual', {
+      componentStatus: 'verified_exact',
+      selectionApplicationState: 'provisional_selected',
+      confirmationRequired: true,
+      selectedReplacementSources: ['engine_stock_fallback'],
+      selectedReplacementForMpn: 'ORIGINAL-PART',
+    })).toBe('matched');
+  });
+
   it('후보 패널에도 미래 필드를 포함한 ComponentRecord 원본을 그대로 전달한다', () => {
     expect(toBomExtractionSource({
       id: 7n,

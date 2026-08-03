@@ -2,7 +2,11 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { BomQuoteItemType } from '@sp/api-contract';
-import { isSevereOrderSurplus } from '@sp/utils';
+import {
+  isBomQuoteAlternativePendingReview,
+  isBomQuotePendingReview,
+  isSevereOrderSurplus,
+} from '@sp/utils';
 import PartImage from '../../ui/PartImage.vue';
 import BomPriceBreaks from './BomPriceBreaks.vue';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../../bom/supplier-meta';
@@ -12,6 +16,8 @@ import {
   lifecycleLabel,
   lifecycleRequiresAttention,
   lifecycleSummaryTitle,
+  replacementReviewLabel,
+  replacementSourceBadgeLabel,
   replacementSourcesTitle,
 } from '../../../bom/lifecycle-presentation';
 
@@ -123,11 +129,8 @@ const hasEngineCandidates = computed(() =>
   || props.item.recommendedCandidateKey !== null,
 );
 
-const provisionalSelectionPending = computed(() =>
-  props.item.selectionSource === 'auto'
-  && props.item.matchEvidence?.selectionApplicationState === 'provisional_selected'
-  && props.item.matchEvidence.confirmationRequired,
-);
+const provisionalSelectionPending = computed(() => isBomQuotePendingReview(props.item));
+const alternativeSelectionPending = computed(() => isBomQuoteAlternativePendingReview(props.item));
 
 const technicalFallbackUsed = computed(() =>
   props.item.matchEvidence?.technicalFallbackUsed === true,
@@ -232,7 +235,7 @@ const rowClass = computed(() => {
   if (quantityMissing.value) return 'bg-amber-50/70';
   if (!item.included) return 'opacity-45';
   if (severeOrderSurplus.value) return 'bg-orange-50/80';
-  if (provisionalSelectionPending.value) return 'bg-amber-50/70';
+  if (alternativeSelectionPending.value) return 'bg-amber-50/70';
   if (exactIdentityWarning.value !== null) return 'bg-amber-50/40';
   if (catalogInquiry.value) return 'bg-blue-50/50';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
@@ -259,7 +262,8 @@ const evidenceTitle = computed(() => {
   }
   if (engineSearchExcluded.value) details.push('검색 제외: 엔진이 비조달 행으로 판정');
   if (severeOrderSurplus.value) details.push(`과다 주문수량: ${severeOrderSurplusLabel.value}`);
-  if (provisionalSelectionPending.value) details.push('엔진 임시 선정: 사용자 검토 대기');
+  if (alternativeSelectionPending.value) details.push('대체품 선정: 관리자 확인 필요');
+  else if (provisionalSelectionPending.value) details.push('스펙 선정: 세부 근거 검토 권장');
   if (technicalFallbackUsed.value) details.push('기술 1순위 구매 불가: 엔진이 다음 구매 가능 후보를 적용');
   if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
   if (evidence.missingRequirements.length > 0) details.push(`누락: ${evidence.missingRequirements.join(', ')}`);
@@ -268,7 +272,8 @@ const evidenceTitle = computed(() => {
 
 const sourceLabel = computed(() => {
   if (quantityMissing.value) return '기술 선정';
-  if (provisionalSelectionPending.value) return '엔진 임시 선정';
+  if (alternativeSelectionPending.value) return '엔진 대체 선정';
+  if (provisionalSelectionPending.value) return '엔진 스펙 선정';
   if (catalogSelectionApplied.value) return '제조사 카탈로그 선정';
   if (props.item.selectionSource === 'customer') return '고객 선택';
   if (props.item.selectionSource === 'catalog') return '직접 검색';
@@ -293,6 +298,14 @@ const reasonSummary = computed(() => {
   if (severeOrderSurplus.value) return severeOrderSurplusLabel.value;
   if (engineSearchExcluded.value) return '엔진 판정에 따라 공급사 검색 대상에서 제외된 행입니다';
   if (evidence === null) return item.matchStatus === 'manual' ? '카탈로그에서 직접 선택' : '후보 근거 없음';
+  if (alternativeSelectionPending.value) {
+    const replacementSources = evidence.selectedReplacementSources ?? [];
+    if (replacementSources.includes('engine_mpn_fallback')) {
+      return '재고 부족으로 찾은 동일 제조사·MPN 계열 대체 후보 · 관리자 확인 필요';
+    }
+    return '재고 부족으로 찾은 대체 후보 · 관리자 확인 필요';
+  }
+  if (provisionalSelectionPending.value) return '원본 스펙 조건으로 선정된 부품 · 세부 근거 검토 권장';
   if (procurementUnavailabilitySummary.value !== null) return procurementUnavailabilitySummary.value;
   if (item.selectionSource === 'customer') {
     if (evidence.decisionReasonCodes.includes('offer-choice')) return '공급사 오퍼 직접 선택';
@@ -459,7 +472,7 @@ function onQtyInput(event: Event): void {
               v-if="selectedReplacementSources.length > 0"
               class="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold leading-4 text-violet-800"
               :title="selectedReplacementTitle"
-            >공급사 제안 대체</span>
+            >{{ replacementSourceBadgeLabel(selectedReplacementSources) }}</span>
           </div>
           <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->
           <a
@@ -544,9 +557,10 @@ function onQtyInput(event: Event): void {
         <span v-else-if="item.matchStatus === 'none' && enriching" class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[12px] font-medium text-blue-600">
           <span class="size-1.5 animate-pulse rounded-full bg-blue-500" />확인 중
         </span>
+        <span v-else-if="alternativeSelectionPending" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">검토 필요 · {{ replacementReviewLabel(selectedReplacementSources) }}</span>
+        <span v-else-if="provisionalSelectionPending" class="rounded-full bg-state-matched/15 px-2.5 py-0.5 text-[12px] font-medium text-state-matched" :title="evidenceTitle">매칭 · 검토 권장</span>
         <span v-else-if="catalogInquiry" class="whitespace-nowrap rounded-full border border-blue-200 bg-blue-100 px-2.5 py-0.5 text-[12px] font-bold text-blue-700" :title="evidenceTitle">{{ catalogSelectionApplied ? '선정됨 · 재고/가격 문의' : '취급 가능 · 검토 필요' }}</span>
         <span v-else-if="item.matchStatus === 'none' && engineStockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">{{ engineStockStatusLabel }}</span>
-        <span v-else-if="provisionalSelectionPending" class="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[12px] font-bold text-amber-800" :title="evidenceTitle">선정됨 · 검토 대기</span>
         <span v-else-if="item.matchStatus === 'none' && item.matchEvidence?.selectionMode === 'review'" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700" :title="evidenceTitle">검토 필요</span>
         <span v-else-if="item.matchStatus === 'none'" class="rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-medium text-red-600" :title="evidenceTitle">미매칭</span>
         <span v-else-if="stockStatusLabel !== null" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-medium text-amber-700">{{ stockStatusLabel }}</span>

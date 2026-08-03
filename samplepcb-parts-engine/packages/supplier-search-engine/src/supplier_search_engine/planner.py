@@ -30,7 +30,12 @@ from .models import (
     Requirement,
     SearchMode,
 )
-from .normalization import dielectric_notation, normalize_dielectric, normalize_package
+from .normalization import (
+    dielectric_notation,
+    normalize_dielectric,
+    normalize_mpn,
+    normalize_package,
+)
 from .physical import detect_mount_style, source_diameter_mm
 from .supplier_query import supplier_core_keywords
 
@@ -91,6 +96,7 @@ _GENERIC_LIBRARY_IDENTITY = re.compile(
     r"^(?:BUZZER|LED|HEADER|CONNECTOR|SOCKET|VARISTOR)[_-](?:SMD|SMT|THT|DIP|TH)$",
     re.I,
 )
+_MPN_FAMILY_PREFIX = re.compile(r"^([A-Z0-9]{4,20})[-_/](?=[A-Z0-9])")
 
 _CATEGORY_POLICY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("resistor", ("resistor", "저항")),
@@ -893,11 +899,12 @@ class QueryPlanner:
 
     @staticmethod
     def parametric_fallback(query: PlannedQuery) -> PlannedQuery | None:
-        """Create a spec-only second-stage query for an unresolved MPN.
+        """Create a spec-only second-stage query for an unresolved or unavailable MPN.
 
-        Normal part-number-free discovery still requires two hard specs.  Once
-        an MPN attempt has failed, one type-specific primary electrical value is
-        also useful enough to search (for example, ``1K`` + ``resistor``).
+        Normal part-number-free discovery still requires two hard specs. Once an
+        MPN attempt has failed or cannot fulfill the requested quantity, one
+        type-specific primary electrical value is also useful enough to search
+        (for example, ``1K`` + ``resistor``).
         """
 
         if (
@@ -933,6 +940,42 @@ class QueryPlanner:
         )
         return fallback.model_copy(
             update={"keywords": supplier_core_keywords(fallback)},
+            deep=True,
+        )
+
+    @staticmethod
+    def mpn_family_fallback(
+        query: PlannedQuery,
+        *,
+        manufacturer: str | None = None,
+    ) -> PlannedQuery | None:
+        """Build a bounded MPN-family discovery query for administrator review.
+
+        The family prefix must be an alphanumeric token containing both letters
+        and digits and separated from the variant by an explicit delimiter. This
+        intentionally rejects broad or guessed prefixes.
+        """
+
+        if (
+            query.mode not in {SearchMode.IDENTITY, SearchMode.HYBRID}
+            or not query.part_number
+        ):
+            return None
+        normalized = normalize_mpn(query.part_number)
+        match = _MPN_FAMILY_PREFIX.match(normalized)
+        if match is None:
+            return None
+        family = match.group(1)
+        if not re.search(r"[A-Z]", family) or not re.search(r"\d", family):
+            return None
+        return query.model_copy(
+            update={
+                "mode": SearchMode.HYBRID,
+                "part_number": family,
+                "manufacturer": manufacturer or query.manufacturer,
+                "keywords": family,
+                "limit": PARAMETRIC_SEARCH_RESULT_LIMIT,
+            },
             deep=True,
         )
 

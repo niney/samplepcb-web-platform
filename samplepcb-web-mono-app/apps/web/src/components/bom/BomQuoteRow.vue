@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type { BomQuoteItemType } from '@sp/api-contract';
-import { isSevereOrderSurplus } from '@sp/utils';
+import {
+  isBomQuoteAlternativePendingReview,
+  isBomQuotePendingReview,
+  isSevereOrderSurplus,
+} from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
 import BomPriceBreaks from './BomPriceBreaks.vue';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
@@ -11,6 +15,8 @@ import {
   lifecycleLabel,
   lifecycleRequiresAttention,
   lifecycleSummaryTitle,
+  replacementReviewLabel,
+  replacementSourceBadgeLabel,
   replacementSourcesTitle,
 } from '../../bom/lifecycle-presentation';
 
@@ -115,11 +121,8 @@ const procurementUnavailabilitySummary = computed(() => {
   }
 });
 
-const provisionalSelectionPending = computed(() =>
-  props.item.selectionSource === 'auto'
-  && props.item.matchEvidence?.selectionApplicationState === 'provisional_selected'
-  && props.item.matchEvidence.confirmationRequired,
-);
+const provisionalSelectionPending = computed(() => isBomQuotePendingReview(props.item));
+const alternativeSelectionPending = computed(() => isBomQuoteAlternativePendingReview(props.item));
 
 const technicalFallbackUsed = computed(() =>
   props.item.matchEvidence?.technicalFallbackUsed === true,
@@ -215,7 +218,7 @@ const rowClass = computed(() => {
   if (quantityMissing.value) return 'bg-amber-50/70';
   if (!item.included) return 'opacity-45';
   if (severeOrderSurplus.value) return 'bg-orange-50/80';
-  if (provisionalSelectionPending.value) return 'bg-surface';
+  if (alternativeSelectionPending.value) return 'bg-amber-50/70';
   if (exactIdentityWarning.value !== null) return 'bg-amber-50/40';
   if (catalogInquiry.value) return 'bg-blue-50/50';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
@@ -242,7 +245,8 @@ const evidenceTitle = computed(() => {
   }
   if (engineSearchExcluded.value) details.push('검색 제외: 엔진이 비조달 행으로 판정');
   if (severeOrderSurplus.value) details.push(`과다 주문수량: ${severeOrderSurplusLabel.value}`);
-  if (provisionalSelectionPending.value) details.push('엔진 선정: 사용자 검토 권장');
+  if (alternativeSelectionPending.value) details.push('대체품 선정: 관리자 확인 필요');
+  else if (provisionalSelectionPending.value) details.push('스펙 선정: 세부 근거 검토 권장');
   if (technicalFallbackUsed.value) details.push('기술 1순위 구매 불가: 엔진이 다음 구매 가능 후보를 적용');
   if (evidence.conflicts.length > 0) details.push(`충돌: ${evidence.conflicts.join(', ')}`);
   if (evidence.missingRequirements.length > 0) details.push(`누락: ${evidence.missingRequirements.join(', ')}`);
@@ -260,6 +264,14 @@ const reasonSummary = computed(() => {
   if (severeOrderSurplus.value) return severeOrderSurplusLabel.value;
   if (engineSearchExcluded.value) return '엔진 판정에 따라 공급사 검색 대상에서 제외된 행입니다';
   if (evidence === null) return item.matchStatus === 'manual' ? '카탈로그에서 직접 선택' : '후보 근거 없음';
+  if (alternativeSelectionPending.value) {
+    const replacementSources = evidence.selectedReplacementSources ?? [];
+    if (replacementSources.includes('engine_mpn_fallback')) {
+      return '재고 부족으로 찾은 동일 제조사·MPN 계열 대체 후보 · 관리자 확인 필요';
+    }
+    return '재고 부족으로 찾은 대체 후보 · 관리자 확인 필요';
+  }
+  if (provisionalSelectionPending.value) return '원본 스펙 조건으로 선정된 부품 · 세부 근거 검토 권장';
   if (procurementUnavailabilitySummary.value !== null) return procurementUnavailabilitySummary.value;
   if (item.selectionSource === 'customer') {
     if (evidence.decisionReasonCodes.includes('offer-choice')) return '공급사 오퍼 직접 선택';
@@ -305,13 +317,14 @@ interface TotalStatusPresentation {
 const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
   const item = props.item;
   if (quantityMissing.value) {
+    const reviewRequired = item.matchStatus === 'none' || alternativeSelectionPending.value;
     return {
-      label: item.matchStatus === 'none' ? 'Review' : 'Matched',
+      label: reviewRequired ? 'Review' : 'Matched',
       helperLabel: '수량 확인 필요',
-      toneClass: item.matchStatus === 'none'
+      toneClass: reviewRequired
         ? 'bg-state-review/15 text-state-review'
         : 'bg-state-matched/15 text-state-matched',
-      priceClass: item.matchStatus === 'none' ? 'text-state-review' : 'text-state-matched',
+      priceClass: reviewRequired ? 'text-state-review' : 'text-state-matched',
       title: reasonSummary.value,
       pulse: false,
     };
@@ -346,6 +359,16 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       pulse: true,
     };
   }
+  if (alternativeSelectionPending.value) {
+    return {
+      label: 'Review',
+      helperLabel: replacementReviewLabel(item.matchEvidence?.selectedReplacementSources ?? []),
+      toneClass: 'bg-state-review/15 text-state-review',
+      priceClass: 'text-state-review',
+      title: evidenceTitle.value,
+      pulse: false,
+    };
+  }
   if (catalogInquiry.value) {
     const selected = catalogSelectionApplied.value;
     return {
@@ -372,7 +395,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
   if (provisionalSelectionPending.value) {
     return {
       label: 'Matched',
-      helperLabel: '검토 대기',
+      helperLabel: '검토 권장',
       toneClass: 'bg-state-matched/15 text-state-matched',
       priceClass: 'text-state-matched',
       title: evidenceTitle.value,
@@ -558,7 +581,7 @@ function onQtyInput(event: Event): void {
               v-if="selectedReplacementSources.length > 0"
               class="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold leading-4 text-violet-800"
               :title="selectedReplacementTitle"
-            >공급사 제안 대체</span>
+            >{{ replacementSourceBadgeLabel(selectedReplacementSources) }}</span>
           </div>
           <!-- 파일 저장 없이 공급사/카탈로그 원본 URL 직링크 — 없으면 회색 비활성 표기 -->
           <a

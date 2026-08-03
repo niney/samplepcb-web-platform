@@ -228,6 +228,26 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
     `out_of_stock`·`insufficient_stock`만 독립 NOSTOCK 집계에도 포함한다.
     항목별 필수조건 불일치와 기대값·실제값은 후보 비교 근거에 계속 표시한다. 이 필드가 없는 기존
     저장 결과는 종전 상태 표시를 유지하며, 버전과 값 중 하나만 온 결과는 fail-closed 처리한다.
+  - **재고 부족 대체품 2차 검색(2026-08-04)**: 정확 품번의 전체 공급사 결과를 조달 판정한 뒤
+    `out_of_stock|insufficient_stock`이고 필요수량을 충족하는 오퍼가 하나도 없을 때만 DigiKey
+    Substitutions를 추가 호출한다. 공급사 대체품으로도 구매 가능한 검토 후보가 생기지 않으면 검증된
+    BOM 스펙으로 DigiKey·Mouser·UniKeyIC 파라메트릭 검색을 실행하고 결과를
+    `engine_stock_fallback`으로 표시한다. 원품번 후보는 보존하고 대체 후보는 엄격 스펙 검증과
+    관리자 확인을 요구하며 자동 교체하지 않는다. 다른 공급사가 수량을 충족하거나
+    `stock_unverified`·`catalog_inquiry`인 경우에는 호출하지 않는다. 호출은 기존 잡/공급사 예산,
+    single-flight, raw cache를 그대로 적용한다. 검증 스펙이 부족해 파라메트릭 검색을 만들 수 없는
+    경우에는 명시적 구분자 앞의 제한된 영숫자 MPN 계열로 검색하며, 같은 계열·같은 제조사의 다른
+    품번만 `engine_mpn_fallback` 관리자 검토 후보로 남긴다. 이 단계는 trace의
+    `stock_alternative`로 구분한다. 구매 가능한 후보는 가견적 계산을 위한
+    `provisional_selected`가 될 수 있지만 반드시 `confirmation_required=true`로 저장하며, 관리자
+    확인 전에는 확정 선택으로 취급하지 않는다. 화면의 `Review` 경계는 명시적 수동 확정 행을 제외하고,
+    이 두 필드 중 하나가 검토 상태이면서 `selectedReplacementSources`가 비어 있지 않거나
+    `selectedReplacementForMpn`이 있는 **실제 대체품 선정**으로 한정한다. 원본에 MPN이 없어 일반 스펙 검색으로
+    선정한 `spec_compatible`은 후보 패널의 검토 권장은 유지하되 기존처럼 `Matched`로 집계한다. 대체품은
+    `matchStatus`와 재고 상태보다 `Review`를 우선한다. 따라서 AI 분석 카드·행 상태·필터와
+    BOM 비교의 `attention`이 같은 기준을 사용하며, 임시 후보 금액은 유지하되 `Matched` 수에는
+    포함하지 않는다. 고객·관리자 견적 목록은 대용량 근거 JSON을 전수 로드하지 않고 기존
+    `matchedCount`를 선정된 부품 수로 유지하므로, 표시 명칭을 `매칭`이 아닌 `선정`으로 구분한다.
 - **저장 후보 재평가 배치화 + 행 단위 축퇴(2026-07-21)**: 자동저장 PATCH(`repriceCandidateSelections`)가
   수량·환율 드리프트로 재평가가 필요한 행을 모아 `POST /supplier-search/procurement/reevaluate-batch`
   (`supplier-procurement-reevaluation-batch-v1`)를 **50컴포넌트 청크**로 순차 호출한다(청크당 타임아웃

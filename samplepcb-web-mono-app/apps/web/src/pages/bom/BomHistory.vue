@@ -263,7 +263,7 @@ async function confirmDelete(): Promise<void> {
               </th>
               <th class="w-[31%] px-3 py-3">파일 / 견적명</th>
               <th class="w-[110px] px-3 py-3">상태</th>
-              <th class="w-[120px] px-3 py-3">부품 / 매칭</th>
+              <th class="w-[120px] px-3 py-3">부품 / 선정</th>
               <th class="w-[130px] px-3 py-3 text-right">예상 금액</th>
               <th class="w-[170px] px-3 py-3">최근 수정</th>
               <th class="w-[90px] px-3 py-3 text-right">관리</th>
@@ -293,7 +293,7 @@ async function confirmDelete(): Promise<void> {
               </td>
               <td class="px-3 py-3 text-[12px] text-ink-muted">
                 <p><b class="tabular-nums text-ink">{{ item.itemCount }}</b>개 부품</p>
-                <p class="mt-0.5 text-[11px] text-ink-subtle">매칭 {{ item.matchedCount }}/{{ item.itemCount }}</p>
+                <p class="mt-0.5 text-[11px] text-ink-subtle">선정 {{ item.matchedCount }}/{{ item.itemCount }}</p>
               </td>
               <td class="px-3 py-3 text-right text-[13px] font-semibold tabular-nums text-ink">{{ fmtWon(item.finalTotal) }}</td>
               <td class="px-3 py-3 text-[12px] tabular-nums text-ink-subtle">{{ fmtDate(item.updatedAt) }}</td>

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { BomQuoteItemType } from '@sp/api-contract';
 import {
   bomQuoteItemMatchGroup,
+  isBomQuoteAlternativePendingReview,
+  isBomQuotePendingReview,
   isBomQuoteStockShort,
   summarizeBomQuoteItems,
 } from './bom-quote-presentation';
@@ -74,6 +76,87 @@ describe('BOM 견적 화면 표시 집계', () => {
 
     expect(isBomQuoteStockShort(stockShortItem)).toBe(true);
     expect(bomQuoteItemMatchGroup(stockShortItem)).toBe('nostock');
+  });
+
+  it.each([
+    ['confirmationRequired', { confirmationRequired: true }],
+    ['provisional_selected', { selectionApplicationState: 'provisional_selected' }],
+  ] as const)('%s 플래그만 있는 일반 스펙 선정은 기존처럼 Matched로 유지한다', (_label, evidence) => {
+    const pending = item({
+      matchStatus: 'auto',
+      matchEvidence: evidence as BomQuoteItemType['matchEvidence'],
+    });
+
+    expect(isBomQuotePendingReview(pending)).toBe(true);
+    expect(isBomQuoteAlternativePendingReview(pending)).toBe(false);
+    expect(bomQuoteItemMatchGroup(pending)).toBe('matched');
+  });
+
+  it.each([
+    'digikey_substitution',
+    'mouser_suggested',
+    'engine_stock_fallback',
+    'engine_mpn_fallback',
+  ] as const)('%s 대체품 임시 선정만 재고 상태보다 Review를 우선한다', (source) => {
+    const alternative = item({
+      matchStatus: 'auto',
+      orderQty: 5,
+      selectedOffer: { stock: 0 } as BomQuoteItemType['selectedOffer'],
+      matchEvidence: {
+        selectionApplicationState: 'provisional_selected',
+        confirmationRequired: true,
+        selectedReplacementSources: [source],
+        selectedReplacementForMpn: 'ORIGINAL-PART',
+      } as BomQuoteItemType['matchEvidence'],
+    });
+
+    expect(isBomQuoteAlternativePendingReview(alternative)).toBe(true);
+    expect(bomQuoteItemMatchGroup(alternative)).toBe('review');
+  });
+
+  it('대체 출처가 없는 구버전 근거도 원품번이 있으면 Review로 분류한다', () => {
+    const alternative = item({
+      matchStatus: 'auto',
+      matchEvidence: {
+        confirmationRequired: true,
+        selectedReplacementSources: [],
+        selectedReplacementForMpn: 'ORIGINAL-PART',
+      } as unknown as BomQuoteItemType['matchEvidence'],
+    });
+
+    expect(isBomQuoteAlternativePendingReview(alternative)).toBe(true);
+    expect(bomQuoteItemMatchGroup(alternative)).toBe('review');
+  });
+
+  it('빈 대체 원품번은 일반 스펙 선정으로 유지한다', () => {
+    const pending = item({
+      matchStatus: 'auto',
+      matchEvidence: {
+        confirmationRequired: true,
+        selectedReplacementSources: [],
+        selectedReplacementForMpn: '  ',
+      } as unknown as BomQuoteItemType['matchEvidence'],
+    });
+
+    expect(isBomQuoteAlternativePendingReview(pending)).toBe(false);
+    expect(bomQuoteItemMatchGroup(pending)).toBe('matched');
+  });
+
+  it('명시적 수동 선택은 구버전 검토 플래그가 남아도 확정 매칭으로 본다', () => {
+    const confirmed = item({
+      matchStatus: 'manual',
+      selectionSource: 'admin',
+      matchEvidence: {
+        selectionApplicationState: 'provisional_selected',
+        confirmationRequired: true,
+        selectedReplacementSources: ['engine_stock_fallback'],
+        selectedReplacementForMpn: 'ORIGINAL-PART',
+      } as BomQuoteItemType['matchEvidence'],
+    });
+
+    expect(isBomQuotePendingReview(confirmed)).toBe(false);
+    expect(isBomQuoteAlternativePendingReview(confirmed)).toBe(false);
+    expect(bomQuoteItemMatchGroup(confirmed)).toBe('matched');
   });
 
   it('재고 상태는 미선정과 중복 집계하지 않는다', () => {

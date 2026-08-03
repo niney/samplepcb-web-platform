@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Literal
 
 from .contract import (
     SearchBatchInput,
@@ -39,13 +39,16 @@ from .models import (
     MatchStatus,
     PlannedQuery,
     ProcurementPolicyInput,
+    ProcurementUnavailabilityReason,
     RawSupplierResponse,
+    ReplacementSource,
     SearchMode,
     SearchTraceSource,
     SelectionEligibility,
     SelectionRecommendation,
     Supplier,
     SupplierIdentity,
+    SupplierProduct,
     SupplierSearchTraceAttempt,
     SupplierSearchResult,
     bounded_search_trace_query,
@@ -806,31 +809,41 @@ class SearchService:
         ]
         supplier_results = await asyncio.gather(*tasks)
 
-        candidates = [
-            self.matcher.evaluate(query, product)
-            for result in supplier_results
-            for product in result.products
-        ]
-        candidates = finalize_candidate_decisions(query, candidates)
-        if query.mode == SearchMode.PARAMETRIC:
-            candidates, pool_omitted_candidate_count = (
-                self._retain_supplier_technical_top_groups(
-                    query,
-                    candidates,
-                    limit=query.limit,
-                )
+        candidates, procurement_decision, pool_omitted_candidate_count = (
+            self._evaluate_supplier_candidates(
+                query,
+                supplier_results,
+                procurement_policy,
+                recommendation_block_reason=recommendation_block_reason,
             )
-        else:
-            pool_omitted_candidate_count = 0
-        candidates = self._add_corroboration(candidates)
-        candidates = self._assign_technical_review_ranks(query, candidates)
-        candidates = self._assign_selection_recommendations(candidates, query)
-        candidates, procurement_decision = apply_procurement_decisions(
-            query,
-            candidates,
-            procurement_policy,
-            recommendation_block_reason=recommendation_block_reason,
         )
+        stock_shortage_detected = self._stock_replacement_required(
+            query,
+            procurement_decision,
+        )
+        if stock_shortage_detected:
+            enriched_digikey = await self._enrich_digikey_stock_substitutions(
+                query,
+                supplier_results,
+                budget,
+            )
+            if enriched_digikey is not None:
+                supplier_results = [
+                    enriched_digikey
+                    if result.supplier == Supplier.DIGIKEY
+                    else result
+                    for result in supplier_results
+                ]
+                (
+                    candidates,
+                    procurement_decision,
+                    pool_omitted_candidate_count,
+                ) = self._evaluate_supplier_candidates(
+                    query,
+                    supplier_results,
+                    procurement_policy,
+                    recommendation_block_reason=recommendation_block_reason,
+                )
         candidates, omitted_candidate_count = self._retain_supplier_candidate_groups(
             query,
             candidates,
@@ -877,33 +890,72 @@ class SearchService:
             api_calls=sum(result.api_calls for result in supplier_results),
             warnings=warnings,
         )
-        fallback_query = self.planner.parametric_fallback(query)
         identity_resolved = any(
             candidate.identity_confidence >= 0.9 for candidate in primary.candidates
         )
+        stock_replacement_fallback = bool(
+            stock_shortage_detected
+            and primary.procurement_decision is not None
+            and primary.procurement_decision.status == "no_recommendation"
+        )
+        fallback_query = self.planner.parametric_fallback(query)
+        mpn_family_fallback = False
+        if fallback_query is None and stock_replacement_fallback:
+            fallback_query = self.planner.mpn_family_fallback(
+                query,
+                manufacturer=self._replacement_manufacturer(query, primary),
+            )
+            mpn_family_fallback = fallback_query is not None
         if (
             fallback_query is None
             or primary.status == MatchStatus.SUPPLIER_ERROR
-            or identity_resolved
+            or (identity_resolved and not stock_replacement_fallback)
         ):
             return primary
 
+        fallback_block_reason = None
+        if (
+            not stock_replacement_fallback
+            and fallback_query.part_type is None
+            and {
+                name
+                for name, requirement in fallback_query.requirements.items()
+                if requirement.hard and requirement.normalized_value is not None
+            }
+            <= {"package", "mount_style"}
+        ):
+            fallback_block_reason = "identity_fallback_without_part_type"
         fallback = await self._search_component_impl(
             fallback_query,
             procurement_policy=procurement_policy,
             job_budget=budget,
-            recommendation_block_reason=(
-                "identity_fallback_without_part_type"
-                if fallback_query.part_type is None
-                and {
-                    name
-                    for name, requirement in fallback_query.requirements.items()
-                    if requirement.hard and requirement.normalized_value is not None
-                }
-                <= {"package", "mount_style"}
-                else None
-            ),
+            recommendation_block_reason=fallback_block_reason,
         )
+        if stock_replacement_fallback:
+            if mpn_family_fallback:
+                return self._merge_stock_replacement_fallback(
+                    query,
+                    primary,
+                    fallback_query,
+                    fallback,
+                    procurement_policy,
+                    replacement_source=ReplacementSource.ENGINE_MPN_FALLBACK,
+                    replacement_type="MpnFamilyStockFallback",
+                    warning=(
+                        "검증 스펙이 부족해 원품번 계열에서 관리자 검토용 "
+                        "대체 후보를 검색했습니다."
+                    ),
+                    fallback_stage="stock_alternative",
+                    family_prefix=fallback_query.part_number,
+                    manufacturer=fallback_query.manufacturer,
+                )
+            return self._merge_stock_replacement_fallback(
+                query,
+                primary,
+                fallback_query,
+                fallback,
+                procurement_policy,
+            )
         return fallback.model_copy(
             update={
                 "component_id": query.component_id,
@@ -930,6 +982,430 @@ class SearchService:
             },
             deep=True,
         )
+
+    @staticmethod
+    def _replacement_manufacturer(
+        query: PlannedQuery,
+        primary: ComponentSearchResult,
+    ) -> str | None:
+        if query.manufacturer:
+            return query.manufacturer
+        original_mpn = compact_mpn(query.part_number or "")
+        for candidate in primary.candidates:
+            product = candidate.product
+            if (
+                compact_mpn(product.manufacturer_part_number) == original_mpn
+                and product.manufacturer
+            ):
+                return product.manufacturer
+        return None
+
+    def _evaluate_supplier_candidates(
+        self,
+        query: PlannedQuery,
+        supplier_results: list[SupplierSearchResult],
+        procurement_policy: ProcurementPolicyInput,
+        *,
+        recommendation_block_reason: str | None = None,
+    ) -> tuple[list[CandidateMatch], ComponentProcurementDecision, int]:
+        candidates = [
+            self.matcher.evaluate(query, product)
+            for result in supplier_results
+            for product in result.products
+        ]
+        candidates = finalize_candidate_decisions(query, candidates)
+        if query.mode == SearchMode.PARAMETRIC:
+            candidates, pool_omitted_candidate_count = (
+                self._retain_supplier_technical_top_groups(
+                    query,
+                    candidates,
+                    limit=query.limit,
+                )
+            )
+        else:
+            pool_omitted_candidate_count = 0
+        candidates = self._add_corroboration(candidates)
+        candidates = self._assign_technical_review_ranks(query, candidates)
+        candidates = self._assign_selection_recommendations(candidates, query)
+        candidates, procurement_decision = apply_procurement_decisions(
+            query,
+            candidates,
+            procurement_policy,
+            recommendation_block_reason=recommendation_block_reason,
+        )
+        return candidates, procurement_decision, pool_omitted_candidate_count
+
+    @staticmethod
+    def _stock_replacement_required(
+        query: PlannedQuery,
+        procurement_decision: ComponentProcurementDecision | None,
+    ) -> bool:
+        return bool(
+            query.mode in {SearchMode.IDENTITY, SearchMode.HYBRID}
+            and query.part_number
+            and query.quantity is not None
+            and procurement_decision is not None
+            and procurement_decision.primary_unavailability_reason
+            in {
+                ProcurementUnavailabilityReason.OUT_OF_STOCK,
+                ProcurementUnavailabilityReason.INSUFFICIENT_STOCK,
+            }
+        )
+
+    async def _enrich_digikey_stock_substitutions(
+        self,
+        query: PlannedQuery,
+        supplier_results: list[SupplierSearchResult],
+        job_budget: _JobCallBudget,
+    ) -> SupplierSearchResult | None:
+        if self.settings.cache_only:
+            return None
+        client = self.clients.get(Supplier.DIGIKEY)
+        if not isinstance(client, DigiKeyClient) or not client.configured:
+            return None
+        current_result = next(
+            (
+                result
+                for result in supplier_results
+                if result.supplier == Supplier.DIGIKEY
+            ),
+            None,
+        )
+        if current_result is None or any(
+            attempt.strategy == "supplier_substitutions"
+            for attempt in current_result.search_attempts
+        ):
+            return None
+
+        namespace, cache_key = supplier_cache_coordinates(client, query)
+        lookup = self.cache.get(namespace, cache_key, allow_stale=True)
+        if lookup.payload is None:
+            return None
+        try:
+            cached_raw = RawSupplierResponse.model_validate(lookup.payload)
+        except Exception:
+            self.cache.delete(namespace, cache_key)
+            return None
+        if not cached_raw.ok or not isinstance(
+            (cached_raw.payload or {}).get("Product"),
+            dict,
+        ):
+            return None
+
+        async def execute() -> tuple[RawSupplierResponse, int, str]:
+            latest_lookup = self.cache.get(namespace, cache_key, allow_stale=True)
+            latest_raw = cached_raw
+            latest_state = lookup.state
+            if latest_lookup.payload is not None:
+                try:
+                    latest_raw = RawSupplierResponse.model_validate(
+                        latest_lookup.payload
+                    )
+                    latest_state = latest_lookup.state
+                except Exception:
+                    self.cache.delete(namespace, cache_key)
+            if any(
+                attempt.strategy == "supplier_substitutions"
+                for attempt in latest_raw.request_trace
+            ):
+                return latest_raw, 0, latest_state
+
+            call_count = 0
+
+            async def reserve_call() -> None:
+                nonlocal call_count
+                await job_budget.reserve(Supplier.DIGIKEY)
+                call_count += 1
+
+            started = time.perf_counter()
+            try:
+                async with self._supplier_slot(Supplier.DIGIKEY, query):
+                    enriched = await client.enrich_stock_substitutions(
+                        latest_raw,
+                        query,
+                        reserve_call=reserve_call,
+                    )
+            except (QuotaExceeded, JobBudgetExceeded):
+                return latest_raw, call_count, latest_state
+            completed_substitution_attempt = any(
+                attempt.strategy == "supplier_substitutions"
+                and attempt.outcome in {"results", "empty"}
+                for attempt in enriched.request_trace
+            )
+            if completed_substitution_attempt and latest_state != "stale":
+                self.cache.put(
+                    namespace,
+                    cache_key,
+                    enriched.model_dump(mode="json"),
+                    ttl_seconds=self._cache_ttl(query, negative=False),
+                    stale_ttl_seconds=self.settings.stale_ttl_seconds,
+                )
+            return (
+                enriched.model_copy(
+                    update={
+                        "latency_ms": max(
+                            enriched.latency_ms,
+                            (time.perf_counter() - started) * 1_000,
+                        )
+                    }
+                ),
+                call_count,
+                "miss",
+            )
+
+        enrichment_started = time.perf_counter()
+        (enriched_raw, call_count, cache_state), joined = await self.singleflight.run(
+            f"{namespace}:{cache_key}:stock-substitutions",
+            execute,
+        )
+        enrichment_elapsed_ms = (time.perf_counter() - enrichment_started) * 1_000
+        substitution_traces = [
+            attempt
+            for attempt in enriched_raw.request_trace
+            if attempt.strategy == "supplier_substitutions"
+        ]
+        if not substitution_traces:
+            return None
+        if joined:
+            call_count = 0
+            cache_state = "coalesced"
+
+        replacement_payload = {
+            "ReplacementProducts": list(
+                (enriched_raw.payload or {}).get("ReplacementProducts") or []
+            )
+        }
+        delta_raw = RawSupplierResponse(
+            supplier=Supplier.DIGIKEY,
+            ok=True,
+            status_code=enriched_raw.status_code,
+            payload=replacement_payload,
+            fetched_at=enriched_raw.fetched_at,
+            latency_ms=sum(attempt.elapsed_ms for attempt in substitution_traces),
+            http_attempt_count=sum(
+                attempt.http_attempt_count for attempt in substitution_traces
+            ),
+            request_trace=substitution_traces,
+        )
+        delta_result = self._result_from_raw(
+            client,
+            delta_raw,
+            query,
+            cache_state=cache_state,
+            cache_age_seconds=0.0,
+            api_calls=call_count,
+        )
+        products = client.normalize(enriched_raw, query)
+        return current_result.model_copy(
+            update={
+                "products": products,
+                "cache_state": cache_state if call_count or joined else current_result.cache_state,
+                "cache_age_seconds": (
+                    0.0 if call_count else current_result.cache_age_seconds
+                ),
+                "source_latency_ms": enriched_raw.latency_ms,
+                "source_fetched_at": enriched_raw.fetched_at,
+                "operation_elapsed_ms": (
+                    current_result.operation_elapsed_ms
+                    + enrichment_elapsed_ms
+                ),
+                "api_call_performed": (
+                    current_result.api_call_performed or call_count > 0
+                ),
+                "api_calls": current_result.api_calls + call_count,
+                "search_attempts": [
+                    *current_result.search_attempts,
+                    *delta_result.search_attempts,
+                ],
+            },
+            deep=True,
+        )
+
+    def _merge_stock_replacement_fallback(
+        self,
+        query: PlannedQuery,
+        primary: ComponentSearchResult,
+        fallback_query: PlannedQuery,
+        fallback: ComponentSearchResult,
+        procurement_policy: ProcurementPolicyInput,
+        *,
+        replacement_source: ReplacementSource = ReplacementSource.ENGINE_STOCK_FALLBACK,
+        replacement_type: str = "ParametricStockFallback",
+        warning: str = (
+            "필요 수량을 충족하는 오퍼가 없어 확정 스펙으로 "
+            "대체 후보를 다시 검색했습니다."
+        ),
+        fallback_stage: Literal["identity_fallback", "stock_alternative"] = (
+            "identity_fallback"
+        ),
+        family_prefix: str | None = None,
+        manufacturer: str | None = None,
+    ) -> ComponentSearchResult:
+        original_mpn = compact_mpn(query.part_number or "")
+        compact_family = compact_mpn(family_prefix or "")
+        canonical_family_manufacturer = canonical_manufacturer(manufacturer or "")
+
+        def eligible_product(product: SupplierProduct) -> bool:
+            product_mpn = compact_mpn(product.manufacturer_part_number)
+            if not product_mpn or product_mpn == original_mpn:
+                return False
+            if compact_family and not product_mpn.startswith(compact_family):
+                return False
+            if canonical_family_manufacturer and canonical_manufacturer(
+                product.manufacturer or ""
+            ) != canonical_family_manufacturer:
+                return False
+            return True
+
+        tagged_fallback_results: list[SupplierSearchResult] = []
+        for result in fallback.supplier_results:
+            products = [
+                product.model_copy(
+                    update={
+                        "replacement_for_mpn": query.part_number,
+                        "replacement_source": replacement_source,
+                        "replacement_type": replacement_type,
+                    },
+                    deep=True,
+                )
+                for product in result.products
+                if eligible_product(product)
+            ]
+            tagged_fallback_results.append(
+                result.model_copy(update={"products": products}, deep=True)
+            )
+
+        supplier_results = self._merge_supplier_results(
+            primary.supplier_results,
+            tagged_fallback_results,
+        )
+        candidates, procurement_decision, pool_omitted_candidate_count = (
+            self._evaluate_supplier_candidates(
+                query,
+                supplier_results,
+                procurement_policy,
+            )
+        )
+        candidates, omitted_candidate_count = self._retain_supplier_candidate_groups(
+            query,
+            candidates,
+            procurement_decision,
+        )
+        omitted_candidate_count += pool_omitted_candidate_count
+        candidates.sort(key=self._candidate_sort_key)
+        if candidates:
+            status = candidates[0].status
+        elif any(result.error_type is None for result in supplier_results):
+            status = MatchStatus.NOT_FOUND
+        else:
+            status = MatchStatus.SUPPLIER_ERROR
+
+        warnings = list(
+            dict.fromkeys(
+                [
+                    *primary.warnings,
+                    warning,
+                    *fallback.warnings,
+                ]
+            )
+        )
+        if omitted_candidate_count:
+            limit_warning = self._candidate_limit_warning(
+                omitted_candidate_count,
+                price_aware=True,
+            )
+            if limit_warning not in warnings:
+                warnings.append(limit_warning)
+        return primary.model_copy(
+            update={
+                "status": status,
+                "query": query,
+                "search_trace": self._component_search_trace(
+                    query,
+                    primary.supplier_results,
+                    fallback_query=fallback_query,
+                    fallback_results=fallback.supplier_results,
+                    fallback_stage=fallback_stage,
+                ),
+                "candidates": candidates,
+                "input_corrections": self._input_corrections(query, candidates),
+                "supplier_results": supplier_results,
+                "procurement_decision": procurement_decision,
+                "api_calls": primary.api_calls + fallback.api_calls,
+                "elapsed_ms": primary.elapsed_ms + fallback.elapsed_ms,
+                "warnings": list(dict.fromkeys(warnings)),
+            },
+            deep=True,
+        )
+
+    @staticmethod
+    def _merge_supplier_results(
+        primary_results: list[SupplierSearchResult],
+        fallback_results: list[SupplierSearchResult],
+    ) -> list[SupplierSearchResult]:
+        merged: dict[Supplier, SupplierSearchResult] = {
+            result.supplier: result for result in primary_results
+        }
+        order = [result.supplier for result in primary_results]
+        for fallback in fallback_results:
+            current = merged.get(fallback.supplier)
+            if current is None:
+                merged[fallback.supplier] = fallback
+                order.append(fallback.supplier)
+                continue
+            products = [*current.products, *fallback.products]
+            api_calls = current.api_calls + fallback.api_calls
+            if api_calls > 0:
+                cache_state = "miss"
+            elif "stale" in {current.cache_state, fallback.cache_state}:
+                cache_state = "stale"
+            elif "coalesced" in {current.cache_state, fallback.cache_state}:
+                cache_state = "coalesced"
+            elif current.cache_state == fallback.cache_state == "fresh":
+                cache_state = "fresh"
+            else:
+                cache_state = current.cache_state
+            fetched_at_values = [
+                value
+                for value in (current.source_fetched_at, fallback.source_fetched_at)
+                if value is not None
+            ]
+            latency_values = [
+                value
+                for value in (current.source_latency_ms, fallback.source_latency_ms)
+                if value is not None
+            ]
+            age_values = [
+                value
+                for value in (current.cache_age_seconds, fallback.cache_age_seconds)
+                if value is not None
+            ]
+            merged[fallback.supplier] = current.model_copy(
+                update={
+                    "products": products,
+                    "error_type": None if products else fallback.error_type or current.error_type,
+                    "error_message": (
+                        None if products else fallback.error_message or current.error_message
+                    ),
+                    "cache_state": cache_state,
+                    "cache_age_seconds": max(age_values) if age_values else None,
+                    "source_latency_ms": sum(latency_values) if latency_values else None,
+                    "source_fetched_at": max(fetched_at_values) if fetched_at_values else None,
+                    "operation_elapsed_ms": (
+                        current.operation_elapsed_ms + fallback.operation_elapsed_ms
+                    ),
+                    "api_call_performed": (
+                        current.api_call_performed or fallback.api_call_performed
+                    ),
+                    "api_calls": api_calls,
+                    "search_attempts": [
+                        *current.search_attempts,
+                        *fallback.search_attempts,
+                    ],
+                },
+                deep=True,
+            )
+        return [merged[supplier] for supplier in order]
 
     @staticmethod
     def _query_text(query: PlannedQuery) -> str:
@@ -972,11 +1448,14 @@ class SearchService:
         *,
         fallback_query: PlannedQuery | None = None,
         fallback_results: list[SupplierSearchResult] | None = None,
+        fallback_stage: Literal["identity_fallback", "stock_alternative"] = (
+            "identity_fallback"
+        ),
     ) -> ComponentSearchTrace:
         staged = (
             ("primary", primary_query, primary_results),
             (
-                "identity_fallback",
+                fallback_stage,
                 fallback_query,
                 fallback_results or [],
             ),

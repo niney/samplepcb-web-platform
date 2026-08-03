@@ -17,6 +17,8 @@ const LIFECYCLE_LABELS: Record<BomQuoteLifecycleCodeType, string> = {
 const REPLACEMENT_SOURCE_LABELS: Record<BomQuoteReplacementSourceType, string> = {
   digikey_substitution: 'DigiKey 대체품 API',
   mouser_suggested: 'Mouser 추천 대체품',
+  engine_stock_fallback: '재고 부족 스펙 검색',
+  engine_mpn_fallback: 'MPN 기반 탐색 후보',
 };
 
 export function lifecycleLabel(code: BomQuoteLifecycleCodeType): string {
@@ -62,5 +64,25 @@ export function lifecycleSummaryTitle(
 export function replacementSourcesTitle(
   sources: readonly BomQuoteReplacementSourceType[],
 ): string {
-  return `공급사가 원품번의 대체 후보로 제공: ${sources.map((source) => REPLACEMENT_SOURCE_LABELS[source]).join(', ')}\n자동 호환을 의미하지 않으며 사양 확인 후 선택해야 합니다.`;
+  const origin = sources.some((source) =>
+    source === 'engine_stock_fallback' || source === 'engine_mpn_fallback')
+    ? '재고 부족으로 찾은 대체 후보'
+    : '공급사가 원품번의 대체 후보로 제공';
+  return `${origin}: ${sources.map((source) => REPLACEMENT_SOURCE_LABELS[source]).join(', ')}\n자동 호환을 의미하지 않으며 사양 확인 후 선택해야 합니다.`;
+}
+
+export function replacementSourceBadgeLabel(
+  sources: readonly BomQuoteReplacementSourceType[],
+): string {
+  if (sources.includes('engine_mpn_fallback')) return 'MPN 계열 후보';
+  if (sources.includes('engine_stock_fallback')) return '스펙 대체 후보';
+  return '공급사 제안 대체';
+}
+
+export function replacementReviewLabel(
+  sources: readonly BomQuoteReplacementSourceType[],
+): string {
+  if (sources.includes('engine_mpn_fallback')) return 'MPN 계열 후보';
+  if (sources.includes('engine_stock_fallback')) return '스펙 대체 후보';
+  return '대체 후보';
 }
