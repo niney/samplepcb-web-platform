@@ -1911,14 +1911,12 @@ function fmtAmount(v: number | null): string {
         <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-[10px] border border-line-strong bg-surface [contain:layout_paint] [scrollbar-width:thin] min-[1890px]:overflow-x-hidden [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-[8px] [&::-webkit-scrollbar]:w-[8px]">
           <!-- table-fixed — auto 레이아웃은 폭이 바뀔 때마다 모든 행의 셀 내용을 다시 측정해서
                행이 많아지면 리사이즈가 눈에 띄게 버벅인다. 열 폭은 아래 colgroup 이 단일 소스이고,
-               Figma 2282:80504의 열 경계 합계는 1920px 화면에서 1366px이며, 일반 브라우저
-               콘텐츠 폭에서는 Description만 줄여 나머지 열과 폰트 치수를 유지한다. -->
+               Manufacturer는 MPN 셀에 함께 표시하고 Description이 남는 폭을 사용한다. -->
           <table id="bom-results-table" class="w-full min-w-[1338px] table-fixed min-[1920px]:min-w-[1366px]" :aria-busy="editingLocked">
             <colgroup>
               <col class="w-[41px]">
-              <col class="w-[364px]"><!-- MPN — Figma x=285..649, 이미지와 긴 품번을 함께 수용 -->
-              <col class="w-[204px]"><!-- MANUFACTURER -->
-              <col class="w-[191px] min-[1920px]:w-[219px]"><!-- DESCRIPTION — 1920px 시안은 219px, 좁은 데스크톱에서는 28px만 유동 축소 -->
+              <col class="w-[364px]"><!-- MPN + Manufacturer — 이미지와 긴 품번을 함께 수용 -->
+              <col><!-- DESCRIPTION — 남는 폭을 사용한다 -->
               <col class="w-[160px]">
               <col class="w-[182px]">
               <col class="w-[106px]">
@@ -1941,7 +1939,6 @@ function fmtAmount(v: number | null): string {
                   </div>
                 </th>
                 <th class="relative p-0"><span>전체 선택</span><span class="absolute left-[100px]">MPN</span></th>
-                <th class="p-0">Manufacturer</th>
                 <th class="p-0">Description</th>
                 <th class="p-0">Unit Price</th>
                 <th class="p-0">Quantity / Stock</th>
@@ -1951,7 +1948,7 @@ function fmtAmount(v: number | null): string {
             </thead>
             <tbody>
               <tr v-if="virtualPaddingTop > 0" aria-hidden="true">
-                <td colspan="8" :style="{ height: `${String(virtualPaddingTop)}px` }" />
+                <td colspan="7" :style="{ height: `${String(virtualPaddingTop)}px` }" />
               </tr>
               <BomQuoteRow
                 v-for="entry in virtualRowItems"
@@ -1971,10 +1968,10 @@ function fmtAmount(v: number | null): string {
                 @open-search="openCatalogSearchDrawer(entry.item)"
               />
               <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
-                <td colspan="8" :style="{ height: `${String(virtualPaddingBottom)}px` }" />
+                <td colspan="7" :style="{ height: `${String(virtualPaddingBottom)}px` }" />
               </tr>
               <tr v-if="filteredItems.length === 0">
-                <td colspan="8" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultTextSearchActive ? '검색어에 해당하는 BOM 라인이 없습니다.' : resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
+                <td colspan="7" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultTextSearchActive ? '검색어에 해당하는 BOM 라인이 없습니다.' : resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
               </tr>
             </tbody>
           </table>

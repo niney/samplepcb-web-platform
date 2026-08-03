@@ -513,11 +513,11 @@ function onQtyInput(event: Event): void {
 </script>
 
 <template>
-  <!-- border-collapse의 하단 1px을 포함해 Figma 행 높이 110px이 된다. -->
+  <!-- border-collapse의 하단 1px을 포함해 기본 행 높이 110px이 된다. -->
   <tr class="h-[109px] border-b border-line-soft align-top transition-colors" :class="rowClass">
-    <!-- Figma에는 체크박스만 노출한다. 원본 행 정보는 접근성 텍스트와 툴팁으로 보존한다. -->
+    <!-- 포함 체크 + Excel 원본 행. 시트명은 좁은 표를 위해 툴팁으로 보존한다. -->
     <td class="p-0" :title="sourceLocationTitle">
-      <div class="flex h-[109px] items-center pl-[15px]">
+      <div class="flex h-[109px] flex-col items-center justify-center gap-[6px]">
         <input
           :checked="item.included"
           type="checkbox"
@@ -527,7 +527,12 @@ function onQtyInput(event: Event): void {
           :aria-label="`${sourceRowText} 견적 포함`"
           @change="emit('toggle-include')"
         >
-        <span class="sr-only">{{ sourceRowText }}</span>
+        <span
+          class="block max-w-[39px] cursor-default truncate text-center font-noto text-[10px] font-medium leading-[14px] tabular-nums text-ink-muted"
+          :title="sourceLocationTitle"
+        >
+          {{ sourceRowText }}
+        </span>
       </div>
     </td>
     <!-- MPN: 공급사 배지 + 이미지 + 품번/제조사 + 데이터시트 -->
@@ -552,6 +557,7 @@ function onQtyInput(event: Event): void {
         </div>
         <div class="min-w-0 w-[240px] max-w-full pt-[25px]">
           <p class="line-clamp-2 break-all font-noto text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
+          <p class="truncate font-noto text-[11px] font-normal leading-[16px] text-ink-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <div
             v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null || selectedReplacementSources.length > 0"
@@ -588,13 +594,9 @@ function onQtyInput(event: Event): void {
         </div>
       </div>
     </td>
-    <!-- MANUFACTURER — 시안 87:12875 에서 MPN 과 분리된 열. Description 과 같은 높이에 맞춘다. -->
-    <td class="p-0 pt-[45px]">
-      <p class="w-[180px] truncate font-noto text-[14px] font-normal leading-[20px] text-ink-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
-    </td>
     <!-- 폭은 표의 colgroup 이 정한다(table-fixed) — 여기서 다시 제한하면 남는 폭을 못 쓴다 -->
     <td class="p-0 pt-[45px]">
-      <p class="w-[180px] line-clamp-2 break-words font-noto text-[14px] font-normal leading-[20px] text-ink-muted" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
+      <p class="w-full line-clamp-2 break-words pr-[12px] font-noto text-[14px] font-normal leading-[20px] text-ink-muted" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->
     <td class="w-[160px] p-0 pb-[7px] pt-[8px]">
