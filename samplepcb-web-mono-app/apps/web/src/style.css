@@ -16,13 +16,16 @@
   --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui,
     "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji";
+  /* Figma Smart BOM은 정보성 텍스트에 Noto Sans KR, 금액·조작부에 Pretendard를
+     혼용한다. font-noto 유틸로 노드별 원본 서체까지 구분한다. */
+  --font-noto: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic",
+    ui-sans-serif, system-ui, sans-serif;
 
   /* BOM 상세(일반·관리자)의 좌우 2단 배치 전환점.
-     좌 사이드바(220~240) + 결과 테이블 최소폭(1104) + 우 패널(286) + 여백/갭 ≈ 1,706px 이
-     실제 필요 폭이라, xl(1280)에서 전환하면 그 아래 구간 내내 공간이 모자란 채 좌우 배치가
-     유지된다. 그러면 리사이즈할 때 가로 스크롤·열 너비·행 높이·sticky 헤더가 매 프레임 함께
-     재계산돼 버벅인다. 스크롤바까지 감안해 1,740px 에서 전환한다.
-     (MANUFACTURER 열을 독립시키며 테이블 최소폭이 1024→1104 로 늘어 1,660→1,740 으로 올렸다.) */
+     Figma 1920px 화면은 좌 사이드바 220 + 좌 여백 24 + 결과표 1366 + 간격 24 + 우 패널 286으로
+     정확히 채운다. 일반 브라우저의 1892px 콘텐츠 폭에서는 Description만 28px 줄여 같은 구성을
+     유지하고, 그보다 좁은 구간은 결과표 내부 가로 스크롤로 기능을 보존한다. 너무 이른 xl 전환은
+     열 너비·행 높이·sticky 헤더를 매 프레임 다시 계산하므로 1,740px부터 2단으로 전환한다. */
   --breakpoint-bomwide: 1740px;
 
   /* ── 색 토큰 ────────────────────────────────────────────────────────────────

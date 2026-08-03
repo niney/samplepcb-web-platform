@@ -1676,18 +1676,17 @@ function fmtAmount(v: number | null): string {
     </section>
 
     <!-- 워크벤치 — 시안(87:12875): 좌 매칭 결과 테이블(내부 스크롤) + 우 정보 패널(고정) -->
-    <div v-else-if="detail && detail.buildStatus === 'ready'" class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 bomwide:flex-row bomwide:overflow-visible">
+    <div v-else-if="detail && detail.buildStatus === 'ready'" class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 bomwide:flex-row bomwide:gap-[24px] bomwide:overflow-visible bomwide:py-[14px] bomwide:pl-[24px] bomwide:pr-0">
       <!-- 좌: 파일명·액션(고정) + 테이블(내부 스크롤) -->
       <section class="flex min-h-0 min-w-0 flex-1 flex-col">
         <!-- file name + 액션 (87:13178~) -->
         <div class="flex flex-wrap items-start justify-between gap-3 px-1">
-          <div>
-            <div class="flex flex-wrap items-center gap-2">
-              <button type="button" class="text-sm text-gray-400 hover:text-gray-700" title="목록으로" @click="router.push({ name: 'bom' })">←</button>
-              <h1 class="text-[19px] font-bold text-ink-strong">{{ detail.fileName ?? detail.title }}</h1>
+          <div class="relative -top-[5px]">
+            <div class="flex flex-wrap items-center gap-[10px]">
+              <h1 class="mr-[6px] text-[18px] font-medium leading-[21px] text-ink-strong">{{ detail.fileName ?? detail.title }}</h1>
               <button
                 type="button"
-                class="flex h-8 w-[82px] shrink-0 items-center justify-center gap-1 rounded-md border border-brand-soft bg-surface text-[14px] font-bold leading-6 text-brand-soft hover:bg-surface-brand-soft"
+                class="flex h-8 w-[82px] shrink-0 items-center justify-center gap-1 rounded-md border border-brand-soft bg-surface font-noto text-[14px] font-bold leading-6 text-brand-soft hover:bg-surface-brand-soft"
                 title="새 BOM 업로드"
                 @click="router.push({ name: 'bom' })"
               >
@@ -1695,7 +1694,7 @@ function fmtAmount(v: number | null): string {
               </button>
               <button
                 type="button"
-                class="flex h-8 w-[95px] shrink-0 items-center justify-center gap-1 rounded-md border border-brand-soft bg-surface text-[14px] font-bold leading-6 text-brand-soft hover:bg-surface-brand-soft disabled:cursor-wait disabled:opacity-60"
+                class="flex h-8 w-[91px] shrink-0 items-center justify-center gap-1 rounded-md border border-brand-soft bg-surface font-noto text-[14px] font-bold leading-6 text-brand-soft hover:bg-surface-brand-soft disabled:cursor-wait disabled:opacity-60"
                 :disabled="downloadPending"
                 :title="downloadPending ? '원본 BOM 다운로드 중' : '원본 BOM 다운로드'"
                 @click="downloadOriginal"
@@ -1706,7 +1705,7 @@ function fmtAmount(v: number | null): string {
               <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">가격·재고 확인 완료 — 최신 결과로 갱신되었습니다</span>
             </div>
             <p v-if="downloadError !== ''" class="mt-1 pl-6 text-xs text-red-600">{{ downloadError }}</p>
-            <div class="mt-1 flex flex-wrap items-center gap-1.5 pl-6 text-[13px] text-ink-muted">
+            <div class="mt-[-2px] flex flex-wrap items-center gap-1.5 font-noto text-[13px] font-medium leading-[16px] text-ink-muted">
               <span>{{ quoteStats.total }}개 부품</span>
               <span v-if="showResultSheetTabs" class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{{ selectedResultSheets.length }}개 시트</span>
               <template v-else>
@@ -1714,7 +1713,7 @@ function fmtAmount(v: number | null): string {
               </template>
             </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-[12px]">
             <span v-if="isDraft" class="mr-1 text-xs text-gray-400">
               <template v-if="saveState === 'saving'">저장 중…</template>
               <template v-else-if="saveState === 'saved' && !dirty">자동 저장됨</template>
@@ -1733,7 +1732,7 @@ function fmtAmount(v: number | null): string {
             </button>
             <button
               type="button"
-              class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-surface px-4 text-[14px] font-semibold text-ink-soft hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+              class="flex h-[42px] w-[123px] items-center justify-center gap-1.5 rounded-[6px] border border-gray-500 bg-surface px-3 font-noto text-[16px] font-bold leading-6 text-ink-strong hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
               title="Excel 원본과 공급사 검색 결과 비교"
               @click="compareOpen = true"
             >
@@ -1754,12 +1753,12 @@ function fmtAmount(v: number | null): string {
             <button
               v-if="isDraft"
               type="button"
-              class="flex h-[38px] items-center gap-1 rounded-lg bg-brand-strong px-4 text-[14px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 disabled:hover:bg-blue-300"
+              class="flex h-[42px] w-[88px] items-center justify-center gap-[6px] rounded-[6px] bg-brand-strong px-0 font-noto text-[16px] font-bold leading-6 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 disabled:hover:bg-blue-300"
               :disabled="editingLocked"
               :title="editingLocked ? EDIT_LOCK_TITLE : '부품 추가'"
               @click="openPartModal('add', null, '')"
             >
-              <span class="text-[16px] leading-none">+</span> 추가
+              <span class="text-[18px] leading-none">+</span> 추가
             </button>
           </div>
         </div>
@@ -1858,9 +1857,9 @@ function fmtAmount(v: number | null): string {
         </div>
 
         <!-- 매칭 결과 헤더 -->
-        <div :class="showResultSheetTabs ? 'mt-2' : 'mt-4'" class="flex min-h-[26px] flex-wrap items-center justify-between gap-2 px-1">
+        <div :class="showResultSheetTabs ? 'mt-2' : 'mt-[11px]'" class="flex min-h-[24px] flex-wrap items-center justify-between gap-2">
           <div class="flex flex-wrap items-center gap-2">
-            <p class="text-[15px] font-bold text-ink-strong">매칭 결과</p>
+            <p class="translate-y-[4px] font-noto text-[13px] font-medium leading-[16px] text-ink-strong">매칭 결과</p>
             <template v-if="resultFiltersActive">
               <span class="text-[12px] font-medium text-ink-muted">{{ stats.total }}개 중 {{ filteredItems.length }}개 표시</span>
               <span v-if="activeMatchFilterLabel !== null" class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{{ activeMatchFilterLabel }}</span>
@@ -1878,7 +1877,7 @@ function fmtAmount(v: number | null): string {
                 v-model="resultTextQuery"
                 type="search"
                 maxlength="120"
-                class="h-[30px] w-full rounded-md border border-line bg-surface py-1 pl-8 pr-8 text-[12px] text-ink placeholder:text-ink-faint focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 [&::-webkit-search-cancel-button]:hidden"
+                class="h-[24px] w-full rounded-[4px] border border-line-strong bg-surface py-0 pl-8 pr-8 text-[12px] text-ink placeholder:text-ink-faint focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 [&::-webkit-search-cancel-button]:hidden"
                 placeholder="MPN · 원본값 · REFDES 찾기"
                 title="공급사 검색 없이 현재 BOM 목록에서 찾습니다"
                 @keydown.esc.prevent="resultTextQuery = ''"
@@ -1899,7 +1898,7 @@ function fmtAmount(v: number | null): string {
             <select
               id="bom-result-sort"
               v-model="resultSort"
-              class="h-[26px] rounded border border-line bg-surface px-2 text-[12px] text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              class="h-[24px] rounded-[4px] border border-line-strong bg-surface-neutral px-2 text-[12px] font-semibold text-ink-neutral focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               title="매칭 결과 정렬"
               @change="scrollResultsToTop"
             >
@@ -1909,44 +1908,45 @@ function fmtAmount(v: number | null): string {
         </div>
 
         <!-- 테이블 (list01 스타일) — 이 영역만 내부 스크롤, 헤더는 sticky -->
-        <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface [contain:layout_paint] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-[8px] [&::-webkit-scrollbar]:w-[8px]">
+        <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-[10px] border border-line-strong bg-surface [contain:layout_paint] [scrollbar-width:thin] min-[1890px]:overflow-x-hidden [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-[8px] [&::-webkit-scrollbar]:w-[8px]">
           <!-- table-fixed — auto 레이아웃은 폭이 바뀔 때마다 모든 행의 셀 내용을 다시 측정해서
                행이 많아지면 리사이즈가 눈에 띄게 버벅인다. 열 폭은 아래 colgroup 이 단일 소스이고,
-               값은 각 td 의 좌우 padding 까지 포함한 실제 필요 폭이다(합 1064 + Description 140 = 1204). -->
-          <table id="bom-results-table" class="min-w-[1204px] w-full table-fixed" :aria-busy="editingLocked">
+               Figma 2282:80504의 열 경계 합계는 1920px 화면에서 1366px이며, 일반 브라우저
+               콘텐츠 폭에서는 Description만 줄여 나머지 열과 폰트 치수를 유지한다. -->
+          <table id="bom-results-table" class="w-full min-w-[1338px] table-fixed min-[1920px]:min-w-[1366px]" :aria-busy="editingLocked">
             <colgroup>
-              <col class="w-[56px]">
-              <col class="w-[336px]"><!-- MPN — 긴 품번은 우선 한 줄, 초과 시 두 줄로 표시 -->
-              <col class="w-[140px]"><!-- MANUFACTURER -->
-              <col><!-- Description — 남는 폭을 가져간다(최소 140px) -->
-              <col class="w-[130px]">
-              <col class="w-[176px]">
-              <col class="w-[140px]">
-              <col class="w-[86px]">
+              <col class="w-[41px]">
+              <col class="w-[364px]"><!-- MPN — Figma x=285..649, 이미지와 긴 품번을 함께 수용 -->
+              <col class="w-[204px]"><!-- MANUFACTURER -->
+              <col class="w-[191px] min-[1920px]:w-[219px]"><!-- DESCRIPTION — 1920px 시안은 219px, 좁은 데스크톱에서는 28px만 유동 축소 -->
+              <col class="w-[160px]">
+              <col class="w-[182px]">
+              <col class="w-[106px]">
+              <col class="w-[90px]">
             </colgroup>
-            <thead class="sticky top-0 z-10 bg-surface shadow-[0_1px_0_var(--color-line-soft)]">
-              <tr class="text-left text-[11px] uppercase tracking-wide text-ink-subtle">
-                <th class="px-1 py-2.5">
-                  <div class="flex justify-center">
+            <thead class="sticky top-0 z-10 bg-surface-sunken shadow-[0_1px_0_var(--color-line-soft)] [&_th]:font-normal">
+              <tr class="h-[39px] text-left font-noto text-[10px] font-normal uppercase leading-[24px] tracking-normal text-[#828282]">
+                <th class="p-0">
+                  <div class="flex h-[39px] items-center pl-[15px]">
                     <input
                       type="checkbox"
-                      class="h-4 w-4 rounded border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
+                      class="size-[18px] rounded-[2px] border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
                       :checked="allIncluded"
                       :indeterminate.prop="someIncluded && !allIncluded"
                       :disabled="!isDraft || editingLocked || includableItems.length === 0"
                       :title="editingLocked ? EDIT_LOCK_TITLE : allIncluded ? '표시된 행 전체를 견적에서 제외' : '표시된 행 전체를 견적에 포함'"
                       @change="toggleIncludeAll"
                     >
-                    <span class="sr-only">표시된 행 전체 포함 및 원본 행</span>
+                    <span class="sr-only">표시된 행 전체 포함</span>
                   </div>
                 </th>
-                <th class="px-2 py-2.5">MPN / 원본 값</th>
-                <th class="px-2 py-2.5">Manufacturer</th>
-                <th class="px-2 py-2.5">Description</th>
-                <th class="px-2 py-2.5 text-right">Unit Price</th>
-                <th class="px-2 py-2.5">Quantity / Stock</th>
-                <th class="px-2 py-2.5 text-right">Total Price</th>
-                <th class="px-2 py-2.5" />
+                <th class="relative p-0"><span>전체 선택</span><span class="absolute left-[100px]">MPN</span></th>
+                <th class="p-0">Manufacturer</th>
+                <th class="p-0">Description</th>
+                <th class="p-0">Unit Price</th>
+                <th class="p-0">Quantity / Stock</th>
+                <th class="py-0 pl-[12px] pr-0">Total Price</th>
+                <th class="p-0" />
               </tr>
             </thead>
             <tbody>
@@ -1982,8 +1982,8 @@ function fmtAmount(v: number | null): string {
       </section>
 
       <!-- 우: Figma right side bar(93:23505)의 치수·위계를 라이트 테마로 번역 -->
-      <aside v-show="rightOpen" class="w-full shrink-0 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] bomwide:min-h-0 bomwide:w-[286px] bomwide:overflow-y-auto bomwide:pb-1">
-        <div class="flex min-h-full flex-col rounded-xl border border-line bg-surface p-[15px] shadow-[0_4px_18px_rgba(19,33,68,0.06)]">
+      <aside v-show="rightOpen" class="w-full shrink-0 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] bomwide:-mt-[14px] bomwide:h-[calc(100%+28px)] bomwide:min-h-0 bomwide:w-[286px] bomwide:overflow-y-auto">
+        <div class="flex min-h-full flex-col rounded-xl border border-line bg-surface px-[15px] pb-[15px] pt-[20px] shadow-[0_4px_18px_rgba(19,33,68,0.06)] bomwide:rounded-none bomwide:border-y-0 bomwide:border-r-0 bomwide:shadow-none">
           <!-- 회신(answered) — 회신 완료 상태면 내용이 없어도 박스를 보여 상태를 설명한다 -->
           <div v-if="detail.status === 'answered' || detail.answerNote !== null || detail.confirmedTotal !== null" class="mb-[18px] rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12px]">
             <p v-if="detail.answerNote" class="whitespace-pre-wrap leading-[18px] text-emerald-900">{{ detail.answerNote }}</p>
@@ -2027,7 +2027,7 @@ function fmtAmount(v: number | null): string {
 
           <!-- AI 분석결과 (93:23545) -->
           <section>
-            <h2 class="flex h-[22px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-ink-strong">
+            <h2 class="flex h-[16px] items-center gap-[6px] font-noto text-[12px] font-bold leading-[14px] text-ink-strong">
               <img :src="icPanelAi" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               AI 분석결과
               <span v-if="showResultSheetTabs" class="ml-auto max-w-[120px] truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-600" :title="activeResultSheetLabel">{{ activeResultSheetLabel }}</span>
@@ -2035,7 +2035,7 @@ function fmtAmount(v: number | null): string {
             <div class="mt-[10px] grid grid-cols-2 gap-[8px]">
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-line-brand bg-surface-sunken px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-brand after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
+                class="relative flex h-[51px] min-w-0 w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-line-brand bg-surface-sunken px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-brand after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
                 :class="!resultFiltersActive ? 'ring-2 ring-brand ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
                 :aria-pressed="!resultFiltersActive"
                 :aria-label="`전체 ${String(stats.total)}개 행 보기`"
@@ -2043,14 +2043,14 @@ function fmtAmount(v: number | null): string {
                 @click="clearResultFilters"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Total Lines</span>
-                  <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums text-brand">{{ stats.total }}</span>
+                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Total Lines</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-normal tabular-nums text-brand">{{ stats.total }}</span>
                 </div>
-                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-surface-brand text-[17px] leading-none text-brand">≋</span>
+                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-surface-brand text-[18px] leading-none text-brand">≋</span>
               </button>
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-line-matched bg-surface-matched px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-state-supply after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-supply focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-line-matched bg-surface-matched px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-state-supply after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-supply focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="resultMatchFilter === 'matched' ? 'ring-2 ring-state-supply ring-offset-1 shadow-sm' : stats.matched > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
                 :disabled="stats.matched === 0"
                 :aria-pressed="resultMatchFilter === 'matched'"
@@ -2060,14 +2060,14 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultMatchFilter('matched')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Matched</span>
-                  <span class="mt-[1px] whitespace-nowrap text-[17px] font-extrabold leading-[20px] tabular-nums text-state-supply">{{ stats.matched }} <span class="text-[11px] font-semibold">{{ stats.matchedPct }}%</span></span>
+                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Matched</span>
+                  <span class="mt-[1px] whitespace-nowrap text-[18px] font-extrabold leading-normal tabular-nums text-state-supply">{{ stats.matched }} <span class="text-[12px] font-semibold">{{ stats.matchedPct }}%</span></span>
                 </div>
-                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-surface-matched-strong text-[17px] font-semibold leading-none text-state-supply">✓</span>
+                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-surface-matched-strong text-[18px] font-semibold leading-none text-state-supply">✓</span>
               </button>
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-orange-200 bg-orange-50/60 px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-orange-400 after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-orange-200 bg-orange-50/60 px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-orange-400 after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="resultMatchFilter === 'review' ? 'ring-2 ring-orange-400 ring-offset-1 shadow-sm' : !enriching && stats.review > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
                 :disabled="enriching || stats.review === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'review'"
@@ -2077,15 +2077,15 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultMatchFilter('review')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Review</span>
-                  <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums text-orange-500">{{ stats.review }}</span>
+                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Review</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-normal tabular-nums text-orange-500">{{ stats.review }}</span>
                 </div>
-                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-orange-100 text-[15px] font-bold text-orange-500">!</span>
+                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-orange-100 text-[16px] font-bold text-orange-500">!</span>
               </button>
               <!-- 보강 진행 중엔 Checking(파랑) — 최종 미매칭 판정과 구분 -->
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="[
                   enriching ? 'cursor-wait border border-line-brand bg-surface-sunken after:from-brand' : 'border border-line-danger bg-surface-danger after:from-state-danger focus-visible:ring-state-danger',
                   !enriching && resultMatchFilter === 'unmatched' ? 'ring-2 ring-state-danger ring-offset-1 shadow-sm' : !enriching && stats.unmatched > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : !enriching ? 'opacity-45' : '',
@@ -2098,14 +2098,14 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultMatchFilter('unmatched')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">{{ enriching ? 'Checking' : 'Unmatched' }}</span>
-                  <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums" :class="enriching ? 'text-brand' : 'text-state-danger'">{{ enriching ? stats.unresolved : stats.unmatched }}</span>
+                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">{{ enriching ? 'Checking' : 'Unmatched' }}</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-normal tabular-nums" :class="enriching ? 'text-brand' : 'text-state-danger'">{{ enriching ? stats.unresolved : stats.unmatched }}</span>
                 </div>
-                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] text-[17px] leading-none" :class="enriching ? 'bg-surface-brand text-brand' : 'bg-surface-danger text-state-danger'">{{ enriching ? '…' : '×' }}</span>
+                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] text-[18px] leading-none" :class="enriching ? 'bg-surface-brand text-brand' : 'bg-surface-danger text-state-danger'">{{ enriching ? '…' : '×' }}</span>
               </button>
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-line-warn bg-surface-warn px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-state-nostock after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-nostock focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-line-warn bg-surface-warn px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-state-nostock after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-nostock focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="resultNostockOnly ? 'ring-2 ring-state-nostock ring-offset-1 shadow-sm' : stats.nostock > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
                 :disabled="stats.nostock === 0"
                 :aria-pressed="resultNostockOnly"
@@ -2115,14 +2115,14 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultNostockFilter"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Nostock</span>
-                  <span class="mt-[1px] whitespace-nowrap text-[17px] font-extrabold leading-[20px] tabular-nums text-state-nostock">{{ stats.nostock }} <span class="text-[11px] font-semibold">{{ stats.nostockPct }}%</span></span>
+                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Nostock</span>
+                  <span class="mt-[1px] whitespace-nowrap text-[18px] font-extrabold leading-normal tabular-nums text-state-nostock">{{ stats.nostock }} <span class="text-[12px] font-semibold">{{ stats.nostockPct }}%</span></span>
                 </div>
-                <img :src="icPanelNostock" alt="" class="size-[24px] shrink-0">
+                <img :src="icPanelNostock" alt="" class="size-[28px] shrink-0">
               </button>
               <button
                 type="button"
-                class="relative flex h-[56px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-slate-400 after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-slate-400 after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="resultMatchFilter === 'excluded' ? 'ring-2 ring-slate-400 ring-offset-1 shadow-sm' : !enriching && stats.excluded > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
                 :disabled="enriching || stats.excluded === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'excluded'"
@@ -2132,25 +2132,25 @@ function fmtAmount(v: number | null): string {
                 @click="toggleResultMatchFilter('excluded')"
               >
                 <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[9px] font-medium uppercase leading-[11px] tracking-[0.7px] text-ink-muted">Excluded</span>
-                  <span class="mt-[1px] text-[17px] font-extrabold leading-[20px] tabular-nums text-slate-500">{{ stats.excluded }}</span>
+                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Excluded</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-normal tabular-nums text-slate-500">{{ stats.excluded }}</span>
                 </div>
-                <span class="grid size-[24px] shrink-0 place-items-center rounded-[6px] bg-slate-200 text-[16px] font-bold leading-none text-slate-500">−</span>
+                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-slate-200 text-[17px] font-bold leading-none text-slate-500">−</span>
               </button>
             </div>
           </section>
 
-          <div class="my-[18px] h-px shrink-0 bg-line" />
+          <div class="my-[10px] h-px shrink-0 bg-line" />
 
           <!-- 주문 정보 (93:23562) -->
           <section title="주문수량은 BOM 수량과 세트·예비 수량을 반영한 뒤 MOQ와 주문배수에 맞춰 계산됩니다.">
-            <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-ink-strong">
+            <h2 class="flex h-[16px] items-center gap-[6px] font-noto text-[12px] font-bold leading-[14px] text-ink-strong">
               <img :src="icPanelOrder" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               주문 정보
             </h2>
-            <div class="mt-[10px] space-y-[11px] rounded-[8px] border border-line bg-surface-sunken px-[11px] py-[11px]">
+            <div class="mt-[9px] h-[133px] space-y-[11px] rounded-[8px] border border-line bg-surface-sunken px-[11px] py-[11px]">
               <div class="flex items-center justify-between">
-                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">세트 수량</span>
+                <span class="font-noto text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">세트 수량</span>
                 <div class="flex items-center gap-[7px]">
                   <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-line bg-surface shadow-[inset_0_1px_1px_rgba(20,35,65,0.03)] focus-within:border-brand-soft focus-within:ring-2 focus-within:ring-brand-soft/15">
                     <button type="button" class="w-[27px] shrink-0 border-r border-line bg-surface-raised text-[14px] text-ink-faint transition hover:bg-surface-brand hover:text-brand-deep disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 줄이기" @click="stepSet(-1)">−</button>
@@ -2161,7 +2161,7 @@ function fmtAmount(v: number | null): string {
                 </div>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">예비 수량</span>
+                <span class="font-noto text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">예비 수량</span>
                 <div class="flex items-center gap-[7px]">
                   <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-line bg-surface shadow-[inset_0_1px_1px_rgba(20,35,65,0.03)] focus-within:border-brand-soft focus-within:ring-2 focus-within:ring-brand-soft/15">
                     <button type="button" class="w-[27px] shrink-0 border-r border-line bg-surface-raised text-[14px] text-ink-faint transition hover:bg-surface-brand hover:text-brand-deep disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 줄이기" @click="stepSpare(-1)">−</button>
@@ -2172,17 +2172,17 @@ function fmtAmount(v: number | null): string {
                 </div>
               </div>
               <div class="flex h-[19px] items-center justify-between pt-px">
-                <span class="text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">예상 납기</span>
+                <span class="font-noto text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-ink-muted">예상 납기</span>
                 <span class="flex items-center gap-[6px] text-[11px] font-semibold text-[#169ab6]"><span class="size-[6px] rounded-full bg-[#20aeca]" />확정 시 안내</span>
               </div>
             </div>
           </section>
 
-          <div class="my-[18px] h-px shrink-0 bg-line" />
+          <div class="my-[10px] h-px shrink-0 bg-line" />
 
           <!-- 예상 견적 (93:23573) -->
           <section :aria-busy="pricingPending">
-            <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-ink-strong">
+            <h2 class="flex h-[16px] items-center gap-[6px] font-noto text-[12px] font-bold leading-[14px] text-ink-strong">
               <img :src="icPanelQuote" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               예상 견적
               <span v-if="showResultSheetTabs" class="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">전체 견적</span>
@@ -2192,18 +2192,18 @@ function fmtAmount(v: number | null): string {
               <p class="mt-2 text-[12px] font-semibold text-brand-deep">공급사 가격을 확인하고 있습니다</p>
               <p class="mt-1 text-[10px] leading-[15px] text-ink-subtle">모든 결과가 반영되면 합계를 표시합니다.</p>
             </div>
-            <div v-else class="mt-[10px]">
-              <div class="space-y-[8px] rounded-[8px] border border-line bg-surface-sunken px-[11px] py-[11px] text-[12px]">
-                <div class="flex items-baseline justify-between" title="부품 합계를 세트 수량과 예비 수량의 합으로 나눈 평균 단가입니다."><span class="text-ink-muted">단가</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(averageSetUnitPrice) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="text-ink-muted">합계</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(itemsTotal) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="text-ink-muted">운송료</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(detail.shippingFee) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="text-ink-muted">관리비</span><span class="font-bold tabular-nums text-ink">{{ fmtAmount(detail.managementFee) }} <small class="text-[9px] font-normal text-ink-faint">원</small></span></div>
+            <div v-else class="mt-[9px]">
+              <div class="h-[129px] space-y-[13px] rounded-[8px] border border-line bg-surface-sunken px-[11px] pb-[13px] pt-[15px] text-[12px] leading-[14px] [&>:last-child]:-translate-y-px">
+                <div class="flex items-baseline justify-between" title="부품 합계를 세트 수량과 예비 수량의 합으로 나눈 평균 단가입니다."><span class="font-noto tracking-[-0.48px] text-ink-muted">단가</span><span class="text-[13px] font-bold tabular-nums text-ink">{{ fmtAmount(averageSetUnitPrice) }} <small class="text-[10px] font-normal text-ink-faint">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-ink-muted">합계</span><span class="text-[13px] font-bold tabular-nums text-ink">{{ fmtAmount(itemsTotal) }} <small class="text-[10px] font-normal text-ink-faint">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-ink-muted">운송료</span><span class="text-[13px] font-bold tabular-nums text-ink">{{ fmtAmount(detail.shippingFee) }} <small class="text-[10px] font-normal text-ink-faint">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-ink-muted">관리비</span><span class="text-[13px] font-bold tabular-nums text-ink">{{ fmtAmount(detail.managementFee) }} <small class="text-[10px] font-normal text-ink-faint">원</small></span></div>
               </div>
-              <div class="relative mt-[11px] h-[70px] rounded-[8px] border border-line-brand bg-surface-brand-soft px-[11px] py-[11px]">
-                <span class="text-[12px] font-medium text-ink">최종합계 <span class="text-[10px] font-normal text-ink-subtle">(VAT 별도)</span></span>
-                <span class="absolute bottom-[11px] right-[11px] text-[20px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtAmount(finalTotal) }}<small class="ml-[3px] text-[11px] font-semibold">원</small></span>
+              <div class="relative mt-[12px] h-[74px] rounded-[8px] border border-line-brand bg-surface-brand-soft px-[11px] py-[11px]">
+                <span class="font-noto text-[12px] font-medium leading-[14px] text-ink">최종합계 <span class="text-[10px] font-normal text-ink-subtle">(VAT 별도)</span></span>
+                <span class="absolute bottom-[12px] right-[11px] text-[19px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtAmount(finalTotal) }}<small class="ml-[3px] text-[12px] font-normal">원</small></span>
               </div>
-              <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[15px] text-ink-subtle">
+              <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[14px] text-ink-subtle">
                 <li>AI로 산출한 가견적입니다.</li>
                 <li>정확한 가격은 담당자 확정 시 안내드립니다.</li>
               </ul>

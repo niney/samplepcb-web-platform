@@ -309,8 +309,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       label: item.matchStatus === 'none' ? 'Review' : 'Matched',
       helperLabel: '수량 확인 필요',
       toneClass: item.matchStatus === 'none'
-        ? 'border border-line-neutral bg-surface text-state-review'
-        : 'border border-line-neutral bg-surface text-state-matched',
+        ? 'bg-state-review/15 text-state-review'
+        : 'bg-state-matched/15 text-state-matched',
       priceClass: item.matchStatus === 'none' ? 'text-state-review' : 'text-state-matched',
       title: reasonSummary.value,
       pulse: false,
@@ -320,7 +320,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Review',
       helperLabel: '수량 검토',
-      toneClass: 'border border-line-neutral bg-surface text-state-review',
+      toneClass: 'bg-state-review/15 text-state-review',
       priceClass: 'text-state-review',
       title: severeOrderSurplusLabel.value,
       pulse: false,
@@ -352,8 +352,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
       label: selected ? 'Matched' : 'Review',
       helperLabel: selected ? '재고·가격 문의' : '취급 가능',
       toneClass: selected
-        ? 'border border-line-neutral bg-surface text-state-matched'
-        : 'border border-line-neutral bg-surface text-state-review',
+        ? 'bg-state-matched/15 text-state-matched'
+        : 'bg-state-review/15 text-state-review',
       priceClass: selected ? 'text-state-matched' : 'text-state-review',
       title: evidenceTitle.value,
       pulse: false,
@@ -379,7 +379,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Matched',
       helperLabel: '검토 대기',
-      toneClass: 'border border-line-neutral bg-surface text-state-matched',
+      toneClass: 'bg-state-matched/15 text-state-matched',
       priceClass: 'text-state-matched',
       title: evidenceTitle.value,
       pulse: false,
@@ -389,7 +389,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Review',
       helperLabel: '검토 필요',
-      toneClass: 'border border-line-neutral bg-surface text-state-review',
+      toneClass: 'bg-state-review/15 text-state-review',
       priceClass: 'text-state-review',
       title: evidenceTitle.value,
       pulse: false,
@@ -413,7 +413,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
         ? stockStatusLabel.value
         : null,
       toneClass: stockUnverified
-        ? 'border border-line-neutral bg-surface text-state-matched'
+        ? 'bg-state-matched/15 text-state-matched'
         : 'bg-state-nostock/15 text-state-nostock',
       priceClass: stockUnverified ? 'text-state-matched' : 'text-state-nostock',
       title: evidenceTitle.value,
@@ -433,7 +433,7 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
   return {
     label: 'Matched',
     helperLabel: '가격 확인 필요',
-    toneClass: 'border border-line-neutral bg-surface text-state-matched',
+    toneClass: 'bg-state-matched/15 text-state-matched',
     priceClass: 'text-state-matched',
     title: evidenceTitle.value,
     pulse: false,
@@ -513,47 +513,45 @@ function onQtyInput(event: Event): void {
 </script>
 
 <template>
-  <tr class="border-b border-line-soft align-top transition-colors" :class="rowClass">
-    <!-- 포함 체크 + 원본 행. 시트명은 좁은 표를 위해 툴팁으로만 보존한다. -->
-    <td class="px-1 py-3">
-      <div class="flex flex-col items-center gap-1.5 pt-1">
+  <!-- border-collapse의 하단 1px을 포함해 Figma 행 높이 110px이 된다. -->
+  <tr class="h-[109px] border-b border-line-soft align-top transition-colors" :class="rowClass">
+    <!-- Figma에는 체크박스만 노출한다. 원본 행 정보는 접근성 텍스트와 툴팁으로 보존한다. -->
+    <td class="p-0" :title="sourceLocationTitle">
+      <div class="flex h-[109px] items-center pl-[15px]">
         <input
           :checked="item.included"
           type="checkbox"
-          class="h-4 w-4 rounded border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
+          class="size-[18px] rounded-[2px] border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
           :disabled="!isDraft || editingLocked || quantityMissing"
           :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : '합계·견적요청 포함'"
+          :aria-label="`${sourceRowText} 견적 포함`"
           @change="emit('toggle-include')"
         >
-        <span
-          class="block max-w-[48px] cursor-default truncate text-center text-[11px] font-semibold leading-[14px] tabular-nums text-ink-muted"
-          :title="sourceLocationTitle"
-        >
-          {{ sourceRowText }}
-        </span>
+        <span class="sr-only">{{ sourceRowText }}</span>
       </div>
     </td>
     <!-- MPN: 공급사 배지 + 이미지 + 품번/제조사 + 데이터시트 -->
-    <td class="px-2 py-3">
-      <div class="flex w-[320px] max-w-full min-w-0 gap-2.5">
-        <!-- 고정폭 76px(최장 공급사명 UniKeyIC 기준) — 배지 유무와 무관하게 열 폭 일관 -->
-        <div class="w-[76px] shrink-0">
+    <td class="px-[12px] pb-[10px] pt-[11px]">
+      <div class="flex w-full min-w-0 gap-[24px]">
+        <!-- Figma 2282:80143 — 공급사 배지 62px, 부품 이미지 64px -->
+        <div class="w-[64px] shrink-0">
           <div
             v-if="item.selectedOffer !== null"
-            class="mb-1 flex h-[20px] w-full items-center justify-center gap-1 rounded-[3px] border border-gray-200 bg-surface px-1 shadow-sm"
+            class="mb-1 flex h-[20px] w-[62px] items-center justify-center gap-1 rounded-[4px] border border-gray-200 bg-surface px-1 shadow-sm"
             :title="item.selectedOffer.supplierSku"
           >
             <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] rounded-[2px]">
             <span class="truncate text-[10px] font-semibold text-ink-soft">{{ SUPPLIER_META[item.selectedOffer.supplier]?.name ?? item.selectedOffer.supplier }}</span>
           </div>
+          <div v-else aria-hidden="true" class="mb-1 h-[20px] w-[62px]" />
           <!-- 부품 이미지(카탈로그 정본 imageUrl) — 실사진이 정사각이라 1:1 유지 -->
           <PartImage
             :src="item.partImageUrl"
-            class="size-[76px] rounded-md border border-gray-200"
+            class="size-[64px] rounded-md border border-gray-200"
           />
         </div>
-        <div class="min-w-0 flex-1 pt-[22px]">
-          <p class="line-clamp-2 break-all text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
+        <div class="min-w-0 w-[240px] max-w-full pt-[25px]">
+          <p class="line-clamp-2 break-all font-noto text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <div
             v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null || selectedReplacementSources.length > 0"
@@ -583,39 +581,39 @@ function onQtyInput(event: Event): void {
             :href="item.partDatasheetUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-[12px] leading-[16px] text-brand-strong hover:underline"
+            class="font-noto text-[12px] font-medium leading-[16px] text-brand-strong hover:underline"
             title="Open datasheet in a new window"
           >Datasheet</a>
-          <p v-else class="cursor-default text-[12px] leading-[16px] text-ink-faint" title="No datasheet available">Datasheet</p>
+          <p v-else class="cursor-default font-noto text-[12px] font-medium leading-[16px] text-ink-faint" title="No datasheet available">Datasheet</p>
         </div>
       </div>
     </td>
     <!-- MANUFACTURER — 시안 87:12875 에서 MPN 과 분리된 열. Description 과 같은 높이에 맞춘다. -->
-    <td class="px-2 py-3 pt-[42px]">
-      <p class="truncate text-[12px] leading-[16px] text-ink-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
+    <td class="p-0 pt-[45px]">
+      <p class="w-[180px] truncate font-noto text-[14px] font-normal leading-[20px] text-ink-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
     </td>
     <!-- 폭은 표의 colgroup 이 정한다(table-fixed) — 여기서 다시 제한하면 남는 폭을 못 쓴다 -->
-    <td class="px-2 py-3 pt-[42px]">
-      <p class="line-clamp-2 break-words text-[12px] leading-[16px] text-ink-subtle" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
+    <td class="p-0 pt-[45px]">
+      <p class="w-[180px] line-clamp-2 break-words font-noto text-[14px] font-normal leading-[20px] text-ink-muted" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->
-    <td class="w-[130px] min-w-[124px] px-2 py-2">
+    <td class="w-[160px] p-0 pb-[7px] pt-[8px]">
       <BomPriceBreaks
         v-if="item.selectedOffer !== null"
+        class="w-[120px]"
         :price-breaks="sortedPriceBreaks"
         :active-qty="item.selectedOffer.breakQty"
         :currency="item.selectedOffer.currency"
-        :fetched-at="item.selectedOffer.fetchedAt"
         :locked="editingLocked"
         :locked-title="EDIT_LOCK_TITLE"
       />
       <p v-else class="pt-[24px] text-right text-[12px]" :class="catalogInquiry ? 'font-bold text-blue-700' : 'text-gray-300'">{{ catalogInquiry ? '문의 견적' : '—' }}</p>
     </td>
     <!-- QUANTITY / STOCK: 공급사 포장(→현재 부품 오퍼 선택) + 수량 -->
-    <td class="px-2 py-3">
+    <td class="p-0 pt-[13px]">
       <button
         type="button"
-        class="flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line-strong bg-surface-neutral px-3 text-[13px] font-bold text-ink-neutral disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex h-[38px] w-[150px] items-center justify-between rounded-[6px] border border-line-strong bg-surface-neutral px-[13px] text-[14px] font-bold text-ink-neutral disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="!isDraft || editingLocked"
         :title="editingLocked ? EDIT_LOCK_TITLE : `공급사·포장 변경 — ${item.selectedOffer?.packaging ?? '오퍼 선택'}`"
         @click="emit('open-offers')"
@@ -623,12 +621,12 @@ function onQtyInput(event: Event): void {
         <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '오퍼 없음') }}</span>
         <span class="text-[10px] text-gray-400">▾</span>
       </button>
-      <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line bg-surface-brand-soft pl-1 pr-3">
+      <div class="mt-[8px] flex h-[38px] w-[150px] items-center justify-between rounded-[6px] border border-line bg-surface-brand-soft pl-1 pr-3">
         <input
           :value="quantityMissing ? quantityDraft : item.orderQty"
           type="number"
           min="1"
-          class="w-[70px] bg-transparent px-2 text-right text-[15px] font-bold tabular-nums focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          class="w-[70px] bg-transparent px-2 text-right text-[16px] font-bold tabular-nums focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="!isDraft || editingLocked || (!quantityMissing && item.selectedOffer === null)"
           :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
           @input="quantityMissing && onQtyInput($event)"
@@ -639,23 +637,23 @@ function onQtyInput(event: Event): void {
       <button
         v-if="quantityMissing"
         type="button"
-        class="mt-1.5 h-[26px] w-[160px] rounded border border-amber-300 bg-amber-100 text-[11px] font-bold text-amber-800 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+        class="mt-1.5 h-[26px] w-[150px] rounded border border-amber-300 bg-amber-100 text-[11px] font-bold text-amber-800 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="!isDraft || editingLocked"
         :title="editingLocked ? EDIT_LOCK_TITLE : `${quantityDraft.toLocaleString('ko-KR')}개로 확인하고 견적에 포함`"
         @click="emit('confirm-quantity', quantityDraft)"
       >
         {{ quantityDraft.toLocaleString('ko-KR') }}개로 수량 확인
       </button>
-      <p v-if="severeOrderSurplus" class="mt-1.5 w-[160px] text-right text-[10px] font-bold leading-4 text-orange-700" :title="severeOrderSurplusLabel">
+      <p v-if="severeOrderSurplus" class="mt-1.5 w-[150px] text-right text-[10px] font-bold leading-4 text-orange-700" :title="severeOrderSurplusLabel">
         필요 {{ needed.toLocaleString('ko-KR') }} · 초과 {{ surplusQty.toLocaleString('ko-KR') }} ({{ orderRatio.toLocaleString('ko-KR', { maximumFractionDigits: 1 }) }}배)
       </p>
     </td>
     <!-- TOTAL: 기존 매칭 배지(Found 대체) + 합계 -->
-    <td class="w-[140px] min-w-[132px] px-2 py-3 text-center">
-      <div class="flex flex-col items-center gap-1.5 pt-1">
+    <td class="w-[106px] p-0 pt-[28px] text-center">
+      <div class="flex w-[74px] flex-col items-center gap-[6px]">
         <!-- 보조 상태는 별도 문구 대신 영문 상태 pill의 툴팁에 포함한다. -->
         <span
-          class="inline-flex min-h-[30px] items-center justify-center gap-1 whitespace-nowrap rounded-[50px] px-[10px] py-[2px] text-[13px] font-medium leading-[24px]"
+          class="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[50px] px-[10px] py-[2px] font-noto text-[13px] font-medium leading-[24px]"
           :class="totalStatusPresentation.toneClass"
           :title="totalStatusTitle"
         >
@@ -691,7 +689,7 @@ function onQtyInput(event: Event): void {
       </div>
     </td>
     <!-- 후보 비교와 전체 카탈로그 변경은 한 드로어의 다른 진입점. 제외는 실제 삭제가 아니라 견적 제외. -->
-    <td class="px-2 py-3">
+    <td class="p-0 pt-[13px]">
       <div v-if="isDraft" class="flex flex-col gap-[6px]">
         <button
           type="button"

@@ -177,19 +177,19 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
     <div class="flex min-h-0 flex-1">
       <!-- left side bar (87:9485) — 라이트 치환 -->
       <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-surface pt-[36px] lg:flex">
-        <RouterLink :to="{ name: 'bom' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onBomPrimary ? 'bg-surface-brand' : 'hover:bg-gray-50'">
+        <RouterLink :to="{ name: 'bom' }" class="mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onBomPrimary ? 'bg-surface-brand' : 'hover:bg-gray-50'">
           <img :src="icMenuBom" alt="" class="size-[18px]">
           <span class="ml-[6px] text-[16px] font-medium" :class="onBomPrimary ? 'text-brand-strong' : 'text-ink'">BOM 분석</span>
           <img :src="icMenuUpload" alt="" class="ml-auto size-[14px]">
         </RouterLink>
-        <RouterLink :to="{ name: 'bom-search' }" class="flex h-[45px] items-center pl-[21px] pr-[15px]" :class="onSearch ? 'bg-surface-brand' : 'hover:bg-gray-50'">
+        <RouterLink :to="{ name: 'bom-search' }" class="mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onSearch ? 'bg-surface-brand' : 'hover:bg-gray-50'">
           <img :src="icMenuSearch" alt="" class="size-[18px]">
           <span class="ml-[6px] text-[16px] font-medium" :class="onSearch ? 'text-brand-strong' : 'text-ink'">단일 검색</span>
           <img :src="icTrailSearch" alt="" class="ml-auto size-[14px]">
         </RouterLink>
 
         <section class="mt-[38px] flex min-h-0 flex-1 flex-col pb-4">
-          <p class="pl-[21px] text-[13px] font-bold text-ink-faint">Recent file</p>
+          <p class="pl-[21px] font-noto text-[13px] font-bold text-ink-faint">Recent file</p>
           <div ref="recentViewport" class="mt-[12px] flex min-h-0 w-[179px] flex-1 flex-col gap-[2px] self-start overflow-hidden" style="margin-left: 21px">
             <RouterLink
               v-for="q in recent"
@@ -199,7 +199,7 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
               :class="currentQuoteId === q.id ? 'border-line bg-surface-raised' : 'border-transparent hover:bg-gray-50'"
             >
               <img :src="icFile" alt="" class="size-[15px] opacity-60">
-              <span class="truncate text-[12px] text-ink-subtle">{{ q.fileName ?? q.title }}</span>
+              <span class="truncate font-noto text-[12px] font-normal text-ink-subtle">{{ q.fileName ?? q.title }}</span>
             </RouterLink>
             <p v-if="recent.length === 0" class="px-[8px] py-[6px] text-[12px] text-gray-400">아직 업로드한 BOM이 없습니다</p>
           </div>
@@ -217,8 +217,8 @@ const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
       </aside>
 
       <!-- 중앙 흰 패널 (Rectangle 197) — 페이지가 내부 스크롤을 관리한다 -->
-      <main class="min-h-0 min-w-0 flex-1 p-[10px]">
-        <div class="h-full overflow-hidden rounded-[12px] bg-surface shadow-sm">
+      <main class="min-h-0 min-w-0 flex-1" :class="route.name === 'bom-quote' ? 'p-0' : 'p-[10px]'">
+        <div class="h-full overflow-hidden bg-surface" :class="route.name === 'bom-quote' ? '' : 'rounded-[12px] shadow-sm'">
           <RouterView />
         </div>
       </main>
