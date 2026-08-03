@@ -31,6 +31,7 @@ function quoteDetail(
   return {
     id: '101',
     title: 'sample.csv',
+    sourceKind: 'upload',
     status: 'draft',
     fileName: 'sample.csv',
     itemCount: buildStatus === 'ready' ? 1 : 0,

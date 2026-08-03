@@ -44,6 +44,7 @@ import {
   type BomQuoteSearchTraceType,
   type BomQuoteSheetType,
   type BomQuoteSelectedOfferType,
+  type BomQuoteSourceKindType,
   type BomQuoteStatusType,
   type BomQuoteSummaryType,
   type BomPartHitType,
@@ -5784,6 +5785,7 @@ export function toSummaryDto(
   return {
     id: String(quote.id),
     title: quote.title,
+    sourceKind: quote.sourceKind as BomQuoteSourceKindType,
     status: quote.status as BomQuoteStatusType,
     fileName: quote.fileName,
     ...counts,

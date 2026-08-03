@@ -9,6 +9,10 @@ import { PartOfferKind } from './parts';
 export const BomQuoteStatus = z.enum(['draft', 'requested', 'reviewing', 'answered', 'closed', 'canceled']);
 export type BomQuoteStatusType = z.infer<typeof BomQuoteStatus>;
 
+/** 견적 생성 출처 — 업로드 파일과 단일검색 카트를 화면에서 추측 없이 구분한다. */
+export const BomQuoteSourceKind = z.enum(['upload', 'single_search']);
+export type BomQuoteSourceKindType = z.infer<typeof BomQuoteSourceKind>;
+
 /** 견적 조달 모드 — 샘플은 현행 실효비용 우선, 양산은 안전한 Reel 오퍼를 우선한다. */
 export const BomQuoteProcurementMode = z.enum(['sample', 'mass']);
 export type BomQuoteProcurementModeType = z.infer<typeof BomQuoteProcurementMode>;
@@ -893,6 +897,7 @@ export type BomQuoteItemEditType = z.infer<typeof BomQuoteItemEdit>;
 export const BomQuoteSummary = z.object({
   id: z.string(),
   title: z.string(),
+  sourceKind: BomQuoteSourceKind,
   status: BomQuoteStatus,
   fileName: z.string().nullable(),
   itemCount: z.number().int(),

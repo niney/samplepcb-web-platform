@@ -526,6 +526,94 @@ const editingLocked = computed(() => enriching.value || updateSheets.isPending.v
 const EDIT_LOCK_TITLE = computed(() => updateSheets.isPending.value
   ? '시트 구성을 반영하는 중입니다'
   : '공급사 확인이 완료되면 수정할 수 있습니다');
+
+// 단일검색 견적은 원본 파일명이 없으므로 title이 사용자가 견적을 구분하는 유일한 이름이다.
+// DB·PATCH 계약에 이미 있는 title을 재사용하고, 요청 이후 문서 식별자는 변경하지 않는다.
+const titleEditing = ref(false);
+const titleDraft = ref('');
+const titleError = ref('');
+const titleSaving = ref(false);
+const titleInput = ref<HTMLInputElement | null>(null);
+const canRenameTitle = computed(() =>
+  detail.value?.sourceKind === 'single_search' && detail.value.status === 'draft',
+);
+
+function cancelQuoteTitleEdit(): void {
+  if (titleSaving.value) return;
+  titleEditing.value = false;
+  titleError.value = '';
+}
+
+async function openQuoteTitleEdit(): Promise<void> {
+  if (!canRenameTitle.value || editingLocked.value || patch.isPending.value) return;
+  titleDraft.value = detail.value?.title ?? '';
+  titleError.value = '';
+  titleEditing.value = true;
+  await nextTick();
+  titleInput.value?.focus();
+  titleInput.value?.select();
+}
+
+async function saveQuoteTitle(): Promise<void> {
+  if (!canRenameTitle.value || titleSaving.value) return;
+  if (editingLocked.value || patch.isPending.value) {
+    titleError.value = '다른 변경사항 저장이 끝난 후 다시 시도해 주세요.';
+    return;
+  }
+  const nextTitle = titleDraft.value.trim();
+  if (nextTitle === '') {
+    titleError.value = '견적명을 입력해 주세요.';
+    return;
+  }
+  if (nextTitle.length > 191) {
+    titleError.value = '견적명은 191자 이내로 입력해 주세요.';
+    return;
+  }
+  if (nextTitle === detail.value?.title) {
+    titleEditing.value = false;
+    titleError.value = '';
+    return;
+  }
+
+  // 행 자동저장과 제목 PATCH가 같은 상세 캐시를 동시에 갱신하지 않도록 먼저 직렬화한다.
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (dirty.value) {
+    await saveNow();
+    if (saveState.value === 'error') {
+      titleError.value = '저장되지 않은 변경사항이 있습니다. 저장 상태를 확인해 주세요.';
+      return;
+    }
+  }
+
+  const id = quoteId.value;
+  titleSaving.value = true;
+  titleError.value = '';
+  try {
+    await patch.mutateAsync({ quoteId: id, body: { title: nextTitle } });
+    if (quoteId.value !== id) return;
+    titleEditing.value = false;
+    saveState.value = 'saved';
+  } catch (reason) {
+    titleError.value = reason instanceof ApiRequestError && reason.status === 409
+      ? '작성 중인 견적만 이름을 변경할 수 있습니다.'
+      : '견적명을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  } finally {
+    titleSaving.value = false;
+  }
+}
+
+watch(quoteId, () => {
+  titleEditing.value = false;
+  titleDraft.value = '';
+  titleError.value = '';
+});
+watch(editingLocked, (locked) => {
+  if (locked && !titleSaving.value) cancelQuoteTitleEdit();
+});
+
 type RowSearchPhase = 'idle' | 'starting' | 'searching' | 'refreshing' | 'done' | 'failed';
 type RowSearchKind = 'requirements' | 'external';
 const rowSearchItemId = ref<string | null>(null);
@@ -1683,7 +1771,59 @@ function fmtAmount(v: number | null): string {
         <div class="flex flex-wrap items-start justify-between gap-3 px-1">
           <div class="relative -top-[5px]">
             <div class="flex flex-wrap items-center gap-[10px]">
-              <h1 class="mr-[6px] text-[18px] font-medium leading-[21px] text-ink-strong">{{ detail.fileName ?? detail.title }}</h1>
+              <div v-if="titleEditing" class="mr-[6px] flex min-w-0 items-center gap-1">
+                <label for="bom-quote-title" class="sr-only">견적명</label>
+                <input
+                  id="bom-quote-title"
+                  ref="titleInput"
+                  v-model="titleDraft"
+                  type="text"
+                  maxlength="191"
+                  class="h-8 w-[300px] max-w-[42vw] rounded-[6px] border border-brand-soft bg-surface px-2.5 font-noto text-[16px] font-medium text-ink-strong outline-none ring-2 ring-brand-soft/15 placeholder:text-ink-faint disabled:cursor-wait disabled:opacity-60"
+                  placeholder="견적명"
+                  :disabled="titleSaving"
+                  @input="titleError = ''"
+                  @keydown.enter.prevent="saveQuoteTitle"
+                  @keydown.esc.prevent="cancelQuoteTitleEdit"
+                >
+                <button
+                  type="button"
+                  class="grid size-7 shrink-0 place-items-center rounded-[5px] bg-brand-strong text-[15px] font-bold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-50"
+                  :disabled="titleSaving"
+                  aria-label="견적명 저장"
+                  title="저장"
+                  @click="saveQuoteTitle"
+                >
+                  ✓
+                </button>
+                <button
+                  type="button"
+                  class="grid size-7 shrink-0 place-items-center rounded-[5px] border border-line-strong bg-surface text-[17px] leading-none text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-50"
+                  :disabled="titleSaving"
+                  aria-label="견적명 변경 취소"
+                  title="취소"
+                  @click="cancelQuoteTitleEdit"
+                >
+                  ×
+                </button>
+              </div>
+              <div v-else class="mr-[6px] flex min-w-0 items-center gap-1">
+                <h1 class="max-w-[360px] truncate text-[18px] font-medium leading-[21px] text-ink-strong" :title="detail.fileName ?? detail.title">{{ detail.fileName ?? detail.title }}</h1>
+                <button
+                  v-if="canRenameTitle"
+                  type="button"
+                  class="grid size-7 shrink-0 place-items-center rounded-[5px] text-ink-muted hover:bg-surface-raised hover:text-brand-strong disabled:cursor-not-allowed disabled:opacity-40"
+                  :disabled="editingLocked || patch.isPending.value"
+                  :title="editingLocked ? EDIT_LOCK_TITLE : '견적명 변경'"
+                  aria-label="견적명 변경"
+                  @click="openQuoteTitleEdit"
+                >
+                  <svg aria-hidden="true" class="size-[15px]" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 11.75V13h1.25L12.6 4.65 11.35 3.4 3 11.75Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+                    <path d="m10.5 4.25 1.25 1.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                  </svg>
+                </button>
+              </div>
               <button
                 type="button"
                 class="flex h-8 w-[82px] shrink-0 items-center justify-center gap-1 rounded-md border border-brand-soft bg-surface font-noto text-[14px] font-bold leading-6 text-brand-soft hover:bg-surface-brand-soft"
@@ -1704,6 +1844,7 @@ function fmtAmount(v: number | null): string {
               <span class="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{{ STATUS_LABEL[detail.status] }}</span>
               <span v-if="refreshedNotice" class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">가격·재고 확인 완료 — 최신 결과로 갱신되었습니다</span>
             </div>
+            <p v-if="titleError !== ''" class="mt-1 text-[11px] font-medium text-red-600" role="alert">{{ titleError }}</p>
             <p v-if="downloadError !== ''" class="mt-1 pl-6 text-xs text-red-600">{{ downloadError }}</p>
             <div class="mt-[-2px] flex flex-wrap items-center gap-1.5 font-noto text-[13px] font-medium leading-[16px] text-ink-muted">
               <span>{{ quoteStats.total }}개 부품</span>

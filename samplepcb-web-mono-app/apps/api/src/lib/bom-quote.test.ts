@@ -29,7 +29,33 @@ import {
   rfqRequestsQuoteItem,
   rfqUsesDynamicFullScope,
   selectEngineMatch,
+  toSummaryDto,
 } from './bom-quote';
+
+describe('견적 출처 DTO', () => {
+  it('단일검색 견적의 출처를 목록과 상세 응답의 공통 요약에 보존한다', () => {
+    const now = new Date('2026-08-04T00:00:00.000Z');
+    const summary = toSummaryDto({
+      id: 570n,
+      title: '센서 보드 시제품',
+      sourceKind: 'single_search',
+      status: 'draft',
+      fileName: null,
+      finalTotal: 55_000,
+      createdAt: now,
+      updatedAt: now,
+      requestedAt: null,
+      answeredAt: null,
+      confirmedTotal: null,
+    } as never, {
+      itemCount: 4,
+      includedCount: 4,
+      matchedCount: 4,
+    });
+
+    expect(summary.sourceKind).toBe('single_search');
+  });
+});
 
 describe('관리자 견적 부품 교체 정책', () => {
   const allowed = {
