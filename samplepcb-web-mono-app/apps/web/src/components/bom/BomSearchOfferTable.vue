@@ -8,6 +8,7 @@ import type {
 import { applyQtyToOffer, type BomOfferInput, type OfferPick } from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
+import BomSearchCheckbox from './BomSearchCheckbox.vue';
 
 const props = defineProps<{
   items: BomPartHitType[];
@@ -206,14 +207,12 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               class="h-[94px] border-b border-line-soft bg-search-row align-middle last:border-b-0"
             >
               <td class="px-[14px] text-center">
-                <input
-                  type="checkbox"
-                  class="size-[18px] cursor-pointer rounded-[2px] accent-brand-soft disabled:cursor-wait"
+                <BomSearchCheckbox
                   :checked="isSelected(row)"
                   :disabled="pendingKey !== null || cartBusy"
-                  :aria-label="`${row.part.mpn} ${supplierName(row.offer.supplier)} 구매조건 선택`"
+                  :label="`${row.part.mpn} ${supplierName(row.offer.supplier)} 구매조건 선택`"
                   @change="toggleSelection(row)"
-                >
+                />
               </td>
               <td class="px-[8px] py-[9px]">
                 <div class="flex min-w-0 items-center gap-[24px]">
@@ -306,14 +305,12 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
           <tbody>
             <tr v-for="row in inquiryRows" :key="row.key" class="h-[94px] border-b border-line-soft bg-search-row align-middle last:border-b-0">
               <td class="px-[14px] text-center">
-                <input
-                  type="checkbox"
-                  class="size-[18px] cursor-pointer rounded-[2px] accent-brand-soft disabled:cursor-wait"
+                <BomSearchCheckbox
                   :checked="isSelected(row)"
                   :disabled="pendingKey !== null || cartBusy"
-                  :aria-label="`${row.part.mpn} 직접견적 선택`"
+                  :label="`${row.part.mpn} 직접견적 선택`"
                   @change="toggleSelection(row)"
-                >
+                />
               </td>
               <td class="px-[8px] py-[9px]">
                 <div class="flex min-w-0 items-center gap-[24px]">
