@@ -53,6 +53,7 @@ import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
 import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
+import icBomCompareEye from '../../assets/bom/ic-bom-compare-eye.svg';
 import icDownloadOutline from '../../assets/bom/ic-download-outline.svg';
 import icFile from '../../assets/bom/ic-file.svg';
 import icPanelAi from '../../assets/bom/ic-panel-ai.svg';
@@ -1873,11 +1874,14 @@ function fmtAmount(v: number | null): string {
             </button>
             <button
               type="button"
-              class="flex h-[42px] w-[123px] items-center justify-center gap-1.5 rounded-[6px] border border-gray-500 bg-surface px-3 font-noto text-[16px] font-bold leading-6 text-ink-strong hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+              class="flex h-[42px] w-[123px] items-center justify-center gap-[5px] rounded-[6px] border border-[#7b838e] bg-white px-0 font-noto text-[16px] font-bold leading-[24px] text-[#061023] hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
               title="Excel 원본과 공급사 검색 결과 비교"
               @click="compareOpen = true"
             >
-              <span>◫</span> BOM 비교
+              <span class="flex size-[18px] shrink-0 items-center justify-center" aria-hidden="true">
+                <img :src="icBomCompareEye" alt="" class="shrink-0">
+              </span>
+              BOM 비교
             </button>
             <!-- 사용자 화면에서는 숨기되 재활성화를 위해 누락조건 적용 흐름은 유지한다. -->
             <button
