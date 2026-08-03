@@ -474,6 +474,11 @@ const partLabel = computed(() => {
   return sourceValue ?? (description !== '' ? description : '품번 미기재');
 });
 
+const showAnyVendorSpecSearch = computed(() =>
+  props.item.matchEvidence?.anyVendorSpecSearch === true
+  && props.item.matchStatus !== 'none',
+);
+
 const requestedLifecycleWarning = computed(() => {
   const lifecycle = props.item.matchEvidence?.requestedLifecycle ?? null;
   return lifecycle !== null && lifecycleRequiresAttention(lifecycle.code) ? lifecycle : null;
@@ -557,7 +562,14 @@ function onQtyInput(event: Event): void {
             class="size-[64px] rounded-md border border-gray-200"
           />
         </div>
-        <div class="min-w-0 w-[240px] max-w-full pt-[25px]">
+        <div class="relative min-w-0 w-[240px] max-w-full pt-[25px]">
+          <span
+            v-if="showAnyVendorSpecSearch"
+            class="absolute left-0 top-[3px] inline-flex h-[16px] items-center whitespace-nowrap rounded-[3px] border border-line-brand bg-surface-brand-soft px-[4px] font-noto text-[9px] font-semibold leading-none text-brand-strong"
+            title="Any Vendor · MPN·제조사 제한 없이 스펙 조건으로 검색해 선정된 부품입니다"
+          >
+            Any Vendor
+          </span>
           <p class="line-clamp-2 break-all font-noto text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
           <p class="truncate font-noto text-[11px] font-normal leading-[16px] text-ink-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>

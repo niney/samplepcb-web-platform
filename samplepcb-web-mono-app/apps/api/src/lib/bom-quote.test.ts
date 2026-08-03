@@ -2001,6 +2001,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     const decision = selectEngineMatch({
       component_id: 'component-stock-fallback',
       status: 'spec_compatible',
+      search_scope: 'part_number',
       procurement_decision: componentProcurementDecision(
         'review_recommended',
         'ok2:stock-fallback',
@@ -2019,6 +2020,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
       confirmationRequired: true,
       selectedReplacementSources: [replacementSource],
       selectedReplacementForMpn: 'OUT-OF-STOCK-PART',
+      anyVendorSpecSearch: replacementSource === 'engine_stock_fallback',
     });
   });
 
@@ -2988,6 +2990,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
         component_id: 'component-fallback',
         status: 'spec_compatible',
         identity_fallback: true,
+        search_scope: 'any_vendor_spec',
         candidates: [candidate('spec_compatible', 'SPEC-HIT', 'digikey', 10, 1, {
           selectionMode: 'spec-compatible',
         })],
@@ -2997,6 +3000,23 @@ describe('BOM 엔진 후보 결정 투영', () => {
     );
 
     expect(decision?.evidence.identityFallback).toBe(true);
+    expect(decision?.evidence.anyVendorSpecSearch).toBe(true);
     expect(decision?.evidence.selectionMode).toBe('spec-compatible');
+  });
+
+  it('Any Vendor 표시는 엔진 검색 범위가 없으면 Node에서 추측하지 않는다', () => {
+    const decision = selectEngineMatch(
+      {
+        component_id: 'component-legacy-spec',
+        status: 'spec_compatible',
+        candidates: [candidate('spec_compatible', 'SPEC-HIT', 'digikey', 10, 1, {
+          selectionMode: 'spec-compatible',
+        })],
+      },
+      1,
+      null,
+    );
+
+    expect(decision?.evidence.anyVendorSpecSearch).toBe(false);
   });
 });

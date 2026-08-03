@@ -19,9 +19,12 @@ from supplier_search_engine.matcher import (
     manufacturers_compatible,
 )
 from supplier_search_engine.models import (
+    ComponentSearchResult,
     ManufacturerEvidence,
     MatchStatus,
+    PlannedQuery,
     SearchMode,
+    SearchScope,
     SelectionEligibility,
     Supplier,
     SupplierProduct,
@@ -51,6 +54,57 @@ def component(**values) -> SearchComponentInput:
         review_status="accepted",
         fields=fields,
     )
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            PlannedQuery(
+                component_id="part-number",
+                mode=SearchMode.IDENTITY,
+                part_number="RC0603-10K",
+            ),
+            SearchScope.PART_NUMBER,
+        ),
+        (
+            PlannedQuery(
+                component_id="manufacturer-spec",
+                mode=SearchMode.PARAMETRIC,
+                manufacturer="Murata",
+            ),
+            SearchScope.MANUFACTURER_SPEC,
+        ),
+        (
+            PlannedQuery(
+                component_id="any-vendor-spec",
+                mode=SearchMode.PARAMETRIC,
+            ),
+            SearchScope.ANY_VENDOR_SPEC,
+        ),
+        (
+            PlannedQuery(
+                component_id="insufficient",
+                mode=SearchMode.INSUFFICIENT,
+            ),
+            SearchScope.NOT_SEARCHABLE,
+        ),
+    ],
+)
+def test_component_result_exposes_effective_search_scope(
+    query: PlannedQuery,
+    expected: SearchScope,
+):
+    result = ComponentSearchResult(
+        component_id=query.component_id,
+        mode=query.mode,
+        status=MatchStatus.NOT_FOUND,
+        query=query,
+    )
+
+    assert result.search_scope == expected
+    restored = ComponentSearchResult.model_validate_json(result.model_dump_json())
+    assert restored.search_scope == expected
 
 
 def test_planner_uses_only_extracted_values_as_hard_requirements():

@@ -50,6 +50,13 @@ class SearchMode(StrEnum):
     EXCLUDED = "excluded"
 
 
+class SearchScope(StrEnum):
+    PART_NUMBER = "part_number"
+    MANUFACTURER_SPEC = "manufacturer_spec"
+    ANY_VENDOR_SPEC = "any_vendor_spec"
+    NOT_SEARCHABLE = "not_searchable"
+
+
 class ProcurementMode(StrEnum):
     SAMPLE = "sample"
     MASS = "mass"
@@ -1311,6 +1318,7 @@ class ComponentSearchResult(BaseModel):
     reference_designators: list[str] = Field(default_factory=list)
     source_rows_1based: list[int] = Field(default_factory=list)
     query: PlannedQuery | None = None
+    search_scope: SearchScope = SearchScope.NOT_SEARCHABLE
     conflict_branch_queries: list[PlannedQuery] = Field(default_factory=list)
     initial_query: PlannedQuery | None = None
     identity_fallback: bool = False
@@ -1325,11 +1333,31 @@ class ComponentSearchResult(BaseModel):
     elapsed_ms: float = 0.0
     warnings: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def derive_search_scope(self) -> "ComponentSearchResult":
+        """Expose the effective engine query scope without application-side inference."""
+
+        query = self.query
+        if query is None or query.mode in {SearchMode.INSUFFICIENT, SearchMode.EXCLUDED}:
+            scope = SearchScope.NOT_SEARCHABLE
+        elif query.part_number:
+            scope = SearchScope.PART_NUMBER
+        elif query.mode == SearchMode.PARAMETRIC:
+            scope = (
+                SearchScope.MANUFACTURER_SPEC
+                if query.manufacturer
+                else SearchScope.ANY_VENDOR_SPEC
+            )
+        else:
+            scope = SearchScope.NOT_SEARCHABLE
+        self.search_scope = scope
+        return self
+
 
 class BatchSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_schema_version: str = "1.9"
+    search_schema_version: str = "1.10"
     procurement_policy: ProcurementPolicyInput = Field(
         default_factory=ProcurementPolicyInput
     )

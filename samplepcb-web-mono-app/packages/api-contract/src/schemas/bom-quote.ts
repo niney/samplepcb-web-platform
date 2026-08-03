@@ -339,6 +339,8 @@ export const BomQuoteMatchEvidence = z.object({
   technicalFallbackUsed: z.boolean().optional(),
   /** 품번 검색에서 신뢰 후보가 없어 엔진이 확정 스펙 검색으로 전환했는지 여부. */
   identityFallback: z.boolean(),
+  /** MPN·제조사 제한 없이 스펙으로 검색한 결과인지 여부. 구 견적에는 없을 수 있다. */
+  anyVendorSpecSearch: z.boolean().optional(),
   /** 검색 조건의 기술 준비 상태 — Node/화면은 재판정하지 않고 엔진 결과를 표시한다. */
   searchRequirementGuidance: BomQuoteSearchRequirementGuidance.nullable().optional(),
   /** 전체 이력은 후보 API에서 지연 조회하고 목록에는 엔진 trace의 compact 요약만 둔다. */

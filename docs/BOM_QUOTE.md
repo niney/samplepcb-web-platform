@@ -115,6 +115,12 @@ build 직후 서버(`routes/bom-quotes.ts autoEnrichQuote`)가 판단·실행하
   `identity_fallback=true`로 명시하고 sp-node는 그대로 투영한다. 이 경우에는
   원본 문자열이 있어도 스펙 후보를 안전성 검증 대상으로 포함하되, 충돌·필수값 누락·물리조건
   불일치 후보는 계속 차단한다. 계보가 없는 일반 MPN 행의 다른 MPN 자동선정도 기존대로 금지한다.
+- **검색 범위 provenance(2026-08-04)**: sp-engine 1.10은 실제 최종 질의를 `search_scope`로
+  구분한다. MPN과 제조사를 제한하지 않은 스펙 검색은 `any_vendor_spec`이다. 품절 원품번 결과와
+  스펙 대체 후보가 합쳐진 경우에는 선정 후보의 `engine_stock_fallback` 출처까지 함께 사용해 sp-node가
+  `matchEvidence.anyVendorSpecSearch`로 스냅샷에 보존한다. sp-vue는 선정된 행의 실제 MPN·제조사와
+  기존 상태 표시를 유지하면서 MPN 위에 `Any Vendor` 배지와 스펙 검색 툴팁을 추가한다. 과거 견적이나
+  엔진 필드가 없는 결과를 매칭 점수만으로 Any Vendor라고 추측하지 않는다.
 - **실제 검색 과정 provenance(2026-07-21)**: sp-engine 1.5는 component마다 최초 검색어와
   조건부 스펙 fallback 검색어, 공급사별 논리 시도 순서·전략·API/캐시 출처·결과 수·HTTP 재시도 수·
   소요시간·fallback 사유를 구조화한다. API 키·헤더·원본 요청 body·URL은 기록하지 않는다.

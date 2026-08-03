@@ -25,6 +25,7 @@ from supplier_search_engine.models import (
     ReplacementSource,
     Requirement,
     SearchMode,
+    SearchScope,
     SearchDisposition,
     Supplier,
     SupplierOffer,
@@ -614,6 +615,7 @@ async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_
     assert fake.calls == 2
     assert result.mode == SearchMode.PARAMETRIC
     assert result.identity_fallback is True
+    assert result.search_scope == SearchScope.ANY_VENDOR_SPEC
     assert result.status == MatchStatus.SPEC_COMPATIBLE
     assert result.initial_query is not None
     assert result.initial_query.mode == SearchMode.IDENTITY
@@ -649,6 +651,7 @@ async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_
     assert batch_result.cache_hits == 2
     assert batched.mode == SearchMode.PARAMETRIC
     assert batched.identity_fallback is True
+    assert batched.search_scope == SearchScope.ANY_VENDOR_SPEC
     assert batched.initial_query is not None
     assert batched.initial_query.mode == SearchMode.IDENTITY
     assert batched.initial_query.part_number == "0603X03L_C"
@@ -665,6 +668,7 @@ async def test_identity_miss_retries_with_specs_and_preserves_both_attempts(tmp_
     restored = type(batch_result).model_validate_json(batch_result.model_dump_json())
     restored_component = restored.components[0]
     assert restored_component.identity_fallback is True
+    assert restored_component.search_scope == SearchScope.ANY_VENDOR_SPEC
     assert restored_component.initial_query is not None
     assert restored_component.initial_query.part_number == "0603X03L_C"
     assert restored_component.query is not None
@@ -794,9 +798,11 @@ async def test_out_of_stock_exact_match_triggers_manual_stock_replacement_search
     assert result.procurement_decision.status == "review_recommended"
     assert result.procurement_decision.confirmation_required is True
     assert result.identity_fallback is False
+    assert result.search_scope == SearchScope.PART_NUMBER
     assert result.search_trace is not None
     assert result.search_trace.fallback_used is True
     assert cached.api_calls == 0
+    assert cached.search_scope == SearchScope.PART_NUMBER
     assert any(
         candidate.product.replacement_source
         == ReplacementSource.ENGINE_STOCK_FALLBACK

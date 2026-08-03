@@ -131,13 +131,19 @@ BOM MPN은 CAD library reference보다 우선하며 서로 다른 유효값은 `
 
 ### 기술 순위와 구매 적용 후보
 
-공급사 검색 스키마 1.9와 `supplier-selection-application-v4`는 기술 판단과 실제 구매 적용을
+공급사 검색 스키마 1.10과 `supplier-selection-application-v4`는 기술 판단과 실제 구매 적용을
 분리한다. 엔진은 기존 `preselect`와 기술/검토 순위를 감사 근거로 보존한다. 기술 1순위 후보군에
 현재 필요수량을 충족하는 재고·유효 가격 조건이 없으면, 차단되지 않은 다음 기술 후보군 중
 구매 가능한 그룹을 `application_candidate_identity_key`와
 `application_candidate_evidence_key`로 지정한다. 선택한 그룹 안에서는 MOQ·주문배수·재고·
 실효 총액을 반영한 구매적합 1위 구매 조건을 적용하며, 안전성·기술 근거가 동급인 차순위 그룹끼리는
 실효 총액이 낮은 그룹을 우선한다.
+
+각 컴포넌트 결과의 `search_scope`는 실제 실행한 최종 질의를 `part_number`,
+`manufacturer_spec`, `any_vendor_spec`, `not_searchable`로 구분한다. 특히 제조사와 MPN을
+제한하지 않은 스펙 검색은 `any_vendor_spec`으로 명시하므로 응용 계층이 매칭 점수나 문구로
+검색 방식을 다시 추측하지 않는다. 품절 원품번과 스펙 대체 후보를 함께 반환하는 경우에는 주 질의의
+`part_number` 범위를 유지하고, 선정 후보의 `engine_stock_fallback` 출처로 Any Vendor 경로를 구분한다.
 
 정확 품번의 전체 공급사 구매 조건이 `out_of_stock` 또는 `insufficient_stock`이면 엔진은 DigiKey의
 Substitutions API를 조건부로 한 번 더 조회한다. 여기서 구매 가능한 대체품을 확보하지 못하고 BOM에

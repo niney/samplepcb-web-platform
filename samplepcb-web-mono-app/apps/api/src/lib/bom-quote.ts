@@ -670,6 +670,12 @@ const EngineSupplierComponent = z
     query: EngineSupplierQuery.nullish(),
     initial_query: EngineSupplierQuery.nullish(),
     identity_fallback: z.boolean().default(false),
+    search_scope: z.enum([
+      'part_number',
+      'manufacturer_spec',
+      'any_vendor_spec',
+      'not_searchable',
+    ]).default('not_searchable'),
     requirement_guidance: z.object({
       policy_version: z.literal('bom-search-requirement-policy-v1'),
       component_type: z.enum([
@@ -2470,6 +2476,9 @@ function evidenceFromDecision(
     technicalPreselectionCandidateKey: technicalTop?.snapshot.candidateKey ?? null,
     technicalFallbackUsed,
     identityFallback,
+    anyVendorSpecSearch:
+      component.search_scope === 'any_vendor_spec'
+      || selected?.snapshot.replacementSources.includes('engine_stock_fallback') === true,
     searchRequirementGuidance: publicSearchRequirementGuidance(
       component.requirement_guidance,
     ),
