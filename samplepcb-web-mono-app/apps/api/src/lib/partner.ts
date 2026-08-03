@@ -71,7 +71,7 @@ export const toAdminPartnerDetail = (
 });
 
 // supplierCode 는 supplier(필수)·house(선택)만 보유 — partner(사람 협력사)는 금지.
-// SpPartOffer.supplier 와 같은 어휘라 사람 조직에 붙으면 오퍼 원장과 의미가 충돌한다.
+// SpPartOffer.supplier 와 같은 어휘라 사람 조직에 붙으면 구매 조건 원장과 의미가 충돌한다.
 export const validateSupplierCode = (
   type: PartnerTypeType,
   supplierCode: string | null,

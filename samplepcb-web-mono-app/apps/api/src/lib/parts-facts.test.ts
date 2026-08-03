@@ -6,7 +6,7 @@ import {
   type FactsSource,
 } from './parts-facts';
 
-// 부품 정본 해소·자체 오퍼 파생의 골든 명세 — 정책 변경 시 여기부터 갱신한다.
+// 부품 정본 해소·자체 구매 조건 파생의 골든 명세 — 정책 변경 시 여기부터 갱신한다.
 
 const T0 = new Date('2026-07-19T00:00:00Z');
 const T1 = new Date('2026-07-19T01:00:00Z');
@@ -108,7 +108,7 @@ describe('resolvePartFacts — 스펙 병합·충돌 해소', () => {
     expect(facts.description).toBe('from digikey');
   });
 
-  it('samplepcb 파생 오퍼는 입력에서 무시된다', () => {
+  it('samplepcb 파생 구매 조건은 입력에서 무시된다', () => {
     const facts = resolvePartFacts([
       src({ supplier: 'samplepcb', specs: { voltage_v: 99 } }),
       src({ supplier: 'mouser', specs: { voltage_v: 16 } }),
@@ -134,8 +134,8 @@ function offer(partial: Partial<DeriveSource> & { supplier: string }): DeriveSou
   };
 }
 
-describe('deriveSamplepcbOffer — 자체 오퍼 원천 선정', () => {
-  it('재고>0 오퍼가 더 싼 무재고 오퍼보다 우선', () => {
+describe('deriveSamplepcbOffer — 자체 구매 조건 원천 선정', () => {
+  it('재고>0 구매 조건이 더 싼 무재고 구매 조건보다 우선', () => {
     const chosen = deriveSamplepcbOffer([
       offer({ supplier: 'mouser', stock: 0, priceBreaks: [{ qty: 1, price: 50, currency: 'KRW' }] }),
       offer({ supplier: 'digikey', stock: 1000, priceBreaks: [{ qty: 1, price: 80, currency: 'KRW' }] }),
@@ -143,7 +143,7 @@ describe('deriveSamplepcbOffer — 자체 오퍼 원천 선정', () => {
     expect(chosen?.supplier).toBe('digikey');
   });
 
-  it('KRW 오퍼가 더 싼 외화 오퍼보다 우선(환율 불확실성 회피)', () => {
+  it('KRW 구매 조건이 더 싼 외화 구매 조건보다 우선(환율 불확실성 회피)', () => {
     const chosen = deriveSamplepcbOffer([
       offer({ supplier: 'digikey', stock: 10, currency: 'USD', priceBreaks: [{ qty: 1, price: 0.01, currency: 'USD' }] }),
       offer({ supplier: 'mouser', stock: 10, priceBreaks: [{ qty: 1, price: 90, currency: 'KRW' }] }),

@@ -4,8 +4,8 @@ import { applyQtyToOffer, type BomOfferInput, type OfferPick } from '@sp/utils';
 import type { PartOfferViewType } from '@sp/api-contract';
 import { useBomPartDetail } from '../../../bom/useBom';
 
-// 오퍼 변경 모달 — 부품의 실공급사 오퍼를 필요수량 기준 실효가로 비교해 선택한다.
-// samplepcb 파생 오퍼는 후보 제외(견적 선정 순환 방지 — docs/BOM_QUOTE.md).
+// 구매 조건 변경 모달 — 부품의 실공급사 구매 조건을 필요수량 기준 실효가로 비교해 선택한다.
+// samplepcb 파생 구매 조건은 후보 제외(견적 선정 순환 방지 — docs/BOM_QUOTE.md).
 
 const props = defineProps<{
   partId: string;
@@ -61,13 +61,13 @@ function fmt(n: number | null, currency: string): string {
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="emit('close')">
     <div class="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-xl">
       <div class="flex items-center justify-between">
-        <h3 class="text-base font-semibold text-gray-900">오퍼 선택 — {{ detail.data.value?.data.mpn ?? '' }}</h3>
+        <h3 class="text-base font-semibold text-gray-900">구매 조건 선택 — {{ detail.data.value?.data.mpn ?? '' }}</h3>
         <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>
       </div>
       <p class="mt-1 text-xs text-gray-500">필요수량 {{ needed.toLocaleString('ko-KR') }}개 기준 실효 단가·주문수량(MOQ·배수 보정)으로 비교합니다.</p>
 
-      <p v-if="detail.isLoading.value" class="mt-6 text-sm text-gray-400">오퍼를 불러오는 중…</p>
-      <p v-else-if="rows.length === 0" class="mt-6 text-sm text-gray-400">선택 가능한 오퍼가 없습니다 — 공급사 검색으로 보강해 보세요.</p>
+      <p v-if="detail.isLoading.value" class="mt-6 text-sm text-gray-400">구매 조건을 불러오는 중…</p>
+      <p v-else-if="rows.length === 0" class="mt-6 text-sm text-gray-400">선택 가능한 구매 조건이 없습니다 — 공급사 검색으로 보강해 보세요.</p>
 
       <div v-else class="mt-4 space-y-2">
         <button

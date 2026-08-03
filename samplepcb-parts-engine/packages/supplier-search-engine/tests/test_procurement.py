@@ -2167,7 +2167,7 @@ def test_reevaluate_procurement_batch_matches_individual_reevaluation_per_compon
 
 
 def test_reevaluate_procurement_batch_isolates_one_component_failure():
-    """한 컴포넌트의 실패(중복 오퍼 키)가 배치의 나머지 컴포넌트를 막지 않는다."""
+    """한 컴포넌트의 실패(중복 구매 조건 키)가 배치의 나머지 컴포넌트를 막지 않는다."""
     healthy, _ = decide(
         query(component_id="component-ok", quantity=10),
         [product(Supplier.DIGIKEY, mpn="BATCH-OK")],

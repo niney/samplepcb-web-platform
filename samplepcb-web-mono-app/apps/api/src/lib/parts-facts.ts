@@ -1,13 +1,13 @@
 import { roundSig } from '@sp/utils';
 
-// 부품 정본 사실 해소 — 부품(SpPart)의 스펙·설명·자체(samplepcb) 오퍼는
-// "그 부품의 전체 실공급사 오퍼"의 결정적 함수다. 인제스트·수동 갱신·재색인
+// 부품 정본 사실 해소 — 부품(SpPart)의 스펙·설명·자체(samplepcb) 구매 조건은
+// "그 부품의 전체 실공급사 구매 조건"의 결정적 함수다. 인제스트·수동 갱신·재색인
 // 어디서 호출해도 같은 결과가 나오도록 순수함수로 두고, 영속 레코드는 이 함수의
 // 출력을 항상 재생성한다(내용의 소유권은 함수, 저장은 캐시).
 //
 // 스펙 충돌 정책: 표기·정밀도 차이(SI 상대 오차 이내)는 충돌이 아니다. 진짜 충돌은
 // 다수결 → 공급사 신뢰 순위 → 최신 fetchedAt 으로 채택하고 전체 그룹을 남긴다.
-// 오퍼 선정(상업 조건: 가격·재고)과 스펙 판정(데이터 품질)은 분리된 축 —
+// 구매 조건 선정(상업 조건: 가격·재고)과 스펙 판정(데이터 품질)은 분리된 축 —
 // 최저가 공급사의 오타 스펙이 정본을 오염시키는 경로를 차단한다.
 
 export const SAMPLEPCB_SUPPLIER = 'samplepcb';
@@ -145,7 +145,7 @@ function pickScalar(sources: FactsSource[], get: (s: FactsSource) => string | nu
   return first === undefined ? null : get(first);
 }
 
-/** 부품 정본 사실 = f(전체 실공급사 오퍼). samplepcb 파생 오퍼는 입력에서 제외할 것. */
+/** 부품 정본 사실 = f(전체 실공급사 구매 조건). samplepcb 파생 구매 조건은 입력에서 제외할 것. */
 export function resolvePartFacts(sources: FactsSource[]): PartFacts {
   const real = sources.filter((s) => s.supplier !== SAMPLEPCB_SUPPLIER);
 
@@ -206,7 +206,7 @@ export function resolvePartFacts(sources: FactsSource[]): PartFacts {
   };
 }
 
-// ── 자체(samplepcb) 오퍼 파생 ──────────────────────────────────────────────
+// ── 자체(samplepcb) 구매 조건 파생 ──────────────────────────────────────────────
 
 export interface DeriveSource {
   supplier: string;
@@ -222,7 +222,7 @@ export interface DeriveSource {
   priceBreaks: { qty: number; price: number; currency: string }[];
 }
 
-/** 오퍼의 최소수량 구간(대표 단가 기준점). */
+/** 구매 조건의 최소수량 구간(대표 단가 기준점). */
 function firstBreak(s: DeriveSource): { qty: number; price: number; currency: string } | null {
   return [...s.priceBreaks].sort((a, b) => a.qty - b.qty)[0] ?? null;
 }
@@ -234,7 +234,7 @@ function offerCurrency(s: DeriveSource): string {
 }
 
 /**
- * 자체 samplepcb 오퍼의 원천 선정 — 수량 무관 안정 규칙(카탈로그 레벨).
+ * 자체 samplepcb 구매 조건의 원천 선정 — 수량 무관 안정 규칙(카탈로그 레벨).
  * 재고>0 우선 → KRW 우선(환율 불확실성 회피) → 최소구간 단가 최저 →
  * 동률 시 재고 많은 순 → 가격 원천 순위 → 최신. 원천 1개에서 통째 복사(혼합 금지).
  * BOM 견적 라인의 수량 기반 선정(pickDefaultOffer)은 별도 축이다.

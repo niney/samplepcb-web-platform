@@ -67,7 +67,7 @@ import icSearch from '../../assets/bom/ic-search-20.svg';
 import icUploadOutline from '../../assets/bom/ic-upload-outline.svg';
 
 // 고객 스마트 BOM 견적 워크벤치 — Figma "02 BOM 파일 분석_검색 결과"(87:12875) 레이아웃에
-// 기존 기능(자동저장·오퍼/부품 모달·자동 보강·견적요청)을 병합. 사용자 지시:
+// 기존 기능(자동저장·구매 조건/부품 모달·자동 보강·견적요청)을 병합. 사용자 지시:
 // 채팅·가격순 정렬 제외, Found 대신 기존 매칭 배지, 공급사 배지는 파비콘(vueline 방식),
 // 미구현 요소(행 정렬 핸들)는 디자인만.
 
@@ -252,7 +252,7 @@ function recalcLine(item: BomQuoteItemType): void {
   item.lineTotalKrw = offer.unitPriceKrw === null ? null : Math.round(offer.unitPriceKrw * orderQty * 100) / 100;
 }
 
-/** 세트/예비수량 변경 — 오퍼 있는 전 라인의 주문수량을 박제(레거시 규칙 보존). */
+/** 세트/예비수량 변경 — 구매 조건이 있는 모든 라인의 주문수량을 박제(레거시 규칙 보존). */
 function restampAll(): void {
   if (editingLocked.value) return;
   for (const item of items.value) {
@@ -761,7 +761,7 @@ const resultFiltersActive = computed(() =>
   || resultSearchLimitedOnly.value,
 );
 
-// 정렬 — 시안(87:12875)의 "가격순". 합계가 없는 행(오퍼 미선정·문의 견적)은 값으로 비교할 수
+// 정렬 — 시안(87:12875)의 "가격순". 합계가 없는 행(구매 조건 미선정·문의 견적)은 값으로 비교할 수
 // 없으니 방향과 무관하게 뒤로 보낸다. 원소 참조는 그대로라 행 격리(재렌더 스킵)가 유지된다.
 type ResultSort = 'default' | 'price-desc' | 'price-asc';
 const RESULT_SORT_LABEL: Record<ResultSort, string> = {
@@ -1214,7 +1214,7 @@ async function selectCandidate(candidateKey: string, offerKey: string | null): P
     candidateSelectionError.value = code === 'CANDIDATE_BLOCKED'
       ? '충돌하거나 필수 정보가 부족한 후보는 고객 화면에서 선택할 수 없습니다.'
       : code === 'OFFER_NOT_PRICED'
-        ? '가격이 없는 오퍼는 선택할 수 없습니다.'
+        ? '가격이 없는 구매 조건은 선택할 수 없습니다.'
         : '후보 선택을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.';
     return false;
   }

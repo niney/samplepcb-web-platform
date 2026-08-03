@@ -27,9 +27,9 @@ export function isCatalogInquiryOffer(rawJson: unknown): boolean {
 }
 
 /**
- * SamplePCB 취급 카탈로그에서 제조사 쪽 오퍼는 기술 사실과 원본 추적을 위한 원천이다.
- * 같은 rawJson을 쓰는 SamplePCB 오퍼만 실제 문의·판매 창구이므로 원천 오퍼를 공급사
- * 패싯과 구매 오퍼 목록에 노출하지 않는다.
+ * SamplePCB 취급 카탈로그에서 제조사 원천 정보는 기술 사실과 원본 추적을 위한 원천이다.
+ * 같은 rawJson을 쓰는 SamplePCB 구매 조건만 실제 문의·판매 창구이므로 제조사 원천 정보를 공급사
+ * 패싯과 구매 조건 목록에 노출하지 않는다.
  */
 export function isCatalogProvenanceOffer(
   supplier: string,
@@ -63,7 +63,7 @@ const SamplepcbPricingRaw = z.object({
   samplepcbPricing: z.object({ derivedFrom: DerivedFrom }),
 });
 
-/** 기존 파생 오퍼와 카탈로그 가격 오버레이의 원천 표기를 모두 복원한다. */
+/** 기존 파생 구매 조건과 카탈로그 가격 오버레이의 원천 표기를 모두 복원한다. */
 export function partOfferDerivedFrom(
   rawJson: unknown,
 ): z.infer<typeof DerivedFrom> | null {

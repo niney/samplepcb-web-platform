@@ -3,7 +3,7 @@ import { z } from 'zod';
 // ── 스마트 BOM 협력사 RFQ — sp_bom_rfq* 계약 ────────────────────────────────
 // 설계 정본: docs/SMARTBOM_PARTNER_RFQ.md §2. quote.status(굵은 단계)와 별개의
 // 하위 상태 계층 — 같은 문자열을 겹쳐 쓰지 않는다(레거시 상태 3종 혼동 회피).
-// 사람 협력사 전용 — 공급사 시세는 후보/오퍼 원장 파생(RFQ 행 미물질화, D6).
+// 사람 협력사 전용 — 공급사 시세는 후보/구매 조건 원장 파생(RFQ 행 미물질화, D6).
 
 export const BOM_RFQ_STATUSES = ['requested', 'quoted', 'closed'] as const;
 export type BomRfqStatusType = (typeof BOM_RFQ_STATUSES)[number];
@@ -132,7 +132,7 @@ export type AdminBomRfqSelectionResponseType = z.infer<typeof AdminBomRfqSelecti
 
 // ── 협력사 포털 (/api/partner/rfqs, requirePartner) ─────────────────────────
 // 노출 범위: 부품행(MPN·제조사·설명·필요수량)과 자신의 회신뿐 — 고객 식별정보·목표
-// 단가(현재 선정 오퍼가)는 구조적으로 스키마에 없다(D8).
+// 단가(현재 선정 단가)는 구조적으로 스키마에 없다(D8).
 
 export const PartnerRfqListItem = z.object({
   rfqId: z.number(),

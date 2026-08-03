@@ -352,11 +352,11 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         },
         'offer-not-found': {
           error: 'OFFER_NOT_FOUND',
-          message: '선택한 공급사 오퍼가 후보 스냅샷에 없습니다.',
+          message: '선택한 공급사 구매 조건이 후보 스냅샷에 없습니다.',
         },
         'offer-not-priced': {
           error: 'OFFER_NOT_PRICED',
-          message: '가격을 계산할 수 없는 공급사 오퍼는 선택할 수 없습니다.',
+          message: '가격을 계산할 수 없는 공급사 구매 조건은 선택할 수 없습니다.',
         },
         'part-not-found': {
           error: 'PART_NOT_FOUND',
@@ -364,7 +364,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         },
         'catalog-offer-not-found': {
           error: 'CATALOG_OFFER_NOT_FOUND',
-          message: '선택한 카탈로그 오퍼가 최신 부품 정보에 없습니다.',
+          message: '선택한 카탈로그 구매 조건이 최신 부품 정보에 없습니다.',
         },
       };
       return reply.status(409).send(errors[result]);
@@ -426,11 +426,11 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         },
         'catalog-offer-not-found': {
           error: 'CATALOG_OFFER_NOT_FOUND',
-          message: '선택한 카탈로그 오퍼가 최신 부품 정보에 없습니다.',
+          message: '선택한 카탈로그 구매 조건이 최신 부품 정보에 없습니다.',
         },
         'offer-not-priced': {
           error: 'OFFER_NOT_PRICED',
-          message: '가격을 계산할 수 없는 공급사 오퍼는 선택할 수 없습니다.',
+          message: '가격을 계산할 수 없는 공급사 구매 조건은 선택할 수 없습니다.',
         },
         'item-limit': {
           error: 'QUOTE_ITEM_LIMIT',

@@ -5,7 +5,7 @@ import { ApiRequestError } from '@sp/shared';
 import { useCreateBomPos } from '../../../admin/useAdminBomPos';
 import { useAdminPartnerList, type AdminPartnerFilters } from '../../../admin/useAdminPartners';
 
-// 발주서 생성 모달(D18·D20) — 협력사 회신 선정 행 + 공급사 오퍼 선정 행을 조직별로
+// 발주서 생성 모달(D18·D20) — 협력사 회신 선정 행 + 공급사 구매 조건 선정 행을 조직별로
 // 미리보고 선택 발행. 미리보기는 클라 파생(표시용)이고 실제 대상·금액은 서버가 재집계·박제.
 // mouser·digikey 는 발행 시 자동 실행(카트/리스트), 기타 공급사는 발주서만(수동 진행),
 // 파트너 조직에 매핑 안 되는 supplier(제조사 카탈로그 등)는 대상 외로 안내.
@@ -111,7 +111,7 @@ const groups = computed<DraftGroup[]>(() => {
       continue;
     }
 
-    // ② 공급사 오퍼 선정(D20) — 파트너 조직 매핑되는 supplier 만(단가 = KRW 환산 박제)
+    // ② 공급사 구매 조건 선정(D20) — 파트너 조직 매핑되는 supplier 만(단가 = KRW 환산 박제)
     if (offer === null) continue;
     const supplierPartner = supplierPartners.value.get(offer.supplier);
     if (supplierPartner === undefined) continue;
@@ -203,7 +203,7 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
         <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>
       </div>
       <p class="mt-1 text-xs text-gray-500">
-        협력사 회신 선정 행과 공급사 오퍼 선정 행을 조직별로 발주합니다 — 발주서는 생성 시점
+        협력사 회신 선정 행과 공급사 구매 조건 선정 행을 조직별로 발주합니다 — 발주서는 생성 시점
         스냅샷으로 박제(금액 VAT 별도). 협력사는 메일 알림, mouser·digikey 는 발행 즉시
         카트 담기/리스트 생성이 자동 실행됩니다(실결제는 공급사 사이트에서).
       </p>

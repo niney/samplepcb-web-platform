@@ -1232,7 +1232,7 @@ class SearchService:
         replacement_source: ReplacementSource = ReplacementSource.ENGINE_STOCK_FALLBACK,
         replacement_type: str = "ParametricStockFallback",
         warning: str = (
-            "필요 수량을 충족하는 오퍼가 없어 확정 스펙으로 "
+            "필요 수량을 충족하는 구매 조건이 없어 확정 스펙으로 "
             "대체 후보를 다시 검색했습니다."
         ),
         fallback_stage: Literal["identity_fallback", "stock_alternative"] = (

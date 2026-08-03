@@ -458,7 +458,7 @@ export function validateCatalogPriceSnapshotCoverage(
     }
     const canonical = canonicalRecord(snapshot);
     if (canonical.status !== snapshot.status) {
-      throw new Error(`가격 스냅샷 상태와 오퍼 가격이 다릅니다: ${snapshot.key}`);
+      throw new Error(`가격 스냅샷 상태와 구매 조건의 가격이 다릅니다: ${snapshot.key}`);
     }
     if (
       JSON.stringify(canonical.products) !== JSON.stringify(snapshot.products)

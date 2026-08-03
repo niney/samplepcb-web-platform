@@ -1136,7 +1136,7 @@ function buildFileSummary(
             {
               code: 'procurement-pinned-offer-stable',
               passed: procurementModeComparison.pinnedOfferChangedCount === 0,
-              detail: `고정 오퍼 변경=${String(procurementModeComparison.pinnedOfferChangedCount)}건`,
+              detail: `고정 구매 조건 변경=${String(procurementModeComparison.pinnedOfferChangedCount)}건`,
             },
           ]),
     ],
@@ -1176,7 +1176,7 @@ function buildFileReport(
           '',
           '## 샘플 ↔ 양산 재평가',
           '',
-          '| 샘플 합계 | 양산 합계 | 선정 오퍼 변경 | 포장 변경 | Reel 선정(샘플→양산) | Reel 우선 | Reel 없음 |',
+          '| 샘플 합계 | 양산 합계 | 선정 구매 조건 변경 | 포장 변경 | Reel 선정(샘플→양산) | Reel 우선 | Reel 없음 |',
           '| ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
           `| ${String(summary.procurementModeComparison.sampleFinalTotal)} | ${String(summary.procurementModeComparison.massFinalTotal)} | ${String(summary.procurementModeComparison.selectedOfferChangedCount)} | ${String(summary.procurementModeComparison.selectedPackagingChangedCount)} | ${String(summary.procurementModeComparison.sampleReelSelectedCount)}→${String(summary.procurementModeComparison.massReelSelectedCount)} | ${String(summary.procurementModeComparison.reelPreferredReasonCount)} | ${String(summary.procurementModeComparison.reelUnavailableReasonCount)} |`,
         ]),

@@ -105,7 +105,7 @@ async function acceptSupplierResult(data: BomPartSearchSupplementResponseType['d
 
 function mutationMessage(error: unknown): string {
   if (!(error instanceof ApiRequestError)) return '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.';
-  if (error.status === 409) return error.message || '선택한 구매조건이 변경되었습니다. 다시 검색해 주세요.';
+  if (error.status === 409) return error.message || '선택한 구매 조건이 변경되었습니다. 다시 검색해 주세요.';
   if (error.status === 404) return '부품 또는 견적 바구니를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.';
   return error.message || '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.';
 }

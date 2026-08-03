@@ -87,7 +87,7 @@ const convertedUnitPrice = computed(() => {
     </td>
     <!-- 포장 / 주문·재고 -->
     <td class="px-2 py-3 pt-[38px]">
-      <p class="truncate text-[13px] font-bold text-ink-neutral">{{ applied?.packaging ?? (applied !== null ? applied.supplier : '오퍼 없음') }}</p>
+      <p class="truncate text-[13px] font-bold text-ink-neutral">{{ applied?.packaging ?? (applied !== null ? applied.supplier : '구매 조건 없음') }}</p>
       <p v-if="applied !== null" class="mt-1 text-[12px] tabular-nums text-ink-muted">
         주문 <b class="text-ink-soft">{{ applied.orderQty.toLocaleString('ko-KR') }}</b>
         / 재고 {{ applied.stock?.toLocaleString('ko-KR') ?? '—' }}
@@ -105,14 +105,14 @@ const convertedUnitPrice = computed(() => {
         </span>
       </div>
     </td>
-    <!-- 액션: 전체 오퍼·공급 포장 비교 확장 -->
+    <!-- 액션: 전체 구매 조건·공급 포장 비교 확장 -->
     <td class="px-2 py-3">
       <div class="flex flex-col gap-[5px] pt-1">
         <button
           type="button"
           class="h-[28px] w-[88px] rounded-[5px] border text-[12px] font-bold transition"
           :class="expanded ? 'border-slate-300 bg-surface text-slate-600 hover:bg-slate-50' : 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'"
-          :title="expanded ? '오퍼 비교 접기' : '공급 포장·전체 오퍼 비교'"
+          :title="expanded ? '구매 조건 비교 접기' : '공급 포장·전체 구매 조건 비교'"
           @click="emit('toggle')"
         >
           {{ expanded ? '접기' : '구매 조건' }}

@@ -31,10 +31,10 @@ R/C 카탈로그로 사용한다. 가격과 재고는 워크북에서 만들지 
 
 - `catalog_metadata.catalogOnly=true`, `commercialDataAvailable=false`,
   `autoQuoteEligible=true`, `samplepcbPreferred=true`
-- 부품마다 제조사 사실 오퍼 + `samplepcb` 판매 오퍼 2개를 저장한다. 둘 다
+- 부품마다 제조사 원천 정보 + `samplepcb` 판매 조건 2개를 저장한다. 둘 다
   `offer_kind='manufacturer_catalog'`이며 최초 가격대·재고는 없다.
-- 제조사 사실 오퍼는 DB의 기술 사실·원본 추적에만 사용한다. 검색 API의 `suppliers`와
-  구매 오퍼 상세에는 `samplepcb`만 노출하고, 제조사는 기존 제조사 필드와 삭제 미리보기의
+- 제조사 원천 정보는 DB의 기술 사실·원본 추적에만 사용한다. 검색 API의 `suppliers`와
+  구매 조건 상세에는 `samplepcb`만 노출하고, 제조사는 기존 제조사 필드와 삭제 미리보기의
   카탈로그 원본 영역에서 확인한다.
 - sp-node는 BOM 외부 검색 전에 엔진이 정규화한 R/C 조건으로 SamplePCB ES 후보를 찾고,
   sp-engine의 `catalog-evaluate-batch`가 `automatic_selected`로 확정한 행만 문의 견적으로 선정한다.
@@ -64,7 +64,7 @@ dry-run에서 확인할 값:
 - `generatedMpnParts=2618` (표본 검증 10개 제외)
 - `commercialOffers=0`
 - `catalogSuppliers`에 `samplepcb` 포함
-- `existingParts`: 이미 실공급사 오퍼로 존재하는 부품 수 — 그만큼이 승격 대상
+- `existingParts`: 이미 실공급사 구매 조건으로 존재하는 부품 수 — 그만큼이 승격 대상
 
 `--apply` 완료 조건:
 
@@ -177,7 +177,7 @@ pnpm --filter api parts:catalog-prices -- --verify
 - `prepared-prices/work-state.json`: 생성 중 중단 재개용이며 Git에서 제외; 최종 검증 뒤 삭제 가능
 
 현재 Git 산출물(2026-07-27)은 2,628개 전부를 포함하며 가격 보유 502개,
-가격 없는 exact 결과 13개, exact 미발견 2,113개다. 외부 오퍼 1,521개와 가격구간
+가격 없는 exact 결과 13개, exact 미발견 2,113개다. 외부 구매 조건 1,521개와 가격구간
 9,372개를 보존한다. 생성 후반 DigiKey가 `429` 제한에 걸려 371개는
 `digikey: not_requested_for_snapshot`으로 명시하고 Mouser·UniKeyIC만 조회했으며,
 배치 전체 타임아웃과 Mouser·UniKeyIC 오류는 0개다. 현재 Git 산출물은 이 시점 스냅샷으로
@@ -220,10 +220,10 @@ pnpm --filter api parts:catalog-market-prices -- --merge
 Eleparts는 검색 결과에 제조사와 MPN이 모두 정확히 일치하고 양수인 부가세 포함 대표가격만
 사용한다. ICBanQ 자동완성에는 제조사가 없고 가격이 부가세 별도이므로, 후보를 가격순으로
 검사해 상세 페이지의 제조사·MPN·`Tax_Sales_Price`를 모두 확인한 첫 상품만 사용한다.
-동일 MPN의 타 제조사는 오퍼로 만들지 않는다.
+동일 MPN의 타 제조사는 구매 조건으로 만들지 않는다.
 
-두 판매처 오퍼는 `eleparts`·`icbanq`로 각각 보존한다. 사이트 안의 DigiKey·Mouser 등의
-라벨은 원 공급사 오퍼로 승격하지 않고 감사 메타데이터에만 둔다. 재고·MOQ·주문배수는
+두 판매처 구매 조건은 `eleparts`·`icbanq`로 각각 보존한다. 사이트 안의 DigiKey·Mouser 등의
+라벨은 원 공급사 구매 조건으로 승격하지 않고 감사 메타데이터에만 둔다. 재고·MOQ·주문배수는
 추정하지 않고 null로 유지하며, SamplePCB 가격 파생에서는 검증된 KRW 최소수량 단가가
 낮은 쪽을 쓴다. 같은 가격이면 identity 증거가 검색 응답에 직접 있는 Eleparts가 우선이다.
 
@@ -250,19 +250,19 @@ v2 스냅샷을 `parts:catalog -- --price-snapshot ...`에 전달해 같은 데�
 `samsung:RC0603F220CS`, `samsung:RC2012F220CS`, `walsin:1206B102K500CT`,
 `walsin:WR02X4701FTL` 4개는 동일 MPN의 타 제조사 상품이라 제외했다.
 
-v2는 가격 보유 522개, exact product 1,962개, 오퍼 2,451개, 가격구간 10,302개다.
+v2는 가격 보유 522개, exact product 1,962개, 구매 조건 2,451개, 가격구간 10,302개다.
 `parts:catalog` dry-run으로 원본 2,628개 coverage, v2 manifest SHA, 가격 스냅샷 ingest
 fingerprint를 검증했다. 이 생성 작업에서는 DB·ES 적용을 수행하지 않았다.
 
 초기화 후 `parts:catalog -- --apply ... --price-snapshot ...` 한 번이 제조사 원장과
-SamplePCB 취급 오퍼를 먼저 만들고, 스냅샷의 DigiKey·Mouser·UniKeyIC 오퍼를 같은
-`sp_part`에 upsert한다. 가격이 있는 외부 오퍼 한 개의 전체 가격곡선을 SamplePCB 오퍼에
+SamplePCB 취급 구매 조건을 먼저 만들고, 스냅샷의 DigiKey·Mouser·UniKeyIC 구매 조건을 같은
+`sp_part`에 upsert한다. 가격이 있는 외부 구매 조건 한 개의 전체 가격곡선을 SamplePCB 구매 조건에
 복사하고 `samplepcbPricing.derivedFrom`으로 공급사·SKU·수집 시각을 보존한다.
 외부 유통사 재고는 SamplePCB 보유 재고가 아니므로 **자체 재고는 계속 null**이다.
 
 DB에는 `(mpnNorm,manufacturerNorm)` 부품이 한 행만 생기고 그 아래 제조사 원장,
-외부 공급사, SamplePCB 오퍼가 공존한다. ES도 부품 문서 한 개의 `suppliers`에 외부 공급사와
-`samplepcb`를 함께 색인한다. 적용 검증은 공급사 오퍼·가격구간·SamplePCB 파생 출처와
+외부 공급사, SamplePCB 구매 조건이 공존한다. ES도 부품 문서 한 개의 `suppliers`에 외부 공급사와
+`samplepcb`를 함께 색인한다. 적용 검증은 공급사 구매 조건·가격구간·SamplePCB 파생 출처와
 ES 공급사 배열, 색인 큐 0건을 전수 확인한다.
 
 ## 제조사 키 병합 (적재 후 1회)
@@ -277,8 +277,8 @@ pnpm --filter api parts:merge-mfr -- --supplier walsin,yageo,samsung,murata,tdk,
 pnpm --filter api parts:merge-mfr -- --supplier walsin,yageo,samsung,murata,tdk,vishay,koa --apply
 ```
 
-기준 공급사 오퍼를 가진 **정규 키 부품과 같은 MPN**이면서 표시명을 별칭 해소하면 같은 회사가 되는
-과거 행만 대상이다. 오퍼와 견적 `partId`를 정규 키 행으로 옮기고 과거 행을 지운 뒤 facts 재계산과
+기준 공급사 구매 조건을 가진 **정규 키 부품과 같은 MPN**이면서 표시명을 별칭 해소하면 같은 회사가 되는
+과거 행만 대상이다. 구매 조건과 견적 `partId`를 정규 키 행으로 옮기고 과거 행을 지운 뒤 facts 재계산과
 ES 재색인·삭제까지 한다. 같은 `(supplier, sku)`가 양쪽에 있으면 목적지 값을 정본으로 두고 과거 행
 것을 버린다(같은 공급사이므로 다음 수집에서 갱신된다).
 
@@ -289,14 +289,14 @@ ES 재색인·삭제까지 한다. 같은 `(supplier, sku)`가 양쪽에 있으�
 
 2026-07-26 로컬 실행 결과: 부품 60 병합(`walsintechnology→walsin` 10 · `vishaydale→vishay` 20 ·
 `vishayintertechnology→vishay` 13 · `samsungelectromechanics→samsung` 9 · `koaspeer→koa` 8),
-오퍼 190 이전, 중복 오퍼 24 폐기, 견적 라인 8 재연결, 잔여 0.
+구매 조건 190 이전, 중복 구매 조건 24 폐기, 견적 라인 8 재연결, 잔여 0.
 
 **이 병합은 되돌릴 수 없다.** 운영에서는 DB 백업 후 dry-run 결과를 확인하고 실행한다.
 
 ## 되돌리기
 
-가격 스냅샷을 함께 적용하면 제조사 원장 오퍼 외에 DigiKey·Mouser·UniKeyIC 오퍼도 생긴다.
-기존 manifest 부분 rollback은 이 외부 오퍼까지 제거하는 계약이 아니므로
+가격 스냅샷을 함께 적용하면 제조사 원장 정보 외에 DigiKey·Mouser·UniKeyIC 구매 조건도 생긴다.
+기존 manifest 부분 rollback은 이 외부 구매 조건까지 제거하는 계약이 아니므로
 `--price-snapshot`과 `--rollback` 조합을 금지한다. 이번처럼 카탈로그 전체 초기화 뒤
 적용하는 작업은 관리자 카탈로그 초기화를 다시 실행하거나 적용 직전 DB 백업을 복원한다.
 

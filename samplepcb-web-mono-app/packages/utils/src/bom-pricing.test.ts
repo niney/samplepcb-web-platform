@@ -88,7 +88,7 @@ describe('통화 환산(예상치)', () => {
 });
 
 describe('pickDefaultOffer — 실효 총비용 최저', () => {
-  it('MOQ 부담이 큰 최저 단가보다 실효 총비용 낮은 오퍼 선택', () => {
+  it('MOQ 부담이 큰 최저 단가보다 실효 총비용 낮은 구매 조건 선택', () => {
     // 필요 100개: A 단가 60원 MOQ 4000 → 24만원 / B 단가 100원 MOQ 없음 → 1만원
     const pick = pickDefaultOffer(
       [
@@ -102,7 +102,7 @@ describe('pickDefaultOffer — 실효 총비용 최저', () => {
     expect(pick?.orderQty).toBe(100);
   });
 
-  it('재고 충분 오퍼 우선 — 부족 오퍼는 전량 부족일 때만(stockShort 표시)', () => {
+  it('재고 충분 구매 조건 우선 — 부족 구매 조건은 전량 부족일 때만(stockShort 표시)', () => {
     const pick = pickDefaultOffer(
       [
         offer({ supplier: 'mouser', stock: 10, priceBreaks: [{ qty: 1, price: 50 }] }),
@@ -122,7 +122,7 @@ describe('pickDefaultOffer — 실효 총비용 최저', () => {
     expect(short?.stockShort).toBe(true);
   });
 
-  it('환산 가능(KRW·USD+환율) 오퍼 우선, 환율 있으면 통화 넘어 비교', () => {
+  it('환산 가능(KRW·USD+환율) 구매 조건 우선, 환율 있으면 통화 넘어 비교', () => {
     // USD 0.05×1400=70원 < KRW 90원 → 환율 주면 digikey 선택
     const withRate = pickDefaultOffer(
       [
@@ -135,7 +135,7 @@ describe('pickDefaultOffer — 실효 총비용 최저', () => {
     expect(withRate?.offer.supplier).toBe('digikey');
     expect(withRate?.unitPriceKrw).toBeCloseTo(70);
 
-    // 환율 없으면 USD 미환산 → KRW 오퍼 우선
+    // 환율 없으면 USD 미환산 → KRW 구매 조건 우선
     const noRate = pickDefaultOffer(
       [
         offer({ supplier: 'digikey', currency: 'USD', priceBreaks: [{ qty: 1, price: 0.05, currency: 'USD' }] }),
@@ -159,7 +159,7 @@ describe('pickDefaultOffer — 실효 총비용 최저', () => {
     expect(pick).toBeNull();
   });
 
-  it('samplepcb 파생 오퍼는 후보 제외(순환 방지)', () => {
+  it('samplepcb 파생 구매 조건은 후보 제외(순환 방지)', () => {
     const pick = pickDefaultOffer(
       [
         offer({ supplier: 'samplepcb', priceBreaks: [{ qty: 1, price: 1 }] }),
@@ -185,7 +185,7 @@ describe('pickDefaultOffer — 실효 총비용 최저', () => {
 });
 
 describe('applyQtyToOffer — pinned 라인 수량 변경', () => {
-  it('선택 오퍼 안에서 구간·박제만 재계산', () => {
+  it('선택 구매 조건 안에서 구간·박제만 재계산', () => {
     const o = offer({
       supplier: 'mouser',
       moq: 100,

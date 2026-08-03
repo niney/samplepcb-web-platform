@@ -161,7 +161,7 @@ describe('parts catalog migration artifact', () => {
     );
   });
 
-  it('같은 상품 안의 공급사 오퍼 키 중복을 거부한다', () => {
+  it('같은 상품 안의 공급사 구매 조건 키 중복을 거부한다', () => {
     const artifact = mutableArtifact();
     const firstComponent = components(artifact)[0];
     const firstCandidate = firstComponent === undefined ? undefined : candidates(firstComponent)[0];
@@ -170,7 +170,7 @@ describe('parts catalog migration artifact', () => {
     const firstOffer = offers[0];
     if (firstOffer === undefined) throw new Error('테스트 픽스처에 offer가 없습니다');
     offers.push(structuredClone(firstOffer));
-    expect(() => parseCatalogMigrationEnvelope(artifact)).toThrow('오퍼 키가 중복');
+    expect(() => parseCatalogMigrationEnvelope(artifact)).toThrow('구매 조건 키가 중복');
   });
 
   it('catalog-only supplier와 source hash가 모두 맞을 때만 제거 대상으로 판정한다', () => {

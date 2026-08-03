@@ -98,7 +98,7 @@ export function useRefreshPart() {
   });
 }
 
-// 하드 삭제 — 오퍼·가격구간 cascade. 견적 연결 부품은 서버가 409로 보호한다.
+// 하드 삭제 — 구매 조건·가격구간 cascade. 견적 연결 부품은 서버가 409로 보호한다.
 export function useDeletePart() {
   const qc = useQueryClient();
   return useMutation({
@@ -133,7 +133,7 @@ export function useBulkDeleteParts() {
   });
 }
 
-// 카탈로그 초기화 — 부품 전체와 partId·매칭·오퍼 스냅샷이 연결된 BOM 견적을 강제 삭제.
+// 카탈로그 초기화 — 부품 전체와 partId·매칭·구매 조건 스냅샷이 연결된 BOM 견적을 강제 삭제.
 export function useResetParts() {
   const qc = useQueryClient();
   return useMutation({

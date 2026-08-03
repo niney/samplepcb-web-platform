@@ -1768,7 +1768,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     });
   });
 
-  it('현재 엔진의 가격·재고·MOQ 추천 오퍼를 Node 재정렬 없이 투영한다', () => {
+  it('현재 엔진의 가격·재고·MOQ 추천 구매 조건을 Node 재정렬 없이 투영한다', () => {
     const selected = candidate('verified_exact', 'ENGINE-PICK', 'digikey', 1_000, 1, {
       currentDecisionContract: true,
       categoryPolicyVersion: 'candidate-category-policy-v2',
@@ -2203,7 +2203,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.evidence.decisionReasonCodes).toEqual(['no-safe-candidate']);
   });
 
-  it('오퍼 키와 선언된 키 버전이 다르면 엔진 계약을 거부한다', () => {
+  it('구매 조건 키와 선언된 키 버전이 다르면 엔진 계약을 거부한다', () => {
     const selected = candidate('verified_exact', 'MISMATCHED-KEY', 'digikey', 1_000, 1, {
       currentDecisionContract: true,
       selectionRecommendation: 'preselect',
@@ -2756,7 +2756,7 @@ describe('BOM 엔진 후보 결정 투영', () => {
     expect(decision?.evidence.policyVersion).toBe('engine-procurement-projection-v13');
   });
 
-  it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 오퍼는 합치지 않는다', () => {
+  it('같은 엔진 그룹에서도 기술 근거가 다른 차단 후보의 구매 조건은 합치지 않는다', () => {
     const safe = candidate('verified_exact', 'SAME-MPN', 'digikey', 100, 1, {
       identityKey: 'engine-group-1',
       technicalEvidenceKey: 'safe-evidence',

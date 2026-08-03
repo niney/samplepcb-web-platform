@@ -380,7 +380,7 @@ export function useSupplierSearchStatus(quoteId: Ref<string | null>, enabled: Re
   });
 }
 
-// ── 카탈로그(부품 교체·추가·오퍼 변경 모달) ──────────────────────────────────
+// ── 카탈로그(부품 교체·추가·구매 조건 변경 모달) ──────────────────────────────────
 export function useBomPartsSearch(q: Ref<string>, enabled: Ref<boolean>, needed?: Ref<number>) {
   return useQuery({
     queryKey: computed(() => ['bom', 'parts-search', q.value, needed?.value ?? 1]),

@@ -23,11 +23,11 @@ import { normalizeSupplierPackaging } from './supplier-packaging';
 
 // BOM 공급사 검색 결과(sp-engine envelope) → 부품 카탈로그 자동 인제스트.
 // 전 경로 idempotent: part=(mpnNorm,manufacturerNorm) · offer=(partId,supplier,sku) upsert.
-// 동일/stale 오퍼는 no-op, 내용이 바뀐 가격구간만 replace-all. 변경 부품은 DB 커밋 뒤 ES bulk
+// 동일/stale 구매 조건은 no-op, 내용이 바뀐 가격구간만 replace-all. 변경 부품은 DB 커밋 뒤 ES bulk
 // 색인하며 실패·색인 중 재변경은 큐에 적재한다(드레인이 최신 DB 상태로 재시도).
 // VERIFIED 등 매칭 상태는 BOM 문맥이므로 저장하지 않는다(카탈로그=사실 데이터).
 //
-// 부품 정본(스펙·설명)과 자체(samplepcb) 오퍼는 "전체 실공급사 오퍼"의 함수(parts-facts)로,
+// 부품 정본(스펙·설명)과 자체(samplepcb) 구매 조건은 "전체 실공급사 구매 조건"의 함수(parts-facts)로,
 // facts fingerprint가 바뀐 경우만 applyPartFacts가 재계산한다 — 영속은 캐시, 소유권은 함수.
 
 // ── 엔진 페이로드 계약(느슨한 재검증 — 원본 pydantic 이 진실원본, 여긴 방어선) ──
@@ -237,7 +237,7 @@ function groupProducts(products: EngineProductT[]): ProductGroup[] {
   return [...byKey.values()];
 }
 
-/** 오퍼 병합: (supplier, sku) 당 최신 fetched_at 1건. */
+/** 구매 조건 병합: (supplier, sku) 당 최신 fetched_at 1건. */
 function mergeOffers(group: ProductGroup): { offer: EngineOfferT; raw: EngineProductT }[] {
   const byKey = new Map<string, { offer: EngineOfferT; raw: EngineProductT }>();
   for (const p of group.products) {
@@ -253,7 +253,7 @@ function mergeOffers(group: ProductGroup): { offer: EngineOfferT; raw: EnginePro
 }
 
 /**
- * 일부 공급사가 같은 수량 구간을 둘 이상 내려주는 경우가 있다. 저장 제약은 오퍼별 수량이
+ * 일부 공급사가 같은 수량 구간을 둘 이상 내려주는 경우가 있다. 저장 제약은 구매 조건별 수량이
  * 유일하므로, 동일 수량에서는 가장 낮은 단가를 택하고 결과 순서를 고정한다.
  */
 export function canonicalPriceBreaks(priceBreaks: EngineOfferT['price_breaks']): EngineOfferT['price_breaks'] {
@@ -321,7 +321,7 @@ function offerContentFingerprint(raw: EngineProductT, offer: EngineOfferT): stri
 }
 
 /**
- * 가격 인제스트가 제조사 원장보다 먼저 저장된 중단 복구 상태에서는 SamplePCB 오퍼가
+ * 가격 인제스트가 제조사 원장보다 먼저 저장된 중단 복구 상태에서는 SamplePCB 구매 조건이
  * 직접 derivedFrom 형식으로 존재할 수 있다. 이 경우에만 오래된 원장 기준시각보다
  * 카탈로그 정본을 우선해 복원하고, 같은 트랜잭션의 applyPartFacts가 가격 오버레이를
  * 다시 계산하게 한다. 일반 공급사 stale 응답과 정상 카탈로그 오버레이는 그대로 보호한다.
@@ -352,7 +352,7 @@ async function upsertGroup(group: ProductGroup): Promise<GroupUpsertResult> {
   }
 
   // 정본 필드(스펙·설명 등)는 여기서 채우지 않는다. 같은 part의 병렬 인제스트는
-  // 아래 FOR UPDATE 한 구역으로 직렬화해 stale 결과가 최신 오퍼를 되돌릴 수 없게 한다.
+  // 아래 FOR UPDATE 한 구역으로 직렬화해 stale 결과가 최신 구매 조건을 되돌릴 수 없게 한다.
   const observedAt = new Date();
   const identity = { mpnNorm: group.mpnNorm, manufacturerNorm: group.manufacturerNorm };
   const part = await upsertWithRaceRecovery(
@@ -532,7 +532,7 @@ function jsonRecord(value: Prisma.JsonValue): Prisma.JsonObject | null {
     : null;
 }
 
-/** SamplePCB가 직접 취급하기로 한 카탈로그 오퍼만 파생 가격의 영속 대상으로 쓴다. */
+/** SamplePCB가 직접 취급하기로 한 카탈로그 구매 조건만 파생 가격의 영속 대상으로 쓴다. */
 function preferredSamplepcbCatalogRaw(value: Prisma.JsonValue): Prisma.JsonObject | null {
   if (!isCatalogInquiryOffer(value)) return null;
   const product = jsonRecord(value);
@@ -546,8 +546,8 @@ function preferredSamplepcbCatalogRaw(value: Prisma.JsonValue): Prisma.JsonObjec
 }
 
 /**
- * 부품 정본(스펙·설명·specConflicts) + 자체(samplepcb) 오퍼 재계산 — 전체 실공급사
- * 오퍼 기준. 인제스트·수동 갱신·백필 모든 경로의 종착점(idempotent).
+ * 부품 정본(스펙·설명·specConflicts) + 자체(samplepcb) 구매 조건 재계산 — 전체 실공급사
+ * 구매 조건 기준. 인제스트·수동 갱신·백필 모든 경로의 종착점(idempotent).
  */
 async function applyPartFactsInTx(
   tx: Prisma.TransactionClient,
@@ -632,7 +632,7 @@ async function applyPartFactsInTx(
     });
   }
 
-  // 자체(samplepcb) 오퍼 — 원천 1개에서 통째 복사(공급사 간 브레이크 혼합 금지)
+  // 자체(samplepcb) 구매 조건 — 원천 1개에서 통째 복사(공급사 간 브레이크 혼합 금지)
   const chosen = deriveSamplepcbOffer(
     real.map((o) => ({
       supplier: o.supplier,
@@ -683,7 +683,7 @@ async function applyPartFactsInTx(
     ? null
     : preferredSamplepcbCatalogRaw(catalogOffer.rawJson);
   const offerData = {
-    productUrl: null, // 자체 오퍼 — 외부 상품 링크는 derivedFrom 으로만 추적
+    productUrl: null, // 자체 구매 조건 — 외부 상품 링크는 derivedFrom 으로만 추적
     // 자체 카탈로그는 가격 스냅샷만 가져온다. 외부 유통사 재고를 SamplePCB의
     // 보유 재고로 오인하지 않도록 취급 원장이 있으면 null을 유지한다.
     stock: catalogRaw === null ? chosen.stock : null,
@@ -743,8 +743,8 @@ export async function applyPartFacts(partId: bigint): Promise<void> {
   await prisma.$transaction(
     async (tx) => {
       await tx.$queryRaw<{ id: bigint }[]>`SELECT id FROM sp_part WHERE id = ${partId} FOR UPDATE`;
-      // 명시적 정본 재계산은 factsFingerprint가 같더라도 SamplePCB 가격 오퍼를
-      // 다시 맞춘다. 중단된 인제스트에서 실공급사 오퍼만 먼저 저장된 상태를 복구한다.
+      // 명시적 정본 재계산은 factsFingerprint가 같더라도 SamplePCB 구매 조건의 가격을
+      // 다시 맞춘다. 중단된 인제스트에서 실공급사 구매 조건만 먼저 저장된 상태를 복구한다.
       await applyPartFactsInTx(tx, partId, true);
     },
     { maxWait: 10_000, timeout: 30_000 },

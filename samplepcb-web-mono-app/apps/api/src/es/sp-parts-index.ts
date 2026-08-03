@@ -1,7 +1,7 @@
 import type { estypes } from '@elastic/elasticsearch';
 import { esClient } from './client';
 
-// sp-parts 인덱스 정의 — 검색 전용 요약 문서(오퍼 상세는 DB가 진실원본).
+// sp-parts 인덱스 정의 — 검색 전용 요약 문서(구매 조건 상세는 DB가 진실원본).
 // 단위 지능은 ES 애널라이저가 아니라 @sp/utils spec-units(색인·검색 동일 파서)에 있다.
 // 애널라이저는 기본만: lowercase·ngram·edge_ngram (설계: docs/PARTS_SEARCH.md).
 
@@ -65,14 +65,14 @@ export interface SpPartDoc {
   suppliers: string[];
   offerCount: number;
   minPrice: number | null;
-  /** minPrice 가 나온 오퍼의 통화(KRW·USD…) — 표시용. */
+  /** minPrice 가 나온 구매 조건의 통화(KRW·USD…) — 표시용. */
   minPriceCurrency: string | null;
   totalStock: number;
-  /** 오퍼 최신 fetchedAt — 데이터 나이 표시·정렬용. */
+  /** 구매 조건 최신 fetchedAt — 데이터 나이 표시·정렬용. */
   offersFetchedAt: string | null;
   /** 공급사 간 스펙 실충돌 존재 여부(specConflicts) — 관리자 배지용. 구 색인 문서는 undefined. */
   hasSpecConflict: boolean | undefined;
-  /** 제조사 카탈로그의 재고 확인·가격 문의 오퍼 존재 여부. 구 색인 문서는 undefined. */
+  /** 제조사 카탈로그의 재고 확인·가격 문의 견적 채널 존재 여부. 구 색인 문서는 undefined. */
   hasCatalogInquiryOffer?: boolean;
   updatedAt: string;
 }

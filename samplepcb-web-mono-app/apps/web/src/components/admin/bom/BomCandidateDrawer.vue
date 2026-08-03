@@ -346,27 +346,27 @@ const procurementAvailabilityAlert = computed(() => {
     case 'input_incomplete':
       return {
         title: '구매 수량 확인이 필요합니다',
-        detail: '원본 BOM의 수량 또는 참조번호 충돌을 확인한 뒤 구매 가능한 오퍼를 판정할 수 있습니다.',
+        detail: '원본 BOM의 수량 또는 참조번호 충돌을 확인한 뒤 적용 가능한 구매 조건을 판정할 수 있습니다.',
         classes: 'border-amber-300 bg-amber-50 text-amber-950',
         iconClasses: 'bg-amber-500 text-white',
       };
     case 'out_of_stock':
       return {
-        title: '모든 구매 가능 오퍼의 재고가 없습니다',
+        title: '모든 적용 가능한 구매 조건의 재고가 없습니다',
         detail: `재고가 모두 0으로 확인되어 필요수량 ${needed}개를 충족할 수 없습니다.`,
         classes: 'border-red-300 bg-red-50 text-red-900',
         iconClasses: 'bg-red-600 text-white',
       };
     case 'insufficient_stock':
       return {
-        title: '모든 구매 가능 오퍼의 재고가 부족합니다',
+        title: '모든 적용 가능한 구매 조건의 재고가 부족합니다',
         detail: `확인된 재고로는 필요수량 ${needed}개를 충족할 수 없습니다.`,
         classes: 'border-amber-300 bg-amber-50 text-amber-950',
         iconClasses: 'bg-amber-500 text-white',
       };
     case 'stock_unverified':
       return {
-        title: '구매 가능 오퍼의 재고를 확인할 수 없습니다',
+        title: '적용 가능한 구매 조건의 재고를 확인할 수 없습니다',
         detail: `필요수량 ${needed}개 충족 여부를 공급사에서 확인해 주세요.`,
         classes: 'border-amber-300 bg-amber-50 text-amber-950',
         iconClasses: 'bg-amber-500 text-white',
@@ -392,7 +392,7 @@ const procurementAvailabilityAlert = computed(() => {
     case 'price_unavailable':
       return {
         title: '구매 가능한 가격을 확인할 수 없습니다',
-        detail: '재고가 있더라도 필요수량에 적용할 가격 또는 환율이 없어 오퍼를 선정하지 않았습니다.',
+        detail: '재고가 있더라도 필요수량에 적용할 가격 또는 환율이 없어 구매 조건을 선정하지 않았습니다.',
         classes: 'border-amber-300 bg-amber-50 text-amber-950',
         iconClasses: 'bg-amber-500 text-white',
       };
@@ -475,7 +475,7 @@ function localCatalogReasonLabel(trace: BomQuoteLocalCatalogTraceType): string |
       + summary.unclassifiedCandidateCount;
     if (summary.automaticCandidateCount > 0) {
       const cause = localCatalogUnavailabilityLabel(summary.primaryUnavailabilityReason);
-      return `기술 자동선정 가능 후보 ${summary.automaticCandidateCount.toLocaleString('ko-KR')}개가 있었지만 ${cause ?? '구매조건 판정'} 때문에 자체 카탈로그에서 선정하지 않았습니다.`;
+      return `기술 자동선정 가능 후보 ${summary.automaticCandidateCount.toLocaleString('ko-KR')}개가 있었지만 ${cause ?? '구매 조건 판정'} 때문에 자체 카탈로그에서 선정하지 않았습니다.`;
     }
     if (finalCandidateCount > 0) {
       const results = [
@@ -527,10 +527,10 @@ function localCatalogUnavailabilityLabel(reason: string | null): string | null {
     catalog_inquiry: '재고·가격 문의 필요',
     price_unavailable: '가격 미확인',
     technical_unavailable: '기술 조건 미충족',
-    supplier_unavailable: '허용 공급사 오퍼 없음',
-    no_offer: '구매 오퍼 없음',
+    supplier_unavailable: '허용 공급사 구매 조건 없음',
+    no_offer: '구매 조건 없음',
     input_incomplete: '입력 정보 부족',
-    other: '구매조건 미충족',
+    other: '구매 조건 미충족',
   };
   return labels[reason] ?? reason;
 }
@@ -566,14 +566,14 @@ function localCatalogDecisionCodeLabel(code: string): string {
     technical_selection_blocked: '기술 선정 차단',
     technical_preselection_unavailable: '기술 사전선정 후보 없음',
     technical_preselection_preserved: '기술 1순위 유지',
-    technical_preselection_unpurchasable: '기술 1순위 구매조건 미충족',
+    technical_preselection_unpurchasable: '기술 1순위 구매 조건 미충족',
     technical_preselection_excessive_order: '기술 1순위 주문수량 과다',
     next_purchasable_technical_group_selected: '구매 가능한 차순위 기술 후보 적용',
     no_purchasable_candidate_group: '구매 가능한 후보군 없음',
     equivalent_group_lower_effective_total_selected: '동급 후보 중 실효 총액 최저 적용',
     best_effective_total_in_equivalent_group: '동급 후보 중 실효 총액 최저',
-    best_purchase_fit_in_technical_group: '기술 후보군 내 구매조건 최적',
-    best_purchase_fit_in_fallback_group: '차순위 후보군 내 구매조건 최적',
+    best_purchase_fit_in_technical_group: '기술 후보군 내 구매 조건 최적',
+    best_purchase_fit_in_fallback_group: '차순위 후보군 내 구매 조건 최적',
     manufacturer_catalog_candidate_selected: '제조사 카탈로그 후보 선정',
     stock_confirmation_required: '재고 확인 필요',
     price_inquiry_required: '가격 문의 필요',
@@ -1346,7 +1346,7 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'technical-top': '기술 검증 1순위',
     'same-part-lowest-total': '동일 부품 내 실효 총액 최저',
     'strict-spec-price-saving': '동급 안전·검토 후보 중 실효 총액 절감',
-    'purchase-fit': '동급 후보 중 구매조건 최적',
+    'purchase-fit': '동급 후보 중 구매 조건 최적',
     'lifecycle-improvement': 'NRND/EOL 대신 활성 부품 우선',
     availability: '구매 가능한 재고·가격 우선',
     'customer-choice': '고객 직접 선택',
@@ -1354,13 +1354,13 @@ function reasonLabel(reason: BomQuoteDecisionReasonType): string {
     'admin-force-choice': '관리자 강제 변경',
     'admin-add': '관리자 수동 추가',
     'catalog-choice': '카탈로그 직접 선택',
-    'offer-choice': '공급사 오퍼 직접 선택',
+    'offer-choice': '공급사 구매 조건 직접 선택',
     'engine-catalog-selection': '제조사 카탈로그 정확 일치 선정',
-    'engine-procurement-recommendation': '엔진 구매조건 추천',
+    'engine-procurement-recommendation': '엔진 구매 조건 추천',
     'engine-manual-review': '엔진 수동 검토 권장',
     'engine-technical-fallback': '기술 1순위 구매 불가 · 다음 후보 적용',
     'quantity-confirmation-required': '수량 확인 전 기술 선정',
-    'engine-procurement-unavailable': '구매 가능한 추천 오퍼 없음',
+    'engine-procurement-unavailable': '적용 가능한 추천 구매 조건 없음',
     'mass-production-reel-preferred': '양산 모드 · Reel 포장 우선',
     'mass-production-reel-unavailable': '양산 모드 · 구매 가능한 Reel 없음',
     'no-safe-candidate': '안전 자동선정 후보 없음',
@@ -1566,7 +1566,7 @@ function candidateTotalLabel(candidate: BomQuoteCandidateType): string {
   if (props.context?.procurementUnavailabilityReason === 'input_incomplete') {
     return '수량 확인 후 계산';
   }
-  return candidate.offers.length > 0 ? '구매 가능한 오퍼 없음' : '가격 확인 필요';
+  return candidate.offers.length > 0 ? '적용 가능한 구매 조건 없음' : '가격 확인 필요';
 }
 
 function severeOfferSurplus(offer: BomQuoteCandidateOfferType): boolean {
@@ -1732,9 +1732,9 @@ function candidateUnavailableLabel(candidate: BomQuoteCandidateType): string {
     case 'supplier_unavailable':
       return '공급사 확인 필요';
     case 'no_offer':
-      return '오퍼 없음';
+      return '구매 조건 없음';
     case 'other':
-      return '구매조건 확인 필요';
+      return '구매 조건 확인 필요';
     case null:
     case undefined:
       break;
@@ -1753,13 +1753,13 @@ function candidateUnavailableLabel(candidate: BomQuoteCandidateType): string {
   if (states.length > 0 && states.every((state) => state === 'catalog_inquiry')) {
     return candidate.selected ? '선정됨 · 재고/가격 문의' : '취급 가능 · 재고 확인';
   }
-  return '재고·가격 구매조건 미충족';
+  return '재고·가격 구매 조건 미충족';
 }
 
 function procurementBlockingReason(): string | null {
   switch (props.context?.procurementUnavailabilityReason) {
     case 'input_incomplete':
-      return '원본 BOM의 수량 또는 참조번호 충돌을 확인해야 구매조건을 적용할 수 있습니다.';
+      return '원본 BOM의 수량 또는 참조번호 충돌을 확인해야 구매 조건을 적용할 수 있습니다.';
     case 'price_unavailable':
       return '필요수량에 적용할 가격 또는 환율 정보를 확인할 수 없습니다.';
     case 'catalog_inquiry':
@@ -1767,11 +1767,11 @@ function procurementBlockingReason(): string | null {
     case 'technical_unavailable':
       return '재고가 있더라도 필수 기술 조건을 충족하지 않아 선택할 수 없습니다.';
     case 'supplier_unavailable':
-      return '현재 견적에서 허용된 공급사의 구매 가능한 오퍼가 없습니다.';
+      return '현재 견적에서 허용된 공급사의 적용 가능한 구매 조건이 없습니다.';
     case 'no_offer':
-      return '구매 가능한 공급사 오퍼를 찾지 못했습니다.';
+      return '적용 가능한 공급사 구매 조건을 찾지 못했습니다.';
     case 'other':
-      return '엔진 구매조건 판정을 통과한 오퍼가 없습니다.';
+      return '엔진 판정을 통과한 구매 조건이 없습니다.';
     case 'out_of_stock':
     case 'insufficient_stock':
     case 'stock_unverified':
@@ -1794,9 +1794,9 @@ function procurementBlockingActionLabel(): string | null {
     case 'supplier_unavailable':
       return '공급사 확인 필요';
     case 'no_offer':
-      return '오퍼 없음';
+      return '구매 조건 없음';
     case 'other':
-      return '구매조건 확인 필요';
+      return '구매 조건 확인 필요';
     case 'out_of_stock':
     case 'insufficient_stock':
     case 'stock_unverified':
@@ -1833,7 +1833,7 @@ function offerUnavailableReason(
   offer: BomQuoteCandidateOfferType,
 ): string {
   if (offer.offerKind === 'manufacturer_catalog') {
-    return '제조사 카탈로그 취급 부품입니다. 실제 재고 확인과 가격 문의 후 구매조건을 확정할 수 있습니다.';
+    return '제조사 카탈로그 취급 부품입니다. 실제 재고 확인과 가격 문의 후 구매 조건을 확정할 수 있습니다.';
   }
   if (!candidate.manualSelectable) return candidateBlockingReason(candidate);
   const reasons = new Set(offer.decisionReasonCodes);
@@ -1841,7 +1841,7 @@ function offerUnavailableReason(
     reasons.has('procurement_quantity_confirmation_required')
     || reasons.has('quantity_reference_conflict')
   ) {
-    return '원본 BOM의 수량 또는 참조번호 충돌을 확인해야 구매조건을 적용할 수 있습니다.';
+    return '원본 BOM의 수량 또는 참조번호 충돌을 확인해야 구매 조건을 적용할 수 있습니다.';
   }
   const procurementReason = procurementBlockingReason();
   if (procurementReason !== null) return procurementReason;
@@ -1862,10 +1862,10 @@ function offerUnavailableReason(
     return '공급사의 MOQ 또는 주문배수 정보가 올바르지 않습니다.';
   }
   if (reasons.has('stable_offer_identity_unavailable')) {
-    return '공급사 오퍼 식별 정보를 확인할 수 없습니다.';
+    return '공급사 구매 조건 식별 정보를 확인할 수 없습니다.';
   }
   if (reasons.has('procurement_excluded')) return '조달 대상에서 제외된 행입니다.';
-  return '가격·재고 구매조건을 충족하지 못했습니다.';
+  return '가격·재고 구매 조건을 충족하지 못했습니다.';
 }
 
 function selectionTemporarilyLocked(): boolean {
@@ -1887,21 +1887,21 @@ function candidateActionLabel(candidate: BomQuoteCandidateType): string {
   if (!candidate.manualSelectable) return '선택 불가';
   if (candidate.bestOfferKey === null) return candidateUnavailableLabel(candidate);
   if (provisionalSelectionPending.value && candidate.selected) return '검토 완료';
-  if (bestOfferAlreadySelected(candidate)) return '현재 구매조건 오퍼';
+  if (bestOfferAlreadySelected(candidate)) return '현재 구매 조건';
   if (candidate.recommended && candidate.selectionEligibility === 'manual_review') {
     return '권장 후보 검토 후 선택';
   }
   if (candidate.selectionEligibility === 'manual_review') return '검토 후 선택';
-  if (candidate.selected) return '구매조건 오퍼로 변경';
+  if (candidate.selected) return '구매 조건으로 변경';
   if (candidate.recommended) return '자동 추천 적용';
-  return '구매조건 오퍼로 선택';
+  return '구매 조건으로 선택';
 }
 
 function candidateActionDisabledReason(candidate: BomQuoteCandidateType): string | null {
   if (selectionTemporarilyLocked()) return '다른 선택을 적용하는 중입니다.';
   if (candidate.bestOfferKey === null && candidateHasCatalogInquiry(candidate)) {
     return candidate.selected
-      ? '부품은 선정됐습니다. 실제 재고 확인과 가격 문의 후 구매조건을 확정합니다.'
+      ? '부품은 선정됐습니다. 실제 재고 확인과 가격 문의 후 구매 조건을 확정합니다.'
       : '제조사 카탈로그 취급 부품입니다. 실제 재고 확인과 가격 문의가 필요합니다.';
   }
   if (!candidate.manualSelectable) return candidateBlockingReason(candidate);
@@ -1937,8 +1937,8 @@ function offerActionLabel(
     provisionalSelectionPending.value
     && candidate.selected
     && props.context?.selectedOfferKey === offer.offerKey
-  ) return '이 오퍼 확인 완료';
-  return '이 오퍼 선택';
+  ) return '이 구매 조건 확인 완료';
+  return '이 구매 조건 선택';
 }
 
 function offerActionDisabledReason(
@@ -2848,7 +2848,7 @@ onBeforeUnmount(() => {
                   </div>
                   <div v-if="currentCandidate !== null" class="flex shrink-0 flex-wrap gap-x-3 gap-y-1 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
                     <p>기술 <b class="text-slate-900">{{ currentCandidate.technicalRank }}위</b></p>
-                    <p>구매조건 <b class="text-slate-900">{{ currentCandidate.priceRank === null ? '산정 불가' : `오퍼 ${String(currentCandidate.priceRank)}위` }}</b></p>
+                    <p>구매 조건 <b class="text-slate-900">{{ currentCandidate.priceRank === null ? '산정 불가' : `${String(currentCandidate.priceRank)}위` }}</b></p>
                     <button
                       type="button"
                       class="rounded px-1 text-left hover:bg-slate-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
@@ -2900,7 +2900,7 @@ onBeforeUnmount(() => {
                 <div v-if="recommendedCandidate !== null && recommendedCandidate.selectionEligibility === 'manual_review'" class="mx-3 mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs" :class="reviewSelectionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-300 bg-amber-50 text-amber-950'">
                   <p v-if="provisionalSelectionPending">
                     <b>선정됨 · 검토 대기</b> {{ recommendedCandidate.mpn }} —
-                    <template v-if="context.technicalFallbackUsed">기술 1순위의 구매 가능한 오퍼가 없어 엔진이 다음 안전 후보를 임시 선정했습니다.</template>
+                    <template v-if="context.technicalFallbackUsed">기술 1순위의 적용 가능한 구매 조건이 없어 엔진이 다음 안전 후보를 임시 선정했습니다.</template>
                     <template v-else>엔진 임시 선정으로 예상 견적에 반영했습니다.</template>
                   </p>
                   <p v-else-if="reviewSelectionConfirmed"><b>검토 완료</b> {{ recommendedCandidate.mpn }} — 사용자가 엔진 검토 권장 후보를 확인했습니다.</p>
@@ -2972,7 +2972,7 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
                         <div class="w-full shrink-0 rounded-lg border border-slate-200 bg-surface p-3 md:w-52">
-                          <p class="text-xs text-slate-400">필요수량 기준 최적 오퍼</p>
+                          <p class="text-xs text-slate-400">필요수량 기준 최적 구매 조건</p>
                           <strong class="mt-0.5 block text-lg tabular-nums text-slate-950">{{ candidateTotalLabel(candidate) }}</strong>
                           <p v-if="candidateBestOfferUnitLabel(candidate) !== null" class="mt-0.5 text-xs tabular-nums text-slate-500">단가 {{ candidateBestOfferUnitLabel(candidate) }}</p>
                           <p v-if="candidate.bestLineTotalKrw !== null" class="mt-1 text-xs font-semibold" :class="(candidate.lineDeltaKrw ?? 0) <= 0 ? 'text-emerald-600' : 'text-amber-700'">현재 대비 {{ fmtDelta(candidate.lineDeltaKrw) }}</p>
@@ -3015,8 +3015,8 @@ onBeforeUnmount(() => {
                       <div v-if="candidate.selectionEligibility === 'manual_review'" class="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs leading-5 text-amber-900">
                         <template v-if="candidateHasCatalogInquiry(candidate)"><b>제조사 카탈로그 취급:</b> 부품 식별은 확인됐지만 실제 재고와 가격은 문의 후 확정해야 합니다.</template>
                         <template v-else-if="candidate.recommended"><b>엔진 검토 권장:</b> 구매 가능한 재고·가격을 포함해 실제 적용 후보로 임시 선정했습니다. 예상 견적에는 반영되며, 확인 후 검토를 완료할 수 있습니다.</template>
-                        <template v-else-if="context.technicalFallbackUsed && candidate.candidateKey === technicalTopCandidate?.candidateKey"><b>기술 1순위:</b> 기술 근거상 가장 앞선 후보지만 구매 가능한 오퍼가 없어 현재 견적에는 적용하지 않았습니다.</template>
-                        <template v-else-if="candidate.reviewRecommended"><b>엔진 기술 검토 1순위:</b> 기술 근거상 가장 유력하지만 구매조건을 충족하지 못해 적용 후보와 분리했습니다.</template>
+                        <template v-else-if="context.technicalFallbackUsed && candidate.candidateKey === technicalTopCandidate?.candidateKey"><b>기술 1순위:</b> 기술 근거상 가장 앞선 후보지만 적용 가능한 구매 조건이 없어 현재 견적에는 적용하지 않았습니다.</template>
+                        <template v-else-if="candidate.reviewRecommended"><b>엔진 기술 검토 1순위:</b> 기술 근거상 가장 유력하지만 구매 조건을 충족하지 못해 적용 후보와 분리했습니다.</template>
                         <template v-else><b>엔진 검토 필요:</b> 자동 선정 조건을 충족하지 않았습니다. 근거와 누락·충돌 항목을 확인한 뒤 직접 선택할 수 있습니다.</template>
                       </div>
                       <div v-if="candidate.replacementSources.length > 0" class="mt-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs leading-5 text-violet-900">
@@ -3025,7 +3025,7 @@ onBeforeUnmount(() => {
                       <div v-if="candidate.missingRequirements.length > 0" class="mt-1.5 rounded-md bg-amber-100/70 px-2.5 py-1.5 text-xs text-amber-800"><b>{{ missingNoticePrefix(candidate) }}:</b> {{ missingText(candidate) }}</div>
 
                       <button type="button" class="mt-2 inline-flex min-h-9 items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900" @click="toggleCandidate(candidate.candidateKey)">
-                        공급사 오퍼 {{ candidate.offers.length }}개 {{ expanded.has(candidate.candidateKey) ? '접기 ▴' : '보기 ▾' }}
+                        공급사 구매 조건 {{ candidate.offers.length }}개 {{ expanded.has(candidate.candidateKey) ? '접기 ▴' : '보기 ▾' }}
                       </button>
                     </div>
 
@@ -3039,9 +3039,9 @@ onBeforeUnmount(() => {
                               <span v-if="offer.packaging" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">{{ offer.packaging }}</span>
                               <span v-if="offerStockState(offer) !== null" class="rounded px-1.5 py-0.5 text-[11px] font-bold" :class="offerStockBadgeClass(offer)">{{ offerStockLabel(offer) }}</span>
                               <span v-if="severeOfferSurplus(offer)" class="rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-bold text-orange-800" :title="offerSurplusLabel(offer)">과다수량 · 자동추천 제외</span>
-                              <span v-if="offer.recommendation === 'automatic'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">자동 추천 오퍼</span>
-                              <span v-else-if="offer.recommendation === 'manual_review'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">검토 권장 오퍼</span>
-                              <span v-else-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">구매조건 1위</span>
+                              <span v-if="offer.recommendation === 'automatic'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">자동 추천 구매 조건</span>
+                              <span v-else-if="offer.recommendation === 'manual_review'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">검토 권장 구매 조건</span>
+                              <span v-else-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">구매 조건 1위</span>
                               <span v-if="context.selectedOfferKey === offer.offerKey" class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-bold text-blue-700">사용 중</span>
                             </div>
                             <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
@@ -3079,7 +3079,7 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
                       </div>
-                      <p v-else class="p-4 text-sm text-slate-400">가격이 있는 공급사 오퍼가 없습니다.</p>
+                      <p v-else class="p-4 text-sm text-slate-400">가격이 있는 공급사 구매 조건이 없습니다.</p>
                     </div>
                   </article>
                 </div>
@@ -3100,7 +3100,7 @@ onBeforeUnmount(() => {
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div><h3 class="text-sm font-bold text-slate-900">엔진 후보 밖에서 찾기</h3><p class="mt-1 text-xs text-slate-500">품번·스펙으로 카탈로그를 직접 검색할 수 있습니다.</p></div>
                   <div class="flex flex-wrap gap-2">
-                    <button v-if="hasCatalogPart" type="button" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="interactionLocked" @click="emit('catalogOffers')">현재 부품 오퍼</button>
+                    <button v-if="hasCatalogPart" type="button" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="interactionLocked" @click="emit('catalogOffers')">현재 부품 구매 조건</button>
                     <button type="button" class="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="interactionLocked" @click="view = 'search'">전체 부품 검색</button>
                   </div>
                 </div>
@@ -3132,7 +3132,7 @@ onBeforeUnmount(() => {
               <div>
                 <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">Manual review</p>
                 <h3 id="review-selection-title" class="mt-1 text-lg font-bold text-slate-950">검토 후보를 선택할까요?</h3>
-                <p class="mt-1 text-xs leading-5 text-amber-900">자동 선정 조건을 충족하지 않은 후보입니다. 아래 근거와 구매조건을 확인해 주세요.</p>
+                <p class="mt-1 text-xs leading-5 text-amber-900">자동 선정 조건을 충족하지 않은 후보입니다. 아래 근거와 구매 조건을 확인해 주세요.</p>
               </div>
               <button type="button" class="grid size-8 shrink-0 place-items-center rounded-lg text-lg text-slate-500 hover:bg-amber-100" aria-label="선택 확인창 닫기" @click="pendingReviewSelection = null">×</button>
             </div>

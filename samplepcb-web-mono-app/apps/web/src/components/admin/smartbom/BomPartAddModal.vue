@@ -5,7 +5,7 @@ import { neededQty, type OfferPick } from '@sp/utils';
 import BomPartSearchPanel from '../bom/BomPartSearchPanel.vue';
 
 // SmartBOM 관리자 수동 행 추가 — 세트당 BOM 수량을 먼저 확정하고 같은 수량 문맥으로
-// 카탈로그 오퍼의 MOQ·주문배수·가격을 비교한다. 실제 값은 서버가 다시 계산한다.
+// 카탈로그 구매 조건의 MOQ·주문배수·가격을 비교한다. 실제 값은 서버가 다시 계산한다.
 
 const props = defineProps<{
   setQty: number;

@@ -11,7 +11,7 @@ MPN이 없는 저항·캐패시터는 DB/ES에 이미 저장된 공급사 부품
 - 저항: 저항값과 패키지가 모두 엔진 검색계획의 hard 조건이고 후보와 일치
 - 캐패시터: 정전용량과 패키지가 모두 엔진 검색계획의 hard 조건이고 후보와 일치
 - MPN이 없는 단일 검색계획
-- ES 문서에 하나 이상의 실제 오퍼가 존재
+- ES 문서에 하나 이상의 실제 구매 조건이 존재
 - sp-engine의 `resistor_minimum` 또는 `capacitor_minimum` 정책으로 다시
   검증했을 때 `automatic_selected`
 

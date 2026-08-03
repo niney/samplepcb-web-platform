@@ -8,11 +8,11 @@ import {
 } from './parts-offer-kind';
 
 describe('partOfferKind', () => {
-  it('명시적인 제조사 카탈로그 오퍼를 문의 대상으로 판정한다', () => {
+  it('명시적인 제조사 카탈로그 정보를 문의 대상으로 판정한다', () => {
     expect(partOfferKind({ offer_kind: 'manufacturer_catalog' })).toBe('manufacturer_catalog');
   });
 
-  it('기존 catalog_metadata 기반 오퍼도 문의 대상으로 복원한다', () => {
+  it('기존 catalog_metadata 기반 구매 조건도 문의 대상으로 복원한다', () => {
     const raw = {
       catalog_metadata: {
         catalogOnly: true,
@@ -23,7 +23,7 @@ describe('partOfferKind', () => {
     expect(isCatalogInquiryOffer(raw)).toBe(true);
   });
 
-  it('상업 정보가 있는 일반 공급사 오퍼는 기존 종류를 유지한다', () => {
+  it('상업 정보가 있는 일반 공급사 구매 조건은 기존 종류를 유지한다', () => {
     expect(partOfferKind({ catalog_metadata: { catalogOnly: true, commercialDataAvailable: true } }))
       .toBe('supplier_offer');
     expect(partOfferKind(null)).toBe('supplier_offer');
@@ -63,7 +63,7 @@ describe('partOfferKind', () => {
     expect(isCatalogProvenanceOffer('yeonho', legacyCatalog)).toBe(false);
   });
 
-  it('기존 파생 오퍼와 카탈로그 가격 오버레이의 원천을 모두 읽는다', () => {
+  it('기존 파생 구매 조건과 카탈로그 가격 오버레이의 원천을 모두 읽는다', () => {
     const derivedFrom = {
       supplier: 'digikey',
       supplierSku: '123-ND',

@@ -19,9 +19,9 @@
 | D3 | 1차 범위 | **견적 성립까지**: 관리자 검토 → 협력사 RFQ → 비교·선정 → 고객 회신(answered). 2차=주문·결제·발주, 3차=물류 |
 | D4 | 파트너 모델 | **`sp_partner` 조직 단일 테이블**(type: partner\|supplier\|house) + `sp_partner_member` 계정 연결(스키마 1:N, 1차 구현은 owner 1계정) + `sp_partner_relation`(마스터딜러 — **스키마만 선반영, 구현 후속**) |
 | D5 | partnerAuth | 레거시 등급(A/B/C/부품판매)은 **capabilities**(bom_rfq·pcb_rfq·part_sale)로 재해석 |
-| D6 | 공급사 참여 | **RFQ 행으로 물질화하지 않는다.** 공급사 시세는 기존 후보(SpBomQuoteCandidate)·오퍼 원장(SpPartOffer)에서 파생 표시. 갱신은 stale-while-revalidate 백그라운드 잡(sp-engine). `source='manual'` 행은 자동 동기화가 건드리지 않음 |
+| D6 | 공급사 참여 | **RFQ 행으로 물질화하지 않는다.** 공급사 시세는 기존 후보(SpBomQuoteCandidate)·구매 조건 원장(SpPartOffer)에서 파생 표시. 갱신은 stale-while-revalidate 백그라운드 잡(sp-engine). `source='manual'` 행은 자동 동기화가 건드리지 않음 |
 | D7 | 통화 | 1차 **KRW 단일**. RFQ 스키마에 currency 컬럼만 선반영(외화 회신은 후속) |
-| D8 | 정보 노출 | 협력사에게 **목표단가(현재 선정 오퍼가) 미노출** — 부품행(MPN·제조사·수량)만 |
+| D8 | 정보 노출 | 협력사에게 **목표단가(현재 선정 단가) 미노출** — 부품행(MPN·제조사·수량)만 |
 | D9 | 고객 회신가 | 기존 `confirmed*` **관리자 수동 확정 유지** + 행별 선정가 합계 참고 표시. 마진 자동 계산은 후속 |
 | D10 | 상태 모델 | 한글 리터럴 금지 — **`@sp/api-contract` 코드 사전**. g5 미러(it_24류) 없음. `quote.status`는 굵은 단계 유지, RFQ는 자체 status 계층(레거시 '상태 3종 혼동' 해소) |
 | D11 | 알림·회신 | 1차 **메일 알림만**(order-notify 브리지·로컬 Mailpit), 회신은 로그인 포털. **관리자 대리 입력 유지**. 매직링크 무로그인 회신은 후속 |
@@ -101,7 +101,7 @@ model SpPartnerRelation {
 ### 1.2 코드 사전·인증
 
 - `supplierCode` 사전은 **`@sp/api-contract` 단일 정본**(예: `PARTNER_SUPPLIER_CODES`) —
-  `SpPartOffer.supplier`와 같은 문자열 어휘. 오퍼↔견적 도메인 이중 식별 금지.
+  `SpPartOffer.supplier`와 같은 문자열 어휘. 구매 조건↔견적 도메인 이중 식별 금지.
 - 인증: `requirePartner` — mbId → `SpPartnerMember` → `status='approved'` **서버 매 요청 판정**
   (JWT에 조직 클레임 없음 — server-single-truth 관례. 연결 변경 시 토큰 재발급 불필요).
 - 관리자는 기존 `requireAdmin` 그대로.
@@ -191,8 +191,8 @@ BOM_RFQ_STATUS: requested ─(협력사 회신 저장)→ quoted ─(quote answe
       (빠진 협력사만 삭제·유지분 보존 — 레거시 PCB 검증 방식) + 메일 알림(신규 추가분만)
   → 협력사 /partner 포털 회신 (행별 단가·재고·D/C·납기, source=manual)
       │ 관리자 대리 입력 가능(같은 저장 경로, actor 기록)
-  → [비교·선정] 행별: 현재 선정 오퍼(후보·원장 파생) vs 협력사 회신들
-      → selectionSource='partner' + 스냅샷 박제  또는  기존 오퍼 유지
+  → [비교·선정] 행별: 현재 선정 구매 조건(후보·원장 파생) vs 협력사 회신들
+      → selectionSource='partner' + 스냅샷 박제  또는  기존 구매 조건 유지
   → confirmed* 수동 확정(선정가 합계 참고 표시, D9) + answerNote → answered (기존)
 ```
 
@@ -264,8 +264,8 @@ GET/POST/PUT /api/admin/partners(...)          파트너 CRUD·승인·계정 �
 |------|------|
 | RFQ 현황 패널 | 기존 요약 패널(quote/order/nostock/ai) 옆 5번째: "협력사 N · 회신 M · 미회신 K" + [협력사 견적요청] |
 | 발송 모달 `BomRfqSendModal` | 좌=부품행 선택(included 행), 우=승인 협력사(capability=bom_rfq) 선택. diff 안내 + 메일 |
-| 행 Drawer 3번째 뷰 | `CandidateDrawerView = 'candidates'\|'search'\|'rfq'` — 현재 선정 오퍼 위에 협력사 회신 나열 + 선정 라디오 + 대리 입력 인라인 폼. 행에는 "회신 n · 최저 ₩x" 배지 |
-| 매트릭스 비교 모드 | 기존 `BomCompareModal` 확장 — 행=품목 × 열=[현재 선정 오퍼]+[협력사별 회신가], 품목별 선정 드롭다운 + **[품목별 최저가 일괄 선정]** + 합계 요약(단일 협력사 최저합계 vs 품목별 선정합계). 시안 채택 |
+| 행 Drawer 3번째 뷰 | `CandidateDrawerView = 'candidates'\|'search'\|'rfq'` — 현재 선정 구매 조건 위에 협력사 회신 나열 + 선정 라디오 + 대리 입력 인라인 폼. 행에는 "회신 n · 최저 ₩x" 배지 |
+| 매트릭스 비교 모드 | 기존 `BomCompareModal` 확장 — 행=품목 × 열=[현재 선정 구매 조건]+[협력사별 회신가], 품목별 선정 드롭다운 + **[품목별 최저가 일괄 선정]** + 합계 요약(단일 협력사 최저합계 vs 품목별 선정합계). 시안 채택 |
 
 - 부가: 연결 문서 레지스트리(견적서/주문서/발주서/INVOICE/TRACKING — 2·3차 진가, 1차는 자리),
   12단계 타임라인 사이드, 고객 회신·인쇄는 기존 `EstimateModal`/`EstimateSendControl`/
@@ -452,7 +452,7 @@ read-only, ⑫ 연장), 계약 `bom-orders.ts`, `admin-bom-orders.ts` 파생 목
 
 **✅ 구현 완료(2026-07-30)**: migration `20260730150000_add_bom_po_external`
 (`externalRef Json`·행 `supplierSku`), `lib/supplier-order.ts`(Mouser cart insert /
-DigiKey third-party), 집계 확장(`collectPoDraftGroups` — 공급사 오퍼 선정 행을
+DigiKey third-party), 집계 확장(`collectPoDraftGroups` — 공급사 구매 조건 선정 행을
 supplierCode→파트너 조직으로 그룹, house·미매핑 제외, 단가=unitPriceKrw 박제),
 `executeExternalPo`(생성 직후 자동 실행 + `POST …/pos/:poId/external` 재시도/재발급),
 생성 모달 공급사 그룹("발행 시 자동 실행"/"수동 진행" 뱃지·SKU 없음 표시), 패널
@@ -611,7 +611,7 @@ fresh=전체 28행·합계/비-fresh=저장본 유지) ALL PASS.
 안 함(사용자 결정 — 대신 "시세 변동" 일반 안내문 한 줄).
 
 - 문서: 견적번호=CASE-B 파생 채번·발행일=answeredAt, 수신(고객명 수기 초기화)/공급자
-  (영카트 사업자정보+직인), 품목표=included·활성 시트 행(선정 오퍼 KRW 단가 스냅샷,
+  (영카트 사업자정보+직인), 품목표=included·활성 시트 행(선정 구매 조건 KRW 단가 스냅샷,
   미선정 '—'), 합계=부품 합계+운송료+관리비=**공급가액→부가세(10%)→합계**(D16 주문
   결제액 확정가×1.1 과 일치 — "견적서 합계=실결제액"), 회신 메모·결제계좌.
 - 서버: 공용 `toBomQuotePrintDto`(합계는 저장 스냅샷 그대로 — 화면·문서 일치),
@@ -801,8 +801,8 @@ logistics→RFQ+**품목·검토**(가장 큰 몸통도 접음, 결정) / from �
   RFQ 하위호환, migration `20260802090000` 추가 전용). 표시·검증 범위 = scope 파생 ∩
   이 집합(`filterScopeForRfq` — 견적 행이 나중에 빠져도 자연 방어).
 - **발송(같은 날 개정 — "행 선택은 품목 테이블에서")**: 행 체크는 판단 근거(선정
-  오퍼·매칭·후보)가 있는 **Case 상세 품목 테이블**에서 한다 — 체크 컬럼+툴바(선택
-  n행 표시·엔진 `componentType` 기준 [저항]/[캐패시터]/[저항+캐패시터]·[오퍼 없음]
+  구매 조건·매칭·후보)가 있는 **Case 상세 품목 테이블**에서 한다 — 체크 컬럼+툴바(선택
+  n행 표시·엔진 `componentType` 기준 [저항]/[캐패시터]/[저항+캐패시터]·[구매 조건 없음]
   퀵 액션·해제), **선택 없음=전체 발송**. 유형 판정은 Vue 문자열 추측 없이 sp-engine
   정규화 결과만 소비하고 미분류 행은 자동 선택에서 제외한다. 0건 퀵 액션은 비활성화+
   기존 선택 유지로 빈 집합이 전체 발송으로 뒤집히는 것을 막는다. 발송 모달은
@@ -880,7 +880,7 @@ logistics→RFQ+**품목·검토**(가장 큰 몸통도 접음, 결정) / from �
   감사행(일반 모드)·파일행·Case 삭제를 확정한다. 이 잠금 직전 다른 선적 소속이 끼면 409로
   전체 DB 구간을 롤백하므로 다른 Case의 공유 선적을 cascade하지 않는다. Quote FK cascade가 분석·검색 artifact/
   trace·품목/후보/선택·RFQ/회신을 제거한다. 엔진/파일 404와 앞선 부분 성공은
-  멱등 재시도로 취급한다. 공유 파트너·부품 카탈로그·공급사 오퍼는 Case 소유가 아니므로
+  멱등 재시도로 취급한다. 공유 파트너·부품 카탈로그·공급사 구매 조건은 Case 소유가 아니므로
   삭제하지 않는다.
 - **외부 행위**: 발송 이메일은 회수할 수 없고 외부 공급사 장바구니/단일사용 링크도 외부에
   남을 수 있다. 프리뷰가 `SENT_EMAILS_REMAIN`/`EXTERNAL_ACTIONS_REMAIN`을 명시하며,
@@ -935,8 +935,8 @@ QR 정본은 Invoice JSON이 아니라 선적에 담긴 불변 발주 품목(`sp
 | D25-5 | 성공 시 `selectionSource=admin`, 선택 이벤트 `source=admin`, 일반 이유 `admin-choice` 또는 강제 이유 `admin-force-choice`를 남긴다. 기존 확정가를 해제하고 완료·고객회신 상태는 `reviewing`으로 되돌린다. 주문·PO 문서는 생성 당시 스냅샷을 보존한다. | 변경 감사·재확정과 과거 거래 문서 불변을 동시에 보장 |
 
 - **화면**: `/app/admin/smartbom/cases/:id` 품목 행의 [부품 검색·변경]은 모든 행에서 검색
-  패널을 열며, RFQ·주문·PO가 있어도 추천 후보·전체 카탈로그·구매조건 비교까지 허용한다. 적용
-  가능 행은 기존/신규 품번·구매조건·행 금액 차이를 2차 레이어로 확인한다. 업무 진행 행도 적용
+  패널을 열며, RFQ·주문·PO가 있어도 추천 후보·전체 카탈로그·구매 조건 비교까지 허용한다. 적용
+  가능 행은 기존/신규 품번·구매 조건·행 금액 차이를 2차 레이어로 확인한다. 업무 진행 행도 적용
   CTA를 제공하되 RFQ 수·무효화 회신 수·주문·PO 스냅샷·상태 회귀 영향을 붉은 경고와 체크로 확인한
   뒤 [강제 변경 적용]을 누른다.
 - **API**: `POST /api/admin/bom-quotes/:id/items/:itemId/selection`. 후보 선택과 카탈로그
@@ -945,7 +945,7 @@ QR 정본은 Invoice JSON이 아니라 선적에 담긴 불변 발주 품목(`sp
   신규 테이블·컬럼이 없어 DB 마이그레이션은 없다.
 - **검증**: 상태·버전·강제 우회·RFQ 범위·요청 계약 정책 6케이스와 API 전체 601건 통과(통합환경 29건 제외),
   8개 워크스페이스 typecheck/lint 및 sp-node·sp-vue production build 통과. 로컬 Case #537의 RFQ
-  포함 `12pF` 행에서 카탈로그 검색→구매조건→강제 변경 확인 레이어까지 확인했다. 영향 RFQ 2건이
+  포함 `12pF` 행에서 카탈로그 검색→구매 조건→강제 변경 확인 레이어까지 확인했다. 영향 RFQ 2건이
   표시되고 영향 확인 체크 전에는 [강제 변경 적용]이 비활성, 체크 후 활성화됨을 검증했으며 실제
   변경 요청은 전송하지 않았다.
 
@@ -956,14 +956,14 @@ QR 정본은 Invoice JSON이 아니라 선적에 담긴 불변 발주 품목(`sp
 
 | 결정 | 내용 | 이유 |
 | ---- | ---- | ---- |
-| D26-1 | 추가 명령은 영속 `partId`, 공급사·SKU, 세트당 `bomQty`, `expectedQuoteUpdatedAt`, `force`만 받는다. 서버가 현재 세트·예비 수량, 오퍼, MOQ·주문배수, 환율을 다시 읽어 주문수량·가격·합계를 계산한다. | 클라이언트 계산값 변조·오래된 가격 적용 방지 |
+| D26-1 | 추가 명령은 영속 `partId`, 공급사·SKU, 세트당 `bomQty`, `expectedQuoteUpdatedAt`, `force`만 받는다. 서버가 현재 세트·예비 수량, 구매 조건, MOQ·주문배수, 환율을 다시 읽어 주문수량·가격·합계를 계산한다. | 클라이언트 계산값 변조·오래된 가격 적용 방지 |
 | D26-2 | 추가 행은 `sourceSheetIndex/sourceSheetName/analysisComponentId=null`, `selectionSource=admin`, 이유 `admin-add`로 저장한다. 원본 분석 행은 제거할 수 없고 수동 행만 하드 제거한다. | 업로드 원본과 운영 보충 행을 명확히 분리 |
 | D26-3 | 일반 추가·제거는 D25와 같은 `requested|reviewing`, build ready, enrich 비실행, RFQ·주문·PO 무영향 조건을 사용한다. 관리자는 영향 체크 후 `force=true`로 업무 상태를 우회할 수 있지만 stale 버전과 build/enrich 실행 중 상태는 우회하지 못한다. | 변경 정책·경쟁 조건을 하나의 서버 가드로 유지 |
 | D26-4 | 강제 추가 시 `requestedItemIds=null`인 동적 전체 RFQ만 새 행을 자동 포함하고 `requested`로 되돌린다. 기존 행별 회신은 유지하되 문서 합계·납기·메모를 해제한다. ID 배열인 부분 RFQ는 새 행을 자동 포함하지 않는다. | 전체 요청의 의미는 유지하면서 명시적 부분 요청 범위를 몰래 확대하지 않음 |
 | D26-5 | 강제 제거 시 영향 RFQ의 해당 `sp_bom_rfq_item`과 부분 범위 ID를 제거한다. 남은 유효 범위가 있으면 `requested`, 없으면 `closed`로 두며 합계·납기·메모를 해제한다. 주문·PO는 발행 당시 스냅샷을 보존한다. | 삭제된 부품의 회신 재사용 방지와 과거 거래 문서 불변 보장 |
 
 - **화면**: `/app/admin/smartbom/cases/:id` 품목 툴바의 [부품 추가]에서 세트당 BOM 수량을
-  입력하면 필요수량이 즉시 바뀌고, 기존 카탈로그 검색·포장·공급사 오퍼 비교가 같은 수량을 쓴다.
+  입력하면 필요수량이 즉시 바뀌고, 기존 카탈로그 검색·포장·공급사 구매 조건 비교가 같은 수량을 쓴다.
   적용 전 2차 레이어가 부품·필요/주문수량·금액과 전체/부분 RFQ 영향을 구분해 보여준다. 수동 행에는
   [수동 행 제거]가 나타나며 영향 RFQ 회신 삭제·주문·PO 스냅샷 보존을 다시 확인한다. 관리자
   카탈로그 검색은 명시 검색마다 정확 MPN도 공급사 추가 확인까지 자동 수행하고 완료 전 선택을
@@ -1081,6 +1081,6 @@ SamplePCB가 공급받는 자**다.
 연결 문서 레지스트리 / RFQ 응답률 지표(후속) / Case 표시 채번.
 
 **조정**: ① 12단계는 고정 상태머신이 아니라 **파생 표시 타임라인**(상태 계층에서 계산 — 경직 회피)
-② 공급사 "회신 등록"은 수동이 아니라 **오퍼 원장 자동 파생 + [전체 회신 업데이트]=백그라운드 잡**
+② 공급사 "회신 등록"은 수동이 아니라 **구매 조건 원장 자동 파생 + [전체 회신 업데이트]=백그라운드 잡**
 ③ 모듈 스위처는 **2모듈(통합 관리·스마트 BOM)로 시작**, 4영역(PCB·PCBA·기술개발)은 자리만 —
 기존 메뉴 재배치는 각 모듈이 실제로 생길 때.

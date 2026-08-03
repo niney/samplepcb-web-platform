@@ -4,7 +4,7 @@ import { BOM_RFQ_STATUS_LABELS, type AdminBomRfqViewType } from '@sp/api-contrac
 import { smartbomFmtDate } from '../../../admin/smartbom';
 
 // Case 상세의 협력사 RFQ 현황 패널 — 발송·회신 현황 + 대리 입력 진입.
-// 공급사 시세는 여기 없다(후보/오퍼 원장 파생 — 부품행의 선정 오퍼가 그 자리, D6).
+// 공급사 시세는 여기 없다(후보/구매 조건 원장 파생 — 부품행의 선정 구매 조건이 그 자리, D6).
 
 const props = defineProps<{
   rfqs: AdminBomRfqViewType[];

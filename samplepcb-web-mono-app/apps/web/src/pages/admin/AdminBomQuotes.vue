@@ -214,7 +214,7 @@ async function downloadOriginal(): Promise<void> {
                     <div class="max-h-80 overflow-y-auto rounded-lg border border-gray-200 bg-surface">
                       <table class="min-w-full divide-y divide-gray-100 text-xs">
                         <thead class="sticky top-0 bg-gray-50 text-left text-gray-500">
-                          <tr><th class="px-2 py-1.5">Excel 위치</th><th class="px-2 py-1.5">부품</th><th class="px-2 py-1.5">오퍼</th><th class="px-2 py-1.5 text-right">주문수량</th><th class="px-2 py-1.5 text-right">합계</th><th class="px-2 py-1.5" /></tr>
+                          <tr><th class="px-2 py-1.5">Excel 위치</th><th class="px-2 py-1.5">부품</th><th class="px-2 py-1.5">구매 조건</th><th class="px-2 py-1.5 text-right">주문수량</th><th class="px-2 py-1.5 text-right">합계</th><th class="px-2 py-1.5" /></tr>
                         </thead>
                         <tbody class="divide-y divide-gray-50">
                           <tr v-for="item in detail.items" :key="item.id" :class="{ 'opacity-40': !item.included }">
@@ -228,7 +228,7 @@ async function downloadOriginal(): Promise<void> {
                                 {{ item.selectedOffer.supplier }} · {{ item.selectedOffer.unitPrice }} {{ item.selectedOffer.currency }} @{{ item.selectedOffer.breakQty }}+
                                 <span v-if="item.selectedOffer.pinned" class="ml-1 rounded bg-blue-100 px-1 text-[10px] text-blue-700">고정</span>
                               </template>
-                              <span v-else class="text-amber-600">{{ item.matchStatus === 'none' ? '미매칭' : '오퍼 없음' }}</span>
+                              <span v-else class="text-amber-600">{{ item.matchStatus === 'none' ? '미매칭' : '구매 조건 없음' }}</span>
                               <div class="mt-0.5 text-[10px] text-gray-400">{{ itemMatchLabel(item) }}</div>
                             </td>
                             <td class="px-2 py-1.5 text-right tabular-nums">{{ item.orderQty.toLocaleString('ko-KR') }}</td>

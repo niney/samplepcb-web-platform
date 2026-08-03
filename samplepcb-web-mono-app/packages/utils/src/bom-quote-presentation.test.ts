@@ -65,7 +65,7 @@ describe('BOM 견적 화면 표시 집계', () => {
     },
   );
 
-  it('선정 오퍼의 수량 부족도 재고 부족으로 집계한다', () => {
+  it('선정 구매 조건의 수량 부족도 재고 부족으로 집계한다', () => {
     const stockShortItem = item({
       matchStatus: 'auto',
       orderQty: 5,

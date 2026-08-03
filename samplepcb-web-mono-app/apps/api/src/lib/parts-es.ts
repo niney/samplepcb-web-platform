@@ -65,12 +65,12 @@ export function buildPartDoc(part: PartWithOffers): SpPartDoc {
     pkgVariants = canon === null ? [part.packageCode] : canon.flatMap((c) => packageVariants(c));
   }
 
-  // 오퍼 요약 — 대표 단가는 각 오퍼의 최소수량 구간 단가 중 최저(통화 병기).
+  // 구매 조건 요약 — 대표 단가는 각 구매 조건의 최소수량 구간 단가 중 최저(통화 병기).
   // 제조사 카탈로그 원천은 DB 사실·출처 추적용이며 구매 공급사가 아니다. 같은
-  // 카탈로그의 SamplePCB 문의 오퍼만 공급사로 노출한다.
+  // 카탈로그의 SamplePCB 문의 견적 채널만 공급사로 노출한다.
   const visibleOffers = partOffersForDisplay(part.offers);
   const suppliers = [...new Set(visibleOffers.map((offer) => offer.supplier))];
-  // 집계(재고·최저가)는 실공급사만 — samplepcb 파생/문의 오퍼를 넣으면 원천과
+  // 집계(재고·최저가)는 실공급사만 — samplepcb 파생/문의 견적 채널을 넣으면 원천과
   // 이중 계산된다.
   const realOffers = visibleOffers.filter((offer) => offer.supplier !== SAMPLEPCB_SUPPLIER);
   const ownCatalogOffers = visibleOffers.filter(

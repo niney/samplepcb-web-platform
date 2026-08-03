@@ -213,7 +213,7 @@ async function executeBulkDelete(): Promise<void> {
   }
 }
 
-/** ISO 시각 → 상대 나이("3시간 전"). null=오퍼 없음. */
+/** ISO 시각 → 상대 나이("3시간 전"). null=구매 조건 없음. */
 function fmtAge(iso: string | null): string {
   if (iso === null) return '—';
   const ms = Date.now() - new Date(iso).getTime();
@@ -598,7 +598,7 @@ function facetLabel(
           </div>
 
           <div v-if="bulkPreview.multiSupplierParts > 0" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            여러 실공급사 오퍼를 함께 가진 부품 {{ bulkPreview.multiSupplierParts }}건도 삭제 대상에 포함될 수 있습니다.
+            여러 실공급사 구매 조건을 함께 가진 부품 {{ bulkPreview.multiSupplierParts }}건도 삭제 대상에 포함될 수 있습니다.
           </div>
           <div v-if="bulkPreview.staleIndexDocuments > 0" class="mt-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
             DB에는 없고 검색 색인에만 남은 문서 {{ bulkPreview.staleIndexDocuments }}건도 함께 정리합니다.
@@ -606,7 +606,7 @@ function facetLabel(
 
           <div class="mt-3 grid gap-3 lg:grid-cols-2">
             <div class="rounded-lg border border-red-100 bg-white p-3">
-              <p class="text-xs font-semibold text-gray-700">포함 오퍼</p>
+              <p class="text-xs font-semibold text-gray-700">포함 구매 조건</p>
               <div class="mt-1 flex flex-wrap gap-1.5">
                 <span
                   v-for="supplier in bulkPreview.supplierOffers"
@@ -615,7 +615,7 @@ function facetLabel(
                 >
                   {{ supplierLabel(supplier.value) }} {{ supplier.count }}
                 </span>
-                <span v-if="bulkPreview.supplierOffers.length === 0" class="text-xs text-gray-400">오퍼 없음</span>
+                <span v-if="bulkPreview.supplierOffers.length === 0" class="text-xs text-gray-400">구매 조건 없음</span>
               </div>
             </div>
             <div class="rounded-lg border border-red-100 bg-white p-3">
@@ -719,7 +719,7 @@ function facetLabel(
                   <td class="px-3 py-2 text-gray-500">{{ p.suppliers.map(supplierLabel).join(', ') }}</td>
                   <td class="whitespace-nowrap px-3 py-2 text-gray-400">{{ fmtAge(p.offersFetchedAt) }}</td>
                 </tr>
-                <!-- 상세(오퍼·가격구간) 확장 행 -->
+                <!-- 상세(구매 조건·가격구간) 확장 행 -->
                 <tr v-if="detailId === p.id">
                   <td colspan="9" class="bg-gray-50 px-4 py-3">
                     <p v-if="detail.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>

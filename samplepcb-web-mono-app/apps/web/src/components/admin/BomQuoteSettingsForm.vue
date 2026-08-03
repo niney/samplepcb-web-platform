@@ -139,7 +139,7 @@ function catalogStatusLabel(value: string | null): string {
               · {{ exchangeRate.effective.source === 'koreaexim' ? '수출입은행' : '관리자 수동값' }}
               <template v-if="exchangeRate.effective.rateDate !== null"> · 기준 {{ exchangeRate.effective.rateDate }}</template>
             </p>
-            <p v-else class="mt-1 text-amber-700">적용 가능한 환율이 없어 USD 오퍼는 합계에서 제외됩니다.</p>
+            <p v-else class="mt-1 text-amber-700">적용 가능한 환율이 없어 USD 구매 조건은 합계에서 제외됩니다.</p>
             <p v-if="exchangeRate.effective?.fallbackReason === 'manual-rate'" class="mt-1 text-amber-700">자동 환율이 없거나 오래되어 수동 폴백값을 사용 중입니다.</p>
             <p v-else-if="exchangeRate.effective?.fallbackReason === 'stale-cache'" class="mt-1 text-amber-700">오래된 마지막 정상 환율을 사용 중입니다. 갱신 상태를 확인해 주세요.</p>
             <p v-if="exchangeRate.cache !== null" class="mt-1 text-xs text-slate-500">

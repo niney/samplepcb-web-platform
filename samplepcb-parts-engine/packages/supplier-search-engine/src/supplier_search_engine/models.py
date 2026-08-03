@@ -993,7 +993,7 @@ _CURRENT_DECISION_FIELDS = frozenset(
 
 
 class ProcurementReevaluationCandidateInput(BaseModel):
-    """component_id + 후보 + 필요수량 + 요청 오퍼 계약 — 단건/배치 재평가가 공유한다."""
+    """component_id + 후보 + 필요수량 + 요청 구매 조건 계약 — 단건/배치 재평가가 공유한다."""
 
     model_config = ConfigDict(extra="forbid")
 

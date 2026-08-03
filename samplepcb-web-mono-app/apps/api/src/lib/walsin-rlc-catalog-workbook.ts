@@ -8,8 +8,8 @@ import { resolveManufacturer } from './manufacturer-alias';
 // Walsin 주선정 + 대체 벤더 R/C 워크북을 supplier-search ingest envelope로 결정적으로 변환한다.
 //
 // 이 데이터의 성격은 연호 Rev2와 다르다. 제조사 품번 규칙으로 생성한 AVL 후보이지만,
-// SamplePCB가 자체 판매 카탈로그로 수용한 R/C 원장이다. 제조사 사실 오퍼는 출처 보존용,
-// samplepcb 오퍼는 판매 채널용으로 함께 저장한다. 가격·재고를 만들지 않고 문의 견적으로
+// SamplePCB가 자체 판매 카탈로그로 수용한 R/C 원장이다. 제조사 원천 정보는 출처 보존용,
+// samplepcb 구매 조건은 판매 채널용으로 함께 저장한다. 가격·재고를 만들지 않고 문의 견적으로
 // 선정하며, 실제 공급사 API에서 확인된 가격만 후속 일회성 갱신으로 채운다.
 
 export const WALSIN_RLC_SOURCE_SHA256 =

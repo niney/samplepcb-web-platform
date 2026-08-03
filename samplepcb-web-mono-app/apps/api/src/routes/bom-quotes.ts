@@ -129,7 +129,7 @@ import {
 
 // ── /api/bom/quotes — 고객(회원) BOM 견적 CRUD (설계: docs/BOM_QUOTE.md) ─────
 // 업로드(견적+엔진 잡 생성) → build(파싱 결과→라인+필요수량) → 공급사 검색
-// 결과 반영(엔진 기술·구매조건 판단) → 검토(PATCH 자동저장) → request(동결).
+// 결과 반영(엔진 기술·구매 조건 판단) → 검토(PATCH 자동저장) → request(동결).
 // 원본 파일은 파일서버(serviceType 'bom')+sp_file 로 보존 — 고객 본인과 관리자 다운로드용.
 
 const IdParams = z.object({ id: z.coerce.bigint() });
@@ -321,7 +321,7 @@ async function loadOwnQuote(id: bigint, mbId: string) {
 }
 
 // ── 조용한 자동 보강 — build 가 "시작"까지 동기 확정(응답 enriching 플래그) ─────
-// 필요 조건: 수량 미입력 기술 미선정 OR included 미매칭 OR 오래된 오퍼.
+// 필요 조건: 수량 미입력 기술 미선정 OR included 미매칭 OR 오래된 구매 조건.
 // 비용 게이트: preflight 예상치는 관측·경고용이며 실제 호출 상한은 엔진 job budget이
 // 강제한다. 회원 일일 한도 소진은 명시 실패로 남기고 cache_only로 의미를 바꾸지 않는다.
 // 검색 시작을 응답 전에 확정하므로 FE 첫 상태 폴이 반드시 running
@@ -961,14 +961,14 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     }
     return reply.conflict(
       result === 'catalog-inquiry-not-found'
-        ? '문의 가능한 제조사 카탈로그 오퍼가 없습니다'
+        ? '문의 가능한 제조사 카탈로그 정보가 없습니다'
         : result === 'catalog-offer-not-found'
-          ? '선택한 공급사 오퍼가 더 이상 없습니다'
-          : '선택한 공급사 오퍼에 적용 가능한 가격이 없습니다',
+          ? '선택한 공급사 구매 조건이 더 이상 없습니다'
+          : '선택한 공급사 구매 조건에 적용 가능한 가격이 없습니다',
     );
   };
 
-  // 단일검색 견적 바구니 — 첫 담기 전에는 null이며, 모든 금액은 서버 저장 오퍼로 계산한다.
+  // 단일검색 견적 바구니 — 첫 담기 전에는 null이며, 모든 금액은 서버 저장 구매 조건으로 계산한다.
   fastify.get('/bom/search-cart', {
     schema: { response: { 200: BomSearchCartResponse } },
   }, async (request) => activeSearchCartResponse(request.user.mbId));
@@ -1626,7 +1626,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     };
   });
 
-  // 후보/오퍼 명시 선택 — 클라이언트 가격은 받지 않고 서버 스냅샷에서 합계를 재계산한다.
+  // 후보/구매 조건 명시 선택 — 클라이언트 가격은 받지 않고 서버 스냅샷에서 합계를 재계산한다.
   fastify.post('/bom/quotes/:id/items/:itemId/selection', {
     schema: {
       params: ItemParams,

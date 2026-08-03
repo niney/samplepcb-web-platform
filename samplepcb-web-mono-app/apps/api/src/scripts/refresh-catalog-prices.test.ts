@@ -283,7 +283,7 @@ describe('Walsin 전체 가격 스냅샷 옵션', () => {
     ]);
   });
 
-  it('공급사별 분할 수집은 기존 오퍼를 보존하고 재조회 공급사만 교체한다', () => {
+  it('공급사별 분할 수집은 기존 구매 조건을 보존하고 재조회 공급사만 교체한다', () => {
     const mouser = exactWalsinPriceSnapshotRecord(
       {
         search: {
@@ -645,7 +645,7 @@ describe('Walsin 전체 가격 스냅샷 데이터', () => {
     )).toThrow('가격 스냅샷에 미완료 검색이 남았습니다');
   });
 
-  it('확정 스냅샷은 공급사 오퍼 인제스트 envelope로 결정적으로 변환한다', () => {
+  it('확정 스냅샷은 공급사 구매 조건 인제스트 envelope로 결정적으로 변환한다', () => {
     const record = exactWalsinPriceSnapshotRecord(
       {
         search: {
@@ -754,7 +754,7 @@ describe('Walsin 전체 가격 스냅샷 데이터', () => {
     expect(() => validateWalsinPriceSnapshotCoverage(
       tampered,
       [catalogRecord()],
-    )).toThrow('상태와 오퍼 가격이 다릅니다');
+    )).toThrow('상태와 구매 조건의 가격이 다릅니다');
   });
 });
 

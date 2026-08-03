@@ -101,23 +101,23 @@ onBeforeUnmount(() => {
             <button type="button" class="grid size-9 shrink-0 place-items-center rounded-lg text-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="공급사·포장 선택 닫기" @click="emit('close')">×</button>
           </div>
           <p class="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
-            부품과 물리 패키지는 유지하고, 공급사·SKU·포장 방식에 묶인 구매 오퍼만 변경합니다.
+            부품과 물리 패키지는 유지하고, 공급사·SKU·포장 방식에 묶인 구매 조건만 변경합니다.
           </p>
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
           <div v-if="selectionError !== ''" class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">{{ selectionError }}</div>
           <div v-if="loading" class="grid min-h-48 place-items-center text-sm text-slate-500">
-            <div class="text-center"><span class="mx-auto mb-3 block size-6 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />오퍼를 불러오는 중입니다.</div>
+            <div class="text-center"><span class="mx-auto mb-3 block size-6 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />구매 조건을 불러오는 중입니다.</div>
           </div>
           <div v-else-if="failed" class="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800">
-            공급사 오퍼를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+            공급사 구매 조건을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
           </div>
           <div v-else-if="candidate === null" class="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
             현재 선택된 부품의 엔진 후보 정보를 찾지 못했습니다. 전체 후보 비교에서 부품을 다시 선택해 주세요.
           </div>
           <div v-else-if="offers.length === 0" class="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-            현재 부품에서 선택 가능한 공급사 오퍼가 없습니다.
+            현재 부품에서 선택 가능한 공급사 구매 조건이 없습니다.
           </div>
           <div v-else class="space-y-2.5">
             <article
@@ -131,9 +131,9 @@ onBeforeUnmount(() => {
                   <div class="flex flex-wrap items-center gap-1.5">
                     <strong class="uppercase text-slate-950">{{ offer.supplier }}</strong>
                     <span v-if="offer.offerKind === 'manufacturer_catalog'" class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-bold text-blue-700">취급 가능 · 재고 확인</span>
-                    <span v-if="offer.recommendation === 'automatic'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">자동 추천 오퍼</span>
-                    <span v-else-if="offer.recommendation === 'manual_review'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">검토 권장 오퍼</span>
-                    <span v-else-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">구매조건 1위</span>
+                    <span v-if="offer.recommendation === 'automatic'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800">자동 추천 구매 조건</span>
+                    <span v-else-if="offer.recommendation === 'manual_review'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">검토 권장 구매 조건</span>
+                    <span v-else-if="candidate.bestOfferKey === offer.offerKey" class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">구매 조건 1위</span>
                     <span v-if="isCurrent(offer)" class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-bold text-blue-700">사용 중</span>
                     <span v-if="offer.applied?.stockShort" class="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-bold text-red-700">재고 부족</span>
                   </div>
@@ -159,7 +159,7 @@ onBeforeUnmount(() => {
                       :disabled="selecting || !offer.purchasable || offer.applied === null || isCurrent(offer)"
                       @click="selectOffer(candidate, offer)"
                     >
-                      {{ isCurrent(offer) ? '현재 오퍼' : offer.offerKind === 'manufacturer_catalog' ? '문의 견적' : offer.purchasable ? '이 오퍼 선택' : '선택 불가' }}
+                      {{ isCurrent(offer) ? '현재 구매 조건' : offer.offerKind === 'manufacturer_catalog' ? '문의 견적' : offer.purchasable ? '이 구매 조건 선택' : '선택 불가' }}
                     </button>
                   </div>
                 </div>

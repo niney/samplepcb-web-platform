@@ -13,7 +13,7 @@ export type BomQuoteStatusType = z.infer<typeof BomQuoteStatus>;
 export const BomQuoteSourceKind = z.enum(['upload', 'single_search']);
 export type BomQuoteSourceKindType = z.infer<typeof BomQuoteSourceKind>;
 
-/** 견적 조달 모드 — 샘플은 현행 실효비용 우선, 양산은 안전한 Reel 오퍼를 우선한다. */
+/** 견적 조달 모드 — 샘플은 현행 실효비용 우선, 양산은 안전한 Reel 구매 조건을 우선한다. */
 export const BomQuoteProcurementMode = z.enum(['sample', 'mass']);
 export type BomQuoteProcurementModeType = z.infer<typeof BomQuoteProcurementMode>;
 
@@ -397,7 +397,7 @@ export const BomQuoteSheet = z.object({
 });
 export type BomQuoteSheetType = z.infer<typeof BomQuoteSheet>;
 
-/** 라인에 박제되는 오퍼 스냅샷 — 견적요청 후 재선정하지 않는다(시점 고정). */
+/** 라인에 박제되는 구매 조건 스냅샷 — 견적요청 후 재선정하지 않는다(시점 고정). */
 export const BomQuoteSelectedOffer = z.object({
   /** 후보 스냅샷 안에서 공급사+SKU+포장을 식별하는 안정 키. 레거시는 null. */
   offerKey: z.string().nullable(),
@@ -416,7 +416,7 @@ export const BomQuoteSelectedOffer = z.object({
   /** 선택 시점의 가격구간 사다리 전체 — 수량 변경 시 구간 재계산의 근거(스냅샷). */
   priceBreaks: z.array(z.object({ qty: z.number().int(), price: z.number() })),
   fetchedAt: z.string(),
-  /** 사용자가 명시 선택(고정) — 수량 변경 시 이 오퍼 안에서만 구간 재계산. */
+  /** 사용자가 명시 선택(고정) — 수량 변경 시 이 구매 조건 안에서만 구간 재계산. */
   pinned: z.boolean(),
 });
 export type BomQuoteSelectedOfferType = z.infer<typeof BomQuoteSelectedOffer>;
@@ -592,7 +592,7 @@ export const BomQuoteCandidateOfferApplied = z.object({
   stockShort: z.boolean(),
 });
 
-/** 견적 후보에 박제된 공급사 오퍼와 현재 필요수량 기준 계산 결과. */
+/** 견적 후보에 박제된 공급사 구매 조건과 현재 필요수량 기준 계산 결과. */
 export const BomQuoteCandidateOffer = z.object({
   offerKey: z.string(),
   supplier: z.string(),
@@ -635,7 +635,7 @@ export const BomQuoteCandidate = z.object({
   /** 엔진이 지정한 기술 후보군 사전 선정 상태. 기존 스냅샷은 null. */
   selectionRecommendation: BomQuoteCandidateSelectionRecommendation.nullable(),
   reviewRecommended: z.boolean(),
-  /** 대표 오퍼의 엔진 가격 순위. 후보 간 독자 재정렬에는 사용하지 않는다. */
+  /** 대표 구매 조건의 엔진 가격 순위. 후보 간 독자 재정렬에는 사용하지 않는다. */
   priceRank: z.number().int().min(1).nullable(),
   status: z.string(),
   selectionMode: z.enum(['exact', 'variant', 'spec-compatible', 'review']),
@@ -867,7 +867,7 @@ export const BomQuoteItem = BomQuoteItemInput.extend({
 });
 export type BomQuoteItemType = z.infer<typeof BomQuoteItem>;
 
-/** 고객이 카탈로그에서 명시적으로 선택한 부품·오퍼. 엔진 원본/판정과 분리된 사용자 명령이다. */
+/** 고객이 카탈로그에서 명시적으로 선택한 부품·구매 조건. 엔진 원본/판정과 분리된 사용자 명령이다. */
 export const BomQuoteCatalogSelection = z.object({
   mpn: z.string().max(191),
   manufacturerName: z.string().max(191).nullable(),
@@ -976,7 +976,7 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
   usdKrwRateUsed: z.number().nullable(),
   /** 환율 출처·기준일·안전계수 감사 스냅샷(기존 견적은 null). */
   exchangeRateSnapshot: BomQuoteExchangeRateSnapshot.nullable(),
-  /** included 인데 금액 미산정(오퍼 없음·미환산) 라인 수. */
+  /** included 인데 금액 미산정(구매 조건 없음·미환산) 라인 수. */
   uncostedCount: z.number().int(),
   customerMemo: z.string().nullable(),
   /** 관리자 확정 회신(answered 이후) — null 이면 미회신. */
@@ -991,7 +991,7 @@ export type BomQuoteDetailType = z.infer<typeof BomQuoteDetail>;
 
 // ── 단일검색 견적 바구니 ─────────────────────────────────────────────────
 // 브라우저 임시 카트가 아니라 기존 견적 draft를 사용한다. 클라이언트는 가격을 보내지 않고
-// 카탈로그 부품·오퍼 정체성만 보내며, sp-node가 현재 저장 오퍼로 수량과 금액을 계산한다.
+// 카탈로그 부품·구매 조건 정체성만 보내며, sp-node가 현재 저장 구매 조건으로 수량과 금액을 계산한다.
 
 export const BomSearchCartSelection = z.discriminatedUnion('kind', [
   z.object({
@@ -1031,7 +1031,7 @@ export const BomQuotePrintItem = z.object({
   manufacturerName: z.string().nullable(),
   description: z.string().nullable(),
   qty: z.number().int(),
-  /** 선정 오퍼 KRW 단가 스냅샷 — 미선정·미환산이면 null('—' 표시). */
+  /** 선정 구매 조건 KRW 단가 스냅샷 — 미선정·미환산이면 null('—' 표시). */
   unitPriceKrw: z.number().nullable(),
   lineTotalKrw: z.number().nullable(),
 });
@@ -1135,7 +1135,7 @@ export type BomQuoteBuildBodyType = z.infer<typeof BomQuoteBuildBody>;
 export const BomQuoteSheetSelectionBody = BomQuoteBuildBody;
 export type BomQuoteSheetSelectionBodyType = z.infer<typeof BomQuoteSheetSelectionBody>;
 
-/** 엔진 후보를 명시 선택. offerKey=null이면 해당 부품 안의 실효 총비용 최저 오퍼. */
+/** 엔진 후보를 명시 선택. offerKey=null이면 해당 부품 안의 실효 총비용 최저 구매 조건. */
 export const BomQuoteCandidateSelectionBody = z.object({
   candidateKey: z.string().min(1).max(64),
   offerKey: z.string().min(1).max(64).nullable(),
@@ -1290,7 +1290,7 @@ export type AdminBomQuotePatchBodyType = z.infer<typeof AdminBomQuotePatchBody>;
 
 /**
  * 관리자 품목 교체 명령. 후보 선택은 견적 후보 스냅샷 키만 받고, 카탈로그 선택은
- * 영속 부품과 공급사 오퍼의 정체성만 받는다. 가격·재고·합계는 서버가 다시 조회·계산한다.
+ * 영속 부품과 공급사 구매 조건의 정체성만 받는다. 가격·재고·합계는 서버가 다시 조회·계산한다.
  */
 const AdminBomQuoteItemMutationGuard = z.object({
   expectedQuoteUpdatedAt: z.string().datetime(),
@@ -1484,7 +1484,7 @@ export const BomQuoteConfig = z.object({
   supplierSearchMaxCalls: z.number().int().min(1).max(3000),
   /** 회원별 1일 공급사 검색 횟수 제한. */
   memberDailySearchLimit: z.number().int().min(1).max(1000),
-  /** 오퍼 데이터 신선 임계(시간) — 초과 라인이 있으면 업로드 시 자동 보강 트리거. */
+  /** 구매 조건 데이터 신선 임계(시간) — 초과 라인이 있으면 업로드 시 자동 보강 트리거. */
   freshnessHours: z.number().int().min(1).max(720),
   /** MPN 없는 R/C를 저장된 공급사 부품에서 값·패키지로 우선 검색하는 실험 기능. */
   storedPartPrioritySearchEnabled: z.boolean(),

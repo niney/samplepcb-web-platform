@@ -319,7 +319,7 @@ export const loadAdminShipmentCrossList = async (): Promise<AdminBomShipmentCros
 };
 
 // ── 발주 대상 집계 ───────────────────────────────────────────────────────────
-// included 행 중 ①협력사 회신 선정 행(selectedRfqItemId)과 ②공급사 오퍼 선정 행
+// included 행 중 ①협력사 회신 선정 행(selectedRfqItemId)과 ②공급사 구매 조건 선정 행
 // (selectedOffer.supplier 가 파트너 조직의 supplierCode 에 매핑 — D20)을 조직별로 그룹.
 // 자사(house)는 발주 대상 아님, 매핑 안 되는 supplier(제조사 카탈로그 등)는 대상 외.
 export interface PoDraftLine {
@@ -368,7 +368,7 @@ export const collectPoDraftGroups = async (
         });
   const rfqItemById = new Map(rfqItems.map((item) => [item.id, item]));
 
-  // 공급사 오퍼 선정 행의 supplier → 파트너 조직 매핑(supplierCode, house 제외 — D20).
+  // 공급사 구매 조건 선정 행의 supplier → 파트너 조직 매핑(supplierCode, house 제외 — D20).
   const supplierPartners = await prisma.spPartner.findMany({
     where: { supplierCode: { not: null }, type: 'supplier' },
     select: { id: true, supplierCode: true },
@@ -417,7 +417,7 @@ export const collectPoDraftGroups = async (
       continue;
     }
 
-    // ② 공급사 오퍼 선정(D20) — supplierCode 매핑 조직에만. 단가는 KRW 환산 박제
+    // ② 공급사 구매 조건 선정(D20) — supplierCode 매핑 조직에만. 단가는 KRW 환산 박제
     //    (unitPriceKrw — 발주서 합계는 내부 관리용, 실결제는 공급사 사이트 통화).
     if (offer === null || (offer.offerKey ?? '').startsWith('rfq:')) continue;
     const partnerId = partnerBySupplier.get(offer.supplier);

@@ -97,23 +97,23 @@ const stockStatusLabel = computed(() => {
 const procurementUnavailabilitySummary = computed(() => {
   switch (procurementUnavailabilityReason.value) {
     case 'out_of_stock':
-      return '구매 가능한 후보 오퍼의 재고가 모두 없습니다';
+      return '적용 가능한 구매 조건의 재고가 모두 없습니다';
     case 'insufficient_stock':
-      return '모든 후보 오퍼의 재고가 필요 수량보다 부족합니다';
+      return '모든 구매 조건의 재고가 필요 수량보다 부족합니다';
     case 'stock_unverified':
-      return '후보 오퍼의 재고를 확인할 수 없습니다';
+      return '구매 조건의 재고를 확인할 수 없습니다';
     case 'catalog_inquiry':
       return catalogSelectionApplied.value
         ? '제조사 카탈로그로 부품은 선정됐으며 실제 재고 확인과 가격 문의가 필요합니다'
         : '제조사 카탈로그 취급 후보이며 선정 전 검토와 재고·가격 문의가 필요합니다';
     case 'price_unavailable':
-      return '재고 가능한 후보 오퍼의 가격을 확인할 수 없습니다';
+      return '재고가 있는 구매 조건의 가격을 확인할 수 없습니다';
     case 'technical_unavailable':
-      return '재고 가능한 후보가 있으나 필수 기술 조건으로 선정할 수 없습니다';
+      return '재고가 있는 후보가 있으나 필수 기술 조건으로 선정할 수 없습니다';
     case 'supplier_unavailable':
-      return '허용된 공급사에서 구매 가능한 오퍼를 찾지 못했습니다';
+      return '허용된 공급사에서 적용 가능한 구매 조건을 찾지 못했습니다';
     case 'no_offer':
-      return '구매 가능한 공급사 오퍼를 찾지 못했습니다';
+      return '적용 가능한 공급사 구매 조건을 찾지 못했습니다';
     case 'input_incomplete':
       return '수량 등 구매 판단에 필요한 입력값이 부족합니다';
     case 'other':
@@ -171,7 +171,7 @@ const sortedPriceBreaks = computed(() => {
   const offer = props.item.selectedOffer;
   if (offer === null) return [];
   const rows = [...offer.priceBreaks].sort((a, b) => a.qty - b.qty);
-  // 일부 레거시/수동 오퍼는 가격구간 배열 없이 적용 단가만 보존되어 있다.
+  // 일부 레거시/수동 구매 조건은 가격구간 배열 없이 적용 단가만 보존되어 있다.
   return rows.length > 0 ? rows : [{ qty: offer.breakQty, price: offer.unitPrice }];
 });
 
@@ -279,7 +279,7 @@ const sourceLabel = computed(() => {
   if (props.item.selectionSource === 'catalog') return '직접 검색';
   if (props.item.selectionSource === 'admin') return '관리자 선택';
   if (props.item.matchEvidence?.recommendationType === 'price') return '가격 최적';
-  if (props.item.matchEvidence?.recommendationType === 'purchase-fit') return '구매조건 우선';
+  if (props.item.matchEvidence?.recommendationType === 'purchase-fit') return '구매 조건 우선';
   if (props.item.matchEvidence?.recommendationType === 'lifecycle') return '수명주기 추천';
   if (props.item.matchEvidence?.selectionMode === 'exact') return '정확 일치';
   if (props.item.matchEvidence?.selectionMode === 'variant') return '검증 변형';
@@ -308,7 +308,7 @@ const reasonSummary = computed(() => {
   if (provisionalSelectionPending.value) return '원본 스펙 조건으로 선정된 부품 · 세부 근거 검토 권장';
   if (procurementUnavailabilitySummary.value !== null) return procurementUnavailabilitySummary.value;
   if (item.selectionSource === 'customer') {
-    if (evidence.decisionReasonCodes.includes('offer-choice')) return '공급사 오퍼 직접 선택';
+    if (evidence.decisionReasonCodes.includes('offer-choice')) return '공급사 구매 조건 직접 선택';
     return evidence.selectedTechnicalRank === null
       ? '후보 직접 선택'
       : `기술 ${String(evidence.selectedTechnicalRank)}순위 후보 직접 선택`;
@@ -330,7 +330,7 @@ const reasonSummary = computed(() => {
   if (evidence.recommendationType === 'purchase-fit') {
     const price = evidence.priceEvidence;
     return price === null
-      ? '동급 후보 중 구매조건 우선 · 일부 확인 필요'
+      ? '동급 후보 중 구매 조건 우선 · 일부 확인 필요'
       : `동급 후보 중 필요 ${price.neededQty.toLocaleString('ko-KR')}개 → 주문 ${price.orderQty.toLocaleString('ko-KR')}개 · 일부 확인 필요`;
   }
   const required = evidence.requiredRequirementCount;
@@ -508,16 +508,16 @@ function onQtyInput(event: Event): void {
       />
       <p v-else class="pt-[24px] text-right text-[12px]" :class="catalogInquiry ? 'font-bold text-blue-700' : 'text-gray-300'">{{ catalogInquiry ? '문의 견적' : '—' }}</p>
     </td>
-    <!-- QUANTITY / STOCK: 공급사 포장(→현재 부품 오퍼 선택) + 수량 -->
+    <!-- QUANTITY / STOCK: 공급사 포장(→현재 부품 구매 조건 선택) + 수량 -->
     <td class="px-2 py-3">
       <button
         type="button"
         class="flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line-strong bg-surface-neutral px-3 text-[13px] font-bold text-ink-neutral disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="!isDraft || editingLocked"
-        :title="editingLocked ? EDIT_LOCK_TITLE : `공급사·포장 변경 — ${item.selectedOffer?.packaging ?? '오퍼 선택'}`"
+        :title="editingLocked ? EDIT_LOCK_TITLE : `공급사·포장 변경 — ${item.selectedOffer?.packaging ?? '구매 조건 선택'}`"
         @click="emit('open-offers')"
       >
-        <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '오퍼 없음') }}</span>
+        <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '구매 조건 없음') }}</span>
         <span class="text-[10px] text-gray-400">▾</span>
       </button>
       <div class="mt-[8px] flex h-[38px] w-[160px] items-center justify-between rounded-[6px] border border-line bg-surface-brand-soft pl-1 pr-3">
@@ -584,7 +584,7 @@ function onQtyInput(event: Event): void {
         <span v-if="item.matchStatus !== 'none'" class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{{ sourceLabel }}</span>
         <span v-if="technicalFallbackUsed" class="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700" :title="evidenceTitle">구매 가능 차순위</span>
         <span v-if="item.matchEvidence?.recommendationType === 'purchase-fit'" class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" :title="evidenceTitle">일부 확인 필요</span>
-        <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 오퍼 — 수량이 바뀌어도 유지">고정</span>
+        <span v-if="item.selectedOffer?.pinned" class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="직접 선택한 구매 조건 — 수량이 바뀌어도 유지">고정</span>
         <button
           v-if="searchTraceSummary !== null"
           type="button"

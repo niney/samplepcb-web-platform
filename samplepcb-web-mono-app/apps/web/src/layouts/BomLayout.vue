@@ -126,7 +126,7 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
       >
         <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="leftOpen ? '' : '-scale-x-100'">
       </button>
-      <!-- 견적별 조달 모드 — 기술 적합성은 동일하고 양산에서만 안전한 Reel 오퍼를 우선한다. -->
+      <!-- 견적별 조달 모드 — 기술 적합성은 동일하고 양산에서만 안전한 Reel 구매 조건을 우선한다. -->
       <button
         type="button"
         role="switch"

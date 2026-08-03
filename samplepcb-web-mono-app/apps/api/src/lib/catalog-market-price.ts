@@ -183,9 +183,9 @@ function canonicalObservations(
       values.set(key, parsed);
     }
   }
-  // 한 판매처 안의 upstream 공급사·상품 SKU를 각각 DB 오퍼로 만들지 않는다.
+  // 한 판매처 안의 upstream 공급사·상품 SKU를 각각 DB 구매 조건으로 만들지 않는다.
   // 사이트가 실제 판매 주체이므로 부가세 포함 대표가격 최저 → SKU 순으로
-  // 하나만 남겨 부품당 eleparts/icbanq 오퍼가 최대 한 개가 되게 한다.
+  // 하나만 남겨 부품당 eleparts/icbanq 구매 조건이 최대 한 개가 되게 한다.
   return [...values.values()]
     .sort((a, b) =>
       a.unitPriceKrw - b.unitPriceKrw

@@ -10,7 +10,7 @@ import { prisma } from './prisma';
 const LocalCatalogOffer = z
   .object({
     supplier: z.string().min(1),
-    // 로컬 판정 입력은 catalogOnly 기술 후보만 허용한다. 실제 구매 오퍼의
+    // 로컬 판정 입력은 catalogOnly 기술 후보만 허용한다. 실제 구매 조건의
     // 가격·재고는 이 경로에서 전달하지 않고 외부 공급사 검색이 다시 확인한다.
     offer_kind: z.literal('manufacturer_catalog').default('manufacturer_catalog'),
     supplier_sku: z.string().nullish(),

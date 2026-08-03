@@ -96,7 +96,7 @@ pnpm --dir samplepcb-web-mono-app/apps/api bom:verify "D:\path\to\BOM.xlsx" `
 - 추출: `extraction.payload`, `originalMpn`, `originalValue`, 패키지, 수량, 제조사;
 - 포함 여부: 활성 아이템 vs 제외/비조달 의도;
 - 검색: `localCatalogTrace`, `searchTrace.attempts`, 폴백 사용, 한도, 오류;
-- 후보: 후보 수, 정체성/스펙 충돌, 미충족 요구조건, 적격성, 오퍼, 선정/추천 키;
+- 후보: 후보 수, 정체성/스펙 충돌, 미충족 요구조건, 적격성, 구매 조건, 선정/추천 키;
 - 최종 표시: 매치 그룹, 선정 출처·반영 상태, 확인 필요 여부, 수량 상태, 가격 유무, 재고 상태.
 
 구분해서 쓴다:

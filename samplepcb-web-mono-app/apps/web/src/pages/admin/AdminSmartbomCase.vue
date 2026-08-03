@@ -177,7 +177,7 @@ const scopeItems = computed(() => {
   );
 });
 
-// RFQ 부분 행 선택(§6.13 개정) — 판단 근거(선정 오퍼·매칭)가 있는 품목 테이블에서
+// RFQ 부분 행 선택(§6.13 개정) — 판단 근거(선정 구매 조건·매칭)가 있는 품목 테이블에서
 // 체크하고, 발송 모달은 요약·확인만 한다(편집 창구 단일). 선택 없음 = 전체 발송.
 const rfqItemSelection = ref<Set<string>>(new Set());
 const scopeItemIds = computed(() => new Set(scopeItems.value.map((item) => item.id)));
@@ -259,7 +259,7 @@ function useFullRfqScope(): void {
   rfqItemSelection.value = new Set();
 }
 
-// 실무 퀵 액션 — 공급사 오퍼가 없는 행만 협력사에 문의하는 흔한 패턴.
+// 실무 퀵 액션 — 공급사 구매 조건이 없는 행만 협력사에 문의하는 흔한 패턴.
 function selectUnofferedRfqRows(): void {
   applyRfqQuickSelection(rfqQuickSelectionGroups.value.unofferedIds);
 }
@@ -590,7 +590,7 @@ async function confirmPartSelection(): Promise<void> {
 
 // ── 관리자 부품 추가·수동 행 제거(D26) ───────────────────────────────────
 // 업로드 원본 행은 제거하지 않는다. 추가는 카탈로그 정체성과 세트당 수량만 전송하며
-// 서버가 현재 오퍼·MOQ·주문배수·환율과 RFQ 범위를 트랜잭션 안에서 다시 판단한다.
+// 서버가 현재 구매 조건·MOQ·주문배수·환율과 RFQ 범위를 트랜잭션 안에서 다시 판단한다.
 interface AdminPartAddImpact {
   forceReason: string | null;
   dynamicFullRfqCount: number;
@@ -1264,10 +1264,10 @@ async function downloadOriginal(): Promise<void> {
                 type="button"
                 class="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-300"
                 :disabled="rfqQuickSelectionGroups.unofferedIds.length === 0"
-                title="선정 오퍼가 없는 행만 선택합니다"
+                title="선정 구매 조건이 없는 행만 선택합니다"
                 @click="selectUnofferedRfqRows"
               >
-                오퍼 없음 {{ rfqQuickSelectionGroups.unofferedIds.length }}
+                구매 조건 없음 {{ rfqQuickSelectionGroups.unofferedIds.length }}
               </button>
               <span
                 v-if="rfqQuickSelectionGroups.unclassifiedCount > 0"
@@ -1304,7 +1304,7 @@ async function downloadOriginal(): Promise<void> {
                 </th>
                 <th class="px-3 py-2">Excel 위치</th>
                 <th class="px-3 py-2">부품</th>
-                <th class="px-3 py-2">선정 오퍼</th>
+                <th class="px-3 py-2">선정 구매 조건</th>
                 <th class="px-3 py-2">협력사 RFQ</th>
                 <th class="px-3 py-2 text-right">주문수량</th>
                 <th class="px-3 py-2 text-right">합계</th>
@@ -1343,7 +1343,7 @@ async function downloadOriginal(): Promise<void> {
                   <template v-if="item.selectedOffer !== null">
                     {{ item.selectedOffer.supplier }} · {{ item.selectedOffer.unitPrice }} {{ item.selectedOffer.currency }} @{{ item.selectedOffer.breakQty }}+
                   </template>
-                  <span v-else class="text-amber-600">{{ item.matchStatus === 'none' ? '미매칭' : '오퍼 없음' }}</span>
+                  <span v-else class="text-amber-600">{{ item.matchStatus === 'none' ? '미매칭' : '구매 조건 없음' }}</span>
                 </td>
                 <td class="min-w-52 px-3 py-2">
                   <div v-if="rfqBadgesFor(item.id).length > 0" class="flex flex-wrap gap-1">
@@ -1536,7 +1536,7 @@ async function downloadOriginal(): Promise<void> {
           <header class="border-b border-emerald-200 bg-emerald-50 px-5 py-4">
             <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Admin item addition</p>
             <h3 id="admin-part-add-confirm-title" class="mt-1 text-lg font-bold text-slate-950">이 부품을 견적에 추가할까요?</h3>
-            <p class="mt-1 text-xs leading-5 text-emerald-900">카탈로그·오퍼·수량을 서버가 다시 읽고 최종 주문수량과 견적 합계를 계산합니다.</p>
+            <p class="mt-1 text-xs leading-5 text-emerald-900">카탈로그·구매 조건·수량을 서버가 다시 읽고 최종 주문수량과 견적 합계를 계산합니다.</p>
           </header>
           <div class="space-y-3 p-5 text-sm">
             <div class="grid grid-cols-[92px_1fr] gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">

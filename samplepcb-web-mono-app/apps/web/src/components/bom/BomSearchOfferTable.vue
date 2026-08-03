@@ -210,7 +210,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                 <BomSearchCheckbox
                   :checked="isSelected(row)"
                   :disabled="pendingKey !== null || cartBusy"
-                  :label="`${row.part.mpn} ${supplierName(row.offer.supplier)} 구매조건 선택`"
+                  :label="`${row.part.mpn} ${supplierName(row.offer.supplier)} 구매 조건 선택`"
                   @change="toggleSelection(row)"
                 />
               </td>
@@ -266,7 +266,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               </td>
             </tr>
             <tr v-if="pricedRows.length === 0">
-              <td colspan="8" class="h-[94px] px-4 text-center text-[12px] text-ink-subtle">가격과 재고가 확인된 공급사 오퍼가 없습니다.</td>
+              <td colspan="8" class="h-[94px] px-4 text-center text-[12px] text-ink-subtle">가격과 재고가 확인된 공급사 구매 조건이 없습니다.</td>
             </tr>
           </tbody>
         </table>

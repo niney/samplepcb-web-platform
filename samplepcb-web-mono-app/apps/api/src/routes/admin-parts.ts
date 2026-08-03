@@ -258,7 +258,7 @@ function numericIdSort(a: string, b: string): number {
 
 /**
  * ES 검색 결과와 DB 사실을 결합해 삭제 가능/견적 보호 대상을 나눈다.
- * fingerprint에는 대상 ID·오퍼 원천·견적 참조가 모두 들어가 미리보기 이후 변화가 있으면 실행을 거부한다.
+ * fingerprint에는 대상 ID·구매 조건 원천·견적 참조가 모두 들어가 미리보기 이후 변화가 있으면 실행을 거부한다.
  */
 export function buildPartDeletionPreview(
   filter: PartBulkDeleteFilterType,
@@ -525,7 +525,7 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
   );
 
   // 현재 검색 조건 전체 삭제 미리보기. 페이지 100건 제한을 사용하지 않고 ES scroll로
-  // 정확한 ID 전체를 잡은 뒤 DB 오퍼·견적 참조를 결합한다.
+  // 정확한 ID 전체를 잡은 뒤 DB 구매 조건·견적 참조를 결합한다.
   fastify.post(
     '/parts/bulk-delete/preview',
     {
@@ -548,7 +548,7 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
-  // 미리보기와 동일한 필터·대상·오퍼·견적 참조일 때만 삭제한다. 견적 연결 부품은
+  // 미리보기와 동일한 필터·대상·구매 조건·견적 참조일 때만 삭제한다. 견적 연결 부품은
   // 미리보기 시점과 실행 직전 모두 제외하며 partId를 임의 해제하지 않는다.
   fastify.post(
     '/parts/bulk-delete',
@@ -649,7 +649,7 @@ export const adminPartsRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
-  // 상세 — DB(진실원본)에서 오퍼·가격구간 포함
+  // 상세 — DB(진실원본)에서 구매 조건·가격구간 포함
   fastify.get(
     '/parts/:id',
     { schema: { params: IdParams, response: { 200: PartDetailResponse } } },

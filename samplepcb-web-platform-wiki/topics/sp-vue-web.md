@@ -63,7 +63,7 @@ sp-vue 자체는 API 를 노출하지 않는 소비자다. 노출 표면은 **�
 | `/admin/seo` | SEO 관리 | sp_seo upsert/DELETE, 소비는 sp-php SSR |
 | `/admin/bom`, `/admin/bom/:id` | 공급사 검색 잡 | 엔진 잡 목록·상세(202→폴링), 자동 인제스트 확인 |
 | `/admin/bom-quotes` | BOM 견적 검토 | 목록(기본 draft 제외)·상태 전이·확정가·회신 메모·원본 다운로드(서버 스트리밍)·라인 [후보·근거] 읽기 전용 |
-| **`/admin/parts`** | 부품 카탈로그 | ES 검색(2트랙 SI+specVariants)+패싯+오퍼 확장·부품 이미지·specConflicts 배지·단건 삭제(연결 시 409 `PART_IN_USE`)·**[필터 결과 전체 삭제]**(서버 미리보기 hash·`DELETE N` 확인·견적 연결분 보호)·[카탈로그 초기화](연결 BOM 견적 강제 삭제 경고) |
+| **`/admin/parts`** | 부품 카탈로그 | ES 검색(2트랙 SI+specVariants)+패싯+구매 조건 확장·부품 이미지·specConflicts 배지·단건 삭제(연결 시 409 `PART_IN_USE`)·**[필터 결과 전체 삭제]**(서버 미리보기 hash·`DELETE N` 확인·견적 연결분 보호)·[카탈로그 초기화](연결 BOM 견적 강제 삭제 경고) |
 | `/admin/settings` | 설정 | 탭 4종: 사업자정보 / 거버 가격 / AI 연동(연결·유스케이스·샘플 테스트) / **BOM 견적 비용 정책 + 공급사 검색 운영** |
 
 라우터 가드는 UX용 — **실제 보안은 sp-node 의 JWT 검증**(`requireAdmin`·`authenticate`). BOM 잡은 소유 회원만(타인 404 은닉), 일일 검색 한도 429.
@@ -72,7 +72,7 @@ sp-vue 자체는 API 를 노출하지 않는 소비자다. 노출 표면은 **�
 
 - sp-vue 는 DB 직접 접근 없음 — 전부 sp-node 경유(`sp_*`=Prisma 소유, `g5_*`=접근 카탈로그).
 - 간접 저장소: BOM 견적 `sp_bom_quote`+`_item`+`_candidate`+`_selection_event`+`_sheet` + 분석 정본 `sp_bom_analysis_run/sheet/component` + 검색 실행·trace — **스냅샷 박제 원칙**(엔진 인메모리 잡 소멸에도 후보·근거 재현 가능). 부품 카탈로그 `sp_part*`(DB=진실원본, ES=파생물). 기존: 견적 `sp_quote`, 마켓 `sp_market_*`, SEO `sp_seo`, 설정 `sp_config`(+`bom_quote` 정책·환율 캐시)+`sp_ai_usecase`, 슬라이드·주문·회원 g5_*.
-- **판정·계산은 서버, FE 는 소비만**: 합계는 서버 재계산(클라 금액 불신), 오퍼 자동 선정·후보 순위·자동 보강 필요 판단 모두 서버. 생명주기 `enrichStatus`(idle|searching|done|failed)와 `buildStatus`(parsing→selecting→building→ready|failed)는 **서버 영속 단일 진실** — FE 는 라벨·배너·폴링만.
+- **판정·계산은 서버, FE 는 소비만**: 합계는 서버 재계산(클라 금액 불신), 구매 조건 자동 선정·후보 순위·자동 보강 필요 판단 모두 서버. 생명주기 `enrichStatus`(idle|searching|done|failed)와 `buildStatus`(parsing→selecting→building→ready|failed)는 **서버 영속 단일 진실** — FE 는 라벨·배너·폴링만.
 - **판정 필드 그대로 렌더 원칙(2026-07-21~26 강화)**: `procurementUnavailabilityReason`(out_of_stock / insufficient_stock / stock_unverified / catalog_inquiry)·`catalogInquiry`·`manualSelectable`·`requirement_assessments`·`localCatalogTrace`·`searchTrace`·`searchRequirements` 는 모두 sp-node 가 투영한 값이며 sp-vue 는 라벨·배지·정렬만 붙인다. 재고·필수조건을 다시 조합해 사유를 추론하지 않는다.
 - 가격·수량 규칙은 `@sp/utils` bom-pricing 을 서버·FE 가 **같은 함수**로 공유(골든 14) — 구간가·`orderQty=max(BOM×(세트+예비),MOQ)` 배수 올림·pinned 재계산.
 - 클라 상태: Pinia(auth 는 `@sp/shared`) + vue-query 도메인 쿼리키. BOM 상세는 PATCH 응답 `setQueryData` 직접 반영(예외적 무효화 생략 패턴). 카탈로그 초기화 mutation 은 `['admin','parts']` 외에 `['admin','bom-quotes']`·`['bom','quotes']` 까지 무효화한다(견적이 함께 지워지므로).
@@ -82,13 +82,13 @@ sp-vue 자체는 API 를 노출하지 않는 소비자다. 노출 표면은 **�
 ## Key Decisions [coverage: high — 12 sources]
 
 1. **2026-07-26 — 자체 카탈로그 우선 조회를 "검색 과정" 첫 단계로 표시**: R/C(SamplePCB 스펙)·connector(exact MPN) 로컬 조회를 외부 공급사 trace 로 위장하지 않고 `localCatalogTrace` 전용 카드로 항상 1번에 놓고 **`로컬 ES · API 0회`** 를 명시. 구형 실행은 `localCatalogTrace=null` 로 읽기 호환.
-2. **2026-07-26 — 제조사 카탈로그 부품 = "문의 견적"(금액 없는 선정)**: 가격·재고가 없는 `offer_kind='manufacturer_catalog'` 후보를 미매칭이 아니라 **`선정됨 · 재고/가격 문의` / `문의 견적`** 으로 표시하고 선정 집계에 포함하되 합계에는 금액을 넣지 않는다. 행·후보 카드·오퍼 목록·부품 변경 패널·오퍼 모달 5곳이 같은 어휘를 쓴다.
-3. **2026-07-26 — 카탈로그 파괴 작업 2종을 다른 안전 등급으로 분리**: [필터 결과 전체 삭제]는 서버 미리보기(전건 ID·오퍼·카탈로그 원본 SHA·견적 참조) + hash + `DELETE N` 타이핑 확인이고 **견적 연결 부품은 보호**(보호 건수를 결과에 보고). [카탈로그 초기화]는 반대로 `RESET_WITH_QUOTES` 확인 후 **연결 BOM 견적을 상태와 무관하게 강제 삭제**한다 — partId 뿐 아니라 selectedOffer·matchStatus 흔적만 남은 라인까지 대상.
+2. **2026-07-26 — 제조사 카탈로그 부품 = "문의 견적"(금액 없는 선정)**: 가격·재고가 없는 `offer_kind='manufacturer_catalog'` 후보를 미매칭이 아니라 **`선정됨 · 재고/가격 문의` / `문의 견적`** 으로 표시하고 선정 집계에 포함하되 합계에는 금액을 넣지 않는다. 행·후보 카드·구매 조건 목록·부품 변경 패널·구매 조건 모달 5곳이 같은 어휘를 쓴다.
+3. **2026-07-26 — 카탈로그 파괴 작업 2종을 다른 안전 등급으로 분리**: [필터 결과 전체 삭제]는 서버 미리보기(전건 ID·구매 조건·카탈로그 원본 SHA·견적 참조) + hash + `DELETE N` 타이핑 확인이고 **견적 연결 부품은 보호**(보호 건수를 결과에 보고). [카탈로그 초기화]는 반대로 `RESET_WITH_QUOTES` 확인 후 **연결 BOM 견적을 상태와 무관하게 강제 삭제**한다 — partId 뿐 아니라 selectedOffer·matchStatus 흔적만 남은 라인까지 대상.
 4. **2026-07-24 — 행별 검색조건 보완을 후보 패널에서**: 원본 추출값을 고치지 않고 `searchRequirements` 를 별도 저장하는 폼을 부품 유형 9종(resistor·capacitor·inductor·crystal·diode·transistor·led·switch·connector)별로 동적 구성. 저장 시 해당 행만 재검색하며 `검색 제외` 행은 폼 자체를 잠근다.
 5. **2026-07-22 — 정확 MPN 우선 선정은 하되 불일치를 숨기지 않는다**: 정규화 MPN 이 정확 일치하면 필수조건 불일치가 있어도 자동 선정하고 금액에 반영하되, 행 배지와 후보 근거에 `품번 일치 우선 선정 · 추가 정보 불일치` 와 항목별 기대값/실제값 툴팁을 병기.
 6. **2026-07-21 — "공급사 원응답"과 "최종 후보"를 표기로 분리**: 검색 과정의 건수는 가공 전 API/캐시 응답(`공급사 원응답 N건`)이고 후보 목록은 `기술 검증·중복 제거 후 최종 후보 N개`라는 안내를 i18n `bomSearchTrace` 사전으로 고정. 두 숫자가 달라 보이는 것을 결함으로 오인하던 문제 교정.
 7. **2026-07-20 — 행 단위 렌더 격리**: `BomQuoteRow` 분리 + 참조 안정 동기화 + PATCH `setQueryData` 로 수량 편집 12~16ms→0.6~3ms. DOM 변형이 편집 행 1개에 국한됨을 MutationObserver 실측.
-8. **2026-07-20 — [후보 비교] 우측 패널로 통합**: 기존 [변경]+[상세]+가격구간 확장을 단일 패널로 — 원본 BOM·자동 추천 이유·기술/가격 순위·차액·공급사 오퍼 명시 선택·검색 과정을 한 흐름에. 관리자는 같은 스냅샷을 읽기 전용으로 추적(고객/관리자 판정 일치 실증).
+8. **2026-07-20 — [후보 비교] 우측 패널로 통합**: 기존 [변경]+[상세]+가격구간 확장을 단일 패널로 — 원본 BOM·자동 추천 이유·기술/가격 순위·차액·공급사 구매 조건 명시 선택·검색 과정을 한 흐름에. 관리자는 같은 스냅샷을 읽기 전용으로 추적(고객/관리자 판정 일치 실증).
 9. **2026-07-20/23 — 단일 검색은 하이브리드**: `/bom/search` 는 카탈로그 즉답 + 비적중 시 공급사 보충 검색 자동 호출. 인제스트 완료를 기다리지 않고 `inlineOffers` 로 먼저 보여주되, 견적 부품 변경 문맥만 `waitForCatalog=true`(영속 partId 필요).
 10. **2026-07-19 — sp-vue 일반(회원) 라우트 그룹 신설**: "/app=관리자 전용" 전제 공식 변경(router.ts 주석 정본). `/app/bom` 회원 전용, `requiresMember`=그누보드 로그인 왕복. 코드리뷰 #6 이 별도 소비자 앱 분리 선택지를 기록했으나 현 구조로 진행(lazy loading 은 후속).
 11. **2026-07-19 — 조용한 자동 보강**: 고객에게 "공급사 검색" 개념 비노출 — build 직후 서버가 판단·실행, FE 는 `enrichStatus` 기반 "확인 중" 라벨·배너만. searching 동안 FE·PATCH 잠금, 빨간 미매칭은 done/failed 후 최종 판정에만.
@@ -117,7 +117,7 @@ sp-vue 자체는 API 를 노출하지 않는 소비자다. 노출 표면은 **�
 - [AGENTS.md (root)](../../AGENTS.md) — 호칭·nginx 라우팅(+`/rnd`)·인증 브리지
 - [samplepcb-web-mono-app/AGENTS.md](../../samplepcb-web-mono-app/AGENTS.md) — 스택·타입 강성·apps/rnd 신설·"실질 기본 용도" 표현
 - [docs/BOM_QUOTE.md](../../docs/BOM_QUOTE.md) — 고객 스마트 BOM 정본: 회원 라우트 그룹·자동 보강·후보 패널·검색 과정 provenance·문의 견적·렌더 최적화·Parts Eyes 셸·단일 검색
-- [docs/PARTS_SEARCH.md](../../docs/PARTS_SEARCH.md) — 부품 카탈로그·AdminParts·유형별 로컬 우선 조회·삭제/초기화 정책·부품 정본/자체 오퍼·이미지
+- [docs/PARTS_SEARCH.md](../../docs/PARTS_SEARCH.md) — 부품 카탈로그·AdminParts·유형별 로컬 우선 조회·삭제/초기화 정책·부품 정본/자체 구매 조건·이미지
 - [docs/bom-quote-code-review-2026-07-19.md](../../docs/bom-quote-code-review-2026-07-19.md) — P1/P2 보완 항목·776KB 번들·앱 위치 정책 선택지
 - [docs/SEO_MANAGEMENT.md](../../docs/SEO_MANAGEMENT.md) — AdminSeo·관리/소비 분리
 - [docs/GERBER_PRICE_MODE.md](../../docs/GERBER_PRICE_MODE.md) — GerberPricingForm·sp_config
@@ -135,8 +135,8 @@ sp-vue 자체는 API 를 노출하지 않는 소비자다. 노출 표면은 **�
 - [apps/web/src/pages/bom/BomSearch.vue](../../samplepcb-web-mono-app/apps/web/src/pages/bom/BomSearch.vue) · [BomHistory.vue](../../samplepcb-web-mono-app/apps/web/src/pages/bom/BomHistory.vue) — 단일 검색·견적 이력
 - [apps/web/src/components/bom/BomCandidateDrawer.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomCandidateDrawer.vue) — 후보 비교 패널·검색 과정·로컬 카탈로그 카드·검색조건 보완 폼·문의 견적 어휘
 - [apps/web/src/components/bom/BomQuoteRow.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomQuoteRow.vue) — 행 격리·재고/문의 배지·과다 주문수량·호출 상한 미검색
-- [apps/web/src/components/bom/BomPartOfferOptions.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomPartOfferOptions.vue) · [BomPartSearchPanel.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomPartSearchPanel.vue) — 부품 변경·오퍼 비교(browse/select)
-- [apps/web/src/components/bom/BomQuoteOfferModal.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomQuoteOfferModal.vue) · [BomPriceBreaks.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomPriceBreaks.vue) — 오퍼 선택·가격구간 공용 조각
+- [apps/web/src/components/bom/BomPartOfferOptions.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomPartOfferOptions.vue) · [BomPartSearchPanel.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomPartSearchPanel.vue) — 부품 변경·구매 조건 비교(browse/select)
+- [apps/web/src/components/bom/BomQuoteOfferModal.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomQuoteOfferModal.vue) · [BomPriceBreaks.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomPriceBreaks.vue) — 구매 조건 선택·가격구간 공용 조각
 - [apps/web/src/components/bom/BomPartSearchNotice.vue](../../samplepcb-web-mono-app/apps/web/src/components/bom/BomPartSearchNotice.vue) — 공급사 보충 검색 자동 호출
 - [apps/web/src/bom/extraction-display.ts](../../samplepcb-web-mono-app/apps/web/src/bom/extraction-display.ts) — 추출 필드 라벨·근거·확신도 매핑
 - [apps/web/src/i18n/locales/ko.ts](../../samplepcb-web-mono-app/apps/web/src/i18n/locales/ko.ts) · [en.ts](../../samplepcb-web-mono-app/apps/web/src/i18n/locales/en.ts) — `bomSearchTrace` 사전(전략·출처·결과·fallback 사유)

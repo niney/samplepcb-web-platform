@@ -52,9 +52,9 @@ status: active
 - 공급사 검색: `BomSupplierOptions`(`max_calls` 1~3000, `cache_only`×`reset_cache` 상호배제 `superRefine`) · `BomSupplierPlan`/`Preflight`(호출 예산 사전 산정) · `BomSupplierOffer`/`SearchComponent`/`Result` · `BomJobView`(잡 폴링) · `BomEngineCapabilities`(공급사 설정·캐시 모드 진단).
 
 **parts** (부품 카탈로그 — DB 저장 + ES 색인 검색)
-- `PartOfferKind = 'supplier_offer' | 'manufacturer_catalog'` · `PartOfferView`(`derivedFrom` = samplepcb 파생 오퍼의 원천) · `PartHit`(`specsSi` SI 정준 스펙, `hasSpecConflict`, `hasCatalogInquiryOffer`) · `PartDetail`+`PartSpecConflictGroup`.
+- `PartOfferKind = 'supplier_offer' | 'manufacturer_catalog'` · `PartOfferView`(`derivedFrom` = samplepcb 파생 구매 조건의 원천) · `PartHit`(`specsSi` SI 정준 스펙, `hasSpecConflict`, `hasCatalogInquiryOffer`) · `PartDetail`+`PartSpecConflictGroup`.
 - 검색: `PartSearchQuery`(자유 텍스트 `q` + 패싯 클릭 전용 구조화 필터) · `PartSearchResponse`+`PartSearchFacets`.
-- 고객 단일 검색: `BomPartSearchQuery`/`BomPartHit`/`BomPartSearchResponse`(서버가 필요수량·환율 스냅샷으로 `PartAppliedOffer` 대표 구매조건 첨부) · `BomPartSearchSupplementBody`/`Response`(로컬에 정확 규격이 없을 때만 **POST 로 분리한** 유료 공급사 보강).
+- 고객 단일 검색: `BomPartSearchQuery`/`BomPartHit`/`BomPartSearchResponse`(서버가 필요수량·환율 스냅샷으로 `PartAppliedOffer` 대표 구매 조건 첨부) · `BomPartSearchSupplementBody`/`Response`(로컬에 정확 규격이 없을 때만 **POST 로 분리한** 유료 공급사 보강).
 - 관리: `PartRefreshResponse`(수동 갱신) · `PartDeleteResponse` · `PartsResetBody`(`confirm: 'RESET_WITH_QUOTES'` 리터럴) · `PartBulkDeleteFilter`/`PreviewBody`/`PreviewData`/`Body`/`Response`(필터 일치분 전체 삭제 + 견적 연결 보호).
 
 **bom-quote** (고객 스마트 BOM 견적 — 업로드→파싱→매칭→검토→RFQ)
@@ -73,14 +73,14 @@ status: active
 
 - **거버 spec 값은 파싱하지 않는다**: `string | number` 유니언으로 원본 수신, 가격 해석은 sp-node `pricing/engine.ts` 몫.
 - **BOM 견적의 단일 진실은 저장된 `orderQty`·`selectedOffer` 스냅샷**(레거시 '박제' 원칙) — 합계는 **항상 서버가 재계산**하고 클라 금액은 불신한다. `exchangeRateSnapshot`은 draft 동안 갱신되고 RFQ 요청 후 동결.
-- **카탈로그(사실 데이터) ↔ 매칭 근거(문맥)를 분리**: `parts.ts`는 부품·오퍼 사실, `bom-quote.ts`의 `matchEvidence`/`candidates`는 그 견적 시점 판정 스냅샷. 후보·트레이스는 엔진 인메모리 잡이 아니라 DB 영속본에서 읽는다.
+- **카탈로그(사실 데이터) ↔ 매칭 근거(문맥)를 분리**: `parts.ts`는 부품·구매 조건 사실, `bom-quote.ts`의 `matchEvidence`/`candidates`는 그 견적 시점 판정 스냅샷. 후보·트레이스는 엔진 인메모리 잡이 아니라 DB 영속본에서 읽는다.
 - 응답은 회원 라우트 `{ result: true, data: {...} }` 봉투 패턴. 마켓 도메인은 **DB에 코드만 저장(Json 배열)**, 라벨은 계약 상수에서 해석.
 - 실제 저장은 sp-node 쪽 Prisma(`sp_quote`/`sp_part*`/`sp_bom_quote*`/`sp_market_*`/`sp_config`) — 계약 패키지 자체는 DB 를 모른다.
 
 ## Key Decisions [coverage: high — 9 sources]
 
 - **자체 카탈로그 우선 조회를 계약 트레이스로 승격(2026-07-26)**: 외부 공급사 호출 전에 부품 유형별 자체 카탈로그(`samplepcb_rc`·`connector`)를 먼저 조회하고, 그 한 단계를 `BomQuoteLocalCatalogTrace`(v2)로 견적에 영속한다. `apiCalls: z.literal(0)`을 **타입으로 못박아** "무료 단계"임을 계약이 보증한다.
-- **`offerKind`로 자체 오퍼와 실공급사 오퍼를 구분(2026-07-26)**: `manufacturer_catalog` = 가격·실재고 확인 전 "문의" 오퍼, `supplier_offer` = 구매 가능. `PartOfferView.derivedFrom`이 samplepcb 파생 오퍼의 원천을 남기고, `PartHit.suppliers`에는 제조사 카탈로그 원천을 넣지 않는다(`hasCatalogInquiryOffer`로 별도 표시). 견적 라인은 `catalogInquiry`로 승계.
+- **`offerKind`로 자체 구매 조건과 실공급사 구매 조건을 구분(2026-07-26)**: `manufacturer_catalog` = 가격·실재고 확인 전 문의용 카탈로그 정보, `supplier_offer` = 구매 가능. `PartOfferView.derivedFrom`이 samplepcb 파생 구매 조건의 원천을 남기고, `PartHit.suppliers`에는 제조사 카탈로그 원천을 넣지 않는다(`hasCatalogInquiryOffer`로 별도 표시). 견적 라인은 `catalogInquiry`로 승계.
 - **파괴적 삭제는 계약이 오호출을 막는다(2026-07-25)**: 카탈로그 초기화는 `confirm: z.literal('RESET_WITH_QUOTES')` 전용 리터럴(연결 견적까지 강제 삭제하므로), 필터 삭제는 **무필터 전체 삭제를 `refine`으로 거부**하고 견적 연결 부품은 409 보호 + preview 로 대상 선고지.
 - **기술 판정·구매 후보 결정은 sp-engine 단일 소유(2026-07-2x)**: `searchRequirementGuidance`(policyVersion 고정)와 `selectionRecommendation`/`selectionApplicationState`를 엔진이 확정하고 **Node·FE 는 재판정하지 않고 표시만** 한다. 판정 로직 이중화를 계약 주석으로 금지.
 - **검색 과정을 실행별로 영속·계층 노출(2026-07-1x~)**: 목록·라인에는 `searchTraceSummary`(compact)만, 전체 `attempts`는 후보 API 지연 조회. 호출 상한 소진은 `limitReasons`(`job_call_limit`/`supplier_quota`)로 사용자에게 정확히 고지.

@@ -418,7 +418,7 @@ model SpPart {
   firstSeenAt      DateTime      @default(now())
   lastSeenAt       DateTime      @default(now())
   indexedAt        DateTime? // 마지막 ES 색인 성공 시각(null=미색인)
-  factsFingerprint String?       @db.Char(64) // 전체 실공급사 오퍼+정본 정책 fingerprint
+  factsFingerprint String?       @db.Char(64) // 전체 실공급사 구매 조건+정본 정책 fingerprint
   indexFingerprint String?       @db.Char(64) // 마지막 성공 ES 문서+색인 정책 fingerprint
   offers           SpPartOffer[]
 
@@ -936,7 +936,7 @@ model SpPartnerRelation {
 }
 
 // 협력사 견적요청(RFQ) 문서 — (quote × 협력사 × 중개 경로) 1건. diff 발송으로 갱신하며
-// 재발송 시 유지분은 보존한다. **사람 협력사 전용** — 공급사 시세는 후보/오퍼 원장 파생(D6),
+// 재발송 시 유지분은 보존한다. **사람 협력사 전용** — 공급사 시세는 후보/구매 조건 원장 파생(D6),
 // RFQ 행으로 물질화하지 않는다.
 model SpBomRfq {
   id              BigInt         @id @default(autoincrement())

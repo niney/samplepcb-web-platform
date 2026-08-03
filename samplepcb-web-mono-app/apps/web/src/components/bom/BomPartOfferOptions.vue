@@ -10,7 +10,7 @@ import {
 import { useBomPartDetail } from '../../bom/useBom';
 import { fmtAge } from '../../bom/format';
 
-// 부품 1건의 공급 포장·오퍼 비교(+선택 문맥의 확정 CTA) — BomPartSearchPanel(부품 변경)과
+// 부품 1건의 공급 포장·구매 조건 비교(+선택 문맥의 확정 CTA) — BomPartSearchPanel(부품 변경)과
 // 단일 검색 행 확장이 공유한다. browse=열람 전용(확정 CTA 숨김, 비교 인터랙션은 유지).
 
 const props = withDefaults(defineProps<{
@@ -212,8 +212,8 @@ function fmtTotal(pick: OfferPick): string {
         </template>
         <template v-else>
           {{ browse
-            ? '가격이 있는 공급사 오퍼가 아직 없습니다. 공급사 검색이 쌓이면 구매 조건이 표시됩니다.'
-            : '가격이 있는 공급사 오퍼가 없어 공급 포장을 선택할 수 없습니다. 부품만 변경하면 금액은 미산정 상태로 저장됩니다.' }}
+            ? '가격이 있는 공급사 구매 조건이 아직 없습니다. 공급사 검색이 쌓이면 구매 조건이 표시됩니다.'
+            : '가격이 있는 공급사 구매 조건이 없어 공급 포장을 선택할 수 없습니다. 부품만 변경하면 금액은 미산정 상태로 저장됩니다.' }}
         </template>
       </div>
       <button v-if="!browse" type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting" @click="confirmSelection">
@@ -243,12 +243,12 @@ function fmtTotal(pick: OfferPick): string {
         >
           <span class="block text-xs font-bold">{{ group.label }}</span>
           <span class="mt-0.5 block text-[10px]" :class="group.key === activePackagingKey ? 'text-blue-100' : 'text-slate-400'">
-            {{ group.rows.length }}개 오퍼<span v-if="group.recommended"> · 추천</span>
+            {{ group.rows.length }}개 구매 조건<span v-if="group.recommended"> · 추천</span>
           </span>
         </button>
       </div>
 
-      <div class="mt-3 space-y-2" role="radiogroup" aria-label="공급사 오퍼">
+      <div class="mt-3 space-y-2" role="radiogroup" aria-label="공급사 구매 조건">
         <button
           v-for="row in activeRows"
           :key="row.key"
@@ -288,7 +288,7 @@ function fmtTotal(pick: OfferPick): string {
         </div>
       </div>
       <button v-if="!browse" type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting || selectedRow === null" @click="confirmSelection">
-        {{ selecting ? '적용 중…' : part.id === currentPartId ? '선택한 공급 포장으로 변경' : '선택한 구매조건으로 부품 변경' }}
+        {{ selecting ? '적용 중…' : part.id === currentPartId ? '선택한 공급 포장으로 변경' : '선택한 구매 조건으로 부품 변경' }}
       </button>
     </div>
   </div>

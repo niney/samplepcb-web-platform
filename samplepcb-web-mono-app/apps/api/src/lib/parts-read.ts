@@ -11,8 +11,8 @@ import {
 } from './parts-offer-kind';
 import { normalizeSupplierPackaging } from './supplier-packaging';
 
-// 부품 상세(DB) DTO 빌더 — 관리자 카탈로그 상세와 고객 BOM 오퍼 변경 모달이 공유.
-// 집계는 실공급사만(파생 samplepcb 오퍼는 원천과 이중 계산) — 목록(hit)과 동일 기준.
+// 부품 상세(DB) DTO 빌더 — 관리자 카탈로그 상세와 고객 BOM 구매 조건 변경 모달이 공유.
+// 집계는 실공급사만(파생 samplepcb 구매 조건은 원천과 이중 계산) — 목록(hit)과 동일 기준.
 
 const SpecConflictsJson = z.record(
   z.string(),

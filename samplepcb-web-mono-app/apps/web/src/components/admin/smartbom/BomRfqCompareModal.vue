@@ -5,7 +5,7 @@ import { ApiRequestError } from '@sp/shared';
 import { useSelectRfqReply } from '../../../admin/useAdminBomRfqs';
 
 // 품목 × 협력사 회신 매트릭스 비교·선정(시안 채택, docs/SMARTBOM_PARTNER_RFQ.md §3.4).
-// 행=부품행 · 열=[현재 선정 오퍼]+[회신한 협력사]. 셀 라디오로 품목별 선정 후 일괄 적용.
+// 행=부품행 · 열=[현재 선정 구매 조건]+[회신한 협력사]. 셀 라디오로 품목별 선정 후 일괄 적용.
 // 적용은 행별 선정 API 순차 호출 — 서버가 스냅샷 박제+재계산(감사 이벤트 포함)한다.
 
 const props = defineProps<{
@@ -160,7 +160,7 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
             <tr>
               <th class="px-3 py-2">부품</th>
               <th class="px-3 py-2 text-right">수량</th>
-              <th class="bg-blue-50/60 px-3 py-2">현재 선정 오퍼</th>
+              <th class="bg-blue-50/60 px-3 py-2">현재 선정 구매 조건</th>
               <th v-for="rfq in quotedRfqs" :key="rfq.rfqId" class="px-3 py-2">{{ rfq.partnerName }}</th>
             </tr>
           </thead>

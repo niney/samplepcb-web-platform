@@ -117,7 +117,7 @@ beforeEach(() => {
   mocks.tx.spPartPriceBreak.createMany.mockResolvedValue({ count: 0 });
 });
 
-describe('SamplePCB 자체 카탈로그 오퍼 보존', () => {
+describe('SamplePCB 자체 카탈로그 구매 조건 보존', () => {
   it('가격이 원장보다 먼저 저장된 중단 상태만 카탈로그 정본으로 복구한다', () => {
     const incoming = catalogRaw();
     const directPrice = {
@@ -139,7 +139,7 @@ describe('SamplePCB 자체 카탈로그 오퍼 보존', () => {
     expect(shouldRestoreSamplepcbCatalogOffer('samplepcb', incoming, { manuallyEntered: true })).toBe(false);
   });
 
-  it('외부 가격이 없어도 자체 취급 오퍼를 삭제하지 않는다', async () => {
+  it('외부 가격이 없어도 자체 취급 구매 조건을 삭제하지 않는다', async () => {
     mocks.tx.spPart.findUnique.mockResolvedValue(part());
 
     await applyPartFacts(1n);

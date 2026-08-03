@@ -101,7 +101,7 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
     expect(await prisma.spPart.count({ where: { mpnNorm: normalizeMpn(MPN) } })).toBe(0);
   });
 
-  it('별칭 제조사·다중 공급사·최신 오퍼를 하나의 부품으로 저장하고 ES에서 검색한다', async () => {
+  it('별칭 제조사·다중 공급사·최신 구매 조건을 하나의 부품으로 저장하고 ES에서 검색한다', async () => {
     const initial = envelope([
       product('Murata Electronics', [
         {
@@ -161,12 +161,12 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
     expect(mouser?.stock).toBe(1_000);
     expect(mouser?.priceBreaks.map((price) => price.qty).sort((a, b) => a - b)).toEqual([1, 100]);
     expect(digikey?.stock).toBe(200);
-    // 파생 오퍼: 원천 통째 복사 + derivedFrom 추적(둘 다 USD·재고>0 → 최소구간 단가 mouser 0.0123 < digikey 0.013)
+    // 파생 구매 조건: 원천 통째 복사 + derivedFrom 추적(둘 다 USD·재고>0 → 최소구간 단가 mouser 0.0123 < digikey 0.013)
     expect(own).toBeDefined();
     expect((own?.rawJson as { derivedFrom?: { supplier?: string } }).derivedFrom?.supplier).toBe('mouser');
     expect(own?.stock).toBe(mouser?.stock);
 
-    // 같은 오퍼의 새 스냅샷은 가격구간 replace-all, 다른 공급사 오퍼는 보존한다.
+    // 같은 구매 조건의 새 스냅샷은 가격구간 replace-all, 다른 공급사 구매 조건은 보존한다.
     const updated = envelope([
       product('Murata', [
         {
@@ -208,7 +208,7 @@ describe.skipIf(!RUN)('parts ingest (integration — 실 DB·ES)', () => {
     expect(refreshedMouser?.priceBreaks.map((price) => [price.qty, Number(price.price)])).toEqual([
       [10, 0.009],
     ]);
-    // 파생 오퍼도 최신 원천으로 추종(mouser 0.009 < digikey 0.013)
+    // 파생 구매 조건도 최신 원천으로 추종(mouser 0.009 < digikey 0.013)
     const refreshedOwn = refreshed?.offers.find((offer) => offer.supplier === 'samplepcb');
     expect((refreshedOwn?.rawJson as { derivedFrom?: { supplier?: string } }).derivedFrom?.supplier).toBe('mouser');
     expect(refreshedOwn?.stock).toBe(1_500);

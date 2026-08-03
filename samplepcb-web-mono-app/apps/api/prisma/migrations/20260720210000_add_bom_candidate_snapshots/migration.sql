@@ -1,5 +1,5 @@
 -- 고객 BOM 후보 비교·선택의 영속 단일 진실.
--- 엔진 잡은 인메모리이므로 후보/오퍼/검증 근거를 견적 문맥에 스냅샷으로 보존한다.
+-- 엔진 잡은 인메모리이므로 후보/구매 조건/검증 근거를 견적 문맥에 스냅샷으로 보존한다.
 
 ALTER TABLE `sp_bom_quote_item`
     ADD COLUMN `recommendedCandidateKey` VARCHAR(64) NULL,

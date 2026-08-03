@@ -17,8 +17,8 @@ sp-node가 실행 시 워크북을 검증하고 기존 supplier-search ingest en
 - `normalized_specs.part_type`: 전체 `connector`
 - 세부 구성 유형은 `connector_component_type`에 Housing/Wafer/Terminal/Connector/Receptacle로 보존
 - 핀 수가 원본에 없는 32개는 `pin_count`를 만들지 않는다.
-- 모든 공식 MPN은 제조사 원천 오퍼와 `samplepcb` 문의 오퍼를 함께 가지며,
-  공급사 가격 스냅샷이 있으면 SamplePCB 오퍼에만 검증된 가격곡선을 덧붙인다.
+- 모든 공식 MPN은 제조사 원천 정보와 `samplepcb` 문의 견적 채널을 함께 가지며,
+  공급사 가격 스냅샷이 있으면 SamplePCB 구매 조건에만 검증된 가격곡선을 덧붙인다.
 
 파서는 파일 해시, 필수 시트·헤더, MPN 정규화와 유일성, 직접/전개 두 시트의 합집합,
 시리즈 참조, 카테고리·피치, URL, 12505 공식 품번 검증을 모두 통과해야만 입력을 만든다.
@@ -33,15 +33,15 @@ sp-node가 실행 시 워크북을 검증하고 기존 supplier-search ingest en
 ```
 
 교체는 전체 인덱스나 공급사 이름으로 지우지 않는다. `supplier=yeonho`,
-`catalog_metadata.catalogOnly=true`, 위 source hash가 모두 일치하는 오퍼만 대상으로 한다.
+`catalog_metadata.catalogOnly=true`, 위 source hash가 모두 일치하는 구매 조건만 대상으로 한다.
 
 1. Rev2 1,606개를 먼저 upsert하고 DB·ES·검색을 검증한다.
 2. 공통 520개는 같은 `(mpnNorm, manufacturerNorm)` part를 재사용한다.
-3. Rev2 적용 뒤에도 구 source hash가 남은 오퍼만 제거한다.
-4. 다른 실공급사 오퍼가 있는 part는 facts를 재계산하고 재색인한다.
-5. 다른 실공급사 오퍼가 없는 part는 견적 참조가 0건일 때만 DB·ES에서 제거한다.
+3. Rev2 적용 뒤에도 구 source hash가 남은 구매 조건만 제거한다.
+4. 다른 실공급사 구매 조건이 있는 part는 facts를 재계산하고 재색인한다.
+5. 다른 실공급사 구매 조건이 없는 part는 견적 참조가 0건일 때만 DB·ES에서 제거한다.
 6. 견적 참조가 있으면 새 데이터 적용 전 안전 검사에서 전체 교체를 거부한다.
-7. 마지막에 구 source 오퍼 0건, Rev2 DB·ES 1,606건, 색인 큐 0건을 다시 검증한다.
+7. 마지막에 구 source 구매 조건 0건, Rev2 DB·ES 1,606건, 색인 큐 0건을 다시 검증한다.
 
 로컬 기준 dry-run 결과는 공통 520개, 신규 1,086개, Rev2에서 제외되는 구 part 300개이며
 견적 참조 차단은 0건이었다. 운영 DB에서는 반드시 아래 dry-run 결과를 다시 확인한다.
@@ -66,7 +66,7 @@ pnpm --filter api parts:catalog -- \
 dry-run에서 확인할 값:
 
 - `inputParts=1606`
-- `replacement.oldSourceOffers`: 현재 운영에 남은 구 원본 오퍼 수
+- `replacement.oldSourceOffers`: 현재 운영에 남은 구 원본 구매 조건 수
 - `replacement.overlappingReplacementParts`: 구/신 공통 키
 - `replacement.retireOnlyParts`: Rev2에서 폐기될 구 키
 - `replacement.blockedQuoteReferences=[]`
@@ -113,7 +113,7 @@ pnpm --filter api parts:catalog-prices -- \
   --verify --source yeonho
 ```
 
-공급사별 분할 수집은 이전 공급사의 상품·오퍼를 보존하고 재조회한 공급사 결과만 교체한다.
+공급사별 분할 수집은 이전 공급사의 상품·구매 조건을 보존하고 재조회한 공급사 결과만 교체한다.
 작업 중 `work-state.json`은 Git에서 제외하며, 확정 스냅샷은 원본 SHA·coverage·가격구간을
 manifest와 함께 검증한다. 모든 공급사가 오류 없이 조회된 산출물만 요구할 때는 검증 명령에
 `--require-all-suppliers`를 추가한다.
@@ -157,7 +157,7 @@ pnpm --filter api parts:catalog-market-prices -- --source yeonho --merge
 - v1 대비 가격 보유: 3개 → 162개(+159)
 
 ICBanQ 제조사 충돌은 동일 MPN 자동완성 결과의 상세 페이지 제조사가 연호가 아닌 경우며,
-전부 가격에서 제외했다. 두 국내 판매처 오퍼는 각각 보존하고 SamplePCB 가격 파생에서는
+전부 가격에서 제외했다. 두 국내 판매처 구매 조건은 각각 보존하고 SamplePCB 가격 파생에서는
 부가세 포함 KRW 단가가 낮은 쪽을 사용하며 동가면 Eleparts를 우선한다.
 
 카탈로그가 비어 있는 운영 환경에는 다음 순서로 적용한다.
@@ -179,8 +179,8 @@ pnpm --filter api parts:catalog -- --verify-search --source yeonho \
 --source yeonho --price-snapshot ...` 실행으로 가격을 추가한다. `--replace`와
 `--price-snapshot`은 한 명령에서 섞지 않는다.
 
-외부 공급사 오퍼에는 조회 시점의 가격·재고를 그대로 저장한다. SamplePCB 오퍼는 선택된
-외부 오퍼 한 개의 전체 가격곡선과 출처만 복사하며 외부 재고는 자체 재고로 복사하지 않는다.
+외부 공급사 구매 조건에는 조회 시점의 가격·재고를 그대로 저장한다. SamplePCB 구매 조건은 선택된
+외부 구매 조건 한 개의 전체 가격곡선과 출처만 복사하며 외부 재고는 자체 재고로 복사하지 않는다.
 외부 가격이 없는 연호 품목도 SamplePCB `문의 견적`으로 유지된다.
 
 `--apply`는 입력만 추가·갱신하고 구 source를 제거하지 않으므로 최초 운영 교체에는 사용하지 않는다.

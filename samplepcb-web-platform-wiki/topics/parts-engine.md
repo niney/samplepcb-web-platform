@@ -68,7 +68,7 @@ status: active
 ## Key Decisions [coverage: high — 8 sources]
 
 - **2026-07-26 — 부품 유형별 로컬 카탈로그 우선 조회**: `resistor`·`capacitor`·`connector`로 **엔진이 판정한** 행은 외부 공급사보다 자체 카탈로그를 먼저 본다(R/C=Walsin AVL 2,628건, connector=연호 1,606건). 기준은 **공급사명이 아니라 부품 유형**이라 다른 원장이 추가돼도 같은 경로를 탄다. `catalog-evaluate-batch`가 `automatic_selected`로 확정한 행만 반영하고 나머지만 외부 검색으로 보낸다.
-- **2026-07-26 — 제조사 카탈로그 부품 = 문의 견적**: 카탈로그 전용 오퍼는 가격·재고·MOQ가 없다. 정확 MPN·제조사 + 자동선정 안전등급을 통과한 기술 1순위만 `catalog_selected`로 **identity만** 적용하고, offer 키·추천 오퍼·가격·재고는 만들지 않은 채 `primary_unavailability_reason=catalog_inquiry`를 함께 반환한다. 가짜 재고·가격을 만들지 않는 것이 핵심.
+- **2026-07-26 — 제조사 카탈로그 부품 = 문의 견적**: 카탈로그 원천 정보는 가격·재고·MOQ가 없다. 정확 MPN·제조사 + 자동선정 안전등급을 통과한 기술 1순위만 `catalog_selected`로 **identity만** 적용하고, offer 키·추천 구매 조건·가격·재고는 만들지 않은 채 `primary_unavailability_reason=catalog_inquiry`를 함께 반환한다. 가짜 재고·가격을 만들지 않는 것이 핵심.
 - **2026-07-26 — 정확 MPN 우선 자동선정**: 추가 스펙 불일치·누락이 있어도 구매 가능하면 자동선정한다. 명시적으로 확정된 **부품 유형 충돌만** 차단하고 공급사 유형 근거 충돌은 경고로 보존.
 - **2026-07-26 — 제조사 정보 충돌 판정 폐기**: `manufacturer_source_conflict` 생성·수동검토 강등·추천 예외를 계약에서 **삭제**했다. 제조사 미지정 exact MPN도 자동선정 대상. identity 분리는 유지.
 - **2026-07-26 — 스펙 검색 후보 수 축소(perf)**: 스펙 검색은 DigiKey·Mouser 공급사별 10건, 정확 MPN 경로는 기존 20건 유지. 조회 크기를 못 정하는 UniKeyIC는 **먼저 자르지 않고** 전량 정규화·기술 판정 후 상위 10개 그룹만 조달 판단에 쓴다. 최종 보존은 공급사별 기술 3 + 가격 2 그룹의 합집합.

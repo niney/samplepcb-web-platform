@@ -358,7 +358,7 @@ export const bomRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
     },
   );
 
-  // 부품 상세(오퍼·가격구간) — 오퍼 변경 모달
+  // 부품 상세(구매 조건·가격구간) — 구매 조건 변경 모달
   fastify.get(
     '/bom/parts/:id',
     { schema: { params: z.object({ id: z.coerce.bigint() }), response: { 200: PartDetailResponse } } },

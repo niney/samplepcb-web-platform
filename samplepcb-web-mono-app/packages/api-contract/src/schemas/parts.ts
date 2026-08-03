@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // 부품 카탈로그 검색 — sp-node 저장(DB)·색인(ES)·검색 계약 (설계: docs/PARTS_SEARCH.md).
-// 카탈로그(부품·오퍼)는 BOM 매칭 결과(문맥)와 분리된 사실 데이터다.
+// 카탈로그(부품·구매 조건)는 BOM 매칭 결과(문맥)와 분리된 사실 데이터다.
 
 export const PartPriceBreak = z.object({
   qty: z.number().int(),
@@ -25,7 +25,7 @@ export const PartOfferView = z.object({
   currency: z.string().nullable(),
   priceBreaks: z.array(PartPriceBreak),
   fetchedAt: z.string(),
-  /** samplepcb 자체(파생) 오퍼의 원천 — 실공급사 오퍼는 null. */
+  /** samplepcb 자체(파생) 구매 조건의 원천 — 실공급사 구매 조건은 null. */
   derivedFrom: z.object({ supplier: z.string(), supplierSku: z.string(), fetchedAt: z.string() }).nullable(),
 });
 export type PartOfferViewType = z.infer<typeof PartOfferView>;
@@ -48,11 +48,11 @@ export const PartHit = z.object({
   minPrice: z.number().nullable(),
   minPriceCurrency: z.string().nullable(), // KRW·USD… — UI 가 통화 기호를 결정
   totalStock: z.number().int(),
-  /** 오퍼(재고·가격) 최신 fetchedAt — 데이터 나이 표시용. null=오퍼 없음/구 색인. */
+  /** 구매 조건(재고·가격) 최신 fetchedAt — 데이터 나이 표시용. null=구매 조건 없음/구 색인. */
   offersFetchedAt: z.string().nullable(),
   /** 공급사 간 스펙 실충돌 존재 — 관리자 배지용(구 색인 문서는 서버가 false 로 보정). */
   hasSpecConflict: z.boolean(),
-  /** 가격·실재고 없이 취급 가능성만 확인된 제조사 카탈로그 오퍼가 존재한다. */
+  /** 가격·실재고 없이 취급 가능성만 확인된 제조사 카탈로그 정보가 존재한다. */
   hasCatalogInquiryOffer: z.boolean(),
   score: z.number().nullable(),
 });
@@ -102,7 +102,7 @@ export const PartSearchResponse = z.object({
 export type PartSearchResponseType = z.infer<typeof PartSearchResponse>;
 
 // ── 고객 단일 검색(/api/bom/parts-search) — 결과 행에 대표 구매 조건 첨부 ──────
-// 서버가 필요수량과 동일한 환율 스냅샷으로 대표 오퍼를 선정해 내린다.
+// 서버가 필요수량과 동일한 환율 스냅샷으로 대표 구매 조건을 선정해 내린다.
 
 export const PartSearchPricingContext = z.object({
   targetCurrency: z.literal('KRW'),
@@ -134,7 +134,7 @@ export const PartAppliedOffer = z.object({
 });
 export type PartAppliedOfferType = z.infer<typeof PartAppliedOffer>;
 
-/** 단일검색 결과표의 공급사별 한 행. 오퍼 원문과 필요수량 적용 결과를 함께 내린다. */
+/** 단일검색 결과표의 공급사별 한 행. 구매 조건 원본과 필요수량 적용 결과를 함께 내린다. */
 export const BomPartOfferOption = PartOfferView.extend({
   applied: PartAppliedOffer.nullable(),
 });
@@ -148,11 +148,11 @@ export type BomPartSearchQueryType = z.infer<typeof BomPartSearchQuery>;
 export const BomPartHit = PartHit.extend({
   /** catalog=DB/ES 즉시 결과, supplier=현재 공급사 검색 결과. */
   source: z.enum(['catalog', 'supplier']),
-  /** 공급사 즉시 결과는 DB 상세 저장을 기다리지 않고 오퍼를 함께 제공한다. */
+  /** 공급사 즉시 결과는 DB 상세 저장을 기다리지 않고 구매 조건을 함께 제공한다. */
   inlineOffers: z.array(PartOfferView).nullable(),
-  /** 공급사별 가격·재고 행. 제조사 카탈로그 문의 오퍼는 applied=null이다. */
+  /** 공급사별 가격·재고 행. 제조사 카탈로그 문의 견적 채널은 applied=null이다. */
   offerOptions: z.array(BomPartOfferOption),
-  /** 필요수량 기준 대표 구매 조건 — 가격 있는 실공급사 오퍼가 없으면 null. */
+  /** 필요수량 기준 대표 구매 조건 — 가격 있는 실공급사 구매 조건이 없으면 null. */
   applied: PartAppliedOffer.nullable(),
 });
 export type BomPartHitType = z.infer<typeof BomPartHit>;
@@ -239,7 +239,7 @@ export const PartRefreshResponse = z.object({
 });
 export type PartRefreshResponseType = z.infer<typeof PartRefreshResponse>;
 
-// 하드 삭제(관리자) — 오퍼·가격구간 cascade, 견적 연결 부품은 409로 보호.
+// 하드 삭제(관리자) — 구매 조건·가격구간 cascade, 견적 연결 부품은 409로 보호.
 export const PartDeleteResponse = z.object({ result: z.literal(true) });
 export type PartDeleteResponseType = z.infer<typeof PartDeleteResponse>;
 

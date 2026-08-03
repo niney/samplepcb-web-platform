@@ -143,7 +143,7 @@ export function catalogMigrationSuppliers(parsed: ParsedCatalogMigration): strin
   const suppliers = [
     ...new Set(parsed.records.flatMap((record) => record.offers.map((offer) => offer.supplier))),
   ].sort();
-  if (suppliers.length === 0) throw new Error('카탈로그 마이그레이션 입력에 공급사 오퍼가 없습니다');
+  if (suppliers.length === 0) throw new Error('카탈로그 마이그레이션 입력에 공급사 구매 조건이 없습니다');
   return suppliers;
 }
 
@@ -158,9 +158,9 @@ function unknownObject(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * 저장된 카탈로그 오퍼가 입력 원본과 같은지 판정한다.
+ * 저장된 카탈로그 구매 조건이 입력 원본과 같은지 판정한다.
  *
- * SamplePCB 자체 오퍼에는 공급사 API에서 한 번 확인한 가격의 출처만
+ * SamplePCB 자체 구매 조건에는 공급사 API에서 한 번 확인한 가격의 출처만
  * `samplepcbPricing`으로 덧붙일 수 있다. 이 필드 외 원본 변경은 허용하지 않는다.
  */
 export function catalogOfferRawMatch(
@@ -181,7 +181,7 @@ export function catalogOfferRawMatch(
     : 'mismatch';
 }
 
-/** rawJson에 명시된 catalog-only 원천만 반환한다. 가격 오퍼나 추정 데이터는 제거 대상이 아니다. */
+/** rawJson에 명시된 catalog-only 원천만 반환한다. 가격 정보나 추정 데이터는 제거 대상이 아니다. */
 export function catalogSourceProvenance(rawJson: unknown): CatalogSourceProvenance | null {
   const product = unknownObject(rawJson);
   const metadata = unknownObject(product?.catalog_metadata);
@@ -202,7 +202,7 @@ export function catalogSourceProvenance(rawJson: unknown): CatalogSourceProvenan
   };
 }
 
-/** supplier와 원본 해시가 모두 일치하는 카탈로그 오퍼에만 파괴 작업을 허용한다. */
+/** supplier와 원본 해시가 모두 일치하는 카탈로그 구매 조건에만 파괴 작업을 허용한다. */
 export function isCatalogOfferFromSource(
   rawJson: unknown,
   supplier: string,
@@ -251,7 +251,7 @@ function validateCatalogProduct(product: CatalogProductType): void {
       throw new Error(`supplier_sku 길이가 DB 제한을 넘습니다: ${product.manufacturer_part_number}`);
     }
     const key = `${offer.supplier}:${sku}`;
-    if (offerKeys.has(key)) throw new Error(`상품 안에서 오퍼 키가 중복됩니다: ${product.manufacturer_part_number}/${key}`);
+    if (offerKeys.has(key)) throw new Error(`상품 안에서 구매 조건 키가 중복됩니다: ${product.manufacturer_part_number}/${key}`);
     offerKeys.add(key);
   }
 }

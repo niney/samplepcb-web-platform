@@ -672,7 +672,7 @@ async function verifyDatabase(
     for (const expected of record.offers) {
       const offer = offersByKey.get(`${expected.supplier}:${expected.supplierSku}`);
       if (offer === undefined) {
-        failures.push(`DB 오퍼 누락: ${record.key}/${expected.supplier}:${expected.supplierSku}`);
+        failures.push(`DB 구매 조건 누락: ${record.key}/${expected.supplier}:${expected.supplierSku}`);
         continue;
       }
       const rawMatch = catalogOfferRawMatch(offer.rawJson, record.product, expected.supplier);
@@ -697,9 +697,9 @@ async function verifyDatabase(
         offer.priceBreaks.length !== 0
         && rawMatch !== 'samplepcb-price-overlay'
       ) {
-        failures.push(`가격이 없는 카탈로그 오퍼에 가격구간 존재: ${record.key}`);
+        failures.push(`가격이 없는 카탈로그 구매 조건에 가격구간 존재: ${record.key}`);
       }
-      if (offer.stock !== null) failures.push(`가격이 없는 카탈로그 오퍼에 재고 존재: ${record.key}`);
+      if (offer.stock !== null) failures.push(`가격이 없는 카탈로그 구매 조건에 재고 존재: ${record.key}`);
     }
   }
   return { parts, failures };
@@ -1058,7 +1058,7 @@ function verifyPreparedPriceDatabase(
       const key = `${expected.supplier}:${expected.supplierSku}`;
       const stored = offersByKey.get(key);
       if (stored === undefined) {
-        failures.push(`가격 스냅샷 공급사 오퍼 누락: ${record.key}/${key}`);
+        failures.push(`가격 스냅샷 공급사 구매 조건 누락: ${record.key}/${key}`);
         continue;
       }
       storedSupplierOffers += 1;
@@ -1105,7 +1105,7 @@ function verifyPreparedPriceDatabase(
       (offer) => `${offer.supplier}:${offer.supplierSku}` === derivedKey,
     );
     if (source === undefined) {
-      failures.push(`SamplePCB 가격 출처 오퍼 누락: ${record.key}/${derivedKey}`);
+      failures.push(`SamplePCB 가격 출처 구매 조건 누락: ${record.key}/${derivedKey}`);
       continue;
     }
     if (
@@ -1116,7 +1116,7 @@ function verifyPreparedPriceDatabase(
       continue;
     }
     if (samplepcb.stock !== null) {
-      failures.push(`SamplePCB 오퍼에 외부 재고가 복사됨: ${record.key}`);
+      failures.push(`SamplePCB 구매 조건에 외부 재고가 복사됨: ${record.key}`);
       continue;
     }
     const expectedFetchedAt = new Date(source.fetchedAt);
@@ -1320,7 +1320,7 @@ async function rollback(
       },
     );
     if (changedTargetOffers.length > 0) {
-      blocked.push(`${snapshot.key}: 적용 후 동일 공급사 오퍼가 다시 변경됨`);
+      blocked.push(`${snapshot.key}: 적용 후 동일 공급사 구매 조건이 다시 변경됨`);
       continue;
     }
     if (snapshot.existingPartId !== null) continue;
@@ -1571,7 +1571,7 @@ async function main(): Promise<void> {
       options.retireSourceSha ?? '',
     );
     if (remaining.targetOffers > 0) {
-      throw new Error(`구 원본 오퍼가 ${String(remaining.targetOffers)}건 남았습니다`);
+      throw new Error(`구 원본 구매 조건이 ${String(remaining.targetOffers)}건 남았습니다`);
     }
     const finalVerification = await verifyAll(input.parsed, true);
     manifest.retirement = {

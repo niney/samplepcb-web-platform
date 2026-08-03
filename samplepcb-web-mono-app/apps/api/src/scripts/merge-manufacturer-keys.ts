@@ -13,9 +13,9 @@ import { resolveManufacturer } from '../lib/manufacturer-alias';
 //
 // `manufacturer-alias.ts`에 별칭을 추가하면 이후 인제스트만 정규 키로 모이고, 이미 저장된
 // 행의 `manufacturerNorm`은 그대로 남아 같은 부품이 둘로 보인다. 이 스크립트는 그 과거 행의
-// 오퍼·견적 연결을 정규 키 행으로 옮기고 과거 행을 지운다.
+// 구매 조건·견적 연결을 정규 키 행으로 옮기고 과거 행을 지운다.
 //
-// 대상은 `--supplier`가 지정한 공급사의 오퍼를 가진 정규 키 부품과 같은 MPN인 행으로만
+// 대상은 `--supplier`가 지정한 공급사의 구매 조건을 가진 정규 키 부품과 같은 MPN인 행으로만
 // 한정한다. 전체 카탈로그를 한 번에 건드리지 않기 위한 안전 경계다.
 // `--apply`는 전체 계획을 manifest에 먼저 남긴다. DB source 삭제 뒤 프로세스나 ES가
 // 실패해도 같은 명령 재실행이 target 재색인과 source ES 문서 삭제를 이어간다.
@@ -157,7 +157,7 @@ async function ensureMergeState(
   return state;
 }
 
-/** 기준 공급사 오퍼를 가진 부품과 같은 MPN이면서, 별칭 해소 시 같은 키가 되는 과거 행을 찾는다. */
+/** 기준 공급사 구매 조건을 가진 부품과 같은 MPN이면서, 별칭 해소 시 같은 키가 되는 과거 행을 찾는다. */
 async function buildPlans(suppliers: string[]): Promise<MergePlan[]> {
   const anchorOffers = await prisma.spPartOffer.findMany({
     where: { supplier: { in: suppliers } },
@@ -239,7 +239,7 @@ async function mergeOne(plan: MergePlan): Promise<void> {
       data: { partId: plan.targetId },
     });
     await tx.spPartIndexQueue.deleteMany({ where: { partId: plan.sourceId } });
-    // 남은 오퍼(중복분)와 가격구간은 부품 삭제 cascade로 정리된다.
+    // 남은 구매 조건(중복분)와 가격구간은 부품 삭제 cascade로 정리된다.
     await tx.spPart.delete({ where: { id: plan.sourceId } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 30_000 });
 }

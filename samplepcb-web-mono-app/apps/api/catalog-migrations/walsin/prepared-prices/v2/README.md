@@ -31,7 +31,7 @@ pnpm --filter api parts:catalog -- --verify-search --source walsin-rlc \
 
 Eleparts·ICBanQ 공통 가격 대상은 433개다. 부가세 포함 가격이 낮은 판매처를 사용하고,
 동률이면 Eleparts를 사용한다. 사이트 안에 표시되는 DigiKey·Mouser 등의 출처 라벨은
-별도 공급사 오퍼가 아니라 감사 메타데이터로만 보존한다.
+별도 공급사 구매 조건이 아니라 감사 메타데이터로만 보존한다.
 
 v2 결과는 2,628개 중 가격 보유 522개다. v1의 502개보다 Walsin 10개와 Samsung
 10개가 늘었다. 생성·재개·검증 명령과 전체 제조사별 결과는 상위

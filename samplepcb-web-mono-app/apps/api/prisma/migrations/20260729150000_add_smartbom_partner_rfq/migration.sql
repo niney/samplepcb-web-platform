@@ -1,6 +1,6 @@
 -- 스마트 BOM 파트너·협력사 RFQ 신설 (sp_partner*, sp_bom_rfq*, 2026-07-29)
 -- 설계: docs/SMARTBOM_PARTNER_RFQ.md — 조직/계정/자동화 3축 분리(sp_partner) +
--- 사람 협력사 전용 RFQ 레이어(sp_bom_rfq*). 공급사 시세는 후보/오퍼 원장 파생(D6).
+-- 사람 협력사 전용 RFQ 레이어(sp_bom_rfq*). 공급사 시세는 후보/구매 조건 원장 파생(D6).
 -- 공유 DB(samplepcb) 관례: 추가 전용(CREATE·ALTER ADD)만 — `prisma migrate deploy` 로 적용.
 -- (`migrate dev`/`reset` 은 g5_* drift 로 전체 reset 을 요구하므로 절대 사용 금지)
 

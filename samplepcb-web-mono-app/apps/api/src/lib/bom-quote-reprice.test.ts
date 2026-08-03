@@ -364,7 +364,7 @@ describe('repriceCandidateSelections', () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it('저장된 카탈로그 선정은 오퍼 없이도 자동저장에서 유지한다', async () => {
+  it('저장된 카탈로그 선정은 구매 조건 없이도 자동저장에서 유지한다', async () => {
     const decision = buildDecision(
       'component-catalog',
       '10038WR-08',
@@ -875,7 +875,7 @@ describe('repriceCandidateSelections', () => {
     expect(result?.[0]?.rowIdx).toBe(1); // 행 B만 — 행 A는 손대지 않았으니 재삽입 대상이 아니다.
   });
 
-  it('양산 모드 전환은 저장 후보를 mass 정책으로 재평가하고 고객 고정 오퍼를 보존한다', async () => {
+  it('양산 모드 전환은 저장 후보를 mass 정책으로 재평가하고 고객 고정 구매 조건을 보존한다', async () => {
     const stored = buildDecision(
       'component-mode',
       'MPN-MODE',

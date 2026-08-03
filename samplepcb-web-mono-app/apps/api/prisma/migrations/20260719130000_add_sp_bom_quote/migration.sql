@@ -1,6 +1,6 @@
 -- 고객 스마트 BOM 견적 신설 (2026-07-19) — 업로드→매칭→검토→견적요청(RFQ).
 -- 공유 DB(samplepcb) 관례: 추가 전용(CREATE)만 — `prisma migrate deploy` 로 적용.
--- 설계: docs/BOM_QUOTE.md — 수량·오퍼 스냅샷 박제가 단일 진실, 금액은 서버 재계산 예상치.
+-- 설계: docs/BOM_QUOTE.md — 수량·구매 조건 스냅샷 박제가 단일 진실, 금액은 서버 재계산 예상치.
 
 -- CreateTable: sp_bom_quote — 견적 문서(회원 소유)
 CREATE TABLE `sp_bom_quote` (

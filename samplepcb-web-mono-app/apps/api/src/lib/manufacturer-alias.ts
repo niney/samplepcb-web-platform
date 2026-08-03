@@ -43,7 +43,7 @@ const ALIASES: Record<string, string> = {
   연호: 'yeonho',
   연호전자: 'yeonho',
   // 수동소자(R/C/L) 제조사 — 유통사 표기가 법인 접미 제거만으로는 같은 키가 되지 않아
-  // 카탈로그 품번과 실공급사 오퍼가 다른 part로 갈라지는 것을 막는다.
+  // 카탈로그 품번과 실공급사 구매 조건이 다른 part로 갈라지는 것을 막는다.
   walsin: 'walsin',
   walsintech: 'walsin',
   walsintechnology: 'walsin',

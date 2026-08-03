@@ -169,7 +169,7 @@ describe('catalog-market-price', () => {
     });
   });
 
-  it('시장가격 오퍼는 재고·MOQ를 만들지 않고 가격 증거만 저장한다', () => {
+  it('시장가격 정보는 재고·MOQ를 만들지 않고 가격 증거만 저장한다', () => {
     const product = marketObservationToSnapshotProduct(observation());
 
     expect(product.supplier).toBe('icbanq');

@@ -38,7 +38,7 @@ LFB 제외는 사이즈 선택이 아니라 데이터 사실이다. LFB 시트�
 
 `Samsung Electro-Mechanics`·`Vishay Dale`·`KOA Speer` 같은 유통사 표기는 법인 접미 제거만으로는
 워크북의 `Samsung`·`Vishay`·`KOA`와 같은 키가 되지 않는다. `manufacturer-alias.ts`에 별칭을 넣어
-카탈로그 품번과 실공급사 오퍼가 같은 `(mpnNorm, manufacturerNorm)`으로 모이게 했다.
+카탈로그 품번과 실공급사 구매 조건이 같은 `(mpnNorm, manufacturerNorm)`으로 모이게 했다.
 
 ## 사양 축
 
@@ -105,15 +105,15 @@ Samsung 저항 28건까지 함께 사라진다(실제로 한 번 그렇게 잘�
 - `catalog_metadata.catalogOnly=true`, `commercialDataAvailable=false`
 - `generatedMpn=true`(표본 10개 제외), `verificationStatus`는 감사 정보
 - `autoQuoteEligible=true`, `samplepcbPreferred=true`, AVL 역할 기반 우선순위
-- 제조사 사실 오퍼와 SamplePCB 문의 오퍼를 함께 저장하고, 최초 가격대·재고·MOQ는 비운다
+- 제조사 원천 정보와 SamplePCB 문의 견적 채널을 함께 저장하고, 최초 가격대·재고·MOQ는 비운다
 
 sp-node는 엔진 preflight의 정규화 쿼리로 로컬 후보만 검색하고, sp-engine이 사양·카테고리를
 완전히 검증해 `automatic_selected`로 판정한 경우만 `catalog_selected`로 공개한다. 미해결 행은
-기존 외부 공급사 검색으로 간다. 공급사 가격을 일회성 갱신하더라도 SamplePCB 오퍼에는 가격만
+기존 외부 공급사 검색으로 간다. 공급사 가격을 일회성 갱신하더라도 SamplePCB 구매 조건에는 가격만
 복사하며 외부 재고를 자체 재고로 표시하지 않는다. `parts-facts`에서는 실공급사 사실이
 카탈로그 값을 우선한다.
 
-로컬 적용 시점에 이미 **253개 부품이 digikey·mouser·unikeyic·samplepcb 오퍼와 공존**했다.
+로컬 적용 시점에 이미 **253개 부품이 digikey·mouser·unikeyic·samplepcb 구매 조건과 공존**했다.
 그만큼은 실존이 확인된 품번이며 가격 견적이 정상 동작한다.
 
 ## AVL 축

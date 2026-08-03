@@ -81,7 +81,7 @@ import {
 import { applyLocalCatalogFallback } from './bom-local-catalog';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
-// 원칙: 수량·오퍼는 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
+// 원칙: 수량·구매 조건은 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
 // (클라 금액 불신 — 단 스냅샷 단가 자체는 엔진 공급사 검색을 서버가 기록한 값이고,
 //  최종 확정가는 관리자 검토가 결정하는 RFQ 모델이라 조작 이득이 없다).
 
@@ -1046,7 +1046,7 @@ export function buildItemsFromEngineResult(
   return items;
 }
 
-// ── 공급사 오퍼 변환 + 재계산 ───────────────────────────────────────────────
+// ── 공급사 구매 조건 변환 + 재계산 ───────────────────────────────────────────────
 
 export type PartWithOffers = Prisma.SpPartGetPayload<{ include: { offers: { include: { priceBreaks: true } } } }>;
 
@@ -1782,7 +1782,7 @@ function buildCandidateGroups(
     const decision = normalizeEngineDecision(representative.decision);
     const technicalEvidenceKey = decision?.technicalEvidenceKey ?? '';
     // 같은 identity_key라도 공급사별 스펙 근거가 다를 수 있다. 엔진이 가격·재고
-    // 비교를 허용한 동일 technical_evidence_key 행의 오퍼만 한 후보에 합친다.
+    // 비교를 허용한 동일 technical_evidence_key 행의 구매 조건만 한 후보에 합친다.
     const evidenceMembers = decision === null || technicalEvidenceKey === ''
       ? [representative]
       : members.filter((member) => {
@@ -2773,7 +2773,7 @@ export async function applyEngineSupplierResult(
     if (decision === null) continue;
 
     // 고객/관리자의 명시 선택은 후보 목록·자동 추천만 최신화하고 현재 선택은 보존한다.
-    // 후보 키는 제조사 별칭/그룹화 정책이 바뀌면 달라질 수 있어 현재 MPN·제조사·오퍼로 재연결한다.
+    // 후보 키는 제조사 별칭/그룹화 정책이 바뀌면 달라질 수 있어 현재 MPN·제조사·구매 조건으로 재연결한다.
     const explicitSelection = preserveExplicitSelections && (
       item.matchStatus === 'manual' ||
       ['customer', 'catalog', 'admin'].includes(item.selectionSource) ||
@@ -3008,7 +3008,7 @@ function hasConsistentProcurementDecision(candidates: StoredCandidateType[]): bo
     && JSON.stringify(candidate.procurementDecision) === expected);
 }
 
-/** 저장된 최신 엔진 조달 결정을 검증해 투영한다. 후보·오퍼 순위는 재계산하지 않는다. */
+/** 저장된 최신 엔진 조달 결정을 검증해 투영한다. 후보·구매 조건 순위는 재계산하지 않는다. */
 function recommendStoredCandidate(
   candidates: StoredCandidateType[],
   needed: number,
@@ -3484,8 +3484,8 @@ async function batchReevaluateStoredProcurement(
 /**
  * 배치 재평가가 실패한 행은 recommendStoredCandidate/재선정 경로에 들어가지 않고 현재 선택을
  * 그대로 둔다(selectedCandidateKey/selectedOffer/matchStatus/selectionSource/matchEvidence
- * 는 아래 reason 코드 추가 외엔 불변). 선택된 오퍼가 있으면 주문수량만 FE restampAll과 같은
- * 산수로 로컬 재도장한다 — 후보·오퍼 재순위는 하지 않고, 가격은 이후 computeQuote의 스냅샷
+ * 는 아래 reason 코드 추가 외엔 불변). 선택된 구매 조건이 있으면 주문수량만 FE restampAll과 같은
+ * 산수로 로컬 재도장한다 — 후보·구매 조건 재순위는 하지 않고, 가격은 이후 computeQuote의 스냅샷
  * 재계산(recalcItems)이 이 orderQty 기준으로 채운다.
  */
 function degradeStaleRow(item: BomQuoteItemInputType, needed: number): void {
@@ -4052,7 +4052,7 @@ interface QuoteCandidateSelectionOptions {
   runtimeConfig?: Awaited<ReturnType<typeof getBomQuoteRuntimeConfig>>;
 }
 
-/** 명시 선택 — 후보/오퍼 키만 신뢰하고 가격·합계는 서버 스냅샷에서 재계산한다. */
+/** 명시 선택 — 후보/구매 조건 키만 신뢰하고 가격·합계는 서버 스냅샷에서 재계산한다. */
 export async function applyQuoteCandidateSelection(
   quoteId: bigint,
   itemId: bigint,
@@ -4248,7 +4248,7 @@ function selectedOfferAuditKey(item: BomQuoteItemType): string | null {
   return catalogOfferAuditKey(item.partId, offer.supplier, offer.supplierSku);
 }
 
-/** 카탈로그 정체성만 받아 현재 원장의 부품·오퍼와 수량 적용 결과를 확정한다. */
+/** 카탈로그 정체성만 받아 현재 원장의 부품·구매 조건과 수량 적용 결과를 확정한다. */
 async function resolveAdminCatalogSelection(
   tx: Prisma.TransactionClient,
   partId: bigint,
@@ -4278,7 +4278,7 @@ async function resolveAdminCatalogSelection(
   return { result: 'ok' as const, part, pick };
 }
 
-/** 관리자 카탈로그 선택 — 영속 부품/오퍼만 다시 읽어 선택 스냅샷과 합계를 만든다. */
+/** 관리자 카탈로그 선택 — 영속 부품/구매 조건만 다시 읽어 선택 스냅샷과 합계를 만든다. */
 async function applyQuoteCatalogSelection(
   quoteId: bigint,
   itemId: bigint,
@@ -4603,7 +4603,7 @@ function validSearchCart(
     && quote.activeSearchCartKey === mbId;
 }
 
-/** 단일검색 품목 담기/구매조건 변경. 가격은 partId+오퍼 키로 DB를 다시 읽어 확정한다. */
+/** 단일검색 품목 담기/구매 조건 변경. 가격은 partId+구매 조건 키로 DB를 다시 읽어 확정한다. */
 export async function addBomSearchCartItem(
   mbId: string,
   body: BomSearchCartAddBodyType,
@@ -4715,7 +4715,7 @@ export async function addBomSearchCartItem(
   }
 }
 
-/** 카트 수량 변경 — 선택한 오퍼의 서버 저장 스냅샷 안에서 MOQ·배수·구간을 다시 계산한다. */
+/** 카트 수량 변경 — 선택한 구매 조건의 서버 저장 스냅샷 안에서 MOQ·배수·구간을 다시 계산한다. */
 export async function patchBomSearchCartItem(
   mbId: string,
   itemId: bigint,
@@ -5095,14 +5095,14 @@ export async function removeAdminQuoteItem(
 }
 
 /**
- * 스냅샷 오퍼를 카탈로그 최신 데이터로 갱신 — 오퍼 정체성(공급사+SKU)은 보존하고
- * 가격구간·재고·fetchedAt 만 최신화(pinned 포함 — 고정은 오퍼 선택이지 옛 숫자가 아니다).
- * 원 오퍼가 카탈로그에서 사라졌으면 비고정 라인만 재선정한다. orderQty 는 보존하되
+ * 스냅샷 구매 조건을 카탈로그 최신 데이터로 갱신 — 구매 조건 정체성(공급사+SKU)은 보존하고
+ * 가격구간·재고·fetchedAt 만 최신화(pinned 포함 — 고정은 구매 조건 선택이지 옛 숫자가 아니다).
+ * 원 구매 조건이 카탈로그에서 사라졌으면 비고정 라인만 재선정한다. orderQty 는 보존하되
  * 갱신된 MOQ·배수는 재적용(발주 정합).
  */
 export async function refreshOfferSnapshots(items: BomQuoteItemInputType[], usdKrwRate: number | null): Promise<void> {
   for (const item of items) {
-    // 엔진 후보 오퍼는 반드시 procurement reevaluation 경로를 사용한다.
+    // 엔진 후보의 구매 조건은 반드시 procurement reevaluation 경로를 사용한다.
     if (item.selectedCandidateKey !== null) continue;
     if (item.partId === null || item.selectedOffer === null) continue;
     const part = await prisma.spPart.findUnique({
@@ -5136,7 +5136,7 @@ const engineRefreshInFlight = new Map<string, Promise<boolean>>();
 /**
  * 검색 완료 결과를 componentId로 견적에 직접 반영한다. 카탈로그 동기화와 독립적으로
  * 먼저 저장하며, 아직 없는 partId는 후속 backfillQuotePartIds가 조건부 연결한다.
- * 매칭 판정과 오퍼 선택의 진실원본은 이 엔진 봉투다.
+ * 매칭 판정과 구매 조건 선택의 진실원본은 이 엔진 봉투다.
  */
 export async function refreshQuoteFromSupplierResult(
   quoteId: bigint,
@@ -5191,7 +5191,7 @@ export async function refreshQuoteFromSupplierResult(
 
 /**
  * 백그라운드 카탈로그 인제스트 뒤 자동 선정 행의 느슨한 partId 참조만 채운다.
- * 후보·오퍼·가격·사용자 선택에는 손대지 않고, 조회한 스냅샷이 그대로인 행만 갱신한다.
+ * 후보·구매 조건·가격·사용자 선택에는 손대지 않고, 조회한 스냅샷이 그대로인 행만 갱신한다.
  * 느슨한 참조지만 제조사 교차 연결은 하지 않는다 — 제조사가 확인된 행은 exact(mpn+제조사)만,
  * 제조사 미상 행만 mpn 단독으로 매칭한다(같은 MPN을 여러 제조사가 쓸 때 오연결 방지).
  */
@@ -6089,7 +6089,7 @@ export function toAdminSummaryDto(
 }
 
 // 견적서 인쇄 DTO(§6.8) — 품목=included·활성 시트 행(고객 화면과 동일 규율), 단가=선정
-// 오퍼 KRW 스냅샷, 합계=저장 스냅샷 그대로(화면·문서 일치). seller 는 라우트가 주입.
+// 구매 조건 KRW 스냅샷, 합계=저장 스냅샷 그대로(화면·문서 일치). seller 는 라우트가 주입.
 export function toBomQuotePrintDto(
   quote: QuoteRow,
   items: QuoteItemRow[],

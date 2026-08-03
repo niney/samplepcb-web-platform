@@ -215,7 +215,7 @@ describe('중복 해소', () => {
 });
 
 describe('SamplePCB 판매 카탈로그 적재', () => {
-  it('제조사 사실 오퍼와 SamplePCB 문의 오퍼를 함께 만들고 상업 데이터는 비운다', () => {
+  it('제조사 원천 정보와 SamplePCB 문의 견적 채널을 함께 만들고 상업 데이터는 비운다', () => {
     for (const product of products()) {
       expect(product.offers).toHaveLength(2);
       expect(product.offers.map((offer) => offer.supplier)).toEqual([
@@ -236,7 +236,7 @@ describe('SamplePCB 판매 카탈로그 적재', () => {
     }
   });
 
-  it('DB 오퍼 종류 판정에서도 제조사 카탈로그로 해소된다', () => {
+  it('DB 구매 조건 종류 판정에서도 제조사 카탈로그로 해소된다', () => {
     // 인제스트 후 rawJson으로 다시 판정해도 가격 선정 경로에 오르지 않아야 한다.
     for (const product of products().slice(0, 50)) {
       expect(partOfferKind(product)).toBe('manufacturer_catalog');

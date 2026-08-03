@@ -3,9 +3,9 @@
 //  - 가격구간 선택: 주문수량 이상 구간 중 최대, 최소구간 미달 시 최소구간 단가(보존)
 //  - 수량 박제: orderQty = max(BOM수량×(세트+예비), MOQ) → 주문배수 올림(배수는 신규 보정)
 //  - 합계: Σ(단가×orderQty, included 라인) + 운송료 + 관리비, VAT 별도(보존)
-//  - 오퍼 선정: 실효 총비용(해당 오퍼의 실효수량×적용단가, KRW 환산) 최저 — 신규.
-//    MOQ 4000 오퍼는 100개 필요여도 4000개 비용으로 비교한다(발주 현실 반영).
-// samplepcb 파생 오퍼는 선정 후보에서 제외(자기 자신 재선택 순환 방지).
+//  - 구매 조건 선정: 실효 총비용(해당 구매 조건의 실효수량×적용단가, KRW 환산) 최저 — 신규.
+//    MOQ 4000 구매 조건은 100개 필요여도 4000개 비용으로 비교한다(발주 현실 반영).
+// samplepcb 파생 구매 조건은 선정 후보에서 제외(자기 자신 재선택 순환 방지).
 
 export const BOM_SAMPLEPCB_SUPPLIER = 'samplepcb';
 export const BOM_AUTOMATIC_SURPLUS_QUANTITY = 100;
@@ -34,14 +34,14 @@ export interface BomOfferInput {
 
 export interface OfferPick {
   offer: BomOfferInput;
-  /** 이 오퍼로 발주 시 실효 주문수량(MOQ·배수 보정). */
+  /** 이 구매 조건으로 발주 시 실효 주문수량(MOQ·배수 보정). */
   orderQty: number;
   breakQty: number;
   unitPrice: number;
   currency: string;
   /** KRW 환산 단가(비KRW + 환율 없음 → null = 미환산). */
   unitPriceKrw: number | null;
-  /** 재고 부족 상태로 선정됨(전 오퍼 재고 부족 시 완화 선택). */
+  /** 재고 부족 상태로 선정됨(전 구매 조건 재고 부족 시 완화 선택). */
   stockShort: boolean;
 }
 
@@ -95,7 +95,7 @@ function offerCurrencyOf(offer: BomOfferInput, step: BomPriceBreak): string {
   return c.toUpperCase();
 }
 
-/** 특정 오퍼에 수량을 적용(구간·박제 재계산) — pinned 라인의 수량 변경에 사용. */
+/** 특정 구매 조건에 수량을 적용(구간·박제 재계산) — pinned 라인의 수량 변경에 사용. */
 export function applyQtyToOffer(offer: BomOfferInput, needed: number, usdKrwRate: number | null): OfferPick | null {
   const orderQty = stampOrderQty(needed, offer.moq, offer.orderMultiple);
   const step = pickBreak(offer.priceBreaks, orderQty);
@@ -113,8 +113,8 @@ export function applyQtyToOffer(offer: BomOfferInput, needed: number, usdKrwRate
 }
 
 /**
- * 기본 오퍼 자동 선정 — 실효 총비용(실효수량 × 적용단가, KRW 환산) 최저.
- * 재고 충분 오퍼 우선(없으면 완화+stockShort), KRW 환산 가능 오퍼 우선.
+ * 기본 구매 조건 자동 선정 — 실효 총비용(실효수량 × 적용단가, KRW 환산) 최저.
+ * 재고 충분 구매 조건 우선(없으면 완화+stockShort), KRW 환산 가능 구매 조건 우선.
  * 동률: 재고 많은 순 → 패키지 우선순위(Cut>Digi>Bulk>Tape) → 공급사명.
  */
 export function pickDefaultOffer(
@@ -134,7 +134,7 @@ export function pickDefaultOffer(
   const pool = enough.length > 0 ? enough : picks;
 
   const comparable = pool.filter((p) => p.unitPriceKrw !== null);
-  // 환산 가능한 오퍼가 하나도 없을 때 서로 다른 원통화 숫자를 직접 비교하지 않는다.
+  // 환산 가능한 구매 조건이 하나도 없을 때 서로 다른 원통화 숫자를 직접 비교하지 않는다.
   // 같은 통화끼리는 원가격 비교가 가능하고, KRW 등 환산 가능 통화가 있으면 그 집합만 쓴다.
   const sourceCurrencies = new Set(pool.map((pick) => pick.currency));
   if (comparable.length === 0 && sourceCurrencies.size > 1) return null;
@@ -161,7 +161,7 @@ export interface BomTotals {
   itemsTotal: number;
   /** 부품 합계 + 운송료 + 관리비. VAT 별도(가산하지 않음 — 레거시 표기 보존). */
   finalTotal: number;
-  /** included 인데 금액 미산정(오퍼 없음·미환산)인 라인 수 — 화면 경고용. */
+  /** included 인데 금액 미산정(구매 조건 없음·미환산)인 라인 수 — 화면 경고용. */
   uncostedCount: number;
 }
 
