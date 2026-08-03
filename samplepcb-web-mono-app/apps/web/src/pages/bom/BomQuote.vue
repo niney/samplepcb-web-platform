@@ -57,9 +57,13 @@ import icBomCompareEye from '../../assets/bom/ic-bom-compare-eye.svg';
 import icDownloadOutline from '../../assets/bom/ic-download-outline.svg';
 import icFile from '../../assets/bom/ic-file.svg';
 import icPanelAi from '../../assets/bom/ic-panel-ai.svg';
+import icPanelMatched from '../../assets/bom/ic-panel-matched.svg';
 import icPanelNostock from '../../assets/bom/ic-panel-nostock.svg';
 import icPanelOrder from '../../assets/bom/ic-panel-order.svg';
 import icPanelQuote from '../../assets/bom/ic-panel-quote.svg';
+import icPanelReview from '../../assets/bom/ic-panel-review.svg';
+import icPanelTotal from '../../assets/bom/ic-panel-total.svg';
+import icPanelUnmatched from '../../assets/bom/ic-panel-unmatched.svg';
 import icSearch from '../../assets/bom/ic-search-20.svg';
 import icUploadOutline from '../../assets/bom/ic-upload-outline.svg';
 
@@ -501,6 +505,9 @@ watch(quoteId, () => {
 // 분석 카드는 현재 탭 기준, 금액·견적요청 가능 여부는 전체 견적 기준이다.
 const stats = computed(() => summarizeBomQuoteItems(sheetItems.value));
 const quoteStats = computed(() => summarizeBomQuoteItems(items.value));
+function resultPercent(count: number): number {
+  return stats.value.total === 0 ? 0 : Math.round((count / stats.value.total) * 100);
+}
 const hasPassiveDefaultsOpportunity = computed(() => (
   quoteStats.value.pendingReview > 0
   || quoteStats.value.review > 0
@@ -2169,31 +2176,32 @@ function fmtAmount(v: number | null): string {
 
           <!-- AI 분석결과 (93:23545) -->
           <section>
-            <h2 class="flex h-[16px] items-center gap-[6px] font-noto text-[12px] font-bold leading-[14px] text-ink-strong">
-              <img :src="icPanelAi" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
+            <h2 class="flex h-[16px] items-center gap-[6px] font-noto text-[12px] font-bold leading-[14px] text-black">
+              <img :src="icPanelAi" alt="" class="size-[16px] shrink-0">
               AI 분석결과
               <span v-if="showResultSheetTabs" class="ml-auto max-w-[120px] truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-600" :title="activeResultSheetLabel">{{ activeResultSheetLabel }}</span>
             </h2>
-            <div class="mt-[10px] grid grid-cols-2 gap-[8px]">
+            <div class="mt-[10px] grid grid-cols-[123px_123px] gap-[8px]">
               <button
                 type="button"
-                class="relative flex h-[51px] min-w-0 w-full cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-line-brand bg-surface-sunken px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-brand after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
-                :class="!resultFiltersActive ? 'ring-2 ring-brand ring-offset-1 shadow-sm' : 'hover:-translate-y-px hover:shadow-sm'"
+                class="relative flex h-[51px] w-[123px] min-w-0 cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-[rgba(66,116,207,0.4)] bg-white pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#2359bb] after:to-transparent hover:bg-[rgba(66,116,207,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4274cf] focus-visible:ring-offset-1"
                 :aria-pressed="!resultFiltersActive"
                 :aria-label="`전체 ${String(stats.total)}개 행 보기`"
                 aria-controls="bom-results-table"
                 @click="clearResultFilters"
               >
-                <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Total Lines</span>
-                  <span class="mt-[1px] text-[18px] font-extrabold leading-normal tabular-nums text-brand">{{ stats.total }}</span>
+                <div class="flex min-w-0 h-full flex-col justify-center">
+                  <span class="truncate text-[10px] font-medium uppercase leading-[normal] tracking-[1.1px] text-[#39404d]">Total Lines</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-[normal] tabular-nums text-[#4274cf]">{{ stats.total }}</span>
                 </div>
-                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-surface-brand text-[18px] leading-none text-brand">≋</span>
+                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-[rgba(66,116,207,0.15)]" aria-hidden="true">
+                  <img :src="icPanelTotal" alt="" class="h-[11.498px] w-[11.507px]">
+                </span>
               </button>
               <button
                 type="button"
-                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-line-matched bg-surface-matched px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-state-supply after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-supply focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultMatchFilter === 'matched' ? 'ring-2 ring-state-supply ring-offset-1 shadow-sm' : stats.matched > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
+                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#069762] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00ce87] focus-visible:ring-offset-1 disabled:cursor-default"
+                :class="resultMatchFilter === 'matched' ? 'cursor-pointer border-[#00ce87] bg-[rgba(0,206,135,0.1)]' : stats.matched > 0 ? 'cursor-pointer border-[rgba(0,206,135,0.4)] bg-white hover:bg-[rgba(0,206,135,0.06)]' : 'border-[rgba(0,206,135,0.4)] bg-white'"
                 :disabled="stats.matched === 0"
                 :aria-pressed="resultMatchFilter === 'matched'"
                 :aria-label="`매칭 완료 ${String(stats.matched)}개 행 필터`"
@@ -2201,16 +2209,16 @@ function fmtAmount(v: number | null): string {
                 :title="stats.matched === 0 ? '매칭 완료 항목이 없습니다' : undefined"
                 @click="toggleResultMatchFilter('matched')"
               >
-                <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Matched</span>
-                  <span class="mt-[1px] whitespace-nowrap text-[18px] font-extrabold leading-normal tabular-nums text-state-supply">{{ stats.matched }} <span class="text-[12px] font-semibold">{{ stats.matchedPct }}%</span></span>
+                <div class="flex min-w-0 h-full flex-col justify-center">
+                  <span class="truncate text-[10px] font-medium uppercase leading-[normal] tracking-[1.1px] text-[#39404d]">Matched</span>
+                  <span class="mt-[1px] whitespace-nowrap text-[18px] font-extrabold leading-[normal] tabular-nums text-[#00ce87]">{{ stats.matched }} <span class="text-[12px] font-semibold">{{ stats.matchedPct }}%</span></span>
                 </div>
-                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-surface-matched-strong text-[18px] font-semibold leading-none text-state-supply">✓</span>
+                <img :src="icPanelMatched" alt="" class="size-[28px] shrink-0" aria-hidden="true">
               </button>
               <button
                 type="button"
-                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-orange-200 bg-orange-50/60 px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-orange-400 after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultMatchFilter === 'review' ? 'ring-2 ring-orange-400 ring-offset-1 shadow-sm' : !enriching && stats.review > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
+                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#f06300] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6900] focus-visible:ring-offset-1 disabled:cursor-default"
+                :class="resultMatchFilter === 'review' ? 'cursor-pointer border-[#ff6900] bg-[rgba(255,105,0,0.1)]' : !enriching && stats.review > 0 ? 'cursor-pointer border-[rgba(255,105,0,0.4)] bg-white hover:bg-[rgba(255,105,0,0.06)]' : 'border-[rgba(255,105,0,0.4)] bg-white'"
                 :disabled="enriching || stats.review === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'review'"
                 :aria-label="`검토 필요 ${String(stats.review)}개 행 필터`"
@@ -2218,19 +2226,24 @@ function fmtAmount(v: number | null): string {
                 :title="enriching ? '공급사 확인이 완료되면 필터할 수 있습니다' : stats.review === 0 ? '검토 필요 항목이 없습니다' : undefined"
                 @click="toggleResultMatchFilter('review')"
               >
-                <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Review</span>
-                  <span class="mt-[1px] text-[18px] font-extrabold leading-normal tabular-nums text-orange-500">{{ stats.review }}</span>
+                <div class="flex min-w-0 h-full flex-col justify-center">
+                  <span class="truncate text-[10px] font-medium uppercase leading-[normal] tracking-[1.1px] text-[#39404d]">Review</span>
+                  <span class="mt-[1px] whitespace-nowrap text-[18px] font-extrabold leading-[normal] tabular-nums text-[#ff6900]">{{ stats.review }} <span class="text-[12px] font-semibold">{{ resultPercent(stats.review) }}%</span></span>
                 </div>
-                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-orange-100 text-[16px] font-bold text-orange-500">!</span>
+                <img :src="icPanelReview" alt="" class="size-[28px] shrink-0" aria-hidden="true">
               </button>
               <!-- 보강 진행 중엔 Checking(파랑) — 최종 미매칭 판정과 구분 -->
               <button
                 type="button"
-                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="[
-                  enriching ? 'cursor-wait border border-line-brand bg-surface-sunken after:from-brand' : 'border border-line-danger bg-surface-danger after:from-state-danger focus-visible:ring-state-danger',
-                  !enriching && resultMatchFilter === 'unmatched' ? 'ring-2 ring-state-danger ring-offset-1 shadow-sm' : !enriching && stats.unmatched > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : !enriching ? 'opacity-45' : '',
+                  enriching
+                    ? 'cursor-wait border-[rgba(66,116,207,0.4)] bg-white after:from-[#2359bb] focus-visible:ring-[#4274cf]'
+                    : resultMatchFilter === 'unmatched'
+                      ? 'cursor-pointer border-[#ff5873] bg-[rgba(255,88,115,0.1)] after:from-[#ff5873] focus-visible:ring-[#ff5873]'
+                      : stats.unmatched > 0
+                        ? 'cursor-pointer border-[rgba(255,88,115,0.4)] bg-white after:from-[#ff5873] hover:bg-[rgba(255,88,115,0.06)] focus-visible:ring-[#ff5873]'
+                        : 'border-[rgba(255,88,115,0.4)] bg-white after:from-[#ff5873] focus-visible:ring-[#ff5873]',
                 ]"
                 :disabled="enriching || stats.unmatched === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'unmatched'"
@@ -2239,16 +2252,19 @@ function fmtAmount(v: number | null): string {
                 :title="enriching ? '공급사 확인이 완료되면 필터할 수 있습니다' : stats.unmatched === 0 ? '미매칭 항목이 없습니다' : undefined"
                 @click="toggleResultMatchFilter('unmatched')"
               >
-                <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">{{ enriching ? 'Checking' : 'Unmatched' }}</span>
-                  <span class="mt-[1px] text-[18px] font-extrabold leading-normal tabular-nums" :class="enriching ? 'text-brand' : 'text-state-danger'">{{ enriching ? stats.unresolved : stats.unmatched }}</span>
+                <div class="flex min-w-0 h-full flex-col justify-center">
+                  <span class="truncate text-[10px] font-medium uppercase leading-[normal] tracking-[1.1px] text-[#39404d]">{{ enriching ? 'Checking' : 'Unmatched' }}</span>
+                  <span class="mt-[1px] whitespace-nowrap text-[18px] font-extrabold leading-[normal] tabular-nums" :class="enriching ? 'text-[#4274cf]' : 'text-[#ff5873]'">
+                    {{ enriching ? stats.unresolved : stats.unmatched }} <span v-if="!enriching" class="text-[12px] font-semibold">{{ resultPercent(stats.unmatched) }}%</span>
+                  </span>
                 </div>
-                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] text-[18px] leading-none" :class="enriching ? 'bg-surface-brand text-brand' : 'bg-surface-danger text-state-danger'">{{ enriching ? '…' : '×' }}</span>
+                <span v-if="enriching" class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-[rgba(66,116,207,0.15)] text-[18px] leading-none text-[#4274cf]" aria-hidden="true">…</span>
+                <img v-else :src="icPanelUnmatched" alt="" class="size-[28px] shrink-0" aria-hidden="true">
               </button>
               <button
                 type="button"
-                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-line-warn bg-surface-warn px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-state-nostock after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-nostock focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultNostockOnly ? 'ring-2 ring-state-nostock ring-offset-1 shadow-sm' : stats.nostock > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
+                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#b8a900] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d2c000] focus-visible:ring-offset-1 disabled:cursor-default"
+                :class="resultNostockOnly ? 'cursor-pointer border-[#d2c000] bg-[rgba(226,207,0,0.15)]' : stats.nostock > 0 ? 'cursor-pointer border-[rgba(190,175,12,0.4)] bg-white hover:bg-[rgba(226,207,0,0.08)]' : 'border-[rgba(190,175,12,0.4)] bg-white'"
                 :disabled="stats.nostock === 0"
                 :aria-pressed="resultNostockOnly"
                 :aria-label="`재고 부족 ${String(stats.nostock)}개 행 필터`"
@@ -2256,16 +2272,18 @@ function fmtAmount(v: number | null): string {
                 :title="stats.nostock === 0 ? '재고 부족 항목이 없습니다' : undefined"
                 @click="toggleResultNostockFilter"
               >
-                <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Nostock</span>
-                  <span class="mt-[1px] whitespace-nowrap text-[18px] font-extrabold leading-normal tabular-nums text-state-nostock">{{ stats.nostock }} <span class="text-[12px] font-semibold">{{ stats.nostockPct }}%</span></span>
+                <div class="flex min-w-0 h-full flex-col justify-center">
+                  <span class="truncate text-[10px] font-medium uppercase leading-[normal] tracking-[1.1px] text-[#39404d]">Nostock</span>
+                  <span class="mt-[1px] whitespace-nowrap text-[18px] font-extrabold leading-[normal] tabular-nums text-[#d2c000]">{{ stats.nostock }} <span class="text-[12px] font-semibold">{{ stats.nostockPct }}%</span></span>
                 </div>
-                <img :src="icPanelNostock" alt="" class="size-[28px] shrink-0">
+                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-[rgba(226,207,0,0.15)]" aria-hidden="true">
+                  <img :src="icPanelNostock" alt="" class="h-[14.601px] w-[16.001px]">
+                </span>
               </button>
               <button
                 type="button"
-                class="relative flex h-[51px] min-w-0 w-full items-center justify-between overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 px-[9px] text-left transition after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-slate-400 after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1 disabled:cursor-default"
-                :class="resultMatchFilter === 'excluded' ? 'ring-2 ring-slate-400 ring-offset-1 shadow-sm' : !enriching && stats.excluded > 0 ? 'cursor-pointer hover:-translate-y-px hover:shadow-sm' : 'opacity-45'"
+                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#777] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#777] focus-visible:ring-offset-1 disabled:cursor-default"
+                :class="resultMatchFilter === 'excluded' ? 'cursor-pointer border-[#777] bg-[rgba(119,119,119,0.1)]' : !enriching && stats.excluded > 0 ? 'cursor-pointer border-[rgba(119,119,119,0.4)] bg-white hover:bg-[rgba(119,119,119,0.06)]' : 'border-[rgba(119,119,119,0.4)] bg-white'"
                 :disabled="enriching || stats.excluded === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'excluded'"
                 :aria-label="`검색 제외 ${String(stats.excluded)}개 행 필터`"
@@ -2273,11 +2291,13 @@ function fmtAmount(v: number | null): string {
                 :title="enriching ? '공급사 확인이 완료되면 필터할 수 있습니다' : stats.excluded === 0 ? '검색 제외 항목이 없습니다' : undefined"
                 @click="toggleResultMatchFilter('excluded')"
               >
-                <div class="flex min-w-0 h-full flex-col justify-center pt-px">
-                  <span class="truncate text-[10px] font-medium uppercase leading-normal tracking-[1.1px] text-ink-soft">Excluded</span>
-                  <span class="mt-[1px] text-[18px] font-extrabold leading-normal tabular-nums text-slate-500">{{ stats.excluded }}</span>
+                <div class="flex min-w-0 h-full flex-col justify-center">
+                  <span class="truncate text-[10px] font-medium uppercase leading-[normal] tracking-[1.1px] text-[#39404d]">Excluded</span>
+                  <span class="mt-[1px] text-[18px] font-extrabold leading-[normal] tabular-nums text-[#777]">{{ stats.excluded }}</span>
                 </div>
-                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-slate-200 text-[17px] font-bold leading-none text-slate-500">−</span>
+                <span class="grid size-[28px] shrink-0 place-items-center rounded-[6px] bg-[rgba(119,119,119,0.15)]" aria-hidden="true">
+                  <span class="h-[2px] w-[10px] rounded-[10px] bg-[#777]" />
+                </span>
               </button>
             </div>
           </section>
