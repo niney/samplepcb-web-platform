@@ -130,7 +130,7 @@ function onDrop(event: DragEvent): void {
         :key="logo.name"
         :src="logo.src"
         :alt="logo.name"
-        class="h-[66px] w-[148px]"
+        class="h-[66px] w-[148px] mix-blend-multiply"
       >
     </div>
   </div>

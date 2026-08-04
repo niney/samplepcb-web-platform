@@ -236,9 +236,16 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
         </section>
       </aside>
 
-      <!-- 중앙 흰 패널 (Rectangle 197) — 페이지가 내부 스크롤을 관리한다 -->
-      <main class="min-h-0 min-w-0 flex-1" :class="fullBleedContent ? 'p-0' : 'p-[10px]'">
-        <div class="h-full overflow-hidden bg-surface" :class="fullBleedContent ? '' : 'rounded-[12px] shadow-sm'">
+      <!-- 중앙 콘텐츠 영역 (Rectangle 197) — 랜딩은 피그마의 평면 캔버스, 상세 화면은 기존 패널을 유지한다 -->
+      <main class="min-h-0 min-w-0 flex-1" :class="fullBleedContent || showLandingPromos ? 'p-0' : 'p-[10px]'">
+        <div
+          class="h-full overflow-hidden"
+          :class="fullBleedContent
+            ? 'bg-surface'
+            : showLandingPromos
+              ? 'bg-bom-canvas'
+              : 'rounded-[12px] bg-surface shadow-sm'"
+        >
           <RouterView />
         </div>
       </main>
