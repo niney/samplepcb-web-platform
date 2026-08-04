@@ -28,6 +28,7 @@ import {
   adminPcbInvoiceApi,
   downloadAdminPcbEqFile,
   downloadAdminPcbShipmentFile,
+  useAdminPcbEqSubstitute,
   useAdminPcbPos,
   useAdminPcbShipmentAdvance,
   useAdminPcbShipmentReceive,
@@ -35,8 +36,11 @@ import {
   useAdminRevertPcbEq,
   useApprovePcbEq,
   useCreatePcbPo,
+  useDeleteAdminPcbEqFile,
   useDeletePcbPo,
   useRejectPcbEq,
+  useUploadAdminPcbEqFile,
+  type AdminPcbEqSubstituteAction,
 } from '../../admin/useAdminPcbPos';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
@@ -51,7 +55,17 @@ const specId = computed(() => {
   const raw = Number(route.params.id);
   return Number.isInteger(raw) && raw > 0 ? raw : null;
 });
-const fromRfqs = computed(() => route.query.from === 'rfqs');
+// 진입 워크큐 복귀 링크 — ?from= 일반화(P3.5, rfqs 하드코딩 정리).
+const BACK_TARGETS: Record<string, { name: string; label: string }> = {
+  cases: { name: 'admin-pcb-cases', label: 'PCB 진행현황' },
+  rfqs: { name: 'admin-pcb-rfqs', label: 'PCB 견적요청' },
+  orders: { name: 'admin-pcb-orders', label: 'PCB 주문·결제' },
+  pos: { name: 'admin-pcb-pos', label: 'PCB 발주·EQ' },
+  shipments: { name: 'admin-pcb-shipments', label: 'PCB 선적·배송' },
+};
+const backTarget = computed(
+  () => BACK_TARGETS[String(route.query.from ?? '')] ?? { name: 'admin-quotes', label: '견적 관리' },
+);
 
 const detailQuery = useAdminQuoteDetail(specId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
@@ -85,9 +99,22 @@ const QUOTE_LABEL: Record<string, { label: string; cls: string }> = {
   priced: { label: '자동견적', cls: 'bg-sky-100 text-sky-700' },
   quoted: { label: '견적 확정', cls: 'bg-emerald-100 text-emerald-700' },
 };
-const CART_LABEL: Record<string, string> = {
-  cart: '고객 장바구니에 담김 — 선정·확정 변경 불가',
-  ordered: '주문됨 — 선정·확정 변경 불가',
+// D10(P3.5) — 주문됨은 더 이상 일괄 차단이 아니다: 진행 중 주문(입금~배송)은
+// 원가 소싱(RFQ) 허용, 판매가(확정가)만 불변. 게이트 정본은 서버 — 여기선 표시만.
+const rfqGate = computed<'ok' | 'cart' | 'unpaid' | 'closed'>(() => {
+  const d = detail.value;
+  if (d === null) return 'ok';
+  if (d.cartState === 'cart') return 'cart';
+  if (d.cartState !== 'ordered') return 'ok';
+  if (d.order === null) return 'ok'; // 유령(주문 헤더 소실) — 서버 게이트가 허용
+  if (!d.order.isPaid) return 'unpaid';
+  if (d.order.odStatus === '완료' || d.order.odStatus === '취소') return 'closed';
+  return 'ok'; // 진행 중 주문 — 원가 소싱 모드
+});
+const RFQ_GATE_NOTES: Record<string, string> = {
+  cart: '고객 장바구니에 담김 — 담김 해제 후 견적요청을 보낼 수 있습니다.',
+  unpaid: '입금 확인 전 주문 — 결제 확인 후 소싱을 시작하세요.',
+  closed: '완료·취소된 주문 — 재작업은 A/S 재발주(예정)로 진행합니다.',
 };
 
 // ── 확정가 등록(기존 PATCH 재사용 — 선정행 KRW 환산을 프리필) ────────────────
@@ -311,6 +338,69 @@ const approveEq = useApprovePcbEq();
 const rejectEq = useRejectPcbEq();
 const revertEqAdmin = useAdminRevertPcbEq();
 const deletePoMut = useDeletePcbPo();
+
+// ── D11 — EQ·생산 대행(협력사 포털 미온보딩 레거시 진행분 대비) ────────────────
+const eqSubstitute = useAdminPcbEqSubstitute();
+const uploadEqAdmin = useUploadAdminPcbEqFile();
+const deleteEqAdmin = useDeleteAdminPcbEqFile();
+
+const SUBSTITUTE_LABELS: Record<AdminPcbEqSubstituteAction, string> = {
+  'eq-request': 'EQ 요청 대행',
+  'production-start': '생산 시작 대행',
+  'production-complete': '생산 완료 대행',
+};
+const substituteActionOf = (status: string): AdminPcbEqSubstituteAction | null =>
+  status === 'issued'
+    ? 'eq-request'
+    : status === 'eq_done'
+      ? 'production-start'
+      : status === 'producing'
+        ? 'production-complete'
+        : null;
+
+async function runSubstitute(po: AdminPcbPoViewType): Promise<void> {
+  if (specId.value === null) return;
+  const action = substituteActionOf(po.status);
+  if (action === null) return;
+  if (!window.confirm(`${po.partnerName} 대신 [${SUBSTITUTE_LABELS[action]}]을 진행할까요? (이력에 관리자 대행으로 남습니다)`)) return;
+  actionError.value = '';
+  try {
+    await eqSubstitute.mutateAsync({ specId: specId.value, poId: po.poId, action });
+  } catch (e) {
+    surfaceError(e, '대행 진행에 실패했습니다.');
+  }
+}
+function pickEqFileAdmin(po: AdminPcbPoViewType, fileType: 'eq' | 'working'): void {
+  if (specId.value === null) return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (file === undefined) return;
+    actionError.value = '';
+    try {
+      await uploadEqAdmin.mutateAsync({
+        specId: specId.value ?? 0,
+        poId: po.poId,
+        file,
+        fileType,
+      });
+    } catch (e) {
+      surfaceError(e, '파일 업로드에 실패했습니다.');
+    }
+  };
+  input.click();
+}
+async function removeEqFileAdmin(po: AdminPcbPoViewType, fileId: number): Promise<void> {
+  if (specId.value === null) return;
+  if (!window.confirm('이 EQ 첨부를 삭제할까요?')) return;
+  actionError.value = '';
+  try {
+    await deleteEqAdmin.mutateAsync({ specId: specId.value, poId: po.poId, fileId });
+  } catch (e) {
+    surfaceError(e, '파일 삭제에 실패했습니다.');
+  }
+}
 async function approvePo(po: AdminPcbPoViewType): Promise<void> {
   if (specId.value === null) return;
   actionError.value = '';
@@ -486,10 +576,10 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
   <div class="pcb-readable space-y-4">
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
-        :to="{ name: fromRfqs ? 'admin-pcb-rfqs' : 'admin-quotes' }"
+        :to="{ name: backTarget.name }"
         class="text-sm text-gray-400 hover:text-gray-700"
       >
-        ← {{ fromRfqs ? 'PCB 견적요청' : '견적 관리' }}
+        ← {{ backTarget.label }}
       </RouterLink>
       <h1 class="text-xl font-bold">
         <span class="font-mono text-base text-gray-400">Q{{ specId }}</span>
@@ -502,8 +592,14 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       >
         {{ QUOTE_LABEL[detail.quoteStatus]?.label }}
       </span>
-      <span v-if="detail !== null && detail.cartState !== 'none'" class="rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-        {{ CART_LABEL[detail.cartState] }}
+      <span v-if="detail !== null && detail.cartState === 'cart'" class="rounded bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">
+        장바구니 담김
+      </span>
+      <span v-if="detail !== null && detail.order !== null" class="rounded bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+        주문됨 · {{ detail.order.odStatus }}
+      </span>
+      <span v-if="detail !== null && detail.order !== null && rfqGate === 'ok'" class="rounded bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700">
+        원가 소싱 모드 — 판매가 불변
       </span>
     </div>
 
@@ -566,7 +662,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             </dd>
           </div>
         </dl>
+        <!-- 확정가(판매가)는 주문 후 불변 — 주문된 건에선 버튼 자체를 숨긴다(D10). -->
         <button
+          v-if="detail.order === null"
           type="button"
           class="mt-3 w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
           :disabled="detail.cartState !== 'none' || detail.status !== 'active'"
@@ -574,10 +672,45 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         >
           {{ detail.finalPrice === null ? '확정가 등록' : '확정가 수정' }}
         </button>
-        <p class="mt-1.5 text-[11px] leading-4 text-gray-400">
+        <p v-if="detail.order === null" class="mt-1.5 text-[11px] leading-4 text-gray-400">
           확정가를 등록해야 고객이 주문할 수 있습니다(견적 확정). 협력사 선정 시 KRW 환산가가
           프리필됩니다 — 마진을 더해 확정하세요.
         </p>
+        <p v-else class="mt-1.5 text-[11px] leading-4 text-gray-400">
+          주문이 성립된 건 — 판매가(확정가)는 변경하지 않습니다. 협력사 선정은 원가 회계에만
+          반영됩니다.
+        </p>
+
+        <!-- 주문 정보(P3.5) — od read-only 파생. 레거시 이관 주문 이력 열람의 정위치. -->
+        <div v-if="detail.order !== null" class="mt-4 border-t border-gray-100 pt-3">
+          <h3 class="text-xs font-bold uppercase text-gray-400">주문 정보</h3>
+          <dl class="mt-2 space-y-1.5 text-sm">
+            <div class="flex justify-between">
+              <dt class="text-gray-500">주문번호</dt>
+              <dd class="font-mono text-xs text-gray-600">{{ detail.order.odId }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-gray-500">상태</dt>
+              <dd class="font-semibold" :class="detail.order.isPaid ? 'text-emerald-700' : 'text-amber-600'">
+                {{ detail.order.odStatus }}<span v-if="!detail.order.isPaid"> (입금 대기)</span>
+              </dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-gray-500">주문금액</dt>
+              <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.order.cartPrice) }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-gray-500">수납액</dt>
+              <dd class="tabular-nums" :class="detail.order.receiptPrice > 0 ? 'text-emerald-700' : 'text-gray-400'">
+                {{ fmtPcbAmount('KRW', detail.order.receiptPrice) }}
+              </dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-gray-500">결제수단 / 주문일</dt>
+              <dd class="text-gray-600">{{ detail.order.settleCase || '—' }} · {{ detail.order.orderedAt?.slice(0, 10) ?? '—' }}</dd>
+            </div>
+          </dl>
+        </div>
       </section>
     </div>
 
@@ -591,12 +724,16 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         <button
           type="button"
           class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
-          :disabled="detail?.cartState !== 'none'"
+          :disabled="rfqGate !== 'ok'"
+          :title="rfqGate === 'ok' ? '' : RFQ_GATE_NOTES[rfqGate]"
           @click="openAssign"
         >
           협력사 견적요청 {{ adminRows.length > 0 ? '변경' : '보내기' }}
         </button>
       </div>
+      <p v-if="rfqGate !== 'ok'" class="border-b border-gray-50 px-4 py-2 text-xs font-semibold text-amber-600">
+        {{ RFQ_GATE_NOTES[rfqGate] }}
+      </p>
 
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-100 text-sm">
@@ -777,17 +914,35 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ dateOnly(po.deliveryDate) }}</td>
                 <td class="px-4 py-2.5">
-                  <button
-                    v-for="f in po.eqFiles"
-                    :key="f.fileId"
-                    type="button"
-                    class="mr-1 rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-50"
-                    :title="`${f.fileType.toUpperCase()} · ${f.name}`"
-                    @click="specId !== null && void downloadAdminPcbEqFile(specId, po.poId, f.fileId, f.name)"
-                  >
-                    ⬇ {{ f.fileType }}
-                  </button>
-                  <span v-if="po.eqFiles.length === 0" class="text-xs text-gray-300">—</span>
+                  <span v-for="f in po.eqFiles" :key="f.fileId" class="mr-1 inline-flex items-center">
+                    <button
+                      type="button"
+                      class="rounded-l border border-gray-200 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-50"
+                      :title="`${f.fileType.toUpperCase()} · ${f.name}`"
+                      @click="specId !== null && void downloadAdminPcbEqFile(specId, po.poId, f.fileId, f.name)"
+                    >
+                      ⬇ {{ f.fileType }}
+                    </button>
+                    <button
+                      v-if="po.status === 'issued'"
+                      type="button"
+                      class="rounded-r border border-l-0 border-gray-200 px-1 py-0.5 text-[11px] text-gray-300 hover:bg-red-50 hover:text-red-600"
+                      title="첨부 삭제(대행)"
+                      @click="void removeEqFileAdmin(po, f.fileId)"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                  <!-- D11 대행 업로드 — 발주접수(잠금 전)에서만, 협력사 대신 첨부 -->
+                  <template v-if="po.status === 'issued'">
+                    <button type="button" class="mr-1 rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:bg-gray-50" @click="pickEqFileAdmin(po, 'eq')">
+                      ⬆ eq
+                    </button>
+                    <button type="button" class="rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:bg-gray-50" @click="pickEqFileAdmin(po, 'working')">
+                      ⬆ working
+                    </button>
+                  </template>
+                  <span v-else-if="po.eqFiles.length === 0" class="text-xs text-gray-300">—</span>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-right text-xs">
                   <template v-if="po.status === 'eq_requested' && po.eqDelegatePoId === null">
@@ -801,6 +956,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     @click="void revertPo(po)"
                   >
                     승인 취소
+                  </button>
+                  <!-- D11 — 협력사 몫 전이 대행(위임/차단 발주는 하위에서 진행) -->
+                  <button
+                    v-if="substituteActionOf(po.status) !== null && po.eqDelegatePoId === null && !po.eqBlocked"
+                    type="button"
+                    class="mr-1 rounded-md border border-teal-300 px-2 py-1 font-semibold text-teal-700 hover:bg-teal-50"
+                    @click="void runSubstitute(po)"
+                  >
+                    {{ SUBSTITUTE_LABELS[substituteActionOf(po.status) ?? 'eq-request'] }}
                   </button>
                   <button
                     v-if="po.status === 'issued'"

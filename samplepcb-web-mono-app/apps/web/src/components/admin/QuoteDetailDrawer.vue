@@ -186,20 +186,30 @@ onBeforeUnmount(() => {
         class="absolute right-0 top-0 flex h-full w-[30rem] max-w-full flex-col bg-white shadow-xl"
       >
         <!-- 헤더 -->
-        <header class="flex items-center justify-between border-b border-gray-200 px-5 py-3">
+        <header class="flex items-center justify-between gap-2 border-b border-gray-200 px-5 py-3">
           <div class="min-w-0">
             <h2 class="truncate text-base font-bold text-gray-900">
               {{ detail?.projectName ?? t('admin.quotes.drawer.title') }}
             </h2>
             <p class="text-xs text-gray-400">#{{ props.projectId }}</p>
           </div>
-          <button
-            type="button"
-            class="rounded-md px-2 py-1 text-sm text-gray-500 hover:bg-gray-100"
-            @click="emit('close')"
-          >
-            {{ t('admin.quotes.drawer.close') }}
-          </button>
+          <div class="flex shrink-0 items-center gap-1.5">
+            <!-- PCB 협력 모듈 크로스 진입(P3.5) — 협력사 RFQ·발주·선적은 Case 상세가 전담. -->
+            <RouterLink
+              v-if="props.projectId !== null"
+              :to="{ name: 'admin-pcb-case', params: { id: String(props.projectId) } }"
+              class="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+            >
+              PCB Case 열기 →
+            </RouterLink>
+            <button
+              type="button"
+              class="rounded-md px-2 py-1 text-sm text-gray-500 hover:bg-gray-100"
+              @click="emit('close')"
+            >
+              {{ t('admin.quotes.drawer.close') }}
+            </button>
+          </div>
         </header>
 
         <div class="flex-1 overflow-y-auto px-5 py-4">

@@ -230,7 +230,7 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 ### 5.4 API·화면 초안
 
 - **sp-node**: `admin-pcb-rfqs.ts`(배정 diff·회신 대리입력·선정·매직링크) / `admin-pcb-pos.ts`(발주 생성·EQ 전이·선적·송장) / `admin-pcb-as.ts` / `partner-pcb.ts`(포털: 받은 PCB 견적·회신, 발주 확인·EQ 올림, 발송) / `pcb-rfq-reply.ts`(매직링크). 재사용 전략 정정(§8 V6): 선적의 공용 절단면은 **계약 패키지에 이미 존재**(`bomShipmentNextStatus`·모드/상태 코드사전 — FE/BE 공용)하므로 bom-po.ts는 건드리지 않는다. PCB 전용 `lib/pcb-po.ts`·`pcb-shipment.ts`가 같은 계약 사전을 공유하는 **미러**로 구현(BOM 회귀 위험 제거, 미러링 교훈의 '도메인 식별자가 다르면 분리' 축) + PCB lib에 단위테스트 신설. 계약은 `schemas/pcb-rfq.ts`·`pcb-po.ts` 신설 + `apiRoutes` 키 추가.
-- **sp-vue**: adminModules에 세 번째 모듈 **`pcb`**("PCB 협력") 신설 — 스마트 BOM 모듈과 대칭 워크큐: 진행현황(rfq 견적 Case 보드)/견적요청(RFQ)/발주·EQ/선적·배송/A-S/파트너(공유 진입). Case 상세는 admin-pcb-projects 상세(견적 스펙·거버)에 RFQ 패널·PO 패널을 얹는 형태(AdminSmartbomCase 패턴+`?from=` 접힘). 배지: counts.pcbRfqPending(회신 대기), pcbEqPending(EQ 승인 대기), pcbShipmentPending.
+- **sp-vue**: adminModules에 세 번째 모듈 **`pcb`**("PCB 협력") 신설 — 스마트 BOM 모듈과 같은 골격, 구현은 PCB 전용·분리(§6 D9로 확정): 진행현황(총괄 조감·모듈 홈)/견적요청(RFQ)/주문·결제(경리 — 레거시 이관 주문 이력 포함)/발주·EQ/선적·배송(+A-S는 P4). ~~파트너(공유 진입)~~ — 모듈 간 화면 공유는 하지 않는다(D9, 별칭 공유안 철회). Case 상세는 admin-pcb-projects 상세(견적 스펙·거버)에 RFQ 패널·PO 패널을 얹는 형태(AdminSmartbomCase 패턴+`?from=` 접힘). 배지: pcbRfqPending(선정 대기)·pcbOrdersAwaiting(입금 대기)·pcbEqPending(EQ 승인 대기)·pcbShipmentPending(관리자 차례 발송).
 - **포털**: 기존 `/partner` 홈 할 일 카드에 PCB 카드 합류(회신할 PCB 견적/확인할 PCB 발주·EQ/보낼 물건). 납기 필수 입력·통화 토글은 RfqReplyForm의 PCB 변형으로.
 - **고객(sp-php)**: 무변경(§2.1). 후속 아이디어로만: EQ 단계 고객 안내 메일.
 
@@ -336,6 +336,17 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 - **발견 결함 교정(BOM 포함)**: invoice draft GET의 `?fresh=false`가 `z.coerce.boolean` 때문에 true로 coerce(문자열 'false' truthy)되어 **저장본이 항상 새 draft로 덮이는 결함** — PCB 2곳+기존 BOM 2곳(admin-bom-pos·partner-pos) 전부 enum→transform으로 교정.
 - **E2E 재현 시드**: 하위 발주는 같은 스펙의 하위 회신 RFQ 필요 — `INSERT INTO sp_pcb_rfq (specId,partnerId,parentPartnerId,reorderRound,status,currency,priceOriginal,requestedAt,respondedAt,createdAt,updatedAt) VALUES (20584,10,9,0,'quoted','USD',1000,NOW(3),NOW(3),NOW(3),NOW(3))` 후 스크립트 인자로 전달, 종료 후 sp_pcb_shipment_po/sp_pcb_shipment/sp_pcb_po/sp_file(ref_type sp_pcb_po_eq·sp_pcb_shipment)·삽입 RFQ 삭제.
 - **P3 후속 소항목**: 관리자 대행용 선적 파일 업로드 훅/UI(현재 다운로드만 — 대행 시 Invoice는 포털 몫), 관리자 Case의 같이 보내기 UI(포털에만 있음), 택배사 코드 사전·트래킹 URL 자동 생성(레거시 Shipment.types.ts 후보), A/S 재발주 회차(reorderRound>0)의 선적 UI 표기(P4).
+
+### P3.5 구현 기록 (2026-08-04 — 레거시 편입·모듈 구조 완성)
+
+배경: 이관 견적 20,537건 중 20,535건이 주문 연결(완료 19,442·취소 933·**진행 중 160**)인데 PCB 모듈에서 보이지도, 손대지도 못하는 상태였다(견적요청 워크큐=RFQ 행 보유 스펙만·Case 진입점 부재). 사용자 결정: SmartBOM과 같은 골격(각자 분리 구현)+레거시 견적·주문 이력 노출+미완료 건은 PCB 기능 사용 가능해야 함.
+
+- **결정 추가**: **D9** 모듈 메뉴 = 진행현황(홈)/견적요청/**주문·결제(신설)**/발주·EQ/선적·배송 — SmartBOM 골격 미러, 구현은 PCB 전용(공유는 라이브러리 수준만, 파트너 별칭 공유안 철회). **D10** RFQ 게이트 완화 — 진행 중 주문(paid, 완료·취소 제외)은 **원가 소싱 모드**로 RFQ 허용(판매가=확정가는 불변 — PATCH 게이트 별도 유지, 미입금 `ORDER_NOT_PAID`·완료/취소 `ORDER_CLOSED` 차단). **D11** EQ·생산 **관리자 만능 대행**(선적과 동일 원칙) — advance/revert에서 admin이면 주체 검증 통과, 이력 `byRole: 'ADMIN'`으로 대행 기록, EQ 파일 대행 업로드/삭제 라우트(잠금 규칙 동일).
+- **계약**: admin.ts — AdminQuoteListQuery.tab `preorder`(비담김+유령) + counts.preorder + ListItem `pcbRfq {total,quoted,selected}|null`(페이지 행 enrich, 회신 판정=respondedAt — unselected는 미회신 탈락 포함이라 status 판정 금지) + Detail `order {odId,odStatus,isPaid,수납액,주문금액,결제수단,주문일}|null`. 신규 `pcb-orders.ts` — 탭 awaiting/active/done/canceled/all + 라벨 사전 + 행(스펙+od+poCount).
+- **서버**: `admin-pcb-projects` 목록 preorder 탭(유령은 `listGhostActiveSpecIds` id 합류 — cart 행 소실 케이스, 거버 주문 플로우 업로드 후 장바구니 삭제 시 발생)·상세 order/pcbRfq 동봉. 신규 `admin-pcb-orders.ts` + g5-db **한정 예외 ⑳ `listPcbOrderSpecs`** — sp_order_spec×g5_shop_cart×g5_shop_order **SQL 조인 서버 페이지네이션**(BOM D19 메모리 방식은 "월 수십 건" 전제라 2만 건에 사용 금지, 같은 DB라 조인 가능·read-only). counts=SUM(CASE) 1쿼리, 검색=프로젝트명/mbId/주문번호.
+- **웹**: `AdminPcbCases.vue`(진행현황 — 모듈 홈, AdminQuoteList 계약 재사용, 탭 RFQ 가능/견적 대기/전체, RFQ 배지) · `AdminPcbOrders.vue`(주문·결제 — od 상태 배지·발주 대기 신호·배지=입금 대기 수) · `AdminPcbCase.vue` 보강(주문 정보 카드·**원가 소싱 모드 배너**·주문된 건 확정가 버튼 숨김·배정 버튼 게이트 사유 표시·**D11 대행 버튼 3종+EQ 파일 대행 업로드/삭제**·`?from=` 일반화 — cases/rfqs/orders/pos/shipments) · 코어 견적 관리 드로어에 "PCB Case 열기" 크로스 링크 · QuoteStatusTabs는 preorder 타입만 수용(코어 화면 미노출).
+- **검증**: **E2E 34 ALL PASS**(실DB — preorder 2건·carted 20,535·주문결제 counts {0,160,19442,933} 실측 대조, 완료 탭 마지막 페이지(389p) 정합, 주문번호 검색, 완료 주문 배정 409 ORDER_CLOSED·진행 중 주문 배정 200·**확정가 PATCH 409 불변 확인**, D11 파일 없이 409→대행 업로드→요청/승인/생산 대행 완주→**이력 byRole ADMIN 4건**→만능 revert 원상복구). vitest 635·`pnpm -r typecheck`·ESLint 0건. 시드 원상(po 0·rfq 3행).
+- **후속**: counts.preorder는 비담김만 집계(유령 포함 정확값은 preorder 탭 진입 시 total — 매 요청 g5 전수 대조 회피), A/S 재발주(P4)가 완료·취소 건의 재작업 경로, 주문·결제 워크큐에서 입금 확인 액션은 코어 주문 관리 링크로(현재 read-only 조감).
 
 ## 10. 조사 자료 색인
 

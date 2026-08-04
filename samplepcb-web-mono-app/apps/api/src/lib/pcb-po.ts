@@ -569,7 +569,10 @@ export const advancePcbPoEq = async (
   const action = PCB_EQ_FORWARD[asPcbPoStatus(po.status)];
   if (action === null) return { ok: false, error: 'FINAL' };
   const { role, byRole } = resolveEqRole(po, actor);
-  if (role !== action.actor) return { ok: false, error: 'NOT_YOUR_TURN' };
+  // 관리자 만능 대행(D11) — 협력사 포털 미온보딩(레거시 진행분) 대비, 선적과 동일
+  // 원칙. 이력 byRole 'ADMIN' 으로 대행 사실이 남는다.
+  if (role !== action.actor && actor.kind !== 'admin')
+    return { ok: false, error: 'NOT_YOUR_TURN' };
 
   if (action.needsEqFiles === true) {
     const files = await prisma.spFile.findMany({
@@ -638,7 +641,9 @@ export const revertPcbPoEq = async (
   const revert = PCB_EQ_REVERT[asPcbPoStatus(po.status)];
   if (revert === null) return { ok: false, error: 'NOTHING_TO_REVERT' };
   const { role, byRole } = resolveEqRole(po, actor);
-  if (role !== revert.actor) return { ok: false, error: 'NOT_YOUR_TURN' };
+  // 관리자 만능 대행(D11) — advance 와 동일.
+  if (role !== revert.actor && actor.kind !== 'admin')
+    return { ok: false, error: 'NOT_YOUR_TURN' };
 
   await prisma.spPcbPo.update({
     where: { id: po.id },

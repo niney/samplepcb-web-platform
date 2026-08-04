@@ -38,6 +38,7 @@ export const apiRoutes = {
   partnerPcbPos: '/api/partner/pcb-pos',
   adminPcbShipments: '/api/admin/pcb-shipments',
   partnerPcbShipments: '/api/partner/pcb-shipments',
+  adminPcbOrders: '/api/admin/pcb-orders',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',

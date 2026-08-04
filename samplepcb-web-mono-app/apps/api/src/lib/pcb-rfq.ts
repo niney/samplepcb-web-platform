@@ -13,7 +13,7 @@ import type {
 import { PCB_CURRENCIES, PCB_RFQ_STATUSES } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getPcbExchangeRate, roundPcbAmount } from './exchange-rate';
-import { getCartStates } from './g5-db';
+import { getCartOrderLinks, getOrderHeadersLite } from './g5-db';
 import { toCapabilities } from './partner';
 
 // ── PCB 파트너 트랙 RFQ 코어 — 설계 docs/PCB_PARTNER_TRACK.md §5 ─────────────
@@ -69,16 +69,25 @@ export const resolveLinkCurrency = async (
   return asPcbCurrency(relation?.settlementCurrency ?? 'USD');
 };
 
-// ── RFQ 시작/변경 게이트 — 확정가 PATCH(409 IN_CART/ORDERED)와 같은 논리 ──────
-export type PcbRfqSpecGate = 'ok' | 'NOT_ACTIVE' | 'IN_CART' | 'ORDERED';
+// ── RFQ 시작/변경 게이트 ─────────────────────────────────────────────────────
+// 초안은 확정가 PATCH(판매가 보호)와 같은 게이트였으나, RFQ 는 원가 소싱이라 축이
+// 다르다 — 진행 중 주문(입금~배송)은 허용한다(§6 D10, 레거시 진행분 편입). 판매가는
+// 여전히 불변(확정가 PATCH 는 별도 게이트 유지). 미입금('주문')·완료·취소는 차단 —
+// 미입금은 취소 가능성, 완료·취소 재작업은 A/S 재발주 회차(P4)의 몫.
+export type PcbRfqSpecGate = 'ok' | 'NOT_ACTIVE' | 'IN_CART' | 'ORDER_NOT_PAID' | 'ORDER_CLOSED';
 
 export const checkPcbRfqSpecGate = async (spec: SpOrderSpec): Promise<PcbRfqSpecGate> => {
   if (spec.status !== 'active') return 'NOT_ACTIVE';
   if (spec.ctId === null) return 'ok';
-  const state = (await getCartStates([spec.ctId])).get(spec.ctId);
-  if (state === 'cart') return 'IN_CART';
-  if (state === 'ordered') return 'ORDERED';
-  return 'ok'; // 유령 active(cart 행 소실)는 여기서 막지 않는다 — 확정가 등록 단계에서 정리·거부
+  const link = (await getCartOrderLinks([spec.ctId])).get(spec.ctId);
+  // 유령 active(cart 행 소실)는 막지 않는다 — 확정가 등록 단계에서 정리·거부.
+  if (link === undefined) return 'ok';
+  if (!link.ordered) return 'IN_CART';
+  const header = (await getOrderHeadersLite([link.odId])).get(link.odId);
+  if (header === undefined) return 'ok'; // 주문 헤더 소실 — 유령과 동급
+  if (!header.isPaid) return 'ORDER_NOT_PAID';
+  if (header.odStatus === '완료' || header.odStatus === '취소') return 'ORDER_CLOSED';
+  return 'ok'; // 진행 중 주문 — 원가 소싱 모드(D10)
 };
 
 // ── 직렬화 ───────────────────────────────────────────────────────────────────
@@ -188,7 +197,8 @@ export type PcbRfqDiffError =
   | 'SPEC_NOT_FOUND'
   | 'NOT_ACTIVE'
   | 'IN_CART'
-  | 'ORDERED'
+  | 'ORDER_NOT_PAID'
+  | 'ORDER_CLOSED'
   | 'PARTNER_INVALID'
   | 'MD_RFQ_NOT_FOUND'
   | 'NOT_MY_CHILD';

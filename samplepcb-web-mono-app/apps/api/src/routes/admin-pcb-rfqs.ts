@@ -45,7 +45,8 @@ const CaseListQuery = z.object({
 const GATE_MESSAGES: Record<string, string> = {
   NOT_ACTIVE: '활성 상태의 견적이 아닙니다',
   IN_CART: '장바구니에 담긴 견적입니다 — 담김 해제 후 진행하세요',
-  ORDERED: '이미 주문된 견적입니다',
+  ORDER_NOT_PAID: '입금 확인 전 주문입니다 — 결제 확인 후 소싱을 시작하세요',
+  ORDER_CLOSED: '완료·취소된 주문입니다 — 재작업은 A/S 재발주로 진행하세요',
 };
 
 export const adminPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {

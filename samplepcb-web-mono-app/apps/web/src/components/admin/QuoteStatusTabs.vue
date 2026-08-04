@@ -4,9 +4,13 @@ import type { AdminQuoteCountsType } from '@sp/api-contract';
 
 // 상태 탭 — rfq/priced/quoted 는 quoteStatus 1:1, carted 는 ctId 파생(담김+주문).
 // counts 는 탭 미반영 분포라 탭을 오가도 숫자가 유지된다.
+// preorder 는 PCB 진행현황 전용 탭(P3.5) — 이 컴포넌트는 노출하지 않고 타입만 수용.
 type TabKey = 'all' | 'rfq' | 'priced' | 'quoted' | 'carted';
 
-const props = defineProps<{ tab: TabKey; counts: AdminQuoteCountsType | undefined }>();
+const props = defineProps<{
+  tab: TabKey | 'preorder';
+  counts: AdminQuoteCountsType | undefined;
+}>();
 const emit = defineEmits<{ 'update:tab': [tab: TabKey] }>();
 const { t } = useI18n();
 

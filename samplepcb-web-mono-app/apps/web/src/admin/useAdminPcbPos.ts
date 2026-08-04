@@ -14,7 +14,7 @@ import {
   type BomInvoiceDataType,
   type PcbShipmentAdvanceBodyType,
 } from '@sp/api-contract';
-import { apiGet, apiGetBlob, apiSend, apiSendBlob } from '@sp/shared';
+import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
 
 // PCB 발주·EQ 관리자 훅(P2) — docs/PCB_PARTNER_TRACK.md §5.4.
 // 무효화는 ['admin','pcbPo'] 접두 일괄(+Case RFQ 패널과 배지는 별개 키라 독립).
@@ -161,6 +161,79 @@ export function useRejectPcbEq() {
         'POST',
         `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/eq-reject`,
         { reason },
+        PcbPoActionResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+// ── EQ·생산 대행(D11) — 협력사 포털 미온보딩(레거시 진행분) 대비 ──────────────
+export type AdminPcbEqSubstituteAction = 'eq-request' | 'production-start' | 'production-complete';
+
+export function useAdminPcbEqSubstitute() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      specId,
+      poId,
+      action,
+    }: {
+      specId: number;
+      poId: number;
+      action: AdminPcbEqSubstituteAction;
+    }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/${action}`,
+        {},
+        PcbPoActionResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useUploadAdminPcbEqFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      specId,
+      poId,
+      file,
+      fileType,
+    }: {
+      specId: number;
+      poId: number;
+      file: File;
+      fileType: 'eq' | 'working';
+    }) => {
+      const form = new FormData();
+      form.set('fileType', fileType);
+      form.set('file', file);
+      return apiSendForm(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/eq-files`,
+        form,
+        PcbPoActionResponse,
+      );
+    },
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useDeleteAdminPcbEqFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ specId, poId, fileId }: { specId: number; poId: number; fileId: number }) =>
+      apiSend(
+        'DELETE',
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/eq-files/${String(fileId)}`,
+        {},
         PcbPoActionResponse,
       ),
     onSuccess: () => {

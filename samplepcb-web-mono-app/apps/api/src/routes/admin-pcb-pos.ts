@@ -23,6 +23,7 @@ import {
   advancePcbPoEq,
   createAdminPcbPo,
   deletePcbPo,
+  deletePcbEqFile,
   getPcbEqFileDownload,
   loadAdminPcbPoWorkItems,
   loadAdminPcbPos,
@@ -30,6 +31,7 @@ import {
   patchPcbPo,
   rejectPcbPoEq,
   revertPcbPoEq,
+  uploadPcbEqFile,
 } from '../lib/pcb-po';
 import { loadHousePartnerName } from '../lib/pcb-rfq';
 import {
@@ -322,6 +324,82 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           error: res.error,
           message: '되돌릴 단계가 없거나 관리자 차례의 전이가 아닙니다.',
         });
+      return { result: true as const };
+    },
+  );
+
+  // ── EQ·생산 대행 전이(D11) — 협력사 포털 미온보딩(레거시 진행분) 대비 ─────────
+  // 선적의 관리자 만능 대행과 같은 원칙. 이력에 byRole 'ADMIN' 으로 남는다.
+  const SUBSTITUTE_STEPS = [
+    { path: 'eq-request', from: 'issued', label: 'EQ 승인요청' },
+    { path: 'production-start', from: 'eq_done', label: '생산 시작' },
+    { path: 'production-complete', from: 'producing', label: '생산 완료' },
+  ] as const;
+  for (const step of SUBSTITUTE_STEPS) {
+    fastify.post(
+      `/pcb-projects/:id/pos/:poId/${step.path}`,
+      { schema: { params: PoParams, response: { 200: PcbPoActionResponse, 409: ApiError } } },
+      async (request, reply) => {
+        const po = await loadPcbPoWithPartner(request.params.poId);
+        if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+        if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
+        const res = await advancePcbPoEq(po.id, { kind: 'admin' }, step.from);
+        if (!res.ok)
+          return reply.status(409).send({
+            error: res.error,
+            message:
+              res.error === 'MISSING_EQ_FILES'
+                ? 'EQ 파일과 Working 파일을 먼저 올려 주세요(대행 업로드 가능).'
+                : `${step.label} 대행을 진행할 수 없는 상태입니다.`,
+          });
+        return { result: true as const };
+      },
+    );
+  }
+
+  // ── EQ 첨부 대행 업로드/삭제(D11) — 포털과 같은 잠금 규칙(issued 에서만) ──────
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/eq-files',
+    { schema: { params: PoParams, response: { 200: PcbPoActionResponse, 400: ApiError, 409: ApiError } } },
+    async (request, reply) => {
+      const { files, fields } = await collectMultipart(request);
+      const kind = fields.fileType === 'working' ? 'working' : fields.fileType === 'eq' ? 'eq' : null;
+      const file = files[0];
+      if (kind === null || file === undefined) {
+        return reply.status(400).send({
+          error: 'BAD_UPLOAD',
+          message: 'fileType(eq|working)과 파일이 필요합니다.',
+        });
+      }
+      const po = await loadPcbPoWithPartner(request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (po.status !== 'issued') {
+        return reply.status(409).send({
+          error: 'EQ_LOCKED',
+          message: 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
+        });
+      }
+      await uploadPcbEqFile(po.id, file, kind, 'ADMIN');
+      return { result: true as const };
+    },
+  );
+
+  fastify.delete(
+    '/pcb-projects/:id/pos/:poId/eq-files/:fileId',
+    { schema: { params: PoFileParams, response: { 200: PcbPoActionResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const po = await loadPcbPoWithPartner(request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
+      if (po.status !== 'issued') {
+        return reply.status(409).send({
+          error: 'EQ_LOCKED',
+          message: 'EQ 승인요청 후에는 파일을 바꿀 수 없습니다 — 요청을 되돌린 뒤 교체하세요.',
+        });
+      }
+      const removed = await deletePcbEqFile(po.id, request.params.fileId);
+      if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
       return { result: true as const };
     },
   );

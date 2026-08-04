@@ -9,6 +9,7 @@ import { useBomOrdersAwaitingCount, useBomPosAwaitingCount } from '../admin/useA
 import { useBomQuotesRequestedCount, useBomShipmentPendingCount } from '../admin/useAdminBomQuotes';
 import { usePcbRfqPendingCount } from '../admin/useAdminPcbRfqs';
 import { usePcbEqPendingCount, usePcbShipmentPendingCount } from '../admin/useAdminPcbPos';
+import { usePcbOrdersAwaitingCount } from '../admin/useAdminPcbOrders';
 import { useTheme } from '../bom/useTheme';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
@@ -66,6 +67,7 @@ const { data: bomShipmentPending } = useBomShipmentPendingCount(isAdminUser);
 const { data: pcbRfqPending } = usePcbRfqPendingCount(isAdminUser);
 const { data: pcbEqPending } = usePcbEqPendingCount(isAdminUser);
 const { data: pcbShipmentPending } = usePcbShipmentPendingCount(isAdminUser);
+const { data: pcbOrdersAwaiting } = usePcbOrdersAwaitingCount(isAdminUser);
 const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefined =>
   badge === 'rfqCount'
     ? rfqCount.value
@@ -81,7 +83,9 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
               ? pcbEqPending.value
               : badge === 'pcbShipmentPending'
                 ? pcbShipmentPending.value
-                : bomShipmentPending.value;
+                : badge === 'pcbOrdersAwaiting'
+                  ? pcbOrdersAwaiting.value
+                  : bomShipmentPending.value;
 </script>
 
 <template>

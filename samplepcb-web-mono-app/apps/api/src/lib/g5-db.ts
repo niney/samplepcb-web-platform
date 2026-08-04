@@ -3131,6 +3131,111 @@ export async function setOrderForceStatus(
   return 'ok';
 }
 
+// ── PCB 주문·결제 워크큐 목록 (한정 예외 ⑳ — read-only) ──────────────────────
+// sp_order_spec 주문 연결분 × g5_shop_cart × g5_shop_order 조인을 SQL 에서 바로
+// 페이지네이션한다. 이관 주문 2만여 건이 모수라 전량 파생 후 메모리 페이지네이션
+// (BOM D19 방식)은 쓸 수 없다. sp_* 와 g5_* 는 같은 DB(공유 DB 규율)라 조인 가능.
+// 저장 없음 — od 상태·수납액은 표시용 파생일 뿐이다.
+
+export type PcbOrderTab = 'awaiting' | 'active' | 'done' | 'canceled' | 'all';
+
+export interface PcbOrderSpecRow {
+  specId: number;
+  odId: string;
+  odStatus: string;
+  receiptPrice: number;
+  orderedAt: string | null;
+}
+
+const PCB_ORDER_TAB_SQL: Record<Exclude<PcbOrderTab, 'all'>, string> = {
+  awaiting: `o.od_status = '주문'`,
+  active: `o.od_status NOT IN ('주문', '완료', '취소')`,
+  done: `o.od_status = '완료'`,
+  canceled: `o.od_status = '취소'`,
+};
+
+export async function listPcbOrderSpecs(params: {
+  tab: PcbOrderTab;
+  q: string;
+  page: number;
+  pageSize: number;
+}): Promise<{
+  rows: PcbOrderSpecRow[];
+  total: number;
+  counts: { awaiting: number; active: number; done: number; canceled: number; all: number };
+}> {
+  const pool = getG5Pool();
+  const conds = [`s.status = 'active'`, `s.ctId IS NOT NULL`, `c.ct_status <> '쇼핑'`];
+  const args: unknown[] = [];
+  const keyword = params.q.trim();
+  if (keyword !== '') {
+    conds.push(`(s.projectName LIKE ? OR s.mbId LIKE ? OR c.od_id LIKE ?)`);
+    const like = `%${keyword}%`;
+    args.push(like, like, like);
+  }
+  const base = `FROM sp_order_spec s
+      JOIN g5_shop_cart c ON c.ct_id = s.ctId
+      JOIN g5_shop_order o ON o.od_id = c.od_id
+     WHERE ${conds.join(' AND ')}`;
+
+  // counts — 탭 미반영·검색 반영(견적 관리 counts 관례 동일). 탭별 total 로도 재사용.
+  const [countRows] = await pool.query<RowDataPacket[]>(
+    `SELECT
+        COALESCE(SUM(o.od_status = '주문'), 0) AS awaiting,
+        COALESCE(SUM(o.od_status NOT IN ('주문', '완료', '취소')), 0) AS active,
+        COALESCE(SUM(o.od_status = '완료'), 0) AS done,
+        COALESCE(SUM(o.od_status = '취소'), 0) AS canceled,
+        COUNT(*) AS all_cnt
+      ${base}`,
+    args,
+  );
+  const count = countRows[0];
+  const counts = {
+    awaiting: Number(count?.awaiting ?? 0),
+    active: Number(count?.active ?? 0),
+    done: Number(count?.done ?? 0),
+    canceled: Number(count?.canceled ?? 0),
+    all: Number(count?.all_cnt ?? 0),
+  };
+
+  const tabCond = params.tab === 'all' ? '1=1' : PCB_ORDER_TAB_SQL[params.tab];
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT s.id AS spec_id, c.od_id, o.od_status, o.od_receipt_price,
+            DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
+       ${base} AND ${tabCond}
+      ORDER BY o.od_time DESC, s.id DESC
+      LIMIT ? OFFSET ?`,
+    [...args, params.pageSize, (params.page - 1) * params.pageSize],
+  );
+  return {
+    rows: rows.map((row) => {
+      const odTime = String(row.od_time ?? '');
+      return {
+        specId: Number(row.spec_id),
+        odId: String(row.od_id),
+        odStatus: String(row.od_status ?? ''),
+        receiptPrice: Number(row.od_receipt_price ?? 0),
+        orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
+      };
+    }),
+    total: counts[params.tab],
+    counts,
+  };
+}
+
+// 유령 active 스펙(ctId 는 있는데 cart 행이 소실 — 고객이 장바구니에서 삭제) id 목록.
+// RFQ 게이트는 이미 허용하므로 진행현황 'RFQ 가능' 탭 판정에만 쓴다. 희귀 케이스라
+// id 목록으로 돌려 prisma where 에 합류시킨다(한정 예외 ⑳의 연장, read-only).
+export async function listGhostActiveSpecIds(): Promise<number[]> {
+  const pool = getG5Pool();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT s.id FROM sp_order_spec s
+       LEFT JOIN g5_shop_cart c ON c.ct_id = s.ctId
+      WHERE s.status = 'active' AND s.ctId IS NOT NULL AND c.ct_id IS NULL`,
+  );
+  return rows.map((row) => Number(row.id));
+}
+
 export async function closeG5Pool(): Promise<void> {
   if (pool) {
     await pool.end();

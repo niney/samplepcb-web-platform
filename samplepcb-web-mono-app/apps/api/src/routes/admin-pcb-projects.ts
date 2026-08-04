@@ -28,11 +28,14 @@ import { buildOptionSummary } from '../lib/option-summary';
 import { downloadFromFileServer } from '../lib/file-server';
 import {
   deleteUnpaidOrder,
+  getCartOrderLinks,
   getCartStates,
   getMembersByIds,
   getNotifyConfig,
+  getOrderHeadersLite,
   getOrderInfoByCtId,
   getShopEstimateProfile,
+  listGhostActiveSpecIds,
 } from '../lib/g5-db';
 import type { CartState, G5Member, OrderInfo } from '../lib/g5-db';
 import { sendCompleteEstimate } from '../lib/alimtalk';
@@ -208,10 +211,22 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             }
           : {}),
       };
+      // preorder(P3.5) = RFQ 시작 가능 모수 — ctId 없음 + 유령(cart 행 소실). 유령은
+      // g5 파생이라 id 목록으로 합류시킨다(희귀 케이스 — listGhostActiveSpecIds 주석).
+      const ghostIds = tab === 'preorder' ? await listGhostActiveSpecIds() : [];
+      const preorderWhere: Prisma.SpOrderSpecWhereInput = {
+        AND: [{ OR: [{ ctId: null }, { id: { in: ghostIds.map((id) => BigInt(id)) } }] }],
+      };
       const tabWhere: Prisma.SpOrderSpecWhereInput =
-        tab === 'carted' ? { ctId: { not: null } } : tab !== 'all' ? { quoteStatus: tab } : {};
+        tab === 'carted'
+          ? { ctId: { not: null } }
+          : tab === 'preorder'
+            ? preorderWhere
+            : tab !== 'all'
+              ? { quoteStatus: tab }
+              : {};
 
-      const [specs, total, grouped, cartedCount, allCount] = await Promise.all([
+      const [specs, total, grouped, cartedCount, allCount, preorderBaseCount] = await Promise.all([
         prisma.spOrderSpec.findMany({
           where: { ...where, ...tabWhere },
           orderBy: { id: 'desc' },
@@ -222,8 +237,28 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         prisma.spOrderSpec.groupBy({ by: ['quoteStatus'], where, _count: { _all: true } }),
         prisma.spOrderSpec.count({ where: { ...where, ctId: { not: null } } }),
         prisma.spOrderSpec.count({ where }),
+        // counts.preorder — 유령까지 세면 g5 전수 대조가 매 요청 필요해, 비담김(ctId
+        // null)만 집계한다. preorder 탭 진입 시의 total 은 유령 포함 정확값.
+        prisma.spOrderSpec.count({ where: { ...where, ctId: null } }),
       ]);
       const countByStatus = new Map(grouped.map((g) => [g.quoteStatus, g._count._all]));
+
+      // PCB 협력사 RFQ 진행 요약(P3.5) — 페이지 행 단위 enrich(관리자 직속 트랙만).
+      // 회신 여부는 respondedAt 기준 — unselected 는 미회신 탈락도 포함하므로 status
+      // 로 판정하지 않는다(P1 선정 시 형제 일괄 미선정 규칙).
+      const rfqRows = await prisma.spPcbRfq.findMany({
+        where: { specId: { in: specs.map((s) => s.id) }, parentPartnerId: 0n },
+        select: { specId: true, status: true, respondedAt: true },
+      });
+      const rfqBySpec = new Map<string, { total: number; quoted: number; selected: boolean }>();
+      for (const row of rfqRows) {
+        const key = row.specId.toString();
+        const agg = rfqBySpec.get(key) ?? { total: 0, quoted: 0, selected: false };
+        agg.total += 1;
+        if (row.respondedAt !== null) agg.quoted += 1;
+        if (row.status === 'selected') agg.selected = true;
+        rfqBySpec.set(key, agg);
+      }
 
       const [cartStates, members, quotes, thumbs] = await Promise.all([
         getCartStates(specs.map((s) => s.ctId).filter((id): id is number => id !== null)),
@@ -273,6 +308,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
               cartState,
               applicant: toApplicant(s.mbId, s.mbId !== null ? members.get(s.mbId) : undefined),
               createdAt: s.createdAt.toISOString(),
+              pcbRfq: rfqBySpec.get(s.id.toString()) ?? null,
             };
           }),
           total,
@@ -284,6 +320,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             priced: countByStatus.get('priced') ?? 0,
             quoted: countByStatus.get('quoted') ?? 0,
             carted: cartedCount,
+            preorder: preorderBaseCount,
           },
         },
       };
@@ -331,6 +368,48 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       const thumb = files.find((f) => f.fileType === 'thumbnail');
       const cartState: CartState =
         spec.ctId !== null ? (cartStates.get(spec.ctId) ?? 'none') : 'none';
+
+      // PCB RFQ 진행 요약(P3.5) — 목록 계약(ListItem.extend)과 동일 집계.
+      const detailRfqRows = await prisma.spPcbRfq.findMany({
+        where: { specId: spec.id, parentPartnerId: 0n },
+        select: { status: true, respondedAt: true },
+      });
+      const pcbRfq =
+        detailRfqRows.length === 0
+          ? null
+          : {
+              total: detailRfqRows.length,
+              quoted: detailRfqRows.filter((r) => r.respondedAt !== null).length,
+              selected: detailRfqRows.some((r) => r.status === 'selected'),
+            };
+
+      // 주문 요약(P3.5) — 주문됨일 때만 od 헤더를 lazy 파생(저장 없음, BOM D10 동형).
+      let order: {
+        odId: string;
+        odStatus: string;
+        isPaid: boolean;
+        receiptPrice: number;
+        cartPrice: number;
+        settleCase: string;
+        orderedAt: string | null;
+      } | null = null;
+      if (spec.ctId !== null && cartState === 'ordered') {
+        const link = (await getCartOrderLinks([spec.ctId])).get(spec.ctId);
+        if (link?.ordered === true) {
+          const header = (await getOrderHeadersLite([link.odId])).get(link.odId);
+          if (header !== undefined) {
+            order = {
+              odId: header.odId,
+              odStatus: header.odStatus,
+              isPaid: header.isPaid,
+              receiptPrice: header.receiptPrice,
+              cartPrice: header.cartPrice,
+              settleCase: header.settleCase,
+              orderedAt: header.orderedAt,
+            };
+          }
+        }
+      }
 
       return {
         result: true as const,
@@ -380,6 +459,8 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             writeDate: f.writeDate.toISOString(),
           })),
           updatedAt: spec.updatedAt.toISOString(),
+          pcbRfq,
+          order,
         },
       };
     },

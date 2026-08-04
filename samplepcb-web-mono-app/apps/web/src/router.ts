@@ -209,9 +209,19 @@ const routes: RouteRecordRaw[] = [
       // ── PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md P1) — 라우트 이름 prefix
       // 'admin-pcb' 가 모듈 소속 판정 기준(admin/menu.ts resolveAdminModuleKey).
       {
+        path: 'pcb/cases',
+        name: 'admin-pcb-cases',
+        component: () => import('./pages/admin/AdminPcbCases.vue'),
+      },
+      {
         path: 'pcb/rfqs',
         name: 'admin-pcb-rfqs',
         component: () => import('./pages/admin/AdminPcbRfqs.vue'),
+      },
+      {
+        path: 'pcb/orders',
+        name: 'admin-pcb-orders',
+        component: () => import('./pages/admin/AdminPcbOrders.vue'),
       },
       {
         path: 'pcb/pos',

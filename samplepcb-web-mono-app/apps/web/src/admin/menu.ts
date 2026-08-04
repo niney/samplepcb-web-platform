@@ -15,7 +15,8 @@ export interface AdminMenuItem {
     | 'bomPosAwaiting'
     | 'pcbRfqPending'
     | 'pcbEqPending'
-    | 'pcbShipmentPending';
+    | 'pcbShipmentPending'
+    | 'pcbOrdersAwaiting';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -91,13 +92,26 @@ const smartbomMenu: AdminMenuItem[] = [
   { to: { name: 'admin-smartbom-partners' }, labelKey: 'admin.menu.smartbomPartners' },
 ];
 
-// PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md) — 협력사 견적요청(RFQ) 워크큐 + Case 상세.
+// PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md §5.4) — SmartBOM 과 같은 골격의 역할별
+// 워크큐(구현은 PCB 전용·분리): 진행현황(총괄 조감·모듈 홈)/견적요청(RFQ)/주문·결제
+// (경리 — 레거시 이관 주문 이력 포함)/발주·EQ(구매)/선적·배송(물류).
 const pcbMenu: AdminMenuItem[] = [
+  {
+    to: { name: 'admin-pcb-cases' },
+    labelKey: 'admin.menu.pcbCases',
+    activeRouteNames: ['admin-pcb-case'],
+  },
+  // 견적요청(RFQ) 워크큐 — 선정 대기 수 배지.
   {
     to: { name: 'admin-pcb-rfqs' },
     labelKey: 'admin.menu.pcbRfqs',
     badge: 'pcbRfqPending',
-    activeRouteNames: ['admin-pcb-case'],
+  },
+  // 주문·결제 워크큐 — 입금 대기 수 배지(read-only 조감).
+  {
+    to: { name: 'admin-pcb-orders' },
+    labelKey: 'admin.menu.pcbOrders',
+    badge: 'pcbOrdersAwaiting',
   },
   // 발주·EQ 워크큐 — 관리자 차례(EQ 승인 대기) 수 배지.
   {
@@ -126,7 +140,7 @@ export const adminModules: readonly AdminModule[] = [
   {
     key: 'pcb',
     labelKey: 'admin.modules.pcb',
-    homeTo: { name: 'admin-pcb-rfqs' },
+    homeTo: { name: 'admin-pcb-cases' },
     menu: pcbMenu,
   },
 ];
