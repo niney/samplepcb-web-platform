@@ -91,7 +91,7 @@ function onDrop(event: DragEvent): void {
          사진×로고의 블렌드 상호작용은 레이어 재조합으로 재현 불가). 실 버튼은 베이크드 버튼
          위 투명 핫스팟으로 겹치고, 업로딩 상태에서만 실표시로 전환한다. -->
     <div
-      class="relative mt-[50px] h-[524px] w-[640px] max-w-full cursor-pointer overflow-hidden rounded-[8px] transition"
+      class="relative mt-[50px] h-[524px] w-[640px] shrink-0 cursor-pointer overflow-hidden rounded-[8px] transition"
       :class="dragOver ? 'ring-4 ring-brand-strong/40' : ''"
       role="button"
       tabindex="0"
