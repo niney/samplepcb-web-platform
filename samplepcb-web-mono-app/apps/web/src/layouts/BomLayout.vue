@@ -133,7 +133,8 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
       <button
         type="button"
         role="switch"
-        class="relative ml-[26px] h-[36px] w-[80px] rounded-full bg-gradient-to-b from-surface-neutral to-surface shadow-[inset_0px_2px_0px_0px_var(--color-surface)] ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-50"
+        class="relative ml-[26px] h-[36px] w-[111px] shrink-0 rounded-[48px] border border-bom-recent-active-border bg-bom-sidebar font-noto disabled:cursor-not-allowed disabled:opacity-50"
+        :aria-label="procurementMode === 'sample' ? '샘플' : '양산'"
         :aria-checked="procurementMode === 'mass'"
         :disabled="procurementModeDisabled"
         :title="procurementMode === 'sample'
@@ -142,17 +143,17 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
         @click="toggleProcurementMode"
       >
         <span
-          class="absolute top-1/2 -translate-y-1/2 text-[16px] font-extrabold"
+          class="absolute flex items-center justify-center whitespace-nowrap text-center text-[14px] leading-[24px]"
           :class="procurementMode === 'sample'
-            ? 'left-[9px] text-brand'
-            : 'right-[9px] text-[#635bdb]'"
-        >{{ procurementMode === 'sample' ? '샘플' : '양산' }}</span>
+            ? 'left-[2px] top-[2px] h-[30px] w-[54px] rounded-[38px] bg-bom-nav-active font-bold text-white'
+            : 'left-[13px] top-[5px] h-[24px] w-[26px] font-medium text-bom-nav-heading'"
+        >샘플</span>
         <span
-          class="absolute top-[4px] size-[28px] rounded-full shadow-[0px_2px_4px_rgba(30,120,220,0.45)] transition-all"
-          :class="procurementMode === 'sample'
-            ? 'right-[4px] bg-brand-soft'
-            : 'left-[4px] bg-[#756cf3]'"
-        />
+          class="absolute flex items-center justify-center whitespace-nowrap text-center text-[14px] leading-[24px]"
+          :class="procurementMode === 'mass'
+            ? 'left-[53px] top-[2px] h-[30px] w-[54px] rounded-[38px] bg-bom-nav-active font-bold text-white'
+            : 'left-[70px] top-[5px] h-[24px] w-[26px] font-medium text-bom-nav-heading'"
+        >양산</span>
       </button>
 
       <div class="ml-auto flex items-center gap-[12px] pr-[18px]">
