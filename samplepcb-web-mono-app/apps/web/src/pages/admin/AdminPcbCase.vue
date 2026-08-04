@@ -42,6 +42,7 @@ import {
   useUploadAdminPcbEqFile,
   type AdminPcbEqSubstituteAction,
 } from '../../admin/useAdminPcbPos';
+import { useConfirmPcbOrderReceipt } from '../../admin/useAdminPcbOrders';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
@@ -108,6 +109,30 @@ const rfqGate = computed<'ok' | 'cart' | 'unpaid' | 'closed'>(() => {
   if (d.order.odStatus === '완료' || d.order.odStatus === '취소') return 'closed';
   return 'ok'; // 진행 중 주문 — 원가 소싱 모드
 });
+// 입금확인 — 발주 패널이 바로 아래라(미결제면 NOT_PAID) 여기서 끊기지 않게 같은 화면에 둔다.
+// 조건·API 는 주문·결제 워크큐와 동일(코어 전이 재사용).
+const receipt = useConfirmPcbOrderReceipt();
+const canConfirmReceipt = computed(() => {
+  const order = detail.value?.order;
+  return order !== null && order !== undefined && !order.isPaid && order.settleCase.includes('무통장');
+});
+async function confirmReceipt(): Promise<void> {
+  const order = detail.value?.order;
+  if (order === null || order === undefined) return;
+  if (!window.confirm(`주문 ${order.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`)) {
+    return;
+  }
+  actionError.value = '';
+  try {
+    const res = await receipt.mutateAsync({ odId: order.odId, sendMail: true });
+    if (res.data.skipped.length > 0) {
+      actionError.value = `처리되지 않았습니다: ${res.data.skipped[0]?.reason ?? ''} — 새로고침 후 다시 확인해 주세요.`;
+    }
+  } catch (e) {
+    surfaceError(e, '입금확인에 실패했습니다.');
+  }
+}
+
 const RFQ_GATE_NOTES: Record<string, string> = {
   cart: '고객 장바구니에 담김 — 담김 해제 후 견적요청을 보낼 수 있습니다.',
   unpaid: '입금 확인 전 주문 — 결제 확인 후 소싱을 시작하세요.',
@@ -707,6 +732,19 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
               <dd class="text-gray-600">{{ detail.order.settleCase || '—' }} · {{ detail.order.orderedAt?.slice(0, 10) ?? '—' }}</dd>
             </div>
           </dl>
+          <!-- 미입금이면 여기서 바로 처리 — 아래 발주 패널이 결제 게이트(NOT_PAID)로 막히기 때문. -->
+          <button
+            v-if="canConfirmReceipt"
+            type="button"
+            class="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+            :disabled="receipt.isPending.value"
+            @click="void confirmReceipt()"
+          >
+            입금확인
+          </button>
+          <p v-else-if="!detail.order.isPaid" class="mt-2 text-[11px] leading-4 text-amber-600">
+            미입금 주문입니다 — 무통장 외 결제수단은 통합 관리 주문내역에서 처리하세요.
+          </p>
         </div>
       </section>
     </div>

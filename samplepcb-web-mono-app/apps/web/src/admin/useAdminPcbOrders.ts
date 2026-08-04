@@ -50,6 +50,7 @@ export function useConfirmPcbOrderReceipt() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'pcbOrder'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'pcbPo'] }); // 발주 가능 여부(paid 게이트) 파생
+      void qc.invalidateQueries({ queryKey: ['admin', 'quotes'] }); // Case 상세의 주문 정보 카드
     },
   });
 }
