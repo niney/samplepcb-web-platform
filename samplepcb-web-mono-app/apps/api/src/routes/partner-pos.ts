@@ -539,7 +539,13 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
   );
 
   // ── 상업송장 생성기(D23) — 초안(저장본 우선·fresh 재조립)·저장·엑셀 렌더 ────
-  const InvoiceQuery = z.object({ fresh: z.coerce.boolean().default(false) });
+  // coerce.boolean 은 'false' 문자열도 true 라 enum→transform 으로 판정한다.
+  const InvoiceQuery = z.object({
+    fresh: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+  });
   const invoiceModeOf = (
     po: NonNullable<Awaited<ReturnType<typeof loadPoForInvoice>>>,
   ) =>

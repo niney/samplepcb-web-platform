@@ -3,12 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   PartnerPcbPoDetailResponse,
   PartnerPcbPoListResponse,
+  PcbInvoiceResponse,
   PcbPoActionResponse,
   apiRoutes,
+  type BomInvoiceDataType,
+  type BomShipmentFileTypeType,
   type PartnerPcbChildPoCreateBodyType,
   type PcbEqFileTypeType,
+  type PcbShipmentAdvanceBodyType,
 } from '@sp/api-contract';
-import { apiGet, apiGetBlob, apiSend, apiSendForm } from '@sp/shared';
+import { apiGet, apiGetBlob, apiSend, apiSendBlob, apiSendForm } from '@sp/shared';
 
 // 협력사 포털 PCB 발주·EQ 훅(P2) — docs/PCB_PARTNER_TRACK.md §5.4.
 
@@ -133,3 +137,101 @@ export const downloadPartnerPcbEqFile = (
   fileId: number,
   fileName: string,
 ): Promise<void> => saveBlob(`${base}/${String(poId)}/eq-files/${String(fileId)}`, fileName);
+
+// ═══ P3 선적 — 발송(핑퐁)·입고확인·첨부·상업송장 ═══════════════════════════════
+
+export function usePartnerPcbShipmentAdvance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, body }: { poId: number; body: PcbShipmentAdvanceBodyType }) =>
+      apiSend('POST', `${base}/${String(poId)}/shipment/advance`, body, PartnerPcbPoDetailResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function usePartnerPcbShipmentRevert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId }: { poId: number }) =>
+      apiSend('POST', `${base}/${String(poId)}/shipment/revert`, {}, PartnerPcbPoDetailResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+// MD 입고확인 — 받는측이 내 조직인 발송만(서버 판정).
+export function usePartnerPcbShipmentReceive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, note }: { poId: number; note: string | null }) =>
+      apiSend('POST', `${base}/${String(poId)}/shipment/receive`, { note }, PartnerPcbPoDetailResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+// 묶음에서 빼기 — 발송 준비(preparing) 단계, 대표 발주서 제외(서버 검증).
+export function usePartnerPcbShipmentDetach() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId }: { poId: number }) =>
+      apiSend('DELETE', `${base}/${String(poId)}/shipment/membership`, {}, PcbPoActionResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useUploadPartnerPcbShipmentFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      poId,
+      file,
+      fileType,
+    }: {
+      poId: number;
+      file: File;
+      fileType: BomShipmentFileTypeType;
+    }) => {
+      const form = new FormData();
+      form.set('fileType', fileType);
+      form.set('file', file);
+      return apiSendForm('POST', `${base}/${String(poId)}/shipment/files`, form, PartnerPcbPoDetailResponse);
+    },
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export const downloadPartnerPcbShipmentFile = (
+  poId: number,
+  fileId: number,
+  fileName: string,
+): Promise<void> => saveBlob(`${base}/${String(poId)}/shipment/files/${String(fileId)}`, fileName);
+
+// 상업송장 — InvoiceEditorModal 콜백 주입용 API 묶음(BOM 포털과 동형).
+export const partnerPcbInvoiceApi = (poId: number) => ({
+  loadDraft: async (fresh: boolean) =>
+    (
+      await apiGet(
+        `${base}/${String(poId)}/shipment/invoice?fresh=${fresh ? 'true' : 'false'}`,
+        PcbInvoiceResponse,
+      )
+    ).data,
+  saveDraft: (data: BomInvoiceDataType) =>
+    apiSend('PUT', `${base}/${String(poId)}/shipment/invoice`, data, PcbPoActionResponse),
+  renderXlsx: (data: BomInvoiceDataType) =>
+    apiSendBlob('POST', `${base}/${String(poId)}/shipment/invoice/xlsx`, data),
+  attachPdf: (file: File) => {
+    const form = new FormData();
+    form.set('fileType', 'invoice');
+    form.set('file', file);
+    return apiSendForm('POST', `${base}/${String(poId)}/shipment/files`, form, PartnerPcbPoDetailResponse);
+  },
+});

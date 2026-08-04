@@ -2,13 +2,21 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   ADMIN_PCB_PO_TABS,
+  ADMIN_PCB_SHIPMENT_TABS,
   AdminPcbPoCreateBody,
   AdminPcbPoListResponse,
   AdminPcbPoPatchBody,
   AdminPcbPoWorkListResponse,
+  AdminPcbShipmentWorkListResponse,
   ApiError,
+  BomInvoiceData,
+  BomShipmentFileType,
+  PcbInvoiceResponse,
   PcbPoActionResponse,
   PcbPoRejectBody,
+  PcbShipmentAdvanceBody,
+  PcbShipmentReceiveBody,
+  bomShipmentStatusLabel,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
@@ -25,11 +33,29 @@ import {
 } from '../lib/pcb-po';
 import { loadHousePartnerName } from '../lib/pcb-rfq';
 import {
+  advancePcbShipment,
+  buildPcbInvoiceDraft,
+  deletePcbShipmentFile,
+  findPcbShipmentByPo,
+  getPcbShipmentFileDownload,
+  loadAdminPcbShipmentWorkItems,
+  loadPcbShipmentsForPoIds,
+  receivePcbShipment,
+  revertPcbShipment,
+  savePcbInvoiceData,
+  savePcbShipmentFile,
+} from '../lib/pcb-shipment';
+import { renderInvoiceXlsx } from '../lib/bom-invoice';
+import {
   buildPcbEqDecisionEmail,
   buildPcbPoIssuedEmail,
+  buildPcbShipmentReceivedEmail,
+  buildPcbShipmentTurnEmail,
+  pcbPartnerPortalUrl,
   pcbPriceText,
   sendPcbMail,
 } from '../lib/pcb-rfq-email';
+import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
 
 // ── PCB 발주서·EQ 관리자 라우트(P2) — docs/PCB_PARTNER_TRACK.md §5.4 ──────────
@@ -62,6 +88,15 @@ const CREATE_ERROR_MESSAGES: Record<string, { code: 400 | 409; message: string }
 
 export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
+
+  // 발주 패널 응답 — 발주서 + 소속 선적(P3 확장)을 함께 싣는다.
+  const loadPanel = async (specId: bigint) => {
+    const [pos, ids] = await Promise.all([
+      loadAdminPcbPos(specId),
+      prisma.spPcbPo.findMany({ where: { specId }, select: { id: true } }),
+    ]);
+    return { pos, shipments: await loadPcbShipmentsForPoIds(ids.map((r) => r.id)) };
+  };
 
   // ── GET /pcb-pos — 횡단 워크큐(경유 상위 제외한 실작업 단위) ────────────────
   fastify.get(
@@ -105,7 +140,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     async (request, reply) => {
       const spec = await prisma.spOrderSpec.findUnique({ where: { id: request.params.id } });
       if (spec === null) return reply.notFound('프로젝트가 없습니다');
-      return { result: true as const, data: { pos: await loadAdminPcbPos(spec.id) } };
+      return { result: true as const, data: await loadPanel(spec.id) };
     },
   );
 
@@ -154,10 +189,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           }),
         );
       }
-      return {
-        result: true as const,
-        data: { pos: await loadAdminPcbPos(request.params.id) },
-      };
+      return { result: true as const, data: await loadPanel(request.params.id) };
     },
   );
 
@@ -188,7 +220,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message: '발주가는 EQ 시작 전(발주접수)에만 수정할 수 있습니다.',
         });
       }
-      return { result: true as const, data: { pos: await loadAdminPcbPos(request.params.id) } };
+      return { result: true as const, data: await loadPanel(request.params.id) };
     },
   );
 
@@ -210,7 +242,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             : 'EQ 진행 중인 발주서는 되돌리기로 발주접수까지 낮춘 뒤 취소할 수 있습니다.';
         return reply.status(409).send({ error: res.error, message });
       }
-      return { result: true as const, data: { pos: await loadAdminPcbPos(request.params.id) } };
+      return { result: true as const, data: await loadPanel(request.params.id) };
     },
   );
 
@@ -313,6 +345,267 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         )
         .header('content-type', downloaded.contentType)
         .send(downloaded.buffer);
+    },
+  );
+
+  // ═══ P3 선적 — 핑퐁(관리자=받는측/만능 대행)·입고확인·첨부·상업송장·워크큐 ═══
+
+  const SHIP_ERROR_MESSAGES: Record<string, string> = {
+    NOT_PRODUCED: '생산완료된 발주서만 발송할 수 있습니다.',
+    PARTNER_COUNTRY_REQUIRED: '협력사 소재 국가가 필요합니다 — 파트너 관리에서 설정하세요.',
+    OUTBOUND_BLOCKED: '하위(MD) 입고 확인이 끝나야 출고할 수 있습니다.',
+    ALREADY_FINAL: '이미 마지막 단계입니다.',
+    NOT_YOUR_TURN: '지금은 상대 차례입니다.',
+    MISSING_SHIP_DATE: '출고예정일이 필요합니다.',
+    MISSING_INVOICE_FILE: 'Invoice 첨부가 필요합니다(상업송장 생성기로 만들 수 있습니다).',
+    MISSING_TRACKING: '운송장(택배사·송장번호)이 필요합니다.',
+    INVALID_GROUP_PO: '함께 발송 대상이 조건(같은 받는측·목적지·회차·생산완료·미소속)에 맞지 않습니다.',
+    NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
+    RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
+    NOT_SHIPPED: '발송 시작 전에는 입고확인할 수 없습니다.',
+  };
+  const shipError = (error: string): { error: string; message: string } => ({
+    error,
+    message: SHIP_ERROR_MESSAGES[error] ?? '처리할 수 없습니다.',
+  });
+
+  const loadPoChecked = async (id: bigint, poId: bigint) => {
+    const po = await loadPcbPoWithPartner(poId);
+    if (po === null) return null;
+    if (po.specId !== id) return null;
+    return po;
+  };
+
+  fastify.get(
+    '/pcb-shipments',
+    {
+      schema: {
+        querystring: z.object({
+          tab: z.enum(ADMIN_PCB_SHIPMENT_TABS).default('all'),
+          page: z.coerce.number().int().min(1).default(1),
+          pageSize: z.coerce.number().int().min(1).max(100).default(20),
+        }),
+        response: { 200: AdminPcbShipmentWorkListResponse },
+      },
+    },
+    async (request) => {
+      const all = await loadAdminPcbShipmentWorkItems();
+      const counts = {
+        pending: all.filter((r) => r.tab === 'pending').length,
+        active: all.filter((r) => r.tab === 'active').length,
+        received: all.filter((r) => r.tab === 'received').length,
+        all: all.length,
+      };
+      const tabbed =
+        request.query.tab === 'all' ? all : all.filter((r) => r.tab === request.query.tab);
+      const start = (request.query.page - 1) * request.query.pageSize;
+      return {
+        result: true as const,
+        data: {
+          items: tabbed.slice(start, start + request.query.pageSize).map((r) => r.item),
+          total: tabbed.length,
+          page: request.query.page,
+          pageSize: request.query.pageSize,
+          counts,
+        },
+      };
+    },
+  );
+
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/shipment/advance',
+    {
+      schema: {
+        params: PoParams,
+        body: PcbShipmentAdvanceBody,
+        response: { 200: AdminPcbPoListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await advancePcbShipment(po, { kind: 'admin' }, request.body);
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+
+      // 관리자 전이 → 협력사(보내는측) 통지 — 다음 협력사 차례가 있으면 안내.
+      const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
+      void sendPcbMail(
+        request.log,
+        po.partner.contactEmail,
+        buildPcbShipmentTurnEmail({
+          recipientName: po.partner.name,
+          projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
+          statusLabel: bomShipmentStatusLabel(res.shipment.mode === 'domestic' ? 'domestic' : 'international', res.to),
+          nextLabel: null,
+          targetUrl: pcbPartnerPortalUrl(),
+          targetLabel: '파트너 포털 열기',
+        }),
+      );
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/shipment/revert',
+    { schema: { params: PoParams, response: { 200: AdminPcbPoListResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await revertPcbShipment(po, { kind: 'admin' });
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/shipment/receive',
+    {
+      schema: {
+        params: PoParams,
+        body: PcbShipmentReceiveBody,
+        response: { 200: AdminPcbPoListResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await receivePcbShipment(po, { kind: 'admin' }, request.body.note ?? null);
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+
+      const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
+      void sendPcbMail(
+        request.log,
+        po.partner.contactEmail,
+        buildPcbShipmentReceivedEmail({
+          partnerName: po.partner.name,
+          projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
+          note: request.body.note ?? null,
+        }),
+      );
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  // 선적 첨부 — multipart(fileType invoice|airwaybill), 종류별 1건 교체.
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/shipment/files',
+    { schema: { params: PoParams, response: { 200: AdminPcbPoListResponse, 400: ApiError, 409: ApiError } } },
+    async (request, reply) => {
+      const { files, fields } = await collectMultipart(request);
+      const kind = BomShipmentFileType.safeParse(fields.fileType);
+      const file = files[0];
+      if (!kind.success || file === undefined)
+        return reply
+          .status(400)
+          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.' });
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.status(409).send(shipError('NOT_SHIPPED'));
+      await savePcbShipmentFile(shipment.id, kind.data, file, 'ADMIN');
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  fastify.delete(
+    '/pcb-projects/:id/pos/:poId/shipment/files/:fileId',
+    { schema: { params: PoFileParams, response: { 200: AdminPcbPoListResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.notFound('발송이 없습니다');
+      const removed = await deletePcbShipmentFile(shipment.id, request.params.fileId);
+      if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  fastify.get(
+    '/pcb-projects/:id/pos/:poId/shipment/files/:fileId',
+    { schema: { params: PoFileParams } },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.notFound('발송이 없습니다');
+      const file = await getPcbShipmentFileDownload(shipment.id, request.params.fileId);
+      if (file === null) return reply.notFound('파일을 찾을 수 없습니다');
+      const downloaded = await downloadFromFileServer(file.pathToken);
+      if (downloaded === null) return reply.notFound('파일을 찾을 수 없습니다');
+      return reply
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(file.originFileName)}`,
+        )
+        .header('content-type', downloaded.contentType)
+        .send(downloaded.buffer);
+    },
+  );
+
+  // 상업송장(D23 동형) — 국제 전용, 초안/저장/엑셀.
+  fastify.get(
+    '/pcb-projects/:id/pos/:poId/shipment/invoice',
+    {
+      schema: {
+        params: PoParams,
+        // coerce.boolean 은 'false' 문자열도 true 라 enum→transform 으로 판정한다.
+        querystring: z.object({
+          fresh: z
+            .enum(['true', 'false'])
+            .default('false')
+            .transform((v) => v === 'true'),
+        }),
+        response: { 200: PcbInvoiceResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.status(409).send(shipError('NOT_SHIPPED'));
+      const draft = await buildPcbInvoiceDraft(shipment, request.query.fresh);
+      if (!draft.ok)
+        return reply
+          .status(409)
+          .send({ error: draft.error, message: '국내 발송은 상업송장을 사용하지 않습니다.' });
+      return { result: true as const, data: draft.data };
+    },
+  );
+
+  fastify.put(
+    '/pcb-projects/:id/pos/:poId/shipment/invoice',
+    {
+      schema: {
+        params: PoParams,
+        body: BomInvoiceData,
+        response: { 200: PcbPoActionResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.status(409).send(shipError('NOT_SHIPPED'));
+      await savePcbInvoiceData(shipment.id, request.body);
+      return { result: true as const };
+    },
+  );
+
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/shipment/invoice/xlsx',
+    { schema: { params: PoParams, body: BomInvoiceData } },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.notFound('발송이 없습니다');
+      await savePcbInvoiceData(shipment.id, request.body); // 엑셀 생성 = 저장 겸행(D23)
+      const buffer = await renderInvoiceXlsx(request.body);
+      return reply
+        .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('content-disposition', `attachment; filename*=UTF-8''invoice-${String(request.params.poId)}.xlsx`)
+        .send(buffer);
     },
   );
 

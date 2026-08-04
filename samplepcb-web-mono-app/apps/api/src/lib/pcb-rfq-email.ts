@@ -312,3 +312,72 @@ export function buildPcbProducedEmail(p: PcbEqTurnEmailParams): {
     ),
   };
 }
+
+// ── P3 선적 알림 — 상대 차례로 넘어갈 때(BOM D22 인지 장치 승계) ──────────────
+
+export interface PcbShipmentTurnEmailParams {
+  recipientName: string;
+  projectName: string;
+  statusLabel: string; // 진입한 단계 라벨
+  nextLabel: string | null; // 상대에게 요청하는 다음 단계(null=확인만)
+  targetUrl: string;
+  targetLabel: string;
+}
+
+export function buildPcbShipmentTurnEmail(p: PcbShipmentTurnEmailParams): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `[샘플피씨비] PCB 선적 진행 — ${p.projectName} · ${p.statusLabel}`,
+    html: shell(
+      `선적이 '${esc(p.statusLabel)}' 단계가 되었습니다`,
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.recipientName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 발송이
+        '${esc(p.statusLabel)}' 단계로 진행되었습니다.
+        ${p.nextLabel === null ? '내용을 확인해 주세요.' : `다음 단계인 '<b>${esc(p.nextLabel)}</b>' 처리를 부탁드립니다.`}
+      </p>
+      <div style="padding-top:16px;">
+        <a href="${esc(p.targetUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          ${esc(p.targetLabel)}</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbShipmentReceivedEmailParams {
+  partnerName: string; // 보내는측(수신자)
+  projectName: string;
+  note: string | null;
+}
+
+/** 입고확인(검수) → 보내는측 통지. */
+export function buildPcbShipmentReceivedEmail(p: PcbShipmentReceivedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const noteHtml =
+    p.note === null || p.note.trim() === ''
+      ? ''
+      : `<p style="margin:0 0 12px;font-size:13px;color:#b45309;line-height:1.6;">검수 메모: <b>${esc(p.note)}</b> — 확인 후 회신 부탁드립니다.</p>`;
+  return {
+    subject: `[샘플피씨비] PCB 입고 확인 — ${p.projectName}`,
+    html: shell(
+      '입고 확인이 완료되었습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 물품 입고 확인(검수)이
+        완료되었습니다.
+      </p>${noteHtml}
+      <div style="padding-top:16px;">
+        <a href="${esc(pcbPartnerPortalUrl())}"
+           style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털 열기</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
+    ),
+  };
+}

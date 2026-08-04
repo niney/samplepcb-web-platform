@@ -2,11 +2,17 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   ApiError,
+  BomInvoiceData,
+  BomShipmentFileType,
   PartnerPcbChildPoCreateBody,
   PartnerPcbPoDetailResponse,
   PartnerPcbPoListResponse,
   PcbEqFileType,
+  PcbInvoiceResponse,
   PcbPoActionResponse,
+  PcbShipmentAdvanceBody,
+  PcbShipmentReceiveBody,
+  bomShipmentStatusLabel,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import {
@@ -21,6 +27,19 @@ import {
   revertPcbPoEq,
   uploadPcbEqFile,
 } from '../lib/pcb-po';
+import {
+  advancePcbShipment,
+  buildPcbInvoiceDraft,
+  deletePcbShipmentFile,
+  detachPcbShipmentPo,
+  findPcbShipmentByPo,
+  getPcbShipmentFileDownload,
+  receivePcbShipment,
+  revertPcbShipment,
+  savePcbInvoiceData,
+  savePcbShipmentFile,
+} from '../lib/pcb-shipment';
+import { renderInvoiceXlsx } from '../lib/bom-invoice';
 import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
 import { getShopEstimateProfile } from '../lib/g5-db';
@@ -28,6 +47,8 @@ import {
   buildPcbEqRequestedEmail,
   buildPcbPoIssuedEmail,
   buildPcbProducedEmail,
+  buildPcbShipmentReceivedEmail,
+  buildPcbShipmentTurnEmail,
   pcbAdminCaseUrl,
   pcbPartnerPortalUrl,
   pcbPriceText,
@@ -344,6 +365,316 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const detail = await loadPartnerPcbPoDetail(request.params.poId, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
       return { result: true as const, data: detail };
+    },
+  );
+
+  // ═══ P3 선적 — 보내는측 발송·핑퐁, MD 입고확인, 첨부, 상업송장 ═══════════════
+
+  const SHIP_ERROR_MESSAGES: Record<string, string> = {
+    NOT_PRODUCED: '생산완료된 발주서만 발송할 수 있습니다.',
+    PARTNER_COUNTRY_REQUIRED: '조직 소재 국가가 없습니다 — 샘플피씨비 담당자에게 문의하세요.',
+    OUTBOUND_BLOCKED: '하위 협력사 입고 확인이 끝나야 출고할 수 있습니다.',
+    ALREADY_FINAL: '이미 마지막 단계입니다.',
+    NOT_YOUR_TURN: '지금은 상대 차례입니다.',
+    MISSING_SHIP_DATE: '출고예정일을 입력해 주세요.',
+    MISSING_INVOICE_FILE: 'Invoice 첨부가 필요합니다 — 상업송장 생성기로 만들 수 있습니다.',
+    MISSING_TRACKING: '택배사와 송장번호를 입력해 주세요.',
+    INVALID_GROUP_PO: '함께 발송 대상이 조건에 맞지 않습니다.',
+    NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
+    RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
+    NOT_SHIPPED: '발송 시작 전에는 처리할 수 없습니다.',
+    NOT_PREPARING: '발송 준비 단계에서만 뺄 수 있습니다.',
+    REPRESENTATIVE_PO: '대표 발주서는 뺄 수 없습니다.',
+  };
+  const shipError = (error: string): { error: string; message: string } => ({
+    error,
+    message: SHIP_ERROR_MESSAGES[error] ?? '처리할 수 없습니다.',
+  });
+
+  /** 조작 인가 — 수주(보내는측) 또는 발주(MD 받는측) 소속 발주서. */
+  const loadTouchablePo = async (poId: bigint, partnerId: bigint) => {
+    const po = await prisma.spPcbPo.findUnique({
+      where: { id: poId },
+      include: { partner: true, spec: true },
+    });
+    if (po === null) return null;
+    if (po.partnerId !== partnerId && po.parentPartnerId !== partnerId) return null;
+    return po;
+  };
+
+  fastify.post(
+    '/partner/pcb-pos/:poId/shipment/advance',
+    {
+      schema: {
+        params: PoParams,
+        body: PcbShipmentAdvanceBody,
+        response: { 200: PartnerPcbPoDetailResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await advancePcbShipment(
+        po,
+        { kind: 'partner', partnerId: ctx.partnerId },
+        request.body,
+      );
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+
+      // 협력사 전이 → 받는측 통지(관리자=운영자 메일 / MD 입고=조직 메일).
+      const mode = res.shipment.mode === 'domestic' ? 'domestic' : 'international';
+      const statusLabel = bomShipmentStatusLabel(mode, res.to);
+      if (res.shipment.receiverKind === 'md') {
+        const md = await prisma.spPartner.findUnique({
+          where: { id: res.shipment.receiverPartnerId ?? 0n },
+        });
+        void sendPcbMail(
+          request.log,
+          md?.contactEmail,
+          buildPcbShipmentTurnEmail({
+            recipientName: md?.name ?? '중개 조직',
+            projectName: po.spec.projectName,
+            statusLabel,
+            nextLabel: null,
+            targetUrl: pcbPartnerPortalUrl(),
+            targetLabel: '파트너 포털 열기',
+          }),
+        );
+      } else {
+        const profile = await getShopEstimateProfile();
+        void sendPcbMail(
+          request.log,
+          profile?.managerEmail,
+          buildPcbShipmentTurnEmail({
+            recipientName: '샘플피씨비',
+            projectName: po.spec.projectName,
+            statusLabel,
+            nextLabel: null,
+            targetUrl: pcbAdminCaseUrl(po.specId.toString()),
+            targetLabel: 'Case 상세 열기',
+          }),
+        );
+      }
+      const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  fastify.post(
+    '/partner/pcb-pos/:poId/shipment/revert',
+    { schema: { params: PoParams, response: { 200: PartnerPcbPoDetailResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await revertPcbShipment(po, { kind: 'partner', partnerId: ctx.partnerId });
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+      const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  // MD 입고확인 — 받는측이 MD 인 발송만(서버 판정).
+  fastify.post(
+    '/partner/pcb-pos/:poId/shipment/receive',
+    {
+      schema: {
+        params: PoParams,
+        body: PcbShipmentReceiveBody,
+        response: { 200: PartnerPcbPoDetailResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await receivePcbShipment(
+        po,
+        { kind: 'partner', partnerId: ctx.partnerId },
+        request.body.note ?? null,
+      );
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+
+      void sendPcbMail(
+        request.log,
+        po.partner.contactEmail,
+        buildPcbShipmentReceivedEmail({
+          partnerName: po.partner.name,
+          projectName: po.spec.projectName,
+          note: request.body.note ?? null,
+        }),
+      );
+      const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  // 묶음에서 제외 — preparing·대표 제외(보내는측).
+  fastify.delete(
+    '/partner/pcb-pos/:poId/shipment/membership',
+    { schema: { params: PoParams, response: { 200: PcbPoActionResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await detachPcbShipmentPo(po, { kind: 'partner', partnerId: ctx.partnerId });
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+      return { result: true as const };
+    },
+  );
+
+  // 선적 첨부(invoice/airwaybill — 종류별 1건 교체).
+  fastify.post(
+    '/partner/pcb-pos/:poId/shipment/files',
+    { schema: { params: PoParams, response: { 200: PartnerPcbPoDetailResponse, 400: ApiError, 409: ApiError } } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const { files, fields } = await collectMultipart(request);
+      const kind = BomShipmentFileType.safeParse(fields.fileType);
+      const file = files[0];
+      if (!kind.success || file === undefined)
+        return reply
+          .status(400)
+          .send({ error: 'BAD_UPLOAD', message: 'fileType(invoice|airwaybill)과 파일이 필요합니다.' });
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      // 발송이 없으면 생성 시도(보내는측 첫 준비 — produced·게이팅 가드는 lib).
+      let shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) {
+        const advanceable = await advancePcbShipment(
+          po,
+          { kind: 'partner', partnerId: ctx.partnerId },
+          {},
+        );
+        // 첫 전이는 필수값 부족으로 실패할 수 있다 — 발송 생성만 필요하므로 재조회.
+        shipment = await findPcbShipmentByPo(po.id);
+        if (shipment === null)
+          return reply
+            .status(409)
+            .send(shipError(advanceable.ok ? 'NOT_SHIPPED' : advanceable.error));
+      }
+      const uploadedBy = po.partnerId === ctx.partnerId ? 'PARTNER' : 'MASTER_DEALER';
+      await savePcbShipmentFile(shipment.id, kind.data, file, uploadedBy);
+      const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  fastify.delete(
+    '/partner/pcb-pos/:poId/shipment/files/:fileId',
+    { schema: { params: PoFileParams, response: { 200: PartnerPcbPoDetailResponse } } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.notFound('발송이 없습니다');
+      const removed = await deletePcbShipmentFile(shipment.id, request.params.fileId);
+      if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
+      const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  fastify.get(
+    '/partner/pcb-pos/:poId/shipment/files/:fileId',
+    { schema: { params: PoFileParams } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.notFound('발송이 없습니다');
+      const file = await getPcbShipmentFileDownload(shipment.id, request.params.fileId);
+      if (file === null) return reply.notFound('파일을 찾을 수 없습니다');
+      const downloaded = await downloadFromFileServer(file.pathToken);
+      if (downloaded === null) return reply.notFound('파일을 찾을 수 없습니다');
+      return reply
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(file.originFileName)}`,
+        )
+        .header('content-type', downloaded.contentType)
+        .send(downloaded.buffer);
+    },
+  );
+
+  // 상업송장(D23 동형 — 국제 전용).
+  fastify.get(
+    '/partner/pcb-pos/:poId/shipment/invoice',
+    {
+      schema: {
+        params: PoParams,
+        // coerce.boolean 은 'false' 문자열도 true 라 enum→transform 으로 판정한다.
+        querystring: z.object({
+          fresh: z
+            .enum(['true', 'false'])
+            .default('false')
+            .transform((v) => v === 'true'),
+        }),
+        response: { 200: PcbInvoiceResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      let shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) {
+        await advancePcbShipment(po, { kind: 'partner', partnerId: ctx.partnerId }, {});
+        shipment = await findPcbShipmentByPo(po.id);
+      }
+      if (shipment === null) return reply.status(409).send(shipError('NOT_SHIPPED'));
+      const draft = await buildPcbInvoiceDraft(shipment, request.query.fresh);
+      if (!draft.ok)
+        return reply
+          .status(409)
+          .send({ error: draft.error, message: '국내 발송은 상업송장을 사용하지 않습니다.' });
+      return { result: true as const, data: draft.data };
+    },
+  );
+
+  fastify.put(
+    '/partner/pcb-pos/:poId/shipment/invoice',
+    {
+      schema: {
+        params: PoParams,
+        body: BomInvoiceData,
+        response: { 200: PcbPoActionResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.status(409).send(shipError('NOT_SHIPPED'));
+      await savePcbInvoiceData(shipment.id, request.body);
+      return { result: true as const };
+    },
+  );
+
+  fastify.post(
+    '/partner/pcb-pos/:poId/shipment/invoice/xlsx',
+    { schema: { params: PoParams, body: BomInvoiceData } },
+    async (request, reply) => {
+      const ctx = requireCtx(request);
+      const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const shipment = await findPcbShipmentByPo(po.id);
+      if (shipment === null) return reply.notFound('발송이 없습니다');
+      await savePcbInvoiceData(shipment.id, request.body);
+      const buffer = await renderInvoiceXlsx(request.body);
+      return reply
+        .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('content-disposition', `attachment; filename*=UTF-8''invoice-${String(request.params.poId)}.xlsx`)
+        .send(buffer);
     },
   );
 

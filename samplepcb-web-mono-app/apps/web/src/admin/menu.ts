@@ -14,7 +14,8 @@ export interface AdminMenuItem {
     | 'bomQuotesRequested'
     | 'bomPosAwaiting'
     | 'pcbRfqPending'
-    | 'pcbEqPending';
+    | 'pcbEqPending'
+    | 'pcbShipmentPending';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -91,7 +92,6 @@ const smartbomMenu: AdminMenuItem[] = [
 ];
 
 // PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md) — 협력사 견적요청(RFQ) 워크큐 + Case 상세.
-// P2(발주·EQ)·P3(선적·배송) 메뉴는 해당 단계 구현과 함께 추가한다(placeholder 금지).
 const pcbMenu: AdminMenuItem[] = [
   {
     to: { name: 'admin-pcb-rfqs' },
@@ -104,6 +104,12 @@ const pcbMenu: AdminMenuItem[] = [
     to: { name: 'admin-pcb-pos' },
     labelKey: 'admin.menu.pcbPos',
     badge: 'pcbEqPending',
+  },
+  // 선적·배송 워크큐 — 관리자 차례(입고·수취 처리 대기) 수 배지.
+  {
+    to: { name: 'admin-pcb-shipments' },
+    labelKey: 'admin.menu.pcbShipments',
+    badge: 'pcbShipmentPending',
   },
 ];
 

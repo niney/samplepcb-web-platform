@@ -99,6 +99,7 @@ export const en = {
       smartbomPartners: 'Partners',
       pcbRfqs: 'PCB RFQs',
       pcbPos: 'POs & EQ',
+      pcbShipments: 'Shipments',
     },
     placeholder: 'Coming soon.',
     settings: {

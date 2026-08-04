@@ -1,5 +1,11 @@
 import { z } from 'zod';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
+import {
+  BomInvoiceData,
+  BomShipmentFileType,
+  BomShipmentMode,
+  BomShipmentStatus,
+} from './bom-po';
 
 // ── PCB 파트너 트랙 — sp_pcb_po 계약(P2) ─────────────────────────────────────
 // 설계 정본: docs/PCB_PARTNER_TRACK.md §5.2-2·§5.2-3. 발주서 status 가 EQ·생산
@@ -91,6 +97,47 @@ export const PcbEqEvent = z.object({
 });
 export type PcbEqEventType = z.infer<typeof PcbEqEvent>;
 
+// ── PCB 선적(P3) — 상태·핑퐁 주체·필수값은 BOM 선적 코드사전(bom-po.ts §D22) 공유 ──
+// 재해석 한 가지: BOM 의 actor 'ADMIN'=받는측 / 'PARTNER'=보내는측. PCB 는 받는측이
+// MD(입고)일 수 있어 receiverKind 로 실주체를 해석한다(admin=관리자, md=MD 조직).
+
+export const PCB_SHIPMENT_RECEIVER_KINDS = ['admin', 'md'] as const;
+export type PcbShipmentReceiverKindType = (typeof PCB_SHIPMENT_RECEIVER_KINDS)[number];
+
+export const PcbShipmentFileView = z.object({
+  fileId: z.number(),
+  name: z.string(),
+  size: z.number(),
+  fileType: BomShipmentFileType, // invoice|airwaybill
+  uploadedBy: z.string().nullable(),
+  uploadedAt: z.string(),
+});
+export type PcbShipmentFileViewType = z.infer<typeof PcbShipmentFileView>;
+
+export const PcbShipmentView = z.object({
+  shipmentId: z.number(),
+  poId: z.number(), // 대표(생성) 발주서
+  specId: z.number(),
+  mode: BomShipmentMode,
+  status: BomShipmentStatus,
+  receiverKind: z.enum(PCB_SHIPMENT_RECEIVER_KINDS),
+  receiverName: z.string(), // 관리자=자사명, md=MD 조직명
+  senderPartnerId: z.number(),
+  senderName: z.string(),
+  destinationCountry: z.string().nullable(),
+  carrier: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  trackingUrl: z.string().nullable(),
+  shipDate: z.string().nullable(),
+  shippedAt: z.string().nullable(),
+  receivedAt: z.string().nullable(),
+  receivedNote: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  poIds: z.array(z.number()), // 소속 발주서 전체(조인 기준 — 대표 포함)
+  files: z.array(PcbShipmentFileView),
+});
+export type PcbShipmentViewType = z.infer<typeof PcbShipmentView>;
+
 // ── 공용 뷰(관리자·MD 하위 표시) ─────────────────────────────────────────────
 export const AdminPcbPoView = z.object({
   poId: z.number(),
@@ -128,7 +175,8 @@ export type AdminPcbPoViewType = z.infer<typeof AdminPcbPoView>;
 
 export const AdminPcbPoListResponse = z.object({
   result: z.literal(true),
-  data: z.object({ pos: z.array(AdminPcbPoView) }),
+  // shipments 는 P3 확장 — 발주 패널이 발주서와 소속 선적을 함께 소비한다.
+  data: z.object({ pos: z.array(AdminPcbPoView), shipments: z.array(PcbShipmentView) }),
 });
 export type AdminPcbPoListResponseType = z.infer<typeof AdminPcbPoListResponse>;
 
@@ -279,6 +327,14 @@ export const PartnerPcbPoDetail = z.object({
   children: z.array(AdminPcbPoView),
   /** MD 전용 — 하위 발주 프리필 후보(내 하위 트랙의 회신 견적행). */
   childRfqs: z.array(AdminPcbRfqView),
+  /** P3 — 이 발주서가 소속된 발송(없으면 null). */
+  shipment: PcbShipmentView.nullable(),
+  /** P3 — 같이 보낼 수 있는 내 발주서(produced·미배정·같은 받는측/목적지/회차). */
+  shippableWith: z.array(z.object({ poId: z.number(), projectName: z.string() })),
+  /** P3 — 발송 시작 가능(produced·미배정·출고 게이팅 통과). */
+  canShip: z.boolean(),
+  /** P3 — MD 출고 게이팅에 걸림(하위 입고 미완료). */
+  outboundBlocked: z.boolean(),
 });
 export type PartnerPcbPoDetailType = z.infer<typeof PartnerPcbPoDetail>;
 
@@ -302,3 +358,64 @@ export const PartnerPcbChildPoCreateBody = z.object({
   memo: z.string().trim().max(2000).nullable().optional(),
 });
 export type PartnerPcbChildPoCreateBodyType = z.infer<typeof PartnerPcbChildPoCreateBody>;
+
+// 발송 만들기(보내는측 포털) — 대표 po 경유. withPoIds 는 같은 컨텍스트(받는측·목적지·
+// 회차)의 내 produced 발주서만(서버 검증). 최초 발송 전이(advance)에서도 함께 담기 가능.
+export const PcbShipmentAdvanceBody = z.object({
+  shipDate: z.string().trim().max(10).nullish(),
+  carrier: z.string().trim().max(50).nullish(),
+  trackingNumber: z.string().trim().max(100).nullish(),
+  trackingUrl: z.string().trim().max(500).nullish(),
+  withPoIds: z.array(z.number().int().positive()).max(50).optional(),
+});
+export type PcbShipmentAdvanceBodyType = z.infer<typeof PcbShipmentAdvanceBody>;
+
+export const PcbShipmentReceiveBody = z.object({
+  note: z.string().trim().max(2000).nullish(),
+});
+export type PcbShipmentReceiveBodyType = z.infer<typeof PcbShipmentReceiveBody>;
+
+export const PcbInvoiceResponse = z.object({
+  result: z.literal(true),
+  data: BomInvoiceData,
+});
+export type PcbInvoiceResponseType = z.infer<typeof PcbInvoiceResponse>;
+
+// ── 관리자 선적 워크큐 (/api/admin/pcb-shipments) ────────────────────────────
+export const ADMIN_PCB_SHIPMENT_TABS = ['pending', 'active', 'received', 'all'] as const;
+export type AdminPcbShipmentTabType = (typeof ADMIN_PCB_SHIPMENT_TABS)[number];
+
+export const AdminPcbShipmentWorkItem = z.object({
+  shipmentId: z.number(),
+  poId: z.number(),
+  specId: z.number(),
+  projectName: z.string(),
+  senderName: z.string(),
+  receiverKind: z.enum(PCB_SHIPMENT_RECEIVER_KINDS),
+  receiverName: z.string(),
+  mode: BomShipmentMode,
+  status: BomShipmentStatus,
+  poCount: z.number().int(),
+  receivedAt: z.string().nullable(),
+  /** 관리자 차례 — 받는측이 관리자이고 다음 전이 주체가 받는측이거나, 최종인데 입고 미확인. */
+  adminTurn: z.boolean(),
+  createdAt: z.string(),
+});
+export type AdminPcbShipmentWorkItemType = z.infer<typeof AdminPcbShipmentWorkItem>;
+
+export const AdminPcbShipmentWorkListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(AdminPcbShipmentWorkItem),
+    total: z.number().int(),
+    page: z.number().int(),
+    pageSize: z.number().int(),
+    counts: z.object({
+      pending: z.number().int(),
+      active: z.number().int(),
+      received: z.number().int(),
+      all: z.number().int(),
+    }),
+  }),
+});
+export type AdminPcbShipmentWorkListResponseType = z.infer<typeof AdminPcbShipmentWorkListResponse>;

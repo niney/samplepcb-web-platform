@@ -1329,3 +1329,45 @@ model SpPcbPo {
   @@index([specId])
   @@map("sp_pcb_po")
 }
+
+// PCB 선적(P3) — 발주서당 1건 생성 + 발송 시점 묶기(sp_pcb_shipment_po, BOM §6.10
+// 검증 모델). 레거시 sp_shipment(order_type 공용 — id 충돌 함정 L4)를 전용 테이블로
+// 교정. 모드·받는측은 **생성 시 박제**: receiverKind admin(관리자/직송)|md(MD 입고).
+// 상태 코드사전·핑퐁 주체는 BOM 선적 계약(BOM_SHIPMENT_*)을 그대로 공유한다(§8 V6).
+model SpPcbShipment {
+  id                 BigInt    @id @default(autoincrement())
+  poId               BigInt    @unique // 대표(생성) 발주서
+  specId             BigInt // 대표의 스펙(워크큐 조회 편의)
+  mode               String    @default("international") @db.VarChar(16) // international|domestic
+  status             String    @db.VarChar(20) // BOM 코드사전(preparing|requested|…|delivered)
+  receiverKind       String    @default("admin") @db.VarChar(8) // admin|md
+  receiverPartnerId  BigInt? // md 입고일 때 MD 조직
+  destinationCountry String?   @db.VarChar(2) // 직송 박제(대표 발주서 승계, D5)
+  carrier            String?   @db.VarChar(50)
+  trackingNumber     String?   @db.VarChar(100)
+  trackingUrl        String?   @db.VarChar(500)
+  shipDate           DateTime? // 출고예정일(보내는측)
+  shippedAt          DateTime? // 최초 발송 전이 박제
+  receivedAt         DateTime? // 받는측 입고확인(검수)
+  receivedNote       String?   @db.Text
+  completedAt        DateTime? // 최종 단계 진입 박제(revert 이탈 시 해제)
+  shipQty            Int? // 발송 수량 기록(레거시 ship_qty — UI 후속)
+  invoiceData        Json? // 상업송장 편집본(BomInvoiceData — D23 동형)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  pos                SpPcbShipmentPo[]
+
+  @@index([specId])
+  @@map("sp_pcb_shipment")
+}
+
+// 선적:발주서 = 1:N 소속의 진실 조인(발주서는 최대 1개 선적 소속).
+model SpPcbShipmentPo {
+  id         BigInt        @id @default(autoincrement())
+  shipmentId BigInt
+  poId       BigInt        @unique
+  createdAt  DateTime      @default(now())
+  shipment   SpPcbShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@map("sp_pcb_shipment_po")
+}

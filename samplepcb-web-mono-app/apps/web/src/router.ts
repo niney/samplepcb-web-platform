@@ -219,6 +219,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminPcbPos.vue'),
       },
       {
+        path: 'pcb/shipments',
+        name: 'admin-pcb-shipments',
+        component: () => import('./pages/admin/AdminPcbShipments.vue'),
+      },
+      {
         path: 'pcb/cases/:id',
         name: 'admin-pcb-case',
         component: () => import('./pages/admin/AdminPcbCase.vue'),

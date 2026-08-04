@@ -99,6 +99,7 @@ export const ko = {
       smartbomPartners: '파트너',
       pcbRfqs: 'PCB 견적요청',
       pcbPos: '발주·EQ',
+      pcbShipments: '선적·배송',
     },
     placeholder: '준비 중입니다.',
     settings: {

@@ -5,9 +5,13 @@ import { ApiRequestError } from '@sp/shared';
 import {
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
+  bomShipmentNextStatus,
+  bomShipmentStatusLabel,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
   type PcbRfqReplyBodyType,
+  type PcbShipmentAdvanceBodyType,
+  type PcbShipmentViewType,
 } from '@sp/api-contract';
 import { downloadAdminFile, useAdminQuoteDetail, useConfirmPrice } from '../../admin/useAdminQuotes';
 import { useAdminPartnerList, type AdminPartnerFilters } from '../../admin/useAdminPartners';
@@ -21,8 +25,13 @@ import {
   useUnselectPcbRfq,
 } from '../../admin/useAdminPcbRfqs';
 import {
+  adminPcbInvoiceApi,
   downloadAdminPcbEqFile,
+  downloadAdminPcbShipmentFile,
   useAdminPcbPos,
+  useAdminPcbShipmentAdvance,
+  useAdminPcbShipmentReceive,
+  useAdminPcbShipmentRevert,
   useAdminRevertPcbEq,
   useApprovePcbEq,
   useCreatePcbPo,
@@ -31,6 +40,7 @@ import {
 } from '../../admin/useAdminPcbPos';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
+import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
 
 // PCB Case 상세 — docs/PCB_PARTNER_TRACK.md §5.4. 스펙 요약(기존 admin-pcb-projects
 // 상세 계약 재사용) + 협력사 RFQ 패널(배정 diff·대리 회신·선정/해제·매직링크).
@@ -348,6 +358,96 @@ const PO_STATUS_CLS: Record<string, string> = {
   eq_done: 'bg-sky-100 text-sky-700',
   producing: 'bg-indigo-100 text-indigo-700',
   produced: 'bg-emerald-100 text-emerald-700',
+};
+
+// ── 선적 패널(P3) — 관리자는 받는측 + 양측 만능 대행(서버 isSideActor) ────────
+const shipments = computed(() => posQuery.data.value?.data.shipments ?? []);
+const shipmentByPo = computed(() => {
+  const map = new Map<number, PcbShipmentViewType>();
+  for (const s of shipments.value) for (const pid of s.poIds) map.set(pid, s);
+  return map;
+});
+// 서브행 v-for 용 — 대표 발주 행에만 1개(묶음은 대표 행 아래 한 번만 표시).
+const shipRowsOf = (poId: number): PcbShipmentViewType[] => {
+  const s = shipmentByPo.value.get(poId);
+  if (s === undefined) return [];
+  return s.poId === poId ? [s] : [];
+};
+
+const shipAdvanceAdmin = useAdminPcbShipmentAdvance();
+const shipRevertAdmin = useAdminPcbShipmentRevert();
+const shipReceiveAdmin = useAdminPcbShipmentReceive();
+
+async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
+  if (specId.value === null) return;
+  const next = bomShipmentNextStatus(s.mode, s.status);
+  if (next === null) return;
+  let body: PcbShipmentAdvanceBodyType = {};
+  if (next === 'requested') {
+    const d = window.prompt('출고예정일 (YYYY-MM-DD) — Invoice 첨부도 필요합니다');
+    if (d === null || d.trim() === '') return;
+    body = { shipDate: d.trim() };
+  } else if (next === 'shipping') {
+    const carrier = window.prompt('택배사');
+    if (carrier === null || carrier.trim() === '') return;
+    const tn = window.prompt('송장번호');
+    if (tn === null || tn.trim() === '') return;
+    body = { carrier: carrier.trim(), trackingNumber: tn.trim() };
+  } else if (next === 'shipped') {
+    const tn = window.prompt('트래킹 번호(AWB/BL)');
+    if (tn === null || tn.trim() === '') return;
+    body = { trackingNumber: tn.trim() };
+  }
+  actionError.value = '';
+  try {
+    await shipAdvanceAdmin.mutateAsync({ specId: specId.value, poId, body });
+  } catch (e) {
+    surfaceError(e, '선적 진행에 실패했습니다.');
+  }
+}
+async function adminShipRevert(poId: number): Promise<void> {
+  if (specId.value === null) return;
+  if (!window.confirm('선적을 한 단계 되돌릴까요?')) return;
+  actionError.value = '';
+  try {
+    await shipRevertAdmin.mutateAsync({ specId: specId.value, poId });
+  } catch (e) {
+    surfaceError(e, '되돌리기에 실패했습니다.');
+  }
+}
+async function adminShipReceive(poId: number): Promise<void> {
+  if (specId.value === null) return;
+  const note = window.prompt('입고 확인 메모(수량 부족·불량 등 — 없으면 비워두세요)');
+  if (note === null) return;
+  actionError.value = '';
+  try {
+    await shipReceiveAdmin.mutateAsync({
+      specId: specId.value,
+      poId,
+      note: note.trim() === '' ? null : note.trim(),
+    });
+  } catch (e) {
+    surfaceError(e, '입고 확인에 실패했습니다.');
+  }
+}
+
+// 상업송장 모달 — 대표 발주 기준 콜백 주입.
+const invoicePoId = ref<number | null>(null);
+const adminInvoiceApiRef = computed(() =>
+  invoicePoId.value === null || specId.value === null
+    ? null
+    : adminPcbInvoiceApi(specId.value, invoicePoId.value),
+);
+
+const SHIP_STATUS_CLS: Record<string, string> = {
+  preparing: 'bg-gray-100 text-gray-600',
+  requested: 'bg-blue-100 text-blue-700',
+  shipped: 'bg-indigo-100 text-indigo-700',
+  arrived: 'bg-sky-100 text-sky-700',
+  customs: 'bg-amber-100 text-amber-700',
+  done: 'bg-emerald-100 text-emerald-700',
+  shipping: 'bg-indigo-100 text-indigo-700',
+  delivered: 'bg-emerald-100 text-emerald-700',
 };
 
 // ── 표시 헬퍼 ────────────────────────────────────────────────────────────────
@@ -712,6 +812,70 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   </button>
                 </td>
               </tr>
+              <!-- 선적(P3) — 대표 발주 행 아래 1줄(묶음 포함) -->
+              <tr v-for="s in shipRowsOf(po.poId)" :key="`ship-${String(s.shipmentId)}`" class="bg-teal-50/30">
+                <td colspan="7" class="px-8 py-2">
+                  <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="font-bold text-teal-600">🚚 선적</span>
+                    <span class="rounded px-1.5 py-0.5 font-semibold" :class="SHIP_STATUS_CLS[s.status]">
+                      {{ bomShipmentStatusLabel(s.mode, s.status) }}
+                    </span>
+                    <span class="text-gray-500">
+                      {{ s.mode === 'domestic' ? '국내(택배)' : '국제' }} · {{ s.senderName }} → {{ s.receiverName }}
+                      <template v-if="s.destinationCountry !== null"> · 직송 {{ s.destinationCountry }}</template>
+                    </span>
+                    <span v-if="s.poIds.length > 1" class="rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700">묶음 {{ s.poIds.length }}건</span>
+                    <span v-if="s.shipDate !== null" class="text-gray-500">출고예정 {{ s.shipDate.slice(0, 10) }}</span>
+                    <span v-if="s.trackingNumber !== null" class="tabular-nums text-gray-500">{{ s.carrier ?? '' }} {{ s.trackingNumber }}</span>
+                    <span v-if="s.receivedAt !== null" class="font-semibold text-emerald-600">
+                      입고완료 {{ dateOnly(s.receivedAt) }}<template v-if="s.receivedNote !== null && s.receivedNote !== ''"> · {{ s.receivedNote }}</template>
+                    </span>
+                    <button
+                      v-for="f in s.files"
+                      :key="f.fileId"
+                      type="button"
+                      class="rounded border border-gray-200 px-1.5 py-0.5 font-semibold text-gray-500 hover:bg-gray-50"
+                      :title="f.name"
+                      @click="specId !== null && void downloadAdminPcbShipmentFile(specId, po.poId, f.fileId, f.name)"
+                    >
+                      ⬇ {{ f.fileType }}
+                    </button>
+                    <span class="grow" />
+                    <button
+                      v-if="bomShipmentNextStatus(s.mode, s.status) !== null"
+                      type="button"
+                      class="rounded-md bg-teal-600 px-2 py-1 font-semibold text-white hover:bg-teal-700"
+                      @click="void adminShipAdvance(po.poId, s)"
+                    >
+                      {{ bomShipmentStatusLabel(s.mode, bomShipmentNextStatus(s.mode, s.status) ?? s.status) }} 진행
+                    </button>
+                    <button
+                      v-if="bomShipmentNextStatus(s.mode, s.status) === null && s.receivedAt === null && s.receiverKind === 'admin'"
+                      type="button"
+                      class="rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700"
+                      @click="void adminShipReceive(po.poId)"
+                    >
+                      입고 확인
+                    </button>
+                    <button
+                      v-if="s.mode === 'international'"
+                      type="button"
+                      class="rounded-md border border-teal-300 px-2 py-1 font-semibold text-teal-700 hover:bg-teal-100"
+                      @click="invoicePoId = po.poId"
+                    >
+                      🧾 송장
+                    </button>
+                    <button
+                      v-if="s.status !== 'preparing'"
+                      type="button"
+                      class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
+                      @click="void adminShipRevert(po.poId)"
+                    >
+                      ↩ 되돌리기
+                    </button>
+                  </div>
+                </td>
+              </tr>
               <!-- MD 하위 발주(EQ 실작업 문서) -->
               <tr v-if="childPosOf(po.partnerId).length > 0">
                 <td colspan="7" class="bg-indigo-50/30 px-8 py-2">
@@ -723,6 +887,12 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       </span>
                       <span class="font-medium">{{ child.partnerName }}</span>
                       <span class="tabular-nums">{{ pcbMoneyWithSub(child.currency, child.priceOriginal, child.subCurrency, child.subPriceOriginal) }}</span>
+                      <template v-for="cs in shipRowsOf(child.poId)" :key="`cship-${String(cs.shipmentId)}`">
+                        <span class="rounded px-1.5 py-0.5 font-semibold" :class="SHIP_STATUS_CLS[cs.status]">
+                          🚚 {{ bomShipmentStatusLabel(cs.mode, cs.status) }}
+                        </span>
+                        <span v-if="cs.receivedAt !== null" class="font-semibold text-emerald-600">MD 입고완료</span>
+                      </template>
                       <button
                         v-for="f in child.eqFiles"
                         :key="f.fileId"
@@ -912,6 +1082,17 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         </div>
       </div>
     </div>
+
+    <!-- 상업송장 편집(P3) — BOM InvoiceEditorModal 재사용(콜백 주입) -->
+    <InvoiceEditorModal
+      v-if="adminInvoiceApiRef !== null"
+      :open="invoicePoId !== null"
+      :load-draft="adminInvoiceApiRef.loadDraft"
+      :save-draft="adminInvoiceApiRef.saveDraft"
+      :render-xlsx="adminInvoiceApiRef.renderXlsx"
+      :attach-pdf="adminInvoiceApiRef.attachPdf"
+      @close="invoicePoId = null"
+    />
   </div>
 </template>
 

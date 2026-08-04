@@ -27,6 +27,15 @@ import {
   validatePcbRfqPartners,
 } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
+import {
+  findPcbShipmentByPo,
+  isPcbOutboundBlocked,
+  loadShippableCompanions,
+  pcbShipmentReceiverTurn,
+  pcbShipmentSenderTurn,
+  resolvePcbShipContext,
+  toPcbShipmentView,
+} from './pcb-shipment';
 
 // ── PCB 발주서·EQ 코어(P2) — docs/PCB_PARTNER_TRACK.md §5.2-2·§5.2-3 ─────────
 // 발주는 결제 확인(od isPaid) 후에만(§5.2-2, BOM D18 동형). status 가 EQ·생산
@@ -671,10 +680,31 @@ export const loadPartnerPcbPos = async (
       : await prisma.spPartner.findMany({ where: { id: { in: parentIds } } });
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
 
+  // 선적 소속 일괄 로드 — myTurn 에 발송·핑퐁 차례를 반영(P3).
+  const allIds = [...received, ...issued].map((po) => po.id);
+  const shipmentLinks =
+    allIds.length === 0
+      ? []
+      : await prisma.spPcbShipmentPo.findMany({
+          where: { poId: { in: allIds } },
+          include: { shipment: true },
+        });
+  const shipmentByPo = new Map(shipmentLinks.map((l) => [l.poId.toString(), l.shipment]));
+
   const items: PartnerPcbPoListItemType[] = [];
   for (const po of received) {
     const delegation = await resolveEqDelegation(po);
     const forward = PCB_EQ_FORWARD[asPcbPoStatus(po.status)];
+    const shipment = shipmentByPo.get(po.id.toString()) ?? null;
+    const eqTurn =
+      delegation.delegatePoId === null &&
+      !delegation.blocked &&
+      forward !== null &&
+      forward.actor === 'RECEIVER';
+    const shipTurn =
+      shipment !== null
+        ? pcbShipmentSenderTurn(shipment)
+        : asPcbPoStatus(po.status) === 'produced' && !(await isPcbOutboundBlocked(po));
     items.push({
       poId: Number(po.id),
       projectName: po.spec.projectName,
@@ -692,14 +722,17 @@ export const loadPartnerPcbPos = async (
       deliveryDate: iso(po.deliveryDate),
       remittedAt: iso(po.remittedAt),
       issuedAt: po.issuedAt.toISOString(),
-      myTurn:
-        delegation.delegatePoId === null &&
-        !delegation.blocked &&
-        forward !== null &&
-        forward.actor === 'RECEIVER',
+      myTurn: eqTurn || shipTurn,
     });
   }
   for (const po of issued) {
+    const shipment = shipmentByPo.get(po.id.toString()) ?? null;
+    // MD 입고 확인 차례(받는측=내 조직) — 하위가 발송하면 켜진다.
+    const inboundTurn =
+      shipment !== null &&
+      shipment.receiverKind === 'md' &&
+      shipment.receiverPartnerId === partnerId &&
+      pcbShipmentReceiverTurn(shipment);
     items.push({
       poId: Number(po.id),
       projectName: po.spec.projectName,
@@ -714,7 +747,8 @@ export const loadPartnerPcbPos = async (
       deliveryDate: iso(po.deliveryDate),
       remittedAt: iso(po.remittedAt),
       issuedAt: po.issuedAt.toISOString(),
-      myTurn: false, // 발주 방향의 EQ 승인은 관리자 몫(D3) — fallback 은 상세 보조 버튼만
+      // EQ 승인은 관리자 몫(D3)이지만 하위 **입고 확인**은 MD 차례다(P3).
+      myTurn: inboundTurn,
     });
   }
   items.sort((a, b) => (a.issuedAt < b.issuedAt ? 1 : -1));
@@ -810,6 +844,25 @@ export const loadPartnerPcbPoDetail = async (
     },
     children: await serializeAdminPos(childrenRows),
     childRfqs: await serializeAdminPcbRfqRows(childRfqRows),
+    // ── P3 선적 — 소속 발송·같이 보낼 후보·발송 가능/게이팅 파생 ──
+    ...(await (async () => {
+      const shipmentRow = await findPcbShipmentByPo(po.id);
+      const shipment = shipmentRow === null ? null : await toPcbShipmentView(shipmentRow);
+      const outboundBlocked =
+        asPcbPoStatus(po.status) === 'produced' && (await isPcbOutboundBlocked(po));
+      const ctxOk = (await resolvePcbShipContext(po)).ok;
+      const canShip =
+        direction === 'received' &&
+        asPcbPoStatus(po.status) === 'produced' &&
+        shipmentRow === null &&
+        !outboundBlocked &&
+        ctxOk;
+      const shippableWith =
+        canShip || (shipment !== null && shipment.status === 'preparing' && direction === 'received')
+          ? await loadShippableCompanions(po)
+          : [];
+      return { shipment, shippableWith, canShip, outboundBlocked };
+    })()),
   };
 };
 

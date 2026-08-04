@@ -3,13 +3,18 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   AdminPcbPoListResponse,
   AdminPcbPoWorkListResponse,
+  AdminPcbShipmentWorkListResponse,
+  PcbInvoiceResponse,
   PcbPoActionResponse,
   apiRoutes,
   type AdminPcbPoCreateBodyType,
   type AdminPcbPoPatchBodyType,
   type AdminPcbPoTabType,
+  type AdminPcbShipmentTabType,
+  type BomInvoiceDataType,
+  type PcbShipmentAdvanceBodyType,
 } from '@sp/api-contract';
-import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
+import { apiGet, apiGetBlob, apiSend, apiSendBlob } from '@sp/shared';
 
 // PCB 발주·EQ 관리자 훅(P2) — docs/PCB_PARTNER_TRACK.md §5.4.
 // 무효화는 ['admin','pcbPo'] 접두 일괄(+Case RFQ 패널과 배지는 별개 키라 독립).
@@ -183,3 +188,140 @@ export async function downloadAdminPcbEqFile(
     URL.revokeObjectURL(url);
   }
 }
+
+// ═══ P3 선적 — 관리자 전이·입고확인·워크큐·송장 ═══════════════════════════════
+
+export interface AdminPcbShipmentFilters {
+  page: number;
+  pageSize: number;
+  tab: AdminPcbShipmentTabType;
+}
+
+export function useAdminPcbShipmentWork(filters: Ref<AdminPcbShipmentFilters>) {
+  return useQuery({
+    queryKey: ['admin', 'pcbShipment', 'work', filters],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.adminPcbShipments}?page=${String(filters.value.page)}&pageSize=${String(filters.value.pageSize)}&tab=${filters.value.tab}`,
+        AdminPcbShipmentWorkListResponse,
+      ),
+    placeholderData: keepPreviousData,
+  });
+}
+
+// 사이드바 '선적·배송' 배지 — 관리자 차례 발송 수.
+export function usePcbShipmentPendingCount(enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: ['admin', 'pcbShipment', 'pending-count'],
+    queryFn: async () => {
+      const res = await apiGet(
+        `${apiRoutes.adminPcbShipments}?page=1&pageSize=1&tab=all`,
+        AdminPcbShipmentWorkListResponse,
+      );
+      return res.data.counts.pending;
+    },
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+
+const shipmentInvalidate = (qc: ReturnType<typeof useQueryClient>): void => {
+  void qc.invalidateQueries({ queryKey: ['admin', 'pcbPo'] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'pcbShipment'] });
+};
+
+const shipmentAction = (
+  qc: ReturnType<typeof useQueryClient>,
+  action: 'advance' | 'revert',
+) =>
+  useMutation({
+    mutationFn: ({
+      specId,
+      poId,
+      body,
+    }: {
+      specId: number;
+      poId: number;
+      body?: PcbShipmentAdvanceBodyType;
+    }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/${action}`,
+        body ?? {},
+        AdminPcbPoListResponse,
+      ),
+    onSuccess: () => {
+      shipmentInvalidate(qc);
+    },
+  });
+
+export function useAdminPcbShipmentAdvance() {
+  return shipmentAction(useQueryClient(), 'advance');
+}
+export function useAdminPcbShipmentRevert() {
+  return shipmentAction(useQueryClient(), 'revert');
+}
+
+export function useAdminPcbShipmentReceive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ specId, poId, note }: { specId: number; poId: number; note: string | null }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/receive`,
+        { note },
+        AdminPcbPoListResponse,
+      ),
+    onSuccess: () => {
+      shipmentInvalidate(qc);
+    },
+  });
+}
+
+export async function downloadAdminPcbShipmentFile(
+  specId: number,
+  poId: number,
+  fileId: number,
+  fileName: string,
+): Promise<void> {
+  const blob = await apiGetBlob(
+    `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/files/${String(fileId)}`,
+  );
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// 상업송장 — InvoiceEditorModal 콜백 주입(관리자측).
+export const adminPcbInvoiceApi = (specId: number, poId: number) => ({
+  loadDraft: async (fresh: boolean) =>
+    (
+      await apiGet(
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/invoice?fresh=${fresh ? 'true' : 'false'}`,
+        PcbInvoiceResponse,
+      )
+    ).data,
+  saveDraft: (data: BomInvoiceDataType) =>
+    apiSend(
+      'PUT',
+      `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/invoice`,
+      data,
+      PcbPoActionResponse,
+    ),
+  renderXlsx: (data: BomInvoiceDataType) =>
+    apiSendBlob(
+      'POST',
+      `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment/invoice/xlsx`,
+      data,
+    ),
+  attachPdf: async (_file: File) => {
+    // 관리자 PDF 첨부는 파일 업로드 라우트로 — P3 후속(현재 엑셀·저장만).
+    await Promise.resolve();
+  },
+});
