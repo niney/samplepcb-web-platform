@@ -354,7 +354,7 @@ draft는 재계산 시 최신 실효 환율을 적용하고, `sp_bom_quote.usdKr
   `POST /quotes/:id/items/:itemId/selection {candidateKey,offerKey}`(draft 전용, 가격은 서버 재계산) ·
   `GET /quotes/:id/comparison?page&pageSize&search&status&sheet`(원본 추출+후보의 페이지 조회) ·
   `GET /quotes/:id/supplier-search`(이 견적의 활성 검색 실행 상태) ·
-  `/request`(재계산·동결) · `/cancel` · `DELETE`(draft)
+  `/request`(재계산·동결) · `/cancel` · `DELETE`(draft/canceled)
 - 잡 프록시: `GET /jobs/:id[/result]`, 공급사 검색 `POST /jobs/:id/supplier-search[/preflight]`
   — **소유 회원만**(타인·미기록 404 은닉), 일일 한도 초과 429 `SEARCH_DAILY_LIMIT`,
   max_calls 는 sp_config 와 sp-engine 안전 상한(기본 3,000회) 중 작은 값으로 클램프.
@@ -543,7 +543,7 @@ Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(node 87:9037)를 픽셀 충실도 �
   제외하고 `components/AppSiteHomeButton.vue`로 각 상단바에 아이콘을 배치한다. BOM 상단의 별도 홈·관리자
   링크와 중앙 타이틀, 관리자 상단의 중앙 인사말·사이트로 링크는 셸 목적에 맞게 정리했다.
 - `pages/bom/BomHistory.vue`: 파일·견적명 검색, 상태 필터, 페이지 이동, 현재 페이지 선택,
-  개별/선택/전체 삭제. 삭제는 서버에서도 본인 `draft`로 제한하며 요청·검토·답변 이력은
+  개별/선택/전체 삭제. 삭제는 서버에서도 본인 `draft`·`canceled`로 제한하며 요청·검토·답변·종료 이력은
   전체 삭제에서도 보존한다. `POST /api/bom/quotes/delete`가 최대 200개 선택 또는 전체 범위를 처리한다.
   실행은 트랜잭션 없이 20건 청크의 가드된 DELETE 문장별 autocommit(2026-07-24) — cascade
   자식(후보 스냅샷 등)이 견적당 수천 행이라 5초 인터랙티브 트랜잭션은 P2028로 전멸했다.
@@ -603,9 +603,10 @@ Figma "02 BOM 파일 분석_검색 결과" 레이아웃에 기존 기능 병합(
   NOSTOCK은 상태와 조합 가능한 독립 재고 필터, TOTAL은 전체 필터 해제다.
   — BomLayout 프로모 aside 는 홈에서만 표시
 - 공급사 검색 적용: 엔진이 기술적으로 허용한 후보의 제조사·설명을 선택 스냅샷에 함께 박제
-- draft 하단 액션(2026-07-19): [견적 삭제] = 하드 삭제(`DELETE /quotes/:id` — 항목 cascade·
-  원본 파일 정리, 2단계 인라인 확인) — 사용자 결정으로 작성 취소를 대체. requested 는 [요청 취소] 유지.
-  단건도 같은 이유로 무트랜잭션 가드 문장(`deleteMany({id, mbId, status:'draft'})`, 0건이면 409).
+- 작성 중·취소 하단 액션(2026-08-04): [견적 삭제] = 하드 삭제(`DELETE /quotes/:id` — 항목 cascade·
+  원본 파일 정리, 2단계 인라인 확인). requested 는 [요청 취소]를 유지하고 취소 완료 후 삭제할 수 있다.
+  단건도 같은 이유로 무트랜잭션 가드 문장(`deleteMany({id, mbId, status:{in:['draft','canceled']}})`,
+  0건이면 409)을 사용한다.
 - 부품 이미지(2026-07-20): 라인 `partImageUrl` = 카탈로그 `sp_part.imageUrl` 을 응답 시
   `toDetailDto` 가 일괄 조회해 채움(스냅샷 아님 — 항상 현재 카탈로그, PATCH 왕복 없는
   서버 계산 필드). 행 76px 정사각 `<img>`(no-referrer·onerror 시 플레이스홀더 축퇴),

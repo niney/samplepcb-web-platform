@@ -1192,7 +1192,7 @@ export const BomQuoteListResponse = z.object({
   data: z.object({
     items: z.array(BomQuoteSummary),
     total: z.number().int(),
-    /** 전체 목록 중 고객이 즉시 삭제할 수 있는 draft 견적 수. */
+    /** 전체 목록 중 고객이 즉시 삭제할 수 있는 작성 중·취소 견적 수. */
     deletableCount: z.number().int().nonnegative(),
     page: z.number().int(),
     pageSize: z.number().int(),

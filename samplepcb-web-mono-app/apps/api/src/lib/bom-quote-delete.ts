@@ -4,6 +4,11 @@ import { prisma } from './prisma';
 
 // 후보 스냅샷 등 cascade 자식이 견적당 수천 행이라, 한 DELETE 문장의 작업량을 짧게 묶는다.
 export const BOM_QUOTE_DELETE_CHUNK_SIZE = 20;
+export const CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES = ['draft', 'canceled'] as const;
+
+export function isCustomerDeletableBomQuoteStatus(status: string): boolean {
+  return CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES.some((candidate) => candidate === status);
+}
 
 export interface BomQuoteDeleteTarget {
   id: bigint;
@@ -11,7 +16,7 @@ export interface BomQuoteDeleteTarget {
   status: string;
 }
 
-/** 조회 결과를 다시 소유권으로 제한하고, 그중 draft만 삭제 후보로 만든다. */
+/** 조회 결과를 다시 소유권으로 제한하고, 그중 작성 중·취소 견적만 삭제 후보로 만든다. */
 export function planBomQuoteDeletion(
   rows: readonly BomQuoteDeleteTarget[],
   mbId: string,
@@ -19,7 +24,7 @@ export function planBomQuoteDeletion(
   const targets = rows.filter((row) => row.mbId === mbId);
   return {
     targets,
-    deletableIds: targets.filter((row) => row.status === 'draft').map((row) => row.id),
+    deletableIds: targets.filter((row) => isCustomerDeletableBomQuoteStatus(row.status)).map((row) => row.id),
   };
 }
 

@@ -67,7 +67,7 @@ const items = computed(() => list.data.value?.data.items ?? []);
 const total = computed(() => list.data.value?.data.total ?? 0);
 const deletableCount = computed(() => list.data.value?.data.deletableCount ?? 0);
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)));
-const deletableOnPage = computed(() => items.value.filter((item) => item.status === 'draft'));
+const deletableOnPage = computed(() => items.value.filter((item) => isDeletableStatus(item.status)));
 const allPageSelected = computed(() => (
   deletableOnPage.value.length > 0
   && deletableOnPage.value.every((item) => selectedIds.value.includes(item.id))
@@ -109,6 +109,10 @@ function statusClass(status: BomQuoteStatusType): string {
   return 'bg-rose-50 text-rose-700';
 }
 
+function isDeletableStatus(status: BomQuoteStatusType): boolean {
+  return status === 'draft' || status === 'canceled';
+}
+
 function eventChecked(event: Event): boolean {
   return (event.target as HTMLInputElement).checked;
 }
@@ -134,7 +138,7 @@ const deleteResult = ref<{ tone: 'success' | 'error'; message: string } | null>(
 const deleteQuotes = useDeleteBomQuotes();
 
 function requestSingleDelete(item: BomQuoteSummaryType): void {
-  if (item.status !== 'draft') return;
+  if (!isDeletableStatus(item.status)) return;
   deleteIntent.value = { scope: 'single', quoteIds: [item.id], label: displayName(item) };
 }
 
@@ -152,7 +156,7 @@ function requestAllDelete(): void {
   deleteIntent.value = {
     scope: 'all',
     quoteIds: [],
-    label: `작성 중 견적 전체 ${String(deletableCount.value)}건`,
+    label: `작성 중·취소 견적 전체 ${String(deletableCount.value)}건`,
   };
 }
 
@@ -273,14 +277,14 @@ async function confirmDelete(): Promise<void> {
             <tr v-for="item in items" :key="item.id" class="group hover:bg-surface-raised" :class="selectedIds.includes(item.id) ? 'bg-blue-50/60' : ''">
               <td class="px-3 py-3 text-center">
                 <input
-                  v-if="item.status === 'draft'"
+                  v-if="isDeletableStatus(item.status)"
                   type="checkbox"
                   class="size-4 rounded border-gray-300 text-blue-600"
                   :checked="selectedIds.includes(item.id)"
                   :aria-label="`${displayName(item)} 선택`"
                   @change="toggleSelection(item.id, eventChecked($event))"
                 >
-                <span v-else class="text-[11px] text-gray-300" title="진행 중이거나 완료된 견적은 보호됩니다">—</span>
+                <span v-else class="text-[11px] text-gray-300" title="요청·검토·답변·종료 견적은 보호됩니다">—</span>
               </td>
               <td class="px-3 py-3">
                 <RouterLink :to="{ name: 'bom-quote', params: { id: item.id } }" class="block truncate text-[13px] font-semibold text-ink-strong hover:text-blue-600" :title="displayName(item)">
@@ -299,7 +303,7 @@ async function confirmDelete(): Promise<void> {
               <td class="px-3 py-3 text-[12px] tabular-nums text-ink-subtle">{{ fmtDate(item.updatedAt) }}</td>
               <td class="px-3 py-3 text-right">
                 <button
-                  v-if="item.status === 'draft'"
+                  v-if="isDeletableStatus(item.status)"
                   type="button"
                   class="rounded-md border border-rose-200 px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 opacity-80 hover:bg-rose-50 hover:opacity-100"
                   @click="requestSingleDelete(item)"
@@ -323,7 +327,7 @@ async function confirmDelete(): Promise<void> {
       </div>
 
       <footer class="flex min-h-[54px] items-center justify-between gap-3 border-t border-line px-4 py-2">
-        <p class="text-[11px] text-ink-subtle">작성 중 상태만 삭제할 수 있으며 요청·검토·답변 견적은 보호됩니다.</p>
+        <p class="text-[11px] text-ink-subtle">작성 중·취소 상태만 삭제할 수 있으며 요청·검토·답변·종료 견적은 보호됩니다.</p>
         <nav v-if="pageCount > 1" class="flex items-center gap-1" aria-label="BOM 내역 페이지">
           <button type="button" class="grid size-8 place-items-center rounded-md border border-gray-200 text-[12px] text-gray-600 hover:bg-gray-50 disabled:opacity-35" :disabled="page <= 1" aria-label="이전 페이지" @click="page -= 1">‹</button>
           <button
@@ -353,7 +357,7 @@ async function confirmDelete(): Promise<void> {
             <button type="button" class="grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100" aria-label="삭제 확인 닫기" :disabled="deleteQuotes.isPending.value" @click="deleteIntent = null">×</button>
           </div>
           <p class="mt-4 text-[13px] leading-6 text-ink-muted">이 작업은 되돌릴 수 없으며 업로드한 원본 파일과 분석 결과가 함께 삭제됩니다.</p>
-          <p v-if="deleteIntent.scope === 'all'" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800">견적 요청 이후 단계의 내역은 업무 이력 보호를 위해 삭제하지 않고 유지합니다.</p>
+          <p v-if="deleteIntent.scope === 'all'" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800">요청·검토·답변·종료 상태는 업무 이력 보호를 위해 삭제하지 않고 유지합니다.</p>
           <div class="mt-5 flex justify-end gap-2">
             <button type="button" class="h-9 rounded-lg border border-gray-300 px-4 text-[13px] font-semibold text-gray-600 hover:bg-gray-50" :disabled="deleteQuotes.isPending.value" @click="deleteIntent = null">취소</button>
             <button type="button" class="h-9 rounded-lg bg-rose-600 px-4 text-[13px] font-semibold text-white hover:bg-rose-700 disabled:opacity-50" :disabled="deleteQuotes.isPending.value" @click="confirmDelete">

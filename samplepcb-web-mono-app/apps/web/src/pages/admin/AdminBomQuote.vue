@@ -74,6 +74,9 @@ const quote = useBomQuote(
 );
 const detail = computed(() => quote.data.value?.data ?? null);
 const isDraft = computed(() => detail.value?.status === 'draft');
+const canDeleteQuote = computed(() => (
+  detail.value?.status === 'draft' || detail.value?.status === 'canceled'
+));
 
 // ── 전체 시트 파싱 → 고객 시트 선택 → 선택 시트만 계산 ───────────────────────
 const isParsing = computed(() => detail.value?.status === 'draft' && detail.value.buildStatus === 'parsing');
@@ -1393,7 +1396,7 @@ async function onCancel(): Promise<void> {
   }
 }
 
-// draft 삭제 — 하드 삭제(항목·원본 파일 정리, 사용자 결정: 취소 대신 삭제 제공).
+// 작성 중·취소 견적 삭제 — 하드 삭제(항목·원본 파일 정리).
 // 되돌릴 수 없어 같은 버튼이 확정으로 변전하는 2단계 확인.
 const del = useDeleteBomQuote();
 const deleteArm = ref(false);
@@ -1409,7 +1412,7 @@ async function onDelete(): Promise<void> {
     await del.mutateAsync(quoteId.value);
     await goToUpload();
   } catch {
-    // draft 아님 등 — 화면 갱신으로 확인
+    // 삭제 가능 상태가 아님 등 — 화면 갱신으로 확인
   }
 }
 
@@ -2014,8 +2017,8 @@ function fmtAmount(v: number | null): string {
               <img :src="icFile" alt="" class="size-[14px] brightness-0 invert">
               {{ updateSheets.isPending.value ? '시트 반영 중…' : editingLocked ? '가격 확인 중…' : '견적요청' }}
             </button>
-            <!-- draft=하드 삭제(2단계 확인) · requested=요청 취소(관리자 워크플로 존중) -->
-            <template v-if="detail.status === 'draft'">
+            <!-- 작성 중·취소=하드 삭제(2단계 확인) · 요청됨=요청 취소 -->
+            <template v-if="canDeleteQuote">
               <button
                 v-if="!deleteArm"
                 type="button"

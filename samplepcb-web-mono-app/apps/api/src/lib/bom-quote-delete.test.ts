@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOM_QUOTE_DELETE_CHUNK_SIZE,
+  CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES,
   bomQuoteDeleteCounts,
   chunkBomQuoteDeletionIds,
   planBomQuoteDeletion,
@@ -8,28 +9,33 @@ import {
 } from './bom-quote-delete';
 
 describe('BOM 견적 일괄 삭제 대상 산정', () => {
-  it('본인 견적 중 draft만 삭제 대상으로 삼는다', () => {
+  it('본인 견적 중 작성 중·취소 상태만 삭제 대상으로 삼는다', () => {
     const plan = planBomQuoteDeletion([
       { id: 1n, mbId: 'member-a', status: 'draft' },
-      { id: 2n, mbId: 'member-a', status: 'requested' },
-      { id: 3n, mbId: 'member-b', status: 'draft' },
+      { id: 2n, mbId: 'member-a', status: 'canceled' },
+      { id: 3n, mbId: 'member-a', status: 'requested' },
+      { id: 4n, mbId: 'member-b', status: 'draft' },
+      { id: 5n, mbId: 'member-b', status: 'canceled' },
     ], 'member-a');
 
-    expect(plan.targets.map((row) => row.id)).toEqual([1n, 2n]);
-    expect(plan.deletableIds).toEqual([1n]);
+    expect(CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES).toEqual(['draft', 'canceled']);
+    expect(plan.targets.map((row) => row.id)).toEqual([1n, 2n, 3n]);
+    expect(plan.deletableIds).toEqual([1n, 2n]);
   });
 
-  it('scope=all에서도 요청·검토·답변 견적을 보존한다', () => {
+  it('scope=all에서도 진행·답변·종료 견적을 보존한다', () => {
     const plan = planBomQuoteDeletion([
       { id: 1n, mbId: 'member-a', status: 'draft' },
-      { id: 2n, mbId: 'member-a', status: 'requested' },
-      { id: 3n, mbId: 'member-a', status: 'reviewing' },
-      { id: 4n, mbId: 'member-a', status: 'answered' },
+      { id: 2n, mbId: 'member-a', status: 'canceled' },
+      { id: 3n, mbId: 'member-a', status: 'requested' },
+      { id: 4n, mbId: 'member-a', status: 'reviewing' },
+      { id: 5n, mbId: 'member-a', status: 'answered' },
+      { id: 6n, mbId: 'member-a', status: 'closed' },
     ], 'member-a');
 
-    expect(plan.deletableIds).toEqual([1n]);
+    expect(plan.deletableIds).toEqual([1n, 2n]);
     expect(plan.targets.filter((row) => !plan.deletableIds.includes(row.id)).map((row) => row.status))
-      .toEqual(['requested', 'reviewing', 'answered']);
+      .toEqual(['requested', 'reviewing', 'answered', 'closed']);
   });
 
   it('상태 가드 뒤 생존한 견적은 실제 삭제 ID에서 제외한다', () => {

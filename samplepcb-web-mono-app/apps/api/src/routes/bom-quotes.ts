@@ -95,7 +95,9 @@ import {
 import {
   bomQuoteDeleteCounts,
   chunkBomQuoteDeletionIds,
+  CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES,
   deleteBomFiles,
+  isCustomerDeletableBomQuoteStatus,
   planBomQuoteDeletion,
   resolveDeletedBomQuoteIds,
 } from '../lib/bom-quote-delete';
@@ -1111,7 +1113,12 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         take: pageSize,
       }),
       prisma.spBomQuote.count({ where }),
-      prisma.spBomQuote.count({ where: { mbId: request.user.mbId, status: 'draft' } }),
+      prisma.spBomQuote.count({
+        where: {
+          mbId: request.user.mbId,
+          status: { in: [...CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES] },
+        },
+      }),
     ]);
     // 주문 전환 파생 상태(D16) — ctId 있는 행만 g5 카트 batch 1회 조회.
     const ctIds = rows.flatMap((row) => (row.ctId === null ? [] : [row.ctId]));
@@ -1139,7 +1146,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     };
   });
 
-  // 목록 일괄 삭제 — 본인 draft만 삭제한다. scope=all도 요청·검토·답변 견적은 보존한다.
+  // 목록 일괄 삭제 — 본인 작성 중·취소 견적만 삭제한다. 그 외 업무 진행 이력은 보존한다.
   fastify.post('/bom/quotes/delete', {
     schema: { body: BomQuoteDeleteManyBody, response: { 200: BomQuoteDeleteManyResponse } },
   }, async (request) => {
@@ -1163,7 +1170,11 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     // 있으므로 트랜잭션 없이 청크별 autocommit으로 진행을 확정한다 — 중단돼도 재시도가 이어간다.
     for (const ids of chunkBomQuoteDeletionIds(deletableIds)) {
       await prisma.spBomQuote.deleteMany({
-        where: { id: { in: ids }, mbId: request.user.mbId, status: 'draft' },
+        where: {
+          id: { in: ids },
+          mbId: request.user.mbId,
+          status: { in: [...CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES] },
+        },
       });
       const survivors = await prisma.spBomQuote.findMany({
         where: { id: { in: ids } },
@@ -2115,19 +2126,27 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
-  // 삭제 — draft 한정(하드 삭제, 원본 파일도 정리)
+  // 삭제 — 작성 중·취소 한정(하드 삭제, 원본 파일도 정리)
   fastify.delete('/bom/quotes/:id', { schema: { params: IdParams } }, async (request, reply) => {
     const quote = await loadOwnQuote(request.params.id, request.user.mbId);
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
-    if (quote.status !== 'draft') return reply.conflict('draft 상태에서만 삭제할 수 있습니다');
+    if (!isCustomerDeletableBomQuoteStatus(quote.status)) {
+      return reply.conflict('작성 중이거나 취소된 견적만 삭제할 수 있습니다');
+    }
 
     const files = await prisma.spFile.findMany({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
     // 대형 견적은 cascade 자식이 수만 행이라 인터랙티브 트랜잭션(기본 5초)을 넘을 수 있다.
     // 문장 WHERE의 status 가드가 조회 후 상태 전이(draft→requested) 경쟁도 함께 막는다.
     const removed = await prisma.spBomQuote.deleteMany({
-      where: { id: quote.id, mbId: request.user.mbId, status: 'draft' },
+      where: {
+        id: quote.id,
+        mbId: request.user.mbId,
+        status: { in: [...CUSTOMER_DELETABLE_BOM_QUOTE_STATUSES] },
+      },
     });
-    if (removed.count === 0) return reply.conflict('draft 상태에서만 삭제할 수 있습니다');
+    if (removed.count === 0) {
+      return reply.conflict('작성 중이거나 취소된 견적만 삭제할 수 있습니다');
+    }
     await prisma.spFile.deleteMany({ where: { refType: FILE_REF_TYPE, refId: quote.id } });
     for (const f of files) {
       void deleteFromFileServer(f.pathToken).catch(() => undefined); // 정리 실패는 무해(고아 파일)
