@@ -1929,10 +1929,8 @@ function fmtAmount(v: number | null): string {
             </div>
           </section>
 
-          <div class="my-[18px] h-px shrink-0 bg-line" />
-
           <!-- 주문 정보 (93:23562) -->
-          <section title="주문수량은 BOM 수량과 세트·예비 수량을 반영한 뒤 MOQ와 주문배수에 맞춰 계산됩니다.">
+          <section class="mt-[18px]" title="주문수량은 BOM 수량과 세트·예비 수량을 반영한 뒤 MOQ와 주문배수에 맞춰 계산됩니다.">
             <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-ink-strong">
               <img :src="icPanelOrder" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               주문 정보
@@ -1967,10 +1965,8 @@ function fmtAmount(v: number | null): string {
             </div>
           </section>
 
-          <div class="my-[18px] h-px shrink-0 bg-line" />
-
           <!-- 예상 견적 (93:23573) -->
-          <section :aria-busy="pricingPending">
+          <section class="mt-[18px]" :aria-busy="pricingPending">
             <h2 class="flex h-[20px] items-center gap-[7px] text-[12px] font-bold leading-[14px] text-ink-strong">
               <img :src="icPanelQuote" alt="" class="size-[16px] shrink-0 brightness-0 opacity-75">
               예상 견적
