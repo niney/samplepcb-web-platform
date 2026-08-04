@@ -9,6 +9,7 @@ import {
   type PcbRfqReplyBodyType,
 } from '@sp/api-contract';
 import PcbRfqReplyForm from '../components/pcb/PcbRfqReplyForm.vue';
+import { pcbSpecEntries } from '../lib/pcb-spec';
 
 // PCB 매직링크 무로그인 회신 — PublicRfqReply(BOM §6.9)와 동형. 인증은 URL 토큰,
 // 범위는 이 견적요청 1건뿐이라 포털 셸 없이 독립 경량 문서로 둔다.
@@ -48,13 +49,8 @@ const rfq = computed(() => data.value?.rfq ?? null);
 const readOnly = computed(
   () => rfq.value !== null && rfq.value.status !== 'requested' && rfq.value.status !== 'quoted',
 );
-const specEntries = computed(() => {
-  const spec = rfq.value?.spec.specJson ?? {};
-  return Object.entries(spec)
-    .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
-    .filter(([, v]) => String(v).trim() !== '')
-    .map(([k, v]) => ({ key: k, value: String(v) }));
-});
+// 명칭·순서는 레거시 정본(lib/pcb-spec.ts, estimate_form_ca10 승계).
+const specEntries = computed(() => pcbSpecEntries((rfq.value?.spec.specJson ?? {})));
 
 async function submit(body: PcbRfqReplyBodyType): Promise<void> {
   if (token.value === null) return;
@@ -124,7 +120,7 @@ const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.sli
           <h2 class="text-sm font-bold text-gray-700">제작 사양</h2>
           <dl class="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
             <div v-for="entry in specEntries" :key="entry.key" class="flex justify-between gap-2 border-b border-gray-50 py-1">
-              <dt class="text-gray-400">{{ entry.key }}</dt>
+              <dt class="text-gray-400">{{ entry.label }}</dt>
               <dd class="truncate font-medium text-gray-700">{{ entry.value }}</dd>
             </div>
           </dl>

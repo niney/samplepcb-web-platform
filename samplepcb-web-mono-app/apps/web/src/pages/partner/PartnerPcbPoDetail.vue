@@ -37,6 +37,7 @@ import {
 } from '../../partner/usePartnerPcbPos';
 import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
+import { pcbSpecEntries } from '../../lib/pcb-spec';
 
 // PCB 발주서 상세(협력사 포털, P2) — EQ 5단계 진행: 발주접수(EQ·Working 파일 업로드)
 // → EQ 승인요청 → (관리자 승인) → 생산 시작 → 생산 완료. 되돌리기는 직전 전이 주체만.
@@ -334,13 +335,8 @@ const STATUS_CLS: Record<string, string> = {
   produced: 'bg-emerald-100 text-emerald-700',
 };
 const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
-const specEntries = computed(() => {
-  const spec = detail.value?.spec.specJson ?? {};
-  return Object.entries(spec)
-    .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
-    .filter(([, v]) => String(v).trim() !== '')
-    .map(([k, v]) => ({ key: k, value: String(v) }));
-});
+// 명칭·순서는 레거시 정본(lib/pcb-spec.ts, estimate_form_ca10 승계).
+const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?? {})));
 </script>
 
 <template>
@@ -751,7 +747,7 @@ const specEntries = computed(() => {
         </div>
         <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
           <div v-for="entry in specEntries" :key="entry.key" class="flex justify-between gap-2 border-b border-gray-50 py-1">
-            <dt class="text-gray-400">{{ entry.key }}</dt>
+            <dt class="text-gray-400">{{ entry.label }}</dt>
             <dd class="truncate font-medium text-gray-700">{{ entry.value }}</dd>
           </div>
         </dl>

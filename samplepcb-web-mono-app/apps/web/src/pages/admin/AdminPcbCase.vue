@@ -43,6 +43,7 @@ import {
   type AdminPcbEqSubstituteAction,
 } from '../../admin/useAdminPcbPos';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
+import { pcbSpecEntries } from '../../lib/pcb-spec';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
 import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
 
@@ -82,14 +83,10 @@ const surfaceError = (e: unknown, fallback: string): void => {
     e instanceof ApiRequestError && e.message !== '' ? e.message : fallback;
 };
 
-// ── 스펙 표시 ────────────────────────────────────────────────────────────────
-const specEntries = computed(() => {
-  const spec = detail.value?.spec ?? {};
-  return Object.entries(spec as Record<string, unknown>)
-    .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
-    .filter(([, v]) => String(v).trim() !== '')
-    .map(([k, v]) => ({ key: k, value: String(v) }));
-});
+// ── 스펙 표시 — 명칭·순서는 레거시 정본(lib/pcb-spec.ts, estimate_form_ca10 승계) ──
+const specEntries = computed(() =>
+  pcbSpecEntries((detail.value?.spec ?? {}) as Record<string, unknown>),
+);
 const gerberFiles = computed(
   () => (detail.value?.files ?? []).filter((f) => f.fileType !== 'thumbnail'),
 );
@@ -632,7 +629,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         </div>
         <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
           <div v-for="entry in specEntries" :key="entry.key" class="flex justify-between gap-2 border-b border-gray-50 py-1">
-            <dt class="text-gray-400">{{ entry.key }}</dt>
+            <dt class="text-gray-400">{{ entry.label }}</dt>
             <dd class="truncate font-medium text-gray-700">{{ entry.value }}</dd>
           </div>
         </dl>

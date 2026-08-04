@@ -11,6 +11,7 @@ import {
   usePartnerPcbRfqReply,
 } from '../../partner/usePartnerPcbRfqs';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
+import { pcbSpecEntries } from '../../lib/pcb-spec';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
 
 // PCB 견적요청 상세(협력사 포털) — 사양 확인 → 견적가+예상 배송일 회신.
@@ -35,13 +36,8 @@ const readOnly = computed(
   () => detail.value !== null && detail.value.status !== 'requested' && detail.value.status !== 'quoted',
 );
 
-const specEntries = computed(() => {
-  const spec = detail.value?.spec.specJson ?? {};
-  return Object.entries(spec)
-    .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
-    .filter(([, v]) => String(v).trim() !== '')
-    .map(([k, v]) => ({ key: k, value: String(v) }));
-});
+// 명칭·순서는 레거시 정본(lib/pcb-spec.ts, estimate_form_ca10 승계).
+const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?? {})));
 
 // ── 회신 ─────────────────────────────────────────────────────────────────────
 const reply = usePartnerPcbRfqReply();
@@ -184,7 +180,7 @@ const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.sli
         </div>
         <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
           <div v-for="entry in specEntries" :key="entry.key" class="flex justify-between gap-2 border-b border-gray-50 py-1">
-            <dt class="text-gray-400">{{ entry.key }}</dt>
+            <dt class="text-gray-400">{{ entry.label }}</dt>
             <dd class="truncate font-medium text-gray-700">{{ entry.value }}</dd>
           </div>
         </dl>
