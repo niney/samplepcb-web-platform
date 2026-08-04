@@ -545,6 +545,7 @@ model SpBomQuote {
   sheets                    SpBomQuoteSheet[]
   candidates                SpBomQuoteCandidate[]
   selectionEvents           SpBomQuoteSelectionEvent[]
+  itemReviews               SpBomQuoteItemReview[]
   rfqs                      SpBomRfq[]
   pos                       SpBomPo[]
   analysisRuns              SpBomAnalysisRun[]         @relation("BomQuoteAnalysisRuns")
@@ -797,6 +798,7 @@ model SpBomQuoteItem {
   analysisComponent       SpBomAnalysisComponent?    @relation(fields: [analysisComponentId], references: [id], onDelete: SetNull)
   candidates              SpBomQuoteCandidate[]
   selectionEvents         SpBomQuoteSelectionEvent[]
+  adminReviews            SpBomQuoteItemReview[]
   rfqItems                SpBomRfqItem[]             @relation("QuoteItemRfqItems")
   selectedRfqItem         SpBomRfqItem?              @relation("QuoteItemSelectedRfqItem", fields: [selectedRfqItemId], references: [id], onDelete: SetNull)
 
@@ -857,6 +859,25 @@ model SpBomQuoteSelectionEvent {
   @@index([quoteItemId, createdAt])
   @@index([quoteId, createdAt])
   @@map("sp_bom_quote_selection_event")
+}
+
+// 관리자 품목 검토 감사 이력. 현재 행의 판정·선정·수량이 바뀌면 fingerprint가 달라져
+// 이전 확인은 자동으로 무효가 된다. 엔진의 기술 판정과 관리자 업무 확인을 섞지 않는다.
+model SpBomQuoteItemReview {
+  id          BigInt         @id @default(autoincrement())
+  quoteId     BigInt
+  quoteItemId BigInt         @map("quote_item_id")
+  action      String         @db.VarChar(12) // confirmed|reopened
+  fingerprint String         @db.Char(64)
+  actorMbId   String         @map("actor_mb_id") @db.VarChar(60)
+  reason      String?        @db.VarChar(500)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  quote       SpBomQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteItem   SpBomQuoteItem @relation(fields: [quoteItemId], references: [id], onDelete: Cascade)
+
+  @@index([quoteItemId, createdAt], map: "idx_bom_quote_item_review_item_created")
+  @@index([quoteId, createdAt], map: "idx_bom_quote_item_review_quote_created")
+  @@map("sp_bom_quote_item_review")
 }
 
 // ── 스마트 BOM 파트너·협력사 RFQ (sp_partner*, sp_bom_rfq*, 2026-07-29) ──────

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BomQuoteItemType } from '@sp/api-contract';
 import {
+  bomQuoteAdminAttention,
   bomQuoteItemMatchGroup,
   isBomQuoteAlternativePendingReview,
   isBomQuotePendingReview,
@@ -215,6 +216,51 @@ describe('BOM 견적 화면 표시 집계', () => {
       uncosted: 1,
       pendingReview: 1,
       itemsTotal: 100,
+    });
+  });
+
+  it('관리자 상태는 수량 누락과 미매칭을 즉시 처리로 우선한다', () => {
+    expect(bomQuoteAdminAttention(item({ quantityState: 'missing' }))).toMatchObject({
+      kind: 'blocking',
+      reviewRequired: true,
+    });
+    const unmatched = bomQuoteAdminAttention(item());
+    expect(unmatched.kind).toBe('blocking');
+    expect(unmatched.reasons).toContain('unmatched');
+    expect(unmatched.reasons).toContain('uncosted');
+  });
+
+  it('재고·문의·대체품을 서로 다른 관리자 업무로 구분한다', () => {
+    expect(bomQuoteAdminAttention(item({
+      matchStatus: 'auto',
+      matchEvidence: {
+        procurementUnavailabilityReason: 'out_of_stock',
+      } as BomQuoteItemType['matchEvidence'],
+    })).kind).toBe('procurement');
+    expect(bomQuoteAdminAttention(item({
+      matchStatus: 'auto',
+      catalogInquiry: true,
+    })).kind).toBe('inquiry');
+    expect(bomQuoteAdminAttention(item({
+      matchStatus: 'auto',
+      lineTotalKrw: 100,
+      matchEvidence: {
+        confirmationRequired: true,
+        selectedReplacementSources: ['engine_stock_fallback'],
+        selectedReplacementForMpn: 'ORIGINAL',
+      } as BomQuoteItemType['matchEvidence'],
+    })).kind).toBe('technical');
+  });
+
+  it('정상 산출 품목과 제외 품목은 관리자 확인 대상이 아니다', () => {
+    expect(bomQuoteAdminAttention(item({
+      matchStatus: 'auto',
+      lineTotalKrw: 100,
+    }))).toEqual({ kind: 'ready', reasons: [], reviewRequired: false });
+    expect(bomQuoteAdminAttention(item({ included: false }))).toEqual({
+      kind: 'excluded',
+      reasons: [],
+      reviewRequired: false,
     });
   });
 });

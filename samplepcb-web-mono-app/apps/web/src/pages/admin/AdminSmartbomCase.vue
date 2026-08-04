@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { apiGet, apiGetBlob } from '@sp/shared';
 import { BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
 import type {
+  AdminBomQuoteItemType,
   AdminBomQuoteItemAddBodyType,
   AdminBomQuoteItemRemoveBodyType,
   AdminBomQuoteItemSelectionBodyType,
@@ -12,7 +13,14 @@ import type {
   BomQuoteStatusType,
   PartHitType,
 } from '@sp/api-contract';
-import { neededQty, type OfferPick } from '@sp/utils';
+import {
+  bomQuoteAdminAttention,
+  neededQty,
+  type BomQuoteAdminAttention,
+  type BomQuoteAdminAttentionKind,
+  type BomQuoteAdminAttentionReason,
+  type OfferPick,
+} from '@sp/utils';
 import type { AdminBomPoViewType, AdminBomRfqViewType, BomRfqReplyBodyType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -21,6 +29,7 @@ import {
   useAdminBomQuoteCandidates,
   usePatchAdminBomQuote,
   useRemoveAdminBomQuoteItem,
+  useReviewAdminBomQuoteItems,
   useSelectAdminBomQuoteItem,
 } from '../../admin/useAdminBomQuotes';
 import {
@@ -142,6 +151,7 @@ const candidateSelection = useSelectAdminBomQuoteItem();
 const candidateSelectionError = ref('');
 const partAdd = useAddAdminBomQuoteItem();
 const partRemove = useRemoveAdminBomQuoteItem();
+const itemReview = useReviewAdminBomQuoteItems();
 
 // RFQ 반영 파생 단계 — reviewing 에서 RFQ 가 있으면 ③(발송)·④(회신 도착)로 세분화(§3.3).
 const rfqQuery = useAdminBomRfqs(detailId);
@@ -965,8 +975,253 @@ function itemLabel(item: BomQuoteItemType): string {
   return typeof raw === 'string' && raw.trim() !== '' ? raw : '품번 미기재';
 }
 
+type AdminItemFilter =
+  | 'all'
+  | 'attention'
+  | 'blocking'
+  | 'procurement'
+  | 'technical'
+  | 'inquiry'
+  | 'ready'
+  | 'excluded';
+
+interface AdminItemView {
+  item: AdminBomQuoteItemType;
+  attention: BomQuoteAdminAttention;
+  pending: boolean;
+}
+
+const ADMIN_ATTENTION_META: Record<BomQuoteAdminAttentionKind, {
+  label: string;
+  badgeClass: string;
+  rowClass: string;
+  priority: number;
+}> = {
+  blocking: {
+    label: '즉시 처리',
+    badgeClass: 'border-red-300 bg-red-100 text-red-800',
+    rowClass: 'border-l-4 border-l-red-500 bg-red-50/70',
+    priority: 0,
+  },
+  procurement: {
+    label: '구매 확인',
+    badgeClass: 'border-orange-300 bg-orange-100 text-orange-800',
+    rowClass: 'border-l-4 border-l-orange-400 bg-orange-50/65',
+    priority: 1,
+  },
+  technical: {
+    label: '기술 검토',
+    badgeClass: 'border-amber-300 bg-amber-100 text-amber-800',
+    rowClass: 'border-l-4 border-l-amber-400 bg-amber-50/55',
+    priority: 2,
+  },
+  inquiry: {
+    label: '문의 진행',
+    badgeClass: 'border-blue-300 bg-blue-100 text-blue-800',
+    rowClass: 'border-l-4 border-l-blue-400 bg-blue-50/55',
+    priority: 3,
+  },
+  ready: {
+    label: '정상',
+    badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    rowClass: 'border-l-4 border-l-transparent bg-surface',
+    priority: 4,
+  },
+  excluded: {
+    label: '제외',
+    badgeClass: 'border-gray-200 bg-gray-100 text-gray-500',
+    rowClass: 'border-l-4 border-l-gray-300 bg-gray-50/70 opacity-55',
+    priority: 5,
+  },
+};
+
+const ADMIN_ATTENTION_REASON_LABEL: Record<BomQuoteAdminAttentionReason, string> = {
+  quantity_missing: '수량 확인 필요',
+  unmatched: '매칭 없음',
+  uncosted: '금액 미산출',
+  out_of_stock: '재고 없음',
+  insufficient_stock: '재고 부족',
+  stock_unverified: '재고 미확인',
+  selected_stock_short: '선정 재고 부족',
+  replacement_pending: '대체품 확인 필요',
+  confirmation_required: '엔진 선정 확인 필요',
+  engine_review: '엔진 검토 대상',
+  lifecycle_attention: '단종·수명주기 확인',
+  requirement_conflict: '스펙 정보 충돌',
+  requirement_missing: '필수 스펙 누락',
+  technical_fallback: '구매 가능 차순위 선정',
+  supplier_search_limited: '일부 공급사 미검색',
+  catalog_inquiry: '가격·재고 문의',
+};
+
+const adminItemFilter = ref<AdminItemFilter>('all');
+const adminItemSearch = ref('');
+// 기본은 원본 Excel 행 순서. 관리자가 필요할 때만 확인 대상을 앞으로 모은다.
+const attentionFirst = ref(false);
+const itemReviewError = ref('');
+const reviewingItemIds = ref<Set<string>>(new Set());
+const ADMIN_ITEM_FILTER_OPTIONS: readonly { key: AdminItemFilter; label: string }[] = [
+  { key: 'all', label: '전체' },
+  { key: 'attention', label: '확인 필요' },
+  { key: 'blocking', label: '즉시 처리' },
+  { key: 'procurement', label: '구매 확인' },
+  { key: 'technical', label: '기술 검토' },
+  { key: 'inquiry', label: '문의' },
+  { key: 'ready', label: '정상·완료' },
+  { key: 'excluded', label: '제외' },
+];
+
+const adminItemViews = computed<AdminItemView[]>(() => (detail.value?.items ?? []).map((item) => {
+  const attention = bomQuoteAdminAttention(item);
+  return {
+    item,
+    attention,
+    pending: attention.reviewRequired && !item.adminReview.completed,
+  };
+}));
+
+const adminItemFilterCounts = computed<Record<AdminItemFilter, number>>(() => {
+  const counts: Record<AdminItemFilter, number> = {
+    all: adminItemViews.value.length,
+    attention: 0,
+    blocking: 0,
+    procurement: 0,
+    technical: 0,
+    inquiry: 0,
+    ready: 0,
+    excluded: 0,
+  };
+  for (const view of adminItemViews.value) {
+    if (view.pending) {
+      counts.attention += 1;
+      if (
+        view.attention.kind === 'blocking'
+        || view.attention.kind === 'procurement'
+        || view.attention.kind === 'technical'
+        || view.attention.kind === 'inquiry'
+      ) {
+        counts[view.attention.kind] += 1;
+      }
+    } else if (view.attention.kind === 'excluded') {
+      counts.excluded += 1;
+    } else {
+      counts.ready += 1;
+    }
+  }
+  return counts;
+});
+
+const adminReviewPendingCount = computed(() => adminItemFilterCounts.value.attention);
+
+const visibleAdminItemViews = computed(() => {
+  const query = adminItemSearch.value.trim().toLocaleLowerCase('ko-KR');
+  const matchesFilter = (view: AdminItemView): boolean => {
+    if (adminItemFilter.value === 'all') return true;
+    if (adminItemFilter.value === 'attention') return view.pending;
+    if (adminItemFilter.value === 'ready') {
+      return view.attention.kind !== 'excluded' && !view.pending;
+    }
+    if (adminItemFilter.value === 'excluded') return view.attention.kind === 'excluded';
+    return view.pending && view.attention.kind === adminItemFilter.value;
+  };
+  const result = adminItemViews.value.filter((view) => {
+    if (!matchesFilter(view)) return false;
+    if (query === '') return true;
+    const item = view.item;
+    return [
+      itemLabel(item),
+      item.manufacturerName ?? '',
+      item.description ?? '',
+      item.sourceSheetName ?? '',
+      itemLocation(item),
+      item.selectedOffer?.supplier ?? '',
+    ].some((value) => value.toLocaleLowerCase('ko-KR').includes(query));
+  });
+  if (!attentionFirst.value) return [...result].sort((a, b) => a.item.rowIdx - b.item.rowIdx);
+  return [...result].sort((left, right) => {
+    const leftPriority = left.pending ? ADMIN_ATTENTION_META[left.attention.kind].priority : 4;
+    const rightPriority = right.pending ? ADMIN_ATTENTION_META[right.attention.kind].priority : 4;
+    return leftPriority - rightPriority || left.item.rowIdx - right.item.rowIdx;
+  });
+});
+
+const visiblePendingReviewIds = computed(() =>
+  visibleAdminItemViews.value.filter((view) => view.pending).map((view) => view.item.id),
+);
+
+const canUpdateItemReview = computed(() =>
+  detail.value?.status === 'requested' || detail.value?.status === 'reviewing',
+);
+
+const adminReviewSummaryLabel = computed(() => {
+  if (adminReviewPendingCount.value === 0) return '확인 완료';
+  if (canUpdateItemReview.value) return `${String(adminReviewPendingCount.value)}건 남음`;
+  return `${String(adminReviewPendingCount.value)}건 확인 기록 없음`;
+});
+
+const adminReviewSummaryClass = computed(() => {
+  if (adminReviewPendingCount.value === 0) return 'bg-emerald-100 text-emerald-700';
+  return canUpdateItemReview.value
+    ? 'bg-red-100 text-red-700'
+    : 'bg-gray-200 text-gray-600';
+});
+
+function adminAttentionTitle(view: AdminItemView): string {
+  const reasons = view.attention.reasons.map((reason) => ADMIN_ATTENTION_REASON_LABEL[reason]);
+  if (view.item.adminReview.stale) reasons.unshift('품목 변경으로 이전 확인 무효');
+  if (view.item.adminReview.completed && view.item.adminReview.reviewedBy !== null) {
+    reasons.unshift(`확인: ${view.item.adminReview.reviewedBy}`);
+  }
+  return reasons.length === 0 ? ADMIN_ATTENTION_META[view.attention.kind].label : reasons.join('\n');
+}
+
+function adminAttentionReasonSummary(view: AdminItemView): string {
+  const labels = view.attention.reasons
+    .slice(0, 2)
+    .map((reason) => ADMIN_ATTENTION_REASON_LABEL[reason]);
+  const suffix = view.attention.reasons.length > 2
+    ? ` 외 ${String(view.attention.reasons.length - 2)}`
+    : '';
+  return `${labels.join(' · ')}${suffix}`;
+}
+
+function adminAttentionRowClass(view: AdminItemView): string {
+  if (!view.pending && view.attention.kind !== 'excluded') {
+    return 'border-l-4 border-l-transparent bg-surface';
+  }
+  return ADMIN_ATTENTION_META[view.attention.kind].rowClass;
+}
+
+async function updateItemReviews(itemIds: readonly string[], completed: boolean): Promise<void> {
+  const quote = detail.value;
+  if (detailId.value === null || quote === null || itemIds.length === 0) return;
+  itemReviewError.value = '';
+  reviewingItemIds.value = new Set(itemIds);
+  try {
+    await itemReview.mutateAsync({
+      quoteId: detailId.value,
+      body: {
+        itemIds: [...itemIds],
+        completed,
+        expectedQuoteUpdatedAt: quote.updatedAt,
+      },
+    });
+  } catch (error) {
+    itemReviewError.value = error instanceof ApiRequestError
+      ? (error.payload?.message ?? error.message)
+      : '품목 검토 상태를 저장하지 못했습니다.';
+  } finally {
+    reviewingItemIds.value = new Set();
+  }
+}
+
 async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
   if (detailId.value === null) return;
+  if (nextStatus === 'answered' && adminReviewPendingCount.value > 0) {
+    actionError.value = `관리자 확인이 끝나지 않은 품목이 ${String(adminReviewPendingCount.value)}개 있습니다.`;
+    adminItemFilter.value = 'attention';
+    return;
+  }
   // 확정가 없이 회신하면 고객 [주문하기](D16-1 게이트)가 열리지 않는다 — 실수 방지 확인.
   if (nextStatus === 'answered') {
     const total = confirmedOverride.value ? numOrNull(form.value.confirmedTotal) : null;
@@ -993,8 +1248,10 @@ async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
         confirmedTotal: confirmedOverride.value ? numOrNull(form.value.confirmedTotal) : null,
       },
     });
-  } catch {
-    actionError.value = '저장에 실패했습니다 — 상태 전이 가능 여부를 확인하세요.';
+  } catch (error) {
+    actionError.value = error instanceof ApiRequestError
+      ? (error.payload?.message ?? error.message)
+      : '저장에 실패했습니다 — 상태 전이 가능 여부를 확인하세요.';
   }
 }
 
@@ -1217,6 +1474,59 @@ async function downloadOriginal(): Promise<void> {
       <div v-else class="grid gap-4 xl:grid-cols-[1fr_340px]">
         <!-- 품목 -->
         <div class="overflow-hidden rounded-xl border border-gray-200 bg-surface">
+          <!-- 관리자 확인 대기열 — 엔진 판정은 그대로 두고 업무 우선순위·완료 이력만 투영한다. -->
+          <div class="space-y-2 border-b border-gray-200 bg-slate-50/80 px-3 py-2.5">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-xs font-bold text-gray-800">관리자 품목 확인</span>
+              <span
+                class="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                :class="adminReviewSummaryClass"
+                :title="!canUpdateItemReview && adminReviewPendingCount > 0
+                  ? '검토 이력 기능 도입 전에 회신된 견적입니다. 기존 회신 상태는 변경하지 않습니다.'
+                  : undefined"
+              >
+                {{ adminReviewSummaryLabel }}
+              </span>
+              <button
+                v-if="canUpdateItemReview && visiblePendingReviewIds.length > 0"
+                type="button"
+                class="ml-auto rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="itemReview.isPending.value"
+                title="현재 검색·필터에 표시된 확인 대상만 완료 처리합니다"
+                @click="updateItemReviews(visiblePendingReviewIds, true)"
+              >
+                표시된 {{ visiblePendingReviewIds.length }}건 확인 완료
+              </button>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button
+                v-for="option in ADMIN_ITEM_FILTER_OPTIONS"
+                :key="option.key"
+                type="button"
+                class="rounded-full border px-2 py-1 text-[10px] font-semibold transition"
+                :class="adminItemFilter === option.key
+                  ? 'border-blue-400 bg-blue-600 text-white'
+                  : 'border-gray-200 bg-surface text-gray-600 hover:border-blue-200 hover:bg-blue-50'"
+                @click="adminItemFilter = option.key"
+              >
+                {{ option.label }} {{ adminItemFilterCounts[option.key] }}
+              </button>
+              <label class="ml-auto flex min-w-52 items-center gap-1.5 rounded-md border border-gray-200 bg-surface px-2 py-1">
+                <span class="text-gray-400">⌕</span>
+                <input
+                  v-model="adminItemSearch"
+                  type="search"
+                  class="min-w-0 flex-1 bg-transparent text-[11px] text-gray-700 outline-none placeholder:text-gray-400"
+                  placeholder="MPN·제조사·Excel 행 검색"
+                >
+              </label>
+              <label class="flex cursor-pointer items-center gap-1 text-[10px] font-medium text-gray-500">
+                <input v-model="attentionFirst" type="checkbox" class="size-3.5">
+                확인 대상 우선
+              </label>
+            </div>
+            <p v-if="itemReviewError !== ''" class="text-[11px] font-semibold text-red-600">{{ itemReviewError }}</p>
+          </div>
           <!-- RFQ 행 선택 툴바(§6.13) — 체크는 이 표에서, 발송 모달은 확인만.
                min-h 로 배지("n행 선택됨") 등장 시 높이 점프 방지(사용자 피드백) -->
           <div class="flex min-h-9 flex-wrap items-center gap-2 border-b border-gray-100 bg-gray-50/60 px-3 py-1 text-[11px] text-gray-500">
@@ -1293,7 +1603,8 @@ async function downloadOriginal(): Promise<void> {
           <table class="min-w-full divide-y divide-gray-100 text-xs">
             <thead class="bg-gray-50 text-left text-gray-500">
               <tr>
-                <th class="px-2 py-2">
+                <th class="px-2 py-2 text-center text-[10px] font-semibold" title="다음 협력사 RFQ에 포함할 품목 선택">
+                  <span class="sr-only">RFQ 전체 선택</span>
                   <input
                     type="checkbox"
                     class="size-3.5 align-middle"
@@ -1301,7 +1612,9 @@ async function downloadOriginal(): Promise<void> {
                     :checked="allRfqRowsSelected"
                     @change="toggleAllRfqRows"
                   >
+                  <span class="mt-0.5 block">RFQ</span>
                 </th>
+                <th class="min-w-28 px-3 py-2">검토 상태</th>
                 <th class="px-3 py-2">Excel 위치</th>
                 <th class="px-3 py-2">부품</th>
                 <th class="px-3 py-2">선정 구매 조건</th>
@@ -1312,43 +1625,68 @@ async function downloadOriginal(): Promise<void> {
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
-              <tr v-for="item in detail.items" :key="item.id" :class="{ 'opacity-40': !item.included }">
+              <tr
+                v-for="view in visibleAdminItemViews"
+                :key="view.item.id"
+                :class="adminAttentionRowClass(view)"
+              >
                 <td class="px-2 py-2">
                   <input
-                    v-if="rfqSelectable(item)"
+                    v-if="rfqSelectable(view.item)"
                     type="checkbox"
                     class="size-3.5 align-middle"
-                    :checked="rfqItemSelection.has(item.id)"
-                    @change="toggleRfqRow(item.id)"
+                    :checked="rfqItemSelection.has(view.item.id)"
+                    :aria-label="`${itemLabel(view.item)} RFQ 포함`"
+                    @change="toggleRfqRow(view.item.id)"
                   >
                 </td>
-                <td class="whitespace-nowrap px-3 py-2 text-gray-500">{{ itemLocation(item) }}</td>
+                <td class="min-w-28 px-3 py-2 align-top">
+                  <span
+                    class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold"
+                    :class="view.attention.reviewRequired && view.item.adminReview.completed
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : ADMIN_ATTENTION_META[view.attention.kind].badgeClass"
+                    :title="adminAttentionTitle(view)"
+                  >
+                    <template v-if="view.attention.reviewRequired && view.item.adminReview.completed">✓ 확인 완료</template>
+                    <template v-else-if="view.item.adminReview.stale">재확인 필요</template>
+                    <template v-else>{{ ADMIN_ATTENTION_META[view.attention.kind].label }}</template>
+                  </span>
+                  <p
+                    v-if="view.attention.reasons.length > 0"
+                    class="mt-1 max-w-32 text-[9px] leading-3 text-gray-500"
+                    :title="adminAttentionTitle(view)"
+                  >
+                    {{ adminAttentionReasonSummary(view) }}
+                  </p>
+                </td>
+                <td class="whitespace-nowrap px-3 py-2 text-gray-500">{{ itemLocation(view.item) }}</td>
                 <td class="px-3 py-2">
                   <div class="flex flex-wrap items-center gap-1">
-                    <span class="font-medium">{{ itemLabel(item) }}</span>
+                    <span class="font-medium">{{ itemLabel(view.item) }}</span>
                     <span
-                      v-if="rfqEngineComponentType(item) === 'resistor'"
+                      v-if="rfqEngineComponentType(view.item) === 'resistor'"
                       class="rounded border border-orange-200 bg-orange-50 px-1 py-0.5 text-[9px] font-semibold text-orange-700"
                       title="sp-engine 분류"
                     >저항</span>
                     <span
-                      v-else-if="rfqEngineComponentType(item) === 'capacitor'"
+                      v-else-if="rfqEngineComponentType(view.item) === 'capacitor'"
                       class="rounded border border-cyan-200 bg-cyan-50 px-1 py-0.5 text-[9px] font-semibold text-cyan-700"
                       title="sp-engine 분류"
                     >캐패시터</span>
                   </div>
-                  <div class="text-gray-400">{{ item.manufacturerName }}</div>
+                  <div class="text-gray-400">{{ view.item.manufacturerName }}</div>
                 </td>
                 <td class="px-3 py-2">
-                  <template v-if="item.selectedOffer !== null">
-                    {{ item.selectedOffer.supplier }} · {{ item.selectedOffer.unitPrice }} {{ item.selectedOffer.currency }} @{{ item.selectedOffer.breakQty }}+
+                  <template v-if="view.item.selectedOffer !== null">
+                    {{ view.item.selectedOffer.supplier }} · {{ view.item.selectedOffer.unitPrice }} {{ view.item.selectedOffer.currency }} @{{ view.item.selectedOffer.breakQty }}+
                   </template>
-                  <span v-else class="text-amber-600">{{ item.matchStatus === 'none' ? '미매칭' : '구매 조건 없음' }}</span>
+                  <span v-else class="text-amber-600">{{ view.item.matchStatus === 'none' ? '미매칭' : '구매 조건 없음' }}</span>
                 </td>
                 <td class="min-w-52 px-3 py-2">
-                  <div v-if="rfqBadgesFor(item.id).length > 0" class="flex flex-wrap gap-1">
+                  <div v-if="rfqBadgesFor(view.item.id).length > 0" class="flex flex-wrap gap-1">
                     <button
-                      v-for="badge in rfqBadgesFor(item.id)"
+                      v-for="badge in rfqBadgesFor(view.item.id)"
                       :key="badge.rfq.rfqId"
                       type="button"
                       class="inline-flex max-w-48 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold"
@@ -1360,41 +1698,59 @@ async function downloadOriginal(): Promise<void> {
                       <span class="shrink-0">· {{ badge.label }}</span>
                     </button>
                   </div>
-                  <span v-else-if="rfqSelectable(item)" class="text-[11px] text-gray-300">미요청</span>
+                  <span v-else-if="rfqSelectable(view.item)" class="text-[11px] text-gray-300">미요청</span>
                   <span v-else class="text-gray-200">—</span>
                 </td>
-                <td class="px-3 py-2 text-right tabular-nums">{{ item.orderQty.toLocaleString('ko-KR') }}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{{ view.item.orderQty.toLocaleString('ko-KR') }}</td>
                 <td class="px-3 py-2 text-right tabular-nums">
-                  {{ item.lineTotalKrw === null ? '—' : smartbomFmtWon(Math.round(item.lineTotalKrw)) }}
+                  {{ view.item.lineTotalKrw === null ? '—' : smartbomFmtWon(Math.round(view.item.lineTotalKrw)) }}
                 </td>
                 <td class="px-3 py-2 text-right">
                   <div class="flex flex-col items-end gap-1">
                     <button
+                      v-if="view.attention.reviewRequired && canUpdateItemReview"
+                      type="button"
+                      class="rounded border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                      :class="view.item.adminReview.completed
+                        ? 'border-gray-200 bg-surface text-gray-500 hover:bg-gray-50'
+                        : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                      :disabled="!canUpdateItemReview || reviewingItemIds.has(view.item.id)"
+                      :title="view.item.adminReview.completed ? '품목을 다시 확인 대상으로 돌립니다' : adminAttentionTitle(view)"
+                      @click="updateItemReviews([view.item.id], !view.item.adminReview.completed)"
+                    >
+                      {{ view.item.adminReview.completed ? '재검토' : '확인 완료' }}
+                    </button>
+                    <button
                       type="button"
                       class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
-                      @click="openPartSelection(item, 'candidates')"
+                      @click="openPartSelection(view.item, 'candidates')"
                     >
-                      후보·근거
+                      {{ view.pending ? '검토하기' : '후보·근거' }}
                     </button>
                     <button
                       type="button"
                       class="rounded border border-violet-200 px-2 py-1 font-semibold text-violet-700 hover:bg-violet-50"
-                      :title="partChangeButtonTitle(item)"
-                      @click="openPartSelection(item, 'search')"
+                      :title="partChangeButtonTitle(view.item)"
+                      @click="openPartSelection(view.item, 'search')"
                     >
                       부품 검색·변경
                     </button>
                     <button
-                      v-if="isManualQuoteItem(item)"
+                      v-if="isManualQuoteItem(view.item)"
                       type="button"
                       class="rounded border border-red-200 px-2 py-1 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                       :disabled="partRemove.isPending.value || partMutationUnavailableReason() !== null"
                       :title="partMutationUnavailableReason() ?? '관리자가 수동 추가한 이 품목을 견적에서 제거합니다'"
-                      @click="requestPartRemove(item)"
+                      @click="requestPartRemove(view.item)"
                     >
                       수동 행 제거
                     </button>
                   </div>
+                </td>
+              </tr>
+              <tr v-if="visibleAdminItemViews.length === 0">
+                <td colspan="9" class="px-4 py-10 text-center text-xs text-gray-400">
+                  검색·필터 조건에 맞는 품목이 없습니다.
                 </td>
               </tr>
             </tbody>

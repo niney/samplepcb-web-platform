@@ -79,6 +79,7 @@ import {
   supplierSearchLimitReasons,
 } from './bom-supplier-operations';
 import { applyLocalCatalogFallback } from './bom-local-catalog';
+import { loadBomQuoteItemReviewStates } from './bom-admin-review';
 
 // 고객 BOM 견적 핵심 로직 — 회원/관리자 라우트가 공유. 설계: docs/BOM_QUOTE.md.
 // 원칙: 수량·구매 조건은 스냅샷 박제가 단일 진실, 금액은 항상 서버가 스냅샷에서 재계산
@@ -6143,9 +6144,25 @@ export async function toAdminDetailDto(
   fileUrl: string | null,
 ): Promise<AdminBomQuoteDetailType> {
   // 주문 헤더 파생(⑧ 결제 판정) — 담김 상태(주문 헤더 없음)면 getOrderInfoByCtId 가 null.
-  const info = quote.ctId === null ? null : await getOrderInfoByCtId(quote.ctId);
+  const [info, detail] = await Promise.all([
+    quote.ctId === null ? Promise.resolve(null) : getOrderInfoByCtId(quote.ctId),
+    toDetailDto(quote, items, sheets),
+  ]);
+  const activeRows = filterActiveQuoteItems(items, sheets);
+  const reviewStates = await loadBomQuoteItemReviewStates(activeRows, detail.items);
   return {
-    ...(await toDetailDto(quote, items, sheets)),
+    ...detail,
+    items: detail.items.map((item) => ({
+      ...item,
+      adminReview: reviewStates.get(item.id) ?? {
+        required: false,
+        completed: true,
+        stale: false,
+        reviewedBy: null,
+        reviewedAt: null,
+        reason: null,
+      },
+    })),
     mbId: quote.mbId,
     adminMemo: quote.adminMemo,
     fileUrl,

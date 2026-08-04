@@ -17,6 +17,7 @@ import {
   type AdminBomCaseDeletePreviewType,
   type AdminBomCaseDeleteResponseType,
   type AdminBomQuotePatchBodyType,
+  type AdminBomQuoteItemReviewsBodyType,
   type AdminBomQuoteItemAddBodyType,
   type AdminBomQuoteItemRemoveBodyType,
   type AdminBomQuoteItemSelectionBodyType,
@@ -151,6 +152,29 @@ export function usePatchAdminBomQuote() {
     mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomQuotePatchBodyType }) =>
       apiSend('PATCH', `${base}/${quoteId}`, body, AdminBomQuoteDetailResponse),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] }),
+  });
+}
+
+/** RFQ 발송 체크와 분리된 관리자 품목 확인 이력(한 건/표시 목록 일괄). */
+export function useReviewAdminBomQuoteItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      body,
+    }: {
+      quoteId: string;
+      body: AdminBomQuoteItemReviewsBodyType;
+    }) => apiSend(
+      'PUT',
+      `${base}/${quoteId}/item-reviews`,
+      body,
+      AdminBomQuoteDetailResponse,
+    ),
+    onSuccess: (response, variables) => {
+      qc.setQueryData(['admin', 'bom-quotes', 'detail', variables.quoteId], response);
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+    },
   });
 }
 

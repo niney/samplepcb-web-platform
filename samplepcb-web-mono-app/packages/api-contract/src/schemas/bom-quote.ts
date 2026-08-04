@@ -1236,7 +1236,24 @@ export const AdminBomQuoteOrderInfo = z.object({
 });
 export type AdminBomQuoteOrderInfoType = z.infer<typeof AdminBomQuoteOrderInfo>;
 
-export const AdminBomQuoteDetail = BomQuoteDetail.extend({
+/** 엔진 판정과 분리된 관리자 업무 확인 상태. 행 내용이 바뀌면 서버가 stale로 무효화한다. */
+export const AdminBomQuoteItemReview = z.object({
+  required: z.boolean(),
+  completed: z.boolean(),
+  stale: z.boolean(),
+  reviewedBy: z.string().nullable(),
+  reviewedAt: z.string().datetime().nullable(),
+  reason: z.string().nullable(),
+});
+export type AdminBomQuoteItemReviewType = z.infer<typeof AdminBomQuoteItemReview>;
+
+export const AdminBomQuoteItem = BomQuoteItem.extend({
+  adminReview: AdminBomQuoteItemReview,
+});
+export type AdminBomQuoteItemType = z.infer<typeof AdminBomQuoteItem>;
+
+export const AdminBomQuoteDetail = BomQuoteDetail.omit({ items: true }).extend({
+  items: z.array(AdminBomQuoteItem),
   mbId: z.string(),
   /** 내부 메모 — 고객 응답에는 싣지 않는다. */
   adminMemo: z.string().nullable(),
@@ -1289,6 +1306,15 @@ export const AdminBomQuotePatchBody = z.object({
   confirmedTotal: z.number().int().min(0).nullable().optional(),
 });
 export type AdminBomQuotePatchBodyType = z.infer<typeof AdminBomQuotePatchBody>;
+
+/** 관리자 품목 확인/재검토. 확인 이력은 행의 현재 판정 지문과 함께 append-only 저장한다. */
+export const AdminBomQuoteItemReviewsBody = z.object({
+  itemIds: z.array(z.string().regex(/^\d+$/)).min(1).max(2000),
+  completed: z.boolean(),
+  expectedQuoteUpdatedAt: z.string().datetime(),
+  reason: z.string().trim().max(500).nullable().optional(),
+});
+export type AdminBomQuoteItemReviewsBodyType = z.infer<typeof AdminBomQuoteItemReviewsBody>;
 
 /**
  * 관리자 품목 교체 명령. 후보 선택은 견적 후보 스냅샷 키만 받고, 카탈로그 선택은

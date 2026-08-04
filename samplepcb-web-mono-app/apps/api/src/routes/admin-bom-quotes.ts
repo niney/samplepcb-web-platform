@@ -7,6 +7,7 @@ import {
   AdminBomQuoteDetailResponse,
   AdminBomQuoteItemAddBody,
   AdminBomQuoteItemRemoveBody,
+  AdminBomQuoteItemReviewsBody,
   AdminBomQuoteItemSelectionBody,
   AdminBomQuoteListResponse,
   AdminBomQuotePatchBody,
@@ -27,6 +28,7 @@ import {
   getQuoteItemCandidates,
   loadQuoteComparisonPage,
   removeAdminQuoteItem,
+  toItemDto,
   toAdminDetailDto,
   toAdminSummaryDto,
   toBomQuotePrintDto,
@@ -46,6 +48,10 @@ import {
   purgeBomCase,
   validateBomCaseDeleteRequest,
 } from '../lib/bom-case-delete';
+import {
+  bomQuoteItemReviewFingerprint,
+  loadBomQuoteItemReviewStates,
+} from '../lib/bom-admin-review';
 
 // 발신처 폴백(설정 미입력 로컬 등) — 빈 값이면 시트가 해당 행을 생략한다.
 const EMPTY_SELLER = {
@@ -298,6 +304,87 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     const data = await getQuoteItemCandidates(request.params.id, request.params.itemId);
     if (data === null) return reply.notFound('견적 항목을 찾을 수 없습니다');
     return { result: true as const, data };
+  });
+
+  // 관리자 품목 확인 — RFQ 범위 체크와 별개인 append-only 업무 이력이다. 행 내용이
+  // 바뀌면 fingerprint 불일치로 자동 무효화되며, 한 건과 표시 목록 일괄 확인을 같이 받는다.
+  fastify.put('/bom-quotes/:id/item-reviews', {
+    schema: {
+      params: IdParams,
+      body: AdminBomQuoteItemReviewsBody,
+      response: { 200: AdminBomQuoteDetailResponse, 409: ApiError },
+    },
+  }, async (request, reply) => {
+    const quote = await prisma.spBomQuote.findUnique({
+      where: { id: request.params.id },
+      include: { items: true, sheets: true },
+    });
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (quote.updatedAt.toISOString() !== request.body.expectedQuoteUpdatedAt) {
+      return reply.status(409).send({
+        error: 'STALE_QUOTE',
+        message: '견적 내용이 변경되었습니다. 최신 품목 상태를 확인한 뒤 다시 검토해 주세요.',
+      });
+    }
+    if (quote.status !== 'requested' && quote.status !== 'reviewing') {
+      return reply.status(409).send({
+        error: 'INVALID_QUOTE_STATUS',
+        message: '견적요청 또는 검토 중 상태에서만 품목 확인 상태를 변경할 수 있습니다.',
+      });
+    }
+
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    const requestedIds = new Set(request.body.itemIds.map((id) => BigInt(id)));
+    const targetRows = activeRows.filter((item) => requestedIds.has(item.id));
+    if (targetRows.length !== requestedIds.size) {
+      return reply.notFound('확인할 견적 항목을 찾을 수 없습니다');
+    }
+    const itemDtos = targetRows.map((row) => toItemDto(row));
+    const states = await loadBomQuoteItemReviewStates(targetRows, itemDtos);
+    const rowsToRecord = request.body.completed
+      ? targetRows.filter((row) => states.get(String(row.id))?.required === true)
+      : targetRows;
+    if (rowsToRecord.length > 0) {
+      const versionAdvanced = await prisma.$transaction(async (tx) => {
+        // 품목 변경·다른 관리자의 확인·고객 회신과 같은 quote 버전으로 직렬화한다.
+        const nextUpdatedAt = new Date(Math.max(Date.now(), quote.updatedAt.getTime() + 1));
+        const touched = await tx.spBomQuote.updateMany({
+          where: {
+            id: quote.id,
+            status: { in: ['requested', 'reviewing'] },
+            updatedAt: quote.updatedAt,
+          },
+          data: { updatedAt: nextUpdatedAt },
+        });
+        if (touched.count !== 1) return false;
+        await tx.spBomQuoteItemReview.createMany({
+          data: rowsToRecord.map((row) => ({
+            quoteId: quote.id,
+            quoteItemId: row.id,
+            action: request.body.completed ? 'confirmed' : 'reopened',
+            fingerprint: bomQuoteItemReviewFingerprint(row),
+            actorMbId: request.user.mbId,
+            reason: request.body.reason ?? null,
+          })),
+        });
+        return true;
+      });
+      if (!versionAdvanced) {
+        return reply.status(409).send({
+          error: 'STALE_QUOTE',
+          message: '견적 또는 품목 확인 상태가 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도해 주세요.',
+        });
+      }
+    }
+
+    const fresh = await prisma.spBomQuote.findUnique({
+      where: { id: quote.id },
+      include: { items: true, sheets: true },
+    });
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
+    const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
+    return { result: true as const, data: await toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl) };
   });
 
   // 관리자 부품 교체 — 일반/강제 모두 후보·카탈로그 정체성만 받고 서버가 영향 정리+재계산한다.
@@ -554,17 +641,41 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
   );
 
   // 검토 — 상태 전이 검증 + 확정가·메모. answered 전이 시 answeredAt 스탬프.
-  fastify.patch('/bom-quotes/:id', { schema: { params: IdParams, body: AdminBomQuotePatchBody, response: { 200: AdminBomQuoteDetailResponse } } }, async (request, reply) => {
-    const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
+  fastify.patch('/bom-quotes/:id', {
+    schema: {
+      params: IdParams,
+      body: AdminBomQuotePatchBody,
+      response: { 200: AdminBomQuoteDetailResponse, 409: ApiError },
+    },
+  }, async (request, reply) => {
+    const quote = await prisma.spBomQuote.findUnique({
+      where: { id: request.params.id },
+      include: { items: true, sheets: true },
+    });
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
 
     const body = request.body;
     if (body.status !== undefined && body.status !== quote.status && !canTransition(quote.status, body.status)) {
       return reply.conflict(`전이 불가: ${quote.status} → ${body.status}`);
     }
+    if (body.status === 'answered' && quote.status !== 'answered') {
+      const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+      const itemDtos = activeRows.map((row) => toItemDto(row));
+      const reviewStates = await loadBomQuoteItemReviewStates(activeRows, itemDtos);
+      const pendingCount = itemDtos.filter((item) => {
+        const review = reviewStates.get(item.id);
+        return review?.required === true && !review.completed;
+      }).length;
+      if (pendingCount > 0) {
+        return reply.status(409).send({
+          error: 'BOM_ITEM_REVIEW_REQUIRED',
+          message: `관리자 확인이 끝나지 않은 품목이 ${String(pendingCount)}개 있습니다. 품목·검토에서 확인 완료 후 회신하세요.`,
+        });
+      }
+    }
 
-    await prisma.spBomQuote.update({
-      where: { id: quote.id },
+    const updated = await prisma.spBomQuote.updateMany({
+      where: { id: quote.id, status: quote.status, updatedAt: quote.updatedAt },
       data: {
         ...(body.status !== undefined ? { status: body.status } : {}),
         ...(body.status !== undefined && body.status !== 'draft'
@@ -578,6 +689,12 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         ...(body.confirmedTotal !== undefined ? { confirmedTotal: body.confirmedTotal } : {}),
       },
     });
+    if (updated.count !== 1) {
+      return reply.status(409).send({
+        error: 'STALE_QUOTE',
+        message: '견적 또는 품목 확인 상태가 변경되었습니다. 최신 내용을 확인한 뒤 다시 저장해 주세요.',
+      });
+    }
 
     // 고객 회신 확정/종료 시 하위 협력사 RFQ 도 마감한다(docs/SMARTBOM_PARTNER_RFQ.md §2.3).
     if (body.status === 'answered' || body.status === 'closed' || body.status === 'canceled') {

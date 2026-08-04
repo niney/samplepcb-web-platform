@@ -2,6 +2,43 @@ import type { BomQuoteItemType } from '@sp/api-contract';
 
 export type BomQuoteItemMatchGroup = 'matched' | 'review' | 'unmatched' | 'nostock' | 'excluded';
 
+/**
+ * 관리자 Case 품목 표의 업무 우선순위. 엔진의 기술 판정을 바꾸지 않고, 이미 저장된
+ * 판정·구매 근거를 관리자가 처리하기 쉬운 한 가지 대표 상태로 투영한다.
+ */
+export type BomQuoteAdminAttentionKind =
+  | 'blocking'
+  | 'procurement'
+  | 'technical'
+  | 'inquiry'
+  | 'ready'
+  | 'excluded';
+
+export type BomQuoteAdminAttentionReason =
+  | 'quantity_missing'
+  | 'unmatched'
+  | 'uncosted'
+  | 'out_of_stock'
+  | 'insufficient_stock'
+  | 'stock_unverified'
+  | 'selected_stock_short'
+  | 'replacement_pending'
+  | 'confirmation_required'
+  | 'engine_review'
+  | 'lifecycle_attention'
+  | 'requirement_conflict'
+  | 'requirement_missing'
+  | 'technical_fallback'
+  | 'supplier_search_limited'
+  | 'catalog_inquiry';
+
+export interface BomQuoteAdminAttention {
+  kind: BomQuoteAdminAttentionKind;
+  reasons: BomQuoteAdminAttentionReason[];
+  /** 제외·정상 외에 관리자가 명시적으로 확인해야 하는 품목인지 여부. */
+  reviewRequired: boolean;
+}
+
 export interface BomQuotePresentationStats {
   total: number;
   matched: number;
@@ -87,6 +124,85 @@ export function bomQuoteItemMatchGroup(item: BomQuoteItemType): BomQuoteItemMatc
   if (item.matchStatus !== 'none') return 'matched';
   if (item.matchEvidence?.selectionMode === 'review') return 'review';
   return 'unmatched';
+}
+
+const lifecycleNeedsAdminAttention = (item: BomQuoteItemType): boolean => {
+  const requested = item.matchEvidence?.requestedLifecycle?.code;
+  const selected = item.matchEvidence?.selectedLifecycle?.code;
+  return (requested !== undefined && requested !== 'active' && requested !== 'unknown')
+    || (selected !== undefined && selected !== 'active' && selected !== 'unknown');
+};
+
+/**
+ * 관리자 검토 상태는 sp-engine의 판정을 재계산하지 않는다. 수량·금액처럼 sp-node가
+ * 소유하는 업무 상태와 엔진이 내려준 근거를 합쳐 대표 상태와 상세 사유만 만든다.
+ */
+export function bomQuoteAdminAttention(item: BomQuoteItemType): BomQuoteAdminAttention {
+  if (!item.included || isBomQuoteEngineSearchExcluded(item)) {
+    return { kind: 'excluded', reasons: [], reviewRequired: false };
+  }
+
+  const evidence = item.matchEvidence;
+  const reasons: BomQuoteAdminAttentionReason[] = [];
+  const group = bomQuoteItemMatchGroup(item);
+  const procurementReason = evidence?.procurementUnavailabilityReason;
+  // 과거 저장 근거는 최신 계약보다 필드가 적을 수 있으므로 런타임에서도 배열을 확인한다.
+  const conflictCount = Array.isArray(evidence?.conflicts) ? evidence.conflicts.length : 0;
+  const missingRequirementCount = Array.isArray(evidence?.missingRequirements)
+    ? evidence.missingRequirements.length
+    : 0;
+
+  if (item.quantityState === 'missing') reasons.push('quantity_missing');
+  if (group === 'unmatched') reasons.push('unmatched');
+  if (item.lineTotalKrw === null) reasons.push('uncosted');
+  if (procurementReason === 'out_of_stock') reasons.push('out_of_stock');
+  if (procurementReason === 'insufficient_stock') reasons.push('insufficient_stock');
+  if (procurementReason === 'stock_unverified') reasons.push('stock_unverified');
+  if (
+    item.selectedOffer !== null
+    && item.selectedOffer.stock !== null
+    && item.selectedOffer.stock < item.orderQty
+    && !reasons.includes('out_of_stock')
+    && !reasons.includes('insufficient_stock')
+  ) {
+    reasons.push('selected_stock_short');
+  }
+  if (isBomQuoteAlternativePendingReview(item)) reasons.push('replacement_pending');
+  if (isBomQuotePendingReview(item)) reasons.push('confirmation_required');
+  if (evidence?.selectionMode === 'review') reasons.push('engine_review');
+  if (lifecycleNeedsAdminAttention(item)) reasons.push('lifecycle_attention');
+  if (conflictCount > 0) reasons.push('requirement_conflict');
+  if (missingRequirementCount > 0) reasons.push('requirement_missing');
+  if (evidence?.technicalFallbackUsed === true) reasons.push('technical_fallback');
+  if ((evidence?.searchTraceSummary?.limitReasons?.length ?? 0) > 0) {
+    reasons.push('supplier_search_limited');
+  }
+  if (item.catalogInquiry) reasons.push('catalog_inquiry');
+
+  if (item.quantityState === 'missing' || group === 'unmatched') {
+    return { kind: 'blocking', reasons, reviewRequired: true };
+  }
+  if (item.catalogInquiry) {
+    return { kind: 'inquiry', reasons, reviewRequired: true };
+  }
+  if (group === 'nostock') {
+    return { kind: 'procurement', reasons, reviewRequired: true };
+  }
+  if (
+    group === 'review'
+    || isBomQuotePendingReview(item)
+    || lifecycleNeedsAdminAttention(item)
+    || conflictCount > 0
+    || missingRequirementCount > 0
+    || evidence?.technicalFallbackUsed === true
+    || (evidence?.searchTraceSummary?.limitReasons?.length ?? 0) > 0
+  ) {
+    return { kind: 'technical', reasons, reviewRequired: true };
+  }
+  if (item.lineTotalKrw === null) {
+    return { kind: 'inquiry', reasons, reviewRequired: true };
+  }
+  return { kind: 'ready', reasons, reviewRequired: false };
 }
 
 export function summarizeBomQuoteItems(
