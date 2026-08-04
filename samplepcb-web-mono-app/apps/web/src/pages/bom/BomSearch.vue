@@ -19,9 +19,7 @@ import BomPartSearchNotice from '../../components/bom/BomPartSearchNotice.vue';
 import BomSearchCartPanel from '../../components/bom/BomSearchCartPanel.vue';
 import BomSearchOfferTable from '../../components/bom/BomSearchOfferTable.vue';
 import searchIcon from '../../assets/bom/ic-search-20.svg';
-import uploadCard from '../../assets/bom/upload-card.jpg';
-import singleSearchCardGlow from '../../assets/bom/single-search-card-glow.svg';
-import singleSearchLogo from '../../assets/bom/single-search-logo.svg';
+import singleSearchCard from '../../assets/bom/single-search-card.jpg';
 import pillUnikey from '../../assets/bom/pill-unikey.png';
 import pillDigikey from '../../assets/bom/pill-digikey.png';
 import pillMouser from '../../assets/bom/pill-mouser.png';
@@ -209,19 +207,12 @@ watch([q, submittedNeeded], () => {
       </div>
     </div>
 
-    <section class="relative mt-[50px] h-[524px] w-[640px] max-w-full shrink-0 overflow-hidden rounded-[8px] bg-[linear-gradient(180deg,#71c5ff_0%,#a8dafc_22.596%,#c7e6fb_41.827%,#a7d2f7_92.308%)]" aria-labelledby="single-search-card-title">
-      <img :src="singleSearchCardGlow" alt="" class="pointer-events-none absolute inset-0 size-full">
-      <div class="pointer-events-none absolute inset-x-0 bottom-0 h-[200px] overflow-hidden">
-        <img :src="uploadCard" alt="" class="absolute inset-x-0 bottom-0 h-[524px] w-full max-w-none object-cover object-bottom">
-      </div>
-      <div class="pointer-events-none absolute left-1/2 top-[68px] h-[50px] w-[290px] -translate-x-1/2">
-        <img :src="singleSearchLogo" alt="Parts Eyes" class="size-full">
-      </div>
-      <div class="pointer-events-none absolute inset-x-0 top-[134px] text-center text-white">
-        <p id="single-search-card-title" class="text-[20px] font-medium leading-[32px]">부품 검색</p>
-        <p class="mt-[6px] text-[16px] font-normal leading-[24px] text-[#fdfdff]/70">MPN 또는 부품명을 입력하면 바로 검색할 수 있습니다</p>
-      </div>
-      <form class="absolute left-1/2 top-[226px] z-10 flex h-[48px] w-[426px] max-w-[calc(100%-32px)] -translate-x-1/2" role="search" @submit.prevent="submit">
+    <!-- search card (2282:61416) — BOM 분석 카드와 같은 방식의 시안 합성 렌더 통짜 베이크.
+         그라데이션×글로우×사진을 레이어로 재조합하면 영역 경계에서 그라데이션이 끊겨 보여
+         카드 비주얼 전체를 한 장으로 쓰고, 실 검색 폼만 그 위에 겹친다. -->
+    <section class="relative mt-[50px] h-[524px] w-[640px] shrink-0 overflow-hidden rounded-[8px]" aria-label="부품 단일 검색">
+      <img :src="singleSearchCard" alt="Search for parts — enter the MPN or part name, and you can start right away" class="absolute inset-0 size-full">
+      <form class="absolute left-1/2 top-[226px] z-10 flex h-[48px] w-[426px] -translate-x-1/2" role="search" @submit.prevent="submit">
         <label class="flex min-w-0 w-[340px] flex-1 items-center gap-[8px] rounded-l-[8px] bg-[#fdfdff] pl-[20px] pr-[16px]">
           <img :src="searchIcon" alt="" class="size-[20px] shrink-0">
           <input v-model="input" type="search" aria-label="부품 검색어" placeholder="예: GRM155R71C104KA88, 100nF..." class="min-w-0 flex-1 bg-transparent text-[14px] font-normal leading-[24px] text-[#061023] outline-none placeholder:text-[#5b6a7e]">
