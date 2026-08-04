@@ -66,6 +66,9 @@
   --color-bom-nav-heading: #37393e;
   --color-bom-recent-active-bg: #f1f4f8;
   --color-bom-recent-active-border: #cdd7e5;
+  /* 견적 상세 최종합계 하단 안내문 — 작은 본문은 보조 텍스트보다 한 단계 진하게 유지해
+     라이트 배경에서 읽기 쉬우면서도 합계보다 과도하게 튀지 않게 한다. */
+  --color-bom-estimate-notice: #555555;
 
   /* BOM 랜딩 프로모 카드(피그마 2282:60172) — 카드 전용 파스텔 그라데이션·글로우라
      공용 면 토큰과 합치지 않고 시안 원본값을 그대로 둔다. bg=카드 바탕(→왼쪽),
@@ -172,6 +175,7 @@
   --color-bom-nav-heading: #c6cfdc;
   --color-bom-recent-active-bg: #1f2632;
   --color-bom-recent-active-border: #3d4757;
+  --color-bom-estimate-notice: #b6c0ce;
 
   /* BOM 랜딩 프로모 카드 — 다크 카드 시안이 없어, 토큰화 전 다크에서 실제로
      그리던 면 팔레트(raised/sunken/brand 계열)를 그대로 승계한다. */

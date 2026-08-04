@@ -2357,7 +2357,7 @@ function fmtAmount(v: number | null): string {
                 <span class="font-noto text-[12px] font-medium leading-[14px] text-ink">최종합계 <span class="text-[10px] font-normal text-ink-subtle">(VAT 별도)</span></span>
                 <span class="absolute bottom-[12px] right-[11px] text-[19px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtAmount(finalTotal) }}<small class="ml-[3px] text-[12px] font-normal">원</small></span>
               </div>
-              <ul class="mt-[11px] list-disc pl-[14px] text-[10px] leading-[14px] text-ink-subtle">
+              <ul class="mt-[11px] list-disc pl-[14px] text-[11px] leading-[16px] text-bom-estimate-notice">
                 <li>AI로 산출한 가견적입니다.</li>
                 <li>정확한 가격은 담당자 확정 시 안내드립니다.</li>
               </ul>
