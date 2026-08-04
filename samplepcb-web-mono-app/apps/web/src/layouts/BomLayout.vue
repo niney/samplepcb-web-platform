@@ -250,33 +250,39 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
         </div>
       </main>
 
-      <!-- right side bar (87:21445) — 라이트 치환, 프로모 카드는 시안 그대로.
+      <!-- right side bar (87:21445) — 라이트 치환, 프로모 카드는 시안(2282:60172) 좌표·색 그대로.
            상세(bom-quote)에서는 페이지 자체 우측 패널(주문 정보·예상 견적)이 대신한다. -->
       <aside v-show="rightOpen && showLandingPromos" class="hidden w-[334px] shrink-0 flex-col gap-[12px] px-[24px] pt-[24px] xl:flex">
         <!-- con01: Parts Eyes 튜토리얼 — 링크 미구현 -->
-        <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-surface-raised to-surface-sunken ring-1 ring-black/5" title="튜토리얼 (준비 중)">
-          <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-surface-brand to-surface-sunken blur-[10px]" />
-          <img :src="promoZip" alt="" class="absolute right-[24px] top-[49px] size-[58px] rounded-[10px] shadow-[0px_4px_10px_rgba(89,129,208,0.4)]">
-          <div class="absolute right-[18px] top-[16px] flex h-[18px] items-center gap-[3px] rounded-[10px] bg-surface px-[7px] shadow-[0px_0px_10px_var(--color-line-soft)]">
-            <span class="size-[4px] rounded-full bg-brand" />
-            <span class="text-[10px] font-bold text-brand">PICK</span>
+        <!-- 그라데이션은 /srgb 고정 — 피그마는 sRGB 보간이라 Tailwind v4 기본(oklab)과 중간톤이 어긋난다 -->
+        <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-linear-to-l/srgb from-bom-promo-tuto-bg1 to-bom-promo-tuto-bg2 font-noto" title="튜토리얼 (준비 중)">
+          <div class="absolute left-[152.23px] top-[7.49px] h-[143.23px] w-[141.15px] rounded-[10px] bg-linear-to-b/srgb from-bom-promo-tuto-glow1 to-bom-promo-tuto-glow2 blur-[10px]" />
+          <!-- 아이콘 그림자는 box-shadow(사각 박스 halo)가 아니라 피그마처럼 알파 실루엣을 따르는 drop-shadow -->
+          <img :src="promoZip" alt="" class="absolute left-[203.68px] top-[48.89px] size-[57.62px] rounded-[10px] drop-shadow-[0_4px_10px_rgba(89,129,208,0.4)]">
+          <div class="absolute left-[224px] top-[19px] h-[18px] w-[44px] rounded-[10px] bg-bom-promo-badge shadow-[0px_0px_10px_var(--color-bom-promo-badge-glow)]">
+            <span class="absolute left-[8.49px] top-[7.21px] h-[3.74px] w-[3.69px] rounded-full bg-bom-promo-pick blur-[4px]" />
+            <span class="absolute left-[6px] top-[7px] size-[4px] rounded-full bg-bom-promo-pick" />
+            <span class="absolute left-[13px] top-0 text-[10px] font-bold leading-[18px] text-bom-promo-pick">PICK</span>
           </div>
-          <div class="absolute left-[16px] top-[52px] w-[188px]">
-            <p class="text-[11px] leading-[24px] text-brand">Parts Eyes 이용 방법 튜토리얼</p>
-            <p class="text-[12px] leading-[18px] text-ink">다양한 제조사의 전자부품을<br>파츠아이에서 빠르게 검색하세요</p>
+          <div class="absolute left-[16px] top-[52px] w-[188px] font-medium">
+            <p class="text-[11px] leading-[24px] text-bom-promo-tuto-title">Parts Eyes 이용 방법 튜토리얼</p>
+            <p class="text-[12px] leading-[18px] text-bom-promo-ink">다양한 제조사의 전자부품을<br>파츠아이에서 빠르게 검색하세요</p>
           </div>
+          <div class="pointer-events-none absolute inset-0 rounded-[10px] border border-bom-promo-line" />
         </div>
-        <!-- con02: Gerber Eyes Online 3.0 — 링크 미구현 -->
-        <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-gradient-to-l from-surface-brand-soft to-surface-raised ring-1 ring-black/5" title="Gerber Eyes 소개 영상 (준비 중)">
-          <div class="absolute right-0 top-0 h-full w-[141px] bg-gradient-to-b from-surface-brand to-surface-raised blur-[10px]" />
-          <img :src="promoVideo" alt="" class="absolute right-[28px] top-[44px] size-[54px] rounded-[10px] shadow-[0px_4px_10px_rgba(183,183,183,0.5)]">
-          <div class="absolute left-[188px] top-[35px] rounded-[10px] bg-surface/80 px-[6px] py-[3px] backdrop-blur-[10px]">
-            <span class="bg-gradient-to-br from-[#ff1e22] to-[#af002f] bg-clip-text text-[10px] font-bold text-transparent">NEW</span>
+        <!-- con02: Gerber Eyes Online 3.0 — 링크 미구현. NEW 배지는 영상 아이콘 위에 얹혀
+             backdrop-blur 로 모서리를 비추므로 img 뒤(DOM 순서)에 둔다. -->
+        <div class="relative h-[132px] w-[286px] overflow-hidden rounded-[10px] bg-linear-to-l/srgb from-bom-promo-video-bg1 to-bom-promo-video-bg2 font-noto" title="Gerber Eyes 소개 영상 (준비 중)">
+          <div class="absolute left-[152.23px] top-[7.49px] h-[143.23px] w-[141.15px] rounded-[10px] bg-linear-to-b/srgb from-bom-promo-video-glow1 to-bom-promo-video-glow2 blur-[10px]" />
+          <img :src="promoVideo" alt="" class="absolute left-[204.27px] top-[43.65px] size-[53.9px] rounded-[10px] drop-shadow-[0_4px_10px_rgba(183,183,183,0.5)]">
+          <div class="absolute left-[188px] top-[35px] h-[18px] w-[35px] rounded-[10px] bg-[linear-gradient(125.617deg,var(--color-bom-promo-new-bg1)_0%,var(--color-bom-promo-new-bg2)_88.578%)] backdrop-blur-[10px]">
+            <span class="absolute left-[6px] top-0 bg-[linear-gradient(121.608deg,#ff1e22_11.519%,#af002f_100%)] bg-clip-text text-[10px] font-bold leading-[18px] text-transparent">NEW</span>
           </div>
-          <div class="absolute left-[16px] top-[52px] w-[188px]">
+          <div class="absolute left-[16px] top-[52px] w-[188px] font-medium">
             <p class="text-[11px] leading-[24px] text-[#e95e49]">Gerber Eyes Online 3.0 출시</p>
-            <p class="text-[12px] leading-[18px] text-ink">영상을 통해 편리해진<br>DFM 분석 기능을 확인해 보세요</p>
+            <p class="text-[12px] leading-[18px] text-bom-promo-ink">영상을 통해 편리해진<br>DFM 분석 기능을 확인해 보세요</p>
           </div>
+          <div class="pointer-events-none absolute inset-0 rounded-[10px] border border-bom-promo-line" />
         </div>
       </aside>
     </div>
