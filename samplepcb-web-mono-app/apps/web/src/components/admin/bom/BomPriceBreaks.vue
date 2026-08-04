@@ -52,11 +52,11 @@ function toggle(): void {
       <div
         v-for="priceBreak in visible"
         :key="priceBreak.qty"
-        class="flex min-h-[14px] items-baseline justify-between gap-3 text-[12px] leading-[14px]"
+        class="flex min-h-[14px] items-baseline justify-between gap-2 whitespace-nowrap text-[12px] leading-[14px]"
         :class="priceBreak.qty === activeQty ? 'font-bold text-brand-strong' : 'font-semibold text-ink-muted'"
       >
-        <span class="w-[32px] shrink-0 text-right tabular-nums">{{ priceBreak.qty.toLocaleString('ko-KR') }}+</span>
-        <span class="min-w-0 text-right tabular-nums">
+        <span class="w-[48px] shrink-0 text-right tabular-nums whitespace-nowrap">{{ priceBreak.qty.toLocaleString('ko-KR') }}+</span>
+        <span class="min-w-0 shrink-0 text-right tabular-nums whitespace-nowrap">
           {{ prefix }}{{ fmtBreakNumber(priceBreak.price) }}<span class="font-normal">{{ suffix }}</span>
         </span>
       </div>
