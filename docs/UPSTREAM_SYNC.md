@@ -28,6 +28,14 @@ git fetch gnuboard master
 git subtree pull --prefix=samplepcb-web gnuboard master --squash
 ```
 
+**⚠ pull 직후 필수 — 코어 최소 수정 가드 실행:**
+
+```bash
+ops/scripts/check-core-patches.sh
+```
+
+subtree pull 은 우리가 코어에 넣은 "기록된 예외" 한 줄 수정을 **충돌 경고 없이 조용히 되돌릴 수 있다**(그누보드가 그 줄 근처를 안 건드리면 충돌이 안 나고 그냥 원본으로 덮어써짐). 이 가드가 그 "조용한 되돌림"을 잡는다. 실패(exit 1) 하면 안내대로 재적용 후 재실행하라. 배경: `docs/LEGACY_DB_MIGRATION.md §8` — 이 수정이 없으면 이메일 형식 아이디로 이관된 회원 수천 명이 **전원 로그인 불가**가 된다.
+
 - `--squash`: 그누보드 전체 이력을 끌어오지 않고 변경분만 1커밋으로 압축 병합.
 - **충돌은 `samplepcb-web/` 안에서 내가 코어를 직접 수정한 파일에서만** 발생한다(= 코어 비수정 원칙을 지키면 거의 무충돌).
 - 작업 트리가 깨끗해야 한다(uncommitted 변경 없을 것).
@@ -35,7 +43,7 @@ git subtree pull --prefix=samplepcb-web gnuboard master --squash
 ## 3. 절대 규칙
 
 - ❌ `gnuboard` 리모트로 **push 금지**(no_push + pre-push 훅 3중 차단). 그누보드 갱신은 오직 `subtree pull`.
-- ❌ `samplepcb-web/` 코어(`bbs/`,`lib/`,`adm/`,`shop/`, 루트 `*.php`) 직접 수정 최소화. 수정 시 `// [samplepcb]` 주석.
+- ❌ `samplepcb-web/` 코어(`bbs/`,`lib/`,`adm/`,`shop/`, 루트 `*.php`) 직접 수정 최소화. 수정 시 `// [samplepcb]` 주석 **+ `ops/scripts/check-core-patches.sh` 가드에 검사 한 줄 등록**(pull 때 조용히 사라지는 것 방지).
 - ❌ `samplepcb-web/config.php` 수정 금지(`G5_DOMAIN=''` 유지). https 는 `proxy_fix.php`(auto_prepend)로.
 - ✅ 커스텀: `samplepcb-web/extend/`·`plugin/`·별도 스킨/테마, 신규 기능은 `samplepcb-web-mono-app`.
 - ✅ 비밀값은 `samplepcb-web/data/dbconfig.php`(gitignore).
