@@ -15,11 +15,11 @@ import {
   useRequestBomQuote,
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
+import BomLandingCard from '../../components/bom/BomLandingCard.vue';
 import BomPartSearchNotice from '../../components/bom/BomPartSearchNotice.vue';
 import BomSearchCartPanel from '../../components/bom/BomSearchCartPanel.vue';
 import BomSearchOfferTable from '../../components/bom/BomSearchOfferTable.vue';
 import searchIcon from '../../assets/bom/ic-search-20.svg';
-import singleSearchCard from '../../assets/bom/single-search-card.jpg';
 import pillUnikey from '../../assets/bom/pill-unikey.png';
 import pillDigikey from '../../assets/bom/pill-digikey.png';
 import pillMouser from '../../assets/bom/pill-mouser.png';
@@ -207,11 +207,10 @@ watch([q, submittedNeeded], () => {
       </div>
     </div>
 
-    <!-- search card (2282:61416) — BOM 분석 카드와 같은 방식의 시안 합성 렌더 통짜 베이크.
-         그라데이션×글로우×사진을 레이어로 재조합하면 영역 경계에서 그라데이션이 끊겨 보여
-         카드 비주얼 전체를 한 장으로 쓰고, 실 검색 폼만 그 위에 겹친다. -->
+    <!-- search card (2282:61416) — 배경은 텍스트 없는 공용 베이크, 로고·타이틀은 실 DOM
+         (BomLandingCard 참조). BOM 분석 탭과 텍스트 위치를 공유하고 검색 폼만 겹친다. -->
     <section class="relative mt-[50px] h-[524px] w-[640px] shrink-0 overflow-hidden rounded-[8px]" aria-label="부품 단일 검색">
-      <img :src="singleSearchCard" alt="Search for parts — enter the MPN or part name, and you can start right away" class="absolute inset-0 size-full">
+      <BomLandingCard title="Search for parts" subtitle="Enter the MPN or part name, and you can start right away" />
       <form class="absolute left-1/2 top-[226px] z-10 flex h-[48px] w-[426px] -translate-x-1/2" role="search" @submit.prevent="submit">
         <label class="flex min-w-0 w-[340px] flex-1 items-center gap-[8px] rounded-l-[8px] bg-[#fdfdff] pl-[20px] pr-[16px]">
           <img :src="searchIcon" alt="" class="size-[20px] shrink-0">

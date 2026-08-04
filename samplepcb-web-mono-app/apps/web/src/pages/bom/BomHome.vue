@@ -4,8 +4,8 @@ import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import { useCreateBomQuote } from '../../bom/useBom';
 import { useBomProcurementMode } from '../../bom/useProcurementMode';
+import BomLandingCard from '../../components/bom/BomLandingCard.vue';
 import icUpload from '../../assets/bom/ic-upload-20.svg';
-import uploadCard from '../../assets/bom/upload-card.jpg';
 import pillUnikey from '../../assets/bom/pill-unikey.png';
 import pillDigikey from '../../assets/bom/pill-digikey.png';
 import pillMouser from '../../assets/bom/pill-mouser.png';
@@ -87,9 +87,8 @@ function onDrop(event: DragEvent): void {
       </RouterLink>
     </div>
 
-    <!-- drag & drop (87:9040) — 카드 비주얼은 시안 합성 렌더 통짜 베이크(그라데이션×글로우×
-         사진×로고의 블렌드 상호작용은 레이어 재조합으로 재현 불가). 실 버튼은 베이크드 버튼
-         위 투명 핫스팟으로 겹치고, 업로딩 상태에서만 실표시로 전환한다. -->
+    <!-- drag & drop (87:9040·2282:60957) — 배경은 텍스트 없는 공용 베이크, 로고·타이틀·
+         버튼은 실 DOM(BomLandingCard 참조). 단일 검색 탭과 텍스트 위치를 공유한다. -->
     <div
       class="relative mt-[50px] h-[524px] w-[640px] shrink-0 cursor-pointer overflow-hidden rounded-[8px] transition"
       :class="dragOver ? 'ring-4 ring-brand-strong/40' : ''"
@@ -102,19 +101,15 @@ function onDrop(event: DragEvent): void {
       @dragleave.prevent="dragOver = false"
       @drop.prevent="onDrop"
     >
-      <img :src="uploadCard" alt="Drag & drop BOM file — xlsx, xls, csv, tsv, bom formats, up to 50 MB" class="absolute inset-0 size-full">
+      <BomLandingCard title="Drag & drop Bom File" subtitle="(xlsx, xls, csv formats, up to 50 MB)" />
       <button
         type="button"
-        class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] transition hover:bg-white/25"
-        :class="create.isPending.value ? 'bg-surface shadow-sm' : ''"
+        class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] bg-[#fdfdff] font-noto transition hover:bg-white"
         :disabled="create.isPending.value"
-        aria-label="Select file"
         @click.stop="fileInput?.click()"
       >
-        <template v-if="create.isPending.value">
-          <img :src="icUpload" alt="" class="size-[20px]">
-          <span class="text-[16px] font-bold leading-[24px] text-brand-strong">Uploading…</span>
-        </template>
+        <img :src="icUpload" alt="" class="size-[20px]">
+        <span class="text-[16px] font-bold leading-[24px] text-[#0e6efd]">{{ create.isPending.value ? 'Uploading…' : 'Select file' }}</span>
       </button>
     </div>
     <input ref="fileInput" type="file" accept=".xlsx,.xlsm,.xls,.csv,.tsv,.bom" class="hidden" @change="onFileChange">
