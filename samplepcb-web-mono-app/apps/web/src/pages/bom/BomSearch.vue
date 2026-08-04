@@ -16,19 +16,12 @@ import {
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
 import BomLandingCard from '../../components/bom/BomLandingCard.vue';
+import BomLandingIntro from '../../components/bom/BomLandingIntro.vue';
+import BomLandingToggle from '../../components/bom/BomLandingToggle.vue';
 import BomPartSearchNotice from '../../components/bom/BomPartSearchNotice.vue';
 import BomSearchCartPanel from '../../components/bom/BomSearchCartPanel.vue';
 import BomSearchOfferTable from '../../components/bom/BomSearchOfferTable.vue';
 import searchIcon from '../../assets/bom/ic-search-20.svg';
-import pillUnikey from '../../assets/bom/pill-unikey.png';
-import pillDigikey from '../../assets/bom/pill-digikey.png';
-import pillMouser from '../../assets/bom/pill-mouser.png';
-
-const SUPPLIER_LOGOS = [
-  { name: 'UNIKEY Electronics', src: pillUnikey },
-  { name: 'DigiKey', src: pillDigikey },
-  { name: 'Mouser Electronics', src: pillMouser },
-];
 
 const route = useRoute();
 const router = useRouter();
@@ -200,12 +193,7 @@ watch([q, submittedNeeded], () => {
       <span class="text-[15px] leading-none">+</span> BOM
     </RouterLink>
 
-    <div class="mt-[46px] flex shrink-0 justify-center">
-      <div class="flex h-[42px] items-center rounded-full bg-surface-raised">
-        <RouterLink :to="{ name: 'bom' }" class="flex h-[42px] items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-ink opacity-80 transition hover:opacity-60">BOM 분석</RouterLink>
-        <span class="flex h-[42px] items-center rounded-full bg-[#061023] px-[24px] text-[16px] font-bold leading-[24px] text-white">단일 검색</span>
-      </div>
-    </div>
+    <BomLandingToggle active="search" />
 
     <!-- search card (2282:61416) — 배경은 텍스트 없는 공용 베이크, 로고·타이틀은 실 DOM
          (BomLandingCard 참조). BOM 분석 탭과 텍스트 위치를 공유하고 검색 폼만 겹친다. -->
@@ -220,11 +208,7 @@ watch([q, submittedNeeded], () => {
       </form>
     </section>
 
-    <h2 class="mt-[50px] text-center text-[26px] font-bold leading-[32px] text-ink-strong">전자부품 2,000만+ 다양한 제조사</h2>
-    <p class="mt-[8px] text-center text-[18px] leading-[32px] text-ink-neutral">공인 유통사의 견적 정보를 최적의 조건으로, 빠르게 받아 비교하세요</p>
-    <div class="mt-[22px] flex flex-wrap items-center justify-center gap-[12px]">
-      <img v-for="logo in SUPPLIER_LOGOS" :key="logo.name" :src="logo.src" :alt="logo.name" class="h-[66px] w-[148px] mix-blend-multiply">
-    </div>
+    <BomLandingIntro />
   </div>
 
   <div v-else class="flex h-full min-h-0 bg-surface-sunken">

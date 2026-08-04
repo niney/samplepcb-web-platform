@@ -5,10 +5,9 @@ import { ApiRequestError } from '@sp/shared';
 import { useCreateBomQuote } from '../../bom/useBom';
 import { useBomProcurementMode } from '../../bom/useProcurementMode';
 import BomLandingCard from '../../components/bom/BomLandingCard.vue';
+import BomLandingIntro from '../../components/bom/BomLandingIntro.vue';
+import BomLandingToggle from '../../components/bom/BomLandingToggle.vue';
 import icUpload from '../../assets/bom/ic-upload-20.svg';
-import pillUnikey from '../../assets/bom/pill-unikey.png';
-import pillDigikey from '../../assets/bom/pill-digikey.png';
-import pillMouser from '../../assets/bom/pill-mouser.png';
 
 // 고객 스마트 BOM 업로드 — Figma "01 BOM 업로드"(87:9037) 중앙 콘텐츠 이식(디자인 동일 중점).
 // 파일 선택/드롭 즉시 업로드→분석 이동(시안에 별도 시작 버튼 없음). 공급사 로고는
@@ -23,13 +22,6 @@ const error = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
 const create = useCreateBomQuote();
 const { preferredMode } = useBomProcurementMode();
-
-// Figma 합성 렌더(필 배경+로고, 148×66 — 내부 그림자 여백 포함) — 사용자 지시로 3종만
-const SUPPLIER_LOGOS = [
-  { name: 'UNIKEY Electronics', src: pillUnikey },
-  { name: 'DigiKey', src: pillDigikey },
-  { name: 'Mouser Electronics', src: pillMouser },
-];
 
 function hasAllowedExtension(name: string): boolean {
   const lower = name.toLocaleLowerCase();
@@ -77,15 +69,7 @@ function onDrop(event: DragEvent): void {
 <template>
   <div class="flex h-full flex-col items-center overflow-y-auto px-6 pb-[60px]">
     <!-- togle btn (87:9712) -->
-    <div class="mt-[46px] flex h-[42px] items-center rounded-full bg-surface-raised">
-      <span class="flex h-[42px] items-center rounded-full bg-[#061023] px-[24px] text-[16px] font-bold leading-[24px] text-white">BOM 분석</span>
-      <RouterLink
-        :to="{ name: 'bom-search' }"
-        class="flex h-[42px] items-center rounded-full px-[24px] text-[16px] font-medium leading-[24px] text-ink transition hover:opacity-70"
-      >
-        단일 검색
-      </RouterLink>
-    </div>
+    <BomLandingToggle active="bom" />
 
     <!-- drag & drop (87:9040·2282:60957) — 배경은 텍스트 없는 공용 베이크, 로고·타이틀·
          버튼은 실 DOM(BomLandingCard 참조). 단일 검색 탭과 텍스트 위치를 공유한다. -->
@@ -117,16 +101,6 @@ function onDrop(event: DragEvent): void {
     <p v-if="error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{{ error }}</p>
 
     <!-- contents (87:9722) -->
-    <h2 class="mt-[50px] text-center text-[26px] font-bold leading-[32px] text-ink-strong">전자부품 2,000만+ 다양한 제조사</h2>
-    <p class="mt-[8px] text-center text-[18px] leading-[32px] text-ink-neutral">공인 유통사의 견적 정보를 최적의 조건으로, 빠르게 받아 비교하세요</p>
-    <div class="mt-[22px] flex flex-wrap items-center justify-center gap-[12px]">
-      <img
-        v-for="logo in SUPPLIER_LOGOS"
-        :key="logo.name"
-        :src="logo.src"
-        :alt="logo.name"
-        class="h-[66px] w-[148px] mix-blend-multiply"
-      >
-    </div>
+    <BomLandingIntro />
   </div>
 </template>
