@@ -143,7 +143,7 @@ const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.sli
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div class="pcb-readable space-y-5">
     <RouterLink :to="{ name: 'partner' }" class="text-sm text-gray-400 hover:text-gray-700">
       ← 파트너 홈
     </RouterLink>
@@ -326,3 +326,23 @@ const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.sli
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 장시간 검토 화면 — 밀도보다 판독성 우선(AdminSmartbomCase 가독성 컨벤션과 동일 스케일). */
+.pcb-readable :deep([class~='text-[11px]']) {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.pcb-readable :deep(.text-xs),
+.pcb-readable :deep([class~='text-[12px]']) {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.pcb-readable :deep(.text-sm),
+.pcb-readable :deep([class~='text-[13px]']) {
+  font-size: 15px;
+  line-height: 22px;
+}
+</style>

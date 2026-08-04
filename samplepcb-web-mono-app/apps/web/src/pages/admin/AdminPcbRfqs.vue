@@ -63,7 +63,7 @@ const fmtDate = (iso: string): string => iso.slice(0, 10);
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="pcb-readable space-y-4">
     <h1 class="text-xl font-bold">PCB 견적요청 (RFQ)</h1>
 
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200">
@@ -179,3 +179,23 @@ const fmtDate = (iso: string): string => iso.slice(0, 10);
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 장시간 검토 화면 — 밀도보다 판독성 우선(AdminSmartbomCase 가독성 컨벤션과 동일 스케일). */
+.pcb-readable :deep([class~='text-[11px]']) {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.pcb-readable :deep(.text-xs),
+.pcb-readable :deep([class~='text-[12px]']) {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.pcb-readable :deep(.text-sm),
+.pcb-readable :deep([class~='text-[13px]']) {
+  font-size: 15px;
+  line-height: 22px;
+}
+</style>

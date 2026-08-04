@@ -85,7 +85,7 @@ const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.sli
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 text-gray-900">
+  <div class="pcb-readable min-h-screen bg-gray-50 text-gray-900">
     <header class="border-b border-gray-200 bg-surface">
       <div class="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
         <span class="text-lg font-bold text-blue-600">
@@ -164,3 +164,23 @@ const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.sli
     </main>
   </div>
 </template>
+
+<style scoped>
+/* 장시간 검토 화면 — 밀도보다 판독성 우선(AdminSmartbomCase 가독성 컨벤션과 동일 스케일). */
+.pcb-readable :deep([class~='text-[11px]']) {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.pcb-readable :deep(.text-xs),
+.pcb-readable :deep([class~='text-[12px]']) {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.pcb-readable :deep(.text-sm),
+.pcb-readable :deep([class~='text-[13px]']) {
+  font-size: 15px;
+  line-height: 22px;
+}
+</style>

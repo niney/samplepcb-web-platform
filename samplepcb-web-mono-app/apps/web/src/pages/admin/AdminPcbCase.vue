@@ -256,7 +256,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="pcb-readable space-y-4">
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
         :to="{ name: fromRfqs ? 'admin-pcb-rfqs' : 'admin-quotes' }"
@@ -593,3 +593,23 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 장시간 검토 화면 — 밀도보다 판독성 우선(AdminSmartbomCase 가독성 컨벤션과 동일 스케일). */
+.pcb-readable :deep([class~='text-[11px]']) {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.pcb-readable :deep(.text-xs),
+.pcb-readable :deep([class~='text-[12px]']) {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.pcb-readable :deep(.text-sm),
+.pcb-readable :deep([class~='text-[13px]']) {
+  font-size: 15px;
+  line-height: 22px;
+}
+</style>
