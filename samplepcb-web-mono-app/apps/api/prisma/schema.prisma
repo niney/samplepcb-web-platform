@@ -59,6 +59,7 @@ model SpOrderSpec {
   pricedAt      DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  pcbRfqs       SpPcbRfq[] // PCB 파트너 트랙(docs/PCB_PARTNER_TRACK.md) — 스펙 삭제 시 cascade
 
   @@index([mbId, status])
   @@index([quoteId])
@@ -896,6 +897,9 @@ model SpPartner {
   supplierCode    String?             @unique @db.VarChar(32)
   country         String?             @db.VarChar(2) // ISO alpha-2
   defaultCurrency String              @default("KRW") @db.VarChar(8)
+  // 입력/표시 통화 — 결제통화(defaultCurrency)와 다를 때만 의미(위안화 입력 관행,
+  // 레거시 mb_sub_currency 대응). PCB 트랙 P1(docs/PCB_PARTNER_TRACK.md D2).
+  inputCurrency   String?             @db.VarChar(8)
   capabilities    Json // ["bom_rfq","pcb_rfq","part_sale"] — 레거시 partnerAuth 등급 재해석
   status          String              @default("pending") @db.VarChar(20) // pending|approved|suspended
   contactName     String?             @db.VarChar(100)
@@ -918,6 +922,7 @@ model SpPartner {
   members         SpPartnerMember[]
   rfqs            SpBomRfq[]
   pos             SpBomPo[]
+  pcbRfqs         SpPcbRfq[]
   childRelations  SpPartnerRelation[] @relation("PartnerRelationParent")
   parentRelations SpPartnerRelation[] @relation("PartnerRelationChild")
 
@@ -1223,4 +1228,59 @@ model SpMailLog {
 
   @@index([quoteId])
   @@map("sp_mail_log")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PCB 파트너 트랙 (docs/PCB_PARTNER_TRACK.md) — 레거시 SmartBOM PCB 트랙 이식.
+// 앵커 = sp_order_spec(§3 개념 매핑, g5 상품 it_id 아님). P1=RFQ, P2=발주·EQ,
+// P3=선적, P4=A/S. MD 2단 중개·통화 3종은 1차 포함(§6 D1·D2, 2026-08-04 확정).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// PCB 협력사 견적행 — (spec × 협력사 × 중개 트랙 × 회차) 1건. BOM RFQ 와 달리 부품행
+// 계층이 없는 단일가 문서(레거시 sp_pcb_partner_order 대응). RFQ 시작 조건 = 담기지
+// 않은 active 스펙(§5.2-1 — 확정가 등록의 IN_CART/ORDERED 409 가드와 짝).
+model SpPcbRfq {
+  id              BigInt      @id @default(autoincrement())
+  specId          BigInt // sp_order_spec.id — 스펙 삭제 시 RFQ 도 소멸(레거시 cascade 승계)
+  partnerId       BigInt
+  parentPartnerId BigInt      @default(0) // 0=관리자 직접(센티넬 — FK 없음), 그 외=MD partnerId
+  reorderRound    Int         @default(0) // 0=원견적, 1..=A/S 회차(P4)
+  status          String      @default("requested") @db.VarChar(16) // requested|quoted|selected|unselected
+  // 금액 정본 = 결제통화(priceOriginal, 링크별 KRW|USD|CNY — D2). krwAmount 는 선정 시
+  // 환산 박제(외화 선정 전 null — 표시는 main(통화,원본,KRW)+sub 3값 로직, §7-5).
+  currency        String      @default("KRW") @db.VarChar(8)
+  priceOriginal   Decimal?    @db.Decimal(15, 2)
+  exchangeRate    Decimal?    @db.Decimal(12, 6) // 선정 시 결제통화→KRW 박제(KRW 면 null)
+  krwAmount       Int?
+  // 입력통화 레이어 — 입력≠결제일 때만 3종 박제(위안화 입력 관행), 같으면 명시적 null 클리어.
+  subCurrency      String?    @db.VarChar(8)
+  subPriceOriginal Decimal?   @db.Decimal(15, 2)
+  subExchangeRate  Decimal?   @db.Decimal(12, 6)
+  // MD 변환점 박제(D1) — priceOriginal = sourceAmount × sourceRate × (1+marginRate/100),
+  // 중간 반올림 없이 최종 1회 HALF_UP(KRW 0자리·외화 2자리). 하위 견적가가 나중에 바뀌어도
+  // 이 행의 회신가는 불변(감사 복원 근거 — 레거시 source_* 승계).
+  selectedChildRfqId BigInt? // MD 가 선정한 하위 견적행 id(자기참조 — FK 없음)
+  marginRate      Int?
+  sourceCurrency  String?     @db.VarChar(8)
+  sourceAmount    Decimal?    @db.Decimal(15, 2)
+  sourceRate      Decimal?    @db.Decimal(12, 6)
+  // 납기 신호 — 제시(관리자/MD, 하향 상속 prefill) vs 회신(협력사 필수). 불일치='변경됨' 배지.
+  suggestedDeliveryDate DateTime?
+  quotedDeliveryDate    DateTime?
+  memo            String?     @db.Text // 협력사 회신 메모
+  requestedAt     DateTime    @default(now()) // 최근 발송 시각(diff 재발송 시 갱신)
+  respondedAt     DateTime?
+  selectedAt      DateTime?
+  // 매직링크 무로그인 회신 — BOM §6.9 동형(64hex 회전, 발급 30일 경과 무효).
+  magicToken      String?     @unique @db.VarChar(64)
+  magicTokenAt    DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  spec            SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  partner         SpPartner   @relation(fields: [partnerId], references: [id])
+
+  @@unique([specId, partnerId, parentPartnerId, reorderRound])
+  @@index([partnerId, status]) // 협력사 포털 워크큐
+  @@index([specId])
+  @@map("sp_pcb_rfq")
 }

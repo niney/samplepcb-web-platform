@@ -74,6 +74,7 @@ export const ko = {
     modules: {
       core: '통합 관리',
       smartbom: '스마트 BOM',
+      pcb: 'PCB 협력',
     },
     menu: {
       dashboard: '대시보드',
@@ -96,6 +97,7 @@ export const ko = {
       smartbomPos: '발주',
       smartbomLogistics: '선적·배송',
       smartbomPartners: '파트너',
+      pcbRfqs: 'PCB 견적요청',
     },
     placeholder: '준비 중입니다.',
     settings: {

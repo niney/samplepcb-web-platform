@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { ApiRequestError } from '@sp/shared';
-import { BOM_RFQ_STATUS_LABELS, type PartnerPoListItemType } from '@sp/api-contract';
+import {
+  BOM_RFQ_STATUS_LABELS,
+  PCB_RFQ_STATUS_LABELS,
+  type PartnerPoListItemType,
+} from '@sp/api-contract';
 import {
   usePartnerPos,
   usePartnerRfqs,
   usePartnerShipments,
 } from '../../partner/usePartnerRfqs';
+import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
+import { pcbMoneyWithSub } from '../../lib/pcb-money';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
 
 // 파트너 포털 홈(§6.11 재구성) — 문서 나열이 아니라 "오늘 할 일" 중심:
@@ -17,6 +23,7 @@ import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vu
 const { data, error, isLoading } = usePartnerRfqs();
 const poQuery = usePartnerPos();
 const shipmentsQuery = usePartnerShipments();
+const pcbQuery = usePartnerPcbRfqs();
 
 const notPartner = computed(
   () => error.value instanceof ApiRequestError && error.value.status === 403,
@@ -26,6 +33,11 @@ const notPartner = computed(
 const rfqItems = computed(() => data.value?.data.items ?? []);
 const pendingRfqs = computed(() => rfqItems.value.filter((r) => r.status === 'requested'));
 const doneRfqs = computed(() => rfqItems.value.filter((r) => r.status !== 'requested'));
+
+// PCB 견적요청(docs/PCB_PARTNER_TRACK.md P1) — 부품 BOM RFQ 와 별도 문서 축.
+const pcbItems = computed(() => pcbQuery.data.value?.data.items ?? []);
+const pendingPcb = computed(() => pcbItems.value.filter((r) => r.status === 'requested'));
+const donePcb = computed(() => pcbItems.value.filter((r) => r.status !== 'requested'));
 
 const poItems = computed(() => poQuery.data.value?.data.items ?? []);
 const toConfirm = computed(() => poItems.value.filter((po) => po.status === 'issued'));
@@ -136,6 +148,30 @@ const rfqStatusCls = (s: string): string =>
         </a>
       </div>
 
+      <!-- ⓞ 회신할 PCB 견적(PCB 파트너 트랙 P1) — 제작 견적은 부품 BOM 과 별도 축 -->
+      <section v-if="pendingPcb.length > 0" id="pcb-reply">
+        <h2 class="text-sm font-bold text-gray-700">회신할 PCB 견적 ({{ pendingPcb.length }})</h2>
+        <div class="mt-2 grid gap-2">
+          <RouterLink
+            v-for="rfq in pendingPcb"
+            :key="rfq.rfqId"
+            :to="{ name: 'partner-pcb-rfq', params: { id: String(rfq.rfqId) } }"
+            class="flex items-center gap-3 rounded-xl border border-cyan-200 bg-surface px-4 py-3 hover:border-cyan-300 hover:bg-cyan-50/40"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.projectName }}</p>
+              <p class="mt-0.5 text-sm text-gray-500">
+                {{ rfq.category }} · {{ rfq.qty }}매 · {{ rfq.requesterName }} · 요청일 {{ fmtDate(rfq.requestedAt) }}
+                <template v-if="rfq.suggestedDeliveryDate !== null">
+                  · 희망 납기 {{ fmtDate(rfq.suggestedDeliveryDate) }}
+                </template>
+              </p>
+            </div>
+            <span class="rounded-lg bg-cyan-600 px-3 py-1.5 text-sm font-bold text-white">회신하기</span>
+          </RouterLink>
+        </div>
+      </section>
+
       <!-- ① 회신할 견적 -->
       <section v-if="pendingRfqs.length > 0" id="reply">
         <h2 class="text-sm font-bold text-gray-700">회신할 견적 ({{ pendingRfqs.length }})</h2>
@@ -207,6 +243,29 @@ const rfqStatusCls = (s: string): string =>
         </div>
       </details>
 
+      <!-- 보조: 회신한 PCB 견적 -->
+      <details v-if="donePcb.length > 0" class="rounded-xl border border-gray-200 bg-surface">
+        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
+          회신한 PCB 견적 ({{ donePcb.length }})
+        </summary>
+        <div class="grid gap-2 px-4 pb-4">
+          <RouterLink
+            v-for="rfq in donePcb"
+            :key="rfq.rfqId"
+            :to="{ name: 'partner-pcb-rfq', params: { id: String(rfq.rfqId) } }"
+            class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
+          >
+            <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ rfq.projectName }}</span>
+            <span class="text-xs tabular-nums text-gray-400">
+              {{ pcbMoneyWithSub(rfq.currency, rfq.priceOriginal, rfq.subCurrency, rfq.subPriceOriginal) }}
+            </span>
+            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="rfqStatusCls(rfq.status)">
+              {{ PCB_RFQ_STATUS_LABELS[rfq.status] }}
+            </span>
+          </RouterLink>
+        </div>
+      </details>
+
       <!-- 보조: 회신한 견적 -->
       <details v-if="doneRfqs.length > 0" class="rounded-xl border border-gray-200 bg-surface">
         <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
@@ -240,7 +299,7 @@ const rfqStatusCls = (s: string): string =>
       </RouterLink>
 
       <p
-        v-if="pendingRfqs.length === 0 && toConfirm.length === 0 && toShip.length === 0 && activeShipments.length === 0"
+        v-if="pendingPcb.length === 0 && pendingRfqs.length === 0 && toConfirm.length === 0 && toShip.length === 0 && activeShipments.length === 0"
         class="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400"
       >
         지금 처리할 일이 없습니다 🎉

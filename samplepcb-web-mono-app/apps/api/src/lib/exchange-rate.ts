@@ -86,12 +86,16 @@ function roundRate(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-async function fetchKoreaEximUsdForDate(
+// 통화 단위별 행 추출 공용부 — USD(BOM·PCB 공용)와 CNH(PCB 트랙 D2)가 같은 AP01
+// 응답을 쓴다. 반환 shape 는 통화 리터럴만 다르므로 제네릭 파서로 뽑고 각 캐시
+// 스키마가 리터럴을 못박는다.
+async function fetchKoreaEximRateForDate(
   authKey: string,
   rateDate: string,
+  curUnit: 'USD' | 'CNH',
   fetcher: typeof fetch,
   timeoutMs: number = API_TIMEOUT_MS,
-): Promise<ExchangeRateCacheType | null> {
+): Promise<{ rateDate: string; dealBasR: number; tts: number; fetchedAt: string } | null> {
   const url = new URL(KOREAEXIM_URL);
   url.searchParams.set('authkey', authKey);
   url.searchParams.set('searchdate', rateDate.replaceAll('-', ''));
@@ -107,19 +111,24 @@ async function fetchKoreaEximUsdForDate(
     const message = KOREAEXIM_RESULT_ERRORS[code];
     if (message !== undefined) throw new Error(message);
   }
-  const usd = rows.data.find((row) => (row.cur_unit ?? '').trim().toUpperCase() === 'USD');
-  if (usd === undefined) return null; // 주말·공휴일·당일 고시 전에는 빈 배열 또는 USD 행 없음.
-  const dealBasR = usd.deal_bas_r === undefined ? null : parseRate(usd.deal_bas_r);
-  const tts = usd.tts === undefined ? null : parseRate(usd.tts);
-  if (dealBasR === null || tts === null) throw new Error('수출입은행 USD 환율 값이 올바르지 않습니다.');
-  return {
-    source: 'koreaexim',
-    currency: 'USD',
-    rateDate,
-    dealBasR,
-    tts,
-    fetchedAt: new Date().toISOString(),
-  };
+  const hit = rows.data.find((row) => (row.cur_unit ?? '').trim().toUpperCase() === curUnit);
+  if (hit === undefined) return null; // 주말·공휴일·당일 고시 전에는 빈 배열 또는 해당 행 없음.
+  const dealBasR = hit.deal_bas_r === undefined ? null : parseRate(hit.deal_bas_r);
+  const tts = hit.tts === undefined ? null : parseRate(hit.tts);
+  if (dealBasR === null || tts === null)
+    throw new Error(`수출입은행 ${curUnit} 환율 값이 올바르지 않습니다.`);
+  return { rateDate, dealBasR, tts, fetchedAt: new Date().toISOString() };
+}
+
+async function fetchKoreaEximUsdForDate(
+  authKey: string,
+  rateDate: string,
+  fetcher: typeof fetch,
+  timeoutMs: number = API_TIMEOUT_MS,
+): Promise<ExchangeRateCacheType | null> {
+  const parsed = await fetchKoreaEximRateForDate(authKey, rateDate, 'USD', fetcher, timeoutMs);
+  if (parsed === null) return null;
+  return { source: 'koreaexim', currency: 'USD', ...parsed };
 }
 
 export async function getCachedUsdExchangeRate(): Promise<ExchangeRateCacheType | null> {
@@ -281,6 +290,13 @@ export function scheduleKoreaEximExchangeRateRefresh(log: ExchangeRateLogger): v
     } catch (error: unknown) {
       log.warn(`BOM USD 환율 갱신 실패 — 마지막 정상값 유지: ${error instanceof Error ? error.message : String(error)}`);
     }
+    // PCB 트랙 CNH(위안화) — USD 실패와 독립(각자 마지막 정상값 유지, D2).
+    try {
+      const cnh = await refreshKoreaEximCnhExchangeRate();
+      log.info(`PCB CNH 환율 갱신: ${cnh.rateDate} / 기준 ${String(cnh.dealBasR)} / TTS ${String(cnh.tts)}`);
+    } catch (error: unknown) {
+      log.warn(`PCB CNH 환율 갱신 실패 — 마지막 정상값 유지: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
   void refresh();
   const scheduleNext = (): void => {
@@ -290,4 +306,123 @@ export function scheduleKoreaEximExchangeRateRefresh(log: ExchangeRateLogger): v
     timer.unref();
   };
   scheduleNext();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PCB 파트너 트랙 통화쌍(KRW/USD/CNY) — docs/PCB_PARTNER_TRACK.md §6 D2.
+// 정본 환율원은 위와 같은 수출입은행 AP01(CNH=역외위안 행)이고, 캐시는 sp_config 에
+// USD 와 별도 키로 영속한다. 교차는 KRW 경유(tts 기준 — 송금 관점, 레거시 xpse 승계).
+// 여기 환율은 "그 시점 제안값"이다 — 회신 환산·선정 박제로 행에 동결되면 그 값이 정본.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const PCB_CNH_CACHE_KEY = 'pcb_exchange_rate_cnh';
+
+const CnhExchangeRateCache = z.object({
+  source: z.literal('koreaexim'),
+  currency: z.literal('CNH'),
+  rateDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  dealBasR: z.number().positive(),
+  tts: z.number().positive(),
+  fetchedAt: z.string().datetime(),
+});
+export type CnhExchangeRateCacheType = z.infer<typeof CnhExchangeRateCache>;
+
+export async function getCachedCnhExchangeRate(): Promise<CnhExchangeRateCacheType | null> {
+  const row = await prisma.spConfig.findUnique({ where: { key: PCB_CNH_CACHE_KEY } });
+  if (row === null) return null;
+  try {
+    const parsed = CnhExchangeRateCache.safeParse(JSON.parse(row.value));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function storeCnhExchangeRate(cache: CnhExchangeRateCacheType): Promise<void> {
+  const value = JSON.stringify(cache);
+  await prisma.spConfig.upsert({
+    where: { key: PCB_CNH_CACHE_KEY },
+    create: { key: PCB_CNH_CACHE_KEY, value },
+    update: { value },
+  });
+}
+
+/** 오늘(KST)부터 최근 영업일까지 역탐색해 CNH 고시 환율을 캐시한다(USD 흐름 미러). */
+export async function refreshKoreaEximCnhExchangeRate(
+  fetcher: typeof fetch = fetch,
+  now = new Date(),
+): Promise<CnhExchangeRateCacheType> {
+  const authKey = process.env.KOREAEXIM_API_KEY?.trim();
+  if (authKey === undefined || authKey === '') throw new Error('KOREAEXIM_API_KEY가 설정되지 않았습니다.');
+  const today = formatKstDate(now);
+  const deadline = Date.now() + API_TOTAL_BUDGET_MS;
+  for (let offset = 0; offset < API_SEARCH_DAYS; offset += 1) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error(`수출입은행 환율 API 응답 지연 — ${String(API_TOTAL_BUDGET_MS / 1_000)}초 예산을 초과했습니다. 마지막 정상 환율로 계속 동작합니다.`);
+    }
+    const parsed = await fetchKoreaEximRateForDate(
+      authKey,
+      shiftDate(today, -offset),
+      'CNH',
+      fetcher,
+      Math.min(API_TIMEOUT_MS, remainingMs),
+    );
+    if (parsed !== null) {
+      const cache: CnhExchangeRateCacheType = { source: 'koreaexim', currency: 'CNH', ...parsed };
+      await storeCnhExchangeRate(cache);
+      return cache;
+    }
+  }
+  throw new Error(`최근 ${String(API_SEARCH_DAYS)}일 내 CNH 고시 환율이 없습니다.`);
+}
+
+/** PCB 통화쌍 교차 계산(순수) — KRW 경유, tts 기준, 소수 6자리 HALF_UP. 미준비 통화는 null. */
+export function computePcbCrossRate(
+  usdKrwTts: number | null,
+  cnhKrwTts: number | null,
+  from: 'KRW' | 'USD' | 'CNY',
+  to: 'KRW' | 'USD' | 'CNY',
+): number | null {
+  if (from === to) return 1;
+  const krwPer = { KRW: 1, USD: usdKrwTts, CNY: cnhKrwTts } as const;
+  const fromKrw = krwPer[from];
+  const toKrw = krwPer[to];
+  if (fromKrw === null || toKrw === null) return null;
+  return Math.round((fromKrw / toKrw) * 1_000_000) / 1_000_000;
+}
+
+export interface PcbExchangeRateResult {
+  rate: number;
+  /** 사용된 고시일(양쪽 쓰면 더 오래된 쪽 — 표시용). KRW↔KRW 는 null. */
+  rateDate: string | null;
+}
+
+/** PCB 통화쌍 환율 조회 — 수출입은행 캐시 기반. 캐시 미준비(키 미설정 등)면 null. */
+export async function getPcbExchangeRate(
+  from: 'KRW' | 'USD' | 'CNY',
+  to: 'KRW' | 'USD' | 'CNY',
+): Promise<PcbExchangeRateResult | null> {
+  if (from === to) return { rate: 1, rateDate: null };
+  const needUsd = from === 'USD' || to === 'USD';
+  const needCnh = from === 'CNY' || to === 'CNY';
+  const [usd, cnh] = await Promise.all([
+    needUsd ? getCachedUsdExchangeRate() : Promise.resolve(null),
+    needCnh ? getCachedCnhExchangeRate() : Promise.resolve(null),
+  ]);
+  const rate = computePcbCrossRate(usd?.tts ?? null, cnh?.tts ?? null, from, to);
+  if (rate === null) return null;
+  const dates = [usd?.rateDate, cnh?.rateDate].filter((d): d is string => d !== undefined);
+  const rateDate = dates.length === 0 ? null : (dates.sort()[0] ?? null);
+  return { rate, rateDate };
+}
+
+/**
+ * PCB 금액 반올림 — KRW 0자리·USD/CNY 2자리, HALF_UP(양수 전제).
+ * ×100 후 부동소수 표현 오차(1.005×100=100.4999…)로 HALF_UP 이 깨지는 것을
+ * 12자리 유효숫자 정규화로 보정한다(견적 금액 규모 ≪ 10^10 전제 — Decimal(15,2) 내).
+ */
+export function roundPcbAmount(amount: number, currency: 'KRW' | 'USD' | 'CNY'): number {
+  const scale = currency === 'KRW' ? 1 : 100;
+  return Math.round(Number((amount * scale).toPrecision(12))) / scale;
 }

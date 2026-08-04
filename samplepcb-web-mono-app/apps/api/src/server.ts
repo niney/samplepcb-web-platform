@@ -34,6 +34,9 @@ import { partnerRfqRoutes } from './routes/partner-rfqs';
 import { partnerPoRoutes } from './routes/partner-pos';
 import { partnerAccessRoutes } from './routes/partner-access';
 import { rfqReplyRoutes } from './routes/rfq-reply';
+import { adminPcbRfqRoutes } from './routes/admin-pcb-rfqs';
+import { partnerPcbRfqRoutes } from './routes/partner-pcb-rfqs';
+import { pcbRfqReplyRoutes } from './routes/pcb-rfq-reply';
 import { bomRoutes } from './routes/bom';
 import { bomQuoteRoutes } from './routes/bom-quotes';
 import { bootstrapPartsIndex } from './es/sp-parts-index';
@@ -112,6 +115,10 @@ await app.register(partnerRfqRoutes, { prefix: '/api' });
 await app.register(partnerPoRoutes, { prefix: '/api' });
 // 매직링크 무로그인 회신(§6.9) — 인증 = 토큰(메일함 소유), 권한은 RFQ 1건 스코프
 await app.register(rfqReplyRoutes, { prefix: '/api' });
+// PCB 파트너 트랙 P1(docs/PCB_PARTNER_TRACK.md) — 견적행 RFQ: 관리자·포털·매직링크
+await app.register(adminPcbRfqRoutes, { prefix: '/api/admin' });
+await app.register(partnerPcbRfqRoutes, { prefix: '/api' });
+await app.register(pcbRfqReplyRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 부품 카탈로그 검색(ES sp-parts) + 상세(DB sp_part*)
 await app.register(adminPartsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일

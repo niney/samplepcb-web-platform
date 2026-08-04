@@ -12,12 +12,13 @@ export interface AdminMenuItem {
     | 'bomOrdersAwaiting'
     | 'bomShipmentPending'
     | 'bomQuotesRequested'
-    | 'bomPosAwaiting';
+    | 'bomPosAwaiting'
+    | 'pcbRfqPending';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
 
-export type AdminModuleKey = 'core' | 'smartbom';
+export type AdminModuleKey = 'core' | 'smartbom' | 'pcb';
 
 export interface AdminModule {
   key: AdminModuleKey;
@@ -88,8 +89,19 @@ const smartbomMenu: AdminMenuItem[] = [
   { to: { name: 'admin-smartbom-partners' }, labelKey: 'admin.menu.smartbomPartners' },
 ];
 
-// 모듈 사전 — core(통합 관리) = 기존 메뉴 무수정 래핑, smartbom = 신규 모듈.
-// 확장 자리(PCB주문·PCBA주문·기술개발)는 각 모듈이 실제로 생길 때 추가한다.
+// PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md) — 협력사 견적요청(RFQ) 워크큐 + Case 상세.
+// P2(발주·EQ)·P3(선적·배송) 메뉴는 해당 단계 구현과 함께 추가한다(placeholder 금지).
+const pcbMenu: AdminMenuItem[] = [
+  {
+    to: { name: 'admin-pcb-rfqs' },
+    labelKey: 'admin.menu.pcbRfqs',
+    badge: 'pcbRfqPending',
+    activeRouteNames: ['admin-pcb-case'],
+  },
+];
+
+// 모듈 사전 — core(통합 관리) = 기존 메뉴 무수정 래핑, smartbom·pcb = 신규 모듈.
+// 확장 자리(PCBA주문·기술개발)는 각 모듈이 실제로 생길 때 추가한다.
 export const adminModules: readonly AdminModule[] = [
   { key: 'core', labelKey: 'admin.modules.core', homeTo: { name: 'admin' }, menu: adminMenu },
   {
@@ -98,9 +110,19 @@ export const adminModules: readonly AdminModule[] = [
     homeTo: { name: 'admin-smartbom' },
     menu: smartbomMenu,
   },
+  {
+    key: 'pcb',
+    labelKey: 'admin.modules.pcb',
+    homeTo: { name: 'admin-pcb-rfqs' },
+    menu: pcbMenu,
+  },
 ];
 
 // 라우트 이름 → 소속 모듈. 스위처 활성 상태는 이 파생이 단일 진실 — 북마크·새로고침
 // 진입에서도 메뉴가 어긋나지 않는다(레거시 useAppMode gotcha 회수).
 export const resolveAdminModuleKey = (routeName: string): AdminModuleKey =>
-  routeName.startsWith('admin-smartbom') ? 'smartbom' : 'core';
+  routeName.startsWith('admin-smartbom')
+    ? 'smartbom'
+    : routeName.startsWith('admin-pcb')
+      ? 'pcb'
+      : 'core';

@@ -12,6 +12,7 @@ export * from './schemas/parts';
 export * from './schemas/bom-quote';
 export * from './schemas/bom-rfq';
 export * from './schemas/bom-po';
+export * from './schemas/pcb-rfq';
 export * from './schemas/bom-orders';
 export * from './schemas/partner';
 export * from './schemas/market';

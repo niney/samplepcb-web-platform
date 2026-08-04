@@ -74,6 +74,7 @@ export const en = {
     modules: {
       core: 'Console',
       smartbom: 'Smart BOM',
+      pcb: 'PCB Partners',
     },
     menu: {
       dashboard: 'Dashboard',
@@ -96,6 +97,7 @@ export const en = {
       smartbomPos: 'Purchase orders',
       smartbomLogistics: 'Shipping & delivery',
       smartbomPartners: 'Partners',
+      pcbRfqs: 'PCB RFQs',
     },
     placeholder: 'Coming soon.',
     settings: {

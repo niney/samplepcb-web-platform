@@ -297,7 +297,21 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 | V13 | `AdminQuotes.vue`(129줄)+`useAdminQuotes.ts` | 얇은 셸(탭 all/rfq/priced/quoted/carted + 드로어)+확정가/견적서 발송 훅 완비 → PCB 협력 모듈의 Case 상세는 admin-pcb-projects 상세 계약을 재사용해 RFQ/PO 패널을 얹는 신규 화면(AdminSmartbomCase 패턴)으로 확정 |
 | V14 | `lib/bom-rfq.ts` 서두 | diff 발송·replace-all 회신·매직링크 코어 구조 확인 — PCB 변형은 행(item) 계층이 없어 더 단순(단일가+납기), scope 파생 로직 불필요 |
 
-## 9. 조사 자료 색인
+## 9. P1 구현 기록 (2026-08-04 — 파트너 RFQ 루프 완료)
+
+§5.5 P1 범위를 전부 구현·검증했다(MD 2단·통화 3종 포함, D1·D2 반영).
+
+- **스키마**: `SpPcbRfq`(sp_pcb_rfq — UK specId+partnerId+parentPartnerId+reorderRound, 통화 6컬럼+MD source_* 3종+납기 2필드+매직링크) + `SpPartner.inputCurrency`. 마이그레이션 `20260804150000_add_pcb_rfq`(deploy 방식) 적용 완료. **링크 결제통화는 배정 시점에 행에 박제**(이후 조직 설정 변경과 무관 — snapshot-freeze).
+- **계약**: `schemas/pcb-rfq.ts`(상태 4종 영문 코드+라벨 사전, 회신/배정 diff/선정/MD 하위선정 바디, 관리자·포털·매직링크 뷰, 횡단 워크큐) + apiRoutes 3키.
+- **환율**: `lib/exchange-rate.ts`에 CNH 캐시(`sp_config: pcb_exchange_rate_cnh`)·`getPcbExchangeRate`(KRW 경유 교차, tts 기준, scale 6)·`roundPcbAmount`(부동소수 보정 HALF_UP — 1.005 함정 교정) 추가. 기존 BOM USD 경로 무변경, 일일 12:10 KST 스케줄러에 CNH 동승(USD 실패와 독립).
+- **lib**: `pcb-rfq.ts`(배정 diff — 미회신만 회수·회신 보존, 회신 저장 — 입력≠결제 시 sub_* 박제·같으면 명시 클리어, MD 하위선정 — mdAmount=source×rate×(1+마진%) 단일 체인·최종 1회 반올림·source_* 박제·납기 상향 pass-through, 관리자 선정 — 외화 환율 필수·krwAmount 박제·형제 전부 미선정(레거시 승계)·해제 시 가격 유무 복귀, 스펙 게이트 — 확정가 PATCH 와 동일 논리, 매직링크 — 64hex·30일·회전, PII 제거 — 파트너 응답에 주문자·고객가 구조적 부재+specJson 언더스코어 strip) + `pcb-rfq-email.ts`(요청/회신 통지 빌더 — 발송은 서버 소유, L6 교정).
+- **라우트**: `admin-pcb-rfqs.ts`(횡단 워크큐 /admin/pcb-rfqs + 스펙별 현황·배정·대리 회신·선정/해제·재발급) / `partner-pcb-rfqs.ts`(requirePartner — 목록·상세·회신·거버 파일 프록시 다운로드·MD 하위 배정/선정) / `pcb-rfq-reply.ts`(매직링크 GET/PUT). server.ts 등록.
+- **웹**: adminModules 세 번째 모듈 **'PCB 협력'**(resolveAdminModuleKey `admin-pcb` 분기) — `AdminPcbRfqs.vue`(워크큐: 회신 대기/선정 대기/선정 완료 탭+검색, 배지=선정 대기 수) · `AdminPcbCase.vue`(스펙 요약은 기존 admin-pcb-projects 상세 계약 재사용 + RFQ 패널: 배정 모달(pcb_rfq 능력 필터)·대리 회신(공용 폼)·선정 모달(외화 환율)·납기 신호 배지·매직링크 복사/재발급·**확정가 등록 버튼(선정 KRW 프리필)**) · 포털 `PartnerPcbRfqDetail.vue`(회신 폼+MD 하위 배정/선정) + 홈 PCB 카드 · `PublicPcbRfqReply.vue` · 공용 `PcbRfqReplyForm.vue`(통화 토글 — 3화면 공용, 저장 경로 단일).
+- **검증**: 스모크 24 + 풀 E2E 33 **ALL PASS**(실서버 — 이관 rfq 스펙 실데이터, CNY 7,200→실환율 0.148048→US$1,065.95→마진 8%→$1,151.23→선정 환율 1444.19→₩1,662,595→확정가→quoted, Mailpit 실수신 3통·관리자 통지 포함, 비소속 하위 배정 400·타 조직 행 404·선정 후 수정 409 등 부정 케이스 포함). `pnpm -r typecheck`·ESLint 신규 파일 0건·vitest **635 passed**(회귀 0).
+- **로컬 시드(dev DB)**: 파트너 9=MD(USD·CN·메일), 10=하위(입력 CNY·CN·메일), 관계 9→10(USD). E2E 스크립트는 scratchpad(소멸 전제) — 재검증 시 JWT 로컬 서명 패턴(.env JWT_SECRET HS256)으로 재작성.
+- **P1 후속 소항목**: 선정 모달 환율 prefill(수출입은행 캐시 노출 API), 워크큐 서버 페이지네이션(현 메모리 — 규모상 무해), 매직링크 페이지의 첨부 다운로드(현재 포털 로그인 안내), Case 삭제 프리뷰에 RFQ 카운트 표시.
+
+## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
 - 레거시 프론트 근거: `sp-smartbom-web/src/` — views/Pcb*.vue 11종, `types/pcbEqWorkflow.ts`(EQ 전이표), `views/Shipment.types.ts`(선적 전이·필드·택배사), `services/{shipmentService,asCaseService}.ts`, `utils/currency.ts`, `components/pcb/*`·`components/shipment/*`.

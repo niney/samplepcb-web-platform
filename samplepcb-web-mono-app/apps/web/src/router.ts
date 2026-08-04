@@ -86,6 +86,13 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresMember: true },
       },
       {
+        // PCB 견적요청 상세(docs/PCB_PARTNER_TRACK.md P1) — 회신 + MD 하위 재요청·선정
+        path: 'pcb-rfqs/:id',
+        name: 'partner-pcb-rfq',
+        component: () => import('./pages/partner/PartnerPcbRfqDetail.vue'),
+        meta: { requiresMember: true },
+      },
+      {
         // [📦 보내기](§6.11) — 발주서를 박스에 담아 발송을 만드는 순방향 플로우
         path: 'ship',
         name: 'partner-ship',
@@ -107,6 +114,12 @@ const routes: RouteRecordRaw[] = [
     path: '/rfq-reply/:token',
     name: 'rfq-reply',
     component: () => import('./pages/PublicRfqReply.vue'),
+  },
+  {
+    // PCB 매직링크 무로그인 회신(docs/PCB_PARTNER_TRACK.md P1) — 동일 원칙(토큰=인증)
+    path: '/pcb-rfq-reply/:token',
+    name: 'pcb-rfq-reply',
+    component: () => import('./pages/PublicPcbRfqReply.vue'),
   },
   {
     path: '/admin',
@@ -185,6 +198,18 @@ const routes: RouteRecordRaw[] = [
         path: 'smartbom/partners',
         name: 'admin-smartbom-partners',
         component: () => import('./pages/admin/AdminPartners.vue'),
+      },
+      // ── PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md P1) — 라우트 이름 prefix
+      // 'admin-pcb' 가 모듈 소속 판정 기준(admin/menu.ts resolveAdminModuleKey).
+      {
+        path: 'pcb/rfqs',
+        name: 'admin-pcb-rfqs',
+        component: () => import('./pages/admin/AdminPcbRfqs.vue'),
+      },
+      {
+        path: 'pcb/cases/:id',
+        name: 'admin-pcb-case',
+        component: () => import('./pages/admin/AdminPcbCase.vue'),
       },
     ],
   },
