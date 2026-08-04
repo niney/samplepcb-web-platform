@@ -60,6 +60,7 @@ model SpOrderSpec {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   pcbRfqs       SpPcbRfq[] // PCB 파트너 트랙(docs/PCB_PARTNER_TRACK.md) — 스펙 삭제 시 cascade
+  pcbPos        SpPcbPo[]
 
   @@index([mbId, status])
   @@index([quoteId])
@@ -923,6 +924,7 @@ model SpPartner {
   rfqs            SpBomRfq[]
   pos             SpBomPo[]
   pcbRfqs         SpPcbRfq[]
+  pcbPos          SpPcbPo[]
   childRelations  SpPartnerRelation[] @relation("PartnerRelationParent")
   parentRelations SpPartnerRelation[] @relation("PartnerRelationChild")
 
@@ -1283,4 +1285,47 @@ model SpPcbRfq {
   @@index([partnerId, status]) // 협력사 포털 워크큐
   @@index([specId])
   @@map("sp_pcb_rfq")
+}
+
+// PCB 협력사 발주서(P2) — (spec × 협력사 × 중개 트랙 × 회차) 1건, 레거시
+// sp_pcb_partner_order_document 대응. **박제 문서**: 발주가는 생성 시점 스냅샷
+// (선정 견적행 프리필 후 수정 가능, 이후 견적 변경과 무관). status 가 EQ·생산
+// 5단계 진행 머신을 겸한다(별도 컬럼 없음 — 레거시 재해석 승계, 서버가 순서·주체 검증).
+// paid 게이트: 고객 주문 결제 확인(od isPaid) 후에만 발행(§5.2-2, BOM D18 동형).
+model SpPcbPo {
+  id              BigInt      @id @default(autoincrement())
+  specId          BigInt
+  partnerId       BigInt // 수주 조직
+  parentPartnerId BigInt      @default(0) // 0=관리자 발주(센티넬), 그 외=MD 조직 id(하위 재발주)
+  reorderRound    Int         @default(0) // 0=원발주, 1..=A/S 회차(P4)
+  rfqId           BigInt? // 근거 견적행(FK 없음 — 직접 발주는 null)
+  status          String      @default("issued") @db.VarChar(16) // issued|eq_requested|eq_done|producing|produced
+  // 발주가 — RFQ 와 같은 통화 체계(결제통화 정본 + KRW 회계 보조 + 입력 원본 3종).
+  // krwAmount 는 관리자 직접 발주 외화 건의 회계 박제(MD→하위 발주는 null — 레거시 승계).
+  currency        String      @default("KRW") @db.VarChar(8)
+  priceOriginal   Decimal     @db.Decimal(15, 2)
+  exchangeRate    Decimal?    @db.Decimal(12, 6)
+  krwAmount       Int?
+  subCurrency      String?    @db.VarChar(8)
+  subPriceOriginal Decimal?   @db.Decimal(15, 2)
+  subExchangeRate  Decimal?   @db.Decimal(12, 6)
+  // 배송 목적지(KR/CN/VN) — 직송 스위치는 P3 범위, 컬럼만 선반영(D5).
+  destinationCountry String?  @db.VarChar(2)
+  paymentTerms    String?     @db.VarChar(50) // 'T/T in Advance' 등
+  remittedAt      DateTime? // 송금 완료 표시
+  deliveryDate    DateTime? // 발주 납기
+  // EQ·생산 전이 이력 — [{at, byRole, fromStatus, toStatus, note}] 누적(정본은 하위
+  // 발주서 — MD 경유 상위는 상태만 미러). 첨부는 sp_file(refType 'sp_pcb_po_eq').
+  eqHistory       Json?
+  memo            String?     @db.Text
+  issuedAt        DateTime    @default(now())
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  spec            SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  partner         SpPartner   @relation(fields: [partnerId], references: [id])
+
+  @@unique([specId, partnerId, parentPartnerId, reorderRound])
+  @@index([partnerId, status]) // 협력사 포털 워크큐
+  @@index([specId])
+  @@map("sp_pcb_po")
 }

@@ -93,6 +93,13 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresMember: true },
       },
       {
+        // PCB 발주서 상세(P2) — EQ 5단계 진행 + MD 하위 발주
+        path: 'pcb-pos/:id',
+        name: 'partner-pcb-po',
+        component: () => import('./pages/partner/PartnerPcbPoDetail.vue'),
+        meta: { requiresMember: true },
+      },
+      {
         // [📦 보내기](§6.11) — 발주서를 박스에 담아 발송을 만드는 순방향 플로우
         path: 'ship',
         name: 'partner-ship',
@@ -205,6 +212,11 @@ const routes: RouteRecordRaw[] = [
         path: 'pcb/rfqs',
         name: 'admin-pcb-rfqs',
         component: () => import('./pages/admin/AdminPcbRfqs.vue'),
+      },
+      {
+        path: 'pcb/pos',
+        name: 'admin-pcb-pos',
+        component: () => import('./pages/admin/AdminPcbPos.vue'),
       },
       {
         path: 'pcb/cases/:id',

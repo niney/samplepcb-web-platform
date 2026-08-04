@@ -311,6 +311,18 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 - **로컬 시드(dev DB)**: 파트너 9=MD(USD·CN·메일), 10=하위(입력 CNY·CN·메일), 관계 9→10(USD). E2E 스크립트는 scratchpad(소멸 전제) — 재검증 시 JWT 로컬 서명 패턴(.env JWT_SECRET HS256)으로 재작성.
 - **P1 후속 소항목**: 선정 모달 환율 prefill(수출입은행 캐시 노출 API), 워크큐 서버 페이지네이션(현 메모리 — 규모상 무해), 매직링크 페이지의 첨부 다운로드(현재 포털 로그인 안내), Case 삭제 프리뷰에 RFQ 카운트 표시.
 
+### P2 구현 기록 (2026-08-04 — 발주서·EQ 5단계 완료)
+
+§5.5 P2 범위 전부 구현·검증(MD 위임·미러·fallback 포함).
+
+- **스키마**: `SpPcbPo`(sp_pcb_po — UK specId+partnerId+parentPartnerId+reorderRound, 통화 7컬럼+destinationCountry 선반영+paymentTerms/remittedAt/deliveryDate+`eqHistory` Json). 마이그레이션 `20260804170000_add_pcb_po`.
+- **계약**: `schemas/pcb-po.ts` — 상태 5종(issued→eq_requested→eq_done→producing→produced) + **정방향/역방향 전이 사전(PCB_EQ_FORWARD/REVERT)이 FE 라벨과 서버 검증의 단일 정본**(레거시 pcbEqWorkflow.ts 대응). EQ 파일 2종(eq/working)·이벤트·관리자/포털 뷰·워크큐.
+- **lib `pcb-po.ts`**: 발주 생성(paid 게이트=`getOrderInfoByCtId.isPaid`, 선정 견적행 스냅샷 프리필, 외화 관리자 발주 환율 필수→krwAmount 박제, **MD 하위 발주는 KRW 회계 없음** — 레거시 승계), PATCH(금액은 issued에서만)·삭제(issued+하위 잔존 거부, 첨부 leaf-first 정리), **EQ 전이 서버 강제**(expectedFrom 고정 — 오발 방지, 주체 검증, eq-request는 eq+working 파일 존재 필수, 반려 사유·되돌리기=직전 주체 1칸, eqHistory 누적), **MD 위임**(관계 보유 조직 수주 상위=자체 EQ 차단→blocked/delegatePoId, 하위 전이 시 상위 상태 미러, MD가 하위 RECEIVER를 fallback 대행 — byRole MASTER_DEALER), EQ 첨부(sp_file refType `sp_pcb_po_eq`, 업로드 대행·issued에서만 편집·프록시 다운로드).
+- **라우트**: `admin-pcb-pos.ts`(횡단 워크큐 /admin/pcb-pos — 경유 상위 제외 실작업 단위, 발행/수정/삭제, eq-approve/reject/revert — **승인은 관리자만(D3)**, 첨부 열람) / `partner-pcb-pos.ts`(목록 수주·발주 양방향+myTurn, 상세, 스펙·EQ 파일 프록시, multipart 업로드, 전이 4종, MD 하위 발주). 메일 4종(발행/EQ요청→관리자/승인·반려→수주자/생산완료→발주 주체).
+- **웹**: AdminPcbCase에 **발주 패널**(발행 모달=선정 회신 승계 프리필+조건, PO 표=EQ 승인/반려/승인취소/발주취소+첨부+MD 하위 블록) · `AdminPcbPos.vue` 워크큐(메뉴 '발주·EQ'+배지=EQ 승인 대기) · 포털 `PartnerPcbPoDetail.vue`(5단계 스텝퍼+파일 업로드(잠금 규칙)+전이/되돌리기+MD 하위 발주+위임 안내·fallback 보조 스타일) · 홈 '진행할 PCB 발주' 카드.
+- **검증**: **풀 E2E 44 ALL PASS**(실서버 — 결제 완료 실주문 스펙 Q20584: paid 게이트 409, 금액/환율 필수 400, 파일 없이 요청 409, 요청 후 파일 잠금, 순서 위반 409, 반려(사유 이력)→재요청→승인→승인취소→재승인, 생산 완주, 워크큐, 이력 8이벤트, MD blocked→하위 발주→위임/미러/fallback(byRole 검증), 타 조직 404, **다단 revert로 원상복구 후 삭제**(HAS_CHILDREN 가드 포함), Mailpit 11통). vitest 635·`pnpm -r typecheck`·ESLint 신규분 0건.
+- **P2 후속 소항목**: MD 포털의 하위 발주 취소 라우트(현재 관리자 발주만 삭제 가능 — E2E에서 확인된 공백), 발주서 첨부(비EQ 일반 첨부), EQ 잠금 해제 시 파일 교체 UX 개선, od 상태 자동 동기(D6 — P4 재검).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

@@ -177,3 +177,138 @@ export async function sendPcbMail(
     log.error({ err, to, subject: mail.subject }, 'pcb rfq mail send failed');
   }
 }
+
+// ── P2 발주·EQ 알림 — docs/PCB_PARTNER_TRACK.md §5.4 ─────────────────────────
+
+export interface PcbPoIssuedEmailParams {
+  partnerName: string;
+  requesterName: string;
+  projectName: string;
+  qty: number;
+  priceText: string;
+  deliveryText: string | null;
+}
+
+/** 발주서 발행 → 수주 협력사 통지(확인·EQ 진행은 포털). */
+export function buildPcbPoIssuedEmail(p: PcbPoIssuedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const rows = [
+    infoRow('발주 건', esc(p.projectName)),
+    infoRow('수량', `${String(p.qty)} 매`),
+    infoRow('발주가', `<b>${esc(p.priceText)}</b>`),
+    ...(p.deliveryText === null ? [] : [infoRow('납기', esc(p.deliveryText))]),
+  ].join('');
+  return {
+    subject: `[샘플피씨비] PCB 발주서 도착 — ${p.projectName}`,
+    html: shell(
+      'PCB 발주서가 도착했습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, ${esc(p.requesterName)}에서 아래 건을 발주드립니다.
+        포털에서 내용 확인 후 <b>EQ 승인요청(EQ·Working 파일 첨부)</b>부터 진행해 주세요.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
+      </table>
+      <div style="padding-top:20px;">
+        <a href="${esc(pcbPartnerPortalUrl())}"
+           style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털에서 확인하기</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB 발주 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbEqTurnEmailParams {
+  partnerName: string; // 전이한 협력사(또는 수신 협력사)
+  projectName: string;
+  statusLabel: string;
+  targetUrl: string;
+  targetLabel: string;
+}
+
+/** EQ 승인요청 도착 → 관리자(또는 MD) 통지 — 다음 차례 안내. */
+export function buildPcbEqRequestedEmail(p: PcbEqTurnEmailParams): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `[샘플피씨비] PCB EQ 승인요청 — ${p.projectName} · ${p.partnerName}`,
+    html: shell(
+      'EQ 승인요청이 도착했습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 발주 건의 EQ·Working 파일을
+        올리고 승인을 요청했습니다. 검토 후 승인 또는 반려해 주세요.
+      </p>
+      <div style="padding-top:16px;">
+        <a href="${esc(p.targetUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          ${esc(p.targetLabel)}</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbEqDecisionEmailParams {
+  partnerName: string; // 수주 협력사
+  projectName: string;
+  approved: boolean;
+  reason: string | null; // 반려 사유
+}
+
+/** EQ 승인/반려 → 수주 협력사 통지. */
+export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const title = p.approved ? 'EQ가 승인되었습니다 — 생산을 시작해 주세요' : 'EQ가 반려되었습니다';
+  const lines = p.approved
+    ? `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 EQ가 승인되었습니다.
+        포털에서 [생산 시작]을 진행해 주세요.</p>`
+    : `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 EQ가 반려되었습니다.
+        사유 확인 후 파일 보완 → 다시 승인요청해 주세요.</p>
+      ${p.reason === null ? '' : `<p style="margin:0 0 12px;font-size:13px;color:#b91c1c;line-height:1.6;">반려 사유: <b>${esc(p.reason)}</b></p>`}`;
+  return {
+    subject: `[샘플피씨비] PCB EQ ${p.approved ? '승인' : '반려'} — ${p.projectName}`,
+    html: shell(
+      title,
+      `${lines}
+      <div style="padding-top:16px;">
+        <a href="${esc(pcbPartnerPortalUrl())}"
+           style="display:inline-block;background:${p.approved ? '#059669' : '#b91c1c'};color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털 열기</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
+    ),
+  };
+}
+
+/** 생산 완료 → 발주 주체(관리자/MD) 통지 — P3 선적 준비 신호. */
+export function buildPcbProducedEmail(p: PcbEqTurnEmailParams): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `[샘플피씨비] PCB 생산완료 — ${p.projectName} · ${p.partnerName}`,
+    html: shell(
+      '생산이 완료되었습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 발주 건의 생산을 완료했습니다.
+        발송(선적) 준비를 진행해 주세요.
+      </p>
+      <div style="padding-top:16px;">
+        <a href="${esc(p.targetUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          ${esc(p.targetLabel)}</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB 생산 알림입니다.',
+    ),
+  };
+}

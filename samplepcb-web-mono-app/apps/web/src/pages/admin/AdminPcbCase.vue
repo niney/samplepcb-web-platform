@@ -3,7 +3,9 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
+  PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
+  type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
   type PcbRfqReplyBodyType,
 } from '@sp/api-contract';
@@ -18,6 +20,15 @@ import {
   useSendPcbRfqs,
   useUnselectPcbRfq,
 } from '../../admin/useAdminPcbRfqs';
+import {
+  downloadAdminPcbEqFile,
+  useAdminPcbPos,
+  useAdminRevertPcbEq,
+  useApprovePcbEq,
+  useCreatePcbPo,
+  useDeletePcbPo,
+  useRejectPcbEq,
+} from '../../admin/useAdminPcbPos';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
 
@@ -222,6 +233,122 @@ async function reissueMagicLink(row: AdminPcbRfqViewType): Promise<void> {
     surfaceError(e, '재발급에 실패했습니다.');
   }
 }
+
+// ── 발주 패널(P2) — paid 게이트는 서버, 프리필은 선정 견적행 ─────────────────
+const posQuery = useAdminPcbPos(specId);
+const allPos = computed(() => posQuery.data.value?.data.pos ?? []);
+const adminPos = computed(() => allPos.value.filter((p) => p.parentPartnerId === 0));
+const childPosOf = (partnerId: number): AdminPcbPoViewType[] =>
+  allPos.value.filter((p) => p.parentPartnerId === partnerId);
+
+const poModalOpen = ref(false);
+const poPartnerId = ref<number | null>(null);
+const poPrice = ref('');
+const poRate = ref('');
+const poTerms = ref('');
+const poRemitted = ref(false);
+const poDelivery = ref('');
+const poMemo = ref('');
+const createPo = useCreatePcbPo();
+
+const poTargetRfq = computed(() =>
+  adminRows.value.find((r) => r.partnerId === poPartnerId.value && r.status === 'selected') ??
+  adminRows.value.find((r) => r.partnerId === poPartnerId.value && r.priceOriginal !== null) ??
+  null,
+);
+const poCurrencyOf = (partnerId: number | null): string =>
+  adminRows.value.find((r) => r.partnerId === partnerId)?.currency ??
+  assignCandidates.value.find((p) => p.partnerId === partnerId)?.defaultCurrency ??
+  'KRW';
+
+function openPoModal(): void {
+  const selected = selectedRow.value;
+  poPartnerId.value = selected?.partnerId ?? assignCandidates.value[0]?.partnerId ?? null;
+  poPrice.value = '';
+  poRate.value = '';
+  poTerms.value = '';
+  poRemitted.value = false;
+  poDelivery.value = selected?.quotedDeliveryDate?.slice(0, 10) ?? '';
+  poMemo.value = '';
+  poModalOpen.value = true;
+}
+async function submitPo(): Promise<void> {
+  if (specId.value === null || poPartnerId.value === null) return;
+  actionError.value = '';
+  const priceRaw = poPrice.value.replaceAll(',', '').trim();
+  const rateRaw = poRate.value.replaceAll(',', '').trim();
+  try {
+    await createPo.mutateAsync({
+      specId: specId.value,
+      body: {
+        partnerId: poPartnerId.value,
+        rfqId: poTargetRfq.value?.rfqId ?? null,
+        ...(priceRaw === '' ? {} : { priceOriginal: Number(priceRaw) }),
+        ...(rateRaw === '' ? {} : { exchangeRate: Number(rateRaw) }),
+        paymentTerms: poTerms.value.trim() === '' ? null : poTerms.value.trim(),
+        remitted: poRemitted.value,
+        deliveryDate: poDelivery.value === '' ? null : poDelivery.value,
+        memo: poMemo.value.trim() === '' ? null : poMemo.value.trim(),
+      },
+    });
+    poModalOpen.value = false;
+  } catch (e) {
+    surfaceError(e, '발주서 발행에 실패했습니다.');
+  }
+}
+
+const approveEq = useApprovePcbEq();
+const rejectEq = useRejectPcbEq();
+const revertEqAdmin = useAdminRevertPcbEq();
+const deletePoMut = useDeletePcbPo();
+async function approvePo(po: AdminPcbPoViewType): Promise<void> {
+  if (specId.value === null) return;
+  actionError.value = '';
+  try {
+    await approveEq.mutateAsync({ specId: specId.value, poId: po.poId });
+  } catch (e) {
+    surfaceError(e, 'EQ 승인에 실패했습니다.');
+  }
+}
+async function rejectPo(po: AdminPcbPoViewType): Promise<void> {
+  if (specId.value === null) return;
+  const reason = window.prompt(`${po.partnerName} EQ 반려 사유를 입력하세요`);
+  if (reason === null || reason.trim() === '') return;
+  actionError.value = '';
+  try {
+    await rejectEq.mutateAsync({ specId: specId.value, poId: po.poId, reason: reason.trim() });
+  } catch (e) {
+    surfaceError(e, 'EQ 반려에 실패했습니다.');
+  }
+}
+async function revertPo(po: AdminPcbPoViewType): Promise<void> {
+  if (specId.value === null) return;
+  if (!window.confirm('EQ 승인을 취소(한 단계 되돌리기)할까요?')) return;
+  actionError.value = '';
+  try {
+    await revertEqAdmin.mutateAsync({ specId: specId.value, poId: po.poId });
+  } catch (e) {
+    surfaceError(e, '되돌리기에 실패했습니다.');
+  }
+}
+async function removePo(po: AdminPcbPoViewType): Promise<void> {
+  if (specId.value === null) return;
+  if (!window.confirm(`${po.partnerName} 발주서를 취소할까요? (발주접수 상태만 가능)`)) return;
+  actionError.value = '';
+  try {
+    await deletePoMut.mutateAsync({ specId: specId.value, poId: po.poId });
+  } catch (e) {
+    surfaceError(e, '발주 취소에 실패했습니다.');
+  }
+}
+
+const PO_STATUS_CLS: Record<string, string> = {
+  issued: 'bg-blue-100 text-blue-700',
+  eq_requested: 'bg-amber-100 text-amber-700',
+  eq_done: 'bg-sky-100 text-sky-700',
+  producing: 'bg-indigo-100 text-indigo-700',
+  produced: 'bg-emerald-100 text-emerald-700',
+};
 
 // ── 표시 헬퍼 ────────────────────────────────────────────────────────────────
 const STATUS_CLS: Record<string, string> = {
@@ -493,6 +620,200 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         </table>
       </div>
     </section>
+
+    <!-- 발주 패널(P2) — 결제(paid) 후 발행, EQ 승인/반려는 관리자 몫 -->
+    <section class="rounded-xl border border-gray-200 bg-surface">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
+        <h2 class="text-sm font-bold text-gray-700">
+          발주서 · EQ
+          <span class="ml-1 text-xs font-normal text-gray-400">{{ adminPos.length }}건</span>
+        </h2>
+        <button
+          type="button"
+          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700"
+          @click="openPoModal"
+        >
+          발주서 발행
+        </button>
+      </div>
+      <p class="border-b border-gray-50 px-4 py-2 text-xs text-gray-400">
+        발행은 고객 결제(입금 확인) 후에만 가능합니다. 진행:
+        발주접수(협력사 EQ·Working 업로드) → EQ 승인요청 → <b>EQ 승인(관리자)</b> → 생산시작 → 생산완료.
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-100 text-sm">
+          <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+            <tr>
+              <th class="px-4 py-2">협력사</th>
+              <th class="px-4 py-2">상태</th>
+              <th class="whitespace-nowrap px-4 py-2">발주가</th>
+              <th class="whitespace-nowrap px-4 py-2">조건/송금</th>
+              <th class="whitespace-nowrap px-4 py-2">납기</th>
+              <th class="px-4 py-2">EQ 첨부</th>
+              <th class="px-4 py-2 text-right">액션</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            <template v-for="po in adminPos" :key="po.poId">
+              <tr :class="po.status === 'eq_requested' ? 'bg-amber-50/40' : ''">
+                <td class="px-4 py-2.5">
+                  <p class="font-medium text-gray-900">{{ po.partnerName }}</p>
+                  <p v-if="po.eqDelegatePoId !== null" class="text-[11px] text-indigo-600">MD 경유 — EQ는 하위에서 진행(자동 반영)</p>
+                  <p v-else-if="po.eqBlocked" class="text-[11px] text-amber-600">MD 하위 발주 대기 — 발주되면 EQ 시작</p>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5">
+                  <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="PO_STATUS_CLS[po.status]">
+                    {{ PCB_PO_STATUS_LABELS[po.status] }}
+                  </span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5 tabular-nums">
+                  {{ pcbMoneyWithSub(po.currency, po.priceOriginal, po.subCurrency, po.subPriceOriginal) }}
+                  <span class="text-xs text-gray-400">{{ pcbKrwSuffix(po.currency, po.krwAmount) }}</span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-600">
+                  {{ po.paymentTerms ?? '—' }}
+                  <span v-if="po.remittedAt !== null" class="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[11px] font-semibold text-emerald-700">송금완료</span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ dateOnly(po.deliveryDate) }}</td>
+                <td class="px-4 py-2.5">
+                  <button
+                    v-for="f in po.eqFiles"
+                    :key="f.fileId"
+                    type="button"
+                    class="mr-1 rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-50"
+                    :title="`${f.fileType.toUpperCase()} · ${f.name}`"
+                    @click="specId !== null && void downloadAdminPcbEqFile(specId, po.poId, f.fileId, f.name)"
+                  >
+                    ⬇ {{ f.fileType }}
+                  </button>
+                  <span v-if="po.eqFiles.length === 0" class="text-xs text-gray-300">—</span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5 text-right text-xs">
+                  <template v-if="po.status === 'eq_requested' && po.eqDelegatePoId === null">
+                    <button type="button" class="mr-1 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(po)">EQ 승인</button>
+                    <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="void rejectPo(po)">반려</button>
+                  </template>
+                  <button
+                    v-if="po.status === 'eq_done' && po.eqDelegatePoId === null"
+                    type="button"
+                    class="mr-1 rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50"
+                    @click="void revertPo(po)"
+                  >
+                    승인 취소
+                  </button>
+                  <button
+                    v-if="po.status === 'issued'"
+                    type="button"
+                    class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50 hover:text-red-600"
+                    @click="void removePo(po)"
+                  >
+                    발주 취소
+                  </button>
+                </td>
+              </tr>
+              <!-- MD 하위 발주(EQ 실작업 문서) -->
+              <tr v-if="childPosOf(po.partnerId).length > 0">
+                <td colspan="7" class="bg-indigo-50/30 px-8 py-2">
+                  <p class="text-[11px] font-semibold text-indigo-500">하위 발주(MD {{ po.partnerName }} 경유 — 승인/반려는 여기서)</p>
+                  <div class="mt-1 grid gap-1">
+                    <div v-for="child in childPosOf(po.partnerId)" :key="child.poId" class="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                      <span class="rounded px-1.5 py-0.5 font-semibold" :class="PO_STATUS_CLS[child.status]">
+                        {{ PCB_PO_STATUS_LABELS[child.status] }}
+                      </span>
+                      <span class="font-medium">{{ child.partnerName }}</span>
+                      <span class="tabular-nums">{{ pcbMoneyWithSub(child.currency, child.priceOriginal, child.subCurrency, child.subPriceOriginal) }}</span>
+                      <button
+                        v-for="f in child.eqFiles"
+                        :key="f.fileId"
+                        type="button"
+                        class="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-50"
+                        @click="specId !== null && void downloadAdminPcbEqFile(specId, child.poId, f.fileId, f.name)"
+                      >
+                        ⬇ {{ f.fileType }}
+                      </button>
+                      <template v-if="child.status === 'eq_requested'">
+                        <button type="button" class="rounded-md bg-emerald-600 px-2 py-0.5 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(child)">EQ 승인</button>
+                        <button type="button" class="rounded-md border border-red-300 px-2 py-0.5 font-semibold text-red-700 hover:bg-red-50" @click="void rejectPo(child)">반려</button>
+                      </template>
+                      <button
+                        v-else-if="child.status === 'eq_done'"
+                        type="button"
+                        class="rounded-md border border-gray-200 px-2 py-0.5 font-semibold text-gray-500 hover:bg-gray-50"
+                        @click="void revertPo(child)"
+                      >
+                        승인 취소
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
+            <tr v-if="adminPos.length === 0">
+              <td colspan="7" class="px-4 py-8 text-center text-sm text-gray-400">
+                발주서가 없습니다 — 선정 후 결제가 확인되면 [발주서 발행]으로 시작하세요.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 발주 모달 -->
+    <div v-if="poModalOpen" class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="poModalOpen = false">
+      <div class="w-full max-w-md rounded-xl bg-surface p-5 shadow-xl">
+        <h3 class="text-sm font-bold text-gray-800">발주서 발행</h3>
+        <p class="mt-1 text-xs text-gray-500">
+          선정 회신이 있으면 통화·금액·납기가 자동 승계됩니다(비우면 승계값 사용).
+        </p>
+        <label class="mt-3 block">
+          <span class="text-xs font-semibold text-gray-500">협력사 *</span>
+          <select v-model="poPartnerId" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+            <option v-for="p in assignCandidates" :key="p.partnerId" :value="p.partnerId">
+              {{ p.name }} ({{ p.defaultCurrency }})
+            </option>
+          </select>
+          <span v-if="poTargetRfq !== null" class="mt-1 block text-[11px] text-emerald-600">
+            회신 승계: {{ pcbMoneyWithSub(poTargetRfq.currency, poTargetRfq.priceOriginal, poTargetRfq.subCurrency, poTargetRfq.subPriceOriginal) }}
+            <template v-if="poTargetRfq.quotedDeliveryDate !== null"> · 납기 {{ poTargetRfq.quotedDeliveryDate.slice(0, 10) }}</template>
+          </span>
+        </label>
+        <div class="mt-2 grid gap-2 sm:grid-cols-2">
+          <label class="block">
+            <span class="text-xs font-semibold text-gray-500">발주가 ({{ poCurrencyOf(poPartnerId) }})</span>
+            <input v-model="poPrice" type="text" inputmode="decimal" :placeholder="poTargetRfq !== null ? '비우면 회신가' : '필수'" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-emerald-500 focus:outline-none">
+          </label>
+          <label v-if="poCurrencyOf(poPartnerId) !== 'KRW'" class="block">
+            <span class="text-xs font-semibold text-gray-500">KRW 회계 환율</span>
+            <input v-model="poRate" type="text" inputmode="decimal" :placeholder="poTargetRfq?.exchangeRate !== null && poTargetRfq !== undefined && poTargetRfq !== null ? '비우면 선정 환율' : '필수'" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-emerald-500 focus:outline-none">
+          </label>
+          <label class="block">
+            <span class="text-xs font-semibold text-gray-500">결제조건</span>
+            <input v-model="poTerms" type="text" list="pcb-payment-terms" placeholder="T/T in Advance" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+            <datalist id="pcb-payment-terms">
+              <option value="T/T in Advance" />
+              <option value="NET30 DAYS" />
+              <option value="50% PRE-PAID" />
+            </datalist>
+          </label>
+          <label class="block">
+            <span class="text-xs font-semibold text-gray-500">납기</span>
+            <input v-model="poDelivery" type="date" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+          </label>
+        </div>
+        <label class="mt-2 flex items-center gap-2 text-sm text-gray-600">
+          <input v-model="poRemitted" type="checkbox" class="size-4 accent-emerald-600"> 송금 완료
+        </label>
+        <label class="mt-2 block">
+          <span class="text-xs font-semibold text-gray-500">메모</span>
+          <textarea v-model="poMemo" rows="2" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" />
+        </label>
+        <div class="mt-4 flex justify-end gap-2">
+          <button type="button" class="rounded-md border border-gray-200 px-3 py-1.5 text-sm" @click="poModalOpen = false">취소</button>
+          <button type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40" :disabled="createPo.isPending.value || poPartnerId === null" @click="void submitPo()">발행</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 확정가 모달 -->
     <div v-if="priceModalOpen" class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="priceModalOpen = false">

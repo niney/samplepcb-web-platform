@@ -98,6 +98,7 @@ export const en = {
       smartbomLogistics: 'Shipping & delivery',
       smartbomPartners: 'Partners',
       pcbRfqs: 'PCB RFQs',
+      pcbPos: 'POs & EQ',
     },
     placeholder: 'Coming soon.',
     settings: {

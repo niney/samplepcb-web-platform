@@ -12,6 +12,7 @@ import {
   usePartnerShipments,
 } from '../../partner/usePartnerRfqs';
 import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
+import { usePartnerPcbPos } from '../../partner/usePartnerPcbPos';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
 import { pcbMoneyWithSub } from '../../lib/pcb-money';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
@@ -38,6 +39,11 @@ const doneRfqs = computed(() => rfqItems.value.filter((r) => r.status !== 'reque
 const pcbItems = computed(() => pcbQuery.data.value?.data.items ?? []);
 const pendingPcb = computed(() => pcbItems.value.filter((r) => r.status === 'requested'));
 const donePcb = computed(() => pcbItems.value.filter((r) => r.status !== 'requested'));
+
+// PCB 발주·EQ(P2) — 내 차례(수주 방향 RECEIVER 액션)만 홈에 띄운다.
+const pcbPoQuery = usePartnerPcbPos();
+const pcbPoItems = computed(() => pcbPoQuery.data.value?.data.items ?? []);
+const myTurnPcbPos = computed(() => pcbPoItems.value.filter((po) => po.myTurn));
 
 const poItems = computed(() => poQuery.data.value?.data.items ?? []);
 const toConfirm = computed(() => poItems.value.filter((po) => po.status === 'issued'));
@@ -168,6 +174,28 @@ const rfqStatusCls = (s: string): string =>
               </p>
             </div>
             <span class="rounded-lg bg-cyan-600 px-3 py-1.5 text-sm font-bold text-white">회신하기</span>
+          </RouterLink>
+        </div>
+      </section>
+
+      <!-- ⓞ-2 진행할 PCB 발주·EQ(P2) — 파일 올리고 승인요청 → 생산 진행 -->
+      <section v-if="myTurnPcbPos.length > 0" id="pcb-po">
+        <h2 class="text-sm font-bold text-gray-700">진행할 PCB 발주 ({{ myTurnPcbPos.length }})</h2>
+        <div class="mt-2 grid gap-2">
+          <RouterLink
+            v-for="po in myTurnPcbPos"
+            :key="po.poId"
+            :to="{ name: 'partner-pcb-po', params: { id: String(po.poId) } }"
+            class="flex items-center gap-3 rounded-xl border border-teal-200 bg-surface px-4 py-3 hover:border-teal-300 hover:bg-teal-50/40"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold text-gray-900">{{ po.projectName }}</p>
+              <p class="mt-0.5 text-sm text-gray-500">
+                {{ po.qty }}매 · {{ po.counterpartyName }} ·
+                {{ po.priceOriginal.toLocaleString('en-US') }} {{ po.currency }}
+              </p>
+            </div>
+            <span class="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-bold text-white">진행하기</span>
           </RouterLink>
         </div>
       </section>

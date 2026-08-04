@@ -13,7 +13,8 @@ export interface AdminMenuItem {
     | 'bomShipmentPending'
     | 'bomQuotesRequested'
     | 'bomPosAwaiting'
-    | 'pcbRfqPending';
+    | 'pcbRfqPending'
+    | 'pcbEqPending';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -97,6 +98,12 @@ const pcbMenu: AdminMenuItem[] = [
     labelKey: 'admin.menu.pcbRfqs',
     badge: 'pcbRfqPending',
     activeRouteNames: ['admin-pcb-case'],
+  },
+  // 발주·EQ 워크큐 — 관리자 차례(EQ 승인 대기) 수 배지.
+  {
+    to: { name: 'admin-pcb-pos' },
+    labelKey: 'admin.menu.pcbPos',
+    badge: 'pcbEqPending',
   },
 ];
 

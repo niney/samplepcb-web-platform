@@ -30,10 +30,12 @@ export const apiRoutes = {
   partnerRfqs: '/api/partner/rfqs',
   partnerPos: '/api/partner/pos',
   partnerShipments: '/api/partner/shipments',
-  // PCB 파트너 트랙(docs/PCB_PARTNER_TRACK.md) — 견적행 RFQ(P1)
+  // PCB 파트너 트랙(docs/PCB_PARTNER_TRACK.md) — 견적행 RFQ(P1)·발주 EQ(P2)
   adminPcbRfqs: '/api/admin/pcb-rfqs',
   partnerPcbRfqs: '/api/partner/pcb-rfqs',
   pcbRfqReply: '/api/pcb-rfq-reply',
+  adminPcbPos: '/api/admin/pcb-pos',
+  partnerPcbPos: '/api/partner/pcb-pos',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',

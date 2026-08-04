@@ -37,6 +37,8 @@ import { rfqReplyRoutes } from './routes/rfq-reply';
 import { adminPcbRfqRoutes } from './routes/admin-pcb-rfqs';
 import { partnerPcbRfqRoutes } from './routes/partner-pcb-rfqs';
 import { pcbRfqReplyRoutes } from './routes/pcb-rfq-reply';
+import { adminPcbPoRoutes } from './routes/admin-pcb-pos';
+import { partnerPcbPoRoutes } from './routes/partner-pcb-pos';
 import { bomRoutes } from './routes/bom';
 import { bomQuoteRoutes } from './routes/bom-quotes';
 import { bootstrapPartsIndex } from './es/sp-parts-index';
@@ -119,6 +121,9 @@ await app.register(rfqReplyRoutes, { prefix: '/api' });
 await app.register(adminPcbRfqRoutes, { prefix: '/api/admin' });
 await app.register(partnerPcbRfqRoutes, { prefix: '/api' });
 await app.register(pcbRfqReplyRoutes, { prefix: '/api' });
+// PCB 파트너 트랙 P2 — 발주서·EQ 5단계(관리자 승인/반려 + 포털 진행·MD 하위 발주)
+await app.register(adminPcbPoRoutes, { prefix: '/api/admin' });
+await app.register(partnerPcbPoRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 부품 카탈로그 검색(ES sp-parts) + 상세(DB sp_part*)
 await app.register(adminPartsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일

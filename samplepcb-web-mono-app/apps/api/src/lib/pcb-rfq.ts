@@ -136,10 +136,13 @@ export const loadAdminPcbRfqs = async (specId: bigint): Promise<AdminPcbRfqViewT
     include: { partner: true },
     orderBy: [{ parentPartnerId: 'asc' }, { id: 'asc' }],
   });
-  return serializeAdminRows(rows);
+  return serializeAdminPcbRfqRows(rows);
 };
 
-const serializeAdminRows = async (rows: RfqWithPartner[]): Promise<AdminPcbRfqViewType[]> => {
+/** 견적행 관리자 뷰 직렬화 — RFQ 패널·발주(PO) 상세의 하위 후보 표시 공용. */
+export const serializeAdminPcbRfqRows = async (
+  rows: RfqWithPartner[],
+): Promise<AdminPcbRfqViewType[]> => {
   const parentIds = [...new Set(rows.map((r) => r.parentPartnerId).filter((p) => p !== 0n))];
   const parents =
     parentIds.length === 0
@@ -640,7 +643,8 @@ export const loadPartnerPcbRfqs = async (
   }));
 };
 
-const loadSpecFiles = async (specId: bigint): Promise<PartnerPcbSpecFileType[]> => {
+/** 스펙 파일(거버 등, 썸네일 제외) 뷰 — RFQ·발주 포털 상세 공용. */
+export const loadPcbSpecFiles = async (specId: bigint): Promise<PartnerPcbSpecFileType[]> => {
   const files = await prisma.spFile.findMany({
     where: { refType: 'sp_order_spec', refId: specId, NOT: { fileType: 'thumbnail' } },
     orderBy: { id: 'asc' },
@@ -670,7 +674,7 @@ export const loadPartnerPcbRfqDetail = async (
   if (partnerId !== null && rfq.partnerId !== partnerId) return null;
 
   const [files, house, children, relations] = await Promise.all([
-    loadSpecFiles(rfq.specId),
+    loadPcbSpecFiles(rfq.specId),
     houseName(),
     prisma.spPcbRfq.findMany({
       where: { specId: rfq.specId, parentPartnerId: rfq.partnerId, reorderRound: rfq.reorderRound },
@@ -713,7 +717,7 @@ export const loadPartnerPcbRfqDetail = async (
       specJson: stripInternalSpecKeys(rfq.spec.specJson),
       files,
     },
-    children: await serializeAdminRows(children),
+    children: await serializeAdminPcbRfqRows(children),
     myChildPartners: relations.map((rel) => ({
       partnerId: Number(rel.childPartnerId),
       name: rel.child.name,
