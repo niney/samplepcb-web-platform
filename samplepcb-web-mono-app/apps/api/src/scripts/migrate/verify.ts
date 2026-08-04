@@ -13,7 +13,7 @@ import { computeOrderMoney } from '../../lib/g5-db';
 import { closeLegacyPool, legacySelect } from '../../lib/legacy-db';
 import { G5Writer } from './lib/g5-writer';
 import { asInt, asStr, resolveMigrateTmpDir } from './lib/util';
-import { ACTIVE_ORDER_STATUSES } from './lib/status-map';
+import { ACTIVE_ORDER_STATUSES, CANCEL_STATUSES } from './lib/status-map';
 import { MIGRATE_BOARDS } from './manifest';
 
 interface CheckResult {
@@ -251,6 +251,53 @@ async function main(): Promise<void> {
       )[0]?.c,
     );
     check('cart(비쇼핑) → order 정합', orphanCarts === 0, `주문 없는 비쇼핑 cart ${String(orphanCarts)}건`);
+
+    // ── 미주문 견적 이관(phase 06) ──
+    // 레거시 대기 견적(= 견적관리의 주문 전 부분집합) 건수와 플랫폼 견적 단계 spec 수가 같아야 한다.
+    const excluded = [...CANCEL_STATUSES, ...ACTIVE_ORDER_STATUSES];
+    const legacyPending = asInt(
+      (
+        await legacySelect(
+          `SELECT COUNT(*) c FROM g5_shop_cart c
+             LEFT JOIN g5_shop_order o ON o.od_id = c.od_id
+             JOIN g5_shop_item i ON i.it_id = c.it_id
+            WHERE (o.od_id IS NULL OR c.ct_status = '쇼핑')
+              AND ((i.it_23 = 'rfq' AND i.it_use = 1) OR i.ca_id = '30')
+              AND i.ca_id NOT IN ('40', '41')
+              AND c.ct_status NOT IN (${excluded.map(() => '?').join(', ')})`,
+          excluded,
+        )
+      )[0]?.c,
+    );
+    const migratedQuotes = asInt(
+      (
+        await g5.select(
+          `SELECT COUNT(*) c FROM sp_order_spec
+            WHERE ctId IS NULL AND status = 'active'
+              AND JSON_UNQUOTE(JSON_EXTRACT(specJson, '$._legacy.stage')) = 'quote'`,
+        )
+      )[0]?.c,
+    );
+    check(
+      '미주문 견적 이관 건수',
+      legacyPending === migratedQuotes,
+      `레거시 ${String(legacyPending)} → 타깃 ${String(migratedQuotes)}`,
+    );
+
+    // 견적 금액 변환 항등: finalPrice == 공급가 + floor(공급가×0.1) (주문 이관과 같은 VAT 산식)
+    const quoteMoneyBad = asInt(
+      (
+        await g5.select(
+          `SELECT COUNT(*) c FROM sp_order_spec
+            WHERE ctId IS NULL
+              AND JSON_UNQUOTE(JSON_EXTRACT(specJson, '$._legacy.stage')) = 'quote'
+              AND finalPrice IS NOT NULL
+              AND finalPrice <> CAST(JSON_EXTRACT(specJson, '$._legacy.supplyPrice') AS SIGNED)
+                  + FLOOR(CAST(JSON_EXTRACT(specJson, '$._legacy.supplyPrice') AS SIGNED) * 0.1)`,
+        )
+      )[0]?.c,
+    );
+    check('견적 금액 변환(VAT) 항등', quoteMoneyBad === 0, `불일치 ${String(quoteMoneyBad)}건`);
 
     const quoteRows = await g5.select(
       `SELECT c.ct_id FROM g5_shop_cart c

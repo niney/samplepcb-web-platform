@@ -18,6 +18,7 @@ import { PrismaClient } from '@prisma/client';
 import { closeLegacyPool, legacySelect } from '../../lib/legacy-db';
 import { uploadToFileServer } from '../../lib/file-server';
 import { mapGerberItem } from './lib/eav-mapper';
+import { isPendingQuoteScope, quoteStageQuoteId } from './phases/06-quotes';
 import { Ledger } from './lib/ledger';
 import { G5Writer } from './lib/g5-writer';
 import { asyncPool, asStr, chunk, legacyDate, resolveMigrateTmpDir, uuidV5 } from './lib/util';
@@ -39,9 +40,11 @@ function mimeOf(file: string): string {
 
 async function collectTargets(limit: number): Promise<{ lines: UploadTargetLine[]; noFile: number }> {
   // 최신 주문부터 — 미러가 최근 구간(2022+)만 있을 때 사전 업로드 가치가 높은 쪽을 먼저 나른다.
+  // 주문 미연결 행(미주문 견적, phase 06)도 포함한다 — 거버 파일은 협력사 RFQ 의 핵심이라
+  // 견적 단계에서 이미 올라가 있어야 한다. 이때 quoteId 는 견적 단계 규칙을 따른다.
   const rows = await legacySelect(
-    `SELECT c.od_id, c.ct_id, c.it_id
-       FROM g5_shop_cart c JOIN g5_shop_order o ON o.od_id = c.od_id
+    `SELECT c.od_id, c.ct_id, c.it_id, c.ct_status, (o.od_id IS NULL) unlinked
+       FROM g5_shop_cart c LEFT JOIN g5_shop_order o ON o.od_id = c.od_id
       WHERE c.it_id <> '' ORDER BY c.od_id DESC, c.ct_id`,
   );
   const lines: UploadTargetLine[] = [];
@@ -56,15 +59,19 @@ async function collectTargets(limit: number): Promise<{ lines: UploadTargetLine[
     for (const r of part) {
       const item = itemMap.get(asStr(r.it_id));
       if (item === undefined) continue;
+      // 장바구니 행의 od_id 는 세션 cart id 라 과거 주문번호와 겹칠 수 있다 — '쇼핑'이면 견적.
+      const quoteStage = asStr(r.unlinked) === '1' || asStr(r.ct_status).trim() === '쇼핑';
+      if (quoteStage && !isPendingQuoteScope(r, item)) continue; // 이관 안 하는 잔재는 파일도 제외
       const { filePath } = mapGerberItem(item);
       if (filePath === '') {
         noFile += 1;
         continue;
       }
+      const ctId = asStr(r.ct_id);
       lines.push({
         odId: asStr(r.od_id),
-        ctId: asStr(r.ct_id),
-        quoteId: uuidV5(`${asStr(r.od_id)}:${asStr(r.ct_id)}`),
+        ctId,
+        quoteId: quoteStage ? quoteStageQuoteId(ctId) : uuidV5(`${asStr(r.od_id)}:${ctId}`),
         filePath,
       });
       if (limit > 0 && lines.length >= limit) return { lines, noFile };

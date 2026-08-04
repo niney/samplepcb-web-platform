@@ -27,6 +27,7 @@ import { convertOrderLineMoney } from '../lib/money-convert';
 import type { OrderMoneyConversion } from '../lib/money-convert';
 import { isCancelStatus, normalizeStatus, resolvePartialCancelOdStatus } from '../lib/status-map';
 import { asInt, asStr, canonicalJson, legacyDate, sha256Hex, uuidV5 } from '../lib/util';
+import { quoteStageQuoteId } from './06-quotes';
 
 /** 비거버 카테고리 표시명(카트 it_name "라벨 · 원본명" 문법의 라벨부). */
 const SERVICE_LABELS: Record<string, string> = {
@@ -85,6 +86,8 @@ export interface ShopDeps {
   orderPlan: CopyPlan;
   cartPlan: CopyPlan;
   templateByCategory: Map<string, TemplateRow>;
+  /** 이미 이관된 견적 단계(미주문) spec 의 quoteId 집합 — 주문 승격 시 재사용(phase 06). */
+  quoteStageIds: Set<string>;
 }
 
 /** 템플릿 상품·복사 계획 로드(게이트에서 템플릿 존재 보장). */
@@ -103,7 +106,14 @@ export async function prepareShopDeps(ctx: MigrateCtx): Promise<ShopDeps> {
   }
   const orderPlan = await buildCopyPlan(ctx.schema, 'g5_shop_order');
   const cartPlan = await buildCopyPlan(ctx.schema, 'g5_shop_cart', { dropAutoIncrement: true });
-  return { orderPlan, cartPlan, templateByCategory };
+  // 담기 전(ctId NULL) spec 의 quoteId — 견적 이관분이 나중에 주문될 때 같은 spec 을 승격하기
+  // 위한 앵커. 플랫폼 자체 견적의 quoteId 는 uuidV5('cart:'+ct_id) 와 충돌하지 않는다.
+  const quoteStageIds = new Set(
+    (await ctx.prisma.spOrderSpec.findMany({ where: { ctId: null }, select: { quoteId: true } })).map(
+      (r) => r.quoteId,
+    ),
+  );
+  return { orderPlan, cartPlan, templateByCategory, quoteStageIds };
 }
 
 export interface ShopPhaseOptions {
@@ -283,9 +293,13 @@ export async function loadAndConvertOrder(
       report.note('shop.템플릿 없음(레거시 it_id 유지)', `${odId}/${legacyCtId}: ${category}`, 100);
     }
 
+    // 이 cart 행이 견적 단계에서 먼저 이관됐다면 그 quoteId 를 승계한다(중복 spec 방지).
+    const stageQuoteId = quoteStageQuoteId(legacyCtId);
     lines.push({
       legacyCtId,
-      quoteId: uuidV5(`${odId}:${legacyCtId}`),
+      quoteId: deps.quoteStageIds.has(stageQuoteId)
+        ? stageQuoteId
+        : uuidV5(`${odId}:${legacyCtId}`),
       incl: 0, // 아래 금액 변환에서 채움
       status: normalized.status,
       cancelled: isCancelStatus(normalized.status),
@@ -538,42 +552,44 @@ export async function migrateLine(ctx: MigrateCtx, deps: LineDeps): Promise<void
   }
 
   // 4) SpOrderSpec — quoteId 는 non-unique 인덱스 → findFirst 존재검사(계획 #6)
+  const legacyMeta: Record<string, unknown> = {
+    itId: asStr(ct.it_id),
+    ctId: asInt(ct.ct_id),
+    odId,
+    itName: line.item !== null ? asStr(line.item.it_name) : asStr(ct.it_name),
+    caId: line.item !== null ? asStr(line.item.ca_id) : '',
+    flow: line.mapped.flow,
+    filePath: line.mapped.filePath,
+    supplyPrice: (asInt(ct.ct_price) + asInt(ct.io_price)) * Math.max(1, asInt(ct.ct_qty)),
+    migratedFrom: 'samplepcb_php',
+  };
+  if (Object.keys(line.mapped.rawUnknown).length > 0) legacyMeta.rawSpec = line.mapped.rawUnknown;
+  if (line.estimateJson !== null) legacyMeta.estimate = line.estimateJson;
+  const contact: Record<string, string> = {};
+  if (line.item !== null) {
+    for (const [src, dst] of [
+      ['it_member_name', 'name'],
+      ['it_member_tel', 'tel'],
+      ['it_member_mail', 'mail'],
+      ['it_member_memo', 'memo'],
+      ['it_eta', 'itEta'],
+    ] as const) {
+      const v = asStr(line.item[src]).trim();
+      if (v !== '') contact[dst] = v;
+    }
+  }
+  if (Object.keys(contact).length > 0) legacyMeta.memberContact = contact;
+
+  const mbId = asStr(od.mb_id);
+  const companyName = asStr(line.item?.it_company_name).trim() || asStr(od.od_1).trim();
+  const specJson = { ...line.mapped.spec, _legacy: legacyMeta } as Prisma.InputJsonValue;
+
   const existingSpec = await prisma.spOrderSpec.findFirst({
     where: { quoteId: line.quoteId },
-    select: { id: true },
+    select: { id: true, ctId: true },
   });
   let specId = existingSpec?.id ?? null;
   if (specId === null) {
-    const legacyMeta: Record<string, unknown> = {
-      itId: asStr(ct.it_id),
-      ctId: asInt(ct.ct_id),
-      odId,
-      itName: line.item !== null ? asStr(line.item.it_name) : asStr(ct.it_name),
-      caId: line.item !== null ? asStr(line.item.ca_id) : '',
-      flow: line.mapped.flow,
-      filePath: line.mapped.filePath,
-      supplyPrice: (asInt(ct.ct_price) + asInt(ct.io_price)) * Math.max(1, asInt(ct.ct_qty)),
-      migratedFrom: 'samplepcb_php',
-    };
-    if (Object.keys(line.mapped.rawUnknown).length > 0) legacyMeta.rawSpec = line.mapped.rawUnknown;
-    if (line.estimateJson !== null) legacyMeta.estimate = line.estimateJson;
-    const contact: Record<string, string> = {};
-    if (line.item !== null) {
-      for (const [src, dst] of [
-        ['it_member_name', 'name'],
-        ['it_member_tel', 'tel'],
-        ['it_member_mail', 'mail'],
-        ['it_member_memo', 'memo'],
-        ['it_eta', 'itEta'],
-      ] as const) {
-        const v = asStr(line.item[src]).trim();
-        if (v !== '') contact[dst] = v;
-      }
-    }
-    if (Object.keys(contact).length > 0) legacyMeta.memberContact = contact;
-
-    const mbId = asStr(od.mb_id);
-    const companyName = asStr(line.item?.it_company_name).trim() || asStr(od.od_1).trim();
     const created = await prisma.spOrderSpec.create({
       data: {
         mbId: mbId === '' ? null : mbId,
@@ -585,7 +601,7 @@ export async function migrateLine(ctx: MigrateCtx, deps: LineDeps): Promise<void
         qty: line.mapped.qty,
         message: asStr(line.item?.it_basic).trim() === '' ? null : asStr(line.item?.it_basic),
         companyName: companyName === '' ? null : companyName.slice(0, 250),
-        specJson: { ...line.mapped.spec, _legacy: legacyMeta } as Prisma.InputJsonValue,
+        specJson,
         status: 'active',
         quoteStatus: 'quoted', // 주문까지 간 견적 — 확정가 표현(계획 §구현 중 결정)
         finalPrice: line.incl,
@@ -597,6 +613,28 @@ export async function migrateLine(ctx: MigrateCtx, deps: LineDeps): Promise<void
     });
     specId = created.id;
     report.count('shop.sp_order_spec 생성');
+  } else if (existingSpec !== null && existingSpec.ctId === null) {
+    // 견적 → 주문 승격(phase 06 이관분). quoteId 가 견적 단계 값으로 해석돼 여기 걸리므로
+    // 새 spec 을 만들지 않고 주문 사실만 얹는다 — 중복 방지 + 고객 견적 이력 연속.
+    await prisma.spOrderSpec.update({
+      where: { id: specId },
+      data: {
+        ctId: newCtId,
+        mbId: mbId === '' ? null : mbId,
+        projectName: line.projectName === '' ? line.itemName : line.projectName,
+        category: line.category,
+        orderCategory: line.mapped.orderCategory,
+        qty: line.mapped.qty,
+        message: asStr(line.item?.it_basic).trim() === '' ? null : asStr(line.item?.it_basic),
+        companyName: companyName === '' ? null : companyName.slice(0, 250),
+        specJson,
+        quoteStatus: 'quoted',
+        finalPrice: line.incl,
+        pricedBy: 'legacy-migration',
+        pricedAt: odTime,
+      },
+    });
+    report.count('shop.견적 → 주문 승격');
   }
 
   // 5) SpFile — 사전 업로드 원장(upload-files.ts)의 pathToken 연결

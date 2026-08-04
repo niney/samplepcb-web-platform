@@ -28,6 +28,7 @@ import { prepareShopDeps, runShopPhase } from './phases/02-shop';
 import { runBoardsPhase } from './phases/03-boards';
 import { runMiscPhase } from './phases/04-misc';
 import { emptyReviewStats, loadReviewLineIndex, upsertReview } from './phases/05-reviews';
+import { detectQuoteDeletions, runQuotesPhase } from './phases/06-quotes';
 
 function dbNameOf(url: string | undefined): string {
   if (url === undefined || url === '') return '(미설정)';
@@ -117,6 +118,9 @@ async function main(): Promise<void> {
     await runBoardsPhase(ctx);
     await runMiscPhase(ctx);
     await tailAppendPoints(ctx);
+    // 미주문 견적 — phase 자체가 upsert 라 신규분과 변경분(가격·상태·사양)을 함께 반영한다.
+    // 주문 phase 뒤에 두어야 "견적 → 주문 승격"이 먼저 정리된다.
+    const pendingQuotes = await runQuotesPhase(ctx);
 
     // ── (b) 변경분 — 재대조 ──
     console.log('\n━━ (b) 변경분 재대조 ━━');
@@ -131,6 +135,7 @@ async function main(): Promise<void> {
     // ── (c) 삭제·이상 검출(리포트만) ──
     console.log('\n━━ (c) 삭제·이상 검출 ━━');
     await detectDeletions(ctx, legacyOds);
+    await detectQuoteDeletions(ctx, new Set(pendingQuotes.map((q) => q.legacyCtId)));
 
     // ── 갱신 주문 금액 항등 자가검증 ──
     if (!dryRun && touchedOds.length > 0) {

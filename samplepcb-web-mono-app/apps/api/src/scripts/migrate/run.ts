@@ -2,7 +2,7 @@
 //
 // 실행(apps/api): pnpm migrate:run [-- --phase=members,shop --dry-run --allow-unknown]
 //   env 파일: .env.migration (소스 LEGACY_DATABASE_URL · 타깃 G5_DATABASE_URL/DATABASE_URL)
-//   --phase   gate | members | shop | boards | misc | all(기본) — 콤마 나열 가능
+//   --phase   gate | members | shop | boards | misc | reviews | quotes | all(기본) — 콤마 나열 가능
 //   --dry-run 쓰기 없이 게이트+변환 통계만
 //   --allow-unknown 게이트 위반을 경고로 강등(운영 드리프트를 **검토한 뒤** 의식적으로만)
 //
@@ -24,9 +24,11 @@ import { runShopPhase } from './phases/02-shop';
 import { runBoardsPhase } from './phases/03-boards';
 import { runMiscPhase } from './phases/04-misc';
 import { runReviewsPhase } from './phases/05-reviews';
+import { runQuotesPhase } from './phases/06-quotes';
 
 // reviews 는 shop 뒤 — 후기 귀속 대상 sp_order_spec 이 먼저 존재해야 한다.
-const PHASE_ORDER = ['members', 'shop', 'boards', 'misc', 'reviews'] as const;
+// quotes(미주문 견적)도 shop 뒤 — 이미 주문 승격된 건은 건너뛰어야 하므로 주문분이 먼저다.
+const PHASE_ORDER = ['members', 'shop', 'boards', 'misc', 'reviews', 'quotes'] as const;
 type PhaseName = (typeof PHASE_ORDER)[number];
 
 function dbNameOf(url: string | undefined): string {
@@ -127,6 +129,10 @@ async function main(): Promise<void> {
       boards: runBoardsPhase,
       misc: runMiscPhase,
       reviews: runReviewsPhase,
+      // 견적 phase 는 살아있는 대기 목록을 돌려주지만(sync 의 삭제 검출용) 여기선 쓰지 않는다.
+      quotes: async (c) => {
+        await runQuotesPhase(c);
+      },
     };
     for (const phase of PHASE_ORDER) {
       if (!requested.has(phase)) continue;

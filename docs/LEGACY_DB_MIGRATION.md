@@ -25,8 +25,11 @@
 ## 2. 확정 범위 (사용자 결정 2026-07-06)
 
 1. **주문·자산 전부 이관**: order + cart + 배송지 주소록 + 포인트 원장 + 쿠폰 + 1:1문의.
-2. **거버 상품은 주문 연결분만 변환**(운영 ~18,700건). 고아 견적·쇼핑/협력사 대기 cart 행은 스킵.
+2. **거버 상품은 주문 연결분만 변환**(운영 ~18,700건).
    레거시 자체 `sp_*`(sp_estimate 등)는 미이관 — 단 **주문된 ca20 라인은 sp_estimate 설문 JSON을 spec_json에 병합**해 실질 보존.
+   → **2026-08-04 범위 확대**: "쇼핑/협력사 대기 cart 행 스킵"을 철회하고 **미주문 견적도 이관**한다(§5-C, phase 06).
+   레거시 견적관리(`/adm/shop_admin/estimate.php`)에 떠 있는 대기 견적이 플랫폼에 없어 PCB 협력 모듈의
+   견적요청 워크큐가 공동화되던 문제(사용자 지적)의 근본 교정. 고아 주문 라인·취소 잔재는 계속 스킵.
 3. **회원 확장 필드 = sp_member_profile 확장**(계약 `AdminMemberBusiness` 필드명 정합, 잔여는 `legacyJson`). 신규 g5_member의 `mb_1~10`은 비움.
 4. **실파일은 이관분만**: 거버 파일 → file.samplepcb.kr(sp_file.pathToken, 사전 업로드), 게시판 첨부·에디터/회원 이미지 → data/ 복사.
 5. g5_menu·g5_content(레거시 마이페이지류는 정적 목업이었음)·운영성 테이블 미이관. **애매한 항목 발견 시 중단 → 사용자 확인**(게이트로 코드화).
@@ -145,6 +148,41 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 - **실증(2026-07-09)**: run --phase=reviews → 61건 전량 귀속(실패 0·1:N 0), verify 그린(행수 61·score합
   302·귀속 61·답변 8). sync 리허설(신규 후기·별점 수정·답변 추가·삭제 주입) → 반영 정확 + 재실행 no-op +
   삭제 리포트 + 비번해시 유출 0 실측.
+
+## 5-C. 미주문 견적 변환 (phase 06 quotes, 2026-08-04)
+
+레거시 견적관리(`estimate.php`)는 **`g5_shop_cart` 기준**(`(it_23='rfq' AND it_use=1) OR ca_id=30`, `ca_id<>41`)
+이라 주문 전 견적도 목록에 뜨는데, 이관은 `g5_shop_order` 순회라 **주문 연결분만** 들어와 대기 견적이 통째로
+빠져 있었다(운영 실측 69건). 구현 `phases/06-quotes.ts` — 전 과정이 **upsert(멱등·드리프트 교정)**.
+
+- **범위(사용자 확정)**: ca_id **10(거버)·20(설문)·30(수동·구매대행)**. **BOM(40·41) 제외** — 신규 플랫폼에
+  전용 트랙(`sp_bom_quote`)이 있어 이중 표현 방지(레거시 BOM 자료 불요). 취소류·**고아 주문 라인**
+  (주문 헤더가 사라졌는데 ct_status 가 `ACTIVE_ORDER_STATUSES`·`CANCEL_STATUSES`)은 견적으로
+  되살리지 않고 리포트만 — `'가격확인'`은 어감과 달리 `PRODUCTION_STATUSES` 소속이라 여기 해당.
+- **타깃 형상**: `sp_order_spec.ctId = **NULL**`(플랫폼 네이티브 "담기 전 견적") + `sp_quote`
+  (`autoPrice=null`, `priceVersion='legacy-migration'`, `expiresAt=ct_time+72h`). cart 행을 만들면
+  담김으로 보여 협력사 RFQ 가 IN_CART 게이트에 막히므로 **만들지 않는다**.
+- **상태·금액**: `it_price>0 → quoted + finalPrice`, 아니면 `rfq`(가격 없이 `it_24='견적완료'`면 리포트).
+  `it_price == ct_price` 실측 항등(불일치 0)이라 **주문 이관과 같은 VAT 산식**(`allocateVatIncl`)을 공유 —
+  공급가 → 부가세 포함. 42,000 → 46,200 실증.
+- **승격 앵커(핵심)**: 견적 단계 `quoteId = uuidV5('cart:'+ct_id)`. 미주문 cart 행의 `od_id` 는 **세션
+  장바구니 id** 라 주문 시 실제 주문번호로 바뀌어 `uuidV5('od:ct')` 가 달라진다 → 그대로 두면 같은 물리
+  cart 행이 견적/주문 두 spec 으로 **중복**된다. `ct_id` 는 승격 후에도 불변이라 앵커로 쓰고,
+  `prepareShopDeps` 가 담기 전(ctId NULL) spec 의 quoteId 집합을 실어 `loadAndConvertOrder` 가
+  **견적 quoteId 를 승계**한다. `migrateLine` 은 기존 spec 이 `ctId=null` 이면 생성 대신
+  **승격 UPDATE**(ctId·quoteStatus·finalPrice·pricedAt) — 고객 견적 이력이 주문으로 이어진다.
+  기존 이관분 20,788건은 주문 기반 quoteId 로 고정돼 **무영향**.
+- **파일**: `upload-files.ts collectTargets` 의 주문 JOIN 을 LEFT JOIN 으로 바꿔 견적 파일도 대상에 포함
+  (스코프는 `isPendingQuoteScope` 공유). 거버 파일은 협력사 RFQ 의 핵심이라 필수 — 다만 로컬
+  `MIGRATE_LEGACY_FILES_DIR` 미러가 아직 없어 **연결은 미러 확보 후 `migrate:files [--sideload] --relink`** 로.
+- **sync**: (a) 신규분에 `runQuotesPhase` 편입(upsert 라 가격·상태·사양 변경까지 함께 반영 — 별도 재대조 불요),
+  (c) 에 `detectQuoteDeletions`(레거시에서 사라진 견적 = 고객 장바구니 삭제 → **리포트만**, 정책 동일).
+  주문 phase 뒤에 두어 승격이 먼저 정리된다.
+- **verify**: `미주문 견적 이관 건수`(레거시=타깃) + `견적 금액 변환(VAT) 항등` 2항 추가.
+- **실증(2026-08-04, 운영 직결)**: dry-run 69 → 실행 69 생성(standard 39·assembly 14·circuit 7·artwork 5·
+  advance 2·mass 1·metalMask 1) · verify 전 항목 통과(69=69, VAT 불일치 0) · **재실행 완전 no-op** ·
+  vitest 644(신규 9). 사용자가 지목한 건(`Working file F-E01200-2_Gerber(2).zip`, 견적접수)이
+  spec #20905 `rfq` 로 정상 유입 확인.
 
 ## 6. P1 리허설 실증 (2026-07-07, 2020-12 덤프 → samplepcb 사본)
 
