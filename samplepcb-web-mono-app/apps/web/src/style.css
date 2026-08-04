@@ -55,6 +55,17 @@
   --color-surface-brand-soft: #f4f8ff;
   --color-surface-warn: #fdf8e7;
 
+  /* BOM 좌측 탐색(피그마 2282:60660) — 공용 면/브랜드색과 미세하게 달라
+     다른 화면을 바꾸지 않고 사이드바 원본 색을 그대로 유지한다. */
+  --color-bom-sidebar: #ffffff;
+  --color-bom-sidebar-border: #eaeaea;
+  --color-bom-nav-active-bg: #eff4fb;
+  --color-bom-nav-active: #0e6efd;
+  --color-bom-nav-inactive: #5e626e;
+  --color-bom-nav-heading: #37393e;
+  --color-bom-recent-active-bg: #f1f4f8;
+  --color-bom-recent-active-border: #cdd7e5;
+
   /* 단일검색 결과(피그마 2316:106290) — 표·카트는 일반 BOM 면보다 역할이 세분된다. */
   --color-search-row: #ffffff;
   --color-search-section: #e2e6ec;
@@ -129,6 +140,16 @@
   --color-surface-brand: #16233c;
   --color-surface-brand-soft: #131b2c;
   --color-surface-warn: #2a2413;
+
+  /* BOM 좌측 탐색 — 다크 모드에서도 같은 역할과 대비를 유지한다. */
+  --color-bom-sidebar: #171c26;
+  --color-bom-sidebar-border: #2c3441;
+  --color-bom-nav-active-bg: #16233c;
+  --color-bom-nav-active: #82b4ff;
+  --color-bom-nav-inactive: #9ba6b8;
+  --color-bom-nav-heading: #c6cfdc;
+  --color-bom-recent-active-bg: #1f2632;
+  --color-bom-recent-active-border: #3d4757;
 
   /* 단일검색 다크 시안(2285:95005)의 원본 면·입력·외곽선 값. */
   --color-search-row: #131519;

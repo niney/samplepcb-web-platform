@@ -10,10 +10,14 @@ import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 import logoPartseyes from '../assets/bom/logo-partseyes.svg';
 import icFold from '../assets/bom/ic-fold.svg';
-import icMenuBom from '../assets/bom/ic-menu-bom.svg';
-import icMenuSearch from '../assets/bom/ic-menu-search.svg';
-import icMenuUpload from '../assets/bom/ic-menu-upload.svg';
-import icTrailSearch from '../assets/bom/ic-trail-search.svg';
+import icMenuBomActive from '../assets/bom/ic-menu-bom.svg';
+import icMenuBomInactive from '../assets/bom/ic-menu-bom-inactive.svg';
+import icMenuSearchActive from '../assets/bom/ic-menu-search-active.svg';
+import icMenuSearchInactive from '../assets/bom/ic-menu-search.svg';
+import icMenuUploadActive from '../assets/bom/ic-menu-upload.svg';
+import icMenuUploadInactive from '../assets/bom/ic-menu-upload-inactive.svg';
+import icTrailSearchActive from '../assets/bom/ic-trail-search-active.svg';
+import icTrailSearchInactive from '../assets/bom/ic-trail-search.svg';
 import icFile from '../assets/bom/ic-file.svg';
 import promoZip from '../assets/bom/promo-zip.png';
 import promoVideo from '../assets/bom/promo-video.png';
@@ -34,7 +38,7 @@ const { isDark, toggleTheme } = useTheme();
 const list = useMyBomQuotes(ref(1), computed(() => auth.isLoggedIn), { pageSize: 50 });
 const recentViewport = ref<HTMLElement | null>(null);
 const recentCapacity = ref(4);
-const RECENT_ROW_HEIGHT = 30;
+const RECENT_ROW_HEIGHT = 27;
 const RECENT_ROW_GAP = 2;
 let recentResizeObserver: ResizeObserver | null = null;
 
@@ -183,30 +187,38 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
 
     <div class="flex min-h-0 flex-1">
       <!-- left side bar (87:9485) — 라이트 치환 -->
-      <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-gray-200 bg-surface pt-[36px] lg:flex">
-        <RouterLink :to="{ name: 'bom' }" class="mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onBomPrimary ? 'bg-surface-brand' : 'hover:bg-gray-50'">
-          <img :src="icMenuBom" alt="" class="size-[18px]">
-          <span class="ml-[6px] text-[16px] font-medium" :class="onBomPrimary ? 'text-brand-strong' : 'text-ink'">BOM 분석</span>
-          <img :src="icMenuUpload" alt="" class="ml-auto size-[14px]">
+      <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-bom-sidebar-border bg-bom-sidebar pt-[35px] lg:flex">
+        <RouterLink :to="{ name: 'bom' }" class="relative mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onBomPrimary ? 'bg-bom-nav-active-bg' : 'hover:bg-surface-raised'">
+          <span class="relative size-[18px] shrink-0" aria-hidden="true">
+            <img :src="onBomPrimary ? icMenuBomActive : icMenuBomInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
+          </span>
+          <span class="ml-[6px] font-sans text-[16px] font-medium leading-[19px]" :class="onBomPrimary ? 'text-bom-nav-active' : 'text-bom-nav-inactive'">BOM 분석</span>
+          <img :src="onBomPrimary ? icMenuUploadActive : icMenuUploadInactive" alt="" class="absolute right-[16px] top-[16px] size-[14px]">
         </RouterLink>
-        <RouterLink :to="{ name: 'bom-search' }" class="mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onSearch ? 'bg-surface-brand' : 'hover:bg-gray-50'">
-          <img :src="icMenuSearch" alt="" class="size-[18px]">
-          <span class="ml-[6px] text-[16px] font-medium" :class="onSearch ? 'text-brand-strong' : 'text-ink'">단일 검색</span>
-          <img :src="icTrailSearch" alt="" class="ml-auto size-[14px]">
+        <RouterLink :to="{ name: 'bom-search' }" class="relative mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onSearch ? 'bg-bom-nav-active-bg' : 'hover:bg-surface-raised'">
+          <span class="relative size-[18px] shrink-0" aria-hidden="true">
+            <img :src="onSearch ? icMenuSearchActive : icMenuSearchInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
+          </span>
+          <span class="ml-[6px] font-sans text-[16px] font-medium leading-[19px]" :class="onSearch ? 'text-bom-nav-active' : 'text-bom-nav-inactive'">단일 검색</span>
+          <span class="absolute right-[16px] top-[15px] size-[14px] overflow-hidden" aria-hidden="true">
+            <img :src="onSearch ? icTrailSearchActive : icTrailSearchInactive" alt="" class="absolute left-[0.4px] top-[0.4px] h-[13.2001px] w-[13.2002px] max-w-none">
+          </span>
         </RouterLink>
 
-        <section class="mt-[38px] flex min-h-0 flex-1 flex-col pb-4">
-          <p class="pl-[21px] font-noto text-[13px] font-bold text-ink-faint">Recent file</p>
-          <div ref="recentViewport" class="mt-[12px] flex min-h-0 w-[179px] flex-1 flex-col gap-[2px] self-start overflow-hidden" style="margin-left: 21px">
+        <section class="mt-[30px] flex min-h-0 flex-1 flex-col pb-4">
+          <p class="h-[16px] pl-[21px] font-noto text-[13px] font-bold leading-[16px] text-bom-nav-heading">Recent file</p>
+          <div ref="recentViewport" class="mt-[16px] flex min-h-0 w-[179px] flex-1 flex-col gap-[2px] self-start overflow-hidden" style="margin-left: 21px">
             <RouterLink
               v-for="q in recent"
               :key="q.id"
               :to="{ name: 'bom-quote', params: { id: q.id } }"
-              class="flex h-[30px] shrink-0 items-center gap-[4px] rounded-[4px] border px-[8px]"
-              :class="currentQuoteId === q.id ? 'border-line bg-surface-raised' : 'border-transparent hover:bg-gray-50'"
+              class="flex h-[27px] shrink-0 items-center gap-[4px] rounded-[4px] border px-[8px]"
+              :class="currentQuoteId === q.id ? 'border-bom-recent-active-border bg-bom-recent-active-bg' : 'border-transparent hover:bg-surface-raised'"
             >
-              <img :src="icFile" alt="" class="size-[15px] opacity-60">
-              <span class="truncate font-noto text-[12px] font-normal text-ink-subtle">{{ q.fileName ?? q.title }}</span>
+              <span class="relative size-[15px] shrink-0 opacity-60" aria-hidden="true">
+                <img :src="icFile" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
+              </span>
+              <span class="truncate font-noto text-[12px] font-normal leading-[14px] text-bom-nav-heading">{{ q.fileName ?? q.title }}</span>
             </RouterLink>
             <p v-if="recent.length === 0" class="px-[8px] py-[6px] text-[12px] text-gray-400">아직 업로드한 BOM이 없습니다</p>
           </div>
