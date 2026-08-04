@@ -1,0 +1,3289 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>SmartBOM BOM · PCB UML Atlas</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --paper: #ffffff;
+      --ink: #17202a;
+      --muted: #66727f;
+      --line: #dfe5ea;
+      --line-strong: #c9d2da;
+      --nav: #111a22;
+      --nav-soft: #1b2934;
+      --cyan: #008fa3;
+      --cyan-soft: #e0f5f7;
+      --amber: #b36b00;
+      --amber-soft: #fff2d8;
+      --violet: #6554c0;
+      --violet-soft: #eeeafd;
+      --rose: #b63453;
+      --rose-soft: #fee9ee;
+      --green: #247452;
+      --green-soft: #e4f4ec;
+      --shadow: 0 12px 36px rgba(25, 42, 56, .08);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 20px;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 82% -10%, rgba(0, 143, 163, .13), transparent 30rem),
+        radial-gradient(circle at 12% 12%, rgba(101, 84, 192, .08), transparent 24rem),
+        var(--bg);
+      font-family: "Pretendard", "Noto Sans KR", "Segoe UI", system-ui, -apple-system, sans-serif;
+      line-height: 1.55;
+    }
+
+    button, input { font: inherit; }
+
+    button {
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 26px 20px 32px;
+      color: #edf5f7;
+      background:
+        linear-gradient(165deg, rgba(0, 143, 163, .18), transparent 38%),
+        var(--nav);
+      border-right: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    .brand {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, .22);
+      border-radius: 13px;
+      background: linear-gradient(145deg, #0fb2c4, #6554c0);
+      box-shadow: 0 8px 22px rgba(0, 143, 163, .3);
+      font-weight: 850;
+      letter-spacing: -.06em;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 15px;
+      letter-spacing: -.02em;
+    }
+
+    .brand small {
+      display: block;
+      margin-top: 2px;
+      color: #93a6b3;
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .search {
+      width: 100%;
+      height: 42px;
+      padding: 0 13px;
+      color: white;
+      outline: none;
+      border: 1px solid rgba(255, 255, 255, .13);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, .07);
+    }
+
+    .search::placeholder { color: #8ea0ac; }
+    .search:focus { border-color: #39bfd0; box-shadow: 0 0 0 3px rgba(57, 191, 208, .12); }
+
+    .filter-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin: 12px 0 20px;
+    }
+
+    .filter {
+      padding: 8px 9px;
+      color: #aebcc5;
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 9px;
+      background: transparent;
+      font-size: 12px;
+    }
+
+    .filter:hover,
+    .filter.active {
+      color: white;
+      border-color: rgba(56, 201, 218, .6);
+      background: rgba(17, 167, 184, .17);
+    }
+
+    .side-label {
+      margin: 18px 7px 8px;
+      color: #6f8492;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    #toc {
+      display: grid;
+      gap: 2px;
+    }
+
+    #toc a {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 5px;
+      align-items: baseline;
+      padding: 6px 7px;
+      color: #aebdc6;
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+
+    #toc a:hover {
+      color: white;
+      background: rgba(255, 255, 255, .06);
+    }
+
+    #toc .toc-no {
+      color: #53c6d2;
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-size: 9px;
+    }
+
+    .side-foot {
+      margin-top: 24px;
+      padding: 13px;
+      color: #8fa2ae;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, .035);
+      font-size: 10px;
+    }
+
+    main {
+      min-width: 0;
+      padding: 38px clamp(20px, 4vw, 64px) 80px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(28px, 5vw, 56px);
+      color: white;
+      border-radius: 26px;
+      background:
+        linear-gradient(118deg, rgba(0, 143, 163, .95), rgba(24, 66, 83, .96) 52%, rgba(64, 51, 126, .96));
+      box-shadow: 0 20px 48px rgba(23, 62, 77, .2);
+    }
+
+    .hero::after {
+      position: absolute;
+      right: -70px;
+      bottom: -110px;
+      width: 340px;
+      height: 340px;
+      content: "";
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 42px rgba(255, 255, 255, .035),
+        0 0 0 88px rgba(255, 255, 255, .025);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: #a9f0f7;
+      font-size: 11px;
+      font-weight: 850;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+    }
+
+    .hero h1 {
+      max-width: 880px;
+      margin: 0;
+      font-size: clamp(34px, 6vw, 66px);
+      line-height: 1.03;
+      letter-spacing: -.055em;
+    }
+
+    .hero .lead {
+      max-width: 800px;
+      margin: 18px 0 0;
+      color: rgba(255, 255, 255, .79);
+      font-size: clamp(14px, 2vw, 18px);
+    }
+
+    .metric-row {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .metric {
+      min-width: 132px;
+      padding: 12px 15px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 13px;
+      background: rgba(255, 255, 255, .08);
+      backdrop-filter: blur(8px);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 21px;
+      line-height: 1.1;
+    }
+
+    .metric span {
+      color: rgba(255, 255, 255, .66);
+      font-size: 10px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .scope-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 22px 0 0;
+    }
+
+    .scope-card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .74);
+    }
+
+    .scope-card b {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+
+    .scope-card span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .scope-card code {
+      color: #315a64;
+      font-size: 10px;
+    }
+
+    .notice {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      margin-top: 14px;
+      padding: 14px 16px;
+      color: #5b4a1e;
+      border: 1px solid #ead7a7;
+      border-radius: 13px;
+      background: #fff9e9;
+      font-size: 11px;
+    }
+
+    .notice b { white-space: nowrap; }
+
+    .section {
+      margin-top: 54px;
+    }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 15px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .section-index {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      color: white;
+      border-radius: 12px;
+      background: var(--ink);
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1.08;
+      letter-spacing: -.035em;
+    }
+
+    .section-heading p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .diagram-grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .diagram-card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .diagram-card.hidden,
+    .section.hidden { display: none; }
+
+    .card-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: start;
+      padding: 20px 22px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .card-title-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .diagram-no {
+      color: var(--cyan);
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .08em;
+    }
+
+    .card-head h3 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -.025em;
+    }
+
+    .card-head p {
+      max-width: 900px;
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 10px;
+    }
+
+    .tag {
+      padding: 3px 8px;
+      color: #47616b;
+      border-radius: 99px;
+      background: #edf3f5;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .04em;
+    }
+
+    .tag.bom { color: #006e79; background: var(--cyan-soft); }
+    .tag.pcb { color: #5746aa; background: var(--violet-soft); }
+    .tag.risk { color: #9c2d49; background: var(--rose-soft); }
+    .tag.shared { color: #226442; background: var(--green-soft); }
+
+    .toolbar {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+
+    .tool {
+      min-width: 31px;
+      height: 31px;
+      padding: 0 9px;
+      color: #4e5b66;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fafbfc;
+      font-size: 10px;
+    }
+
+    .tool:hover { color: #0b7280; border-color: #8acbd2; background: #f0fbfc; }
+
+    .diagram-canvas {
+      min-height: 290px;
+      overflow: auto;
+      padding: 24px;
+      background:
+        linear-gradient(rgba(213, 222, 228, .2) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(213, 222, 228, .2) 1px, transparent 1px),
+        #fbfcfd;
+      background-size: 28px 28px;
+    }
+
+    .diagram-canvas svg {
+      display: block;
+      width: 100%;
+      min-width: 680px;
+      height: auto;
+      margin: 0 auto;
+      transition: width .16s ease;
+    }
+
+    .mermaid {
+      min-width: 680px;
+      margin: 0;
+      color: #697682;
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-size: 11px;
+      white-space: pre;
+    }
+
+    .render-error {
+      padding: 18px;
+      color: #8f2440;
+      border: 1px solid #f1b7c5;
+      border-radius: 10px;
+      background: #fff4f6;
+      white-space: pre-wrap;
+    }
+
+    .card-note {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      border-top: 1px solid var(--line);
+      background: var(--line);
+    }
+
+    .note-cell {
+      padding: 12px 15px;
+      background: white;
+    }
+
+    .note-cell b {
+      display: block;
+      margin-bottom: 3px;
+      color: #45535f;
+      font-size: 9px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .note-cell span {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .matrix-card {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: white;
+      box-shadow: var(--shadow);
+    }
+
+    .matrix-card table {
+      width: 100%;
+      min-width: 920px;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    .matrix-card th,
+    .matrix-card td {
+      padding: 11px 13px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .matrix-card th {
+      position: sticky;
+      top: 0;
+      color: #40505c;
+      background: #f3f7f8;
+      font-size: 9px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    .matrix-card tr:last-child td { border-bottom: 0; }
+
+    .status {
+      display: inline-flex;
+      padding: 3px 7px;
+      border-radius: 99px;
+      font-size: 9px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .status.ok { color: #226442; background: var(--green-soft); }
+    .status.warn { color: #8b5700; background: var(--amber-soft); }
+    .status.risk { color: #9c2d49; background: var(--rose-soft); }
+
+    .footer {
+      margin-top: 46px;
+      padding: 20px 0;
+      color: #71808c;
+      border-top: 1px solid var(--line-strong);
+      font-size: 10px;
+    }
+
+    .empty {
+      display: none;
+      padding: 80px 20px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .empty.visible { display: block; }
+
+    .render-status {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 20;
+      padding: 9px 12px;
+      color: white;
+      border-radius: 10px;
+      background: rgba(17, 26, 34, .9);
+      box-shadow: 0 8px 26px rgba(0, 0, 0, .2);
+      font-size: 10px;
+      backdrop-filter: blur(8px);
+    }
+
+    dialog {
+      width: min(900px, calc(100vw - 32px));
+      max-height: calc(100vh - 48px);
+      padding: 0;
+      overflow: hidden;
+      border: 0;
+      border-radius: 16px;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, .28);
+    }
+
+    dialog::backdrop { background: rgba(13, 22, 29, .65); backdrop-filter: blur(3px); }
+
+    .dialog-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 18px;
+      color: white;
+      background: var(--nav);
+    }
+
+    .dialog-head h4 { margin: 0; font-size: 13px; }
+
+    .dialog-close {
+      width: 30px;
+      height: 30px;
+      color: white;
+      border: 1px solid rgba(255, 255, 255, .2);
+      border-radius: 8px;
+      background: transparent;
+    }
+
+    #sourceCode {
+      display: block;
+      width: 100%;
+      max-height: calc(100vh - 120px);
+      overflow: auto;
+      margin: 0;
+      padding: 20px;
+      color: #d8e4ea;
+      background: #17232c;
+      font: 11px/1.65 ui-monospace, "Cascadia Code", Consolas, monospace;
+      white-space: pre;
+    }
+
+    @media (max-width: 1080px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: relative;
+        z-index: 10;
+        height: auto;
+        padding: 15px 18px;
+      }
+      .brand { margin-bottom: 13px; }
+      .brand-mark { width: 36px; height: 36px; }
+      .filter-list { grid-template-columns: repeat(5, 1fr); margin-bottom: 0; }
+      .side-label, #toc, .side-foot { display: none; }
+      main { padding-top: 22px; }
+    }
+
+    @media (max-width: 760px) {
+      .filter-list { grid-template-columns: repeat(3, 1fr); }
+      .scope-grid { grid-template-columns: 1fr 1fr; }
+      .card-head { grid-template-columns: 1fr; }
+      .toolbar { flex-wrap: wrap; }
+      .card-note { grid-template-columns: 1fr; }
+      .diagram-canvas { padding: 12px; }
+    }
+
+    @media print {
+      body { background: white; }
+      .shell { display: block; }
+      .sidebar, .toolbar, .render-status, .notice { display: none !important; }
+      main { padding: 0; }
+      .hero { color: #111; box-shadow: none; background: white; border: 2px solid #111; }
+      .hero .lead, .metric span { color: #444; }
+      .metric { border-color: #bbb; }
+      .section { break-before: page; }
+      .diagram-card { break-inside: avoid; box-shadow: none; }
+      .diagram-canvas { overflow: visible; background: white; }
+      .diagram-canvas svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">SB</div>
+        <div>
+          <strong>BOM · PCB UML Atlas</strong>
+          <small>Implementation Map</small>
+        </div>
+      </div>
+
+      <input id="search" class="search" type="search" placeholder="다이어그램 검색…" autocomplete="off" />
+
+      <div class="filter-list" aria-label="도메인 필터">
+        <button class="filter active" data-filter="all">전체</button>
+        <button class="filter" data-filter="overview">개요</button>
+        <button class="filter" data-filter="bom">BOM</button>
+        <button class="filter" data-filter="pcb">PCB</button>
+        <button class="filter" data-filter="shared">공통</button>
+        <button class="filter" data-filter="risk">주의점</button>
+      </div>
+
+      <div class="side-label">Diagram index</div>
+      <nav id="toc" aria-label="다이어그램 목차"></nav>
+
+      <div class="side-foot">
+        코드·컴파일 위키·정본 문서를 교차해 작성한 구조 지도입니다. 실행 중 DB와 외부 API의 실상태를 감사한 문서는 아닙니다.
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <p class="eyebrow">SmartBOM implementation atlas · 2026-07-29</p>
+        <h1>BOM과 PCB,<br />두 생명주기의 전체 지도</h1>
+        <p class="lead">
+          고객 접수부터 부품 검색·견적·RFQ·협력사 선정·발주·EQ·생산·선적·A/S까지,
+          프런트와 백엔드의 실제 경계를 UML 계열 다이어그램으로 연결했다.
+        </p>
+        <div class="metric-row">
+          <div class="metric"><strong>40</strong><span>Diagrams</span></div>
+          <div class="metric"><strong>2</strong><span>Source repos</span></div>
+          <div class="metric"><strong>4</strong><span>User roles</span></div>
+          <div class="metric"><strong>3</strong><span>Currency rails</span></div>
+        </div>
+      </header>
+
+      <div class="scope-grid">
+        <div class="scope-card">
+          <b>SmartBOM Vue</b>
+          <span>라우트·화면·프런트 상태머신</span><br />
+          <code>sp-smartbom-web</code>
+        </div>
+        <div class="scope-card">
+          <b>XPSE API</b>
+          <span>Spring/JPA/QueryDSL/ES 업무 경계</span><br />
+          <code>samplepcb_xpse</code>
+        </div>
+        <div class="scope-card">
+          <b>G5 / SamplePCB</b>
+          <span>인증·회원·장바구니·주문·PCB 원본</span><br />
+          <code>g5_shop_* · g5_member</code>
+        </div>
+        <div class="scope-card">
+          <b>External rails</b>
+          <span>부품 시세·주문·파일·환율·메일</span><br />
+          <code>DigiKey · Mouser · UniKeyIC</code>
+        </div>
+      </div>
+
+      <div class="notice">
+        <b>읽는 법</b>
+        <span>
+          청록은 BOM, 보라는 PCB, 녹색은 공통 인프라, 분홍은 구현상 위험·경계다.
+          각 카드에서 확대/축소, Mermaid 원문 열람, SVG 저장이 가능하다.
+        </span>
+      </div>
+
+      <div id="empty" class="empty">조건에 맞는 다이어그램이 없습니다.</div>
+
+      <section class="section" data-section="overview">
+        <div class="section-heading">
+          <div class="section-index">00</div>
+          <div>
+            <h2>시스템 풍경</h2>
+            <p>두 저장소, 레거시 G5, 외부 공급사와 역할 경계를 먼저 고정한다.</p>
+          </div>
+        </div>
+
+        <div class="diagram-grid">
+          <article class="diagram-card" id="d01" data-domain="overview shared" data-search="system context 전체 시스템 컨텍스트 g5 smartbom xpse external">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D01</span><h3>시스템 컨텍스트</h3></div>
+                <p>SmartBOM은 고객 원천 시스템을 대체하지 않고, G5가 만든 신원·상품·주문을 받아 견적/조달 워크플로를 확장한다.</p>
+                <div class="tags"><span class="tag shared">CONTEXT</span><span class="tag shared">BOUNDARY</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  Customer(("고객"))
+  Admin(("관리자"))
+  MD(("마스터딜러"))
+  Partner(("협력사"))
+
+  subgraph G5["SamplePCB / G5 · 원천 시스템"]
+    PHP["PHP 웹 · SSO/JWT 발급"]
+    G5DB[("g5_member / g5_shop_item / cart / order")]
+  end
+
+  subgraph SB["SmartBOM Vue · /smartbom/"]
+    UI["BOM · PCB 업무 UI"]
+    FSM["역할별 화면 상태머신"]
+  end
+
+  subgraph XPSE["XPSE Spring API"]
+    API["REST Resources"]
+    Domain["Estimate · RFQ · PO · EQ · Shipment · A/S"]
+    Search["부품 검색 / 색인"]
+  end
+
+  subgraph Data["업무 데이터"]
+    MYSQL[("MySQL · sp_* + g5_* read")]
+    ES[("Elasticsearch")]
+  end
+
+  subgraph EXT["외부 연동"]
+    Parts["DigiKey · Mouser · UniKeyIC · IC114"]
+    File["익명 파일 서버"]
+    Mail["PHP 메일"]
+    FX["Eximbank / 설정 환율"]
+  end
+
+  Customer --> PHP
+  Admin --> UI
+  MD --> UI
+  Partner --> UI
+  PHP --> G5DB
+  PHP -- "공유 시크릿 JWT" --> UI
+  UI --> FSM --> API
+  API --> Domain
+  Domain --> MYSQL
+  Search --> ES
+  Search --> MYSQL
+  Domain --> Search
+  Search --> Parts
+  Domain --> File
+  Domain --> Mail
+  Domain --> FX
+  API -. "g5_* 조회" .-> G5DB
+
+  classDef actor fill:#fff,stroke:#31434f,stroke-width:2px,color:#17202a;
+  classDef g5 fill:#fff2d8,stroke:#b36b00,color:#593900;
+  classDef app fill:#e0f5f7,stroke:#008fa3,color:#064b53;
+  classDef api fill:#eeeafd,stroke:#6554c0,color:#352985;
+  classDef data fill:#e4f4ec,stroke:#247452,color:#174a34;
+  classDef ext fill:#f2f4f6,stroke:#768592,color:#263541;
+  class Customer,Admin,MD,Partner actor;
+  class PHP,G5DB g5;
+  class UI,FSM app;
+  class API,Domain,Search api;
+  class MYSQL,ES data;
+  class Parts,File,Mail,FX ext;
+              </pre>
+            </div>
+            <div class="card-note">
+              <div class="note-cell"><b>원천</b><span>고객 계정·상품·장바구니·주문은 G5가 소유</span></div>
+              <div class="note-cell"><b>업무 확장</b><span>sp_*가 견적·RFQ·발주·물류를 소유</span></div>
+              <div class="note-cell"><b>핵심 경계</b><span>프런트가 G5와 엔진을 직접 결합하지 않고 XPSE API 경유</span></div>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d02" data-domain="overview shared" data-search="deployment container runtime vue vite spring mysql elasticsearch file php">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D02</span><h3>컨테이너·런타임 배치</h3></div>
+                <p>브라우저 SPA, 검색/업무 API, 레거시 PHP, MySQL·ES 및 외부 서비스를 실행 단위로 분해했다.</p>
+                <div class="tags"><span class="tag shared">DEPLOYMENT</span><span class="tag shared">CONTAINER</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart TB
+  Browser["Browser"]
+
+  subgraph FrontHost["SmartBOM 정적 호스트"]
+    Vite["Vue 3 + Router + TypeScript<br/>base /smartbom/"]
+  end
+
+  subgraph PhpHost["SamplePCB PHP 호스트"]
+    G5PHP["G5/Youngcart<br/>세션 · JWT · 메일"]
+  end
+
+  subgraph ApiHost["XPSE JVM"]
+    Spring["Spring Boot 4.1 / Java 21"]
+    Security["JWT Filter · @JwtAuth opt-in"]
+    Services["JPA · QueryDSL · WebClient · POI"]
+  end
+
+  subgraph Persistence["Persistence"]
+    MySQL[("MySQL 5.x<br/>g5_* + sp_*")]
+    Elastic[("Elasticsearch<br/>pcbparts / kind / column / item")]
+    Cache[("Caffeine 30m")]
+  end
+
+  subgraph Network["외부 네트워크"]
+    Vendor["DigiKey · Mouser · UniKeyIC"]
+    Upload["File server"]
+    Rate["환율 API"]
+  end
+
+  Browser -- "HTML/CSS/JS" --> Vite
+  Browser -- "PHPSESSID / 로그인" --> G5PHP
+  Browser -- "Bearer JWT / REST" --> Spring
+  Spring --> Security --> Services
+  Services --> MySQL
+  Services --> Elastic
+  Services --> Cache
+  Services --> Vendor
+  Services --> Rate
+  Browser -- "anonymous multipart" --> Upload
+  G5PHP --> MySQL
+
+  classDef browser fill:#fff,stroke:#263541,stroke-width:2px;
+  classDef front fill:#e0f5f7,stroke:#008fa3;
+  classDef back fill:#eeeafd,stroke:#6554c0;
+  classDef store fill:#e4f4ec,stroke:#247452;
+  classDef legacy fill:#fff2d8,stroke:#b36b00;
+  classDef ext fill:#f2f4f6,stroke:#768592;
+  class Browser browser;
+  class Vite front;
+  class Spring,Security,Services back;
+  class MySQL,Elastic,Cache store;
+  class G5PHP legacy;
+  class Vendor,Upload,Rate ext;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d03" data-domain="overview shared" data-search="actors use cases role admin master dealer partner general 고객 관리자 협력사">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D03</span><h3>역할별 유스케이스</h3></div>
+                <p>GENERAL은 고객 원천 흐름의 주체이고, SmartBOM의 본문 업무는 ADMIN·MASTER_DEALER·PARTNER가 수행한다.</p>
+                <div class="tags"><span class="tag shared">USE CASE</span><span class="tag shared">RBAC</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  General(("GENERAL<br/>고객"))
+  Admin(("ADMIN"))
+  MD(("MASTER_DEALER"))
+  Partner(("PARTNER"))
+
+  subgraph BOM["BOM 유스케이스"]
+    B1(["BOM 제출·주문"])
+    B2(["BOM 검토·가격·견적서"])
+    B3(["RFQ 배정·비교·선정"])
+    B4(["협력사 견적 회신"])
+    B5(["발주 생성·결제 관리"])
+    B6(["선적 진행"])
+  end
+
+  subgraph PCB["PCB 유스케이스"]
+    P1(["PCB 견적 제출·주문"])
+    P2(["사양 검토·판매가"])
+    P3(["PCB RFQ·협력사 선정"])
+    P4(["EQ 승인·생산"])
+    P5(["그룹 선적·Invoice"])
+    P6(["A/S 접수·회신·재발주"])
+  end
+
+  General --> B1
+  General --> P1
+  Admin --> B2
+  Admin --> B3
+  Admin --> B5
+  Partner --> B4
+  Admin --> B6
+  MD --> B4
+  MD --> B6
+  Partner --> B6
+
+  Admin --> P2
+  Admin --> P3
+  Admin --> P4
+  Partner --> P3
+  Partner --> P4
+  MD --> P3
+  MD --> P4
+  Admin --> P5
+  MD --> P5
+  Partner --> P5
+  Admin --> P6
+  Partner --> P6
+  MD -. "읽기 전용 중계" .-> P6
+
+  classDef actor fill:#fff,stroke:#263541,stroke-width:2px;
+  classDef bom fill:#e0f5f7,stroke:#008fa3;
+  classDef pcb fill:#eeeafd,stroke:#6554c0;
+  class General,Admin,MD,Partner actor;
+  class B1,B2,B3,B4,B5,B6 bom;
+  class P1,P2,P3,P4,P5,P6 pcb;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d04" data-domain="overview" data-search="frontend route component vue router side nav 화면 라우트">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D04</span><h3>프런트 라우트·화면 모듈</h3></div>
+                <p>같은 라우트에서 역할별 컴포넌트를 동적 로드하고, BOM/PCB 모드가 메뉴 군을 분리한다.</p>
+                <div class="tags"><span class="tag">COMPONENT</span><span class="tag">VUE ROUTER</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart TB
+  Router["Vue Router + requiredRoles"]
+  Layout["DefaultLayout / SideNav / useAppMode"]
+
+  subgraph BOM["BOM mode"]
+    BR["/bom-review<br/>BomReviewList · BomReview"]
+    RFQ["/rfq-history<br/>RfqHistory · RfqDetail · Comparison"]
+    BO["/shop-order · /bom-order/:odId/:itId"]
+    PO["/purchase-order-history<br/>Detail · Comparison"]
+    BS["/shipment-tracking"]
+  end
+
+  subgraph PCB["PCB mode"]
+    PR["/pcb-review<br/>PcbReview · Detail"]
+    PQ["/pcb-rfq-history<br/>role-specific Detail"]
+    PSO["/pcb-shop-order"]
+    PPO["/pcb-purchase-order-history<br/>Detail + EQ"]
+    PShip["/pcb-shipment-*<br/>tracking · inbound · outbound · relay"]
+    PAS["/pcb-as · /pcb-completed"]
+  end
+
+  subgraph Settings["ADMIN settings"]
+    FX["exchange-rate"]
+    Cur["partner-currency / sub-currency / country"]
+    Map["master-dealer-partners"]
+  end
+
+  Router --> Layout
+  Layout --> BOM
+  Layout --> PCB
+  Layout --> Settings
+  RFQ -. "ADMIN/PARTNER/MD 동적 컴포넌트" .-> Router
+  PO -. "ADMIN/PARTNER/MD 동적 컴포넌트" .-> Router
+  PQ -. "ADMIN/PARTNER/MD 동적 컴포넌트" .-> Router
+
+  classDef root fill:#17202a,stroke:#17202a,color:#fff;
+  classDef bom fill:#e0f5f7,stroke:#008fa3;
+  classDef pcb fill:#eeeafd,stroke:#6554c0;
+  classDef settings fill:#e4f4ec,stroke:#247452;
+  class Router,Layout root;
+  class BR,RFQ,BO,PO,BS bom;
+  class PR,PQ,PSO,PPO,PShip,PAS pcb;
+  class FX,Cur,Map settings;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d05" data-domain="overview" data-search="backend resource service repository entity api spring component">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D05</span><h3>백엔드 컴포넌트 지도</h3></div>
+                <p>REST 리소스가 서비스 계층을 거쳐 JPA/QueryDSL·Elasticsearch·외부 WebClient로 분기한다.</p>
+                <div class="tags"><span class="tag">COMPONENT</span><span class="tag">SPRING</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  subgraph Resource["REST Resource"]
+    R1["SpBomDocumentResource"]
+    R2["SpEstimate / PartnerEstimate"]
+    R3["PartnerOrder / Shipment"]
+    R4["PcbPartnerOrder / Doc / A/S"]
+    R5["PcbParts / G5 Cart / G5 Order"]
+  end
+
+  subgraph Service["Business Service"]
+    S1["SpBomDocumentService"]
+    S2["SpEstimateService"]
+    S3["SpPartnerOrderService"]
+    S4["SpShipment / Group / Invoice"]
+    S5["SpPcbPartnerOrder / Doc / AsCase"]
+    S6["PcbPartsService / MultiSearch"]
+    S7["ExchangeRateService"]
+  end
+
+  subgraph Adapter["Adapters"]
+    Repo["JPA + QueryDSL repositories"]
+    ESRepo["Spring Data Elasticsearch"]
+    Mapper["MapStruct / JSON mappers"]
+    Http["WebClient external adapters"]
+    Excel["Apache POI render/import"]
+  end
+
+  DB[("MySQL")]
+  ES[("Elasticsearch")]
+  External["G5 · vendors · rate APIs"]
+
+  R1 --> S1
+  R2 --> S2
+  R3 --> S3
+  R3 --> S4
+  R4 --> S5
+  R5 --> S6
+  S1 --> Repo
+  S2 --> Repo
+  S3 --> Repo
+  S4 --> Repo
+  S5 --> Repo
+  S6 --> Repo
+  S6 --> ESRepo
+  S2 --> Mapper
+  S3 --> Http
+  S6 --> Http
+  S7 --> Http
+  S4 --> Excel
+  Repo --> DB
+  ESRepo --> ES
+  Http --> External
+
+  classDef res fill:#e0f5f7,stroke:#008fa3;
+  classDef svc fill:#eeeafd,stroke:#6554c0;
+  classDef ad fill:#f2f4f6,stroke:#768592;
+  classDef store fill:#e4f4ec,stroke:#247452;
+  class R1,R2,R3,R4,R5 res;
+  class S1,S2,S3,S4,S5,S6,S7 svc;
+  class Repo,ESRepo,Mapper,Http,Excel ad;
+  class DB,ES,External store;
+              </pre>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" data-section="bom">
+        <div class="section-heading">
+          <div class="section-index">01</div>
+          <div>
+            <h2>BOM 생명주기</h2>
+            <p>문서 저장과 부품 매칭부터 견적·발주·분할 선적까지, 부품 행 단위의 흐름이다.</p>
+          </div>
+        </div>
+
+        <div class="diagram-grid">
+          <article class="diagram-card" id="d06" data-domain="bom" data-search="bom end to end 전체 생명주기 activity">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D06</span><h3>BOM 전체 활동 흐름</h3></div>
+                <p>업로드 BOM과 G5 주문이 서로 다른 진입점이지만, 견적 문서의 항목과 협력사 문서에서 만나 발주·선적으로 이어진다.</p>
+                <div class="tags"><span class="tag bom">BOM</span><span class="tag bom">ACTIVITY</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  A(["고객 BOM 업로드"]) --> B["클라이언트 파싱<br/>원본 행 + contentHash"]
+  B --> C["sp_bom_document upsert"]
+  B --> D["G5 item/cart + sp_estimate_document/items"]
+  D --> E["관리자 BOM 검토"]
+  E --> F["부품 검색·매칭"]
+  F --> G["수량 박제 · 가격구간 · 마진"]
+  G --> H{"외부 견적 필요?"}
+  H -- "아니오" --> L["고객 판매가 확정"]
+  H -- "예" --> I["협력사 RFQ 배정"]
+  I --> J["협력사 회신"]
+  J --> K["항목별 비교·선정"]
+  K --> L
+  L --> M["견적서 인쇄/메일"]
+  M --> N["고객 주문 · g5_shop_order"]
+  N --> O["발주 트랙에서 협력사 재선정 가능"]
+  O --> P["협력사별 POD/POI 생성"]
+  P --> Q{"외부 API 공급사?"}
+  Q -- "Mouser 등" --> R["미리보기 → 실주문"]
+  Q -- "일반 협력사" --> S["발주서·결제·첨부"]
+  R --> T["발주 이행"]
+  S --> T
+  T --> U["POD별 N개 선적"]
+  U --> V["POI 항목 배정 / 6단계 진행"]
+  V --> W(["완료"])
+
+  classDef start fill:#17202a,stroke:#17202a,color:#fff;
+  classDef bom fill:#e0f5f7,stroke:#008fa3;
+  classDef decision fill:#fff2d8,stroke:#b36b00;
+  classDef order fill:#e4f4ec,stroke:#247452;
+  class A,W start;
+  class B,C,D,E,F,G,I,J,K,L,M bom;
+  class H,Q decision;
+  class N,O,P,R,S,T,U,V order;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d07" data-domain="bom" data-search="bom document upload contentHash upsert sequence tenant">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D07</span><h3>BOM 문서 저장·중복 방지 시퀀스</h3></div>
+                <p>회원+SHA-256 해시가 문서의 자연키 역할을 하며, 목록은 대용량 items를 제외하고 상세에서만 역직렬화한다.</p>
+                <div class="tags"><span class="tag bom">BOM DOCUMENT</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor User as 사용자
+  participant FE as SmartBOM
+  participant JWT as JwtAuthenticationFilter
+  participant R as SpBomDocumentResource
+  participant S as SpBomDocumentService
+  participant M as SpBomDocumentMapper
+  participant DB as sp_bom_document
+
+  User->>FE: Excel/CSV 선택
+  FE->>FE: 파싱 + SHA-256 contentHash
+  FE->>JWT: POST /api/spBomDocuments (Bearer)
+  JWT->>R: principal.sub = mbId
+  R->>S: save(dto, mbId)
+  alt dto.id 존재
+    S->>DB: id + mbId 소유권 조회
+    DB-->>S: 기존 문서
+  else contentHash 존재
+    S->>DB: findByMbIdAndContentHash
+    DB-->>S: 기존 문서 또는 없음
+  else 신규
+    S->>S: 새 엔티티 생성
+  end
+  S->>M: fileInfo/items JSON 직렬화
+  M-->>S: entity update
+  S->>DB: INSERT 또는 UPDATE
+  DB-->>S: saved entity
+  S->>M: 상세 DTO 역직렬화
+  M-->>FE: fileInfo + items 포함 응답
+
+  Note over S,DB: uq_mb_content(mb_id, content_hash)
+  Note over FE,DB: contentHash가 없으면 같은 파일도 중복 생성 가능
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d08" data-domain="bom" data-search="parts search multi source digikey mouser unikeyic ic114 elasticsearch cache sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D08</span><h3>부품 멀티소스 검색·캐시 시퀀스</h3></div>
+                <p>ES/DB 내부 카탈로그와 외부 공급사 조회를 병행하며, 외부 결과는 표준 가격 구조로 변환해 이중 저장한다.</p>
+                <div class="tags"><span class="tag bom">PART SEARCH</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as PartSearchModal / BOM 분석
+  participant API as PcbPartsResource
+  participant MS as PcbPartsMultiSearchService
+  participant Cache as Caffeine
+  participant ES as Elasticsearch
+  participant DK as DigiKey
+  participant MO as Mouser
+  participant UK as UniKeyIC
+  participant DB as sp_pcb_parts / price
+
+  FE->>API: search(partName, specs, qty)
+  API->>MS: 통합 검색
+  MS->>Cache: 캐시 조회
+  alt 캐시 적중
+    Cache-->>MS: 표준화된 후보
+  else 캐시 미스
+    par 내부 색인
+      MS->>ES: exact / keyword / candidate
+      ES-->>MS: 내부 후보
+    and 외부 공급사
+      MS->>DK: OAuth2 product search
+      DK-->>MS: 가격·재고·SKU
+      MS->>MO: API key search
+      MO-->>MS: 가격·재고·MouserPartNumber
+      MS->>UK: WebClient search
+      UK-->>MS: 가격·재고
+    end
+    MS->>MS: 파싱·단위·패키지·가격구간 표준화
+    par 이중 저장
+      MS->>ES: PcbPartsSearch 색인
+    and
+      MS->>DB: PcbParts/PcbPartsPrice 저장
+    end
+    MS->>Cache: 결과 캐시
+  end
+  MS-->>FE: 공급사별 후보 + PriceStep[]
+
+  Note over MS,UK: 개별 외부 실패는 빈 결과로 흡수되어<br/>"없음"과 "장애"가 구분되지 않을 수 있음
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d09" data-domain="bom" data-search="review pricing quantity stamping margin override moq price step activity">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D09</span><h3>BOM 검토·수량·가격 결정 활동</h3></div>
+                <p>수량은 표시 시 파생하지 않고 행의 selectedPrice.qty에 박제하며, 가격은 오버라이드부터 원가까지 우선순위를 갖는다.</p>
+                <div class="tags"><span class="tag bom">REVIEW</span><span class="tag bom">PRICE</span><span class="tag">ACTIVITY</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart TB
+  Row["원본 BOM 행"]
+  Match{"부품 매칭?"}
+  Search["후보 검색 / 수동 추가·교체"]
+  Qty["필요수량 = BOM수량 × (세트+예비)"]
+  MOQ["주문수량 = max(필요수량, MOQ)"]
+  Step["수량에 맞는 PriceStep 재선택"]
+  Lock{"협력사 확정 항목?"}
+  Warn["수량 변경 대신<br/>조립 가능 세트·재요청 경고"]
+  Stamp["selectedPrice.qty에 박제"]
+  Override{"priceOverride?"}
+  ItemMargin{"itemMarginRate?"}
+  GlobalMargin{"globalMarginRate?"}
+  P1["판매가 = 오버라이드"]
+  P2["판매가 = 원가 × 개별 마진"]
+  P3["판매가 = 원가 × 전체 마진"]
+  P4["판매가 = 원가"]
+  Flags["checked / rfqChecked / deleted 분리"]
+  Save["analysisMeta + selectedPrice 저장"]
+
+  Row --> Match
+  Match -- "아니오" --> Search --> Match
+  Match -- "예" --> Qty --> MOQ --> Step --> Lock
+  Lock -- "예" --> Warn --> Flags
+  Lock -- "아니오" --> Stamp --> Override
+  Override -- "예" --> P1 --> Flags
+  Override -- "아니오" --> ItemMargin
+  ItemMargin -- "예" --> P2 --> Flags
+  ItemMargin -- "아니오" --> GlobalMargin
+  GlobalMargin -- "예" --> P3 --> Flags
+  GlobalMargin -- "아니오" --> P4 --> Flags
+  Flags --> Save
+
+  classDef action fill:#e0f5f7,stroke:#008fa3;
+  classDef decision fill:#fff2d8,stroke:#b36b00;
+  classDef warning fill:#fee9ee,stroke:#b63453;
+  class Row,Search,Qty,MOQ,Step,Stamp,P1,P2,P3,P4,Flags,Save action;
+  class Match,Lock,Override,ItemMargin,GlobalMargin decision;
+  class Warn warning;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d10" data-domain="bom" data-search="bom domain class estimate partner estimate order class diagram entities">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D10</span><h3>BOM 견적·RFQ·발주 도메인 클래스</h3></div>
+                <p>견적 문서/항목과 협력사 견적 PED/PEI, 실제 발주 POD/POI가 서로 다른 생명주기를 가진다.</p>
+                <div class="tags"><span class="tag bom">DOMAIN</span><span class="tag">CLASS</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+classDiagram
+  class G5ShopItem {
+    +String itId
+    +String caId
+    +String itName
+    +String it24
+  }
+  class G5ShopCart {
+    +Long ctId
+    +String itId
+    +String odId
+    +int ctPrice
+  }
+  class SpEstimateDocument {
+    +Long id
+    +String itId
+    +String status
+    +int setQuantity
+    +int spareQuantity
+    +int globalMarginRate
+  }
+  class SpEstimateItem {
+    +Long id
+    +Long pcbPartDocId
+    +int qty
+    +JSON analysisMeta
+    +JSON selectedPrice
+    +JSON confirmedPrice
+    +Long orderPartnerEstimateItemId
+    +JSON orderSelectedPrice
+  }
+  class SpPartnerEstimateDocument {
+    +Long id
+    +Long estimateDocumentId
+    +int mbNo
+    +int parentMbNo
+    +String status
+    +int estimatePrice
+  }
+  class SpPartnerEstimateItem {
+    +Long id
+    +Long estimateItemId
+    +JSON selectedPrice
+    +Long selectedSubItemId
+    +int marginRate
+    +Date externalSyncedAt
+  }
+  class SpPartnerOrderDocument {
+    +Long id
+    +Long estimateDocumentId
+    +int mbNo
+    +int parentMbNo
+    +String status
+    +int orderPrice
+    +String paymentTerms
+    +String externalOrderNo
+  }
+  class SpPartnerOrderItem {
+    +Long id
+    +Long estimateItemId
+    +JSON selectedPrice
+    +String status
+    +Long shipmentId
+    +int shipQty
+  }
+  class SpFile {
+    +Long id
+    +String refType
+    +Long refId
+    +String pathToken
+  }
+
+  G5ShopItem "1" --> "0..*" G5ShopCart : cart lines
+  G5ShopItem "1" --> "0..1" SpEstimateDocument : itId
+  SpEstimateDocument "1" *-- "1..*" SpEstimateItem
+  SpEstimateDocument "1" *-- "0..*" SpPartnerEstimateDocument
+  SpPartnerEstimateDocument "1" *-- "1..*" SpPartnerEstimateItem
+  SpEstimateItem "1" --> "0..*" SpPartnerEstimateItem : quote candidates
+  SpEstimateItem "1" --> "0..1" SpPartnerEstimateItem : selected quote
+  SpEstimateItem "1" --> "0..1" SpPartnerEstimateItem : order selection
+  SpEstimateDocument "1" --> "0..*" SpPartnerOrderDocument
+  SpPartnerOrderDocument "1" *-- "1..*" SpPartnerOrderItem
+  SpEstimateItem "1" --> "0..*" SpPartnerOrderItem
+  SpPartnerEstimateItem "0..1" --> "0..*" SpPartnerEstimateItem : selected sub
+  SpFile "0..*" ..> SpPartnerEstimateDocument : polymorphic
+  SpFile "0..*" ..> SpPartnerOrderDocument : polymorphic
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d11" data-domain="bom" data-search="direct rfq quote request partner selection sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D11</span><h3>BOM 직접 RFQ 시퀀스</h3></div>
+                <p>관리자가 부품별 rfqChecked를 기준으로 협력사 문서를 만들고, 협력사는 PEI 가격과 파일을 회신한다.</p>
+                <div class="tags"><span class="tag bom">RFQ</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as 관리자
+  participant FE as BomReview / PartRfqModal
+  participant API as SpPartnerEstimateResource
+  participant DB as PED / PEI
+  actor Partner as 협력사
+  participant Compare as QuoteComparisonPanel
+
+  Admin->>FE: RFQ 대상 행(rfqChecked) + 협력사 선택
+  FE->>API: POST /spPartnerEstimates/_batch
+  API->>DB: PED(parentMbNo=0) upsert
+  API->>DB: 선택된 EstimateItem별 PEI 보장
+  API-->>FE: 배정 결과
+  Partner->>API: GET /partnerEstimateDocuments/{pedId}
+  API-->>Partner: 부품·필요수량·기존 가격·첨부
+  Partner->>API: POST 가격/수량/납기/파일
+  API->>DB: selected_price + status 저장
+  Partner->>API: status = 협력사 견적완료
+  Admin->>Compare: 비교 화면 열기
+  Compare->>API: 기본 견적 + 모든 직접 PED 조회
+  API-->>Compare: 항목별 협력사 후보
+  Compare->>Compare: 사전선정 없으면 최저 단가 추천
+  Admin->>API: POST /spEstimates/items/_batch/selectPartner
+  API->>DB: selected_partner_estimate_item_id<br/>selected_price 박제
+  API-->>FE: 고객 견적 트랙 갱신
+
+  Note over Compare,DB: 비교 추천은 현재 최저 단가 단일 기준
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d12" data-domain="bom shared" data-search="master dealer bom rfq hierarchy parent mb no margin sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D12</span><h3>BOM 마스터딜러 2단 RFQ 시퀀스</h3></div>
+                <p>parent_mb_no가 요청 주체를 표현하고, 하위 선정가에 마진을 적용한 JSON 가격을 상위 PED에 별도로 박제한다.</p>
+                <div class="tags"><span class="tag bom">BOM</span><span class="tag shared">MASTER DEALER</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as 관리자
+  participant API as XPSE
+  participant Upper as 상위 PED<br/>mbNo=MD,parent=0
+  actor MD as 마스터딜러
+  participant Lower as 하위 PED들<br/>parent=MD
+  actor Sub as 하위 협력사
+
+  Admin->>API: MD에 RFQ 배정
+  API->>Upper: 상위 PED/PEI 생성
+  MD->>API: 소속 협력사 조회
+  API-->>MD: myPartners
+  MD->>API: 하위 협력사에 재요청
+  API->>Lower: parent_mb_no=MD로 PED/PEI 생성
+  Sub->>API: 하위 가격·납기 회신
+  API->>Lower: 하위 selected_price 저장
+  MD->>API: GET /masterDealer/{masterPedId}/subs
+  API-->>MD: 하위 비교 후보
+  MD->>API: POST /select<br/>항목별 sub PEI + marginRate
+  API->>Upper: selected_sub_item_id 저장
+  API->>API: unitPrice × (1 + margin/100)
+  API->>Upper: 마진 포함 selected_price JSON 박제
+  API-->>Admin: 상위 PED 합계·납기 노출
+
+  Note over Admin,Upper: 관리자는 목록에서 parent=0만 본다
+  Note over MD,Lower: MD는 자기 parent 트랙만 편집한다
+  Note over Admin,Lower: 상위 PED 상세 진입 시 하위는 readonly 위임 화면
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d13" data-domain="bom" data-search="bom estimate state lifecycle status state diagram 견적접수 협력사">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D13</span><h3>BOM 견적·협력사 상태</h3></div>
+                <p>견적서 상태와 협력사 PED 상태는 연관되지만 서로 다른 저장 슬롯이며, 발주 이후에는 POD 상태가 별도로 진행된다.</p>
+                <div class="tags"><span class="tag bom">STATE</span><span class="tag bom">ESTIMATE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+stateDiagram-v2
+  state "견적서" as Estimate {
+    [*] --> 견적접수
+    견적접수 --> 협력사견적접수: RFQ 배정
+    협력사견적접수 --> 협력사견적완료: 회신·선정
+    협력사견적완료 --> 고객주문: 견적 발송 후 주문
+  }
+
+  state "협력사 PED" as PartnerEstimate {
+    [*] --> PE_접수
+    state "협력사 견적접수" as PE_접수
+    state "협력사 견적완료" as PE_완료
+    PE_접수 --> PE_완료: 가격/수량/납기 제출
+    PE_완료 --> PE_접수: 수정 재개
+  }
+
+  state "협력사 POD" as PartnerOrder {
+    [*] --> 발주접수
+    발주접수 --> 발주이행: 상태·납기 갱신
+    발주이행 --> 선적진행: shipment 생성/배정
+    선적진행 --> 완료: 모든 선적 완료
+  }
+
+  협력사견적접수 --> PE_접수
+  PE_완료 --> 협력사견적완료
+  고객주문 --> 발주접수
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d14" data-domain="bom" data-search="quote track order track selected confirmed price dual data mapping">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D14</span><h3>고객 견적 트랙 vs 실제 발주 트랙</h3></div>
+                <p>고객이 본 가격을 고정한 채, 주문 후 더 유리한 협력사를 실제 조달용으로 재선정할 수 있게 한 이중 트랙이다.</p>
+                <div class="tags"><span class="tag bom">PRICE SNAPSHOT</span><span class="tag bom">DATA FLOW</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  PEI["협력사 PEI 후보"]
+
+  subgraph Quote["고객 견적 트랙 · orderMode=false"]
+    QS["selected_partner_estimate_item_id"]
+    QP["selected_price"]
+    QC["confirmed_price<br/>고객 주문단가 고정"]
+  end
+
+  subgraph Order["실제 발주 트랙 · orderMode=true"]
+    OS["order_partner_estimate_item_id"]
+    OP["order_selected_price"]
+    OC["order_confirmed_price"]
+  end
+
+  subgraph PO["발주서 스냅샷"]
+    POD["sp_partner_order_document"]
+    POI["sp_partner_order_item.selected_price"]
+  end
+
+  PEI --> QS --> QP --> QC
+  PEI --> OS --> OP --> OC
+  OP --> POI --> POD
+  QC --> CustomerTotal["주문단가 합계<br/>변하지 않음"]
+  OP --> CostTotal["최종합계<br/>재선정 시 변동"]
+  CostTotal --> Margin["차액 = 조달 개선 여지"]
+
+  classDef source fill:#f2f4f6,stroke:#768592;
+  classDef quote fill:#e0f5f7,stroke:#008fa3;
+  classDef order fill:#e4f4ec,stroke:#247452;
+  classDef total fill:#fff2d8,stroke:#b36b00;
+  class PEI source;
+  class QS,QP,QC quote;
+  class OS,OP,OC,POD,POI order;
+  class CustomerTotal,CostTotal,Margin total;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d15" data-domain="bom" data-search="purchase order batch pod poi payment file sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D15</span><h3>BOM 협력사 발주 생성 시퀀스</h3></div>
+                <p>발주 대상 항목을 견적문서+협력사로 그룹핑하고, 선택 입력인 결제조건·송금일·첨부를 문서 단위로 합친다.</p>
+                <div class="tags"><span class="tag bom">PURCHASE ORDER</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as 관리자
+  participant FE as BomOrder
+  participant Modal as PurchaseOrderConfirmModal
+  participant File as File server
+  participant API as SpPartnerOrderResource
+  participant S as SpPartnerOrderService
+  participant DB as POD / POI / sp_file
+
+  Admin->>FE: 발주 클릭
+  FE->>FE: effectiveItems를<br/>(estimateDocumentId, mbNo)로 그룹핑
+  FE->>Modal: 협력사별 그룹 표시
+  Admin->>Modal: 결제조건 / 송금여부 / 첨부 선택
+  opt 첨부 존재
+    Modal->>File: anonymous upload(serviceType=bom)
+    File-->>Modal: pathToken + 파일 메타
+  end
+  Modal-->>FE: 그룹별 submit 데이터
+  FE->>API: POST /spPartnerOrders/_batch<br/>items + payments + files
+  API->>S: createBatch
+  loop 협력사 그룹
+    S->>DB: POD upsert(parent_mb_no 포함)
+    loop 선택 항목
+      S->>DB: POI upsert + selected_price JSON
+    end
+    S->>S: order_price = Σ unitPrice × qty
+    S->>DB: 결제·송금·첨부 메타 저장
+  end
+  DB-->>FE: 생성된 발주 결과
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d16" data-domain="bom" data-search="external supplier mouser order api preview submit digikey list sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D16</span><h3>외부 공급사 자동주문 시퀀스</h3></div>
+                <p>공급사 mb_no로 구현체를 라우팅한다. Mouser는 Cart→옵션→미리보기→실주문 순차 호출이며 주문번호를 POD에 박제한다.</p>
+                <div class="tags"><span class="tag bom">EXTERNAL ORDER</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as 관리자
+  participant FE as MouserPreviewModal
+  participant API as SpPartnerOrderResource
+  participant Registry as ExternalSupplierOrderService registry
+  participant MO as MouserOrderSubService
+  participant Ext as Mouser API
+  participant POD as sp_partner_order_document
+
+  Admin->>FE: POD 생성 후 미리보기
+  FE->>API: POST /{podId}/external/preview
+  API->>Registry: supplier by POD.mb_no
+  Registry->>MO: preview(POD, POIs)
+  MO->>MO: SKU = POI → PEI fallback
+  MO->>Ext: cart/items/insert
+  Ext-->>MO: CartKey
+  MO->>Ext: order/options/query
+  Ext-->>MO: 배송·결제 옵션
+  MO->>Ext: createOrder(SubmitOrder=false)
+  Ext-->>MO: 라인·합계·백오더
+  MO-->>FE: preview
+  Admin->>FE: 실제 주문 확정
+  FE->>API: POST /{podId}/external/submit
+  API->>POD: external_order_no 존재 여부 확인
+  alt 이미 주문됨
+    POD-->>FE: 멱등 차단
+  else 미주문
+    API->>MO: submit
+    MO->>Ext: 같은 순서 + SubmitOrder=true
+    Ext-->>MO: 주문번호·상태
+    MO->>POD: external_order_no/cart_key/status/synced_at
+    POD-->>FE: 실주문 완료
+  end
+
+  Note over MO,Ext: OrderType=Rush는 재고분 즉시 + 백오더 후속배송
+  Note over Admin,Ext: sandbox·취소 API 없음 — submit=true는 실제 주문
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d17" data-domain="bom shared" data-search="bom shipment split item assignment shipment state international 6 steps">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D17</span><h3>BOM 분할 선적·항목 배정 구조</h3></div>
+                <p>BOM 물류 단위는 POD이며, POD 하나가 여러 물리 선적을 갖고 POI 하나는 최대 한 선적에 배정된다.</p>
+                <div class="tags"><span class="tag bom">BOM SHIPPING</span><span class="tag shared">CLASS</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+classDiagram
+  class SpPartnerOrderDocument {
+    +Long id
+    +int mbNo
+    +int parentMbNo
+    +String status
+  }
+  class SpPartnerOrderItem {
+    +Long id
+    +Long shipmentId
+    +int shipQty
+    +String status
+  }
+  class SpShipment {
+    +Long id
+    +String orderType = BOM
+    +Long partnerOrderDocumentId
+    +String status
+    +Date shipDate
+    +Date shippedAt
+    +String trackingNo
+    +JSON history
+    +Date completedAt
+  }
+  class SpFile {
+    +String refType
+    +Long refId
+    +String fileType
+    +String pathToken
+  }
+
+  SpPartnerOrderDocument "1" *-- "1..*" SpPartnerOrderItem
+  SpPartnerOrderDocument "1" *-- "0..*" SpShipment : physical shipments
+  SpShipment "0..1" <-- "0..*" SpPartnerOrderItem : shipment_id assignment
+  SpShipment "1" o-- "0..*" SpFile : AWB / invoice
+
+  note for SpPartnerOrderItem "shipQty는 기록용이며 잔량 회계가 아님"
+  note for SpShipment "진행 스냅샷과 history를 함께 저장"
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d18" data-domain="bom shared risk" data-search="bom shipment sequence front state machine progress auth risk">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D18</span><h3>BOM 선적 진행 시퀀스와 신뢰 경계</h3></div>
+                <p>화면이 단계·필수값·행위자를 계산하고 백엔드는 클라이언트가 보낸 진행 스냅샷을 저장한다.</p>
+                <div class="tags"><span class="tag bom">SHIPMENT</span><span class="tag risk">CLIENT FSM</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Sender as 보내는 측
+  actor Receiver as 받는 측
+  participant FE as ShipmentPanel<br/>actorForStatus
+  participant File as File server
+  participant API as SpShipmentResource
+  participant DB as sp_shipment / sp_file / POI
+
+  Sender->>FE: 선적 생성 + POI 항목 배정
+  FE->>API: POST /spPartnerOrders/{docId}/shipments
+  API->>DB: orderType=BOM shipment 생성
+  FE->>API: PUT /spShipments/{id}/items
+  API->>DB: POI.shipment_id / ship_qty 갱신
+  loop 단계별 역할 교대
+    FE->>FE: 다음 상태·필수 필드·현재 역할 검증
+    opt AWB/Invoice 첨부
+      FE->>File: anonymous upload(serviceType=bom_shipment)
+      File-->>FE: pathToken
+    end
+    Sender->>API: 또는 Receiver가 progress 전체 저장
+    API->>DB: status + fields + history + file diff
+    DB-->>FE: 저장된 shipment
+  end
+
+  Note over FE,API: 서버는 인증은 요구하지만 역할·상태전이를 완전 검증하지 않음
+  Note over API,DB: @Version 부재로 동시 수정 lost-update 가능
+              </pre>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" data-section="pcb">
+        <div class="section-heading">
+          <div class="section-index">02</div>
+          <div>
+            <h2>PCB 생명주기</h2>
+            <p>G5의 PCB 견적건을 소비해 flat RFQ, 단건 발주, EQ·생산, 그룹 물류와 A/S 회차를 운영한다.</p>
+          </div>
+        </div>
+
+        <div class="diagram-grid">
+          <article class="diagram-card" id="d19" data-domain="pcb" data-search="pcb end to end lifecycle activity gerber quote rfq eq production shipment as">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D19</span><h3>PCB 전체 활동 흐름</h3></div>
+                <p>고객 Gerber/사양 접수 자체는 G5 영역이고, SmartBOM은 ca_id=10 견적건을 읽어 협력사 업무를 수행한다.</p>
+                <div class="tags"><span class="tag pcb">PCB</span><span class="tag pcb">ACTIVITY</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  A(["고객 PCB/Gerber 접수<br/>G5 ca_id=10"])
+  B["g5_shop_item<br/>it_1..it_50 사양 / it_2 파일 / it_24 상태"]
+  C["관리자 PCB 검토"]
+  D{"직접 판매가 확정?"}
+  E["판매가·납기 입력"]
+  F["협력사 RFQ 배정"]
+  G["협력사 견적 제출"]
+  H["협력사 선정 + 환율 박제"]
+  I["고객 판매가 전파<br/>item/cart/order"]
+  J["고객 주문"]
+  K["PCB POD 생성<br/>목적지·결제·납기 박제"]
+  L["EQ 요청"]
+  M["관리자 EQ 승인"]
+  N["생산 시작 → 완료"]
+  O["동일 leg·목적지·회차 선적 그룹"]
+  P["물리 선적 + Invoice"]
+  Q["국제 6단계 또는 국내 3단계"]
+  R(["완료 내역"])
+  S{"A/S 필요?"}
+  T["A/S 작성 → 접수 → 협력사 회신"]
+  U["다음 reorderRound POD 복사"]
+
+  A --> B --> C --> D
+  D -- "예" --> E --> I
+  D -- "아니오" --> F --> G --> H --> I
+  I --> J --> K --> L --> M --> N --> O --> P --> Q --> R --> S
+  S -- "아니오" --> Z(["종료"])
+  S -- "예" --> T --> U --> L
+
+  classDef start fill:#17202a,stroke:#17202a,color:#fff;
+  classDef pcb fill:#eeeafd,stroke:#6554c0;
+  classDef decision fill:#fff2d8,stroke:#b36b00;
+  classDef as fill:#fee9ee,stroke:#b63453;
+  class A,R,Z start;
+  class B,C,E,F,G,H,I,J,K,L,M,N,O,P,Q pcb;
+  class D,S decision;
+  class T,U as;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d20" data-domain="pcb" data-search="pcb intake review g5 shop cart item sequence it24 ca10">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D20</span><h3>PCB 접수·관리자 검토 시퀀스</h3></div>
+                <p>두 대상 저장소에는 고객 Gerber 파서가 없고, G5가 저장한 파일·사양·상태를 PCB 검토 화면이 조회한다.</p>
+                <div class="tags"><span class="tag pcb">PCB INTAKE</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Customer as 고객
+  participant G5 as SamplePCB PHP/G5
+  participant DB as g5_shop_item / cart
+  actor Admin as 관리자
+  participant FE as PcbReview / PcbReviewDetail
+  participant API as G5ShopCartResource
+  participant RFQ as SpPcbPartnerOrderService
+
+  Customer->>G5: Gerber·제작사양·수량 제출
+  G5->>DB: ca_id=10 item/cart 생성<br/>it_2 파일, it_1..50 사양, it_24 상태
+  Admin->>FE: /pcb-review
+  FE->>API: GET /g5ShopCarts/_search?caId=10
+  API->>DB: 장바구니 + item/member 조회
+  DB-->>FE: 견적접수 목록
+  Admin->>FE: 상세 열기
+  FE->>API: GET /g5ShopCarts/byItId/{itId}
+  API-->>FE: SPEC_ROWS + 파일 경로 + 고객 정보
+  alt 직접 견적
+    Admin->>RFQ: sellPrice 저장
+    RFQ->>DB: it_price / cart price / it_24=견적완료
+  else 협력사 RFQ
+    Admin->>RFQ: POST /spPcbPartnerOrders/request
+    RFQ->>DB: RFQ 행 생성 + it_24=견적확인중
+  end
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d21" data-domain="pcb" data-search="pcb direct rfq quote select sell price sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D21</span><h3>PCB 직접 RFQ·선정 시퀀스</h3></div>
+                <p>PCB RFQ는 BOM의 문서/항목 구조와 달리 견적건·협력사당 flat 1행이며, 선택된 한 행의 가격이 고객 판매가로 전파된다.</p>
+                <div class="tags"><span class="tag pcb">PCB RFQ</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as 관리자
+  participant FE as PcbReviewDetail
+  participant API as SpPcbPartnerOrderResource
+  participant DB as sp_pcb_partner_order
+  participant G5 as g5_shop_item/cart/order
+  actor Partner as 협력사
+
+  Admin->>FE: 협력사 후보 diff 선택
+  FE->>API: POST /request<br/>itId + partnerMbNos
+  API->>DB: 신규 RFQ 생성(parent=0, round=0)
+  API->>G5: it_24=견적확인중
+  API-->>Partner: PHP 메일은 신규 직접 배정분만
+  Partner->>API: GET /{id}/detail
+  API-->>Partner: 사양·파일·통화
+  Partner->>API: POST /{id}/quote<br/>가격·납기·첨부
+  API->>DB: status=협력사 견적완료
+  Admin->>API: POST /{id}/select
+  API->>DB: selected=true + 통화/환율 스냅샷
+  API->>DB: 형제 행 status=미선정
+  API->>G5: KRW 판매가 + it_24=견적완료
+  API-->>FE: 선택 결과
+
+  opt 선정 취소
+    Admin->>API: POST /{id}/unselect
+    API->>DB: 선택/스냅샷 원복
+    API->>G5: it_24=견적확인중
+  end
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d22" data-domain="pcb shared" data-search="pcb master dealer rfq order 2 level margin selected sub sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D22</span><h3>PCB 마스터딜러 RFQ·발주 2단 시퀀스</h3></div>
+                <p>PCB는 부품 루프가 없는 단일 견적행이라 BOM보다 단순하지만, parent·selected_sub·margin의 계층 패턴은 같다.</p>
+                <div class="tags"><span class="tag pcb">PCB</span><span class="tag shared">MASTER DEALER</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as 관리자
+  participant API as XPSE
+  participant A as 상위 RFQ/POD<br/>MD,parent=0
+  actor MD as 마스터딜러
+  participant B as 하위 RFQ/POD<br/>Partner,parent=MD
+  actor Partner as 하위 협력사
+
+  Admin->>API: MD에 PCB RFQ 요청
+  API->>A: 상위 RFQ 생성
+  MD->>API: 소속 협력사에 하위 RFQ
+  API->>API: sp_master_dealer_partner 소속 검증
+  API->>B: 하위 RFQ 생성
+  Partner->>API: 하위 견적 제출
+  API->>B: 가격·납기·통화 저장
+  MD->>API: 하위 선택 + marginRate
+  API->>A: selected_sub + 마진 포함 가격 박제
+  API-->>Admin: 상위 가격만 노출
+  Admin->>API: 상위 MD 발주 A 생성
+  MD->>API: selected_sub prep로 하위 발주 B 생성
+  API->>B: 하위 견적가·통화·목적지 상속
+  Partner->>B: EQ/생산 실진행
+  API->>A: B의 EQ 상태 미러
+  MD->>B: 생산 단계 fallback 가능
+  Admin->>B: 상위 상세에서 EQ 승인 위임
+
+  Note over A,B: 같은 itId + 같은 reorderRound로 짝지음
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d23" data-domain="pcb" data-search="pcb domain class diagram g5 rfq pod shipment group as case entities">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D23</span><h3>PCB 도메인 클래스</h3></div>
+                <p>G5 견적건을 중심으로 RFQ와 발주가 분리되고, 발주서는 선적 그룹·물리 선적·A/S 회차에 연결된다.</p>
+                <div class="tags"><span class="tag pcb">DOMAIN</span><span class="tag">CLASS</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+classDiagram
+  class G5ShopItem {
+    +String itId
+    +String caId = 10
+    +String it2File
+    +String it24Status
+    +int itPrice
+  }
+  class G5ShopCart {
+    +Long ctId
+    +String itId
+    +String odId
+    +Date ctTime
+  }
+  class SpPcbPartnerOrder {
+    +Long id
+    +String itId
+    +int partnerMbNo
+    +int parentMbNo
+    +int reorderRound
+    +Long selectedSubId
+    +int marginRate
+    +String status
+    +String currency
+    +Decimal price
+  }
+  class SpPcbPartnerOrderDocument {
+    +Long id
+    +String itId
+    +int mbNo
+    +int parentMbNo
+    +int reorderRound
+    +String status
+    +String destinationCountry
+    +Long shipmentGroupId
+    +Long shipmentId
+    +JSON eqHistory
+  }
+  class SpShipmentGroup {
+    +Long id
+    +String orderType = PCB
+    +int senderMbNo
+    +int receiverMbNo
+    +int reorderRound
+    +String destinationCountry
+  }
+  class SpShipment {
+    +Long id
+    +Long shipmentGroupId
+    +String mode
+    +String status
+    +JSON invoiceData
+    +Date completedAt
+  }
+  class SpPcbAsCase {
+    +Long id
+    +String itId
+    +Integer reorderRound
+    +String caseType
+    +String chargeType
+    +String status
+    +int targetMbNo
+    +int parentMbNo
+  }
+  class SpMasterDealerPartner {
+    +int masterDealerMbNo
+    +int partnerMbNo
+    +String settlementCurrency
+  }
+
+  G5ShopItem "1" --> "0..*" G5ShopCart
+  G5ShopItem "1" --> "0..*" SpPcbPartnerOrder : RFQ by round
+  G5ShopItem "1" --> "0..*" SpPcbPartnerOrderDocument : PO by round
+  SpPcbPartnerOrder "0..1" --> "0..*" SpPcbPartnerOrder : selected sub
+  SpPcbPartnerOrderDocument "0..*" --> "0..1" SpShipmentGroup : membership
+  SpShipmentGroup "1" *-- "0..*" SpShipment
+  SpShipment "0..1" <-- "0..*" SpPcbPartnerOrderDocument : assignment
+  G5ShopItem "1" --> "0..*" SpPcbAsCase
+  SpPcbAsCase "1" --> "1..*" SpPcbPartnerOrderDocument : proceed copies round
+  SpMasterDealerPartner "1" ..> "0..*" SpPcbPartnerOrder : allowed sub
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d24" data-domain="pcb shared" data-search="currency exchange rate snapshot krw usd cny input settlement source conversion">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D24</span><h3>PCB 다중통화·환율 박제 활동</h3></div>
+                <p>입력 통화, 거래 정산 통화, 고객 기준 KRW를 분리하고 선택/발주 시점의 변환 근거를 함께 저장한다.</p>
+                <div class="tags"><span class="tag pcb">CURRENCY</span><span class="tag shared">SNAPSHOT</span><span class="tag">ACTIVITY</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart TB
+  Partner["협력사 회원"]
+  Role{"거래 leg?"}
+  Direct["관리자↔협력사<br/>settlement = mb_currency"]
+  Lower["MD↔하위<br/>settlement = mapping.settlement_currency<br/>기본 USD"]
+  Input["입력/표시 통화 = mb_sub_currency"]
+  Quote["협력사 원본 가격 입력"]
+  FX["ExchangeRateService<br/>KRW / USD / CNY 모든 pair"]
+  Source["환율 원천<br/>USD→KRW, CNY→USD 또는 설정 fallback"]
+  Select["협력사 선정 시점"]
+  Stamp["정산금액 + 원본금액 + 입력환율<br/>source conversion fields 박제"]
+  MD{"MD 마진?"}
+  Margin["하위 정산가 × (1+margin)<br/>상위 가격 별도 박제"]
+  KRW["price/order_price = 고객 기준 KRW"]
+  G5["G5 item/cart/order 판매가 전파"]
+
+  Partner --> Role
+  Role -- "직거래" --> Direct
+  Role -- "하위 leg" --> Lower
+  Direct --> Input
+  Lower --> Input
+  Input --> Quote
+  Source --> FX
+  Quote --> Select
+  FX --> Select
+  Select --> Stamp --> MD
+  MD -- "예" --> Margin --> KRW
+  MD -- "아니오" --> KRW
+  KRW --> G5
+
+  classDef pcb fill:#eeeafd,stroke:#6554c0;
+  classDef decision fill:#fff2d8,stroke:#b36b00;
+  classDef fx fill:#e4f4ec,stroke:#247452;
+  class Partner,Direct,Lower,Input,Quote,Select,Stamp,Margin,KRW,G5 pcb;
+  class Role,MD decision;
+  class FX,Source fx;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d25" data-domain="pcb" data-search="pcb eq state 발주접수 승인요청 eq완료 생산시작 생산완료 revert">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D25</span><h3>PCB EQ·생산 상태머신</h3></div>
+                <p>발주서 status가 EQ와 생산의 단일 상태를 보유하며, 각 주체는 자신의 직전 단계로만 되돌릴 수 있다.</p>
+                <div class="tags"><span class="tag pcb">EQ</span><span class="tag pcb">STATE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+stateDiagram-v2
+  [*] --> OrderReceived
+  state "발주접수" as OrderReceived
+  state "EQ승인요청" as EqRequested
+  state "EQ완료" as EqDone
+  state "생산시작" as ProductionStarted
+  state "생산완료" as ProductionDone
+
+  OrderReceived --> EqRequested: RECEIVER가 EQ 요청
+  EqRequested --> EqDone: root ADMIN 승인
+  EqRequested --> OrderReceived: root ADMIN 반려
+  EqDone --> ProductionStarted: ORDERER 생산 시작
+  ProductionStarted --> ProductionDone: ORDERER 생산 완료
+
+  EqRequested --> OrderReceived: 요청 주체 revert
+  EqDone --> EqRequested: 승인 주체 revert
+  ProductionStarted --> EqDone: 생산 주체 revert
+  ProductionDone --> ProductionStarted: 생산 주체 revert<br/>선적 배정 없을 때
+
+  note right of EqRequested
+    EQ 승인 권한은 관리자만
+    MD는 승인자가 아님
+  end note
+
+  note right of ProductionStarted
+    하위 협력사가 주 생산자
+    MD는 fallback 진행 가능
+  end note
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d26" data-domain="pcb shared" data-search="eq sequence role receiver orderer master dealer mirror fallback">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D26</span><h3>PCB EQ 역할 위임·미러 시퀀스</h3></div>
+                <p>직거래는 단일 POD에서 진행하고, MD 경유는 leaf POD가 실상태를 갖고 상위 POD가 이를 미러한다.</p>
+                <div class="tags"><span class="tag pcb">EQ</span><span class="tag shared">DELEGATION</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as 관리자
+  actor MD as 마스터딜러
+  actor Partner as 하위 협력사
+  participant UI as PcbEqPanel
+  participant API as SpPcbPartnerOrderDocService
+  participant Leaf as 하위 POD B
+  participant Upper as 상위 POD A
+
+  Partner->>UI: EQ 승인 요청
+  UI->>API: POST /B/eq-request
+  API->>Leaf: status=EQ승인요청 + history
+  API->>Upper: same round 상태 미러
+  Admin->>UI: 상위 A 상세 열기
+  UI->>API: GET /A
+  API-->>UI: eqDocId=B, myEqRole=RECEIVER
+  Admin->>API: POST /B/eq-approve
+  API->>Leaf: status=EQ완료
+  API->>Upper: 상태 미러
+  Partner->>API: POST /B/production-start
+  API->>Leaf: 생산시작
+  opt 하위가 진행하지 않음
+    MD->>API: fallback production action on B
+    API->>Leaf: MD parent 권한으로 진행
+  end
+  Partner->>API: POST /B/production-complete
+  API->>Leaf: 생산완료
+  API->>Upper: 상태 미러
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d27" data-domain="pcb" data-search="destination country direct shipping legacy master dealer routing decision kr cn vn">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D27</span><h3>PCB 배송 목적지 라우팅 결정</h3></div>
+                <p>destination_country가 NULL이면 parent 경유 레거시, KR/CN/VN이면 receiver=0 직송으로 바뀐다.</p>
+                <div class="tags"><span class="tag pcb">DESTINATION</span><span class="tag pcb">DECISION</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart TB
+  PO["PCB POD 생성"]
+  Dest{"destination_country 지정?"}
+  Legacy["NULL · 레거시"]
+  Direct["KR / CN / VN · 직송"]
+  Parent{"parent_mb_no?"}
+  DirectGroup["그룹 receiver_mb_no = 0<br/>destination_country 박제"]
+  AdminDirect["협력사 → 관리자"]
+  MDInbound["하위 협력사 → MD 입고"]
+  MDOutbound["MD → 관리자 출고"]
+  Hub["협력사 → 지정 국가 거점"]
+  Relay["MD는 relay 화면에서 readonly 중계"]
+  Inherit{"상위 관리자→MD POD에<br/>목적지 지정?"}
+  Locked["하위 POD에 강제 상속·잠금"]
+  Free["MD가 목적지 선택 가능"]
+
+  PO --> Dest
+  Dest -- "아니오" --> Legacy --> Parent
+  Parent -- "0" --> AdminDirect
+  Parent -- "MD" --> MDInbound --> MDOutbound
+  Dest -- "예" --> Direct --> DirectGroup --> Hub
+  Direct --> Inherit
+  Inherit -- "예" --> Locked --> Hub
+  Inherit -- "아니오" --> Free --> Hub
+  Hub --> Relay
+
+  classDef decision fill:#fff2d8,stroke:#b36b00;
+  classDef legacy fill:#f2f4f6,stroke:#768592;
+  classDef direct fill:#eeeafd,stroke:#6554c0;
+  class Dest,Parent,Inherit decision;
+  class Legacy,AdminDirect,MDInbound,MDOutbound legacy;
+  class PO,Direct,DirectGroup,Hub,Relay,Locked,Free direct;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d28" data-domain="pcb shared" data-search="shipment group pcb class sender receiver membership assignment physical shipment">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D28</span><h3>PCB 선적 그룹·물리 선적 구조</h3></div>
+                <p>같은 sender→receiver leg, 목적지, 회차의 여러 발주서를 한 그룹에 넣고, 그룹 안 물리 선적에 발주서 단위로 배정한다.</p>
+                <div class="tags"><span class="tag pcb">SHIPMENT GROUP</span><span class="tag shared">CLASS</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+classDiagram
+  class ShipmentPool {
+    +PcbPOD[] ungroupedDocs
+  }
+  class SpShipmentGroup {
+    +Long id
+    +String orderType
+    +int senderMbNo
+    +int receiverMbNo
+    +int reorderRound
+    +String destinationCountry
+    +String title
+    +String memo
+  }
+  class PcbPartnerOrderDocument {
+    +Long id
+    +int mbNo
+    +int parentMbNo
+    +int reorderRound
+    +Long shipmentGroupId
+    +Long shipmentId
+    +String status
+  }
+  class SpShipment {
+    +Long id
+    +Long shipmentGroupId
+    +String mode
+    +String status
+    +JSON progressHistory
+    +JSON invoiceData
+  }
+  class Invoice {
+    +Party shipper
+    +Party consignee
+    +InvoiceItem[] items
+    +Decimal total
+  }
+  class SpFile {
+    +String fileType
+    +String pathToken
+  }
+
+  ShipmentPool "1" o-- "0..*" PcbPartnerOrderDocument : ungrouped
+  SpShipmentGroup "1" o-- "1..*" PcbPartnerOrderDocument : membership
+  SpShipmentGroup "1" *-- "0..*" SpShipment : physical shipments
+  SpShipment "0..1" <-- "0..*" PcbPartnerOrderDocument : shipment assignment
+  SpShipment "1" o-- "0..1" Invoice : invoice_data
+  SpShipment "1" o-- "0..*" SpFile : AWB / invoice file
+
+  note for SpShipmentGroup "모든 멤버는 같은 leg + destination + round"
+  note for PcbPartnerOrderDocument "생산완료 후 그룹 투입"
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d29" data-domain="pcb shared" data-search="international shipment state 선적 준비 요청 국내도착 통관 완료">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D29</span><h3>국제 선적 6단계 상태머신</h3></div>
+                <p>보내는 측과 받는 측이 단계별로 교대하며, MD는 그룹 leg에서 receiver이면 관리자 역할, sender이면 협력사 역할을 맡는다.</p>
+                <div class="tags"><span class="tag pcb">INTERNATIONAL</span><span class="tag shared">STATE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Ready
+  state "선적 준비" as Ready
+  state "선적 요청" as Requested
+  state "선적" as Shipped
+  state "국내도착" as Arrived
+  state "통관" as Customs
+  state "완료" as Done
+
+  Ready --> Requested: SENDER<br/>출고예정일·Case ID
+  Requested --> Shipped: RECEIVER<br/>실선적일·AWB·Invoice
+  Shipped --> Arrived: SENDER<br/>도착 확인
+  Arrived --> Customs: RECEIVER<br/>통관 정보
+  Customs --> Done: RECEIVER<br/>완료 확정
+  Done --> [*]
+
+  note left of Requested
+    발송 그룹 구조 작업은
+    sender만 수행
+  end note
+
+  note right of Done
+    completed_at 박제
+    완료 내역의 근거
+  end note
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d30" data-domain="pcb shared" data-search="domestic shipment state 배송준비 배송중 배송완료">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D30</span><h3>국내 배송 3단계 상태머신</h3></div>
+                <p>발송·목적지 국가가 같으면 국제 6단계 대신 택배 중심의 단축 상태머신을 사용한다.</p>
+                <div class="tags"><span class="tag pcb">DOMESTIC</span><span class="tag shared">STATE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Preparing
+  state "배송준비" as Preparing
+  state "배송중" as InTransit
+  state "배송완료" as Delivered
+
+  Preparing --> InTransit: SENDER<br/>택배사·송장번호·발송일
+  InTransit --> Delivered: RECEIVER<br/>수령 확인
+  Delivered --> [*]
+
+  note right of Preparing
+    Shipment mode = DOMESTIC
+    목적지 거점 주소 표시
+  end note
+
+  note right of Delivered
+    status=배송완료
+    completed_at 박제
+  end note
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d31" data-domain="pcb shared" data-search="invoice commercial invoice xlsx pdf shipment sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D31</span><h3>PCB 상업송장 생성 시퀀스</h3></div>
+                <p>물리 선적에 배정된 발주서를 품목으로 자동 조립하고, 편집본 JSON과 XLSX/PDF 파일을 서로 다른 경로로 만든다.</p>
+                <div class="tags"><span class="tag pcb">INVOICE</span><span class="tag shared">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Sender as 보내는 측
+  participant FE as InvoiceEditorModal
+  participant API as SpShipmentInvoiceResource
+  participant S as SpShipmentInvoiceService
+  participant DB as Shipment + assigned PODs
+  participant POI as Apache POI
+  participant PDF as html2canvas-pro + jsPDF
+  participant File as File server
+
+  Sender->>FE: 송장 편집 열기
+  FE->>API: GET /spShipments/{id}/invoice/draft
+  API->>S: getDraft
+  S->>DB: invoice_data 조회
+  alt 저장본 있음
+    DB-->>FE: 사용자 편집본 우선
+  else 저장본 없음
+    S->>DB: 선적 배정 POD + 당사자/목적지 조회
+    S->>S: 품목 자동 조립<br/>총액÷수량으로 단가 역산
+    S-->>FE: draft
+  end
+  Sender->>FE: HS CODE·중량·주소·품목 수정
+  FE->>API: POST /invoice/save
+  API->>DB: invoice_data JSON
+  par XLSX
+    FE->>API: POST /invoice/xlsx
+    API->>POI: Excel 렌더
+    POI-->>FE: Blob
+  and PDF
+    FE->>PDF: 흰 문서 DOM 캡처
+    PDF-->>FE: PDF Blob
+  end
+  FE->>File: invoiceFile 업로드
+  File-->>FE: pathToken
+  FE->>API: shipment progress 저장
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d32" data-domain="pcb" data-search="pcb as state 작성 접수 재생산 가능 불가 재발주 진행">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D32</span><h3>PCB A/S 상태머신</h3></div>
+                <p>초안은 관리자에게만 보이며, 접수 후 대상 협력사가 유상/무상 조건과 사유를 보고 재생산 가능 여부를 회신한다.</p>
+                <div class="tags"><span class="tag pcb">A/S</span><span class="tag pcb">STATE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Draft
+  state "작성" as Draft
+  state "접수" as Submitted
+  state "재생산가능" as Accepted
+  state "재생산불가" as Rejected
+  state "재발주진행" as Proceeded
+
+  Draft --> Draft: 관리자 수정<br/>유형·비용·사유·대상·첨부
+  Draft --> [*]: 관리자 초안 삭제
+  Draft --> Submitted: 관리자 접수 요청
+  Submitted --> Accepted: 대상 협력사 승인 + 사유
+  Submitted --> Rejected: 대상 협력사 반려 + 사유
+  Accepted --> Proceeded: 관리자 재발주 진행
+  Rejected --> [*]: 업무 종료 또는 별도 조정
+  Proceeded --> [*]
+
+  note right of Draft
+    MD/협력사 목록에는 숨김
+  end note
+
+  note right of Proceeded
+    다음 reorderRound를 선점하고
+    원 POD를 복사
+  end note
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d33" data-domain="pcb" data-search="pcb as reorder round sequence copy reset eq shipment payment">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D33</span><h3>PCB A/S 재발주 회차 시퀀스</h3></div>
+                <p>새 it_id를 만들지 않고 같은 견적건 아래 reorder_round를 늘리며, 원 발주를 복사하되 EQ·물류·송금은 초기화한다.</p>
+                <div class="tags"><span class="tag pcb">A/S</span><span class="tag pcb">REORDER ROUND</span><span class="tag">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Admin as 관리자
+  participant FE as PcbAsCase
+  participant API as SpPcbAsCaseService
+  participant Case as sp_pcb_as_case
+  participant POD0 as 원 PCB POD · round 0
+  participant PODN as 새 PCB POD · round N
+  participant G5 as g5_shop_item/cart/order
+
+  Admin->>FE: A/S 등록
+  FE->>API: POST case(status=작성, round=null)
+  API->>Case: 초안 저장
+  Admin->>API: POST /{id}/submit
+  API->>Case: status=접수
+  Note over API,Case: 협력사 accept 후
+  Admin->>API: POST /{id}/proceed
+  API->>Case: nextRound 채번 + UK 충돌 방어
+  API->>POD0: 원/직전 상위·leaf 발주 조회
+  API->>PODN: copyForReorder
+  API->>PODN: status=발주접수<br/>EQ history 초기화<br/>shipment/group null<br/>payment/remittance 초기화
+  API->>Case: reorderRound=N, status=재발주진행
+  API-->>FE: 새 회차 발주
+  API--xG5: round>0 가격·상태 전파 금지
+
+  Note over PODN,G5: 기존 고객 주문 단일 진실을 오염시키지 않음
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d34" data-domain="pcb shared risk" data-search="delete cascade detach shipment group as file pcb item order deletion">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D34</span><h3>삭제·연결 해제 영향도</h3></div>
+                <p>MyISAM·다형 첨부·그룹 멤버십 때문에 DB FK cascade가 아니라 서비스의 명시적 정리 순서가 중요하다.</p>
+                <div class="tags"><span class="tag pcb">DELETE</span><span class="tag shared">CASCADE</span><span class="tag risk">RISK</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  DeleteItem["G5 item/cart 견적건 삭제"]
+  DeleteEstimate["SpEstimateService.delete"]
+  PED["PED / PEI"]
+  POD["BOM POD / POI"]
+  Files["sp_file by refType/refId"]
+  PcbPO["PCB POD 삭제"]
+  Detach["shipmentGroupService.detachDocs"]
+  Group["sp_shipment_group"]
+  Shipment["sp_shipment"]
+  AS["sp_pcb_as_case"]
+  Orphan["고아 메타/빈 그룹 위험"]
+
+  DeleteItem --> DeleteEstimate
+  DeleteEstimate --> PED
+  DeleteEstimate --> POD
+  PED --> Files
+  POD --> Files
+  DeleteItem --> PcbPO
+  PcbPO --> Detach
+  Detach --> Group
+  Detach --> Shipment
+  DeleteItem -. "정책 확인 필요" .-> AS
+  Files -. "BOM 문서 삭제는 현재 첨부 정리 없음" .-> Orphan
+  Group -. "명시적 detach 누락 시" .-> Orphan
+  Shipment -. "invoice_data/파일 메타 정리" .-> Orphan
+
+  classDef action fill:#eeeafd,stroke:#6554c0;
+  classDef data fill:#e4f4ec,stroke:#247452;
+  classDef risk fill:#fee9ee,stroke:#b63453;
+  class DeleteItem,DeleteEstimate,PcbPO,Detach action;
+  class PED,POD,Files,Group,Shipment,AS data;
+  class Orphan risk;
+              </pre>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" data-section="shared">
+        <div class="section-heading">
+          <div class="section-index">03</div>
+          <div>
+            <h2>공통 척추와 운영 경계</h2>
+            <p>인증, 역할 격리, 파일, 데이터 소유권, BOM↔PCB 미러링과 구현 위험을 한눈에 본다.</p>
+          </div>
+        </div>
+
+        <div class="diagram-grid">
+          <article class="diagram-card" id="d35" data-domain="shared" data-search="authentication jwt sso php session bearer sequence">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D35</span><h3>SSO·JWT 인증 시퀀스</h3></div>
+                <p>JWT는 외부 G5/PHP가 발급하고 XPSE는 공유 시크릿으로 검증만 한다. 엔드포인트 인증은 기본 공개, @JwtAuth opt-in이다.</p>
+                <div class="tags"><span class="tag shared">AUTH</span><span class="tag shared">SEQUENCE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor User as 사용자
+  participant PHP as SamplePCB PHP/G5
+  participant FE as SmartBOM authService
+  participant Filter as JwtAuthenticationFilter
+  participant API as XPSE Resource
+
+  User->>PHP: G5 로그인(PHPSESSID)
+  PHP-->>User: 세션 쿠키
+  FE->>PHP: 인증 브리지 / 토큰 요청<br/>credentials 포함
+  PHP->>PHP: 회원 claims + HS256 서명
+  PHP-->>FE: JWT
+  FE->>FE: sessionStorage 보관
+  FE->>Filter: Authorization: Bearer JWT
+  Filter->>Filter: 서명/exp 검증<br/>sub, mbName, mbLevel, mbNo
+  Filter->>Filter: 핸들러 @JwtAuth 또는<br/>JwtUserPrincipal 파라미터 검사
+  alt 인증 필수 + 유효
+    Filter->>API: SecurityContext principal
+    API-->>FE: 역할/소유권 스코프 응답
+  else 인증 필수 + 누락/실패
+    Filter-->>FE: 401
+  else 인증 표식 없음
+    Filter->>API: permitAll
+  end
+
+  Note over PHP,Filter: 같은 HMAC secret 수동 동기화
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d36" data-domain="shared" data-search="file polymorphic sp_file upload attachment ref type class diagram">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D36</span><h3>다형 첨부파일 구조</h3></div>
+                <p>실제 바이트는 외부 파일서버에 있고, XPSE는 refType+refId로 업무 엔티티에 메타데이터를 연결한다.</p>
+                <div class="tags"><span class="tag shared">FILE</span><span class="tag shared">CLASS</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+classDiagram
+  class FileServer {
+    +uploadFileByAnonymous()
+    +host(pathToken)
+  }
+  class SpFile {
+    +Long id
+    +String refType
+    +Long refId
+    +String fileType
+    +String uploadFileName
+    +String originFileName
+    +String pathToken
+    +Long size
+    +Long uploadedBy
+  }
+  class BomDocument
+  class PartnerEstimateDocument
+  class PartnerEstimateItem
+  class PartnerOrderDocument
+  class Shipment
+  class PcbPartnerOrder
+  class PcbAsCase
+
+  FileServer "1" <-- "0..*" SpFile : pathToken points to bytes
+  SpFile "0..*" ..> BomDocument : refType
+  SpFile "0..*" ..> PartnerEstimateDocument : refType
+  SpFile "0..*" ..> PartnerEstimateItem : refType
+  SpFile "0..*" ..> PartnerOrderDocument : refType
+  SpFile "0..*" ..> Shipment : AWB / invoice
+  SpFile "0..*" ..> PcbPartnerOrder : quote files
+  SpFile "0..*" ..> PcbAsCase : A/S evidence
+
+  note for SpFile "DB FK가 아닌 애플리케이션 다형 참조"
+  note for FileServer "bom / bom_shipment serviceType로 버킷 분리"
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d37" data-domain="shared" data-search="role visibility parent mb no query isolation admin md partner matrix flow">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D37</span><h3>역할·parent_mb_no 가시성 규칙</h3></div>
+                <p>parent_mb_no=0 센티넬이 관리자 직거래를, parent=MD가 하위 트랙을 뜻하며 물류 그룹에서는 sender/receiver leg로 같은 축을 재사용한다.</p>
+                <div class="tags"><span class="tag shared">RBAC</span><span class="tag shared">QUERY ISOLATION</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart TB
+  Request["PED / POD / PCB RFQ / PCB POD"]
+  Parent{"parent_mb_no"}
+  Direct["0 = 관리자 직접 요청"]
+  ViaMD["MD mb_no = MD가 하위에 요청"]
+
+  Admin["ADMIN"]
+  MD["MASTER_DEALER"]
+  Partner["PARTNER"]
+
+  AdminView["목록: parent=0<br/>MD 하위는 상위 상세에서 readonly"]
+  MDView["자기 mb_no 수주 + parent=자기 하위 발주<br/>두 트랙"]
+  PartnerView["mb_no=자기 요청만"]
+
+  Group["PCB ShipmentGroup"]
+  GLeg["sender=발송 협력사<br/>receiver=parent 또는 0"]
+  MDShip["receiver=MD → 입고 역할 ADMIN<br/>sender=MD → 출고 역할 PARTNER"]
+
+  Request --> Parent
+  Parent -- "0" --> Direct
+  Parent -- "MD" --> ViaMD
+  Admin --> AdminView
+  MD --> MDView
+  Partner --> PartnerView
+  Direct --> AdminView
+  ViaMD --> MDView
+  Request --> PartnerView
+  Request --> Group --> GLeg --> MDShip
+
+  classDef role fill:#17202a,stroke:#17202a,color:#fff;
+  classDef rule fill:#e4f4ec,stroke:#247452;
+  classDef decision fill:#fff2d8,stroke:#b36b00;
+  class Admin,MD,Partner role;
+  class Request,Direct,ViaMD,AdminView,MDView,PartnerView,Group,GLeg,MDShip rule;
+  class Parent decision;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d38" data-domain="shared" data-search="storage ownership mysql elasticsearch json snapshot source of truth data">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D38</span><h3>데이터 소유권·저장소 경계</h3></div>
+                <p>G5는 고객 거래 원천, sp_*는 업무 문서, ES는 검색 투영이다. JSON 박제 필드는 계산 결과를 재현하기 위한 시점 스냅샷이다.</p>
+                <div class="tags"><span class="tag shared">DATA OWNERSHIP</span><span class="tag shared">STORAGE</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  subgraph Source["원천 기록 · MySQL"]
+    G5M["g5_member<br/>신원·역할 보조·통화/국가"]
+    G5I["g5_shop_item<br/>상품·PCB 사양·상태·판매가"]
+    G5C["g5_shop_cart<br/>견적/주문 연결"]
+    G5O["g5_shop_order<br/>고객 주문"]
+  end
+
+  subgraph Work["업무 기록 · sp_* MySQL"]
+    BOM["sp_bom_document<br/>원본 JSON"]
+    Est["sp_estimate_*<br/>BOM 견적/RFQ"]
+    PO["sp_partner_order_*<br/>BOM 발주"]
+    PCB["sp_pcb_partner_order*<br/>PCB RFQ/POD"]
+    Ship["sp_shipment_group / shipment"]
+    AS["sp_pcb_as_case"]
+    File["sp_file"]
+  end
+
+  subgraph Projection["검색 투영"]
+    PartsDB["sp_pcb_parts / price"]
+    ES["Elasticsearch pcbparts*"]
+    Cache["Caffeine"]
+  end
+
+  subgraph Snapshots["시점 박제"]
+    Price["selected_price / confirmed_price JSON"]
+    FX["원본통화·환율·정산통화"]
+    Qty["selectedPrice.qty"]
+    History["EQ / Shipment history JSON"]
+    Invoice["invoice_data JSON"]
+  end
+
+  G5M --> Est
+  G5I --> Est
+  G5I --> PCB
+  G5C --> G5O
+  G5O --> PO
+  Est --> PO
+  PCB --> Ship
+  PO --> Ship
+  PCB --> AS
+  File -. "refType/refId" .-> Est
+  File -.-> PO
+  File -.-> PCB
+  File -.-> Ship
+  PartsDB <--> ES
+  ES --> Cache
+  Est --> Price
+  Est --> Qty
+  PCB --> FX
+  PCB --> History
+  Ship --> History
+  Ship --> Invoice
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d39" data-domain="shared" data-search="bom pcb mirroring parity shared separate domain progress machine">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D39</span><h3>BOM→PCB 미러링과 의도적 비대칭</h3></div>
+                <p>업무 단계 이름은 닮았지만 데이터는 별도 테이블이다. 공용화는 파일·인증·선적 진행처럼 의미가 정말 같은 축에만 적용된다.</p>
+                <div class="tags"><span class="tag bom">BOM</span><span class="tag pcb">PCB</span><span class="tag shared">PARITY</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart TB
+  subgraph BOM["BOM · 부품 행 중심"]
+    BQ["EstimateDocument + N EstimateItems"]
+    BR["PED + N PEIs"]
+    BO["POD + N POIs"]
+    BS["POD별 N shipments<br/>POI 항목 배정"]
+  end
+
+  subgraph Shared["공용 척추"]
+    Auth["JWT / roles"]
+    Parent["parent_mb_no 2단 중개"]
+    File["sp_file + file server"]
+    Progress["ShipmentPanel 진행 머신"]
+    G5["G5 member/item/cart/order"]
+  end
+
+  subgraph PCB["PCB · 견적건 flat 중심"]
+    PQ["itId + partner RFQ 1행"]
+    PO["flat PCB POD"]
+    EQ["EQ/생산 5단계"]
+    PG["ShipmentGroup + N PODs<br/>선적에 POD 배정"]
+    PAS["A/S + reorderRound"]
+  end
+
+  BQ --> BR --> BO --> BS
+  PQ --> PO --> EQ --> PG --> PAS
+  Auth --> BOM
+  Auth --> PCB
+  Parent --> BR
+  Parent --> BO
+  Parent --> PQ
+  Parent --> PO
+  File --> BOM
+  File --> PCB
+  Progress --> BS
+  Progress --> PG
+  G5 --> BQ
+  G5 --> PQ
+
+  BS -. "order_type=BOM" .-> Progress
+  PG -. "order_type=PCB" .-> Progress
+
+  classDef bom fill:#e0f5f7,stroke:#008fa3;
+  classDef pcb fill:#eeeafd,stroke:#6554c0;
+  classDef shared fill:#e4f4ec,stroke:#247452;
+  class BQ,BR,BO,BS bom;
+  class PQ,PO,EQ,PG,PAS pcb;
+  class Auth,Parent,File,Progress,G5 shared;
+              </pre>
+            </div>
+          </article>
+
+          <article class="diagram-card" id="d40" data-domain="risk shared" data-search="risk security trust boundary client validation open api mysql myisam migration test stale">
+            <header class="card-head">
+              <div>
+                <div class="card-title-row"><span class="diagram-no">D40</span><h3>핵심 신뢰 경계·운영 위험</h3></div>
+                <p>현재 구현에서 권한·정합성·운영 안전에 가장 큰 영향을 주는 경계를 원인→노출→영향으로 연결했다.</p>
+                <div class="tags"><span class="tag risk">RISK</span><span class="tag risk">TRUST BOUNDARY</span></div>
+              </div>
+              <div class="toolbar"></div>
+            </header>
+            <div class="diagram-canvas">
+              <pre class="mermaid">
+flowchart LR
+  subgraph Cause["원인"]
+    C1["Security 기본 permitAll<br/>@JwtAuth opt-in"]
+    C2["Shipment 전이·역할을 프런트가 검증"]
+    C3["MyISAM + 수동 SQL migration"]
+    C4["ES + JPA 이중 저장"]
+    C5["JSON 스냅샷 + @Version 없음"]
+    C6["외부 주문 sandbox 없음"]
+    C7["wiki 시점과 코드 시점 차이"]
+  end
+
+  subgraph Exposure["노출 지점"]
+    E1["표식 누락 API"]
+    E2["progress 전체 스냅샷 PUT"]
+    E3["다단계 write / 회차 채번"]
+    E4["외부 검색 실패를 빈 결과로 흡수"]
+    E5["동시 shipment 편집"]
+    E6["submit=true 실결제"]
+    E7["문서가 최신 구현을 못 따라감"]
+  end
+
+  subgraph Impact["가능 영향"]
+    I1["무인증 조회·변경"]
+    I2["역할/단계 우회·감사이력 신뢰 저하"]
+    I3["부분 성공·중복 round·부팅 실패"]
+    I4["검색 불일치·장애 오판"]
+    I5["lost update·첨부/송장 stale"]
+    I6["취소 불가 실제 발주"]
+    I7["잘못된 운영 판단"]
+  end
+
+  C1 --> E1 --> I1
+  C2 --> E2 --> I2
+  C3 --> E3 --> I3
+  C4 --> E4 --> I4
+  C5 --> E5 --> I5
+  C6 --> E6 --> I6
+  C7 --> E7 --> I7
+
+  classDef cause fill:#fff2d8,stroke:#b36b00;
+  classDef exposure fill:#fee9ee,stroke:#b63453;
+  classDef impact fill:#f8dce4,stroke:#8c1d3d,stroke-width:2px;
+  class C1,C2,C3,C4,C5,C6,C7 cause;
+  class E1,E2,E3,E4,E5,E6,E7 exposure;
+  class I1,I2,I3,I4,I5,I6,I7 impact;
+              </pre>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" data-section="risk">
+        <div class="section-heading">
+          <div class="section-index">04</div>
+          <div>
+            <h2>구현 확인표</h2>
+            <p>다이어그램 해석 시 함께 봐야 할 구현 완료 범위와 남은 함정을 압축했다.</p>
+          </div>
+        </div>
+
+        <div class="matrix-card">
+          <table>
+            <thead>
+              <tr>
+                <th>영역</th>
+                <th>현재 구현</th>
+                <th>저장 단위</th>
+                <th>핵심 경계</th>
+                <th>주의/잔여</th>
+                <th>판정</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>BOM 원본문서</td>
+                <td>JWT 회원별 CRUD, contentHash upsert</td>
+                <td>sp_bom_document.items LONGTEXT JSON</td>
+                <td>mbId 소유권</td>
+                <td>스키마 검증 없음, 삭제 시 첨부 정리 없음</td>
+                <td><span class="status ok">구현</span></td>
+              </tr>
+              <tr>
+                <td>BOM 분석·가격</td>
+                <td>검색/교체/소프트삭제/마진/수량 박제</td>
+                <td>SpEstimateItem + JSON</td>
+                <td>selectedPrice.qty 단일 진실</td>
+                <td>저장 주체에 따른 qty 의미 차이, 확장뷰 잠금 차이</td>
+                <td><span class="status warn">함정 있음</span></td>
+              </tr>
+              <tr>
+                <td>BOM RFQ·MD</td>
+                <td>직접·2단 PED/PEI, 비교·선정·마진 박제</td>
+                <td>parent_mb_no + selected_sub</td>
+                <td>관리자 parent=0, MD 자기 parent</td>
+                <td>BOM 모달의 MD 후보 포함은 opt-in 미적용</td>
+                <td><span class="status warn">부분 UI</span></td>
+              </tr>
+              <tr>
+                <td>BOM 발주</td>
+                <td>견적/발주 이중 트랙, POD/POI batch</td>
+                <td>estimate_item.order_* + POD/POI</td>
+                <td>고객 확정가 불변</td>
+                <td>일부 저장 키 미스매치, 물류 잔량 회계 없음</td>
+                <td><span class="status warn">함정 있음</span></td>
+              </tr>
+              <tr>
+                <td>외부 공급사 주문</td>
+                <td>Mouser preview/submit 추상화·부분배송</td>
+                <td>POD external_* + SKU snapshot</td>
+                <td>mb_no registry</td>
+                <td>실주문 테스트 미완, 임시 무인증 테스트 API</td>
+                <td><span class="status risk">고위험</span></td>
+              </tr>
+              <tr>
+                <td>PCB 접수·검토</td>
+                <td>G5 ca_id=10 조회, 사양/파일/상태 소비</td>
+                <td>g5_shop_item/cart</td>
+                <td>Gerber 접수·파싱은 대상 저장소 밖</td>
+                <td>목록 페이지 인덱스 0/1-base 불일치 가능</td>
+                <td><span class="status warn">외부 의존</span></td>
+              </tr>
+              <tr>
+                <td>PCB RFQ·통화</td>
+                <td>직접·MD 2단, KRW/USD/CNY 박제</td>
+                <td>sp_pcb_partner_order flat row</td>
+                <td>settlement/input/source currency 분리</td>
+                <td>클라이언트 환산값 신뢰 경로, round RFQ UI 미완</td>
+                <td><span class="status warn">함정 있음</span></td>
+              </tr>
+              <tr>
+                <td>PCB EQ·생산</td>
+                <td>5단계·revert·MD 미러/fallback</td>
+                <td>PCB POD status + eq_history_json</td>
+                <td>leaf가 실상태, root ADMIN 승인</td>
+                <td>그룹/회차 표시 병합, 서버 권한 감사 필요</td>
+                <td><span class="status ok">구현</span></td>
+              </tr>
+              <tr>
+                <td>PCB 선적 그룹</td>
+                <td>leg·목적지·회차 그룹, 물리 선적 N</td>
+                <td>shipment_group + shipment + POD FK</td>
+                <td>생산완료·같은 leg 강제</td>
+                <td>일부 게이트 프런트 전용, DTO round 표시 누락 가능</td>
+                <td><span class="status warn">함정 있음</span></td>
+              </tr>
+              <tr>
+                <td>Invoice</td>
+                <td>자동 조립, JSON 저장, XLSX/PDF 생성</td>
+                <td>shipment.invoice_data + sp_file</td>
+                <td>물리 선적당 1장</td>
+                <td>배정 변경 후 저장본 stale, 일부 통화/주소 placeholder</td>
+                <td><span class="status warn">검증 필요</span></td>
+              </tr>
+              <tr>
+                <td>PCB A/S</td>
+                <td>초안·접수·회신·다음 round POD 복사</td>
+                <td>sp_pcb_as_case + reorder_round</td>
+                <td>round&gt;0 G5 전파 금지</td>
+                <td>분할 생산 다중 A/S, 회차별 목록 표시 정제</td>
+                <td><span class="status warn">후속 있음</span></td>
+              </tr>
+              <tr>
+                <td>인증·권한</td>
+                <td>JWT 검증, 프런트 RBAC, 쿼리 격리</td>
+                <td>JWT claims + parent_mb_no</td>
+                <td>@JwtAuth opt-in</td>
+                <td>표식 누락·G5 조회 스코프·shipment mutation 서버 검증</td>
+                <td><span class="status risk">감사 필요</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <b>근거 범위</b> · sp-smartbom-web의 컴파일 위키, doc 정본, Vue router/SideNav/service/view 구현과
+        samplepcb_xpse의 컴파일 위키, Resource/Service/Entity/Repository 및 수동 migration 목록을 교차 확인했다.
+        생성일 2026-07-29. 이 문서는 구조 파악용이며 운영 DB migration 적용 여부·실결제·실선적 상태를 보증하지 않는다.
+      </footer>
+    </main>
+  </div>
+
+  <div id="renderStatus" class="render-status">다이어그램 렌더링 준비…</div>
+
+  <dialog id="sourceDialog">
+    <div class="dialog-head">
+      <h4 id="sourceTitle">Mermaid source</h4>
+      <button class="dialog-close" type="button" aria-label="닫기">×</button>
+    </div>
+    <pre id="sourceCode"></pre>
+  </dialog>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    const sourceByCard = new Map();
+    const cards = [...document.querySelectorAll(".diagram-card")];
+    const status = document.querySelector("#renderStatus");
+    const dialog = document.querySelector("#sourceDialog");
+    const sourceTitle = document.querySelector("#sourceTitle");
+    const sourceCode = document.querySelector("#sourceCode");
+    const search = document.querySelector("#search");
+    const empty = document.querySelector("#empty");
+    let activeFilter = "all";
+
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "loose",
+      theme: "base",
+      flowchart: { curve: "basis", htmlLabels: true, useMaxWidth: true },
+      sequence: { useMaxWidth: true, wrap: true, diagramMarginX: 28, diagramMarginY: 20 },
+      themeVariables: {
+        fontFamily: '"Pretendard", "Noto Sans KR", "Segoe UI", sans-serif',
+        fontSize: "13px",
+        primaryColor: "#e0f5f7",
+        primaryTextColor: "#17202a",
+        primaryBorderColor: "#008fa3",
+        secondaryColor: "#eeeafd",
+        tertiaryColor: "#f5f7f8",
+        lineColor: "#647581",
+        textColor: "#17202a",
+        mainBkg: "#ffffff",
+        nodeBorder: "#7f909c",
+        clusterBkg: "#f8fafb",
+        clusterBorder: "#cbd5dc",
+        actorBkg: "#ffffff",
+        actorBorder: "#586b77",
+        actorTextColor: "#17202a",
+        signalColor: "#435762",
+        signalTextColor: "#17202a",
+        noteBkgColor: "#fff7df",
+        noteBorderColor: "#c58a21",
+        noteTextColor: "#503b10",
+        labelBoxBkgColor: "#ffffff",
+        labelBoxBorderColor: "#8b9aa4",
+        labelTextColor: "#17202a"
+      }
+    });
+
+    function buildToolbar(card) {
+      const toolbar = card.querySelector(".toolbar");
+      toolbar.innerHTML = `
+        <button class="tool" type="button" data-action="minus" title="축소">−</button>
+        <button class="tool" type="button" data-action="fit" title="너비 맞춤">맞춤</button>
+        <button class="tool" type="button" data-action="plus" title="확대">＋</button>
+        <button class="tool" type="button" data-action="source" title="Mermaid 원문">원문</button>
+        <button class="tool" type="button" data-action="download" title="SVG 저장">SVG</button>
+      `;
+      card.dataset.zoom = "1";
+    }
+
+    function setZoom(card, next) {
+      const zoom = Math.min(3, Math.max(.55, next));
+      card.dataset.zoom = String(zoom);
+      const svg = card.querySelector(".diagram-canvas svg");
+      if (svg) {
+        svg.style.width = `${zoom * 100}%`;
+        svg.style.maxWidth = "none";
+      }
+    }
+
+    function downloadSvg(card) {
+      const svg = card.querySelector(".diagram-canvas svg");
+      if (!svg) return;
+      const clone = svg.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.style.width = "";
+      clone.style.maxWidth = "";
+      const blob = new Blob([clone.outerHTML], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${card.id}-${card.querySelector("h3").textContent.trim()}.svg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function openSource(card) {
+      sourceTitle.textContent = `${card.querySelector(".diagram-no").textContent} · ${card.querySelector("h3").textContent}`;
+      sourceCode.textContent = sourceByCard.get(card) || "";
+      dialog.showModal();
+    }
+
+    cards.forEach((card) => {
+      const pre = card.querySelector(".mermaid");
+      sourceByCard.set(card, pre.textContent.trim());
+      buildToolbar(card);
+      card.querySelector(".toolbar").addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-action]");
+        if (!button) return;
+        const current = Number(card.dataset.zoom || 1);
+        if (button.dataset.action === "minus") setZoom(card, current - .2);
+        if (button.dataset.action === "plus") setZoom(card, current + .2);
+        if (button.dataset.action === "fit") setZoom(card, 1);
+        if (button.dataset.action === "source") openSource(card);
+        if (button.dataset.action === "download") downloadSvg(card);
+      });
+    });
+
+    document.querySelector(".dialog-close").addEventListener("click", () => dialog.close());
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+
+    const toc = document.querySelector("#toc");
+    toc.innerHTML = cards.map((card) => {
+      const no = card.querySelector(".diagram-no").textContent;
+      const title = card.querySelector("h3").textContent;
+      return `<a href="#${card.id}" data-card="${card.id}"><span class="toc-no">${no}</span><span>${title}</span></a>`;
+    }).join("");
+
+    function applyFilters() {
+      const q = search.value.trim().toLocaleLowerCase("ko");
+      let visibleCount = 0;
+
+      cards.forEach((card) => {
+        const domains = card.dataset.domain.split(/\s+/);
+        const haystack = `${card.dataset.search} ${card.textContent}`.toLocaleLowerCase("ko");
+        const domainMatch = activeFilter === "all" || domains.includes(activeFilter);
+        const queryMatch = !q || haystack.includes(q);
+        const visible = domainMatch && queryMatch;
+        card.classList.toggle("hidden", !visible);
+        const tocLink = toc.querySelector(`[data-card="${card.id}"]`);
+        if (tocLink) tocLink.style.display = visible ? "" : "none";
+        if (visible) visibleCount += 1;
+      });
+
+      document.querySelectorAll(".section").forEach((section) => {
+        if (section.querySelector(".diagram-card")) {
+          const hasVisible = [...section.querySelectorAll(".diagram-card")].some((card) => !card.classList.contains("hidden"));
+          section.classList.toggle("hidden", !hasVisible);
+        } else if (section.dataset.section === "risk") {
+          section.classList.toggle("hidden", !(activeFilter === "all" || activeFilter === "risk") || Boolean(q));
+        }
+      });
+
+      empty.classList.toggle("visible", visibleCount === 0 && (activeFilter !== "risk" || Boolean(q)));
+    }
+
+    document.querySelectorAll(".filter").forEach((button) => {
+      button.addEventListener("click", () => {
+        activeFilter = button.dataset.filter;
+        document.querySelectorAll(".filter").forEach((item) => item.classList.toggle("active", item === button));
+        applyFilters();
+      });
+    });
+    search.addEventListener("input", applyFilters);
+
+    let rendered = 0;
+    let failed = 0;
+    for (const [index, card] of cards.entries()) {
+      const pre = card.querySelector(".mermaid");
+      const code = sourceByCard.get(card);
+      status.textContent = `UML 렌더링 ${index + 1} / ${cards.length}`;
+      try {
+        const result = await mermaid.render(`smartbom-uml-${index + 1}`, code);
+        pre.innerHTML = result.svg;
+        result.bindFunctions?.(pre);
+        const svg = pre.querySelector("svg");
+        if (svg) {
+          svg.removeAttribute("height");
+          svg.style.width = "100%";
+          svg.style.maxWidth = "none";
+        }
+        rendered += 1;
+      } catch (error) {
+        failed += 1;
+        pre.classList.add("render-error");
+        pre.textContent = `렌더링 오류\n\n${String(error)}\n\n${code}`;
+      }
+    }
+
+    status.textContent = failed
+      ? `완료 ${rendered} · 오류 ${failed}`
+      : `UML ${rendered}개 렌더링 완료`;
+    setTimeout(() => { status.style.opacity = ".15"; }, 4200);
+    status.addEventListener("mouseenter", () => { status.style.opacity = "1"; });
+    status.addEventListener("mouseleave", () => { status.style.opacity = ".15"; });
+    applyFilters();
+  </script>
+</body>
+</html>
