@@ -3,7 +3,7 @@
 > 레거시(그누보드5/영카트, `D:\work\workspace_other\samplepcb_php` · 운영 www.samplepcb.co.kr)의
 > 실데이터를 신규 플랫폼 DB(`samplepcb`)로 변환 이관하는 sp-node 기능의 절차·설계·실증 기록.
 > 작성 2026-07-07 · **P1(2020 덤프)·P2(운영 풀 덤프 20260702)·P3(로컬 실 DB 컷오버) 전부 verify 그린** +
-> 서비스 레벨(admin API·PHP 페이지) 실동작 검증 완료(§6-B). 남은 개방 항목은 거버 실파일 업로드(§7)뿐.
+> 서비스 레벨(admin API·PHP 페이지) 실동작 검증 완료(§6-B). **파일(거버·첨부·회원이미지)은 전면 미이관 결정(2026-08-05, §2.4)** — 개방 항목 없음. 컷오버 준비 완료.
 > 구현: `samplepcb-web-mono-app/apps/api/src/scripts/migrate/` · 계획 원본: 플랜 cuddly-wiggling-perlis(승인 2026-07-06)
 >
 > **덤프 소재**: `D:\work\workspace_other\samplepcb_dump\` — `hyoh9150-20201221.dump.zip`(2020-12-21 백업),
@@ -31,7 +31,12 @@
    레거시 견적관리(`/adm/shop_admin/estimate.php`)에 떠 있는 대기 견적이 플랫폼에 없어 PCB 협력 모듈의
    견적요청 워크큐가 공동화되던 문제(사용자 지적)의 근본 교정. 고아 주문 라인·취소 잔재는 계속 스킵.
 3. **회원 확장 필드 = sp_member_profile 확장**(계약 `AdminMemberBusiness` 필드명 정합, 잔여는 `legacyJson`). 신규 g5_member의 `mb_1~10`은 비움.
-4. **실파일은 이관분만**: 거버 파일 → file.samplepcb.kr(sp_file.pathToken, 사전 업로드), 게시판 첨부·에디터/회원 이미지 → data/ 복사.
+4. **파일 전면 미이관 (2026-08-05 결정)**: 거버·게시판 첨부·에디터/회원 이미지 **모두 이관하지 않는다**.
+   `MIGRATE_LEGACY_FILES_DIR`·`MIGRATE_LEGACY_DATA_DIR` 미설정 유지 → 프레임워크가 파일 없이 정상 동작
+   (원장에 pathToken 없으면 `sp_file` 행 미생성, verify `sp_file 연결`은 정보성이라 그린). **코드 변경 불요.**
+   근거: 유일 개방 항목이던 파일 미러(서버 rsync)를 제거해 컷오버 즉시화. 영향: 과거 주문/견적의 거버·첨부를
+   신규 플랫폼에서 조회 불가(레거시 아카이브 유지 시 그쪽 참조), phase 06 이관 견적은 협력사 RFQ 파일 부재.
+   **소급 가능**: 후일 미러 확보 시 `migrate:files --sideload --relink`(멱등)로 이미 이관된 spec 에 파일만 보충.
 5. g5_menu·g5_content(레거시 마이페이지류는 정적 목업이었음)·운영성 테이블 미이관. **애매한 항목 발견 시 중단 → 사용자 확인**(게이트로 코드화).
 
 ## 2-B. 전 테이블 처분표 — 운영 96개 전수 (행수 = 운영 덤프 20260702 실측)
@@ -289,17 +294,14 @@ pnpm migrate:verify               # 전량 검증(--light = 행수+금액 항등
 
 1. ~~P2 운영 덤프 리허설~~ ✅ 완료(§6-B — 20260702 덤프, verify 그린).
 2. ~~P3 로컬 컷오버~~ ✅ 완료(§6-B — 로컬 samplepcb 에 운영 데이터 이관 완료, 백업으로 복구 가능).
-3. **남은 개방 항목 — 거버 실파일**: 운영 `/gerber_files/` 미러(rsync 등, 서버 접근 필요)를 받아
-   `MIGRATE_LEGACY_FILES_DIR` 지정 → `migrate:files`(동시성 6, ~1.87만 건 — 시간 실측) →
-   `migrate:files -- --relink`(선이관 spec 에 sp_file 보충 — 주문은 이미 이관됐으므로 relink 경로가 정본).
-   `data/file/open_market`·`member_image` 폴더도 운영 미러에서 복사(로컬 레거시 소스에 없음 — 리포트 노트).
+3. ~~남은 개방 항목 — 거버 실파일~~ → **파일 전면 미이관 확정(§2.4, 2026-08-05)**. 컷오버에서 파일 단계 전부 제거.
+   필요 시 후일 소급(`migrate:files --sideload --relink`, 멱등).
 4. **운영(진짜 프로덕션) 전환 시 — sync 경로가 정식(§6-C)**:
    - T-준비: ~~운영 직결 sync 리허설~~ ✅ 완료(§6-D.4 — hyoh9150 직결, 닷새치 델타 반영·no-op·2~3분).
-     이후 수시로 `migrate:sync` 반복(로컬을 운영 최신으로 유지). 거버 미러 rsync 증분 →
-     `migrate:files --sideload --relink`.
+     이후 수시로 `migrate:sync` 반복(로컬을 운영 최신으로 유지). (파일 미이관 — 거버 rsync/relink 없음, §2.4.)
    - T-0: 레거시 쓰기 동결 → `migrate:sync --final`(노이즈 컬럼 포함 최종 반영) → `migrate:verify`
      → **화면 실측**(레거시 회원 로그인=구형 해시 자동 재해시 · 소셜 로그인 · /shop/orderinquiry
-     상태 배지 · admin 드로어 전이 1회 왕복 후 원복 · 게시판 첨부 다운로드) → 전환.
+     상태 배지 · admin 드로어 전이 1회 왕복 후 원복) → 전환. (파일 미이관 — 첨부 다운로드는 대상 아님, §2.4.)
      (최종 덤프 재임포트+`migrate:run`은 백업 경로로 강등 — sync 불가 상황에서만)
    - 비밀번호 없는 실계정 로그인 실측은 이 단계에서만 가능(로컬은 해시만 보유).
 
@@ -314,16 +316,10 @@ pnpm migrate:verify               # 전량 검증(--light = 행수+금액 항등
 - [ ] **sp 스키마**: 운영 공유 DB에 `prisma migrate deploy`(4개 마이그레이션 — reset/dev 금지).
 - [ ] **필수 초기 데이터 시드·검증**(`pnpm db:seed-initial`) — 템플릿 `sp-pcb-std`·`sp-mask`·`sp-pcb-adv`·`sp-pcb-flex`·`sp-bom-parts` 5종과 `g5_shop_default` 사업자정보 11필드·무통장 사용/입금계좌 2필드를 함께 확인한다. 템플릿 부재 시 게이트·SmartBOM 주문이 중단되고, 쇼핑몰 기본설정 누락 시 푸터/견적서 정보 또는 주문서 결제수단이 사라지므로 선행.
 - [ ] **덤프 루틴 확정**: `mysqldump -u<계정> -p --default-character-set=utf8 hyoh9150 > hyoh9150-$(date).dump` — 리허설·최종 동일 명령. 리허설 덤프로 `migrate:gate` 돌려 **드리프트 0** 확인(20260702 이후 스키마 변경이 있으면 여기서 잡힘).
-- [ ] **파일 미러**: 운영 `/gerber_files/`(rsync)·`data/file/open_market/`·`data/member_image/` 로컬/스테이징 미러 확보.
-- [ ] **거버 파일 사전 이관 — 사이드로드가 정석**(2026-07-07 확정): 파일서버(niney-file)의 pathToken 은
-  **base64(encodeURIComponent(BASE_PATH 상대경로))** 이고 다운로드도 그 경로를 그대로 읽는다
-  (업로드 API 를 쓰면 전량이 "업로드일" 폴더 한 곳에 몰림 — 운영자 지적으로 폐기). 절차:
-  ① 미러를 파일서버로 rsync(원본 날짜 폴더 구조 보존):
-     `rsync -av <미러>/gerber_files/ <파일서버>:<BASE_PATH>/gerber-legacy/`
-  ② `pnpm migrate:files -- --sideload` — 토큰 로컬 계산+원장 기록(네트워크 0회, 수 초)
-  ③ `pnpm migrate:files -- --relink` — sp_file 연결
-  ④ 샘플 검증: `curl -I https://file.samplepcb.kr/api/download/<원장 pathToken>` → 200
-  (API 업로드 모드는 소량 증분 전용으로 유지. 서버 폴더 프리픽스 변경 시 `MIGRATE_SIDELOAD_PREFIX` 동기)
+- [ ] ~~파일 미러 / 거버 사전 이관~~ → **파일 전면 미이관(§2.4)**: `MIGRATE_LEGACY_FILES_DIR`·`MIGRATE_LEGACY_DATA_DIR`
+  미설정 유지. sp_file 행 미생성·verify 그린이라 별도 조치 불요. 소급이 필요해지면 미러 확보 후
+  `pnpm migrate:files -- --sideload --relink`(멱등 — 이미 이관된 spec 에 파일만 보충). 사이드로드 상세 절차는
+  git 히스토리(2026-07-07판) 참조.
 - [ ] `.env.migration` 운영값 작성(소스=최종 덤프 임포트 DB, 타깃=운영 공유 DB) + sp-node `.env`(SPCB_BRIDGE_URL 등 — HANDOFF WP3 항목).
 
 ### T-0 (컷오버 창)
@@ -331,9 +327,8 @@ pnpm migrate:verify               # 전량 검증(--light = 행수+금액 항등
 1. 레거시 사이트 **쓰기 동결**(점검 모드) → 최종 덤프 → 임포트.
 2. `migrate:wipe -- --yes`(신규 테스트 거래만 — 회원·게시판·설정 보존) ※ 운영 첫 개통이라 테스트 데이터가 없으면 스킵.
 3. `migrate:gate` → `migrate:run` → `migrate:verify` **전 항목 통과 확인**(실측: 운영 전량 ~6분).
-4. `migrate:files -- --relink`(최종 덤프에서 늘어난 신규 주문 파일 증분 + sp_file 보충).
-5. **화면 실측**: 이메일 아이디 회원 로그인(자동 재해시) · 소셜 로그인(운영 도메인 콜백) · /shop/orderinquiry 상태 배지 · admin orders/quotes/members · 게시판 글/첨부.
-6. DNS/nginx 전환.
+4. **화면 실측**: 이메일 아이디 회원 로그인(자동 재해시) · 소셜 로그인(운영 도메인 콜백) · /shop/orderinquiry 상태 배지 · admin orders/quotes/members · 게시판 글. (파일 미이관 — 첨부/거버 다운로드는 대상 아님, §2.4.)
+5. DNS/nginx 전환.
 
 ### 사후
 
