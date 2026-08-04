@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { ADMIN_PCB_ORDER_TAB_LABELS, type AdminPcbOrderTabType } from '@sp/api-contract';
-import { useAdminPcbOrderWork, type AdminPcbOrderFilters } from '../../admin/useAdminPcbOrders';
+import { ApiRequestError } from '@sp/shared';
+import {
+  ADMIN_PCB_ORDER_TAB_LABELS,
+  type AdminPcbOrderItemType,
+  type AdminPcbOrderTabType,
+} from '@sp/api-contract';
+import {
+  useAdminPcbOrderWork,
+  useConfirmPcbOrderReceipt,
+  type AdminPcbOrderFilters,
+} from '../../admin/useAdminPcbOrders';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 
 // PCB 주문·결제 워크큐(P3.5) — 경리 관점 조감: 입금 대기 → 진행 중 → 완료/취소.
@@ -42,6 +51,31 @@ const OD_CLS: Record<string, string> = {
   취소: 'bg-gray-200 text-gray-500',
 };
 
+// ── 입금확인 — 무통장 미입금만(서버 가드 동일). 그 외 전이는 통합 관리 주문내역이 전담. ──
+const receipt = useConfirmPcbOrderReceipt();
+const actionError = ref('');
+const canConfirmReceipt = (item: AdminPcbOrderItemType): boolean =>
+  !item.isPaid && item.settleCase.includes('무통장');
+
+async function confirmReceipt(item: AdminPcbOrderItemType): Promise<void> {
+  if (
+    !window.confirm(
+      `주문 ${item.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`,
+    )
+  ) {
+    return;
+  }
+  actionError.value = '';
+  try {
+    const res = await receipt.mutateAsync({ odId: item.odId, sendMail: true });
+    if (res.data.skipped.length > 0) {
+      actionError.value = `처리되지 않았습니다: ${res.data.skipped[0]?.reason ?? ''} — 목록을 새로고침해 주세요.`;
+    }
+  } catch (e) {
+    actionError.value = e instanceof ApiRequestError ? e.message : '입금확인에 실패했습니다.';
+  }
+}
+
 function openCase(specId: number): void {
   void router.push({
     name: 'admin-pcb-case',
@@ -56,8 +90,11 @@ const fmtDate = (v: string | null): string => (v === null ? '—' : v.slice(0, 1
   <div class="pcb-readable space-y-4">
     <h1 class="text-xl font-bold">PCB 주문·결제</h1>
     <p class="text-sm text-gray-500">
-      주문 축 조감(레거시 이관 주문 포함) — 입금 확인·상태 변경은 코어 주문 관리에서,
-      협력사 발주 시작은 Case 상세에서 합니다.
+      주문 축 조감(레거시 이관 주문 포함) — 무통장 <b>입금확인</b>은 여기서, 그 밖의 상태 변경은
+      통합 관리 주문내역에서, 협력사 발주 시작은 Case 상세에서 합니다.
+    </p>
+    <p v-if="actionError !== ''" class="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+      {{ actionError }}
     </p>
 
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200">
@@ -93,6 +130,7 @@ const fmtDate = (v: string | null): string => (v === null ? '—' : v.slice(0, 1
             <th class="px-4 py-2.5">회원</th>
             <th class="whitespace-nowrap px-4 py-2.5">수량</th>
             <th class="whitespace-nowrap px-4 py-2.5">주문 상태</th>
+            <th class="whitespace-nowrap px-4 py-2.5">결제수단</th>
             <th class="whitespace-nowrap px-4 py-2.5">수납액</th>
             <th class="whitespace-nowrap px-4 py-2.5">발주</th>
             <th class="whitespace-nowrap px-4 py-2.5">주문일</th>
@@ -119,6 +157,7 @@ const fmtDate = (v: string | null): string => (v === null ? '—' : v.slice(0, 1
                 {{ row.odStatus }}
               </span>
             </td>
+            <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">{{ row.settleCase || '—' }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">
               {{ fmtPcbAmount('KRW', row.receiptPrice) }}
             </td>
@@ -134,6 +173,15 @@ const fmtDate = (v: string | null): string => (v === null ? '—' : v.slice(0, 1
             <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(row.orderedAt) }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 text-right">
               <button
+                v-if="canConfirmReceipt(row)"
+                type="button"
+                class="mr-1 rounded-md bg-blue-600 px-2.5 py-[3px] text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                :disabled="receipt.isPending.value"
+                @click.stop="void confirmReceipt(row)"
+              >
+                입금확인
+              </button>
+              <button
                 type="button"
                 class="rounded-md border border-blue-200 px-2.5 py-[3px] text-xs font-semibold text-blue-700 hover:bg-blue-50"
                 @click.stop="openCase(row.specId)"
@@ -143,7 +191,7 @@ const fmtDate = (v: string | null): string => (v === null ? '—' : v.slice(0, 1
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td colspan="9" class="px-4 py-10 text-center text-sm text-gray-400">
+            <td colspan="10" class="px-4 py-10 text-center text-sm text-gray-400">
               해당 상태의 주문이 없습니다.
             </td>
           </tr>

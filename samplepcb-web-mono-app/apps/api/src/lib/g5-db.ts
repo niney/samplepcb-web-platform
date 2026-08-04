@@ -3143,6 +3143,7 @@ export interface PcbOrderSpecRow {
   specId: number;
   odId: string;
   odStatus: string;
+  settleCase: string;
   receiptPrice: number;
   orderedAt: string | null;
 }
@@ -3200,7 +3201,7 @@ export async function listPcbOrderSpecs(params: {
 
   const tabCond = params.tab === 'all' ? '1=1' : PCB_ORDER_TAB_SQL[params.tab];
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT s.id AS spec_id, c.od_id, o.od_status, o.od_receipt_price,
+    `SELECT s.id AS spec_id, c.od_id, o.od_status, o.od_settle_case, o.od_receipt_price,
             DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        ${base} AND ${tabCond}
       ORDER BY o.od_time DESC, s.id DESC
@@ -3214,6 +3215,7 @@ export async function listPcbOrderSpecs(params: {
         specId: Number(row.spec_id),
         odId: String(row.od_id),
         odStatus: String(row.od_status ?? ''),
+        settleCase: String(row.od_settle_case ?? ''),
         receiptPrice: Number(row.od_receipt_price ?? 0),
         orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
       };

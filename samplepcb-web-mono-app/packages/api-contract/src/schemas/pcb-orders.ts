@@ -34,6 +34,7 @@ export const AdminPcbOrderItem = z.object({
   odId: z.string(),
   odStatus: z.string(), // '주문'(미입금)|'입금'|'준비'|'파일검사'|'생산중'|…|'완료'|'취소'
   isPaid: z.boolean(),
+  settleCase: z.string(), // od_settle_case — 무통장만 관리자 수동 입금확인 대상(서버 가드 동일)
   receiptPrice: z.number(), // od_receipt_price 수납액(주문 헤더 단위)
   orderedAt: z.string().nullable(),
   poCount: z.number().int(), // 이 스펙의 협력사 발주서 수(전 회차)
