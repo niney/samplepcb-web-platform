@@ -1269,7 +1269,7 @@ async function downloadOriginal(): Promise<void> {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="admin-case-readable space-y-4">
     <!-- 헤더 -->
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
@@ -1772,10 +1772,10 @@ async function downloadOriginal(): Promise<void> {
 
           <!-- 확정가 = 고객 주문 게이트(D16-1). "선택적 커스텀"이 아니라 필수 단계임이
                보이도록, 미등록 상태를 경고 톤으로 상시 표시한다(사용자 피드백 반영) -->
-          <label class="flex cursor-pointer items-center gap-2 text-xs font-bold text-gray-800">
-            <input type="checkbox" class="size-3.5" :checked="confirmedOverride" @change="toggleConfirmedOverride">
-            확정가 등록
-            <span class="font-medium text-amber-700">— 등록해야 고객 [주문하기]가 열립니다</span>
+          <label class="flex cursor-pointer items-start gap-2 text-xs font-bold text-gray-800">
+            <input type="checkbox" class="mt-0.5 size-3.5 shrink-0" :checked="confirmedOverride" @change="toggleConfirmedOverride">
+            <span class="shrink-0 whitespace-nowrap">확정가 등록</span>
+            <span class="font-medium text-amber-700">— 등록 시 고객 주문 가능</span>
           </label>
           <p v-if="!confirmedOverride" class="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-[16px] text-amber-800">
             ⚠ 확정가 미등록 — 고객은 예상 금액만 볼 수 있고 주문(결제)할 수 없습니다.
@@ -2182,3 +2182,33 @@ async function downloadOriginal(): Promise<void> {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 관리자 상세는 장시간 검토하는 화면이므로 밀도보다 판독성을 우선한다. */
+.admin-case-readable :deep([class~='text-[9px]']) {
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.admin-case-readable :deep([class~='text-[10px]']) {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.admin-case-readable :deep([class~='text-[11px]']) {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.admin-case-readable :deep(.text-xs),
+.admin-case-readable :deep([class~='text-[12px]']) {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.admin-case-readable :deep(.text-sm),
+.admin-case-readable :deep([class~='text-[13px]']) {
+  font-size: 15px;
+  line-height: 22px;
+}
+</style>
