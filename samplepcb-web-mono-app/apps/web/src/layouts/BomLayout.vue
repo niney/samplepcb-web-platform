@@ -19,6 +19,7 @@ import icMenuUploadInactive from '../assets/bom/ic-menu-upload-inactive.svg';
 import icTrailSearchActive from '../assets/bom/ic-trail-search-active.svg';
 import icTrailSearchInactive from '../assets/bom/ic-trail-search.svg';
 import icFile from '../assets/bom/ic-file.svg';
+import icRecentSearch from '../assets/bom/ic-recent-search.svg';
 import promoZip from '../assets/bom/promo-zip.png';
 import promoVideo from '../assets/bom/promo-video.png';
 
@@ -217,7 +218,13 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
               :class="currentQuoteId === q.id ? 'border-bom-recent-active-border bg-bom-recent-active-bg' : 'border-transparent hover:bg-surface-raised'"
             >
               <span class="relative size-[15px] shrink-0 opacity-60" aria-hidden="true">
-                <img :src="icFile" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
+                <img
+                  v-if="q.sourceKind === 'single_search'"
+                  :src="icRecentSearch"
+                  alt=""
+                  class="absolute left-[2.25px] top-[2.25px] size-[10.5px] max-w-none"
+                >
+                <img v-else :src="icFile" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
               </span>
               <span class="truncate font-noto text-[12px] font-normal leading-[14px] text-bom-nav-heading">{{ q.fileName ?? q.title }}</span>
             </RouterLink>
