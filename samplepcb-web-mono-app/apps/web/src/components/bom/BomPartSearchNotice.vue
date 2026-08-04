@@ -22,7 +22,9 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
+  start: [];
   complete: [data: BomPartSearchSupplementResponseType['data']];
+  failed: [];
 }>();
 
 const supplement = useBomPartsSupplement();
@@ -43,10 +45,10 @@ const headline = computed(() => {
 });
 
 watch(
-  () => [props.query, props.needed, props.mode, props.auto] as const,
+  () => [props.query, props.needed, props.auto] as const,
   () => {
     supplement.reset();
-    if (props.auto && props.mode !== 'mpn') requestSupplement(true);
+    if (props.auto) requestSupplement(true);
   },
   { immediate: true },
 );
@@ -56,6 +58,7 @@ function requestSupplement(automatic = false): void {
   const key = `${props.query.trim()}\u001f${String(props.needed)}`;
   if (automatic && lastAutoKey.value === key) return;
   if (automatic) lastAutoKey.value = key;
+  emit('start');
   supplement.mutate(
     {
       q: props.query,
@@ -65,6 +68,9 @@ function requestSupplement(automatic = false): void {
     {
       onSuccess: (response) => {
         emit('complete', response.data);
+      },
+      onError: () => {
+        emit('failed');
       },
     },
   );
@@ -80,7 +86,7 @@ function requestSupplement(automatic = false): void {
     <span v-else-if="supplement.isError.value" class="max-w-[300px] truncate text-state-danger" :title="errorMessage">{{ errorMessage }}</span>
     <span v-else-if="supplement.isSuccess.value" class="whitespace-nowrap text-ink-subtle">공급사 {{ supplement.data.value?.data.total ?? 0 }}개 확인</span>
     <button
-      v-if="canSupplement && (!auto || mode === 'mpn' || supplement.isSuccess.value || supplement.isError.value)"
+      v-if="canSupplement && (!auto || supplement.isSuccess.value || supplement.isError.value)"
       type="button"
       class="h-[28px] shrink-0 rounded-[5px] border border-line-strong bg-search-row px-[9px] text-[10px] font-bold text-ink-muted transition hover:border-brand-soft hover:text-brand-soft disabled:cursor-not-allowed disabled:opacity-50"
       :disabled="disabled || supplement.isPending.value"
@@ -102,10 +108,10 @@ function requestSupplement(automatic = false): void {
     <div>
       <p class="font-bold">{{ headline }}</p>
       <p class="mt-0.5 text-xs leading-5 opacity-80">
-        {{ mode === 'mpn'
-          ? '현재 저장된 구매 조건을 바로 표시합니다. 필요하면 공급사 최신 정보를 다시 확인할 수 있습니다.'
-          : auto
-            ? '공급사 캐시와 API를 이용해 기술 조건과 구매 가능 조건을 다시 확인합니다.'
+        {{ auto
+          ? '공급사 캐시와 API를 이용해 기술 조건과 구매 가능 조건을 다시 확인합니다.'
+          : mode === 'mpn'
+            ? '현재 저장된 구매 조건을 바로 표시합니다. 필요하면 공급사 최신 정보를 다시 확인할 수 있습니다.'
             : '공급사 확인 결과는 카탈로그에 반영된 뒤 선택할 수 있습니다.' }}
       </p>
       <p v-if="supplement.isPending.value" class="mt-1 text-xs font-semibold">공급사별 상위 후보와 구매 조건을 확인하고 있습니다…</p>
@@ -119,7 +125,7 @@ function requestSupplement(automatic = false): void {
       </p>
     </div>
     <button
-      v-if="canSupplement && (!auto || mode === 'mpn' || supplement.isSuccess.value || supplement.isError.value)"
+      v-if="canSupplement && (!auto || supplement.isSuccess.value || supplement.isError.value)"
       type="button"
       class="h-9 shrink-0 rounded-lg border border-amber-300 bg-surface px-3 text-xs font-bold text-amber-900 transition hover:border-amber-500 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
       :disabled="disabled || supplement.isPending.value"

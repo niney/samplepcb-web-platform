@@ -49,6 +49,7 @@ const submittedNeeded = ref(neededSafe.value);
 
 const search = useBomPartsSearch(q, computed(() => true), submittedNeeded);
 const supplierResult = ref<BomPartSearchSupplementResponseType['data'] | null>(null);
+const supplierSearching = ref(q.value !== '');
 const localItems = computed(() => search.data.value?.data.items ?? []);
 const useSupplierItems = computed(() => (supplierResult.value?.items.length ?? 0) > 0);
 const items = computed(() => useSupplierItems.value
@@ -60,6 +61,13 @@ const total = computed(() => useSupplierItems.value
 const pricingContext = computed(() => supplierResult.value?.pricingContext
   ?? search.data.value?.data.pricingContext
   ?? null);
+const initialCatalogLoading = computed(() => search.isFetching.value && search.data.value === undefined);
+const awaitingSupplierResults = computed(() => (
+  search.data.value !== undefined
+  && supplierSearching.value
+  && items.value.length === 0
+));
+const resultsPending = computed(() => initialCatalogLoading.value || awaitingSupplierResults.value);
 
 const cartQuery = useBomSearchCart(computed(() => true));
 const cart = computed(() => cartQuery.data.value?.data ?? null);
@@ -85,22 +93,34 @@ const mobileCartOpen = ref(false);
 const cartItemCount = computed(() => cart.value?.items.length ?? 0);
 
 function submit(): void {
+  const nextQuery = input.value.trim();
+  const nextNeeded = neededSafe.value;
   supplierResult.value = null;
-  q.value = input.value.trim();
-  submittedNeeded.value = neededSafe.value;
+  supplierSearching.value = nextQuery !== ''
+    && (nextQuery !== q.value || nextNeeded !== submittedNeeded.value);
+  q.value = nextQuery;
+  submittedNeeded.value = nextNeeded;
   actionError.value = null;
   void router.replace({ query: q.value === '' ? {} : { q: q.value } });
 }
 
-async function acceptSupplierResult(data: BomPartSearchSupplementResponseType['data']): Promise<void> {
+function beginSupplierSearch(): void {
+  supplierSearching.value = true;
+}
+
+function acceptSupplierResult(data: BomPartSearchSupplementResponseType['data']): void {
+  supplierSearching.value = false;
   if (data.catalog.status === 'completed') {
-    // 카트는 숫자 partId만 받는다. 인제스트·색인이 끝난 뒤 같은 검색을 다시 읽어
-    // 화면 후보와 서버 카탈로그 정체성을 정확히 일치시킨다.
+    // 공통 supplement mutation이 카탈로그 반영 후 parts-search 캐시를 무효화하고
+    // 활성 쿼리를 갱신한다. 여기서 다시 refetch하면 같은 GET이 중복 호출된다.
     supplierResult.value = null;
-    await search.refetch();
     return;
   }
   supplierResult.value = data;
+}
+
+function failSupplierSearch(): void {
+  supplierSearching.value = false;
 }
 
 function mutationMessage(error: unknown): string {
@@ -223,7 +243,9 @@ watch([q, submittedNeeded], () => {
         <div class="flex items-start gap-[16px] font-noto">
           <div>
             <h1 class="font-sans text-[18px] font-medium leading-[21px] text-ink-strong">전자부품 단일 검색</h1>
-            <p class="mt-[4px] font-noto text-[13px] font-medium leading-[16px] text-ink-subtle">검색 결과 - {{ total.toLocaleString('ko-KR') }}개 부품</p>
+            <p class="mt-[4px] font-noto text-[13px] font-medium leading-[16px] text-ink-subtle">
+              {{ resultsPending ? (awaitingSupplierResults ? '공급사 검색 중' : '부품 검색 중') : `검색 결과 - ${total.toLocaleString('ko-KR')}개 부품` }}
+            </p>
           </div>
           <RouterLink :to="{ name: 'bom' }" class="flex h-[32px] items-center gap-[4px] rounded-[6px] border border-brand-soft bg-search-row px-[10px] font-noto text-[14px] font-bold leading-[24px] text-brand-soft hover:bg-surface-brand-soft"><span class="text-[18px] font-normal leading-none">+</span> BOM</RouterLink>
         </div>
@@ -236,7 +258,9 @@ watch([q, submittedNeeded], () => {
             auto
             wait-for-catalog
             compact
+            @start="beginSupplierSearch"
             @complete="acceptSupplierResult"
+            @failed="failSupplierSearch"
           />
         </div>
       </div>
@@ -252,10 +276,10 @@ watch([q, submittedNeeded], () => {
       </form>
 
       <p v-if="actionError !== null" class="mt-[8px] rounded-[5px] border border-red-200 bg-red-50 px-[10px] py-[7px] font-noto text-[11px] leading-[16px] text-red-700" role="alert">{{ actionError }}</p>
-      <div v-if="search.isFetching.value" class="mt-[12px] flex h-[94px] items-center justify-center gap-2 rounded-[8px] border border-line-strong bg-surface font-noto text-[12px] font-medium text-brand" aria-live="polite">
-        <span class="size-4 animate-spin rounded-full border-2 border-line border-t-brand" />카탈로그를 검색하고 있습니다.
+      <div v-if="search.isError.value && search.data.value === undefined" class="mt-[12px] rounded-[8px] border border-red-200 bg-red-50 px-4 py-6 text-center font-noto text-[12px] text-red-700">검색 결과를 불러오지 못했습니다. 잠시 후 다시 검색해 주세요.</div>
+      <div v-else-if="resultsPending" class="mt-[12px] flex h-[94px] items-center justify-center gap-2 rounded-[8px] border border-line-strong bg-surface font-noto text-[12px] font-medium text-brand" aria-live="polite">
+        <span class="size-4 animate-spin rounded-full border-2 border-line border-t-brand" />{{ awaitingSupplierResults ? '공급사에서 부품과 구매 조건을 검색하고 있습니다.' : '카탈로그를 검색하고 있습니다.' }}
       </div>
-      <div v-else-if="search.isError.value" class="mt-[12px] rounded-[8px] border border-red-200 bg-red-50 px-4 py-6 text-center font-noto text-[12px] text-red-700">검색 결과를 불러오지 못했습니다. 잠시 후 다시 검색해 주세요.</div>
       <div v-else-if="items.length === 0" class="mt-[12px] rounded-[8px] border border-dashed border-line-strong bg-surface px-4 py-12 text-center font-noto text-[12px] text-ink-subtle">검색 결과가 없습니다. 품번 또는 규격을 다시 확인해 주세요.</div>
       <BomSearchOfferTable
         v-else

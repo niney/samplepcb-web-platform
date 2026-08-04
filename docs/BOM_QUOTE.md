@@ -566,13 +566,14 @@ Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(node 87:9037)를 픽셀 충실도 �
 사이드바 메뉴·홈 토글의 "단일 검색"을 실라우트로 활성화. 결과는 **BOM 분석 결과 표와
 같은 시각 언어의 테이블**(사용자 지시 — 카탈로그 열람 전용, `?q=` 초기 질의 지원).
 
-- **하이브리드 검색**: `GET /api/bom/parts-search` 는 정확 MPN을 DB/ES에서 즉시 반환한다.
-  정확 MPN이 아니면 단일 검색 화면이 `POST /parts-search/supplement`를 자동 호출해
-  sp-engine의 공급사 캐시/API 상위 후보를 바로 표시한다. sp-vue→sp-engine 직접 연결은 없고
-  인증·일일 한도·계약 경계는 계속 sp-node가 소유한다.
-- **저장과 현재 응답 분리**: 공급사 후보는 DB/ES 인제스트 완료를 기다리지 않고 `inlineOffers`로
-  표시하고, 원본 결과의 카탈로그 반영은 백그라운드에서 진행한다. 반면 견적 부품 변경 화면은
-  영속 `partId`가 필요하므로 `waitForCatalog=true`로 반영 완료 후 목록을 갱신한다.
+- **하이브리드 검색**: `GET /api/bom/parts-search` 로 DB/ES의 로컬 결과를 먼저 반환한다. 단일 검색은
+  정확 MPN을 포함한 모든 확정 검색어에서 `POST /parts-search/supplement`를 기본 1회 자동 호출해
+  sp-engine의 공급사 캐시/API 최신 후보까지 확인한다. sp-vue→sp-engine 직접 연결은 없고 인증·일일
+  한도·계약 경계는 계속 sp-node가 소유한다.
+- **저장과 현재 응답 분리**: 공급사 검색 API는 `inlineOffers` 응답도 지원하지만, 단일 검색과 견적
+  부품 변경 화면은 견적 바구니·선택에 영속 `partId`가 필요하므로 `waitForCatalog=true`로 카탈로그
+  반영 완료 후 `GET /parts-search`를 한 번 갱신한다. 로컬 결과가 있으면 갱신 중에도 목록을 유지하고,
+  로컬 결과가 0건이면 공급사 검색 완료 전까지 빈 결과를 확정 표시하지 않아 화면 점멸을 막는다.
 - **수량·환율 단일 문맥**: sp-node가 요청마다 기존 BOM 실효 환율 스냅샷을 한 번 확정해
   `needed`와 조달 정책으로 sp-engine에 전달한다. 엔진이 MOQ·주문배수·재고·원화 환산 구매 순위를
   계산하며, 응답은 원통화 단가와 `unitPriceKrw/lineTotalKrw`를 함께 제공한다. 공급사 원가격은
