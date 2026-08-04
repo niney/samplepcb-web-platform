@@ -8,6 +8,7 @@ import {
 } from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
 import BomPriceBreaks from './BomPriceBreaks.vue';
+import icSelectCaret from '../../assets/bom/ic-select-caret.svg';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
 import {
   formatLifecycleDate,
@@ -629,13 +630,16 @@ function onQtyInput(event: Event): void {
     <td class="p-0 pt-[13px]">
       <button
         type="button"
-        class="flex h-[38px] w-[150px] items-center justify-between rounded-[6px] border border-line-strong bg-surface-neutral px-[13px] text-[14px] font-bold text-ink-neutral disabled:cursor-not-allowed disabled:opacity-50"
+        class="relative flex h-[38px] w-[150px] items-center rounded-[6px] border border-line-strong bg-surface-neutral px-[13px] text-[14px] font-bold text-ink-neutral disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="!isDraft || editingLocked"
         :title="editingLocked ? EDIT_LOCK_TITLE : `공급사·포장 변경 — ${item.selectedOffer?.packaging ?? '구매 조건 선택'}`"
         @click="emit('open-offers')"
       >
-        <span class="truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '구매 조건 없음') }}</span>
-        <span class="text-[10px] text-gray-400">▾</span>
+        <span class="min-w-0 max-w-[106px] truncate">{{ item.selectedOffer?.packaging ?? (item.selectedOffer !== null ? item.selectedOffer.supplier : catalogInquiry ? '문의 견적' : '구매 조건 없음') }}</span>
+        <!-- Figma 2282:80127 — border-box 기준 7×3.5px caret at x=131, y=18. -->
+        <span class="absolute right-[11px] top-[17px] h-[3.5px] w-[7px]" aria-hidden="true">
+          <img :src="icSelectCaret" alt="" class="absolute -left-[0.75px] -top-[0.75px] h-[5.31066px] w-[8.5px] max-w-none">
+        </span>
       </button>
       <div class="mt-[8px] flex h-[38px] w-[150px] items-center justify-between rounded-[6px] border border-line bg-surface-brand-soft pl-1 pr-3">
         <input
