@@ -8,7 +8,7 @@ import { useBomPanels } from '../bom/usePanels';
 import { useTheme } from '../bom/useTheme';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
-import logoIcon from '../assets/bom/logo-partseyes-icon.png';
+import logoPartseyes from '../assets/bom/logo-partseyes.svg';
 import icFold from '../assets/bom/ic-fold.svg';
 import icMenuBom from '../assets/bom/ic-menu-bom.svg';
 import icMenuSearch from '../assets/bom/ic-menu-search.svg';
@@ -112,9 +112,8 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
     <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-gray-200 bg-surface">
       <!-- 로고 블록은 시안처럼 사이드바 폭(220px)과 정렬 — 구분선이 경계에 온다 -->
       <div class="flex w-[220px] shrink-0 items-center pl-[24px]">
-        <RouterLink :to="{ name: 'bom' }" class="flex items-center gap-[7px]">
-          <img :src="logoIcon" alt="Parts Eyes" class="h-[26px] w-auto">
-          <span class="text-[21px] font-bold tracking-tight text-ink-strong">Parts Eyes</span>
+        <RouterLink :to="{ name: 'bom' }" class="relative top-[1.5px] block h-[26px] w-[150px] shrink-0">
+          <img :src="logoPartseyes" alt="Parts Eyes" class="size-full">
         </RouterLink>
       </div>
       <div class="h-[30px] w-px bg-gray-200" />
