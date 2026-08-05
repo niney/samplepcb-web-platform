@@ -14,6 +14,7 @@ export const ko = {
     greeting: '{nick}님',
     notLoggedIn: '로그인하지 않음',
     admin: '관리자',
+    systemAdmin: '시스템 관리자',
     profile: '프로필',
     account: '회원정보 수정',
     login: '로그인',

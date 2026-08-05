@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
-import { appPath, loginUrl, logoutUrl, memberInfoUrl } from '../lib/auth-urls';
+import { appPath, loginUrl, logoutUrl, memberInfoUrl, systemAdminUrl } from '../lib/auth-urls';
 import { usePartnerAccess } from '../partner/usePartnerAccess';
 import icProfile from '../assets/bom/ic-profile.svg';
 
@@ -122,6 +122,13 @@ onBeforeUnmount(() => {
         >
           {{ $t('admin.title') }}
         </RouterLink>
+        <a
+          v-if="auth.me?.isAdmin"
+          :href="systemAdminUrl()"
+          class="block rounded-lg px-3 py-2 hover:bg-surface-sunken"
+          role="menuitem"
+          @click="closeMenu"
+        >{{ $t('auth.systemAdmin') }}</a>
         <a
           :href="memberInfoUrl()"
           class="mt-1 block border-t border-line-soft px-3 py-2 pt-3 text-ink-muted hover:text-brand"

@@ -14,6 +14,7 @@ export const en = {
     greeting: '{nick}',
     notLoggedIn: 'Not signed in',
     admin: 'Admin',
+    systemAdmin: 'System Admin',
     profile: 'Profile',
     account: 'Edit account',
     login: 'Sign in',
