@@ -1398,6 +1398,11 @@ async function selectCandidate(candidateKey: string, offerKey: string | null): P
   }
 }
 
+async function selectCandidateAndClose(candidateKey: string, offerKey: string | null): Promise<void> {
+  const selected = await selectCandidate(candidateKey, offerKey);
+  if (selected) closeSelectionSurface();
+}
+
 async function updateSearchRequirements(
   requirements: BomQuoteSearchRequirementsBodyType,
 ): Promise<void> {
@@ -1559,8 +1564,7 @@ watch(
 );
 
 async function selectQuoteOffer(candidateKey: string, offerKey: string): Promise<void> {
-  const selected = await selectCandidate(candidateKey, offerKey);
-  if (selected) closeSelectionSurface();
+  await selectCandidateAndClose(candidateKey, offerKey);
 }
 
 function openCatalogOffersFromDrawer(): void {
@@ -2965,7 +2969,7 @@ function fmtAmount(v: number | null): string {
       :needed="candidateItem === null ? 1 : neededQty(candidateItem.bomQty, setQty, spareQty)"
       :usd-krw-rate="rate"
       :has-catalog-part="candidateItem !== null && candidateItem.partId !== null && candidateItem.selectedCandidateKey === null"
-      @select="selectCandidate"
+      @select="selectCandidateAndClose"
       @catalog-select="onCatalogPartSelected"
       @catalog-offers="openCatalogOffersFromDrawer"
       @search-requirements="updateSearchRequirements"
