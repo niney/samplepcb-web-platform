@@ -6,6 +6,7 @@ import type {
   BomTradeDocumentType,
   BomTradePartyType,
 } from '@sp/api-contract';
+import { fmtKstDate } from '@sp/utils';
 
 // 협력사 견적서·거래명세서 공용 A4 표시 컴포넌트. 데이터 조회와 상태 변경 없이
 // 서버가 고정한 문서 스냅샷만 렌더링해 관리자/협력사 출력 결과를 동일하게 유지한다.
@@ -16,7 +17,7 @@ const title = computed(() => (props.data.kind === 'quotation' ? '견 적 서' : 
 const documentNo = computed(() =>
   props.data.kind === 'quotation' ? props.data.quotationNo : props.data.statementNo,
 );
-const issuedDate = computed(() => props.data.issuedAt.slice(0, 10));
+const issuedDate = computed(() => fmtKstDate(props.data.issuedAt));
 const isDraft = computed(() => props.data.kind === 'statement' && props.data.isDraft);
 
 const partyAddress = (party: BomTradePartyType): string =>
@@ -209,7 +210,7 @@ const statementTrace = (item: BomShipmentStatementItemType): string =>
       <p v-if="data.kind === 'statement' && data.isDraft">
         확정 전 Packing List 수량을 기준으로 작성된 초안입니다.
       </p>
-      <p>본 문서는 {{ data.snapshotAt.slice(0, 10) }} 기준으로 생성되었습니다.</p>
+      <p>본 문서는 {{ fmtKstDate(data.snapshotAt) }} 기준으로 생성되었습니다.</p>
     </div>
   </article>
 </template>

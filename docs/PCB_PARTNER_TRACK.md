@@ -277,7 +277,7 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 5. **외화 표시 3값 로직** — 외화 견적은 선정 전 KRW가 null. 목록·모달 전부 `main(통화, 원본, KRW)+sub(입력 원본)` 표시 유틸(레거시 `utils/currency.ts` 이식)로 통일하지 않으면 "전부 0원/–" 사고.
 6. **spec-응답 직렬화 함정(기존 메모)** — 이관 견적 specJson의 `_legacy` 메타는 toClientSpec strip 필수. 신규 RFQ 상세가 spec을 파트너에게 노출할 때 **PII 제거는 서버 책임**(레거시도 백엔드 null 처리) — 주문자 연락처·가격요약을 파트너 응답에서 제거.
 7. **공유 DB 규율** — prisma migrate reset 금지, 마이그레이션은 deploy 방식(기존 메모·BOM 트랙 관례).
-8. **날짜 전용 필드는 KST로 렌더할 것(2026-08-05 실측 결함)** — 납기·출고예정일은 서버가 `parseKstDate`로 **KST 자정**에 앵커해 저장한다. 그 인스턴트의 ISO는 UTC 기준 전날 15:00 이라, 화면이 `iso.slice(0, 10)` 으로 자르면 **하루 앞당겨 보인다**. 표시만의 문제가 아니다 — 발주 모달이 그 값을 `<input type="date">` 에 프리필하므로 저장할 때마다 납기가 하루씩 밀린다(RFQ 08-21 → 발주 08-20 → 재발주 08-19 …). 타임스탬프(발행일·입고일)도 KST 00~09시 사건이 전날로 찍힌다. 공용 `@sp/utils` `fmtKstDate`/`kstDateInput`/`kstToday` 로 통일했다(PCB·BOM·포털·매직링크 일괄). **새 화면에서 날짜에 `slice(0, 10)` 을 쓰지 말 것.**
+8. **날짜 전용 필드는 KST로 렌더할 것(2026-08-05 실측 결함)** — 납기·출고예정일은 서버가 `parseKstDate`로 **KST 자정**에 앵커해 저장한다. 그 인스턴트의 ISO는 UTC 기준 전날 15:00 이라, 화면이 `iso.slice(0, 10)` 으로 자르면 **하루 앞당겨 보인다**. 표시만의 문제가 아니다 — 발주 모달이 그 값을 `<input type="date">` 에 프리필하므로 저장할 때마다 납기가 하루씩 밀린다(RFQ 08-21 → 발주 08-20 → 재발주 08-19 …). 타임스탬프(발행일·입고일)도 KST 00~09시 사건이 전날로 찍힌다. 공용 `@sp/utils` `fmtKstDate`/`kstDateInput`/`kstToday` 로 통일했다(PCB·BOM·포털·매직링크·거래문서 일괄 — 견적서/상업송장 발행일은 문서 무결성 문제라 함께 교정). **새 화면에서 날짜에 `slice(0, 10)` 을 쓰지 말 것.** 단, 이미 KST 날짜를 UTC 자정에 앵커해 둔 값(예: `OrderFilterBar.kstMidnight`, `sp_bom_shipment.shipDate` — D22-6)은 어느 쪽으로 읽어도 같은 날짜라 손댈 필요 없다.
 
 ---
 
@@ -363,7 +363,7 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 - **검증**: **E2E 47 ALL PASS**(실DB — 구간 counts {136,0,195,20607}·합=전체 20938 대조, todo {6,5} 대조 + **이관 포함 시 {330,195}** 로 제외 효과 확인, 대기 큐 행 불변식 4종(이관 0·RFQ 0건·발주 0건·결제 완료·완료/취소 아님), 단계 파생 6종, 마지막 페이지(1031p) 정합, 견적번호·주문번호 검색, to_ship counts·행 불변식, preorder 400 회수 확인). vitest 644+109·`pnpm -r typecheck`·ESLint 0건. 브라우저 실탐방으로 4화면·Case 진입(활성 메뉴·접힘) 확인.
 - **흐름 실검(08-06)**: Q20984(주문 2026080522133120·입금)로 발주 대기 → **발주서 발행**(선정 RFQ 승계 ₩50,000·납기) → EQ/Working 대행 업로드 → EQ 요청·승인 → 생산 시작·완료 → **발송 대기 자동 편입** → 국내 발송(택배·송장) → 입고확인까지 완주. 게이트 정상(파일 없이 EQ 요청 409, 순서 건너뛴 승인·생산 409), 이력 4건 전부 `byRole ADMIN`, 배지가 역할 간에 넘어감(발주·EQ 5→4 · 선적·배송 0→1→0), 진행현황 단계 7→8→10→11.
 - **납기 하루 밀림 교정(08-06)**: 위 실검에서 발견 — §7-8 참조. 공용 `@sp/utils/kst-date`(`fmtKstDate`·`kstDateInput`·`kstToday`, 단위테스트 8) 신설 후 PCB 관리자 6화면·포털 2화면·매직링크·회신 폼과 **SmartBOM 동일 결함 11개 파일**을 일괄 교체. 서버는 원래 맞았으므로 스키마·API 무변경.
-- **후속**: `loadAdminPcbPoWorkItems` 는 여전히 `sp_pcb_po` 전건 로드 + 행별 `resolveEqDelegation`(N+1) — PO 가 쌓이면 SQL 페이지네이션으로 옮겨야 한다(주문·결제·진행현황이 선례). 역할 권한(계정별 메뉴 제한)은 SmartBOM 과 동일하게 후속. 코어 주문 필터의 `OrderFilterBar.toYmd`(로컬 Date → `toISOString().slice(0,10)`)도 같은 −9h 결함이 남아 있다(이번 범위 밖).
+- **후속**: `loadAdminPcbPoWorkItems` 는 여전히 `sp_pcb_po` 전건 로드 + 행별 `resolveEqDelegation`(N+1) — PO 가 쌓이면 SQL 페이지네이션으로 옮겨야 한다(주문·결제·진행현황이 선례). 역할 권한(계정별 메뉴 제한)은 SmartBOM 과 동일하게 후속. 남은 `slice(0, 10)` 은 재능마켓·회원·파트너 목록의 생성일뿐이다(같은 −9h 이지만 업무 판정에 쓰이지 않아 후속). **`OrderFilterBar.toYmd` 는 결함이 아니다** — `kstMidnight()` 이 KST 날짜를 UTC 자정에 앵커해 두므로 UTC 게터·슬라이스가 전부 정합이다(2026-08-06 오인 → 재확인).
 
 ## 10. 조사 자료 색인
 

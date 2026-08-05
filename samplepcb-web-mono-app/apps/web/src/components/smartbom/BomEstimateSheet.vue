@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import type { BomQuotePrintType } from '@sp/api-contract';
 import { smartbomCaseNo } from '../../admin/smartbom';
 import { formatKrw } from '../../lib/format';
+import { fmtKstDate } from '@sp/utils';
 
 // BOM 견적서(A4) 순수 표시 컴포넌트(§6.8) — 거버 EstimateSheet 동형. props 데이터만
 // 뿌리고 fetch 하지 않는다(관리자·고객 모달이 공용). 확정가 없으면 예상가 + "가안" 표기.
@@ -19,9 +20,7 @@ const isDraft = computed(() => props.data.confirmedTotal === null);
 const caseNo = computed(() =>
   smartbomCaseNo(props.data.quoteId, props.data.requestedAt, props.data.createdAt),
 );
-const issuedAt = computed(() =>
-  (props.data.answeredAt ?? new Date().toISOString()).slice(0, 10),
-);
+const issuedAt = computed(() => fmtKstDate(props.data.answeredAt ?? new Date().toISOString()));
 
 // 합계 — 확정 우선, 없으면 예상(가안). 공급가(VAT 별도) → 부가세 10% → 합계.
 const shippingFee = computed(
