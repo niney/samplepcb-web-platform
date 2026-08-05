@@ -90,7 +90,7 @@ function pickFor(row: SearchOfferRow): OfferPick | null {
   return applyQtyToOffer(toOfferInput(row.offer), quantityFor(row), props.usdKrwRate);
 }
 
-function displayPrice(row: SearchOfferRow): { amount: string; currency: string; title: string } | null {
+function displayPrice(row: SearchOfferRow): { amount: string; unit: string; title: string } | null {
   const pick = pickFor(row);
   if (pick === null) return null;
   const converted = pick.unitPriceKrw !== null;
@@ -101,8 +101,8 @@ function displayPrice(row: SearchOfferRow): { amount: string; currency: string; 
     : value.toLocaleString('ko-KR', { maximumFractionDigits: 4 });
   const title = converted && pick.currency !== 'KRW'
     ? `환산 전 ${pick.currency === 'USD' ? '$' : `${pick.currency} `}${pick.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`
-    : `${currency} ${amount}`;
-  return { amount, currency, title };
+    : currency === 'KRW' ? `${amount}원` : `${currency} ${amount}`;
+  return { amount, unit: currency === 'KRW' ? '원' : currency, title };
 }
 
 function supplierName(supplier: string): string {
@@ -232,8 +232,8 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               </td>
               <td class="px-[8px]">
                 <p v-if="displayPrice(row) !== null" class="whitespace-nowrap text-brand-soft" :title="displayPrice(row)?.title">
-                  <span class="mr-[3px] text-[14px] font-normal leading-[16px]">{{ displayPrice(row)?.currency }}</span>
-                  <strong class="font-sans text-[20px] font-black leading-[24px] tabular-nums">{{ displayPrice(row)?.amount }}</strong>
+                  <strong class="font-sans text-[20px] font-bold leading-[24px] tabular-nums text-ink-strong">{{ displayPrice(row)?.amount }}</strong>
+                  <span class="ml-[3px] text-[14px] font-normal leading-[16px]">{{ displayPrice(row)?.unit }}</span>
                 </p>
                 <span v-else class="text-[12px] text-ink-subtle">—</span>
               </td>
