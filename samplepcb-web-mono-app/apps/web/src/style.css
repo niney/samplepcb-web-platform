@@ -98,6 +98,14 @@
   --color-search-cart: #fdfdff;
   --color-search-apply: #545c6c;
   --color-search-input-border: #d3d5dc;
+  --color-search-estimate-bg: #f7f9fc;
+  --color-search-estimate-border: #c9d3df;
+  --color-search-estimate-label: #39404d;
+  --color-search-estimate-amount: #000000;
+  --color-search-total-bg: #f1f8ff;
+  --color-search-total-border: #90c2ff;
+  --color-search-total-label: #000000;
+  --color-search-total-vat: #838fa0;
   --color-line-search-strong: #d3d5dc;
 
   /* 선 */
@@ -205,6 +213,14 @@
   --color-search-cart: #131519;
   --color-search-apply: #909caf;
   --color-search-input-border: #353b46;
+  --color-search-estimate-bg: #101722;
+  --color-search-estimate-border: #3a4656;
+  --color-search-estimate-label: #c6cfdc;
+  --color-search-estimate-amount: #f2f5fa;
+  --color-search-total-bg: #16233c;
+  --color-search-total-border: #4c79b6;
+  --color-search-total-label: #f2f5fa;
+  --color-search-total-vat: #a6b6cb;
   --color-line-search-strong: #2f3949;
 
   /* 선 */

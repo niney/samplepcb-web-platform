@@ -244,8 +244,8 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                 <p class="mt-[2px] truncate text-[11px] font-normal leading-[16px] text-ink-muted" :title="supplierDetail(row)">{{ supplierDetail(row) }}</p>
               </td>
               <td class="px-[8px]">
-                <p v-if="displayPrice(row) !== null" class="whitespace-nowrap text-brand-soft" :title="displayPrice(row)?.title">
-                  <strong class="font-sans text-[20px] font-bold leading-[24px] tabular-nums text-ink-strong">{{ displayPrice(row)?.amount }}</strong>
+                <p v-if="displayPrice(row) !== null" class="whitespace-nowrap font-noto leading-[16px] text-brand-soft" :title="displayPrice(row)?.title">
+                  <strong class="text-[20px] font-bold leading-[16px] tabular-nums">{{ displayPrice(row)?.amount }}</strong>
                   <span class="ml-[3px] text-[14px] font-normal leading-[16px]">{{ displayPrice(row)?.unit }}</span>
                 </p>
                 <span v-else class="text-[12px] text-ink-subtle">—</span>

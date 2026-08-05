@@ -21,6 +21,12 @@ const emit = defineEmits<{
 }>();
 
 type CartTab = 'all' | 'priced' | 'inquiry';
+interface CartLinePrice {
+  amount: string;
+  unit: string | null;
+  priced: boolean;
+}
+
 const tab = ref<CartTab>('all');
 const quantities = ref<Record<string, number>>({});
 const cartMpnTooltipId = 'bom-search-cart-mpn-tooltip';
@@ -70,12 +76,18 @@ function moneyAmount(value: number | null | undefined): string {
     : Math.round(value).toLocaleString('ko-KR');
 }
 
-function linePrice(item: BomQuoteItemType): string {
-  if (item.lineTotalKrw !== null) return `${moneyAmount(item.lineTotalKrw)}원`;
+function linePrice(item: BomQuoteItemType): CartLinePrice {
+  if (item.lineTotalKrw !== null) {
+    return { amount: moneyAmount(item.lineTotalKrw), unit: '원', priced: true };
+  }
   const offer = item.selectedOffer;
-  if (offer === null) return '재고 확인 필요';
+  if (offer === null) return { amount: '재고 확인 필요', unit: null, priced: false };
   const prefix = offer.currency === 'USD' ? '$' : `${offer.currency} `;
-  return `${prefix}${offer.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`;
+  return {
+    amount: `${prefix}${offer.unitPrice.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}`,
+    unit: null,
+    priced: true,
+  };
 }
 
 function tabClass(target: CartTab): string {
@@ -175,29 +187,33 @@ function hideCartMpnTooltip(itemId: string): void {
 
         <div class="mt-[4px] flex items-center justify-between gap-2 text-[11px] leading-[16px]">
           <span class="truncate font-medium" :class="item.selectedOffer === null ? 'text-ink-muted' : 'text-brand-strong'">{{ supplierName(item) }}</span>
-          <strong class="shrink-0 font-normal tabular-nums" :class="item.lineTotalKrw === null ? 'text-ink-muted' : 'text-brand-soft'">{{ linePrice(item) }}</strong>
+          <span v-if="linePrice(item).priced" class="shrink-0 whitespace-nowrap font-noto leading-[16px] text-brand-soft">
+            <strong class="text-[14px] font-bold leading-[16px] tabular-nums">{{ linePrice(item).amount }}</strong>
+            <span v-if="linePrice(item).unit !== null" class="ml-[3px] text-[12px] font-normal leading-[16px]">{{ linePrice(item).unit }}</span>
+          </span>
+          <strong v-else class="shrink-0 whitespace-nowrap font-noto text-[12px] font-normal leading-[16px] text-ink-muted">{{ linePrice(item).amount }}</strong>
         </div>
       </article>
     </div>
 
     <div class="shrink-0 border-t border-line bg-search-cart px-[16px] pb-[16px] pt-[10px]">
-      <h3 class="flex h-[16px] items-center gap-[6px] text-[12px] font-bold leading-[14px] text-ink-strong">
+      <h3 class="flex h-[16px] items-center gap-[6px] font-noto text-[12px] font-bold leading-[14px] text-ink-strong">
         <img :src="estimateTitleIcon" alt="" class="size-[16px] shrink-0">
         예상 견적
       </h3>
 
-      <dl class="mt-[10px] space-y-[8px] rounded-[8px] border border-line-strong bg-surface-sunken px-[12px] py-[12px] text-[12px] leading-[14px]">
-        <div class="flex items-baseline justify-between"><dt class="tracking-[-0.48px] text-ink-soft">단가</dt><dd class="font-sans text-[13px] font-bold tabular-nums text-ink-strong">{{ moneyAmount(cart?.itemsTotal) }} <small v-if="cart?.itemsTotal !== null && cart?.itemsTotal !== undefined" class="text-[10px] font-normal text-ink-muted">원</small></dd></div>
-        <div class="flex items-baseline justify-between"><dt class="tracking-[-0.48px] text-ink-soft">합계</dt><dd class="font-sans text-[13px] font-bold tabular-nums text-ink-strong">{{ moneyAmount(cart?.itemsTotal) }} <small v-if="cart?.itemsTotal !== null && cart?.itemsTotal !== undefined" class="text-[10px] font-normal text-ink-muted">원</small></dd></div>
-        <div class="flex items-baseline justify-between"><dt class="tracking-[-0.48px] text-ink-soft">운송료</dt><dd class="font-sans text-[13px] font-bold tabular-nums text-ink-strong">{{ moneyAmount(cart?.shippingFee) }} <small v-if="cart?.shippingFee !== null && cart?.shippingFee !== undefined" class="text-[10px] font-normal text-ink-muted">원</small></dd></div>
-        <div class="flex items-baseline justify-between"><dt class="tracking-[-0.48px] text-ink-soft">관리비</dt><dd class="font-sans text-[13px] font-bold tabular-nums text-ink-strong">{{ moneyAmount(cart?.managementFee) }} <small v-if="cart?.managementFee !== null && cart?.managementFee !== undefined" class="text-[10px] font-normal text-ink-muted">원</small></dd></div>
+      <dl class="mt-[10px] h-[129px] space-y-[14px] rounded-[8px] border border-search-estimate-border bg-search-estimate-bg px-[12px] py-[14px] text-[12px] leading-[14px]">
+        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">단가</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ moneyAmount(cart?.itemsTotal) }} <small v-if="cart?.itemsTotal !== null && cart?.itemsTotal !== undefined" class="text-[10px] font-normal leading-[14px] text-ink-muted">원</small></dd></div>
+        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">합계</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ moneyAmount(cart?.itemsTotal) }} <small v-if="cart?.itemsTotal !== null && cart?.itemsTotal !== undefined" class="text-[10px] font-normal leading-[14px] text-ink-muted">원</small></dd></div>
+        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">운송료</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ moneyAmount(cart?.shippingFee) }} <small v-if="cart?.shippingFee !== null && cart?.shippingFee !== undefined" class="text-[10px] font-normal leading-[14px] text-ink-muted">원</small></dd></div>
+        <div class="flex items-baseline justify-between"><dt class="font-noto tracking-[-0.48px] text-search-estimate-label">관리비</dt><dd class="font-sans text-[13px] font-bold leading-[14px] tabular-nums text-search-estimate-amount">{{ moneyAmount(cart?.managementFee) }} <small v-if="cart?.managementFee !== null && cart?.managementFee !== undefined" class="text-[10px] font-normal leading-[14px] text-ink-muted">원</small></dd></div>
       </dl>
 
-      <div class="mt-[12px] h-[74px] rounded-[8px] border border-brand-soft bg-surface-brand-soft px-[12px] py-[10px]">
-        <p class="text-[12px] font-medium leading-[14px] text-ink-strong">최종합계 <span class="text-[10px] font-normal text-ink-subtle">(VAT 별도)</span></p>
-        <p class="mt-[11px] text-right font-sans text-brand-soft">
-          <strong class="text-[19px] font-bold leading-[20px] tabular-nums">{{ moneyAmount(cart?.finalTotal) }}</strong>
-          <span v-if="cart?.finalTotal !== null && cart?.finalTotal !== undefined" class="text-[12px]"> 원</span>
+      <div class="mt-[12px] h-[74px] rounded-[8px] border border-search-total-border bg-search-total-bg px-[12px] py-[10px]">
+        <p class="font-noto text-[12px] font-medium leading-[14px] tracking-[-0.44px] text-search-total-label">최종합계 <span class="text-[10px] text-search-total-vat">(VAT 별도)</span></p>
+        <p class="mt-[11px] text-right font-sans leading-[14px] text-brand-soft">
+          <strong class="text-[19px] font-bold leading-[14px] tabular-nums">{{ moneyAmount(cart?.finalTotal) }}</strong>
+          <span v-if="cart?.finalTotal !== null && cart?.finalTotal !== undefined" class="text-[12px] leading-[14px]"> 원</span>
         </p>
       </div>
 
