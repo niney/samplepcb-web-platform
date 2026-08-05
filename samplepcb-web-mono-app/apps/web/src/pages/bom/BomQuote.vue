@@ -81,7 +81,46 @@ const router = useRouter();
 const qc = useQueryClient();
 const quoteId = computed(() => String(route.params.id ?? ''));
 // 상단바 우측 접기 버튼과 공유 — 이 페이지의 우측 패널(AI 분석결과·주문 정보·예상 견적)
-const { rightOpen } = useBomPanels();
+const { rightOpen, compactLeftOpen, compactRightOpen } = useBomPanels();
+const compactPanelCloseButton = ref<HTMLButtonElement | null>(null);
+const COMPACT_PANEL_HINT_KEY = 'bom.rightPanelHintSeen';
+const compactPanelHintVisible = ref(localStorage.getItem(COMPACT_PANEL_HINT_KEY) !== '1');
+
+function dismissCompactPanelHint(): void {
+  if (!compactPanelHintVisible.value) return;
+  compactPanelHintVisible.value = false;
+  localStorage.setItem(COMPACT_PANEL_HINT_KEY, '1');
+}
+
+function openCompactRightPanel(): void {
+  compactLeftOpen.value = false;
+  compactRightOpen.value = true;
+}
+
+function openRightPanelFromEdge(): void {
+  if (window.matchMedia('(min-width: 1280px)').matches) {
+    rightOpen.value = true;
+    dismissCompactPanelHint();
+    return;
+  }
+  openCompactRightPanel();
+}
+
+function closeCompactRightPanel(): void {
+  compactRightOpen.value = false;
+}
+
+function onCompactPanelKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !compactRightOpen.value) return;
+  event.preventDefault();
+  closeCompactRightPanel();
+}
+
+watch(compactRightOpen, (active) => {
+  if (!active) return;
+  dismissCompactPanelHint();
+  void nextTick(() => compactPanelCloseButton.value?.focus());
+});
 
 // 자동 보강(searching) 동안 견적을 3초 폴링 — done 은 매칭 라인과 같은 응답으로
 // 도착하므로(서버가 한 저장으로 커밋) 링거·타임아웃 휴리스틱이 필요 없다
@@ -503,6 +542,7 @@ watch(
   { immediate: true },
 );
 watch(quoteId, () => {
+  compactRightOpen.value = false;
   activeResultSheet.value = 'all';
   sheetManagerOpen.value = false;
   managedSheetIndexes.value = [];
@@ -532,6 +572,19 @@ const averageSetUnitPrice = computed(() =>
 // 재시작·잡 유실은 서버의 게으른 치유(조회 시 수렴)가 처리한다.
 const compareOpen = ref(false);
 const enriching = computed(() => detail.value?.enrichStatus === 'searching');
+const compactPanelAttentionCount = computed(() => (
+  enriching.value
+    ? stats.value.unresolved
+    : stats.value.review + stats.value.unmatched + stats.value.nostock
+));
+const compactPanelAttentionBadge = computed(() => (
+  compactPanelAttentionCount.value > 99 ? '99+' : String(compactPanelAttentionCount.value)
+));
+const compactPanelOpenLabel = computed(() => (
+  compactPanelAttentionCount.value === 0
+    ? '분석 및 견적 패널 열기'
+    : `분석 및 견적 패널 열기, 검토 필요 ${String(compactPanelAttentionCount.value)}개`
+));
 const partDataPreparing = computed(() => detail.value?.partDataStatus === 'preparing');
 // 중간 공급사 결과로 계산된 금액은 최종 합계처럼 오인될 수 있으므로 완료 전에는 숨긴다.
 const pricingPending = computed(() => detail.value?.buildStatus !== 'ready' || enriching.value);
@@ -1249,9 +1302,12 @@ function onPartDataPreparationKeydown(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
+  window.addEventListener('keydown', onCompactPanelKeydown);
   window.addEventListener('keydown', onPartDataPreparationKeydown);
 });
 onBeforeUnmount(() => {
+  compactRightOpen.value = false;
+  window.removeEventListener('keydown', onCompactPanelKeydown);
   window.removeEventListener('keydown', onPartDataPreparationKeydown);
   resultsScrollResizeObserver?.disconnect();
   cancelRowSearchNoticeTimer();
@@ -1842,9 +1898,9 @@ function fmtAmount(v: number | null): string {
     </section>
 
     <!-- 워크벤치 — 시안(87:12875): 좌 매칭 결과 테이블(내부 스크롤) + 우 정보 패널(고정) -->
-    <div v-else-if="detail && detail.buildStatus === 'ready'" class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 bomwide:flex-row bomwide:gap-[24px] bomwide:overflow-visible bomwide:py-[14px] bomwide:pl-[24px] bomwide:pr-0">
+    <div v-else-if="detail && detail.buildStatus === 'ready'" class="bom-quote-workbench flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 xl:flex-row xl:gap-[16px] xl:overflow-visible xl:py-[14px] xl:pl-[16px] xl:pr-0">
       <!-- 좌: 파일명·액션(고정) + 테이블(내부 스크롤) -->
-      <section class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <section class="flex min-h-0 min-w-0 flex-1 flex-col max-md:pb-[68px]">
         <!-- file name + 액션 (87:13178~) -->
         <div class="flex flex-wrap items-start justify-between gap-3 px-1">
           <div class="relative -top-[5px]">
@@ -1983,6 +2039,101 @@ function fmtAmount(v: number | null): string {
               <span class="text-[18px] leading-none">+</span> {{ addWorkspaceOpening ? '준비' : '추가' }}
             </button>
           </div>
+        </div>
+
+        <!-- 모바일 요약 — 태블릿은 우측 엣지 핸들로 패널 존재를 지속적으로 알린다. -->
+        <div
+          v-show="!compactRightOpen"
+          class="fixed left-[10px] right-[10px] z-30 flex min-h-[54px] items-center gap-3 rounded-xl border border-bom-panel-border bg-bom-panel px-3 py-2 shadow-[0_10px_30px_rgba(15,23,42,0.2)] md:hidden"
+          style="bottom: max(10px, env(safe-area-inset-bottom));"
+        >
+          <div class="min-w-0 flex-1">
+            <div class="flex min-w-0 items-center gap-2 text-[11px] font-semibold text-bom-panel-label">
+              <span class="shrink-0 text-bom-panel-heading">AI 분석</span>
+              <span class="truncate">전체 {{ stats.total }} · 검토 {{ stats.review }} · 미매칭 {{ stats.unmatched }}</span>
+            </div>
+            <p class="mt-0.5 truncate text-[12px] font-bold tabular-nums text-brand">
+              {{ pricingPending ? '가격 확인 중…' : `예상 ${fmtAmount(finalTotal)}원` }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="h-8 shrink-0 rounded-lg bg-brand-strong px-3 text-[12px] font-bold text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            :aria-expanded="compactRightOpen"
+            aria-controls="bom-quote-side-panel"
+            @click="openCompactRightPanel"
+          >
+            분석·견적 상세
+          </button>
+        </div>
+
+        <!-- 자주 쓰는 분석 필터는 패널을 열지 않고도 적용할 수 있다. -->
+        <div class="mt-2 flex shrink-0 gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin] xl:hidden" aria-label="BOM 분석 결과 빠른 필터">
+          <button
+            type="button"
+            class="h-7 shrink-0 rounded-full border px-3 text-[11px] font-semibold transition"
+            :class="!resultFiltersActive ? 'border-blue-600 bg-blue-600 text-white' : 'border-line-strong bg-surface text-ink-muted hover:border-blue-400 hover:text-blue-700'"
+            :aria-pressed="!resultFiltersActive"
+            aria-controls="bom-results-table"
+            @click="clearResultFilters"
+          >
+            전체 {{ stats.total }}
+          </button>
+          <button
+            type="button"
+            class="h-7 shrink-0 rounded-full border px-3 text-[11px] font-semibold transition disabled:cursor-default disabled:opacity-40"
+            :class="resultMatchFilter === 'matched' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-line-strong bg-surface text-ink-muted hover:border-emerald-400 hover:text-emerald-700'"
+            :disabled="stats.matched === 0"
+            :aria-pressed="resultMatchFilter === 'matched'"
+            aria-controls="bom-results-table"
+            @click="toggleResultMatchFilter('matched')"
+          >
+            매칭 {{ stats.matched }}
+          </button>
+          <button
+            type="button"
+            class="h-7 shrink-0 rounded-full border px-3 text-[11px] font-semibold transition disabled:cursor-default disabled:opacity-40"
+            :class="resultMatchFilter === 'review' ? 'border-orange-600 bg-orange-600 text-white' : 'border-line-strong bg-surface text-ink-muted hover:border-orange-400 hover:text-orange-700'"
+            :disabled="enriching || stats.review === 0"
+            :aria-pressed="!enriching && resultMatchFilter === 'review'"
+            aria-controls="bom-results-table"
+            @click="toggleResultMatchFilter('review')"
+          >
+            검토 {{ stats.review }}
+          </button>
+          <button
+            type="button"
+            class="h-7 shrink-0 rounded-full border px-3 text-[11px] font-semibold transition disabled:cursor-default disabled:opacity-40"
+            :class="resultMatchFilter === 'unmatched' ? 'border-rose-500 bg-rose-500 text-white' : 'border-line-strong bg-surface text-ink-muted hover:border-rose-400 hover:text-rose-700'"
+            :disabled="enriching || stats.unmatched === 0"
+            :aria-pressed="!enriching && resultMatchFilter === 'unmatched'"
+            aria-controls="bom-results-table"
+            @click="toggleResultMatchFilter('unmatched')"
+          >
+            {{ enriching ? '확인 중' : '미매칭' }} {{ enriching ? stats.unresolved : stats.unmatched }}
+          </button>
+          <button
+            type="button"
+            class="h-7 shrink-0 rounded-full border px-3 text-[11px] font-semibold transition disabled:cursor-default disabled:opacity-40"
+            :class="resultMatchFilter === 'nostock' ? 'border-yellow-600 bg-yellow-500 text-white' : 'border-line-strong bg-surface text-ink-muted hover:border-yellow-400 hover:text-yellow-700'"
+            :disabled="stats.nostock === 0"
+            :aria-pressed="resultMatchFilter === 'nostock'"
+            aria-controls="bom-results-table"
+            @click="toggleResultMatchFilter('nostock')"
+          >
+            재고 {{ stats.nostock }}
+          </button>
+          <button
+            type="button"
+            class="h-7 shrink-0 rounded-full border px-3 text-[11px] font-semibold transition disabled:cursor-default disabled:opacity-40"
+            :class="resultMatchFilter === 'excluded' ? 'border-slate-600 bg-slate-600 text-white' : 'border-line-strong bg-surface text-ink-muted hover:border-slate-400 hover:text-slate-700'"
+            :disabled="enriching || stats.excluded === 0"
+            :aria-pressed="!enriching && resultMatchFilter === 'excluded'"
+            aria-controls="bom-results-table"
+            @click="toggleResultMatchFilter('excluded')"
+          >
+            제외 {{ stats.excluded }}
+          </button>
         </div>
 
         <!-- 자동 보강 진행 배너 — 완료되면 서버가 재매칭한 결과가 폴링으로 자동 반영된다 -->
@@ -2226,9 +2377,84 @@ function fmtAmount(v: number | null): string {
         </div>
       </section>
 
-      <!-- 우: Figma right side bar(93:23505)의 치수·위계를 라이트 테마로 번역 -->
-      <aside v-show="rightOpen" class="w-full shrink-0 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] bomwide:-mt-[14px] bomwide:h-[calc(100%+28px)] bomwide:min-h-0 bomwide:w-[286px] bomwide:overflow-y-auto">
-        <div class="flex min-h-full flex-col rounded-xl border border-bom-panel-border bg-bom-panel px-[15px] pb-[15px] pt-[20px] shadow-[0_4px_18px_rgba(19,33,68,0.06)] bomwide:rounded-none bomwide:border-y-0 bomwide:border-r-0 bomwide:shadow-none">
+      <!-- 닫혀 있어도 패널의 위치와 검토 대상 수를 인지할 수 있는 태블릿·접힌 데스크톱 엣지 핸들 -->
+      <button
+        v-if="!compactRightOpen"
+        type="button"
+        :class="rightOpen ? 'xl:hidden' : 'xl:flex'"
+        class="fixed right-0 top-1/2 z-[35] hidden h-[128px] w-[42px] -translate-y-1/2 flex-col items-center justify-between rounded-l-[14px] border-y border-l border-blue-700 bg-brand-strong px-1 py-2.5 text-white shadow-[-6px_6px_20px_rgba(15,23,42,0.22)] transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 md:flex"
+        :aria-label="compactPanelOpenLabel"
+        :title="compactPanelOpenLabel"
+        :aria-expanded="false"
+        aria-controls="bom-quote-side-panel"
+        @click="openRightPanelFromEdge"
+      >
+        <span
+          v-if="compactPanelAttentionCount > 0"
+          class="grid min-h-6 min-w-6 place-items-center rounded-full bg-orange-500 px-1 text-[10px] font-extrabold leading-none text-white shadow-sm"
+          aria-hidden="true"
+        >{{ compactPanelAttentionBadge }}</span>
+        <span v-else class="grid size-6 place-items-center rounded-full bg-white/15 text-[10px] font-bold" aria-hidden="true">AI</span>
+        <span class="text-center text-[11px] font-extrabold leading-[16px]" aria-hidden="true">분석<br>견적</span>
+        <span class="text-[19px] font-bold leading-none" aria-hidden="true">‹</span>
+      </button>
+
+      <!-- 최초 1회만 엣지 핸들의 용도를 설명한다. -->
+      <div
+        v-if="compactPanelHintVisible && !compactRightOpen"
+        class="fixed right-[52px] top-1/2 z-[35] hidden w-[250px] -translate-y-1/2 rounded-xl border border-blue-200 bg-surface p-3.5 shadow-[0_12px_32px_rgba(15,23,42,0.2)] md:block xl:hidden"
+        role="region"
+        aria-label="분석 및 견적 패널 안내"
+      >
+        <button
+          type="button"
+          class="absolute right-2 top-2 grid size-6 place-items-center rounded-md text-[15px] text-ink-muted hover:bg-surface-raised hover:text-ink-strong"
+          aria-label="패널 안내 닫기"
+          @click="dismissCompactPanelHint"
+        >
+          ×
+        </button>
+        <p class="pr-6 text-[13px] font-extrabold text-ink-strong">오른쪽에 분석·견적 패널이 있습니다</p>
+        <p class="mt-1 text-[11px] leading-[17px] text-ink-muted">AI 분석 결과, 주문 수량과 예상 견적을 확인할 수 있습니다.</p>
+        <button
+          type="button"
+          class="mt-2.5 h-8 rounded-lg bg-brand-strong px-3 text-[11px] font-bold text-white hover:bg-blue-700"
+          @click="openCompactRightPanel"
+        >
+          패널 열어보기
+        </button>
+      </div>
+
+      <!-- 축소 화면에서는 표를 가리지 않는 기본 닫힘 오버레이로 전환한다. -->
+      <div
+        v-if="compactRightOpen"
+        class="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-[1px] xl:hidden"
+        aria-hidden="true"
+        @click="closeCompactRightPanel"
+      />
+
+      <!-- 우: 데스크톱 사이드바 / 태블릿 우측 드로어 / 모바일 바텀시트 -->
+      <aside
+        id="bom-quote-side-panel"
+        :class="[
+          compactRightOpen ? 'flex' : 'hidden',
+          rightOpen ? 'xl:flex' : 'xl:hidden',
+        ]"
+        class="bom-quote-responsive-panel fixed inset-x-0 bottom-0 z-50 h-[85dvh] max-h-[720px] min-h-0 w-full shrink-0 overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] md:inset-x-auto md:right-0 md:top-[58px] md:h-auto md:max-h-none md:w-[360px] xl:static xl:-mt-[14px] xl:h-[calc(100%+28px)] xl:min-h-0 xl:w-[260px] xl:overflow-y-auto"
+        :role="compactRightOpen ? 'dialog' : 'complementary'"
+        :aria-modal="compactRightOpen ? 'true' : undefined"
+        aria-label="BOM 분석 및 예상 견적"
+      >
+        <button
+          ref="compactPanelCloseButton"
+          type="button"
+          class="absolute right-3 top-3 z-10 grid size-8 place-items-center rounded-lg border border-line bg-surface text-[20px] leading-none text-ink-muted shadow-sm hover:bg-surface-raised hover:text-ink-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand xl:hidden"
+          aria-label="분석 및 견적 패널 닫기"
+          @click="closeCompactRightPanel"
+        >
+          ×
+        </button>
+        <div class="flex min-h-full w-full flex-col rounded-t-[16px] border border-bom-panel-border bg-bom-panel px-[15px] pb-[15px] pt-[52px] shadow-[-10px_0_30px_rgba(15,23,42,0.16)] md:rounded-bl-[16px] md:rounded-tl-[16px] md:rounded-tr-none xl:rounded-none xl:border-y-0 xl:border-r-0 xl:pt-[20px] xl:shadow-none">
           <!-- 회신(answered) — 회신 완료 상태면 내용이 없어도 박스를 보여 상태를 설명한다 -->
           <div v-if="detail.status === 'answered' || detail.answerNote !== null || detail.confirmedTotal !== null" class="mb-[18px] rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12px]">
             <p v-if="detail.answerNote" class="whitespace-pre-wrap leading-[18px] text-emerald-900">{{ detail.answerNote }}</p>
@@ -2277,10 +2503,10 @@ function fmtAmount(v: number | null): string {
               AI 분석결과
               <span v-if="showResultSheetTabs" class="ml-auto max-w-[120px] truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-600" :title="activeResultSheetLabel">{{ activeResultSheetLabel }}</span>
             </h2>
-            <div class="mt-[10px] grid grid-cols-[123px_123px] gap-[8px]">
+            <div class="mt-[10px] grid grid-cols-2 gap-[8px]">
               <button
                 type="button"
-                class="relative flex h-[51px] w-[123px] min-w-0 cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-[rgba(66,116,207,0.4)] bg-bom-status-card pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#2359bb] after:to-transparent hover:bg-[rgba(66,116,207,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4274cf] focus-visible:ring-offset-1"
+                class="relative flex h-[51px] w-full min-w-0 cursor-pointer items-center justify-between overflow-hidden rounded-[8px] border border-[rgba(66,116,207,0.4)] bg-bom-status-card pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#2359bb] after:to-transparent hover:bg-[rgba(66,116,207,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4274cf] focus-visible:ring-offset-1"
                 :aria-pressed="!resultFiltersActive"
                 :aria-label="`전체 ${String(stats.total)}개 행 보기`"
                 aria-controls="bom-results-table"
@@ -2296,7 +2522,7 @@ function fmtAmount(v: number | null): string {
               </button>
               <button
                 type="button"
-                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#069762] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00ce87] focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] w-full min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#069762] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00ce87] focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="resultMatchFilter === 'matched' ? 'cursor-pointer border-[#00ce87] bg-[rgba(0,206,135,0.1)]' : stats.matched > 0 ? 'cursor-pointer border-[rgba(0,206,135,0.4)] bg-bom-status-card hover:bg-[rgba(0,206,135,0.06)]' : 'border-[rgba(0,206,135,0.4)] bg-bom-status-card'"
                 :disabled="stats.matched === 0"
                 :aria-pressed="resultMatchFilter === 'matched'"
@@ -2313,7 +2539,7 @@ function fmtAmount(v: number | null): string {
               </button>
               <button
                 type="button"
-                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#f06300] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6900] focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] w-full min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#f06300] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6900] focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="resultMatchFilter === 'review' ? 'cursor-pointer border-[#ff6900] bg-[rgba(255,105,0,0.1)]' : !enriching && stats.review > 0 ? 'cursor-pointer border-[rgba(255,105,0,0.4)] bg-bom-status-card hover:bg-[rgba(255,105,0,0.06)]' : 'border-[rgba(255,105,0,0.4)] bg-bom-status-card'"
                 :disabled="enriching || stats.review === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'review'"
@@ -2331,7 +2557,7 @@ function fmtAmount(v: number | null): string {
               <!-- 보강 진행 중엔 Checking(파랑) — 최종 미매칭 판정과 구분 -->
               <button
                 type="button"
-                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] w-full min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="[
                   enriching
                     ? 'cursor-wait border-[rgba(66,116,207,0.4)] bg-bom-status-card after:from-[#2359bb] focus-visible:ring-[#4274cf]'
@@ -2359,7 +2585,7 @@ function fmtAmount(v: number | null): string {
               </button>
               <button
                 type="button"
-                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#b8a900] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d2c000] focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] w-full min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#b8a900] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d2c000] focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="resultMatchFilter === 'nostock' ? 'cursor-pointer border-[#d2c000] bg-[rgba(226,207,0,0.15)]' : stats.nostock > 0 ? 'cursor-pointer border-[rgba(190,175,12,0.4)] bg-bom-status-card hover:bg-[rgba(226,207,0,0.08)]' : 'border-[rgba(190,175,12,0.4)] bg-bom-status-card'"
                 :disabled="stats.nostock === 0"
                 :aria-pressed="resultMatchFilter === 'nostock'"
@@ -2378,7 +2604,7 @@ function fmtAmount(v: number | null): string {
               </button>
               <button
                 type="button"
-                class="relative flex h-[51px] w-[123px] min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#777] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#777] focus-visible:ring-offset-1 disabled:cursor-default"
+                class="relative flex h-[51px] w-full min-w-0 items-center justify-between overflow-hidden rounded-[8px] border pl-[9px] pr-[7px] text-left transition-colors after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-gradient-to-r after:from-[#777] after:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#777] focus-visible:ring-offset-1 disabled:cursor-default"
                 :class="resultMatchFilter === 'excluded' ? 'cursor-pointer border-[#777] bg-[rgba(119,119,119,0.1)]' : !enriching && stats.excluded > 0 ? 'cursor-pointer border-[rgba(119,119,119,0.4)] bg-bom-status-card hover:bg-[rgba(119,119,119,0.06)]' : 'border-[rgba(119,119,119,0.4)] bg-bom-status-card'"
                 :disabled="enriching || stats.excluded === 0"
                 :aria-pressed="!enriching && resultMatchFilter === 'excluded'"
@@ -2795,3 +3021,16 @@ function fmtAmount(v: number | null): string {
     />
   </div>
 </template>
+
+<style scoped>
+@media (min-width: 1440px) {
+  .bom-quote-workbench {
+    column-gap: 24px;
+    padding-left: 24px;
+  }
+
+  .bom-quote-responsive-panel {
+    width: 286px;
+  }
+}
+</style>

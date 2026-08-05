@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { useBomQuote, useMyBomQuotes, usePatchBomQuote } from '../bom/useBom';
@@ -32,8 +32,24 @@ const auth = useAuthStore();
 
 // 사이드바 접기 — 좌(메뉴)/우(페이지별 우측 패널) 토글. 상세 페이지의 정보 패널
 // (AI 분석결과·주문 정보·예상 견적)도 같은 rightOpen 을 공유한다(usePanels 싱글턴).
-const { leftOpen, rightOpen } = useBomPanels();
+const { leftOpen, rightOpen, compactLeftOpen, compactRightOpen } = useBomPanels();
 const { isDark, toggleTheme } = useTheme();
+
+// 1600px 미만에서는 좌측 탐색을 먼저 드로어로 전환해 표와 우측 분석 패널에 공간을 준다.
+// 우측 정보 패널은 1280px까지 본문에 유지하고, 그 미만에서만 드로어/바텀시트가 된다.
+const leftPanelWideMedia = window.matchMedia('(min-width: 1600px)');
+const rightPanelWideMedia = window.matchMedia('(min-width: 1280px)');
+const leftPanelWide = ref(leftPanelWideMedia.matches);
+const rightPanelWide = ref(rightPanelWideMedia.matches);
+const compactLeftCloseButton = ref<HTMLButtonElement | null>(null);
+const onLeftPanelWideChange = (event: MediaQueryListEvent): void => {
+  leftPanelWide.value = event.matches;
+  if (event.matches) compactLeftOpen.value = false;
+};
+const onRightPanelWideChange = (event: MediaQueryListEvent): void => {
+  rightPanelWide.value = event.matches;
+  if (event.matches) compactRightOpen.value = false;
+};
 
 // Recent file — 남은 사이드바 높이에 맞춰 최신 견적을 최대한 채우고, 전체 이력 화면 진입점은 항상 유지한다.
 const list = useMyBomQuotes(ref(1), computed(() => auth.isLoggedIn), { pageSize: 50 });
@@ -47,6 +63,9 @@ const recent = computed(() => (list.data.value?.data.items ?? []).slice(0, recen
 const recentTotal = computed(() => list.data.value?.data.total ?? 0);
 
 onMounted(() => {
+  leftPanelWideMedia.addEventListener('change', onLeftPanelWideChange);
+  rightPanelWideMedia.addEventListener('change', onRightPanelWideChange);
+  window.addEventListener('keydown', onShellPanelKeydown);
   recentResizeObserver = new ResizeObserver(([entry]) => {
     if (entry === undefined || entry.contentRect.height <= 0) return;
     recentCapacity.value = Math.max(
@@ -58,6 +77,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  leftPanelWideMedia.removeEventListener('change', onLeftPanelWideChange);
+  rightPanelWideMedia.removeEventListener('change', onRightPanelWideChange);
+  window.removeEventListener('keydown', onShellPanelKeydown);
   recentResizeObserver?.disconnect();
 });
 
@@ -99,6 +121,7 @@ async function toggleProcurementMode(): Promise<void> {
 
 const onSearch = computed(() => route.name === 'bom-search');
 const onHistory = computed(() => route.name === 'bom-history');
+const onQuote = computed(() => route.name === 'bom-quote');
 const onBomPrimary = computed(() => !onSearch.value && !onHistory.value);
 const onSearchLanding = computed(() =>
   onSearch.value
@@ -108,6 +131,51 @@ const fullBleedContent = computed(() =>
   route.name === 'bom-quote' || (onSearch.value && !onSearchLanding.value),
 );
 const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding.value);
+const effectiveLeftOpen = computed(() => (
+  leftPanelWide.value ? leftOpen.value : compactLeftOpen.value
+));
+const effectiveRightOpen = computed(() => (
+  onQuote.value && !rightPanelWide.value ? compactRightOpen.value : rightOpen.value
+));
+
+function closeCompactLeftPanel(): void {
+  compactLeftOpen.value = false;
+}
+
+function toggleLeftPanel(): void {
+  if (!leftPanelWide.value) {
+    compactRightOpen.value = false;
+    compactLeftOpen.value = !compactLeftOpen.value;
+    return;
+  }
+  leftOpen.value = !leftOpen.value;
+}
+
+function toggleRightPanel(): void {
+  compactLeftOpen.value = false;
+  if (onQuote.value && !rightPanelWide.value) {
+    compactRightOpen.value = !compactRightOpen.value;
+    return;
+  }
+  rightOpen.value = !rightOpen.value;
+}
+
+function onShellPanelKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !compactLeftOpen.value) return;
+  event.preventDefault();
+  closeCompactLeftPanel();
+}
+
+watch(compactLeftOpen, (active) => {
+  if (active) void nextTick(() => compactLeftCloseButton.value?.focus());
+});
+
+watch(onQuote, (active) => {
+  if (!active) compactRightOpen.value = false;
+});
+watch(() => route.fullPath, () => {
+  compactLeftOpen.value = false;
+});
 </script>
 
 <template>
@@ -125,10 +193,12 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
       <button
         type="button"
         class="ml-[12px] grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
-        :title="leftOpen ? '사이드바 접기' : '사이드바 펼치기'"
-        @click="leftOpen = !leftOpen"
+        :title="effectiveLeftOpen ? '사이드바 접기' : '사이드바 펼치기'"
+        :aria-expanded="effectiveLeftOpen"
+        aria-controls="bom-left-navigation"
+        @click="toggleLeftPanel"
       >
-        <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="leftOpen ? '' : '-scale-x-100'">
+        <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="effectiveLeftOpen ? '' : '-scale-x-100'">
       </button>
       <!-- 견적별 조달 모드 — 기술 적합성은 동일하고 양산에서만 안전한 Reel 구매 조건을 우선한다. -->
       <button
@@ -179,17 +249,43 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
         <button
           type="button"
           class="grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
-          :title="rightOpen ? '패널 접기' : '패널 펼치기'"
-          @click="rightOpen = !rightOpen"
+          :title="effectiveRightOpen ? '패널 접기' : '패널 펼치기'"
+          :aria-expanded="effectiveRightOpen"
+          @click="toggleRightPanel"
         >
-          <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="rightOpen ? '-scale-x-100' : ''">
+          <img :src="icFold" alt="" class="size-[22px] transition-transform" :class="effectiveRightOpen ? '-scale-x-100' : ''">
         </button>
       </div>
     </header>
 
     <div class="flex min-h-0 flex-1">
+      <div
+        v-if="compactLeftOpen"
+        class="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[1px] min-[1600px]:hidden"
+        aria-hidden="true"
+        @click="closeCompactLeftPanel"
+      />
       <!-- left side bar (87:9485) — 라이트 치환 -->
-      <aside v-show="leftOpen" class="hidden w-[220px] shrink-0 flex-col border-r border-bom-sidebar-border bg-bom-sidebar pt-[35px] lg:flex">
+      <aside
+        id="bom-left-navigation"
+        :class="[
+          compactLeftOpen ? 'flex' : 'hidden',
+          leftOpen ? 'min-[1600px]:flex' : 'min-[1600px]:hidden',
+        ]"
+        class="fixed bottom-0 left-0 top-[58px] z-50 w-[220px] shrink-0 flex-col border-r border-bom-sidebar-border bg-bom-sidebar pt-[35px] shadow-[8px_0_28px_rgba(15,23,42,0.18)] min-[1600px]:static min-[1600px]:z-auto min-[1600px]:shadow-none"
+        :role="compactLeftOpen ? 'dialog' : 'complementary'"
+        :aria-modal="compactLeftOpen ? 'true' : undefined"
+        aria-label="BOM 탐색 메뉴"
+      >
+        <button
+          ref="compactLeftCloseButton"
+          type="button"
+          class="absolute right-2 top-2 grid size-7 place-items-center rounded-md text-[18px] leading-none text-ink-muted hover:bg-surface-raised hover:text-ink-strong min-[1600px]:hidden"
+          aria-label="BOM 탐색 메뉴 닫기"
+          @click="closeCompactLeftPanel"
+        >
+          ×
+        </button>
         <RouterLink :to="{ name: 'bom' }" class="relative mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onBomPrimary ? 'bg-bom-nav-active-bg' : 'hover:bg-surface-raised'">
           <span class="relative size-[18px] shrink-0" aria-hidden="true">
             <img :src="onBomPrimary ? icMenuBomActive : icMenuBomInactive" alt="" class="absolute left-[3px] top-[1.5px] h-[15px] w-[12.2px] max-w-none">
