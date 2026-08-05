@@ -128,7 +128,7 @@ describe('SmartBOM Case 영구 삭제 실행 순서', () => {
       operation({
         $queryRaw: mocks.quoteLock,
         spBomPo: { deleteMany: mocks.poDeleteMany },
-        spBomCaseDeleteAudit: { create: mocks.auditCreate },
+        spDeleteAudit: { create: mocks.auditCreate },
         spFile: { deleteMany: mocks.fileDeleteMany },
         spBomQuote: { delete: mocks.quoteDelete },
       }),

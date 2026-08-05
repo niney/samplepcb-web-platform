@@ -678,12 +678,13 @@ export async function purgeBomCase(
         where: { refType: QUOTE_FILE_REF_TYPE, refId: quote.id },
       });
       if (body.mode === 'audited') {
-        await tx.spBomCaseDeleteAudit.create({
+        await tx.spDeleteAudit.create({
           data: {
-            quoteId: quote.id,
+            subjectType: 'bom_case',
+            subjectId: quote.id.toString(),
             title: quote.title,
             mbId: quote.mbId,
-            quoteStatus: quote.status,
+            subjectStatus: quote.status,
             actorMbId: actor.mbId,
             actorIp: actor.ip,
             reason: body.reason,

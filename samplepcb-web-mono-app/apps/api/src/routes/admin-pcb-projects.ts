@@ -7,6 +7,7 @@ import {
   AdminConfirmPriceBody,
   AdminConfirmPriceResponse,
   AdminDeleteBatchBody,
+  AdminDeleteExecuteBody,
   AdminDeletePreviewResponse,
   AdminDeleteResponse,
   AdminEstimateResponse,
@@ -42,6 +43,12 @@ import { buildEstimateEmail } from '../lib/estimate-email';
 import { kstDateStr } from '../lib/kst';
 import { sendMail } from '../lib/mailer';
 import { prisma } from '../lib/prisma';
+import {
+  judgePcbCaseDelete,
+  loadPcbTrackFacts,
+  remainingBlockers,
+  type PcbTrackFacts,
+} from '../lib/pcb-case-delete';
 import { purgeQuoteData, removeCartRow } from '../lib/quote-delete';
 import { signedThumbUrl } from '../lib/thumb-url';
 
@@ -54,6 +61,9 @@ import { signedThumbUrl } from '../lib/thumb-url';
 
 const ProjectIdParams = z.object({ id: z.string().regex(/^\d+$/) });
 const FileIdParams = z.object({ fileId: z.string().regex(/^\d+$/) });
+
+// 협력 트랙 사실이 없는(= 한 번도 진입하지 않은) 스펙의 기본값.
+const EMPTY_TRACK: PcbTrackFacts = { rfqs: 0, pos: 0, shipments: 0, attachments: 0, sentRfqs: 0 };
 
 // Prisma 컬럼은 string — 계약의 리터럴 유니온으로 총함수 내로잉(직렬화 실패 방지).
 const asOrderCategory = (v: string): 'sample' | 'mass' => (v === 'mass' ? 'mass' : 'sample');
@@ -735,20 +745,44 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         }
       }
 
+      // 협력 트랙 사실(RFQ·발주·선적·첨부) 배치 집계 — 차단·경고 판정의 입력.
+      const trackFacts = await loadPcbTrackFacts(specs.map((s) => s.id));
+      const selectedQuoteIdSet = new Set(specs.map((s) => s.quoteId));
+      const unselectedSiblingCountOf = (info: OrderInfo | null): number =>
+        info === null
+          ? 0
+          : info.siblingCarts.filter((sib) => !selectedQuoteIdSet.has(sib.ioId)).length;
+
       const items = specs.map((spec) => {
         const state: CartState =
           spec.ctId !== null ? (cartStates.get(spec.ctId) ?? 'none') : 'none';
         const info = spec.ctId !== null ? (orderInfoByCtId.get(spec.ctId) ?? null) : null;
-        const deletable = !(info?.isPaid ?? false);
+        const track = trackFacts.get(spec.id.toString()) ?? EMPTY_TRACK;
+        const judgement = judgePcbCaseDelete({
+          spec,
+          cartState: state,
+          order: info,
+          track,
+          unselectedSiblingCount: unselectedSiblingCountOf(info),
+        });
         return {
           projectId: Number(spec.id),
           projectName: spec.projectName,
           cartState: state,
-          deletable,
-          blockReason: deletable ? null : ('PAID_ORDER' as const),
+          deletable: judgement.blockReasons.length === 0,
+          blockReason: judgement.blockReasons[0] ?? null,
+          blockReasons: judgement.blockReasons,
+          warnings: judgement.warnings,
           fileCount: fileCountByRef.get(spec.id.toString()) ?? 0,
-          removesCartRow: state === 'cart',
-          deletesOrder: state === 'ordered' && info !== null && !info.isPaid,
+          pcb: {
+            rfqs: track.rfqs,
+            pos: track.pos,
+            shipments: track.shipments,
+            attachments: track.attachments,
+          },
+          isLegacy: judgement.isLegacy,
+          removesCartRow: judgement.removesCartRow,
+          deletesOrder: judgement.deletesOrder,
           odId: info?.odId ?? null,
           odStatus: info?.odStatus ?? null,
         };
@@ -809,6 +843,13 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       const totalFileCount = items
         .filter((i) => i.deletable)
         .reduce((sum, i) => sum + i.fileCount, 0);
+      // 선택분 전체 요약 — 모달이 "무엇이 막고 무엇을 각오해야 하는지"를 한 번에 읽는다.
+      const blockReasons = [...new Set(items.flatMap((i) => i.blockReasons))];
+      const warnings = [...new Set(items.flatMap((i) => i.warnings))];
+      // 강제 해제로 살릴 수 있는 건 = 차단이 PAID_ORDER 하나뿐인 건.
+      const forceableCount = items.filter(
+        (i) => i.blockReasons.length === 1 && i.blockReasons[0] === 'PAID_ORDER',
+      ).length;
 
       return {
         result: true as const,
@@ -820,6 +861,9 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             deletableCount,
             blockedCount: items.length - deletableCount,
             totalFileCount,
+            blockReasons,
+            warnings,
+            forceableCount,
           },
         },
       };
@@ -836,12 +880,13 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
     '/pcb-projects/delete',
     {
       schema: {
-        body: AdminDeleteBatchBody,
+        body: AdminDeleteExecuteBody,
         response: { 200: AdminDeleteResponse },
       },
     },
     async (request) => {
-      const { ids } = request.body;
+      const { ids, reason } = request.body;
+      const force = request.body.forceDeletePaidOrder === true;
       const specs = await prisma.spOrderSpec.findMany({
         where: { id: { in: ids.map((id) => BigInt(id)) } },
       });
@@ -855,6 +900,10 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           orderInfoByCtId.set(spec.ctId, await getOrderInfoByCtId(spec.ctId));
         }
       }
+      // ⚠ 차단 판정은 프리뷰가 아니라 **여기서 다시** 한다 — 프리뷰 이후 발주·선적이
+      //   생겼을 수 있고, 프리뷰를 거치지 않은 직접 호출도 막아야 한다.
+      const trackFacts = await loadPcbTrackFacts(specs.map((s) => s.id));
+      const selectedQuoteIdSet = new Set(specs.map((s) => s.quoteId));
 
       const processedOrderIds = new Set<string>();
       const results: AdminDeleteResultItemType[] = [];
@@ -865,19 +914,44 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         const projectId = Number(spec.id);
         let orderDeleted = false;
         let cartRemoved = false;
+        const judgement = judgePcbCaseDelete({
+          spec,
+          cartState: state,
+          order: info,
+          track: trackFacts.get(spec.id.toString()) ?? EMPTY_TRACK,
+          unselectedSiblingCount:
+            info === null
+              ? 0
+              : info.siblingCarts.filter((sib) => !selectedQuoteIdSet.has(sib.ioId)).length,
+        });
+        const blockers = remainingBlockers(judgement.blockReasons, force);
         try {
-          if (info?.isPaid === true) {
-            results.push({ projectId, outcome: 'blocked', orderDeleted: false, cartRemoved: false });
+          if (blockers.length > 0) {
+            results.push({
+              projectId,
+              outcome: 'blocked',
+              blockReason: blockers[0] ?? null,
+              orderDeleted: false,
+              cartRemoved: false,
+            });
             continue;
           }
           if (state === 'ordered' && info !== null) {
             if (!processedOrderIds.has(info.odId)) {
-              const outcome = await deleteUnpaidOrder(info.odId, request.user.mbId, request.ip);
+              // 결제 주문은 강제 해제(force)일 때만 — allowPaymentEvidence 로 코어 가드 통과.
+              const outcome = await deleteUnpaidOrder(
+                info.odId,
+                request.user.mbId,
+                request.ip,
+                undefined,
+                force ? { allowPaymentEvidence: true } : undefined,
+              );
               if (outcome === 'paid' || outcome === 'shared') {
                 // 레이스: 프리뷰 후 결제 확정됨 — 차단
                 results.push({
                   projectId,
                   outcome: 'blocked',
+                  blockReason: outcome === 'paid' ? 'PAID_ORDER' : 'SHARED_ORDER',
                   orderDeleted: false,
                   cartRemoved: false,
                 });
@@ -894,24 +968,46 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             await removeCartRow(spec);
             cartRemoved = true;
           }
-          await purgeQuoteData(spec);
-          results.push({ projectId, outcome: 'deleted', orderDeleted, cartRemoved });
-          request.log.warn(
-            {
-              audit: 'admin_quote_delete',
-              actor: request.user.mbId,
-              projectId,
-              mbId: spec.mbId,
-              odId: info?.odId ?? null,
-              receiptPrice: info?.receiptPrice ?? 0,
-              orderDeleted,
-              cartRemoved,
+          // 감사 원장 먼저 — spec 이 사라진 뒤엔 스냅샷을 만들 수 없다(FK 없음, 남는다).
+          await prisma.spDeleteAudit.create({
+            data: {
+              subjectType: 'pcb_case',
+              subjectId: spec.id.toString(),
+              title: spec.projectName,
+              mbId: spec.mbId ?? '',
+              subjectStatus: spec.quoteStatus,
+              actorMbId: request.user.mbId,
+              actorIp: request.ip,
+              reason,
+              snapshot: {
+                cartState: state,
+                odId: info?.odId ?? null,
+                odStatus: info?.odStatus ?? null,
+                receiptPrice: info?.receiptPrice ?? 0,
+                forceDeletePaidOrder: force,
+                isLegacy: judgement.isLegacy,
+                warnings: [...judgement.warnings],
+                pcb: { ...(trackFacts.get(spec.id.toString()) ?? EMPTY_TRACK) },
+              } satisfies Prisma.InputJsonValue,
             },
-            '관리자 견적 완전삭제',
-          );
+          });
+          await purgeQuoteData(spec);
+          results.push({
+            projectId,
+            outcome: 'deleted',
+            blockReason: null,
+            orderDeleted,
+            cartRemoved,
+          });
         } catch (err) {
           request.log.error({ err, projectId }, '관리자 견적 완전삭제 실패(배치 건별)');
-          results.push({ projectId, outcome: 'failed', orderDeleted, cartRemoved });
+          results.push({
+            projectId,
+            outcome: 'failed',
+            blockReason: null,
+            orderDeleted,
+            cartRemoved,
+          });
         }
       }
 

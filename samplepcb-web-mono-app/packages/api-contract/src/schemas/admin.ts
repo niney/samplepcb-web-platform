@@ -276,14 +276,73 @@ export const AdminDeleteBatchBody = z.object({
 });
 export type AdminDeleteBatchBodyType = z.infer<typeof AdminDeleteBatchBody>;
 
+/** 실행 바디 — 프리뷰(위 Body)와 달리 되돌릴 수 없는 실행이라 사유·확인을 요구한다.
+ *  감사 원장 sp_delete_audit(subjectType='pcb_case')에 건별로 남는다. */
+export const AdminDeleteExecuteBody = AdminDeleteBatchBody.extend({
+  reason: z.string().trim().min(2).max(1000),
+  acknowledgeIrreversible: z.literal(true),
+  /** PAID_ORDER 차단만 해제한다. PO_ISSUED·SHIPMENT_EXISTS·SHARED_ORDER 는 우회 불가. */
+  forceDeletePaidOrder: z.boolean().optional(),
+});
+export type AdminDeleteExecuteBodyType = z.infer<typeof AdminDeleteExecuteBody>;
+
+/** 견적 상태보다 우선하는 거래·협력 무결성 차단(BOM §Case 삭제와 같은 위계).
+ *  ⚠ 우회(강제 삭제)는 PAID_ORDER 하나뿐이다 — 결제는 우리 DB 안의 문제지만
+ *  발주·선적은 협력사와 합의된 기록이라 관리자 체크 하나로 넘길 수 없다. */
+export const AdminDeleteBlockReason = z.enum([
+  'PAID_ORDER', // 결제 완료 주문(강제 해제 가능)
+  'PO_ISSUED', // 협력사 발주서 존재 — 발주 취소 먼저
+  'SHIPMENT_EXISTS', // 선적 문서 존재 — 물류 정리 먼저
+  'SHARED_ORDER', // 같은 주문에 선택되지 않은 형제 견적이 있음
+]);
+export type AdminDeleteBlockReasonType = z.infer<typeof AdminDeleteBlockReason>;
+
+export const ADMIN_DELETE_BLOCK_TEXT: Record<AdminDeleteBlockReasonType, string> = {
+  PAID_ORDER:
+    '결제(입금)가 확인된 주문입니다. 강제 삭제를 선택하면 주문·결제 기록까지 함께 지웁니다.',
+  PO_ISSUED:
+    '협력사 발주서가 있습니다. 금액·납기가 합의된 문서라 Case 상세에서 발주를 먼저 취소해 주세요.',
+  SHIPMENT_EXISTS:
+    '선적(발송) 문서가 있습니다. 물류가 이미 움직인 건이라 선적을 먼저 정리해 주세요.',
+  SHARED_ORDER:
+    '같은 주문에 선택되지 않은 다른 견적이 있습니다. 그 견적까지 함께 선택하거나 주문에서 분리해 주세요.',
+};
+
+/** 삭제해도 되지만 되돌릴 수 없는 부수효과 — 실행 전 1차 경고 레이어에 표시한다. */
+export const AdminDeleteWarning = z.enum([
+  'RFQ_EMAILS_REMAIN', // 이미 발송된 견적요청 메일·매직링크는 회수되지 않는다
+  'PCB_ATTACHMENTS_DELETED', // EQ·Working·상업송장·AWB 첨부가 영구 삭제된다
+  'UNPAID_ORDER_DELETED', // 단독 미입금 주문·장바구니 행도 함께 삭제된다
+  'LEGACY_CASE', // 레거시 이관 건 — 원장 대조 근거가 사라진다
+]);
+export type AdminDeleteWarningType = z.infer<typeof AdminDeleteWarning>;
+
+export const ADMIN_DELETE_WARNING_TEXT: Record<AdminDeleteWarningType, string> = {
+  RFQ_EMAILS_REMAIN: '이미 발송된 협력사 견적요청 메일과 매직링크는 회수되지 않습니다.',
+  PCB_ATTACHMENTS_DELETED: 'EQ·Working·상업송장 등 협력 트랙 첨부가 영구 삭제됩니다.',
+  UNPAID_ORDER_DELETED: '단독 미입금 주문과 연결 장바구니 행도 함께 영구 삭제합니다.',
+  LEGACY_CASE: '레거시에서 이관된 견적입니다 — 삭제하면 이관 원장과의 대조 근거가 사라집니다.',
+};
+
 // 건별 삭제 판정(프리뷰)
 export const AdminDeletePreviewItem = z.object({
   projectId: z.number(),
   projectName: z.string(),
   cartState: z.enum(['none', 'cart', 'ordered']),
-  deletable: z.boolean(), // false = 결제완료 주문이라 삭제 불가(차단)
-  blockReason: z.enum(['PAID_ORDER']).nullable(),
+  deletable: z.boolean(), // false = 차단 사유가 하나 이상 있음
+  /** 대표 차단 사유(표시용) — 전체는 blockReasons. */
+  blockReason: AdminDeleteBlockReason.nullable(),
+  blockReasons: z.array(AdminDeleteBlockReason),
+  warnings: z.array(AdminDeleteWarning),
   fileCount: z.number(), // 삭제될 sp_file(거버·썸네일) 수 = 파일서버 실파일 수
+  /** PCB 협력 트랙 동반 삭제분 — 화면이 "무엇이 함께 사라지는지" 말하는 근거. */
+  pcb: z.object({
+    rfqs: z.number().int().nonnegative(),
+    pos: z.number().int().nonnegative(),
+    shipments: z.number().int().nonnegative(),
+    attachments: z.number().int().nonnegative(), // EQ·선적 첨부 파일 수
+  }),
+  isLegacy: z.boolean(),
   removesCartRow: z.boolean(), // 담김(cart) → 장바구니 행 제거 동반
   deletesOrder: z.boolean(), // 미입금 주문 → 주문(g5_shop_order)까지 삭제 동반
   odId: z.string().nullable(), // 주문됨이면 연결된 주문번호
@@ -312,6 +371,11 @@ export const AdminDeletePreviewResponse = z.object({
       deletableCount: z.number(),
       blockedCount: z.number(),
       totalFileCount: z.number(),
+      /** 선택분 전체에서 모인 차단·경고(중복 제거) — 모달 요약 레이어가 읽는다. */
+      blockReasons: z.array(AdminDeleteBlockReason),
+      warnings: z.array(AdminDeleteWarning),
+      /** 강제 해제 체크로 살릴 수 있는 건수(= PAID_ORDER 만 걸린 건). */
+      forceableCount: z.number().int().nonnegative(),
     }),
   }),
 });
@@ -321,6 +385,8 @@ export type AdminDeletePreviewResponseType = z.infer<typeof AdminDeletePreviewRe
 export const AdminDeleteResultItem = z.object({
   projectId: z.number(),
   outcome: z.enum(['deleted', 'blocked', 'failed']),
+  /** blocked 일 때 왜 막혔는지 — 프리뷰 이후 상태가 바뀐 레이스도 이 값으로 드러난다. */
+  blockReason: AdminDeleteBlockReason.nullable(),
   orderDeleted: z.boolean(), // 미입금 주문(g5_shop_order)까지 삭제됨
   cartRemoved: z.boolean(), // 담김 장바구니 행 제거됨
 });

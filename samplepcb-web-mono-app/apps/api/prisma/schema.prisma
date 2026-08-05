@@ -61,6 +61,7 @@ model SpOrderSpec {
   updatedAt     DateTime  @updatedAt
   pcbRfqs       SpPcbRfq[] // PCB 파트너 트랙(docs/PCB_PARTNER_TRACK.md) — 스펙 삭제 시 cascade
   pcbPos        SpPcbPo[]
+  pcbShipments  SpPcbShipment[]
 
   @@index([mbId, status])
   @@index([quoteId])
@@ -565,21 +566,27 @@ model SpBomQuote {
 // 관리자 Case 영구 삭제의 최소 감사 원장. 삭제 대상과 FK를 맺으면 cascade로 함께
 // 사라지므로 quoteId는 의도적으로 느슨한 참조다. "감사기록 없이 초기화" 모드는
 // 이 행을 만들지 않는다(서버/DB 백업·외부 메일 흔적까지 없음을 뜻하지는 않음).
-model SpBomCaseDeleteAudit {
-  id          BigInt   @id @default(autoincrement())
-  quoteId     BigInt
-  title       String   @db.VarChar(191)
-  mbId        String   @db.VarChar(60)
-  quoteStatus String   @db.VarChar(16)
-  actorMbId   String   @db.VarChar(191)
-  actorIp     String   @db.VarChar(64)
-  reason      String   @db.Text
-  snapshot    Json
-  createdAt   DateTime @default(now())
+// 영구(하드) 삭제 감사 원장 — **트랙 횡단 공용**(sp_ 접두사만 = 횡단 관례).
+// 삭제 대상과 FK 를 두지 않아 강제 삭제 뒤에도 감사행만 남는다. "감사기록 없이
+// 초기화" 모드는 애플리케이션이 행을 만들지 않는다.
+// ⚠ 범위는 테이블 이름이 아니라 subjectType 이 말한다 — 회원·주문 삭제가 붙어도
+//   이름을 다시 바꾸지 않는다(sp_mail_log 가 이름만 공용이고 quoteId 에 묶인 반면교사).
+model SpDeleteAudit {
+  id            BigInt   @id @default(autoincrement())
+  subjectType   String   @db.VarChar(24) // bom_case | pcb_case (확장: member | order …)
+  subjectId     String   @db.VarChar(64) // BigInt·UUID·od_id(varchar) 를 모두 담게 문자열
+  title         String   @db.VarChar(191)
+  mbId          String   @db.VarChar(60) // 대상 소유자
+  subjectStatus String   @db.VarChar(16) // 삭제 시점 상태
+  actorMbId     String   @db.VarChar(191)
+  actorIp       String   @db.VarChar(64)
+  reason        String   @db.Text
+  snapshot      Json
+  createdAt     DateTime @default(now())
 
-  @@index([quoteId, createdAt])
+  @@index([subjectType, subjectId, createdAt])
   @@index([actorMbId, createdAt])
-  @@map("sp_bom_case_delete_audit")
+  @@map("sp_delete_audit")
 }
 
 // BOM 추출 실행 — sp-engine은 계산 서비스이며, 완료 결과의 영속 단일 진실은 sp-node가 소유한다.
@@ -1337,7 +1344,11 @@ model SpPcbPo {
 model SpPcbShipment {
   id                 BigInt    @id @default(autoincrement())
   poId               BigInt    @unique // 대표(생성) 발주서
-  specId             BigInt // 대표의 스펙(워크큐 조회 편의)
+  // 대표의 스펙(워크큐 조회 편의) + **삭제 cascade 앵커**. 관계가 없던 동안 스펙을
+  // 영구 삭제하면 RFQ·발주는 cascade 로 사라지는데 선적만 남아, 선적 워크큐에
+  // 조작 불가능한 유령 행으로 영구히 떴다(2026-08-06 실측 → 관계 신설).
+  specId             BigInt
+  spec               SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
   mode               String    @default("international") @db.VarChar(16) // international|domestic
   status             String    @db.VarChar(20) // BOM 코드사전(preparing|requested|…|delivered)
   receiverKind       String    @default("admin") @db.VarChar(8) // admin|md

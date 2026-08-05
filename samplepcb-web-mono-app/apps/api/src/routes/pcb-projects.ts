@@ -28,6 +28,7 @@ import {
 import type { CartState } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
 import { getGerberPriceMode } from '../lib/sp-config';
+import { loadPcbTrackFacts } from '../lib/pcb-case-delete';
 import { purgeQuoteData, removeCartRow } from '../lib/quote-delete';
 import { signedThumbUrl } from '../lib/thumb-url';
 
@@ -773,6 +774,18 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           result: true as const,
           data: { projectId: Number(spec.id), status: 'deleted' as const },
         };
+      }
+
+      // ⚠ 협력 트랙 가드 — 보관함 건이라도 관리자가 협력사 RFQ·발주를 진행했다면 영구
+      //   삭제는 막는다. RFQ 는 주문 전(비담김) 스펙에도 보낼 수 있어(D10 게이트) 고객이
+      //   보관함에서 한 번 더 지우면 협력사에 메일이 나간 견적요청이 통째로 cascade 로
+      //   사라졌다(2026-08-06 실측). 관리자 삭제의 PO_ISSUED·SHIPMENT_EXISTS 차단과 같은
+      //   위계 — 상대가 있는 기록은 고객 단독으로 없앨 수 없다.
+      const track = (await loadPcbTrackFacts([spec.id])).get(spec.id.toString());
+      if (track !== undefined && track.rfqs + track.pos + track.shipments > 0) {
+        return reply
+          .status(409)
+          .send({ result: false, error: 'PARTNER_TRACK_ACTIVE' });
       }
 
       // 하드 삭제 — 실파일 먼저 → 전부 성공 시에만 DB(순서 불변식은 purgeQuoteData 캡슐화).

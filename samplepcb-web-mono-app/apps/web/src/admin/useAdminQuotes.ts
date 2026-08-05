@@ -163,13 +163,38 @@ export function useDeletePreview() {
 }
 
 // 배치 완전삭제 — 성공 시 ['admin','quotes'] 접두 무효화(목록·상세·rfq 뱃지 갱신).
+// 사유·확인 체크는 서버 계약(AdminDeleteExecuteBody)이 요구한다 — 감사 원장에 남는다.
+// PCB 원장(RFQ·발주·선적)도 함께 사라지므로 그쪽 캐시도 비운다.
+export interface DeleteQuotesVars {
+  ids: number[];
+  reason: string;
+  forceDeletePaidOrder?: boolean;
+}
+
 export function useDeleteQuotes() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (ids: number[]) =>
-      apiSend('POST', `${apiRoutes.adminPcbProjects}/delete`, { ids }, AdminDeleteResponse),
+    mutationFn: (vars: DeleteQuotesVars) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbProjects}/delete`,
+        {
+          ids: vars.ids,
+          reason: vars.reason,
+          acknowledgeIrreversible: true,
+          ...(vars.forceDeletePaidOrder === true ? { forceDeletePaidOrder: true } : {}),
+        },
+        AdminDeleteResponse,
+      ),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'pcbCase'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'pcbRfq'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'pcbPo'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'pcbShipment'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'pcbOrder'] }),
+      ]);
     },
   });
 }

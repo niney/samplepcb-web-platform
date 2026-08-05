@@ -264,6 +264,8 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 | D7 | 레거시 데이터 이관? | **미이관** | §5.6 |
 | D8 | 회수 자료 커밋? | **전부 커밋** | 보고서+docs/legacy-smartbom/ 4종 |
 
+**D13 (2026-08-06) — 견적 영구 삭제의 협력 트랙 차단 + 감사 원장 공용화.** BOM Case 삭제(§bom-case-delete)를 복제하지 않고 PCB 실정에 맞게 이식한다. ① **차단 확장** — 기존 `PAID_ORDER` 에 `PO_ISSUED`·`SHIPMENT_EXISTS`·`SHARED_ORDER` 추가. **우회(강제) 체크는 `PAID_ORDER` 하나뿐** — 결제는 우리 DB 안의 문제지만 발주·선적은 협력사와 합의된 기록이라 관리자 체크 하나로 넘길 수 없고, Case 상세에서 발주 취소·선적 정리를 먼저 해야 한다(사용자 결정). ② **경고 4종**(`RFQ_EMAILS_REMAIN`·`PCB_ATTACHMENTS_DELETED`·`UNPAID_ORDER_DELETED`·`LEGACY_CASE`) + 사유 필수 + 최종확인 체크. PCB 는 모수가 2만 건이라 BOM 의 단건 2단계 모달이 아니라 **배치 프리뷰를 강화**하는 형태다. ③ **감사 원장 공용화** — `sp_bom_case_delete_audit` → **`sp_delete_audit`**(트랙 접두사 없음 = 횡단 관례) + `quoteId` → `subjectType`+`subjectId` 중립화. 범위는 테이블 이름이 아니라 `subjectType` 이 말한다(이름만 공용이고 `quoteId` 에 묶인 `sp_mail_log` 가 반면교사).
+
 **D12 (2026-08-05) — 워크큐 대기 큐 원칙 + 이관분 제외.** 각 역할 워크큐의 **첫 탭 = 그 역할이 시작해야 할 대기 큐**, 배지 = 그 수 + 진행 중 내 차례의 **합산**. 대기 큐(요청 대기·발주 대기·발송 대기)에서는 **레거시 이관분(`specJson._legacy`)을 제외**한다(사용자 결정). 근거: 이관 주문은 레거시에서 이미 RFQ·발주가 처리됐지만 그 이력은 이관 대상이 아니어서(§2.4·5.6), 제외하지 않으면 요청 대기 330·발주 대기 195건이 영구히 눌러앉아 실제 처리 대상 6·5건이 묻힌다(2026-08-05 실측). 제외는 **재촉 목록에서만** — 진행현황·주문·결제에는 그대로 보이고 Case 상세 RFQ/발주 패널도 열려 있어(D10) 필요하면 언제든 진행할 수 있다. 사용자 원칙("완전히 완료된 건이 아니면 레거시로도 PCB 기능 이용 가능")과 같은 방향.
 
 ---
@@ -364,6 +366,43 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 - **흐름 실검(08-06)**: Q20984(주문 2026080522133120·입금)로 발주 대기 → **발주서 발행**(선정 RFQ 승계 ₩50,000·납기) → EQ/Working 대행 업로드 → EQ 요청·승인 → 생산 시작·완료 → **발송 대기 자동 편입** → 국내 발송(택배·송장) → 입고확인까지 완주. 게이트 정상(파일 없이 EQ 요청 409, 순서 건너뛴 승인·생산 409), 이력 4건 전부 `byRole ADMIN`, 배지가 역할 간에 넘어감(발주·EQ 5→4 · 선적·배송 0→1→0), 진행현황 단계 7→8→10→11.
 - **납기 하루 밀림 교정(08-06)**: 위 실검에서 발견 — §7-8 참조. 공용 `@sp/utils/kst-date`(`fmtKstDate`·`kstDateInput`·`kstToday`, 단위테스트 8) 신설 후 PCB 관리자 6화면·포털 2화면·매직링크·회신 폼과 **SmartBOM 동일 결함 11개 파일**을 일괄 교체. 서버는 원래 맞았으므로 스키마·API 무변경.
 - **후속**: `loadAdminPcbPoWorkItems` 는 여전히 `sp_pcb_po` 전건 로드 + 행별 `resolveEqDelegation`(N+1) — PO 가 쌓이면 SQL 페이지네이션으로 옮겨야 한다(주문·결제·진행현황이 선례). 역할 권한(계정별 메뉴 제한)은 SmartBOM 과 동일하게 후속. 남은 `slice(0, 10)` 은 재능마켓·회원·파트너 목록의 생성일뿐이다(같은 −9h 이지만 업무 판정에 쓰이지 않아 후속). **`OrderFilterBar.toYmd` 는 결함이 아니다** — `kstMidnight()` 이 KST 날짜를 UTC 자정에 앵커해 두므로 UTC 게터·슬라이스가 전부 정합이다(2026-08-06 오인 → 재확인).
+
+### P3.7 구현 기록 (2026-08-06 — 견적 영구 삭제의 협력 트랙 안전장치)
+
+배경: "BOM 에 있는 삭제 기능을 PCB 에도"(사용자). 조사해 보니 PCB 에도 배치 삭제
+(`/pcb-projects/delete-preview`·`/delete`)가 이미 있었지만 BOM 보다 한 세대 이전 설계였고,
+협력 트랙이 생기면서 **세 군데가 새고 있었다**(전부 실측):
+① 차단 판정이 `PAID_ORDER` 하나뿐이라 **발주서가 나가 생산 중인 건도 미입금이면 삭제**됐다.
+② `purgeQuoteData` 가 `refType='sp_order_spec'` 만 지워 **EQ·선적 첨부가 파일서버에 영구 잔류**.
+③ `SpPcbShipment` 만 spec 관계가 없어 **선적 행이 남아 선적 워크큐에 유령 행**으로 떴다.
+그리고 조사 중 넷째가 나왔다 — ④ **고객 삭제 경로에 협력 가드가 전무**했다. RFQ 는 주문 전
+스펙에도 보낼 수 있어(D10), 고객이 보관함 건을 한 번 더 지우면 협력사에 메일이 나간
+견적요청이 통째로 cascade 로 사라졌다.
+
+- **결정 추가**: **D13**(§6 표 아래) — 차단 확장·경고 레이어·감사 원장 공용화.
+- **스키마**(마이그레이션 `20260806090000`): `sp_bom_case_delete_audit` → **`sp_delete_audit`**
+  RENAME(기존 감사행 보존) + `subjectType`·`subjectId`·`subjectStatus` 중립화 · `sp_pcb_shipment.specId`
+  에 **FK ON DELETE CASCADE** 신설(고아 선적 선정리 포함). ⚠ RENAME 은 구 코드가 옛 이름을
+  참조하므로 **코드와 함께 배포**해야 한다.
+- **계약**: `AdminDeleteBlockReason`(4종)·`AdminDeleteWarning`(4종) + 각 설명 사전 · 프리뷰 item 에
+  `blockReasons`·`warnings`·`pcb{rfqs,pos,shipments,attachments}`·`isLegacy` · summary 에
+  `blockReasons`·`warnings`·`forceableCount` · 신설 `AdminDeleteExecuteBody`(사유 필수 +
+  `acknowledgeIrreversible` + `forceDeletePaidOrder`) · 결과 item 에 `blockReason`.
+- **서버**: 신설 `lib/pcb-case-delete.ts` — `loadPcbTrackFacts`(배치 집계, N+1 회피)·`judgePcbCaseDelete`
+  ·`remainingBlockers`. **프리뷰와 실행이 같은 함수로 판정**한다(둘이 갈라지지 않게 + 프리뷰를
+  거치지 않은 직접 호출도 막게). 실행은 건별로 `sp_delete_audit`(subjectType='pcb_case') 에
+  스냅샷·사유·행위자·IP 를 남긴 뒤 삭제한다(로그 warn 대체). `purgeQuoteData` 는 PCB 첨부
+  (`sp_pcb_po_eq`·`sp_pcb_shipment`)를 실파일→DB 순서로 함께 정리 — 차단 덕에 API 경로로는
+  도달하지 않는 **방어선**이라 단위테스트로 검증한다. 고객 라우트에 `PARTNER_TRACK_ACTIVE` 409.
+- **웹**: `DeleteQuoteModal` 에 차단 사유별 안내·경고 레이어·협력 집계 배지(`협력 R/P/S`)·이관
+  배지·**사유 입력·최종확인 체크**·결제 강제 해제 체크(있을 때만). 강제 체크를 켜면 "결제만
+  걸린 건"이 삭제 대상으로 옮겨오는 계산까지 서버 규칙과 동일하게 미러.
+- **검증**: **E2E 31 ALL PASS**(실DB 시드 3건 — 차단 판정·협력 집계·경고·바디 검증 400·강제
+  체크로 발주 차단 우회 불가·감사행 기록·**고객 경로 409**·선적 FK cascade·차단 해제 후 삭제),
+  단위 4(`quote-delete.test.ts` — 첨부 수집 순서·트랜잭션 포함·불필요 쿼리 없음·파일서버 실패 시
+  DB 무변경). vitest 648+117 · typecheck · ESLint 0건.
+- **후속**: 선적 문서 자체를 지우는 경로는 아직 없다(SHIPMENT_EXISTS 를 풀려면 필요) — A/S
+  회차(P4)와 함께 설계. BOM 삭제도 같은 감사 테이블을 쓰지만 차단·경고 세트는 트랙별로 다르다.
 
 ## 10. 조사 자료 색인
 
