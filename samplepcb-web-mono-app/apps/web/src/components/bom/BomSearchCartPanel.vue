@@ -63,7 +63,7 @@ function moneyAmount(value: number | null | undefined): string {
 }
 
 function linePrice(item: BomQuoteItemType): string {
-  if (item.lineTotalKrw !== null) return `KRW ${moneyAmount(item.lineTotalKrw)}`;
+  if (item.lineTotalKrw !== null) return `${moneyAmount(item.lineTotalKrw)}원`;
   const offer = item.selectedOffer;
   if (offer === null) return '재고 확인 필요';
   const prefix = offer.currency === 'USD' ? '$' : `${offer.currency} `;
