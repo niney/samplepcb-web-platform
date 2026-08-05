@@ -71,6 +71,9 @@
   --color-bom-mode-border: #cdd7e5;
   --color-bom-mode-active: #0e6efd;
   --color-bom-mode-inactive: #37393e;
+  --color-bom-landing-toggle: #ffffff;
+  --color-bom-landing-toggle-active: #061023;
+  --color-bom-landing-toggle-inactive: #27292e;
   --color-bom-chrome: #fdfdff;
   --color-bom-chrome-border: #e1e6ef;
   --color-bom-workbench: #fdfdff;
@@ -236,6 +239,9 @@
   --color-bom-mode-border: #2d3a4d;
   --color-bom-mode-active: #0e6efd;
   --color-bom-mode-inactive: #b2b4c3;
+  --color-bom-landing-toggle: #252a31;
+  --color-bom-landing-toggle-active: #061023;
+  --color-bom-landing-toggle-inactive: #e1e4e8;
   --color-bom-chrome: #0d0d11;
   --color-bom-chrome-border: #2f3949;
   --color-bom-workbench: #191b20;
