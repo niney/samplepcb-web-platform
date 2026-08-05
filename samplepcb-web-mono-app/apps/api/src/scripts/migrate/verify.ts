@@ -226,21 +226,19 @@ async function main(): Promise<void> {
 
     // ── 3) 참조 정합 ──
     if (!light) {
-    const specs = await prisma.spOrderSpec.findMany({ select: { id: true, ctId: true, quoteId: true } });
-    const ctIds = specs.map((s) => s.ctId).filter((v): v is number => v !== null);
-    let danglingCt = 0;
-    if (ctIds.length > 0) {
-      const found = new Set(
-        (
-          await g5.select(
-            `SELECT ct_id FROM g5_shop_cart WHERE ct_id IN (${ctIds.map(() => '?').join(', ')})`,
-            ctIds,
-          )
-        ).map((r) => asInt(r.ct_id)),
-      );
-      danglingCt = ctIds.filter((id) => !found.has(id)).length;
-    }
-    check('spec.ctId → cart 정합', danglingCt === 0, `끊어진 참조 ${String(danglingCt)}건 / spec ${String(specs.length)}건`);
+    // ⚠ 2만 건 ctId 를 IN 절에 몰아넣으면 과소 집계가 난다(2026-08-05 실측: 실제 9건을 5건으로
+    // 보고). 같은 DB 안이므로 NOT EXISTS 조인 한 번으로 세는 것이 정확하고 싸다.
+    const specCount = await prisma.spOrderSpec.count();
+    const danglingCt = asInt(
+      (
+        await g5.select(
+          `SELECT COUNT(*) c FROM sp_order_spec s
+            WHERE s.ctId IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM g5_shop_cart c WHERE c.ct_id = s.ctId)`,
+        )
+      )[0]?.c,
+    );
+    check('spec.ctId → cart 정합', danglingCt === 0, `끊어진 참조 ${String(danglingCt)}건 / spec ${String(specCount)}건`);
 
     const orphanCarts = asInt(
       (
