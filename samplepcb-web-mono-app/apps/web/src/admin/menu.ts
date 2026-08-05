@@ -14,7 +14,7 @@ export interface AdminMenuItem {
     | 'bomQuotesRequested'
     | 'bomPosAwaiting'
     | 'pcbRfqPending'
-    | 'pcbEqPending'
+    | 'pcbPosPending'
     | 'pcbShipmentPending'
     | 'pcbOrdersAwaiting';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
@@ -101,7 +101,7 @@ const pcbMenu: AdminMenuItem[] = [
     labelKey: 'admin.menu.pcbCases',
     activeRouteNames: ['admin-pcb-case'],
   },
-  // 견적요청(RFQ) 워크큐 — 선정 대기 수 배지.
+  // 견적요청(RFQ) 워크큐 — 요청 대기 + 선정 대기 수 배지.
   {
     to: { name: 'admin-pcb-rfqs' },
     labelKey: 'admin.menu.pcbRfqs',
@@ -113,13 +113,13 @@ const pcbMenu: AdminMenuItem[] = [
     labelKey: 'admin.menu.pcbOrders',
     badge: 'pcbOrdersAwaiting',
   },
-  // 발주·EQ 워크큐 — 관리자 차례(EQ 승인 대기) 수 배지.
+  // 발주·EQ 워크큐 — 발주 대기 + EQ 승인 대기 수 배지.
   {
     to: { name: 'admin-pcb-pos' },
     labelKey: 'admin.menu.pcbPos',
-    badge: 'pcbEqPending',
+    badge: 'pcbPosPending',
   },
-  // 선적·배송 워크큐 — 관리자 차례(입고·수취 처리 대기) 수 배지.
+  // 선적·배송 워크큐 — 발송 대기 + 관리자 차례(입고·수취 처리) 수 배지.
   {
     to: { name: 'admin-pcb-shipments' },
     labelKey: 'admin.menu.pcbShipments',

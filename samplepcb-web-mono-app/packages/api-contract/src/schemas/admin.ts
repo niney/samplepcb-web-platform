@@ -10,12 +10,12 @@ import { PcbProjectSpec } from './pcb-project';
 //   rfq|priced|quoted = quoteStatus 1:1 · carted = ctId != null(담김+주문 진행분).
 //   cartState(cart/ordered)는 g5_shop_cart 파생이라 SQL 필터가 불가 — 페이지네이션
 //   정합이 유지되는 유일한 기준인 ctId 로 묶고, 행 뱃지가 cart/ordered 를 구분한다.
-//   preorder = RFQ 시작 가능 모수(PCB 진행현황) — ctId 없음 + 유령(cart 행 소실)까지
-//   서버가 id 목록으로 정확 판정(P3.5).
+// PCB 전용이던 preorder 탭은 회수됐다(2026-08-05) — PCB 진행현황·대기 큐는 스펙 축
+// 전용 계약(pcb-cases.ts)으로 옮겼다. 코어 견적 관리에 PCB 개념을 남기지 않는다.
 export const AdminQuoteListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  tab: z.enum(['all', 'rfq', 'priced', 'quoted', 'carted', 'preorder']).default('all'),
+  tab: z.enum(['all', 'rfq', 'priced', 'quoted', 'carted']).default('all'),
   status: z.enum(['active', 'deleted', 'all']).default('active'), // 보관함(deleted) 포함 토글
   category: z.string().optional(),
   q: z.string().optional(), // 회원ID·프로젝트명 contains
@@ -50,7 +50,6 @@ export const AdminQuoteCounts = z.object({
   priced: z.number(),
   quoted: z.number(),
   carted: z.number(), // ctId != null (담김+주문 진행분)
-  preorder: z.number(), // RFQ 시작 가능(비담김+유령) — PCB 진행현황 탭
 });
 export type AdminQuoteCountsType = z.infer<typeof AdminQuoteCounts>;
 

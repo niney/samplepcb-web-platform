@@ -230,7 +230,7 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 ### 5.4 API·화면 초안
 
 - **sp-node**: `admin-pcb-rfqs.ts`(배정 diff·회신 대리입력·선정·매직링크) / `admin-pcb-pos.ts`(발주 생성·EQ 전이·선적·송장) / `admin-pcb-as.ts` / `partner-pcb.ts`(포털: 받은 PCB 견적·회신, 발주 확인·EQ 올림, 발송) / `pcb-rfq-reply.ts`(매직링크). 재사용 전략 정정(§8 V6): 선적의 공용 절단면은 **계약 패키지에 이미 존재**(`bomShipmentNextStatus`·모드/상태 코드사전 — FE/BE 공용)하므로 bom-po.ts는 건드리지 않는다. PCB 전용 `lib/pcb-po.ts`·`pcb-shipment.ts`가 같은 계약 사전을 공유하는 **미러**로 구현(BOM 회귀 위험 제거, 미러링 교훈의 '도메인 식별자가 다르면 분리' 축) + PCB lib에 단위테스트 신설. 계약은 `schemas/pcb-rfq.ts`·`pcb-po.ts` 신설 + `apiRoutes` 키 추가.
-- **sp-vue**: adminModules에 세 번째 모듈 **`pcb`**("PCB 협력") 신설 — 스마트 BOM 모듈과 같은 골격, 구현은 PCB 전용·분리(§6 D9로 확정): 진행현황(총괄 조감·모듈 홈)/견적요청(RFQ)/주문·결제(경리 — 레거시 이관 주문 이력 포함)/발주·EQ/선적·배송(+A-S는 P4). ~~파트너(공유 진입)~~ — 모듈 간 화면 공유는 하지 않는다(D9, 별칭 공유안 철회). Case 상세는 admin-pcb-projects 상세(견적 스펙·거버)에 RFQ 패널·PO 패널을 얹는 형태(AdminSmartbomCase 패턴+`?from=` 접힘). 배지: pcbRfqPending(선정 대기)·pcbOrdersAwaiting(입금 대기)·pcbEqPending(EQ 승인 대기)·pcbShipmentPending(관리자 차례 발송).
+- **sp-vue**: adminModules에 세 번째 모듈 **`pcb`**("PCB 협력") 신설 — 스마트 BOM 모듈과 같은 골격, 구현은 PCB 전용·분리(§6 D9로 확정): 진행현황(총괄 조감·모듈 홈)/견적요청(RFQ)/주문·결제(경리 — 레거시 이관 주문 이력 포함)/발주·EQ/선적·배송(+A-S는 P4). ~~파트너(공유 진입)~~ — 모듈 간 화면 공유는 하지 않는다(D9, 별칭 공유안 철회). Case 상세는 admin-pcb-projects 상세(견적 스펙·거버)에 RFQ 패널·PO 패널을 얹는 형태(AdminSmartbomCase 패턴+`?from=` 접힘 — P3.6 구현). **각 워크큐의 첫 탭은 그 역할의 "대기 큐"**(요청 대기·발주 대기·발송 대기 — P3.6/D12), 배지는 대기 수 + 진행 중 내 차례의 합산: pcbRfqPending(요청 대기+선정 대기)·pcbOrdersAwaiting(입금 대기)·**pcbPosPending**(발주 대기+EQ 승인 대기)·pcbShipmentPending(발송 대기+관리자 차례). 진행현황은 12단계 파생 타임라인(`PCB_STEPS`) 칩 + 구간 탭.
 - **포털**: 기존 `/partner` 홈 할 일 카드에 PCB 카드 합류(회신할 PCB 견적/확인할 PCB 발주·EQ/보낼 물건). 납기 필수 입력·통화 토글은 RfqReplyForm의 PCB 변형으로.
 - **고객(sp-php)**: 무변경(§2.1). 후속 아이디어로만: EQ 단계 고객 안내 메일.
 
@@ -263,6 +263,8 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 | D6 | POD EQ 전이 시 od 상태 자동 동기? | **1차 수동 유지** | force-status 현행 방식. 실측(§8 V7)상 부수 로직이 없어 P4에서 자동화 재검 |
 | D7 | 레거시 데이터 이관? | **미이관** | §5.6 |
 | D8 | 회수 자료 커밋? | **전부 커밋** | 보고서+docs/legacy-smartbom/ 4종 |
+
+**D12 (2026-08-05) — 워크큐 대기 큐 원칙 + 이관분 제외.** 각 역할 워크큐의 **첫 탭 = 그 역할이 시작해야 할 대기 큐**, 배지 = 그 수 + 진행 중 내 차례의 **합산**. 대기 큐(요청 대기·발주 대기·발송 대기)에서는 **레거시 이관분(`specJson._legacy`)을 제외**한다(사용자 결정). 근거: 이관 주문은 레거시에서 이미 RFQ·발주가 처리됐지만 그 이력은 이관 대상이 아니어서(§2.4·5.6), 제외하지 않으면 요청 대기 330·발주 대기 195건이 영구히 눌러앉아 실제 처리 대상 6·5건이 묻힌다(2026-08-05 실측). 제외는 **재촉 목록에서만** — 진행현황·주문·결제에는 그대로 보이고 Case 상세 RFQ/발주 패널도 열려 있어(D10) 필요하면 언제든 진행할 수 있다. 사용자 원칙("완전히 완료된 건이 아니면 레거시로도 PCB 기능 이용 가능")과 같은 방향.
 
 ---
 
@@ -346,8 +348,19 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 - **서버**: `admin-pcb-projects` 목록 preorder 탭(유령은 `listGhostActiveSpecIds` id 합류 — cart 행 소실 케이스, 거버 주문 플로우 업로드 후 장바구니 삭제 시 발생)·상세 order/pcbRfq 동봉. 신규 `admin-pcb-orders.ts` + g5-db **한정 예외 ⑳ `listPcbOrderSpecs`** — sp_order_spec×g5_shop_cart×g5_shop_order **SQL 조인 서버 페이지네이션**(BOM D19 메모리 방식은 "월 수십 건" 전제라 2만 건에 사용 금지, 같은 DB라 조인 가능·read-only). counts=SUM(CASE) 1쿼리, 검색=프로젝트명/mbId/주문번호.
 - **웹**: `AdminPcbCases.vue`(진행현황 — 모듈 홈, AdminQuoteList 계약 재사용, 탭 RFQ 가능/견적 대기/전체, RFQ 배지) · `AdminPcbOrders.vue`(주문·결제 — od 상태 배지·발주 대기 신호·배지=입금 대기 수) · `AdminPcbCase.vue` 보강(주문 정보 카드·**원가 소싱 모드 배너**·주문된 건 확정가 버튼 숨김·배정 버튼 게이트 사유 표시·**D11 대행 버튼 3종+EQ 파일 대행 업로드/삭제**·`?from=` 일반화 — cases/rfqs/orders/pos/shipments) · 코어 견적 관리 드로어에 "PCB Case 열기" 크로스 링크 · QuoteStatusTabs는 preorder 타입만 수용(코어 화면 미노출).
 - **검증**: **E2E 34 ALL PASS**(실DB — preorder 2건·carted 20,535·주문결제 counts {0,160,19442,933} 실측 대조, 완료 탭 마지막 페이지(389p) 정합, 주문번호 검색, 완료 주문 배정 409 ORDER_CLOSED·진행 중 주문 배정 200·**확정가 PATCH 409 불변 확인**, D11 파일 없이 409→대행 업로드→요청/승인/생산 대행 완주→**이력 byRole ADMIN 4건**→만능 revert 원상복구). vitest 635·`pnpm -r typecheck`·ESLint 0건. 시드 원상(po 0·rfq 3행).
-- **후속**: counts.preorder는 비담김만 집계(유령 포함 정확값은 preorder 탭 진입 시 total — 매 요청 g5 전수 대조 회피), A/S 재발주(P4)가 완료·취소 건의 재작업 경로, 주문·결제 워크큐에서 입금 확인 액션은 코어 주문 관리 링크로(현재 read-only 조감).
+- **후속**: counts.preorder는 비담김만 집계(유령 포함 정확값은 preorder 탭 진입 시 total — 매 요청 g5 전수 대조 회피), A/S 재발주(P4)가 완료·취소 건의 재작업 경로, 주문·결제 워크큐에서 입금 확인 액션은 코어 주문 관리 링크로(현재 read-only 조감). **preorder·counts.preorder·listGhostActiveSpecIds 는 P3.6 에서 회수됐다**(→ /admin/pcb-cases).
 - **제작 사양 라벨 정합(08-04 추가)**: 상세 4화면(Case·포털 RFQ/PO·매직링크)이 specJson 원키를 그대로 노출하던 것을 **레거시 정본 명칭·순서**(sp-smartbom-web `types/pcbCart.ts` SPEC_ROWS = PHP `estimate_form_ca10.php` 원문 — '보광판'·'기준점표시' 등 표기 그대로)로 교체 — 공용 `lib/pcb-spec.ts`(`pcbSpecEntries`: PCB크기=width X length 합성, 미지 키 후미 보존). 코어 i18n specKeys 도 동일 정합 — **material=PCB선택(TG)·kindPcb=PCB재료(FR-4) 라벨이 뒤바뀌어 있던 결함 교정**(+패널/최소트랙공간/표면처리/임피던스제어/기준점표시/커팅 등 정정).
+
+### P3.6 구현 기록 (2026-08-05 — 역할별 대기 큐·진행 단계 조감)
+
+배경: "입금이 끝났는데 발주·EQ 메뉴에 그 건이 안 보인다"(사용자). 조사해 보니 **워크큐 5개 중 3개가 같은 병**이었다 — 견적요청은 `sp_pcb_rfq` 행, 발주·EQ는 `sp_pcb_po` 행, 선적·배송은 `sp_pcb_shipment` 행이 있어야만 모수에 들어와, 각 역할이 **아직 시작하지 않은 일**이 어느 화면에도 없었다(진행현황으로 되돌아가야만 진입 가능). SmartBOM 은 각 워크큐 첫 탭을 "대기"로 두어 이미 해결한 문제다(SMARTBOM_PARTNER_RFQ.md §6.12) — 같은 골격, 구현은 PCB 전용(D9).
+
+- **결정 추가**: **D12** 대기 큐 원칙 + 이관분 제외(§6 표 아래).
+- **계약**: 신설 `schemas/pcb-cases.ts` — 구간 탭(quoting/unpaid/production/closed/all) + 대기 탭(todo_rfq/todo_po), `PCB_STEPS` 12단계 라벨, `AdminPcbCaseItem`(스펙+od+RFQ·PO·선적 파생 + `step`·`isLegacy`). `pcb-po.ts` — `ADMIN_PCB_PO_TABS`에 **to_ship**(생산완료·발송 미편성) 추가 + `awaitingShipment` 필드 + counts 확장. **회수**: 코어 `AdminQuoteListQuery.tab` 의 PCB 전용 `preorder` 와 `counts.preorder`(→ pcb-cases 로 이관, 코어 계약에 PCB 개념을 남기지 않는다).
+- **서버**: g5-db **`listPcbCaseSpecs`**(한정 예외 ⑳ 연장 — 스펙 축 **LEFT JOIN** 판이라 주문 전·유령까지 모수, counts 는 SUM(CASE) 1쿼리, 검색에 견적번호 정확일치 추가). 신설 `routes/admin-pcb-cases.ts` — 페이지 행만 RFQ·PO·선적으로 enrich 해 `step` 을 서버에서 계산(판정 원장이 전부 서버에 있으므로 FE 는 라벨만). `lib/pcb-po.ts` `loadAdminPcbPoWorkItems` 의 소속 탭을 **배열**로 전환(to_ship 은 produced 의 부분집합이라 배타적이지 않다) + 선적 배정 링크 1쿼리 선조회. `listGhostActiveSpecIds` 제거(유일 소비처였던 preorder 소멸 — 유령 판정은 LEFT JOIN 이 대신한다).
+- **웹**: `PcbTodoQueue.vue` 신설(요청 대기·발주 대기 공용 큐 — 인라인 [견적요청 →]·[발주하기 →]) · `AdminPcbRfqs`/`AdminPcbPos`/`AdminPcbShipments` 첫 탭에 대기 큐 편입 · `AdminPcbCases.vue` 재작성(구간 탭 + **12단계 칩**·이관 배지, 기본 탭=발주·생산 — 완료 2만 건이 모수를 덮지 않게) · 배지 3종 합산 재정의(pcbRfqPending=요청 대기+선정 대기, **pcbPosPending**=발주 대기+EQ 승인 대기, pcbShipmentPending=발송 대기+관리자 차례) · **AdminLayout `CASE_FROM_MENU` 를 라우트별 2단 사전으로 교정**(SmartBOM 전용이라 PCB Case 는 어디서 들어와도 진행현황이 켜지던 결함 — 워크큐는 이미 `?from=` 을 넘기고 있었다) · `AdminPcbCase.vue` 에 §6.12 방식 **섹션 접힘**(rfqs→발주 접힘 / orders·pos·shipments→RFQ 접힘, 제작 사양은 발주·선적 때 확인이 잦아 접지 않음).
+- **검증**: **E2E 47 ALL PASS**(실DB — 구간 counts {136,0,195,20607}·합=전체 20938 대조, todo {6,5} 대조 + **이관 포함 시 {330,195}** 로 제외 효과 확인, 대기 큐 행 불변식 4종(이관 0·RFQ 0건·발주 0건·결제 완료·완료/취소 아님), 단계 파생 6종, 마지막 페이지(1031p) 정합, 견적번호·주문번호 검색, to_ship counts·행 불변식, preorder 400 회수 확인). vitest 644+109·`pnpm -r typecheck`·ESLint 0건. 브라우저 실탐방으로 4화면·Case 진입(활성 메뉴·접힘) 확인.
+- **후속**: `loadAdminPcbPoWorkItems` 는 여전히 `sp_pcb_po` 전건 로드 + 행별 `resolveEqDelegation`(N+1) — PO 가 쌓이면 SQL 페이지네이션으로 옮겨야 한다(주문·결제·진행현황이 선례). 역할 권한(계정별 메뉴 제한)은 SmartBOM 과 동일하게 후속.
 
 ## 10. 조사 자료 색인
 

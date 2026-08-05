@@ -114,13 +114,14 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           item.partnerName.toLowerCase().includes(q),
       );
       const counts = {
-        eq_pending: filtered.filter((r) => r.tab === 'eq_pending').length,
-        producing: filtered.filter((r) => r.tab === 'producing').length,
-        produced: filtered.filter((r) => r.tab === 'produced').length,
+        eq_pending: filtered.filter((r) => r.tabs.includes('eq_pending')).length,
+        producing: filtered.filter((r) => r.tabs.includes('producing')).length,
+        produced: filtered.filter((r) => r.tabs.includes('produced')).length,
+        to_ship: filtered.filter((r) => r.tabs.includes('to_ship')).length,
         all: filtered.length,
       };
-      const tabbed =
-        request.query.tab === 'all' ? filtered : filtered.filter((r) => r.tab === request.query.tab);
+      const tab = request.query.tab;
+      const tabbed = tab === 'all' ? filtered : filtered.filter((r) => r.tabs.includes(tab));
       const start = (request.query.page - 1) * request.query.pageSize;
       return {
         result: true as const,

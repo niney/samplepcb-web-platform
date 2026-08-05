@@ -1,43 +1,37 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAdminQuoteList, type AdminQuoteFilters } from '../../admin/useAdminQuotes';
+import { PCB_STEPS, type AdminPcbCaseTabType } from '@sp/api-contract';
+import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../admin/useAdminPcbCases';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 
-// PCB 진행현황(P3.5) — 모듈 홈. 견적 관리와 같은 목록 계약(AdminQuoteList)을 PCB
-// 맥락으로 조감한다: RFQ 가능(비담김+유령 — 협력사 소싱 시작 진입점) / 견적 대기 /
-// 전체. 주문 축(입금·진행·이력)은 '주문·결제' 메뉴가 전담한다. 조작은 Case 상세.
+// PCB 진행현황(P3.5 → 2026-08-05 개편) — 모듈 홈, 총괄의 화면. 견적요청부터 선적·
+// 배송까지를 **순서대로** 조감한다: 행마다 12단계 파생 타임라인(PCB_STEPS)을 칩으로
+// 보이고, 탭은 큰 구간(견적 → 주문·결제 → 발주·생산 → 완료·취소)으로 나눈다.
+// 단계는 저장 상태가 아니라 원장(RFQ·발주·선적·od)에서 서버가 계산한 표시값이다.
+// 조작은 언제나 Case 상세 — 여기서는 조감과 진입만(역할별 대기 큐는 각 워크큐 첫 탭).
 
 const router = useRouter();
-const filters = ref<AdminQuoteFilters>({
-  page: 1,
-  pageSize: 20,
-  tab: 'preorder',
-  includeDeleted: false,
-  category: '',
-  q: '',
-  from: '',
-  to: '',
-});
-const list = useAdminQuoteList(filters);
+const filters = ref<AdminPcbCaseFilters>({ page: 1, pageSize: 20, tab: 'production', q: '' });
+const list = useAdminPcbCases(filters);
 
 const rows = computed(() => list.data.value?.data.items ?? []);
 const total = computed(() => list.data.value?.data.total ?? 0);
 const counts = computed(() => list.data.value?.data.counts ?? null);
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
 
-const TABS: { key: AdminQuoteFilters['tab']; label: string }[] = [
-  { key: 'preorder', label: 'RFQ 가능(주문 전)' },
-  { key: 'rfq', label: '견적 대기' },
+// 탭 = 흐름 구간. 기본은 '발주·생산'(지금 굴러가는 건) — 완료 2만 건이 모수를 덮지 않게.
+type CaseTab = Extract<AdminPcbCaseTabType, 'quoting' | 'unpaid' | 'production' | 'closed' | 'all'>;
+const TABS: { key: CaseTab; label: string }[] = [
+  { key: 'quoting', label: '견적' },
+  { key: 'unpaid', label: '주문·결제' },
+  { key: 'production', label: '발주·생산' },
+  { key: 'closed', label: '완료·취소' },
   { key: 'all', label: '전체' },
 ];
-const tabCount = (key: AdminQuoteFilters['tab']): number | null => {
-  if (counts.value === null) return null;
-  if (key === 'preorder') return counts.value.preorder;
-  if (key === 'rfq') return counts.value.rfq;
-  return counts.value.total;
-};
-const setTab = (tab: AdminQuoteFilters['tab']): void => {
+const tabCount = (key: CaseTab): number | null =>
+  counts.value === null ? null : counts.value[key];
+const setTab = (tab: CaseTab): void => {
   filters.value = { ...filters.value, tab, page: 1 };
 };
 const searchText = ref('');
@@ -45,14 +39,21 @@ const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
 };
 
+// 단계 칩 — 구간별 색으로 흐름을 읽히게(견적 → 주문 → 생산 → 완료).
+const stepLabel = (step: number): string => `${String(step)}. ${PCB_STEPS[step - 1] ?? ''}`;
+const stepCls = (step: number): string =>
+  step <= 5
+    ? 'bg-amber-100 text-amber-700'
+    : step <= 7
+      ? 'bg-sky-100 text-sky-700'
+      : step <= 10
+        ? 'bg-indigo-100 text-indigo-700'
+        : 'bg-emerald-100 text-emerald-700';
+
 const QUOTE_CLS: Record<string, { label: string; cls: string }> = {
   rfq: { label: '견적 대기', cls: 'bg-amber-100 text-amber-700' },
   priced: { label: '자동견적', cls: 'bg-sky-100 text-sky-700' },
   quoted: { label: '견적 확정', cls: 'bg-emerald-100 text-emerald-700' },
-};
-const CART_CLS: Record<string, { label: string; cls: string }> = {
-  cart: { label: '담김', cls: 'bg-orange-100 text-orange-700' },
-  ordered: { label: '주문됨', cls: 'bg-violet-100 text-violet-700' },
 };
 
 function openCase(specId: number): void {
@@ -69,8 +70,8 @@ const fmtDate = (iso: string): string => iso.slice(0, 10);
   <div class="pcb-readable space-y-4">
     <h1 class="text-xl font-bold">PCB 진행현황</h1>
     <p class="text-sm text-gray-500">
-      전 견적건을 PCB 협력 관점으로 조감합니다 — RFQ 가능 탭이 협력사 소싱의 시작점입니다.
-      주문·입금·이력은 <b>주문·결제</b> 메뉴에서 봅니다.
+      전 견적건을 견적요청 → 주문·결제 → 발주·생산 → 선적·배송 순서로 조감합니다.
+      각 역할이 <b>시작해야 할 일</b>은 견적요청·발주·EQ·선적·배송 메뉴의 첫 탭에 있습니다.
     </p>
 
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200">
@@ -91,7 +92,7 @@ const fmtDate = (iso: string): string => iso.slice(0, 10);
         <input
           v-model="searchText"
           type="search"
-          placeholder="프로젝트·회원ID 검색"
+          placeholder="프로젝트·회원ID·주문번호"
           class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
         >
       </form>
@@ -105,9 +106,10 @@ const fmtDate = (iso: string): string => iso.slice(0, 10);
             <th class="px-4 py-2.5">프로젝트</th>
             <th class="px-4 py-2.5">신청자</th>
             <th class="whitespace-nowrap px-4 py-2.5">수량</th>
-            <th class="whitespace-nowrap px-4 py-2.5">상태</th>
-            <th class="whitespace-nowrap px-4 py-2.5">협력사 RFQ</th>
-            <th class="whitespace-nowrap px-4 py-2.5">가격</th>
+            <th class="whitespace-nowrap px-4 py-2.5">단계</th>
+            <th class="whitespace-nowrap px-4 py-2.5">협력사</th>
+            <th class="whitespace-nowrap px-4 py-2.5">주문</th>
+            <th class="whitespace-nowrap px-4 py-2.5">확정가</th>
             <th class="whitespace-nowrap px-4 py-2.5">신청일</th>
             <th class="px-4 py-2.5" />
           </tr>
@@ -115,77 +117,94 @@ const fmtDate = (iso: string): string => iso.slice(0, 10);
         <tbody class="divide-y divide-gray-100">
           <tr
             v-for="row in rows"
-            :key="row.projectId"
+            :key="row.specId"
             class="cursor-pointer hover:bg-blue-50/40"
-            @click="openCase(row.projectId)"
+            @click="openCase(row.specId)"
           >
-            <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">Q{{ row.projectId }}</td>
-            <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">{{ row.projectName }}</td>
-            <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">
-              {{ row.applicant === null ? '비회원' : (row.applicant.name || row.applicant.mbId) }}
+            <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">
+              Q{{ row.specId }}
+              <span v-if="row.isLegacy" class="ml-1 rounded bg-gray-100 px-1 text-[11px] text-gray-500" title="레거시 이관 건">이관</span>
             </td>
+            <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">{{ row.projectName }}</td>
+            <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.mbId ?? '비회원' }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">{{ row.qty }}</td>
             <td class="whitespace-nowrap px-4 py-2.5">
-              <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="QUOTE_CLS[row.quoteStatus]?.cls">
-                {{ QUOTE_CLS[row.quoteStatus]?.label }}
-              </span>
-              <span
-                v-if="row.cartState !== 'none'"
-                class="ml-1 rounded px-1.5 py-0.5 text-xs font-semibold"
-                :class="CART_CLS[row.cartState]?.cls"
-              >
-                {{ CART_CLS[row.cartState]?.label }}
+              <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="stepCls(row.step)">
+                {{ stepLabel(row.step) }}
               </span>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5">
-              <span v-if="row.pcbRfq === null" class="text-xs text-gray-300">—</span>
+              <span v-if="row.rfqTotal === 0" class="text-xs text-gray-300">—</span>
+              <span
+                v-else
+                class="rounded px-1.5 py-0.5 text-xs font-semibold"
+                :class="row.rfqSelected ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'"
+              >
+                {{ row.rfqSelected ? '선정 완료' : `회신 ${row.rfqQuoted}/${row.rfqTotal}` }}
+              </span>
+              <span v-if="row.poCount > 0" class="ml-1 rounded bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700">
+                발주 {{ row.poCount }}
+              </span>
+            </td>
+            <td class="whitespace-nowrap px-4 py-2.5">
+              <template v-if="row.cartState === 'none'">
+                <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="QUOTE_CLS[row.quoteStatus]?.cls">
+                  {{ QUOTE_CLS[row.quoteStatus]?.label }}
+                </span>
+              </template>
+              <template v-else-if="row.cartState === 'cart'">
+                <span class="rounded bg-orange-100 px-1.5 py-0.5 text-xs font-semibold text-orange-700">장바구니</span>
+              </template>
               <template v-else>
-                <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="row.pcbRfq.selected ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'">
-                  {{ row.pcbRfq.selected ? '선정 완료' : `회신 ${row.pcbRfq.quoted}/${row.pcbRfq.total}` }}
+                <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="row.isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'">
+                  {{ row.odStatus }}
                 </span>
               </template>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">
-              {{ fmtPcbAmount('KRW', row.price) }}
+              {{ fmtPcbAmount('KRW', row.finalPrice) }}
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(row.createdAt) }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 text-right">
               <button
                 type="button"
                 class="rounded-md border border-blue-200 px-2.5 py-[3px] text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                @click.stop="openCase(row.projectId)"
+                @click.stop="openCase(row.specId)"
               >
                 Case 열기 →
               </button>
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td colspan="9" class="px-4 py-10 text-center text-sm text-gray-400">
-              해당 조건의 견적건이 없습니다 — 신규 견적(거버 업로드)이 들어오면 'RFQ 가능' 탭에 나타납니다.
+            <td colspan="10" class="px-4 py-10 text-center text-sm text-gray-400">
+              {{ list.isFetching.value ? '불러오는 중…' : '해당 구간의 견적건이 없습니다.' }}
             </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div v-if="totalPages > 1" class="flex items-center gap-2 text-sm">
-      <button
-        type="button"
-        class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
-        :disabled="filters.page <= 1"
-        @click="filters = { ...filters, page: filters.page - 1 }"
-      >
-        이전
-      </button>
-      <span class="text-gray-500">{{ filters.page }} / {{ totalPages }}</span>
-      <button
-        type="button"
-        class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
-        :disabled="filters.page >= totalPages"
-        @click="filters = { ...filters, page: filters.page + 1 }"
-      >
-        다음
-      </button>
+    <div class="flex items-center justify-between text-sm">
+      <p class="text-gray-500">총 {{ total }}건</p>
+      <div v-if="totalPages > 1" class="flex items-center gap-2">
+        <button
+          type="button"
+          class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
+          :disabled="filters.page <= 1"
+          @click="filters = { ...filters, page: filters.page - 1 }"
+        >
+          이전
+        </button>
+        <span class="text-gray-500">{{ filters.page }} / {{ totalPages }}</span>
+        <button
+          type="button"
+          class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
+          :disabled="filters.page >= totalPages"
+          @click="filters = { ...filters, page: filters.page + 1 }"
+        >
+          다음
+        </button>
+      </div>
     </div>
   </div>
 </template>

@@ -221,7 +221,16 @@ export const PcbPoRejectBody = z.object({ reason: z.string().trim().min(1).max(1
 export type PcbPoRejectBodyType = z.infer<typeof PcbPoRejectBody>;
 
 // ── 관리자 횡단 워크큐 (/api/admin/pcb-pos) ──────────────────────────────────
-export const ADMIN_PCB_PO_TABS = ['eq_pending', 'producing', 'produced', 'all'] as const;
+// to_ship = 생산완료인데 아직 발송에 담기지 않은 발주서 = **선적·배송의 "발송 대기"**.
+// 다른 탭과 달리 배타적이지 않다(produced 의 부분집합) — 물류가 "이제 보낼 것"을 자기
+// 화면 첫 탭에서 보기 위한 절단면이라, 서버는 행별로 소속 탭을 배열로 돌려준다.
+export const ADMIN_PCB_PO_TABS = [
+  'eq_pending',
+  'producing',
+  'produced',
+  'to_ship',
+  'all',
+] as const;
 export type AdminPcbPoTabType = (typeof ADMIN_PCB_PO_TABS)[number];
 
 export const AdminPcbPoWorkItem = z.object({
@@ -239,6 +248,8 @@ export const AdminPcbPoWorkItem = z.object({
   issuedAt: z.string(),
   /** 관리자 차례(EQ 승인 대기 — 미러 반영). */
   adminTurn: z.boolean(),
+  /** 생산완료·발송 미편성 — 보내는측이 발송을 시작해야 하는 상태(to_ship 탭 표시용). */
+  awaitingShipment: z.boolean(),
 });
 export type AdminPcbPoWorkItemType = z.infer<typeof AdminPcbPoWorkItem>;
 
@@ -253,6 +264,7 @@ export const AdminPcbPoWorkListResponse = z.object({
       eq_pending: z.number().int(),
       producing: z.number().int(),
       produced: z.number().int(),
+      to_ship: z.number().int(),
       all: z.number().int(),
     }),
   }),

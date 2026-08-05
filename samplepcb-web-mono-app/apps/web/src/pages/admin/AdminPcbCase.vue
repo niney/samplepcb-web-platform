@@ -69,6 +69,27 @@ const backTarget = computed(
   () => BACK_TARGETS[String(route.query.from ?? '')] ?? { name: 'admin-quotes', label: '견적 관리' },
 );
 
+// 역할별 진입 컨텍스트(§6.12 미러) — 무관 섹션은 한 줄 접힘 바로 축소한다(존재 신호 +
+// 한 클릭 복원). 완전 숨김이 아닌 이유는 SmartBOM 과 같다: 인접 단계 참조가 잦고, 같은
+// URL 이 경로에 따라 달라 보이면 버그로 오인된다. PCB 에서 접는 대상은 표가 가장 큰 RFQ
+// 패널과 발주·EQ 패널 둘 뿐 — 제작 사양은 발주·선적 때 확인이 잦아 접지 않는다.
+// from 없음(진행현황·북마크)=전체 표시. 상세는 여전히 단일 척추 — 렌더만 다르다.
+type CaseSection = 'rfq' | 'po';
+const INITIAL_COLLAPSED: Record<string, CaseSection[]> = {
+  rfqs: ['po'], // 견적 — RFQ 가 본업
+  orders: ['rfq'], // 경리 — 주문 정보가 본업(발주 진행은 참고로 남김)
+  pos: ['rfq'], // 구매 — 발주 패널이 본업(선정가는 발주 스냅샷에 박제됨)
+  shipments: ['rfq'], // 물류 — 발주 패널의 [선적 관리]가 진입점
+};
+const collapsed = ref<Set<CaseSection>>(
+  new Set(INITIAL_COLLAPSED[String(route.query.from ?? '')] ?? []),
+);
+const expandSection = (section: CaseSection): void => {
+  const next = new Set(collapsed.value);
+  next.delete(section);
+  collapsed.value = next;
+};
+
 const detailQuery = useAdminQuoteDetail(specId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
 const rfqsQuery = useAdminPcbRfqs(specId);
@@ -749,8 +770,17 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       </section>
     </div>
 
-    <!-- RFQ 패널 -->
-    <section class="rounded-xl border border-gray-200 bg-surface">
+    <!-- RFQ 패널 — 무관 파트 진입 시 한 줄 접힘(§6.12 미러) -->
+    <button
+      v-if="detail !== null && collapsed.has('rfq')"
+      type="button"
+      class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+      @click="expandSection('rfq')"
+    >
+      <span>▸ 협력사 견적요청 ({{ adminRows.length }}곳)</span>
+      <span class="text-xs text-gray-400">펼치기</span>
+    </button>
+    <section v-else class="rounded-xl border border-gray-200 bg-surface">
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
         <h2 class="text-sm font-bold text-gray-700">
           협력사 견적요청
@@ -894,7 +924,16 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     </section>
 
     <!-- 발주 패널(P2) — 결제(paid) 후 발행, EQ 승인/반려는 관리자 몫 -->
-    <section class="rounded-xl border border-gray-200 bg-surface">
+    <button
+      v-if="detail !== null && collapsed.has('po')"
+      type="button"
+      class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+      @click="expandSection('po')"
+    >
+      <span>▸ 발주서 · EQ ({{ adminPos.length }}건)</span>
+      <span class="text-xs text-gray-400">펼치기</span>
+    </button>
+    <section v-else class="rounded-xl border border-gray-200 bg-surface">
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
         <h2 class="text-sm font-bold text-gray-700">
           발주서 · EQ

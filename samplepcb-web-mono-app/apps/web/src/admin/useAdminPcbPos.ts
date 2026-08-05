@@ -43,20 +43,21 @@ export function useAdminPcbPoWork(filters: Ref<AdminPcbPoWorkFilters>) {
   });
 }
 
-// 사이드바 '발주·EQ' 배지 — 관리자 차례(EQ 승인 대기) 수.
-export function usePcbEqPendingCount(enabled: Ref<boolean>) {
-  return useQuery({
-    queryKey: ['admin', 'pcbPo', 'eq-pending-count'],
-    queryFn: async () => {
-      const res = await apiGet(
-        `${apiRoutes.adminPcbPos}?page=1&pageSize=1&tab=all`,
-        AdminPcbPoWorkListResponse,
-      );
-      return res.data.counts.eq_pending;
-    },
+// 발주서 축 counts — 사이드바 배지 둘이 나눠 쓴다: 발주·EQ 는 eq_pending(EQ 승인
+// 대기), 선적·배송은 to_ship(발송 대기). 두 배지 모두 "그 역할이 지금 움직여야 하는
+// 수"라 각각 대기 큐 수와 합산된다(AdminLayout).
+export function usePcbPoWorkCounts(enabled: Ref<boolean>) {
+  const query = useQuery({
+    queryKey: ['admin', 'pcbPo', 'work-counts'],
+    queryFn: () =>
+      apiGet(`${apiRoutes.adminPcbPos}?page=1&pageSize=1&tab=all`, AdminPcbPoWorkListResponse),
     enabled,
     refetchInterval: 60_000,
   });
+  return {
+    eqPending: computed(() => query.data.value?.data.counts.eq_pending ?? 0),
+    toShip: computed(() => query.data.value?.data.counts.to_ship ?? 0),
+  };
 }
 
 export function useAdminPcbPos(specId: Ref<number | null>) {

@@ -35,7 +35,6 @@ import {
   getOrderHeadersLite,
   getOrderInfoByCtId,
   getShopEstimateProfile,
-  listGhostActiveSpecIds,
 } from '../lib/g5-db';
 import type { CartState, G5Member, OrderInfo } from '../lib/g5-db';
 import { sendCompleteEstimate } from '../lib/alimtalk';
@@ -211,22 +210,17 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             }
           : {}),
       };
-      // preorder(P3.5) = RFQ 시작 가능 모수 — ctId 없음 + 유령(cart 행 소실). 유령은
-      // g5 파생이라 id 목록으로 합류시킨다(희귀 케이스 — listGhostActiveSpecIds 주석).
-      const ghostIds = tab === 'preorder' ? await listGhostActiveSpecIds() : [];
-      const preorderWhere: Prisma.SpOrderSpecWhereInput = {
-        AND: [{ OR: [{ ctId: null }, { id: { in: ghostIds.map((id) => BigInt(id)) } }] }],
-      };
+      // ⚠ PCB 전용이던 preorder 탭은 회수했다(2026-08-05) — PCB 진행현황·대기 큐가
+      //   /api/admin/pcb-cases(스펙 축 SQL)로 옮겨가며 유령 판정도 그쪽 LEFT JOIN 이
+      //   자연히 처리한다. 코어 견적 관리 계약에 PCB 개념을 남기지 않는다.
       const tabWhere: Prisma.SpOrderSpecWhereInput =
         tab === 'carted'
           ? { ctId: { not: null } }
-          : tab === 'preorder'
-            ? preorderWhere
-            : tab !== 'all'
-              ? { quoteStatus: tab }
-              : {};
+          : tab !== 'all'
+            ? { quoteStatus: tab }
+            : {};
 
-      const [specs, total, grouped, cartedCount, allCount, preorderBaseCount] = await Promise.all([
+      const [specs, total, grouped, cartedCount, allCount] = await Promise.all([
         prisma.spOrderSpec.findMany({
           where: { ...where, ...tabWhere },
           orderBy: { id: 'desc' },
@@ -237,9 +231,6 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         prisma.spOrderSpec.groupBy({ by: ['quoteStatus'], where, _count: { _all: true } }),
         prisma.spOrderSpec.count({ where: { ...where, ctId: { not: null } } }),
         prisma.spOrderSpec.count({ where }),
-        // counts.preorder — 유령까지 세면 g5 전수 대조가 매 요청 필요해, 비담김(ctId
-        // null)만 집계한다. preorder 탭 진입 시의 total 은 유령 포함 정확값.
-        prisma.spOrderSpec.count({ where: { ...where, ctId: null } }),
       ]);
       const countByStatus = new Map(grouped.map((g) => [g.quoteStatus, g._count._all]));
 
@@ -320,7 +311,6 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             priced: countByStatus.get('priced') ?? 0,
             quoted: countByStatus.get('quoted') ?? 0,
             carted: cartedCount,
-            preorder: preorderBaseCount,
           },
         },
       };

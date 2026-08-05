@@ -25,8 +25,7 @@ import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
 export interface AdminQuoteFilters {
   page: number;
   pageSize: number;
-  // preorder = RFQ 시작 가능(비담김+유령) — PCB 진행현황 전용 탭(P3.5)
-  tab: 'all' | 'rfq' | 'priced' | 'quoted' | 'carted' | 'preorder';
+  tab: 'all' | 'rfq' | 'priced' | 'quoted' | 'carted';
   includeDeleted: boolean; // true 면 status=all(보관함 포함)
   category: string; // '' = 전체
   q: string; // '' = 미검색 (회원ID·프로젝트명)

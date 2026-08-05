@@ -899,35 +899,41 @@ export const partnerCanTouchPo = async (
 };
 
 // ── 관리자 횡단 워크큐 — 경유 상위(위임)는 숨기고 실작업 단위만 나열 ───────────
-export type AdminPcbPoTab = 'eq_pending' | 'producing' | 'produced';
+// 소속 탭은 **배열**이다 — to_ship(발송 대기)은 produced 의 부분집합이라 배타적이지
+// 않다(선적·배송 화면의 첫 탭으로 쓰인다).
+export type AdminPcbPoTab = 'eq_pending' | 'producing' | 'produced' | 'to_ship';
 
 export const loadAdminPcbPoWorkItems = async (): Promise<
-  { item: AdminPcbPoWorkItemType; tab: AdminPcbPoTab | null }[]
+  { item: AdminPcbPoWorkItemType; tabs: AdminPcbPoTab[] }[]
 > => {
   const rows = await prisma.spPcbPo.findMany({
     include: { spec: true, partner: true },
     orderBy: { issuedAt: 'desc' },
   });
   const parentIds = [...new Set(rows.map((r) => r.parentPartnerId).filter((p) => p !== 0n))];
-  const parents =
+  const [parents, shipmentLinks] = await Promise.all([
     parentIds.length === 0
-      ? []
-      : await prisma.spPartner.findMany({ where: { id: { in: parentIds } } });
+      ? Promise.resolve([])
+      : prisma.spPartner.findMany({ where: { id: { in: parentIds } } }),
+    prisma.spPcbShipmentPo.findMany({
+      where: { poId: { in: rows.map((r) => r.id) } },
+      select: { poId: true },
+    }),
+  ]);
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
+  const shippedPoIds = new Set(shipmentLinks.map((l) => l.poId.toString()));
 
-  const out: { item: AdminPcbPoWorkItemType; tab: AdminPcbPoTab | null }[] = [];
+  const out: { item: AdminPcbPoWorkItemType; tabs: AdminPcbPoTab[] }[] = [];
   for (const po of rows) {
     const delegation = await resolveEqDelegation(po);
     if (delegation.delegatePoId !== null) continue; // 경유 상위 — 하위가 실작업 단위
     const status = asPcbPoStatus(po.status);
-    const tab: AdminPcbPoTab | null =
-      status === 'eq_requested'
-        ? 'eq_pending'
-        : status === 'producing' || status === 'eq_done'
-          ? 'producing'
-          : status === 'produced'
-            ? 'produced'
-            : null;
+    const awaitingShipment = status === 'produced' && !shippedPoIds.has(po.id.toString());
+    const tabs: AdminPcbPoTab[] = [];
+    if (status === 'eq_requested') tabs.push('eq_pending');
+    if (status === 'producing' || status === 'eq_done') tabs.push('producing');
+    if (status === 'produced') tabs.push('produced');
+    if (awaitingShipment) tabs.push('to_ship');
     out.push({
       item: {
         poId: Number(po.id),
@@ -946,8 +952,9 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
         deliveryDate: iso(po.deliveryDate),
         issuedAt: po.issuedAt.toISOString(),
         adminTurn: status === 'eq_requested' && !delegation.blocked,
+        awaitingShipment,
       },
-      tab,
+      tabs,
     });
   }
   return out;

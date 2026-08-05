@@ -8,8 +8,9 @@ import { useRfqCount } from '../admin/useAdminQuotes';
 import { useBomOrdersAwaitingCount, useBomPosAwaitingCount } from '../admin/useAdminBomOrders';
 import { useBomQuotesRequestedCount, useBomShipmentPendingCount } from '../admin/useAdminBomQuotes';
 import { usePcbRfqPendingCount } from '../admin/useAdminPcbRfqs';
-import { usePcbEqPendingCount, usePcbShipmentPendingCount } from '../admin/useAdminPcbPos';
+import { usePcbPoWorkCounts, usePcbShipmentPendingCount } from '../admin/useAdminPcbPos';
 import { usePcbOrdersAwaitingCount } from '../admin/useAdminPcbOrders';
+import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useTheme } from '../bom/useTheme';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
@@ -21,16 +22,28 @@ const currentRouteName = computed(() => (typeof route.name === 'string' ? route.
 
 // Case 상세의 활성 메뉴 = 진입 워크큐(§6.12 ?from=)와 동기화 — 견적관리에서 들어온
 // 상세는 견적관리가 켜져야 길을 잃지 않는다. from 없음(진행현황·북마크)=진행현황.
-const CASE_FROM_MENU: Record<string, string> = {
-  quotes: 'admin-smartbom-quotes',
-  orders: 'admin-smartbom-orders',
-  pos: 'admin-smartbom-pos',
-  logistics: 'admin-smartbom-logistics',
+// PCB 모듈도 같은 규약(from=cases|rfqs|orders|pos|shipments) — 워크큐가 이미 ?from= 을
+// 넘기고 있었는데 이 매핑이 SmartBOM 전용이라 어디서 들어와도 진행현황이 켜졌다.
+const CASE_FROM_MENU: Record<string, Record<string, string>> = {
+  'admin-smartbom-case': {
+    quotes: 'admin-smartbom-quotes',
+    orders: 'admin-smartbom-orders',
+    pos: 'admin-smartbom-pos',
+    logistics: 'admin-smartbom-logistics',
+  },
+  'admin-pcb-case': {
+    cases: 'admin-pcb-cases',
+    rfqs: 'admin-pcb-rfqs',
+    orders: 'admin-pcb-orders',
+    pos: 'admin-pcb-pos',
+    shipments: 'admin-pcb-shipments',
+  },
 };
 const effectiveRouteName = computed(() => {
-  if (currentRouteName.value !== 'admin-smartbom-case') return currentRouteName.value;
+  const map = CASE_FROM_MENU[currentRouteName.value];
+  if (map === undefined) return currentRouteName.value;
   const from = route.query.from;
-  return (typeof from === 'string' ? CASE_FROM_MENU[from] : undefined) ?? currentRouteName.value;
+  return (typeof from === 'string' ? map[from] : undefined) ?? currentRouteName.value;
 });
 const menuRouteName = (to: RouteLocationRaw): string | null =>
   typeof to === 'object' && 'name' in to && typeof to.name === 'string' ? to.name : null;
@@ -65,9 +78,13 @@ const { data: bomOrdersAwaiting } = useBomOrdersAwaitingCount(isAdminUser);
 const { data: bomPosAwaiting } = useBomPosAwaitingCount(isAdminUser);
 const { data: bomShipmentPending } = useBomShipmentPendingCount(isAdminUser);
 const { data: pcbRfqPending } = usePcbRfqPendingCount(isAdminUser);
-const { data: pcbEqPending } = usePcbEqPendingCount(isAdminUser);
+const { eqPending: pcbEqPending, toShip: pcbToShip } = usePcbPoWorkCounts(isAdminUser);
 const { data: pcbShipmentPending } = usePcbShipmentPendingCount(isAdminUser);
 const { data: pcbOrdersAwaiting } = usePcbOrdersAwaitingCount(isAdminUser);
+// PCB 대기 큐 — 각 역할이 "아직 시작하지 않은" 수(요청 대기·발주 대기).
+const { todoRfq: pcbTodoRfq, todoPo: pcbTodoPo } = useAdminPcbTodoCounts(isAdminUser);
+// PCB 배지는 합산이다 — SmartBOM 과 달리 시작 전(대기 큐)과 진행 중 내 차례가 모두
+// 관리자 몫이라, 하나만 세면 나머지가 묻힌다("이 역할이 지금 움직여야 하는 수").
 const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefined =>
   badge === 'rfqCount'
     ? rfqCount.value
@@ -78,11 +95,11 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
         : badge === 'bomPosAwaiting'
           ? bomPosAwaiting.value
           : badge === 'pcbRfqPending'
-            ? pcbRfqPending.value
-            : badge === 'pcbEqPending'
-              ? pcbEqPending.value
+            ? pcbTodoRfq.value + (pcbRfqPending.value ?? 0)
+            : badge === 'pcbPosPending'
+              ? pcbTodoPo.value + pcbEqPending.value
               : badge === 'pcbShipmentPending'
-                ? pcbShipmentPending.value
+                ? pcbToShip.value + (pcbShipmentPending.value ?? 0)
                 : badge === 'pcbOrdersAwaiting'
                   ? pcbOrdersAwaiting.value
                   : bomShipmentPending.value;

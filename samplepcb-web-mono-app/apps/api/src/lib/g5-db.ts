@@ -3225,18 +3225,156 @@ export async function listPcbOrderSpecs(params: {
   };
 }
 
-// 유령 active 스펙(ctId 는 있는데 cart 행이 소실 — 고객이 장바구니에서 삭제) id 목록.
-// RFQ 게이트는 이미 허용하므로 진행현황 'RFQ 가능' 탭 판정에만 쓴다. 희귀 케이스라
-// id 목록으로 돌려 prisma where 에 합류시킨다(한정 예외 ⑳의 연장, read-only).
-export async function listGhostActiveSpecIds(): Promise<number[]> {
-  const pool = getG5Pool();
-  const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT s.id FROM sp_order_spec s
-       LEFT JOIN g5_shop_cart c ON c.ct_id = s.ctId
-      WHERE s.status = 'active' AND s.ctId IS NOT NULL AND c.ct_id IS NULL`,
-  );
-  return rows.map((row) => Number(row.id));
+// ── PCB 진행현황·대기 큐 목록 (한정 예외 ⑳ 연장 — read-only) ────────────────
+// 스펙 축 LEFT JOIN 판(주문 전 건도 모수). 주문·결제 워크큐(listPcbOrderSpecs)는
+// od 축 INNER JOIN 이라 그대로 두고, 여기서는 "견적건 하나가 전 흐름 중 어디쯤인가"를
+// 구간으로 나눈다 + 역할별 대기 큐(todo_*) 를 같은 절단면에서 뽑는다.
+//
+// ⚠ 대기 큐(todo_rfq·todo_po)에서만 **레거시 이관분을 제외**한다(사용자 결정 2026-08-05).
+//   이관 주문은 레거시에서 이미 RFQ·발주가 처리됐는데 그 이력은 이관 대상이 아니었다
+//   (§2.4). 제외하지 않으면 요청 대기 324건·발주 대기 190건이 영구히 눌러앉아 실제로
+//   해야 할 몇 건이 묻힌다. 제외는 "재촉 목록에서만" — 진행현황·주문·결제에는 그대로
+//   보이고 Case 상세 RFQ/발주 패널도 열려 있어(D10) 필요하면 언제든 진행할 수 있다.
+
+export type PcbCaseTab =
+  | 'quoting'
+  | 'unpaid'
+  | 'production'
+  | 'closed'
+  | 'all'
+  | 'todo_rfq'
+  | 'todo_po';
+
+export interface PcbCaseSpecRow {
+  specId: number;
+  isLegacy: boolean;
+  odId: string | null;
+  odStatus: string | null;
+  ctStatus: string | null;
+  orderedAt: string | null;
 }
+
+// 주문 진행 중 = 결제됐고 완료·취소가 아님(D10 원가 소싱 허용 구간과 같은 정의).
+const OD_ACTIVE = `o.od_status NOT IN ('주문', '완료', '취소')`;
+const NOT_LEGACY = `JSON_EXTRACT(s.specJson, '$._legacy') IS NULL`;
+const NO_RFQ = `NOT EXISTS (SELECT 1 FROM sp_pcb_rfq r WHERE r.specId = s.id)`;
+const NO_PO = `NOT EXISTS (SELECT 1 FROM sp_pcb_po p WHERE p.specId = s.id AND p.parentPartnerId = 0)`;
+// 미주문 = cart 행 없음(비담김·유령) 또는 장바구니에만 있음.
+const NOT_ORDERED = `(c.ct_id IS NULL OR c.ct_status = '쇼핑')`;
+// RFQ 게이트(checkPcbRfqSpecGate) 미러 — 담김(IN_CART)·미입금·완료/취소는 시작 불가.
+// 주문 헤더 소실은 유령과 동급으로 허용한다(게이트도 그렇게 판정).
+const RFQ_STARTABLE = `(c.ct_id IS NULL OR (c.ct_status <> '쇼핑' AND (o.od_id IS NULL OR ${OD_ACTIVE})))`;
+
+const PCB_CASE_TAB_SQL: Record<Exclude<PcbCaseTab, 'all'>, string> = {
+  quoting: NOT_ORDERED,
+  unpaid: `c.ct_status <> '쇼핑' AND o.od_status = '주문'`,
+  production: `c.ct_status <> '쇼핑' AND ${OD_ACTIVE}`,
+  closed: `c.ct_status <> '쇼핑' AND o.od_status IN ('완료', '취소')`,
+  todo_rfq: `${NOT_LEGACY} AND ${NO_RFQ} AND ${RFQ_STARTABLE}`,
+  todo_po: `${NOT_LEGACY} AND ${NO_PO} AND c.ct_status <> '쇼핑' AND ${OD_ACTIVE}`,
+};
+
+export async function listPcbCaseSpecs(params: {
+  tab: PcbCaseTab;
+  q: string;
+  page: number;
+  pageSize: number;
+}): Promise<{
+  rows: PcbCaseSpecRow[];
+  total: number;
+  counts: {
+    quoting: number;
+    unpaid: number;
+    production: number;
+    closed: number;
+    all: number;
+    todoRfq: number;
+    todoPo: number;
+  };
+}> {
+  const pool = getG5Pool();
+  const conds = [`s.status = 'active'`];
+  const args: unknown[] = [];
+  const keyword = params.q.trim();
+  if (keyword !== '') {
+    // 화면이 Q{specId} 를 앞세우므로 견적번호 정확일치도 받는다(숫자 입력 시).
+    conds.push(`(s.projectName LIKE ? OR s.mbId LIKE ? OR c.od_id LIKE ? OR s.id = ?)`);
+    const like = `%${keyword}%`;
+    args.push(like, like, like, /^\d+$/.test(keyword) ? keyword : 0);
+  }
+  // cart/order 는 LEFT — 주문 전 스펙과 유령(cart 행 소실)까지 모수에 남긴다.
+  const base = `FROM sp_order_spec s
+      LEFT JOIN g5_shop_cart c ON c.ct_id = s.ctId
+      LEFT JOIN g5_shop_order o ON o.od_id = c.od_id
+     WHERE ${conds.join(' AND ')}`;
+
+  const [countRows] = await pool.query<RowDataPacket[]>(
+    `SELECT
+        COALESCE(SUM(${PCB_CASE_TAB_SQL.quoting}), 0) AS quoting,
+        COALESCE(SUM(${PCB_CASE_TAB_SQL.unpaid}), 0) AS unpaid,
+        COALESCE(SUM(${PCB_CASE_TAB_SQL.production}), 0) AS production,
+        COALESCE(SUM(${PCB_CASE_TAB_SQL.closed}), 0) AS closed,
+        COUNT(*) AS all_cnt,
+        COALESCE(SUM(${PCB_CASE_TAB_SQL.todo_rfq}), 0) AS todo_rfq,
+        COALESCE(SUM(${PCB_CASE_TAB_SQL.todo_po}), 0) AS todo_po
+      ${base}`,
+    args,
+  );
+  const count = countRows[0];
+  const counts = {
+    quoting: Number(count?.quoting ?? 0),
+    unpaid: Number(count?.unpaid ?? 0),
+    production: Number(count?.production ?? 0),
+    closed: Number(count?.closed ?? 0),
+    all: Number(count?.all_cnt ?? 0),
+    todoRfq: Number(count?.todo_rfq ?? 0),
+    todoPo: Number(count?.todo_po ?? 0),
+  };
+
+  const tabCond = params.tab === 'all' ? '1=1' : PCB_CASE_TAB_SQL[params.tab];
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT s.id AS spec_id,
+            JSON_EXTRACT(s.specJson, '$._legacy') IS NOT NULL AS is_legacy,
+            c.od_id, c.ct_status, o.od_status,
+            DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
+       ${base} AND (${tabCond})
+      ORDER BY s.id DESC
+      LIMIT ? OFFSET ?`,
+    [...args, params.pageSize, (params.page - 1) * params.pageSize],
+  );
+  const totalByTab: Record<PcbCaseTab, number> = {
+    quoting: counts.quoting,
+    unpaid: counts.unpaid,
+    production: counts.production,
+    closed: counts.closed,
+    all: counts.all,
+    todo_rfq: counts.todoRfq,
+    todo_po: counts.todoPo,
+  };
+  return {
+    rows: rows.map((row) => {
+      const odTime = String(row.od_time ?? '');
+      const ctStatus = row.ct_status === null || row.ct_status === undefined ? null : String(row.ct_status);
+      // 장바구니 행(ct_status='쇼핑')은 주문 전 — od_id 컬럼이 있어도 주문으로 세지 않는다.
+      const ordered = ctStatus !== null && ctStatus !== '쇼핑';
+      return {
+        specId: Number(row.spec_id),
+        isLegacy: Number(row.is_legacy ?? 0) === 1,
+        odId: ordered && row.od_id !== null ? String(row.od_id) : null,
+        odStatus: ordered && row.od_status !== null ? String(row.od_status ?? '') : null,
+        ctStatus,
+        orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
+      };
+    }),
+    total: totalByTab[params.tab],
+    counts,
+  };
+}
+
+// (회수 2026-08-05) listGhostActiveSpecIds — 유령 active 스펙(ctId 는 있는데 cart 행이
+// 소실)을 id 목록으로 뽑아 prisma where 에 합류시키던 헬퍼. 유일한 소비처였던 견적
+// 관리 preorder 탭이 없어지면서 제거했다. 유령 판정은 이제 listPcbCaseSpecs 의
+// LEFT JOIN 이 자연히 처리한다(c.ct_id IS NULL → 미주문 구간·요청 대기 큐).
 
 export async function closeG5Pool(): Promise<void> {
   if (pool) {
