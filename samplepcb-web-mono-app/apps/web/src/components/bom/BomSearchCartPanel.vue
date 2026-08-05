@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type { BomQuoteDetailType, BomQuoteItemType } from '@sp/api-contract';
 import quoteTitleIcon from '../../assets/bom/ic-single-search-quote.svg';
 import estimateTitleIcon from '../../assets/bom/ic-single-search-estimate.svg';
@@ -23,6 +23,14 @@ const emit = defineEmits<{
 type CartTab = 'all' | 'priced' | 'inquiry';
 const tab = ref<CartTab>('all');
 const quantities = ref<Record<string, number>>({});
+const cartMpnTooltipId = 'bom-search-cart-mpn-tooltip';
+const cartMpnTooltipItem = ref<BomQuoteItemType | null>(null);
+const cartMpnTooltipRef = ref<HTMLElement | null>(null);
+const cartMpnTooltipPosition = ref({ left: 0, top: 0 });
+const cartMpnTooltipStyle = computed(() => ({
+  left: `${String(cartMpnTooltipPosition.value.left)}px`,
+  top: `${String(cartMpnTooltipPosition.value.top)}px`,
+}));
 
 const items = computed(() => props.cart?.items ?? []);
 const visibleItems = computed(() => items.value.filter((item) =>
@@ -75,6 +83,40 @@ function tabClass(target: CartTab): string {
     ? 'border border-brand-soft bg-surface-brand-soft font-bold text-brand-soft'
     : 'border border-transparent bg-surface-raised font-normal text-ink-muted';
 }
+
+function showCartMpnTooltip(item: BomQuoteItemType, event: MouseEvent): void {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement) || target.scrollWidth <= target.clientWidth) return;
+
+  const viewportPadding = 8;
+  const gap = 6;
+  const targetRect = target.getBoundingClientRect();
+  const cartRect = target.closest('aside')?.getBoundingClientRect();
+  const preferredLeft = cartRect === undefined ? targetRect.left : cartRect.left + viewportPadding;
+
+  cartMpnTooltipItem.value = item;
+  cartMpnTooltipPosition.value = { left: Math.max(viewportPadding, preferredLeft), top: targetRect.bottom + gap };
+
+  void nextTick(() => {
+    if (cartMpnTooltipItem.value?.id !== item.id) return;
+    const tooltip = cartMpnTooltipRef.value;
+    if (tooltip === null) return;
+
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const maxLeft = Math.max(viewportPadding, window.innerWidth - tooltipRect.width - viewportPadding);
+    const left = Math.min(Math.max(viewportPadding, preferredLeft), maxLeft);
+    const tooltipHeight = tooltipRect.height;
+    const spaceBelow = window.innerHeight - targetRect.bottom - gap;
+    const top = spaceBelow < tooltipHeight && targetRect.top > spaceBelow
+      ? Math.max(viewportPadding, targetRect.top - tooltipHeight - gap)
+      : Math.min(targetRect.bottom + gap, Math.max(viewportPadding, window.innerHeight - tooltipHeight - viewportPadding));
+    cartMpnTooltipPosition.value = { left, top };
+  });
+}
+
+function hideCartMpnTooltip(itemId: string): void {
+  if (cartMpnTooltipItem.value?.id === itemId) cartMpnTooltipItem.value = null;
+}
 </script>
 
 <template>
@@ -109,7 +151,14 @@ function tabClass(target: CartTab): string {
 
       <article v-for="item in visibleItems" :key="item.id" class="relative min-h-[71px] border-b border-line-soft py-[10px] last:border-b-0">
         <div class="min-w-0 pr-[92px]">
-          <p class="truncate text-[14px] font-medium leading-[20px] text-ink-strong" :title="item.mpn">{{ item.mpn }}</p>
+          <p
+            class="truncate text-[14px] font-medium leading-[20px] text-ink-strong"
+            :aria-describedby="cartMpnTooltipItem?.id === item.id ? cartMpnTooltipId : undefined"
+            @mouseenter="showCartMpnTooltip(item, $event)"
+            @mouseleave="hideCartMpnTooltip(item.id)"
+          >
+            {{ item.mpn }}
+          </p>
           <p class="truncate text-[11px] font-normal leading-[16px] text-ink-subtle" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
         </div>
 
@@ -163,5 +212,18 @@ function tabClass(target: CartTab): string {
         {{ requesting ? '요청 중…' : '견적요청' }}
       </button>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="cartMpnTooltipItem !== null"
+        :id="cartMpnTooltipId"
+        ref="cartMpnTooltipRef"
+        role="tooltip"
+        class="pointer-events-none fixed z-[100] flex h-[40px] w-max items-center whitespace-nowrap rounded-[6px] border border-line-search-strong bg-search-head px-[8px] py-[4px] text-[12px] leading-[16px] text-ink shadow-[0px_2px_6px_0px_rgba(0,0,0,0.3)]"
+        :style="cartMpnTooltipStyle"
+      >
+        {{ cartMpnTooltipItem.mpn }}
+      </div>
+    </Teleport>
   </aside>
 </template>
