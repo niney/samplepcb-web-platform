@@ -217,22 +217,22 @@ const exactIdentityWarning = computed(() => {
 
 const rowClass = computed(() => {
   const item = props.item;
-  if (quantityMissing.value) return 'bg-amber-50/70';
+  if (quantityMissing.value) return 'bg-bom-row-review';
   if (!item.included) return 'opacity-45';
-  if (severeOrderSurplus.value) return 'bg-orange-50/80';
-  if (alternativeSelectionPending.value) return 'bg-amber-50/70';
-  if (exactIdentityWarning.value !== null) return 'bg-amber-50/40';
-  if (catalogInquiry.value) return 'bg-blue-50/50';
+  if (severeOrderSurplus.value) return 'bg-bom-row-review';
+  if (alternativeSelectionPending.value) return 'bg-bom-row-review';
+  if (exactIdentityWarning.value !== null) return 'bg-bom-row-review';
+  if (catalogInquiry.value) return 'bg-bom-row-inquiry';
   // 보강 진행 중엔 분홍(경고) 대신 중립 — 미매칭은 아직 최종 판정이 아니다
   if (item.matchStatus === 'none') {
-    if (props.enriching) return 'bg-surface';
-    if (engineStockStatusLabel.value !== null) return 'bg-surface-warn';
+    if (props.enriching) return 'bg-bom-table-row';
+    if (engineStockStatusLabel.value !== null) return 'bg-bom-row-nostock';
     return item.recommendedCandidateKey !== null || item.matchEvidence?.selectionMode === 'review'
-      ? 'bg-amber-50/60'
-      : 'bg-surface-danger';
+      ? 'bg-bom-row-review'
+      : 'bg-bom-row-unmatched';
   }
-  if (stockStatusLabel.value !== null) return 'bg-surface-warn'; // 재고 없음·부족·미확인 — 시안 노랑
-  return 'bg-surface';
+  if (stockStatusLabel.value !== null) return 'bg-bom-row-nostock'; // 재고 없음·부족·미확인 — 시안 노랑
+  return 'bg-bom-table-row';
 });
 
 const evidenceTitle = computed(() => {
@@ -345,8 +345,8 @@ const totalStatusPresentation = computed<TotalStatusPresentation>(() => {
     return {
       label: 'Excluded',
       helperLabel: null,
-      toneClass: 'bg-slate-200 text-slate-700',
-      priceClass: 'text-slate-500',
+      toneClass: 'bg-bom-state-excluded/15 text-bom-state-excluded',
+      priceClass: 'text-bom-state-excluded',
       title: evidenceTitle.value,
       pulse: false,
     };
@@ -523,7 +523,7 @@ function onQtyInput(event: Event): void {
 
 <template>
   <!-- border-collapse의 하단 1px을 포함해 기본 행 높이 110px이 된다. -->
-  <tr class="h-[109px] border-b border-line-soft align-top transition-colors" :class="rowClass">
+  <tr class="h-[109px] border-b border-bom-table-line align-top transition-colors" :class="rowClass">
     <!-- 포함 체크 + Excel 원본 행. 시트명은 좁은 표를 위해 툴팁으로 보존한다. -->
     <td class="p-0" :title="sourceLocationTitle">
       <div class="flex h-[109px] flex-col items-center justify-center gap-[6px]">
@@ -549,7 +549,7 @@ function onQtyInput(event: Event): void {
         <div class="w-[64px] shrink-0">
           <div
             v-if="item.selectedOffer !== null"
-            class="mb-1 flex h-[20px] w-[62px] items-center justify-center gap-1 rounded-[4px] border border-gray-200 bg-surface px-1 shadow-sm"
+            class="mb-1 flex h-[20px] w-[62px] items-center justify-center gap-1 rounded-[4px] border border-gray-200 bg-bom-table-row px-1 shadow-sm"
             :title="item.selectedOffer.supplierSku"
           >
             <img :src="SUPPLIER_META[item.selectedOffer.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] rounded-[2px]">
@@ -570,8 +570,8 @@ function onQtyInput(event: Event): void {
           >
             Any Vendor
           </span>
-          <p class="line-clamp-2 break-all font-noto text-[14px] font-medium leading-[20px] text-ink-strong" :title="partLabel">{{ partLabel }}</p>
-          <p class="truncate font-noto text-[11px] font-normal leading-[16px] text-ink-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
+          <p class="line-clamp-2 break-all font-noto text-[14px] font-medium leading-[20px] text-bom-row-primary" :title="partLabel">{{ partLabel }}</p>
+          <p class="truncate font-noto text-[11px] font-normal leading-[16px] text-bom-row-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <div
             v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null || selectedReplacementSources.length > 0"
@@ -601,7 +601,7 @@ function onQtyInput(event: Event): void {
             :href="item.partDatasheetUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="font-noto text-[12px] font-medium leading-[16px] text-brand-strong hover:underline"
+            class="font-noto text-[12px] font-medium leading-[16px] text-brand-soft hover:underline"
             title="Open datasheet in a new window"
           >Datasheet</a>
           <p v-else class="cursor-default font-noto text-[12px] font-medium leading-[16px] text-ink-faint" title="No datasheet available">Datasheet</p>
@@ -610,7 +610,7 @@ function onQtyInput(event: Event): void {
     </td>
     <!-- 폭은 표의 colgroup 이 정한다(table-fixed) — 여기서 다시 제한하면 남는 폭을 못 쓴다 -->
     <td class="p-0 pt-[45px]">
-      <p class="w-full line-clamp-2 break-words pr-[12px] font-noto text-[14px] font-normal leading-[20px] text-ink-muted" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
+      <p class="w-full line-clamp-2 break-words pr-[12px] font-noto text-[14px] font-normal leading-[20px] text-bom-row-muted" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->
     <td class="w-[160px] p-0 pb-[7px] pt-[8px]">
@@ -623,13 +623,13 @@ function onQtyInput(event: Event): void {
         :locked="editingLocked"
         :locked-title="EDIT_LOCK_TITLE"
       />
-      <p v-else class="flex h-[94px] w-[120px] items-center justify-center text-[12px]" :class="catalogInquiry ? 'font-bold text-blue-700' : 'text-gray-300'">{{ catalogInquiry ? '문의 견적' : '—' }}</p>
+      <p v-else class="flex h-[94px] w-[120px] items-center justify-center text-[12px]" :class="catalogInquiry ? 'font-bold text-brand-soft' : 'text-gray-300'">{{ catalogInquiry ? '문의 견적' : '—' }}</p>
     </td>
     <!-- QUANTITY / STOCK: 공급사 포장(→현재 부품 구매 조건 선택) + 수량 -->
     <td class="p-0 pt-[13px]">
       <button
         type="button"
-        class="relative flex h-[38px] w-[150px] items-center rounded-[6px] border border-line-strong bg-surface-neutral px-[13px] text-[14px] font-bold text-ink-neutral disabled:cursor-not-allowed disabled:opacity-50"
+        class="relative flex h-[38px] w-[150px] items-center rounded-[6px] border border-bom-select-border bg-bom-select px-[13px] text-[14px] font-bold text-ink-neutral disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="!isDraft || editingLocked"
         :title="editingLocked ? EDIT_LOCK_TITLE : `공급사·포장 변경 — ${item.selectedOffer?.packaging ?? '구매 조건 선택'}`"
         @click="emit('open-offers')"
@@ -640,12 +640,12 @@ function onQtyInput(event: Event): void {
           <img :src="icSelectCaret" alt="" class="absolute -left-[0.75px] -top-[0.75px] h-[5.31066px] w-[8.5px] max-w-none">
         </span>
       </button>
-      <div class="mt-[8px] flex h-[38px] w-[150px] items-center justify-between rounded-[6px] border border-line bg-surface-brand-soft pl-1 pr-3">
+      <div class="mt-[8px] flex h-[38px] w-[150px] items-center justify-between rounded-[6px] border border-bom-control-border bg-bom-control pl-1 pr-3">
         <input
           :value="quantityMissing ? quantityDraft : item.orderQty"
           type="number"
           min="1"
-          class="w-[70px] bg-transparent px-2 text-right text-[16px] font-bold tabular-nums focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          class="w-[70px] bg-transparent px-2 text-right text-[16px] font-bold tabular-nums text-bom-row-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="!isDraft || editingLocked || (!quantityMissing && item.selectedOffer === null)"
           :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
           @input="quantityMissing && onQtyInput($event)"

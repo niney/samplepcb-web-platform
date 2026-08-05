@@ -112,16 +112,16 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
 
 <template>
   <!-- 앱형 고정 레이아웃 — 문서 스크롤 없이 각 영역(테이블·패널)이 내부 스크롤한다 -->
-  <div class="flex h-screen flex-col overflow-hidden bg-surface-sunken text-ink-strong [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
+  <div class="bom-app flex h-screen flex-col overflow-hidden bg-bom-chrome text-ink-strong [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
     <!-- top (87:9560) — 시안 다크 → 라이트 치환 -->
-    <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-gray-200 bg-surface">
+    <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-bom-chrome-border bg-bom-chrome">
       <!-- 로고 블록은 시안처럼 사이드바 폭(220px)과 정렬 — 구분선이 경계에 온다 -->
       <div class="flex w-[220px] shrink-0 items-center pl-[24px]">
         <RouterLink :to="{ name: 'bom' }" class="relative top-[1.5px] block h-[26px] w-[150px] shrink-0">
           <img :src="logoPartseyes" alt="Parts Eyes" class="size-full">
         </RouterLink>
       </div>
-      <div class="h-[30px] w-px bg-gray-200" />
+      <div class="h-[30px] w-px bg-bom-chrome-border" />
       <button
         type="button"
         class="ml-[12px] grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
@@ -134,7 +134,7 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
       <button
         type="button"
         role="switch"
-        class="relative ml-[26px] h-[36px] w-[111px] shrink-0 rounded-[48px] border border-bom-recent-active-border bg-bom-sidebar font-noto disabled:cursor-not-allowed disabled:opacity-50"
+        class="relative ml-[26px] h-[36px] w-[111px] shrink-0 rounded-[48px] border border-bom-mode-border bg-bom-mode-bg font-noto disabled:cursor-not-allowed disabled:opacity-50"
         :aria-label="procurementMode === 'sample' ? '샘플' : '양산'"
         :aria-checked="procurementMode === 'mass'"
         :disabled="procurementModeDisabled"
@@ -146,14 +146,14 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
         <span
           class="absolute flex items-center justify-center whitespace-nowrap text-center text-[14px] leading-[24px]"
           :class="procurementMode === 'sample'
-            ? 'left-[2px] top-[2px] h-[30px] w-[54px] rounded-[38px] bg-bom-nav-active font-bold text-white'
-            : 'left-[13px] top-[5px] h-[24px] w-[26px] font-medium text-bom-nav-heading'"
+            ? 'left-[2px] top-[2px] h-[30px] w-[54px] rounded-[38px] bg-bom-mode-active font-bold text-white'
+            : 'left-[13px] top-[5px] h-[24px] w-[26px] font-medium text-bom-mode-inactive'"
         >샘플</span>
         <span
           class="absolute flex items-center justify-center whitespace-nowrap text-center text-[14px] leading-[24px]"
           :class="procurementMode === 'mass'
-            ? 'left-[53px] top-[2px] h-[30px] w-[54px] rounded-[38px] bg-bom-nav-active font-bold text-white'
-            : 'left-[70px] top-[5px] h-[24px] w-[26px] font-medium text-bom-nav-heading'"
+            ? 'left-[53px] top-[2px] h-[30px] w-[54px] rounded-[38px] bg-bom-mode-active font-bold text-white'
+            : 'left-[70px] top-[5px] h-[24px] w-[26px] font-medium text-bom-mode-inactive'"
         >양산</span>
       </button>
 
@@ -226,7 +226,7 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
                 >
                 <img v-else :src="icFile" alt="" class="absolute left-[3px] top-[2px] h-[11px] w-[9px] max-w-none">
               </span>
-              <span class="truncate font-noto text-[12px] font-normal leading-[14px] text-bom-nav-heading">{{ q.fileName ?? q.title }}</span>
+              <span class="truncate font-noto text-[12px] font-normal leading-[14px] text-bom-recent-text">{{ q.fileName ?? q.title }}</span>
             </RouterLink>
             <p v-if="recent.length === 0" class="px-[8px] py-[6px] text-[12px] text-gray-400">아직 업로드한 BOM이 없습니다</p>
           </div>
@@ -248,7 +248,7 @@ const showLandingPromos = computed(() => route.name === 'bom' || onSearchLanding
         <div
           class="h-full overflow-hidden"
           :class="fullBleedContent
-            ? 'bg-surface'
+            ? 'bg-bom-workbench'
             : showLandingPromos
               ? 'bg-bom-canvas'
               : 'rounded-[12px] bg-surface shadow-sm'"

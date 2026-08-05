@@ -66,6 +66,53 @@
   --color-bom-nav-heading: #37393e;
   --color-bom-recent-active-bg: #f1f4f8;
   --color-bom-recent-active-border: #cdd7e5;
+  --color-bom-recent-text: #37393e;
+  --color-bom-mode-bg: #ffffff;
+  --color-bom-mode-border: #cdd7e5;
+  --color-bom-mode-active: #0e6efd;
+  --color-bom-mode-inactive: #37393e;
+  --color-bom-chrome: #fdfdff;
+  --color-bom-chrome-border: #e1e6ef;
+  --color-bom-workbench: #fdfdff;
+  --color-bom-table-row: #fdfdff;
+  --color-bom-table-head: #f8fafc;
+  --color-bom-table-line: #e5e8ed;
+  --color-bom-table-outline: #d3d5dc;
+  --color-bom-table-heading: #828282;
+  --color-bom-row-primary: #061023;
+  --color-bom-row-muted: #5f6777;
+  --color-bom-row-review: rgb(255 251 235 / 0.6);
+  --color-bom-row-unmatched: #fff7f9;
+  --color-bom-row-nostock: #fdf8e7;
+  --color-bom-row-inquiry: rgb(239 246 255 / 0.5);
+  --color-bom-state-excluded: #777777;
+  --color-bom-control: #f4f8ff;
+  --color-bom-control-border: #e1e6ef;
+  --color-bom-select: #f4f4f4;
+  --color-bom-select-border: #d3d5dc;
+  --color-bom-button-quiet: #ffffff;
+  --color-bom-button-quiet-text: #061023;
+  --color-bom-button-quiet-border: #7b838e;
+  --color-bom-cta: #2477f4;
+  --color-bom-panel: #fdfdff;
+  --color-bom-panel-border: #e1e6ef;
+  --color-bom-panel-heading: #061023;
+  --color-bom-status-card: #ffffff;
+  --color-bom-status-label: #39404d;
+  --color-bom-panel-card: #f8fafc;
+  --color-bom-panel-card-border: #e1e6ef;
+  --color-bom-panel-control: #ffffff;
+  --color-bom-panel-control-border: #e1e6ef;
+  --color-bom-panel-control-divider: #e5e8ed;
+  --color-bom-panel-control-action: #9aa5b5;
+  --color-bom-panel-set: #9aa5b5;
+  --color-bom-panel-label: #5f6777;
+  --color-bom-panel-value: #293346;
+  --color-bom-panel-unit: #9aa5b5;
+  --color-bom-panel-total: #f4f8ff;
+  --color-bom-panel-total-border: #dce7f8;
+  --color-bom-panel-vat: #8e97a5;
+  --color-bom-delivery: #169ab6;
   /* 견적 상세 최종합계 하단 안내문 — 작은 본문은 보조 텍스트보다 한 단계 진하게 유지해
      라이트 배경에서 읽기 쉬우면서도 합계보다 과도하게 튀지 않게 한다. */
   --color-bom-estimate-notice: #555555;
@@ -175,15 +222,62 @@
   --color-surface-warn: #2a2413;
 
   /* BOM 좌측 탐색 — 다크 모드에서도 같은 역할과 대비를 유지한다. */
-  --color-bom-sidebar: #171c26;
-  --color-bom-sidebar-border: #2c3441;
-  --color-bom-canvas: #0f131b;
-  --color-bom-nav-active-bg: #16233c;
-  --color-bom-nav-active: #82b4ff;
-  --color-bom-nav-inactive: #9ba6b8;
-  --color-bom-nav-heading: #c6cfdc;
-  --color-bom-recent-active-bg: #1f2632;
-  --color-bom-recent-active-border: #3d4757;
+  --color-bom-sidebar: #0d0d11;
+  --color-bom-sidebar-border: #2f3949;
+  --color-bom-canvas: #191b20;
+  --color-bom-nav-active-bg: #172437;
+  --color-bom-nav-active: #4daaff;
+  --color-bom-nav-inactive: #ffffff;
+  --color-bom-nav-heading: #8f94a2;
+  --color-bom-recent-active-bg: rgb(246 246 248 / 0.05);
+  --color-bom-recent-active-border: #37393e;
+  --color-bom-recent-text: #b2b4c3;
+  --color-bom-mode-bg: #11141a;
+  --color-bom-mode-border: #2d3a4d;
+  --color-bom-mode-active: #0e6efd;
+  --color-bom-mode-inactive: #b2b4c3;
+  --color-bom-chrome: #0d0d11;
+  --color-bom-chrome-border: #2f3949;
+  --color-bom-workbench: #191b20;
+  --color-bom-table-row: #131519;
+  --color-bom-table-head: rgb(37 42 49 / 0.3);
+  --color-bom-table-line: #242a36;
+  --color-bom-table-outline: #2f3949;
+  --color-bom-table-heading: #8e97a5;
+  --color-bom-row-primary: #ffffff;
+  --color-bom-row-muted: #8e97a5;
+  --color-bom-row-review: rgb(255 105 0 / 0.1);
+  --color-bom-row-unmatched: rgb(255 88 115 / 0.1);
+  --color-bom-row-nostock: rgb(254 236 35 / 0.1);
+  --color-bom-row-inquiry: rgb(71 152 255 / 0.08);
+  --color-bom-state-excluded: #777777;
+  --color-bom-control: #252a31;
+  --color-bom-control-border: #353b46;
+  --color-bom-select: #272a2e;
+  --color-bom-select-border: #343434;
+  --color-bom-button-quiet: transparent;
+  --color-bom-button-quiet-text: #ffffff;
+  --color-bom-button-quiet-border: #7b838e;
+  --color-bom-cta: #2674ff;
+  --color-bom-panel: #131519;
+  --color-bom-panel-border: #2f3949;
+  --color-bom-panel-heading: #ffffff;
+  --color-bom-status-card: #131519;
+  --color-bom-status-label: #ffffff;
+  --color-bom-panel-card: #1a1c20;
+  --color-bom-panel-card-border: #242629;
+  --color-bom-panel-control: #1c2532;
+  --color-bom-panel-control-border: #414b5a;
+  --color-bom-panel-control-divider: #2a3342;
+  --color-bom-panel-control-action: #555e6c;
+  --color-bom-panel-set: #5d6474;
+  --color-bom-panel-label: #cccccc;
+  --color-bom-panel-value: #e1e4e8;
+  --color-bom-panel-unit: #5f6777;
+  --color-bom-panel-total: #161a27;
+  --color-bom-panel-total-border: #182748;
+  --color-bom-panel-vat: #838fa0;
+  --color-bom-delivery: #00cdf1;
   --color-bom-estimate-notice: #b6c0ce;
 
   /* BOM 랜딩 프로모 카드 — 다크 카드 시안이 없어, 토큰화 전 다크에서 실제로
@@ -416,4 +510,69 @@
     --color-sky-800: oklch(90.1% 0.058 230.902);
     --color-sky-900: oklch(95.1% 0.026 236.824);
     --color-sky-950: oklch(97.7% 0.013 236.62);
+}
+
+/* BOM 다크 시안(2282:63171)은 관리자·일반 화면의 공용 다크 팔레트보다 더 중성적이고
+   대비 단계가 촘촘하다. BOM 레이아웃 안에서만 공용 역할 토큰을 시안값으로 좁혀,
+   모달·드로어를 포함한 BOM 하위 화면이 같은 색 체계를 상속하게 한다. */
+[data-theme="dark"] .bom-app {
+  --color-ink-strong: #ffffff;
+  --color-ink: #e1e4e8;
+  --color-ink-soft: #b6c0ce;
+  --color-ink-muted: #8e97a5;
+  --color-ink-subtle: #8e97a5;
+  --color-ink-faint: #5d6474;
+  --color-ink-neutral: #ffffff;
+
+  --color-surface: #131519;
+  --color-surface-sunken: #1a1c20;
+  --color-surface-raised: #252a31;
+  --color-surface-neutral: #272a2e;
+  --color-surface-brand: #172437;
+  --color-surface-brand-soft: #161a27;
+  --color-surface-warn: rgb(254 236 35 / 0.1);
+
+  --color-line: #242629;
+  --color-line-soft: #242a36;
+  --color-line-strong: #2f3949;
+  --color-line-neutral: #343434;
+  --color-line-brand: #182748;
+
+  --color-brand: #4798ff;
+  --color-brand-strong: #1e64fd;
+  --color-brand-soft: #4798ff;
+  --color-brand-deep: #4798ff;
+
+  --color-state-matched: #38b614;
+  --color-state-supply: #00ce87;
+  --color-state-review: #ff6900;
+  --color-state-unmatched: #ff5873;
+  --color-state-danger: #ff5873;
+  --color-state-nostock: #d5c724;
+
+  --color-surface-matched: rgb(1 189 70 / 0.15);
+  --color-surface-matched-strong: rgb(1 189 70 / 0.15);
+  --color-surface-danger: rgb(255 88 115 / 0.1);
+  --color-line-matched: rgb(0 206 135 / 0.4);
+  --color-line-danger: rgb(255 88 115 / 0.4);
+  --color-line-warn: rgb(190 175 12 / 0.4);
+
+  --color-action-primary: #283f71;
+  --color-action-primary-hover: #33508e;
+  --color-action-quiet: #252a31;
+}
+
+/* 패널 아이콘 원본은 라이트용 진회색과 다크용 흰색 SVG가 섞여 있다.
+   동일 필터를 적용해 테마와 무관하게 한 톤으로 정렬한다. */
+.bom-panel-icon {
+  filter: brightness(0);
+  opacity: 0.75;
+}
+
+[data-theme="dark"] .bom-app .bom-panel-icon {
+  filter: brightness(0) invert(1);
+}
+
+[data-theme="dark"] .bom-app .bom-compare-icon {
+  filter: brightness(0) invert(1);
 }

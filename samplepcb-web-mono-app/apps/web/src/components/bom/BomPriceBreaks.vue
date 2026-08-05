@@ -53,7 +53,7 @@ function toggle(): void {
         v-for="priceBreak in visible"
         :key="priceBreak.qty"
         class="flex min-h-[14px] items-baseline justify-between gap-2 whitespace-nowrap text-[12px] leading-[14px]"
-        :class="priceBreak.qty === activeQty ? 'font-bold text-brand-strong' : 'font-semibold text-ink-muted'"
+        :class="priceBreak.qty === activeQty ? 'font-bold text-brand-soft' : 'font-semibold text-ink-muted'"
       >
         <span class="w-[48px] shrink-0 text-right tabular-nums whitespace-nowrap">{{ priceBreak.qty.toLocaleString('ko-KR') }}+</span>
         <span class="min-w-0 shrink-0 text-right tabular-nums whitespace-nowrap">
@@ -64,7 +64,7 @@ function toggle(): void {
     <div v-if="hasMore" class="mt-[6px] border-t border-line pt-[4px] text-center leading-[14px]">
       <button
         type="button"
-        class="inline-flex h-[14px] items-center gap-1 text-[12px] font-semibold leading-[14px] text-brand-strong hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+        class="inline-flex h-[14px] items-center gap-1 text-[12px] font-semibold leading-[14px] text-brand-soft hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
         :disabled="locked"
         :title="locked ? lockedTitle : `전체 ${String(sorted.length)}개 가격구간 ${expanded ? '접기' : '보기'}`"
         @click="toggle"
