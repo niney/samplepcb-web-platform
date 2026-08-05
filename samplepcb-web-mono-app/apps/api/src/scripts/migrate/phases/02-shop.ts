@@ -106,12 +106,15 @@ export async function prepareShopDeps(ctx: MigrateCtx): Promise<ShopDeps> {
   }
   const orderPlan = await buildCopyPlan(ctx.schema, 'g5_shop_order');
   const cartPlan = await buildCopyPlan(ctx.schema, 'g5_shop_cart', { dropAutoIncrement: true });
-  // 담기 전(ctId NULL) spec 의 quoteId — 견적 이관분이 나중에 주문될 때 같은 spec 을 승격하기
-  // 위한 앵커. 플랫폼 자체 견적의 quoteId 는 uuidV5('cart:'+ct_id) 와 충돌하지 않는다.
+  // 견적 단계 quoteId 앵커 — 견적 이관분이 주문될 때 같은 spec 을 승격하기 위한 집합.
+  //
+  // ⚠ ctId IS NULL 로 좁히면 안 된다(2026-08-05 실측 사고): 승격 직후 그 spec 은 ctId 를 갖게 돼
+  // 집합에서 빠지고, 같은 실행의 뒤 단계(sync 의 (b) 재대조)가 같은 라인을 uuidV5('od:ct') 로 다시
+  // 해석한다. 그러면 cart 자연키 (od_id, io_id) 조회가 빗나가 **라인·spec 이 중복 삽입**되고 헤더
+  // 금액이 2배가 된다. 그래서 전 spec 의 quoteId 를 싣는다 — 한 번 견적 id 로 만들어진 라인은
+  // 영구히 그 id 로 수렴(결정적·멱등).
   const quoteStageIds = new Set(
-    (await ctx.prisma.spOrderSpec.findMany({ where: { ctId: null }, select: { quoteId: true } })).map(
-      (r) => r.quoteId,
-    ),
+    (await ctx.prisma.spOrderSpec.findMany({ select: { quoteId: true } })).map((r) => r.quoteId),
   );
   return { orderPlan, cartPlan, templateByCategory, quoteStageIds };
 }

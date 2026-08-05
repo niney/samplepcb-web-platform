@@ -254,11 +254,14 @@ async function main(): Promise<void> {
 
     // ── 미주문 견적 이관(phase 06) ──
     // 레거시 대기 견적(= 견적관리의 주문 전 부분집합) 건수와 플랫폼 견적 단계 spec 수가 같아야 한다.
+    // 레거시 대기 견적은 **전건 이관돼 있어야** 한다(누락 0이 불변식).
+    // 반대로 타깃에만 남은 건(레거시에서 고객이 장바구니에서 지운 것)은 삭제 정책이
+    // 리포트-온리(§5-C)라 정상적으로 남는다 — 실패가 아니라 정보로 보고한다.
     const excluded = [...CANCEL_STATUSES, ...ACTIVE_ORDER_STATUSES];
-    const legacyPending = asInt(
+    const legacyPendingIds = new Set(
       (
         await legacySelect(
-          `SELECT COUNT(*) c FROM g5_shop_cart c
+          `SELECT c.ct_id FROM g5_shop_cart c
              LEFT JOIN g5_shop_order o ON o.od_id = c.od_id
              JOIN g5_shop_item i ON i.it_id = c.it_id
             WHERE (o.od_id IS NULL OR c.ct_status = '쇼핑')
@@ -267,21 +270,23 @@ async function main(): Promise<void> {
               AND c.ct_status NOT IN (${excluded.map(() => '?').join(', ')})`,
           excluded,
         )
-      )[0]?.c,
+      ).map((r) => asStr(r.ct_id)),
     );
-    const migratedQuotes = asInt(
-      (
-        await g5.select(
-          `SELECT COUNT(*) c FROM sp_order_spec
-            WHERE ctId IS NULL AND status = 'active'
-              AND JSON_UNQUOTE(JSON_EXTRACT(specJson, '$._legacy.stage')) = 'quote'`,
-        )
-      )[0]?.c,
-    );
+    const stageCtIds = (
+      await g5.select(
+        `SELECT JSON_UNQUOTE(JSON_EXTRACT(specJson, '$._legacy.ctId')) ct FROM sp_order_spec
+          WHERE ctId IS NULL AND status = 'active'
+            AND JSON_UNQUOTE(JSON_EXTRACT(specJson, '$._legacy.stage')) = 'quote'`,
+      )
+    ).map((r) => asStr(r.ct));
+    const migratedSet = new Set(stageCtIds);
+    const missing = [...legacyPendingIds].filter((id) => !migratedSet.has(id)).length;
+    const stale = stageCtIds.filter((id) => !legacyPendingIds.has(id)).length;
     check(
-      '미주문 견적 이관 건수',
-      legacyPending === migratedQuotes,
-      `레거시 ${String(legacyPending)} → 타깃 ${String(migratedQuotes)}`,
+      '미주문 견적 이관 누락',
+      missing === 0,
+      `레거시 대기 ${String(legacyPendingIds.size)} · 미이관 ${String(missing)}건` +
+        (stale > 0 ? ` (타깃 잔존 ${String(stale)}건 = 레거시에서 삭제된 견적, 리포트-온리 정책)` : ''),
     );
 
     // 견적 금액 변환 항등: finalPrice == 공급가 + floor(공급가×0.1) (주문 이관과 같은 VAT 산식)

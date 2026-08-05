@@ -173,8 +173,13 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 - **승격 앵커(핵심)**: 견적 단계 `quoteId = uuidV5('cart:'+ct_id)`. 미주문 cart 행의 `od_id` 는 **세션
   장바구니 id** 라 주문 시 실제 주문번호로 바뀌어 `uuidV5('od:ct')` 가 달라진다 → 그대로 두면 같은 물리
   cart 행이 견적/주문 두 spec 으로 **중복**된다. `ct_id` 는 승격 후에도 불변이라 앵커로 쓰고,
-  `prepareShopDeps` 가 담기 전(ctId NULL) spec 의 quoteId 집합을 실어 `loadAndConvertOrder` 가
-  **견적 quoteId 를 승계**한다. `migrateLine` 은 기존 spec 이 `ctId=null` 이면 생성 대신
+  `prepareShopDeps` 가 **전 spec 의 quoteId 집합**을 실어 `loadAndConvertOrder` 가
+  **견적 quoteId 를 승계**한다.
+  > ⚠ 앵커 집합을 `ctId IS NULL` 로 좁히면 안 된다(2026-08-05 실측 사고). 승격되는 순간 그 spec 은
+  > ctId 를 얻어 집합에서 빠지고, 같은 실행의 뒤 단계(sync 의 (b) 재대조)가 같은 라인을
+  > `uuidV5('od:ct')` 로 재해석한다 → cart 자연키 `(od_id, io_id)` 조회가 빗나가 **라인·spec 중복
+  > 삽입 + 헤더 금액 2배**. 로컬 재구축에서 5주문/6라인으로 실제 발생했고, 전 spec 을 싣는 것으로
+  > 교정(한 번 견적 id 로 만들어진 라인은 영구히 그 id 로 수렴 — 결정적·멱등). `migrateLine` 은 기존 spec 이 `ctId=null` 이면 생성 대신
   **승격 UPDATE**(ctId·quoteStatus·finalPrice·pricedAt) — 고객 견적 이력이 주문으로 이어진다.
   기존 이관분 20,788건은 주문 기반 quoteId 로 고정돼 **무영향**.
 - **파일**: `upload-files.ts collectTargets` 의 주문 JOIN 을 LEFT JOIN 으로 바꿔 견적 파일도 대상에 포함
@@ -183,7 +188,10 @@ pnpm migrate:wipe    # (컷오버 전) 신규 테스트 거래 정리 — 목록
 - **sync**: (a) 신규분에 `runQuotesPhase` 편입(upsert 라 가격·상태·사양 변경까지 함께 반영 — 별도 재대조 불요),
   (c) 에 `detectQuoteDeletions`(레거시에서 사라진 견적 = 고객 장바구니 삭제 → **리포트만**, 정책 동일).
   주문 phase 뒤에 두어 승격이 먼저 정리된다.
-- **verify**: `미주문 견적 이관 건수`(레거시=타깃) + `견적 금액 변환(VAT) 항등` 2항 추가.
+- **verify**: `미주문 견적 이관 누락`(레거시 대기 전건이 타깃에 있는지 — **누락 0이 불변식**) +
+  `견적 금액 변환(VAT) 항등` 2항 추가. 타깃에만 남은 건(레거시에서 고객이 지운 견적)은 삭제 정책이
+  리포트-온리라 정상 — 실패가 아니라 정보로 표기한다(초안의 "건수 일치" 단언은 덤프 실행 + 운영 sync
+  조합에서 필연적으로 깨져 2026-08-05 교정).
 - **실증(2026-08-04, 운영 직결)**: dry-run 69 → 실행 69 생성(standard 39·assembly 14·circuit 7·artwork 5·
   advance 2·mass 1·metalMask 1) · verify 전 항목 통과(69=69, VAT 불일치 0) · **재실행 완전 no-op** ·
   vitest 644(신규 9). 사용자가 지목한 건(`Working file F-E01200-2_Gerber(2).zip`, 견적접수)이
