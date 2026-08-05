@@ -586,8 +586,17 @@ Figma "Smart BOM_Web 2.0 / 01 BOM 업로드"(node 87:9037)를 픽셀 충실도 �
   `BomPriceBreaks.vue`(가격구간 4행+적용 강조+확장+데이터 나이 — BomQuoteRow 와 공유),
   `bom/format.ts`(fmtAge), `BomPartOfferOptions.vue`(부품 1건 구매 조건·포장 비교 —
   BomPartSearchPanel 상세부 추출, browse=열람 전용/select=부품 변경 문맥 공용).
-- 후속(범위 밖): "견적에 추가" 액션(서버 선택 API 통합) · 고객 노출 가격 정책
-  (samplepcb 파생 구매 조건) 결정.
+- **상세 견적 추가 작업대(2026-08-05)**: 상세 화면의 `[+ 추가]`는 단일 검색과 같은
+  `BomPartSearchWorkspace`·공급사 구매 조건 표를 전체 화면으로 열며, 별도 검색 바구니가 아니라 현재
+  견적의 수동 품목에 바로 저장한다. 여러 부품을 연속으로 추가하고 수량 변경·삭제할 수 있으며,
+  데스크톱은 우측 패널, 작은 화면은 하단 시트로 추가 목록을 확인한다.
+- 저장은 `POST /api/bom/quotes/:id/manual-items`, 삭제는
+  `DELETE /api/bom/quotes/:id/manual-items/:itemId`가 담당한다. sp-node가 견적 소유권과
+  `draft`·분석 완료 상태를 확인하고 part/offer를 DB에서 다시 읽어 세트+예비 수량, 공급사 스냅샷,
+  합계를 계산한다. 같은 카탈로그 부품의 **수동 행만** upsert하며, 원본 분석 행
+  (`sourceSheetIndex` 또는 `analysisComponentId`가 있는 행)은 덮어쓰거나 삭제하지 않는다. 구버전에
+  중복 수동 행이 있으면 가장 오래된 행을 유지하고 나머지를 정리한다.
+- 후속(범위 밖): 고객 노출 가격 정책(samplepcb 파생 구매 조건) 결정.
 
 ### 상세 페이지(87:12875) 이식 (2026-07-19)
 

@@ -8,22 +8,34 @@ import type {
 import { applyQtyToOffer, type BomOfferInput, type OfferPick } from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
+import { bomOfferSelection, bomSearchSelectionKey } from '../../bom/search-selection';
 import BomSearchCheckbox from './BomSearchCheckbox.vue';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   items: BomPartHitType[];
-  needed: number;
+  initialQuantity?: number;
+  quantityMultiplier?: number;
   usdKrwRate: number | null;
   cartPartIds: Set<string>;
   cartSelectionKeys: Set<string>;
   pendingKey: string | null;
   cartBusy: boolean;
   supplierSearchState: 'idle' | 'searching' | 'complete' | 'failed';
-}>();
+  actionContext?: 'cart' | 'quote';
+}>(), {
+  initialQuantity: 1,
+  quantityMultiplier: 1,
+  actionContext: 'cart',
+});
 
 const emit = defineEmits<{
-  add: [body: BomSearchCartAddBodyType, key: string];
-  remove: [partId: string];
+  add: [
+    body: BomSearchCartAddBodyType,
+    key: string,
+    part: BomPartHitType,
+    offer: BomPartOfferOptionType,
+  ];
+  remove: [partId: string, key: string];
 }>();
 
 interface SearchOfferRow {
@@ -33,9 +45,7 @@ interface SearchOfferRow {
 }
 
 function selectionKey(part: BomPartHitType, offer: BomPartOfferOptionType): string {
-  return offer.offerKind === 'manufacturer_catalog'
-    ? `${part.id}\u001fmanufacturer_catalog`
-    : `${part.id}\u001fsupplier_offer\u001f${offer.supplier}\u001f${offer.supplierSku}`;
+  return bomSearchSelectionKey(part.id, bomOfferSelection(offer));
 }
 
 function rowKey(part: BomPartHitType, offer: BomPartOfferOptionType): string {
@@ -54,12 +64,16 @@ const pricedSupplierCount = computed(() => new Set(
 
 const quantities = ref<Record<string, number>>({});
 watch(
-  () => [props.needed, props.items.map((part) => part.id).join(',')] as const,
+  () => [props.initialQuantity, props.items.map((part) => part.id).join(',')] as const,
   () => { quantities.value = {}; },
 );
 
 function quantityFor(row: SearchOfferRow): number {
-  return quantities.value[row.key] ?? props.needed;
+  return quantities.value[row.key] ?? props.initialQuantity;
+}
+
+function requiredQuantityFor(row: SearchOfferRow): number {
+  return Math.max(1, quantityFor(row) * Math.max(1, props.quantityMultiplier));
 }
 
 function setQuantity(row: SearchOfferRow, value: number | string): void {
@@ -101,7 +115,7 @@ function toOfferInput(offer: BomPartOfferOptionType): BomOfferInput {
 
 function pickFor(row: SearchOfferRow): OfferPick | null {
   if (row.offer.offerKind === 'manufacturer_catalog') return null;
-  return applyQtyToOffer(toOfferInput(row.offer), quantityFor(row), props.usdKrwRate);
+  return applyQtyToOffer(toOfferInput(row.offer), requiredQuantityFor(row), props.usdKrwRate);
 }
 
 function displayPrice(row: SearchOfferRow): { amount: string; unit: string; title: string } | null {
@@ -151,23 +165,17 @@ function isSelected(row: SearchOfferRow): boolean {
 }
 
 function add(row: SearchOfferRow): void {
-  const selection: BomSearchCartAddBodyType['selection'] = row.offer.offerKind === 'manufacturer_catalog'
-    ? { kind: 'manufacturer_catalog' }
-    : {
-        kind: 'supplier_offer',
-        supplier: row.offer.supplier,
-        supplierSku: row.offer.supplierSku,
-      };
+  const selection = bomOfferSelection(row.offer);
   emit('add', {
     partId: row.part.id,
     bomQty: quantityFor(row),
     selection,
-  }, row.key);
+  }, row.key, row.part, row.offer);
 }
 
 function toggleSelection(row: SearchOfferRow): void {
   if (isSelected(row)) {
-    emit('remove', row.part.id);
+    emit('remove', row.part.id, selectionKey(row.part, row.offer));
     return;
   }
   add(row);
@@ -175,8 +183,9 @@ function toggleSelection(row: SearchOfferRow): void {
 
 function actionLabel(row: SearchOfferRow, inquiry = false): string {
   if (props.pendingKey === row.key) return '처리 중…';
-  if (isSelected(row)) return '적용';
+  if (isSelected(row)) return props.actionContext === 'quote' ? '추가됨' : '적용';
   if (props.cartPartIds.has(row.part.id)) return '변경';
+  if (props.actionContext === 'quote') return 'BOM 추가';
   return inquiry ? '견적담기' : '담기';
 }
 </script>
@@ -210,7 +219,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               <th class="px-[8px]">Unit price</th>
               <th class="px-[8px]">Stock</th>
               <th class="px-[8px]">Quantity</th>
-              <th class="px-[8px] text-center"><span class="sr-only">구매 수량</span></th>
+              <th class="px-[8px] text-center"><span class="sr-only">{{ actionContext === 'quote' ? 'BOM 수량' : '구매 수량' }}</span></th>
               <th class="px-[8px] text-center"><span class="sr-only">카트</span></th>
             </tr>
           </thead>
@@ -266,7 +275,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                   autocomplete="off"
                   spellcheck="false"
                   class="mx-auto block h-[38px] w-[90px] rounded-[6px] border border-line-strong bg-search-input text-center font-sans text-[16px] font-bold tabular-nums text-ink-strong outline-none focus:border-brand-soft"
-                  aria-label="담을 수량"
+                  :aria-label="actionContext === 'quote' ? 'BOM 수량' : '담을 수량'"
                   @input="setTextQuantity(row, $event)"
                   @blur="restoreQuantity(row, $event)"
                 >
@@ -318,7 +327,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               <th class="px-[8px]">Distributor</th>
               <th class="px-[8px]">Quantity / Stock</th>
               <th class="px-[8px]">Response</th>
-              <th class="px-[8px] text-center"><span class="sr-only">견적 수량</span></th>
+              <th class="px-[8px] text-center"><span class="sr-only">{{ actionContext === 'quote' ? 'BOM 수량' : '견적 수량' }}</span></th>
               <th class="px-[8px] text-center"><span class="sr-only">견적 담기</span></th>
             </tr>
           </thead>
@@ -356,7 +365,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                   autocomplete="off"
                   spellcheck="false"
                   class="mx-auto block h-[38px] w-[90px] rounded-[6px] border border-line-strong bg-search-input text-center font-sans text-[16px] font-bold tabular-nums text-ink-strong outline-none focus:border-brand-soft"
-                  aria-label="견적 수량"
+                  :aria-label="actionContext === 'quote' ? 'BOM 수량' : '견적 수량'"
                   @input="setTextQuantity(row, $event)"
                   @blur="restoreQuantity(row, $event)"
                 >

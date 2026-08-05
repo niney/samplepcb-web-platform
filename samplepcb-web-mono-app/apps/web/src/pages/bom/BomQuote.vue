@@ -13,6 +13,7 @@ import {
   type BomQuotePassiveDefaultsBodyType,
   type BomQuoteSearchRequirementsBodyType,
   type BomQuoteSelectedOfferType,
+  type BomSearchCartAddBodyType,
   type PartHitType,
 } from '@sp/api-contract';
 import {
@@ -38,17 +39,20 @@ import {
   usePrepareBomPartData,
   usePrepareBomQuoteSheets,
   useRequestBomQuote,
+  useRemoveBomQuoteManualItem,
   useRunBomQuoteExternalSupplierSearch,
   useSelectBomQuoteCandidate,
   useSupplierSearchStatus,
   useUpdateBomQuoteSheets,
   useUpdateBomQuoteSearchRequirements,
+  useUpsertBomQuoteManualItem,
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
+import { bomQuoteItemSelection, bomQuoteItemSelectionKey } from '../../bom/search-selection';
 import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 import BomCompareModal from '../../components/bom/BomCompareModal.vue';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
-import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
+import BomQuoteAddWorkspace from '../../components/bom/BomQuoteAddWorkspace.vue';
 import BomQuoteCheckbox from '../../components/bom/BomQuoteCheckbox.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
@@ -1015,26 +1019,31 @@ const candidateRowSearchProgress = computed(() => {
   return '';
 });
 
+const addWorkspaceOpen = ref(false);
+const addWorkspaceOpening = ref(false);
+const manualItemUpsert = useUpsertBomQuoteManualItem();
+const manualItemRemove = useRemoveBomQuoteManualItem();
+const manualPendingKey = ref<string | null>(null);
+const manualPendingItemId = ref<string | null>(null);
+const manualRemovingItemId = ref<string | null>(null);
+const manualItemError = ref<string | null>(null);
+
 watch(quoteId, () => {
   passiveDefaultsOpen.value = false;
   passiveDefaultsError.value = '';
+  addWorkspaceOpen.value = false;
+  manualItemError.value = null;
   clearRowSearchState();
 });
 
 const offerModal = ref<{ lineIdx: number; partId: string } | null>(null);
-const partModal = ref<{ mode: 'swap' | 'add'; lineIdx: number | null; query: string } | null>(null);
-const partModalNeeded = computed(() => {
-  const target = partModal.value;
-  if (target?.lineIdx === undefined || target.lineIdx === null) return neededQty(1, setQty.value, spareQty.value);
-  return neededQty(items.value[target.lineIdx]?.bomQty ?? 1, setQty.value, spareQty.value);
-});
 
 watch(editingLocked, (locked) => {
   if (!locked) return;
   // 열려 있던 선택 모달에서 검색 도중 변경이 들어가는 경로도 차단한다.
   passiveDefaultsOpen.value = false;
   offerModal.value = null;
-  partModal.value = null;
+  addWorkspaceOpen.value = false;
   // 현재 행 조건 재검색은 패널·필터·스크롤을 유지하되 패널 안의 변경 동작만 잠근다.
   if (candidateRowSearchLocked.value) return;
   candidateItemId.value = null;
@@ -1085,9 +1094,80 @@ async function applyPassiveDefaults(): Promise<void> {
   }
 }
 
-function openPartModal(mode: 'swap' | 'add', lineIdx: number | null, query: string): void {
-  if (editingLocked.value) return;
-  partModal.value = { mode, lineIdx, query };
+function manualItemMutationMessage(error: unknown): string {
+  if (!(error instanceof ApiRequestError)) return '부품을 현재 BOM에 반영하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  if (error.status === 409) return error.message || '선택한 구매 조건이 변경되었습니다. 다시 검색해 주세요.';
+  if (error.status === 404) return '견적 또는 수동 추가 부품을 찾을 수 없습니다. 화면을 새로고침해 주세요.';
+  return error.message || '부품을 현재 BOM에 반영하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+}
+
+async function openAddWorkspace(): Promise<void> {
+  if (editingLocked.value || addWorkspaceOpening.value) return;
+  addWorkspaceOpening.value = true;
+  manualItemError.value = null;
+  try {
+    if (dirty.value) {
+      await saveNow();
+      if (saveState.value === 'error') {
+        manualItemError.value = '저장되지 않은 변경사항이 있습니다. 자동저장 상태를 확인한 뒤 다시 시도해 주세요.';
+        return;
+      }
+    }
+    addWorkspaceOpen.value = true;
+  } finally {
+    addWorkspaceOpening.value = false;
+  }
+}
+
+async function upsertManualItem(
+  body: BomSearchCartAddBodyType,
+  key: string | null,
+  itemId: string | null = null,
+): Promise<void> {
+  if (editingLocked.value || manualItemUpsert.isPending.value) return;
+  manualPendingKey.value = key;
+  manualPendingItemId.value = itemId;
+  manualItemError.value = null;
+  try {
+    const saved = await manualItemUpsert.mutateAsync({ quoteId: quoteId.value, body });
+    dirty.value = false;
+    applyServerDetail(saved.data);
+  } catch (error: unknown) {
+    manualItemError.value = manualItemMutationMessage(error);
+  } finally {
+    manualPendingKey.value = null;
+    manualPendingItemId.value = null;
+  }
+}
+
+async function removeManualItem(item: BomQuoteItemType): Promise<void> {
+  if (editingLocked.value || manualItemRemove.isPending.value || !/^\d+$/.test(item.id)) return;
+  manualRemovingItemId.value = item.id;
+  manualItemError.value = null;
+  try {
+    const saved = await manualItemRemove.mutateAsync({ quoteId: quoteId.value, itemId: item.id });
+    dirty.value = false;
+    applyServerDetail(saved.data);
+  } catch (error: unknown) {
+    manualItemError.value = manualItemMutationMessage(error);
+  } finally {
+    manualRemovingItemId.value = null;
+  }
+}
+
+async function removeManualSelection(partId: string, key: string): Promise<void> {
+  const item = items.value.find((candidate) =>
+    candidate.manualEntry === true
+    && candidate.partId === partId
+    && bomQuoteItemSelectionKey(candidate) === key);
+  if (item !== undefined) await removeManualItem(item);
+}
+
+function updateManualItemQuantity(item: BomQuoteItemType, quantity: number): void {
+  if (item.partId === null) return;
+  const selection = bomQuoteItemSelection(item);
+  if (selection === null) return;
+  void upsertManualItem({ partId: item.partId, bomQty: quantity, selection }, null, item.id);
 }
 
 function activateCandidateDrawer(itemId: string, view: CandidateDrawerView): void {
@@ -1440,62 +1520,23 @@ function onOfferSelected(pick: OfferPick): void {
   offerModal.value = null;
 }
 
-interface CatalogSelectionTarget {
-  mode: 'swap' | 'add';
-  lineIdx: number | null;
-}
-
-function applyCatalogPart(part: PartHitType, pick: OfferPick | null, target: CatalogSelectionTarget): boolean {
+function applyCatalogPart(part: PartHitType, pick: OfferPick | null, lineIdx: number): boolean {
   if (editingLocked.value) return false;
   if (enriching.value) return false;
 
-  let lineIdx = target.lineIdx;
-  if (target.mode === 'add' || lineIdx === null) {
-    const rowIdx = items.value.reduce((m, i) => Math.max(m, i.rowIdx), -1) + 1;
-    items.value.push({
-      id: `new:${String(rowIdx)}`,
-      rowIdx,
-      included: true,
-      mpn: part.mpn,
-      manufacturerName: part.manufacturerName,
-      description: part.description,
-      bomQty: 1,
-      orderQty: 0,
-      matchStatus: 'manual',
-      matchEvidence: null,
-      recommendedCandidateKey: null,
-      selectedCandidateKey: null,
-      selectionSource: 'catalog',
-      partId: part.id,
-      selectedOffer: null,
-      sourceRow: null,
-      sourceSheetIndex: null,
-      sourceSheetName: null,
-      lineTotalKrw: null,
-      partImageUrl: part.imageUrl,
-      partDatasheetUrl: null, // 검색 히트엔 없음 — 다음 상세 조회 때 서버가 카탈로그에서 채움
-      catalogInquiry: part.hasCatalogInquiryOffer && pick === null,
-      quantityState: 'verified',
-    });
-    lineIdx = items.value.length - 1;
-  } else {
-    const item = items.value[lineIdx];
-    if (item === undefined) return false;
-    item.mpn = part.mpn;
-    item.manufacturerName = part.manufacturerName;
-    item.description = part.description;
-    item.partImageUrl = part.imageUrl;
-    item.partDatasheetUrl = null; // 부품이 바뀌었으니 이전 링크 무효 — 다음 상세 조회 때 재채움
-    item.catalogInquiry = part.hasCatalogInquiryOffer && pick === null;
-    item.matchStatus = 'manual';
-    item.selectedCandidateKey = null;
-    item.selectionSource = 'catalog';
-    item.partId = part.id;
-    item.selectedOffer = null;
-  }
-
   const item = items.value[lineIdx];
   if (item === undefined) return false;
+  item.mpn = part.mpn;
+  item.manufacturerName = part.manufacturerName;
+  item.description = part.description;
+  item.partImageUrl = part.imageUrl;
+  item.partDatasheetUrl = null; // 부품이 바뀌었으니 이전 링크 무효 — 다음 상세 조회 때 재채움
+  item.catalogInquiry = part.hasCatalogInquiryOffer && pick === null;
+  item.matchStatus = 'manual';
+  item.selectedCandidateKey = null;
+  item.selectionSource = 'catalog';
+  item.partId = part.id;
+  item.selectedOffer = null;
   if (pick !== null) {
     // 추천값이어도 고객이 공급 포장·공급사를 확인하고 확정한 직접 선택이다.
     applyOfferPick(pick, true, lineIdx, part.id);
@@ -1504,13 +1545,6 @@ function applyCatalogPart(part: PartHitType, pick: OfferPick | null, target: Cat
     markDirty();
   }
   return true;
-}
-
-function onPartSelected(part: PartHitType, pick: OfferPick | null): void {
-  const modal = partModal.value;
-  if (modal === null || editingLocked.value) return;
-  partModal.value = null;
-  applyCatalogPart(part, pick, modal);
 }
 
 function onCatalogPartSelected(part: PartHitType, pick: OfferPick | null): void {
@@ -1525,7 +1559,7 @@ function onCatalogPartSelected(part: PartHitType, pick: OfferPick | null): void 
   candidateSelectionError.value = '';
   catalogSelectionPending.value = true;
   try {
-    const applied = applyCatalogPart(part, pick, { mode: 'swap', lineIdx });
+    const applied = applyCatalogPart(part, pick, lineIdx);
     if (applied) closeSelectionSurface();
     else candidateSelectionError.value = '선택한 구매 조건을 현재 행에 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.';
   } finally {
@@ -1904,11 +1938,11 @@ function fmtAmount(v: number | null): string {
               v-if="isDraft"
               type="button"
               class="flex h-[42px] w-[88px] items-center justify-center gap-[6px] rounded-[6px] bg-brand-strong px-0 font-noto text-[16px] font-bold leading-6 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 disabled:hover:bg-blue-300"
-              :disabled="editingLocked"
-              :title="editingLocked ? EDIT_LOCK_TITLE : '부품 추가'"
-              @click="openPartModal('add', null, '')"
+              :disabled="editingLocked || addWorkspaceOpening"
+              :title="editingLocked ? EDIT_LOCK_TITLE : '단일 검색 방식으로 부품 추가'"
+              @click="openAddWorkspace"
             >
-              <span class="text-[18px] leading-none">+</span> 추가
+              <span class="text-[18px] leading-none">+</span> {{ addWorkspaceOpening ? '준비' : '추가' }}
             </button>
           </div>
         </div>
@@ -2665,14 +2699,21 @@ function fmtAmount(v: number | null): string {
       @select="onOfferSelected"
       @close="offerModal = null"
     />
-    <BomPartSearchModal
-      v-if="partModal !== null && !editingLocked"
-      :initial-query="partModal.query"
-      :mode="partModal.mode"
-      :needed="partModalNeeded"
-      :usd-krw-rate="rate"
-      @select="onPartSelected"
-      @close="partModal = null"
+    <BomQuoteAddWorkspace
+      v-if="addWorkspaceOpen && detail !== null && !editingLocked"
+      :quote-title="detail.fileName ?? detail.title"
+      :items="items"
+      :set-qty="setQty"
+      :spare-qty="spareQty"
+      :pending-key="manualPendingKey"
+      :pending-item-id="manualPendingItemId"
+      :removing-item-id="manualRemovingItemId"
+      :action-error="manualItemError"
+      @add="(body, key) => upsertManualItem(body, key)"
+      @remove-selection="removeManualSelection"
+      @remove-item="removeManualItem"
+      @quantity="updateManualItemQuantity"
+      @close="addWorkspaceOpen = false"
     />
     <BomCompareModal
       v-if="compareOpen && detail !== null"

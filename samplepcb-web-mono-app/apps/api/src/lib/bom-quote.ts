@@ -4568,6 +4568,12 @@ export type BomSearchCartMutationResult =
   | 'item-limit'
   | 'quantity-too-large';
 
+export type BomQuoteManualItemMutationResult = BomSearchCartMutationResult
+  | 'quote-not-found'
+  | 'quote-immutable'
+  | 'quote-not-ready'
+  | 'quote-searching';
+
 /** 회원별 활성 단일검색 draft. 첫 담기 전에는 행을 만들지 않아 견적 이력을 오염시키지 않는다. */
 export async function loadActiveBomSearchCart(mbId: string) {
   const quote = await prisma.spBomQuote.findUnique({
@@ -4816,6 +4822,201 @@ export async function removeBomSearchCartItem(
     const removed = await tx.spBomQuoteItem.deleteMany({ where: { id: itemId, quoteId: quote.id } });
     if (removed.count !== 1) return 'item-not-found';
     return 'ok';
+  }, { maxWait: 10_000, timeout: 60_000 });
+}
+
+async function lockOwnedBomQuote(
+  tx: Prisma.TransactionClient,
+  quoteId: bigint,
+  mbId: string,
+) {
+  const existing = await tx.spBomQuote.findFirst({
+    where: { id: quoteId, mbId },
+    select: { id: true },
+  });
+  if (existing === null) return null;
+  await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+    SELECT id FROM sp_bom_quote WHERE id = ${existing.id} FOR UPDATE
+  `);
+  return tx.spBomQuote.findUnique({
+    where: { id: existing.id },
+    include: { items: true, sheets: true },
+  });
+}
+
+function manualCatalogMutationBlock(
+  quote: NonNullable<Awaited<ReturnType<typeof lockOwnedBomQuote>>>,
+  mbId: string,
+): BomQuoteManualItemMutationResult | null {
+  if (quote.mbId !== mbId) return 'quote-not-found';
+  if (quote.status !== 'draft') return 'quote-immutable';
+  if (quote.buildStatus !== 'ready') return 'quote-not-ready';
+  if (quote.enrichStatus === 'searching') return 'quote-searching';
+  return null;
+}
+
+function manualSourceRow(
+  existing: QuoteItemRow | undefined,
+  mbId: string,
+  now: Date,
+): Record<string, unknown> {
+  const raw = existing?.sourceRow;
+  const existingAddedAt = raw !== null
+    && typeof raw === 'object'
+    && !Array.isArray(raw)
+    && typeof raw.addedAt === 'string'
+    ? raw.addedAt
+    : null;
+  return {
+    manualAdded: true,
+    addedBy: mbId,
+    addedAt: existingAddedAt ?? existing?.createdAt.toISOString() ?? now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+}
+
+/** 같은 partId의 원본 분석 행은 제외하고, 가장 오래된 수동 행 하나만 갱신 대상으로 고른다. */
+export function planManualCatalogRows<
+  T extends {
+    id: bigint;
+    rowIdx: number;
+    partId: bigint | null;
+    sourceSheetIndex: number | null;
+    analysisComponentId: bigint | null;
+  },
+>(items: readonly T[], partId: bigint): { existing: T | undefined; duplicateIds: bigint[] } {
+  const matches = items
+    .filter((item) => isManualQuoteItemRow(item) && item.partId === partId)
+    .sort((a, b) => a.rowIdx - b.rowIdx);
+  return {
+    existing: matches[0],
+    duplicateIds: matches.slice(1).map((item) => item.id),
+  };
+}
+
+/** 업로드 BOM의 수동 추가 행만 partId 기준으로 upsert한다. 원본 분석 행은 절대 덮지 않는다. */
+export async function upsertBomQuoteManualItem(
+  mbId: string,
+  quoteId: bigint,
+  body: BomSearchCartAddBodyType,
+): Promise<BomQuoteManualItemMutationResult> {
+  const runtimeConfig = await getBomQuoteRuntimeConfig();
+  return prisma.$transaction(async (tx): Promise<BomQuoteManualItemMutationResult> => {
+    const quote = await lockOwnedBomQuote(tx, quoteId, mbId);
+    if (quote === null) return 'quote-not-found';
+    const blocked = manualCatalogMutationBlock(quote, mbId);
+    if (blocked !== null) return blocked;
+
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    const manualPlan = planManualCatalogRows(activeRows, BigInt(body.partId));
+    const existing = manualPlan.existing;
+    if (existing === undefined && activeRows.length >= MAX_ACTIVE_BOM_QUOTE_ITEMS) return 'item-limit';
+
+    const part = await tx.spPart.findUnique({
+      where: { id: BigInt(body.partId) },
+      include: { offers: { include: { priceBreaks: true } } },
+    });
+    if (part === null) return 'part-not-found';
+
+    const needed = neededQty(body.bomQty, quote.setQty, quote.spareQty);
+    let pick: OfferPick | null = null;
+    const selection = body.selection;
+    if (selection.kind === 'manufacturer_catalog') {
+      const inquiryExists = partOffersForDisplay(part.offers).some((offer) =>
+        offer.supplier === SAMPLEPCB_SUPPLIER && isCatalogInquiryOffer(offer.rawJson));
+      if (!inquiryExists) return 'catalog-inquiry-not-found';
+    } else {
+      const selectedInput = toOfferInputs(part).find((offer) =>
+        offer.supplier === selection.supplier
+        && offer.supplierSku === selection.supplierSku);
+      if (selectedInput === undefined) return 'catalog-offer-not-found';
+      pick = applyQtyToOffer(selectedInput, needed, runtimeConfig.usdKrwRate);
+      if (pick === null) return 'offer-not-priced';
+    }
+    const orderQty = pick?.orderQty ?? needed;
+    if (orderQty > MAX_DATABASE_INT) return 'quantity-too-large';
+
+    const now = new Date();
+    const rowIdx = existing?.rowIdx
+      ?? quote.items.reduce((max, item) => Math.max(max, item.rowIdx), -1) + 1;
+    const nextItem: BomQuoteItemInputType = {
+      rowIdx,
+      included: true,
+      mpn: part.mpn,
+      manufacturerName: part.manufacturerName,
+      description: part.description,
+      bomQty: body.bomQty,
+      orderQty,
+      matchStatus: 'manual',
+      matchEvidence: null,
+      recommendedCandidateKey: null,
+      selectedCandidateKey: null,
+      selectionSource: 'catalog',
+      partId: String(part.id),
+      selectedOffer: pick === null ? null : snapshotFromPick(pick, true, null),
+      sourceRow: manualSourceRow(existing, mbId, now),
+      sourceSheetIndex: null,
+      sourceSheetName: null,
+    };
+    const duplicateIds = manualPlan.duplicateIds;
+    const currentDtos = activeRows
+      .filter((row) => !duplicateIds.includes(row.id))
+      .map((row) => toItemDto(row));
+    const nextItems = existing === undefined
+      ? [...currentDtos, nextItem]
+      : currentDtos.map((item) => item.id === String(existing.id)
+          ? { ...item, ...nextItem }
+          : item);
+    const computed = computeQuote(
+      nextItems,
+      runtimeConfig.usdKrwRate,
+      quote.shippingFee,
+      quote.managementFee,
+    );
+    await persistQuoteComputed(quote.id, computed, runtimeConfig.usdKrwRate, {
+      exchangeRateSnapshot: runtimeConfig.exchangeRateSnapshot,
+    }, tx);
+    if (duplicateIds.length > 0) {
+      await tx.spBomQuoteItem.deleteMany({
+        where: { quoteId: quote.id, id: { in: duplicateIds } },
+      });
+    }
+    return 'ok';
+  }, { maxWait: 10_000, timeout: 60_000 });
+}
+
+/** 고객이 수동 추가한 행만 제거한다. 업로드 원본 행은 같은 API로 제거할 수 없다. */
+export async function removeBomQuoteManualItem(
+  mbId: string,
+  quoteId: bigint,
+  itemId: bigint,
+): Promise<BomQuoteManualItemMutationResult> {
+  const runtimeConfig = await getBomQuoteRuntimeConfig();
+  return prisma.$transaction(async (tx): Promise<BomQuoteManualItemMutationResult> => {
+    const quote = await lockOwnedBomQuote(tx, quoteId, mbId);
+    if (quote === null) return 'quote-not-found';
+    const blocked = manualCatalogMutationBlock(quote, mbId);
+    if (blocked !== null) return blocked;
+
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    const target = activeRows.find((item) => item.id === itemId);
+    if (target === undefined || !isManualQuoteItemRow(target)) return 'item-not-found';
+    const remaining = activeRows
+      .filter((item) => item.id !== itemId)
+      .map((item) => toItemDto(item));
+    const computed = computeQuote(
+      remaining,
+      runtimeConfig.usdKrwRate,
+      quote.shippingFee,
+      quote.managementFee,
+    );
+    await persistQuoteComputed(quote.id, computed, runtimeConfig.usdKrwRate, {
+      exchangeRateSnapshot: runtimeConfig.exchangeRateSnapshot,
+    }, tx);
+    const removed = await tx.spBomQuoteItem.deleteMany({
+      where: { id: itemId, quoteId: quote.id, sourceSheetIndex: null, analysisComponentId: null },
+    });
+    return removed.count === 1 ? 'ok' : 'item-not-found';
   }, { maxWait: 10_000, timeout: 60_000 });
 }
 

@@ -119,6 +119,7 @@ import {
   persistQuoteComputed,
   quoteNeedsEnrichment,
   refreshQuoteFromSupplierResult,
+  removeBomQuoteManualItem,
   removeBomSearchCartItem,
   repriceCandidateSelections,
   replaceQuoteItems,
@@ -127,6 +128,7 @@ import {
   toDetailDto,
   toItemDto,
   toSummaryDto,
+  upsertBomQuoteManualItem,
 } from '../lib/bom-quote';
 
 // ── /api/bom/quotes — 고객(회원) BOM 견적 CRUD (설계: docs/BOM_QUOTE.md) ─────
@@ -970,6 +972,37 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     );
   };
 
+  const sendManualItemMutationError = (
+    reply: FastifyReply,
+    result: Exclude<Awaited<ReturnType<typeof upsertBomQuoteManualItem>>, 'ok'>,
+  ) => {
+    if (
+      result === 'quote-not-found'
+      || result === 'cart-not-found'
+      || result === 'item-not-found'
+      || result === 'part-not-found'
+    ) {
+      return reply.notFound('견적 또는 수동 추가 품목을 찾을 수 없습니다');
+    }
+    if (result === 'item-limit' || result === 'quantity-too-large') {
+      return reply.badRequest(result === 'item-limit'
+        ? '견적에 더 이상 품목을 추가할 수 없습니다'
+        : '수량이 너무 큽니다');
+    }
+    const message = result === 'quote-immutable'
+      ? '견적요청 후에는 부품을 추가하거나 제거할 수 없습니다'
+      : result === 'quote-not-ready'
+        ? '시트 계산이 완료된 후 부품을 추가할 수 있습니다'
+        : result === 'quote-searching'
+          ? '공급사 확인이 완료된 후 부품을 추가할 수 있습니다'
+          : result === 'catalog-inquiry-not-found'
+            ? '문의 가능한 제조사 카탈로그 정보가 없습니다'
+            : result === 'catalog-offer-not-found'
+              ? '선택한 공급사 구매 조건이 더 이상 없습니다'
+              : '선택한 공급사 구매 조건에 적용 가능한 가격이 없습니다';
+    return reply.conflict(message);
+  };
+
   // 단일검색 견적 바구니 — 첫 담기 전에는 null이며, 모든 금액은 서버 저장 구매 조건으로 계산한다.
   fastify.get('/bom/search-cart', {
     schema: { response: { 200: BomSearchCartResponse } },
@@ -1008,6 +1041,42 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     const result = await removeBomSearchCartItem(request.user.mbId, request.params.itemId);
     if (result !== 'ok') return sendSearchCartMutationError(reply, result);
     return activeSearchCartResponse(request.user.mbId);
+  });
+
+  // 분석 상세의 전체 화면 검색 작업대 — 원본 분석 행은 보존하고 수동 추가 행만 upsert/remove.
+  fastify.post('/bom/quotes/:id/manual-items', {
+    schema: {
+      params: IdParams,
+      body: BomSearchCartAddBody,
+      response: { 200: BomQuoteDetailResponse },
+    },
+  }, async (request, reply) => {
+    const result = await upsertBomQuoteManualItem(
+      request.user.mbId,
+      request.params.id,
+      request.body,
+    );
+    if (result !== 'ok') return sendManualItemMutationError(reply, result);
+    const fresh = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
+  });
+
+  fastify.delete('/bom/quotes/:id/manual-items/:itemId', {
+    schema: {
+      params: ItemParams,
+      response: { 200: BomQuoteDetailResponse },
+    },
+  }, async (request, reply) => {
+    const result = await removeBomQuoteManualItem(
+      request.user.mbId,
+      request.params.id,
+      request.params.itemId,
+    );
+    if (result !== 'ok') return sendManualItemMutationError(reply, result);
+    const fresh = await loadOwnQuote(request.params.id, request.user.mbId);
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    return { result: true as const, data: await toDetailDto(fresh, fresh.items, fresh.sheets) };
   });
 
   // 업로드 → 견적(draft) + 엔진 파싱 잡 생성

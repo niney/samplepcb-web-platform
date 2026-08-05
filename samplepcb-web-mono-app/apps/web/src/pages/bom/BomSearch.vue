@@ -1,67 +1,30 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type {
-  BomPartSearchSupplementResponseType,
-  BomSearchCartAddBodyType,
-} from '@sp/api-contract';
+import type { BomSearchCartAddBodyType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
   useAddBomSearchCartItem,
-  useBomPartsSearch,
   useBomSearchCart,
   usePatchBomSearchCartItem,
   useRemoveBomSearchCartItem,
   useRequestBomQuote,
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
+import { bomQuoteItemSelectionKey } from '../../bom/search-selection';
 import BomLandingCard from '../../components/bom/BomLandingCard.vue';
 import BomLandingIntro from '../../components/bom/BomLandingIntro.vue';
 import BomLandingToggle from '../../components/bom/BomLandingToggle.vue';
-import BomPartSearchNotice from '../../components/bom/BomPartSearchNotice.vue';
+import BomPartSearchWorkspace from '../../components/bom/BomPartSearchWorkspace.vue';
 import BomSearchCartPanel from '../../components/bom/BomSearchCartPanel.vue';
-import BomSearchOfferTable from '../../components/bom/BomSearchOfferTable.vue';
 import searchIcon from '../../assets/bom/ic-search-20.svg';
 
 const route = useRoute();
 const router = useRouter();
 const { rightOpen } = useBomPanels();
 const initialQuery = typeof route.query.q === 'string' ? route.query.q : '';
-const input = ref(initialQuery);
+const landingInput = ref(initialQuery);
 const q = ref(initialQuery.trim());
-const needed = ref<number | string>(1);
-const neededSafe = computed(() => {
-  const raw = needed.value;
-  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 1
-    ? Math.min(1_000_000, Math.floor(raw))
-    : 1;
-});
-const submittedNeeded = ref(neededSafe.value);
-
-const search = useBomPartsSearch(q, computed(() => true), submittedNeeded);
-const supplierResult = ref<BomPartSearchSupplementResponseType['data'] | null>(null);
-type SupplierSearchState = 'idle' | 'searching' | 'complete' | 'failed';
-const supplierSearchState = ref<SupplierSearchState>(q.value === '' ? 'idle' : 'searching');
-const supplierSearching = computed(() => supplierSearchState.value === 'searching');
-const localItems = computed(() => search.data.value?.data.items ?? []);
-const useSupplierItems = computed(() => (supplierResult.value?.items.length ?? 0) > 0);
-const items = computed(() => useSupplierItems.value
-  ? supplierResult.value?.items ?? []
-  : localItems.value);
-const total = computed(() => useSupplierItems.value
-  ? supplierResult.value?.total ?? 0
-  : search.data.value?.data.total ?? 0);
-const pricingContext = computed(() => supplierResult.value?.pricingContext
-  ?? search.data.value?.data.pricingContext
-  ?? null);
-const hasPricedSupplierOffer = computed(() => items.value.some((item) => item.applied !== null));
-const initialCatalogLoading = computed(() => search.isFetching.value && search.data.value === undefined);
-const awaitingSupplierResults = computed(() => (
-  search.data.value !== undefined
-  && supplierSearching.value
-  && !hasPricedSupplierOffer.value
-));
-const resultsPending = computed(() => initialCatalogLoading.value || awaitingSupplierResults.value);
 
 const cartQuery = useBomSearchCart(computed(() => true));
 const cart = computed(() => cartQuery.data.value?.data ?? null);
@@ -70,9 +33,8 @@ const cartPartIds = computed(() => new Set(
 ));
 const cartSelectionKeys = computed(() => new Set(
   (cart.value?.items ?? []).flatMap((item) => {
-    if (item.partId === null) return [];
-    if (item.selectedOffer === null) return [`${item.partId}\u001fmanufacturer_catalog`];
-    return [`${item.partId}\u001fsupplier_offer\u001f${item.selectedOffer.supplier}\u001f${item.selectedOffer.supplierSku}`];
+    const key = bomQuoteItemSelectionKey(item);
+    return key === null ? [] : [key];
   }),
 ));
 const addCartItem = useAddBomSearchCartItem();
@@ -86,36 +48,17 @@ const actionError = ref<string | null>(null);
 const mobileCartOpen = ref(false);
 const cartItemCount = computed(() => cart.value?.items.length ?? 0);
 
-function submit(): void {
-  const nextQuery = input.value.trim();
-  const nextNeeded = neededSafe.value;
-  const searchChanged = nextQuery !== q.value || nextNeeded !== submittedNeeded.value;
-  supplierResult.value = null;
-  if (nextQuery === '') supplierSearchState.value = 'idle';
-  else if (searchChanged) supplierSearchState.value = 'searching';
+function submitLanding(): void {
+  const nextQuery = landingInput.value.trim();
   q.value = nextQuery;
-  submittedNeeded.value = nextNeeded;
   actionError.value = null;
   void router.replace({ query: q.value === '' ? {} : { q: q.value } });
 }
 
-function beginSupplierSearch(): void {
-  supplierSearchState.value = 'searching';
-}
-
-function acceptSupplierResult(data: BomPartSearchSupplementResponseType['data']): void {
-  supplierSearchState.value = 'complete';
-  if (data.catalog.status === 'completed') {
-    // 공통 supplement mutation이 카탈로그 반영 후 parts-search 캐시를 무효화하고
-    // 활성 쿼리를 갱신한다. 여기서 다시 refetch하면 같은 GET이 중복 호출된다.
-    supplierResult.value = null;
-    return;
-  }
-  supplierResult.value = data;
-}
-
-function failSupplierSearch(): void {
-  supplierSearchState.value = 'failed';
+function updateWorkspaceQuery(query: string): void {
+  q.value = query;
+  actionError.value = null;
+  void router.replace({ query: query === '' ? {} : { q: query } });
 }
 
 function mutationMessage(error: unknown): string {
@@ -185,10 +128,6 @@ async function requestCartQuote(): Promise<void> {
   }
 }
 
-watch([q, submittedNeeded], () => {
-  supplierResult.value = null;
-  actionError.value = null;
-});
 </script>
 
 <template>
@@ -203,10 +142,10 @@ watch([q, submittedNeeded], () => {
          (BomLandingCard 참조). BOM 분석 탭과 텍스트 위치를 공유하고 검색 폼만 겹친다. -->
     <section class="relative mt-[50px] h-[524px] w-[640px] shrink-0 overflow-hidden rounded-[8px]" aria-label="부품 단일 검색">
       <BomLandingCard title="Search for parts" subtitle="Enter the MPN or part name, and you can start right away" />
-      <form class="absolute left-1/2 top-[226px] z-10 flex h-[48px] w-[426px] -translate-x-1/2" role="search" @submit.prevent="submit">
+      <form class="absolute left-1/2 top-[226px] z-10 flex h-[48px] w-[426px] -translate-x-1/2" role="search" @submit.prevent="submitLanding">
         <label class="flex min-w-0 w-[340px] flex-1 items-center gap-[8px] rounded-l-[8px] bg-[#fdfdff] pl-[20px] pr-[16px]">
           <img :src="searchIcon" alt="" class="size-[20px] shrink-0">
-          <input v-model="input" type="search" aria-label="부품 검색어" placeholder="예: GRM155R71C104KA88, 100nF..." class="min-w-0 flex-1 bg-transparent text-[14px] font-normal leading-[24px] text-[#061023] outline-none placeholder:text-[#5b6a7e]">
+          <input v-model="landingInput" type="search" aria-label="부품 검색어" placeholder="예: GRM155R71C104KA88, 100nF..." class="min-w-0 flex-1 bg-transparent text-[14px] font-normal leading-[24px] text-[#061023] outline-none placeholder:text-[#5b6a7e]">
         </label>
         <button type="submit" class="flex h-[48px] w-[86px] shrink-0 items-center justify-center rounded-r-[8px] bg-[#1e64fd] text-[16px] font-bold leading-[24px] text-white transition hover:bg-blue-700">검색</button>
       </form>
@@ -216,65 +155,22 @@ watch([q, submittedNeeded], () => {
   </div>
 
   <div v-else class="flex h-full min-h-0 bg-surface-sunken">
-    <section class="min-w-0 flex-1 overflow-y-auto px-[24px] pb-[32px] pt-[10px]">
-      <div class="flex h-[44px] items-start justify-between gap-[16px]">
-        <div class="flex items-start gap-[16px] font-noto">
-          <div>
-            <h1 class="font-sans text-[18px] font-medium leading-[21px] text-ink-strong">전자부품 단일 검색</h1>
-            <p class="mt-[4px] font-noto text-[13px] font-medium leading-[16px] text-ink-subtle">
-              {{ resultsPending ? (awaitingSupplierResults ? '공급사 검색 중' : '부품 검색 중') : `검색 결과 - ${total.toLocaleString('ko-KR')}개 부품` }}
-            </p>
-          </div>
-          <RouterLink :to="{ name: 'bom' }" class="flex h-[32px] items-center gap-[4px] rounded-[6px] border border-brand-soft bg-search-row px-[10px] font-noto text-[14px] font-bold leading-[24px] text-brand-soft hover:bg-surface-brand-soft"><span class="text-[18px] font-normal leading-none">+</span> BOM</RouterLink>
-        </div>
-        <div v-if="search.data.value !== undefined" class="hidden max-w-[560px] lg:block">
-          <BomPartSearchNotice
-            :query="q"
-            :mode="search.data.value.data.searchMode"
-            :interpreted-spec-count="search.data.value.data.interpretedSpecCount"
-            :needed="submittedNeeded"
-            auto
-            wait-for-catalog
-            compact
-            @start="beginSupplierSearch"
-            @complete="acceptSupplierResult"
-            @failed="failSupplierSearch"
-          />
-        </div>
-      </div>
-
-      <form class="mt-[31px] flex h-[48px] w-full gap-[10px]" role="search" @submit.prevent="submit">
-        <label class="flex min-w-0 flex-1 items-center rounded-[8px] border border-search-input bg-search-input px-[20px] shadow-sm">
-          <input v-model="input" type="search" placeholder="MPN, 사양 또는 패키지로 검색" class="min-w-0 flex-1 bg-transparent font-noto text-[14px] font-normal leading-[20px] text-ink outline-none placeholder:text-ink-faint">
-        </label>
-        <button type="submit" class="flex h-full w-[94px] shrink-0 items-center justify-center gap-[8px] rounded-[8px] bg-brand px-[14px] font-sans text-[16px] font-bold text-white transition hover:bg-brand-strong">
-          <img :src="searchIcon" alt="" class="size-[18px] brightness-0 invert">
-          검색
-        </button>
-      </form>
-
-      <p v-if="actionError !== null" class="mt-[8px] rounded-[5px] border border-red-200 bg-red-50 px-[10px] py-[7px] font-noto text-[11px] leading-[16px] text-red-700" role="alert">{{ actionError }}</p>
-      <div v-if="search.isError.value && search.data.value === undefined" class="mt-[12px] rounded-[8px] border border-red-200 bg-red-50 px-4 py-6 text-center font-noto text-[12px] text-red-700">검색 결과를 불러오지 못했습니다. 잠시 후 다시 검색해 주세요.</div>
-      <div v-else-if="resultsPending" class="mt-[12px] flex h-[94px] items-center justify-center gap-2 rounded-[8px] border border-line-strong bg-surface font-noto text-[12px] font-medium text-brand" aria-live="polite">
-        <span class="size-4 animate-spin rounded-full border-2 border-line border-t-brand" />{{ awaitingSupplierResults ? '공급사에서 부품과 구매 조건을 검색하고 있습니다.' : '카탈로그를 검색하고 있습니다.' }}
-      </div>
-      <div v-else-if="supplierSearchState === 'failed' && items.length === 0" class="mt-[12px] rounded-[8px] border border-red-200 bg-red-50 px-4 py-6 text-center font-noto text-[12px] text-red-700" role="alert">공급사 검색을 완료하지 못했습니다. 상단에서 다시 검색해 주세요.</div>
-      <div v-else-if="items.length === 0" class="mt-[12px] rounded-[8px] border border-dashed border-line-strong bg-surface px-4 py-12 text-center font-noto text-[12px] text-ink-subtle">검색 결과가 없습니다. 품번 또는 규격을 다시 확인해 주세요.</div>
-      <BomSearchOfferTable
-        v-else
-        class="mt-[12px]"
-        :items="items"
-        :needed="submittedNeeded"
-        :usd-krw-rate="pricingContext?.usdKrwRate ?? null"
-        :cart-part-ids="cartPartIds"
-        :cart-selection-keys="cartSelectionKeys"
-        :pending-key="pendingAddKey"
-        :cart-busy="removingItemId !== null"
-        :supplier-search-state="supplierSearchState"
-        @add="addToCart"
-        @remove="removePartFromCart"
-      />
-    </section>
+    <BomPartSearchWorkspace
+      :initial-query="q"
+      title="전자부품 단일 검색"
+      :selected-part-ids="cartPartIds"
+      :selected-selection-keys="cartSelectionKeys"
+      :pending-key="pendingAddKey"
+      :busy="removingItemId !== null"
+      :action-error="actionError"
+      @query-change="updateWorkspaceQuery"
+      @add="(body, key) => addToCart(body, key)"
+      @remove="(partId) => removePartFromCart(partId)"
+    >
+      <template #title-actions>
+        <RouterLink :to="{ name: 'bom' }" class="flex h-[32px] items-center gap-[4px] rounded-[6px] border border-brand-soft bg-search-row px-[10px] font-noto text-[14px] font-bold leading-[24px] text-brand-soft hover:bg-surface-brand-soft"><span class="text-[18px] font-normal leading-none">+</span> BOM</RouterLink>
+      </template>
+    </BomPartSearchWorkspace>
 
     <BomSearchCartPanel
       v-show="rightOpen"

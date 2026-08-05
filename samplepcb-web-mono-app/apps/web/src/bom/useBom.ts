@@ -21,6 +21,7 @@ import {
   type BomQuoteBuildBodyType,
   type BomQuoteCandidateSelectionBodyType,
   type BomQuoteDeleteManyBodyType,
+  type BomQuoteDetailResponseType,
   type BomQuotePatchBodyType,
   type BomQuotePassiveDefaultsBodyType,
   type BomQuoteProcurementModeType,
@@ -448,6 +449,43 @@ export function usePatchBomSearchCartItem() {
 export function useRemoveBomSearchCartItem() {
   return useBomSearchCartMutation((itemId: string) =>
     apiSend('DELETE', `${base}/search-cart/items/${itemId}`, undefined, BomSearchCartResponse));
+}
+
+function useBomQuoteManualItemMutation<TInput extends { quoteId: string }>(
+  mutationFn: (input: TInput) => Promise<BomQuoteDetailResponseType>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: (response, input) => {
+      const quoteId = input.quoteId;
+      queryClient.setQueryData(['bom', 'quote', quoteId], response);
+      void queryClient.invalidateQueries({ queryKey: ['bom', 'quotes'] });
+      void queryClient.invalidateQueries({ queryKey: ['bom', 'quote', quoteId, 'candidates'] });
+      void queryClient.invalidateQueries({ queryKey: ['bom', 'quote-comparison', quoteId] });
+    },
+  });
+}
+
+export function useUpsertBomQuoteManualItem() {
+  return useBomQuoteManualItemMutation((input: {
+    quoteId: string;
+    body: BomSearchCartAddBodyType;
+  }) => apiSend(
+    'POST',
+    `${base}/quotes/${input.quoteId}/manual-items`,
+    input.body,
+    BomQuoteDetailResponse,
+  ));
+}
+
+export function useRemoveBomQuoteManualItem() {
+  return useBomQuoteManualItemMutation((input: { quoteId: string; itemId: string }) => apiSend(
+    'DELETE',
+    `${base}/quotes/${input.quoteId}/manual-items/${input.itemId}`,
+    undefined,
+    BomQuoteDetailResponse,
+  ));
 }
 
 export function useBomPartDetail(partId: Ref<string | null>, enabled?: Ref<boolean>) {

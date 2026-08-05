@@ -20,6 +20,7 @@ import {
   isManualQuoteItemRow,
   loadLatestQuoteLocalCatalogTrace,
   loadSupplierSearchSummary,
+  planManualCatalogRows,
   projectEnginePartSearchResult,
   quoteNeedsEnrichment,
   quoteLocalCatalogTrace,
@@ -31,6 +32,30 @@ import {
   selectEngineMatch,
   toSummaryDto,
 } from './bom-quote';
+
+describe('고객 BOM 수동 추가 행 계획', () => {
+  it('같은 partId의 원본 분석 행은 보존하고 가장 오래된 수동 행만 갱신 대상으로 삼는다', () => {
+    const planned = planManualCatalogRows([
+      { id: 10n, rowIdx: 0, partId: 7n, sourceSheetIndex: 0, analysisComponentId: 100n },
+      { id: 11n, rowIdx: 1, partId: 7n, sourceSheetIndex: null, analysisComponentId: 101n },
+      { id: 13n, rowIdx: 5, partId: 7n, sourceSheetIndex: null, analysisComponentId: null },
+      { id: 12n, rowIdx: 3, partId: 7n, sourceSheetIndex: null, analysisComponentId: null },
+      { id: 14n, rowIdx: 6, partId: 8n, sourceSheetIndex: null, analysisComponentId: null },
+    ], 7n);
+
+    expect(planned.existing?.id).toBe(12n);
+    expect(planned.duplicateIds).toEqual([13n]);
+  });
+
+  it('수동 추가 이력이 없으면 신규 행 계획을 반환한다', () => {
+    const planned = planManualCatalogRows([
+      { id: 10n, rowIdx: 0, partId: 7n, sourceSheetIndex: 0, analysisComponentId: 100n },
+    ], 7n);
+
+    expect(planned.existing).toBeUndefined();
+    expect(planned.duplicateIds).toEqual([]);
+  });
+});
 
 describe('견적 출처 DTO', () => {
   it('단일검색 견적의 출처를 목록과 상세 응답의 공통 요약에 보존한다', () => {
