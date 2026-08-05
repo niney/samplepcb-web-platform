@@ -670,6 +670,43 @@ const resultMatchFilter = ref<ResultMatchFilter>('all');
 const resultSearchLimitedOnly = ref(false);
 const resultTextQuery = ref('');
 const resultsScrollEl = ref<HTMLElement | null>(null);
+const canScrollResultsLeft = ref(false);
+const canScrollResultsRight = ref(false);
+let resultsScrollResizeObserver: ResizeObserver | null = null;
+
+function syncResultsHorizontalScrollState(): void {
+  const element = resultsScrollEl.value;
+  if (element === null) {
+    canScrollResultsLeft.value = false;
+    canScrollResultsRight.value = false;
+    return;
+  }
+  const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
+  canScrollResultsLeft.value = element.scrollLeft > 1;
+  canScrollResultsRight.value = element.scrollLeft < maxScrollLeft - 1;
+}
+
+function scrollResultColumns(direction: 'left' | 'right'): void {
+  const element = resultsScrollEl.value;
+  if (element === null) return;
+  const distance = Math.max(240, Math.floor(element.clientWidth * 0.7));
+  element.scrollBy({
+    left: direction === 'left' ? -distance : distance,
+    behavior: 'smooth',
+  });
+}
+
+watch(resultsScrollEl, (element) => {
+  resultsScrollResizeObserver?.disconnect();
+  resultsScrollResizeObserver = null;
+  if (element === null) {
+    syncResultsHorizontalScrollState();
+    return;
+  }
+  resultsScrollResizeObserver = new ResizeObserver(syncResultsHorizontalScrollState);
+  resultsScrollResizeObserver.observe(element);
+  void nextTick(syncResultsHorizontalScrollState);
+}, { flush: 'post' });
 
 const RESULT_SEARCH_SOURCE_FIELDS = [
   'sheetName',
@@ -1216,6 +1253,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onPartDataPreparationKeydown);
+  resultsScrollResizeObserver?.disconnect();
   cancelRowSearchNoticeTimer();
 });
 
@@ -2091,72 +2129,100 @@ function fmtAmount(v: number | null): string {
         </div>
 
         <!-- 테이블 (list01 스타일) — 이 영역만 내부 스크롤, 헤더는 sticky -->
-        <div ref="resultsScrollEl" class="mt-2 min-h-0 flex-1 overflow-auto rounded-[10px] border border-bom-table-outline bg-bom-table-row [contain:layout_paint] [scrollbar-width:thin] min-[1890px]:overflow-x-hidden [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-[8px] [&::-webkit-scrollbar]:w-[8px]">
-          <!-- table-fixed — auto 레이아웃은 폭이 바뀔 때마다 모든 행의 셀 내용을 다시 측정해서
-               행이 많아지면 리사이즈가 눈에 띄게 버벅인다. 열 폭은 아래 colgroup 이 단일 소스이고,
-               Manufacturer는 MPN 셀에 함께 표시하고 Description이 남는 폭을 사용한다. -->
-          <table id="bom-results-table" class="w-full min-w-[1338px] table-fixed min-[1920px]:min-w-[1366px]" :aria-busy="editingLocked">
-            <colgroup>
-              <col class="w-[41px]">
-              <col class="w-[364px]"><!-- MPN + Manufacturer — 이미지와 긴 품번을 함께 수용 -->
-              <col><!-- DESCRIPTION — 남는 폭을 사용한다 -->
-              <col class="w-[160px]">
-              <col class="w-[182px]">
-              <col class="w-[106px]">
-              <col class="w-[90px]">
-            </colgroup>
-            <thead class="sticky top-0 z-10 bg-bom-table-head shadow-[0_1px_0_var(--color-bom-table-line)] [&_th]:font-normal">
-              <tr class="h-[39px] text-left font-noto text-[10px] font-normal uppercase leading-[24px] tracking-normal text-bom-table-heading">
-                <th class="p-0">
-                  <div class="flex h-[39px] items-center justify-center">
-                    <BomQuoteCheckbox
-                      :checked="allIncluded"
-                      :indeterminate="someIncluded && !allIncluded"
-                      :disabled="!isDraft || editingLocked || includableItems.length === 0"
-                      :title="editingLocked ? EDIT_LOCK_TITLE : allIncluded ? '표시된 행 전체를 견적에서 제외' : '표시된 행 전체를 견적에 포함'"
-                      :label="editingLocked ? EDIT_LOCK_TITLE : allIncluded ? '표시된 행 전체를 견적에서 제외' : '표시된 행 전체를 견적에 포함'"
-                      @change="toggleIncludeAll"
-                    />
-                    <span class="sr-only">표시된 행 전체 포함</span>
-                  </div>
-                </th>
-                <th class="relative p-0"><span>전체 선택</span><span class="absolute left-[100px]">MPN</span></th>
-                <th class="p-0">Description</th>
-                <th class="p-0">Unit Price</th>
-                <th class="p-0">Quantity / Stock</th>
-                <th class="py-0 pl-[12px] pr-0">Total Price</th>
-                <th class="p-0" />
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="virtualPaddingTop > 0" aria-hidden="true">
-                <td colspan="7" :style="{ height: `${String(virtualPaddingTop)}px` }" />
-              </tr>
-              <BomQuoteRow
-                v-for="entry in virtualRowItems"
-                :key="entry.item.id"
-                :ref="measureRow"
-                :data-index="entry.row.index"
-                :item="entry.item"
-                :needed="neededQty(entry.item.bomQty, setQty, spareQty)"
-                :is-draft="isDraft"
-                :editing-locked="editingLocked"
-                :enriching="enriching"
-                @toggle-include="toggleInclude(entry.item)"
-                @qty-change="onRowQtyChange(entry.item, $event)"
-                @confirm-quantity="confirmQuantity(entry.item, $event)"
-                @open-offers="openQuoteOfferModal(entry.item)"
-                @open-candidates="openCandidateDrawer(entry.item)"
-                @open-search="openCatalogSearchDrawer(entry.item)"
-              />
-              <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
-                <td colspan="7" :style="{ height: `${String(virtualPaddingBottom)}px` }" />
-              </tr>
-              <tr v-if="filteredItems.length === 0">
-                <td colspan="7" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultTextSearchActive ? '검색어에 해당하는 BOM 라인이 없습니다.' : resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="relative mt-2 min-h-0 flex-1">
+          <div ref="resultsScrollEl" class="h-full overflow-auto rounded-[10px] border border-bom-table-outline bg-bom-table-row [contain:layout_paint] [scrollbar-width:thin] min-[1890px]:overflow-x-hidden [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-[8px] [&::-webkit-scrollbar]:w-[8px]" @scroll="syncResultsHorizontalScrollState">
+            <!-- table-fixed — auto 레이아웃은 폭이 바뀔 때마다 모든 행의 셀 내용을 다시 측정해서
+                 행이 많아지면 리사이즈가 눈에 띄게 버벅인다. 열 폭은 아래 colgroup 이 단일 소스이고,
+                 Manufacturer는 MPN 셀에 함께 표시하고 Description이 남는 폭을 사용한다. -->
+            <table id="bom-results-table" class="w-full min-w-[1338px] table-fixed min-[1920px]:min-w-[1366px]" :aria-busy="editingLocked">
+              <colgroup>
+                <col class="w-[41px]">
+                <col class="w-[364px]"><!-- MPN + Manufacturer — 이미지와 긴 품번을 함께 수용 -->
+                <col><!-- DESCRIPTION — 남는 폭을 사용한다 -->
+                <col class="w-[160px]">
+                <col class="w-[182px]">
+                <col class="w-[106px]">
+                <col class="w-[90px]">
+              </colgroup>
+              <thead class="sticky top-0 z-10 bg-bom-table-head shadow-[0_1px_0_var(--color-bom-table-line)] [&_th]:font-normal">
+                <tr class="h-[39px] text-left font-noto text-[10px] font-normal uppercase leading-[24px] tracking-normal text-bom-table-heading">
+                  <th class="p-0">
+                    <div class="flex h-[39px] items-center justify-center">
+                      <BomQuoteCheckbox
+                        :checked="allIncluded"
+                        :indeterminate="someIncluded && !allIncluded"
+                        :disabled="!isDraft || editingLocked || includableItems.length === 0"
+                        :title="editingLocked ? EDIT_LOCK_TITLE : allIncluded ? '표시된 행 전체를 견적에서 제외' : '표시된 행 전체를 견적에 포함'"
+                        :label="editingLocked ? EDIT_LOCK_TITLE : allIncluded ? '표시된 행 전체를 견적에서 제외' : '표시된 행 전체를 견적에 포함'"
+                        @change="toggleIncludeAll"
+                      />
+                      <span class="sr-only">표시된 행 전체 포함</span>
+                    </div>
+                  </th>
+                  <th class="relative p-0"><span>전체 선택</span><span class="absolute left-[100px]">MPN</span></th>
+                  <th class="p-0">Description</th>
+                  <th class="p-0">Unit Price</th>
+                  <th class="p-0">Quantity / Stock</th>
+                  <th class="py-0 pl-[12px] pr-0">Total Price</th>
+                  <th class="sticky right-0 z-20 border-l border-bom-table-line bg-bom-table-head p-0 shadow-[-10px_0_16px_-14px_rgba(15,23,42,0.65)]">
+                    <div class="flex h-[39px] items-center justify-center gap-[2px]">
+                      <button
+                        type="button"
+                        class="grid size-[20px] place-items-center rounded-[4px] text-[17px] leading-none text-brand-soft transition hover:bg-action-quiet disabled:cursor-default disabled:text-ink-faint disabled:opacity-35"
+                        :disabled="!canScrollResultsLeft"
+                        title="앞쪽 열 보기"
+                        aria-label="앞쪽 열 보기"
+                        @click="scrollResultColumns('left')"
+                      >
+                        ‹
+                      </button>
+                      <span class="text-[10px] text-bom-table-heading">작업</span>
+                      <button
+                        type="button"
+                        class="grid size-[20px] place-items-center rounded-[4px] text-[17px] leading-none text-brand-soft transition hover:bg-action-quiet disabled:cursor-default disabled:text-ink-faint disabled:opacity-35"
+                        :disabled="!canScrollResultsRight"
+                        title="뒤쪽 열 보기"
+                        aria-label="뒤쪽 열 보기"
+                        @click="scrollResultColumns('right')"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="virtualPaddingTop > 0" aria-hidden="true">
+                  <td colspan="7" :style="{ height: `${String(virtualPaddingTop)}px` }" />
+                </tr>
+                <BomQuoteRow
+                  v-for="entry in virtualRowItems"
+                  :key="entry.item.id"
+                  :ref="measureRow"
+                  :data-index="entry.row.index"
+                  :item="entry.item"
+                  :needed="neededQty(entry.item.bomQty, setQty, spareQty)"
+                  :is-draft="isDraft"
+                  :editing-locked="editingLocked"
+                  :enriching="enriching"
+                  @toggle-include="toggleInclude(entry.item)"
+                  @qty-change="onRowQtyChange(entry.item, $event)"
+                  @confirm-quantity="confirmQuantity(entry.item, $event)"
+                  @open-offers="openQuoteOfferModal(entry.item)"
+                  @open-candidates="openCandidateDrawer(entry.item)"
+                  @open-search="openCatalogSearchDrawer(entry.item)"
+                />
+                <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
+                  <td colspan="7" :style="{ height: `${String(virtualPaddingBottom)}px` }" />
+                </tr>
+                <tr v-if="filteredItems.length === 0">
+                  <td colspan="7" class="px-3 py-10 text-center text-sm text-gray-400">{{ resultTextSearchActive ? '검색어에 해당하는 BOM 라인이 없습니다.' : resultFiltersActive ? '선택한 조건에 해당하는 라인이 없습니다.' : '표시할 라인이 없습니다.' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-show="canScrollResultsLeft" class="pointer-events-none absolute inset-y-px left-px z-30 w-[12px] rounded-l-[9px] bg-gradient-to-r from-line-strong/60 to-transparent" aria-hidden="true" />
+          <div v-show="canScrollResultsRight" class="pointer-events-none absolute inset-y-px right-[90px] z-30 w-[12px] bg-gradient-to-l from-line-strong/60 to-transparent" aria-hidden="true" />
         </div>
       </section>
 

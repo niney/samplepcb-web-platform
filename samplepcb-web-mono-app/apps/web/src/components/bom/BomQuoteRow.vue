@@ -215,10 +215,10 @@ const exactIdentityWarning = computed(() => {
   return details.length === 0 ? null : `품번 정확 일치로 선정 · ${details.join(' · ')}`;
 });
 
-const rowClass = computed(() => {
+const rowBackgroundClass = computed(() => {
   const item = props.item;
   if (quantityMissing.value) return 'bg-bom-row-review';
-  if (!item.included) return 'opacity-45';
+  if (!item.included) return 'bg-bom-table-row';
   if (severeOrderSurplus.value) return 'bg-bom-row-review';
   if (alternativeSelectionPending.value) return 'bg-bom-row-review';
   if (exactIdentityWarning.value !== null) return 'bg-bom-row-review';
@@ -234,6 +234,10 @@ const rowClass = computed(() => {
   if (stockStatusLabel.value !== null) return 'bg-bom-row-nostock'; // 재고 없음·부족·미확인 — 시안 노랑
   return 'bg-bom-table-row';
 });
+const rowClass = computed(() => [
+  rowBackgroundClass.value,
+  !quantityMissing.value && !props.item.included ? 'opacity-45' : '',
+]);
 
 const evidenceTitle = computed(() => {
   const evidence = props.item.matchEvidence;
@@ -708,7 +712,10 @@ function onQtyInput(event: Event): void {
       </div>
     </td>
     <!-- 후보 비교와 전체 카탈로그 변경은 한 드로어의 다른 진입점. 제외는 실제 삭제가 아니라 견적 제외. -->
-    <td class="p-0 pt-[13px]">
+    <td
+      class="sticky right-0 z-[5] border-l border-bom-table-line p-0 pt-[13px] shadow-[-10px_0_16px_-14px_rgba(15,23,42,0.65)]"
+      :class="rowBackgroundClass"
+    >
       <div v-if="isDraft" class="flex flex-col gap-[6px]">
         <button
           type="button"
