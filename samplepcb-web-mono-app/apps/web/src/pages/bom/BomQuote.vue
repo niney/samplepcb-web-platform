@@ -2073,7 +2073,7 @@ function fmtAmount(v: number | null): string {
             <thead class="sticky top-0 z-10 bg-surface-sunken shadow-[0_1px_0_var(--color-line-soft)] [&_th]:font-normal">
               <tr class="h-[39px] text-left font-noto text-[10px] font-normal uppercase leading-[24px] tracking-normal text-[#828282]">
                 <th class="p-0">
-                  <div class="flex h-[39px] items-center pl-[15px]">
+                  <div class="flex h-[39px] items-center justify-center">
                     <input
                       type="checkbox"
                       class="size-[18px] rounded-[2px] border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
