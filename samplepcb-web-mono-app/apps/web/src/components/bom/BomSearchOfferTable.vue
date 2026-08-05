@@ -237,10 +237,10 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                 </p>
                 <span v-else class="text-[12px] text-ink-subtle">—</span>
               </td>
-              <td class="px-[8px] text-[12px] font-normal leading-[16px]" :class="stockClass(row)">
+              <td class="px-[8px] text-[14px] font-normal leading-[20px]" :class="stockClass(row)">
                 {{ stockText(row) }}
               </td>
-              <td class="px-[8px] text-[12px] font-normal leading-[16px] text-ink-muted">
+              <td class="px-[8px] text-[14px] font-normal leading-[20px] text-ink-muted">
                 {{ orderCondition(row) }}
               </td>
               <td class="px-[8px]">
