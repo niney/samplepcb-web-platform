@@ -18,6 +18,7 @@ const props = defineProps<{
   cartSelectionKeys: Set<string>;
   pendingKey: string | null;
   cartBusy: boolean;
+  supplierSearchState: 'idle' | 'searching' | 'complete' | 'failed';
 }>();
 
 const emit = defineEmits<{
@@ -281,8 +282,11 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                 </button>
               </td>
             </tr>
-            <tr v-if="pricedRows.length === 0">
+            <tr v-if="pricedRows.length === 0 && supplierSearchState === 'complete'">
               <td colspan="8" class="h-[94px] px-4 text-center text-[12px] text-ink-subtle">가격과 재고가 확인된 공급사 구매 조건이 없습니다.</td>
+            </tr>
+            <tr v-else-if="pricedRows.length === 0 && supplierSearchState === 'failed'">
+              <td colspan="8" class="h-[94px] px-4 text-center text-[12px] text-state-danger">공급사 검색을 완료하지 못했습니다. 상단에서 다시 검색해 주세요.</td>
             </tr>
           </tbody>
         </table>
