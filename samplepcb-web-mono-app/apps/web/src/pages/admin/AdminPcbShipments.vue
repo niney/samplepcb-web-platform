@@ -12,6 +12,7 @@ import {
   type AdminPcbPoWorkFilters,
   type AdminPcbShipmentFilters,
 } from '../../admin/useAdminPcbPos';
+import { fmtKstDate as fmtDate } from '@sp/utils';
 
 // PCB 선적·배송 워크큐(P3) — 물류 담당의 화면. 큐 흐름:
 //   발송 대기(생산완료·미편성 — 발주서 축) → 입고·처리 대기(내 차례) → 이동 중 → 입고 완료.
@@ -73,7 +74,6 @@ function openCase(specId: number): void {
     query: { from: 'shipments' },
   });
 }
-const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
 </script>
 
 <template>

@@ -277,6 +277,7 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 5. **외화 표시 3값 로직** — 외화 견적은 선정 전 KRW가 null. 목록·모달 전부 `main(통화, 원본, KRW)+sub(입력 원본)` 표시 유틸(레거시 `utils/currency.ts` 이식)로 통일하지 않으면 "전부 0원/–" 사고.
 6. **spec-응답 직렬화 함정(기존 메모)** — 이관 견적 specJson의 `_legacy` 메타는 toClientSpec strip 필수. 신규 RFQ 상세가 spec을 파트너에게 노출할 때 **PII 제거는 서버 책임**(레거시도 백엔드 null 처리) — 주문자 연락처·가격요약을 파트너 응답에서 제거.
 7. **공유 DB 규율** — prisma migrate reset 금지, 마이그레이션은 deploy 방식(기존 메모·BOM 트랙 관례).
+8. **날짜 전용 필드는 KST로 렌더할 것(2026-08-05 실측 결함)** — 납기·출고예정일은 서버가 `parseKstDate`로 **KST 자정**에 앵커해 저장한다. 그 인스턴트의 ISO는 UTC 기준 전날 15:00 이라, 화면이 `iso.slice(0, 10)` 으로 자르면 **하루 앞당겨 보인다**. 표시만의 문제가 아니다 — 발주 모달이 그 값을 `<input type="date">` 에 프리필하므로 저장할 때마다 납기가 하루씩 밀린다(RFQ 08-21 → 발주 08-20 → 재발주 08-19 …). 타임스탬프(발행일·입고일)도 KST 00~09시 사건이 전날로 찍힌다. 공용 `@sp/utils` `fmtKstDate`/`kstDateInput`/`kstToday` 로 통일했다(PCB·BOM·포털·매직링크 일괄). **새 화면에서 날짜에 `slice(0, 10)` 을 쓰지 말 것.**
 
 ---
 
@@ -360,7 +361,9 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 - **서버**: g5-db **`listPcbCaseSpecs`**(한정 예외 ⑳ 연장 — 스펙 축 **LEFT JOIN** 판이라 주문 전·유령까지 모수, counts 는 SUM(CASE) 1쿼리, 검색에 견적번호 정확일치 추가). 신설 `routes/admin-pcb-cases.ts` — 페이지 행만 RFQ·PO·선적으로 enrich 해 `step` 을 서버에서 계산(판정 원장이 전부 서버에 있으므로 FE 는 라벨만). `lib/pcb-po.ts` `loadAdminPcbPoWorkItems` 의 소속 탭을 **배열**로 전환(to_ship 은 produced 의 부분집합이라 배타적이지 않다) + 선적 배정 링크 1쿼리 선조회. `listGhostActiveSpecIds` 제거(유일 소비처였던 preorder 소멸 — 유령 판정은 LEFT JOIN 이 대신한다).
 - **웹**: `PcbTodoQueue.vue` 신설(요청 대기·발주 대기 공용 큐 — 인라인 [견적요청 →]·[발주하기 →]) · `AdminPcbRfqs`/`AdminPcbPos`/`AdminPcbShipments` 첫 탭에 대기 큐 편입 · `AdminPcbCases.vue` 재작성(구간 탭 + **12단계 칩**·이관 배지, 기본 탭=발주·생산 — 완료 2만 건이 모수를 덮지 않게) · 배지 3종 합산 재정의(pcbRfqPending=요청 대기+선정 대기, **pcbPosPending**=발주 대기+EQ 승인 대기, pcbShipmentPending=발송 대기+관리자 차례) · **AdminLayout `CASE_FROM_MENU` 를 라우트별 2단 사전으로 교정**(SmartBOM 전용이라 PCB Case 는 어디서 들어와도 진행현황이 켜지던 결함 — 워크큐는 이미 `?from=` 을 넘기고 있었다) · `AdminPcbCase.vue` 에 §6.12 방식 **섹션 접힘**(rfqs→발주 접힘 / orders·pos·shipments→RFQ 접힘, 제작 사양은 발주·선적 때 확인이 잦아 접지 않음).
 - **검증**: **E2E 47 ALL PASS**(실DB — 구간 counts {136,0,195,20607}·합=전체 20938 대조, todo {6,5} 대조 + **이관 포함 시 {330,195}** 로 제외 효과 확인, 대기 큐 행 불변식 4종(이관 0·RFQ 0건·발주 0건·결제 완료·완료/취소 아님), 단계 파생 6종, 마지막 페이지(1031p) 정합, 견적번호·주문번호 검색, to_ship counts·행 불변식, preorder 400 회수 확인). vitest 644+109·`pnpm -r typecheck`·ESLint 0건. 브라우저 실탐방으로 4화면·Case 진입(활성 메뉴·접힘) 확인.
-- **후속**: `loadAdminPcbPoWorkItems` 는 여전히 `sp_pcb_po` 전건 로드 + 행별 `resolveEqDelegation`(N+1) — PO 가 쌓이면 SQL 페이지네이션으로 옮겨야 한다(주문·결제·진행현황이 선례). 역할 권한(계정별 메뉴 제한)은 SmartBOM 과 동일하게 후속.
+- **흐름 실검(08-06)**: Q20984(주문 2026080522133120·입금)로 발주 대기 → **발주서 발행**(선정 RFQ 승계 ₩50,000·납기) → EQ/Working 대행 업로드 → EQ 요청·승인 → 생산 시작·완료 → **발송 대기 자동 편입** → 국내 발송(택배·송장) → 입고확인까지 완주. 게이트 정상(파일 없이 EQ 요청 409, 순서 건너뛴 승인·생산 409), 이력 4건 전부 `byRole ADMIN`, 배지가 역할 간에 넘어감(발주·EQ 5→4 · 선적·배송 0→1→0), 진행현황 단계 7→8→10→11.
+- **납기 하루 밀림 교정(08-06)**: 위 실검에서 발견 — §7-8 참조. 공용 `@sp/utils/kst-date`(`fmtKstDate`·`kstDateInput`·`kstToday`, 단위테스트 8) 신설 후 PCB 관리자 6화면·포털 2화면·매직링크·회신 폼과 **SmartBOM 동일 결함 11개 파일**을 일괄 교체. 서버는 원래 맞았으므로 스키마·API 무변경.
+- **후속**: `loadAdminPcbPoWorkItems` 는 여전히 `sp_pcb_po` 전건 로드 + 행별 `resolveEqDelegation`(N+1) — PO 가 쌓이면 SQL 페이지네이션으로 옮겨야 한다(주문·결제·진행현황이 선례). 역할 권한(계정별 메뉴 제한)은 SmartBOM 과 동일하게 후속. 코어 주문 필터의 `OrderFilterBar.toYmd`(로컬 Date → `toISOString().slice(0,10)`)도 같은 −9h 결함이 남아 있다(이번 범위 밖).
 
 ## 10. 조사 자료 색인
 

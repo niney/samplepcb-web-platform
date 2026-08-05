@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { BOM_RFQ_STATUS_LABELS, type AdminBomRfqViewType } from '@sp/api-contract';
 import { smartbomFmtDate } from '../../../admin/smartbom';
+import { fmtKstDate } from '@sp/utils';
 
 // Case 상세의 협력사 RFQ 현황 패널 — 발송·회신 현황 + 대리 입력 진입.
 // 공급사 시세는 여기 없다(후보/구매 조건 원장 파생 — 부품행의 선정 구매 조건이 그 자리, D6).
@@ -123,7 +124,7 @@ const fmtWon = (v: number | null): string => (v === null ? '—' : `${v.toLocale
             </td>
             <td class="px-3 py-2 text-right tabular-nums">{{ fmtWon(rfq.totalAmount) }}</td>
             <td class="whitespace-nowrap px-3 py-2 text-gray-500">
-              {{ rfq.deliveryDate === null ? '—' : rfq.deliveryDate.slice(0, 10) }}
+              {{ fmtKstDate(rfq.deliveryDate) }}
             </td>
             <td class="max-w-48 truncate px-3 py-2 text-gray-500">{{ rfq.memo ?? '—' }}</td>
             <td class="whitespace-nowrap px-3 py-2 text-gray-400">

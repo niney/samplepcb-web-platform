@@ -9,6 +9,7 @@ import {
   type PcbRfqReplyBodyType,
 } from '@sp/api-contract';
 import PcbRfqReplyForm from '../components/pcb/PcbRfqReplyForm.vue';
+import { fmtKstDate as dateOnly } from '@sp/utils';
 import { pcbSpecEntries } from '../lib/pcb-spec';
 
 // PCB 매직링크 무로그인 회신 — PublicRfqReply(BOM §6.9)와 동형. 인증은 URL 토큰,
@@ -77,7 +78,6 @@ const statusCls = (s: string): string =>
     : s === 'requested'
       ? 'bg-blue-100 text-blue-700'
       : 'bg-gray-200 text-gray-600';
-const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
 </script>
 
 <template>

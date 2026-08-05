@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AdminPcbRfqTabType } from '@sp/api-contract';
+import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbRfqCases, type AdminPcbRfqCaseFilters } from '../../admin/useAdminPcbRfqs';
 import { useAdminPcbTodoCounts } from '../../admin/useAdminPcbCases';
 import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
@@ -68,8 +69,6 @@ function openCase(specId: number): void {
     query: { from: 'rfqs' },
   });
 }
-
-const fmtDate = (iso: string): string => iso.slice(0, 10);
 </script>
 
 <template>

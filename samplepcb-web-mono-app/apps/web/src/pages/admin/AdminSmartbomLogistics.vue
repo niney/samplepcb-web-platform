@@ -23,6 +23,7 @@ import { nowLocalDateTime, toG5DateTime } from '../../admin/useAdminOrders';
 import { smartbomFmtWon } from '../../admin/smartbom';
 import UiPagination from '../../components/ui/UiPagination.vue';
 import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.vue';
+import { fmtKstDate } from '@sp/utils';
 
 // 선적·배송 워크큐(관리자 메뉴 재편) — 물류 담당의 화면. 흐름이 위→아래로 이어진다:
 // ① 협력사 선적(내 차례→진행 중→입고 완료, D22 핑퐁) → ② 입고 끝난 주문을 고객에게
@@ -104,7 +105,7 @@ function openCase(quoteId: string): void {
   });
 }
 
-const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
+const fmtDate = fmtKstDate;
 
 // ── ② 고객 배송 — 주문 축(to_ship=배송 처리 대기 / shipping=배송 중) ─────────
 const orderFilters = ref<AdminBomOrderFilters>({ page: 1, pageSize: 20, tab: 'to_ship' });

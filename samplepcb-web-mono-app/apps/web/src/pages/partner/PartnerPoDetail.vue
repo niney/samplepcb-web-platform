@@ -5,6 +5,7 @@ import { ApiRequestError } from '@sp/shared';
 import { BOM_SHIPMENT_MODE_LABELS, bomShipmentStatusLabel } from '@sp/api-contract';
 import { usePartnerPoConfirm, usePartnerPoDetail } from '../../partner/usePartnerRfqs';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
+import { fmtKstDate } from '@sp/utils';
 
 // 파트너 포털 발주서 상세(D18·§6.11 축소) — 문서 열람 전용: 박제 품목·금액 + [발주 확인].
 // 발송(선적) 작업은 홈의 [📦 보내기]·진행 중 발송 카드가 담당한다 — 여기엔 소속 안내만.
@@ -70,8 +71,8 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
 
     <template v-else>
       <p class="text-sm text-gray-500">
-        발행 {{ detail.issuedAt.slice(0, 10) }}
-        <template v-if="detail.confirmedAt !== null"> · 확인 {{ detail.confirmedAt.slice(0, 10) }}</template>
+        발행 {{ fmtKstDate(detail.issuedAt) }}
+        <template v-if="detail.confirmedAt !== null"> · 확인 {{ fmtKstDate(detail.confirmedAt) }}</template>
       </p>
       <p v-if="detail.memo !== null" class="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">{{ detail.memo }}</p>
 

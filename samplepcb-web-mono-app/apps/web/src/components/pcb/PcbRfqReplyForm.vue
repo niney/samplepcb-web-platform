@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { PCB_CURRENCIES, type PcbCurrencyType, type PcbRfqReplyBodyType } from '@sp/api-contract';
+import { kstDateInput } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 
 // PCB 견적 회신 폼 — 포털·매직링크·관리자 대리 입력 3곳 공용(저장 경로 단일 원칙).
@@ -49,7 +50,8 @@ const priceText = ref(
       ? String(props.initial.priceOriginal)
       : '',
 );
-const dateOnly = (iso: string | null | undefined): string => (iso ?? '').slice(0, 10);
+// 날짜 입력 프리필·표시 모두 KST — UTC 슬라이스는 납기를 하루 앞당긴다(kst-date.ts).
+const dateOnly = kstDateInput;
 const deliveryDate = ref(
   dateOnly(props.initial?.quotedDeliveryDate) !== ''
     ? dateOnly(props.initial?.quotedDeliveryDate)

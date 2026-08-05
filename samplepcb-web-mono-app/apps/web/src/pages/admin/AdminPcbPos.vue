@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { PCB_PO_STATUS_LABELS, type AdminPcbPoTabType } from '@sp/api-contract';
+import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbPoWork, type AdminPcbPoWorkFilters } from '../../admin/useAdminPcbPos';
 import { useAdminPcbTodoCounts } from '../../admin/useAdminPcbCases';
 import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
@@ -60,7 +61,6 @@ function openCase(specId: number): void {
     query: { from: 'pos' },
   });
 }
-const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
 </script>
 
 <template>

@@ -11,6 +11,7 @@ import {
   type BomShipmentPackingListType,
   type BomShipmentPackingPackageType,
 } from '@sp/api-contract';
+import { fmtKstDate } from '@sp/utils';
 
 // 선적 리스트·QR 라벨(D24) — 파트너/관리자 공용. 상업송장과 분리된 Packing List이며
 // 릴·트레이·튜브·봉투·박스 같은 실물 관리 단위마다 QR 1개를 생성한다. 저장된 token은
@@ -219,7 +220,7 @@ async function printDocument(): Promise<void> {
   }
 }
 
-const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
+const fmtDate = fmtKstDate;
 
 const onKeydown = (event: KeyboardEvent): void => {
   if (event.key === 'Escape') emit('close');

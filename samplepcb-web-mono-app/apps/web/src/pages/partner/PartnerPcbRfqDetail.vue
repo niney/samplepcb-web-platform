@@ -10,6 +10,7 @@ import {
   usePartnerPcbRfqDetail,
   usePartnerPcbRfqReply,
 } from '../../partner/usePartnerPcbRfqs';
+import { fmtKstDate as dateOnly } from '@sp/utils';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
@@ -135,7 +136,6 @@ const STATUS_CLS: Record<string, string> = {
   selected: 'bg-violet-100 text-violet-700',
   unselected: 'bg-gray-200 text-gray-500',
 };
-const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
 </script>
 
 <template>

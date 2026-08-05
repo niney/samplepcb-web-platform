@@ -31,6 +31,7 @@ import {
 import InvoiceEditorModal from '../../smartbom/InvoiceEditorModal.vue';
 import ShipmentPackingModal from '../../smartbom/ShipmentPackingModal.vue';
 import TradeDocumentModal from '../../smartbom/TradeDocumentModal.vue';
+import { fmtKstDate, kstDateInput } from '@sp/utils';
 
 // 선적 관리 모달(D21·D22) — 발주서당 1건. 모드는 협력사 국가에서 서버가 결정해 생성 시
 // 박제하고 화면은 읽기만 한다. 상태는 모드별 사전(국제 6단계/국내 3단계). 관리자는 전 단계 임의 조작(핑퐁 인가는
@@ -130,7 +131,8 @@ watch(
     carrier.value = shipment?.carrier ?? '';
     trackingNumber.value = shipment?.trackingNumber ?? '';
     trackingUrl.value = shipment?.trackingUrl ?? '';
-    shipDate.value = shipment?.shipDate ?? '';
+    // ISO 원문을 그대로 넣으면 date input 이 파싱하지 못해 값이 비어 보인다 — KST 날짜로.
+    shipDate.value = kstDateInput(shipment?.shipDate);
     receiveNote.value = shipment?.receivedNote ?? '';
     packingOpen.value = false;
     quotationPoId.value = null;
@@ -425,9 +427,9 @@ async function confirmReceive(): Promise<void> {
         '선적' 단계인데 AWB 파일이 없습니다 — 첨부를 권장합니다(레거시 절차상 필수 서류).
       </p>
       <p v-if="existing?.shippedAt != null" class="mt-2 text-[11px] text-gray-400">
-        발송 {{ existing.shippedAt.slice(0, 10) }}
+        발송 {{ fmtKstDate(existing.shippedAt) }}
         <template v-if="existing.completedAt !== null">
-          · 최종 {{ existing.completedAt.slice(0, 10) }}
+          · 최종 {{ fmtKstDate(existing.completedAt) }}
         </template>
       </p>
 
@@ -615,7 +617,7 @@ async function confirmReceive(): Promise<void> {
         <p class="text-xs font-bold text-gray-700">
           입고 확인(검수)
           <span v-if="existing?.receivedAt != null" class="ml-1 font-normal text-emerald-700">
-            — {{ existing.receivedAt.slice(0, 10) }} 완료
+            — {{ fmtKstDate(existing.receivedAt) }} 완료
           </span>
         </p>
         <p

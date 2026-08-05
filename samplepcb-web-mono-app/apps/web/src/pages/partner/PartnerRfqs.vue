@@ -16,6 +16,7 @@ import { usePartnerPcbPos } from '../../partner/usePartnerPcbPos';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
 import { pcbMoneyWithSub } from '../../lib/pcb-money';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
+import { fmtKstDate } from '@sp/utils';
 
 // 파트너 포털 홈(§6.11 재구성) — 문서 나열이 아니라 "오늘 할 일" 중심:
 // ① 회신할 견적 ② 확인할 발주 ③ 보낼 물건([보내기] 위저드) ④ 진행 중 발송(핑퐁).
@@ -75,7 +76,7 @@ const poBadge = (po: PartnerPoListItemType): { label: string; cls: string } =>
     received: po.shipmentReceived,
   });
 
-const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
+const fmtDate = fmtKstDate;
 const fmtWon = (v: number | null, currency: string): string =>
   v === null ? '—' : `${v.toLocaleString('ko-KR')} ${currency}`;
 

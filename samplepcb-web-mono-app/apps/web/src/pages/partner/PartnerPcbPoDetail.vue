@@ -36,6 +36,7 @@ import {
   useUploadPartnerPcbShipmentFile,
 } from '../../partner/usePartnerPcbPos';
 import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
+import { fmtKstDate as dateOnly } from '@sp/utils';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
 
@@ -334,7 +335,6 @@ const STATUS_CLS: Record<string, string> = {
   producing: 'bg-indigo-100 text-indigo-700',
   produced: 'bg-emerald-100 text-emerald-700',
 };
-const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
 // 명칭·순서는 레거시 정본(lib/pcb-spec.ts, estimate_form_ca10 승계).
 const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?? {})));
 </script>

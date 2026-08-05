@@ -9,6 +9,7 @@ import {
   type MagicRfqResponseType,
 } from '@sp/api-contract';
 import RfqReplyForm, { type RfqReplyFormRow } from '../components/smartbom/RfqReplyForm.vue';
+import { fmtKstDate } from '@sp/utils';
 
 // 매직링크 무로그인 회신(§6.9) — 메일의 전용 링크로 진입, 로그인·세션 없음.
 // 인증은 URL 토큰(서버가 매 요청 검증), 열리는 범위는 이 RFQ 1건뿐이라
@@ -111,7 +112,7 @@ const statusCls = (s: string): string =>
           </span>
         </div>
         <p class="text-sm text-gray-500">
-          {{ rfq.items.length }}개 품목 · 요청일 {{ rfq.requestedAt.slice(0, 10) }}
+          {{ rfq.items.length }}개 품목 · 요청일 {{ fmtKstDate(rfq.requestedAt) }}
           <template v-if="rfq.status === 'closed'"> · 마감된 요청입니다(수정 불가)</template>
         </p>
         <p class="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">

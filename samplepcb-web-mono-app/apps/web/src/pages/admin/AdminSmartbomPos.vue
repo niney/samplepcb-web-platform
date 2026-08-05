@@ -8,6 +8,7 @@ import {
 } from '@sp/api-contract';
 import { useAdminBomOrders, type AdminBomOrderFilters } from '../../admin/useAdminBomOrders';
 import { useAdminBomPoCross, type AdminBomPoCrossFilters } from '../../admin/useAdminBomPos';
+import { fmtKstDate as fmtDate } from '@sp/utils';
 import { smartbomFmtWon } from '../../admin/smartbom';
 import UiPagination from '../../components/ui/UiPagination.vue';
 
@@ -66,7 +67,6 @@ function openCasePo(quoteId: string): void {
   });
 }
 
-const fmtDate = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
 const statusCls = (status: AdminBomPoCrossItemType['status']): string =>
   status === 'issued'
     ? 'bg-blue-100 text-blue-700'

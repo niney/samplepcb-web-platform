@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { BomRfqItemReplyInputType, BomRfqReplyBodyType } from '@sp/api-contract';
+import { kstDateInput } from '@sp/utils';
 
 // 협력사 회신 폼 — 포털 회신·관리자 대리 입력 공용(docs/SMARTBOM_PARTNER_RFQ.md §4).
 // 행별 단가·재고·D/C·납기·메모 입력. 단가가 비어 있는 행은 미회신으로 제출에서 제외된다.
@@ -68,7 +69,7 @@ const initRows = (): void => {
     leadTime: row.reply?.leadTime ?? '',
     memo: row.reply?.memo ?? '',
   }));
-  deliveryDateInput.value = props.deliveryDate?.slice(0, 10) ?? '';
+  deliveryDateInput.value = kstDateInput(props.deliveryDate);
   memoInput.value = props.memo ?? '';
 };
 watch(() => props.rows, initRows, { immediate: true });

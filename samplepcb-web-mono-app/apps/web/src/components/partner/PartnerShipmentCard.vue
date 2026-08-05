@@ -27,6 +27,7 @@ import {
 import InvoiceEditorModal from '../smartbom/InvoiceEditorModal.vue';
 import ShipmentPackingModal from '../smartbom/ShipmentPackingModal.vue';
 import TradeDocumentModal from '../smartbom/TradeDocumentModal.vue';
+import { fmtKstDate } from '@sp/utils';
 
 // 발송(박스) 진행 카드(§6.11) — 담긴 발주서·단계 스텝·서류·내 차례 폼·되돌리기를
 // 발송 단위로 묶어 보여준다. 서버 조작은 대표 발주서(primaryPoId) 경유로 기존
@@ -256,7 +257,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
     <p class="mt-1.5 text-xs text-gray-400">
       <template v-if="mode === 'international' && shipment.shipDate !== null">출고예정 {{ shipment.shipDate }} · </template>
       <template v-if="shipment.shippedAt !== null">
-        발송 {{ shipment.shippedAt.slice(0, 10) }} ·
+        발송 {{ fmtKstDate(shipment.shippedAt) }} ·
       </template>
       <template v-if="shipment.carrier !== null">{{ shipment.carrier }} </template>
       <span v-if="shipment.trackingNumber !== null" class="font-mono">{{
@@ -363,7 +364,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
       v-if="shipment.receivedAt !== null"
       class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
     >
-      입고 확인 완료 — {{ shipment.receivedAt.slice(0, 10) }}
+      입고 확인 완료 — {{ fmtKstDate(shipment.receivedAt) }}
       <template v-if="shipment.receivedNote !== null && shipment.receivedNote !== ''">
         · 검수 메모: <b>{{ shipment.receivedNote }}</b>
       </template>

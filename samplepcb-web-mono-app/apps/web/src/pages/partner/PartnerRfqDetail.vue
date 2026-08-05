@@ -5,6 +5,7 @@ import { ApiRequestError } from '@sp/shared';
 import { BOM_RFQ_STATUS_LABELS, type BomRfqReplyBodyType } from '@sp/api-contract';
 import { usePartnerRfqDetail, usePartnerRfqReply } from '../../partner/usePartnerRfqs';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
+import { fmtKstDate } from '@sp/utils';
 
 // 파트너 포털 회신 폼 — 행별 단가·재고·D/C·납기 입력(마감 전 재회신 허용).
 // 노출은 부품행과 내 회신뿐(고객 정보·목표단가 없음 — 서버 계약이 보장, D8).
@@ -74,7 +75,7 @@ const statusCls = (s: string): string =>
 
     <template v-else>
       <p class="text-sm text-gray-500">
-        {{ detail.items.length }}개 품목 · 요청일 {{ detail.requestedAt.slice(0, 10) }}
+        {{ detail.items.length }}개 품목 · 요청일 {{ fmtKstDate(detail.requestedAt) }}
         <template v-if="detail.status === 'closed'"> · 마감된 요청입니다(수정 불가)</template>
       </p>
 

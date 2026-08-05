@@ -13,6 +13,7 @@ import {
   type PcbShipmentAdvanceBodyType,
   type PcbShipmentViewType,
 } from '@sp/api-contract';
+import { fmtKstDate, kstDateInput, kstDateOnly, kstToday } from '@sp/utils';
 import { downloadAdminFile, useAdminQuoteDetail, useConfirmPrice } from '../../admin/useAdminQuotes';
 import { useAdminPartnerList, type AdminPartnerFilters } from '../../admin/useAdminPartners';
 import {
@@ -208,7 +209,7 @@ function openAssign(): void {
     adminRows.value.filter((r) => r.status !== 'unselected').map((r) => r.partnerId),
   );
   const current = adminRows.value.find((r) => r.suggestedDeliveryDate !== null);
-  assignDate.value = current?.suggestedDeliveryDate?.slice(0, 10) ?? '';
+  assignDate.value = kstDateInput(current?.suggestedDeliveryDate);
   assignOpen.value = true;
 }
 function toggleAssign(partnerId: number): void {
@@ -348,7 +349,7 @@ function openPoModal(): void {
   poRate.value = '';
   poTerms.value = '';
   poRemitted.value = false;
-  poDelivery.value = selected?.quotedDeliveryDate?.slice(0, 10) ?? '';
+  poDelivery.value = kstDateInput(selected?.quotedDeliveryDate);
   poMemo.value = '';
   poModalOpen.value = true;
 }
@@ -590,15 +591,15 @@ const STATUS_CLS: Record<string, string> = {
   selected: 'bg-violet-100 text-violet-700',
   unselected: 'bg-gray-200 text-gray-500',
 };
-const dateOnly = (iso: string | null): string => (iso === null ? '—' : iso.slice(0, 10));
+const dateOnly = (iso: string | null): string => fmtKstDate(iso);
 // 납기 신호(레거시 승계) — 제시≠회신이면 '변경', 회신일이 과거면 경고.
+// 비교도 KST 날짜로 — UTC 슬라이스는 KST 00~09시에 '지난 날짜'를 오판한다.
 const deliverySignal = (row: AdminPcbRfqViewType): { label: string; cls: string } | null => {
-  if (row.quotedDeliveryDate === null) return null;
-  const quoted = row.quotedDeliveryDate.slice(0, 10);
-  if (quoted < new Date().toISOString().slice(0, 10))
-    return { label: '지난 날짜', cls: 'bg-red-100 text-red-700' };
+  const quoted = kstDateOnly(row.quotedDeliveryDate);
+  if (quoted === null) return null;
+  if (quoted < kstToday()) return { label: '지난 날짜', cls: 'bg-red-100 text-red-700' };
   if (row.suggestedDeliveryDate !== null) {
-    const suggested = row.suggestedDeliveryDate.slice(0, 10);
+    const suggested = kstDateOnly(row.suggestedDeliveryDate) ?? quoted;
     if (suggested !== quoted) {
       const days = Math.round(
         (Date.parse(quoted) - Date.parse(suggested)) / 86_400_000,
@@ -750,7 +751,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             </div>
             <div class="flex justify-between">
               <dt class="text-gray-500">결제수단 / 주문일</dt>
-              <dd class="text-gray-600">{{ detail.order.settleCase || '—' }} · {{ detail.order.orderedAt?.slice(0, 10) ?? '—' }}</dd>
+              <dd class="text-gray-600">{{ detail.order.settleCase || '—' }} · {{ fmtKstDate(detail.order.orderedAt) }}</dd>
             </div>
           </dl>
           <!-- 미입금이면 여기서 바로 처리 — 아래 발주 패널이 결제 게이트(NOT_PAID)로 막히기 때문. -->
@@ -1063,7 +1064,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       <template v-if="s.destinationCountry !== null"> · 직송 {{ s.destinationCountry }}</template>
                     </span>
                     <span v-if="s.poIds.length > 1" class="rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700">묶음 {{ s.poIds.length }}건</span>
-                    <span v-if="s.shipDate !== null" class="text-gray-500">출고예정 {{ s.shipDate.slice(0, 10) }}</span>
+                    <span v-if="s.shipDate !== null" class="text-gray-500">출고예정 {{ fmtKstDate(s.shipDate) }}</span>
                     <span v-if="s.trackingNumber !== null" class="tabular-nums text-gray-500">{{ s.carrier ?? '' }} {{ s.trackingNumber }}</span>
                     <span v-if="s.receivedAt !== null" class="font-semibold text-emerald-600">
                       입고완료 {{ dateOnly(s.receivedAt) }}<template v-if="s.receivedNote !== null && s.receivedNote !== ''"> · {{ s.receivedNote }}</template>
@@ -1183,7 +1184,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           </select>
           <span v-if="poTargetRfq !== null" class="mt-1 block text-[11px] text-emerald-600">
             회신 승계: {{ pcbMoneyWithSub(poTargetRfq.currency, poTargetRfq.priceOriginal, poTargetRfq.subCurrency, poTargetRfq.subPriceOriginal) }}
-            <template v-if="poTargetRfq.quotedDeliveryDate !== null"> · 납기 {{ poTargetRfq.quotedDeliveryDate.slice(0, 10) }}</template>
+            <template v-if="poTargetRfq.quotedDeliveryDate !== null"> · 납기 {{ fmtKstDate(poTargetRfq.quotedDeliveryDate) }}</template>
           </span>
         </label>
         <div class="mt-2 grid gap-2 sm:grid-cols-2">

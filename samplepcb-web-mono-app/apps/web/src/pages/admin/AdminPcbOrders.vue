@@ -12,6 +12,7 @@ import {
   useConfirmPcbOrderReceipt,
   type AdminPcbOrderFilters,
 } from '../../admin/useAdminPcbOrders';
+import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 
 // PCB 주문·결제 워크큐(P3.5) — 경리 관점 조감: 입금 대기 → 진행 중 → 완료/취소.
@@ -83,7 +84,6 @@ function openCase(specId: number): void {
     query: { from: 'orders' },
   });
 }
-const fmtDate = (v: string | null): string => (v === null ? '—' : v.slice(0, 10));
 </script>
 
 <template>

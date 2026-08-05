@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AdminPcbCaseTabType } from '@sp/api-contract';
+import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../../admin/useAdminPcbCases';
 import { fmtPcbAmount } from '../../../lib/pcb-money';
 
@@ -39,7 +40,6 @@ function openCase(specId: number): void {
     query: { from: props.from },
   });
 }
-const fmtDate = (iso: string): string => iso.slice(0, 10);
 </script>
 
 <template>
