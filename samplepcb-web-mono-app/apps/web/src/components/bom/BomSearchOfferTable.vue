@@ -68,6 +68,19 @@ function setQuantity(row: SearchOfferRow, value: number | string): void {
     : 1;
 }
 
+function setTextQuantity(row: SearchOfferRow, event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const numericText = input.value.replace(/\D/g, '');
+  if (input.value !== numericText) input.value = numericText;
+  if (numericText === '') return;
+  setQuantity(row, numericText);
+}
+
+function restoreQuantity(row: SearchOfferRow, event: Event): void {
+  const input = event.target as HTMLInputElement;
+  if (input.value === '') input.value = quantityFor(row).toString();
+}
+
 function toOfferInput(offer: BomPartOfferOptionType): BomOfferInput {
   return {
     supplier: offer.supplier,
@@ -246,12 +259,15 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               <td class="px-[8px]">
                 <input
                   :value="quantityFor(row)"
-                  type="number"
-                  min="1"
-                  max="1000000"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete="off"
+                  spellcheck="false"
                   class="mx-auto block h-[38px] w-[90px] rounded-[6px] border border-line-strong bg-search-input text-center font-sans text-[16px] font-bold tabular-nums text-ink-strong outline-none focus:border-brand-soft"
                   aria-label="담을 수량"
-                  @input="setQuantity(row, ($event.target as HTMLInputElement).value)"
+                  @input="setTextQuantity(row, $event)"
+                  @blur="restoreQuantity(row, $event)"
                 >
               </td>
               <td class="px-[8px] text-center">
@@ -330,12 +346,15 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               <td class="px-[8px]">
                 <input
                   :value="quantityFor(row)"
-                  type="number"
-                  min="1"
-                  max="1000000"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete="off"
+                  spellcheck="false"
                   class="mx-auto block h-[38px] w-[90px] rounded-[6px] border border-line-strong bg-search-input text-center font-sans text-[16px] font-bold tabular-nums text-ink-strong outline-none focus:border-brand-soft"
                   aria-label="견적 수량"
-                  @input="setQuantity(row, ($event.target as HTMLInputElement).value)"
+                  @input="setTextQuantity(row, $event)"
+                  @blur="restoreQuantity(row, $event)"
                 >
               </td>
               <td class="px-[8px] text-center">
