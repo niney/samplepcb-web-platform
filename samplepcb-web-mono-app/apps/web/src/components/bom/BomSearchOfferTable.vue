@@ -237,7 +237,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                 </div>
               </td>
               <td class="px-[8px]">
-                <p class="flex min-w-0 items-center gap-[5px] text-[12px] font-medium leading-[20px] text-ink-strong">
+                <p class="flex min-w-0 items-center gap-[5px] text-[14px] font-medium leading-[20px] text-ink-strong">
                   <img :src="SUPPLIER_META[row.offer.supplier]?.icon ?? SUPPLIER_FALLBACK_ICON" alt="" class="size-[12px] shrink-0 rounded-[2px]">
                   <span class="truncate">{{ supplierName(row.offer.supplier) }}</span>
                 </p>
