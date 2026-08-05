@@ -273,7 +273,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               <td class="px-[8px] text-center">
                 <button
                   type="button"
-                  class="h-[24px] min-w-[70px] rounded-[4px] bg-ink-muted px-[8px] font-sans text-[13px] font-medium text-white transition hover:opacity-85 disabled:cursor-wait disabled:opacity-50"
+                  class="h-[24px] min-w-[70px] rounded-[4px] bg-search-apply px-[8px] font-sans text-[13px] font-medium text-white transition hover:opacity-85 disabled:cursor-wait disabled:opacity-50"
                   :disabled="pendingKey !== null || cartBusy"
                   @click="add(row)"
                 >

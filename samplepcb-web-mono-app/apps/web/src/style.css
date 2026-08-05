@@ -96,6 +96,7 @@
   --color-search-head: #f9f9f9;
   --color-search-input: #ffffff;
   --color-search-cart: #fdfdff;
+  --color-search-apply: #545c6c;
   --color-search-input-border: #d3d5dc;
   --color-line-search-strong: #d3d5dc;
 
@@ -202,6 +203,7 @@
   --color-search-head: #1d2025;
   --color-search-input: #252a31;
   --color-search-cart: #131519;
+  --color-search-apply: #909caf;
   --color-search-input-border: #353b46;
   --color-line-search-strong: #2f3949;
 
