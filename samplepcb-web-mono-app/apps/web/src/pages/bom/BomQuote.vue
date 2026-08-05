@@ -49,6 +49,7 @@ import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 import BomCompareModal from '../../components/bom/BomCompareModal.vue';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
 import BomPartSearchModal from '../../components/bom/BomPartSearchModal.vue';
+import BomQuoteCheckbox from '../../components/bom/BomQuoteCheckbox.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
 import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
@@ -2074,15 +2075,14 @@ function fmtAmount(v: number | null): string {
               <tr class="h-[39px] text-left font-noto text-[10px] font-normal uppercase leading-[24px] tracking-normal text-[#828282]">
                 <th class="p-0">
                   <div class="flex h-[39px] items-center justify-center">
-                    <input
-                      type="checkbox"
-                      class="size-[18px] rounded-[2px] border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
+                    <BomQuoteCheckbox
                       :checked="allIncluded"
-                      :indeterminate.prop="someIncluded && !allIncluded"
+                      :indeterminate="someIncluded && !allIncluded"
                       :disabled="!isDraft || editingLocked || includableItems.length === 0"
                       :title="editingLocked ? EDIT_LOCK_TITLE : allIncluded ? '표시된 행 전체를 견적에서 제외' : '표시된 행 전체를 견적에 포함'"
+                      :label="editingLocked ? EDIT_LOCK_TITLE : allIncluded ? '표시된 행 전체를 견적에서 제외' : '표시된 행 전체를 견적에 포함'"
                       @change="toggleIncludeAll"
-                    >
+                    />
                     <span class="sr-only">표시된 행 전체 포함</span>
                   </div>
                 </th>

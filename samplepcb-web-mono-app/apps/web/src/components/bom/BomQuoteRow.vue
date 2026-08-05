@@ -8,6 +8,7 @@ import {
 } from '@sp/utils';
 import PartImage from '../ui/PartImage.vue';
 import BomPriceBreaks from './BomPriceBreaks.vue';
+import BomQuoteCheckbox from './BomQuoteCheckbox.vue';
 import icSelectCaret from '../../assets/bom/ic-select-caret.svg';
 import { SUPPLIER_FALLBACK_ICON, SUPPLIER_META } from '../../bom/supplier-meta';
 import {
@@ -526,15 +527,13 @@ function onQtyInput(event: Event): void {
     <!-- 포함 체크 + Excel 원본 행. 시트명은 좁은 표를 위해 툴팁으로 보존한다. -->
     <td class="p-0" :title="sourceLocationTitle">
       <div class="flex h-[109px] flex-col items-center justify-center gap-[6px]">
-        <input
+        <BomQuoteCheckbox
           :checked="item.included"
-          type="checkbox"
-          class="size-[18px] rounded-[2px] border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
           :disabled="!isDraft || editingLocked || quantityMissing"
           :title="editingLocked ? EDIT_LOCK_TITLE : quantityMissing ? '수량을 먼저 확인해야 포함할 수 있습니다' : '합계·견적요청 포함'"
-          :aria-label="`${sourceRowText} 견적 포함`"
+          :label="`${sourceRowText} 견적 포함`"
           @change="emit('toggle-include')"
-        >
+        />
         <span
           class="block max-w-[39px] cursor-default truncate text-center font-noto text-[10px] font-medium leading-[14px] tabular-nums text-ink-muted"
           :title="sourceLocationTitle"
