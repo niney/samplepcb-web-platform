@@ -840,16 +840,10 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       }
 
       const deletableCount = items.filter((i) => i.deletable).length;
-      const totalFileCount = items
-        .filter((i) => i.deletable)
-        .reduce((sum, i) => sum + i.fileCount, 0);
       // 선택분 전체 요약 — 모달이 "무엇이 막고 무엇을 각오해야 하는지"를 한 번에 읽는다.
+      // 차단된 건은 전부 강제 해제 대상이라 별도 forceable 집계가 필요 없다.
       const blockReasons = [...new Set(items.flatMap((i) => i.blockReasons))];
       const warnings = [...new Set(items.flatMap((i) => i.warnings))];
-      // 강제 해제로 살릴 수 있는 건 = 차단이 PAID_ORDER 하나뿐인 건.
-      const forceableCount = items.filter(
-        (i) => i.blockReasons.length === 1 && i.blockReasons[0] === 'PAID_ORDER',
-      ).length;
 
       return {
         result: true as const,
@@ -860,10 +854,8 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           summary: {
             deletableCount,
             blockedCount: items.length - deletableCount,
-            totalFileCount,
             blockReasons,
             warnings,
-            forceableCount,
           },
         },
       };
@@ -875,7 +867,9 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
   // 불가(파일서버 삭제·MyISAM 무트랜잭션)하므로 건별 결과(deleted/blocked/failed)를
   // 정직하게 보고한다. 순서: g5(미입금 주문/장바구니) 먼저 → sp_(파일→DB) 나중(재시도
   // 멱등). 견적↔주문 1:N — processedOrderIds 로 같은 od_id 주문은 1회만 삭제한다.
-  // 결제완료 주문이 묶인 건은 blocked. 되돌릴 수 없어 건별 감사 로그를 남긴다.
+  // 차단은 forceDeleteAll 체크로 전부 우회되며, 체크하지 않으면 걸린 건만 blocked 로
+  // 남긴다. 기본은 건별 감사행을 남기고(audited), mode='reset' 이면 감사행도 영카트
+  // 주문 삭제 백업도 만들지 않는다 — "흔적 없이 지우기"까지 관리자 선택이다.
   fastify.post(
     '/pcb-projects/delete',
     {
@@ -885,8 +879,10 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       },
     },
     async (request) => {
-      const { ids, reason } = request.body;
-      const force = request.body.forceDeletePaidOrder === true;
+      const { ids } = request.body;
+      const force = request.body.forceDeleteAll === true;
+      const retainAudit = request.body.mode !== 'reset';
+      const reason = request.body.reason ?? '';
       const specs = await prisma.spOrderSpec.findMany({
         where: { id: { in: ids.map((id) => BigInt(id)) } },
       });
@@ -938,13 +934,19 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           }
           if (state === 'ordered' && info !== null) {
             if (!processedOrderIds.has(info.odId)) {
-              // 결제 주문은 강제 해제(force)일 때만 — allowPaymentEvidence 로 코어 가드 통과.
+              // 강제(force)면 하드 삭제 경로 — 결제 흔적을 통과하고(allowPaymentEvidence)
+              // 형제 cart 행까지 물리삭제하며(deleteAllCarts) 포인트·쿠폰·PG 로그를 정리한다.
+              // 강제가 아니면 코어와 같은 소프트 경로(백업 + cart ct_status='삭제').
+              // reset 모드면 g5_shop_order_delete 복원행도 만들지 않는다(감사와 같은 결).
               const outcome = await deleteUnpaidOrder(
                 info.odId,
                 request.user.mbId,
                 request.ip,
                 undefined,
-                force ? { allowPaymentEvidence: true } : undefined,
+                {
+                  retainBackup: retainAudit,
+                  ...(force ? { allowPaymentEvidence: true, deleteAllCarts: true } : {}),
+                },
               );
               if (outcome === 'paid' || outcome === 'shared') {
                 // 레이스: 프리뷰 후 결제 확정됨 — 차단
@@ -969,28 +971,33 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             cartRemoved = true;
           }
           // 감사 원장 먼저 — spec 이 사라진 뒤엔 스냅샷을 만들 수 없다(FK 없음, 남는다).
-          await prisma.spDeleteAudit.create({
-            data: {
-              subjectType: 'pcb_case',
-              subjectId: spec.id.toString(),
-              title: spec.projectName,
-              mbId: spec.mbId ?? '',
-              subjectStatus: spec.quoteStatus,
-              actorMbId: request.user.mbId,
-              actorIp: request.ip,
-              reason,
-              snapshot: {
-                cartState: state,
-                odId: info?.odId ?? null,
-                odStatus: info?.odStatus ?? null,
-                receiptPrice: info?.receiptPrice ?? 0,
-                forceDeletePaidOrder: force,
-                isLegacy: judgement.isLegacy,
-                warnings: [...judgement.warnings],
-                pcb: { ...(trackFacts.get(spec.id.toString()) ?? EMPTY_TRACK) },
-              } satisfies Prisma.InputJsonValue,
-            },
-          });
+          // reset 모드면 통째로 건너뛴다: 업무 DB에 삭제 흔적을 남기지 않는 선택.
+          if (retainAudit) {
+            await prisma.spDeleteAudit.create({
+              data: {
+                subjectType: 'pcb_case',
+                subjectId: spec.id.toString(),
+                title: spec.projectName,
+                mbId: spec.mbId ?? '',
+                subjectStatus: spec.quoteStatus,
+                actorMbId: request.user.mbId,
+                actorIp: request.ip,
+                reason,
+                snapshot: {
+                  cartState: state,
+                  odId: info?.odId ?? null,
+                  odStatus: info?.odStatus ?? null,
+                  receiptPrice: info?.receiptPrice ?? 0,
+                  forceDeleteAll: force,
+                  // 강제로 넘긴 차단이 무엇이었는지 — 사후 대조의 핵심 근거.
+                  overriddenBlockers: [...judgement.blockReasons],
+                  isLegacy: judgement.isLegacy,
+                  warnings: [...judgement.warnings],
+                  pcb: { ...(trackFacts.get(spec.id.toString()) ?? EMPTY_TRACK) },
+                } satisfies Prisma.InputJsonValue,
+              },
+            });
+          }
           await purgeQuoteData(spec);
           results.push({
             projectId,

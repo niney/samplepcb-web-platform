@@ -163,12 +163,16 @@ export function useDeletePreview() {
 }
 
 // 배치 완전삭제 — 성공 시 ['admin','quotes'] 접두 무효화(목록·상세·rfq 뱃지 갱신).
-// 사유·확인 체크는 서버 계약(AdminDeleteExecuteBody)이 요구한다 — 감사 원장에 남는다.
+// 최종 확인(acknowledgeIrreversible)만 서버 계약이 요구한다. 사유는 선택이고, 모드가
+// 'reset'이면 감사행·주문 백업을 남기지 않는다(AdminDeleteExecuteBody).
 // PCB 원장(RFQ·발주·선적)도 함께 사라지므로 그쪽 캐시도 비운다.
 export interface DeleteQuotesVars {
   ids: number[];
-  reason: string;
-  forceDeletePaidOrder?: boolean;
+  reason?: string;
+  /** true면 모든 차단(결제·발주·선적·공유주문)을 무시하고 삭제한다. */
+  forceDeleteAll?: boolean;
+  /** true면 감사 원장·주문 삭제 백업을 남기지 않는다. */
+  skipAudit?: boolean;
 }
 
 export function useDeleteQuotes() {
@@ -180,9 +184,10 @@ export function useDeleteQuotes() {
         `${apiRoutes.adminPcbProjects}/delete`,
         {
           ids: vars.ids,
-          reason: vars.reason,
+          mode: vars.skipAudit === true ? 'reset' : 'audited',
           acknowledgeIrreversible: true,
-          ...(vars.forceDeletePaidOrder === true ? { forceDeletePaidOrder: true } : {}),
+          ...(vars.reason !== undefined && vars.reason !== '' ? { reason: vars.reason } : {}),
+          ...(vars.forceDeleteAll === true ? { forceDeleteAll: true } : {}),
         },
         AdminDeleteResponse,
       ),

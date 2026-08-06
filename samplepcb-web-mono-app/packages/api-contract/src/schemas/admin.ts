@@ -276,36 +276,45 @@ export const AdminDeleteBatchBody = z.object({
 });
 export type AdminDeleteBatchBodyType = z.infer<typeof AdminDeleteBatchBody>;
 
-/** 실행 바디 — 프리뷰(위 Body)와 달리 되돌릴 수 없는 실행이라 사유·확인을 요구한다.
- *  감사 원장 sp_delete_audit(subjectType='pcb_case')에 건별로 남는다. */
+/** audited=삭제 감사행을 남김(기본) | reset=업무 DB에 삭제 흔적을 남기지 않음.
+ *  SmartBOM Case 삭제(AdminBomCaseDeleteMode)와 같은 어휘 — 감사 원장(sp_delete_audit)이
+ *  같으니 말도 같게 둔다. reset 은 영카트 주문 삭제 백업(g5_shop_order_delete)까지 생략한다. */
+export const AdminDeleteMode = z.enum(['audited', 'reset']);
+export type AdminDeleteModeType = z.infer<typeof AdminDeleteMode>;
+
+/** 실행 바디 — 프리뷰(위 Body)와 달리 되돌릴 수 없는 실행이라 최종 확인을 요구한다.
+ *  audited 모드면 감사 원장 sp_delete_audit(subjectType='pcb_case')에 건별로 남는다. */
 export const AdminDeleteExecuteBody = AdminDeleteBatchBody.extend({
-  reason: z.string().trim().min(2).max(1000),
+  mode: AdminDeleteMode.default('audited'),
+  /** 감사행에 남을 사유. 선택 입력(관리자 결정 2026-08-06) — 없으면 빈 문자열로 남는다. */
+  reason: z.string().trim().max(1000).optional(),
   acknowledgeIrreversible: z.literal(true),
-  /** PAID_ORDER 차단만 해제한다. PO_ISSUED·SHIPMENT_EXISTS·SHARED_ORDER 는 우회 불가. */
-  forceDeletePaidOrder: z.boolean().optional(),
+  /** 모든 차단을 해제한다 — PAID_ORDER·PO_ISSUED·SHIPMENT_EXISTS·SHARED_ORDER 전부. */
+  forceDeleteAll: z.boolean().optional(),
 });
 export type AdminDeleteExecuteBodyType = z.infer<typeof AdminDeleteExecuteBody>;
 
 /** 견적 상태보다 우선하는 거래·협력 무결성 차단(BOM §Case 삭제와 같은 위계).
- *  ⚠ 우회(강제 삭제)는 PAID_ORDER 하나뿐이다 — 결제는 우리 DB 안의 문제지만
- *  발주·선적은 협력사와 합의된 기록이라 관리자 체크 하나로 넘길 수 없다. */
+ *  기본은 전부 차단이지만 forceDeleteAll 체크 하나로 **모두 우회한다**(관리자 결정
+ *  2026-08-06). 발주·선적은 협력사와 합의된 기록이고 SHARED_ORDER 는 선택하지 않은
+ *  형제 견적의 주문까지 지우므로, 차단 사유는 모달이 건별로 끝까지 보여줘야 한다. */
 export const AdminDeleteBlockReason = z.enum([
-  'PAID_ORDER', // 결제 완료 주문(강제 해제 가능)
-  'PO_ISSUED', // 협력사 발주서 존재 — 발주 취소 먼저
-  'SHIPMENT_EXISTS', // 선적 문서 존재 — 물류 정리 먼저
+  'PAID_ORDER', // 결제 완료 주문
+  'PO_ISSUED', // 협력사 발주서 존재
+  'SHIPMENT_EXISTS', // 선적 문서 존재
   'SHARED_ORDER', // 같은 주문에 선택되지 않은 형제 견적이 있음
 ]);
 export type AdminDeleteBlockReasonType = z.infer<typeof AdminDeleteBlockReason>;
 
 export const ADMIN_DELETE_BLOCK_TEXT: Record<AdminDeleteBlockReasonType, string> = {
   PAID_ORDER:
-    '결제(입금)가 확인된 주문입니다. 강제 삭제를 선택하면 주문·결제 기록까지 함께 지웁니다.',
+    '결제(입금)가 확인된 주문입니다. 강제 삭제하면 주문·결제 기록까지 함께 지웁니다 — 외부 PG 승인취소·환불은 따로 처리해야 합니다.',
   PO_ISSUED:
-    '협력사 발주서가 있습니다. 금액·납기가 합의된 문서라 Case 상세에서 발주를 먼저 취소해 주세요.',
+    '협력사 발주서가 있습니다. 강제 삭제하면 금액·납기가 합의된 발주서와 EQ 이력이 함께 사라집니다 — 협력사에 보낸 메일은 회수되지 않습니다.',
   SHIPMENT_EXISTS:
-    '선적(발송) 문서가 있습니다. 물류가 이미 움직인 건이라 선적을 먼저 정리해 주세요.',
+    '선적(발송) 문서가 있습니다. 강제 삭제하면 상업송장·AWB 등 물류 기록이 함께 사라집니다 — 이미 움직인 화물은 되돌아오지 않습니다.',
   SHARED_ORDER:
-    '같은 주문에 선택되지 않은 다른 견적이 있습니다. 그 견적까지 함께 선택하거나 주문에서 분리해 주세요.',
+    '같은 주문에 선택되지 않은 다른 견적이 있습니다. 강제 삭제하면 **그 견적의 주문까지** 함께 지워집니다.',
 };
 
 /** 삭제해도 되지만 되돌릴 수 없는 부수효과 — 실행 전 1차 경고 레이어에 표시한다. */
@@ -369,13 +378,11 @@ export const AdminDeletePreviewResponse = z.object({
     notFound: z.array(z.number()), // 존재하지 않는(또는 이미 삭제된) projectId
     summary: z.object({
       deletableCount: z.number(),
+      /** 차단된 건수 = 강제 해제 체크로 살릴 수 있는 건수(우회 불가 차단은 없다). */
       blockedCount: z.number(),
-      totalFileCount: z.number(),
       /** 선택분 전체에서 모인 차단·경고(중복 제거) — 모달 요약 레이어가 읽는다. */
       blockReasons: z.array(AdminDeleteBlockReason),
       warnings: z.array(AdminDeleteWarning),
-      /** 강제 해제 체크로 살릴 수 있는 건수(= PAID_ORDER 만 걸린 건). */
-      forceableCount: z.number().int().nonnegative(),
     }),
   }),
 });

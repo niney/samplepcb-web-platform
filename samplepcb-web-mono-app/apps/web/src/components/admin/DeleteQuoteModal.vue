@@ -15,10 +15,12 @@ import { formatKrw } from '../../lib/format';
 //
 // 위험 레이어는 SmartBOM Case 삭제와 같은 3단 구성이다:
 //   ① impact  — 서버가 계산한 삭제 영향과 차단 사유를 건별로 확인
-//   ② confirm — 결제 강제 해제·사유·복구 불가 최종 확인
+//   ② confirm — 강제 해제·감사 생략·사유·복구 불가 최종 확인
 //   ③ result  — 삭제/차단/실패를 한 화면에서 정직하게 보고
-// 차단(blocker)은 서버 판정이 정본이다. 우회 체크는 **결제 주문 하나뿐** — 발주·선적은
-// 협력사와 합의된 기록이라 체크 하나로 넘길 수 없고, Case 상세에서 먼저 정리해야 한다.
+// 차단(blocker)은 서버 판정이 정본이지만 **전부 우회할 수 있다**(관리자 결정 2026-08-06).
+// 그래서 이 화면의 일은 막는 게 아니라 무엇을 각오하는지 끝까지 보여주는 것이다 —
+// 차단 사유는 건별로 하나도 빠짐없이 나열하고, 특히 SHARED_ORDER 는 선택하지 않은
+// 형제 견적의 주문까지 지운다는 사실을 강제 체크 옆에 붙인다.
 const props = defineProps<{ ids: number[] }>();
 const emit = defineEmits<{ close: []; deleted: [] }>();
 const i18n = useI18n();
@@ -27,7 +29,8 @@ const { t } = i18n;
 type Step = 'impact' | 'confirm' | 'result';
 const step = ref<Step>('impact');
 const reason = ref('');
-const forceDeletePaidOrder = ref(false);
+const forceDeleteAll = ref(false);
+const skipAudit = ref(false);
 const acknowledged = ref(false);
 
 const {
@@ -46,55 +49,44 @@ const {
 } = useDeleteQuotes();
 const deleteResult = computed(() => deleteData.value?.data ?? null);
 
-// 강제 해제를 켜면 "결제만 걸린 건"이 삭제 대상으로 옮겨온다 — 서버 판정과 같은 규칙.
-const onlyPaidBlocked = (item: AdminDeletePreviewItemType): boolean =>
-  item.blockReasons.length === 1 && item.blockReasons[0] === 'PAID_ORDER';
+// 강제 해제를 켜면 차단된 건이 **전부** 삭제 대상으로 옮겨온다 — 서버 판정과 같은 규칙.
 const items = computed<AdminDeletePreviewItemType[]>(() => preview.value?.items ?? []);
-const forceableItems = computed(() => items.value.filter((i) => !i.deletable && onlyPaidBlocked(i)));
-const protectedItems = computed(
-  () => items.value.filter((i) => !i.deletable && !onlyPaidBlocked(i)),
-);
+const blockedItems = computed(() => items.value.filter((i) => !i.deletable));
 /** 이번 실행에서 실제로 지워질 건(강제 체크 반영). */
 const targetItems = computed(() =>
-  items.value.filter((i) => i.deletable || (forceDeletePaidOrder.value && onlyPaidBlocked(i))),
+  items.value.filter((i) => i.deletable || forceDeleteAll.value),
 );
-/** 1차에서 "계속" 가능한 후보 = 삭제 가능 + 결제 강제 가능. */
-const candidateItems = computed(() =>
-  items.value.filter((i) => i.deletable || onlyPaidBlocked(i)),
+/** 강제 체크 시 형제 견적의 주문까지 지워지는지 — 체크 옆에 붙일 최상위 경고. */
+const sharedOrderItems = computed(() =>
+  items.value.filter((i) => i.blockReasons.includes('SHARED_ORDER')),
 );
 
+// 1차 레이어의 합산은 **선택분 전체** 기준이다 — 강제 체크는 2차에 있으므로, 여기서
+// 삭제 가능분만 세면 "강제하면 무엇이 더 사라지는지"가 감춰진다.
 const impact = computed(() => {
   const t0 = { files: 0, rfqs: 0, pos: 0, shipments: 0, attachments: 0, orders: 0, carts: 0 };
-  for (const i of targetItems.value) {
+  for (const i of items.value) {
     t0.files += i.fileCount;
     t0.rfqs += i.pcb.rfqs;
     t0.pos += i.pcb.pos;
     t0.shipments += i.pcb.shipments;
     t0.attachments += i.pcb.attachments;
-    if (i.deletesOrder) t0.orders += 1;
+    if (i.deletesOrder || i.odId !== null) t0.orders += 1;
     if (i.removesCartRow) t0.carts += 1;
   }
   return t0;
 });
 const summaryWarnings = computed(() => preview.value?.summary.warnings ?? []);
 
-const canContinue = computed(() => !previewLoading.value && candidateItems.value.length > 0);
-const canSubmit = computed(
-  () => targetItems.value.length > 0 && reason.value.trim().length >= 2 && acknowledged.value,
-);
+const canContinue = computed(() => !previewLoading.value && items.value.length > 0);
+const canSubmit = computed(() => targetItems.value.length > 0 && acknowledged.value);
 
 const badgeOf = (item: AdminDeletePreviewItemType): { label: string; cls: string } =>
   item.deletable
     ? { label: t('admin.quotes.deleteModal.badgeDeletable'), cls: 'bg-emerald-100 text-emerald-700' }
-    : onlyPaidBlocked(item)
-      ? { label: t('admin.quotes.deleteModal.badgeForceable'), cls: 'bg-orange-100 text-orange-800' }
-      : { label: t('admin.quotes.deleteModal.badgeBlocked'), cls: 'bg-red-100 text-red-700' };
+    : { label: t('admin.quotes.deleteModal.badgeForceable'), cls: 'bg-orange-100 text-orange-800' };
 const cardCls = (item: AdminDeletePreviewItemType): string =>
-  item.deletable
-    ? 'border-gray-200'
-    : onlyPaidBlocked(item)
-      ? 'border-orange-300 bg-orange-50/60'
-      : 'border-red-200 bg-red-50/60';
+  item.deletable ? 'border-gray-200' : 'border-orange-300 bg-orange-50/60';
 
 const errorMessage = computed<string>(() => {
   const err = deleteError.value;
@@ -116,7 +108,8 @@ function openConfirm(): void {
 function backToImpact(): void {
   if (deleting.value) return;
   step.value = 'impact';
-  forceDeletePaidOrder.value = false;
+  forceDeleteAll.value = false;
+  skipAudit.value = false;
   reason.value = '';
   acknowledged.value = false;
 }
@@ -126,7 +119,8 @@ function submitDelete(): void {
     {
       ids: props.ids,
       reason: reason.value.trim(),
-      ...(forceDeletePaidOrder.value ? { forceDeletePaidOrder: true } : {}),
+      ...(forceDeleteAll.value ? { forceDeleteAll: true } : {}),
+      ...(skipAudit.value ? { skipAudit: true } : {}),
     },
     { onSuccess: () => (step.value = 'result') },
   );
@@ -182,8 +176,8 @@ onBeforeUnmount(() => {
             {{ t('admin.quotes.error.UNKNOWN') }}
           </div>
           <template v-else>
-            <!-- 통계 4칸 -->
-            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <!-- 통계 3칸 — 차단은 전부 강제 가능하므로 '보호됨' 칸은 없다 -->
+            <div class="grid grid-cols-3 gap-2">
               <div class="rounded-xl border border-gray-200 bg-gray-50 p-3 text-center">
                 <p class="text-[11px] text-gray-500">{{ t('admin.quotes.deleteModal.statSelected') }}</p>
                 <p class="mt-1 text-xl font-extrabold tabular-nums text-gray-900">{{ ids.length }}</p>
@@ -197,21 +191,15 @@ onBeforeUnmount(() => {
               <div class="rounded-xl border border-orange-300 bg-orange-50 p-3 text-center">
                 <p class="text-[11px] text-orange-700">{{ t('admin.quotes.deleteModal.statForceable') }}</p>
                 <p class="mt-1 text-xl font-extrabold tabular-nums text-orange-800">
-                  {{ forceableItems.length }}
-                </p>
-              </div>
-              <div class="rounded-xl border border-red-200 bg-red-50 p-3 text-center">
-                <p class="text-[11px] text-red-600">{{ t('admin.quotes.deleteModal.statBlocked') }}</p>
-                <p class="mt-1 text-xl font-extrabold tabular-nums text-red-700">
-                  {{ protectedItems.length }}
+                  {{ blockedItems.length }}
                 </p>
               </div>
             </div>
 
             <!-- 합산 영향 -->
-            <div v-if="candidateItems.length > 0" class="mt-4 rounded-xl border border-red-200 p-4">
+            <div v-if="items.length > 0" class="mt-4 rounded-xl border border-red-200 p-4">
               <p class="text-sm font-extrabold text-red-800">
-                {{ t('admin.quotes.deleteModal.impactTitle', { n: candidateItems.length }) }}
+                {{ t('admin.quotes.deleteModal.impactTitle', { n: items.length }) }}
               </p>
               <div class="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                 <div class="rounded-lg bg-gray-50 p-3">
@@ -269,12 +257,12 @@ onBeforeUnmount(() => {
                     {{ badgeOf(it).label }}
                   </span>
                 </div>
-                <p v-if="it.deletable" class="mt-2 text-[11px] text-gray-500">
+                <p class="mt-2 text-[11px] text-gray-500">
                   {{ t('admin.quotes.deleteModal.totalFiles', { n: it.fileCount }) }} ·
                   RFQ {{ it.pcb.rfqs }} · 발주 {{ it.pcb.pos }} · 선적 {{ it.pcb.shipments }}
                 </p>
-                <!-- 차단 사유는 전부 — 하나만 보이면 "강제 삭제하면 되겠네"로 오해한다 -->
-                <ul v-else class="mt-2 space-y-1 text-xs leading-5 text-red-700">
+                <!-- 차단 사유는 전부 — 강제 삭제로 넘길 수 있는 만큼 대가를 다 보여준다 -->
+                <ul v-if="it.blockReasons.length > 0" class="mt-2 space-y-1 text-xs leading-5 text-orange-800">
                   <li v-for="code in it.blockReasons" :key="code">
                     • {{ ADMIN_DELETE_BLOCK_TEXT[code] }}
                   </li>
@@ -314,8 +302,8 @@ onBeforeUnmount(() => {
               <li v-for="w in summaryWarnings" :key="w">⚠ {{ ADMIN_DELETE_WARNING_TEXT[w] }}</li>
             </ul>
 
-            <p v-if="protectedItems.length > 0" class="mt-3 text-xs font-semibold text-red-700">
-              {{ t('admin.quotes.deleteModal.blockedKept', { n: protectedItems.length }) }}
+            <p v-if="blockedItems.length > 0" class="mt-3 text-xs font-semibold text-orange-800">
+              {{ t('admin.quotes.deleteModal.blockedForceable', { n: blockedItems.length }) }}
             </p>
             <p v-if="preview.notFound.length > 0" class="mt-2 text-xs text-gray-400">
               {{ t('admin.quotes.deleteModal.notFound', { n: preview.notFound.length }) }}
@@ -338,9 +326,9 @@ onBeforeUnmount(() => {
             @click="openConfirm"
           >
             {{
-              candidateItems.length === 0
+              items.length === 0
                 ? t('admin.quotes.deleteModal.continueNone')
-                : t('admin.quotes.deleteModal.continueN', { n: candidateItems.length })
+                : t('admin.quotes.deleteModal.continueN', { n: items.length })
             }}
           </button>
         </footer>
@@ -375,30 +363,58 @@ onBeforeUnmount(() => {
             </ul>
           </div>
 
-          <!-- 결제 주문 강제 해제 — 유일하게 우회 가능한 차단 -->
+          <!-- 강제 해제 — 차단 전부를 넘긴다. 넘기는 대가를 사유별로 나열한다. -->
           <label
-            v-if="forceableItems.length > 0"
+            v-if="blockedItems.length > 0"
             class="flex cursor-pointer gap-3 rounded-xl border-2 border-red-500 bg-red-50 p-4"
           >
             <input
-              v-model="forceDeletePaidOrder"
+              v-model="forceDeleteAll"
               type="checkbox"
               class="mt-0.5 size-4 accent-red-700"
               @change="acknowledged = false"
             >
             <span>
               <b class="text-sm text-red-900">
-                {{ t('admin.quotes.deleteModal.forceLabel', { n: forceableItems.length }) }}
+                {{ t('admin.quotes.deleteModal.forceLabel', { n: blockedItems.length }) }}
               </b>
               <span class="mt-1 block text-xs font-semibold leading-5 text-red-700">
                 {{ t('admin.quotes.deleteModal.forceDesc') }}
               </span>
+              <ul class="mt-2 space-y-0.5 text-[11px] leading-5 text-red-800">
+                <li v-for="code in preview.summary.blockReasons" :key="code">
+                  • {{ ADMIN_DELETE_BLOCK_TEXT[code] }}
+                </li>
+              </ul>
+              <!-- 남의 견적까지 지우는 유일한 사유라 따로 못 박는다 -->
+              <span
+                v-if="sharedOrderItems.length > 0"
+                class="mt-2 block rounded-lg bg-red-700 px-3 py-2 text-[11px] font-extrabold leading-5 text-white"
+              >
+                {{ t('admin.quotes.deleteModal.forceSharedWarn', { n: sharedOrderItems.length }) }}
+              </span>
             </span>
           </label>
 
-          <label class="block text-xs font-semibold text-gray-700">
+          <!-- 감사기록 생략 — SmartBOM reset 모드와 같은 선택 -->
+          <label class="flex cursor-pointer gap-3 rounded-xl border-2 border-red-300 bg-red-50/70 p-4">
+            <input
+              v-model="skipAudit"
+              type="checkbox"
+              class="mt-0.5 size-4 accent-red-700"
+              @change="acknowledged = false"
+            >
+            <span>
+              <b class="text-sm text-red-800">{{ t('admin.quotes.deleteModal.skipAuditLabel') }}</b>
+              <span class="mt-1 block text-xs font-semibold leading-5 text-red-700">
+                {{ t('admin.quotes.deleteModal.skipAuditDesc') }}
+              </span>
+            </span>
+          </label>
+
+          <label v-if="!skipAudit" class="block text-xs font-semibold text-gray-700">
             {{ t('admin.quotes.deleteModal.reasonLabel') }}
-            <span class="text-red-600">{{ t('admin.quotes.deleteModal.required') }}</span>
+            <span class="text-gray-400">{{ t('admin.quotes.deleteModal.optional') }}</span>
             <textarea
               v-model="reason"
               rows="3"
@@ -473,7 +489,11 @@ onBeforeUnmount(() => {
               {{ t('admin.quotes.deleteModal.confirmN', { n: deleteResult.summary.deleted }) }}
             </p>
             <p class="mt-2 text-xs leading-5">
-              {{ t('admin.quotes.deleteModal.resultAudit') }}
+              {{
+                skipAudit
+                  ? t('admin.quotes.deleteModal.resultAuditSkipped')
+                  : t('admin.quotes.deleteModal.resultAudit')
+              }}
             </p>
           </div>
 

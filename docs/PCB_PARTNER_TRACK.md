@@ -264,7 +264,16 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 | D7 | 레거시 데이터 이관? | **미이관** | §5.6 |
 | D8 | 회수 자료 커밋? | **전부 커밋** | 보고서+docs/legacy-smartbom/ 4종 |
 
-**D13 (2026-08-06) — 견적 영구 삭제의 협력 트랙 차단 + 감사 원장 공용화.** BOM Case 삭제(§bom-case-delete)를 복제하지 않고 PCB 실정에 맞게 이식한다. ① **차단 확장** — 기존 `PAID_ORDER` 에 `PO_ISSUED`·`SHIPMENT_EXISTS`·`SHARED_ORDER` 추가. **우회(강제) 체크는 `PAID_ORDER` 하나뿐** — 결제는 우리 DB 안의 문제지만 발주·선적은 협력사와 합의된 기록이라 관리자 체크 하나로 넘길 수 없고, Case 상세에서 발주 취소·선적 정리를 먼저 해야 한다(사용자 결정). ② **경고 4종**(`RFQ_EMAILS_REMAIN`·`PCB_ATTACHMENTS_DELETED`·`UNPAID_ORDER_DELETED`·`LEGACY_CASE`) + 사유 필수 + 최종확인 체크. PCB 는 모수가 2만 건이라 BOM 의 단건 2단계 모달이 아니라 **배치 프리뷰를 강화**하는 형태다. ③ **감사 원장 공용화** — `sp_bom_case_delete_audit` → **`sp_delete_audit`**(트랙 접두사 없음 = 횡단 관례) + `quoteId` → `subjectType`+`subjectId` 중립화. 범위는 테이블 이름이 아니라 `subjectType` 이 말한다(이름만 공용이고 `quoteId` 에 묶인 `sp_mail_log` 가 반면교사).
+**D13 (2026-08-06) — 견적 영구 삭제의 협력 트랙 차단 + 감사 원장 공용화.** BOM Case 삭제(§bom-case-delete)를 복제하지 않고 PCB 실정에 맞게 이식한다. ① **차단 확장** — 기존 `PAID_ORDER` 에 `PO_ISSUED`·`SHIPMENT_EXISTS`·`SHARED_ORDER` 추가(우회 정책은 D14 로 대체). ② **경고 4종**(`RFQ_EMAILS_REMAIN`·`PCB_ATTACHMENTS_DELETED`·`UNPAID_ORDER_DELETED`·`LEGACY_CASE`) + 최종확인 체크. PCB 는 모수가 2만 건이라 BOM 의 단건 2단계 모달이 아니라 **배치 프리뷰를 강화**하는 형태다. ③ **감사 원장 공용화** — `sp_bom_case_delete_audit` → **`sp_delete_audit`**(트랙 접두사 없음 = 횡단 관례) + `quoteId` → `subjectType`+`subjectId` 중립화. 범위는 테이블 이름이 아니라 `subjectType` 이 말한다(이름만 공용이고 `quoteId` 에 묶인 `sp_mail_log` 가 반면교사).
+
+**D14 (2026-08-06) — 관리자 체크로 차단 전면 해제 + 무기록 삭제.** D13 의 "우회는 `PAID_ORDER` 하나뿐" 을 **철회**한다(사용자 결정). 관리자 판단이 최종이고 화면의 일은 막는 게 아니라 **대가를 끝까지 보여주는 것**이다.
+
+- **차단 전면 해제** — `forceDeleteAll` 체크 하나로 `PAID_ORDER`·`PO_ISSUED`·`SHIPMENT_EXISTS`·`SHARED_ORDER` 가 모두 풀린다. `remainingBlockers()` 는 체크 시 빈 배열을 돌려준다. 차단 사유는 사라지지 않고 건별 카드·강제 체크 옆·감사 스냅샷(`overriddenBlockers`)에 그대로 남는다.
+- **사유는 선택** — `reason` 이 필수에서 optional 로. 생략하면 감사행에 빈 문자열로 남는다. 남은 필수 입력은 `acknowledgeIrreversible` 하나.
+- **무기록 삭제** — `mode: 'reset'`(SmartBOM 과 같은 어휘)이면 `sp_delete_audit` 행도 `g5_shop_order_delete` 백업도 만들지 않는다. 서버 접속 로그·DB 백업·발송된 메일까지 없어진다는 뜻은 아니며 모달이 그렇게 말한다.
+- **⚠ 이 결정이 실제로 동작하려면 코어 삭제 SQL 을 손봐야 했다** — 기존 `forceDeletePaidOrder` 는 이름만 강제였다. `deleteUnpaidOrder` 의 일반 경로는 `WHERE od_status='주문' AND od_receipt_price=0 …` 가드가 **SQL 에 박혀** 있어 `allowPaymentEvidence` 를 줘도 0행 삭제 후 `'paid'` 로 되돌아왔다(2026-08-06 실측). 진짜 하드 삭제(포인트 환원·쿠폰·PG 로그 정리)는 SmartBOM 전용 `deleteExclusiveOrder` 에만 있었고 그것도 형제 cart 가 있으면 `'shared'` 로 거부했다. → 그 함수를 **`purgeOrderRows`** 로 일반화해 대상 cart 를 집합으로 다루고, `deleteAllCarts` 옵션으로 형제 행까지 물리삭제한다. PCB 강제 삭제는 이 경로를 탄다.
+- **`SHARED_ORDER` 강제만 성격이 다르다** — 선택하지 않은 **다른 견적의 주문까지** 지운다(그 견적은 주문 전 상태로 되돌아간다). 유일하게 "남의 데이터" 를 건드리는 우회라 모달에서 붉은 띠로 따로 못 박는다.
+- **고객 경로는 그대로** — `DELETE /api/pcb-projects/:id` 의 `PARTNER_TRACK_ACTIVE` 가드는 유지한다. 전면 해제는 관리자 판단에 주는 권한이지 고객이 협력 기록을 지울 수 있다는 뜻이 아니다.
 
 **D12 (2026-08-05) — 워크큐 대기 큐 원칙 + 이관분 제외.** 각 역할 워크큐의 **첫 탭 = 그 역할이 시작해야 할 대기 큐**, 배지 = 그 수 + 진행 중 내 차례의 **합산**. 대기 큐(요청 대기·발주 대기·발송 대기)에서는 **레거시 이관분(`specJson._legacy`)을 제외**한다(사용자 결정). 근거: 이관 주문은 레거시에서 이미 RFQ·발주가 처리됐지만 그 이력은 이관 대상이 아니어서(§2.4·5.6), 제외하지 않으면 요청 대기 330·발주 대기 195건이 영구히 눌러앉아 실제 처리 대상 6·5건이 묻힌다(2026-08-05 실측). 제외는 **재촉 목록에서만** — 진행현황·주문·결제에는 그대로 보이고 Case 상세 RFQ/발주 패널도 열려 있어(D10) 필요하면 언제든 진행할 수 있다. 사용자 원칙("완전히 완료된 건이 아니면 레거시로도 PCB 기능 이용 가능")과 같은 방향.
 
@@ -388,6 +397,7 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
   `blockReasons`·`warnings`·`pcb{rfqs,pos,shipments,attachments}`·`isLegacy` · summary 에
   `blockReasons`·`warnings`·`forceableCount` · 신설 `AdminDeleteExecuteBody`(사유 필수 +
   `acknowledgeIrreversible` + `forceDeletePaidOrder`) · 결과 item 에 `blockReason`.
+  ※ 사유 필수·`forceDeletePaidOrder`·`forceableCount` 는 **P3.9 에서 바뀌었다**(D14).
 - **서버**: 신설 `lib/pcb-case-delete.ts` — `loadPcbTrackFacts`(배치 집계, N+1 회피)·`judgePcbCaseDelete`
   ·`remainingBlockers`. **프리뷰와 실행이 같은 함수로 판정**한다(둘이 갈라지지 않게 + 프리뷰를
   거치지 않은 직접 호출도 막게). 실행은 건별로 `sp_delete_audit`(subjectType='pcb_case') 에
@@ -397,6 +407,7 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 - **웹**: `DeleteQuoteModal` 에 차단 사유별 안내·경고 레이어·협력 집계 배지(`협력 R/P/S`)·이관
   배지·**사유 입력·최종확인 체크**·결제 강제 해제 체크(있을 때만). 강제 체크를 켜면 "결제만
   걸린 건"이 삭제 대상으로 옮겨오는 계산까지 서버 규칙과 동일하게 미러.
+  ※ 강제 체크의 범위는 **P3.9 에서 전체 차단으로 확대**됐다(D14).
 - **검증**: **E2E 31 ALL PASS**(실DB 시드 3건 — 차단 판정·협력 집계·경고·바디 검증 400·강제
   체크로 발주 차단 우회 불가·감사행 기록·**고객 경로 409**·선적 FK cascade·차단 해제 후 삭제),
   단위 4(`quote-delete.test.ts` — 첨부 수집 순서·트랜잭션 포함·불필요 쿼리 없음·파일서버 실패 시
@@ -439,8 +450,9 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
   기능의 존재 자체가 숨겨져서 쓰지 않는다. '선택 해제'는 헤더 체크박스가 대신한다.
 - **삭제 모달 디자인 통일(08-06)**: 단층 모달이던 것을 **SmartBOM Case 삭제와 같은 3단 위험
   레이어**로 맞췄다(사용자 결정) — ① 1차(연빨강 헤더) = 통계 4칸(선택·삭제 가능·결제 강제
-  가능·보호됨) + 합산 영향 4칸 + **건별 카드**(상태 배지·이관 태그·차단 사유 전부) + 주문 그룹
-  경고 + ⚠ 경고 목록, ② 2차(진빨강 헤더) = 강제 해제 체크 · 사유 · 복구 불가 확인,
+  가능·보호됨 — **P3.9 에서 3칸으로**) + 합산 영향 4칸 + **건별 카드**(상태 배지·이관 태그·차단
+  사유 전부) + 주문 그룹 경고 + ⚠ 경고 목록, ② 2차(진빨강 헤더) = 강제 해제 체크 · 사유 ·
+  복구 불가 확인,
   ③ 결과 = 삭제·차단·실패 보고. 되돌릴 수 없는 배치 작업이라 "보고 나서 한 번 더 결심"하는
   층을 두는 것이 요지다. SmartBOM 모달은 한국어 리터럴이지만 이 모달은 원래 i18n 이라
   ko/en 키를 확장해 유지한다(견적 관리와 공유하므로 로케일을 깨면 안 된다).
@@ -453,6 +465,38 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
 - **검증**: E2E 15(선적 취소 — 발송 후 409·입고 후 409·묶음 통째·첨부 정리·발주 보존·재취소
   409·**SHIPMENT_EXISTS 해소 후 삭제 완주**) + 기존 삭제 E2E 31 재통과. vitest 648+117 ·
   typecheck · ESLint 0건. 브라우저 실탐방으로 견적 관리·Case 상세 두 진입점 확인.
+
+### P3.9 구현 기록 (2026-08-06 — 관리자 재량 삭제: 차단 전면 해제·무기록·사유 선택)
+
+**D14 의 구현.** P3.7 이 세운 "우회는 결제 하나뿐" 위계를 사용자 지시로 걷어냈다. 안전장치를
+없앤 게 아니라 **판정에서 고지로 옮겼다** — 서버는 여전히 전부 판정하고, 화면은 그 대가를
+건별로 끝까지 보여주며, 넘긴 사실은 감사 스냅샷에 남는다.
+
+- **계약**: `AdminDeleteExecuteBody` = `mode`(`audited`|`reset`, 기본 audited) · `reason` **optional**
+  · `acknowledgeIrreversible`(유지) · `forceDeletePaidOrder` → **`forceDeleteAll`**. 프리뷰 summary 의
+  `forceableCount`·`totalFileCount` 제거(전자는 `blockedCount` 와 동의어가 됐고 후자는 미사용).
+  `ADMIN_DELETE_BLOCK_TEXT` 4종을 "먼저 정리해 주세요" 에서 "강제 삭제하면 무엇이 사라지는지"
+  로 다시 썼다 — 이제 막는 문장이 아니라 값을 매기는 문장이다.
+- **서버**: `remainingBlockers(reasons, forceAll)` = 체크 시 빈 배열. 감사행은 `mode!=='reset'` 일
+  때만 쓰고 스냅샷에 `forceDeleteAll`·**`overriddenBlockers`**(무엇을 넘겼는지) 추가.
+  `reset` 은 `deleteUnpaidOrder({retainBackup:false})` 로 주문 백업까지 생략한다.
+- **⚠ 코어 삭제 SQL 수술** — 기존 강제는 **이름만 강제였다**(D14 참조). `deleteExclusiveOrder` 를
+  **`purgeOrderRows`** 로 일반화: 대상 cart 를 배열로 다루고(재고 환원·물리삭제·`it_sum_qty`
+  재계산을 행별 루프), `exclusiveCart=null` + 옵션 `deleteAllCarts` 면 주문의 모든 cart 를 지운다.
+  `deleteUnpaidOrder` 는 `deleteAllCarts` 를 보면 이 경로로 분기한다. 강제가 아니면 종전대로
+  코어와 같은 소프트 경로(백업 + `ct_status='삭제'`)를 탄다.
+- **웹**: 통계 4칸 → **3칸**(선택·바로 삭제·강제 필요) — '보호됨' 칸은 개념이 사라졌다.
+  배지도 2종. 2차 레이어에 체크 **둘**: 강제 해제(걸린 차단 사유를 그 자리에 전부 나열,
+  `SHARED_ORDER` 가 있으면 **"선택하지 않은 다른 견적의 주문까지 삭제된다"** 를 붉은 띠로 따로
+  고지) · 감사 미기록(켜면 사유 입력칸이 사라진다 — 남길 곳이 없으니). 1차 합산 영향은
+  **선택분 전체** 기준으로 센다(삭제 가능분만 세면 "강제하면 더 사라지는 것"이 감춰진다).
+  결과 레이어 문구도 모드에 따라 갈린다.
+- **고객 경로 불변**: `PARTNER_TRACK_ACTIVE` 409 유지.
+- **검증**: **E2E 32 ALL PASS**(사유 없이 삭제·감사행 `reason=''` · reset 무기록 · PO+선적 차단
+  유지 · 같은 건 강제 삭제 후 **RFQ·PO·선적 cascade 0** + 감사 `overriddenBlockers` 2종 ·
+  **결제 주문 강제 시 `g5_shop_order`·`g5_shop_cart` 물리삭제 + 백업 1건** · `SHARED_ORDER` 강제 시
+  **형제 cart 행까지 삭제** + reset 이면 백업 0 · `acknowledgeIrreversible` 누락 400).
+  vitest 650+117 · typecheck · ESLint 0건.
 
 ## 10. 조사 자료 색인
 

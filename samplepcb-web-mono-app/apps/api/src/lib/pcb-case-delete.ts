@@ -6,9 +6,11 @@ import { prisma } from './prisma';
 // PCB 견적(Case) 영구 삭제의 판정 코어 — 프리뷰와 실행이 **같은 함수**를 쓴다.
 // (프리뷰에서만 판정하고 실행이 다시 세면 둘이 갈라진다 — BOM 삭제의 교훈.)
 //
-// 위계: 차단(blocker)은 거래·협력 무결성이라 견적 상태보다 우선한다. 우회는
-// PAID_ORDER 하나뿐 — 결제는 우리 DB 안의 문제지만 발주·선적은 협력사와 합의된
-// 기록이라 관리자 체크 하나로 넘길 수 없다(사용자 결정 2026-08-06).
+// 위계: 차단(blocker)은 거래·협력 무결성이라 견적 상태보다 우선한다. 다만 우회는
+// **전부 가능하다** — 관리자가 강제 삭제를 체크하면 결제·발주·선적·공유주문 어느
+// 것도 삭제를 막지 않는다(관리자 결정 2026-08-06). 그래서 판정의 역할은 '막기'에서
+// '무엇을 각오하는지 건별로 보여주기'로 옮겨갔다. blockReasons 는 사라지지 않고
+// 모달·감사 스냅샷에 그대로 실린다.
 
 const PCB_EQ_REF_TYPE = 'sp_pcb_po_eq';
 const PCB_SHIPMENT_REF_TYPE = 'sp_pcb_shipment';
@@ -127,9 +129,9 @@ export const judgePcbCaseDelete = (input: PcbCaseDeleteJudgeInput): PcbCaseDelet
   return { blockReasons, warnings, isLegacy, deletesOrder, removesCartRow };
 };
 
-/** 강제 해제(forceDeletePaidOrder)를 적용한 뒤 남는 차단. 비어 있어야 삭제된다. */
+/** 강제 해제(forceDeleteAll)를 적용한 뒤 남는 차단. 비어 있어야 삭제된다.
+ *  체크하면 **전부** 해제된다 — 남길 차단을 고르는 위계는 더 이상 없다. */
 export const remainingBlockers = (
   blockReasons: readonly AdminDeleteBlockReasonType[],
-  forceDeletePaidOrder: boolean,
-): AdminDeleteBlockReasonType[] =>
-  blockReasons.filter((reason) => !(reason === 'PAID_ORDER' && forceDeletePaidOrder));
+  forceDeleteAll: boolean,
+): AdminDeleteBlockReasonType[] => (forceDeleteAll ? [] : [...blockReasons]);

@@ -666,8 +666,11 @@ export interface OrderDeleteOptions {
   retainBackup?: boolean;
   /** exclusiveCart와 함께 쓸 때 주문 헤더와 대상 cart 행을 한 SQL에서 물리삭제한다. */
   deleteExclusiveCart?: boolean;
-  /** SmartBOM 2차 강제 확인 전용. 외부 PG 환불 없이 로컬 결제 주문까지 삭제한다. */
+  /** 2차 강제 확인 전용. 외부 PG 환불 없이 로컬 결제 주문까지 삭제한다. */
   allowPaymentEvidence?: boolean;
+  /** 형제 cart 행이 있어도 주문을 통째로 물리삭제한다(PCB 강제 삭제 — 선택하지 않은
+   *  형제 견적의 주문까지 사라진다). exclusiveCart 없이도 하드 삭제 경로를 탄다. */
+  deleteAllCarts?: boolean;
 }
 
 const hasOrderPaymentEvidence = (order: RowDataPacket): boolean =>
@@ -793,12 +796,18 @@ async function deleteExclusiveOrderPoints(
   await connection.query(`UPDATE g5_member SET mb_point = ? WHERE mb_id = ?`, [memberPoint, mbId]);
 }
 
-/** SmartBOM 배타 주문의 로컬 주문·결제 관련 행을 원자적으로 물리삭제한다. */
-async function deleteExclusiveOrder(
+/** 주문의 로컬 주문·결제 관련 행을 원자적으로 물리삭제한다(코어 소프트삭제와 다른 경로).
+ *
+ *  대상 cart 행은 둘 중 하나다:
+ *   · exclusiveCart 지정 — 그 행 하나. 형제가 있으면 'shared'로 중단(SmartBOM 단일 Case).
+ *   · deleteAllCarts    — 주문에 달린 **모든** cart 행. 형제 견적의 주문까지 지우는
+ *                         PCB 강제 삭제 전용이라 호출부가 그 사실을 경고한 뒤에만 쓴다.
+ *  결제 흔적(입금·포인트·쿠폰·PG거래)이 있으면 allowPaymentEvidence 없이는 'paid'로 막는다. */
+async function purgeOrderRows(
   odId: string,
   actorMbId: string,
   ip: string,
-  exclusiveCart: OrderDeleteExclusiveCart,
+  exclusiveCart: OrderDeleteExclusiveCart | null,
   options: OrderDeleteOptions,
 ): Promise<OrderDeleteOutcome> {
   const connection = await getG5Pool().getConnection();
@@ -821,7 +830,6 @@ async function deleteExclusiveOrder(
       return 'paid';
     }
 
-    const expectedCtStatus = exclusiveCart.ctStatus ?? '주문';
     const [cartRows] = await connection.query<RowDataPacket[]>(
       `SELECT ct_id, ct_status, ct_stock_use, ct_qty, it_id, io_id
          FROM g5_shop_cart
@@ -830,19 +838,28 @@ async function deleteExclusiveOrder(
         FOR UPDATE`,
       [odId],
     );
-    const target = cartRows.find((row) => Number(row.ct_id) === exclusiveCart.ctId);
-    if (
-      target === undefined ||
-      String(target.it_id) !== exclusiveCart.itId ||
-      String(target.io_id) !== exclusiveCart.ioId ||
-      String(target.ct_status) !== expectedCtStatus
-    ) {
-      await connection.rollback();
-      return 'stale';
-    }
-    if (cartRows.length !== 1) {
-      await connection.rollback();
-      return 'shared';
+
+    // 삭제할 cart 행 확정 — 배타 모드는 프리뷰가 본 그 행만, 전체 모드는 남은 전부.
+    let targets: RowDataPacket[];
+    if (exclusiveCart === null) {
+      targets = cartRows;
+    } else {
+      const expectedCtStatus = exclusiveCart.ctStatus ?? '주문';
+      const target = cartRows.find((row) => Number(row.ct_id) === exclusiveCart.ctId);
+      if (
+        target === undefined ||
+        String(target.it_id) !== exclusiveCart.itId ||
+        String(target.io_id) !== exclusiveCart.ioId ||
+        String(target.ct_status) !== expectedCtStatus
+      ) {
+        await connection.rollback();
+        return 'stale';
+      }
+      if (cartRows.length !== 1) {
+        await connection.rollback();
+        return 'shared';
+      }
+      targets = [target];
     }
 
     // reset은 과거 복원 흔적도 없애며, audited는 중복 백업을 지운 뒤 현재 스냅샷 1건만 남긴다.
@@ -869,49 +886,54 @@ async function deleteExclusiveOrder(
     await connection.query(`DELETE FROM g5_shop_order_post_log WHERE oid = ?`, [odId]);
     await connection.query(`DELETE FROM g5_shop_inicis_log WHERE oid = ?`, [odId]);
 
-    const quantity = Number(target.ct_qty ?? 0);
-    if (Number(target.ct_stock_use ?? 0) === 1 && quantity > 0) {
-      if (String(target.io_id ?? '') !== '') {
-        await connection.query(
-          `UPDATE g5_shop_item_option
-              SET io_stock_qty = io_stock_qty + ?
-            WHERE it_id = ? AND io_id = ?`,
-          [quantity, String(target.it_id), String(target.io_id)],
-        );
-      } else {
-        await connection.query(
-          `UPDATE g5_shop_item SET it_stock_qty = it_stock_qty + ? WHERE it_id = ?`,
-          [quantity, String(target.it_id)],
-        );
+    // 재고 환원 → cart 물리삭제를 행별로. 대상이 여럿이면 상품/옵션마다 각각 되돌린다.
+    for (const target of targets) {
+      const quantity = Number(target.ct_qty ?? 0);
+      if (Number(target.ct_stock_use ?? 0) === 1 && quantity > 0) {
+        if (String(target.io_id ?? '') !== '') {
+          await connection.query(
+            `UPDATE g5_shop_item_option
+                SET io_stock_qty = io_stock_qty + ?
+              WHERE it_id = ? AND io_id = ?`,
+            [quantity, String(target.it_id), String(target.io_id)],
+          );
+        } else {
+          await connection.query(
+            `UPDATE g5_shop_item SET it_stock_qty = it_stock_qty + ? WHERE it_id = ?`,
+            [quantity, String(target.it_id)],
+          );
+        }
       }
-    }
 
-    const [deletedCart] = await connection.query<ResultSetHeader>(
-      `DELETE FROM g5_shop_cart
-        WHERE od_id = ? AND ct_id = ? AND it_id = ? AND io_id = ? AND ct_status = ?`,
-      [
-        odId,
-        exclusiveCart.ctId,
-        exclusiveCart.itId,
-        exclusiveCart.ioId,
-        expectedCtStatus,
-      ],
-    );
-    if (deletedCart.affectedRows !== 1) throw new Error('exclusive order cart changed during delete');
+      const [deletedCart] = await connection.query<ResultSetHeader>(
+        `DELETE FROM g5_shop_cart
+          WHERE od_id = ? AND ct_id = ? AND it_id = ? AND io_id = ? AND ct_status = ?`,
+        [
+          odId,
+          Number(target.ct_id),
+          String(target.it_id),
+          String(target.io_id ?? ''),
+          String(target.ct_status),
+        ],
+      );
+      if (deletedCart.affectedRows !== 1) throw new Error('order cart changed during delete');
+    }
 
     const [deletedOrder] = await connection.query<ResultSetHeader>(
       `DELETE FROM g5_shop_order WHERE od_id = ?`,
       [odId],
     );
-    if (deletedOrder.affectedRows !== 1) throw new Error('exclusive order changed during delete');
+    if (deletedOrder.affectedRows !== 1) throw new Error('order changed during delete');
 
-    await connection.query(
-      `UPDATE g5_shop_item SET it_sum_qty =
-         (SELECT COALESCE(SUM(ct_qty), 0) FROM g5_shop_cart
-           WHERE it_id = ? AND ct_status = '완료')
-       WHERE it_id = ?`,
-      [String(target.it_id), String(target.it_id)],
-    );
+    for (const itId of new Set(targets.map((t) => String(t.it_id)))) {
+      await connection.query(
+        `UPDATE g5_shop_item SET it_sum_qty =
+           (SELECT COALESCE(SUM(ct_qty), 0) FROM g5_shop_cart
+             WHERE it_id = ? AND ct_status = '완료')
+         WHERE it_id = ?`,
+        [itId, itId],
+      );
+    }
     await connection.commit();
     return 'deleted';
   } catch (error) {
@@ -930,7 +952,12 @@ export async function deleteUnpaidOrder(
   options?: OrderDeleteOptions,
 ): Promise<OrderDeleteOutcome> {
   if (exclusiveCart !== undefined && options?.deleteExclusiveCart === true) {
-    return deleteExclusiveOrder(odId, actorMbId, ip, exclusiveCart, options);
+    return purgeOrderRows(odId, actorMbId, ip, exclusiveCart, options);
+  }
+  // 강제 전체 삭제 — 형제 cart까지 물리삭제하고 포인트·쿠폰·PG 로그도 정리한다.
+  // (아래 일반 경로의 DELETE 는 결제 흔적 가드가 SQL 에 박혀 있어 결제 주문을 못 지운다.)
+  if (options?.deleteAllCarts === true) {
+    return purgeOrderRows(odId, actorMbId, ip, null, options);
   }
   const pool = getG5Pool();
   // 백업 정확도를 위해 모든 컬럼을 DB 문자열 표현 그대로 받는다(PHP sql_fetch 와 동일 —
