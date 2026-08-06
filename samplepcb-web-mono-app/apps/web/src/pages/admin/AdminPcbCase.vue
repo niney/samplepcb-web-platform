@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
   PCB_PO_STATUS_LABELS,
@@ -48,6 +48,7 @@ import { useConfirmPcbOrderReceipt } from '../../admin/useAdminPcbOrders';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
+import DeleteQuoteModal from '../../components/admin/DeleteQuoteModal.vue';
 import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
 
 // PCB Case 상세 — docs/PCB_PARTNER_TRACK.md §5.4. 스펙 요약(기존 admin-pcb-projects
@@ -55,6 +56,7 @@ import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue
 // 프로세스: 회신 비교 → [선정] → [확정가 등록](기존 PATCH — 담김/주문됨 409) → 고객 주문.
 
 const route = useRoute();
+const router = useRouter();
 const specId = computed(() => {
   const raw = Number(route.params.id);
   return Number.isInteger(raw) && raw > 0 ? raw : null;
@@ -101,6 +103,13 @@ const childrenOf = (partnerId: number): AdminPcbRfqViewType[] =>
   allRows.value.filter((r) => r.parentPartnerId === partnerId);
 const selectedRow = computed(() => adminRows.value.find((r) => r.status === 'selected') ?? null);
 
+
+// 영구 삭제 — 삭제되면 이 Case 는 사라지므로 진입 워크큐로 되돌린다.
+const deleteOpen = ref(false);
+async function onDeleted(): Promise<void> {
+  deleteOpen.value = false;
+  await router.push({ name: backTarget.value.name });
+}
 
 const actionError = ref('');
 const surfaceError = (e: unknown, fallback: string): void => {
@@ -706,6 +715,16 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       >
         배송 처리 대기
       </span>
+      <!-- 영구 삭제 — 차단을 푸는 곳(발주 취소·선적 취소)이 바로 이 화면이라, 정리하고
+           곧장 지울 수 있게 둔다. 모달·판정은 견적 관리와 같은 것을 쓴다(창구만 둘). -->
+      <button
+        v-if="specId !== null"
+        type="button"
+        class="ml-auto rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+        @click="deleteOpen = true"
+      >
+        견적 삭제
+      </button>
     </div>
 
     <p v-if="actionError !== ''" class="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
@@ -1424,6 +1443,14 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       :render-xlsx="adminInvoiceApiRef.renderXlsx"
       :attach-pdf="adminInvoiceApiRef.attachPdf"
       @close="invoicePoId = null"
+    />
+
+    <!-- 견적 영구 삭제 — 견적 관리와 같은 모달(차단·경고·사유 판정은 서버가 정본) -->
+    <DeleteQuoteModal
+      v-if="deleteOpen && specId !== null"
+      :ids="[specId]"
+      @close="deleteOpen = false"
+      @deleted="onDeleted"
     />
   </div>
 </template>
