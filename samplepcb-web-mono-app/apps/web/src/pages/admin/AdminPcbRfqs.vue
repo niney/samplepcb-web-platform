@@ -127,20 +127,20 @@ function openCase(specId: number): void {
     <template v-else>
       <PcbSelectionBar
         :count="selection.selectedIds.value.length"
-        @delete="deleteIds = [...selection.selectedIds.value]"
-        @clear="selection.clear"
+        @delete="deleteIds = [...selection.selectedIds.value]"
       />
       <div class="mt-4 overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
         <table class="min-w-full divide-y divide-gray-200 text-sm">
           <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
             <tr>
-              <th class="w-10 px-4 py-2.5">
+              <th class="w-10 px-3 py-2.5 text-center" @click.stop>
                 <input
                   type="checkbox"
                   class="size-4 accent-red-600"
                   :checked="selection.allSelected.value"
                   :indeterminate="selection.someSelected.value"
                   aria-label="현재 페이지 전체 선택"
+                  :disabled="rows.length === 0"
                   @change="selection.toggleAll(($event.target as HTMLInputElement).checked)"
                 >
               </th>
@@ -163,7 +163,7 @@ function openCase(specId: number): void {
               :class="selection.isSelected(row.specId) ? 'bg-red-50/40' : ''"
               @click="openCase(row.specId)"
             >
-              <td class="px-4 py-2.5" @click.stop>
+              <td class="px-3 py-2.5 text-center" @click.stop>
                 <input
                   type="checkbox"
                   class="size-4 accent-red-600"
