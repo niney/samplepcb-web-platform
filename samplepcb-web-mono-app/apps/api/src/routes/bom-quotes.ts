@@ -44,9 +44,9 @@ import { bomOrderformUrl, orderBomQuote } from '../lib/bom-order';
 import {
   getCartStates,
   getMembersByIds,
-  getShopEstimateProfile,
   selectCartRows,
 } from '../lib/g5-db';
+import { getBomEstimateSellerProfile } from '../lib/bom-estimate-profile';
 import { collectMultipart } from '../lib/market';
 import { deleteFromFileServer, downloadFromFileServer, uploadToFileServer } from '../lib/file-server';
 import { engineFetch } from '../lib/engine-client';
@@ -1345,26 +1345,17 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
         return reply.notFound('견적서를 찾을 수 없습니다');
       }
       const [profile, members] = await Promise.all([
-        getShopEstimateProfile(),
+        getBomEstimateSellerProfile(),
         getMembersByIds([quote.mbId]),
       ]);
       return {
         result: true as const,
-        data: toBomQuotePrintDto(
+        data: await toBomQuotePrintDto(
           quote,
           quote.items,
           quote.sheets,
           members.get(quote.mbId)?.name ?? quote.mbId,
-          profile ?? {
-            name: '',
-            owner: '',
-            tel: '',
-            zip: '',
-            addr: '',
-            managerName: '',
-            managerEmail: '',
-            bankAccount: '',
-          },
+          profile,
         ),
       };
     },

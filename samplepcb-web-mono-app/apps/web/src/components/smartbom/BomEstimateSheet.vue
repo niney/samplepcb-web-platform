@@ -8,13 +8,19 @@ import { fmtKstDate } from '@sp/utils';
 // BOM 견적서(A4) 순수 표시 컴포넌트(§6.8) — 거버 EstimateSheet 동형. props 데이터만
 // 뿌리고 fetch 하지 않는다(관리자·고객 모달이 공용). 확정가 없으면 예상가 + "가안" 표기.
 
-const props = defineProps<{ data: BomQuotePrintType }>();
+const props = withDefaults(defineProps<{
+  data: BomQuotePrintType;
+  showImages?: boolean;
+}>(), {
+  showImages: true,
+});
 
 const stampSrc = `${import.meta.env.BASE_URL}img/stamp.jpg`;
 
 // 수기 필드(인쇄 전 일회성 보정, 저장 없음) — 수신처는 고객명으로 초기화.
 const recipientCompany = ref('');
 const recipientName = ref(props.data.customerName);
+const failedImageUrls = ref(new Set<string>());
 
 const isDraft = computed(() => props.data.confirmedTotal === null);
 const caseNo = computed(() =>
@@ -38,6 +44,19 @@ const sellerAddr = computed(() => {
   return s.zip !== '' ? `(${s.zip}) ${s.addr}` : s.addr;
 });
 const money = (v: number | null): string => (v === null ? '—' : formatKrw(v));
+const hasVisibleImages = computed(() =>
+  props.showImages && props.data.items.some((item) =>
+    item.imageUrl !== null && !failedImageUrls.value.has(item.imageUrl),
+  ),
+);
+
+function canShowImage(imageUrl: string | null): boolean {
+  return props.showImages && imageUrl !== null && !failedImageUrls.value.has(imageUrl);
+}
+
+function markImageFailed(imageUrl: string | null): void {
+  if (imageUrl !== null) failedImageUrls.value.add(imageUrl);
+}
 </script>
 
 <template>
@@ -104,7 +123,7 @@ const money = (v: number | null): string => (v === null ? '—' : formatKrw(v));
       <thead>
         <tr>
           <th class="col-no">No</th>
-          <th>품명 (MPN)</th>
+          <th class="col-part">품명 (MPN)</th>
           <th>제조사 / 규격</th>
           <th class="col-qty">수량</th>
           <th class="col-price">단가</th>
@@ -114,7 +133,22 @@ const money = (v: number | null): string => (v === null ? '—' : formatKrw(v));
       <tbody>
         <tr v-for="(item, i) in props.data.items" :key="i">
           <td class="num">{{ i + 1 }}</td>
-          <td>{{ item.mpn }}</td>
+          <td>
+            <div class="part-cell">
+              <img
+                v-if="canShowImage(item.imageUrl)"
+                :src="item.imageUrl ?? ''"
+                :alt="`${item.mpn} 참고 이미지`"
+                class="part-image"
+                data-estimate-part-image
+                loading="eager"
+                decoding="async"
+                referrerpolicy="no-referrer"
+                @error="markImageFailed(item.imageUrl)"
+              >
+              <span class="part-mpn">{{ item.mpn }}</span>
+            </div>
+          </td>
           <td>{{ [item.manufacturerName, item.description].filter((v) => v !== null && v !== '').join(' / ') }}</td>
           <td class="num">{{ item.qty.toLocaleString('ko-KR') }}</td>
           <td class="num">{{ money(item.unitPriceKrw) }}</td>
@@ -160,6 +194,7 @@ const money = (v: number | null): string => (v === null ? '—' : formatKrw(v));
       <p v-if="props.data.seller.bankAccount !== ''">
         결제계좌: {{ props.data.seller.bankAccount }}
       </p>
+      <p v-if="hasVisibleImages">제품 이미지는 참고용이며 실제 공급 기준은 제조사·MPN입니다.</p>
       <p>본 견적 금액은 부품 시세·재고 상황에 따라 변동될 수 있습니다.</p>
     </div>
   </div>
@@ -279,6 +314,9 @@ const money = (v: number | null): string => (v === null ? '—' : formatKrw(v));
 .items .col-no {
   width: 9mm;
 }
+.items .col-part {
+  width: 50mm;
+}
 .items .col-qty {
   width: 15mm;
 }
@@ -287,6 +325,30 @@ const money = (v: number | null): string => (v === null ? '—' : formatKrw(v));
 }
 .items .col-amount {
   width: 28mm;
+}
+.items tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.part-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2mm;
+}
+.part-image {
+  width: 11mm;
+  height: 11mm;
+  flex: none;
+  border: 1px solid #ddd;
+  border-radius: 1mm;
+  background: #fff;
+  object-fit: contain;
+}
+.part-mpn {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
 }
 .amounts {
   width: 80mm;

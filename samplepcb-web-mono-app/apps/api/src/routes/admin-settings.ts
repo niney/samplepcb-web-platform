@@ -7,6 +7,8 @@ import {
   AiSettingsResponse,
   AiSettingsUpdate,
   ApiError,
+  BomEstimateContactResponse,
+  BomEstimateContactUpdate,
   BomQuoteConfig,
   BomQuoteConfigResponse,
   BomQuoteExchangeRateRefreshResponse,
@@ -18,7 +20,14 @@ import {
 import type { AiUsecaseKeyType } from '@sp/api-contract';
 import { getBusinessInfo, updateBusinessInfo, type BusinessInfo } from '../lib/g5-db';
 import { cleanXssTags, isValidCallback } from '../lib/shop-config';
-import { getBomQuoteConfig, getGerberPriceMode, setBomQuoteConfig, setGerberPriceMode } from '../lib/sp-config';
+import {
+  getBomQuoteConfig,
+  getGerberPriceMode,
+  setBomEstimateContact,
+  setBomQuoteConfig,
+  setGerberPriceMode,
+} from '../lib/sp-config';
+import { getBomEstimateContactSettings } from '../lib/bom-estimate-profile';
 import { getBomSupplierSearchOperations, getSupplierEngineStatus } from '../lib/bom-supplier-operations';
 import {
   getBomQuoteExchangeRateStatus,
@@ -185,6 +194,44 @@ export const adminSettingsRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       }
       await setBomQuoteConfig(request.body);
       return bomQuoteSettingsData();
+    },
+  );
+
+  // BOM 견적서의 담당자만 별도 관리한다. 빈 쌍은 사업자정보의 정보관리책임자 폴백이며,
+  // 회사·주소·대표전화·계좌와 다른 문서/메일 발신 정보에는 영향을 주지 않는다.
+  fastify.get(
+    '/settings/bom-quote/contact',
+    { schema: { response: { 200: BomEstimateContactResponse } } },
+    async () => ({
+      result: true as const,
+      ...(await getBomEstimateContactSettings()),
+    }),
+  );
+
+  fastify.put(
+    '/settings/bom-quote/contact',
+    {
+      schema: {
+        body: BomEstimateContactUpdate,
+        response: { 200: BomEstimateContactResponse, 400: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const contact = BomEstimateContactUpdate.safeParse({
+        managerName: cleanXssTags(request.body.managerName),
+        managerEmail: cleanXssTags(request.body.managerEmail),
+      });
+      if (!contact.success) {
+        return reply.status(400).send({
+          error: 'INVALID_BOM_ESTIMATE_CONTACT',
+          message: contact.error.issues[0]?.message ?? 'BOM 담당자 정보를 확인해 주세요.',
+        });
+      }
+      await setBomEstimateContact(contact.data);
+      return {
+        result: true as const,
+        ...(await getBomEstimateContactSettings()),
+      };
     },
   );
 

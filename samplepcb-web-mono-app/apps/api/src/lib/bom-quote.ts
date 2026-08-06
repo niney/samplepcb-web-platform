@@ -6032,6 +6032,7 @@ export function resolveQuoteIdentityPreview(
 
 interface CandidateDisplayMeta {
   selectedDatasheetByRowIdx: Map<number, string>;
+  selectedImageByRowIdx: Map<number, string>;
   identityPreviewByRowIdx: Map<number, BomQuoteIdentityPreviewType>;
 }
 
@@ -6053,7 +6054,11 @@ async function loadCandidateDisplayMeta(quoteId: bigint, items: QuoteItemRow[]):
     .map((item) => item.id);
   const itemIds = [...new Set([...selectedItemIds, ...evidenceByItem.keys()])];
   if (itemIds.length === 0) {
-    return { selectedDatasheetByRowIdx: new Map(), identityPreviewByRowIdx: new Map() };
+    return {
+      selectedDatasheetByRowIdx: new Map(),
+      selectedImageByRowIdx: new Map(),
+      identityPreviewByRowIdx: new Map(),
+    };
   }
 
   const rows = await prisma.spBomQuoteCandidate.findMany({
@@ -6071,11 +6076,15 @@ async function loadCandidateDisplayMeta(quoteId: bigint, items: QuoteItemRow[]):
   }
 
   const selectedDatasheetByRowIdx = new Map<number, string>();
+  const selectedImageByRowIdx = new Map<number, string>();
   const identityPreviewByRowIdx = new Map<number, BomQuoteIdentityPreviewType>();
   for (const item of items) {
     const candidates = candidatesByItem.get(item.id) ?? [];
     if (item.selectedCandidateKey !== null) {
       const selected = candidates.find((candidate) => candidate.candidateKey === item.selectedCandidateKey);
+      if (selected?.imageUrl !== null && selected?.imageUrl !== undefined) {
+        selectedImageByRowIdx.set(item.rowIdx, selected.imageUrl);
+      }
       if (selected?.datasheetUrl !== null && selected?.datasheetUrl !== undefined) {
         selectedDatasheetByRowIdx.set(item.rowIdx, selected.datasheetUrl);
       }
@@ -6089,7 +6098,20 @@ async function loadCandidateDisplayMeta(quoteId: bigint, items: QuoteItemRow[]):
     }, candidates);
     if (preview !== null) identityPreviewByRowIdx.set(item.rowIdx, preview);
   }
-  return { selectedDatasheetByRowIdx, identityPreviewByRowIdx };
+  return { selectedDatasheetByRowIdx, selectedImageByRowIdx, identityPreviewByRowIdx };
+}
+
+/** 문서 이미지는 실제 선정 정보를 우선하고, 미선정이면 엔진이 검증한 정확 일치만 허용한다. */
+export function resolveBomQuoteItemImageUrl(
+  catalogImageUrl: string | null | undefined,
+  selectedCandidateImageUrl: string | null | undefined,
+  identityPreviewImageUrl: string | null | undefined,
+): string | null {
+  for (const imageUrl of [catalogImageUrl, selectedCandidateImageUrl, identityPreviewImageUrl]) {
+    const normalized = imageUrl?.trim();
+    if (normalized !== undefined && normalized !== '') return normalized;
+  }
+  return null;
 }
 
 type SummaryItemRow = Pick<QuoteItemRow, 'included' | 'matchStatus'>;
@@ -6318,7 +6340,11 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
       const identityPreview = candidateDisplayMeta.identityPreviewByRowIdx.get(row.rowIdx) ?? null;
       return toItemDto(
         row,
-        meta?.imageUrl ?? identityPreview?.imageUrl ?? null,
+        resolveBomQuoteItemImageUrl(
+          meta?.imageUrl,
+          candidateDisplayMeta.selectedImageByRowIdx.get(row.rowIdx),
+          identityPreview?.imageUrl,
+        ),
         meta?.datasheetUrl
           ?? candidateDisplayMeta.selectedDatasheetByRowIdx.get(row.rowIdx)
           ?? identityPreview?.datasheetUrl
@@ -6422,16 +6448,18 @@ export function toAdminSummaryDto(
 
 // 견적서 인쇄 DTO(§6.8) — 품목=included·활성 시트 행(고객 화면과 동일 규율), 단가=선정
 // 구매 조건 KRW 스냅샷, 합계=저장 스냅샷 그대로(화면·문서 일치). seller 는 라우트가 주입.
-export function toBomQuotePrintDto(
+export async function toBomQuotePrintDto(
   quote: QuoteRow,
   items: QuoteItemRow[],
   sheets: QuoteSheetRow[],
   customerName: string,
   seller: BomQuotePrintType['seller'],
-): BomQuotePrintType {
-  const active = filterActiveQuoteItems(items, sheets)
-    .filter((row) => row.included)
-    .map((row) => toItemDto(row));
+): Promise<BomQuotePrintType> {
+  const activeRows = filterActiveQuoteItems(items, sheets).filter((row) => row.included);
+  const [partMetaMap, candidateDisplayMeta] = await Promise.all([
+    loadPartMetaMap(activeRows),
+    loadCandidateDisplayMeta(quote.id, activeRows),
+  ]);
   return {
     quoteId: String(quote.id),
     title: quote.title,
@@ -6440,14 +6468,24 @@ export function toBomQuotePrintDto(
     answeredAt: quote.answeredAt?.toISOString() ?? null,
     customerName,
     seller,
-    items: active.map((dto) => ({
-      mpn: dto.mpn,
-      manufacturerName: dto.manufacturerName,
-      description: dto.description,
-      qty: dto.orderQty,
-      unitPriceKrw: dto.selectedOffer?.unitPriceKrw ?? null,
-      lineTotalKrw: dto.lineTotalKrw,
-    })),
+    items: activeRows.map((row) => {
+      const dto = toItemDto(row);
+      const partMeta = row.partId === null ? null : (partMetaMap.get(row.partId) ?? null);
+      const identityPreview = candidateDisplayMeta.identityPreviewByRowIdx.get(row.rowIdx) ?? null;
+      return {
+        mpn: dto.mpn,
+        manufacturerName: dto.manufacturerName,
+        description: dto.description,
+        imageUrl: resolveBomQuoteItemImageUrl(
+          partMeta?.imageUrl,
+          candidateDisplayMeta.selectedImageByRowIdx.get(row.rowIdx),
+          identityPreview?.imageUrl,
+        ),
+        qty: dto.orderQty,
+        unitPriceKrw: dto.selectedOffer?.unitPriceKrw ?? null,
+        lineTotalKrw: dto.lineTotalKrw,
+      };
+    }),
     itemsTotal: quote.itemsTotal,
     estimatedShippingFee: quote.shippingFee,
     estimatedManagementFee: quote.managementFee,

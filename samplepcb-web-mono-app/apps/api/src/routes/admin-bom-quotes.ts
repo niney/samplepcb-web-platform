@@ -47,8 +47,8 @@ import {
   getCartStates,
   getMembersByIds,
   getNotifyConfig,
-  getShopEstimateProfile,
 } from '../lib/g5-db';
+import { getBomEstimateSellerProfile } from '../lib/bom-estimate-profile';
 import {
   buildBomQuoteAnsweredEmail,
   resolveBomAnswerRecipient,
@@ -64,18 +64,6 @@ import {
   bomQuoteItemReviewFingerprint,
   loadBomQuoteItemReviewStates,
 } from '../lib/bom-admin-review';
-
-// 발신처 폴백(설정 미입력 로컬 등) — 빈 값이면 시트가 해당 행을 생략한다.
-const EMPTY_SELLER = {
-  name: '',
-  owner: '',
-  tel: '',
-  zip: '',
-  addr: '',
-  managerName: '',
-  managerEmail: '',
-  bankAccount: '',
-};
 
 // ── /api/admin/bom-quotes — 고객 BOM 견적요청 검토 (requireAdmin) ─────────────
 // 1차 범위: 목록·상세·상태 전이·확정가(운송료/관리비/총액)·메모·원본 다운로드.
@@ -699,18 +687,18 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
       if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
       const [profile, members] = await Promise.all([
-        getShopEstimateProfile(),
+        getBomEstimateSellerProfile(),
         getMembersByIds([quote.mbId]),
       ]);
       const customerName = members.get(quote.mbId)?.name ?? quote.mbId;
       return {
         result: true as const,
-        data: toBomQuotePrintDto(
+        data: await toBomQuotePrintDto(
           quote,
           quote.items,
           quote.sheets,
           customerName,
-          profile ?? EMPTY_SELLER,
+          profile,
         ),
       };
     },

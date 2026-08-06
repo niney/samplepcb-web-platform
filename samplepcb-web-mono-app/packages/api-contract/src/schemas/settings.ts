@@ -60,6 +60,46 @@ export const BusinessInfoUpdate = z.object({
 });
 export type BusinessInfoUpdateType = z.infer<typeof BusinessInfoUpdate>;
 
+// ── BOM 견적서 담당자(sp_config bom_estimate_contact) ─────────────────────
+// 개인정보 보호책임자(de_admin_info_*)와 고객 BOM 견적서의 실무 담당자는 역할이 다르다.
+// 전용 값은 sp_config에 별도로 저장하고, 두 값이 모두 비어 있을 때만 기존 정보관리책임자를
+// 폴백으로 사용한다. 회사·대표·주소·전화·계좌는 계속 g5_shop_default 값을 사용한다.
+export const BomEstimateContact = z.object({
+  managerName: z.string(),
+  managerEmail: z.string(),
+});
+export type BomEstimateContactType = z.infer<typeof BomEstimateContact>;
+
+const BomEstimateContactEmail = z.string().trim().max(255).refine(
+  (value) => value === '' || z.string().email().safeParse(value).success,
+  { message: '올바른 이메일 주소를 입력해 주세요.' },
+);
+
+// 빈 쌍 = 공통 정보관리책임자 사용. 전용 담당자를 쓰려면 이름·이메일을 반드시 함께 저장한다.
+export const BomEstimateContactUpdate = z.object({
+  managerName: z.string().trim().max(255),
+  managerEmail: BomEstimateContactEmail,
+}).superRefine((value, ctx) => {
+  if ((value.managerName === '') === (value.managerEmail === '')) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: [value.managerName === '' ? 'managerName' : 'managerEmail'],
+    message: 'BOM 담당자명과 이메일을 함께 입력해 주세요.',
+  });
+});
+export type BomEstimateContactUpdateType = z.infer<typeof BomEstimateContactUpdate>;
+
+export const BomEstimateContactResponse = z.object({
+  result: z.literal(true),
+  /** 저장된 전용 값. 빈 쌍이면 fallback을 사용한다. */
+  data: BomEstimateContact,
+  /** 사업자정보의 기존 정보관리책임자 값. */
+  fallback: BomEstimateContact,
+  /** 견적서에 실제로 출력될 값. */
+  effective: BomEstimateContact,
+});
+export type BomEstimateContactResponseType = z.infer<typeof BomEstimateContactResponse>;
+
 // ── 거버 가격 해석 모드(gerber-pricing) 탭 ──────────────────────────────────
 // 견적 엔진(pricing/engine.ts)이 산출하는 listPrice 를 어떻게 볼지 정하는 전역 스위치.
 //   order  = 주문가(공급가+부가세 포함 총액). 현행 기본 — 그대로 하류로 넘긴다.

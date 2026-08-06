@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import type { BomQuotePrintType } from '@sp/api-contract';
 import BomEstimateSheet from './BomEstimateSheet.vue';
@@ -16,6 +16,10 @@ const emit = defineEmits<{ close: [] }>();
 const data = ref<BomQuotePrintType | null>(null);
 const loading = ref(false);
 const error = ref('');
+const includeImages = ref(true);
+const printing = ref(false);
+const sheetHost = ref<HTMLElement | null>(null);
+const hasImages = computed(() => data.value?.items.some((item) => item.imageUrl !== null) ?? false);
 
 watch(
   () => props.open,
@@ -24,6 +28,8 @@ watch(
     loading.value = true;
     error.value = '';
     data.value = null;
+    includeImages.value = true;
+    printing.value = false;
     try {
       data.value = await props.load();
     } catch (e) {
@@ -34,8 +40,39 @@ watch(
   },
 );
 
-const onPrint = (): void => {
-  window.print();
+async function waitForEstimateImages(): Promise<void> {
+  await nextTick();
+  const images = sheetHost.value === null
+    ? []
+    : [...sheetHost.value.querySelectorAll<HTMLImageElement>('[data-estimate-part-image]')];
+  await Promise.all(images.map(async (image) => {
+    if (image.complete) return;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        image.removeEventListener('load', finish);
+        image.removeEventListener('error', finish);
+        resolve();
+      };
+      const timeoutId = window.setTimeout(finish, 2_500);
+      image.addEventListener('load', finish, { once: true });
+      image.addEventListener('error', finish, { once: true });
+    });
+  }));
+}
+
+const onPrint = async (): Promise<void> => {
+  if (data.value === null || printing.value) return;
+  printing.value = true;
+  try {
+    if (includeImages.value) await waitForEstimateImages();
+    window.print();
+  } finally {
+    printing.value = false;
+  }
 };
 const onKeydown = (e: KeyboardEvent): void => {
   if (e.key === 'Escape') emit('close');
@@ -88,14 +125,21 @@ onBeforeUnmount(() => {
         class="sp-bom-estimate-scroll relative flex h-full flex-col items-center overflow-auto p-6"
         @click.self="emit('close')"
       >
-        <div class="no-print mb-4 flex gap-2">
+        <div class="no-print mb-4 flex flex-wrap items-center justify-center gap-2">
+          <label
+            v-if="hasImages"
+            class="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow"
+          >
+            <input v-model="includeImages" type="checkbox" class="size-4 rounded border-gray-300 text-blue-600">
+            부품 이미지 포함
+          </label>
           <button
             type="button"
             class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700 disabled:opacity-50"
-            :disabled="data === null"
+            :disabled="data === null || printing"
             @click="onPrint"
           >
-            인쇄
+            {{ printing ? '인쇄 준비 중…' : '인쇄' }}
           </button>
           <button
             type="button"
@@ -108,8 +152,8 @@ onBeforeUnmount(() => {
 
         <p v-if="loading" class="no-print py-12 text-sm text-white">불러오는 중…</p>
         <p v-else-if="error !== ''" class="no-print py-12 text-sm font-semibold text-red-300">{{ error }}</p>
-        <div v-else-if="data !== null" class="shadow-2xl" @click.stop>
-          <BomEstimateSheet :data="data" />
+        <div v-else-if="data !== null" ref="sheetHost" class="shadow-2xl" @click.stop>
+          <BomEstimateSheet :data="data" :show-images="includeImages" />
         </div>
       </div>
     </div>

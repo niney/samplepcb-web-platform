@@ -31,6 +31,7 @@ import {
   quoteLocalCatalogTrace,
   quoteCandidatePartsSearchable,
   retainQuoteCandidateSnapshots,
+  resolveBomQuoteItemImageUrl,
   resolveQuoteIdentityPreview,
   resolvePartDataStatus,
   rfqRequestsQuoteItem,
@@ -153,6 +154,24 @@ describe('정확 일치 후보 표시 정보', () => {
       selectedCandidateKey: null,
       evidence: { ...evidence, technicalPreselectionCandidateKey: 'missing-candidate' } as never,
     }, [exactCandidate])).toBeNull();
+  });
+});
+
+describe('견적서 부품 이미지', () => {
+  it('선정 카탈로그와 선정 후보를 우선하고 검증된 정확 일치를 마지막 대안으로 사용한다', () => {
+    expect(resolveBomQuoteItemImageUrl(
+      ' https://example.com/catalog.png ',
+      'https://example.com/candidate.png',
+      'https://example.com/exact.png',
+    )).toBe('https://example.com/catalog.png');
+    expect(resolveBomQuoteItemImageUrl(
+      null,
+      'https://example.com/candidate.png',
+      'https://example.com/exact.png',
+    )).toBe('https://example.com/candidate.png');
+    expect(resolveBomQuoteItemImageUrl(null, null, 'https://example.com/exact.png'))
+      .toBe('https://example.com/exact.png');
+    expect(resolveBomQuoteItemImageUrl('', '  ', null)).toBeNull();
   });
 });
 

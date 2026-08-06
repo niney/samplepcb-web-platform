@@ -1050,6 +1050,8 @@ export const BomQuotePrintItem = z.object({
   mpn: z.string(),
   manufacturerName: z.string().nullable(),
   description: z.string().nullable(),
+  /** 선정 부품 또는 검증된 정확 일치 후보의 참고 이미지. MPN이 문서 식별의 정본이다. */
+  imageUrl: z.string().nullable(),
   qty: z.number().int(),
   /** 선정 구매 조건 KRW 단가 스냅샷 — 미선정·미환산이면 null('—' 표시). */
   unitPriceKrw: z.number().nullable(),

@@ -3,9 +3,12 @@ import { computed, ref, watch } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { ApiRequestError, apiGet, apiSend } from '@sp/shared';
 import {
+  BomEstimateContactResponse,
+  BomEstimateContactUpdate,
   BomQuoteConfigResponse,
   BomQuoteExchangeRateRefreshResponse,
   apiRoutes,
+  type BomEstimateContactUpdateType,
   type BomQuoteConfigType,
 } from '@sp/api-contract';
 
@@ -15,15 +18,26 @@ import {
 const path = `${apiRoutes.adminSettings}/bom-quote`;
 const qc = useQueryClient();
 const queryKey = ['admin', 'settings', 'bom-quote'] as const;
+const contactPath = `${path}/contact`;
+const contactQueryKey = ['admin', 'settings', 'bom-quote', 'contact'] as const;
 const query = useQuery({
   queryKey,
   queryFn: () => apiGet(path, BomQuoteConfigResponse),
   retry: false,
 });
+const contactQuery = useQuery({
+  queryKey: contactQueryKey,
+  queryFn: () => apiGet(contactPath, BomEstimateContactResponse),
+  retry: false,
+});
 
 const form = ref<BomQuoteConfigType | null>(null);
+const contactForm = ref<BomEstimateContactUpdateType | null>(null);
+const useBusinessInfoContact = ref(true);
 const saved = ref(false);
 const error = ref('');
+const contactSaved = ref(false);
+const contactError = ref('');
 const refreshMessage = ref('');
 const exchangeRate = computed(() => query.data.value?.exchangeRate ?? null);
 const supplierSearch = computed(() => query.data.value?.supplierSearch ?? null);
@@ -39,11 +53,33 @@ const effectiveMaxCalls = computed(() => {
   if (configured === undefined || engineMaxCalls.value === null) return null;
   return Math.min(configured, engineMaxCalls.value);
 });
+const fallbackContact = computed(() => contactQuery.data.value?.fallback ?? null);
+const effectiveContact = computed(() => contactQuery.data.value?.effective ?? null);
+const contactValidationError = computed(() => {
+  if (contactForm.value === null || useBusinessInfoContact.value) return '';
+  const managerName = contactForm.value.managerName.trim();
+  const managerEmail = contactForm.value.managerEmail.trim();
+  if (managerName === '' || managerEmail === '') {
+    return '전용 담당자를 사용하려면 담당자명과 이메일을 모두 입력해 주세요.';
+  }
+  const parsed = BomEstimateContactUpdate.safeParse({ managerName, managerEmail });
+  return parsed.success ? '' : (parsed.error.issues[0]?.message ?? '담당자 정보를 확인해 주세요.');
+});
 
 watch(
   () => query.data.value?.data,
   (d) => {
     if (d !== undefined && form.value === null) form.value = { ...d };
+  },
+  { immediate: true },
+);
+
+watch(
+  () => contactQuery.data.value?.data,
+  (data) => {
+    if (data === undefined || contactForm.value !== null) return;
+    contactForm.value = { ...data };
+    useBusinessInfoContact.value = data.managerName === '' && data.managerEmail === '';
   },
   { immediate: true },
 );
@@ -58,6 +94,24 @@ const save = useMutation({
   },
   onError: (reason: unknown) => {
     error.value = reason instanceof ApiRequestError ? reason.message : '저장에 실패했습니다.';
+  },
+});
+
+const saveContact = useMutation({
+  mutationFn: (body: BomEstimateContactUpdateType) => (
+    apiSend('PUT', contactPath, body, BomEstimateContactResponse)
+  ),
+  onSuccess: (res) => {
+    contactForm.value = { ...res.data };
+    useBusinessInfoContact.value = res.data.managerName === '' && res.data.managerEmail === '';
+    contactSaved.value = true;
+    qc.setQueryData(contactQueryKey, res);
+    setTimeout(() => (contactSaved.value = false), 2_000);
+  },
+  onError: (reason: unknown) => {
+    contactError.value = reason instanceof ApiRequestError
+      ? reason.message
+      : 'BOM 담당자 저장에 실패했습니다.';
   },
 });
 
@@ -78,6 +132,35 @@ function submit(): void {
   // 환율 빈 입력 → null(미환산 표시)
   const rate = form.value.usdKrwRate;
   save.mutate({ ...form.value, usdKrwRate: rate === null || Number.isNaN(rate) || rate <= 0 ? null : rate });
+}
+
+function toggleBusinessInfoContact(event: Event): void {
+  const checked = (event.target as HTMLInputElement).checked;
+  useBusinessInfoContact.value = checked;
+  contactError.value = '';
+  if (checked) {
+    contactForm.value = { managerName: '', managerEmail: '' };
+    return;
+  }
+  const seed = contactQuery.data.value?.effective ?? contactQuery.data.value?.fallback;
+  contactForm.value = {
+    managerName: seed?.managerName ?? '',
+    managerEmail: seed?.managerEmail ?? '',
+  };
+}
+
+function submitContact(): void {
+  if (contactForm.value === null || contactValidationError.value !== '') return;
+  contactError.value = '';
+  const body = useBusinessInfoContact.value
+    ? { managerName: '', managerEmail: '' }
+    : contactForm.value;
+  const parsed = BomEstimateContactUpdate.safeParse(body);
+  if (!parsed.success) {
+    contactError.value = parsed.error.issues[0]?.message ?? '담당자 정보를 확인해 주세요.';
+    return;
+  }
+  saveContact.mutate(parsed.data);
 }
 
 function supplierLabel(value: string): string {
@@ -110,6 +193,100 @@ function catalogStatusLabel(value: string | null): string {
 <template>
   <p v-if="query.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
   <form v-else-if="form !== null" class="max-w-5xl space-y-4" @submit.prevent="submit">
+    <section class="rounded-xl border border-blue-200 bg-white p-5 shadow-sm">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <h2 class="font-semibold text-gray-900">견적서 담당자</h2>
+            <span
+              v-if="contactForm !== null"
+              class="rounded-full px-2.5 py-1 text-xs font-semibold"
+              :class="useBusinessInfoContact ? 'bg-slate-100 text-slate-600' : 'bg-blue-100 text-blue-700'"
+            >
+              {{ useBusinessInfoContact ? '공통 정보 사용' : 'BOM 전용' }}
+            </span>
+          </div>
+          <p class="mt-1 text-sm text-gray-500">
+            고객·관리자 Smart BOM 견적서의 담당·이메일에만 적용합니다. PCB 견적, 주문 문서, 협력사 알림에는 영향이 없습니다.
+          </p>
+        </div>
+      </div>
+
+      <p v-if="contactQuery.isLoading.value" class="mt-4 text-sm text-gray-400">담당자 정보를 불러오는 중…</p>
+      <p v-else-if="contactQuery.isError.value" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        담당자 정보를 불러오지 못했습니다.
+      </p>
+      <div v-else-if="contactForm !== null" class="mt-4 space-y-4">
+        <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+          <input
+            type="checkbox"
+            class="mt-0.5 size-4 rounded border-gray-300 text-blue-600"
+            :checked="useBusinessInfoContact"
+            @change="toggleBusinessInfoContact"
+          >
+          <span>
+            <strong class="block text-sm text-slate-800">사업자정보의 정보관리책임자 사용</strong>
+            <small class="mt-0.5 block text-xs text-slate-500">
+              선택하면 통합 관리 › 설정 › 사업자정보의 담당자명·이메일을 그대로 사용합니다.
+            </small>
+          </span>
+        </label>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="block text-sm">
+            <span class="text-gray-600">BOM 담당자명</span>
+            <input
+              v-model="contactForm.managerName"
+              type="text"
+              maxlength="255"
+              autocomplete="name"
+              :disabled="useBusinessInfoContact"
+              :placeholder="fallbackContact?.managerName || '담당자명 입력'"
+              class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+            >
+          </label>
+          <label class="block text-sm">
+            <span class="text-gray-600">BOM 담당자 이메일</span>
+            <input
+              v-model="contactForm.managerEmail"
+              type="email"
+              maxlength="255"
+              autocomplete="email"
+              :disabled="useBusinessInfoContact"
+              :placeholder="fallbackContact?.managerEmail || 'name@example.com'"
+              class="mt-1 w-full rounded-md border px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+              :class="contactValidationError !== '' ? 'border-red-400 bg-red-50' : 'border-gray-300'"
+            >
+          </label>
+        </div>
+
+        <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+          <p class="text-xs font-semibold text-slate-500">현재 견적서 표시</p>
+          <p class="mt-1 font-medium text-slate-800">
+            {{ effectiveContact?.managerName || '담당자 미설정' }}
+            <template v-if="effectiveContact?.managerEmail"> · {{ effectiveContact.managerEmail }}</template>
+          </p>
+          <p v-if="useBusinessInfoContact" class="mt-1 text-xs text-slate-500">
+            사업자정보 변경 시 다음 견적서부터 함께 반영됩니다.
+          </p>
+        </div>
+
+        <p v-if="contactValidationError !== ''" class="text-sm text-red-600">{{ contactValidationError }}</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            :disabled="saveContact.isPending.value || contactValidationError !== ''"
+            @click="submitContact"
+          >
+            {{ saveContact.isPending.value ? '저장 중…' : '담당자 저장' }}
+          </button>
+          <span v-if="contactSaved" class="text-sm text-emerald-600">담당자 설정이 저장되었습니다.</span>
+          <span v-if="contactError !== ''" class="text-sm text-red-600">{{ contactError }}</span>
+        </div>
+      </div>
+    </section>
+
     <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
       <div class="mb-4">
         <h2 class="font-semibold text-gray-900">견적 비용 기본값</h2>

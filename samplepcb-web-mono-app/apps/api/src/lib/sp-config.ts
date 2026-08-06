@@ -1,9 +1,17 @@
-import { BomQuoteConfig, type BomQuoteConfigType, type GerberPriceModeType } from '@sp/api-contract';
+import {
+  BomEstimateContactUpdate,
+  BomQuoteConfig,
+  type BomEstimateContactType,
+  type BomEstimateContactUpdateType,
+  type BomQuoteConfigType,
+  type GerberPriceModeType,
+} from '@sp/api-contract';
 import { prisma } from './prisma';
 
 // sp_config 싱글 키 스토어 접근 — 코어 g5_config/g5_shop_default 를 건드리지 않는 sp 소유
 // 설정(schema.prisma SpConfig). gerber_price_mode(거버 가격 해석: order|supply),
-// bom_quote(고객 BOM 견적 비용·검색 한도 — JSON 직렬화).
+// bom_quote(고객 BOM 견적 비용·검색 한도 — JSON 직렬화),
+// bom_estimate_contact(BOM 견적서 전용 담당자 — JSON 직렬화).
 
 const GERBER_PRICE_MODE_KEY = 'gerber_price_mode';
 
@@ -66,4 +74,45 @@ export async function setBomQuoteConfig(config: BomQuoteConfigType): Promise<voi
     create: { key: BOM_QUOTE_CONFIG_KEY, value },
     update: { value },
   });
+}
+
+// ── 고객 BOM 견적서 전용 담당자 ────────────────────────────────────────────
+// 개인정보 보호책임자(g5_shop_default.de_admin_info_*)를 덮어쓰지 않는다.
+// 빈 쌍은 기존 정보관리책임자를 쓰겠다는 명시적 설정이며 DB 마이그레이션이 필요 없다.
+
+const BOM_ESTIMATE_CONTACT_KEY = 'bom_estimate_contact';
+
+export const BOM_ESTIMATE_CONTACT_DEFAULTS: BomEstimateContactUpdateType = {
+  managerName: '',
+  managerEmail: '',
+};
+
+export async function getBomEstimateContact(): Promise<BomEstimateContactUpdateType> {
+  const row = await prisma.spConfig.findUnique({ where: { key: BOM_ESTIMATE_CONTACT_KEY } });
+  if (row === null) return BOM_ESTIMATE_CONTACT_DEFAULTS;
+  try {
+    const value: unknown = JSON.parse(row.value);
+    const parsed = BomEstimateContactUpdate.safeParse(value);
+    return parsed.success ? parsed.data : BOM_ESTIMATE_CONTACT_DEFAULTS;
+  } catch {
+    return BOM_ESTIMATE_CONTACT_DEFAULTS;
+  }
+}
+
+export async function setBomEstimateContact(contact: BomEstimateContactUpdateType): Promise<void> {
+  const value = JSON.stringify(contact);
+  await prisma.spConfig.upsert({
+    where: { key: BOM_ESTIMATE_CONTACT_KEY },
+    create: { key: BOM_ESTIMATE_CONTACT_KEY, value },
+    update: { value },
+  });
+}
+
+export function resolveBomEstimateContact(
+  configured: BomEstimateContactType,
+  fallback: BomEstimateContactType,
+): BomEstimateContactType {
+  return configured.managerName !== '' && configured.managerEmail !== ''
+    ? { ...configured }
+    : { ...fallback };
 }
