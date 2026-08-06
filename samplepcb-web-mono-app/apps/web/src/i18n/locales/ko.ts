@@ -102,6 +102,7 @@ export const ko = {
       pcbRfqs: '견적요청',
       pcbOrders: '주문·결제',
       pcbPos: '발주·EQ',
+      pcbRemittances: '송금',
       pcbShipments: '선적·배송',
     },
     placeholder: '준비 중입니다.',

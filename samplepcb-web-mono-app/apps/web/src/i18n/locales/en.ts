@@ -102,6 +102,7 @@ export const en = {
       pcbRfqs: 'RFQs',
       pcbOrders: 'Orders & Payments',
       pcbPos: 'POs & EQ',
+      pcbRemittances: 'Remittances',
       pcbShipments: 'Shipments',
     },
     placeholder: 'Coming soon.',

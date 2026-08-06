@@ -1319,7 +1319,10 @@ model SpPcbPo {
   // 배송 목적지(KR/CN/VN) — 직송 스위치는 P3 범위, 컬럼만 선반영(D5).
   destinationCountry String?  @db.VarChar(2)
   paymentTerms    String?     @db.VarChar(50) // 'T/T in Advance' 등
-  remittedAt      DateTime? // 송금 완료 표시
+  // ⚠ 송금의 정본은 sp_pcb_remittance(원장)다. 이 컬럼은 **파생 캐시** — 마지막 송금일을
+  // 서버가 원장 변경마다 다시 계산해 넣는다(목록·협력사 포털의 기존 표시가 쓰는 값).
+  // 직접 쓰지 말 것: 원장을 거치지 않으면 금액·잔액과 어긋난다.
+  remittedAt      DateTime?
   deliveryDate    DateTime? // 발주 납기
   // EQ·생산 전이 이력 — [{at, byRole, fromStatus, toStatus, note}] 누적(정본은 하위
   // 발주서 — MD 경유 상위는 상태만 미러). 첨부는 sp_file(refType 'sp_pcb_po_eq').
@@ -1330,11 +1333,42 @@ model SpPcbPo {
   updatedAt       DateTime    @updatedAt
   spec            SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
   partner         SpPartner   @relation(fields: [partnerId], references: [id])
+  remittances     SpPcbRemittance[]
 
   @@unique([specId, partnerId, parentPartnerId, reorderRound])
   @@index([partnerId, status]) // 협력사 포털 워크큐
   @@index([specId])
   @@map("sp_pcb_po")
+}
+
+// PCB 송금 원장 — 발주서 1:N 송금. **부분·분할 송금이 실재**하기 때문에 상태 한 칸이
+// 아니라 원장이다(결제조건 '50% PRE-PAID' 를 고를 수 있는데 송금은 한 줄만 받던 모순).
+// 미지급 잔액 = 발주가 − 이 원장의 합계이며, 그 계산이 송금 관리의 핵심 지표다.
+//
+// 공용(sp_remittance + subjectType)으로 가지 않은 이유: 송금은 **살아있는 발주서**에
+// 붙어 잔액을 계산하므로 FK 무결성이 필요하다. sp_delete_audit 이 FK 없이 subjectType
+// 규약을 쓴 건 대상이 이미 삭제된 뒤를 가리키기 때문이고, 성격이 다르다(2026-08-06).
+// 증빙(이체증)은 sp_file refType 'sp_pcb_remittance' 규약을 쓴다.
+model SpPcbRemittance {
+  id           BigInt   @id @default(autoincrement())
+  poId         BigInt
+  /** 송금일(KST 날짜) — parseKstDate 앵커. 시각은 의미 없다(§7-8). */
+  remittedOn   DateTime
+  /** 송금 통화 = 발주 통화(서버 검증). 잔액을 같은 통화로만 빼기 위해. */
+  currency     String   @db.VarChar(8)
+  amount       Decimal  @db.Decimal(15, 2)
+  /** 외화 송금의 **실제 적용 환율** — 발주 시점 환율과 다르다(환차손익 근거). KRW 면 null. */
+  exchangeRate Decimal? @db.Decimal(12, 6)
+  krwAmount    Int? // 회계 환산 박제(외화만)
+  memo         String?  @db.VarChar(500)
+  createdBy    String   @db.VarChar(191) // 기록자 mbId — 돈 기록이라 행위자를 남긴다
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  po           SpPcbPo  @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  @@index([poId])
+  @@index([remittedOn])
+  @@map("sp_pcb_remittance")
 }
 
 // PCB 선적(P3) — 발주서당 1건 생성 + 발송 시점 묶기(sp_pcb_shipment_po, BOM §6.10

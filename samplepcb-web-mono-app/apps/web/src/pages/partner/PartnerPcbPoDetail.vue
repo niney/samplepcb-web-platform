@@ -57,6 +57,20 @@ const surfaceError = (e: unknown, fallback: string): void => {
   actionError.value = e instanceof ApiRequestError && e.message !== '' ? e.message : fallback;
 };
 
+// ── 수금 상태(P3.11) — 부분 송금이 있으므로 '완료/대기' 두 값으로는 부족하다 ─────
+const remitSummary = computed(() => detail.value?.remittanceSummary ?? null);
+const remitStatusText = computed<string>(() => {
+  const s = remitSummary.value;
+  if (s === null || s.count === 0) return '입금 전';
+  if (s.balance <= 0) return `완료 (${dateOnly(s.lastRemittedOn)})`;
+  return `부분 입금 — 미수 ${fmtPcbAmount(s.currency, s.balance)}`;
+});
+const remitStatusCls = computed<string>(() => {
+  const s = remitSummary.value;
+  if (s === null || s.count === 0) return 'text-gray-400';
+  return s.balance <= 0 ? 'font-semibold text-emerald-700' : 'font-semibold text-amber-700';
+});
+
 // ── EQ 스텝퍼·액션 파생(계약 사전이 단일 정본) ───────────────────────────────
 const steps = PCB_PO_STATUSES;
 const stepIndex = computed(() =>
@@ -370,14 +384,43 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
           </div>
           <div class="flex justify-between"><dt class="text-gray-500">결제조건</dt><dd>{{ detail.paymentTerms ?? '—' }}</dd></div>
           <div class="flex justify-between">
-            <dt class="text-gray-500">송금</dt>
-            <dd :class="detail.remittedAt !== null ? 'font-semibold text-emerald-700' : 'text-gray-400'">
-              {{ detail.remittedAt !== null ? `완료 (${dateOnly(detail.remittedAt)})` : '대기' }}
-            </dd>
+            <dt class="text-gray-500">수금</dt>
+            <dd :class="remitStatusCls">{{ remitStatusText }}</dd>
           </div>
           <div class="flex justify-between"><dt class="text-gray-500">납기</dt><dd>{{ dateOnly(detail.deliveryDate) }}</dd></div>
         </dl>
         <p v-if="detail.memo !== null && detail.memo !== ''" class="mt-2 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-600">{{ detail.memo }}</p>
+
+        <!-- 수금 내역(P3.11) — 부분 송금이 있으므로 건별로 보여준다. 이 발주서 건만 보인다. -->
+        <div v-if="remitSummary !== null && remitSummary.count > 0" class="mt-3 rounded-lg border border-gray-200">
+          <table class="min-w-full divide-y divide-gray-100 text-sm">
+            <thead class="bg-gray-50 text-left text-[11px] uppercase text-gray-500">
+              <tr>
+                <th class="px-3 py-1.5">입금일</th>
+                <th class="px-3 py-1.5 text-right">금액</th>
+                <th class="px-3 py-1.5">메모</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              <tr v-for="r in detail.remittances" :key="r.id">
+                <td class="whitespace-nowrap px-3 py-1.5 text-gray-600">{{ dateOnly(r.remittedOn) }}</td>
+                <td class="whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums text-gray-800">
+                  {{ fmtPcbAmount(r.currency, r.amount) }}
+                </td>
+                <td class="px-3 py-1.5 text-xs text-gray-500">{{ r.memo ?? '—' }}</td>
+              </tr>
+            </tbody>
+            <tfoot v-if="remitSummary !== null && remitSummary.balance > 0" class="border-t border-gray-200 bg-amber-50">
+              <tr>
+                <td class="px-3 py-1.5 text-xs font-semibold text-amber-800">미수금</td>
+                <td class="whitespace-nowrap px-3 py-1.5 text-right font-bold tabular-nums text-amber-800">
+                  {{ fmtPcbAmount(remitSummary.currency, remitSummary.balance) }}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </section>
 
       <!-- EQ 진행 -->

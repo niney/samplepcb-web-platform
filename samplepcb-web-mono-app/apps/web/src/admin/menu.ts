@@ -16,7 +16,8 @@ export interface AdminMenuItem {
     | 'pcbRfqPending'
     | 'pcbPosPending'
     | 'pcbShipmentPending'
-    | 'pcbOrdersAwaiting';
+    | 'pcbOrdersAwaiting'
+    | 'pcbRemittancePending';
   /** 상세 등 형제 라우트에서도 이 메뉴를 활성 표시할 라우트 이름. */
   activeRouteNames?: readonly string[];
 }
@@ -118,6 +119,13 @@ const pcbMenu: AdminMenuItem[] = [
     to: { name: 'admin-pcb-pos' },
     labelKey: 'admin.menu.pcbPos',
     badge: 'pcbPosPending',
+  },
+  // 송금 워크큐(P3.11 — 경리·재무) — 송금 대기(발주됐는데 한 푼도 안 나간 건) 수 배지.
+  // 흐름 순서상 발주 다음·선적 앞에 둔다(발주 → 송금 → 선적).
+  {
+    to: { name: 'admin-pcb-remittances' },
+    labelKey: 'admin.menu.pcbRemittances',
+    badge: 'pcbRemittancePending',
   },
   // 선적·배송 워크큐 — 발송 대기 + 관리자 차례(입고·수취 처리) 수 배지.
   {

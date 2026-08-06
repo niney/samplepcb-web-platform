@@ -229,6 +229,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminPcbPos.vue'),
       },
       {
+        // 송금 워크큐(P3.11) — 지급 대기·부분 송금·협력사별 잔액
+        path: 'pcb/remittances',
+        name: 'admin-pcb-remittances',
+        component: () => import('./pages/admin/AdminPcbRemittances.vue'),
+      },
+      {
         path: 'pcb/shipments',
         name: 'admin-pcb-shipments',
         component: () => import('./pages/admin/AdminPcbShipments.vue'),

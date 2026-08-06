@@ -38,6 +38,7 @@ import { adminPcbRfqRoutes } from './routes/admin-pcb-rfqs';
 import { partnerPcbRfqRoutes } from './routes/partner-pcb-rfqs';
 import { pcbRfqReplyRoutes } from './routes/pcb-rfq-reply';
 import { adminPcbPoRoutes } from './routes/admin-pcb-pos';
+import { adminPcbRemittanceRoutes } from './routes/admin-pcb-remittances';
 import { adminPcbOrderRoutes } from './routes/admin-pcb-orders';
 import { adminPcbCaseRoutes } from './routes/admin-pcb-cases';
 import { partnerPcbPoRoutes } from './routes/partner-pcb-pos';
@@ -126,6 +127,8 @@ await app.register(pcbRfqReplyRoutes, { prefix: '/api' });
 // PCB 파트너 트랙 P2 — 발주서·EQ 5단계(관리자 승인/반려 + 포털 진행·MD 하위 발주)
 await app.register(adminPcbPoRoutes, { prefix: '/api/admin' });
 await app.register(adminPcbOrderRoutes, { prefix: '/api/admin' });
+// PCB 송금 원장(P3.11) — 지급 워크큐·협력사별 잔액·증빙
+await app.register(adminPcbRemittanceRoutes, { prefix: '/api/admin' });
 // PCB 진행현황(구간 조감) + 역할별 대기 큐(요청 대기·발주 대기)
 await app.register(adminPcbCaseRoutes, { prefix: '/api/admin' });
 await app.register(partnerPcbPoRoutes, { prefix: '/api' });

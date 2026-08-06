@@ -27,6 +27,7 @@ import {
   validatePcbRfqPartners,
 } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
+import { summarizePcbRemittances } from './pcb-remittance';
 import {
   findPcbShipmentByPo,
   isPcbOutboundBlocked,
@@ -338,8 +339,8 @@ export const createAdminPcbPo = async (
       subExchangeRate: rfq?.subExchangeRate ?? null,
       destinationCountry: body.destinationCountry ?? null,
       paymentTerms: body.paymentTerms ?? null,
-      // 날짜 전용 필드 — KST 자정 앵커로 저장한다(§7-8, deliveryDate 와 같은 규율).
-      remittedAt: body.remittedOn == null ? null : parseKstDate(body.remittedOn),
+      // 송금은 원장(sp_pcb_remittance)이 정본 — 발주 시점엔 항상 비어 있다(P3.11).
+      remittedAt: null,
       deliveryDate:
         body.deliveryDate === null || body.deliveryDate === undefined
           ? (rfq?.quotedDeliveryDate ?? null)
@@ -416,7 +417,7 @@ export const createChildPcbPo = async (
       subExchangeRate: childRfq.subExchangeRate,
       destinationCountry: parentPo.destinationCountry, // 발주 시점 하향 상속(레거시 §2.5)
       paymentTerms: body.paymentTerms ?? null,
-      remittedAt: body.remittedOn == null ? null : parseKstDate(body.remittedOn),
+      remittedAt: null, // 원장이 정본(P3.11)
       deliveryDate:
         body.deliveryDate === null || body.deliveryDate === undefined
           ? (childRfq.quotedDeliveryDate ?? null)
@@ -472,9 +473,6 @@ export const patchPcbPo = async (
     data: {
       ...priceFields,
       ...(body.paymentTerms === undefined ? {} : { paymentTerms: body.paymentTerms }),
-      ...(body.remittedOn === undefined
-        ? {}
-        : { remittedAt: body.remittedOn === null ? null : parseKstDate(body.remittedOn) }),
       ...(body.deliveryDate === undefined
         ? {}
         : { deliveryDate: body.deliveryDate === null ? null : parseKstDate(body.deliveryDate) }),
@@ -828,6 +826,23 @@ export const loadPartnerPcbPoDetail = async (
     subExchangeRate: decNum(po.subExchangeRate),
     paymentTerms: po.paymentTerms,
     remittedAt: iso(po.remittedAt),
+    // 수금 내역 — 협력사는 자기 발주서 건만 본다(증빙 파일은 내부 자료라 제외).
+    ...(await (async () => {
+      const rows = await prisma.spPcbRemittance.findMany({
+        where: { poId: po.id },
+        orderBy: [{ remittedOn: 'asc' }, { id: 'asc' }],
+      });
+      return {
+        remittances: rows.map((r) => ({
+          id: Number(r.id),
+          remittedOn: r.remittedOn.toISOString(),
+          currency: r.currency,
+          amount: Number(r.amount),
+          memo: r.memo,
+        })),
+        remittanceSummary: summarizePcbRemittances(po, rows),
+      };
+    })()),
     deliveryDate: iso(po.deliveryDate),
     memo: po.memo,
     issuedAt: po.issuedAt.toISOString(),

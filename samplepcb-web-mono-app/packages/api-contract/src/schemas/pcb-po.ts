@@ -190,14 +190,8 @@ export const AdminPcbPoCreateBody = z.object({
   /** 외화 관리자 발주의 KRW 회계 환율 — 생략 시 rfq 선정 박제값 승계. */
   exchangeRate: z.number().positive().optional(),
   paymentTerms: z.string().trim().max(50).nullable().optional(),
-  /** 송금일(KST 날짜). null=미송금 — 상태를 따로 두지 않고 **날짜 자체가 송금 여부**다.
-   *  체크 순간을 now 로 박제하던 방식은 실제 송금일이 아니라 '입력한 날'을 남겼다
-   *  (경리가 며칠 뒤 정리하면 틀어진다). 미래일(예정)·발주일 이전(선불)도 허용한다. */
-  remittedOn: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable()
-    .optional(),
+  // ⚠ 송금은 여기서 받지 않는다 — 원장(sp_pcb_remittance)이 정본이고 창구는
+  //   /pcb-remittances 하나다(P3.11). 발주 바디로도 받으면 금액 없는 기록이 다시 생긴다.
   deliveryDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -318,6 +312,34 @@ export const PartnerPcbPoDetail = z.object({
   subExchangeRate: z.number().nullable(),
   paymentTerms: z.string().nullable(),
   remittedAt: z.string().nullable(),
+  /** 수금 내역(P3.11) — 협력사가 **자기 발주서 건만** 본다. 날짜·금액·메모까지 공개하는
+   *  이유는 "언제 얼마 들어왔나" 문의가 전화로 오기 때문이다. 증빙 파일은 내부 자료라
+   *  싣지 않는다(관리자 화면 전용).
+   *  ※ 형태를 pcb-remittance.ts 에서 import 하지 않고 여기 두는 건 순환 참조 회피다
+   *    (그쪽이 이 파일의 PcbPoStatus 를 쓴다). 필드는 관리자 뷰의 부분집합이다. */
+  remittances: z
+    .array(
+      z.object({
+        id: z.number(),
+        remittedOn: z.string(),
+        currency: z.string(),
+        amount: z.number(),
+        memo: z.string().nullable(),
+      }),
+    )
+    .default([]),
+  remittanceSummary: z
+    .object({
+      currency: z.string(),
+      poAmount: z.number(),
+      paidAmount: z.number(),
+      balance: z.number(),
+      status: z.enum(['unpaid', 'partial', 'paid', 'over']),
+      count: z.number().int().nonnegative(),
+      lastRemittedOn: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
   deliveryDate: z.string().nullable(),
   memo: z.string().nullable(),
   issuedAt: z.string(),
@@ -368,11 +390,6 @@ export const PartnerPcbChildPoCreateBody = z.object({
   childRfqId: z.number().int().positive(),
   priceOriginal: z.number().positive().optional(),
   paymentTerms: z.string().trim().max(50).nullable().optional(),
-  remittedOn: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable()
-    .optional(),
   deliveryDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
