@@ -1273,6 +1273,8 @@ export type AdminBomQuoteItemType = z.infer<typeof AdminBomQuoteItem>;
 export const AdminBomQuoteDetail = BomQuoteDetail.omit({ items: true }).extend({
   items: z.array(AdminBomQuoteItem),
   mbId: z.string(),
+  /** 고객 회원정보의 기본 회신 이메일 — 관리자에게만 제공한다. */
+  customerEmail: z.string().max(255).nullable(),
   /** 내부 메모 — 고객 응답에는 싣지 않는다. */
   adminMemo: z.string().nullable(),
   /** 원본 파일 다운로드 URL(서명) — 없으면 null. */
@@ -1329,11 +1331,20 @@ export const AdminBomQuotePatchBody = AdminBomQuoteReviewFields.extend({
 });
 export type AdminBomQuotePatchBodyType = z.infer<typeof AdminBomQuotePatchBody>;
 
+/** 고객 회신 이메일 수신 주소. 변경값은 회원정보에 저장하지 않고 해당 발송에만 사용한다. */
+export const AdminBomQuoteRecipientEmail = z.string().trim().max(255).email();
+
 /** 검토 완료 명령 — 이메일은 기본 발송하되 관리자가 명시적으로 해제할 수 있다. */
 export const AdminBomQuoteCompleteBody = AdminBomQuoteReviewFields.extend({
   sendEmail: z.boolean().default(true),
+  toEmail: AdminBomQuoteRecipientEmail.optional(),
 });
 export type AdminBomQuoteCompleteBodyType = z.infer<typeof AdminBomQuoteCompleteBody>;
+
+export const AdminBomQuoteAnswerEmailBody = z.object({
+  toEmail: AdminBomQuoteRecipientEmail.optional(),
+});
+export type AdminBomQuoteAnswerEmailBodyType = z.infer<typeof AdminBomQuoteAnswerEmailBody>;
 
 export const AdminBomQuoteEmailDelivery = z.object({
   requested: z.boolean(),

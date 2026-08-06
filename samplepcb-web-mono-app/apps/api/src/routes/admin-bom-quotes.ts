@@ -3,6 +3,7 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   AdminBomQuoteAnswerEmailResponse,
+  AdminBomQuoteAnswerEmailBody,
   AdminBomCaseDeleteBody,
   AdminBomCaseDeletePreviewResponse,
   AdminBomCaseDeleteResponse,
@@ -48,7 +49,11 @@ import {
   getNotifyConfig,
   getShopEstimateProfile,
 } from '../lib/g5-db';
-import { buildBomQuoteAnsweredEmail, sendBomRfqMail } from '../lib/rfq-email';
+import {
+  buildBomQuoteAnsweredEmail,
+  resolveBomAnswerRecipient,
+  sendBomRfqMail,
+} from '../lib/rfq-email';
 import {
   BomCaseDeleteExecutionError,
   loadBomCaseDeletePlan,
@@ -105,6 +110,7 @@ async function deliverAnsweredEmail(
   log: FastifyBaseLogger,
   quote: AnswerEmailQuote,
   requested: boolean,
+  recipientOverride?: string,
 ): Promise<AdminBomQuoteEmailDeliveryType> {
   if (!requested) {
     return {
@@ -120,7 +126,7 @@ async function deliverAnsweredEmail(
     getMembersByIds([quote.mbId]),
   ]);
   const member = members.get(quote.mbId);
-  const toEmail = (member?.email ?? '').trim() || null;
+  const toEmail = resolveBomAnswerRecipient(member?.email, recipientOverride);
   if (!notify.mailAvailable) {
     return {
       requested: true,
@@ -772,7 +778,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       include: { items: true, sheets: true },
     });
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    const email = await deliverAnsweredEmail(request.log, fresh, body.sendEmail);
+    const email = await deliverAnsweredEmail(request.log, fresh, body.sendEmail, body.toEmail);
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
     return {
@@ -786,6 +792,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
   fastify.post('/bom-quotes/:id/answer-email', {
     schema: {
       params: IdParams,
+      body: AdminBomQuoteAnswerEmailBody,
       response: {
         200: AdminBomQuoteAnswerEmailResponse,
         409: ApiError,
@@ -802,7 +809,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
     }
 
-    const delivery = await deliverAnsweredEmail(request.log, quote, true);
+    const delivery = await deliverAnsweredEmail(request.log, quote, true, request.body.toEmail);
     if (delivery.status === 'sent') {
       return { result: true as const, data: delivery };
     }

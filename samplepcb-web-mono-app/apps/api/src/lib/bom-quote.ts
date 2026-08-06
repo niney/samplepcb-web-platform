@@ -67,7 +67,7 @@ import {
 } from '@sp/utils';
 import { prisma } from './prisma';
 import { engineFetch } from './engine-client';
-import { getCartStates, getOrderInfoByCtId } from './g5-db';
+import { getCartStates, getMembersByIds, getOrderInfoByCtId } from './g5-db';
 import { buildEngineProcurementPolicy } from './bom-procurement-policy';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
@@ -6466,10 +6466,12 @@ export async function toAdminDetailDto(
   fileUrl: string | null,
 ): Promise<AdminBomQuoteDetailType> {
   // 주문 헤더 파생(⑧ 결제 판정) — 담김 상태(주문 헤더 없음)면 getOrderInfoByCtId 가 null.
-  const [info, detail] = await Promise.all([
+  const [info, detail, members] = await Promise.all([
     quote.ctId === null ? Promise.resolve(null) : getOrderInfoByCtId(quote.ctId),
     toDetailDto(quote, items, sheets),
+    getMembersByIds([quote.mbId]),
   ]);
+  const customerEmail = (members.get(quote.mbId)?.email ?? '').trim() || null;
   const activeRows = filterActiveQuoteItems(items, sheets);
   const reviewStates = await loadBomQuoteItemReviewStates(activeRows, detail.items);
   return {
@@ -6491,6 +6493,7 @@ export async function toAdminDetailDto(
       },
     })),
     mbId: quote.mbId,
+    customerEmail,
     adminMemo: quote.adminMemo,
     fileUrl,
     orderInfo:

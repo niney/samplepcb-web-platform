@@ -18,6 +18,7 @@ import {
   type AdminBomCaseDeleteBodyType,
   type AdminBomCaseDeletePreviewType,
   type AdminBomCaseDeleteResponseType,
+  type AdminBomQuoteAnswerEmailBodyType,
   type AdminBomQuotePatchBodyType,
   type AdminBomQuoteCompleteBodyType,
   type AdminBomQuoteItemReviewsBodyType,
@@ -182,10 +183,10 @@ export function useCompleteAdminBomQuote() {
 /** 회신 완료 후 상태를 바꾸지 않고 공식 고객 회신 이메일만 다시 보낸다. */
 export function useSendAdminBomQuoteAnswerEmail() {
   return useMutation({
-    mutationFn: (quoteId: string) => apiSend(
+    mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomQuoteAnswerEmailBodyType }) => apiSend(
       'POST',
       `${base}/${quoteId}/answer-email`,
-      {},
+      body,
       AdminBomQuoteAnswerEmailResponse,
     ),
   });

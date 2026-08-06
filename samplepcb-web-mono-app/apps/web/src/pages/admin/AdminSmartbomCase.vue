@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiGet, apiGetBlob } from '@sp/shared';
-import { BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
+import { AdminBomQuoteRecipientEmail, BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
 import type {
   AdminBomQuoteItemType,
   AdminBomQuoteEmailDeliveryType,
@@ -926,9 +926,11 @@ const form = ref({
 const actionError = ref('');
 const completionOpen = ref(false);
 const completionSendEmail = ref(true);
+const completionEmail = ref('');
 const completionWithoutPriceConfirmed = ref(false);
 const completionError = ref('');
 const resendEmailOpen = ref(false);
+const resendEmail = ref('');
 const resendEmailError = ref('');
 const emailActionFeedback = ref<{
   tone: 'success' | 'warning' | 'error';
@@ -944,6 +946,15 @@ watch(detailId, () => {
 // 확정가 = 토글식 직접 입력 — 기본은 예상(자동) 금액만 보여 관리자 혼동을 막는다.
 // 토글 OFF 저장 = 확정 해제(고객에게 예상 금액 안내), ON 시 예상값으로 프리필.
 const confirmedOverride = ref(false);
+
+const validRecipientEmail = (value: string): string | null => {
+  const parsed = AdminBomQuoteRecipientEmail.safeParse(value);
+  return parsed.success ? parsed.data : null;
+};
+const completionEmailValid = computed(
+  () => !completionSendEmail.value || validRecipientEmail(completionEmail.value) !== null,
+);
+const resendEmailValid = computed(() => validRecipientEmail(resendEmail.value) !== null);
 
 watch(detail, (d) => {
   if (d === null) return;
@@ -1330,6 +1341,7 @@ function openCompletion(): void {
     return;
   }
   completionSendEmail.value = true;
+  completionEmail.value = detail.value.customerEmail ?? '';
   completionWithoutPriceConfirmed.value = false;
   completionError.value = '';
   completionOpen.value = true;
@@ -1337,6 +1349,11 @@ function openCompletion(): void {
 
 async function submitCompletion(): Promise<void> {
   if (detailId.value === null) return;
+  const toEmail = validRecipientEmail(completionEmail.value);
+  if (completionSendEmail.value && toEmail === null) {
+    completionError.value = '올바른 받는 이메일 주소를 입력해 주세요.';
+    return;
+  }
   if (finalConfirmedTotal.value === null && !completionWithoutPriceConfirmed.value) {
     completionError.value = '확정 총액 없이 회신하려면 주의사항을 확인해 주세요.';
     return;
@@ -1349,6 +1366,7 @@ async function submitCompletion(): Promise<void> {
       body: {
         ...reviewFields(),
         sendEmail: completionSendEmail.value,
+        ...(completionSendEmail.value && toEmail !== null ? { toEmail } : {}),
       },
     });
     completionOpen.value = false;
@@ -1361,15 +1379,24 @@ async function submitCompletion(): Promise<void> {
 }
 
 function openResendEmail(): void {
+  resendEmail.value = detail.value?.customerEmail ?? '';
   resendEmailError.value = '';
   resendEmailOpen.value = true;
 }
 
 async function resendAnswerEmail(): Promise<void> {
   if (detailId.value === null) return;
+  const toEmail = validRecipientEmail(resendEmail.value);
+  if (toEmail === null) {
+    resendEmailError.value = '올바른 받는 이메일 주소를 입력해 주세요.';
+    return;
+  }
   resendEmailError.value = '';
   try {
-    const response = await sendAnswerEmail.mutateAsync(detailId.value);
+    const response = await sendAnswerEmail.mutateAsync({
+      quoteId: detailId.value,
+      body: { toEmail },
+    });
     resendEmailOpen.value = false;
     emailActionFeedback.value = emailFeedback(response.data, 'resend');
   } catch (error) {
@@ -1493,13 +1520,32 @@ async function downloadOriginal(): Promise<void> {
           </button>
         </div>
 
-        <label class="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-gray-200 px-3 py-3">
-          <input v-model="completionSendEmail" type="checkbox" class="mt-0.5 size-4 rounded border-gray-300 text-blue-600">
-          <span>
-            <span class="block text-sm font-semibold text-gray-800">고객에게 회신 완료 이메일 보내기</span>
-            <span class="mt-0.5 block text-xs leading-5 text-gray-500">기본 선택이며 회원정보에 등록된 이메일로 발송합니다.</span>
-          </span>
-        </label>
+        <div class="mt-3 rounded-xl border border-gray-200 px-3 py-3">
+          <label class="flex cursor-pointer items-start gap-2.5">
+            <input v-model="completionSendEmail" type="checkbox" class="mt-0.5 size-4 rounded border-gray-300 text-blue-600">
+            <span>
+              <span class="block text-sm font-semibold text-gray-800">고객에게 회신 완료 이메일 보내기</span>
+              <span class="mt-0.5 block text-xs leading-5 text-gray-500">기본 선택이며 아래 주소로 발송합니다.</span>
+            </span>
+          </label>
+          <label class="mt-3 block border-t border-gray-100 pt-3 text-xs font-semibold text-gray-600">
+            받는 이메일
+            <input
+              v-model.trim="completionEmail"
+              type="email"
+              inputmode="email"
+              autocomplete="off"
+              placeholder="customer@example.com"
+              class="mt-1.5 w-full rounded-lg border px-3 py-2 text-sm font-normal text-gray-800 outline-none disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
+              :class="completionEmailValid ? 'border-gray-300 focus:border-blue-400' : 'border-red-300 focus:border-red-400'"
+              :disabled="!completionSendEmail || completeReview.isPending.value"
+            >
+          </label>
+          <p class="mt-1.5 text-[11px] leading-4 text-gray-400">
+            고객 회원정보의 이메일을 기본값으로 채웁니다. 수정한 주소는 이번 발송에만 사용하며 회원정보는 변경하지 않습니다.
+          </p>
+          <p v-if="!completionEmailValid" class="mt-1 text-[11px] text-red-600">올바른 받는 이메일 주소를 입력해 주세요.</p>
+        </div>
 
         <label
           v-if="finalConfirmedTotal === null"
@@ -1525,7 +1571,7 @@ async function downloadOriginal(): Promise<void> {
           <button
             type="button"
             class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="patch.isPending.value || completeReview.isPending.value || adminReviewPendingCount > 0 || (finalConfirmedTotal === null && !completionWithoutPriceConfirmed)"
+            :disabled="patch.isPending.value || completeReview.isPending.value || !completionEmailValid || adminReviewPendingCount > 0 || (finalConfirmedTotal === null && !completionWithoutPriceConfirmed)"
             @click="submitCompletion"
           >
             {{ completeReview.isPending.value ? '회신 처리 중…' : '회신 완료' }}
@@ -1547,6 +1593,23 @@ async function downloadOriginal(): Promise<void> {
         <p class="mt-2 text-xs leading-5 text-gray-500">
           현재 확정 금액과 회신 메모로 공식 회신 이메일을 다시 보냅니다. 회신 상태와 완료 시각은 변경되지 않습니다.
         </p>
+        <label class="mt-4 block text-xs font-semibold text-gray-600">
+          받는 이메일
+          <input
+            v-model.trim="resendEmail"
+            type="email"
+            inputmode="email"
+            autocomplete="off"
+            placeholder="customer@example.com"
+            class="mt-1.5 w-full rounded-lg border px-3 py-2 text-sm font-normal text-gray-800 outline-none"
+            :class="resendEmailValid ? 'border-gray-300 focus:border-blue-400' : 'border-red-300 focus:border-red-400'"
+            :disabled="sendAnswerEmail.isPending.value"
+          >
+        </label>
+        <p class="mt-1.5 text-[11px] leading-4 text-gray-400">
+          고객 회원정보의 이메일이 기본값입니다. 수정해도 이번 재발송에만 적용됩니다.
+        </p>
+        <p v-if="!resendEmailValid" class="mt-1 text-[11px] text-red-600">올바른 받는 이메일 주소를 입력해 주세요.</p>
         <p v-if="resendEmailError !== ''" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{{ resendEmailError }}</p>
         <div class="mt-5 flex justify-end gap-2">
           <button
@@ -1560,7 +1623,7 @@ async function downloadOriginal(): Promise<void> {
           <button
             type="button"
             class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="sendAnswerEmail.isPending.value"
+            :disabled="sendAnswerEmail.isPending.value || !resendEmailValid"
             @click="resendAnswerEmail"
           >
             {{ sendAnswerEmail.isPending.value ? '발송 중…' : '이메일 다시 보내기' }}

@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AdminBomQuoteAnswerEmailBody,
   AdminBomQuoteCompleteBody,
   AdminBomQuoteItemAddBody,
   AdminBomQuoteItemRemoveBody,
@@ -9,6 +10,7 @@ import {
   BomQuoteSearchRequirementsBody,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
+import { resolveBomAnswerRecipient } from './rfq-email';
 import {
   analysisComponentLookupWhere,
   adminQuoteSelectionBlockReason,
@@ -73,6 +75,19 @@ describe('관리자 회신 상태 경계', () => {
   it('회신 완료 이메일은 기본 발송이며 관리자가 명시적으로 해제할 수 있다', () => {
     expect(AdminBomQuoteCompleteBody.parse({}).sendEmail).toBe(true);
     expect(AdminBomQuoteCompleteBody.parse({ sendEmail: false }).sendEmail).toBe(false);
+  });
+
+  it('기본 주소 대신 해당 발송에만 사용할 유효한 수신 주소를 받을 수 있다', () => {
+    expect(AdminBomQuoteCompleteBody.parse({ toEmail: ' alternate@example.com ' }).toEmail)
+      .toBe('alternate@example.com');
+    expect(AdminBomQuoteAnswerEmailBody.parse({ toEmail: 'resend@example.com' }).toEmail)
+      .toBe('resend@example.com');
+    expect(AdminBomQuoteCompleteBody.safeParse({ toEmail: '잘못된-주소' }).success).toBe(false);
+    expect(AdminBomQuoteAnswerEmailBody.safeParse({ toEmail: '잘못된-주소' }).success).toBe(false);
+    expect(resolveBomAnswerRecipient('member@example.com')).toBe('member@example.com');
+    expect(resolveBomAnswerRecipient('member@example.com', ' override@example.com '))
+      .toBe('override@example.com');
+    expect(resolveBomAnswerRecipient(null)).toBeNull();
   });
 });
 

@@ -599,10 +599,11 @@ fresh=전체 28행·합계/비-fresh=저장본 유지) ALL PASS.
 인지 장치의 마지막 조각: 관리자(배지·칩)·협력사(칩·메일)는 있는데 **고객만 접속해야
 회신 여부를 알 수 있었다**. 관리자 완료 창의 이메일 체크박스는 기본 선택이며, 선택한 경우
 견적이 `answered` 로 전이된 뒤 발송한다. 관리자가 해제하면 상태만 확정하고 메일은 보내지 않는다.
-수신처 = `g5_member.mb_email`, 게이트 = 코어 회원 알림 설정(`cf_email_use` — 운영이 메일을
-꺼두면 존중, `getNotifyConfig()`). SMTP 실패도 확정 상태를 되돌리지 않고 화면에 전달 결과를
-명시한다. `answered|closed`에서는 상태·`answeredAt`을 바꾸지 않는 전용 재발송 명령
-`POST /api/admin/bom-quotes/:id/answer-email`을 제공한다.
+수신처 기본값 = `g5_member.mb_email`. 완료·재발송 확인창은 실제 주소를 표시하고 관리자가 이번
+발송에만 쓸 주소로 수정할 수 있다. 수정값은 `g5_member`를 갱신하지 않는다. 게이트 = 코어 회원
+알림 설정(`cf_email_use` — 운영이 메일을 꺼두면 존중, `getNotifyConfig()`). SMTP 실패도 확정
+상태를 되돌리지 않고 화면에 전달 결과를 명시한다. `answered|closed`에서는 상태·`answeredAt`을
+바꾸지 않는 전용 재발송 명령 `POST /api/admin/bom-quotes/:id/answer-email`을 제공한다.
 내용은 확정가 유무로 분기: 있으면 금액+[견적 확인하고 주문하기](D16 게이트와 정합),
 없으면 [회신 내용 확인하기]. CTA `/app/bom/{quoteId}`. E2E 5케이스 ALL PASS
 (Mailpit 실수신·재저장 미발송·확정가 분기·게이트 미발송).

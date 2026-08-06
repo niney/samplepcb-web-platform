@@ -299,6 +299,14 @@ export function buildBomQuoteAnsweredEmail(p: BomQuoteAnsweredEmailParams): {
   };
 }
 
+/** 회원 기본 주소보다 관리자가 이번 발송에 입력한 주소를 우선한다. */
+export function resolveBomAnswerRecipient(
+  memberEmail: string | null | undefined,
+  recipientOverride?: string,
+): string | null {
+  return (recipientOverride ?? memberEmail ?? '').trim() || null;
+}
+
 export async function sendBomRfqMail(
   log: FastifyBaseLogger,
   to: string | null | undefined,
