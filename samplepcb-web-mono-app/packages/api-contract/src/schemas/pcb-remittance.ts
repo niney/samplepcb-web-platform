@@ -184,3 +184,52 @@ export const PcbRemittanceMutationResponse = z.object({
   }),
 });
 export type PcbRemittanceMutationResponseType = z.infer<typeof PcbRemittanceMutationResponse>;
+
+// ── 협력사 수금 현황 ─────────────────────────────────────────────────────────
+// 관리자 [송금] 워크큐의 협력사 버전. **내 조직이 수주한 발주서(received)만** 센다 —
+// MD 가 하위에 지급하는 돈은 성격이 다르고 기록 창구도 관리자 쪽이다.
+// 협력사 포털 홈이 "받을 돈이 남았나"를 먼저 알려주려면 발주서 상세만으로는 부족하다
+// (완료된 발주서는 홈의 '진행할 발주'에 뜨지 않아 진입 경로 자체가 없었다 — 2026-08-06).
+export const PartnerPcbRemittanceItem = z.object({
+  poId: z.number(),
+  projectName: z.string(),
+  /** 발주처(우리 또는 상위 MD) 이름. */
+  ordererName: z.string(),
+  poStatus: PcbPoStatus,
+  issuedAt: z.string(),
+  summary: PcbRemittanceSummary,
+  /** 입금 건별 내역 — 증빙 파일은 내부 자료라 싣지 않는다. */
+  remittances: z.array(
+    z.object({
+      id: z.number(),
+      remittedOn: z.string(),
+      currency: z.string(),
+      amount: z.number(),
+      memo: z.string().nullable(),
+    }),
+  ),
+});
+export type PartnerPcbRemittanceItemType = z.infer<typeof PartnerPcbRemittanceItem>;
+
+/** 통화별 미수금 총계 — 통화를 뭉치면 숫자가 거짓말을 한다(관리자 집계와 같은 규율). */
+export const PartnerPcbRemittanceTotal = z.object({
+  currency: z.string(),
+  poAmount: z.number(),
+  paidAmount: z.number(),
+  balance: z.number(),
+  poCount: z.number().int().nonnegative(),
+});
+export type PartnerPcbRemittanceTotalType = z.infer<typeof PartnerPcbRemittanceTotal>;
+
+export const PartnerPcbRemittanceListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(PartnerPcbRemittanceItem),
+    totals: z.array(PartnerPcbRemittanceTotal),
+    /** 미수금이 남은 발주 수 — 홈 배지·요약 문구가 쓴다. */
+    unpaidCount: z.number().int().nonnegative(),
+  }),
+});
+export type PartnerPcbRemittanceListResponseType = z.infer<
+  typeof PartnerPcbRemittanceListResponse
+>;

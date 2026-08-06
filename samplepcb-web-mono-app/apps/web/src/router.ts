@@ -113,6 +113,13 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/partner/PartnerShipmentsDone.vue'),
         meta: { requiresMember: true },
       },
+      {
+        // 수금 현황(P3.11) — 완료 발주서는 홈에 안 떠서 상세로 갈 길이 없었다
+        path: 'remittances',
+        name: 'partner-pcb-remittances',
+        component: () => import('./pages/partner/PartnerPcbRemittances.vue'),
+        meta: { requiresMember: true },
+      },
     ],
   },
   // 매직링크 무로그인 회신(§6.9) — 공개 라우트(가드 없음). 인증은 URL 토큰이 담당하며

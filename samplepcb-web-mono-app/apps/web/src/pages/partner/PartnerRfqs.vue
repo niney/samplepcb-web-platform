@@ -12,9 +12,9 @@ import {
   usePartnerShipments,
 } from '../../partner/usePartnerRfqs';
 import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
-import { usePartnerPcbPos } from '../../partner/usePartnerPcbPos';
+import { usePartnerPcbPos, usePartnerPcbRemittances } from '../../partner/usePartnerPcbPos';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
-import { pcbMoneyWithSub } from '../../lib/pcb-money';
+import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
 import { fmtKstDate } from '@sp/utils';
 
@@ -45,6 +45,11 @@ const donePcb = computed(() => pcbItems.value.filter((r) => r.status !== 'reques
 const pcbPoQuery = usePartnerPcbPos();
 const pcbPoItems = computed(() => pcbPoQuery.data.value?.data.items ?? []);
 const myTurnPcbPos = computed(() => pcbPoItems.value.filter((po) => po.myTurn));
+
+// 수금 현황(P3.11) — 통화별 미수금 요약. 발주가 하나도 없으면 카드 자체를 감춘다.
+const remitQuery = usePartnerPcbRemittances();
+const remitTotals = computed(() => remitQuery.data.value?.data.totals ?? []);
+const remitUnpaidCount = computed(() => remitQuery.data.value?.data.unpaidCount ?? 0);
 
 const poItems = computed(() => poQuery.data.value?.data.items ?? []);
 const toConfirm = computed(() => poItems.value.filter((po) => po.status === 'issued'));
@@ -154,6 +159,32 @@ const rfqStatusCls = (s: string): string =>
           <p v-if="myTurnCount > 0" class="mt-0.5 text-xs font-bold text-blue-600">내 차례 {{ myTurnCount }}건!</p>
         </a>
       </div>
+
+      <!-- 수금 현황(P3.11) — '오늘 할 일'이 아니라 돈 이야기라 카드 줄과 분리한다.
+           완료된 발주서는 아래 목록에 안 떠서 여기가 유일한 진입점이다. -->
+      <RouterLink
+        v-if="remitTotals.length > 0"
+        :to="{ name: 'partner-pcb-remittances' }"
+        class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-surface px-4 py-3 hover:border-amber-300"
+        :class="remitUnpaidCount > 0 ? 'border-amber-200' : 'border-gray-200'"
+      >
+        <div>
+          <p class="text-sm font-bold text-gray-700">수금 현황</p>
+          <p class="mt-0.5 text-xs text-gray-500">
+            <template v-if="remitUnpaidCount > 0">미수금 {{ remitUnpaidCount }}건 — 입금 내역 보기 →</template>
+            <template v-else>미수금 없음 — 입금 내역 보기 →</template>
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <span v-for="t in remitTotals" :key="t.currency" class="text-right">
+            <span class="block text-[11px] text-gray-400">{{ t.currency }} 미수금</span>
+            <b
+              class="tabular-nums"
+              :class="t.balance > 0 ? 'text-amber-700' : 'text-gray-400'"
+            >{{ fmtPcbAmount(t.currency, t.balance) }}</b>
+          </span>
+        </div>
+      </RouterLink>
 
       <!-- ⓞ 회신할 PCB 견적(PCB 파트너 트랙 P1) — 제작 견적은 부품 BOM 과 별도 축 -->
       <section v-if="pendingPcb.length > 0" id="pcb-reply">

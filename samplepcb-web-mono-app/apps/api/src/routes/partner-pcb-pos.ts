@@ -7,16 +7,21 @@ import {
   PartnerPcbChildPoCreateBody,
   PartnerPcbPoDetailResponse,
   PartnerPcbPoListResponse,
+  PartnerPcbRemittanceListResponse,
   PcbEqFileType,
   PcbInvoiceResponse,
   PcbPoActionResponse,
   PcbShipmentAdvanceBody,
   PcbShipmentReceiveBody,
   bomShipmentStatusLabel,
+  type PartnerPcbRemittanceTotalType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
+import { summarizePcbRemittances } from '../lib/pcb-remittance';
+import { loadHousePartnerName } from '../lib/pcb-rfq';
 import {
   advancePcbPoEq,
+  asPcbPoStatus,
   createChildPcbPo,
   deletePcbEqFile,
   getPcbEqFileDownload,
@@ -93,6 +98,81 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const detail = await loadPartnerPcbPoDetail(request.params.poId, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
       return { result: true as const, data: detail };
+    },
+  );
+
+  // ── 수금 현황(P3.11) — 관리자 [송금] 워크큐의 협력사 버전 ────────────────────
+  // 내 조직이 **수주한** 발주서만(parentPartnerId 무관 — 받는 쪽이 나면 다 내 수금).
+  // 완료된 발주서는 포털 홈의 '진행할 발주'에 안 떠서 상세로 갈 길이 없었다 —
+  // 이 목록이 그 진입점이다(2026-08-06 사용자 지적).
+  fastify.get(
+    '/partner/pcb-remittances',
+    { schema: { response: { 200: PartnerPcbRemittanceListResponse } } },
+    async (request) => {
+      const ctx = requireCtx(request);
+      const pos = await prisma.spPcbPo.findMany({
+        where: { partnerId: ctx.partnerId },
+        include: {
+          spec: { select: { projectName: true } },
+          remittances: { orderBy: [{ remittedOn: 'asc' }, { id: 'asc' }] },
+        },
+        orderBy: { issuedAt: 'desc' },
+      });
+      // 발주처 이름 — parentPartnerId 0 = 우리(하우스), 그 외 = 상위 MD 조직.
+      const parentIds = [...new Set(pos.map((p) => p.parentPartnerId).filter((id) => id !== 0n))];
+      const parents =
+        parentIds.length === 0
+          ? []
+          : await prisma.spPartner.findMany({
+              where: { id: { in: parentIds } },
+              select: { id: true, name: true },
+            });
+      const parentName = new Map(parents.map((p) => [p.id.toString(), p.name]));
+      const houseName = await loadHousePartnerName();
+
+      const items = pos.map((po) => ({
+        poId: Number(po.id),
+        projectName: po.spec.projectName,
+        ordererName:
+          po.parentPartnerId === 0n
+            ? houseName
+            : (parentName.get(po.parentPartnerId.toString()) ?? '중개 조직'),
+        poStatus: asPcbPoStatus(po.status),
+        issuedAt: po.issuedAt.toISOString(),
+        summary: summarizePcbRemittances(po, po.remittances),
+        remittances: po.remittances.map((r) => ({
+          id: Number(r.id),
+          remittedOn: r.remittedOn.toISOString(),
+          currency: r.currency,
+          amount: Number(r.amount),
+          memo: r.memo,
+        })),
+      }));
+
+      const byCurrency = new Map<string, PartnerPcbRemittanceTotalType>();
+      for (const it of items) {
+        const cur = byCurrency.get(it.summary.currency) ?? {
+          currency: it.summary.currency,
+          poAmount: 0,
+          paidAmount: 0,
+          balance: 0,
+          poCount: 0,
+        };
+        cur.poAmount += it.summary.poAmount;
+        cur.paidAmount += it.summary.paidAmount;
+        cur.balance += it.summary.balance;
+        cur.poCount += 1;
+        byCurrency.set(it.summary.currency, cur);
+      }
+
+      return {
+        result: true as const,
+        data: {
+          items,
+          totals: [...byCurrency.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
+          unpaidCount: items.filter((i) => i.summary.balance > 0).length,
+        },
+      };
     },
   );
 

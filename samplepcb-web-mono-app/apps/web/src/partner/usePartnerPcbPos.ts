@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   PartnerPcbPoDetailResponse,
   PartnerPcbPoListResponse,
+  PartnerPcbRemittanceListResponse,
   PcbInvoiceResponse,
   PcbPoActionResponse,
   apiRoutes,
@@ -30,6 +31,14 @@ export function usePartnerPcbPoDetail(poId: Ref<number | null>) {
     queryKey: ['partner', 'pcbPos', 'detail', poId],
     queryFn: () => apiGet(`${base}/${String(poId.value)}`, PartnerPcbPoDetailResponse),
     enabled: computed(() => poId.value !== null),
+  });
+}
+
+/** 수금 현황(P3.11) — 완료된 발주서는 홈의 '진행할 발주'에 안 떠서 진입 경로가 없었다. */
+export function usePartnerPcbRemittances() {
+  return useQuery({
+    queryKey: ['partner', 'pcbRemittances'],
+    queryFn: () => apiGet(apiRoutes.partnerPcbRemittances, PartnerPcbRemittanceListResponse),
   });
 }
 

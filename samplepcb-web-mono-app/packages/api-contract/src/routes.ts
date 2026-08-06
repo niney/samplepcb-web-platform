@@ -36,6 +36,7 @@ export const apiRoutes = {
   pcbRfqReply: '/api/pcb-rfq-reply',
   adminPcbPos: '/api/admin/pcb-pos',
   partnerPcbPos: '/api/partner/pcb-pos',
+  partnerPcbRemittances: '/api/partner/pcb-remittances',
   adminPcbShipments: '/api/admin/pcb-shipments',
   partnerPcbShipments: '/api/partner/pcb-shipments',
   adminPcbOrders: '/api/admin/pcb-orders',
