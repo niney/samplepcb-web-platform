@@ -2159,6 +2159,20 @@ async function downloadOriginal(): Promise<void> {
           <!-- 비용 — 기본은 예상(자동: 부품 합계 + 설정 기본 운송료·관리비) 읽기 전용 표시.
                확정가는 토글을 켠 경우에만 입력(D9 수동 확정 — 관리자 혼동 방지 UX) -->
           <div class="space-y-0.5 rounded bg-surface-sunken px-2.5 py-2 text-xs text-gray-600">
+            <div
+              class="mb-2 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-2 text-blue-900"
+              title="세트당 BOM 수량에 제작·예비 세트 수를 합산 적용한 뒤 MOQ와 주문배수를 반영해 주문수량을 계산합니다."
+            >
+              <p class="text-[10px] font-semibold text-blue-600">수량 기준</p>
+              <p class="mt-0.5 flex flex-wrap items-baseline gap-x-1 tabular-nums">
+                <span>제작 <b>{{ detail.setQty.toLocaleString('ko-KR') }}세트</b></span>
+                <span class="text-blue-400">+</span>
+                <span>예비 <b>{{ detail.spareQty.toLocaleString('ko-KR') }}세트</b></span>
+                <span class="text-blue-400">=</span>
+                <strong class="text-blue-800">적용 {{ (detail.setQty + detail.spareQty).toLocaleString('ko-KR') }}세트</strong>
+              </p>
+              <p class="mt-0.5 text-[10px] text-blue-500">주문수량·부품 합계 산정 기준</p>
+            </div>
             <div class="flex justify-between"><span>부품 합계(선정 반영)</span><b class="tabular-nums">{{ smartbomFmtWon(detail.itemsTotal) }}</b></div>
             <div class="flex justify-between"><span>운송료(설정 기본값)</span><span class="tabular-nums">{{ smartbomFmtWon(detail.shippingFee) }}</span></div>
             <div class="flex justify-between"><span>관리비(설정 기본값)</span><span class="tabular-nums">{{ smartbomFmtWon(detail.managementFee) }}</span></div>
