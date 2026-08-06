@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { PCB_STEPS, type AdminPcbCaseTabType } from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
+import DeleteQuoteModal from '../../components/admin/DeleteQuoteModal.vue';
 import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../admin/useAdminPcbCases';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 
@@ -34,10 +35,47 @@ const tabCount = (key: CaseTab): number | null =>
   counts.value === null ? null : counts.value[key];
 const setTab = (tab: CaseTab): void => {
   filters.value = { ...filters.value, tab, page: 1 };
+  clearSelection();
 };
 const searchText = ref('');
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
+  clearSelection();
+};
+const setPage = (page: number): void => {
+  filters.value = { ...filters.value, page };
+  clearSelection();
+};
+
+// 배치 삭제 선택 — 견적 관리와 같은 규칙: 전체선택은 **현재 페이지 범위만**, 탭·검색·
+// 페이지가 바뀌면 목록이 달라지므로 선택을 비운다. 판정·모달은 견적 관리와 동일한 것을
+// 쓴다(차단·경고·사유는 서버가 정본 — 협력 발주·선적이 걸린 건은 여기서도 안 지워진다).
+const selectedIds = ref<number[]>([]);
+const deleteIds = ref<number[] | null>(null);
+const clearSelection = (): void => {
+  selectedIds.value = [];
+};
+const toggleOne = (specId: number): void => {
+  selectedIds.value = selectedIds.value.includes(specId)
+    ? selectedIds.value.filter((id) => id !== specId)
+    : [...selectedIds.value, specId];
+};
+const pageIds = computed(() => rows.value.map((r) => r.specId));
+const allSelected = computed(
+  () => pageIds.value.length > 0 && pageIds.value.every((id) => selectedIds.value.includes(id)),
+);
+const someSelected = computed(
+  () => !allSelected.value && pageIds.value.some((id) => selectedIds.value.includes(id)),
+);
+const toggleAll = (checked: boolean): void => {
+  const pageSet = new Set(pageIds.value);
+  selectedIds.value = checked
+    ? [...new Set([...selectedIds.value, ...pageIds.value])]
+    : selectedIds.value.filter((id) => !pageSet.has(id));
+};
+const onDeleted = (): void => {
+  deleteIds.value = null;
+  clearSelection();
 };
 
 // 단계 칩 — 구간별 색으로 흐름을 읽히게(견적 → 주문 → 생산 → 완료).
@@ -98,10 +136,38 @@ function openCase(specId: number): void {
       </form>
     </div>
 
+    <!-- 선택 삭제 툴바 — 선택이 있을 때만 뜬다(견적 관리와 같은 형태) -->
+    <div
+      v-if="selectedIds.length > 0"
+      class="flex items-center gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-2"
+    >
+      <span class="text-sm font-medium text-red-700">{{ selectedIds.length }}건 선택됨</span>
+      <button
+        type="button"
+        class="rounded-md bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-700"
+        @click="deleteIds = [...selectedIds]"
+      >
+        선택 삭제
+      </button>
+      <button type="button" class="text-sm text-gray-500 hover:underline" @click="clearSelection">
+        선택 해제
+      </button>
+    </div>
+
     <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
       <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
           <tr>
+            <th class="w-10 px-4 py-2.5">
+              <input
+                type="checkbox"
+                class="size-4 accent-red-600"
+                :checked="allSelected"
+                :indeterminate="someSelected"
+                aria-label="현재 페이지 전체 선택"
+                @change="toggleAll(($event.target as HTMLInputElement).checked)"
+              >
+            </th>
             <th class="whitespace-nowrap px-4 py-2.5">견적</th>
             <th class="px-4 py-2.5">프로젝트</th>
             <th class="px-4 py-2.5">신청자</th>
@@ -119,8 +185,18 @@ function openCase(specId: number): void {
             v-for="row in rows"
             :key="row.specId"
             class="cursor-pointer hover:bg-blue-50/40"
+            :class="selectedIds.includes(row.specId) ? 'bg-red-50/40' : ''"
             @click="openCase(row.specId)"
           >
+            <td class="px-4 py-2.5" @click.stop>
+              <input
+                type="checkbox"
+                class="size-4 accent-red-600"
+                :checked="selectedIds.includes(row.specId)"
+                :aria-label="`Q${row.specId} 선택`"
+                @change="toggleOne(row.specId)"
+              >
+            </td>
             <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">
               Q{{ row.specId }}
               <span v-if="row.isLegacy" class="ml-1 rounded bg-gray-100 px-1 text-[11px] text-gray-500" title="레거시 이관 건">이관</span>
@@ -176,7 +252,7 @@ function openCase(specId: number): void {
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td colspan="10" class="px-4 py-10 text-center text-sm text-gray-400">
+            <td colspan="11" class="px-4 py-10 text-center text-sm text-gray-400">
               {{ list.isFetching.value ? '불러오는 중…' : '해당 구간의 견적건이 없습니다.' }}
             </td>
           </tr>
@@ -191,7 +267,7 @@ function openCase(specId: number): void {
           type="button"
           class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
           :disabled="filters.page <= 1"
-          @click="filters = { ...filters, page: filters.page - 1 }"
+          @click="setPage(filters.page - 1)"
         >
           이전
         </button>
@@ -200,12 +276,20 @@ function openCase(specId: number): void {
           type="button"
           class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
           :disabled="filters.page >= totalPages"
-          @click="filters = { ...filters, page: filters.page + 1 }"
+          @click="setPage(filters.page + 1)"
         >
           다음
         </button>
       </div>
     </div>
+
+    <!-- 배치 영구 삭제 — 견적 관리와 같은 모달(차단·경고·사유 판정은 서버가 정본) -->
+    <DeleteQuoteModal
+      v-if="deleteIds !== null"
+      :ids="deleteIds"
+      @close="deleteIds = null"
+      @deleted="onDeleted"
+    />
   </div>
 </template>
 
