@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router';
 import { PCB_STEPS, type AdminPcbCaseTabType } from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import DeleteQuoteModal from '../../components/admin/DeleteQuoteModal.vue';
+import PcbSelectionBar from '../../components/admin/pcb/PcbSelectionBar.vue';
+import { useRowSelection } from '../../admin/useRowSelection';
 import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../admin/useAdminPcbCases';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 
@@ -47,32 +49,12 @@ const setPage = (page: number): void => {
   clearSelection();
 };
 
-// 배치 삭제 선택 — 견적 관리와 같은 규칙: 전체선택은 **현재 페이지 범위만**, 탭·검색·
-// 페이지가 바뀌면 목록이 달라지므로 선택을 비운다. 판정·모달은 견적 관리와 동일한 것을
-// 쓴다(차단·경고·사유는 서버가 정본 — 협력 발주·선적이 걸린 건은 여기서도 안 지워진다).
-const selectedIds = ref<number[]>([]);
-const deleteIds = ref<number[] | null>(null);
-const clearSelection = (): void => {
-  selectedIds.value = [];
-};
-const toggleOne = (specId: number): void => {
-  selectedIds.value = selectedIds.value.includes(specId)
-    ? selectedIds.value.filter((id) => id !== specId)
-    : [...selectedIds.value, specId];
-};
+// 배치 삭제 선택 — 규칙(useRowSelection)·툴바·모달을 전부 공용으로 쓴다. 차단·경고·사유
+// 판정은 서버가 정본이라, 협력 발주·선적이 걸린 건은 여기서도 지워지지 않는다.
 const pageIds = computed(() => rows.value.map((r) => r.specId));
-const allSelected = computed(
-  () => pageIds.value.length > 0 && pageIds.value.every((id) => selectedIds.value.includes(id)),
-);
-const someSelected = computed(
-  () => !allSelected.value && pageIds.value.some((id) => selectedIds.value.includes(id)),
-);
-const toggleAll = (checked: boolean): void => {
-  const pageSet = new Set(pageIds.value);
-  selectedIds.value = checked
-    ? [...new Set([...selectedIds.value, ...pageIds.value])]
-    : selectedIds.value.filter((id) => !pageSet.has(id));
-};
+const selection = useRowSelection(pageIds);
+const clearSelection = selection.clear;
+const deleteIds = ref<number[] | null>(null);
 const onDeleted = (): void => {
   deleteIds.value = null;
   clearSelection();
@@ -136,23 +118,11 @@ function openCase(specId: number): void {
       </form>
     </div>
 
-    <!-- 선택 삭제 툴바 — 선택이 있을 때만 뜬다(견적 관리와 같은 형태) -->
-    <div
-      v-if="selectedIds.length > 0"
-      class="flex items-center gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-2"
-    >
-      <span class="text-sm font-medium text-red-700">{{ selectedIds.length }}건 선택됨</span>
-      <button
-        type="button"
-        class="rounded-md bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-700"
-        @click="deleteIds = [...selectedIds]"
-      >
-        선택 삭제
-      </button>
-      <button type="button" class="text-sm text-gray-500 hover:underline" @click="clearSelection">
-        선택 해제
-      </button>
-    </div>
+    <PcbSelectionBar
+      :count="selection.selectedIds.value.length"
+      @delete="deleteIds = [...selection.selectedIds.value]"
+      @clear="clearSelection"
+    />
 
     <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
       <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -162,10 +132,10 @@ function openCase(specId: number): void {
               <input
                 type="checkbox"
                 class="size-4 accent-red-600"
-                :checked="allSelected"
-                :indeterminate="someSelected"
+                :checked="selection.allSelected.value"
+                :indeterminate="selection.someSelected.value"
                 aria-label="현재 페이지 전체 선택"
-                @change="toggleAll(($event.target as HTMLInputElement).checked)"
+                @change="selection.toggleAll(($event.target as HTMLInputElement).checked)"
               >
             </th>
             <th class="whitespace-nowrap px-4 py-2.5">견적</th>
@@ -185,16 +155,16 @@ function openCase(specId: number): void {
             v-for="row in rows"
             :key="row.specId"
             class="cursor-pointer hover:bg-blue-50/40"
-            :class="selectedIds.includes(row.specId) ? 'bg-red-50/40' : ''"
+            :class="selection.isSelected(row.specId) ? 'bg-red-50/40' : ''"
             @click="openCase(row.specId)"
           >
             <td class="px-4 py-2.5" @click.stop>
               <input
                 type="checkbox"
                 class="size-4 accent-red-600"
-                :checked="selectedIds.includes(row.specId)"
+                :checked="selection.isSelected(row.specId)"
                 :aria-label="`Q${row.specId} 선택`"
-                @change="toggleOne(row.specId)"
+                @change="selection.toggleOne(row.specId)"
               >
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">

@@ -5,6 +5,9 @@ import type { AdminPcbCaseTabType } from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../../admin/useAdminPcbCases';
 import { fmtPcbAmount } from '../../../lib/pcb-money';
+import { useRowSelection } from '../../../admin/useRowSelection';
+import DeleteQuoteModal from '../DeleteQuoteModal.vue';
+import PcbSelectionBar from './PcbSelectionBar.vue';
 
 // PCB 대기 큐(= 그 역할이 아직 시작하지 않은 일) — 견적요청·발주·EQ 화면의 첫 탭이
 // 공유한다. 조작은 언제나 Case 상세가 전담하므로 여기서는 큐와 진입만 제공한다
@@ -28,9 +31,20 @@ const rows = computed(() => list.data.value?.data.items ?? []);
 const total = computed(() => list.data.value?.data.total ?? 0);
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
 
+// 배치 삭제 선택 — 대기 큐는 "아직 시작하지 않은 건"이 모이는 곳이라 잘못 만든 견적을
+// 정리하기 좋은 자리다. 규칙(useRowSelection)·툴바·모달은 진행현황과 동일 공용.
+const pageIds = computed(() => rows.value.map((r) => r.specId));
+const selection = useRowSelection(pageIds);
+const deleteIds = ref<number[] | null>(null);
+const onDeleted = (): void => {
+  deleteIds.value = null;
+  selection.clear();
+};
+
 const searchText = ref('');
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
+  selection.clear();
 };
 
 function openCase(specId: number): void {
@@ -64,10 +78,26 @@ function openCase(specId: number): void {
       </form>
     </div>
 
+    <PcbSelectionBar
+      :count="selection.selectedIds.value.length"
+      @delete="deleteIds = [...selection.selectedIds.value]"
+      @clear="selection.clear"
+    />
+
     <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
       <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
           <tr>
+            <th class="w-10 px-4 py-2.5">
+              <input
+                type="checkbox"
+                class="size-4 accent-red-600"
+                :checked="selection.allSelected.value"
+                :indeterminate="selection.someSelected.value"
+                aria-label="현재 페이지 전체 선택"
+                @change="selection.toggleAll(($event.target as HTMLInputElement).checked)"
+              >
+            </th>
             <th class="whitespace-nowrap px-4 py-2.5">견적</th>
             <th class="px-4 py-2.5">프로젝트</th>
             <th class="px-4 py-2.5">신청자</th>
@@ -82,9 +112,19 @@ function openCase(specId: number): void {
           <tr
             v-for="row in rows"
             :key="row.specId"
-            class="cursor-pointer bg-amber-50/40 hover:bg-amber-50"
+            class="cursor-pointer hover:bg-amber-50"
+            :class="selection.isSelected(row.specId) ? 'bg-red-50/50' : 'bg-amber-50/40'"
             @click="openCase(row.specId)"
           >
+            <td class="px-4 py-2.5" @click.stop>
+              <input
+                type="checkbox"
+                class="size-4 accent-red-600"
+                :checked="selection.isSelected(row.specId)"
+                :aria-label="`Q${row.specId} 선택`"
+                @change="selection.toggleOne(row.specId)"
+              >
+            </td>
             <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">Q{{ row.specId }}</td>
             <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">{{ row.projectName }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.mbId ?? '비회원' }}</td>
@@ -115,7 +155,7 @@ function openCase(specId: number): void {
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td colspan="8" class="px-4 py-10 text-center text-sm text-gray-400">
+            <td colspan="9" class="px-4 py-10 text-center text-sm text-gray-400">
               {{ list.isFetching.value ? '불러오는 중…' : emptyText }}
             </td>
           </tr>
@@ -130,7 +170,7 @@ function openCase(specId: number): void {
           type="button"
           class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
           :disabled="filters.page <= 1"
-          @click="filters = { ...filters, page: filters.page - 1 }"
+          @click="filters = { ...filters, page: filters.page - 1 }; selection.clear()"
         >
           이전
         </button>
@@ -139,11 +179,19 @@ function openCase(specId: number): void {
           type="button"
           class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
           :disabled="filters.page >= totalPages"
-          @click="filters = { ...filters, page: filters.page + 1 }"
+          @click="filters = { ...filters, page: filters.page + 1 }; selection.clear()"
         >
           다음
         </button>
       </div>
     </div>
+
+    <!-- 배치 영구 삭제 — 진행현황·견적요청과 같은 모달(서버 판정이 정본) -->
+    <DeleteQuoteModal
+      v-if="deleteIds !== null"
+      :ids="deleteIds"
+      @close="deleteIds = null"
+      @deleted="onDeleted"
+    />
   </div>
 </template>
