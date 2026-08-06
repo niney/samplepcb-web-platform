@@ -135,21 +135,21 @@ const pcbMenu: AdminMenuItem[] = [
   },
 ];
 
-// 모듈 사전 — core(통합 관리) = 공용 기준정보와 기존 관리 기능, smartbom·pcb = 업무 모듈.
+// 모듈 사전 — core(통합) = 공용 기준정보와 기존 관리 기능, pcb·smartbom = 업무 모듈.
 // 확장 자리(PCBA주문·기술개발)는 각 모듈이 실제로 생길 때 추가한다.
 export const adminModules: readonly AdminModule[] = [
   { key: 'core', labelKey: 'admin.modules.core', homeTo: { name: 'admin' }, menu: adminMenu },
-  {
-    key: 'smartbom',
-    labelKey: 'admin.modules.smartbom',
-    homeTo: { name: 'admin-smartbom' },
-    menu: smartbomMenu,
-  },
   {
     key: 'pcb',
     labelKey: 'admin.modules.pcb',
     homeTo: { name: 'admin-pcb-cases' },
     menu: pcbMenu,
+  },
+  {
+    key: 'smartbom',
+    labelKey: 'admin.modules.smartbom',
+    homeTo: { name: 'admin-smartbom' },
+    menu: smartbomMenu,
   },
 ];
 

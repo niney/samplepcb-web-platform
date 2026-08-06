@@ -73,9 +73,9 @@ export const ko = {
   admin: {
     title: '관리자',
     modules: {
-      core: '통합 관리',
-      smartbom: '스마트 BOM',
-      pcb: 'PCB 협력',
+      core: '통합',
+      pcb: 'PCB',
+      smartbom: 'BOM',
     },
     menu: {
       dashboard: '대시보드',

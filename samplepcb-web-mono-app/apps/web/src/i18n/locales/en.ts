@@ -73,9 +73,9 @@ export const en = {
   admin: {
     title: 'Admin',
     modules: {
-      core: 'Console',
-      smartbom: 'Smart BOM',
-      pcb: 'PCB Partners',
+      core: 'Integration',
+      pcb: 'PCB',
+      smartbom: 'BOM',
     },
     menu: {
       dashboard: 'Dashboard',
