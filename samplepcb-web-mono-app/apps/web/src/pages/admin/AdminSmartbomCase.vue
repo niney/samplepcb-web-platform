@@ -397,7 +397,7 @@ function partChangeForceReason(item: BomQuoteItemType): string | null {
   const quote = detail.value;
   if (quote === null) return null;
   if (quote.status !== 'requested' && quote.status !== 'reviewing') {
-    return '이미 고객 회신 또는 종료 단계에 진입한 견적입니다';
+    return '이미 고객 회신 확정 또는 마감 단계에 진입한 견적입니다';
   }
   if (quote.orderState !== 'none' || quote.orderInfo !== null) {
     return '장바구니 또는 주문으로 전환된 견적입니다';
@@ -636,7 +636,7 @@ function partAddForceReason(): string | null {
   const quote = detail.value;
   if (quote === null) return null;
   if (quote.status !== 'requested' && quote.status !== 'reviewing') {
-    return '이미 고객 회신 또는 종료 단계에 진입한 견적입니다';
+    return '이미 고객 회신 확정 또는 마감 단계에 진입한 견적입니다';
   }
   if (quote.orderState !== 'none' || quote.orderInfo !== null) {
     return '장바구니 또는 주문으로 전환된 견적입니다';
@@ -932,6 +932,8 @@ const completionError = ref('');
 const resendEmailOpen = ref(false);
 const resendEmail = ref('');
 const resendEmailError = ref('');
+const quoteClosingOpen = ref(false);
+const quoteClosingError = ref('');
 const emailActionFeedback = ref<{
   tone: 'success' | 'warning' | 'error';
   text: string;
@@ -940,6 +942,7 @@ const emailActionFeedback = ref<{
 watch(detailId, () => {
   completionOpen.value = false;
   resendEmailOpen.value = false;
+  quoteClosingOpen.value = false;
   emailActionFeedback.value = null;
 });
 
@@ -1291,19 +1294,19 @@ function emailFeedback(
       tone: 'success',
       text: action === 'resend'
         ? `${delivery.toEmail ?? '고객 이메일'}로 회신 이메일을 다시 발송했습니다.`
-        : `회신을 완료하고 ${delivery.toEmail ?? '고객 이메일'}로 이메일을 발송했습니다.`,
+        : `고객 회신을 확정하고 ${delivery.toEmail ?? '고객 이메일'}로 이메일을 발송했습니다.`,
     };
   }
   if (delivery.reason === 'disabled') {
-    return { tone: 'warning', text: '회신을 완료했습니다. 이메일은 관리자 선택으로 발송하지 않았습니다.' };
+    return { tone: 'warning', text: '고객 회신을 확정했습니다. 이메일은 관리자 선택으로 발송하지 않았습니다.' };
   }
   if (delivery.reason === 'missing_recipient') {
-    return { tone: 'warning', text: '회신은 완료했지만 고객 회원정보에 이메일이 없어 발송하지 못했습니다.' };
+    return { tone: 'warning', text: '고객 회신은 확정됐지만 회원정보에 이메일이 없어 발송하지 못했습니다.' };
   }
   if (delivery.reason === 'mail_unavailable') {
-    return { tone: 'warning', text: '회신은 완료했지만 현재 이메일 발송 기능이 비활성화되어 있습니다.' };
+    return { tone: 'warning', text: '고객 회신은 확정됐지만 현재 이메일 발송 기능이 비활성화되어 있습니다.' };
   }
-  return { tone: 'error', text: '회신은 완료했지만 이메일 발송에 실패했습니다. 다시 보내기를 이용해 주세요.' };
+  return { tone: 'error', text: '고객 회신은 확정됐지만 이메일 발송에 실패했습니다. 다시 보내기를 이용해 주세요.' };
 }
 
 /** 미리보기에는 현재 입력값이 보여야 하므로 회신 전 상태에서는 관리자 초안을 먼저 저장한다. */
@@ -1374,7 +1377,7 @@ async function submitCompletion(): Promise<void> {
   } catch (error) {
     completionError.value = error instanceof ApiRequestError
       ? (error.payload?.message ?? error.message)
-      : '회신 완료 처리에 실패했습니다. 최신 상태를 확인한 뒤 다시 시도해 주세요.';
+      : '고객 회신 확정에 실패했습니다. 최신 상태를 확인한 뒤 다시 시도해 주세요.';
   }
 }
 
@@ -1403,6 +1406,39 @@ async function resendAnswerEmail(): Promise<void> {
     resendEmailError.value = error instanceof ApiRequestError
       ? (error.payload?.message ?? error.message)
       : '회신 이메일을 다시 보내지 못했습니다.';
+  }
+}
+
+function openQuoteClosing(event?: Event): void {
+  if (detail.value?.status !== 'answered') {
+    actionError.value = '고객 회신이 확정된 견적만 마감할 수 있습니다.';
+    return;
+  }
+  const trigger = event?.currentTarget;
+  if (trigger instanceof HTMLElement) trigger.closest('details')?.removeAttribute('open');
+  quoteClosingError.value = '';
+  quoteClosingOpen.value = true;
+}
+
+async function submitQuoteClosing(): Promise<void> {
+  if (detailId.value === null || detail.value?.status !== 'answered') {
+    quoteClosingError.value = '견적 상태가 변경되었습니다. 최신 상태를 확인해 주세요.';
+    return;
+  }
+  quoteClosingError.value = '';
+  try {
+    await patch.mutateAsync({
+      quoteId: detailId.value,
+      body: {
+        status: 'closed',
+        ...reviewFields(),
+      },
+    });
+    quoteClosingOpen.value = false;
+  } catch (error) {
+    quoteClosingError.value = error instanceof ApiRequestError
+      ? (error.payload?.message ?? error.message)
+      : '견적을 마감하지 못했습니다. 최신 상태를 확인한 뒤 다시 시도해 주세요.';
   }
 }
 
@@ -1470,7 +1506,7 @@ async function downloadOriginal(): Promise<void> {
       @close="estimateOpen = false"
     />
 
-    <!-- 회신 완료 확인 — 검토 결과·가안 견적서·이메일 선택을 한 자리에서 최종 점검한다. -->
+    <!-- 고객 회신 확정 — 검토 결과·가안 견적서·이메일 선택을 한 자리에서 최종 점검한다. -->
     <div
       v-if="completionOpen && detail !== null"
       class="fixed inset-0 z-[55] grid place-items-center bg-slate-950/45 p-4"
@@ -1481,14 +1517,14 @@ async function downloadOriginal(): Promise<void> {
       <div class="max-h-[calc(100dvh-2rem)] w-full max-w-[520px] overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
         <div class="flex items-start justify-between gap-4">
           <div>
-            <h2 id="smartbom-completion-title" class="text-base font-bold text-gray-900">고객 회신 완료</h2>
+            <h2 id="smartbom-completion-title" class="text-base font-bold text-gray-900">고객 회신 확정</h2>
             <p class="mt-1 text-xs leading-5 text-gray-500">검토 결과와 고객에게 전달할 내용을 마지막으로 확인해 주세요.</p>
           </div>
           <button
             type="button"
             class="grid size-8 place-items-center rounded-lg text-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700"
             :disabled="completeReview.isPending.value"
-            aria-label="회신 완료 확인 닫기"
+            aria-label="고객 회신 확정 확인 닫기"
             @click="completionOpen = false"
           >
             ×
@@ -1524,7 +1560,7 @@ async function downloadOriginal(): Promise<void> {
           <label class="flex cursor-pointer items-start gap-2.5">
             <input v-model="completionSendEmail" type="checkbox" class="mt-0.5 size-4 rounded border-gray-300 text-blue-600">
             <span>
-              <span class="block text-sm font-semibold text-gray-800">고객에게 회신 완료 이메일 보내기</span>
+              <span class="block text-sm font-semibold text-gray-800">고객에게 견적 회신 이메일 보내기</span>
               <span class="mt-0.5 block text-xs leading-5 text-gray-500">기본 선택이며 아래 주소로 발송합니다.</span>
             </span>
           </label>
@@ -1553,7 +1589,7 @@ async function downloadOriginal(): Promise<void> {
         >
           <input v-model="completionWithoutPriceConfirmed" type="checkbox" class="mt-0.5 size-4 rounded border-amber-400 text-amber-600">
           <span class="text-xs leading-5 text-amber-800">
-            확정 총액 없이 회신하면 고객은 주문하기와 확정 견적서 인쇄를 사용할 수 없음을 확인했습니다.
+            확정 총액 없이 고객 회신을 확정하면 주문하기와 확정 견적서 인쇄를 사용할 수 없음을 확인했습니다.
           </span>
         </label>
 
@@ -1574,7 +1610,7 @@ async function downloadOriginal(): Promise<void> {
             :disabled="patch.isPending.value || completeReview.isPending.value || !completionEmailValid || adminReviewPendingCount > 0 || (finalConfirmedTotal === null && !completionWithoutPriceConfirmed)"
             @click="submitCompletion"
           >
-            {{ completeReview.isPending.value ? '회신 처리 중…' : '회신 완료' }}
+            {{ completeReview.isPending.value ? '회신 확정 중…' : '고객 회신 확정' }}
           </button>
         </div>
       </div>
@@ -1627,6 +1663,46 @@ async function downloadOriginal(): Promise<void> {
             @click="resendAnswerEmail"
           >
             {{ sendAnswerEmail.isPending.value ? '발송 중…' : '이메일 다시 보내기' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 견적 마감은 Case 완료가 아니라 고객의 신규 주문을 닫는 보조 작업이다. -->
+    <div
+      v-if="quoteClosingOpen && detail !== null"
+      class="fixed inset-0 z-[55] grid place-items-center bg-slate-950/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="smartbom-closing-title"
+    >
+      <div class="w-full max-w-[440px] rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
+        <h2 id="smartbom-closing-title" class="text-base font-bold text-gray-900">견적 마감</h2>
+        <p class="mt-2 text-sm leading-6 text-gray-600">
+          고객이 이 견적으로 더 진행하지 않는 경우에만 마감해 주세요. 마감 후에는 고객이 새 주문을 시작할 수 없습니다.
+        </p>
+        <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+          기존 견적·회신 이력은 보존됩니다. 견적 마감은 주문·결제·발주·배송까지 완료됐다는 의미가 아닙니다.
+        </div>
+        <p v-if="quoteClosingError !== ''" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+          {{ quoteClosingError }}
+        </p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+            :disabled="patch.isPending.value"
+            @click="quoteClosingOpen = false"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            class="rounded-lg bg-gray-800 px-4 py-2 text-sm font-bold text-white hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="patch.isPending.value"
+            @click="submitQuoteClosing"
+          >
+            {{ patch.isPending.value ? '마감 중…' : '견적 마감' }}
           </button>
         </div>
       </div>
@@ -2115,7 +2191,7 @@ async function downloadOriginal(): Promise<void> {
             </label>
             <p class="text-[11px] text-gray-400">
               참고: VAT 포함 시 {{ confirmedTotalVat }} — 부가세는 저장하지 않습니다(전 금액 VAT 별도).
-              검토 중 저장값은 관리자 초안이며, 회신 완료 후 고객에게 공개되고 [주문하기]가 열립니다.
+              검토 중 저장값은 관리자 초안이며, 고객 회신 확정 후 공개되고 [주문하기]가 열립니다.
             </p>
           </template>
           <label class="block text-xs text-gray-500">고객 회신 메모(고객에게 표시)
@@ -2158,7 +2234,7 @@ async function downloadOriginal(): Promise<void> {
               :disabled="patch.isPending.value || completeReview.isPending.value"
               @click="openCompletion"
             >
-              회신 완료
+              고객 회신 확정
             </button>
             <button
               v-if="detail.status === 'answered' || detail.status === 'closed'"
@@ -2169,15 +2245,24 @@ async function downloadOriginal(): Promise<void> {
             >
               회신 이메일 다시 보내기
             </button>
-            <button
-              v-if="detail.status === 'answered'"
-              type="button"
-              class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50"
-              :disabled="patch.isPending.value"
-              @click="saveReview('closed')"
-            >
-              종료
-            </button>
+            <details v-if="detail.status === 'answered'" class="relative ml-auto">
+              <summary
+                class="cursor-pointer list-none rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-gray-50 hover:text-gray-700 [&::-webkit-details-marker]:hidden"
+              >
+                추가 작업
+              </summary>
+              <div class="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
+                <button
+                  type="button"
+                  class="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                  :disabled="patch.isPending.value"
+                  @click="openQuoteClosing"
+                >
+                  견적 마감
+                </button>
+                <p class="px-3 pb-1 pt-0.5 text-[11px] leading-4 text-gray-400">더 진행하지 않는 견적의 신규 주문을 닫습니다.</p>
+              </div>
+            </details>
           </div>
           <p v-if="actionError !== ''" class="text-xs text-red-600">{{ actionError }}</p>
           <p
@@ -2270,7 +2355,7 @@ async function downloadOriginal(): Promise<void> {
                 </li>
                 <li v-if="pendingPartAdd.impact.hasOrderSnapshot">기존 장바구니·주문은 당시 품목·금액 스냅샷을 유지하므로 변경 견적과 다를 수 있습니다.</li>
                 <li v-if="pendingPartAdd.impact.poCount > 0">기존 발주서 {{ pendingPartAdd.impact.poCount }}건은 발행 당시 품목·금액 스냅샷을 그대로 보존합니다.</li>
-                <li v-if="pendingPartAdd.impact.reopensQuote">고객 회신·종료 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
+                <li v-if="pendingPartAdd.impact.reopensQuote">고객 확인 대기·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
               </ul>
               <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">
                 <input v-model="forcePartAddConfirmed" type="checkbox" class="mt-0.5 size-4 accent-rose-700">
@@ -2325,7 +2410,7 @@ async function downloadOriginal(): Promise<void> {
                 <li v-if="pendingPartRemove.impact.invalidatedReplyCount > 0">이 부품의 기존 협력사 회신 {{ pendingPartRemove.impact.invalidatedReplyCount }}건도 함께 삭제됩니다.</li>
                 <li v-if="pendingPartRemove.impact.hasOrderSnapshot">기존 장바구니·주문은 당시 품목·금액 스냅샷을 유지합니다.</li>
                 <li v-if="pendingPartRemove.impact.poCount > 0">기존 발주서 {{ pendingPartRemove.impact.poCount }}건은 발행 당시 품목·금액 스냅샷을 유지합니다.</li>
-                <li v-if="pendingPartRemove.impact.reopensQuote">고객 회신·종료 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
+                <li v-if="pendingPartRemove.impact.reopensQuote">고객 확인 대기·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
               </ul>
               <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">
                 <input v-model="forcePartRemoveConfirmed" type="checkbox" class="mt-0.5 size-4 accent-rose-700">
@@ -2433,7 +2518,7 @@ async function downloadOriginal(): Promise<void> {
                   기존 발주서 {{ pendingPartSelection.impact.poCount }}건은 발행 당시 부품·금액 스냅샷을 그대로 보존합니다.
                 </li>
                 <li v-if="pendingPartSelection.impact.reopensQuote">
-                  고객 회신·종료 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.
+                  고객 확인 대기·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.
                 </li>
               </ul>
               <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">

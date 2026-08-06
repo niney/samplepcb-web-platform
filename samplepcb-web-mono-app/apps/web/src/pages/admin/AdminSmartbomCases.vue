@@ -44,8 +44,8 @@ const TABS: { key: BomQuoteStatusType | null; label: string }[] = [
   { key: null, label: '전체' },
   { key: 'requested', label: '견적요청' },
   { key: 'reviewing', label: '검토 중' },
-  { key: 'answered', label: '회신 완료' },
-  { key: 'closed', label: '종료' },
+  { key: 'answered', label: '고객 확인 대기' },
+  { key: 'closed', label: '마감' },
   { key: 'canceled', label: '취소' },
 ];
 
@@ -58,7 +58,7 @@ const SUMMARY_CARDS: { key: 'all' | 'requested' | 'reviewing' | 'answered'; labe
   { key: 'all', label: '전체 Case', hint: '요청 이후 전체' },
   { key: 'requested', label: '견적요청', hint: '검토 대기' },
   { key: 'reviewing', label: '검토 중', hint: '견적 작업 중' },
-  { key: 'answered', label: '회신 완료', hint: '고객 회신 발송됨' },
+  { key: 'answered', label: '고객 확인 대기', hint: '견적 회신 확정됨' },
 ];
 
 function openCase(id: string): void {

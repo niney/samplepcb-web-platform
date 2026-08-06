@@ -716,7 +716,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     },
   );
 
-  // 회신 완료 — requested에서 바로 건너뛰지 않고 reviewing에서만 실행한다.
+  // 고객 회신 확정 — requested에서 바로 건너뛰지 않고 reviewing에서만 실행한다.
   // 상태 확정과 이메일 전달 성패는 분리해 SMTP 실패가 업무 상태를 되돌리지 않게 한다.
   fastify.post('/bom-quotes/:id/complete', {
     schema: {
@@ -733,7 +733,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (quote.status !== 'reviewing' || !canTransition(quote.status, 'answered')) {
       return reply.status(409).send({
         error: 'BOM_REVIEW_SEQUENCE_REQUIRED',
-        message: '검토 시작 후 품목 확인을 마쳐야 회신을 완료할 수 있습니다.',
+        message: '검토 시작 후 품목 확인을 마쳐야 고객 회신을 확정할 수 있습니다.',
       });
     }
 
@@ -805,7 +805,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (quote.status !== 'answered' && quote.status !== 'closed') {
       return reply.status(409).send({
         error: 'BOM_QUOTE_NOT_ANSWERED',
-        message: '회신 완료된 견적만 이메일을 다시 보낼 수 있습니다.',
+        message: '고객 회신이 확정된 견적만 이메일을 다시 보낼 수 있습니다.',
       });
     }
 
@@ -847,7 +847,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (body.status === 'answered') {
       return reply.status(409).send({
         error: 'BOM_COMPLETE_ACTION_REQUIRED',
-        message: '회신 완료는 검토 화면의 회신 완료 절차를 이용해 주세요.',
+        message: '고객 회신 확정은 검토 화면의 확정 절차를 이용해 주세요.',
       });
     }
     if (body.status !== undefined && body.status !== quote.status && !canTransition(quote.status, body.status)) {
@@ -875,7 +875,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
     }
 
-    // 종료·취소 시 하위 협력사 RFQ 도 마감한다(docs/SMARTBOM_PARTNER_RFQ.md §2.3).
+    // 견적 마감·취소 시 하위 협력사 RFQ 도 마감한다(docs/SMARTBOM_PARTNER_RFQ.md §2.3).
     if (body.status === 'closed' || body.status === 'canceled') {
       await closeRfqsForQuote(quote.id);
     }

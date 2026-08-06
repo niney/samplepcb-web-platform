@@ -18,8 +18,8 @@ const STATUS_TABS: { key: BomQuoteStatusType | null; label: string }[] = [
   { key: null, label: '전체' },
   { key: 'requested', label: '견적요청' },
   { key: 'reviewing', label: '검토 중' },
-  { key: 'answered', label: '회신 완료' },
-  { key: 'closed', label: '종료' },
+  { key: 'answered', label: '고객 확인 대기' },
+  { key: 'closed', label: '마감' },
   { key: 'canceled', label: '취소' },
 ];
 
@@ -27,8 +27,8 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   draft: { label: '작성 중', cls: 'bg-gray-100 text-gray-600' },
   requested: { label: '견적요청', cls: 'bg-blue-100 text-blue-700' },
   reviewing: { label: '검토 중', cls: 'bg-amber-100 text-amber-700' },
-  answered: { label: '회신 완료', cls: 'bg-emerald-100 text-emerald-700' },
-  closed: { label: '종료', cls: 'bg-gray-200 text-gray-600' },
+  answered: { label: '고객 확인 대기', cls: 'bg-emerald-100 text-emerald-700' },
+  closed: { label: '마감', cls: 'bg-gray-200 text-gray-600' },
   canceled: { label: '취소', cls: 'bg-red-100 text-red-600' },
 };
 
@@ -114,17 +114,25 @@ function itemMatchLabel(item: BomQuoteItemType): string {
 
 async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
   if (detailId.value === null) return;
-  // 확정가 없이 회신하면 고객 [주문하기](D16-1 게이트)가 열리지 않는다 — 실수 방지 확인.
+  // 확정가 없이 고객 회신을 확정하면 [주문하기](D16-1 게이트)가 열리지 않는다.
   if (nextStatus === 'answered') {
     const total = form.value.confirmedTotal;
     if (
       (typeof total !== 'number' || !Number.isFinite(total)) &&
       !window.confirm(
-        '확정 총액 없이 회신을 완료하면 고객이 [주문하기]를 사용할 수 없습니다.\n확정가 없이 회신할까요?',
+        '확정 총액 없이 고객 회신을 확정하면 [주문하기]를 사용할 수 없습니다.\n확정가 없이 회신을 확정할까요?',
       )
     ) {
       return;
     }
+  }
+  if (
+    nextStatus === 'closed' &&
+    !window.confirm(
+      '이 견적을 마감하면 고객이 새 주문을 시작할 수 없습니다.\n더 진행하지 않는 견적을 마감할까요?',
+    )
+  ) {
+    return;
   }
   actionError.value = '';
   try {
@@ -276,8 +284,8 @@ async function downloadOriginal(): Promise<void> {
                     <div class="flex flex-wrap gap-2 border-t border-gray-100 pt-2">
                       <button type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview()">저장</button>
                       <button v-if="detail.status === 'requested'" type="button" class="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600" :disabled="patch.isPending.value" @click="saveReview('reviewing')">검토 시작</button>
-                      <button v-if="detail.status === 'reviewing'" type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700" :disabled="patch.isPending.value || completeReview.isPending.value" @click="saveReview('answered')">회신 완료</button>
-                      <button v-if="detail.status === 'answered'" type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview('closed')">종료</button>
+                      <button v-if="detail.status === 'reviewing'" type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700" :disabled="patch.isPending.value || completeReview.isPending.value" @click="saveReview('answered')">고객 회신 확정</button>
+                      <button v-if="detail.status === 'answered'" type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview('closed')">견적 마감</button>
                     </div>
                     <p v-if="actionError !== ''" class="text-xs text-red-600">{{ actionError }}</p>
                   </div>

@@ -41,8 +41,8 @@ const someRowsSelected = computed(() =>
 const TABS: { key: BomQuoteStatusType | null; label: string }[] = [
   { key: 'requested', label: '검토 대기' },
   { key: 'reviewing', label: 'RFQ 진행' },
-  { key: 'answered', label: '회신 완료' },
-  { key: 'closed', label: '종료' },
+  { key: 'answered', label: '고객 확인 대기' },
+  { key: 'closed', label: '마감' },
   { key: null, label: '전체' },
 ];
 
