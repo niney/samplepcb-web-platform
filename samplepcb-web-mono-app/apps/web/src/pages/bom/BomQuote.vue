@@ -2448,7 +2448,7 @@ function fmtAmount(v: number | null): string {
           compactRightOpen ? 'flex' : 'hidden',
           rightOpen ? 'xl:flex' : 'xl:hidden',
         ]"
-        class="bom-quote-responsive-panel fixed inset-x-0 bottom-0 z-50 h-[85dvh] max-h-[720px] min-h-0 w-full shrink-0 overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] md:inset-x-auto md:right-0 md:top-[58px] md:h-auto md:max-h-none md:w-[360px] xl:static xl:-mt-[14px] xl:h-[calc(100%+28px)] xl:min-h-0 xl:w-[260px] xl:overflow-y-auto"
+        class="bom-quote-responsive-panel fixed inset-x-0 bottom-0 z-50 h-[85dvh] max-h-[720px] min-h-0 w-full shrink-0 overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] md:inset-x-auto md:right-0 md:top-[58px] md:h-auto md:max-h-none md:w-[360px] xl:static xl:-mt-[14px] xl:h-[calc(100%+28px)] xl:min-h-0 xl:w-[260px] xl:z-auto xl:overflow-y-auto"
         :role="compactRightOpen ? 'dialog' : 'complementary'"
         :aria-modal="compactRightOpen ? 'true' : undefined"
         aria-label="BOM 분석 및 예상 견적"
