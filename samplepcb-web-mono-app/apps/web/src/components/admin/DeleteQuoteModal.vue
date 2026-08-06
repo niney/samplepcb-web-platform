@@ -189,10 +189,16 @@ onBeforeUnmount(() => {
               <p class="text-xs font-semibold text-red-700">
                 {{ t('admin.quotes.deleteModal.willBlock', { n: blockedItems.length }) }}
               </p>
-              <ul class="mt-1 space-y-0.5 text-sm text-red-700">
-                <li v-for="it in blockedItems" :key="it.projectId" class="truncate">
-                  {{ it.projectName }} —
-                  {{ it.blockReason === null ? '' : ADMIN_DELETE_BLOCK_TEXT[it.blockReason] }}
+              <!-- 사유는 **전부** 보인다 — 하나만 보이면 "강제 삭제하면 되겠네"로 오해한다
+                   (결제·발주·선적이 동시에 걸린 건이 실제로 있다). -->
+              <ul class="mt-1 space-y-1.5 text-sm text-red-700">
+                <li v-for="it in blockedItems" :key="it.projectId">
+                  <p class="truncate font-semibold">{{ it.projectName }}</p>
+                  <ul class="ml-4 list-disc">
+                    <li v-for="code in it.blockReasons" :key="code" class="leading-5">
+                      {{ ADMIN_DELETE_BLOCK_TEXT[code] }}
+                    </li>
+                  </ul>
                 </li>
               </ul>
             </div>
