@@ -338,7 +338,8 @@ export const createAdminPcbPo = async (
       subExchangeRate: rfq?.subExchangeRate ?? null,
       destinationCountry: body.destinationCountry ?? null,
       paymentTerms: body.paymentTerms ?? null,
-      remittedAt: body.remitted === true ? new Date() : null,
+      // 날짜 전용 필드 — KST 자정 앵커로 저장한다(§7-8, deliveryDate 와 같은 규율).
+      remittedAt: body.remittedOn == null ? null : parseKstDate(body.remittedOn),
       deliveryDate:
         body.deliveryDate === null || body.deliveryDate === undefined
           ? (rfq?.quotedDeliveryDate ?? null)
@@ -415,7 +416,7 @@ export const createChildPcbPo = async (
       subExchangeRate: childRfq.subExchangeRate,
       destinationCountry: parentPo.destinationCountry, // 발주 시점 하향 상속(레거시 §2.5)
       paymentTerms: body.paymentTerms ?? null,
-      remittedAt: body.remitted === true ? new Date() : null,
+      remittedAt: body.remittedOn == null ? null : parseKstDate(body.remittedOn),
       deliveryDate:
         body.deliveryDate === null || body.deliveryDate === undefined
           ? (childRfq.quotedDeliveryDate ?? null)
@@ -471,9 +472,9 @@ export const patchPcbPo = async (
     data: {
       ...priceFields,
       ...(body.paymentTerms === undefined ? {} : { paymentTerms: body.paymentTerms }),
-      ...(body.remitted === undefined
+      ...(body.remittedOn === undefined
         ? {}
-        : { remittedAt: body.remitted ? (po.remittedAt ?? new Date()) : null }),
+        : { remittedAt: body.remittedOn === null ? null : parseKstDate(body.remittedOn) }),
       ...(body.deliveryDate === undefined
         ? {}
         : { deliveryDate: body.deliveryDate === null ? null : parseKstDate(body.deliveryDate) }),

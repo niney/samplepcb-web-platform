@@ -498,6 +498,32 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
   **형제 cart 행까지 삭제** + reset 이면 백업 0 · `acknowledgeIrreversible` 누락 400).
   vitest 650+117 · typecheck · ESLint 0건.
 
+### P3.10 구현 기록 (2026-08-06 — 송금일 선택 + 발주 조건 수정 창구)
+
+**요청**: 발주에 송금 날짜를 고를 수 있게. **판단**: 체크박스를 없애고 날짜 하나로 바꾼다.
+
+- **날짜가 곧 송금 여부다** — `remitted: boolean` 계약을 폐기하고 **`remittedOn`**(YYYY-MM-DD, nullable)
+  으로 교체했다. DB(`sp_pcb_po.remittedAt DateTime?`)는 처음부터 날짜 하나였고 체크박스는 그
+  위에 덧씌운 UI였다. 체크 순간을 `new Date()` 로 박제하던 방식은 **송금일이 아니라 입력일**을
+  남겼다 — 경리가 며칠 뒤 정리하면 그대로 틀어진다. 상태 필드를 따로 두면 "체크했는데 날짜
+  없음" 같은 모순이 생기므로, null=미송금 / 값=송금완료 하나로 유지한다. 편의는 [오늘]·[지움]
+  버튼이 대신한다. 마이그레이션 없음(컬럼 그대로, 실데이터 송금 기록 0건).
+- **⚠ 그것만으로는 쓸 수 없었다** — 발행 모달에만 입력칸이 있었고 **발주 조건 수정 UI가 아예
+  없었다**(`usePatchPcbPo` 훅은 만들어 두고 어디서도 호출하지 않는 죽은 코드였다). 송금은 대개
+  발주 *다음*에 일어나므로, 실제 송금일을 남기려면 발주서를 지우고 다시 내는 수밖에 없었다
+  (그마저 EQ 가 진행되면 막힌다). → 발주서 행에 **[조건 수정]** 을 붙이고 결제조건·송금일·
+  납기·메모를 고치는 모달을 신설했다. 금액·환율은 서버가 `issued` 상태로만 허용하는 별도
+  규칙(`PRICE_LOCKED`)이라 이 모달에서 다루지 않는다.
+- **KST 규율**(§7-8): 저장 `parseKstDate` · 프리필 `kstDateInput` · 표시 `fmtKstDate`.
+  `deliveryDate` 와 같은 앵커(KST 자정 = UTC 전날 15:00)를 쓴다. 검증은 두지 않는다 —
+  미래일(예정 기록)도 발주일 이전(선불 송금)도 실무에서 정상이다.
+- **표시**: 발주서 표의 `조건/송금` 칸이 `송금완료` 배지에서 **`송금 YYYY-MM-DD`** 로,
+  미송금은 `송금 전`으로. 협력사 포털은 이미 `완료 (날짜)` 형태라 그대로 맞다.
+- **검증**: **E2E 20 ALL PASS**(발행 시 없이·발행 후 기록·**KST 왕복 3회 무손실**·미래일·
+  발주일 이전·null 되돌리기·undefined 보존·형식 400·**구 boolean 계약 400**·발행 시 동시 입력).
+  vitest 650+117 · typecheck · ESLint 0건. 브라우저 실탐방(Q20984)으로 [조건 수정] → [오늘] →
+  저장 → `송금 2026-08-06` 표시 → [지움] 원복까지 확인.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

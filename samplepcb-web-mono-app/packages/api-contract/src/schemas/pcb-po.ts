@@ -190,7 +190,14 @@ export const AdminPcbPoCreateBody = z.object({
   /** 외화 관리자 발주의 KRW 회계 환율 — 생략 시 rfq 선정 박제값 승계. */
   exchangeRate: z.number().positive().optional(),
   paymentTerms: z.string().trim().max(50).nullable().optional(),
-  remitted: z.boolean().optional(), // true=송금 완료(now 박제)
+  /** 송금일(KST 날짜). null=미송금 — 상태를 따로 두지 않고 **날짜 자체가 송금 여부**다.
+   *  체크 순간을 now 로 박제하던 방식은 실제 송금일이 아니라 '입력한 날'을 남겼다
+   *  (경리가 며칠 뒤 정리하면 틀어진다). 미래일(예정)·발주일 이전(선불)도 허용한다. */
+  remittedOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
   deliveryDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -361,7 +368,11 @@ export const PartnerPcbChildPoCreateBody = z.object({
   childRfqId: z.number().int().positive(),
   priceOriginal: z.number().positive().optional(),
   paymentTerms: z.string().trim().max(50).nullable().optional(),
-  remitted: z.boolean().optional(),
+  remittedOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
   deliveryDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
