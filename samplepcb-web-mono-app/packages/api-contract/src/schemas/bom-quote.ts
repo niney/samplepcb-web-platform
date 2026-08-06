@@ -850,6 +850,22 @@ export const BomQuoteItemInput = z.object({
 });
 export type BomQuoteItemInputType = z.infer<typeof BomQuoteItemInput>;
 
+/**
+ * 실제 구매 선정과 분리된 정확 일치 후보의 표시용 정체성 정보.
+ * 가격·주문수량·selectionSource에는 영향을 주지 않으며 비어 있는 행 메타데이터만 보완한다.
+ */
+export const BomQuoteIdentityPreview = z.object({
+  source: z.literal('verified_exact_candidate'),
+  candidateKey: z.string(),
+  mpn: z.string(),
+  manufacturerName: z.string().max(191).nullable(),
+  description: z.string().max(1000).nullable(),
+  imageUrl: z.string().nullable(),
+  datasheetUrl: z.string().nullable(),
+  procurementUnavailabilityReason: BomQuoteProcurementUnavailabilityReason.nullable(),
+});
+export type BomQuoteIdentityPreviewType = z.infer<typeof BomQuoteIdentityPreview>;
+
 /** 서버 → 클라이언트 항목(서버 계산 필드 포함). */
 export const BomQuoteItem = BomQuoteItemInput.extend({
   /** 견적 라인의 영속 식별자. rowIdx는 표시 순서일 뿐 수정·후보 연결 키로 쓰지 않는다. */
@@ -864,6 +880,8 @@ export const BomQuoteItem = BomQuoteItemInput.extend({
   catalogInquiry: z.boolean(),
   /** 원본 수량 누락 행은 기술선정 상태를 유지하되 확인 전까지 견적 합계에서 제외한다. */
   quantityState: BomQuoteQuantityState,
+  /** 미선정이어도 엔진이 품번을 정확히 식별한 경우 제공하는 표시 전용 후보 정보. */
+  identityPreview: BomQuoteIdentityPreview.nullable(),
   /** 업로드 분석 원본과 연결되지 않은 수동 행. 관리자는 이 행만 제거할 수 있다. */
   manualEntry: z.boolean().optional(),
 });

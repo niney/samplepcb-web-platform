@@ -304,6 +304,10 @@ const technicalTopCandidate = computed(() =>
   props.context?.candidates.find((candidate) =>
     candidate.candidateKey === props.context?.technicalTopCandidateKey) ?? null,
 );
+const identityConfirmedStockPendingCandidate = computed(() => {
+  const candidate = technicalTopCandidate.value;
+  return candidate !== null && identityConfirmedStockPending(candidate) ? candidate : null;
+});
 const searchTracePrimaryQuery = computed(() => {
   const localQuery = props.context?.localCatalogTrace?.query.trim() ?? '';
   return localQuery !== ''
@@ -1375,6 +1379,34 @@ function safetyClass(candidate: BomQuoteCandidateType): string {
   return 'border-slate-200 bg-surface';
 }
 
+function identityConfirmedStockPending(candidate: BomQuoteCandidateType): boolean {
+  const reason = props.context?.procurementUnavailabilityReason;
+  return props.context?.selectionSource === 'none'
+    && !candidate.selected
+    && !candidate.recommended
+    && candidate.candidateKey === props.context.technicalTopCandidateKey
+    && candidate.status === 'verified_exact'
+    && candidate.selectionMode === 'exact'
+    && candidate.selectionEligibility === 'automatic'
+    && candidate.identityConfidence === 1
+    && candidate.conflicts.length === 0
+    && (
+      reason === 'out_of_stock'
+      || reason === 'insufficient_stock'
+      || reason === 'stock_unverified'
+    );
+}
+
+function identityConfirmedStockLabel(): string {
+  if (props.context?.procurementUnavailabilityReason === 'out_of_stock') {
+    return '부품 확인됨 · 재고 없음';
+  }
+  if (props.context?.procurementUnavailabilityReason === 'insufficient_stock') {
+    return '부품 확인됨 · 재고 부족';
+  }
+  return '부품 확인됨 · 재고 확인 필요';
+}
+
 function recommendationLabel(candidate: BomQuoteCandidateType): string {
   if (candidate.selected && candidateHasCatalogInquiry(candidate)) {
     return '카탈로그 선정 · 문의';
@@ -1385,6 +1417,7 @@ function recommendationLabel(candidate: BomQuoteCandidateType): string {
   if (candidate.recommended) {
     return candidate.selectionEligibility === 'manual_review' ? '검토 권장' : '자동 추천';
   }
+  if (identityConfirmedStockPending(candidate)) return '부품 확인됨';
   if (candidate.candidateKey === props.context?.technicalTopCandidateKey) {
     return candidate.reviewRecommended ? '기술 검토 1순위' : '기술 사전 선정';
   }
@@ -1397,16 +1430,17 @@ function recommendationLabel(candidate: BomQuoteCandidateType): string {
 }
 
 function cautionLabel(candidate: BomQuoteCandidateType): string {
+  if (identityConfirmedStockPending(candidate)) return identityConfirmedStockLabel();
   if (candidate.selectionEligibility === 'manual_review') {
     return candidate.selectionReasonCodes.includes('manufacturer_confirmation_required')
       ? '제조사 확인 후 선택'
       : '검토 후 선택';
   }
   if (candidate.selectionEligibility === 'automatic' && candidate.conflicts.length > 0) {
-    return '선정됨 · 정보 불일치';
+    return candidate.selected || candidate.recommended ? '선정됨 · 정보 불일치' : '정보 불일치';
   }
   if (candidate.selectionEligibility === 'automatic' && candidate.missingRequirements.length > 0) {
-    return '선정됨 · 일부 미확인';
+    return candidate.selected || candidate.recommended ? '선정됨 · 일부 미확인' : '일부 정보 미확인';
   }
   if (candidate.lifecycleState === 'caution') return '라이프사이클 주의';
   if (candidate.missingRequirements.length > 0) return '검증 보완 필요';
@@ -2799,6 +2833,7 @@ onBeforeUnmount(() => {
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <span class="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">{{ sourceLabel(context.selectionSource) }}</span>
+                      <span v-if="identityConfirmedStockPendingCandidate !== null" class="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-bold text-amber-950">{{ identityConfirmedStockLabel() }}</span>
                       <span v-if="provisionalSelectionPending" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">선정됨 · 검토 권장</span>
                       <span v-else-if="reviewSelectionConfirmed" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">검토 완료</span>
                       <span v-else-if="currentCandidate?.recommended" class="rounded-full bg-emerald-300 px-2.5 py-1 text-xs font-bold text-emerald-950">자동 추천과 동일</span>

@@ -26,12 +26,78 @@ import {
   quoteLocalCatalogTrace,
   quoteCandidatePartsSearchable,
   retainQuoteCandidateSnapshots,
+  resolveQuoteIdentityPreview,
   resolvePartDataStatus,
   rfqRequestsQuoteItem,
   rfqUsesDynamicFullScope,
   selectEngineMatch,
   toSummaryDto,
 } from './bom-quote';
+
+describe('정확 일치 후보 표시 정보', () => {
+  const exactCandidate = {
+    candidateKey: 'exact-candidate',
+    status: 'verified_exact',
+    selectionMode: 'exact',
+    selectionEligibility: 'automatic',
+    identityConfidence: 1,
+    conflicts: [],
+    mpn: 'TCK106AG',
+    manufacturerName: 'Toshiba',
+    description: '파워 스위치 IC - 파워 분배',
+    imageUrl: 'https://example.com/tck106ag.png',
+    datasheetUrl: 'https://example.com/tck106ag.pdf',
+  } as const;
+  const evidence = {
+    selectionMode: 'review',
+    candidateStatus: 'verified_exact',
+    identityConfidence: 1,
+    technicalPreselectionCandidateKey: exactCandidate.candidateKey,
+    procurementUnavailabilityReason: 'stock_unverified',
+  } as const;
+
+  it('미선정 행도 엔진의 정확 일치 사전선정 후보 정보를 표시용으로 제공한다', () => {
+    expect(resolveQuoteIdentityPreview({
+      mpn: 'TCK-106AG',
+      selectionSource: 'none',
+      selectedCandidateKey: null,
+      evidence: evidence as never,
+    }, [exactCandidate])).toEqual({
+      source: 'verified_exact_candidate',
+      candidateKey: 'exact-candidate',
+      mpn: 'TCK106AG',
+      manufacturerName: 'Toshiba',
+      description: '파워 스위치 IC - 파워 분배',
+      imageUrl: 'https://example.com/tck106ag.png',
+      datasheetUrl: 'https://example.com/tck106ag.pdf',
+      procurementUnavailabilityReason: 'stock_unverified',
+    });
+  });
+
+  it('실제 선정된 행이나 엔진이 자동선정 가능으로 확정하지 않은 후보는 승격하지 않는다', () => {
+    expect(resolveQuoteIdentityPreview({
+      mpn: 'TCK106AG',
+      selectionSource: 'customer',
+      selectedCandidateKey: exactCandidate.candidateKey,
+      evidence: evidence as never,
+    }, [exactCandidate])).toBeNull();
+    expect(resolveQuoteIdentityPreview({
+      mpn: 'TCK106AG',
+      selectionSource: 'none',
+      selectedCandidateKey: null,
+      evidence: evidence as never,
+    }, [{ ...exactCandidate, selectionEligibility: 'manual_review' }])).toBeNull();
+  });
+
+  it('엔진 사전선정 키가 가리키는 후보가 아니면 동일 품번이어도 임의로 대신 고르지 않는다', () => {
+    expect(resolveQuoteIdentityPreview({
+      mpn: 'TCK106AG',
+      selectionSource: 'none',
+      selectedCandidateKey: null,
+      evidence: { ...evidence, technicalPreselectionCandidateKey: 'missing-candidate' } as never,
+    }, [exactCandidate])).toBeNull();
+  });
+});
 
 describe('고객 BOM 수동 추가 행 계획', () => {
   it('같은 partId의 원본 분석 행은 보존하고 가장 오래된 수동 행만 갱신 대상으로 삼는다', () => {

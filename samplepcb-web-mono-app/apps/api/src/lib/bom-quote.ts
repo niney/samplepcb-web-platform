@@ -25,6 +25,7 @@ import {
   type BomQuoteExchangeRateSnapshotType,
   type BomQuoteExtractionSourceType,
   type BomQuoteItemCandidatesType,
+  type BomQuoteIdentityPreviewType,
   type BomQuoteItemInputType,
   type BomQuoteItemType,
   type BomQuoteLifecycleCodeType,
@@ -5882,6 +5883,7 @@ export function toItemDto(
   partImageUrl: string | null = null,
   partDatasheetUrl: string | null = null,
   catalogInquiry = false,
+  identityPreview: BomQuoteIdentityPreviewType | null = null,
 ): BomQuoteItemType {
   const offer = BomQuoteSelectedOffer.safeParse(legacyCompatibleOffer(row.selectedOffer));
   const evidence = BomQuoteMatchEvidence.safeParse(legacyCompatibleEvidence(row.matchEvidence));
@@ -5924,6 +5926,7 @@ export function toItemDto(
     partDatasheetUrl,
     catalogInquiry,
     quantityState,
+    identityPreview,
     manualEntry: isManualQuoteItemRow(row),
   };
 }
@@ -5957,26 +5960,131 @@ async function loadPartMetaMap(items: QuoteItemRow[]): Promise<Map<bigint, Quote
   ] as const));
 }
 
-/** 엔진 매칭 라인(partId 없음)용 — 안정 itemId로 후보를 찾고 표시 rowIdx에 투영한다. */
-async function loadCandidateDatasheetMap(quoteId: bigint, items: QuoteItemRow[]): Promise<Map<number, string>> {
-  const itemIds = items
+interface QuoteIdentityPreviewInput {
+  mpn: string;
+  selectionSource: string;
+  selectedCandidateKey: string | null;
+  evidence: BomQuoteMatchEvidenceType | null;
+}
+
+export interface QuoteIdentityCandidate {
+  candidateKey: string;
+  status: string;
+  selectionMode: StoredCandidateType['selectionMode'];
+  selectionEligibility: StoredCandidateType['selectionEligibility'];
+  identityConfidence: number;
+  conflicts: readonly string[];
+  mpn: string;
+  manufacturerName: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  datasheetUrl: string | null;
+}
+
+/**
+ * 엔진이 정확 일치·자동선정 가능으로 판정한 기술 사전선정 후보만 표시용 정보로 승격한다.
+ * Node가 새 임계값을 만들지 않고 엔진의 status/eligibility/key를 교차 확인하며, 실제 선정은 바꾸지 않는다.
+ */
+export function resolveQuoteIdentityPreview(
+  item: QuoteIdentityPreviewInput,
+  candidates: QuoteIdentityCandidate[],
+): BomQuoteIdentityPreviewType | null {
+  if (item.selectionSource !== 'none' || item.selectedCandidateKey !== null) return null;
+  // 행 selectionMode는 재고·가격을 적용하지 못하면 review일 수 있으므로 정체성 판정과 섞지 않는다.
+  if (item.evidence?.candidateStatus !== 'verified_exact' || item.evidence.identityConfidence !== 1) return null;
+
+  const eligible = candidates.filter((candidate) =>
+    candidate.status === 'verified_exact'
+    && candidate.selectionMode === 'exact'
+    && candidate.selectionEligibility === 'automatic'
+    && candidate.identityConfidence === 1
+    && candidate.conflicts.length === 0
+    && normalizeMpn(candidate.mpn) === normalizeMpn(item.mpn),
+  );
+  const preferredKey = item.evidence.technicalPreselectionCandidateKey;
+  const candidate = preferredKey !== null && preferredKey !== undefined
+    ? eligible.find((entry) => entry.candidateKey === preferredKey) ?? null
+    : eligible.length === 1 ? eligible[0] ?? null : null;
+  if (candidate === null) return null;
+  if (
+    candidate.manufacturerName === null
+    && candidate.description === null
+    && candidate.imageUrl === null
+    && candidate.datasheetUrl === null
+  ) return null;
+
+  return {
+    source: 'verified_exact_candidate',
+    candidateKey: candidate.candidateKey,
+    mpn: candidate.mpn,
+    manufacturerName: candidate.manufacturerName,
+    description: candidate.description,
+    imageUrl: candidate.imageUrl,
+    datasheetUrl: candidate.datasheetUrl,
+    procurementUnavailabilityReason: item.evidence.procurementUnavailabilityReason ?? null,
+  };
+}
+
+interface CandidateDisplayMeta {
+  selectedDatasheetByRowIdx: Map<number, string>;
+  identityPreviewByRowIdx: Map<number, BomQuoteIdentityPreviewType>;
+}
+
+/** 선정 후보 데이터시트와 미선정 정확 일치 후보의 표시 정보를 한 번의 후보 조회로 투영한다. */
+async function loadCandidateDisplayMeta(quoteId: bigint, items: QuoteItemRow[]): Promise<CandidateDisplayMeta> {
+  const evidenceByItem = new Map<bigint, BomQuoteMatchEvidenceType>();
+  for (const item of items) {
+    if (item.selectionSource !== 'none' || item.selectedCandidateKey !== null) continue;
+    const parsed = BomQuoteMatchEvidence.safeParse(legacyCompatibleEvidence(item.matchEvidence));
+    if (
+      !parsed.success
+      || parsed.data.candidateStatus !== 'verified_exact'
+      || parsed.data.identityConfidence !== 1
+    ) continue;
+    evidenceByItem.set(item.id, parsed.data);
+  }
+  const selectedItemIds = items
     .filter((item) => item.partId === null && item.selectedCandidateKey !== null)
     .map((item) => item.id);
-  if (itemIds.length === 0) return new Map();
-  const selectedKeyByItem = new Map(items.map((item) => [item.id, item.selectedCandidateKey] as const));
-  const rowIdxByItem = new Map(items.map((item) => [item.id, item.rowIdx] as const));
+  const itemIds = [...new Set([...selectedItemIds, ...evidenceByItem.keys()])];
+  if (itemIds.length === 0) {
+    return { selectedDatasheetByRowIdx: new Map(), identityPreviewByRowIdx: new Map() };
+  }
+
   const rows = await prisma.spBomQuoteCandidate.findMany({
     where: { quoteId, quoteItemId: { in: itemIds } },
+    orderBy: [{ quoteItemId: 'asc' }, { technicalRank: 'asc' }],
+    select: { quoteItemId: true, payload: true },
   });
-  const map = new Map<number, string>();
+  const candidatesByItem = new Map<bigint, StoredCandidateType[]>();
   for (const row of rows) {
     const parsed = StoredCandidate.safeParse(row.payload);
     if (!parsed.success) continue;
-    if (parsed.data.candidateKey !== selectedKeyByItem.get(row.quoteItemId)) continue;
-    const rowIdx = rowIdxByItem.get(row.quoteItemId);
-    if (parsed.data.datasheetUrl !== null && rowIdx !== undefined) map.set(rowIdx, parsed.data.datasheetUrl);
+    const candidates = candidatesByItem.get(row.quoteItemId) ?? [];
+    candidates.push(parsed.data);
+    candidatesByItem.set(row.quoteItemId, candidates);
   }
-  return map;
+
+  const selectedDatasheetByRowIdx = new Map<number, string>();
+  const identityPreviewByRowIdx = new Map<number, BomQuoteIdentityPreviewType>();
+  for (const item of items) {
+    const candidates = candidatesByItem.get(item.id) ?? [];
+    if (item.selectedCandidateKey !== null) {
+      const selected = candidates.find((candidate) => candidate.candidateKey === item.selectedCandidateKey);
+      if (selected?.datasheetUrl !== null && selected?.datasheetUrl !== undefined) {
+        selectedDatasheetByRowIdx.set(item.rowIdx, selected.datasheetUrl);
+      }
+    }
+    const evidence = evidenceByItem.get(item.id) ?? null;
+    const preview = resolveQuoteIdentityPreview({
+      mpn: item.mpn,
+      selectionSource: item.selectionSource,
+      selectedCandidateKey: item.selectedCandidateKey,
+      evidence,
+    }, candidates);
+    if (preview !== null) identityPreviewByRowIdx.set(item.rowIdx, preview);
+  }
+  return { selectedDatasheetByRowIdx, identityPreviewByRowIdx };
 }
 
 type SummaryItemRow = Pick<QuoteItemRow, 'included' | 'matchStatus'>;
@@ -6191,9 +6299,9 @@ export async function loadSupplierSearchSummary(
 export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
   const activeItems = filterActiveQuoteItems(items, sheets);
   const itemSheetIndexes = new Set(items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]));
-  const [partMetaMap, candidateDatasheetMap, supplierSearchSummary, orderState] = await Promise.all([
+  const [partMetaMap, candidateDisplayMeta, supplierSearchSummary, orderState] = await Promise.all([
     loadPartMetaMap(activeItems),
-    loadCandidateDatasheetMap(quote.id, activeItems),
+    loadCandidateDisplayMeta(quote.id, activeItems),
     loadSupplierSearchSummary(quote.activeSupplierSearchRunId, quote.enrichStatus),
     deriveQuoteOrderState(quote.ctId),
   ]);
@@ -6201,11 +6309,16 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     .sort((a, b) => a.rowIdx - b.rowIdx)
     .map((row) => {
       const meta = row.partId === null ? null : (partMetaMap.get(row.partId) ?? null);
+      const identityPreview = candidateDisplayMeta.identityPreviewByRowIdx.get(row.rowIdx) ?? null;
       return toItemDto(
         row,
-        meta?.imageUrl ?? null,
-        meta?.datasheetUrl ?? candidateDatasheetMap.get(row.rowIdx) ?? null,
+        meta?.imageUrl ?? identityPreview?.imageUrl ?? null,
+        meta?.datasheetUrl
+          ?? candidateDisplayMeta.selectedDatasheetByRowIdx.get(row.rowIdx)
+          ?? identityPreview?.datasheetUrl
+          ?? null,
         row.selectedOffer === null && (meta?.catalogInquiry ?? false),
+        identityPreview,
       );
     });
   const rowLimitCounts = itemDtos.reduce(

@@ -34,6 +34,7 @@ function item(overrides: Partial<BomQuoteItemType> = {}): BomQuoteItemType {
     partDatasheetUrl: null,
     catalogInquiry: false,
     quantityState: 'verified',
+    identityPreview: null,
     ...overrides,
   };
 }

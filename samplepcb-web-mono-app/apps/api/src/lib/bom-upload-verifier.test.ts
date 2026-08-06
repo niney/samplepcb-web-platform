@@ -99,6 +99,7 @@ function quoteDetail(
       partDatasheetUrl: null,
       catalogInquiry: false,
       quantityState: 'verified',
+      identityPreview: null,
     }] : [],
   };
 }

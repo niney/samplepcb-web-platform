@@ -794,6 +794,9 @@ function buildResultSearchText(item: BomQuoteItemType): string {
     item.mpn,
     item.manufacturerName,
     item.description,
+    item.identityPreview?.mpn,
+    item.identityPreview?.manufacturerName,
+    item.identityPreview?.description,
     item.sourceSheetName,
     item.selectedOffer?.supplier,
     item.selectedOffer?.supplierSku,
@@ -1630,6 +1633,7 @@ function applyCatalogPart(part: PartHitType, pick: OfferPick | null, lineIdx: nu
   item.partImageUrl = part.imageUrl;
   item.partDatasheetUrl = null; // 부품이 바뀌었으니 이전 링크 무효 — 다음 상세 조회 때 재채움
   item.catalogInquiry = part.hasCatalogInquiryOffer && pick === null;
+  item.identityPreview = null;
   item.matchStatus = 'manual';
   item.selectedCandidateKey = null;
   item.selectionSource = 'catalog';

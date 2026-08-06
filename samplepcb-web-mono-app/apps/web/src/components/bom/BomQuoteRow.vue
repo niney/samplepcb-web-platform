@@ -58,6 +58,20 @@ const procurementUnavailabilityReason = computed(() =>
   props.item.matchEvidence?.procurementUnavailabilityReason ?? null,
 );
 
+const identityPreview = computed(() => props.item.identityPreview);
+const displayManufacturerName = computed(() => {
+  const selected = props.item.manufacturerName?.trim() ?? '';
+  if (selected !== '') return selected;
+  const preview = identityPreview.value?.manufacturerName?.trim() ?? '';
+  return preview === '' ? null : preview;
+});
+const displayDescription = computed(() => {
+  const selected = props.item.description?.trim() ?? '';
+  if (selected !== '') return selected;
+  const preview = identityPreview.value?.description?.trim() ?? '';
+  return preview === '' ? null : preview;
+});
+
 const catalogInquiry = computed(() =>
   props.item.catalogInquiry
   || procurementUnavailabilityReason.value === 'catalog_inquiry',
@@ -575,7 +589,7 @@ function onQtyInput(event: Event): void {
             Any Vendor
           </span>
           <p class="line-clamp-2 break-all font-noto text-[14px] font-medium leading-[20px] text-bom-row-primary" :title="partLabel">{{ partLabel }}</p>
-          <p class="truncate font-noto text-[11px] font-normal leading-[16px] text-bom-row-muted" :title="item.manufacturerName ?? ''">{{ item.manufacturerName ?? '—' }}</p>
+          <p class="truncate font-noto text-[11px] font-normal leading-[16px] text-bom-row-muted" :title="displayManufacturerName ?? ''">{{ displayManufacturerName ?? '—' }}</p>
           <p v-if="item.mpn.trim() === ''" class="truncate text-[10px] font-medium text-amber-600">MPN 미기재 · 원본 값</p>
           <div
             v-if="requestedLifecycleWarning !== null || selectedLifecycleForDisplay !== null || selectedReplacementSources.length > 0"
@@ -614,7 +628,7 @@ function onQtyInput(event: Event): void {
     </td>
     <!-- 폭은 표의 colgroup 이 정한다(table-fixed) — 여기서 다시 제한하면 남는 폭을 못 쓴다 -->
     <td class="p-0 pt-[45px]">
-      <p class="w-full line-clamp-2 break-words pr-[12px] font-noto text-[14px] font-normal leading-[20px] text-bom-row-muted" :title="item.description ?? ''">{{ item.description ?? '—' }}</p>
+      <p class="w-full line-clamp-2 break-words pr-[12px] font-noto text-[14px] font-normal leading-[20px] text-bom-row-muted" :title="displayDescription ?? ''">{{ displayDescription ?? '—' }}</p>
     </td>
     <!-- UNIT PRICE: Figma 87:13361 — 공용 가격구간 셀(BomPriceBreaks) -->
     <td class="w-[160px] p-0 pb-[7px] pt-[8px]">
