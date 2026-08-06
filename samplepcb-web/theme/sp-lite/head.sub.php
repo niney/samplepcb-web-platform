@@ -104,6 +104,9 @@ add_javascript('<script src="'.G5_JS_URL.'/jquery-migrate-1.4.1.min.js"></script
 // sp-lite: jquery.menu.js / jquery.shop.menu.js 제거 — GNB는 CSS(:hover) + 자체 토글로 동작
 add_javascript('<script src="'.G5_JS_URL.'/common.js?ver='.G5_JS_VER.'"></script>', 0);
 add_javascript('<script src="'.G5_JS_URL.'/wrest.js?ver='.G5_JS_VER.'"></script>', 0);
+// sp-lite 공용 커스텀 팝업 — 네이티브 alert/confirm 대체(spDialog.alert/confirm).
+// 서버가 ?sp_msg= 로 실어 보낸 결과 문구도 이 스크립트가 로드 직후 모달로 띄운다.
+add_javascript('<script src="'.G5_THEME_URL.'/js/sp-dialog.js?ver='.G5_JS_VER.'"></script>', 0);
 // sp-lite: placeholders.min.js 제거 (IE9 이하 placeholder 폴리필 — 모던 브라우저는 네이티브 지원)
 add_stylesheet('<link rel="stylesheet" href="'.G5_JS_URL.'/font-awesome/css/font-awesome.min.css">', 0);
 
