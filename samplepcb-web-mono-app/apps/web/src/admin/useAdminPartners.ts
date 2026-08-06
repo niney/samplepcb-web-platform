@@ -14,7 +14,7 @@ import {
 } from '@sp/api-contract';
 import { apiGet, apiSend } from '@sp/shared';
 
-// 스마트 BOM 파트너 관리(/admin/smartbom/partners) 서버 상태 훅 —
+// 통합 파트너 관리(/admin/partners) 서버 상태 훅 —
 // 계약은 @sp/api-contract(partner.ts), 호출 관례는 useAdminMarket 그대로.
 
 const base = apiRoutes.adminPartners;

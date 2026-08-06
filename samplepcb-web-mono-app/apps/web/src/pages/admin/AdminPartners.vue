@@ -25,8 +25,8 @@ import {
 } from '../../admin/useAdminPartners';
 import UiPagination from '../../components/ui/UiPagination.vue';
 
-// 스마트 BOM 파트너(조직) 관리 — 목록(상태 탭×유형 필터, counts)·상세 드로어·
-// 생성/수정·승인/정지·계정 연결. 설계 docs/SMARTBOM_PARTNER_RFQ.md §1·§3.5.
+// 통합 관리의 공용 파트너(조직) 기준정보 — 목록(상태 탭×유형 필터, counts)·상세 드로어·
+// 생성/수정·승인/정지·계정 연결. BOM·PCB·부품 판매 트랙이 같은 조직 원장을 사용한다.
 // 도메인 라벨은 @sp/api-contract PARTNER_*_LABELS 정본을 그대로 쓴다.
 
 const filters = ref<AdminPartnerFilters>({ page: 1, pageSize: 20, tab: 'all', type: 'all', q: '' });

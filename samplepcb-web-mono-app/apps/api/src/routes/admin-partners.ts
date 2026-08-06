@@ -26,7 +26,7 @@ import {
 import { normalizePartnerCountry } from '../lib/bom-shipment-policy';
 import { prisma } from '../lib/prisma';
 
-// ── /api/admin/partners — 스마트 BOM 파트너(조직) 관리 ──────────────────────
+// ── /api/admin/partners — 공용 파트너(조직) 관리 ────────────────────────────
 // 설계 docs/SMARTBOM_PARTNER_RFQ.md §1·§3.5. 조직/계정/자동화 3축 분리 —
 // 등록 원천이 관리자라 생성 기본 approved, 상태 변경은 감사 필드(decidedBy/At) 기록.
 // 계정 연결은 정상 가입한 g5_member 만(가짜 회원 없음), 1계정=1조직 운영 가드.

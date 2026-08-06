@@ -144,6 +144,11 @@ const routes: RouteRecordRaw[] = [
       { path: 'quotes', name: 'admin-quotes', component: AdminQuotes },
       { path: 'orders', name: 'admin-orders', component: AdminOrders },
       { path: 'members', name: 'admin-members', component: AdminMembers },
+      {
+        path: 'partners',
+        name: 'admin-partners',
+        component: () => import('./pages/admin/AdminPartners.vue'),
+      },
       // 재능마켓(/market) 관리 — 전문가 심사·프로젝트 모니터·설정
       { path: 'market/experts', name: 'admin-market-experts', component: AdminMarketExperts },
       { path: 'market/projects', name: 'admin-market-projects', component: AdminMarketProjects },
@@ -209,9 +214,10 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/admin/AdminSmartbomPackage.vue'),
       },
       {
+        // 2026-08-06 통합 관리로 이동. 기존 북마크·외부 링크는 정식 경로로 보낸다.
         path: 'smartbom/partners',
         name: 'admin-smartbom-partners',
-        component: () => import('./pages/admin/AdminPartners.vue'),
+        redirect: { name: 'admin-partners' },
       },
       // ── PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md P1) — 라우트 이름 prefix
       // 'admin-pcb' 가 모듈 소속 판정 기준(admin/menu.ts resolveAdminModuleKey).

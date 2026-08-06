@@ -252,7 +252,12 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
               {{ entry.supplier }} {{ entry.count }}종
             </span>
           </p>
-          <p class="mt-1 text-[10px] text-amber-600">공급사 조직을 파트너 관리에 등록(supplierCode)하면 발주 대상이 됩니다.</p>
+          <p class="mt-1 text-[10px] text-amber-600">
+            공급사 조직을
+            <RouterLink :to="{ name: 'admin-partners' }" class="font-semibold underline">
+              파트너 관리
+            </RouterLink>에 등록(supplierCode)하면 발주 대상이 됩니다.
+          </p>
         </div>
       </div>
 

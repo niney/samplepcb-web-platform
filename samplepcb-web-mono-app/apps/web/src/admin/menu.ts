@@ -39,6 +39,7 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-quotes' }, labelKey: 'admin.menu.quotes', badge: 'rfqCount' },
   { to: { name: 'admin-orders' }, labelKey: 'admin.menu.orders' },
   { to: { name: 'admin-members' }, labelKey: 'admin.menu.members' },
+  { to: { name: 'admin-partners' }, labelKey: 'admin.menu.partners' },
   // 재능마켓(/market, sp-market) 관리
   { to: { name: 'admin-market-experts' }, labelKey: 'admin.menu.marketExperts' },
   { to: { name: 'admin-market-projects' }, labelKey: 'admin.menu.marketProjects' },
@@ -58,7 +59,7 @@ export const adminMenu: AdminMenuItem[] = [
 ];
 
 // 스마트 BOM 모듈 — 역할별 업무 메뉴(관리자 메뉴 재편): 진행현황(총괄 조감) +
-// 견적관리(견적 담당)/주문·결제(경리)/발주(구매)/선적·배송(물류) 워크큐 + 기준정보.
+// 견적관리(견적 담당)/주문·결제(경리)/발주(구매)/선적·배송(물류) 워크큐.
 // 배지 = 각 역할이 "지금 움직여야 하는 수" 하나씩.
 const smartbomMenu: AdminMenuItem[] = [
   {
@@ -90,7 +91,6 @@ const smartbomMenu: AdminMenuItem[] = [
     labelKey: 'admin.menu.smartbomLogistics',
     badge: 'bomShipmentPending',
   },
-  { to: { name: 'admin-smartbom-partners' }, labelKey: 'admin.menu.smartbomPartners' },
 ];
 
 // PCB 협력 모듈(docs/PCB_PARTNER_TRACK.md §5.4) — SmartBOM 과 같은 골격의 역할별
@@ -135,7 +135,7 @@ const pcbMenu: AdminMenuItem[] = [
   },
 ];
 
-// 모듈 사전 — core(통합 관리) = 기존 메뉴 무수정 래핑, smartbom·pcb = 신규 모듈.
+// 모듈 사전 — core(통합 관리) = 공용 기준정보와 기존 관리 기능, smartbom·pcb = 업무 모듈.
 // 확장 자리(PCBA주문·기술개발)는 각 모듈이 실제로 생길 때 추가한다.
 export const adminModules: readonly AdminModule[] = [
   { key: 'core', labelKey: 'admin.modules.core', homeTo: { name: 'admin' }, menu: adminMenu },

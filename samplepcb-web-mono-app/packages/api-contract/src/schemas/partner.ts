@@ -10,7 +10,7 @@ export const PartnerAccessResponse = z.object({
 });
 export type PartnerAccessResponseType = z.infer<typeof PartnerAccessResponse>;
 
-// ── 스마트 BOM 파트너(조직) — sp_partner* 계약 ──────────────────────────────
+// ── 공용 파트너(조직) — sp_partner* 계약 ───────────────────────────────────
 // 설계 정본: docs/SMARTBOM_PARTNER_RFQ.md §1. 조직(sp_partner)/계정(sp_partner_member)/
 // 자동화(supplierCode) 3축 분리 — 유형·상태·capability 코드 사전은 이 파일이 단일 정본.
 // 레거시(g5_member 여분컬럼 협력사 + 가짜 회원 하드코딩 공급사)의 대체.
@@ -62,7 +62,7 @@ export const PartnerSupplierCode = z
   .toLowerCase()
   .regex(/^[a-z0-9][a-z0-9_-]{1,31}$/);
 
-// ── 관리자: 파트너 관리(/app/admin/smartbom/partners) ───────────────────────
+// ── 관리자: 파트너 관리(/app/admin/partners) ────────────────────────────────
 
 export const AdminPartnerListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),

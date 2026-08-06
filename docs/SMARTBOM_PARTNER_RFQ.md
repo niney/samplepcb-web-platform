@@ -242,7 +242,8 @@ GET/POST/PUT /api/admin/partners(...)          파트너 CRUD·승인·계정 �
 ```
 /admin/smartbom                → 진행현황 (모듈 홈, 신규)          — 1차
 /admin/smartbom/cases/:id      → Case 상세 = 기존 AdminBomQuote 재사용(+확장) — 1차
-/admin/smartbom/partners       → 기준정보·파트너 (신규)            — 1차
+/admin/partners                → 통합 관리·파트너 관리             — 2026-08-06 이동
+/admin/smartbom/partners       → /admin/partners 리다이렉트         — 북마크 호환
 (2차) + 주문·결제   (3차) + 입고·배송, 완료·클레임                — 등장 시점에 메뉴 추가
 ```
 
@@ -271,7 +272,11 @@ GET/POST/PUT /api/admin/partners(...)          파트너 CRUD·승인·계정 �
   12단계 타임라인 사이드, 고객 회신·인쇄는 기존 `EstimateModal`/`EstimateSendControl`/
   `EstimateSheet` 재사용(인쇄 `@media print`, D12).
 
-### 3.5 기준정보 › 파트너 (신규 AdminPartners)
+### 3.5 통합 관리 › 파트너 관리 (AdminPartners)
+
+> **2026-08-06 정보구조 변경:** `sp_partner`가 BOM뿐 아니라 PCB RFQ·발주와 부품 판매까지
+> 공유하는 조직 정본이 되었으므로 스마트 BOM 모듈에서 통합 관리로 이동했다. 스마트 BOM과
+> PCB의 빈 상태 안내는 이 단일 관리 화면으로 연결하며, 양쪽 메뉴에 중복 노출하지 않는다.
 
 - `AdminMarketExperts`(심사) + `MemberStatusTabs·MembersTable·MemberDetailDrawer`(회원) 패턴 조합.
 - 상태 탭(승인 대기/승인/정지) × 유형 필터(협력사/공급사·자사). 컬럼: 이름·유형·통화·상태
@@ -767,7 +772,7 @@ fresh=전체 28행·합계/비-fresh=저장본 유지) ALL PASS.
 단일 Case 척추 유지** — 파트별 상세 4벌 금지, 대신 워크큐→Case 진입 시 `?focus=
 rfq|po` 로 해당 섹션 자동 스크롤+2.5초 강조(AdminSmartbomCase).
 
-smartbom 모듈 메뉴 6개와 배지(= 각 역할이 "지금 움직여야 하는 수" 하나):
+smartbom 모듈 메뉴 5개와 배지(= 각 역할이 "지금 움직여야 하는 수" 하나):
 
 | 메뉴 | 담당 | 워크큐 탭 | 배지 |
 |---|---|---|---|

@@ -11,7 +11,7 @@ import type {
 } from '@sp/api-contract';
 import { normalizePartnerCountry } from './bom-shipment-policy';
 
-// ── 스마트 BOM 파트너 직렬화·내로잉 — 설계 docs/SMARTBOM_PARTNER_RFQ.md §1 ──
+// ── 공용 파트너 직렬화·내로잉 — 설계 docs/SMARTBOM_PARTNER_RFQ.md §1 ────────
 // DB 는 String/Json 저장(sp_* 관례), 응답 직전 계약 유니온으로 내로잉한다.
 
 export const asPartnerType = (v: string): PartnerTypeType =>
