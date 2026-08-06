@@ -336,6 +336,23 @@ export function useAdminPcbShipmentRevert() {
   return shipmentAction(useQueryClient(), 'revert');
 }
 
+/** 선적 취소(문서 삭제) — 발송 전·입고 전만. 견적 삭제의 SHIPMENT_EXISTS 를 푸는 출구. */
+export function useAdminPcbShipmentCancel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ specId, poId }: { specId: number; poId: number }) =>
+      apiSend(
+        'DELETE',
+        `${apiRoutes.adminPcbProjects}/${String(specId)}/pos/${String(poId)}/shipment`,
+        {},
+        AdminPcbPoListResponse,
+      ),
+    onSuccess: () => {
+      shipmentInvalidate(qc);
+    },
+  });
+}
+
 export function useAdminPcbShipmentReceive() {
   const qc = useQueryClient();
   return useMutation({

@@ -10,6 +10,7 @@ import type { BusinessInfo } from './g5-db';
 import { getBusinessInfo } from './g5-db';
 import { prisma } from './prisma';
 import { shipmentModeFromCountry } from './bom-shipment-policy';
+import { kstDateStr } from './kst';
 
 // 협력사 발행 거래 문서의 서버 단일 원본. 고객용 BOM 견적서와 방향이 반대이며,
 // PO(수락한 견적)와 Packing List(실제 선적)를 각각 불변 근거로 사용한다.
@@ -106,7 +107,8 @@ export const buildPartnerQuotationDocument = (
     quoteId: String(source.quoteId),
     quoteTitle: source.quoteTitle,
     issuedAt: source.issuedAt.toISOString(),
-    deliveryDate: source.quotationDeliveryDate?.toISOString().slice(0, 10) ?? null,
+    deliveryDate:
+      source.quotationDeliveryDate === null ? null : kstDateStr(source.quotationDeliveryDate),
     currency: source.currency,
     issuer: partnerTradeParty(source.partner),
     recipient: samplePcbTradeParty(business),

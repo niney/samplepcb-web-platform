@@ -15,6 +15,7 @@ import {
   sendPcbMail,
 } from '../lib/pcb-rfq-email';
 import { getShopEstimateProfile } from '../lib/g5-db';
+import { kstDateStr } from '../lib/kst';
 
 // ── PCB 매직링크 무로그인 회신 — BOM §6.9 동형(메일함 소유 = 신원, RFQ 1건 스코프) ──
 // 인증 없음: 토큰(64hex, 30일 TTL, 재발급 회전) 자체가 인가. GET 은 선정 후에도 열람
@@ -75,7 +76,8 @@ export const pcbRfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
           updated.subCurrency,
           updated.subPriceOriginal === null ? null : Number(updated.subPriceOriginal),
         );
-        const deliveryText = updated.quotedDeliveryDate?.toISOString().slice(0, 10) ?? null;
+        const deliveryText =
+          updated.quotedDeliveryDate === null ? null : kstDateStr(updated.quotedDeliveryDate);
         if (rfq.parentPartnerId === 0n) {
           const profile = await getShopEstimateProfile();
           void sendPcbMail(

@@ -32,6 +32,7 @@ import {
   useAdminPcbEqSubstitute,
   useAdminPcbPos,
   useAdminPcbShipmentAdvance,
+  useAdminPcbShipmentCancel,
   useAdminPcbShipmentReceive,
   useAdminPcbShipmentRevert,
   useAdminRevertPcbEq,
@@ -99,6 +100,7 @@ const adminRows = computed(() => allRows.value.filter((r) => r.parentPartnerId =
 const childrenOf = (partnerId: number): AdminPcbRfqViewType[] =>
   allRows.value.filter((r) => r.parentPartnerId === partnerId);
 const selectedRow = computed(() => adminRows.value.find((r) => r.status === 'selected') ?? null);
+
 
 const actionError = ref('');
 const surfaceError = (e: unknown, fallback: string): void => {
@@ -319,6 +321,21 @@ async function reissueMagicLink(row: AdminPcbRfqViewType): Promise<void> {
 const posQuery = useAdminPcbPos(specId);
 const allPos = computed(() => posQuery.data.value?.data.pos ?? []);
 const adminPos = computed(() => allPos.value.filter((p) => p.parentPartnerId === 0));
+
+// 회차(A/S 재발주, P4) — 지금은 전부 0차라 배지가 보이지 않지만, 회차가 쌓이기 시작하면
+// "지나간 발주"와 "지금 발주"가 한 표에서 구분되지 않는다(워크큐엔 배지가 있는데 상세엔
+// 없었다). 최신 회차만 펼치고 이전 회차는 접힘 바로 내린다.
+const latestRound = computed(() =>
+  Math.max(0, ...adminRows.value.map((r) => r.reorderRound), ...adminPos.value.map((p) => p.reorderRound)),
+);
+const roundsExpanded = ref(false);
+const inLatestRound = (row: { reorderRound: number }): boolean =>
+  roundsExpanded.value || row.reorderRound === latestRound.value;
+const olderRoundCount = computed(
+  () =>
+    adminRows.value.filter((r) => r.reorderRound !== latestRound.value).length +
+    adminPos.value.filter((p) => p.reorderRound !== latestRound.value).length,
+);
 const childPosOf = (partnerId: number): AdminPcbPoViewType[] =>
   allPos.value.filter((p) => p.parentPartnerId === partnerId);
 
@@ -510,6 +527,21 @@ const shipRowsOf = (poId: number): PcbShipmentViewType[] => {
 
 const shipAdvanceAdmin = useAdminPcbShipmentAdvance();
 const shipRevertAdmin = useAdminPcbShipmentRevert();
+const shipCancelAdmin = useAdminPcbShipmentCancel();
+
+// 두 축 불일치 신호 — 주문 축(od_status)과 협력 축(RFQ→발주→선적)은 현재 서로를
+// 게이트하지 않아, 발주 없이 배송되거나(레거시·수동 처리) 입고가 끝났는데 주문이
+// 배송 전인 상태가 생긴다(Q40·Q20984 실측). 강제로 막을 수는 없다 — 이관 주문
+// 19,665건이 협력 기록 없이 '완료'라서 게이트를 걸면 전부 막힌다. 대신 보이게 한다.
+const axisMismatch = computed<'shipped-without-po' | 'received-not-delivered' | null>(() => {
+  const order = detail.value?.order ?? null;
+  if (order === null) return null;
+  const delivered = order.odStatus === '배송' || order.odStatus === '완료';
+  if (delivered && adminPos.value.length === 0) return 'shipped-without-po';
+  const anyReceived = shipments.value.some((s) => s.receivedAt !== null);
+  if (anyReceived && !delivered) return 'received-not-delivered';
+  return null;
+});
 const shipReceiveAdmin = useAdminPcbShipmentReceive();
 
 async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
@@ -547,6 +579,19 @@ async function adminShipRevert(poId: number): Promise<void> {
     await shipRevertAdmin.mutateAsync({ specId: specId.value, poId });
   } catch (e) {
     surfaceError(e, '되돌리기에 실패했습니다.');
+  }
+}
+// 선적 취소 — 문서 자체를 삭제한다(묶음이면 통째로). 발송 전·입고 전만 서버가 허용.
+async function adminShipCancel(poId: number, s: PcbShipmentViewType): Promise<void> {
+  if (specId.value === null) return;
+  const extra =
+    s.poIds.length > 1 ? `\n묶인 발주서 ${String(s.poIds.length)}건이 함께 취소됩니다.` : '';
+  if (!window.confirm(`선적을 취소(삭제)할까요? 첨부도 함께 지워집니다.${extra}`)) return;
+  actionError.value = '';
+  try {
+    await shipCancelAdmin.mutateAsync({ specId: specId.value, poId });
+  } catch (e) {
+    surfaceError(e, '선적 취소에 실패했습니다.');
   }
 }
 async function adminShipReceive(poId: number): Promise<void> {
@@ -644,6 +689,22 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       </span>
       <span v-if="detail !== null && detail.order !== null && rfqGate === 'ok'" class="rounded bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700">
         원가 소싱 모드 — 판매가 불변
+      </span>
+      <!-- 두 축 불일치 — 주문(od)과 협력 트랙은 서로를 게이트하지 않는다(D6 자동 동기는 P4).
+           강제로 막지 않는 대신, 어긋난 상태를 눈에 보이게 한다. -->
+      <span
+        v-if="axisMismatch === 'shipped-without-po'"
+        class="rounded bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700"
+        title="주문은 배송·완료까지 갔는데 협력사 발주 기록이 없습니다(레거시·수동 처리 건일 수 있습니다)"
+      >
+        협력 발주 없이 진행된 주문
+      </span>
+      <span
+        v-else-if="axisMismatch === 'received-not-delivered'"
+        class="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700"
+        title="입고가 끝났는데 고객 주문 상태가 아직 배송 전입니다 — 통합 관리 주문내역에서 배송 처리하세요"
+      >
+        배송 처리 대기
       </span>
     </div>
 
@@ -815,10 +876,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-50">
-            <template v-for="row in adminRows" :key="row.rfqId">
+            <template v-for="row in adminRows.filter(inLatestRound)" :key="row.rfqId">
               <tr :class="row.status === 'selected' ? 'bg-violet-50/40' : ''">
                 <td class="px-4 py-2.5">
-                  <p class="font-medium text-gray-900">{{ row.partnerName }}</p>
+                  <p class="font-medium text-gray-900">
+                    {{ row.partnerName }}
+                    <span v-if="row.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-semibold text-rose-700">
+                      {{ row.reorderRound }}차
+                    </span>
+                  </p>
                   <p v-if="row.childCount > 0" class="text-[11px] text-indigo-600">
                     MD 경유 · 하위 {{ row.childQuotedCount }}/{{ row.childCount }} 회신
                     <span v-if="row.marginRate !== null"> · 마진 {{ row.marginRate }}%</span>
@@ -919,6 +985,18 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 아직 배정된 협력사가 없습니다 — [협력사 견적요청 보내기]로 시작하세요.
               </td>
             </tr>
+            <!-- 이전 회차(A/S 재발주) — 지나간 흔적은 지우지 않고 접어 둔다 -->
+            <tr v-if="olderRoundCount > 0">
+              <td colspan="7" class="px-4 py-2">
+                <button
+                  type="button"
+                  class="text-xs font-semibold text-gray-400 hover:text-gray-700"
+                  @click="roundsExpanded = !roundsExpanded"
+                >
+                  {{ roundsExpanded ? '▾ 이전 회차 접기' : `▸ 이전 회차 ${String(olderRoundCount)}건 보기` }}
+                </button>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -967,10 +1045,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-50">
-            <template v-for="po in adminPos" :key="po.poId">
+            <template v-for="po in adminPos.filter(inLatestRound)" :key="po.poId">
               <tr :class="po.status === 'eq_requested' ? 'bg-amber-50/40' : ''">
                 <td class="px-4 py-2.5">
-                  <p class="font-medium text-gray-900">{{ po.partnerName }}</p>
+                  <p class="font-medium text-gray-900">
+                    {{ po.partnerName }}
+                    <span v-if="po.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-semibold text-rose-700">
+                      {{ po.reorderRound }}차
+                    </span>
+                  </p>
                   <p v-if="po.eqDelegatePoId !== null" class="text-[11px] text-indigo-600">MD 경유 — EQ는 하위에서 진행(자동 반영)</p>
                   <p v-else-if="po.eqBlocked" class="text-[11px] text-amber-600">MD 하위 발주 대기 — 발주되면 EQ 시작</p>
                 </td>
@@ -1111,6 +1194,16 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       @click="void adminShipRevert(po.poId)"
                     >
                       ↩ 되돌리기
+                    </button>
+                    <!-- 선적 취소 — 발송 전·입고 전만. 견적 삭제의 SHIPMENT_EXISTS 를 푸는 출구. -->
+                    <button
+                      v-if="s.status === 'preparing' && s.receivedAt === null"
+                      type="button"
+                      class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-red-50 hover:text-red-600"
+                      :title="s.poIds.length > 1 ? `묶음 ${s.poIds.length}건이 함께 취소됩니다` : '선적 문서를 삭제합니다'"
+                      @click="void adminShipCancel(po.poId, s)"
+                    >
+                      선적 취소
                     </button>
                   </div>
                 </td>

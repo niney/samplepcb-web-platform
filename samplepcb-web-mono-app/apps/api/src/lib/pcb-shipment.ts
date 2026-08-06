@@ -20,6 +20,7 @@ import { prisma } from './prisma';
 import { getBusinessInfo } from './g5-db';
 import { loadHousePartnerName } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
+import { kstDateStr } from './kst';
 
 // ── PCB 선적 코어(P3) — docs/PCB_PARTNER_TRACK.md §5.2-4 ─────────────────────
 // 상태·핑퐁 주체·필수값은 BOM 선적 계약 코드사전을 공유하고(§8 V6 — lib 은 전용 미러),
@@ -423,6 +424,46 @@ export const receivePcbShipment = async (
   return { ok: true };
 };
 
+/**
+ * 선적 취소(문서 삭제) — 관리자 전용. 묶음이면 통째로 사라진다.
+ *
+ * 왜 필요한가: 협력사 detach 는 대표 발주서를 뺄 수 없어(REPRESENTATIVE_PO) 잘못 만든
+ * 선적을 없앨 방법이 아예 없었다. 그래서 견적 영구 삭제의 SHIPMENT_EXISTS 차단(D13)이
+ * 풀 수 없는 막다른 길이 됐다 — 취소 경로가 그 출구다.
+ *
+ * 위계는 발주 취소(deletePcbPo: issued 만)와 같다 — **발송 전(preparing)** 만 허용하고,
+ * 그 이후 단계는 revert 로 내려온 뒤에야 취소된다. 입고 확인된 선적은 어떤 경우에도 불가.
+ * 첨부는 파일서버 먼저 → DB 순서(고아 pathToken 방지, 재시도 멱등).
+ */
+export const cancelPcbShipment = async (
+  po: SpPcbPo,
+  actor: PcbShipmentActor,
+): Promise<
+  | { ok: true; poIds: bigint[] }
+  | { ok: false; error: 'NOTHING_TO_REVERT' | 'NOT_YOUR_TURN' | 'NOT_PREPARING' | 'RECEIVE_LOCKED' }
+> => {
+  const shipment = await findPcbShipmentByPo(po.id);
+  if (shipment === null) return { ok: false, error: 'NOTHING_TO_REVERT' };
+  if (actor.kind !== 'admin') return { ok: false, error: 'NOT_YOUR_TURN' };
+  if (shipment.receivedAt !== null) return { ok: false, error: 'RECEIVE_LOCKED' };
+  if (asPcbShipmentStatus(asPcbShipmentMode(shipment.mode), shipment.status) !== 'preparing')
+    return { ok: false, error: 'NOT_PREPARING' };
+
+  const links = await prisma.spPcbShipmentPo.findMany({
+    where: { shipmentId: shipment.id },
+    select: { poId: true },
+  });
+  const files = await prisma.spFile.findMany({
+    where: { refType: SHIPMENT_REF_TYPE, refId: shipment.id },
+  });
+  for (const file of files) {
+    await deleteFromFileServer(file.pathToken);
+    await prisma.spFile.delete({ where: { id: file.id } });
+  }
+  await prisma.spPcbShipment.delete({ where: { id: shipment.id } }); // 조인 cascade
+  return { ok: true, poIds: links.map((l) => l.poId) };
+};
+
 /** 묶음에서 제외 — 보내는측, preparing 만, 대표 발주서 불가(BOM §6.10 초기 규칙). */
 export const detachPcbShipmentPo = async (
   po: SpPcbPo,
@@ -622,7 +663,7 @@ export const buildPcbInvoiceDraft = async (
       netWeight: '',
       grossWeight: '',
       currency,
-      invoiceDate: new Date().toISOString().slice(0, 10),
+      invoiceDate: kstDateStr(new Date()),
       items,
       totalValue: items.reduce((sum, item) => sum + item.totalValue, 0),
     },

@@ -54,6 +54,7 @@ import {
   pcbPriceText,
   sendPcbMail,
 } from '../lib/pcb-rfq-email';
+import { kstDateStr } from '../lib/kst';
 
 // ── PCB 발주서·EQ 포털 라우트(P2, requirePartner) — docs/PCB_PARTNER_TRACK.md ──
 // 수주 발주서의 EQ 진행(파일 → 승인요청 → 생산)과 MD 하위 발주. EQ 순서·주체는
@@ -358,7 +359,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
               created.po.subCurrency,
               created.po.subPriceOriginal === null ? null : Number(created.po.subPriceOriginal),
             ),
-            deliveryText: created.po.deliveryDate?.toISOString().slice(0, 10) ?? null,
+            deliveryText: created.po.deliveryDate === null ? null : kstDateStr(created.po.deliveryDate),
           }),
         );
       }

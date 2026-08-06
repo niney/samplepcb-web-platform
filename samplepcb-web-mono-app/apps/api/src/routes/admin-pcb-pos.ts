@@ -42,6 +42,7 @@ import {
   getPcbShipmentFileDownload,
   loadAdminPcbShipmentWorkItems,
   loadPcbShipmentsForPoIds,
+  cancelPcbShipment,
   receivePcbShipment,
   revertPcbShipment,
   savePcbInvoiceData,
@@ -59,6 +60,7 @@ import {
 } from '../lib/pcb-rfq-email';
 import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
+import { kstDateStr } from '../lib/kst';
 
 // ── PCB 발주서·EQ 관리자 라우트(P2) — docs/PCB_PARTNER_TRACK.md §5.4 ──────────
 // 발행(paid 게이트)·조건 수정·삭제 + EQ 승인/반려/되돌리기(관리자=ORDERER, D3) +
@@ -188,7 +190,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               created.po.subCurrency,
               created.po.subPriceOriginal === null ? null : Number(created.po.subPriceOriginal),
             ),
-            deliveryText: created.po.deliveryDate?.toISOString().slice(0, 10) ?? null,
+            deliveryText: created.po.deliveryDate === null ? null : kstDateStr(created.po.deliveryDate),
           }),
         );
       }
@@ -442,6 +444,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
     NOT_SHIPPED: '발송 시작 전에는 입고확인할 수 없습니다.',
+    NOT_PREPARING: '발송이 시작된 선적은 취소할 수 없습니다 — 되돌리기로 준비 단계까지 내린 뒤 취소하세요.',
   };
   const shipError = (error: string): { error: string; message: string } => ({
     error,
@@ -532,6 +535,29 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await revertPcbShipment(po, { kind: 'admin' });
       if (!res.ok) return reply.status(409).send(shipError(res.error));
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  // 선적 취소(문서 삭제) — 발송 전(preparing)·입고 전만. 묶음이면 통째로 사라진다.
+  // 견적 영구 삭제의 SHIPMENT_EXISTS 차단(D13)을 푸는 유일한 출구다.
+  fastify.delete(
+    '/pcb-projects/:id/pos/:poId/shipment',
+    { schema: { params: PoParams, response: { 200: AdminPcbPoListResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await cancelPcbShipment(po, { kind: 'admin' });
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
+      request.log.warn(
+        {
+          audit: 'admin_pcb_shipment_cancel',
+          actor: request.user.mbId,
+          specId: Number(po.specId),
+          poIds: res.poIds.map(Number),
+        },
+        '관리자 선적 취소',
+      );
       return { result: true as const, data: await loadPanel(request.params.id) };
     },
   );

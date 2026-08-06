@@ -175,7 +175,7 @@
 
 import { createPool } from 'mysql2/promise';
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
-import { kstDateTimeStr } from './kst';
+import { kstDateStr, kstDateTimeStr } from './kst';
 
 let pool: Pool | null = null;
 
@@ -691,10 +691,10 @@ interface LockedPointRow extends RowDataPacket {
   po_rel_action: string;
 }
 
-const pointExpireDate = (value: string | Date): string => {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return value.slice(0, 10);
-};
+// g5 DATE 컬럼은 KST 달력 날짜다 — mysql2 가 로컬(KST) 자정 Date 로 돌려주므로
+// UTC 슬라이스는 전날을 낸다(만료일 비교가 하루 당겨지던 결함, 2026-08-06).
+const pointExpireDate = (value: string | Date): string =>
+  value instanceof Date ? kstDateStr(value) : value.slice(0, 10);
 
 /**
  * 주문에 의해 생성된 포인트 원장을 지우면서 코어 delete_point의 사용분 재배분과

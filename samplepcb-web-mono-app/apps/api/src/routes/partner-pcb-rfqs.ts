@@ -31,6 +31,7 @@ import {
 } from '../lib/pcb-rfq-email';
 import { downloadFromFileServer } from '../lib/file-server';
 import { getShopEstimateProfile } from '../lib/g5-db';
+import { kstDateStr } from '../lib/kst';
 
 // ── PCB 파트너 RFQ 포털 라우트(requirePartner) — docs/PCB_PARTNER_TRACK.md §5.4 ──
 // 받은 견적요청 워크큐·상세(스펙 사양 + 거버 파일 프록시)·회신, MD 2단(하위 배정 diff·
@@ -121,7 +122,8 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           updated.subCurrency,
           updated.subPriceOriginal === null ? null : Number(updated.subPriceOriginal),
         );
-        const deliveryText = updated.quotedDeliveryDate?.toISOString().slice(0, 10) ?? null;
+        const deliveryText =
+          updated.quotedDeliveryDate === null ? null : kstDateStr(updated.quotedDeliveryDate);
         if (rfq.parentPartnerId === 0n) {
           const profile = await getShopEstimateProfile();
           void sendPcbMail(
@@ -205,7 +207,7 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       // 제시 납기 하향 상속(레거시 승계) — 명시 없으면 관리자 제시일을 그대로 전달.
       const suggested =
         request.body.suggestedDeliveryDate ??
-        rfq.suggestedDeliveryDate?.toISOString().slice(0, 10) ??
+        (rfq.suggestedDeliveryDate === null ? null : kstDateStr(rfq.suggestedDeliveryDate)) ??
         null;
 
       const diff = await diffSendPcbRfqs({
