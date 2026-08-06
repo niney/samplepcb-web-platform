@@ -381,3 +381,87 @@ export function buildPcbShipmentReceivedEmail(p: PcbShipmentReceivedEmailParams)
     ),
   };
 }
+
+// ── EQ 고객 확인(P4.1) — docs/PCB_PARTNER_TRACK.md D16 ───────────────────────
+// ⚠ 이 메일에는 **승인 버튼을 넣지 않는다**. 메일 보안 게이트웨이(O365 ATP·프루프포인트
+//   등)가 링크를 자동 GET 하므로, 링크 하나로 상태가 바뀌면 고객이 열어보기도 전에
+//   승인된다. 버튼은 주문내역 화면을 열 뿐이고 결정은 그 화면 안에서 POST 로만 한다.
+// ⚠ 협력사명·발주서 정보는 넣지 않는다 — 고객에게 공급망을 드러내지 않는다.
+
+/** 주문내역 상세 딥링크 — 해당 확인 요청 항목으로 바로 스크롤(#eq-{reviewId}). */
+export const customerOrderViewUrl = (odId: string, reviewId: number): string =>
+  `${WEB_BASE_URL}/shop/orderinquiryview.php?od_id=${encodeURIComponent(odId)}#eq-${String(reviewId)}`;
+
+export interface PcbEqCustomerRequestEmailParams {
+  projectName: string;
+  odId: string;
+  reviewId: number;
+  message: string;
+  dueText: string | null;
+  fileCount: number;
+}
+
+export function buildPcbEqCustomerRequestEmail(p: PcbEqCustomerRequestEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const rows = [
+    infoRow('주문번호', esc(p.odId)),
+    infoRow('건', esc(p.projectName)),
+    ...(p.dueText === null ? [] : [infoRow('회신 기한', `<b>${esc(p.dueText)}</b>`)]),
+    ...(p.fileCount === 0 ? [] : [infoRow('첨부', `${String(p.fileCount)}개 (주문내역에서 확인)`)]),
+  ].join('');
+  return {
+    subject: `[샘플피씨비] 제조 확인 요청 — ${p.projectName}`,
+    html: shell(
+      '제조 확인 사항이 있습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        주문하신 <b>${esc(p.projectName)}</b> 건에 제조 전 확인이 필요한 사항이 있습니다.
+        아래 내용을 보시고 <b>주문내역 상세</b>에서 승인 또는 반려해 주세요.
+      </p>
+      <div style="margin:0 0 14px;padding:12px 14px;background:#f8fafc;border-left:3px solid #0ea5e9;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;">${esc(p.message)}</div>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
+      </table>
+      <div style="padding-top:20px;">
+        <a href="${esc(customerOrderViewUrl(p.odId, p.reviewId))}"
+           style="display:inline-block;background:#0284c7;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          주문내역에서 확인하기</a>
+      </div>
+      <p style="margin:10px 0 0;font-size:11px;color:#94a3b8;line-height:1.6;">
+        이 버튼은 주문내역 화면을 열 뿐이며, 누르는 것만으로는 승인되지 않습니다.
+      </p>`,
+      '본 메일은 샘플피씨비 제조 확인 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbEqCustomerDecisionEmailParams {
+  projectName: string;
+  approved: boolean;
+  note: string | null;
+  customerId: string;
+}
+
+/** 고객이 답했다 → 관리자에게. 놓치면 생산이 멈추므로 알림이 필요하다. */
+export function buildPcbEqCustomerDecisionEmail(p: PcbEqCustomerDecisionEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const noteHtml =
+    p.note === null || p.note === ''
+      ? ''
+      : `<p style="margin:0 0 12px;font-size:13px;color:${p.approved ? '#334155' : '#b91c1c'};line-height:1.6;">고객 의견: <b>${esc(p.note)}</b></p>`;
+  return {
+    subject: `[샘플피씨비] 고객 ${p.approved ? '승인' : '반려'} — ${p.projectName}`,
+    html: shell(
+      `고객이 제조 확인을 ${p.approved ? '승인' : '반려'}했습니다`,
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        <b>${esc(p.projectName)}</b> 건을 고객(${esc(p.customerId)})이
+        ${p.approved ? '승인했습니다. EQ 승인을 진행해 주세요.' : '반려했습니다. 사유를 확인해 협력사에 전달해 주세요.'}
+      </p>${noteHtml}`,
+      '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
+    ),
+  };
+}

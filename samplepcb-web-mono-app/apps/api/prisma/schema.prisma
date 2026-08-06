@@ -889,7 +889,7 @@ model SpBomQuoteItemReview {
   @@map("sp_bom_quote_item_review")
 }
 
-// ── 스마트 BOM 파트너·협력사 RFQ (sp_partner*, sp_bom_rfq*, 2026-07-29) ──────
+// ── 공용 파트너 조직·스마트 BOM 협력사 RFQ (sp_partner*, sp_bom_rfq*) ───────
 // 설계 정본: docs/SMARTBOM_PARTNER_RFQ.md. 레거시(g5_member 여분컬럼 협력사 + 가짜 회원
 // 하드코딩 공급사)와 무관한 신규 모델 — 조직(sp_partner)/계정(sp_partner_member)/
 // 자동화(supplierCode) 3축 분리. 코드 사전은 @sp/api-contract PARTNER_*·BOM_RFQ_* 정본.
@@ -1334,11 +1334,46 @@ model SpPcbPo {
   spec            SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
   partner         SpPartner   @relation(fields: [partnerId], references: [id])
   remittances     SpPcbRemittance[]
+  eqReviews       SpPcbEqReview[]
 
   @@unique([specId, partnerId, parentPartnerId, reorderRound])
   @@index([partnerId, status]) // 협력사 포털 워크큐
   @@index([specId])
   @@map("sp_pcb_po")
+}
+
+// PCB EQ 고객 확인 원장(P4.1) — 발주서 1:N 확인 요청. docs/PCB_PARTNER_TRACK.md D16.
+// EQ 는 반려 → 보완 → 재요청이 반복되므로 발주서에 컬럼 한 칸(customerApprovedAt)이
+// 아니라 회차별 원장이다(송금 원장과 같은 판단).
+//
+// ⚠ 이것은 EQ 전이 머신(PCB_EQ_FORWARD)의 **옆에 붙는 별도 축**이다. 고객이 승인해도
+// 상태는 eq_requested 그대로이고, eq_done 전이는 여전히 관리자(ORDERER) 몫이다.
+// 고객 확인은 관리자 승인의 '근거'를 남기는 것이지 승인 권한의 이양이 아니다(사용자 결정).
+model SpPcbEqReview {
+  id            BigInt    @id @default(autoincrement())
+  poId          BigInt
+  /** 조회 키 비정규화 — 고객 화면은 주문→cart→spec 으로 찾아 들어온다(발주서를 모른다).
+   *  발주서의 specId 는 불변이라 어긋날 여지가 없다. */
+  specId        BigInt
+  status        String    @default("requested") @db.VarChar(16) // requested|approved|rejected|canceled
+  /** 관리자가 쓴 확인 문구 — 협력사 EQ 원문을 그대로 넘기지 않는다(맥락이 다르다). */
+  message       String    @db.Text
+  dueOn         DateTime? // 회신 기한(KST 날짜 앵커)
+  /** 고객에게 공개한 EQ 첨부 id 목록(sp_file.id). 협력사 정보가 든 파일을 거르기 위해
+   *  관리자가 **고른 것만** 담는다 — 다운로드도 이 목록으로 검증한다(사용자 결정). */
+  sharedFileIds Json
+  requestedBy   String    @db.VarChar(191)
+  requestedAt   DateTime  @default(now())
+  decidedBy     String?   @db.VarChar(191) // 고객 mb_id
+  decidedAt     DateTime?
+  decisionNote  String?   @db.Text // 반려 사유·의견
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  po            SpPcbPo   @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  @@index([poId])
+  @@index([specId, status])
+  @@map("sp_pcb_eq_review")
 }
 
 // PCB 송금 원장 — 발주서 1:N 송금. **부분·분할 송금이 실재**하기 때문에 상태 한 칸이

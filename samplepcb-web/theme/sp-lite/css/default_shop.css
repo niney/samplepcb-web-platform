@@ -2298,3 +2298,48 @@
     .sp-acc-coupon-card__amt { width: 92px; font-size: 17px; }
     .sp-acc-tabs__write { padding-left: 8px; padding-right: 8px; }
 }
+
+/* ── PCB 제조 확인 요청(P4.1) — 주문내역 상세 #sod_fin 스코프 ────────────────── */
+/* 협력사 EQ 를 고객에게 물어보는 섹션. 대기 중인 건은 눈에 띄어야 하고(파랑 강조),
+   지난 건은 조용해야 한다. 협력사명은 어디에도 나오지 않는다. */
+#sod_fin #sp_eq_wrap { margin: 20px 0; }
+#sod_fin #sp_eq_wrap h2 { font-size: 1.083em; font-weight: 700; margin: 0 0 6px; }
+#sod_fin .sp_eq_intro { margin: 0 0 10px; font-size: 0.917em; color: #6b7280; }
+
+#sod_fin .sp_eq_item { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; background: #fff; }
+#sod_fin .sp_eq_item.sp_eq_open { border-color: #7dd3fc; background: #f0f9ff; }
+
+#sod_fin .sp_eq_head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+#sod_fin .sp_eq_proj { font-size: 0.958em; color: #111827; }
+#sod_fin .sp_eq_due { font-size: 0.875em; color: #6b7280; }
+
+#sod_fin .sp_eq_badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.833em; font-weight: 700; }
+#sod_fin .sp_eq_wait { background: #e0f2fe; color: #0369a1; }
+#sod_fin .sp_eq_ok   { background: #d1fae5; color: #047857; }
+#sod_fin .sp_eq_no   { background: #fee2e2; color: #b91c1c; }
+#sod_fin .sp_eq_off  { background: #f3f4f6; color: #6b7280; }
+
+#sod_fin .sp_eq_msg { padding: 10px 12px; background: #fff; border-left: 3px solid #0ea5e9; font-size: 0.958em; line-height: 1.7; color: #0f172a; white-space: pre-wrap; }
+#sod_fin .sp_eq_item:not(.sp_eq_open) .sp_eq_msg { border-left-color: #d1d5db; background: #f9fafb; color: #4b5563; }
+
+#sod_fin .sp_eq_files { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+#sod_fin .sp_eq_files a { display: inline-block; padding: 4px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.875em; color: #374151; text-decoration: none; background: #fff; }
+#sod_fin .sp_eq_files a:hover { background: #f9fafb; }
+
+#sod_fin .sp_eq_form { margin-top: 12px; }
+#sod_fin .sp_eq_note_label { display: block; font-size: 0.875em; font-weight: 700; color: #374151; }
+#sod_fin .sp_eq_note_label span { font-weight: 400; color: #9ca3af; }
+#sod_fin .sp_eq_form textarea { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.958em; font-family: inherit; }
+#sod_fin .sp_eq_btns { display: flex; gap: 8px; margin-top: 10px; }
+#sod_fin .sp_eq_btns button { padding: 9px 20px; border: 0; border-radius: 6px; font-size: 0.958em; font-weight: 700; cursor: pointer; }
+#sod_fin .sp_eq_approve { background: #0284c7; color: #fff; }
+#sod_fin .sp_eq_approve:hover { background: #0369a1; }
+#sod_fin .sp_eq_reject { background: #fff; color: #b91c1c; border: 1px solid #fca5a5 !important; }
+#sod_fin .sp_eq_reject:hover { background: #fef2f2; }
+
+#sod_fin .sp_eq_done { margin: 8px 0 0; font-size: 0.917em; color: #6b7280; }
+#sod_fin .sp_eq_done .sp_eq_note { display: block; margin-top: 4px; color: #4b5563; }
+
+@media (max-width: 600px) {
+    #sod_fin .sp_eq_btns button { flex: 1; }
+}

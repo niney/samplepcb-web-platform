@@ -1,12 +1,14 @@
 import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  AdminPcbEqReviewListResponse,
   AdminPcbPoListResponse,
   AdminPcbPoWorkListResponse,
   AdminPcbShipmentWorkListResponse,
   PcbInvoiceResponse,
   PcbPoActionResponse,
   apiRoutes,
+  type AdminPcbEqReviewCreateBodyType,
   type AdminPcbPoCreateBodyType,
   type AdminPcbPoPatchBodyType,
   type AdminPcbPoTabType,
@@ -416,3 +418,52 @@ export const adminPcbInvoiceApi = (specId: number, poId: number) => ({
     await Promise.resolve();
   },
 });
+
+// ── EQ 고객 확인(P4.1) — docs/PCB_PARTNER_TRACK.md D16 ───────────────────────
+// 협력사 EQ 를 고객에게 물어보는 별도 축. 승인해도 EQ 전이는 관리자 몫이라
+// 발주 패널 캐시만 갱신하면 된다.
+export function useAdminPcbEqReviews(poId: Ref<number | null>) {
+  return useQuery({
+    queryKey: computed(() => ['admin', 'pcbEqReview', poId.value] as const),
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.adminPcbEqReviews}/${String(poId.value)}`,
+        AdminPcbEqReviewListResponse,
+      ),
+    enabled: computed(() => poId.value !== null),
+  });
+}
+
+export function useCreatePcbEqReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, body }: { poId: number; body: AdminPcbEqReviewCreateBodyType }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbEqReviews}/${String(poId)}`,
+        body,
+        AdminPcbEqReviewListResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+      void qc.invalidateQueries({ queryKey: ['admin', 'pcbEqReview'] });
+    },
+  });
+}
+
+export function useCancelPcbEqReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, reviewId }: { poId: number; reviewId: number }) =>
+      apiSend(
+        'DELETE',
+        `${apiRoutes.adminPcbEqReviews}/${String(poId)}/${String(reviewId)}`,
+        undefined,
+        AdminPcbEqReviewListResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+      void qc.invalidateQueries({ queryKey: ['admin', 'pcbEqReview'] });
+    },
+  });
+}

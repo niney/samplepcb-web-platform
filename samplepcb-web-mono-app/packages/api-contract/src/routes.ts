@@ -17,7 +17,7 @@ export const apiRoutes = {
   bom: '/api/bom',
   // 고객 BOM 견적요청 관리자 검토
   adminBomQuotes: '/api/admin/bom-quotes',
-  // 스마트 BOM 파트너(조직) 관리 — docs/SMARTBOM_PARTNER_RFQ.md
+  // 공용 파트너(조직) 관리 — BOM·PCB·부품 판매 트랙이 함께 사용
   adminPartners: '/api/admin/partners',
   // 스마트 BOM 주문·결제(주문 축 파생 목록, D19)
   adminBomOrders: '/api/admin/bom-orders',
@@ -42,6 +42,8 @@ export const apiRoutes = {
   adminPcbOrders: '/api/admin/pcb-orders',
   adminPcbCases: '/api/admin/pcb-cases',
   adminPcbRemittances: '/api/admin/pcb-remittances',
+  adminPcbEqReviews: '/api/admin/pcb-eq-reviews',
+  pcbEqReviews: '/api/pcb-eq-reviews',
   // 재능마켓(market)
   marketExperts: '/api/market/experts',
   marketProjects: '/api/market/projects',

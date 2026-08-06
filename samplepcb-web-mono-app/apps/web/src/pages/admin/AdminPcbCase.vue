@@ -52,6 +52,7 @@ import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
 import DeleteQuoteModal from '../../components/admin/DeleteQuoteModal.vue';
 import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
 import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vue';
+import PcbEqReviewPanel from '../../components/admin/pcb/PcbEqReviewPanel.vue';
 
 // PCB Case 상세 — docs/PCB_PARTNER_TRACK.md §5.4. 스펙 요약(기존 admin-pcb-projects
 // 상세 계약 재사용) + 협력사 RFQ 패널(배정 diff·대리 회신·선정/해제·매직링크).
@@ -419,6 +420,8 @@ const editMemo = ref('');
 
 /** 송금 원장 패널 — 워크큐(송금 메뉴)와 같은 컴포넌트를 쓴다. */
 const remittancePoId = ref<number | null>(null);
+/** EQ 고객 확인 패널(P4.1) — 승인 전에 고객에게 물어보는 별도 축. */
+const eqReviewPo = ref<AdminPcbPoViewType | null>(null);
 
 function openPoEdit(po: AdminPcbPoViewType): void {
   editPo.value = po;
@@ -1165,6 +1168,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-right text-xs">
                   <template v-if="po.status === 'eq_requested' && po.eqDelegatePoId === null">
+                    <!-- 고객 확인(P4.1) — 승인 전에 고객에게 물어볼 수 있다. EQ 전이는 그대로. -->
+                    <button type="button" class="mr-1 rounded-md border border-sky-300 px-2 py-1 font-semibold text-sky-700 hover:bg-sky-50" @click="eqReviewPo = po">고객 확인</button>
                     <button type="button" class="mr-1 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(po)">EQ 승인</button>
                     <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="void rejectPo(po)">반려</button>
                   </template>
@@ -1395,6 +1400,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       </div>
     </div>
 
+    <!-- EQ 고객 확인 패널(P4.1) -->
+    <PcbEqReviewPanel v-if="eqReviewPo !== null" :po="eqReviewPo" @close="eqReviewPo = null" />
+
     <!-- 송금 원장 패널 — 송금 워크큐와 같은 컴포넌트(창구는 여럿, 원장은 하나) -->
     <PcbRemittancePanel
       v-if="remittancePoId !== null"
@@ -1467,7 +1475,10 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             <span class="text-xs text-gray-400">{{ p.defaultCurrency }}<template v-if="p.country !== null"> · {{ p.country }}</template></span>
           </label>
           <p v-if="assignCandidates.length === 0" class="px-2 py-4 text-center text-xs text-gray-400">
-            PCB 견적(pcb_rfq) 능력이 있는 승인 협력사가 없습니다 — 파트너 관리에서 등록하세요.
+            PCB 견적(pcb_rfq) 능력이 있는 승인 협력사가 없습니다 —
+            <RouterLink :to="{ name: 'admin-partners' }" class="font-semibold text-blue-600 hover:underline">
+              파트너 관리
+            </RouterLink>에서 등록하세요.
           </p>
         </div>
         <label class="mt-3 block">

@@ -136,7 +136,7 @@ MD 전용: 하위 비교·선정(마진 미리보기) · 입고/출고/직송 �
 |---|---|---|
 | 스키마 | `sp_partner`(+capabilities에 `"pcb_rfq"` 예시 선반영)/`sp_partner_member`/**`sp_partner_relation`(MD 대비 스키마만 선반영, 미구현)**, `sp_file`(uploadedBy), `sp_mail_template/log` | 그대로 |
 | 서버 | requirePartner(매 요청 판정), 매직링크(`bom-rfq.ts` 토큰 발급·회전·30일 TTL), `mailer.ts`+`rfq-email.ts`(7종 빌더, 비차단), **`lib/exchange-rate.ts`(한국수출입은행! 이미 존재)**, `bom-po.ts`의 선적 핑퐁(advance/revert 주체·필수값 서버 검증)+입고확인+파일 프록시, `bom-invoice.ts`(상업송장 초안·엑셀)·`bom-trade-documents.ts`(견적서/거래명세서)·`bom-packing.ts`(QR 선적리스트), `bom-shipment-policy.ts`(국가→모드), g5-db 카탈로그(getOrderHeadersLite·isPaid·getCartOrderLinks 등) | 패턴/모듈 재사용(일부 공용화 추출) |
-| 웹 | 모듈 스위처(adminModules)+워크큐+배지 시스템+Case `?from=` 접힘, **진짜 공유 컴포넌트 5종**(RfqReplyForm·BomEstimateSheet·InvoiceEditorModal·ShipmentPackingModal·TradeDocumentModal — 관리자/파트너/매직링크 3자 공용), UiPagination | 참조 아키텍처=2세대 smartbom 모듈 |
+| 웹 | 모듈 스위처(adminModules)+워크큐+배지 시스템+Case `?from=` 접힘, 통합 관리의 공용 파트너 기준정보(`/admin/partners`), **진짜 공유 컴포넌트 5종**(RfqReplyForm·BomEstimateSheet·InvoiceEditorModal·ShipmentPackingModal·TradeDocumentModal — 관리자/파트너/매직링크 3자 공용), UiPagination | 참조 아키텍처=2세대 smartbom 모듈 |
 | 포털 | `/partner` 홈(할 일 카드)+두 칸 선반↔박스+PartnerShipmentCard+partnerPoDisplayStatus(상태 번역) | PCB 문서를 같은 포털에 합류 |
 
 테스트 주의: BOM 트랙도 `bom-rfq.ts`/`bom-po.ts`/`bom-invoice.ts`/`bom-order.ts`/`rfq-email.ts`는 전용 단위테스트가 없다(E2E 스크립트는 scratchpad 소멸). PCB 이식 시 공용화 추출과 함께 테스트를 신설하는 편이 안전.
@@ -265,6 +265,8 @@ sp_file refType 추가: sp_pcb_rfq / sp_pcb_po / sp_pcb_po_eq / sp_pcb_as_case /
 | D8 | 회수 자료 커밋? | **전부 커밋** | 보고서+docs/legacy-smartbom/ 4종 |
 
 **D13 (2026-08-06) — 견적 영구 삭제의 협력 트랙 차단 + 감사 원장 공용화.** BOM Case 삭제(§bom-case-delete)를 복제하지 않고 PCB 실정에 맞게 이식한다. ① **차단 확장** — 기존 `PAID_ORDER` 에 `PO_ISSUED`·`SHIPMENT_EXISTS`·`SHARED_ORDER` 추가(우회 정책은 D14 로 대체). ② **경고 4종**(`RFQ_EMAILS_REMAIN`·`PCB_ATTACHMENTS_DELETED`·`UNPAID_ORDER_DELETED`·`LEGACY_CASE`) + 최종확인 체크. PCB 는 모수가 2만 건이라 BOM 의 단건 2단계 모달이 아니라 **배치 프리뷰를 강화**하는 형태다. ③ **감사 원장 공용화** — `sp_bom_case_delete_audit` → **`sp_delete_audit`**(트랙 접두사 없음 = 횡단 관례) + `quoteId` → `subjectType`+`subjectId` 중립화. 범위는 테이블 이름이 아니라 `subjectType` 이 말한다(이름만 공용이고 `quoteId` 에 묶인 `sp_mail_log` 가 반면교사).
+
+**D16 (2026-08-07) — EQ 고객 확인은 별도 축이고, 메일은 승인 버튼을 갖지 않는다.** 협력사 EQ(제조 확인 사항)를 고객에게 물어보는 기능. ① **전이 머신 불변** — 고객이 승인해도 발주서는 `eq_requested` 그대로이고 `eq_done` 은 여전히 ORDERER(관리자) 몫이다. 고객 확인은 **관리자 승인의 근거**이지 권한 이양이 아니다(사용자 결정). 관리자가 [고객 확인] 으로 선택 발송하며, 모든 EQ 를 고객에게 보내지 않는다(내부 사정도 EQ 에 섞인다). ② **⚠ 메일에 승인 버튼을 넣지 않는다** — 메일 보안 게이트웨이(O365 ATP·프루프포인트 등)가 링크를 **자동 GET** 하므로 링크 하나로 상태가 바뀌면 고객이 열어보기도 전에 승인된다. 여기에 오클릭 비가역성(EQ 승인=생산 시작)·메일 전달로 인한 제3자 승인·파일을 안 보고 답하는 문제가 겹친다. **규칙: 링크는 화면을 열기만(GET), 결정은 화면 안에서 POST.** ③ **공개 파일은 관리자가 고른 것만**(사용자 결정) — 협력사가 올린 EQ·Working 첨부에는 협력사명·로고·연락처가 들어 있어 전량 공개는 공급망을 드러내고 직거래 유인이 된다. 화면 어디에도 협력사명을 쓰지 않고 "제조사" 로 표기한다. ④ **회원 주문만**(사용자 결정) — 소유권을 `spec.mbId` 로 확실히 판정하기 위해. 비회원 건은 종전대로 관리자가 유선·메일로 처리한다. ⑤ **원장으로 기록** — EQ 는 반려 → 보완 → 재요청이 반복되므로 발주서 컬럼 한 칸이 아니라 `sp_pcb_eq_review`(1:N) 다(D15 와 같은 판단). ⑥ 고객에겐 발주서가 아니라 **"내 주문의 확인 요청"** 으로 보인다 — MD 경유로 발주서가 여러 개여도 그 구조를 노출하지 않는다.
 
 **D15 (2026-08-06) — 송금은 상태가 아니라 원장이다.** 송금 이력 관리 요청(사용자)에 대한 결정. ① **원장 신설**(`sp_pcb_remittance`, 발주서 1:N) — 상태 한 칸으로 두면 부분·분할 송금을 못 남긴다. 결제조건에 `50% PRE-PAID` 를 제공하면서 송금은 한 줄만 받던 모순의 해소다. `sp_pcb_po.remittedAt` 은 파생 캐시로 강등한다. ② **미지급 잔액 = 발주가 − 송금 합계**가 이 기능의 핵심 지표이며, 종전 구조로는 금액이 없어 계산 자체가 불가능했다. ③ **통화는 뭉치지 않는다** — 협력사별 집계를 통화별로 나눠 내고 KRW 환산은 참고 총계로만. 송금 환율은 발주 환율과 별도로 박제한다(환차손익). ④ **메뉴 신설**(발주 다음·선적 앞) — 역할(경리·재무)이 다르므로 D12 워크큐 교리에 따라 독립 메뉴이고 첫 탭은 대기 큐다. ⑤ **협력사 포털에 공개**(사용자 결정) — 자기 발주서의 수금 내역·미수금까지. "언제 얼마 들어왔나" 문의를 화면으로 옮긴다. 증빙 파일은 내부 자료라 제외. ⑥ **PCB 전용**(공용 `sp_remittance` 아님) — 살아있는 발주서에 FK 로 붙어야 잔액이 깨지지 않는다.
 
@@ -571,6 +573,59 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
 - **남은 것**: 통화별 KRW 환산이 발주서 `krwAmount` 비례배분이라 MD 하위 발주(krwAmount
   null)는 환산 총계에서 빠진다 — 통화별 값이 정본이므로 실무엔 지장 없으나, 회계 리포트를
   낼 때는 송금 건의 `krwAmount` 합으로 다시 세는 편이 정확하다.
+
+### P4.1 구현 기록 (2026-08-07 — EQ 고객 확인: 관리자 요청 → 주문내역 승인)
+
+**D16 의 구현.** sp-php(그누보드)를 처음으로 쓰기 경로에 넣은 작업이다.
+
+- **스키마**: `sp_pcb_eq_review`(마이그레이션 `20260807090000`) — 발주서 1:N, `specId` 비정규화
+  (고객 화면이 주문→cart→spec 으로 들어오므로), `sharedFileIds` Json, 상태 4종
+  `requested|approved|rejected|canceled`. 발주서 FK cascade.
+- **서버**: `lib/pcb-eq-review.ts` + 관리자·고객 라우트 2개.
+  - 요청 생성은 `eq_requested` 상태에서만, **열린 요청이 있으면 409**(고객이 어느 것에
+    답할지 헷갈리지 않게). 공개 파일은 **이 발주서의 EQ 첨부인지 서버가 검증**한다.
+  - 고객 결정은 원장 상태만 바꾸고 **발주서 status 를 건드리지 않는다**(E2E 로 못 박음).
+  - 파일 다운로드는 `sharedFileIds` 에 있는 것만 — 없으면 404.
+  - 결정이 오면 관리자에게 메일(놓치면 생산이 멈춘다).
+- **메일**: `buildPcbEqCustomerRequestEmail` — 확인 문구 + 기한 + **[주문내역에서 확인하기]**
+  버튼 하나. 버튼 아래에 "이 버튼은 화면을 열 뿐이며 누르는 것만으로는 승인되지 않습니다"
+  를 명시한다. 협력사명·발주서 정보는 넣지 않는다.
+- **관리자 웹**: Case 상세 발주서 행에 **[고객 확인]**(eq_requested 일 때만) → 패널에서
+  문구 작성·기한·**공개 파일 체크 선택**·발송. 열린 요청은 취소 가능하고 지난 이력이
+  회차별로 쌓인다. 기한 초과 건은 붉은 배지("재촉 필요").
+- **sp-php**: 테마 `theme/sp-lite/shop/orderinquiryview.php` 에 섹션 신설(코어 비수정).
+  - `extend/sp_pcb_eq.extend.php` — 세션 → `spcb_jwt_encode()` 단기 JWT(2분) → sp-node 호출.
+    **PHP 는 sp_ 테이블에 쓰지 않는다**(권한·상태·회차 판정을 두 곳에 복제하면 어긋난다).
+  - `spcb/api/eq-decide.php` — **POST 전용** + 그누보드 `check_token()` CSRF. GET 으로는
+    아무 일도 하지 않는다(D16 ②).
+  - `spcb/api/eq-file.php` — 첨부 다운로드 브리지(브라우저가 Bearer 를 못 붙이므로).
+  - 승인/반려 전 확인 한 번 더, 반려는 사유 필수(클라이언트+서버 양쪽).
+- **공용 커스텀 팝업 신설**(`theme/sp-lite/js/sp-dialog.js` + `default.css`) — 네이티브
+  `alert`/`confirm` 을 대체한다. 코어 `alert()` 은 `bbs/alert.php` 로 **페이지를 통째로
+  갈아치운 뒤** 시스템 팝업을 띄우고 되돌아온다(빈 화면 → 팝업 → 뒤로가기). 의존성 없는
+  Promise API(`spDialog.alert/confirm`)라 기존 `confirm()` 자리를 그대로 대체하며, 접근성
+  (role=alertdialog·ESC·포커스 트랙·복귀)과 XSS 안전(textContent)까지 갖춘다. confirm 은
+  **취소에 먼저 초점**을 둔다(엔터 연타로 확정되는 사고 방지).
+  - 서버 결과 안내는 `alert()` 대신 **원래 화면으로 리다이렉트 + `?sp_msg=&sp_tone=`** 이고
+    sp-dialog 가 로드 직후 모달로 띄운 뒤 `replaceState` 로 주소에서 지운다(새로고침·
+    뒤로가기에서 재발 방지). PHP 에서 모달을 띄울 수 없는 구조적 한계를 이렇게 우회한다.
+  - `check_token()` 은 실패 시 **자체 alert 을 띄우고 끝나** 커스텀 팝업으로 감쌀 수 없어,
+    검증 로직만 같게 복제한 `sp_pcb_check_token()`(extend)을 쓴다. 코어가 바뀌면 동기화 필요.
+- **⚠ 함정(2026-08-07 실측)**: `get_token()` 은 hidden 태그가 아니라 **토큰 문자열만 반환**한다.
+  `<?php echo get_token(); ?>` 로 쓰면 토큰이 화면에 그대로 찍히고, 더 나쁘게는 폼에
+  `name="token"` 필드가 없어 **제출이 전부 막힌다**(기능이 아예 동작하지 않는다).
+  올바른 형태는 `<input type="hidden" name="token" value="<?php echo get_token(); ?>">`.
+  - CSS 는 `default_shop.css` 에 `#sod_fin` 스코프로. **`G5_CSS_VER` 를 26080701 로 올렸다**
+    (안 올리면 옛 CSS 가 캐시돼 "적용 안 됨"으로 보인다 — §7 함정).
+- **검증**: **E2E 26 ALL PASS**(요청 전 0건 · 파일 선택 공개 · **중복 발송 409** · **남의 파일
+  400** · 고객 조회 시 협력사·발주서 정보 없음 · **남의 주문 0건** · 반려 사유 필수 400 ·
+  **남이 결정 시 404** · 고객 승인 후 **발주 상태 eq_requested 불변** · 재결정 409 ·
+  관리자 화면에 의견·결정자 반영 · 재요청으로 회차 누적 · **비공개 파일 404** · cascade).
+  vitest 657+117 · typecheck · ESLint 0건.
+- **남은 것**: ① 고객 무응답(기한 초과) 건이 지금은 Case 상세에서만 보인다 — 발주·EQ 워크큐
+  탭이나 배지로 올리면 재촉을 놓치지 않는다. ② 고객 반려 사유를 협력사에 전달하는 것은
+  아직 관리자 수동(반려 시 그 문구를 EQ 반려 사유에 옮겨 적는다). ③ 브라우저 실탐방 미실시
+  (회원 계정 로그인이 필요) — 실제 주문 건으로 한 번 확인이 필요하다.
 
 ## 10. 조사 자료 색인
 

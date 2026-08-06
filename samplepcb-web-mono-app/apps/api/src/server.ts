@@ -39,6 +39,8 @@ import { partnerPcbRfqRoutes } from './routes/partner-pcb-rfqs';
 import { pcbRfqReplyRoutes } from './routes/pcb-rfq-reply';
 import { adminPcbPoRoutes } from './routes/admin-pcb-pos';
 import { adminPcbRemittanceRoutes } from './routes/admin-pcb-remittances';
+import { adminPcbEqReviewRoutes } from './routes/admin-pcb-eq-reviews';
+import { pcbEqReviewRoutes } from './routes/pcb-eq-reviews';
 import { adminPcbOrderRoutes } from './routes/admin-pcb-orders';
 import { adminPcbCaseRoutes } from './routes/admin-pcb-cases';
 import { partnerPcbPoRoutes } from './routes/partner-pcb-pos';
@@ -112,7 +114,7 @@ await app.register(adminBomPoRoutes, { prefix: '/api/admin' });
 await app.register(adminBomOrderRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 빠른 메일(§6.15): 템플릿 + Case 컨텍스트 발송·이력
 await app.register(adminMailRoutes, { prefix: '/api/admin' });
-// 관리자 전용(requireAdmin) — 스마트 BOM 파트너(조직) 관리 (docs/SMARTBOM_PARTNER_RFQ.md)
+// 관리자 전용(requireAdmin) — 공용 파트너(조직) 관리
 await app.register(adminPartnerRoutes, { prefix: '/api/admin' });
 // 협력사 포털(requirePartner) — 받은 RFQ 워크큐·회신 + 받은 발주 확인
 await app.register(partnerAccessRoutes, { prefix: '/api' });
@@ -129,6 +131,9 @@ await app.register(adminPcbPoRoutes, { prefix: '/api/admin' });
 await app.register(adminPcbOrderRoutes, { prefix: '/api/admin' });
 // PCB 송금 원장(P3.11) — 지급 워크큐·협력사별 잔액·증빙
 await app.register(adminPcbRemittanceRoutes, { prefix: '/api/admin' });
+// PCB EQ 고객 확인(P4.1) — 관리자 요청 발송 + 고객 승인/반려(소비처 = sp-php 주문내역)
+await app.register(adminPcbEqReviewRoutes, { prefix: '/api/admin' });
+await app.register(pcbEqReviewRoutes, { prefix: '/api' });
 // PCB 진행현황(구간 조감) + 역할별 대기 큐(요청 대기·발주 대기)
 await app.register(adminPcbCaseRoutes, { prefix: '/api/admin' });
 await app.register(partnerPcbPoRoutes, { prefix: '/api' });

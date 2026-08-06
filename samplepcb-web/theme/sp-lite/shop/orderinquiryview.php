@@ -139,7 +139,120 @@ if($od['od_pg'] == 'lg') {
 	            </tbody>
             </table>
         </div>
-        
+
+        <?php
+        // ── PCB 제조 확인 요청(P4.1, docs/PCB_PARTNER_TRACK.md D16) ──────────────
+        // 협력사 EQ 를 관리자가 고객에게 물어본 건. 판정·저장은 sp-node 가 하고 여기서는
+        // 화면만 그린다. 메일의 [주문내역에서 확인하기] 는 이 섹션(#eq-{id})으로 온다.
+        // ⚠ 협력사명·발주서 정보는 노출하지 않는다 — 고객에게 공급망을 드러내지 않는다.
+        $sp_eq_reviews = function_exists('sp_pcb_eq_reviews') ? sp_pcb_eq_reviews($od_id) : array();
+        if ($sp_eq_reviews):
+        ?>
+        <section id="sp_eq_wrap">
+            <h2>제조 확인 요청</h2>
+            <p class="sp_eq_intro">제조 전 확인이 필요한 사항입니다. 내용을 보시고 승인 또는 반려해 주세요.</p>
+
+            <?php foreach ($sp_eq_reviews as $rv):
+                $st  = sp_pcb_eq_status_label($rv['status']);
+                $open = ($rv['status'] === 'requested');
+            ?>
+            <div class="sp_eq_item <?php echo $open ? 'sp_eq_open' : ''; ?>" id="eq-<?php echo (int) $rv['id']; ?>">
+                <div class="sp_eq_head">
+                    <span class="sp_eq_badge <?php echo $st['cls']; ?>"><?php echo $st['label']; ?></span>
+                    <strong class="sp_eq_proj"><?php echo get_text($rv['projectName']); ?></strong>
+                    <?php if ($open && !empty($rv['overdue'])): ?>
+                        <span class="sp_eq_badge sp_eq_no">회신 기한 지남</span>
+                    <?php elseif ($open && !empty($rv['dueOn'])): ?>
+                        <span class="sp_eq_due">회신 기한 <?php echo date('Y-m-d', strtotime($rv['dueOn'])); ?></span>
+                    <?php endif; ?>
+                </div>
+
+                <div class="sp_eq_msg"><?php echo nl2br(get_text($rv['message'])); ?></div>
+
+                <?php if (!empty($rv['files'])): ?>
+                <ul class="sp_eq_files">
+                    <?php foreach ($rv['files'] as $f): ?>
+                    <li>
+                        <a href="<?php echo sp_pcb_eq_file_url($rv['id'], $f['fileId']); ?>">
+                            ⬇ <?php echo get_text($f['name']); ?>
+                        </a>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+                <?php endif; ?>
+
+                <?php if ($open): ?>
+                <form method="post" action="<?php echo G5_URL; ?>/spcb/api/eq-decide" class="sp_eq_form">
+                    <!-- get_token() 은 hidden 을 출력하지 않고 **값만 반환**한다 —
+                         그냥 echo 하면 토큰이 화면에 그대로 찍힌다(2026-08-07 실측). -->
+                    <input type="hidden" name="token" value="<?php echo get_token(); ?>">
+                    <input type="hidden" name="od_id" value="<?php echo get_text($od_id); ?>">
+                    <input type="hidden" name="review_id" value="<?php echo (int) $rv['id']; ?>">
+                    <input type="hidden" name="decision" value="approve" class="sp_eq_decision">
+                    <label class="sp_eq_note_label">
+                        의견 <span>(반려할 때는 사유를 꼭 적어 주세요)</span>
+                        <textarea name="note" rows="2" maxlength="2000" placeholder="예) 0.35mm 로 변경해 주세요."></textarea>
+                    </label>
+                    <div class="sp_eq_btns">
+                        <button type="submit" class="sp_eq_approve" data-decision="approve">승인</button>
+                        <button type="submit" class="sp_eq_reject" data-decision="reject">반려</button>
+                    </div>
+                </form>
+                <?php else: ?>
+                <p class="sp_eq_done">
+                    <?php echo $st['label']; ?>
+                    <?php if (!empty($rv['decidedAt'])): ?>
+                        · <?php echo date('Y-m-d', strtotime($rv['decidedAt'])); ?>
+                    <?php endif; ?>
+                    <?php if (!empty($rv['decisionNote'])): ?>
+                        <span class="sp_eq_note">의견: <?php echo get_text($rv['decisionNote']); ?></span>
+                    <?php endif; ?>
+                </p>
+                <?php endif; ?>
+            </div>
+            <?php endforeach; ?>
+        </section>
+        <script>
+        // 되돌릴 수 없는 결정이라 한 번 더 묻는다. 네이티브 confirm 대신 공용 커스텀 팝업
+        // (theme/sp-lite/js/sp-dialog.js) — 브라우저마다 모양이 다르고 사이트 톤과 따로 논다.
+        // spDialog 가 Promise 라 submit 을 일단 막고, 승낙을 받은 뒤 프로그램적으로 제출한다.
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest ? e.target.closest('.sp_eq_btns button') : null;
+            if (!btn || !btn.form) return;
+            btn.form.querySelector('.sp_eq_decision').value = btn.getAttribute('data-decision');
+        });
+        document.addEventListener('submit', function (e) {
+            var form = e.target;
+            if (!form.classList || !form.classList.contains('sp_eq_form')) return;
+            if (form.dataset.spConfirmed === '1') return; // 승낙 후 재제출 — 그대로 통과
+            e.preventDefault();
+
+            var approve = form.querySelector('.sp_eq_decision').value === 'approve';
+            var note = form.querySelector('textarea[name=note]').value.trim();
+            if (!approve && note.length < 2) {
+                window.spDialog.alert('반려 사유를 입력해 주세요.', { tone: 'danger' });
+                return;
+            }
+            window.spDialog
+                .confirm(
+                    approve
+                        ? '이 내용으로 승인하시겠습니까?\n승인 후에는 그대로 제조가 진행됩니다.'
+                        : '반려하시겠습니까?\n담당자가 사유를 확인해 다시 연락드립니다.',
+                    {
+                        title: approve ? '제조 확인 승인' : '제조 확인 반려',
+                        tone: approve ? 'success' : 'danger',
+                        okText: approve ? '승인' : '반려',
+                    },
+                )
+                .then(function (ok) {
+                    if (!ok) return;
+                    form.dataset.spConfirmed = '1';
+                    form.submit();
+                });
+        });
+        </script>
+        <?php endif; ?>
+
         <div id="sod_sts_wrap">
             <span class="sound_only">상품 상태 설명</span>
             <button type="button" id="sod_sts_explan_open" class="btn_frmline">상태설명보기</button>
