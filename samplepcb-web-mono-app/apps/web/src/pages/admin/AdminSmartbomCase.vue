@@ -5,6 +5,7 @@ import { apiGet, apiGetBlob } from '@sp/shared';
 import { BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
 import type {
   AdminBomQuoteItemType,
+  AdminBomQuoteEmailDeliveryType,
   AdminBomQuoteItemAddBodyType,
   AdminBomQuoteItemRemoveBodyType,
   AdminBomQuoteItemSelectionBodyType,
@@ -27,9 +28,11 @@ import {
   useAddAdminBomQuoteItem,
   useAdminBomQuote,
   useAdminBomQuoteCandidates,
+  useCompleteAdminBomQuote,
   usePatchAdminBomQuote,
   useRemoveAdminBomQuoteItem,
   useReviewAdminBomQuoteItems,
+  useSendAdminBomQuoteAnswerEmail,
   useSelectAdminBomQuoteItem,
 } from '../../admin/useAdminBomQuotes';
 import {
@@ -144,6 +147,8 @@ const loadEstimatePrint = async () => {
   return res.data;
 };
 const patch = usePatchAdminBomQuote();
+const completeReview = useCompleteAdminBomQuote();
+const sendAnswerEmail = useSendAdminBomQuoteAnswerEmail();
 const candidateItemId = ref<string | null>(null);
 const candidateDrawerView = ref<'candidates' | 'search'>('candidates');
 const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateItemId);
@@ -919,6 +924,22 @@ const form = ref({
   confirmedTotal: null as number | null,
 });
 const actionError = ref('');
+const completionOpen = ref(false);
+const completionSendEmail = ref(true);
+const completionWithoutPriceConfirmed = ref(false);
+const completionError = ref('');
+const resendEmailOpen = ref(false);
+const resendEmailError = ref('');
+const emailActionFeedback = ref<{
+  tone: 'success' | 'warning' | 'error';
+  text: string;
+} | null>(null);
+
+watch(detailId, () => {
+  completionOpen.value = false;
+  resendEmailOpen.value = false;
+  emailActionFeedback.value = null;
+});
 
 // 확정가 = 토글식 직접 입력 — 기본은 예상(자동) 금액만 보여 관리자 혼동을 막는다.
 // 토글 OFF 저장 = 확정 해제(고객에게 예상 금액 안내), ON 시 예상값으로 프리필.
@@ -951,6 +972,9 @@ function toggleConfirmedOverride(): void {
 // v-model.number 는 빈 입력을 '' 로 만들 수 있어 저장 직전 정규화한다.
 const numOrNull = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : null;
+const finalConfirmedTotal = computed(() =>
+  confirmedOverride.value ? numOrNull(form.value.confirmedTotal) : null,
+);
 
 // 부가세는 저장·계산하지 않는 정책(전 금액 VAT 별도) — 참고 환산 표시만 한다.
 const withVat = (v: number | null): string =>
@@ -1215,37 +1239,26 @@ async function updateItemReviews(itemIds: readonly string[], completed: boolean)
   }
 }
 
+function reviewFields() {
+  return {
+    adminMemo: form.value.adminMemo === '' ? null : form.value.adminMemo,
+    answerNote: form.value.answerNote === '' ? null : form.value.answerNote,
+    // 토글 OFF = 확정 해제(null). 검토 중에는 관리자 초안으로만 저장한다.
+    confirmedShippingFee: confirmedOverride.value ? numOrNull(form.value.confirmedShippingFee) : null,
+    confirmedManagementFee: confirmedOverride.value ? numOrNull(form.value.confirmedManagementFee) : null,
+    confirmedTotal: finalConfirmedTotal.value,
+  };
+}
+
 async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
   if (detailId.value === null) return;
-  if (nextStatus === 'answered' && adminReviewPendingCount.value > 0) {
-    actionError.value = `관리자 확인이 끝나지 않은 품목이 ${String(adminReviewPendingCount.value)}개 있습니다.`;
-    adminItemFilter.value = 'attention';
-    return;
-  }
-  // 확정가 없이 회신하면 고객 [주문하기](D16-1 게이트)가 열리지 않는다 — 실수 방지 확인.
-  if (nextStatus === 'answered') {
-    const total = confirmedOverride.value ? numOrNull(form.value.confirmedTotal) : null;
-    if (
-      total === null &&
-      !window.confirm(
-        '확정 총액 없이 회신을 완료하면 고객이 [주문하기]를 사용할 수 없습니다.\n확정가 없이 회신할까요?',
-      )
-    ) {
-      return;
-    }
-  }
   actionError.value = '';
   try {
     await patch.mutateAsync({
       quoteId: detailId.value,
       body: {
         ...(nextStatus !== undefined ? { status: nextStatus } : {}),
-        adminMemo: form.value.adminMemo === '' ? null : form.value.adminMemo,
-        answerNote: form.value.answerNote === '' ? null : form.value.answerNote,
-        // 토글 OFF = 확정 해제(null) — 고객에게는 예상 금액으로 안내된다.
-        confirmedShippingFee: confirmedOverride.value ? numOrNull(form.value.confirmedShippingFee) : null,
-        confirmedManagementFee: confirmedOverride.value ? numOrNull(form.value.confirmedManagementFee) : null,
-        confirmedTotal: confirmedOverride.value ? numOrNull(form.value.confirmedTotal) : null,
+        ...reviewFields(),
       },
     });
   } catch (error) {
@@ -1254,6 +1267,123 @@ async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
       : '저장에 실패했습니다 — 상태 전이 가능 여부를 확인하세요.';
   }
 }
+
+function emailFeedback(
+  delivery: AdminBomQuoteEmailDeliveryType,
+  action: 'complete' | 'resend' = 'complete',
+): {
+  tone: 'success' | 'warning' | 'error';
+  text: string;
+} {
+  if (delivery.status === 'sent') {
+    return {
+      tone: 'success',
+      text: action === 'resend'
+        ? `${delivery.toEmail ?? '고객 이메일'}로 회신 이메일을 다시 발송했습니다.`
+        : `회신을 완료하고 ${delivery.toEmail ?? '고객 이메일'}로 이메일을 발송했습니다.`,
+    };
+  }
+  if (delivery.reason === 'disabled') {
+    return { tone: 'warning', text: '회신을 완료했습니다. 이메일은 관리자 선택으로 발송하지 않았습니다.' };
+  }
+  if (delivery.reason === 'missing_recipient') {
+    return { tone: 'warning', text: '회신은 완료했지만 고객 회원정보에 이메일이 없어 발송하지 못했습니다.' };
+  }
+  if (delivery.reason === 'mail_unavailable') {
+    return { tone: 'warning', text: '회신은 완료했지만 현재 이메일 발송 기능이 비활성화되어 있습니다.' };
+  }
+  return { tone: 'error', text: '회신은 완료했지만 이메일 발송에 실패했습니다. 다시 보내기를 이용해 주세요.' };
+}
+
+/** 미리보기에는 현재 입력값이 보여야 하므로 회신 전 상태에서는 관리자 초안을 먼저 저장한다. */
+async function openEstimatePreview(): Promise<void> {
+  const quote = detail.value;
+  if (detailId.value === null || quote === null) return;
+  if (quote.status === 'requested' || quote.status === 'reviewing') {
+    actionError.value = '';
+    completionError.value = '';
+    try {
+      await patch.mutateAsync({
+        quoteId: detailId.value,
+        body: reviewFields(),
+      });
+    } catch (error) {
+      const message = error instanceof ApiRequestError
+        ? (error.payload?.message ?? error.message)
+        : '현재 입력값을 저장하지 못해 견적서를 열 수 없습니다.';
+      if (completionOpen.value) completionError.value = message;
+      else actionError.value = message;
+      return;
+    }
+  }
+  estimateOpen.value = true;
+}
+
+function openCompletion(): void {
+  if (detail.value?.status !== 'reviewing') {
+    actionError.value = '먼저 검토 시작을 진행해 주세요.';
+    return;
+  }
+  if (adminReviewPendingCount.value > 0) {
+    actionError.value = `관리자 확인이 끝나지 않은 품목이 ${String(adminReviewPendingCount.value)}개 있습니다.`;
+    adminItemFilter.value = 'attention';
+    return;
+  }
+  completionSendEmail.value = true;
+  completionWithoutPriceConfirmed.value = false;
+  completionError.value = '';
+  completionOpen.value = true;
+}
+
+async function submitCompletion(): Promise<void> {
+  if (detailId.value === null) return;
+  if (finalConfirmedTotal.value === null && !completionWithoutPriceConfirmed.value) {
+    completionError.value = '확정 총액 없이 회신하려면 주의사항을 확인해 주세요.';
+    return;
+  }
+  completionError.value = '';
+  actionError.value = '';
+  try {
+    const response = await completeReview.mutateAsync({
+      quoteId: detailId.value,
+      body: {
+        ...reviewFields(),
+        sendEmail: completionSendEmail.value,
+      },
+    });
+    completionOpen.value = false;
+    emailActionFeedback.value = emailFeedback(response.email);
+  } catch (error) {
+    completionError.value = error instanceof ApiRequestError
+      ? (error.payload?.message ?? error.message)
+      : '회신 완료 처리에 실패했습니다. 최신 상태를 확인한 뒤 다시 시도해 주세요.';
+  }
+}
+
+function openResendEmail(): void {
+  resendEmailError.value = '';
+  resendEmailOpen.value = true;
+}
+
+async function resendAnswerEmail(): Promise<void> {
+  if (detailId.value === null) return;
+  resendEmailError.value = '';
+  try {
+    const response = await sendAnswerEmail.mutateAsync(detailId.value);
+    resendEmailOpen.value = false;
+    emailActionFeedback.value = emailFeedback(response.data, 'resend');
+  } catch (error) {
+    resendEmailError.value = error instanceof ApiRequestError
+      ? (error.payload?.message ?? error.message)
+      : '회신 이메일을 다시 보내지 못했습니다.';
+  }
+}
+
+const emailActionFeedbackClass = computed(() => {
+  if (emailActionFeedback.value?.tone === 'success') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (emailActionFeedback.value?.tone === 'warning') return 'border-amber-200 bg-amber-50 text-amber-700';
+  return 'border-red-200 bg-red-50 text-red-700';
+});
 
 async function downloadOriginal(): Promise<void> {
   const fileUrl = detail.value?.fileUrl ?? null;
@@ -1289,10 +1419,11 @@ async function downloadOriginal(): Promise<void> {
         <!-- 견적서(§6.8) — 확정 전이면 시트가 "가안" 표기 -->
         <button
           type="button"
-          class="ml-auto rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
-          @click="estimateOpen = true"
+          class="ml-auto rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="patch.isPending.value"
+          @click="openEstimatePreview"
         >
-          견적서
+          견적서 미리보기
         </button>
         <!-- 빠른 메일(§6.15) — 고객에게 바로 한 통 -->
         <button
@@ -1311,6 +1442,132 @@ async function downloadOriginal(): Promise<void> {
       :load="loadEstimatePrint"
       @close="estimateOpen = false"
     />
+
+    <!-- 회신 완료 확인 — 검토 결과·가안 견적서·이메일 선택을 한 자리에서 최종 점검한다. -->
+    <div
+      v-if="completionOpen && detail !== null"
+      class="fixed inset-0 z-[55] grid place-items-center bg-slate-950/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="smartbom-completion-title"
+    >
+      <div class="max-h-[calc(100dvh-2rem)] w-full max-w-[520px] overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="smartbom-completion-title" class="text-base font-bold text-gray-900">고객 회신 완료</h2>
+            <p class="mt-1 text-xs leading-5 text-gray-500">검토 결과와 고객에게 전달할 내용을 마지막으로 확인해 주세요.</p>
+          </div>
+          <button
+            type="button"
+            class="grid size-8 place-items-center rounded-lg text-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            :disabled="completeReview.isPending.value"
+            aria-label="회신 완료 확인 닫기"
+            @click="completionOpen = false"
+          >
+            ×
+          </button>
+        </div>
+
+        <dl class="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-gray-50 p-3 text-xs">
+          <div>
+            <dt class="text-gray-400">품목 확인</dt>
+            <dd class="mt-1 font-semibold text-gray-800">{{ adminReviewPendingCount === 0 ? '모두 완료' : `${adminReviewPendingCount}건 남음` }}</dd>
+          </div>
+          <div>
+            <dt class="text-gray-400">확정 총액(VAT 별도)</dt>
+            <dd class="mt-1 font-semibold" :class="finalConfirmedTotal === null ? 'text-amber-600' : 'text-gray-800'">
+              {{ finalConfirmedTotal === null ? '미등록' : smartbomFmtWon(finalConfirmedTotal) }}
+            </dd>
+          </div>
+        </dl>
+
+        <div class="mt-3 flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5">
+          <p class="text-xs leading-5 text-blue-800">고객에게 보일 견적서를 가안 상태로 먼저 확인할 수 있습니다.</p>
+          <button
+            type="button"
+            class="shrink-0 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="patch.isPending.value || completeReview.isPending.value"
+            @click="openEstimatePreview"
+          >
+            견적서 미리보기
+          </button>
+        </div>
+
+        <label class="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-gray-200 px-3 py-3">
+          <input v-model="completionSendEmail" type="checkbox" class="mt-0.5 size-4 rounded border-gray-300 text-blue-600">
+          <span>
+            <span class="block text-sm font-semibold text-gray-800">고객에게 회신 완료 이메일 보내기</span>
+            <span class="mt-0.5 block text-xs leading-5 text-gray-500">기본 선택이며 회원정보에 등록된 이메일로 발송합니다.</span>
+          </span>
+        </label>
+
+        <label
+          v-if="finalConfirmedTotal === null"
+          class="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3"
+        >
+          <input v-model="completionWithoutPriceConfirmed" type="checkbox" class="mt-0.5 size-4 rounded border-amber-400 text-amber-600">
+          <span class="text-xs leading-5 text-amber-800">
+            확정 총액 없이 회신하면 고객은 주문하기와 확정 견적서 인쇄를 사용할 수 없음을 확인했습니다.
+          </span>
+        </label>
+
+        <p v-if="completionError !== ''" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{{ completionError }}</p>
+
+        <div class="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+            :disabled="completeReview.isPending.value"
+            @click="completionOpen = false"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="patch.isPending.value || completeReview.isPending.value || adminReviewPendingCount > 0 || (finalConfirmedTotal === null && !completionWithoutPriceConfirmed)"
+            @click="submitCompletion"
+          >
+            {{ completeReview.isPending.value ? '회신 처리 중…' : '회신 완료' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 회신 이메일 재발송은 상태를 바꾸지 않는 별도 명령이다. -->
+    <div
+      v-if="resendEmailOpen && detail !== null"
+      class="fixed inset-0 z-[55] grid place-items-center bg-slate-950/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="smartbom-resend-title"
+    >
+      <div class="w-full max-w-[420px] rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
+        <h2 id="smartbom-resend-title" class="text-base font-bold text-gray-900">회신 이메일 다시 보내기</h2>
+        <p class="mt-2 text-xs leading-5 text-gray-500">
+          현재 확정 금액과 회신 메모로 공식 회신 이메일을 다시 보냅니다. 회신 상태와 완료 시각은 변경되지 않습니다.
+        </p>
+        <p v-if="resendEmailError !== ''" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{{ resendEmailError }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+            :disabled="sendAnswerEmail.isPending.value"
+            @click="resendEmailOpen = false"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="sendAnswerEmail.isPending.value"
+            @click="resendAnswerEmail"
+          >
+            {{ sendAnswerEmail.isPending.value ? '발송 중…' : '이메일 다시 보내기' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- 빠른 메일 컴포즈(§6.15) — 우하단 도킹 -->
     <QuickMailComposer
@@ -1795,7 +2052,7 @@ async function downloadOriginal(): Promise<void> {
             </label>
             <p class="text-[11px] text-gray-400">
               참고: VAT 포함 시 {{ confirmedTotalVat }} — 부가세는 저장하지 않습니다(전 금액 VAT 별도).
-              저장하면 고객에게 확정 금액이 안내되고 [주문하기]가 열립니다.
+              검토 중 저장값은 관리자 초안이며, 회신 완료 후 고객에게 공개되고 [주문하기]가 열립니다.
             </p>
           </template>
           <label class="block text-xs text-gray-500">고객 회신 메모(고객에게 표시)
@@ -1823,16 +2080,34 @@ async function downloadOriginal(): Promise<void> {
               검토 시작
             </button>
             <button
-              v-if="detail.status === 'requested' || detail.status === 'reviewing'"
+              v-if="detail.status === 'reviewing'"
+              type="button"
+              class="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="patch.isPending.value"
+              @click="openEstimatePreview"
+            >
+              견적서 미리보기
+            </button>
+            <button
+              v-if="detail.status === 'reviewing'"
               type="button"
               class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-              :disabled="patch.isPending.value"
-              @click="saveReview('answered')"
+              :disabled="patch.isPending.value || completeReview.isPending.value"
+              @click="openCompletion"
             >
               회신 완료
             </button>
             <button
-              v-if="detail.status === 'answered' || detail.status === 'reviewing'"
+              v-if="detail.status === 'answered' || detail.status === 'closed'"
+              type="button"
+              class="rounded-md border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+              :disabled="sendAnswerEmail.isPending.value"
+              @click="openResendEmail"
+            >
+              회신 이메일 다시 보내기
+            </button>
+            <button
+              v-if="detail.status === 'answered'"
               type="button"
               class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50"
               :disabled="patch.isPending.value"
@@ -1842,6 +2117,13 @@ async function downloadOriginal(): Promise<void> {
             </button>
           </div>
           <p v-if="actionError !== ''" class="text-xs text-red-600">{{ actionError }}</p>
+          <p
+            v-if="emailActionFeedback !== null"
+            class="rounded-md border px-2.5 py-2 text-xs leading-5"
+            :class="emailActionFeedbackClass"
+          >
+            {{ emailActionFeedback.text }}
+          </p>
         </div>
       </div>
 

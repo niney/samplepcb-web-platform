@@ -15,11 +15,16 @@
  (버튼 없음 — 조용한 자동 보강) ◀──── 영속 분석으로 독립 검색 실행 ─▶ Mouser/DigiKey/UniKeyIC
    "가격·재고 확인 중…" 라벨만        └ 자동 인제스트 → 엔진 기술·구매 조건 판단 반영
  견적요청(제목 입력) ───────────────▶ POST /request(서버 재계산·동결)
-관리자(/app/admin/bom-quotes)        상태 전이·확정가·회신 메모·원본 다운로드
+관리자(/app/admin/smartbom/cases/:id) 순차 검토·견적 가안·선택적 회신 메일·재발송
 ```
 
-- **상태**: `draft → requested → reviewing → answered → closed` (+`canceled`). 전이는
-  서버 검증(`lib/bom-quote.ts QUOTE_TRANSITIONS`), requested 이후 고객 수정 불가(409).
+- **상태**: `draft → requested → reviewing → answered → closed` (+ requested/reviewing의
+  `canceled`). 관리자는 `검토 시작 → 품목 확인 → 회신 완료 → 종료`를 건너뛸 수 없고,
+  `answered` 전이는 전용 완료 API가 다시 검증한다. 전이는 서버 검증
+  (`lib/bom-quote.ts QUOTE_TRANSITIONS`), requested 이후 고객 수정 불가(409).
+- **회신 공개 경계**: 검토 중 저장한 확정가·고객 회신 메모는 관리자 초안이다. 고객 DTO에는
+  `answered|closed` 이후에만 공개하며, 회신 완료 시 기본 선택된 이메일을 해제할 수 있고 완료
+  뒤에는 같은 확정 내용으로 이메일만 다시 보낼 수 있다.
 - **1차 종점 = 견적요청(RFQ)**. 결제 연계(거버식 카트 스냅샷→orderform)는 2차.
 - **회원 전용**(비로그인 → 그누보드 로그인 왕복). 데이터 흐름은 sp-node 신규 소유 —
   xpse(sp_estimate_document) 브릿지 안 함(2026-07-19 사용자 결정).

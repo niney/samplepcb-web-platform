@@ -147,8 +147,8 @@ export function quoteNeedsEnrichment(
 // ── 상태 전이 ────────────────────────────────────────────────────────────────
 export const QUOTE_TRANSITIONS: Record<string, BomQuoteStatusType[]> = {
   draft: ['requested', 'canceled'],
-  requested: ['reviewing', 'answered', 'canceled'],
-  reviewing: ['answered', 'closed', 'canceled'],
+  requested: ['reviewing', 'canceled'],
+  reviewing: ['answered', 'canceled'],
   answered: ['closed'],
   closed: [],
   canceled: [],
@@ -156,6 +156,11 @@ export const QUOTE_TRANSITIONS: Record<string, BomQuoteStatusType[]> = {
 
 export function canTransition(from: string, to: BomQuoteStatusType): boolean {
   return (QUOTE_TRANSITIONS[from] ?? []).includes(to);
+}
+
+/** 고객에게는 관리자가 회신을 확정한 뒤에만 회신 초안과 확정가를 공개한다. */
+export function customerCanViewQuoteAnswer(status: string): boolean {
+  return status === 'answered' || status === 'closed';
 }
 
 // ── 엔진 파싱 결과 → 라인 초안 ───────────────────────────────────────────────
@@ -6119,7 +6124,7 @@ export function toSummaryDto(
     updatedAt: quote.updatedAt.toISOString(),
     requestedAt: quote.requestedAt?.toISOString() ?? null,
     answeredAt: quote.answeredAt?.toISOString() ?? null,
-    confirmedTotal: quote.confirmedTotal,
+    confirmedTotal: customerCanViewQuoteAnswer(quote.status) ? quote.confirmedTotal : null,
     orderState,
   };
 }
@@ -6298,6 +6303,7 @@ export async function loadSupplierSearchSummary(
 
 export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets: QuoteSheetRow[] = []): Promise<BomQuoteDetailType> {
   const activeItems = filterActiveQuoteItems(items, sheets);
+  const customerAnswerVisible = customerCanViewQuoteAnswer(quote.status);
   const itemSheetIndexes = new Set(items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]));
   const [partMetaMap, candidateDisplayMeta, supplierSearchSummary, orderState] = await Promise.all([
     loadPartMetaMap(activeItems),
@@ -6375,10 +6381,10 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     })(),
     uncostedCount: quote.uncostedCount,
     customerMemo: quote.customerMemo,
-    confirmedShippingFee: quote.confirmedShippingFee,
-    confirmedManagementFee: quote.confirmedManagementFee,
-    confirmedTotal: quote.confirmedTotal,
-    answerNote: quote.answerNote,
+    confirmedShippingFee: customerAnswerVisible ? quote.confirmedShippingFee : null,
+    confirmedManagementFee: customerAnswerVisible ? quote.confirmedManagementFee : null,
+    confirmedTotal: customerAnswerVisible ? quote.confirmedTotal : null,
+    answerNote: customerAnswerVisible ? quote.answerNote : null,
     orderState,
     items: itemDtos,
   };
@@ -6403,6 +6409,8 @@ export function toAdminSummaryDto(
 ): AdminBomQuoteSummaryType {
   return {
     ...toSummaryDto(quote, summaryCounts(items), orderState),
+    // 관리자 목록에는 검토 중 저장한 확정가 초안도 그대로 보여 준다.
+    confirmedTotal: quote.confirmedTotal,
     mbId: quote.mbId,
     poCount,
     poReceivedCount,
@@ -6466,6 +6474,11 @@ export async function toAdminDetailDto(
   const reviewStates = await loadBomQuoteItemReviewStates(activeRows, detail.items);
   return {
     ...detail,
+    // 관리자는 검토 중 저장한 고객 회신 초안과 확정가를 계속 편집할 수 있어야 한다.
+    confirmedShippingFee: quote.confirmedShippingFee,
+    confirmedManagementFee: quote.confirmedManagementFee,
+    confirmedTotal: quote.confirmedTotal,
+    answerNote: quote.answerNote,
     items: detail.items.map((item) => ({
       ...item,
       adminReview: reviewStates.get(item.id) ?? {

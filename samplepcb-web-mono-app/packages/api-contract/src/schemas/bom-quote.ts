@@ -1314,16 +1314,47 @@ export const AdminBomQuoteDetailResponse = z.object({
 });
 export type AdminBomQuoteDetailResponseType = z.infer<typeof AdminBomQuoteDetailResponse>;
 
-/** 관리자 검토 — 상태 전이(requested→reviewing→answered→closed)와 확정가 입력. */
-export const AdminBomQuotePatchBody = z.object({
-  status: BomQuoteStatus.optional(),
+/** 관리자 검토 중 저장하는 내부 메모·고객 회신 초안·확정가. */
+export const AdminBomQuoteReviewFields = z.object({
   adminMemo: z.string().max(4000).nullable().optional(),
   answerNote: z.string().max(4000).nullable().optional(),
   confirmedShippingFee: z.number().int().min(0).nullable().optional(),
   confirmedManagementFee: z.number().int().min(0).nullable().optional(),
   confirmedTotal: z.number().int().min(0).nullable().optional(),
 });
+
+/** 관리자 검토 — 일반 저장과 requested→reviewing, answered→closed 상태 전이. */
+export const AdminBomQuotePatchBody = AdminBomQuoteReviewFields.extend({
+  status: BomQuoteStatus.optional(),
+});
 export type AdminBomQuotePatchBodyType = z.infer<typeof AdminBomQuotePatchBody>;
+
+/** 검토 완료 명령 — 이메일은 기본 발송하되 관리자가 명시적으로 해제할 수 있다. */
+export const AdminBomQuoteCompleteBody = AdminBomQuoteReviewFields.extend({
+  sendEmail: z.boolean().default(true),
+});
+export type AdminBomQuoteCompleteBodyType = z.infer<typeof AdminBomQuoteCompleteBody>;
+
+export const AdminBomQuoteEmailDelivery = z.object({
+  requested: z.boolean(),
+  status: z.enum(['sent', 'skipped', 'failed']),
+  toEmail: z.string().max(255).nullable(),
+  reason: z.enum(['disabled', 'mail_unavailable', 'missing_recipient', 'send_failed']).nullable(),
+});
+export type AdminBomQuoteEmailDeliveryType = z.infer<typeof AdminBomQuoteEmailDelivery>;
+
+export const AdminBomQuoteCompleteResponse = z.object({
+  result: z.literal(true),
+  data: AdminBomQuoteDetail,
+  email: AdminBomQuoteEmailDelivery,
+});
+export type AdminBomQuoteCompleteResponseType = z.infer<typeof AdminBomQuoteCompleteResponse>;
+
+export const AdminBomQuoteAnswerEmailResponse = z.object({
+  result: z.literal(true),
+  data: AdminBomQuoteEmailDelivery,
+});
+export type AdminBomQuoteAnswerEmailResponseType = z.infer<typeof AdminBomQuoteAnswerEmailResponse>;
 
 /** 관리자 품목 확인/재검토. 확인 이력은 행의 현재 판정 지문과 함께 append-only 저장한다. */
 export const AdminBomQuoteItemReviewsBody = z.object({

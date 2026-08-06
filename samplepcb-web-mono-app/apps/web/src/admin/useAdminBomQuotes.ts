@@ -7,6 +7,8 @@ import {
 } from '@tanstack/vue-query';
 import { ApiRequestError, apiGet, apiSend } from '@sp/shared';
 import {
+  AdminBomQuoteAnswerEmailResponse,
+  AdminBomQuoteCompleteResponse,
   AdminBomCaseDeletePreviewResponse,
   AdminBomCaseDeleteResponse,
   AdminBomQuoteDetailResponse,
@@ -17,6 +19,7 @@ import {
   type AdminBomCaseDeletePreviewType,
   type AdminBomCaseDeleteResponseType,
   type AdminBomQuotePatchBodyType,
+  type AdminBomQuoteCompleteBodyType,
   type AdminBomQuoteItemReviewsBodyType,
   type AdminBomQuoteItemAddBodyType,
   type AdminBomQuoteItemRemoveBodyType,
@@ -152,6 +155,39 @@ export function usePatchAdminBomQuote() {
     mutationFn: ({ quoteId, body }: { quoteId: string; body: AdminBomQuotePatchBodyType }) =>
       apiSend('PATCH', `${base}/${quoteId}`, body, AdminBomQuoteDetailResponse),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] }),
+  });
+}
+
+/** 검토 완료 — 상태 확정과 선택한 고객 이메일 발송 결과를 함께 돌려받는다. */
+export function useCompleteAdminBomQuote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      body,
+    }: {
+      quoteId: string;
+      body: AdminBomQuoteCompleteBodyType;
+    }) => apiSend('POST', `${base}/${quoteId}/complete`, body, AdminBomQuoteCompleteResponse),
+    onSuccess: (response, variables) => {
+      qc.setQueryData(
+        ['admin', 'bom-quotes', 'detail', variables.quoteId],
+        { result: true as const, data: response.data },
+      );
+      invalidateBomCaseQueries(qc);
+    },
+  });
+}
+
+/** 회신 완료 후 상태를 바꾸지 않고 공식 고객 회신 이메일만 다시 보낸다. */
+export function useSendAdminBomQuoteAnswerEmail() {
+  return useMutation({
+    mutationFn: (quoteId: string) => apiSend(
+      'POST',
+      `${base}/${quoteId}/answer-email`,
+      {},
+      AdminBomQuoteAnswerEmailResponse,
+    ),
   });
 }
 

@@ -1,9 +1,13 @@
+import type { FastifyBaseLogger } from 'fastify';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  AdminBomQuoteAnswerEmailResponse,
   AdminBomCaseDeleteBody,
   AdminBomCaseDeletePreviewResponse,
   AdminBomCaseDeleteResponse,
+  AdminBomQuoteCompleteBody,
+  AdminBomQuoteCompleteResponse,
   AdminBomQuoteDetailResponse,
   AdminBomQuoteItemAddBody,
   AdminBomQuoteItemRemoveBody,
@@ -17,7 +21,10 @@ import {
   BomQuotePrintResponse,
   BomQuoteStatus,
 } from '@sp/api-contract';
-import type { AdminBomQuoteCountsType } from '@sp/api-contract';
+import type {
+  AdminBomQuoteCountsType,
+  AdminBomQuoteEmailDeliveryType,
+} from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import { downloadFromFileServer } from '../lib/file-server';
 import {
@@ -85,6 +92,69 @@ const ComparisonQuery = z.object({
 });
 
 const FILE_REF_TYPE = 'sp_bom_quote';
+
+interface AnswerEmailQuote {
+  id: bigint;
+  mbId: string;
+  title: string;
+  confirmedTotal: number | null;
+}
+
+/** 회신 상태와 이메일 전달 성패를 분리해, 실패해도 완료 상태는 보존하고 재발송할 수 있게 한다. */
+async function deliverAnsweredEmail(
+  log: FastifyBaseLogger,
+  quote: AnswerEmailQuote,
+  requested: boolean,
+): Promise<AdminBomQuoteEmailDeliveryType> {
+  if (!requested) {
+    return {
+      requested: false,
+      status: 'skipped',
+      toEmail: null,
+      reason: 'disabled',
+    };
+  }
+
+  const [notify, members] = await Promise.all([
+    getNotifyConfig(),
+    getMembersByIds([quote.mbId]),
+  ]);
+  const member = members.get(quote.mbId);
+  const toEmail = (member?.email ?? '').trim() || null;
+  if (!notify.mailAvailable) {
+    return {
+      requested: true,
+      status: 'skipped',
+      toEmail,
+      reason: 'mail_unavailable',
+    };
+  }
+  if (toEmail === null) {
+    return {
+      requested: true,
+      status: 'skipped',
+      toEmail: null,
+      reason: 'missing_recipient',
+    };
+  }
+
+  const sent = await sendBomRfqMail(
+    log,
+    toEmail,
+    buildBomQuoteAnsweredEmail({
+      customerName: member?.name ?? '',
+      quoteTitle: quote.title,
+      quoteId: String(quote.id),
+      confirmedTotal: quote.confirmedTotal,
+    }),
+  );
+  return {
+    requested: true,
+    status: sent ? 'sent' : 'failed',
+    toEmail,
+    reason: sent ? null : 'send_failed',
+  };
+}
 
 export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
@@ -640,7 +710,119 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     },
   );
 
-  // 검토 — 상태 전이 검증 + 확정가·메모. answered 전이 시 answeredAt 스탬프.
+  // 회신 완료 — requested에서 바로 건너뛰지 않고 reviewing에서만 실행한다.
+  // 상태 확정과 이메일 전달 성패는 분리해 SMTP 실패가 업무 상태를 되돌리지 않게 한다.
+  fastify.post('/bom-quotes/:id/complete', {
+    schema: {
+      params: IdParams,
+      body: AdminBomQuoteCompleteBody,
+      response: { 200: AdminBomQuoteCompleteResponse, 409: ApiError },
+    },
+  }, async (request, reply) => {
+    const quote = await prisma.spBomQuote.findUnique({
+      where: { id: request.params.id },
+      include: { items: true, sheets: true },
+    });
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (quote.status !== 'reviewing' || !canTransition(quote.status, 'answered')) {
+      return reply.status(409).send({
+        error: 'BOM_REVIEW_SEQUENCE_REQUIRED',
+        message: '검토 시작 후 품목 확인을 마쳐야 회신을 완료할 수 있습니다.',
+      });
+    }
+
+    const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
+    const itemDtos = activeRows.map((row) => toItemDto(row));
+    const reviewStates = await loadBomQuoteItemReviewStates(activeRows, itemDtos);
+    const pendingCount = itemDtos.filter((item) => {
+      const review = reviewStates.get(item.id);
+      return review?.required === true && !review.completed;
+    }).length;
+    if (pendingCount > 0) {
+      return reply.status(409).send({
+        error: 'BOM_ITEM_REVIEW_REQUIRED',
+        message: `관리자 확인이 끝나지 않은 품목이 ${String(pendingCount)}개 있습니다. 품목·검토에서 확인 완료 후 회신하세요.`,
+      });
+    }
+
+    const body = request.body;
+    const updated = await prisma.spBomQuote.updateMany({
+      where: { id: quote.id, status: quote.status, updatedAt: quote.updatedAt },
+      data: {
+        status: 'answered',
+        activeSearchCartKey: null,
+        answeredAt: quote.answeredAt ?? new Date(),
+        ...(body.adminMemo !== undefined ? { adminMemo: body.adminMemo } : {}),
+        ...(body.answerNote !== undefined ? { answerNote: body.answerNote } : {}),
+        ...(body.confirmedShippingFee !== undefined ? { confirmedShippingFee: body.confirmedShippingFee } : {}),
+        ...(body.confirmedManagementFee !== undefined ? { confirmedManagementFee: body.confirmedManagementFee } : {}),
+        ...(body.confirmedTotal !== undefined ? { confirmedTotal: body.confirmedTotal } : {}),
+      },
+    });
+    if (updated.count !== 1) {
+      return reply.status(409).send({
+        error: 'STALE_QUOTE',
+        message: '견적 또는 품목 확인 상태가 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도해 주세요.',
+      });
+    }
+
+    await closeRfqsForQuote(quote.id);
+    const fresh = await prisma.spBomQuote.findUnique({
+      where: { id: quote.id },
+      include: { items: true, sheets: true },
+    });
+    if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
+    const email = await deliverAnsweredEmail(request.log, fresh, body.sendEmail);
+    const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
+    const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
+    return {
+      result: true as const,
+      data: await toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl),
+      email,
+    };
+  });
+
+  // 회신 이메일 재발송 — 상태·answeredAt은 건드리지 않고 현재 확정 내용으로 다시 보낸다.
+  fastify.post('/bom-quotes/:id/answer-email', {
+    schema: {
+      params: IdParams,
+      response: {
+        200: AdminBomQuoteAnswerEmailResponse,
+        409: ApiError,
+        502: ApiError,
+      },
+    },
+  }, async (request, reply) => {
+    const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
+    if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+    if (quote.status !== 'answered' && quote.status !== 'closed') {
+      return reply.status(409).send({
+        error: 'BOM_QUOTE_NOT_ANSWERED',
+        message: '회신 완료된 견적만 이메일을 다시 보낼 수 있습니다.',
+      });
+    }
+
+    const delivery = await deliverAnsweredEmail(request.log, quote, true);
+    if (delivery.status === 'sent') {
+      return { result: true as const, data: delivery };
+    }
+    if (delivery.reason === 'send_failed') {
+      return reply.status(502).send({
+        error: 'BOM_ANSWER_EMAIL_SEND_FAILED',
+        message: '회신 이메일 발송에 실패했습니다. 메일 서버 상태를 확인한 뒤 다시 시도해 주세요.',
+      });
+    }
+    return reply.status(409).send({
+      error: delivery.reason === 'missing_recipient'
+        ? 'BOM_ANSWER_EMAIL_RECIPIENT_MISSING'
+        : 'BOM_ANSWER_EMAIL_DISABLED',
+      message: delivery.reason === 'missing_recipient'
+        ? '고객 회원정보에 이메일이 등록되어 있지 않습니다.'
+        : '현재 고객 이메일 발송 기능이 비활성화되어 있습니다.',
+    });
+  });
+
+  // 검토 — 일반 저장과 비최종 상태 전이. answered는 /complete 전용이다.
   fastify.patch('/bom-quotes/:id', {
     schema: {
       params: IdParams,
@@ -655,23 +837,14 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
 
     const body = request.body;
+    if (body.status === 'answered') {
+      return reply.status(409).send({
+        error: 'BOM_COMPLETE_ACTION_REQUIRED',
+        message: '회신 완료는 검토 화면의 회신 완료 절차를 이용해 주세요.',
+      });
+    }
     if (body.status !== undefined && body.status !== quote.status && !canTransition(quote.status, body.status)) {
       return reply.conflict(`전이 불가: ${quote.status} → ${body.status}`);
-    }
-    if (body.status === 'answered' && quote.status !== 'answered') {
-      const activeRows = filterActiveQuoteItems(quote.items, quote.sheets);
-      const itemDtos = activeRows.map((row) => toItemDto(row));
-      const reviewStates = await loadBomQuoteItemReviewStates(activeRows, itemDtos);
-      const pendingCount = itemDtos.filter((item) => {
-        const review = reviewStates.get(item.id);
-        return review?.required === true && !review.completed;
-      }).length;
-      if (pendingCount > 0) {
-        return reply.status(409).send({
-          error: 'BOM_ITEM_REVIEW_REQUIRED',
-          message: `관리자 확인이 끝나지 않은 품목이 ${String(pendingCount)}개 있습니다. 품목·검토에서 확인 완료 후 회신하세요.`,
-        });
-      }
     }
 
     const updated = await prisma.spBomQuote.updateMany({
@@ -681,7 +854,6 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         ...(body.status !== undefined && body.status !== 'draft'
           ? { activeSearchCartKey: null }
           : {}),
-        ...(body.status === 'answered' && quote.answeredAt === null ? { answeredAt: new Date() } : {}),
         ...(body.adminMemo !== undefined ? { adminMemo: body.adminMemo } : {}),
         ...(body.answerNote !== undefined ? { answerNote: body.answerNote } : {}),
         ...(body.confirmedShippingFee !== undefined ? { confirmedShippingFee: body.confirmedShippingFee } : {}),
@@ -696,35 +868,14 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
     }
 
-    // 고객 회신 확정/종료 시 하위 협력사 RFQ 도 마감한다(docs/SMARTBOM_PARTNER_RFQ.md §2.3).
-    if (body.status === 'answered' || body.status === 'closed' || body.status === 'canceled') {
+    // 종료·취소 시 하위 협력사 RFQ 도 마감한다(docs/SMARTBOM_PARTNER_RFQ.md §2.3).
+    if (body.status === 'closed' || body.status === 'canceled') {
       await closeRfqsForQuote(quote.id);
     }
 
     const fresh = await prisma.spBomQuote.findUnique({ where: { id: quote.id }, include: { items: true, sheets: true } });
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
 
-    // 고객 회신 알림 — answered 로 "전이"되는 순간 1회(재저장·확정가만 수정 시엔 안 보냄).
-    // 게이트는 코어 회원 알림 설정(cf_email_use) — 운영이 메일을 꺼두면 존중한다.
-    if (body.status === 'answered' && quote.status !== 'answered') {
-      const [notify, members] = await Promise.all([
-        getNotifyConfig(),
-        getMembersByIds([quote.mbId]),
-      ]);
-      if (notify.mailAvailable) {
-        const member = members.get(quote.mbId);
-        void sendBomRfqMail(
-          request.log,
-          member?.email,
-          buildBomQuoteAnsweredEmail({
-            customerName: member?.name ?? '',
-            quoteTitle: fresh.title,
-            quoteId: String(fresh.id),
-            confirmedTotal: fresh.confirmedTotal,
-          }),
-        );
-      }
-    }
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
     return { result: true as const, data: await toAdminDetailDto(fresh, fresh.items, fresh.sheets, fileUrl) };

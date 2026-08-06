@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AdminBomQuoteCompleteBody,
   AdminBomQuoteItemAddBody,
   AdminBomQuoteItemRemoveBody,
   AdminBomQuoteItemSelectionBody,
@@ -13,7 +14,9 @@ import {
   adminQuoteSelectionBlockReason,
   applyEngineSupplierResult,
   buildItemsFromEngineResult,
+  canTransition,
   catalogIngestRunReady,
+  customerCanViewQuoteAnswer,
   extractEngineSheets,
   filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
@@ -33,6 +36,45 @@ import {
   selectEngineMatch,
   toSummaryDto,
 } from './bom-quote';
+
+describe('관리자 회신 상태 경계', () => {
+  it('검토 시작을 건너뛰거나 검토 중 바로 종료하지 못하게 한다', () => {
+    expect(canTransition('requested', 'reviewing')).toBe(true);
+    expect(canTransition('requested', 'answered')).toBe(false);
+    expect(canTransition('reviewing', 'answered')).toBe(true);
+    expect(canTransition('reviewing', 'closed')).toBe(false);
+    expect(canTransition('answered', 'closed')).toBe(true);
+  });
+
+  it('고객 회신 초안은 회신 완료 이후에만 공개한다', () => {
+    expect(customerCanViewQuoteAnswer('requested')).toBe(false);
+    expect(customerCanViewQuoteAnswer('reviewing')).toBe(false);
+    expect(customerCanViewQuoteAnswer('answered')).toBe(true);
+    expect(customerCanViewQuoteAnswer('closed')).toBe(true);
+
+    const now = new Date('2026-08-06T00:00:00.000Z');
+    const quote = {
+      id: 1n,
+      title: '회신 초안 공개 경계',
+      sourceKind: 'upload',
+      fileName: 'bom.xlsx',
+      finalTotal: 90_000,
+      createdAt: now,
+      updatedAt: now,
+      requestedAt: now,
+      answeredAt: null,
+      confirmedTotal: 100_000,
+    };
+    const counts = { itemCount: 1, includedCount: 1, matchedCount: 1 };
+    expect(toSummaryDto({ ...quote, status: 'reviewing' } as never, counts).confirmedTotal).toBeNull();
+    expect(toSummaryDto({ ...quote, status: 'answered' } as never, counts).confirmedTotal).toBe(100_000);
+  });
+
+  it('회신 완료 이메일은 기본 발송이며 관리자가 명시적으로 해제할 수 있다', () => {
+    expect(AdminBomQuoteCompleteBody.parse({}).sendEmail).toBe(true);
+    expect(AdminBomQuoteCompleteBody.parse({ sendEmail: false }).sendEmail).toBe(false);
+  });
+});
 
 describe('정확 일치 후보 표시 정보', () => {
   const exactCandidate = {

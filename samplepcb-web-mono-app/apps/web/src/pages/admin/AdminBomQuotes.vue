@@ -6,6 +6,7 @@ import {
   useAdminBomQuote,
   useAdminBomQuoteCandidates,
   useAdminBomQuotes,
+  useCompleteAdminBomQuote,
   usePatchAdminBomQuote,
 } from '../../admin/useAdminBomQuotes';
 import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
@@ -43,6 +44,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / 20)));
 const detailQuery = useAdminBomQuote(detailId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
 const patch = usePatchAdminBomQuote();
+const completeReview = useCompleteAdminBomQuote();
 const candidateItemId = ref<string | null>(null);
 const candidateQuery = useAdminBomQuoteCandidates(detailId, candidateItemId);
 
@@ -126,19 +128,31 @@ async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
   }
   actionError.value = '';
   try {
-    await patch.mutateAsync({
-      quoteId: detailId.value,
-      body: {
-        ...(nextStatus !== undefined ? { status: nextStatus } : {}),
-        adminMemo: form.value.adminMemo === '' ? null : form.value.adminMemo,
-        answerNote: form.value.answerNote === '' ? null : form.value.answerNote,
-        confirmedShippingFee: form.value.confirmedShippingFee,
-        confirmedManagementFee: form.value.confirmedManagementFee,
-        confirmedTotal: form.value.confirmedTotal,
-      },
-    });
-  } catch {
-    actionError.value = '저장에 실패했습니다 — 상태 전이 가능 여부를 확인하세요.';
+    const fields = {
+      adminMemo: form.value.adminMemo === '' ? null : form.value.adminMemo,
+      answerNote: form.value.answerNote === '' ? null : form.value.answerNote,
+      confirmedShippingFee: form.value.confirmedShippingFee,
+      confirmedManagementFee: form.value.confirmedManagementFee,
+      confirmedTotal: form.value.confirmedTotal,
+    };
+    if (nextStatus === 'answered') {
+      await completeReview.mutateAsync({
+        quoteId: detailId.value,
+        body: { ...fields, sendEmail: true },
+      });
+    } else {
+      await patch.mutateAsync({
+        quoteId: detailId.value,
+        body: {
+          ...(nextStatus !== undefined ? { status: nextStatus } : {}),
+          ...fields,
+        },
+      });
+    }
+  } catch (error) {
+    actionError.value = error instanceof Error
+      ? error.message
+      : '저장에 실패했습니다 — 상태 전이 가능 여부를 확인하세요.';
   }
 }
 
@@ -262,8 +276,8 @@ async function downloadOriginal(): Promise<void> {
                     <div class="flex flex-wrap gap-2 border-t border-gray-100 pt-2">
                       <button type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview()">저장</button>
                       <button v-if="detail.status === 'requested'" type="button" class="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600" :disabled="patch.isPending.value" @click="saveReview('reviewing')">검토 시작</button>
-                      <button v-if="detail.status === 'requested' || detail.status === 'reviewing'" type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700" :disabled="patch.isPending.value" @click="saveReview('answered')">회신 완료</button>
-                      <button v-if="detail.status === 'answered' || detail.status === 'reviewing'" type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview('closed')">종료</button>
+                      <button v-if="detail.status === 'reviewing'" type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700" :disabled="patch.isPending.value || completeReview.isPending.value" @click="saveReview('answered')">회신 완료</button>
+                      <button v-if="detail.status === 'answered'" type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview('closed')">종료</button>
                     </div>
                     <p v-if="actionError !== ''" class="text-xs text-red-600">{{ actionError }}</p>
                   </div>

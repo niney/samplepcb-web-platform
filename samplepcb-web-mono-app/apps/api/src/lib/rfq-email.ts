@@ -303,8 +303,8 @@ export async function sendBomRfqMail(
   log: FastifyBaseLogger,
   to: string | null | undefined,
   mail: { subject: string; html: string },
-): Promise<void> {
-  if (to === null || to === undefined || to.trim() === '') return;
+): Promise<boolean> {
+  if (to === null || to === undefined || to.trim() === '') return false;
   try {
     await sendMail({
       to,
@@ -313,7 +313,9 @@ export async function sendBomRfqMail(
       fromName: '샘플피씨비 스마트 BOM',
       fromAddress: process.env.MAIL_FROM ?? 'sales@samplepcb.co.kr',
     });
+    return true;
   } catch (err) {
     log.error({ err, to, subject: mail.subject }, 'bom rfq mail send failed');
+    return false;
   }
 }

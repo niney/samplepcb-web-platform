@@ -597,12 +597,20 @@ fresh=전체 28행·합계/비-fresh=저장본 유지) ALL PASS.
 ### 6.7 고객 회신 알림 메일 (2026-07-31 — 백로그 회수)
 
 인지 장치의 마지막 조각: 관리자(배지·칩)·협력사(칩·메일)는 있는데 **고객만 접속해야
-회신 여부를 알 수 있었다**. 견적이 `answered` 로 **전이되는 순간 1회** 발송(재저장·
-확정가만 수정 시엔 안 보냄 — 전이 감지), 수신처 = `g5_member.mb_email`, 게이트 =
-코어 회원 알림 설정(`cf_email_use` — 운영이 메일을 꺼두면 존중, `getNotifyConfig()`).
+회신 여부를 알 수 있었다**. 관리자 완료 창의 이메일 체크박스는 기본 선택이며, 선택한 경우
+견적이 `answered` 로 전이된 뒤 발송한다. 관리자가 해제하면 상태만 확정하고 메일은 보내지 않는다.
+수신처 = `g5_member.mb_email`, 게이트 = 코어 회원 알림 설정(`cf_email_use` — 운영이 메일을
+꺼두면 존중, `getNotifyConfig()`). SMTP 실패도 확정 상태를 되돌리지 않고 화면에 전달 결과를
+명시한다. `answered|closed`에서는 상태·`answeredAt`을 바꾸지 않는 전용 재발송 명령
+`POST /api/admin/bom-quotes/:id/answer-email`을 제공한다.
 내용은 확정가 유무로 분기: 있으면 금액+[견적 확인하고 주문하기](D16 게이트와 정합),
 없으면 [회신 내용 확인하기]. CTA `/app/bom/{quoteId}`. E2E 5케이스 ALL PASS
 (Mailpit 실수신·재저장 미발송·확정가 분기·게이트 미발송).
+
+**§6.7 정정(2026-08-06) — 회신 완료를 별도 업무 명령으로 분리**: 일반 PATCH는
+`answered`를 거부하고 `reviewing` 상태에서만 `POST /api/admin/bom-quotes/:id/complete`가
+품목 확인 상태와 낙관적 버전을 다시 검사한다. 따라서 요청 접수에서 회신 완료로 건너뛸 수 없으며,
+완료 직전 저장 값과 이메일 발송 선택이 하나의 관리자 의사결정으로 묶인다.
 
 ### 6.8 견적서 열람·인쇄 (2026-07-31 — 백로그 회수)
 
@@ -619,8 +627,10 @@ fresh=전체 28행·합계/비-fresh=저장본 유지) ALL PASS.
   표기**), 고객 `GET /api/bom/quotes/:id/print`(**회신 완료+확정가 시만** — 주문 게이트와
   동일 조건, 미충족·타인은 404 은닉).
 - 화면: 공용 BomEstimateSheet/BomEstimateModal(components/smartbom, 로더 콜백 주입) —
-  관리자 Case 상세 헤더 [🧾 견적서], 고객 /app/bom/:id 회신 박스 [🧾 견적서 보기·인쇄]
-  (canViewEstimate 조건부).
+  관리자 Case 상세 헤더와 회신 완료 확인창의 [견적서 미리보기]에서 회신 전 **가안**을 확인하고,
+  고객 /app/bom/:id 회신 박스 [🧾 견적서 보기·인쇄]는 회신 완료 후에만 표시한다
+  (canViewEstimate 조건부). 검토 중 저장한 `confirmed*`·`answerNote`도 고객 상세·목록 DTO에서
+  숨겨 완료 전 초안이 새지 않게 한다.
 - 검증: typecheck·lint·vitest 557 green, E2E 9케이스 ALL PASS(관리자 DTO 정합·고객
   200·타인 404·확정가 해제 시 고객 404/관리자 가안·회신 전 상태 게이트).
 
