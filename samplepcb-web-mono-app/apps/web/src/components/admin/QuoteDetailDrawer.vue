@@ -254,6 +254,14 @@ onBeforeUnmount(() => {
                     {{ t('admin.quotes.badge.rfq') }}
                   </span>
                 </p>
+                <p v-if="detail.priceAmounts !== null" class="text-xs leading-5 text-gray-500">
+                  {{
+                    t('admin.quotes.drawer.vatBreakdown', {
+                      supply: formatKrw(detail.priceAmounts.supply),
+                      vat: formatKrw(detail.priceAmounts.vat),
+                    })
+                  }}
+                </p>
               </div>
             </div>
 
@@ -366,6 +374,35 @@ onBeforeUnmount(() => {
                   })
                 }}
               </p>
+            </section>
+
+            <!-- 주문 성립 뒤에는 견적 역산이 아닌 영카트 주문 헤더의 실제 저장 세액을 표시한다. -->
+            <section v-if="detail.order !== null" class="mt-5 rounded-lg border border-gray-200 p-4">
+              <div class="flex items-center justify-between gap-2">
+                <h3 class="text-sm font-semibold text-gray-800">
+                  {{ t('admin.quotes.drawer.orderTax') }}
+                </h3>
+                <span class="font-mono text-xs text-gray-400">#{{ detail.order.odId }}</span>
+              </div>
+              <dl class="mt-2 space-y-1 text-sm">
+                <div class="flex justify-between gap-3">
+                  <dt class="text-gray-400">{{ t('admin.quotes.drawer.orderAmount') }}</dt>
+                  <dd class="tabular-nums text-gray-800">{{ formatKrw(detail.order.cartPrice) }}</dd>
+                </div>
+                <div class="flex justify-between gap-3">
+                  <dt class="text-gray-400">{{ t('admin.quotes.drawer.supplyAmount') }}</dt>
+                  <dd class="tabular-nums text-gray-800">{{ formatKrw(detail.order.taxAmounts.supply) }}</dd>
+                </div>
+                <div class="flex justify-between gap-3">
+                  <dt class="text-gray-400">{{ t('admin.quotes.drawer.vatAmount') }}</dt>
+                  <dd class="tabular-nums text-gray-800">{{ formatKrw(detail.order.taxAmounts.vat) }}</dd>
+                </div>
+                <div v-if="detail.order.taxAmounts.taxFree > 0" class="flex justify-between gap-3">
+                  <dt class="text-gray-400">{{ t('admin.quotes.drawer.taxFreeAmount') }}</dt>
+                  <dd class="tabular-nums text-gray-800">{{ formatKrw(detail.order.taxAmounts.taxFree) }}</dd>
+                </div>
+              </dl>
+              <p class="mt-2 text-xs text-gray-400">{{ t('admin.quotes.drawer.orderTaxHint') }}</p>
             </section>
 
             <!-- 신청자 -->

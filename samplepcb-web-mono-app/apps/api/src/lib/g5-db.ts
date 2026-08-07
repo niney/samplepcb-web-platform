@@ -34,7 +34,7 @@
 // ⑩ g5_shop_order·g5_shop_cart 및 주문 보조 원장 read-only SELECT(관리자 견적 삭제 프리뷰 — 주문됨 견적이
 // 묶인 주문의 결제상태·수납액·PG거래·같은 주문의 다른 견적 파악: od_status·od_receipt_price·
 // od_receipt_point·od_cart_coupon·od_coupon·od_send_coupon·od_cart_price·od_settle_case·
-// od_tno·od_pg·od_misu +
+// od_tno·od_pg·od_misu·od_tax_mny·od_vat_mny·od_free_mny(`getOrderHeadersLite` 주문 세액 표시) +
 // cart od_id/ct_status/it_id/it_name/io_id/io_price. 완전삭제 프리뷰에 한해 g5_shop_order_data·
 // g5_shop_coupon_log·g5_shop_coupon·g5_shop_personalpay·g5_shop_order_post_log·
 // g5_shop_inicis_log·g5_shop_order_delete·g5_point의 od_id/oid/de_key/주문 관계키별 건수도 읽는다).
@@ -442,6 +442,9 @@ export interface OrderHeaderLite {
   cartPrice: number;
   receiptPrice: number;
   misu: number;
+  taxMny: number;
+  vatMny: number;
+  freeMny: number;
   orderedAt: string | null; // od_time(zero-date → null)
 }
 
@@ -452,6 +455,7 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
   // String() 결과("Wed Jul 30 …")가 정렬·표시를 모두 깨뜨린다(다른 쿼리 관례 동일).
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
     `SELECT od_id, mb_id, od_status, od_settle_case, od_cart_price, od_receipt_price, od_misu,
+            od_tax_mny, od_vat_mny, od_free_mny,
             DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        FROM g5_shop_order WHERE od_id IN (${odIds.map(() => '?').join(',')})`,
     odIds,
@@ -467,6 +471,9 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
       cartPrice: Number(row.od_cart_price ?? 0),
       receiptPrice: Number(row.od_receipt_price ?? 0),
       misu: Number(row.od_misu ?? 0),
+      taxMny: Number(row.od_tax_mny ?? 0),
+      vatMny: Number(row.od_vat_mny ?? 0),
+      freeMny: Number(row.od_free_mny ?? 0),
       orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
     });
   }

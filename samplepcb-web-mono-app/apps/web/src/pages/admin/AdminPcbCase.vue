@@ -875,14 +875,27 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         <h2 class="text-sm font-bold text-gray-700">고객 견적</h2>
         <dl class="mt-2 space-y-1.5 text-sm">
           <div class="flex justify-between">
-            <dt class="text-gray-500">자동견적가</dt>
+            <dt class="text-gray-500">자동견적 총액 <span class="text-[11px] text-gray-400">(VAT 포함)</span></dt>
             <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.quote?.autoPrice ?? null) }}</dd>
           </div>
           <div class="flex justify-between">
-            <dt class="text-gray-500">확정가</dt>
+            <dt class="text-gray-500">확정 총액 <span class="text-[11px] text-gray-400">(VAT 포함)</span></dt>
             <dd class="font-bold tabular-nums" :class="detail.finalPrice === null ? 'text-gray-300' : 'text-emerald-700'">
               {{ fmtPcbAmount('KRW', detail.finalPrice) }}
             </dd>
+          </div>
+          <div v-if="detail.priceAmounts !== null" class="!mt-2 space-y-1 rounded-lg bg-emerald-50 px-3 py-2 text-xs">
+            <div class="flex justify-between">
+              <dt class="text-emerald-700">공급가액</dt>
+              <dd class="font-medium tabular-nums text-emerald-900">{{ fmtPcbAmount('KRW', detail.priceAmounts.supply) }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-emerald-700">부가세</dt>
+              <dd class="font-medium tabular-nums text-emerald-900">{{ fmtPcbAmount('KRW', detail.priceAmounts.vat) }}</dd>
+            </div>
+            <p class="pt-0.5 text-[11px] text-emerald-600">
+              {{ detail.finalPrice !== null ? '확정가' : '자동견적가' }} 기준 고객 결제예정액
+            </p>
           </div>
           <div v-if="selectedRow !== null" class="flex justify-between">
             <dt class="text-gray-500">선정 원가</dt>
@@ -927,6 +940,21 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             <div class="flex justify-between">
               <dt class="text-gray-500">주문금액</dt>
               <dd class="tabular-nums">{{ fmtPcbAmount('KRW', detail.order.cartPrice) }}</dd>
+            </div>
+            <div class="!mt-2 space-y-1 rounded-lg bg-gray-50 px-3 py-2 text-xs">
+              <div class="flex justify-between">
+                <dt class="text-gray-500">공급가액</dt>
+                <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.supply) }}</dd>
+              </div>
+              <div class="flex justify-between">
+                <dt class="text-gray-500">부가세</dt>
+                <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.vat) }}</dd>
+              </div>
+              <div v-if="detail.order.taxAmounts.taxFree > 0" class="flex justify-between">
+                <dt class="text-gray-500">비과세액</dt>
+                <dd class="tabular-nums text-gray-700">{{ fmtPcbAmount('KRW', detail.order.taxAmounts.taxFree) }}</dd>
+              </div>
+              <p class="pt-0.5 text-[11px] text-gray-400">영카트 주문에 저장된 실제 세액 기준</p>
             </div>
             <div class="flex justify-between">
               <dt class="text-gray-500">수납액</dt>
@@ -1572,7 +1600,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         <h3 class="text-sm font-bold text-gray-800">확정가 등록</h3>
         <p class="mt-1 text-xs text-gray-500">부가세 포함가 역산 체계 — 고객 결제액의 기준이 됩니다.</p>
         <label class="mt-3 block">
-          <span class="text-xs font-semibold text-gray-500">확정가 (₩)</span>
+          <span class="text-xs font-semibold text-gray-500">확정가 (VAT 포함, ₩)</span>
           <input v-model="priceInput" type="text" inputmode="numeric" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-emerald-500 focus:outline-none">
         </label>
         <div class="mt-4 flex justify-end gap-2">

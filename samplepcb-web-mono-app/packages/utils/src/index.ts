@@ -46,3 +46,4 @@ export * from './spec-units';
 export * from './bom-pricing';
 export * from './bom-quote-presentation';
 export * from './kst-date';
+export * from './vat';

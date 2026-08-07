@@ -104,12 +104,23 @@ export const AdminQuoteFile = z.object({
 });
 export type AdminQuoteFileType = z.infer<typeof AdminQuoteFile>;
 
+// VAT 포함 판매가의 서버 계산 표시값. 공급가액 + 부가세는 항상 total 과 정확히 같다.
+// 견적 상세·A4 견적서가 같은 구조를 공유하며, FE 에서 다시 역산하지 않는다.
+export const AdminVatAmounts = z.object({
+  supply: z.number(),
+  vat: z.number(),
+  total: z.number(),
+});
+export type AdminVatAmountsType = z.infer<typeof AdminVatAmounts>;
+
 export const AdminQuoteDetail = AdminQuoteListItem.extend({
   message: z.string().nullable(),
   // 수신처 회사명 — 서버 해석 규칙 적용값(스냅샷 ?? 회원 프로필). 2층 구조.
   companyName: z.string().nullable(),
   spec: PcbProjectSpec, // specJson 원본 — 드로어 라벨링용
   finalPrice: z.number().nullable(),
+  // 현재 고객 판매가(finalPrice ?? autoPrice)의 VAT 포함 역산값. 가격 미정이면 null.
+  priceAmounts: AdminVatAmounts.nullable(),
   pricedBy: z.string().nullable(),
   pricedAt: z.string().nullable(),
   ctId: z.number().nullable(),
@@ -136,6 +147,12 @@ export const AdminQuoteDetail = AdminQuoteListItem.extend({
       cartPrice: z.number(),
       settleCase: z.string(),
       orderedAt: z.string().nullable(),
+      // 영카트 주문 헤더의 실제 저장 세액. 견적가 역산값과 구분한다.
+      taxAmounts: z.object({
+        supply: z.number(), // od_tax_mny
+        vat: z.number(), // od_vat_mny
+        taxFree: z.number(), // od_free_mny
+      }),
     })
     .nullable(),
 });
@@ -238,12 +255,8 @@ export type AdminSpecReviseResponseType = z.infer<typeof AdminSpecReviseResponse
 // 부가세 정석(내가·역산). 합계 = finalPrice ?? autoPrice(부가세 포함액)이며,
 //   공급가액 = round(합계/1.1) · 부가세 = 합계 − 공급가액 → 합이 정확히 합계(1원 오차 없음,
 //   영카트 orderformupdate.php 와 동일 공식). 서버에서 계산하며 FE 재계산 금지.
-export const AdminEstimateAmounts = z.object({
-  supply: z.number(), // 공급가액
-  vat: z.number(), // 부가세
-  total: z.number(), // 합계(부가세 포함)
-});
-export type AdminEstimateAmountsType = z.infer<typeof AdminEstimateAmounts>;
+export const AdminEstimateAmounts = AdminVatAmounts;
+export type AdminEstimateAmountsType = AdminVatAmountsType;
 
 // 발신(공급자) 정보 — 영카트 기본환경설정(g5_shop_default) 재사용(하드코딩 아님).
 // 로컬 DB 는 설치 더미값("회사명" 등)이 그대로 표시되는 게 정상(실값 입력은 운영 절차).

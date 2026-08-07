@@ -28,6 +28,7 @@ import type {
   AdminEstimateType,
   PcbProjectPayloadType,
 } from '@sp/api-contract';
+import { splitVatIncluded } from '@sp/utils';
 import { createHash } from 'node:crypto';
 import { buildOptionSummary } from '../lib/option-summary';
 import { calculateQuote } from '../pricing/engine';
@@ -150,9 +151,7 @@ async function assembleEstimateData(spec: SpOrderSpec): Promise<AdminEstimateTyp
 
   // 부가세 정석 역산 — 합계(부가세 포함) 기준 공급가액·부가세를 서버가 계산.
   const total = spec.finalPrice ?? quote?.autoPrice ?? null;
-  const supply = total !== null ? Math.round(total / 1.1) : null;
-  const amounts =
-    total !== null && supply !== null ? { supply, vat: total - supply, total } : null;
+  const amounts = total !== null ? splitVatIncluded(total) : null;
 
   // 유효기간 — 확정가(finalPrice) 문서는 발행일+30일(레거시 "발행후 1개월"), 자동견적 기반만
   // 스냅샷 만료일(expiresAt)을 그대로 쓴다(오래된 자동견적이 만료로 표시되는 건 정직한 상태).
@@ -385,6 +384,8 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       const thumb = files.find((f) => f.fileType === 'thumbnail');
       const cartState: CartState =
         spec.ctId !== null ? (cartStates.get(spec.ctId) ?? 'none') : 'none';
+      const price = spec.finalPrice ?? quote?.autoPrice ?? null;
+      const priceAmounts = price !== null ? splitVatIncluded(price) : null;
 
       // PCB RFQ 진행 요약(P3.5) — 목록 계약(ListItem.extend)과 동일 집계.
       const detailRfqRows = await prisma.spPcbRfq.findMany({
@@ -409,6 +410,11 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         cartPrice: number;
         settleCase: string;
         orderedAt: string | null;
+        taxAmounts: {
+          supply: number;
+          vat: number;
+          taxFree: number;
+        };
       } | null = null;
       if (spec.ctId !== null && cartState === 'ordered') {
         const link = (await getCartOrderLinks([spec.ctId])).get(spec.ctId);
@@ -423,6 +429,11 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
               cartPrice: header.cartPrice,
               settleCase: header.settleCase,
               orderedAt: header.orderedAt,
+              taxAmounts: {
+                supply: header.taxMny,
+                vat: header.vatMny,
+                taxFree: header.freeMny,
+              },
             };
           }
         }
@@ -444,7 +455,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           thumbnailUrl: thumb !== undefined ? signedThumbUrl(thumb.id) : null,
           quoteStatus: asQuoteStatus(spec.quoteStatus),
           status: asSpecStatus(spec.status),
-          price: spec.finalPrice ?? quote?.autoPrice ?? null,
+          price,
           cartState,
           applicant: toApplicant(
             spec.mbId,
@@ -455,6 +466,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           companyName: resolveCompanyName(spec.companyName, spec.mbId, memberProfile),
           spec: toClientSpec(spec.specJson),
           finalPrice: spec.finalPrice,
+          priceAmounts,
           pricedBy: spec.pricedBy,
           pricedAt: spec.pricedAt?.toISOString() ?? null,
           ctId: spec.ctId,

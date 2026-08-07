@@ -103,6 +103,9 @@ calculateQuote() → listPrice ── applyGerberPriceMode(listPrice, mode) ─�
 - 라우트: `GET`/`PATCH /api/admin/settings/gerber-pricing` (`routes/admin-settings.ts`, requireAdmin)
 - 화면: `/app/admin/settings` → **"거버 가격"** 탭 (`components/admin/GerberPricingForm.vue`,
   라디오 2모드). 훅 `useGerberPricing`/`useSaveGerberPricing`.
+- 관리자 PCB 상세: 저장된 판매가(`finalPrice ?? autoPrice`)는 모드와 관계없이 VAT 포함 총액이므로
+  서버가 공급가액·부가세를 역산해 `/app/admin/pcb/cases/:id`와 `/app/admin/quotes`에 표시한다.
+  주문 성립 뒤에는 역산값 대신 영카트 주문 헤더에 저장된 실제 세액을 별도로 표시한다.
 
 ---
 
@@ -133,4 +136,5 @@ calculateQuote() → listPrice ── applyGerberPriceMode(listPrice, mode) ─�
 | 설정 저장 | `apps/api/src/lib/sp-config.ts` |
 | API | `apps/api/src/routes/admin-settings.ts` |
 | 견적 적용 | `apps/api/src/routes/pcb-projects.ts` |
+| 관리자 VAT 표시 | `apps/api/src/routes/admin-pcb-projects.ts`, `apps/web/src/pages/admin/AdminPcbCase.vue`, `apps/web/src/components/admin/QuoteDetailDrawer.vue` |
 | UI | `apps/web/src/admin/useAdminSettings.ts`, `components/admin/{SettingsTabs,GerberPricingForm}.vue`, `pages/admin/AdminSettings.vue`, `i18n/locales/{ko,en}.ts` |
