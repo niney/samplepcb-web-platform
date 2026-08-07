@@ -77,8 +77,37 @@ more1=25,000원/개)과 `diffDesign`(**사어** — 어디서도 안 읽는 과�
   엔트리에서 하드코딩 0원.
 - **mass(양산)**: 레거시 listPrice=0, 신규 rfq(null) — 같은 의미의 다른 표현.
 
+## 레거시 호환 가격 엔드포인트 — POST /api/pcb-pricing (2026-08-07)
+
+거버 뷰어의 화면 실시간 가격을 레거시 PHP 대신 sp-node 가 서빙할 수 있게 한
+**드롭인 호환** 라우트(`apps/api/src/routes/pcb-pricing.ts`). 목적은 스위칭 비교 —
+거버 뷰어(테스트용)가 같은 body 를 레거시 ↔ 이 라우트에 번갈아 쏘고 값을 대조한다.
+
+- 입력 = 레거시 body 그대로(어댑터 `src/pricing/legacy-body-adapter.ts` 가
+  `legacy-parity.test.ts` 와 **공유** — 파리티 green 이 곧 라우트 입력 변환의 보증).
+- 출력 = 레거시 public 응답 5필드 동형(`listPriceWithRate` "35,000원" 형식 포함).
+- 무인증 공개(레거시와 동일)·계산 전용·저장 없음. 가격표는 라이브(live-pricing.ts).
+- **applyGerberPriceMode(부가세 정규화) 미적용** — 그건 저장가(sp_quote)의 해석이고,
+  이 응답의 기준은 레거시 화면가다(supply 모드 ×1.1 을 얹으면 비교가 무의미해진다).
+- 레거시 엔트리 분기까지 재현: advanceMetal/flexibleFPCB 하드코딩 0원, 필수값
+  누락 시 `{result:false, message:'required param'}`(CCResult 동형).
+- 미이식 경계: metalMask **해외 스텐실**(body 에 `placeOfOrigin` 존재 →
+  레거시 PcbMetalPriceLib)은 명시적 미지원 응답 — 국내가로 조용히 계산하지 않는다.
+  현행 거버 UI 는 이 키를 보내지 않는다. advanceFR4 등 미지원 메뉴의 0원 응답에서
+  무게·eta 부산물(레거시가 PHP Warning 내며 채우던 값)은 재현하지 않는다.
+- 라우트 파리티 테스트: `apps/api/src/routes/pcb-pricing.test.ts` — 골든 46케이스를
+  inject 재생, standard/metalMask/하드코딩 메뉴는 응답 완전 일치 단언.
+
+거버 쪽 스위칭(samplepcb_gerber `apps/view`): `src/api/price-api-target.ts`
+(localStorage `sp.priceApiTarget`, legacy|platform) + 가격 박스(ResultPanel/price.tsx)의
+"가격 API: 레거시|플랫폼" 토글 버튼. 토글 시 같은 body 로 즉시 재조회
+(options.tsx useAsync deps). platform 대상 URL 은 dev=`https://local-web.samplepcb.co.kr
+/api/pcb-pricing`(same-site 직접 호출, 서버측 CORS — 담기 API 와 같은 패턴),
+prod=상대경로 `/api/pcb-pricing`(같은 도메인, 운영 nginx 에 /api → sp-node 프록시 전제).
+
 ## 관련 파일
 
 - 엔진/표/테스트: `apps/api/src/pricing/{engine.ts, pricing-data.json, engine.test.ts, legacy-parity.test.ts, __fixtures__/legacy-pricing-goldens.json}`
+- 레거시 호환 라우트: `apps/api/src/routes/{pcb-pricing.ts, pcb-pricing.test.ts}` + `apps/api/src/pricing/legacy-body-adapter.ts`
 - 스크립트: `apps/api/src/scripts/{sync-pricing-data.ts, capture-legacy-pricing-goldens.ts}`
 - 레거시 body 케이스 근거: `docs/samplepcb-pricing-api-body-cases.md`

@@ -8,6 +8,7 @@ import authPlugin from './plugins/auth';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
 import { pcbProjectRoutes } from './routes/pcb-projects';
+import { pcbPricingRoutes } from './routes/pcb-pricing';
 import { pcbThumbRoutes } from './routes/pcb-thumbs';
 import { marketExpertRoutes } from './routes/market-experts';
 import { marketProjectRoutes } from './routes/market-projects';
@@ -75,6 +76,9 @@ await app.register(authPlugin);
 await app.register(healthRoutes, { prefix: '/api' });
 await app.register(meRoutes, { prefix: '/api' });
 await app.register(pcbProjectRoutes, { prefix: '/api' });
+// 레거시 가격 API 호환(무인증·계산 전용·저장 없음) — 거버 뷰어 실시간 표시가의
+// 레거시 ↔ sp-node 스위칭 비교용. docs/pricing-engine-parity.md
+await app.register(pcbPricingRoutes, { prefix: '/api' });
 await app.register(pcbThumbRoutes, { prefix: '/api' });
 // 재능마켓 — 전문가 등록·본인 관리·공개 프로필
 await app.register(marketExpertRoutes, { prefix: '/api' });

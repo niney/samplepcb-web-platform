@@ -11,23 +11,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { calculateQuote } from './engine';
+import { legacyBodyToQuoteInput } from './legacy-body-adapter';
 import fixture from './__fixtures__/legacy-pricing-goldens.json';
 
-// ── 레거시 body → QuoteInput 어댑터 ─────────────────────────────────────────
-// 신규 spec 은 camelCase 정규화 어휘를 쓴다. 레거시 가격 body 와의 별칭 목록:
-const ALIAS: Record<string, string> = {
-  mixTrace: 'minTraceSpacing',
-  goldfingers: 'goldFingers',
-  edgerail: 'edgeRail',
-  frame: 'framework',
-  // differentDesign 은 신규 정본과 동일명(통일 결정) — 매핑 불필요.
-  // impedance 는 신규 spec 키도 impedance (가격표의 impedence 오탈자는 엔진 내부 매핑).
-};
-// 배송지 등 가격 계산과 무관한 메타 필드 + 최상위로 승격되는 필드
-const META = new Set([
-  'ShipType', 'Country', 'CountryCode', 'Postalcode', 'City', 'mm_comp', 'gb_type',
-  'menu', 'category', 'qty',
-]);
+// 레거시 body → QuoteInput 매핑은 legacy-body-adapter.ts 가 정본이다 — /api/pcb-pricing
+// 라우트와 공유하므로, 이 테스트의 green 이 곧 라우트 입력 변환의 보증이 된다.
 
 interface FixtureCase {
   id: string;
@@ -35,21 +23,6 @@ interface FixtureCase {
   body: Record<string, string>;
   publicData: { result?: boolean; data?: Record<string, string> } | null;
 }
-
-const toQuoteInput = (body: Record<string, string>, now: Date) => {
-  const spec: Record<string, string> = {};
-  for (const [k, v] of Object.entries(body)) {
-    if (META.has(k)) continue;
-    spec[ALIAS[k] ?? k] = v;
-  }
-  return {
-    category: body.menu ?? '',
-    orderCategory: body.category ?? 'sample',
-    qty: parseInt(body.qty ?? '0', 10),
-    spec,
-    now,
-  };
-};
 
 const parseWon = (s: string): number => parseInt(s.replaceAll(',', '').replace('원', ''), 10);
 
@@ -75,7 +48,7 @@ describe('레거시 가격 API 패리티 (fixture 실측 대조)', () => {
     const data = pub?.data;
     if (data === undefined) throw new Error(`${c.id}: 레거시 public data 없음`);
 
-    const r = calculateQuote(toQuoteInput(c.body, NOW));
+    const r = calculateQuote(legacyBodyToQuoteInput(c.body, NOW));
     const legacyPrice = parseWon(data.listPriceWithRate ?? '0원');
 
     // 판매가: 레거시 0원(견적요청 유도) ↔ 엔진 rfq(null)
