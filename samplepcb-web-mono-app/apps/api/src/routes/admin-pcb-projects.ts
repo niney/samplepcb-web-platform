@@ -54,6 +54,8 @@ import { sendCompleteEstimate } from '../lib/alimtalk';
 import { buildEstimateEmail } from '../lib/estimate-email';
 import { kstDateStr } from '../lib/kst';
 import { sendMail } from '../lib/mailer';
+import { errorReason, recordMailLog } from '../lib/mail-log';
+import type { MailLogMeta } from '../lib/mail-log';
 import { prisma } from '../lib/prisma';
 import {
   judgePcbCaseDelete,
@@ -535,9 +537,20 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
 
       // ── 메일 채널 (게이트: cf_email_use=0 이면 보내지 않고 skipped 로 표면화) ──
       const notify = await getNotifyConfig();
+      const mailMeta: MailLogMeta = {
+        kind: 'estimate',
+        refType: 'pcb_spec',
+        refId: spec.id,
+        sentBy: request.user.mbId,
+        toMbId: spec.mbId,
+        params: { estimateNo: data.estimateNo },
+      };
       let mail: 'sent' | 'failed' | 'skipped' = 'skipped';
+      let mailSubject = '';
+      let mailReason: string | null = 'mail_unavailable';
       if (notify.mailAvailable) {
         const { subject, html } = buildEstimateEmail(data);
+        mailSubject = subject;
         // 발신 — 발신처(g5_shop_default) 담당자 이메일, 없으면 MAIL_FROM env, 그것도 없으면 상수.
         const fromAddress =
           data.company.managerEmail !== ''
@@ -547,11 +560,20 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         try {
           await sendMail({ to: request.body.email, subject, html, fromName, fromAddress });
           mail = 'sent';
+          mailReason = null;
         } catch (err) {
           request.log.error({ err }, 'estimate mail send failed');
           mail = 'failed';
+          mailReason = errorReason(err);
         }
       }
+      await recordMailLog(request.log, mailMeta, {
+        channel: 'email',
+        status: mail,
+        reason: mailReason,
+        recipient: request.body.email,
+        subject: mailSubject,
+      });
 
       // ── 알림톡 채널 (게이트: ALIMTALK_ENABLED, 메일과 독립) ──
       // 로컬은 ALIMTALK_ENABLED!=='true' 라 실발송 없이 skipped. 비회원(applicant null)·무효
@@ -569,6 +591,13 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           request.log.info(obj, msg);
         },
       );
+      await recordMailLog(request.log, mailMeta, {
+        channel: 'alimtalk',
+        status: alimtalk,
+        // 세부 사유(비활성/무효번호/vendor 오류)는 서버 로그에 — 이력엔 대분류만.
+        reason: alimtalk === 'sent' ? null : alimtalk === 'failed' ? 'send_failed' : 'alimtalk_unavailable',
+        recipient: data.applicant?.phone ?? '',
+      });
 
       return { result: true as const, data: { email: request.body.email, mail, alimtalk } };
     },

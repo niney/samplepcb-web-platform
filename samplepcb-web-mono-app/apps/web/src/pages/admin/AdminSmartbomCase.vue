@@ -66,6 +66,7 @@ import BomRfqCompareModal from '../../components/admin/smartbom/BomRfqCompareMod
 import BomRfqPanel from '../../components/admin/smartbom/BomRfqPanel.vue';
 import BomRfqSendModal from '../../components/admin/smartbom/BomRfqSendModal.vue';
 import QuickMailComposer from '../../components/admin/smartbom/QuickMailComposer.vue';
+import MailLogList from '../../components/admin/MailLogList.vue';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
 
 // 스마트 BOM Case 상세 — 고객 견적요청 1건의 운영 화면(docs/SMARTBOM_PARTNER_RFQ.md §3.4).
@@ -139,6 +140,8 @@ const expandSection = (section: CaseSection): void => {
 const estimateOpen = ref(false);
 // 빠른 메일(§6.15) — 헤더 [✉ 메일] → 우하단 컴포즈.
 const mailOpen = ref(false);
+// 보낸 메일(발송 이력) 섹션 — 조회용이라 기본 접힘.
+const mailLogOpen = ref(false);
 const loadEstimatePrint = async () => {
   const res = await apiGet(
     `${apiRoutes.adminBomQuotes}/${detailId.value ?? ''}/print`,
@@ -2287,6 +2290,34 @@ async function downloadOriginal(): Promise<void> {
             {{ emailActionFeedback.text }}
           </p>
         </div>
+      </div>
+
+      <!-- 보낸 메일 — 이 Case 컨텍스트의 발송 이력(§6.19 후속, 전 채널 원장 임베드) -->
+      <button
+        v-if="!mailLogOpen"
+        type="button"
+        class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+        @click="mailLogOpen = true"
+      >
+        <span>▸ 보낸 메일</span>
+        <span class="text-xs text-gray-400">펼치기</span>
+      </button>
+      <div v-else class="space-y-3 rounded-xl border border-gray-200 bg-surface p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-base font-bold text-gray-900">보낸 메일</h2>
+          <button
+            type="button"
+            class="text-xs text-gray-400 hover:text-gray-600"
+            @click="mailLogOpen = false"
+          >
+            접기
+          </button>
+        </div>
+        <MailLogList
+          v-if="detailId !== null"
+          :fixed="{ refType: 'bom_quote', refId: detailId }"
+          :page-size="10"
+        />
       </div>
 
       <!-- 위험 구역 — 목록 행에서 오작동하지 않도록 Case 상세 단건에만 둔다. -->

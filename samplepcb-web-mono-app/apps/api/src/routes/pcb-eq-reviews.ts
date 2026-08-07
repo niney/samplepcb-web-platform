@@ -103,6 +103,17 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
             note: request.body.note ?? null,
             customerId: request.user.mbId,
           }),
+          {
+            kind: 'pcb_eq_customer_decision',
+            refType: 'pcb_spec',
+            refId: po.specId,
+            sentBy: request.user.mbId,
+            params: {
+              poId: String(po.id),
+              reviewId: String(request.params.reviewId),
+              approved: request.body.decision === 'approve',
+            },
+          },
         );
       }
 

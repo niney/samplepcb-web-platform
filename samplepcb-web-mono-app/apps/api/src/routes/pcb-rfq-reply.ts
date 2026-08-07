@@ -16,6 +16,7 @@ import {
 } from '../lib/pcb-rfq-email';
 import { getShopEstimateProfile } from '../lib/g5-db';
 import { kstDateStr } from '../lib/kst';
+import type { MailLogMeta } from '../lib/mail-log';
 
 // ── PCB 매직링크 무로그인 회신 — BOM §6.9 동형(메일함 소유 = 신원, RFQ 1건 스코프) ──
 // 인증 없음: 토큰(64hex, 30일 TTL, 재발급 회전) 자체가 인가. GET 은 선정 후에도 열람
@@ -78,6 +79,14 @@ export const pcbRfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         );
         const deliveryText =
           updated.quotedDeliveryDate === null ? null : kstDateStr(updated.quotedDeliveryDate);
+        // 매직링크 회신은 무로그인 — 트리거 주체 mbId 가 없다(sentBy null=시스템).
+        const repliedMeta: MailLogMeta = {
+          kind: 'pcb_rfq_replied',
+          refType: 'pcb_spec',
+          refId: rfq.specId,
+          sentBy: null,
+          params: { rfqId: String(rfq.id), partnerName: rfq.partner.name, magicLink: true },
+        };
         if (rfq.parentPartnerId === 0n) {
           const profile = await getShopEstimateProfile();
           void sendPcbMail(
@@ -92,6 +101,7 @@ export const pcbRfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
               targetUrl: pcbAdminCaseUrl(rfq.specId.toString()),
               targetLabel: 'Case 상세 열기',
             }),
+            repliedMeta,
           );
         } else {
           const md = await prisma.spPartner.findUnique({ where: { id: rfq.parentPartnerId } });
@@ -107,6 +117,7 @@ export const pcbRfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
               targetUrl: pcbPartnerPortalUrl(),
               targetLabel: '파트너 포털 열기',
             }),
+            repliedMeta,
           );
         }
       }

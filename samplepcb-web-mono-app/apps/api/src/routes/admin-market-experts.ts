@@ -192,6 +192,14 @@ export const adminMarketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts
         request.log,
         members.get(expert.mbId)?.email,
         buildExpertDecisionEmail({ displayName: expert.displayName, approved: true }),
+        {
+          kind: 'market_expert_decision',
+          refType: 'market_expert',
+          refId: id,
+          sentBy: request.user.mbId,
+          toMbId: expert.mbId,
+          params: { approved: true },
+        },
       );
       return {
         result: true as const,
@@ -229,6 +237,14 @@ export const adminMarketExpertRoutes: FastifyPluginCallbackZod = (fastify, _opts
           approved: false,
           reason: request.body.reason,
         }),
+        {
+          kind: 'market_expert_decision',
+          refType: 'market_expert',
+          refId: id,
+          sentBy: request.user.mbId,
+          toMbId: expert.mbId,
+          params: { approved: false },
+        },
       );
       return {
         result: true as const,

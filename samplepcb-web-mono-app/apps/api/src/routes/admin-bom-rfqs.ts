@@ -103,6 +103,13 @@ export const adminBomRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
               itemCount: mailItemCount,
               magicUrl: token === undefined ? null : magicReplyUrl(token),
             }),
+            {
+              kind: 'bom_rfq_request',
+              refType: 'bom_quote',
+              refId: quote.id,
+              sentBy: request.user.mbId,
+              params: { partnerId: String(partner.id), partnerName: partner.name },
+            },
           );
         }
       }

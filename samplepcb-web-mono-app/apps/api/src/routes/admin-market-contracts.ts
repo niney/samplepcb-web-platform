@@ -267,6 +267,14 @@ export const adminMarketContractRoutes: FastifyPluginCallbackZod = (fastify, _op
           projectTitle: project?.title ?? '',
           payoutAmount: c.payoutAmount,
         }),
+        {
+          kind: 'market_contract_settled',
+          refType: 'market_contract',
+          refId: c.id,
+          sentBy: request.user.mbId,
+          toMbId: c.expertMbId,
+          params: { projectId: String(c.projectId) },
+        },
       );
       const fresh = (await prisma.spMarketContract.findUnique({ where: { id: c.id } })) ?? c;
       return { result: true as const, data: await buildDetail(fresh) };

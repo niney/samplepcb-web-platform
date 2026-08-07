@@ -1,6 +1,9 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  AdminMailLogDetailResponse,
+  AdminMailLogListQuery,
+  AdminMailLogListResponse,
   AdminMailTemplateListResponse,
   AdminMailTemplateResponse,
   AdminMailTemplateSaveBody,
@@ -10,11 +13,13 @@ import {
   QUICK_MAIL_MAX_FILE_BYTES,
   QUICK_MAIL_MAX_TOTAL_BYTES,
 } from '@sp/api-contract';
-import type { AdminMailTemplateType } from '@sp/api-contract';
-import type { SpMailTemplate } from '@prisma/client';
+import type { AdminMailLogItemType, AdminMailTemplateType } from '@sp/api-contract';
+import type { Prisma, SpMailLog, SpMailTemplate } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { collectMultipart } from '../lib/market';
 import { sendMail } from '../lib/mailer';
+import { errorReason, recordMailLog } from '../lib/mail-log';
+import type { MailLogMeta } from '../lib/mail-log';
 import { getMembersByIds } from '../lib/g5-db';
 
 // ── /api/admin — 빠른 메일(§6.15): 템플릿 CRUD + Case 컨텍스트 발송·이력 ──────
@@ -53,6 +58,46 @@ const toTemplateDto = (row: SpMailTemplate): AdminMailTemplateType => ({
   updatedAt: row.updatedAt.toISOString(),
 });
 
+// 이력 행 → DTO. 목록은 body 유무만(hasBody) — 원문은 단건 조회로만 연다.
+const asChannel = (v: string): AdminMailLogItemType['channel'] =>
+  v === 'alimtalk' ? 'alimtalk' : v === 'sms' ? 'sms' : 'email';
+const asStatus = (v: string): AdminMailLogItemType['status'] =>
+  v === 'failed' ? 'failed' : v === 'skipped' ? 'skipped' : 'sent';
+const asAttachments = (v: Prisma.JsonValue | null): AdminMailLogItemType['attachments'] => {
+  if (!Array.isArray(v)) return null;
+  const items: { name: string; size: number; mime: string }[] = [];
+  for (const entry of v) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const o = entry as Record<string, unknown>;
+    items.push({
+      name: typeof o.name === 'string' ? o.name : '',
+      size: typeof o.size === 'number' ? o.size : 0,
+      mime: typeof o.mime === 'string' ? o.mime : '',
+    });
+  }
+  return items;
+};
+const toMailLogDto = (row: SpMailLog): AdminMailLogItemType => ({
+  logId: Number(row.id),
+  kind: row.kind,
+  refType: row.refType,
+  refId: row.refId,
+  channel: asChannel(row.channel),
+  status: asStatus(row.status),
+  reason: row.reason,
+  recipient: row.recipient,
+  toMbId: row.toMbId,
+  subject: row.subject,
+  hasBody: row.body !== null && row.body !== '',
+  params:
+    row.params !== null && typeof row.params === 'object' && !Array.isArray(row.params)
+      ? row.params
+      : null,
+  attachments: asAttachments(row.attachments),
+  sentBy: row.sentBy,
+  createdAt: row.createdAt.toISOString(),
+});
+
 const ALLOWED_MIME = /^(image\/|application\/pdf$)/;
 
 export const adminMailRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
@@ -84,6 +129,59 @@ export const adminMailRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       await prisma.spMailTemplate.deleteMany({ where: { id: request.params.id } });
       const rows = await prisma.spMailTemplate.findMany({ orderBy: { id: 'asc' } });
       return { result: true as const, data: { items: rows.map(toTemplateDto) } };
+    },
+  );
+
+  // ── 발송 이력 — 전 채널 원장 조회(전역 페이지 + Case 상세 '보낸 메일' 공용) ──
+  fastify.get(
+    '/mail-logs',
+    { schema: { querystring: AdminMailLogListQuery, response: { 200: AdminMailLogListResponse } } },
+    async (request) => {
+      const q = request.query;
+      const where: Prisma.SpMailLogWhereInput = {
+        ...(q.refType !== undefined ? { refType: q.refType } : {}),
+        ...(q.refId !== undefined ? { refId: q.refId } : {}),
+        ...(q.kind !== undefined ? { kind: q.kind } : {}),
+        ...(q.channel !== undefined ? { channel: q.channel } : {}),
+        ...(q.status !== undefined ? { status: q.status } : {}),
+        ...(q.recipient !== undefined ? { recipient: { contains: q.recipient } } : {}),
+        ...(q.dateFrom !== undefined || q.dateTo !== undefined
+          ? {
+              createdAt: {
+                ...(q.dateFrom !== undefined
+                  ? { gte: new Date(`${q.dateFrom}T00:00:00+09:00`) }
+                  : {}),
+                // dateTo 는 포함 범위 — KST 다음날 0시 미만으로 변환.
+                ...(q.dateTo !== undefined
+                  ? { lt: new Date(new Date(`${q.dateTo}T00:00:00+09:00`).getTime() + 86_400_000) }
+                  : {}),
+              },
+            }
+          : {}),
+      };
+      const [rows, total] = await Promise.all([
+        prisma.spMailLog.findMany({
+          where,
+          orderBy: { id: 'desc' },
+          skip: (q.page - 1) * q.pageSize,
+          take: q.pageSize,
+        }),
+        prisma.spMailLog.count({ where }),
+      ]);
+      return {
+        result: true as const,
+        data: { items: rows.map(toMailLogDto), total, page: q.page, pageSize: q.pageSize },
+      };
+    },
+  );
+
+  fastify.get(
+    '/mail-logs/:id',
+    { schema: { params: IdParams, response: { 200: AdminMailLogDetailResponse } } },
+    async (request, reply) => {
+      const row = await prisma.spMailLog.findUnique({ where: { id: request.params.id } });
+      if (row === null) return reply.notFound('발송 이력을 찾을 수 없습니다');
+      return { result: true as const, data: { ...toMailLogDto(row), body: row.body } };
     },
   );
 
@@ -148,6 +246,20 @@ export const adminMailRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           .send({ error: 'FILES_TOO_LARGE', message: '첨부 합계는 20MB 이하만 가능합니다.' });
       }
 
+      // 발송 이력(§6.15→이력관리 확장) — 성공·실패 모두 기록한다(CS 근거·재발송 판단).
+      // 수동 CS 메일이므로 body 원문을 보존한다(자동 알림과 달리 params 요약이 아님).
+      const meta: MailLogMeta = {
+        kind: 'quick_mail',
+        refType: 'bom_quote',
+        refId: quote.id,
+        sentBy: request.user.mbId,
+        toMbId: quote.mbId,
+      };
+      const attachmentsMeta = files.map((f) => ({
+        name: f.filename,
+        size: f.buffer.length,
+        mime: f.mimetype,
+      }));
       try {
         await sendMail({
           to,
@@ -163,28 +275,29 @@ export const adminMailRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         });
       } catch (err) {
         request.log.error({ err, to, subject }, 'quick mail send failed');
+        await recordMailLog(request.log, meta, {
+          channel: 'email',
+          status: 'failed',
+          reason: errorReason(err),
+          recipient: to,
+          subject,
+          body,
+          attachments: attachmentsMeta,
+        });
         return reply
           .status(502)
           .send({ error: 'SEND_FAILED', message: '메일 발송에 실패했습니다 — 잠시 후 다시 시도해 주세요.' });
       }
 
-      // 발송 이력(§6.15) — 실패 시 이력 없음(발송 성공만 기록).
-      const log = await prisma.spMailLog.create({
-        data: {
-          quoteId: quote.id,
-          toEmail: to,
-          toMbId: quote.mbId,
-          subject,
-          body,
-          attachments: files.map((f) => ({
-            name: f.filename,
-            size: f.buffer.length,
-            mime: f.mimetype,
-          })),
-          sentBy: request.user.mbId,
-        },
+      const logId = await recordMailLog(request.log, meta, {
+        channel: 'email',
+        status: 'sent',
+        recipient: to,
+        subject,
+        body,
+        attachments: attachmentsMeta,
       });
-      return { result: true as const, data: { logId: Number(log.id) } };
+      return { result: true as const, data: { logId: Number(logId ?? 0) } };
     },
   );
 

@@ -54,6 +54,8 @@ import {
   resolveBomAnswerRecipient,
   sendBomRfqMail,
 } from '../lib/rfq-email';
+import { recordMailLog } from '../lib/mail-log';
+import type { MailLogMeta } from '../lib/mail-log';
 import {
   BomCaseDeleteExecutionError,
   loadBomCaseDeletePlan,
@@ -98,8 +100,10 @@ async function deliverAnsweredEmail(
   log: FastifyBaseLogger,
   quote: AnswerEmailQuote,
   requested: boolean,
+  sentBy: string,
   recipientOverride?: string,
 ): Promise<AdminBomQuoteEmailDeliveryType> {
+  // requested=false 는 발송 의도 자체가 없으므로 이력에 남기지 않는다.
   if (!requested) {
     return {
       requested: false,
@@ -109,6 +113,13 @@ async function deliverAnsweredEmail(
     };
   }
 
+  const meta: MailLogMeta = {
+    kind: 'bom_quote_answered',
+    refType: 'bom_quote',
+    refId: quote.id,
+    sentBy,
+    toMbId: quote.mbId,
+  };
   const [notify, members] = await Promise.all([
     getNotifyConfig(),
     getMembersByIds([quote.mbId]),
@@ -116,6 +127,12 @@ async function deliverAnsweredEmail(
   const member = members.get(quote.mbId);
   const toEmail = resolveBomAnswerRecipient(member?.email, recipientOverride);
   if (!notify.mailAvailable) {
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'skipped',
+      reason: 'mail_unavailable',
+      recipient: toEmail ?? '',
+    });
     return {
       requested: true,
       status: 'skipped',
@@ -124,6 +141,12 @@ async function deliverAnsweredEmail(
     };
   }
   if (toEmail === null) {
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'skipped',
+      reason: 'missing_recipient',
+      recipient: '',
+    });
     return {
       requested: true,
       status: 'skipped',
@@ -141,6 +164,7 @@ async function deliverAnsweredEmail(
       quoteId: String(quote.id),
       confirmedTotal: quote.confirmedTotal,
     }),
+    meta,
   );
   return {
     requested: true,
@@ -766,7 +790,13 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       include: { items: true, sheets: true },
     });
     if (fresh === null) return reply.notFound('견적을 찾을 수 없습니다');
-    const email = await deliverAnsweredEmail(request.log, fresh, body.sendEmail, body.toEmail);
+    const email = await deliverAnsweredEmail(
+      request.log,
+      fresh,
+      body.sendEmail,
+      request.user.mbId,
+      body.toEmail,
+    );
     const file = await prisma.spFile.findFirst({ where: { refType: FILE_REF_TYPE, refId: fresh.id } });
     const fileUrl = file === null ? null : `/api/admin/bom-quotes/${String(fresh.id)}/file`;
     return {
@@ -797,7 +827,13 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
     }
 
-    const delivery = await deliverAnsweredEmail(request.log, quote, true, request.body.toEmail);
+    const delivery = await deliverAnsweredEmail(
+      request.log,
+      quote,
+      true,
+      request.user.mbId,
+      request.body.toEmail,
+    );
     if (delivery.status === 'sent') {
       return { result: true as const, data: delivery };
     }

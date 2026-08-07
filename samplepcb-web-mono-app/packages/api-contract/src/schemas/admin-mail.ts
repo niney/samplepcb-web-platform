@@ -51,3 +51,67 @@ export const AdminQuickMailSendResponse = z.object({
   data: z.object({ logId: z.number() }),
 });
 export type AdminQuickMailSendResponseType = z.infer<typeof AdminQuickMailSendResponse>;
+
+// ── 발송 이력(sp_mail_log) 조회 — 전 채널(email·alimtalk·sms) 공용 원장 ────────
+// 모든 발송 시도(성공·실패·스킵)가 남는다. 본문(body)은 수동 메일(quick_mail)만
+// 보존되며 목록에선 유무만 노출(단건 조회로 열람) — 자동 알림은 params 요약이 정본.
+
+export const MailLogChannel = z.enum(['email', 'alimtalk', 'sms']);
+export type MailLogChannelType = z.infer<typeof MailLogChannel>;
+
+export const MailLogStatus = z.enum(['sent', 'failed', 'skipped']);
+export type MailLogStatusType = z.infer<typeof MailLogStatus>;
+
+export const AdminMailLogItem = z.object({
+  logId: z.number(),
+  kind: z.string(), // quick_mail|estimate|bom_rfq_request|pcb_po_issued|order_deposit…
+  refType: z.string(), // bom_quote|pcb_spec|order|market_project|market_contract…
+  refId: z.string(),
+  channel: MailLogChannel,
+  status: MailLogStatus,
+  reason: z.string().nullable(),
+  recipient: z.string(), // 이메일 또는 전화번호('' = PHP 브리지 등 수신처 미상)
+  toMbId: z.string().nullable(),
+  subject: z.string(),
+  hasBody: z.boolean(),
+  params: z.record(z.string(), z.unknown()).nullable(),
+  attachments: z
+    .array(z.object({ name: z.string(), size: z.number(), mime: z.string() }))
+    .nullable(),
+  sentBy: z.string().nullable(), // 트리거 주체 mbId — null=시스템(매직링크·자동전이)
+  createdAt: z.string(),
+});
+export type AdminMailLogItemType = z.infer<typeof AdminMailLogItem>;
+
+export const AdminMailLogListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  refType: z.string().trim().min(1).max(24).optional(),
+  refId: z.string().trim().min(1).max(64).optional(),
+  kind: z.string().trim().min(1).max(32).optional(),
+  channel: MailLogChannel.optional(),
+  status: MailLogStatus.optional(),
+  /** 수신자 부분 일치(이메일·전화번호). */
+  recipient: z.string().trim().min(1).max(255).optional(),
+  /** KST 일자 범위(YYYY-MM-DD, 양끝 포함). */
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+export type AdminMailLogListQueryType = z.infer<typeof AdminMailLogListQuery>;
+
+export const AdminMailLogListResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(AdminMailLogItem),
+    total: z.number(),
+    page: z.number(),
+    pageSize: z.number(),
+  }),
+});
+export type AdminMailLogListResponseType = z.infer<typeof AdminMailLogListResponse>;
+
+export const AdminMailLogDetailResponse = z.object({
+  result: z.literal(true),
+  data: AdminMailLogItem.extend({ body: z.string().nullable() }),
+});
+export type AdminMailLogDetailResponseType = z.infer<typeof AdminMailLogDetailResponse>;

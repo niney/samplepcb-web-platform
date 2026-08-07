@@ -317,6 +317,13 @@ export const marketProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           ownerName: owners.get(mbId) ?? '회원',
           bidDeadlineAt: `${kstDateTimeStr(bidDeadlineAt).slice(0, 16)} (KST)`,
         }),
+        {
+          kind: 'market_targeted_request',
+          refType: 'market_project',
+          refId: project.id,
+          sentBy: mbId,
+          toMbId: targetExpert.mbId,
+        },
       );
     }
 

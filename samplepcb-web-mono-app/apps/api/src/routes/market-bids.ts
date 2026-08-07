@@ -157,6 +157,14 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           durationDays: bid.durationDays,
           bidCount,
         }),
+        {
+          kind: 'market_new_bid',
+          refType: 'market_project',
+          refId: project.id,
+          sentBy: mbId,
+          toMbId: project.mbId,
+          params: { bidId: String(bid.id) },
+        },
       );
 
       request.log.info(
@@ -381,6 +389,14 @@ export const marketBidRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           projectTitle: project.title,
           amount: bid.amount,
         }),
+        {
+          kind: 'market_award',
+          refType: 'market_project',
+          refId: project.id,
+          sentBy: request.user.mbId,
+          toMbId: bid.mbId,
+          params: { bidId: String(bid.id) },
+        },
       );
 
       request.log.info(

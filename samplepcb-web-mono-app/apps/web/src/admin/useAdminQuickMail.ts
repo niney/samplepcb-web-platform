@@ -48,7 +48,10 @@ export const loadQuickMailContext = async (quoteId: string) => {
 };
 
 export function useSendQuickMail() {
+  const qc = useQueryClient();
   return useMutation({
+    // 발송 성공 → Case 상세 '보낸 메일'(발송 이력) 목록 즉시 갱신.
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'mail-logs'] }),
     mutationFn: ({
       quoteId,
       to,

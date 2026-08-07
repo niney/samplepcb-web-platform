@@ -208,6 +208,13 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             itemCount: po.itemCount,
             totalAmount: po.totalAmount,
           }),
+          {
+            kind: 'bom_po_issued',
+            refType: 'bom_quote',
+            refId: quote.id,
+            sentBy: request.user.mbId,
+            params: { poId: po.poId, partnerId: String(partner.id), partnerName: partner.name },
+          },
         );
       }
       return {
@@ -325,6 +332,13 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               statusLabel: bomShipmentStatusLabel(mode, status),
               nextLabel: bomShipmentStatusLabel(mode, next),
             }),
+            {
+              kind: 'bom_shipment_turn_partner',
+              refType: 'bom_quote',
+              refId: po.quoteId,
+              sentBy: request.user.mbId,
+              params: { poId: String(po.id), partnerName: po.partner.name, status: fresh.status },
+            },
           );
         }
       }
@@ -375,6 +389,13 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             quoteTitle: po.quote.title,
             note: request.body.note ?? null,
           }),
+          {
+            kind: 'bom_shipment_received',
+            refType: 'bom_quote',
+            refId: po.quoteId,
+            sentBy: request.user.mbId,
+            params: { poId: String(po.id), partnerName: po.partner.name },
+          },
         );
       }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };

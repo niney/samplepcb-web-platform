@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from 'fastify';
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
@@ -55,6 +56,8 @@ import { orderInfoBodyToFields } from '../lib/order-edit';
 import { buildOptionSummary } from '../lib/option-summary';
 import { notifyOrderEvent } from '../lib/php-bridge';
 import type { NotifyStatus } from '../lib/php-bridge';
+import { recordMailLog } from '../lib/mail-log';
+import type { MailLogMeta } from '../lib/mail-log';
 import { prisma } from '../lib/prisma';
 import { signedThumbUrl } from '../lib/thumb-url';
 
@@ -65,6 +68,50 @@ import { signedThumbUrl } from '../lib/thumb-url';
 // 한정 예외 ⑫(read-only SELECT)로만 하고, sp_* 조인은 Prisma 가 소유한다.
 
 const OdIdParams = z.object({ odId: z.string().min(1).max(20) });
+
+// 주문 이벤트 kind 코드 — 발송 이력(sp_mail_log) 필터 축(입금·배송만 실제 발송 대상).
+const ORDER_NOTIFY_KIND: Record<'입금' | '준비' | '배송' | '완료', string> = {
+  입금: 'order_deposit',
+  준비: 'order_ready',
+  배송: 'order_delivery',
+  완료: 'order_complete',
+};
+
+// PHP 브리지 알림 + 발송 이력 기록. 발송 주체가 PHP(그누보드 ordermail)라 수신처는
+// 미상('') — 채널별 결과(sent/failed/skipped)만 정직하게 남긴다.
+const notifyOrderEventLogged = async (
+  log: FastifyBaseLogger,
+  params: { odId: string; event: '입금' | '준비' | '배송' | '완료'; mail: boolean; sms: boolean },
+  token: string,
+  sentBy: string,
+): Promise<{ odId: string; mail?: NotifyStatus; sms?: NotifyStatus }> => {
+  const r = await notifyOrderEvent(params, { token });
+  const meta: MailLogMeta = {
+    kind: ORDER_NOTIFY_KIND[params.event],
+    refType: 'order',
+    refId: params.odId,
+    sentBy,
+  };
+  const reasonOf = (s: NotifyStatus): string | null =>
+    s === 'sent' ? null : s === 'failed' ? 'send_failed' : 'php_skipped';
+  if (r.mail !== undefined) {
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: r.mail,
+      reason: reasonOf(r.mail),
+      recipient: '',
+    });
+  }
+  if (r.sms !== undefined) {
+    await recordMailLog(log, meta, {
+      channel: 'sms',
+      status: r.sms,
+      reason: reasonOf(r.sms),
+      recipient: '',
+    });
+  }
+  return { odId: params.odId, ...r };
+};
 
 // Prisma quoteStatus(string) → 계약 리터럴 유니온 총함수 내로잉(직렬화 실패 방지).
 const asQuoteStatus = (v: string): 'priced' | 'rfq' | 'quoted' =>
@@ -337,13 +384,14 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (needNotify && action.processed.length > 0) {
         const token = fastify.jwt.sign({ svc: 'sp-node' }, { expiresIn: '60s' });
         const results = await Promise.all(
-          action.processed.map(async (odId) => {
-            const r = await notifyOrderEvent(
+          action.processed.map((odId) =>
+            notifyOrderEventLogged(
+              request.log,
               { odId, event: target, mail: sendMail, sms: sendSms },
-              { token },
-            );
-            return { odId, ...r };
-          }),
+              token,
+              request.user.mbId,
+            ),
+          ),
         );
         notify.push(...results);
       }
@@ -467,13 +515,14 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if ((sendMail || sendSms) && action.processed.length > 0) {
         const token = fastify.jwt.sign({ svc: 'sp-node' }, { expiresIn: '60s' });
         const results = await Promise.all(
-          action.processed.map(async (odId) => {
-            const r = await notifyOrderEvent(
+          action.processed.map((odId) =>
+            notifyOrderEventLogged(
+              request.log,
               { odId, event: '배송', mail: sendMail, sms: sendSms },
-              { token },
-            );
-            return { odId, ...r };
-          }),
+              token,
+              request.user.mbId,
+            ),
+          ),
         );
         notify.push(...results);
       }

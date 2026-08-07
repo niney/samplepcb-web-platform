@@ -125,6 +125,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
     log: Parameters<typeof sendBomRfqMail>[0],
     poId: bigint,
     partnerName: string,
+    sentBy: string,
   ): Promise<void> => {
     const po = await prisma.spBomPo.findUnique({
       where: { id: poId },
@@ -146,6 +147,13 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
         partnerName,
         statusLabel: bomShipmentStatusLabel(mode, asShipmentStatus(mode, shipment.status)),
       }),
+      {
+        kind: 'bom_shipment_turn_admin',
+        refType: 'bom_quote',
+        refId: po.quote.id,
+        sentBy,
+        params: { poId: String(po.id), partnerName, status: shipment.status },
+      },
     );
   };
 
@@ -214,7 +222,7 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           .status(409)
           .send({ error: result.error, message: ADVANCE_ERROR_MESSAGE[result.error] });
       }
-      await notifyAdminTurn(request.log, request.params.poId, ctx.partnerName);
+      await notifyAdminTurn(request.log, request.params.poId, ctx.partnerName, request.user.mbId);
       const detail = await loadDetail(request.params.poId, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
       return { result: true as const, data: detail };

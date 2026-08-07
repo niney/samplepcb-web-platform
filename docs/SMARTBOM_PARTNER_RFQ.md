@@ -1055,6 +1055,9 @@ SamplePCB가 공급받는 자**다.
 - **이력**: sp_mail_log(quoteId·수신자·제목·본문·첨부 메타·sentBy) — FK 없는 참조
   (Case 삭제 후에도 로그 보존), 실파일은 보관하지 않음(메일로만), 발송 성공 시에만
   기록.
+  - **후속 이행(2026-08-07)**: sp_mail_log 를 전 채널(email·alimtalk·sms) 공용 발송
+    원장으로 일반화(quoteId→refType/refId, 실패·스킵도 기록으로 정책 변경) + Case 상세
+    '보낸 메일' 섹션·전역 [발송 이력] 페이지 추가. 정본은 **docs/MAIL_LOG.md**.
 - E2E 11케이스(템플릿 생성·목록·삭제/컨텍스트/발송 200+Mailpit 실수신·첨부·HTML 셸/
   이력 정합/비허용 형식 400/수신자 형식 400) ALL PASS.
 

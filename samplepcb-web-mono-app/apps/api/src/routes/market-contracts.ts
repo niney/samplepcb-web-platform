@@ -308,6 +308,14 @@ export const marketContractRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
           projectTitle: project?.title ?? '',
           autoConfirmAt: `${kstDateTimeStr(auto).slice(0, 10)} (KST)`,
         }),
+        {
+          kind: 'market_contract_delivered',
+          refType: 'market_contract',
+          refId: c.id,
+          sentBy: request.user.mbId,
+          toMbId: c.clientMbId,
+          params: { projectId: String(c.projectId) },
+        },
       );
     }
 
@@ -348,7 +356,7 @@ export const marketContractRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
         return reply.status(409).send({ result: false, error: 'NOT_DELIVERED' });
       }
       const fresh = (await prisma.spMarketContract.findUnique({ where: { id: c.id } })) ?? c;
-      void notifyContractConfirmed(fresh, request.log); // 메일 #3(검수 확정→전문가)
+      void notifyContractConfirmed(fresh, request.log, request.user.mbId); // 메일 #3(검수 확정→전문가)
       return respondContract(fresh);
     },
   );

@@ -60,6 +60,7 @@ import {
   sendPcbMail,
 } from '../lib/pcb-rfq-email';
 import { kstDateStr } from '../lib/kst';
+import type { MailLogMeta } from '../lib/mail-log';
 
 // ── PCB 발주서·EQ 포털 라우트(P2, requirePartner) — docs/PCB_PARTNER_TRACK.md ──
 // 수주 발주서의 EQ 진행(파일 → 승인요청 → 생산)과 MD 하위 발주. EQ 순서·주체는
@@ -312,6 +313,13 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           targetUrl: pcbAdminCaseUrl(po.specId.toString()),
           targetLabel: 'Case 상세 열기',
         }),
+        {
+          kind: 'pcb_eq_requested',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          params: { poId: String(po.id), partnerName: ctx.partnerName },
+        },
       );
       return { result: true as const };
     },
@@ -349,6 +357,13 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       // 생산완료 → 발주 주체 통지(관리자=운영자 메일 / MD=조직 메일) — P3 선적 신호.
       const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
       const projectName = spec?.projectName ?? `Q${po.specId.toString()}`;
+      const producedMeta: MailLogMeta = {
+        kind: 'pcb_produced',
+        refType: 'pcb_spec',
+        refId: po.specId,
+        sentBy: request.user.mbId,
+        params: { poId: String(po.id), partnerName: ctx.partnerName },
+      };
       if (po.parentPartnerId === 0n) {
         const profile = await getShopEstimateProfile();
         void sendPcbMail(
@@ -361,6 +376,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             targetUrl: pcbAdminCaseUrl(po.specId.toString()),
             targetLabel: 'Case 상세 열기',
           }),
+          producedMeta,
         );
       } else {
         const md = await prisma.spPartner.findUnique({ where: { id: po.parentPartnerId } });
@@ -374,6 +390,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             targetUrl: pcbPartnerPortalUrl(),
             targetLabel: '파트너 포털 열기',
           }),
+          producedMeta,
         );
       }
       return { result: true as const };
@@ -441,6 +458,17 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             ),
             deliveryText: created.po.deliveryDate === null ? null : kstDateStr(created.po.deliveryDate),
           }),
+          {
+            kind: 'pcb_po_issued',
+            refType: 'pcb_spec',
+            refId: created.po.specId,
+            sentBy: request.user.mbId,
+            params: {
+              poId: String(created.po.id),
+              partnerName: created.partner.name,
+              mdTrack: true,
+            },
+          },
         );
       }
       const detail = await loadPartnerPcbPoDetail(request.params.poId, ctx.partnerId);
@@ -506,6 +534,13 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       // 협력사 전이 → 받는측 통지(관리자=운영자 메일 / MD 입고=조직 메일).
       const mode = res.shipment.mode === 'domestic' ? 'domestic' : 'international';
       const statusLabel = bomShipmentStatusLabel(mode, res.to);
+      const turnMeta: MailLogMeta = {
+        kind: 'pcb_shipment_turn',
+        refType: 'pcb_spec',
+        refId: po.specId,
+        sentBy: request.user.mbId,
+        params: { poId: String(po.id), partnerName: ctx.partnerName, status: res.to },
+      };
       if (res.shipment.receiverKind === 'md') {
         const md = await prisma.spPartner.findUnique({
           where: { id: res.shipment.receiverPartnerId ?? 0n },
@@ -521,6 +556,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             targetUrl: pcbPartnerPortalUrl(),
             targetLabel: '파트너 포털 열기',
           }),
+          turnMeta,
         );
       } else {
         const profile = await getShopEstimateProfile();
@@ -535,6 +571,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             targetUrl: pcbAdminCaseUrl(po.specId.toString()),
             targetLabel: 'Case 상세 열기',
           }),
+          turnMeta,
         );
       }
       const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
@@ -587,6 +624,13 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           projectName: po.spec.projectName,
           note: request.body.note ?? null,
         }),
+        {
+          kind: 'pcb_shipment_received',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          params: { poId: String(po.id), partnerName: po.partner.name },
+        },
       );
       const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');

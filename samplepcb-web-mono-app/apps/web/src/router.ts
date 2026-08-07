@@ -157,6 +157,12 @@ const routes: RouteRecordRaw[] = [
       { path: 'slides', name: 'admin-slides', component: AdminSlides },
       { path: 'seo', name: 'admin-seo', component: AdminSeo },
       {
+        // 발송 이력(메일·알림톡·SMS 공용 원장) — 코어 모듈 전역 조회
+        path: 'mail-logs',
+        name: 'admin-mail-logs',
+        component: () => import('./pages/admin/AdminMailLogs.vue'),
+      },
+      {
         path: 'bom',
         name: 'admin-bom',
         component: () => import('./pages/admin/AdminBomUpload.vue'),

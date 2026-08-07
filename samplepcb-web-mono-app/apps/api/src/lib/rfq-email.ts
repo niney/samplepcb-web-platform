@@ -1,5 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { sendMail } from './mailer';
+import { errorReason, recordMailLog } from './mail-log';
+import type { MailLogMeta } from './mail-log';
 
 // ── 협력사 RFQ·발주 알림 메일 — 설계 docs/SMARTBOM_PARTNER_RFQ.md D11·D18 ───
 // 알림만 보낸다(회신·확인 링크 = 로그인 포털). 매직링크 무로그인 처리는 후속.
@@ -307,23 +309,48 @@ export function resolveBomAnswerRecipient(
   return (recipientOverride ?? memberEmail ?? '').trim() || null;
 }
 
+// 발송 시도는 성패·스킵 불문 sp_mail_log 에 남긴다(이력관리 — 기록 실패는 발송에 무영향).
 export async function sendBomRfqMail(
   log: FastifyBaseLogger,
   to: string | null | undefined,
   mail: { subject: string; html: string },
+  meta: MailLogMeta,
 ): Promise<boolean> {
-  if (to === null || to === undefined || to.trim() === '') return false;
+  const recipient = (to ?? '').trim();
+  if (recipient === '') {
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'skipped',
+      reason: 'missing_recipient',
+      recipient: '',
+      subject: mail.subject,
+    });
+    return false;
+  }
   try {
     await sendMail({
-      to,
+      to: recipient,
       subject: mail.subject,
       html: mail.html,
       fromName: '샘플피씨비 스마트 BOM',
       fromAddress: process.env.MAIL_FROM ?? 'sales@samplepcb.co.kr',
     });
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'sent',
+      recipient,
+      subject: mail.subject,
+    });
     return true;
   } catch (err) {
-    log.error({ err, to, subject: mail.subject }, 'bom rfq mail send failed');
+    log.error({ err, to: recipient, subject: mail.subject }, 'bom rfq mail send failed');
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'failed',
+      reason: errorReason(err),
+      recipient,
+      subject: mail.subject,
+    });
     return false;
   }
 }

@@ -1,0 +1,82 @@
+# 발송 이력 원장 (sp_mail_log) — 전 채널 이력관리
+
+> 정본. 2026-08-07 도입(§6.19 빠른 메일의 "Case 상세 '보낸 메일' 표시는 후속" 약속 이행 + 전 채널 일반화).
+> 관련: docs/SMARTBOM_PARTNER_RFQ.md §6.19(빠른 메일), docs/PCB_PARTNER_TRACK.md §5.4(알림 메일).
+
+## 1. 무엇인가
+
+플랫폼이 보내는 **모든 채널(email·alimtalk·sms)의 발송 시도**를 한 테이블(`sp_mail_log`)에
+남기는 공용 원장이다. 성공만이 아니라 **실패(failed)·스킵(skipped)** 도 기록한다 — "고객이
+메일을 못 받았다" CS 때 발송 시도 여부·실패 사유·게이트 스킵을 확인하고 재발송 대상을
+찾는 것이 이 이력의 절반의 가치다.
+
+- 원칙: **기록은 발송의 부수 원장이지 발송 조건이 아니다.** 기록 실패는 어떤 경우에도
+  발송 흐름·API 응답을 깨지 않는다(`recordMailLog` 는 throw 하지 않음).
+- 발송 의도가 없던 경우(예: 관리자가 "이메일 발송" 체크를 끔)는 기록하지 않는다.
+  의도했으나 못 보낸 경우(게이트 꺼짐·수신자 없음)만 skipped 로 남는다.
+
+## 2. 스키마 (Prisma `SpMailLog` ↔ `sp_mail_log`)
+
+| 컬럼 | 의미 |
+| --- | --- |
+| `kind` | 발송 종류 코드 — 메일 빌더와 1:1(아래 §5 코드표) |
+| `refType`/`refId` | 컨텍스트 앵커(FK 없는 참조 — 원본 삭제 후에도 로그 보존): `bom_quote`·`pcb_spec`·`order`(odId)·`market_project`·`market_contract`·`market_expert` |
+| `channel` | `email` · `alimtalk` · `sms` |
+| `status` | `sent` · `failed` · `skipped` |
+| `reason` | failed/skipped 사유: `send_failed` 상세 메시지, `mail_unavailable`(cf_email_use=0), `missing_recipient`, `php_skipped`(PHP 게이트/수신처 없음), `alimtalk_unavailable`, `missing_order` |
+| `recipient` | 이메일 또는 전화번호. `''`=발송 주체가 수신처를 모름(PHP 브리지 — od_email 은 PHP 가 해석) |
+| `toMbId` | 수신 회원 mbId(아는 경우만) |
+| `subject`/`body` | 제목 / **본문은 수동 메일(quick_mail)만 원문 보존** — 자동 알림은 null |
+| `params` | 자동 알림의 빌더 파라미터 요약(JSON) — body 대신 남기는 표시·재현용(빌더=순수 함수) |
+| `attachments` | 첨부 메타 `[{name,size,mime}]` — 실파일 비보관 |
+| `sentBy` | 트리거 주체 mbId(관리자·파트너·고객) — **null=시스템**(매직링크 무로그인·lazy 승격·자동확정) |
+
+인덱스: `(refType, refId, createdAt)` + `(createdAt)`.
+`sp_delete_audit` 의 subjectType/subjectId 와 같은 일반화인데, 메일 제목 컬럼(`subject`)과의
+충돌을 피해 `refType/refId` 로 명명했다. 마이그레이션 `20260807170000_generalize_mail_log`
+(기존 quick_mail 행은 `refType='bom_quote'` 로 backfill, `quoteId`·`toEmail` 컬럼은
+`refId`·`recipient` 로 승계). 공유 DB — 추가 전용 + `migrate deploy` 규율 그대로.
+
+## 3. 기록 지점 — 어디서 남나
+
+새 발송을 추가할 때 **래퍼를 쓰면 이력은 자동**이다. 래퍼 밖 직송을 만들면 반드시
+`recordMailLog` 를 직접 호출할 것.
+
+| 계층 | 파일 | 커버 |
+| --- | --- | --- |
+| 도메인 래퍼 3종(meta 필수 인자) | `lib/rfq-email.ts` `sendBomRfqMail` · `lib/pcb-rfq-email.ts` `sendPcbMail` · `lib/market-email.ts` `sendMarketMail` | BOM·PCB·마켓 자동 알림 전부(관리자·파트너·고객·매직링크 트리거 ~37개 호출부). 수신자 없음 skipped 도 래퍼가 기록 |
+| 직접 발송 라우트 | `routes/admin-mail.ts`(빠른 메일 — 실패도 기록으로 정책 변경, body 원문 보존) · `routes/admin-pcb-projects.ts` send-estimate(메일+**알림톡 채널** 각 1행) | 관리자 수동 발송 |
+| PHP 브리지 | `routes/admin-orders.ts` `notifyOrderEventLogged`(입금·배송 전이, 송장 업로드) | 그누보드 ordermail 이 실제 발송 — sp-node 는 채널별 결과(sent/failed/skipped)만 기록, **PHP 무수정** |
+| 공용 헬퍼 | `lib/mail-log.ts` `recordMailLog(log, meta, entry)` — throw 없음, 과길이 절단 | |
+
+## 4. 조회
+
+- API(관리자): `GET /api/admin/mail-logs`(필터: refType+refId·kind·channel·status·recipient
+  부분일치·dateFrom/dateTo KST) · `GET /api/admin/mail-logs/:id`(body 원문 포함).
+  목록은 `hasBody` 만 노출(본문은 단건). 계약 `packages/api-contract/src/schemas/admin-mail.ts`.
+- UI: 코어 모듈 **[발송 이력]** `/app/admin/mail-logs`(전역, 필터 바) + SmartBOM/PCB
+  **Case 상세 '보낸 메일' 접힘 섹션**(컨텍스트 고정 임베드). 둘 다
+  `components/admin/MailLogList.vue` 하나를 공유한다(행 클릭=확장 상세).
+
+## 5. kind 코드표 (빌더 1:1)
+
+- 수동: `quick_mail`(빠른 메일) · `estimate`(견적서 — email/alimtalk 2행)
+- BOM: `bom_rfq_request` · `bom_quote_answered` · `bom_po_issued` ·
+  `bom_shipment_turn_admin|partner` · `bom_shipment_received`
+- PCB: `pcb_rfq_request` · `pcb_rfq_replied` · `pcb_po_issued` · `pcb_eq_requested` ·
+  `pcb_eq_decision` · `pcb_eq_customer_request|decision` · `pcb_produced` ·
+  `pcb_shipment_turn` · `pcb_shipment_received`
+- 주문(PHP 브리지): `order_deposit` · `order_delivery` (`order_ready`·`order_complete` 는 예약)
+- 마켓: `market_targeted_request` · `market_new_bid` · `market_award` ·
+  `market_expert_decision` · `market_contract_paid|delivered|confirmed|settled`
+
+sp-vue 라벨은 i18n `admin.mailLogs.kind.*` — 미등록 코드는 원문 노출(catchall)이라
+서버에 kind 를 추가해도 UI 가 깨지지 않는다.
+
+## 6. 검증
+
+- 유닛 `apps/api/src/lib/mail-log.test.ts` 8케이스: 기록 필드 정합·DB 실패 무해성·
+  절단·래퍼 성공/스킵/실패/이력실패 불변식.
+- E2E(로컬 실스택): 빠른 메일 발송 → Mailpit 실수신 → 목록/단건 API 정합(kind·recipient·
+  sentBy·hasBody·body 마커) → 무인증 401 → 정리. ALL PASS(2026-08-07).
+- 기존 유닛 663개 무회귀.

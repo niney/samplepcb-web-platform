@@ -1228,20 +1228,31 @@ model SpMailTemplate {
   @@map("sp_mail_template")
 }
 
-// 발송 이력 — 감사·CS 기록. quoteId·mbId 는 FK 없는 참조(Case 삭제 후에도 로그 보존).
-// 첨부 실파일은 보관하지 않는다(메일로만 전달) — 메타([{name,size,mime}])만 남긴다.
+// 발송 이력 — 전 채널(email·alimtalk·sms) 공용 발송 원장(감사·CS 기록). ref* 는 FK 없는
+// 참조(원본 삭제 후에도 로그 보존). sp_delete_audit 의 subjectType/subjectId 와 같은 일반화
+// 인데, 이 테이블은 메일 제목 컬럼(subject)과의 충돌을 피해 refType/refId 로 명명한다.
+// 본문 정책(비대 방지): 수동 메일(quick_mail)만 body 원문 보존, 자동 알림은 빌더 파라미터
+// 요약(params)만 남긴다 — 빌더가 순수 함수라 재현 가능. 첨부 실파일은 보관하지 않는다
+// (메일로만 전달) — 메타([{name,size,mime}])만 남긴다.
 model SpMailLog {
   id          BigInt   @id @default(autoincrement())
-  quoteId     BigInt? // 연결 Case(스마트 BOM) — 진입 컨텍스트
-  toEmail     String   @db.VarChar(255)
+  kind        String   @db.VarChar(32) // 발송 종류 코드: quick_mail|estimate|bom_rfq_request|pcb_po_issued|order_notify…
+  refType     String   @db.VarChar(24) // 컨텍스트: bom_quote|pcb_spec|order|market_project|market_contract…
+  refId       String   @db.VarChar(64)
+  channel     String   @db.VarChar(12) // email|alimtalk|sms
+  status      String   @db.VarChar(12) // sent|failed|skipped
+  reason      String?  @db.VarChar(255) // failed·skipped 사유 코드(send_failed|mail_unavailable|missing_recipient…)
+  recipient   String   @db.VarChar(255) // 이메일 또는 전화번호. ''=발송 주체가 수신처를 모름(PHP 브리지)
   toMbId      String?  @db.VarChar(191)
-  subject     String   @db.VarChar(255)
-  body        String   @db.Text
+  subject     String   @db.VarChar(255) // 채널에 제목이 없으면(sms 등) ''
+  body        String?  @db.Text // quick_mail 원문만 — 자동 알림은 null
+  params      Json? // 자동 알림 빌더 파라미터 요약(표시·재현용)
   attachments Json?
-  sentBy      String   @db.VarChar(191) // 발송 관리자 mbId
+  sentBy      String?  @db.VarChar(191) // 트리거 주체 mbId(관리자·파트너) — null=시스템(매직링크·자동)
   createdAt   DateTime @default(now())
 
-  @@index([quoteId])
+  @@index([refType, refId, createdAt])
+  @@index([createdAt])
   @@map("sp_mail_log")
 }
 

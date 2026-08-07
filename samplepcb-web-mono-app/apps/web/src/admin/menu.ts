@@ -55,6 +55,8 @@ export const adminMenu: AdminMenuItem[] = [
   { to: { name: 'admin-parts' }, labelKey: 'admin.menu.parts' },
   { to: { name: 'admin-slides' }, labelKey: 'admin.menu.slides' },
   { to: { name: 'admin-seo' }, labelKey: 'admin.menu.seo' },
+  // 발송 이력 — 모듈 횡단 공용 원장이라 코어(통합) 모듈에 둔다.
+  { to: { name: 'admin-mail-logs' }, labelKey: 'admin.menu.mailLogs' },
   { to: { name: 'admin-settings' }, labelKey: 'admin.menu.settings' },
 ];
 

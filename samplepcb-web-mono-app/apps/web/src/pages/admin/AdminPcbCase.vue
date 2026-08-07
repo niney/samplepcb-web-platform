@@ -54,6 +54,7 @@ import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue
 import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vue';
 import PcbEqReviewPanel from '../../components/admin/pcb/PcbEqReviewPanel.vue';
 import PcbSpecEditModal from '../../components/admin/pcb/PcbSpecEditModal.vue';
+import MailLogList from '../../components/admin/MailLogList.vue';
 
 // PCB Case 상세 — docs/PCB_PARTNER_TRACK.md §5.4. 스펙 요약(기존 admin-pcb-projects
 // 상세 계약 재사용) + 협력사 RFQ 패널(배정 diff·대리 회신·선정/해제·매직링크).
@@ -110,6 +111,8 @@ const selectedRow = computed(() => adminRows.value.find((r) => r.status === 'sel
 
 // 영구 삭제 — 삭제되면 이 Case 는 사라지므로 진입 워크큐로 되돌린다.
 const deleteOpen = ref(false);
+// 보낸 메일(발송 이력) 섹션 — 조회용이라 기본 접힘.
+const mailLogOpen = ref(false);
 async function onDeleted(): Promise<void> {
   deleteOpen.value = false;
   await router.push({ name: backTarget.value.name });
@@ -1360,6 +1363,34 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           </tbody>
         </table>
       </div>
+    </section>
+
+    <!-- 보낸 메일 — 이 Case 컨텍스트의 발송 이력(전 채널 원장 임베드, 기본 접힘) -->
+    <button
+      v-if="!mailLogOpen"
+      type="button"
+      class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+      @click="mailLogOpen = true"
+    >
+      <span>▸ 보낸 메일</span>
+      <span class="text-xs text-gray-400">펼치기</span>
+    </button>
+    <section v-else class="space-y-3 rounded-xl border border-gray-200 bg-surface p-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold text-gray-700">보낸 메일</h2>
+        <button
+          type="button"
+          class="text-xs text-gray-400 hover:text-gray-600"
+          @click="mailLogOpen = false"
+        >
+          접기
+        </button>
+      </div>
+      <MailLogList
+        v-if="specId !== null"
+        :fixed="{ refType: 'pcb_spec', refId: String(specId) }"
+        :page-size="10"
+      />
     </section>
 
     <!-- 발주 모달 -->

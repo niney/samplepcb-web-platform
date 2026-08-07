@@ -1,5 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { sendMail } from './mailer';
+import { errorReason, recordMailLog } from './mail-log';
+import type { MailLogMeta } from './mail-log';
 
 // ── 재능마켓 알림 메일 빌더 + 비차단 발송 (1차 4종) ──────────────────────────
 // estimate-email.ts 의 매체 원칙 미러: 이메일 클라이언트 호환을 위해 table + inline
@@ -240,22 +242,47 @@ export function buildContractSettledEmail(p: {
   };
 }
 
-// 비차단 발송 — 실패는 로그만(액션 성패와 독립). to 가 없으면 조용히 스킵.
+// 비차단 발송 — 실패는 로그만(액션 성패와 독립). 발송 시도는 성패·스킵 불문
+// sp_mail_log 에 남긴다(이력관리 — 기록 실패는 발송에 무영향).
 export async function sendMarketMail(
   log: FastifyBaseLogger,
   to: string | undefined,
   mail: MarketEmail,
+  meta: MailLogMeta,
 ): Promise<void> {
-  if (to === undefined || to.trim() === '') return;
+  const recipient = (to ?? '').trim();
+  if (recipient === '') {
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'skipped',
+      reason: 'missing_recipient',
+      recipient: '',
+      subject: mail.subject,
+    });
+    return;
+  }
   try {
     await sendMail({
-      to,
+      to: recipient,
       subject: mail.subject,
       html: mail.html,
       fromName: '샘플피씨비 재능마켓',
       fromAddress: process.env.MAIL_FROM ?? 'sales@samplepcb.co.kr',
     });
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'sent',
+      recipient,
+      subject: mail.subject,
+    });
   } catch (err) {
-    log.error({ err, to, subject: mail.subject }, 'market mail send failed');
+    log.error({ err, to: recipient, subject: mail.subject }, 'market mail send failed');
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'failed',
+      reason: errorReason(err),
+      recipient,
+      subject: mail.subject,
+    });
   }
 }

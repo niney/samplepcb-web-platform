@@ -145,6 +145,13 @@ export const adminPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
               suggestedDeliveryDate: request.body.suggestedDeliveryDate ?? null,
               magicUrl: token === undefined ? null : magicPcbReplyUrl(token),
             }),
+            {
+              kind: 'pcb_rfq_request',
+              refType: 'pcb_spec',
+              refId: spec.id,
+              sentBy: request.user.mbId,
+              params: { partnerId: String(partner.id), partnerName: partner.name },
+            },
           );
         }
       }

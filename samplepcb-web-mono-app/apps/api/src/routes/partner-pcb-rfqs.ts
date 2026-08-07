@@ -32,6 +32,7 @@ import {
 import { downloadFromFileServer } from '../lib/file-server';
 import { getShopEstimateProfile } from '../lib/g5-db';
 import { kstDateStr } from '../lib/kst';
+import type { MailLogMeta } from '../lib/mail-log';
 
 // ── PCB 파트너 RFQ 포털 라우트(requirePartner) — docs/PCB_PARTNER_TRACK.md §5.4 ──
 // 받은 견적요청 워크큐·상세(스펙 사양 + 거버 파일 프록시)·회신, MD 2단(하위 배정 diff·
@@ -124,6 +125,13 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         );
         const deliveryText =
           updated.quotedDeliveryDate === null ? null : kstDateStr(updated.quotedDeliveryDate);
+        const repliedMeta: MailLogMeta = {
+          kind: 'pcb_rfq_replied',
+          refType: 'pcb_spec',
+          refId: rfq.specId,
+          sentBy: request.user.mbId,
+          params: { rfqId: String(rfq.id), partnerName: ctx.partnerName },
+        };
         if (rfq.parentPartnerId === 0n) {
           const profile = await getShopEstimateProfile();
           void sendPcbMail(
@@ -138,6 +146,7 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
               targetUrl: pcbAdminCaseUrl(rfq.specId.toString()),
               targetLabel: 'Case 상세 열기',
             }),
+            repliedMeta,
           );
         } else {
           const md = await prisma.spPartner.findUnique({ where: { id: rfq.parentPartnerId } });
@@ -153,6 +162,7 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
               targetUrl: pcbPartnerPortalUrl(),
               targetLabel: '파트너 포털 열기',
             }),
+            repliedMeta,
           );
         }
       }
@@ -245,6 +255,13 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
               suggestedDeliveryDate: suggested,
               magicUrl: token === undefined ? null : magicPcbReplyUrl(token),
             }),
+            {
+              kind: 'pcb_rfq_request',
+              refType: 'pcb_spec',
+              refId: rfq.specId,
+              sentBy: request.user.mbId,
+              params: { partnerId: String(partner.id), partnerName: partner.name, mdTrack: true },
+            },
           );
         }
       }

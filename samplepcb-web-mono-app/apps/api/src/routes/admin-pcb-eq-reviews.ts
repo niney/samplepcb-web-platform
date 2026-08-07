@@ -8,6 +8,8 @@ import { prisma } from '../lib/prisma';
 import { cancelEqReview, createEqReview, listAdminEqReviews } from '../lib/pcb-eq-review';
 import { getMembersByIds, getOrderInfoByCtId } from '../lib/g5-db';
 import { buildPcbEqCustomerRequestEmail, sendPcbMail } from '../lib/pcb-rfq-email';
+import { recordMailLog } from '../lib/mail-log';
+import type { MailLogMeta } from '../lib/mail-log';
 
 // ── 관리자 EQ 고객 확인 요청(P4.1) — docs/PCB_PARTNER_TRACK.md D16 ───────────
 // 협력사 EQ 를 고객에게 물어본다. **EQ 전이는 건드리지 않는다** — 고객이 승인해도
@@ -83,6 +85,14 @@ export const adminPcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts,
         const order = await getOrderInfoByCtId(po.spec.ctId);
         const members = await getMembersByIds(po.spec.mbId === null ? [] : [po.spec.mbId]);
         const to = members.get(po.spec.mbId ?? '')?.email ?? '';
+        const eqMailMeta: MailLogMeta = {
+          kind: 'pcb_eq_customer_request',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          toMbId: po.spec.mbId,
+          params: { poId: String(po.id), reviewId: String(outcome.reviewId) },
+        };
         if (order !== null && to !== '') {
           void sendPcbMail(
             request.log,
@@ -95,12 +105,19 @@ export const adminPcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts,
               dueText: request.body.dueOn ?? null,
               fileCount: request.body.sharedFileIds.length,
             }),
+            eqMailMeta,
           );
         } else {
           request.log.warn(
             { poId: Number(request.params.poId), hasOrder: order !== null, hasEmail: to !== '' },
             'EQ 고객 확인 메일 발송 생략 — 주문 또는 회원 이메일 없음',
           );
+          void recordMailLog(request.log, eqMailMeta, {
+            channel: 'email',
+            status: 'skipped',
+            reason: order === null ? 'missing_order' : 'missing_recipient',
+            recipient: to,
+          });
         }
       }
 

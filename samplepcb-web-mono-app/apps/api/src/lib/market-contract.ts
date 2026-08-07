@@ -137,6 +137,14 @@ const notifyContractPaid = async (c: SpMarketContract, log: FastifyBaseLogger): 
         amount: c.amount,
         payoutAmount: c.payoutAmount,
       }),
+      {
+        kind: 'market_contract_paid',
+        refType: 'market_contract',
+        refId: c.id,
+        sentBy: null, // lazy 승격 — 시스템 발송
+        toMbId: c.expertMbId,
+        params: { projectId: String(c.projectId) },
+      },
     );
   } catch (err) {
     log.error({ err, contractId: Number(c.id) }, 'contract paid 메일 준비 실패');
@@ -144,9 +152,11 @@ const notifyContractPaid = async (c: SpMarketContract, log: FastifyBaseLogger): 
 };
 
 // ③ 검수 확정 → 전문가. 수동 confirm 라우트와 자동확정 승격이 공유(export).
+// sentBy: 수동 확정은 의뢰인 mbId, 자동확정 승격은 생략(null=시스템).
 export const notifyContractConfirmed = async (
   c: SpMarketContract,
   log: FastifyBaseLogger,
+  sentBy: string | null = null,
 ): Promise<void> => {
   try {
     const [project, expert, members] = await Promise.all([
@@ -163,6 +173,14 @@ export const notifyContractConfirmed = async (
         projectTitle: project?.title ?? '',
         payoutAmount: c.payoutAmount,
       }),
+      {
+        kind: 'market_contract_confirmed',
+        refType: 'market_contract',
+        refId: c.id,
+        sentBy,
+        toMbId: c.expertMbId,
+        params: { projectId: String(c.projectId) },
+      },
     );
   } catch (err) {
     log.error({ err, contractId: Number(c.id) }, 'contract confirmed 메일 준비 실패');

@@ -1,5 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { sendMail } from './mailer';
+import { errorReason, recordMailLog } from './mail-log';
+import type { MailLogMeta } from './mail-log';
 
 // ── PCB 파트너 트랙 알림 메일(P1) — docs/PCB_PARTNER_TRACK.md §5.4 ────────────
 // 레거시 결함 교정(L6): 발송을 프론트가 아니라 서버가 소유한다(비차단·실패 로그).
@@ -159,22 +161,47 @@ export function buildPcbRfqRepliedEmail(p: PcbRfqRepliedEmailParams): {
   };
 }
 
+// 발송 시도는 성패·스킵 불문 sp_mail_log 에 남긴다(이력관리 — 기록 실패는 발송에 무영향).
 export async function sendPcbMail(
   log: FastifyBaseLogger,
   to: string | null | undefined,
   mail: { subject: string; html: string },
+  meta: MailLogMeta,
 ): Promise<void> {
-  if (to === null || to === undefined || to.trim() === '') return;
+  const recipient = (to ?? '').trim();
+  if (recipient === '') {
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'skipped',
+      reason: 'missing_recipient',
+      recipient: '',
+      subject: mail.subject,
+    });
+    return;
+  }
   try {
     await sendMail({
-      to,
+      to: recipient,
       subject: mail.subject,
       html: mail.html,
       fromName: '샘플피씨비',
       fromAddress: process.env.MAIL_FROM ?? 'sales@samplepcb.co.kr',
     });
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'sent',
+      recipient,
+      subject: mail.subject,
+    });
   } catch (err) {
-    log.error({ err, to, subject: mail.subject }, 'pcb rfq mail send failed');
+    log.error({ err, to: recipient, subject: mail.subject }, 'pcb rfq mail send failed');
+    await recordMailLog(log, meta, {
+      channel: 'email',
+      status: 'failed',
+      reason: errorReason(err),
+      recipient,
+      subject: mail.subject,
+    });
   }
 }
 

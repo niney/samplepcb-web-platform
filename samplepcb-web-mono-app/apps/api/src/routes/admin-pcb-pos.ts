@@ -192,6 +192,13 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             ),
             deliveryText: created.po.deliveryDate === null ? null : kstDateStr(created.po.deliveryDate),
           }),
+          {
+            kind: 'pcb_po_issued',
+            refType: 'pcb_spec',
+            refId: request.params.id,
+            sentBy: request.user.mbId,
+            params: { poId: String(created.po.id), partnerName: created.partner.name },
+          },
         );
       }
       return { result: true as const, data: await loadPanel(request.params.id) };
@@ -275,6 +282,13 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           approved: true,
           reason: null,
         }),
+        {
+          kind: 'pcb_eq_decision',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          params: { poId: String(po.id), partnerName: po.partner.name, approved: true },
+        },
       );
       return { result: true as const };
     },
@@ -309,6 +323,13 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           approved: false,
           reason: request.body.reason,
         }),
+        {
+          kind: 'pcb_eq_decision',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          params: { poId: String(po.id), partnerName: po.partner.name, approved: false },
+        },
       );
       return { result: true as const };
     },
@@ -522,6 +543,13 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           targetUrl: pcbPartnerPortalUrl(),
           targetLabel: '파트너 포털 열기',
         }),
+        {
+          kind: 'pcb_shipment_turn',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          params: { poId: String(po.id), partnerName: po.partner.name, status: res.to },
+        },
       );
       return { result: true as const, data: await loadPanel(request.params.id) };
     },
@@ -586,6 +614,13 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
           note: request.body.note ?? null,
         }),
+        {
+          kind: 'pcb_shipment_received',
+          refType: 'pcb_spec',
+          refId: po.specId,
+          sentBy: request.user.mbId,
+          params: { poId: String(po.id), partnerName: po.partner.name },
+        },
       );
       return { result: true as const, data: await loadPanel(request.params.id) };
     },
