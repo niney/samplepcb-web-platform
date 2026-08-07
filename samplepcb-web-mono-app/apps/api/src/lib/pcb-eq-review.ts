@@ -4,6 +4,7 @@ import type {
   CustomerPcbEqReviewViewType,
   PcbEqReviewFileType,
   PcbEqReviewStatusType,
+  PcbPoEqReviewSummaryType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 
@@ -231,38 +232,33 @@ export const getEqReviewFile = async (
   return { pathToken: file.pathToken, originFileName: file.originFileName };
 };
 
-/** 관리자 발주 패널이 쓰는 요약 — 열린 요청 1건 + 마지막 결정. */
-export const loadEqReviewSummaries = async (
+/** 발주 행에 싣는 요약(P4.4) — 모달을 열지 않아도 "보냈는지·답했는지"가 보이게.
+ *  열린 요청이 있으면 그것(생성 가드상 항상 최신 행), 없으면 마지막 결정.
+ *  canceled 는 요약에서 제외한다 — 취소했으면 미요청과 같다(다시 물어봐야 한다). */
+export const loadEqReviewRowSummaries = async (
   poIds: readonly bigint[],
-): Promise<Map<string, AdminPcbEqReviewViewType[]>> => {
-  const map = new Map<string, AdminPcbEqReviewViewType[]>();
+): Promise<Map<string, PcbPoEqReviewSummaryType>> => {
+  const map = new Map<string, PcbPoEqReviewSummaryType>();
   if (poIds.length === 0) return map;
   const rows = await prisma.spPcbEqReview.findMany({
-    where: { poId: { in: [...poIds] } },
+    where: { poId: { in: [...poIds] }, status: { not: 'canceled' } },
     orderBy: { id: 'desc' },
   });
-  if (rows.length === 0) return map;
-  const files = await loadSharedFiles(rows);
   const now = new Date();
   for (const r of rows) {
     const key = r.poId.toString();
-    const bucket = map.get(key) ?? [];
-    bucket.push({
-      id: Number(r.id),
-      poId: Number(r.poId),
-      specId: Number(r.specId),
+    const cur = map.get(key);
+    // id desc 순회 — po 별 첫 행(최신)이 답이다. requested 는 늘 최신 행이지만
+    // (열린 요청이 있으면 새로 못 만든다), 데이터가 어긋나도 열린 요청을 우선한다.
+    if (cur !== undefined && (cur.status === 'requested' || r.status !== 'requested')) continue;
+    map.set(key, {
       status: asEqReviewStatus(r.status),
-      message: r.message,
-      dueOn: iso(r.dueOn),
-      files: toFileViews(parseSharedFileIds(r.sharedFileIds), files),
-      requestedBy: r.requestedBy,
       requestedAt: r.requestedAt.toISOString(),
-      decidedBy: r.decidedBy,
+      dueOn: iso(r.dueOn),
+      overdue: isOverdue(r, now),
       decidedAt: iso(r.decidedAt),
       decisionNote: r.decisionNote,
-      overdue: isOverdue(r, now),
     });
-    map.set(key, bucket);
   }
   return map;
 };

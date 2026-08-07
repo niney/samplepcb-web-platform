@@ -26,6 +26,20 @@ export const PcbEqReviewFile = z.object({
 });
 export type PcbEqReviewFileType = z.infer<typeof PcbEqReviewFile>;
 
+/** 발주 행에 싣는 요약 — 모달을 열지 않아도 "보냈는지·답했는지"가 보이게(사용자 결정
+ *  2026-08-07). 열린 요청이 있으면 그것, 없으면 마지막 결정. canceled 뿐이면 요약 없음
+ *  (=미요청 취급 — 취소했으면 다시 물어봐야 한다). */
+export const PcbPoEqReviewSummary = z.object({
+  status: PcbEqReviewStatus,
+  requestedAt: z.string(),
+  dueOn: z.string().nullable(),
+  overdue: z.boolean(),
+  decidedAt: z.string().nullable(),
+  /** 반려 사유 — 행 툴팁이 쓴다(관리자 화면 전용이라 원문 그대로). */
+  decisionNote: z.string().nullable(),
+});
+export type PcbPoEqReviewSummaryType = z.infer<typeof PcbPoEqReviewSummary>;
+
 /** 관리자 화면용 — 발주서 컨텍스트를 안다. */
 export const AdminPcbEqReviewView = z.object({
   id: z.number(),

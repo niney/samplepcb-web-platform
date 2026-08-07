@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PcbPoEqReviewSummary } from './pcb-eq-review';
 import { AdminPcbRfqView, PartnerPcbSpecFile } from './pcb-rfq';
 import {
   BomInvoiceData,
@@ -170,6 +171,8 @@ export const AdminPcbPoView = z.object({
   eqBlocked: z.boolean(),
   /** MD 경유 표시용 — 하위 발주 수. */
   childCount: z.number().int(),
+  /** EQ 고객 확인 요약(P4.4) — 모달을 열지 않아도 행이 상태를 안다. null=미요청. */
+  eqReview: PcbPoEqReviewSummary.nullable(),
 });
 export type AdminPcbPoViewType = z.infer<typeof AdminPcbPoView>;
 

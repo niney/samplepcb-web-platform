@@ -120,7 +120,14 @@ const STATUS_CLS: Record<PcbEqReviewStatusType, string> = {
           </div>
         </div>
 
-        <!-- 새 요청 -->
+        <!-- 새 요청 — EQ 승인요청 단계에서만(서버 가드 NOT_EQ_REQUESTED 의 화면 미러).
+             그 외 단계에서 열리는 건 행의 상태 배지를 눌러 이력을 보는 경우다(P4.4). -->
+        <p
+          v-else-if="po.status !== 'eq_requested'"
+          class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500"
+        >
+          새 확인 요청은 발주서가 <b>EQ 승인요청</b> 단계일 때만 보낼 수 있습니다.
+        </p>
         <div v-else class="rounded-lg border border-sky-200 bg-sky-50/40 p-3">
           <p class="text-xs font-bold text-sky-800">고객에게 확인 요청</p>
           <label class="mt-2 block">

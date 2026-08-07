@@ -427,6 +427,48 @@ const remittancePoId = ref<number | null>(null);
 /** EQ 고객 확인 패널(P4.1) — 승인 전에 고객에게 물어보는 별도 축. */
 const eqReviewPo = ref<AdminPcbPoViewType | null>(null);
 
+// EQ 고객 확인 행 표시(P4.4) — 모달을 열지 않아도 "보냈는지·답했는지"가 보인다(사용자
+// 결정). 버튼/배지 하나가 상태를 입는다: 미요청 → 확인중(보냄) → 승인/반려.
+// 열람 여부는 다루지 않는다 — 메일 스캐너가 링크를 자동 GET 해 열람 신호는 오염된다(D16).
+type EqReviewDisplay = 'none' | 'pending' | 'overdue' | 'approved' | 'rejected';
+const eqReviewStateOf = (po: AdminPcbPoViewType): EqReviewDisplay => {
+  const r = po.eqReview;
+  if (r === null) return 'none';
+  if (r.status === 'requested') return r.overdue ? 'overdue' : 'pending';
+  return r.status === 'approved' ? 'approved' : 'rejected';
+};
+const eqReviewLabelOf = (po: AdminPcbPoViewType): string => {
+  const r = po.eqReview;
+  switch (eqReviewStateOf(po)) {
+    case 'pending':
+      return '고객 확인중';
+    case 'overdue':
+      return '고객 회신 기한초과';
+    case 'approved':
+      return `고객 승인 ${fmtKstDate(r?.decidedAt ?? null)}`;
+    case 'rejected':
+      return `고객 반려 ${fmtKstDate(r?.decidedAt ?? null)}`;
+    default:
+      return '고객 확인';
+  }
+};
+const EQ_REVIEW_BTN_CLS: Record<EqReviewDisplay, string> = {
+  none: 'border-sky-300 text-sky-700 hover:bg-sky-50',
+  pending: 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100',
+  overdue: 'border-red-400 bg-red-50 text-red-700 hover:bg-red-100',
+  approved: 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+  rejected: 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100',
+};
+/** 툴팁 — 짧은 버튼이 못 담는 것(발송·기한·반려 사유)을 여기 싣는다. */
+const eqReviewTitleOf = (po: AdminPcbPoViewType): string => {
+  const r = po.eqReview;
+  if (r === null) return '고객에게 EQ 확인을 요청합니다';
+  const parts = [`요청 ${fmtKstDate(r.requestedAt)}`];
+  if (r.dueOn !== null) parts.push(`기한 ${fmtKstDate(r.dueOn)}`);
+  if (r.decisionNote !== null && r.decisionNote !== '') parts.push(`고객 의견: ${r.decisionNote}`);
+  return parts.join(' · ');
+};
+
 /** 제작 사양 수정(P4.2) — 저장하면 견적이 새로 발급되므로 상세를 다시 읽는다.
  *  타입 단언은 여기서 한다 — Vue 템플릿 안의 제네릭 `<...>` 은 파서가 태그로 오인한다. */
 const editableSpec = computed<Record<string, string | number>>(() => detail.value?.spec ?? {});
@@ -1190,11 +1232,31 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-right text-xs">
                   <template v-if="po.status === 'eq_requested' && po.eqDelegatePoId === null">
-                    <!-- 고객 확인(P4.1) — 승인 전에 고객에게 물어볼 수 있다. EQ 전이는 그대로. -->
-                    <button type="button" class="mr-1 rounded-md border border-sky-300 px-2 py-1 font-semibold text-sky-700 hover:bg-sky-50" @click="eqReviewPo = po">고객 확인</button>
+                    <!-- 고객 확인(P4.1) — 승인 전에 고객에게 물어볼 수 있다. EQ 전이는 그대로.
+                         버튼이 상태를 입는다(P4.4): 미요청 → 확인중 → 승인/반려. -->
+                    <button
+                      type="button"
+                      class="mr-1 rounded-md border px-2 py-1 font-semibold"
+                      :class="EQ_REVIEW_BTN_CLS[eqReviewStateOf(po)]"
+                      :title="eqReviewTitleOf(po)"
+                      @click="eqReviewPo = po"
+                    >
+                      {{ eqReviewLabelOf(po) }}
+                    </button>
                     <button type="button" class="mr-1 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(po)">EQ 승인</button>
                     <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="void rejectPo(po)">반려</button>
                   </template>
+                  <!-- EQ 단계가 지나도 고객 확인 결과는 남긴다(승인의 근거) — 클릭하면 이력. -->
+                  <button
+                    v-else-if="po.eqReview !== null"
+                    type="button"
+                    class="mr-1 rounded-md border px-2 py-1 font-semibold"
+                    :class="EQ_REVIEW_BTN_CLS[eqReviewStateOf(po)]"
+                    :title="eqReviewTitleOf(po)"
+                    @click="eqReviewPo = po"
+                  >
+                    {{ eqReviewLabelOf(po) }}
+                  </button>
                   <button
                     v-if="po.status === 'eq_done' && po.eqDelegatePoId === null"
                     type="button"

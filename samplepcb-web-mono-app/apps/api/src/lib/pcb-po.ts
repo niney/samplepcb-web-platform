@@ -11,6 +11,7 @@ import type {
   PcbEqFileTypeType,
   PcbEqFileViewType,
   PcbEqRoleType,
+  PcbPoEqReviewSummaryType,
   PcbPoStatusType,
 } from '@sp/api-contract';
 import { PCB_EQ_FORWARD, PCB_EQ_REVERT, PCB_PO_STATUSES } from '@sp/api-contract';
@@ -27,6 +28,7 @@ import {
   validatePcbRfqPartners,
 } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
+import { loadEqReviewRowSummaries } from './pcb-eq-review';
 import { summarizePcbRemittances } from './pcb-remittance';
 import {
   findPcbShipmentByPo,
@@ -179,6 +181,7 @@ interface AdminPoExtras {
   eqDelegatePoId: bigint | null;
   eqBlocked: boolean;
   childCount: number;
+  eqReview: PcbPoEqReviewSummaryType | null;
 }
 
 export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): AdminPcbPoViewType => ({
@@ -209,6 +212,7 @@ export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): Admi
   eqDelegatePoId: extras.eqDelegatePoId === null ? null : Number(extras.eqDelegatePoId),
   eqBlocked: extras.eqBlocked,
   childCount: extras.childCount,
+  eqReview: extras.eqReview,
 });
 
 const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewType[]> => {
@@ -219,6 +223,7 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
       : await prisma.spPartner.findMany({ where: { id: { in: parentIds } } });
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
   const filesMap = await loadEqFilesMap(rows.map((r) => r.id));
+  const reviewMap = await loadEqReviewRowSummaries(rows.map((r) => r.id));
   const out: AdminPcbPoViewType[] = [];
   for (const row of rows) {
     const delegation = await resolveEqDelegation(row);
@@ -235,6 +240,7 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
         eqDelegatePoId: delegation.delegatePoId,
         eqBlocked: delegation.blocked,
         childCount,
+        eqReview: reviewMap.get(row.id.toString()) ?? null,
       }),
     );
   }

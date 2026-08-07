@@ -688,6 +688,27 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
 - **남은 것**: 없음(이 축은 완결). 관리자에게 "현재 가격표 기준일"을 보여주는 표시는
   필요해지면 `priceVersion` 노출로 충분하다.
 
+### P4.4 구현 기록 (2026-08-07 — EQ 고객 확인 상태의 행 노출)
+
+**요구(사용자)**: [고객 확인]을 클릭하지 않아도 보냈는지·답했는지 보이게. **열람 추적은
+하지 않는다** — 메일 스캐너가 링크를 자동 GET 해 열람 신호는 오염된다(D16 과 같은 근거).
+믿을 신호는 "보냈다(확인중)"와 고객의 결정(승인/반려)뿐이다.
+
+- **계약**: `PcbPoEqReviewSummary`(status·requestedAt·dueOn·overdue·decidedAt·decisionNote)
+  + `AdminPcbPoView.eqReview`(nullable). 요약 규칙: 열린 요청 우선, 없으면 마지막 결정,
+  canceled 뿐이면 null(미요청 취급 — 취소했으면 다시 물어봐야 한다).
+- **서버**: `loadEqReviewRowSummaries()` — P4.1 때 만들고 안 쓰던 `loadEqReviewSummaries`
+  를 경량 대체(파일 로딩 없음, po 묶음 1쿼리). `serializeAdminPos` 가 `eqFiles` 와 같은
+  패턴으로 싣는다.
+- **웹**(AdminPcbCase): [고객 확인] 버튼이 상태를 입는다 — 미요청 `고객 확인`(sky) /
+  `고객 확인중`(amber) / `고객 회신 기한초과`(red) / `고객 승인 <일자>`(emerald) /
+  `고객 반려 <일자>`(red·툴팁에 사유 원문). **eq_requested 가 지나도 배지로 남는다**
+  (승인의 근거 — 클릭하면 이력 모달). 모달의 새 요청 폼은 발주가 eq_requested 일 때만
+  열린다(서버 가드 `NOT_EQ_REQUESTED` 의 화면 미러).
+- **검증**: E2E 8/8(사다리 전수 — 미요청 null·대기·기한초과 overdue·승인·반려+사유·
+  취소만 null·반려 후 재요청은 requested 우선) · vitest 683 · typecheck·lint 0건 ·
+  실화면(Q21037 — 오늘 고객이 승인한 발주가 `고객 승인 2026-08-07` 로 표시됨).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
