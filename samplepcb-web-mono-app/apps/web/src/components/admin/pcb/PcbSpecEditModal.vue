@@ -65,10 +65,10 @@ const changed = computed(() =>
 const qtyChanged = computed(() => Number(qtyDraft.value) !== props.qty);
 const touchedGerber = computed(() => changed.value.some((c) => c.gerber));
 
+// 사유는 선택 입력 — 바뀐 게 있고 수량이 유효하면 저장할 수 있다.
 const canSave = computed(
   () =>
     (changed.value.length > 0 || qtyChanged.value) &&
-    reason.value.trim().length >= 2 &&
     Number(qtyDraft.value) > 0 &&
     !reviseMut.isPending.value,
 );
@@ -87,7 +87,7 @@ async function save(): Promise<void> {
       body: {
         spec,
         ...(qtyChanged.value ? { qty: Number(qtyDraft.value) } : {}),
-        reason: reason.value.trim(),
+        ...(reason.value.trim() === '' ? {} : { reason: reason.value.trim() }),
       },
     });
     result.value = res.data;
@@ -206,7 +206,7 @@ async function save(): Promise<void> {
           </p>
 
           <label class="mt-3 block">
-            <span class="text-[11px] font-semibold text-gray-500">수정 사유 <span class="text-red-600">필수</span></span>
+            <span class="text-[11px] font-semibold text-gray-500">수정 사유 <span class="font-normal text-gray-400">선택</span></span>
             <input v-model="reason" type="text" maxlength="1000" placeholder="예) 고객 요청 — 표면처리 무연HASL → OSP 변경" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
           </label>
 

@@ -636,7 +636,9 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
 
 - **스키마**: `sp_quote.revisedBy`·`revisedReason`(마이그레이션 `20260807140000`). 견적 체인이
   이미 "언제 무엇이"를 담으므로 새 원장을 만들지 않는다. 기존 행은 NULL = 고객이 만든 견적.
-- **계약**: `AdminSpecReviseBody`(spec 전체 + qty? + reason 필수) · `AdminSpecReviseResponse`
+- **계약**: `AdminSpecReviseBody`(spec 전체 + qty? + **reason 선택** — 삭제 사유와 같은 규칙,
+  비우면 `revisedReason` 이 null 이 된다. 빈 문자열로 남기면 "적었는데 비었다"와 "안 적었다"가
+  구분되지 않는다) · `AdminSpecReviseResponse`
   (새 quoteId · autoPrice/previousAutoPrice · **finalPriceStale** · **answeredRfqCount** ·
   changedKeys) · `ADMIN_SPEC_REVISE_BLOCK_TEXT` 2종.
 - **서버**: `PATCH /api/admin/pcb-projects/:id/spec`. 발주 존재 시 409, 담긴 견적을 rfq 사양으로
@@ -651,8 +653,9 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
   종료로 오인한다(`vue/no-parsing-error`) — 단언은 script 의 computed 에서 한다.
 - **검증**: **E2E 25 ALL PASS**(새 견적 발급·**가격 실제 재계산**(₩50,000→₩67,100) · 옛 견적
   스냅샷 보존 · 수정자/사유 기록 · `spec.specJson` 동기 · 수량 동시 변경 · **확정가 낡음 신호와
-  서버가 지우지 않음** · 사유 없으면 400 · **발주 시 409 + 사양 불변** · 협력사 회신 시 알림만 ·
-  거버 파생 필드도 수정됨 · 404). vitest 657+117 · typecheck · ESLint 0건.
+  서버가 지우지 않음** · **사유 없이도 저장(수정자는 남고 사유만 null)** · **발주 시 409 + 사양
+  불변** · 협력사 회신 시 알림만 · 거버 파생 필드도 수정됨 · 404).
+  vitest 657+117 · typecheck · ESLint 0건.
 - **남은 것**: ① 브라우저 실탐방 미실시(dev 포트 충돌로 web 재기동을 건너뜀 — 화면 확인 필요).
   ② 사양이 바뀐 뒤 협력사에 재요청하는 것은 아직 관리자 수동이다(`answeredRfqCount` 로
   알리기만 한다). ③ 고객에게는 사양 변경이 통지되지 않는다 — 주문 후 변경이 잦아지면

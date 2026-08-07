@@ -206,8 +206,9 @@ export const AdminSpecReviseBody = z.object({
   spec: PcbProjectSpec,
   /** 수량도 함께 바꿀 수 있다 — 사양과 수량은 같은 가격 계산의 입력이라 한 번에 처리한다. */
   qty: z.number().int().positive().optional(),
-  /** 왜 고쳤는가 — 견적 체인이 답하지 못하는 값이라 필수. */
-  reason: z.string().trim().min(2).max(1000),
+  /** 왜 고쳤는가 — 선택 입력(관리자 결정 2026-08-07, 삭제 사유와 같은 규칙).
+   *  비우면 견적 체인에 "언제 무엇이"만 남고 사유는 null 이 된다. */
+  reason: z.string().trim().max(1000).optional(),
 });
 export type AdminSpecReviseBodyType = z.infer<typeof AdminSpecReviseBody>;
 

@@ -746,7 +746,12 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             priceVersion: rawQuote.priceVersion,
             expiresAt: new Date(Date.now() + QUOTE_TTL_HOURS * 3600 * 1000),
             revisedBy: request.user.mbId,
-            revisedReason: request.body.reason,
+            // 사유는 선택 — 빈 값은 null 로 둔다(빈 문자열을 남기면 "적었는데 비었다"와
+            // "안 적었다"가 구분되지 않는다).
+            revisedReason:
+              request.body.reason === undefined || request.body.reason === ''
+                ? null
+                : request.body.reason,
           },
         });
         await tx.spOrderSpec.update({
