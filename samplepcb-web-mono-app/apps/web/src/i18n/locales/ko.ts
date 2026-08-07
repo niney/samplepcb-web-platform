@@ -107,6 +107,14 @@ export const ko = {
       mailLogs: '발송 이력',
     },
     placeholder: '준비 중입니다.',
+    dashboard: {
+      mailFailures: {
+        title: '발송 실패 (최근 7일)',
+        count: '{n}건',
+        viewAll: '발송 이력에서 모두 보기 →',
+        empty: '최근 7일간 발송 실패가 없습니다.',
+      },
+    },
     mailLogs: {
       title: '발송 이력',
       subtitle: '플랫폼이 보낸 모든 메일·알림톡·SMS 시도(성공·실패·건너뜀)의 기록입니다.',
@@ -149,6 +157,14 @@ export const ko = {
       detail: {
         reason: '사유',
         noBody: '본문 미보존 — 자동 알림은 파라미터 요약만 남습니다.',
+      },
+      resend: {
+        button: '재발송',
+        sending: '발송 중…',
+        done: '{to} 로 재발송했습니다.',
+        failed: '재발송에 실패했습니다.',
+        invalidEmail: '수신자 이메일을 확인해 주세요.',
+        noAttachments: '첨부 파일은 보관하지 않아 재발송에 실리지 않습니다.',
       },
       refType: {
         bom_quote: 'BOM Case',

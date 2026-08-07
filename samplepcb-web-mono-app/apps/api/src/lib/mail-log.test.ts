@@ -7,15 +7,31 @@ import type { FastifyBaseLogger } from 'fastify';
 
 const mocks = vi.hoisted(() => ({
   mailLogCreate: vi.fn(),
+  mailLogFindMany: vi.fn(),
+  mailLogDeleteMany: vi.fn(),
+  configFindUnique: vi.fn(),
   sendMail: vi.fn(),
 }));
 
 vi.mock('./prisma', () => ({
-  prisma: { spMailLog: { create: mocks.mailLogCreate } },
+  prisma: {
+    spMailLog: {
+      create: mocks.mailLogCreate,
+      findMany: mocks.mailLogFindMany,
+      deleteMany: mocks.mailLogDeleteMany,
+    },
+    spConfig: { findUnique: mocks.configFindUnique },
+  },
 }));
 vi.mock('./mailer', () => ({ sendMail: mocks.sendMail }));
 
-import { errorReason, recordMailLog } from './mail-log';
+import {
+  cleanupExpiredMailLogs,
+  errorReason,
+  getMailLogRetentionDays,
+  MAIL_LOG_RETENTION_DEFAULT_DAYS,
+  recordMailLog,
+} from './mail-log';
 import { sendBomRfqMail } from './rfq-email';
 
 const noopLog = { error: vi.fn() } as unknown as FastifyBaseLogger;
@@ -35,6 +51,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.mailLogCreate.mockResolvedValue({ id: 7n });
   mocks.sendMail.mockResolvedValue(undefined);
+  mocks.configFindUnique.mockResolvedValue(null);
+  mocks.mailLogFindMany.mockResolvedValue([]);
+  mocks.mailLogDeleteMany.mockResolvedValue({ count: 0 });
 });
 
 describe('recordMailLog', () => {
@@ -129,5 +148,44 @@ describe('sendBomRfqMail — 발송·이력 결합', () => {
     mocks.mailLogCreate.mockRejectedValue(new Error('db down'));
     const ok = await sendBomRfqMail(noopLog, 'p@example.com', mail, { ...meta });
     expect(ok).toBe(true);
+  });
+});
+
+describe('보존 기간(retention)', () => {
+  it('미설정·손상 값은 기본 180일, 정수 값은 그대로 읽는다', async () => {
+    expect(await getMailLogRetentionDays()).toBe(MAIL_LOG_RETENTION_DEFAULT_DAYS);
+    mocks.configFindUnique.mockResolvedValue({ key: 'mail_log_retention_days', value: '90' });
+    expect(await getMailLogRetentionDays()).toBe(90);
+    mocks.configFindUnique.mockResolvedValue({ key: 'mail_log_retention_days', value: 'abc' });
+    expect(await getMailLogRetentionDays()).toBe(MAIL_LOG_RETENTION_DEFAULT_DAYS);
+  });
+
+  it('0(무제한)이면 조회 없이 아무것도 지우지 않는다', async () => {
+    mocks.configFindUnique.mockResolvedValue({ key: 'mail_log_retention_days', value: '0' });
+    expect(await cleanupExpiredMailLogs(noopLog)).toBe(0);
+    expect(mocks.mailLogFindMany).not.toHaveBeenCalled();
+    expect(mocks.mailLogDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it('컷오프 이전 행을 청크로 지우고 부분 청크에서 멈춘다', async () => {
+    const full = Array.from({ length: 1000 }, (_v, i) => ({ id: BigInt(i + 1) }));
+    const partial = [{ id: 2000n }, { id: 2001n }];
+    mocks.mailLogFindMany.mockResolvedValueOnce(full).mockResolvedValueOnce(partial);
+    mocks.mailLogDeleteMany
+      .mockResolvedValueOnce({ count: 1000 })
+      .mockResolvedValueOnce({ count: 2 });
+    const removed = await cleanupExpiredMailLogs(noopLog);
+    expect(removed).toBe(1002);
+    expect(mocks.mailLogFindMany).toHaveBeenCalledTimes(2);
+    // 컷오프 = createdAt lt 조건으로만 지운다(전체 삭제 방지의 핵심 가드).
+    const where = (mocks.mailLogFindMany.mock.calls[0]?.[0] as {
+      where: { createdAt: { lt: Date } };
+    }).where;
+    expect(where.createdAt.lt).toBeInstanceOf(Date);
+  });
+
+  it('DB 오류는 throw 하지 않고 0을 돌려준다', async () => {
+    mocks.mailLogFindMany.mockRejectedValue(new Error('db down'));
+    expect(await cleanupExpiredMailLogs(noopLog)).toBe(0);
   });
 });

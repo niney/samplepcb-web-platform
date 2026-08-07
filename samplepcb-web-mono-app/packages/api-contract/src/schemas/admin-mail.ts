@@ -115,3 +115,9 @@ export const AdminMailLogDetailResponse = z.object({
   data: AdminMailLogItem.extend({ body: z.string().nullable() }),
 });
 export type AdminMailLogDetailResponseType = z.infer<typeof AdminMailLogDetailResponse>;
+
+/** 재발송 — 원문(body)이 보존된 수동 메일(quick_mail·email)만. 수신자만 바꿀 수 있다. */
+export const AdminMailLogResendBody = z.object({
+  toEmail: z.string().trim().email().max(255).optional(), // 생략 = 원본 수신자
+});
+export type AdminMailLogResendBodyType = z.infer<typeof AdminMailLogResendBody>;

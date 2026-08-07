@@ -1,11 +1,12 @@
 import { computed, type Ref } from 'vue';
-import { keepPreviousData, useQuery } from '@tanstack/vue-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   AdminMailLogDetailResponse,
   AdminMailLogListResponse,
+  AdminQuickMailSendResponse,
 } from '@sp/api-contract';
 import type { MailLogChannelType, MailLogStatusType } from '@sp/api-contract';
-import { apiGet } from '@sp/shared';
+import { apiGet, apiSend } from '@sp/shared';
 
 // 발송 이력(sp_mail_log) 조회 훅 — 전역 이력 페이지 + Case 상세 '보낸 메일' 공용.
 // 계약은 admin-mail.ts(api-contract), 필터 상태는 화면이 소유(useAdminMembers 관례).
@@ -68,5 +69,20 @@ export function useAdminMailLogDetail(logId: Ref<number | null>) {
     queryKey: ['admin', 'mail-logs', 'detail', logId],
     queryFn: () => apiGet(`${logsUrl}/${String(logId.value)}`, AdminMailLogDetailResponse),
     enabled: computed(() => logId.value !== null),
+  });
+}
+
+/** 재발송 — 원문 보존 수동 메일(quick_mail)만(서버 409 가드). 성공 시 새 이력 행. */
+export function useResendMailLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ logId, toEmail }: { logId: number; toEmail?: string }) =>
+      apiSend(
+        'POST',
+        `${logsUrl}/${String(logId)}/resend`,
+        toEmail === undefined ? {} : { toEmail },
+        AdminQuickMailSendResponse,
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'mail-logs'] }),
   });
 }

@@ -44,6 +44,52 @@ export interface MailLogEntry {
 export const errorReason = (err: unknown): string =>
   (err instanceof Error ? err.message : String(err)).slice(0, 255);
 
+// ── 보존 기간(retention) — sp_config 'mail_log_retention_days' ───────────────
+// 원장이 무한히 쌓이면 공유 DB가 비대해진다(BOM 스냅샷 1.7GB 교훈). 기본 180일,
+// 0=무제한. 설정 UI 는 두지 않는다 — 운영에서 바꿀 일이 드물어 sp_config 직접 키로
+// 충분(docs/MAIL_LOG.md 문서화). 정리는 server.ts 주기 타이머가 호출한다.
+
+const RETENTION_KEY = 'mail_log_retention_days';
+export const MAIL_LOG_RETENTION_DEFAULT_DAYS = 180;
+// 1회 실행당 삭제 상한 — 대량 DELETE 락을 피하는 청크 가드(잔여는 다음 주기가 처리).
+const CLEANUP_CHUNK = 1000;
+const CLEANUP_MAX_CHUNKS_PER_RUN = 50;
+
+export async function getMailLogRetentionDays(): Promise<number> {
+  const row = await prisma.spConfig.findUnique({ where: { key: RETENTION_KEY } });
+  if (row === null) return MAIL_LOG_RETENTION_DEFAULT_DAYS;
+  const days = Number(row.value);
+  return Number.isInteger(days) && days >= 0 ? days : MAIL_LOG_RETENTION_DEFAULT_DAYS;
+}
+
+/** 보존 기간 경과 행 정리(청크 삭제). 삭제 행 수 반환 — throw 하지 않는다. */
+export async function cleanupExpiredMailLogs(log: FastifyBaseLogger): Promise<number> {
+  try {
+    const days = await getMailLogRetentionDays();
+    if (days === 0) return 0; // 무제한 보존
+    const cutoff = new Date(Date.now() - days * 86_400_000);
+    let removed = 0;
+    for (let chunk = 0; chunk < CLEANUP_MAX_CHUNKS_PER_RUN; chunk += 1) {
+      const rows = await prisma.spMailLog.findMany({
+        where: { createdAt: { lt: cutoff } },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: CLEANUP_CHUNK,
+      });
+      if (rows.length === 0) break;
+      const res = await prisma.spMailLog.deleteMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+      });
+      removed += res.count;
+      if (rows.length < CLEANUP_CHUNK) break;
+    }
+    return removed;
+  } catch (err) {
+    log.error({ err }, 'mail log retention cleanup failed');
+    return 0;
+  }
+}
+
 /** 발송 시도 1건 기록. 성공 시 로그 id, 기록 실패 시 null(throw 없음). */
 export async function recordMailLog(
   log: FastifyBaseLogger,

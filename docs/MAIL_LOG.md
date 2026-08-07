@@ -73,10 +73,27 @@
 sp-vue 라벨은 i18n `admin.mailLogs.kind.*` — 미등록 코드는 원문 노출(catchall)이라
 서버에 kind 를 추가해도 UI 가 깨지지 않는다.
 
-## 6. 검증
+## 6. P3 — 재발송·실패 위젯·보존 기간 (2026-08-07)
 
-- 유닛 `apps/api/src/lib/mail-log.test.ts` 8케이스: 기록 필드 정합·DB 실패 무해성·
-  절단·래퍼 성공/스킵/실패/이력실패 불변식.
-- E2E(로컬 실스택): 빠른 메일 발송 → Mailpit 실수신 → 목록/단건 API 정합(kind·recipient·
-  sentBy·hasBody·body 마커) → 무인증 401 → 정리. ALL PASS(2026-08-07).
-- 기존 유닛 663개 무회귀.
+- **재발송** `POST /api/admin/mail-logs/:id/resend {toEmail?}` — **원문(body)이 보존된
+  수동 메일(quick_mail·email)만**(그 외 409 NOT_RESENDABLE). 수신자 교정 재발송이 실제
+  CS 케이스라 주소를 바꿀 수 있다. 결과는 새 이력 행(`params.resendOfLogId` 로 원본 연결,
+  sentBy=재발송 관리자). 첨부 실파일은 미보관이라 재발송에 실리지 않는다(UI 고지).
+  자동 알림은 여기서 재조립하지 않는다 — 각 트랙의 재발송 수단(회신 재발송·견적서
+  발송 버튼·RFQ 매직링크 재발급)이 정본이고, 이력에선 Case 링크로 이동한다.
+- **대시보드 실패 위젯**(AdminDashboard 첫 위젯) — 최근 7일 `status=failed` 카운트+최근
+  5건(skipped 는 게이트 정상 동작이 다수라 제외). [모두 보기]는 전역 페이지의 URL 쿼리
+  프리셋(`/app/admin/mail-logs?status=failed`)으로 연다(status·kind·channel·date 지원).
+- **보존 기간** — sp_config `mail_log_retention_days`(**기본 180**, `0`=무제한, 설정 UI
+  없음 — DB 키 직접 수정). server.ts 가 기동 시+6시간마다 `cleanupExpiredMailLogs` 실행:
+  createdAt 컷오프 이전 행을 1,000행 청크(회당 최대 5만)로 삭제해 대량 DELETE 락을 피한다.
+
+## 7. 검증
+
+- 유닛 `apps/api/src/lib/mail-log.test.ts` 12케이스: 기록 필드 정합·DB 실패 무해성·절단·
+  래퍼 성공/스킵/실패/이력실패 불변식 + retention(기본값·0 무제한 no-op·청크 정지·오류 무해).
+- E2E(로컬 실스택, ALL PASS 2026-08-07): 발송→Mailpit 실수신→목록/단건 정합→무인증 401 /
+  재발송 왕복(새 행·resendOfLogId·본문 승계·Mailpit 2통)→NOT_RESENDABLE 409→retention
+  실삭제(오래된 행만 제거·최근 행 보존).
+- 브라우저 실탐방: 대시보드 위젯(0건·1건 상태)→프리셋 링크→행 확장 재발송(성공 메시지+
+  목록 자동 갱신) 확인. 기존 유닛 663개 무회귀.

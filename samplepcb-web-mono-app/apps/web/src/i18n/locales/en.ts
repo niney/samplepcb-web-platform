@@ -107,6 +107,14 @@ export const en = {
       mailLogs: 'Send history',
     },
     placeholder: 'Coming soon.',
+    dashboard: {
+      mailFailures: {
+        title: 'Send failures (last 7 days)',
+        count: '{n}',
+        viewAll: 'View all in send history →',
+        empty: 'No send failures in the last 7 days.',
+      },
+    },
     mailLogs: {
       title: 'Send history',
       subtitle:
@@ -150,6 +158,14 @@ export const en = {
       detail: {
         reason: 'Reason',
         noBody: 'Body not stored — automated mails keep a parameter summary only.',
+      },
+      resend: {
+        button: 'Resend',
+        sending: 'Sending…',
+        done: 'Resent to {to}.',
+        failed: 'Resend failed.',
+        invalidEmail: 'Check the recipient email.',
+        noAttachments: 'Attachments are not stored, so they are not resent.',
       },
       refType: {
         bom_quote: 'BOM case',

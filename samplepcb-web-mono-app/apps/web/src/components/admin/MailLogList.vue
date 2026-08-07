@@ -6,8 +6,10 @@ import {
   emptyMailLogFilters,
   useAdminMailLogDetail,
   useAdminMailLogList,
+  useResendMailLog,
   type AdminMailLogFilters,
 } from '../../admin/useAdminMailLogs';
+import { ApiRequestError } from '@sp/shared';
 import { formatBytes, formatDateTime } from '../../lib/format';
 import UiBadge from '../ui/UiBadge.vue';
 import UiPagination from '../ui/UiPagination.vue';
@@ -17,6 +19,8 @@ import UiPagination from '../ui/UiPagination.vue';
 const props = defineProps<{
   /** 컨텍스트 고정(Case 상세 임베드) — 지정 시 필터 바를 숨기고 해당 건만 보여준다. */
   fixed?: { refType: string; refId: string };
+  /** 초기 필터 프리셋(전역 페이지의 URL 쿼리 진입 — 예: 대시보드 실패 위젯 링크). */
+  initial?: Partial<AdminMailLogFilters>;
   pageSize?: number;
 }>();
 const i18n = useI18n();
@@ -24,9 +28,10 @@ const { t } = i18n;
 
 const filters = ref<AdminMailLogFilters>(
   emptyMailLogFilters({
+    ...props.initial,
     pageSize: props.pageSize ?? 20,
-    refType: props.fixed?.refType ?? '',
-    refId: props.fixed?.refId ?? '',
+    refType: props.fixed?.refType ?? props.initial?.refType ?? '',
+    refId: props.fixed?.refId ?? props.initial?.refId ?? '',
   }),
 );
 // 임베드에서 Case 전환(라우트 파라미터 변경) 시 컨텍스트 추종.
@@ -47,6 +52,40 @@ const expandedId = ref<number | null>(null);
 const { data: detail, isFetching: detailFetching } = useAdminMailLogDetail(expandedId);
 const toggle = (logId: number): void => {
   expandedId.value = expandedId.value === logId ? null : logId;
+  resendTo.value = '';
+  resendNotice.value = null;
+  resend.reset();
+};
+
+// 재발송 — 원문 보존 수동 메일(quick_mail·email)만. 수신자 오타 교정이 실제 CS 케이스라
+// 주소를 바꿔 보낼 수 있다. 첨부 실파일은 미보관이라 재발송에 실리지 않는다(고지).
+const resend = useResendMailLog();
+const resendTo = ref('');
+const resendNotice = ref<{ ok: boolean; text: string } | null>(null);
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const canResend = (item: AdminMailLogItemType): boolean =>
+  item.kind === 'quick_mail' && item.channel === 'email' && item.hasBody;
+const submitResend = (item: AdminMailLogItemType): void => {
+  const to = (resendTo.value.trim() !== '' ? resendTo.value : item.recipient).trim();
+  if (!EMAIL_RE.test(to)) {
+    resendNotice.value = { ok: false, text: t('admin.mailLogs.resend.invalidEmail') };
+    return;
+  }
+  resendNotice.value = null;
+  resend.mutate(
+    { logId: item.logId, toEmail: to },
+    {
+      onSuccess: () => {
+        resendNotice.value = { ok: true, text: t('admin.mailLogs.resend.done', { to }) };
+      },
+      onError: (err) => {
+        resendNotice.value = {
+          ok: false,
+          text: err instanceof ApiRequestError ? err.message : t('admin.mailLogs.resend.failed'),
+        };
+      },
+    },
+  );
 };
 
 const applyFilters = (patch: Partial<AdminMailLogFilters>): void => {
@@ -287,6 +326,40 @@ const paramEntries = (params: Record<string, unknown> | null): [string, string][
                     >{{ detail.data.body }}</pre>
                   </div>
                   <p v-else class="text-xs text-gray-400">{{ t('admin.mailLogs.detail.noBody') }}</p>
+
+                  <!-- 재발송 — 원문 보존 수동 메일만(자동 알림은 해당 화면의 재발송 수단 사용) -->
+                  <div
+                    v-if="canResend(item)"
+                    class="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2.5"
+                  >
+                    <input
+                      v-model="resendTo"
+                      type="email"
+                      :placeholder="item.recipient"
+                      class="w-64 rounded border border-gray-300 px-2 py-1.5 text-sm"
+                    >
+                    <button
+                      type="button"
+                      class="rounded bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      :disabled="resend.isPending.value"
+                      @click="submitResend(item)"
+                    >
+                      {{ resend.isPending.value ? t('admin.mailLogs.resend.sending') : t('admin.mailLogs.resend.button') }}
+                    </button>
+                    <span
+                      v-if="item.attachments !== null && item.attachments.length > 0"
+                      class="text-xs text-amber-600"
+                    >
+                      {{ t('admin.mailLogs.resend.noAttachments') }}
+                    </span>
+                    <p
+                      v-if="resendNotice !== null"
+                      class="w-full text-xs"
+                      :class="resendNotice.ok ? 'text-green-700' : 'text-red-600'"
+                    >
+                      {{ resendNotice.text }}
+                    </p>
+                  </div>
                 </div>
               </td>
             </tr>

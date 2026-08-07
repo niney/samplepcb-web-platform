@@ -4,6 +4,7 @@ import {
   AdminMailLogDetailResponse,
   AdminMailLogListQuery,
   AdminMailLogListResponse,
+  AdminMailLogResendBody,
   AdminMailTemplateListResponse,
   AdminMailTemplateResponse,
   AdminMailTemplateSaveBody,
@@ -182,6 +183,69 @@ export const adminMailRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       const row = await prisma.spMailLog.findUnique({ where: { id: request.params.id } });
       if (row === null) return reply.notFound('발송 이력을 찾을 수 없습니다');
       return { result: true as const, data: { ...toMailLogDto(row), body: row.body } };
+    },
+  );
+
+  // ── 재발송 — 원문이 보존된 수동 메일(quick_mail·email)만. 자동 알림은 트랙별
+  // 재발송 수단(회신 재발송·견적서 재발송 등)이 정본이라 여기서 재조립하지 않는다.
+  // 첨부 실파일은 보관하지 않으므로(§6.19) 재발송엔 첨부가 실리지 않는다 — UI 고지.
+  fastify.post(
+    '/mail-logs/:id/resend',
+    {
+      schema: {
+        params: IdParams,
+        body: AdminMailLogResendBody,
+        response: { 200: AdminQuickMailSendResponse, 409: ApiError, 502: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const row = await prisma.spMailLog.findUnique({ where: { id: request.params.id } });
+      if (row === null) return reply.notFound('발송 이력을 찾을 수 없습니다');
+      if (row.kind !== 'quick_mail' || row.channel !== 'email' || row.body === null) {
+        return reply.status(409).send({
+          error: 'NOT_RESENDABLE',
+          message: '본문이 보존된 수동 메일만 재발송할 수 있습니다 — 자동 알림은 해당 화면에서 다시 보내 주세요.',
+        });
+      }
+      const to = (request.body.toEmail ?? row.recipient).trim();
+      const meta: MailLogMeta = {
+        kind: 'quick_mail',
+        refType: row.refType,
+        refId: row.refId,
+        sentBy: request.user.mbId,
+        toMbId: row.toMbId,
+        params: { resendOfLogId: Number(row.id) },
+      };
+      try {
+        await sendMail({
+          to,
+          subject: row.subject,
+          html: buildQuickMailHtml(row.body),
+          fromName: '샘플피씨비',
+          fromAddress: process.env.MAIL_FROM ?? 'sales@samplepcb.co.kr',
+        });
+      } catch (err) {
+        request.log.error({ err, to, logId: Number(row.id) }, 'mail log resend failed');
+        await recordMailLog(request.log, meta, {
+          channel: 'email',
+          status: 'failed',
+          reason: errorReason(err),
+          recipient: to,
+          subject: row.subject,
+          body: row.body,
+        });
+        return reply
+          .status(502)
+          .send({ error: 'SEND_FAILED', message: '재발송에 실패했습니다 — 잠시 후 다시 시도해 주세요.' });
+      }
+      const logId = await recordMailLog(request.log, meta, {
+        channel: 'email',
+        status: 'sent',
+        recipient: to,
+        subject: row.subject,
+        body: row.body,
+      });
+      return { result: true as const, data: { logId: Number(logId ?? 0) } };
     },
   );
 

@@ -49,6 +49,7 @@ import { bomQuoteRoutes } from './routes/bom-quotes';
 import { bootstrapPartsIndex } from './es/sp-parts-index';
 import { drainIndexQueue } from './lib/parts-ingest';
 import { recoverSupplierResultArtifacts } from './lib/bom-part-data';
+import { cleanupExpiredMailLogs } from './lib/mail-log';
 import { adminMarketExpertRoutes } from './routes/admin-market-experts';
 import { adminMarketProjectRoutes } from './routes/admin-market-projects';
 import { adminMarketContractRoutes } from './routes/admin-market-contracts';
@@ -198,6 +199,26 @@ async function recoverPartData(): Promise<void> {
 void recoverPartData();
 const partDataRecoveryTimer = setInterval(() => void recoverPartData(), 30_000);
 partDataRecoveryTimer.unref();
+
+// 발송 이력 보존 기간 정리 — sp_config mail_log_retention_days(기본 180일, 0=무제한).
+// 청크 삭제(회당 최대 5만 행)라 6시간 주기면 잔여도 금방 소진된다(docs/MAIL_LOG.md).
+let mailLogCleanupRunning = false;
+async function cleanupMailLogHistory(): Promise<void> {
+  if (mailLogCleanupRunning) return;
+  mailLogCleanupRunning = true;
+  try {
+    const removed = await cleanupExpiredMailLogs(app.log);
+    if (removed > 0) {
+      app.log.info({ removed }, '발송 이력 보존 기간 경과 행 정리');
+    }
+  } finally {
+    mailLogCleanupRunning = false;
+  }
+}
+
+void cleanupMailLogHistory();
+const mailLogCleanupTimer = setInterval(() => void cleanupMailLogHistory(), 6 * 3_600_000);
+mailLogCleanupTimer.unref();
 
 try {
   // 기본은 로컬 전용(127.0.0.1). nginx(443)가 같은 호스트에서 /api 를 프록시하므로
