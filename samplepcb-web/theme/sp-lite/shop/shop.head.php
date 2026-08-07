@@ -39,6 +39,29 @@ $sp_account_pages = array(
     'wishlist.php'         => 'wish',
 );
 $sp_cur_script = basename($_SERVER['SCRIPT_NAME']);
+
+// 견적 주문서(PCB·부품 BOM)에만 공급가/부가세 명세를 표시한다.
+// 거버 앵커 ID는 extend/sp_quote_cart.extend.php를 단일 원본으로 사용하고,
+// BOM 앵커는 sp-node TEMPLATE_ITEMS.bom과 동일하게 유지한다.
+if ($sp_cur_script === 'orderform.php') {
+    $sp_quote_vat_item_ids = function_exists('sp_quote_it_ids')
+        ? sp_quote_it_ids()
+        : array('sp-pcb-std', 'sp-mask', 'sp-pcb-adv', 'sp-pcb-flex');
+    $sp_quote_vat_item_ids[] = 'sp-bom-parts';
+    $sp_quote_vat_config = array(
+        'itemIds' => array_values(array_unique($sp_quote_vat_item_ids)),
+    );
+
+    add_javascript(
+        '<script>window.spQuoteVatBreakdown='.json_encode($sp_quote_vat_config, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE).';</script>',
+        5
+    );
+    add_javascript(
+        '<script src="'.G5_THEME_JS_URL.'/order-vat-breakdown.js?ver='.G5_JS_VER.'" defer></script>',
+        6
+    );
+}
+
 $sp_account_active = (!empty($member['mb_id']) && isset($sp_account_pages[$sp_cur_script])) ? $sp_account_pages[$sp_cur_script] : '';
 ?>
 <!-- 전체 콘텐츠 시작 { -->

@@ -795,6 +795,20 @@
     color: #b45309;
 }
 
+.sp-quotes__tax-detail {
+    max-width: 280px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.45;
+    color: var(--sp-muted);
+    text-align: right;
+}
+
+@media (max-width: 640px) {
+    .sp-quotes__item .sp-cart-calc { flex-wrap: wrap; }
+    .sp-quotes__tax-detail { flex: 0 0 100%; max-width: none; }
+}
+
 
 /* ==========================================================================
    지난 견적 보관함 (spcb/pages/quotes-archive.php)
@@ -1181,6 +1195,63 @@
     font-weight: 800;
     color: var(--sp-primary);
     letter-spacing: -.02em;
+}
+
+/* 견적 주문(PCB·부품 BOM) 부가세 명세 — theme/js/order-vat-breakdown.js가 조건부 삽입 */
+#sod_frm .sp-order-vat { padding: 20px 24px; }
+
+#sod_frm .sp-order-vat > h2 {
+    margin-bottom: 14px;
+    font-size: 16px;
+}
+
+#sod_frm .sp-order-vat__list { margin: 0; }
+
+#sod_frm .sp-order-vat__row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+#sod_frm .sp-order-vat__row:last-child { margin-bottom: 0; }
+#sod_frm .sp-order-vat__row dt { flex: 1 1 auto; color: var(--sp-muted); }
+#sod_frm .sp-order-vat__row dd { margin: 0; color: var(--sp-ink); white-space: nowrap; }
+#sod_frm .sp-order-vat__row dd strong { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+#sod_frm .sp-order-vat__rate {
+    margin-left: 3px;
+    font-size: 11px;
+    color: var(--sp-muted);
+}
+
+#sod_frm .sp-order-vat__row--total {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--sp-line);
+}
+
+#sod_frm .sp-order-vat__row--total dt { color: var(--sp-ink); font-weight: 600; }
+#sod_frm .sp-order-vat__row--total dd strong { font-size: 20px; font-weight: 800; color: var(--sp-primary); }
+
+#sod_frm .sp-order-vat__badge {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: var(--sp-primary-soft);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--sp-primary);
+    vertical-align: 1px;
+}
+
+#sod_frm .sp-order-vat__note {
+    margin: 12px 0 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--sp-muted);
 }
 
 /* ==== 결제정보 (#sod_frm_pay) ==== */

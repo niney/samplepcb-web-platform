@@ -9,6 +9,7 @@
 //   BOM : GET /api/bom/quotes (목록 전용 — 작업·상세는 /app/bom) · 주문 POST /order(배치, D17)
 //   주문은 **같은 유형끼리만** — PCB+BOM 혼합 결제 금지(이행·정산 분리, D17). 부품 BOM 은
 //   회신 완료+확정가 건만 체크 가능하고, 서버가 확정가×1.1(부가세 포함)로 담는다(D16).
+//   화면의 개별 금액과 선택 합계도 실제 장바구니 금액과 같은 부가세 포함 기준으로 표시한다.
 //   삭제 툴바는 PCB 전용(부품 BOM 삭제·수정은 /app/bom 담당).
 //
 // 독립 모델(장바구니와 분리): PCB 목록 API 가 순수 견적(ctId 없음)만 내려준다.
@@ -107,12 +108,12 @@ foreach (array(
                         <dd><span id="sp-quotes-count">0건</span></dd>
                     </dl>
                     <dl class="sp-cart-summary-row sp-cart-summary-total">
-                        <dt>선택 견적가 합계</dt>
+                        <dt>선택 결제예상액 합계</dt>
                         <dd><strong id="sp-quotes-total">0</strong>원</dd>
                     </dl>
                     <p class="sp-cart-summary-note">
+                        표시·합계 금액은 모두 부가세 포함 결제예상액입니다.
                         PCB 견적과 부품 BOM 견적은 각각 별도 주문으로 진행됩니다(같은 유형끼리 선택).
-                        부품 BOM 확정가는 주문서에서 부가세 포함으로 전환되며,
                         PCB 수량을 바꾸면 서버가 다시 견적합니다(확정·담김 상태 제외).
                     </p>
                 </div>
@@ -164,6 +165,16 @@ foreach (array(
 
     function fmtNum(n) { return n.toLocaleString('ko-KR'); }
     function fmtDate(iso) { return iso ? iso.slice(0, 10) : '-'; }
+    function vatIncludedBreakdown(total) {
+        var normalizedTotal = Math.round(Number(total));
+        var supply = Math.round(normalizedTotal / 1.1);
+        return { supply: supply, vat: normalizedTotal - supply, total: normalizedTotal };
+    }
+    function vatExcludedBreakdown(supply) {
+        var normalizedSupply = Math.round(Number(supply));
+        var total = Math.round(normalizedSupply * 1.1);
+        return { supply: normalizedSupply, vat: total - normalizedSupply, total: total };
+    }
     function errMsg(body) {
         return (body && ERROR_MSG[body.error]) || (body && (body.message || body.error)) || '요청에 실패했습니다.';
     }
@@ -202,13 +213,14 @@ foreach (array(
         var selectable = it.cartState !== 'ordered';
         var qtyEditable = it.quoteStatus !== 'quoted' && it.cartState === 'none';
         var chkId = 'sp-quotes-check-' + it.projectId;
+        var payment = it.price === null ? null : vatIncludedBreakdown(it.price);
 
         var li = document.createElement('li');
         li.className = 'sp-cart-item sp-quotes__item' + (selectable ? '' : ' sp-quotes__item--locked');
         li.dataset.type = 'pcb';
         li.innerHTML =
             '<span class="sp-chk sp-cart-item-chk">' +
-                '<input type="checkbox" class="sp-quotes__check selec_chk" id="' + chkId + '" value="' + it.projectId + '" data-price="' + (it.price === null ? '' : it.price) + '" data-cartstate="' + it.cartState + '"' + (selectable ? '' : ' disabled') + '>' +
+                '<input type="checkbox" class="sp-quotes__check selec_chk" id="' + chkId + '" value="' + it.projectId + '" data-price="' + (payment === null ? '' : payment.total) + '" data-cartstate="' + it.cartState + '"' + (selectable ? '' : ' disabled') + '>' +
                 '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
             '</span>' +
             // 거버 썸네일(서명 프록시 URL — sp-node 발급이라 신뢰 가능), 없으면 템플릿 이미지 폴백
@@ -235,9 +247,10 @@ foreach (array(
                 '<span class="sp-cart-qty sp-quotes__qty-label">수량' +
                     '<input type="number" class="sp-quotes__qty" min="1" value="' + it.qty + '"' + (qtyEditable ? '' : ' disabled') + ' data-id="' + it.projectId + '" data-prev="' + it.qty + '">' +
                 '</span>' +
-                (it.price === null
+                (payment === null
                     ? '<span class="sp-quotes__pending">견적 대기</span>'
-                    : '<strong class="sp-cart-sum">' + fmtNum(it.price) + '원</strong>') +
+                    : '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' +
+                      '<span class="sp-quotes__tax-detail">VAT 포함 · 공급가 ' + fmtNum(payment.supply) + '원 + 부가세 ' + fmtNum(payment.vat) + '원</span>') +
             '</div>';
         li.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
         li.querySelector('.sp-quotes__cat').textContent = it.category;
@@ -249,7 +262,8 @@ foreach (array(
     // 단건 주문도 체크 → [바로 주문] 문법으로 통일한다(상세 화면의 단건 주문은 별도 유지).
     function renderBomRow(q) {
         var canOrder = q.status === 'answered' && q.confirmedTotal !== null && q.orderState !== 'ordered';
-        var price = q.confirmedTotal !== null ? q.confirmedTotal : q.finalTotal;
+        var supplyPrice = q.confirmedTotal !== null ? q.confirmedTotal : q.finalTotal;
+        var payment = supplyPrice === null ? null : vatExcludedBreakdown(supplyPrice);
         var chkId = 'sp-bom-check-' + q.id;
 
         var li = document.createElement('li');
@@ -257,7 +271,7 @@ foreach (array(
         li.dataset.type = 'bom';
         li.innerHTML =
             '<span class="sp-chk sp-cart-item-chk">' +
-                '<input type="checkbox" class="sp-bom__check selec_chk" id="' + chkId + '" value="' + q.id + '" data-price="' + (q.confirmedTotal === null ? '' : q.confirmedTotal) + '"' + (canOrder ? '' : ' disabled') + '>' +
+                '<input type="checkbox" class="sp-bom__check selec_chk" id="' + chkId + '" value="' + q.id + '" data-price="' + (q.confirmedTotal === null ? '' : payment.total) + '"' + (canOrder ? '' : ' disabled') + '>' +
                 '<label for="' + chkId + '"><span></span><b class="sound_only">선택</b></label>' +
             '</span>' +
             '<span class="sp-cart-thumb">' + (THUMBS.bom || '') + '</span>' +
@@ -275,9 +289,9 @@ foreach (array(
                 '</div>' +
             '</div>' +
             '<div class="sp-cart-calc">' +
-                (price !== null && price > 0
-                    ? '<strong class="sp-cart-sum">' + fmtNum(price) + '원</strong>' +
-                      (q.confirmedTotal !== null ? '<span class="sp-quotes__pending">확정가 · VAT 별도</span>' : '<span class="sp-quotes__pending">예상 · VAT 별도</span>')
+                (payment !== null && payment.total > 0
+                    ? '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' +
+                      '<span class="sp-quotes__tax-detail">VAT 포함 · ' + (q.confirmedTotal !== null ? '확정' : '예상') + ' 공급가 ' + fmtNum(payment.supply) + '원 + 부가세 ' + fmtNum(payment.vat) + '원</span>'
                     : '<span class="sp-quotes__pending">금액 산정 전</span>') +
                 '<div class="sp-bom__acts">' +
                     // 회신 완료인데 확정가가 없으면 체크가 잠긴 이유를 보여준다(D16-1 게이트)
