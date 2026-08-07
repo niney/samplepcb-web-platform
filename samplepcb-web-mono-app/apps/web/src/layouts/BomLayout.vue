@@ -227,6 +227,12 @@ watch(() => route.fullPath, () => {
         >양산</span>
       </button>
 
+      <!-- 중앙 태그라인 (2282:79899) — 접힘 시안(2282:54200)에서 뷰포트 정중앙이라 left-1/2 고정.
+           1280px 미만은 좌측 그룹(로고~조달 스위치 ≈400px)과 겹쳐 숨긴다. -->
+      <p class="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-noto text-[18px] font-medium leading-[24px] text-ink-strong min-[1280px]:block">
+        AI 기반 전자부품 검색 엔진
+      </p>
+
       <div class="ml-auto flex items-center gap-[12px] pr-[18px]">
         <!-- 테마 전환 — 고르기 전까지는 OS 설정을 따르고, 한 번 고르면 그 선택이 유지된다 -->
         <button
