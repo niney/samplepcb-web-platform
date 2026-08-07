@@ -31,6 +31,7 @@ import type {
 import { createHash } from 'node:crypto';
 import { buildOptionSummary } from '../lib/option-summary';
 import { calculateQuote } from '../pricing/engine';
+import { getFreshPricingData } from '../pricing/live-pricing';
 import { applyGerberPriceMode } from '../pricing/gerber-price-mode';
 import { getGerberPriceMode } from '../lib/sp-config';
 import { downloadFromFileServer } from '../lib/file-server';
@@ -693,12 +694,17 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
 
       const qty = request.body.qty ?? spec.qty;
       const nextSpec = request.body.spec;
-      const rawQuote = calculateQuote({
-        category: spec.category,
-        orderCategory: spec.orderCategory,
-        qty,
-        spec: nextSpec,
-      });
+      // 라이브 가격표로 재계산 — 사양 수정의 가격이 낡은 스냅샷에 묶이지 않게(사용자 결정
+      // 2026-08-07). 조회 실패 시 폴백은 live-pricing.ts 가 책임진다.
+      const rawQuote = calculateQuote(
+        {
+          category: spec.category,
+          orderCategory: spec.orderCategory,
+          qty,
+          spec: nextSpec,
+        },
+        await getFreshPricingData(request.log),
+      );
       const listPrice = applyGerberPriceMode(rawQuote.listPrice, await getGerberPriceMode());
 
       // 담김 상태 — 고객 재견적과 같은 가드(자동견적 불가 사양은 담긴 금액을 못 지킨다).

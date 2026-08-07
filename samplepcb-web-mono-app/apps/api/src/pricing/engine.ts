@@ -27,7 +27,7 @@ interface MenuPricing {
   buildTime?: RangeBracket[];
   [option: string]: unknown;
 }
-interface PricingData {
+export interface PricingData {
   menus: MenuPricing[];
   transferCost: Record<string, string>;
   eta?: string;
@@ -35,8 +35,17 @@ interface PricingData {
 
 const pricingData = pricingDataJson as unknown as PricingData;
 
-// 가격표 버전 — 표를 갈아끼우면 올린다(sp_quote.priceVersion, 기존 견적 일괄 무효화 기준).
+// 가격표 버전 — 번들 스냅샷의 캡처일. 표를 갈아끼우면 올린다(sp_quote.priceVersion).
 export const PRICE_VERSION = 'live-2026-07-03';
+
+/** 계산에 쓸 가격표와 그 출처 표기 — version 이 sp_quote.priceVersion 에 남는다. */
+export interface PricingSource {
+  data: PricingData;
+  version: string;
+}
+
+/** 번들 스냅샷 — 라이브 가격표(live-pricing.ts) 조회 실패 시 최후 폴백이자 골든 테스트 기준. */
+export const BUNDLED_PRICING: PricingSource = { data: pricingData, version: PRICE_VERSION };
 
 // ── 입출력 ──────────────────────────────────────────────────────────────────
 // 입력은 신규 정규화 spec(camelCase). 레거시 가격표 키와의 매핑은 엔진 내부에서만.
@@ -68,8 +77,8 @@ const phpInt = (v: string | number | undefined): number => {
 const str = (v: string | number | undefined): string =>
   v === undefined ? '' : String(v);
 
-const findMenu = (name: string): MenuPricing | undefined =>
-  pricingData.menus.find((m) => m.name.toLowerCase() === name.toLowerCase());
+const findMenu = (data: PricingData, name: string): MenuPricing | undefined =>
+  data.menus.find((m) => m.name.toLowerCase() === name.toLowerCase());
 
 // 옵션 가격표 조회 — 표에 키/값이 없으면 0 (레거시 getPrice 동일)
 const optionPrice = (menu: MenuPricing, table: string, value: string): number => {
@@ -90,8 +99,12 @@ const inRange = (b: RangeBracket, v: number): boolean => {
 // ── eta: 제작일 + 기본배송 3일을 "달력일"로 가산, 종료일이 주말이면 월요일로 ──
 // 레거시 EtaLib.calDayHolidayWeekEnd 재현 — 공휴일/주말 "카운트"는 레거시 자체에서
 // 주석 처리돼 있고, 실동작은 단순 달력일 가산 + 종료일 토(+2)/일(+1) 보정뿐이다.
-export const calEta = (buildTimeDays: number, now: Date): string => {
-  if (pricingData.eta !== undefined && pricingData.eta !== '') return pricingData.eta;
+export const calEta = (
+  buildTimeDays: number,
+  now: Date,
+  data: PricingData = pricingData,
+): string => {
+  if (data.eta !== undefined && data.eta !== '') return data.eta;
   const d = new Date(now);
   d.setDate(d.getDate() + buildTimeDays + 3);
   const w = d.getDay(); // 0=일, 6=토
@@ -103,7 +116,7 @@ export const calEta = (buildTimeDays: number, now: Date): string => {
 };
 
 // ── 해외운송비: 무게를 0.5 단위 버킷 문자열로 만들어 표 조회 (레거시 재현) ──
-const transferCostByWeight = (weight: number): number => {
+const transferCostByWeight = (data: PricingData, weight: number): number => {
   const parts = String(weight).split('.');
   let ns = parseInt(parts[0] ?? '0', 10);
   let ne = 0;
@@ -118,12 +131,16 @@ const transferCostByWeight = (weight: number): number => {
   }
   if (ns === 0) ne = 5;
   const key = `${String(ns)}.${String(ne)}`;
-  const cost = pricingData.transferCost[key];
+  const cost = data.transferCost[key];
   return cost === undefined ? 0 : parseInt(cost, 10);
 };
 
 // ── Standard 계열 (PcbPriceLib.calculate 이식) ──────────────────────────────
-const calcStandard = (input: QuoteInput, menu: MenuPricing): QuoteResult => {
+const calcStandard = (
+  input: QuoteInput,
+  menu: MenuPricing,
+  pricing: PricingSource,
+): QuoteResult => {
   const spec = input.spec;
   const layers = phpInt(spec.layers);
   const width = phpInt(spec.width);
@@ -171,7 +188,7 @@ const calcStandard = (input: QuoteInput, menu: MenuPricing): QuoteResult => {
   // 해외운송비 + 무게
   const weight = (3.3 * width * length * qty) / 1_000_000;
   const weightKg = String(Math.round(weight * 100) / 100);
-  const transferCost = transferCostByWeight(weight);
+  const transferCost = transferCostByWeight(pricing.data, weight);
 
   // 제작일
   let buildTimeDays = 0;
@@ -238,15 +255,15 @@ const calcStandard = (input: QuoteInput, menu: MenuPricing): QuoteResult => {
   return {
     listPrice: listPrice > 0 ? listPrice : null,
     buildTimeDays,
-    eta: calEta(buildTimeDays, input.now ?? new Date()),
+    eta: calEta(buildTimeDays, input.now ?? new Date(), pricing.data),
     weightKg,
     placeOfOrigin: '중국',
-    priceVersion: PRICE_VERSION,
+    priceVersion: pricing.version,
   };
 };
 
 // ── MetalMask 국내가 (PcbKoreaMetalPriceLib 이식) ──────────────────────────
-const calcMetalMask = (input: QuoteInput): QuoteResult => {
+const calcMetalMask = (input: QuoteInput, pricing: PricingSource): QuoteResult => {
   const spec = input.spec;
   const frame = str(spec.framework);
   const size = str(spec.size);
@@ -281,27 +298,34 @@ const calcMetalMask = (input: QuoteInput): QuoteResult => {
   return {
     listPrice: listPrice > 0 ? listPrice : null,
     buildTimeDays,
-    eta: calEta(buildTimeDays, input.now ?? new Date()),
+    eta: calEta(buildTimeDays, input.now ?? new Date(), pricing.data),
     weightKg: '',
     placeOfOrigin: '국내',
-    priceVersion: PRICE_VERSION,
+    priceVersion: pricing.version,
   };
 };
 
 // ── 진입점 ──────────────────────────────────────────────────────────────────
 // 자동견적 지원: standard(가격표 Standard), metalMask(국내가).
 // 그 외(advance/flexible/FPCB/Rigid…)는 레거시와 동일하게 rfq(null).
-export const calculateQuote = (input: QuoteInput): QuoteResult => {
+// pricing 을 주면 그 가격표로 계산한다(라이브 pricing_data.json — live-pricing.ts).
+// 생략하면 번들 스냅샷 — 골든 테스트가 이 기본값으로 결정론을 유지한다.
+export const calculateQuote = (
+  input: QuoteInput,
+  pricing: PricingSource = BUNDLED_PRICING,
+): QuoteResult => {
   const category = input.category.toLowerCase();
-  if (category === 'metalmask') return calcMetalMask(input);
-  const menu = findMenu('Standard');
-  if (category === 'standard' && menu !== undefined) return calcStandard(input, menu);
+  if (category === 'metalmask') return calcMetalMask(input, pricing);
+  const menu = findMenu(pricing.data, 'Standard');
+  if (category === 'standard' && menu !== undefined) {
+    return calcStandard(input, menu, pricing);
+  }
   return {
     listPrice: null,
     buildTimeDays: 0,
     eta: '',
     weightKg: '',
     placeOfOrigin: '',
-    priceVersion: PRICE_VERSION,
+    priceVersion: pricing.version,
   };
 };

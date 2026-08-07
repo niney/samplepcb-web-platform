@@ -1,8 +1,9 @@
 // 라이브 가격표(gerber_api/pricing_data.json) → 엔진 스냅샷(src/pricing/pricing-data.json) 동기화.
 //
 // 레거시는 이 파일을 매 요청마다 서버에서 읽고, 관리자(adm/price_adjust.php)가 수시로
-// 값을 조정한다. 스냅샷이 낡으면 신규 엔진 가격이 통째로 어긋나므로(2026-07 사례:
-// baseline 61,000 vs 라이브 66,000) 표가 바뀔 때마다 이 스크립트로 재동기화한다.
+// 값을 조정한다. 실서비스 계산은 live-pricing.ts 가 계산 직전 라이브를 직접 당겨오므로
+// (D18) 이 스냅샷은 **오프라인 폴백 + 골든 테스트 기준**이다 — 가끔 갱신해 폴백이
+// 너무 낡지 않게 유지한다(스냅샷 드리프트 실사례: 2026-07 baseline 61,000 vs 66,000).
 //
 // 정규화 규칙(단 한 건): menus[*].diffDesign 표 삭제.
 //   라이브 표에는 differentDesign(유효 — 가격 lib 가 읽음)과 diffDesign(사어 — 어디서도

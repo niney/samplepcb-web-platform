@@ -11,6 +11,7 @@ import {
 } from '@sp/api-contract';
 import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
+import { getFreshPricingData } from '../pricing/live-pricing';
 import { applyGerberPriceMode } from '../pricing/gerber-price-mode';
 import { buildOptionSummary } from '../lib/option-summary';
 import { uploadToFileServer } from '../lib/file-server';
@@ -147,12 +148,16 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     const cartId = request.user.cartId;
 
     // ── 견적 계산 (가격은 서버 재계산이 유일한 진실 — 클라이언트 가격 미수신) ──
-    const rawQuote = calculateQuote({
-      category: payload.category,
-      orderCategory: payload.orderCategory,
-      qty: payload.qty,
-      spec: payload.spec,
-    });
+    // 가격표는 라이브 pricing_data.json — 거버 뷰어가 방금 보여준 가격과 같은 표.
+    const rawQuote = calculateQuote(
+      {
+        category: payload.category,
+        orderCategory: payload.orderCategory,
+        qty: payload.qty,
+        spec: payload.spec,
+      },
+      await getFreshPricingData(request.log),
+    );
     // 거버 가격 해석 모드 정규화 — supply 면 부가세 10% 를 얹어 포함 총액으로(이후 하류 정합).
     const quote = {
       ...rawQuote,
@@ -649,12 +654,15 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       }
 
       const qty = request.body.qty;
-      const rawRequote = calculateQuote({
-        category: spec.category,
-        orderCategory: spec.orderCategory,
-        qty,
-        spec: spec.specJson as PcbProjectPayloadType['spec'],
-      });
+      const rawRequote = calculateQuote(
+        {
+          category: spec.category,
+          orderCategory: spec.orderCategory,
+          qty,
+          spec: spec.specJson as PcbProjectPayloadType['spec'],
+        },
+        await getFreshPricingData(request.log),
+      );
       // 거버 가격 해석 모드 정규화(생성과 동일 규칙) — 재견적도 동일 모드로 부가세 처리.
       const requote = {
         ...rawRequote,
