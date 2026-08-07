@@ -16,6 +16,9 @@ import {
   AdminQuoteListResponse,
   AdminSendEstimateBody,
   AdminSendEstimateResponse,
+  AdminSpecReviseBody,
+  AdminSpecReviseResponse,
+  ADMIN_SPEC_REVISE_BLOCK_TEXT,
   ApiError,
 } from '@sp/api-contract';
 import type {
@@ -25,7 +28,11 @@ import type {
   AdminEstimateType,
   PcbProjectPayloadType,
 } from '@sp/api-contract';
+import { createHash } from 'node:crypto';
 import { buildOptionSummary } from '../lib/option-summary';
+import { calculateQuote } from '../pricing/engine';
+import { applyGerberPriceMode } from '../pricing/gerber-price-mode';
+import { getGerberPriceMode } from '../lib/sp-config';
 import { downloadFromFileServer } from '../lib/file-server';
 import {
   deleteUnpaidOrder,
@@ -36,6 +43,10 @@ import {
   getOrderHeadersLite,
   getOrderInfoByCtId,
   getShopEstimateProfile,
+  getTemplateItem,
+  insertQuoteOption,
+  updateCartQuoteRow,
+  deleteQuoteOption,
 } from '../lib/g5-db';
 import type { CartState, G5Member, OrderInfo } from '../lib/g5-db';
 import { sendCompleteEstimate } from '../lib/alimtalk';
@@ -58,6 +69,9 @@ import { signedThumbUrl } from '../lib/thumb-url';
 // 클레임, 발급은 그누보드 me.php = cf_admin 1인) 뒤에 있고, 응답은 계약의
 // response 스키마로 직렬화되어 미선언 필드(특히 sp_file.pathToken)가 구조적으로
 // 탈락한다.
+
+// 견적 스냅샷 TTL — 고객 재견적(pcb-projects.ts)과 같은 값.
+const QUOTE_TTL_HOURS = 72;
 
 const ProjectIdParams = z.object({ id: z.string().regex(/^\d+$/) });
 const FileIdParams = z.object({ fileId: z.string().regex(/^\d+$/) });
@@ -638,6 +652,153 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           finalPrice: request.body.finalPrice,
           pricedBy: request.user.mbId,
           pricedAt: pricedAt.toISOString(),
+        },
+      };
+    },
+  );
+
+  // ── PATCH /api/admin/pcb-projects/:id/spec — 제작 사양 수정(P4.2, D17) ──────
+  // 사양은 **가격의 입력**이라 따로 고칠 수 없다. 수량 변경(재견적, pcb-projects.ts
+  // PATCH /:id)과 **같은 길**을 탄다: 새 sp_quote 발급(스냅샷 불변) → calculateQuote 로
+  // 재계산 → quoteStatus 재판정 → 담긴 견적이면 cart 행·옵션 동기화.
+  //
+  // 전 필드를 수정할 수 있다(사용자 결정) — 거버 파생값(크기·층수·파일 개수)도 막지
+  // 않는다. 화면이 그 사실을 경고하고, 판단은 관리자에게 맡긴다(D14 와 같은 결).
+  // 차단은 둘뿐: 발주된 건(협력사와 합의된 사양) · 담긴 견적을 rfq 사양으로 바꾸는 경우
+  // (장바구니 금액을 유지할 수 없다 — 고객 재견적 경로의 가드를 그대로 승계).
+  fastify.patch(
+    '/pcb-projects/:id/spec',
+    {
+      schema: {
+        params: ProjectIdParams,
+        body: AdminSpecReviseBody,
+        response: { 200: AdminSpecReviseResponse, 404: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const spec = await prisma.spOrderSpec.findFirst({
+        where: { id: BigInt(request.params.id), status: { in: ['active', 'deleted'] } },
+      });
+      if (spec === null) return reply.notFound('프로젝트가 없습니다');
+      const currentQuote = await prisma.spQuote.findUnique({ where: { id: spec.quoteId } });
+
+      // 발주된 건은 사양이 협력사와 합의된 기록이다 — 여기서 조용히 바꾸지 않는다.
+      const poCount = await prisma.spPcbPo.count({ where: { specId: spec.id } });
+      if (poCount > 0) {
+        return reply.status(409).send({
+          error: 'PO_ISSUED',
+          message: ADMIN_SPEC_REVISE_BLOCK_TEXT.PO_ISSUED,
+        });
+      }
+
+      const qty = request.body.qty ?? spec.qty;
+      const nextSpec = request.body.spec;
+      const rawQuote = calculateQuote({
+        category: spec.category,
+        orderCategory: spec.orderCategory,
+        qty,
+        spec: nextSpec,
+      });
+      const listPrice = applyGerberPriceMode(rawQuote.listPrice, await getGerberPriceMode());
+
+      // 담김 상태 — 고객 재견적과 같은 가드(자동견적 불가 사양은 담긴 금액을 못 지킨다).
+      let cartState: CartState = 'none';
+      if (spec.ctId !== null) {
+        cartState = (await getCartStates([spec.ctId])).get(spec.ctId) ?? 'none';
+      }
+      if (cartState === 'cart' && listPrice === null) {
+        return reply.status(409).send({
+          error: 'REQUOTE_RFQ_IN_CART',
+          message: ADMIN_SPEC_REVISE_BLOCK_TEXT.REQUOTE_RFQ_IN_CART,
+        });
+      }
+
+      // 무엇이 바뀌었는지 — 화면·감사 양쪽이 쓴다. 값 비교는 문자열로(숫자·문자 혼재 스키마).
+      const before = (spec.specJson ?? {}) as Record<string, unknown>;
+      // 스칼라만 비교한다 — 이관 레코드의 `_legacy` 는 객체라 String() 이 '[object Object]'
+      // 가 되어 늘 "바뀐 것"으로 잡힌다. 내부 키(_ 접두)는 애초에 비교 대상이 아니다.
+      const text = (v: unknown): string =>
+        typeof v === 'string' || typeof v === 'number' ? String(v) : '';
+      const changedKeys = [...new Set([...Object.keys(before), ...Object.keys(nextSpec)])]
+        .filter((k) => !k.startsWith('_'))
+        .filter((k) => text(before[k]) !== text(nextSpec[k]))
+        .sort();
+
+      // 확정가는 사양이 바뀌면 근거가 사라진다 — 지우지는 않고(관리자가 판단) 낡음만 알린다.
+      const previousAutoPrice = currentQuote?.autoPrice ?? null;
+      // 확정(quoted)은 유지한다 — 관리자가 매긴 값이라 사양이 바뀌어도 서버가 지우지 않고
+      // finalPriceStale 로 "다시 매기라"고 알리기만 한다(판단은 관리자 몫).
+      const quoteStatus: 'priced' | 'rfq' | 'quoted' =
+        spec.quoteStatus === 'quoted' ? 'quoted' : listPrice === null ? 'rfq' : 'priced';
+
+      const oldQuoteId = spec.quoteId;
+      const updated = await prisma.$transaction(async (tx) => {
+        // 견적 스냅샷 불변 — 수정은 새 quoteId 발급으로 기록을 남긴다(고객 재견적과 동형).
+        const q = await tx.spQuote.create({
+          data: {
+            category: spec.category,
+            orderCategory: spec.orderCategory,
+            qty,
+            specJson: nextSpec,
+            specHash: createHash('sha256').update(JSON.stringify(nextSpec)).digest('hex'),
+            autoPrice: listPrice,
+            eta: rawQuote.eta === '' ? null : rawQuote.eta,
+            priceVersion: rawQuote.priceVersion,
+            expiresAt: new Date(Date.now() + QUOTE_TTL_HOURS * 3600 * 1000),
+            revisedBy: request.user.mbId,
+            revisedReason: request.body.reason,
+          },
+        });
+        await tx.spOrderSpec.update({
+          where: { id: spec.id },
+          data: {
+            qty,
+            quoteId: q.id,
+            quoteStatus,
+            specJson: nextSpec,
+          },
+        });
+        return q;
+      });
+
+      // 담긴 견적이면 cart 행·옵션을 새 견적에 맞춘다(고객 재견적과 같은 순서·같은 이유).
+      if (cartState === 'cart' && spec.ctId !== null && listPrice !== null) {
+        const item = await getTemplateItem(spec.category);
+        if (item !== null) {
+          try {
+            await insertQuoteOption(item.itId, updated.id, listPrice);
+            await updateCartQuoteRow(
+              spec.ctId,
+              updated.id,
+              listPrice,
+              buildOptionSummary(nextSpec, qty),
+            );
+            await deleteQuoteOption(item.itId, oldQuoteId);
+          } catch (err) {
+            request.log.error({ err, projectId: Number(spec.id) }, '사양 수정 cart 동기화 실패');
+            return reply.status(409).send({
+              error: 'CART_SYNC_FAILED',
+              message: '장바구니 반영에 실패했습니다. 장바구니에서 빼고 다시 시도해 주세요.',
+            });
+          }
+        }
+      }
+
+      // 이미 회신받은 협력사 견적 — 사양이 바뀌었으니 그 회신의 전제가 달라졌다(차단 아님).
+      const answeredRfqCount = await prisma.spPcbRfq.count({
+        where: { specId: spec.id, status: { in: ['quoted', 'selected'] } },
+      });
+
+      return {
+        result: true as const,
+        data: {
+          quoteId: updated.id,
+          quoteStatus,
+          autoPrice: listPrice,
+          previousAutoPrice,
+          finalPriceStale: spec.finalPrice !== null && changedKeys.length > 0,
+          answeredRfqCount,
+          changedKeys,
         },
       };
     },

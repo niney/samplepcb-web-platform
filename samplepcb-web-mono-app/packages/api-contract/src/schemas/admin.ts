@@ -183,6 +183,52 @@ export const AdminCompanyNameResponse = z.object({
 });
 export type AdminCompanyNameResponseType = z.infer<typeof AdminCompanyNameResponse>;
 
+// ── 관리자 제작 사양 수정(P4.2) — docs/PCB_PARTNER_TRACK.md D17 ─────────────
+// 사양은 **가격의 입력**이다(calculateQuote). 그래서 수정은 수량 변경(재견적)과 같은 길을
+// 탄다: 새 sp_quote 발급(스냅샷 불변) → 가격 재계산 → quoteStatus 재판정 → 장바구니 동기화.
+//
+// 전 필드를 수정할 수 있다(사용자 결정 2026-08-07 — "관리자가 알아서 판단"). 거버에서
+// 파생된 값(크기·층수·파일 개수)도 막지 않되, 화면이 그 사실을 경고한다. 막는 대신
+// 대가를 보여주는 방식은 삭제 차단 전면 해제(D14)와 같은 결이다.
+
+export const ADMIN_SPEC_REVISE_BLOCKERS = ['PO_ISSUED', 'REQUOTE_RFQ_IN_CART'] as const;
+export type AdminSpecReviseBlockerType = (typeof ADMIN_SPEC_REVISE_BLOCKERS)[number];
+
+export const ADMIN_SPEC_REVISE_BLOCK_TEXT: Record<AdminSpecReviseBlockerType, string> = {
+  PO_ISSUED:
+    '협력사 발주서가 있습니다. 합의된 사양이라 여기서 바꿀 수 없습니다 — 발주를 취소하거나 EQ·재발주로 진행하세요.',
+  REQUOTE_RFQ_IN_CART:
+    '장바구니에 담긴 견적을 자동견적 불가 사양으로 바꾸면 담긴 금액을 유지할 수 없습니다. 장바구니에서 빼고 수정하세요.',
+};
+
+export const AdminSpecReviseBody = z.object({
+  /** 사양 전체(부분이 아니라 최종 상태) — 서버가 그대로 새 스냅샷으로 박제한다. */
+  spec: PcbProjectSpec,
+  /** 수량도 함께 바꿀 수 있다 — 사양과 수량은 같은 가격 계산의 입력이라 한 번에 처리한다. */
+  qty: z.number().int().positive().optional(),
+  /** 왜 고쳤는가 — 견적 체인이 답하지 못하는 값이라 필수. */
+  reason: z.string().trim().min(2).max(1000),
+});
+export type AdminSpecReviseBodyType = z.infer<typeof AdminSpecReviseBody>;
+
+/** 수정 결과 — 화면이 "무엇이 달라졌는지"를 그대로 보여줄 수 있게 서버가 완성해 내려준다. */
+export const AdminSpecReviseResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    quoteId: z.string(),
+    quoteStatus: z.enum(['priced', 'rfq', 'quoted']),
+    /** 재계산된 자동견적가. null = 자동견적 불가(rfq) — 확정가를 다시 매겨야 한다. */
+    autoPrice: z.number().nullable(),
+    previousAutoPrice: z.number().nullable(),
+    /** 사양 변경으로 기존 확정가의 근거가 사라졌다 — 화면이 재확정을 요구한다. */
+    finalPriceStale: z.boolean(),
+    /** 이미 회신받은 협력사 견적 수 — 0보다 크면 재확인이 필요하다(차단은 아니다). */
+    answeredRfqCount: z.number().int().nonnegative(),
+    changedKeys: z.array(z.string()),
+  }),
+});
+export type AdminSpecReviseResponseType = z.infer<typeof AdminSpecReviseResponse>;
+
 // ── 관리자 견적서(A4 인쇄) 계약 ─────────────────────────────────────────────
 // GET /api/admin/pcb-projects/:id/estimate. 순수 표시 컴포넌트(EstimateSheet.vue)에
 // props 로 주입한다. 향후 고객용 견적서 라우트에서 같은 스키마를 재사용할 수 있도록

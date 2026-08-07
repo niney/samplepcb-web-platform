@@ -7,7 +7,7 @@
 const SIZE_LABEL = 'PCB크기'; // width X length 합성 행(레거시 composite)
 
 // 레거시 SPEC_ROWS 순서 그대로. 레거시에 없던 플랫폼 확장 키는 후미에 배치.
-const SPEC_ROWS: { key: string; label: string }[] = [
+export const SPEC_ROWS: { key: string; label: string }[] = [
   { key: 'material', label: 'PCB선택' },
   { key: 'kindPcb', label: 'PCB재료' },
   { key: 'metalCore', label: '메탈코어위치' },

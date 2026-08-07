@@ -33,6 +33,12 @@ model SpQuote {
   priceVersion  String // 가격표 버전 (일괄 무효화용)
   expiresAt     DateTime // 발급 +72h
   createdAt     DateTime @default(now())
+  // 관리자 사양 수정(P4.2) — 견적 스냅샷은 불변이라 수정할 때마다 **새 행**이 발급되고
+  // spec.quoteId 가 옮겨간다. 그 체인이 곧 "언제 무엇이 바뀌었나"의 이력이므로 별도
+  // 원장을 두지 않고, 체인이 답하지 못하는 **누가·왜**만 여기 두 칸으로 남긴다.
+  // null = 고객이 만든 견적(최초 신청·재견적).
+  revisedBy     String?  @db.VarChar(191) // 수정한 관리자 mb_id
+  revisedReason String?  @db.Text
 
   @@map("sp_quote")
 }

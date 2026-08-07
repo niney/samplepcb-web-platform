@@ -53,6 +53,7 @@ import DeleteQuoteModal from '../../components/admin/DeleteQuoteModal.vue';
 import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
 import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vue';
 import PcbEqReviewPanel from '../../components/admin/pcb/PcbEqReviewPanel.vue';
+import PcbSpecEditModal from '../../components/admin/pcb/PcbSpecEditModal.vue';
 
 // PCB Case 상세 — docs/PCB_PARTNER_TRACK.md §5.4. 스펙 요약(기존 admin-pcb-projects
 // 상세 계약 재사용) + 협력사 RFQ 패널(배정 diff·대리 회신·선정/해제·매직링크).
@@ -423,6 +424,14 @@ const remittancePoId = ref<number | null>(null);
 /** EQ 고객 확인 패널(P4.1) — 승인 전에 고객에게 물어보는 별도 축. */
 const eqReviewPo = ref<AdminPcbPoViewType | null>(null);
 
+/** 제작 사양 수정(P4.2) — 저장하면 견적이 새로 발급되므로 상세를 다시 읽는다.
+ *  타입 단언은 여기서 한다 — Vue 템플릿 안의 제네릭 `<...>` 은 파서가 태그로 오인한다. */
+const editableSpec = computed<Record<string, string | number>>(() => detail.value?.spec ?? {});
+const specEditOpen = ref(false);
+const specEditSaved = (): void => {
+  void detailQuery.refetch();
+};
+
 function openPoEdit(po: AdminPcbPoViewType): void {
   editPo.value = po;
   editTerms.value = po.paymentTerms ?? '';
@@ -775,7 +784,17 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     <div v-if="detail !== null" class="grid gap-4 lg:grid-cols-3">
       <!-- 스펙 요약 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4 lg:col-span-2">
-        <h2 class="text-sm font-bold text-gray-700">제작 사양</h2>
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <h2 class="text-sm font-bold text-gray-700">제작 사양</h2>
+          <!-- 사양 수정(P4.2) — 저장하면 서버가 재견적까지 한다. 발주된 건은 서버가 409. -->
+          <button
+            type="button"
+            class="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            @click="specEditOpen = true"
+          >
+            사양 수정
+          </button>
+        </div>
         <p class="mt-1 text-sm text-gray-500">
           {{ detail.category }} · {{ detail.orderCategory === 'mass' ? '양산' : '샘플' }} ·
           {{ detail.qty }}매
@@ -1399,6 +1418,19 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         </div>
       </div>
     </div>
+
+    <!-- 제작 사양 수정(P4.2) — 전 필드 편집 + 변경 요약 + 재견적 결과 -->
+    <PcbSpecEditModal
+      v-if="specEditOpen && detail !== null"
+      :project-id="detail.projectId"
+      :spec="editableSpec"
+      :qty="detail.qty"
+      :category="detail.category"
+      :final-price="detail.finalPrice"
+      :auto-price="detail.quote?.autoPrice ?? null"
+      @close="specEditOpen = false"
+      @saved="specEditSaved"
+    />
 
     <!-- EQ 고객 확인 패널(P4.1) -->
     <PcbEqReviewPanel v-if="eqReviewPo !== null" :po="eqReviewPo" @close="eqReviewPo = null" />

@@ -14,7 +14,9 @@ import {
   AdminQuoteDetailResponse,
   AdminQuoteListResponse,
   AdminSendEstimateResponse,
+  AdminSpecReviseResponse,
   apiRoutes,
+  type AdminSpecReviseBodyType,
 } from '@sp/api-contract';
 import { apiGet, apiGetBlob, apiSend } from '@sp/shared';
 
@@ -217,4 +219,26 @@ export async function downloadAdminFile(fileId: number, fileName: string): Promi
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+// 제작 사양 수정(P4.2, D17) — 사양은 가격의 입력이라 서버가 재견적까지 한 번에 한다.
+// 성공하면 견적(quoteId)이 새로 발급되므로 관련 캐시를 폭넓게 비운다.
+export function useReviseSpec() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, body }: { projectId: number; body: AdminSpecReviseBodyType }) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminPcbProjects}/${String(projectId)}/spec`,
+        body,
+        AdminSpecReviseResponse,
+      ),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['admin', 'quotes'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'pcbCase'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'pcbRfq'] }),
+      ]);
+    },
+  });
 }
