@@ -1,0 +1,65 @@
+// e2e 공용 환경 — apps/api/.env 의 JWT_SECRET(로컬 서명)·DATABASE_URL(직삽입 시드)을
+// 빌려 쓴다(pcb-ship-board 스모크 관례). 게이트가 꺼진 수집 단계에서도 import 가
+// 안전해야 하므로 여기서는 throw 하지 않고, 값이 필요한 시점(requireXxx)에만 검증한다.
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** 옵트인 게이트 — 스펙 파일마다 `describe.skipIf(!RUN)` 로 감싼다(PARTS_IT=1 미러). */
+export const RUN = process.env.PORTAL_E2E === '1';
+
+const here = dirname(fileURLToPath(import.meta.url));
+/** samplepcb-web-mono-app 루트 */
+export const monoRoot = join(here, '..', '..');
+/** apps/api 디렉터리(.env·생성된 Prisma Client 의 원천) */
+export const apiDir = join(monoRoot, 'apps', 'api');
+/** 스크린샷 등 산출물(e2e/output — gitignore) */
+export const outputDir = join(monoRoot, 'e2e', 'output');
+
+/** SPA 오리진 — 기본 nginx 통합 도메인(실환경 동형: /app→vite·/api→node·/→PHP,
+ *  /bbs 로그인 화면까지 전 경로 동작). mkcert 인증서라 브라우저(시스템 신뢰)는 그대로,
+ *  Node 측 fetch 는 e2e 스크립트의 NODE_OPTIONS=--use-system-ca 가 처리한다.
+ *  nginx 없이 돌릴 땐 E2E_BASE_URL=http://127.0.0.1:5173 (vite 가 /api·/spcb 프록시,
+ *  단 /bbs 는 미프록시라 그누보드 화면 검증 불가). */
+export const BASE_URL = process.env.E2E_BASE_URL ?? 'https://local-web.samplepcb.co.kr';
+/** Fastify API 직결(브라우저를 안 끼는 API 레벨 검증용) */
+export const API_URL = process.env.E2E_API_URL ?? 'http://127.0.0.1:3333';
+/** Mailpit REST(docs/LOCAL_MAIL_TESTING.md — SMTP 25 캡처, UI/API 8025) */
+export const MAILPIT_URL = process.env.E2E_MAILPIT_URL ?? 'http://127.0.0.1:8025';
+/** 브라우저 창을 띄워 관찰(E2E_HEADED=1) — 기본 headless */
+export const HEADED = process.env.E2E_HEADED === '1';
+
+function parseEnvFile(path: string): Record<string, string> {
+  try {
+    const out: Record<string, string> = {};
+    for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+      const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
+      if (m?.[1] !== undefined && m[2] !== undefined) {
+        out[m[1]] = m[2].trim().replace(/^"|"$/g, '');
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+const apiEnv = parseEnvFile(join(apiDir, '.env'));
+
+/** HS256 로컬 서명용 시크릿 — me.php(SPCB_JWT_SECRET)·Fastify 검증과 동일 값(로컬 dev). */
+export function requireJwtSecret(): string {
+  const v = process.env.JWT_SECRET ?? apiEnv['JWT_SECRET'];
+  if (v === undefined || v === '') {
+    throw new Error('JWT_SECRET 을 찾지 못했습니다 — apps/api/.env 를 확인하세요');
+  }
+  return v;
+}
+
+/** 직삽입 시드용 DB 연결 문자열(공유 DB — docs 함정 주의: migrate reset 절대 금지). */
+export function requireDatabaseUrl(): string {
+  const v = process.env.DATABASE_URL ?? apiEnv['DATABASE_URL'];
+  if (v === undefined || v === '') {
+    throw new Error('DATABASE_URL 을 찾지 못했습니다 — apps/api/.env 를 확인하세요');
+  }
+  return v;
+}

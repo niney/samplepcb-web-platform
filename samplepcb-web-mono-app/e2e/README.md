@@ -1,0 +1,78 @@
+# e2e — 파트너 포털 E2E 하네스
+
+파트너 포털 재설계(R1~R3, `docs/PARTNER_PORTAL.md`) 검증용 러너·헬퍼·픽스처.
+**시나리오는 재설계 본 세션이 작성**하고, 이 패키지는 그 기반(로그인 세션·시드/정리·
+브라우저·메일 검증)을 제공한다. 관례 정본: `HANDOFF_E2E_TEST.md` "준비 산출물".
+
+## 실행
+
+```bash
+# 사전: nginx(Windows 서비스)·API·웹 dev 서버가 떠 있어야 한다
+# (없으면 beforeAll 이 안내 메시지로 중단)
+pnpm dev:api   # 127.0.0.1:3333
+pnpm dev:web   # 127.0.0.1:5173 (nginx 가 /app 으로 프록시)
+
+pnpm -F e2e e2e          # 전체 실행 (PORTAL_E2E=1 자동 세팅)
+pnpm -F e2e e2e:headed   # 브라우저 창을 띄워 관찰
+pnpm -F e2e e2e harness  # 파일명 필터 (vitest 인자 그대로 전달)
+
+pnpm -F e2e test         # 게이트 없이 실행 → 전부 skip (turbo test/CI 안전)
+```
+
+옵트인 게이트는 `PORTAL_E2E=1`(apps/api 의 `PARTS_IT=1` 관례 미러) — 모든 스펙은
+`describe.skipIf(!RUN)` 로 감싼다.
+
+| env | 기본 | 용도 |
+|---|---|---|
+| `PORTAL_E2E` | (없음) | `1` 일 때만 실행 |
+| `E2E_BASE_URL` | `https://local-web.samplepcb.co.kr` | SPA 오리진(nginx 통합 도메인 — 실환경 동형, /bbs 포함 전 경로). nginx 없이는 `http://127.0.0.1:5173`(vite 가 /api·/spcb 프록시, /bbs 는 불가) |
+| `E2E_API_URL` | `http://127.0.0.1:3333` | API 레벨 호출 대상 |
+| `E2E_MAILPIT_URL` | `http://127.0.0.1:8025` | Mailpit REST |
+| `E2E_HEADED` | (없음) | `1` 이면 창 표시 |
+
+`JWT_SECRET`·`DATABASE_URL` 은 `apps/api/.env` 에서 자동으로 읽는다(별도 설정 불요).
+https 인증서는 mkcert — 브라우저는 시스템 신뢰로 통과하고, Node 측 fetch 는 e2e
+스크립트에 포함된 `NODE_OPTIONS=--use-system-ca` 가 처리한다(`bom:verify` 관례).
+
+## 구조
+
+```
+helpers/
+  env.ts       게이트(RUN)·URL·apps/api/.env 로더 (게이트 꺼짐 수집 시에도 import 안전)
+  jwt.ts       signJwt(identity) — me.php 동형 클레임 HS256 로컬 서명
+  api.ts       api(token, method, path, body?) — 스모크 call 미러(FST empty-json 함정 처리)
+  db.ts        getPrisma()/disconnectPrisma()/num() — apps/api 생성 클라이언트 재사용
+  seed.ts      getPartner·pickFreeSpecs·createPcbPo·cleanupPcbPos·countPcbResidue
+  browser.ts   newSession(identity, opts) — /spcb/api/me 스텁 로그인·localStorage 프리셋·snap
+  mailpit.ts   목록/검색/본문/선택 삭제 (전체 삭제는 의도적으로 미제공)
+specs/
+  harness.e2e.test.ts        하네스 자가 검증 — 새 시나리오의 복사 시작점
+  pcb-ship-board.e2e.test.ts PCB 보내기 보드 §9 스토리(세션 스모크 28케이스 편입판)
+```
+
+## 핵심 설계
+
+- **브라우저 로그인 = `/spcb/api/me` 라우트 스텁.** sp-vue 는 마운트 전 이 PHP
+  브리지로 세션→JWT 교환을 하므로, Playwright 라우트 인터셉트로 로컬 서명 JWT 를
+  반환하면 **비밀번호·PHP 세션 없이** 임의 계정(파트너/관리자)으로 실 Vue + 실
+  Node API 풀스택이 돈다. 그누보드 실로그인 왕복 자체를 검증해야 할 때만 실계정
+  자격증명이 필요하다(현재 스펙엔 없음 — 익명 가드의 URL 왕복 검증까지는 무자격 가능).
+- **playwright-core + 시스템 Chrome/Edge channel** — 브라우저 다운로드 없음.
+- **파일 간 직렬 실행**(`fileParallelism: false`) — 공유 DB(sp_* = 그누보드 동거)에서
+  시드·정리 교차를 막는다. 파일 안 test 도 정의 순서대로 순차.
+- **자족 시드→검증→무잔재 정리** — 만든 id 를 레지스트리(배열)에 등록하고 afterAll
+  에서 일괄 정리+잔재 카운트 0 검증. `prisma migrate reset` 절대 금지.
+
+## 함정 (HANDOFF §5 요약 + 하네스 고유)
+
+- 협력1 은 진행 중 **실데이터** 보유 — 읽기만. 쓰기 시드는 협력2(PCB PO 0건 전제)
+  또는 신규 시드로.
+- 발주서 UK `(specId, partnerId, parentPartnerId, reorderRound)` — 시드 스펙은
+  `pickFreeSpecs()` 로 골라 충돌 회피.
+- 날짜는 KST 앵커(`YYYY-MM-DDT00:00:00+09:00`) — UTC 파싱 시 하루 밀림.
+- 재설계 중 URL·route name 유동 — 셀렉터는 data-testid·텍스트·URL 패턴 위주로,
+  하드코딩 최소화.
+- 기본 도메인은 nginx 통합(`https://local-web.samplepcb.co.kr`) — nginx(Windows
+  서비스)가 꺼져 있으면 beforeAll 에서 중단된다. `E2E_BASE_URL=http://127.0.0.1:5173`
+  (vite 직결)로 우회 가능하나 `/bbs`(그누보드 화면) 검증은 불가.
+- Mailpit 은 사용자 관찰용이기도 하다 — 시드가 유발한 메일만 `mailpitDelete(ids)`.

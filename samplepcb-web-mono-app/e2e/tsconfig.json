@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // helpers 는 Node 에서 돌지만 addInitScript 콜백은 브라우저에서 실행되므로 DOM 포함
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["helpers/**/*.ts", "specs/**/*.ts", "vitest.config.ts"]
+}
