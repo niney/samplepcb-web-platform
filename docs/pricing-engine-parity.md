@@ -104,6 +104,9 @@ more1=25,000원/개)과 `diffDesign`(**사어** — 어디서도 안 읽는 과�
 (options.tsx useAsync deps). platform 대상 URL 은 dev=`https://local-web.samplepcb.co.kr
 /api/pcb-pricing`(same-site 직접 호출, 서버측 CORS — 담기 API 와 같은 패턴),
 prod=상대경로 `/api/pcb-pricing`(같은 도메인, 운영 nginx 에 /api → sp-node 프록시 전제).
+토글은 **제출 경로에도 연동**된다(submit.tsx `shouldUseProjectApi`): prod 에서
+'플랫폼'이면 견적요청·주문 제출이 레거시 form.submit(cart_api) 대신 신규 담기 API
+(`/api/pcb-projects` + `/spcb/api/me`, 상대경로)를 탄다 — dev 는 항상 신규 경로.
 
 ## 관련 파일
 
