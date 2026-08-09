@@ -53,7 +53,7 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
   <div class="space-y-4">
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
-        :to="{ name: 'partner' }"
+        :to="{ name: 'partner-bom' }"
         class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
       >
         ← 홈
@@ -135,7 +135,7 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
         <template v-if="shipment.groupPos.length > 1">
           · 발주서 {{ shipment.groupPos.length }}건 묶음
         </template>
-        <RouterLink :to="{ name: 'partner' }" class="ml-1 font-semibold underline">
+        <RouterLink :to="{ name: 'partner-bom' }" class="ml-1 font-semibold underline">
           홈의 진행 중 발송에서 처리 →
         </RouterLink>
       </div>
@@ -144,7 +144,7 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
         class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600"
       >
         아직 발송에 담기지 않았습니다 —
-        <RouterLink :to="{ name: 'partner-ship' }" class="font-semibold text-indigo-700 underline">
+        <RouterLink :to="{ name: 'partner-bom-ship' }" class="font-semibold text-indigo-700 underline">
           📦 보내기에서 담기 →
         </RouterLink>
       </div>

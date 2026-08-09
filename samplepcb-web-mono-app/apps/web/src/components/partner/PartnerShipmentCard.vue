@@ -232,7 +232,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
     </ul>
     <RouterLink
       v-if="status === 'preparing' && showBoxLink"
-      :to="{ name: 'partner-ship' }"
+      :to="{ name: 'partner-bom-ship' }"
       class="mt-1.5 inline-block text-sm font-semibold text-indigo-600 hover:underline"
     >
       📦 보내기에서 담기·꺼내기 →

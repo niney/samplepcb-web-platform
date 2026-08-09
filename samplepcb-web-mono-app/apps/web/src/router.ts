@@ -60,70 +60,88 @@ const routes: RouteRecordRaw[] = [
       { path: ':id', name: 'bom-quote', component: BomQuote, meta: { requiresMember: true } },
     ],
   },
-  // 협력사 포털(docs/SMARTBOM_PARTNER_RFQ.md §4) — 로그인만 프론트에서 보장하고,
-  // 파트너 소속·승인은 서버 requirePartner 가 매 요청 판정한다(403 → 페이지 안내).
+  // 협력사 포털(포털 재설계 R1 — 관리자 콘솔 미러의 모듈 분리) — 로그인만 프론트에서
+  // 보장하고, 파트너 소속·승인은 서버 requirePartner 가 매 요청 판정한다(403 → 안내).
+  // 모듈(BOM/PCB) 노출·진입 근거 = 서버 tracks(조직 capabilities). 모듈 간 화면 공유
+  // 금지(관리자 D9 미러) — 수금처럼 모듈 무관 화면만 공통 영역에 둔다.
   {
     path: '/partner',
     component: PartnerLayout,
     meta: { requiresMember: true },
     children: [
       {
+        // 진입 리졸버 — 정식 진입점(포털 메일이 전부 이 URL). 트랙 0=안내/1=그 모듈/2=기억
         path: '',
         name: 'partner',
-        component: () => import('./pages/partner/PartnerRfqs.vue'),
+        component: () => import('./pages/partner/PartnerEntry.vue'),
+        meta: { requiresMember: true },
+      },
+      // ── BOM 부품 모듈 ──────────────────────────────────────────────────────
+      {
+        path: 'bom',
+        name: 'partner-bom',
+        component: () => import('./pages/partner/PartnerBomHome.vue'),
         meta: { requiresMember: true },
       },
       {
-        path: 'rfqs/:id',
-        name: 'partner-rfq',
+        path: 'bom/rfqs/:id',
+        name: 'partner-bom-rfq',
         component: () => import('./pages/partner/PartnerRfqDetail.vue'),
         meta: { requiresMember: true },
       },
       {
-        path: 'pos/:id',
-        name: 'partner-po',
+        path: 'bom/pos/:id',
+        name: 'partner-bom-po',
         component: () => import('./pages/partner/PartnerPoDetail.vue'),
         meta: { requiresMember: true },
       },
       {
+        // [📦 보내기](§6.11) — 발주서를 박스에 담아 발송을 만드는 순방향 플로우
+        path: 'bom/ship',
+        name: 'partner-bom-ship',
+        component: () => import('./pages/partner/PartnerShip.vue'),
+        meta: { requiresMember: true },
+      },
+      {
+        // 완료된 발송(§6.11 분리) — 누적 아카이브, 페이지네이션
+        path: 'bom/shipments/done',
+        name: 'partner-bom-shipments-done',
+        component: () => import('./pages/partner/PartnerShipmentsDone.vue'),
+        meta: { requiresMember: true },
+      },
+      // ── PCB 제작 모듈 ──────────────────────────────────────────────────────
+      {
+        path: 'pcb',
+        name: 'partner-pcb',
+        component: () => import('./pages/partner/PartnerPcbHome.vue'),
+        meta: { requiresMember: true },
+      },
+      {
         // PCB 견적요청 상세(docs/PCB_PARTNER_TRACK.md P1) — 회신 + MD 하위 재요청·선정
-        path: 'pcb-rfqs/:id',
+        path: 'pcb/rfqs/:id',
         name: 'partner-pcb-rfq',
         component: () => import('./pages/partner/PartnerPcbRfqDetail.vue'),
         meta: { requiresMember: true },
       },
       {
-        // PCB 발주서 상세(P2) — EQ 5단계 진행 + MD 하위 발주
-        path: 'pcb-pos/:id',
+        // PCB 발주서 상세(P2) — EQ 5단계 진행 + MD 하위 발주, 발송은 읽기 요약
+        path: 'pcb/pos/:id',
         name: 'partner-pcb-po',
         component: () => import('./pages/partner/PartnerPcbPoDetail.vue'),
         meta: { requiresMember: true },
       },
       {
-        // [📦 보내기](§6.11) — 발주서를 박스에 담아 발송을 만드는 순방향 플로우
-        path: 'ship',
-        name: 'partner-ship',
-        component: () => import('./pages/partner/PartnerShip.vue'),
-        meta: { requiresMember: true },
-      },
-      {
         // [📦 PCB 보내기](PCB §9 묶음 재구성) — 받는 곳별 박스에 담아 묶어 발송
-        path: 'pcb-ship',
+        path: 'pcb/ship',
         name: 'partner-pcb-ship',
         component: () => import('./pages/partner/PartnerPcbShip.vue'),
         meta: { requiresMember: true },
       },
+      // ── 공통 영역(모듈 밖) ─────────────────────────────────────────────────
       {
-        // 완료된 발송(§6.11 분리) — 누적 아카이브, 페이지네이션
-        path: 'shipments/done',
-        name: 'partner-shipments-done',
-        component: () => import('./pages/partner/PartnerShipmentsDone.vue'),
-        meta: { requiresMember: true },
-      },
-      {
-        // 수금 현황(P3.11) — 완료 발주서는 홈에 안 떠서 상세로 갈 길이 없었다
+        // 수금 현황(P3.11) — 모듈 소속이 본질이 아닌 돈 화면. 현재 데이터는 PCB 발주 대금
         path: 'remittances',
-        name: 'partner-pcb-remittances',
+        name: 'partner-remittances',
         component: () => import('./pages/partner/PartnerPcbRemittances.vue'),
         meta: { requiresMember: true },
       },

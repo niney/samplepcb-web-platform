@@ -57,7 +57,7 @@ const statusCls = (s: string): string =>
   <div class="space-y-4">
     <div class="flex flex-wrap items-center gap-3">
       <RouterLink
-        :to="{ name: 'partner' }"
+        :to="{ name: 'partner-bom' }"
         class="rounded-md border border-gray-200 px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
       >
         ← 목록

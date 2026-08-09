@@ -1,75 +1,42 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { ApiRequestError } from '@sp/shared';
-import {
-  BOM_RFQ_STATUS_LABELS,
-  PCB_RFQ_STATUS_LABELS,
-  type PartnerPoListItemType,
-} from '@sp/api-contract';
+import { BOM_RFQ_STATUS_LABELS, type PartnerPoListItemType } from '@sp/api-contract';
 import {
   usePartnerPos,
   usePartnerRfqs,
   usePartnerShipments,
 } from '../../partner/usePartnerRfqs';
-import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
-import {
-  usePartnerPcbPos,
-  usePartnerPcbRemittances,
-  usePartnerPcbShipBoard,
-} from '../../partner/usePartnerPcbPos';
+import { usePartnerAccess } from '../../partner/usePartnerAccess';
+import { rememberPartnerModule } from '../../partner/partnerModule';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
-import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
 import { fmtKstDate } from '@sp/utils';
 
-// 파트너 포털 홈(§6.11 재구성) — 문서 나열이 아니라 "오늘 할 일" 중심:
-// ① 회신할 견적 ② 확인할 발주 ③ 보낼 물건([보내기] 위저드) ④ 진행 중 발송(핑퐁).
-// 발주서는 문서 열람용 보조 목록로 내려간다. 서버가 소속을 판정(403=파트너 아님).
+// BOM 부품 모듈 홈(포털 재설계 R1) — "오늘 할 일" 중심: ① 회신할 견적 ② 확인할 발주
+// ③ 보낼 물건([📦 보내기]) ④ 진행 중 발송(핑퐁). BOM 트랙 어휘만 쓴다 — PCB 는
+// 별도 모듈(관리자 D9 미러: 모듈 간 화면 공유 금지). 서버가 소속을 판정(403=파트너 아님).
 
 const { data, error, isLoading } = usePartnerRfqs();
 const poQuery = usePartnerPos();
 const shipmentsQuery = usePartnerShipments();
-const pcbQuery = usePartnerPcbRfqs();
+const accessQuery = usePartnerAccess();
+
+onMounted(() => {
+  rememberPartnerModule('bom');
+});
 
 const notPartner = computed(
   () => error.value instanceof ApiRequestError && error.value.status === 403,
 );
+// 트랙 가드 — capability 없는 모듈 URL 직접 진입 시 안내(데이터는 서버가 어차피 안 준다).
+const noTrack = computed(() => accessQuery.data.value?.data.tracks.bom === false);
+const hasPcbTrack = computed(() => accessQuery.data.value?.data.tracks.pcb === true);
 
 // ── 할 일 파생 ───────────────────────────────────────────────────────────────
 const rfqItems = computed(() => data.value?.data.items ?? []);
 const pendingRfqs = computed(() => rfqItems.value.filter((r) => r.status === 'requested'));
 const doneRfqs = computed(() => rfqItems.value.filter((r) => r.status !== 'requested'));
-
-// PCB 견적요청(docs/PCB_PARTNER_TRACK.md P1) — 부품 BOM RFQ 와 별도 문서 축.
-const pcbItems = computed(() => pcbQuery.data.value?.data.items ?? []);
-const pendingPcb = computed(() => pcbItems.value.filter((r) => r.status === 'requested'));
-const donePcb = computed(() => pcbItems.value.filter((r) => r.status !== 'requested'));
-
-// PCB 발주·EQ(P2) — 내 차례(수주 방향 RECEIVER 액션)만 홈에 띄운다.
-const pcbPoQuery = usePartnerPcbPos();
-const pcbPoItems = computed(() => pcbPoQuery.data.value?.data.items ?? []);
-const myTurnPcbPos = computed(() => pcbPoItems.value.filter((po) => po.myTurn));
-
-// [📦 PCB 보내기] 진입 카드(§9 묶음 재구성) — PCB 발송 세계에 뭔가 있으면 노출
-// (BOM 전용 조직 오염 방지). BOM 은 확인 즉시 선반이라 카드에 바로 잡히지만 PCB 는
-// 생산완료 전까지 담을 수 없어, 확인 시점의 가시성은 '생산 진행 중' 보조 표기가 담당.
-const pcbShipQuery = usePartnerPcbShipBoard();
-const pcbShelf = computed(() => pcbShipQuery.data.value?.data.shelf ?? []);
-const pcbProducing = computed(() => pcbShipQuery.data.value?.data.producing ?? []);
-const pcbBoxes = computed(() => pcbShipQuery.data.value?.data.boxes ?? []);
-const pcbActiveShipments = computed(() => pcbShipQuery.data.value?.data.active ?? []);
-const showPcbShipCard = computed(
-  () =>
-    pcbShelf.value.length > 0 ||
-    pcbBoxes.value.length > 0 ||
-    pcbProducing.value.length > 0 ||
-    pcbActiveShipments.value.length > 0,
-);
-
-// 수금 현황(P3.11) — 통화별 미수금 요약. 발주가 하나도 없으면 카드 자체를 감춘다.
-const remitQuery = usePartnerPcbRemittances();
-const remitTotals = computed(() => remitQuery.data.value?.data.totals ?? []);
-const remitUnpaidCount = computed(() => remitQuery.data.value?.data.unpaidCount ?? 0);
 
 const poItems = computed(() => poQuery.data.value?.data.items ?? []);
 const toConfirm = computed(() => poItems.value.filter((po) => po.status === 'issued'));
@@ -116,7 +83,7 @@ const rfqStatusCls = (s: string): string =>
 <template>
   <div class="space-y-6">
     <div>
-      <h1 class="text-xl font-bold">파트너 홈</h1>
+      <h1 class="text-xl font-bold">BOM 부품</h1>
       <p v-if="data !== undefined" class="mt-0.5 text-sm text-gray-500">
         {{ data.data.partnerName }} 님, 오늘 처리할 일입니다.
       </p>
@@ -124,6 +91,12 @@ const rfqStatusCls = (s: string): string =>
 
     <div v-if="notPartner" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
       승인된 파트너 계정이 아닙니다. 파트너 등록·계정 연결은 샘플피씨비 담당자에게 문의해 주세요.
+    </div>
+    <div v-else-if="noTrack" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
+      이 조직은 BOM 부품 트랙에 참여하지 않습니다.
+      <RouterLink v-if="hasPcbTrack" :to="{ name: 'partner-pcb' }" class="font-semibold underline">
+        PCB 제작으로 이동 →
+      </RouterLink>
     </div>
     <p v-else-if="isLoading" class="text-sm text-gray-400">불러오는 중…</p>
 
@@ -151,7 +124,7 @@ const rfqStatusCls = (s: string): string =>
           </p>
         </a>
         <RouterLink
-          :to="{ name: 'partner-ship' }"
+          :to="{ name: 'partner-bom-ship' }"
           class="rounded-xl border bg-surface p-4 hover:border-indigo-300"
           :class="toShip.length > 0 || preparingCount > 0 ? 'border-indigo-200' : 'border-gray-200'"
         >
@@ -180,99 +153,6 @@ const rfqStatusCls = (s: string): string =>
         </a>
       </div>
 
-      <!-- [📦 PCB 보내기](§9 묶음 재구성) — 생산완료 PCB 발주를 받는 곳별 박스로 묶어 발송 -->
-      <RouterLink
-        v-if="showPcbShipCard"
-        :to="{ name: 'partner-pcb-ship' }"
-        class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-surface px-4 py-3 hover:border-teal-300"
-        :class="pcbShelf.length > 0 || pcbBoxes.length > 0 ? 'border-teal-200' : 'border-gray-200'"
-      >
-        <div>
-          <p class="text-sm font-bold text-gray-700">📦 보낼 PCB 물건</p>
-          <p class="mt-0.5 text-xs text-gray-500">
-            <template v-if="pcbBoxes.length > 0">준비 중인 박스 {{ pcbBoxes.length }}개 — 계속하기 →</template>
-            <template v-else-if="pcbShelf.length > 0">받는 곳이 같은 발주서는 묶어서 한 번에 보낼 수 있습니다 →</template>
-            <template v-else-if="pcbProducing.length > 0">생산 진행 중 {{ pcbProducing.length }}건 — 생산완료되면 담을 수 있습니다</template>
-            <template v-else>진행 중 발송 {{ pcbActiveShipments.length }}건 →</template>
-          </p>
-        </div>
-        <p class="text-2xl font-bold" :class="pcbShelf.length > 0 ? 'text-teal-700' : 'text-gray-300'">
-          {{ pcbShelf.length }}<span class="text-sm font-semibold">건</span>
-        </p>
-      </RouterLink>
-
-      <!-- 수금 현황(P3.11) — '오늘 할 일'이 아니라 돈 이야기라 카드 줄과 분리한다.
-           완료된 발주서는 아래 목록에 안 떠서 여기가 유일한 진입점이다. -->
-      <RouterLink
-        v-if="remitTotals.length > 0"
-        :to="{ name: 'partner-pcb-remittances' }"
-        class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-surface px-4 py-3 hover:border-amber-300"
-        :class="remitUnpaidCount > 0 ? 'border-amber-200' : 'border-gray-200'"
-      >
-        <div>
-          <p class="text-sm font-bold text-gray-700">수금 현황</p>
-          <p class="mt-0.5 text-xs text-gray-500">
-            <template v-if="remitUnpaidCount > 0">미수금 {{ remitUnpaidCount }}건 — 입금 내역 보기 →</template>
-            <template v-else>미수금 없음 — 입금 내역 보기 →</template>
-          </p>
-        </div>
-        <div class="flex flex-wrap items-center gap-3">
-          <span v-for="t in remitTotals" :key="t.currency" class="text-right">
-            <span class="block text-[11px] text-gray-400">{{ t.currency }} 미수금</span>
-            <b
-              class="tabular-nums"
-              :class="t.balance > 0 ? 'text-amber-700' : 'text-gray-400'"
-            >{{ fmtPcbAmount(t.currency, t.balance) }}</b>
-          </span>
-        </div>
-      </RouterLink>
-
-      <!-- ⓞ 회신할 PCB 견적(PCB 파트너 트랙 P1) — 제작 견적은 부품 BOM 과 별도 축 -->
-      <section v-if="pendingPcb.length > 0" id="pcb-reply">
-        <h2 class="text-sm font-bold text-gray-700">회신할 PCB 견적 ({{ pendingPcb.length }})</h2>
-        <div class="mt-2 grid gap-2">
-          <RouterLink
-            v-for="rfq in pendingPcb"
-            :key="rfq.rfqId"
-            :to="{ name: 'partner-pcb-rfq', params: { id: String(rfq.rfqId) } }"
-            class="flex items-center gap-3 rounded-xl border border-cyan-200 bg-surface px-4 py-3 hover:border-cyan-300 hover:bg-cyan-50/40"
-          >
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.projectName }}</p>
-              <p class="mt-0.5 text-sm text-gray-500">
-                {{ rfq.category }} · {{ rfq.qty }}매 · {{ rfq.requesterName }} · 요청일 {{ fmtDate(rfq.requestedAt) }}
-                <template v-if="rfq.suggestedDeliveryDate !== null">
-                  · 희망 납기 {{ fmtDate(rfq.suggestedDeliveryDate) }}
-                </template>
-              </p>
-            </div>
-            <span class="rounded-lg bg-cyan-600 px-3 py-1.5 text-sm font-bold text-white">회신하기</span>
-          </RouterLink>
-        </div>
-      </section>
-
-      <!-- ⓞ-2 진행할 PCB 발주·EQ(P2) — 파일 올리고 승인요청 → 생산 진행 -->
-      <section v-if="myTurnPcbPos.length > 0" id="pcb-po">
-        <h2 class="text-sm font-bold text-gray-700">진행할 PCB 발주 ({{ myTurnPcbPos.length }})</h2>
-        <div class="mt-2 grid gap-2">
-          <RouterLink
-            v-for="po in myTurnPcbPos"
-            :key="po.poId"
-            :to="{ name: 'partner-pcb-po', params: { id: String(po.poId) } }"
-            class="flex items-center gap-3 rounded-xl border border-teal-200 bg-surface px-4 py-3 hover:border-teal-300 hover:bg-teal-50/40"
-          >
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold text-gray-900">{{ po.projectName }}</p>
-              <p class="mt-0.5 text-sm text-gray-500">
-                {{ po.qty }}매 · {{ po.counterpartyName }} ·
-                {{ po.priceOriginal.toLocaleString('en-US') }} {{ po.currency }}
-              </p>
-            </div>
-            <span class="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-bold text-white">진행하기</span>
-          </RouterLink>
-        </div>
-      </section>
-
       <!-- ① 회신할 견적 -->
       <section v-if="pendingRfqs.length > 0" id="reply">
         <h2 class="text-sm font-bold text-gray-700">회신할 견적 ({{ pendingRfqs.length }})</h2>
@@ -280,7 +160,7 @@ const rfqStatusCls = (s: string): string =>
           <RouterLink
             v-for="rfq in pendingRfqs"
             :key="rfq.rfqId"
-            :to="{ name: 'partner-rfq', params: { id: String(rfq.rfqId) } }"
+            :to="{ name: 'partner-bom-rfq', params: { id: String(rfq.rfqId) } }"
             class="flex items-center gap-3 rounded-xl border border-gray-200 bg-surface px-4 py-3 hover:border-blue-300 hover:bg-blue-50/40"
           >
             <div class="min-w-0 flex-1">
@@ -301,7 +181,7 @@ const rfqStatusCls = (s: string): string =>
           <RouterLink
             v-for="po in toConfirm"
             :key="po.poId"
-            :to="{ name: 'partner-po', params: { id: String(po.poId) } }"
+            :to="{ name: 'partner-bom-po', params: { id: String(po.poId) } }"
             class="flex items-center gap-3 rounded-xl border border-emerald-200 bg-surface px-4 py-3 hover:bg-emerald-50/40"
           >
             <div class="min-w-0 flex-1">
@@ -332,36 +212,13 @@ const rfqStatusCls = (s: string): string =>
           <RouterLink
             v-for="po in poItems"
             :key="po.poId"
-            :to="{ name: 'partner-po', params: { id: String(po.poId) } }"
+            :to="{ name: 'partner-bom-po', params: { id: String(po.poId) } }"
             class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
           >
             <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ po.quoteTitle }}</span>
             <span class="text-xs text-gray-400">{{ po.totalAmount.toLocaleString('ko-KR') }} {{ po.currency }}</span>
             <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="poBadge(po).cls">
               {{ poBadge(po).label }}
-            </span>
-          </RouterLink>
-        </div>
-      </details>
-
-      <!-- 보조: 회신한 PCB 견적 -->
-      <details v-if="donePcb.length > 0" class="rounded-xl border border-gray-200 bg-surface">
-        <summary class="cursor-pointer px-4 py-3 text-sm font-bold text-gray-700">
-          회신한 PCB 견적 ({{ donePcb.length }})
-        </summary>
-        <div class="grid gap-2 px-4 pb-4">
-          <RouterLink
-            v-for="rfq in donePcb"
-            :key="rfq.rfqId"
-            :to="{ name: 'partner-pcb-rfq', params: { id: String(rfq.rfqId) } }"
-            class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
-          >
-            <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ rfq.projectName }}</span>
-            <span class="text-xs tabular-nums text-gray-400">
-              {{ pcbMoneyWithSub(rfq.currency, rfq.priceOriginal, rfq.subCurrency, rfq.subPriceOriginal) }}
-            </span>
-            <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="rfqStatusCls(rfq.status)">
-              {{ PCB_RFQ_STATUS_LABELS[rfq.status] }}
             </span>
           </RouterLink>
         </div>
@@ -376,7 +233,7 @@ const rfqStatusCls = (s: string): string =>
           <RouterLink
             v-for="rfq in doneRfqs"
             :key="rfq.rfqId"
-            :to="{ name: 'partner-rfq', params: { id: String(rfq.rfqId) } }"
+            :to="{ name: 'partner-bom-rfq', params: { id: String(rfq.rfqId) } }"
             class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50"
           >
             <span class="min-w-0 flex-1 truncate text-sm text-gray-800">{{ rfq.quoteTitle }}</span>
@@ -393,14 +250,14 @@ const rfqStatusCls = (s: string): string =>
       <!-- 보조: 완료된 발송 — 누적 목록은 별도 페이지(§6.11 분리) -->
       <RouterLink
         v-if="doneCount > 0"
-        :to="{ name: 'partner-shipments-done' }"
+        :to="{ name: 'partner-bom-shipments-done' }"
         class="block rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
       >
         완료된 발송 {{ doneCount }}건 보기 →
       </RouterLink>
 
       <p
-        v-if="pendingPcb.length === 0 && pendingRfqs.length === 0 && toConfirm.length === 0 && toShip.length === 0 && activeShipments.length === 0"
+        v-if="pendingRfqs.length === 0 && toConfirm.length === 0 && toShip.length === 0 && activeShipments.length === 0"
         class="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400"
       >
         지금 처리할 일이 없습니다 🎉

@@ -140,7 +140,7 @@ const STATUS_CLS: Record<string, string> = {
 
 <template>
   <div class="pcb-readable space-y-5">
-    <RouterLink :to="{ name: 'partner' }" class="text-sm text-gray-400 hover:text-gray-700">
+    <RouterLink :to="{ name: 'partner-pcb' }" class="text-sm text-gray-400 hover:text-gray-700">
       ← 파트너 홈
     </RouterLink>
 

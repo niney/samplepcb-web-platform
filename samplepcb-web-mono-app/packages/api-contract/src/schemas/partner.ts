@@ -2,11 +2,14 @@ import { z } from 'zod';
 import { PcbCurrency } from './pcb-rfq';
 
 // 로그인 계정의 협력사 포털 노출 여부 — 조직 소속·승인 상태는 서버가 매 요청 판정한다.
+// tracks(포털 재설계 R1) = 조직 capabilities 에서 파생한 참여 트랙 — 포털 모듈
+// 스위처 노출·진입 리졸버의 단일 근거(part_sale 은 포털 모듈이 아니라 제외).
 export const PartnerAccessResponse = z.object({
   result: z.literal(true),
   data: z.object({
     isPartner: z.boolean(),
     partnerName: z.string().nullable(),
+    tracks: z.object({ bom: z.boolean(), pcb: z.boolean() }),
   }),
 });
 export type PartnerAccessResponseType = z.infer<typeof PartnerAccessResponse>;

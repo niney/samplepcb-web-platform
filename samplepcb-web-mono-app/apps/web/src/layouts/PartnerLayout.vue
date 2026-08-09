@@ -1,23 +1,74 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { useTheme } from '../bom/useTheme';
+import { usePartnerAccess } from '../partner/usePartnerAccess';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 
-// 협력사 포털 경량 셸(docs/SMARTBOM_PARTNER_RFQ.md §4) — 관리자 셸과 분리된
-// 단일 목적 레이아웃. 소속·권한 판정은 서버(requirePartner)가 한다.
+// 협력사 포털 셸(포털 재설계 R1) — 관리자 콘솔 모듈 스위처의 미러. 모듈(BOM 부품/
+// PCB 제작) 노출 근거는 서버 tracks(조직 capabilities)뿐이고, 수금처럼 모듈 무관
+// 화면은 공통 영역으로 스위처 옆에 둔다. 소속·권한 판정은 서버(requirePartner)가 한다.
 
 const auth = useAuthStore();
+const route = useRoute();
 const { isDark, toggleTheme } = useTheme();
+const { data } = usePartnerAccess();
+
+const access = computed(() => data.value?.data ?? null);
+const tracks = computed(() => access.value?.tracks ?? { bom: false, pcb: false });
+const showSwitcher = computed(
+  () => access.value?.isPartner === true && (tracks.value.bom || tracks.value.pcb),
+);
+
+const activeModule = computed(() => {
+  if (route.path.startsWith('/partner/bom')) return 'bom';
+  if (route.path.startsWith('/partner/pcb')) return 'pcb';
+  return null;
+});
+const isRemittances = computed(() => route.name === 'partner-remittances');
 </script>
 
 <template>
   <div class="min-h-screen bg-gray-50 text-gray-900">
     <header class="border-b border-gray-200 bg-surface">
-      <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        <RouterLink :to="{ name: 'partner' }" class="text-lg font-bold text-blue-600">
-          SAMPLEPCB <span class="text-sm font-semibold text-gray-500">파트너 포털</span>
-        </RouterLink>
+      <div class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
+        <div class="flex min-w-0 items-center gap-4">
+          <RouterLink :to="{ name: 'partner' }" class="shrink-0 text-lg font-bold text-blue-600">
+            SAMPLEPCB <span class="text-sm font-semibold text-gray-500">파트너 포털</span>
+          </RouterLink>
+
+          <!-- 모듈 스위처 — 보유 트랙만 노출(한 트랙이면 탭 1개 = 현재 위치 표시) -->
+          <nav v-if="showSwitcher" class="flex items-center gap-1 text-sm font-semibold">
+            <RouterLink
+              v-if="tracks.bom"
+              :to="{ name: 'partner-bom' }"
+              class="rounded-lg px-3 py-1.5"
+              :class="activeModule === 'bom' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'"
+            >
+              BOM 부품
+            </RouterLink>
+            <RouterLink
+              v-if="tracks.pcb"
+              :to="{ name: 'partner-pcb' }"
+              class="rounded-lg px-3 py-1.5"
+              :class="activeModule === 'pcb' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'"
+            >
+              PCB 제작
+            </RouterLink>
+            <!-- 공통 영역 — 모듈 소속이 아닌 화면(현재 데이터는 PCB 발주 대금) -->
+            <RouterLink
+              v-if="tracks.pcb"
+              :to="{ name: 'partner-remittances' }"
+              class="rounded-lg px-3 py-1.5"
+              :class="isRemittances ? 'bg-amber-500 text-white' : 'text-gray-600 hover:bg-gray-100'"
+            >
+              수금 현황
+            </RouterLink>
+          </nav>
+        </div>
+
         <div class="flex items-center gap-3 text-sm">
           <AppSiteHomeButton />
           <!-- 테마 전환 — 관리자·BOM 셸과 같은 상태를 공유한다(useTheme 싱글턴) -->
