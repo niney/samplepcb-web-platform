@@ -7,6 +7,8 @@
     "test": "vitest run",
     "e2e": "cross-env PORTAL_E2E=1 NODE_OPTIONS=--use-system-ca vitest run",
     "e2e:headed": "cross-env PORTAL_E2E=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run",
+    "journey": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey",
+    "journey:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run journey",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

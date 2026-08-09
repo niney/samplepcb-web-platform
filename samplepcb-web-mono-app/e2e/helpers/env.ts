@@ -16,6 +16,10 @@ export const apiDir = join(monoRoot, 'apps', 'api');
 /** 스크린샷 등 산출물(e2e/output — gitignore) */
 export const outputDir = join(monoRoot, 'e2e', 'output');
 
+/** 거버 뷰어 오리진(완주 여정 시작점) — nginx → sp-gerber-eye-v3 vite 8040(strictPort).
+ *  사전 조건: 거버 리포에서 `pnpm dev` (docs: HANDOFF_E2E_TEST.md 거버 연결 조사). */
+export const GERBER_URL = process.env.E2E_GERBER_URL ?? 'https://local-gerber.samplepcb.co.kr';
+
 /** SPA 오리진 — 기본 nginx 통합 도메인(실환경 동형: /app→vite·/api→node·/→PHP,
  *  /bbs 로그인 화면까지 전 경로 동작). mkcert 인증서라 브라우저(시스템 신뢰)는 그대로,
  *  Node 측 fetch 는 e2e 스크립트의 NODE_OPTIONS=--use-system-ca 가 처리한다.
@@ -45,6 +49,27 @@ function parseEnvFile(path: string): Record<string, string> {
 }
 
 const apiEnv = parseEnvFile(join(apiDir, '.env'));
+// 실로그인 자격(e2e/.env.e2e — gitignore): 그누보드 PHP 화면 왕복 전용 로컬 테스트 계정.
+// 값은 채팅·코드·커밋에 남기지 않는다 — 사용자가 파일에 직접 기입(README 참조).
+const e2eEnv = parseEnvFile(join(monoRoot, 'e2e', '.env.e2e'));
+
+export interface CustomerCreds {
+  id: string;
+  pw: string;
+}
+
+/** PHP 실로그인용 고객 계정 — 없으면 안내와 함께 중단(여정 스펙의 사전 조건). */
+export function requireCustomerCreds(): CustomerCreds {
+  const id = process.env.E2E_CUSTOMER_ID ?? e2eEnv['E2E_CUSTOMER_ID'];
+  const pw = process.env.E2E_CUSTOMER_PW ?? e2eEnv['E2E_CUSTOMER_PW'];
+  if (id === undefined || id === '' || pw === undefined || pw === '') {
+    throw new Error(
+      'e2e/.env.e2e 에 E2E_CUSTOMER_ID / E2E_CUSTOMER_PW 를 기입하세요 — ' +
+        '로컬 전용 테스트 회원(e2e-customer) 가입 후. 운영 실계정 금지(HANDOFF §5).',
+    );
+  }
+  return { id, pw };
+}
 
 /** HS256 로컬 서명용 시크릿 — me.php(SPCB_JWT_SECRET)·Fastify 검증과 동일 값(로컬 dev). */
 export function requireJwtSecret(): string {
