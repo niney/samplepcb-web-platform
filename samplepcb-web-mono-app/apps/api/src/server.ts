@@ -45,6 +45,7 @@ import { pcbEqReviewRoutes } from './routes/pcb-eq-reviews';
 import { adminPcbOrderRoutes } from './routes/admin-pcb-orders';
 import { adminPcbCaseRoutes } from './routes/admin-pcb-cases';
 import { partnerPcbPoRoutes } from './routes/partner-pcb-pos';
+import { partnerPcbShipmentRoutes } from './routes/partner-pcb-shipments';
 import { bomRoutes } from './routes/bom';
 import { bomQuoteRoutes } from './routes/bom-quotes';
 import { bootstrapPartsIndex } from './es/sp-parts-index';
@@ -142,6 +143,8 @@ await app.register(pcbEqReviewRoutes, { prefix: '/api' });
 // PCB 진행현황(구간 조감) + 역할별 대기 큐(요청 대기·발주 대기)
 await app.register(adminPcbCaseRoutes, { prefix: '/api/admin' });
 await app.register(partnerPcbPoRoutes, { prefix: '/api' });
+// PCB 보내기 보드(§9 묶음 재구성) — 선반·박스 담기(발송 문서 자체는 발주서 경유 라우트)
+await app.register(partnerPcbShipmentRoutes, { prefix: '/api' });
 // 관리자 전용(requireAdmin) — 부품 카탈로그 검색(ES sp-parts) + 상세(DB sp_part*)
 await app.register(adminPartsRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 재능마켓: 전문가 심사·프로젝트 모니터·설정·파일

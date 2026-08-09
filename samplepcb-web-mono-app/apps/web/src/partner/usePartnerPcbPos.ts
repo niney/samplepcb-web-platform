@@ -4,6 +4,7 @@ import {
   PartnerPcbPoDetailResponse,
   PartnerPcbPoListResponse,
   PartnerPcbRemittanceListResponse,
+  PartnerPcbShipBoardResponse,
   PcbInvoiceResponse,
   PcbPoActionResponse,
   apiRoutes,
@@ -44,6 +45,8 @@ export function usePartnerPcbRemittances() {
 
 const invalidate = (qc: ReturnType<typeof useQueryClient>): void => {
   void qc.invalidateQueries({ queryKey: ['partner', 'pcbPos'] });
+  // 발주·발송 변이는 보내기 보드(선반·박스)에도 반영된다 — 함께 무효화.
+  void qc.invalidateQueries({ queryKey: ['partner', 'pcbShip'] });
 };
 
 export function useUploadPartnerPcbEqFile() {
@@ -183,12 +186,39 @@ export function usePartnerPcbShipmentReceive() {
   });
 }
 
-// 묶음에서 빼기 — 발송 준비(preparing) 단계, 대표 발주서 제외(서버 검증).
+// 박스에서 꺼내기 — 발송 준비(preparing) 단계만. 대표 개념은 서버가 은닉(꺼내면
+// 승계·마지막이면 발송 소멸 — §9 재구성).
 export function usePartnerPcbShipmentDetach() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ poId }: { poId: number }) =>
       apiSend('DELETE', `${base}/${String(poId)}/shipment/membership`, {}, PcbPoActionResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+// ═══ [📦 PCB 보내기] 보드(§9 묶음 재구성) — 선반·박스·진행·완료 ═══════════════
+
+export function usePartnerPcbShipBoard() {
+  return useQuery({
+    queryKey: ['partner', 'pcbShip', 'board'],
+    queryFn: () => apiGet(apiRoutes.partnerPcbShipments, PartnerPcbShipBoardResponse),
+  });
+}
+
+// 담기 — 서버가 컨텍스트(받는 곳·회차)를 해석해 같은 박스에 합류시키거나 새로 만든다.
+export function usePartnerPcbShipBox() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId }: { poId: number }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.partnerPcbShipments}/box`,
+        { poId },
+        PartnerPcbShipBoardResponse,
+      ),
     onSuccess: () => {
       invalidate(qc);
     },

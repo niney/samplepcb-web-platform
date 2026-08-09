@@ -135,6 +135,17 @@ export const PcbShipmentView = z.object({
   receivedNote: z.string().nullable(),
   completedAt: z.string().nullable(),
   poIds: z.array(z.number()), // 소속 발주서 전체(조인 기준 — 대표 포함)
+  // 소속 발주서 표시 정보 — 묶음 구성이 화면(보내기 보드·상세 발송 카드)에 보여야
+  // "무엇이 같이 나가는지"를 확인하고 발송할 수 있다(§9 묶음 재구성).
+  groupPos: z.array(
+    z.object({
+      poId: z.number(),
+      projectName: z.string(),
+      qty: z.number().int(),
+      currency: z.string(),
+      priceOriginal: z.number(),
+    }),
+  ),
   files: z.array(PcbShipmentFileView),
 });
 export type PcbShipmentViewType = z.infer<typeof PcbShipmentView>;
@@ -373,8 +384,6 @@ export const PartnerPcbPoDetail = z.object({
   childRfqs: z.array(AdminPcbRfqView),
   /** P3 — 이 발주서가 소속된 발송(없으면 null). */
   shipment: PcbShipmentView.nullable(),
-  /** P3 — 같이 보낼 수 있는 내 발주서(produced·미배정·같은 받는측/목적지/회차). */
-  shippableWith: z.array(z.object({ poId: z.number(), projectName: z.string() })),
   /** P3 — 발송 시작 가능(produced·미배정·출고 게이팅 통과). */
   canShip: z.boolean(),
   /** P3 — MD 출고 게이팅에 걸림(하위 입고 미완료). */
@@ -402,16 +411,63 @@ export const PartnerPcbChildPoCreateBody = z.object({
 });
 export type PartnerPcbChildPoCreateBodyType = z.infer<typeof PartnerPcbChildPoCreateBody>;
 
-// 발송 만들기(보내는측 포털) — 대표 po 경유. withPoIds 는 같은 컨텍스트(받는측·목적지·
-// 회차)의 내 produced 발주서만(서버 검증). 최초 발송 전이(advance)에서도 함께 담기 가능.
+// 발송 전이(보내는측 포털) — 대표 po 경유, 발송(묶음) 단위로 전이한다. 묶음 구성은
+// 전이 파라미터가 아니라 **preparing 박스에 담는 행위**(보내기 보드·발송 준비 합류)로
+// 확정된다 — 구 withPoIds(전이 순간 일회성 묶기)는 실사용 도달 불가로 폐기(§9 재구성).
 export const PcbShipmentAdvanceBody = z.object({
   shipDate: z.string().trim().max(10).nullish(),
   carrier: z.string().trim().max(50).nullish(),
   trackingNumber: z.string().trim().max(100).nullish(),
   trackingUrl: z.string().trim().max(500).nullish(),
-  withPoIds: z.array(z.number().int().positive()).max(50).optional(),
 });
 export type PcbShipmentAdvanceBodyType = z.infer<typeof PcbShipmentAdvanceBody>;
+
+// ── [📦 PCB 보내기] 보드(/app/partner/pcb-ship) — BOM §6.11 두 칸 모델의 PCB 일반화 ──
+// BOM 과 달리 받는 곳이 갈릴 수 있어(관리자/직송 KR·CN·VN/MD) 박스는 **컨텍스트당 1개**다.
+// contextKey = 받는측:받는조직:직송지:회차 — 선반 카드가 어느 박스로 담기는지의 매칭 축
+// (서버가 담기 시 같은 키의 preparing 발송에 합류시키고, 없으면 새로 만든다).
+
+export const PartnerPcbShipShelfItem = z.object({
+  poId: z.number(),
+  projectName: z.string(),
+  qty: z.number().int(),
+  currency: z.string(),
+  priceOriginal: z.number(),
+  reorderRound: z.number().int(),
+  receiverLabel: z.string(), // '샘플피씨비' | '직송 CN' | 'MD ○○'
+  contextKey: z.string(), // countryReady=false 면 빈 문자열(컨텍스트 해석 불가)
+  outboundBlocked: z.boolean(), // MD 출고 게이팅 — 하위 입고 완료 전 담기 불가
+  countryReady: z.boolean(), // 조직 소재 국가 미비 — 담기 불가(관리자 문의)
+});
+export type PartnerPcbShipShelfItemType = z.infer<typeof PartnerPcbShipShelfItem>;
+
+export const PartnerPcbShipBox = PcbShipmentView.extend({ contextKey: z.string() });
+export type PartnerPcbShipBoxType = z.infer<typeof PartnerPcbShipBox>;
+
+export const PartnerPcbShipBoardResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    shelf: z.array(PartnerPcbShipShelfItem), // 보낼 물건 — 수주 produced·미편성
+    // 곧 보낼 물건 — 수주했지만 생산완료 전(발주접수~생산시작). BOM 은 확인 즉시
+    // 선반이지만 PCB 는 생산 머신이 있어, 확인 시점의 가시성은 이 목록이 담당한다.
+    producing: z.array(
+      z.object({
+        poId: z.number(),
+        projectName: z.string(),
+        qty: z.number().int(),
+        status: PcbPoStatus,
+      }),
+    ),
+    boxes: z.array(PartnerPcbShipBox), // 준비 중(preparing) 발송 — 컨텍스트당 1개
+    active: z.array(PcbShipmentView), // 발송 시작 후 진행 중(핑퐁·입고 대기)
+    doneCount: z.number(),
+  }),
+});
+export type PartnerPcbShipBoardResponseType = z.infer<typeof PartnerPcbShipBoardResponse>;
+
+// 담기 — 서버가 컨텍스트를 해석해 같은 박스에 합류시키거나 새 박스를 만든다.
+export const PartnerPcbShipBoxBody = z.object({ poId: z.number().int().positive() });
+export type PartnerPcbShipBoxBodyType = z.infer<typeof PartnerPcbShipBoxBody>;
 
 export const PcbShipmentReceiveBody = z.object({
   note: z.string().trim().max(2000).nullish(),

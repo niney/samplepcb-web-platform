@@ -488,12 +488,10 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     MISSING_SHIP_DATE: '출고예정일을 입력해 주세요.',
     MISSING_INVOICE_FILE: 'Invoice 첨부가 필요합니다 — 상업송장 생성기로 만들 수 있습니다.',
     MISSING_TRACKING: '택배사와 송장번호를 입력해 주세요.',
-    INVALID_GROUP_PO: '함께 발송 대상이 조건에 맞지 않습니다.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
     NOT_SHIPPED: '발송 시작 전에는 처리할 수 없습니다.',
     NOT_PREPARING: '발송 준비 단계에서만 뺄 수 있습니다.',
-    REPRESENTATIVE_PO: '대표 발주서는 뺄 수 없습니다.',
   };
   const shipError = (error: string): { error: string; message: string } => ({
     error,

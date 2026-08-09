@@ -1,9 +1,12 @@
+import { Prisma } from '@prisma/client';
 import type { SpFile, SpPartner, SpPcbPo, SpPcbShipment } from '@prisma/client';
 import type {
   BomInvoiceDataType,
   BomShipmentFileTypeType,
   BomShipmentModeType,
   BomShipmentStatusType,
+  PartnerPcbShipBoxType,
+  PartnerPcbShipShelfItemType,
   PcbShipmentAdvanceBodyType,
   PcbShipmentFileViewType,
   PcbShipmentViewType,
@@ -12,9 +15,11 @@ import {
   BOM_SHIPMENT_DOMESTIC_STATUSES,
   BOM_SHIPMENT_INTL_STATUSES,
   BomInvoiceData,
+  PCB_PO_STATUSES,
   bomShipmentActorOf,
   bomShipmentNextStatus,
   bomShipmentPrevStatus,
+  type PcbPoStatusType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getBusinessInfo } from './g5-db';
@@ -128,12 +133,45 @@ export const findPcbShipmentByPo = async (poId: bigint): Promise<SpPcbShipment |
   return link?.shipment ?? null;
 };
 
+/** 묶음 컨텍스트 키 — 같은 박스로 담길 수 있는 조건(받는측·받는조직·직송지·회차)의
+ *  문자열화. 보내기 보드의 선반↔박스 매칭 축이자 담기(ensure) 합류 판정의 축. */
+export const pcbShipContextKey = (
+  ctx: Pick<PcbShipContext, 'receiverKind' | 'receiverPartnerId' | 'destinationCountry'>,
+  reorderRound: number,
+): string =>
+  `${ctx.receiverKind}:${(ctx.receiverPartnerId ?? 0n).toString()}:${ctx.destinationCountry ?? '-'}:r${String(reorderRound)}`;
+
+/** 같은 컨텍스트의 준비 중 박스 — 보내는 조직·회차까지 일치해야 한다(대표 발주서 기준). */
+const findPreparingPcbShipment = async (
+  po: SpPcbPo,
+  ctx: PcbShipContext,
+): Promise<SpPcbShipment | null> => {
+  const rows = await prisma.spPcbShipment.findMany({
+    where: {
+      status: 'preparing',
+      receiverKind: ctx.receiverKind,
+      receiverPartnerId: ctx.receiverPartnerId,
+      destinationCountry: ctx.destinationCountry,
+    },
+    orderBy: { id: 'asc' },
+  });
+  for (const row of rows) {
+    const rep = await prisma.spPcbPo.findUnique({ where: { id: row.poId } });
+    if (rep !== null && rep.partnerId === po.partnerId && rep.reorderRound === po.reorderRound)
+      return row;
+  }
+  return null;
+};
+
 export type EnsurePcbShipmentError =
   | 'NOT_PRODUCED'
   | 'PARTNER_COUNTRY_REQUIRED'
   | 'OUTBOUND_BLOCKED';
 
-/** 대표 발주서로 발송을 확보(없으면 생성 — 모드·받는측·목적지 박제). */
+/** 담기(박스 확보) — 이미 소속이면 그 발송, **같은 컨텍스트의 preparing 박스가 있으면
+ *  합류**, 없으면 생성(모드·받는측·목적지 박제). 합류 의미론이 기본값인 이유: 구
+ *  모델(발주서마다 발송 생성 + 전이 순간 withPoIds)에선 발주서마다 [발송 준비]를 누르는
+ *  순간 서로 다른 발송에 소속돼 영영 묶을 수 없었다(§9 재구성 — 실사용 도달 불가 판정). */
 export const ensurePcbShipment = async (
   po: PoWithPartner,
 ): Promise<{ ok: true; shipment: SpPcbShipment } | { ok: false; error: EnsurePcbShipmentError }> => {
@@ -143,6 +181,18 @@ export const ensurePcbShipment = async (
   if (await isPcbOutboundBlocked(po)) return { ok: false, error: 'OUTBOUND_BLOCKED' };
   const ctx = await resolvePcbShipContext(po);
   if (!ctx.ok) return { ok: false, error: ctx.error };
+
+  const box = await findPreparingPcbShipment(po, ctx.ctx);
+  if (box !== null) {
+    await prisma.spPcbShipmentPo.create({ data: { shipmentId: box.id, poId: po.id } });
+    // 구성 변경 — 저장된 상업송장 편집본은 품목이 달라져 무효(품목 누락 송장 방지).
+    await prisma.spPcbShipment.update({
+      where: { id: box.id },
+      data: { invoiceData: Prisma.DbNull },
+    });
+    return { ok: true, shipment: box };
+  }
+
   const shipment = await prisma.spPcbShipment.create({
     data: {
       poId: po.id,
@@ -273,7 +323,6 @@ export type PcbShipmentTransitionError =
   | 'MISSING_SHIP_DATE'
   | 'MISSING_INVOICE_FILE'
   | 'MISSING_TRACKING'
-  | 'INVALID_GROUP_PO'
   | 'NOTHING_TO_REVERT'
   | 'RECEIVE_LOCKED'
   | 'NOT_SHIPPED';
@@ -301,42 +350,17 @@ export const advancePcbShipment = async (
   if (side === null || !(await isSideActor(shipment, side, actor)))
     return { ok: false, error: 'NOT_YOUR_TURN' };
 
-  // 함께 발송(§6.10) — 최초 발송 전이에서만. 같은 보내는측·produced·미소속·같은
-  // 컨텍스트(받는측/목적지/회차 — 레거시 그룹 가드 승계).
-  const repPartnerId = await senderPartnerIdOf(shipment);
-  const withPoIds = [...new Set(body.withPoIds ?? [])].filter((id) => BigInt(id) !== po.id);
-  if (withPoIds.length > 0) {
-    if (next !== 'requested' && next !== 'shipping') return { ok: false, error: 'INVALID_GROUP_PO' };
-    const companions = await prisma.spPcbPo.findMany({
-      where: { id: { in: withPoIds.map((id) => BigInt(id)) } },
-      include: { partner: true },
+  // 최초 발송 전이 — 담은 뒤 하위 발주가 새로 생겼을 수 있어 **묶음 전체**의 출고
+  // 게이팅을 재검한다(MD 상위 출고는 하위 입고 완료 후 — 레거시 규칙. 구 withPoIds
+  // 검증엔 이 검사가 빠져 동반 발주서로 게이트를 우회할 수 있었다 — §9 재구성 교정).
+  if (current === 'preparing') {
+    const links = await prisma.spPcbShipmentPo.findMany({ where: { shipmentId: shipment.id } });
+    const members = await prisma.spPcbPo.findMany({
+      where: { id: { in: links.map((l) => l.poId) } },
     });
-    if (companions.length !== withPoIds.length) return { ok: false, error: 'INVALID_GROUP_PO' };
-    const links = await prisma.spPcbShipmentPo.findMany({
-      where: { poId: { in: companions.map((c) => c.id) } },
-    });
-    if (links.length > 0) return { ok: false, error: 'INVALID_GROUP_PO' };
-    const rep = await prisma.spPcbPo.findUnique({ where: { id: shipment.poId } });
-    for (const companion of companions) {
-      if (
-        companion.partnerId !== repPartnerId ||
-        companion.status !== 'produced' ||
-        companion.reorderRound !== (rep?.reorderRound ?? 0)
-      )
-        return { ok: false, error: 'INVALID_GROUP_PO' };
-      const ctx = await resolvePcbShipContext(companion);
-      if (
-        !ctx.ok ||
-        ctx.ctx.receiverKind !== shipment.receiverKind ||
-        (ctx.ctx.receiverPartnerId?.toString() ?? null) !==
-          (shipment.receiverPartnerId?.toString() ?? null) ||
-        ctx.ctx.destinationCountry !== shipment.destinationCountry
-      )
-        return { ok: false, error: 'INVALID_GROUP_PO' };
+    for (const member of members) {
+      if (await isPcbOutboundBlocked(member)) return { ok: false, error: 'OUTBOUND_BLOCKED' };
     }
-    await prisma.spPcbShipmentPo.createMany({
-      data: companions.map((c) => ({ shipmentId: shipment.id, poId: c.id })),
-    });
   }
 
   // 단계별 필수값(BOM D22 미러 + 국제 '선적'은 운송장 필수).
@@ -427,9 +451,9 @@ export const receivePcbShipment = async (
 /**
  * 선적 취소(문서 삭제) — 관리자 전용. 묶음이면 통째로 사라진다.
  *
- * 왜 필요한가: 협력사 detach 는 대표 발주서를 뺄 수 없어(REPRESENTATIVE_PO) 잘못 만든
- * 선적을 없앨 방법이 아예 없었다. 그래서 견적 영구 삭제의 SHIPMENT_EXISTS 차단(D13)이
- * 풀 수 없는 막다른 길이 됐다 — 취소 경로가 그 출구다.
+ * §9 재구성으로 협력사도 detach(대표 승계·빈 박스 소멸)로 발송을 스스로 정리할 수
+ * 있게 됐지만, 관리자의 한 번에 취소(견적 영구 삭제의 SHIPMENT_EXISTS 차단 D13 의
+ * 출구)로 여전히 유용해 유지한다.
  *
  * 위계는 발주 취소(deletePcbPo: issued 만)와 같다 — **발송 전(preparing)** 만 허용하고,
  * 그 이후 단계는 revert 로 내려온 뒤에야 취소된다. 입고 확인된 선적은 어떤 경우에도 불가.
@@ -464,19 +488,55 @@ export const cancelPcbShipment = async (
   return { ok: true, poIds: links.map((l) => l.poId) };
 };
 
-/** 묶음에서 제외 — 보내는측, preparing 만, 대표 발주서 불가(BOM §6.10 초기 규칙). */
+/** 박스에서 꺼내기 — 보내는측, preparing 만. "대표" 개념은 사용자에게서 숨긴다
+ * (BOM §6.11 개정 동형): 대표를 꺼내면 남은 발주서로 자동 승계하고, 마지막을 꺼내면
+ * 발송 자체를 정리한다(첨부 실파일 → sp_file → 행 — 고아 pathToken 방지). 구
+ * REPRESENTATIVE_PO 규칙(대표 불가)은 협력사가 잘못 만든 발송을 스스로 풀 수 없는
+ * 막다른 길이라 폐기(§9 재구성). */
 export const detachPcbShipmentPo = async (
   po: SpPcbPo,
   actor: PcbShipmentActor,
-): Promise<{ ok: true } | { ok: false; error: PcbShipmentTransitionError | 'NOT_PREPARING' | 'REPRESENTATIVE_PO' }> => {
+): Promise<{ ok: true } | { ok: false; error: PcbShipmentTransitionError | 'NOT_PREPARING' }> => {
   const shipment = await findPcbShipmentByPo(po.id);
   if (shipment === null) return { ok: false, error: 'NOTHING_TO_REVERT' };
   if (!(await isSideActor(shipment, 'PARTNER', actor)))
     return { ok: false, error: 'NOT_YOUR_TURN' };
   if (asPcbShipmentStatus(asPcbShipmentMode(shipment.mode), shipment.status) !== 'preparing')
     return { ok: false, error: 'NOT_PREPARING' };
-  if (shipment.poId === po.id) return { ok: false, error: 'REPRESENTATIVE_PO' };
+
+  const links = await prisma.spPcbShipmentPo.findMany({
+    where: { shipmentId: shipment.id },
+    orderBy: { id: 'asc' },
+  });
+  const remaining = links.filter((link) => link.poId !== po.id);
+
+  if (remaining.length === 0) {
+    // 빈 박스는 소멸 — 첨부 실파일 먼저 정리(고아 pathToken 방지, 재시도 멱등).
+    const files = await prisma.spFile.findMany({
+      where: { refType: SHIPMENT_REF_TYPE, refId: shipment.id },
+    });
+    for (const file of files) {
+      await deleteFromFileServer(file.pathToken);
+      await prisma.spFile.delete({ where: { id: file.id } });
+    }
+    await prisma.spPcbShipment.delete({ where: { id: shipment.id } }); // 조인 cascade
+    return { ok: true };
+  }
+
   await prisma.spPcbShipmentPo.delete({ where: { poId: po.id } });
+  // 대표 승계는 내부 참조 정리일 뿐 — 사용자 규칙에 노출하지 않는다. 구성이 바뀌었으니
+  // 저장된 상업송장 편집본도 무효(품목 누락 송장 방지).
+  const heir =
+    shipment.poId === po.id
+      ? await prisma.spPcbPo.findUnique({ where: { id: remaining[0]?.poId ?? 0n } })
+      : null;
+  await prisma.spPcbShipment.update({
+    where: { id: shipment.id },
+    data: {
+      invoiceData: Prisma.DbNull,
+      ...(heir === null ? {} : { poId: heir.id, specId: heir.specId }),
+    },
+  });
   return { ok: true };
 };
 
@@ -500,6 +560,11 @@ export const toPcbShipmentView = async (
           })
         )?.name ?? '중개 조직')
       : house;
+  const memberPos = await prisma.spPcbPo.findMany({
+    where: { id: { in: links.map((l) => l.poId) } },
+    include: { spec: true },
+    orderBy: { id: 'asc' },
+  });
   return {
     shipmentId: Number(shipment.id),
     poId: Number(shipment.poId),
@@ -520,6 +585,13 @@ export const toPcbShipmentView = async (
     receivedNote: shipment.receivedNote,
     completedAt: iso(shipment.completedAt),
     poIds: links.map((l) => Number(l.poId)),
+    groupPos: memberPos.map((member) => ({
+      poId: Number(member.id),
+      projectName: member.spec.projectName,
+      qty: member.spec.qty,
+      currency: member.currency,
+      priceOriginal: Number(member.priceOriginal),
+    })),
     files: files.get(shipment.id.toString()) ?? [],
   };
 };
@@ -542,37 +614,109 @@ export const loadPcbShipmentsForPoIds = async (poIds: bigint[]): Promise<PcbShip
   return out;
 };
 
-/** 같이 보낼 후보 — 같은 보내는측·produced·미배정·같은 컨텍스트·같은 회차. */
-export const loadShippableCompanions = async (
-  po: PoWithPartner,
-): Promise<{ poId: number; projectName: string }[]> => {
-  const baseCtx = await resolvePcbShipContext(po);
-  if (!baseCtx.ok) return [];
-  const candidates = await prisma.spPcbPo.findMany({
-    where: {
-      partnerId: po.partnerId,
-      status: 'produced',
-      reorderRound: po.reorderRound,
-      id: { not: po.id },
-    },
+/** [📦 PCB 보내기] 보드 — 선반(수주 produced·미편성)·곧 보낼 물건(생산완료 전)·
+ *  박스(preparing)·진행·완료 수. 받는 곳이 갈릴 수 있어(관리자/직송/MD) 선반 카드는
+ *  contextKey 로 박스와 매칭한다. 협력사 관점 완료 = 최종 도달 또는 입고 확인(BOM §6.11). */
+export const loadPartnerPcbShipBoard = async (
+  partnerId: bigint,
+): Promise<{
+  shelf: PartnerPcbShipShelfItemType[];
+  producing: { poId: number; projectName: string; qty: number; status: PcbPoStatusType }[];
+  boxes: PartnerPcbShipBoxType[];
+  active: PcbShipmentViewType[];
+  doneCount: number;
+}> => {
+  const myPos = await prisma.spPcbPo.findMany({
+    where: { partnerId },
     include: { partner: true, spec: true },
+    orderBy: { id: 'asc' },
   });
-  const out: { poId: number; projectName: string }[] = [];
-  for (const candidate of candidates) {
-    const link = await prisma.spPcbShipmentPo.findUnique({ where: { poId: candidate.id } });
-    if (link !== null) continue;
-    const ctx = await resolvePcbShipContext(candidate);
-    if (
-      !ctx.ok ||
-      ctx.ctx.receiverKind !== baseCtx.ctx.receiverKind ||
-      (ctx.ctx.receiverPartnerId?.toString() ?? null) !==
-        (baseCtx.ctx.receiverPartnerId?.toString() ?? null) ||
-      ctx.ctx.destinationCountry !== baseCtx.ctx.destinationCountry
-    )
-      continue;
-    out.push({ poId: Number(candidate.id), projectName: candidate.spec.projectName });
+  const links = await prisma.spPcbShipmentPo.findMany({
+    where: { poId: { in: myPos.map((p) => p.id) } },
+  });
+  const linkedPoIds = new Set(links.map((l) => l.poId.toString()));
+
+  // 곧 보낼 물건 — BOM 은 확인 즉시 선반이지만 PCB 는 생산완료 전까지 담을 수 없다.
+  // 발주 확인(EQ 진행) 시점부터의 발송 가시성은 이 목록이 담당한다(홈 카드 보조 표기 공용).
+  // 상태 캐스트는 로컬로 둔다 — lib/pcb-po.ts 의 asPcbPoStatus 를 쓰면 순환 import.
+  const asBoardPoStatus = (v: string): PcbPoStatusType =>
+    (PCB_PO_STATUSES as readonly string[]).includes(v) ? (v as PcbPoStatusType) : 'issued';
+  const producing = myPos
+    .filter((po) => po.status !== 'produced')
+    .map((po) => ({
+      poId: Number(po.id),
+      projectName: po.spec.projectName,
+      qty: po.spec.qty,
+      status: asBoardPoStatus(po.status),
+    }));
+
+  const mdNames = new Map<string, string>();
+  const shelf: PartnerPcbShipShelfItemType[] = [];
+  for (const po of myPos) {
+    if (po.status !== 'produced' || linkedPoIds.has(po.id.toString())) continue;
+    const ctx = await resolvePcbShipContext(po);
+    let receiverLabel = '샘플피씨비';
+    let contextKey = '';
+    if (ctx.ok) {
+      contextKey = pcbShipContextKey(ctx.ctx, po.reorderRound);
+      if (ctx.ctx.destinationCountry !== null) {
+        receiverLabel = `직송 ${ctx.ctx.destinationCountry}`;
+      } else if (ctx.ctx.receiverKind === 'md') {
+        const key = (ctx.ctx.receiverPartnerId ?? 0n).toString();
+        if (!mdNames.has(key)) {
+          const md = await prisma.spPartner.findUnique({
+            where: { id: ctx.ctx.receiverPartnerId ?? 0n },
+          });
+          mdNames.set(key, md?.name ?? '중개 조직');
+        }
+        receiverLabel = `MD ${mdNames.get(key) ?? ''}`;
+      }
+    }
+    shelf.push({
+      poId: Number(po.id),
+      projectName: po.spec.projectName,
+      qty: po.spec.qty,
+      currency: po.currency,
+      priceOriginal: Number(po.priceOriginal),
+      reorderRound: po.reorderRound,
+      receiverLabel,
+      contextKey,
+      outboundBlocked: await isPcbOutboundBlocked(po),
+      countryReady: ctx.ok,
+    });
   }
-  return out;
+
+  // 발송 — 대표 발주서가 내 것인 발송 전체(보내는측 = 대표 조직, 가드 불변식).
+  const shipments = await prisma.spPcbShipment.findMany({
+    where: { poId: { in: myPos.map((p) => p.id) } },
+    orderBy: { id: 'asc' },
+  });
+  const boxes: PartnerPcbShipBoxType[] = [];
+  const active: PcbShipmentViewType[] = [];
+  let doneCount = 0;
+  for (const shipment of shipments) {
+    const mode = asPcbShipmentMode(shipment.mode);
+    const status = asPcbShipmentStatus(mode, shipment.status);
+    if (status === 'preparing') {
+      const rep = await prisma.spPcbPo.findUnique({ where: { id: shipment.poId } });
+      boxes.push({
+        ...(await toPcbShipmentView(shipment)),
+        contextKey: pcbShipContextKey(
+          {
+            receiverKind: shipment.receiverKind === 'md' ? 'md' : 'admin',
+            receiverPartnerId: shipment.receiverPartnerId,
+            destinationCountry: shipment.destinationCountry,
+          },
+          rep?.reorderRound ?? 0,
+        ),
+      });
+    } else if (shipment.receivedAt !== null || bomShipmentNextStatus(mode, status) === null) {
+      doneCount += 1;
+    } else {
+      active.push(await toPcbShipmentView(shipment));
+    }
+  }
+  return { shelf, producing, boxes, active, doneCount };
 };
 
 /** 받는측 차례 판정(목록 myTurn·워크큐 공용) — 다음 전이가 받는측이거나 최종·입고 미확인. */

@@ -33,7 +33,6 @@ import { summarizePcbRemittances } from './pcb-remittance';
 import {
   findPcbShipmentByPo,
   isPcbOutboundBlocked,
-  loadShippableCompanions,
   pcbShipmentReceiverTurn,
   pcbShipmentSenderTurn,
   resolvePcbShipContext,
@@ -884,11 +883,7 @@ export const loadPartnerPcbPoDetail = async (
         shipmentRow === null &&
         !outboundBlocked &&
         ctxOk;
-      const shippableWith =
-        canShip || (shipment !== null && shipment.status === 'preparing' && direction === 'received')
-          ? await loadShippableCompanions(po)
-          : [];
-      return { shipment, shippableWith, canShip, outboundBlocked };
+      return { shipment, canShip, outboundBlocked };
     })()),
   };
 };

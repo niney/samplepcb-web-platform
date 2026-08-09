@@ -792,6 +792,63 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
 - **남은 것**: `PARENT_HAS_ACTIVE_POS`·`RELATION_ACTIVE` 가드는 진행 중 실데이터가 필요해
   스모크 미포함(로직은 count 1개) — 다음 PCB E2E 때 곁들여 확인.
 
+### 포털 묶음 발송 재구성 (2026-08-09 — [📦 PCB 보내기] 보드)
+
+**배경(사용자 지적이 정확했다)**: 묶음 발송은 서버(P3 `withPoIds`)와 상세 화면 체크박스로
+"있었지만", 실사용 흐름에서 도달 불가였다 — 후보 조건(같은 받는 곳·회차·produced·미편성)이
+동시에 성립하는 창이 거의 없고(순차 완주 시 항상 0건), 발주서마다 [발송 준비]를 누르면 서로
+다른 단독 발송에 소속돼 **영구히 못 묶는 함정**(협력사는 대표 detach 불가)까지 있었다.
+dev DB 실데이터로 재현 판정 후, "전이 순간 일회성 묶기" 모델 자체를 폐기하고 BOM §6.11
+**"박스에 먼저 담는" 모델의 PCB 일반화**로 재구성했다.
+
+- **모델**: 박스 = **컨텍스트당 preparing 발송 1개**(BOM 과 달리 받는 곳이 갈린다 —
+  관리자행/직송 KR·CN·VN/MD행, contextKey = 받는측:받는조직:직송지:회차). 규칙은 하나 —
+  "발송 전(preparing)엔 자유"(담기·꺼내기, 대표 개념 은닉).
+- **서버**(`pcb-shipment.ts`): ①`ensurePcbShipment` 합류 의미론 — 같은 컨텍스트 preparing
+  박스가 있으면 합류, 없으면 생성(모든 경로 공통이라 "각자 발송 준비" 함정 자체가 소멸)
+  ②`detachPcbShipmentPo` BOM §6.11 동형 — 대표 꺼내면 승계(poId+specId), 마지막이면 첨부
+  정리 후 발송 소멸(구 REPRESENTATIVE_PO 폐기) ③`advancePcbShipment` — withPoIds 제거,
+  **최초 전이 시 묶음 전체 출고 게이팅 재검**(구 withPoIds 는 동반 발주서 게이팅을 안 봐
+  우회 가능했다 — 교정) ④구성 변경(합류·꺼내기) 시 `invoiceData` DbNull 클리어(품목 누락
+  송장 방지 — 국제 묶음의 "서류 먼저, 묶기 나중" 순서 함정 해소) ⑤`loadPartnerPcbShipBoard`
+  (선반=수주 produced·미편성 + 받는 곳 라벨·게이팅·국가 상태 / 박스 / 진행 / 완료 수).
+- **계약**: `PcbShipmentView.groupPos`(소속 발주서 표시 정보 — additive), AdvanceBody 의
+  `withPoIds`·상세 `shippableWith` 제거(모노레포 동시 배포라 breaking 무해), 보드 계약
+  `PartnerPcbShip*` 신설. apiRoutes `partnerPcbShipments`(P3 때 선등록된 키) 첫 사용.
+- **라우트**: `partner-pcb-shipments.ts` 신설 — `GET /partner/pcb-shipments`(보드) +
+  `POST /partner/pcb-shipments/box`(담기 — 서버가 컨텍스트 해석해 합류·생성, 멱등).
+  꺼내기·전이·서류·입고는 기존 발주서 경유 라우트 재사용.
+- **웹**: `/partner/pcb-ship` **[📦 PCB 보내기]** 신설(BOM 두 칸 미러 + 받는 곳 배지·박스
+  복수 나열·게이팅/국가 비활성 사유) · 상세 발송 카드는 체크박스 → **묶음 구성 표시**
+  (groupPos + 보드 링크)로 교체 · 포털 홈에 "보낼 PCB 물건" 진입 카드(선반·박스 있을 때만).
+- **검증**: 실서버 스모크 **27 ALL PASS**(자족 시드 협력2(CN) — 모드 파생(CN발 관리자행=국제
+  ·직송 CN=국내) 겸 검증: 라벨·합류·컨텍스트 분리·멱등 담기·대표 승계·박스 소멸·게이팅
+  담기 409+**전이 재검 409**·MD 라벨(협력1 보드 읽기)·묶음 전이·동반 상세 동기·revert·
+  관리자 입고확인→완료 분류·정리 무잔재) · typecheck · ESLint 0건 · vitest 회귀 0.
+- **후속(같은 날) — 발송 조작을 보드로 단일화**(사용자 결정: "BOM처럼 아예 보내기에서").
+  상세에 박혀 있던 보내는측 발송 UI 를 `components/pcb/PcbShipmentCard.vue` 로 추출
+  (스텝퍼·전이 폼·첨부 업로드·상업송장 생성기·되돌리기 — BOM PartnerShipmentCard 미러,
+  조작은 대표 poId 경유). 보드는 박스 확정 시 같은 화면에서 카드 전개(BOM readyMode
+  미러)하고 진행 중 발송도 카드로 바로 전이한다. **상세는 읽기 요약**(스텝퍼·운송장·묶음
+  구성·첨부 다운로드)+보드 링크로 축소 — 단, **받는측(MD 입고확인·수신 전이)은 상세에
+  유지**(보드는 보내는측 화면, 받는 흐름은 "발주한 하위 건" 상세가 자리다). [발송 준비
+  시작] 버튼(빈 전이 409 트릭)도 보드 링크로 대체 — 진입점 단일화. 서버·계약 무변경,
+  스모크 27 재실행 ALL PASS · web typecheck·ESLint 0건.
+- **후속 2(같은 날) — 확인 시점 가시성 보완**(사용자 지적: BOM 은 발주 확인 즉시 '보낼
+  물건' 건수가 잡히는데 PCB 는 생산완료까지 아무 표시가 없다). 담기 기준을 낮추는 건
+  도메인 위반(생산 전 발송 불가·NOT_PRODUCED 가드)이라 기각하고 **가시성 패턴만 BOM 에
+  맞췄다**: 보드 응답에 `producing`(수주·생산완료 전 목록) 추가 → 보드 선반 하단
+  "곧 보낼 물건 (n건 생산 진행 중 — 생산완료되면 위로 올라옵니다)" 읽기 목록(상태
+  배지·상세 링크) + 홈 카드 노출 조건 완화(선반·박스·생산중·진행 발송 중 하나라도
+  있으면)·보조 라인 우선순위(박스 계속하기 > 보내기 > **생산 진행 중 n건** > 진행 중
+  발송). 메인 숫자는 담기 가능 수 유지(BOM 카운트도 담기 가능 수 — 이게 진짜 일관성).
+  스모크 28 ALL PASS(producing 분류·선반 제외 검증 추가).
+- **남은 것**: ① 관리자 Case '같이 보내기' UI(P3 후속 그대로 — 관리자 대행도 ensure 합류
+  의미론은 이미 공유) ② 국제 묶음 E2E(Invoice 첨부 필수 경로) ③ 브라우저 실탐방 —
+  협력사 계정(tester2) 로그인이 필요해 자동화 불가(자격증명 입력 금지), 수동 확인 1회:
+  /app/partner/pcb-ship 담기→카드 전개→국내 전이, 상세 요약·보드 링크, 홈 카드
+  '생산 진행 중' 보조 표기.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

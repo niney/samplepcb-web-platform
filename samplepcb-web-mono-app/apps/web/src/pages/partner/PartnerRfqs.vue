@@ -12,7 +12,11 @@ import {
   usePartnerShipments,
 } from '../../partner/usePartnerRfqs';
 import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
-import { usePartnerPcbPos, usePartnerPcbRemittances } from '../../partner/usePartnerPcbPos';
+import {
+  usePartnerPcbPos,
+  usePartnerPcbRemittances,
+  usePartnerPcbShipBoard,
+} from '../../partner/usePartnerPcbPos';
 import { partnerPoDisplayStatus } from '../../partner/partnerPoStatus';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import PartnerShipmentCard from '../../components/partner/PartnerShipmentCard.vue';
@@ -45,6 +49,22 @@ const donePcb = computed(() => pcbItems.value.filter((r) => r.status !== 'reques
 const pcbPoQuery = usePartnerPcbPos();
 const pcbPoItems = computed(() => pcbPoQuery.data.value?.data.items ?? []);
 const myTurnPcbPos = computed(() => pcbPoItems.value.filter((po) => po.myTurn));
+
+// [📦 PCB 보내기] 진입 카드(§9 묶음 재구성) — PCB 발송 세계에 뭔가 있으면 노출
+// (BOM 전용 조직 오염 방지). BOM 은 확인 즉시 선반이라 카드에 바로 잡히지만 PCB 는
+// 생산완료 전까지 담을 수 없어, 확인 시점의 가시성은 '생산 진행 중' 보조 표기가 담당.
+const pcbShipQuery = usePartnerPcbShipBoard();
+const pcbShelf = computed(() => pcbShipQuery.data.value?.data.shelf ?? []);
+const pcbProducing = computed(() => pcbShipQuery.data.value?.data.producing ?? []);
+const pcbBoxes = computed(() => pcbShipQuery.data.value?.data.boxes ?? []);
+const pcbActiveShipments = computed(() => pcbShipQuery.data.value?.data.active ?? []);
+const showPcbShipCard = computed(
+  () =>
+    pcbShelf.value.length > 0 ||
+    pcbBoxes.value.length > 0 ||
+    pcbProducing.value.length > 0 ||
+    pcbActiveShipments.value.length > 0,
+);
 
 // 수금 현황(P3.11) — 통화별 미수금 요약. 발주가 하나도 없으면 카드 자체를 감춘다.
 const remitQuery = usePartnerPcbRemittances();
@@ -159,6 +179,27 @@ const rfqStatusCls = (s: string): string =>
           <p v-if="myTurnCount > 0" class="mt-0.5 text-xs font-bold text-blue-600">내 차례 {{ myTurnCount }}건!</p>
         </a>
       </div>
+
+      <!-- [📦 PCB 보내기](§9 묶음 재구성) — 생산완료 PCB 발주를 받는 곳별 박스로 묶어 발송 -->
+      <RouterLink
+        v-if="showPcbShipCard"
+        :to="{ name: 'partner-pcb-ship' }"
+        class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-surface px-4 py-3 hover:border-teal-300"
+        :class="pcbShelf.length > 0 || pcbBoxes.length > 0 ? 'border-teal-200' : 'border-gray-200'"
+      >
+        <div>
+          <p class="text-sm font-bold text-gray-700">📦 보낼 PCB 물건</p>
+          <p class="mt-0.5 text-xs text-gray-500">
+            <template v-if="pcbBoxes.length > 0">준비 중인 박스 {{ pcbBoxes.length }}개 — 계속하기 →</template>
+            <template v-else-if="pcbShelf.length > 0">받는 곳이 같은 발주서는 묶어서 한 번에 보낼 수 있습니다 →</template>
+            <template v-else-if="pcbProducing.length > 0">생산 진행 중 {{ pcbProducing.length }}건 — 생산완료되면 담을 수 있습니다</template>
+            <template v-else>진행 중 발송 {{ pcbActiveShipments.length }}건 →</template>
+          </p>
+        </div>
+        <p class="text-2xl font-bold" :class="pcbShelf.length > 0 ? 'text-teal-700' : 'text-gray-300'">
+          {{ pcbShelf.length }}<span class="text-sm font-semibold">건</span>
+        </p>
+      </RouterLink>
 
       <!-- 수금 현황(P3.11) — '오늘 할 일'이 아니라 돈 이야기라 카드 줄과 분리한다.
            완료된 발주서는 아래 목록에 안 떠서 여기가 유일한 진입점이다. -->

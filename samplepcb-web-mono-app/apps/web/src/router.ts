@@ -107,6 +107,13 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresMember: true },
       },
       {
+        // [📦 PCB 보내기](PCB §9 묶음 재구성) — 받는 곳별 박스에 담아 묶어 발송
+        path: 'pcb-ship',
+        name: 'partner-pcb-ship',
+        component: () => import('./pages/partner/PartnerPcbShip.vue'),
+        meta: { requiresMember: true },
+      },
+      {
         // 완료된 발송(§6.11 분리) — 누적 아카이브, 페이지네이션
         path: 'shipments/done',
         name: 'partner-shipments-done',

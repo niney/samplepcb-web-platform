@@ -461,7 +461,6 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     MISSING_SHIP_DATE: '출고예정일이 필요합니다.',
     MISSING_INVOICE_FILE: 'Invoice 첨부가 필요합니다(상업송장 생성기로 만들 수 있습니다).',
     MISSING_TRACKING: '운송장(택배사·송장번호)이 필요합니다.',
-    INVALID_GROUP_PO: '함께 발송 대상이 조건(같은 받는측·목적지·회차·생산완료·미소속)에 맞지 않습니다.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
     NOT_SHIPPED: '발송 시작 전에는 입고확인할 수 없습니다.',

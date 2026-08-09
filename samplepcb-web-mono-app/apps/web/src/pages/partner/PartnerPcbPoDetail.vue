@@ -13,14 +13,12 @@ import {
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
   bomShipmentStatusesOf,
-  type BomShipmentFileTypeType,
   type PcbEqFileTypeType,
 } from '@sp/api-contract';
 import {
   downloadPartnerPcbEqFile,
   downloadPartnerPcbPoSpecFile,
   downloadPartnerPcbShipmentFile,
-  partnerPcbInvoiceApi,
   useCreatePartnerChildPcbPo,
   useDeletePartnerPcbEqFile,
   usePartnerPcbEqRequest,
@@ -29,13 +27,9 @@ import {
   usePartnerPcbProductionComplete,
   usePartnerPcbProductionStart,
   usePartnerPcbShipmentAdvance,
-  usePartnerPcbShipmentDetach,
   usePartnerPcbShipmentReceive,
-  usePartnerPcbShipmentRevert,
   useUploadPartnerPcbEqFile,
-  useUploadPartnerPcbShipmentFile,
 } from '../../partner/usePartnerPcbPos';
-import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue';
 import { fmtKstDate as dateOnly } from '@sp/utils';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
@@ -200,10 +194,9 @@ const shipNext = computed(() =>
 const shipNextActor = computed(() =>
   shipNext.value === null ? null : bomShipmentActorOf(shipMode.value, shipNext.value),
 );
-// 보내는측 액션 = 내가 수주한 발주(received), 받는측 액션 = 내가 발주한 하위(issued, MD 입고).
-const canSenderAct = computed(
-  () => detail.value?.direction === 'received' && shipNextActor.value === 'PARTNER',
-);
+// 발송 조작은 [📦 PCB 보내기] 보드가 단일 창구(§9 재구성 후속) — 수주(보내는측) 발송
+// 섹션은 읽기 요약+보드 링크만 남긴다. 받는측(MD 입고) 액션은 "발주한 하위 건"의
+// 자리이므로 이 상세에 유지한다.
 const isMdReceiverView = computed(
   () =>
     detail.value?.direction === 'issued' &&
@@ -219,52 +212,8 @@ const receiverCanReceive = computed(
     ship.value.status !== 'preparing' &&
     ship.value.receivedAt === null,
 );
-const shipAdvance = usePartnerPcbShipmentAdvance();
-const shipRevert = usePartnerPcbShipmentRevert();
+const shipAdvance = usePartnerPcbShipmentAdvance(); // 받는측(MD) 전이 전용
 const shipReceive = usePartnerPcbShipmentReceive();
-const shipDetach = usePartnerPcbShipmentDetach();
-const shipUpload = useUploadPartnerPcbShipmentFile();
-const shipDateInput = ref('');
-const carrierInput = ref('');
-const trackingInput = ref('');
-const withSelected = ref<Set<number>>(new Set());
-const invoiceOpen = ref(false);
-
-function toggleWith(poIdWith: number): void {
-  const next = new Set(withSelected.value);
-  if (next.has(poIdWith)) next.delete(poIdWith);
-  else next.add(poIdWith);
-  withSelected.value = next;
-}
-async function startPrepare(): Promise<void> {
-  if (poId.value === null) return;
-  actionError.value = '';
-  try {
-    // 빈 전이는 필수값으로 409가 정상 — 발송(preparing) 생성이 목적.
-    await shipAdvance.mutateAsync({ poId: poId.value, body: {} });
-  } catch {
-    await detailQuery.refetch();
-  }
-}
-async function runShipAdvance(): Promise<void> {
-  if (poId.value === null || shipNext.value === null) return;
-  actionError.value = '';
-  try {
-    await shipAdvance.mutateAsync({
-      poId: poId.value,
-      body: {
-        ...(shipNext.value === 'requested' ? { shipDate: shipDateInput.value } : {}),
-        ...(shipNext.value === 'shipping'
-          ? { carrier: carrierInput.value, trackingNumber: trackingInput.value }
-          : {}),
-        ...(withSelected.value.size > 0 ? { withPoIds: [...withSelected.value] } : {}),
-      },
-    });
-    withSelected.value = new Set();
-  } catch (e) {
-    surfaceError(e, '발송 진행에 실패했습니다.');
-  }
-}
 // 받는측(MD) 전이 — 국내 '입고 완료', 국제 '선적'(AWB 트래킹) 이후 단계.
 async function runReceiverAdvance(): Promise<void> {
   if (poId.value === null || ship.value === null || shipNext.value === null) return;
@@ -281,27 +230,6 @@ async function runReceiverAdvance(): Promise<void> {
     surfaceError(e, '진행에 실패했습니다.');
   }
 }
-async function runShipRevert(): Promise<void> {
-  if (poId.value === null || ship.value === null) return;
-  if (!window.confirm('발송을 한 단계 되돌릴까요?')) return;
-  actionError.value = '';
-  try {
-    await shipRevert.mutateAsync({ poId: poId.value });
-  } catch (e) {
-    surfaceError(e, '되돌리기에 실패했습니다.');
-  }
-}
-// 묶음에서 빼기 — 이 발주가 대표가 아닌 묶음 소속이고 아직 발송 준비 단계일 때.
-async function runShipDetach(): Promise<void> {
-  if (poId.value === null) return;
-  if (!window.confirm('이 발주서를 묶음 발송에서 뺄까요?')) return;
-  actionError.value = '';
-  try {
-    await shipDetach.mutateAsync({ poId: poId.value });
-  } catch (e) {
-    surfaceError(e, '묶음 제외에 실패했습니다.');
-  }
-}
 async function runShipReceive(): Promise<void> {
   if (poId.value === null) return;
   const note = window.prompt('입고 확인 메모(수량 부족·불량 등 — 없으면 비워두세요)');
@@ -313,24 +241,6 @@ async function runShipReceive(): Promise<void> {
     surfaceError(e, '입고 확인에 실패했습니다.');
   }
 }
-function pickShipFile(fileType: BomShipmentFileTypeType): void {
-  if (poId.value === null) return;
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.onchange = async () => {
-    const file = input.files?.[0];
-    if (file === undefined) return;
-    actionError.value = '';
-    try {
-      await shipUpload.mutateAsync({ poId: poId.value ?? 0, file, fileType });
-    } catch (e) {
-      surfaceError(e, '파일 업로드에 실패했습니다.');
-    }
-  };
-  input.click();
-}
-const invoiceApi = computed(() => (poId.value === null ? null : partnerPcbInvoiceApi(poId.value)));
-
 const SHIP_STATUS_CLS: Record<string, string> = {
   preparing: 'bg-gray-100 text-gray-600',
   requested: 'bg-blue-100 text-blue-700',
@@ -559,15 +469,14 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
           하위 협력사 물품의 입고 확인이 끝나야 출고할 수 있습니다.
         </p>
 
-        <button
+        <!-- 담기·발송 조작은 보드가 단일 창구(§9 재구성 후속) — 여기서는 안내만 -->
+        <RouterLink
           v-if="detail.canShip && ship === null"
-          type="button"
-          class="mt-3 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700 disabled:opacity-40"
-          :disabled="shipAdvance.isPending.value"
-          @click="void startPrepare()"
+          :to="{ name: 'partner-pcb-ship' }"
+          class="mt-3 inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700"
         >
-          📦 발송 준비 시작
-        </button>
+          📦 PCB 보내기에서 담아 발송 →
+        </RouterLink>
 
         <template v-if="ship !== null">
           <!-- 스텝퍼 -->
@@ -590,54 +499,32 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
             운송장: {{ ship.carrier ?? '' }} {{ ship.trackingNumber }}
           </p>
 
-          <!-- 같이 보내기(최초 발송 전이에서 함께 담김) -->
-          <div v-if="canSenderAct && ship.status === 'preparing' && detail.shippableWith.length > 0" class="mt-3 rounded-lg border border-gray-100 p-3">
-            <p class="text-xs font-semibold text-gray-500">함께 발송(같은 받는 곳·회차)</p>
-            <div class="mt-1.5 flex flex-wrap gap-2">
-              <label
-                v-for="candidate in detail.shippableWith"
-                :key="candidate.poId"
-                class="flex cursor-pointer items-center gap-1.5 rounded-md border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
-              >
-                <input type="checkbox" class="size-3.5 accent-teal-600" :checked="withSelected.has(candidate.poId)" @change="toggleWith(candidate.poId)">
-                <span class="font-medium text-gray-700">{{ candidate.projectName }}</span>
-              </label>
-            </div>
+          <!-- 이 발송의 묶음 구성(읽기) — 담기·꺼내기·전이·서류는 [📦 PCB 보내기]에서 -->
+          <div class="mt-3 rounded-lg border border-gray-100 p-3">
+            <p class="text-xs font-semibold text-gray-500">
+              이 발송에 담긴 발주서 ({{ ship.groupPos.length }})
+            </p>
+            <ul class="mt-1.5 space-y-1">
+              <li v-for="g in ship.groupPos" :key="g.poId" class="flex items-center gap-2 text-xs">
+                <span
+                  class="min-w-0 flex-1 truncate"
+                  :class="g.poId === detail.poId ? 'font-bold text-gray-900' : 'text-gray-700'"
+                >
+                  {{ g.projectName }}<span v-if="g.poId === detail.poId" class="font-normal text-gray-400"> — 이 발주서</span>
+                </span>
+                <span class="shrink-0 text-gray-400">{{ fmtPcbAmount(g.currency, g.priceOriginal) }}</span>
+              </li>
+            </ul>
           </div>
 
-          <!-- 보내는측 전이 폼 -->
-          <div v-if="canSenderAct && shipNext !== null" class="mt-3 space-y-2">
-            <div class="grid gap-2 sm:grid-cols-2">
-              <label v-if="shipNext === 'requested'" class="block">
-                <span class="text-xs font-semibold text-gray-500">출고예정일 *</span>
-                <input v-model="shipDateInput" type="date" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
-              </label>
-              <template v-if="shipNext === 'shipping'">
-                <label class="block">
-                  <span class="text-xs font-semibold text-gray-500">택배사 *</span>
-                  <input v-model="carrierInput" type="text" placeholder="CJ대한통운 / SF Express" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
-                </label>
-                <label class="block">
-                  <span class="text-xs font-semibold text-gray-500">송장번호 *</span>
-                  <input v-model="trackingInput" type="text" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-teal-500 focus:outline-none">
-                </label>
-              </template>
-            </div>
-            <p v-if="shipNext === 'requested'" class="text-xs text-gray-400">
-              선적 요청에는 <b>Invoice 첨부</b>가 필요합니다 — [상업송장 만들기]로 PDF를 만들어 자동 첨부하세요.
-            </p>
-            <button
-              type="button"
-              class="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700 disabled:opacity-40"
-              :disabled="shipAdvance.isPending.value"
-              @click="void runShipAdvance()"
-            >
-              {{ bomShipmentStatusLabel(ship.mode, shipNext) }} 진행
-            </button>
-          </div>
-          <p v-else-if="detail.direction === 'received' && shipNext !== null" class="mt-3 text-sm text-gray-500">
-            {{ ship.receiverName }} 측 처리를 기다리고 있습니다.
-          </p>
+          <!-- 보내는측 — 조작은 보드 단일 창구 -->
+          <RouterLink
+            v-if="detail.direction === 'received' && shipNext !== null"
+            :to="{ name: 'partner-pcb-ship' }"
+            class="mt-3 inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700"
+          >
+            📦 발송 진행·서류는 PCB 보내기에서 →
+          </RouterLink>
 
           <!-- MD 받는측 — 전이·입고확인 -->
           <div v-if="receiverCanAdvance || receiverCanReceive" class="mt-3 flex flex-wrap gap-2">
@@ -661,8 +548,8 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
             </button>
           </div>
 
-          <!-- 첨부·송장·되돌리기 -->
-          <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <!-- 첨부 열람(읽기) — 업로드·상업송장 생성은 보드의 발송 카드에서 -->
+          <div v-if="ship.files.length > 0" class="mt-3 flex flex-wrap items-center gap-2 text-xs">
             <template v-for="f in ship.files" :key="f.fileId">
               <button
                 type="button"
@@ -672,38 +559,6 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
                 ⬇ {{ BOM_SHIPMENT_FILE_LABELS[f.fileType] }}
               </button>
             </template>
-            <template v-if="canSenderAct || detail.direction === 'received'">
-              <button type="button" class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50" @click="pickShipFile('invoice')">
-                ⬆ Invoice
-              </button>
-              <button type="button" class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-500 hover:bg-gray-50" @click="pickShipFile('airwaybill')">
-                ⬆ AWB/송장내역
-              </button>
-            </template>
-            <button
-              v-if="ship.mode === 'international'"
-              type="button"
-              class="rounded-md border border-teal-300 px-2 py-1 font-semibold text-teal-700 hover:bg-teal-50"
-              @click="invoiceOpen = true"
-            >
-              🧾 상업송장 만들기
-            </button>
-            <button
-              v-if="detail.direction === 'received' && ship.status !== 'preparing'"
-              type="button"
-              class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
-              @click="void runShipRevert()"
-            >
-              ↩ 되돌리기
-            </button>
-            <button
-              v-if="detail.direction === 'received' && ship.status === 'preparing' && ship.poId !== detail.poId"
-              type="button"
-              class="rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-400 hover:bg-gray-50"
-              @click="void runShipDetach()"
-            >
-              묶음에서 빼기
-            </button>
           </div>
         </template>
       </section>
@@ -798,16 +653,6 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
           {{ detail.spec.message }}
         </p>
       </section>
-      <!-- 상업송장 편집(P3) — BOM InvoiceEditorModal 재사용(콜백 주입) -->
-      <InvoiceEditorModal
-        v-if="invoiceApi !== null"
-        :open="invoiceOpen"
-        :load-draft="invoiceApi.loadDraft"
-        :save-draft="invoiceApi.saveDraft"
-        :render-xlsx="invoiceApi.renderXlsx"
-        :attach-pdf="invoiceApi.attachPdf"
-        @close="invoiceOpen = false"
-      />
     </template>
 
     <div v-else class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
