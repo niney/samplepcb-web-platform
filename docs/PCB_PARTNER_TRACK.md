@@ -759,6 +759,39 @@ D13 의 `SHIPMENT_EXISTS` 차단에는 **출구가 없었다** — 협력사 det
   모달·Case 배지 버튼) 1회 확인 필요. ② 배송 안내 알림은 코어 관례대로 미발송 — D6
   자동 동기와 묶어 재검(P4). ③ 구매확정 자동화(수령 후 N일)는 미기획.
 
+### MD 소속 관리 UI 구현 기록 (2026-08-09)
+
+그간 `sp_partner_relation` 은 읽기 4곳(RFQ 배정 검증·링크 통화·EQ 위임 판정·하위 목록)뿐,
+생성·관리 경로가 시드/DB 직삽입밖에 없었다(레거시 설정 3종 중 'MD 소속'의 플랫폼 대응 공백).
+
+- **계약**: `partner.ts` 에 `AdminPartnerRelation*`(뷰 링크·후보·추가/통화 바디) — 링크
+  통화는 `PcbCurrency`(KRW|USD|CNY) 재사용, view 는 null 허용(런타임 USD 폴백 표기).
+- **서버**: `admin-partners.ts` 에 `GET/POST/PUT/DELETE /admin/partners/:id/relations(/:childId)`.
+  - 연결 규칙: 사람 협력사(type partner)·승인 상태끼리만. **2단 강제** — 하위가 이미 MD 면
+    `CHILD_IS_MD`, 부모가 이미 다른 MD 의 하위면 `PARENT_IS_CHILD`(사슬·순환 동시 차단).
+    다중 상위(한 하위가 여러 MD 소속)는 스키마·소비 코드가 모두 수용하므로 허용.
+  - **첫 하위 연결 가드**: 연결 순간 조직이 MD 로 전환돼 진행 중 수주 발주의 EQ 주체가
+    자체→위임으로 뒤집힌다(`resolveEqDelegation`) — 관리자 직속 미종결 발주가 있으면 409.
+  - **해제 가드**: 진행 중 문서(RFQ requested|quoted · selected 인데 같은 회차 발주 없음 ·
+    발주 ≠produced)가 있으면 409. 선적은 행에 받는측이 박제돼 링크와 무관하므로 세지 않는다.
+  - 통화 변경(PUT)은 자유 — 배정 시점에 견적행으로 박제되므로 이후 배정부터만 적용된다.
+- **웹**: 파트너 관리(/app/admin/partners) 상세 드로어에 **'마스터딜러 소속'** 섹션(type
+  partner 만) — 소속 상위 MD·하위 협력사 목록(링크 통화 select 즉시 저장 + 진행 n건 배지 +
+  해제), 하위 연결 폼(후보는 서버가 2단 규칙 선반영·`pcb_rfq` 능력 없으면 표기), 다른 MD 의
+  하위 조직이면 추가 폼 자체를 감춘다.
+- **검증**: 자족 스모크 **23 ALL PASS**(실서버 — 임시 조직 3곳 생성→가드 6종·CRUD 왕복·후보
+  규칙→정리, 시드 무접촉) · `turbo typecheck`·ESLint 0건.
+- **발견**: 로컬 dev DB 의 P1 로컬 시드(파트너 9=MD·10=하위)가 **현재 DB 에 없다**(신규
+  협력사 id 가 3부터 발급됨 — 테이블 리셋 흔적). §9 P1 '로컬 시드' 항은 현 DB 기준 무효 —
+  이 화면으로 관계를 직접 만들 수 있으므로 시드 재삽입은 불필요.
+- **브라우저 실탐방(같은 날)**: /app/admin/partners 실세션 — 협력(USD)↔협력1(KRW) 왕복.
+  섹션 렌더·후보 "협력1 · KR"(pcb_rfq 보유라 경고 없음)·연결(하위 (1) 행 USD)·행 통화
+  USD→CNY 즉시 저장·**하위 드로어**(소속된 마스터딜러 행 + "2단 제한" 문구로 추가 폼 숨김)·
+  하위 쪽 해제(parents 축 DELETE)→즉시 (0)+연결 폼 재노출, 콘솔 에러 0, 관계 원상 복구.
+  (CDP 스크린샷 타임아웃·타일 아티팩트는 로컬 렌더러 부하 — 앱 무관)
+- **남은 것**: `PARENT_HAS_ACTIVE_POS`·`RELATION_ACTIVE` 가드는 진행 중 실데이터가 필요해
+  스모크 미포함(로직은 count 1개) — 다음 PCB E2E 때 곁들여 확인.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PcbCurrency } from './pcb-rfq';
 
 // 로그인 계정의 협력사 포털 노출 여부 — 조직 소속·승인 상태는 서버가 매 요청 판정한다.
 export const PartnerAccessResponse = z.object({
@@ -216,3 +217,53 @@ export const AdminPartnerDeleteResponse = z.object({
   result: z.literal(true),
 });
 export type AdminPartnerDeleteResponseType = z.infer<typeof AdminPartnerDeleteResponse>;
+
+// ── 마스터딜러(MD) 소속 — sp_partner_relation 관리 ──────────────────────────
+// PCB 트랙 MD 2단 중개(docs/PCB_PARTNER_TRACK.md §1.4·D1)의 소속 링크 계약.
+// 링크 통화(settlementCurrency)는 MD↔하위 결제통화 — 배정 시점에 RFQ 행으로
+// 박제(resolveLinkCurrency)되므로 변경은 이후 배정부터 적용된다. null=런타임 USD.
+
+// 소속 링크 1건 — 상대 조직 관점(parents 목록이면 상위 MD, children 목록이면 하위).
+export const AdminPartnerRelationLink = z.object({
+  partnerId: z.number(), // 상대 조직 id
+  name: z.string(),
+  country: z.string().nullable(),
+  status: PartnerStatus,
+  settlementCurrency: z.string().nullable(), // null=런타임 USD 폴백(레거시 승계)
+  activeCount: z.number(), // 진행 중 문서 수(RFQ 왕복·발주 미종결) — 0일 때만 해제 가능
+  createdAt: z.string(),
+});
+export type AdminPartnerRelationLinkType = z.infer<typeof AdminPartnerRelationLink>;
+
+// 하위 연결 후보 — 서버가 2단 규칙(자신·기존 하위·이미 MD 인 조직 제외)을 선반영.
+export const AdminPartnerRelationCandidate = z.object({
+  partnerId: z.number(),
+  name: z.string(),
+  country: z.string().nullable(),
+  hasPcbRfq: z.boolean(), // pcb_rfq 능력 — 없으면 RFQ 배정 단계에서 거부되므로 UI 경고
+});
+export type AdminPartnerRelationCandidateType = z.infer<typeof AdminPartnerRelationCandidate>;
+
+export const AdminPartnerRelationsData = z.object({
+  parents: z.array(AdminPartnerRelationLink), // 이 조직이 소속된 상위 MD
+  children: z.array(AdminPartnerRelationLink), // 이 조직의 하위 협력사
+  candidates: z.array(AdminPartnerRelationCandidate),
+});
+export type AdminPartnerRelationsDataType = z.infer<typeof AdminPartnerRelationsData>;
+
+export const AdminPartnerRelationsResponse = z.object({
+  result: z.literal(true),
+  data: AdminPartnerRelationsData,
+});
+export type AdminPartnerRelationsResponseType = z.infer<typeof AdminPartnerRelationsResponse>;
+
+export const AdminPartnerRelationAddBody = z.object({
+  childPartnerId: z.number().int().positive(),
+  settlementCurrency: PcbCurrency.default('USD'),
+});
+export type AdminPartnerRelationAddBodyType = z.infer<typeof AdminPartnerRelationAddBody>;
+
+export const AdminPartnerRelationCurrencyBody = z.object({
+  settlementCurrency: PcbCurrency,
+});
+export type AdminPartnerRelationCurrencyBodyType = z.infer<typeof AdminPartnerRelationCurrencyBody>;

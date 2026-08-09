@@ -9,17 +9,26 @@ import {
   AdminPartnerListResponse,
   AdminPartnerMemberAddBody,
   AdminPartnerMutationResponse,
+  AdminPartnerRelationAddBody,
+  AdminPartnerRelationCurrencyBody,
+  AdminPartnerRelationsResponse,
   AdminPartnerStatusBody,
   AdminPartnerUpdateBody,
   ApiError,
 } from '@sp/api-contract';
-import type { AdminPartnerCountsType, AdminPartnerDetailType } from '@sp/api-contract';
+import type {
+  AdminPartnerCountsType,
+  AdminPartnerDetailType,
+  AdminPartnerRelationLinkType,
+  AdminPartnerRelationsDataType,
+} from '@sp/api-contract';
 import { getMembersByIds } from '../lib/g5-db';
 import {
   asPartnerStatus,
   asPartnerType,
   toAdminPartnerDetail,
   toAdminPartnerItem,
+  toCapabilities,
   validatePartnerCountry,
   validateSupplierCode,
 } from '../lib/partner';
@@ -38,6 +47,11 @@ const PartnerMemberParams = z.object({
   mbId: z.string().min(1),
 });
 
+const PartnerRelationParams = z.object({
+  id: z.string().regex(/^\d+$/),
+  childId: z.string().regex(/^\d+$/),
+});
+
 const isUniqueViolation = (e: unknown): boolean =>
   e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
 
@@ -47,6 +61,139 @@ const detailOf = async (id: bigint): Promise<AdminPartnerDetailType | null> => {
     include: { members: { orderBy: { id: 'asc' } } },
   });
   return partner === null ? null : toAdminPartnerDetail(partner);
+};
+
+// ── 마스터딜러(MD) 소속 — sp_partner_relation 헬퍼 ───────────────────────────
+// PCB 트랙 MD 2단 중개(docs/PCB_PARTNER_TRACK.md §1.4·D1)의 소속 링크. 링크 통화는
+// 배정 시점에 RFQ 행으로 박제(resolveLinkCurrency)되므로 여기서의 변경은 이후 배정부터
+// 적용된다. 2단만 지원 — 부모는 다른 MD 의 하위일 수 없고, 하위는 부모일 수 없다.
+
+interface PairDoc {
+  status: string;
+  reorderRound: number;
+}
+
+// 진행 중(미종결) 문서 수 — RFQ 왕복 중(requested|quoted)·선정 후 발주 대기(selected 인데
+// 같은 회차 발주 없음)·미종결 발주(≠produced). 이 수가 0일 때만 링크 해제를 허용한다 —
+// 도중 해제는 EQ 위임(resolveEqDelegation)·재배정(NOT_MY_CHILD) 축을 흔든다. 선적은
+// 행에 받는측이 박제돼 링크와 무관하므로 세지 않는다.
+const activePairDocCount = (rfqs: PairDoc[], pos: PairDoc[]): number => {
+  const poRounds = new Set(pos.map((p) => p.reorderRound));
+  let count = 0;
+  for (const r of rfqs) {
+    if (r.status === 'requested' || r.status === 'quoted') count += 1;
+    else if (r.status === 'selected' && !poRounds.has(r.reorderRound)) count += 1;
+  }
+  for (const p of pos) if (p.status !== 'produced') count += 1;
+  return count;
+};
+
+type PairRow = PairDoc & { parentPartnerId: bigint; partnerId: bigint };
+
+const pairKey = (parentId: bigint, childId: bigint): string =>
+  `${parentId.toString()}:${childId.toString()}`;
+
+const groupByPair = (rows: PairRow[]): Map<string, PairRow[]> => {
+  const map = new Map<string, PairRow[]>();
+  for (const row of rows) {
+    const key = pairKey(row.parentPartnerId, row.partnerId);
+    const list = map.get(key) ?? [];
+    list.push(row);
+    map.set(key, list);
+  }
+  return map;
+};
+
+const relationsOf = async (id: bigint): Promise<AdminPartnerRelationsDataType> => {
+  const [asParent, asChild] = await Promise.all([
+    prisma.spPartnerRelation.findMany({
+      where: { parentPartnerId: id },
+      include: { child: true },
+      orderBy: { id: 'asc' },
+    }),
+    prisma.spPartnerRelation.findMany({
+      where: { childPartnerId: id },
+      include: { parent: true },
+      orderBy: { id: 'asc' },
+    }),
+  ]);
+
+  const childIds = asParent.map((r) => r.childPartnerId);
+  const parentIds = asChild.map((r) => r.parentPartnerId);
+  // RFQ·PO 두 모델에 같은 where 를 쓰므로 공용 구조 타입으로 둔다(WhereInput 은 모델별).
+  type PairCond =
+    | { parentPartnerId: bigint; partnerId: { in: bigint[] } }
+    | { partnerId: bigint; parentPartnerId: { in: bigint[] } };
+  const pairConds: PairCond[] = [];
+  if (childIds.length > 0) pairConds.push({ parentPartnerId: id, partnerId: { in: childIds } });
+  if (parentIds.length > 0) pairConds.push({ partnerId: id, parentPartnerId: { in: parentIds } });
+  const docSelect = {
+    parentPartnerId: true,
+    partnerId: true,
+    status: true,
+    reorderRound: true,
+  } as const;
+  const [rfqRows, poRows] =
+    pairConds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          prisma.spPcbRfq.findMany({ where: { OR: pairConds }, select: docSelect }),
+          prisma.spPcbPo.findMany({ where: { OR: pairConds }, select: docSelect }),
+        ]);
+  const rfqMap = groupByPair(rfqRows);
+  const poMap = groupByPair(poRows);
+  const activeOf = (parentId: bigint, childId: bigint): number => {
+    const key = pairKey(parentId, childId);
+    return activePairDocCount(rfqMap.get(key) ?? [], poMap.get(key) ?? []);
+  };
+
+  const toLink = (
+    rel: { settlementCurrency: string | null; createdAt: Date },
+    other: { id: bigint; name: string; country: string | null; status: string },
+    parentId: bigint,
+    childId: bigint,
+  ): AdminPartnerRelationLinkType => ({
+    partnerId: Number(other.id),
+    name: other.name,
+    country: other.country,
+    status: asPartnerStatus(other.status),
+    settlementCurrency: rel.settlementCurrency,
+    activeCount: activeOf(parentId, childId),
+    createdAt: rel.createdAt.toISOString(),
+  });
+
+  // 후보 — 2단 규칙 선반영: 자신·기존 하위·이미 MD(부모 경험)인 조직 제외. 이 조직이
+  // 이미 다른 MD 의 하위면 후보 없음(하위는 부모가 될 수 없다 — POST 가드와 동일).
+  let candidates: AdminPartnerRelationsDataType['candidates'] = [];
+  if (asChild.length === 0) {
+    const mdRows = await prisma.spPartnerRelation.findMany({
+      select: { parentPartnerId: true },
+      distinct: ['parentPartnerId'],
+    });
+    const excluded = new Set<string>([
+      id.toString(),
+      ...childIds.map((v) => v.toString()),
+      ...mdRows.map((r) => r.parentPartnerId.toString()),
+    ]);
+    const rows = await prisma.spPartner.findMany({
+      where: { type: 'partner', status: 'approved' },
+      orderBy: { name: 'asc' },
+    });
+    candidates = rows
+      .filter((p) => !excluded.has(p.id.toString()))
+      .map((p) => ({
+        partnerId: Number(p.id),
+        name: p.name,
+        country: p.country,
+        hasPcbRfq: toCapabilities(p.capabilities).includes('pcb_rfq'),
+      }));
+  }
+
+  return {
+    parents: asChild.map((rel) => toLink(rel, rel.parent, rel.parentPartnerId, id)),
+    children: asParent.map((rel) => toLink(rel, rel.child, id, rel.childPartnerId)),
+    candidates,
+  };
 };
 
 export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
@@ -389,6 +536,169 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       }
       await prisma.spPartner.delete({ where: { id } });
       return { result: true as const };
+    },
+  );
+
+  // ── GET /api/admin/partners/:id/relations — MD 소속(상위·하위·후보) ─────────
+  fastify.get(
+    '/partners/:id/relations',
+    { schema: { params: PartnerIdParams, response: { 200: AdminPartnerRelationsResponse } } },
+    async (request, reply) => {
+      const id = BigInt(request.params.id);
+      const partner = await prisma.spPartner.findUnique({ where: { id } });
+      if (partner === null) return reply.notFound('파트너가 없습니다');
+      return { result: true as const, data: await relationsOf(id) };
+    },
+  );
+
+  // ── POST /api/admin/partners/:id/relations — 하위 협력사 연결(:id = MD) ────
+  fastify.post(
+    '/partners/:id/relations',
+    {
+      schema: {
+        params: PartnerIdParams,
+        body: AdminPartnerRelationAddBody,
+        response: { 200: AdminPartnerRelationsResponse, 400: ApiError, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const id = BigInt(request.params.id);
+      const childId = BigInt(request.body.childPartnerId);
+      const [parent, child] = await Promise.all([
+        prisma.spPartner.findUnique({ where: { id } }),
+        prisma.spPartner.findUnique({ where: { id: childId } }),
+      ]);
+      if (parent === null) return reply.notFound('파트너가 없습니다');
+      if (child === null) return reply.notFound('연결할 협력사가 없습니다');
+      if (id === childId) {
+        return reply
+          .status(400)
+          .send({ error: 'SELF_LINK', message: '자기 자신은 하위로 연결할 수 없습니다.' });
+      }
+      if (parent.type !== 'partner' || child.type !== 'partner') {
+        return reply.status(400).send({
+          error: 'NOT_PARTNER_TYPE',
+          message: '마스터딜러 소속은 사람 협력사끼리만 연결할 수 있습니다.',
+        });
+      }
+      if (parent.status !== 'approved' || child.status !== 'approved') {
+        return reply.status(400).send({
+          error: 'NOT_APPROVED',
+          message: '승인 상태의 조직만 연결할 수 있습니다.',
+        });
+      }
+      // 2단 강제 — 하위가 이미 MD 이거나(3단), 부모가 이미 다른 MD 의 하위면(사슬) 거부.
+      const [childAsMd, parentAsChild] = await Promise.all([
+        prisma.spPartnerRelation.count({ where: { parentPartnerId: childId } }),
+        prisma.spPartnerRelation.count({ where: { childPartnerId: id } }),
+      ]);
+      if (childAsMd > 0) {
+        return reply.status(400).send({
+          error: 'CHILD_IS_MD',
+          message: '이미 하위를 거느린 마스터딜러 조직입니다 — 2단 중개만 지원합니다.',
+        });
+      }
+      if (parentAsChild > 0) {
+        return reply.status(400).send({
+          error: 'PARENT_IS_CHILD',
+          message: '다른 마스터딜러의 하위 조직은 마스터딜러가 될 수 없습니다(2단 제한).',
+        });
+      }
+      // 첫 하위 연결은 조직을 MD 로 전환한다 — 진행 중 수주 발주(관리자 직속)가 있으면
+      // EQ 진행 주체가 자체→위임으로 뒤집히므로(resolveEqDelegation) 종결 후에만 허용.
+      const existingChildren = await prisma.spPartnerRelation.count({
+        where: { parentPartnerId: id },
+      });
+      if (existingChildren === 0) {
+        const activeReceived = await prisma.spPcbPo.count({
+          where: { partnerId: id, parentPartnerId: 0n, status: { not: 'produced' } },
+        });
+        if (activeReceived > 0) {
+          return reply.status(409).send({
+            error: 'PARENT_HAS_ACTIVE_POS',
+            message:
+              '진행 중 수주 발주가 있어 지금은 마스터딜러로 전환할 수 없습니다 — EQ 진행 주체가 위임으로 바뀝니다. 발주 종결 후 연결하세요.',
+          });
+        }
+      }
+      try {
+        await prisma.spPartnerRelation.create({
+          data: {
+            parentPartnerId: id,
+            childPartnerId: childId,
+            settlementCurrency: request.body.settlementCurrency,
+          },
+        });
+      } catch (e) {
+        if (isUniqueViolation(e)) {
+          return reply
+            .status(409)
+            .send({ error: 'ALREADY_LINKED', message: '이미 연결된 하위 협력사입니다.' });
+        }
+        throw e;
+      }
+      return { result: true as const, data: await relationsOf(id) };
+    },
+  );
+
+  // ── PUT /api/admin/partners/:id/relations/:childId — 링크 통화 변경 ─────────
+  // 기존 견적행은 배정 시점 박제 통화를 유지한다 — 변경은 이후 배정부터 적용.
+  fastify.put(
+    '/partners/:id/relations/:childId',
+    {
+      schema: {
+        params: PartnerRelationParams,
+        body: AdminPartnerRelationCurrencyBody,
+        response: { 200: AdminPartnerRelationsResponse },
+      },
+    },
+    async (request, reply) => {
+      const id = BigInt(request.params.id);
+      const childId = BigInt(request.params.childId);
+      const updated = await prisma.spPartnerRelation.updateMany({
+        where: { parentPartnerId: id, childPartnerId: childId },
+        data: { settlementCurrency: request.body.settlementCurrency },
+      });
+      if (updated.count === 0) return reply.notFound('소속 링크가 없습니다');
+      return { result: true as const, data: await relationsOf(id) };
+    },
+  );
+
+  // ── DELETE /api/admin/partners/:id/relations/:childId — 소속 해제 ───────────
+  fastify.delete(
+    '/partners/:id/relations/:childId',
+    {
+      schema: {
+        params: PartnerRelationParams,
+        response: { 200: AdminPartnerRelationsResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const id = BigInt(request.params.id);
+      const childId = BigInt(request.params.childId);
+      const relation = await prisma.spPartnerRelation.findUnique({
+        where: { parentPartnerId_childPartnerId: { parentPartnerId: id, childPartnerId: childId } },
+      });
+      if (relation === null) return reply.notFound('소속 링크가 없습니다');
+      const [rfqs, pos] = await Promise.all([
+        prisma.spPcbRfq.findMany({
+          where: { parentPartnerId: id, partnerId: childId },
+          select: { status: true, reorderRound: true },
+        }),
+        prisma.spPcbPo.findMany({
+          where: { parentPartnerId: id, partnerId: childId },
+          select: { status: true, reorderRound: true },
+        }),
+      ]);
+      if (activePairDocCount(rfqs, pos) > 0) {
+        return reply.status(409).send({
+          error: 'RELATION_ACTIVE',
+          message:
+            '진행 중 견적·발주가 있는 소속은 해제할 수 없습니다. 종결(생산완료) 후 해제하세요.',
+        });
+      }
+      await prisma.spPartnerRelation.delete({ where: { id: relation.id } });
+      return { result: true as const, data: await relationsOf(id) };
     },
   );
 

@@ -6,21 +6,27 @@ import {
   PARTNER_STATUS_LABELS,
   PARTNER_TYPES,
   PARTNER_TYPE_LABELS,
+  PCB_CURRENCIES,
   type AdminPartnerCreateBodyType,
   type PartnerStatusType,
   type PartnerCapabilityType,
   type PartnerTypeType,
+  type PcbCurrencyType,
 } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
   useAddPartnerMember,
+  useAddPartnerRelation,
   useAdminPartnerDetail,
   useAdminPartnerList,
+  useAdminPartnerRelations,
   useCreatePartner,
   useDeletePartner,
   usePartnerStatus,
   useRemovePartnerMember,
+  useRemovePartnerRelation,
   useUpdatePartner,
+  useUpdatePartnerRelationCurrency,
   type AdminPartnerFilters,
 } from '../../admin/useAdminPartners';
 import UiPagination from '../../components/ui/UiPagination.vue';
@@ -183,6 +189,9 @@ watch(detail, (d) => {
   statusReason.value = '';
   memberMbId.value = '';
   memberError.value = '';
+  relationError.value = '';
+  relationChildId.value = null;
+  relationCurrency.value = 'USD';
 });
 
 async function submitUpdate(): Promise<void> {
@@ -287,6 +296,65 @@ async function removeMember(mbId: string): Promise<void> {
     await removeMemberMut.mutateAsync({ partnerId: selectedId.value, mbId });
   } catch (e) {
     memberError.value = e instanceof ApiRequestError ? e.message : '해제에 실패했습니다.';
+  }
+}
+
+// ── 마스터딜러(MD) 소속 — sp_partner_relation ───────────────────────────────
+// 사람 협력사(type partner)에서만 조회·노출. 링크 통화는 배정 시점에 견적행으로
+// 박제되므로 변경은 이후 배정부터 적용된다. 해제는 진행 중 문서 0건일 때만(서버 가드).
+const relationPartnerId = computed(() =>
+  detail.value?.type === 'partner' ? selectedId.value : null,
+);
+const relationsQ = useAdminPartnerRelations(relationPartnerId);
+const relations = computed(() => relationsQ.data.value?.data);
+const relationError = ref('');
+const relationChildId = ref<number | null>(null);
+const relationCurrency = ref<PcbCurrencyType>('USD');
+const addRelationMut = useAddPartnerRelation();
+const relationCurrencyMut = useUpdatePartnerRelationCurrency();
+const removeRelationMut = useRemovePartnerRelation();
+
+async function addRelation(): Promise<void> {
+  if (selectedId.value === null) return;
+  relationError.value = '';
+  if (relationChildId.value === null) {
+    relationError.value = '연결할 하위 협력사를 선택해 주세요.';
+    return;
+  }
+  try {
+    await addRelationMut.mutateAsync({
+      partnerId: selectedId.value,
+      body: {
+        childPartnerId: relationChildId.value,
+        settlementCurrency: relationCurrency.value,
+      },
+    });
+    relationChildId.value = null;
+  } catch (e) {
+    relationError.value = e instanceof ApiRequestError ? e.message : '연결에 실패했습니다.';
+  }
+}
+
+async function changeLinkCurrency(parentId: number, childId: number, ev: Event): Promise<void> {
+  relationError.value = '';
+  const value = (ev.target as HTMLSelectElement).value as PcbCurrencyType;
+  try {
+    await relationCurrencyMut.mutateAsync({
+      partnerId: parentId,
+      childId,
+      body: { settlementCurrency: value },
+    });
+  } catch (e) {
+    relationError.value = e instanceof ApiRequestError ? e.message : '통화 변경에 실패했습니다.';
+  }
+}
+
+async function removeLink(parentId: number, childId: number): Promise<void> {
+  relationError.value = '';
+  try {
+    await removeRelationMut.mutateAsync({ partnerId: parentId, childId });
+  } catch (e) {
+    relationError.value = e instanceof ApiRequestError ? e.message : '해제에 실패했습니다.';
   }
 }
 
@@ -684,6 +752,154 @@ const showsSupplierCode = computed(() => editForm.value.type !== 'partner');
             <p v-if="memberError !== ''" class="mt-1.5 text-xs font-semibold text-red-600">
               {{ memberError }}
             </p>
+          </div>
+
+          <!-- 마스터딜러 소속 (사람 협력사만) -->
+          <div v-if="detail.type === 'partner'" class="mt-4 rounded-xl border border-gray-200 p-4">
+            <p class="text-xs font-bold text-gray-700">
+              마스터딜러 소속
+              <span class="ml-1 font-normal text-gray-400">— PCB 2단 중개 링크(MD↔하위)</span>
+            </p>
+
+            <div v-if="relations === undefined" class="mt-2 text-xs text-gray-400">
+              불러오는 중…
+            </div>
+            <template v-else>
+              <!-- 이 조직이 소속된 상위 MD -->
+              <div v-if="relations.parents.length > 0" class="mt-2">
+                <p class="text-[11px] font-semibold text-indigo-500">소속된 마스터딜러</p>
+                <ul class="mt-1 grid gap-1">
+                  <li
+                    v-for="p in relations.parents"
+                    :key="p.partnerId"
+                    class="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-1.5 text-xs"
+                  >
+                    <span class="min-w-0 flex-1 truncate font-semibold text-indigo-700">
+                      {{ p.name }}
+                    </span>
+                    <span class="text-gray-400">{{ p.country ?? '—' }}</span>
+                    <select
+                      :value="p.settlementCurrency ?? 'USD'"
+                      class="h-7 rounded-md border border-gray-300 bg-surface px-1 font-mono text-[11px]"
+                      :disabled="relationCurrencyMut.isPending.value"
+                      @change="changeLinkCurrency(p.partnerId, detail.partnerId, $event)"
+                    >
+                      <option v-for="cur in PCB_CURRENCIES" :key="cur" :value="cur">
+                        {{ cur }}
+                      </option>
+                    </select>
+                    <span
+                      v-if="p.activeCount > 0"
+                      class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700"
+                    >
+                      진행 {{ p.activeCount }}건
+                    </span>
+                    <button
+                      type="button"
+                      class="font-bold text-red-500 hover:text-red-700 disabled:opacity-40"
+                      :disabled="p.activeCount > 0 || removeRelationMut.isPending.value"
+                      @click="removeLink(p.partnerId, detail.partnerId)"
+                    >
+                      해제
+                    </button>
+                  </li>
+                </ul>
+              </div>
+
+              <!-- 하위 협력사 -->
+              <p class="mt-3 text-[11px] font-semibold text-gray-500">
+                하위 협력사 ({{ relations.children.length }})
+              </p>
+              <p v-if="relations.children.length === 0" class="mt-1 text-xs text-gray-400">
+                하위 협력사 없음 — 연결하면 이 조직이 마스터딜러로 동작합니다(하위 재요청·재발주).
+              </p>
+              <ul v-else class="mt-1 grid gap-1">
+                <li
+                  v-for="c in relations.children"
+                  :key="c.partnerId"
+                  class="flex items-center gap-2 rounded-lg border border-gray-100 px-3 py-1.5 text-xs"
+                >
+                  <span class="min-w-0 flex-1 truncate">{{ c.name }}</span>
+                  <span
+                    v-if="c.status !== 'approved'"
+                    class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-600"
+                  >
+                    {{ PARTNER_STATUS_LABELS[c.status] }}
+                  </span>
+                  <span class="text-gray-400">{{ c.country ?? '—' }}</span>
+                  <select
+                    :value="c.settlementCurrency ?? 'USD'"
+                    class="h-7 rounded-md border border-gray-300 bg-surface px-1 font-mono text-[11px]"
+                    :disabled="relationCurrencyMut.isPending.value"
+                    @change="changeLinkCurrency(detail.partnerId, c.partnerId, $event)"
+                  >
+                    <option v-for="cur in PCB_CURRENCIES" :key="cur" :value="cur">
+                      {{ cur }}
+                    </option>
+                  </select>
+                  <span
+                    v-if="c.activeCount > 0"
+                    class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700"
+                    title="진행 중 견적·발주가 있어 해제할 수 없습니다"
+                  >
+                    진행 {{ c.activeCount }}건
+                  </span>
+                  <button
+                    type="button"
+                    class="font-bold text-red-500 hover:text-red-700 disabled:opacity-40"
+                    :disabled="c.activeCount > 0 || removeRelationMut.isPending.value"
+                    @click="removeLink(detail.partnerId, c.partnerId)"
+                  >
+                    해제
+                  </button>
+                </li>
+              </ul>
+
+              <!-- 하위 연결 — 다른 MD 의 하위 조직이면 후보가 비어 폼을 감춘다(2단 제한) -->
+              <div
+                v-if="relations.parents.length === 0"
+                class="mt-2 flex items-center gap-1.5"
+              >
+                <select
+                  v-model="relationChildId"
+                  class="h-8 min-w-0 flex-1 rounded-lg border border-gray-200 bg-surface px-2 text-xs"
+                >
+                  <option :value="null" disabled>하위로 연결할 협력사 선택</option>
+                  <option
+                    v-for="cand in relations.candidates"
+                    :key="cand.partnerId"
+                    :value="cand.partnerId"
+                  >
+                    {{ cand.name }}{{ cand.country !== null ? ` · ${cand.country}` : ''
+                    }}{{ cand.hasPcbRfq ? '' : ' (PCB 견적 능력 없음)' }}
+                  </option>
+                </select>
+                <select
+                  v-model="relationCurrency"
+                  class="h-8 w-20 rounded-lg border border-gray-200 bg-surface px-1 font-mono text-xs"
+                >
+                  <option v-for="cur in PCB_CURRENCIES" :key="cur" :value="cur">{{ cur }}</option>
+                </select>
+                <button
+                  type="button"
+                  class="h-8 rounded-lg bg-gray-800 px-3 text-xs font-bold text-white disabled:opacity-40"
+                  :disabled="addRelationMut.isPending.value"
+                  @click="addRelation"
+                >
+                  연결
+                </button>
+              </div>
+              <p v-else class="mt-2 text-[11px] text-gray-400">
+                다른 마스터딜러의 하위 조직입니다 — 하위를 둘 수 없습니다(2단 제한).
+              </p>
+              <p class="mt-1.5 text-[11px] text-gray-400">
+                링크 통화는 MD↔하위 결제통화입니다 — 배정 시점에 견적행으로 박제되며, 변경은
+                이후 배정부터 적용됩니다.
+              </p>
+              <p v-if="relationError !== ''" class="mt-1.5 text-xs font-semibold text-red-600">
+                {{ relationError }}
+              </p>
+            </template>
           </div>
 
           <!-- 상태 처리 -->

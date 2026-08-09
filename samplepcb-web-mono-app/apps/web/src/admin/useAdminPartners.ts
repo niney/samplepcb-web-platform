@@ -5,9 +5,12 @@ import {
   AdminPartnerDetailResponse,
   AdminPartnerListResponse,
   AdminPartnerMutationResponse,
+  AdminPartnerRelationsResponse,
   apiRoutes,
   type AdminPartnerCreateBodyType,
   type AdminPartnerMemberAddBodyType,
+  type AdminPartnerRelationAddBodyType,
+  type AdminPartnerRelationCurrencyBodyType,
   type AdminPartnerStatusBodyType,
   type AdminPartnerUpdateBodyType,
   type PartnerTypeType,
@@ -122,6 +125,69 @@ export function useDeletePartner() {
   return useMutation({
     mutationFn: (partnerId: number) =>
       apiSend('DELETE', `${base}/${String(partnerId)}`, undefined, AdminPartnerDeleteResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+// ── 마스터딜러(MD) 소속 — sp_partner_relation ───────────────────────────────
+// null 이면 조회하지 않는다 — 호출부가 사람 협력사(type partner)일 때만 id 를 준다.
+
+export function useAdminPartnerRelations(partnerId: Ref<number | null>) {
+  return useQuery({
+    queryKey: ['admin', 'partners', 'relations', partnerId],
+    queryFn: () =>
+      apiGet(`${base}/${String(partnerId.value)}/relations`, AdminPartnerRelationsResponse),
+    enabled: computed(() => partnerId.value !== null),
+  });
+}
+
+export function useAddPartnerRelation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ partnerId, body }: { partnerId: number; body: AdminPartnerRelationAddBodyType }) =>
+      apiSend('POST', `${base}/${String(partnerId)}/relations`, body, AdminPartnerRelationsResponse),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useUpdatePartnerRelationCurrency() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      partnerId,
+      childId,
+      body,
+    }: {
+      partnerId: number;
+      childId: number;
+      body: AdminPartnerRelationCurrencyBodyType;
+    }) =>
+      apiSend(
+        'PUT',
+        `${base}/${String(partnerId)}/relations/${String(childId)}`,
+        body,
+        AdminPartnerRelationsResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
+export function useRemovePartnerRelation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ partnerId, childId }: { partnerId: number; childId: number }) =>
+      apiSend(
+        'DELETE',
+        `${base}/${String(partnerId)}/relations/${String(childId)}`,
+        undefined,
+        AdminPartnerRelationsResponse,
+      ),
     onSuccess: () => {
       invalidate(qc);
     },
