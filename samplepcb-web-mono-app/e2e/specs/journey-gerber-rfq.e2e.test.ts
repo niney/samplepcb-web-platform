@@ -390,8 +390,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     if (ship.status !== 200) {
       F('S12', 'obs', `배송 전이 바디 확인 필요: ${JSON.stringify(ship.json)}`);
     }
-    // 고객 배송 큐(P4.6)에서 이 주문이 어떻게 보이는지 — 미수 배지 회귀도 여기서 눈에 남는다.
-    await view(adminView, '/app/admin/pcb/orders?tab=shipping', 'S12-admin-shipping');
+    // 고객 배송 큐(P4.6)는 '선적·배송' 화면의 두 번째 섹션이다 — 주문·결제 화면엔 그 탭이
+    // 없고(AdminPcbOrders.vue:31) 두 워크큐 다 URL 쿼리로 탭을 받지 않는다.
+    await view(adminView, '/app/admin/pcb/shipments', 'S12-admin-shipping');
 
     const page = customer.page;
     await page.goto(`${BASE_URL}/shop/orderinquiryview.php?od_id=${odId}`, {

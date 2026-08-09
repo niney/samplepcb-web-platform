@@ -732,6 +732,20 @@ function openCustomerShip(): void {
 }
 const shipReceiveAdmin = useAdminPcbShipmentReceive();
 
+// 국내 종점(delivered)은 [입고 확인]이 상태까지 닫는다(서버 pcb-shipment.receivePcbShipment).
+// 그래서 전이 버튼에서는 그 단계를 빼고, 대신 입고 확인을 한 단계 일찍 열어 준다.
+const adminShipAdvanceLabel = (s: PcbShipmentViewType): string | null => {
+  const next = bomShipmentNextStatus(s.mode, s.status);
+  if (next === null || (s.mode === 'domestic' && next === 'delivered')) return null;
+  return bomShipmentStatusLabel(s.mode, next);
+};
+const canAdminReceive = (s: PcbShipmentViewType): boolean => {
+  if (s.receivedAt !== null || s.receiverKind !== 'admin') return false;
+  return s.mode === 'domestic'
+    ? s.status === 'shipping' // 배송 중이면 실물이 왔을 수 있다 — 검수 즉시 입고 완료로
+    : bomShipmentNextStatus(s.mode, s.status) === null;
+};
+
 async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
   if (specId.value === null) return;
   const next = bomShipmentNextStatus(s.mode, s.status);
@@ -1443,18 +1457,21 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       ⬇ {{ f.fileType }}
                     </button>
                     <span class="grow" />
+                    <!-- 국내 종점('입고 완료')은 [입고 확인]이 함께 처리한다 — 전이 버튼을 따로
+                         두면 눌러도 다음 일이 안 열리는 상태가 만들어진다(서버도 RECEIVE_REQUIRED). -->
                     <button
-                      v-if="bomShipmentNextStatus(s.mode, s.status) !== null"
+                      v-if="adminShipAdvanceLabel(s) !== null"
                       type="button"
                       class="rounded-md bg-teal-600 px-2 py-1 font-semibold text-white hover:bg-teal-700"
                       @click="void adminShipAdvance(po.poId, s)"
                     >
-                      {{ bomShipmentStatusLabel(s.mode, bomShipmentNextStatus(s.mode, s.status) ?? s.status) }} 진행
+                      {{ adminShipAdvanceLabel(s) }} 진행
                     </button>
                     <button
-                      v-if="bomShipmentNextStatus(s.mode, s.status) === null && s.receivedAt === null && s.receiverKind === 'admin'"
+                      v-if="canAdminReceive(s)"
                       type="button"
                       class="rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700"
+                      :title="s.mode === 'domestic' ? '실물 검수 후 누르면 입고 완료까지 함께 처리됩니다.' : undefined"
                       @click="void adminShipReceive(po.poId)"
                     >
                       입고 확인

@@ -325,6 +325,7 @@ export type PcbShipmentTransitionError =
   | 'MISSING_TRACKING'
   | 'NOTHING_TO_REVERT'
   | 'RECEIVE_LOCKED'
+  | 'RECEIVE_REQUIRED'
   | 'NOT_SHIPPED';
 
 export const advancePcbShipment = async (
@@ -385,6 +386,12 @@ export const advancePcbShipment = async (
     const tracking = body.trackingNumber ?? shipment.trackingNumber;
     if (tracking === null || tracking === '') return { ok: false, error: 'MISSING_TRACKING' };
   }
+  // 국내 종점('입고 완료')은 입고확인과 같은 사건이다 — 전이만 따로 세우면 상태는 끝났는데
+  // receivedAt 이 비어 다음 일(MD 상위 출고 해제·고객 배송 큐·Case 배지)이 하나도 안 열린다.
+  // BOM 은 이미 이렇게 묶여 있다(bom-po.ts:690 RECEIVE_REQUIRED) — PCB 만 풀려 있던 것.
+  if (next === 'delivered' && shipment.receivedAt === null) {
+    return { ok: false, error: 'RECEIVE_REQUIRED' };
+  }
 
   const isFinal = bomShipmentNextStatus(mode, next) === null;
   const updated = await prisma.spPcbShipment.update({
@@ -441,9 +448,17 @@ export const receivePcbShipment = async (
   const mode = asPcbShipmentMode(shipment.mode);
   const current = asPcbShipmentStatus(mode, shipment.status);
   if (current === 'preparing') return { ok: false, error: 'NOT_SHIPPED' };
+  // 국내는 '입고 완료'가 곧 이 사건이라 상태까지 여기서 닫는다(BOM 동형). 국제는 통관·완료가
+  // 뒤에 남아 있어 검수 시각만 남기고 체인은 그대로 둔다 — 조기 입고확인도 그래서 허용된다.
+  const closesChain = mode === 'domestic' && current === 'shipping';
+  const receivedAt = new Date();
   await prisma.spPcbShipment.update({
     where: { id: shipment.id },
-    data: { receivedAt: new Date(), receivedNote: note },
+    data: {
+      receivedAt,
+      receivedNote: note,
+      ...(closesChain ? { status: 'delivered', completedAt: receivedAt } : {}),
+    },
   });
   return { ok: true };
 };

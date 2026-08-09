@@ -490,6 +490,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     MISSING_TRACKING: '택배사와 송장번호를 입력해 주세요.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
+    RECEIVE_REQUIRED: '입고 완료는 받는 쪽이 [입고 확인]으로 처리합니다.',
     NOT_SHIPPED: '발송 시작 전에는 처리할 수 없습니다.',
     NOT_PREPARING: '발송 준비 단계에서만 뺄 수 있습니다.',
   };

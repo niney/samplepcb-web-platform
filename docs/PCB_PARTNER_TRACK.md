@@ -992,6 +992,40 @@ D16 축의 결함 2건. 어느 쪽도 **고객 결정이 EQ 를 전이시키지 
 선적만 생성하고 정리도 그것만 지운다. 검증: 2호 11/11 · 1호와 연속 22/22 green ·
 HTTP≥400·pageerror 0 · 생성물 정리 CLEAN.
 
+### P4.10 구현 기록 (2026-08-10 — 국내 입고의 이중 축 해소·EQ 회차 판정)
+
+여정 2호(국내)를 단계별로 훑어 나온 것들. 가장 큰 것은 **국내 종점이 두 축으로 갈라져 있던
+문제**였고, 그건 내가 E2E 를 짜다 직접 걸려 넘어진 지점이기도 하다.
+
+- **입고 완료(delivered)와 입고확인(receivedAt)의 결합**: 다음 일을 여는 열쇠는 전부
+  `receivedAt` 인데(MD 상위 출고 게이트·고객 배송 큐·Case 배지), 화면에서 최종처럼 보이는 건
+  전이 버튼 '입고 완료'였다. 그걸 눌러도 아무것도 안 열리고, 반대로 입고확인만 하면 상태는
+  `shipping` 에 멈춘다. **BOM 은 이미 묶여 있었다**(`bom-po.ts:690` `RECEIVE_REQUIRED`) —
+  PCB 만 풀려 있던 것이라 같은 모양으로 맞췄다. `advancePcbShipment` 는 `delivered` 진입을
+  `RECEIVE_REQUIRED` 로 막고, `receivePcbShipment` 가 국내 `shipping` 에서 상태·completedAt
+  까지 함께 닫는다. 화면도 국내에서는 전이 버튼을 감추고 입고 확인을 한 단계 일찍 연다
+  (관리자 Case·MD 수취자 상세). 파생으로 워크큐의 "입고·처리 대기 탭에 초록 입고 완료" 같은
+  자기모순과 아카이브의 실패하는 되돌리기도 사라진다.
+- **EQ 요약의 회차 판정**(P4.9 프리필의 결함 교정): `loadEqReviewRowSummaries` 가
+  canceled 아닌 최신 1건을 그대로 요약해, 반려로 발주가 내려갔다 재요청으로 올라온 뒤에도
+  **지난 회차의 고객 반려**를 가리켰다. 그 상태로 협력사에 반려하면 옛 회차 고객 문구가 다시
+  나간다. `eqHistory` 의 마지막 `→ eq_requested` 시각을 회차 시작으로 삼아 그 이후 생성된
+  리뷰만 요약한다(이력 없으면 무제한 — 이관·구데이터).
+- **협력사 반려 배너**: 반려 사유가 기본 접힌 `<details>` 안에만 있어, 되돌아온 발주서가
+  신규 발주와 화면상 구별되지 않았다. `issued` 이고 마지막 이력이 `eq_requested → issued` 면
+  상단에 사유·시각을 펼쳐 고정한다.
+- **국내에서 안 쓰는 UI 정리**(PcbShipmentCard): Invoice·AWB 업로드는 국제 전용인데 mode
+  게이트가 없어 국내에도 떠 있었다(서버는 `requested` 단계에서만 Invoice 를 본다). 완료
+  아카이브는 같은 카드를 그대로 써서 끝난 발송에도 편집 액션이 살아 있었다 — `readonly`
+  prop 으로 전이·업로드·되돌리기를 접고 읽기 정보만 남긴다. 되돌리기 노출은
+  `bomShipmentActorOf(mode, status) === 'PARTNER'` 로 좁혀 **누르면 반드시 거절되던 버튼**을
+  없앴다(BOM 형제 카드가 이미 쓰던 식과 동일). 국내 전이 버튼은 택배사·송장 공백이면 비활성.
+- **여정 관찰 교정**: 두 여정 모두 고객 배송 큐를 `/app/admin/pcb/orders?tab=…` 로 열었는데
+  그 탭은 주문·결제 화면에 없고(경리 5탭 — `AdminPcbOrders.vue:31`) 두 워크큐 다 URL 쿼리로
+  탭을 받지 않는다. 선적·배송 화면을 열도록 고쳤다. 2호 D11 은 이제 **입고확인 없이 전이하면
+  409 RECEIVE_REQUIRED** 를 어서션해 이번 결합의 회귀를 지킨다.
+- **검증**: typecheck·ESLint 0건 · vitest 737 green · 두 여정 연속 22/22 green · 정리 CLEAN.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

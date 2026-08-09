@@ -463,6 +463,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     MISSING_TRACKING: '운송장(택배사·송장번호)이 필요합니다.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
+    RECEIVE_REQUIRED: '국내 입고 완료는 [입고 확인]으로 처리해 주세요 — 검수 시각이 함께 남습니다.',
     NOT_SHIPPED: '발송 시작 전에는 입고확인할 수 없습니다.',
     NOT_PREPARING: '발송이 시작된 선적은 취소할 수 없습니다 — 되돌리기로 준비 단계까지 내린 뒤 취소하세요.',
   };

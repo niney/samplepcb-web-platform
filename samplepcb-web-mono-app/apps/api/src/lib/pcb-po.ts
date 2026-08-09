@@ -80,6 +80,26 @@ const appendEq = (
   event: Omit<PcbEqEventType, 'at'>,
 ): PcbEqEventType[] => [...parseEqHistory(history), { at: new Date().toISOString(), ...event }];
 
+/**
+ * 현재 EQ 회차의 시작 시각 — 마지막으로 승인요청에 들어선 순간. 반려로 발주가 내려갔다
+ * 다시 올라오면 지난 회차의 고객 확인은 이력일 뿐이라, 행 요약은 이 시점 이후만 봐야 한다.
+ * 이력이 없으면(이관·구데이터) null — 제한하지 않는다.
+ */
+const eqRoundStartOf = (po: SpPcbPo): Date | null => {
+  const events = parseEqHistory(po.eqHistory);
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const at = events[i]?.toStatus === 'eq_requested' ? events[i]?.at : undefined;
+    if (at !== undefined && at !== '') {
+      const parsed = new Date(at);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+  }
+  return null;
+};
+
+const eqRoundStartMap = (rows: readonly SpPcbPo[]): Map<string, Date | null> =>
+  new Map(rows.map((r) => [r.id.toString(), eqRoundStartOf(r)]));
+
 // ── MD 경유 판정 — 관계 보유 조직이 수주한 상위 발주서는 자체 EQ 금지(위임) ────
 const isMdOrganization = async (partnerId: bigint): Promise<boolean> =>
   (await prisma.spPartnerRelation.count({ where: { parentPartnerId: partnerId } })) > 0;
@@ -222,7 +242,10 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
       : await prisma.spPartner.findMany({ where: { id: { in: parentIds } } });
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
   const filesMap = await loadEqFilesMap(rows.map((r) => r.id));
-  const reviewMap = await loadEqReviewRowSummaries(rows.map((r) => r.id));
+  const reviewMap = await loadEqReviewRowSummaries(
+    rows.map((r) => r.id),
+    eqRoundStartMap(rows),
+  );
   const out: AdminPcbPoViewType[] = [];
   for (const row of rows) {
     const delegation = await resolveEqDelegation(row);
@@ -963,7 +986,10 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
       select: { poId: true },
     }),
     // Case 상세와 같은 요약을 목록에도 싣는다(1쿼리) — 행을 열지 않아도 고객이 답했는지 안다.
-    loadEqReviewRowSummaries(rows.map((r) => r.id)),
+    loadEqReviewRowSummaries(
+      rows.map((r) => r.id),
+      eqRoundStartMap(rows),
+    ),
   ]);
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
   const shippedPoIds = new Set(shipmentLinks.map((l) => l.poId.toString()));

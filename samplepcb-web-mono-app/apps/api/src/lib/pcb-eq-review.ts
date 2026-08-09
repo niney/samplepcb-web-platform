@@ -242,9 +242,14 @@ export const getEqReviewFile = async (
 
 /** 발주 행에 싣는 요약(P4.4) — 모달을 열지 않아도 "보냈는지·답했는지"가 보이게.
  *  열린 요청이 있으면 그것(생성 가드상 항상 최신 행), 없으면 마지막 결정.
- *  canceled 는 요약에서 제외한다 — 취소했으면 미요청과 같다(다시 물어봐야 한다). */
+ *  canceled 는 요약에서 제외한다 — 취소했으면 미요청과 같다(다시 물어봐야 한다).
+ *
+ *  `roundStartByPo` 를 주면 **현재 EQ 회차에 생성된 리뷰만** 요약한다. 반려로 발주가 내려갔다
+ *  다시 올라오면 지난 회차의 결정은 이력일 뿐인데, 그걸 요약으로 쓰면 배지가 옛 회차에 머물고
+ *  반려 사유 프리필이 지난 회차 고객 문구를 협력사에 재발송한다. 비우면 전 이력 대상(구데이터). */
 export const loadEqReviewRowSummaries = async (
   poIds: readonly bigint[],
+  roundStartByPo?: ReadonlyMap<string, Date | null>,
 ): Promise<Map<string, PcbPoEqReviewSummaryType>> => {
   const map = new Map<string, PcbPoEqReviewSummaryType>();
   if (poIds.length === 0) return map;
@@ -255,6 +260,8 @@ export const loadEqReviewRowSummaries = async (
   const now = new Date();
   for (const r of rows) {
     const key = r.poId.toString();
+    const roundStart = roundStartByPo?.get(key) ?? null;
+    if (roundStart !== null && r.requestedAt < roundStart) continue; // 지난 회차의 결정
     const cur = map.get(key);
     // id desc 순회 — po 별 첫 행(최신)이 답이다. requested 는 늘 최신 행이지만
     // (열린 요청이 있으면 새로 못 만든다), 데이터가 어긋나도 열린 요청을 우선한다.

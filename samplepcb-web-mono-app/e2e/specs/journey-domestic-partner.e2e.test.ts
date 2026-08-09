@@ -388,18 +388,18 @@ describe.skipIf(!RUN || !JOURNEY)('여정 2호 — 국내 협력사 완주(KRW·
     await rp.view(partnerView, '/app/partner/pcb/ship', 'D10-shipment-shipping');
   });
 
-  test('D11. 관리자: 입고 완료(delivered)+입고확인 → 고객 배송 → 완료', async (ctx) => {
+  test('D11. 관리자: 입고 확인(=입고 완료) → 고객 배송 → 완료', async (ctx) => {
     if (poId === null || specId === null || odId === null) return ctx.skip();
-    // 국내 마지막 단계 delivered('입고 완료')는 **관리자 advance** 몫이고(사전
-    // domestic: shipping=PARTNER, delivered=ADMIN), 입고확인(receivedAt)은 그와 별개 축이다
-    // — receive 는 상태를 올리지 않고 검수 시각·메모만 남긴다. 둘 다 밟아야 종점이다.
-    const adv = await api(
+    // 국내 종점은 [입고 확인] 하나로 닫힌다 — 검수 시각과 상태가 같은 사건이기 때문이다.
+    // 전이만 따로 세우려 하면 서버가 RECEIVE_REQUIRED 로 막는다(그 회귀를 여기서 지킨다).
+    const advOnly = await api(
       A,
       'POST',
       `/api/admin/pcb-projects/${String(specId)}/pos/${String(poId)}/shipment/advance`,
       {},
     );
-    expect(adv.status, `입고 완료 전이: ${JSON.stringify(adv.json)}`).toBe(200);
+    expect(advOnly.status, `입고확인 없이 전이 시도: ${JSON.stringify(advOnly.json)}`).toBe(409);
+    expect(advOnly.json?.error, '전이 거절 코드').toBe('RECEIVE_REQUIRED');
 
     const recv = await api(
       A,
@@ -423,7 +423,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 2호 — 국내 협력사 완주(KRW·
     const mine = (queue.json?.data?.items ?? []).find((i: any) => i.odId === odId);
     if (mine === undefined) F('D11', 'bug', '입고확인 후에도 고객 배송 대기 큐에 안 보임');
     else F('D11', 'obs', `배송 대기 큐 진입 확인 — 입고 ${String(mine.receivedPoCount)}/${String(mine.poCount)}`);
-    await rp.view(adminView, '/app/admin/pcb/orders?tab=to_ship', 'D11-admin-to-ship');
+    // 고객 배송 큐는 '선적·배송' 화면의 두 번째 섹션이다(주문·결제 화면은 경리 5탭뿐 —
+    // AdminPcbOrders.vue:31). 두 워크큐 모두 URL 쿼리로 탭을 받지 않으므로 화면만 연다.
+    await rp.view(adminView, '/app/admin/pcb/shipments', 'D11-admin-to-ship');
 
     const ship = await api(A, 'PATCH', `/api/admin/orders/${odId}/force-status`, {
       target: '배송',

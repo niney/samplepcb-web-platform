@@ -203,8 +203,15 @@ const isMdReceiverView = computed(
     ship.value !== null &&
     ship.value.receiverKind === 'md',
 );
-// 받는측 전이(국내 '입고 완료'·국제 선적 이후 단계) — MD 조직이 ADMIN 측을 맡는다.
-const receiverCanAdvance = computed(() => isMdReceiverView.value && shipNextActor.value === 'ADMIN');
+// 받는측 전이(국제 선적 이후 단계) — MD 조직이 ADMIN 측을 맡는다.
+// 국내 종점('입고 완료')은 제외한다: 그건 [입고 확인]이 상태까지 함께 닫는 같은 사건이라
+// 버튼을 둘로 두면 어느 쪽을 눌러야 하는지 알 수 없다(서버도 RECEIVE_REQUIRED 로 막는다).
+const receiverCanAdvance = computed(
+  () =>
+    isMdReceiverView.value &&
+    shipNextActor.value === 'ADMIN' &&
+    !(ship.value?.mode === 'domestic' && shipNext.value === 'delivered'),
+);
 const receiverCanReceive = computed(
   () =>
     isMdReceiverView.value &&
@@ -212,6 +219,16 @@ const receiverCanReceive = computed(
     ship.value.status !== 'preparing' &&
     ship.value.receivedAt === null,
 );
+// 지금 이 발주서가 "반려로 되돌아온 상태"인가 — issued 로 내려와 있고 마지막 이력이
+// 승인요청→발주접수(관리자 반려)면 그렇다. 재요청하면 이력이 덧붙어 자연히 사라진다.
+const eqRejection = computed<{ note: string | null; at: string } | null>(() => {
+  const d = detail.value;
+  if (d?.status !== 'issued') return null;
+  const last = d.eq.history.at(-1);
+  if (last?.fromStatus !== 'eq_requested' || last.toStatus !== 'issued') return null;
+  return { note: last.note, at: last.at };
+});
+
 const shipAdvance = usePartnerPcbShipmentAdvance(); // 받는측(MD) 전이 전용
 const shipReceive = usePartnerPcbShipmentReceive();
 // 받는측(MD) 전이 — 국내 '입고 완료', 국제 '선적'(AWB 트래킹) 이후 단계.
@@ -404,6 +421,17 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
               </li>
             </ul>
           </div>
+        </div>
+
+        <!-- 반려 배너 — 되돌아온 이유를 가장 먼저 보여준다. 이력 <details> 안에만 두면
+             화면이 신규 발주와 똑같아져서 "왜 다시 왔지"를 알 수 없다. -->
+        <div v-if="eqRejection !== null" class="mt-4 rounded-lg border border-red-200 bg-red-50 p-3">
+          <p class="text-sm font-bold text-red-700">EQ 반려 — 보완 후 다시 승인요청해 주세요</p>
+          <p v-if="eqRejection.note !== null && eqRejection.note !== ''" class="mt-1 whitespace-pre-wrap text-sm text-red-800">
+            {{ eqRejection.note }}
+          </p>
+          <p v-else class="mt-1 text-sm text-red-800">사유가 기록되지 않았습니다 — 담당자에게 문의해 주세요.</p>
+          <p class="mt-1.5 text-xs text-red-500">{{ eqRejection.at.slice(0, 16).replace('T', ' ') }}</p>
         </div>
 
         <!-- 액션 -->
