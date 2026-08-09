@@ -78,7 +78,9 @@ const actionError = ref('');
 async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
   // 메일 없이 처리하는 예외 케이스는 통합 관리 주문내역(체크박스 게이트)에서 — 여기선 단순 1확인.
   if (
-    !(await confirmDialog(`주문 ${item.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`))
+    !(await confirmDialog(
+      `주문 ${item.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`,
+    ))
   ) {
     return;
   }

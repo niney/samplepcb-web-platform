@@ -52,6 +52,8 @@ specs/
   pcb-ship-board.e2e.test.ts PCB 보내기 보드 §9 스토리(세션 스모크 28케이스 편입판)
   journey-gerber-rfq.e2e.test.ts       여정 1호 — 해외 협력사(USD·국제 선적 6단계)
   journey-domestic-partner.e2e.test.ts 여정 2호 — 국내 협력사(KRW·국내 3단계·EQ 반려 왕복)
+  journey-batch-shipment.e2e.test.ts   여정 3호 — 묶음 발송(주문 2건 → 한 박스 → 각자 배송)
+  prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
 ## 완주 여정 (탐색 주행)
@@ -61,13 +63,20 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 
 | 스크립트 | 대상 |
 | --- | --- |
-| `pnpm -F e2e journey` | 1호·2호 연속(파일 직렬) |
+| `pnpm -F e2e journey` | 1~3호 연속(파일 직렬) |
 | `pnpm -F e2e journey:intl` | 1호만 — 해외 협력사 |
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
+| `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 
-두 여정은 고객 조작(거버 제출·주문서 작성)과 관찰 규약을 `helpers/journey.ts` 로 공유한다.
-갈라지는 것은 협력사 축뿐이다: **선정 환율 유무(USD↔KRW)·선적 체인 길이(6단계 vs 3단계)·
-Invoice 필수 여부**. 그래서 화면 마찰이 고쳐지면 양쪽이 함께 검증된다.
+세 여정은 고객 조작(거버 제출·주문서 작성)과 관찰 규약을 `helpers/journey.ts` 로 공유한다.
+1·2호가 갈라지는 것은 협력사 축뿐이다: **선정 환율 유무(USD↔KRW)·선적 체인 길이(6단계 vs
+3단계)·Invoice 필수 여부**. 그래서 화면 마찰이 고쳐지면 양쪽이 함께 검증된다.
+
+3호만 할 수 있는 것은 **고객 축과 묶음의 접합**이다. 협력사 축의 묶음 메커니즘(합류·대표
+승계·게이팅·묶음 전이)은 `pcb-ship-board` 가 시드 발주로 이미 지키지만, 거기엔 주문이 없다.
+3호는 서로 다른 주문 두 건을 한 박스로 보내고 입고 뒤 **두 주문이 모두** 고객 배송 대기 큐에
+오르는지 본다 — 선적 문서의 specId 는 대표 한 건뿐이라 그걸로 판정하면 동반 주문이 큐에서
+사라지기 때문이다(서버는 발주서 축으로 조인한다).
 
 **생성물은 자동 정리하지 않는다.** 완주 후 리포트(`output/journey/findings*.md`)의 생성물
 대장을 보고 손으로 지운다 — 순서는 ① 주문을 `force-status '주문'` 으로 내려 **재고 복원**
