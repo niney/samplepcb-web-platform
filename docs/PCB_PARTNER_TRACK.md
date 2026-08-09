@@ -853,6 +853,38 @@ dev DB 실데이터로 재현 판정 후, "전이 순간 일회성 묶기" 모�
   (`GET /partner/pcb-shipments/done` + PartnerPcbShipmentsDone) 신설. IA·진입 규칙
   정본은 **docs/PARTNER_PORTAL.md**. 검증은 E2E 기반으로 전환 중(HANDOFF_E2E_TEST.md).
 
+### P4.7 구현 기록 (2026-08-10 — 선정+확정가 한 번에·선정 환율 자동)
+
+여정 1호 주행 후 사용자 개선 의견 2건("선정하면 확정가까지 두 번 클릭", "환율 수동
+입력 비대칭")을 반영 — 레거시 선정 모달(마진%↔판매가 동시 입력)의 플랫폼 복원이자,
+P1 이연 TODO "선정 환율 prefill"의 해소.
+
+- **확정가 코어 추출** `lib/pcb-price.ts`: `checkPcbPriceGate`(active·비담김 검사 +
+  유령 active 보관함 정리 — 기존 PATCH price 게이트 그대로) / `confirmPcbFinalPrice`
+  (게이트 + 조건부 updateMany로 finalPrice·quoted·pricedBy/At 박제). 기존
+  `PATCH /admin/pcb-projects/:id/price` 는 이 코어 호출로 교체(동작 무변경).
+- **선정 API 확장** `POST …/rfqs/:rfqId/select` body `finalPrice?` 추가: 있으면
+  확정가 게이트를 **선검사**(선정만 되고 확정가는 실패하는 부분 성공 방지 — 두 게이트는
+  축이 달라 D10 이후 어긋날 수 있음) → 선정 → `confirmPcbFinalPrice`. 선검사~등록
+  사이 극소 레이스는 409로 "선정은 완료됐지만 확정가 등록 실패 — [확정가 등록] 재시도"
+  명시.
+- **선정 환율 자동** `selectPcbRfq`: 외화 회신 선정 시 `exchangeRate` 생략이면
+  `getPcbExchangeRate(ccy,'KRW')`(수출입은행 당일 캐시, tts·KRW 경유 교차) 자동 적용 —
+  회신 환산·MD 마진과 같은 의미론(이 변환점만 순수 수동이던 비대칭 해소). 명시값은
+  오버라이드. 캐시 미준비면 400 EXCHANGE_RATE_REQUIRED(명시 입력 요구).
+- **환율 노출** `GET /admin/pcb-exchange-rate?from=USD|CNY` 신설(FE prefill 용,
+  `{rate, rateDate}|null`).
+- **선정 모달 개편**(AdminPcbCase): 외화면 열릴 때 당일 환율 prefill(고시일 라벨,
+  수정 가능 — 손대면 라벨 해제) + 원가 KRW 미리보기(서버 박제식과 동형) + 판매가
+  섹션(마진%↔판매가 VAT 포함 양방향, 판매가=원가KRW×(1+마진%)×1.1 — 레거시 공식) +
+  [선정만]/[선정+확정가 등록] 2버튼. 판매가 섹션은 확정가 게이트와 같은 조건
+  (`cartState==='none' && status==='active'`)에서만 — 진행 중 주문(원가 소싱 모드)이면
+  감추고 선정만. 기존 [확정가 등록] 모달은 수정 창구로 유지.
+- **검증**: 여정 1호 S5를 새 계약(`{finalPrice}` 한 번, 환율 생략)으로 갱신해 재주행 —
+  11/11 green, 환율 자동 적용 실동작(USD 1432.98/08-07 고시, 폴백 미발동), quoted
+  전이·finalPrice DB 어서션 통과, HTTP 오류·pageerror 0. 생성물은 재고 복원
+  (force-status '주문') 후 전체 삭제(잔재 0).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

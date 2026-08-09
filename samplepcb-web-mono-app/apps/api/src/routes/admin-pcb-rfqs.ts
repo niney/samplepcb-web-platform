@@ -2,6 +2,7 @@ import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   ADMIN_PCB_RFQ_TABS,
+  AdminPcbExchangeRateResponse,
   AdminPcbRfqActionResponse,
   AdminPcbRfqCaseListResponse,
   AdminPcbRfqListResponse,
@@ -13,6 +14,8 @@ import {
   ApiError,
   PcbRfqReplyBody,
 } from '@sp/api-contract';
+import { getPcbExchangeRate } from '../lib/exchange-rate';
+import { checkPcbPriceGate, confirmPcbFinalPrice } from '../lib/pcb-price';
 import { prisma } from '../lib/prisma';
 import {
   diffSendPcbRfqs,
@@ -201,7 +204,22 @@ export const adminPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     },
   );
 
-  // ── POST — 선정(외화는 환율 필수) / 해제 ────────────────────────────────────
+  // ── GET — 선정 모달 prefill 용 당일 환율(수출입은행 캐시, 결제통화→KRW) ─────
+  fastify.get(
+    '/pcb-exchange-rate',
+    {
+      schema: {
+        querystring: z.object({ from: z.enum(['USD', 'CNY']) }),
+        response: { 200: AdminPcbExchangeRateResponse },
+      },
+    },
+    async (request) => {
+      const rate = await getPcbExchangeRate(request.query.from, 'KRW');
+      return { result: true as const, data: rate };
+    },
+  );
+
+  // ── POST — 선정(환율 생략=당일 캐시 자동) + finalPrice 동시 확정가(선택) / 해제 ──
   fastify.post(
     '/pcb-projects/:id/rfqs/:rfqId/select',
     {
@@ -212,19 +230,46 @@ export const adminPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       },
     },
     async (request, reply) => {
+      // finalPrice 동시 등록이면 확정가 게이트를 **선검사** — 선정만 되고 확정가는
+      // 실패하는 부분 성공을 막는다(두 게이트는 축이 달라 D10 이후 어긋날 수 있음).
+      if (request.body.finalPrice !== undefined) {
+        const gate = await checkPcbPriceGate(request.params.id);
+        if (gate === null) return reply.notFound('프로젝트가 없습니다');
+        if (!gate.ok)
+          return reply.status(gate.status).send({ error: gate.error, message: gate.message });
+      }
+
       const res = await selectPcbRfq(request.params.rfqId, request.body.exchangeRate);
       if (!res.ok) {
         if (res.error === 'RFQ_NOT_FOUND') return reply.notFound('견적요청을 찾을 수 없습니다');
         if (res.error === 'EXCHANGE_RATE_REQUIRED')
-          return reply
-            .status(400)
-            .send({ error: res.error, message: '외화 견적 선정에는 적용 환율이 필요합니다.' });
+          return reply.status(400).send({
+            error: res.error,
+            message: '당일 환율 캐시가 없습니다 — 적용 환율을 직접 입력해 주세요.',
+          });
         const message =
           GATE_MESSAGES[res.error] ??
           (res.error === 'ALREADY_SELECTED'
             ? '이미 선정된 협력사가 있습니다 — 먼저 선정을 해제하세요.'
             : '회신 완료 상태의 견적만 선정할 수 있습니다.');
         return reply.status(409).send({ error: res.error, message });
+      }
+
+      if (request.body.finalPrice !== undefined) {
+        const priced = await confirmPcbFinalPrice(
+          request.params.id,
+          request.body.finalPrice,
+          request.user.mbId,
+        );
+        if (priced?.ok !== true) {
+          // 선검사~등록 사이 극소 레이스 — 선정은 이미 완료됐음을 명확히 알린다.
+          return reply.status(409).send({
+            error: priced === null ? 'NOT_ACTIVE' : priced.error,
+            message: `선정은 완료됐지만 확정가 등록에 실패했습니다(${
+              priced === null ? '견적 없음' : priced.message
+            }) — [확정가 등록]으로 다시 시도하세요.`,
+          });
+        }
       }
       return { result: true as const };
     },

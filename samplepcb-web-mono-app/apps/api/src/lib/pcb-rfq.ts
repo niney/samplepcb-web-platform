@@ -481,7 +481,8 @@ export const saveMdChildSelection = async (
   return { ok: true };
 };
 
-// ── 관리자 선정/해제 — 판매가(확정가)는 별도 PATCH /admin/pcb-projects/:id/price ──
+// ── 관리자 선정/해제 — 여기는 원가(KRW 박제)만. 판매가(확정가)는 pcb-price.ts
+// (select 라우트의 finalPrice 동시 등록 또는 별도 PATCH /admin/pcb-projects/:id/price) ──
 
 export type PcbRfqSelectError =
   | 'RFQ_NOT_FOUND'
@@ -523,9 +524,16 @@ export const selectPcbRfq = async (
     krwAmount = roundPcbAmount(priceOriginal, 'KRW');
     stampRate = null;
   } else {
-    if (exchangeRate === undefined) return { ok: false, error: 'EXCHANGE_RATE_REQUIRED' };
-    krwAmount = roundPcbAmount(priceOriginal * exchangeRate, 'KRW');
-    stampRate = exchangeRate;
+    // 명시값 오버라이드 > 당일 수출입은행 캐시 자동 적용(회신 환산·MD 마진과 같은
+    // 의미론 — 이 변환점만 순수 수동이던 비대칭 해소). 캐시 미준비면 명시 입력 요구.
+    let applied = exchangeRate;
+    if (applied === undefined) {
+      const daily = await getPcbExchangeRate(ccy, 'KRW');
+      if (daily !== null) applied = daily.rate;
+    }
+    if (applied === undefined) return { ok: false, error: 'EXCHANGE_RATE_REQUIRED' };
+    krwAmount = roundPcbAmount(priceOriginal * applied, 'KRW');
+    stampRate = applied;
   }
 
   await prisma.$transaction([

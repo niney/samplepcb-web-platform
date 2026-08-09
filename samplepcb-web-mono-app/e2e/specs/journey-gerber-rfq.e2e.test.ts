@@ -244,34 +244,31 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     expect(r.status, JSON.stringify(r.json)).toBe(200);
   });
 
-  test('S5. 관리자: 선정 → 확정가 등록(quoted 전이)', async (ctx) => {
+  test('S5. 관리자: 선정+확정가 한 번에(quoted 전이, 환율 자동)', async (ctx) => {
     if (specId === null || rfqId === null) return ctx.skip();
+    // 환율 생략 = 당일 수출입은행 캐시 자동 적용. 캐시 미준비(키 미설정 로컬)면
+    // 400 EXCHANGE_RATE_REQUIRED — 그때만 명시 환율로 재시도한다.
     let sel = await api(
       A,
       'POST',
       `/api/admin/pcb-projects/${String(specId)}/rfqs/${String(rfqId)}/select`,
-      {},
+      { finalPrice: 55_000 },
     );
     if (sel.status === 400) {
-      // 외화(협력2 결제통화) 회신 선정은 KRW 환산 환율 필수 — 재시도
-      F('S5', 'obs', `선정 환율 필수 확인: ${JSON.stringify(sel.json)}`);
+      F('S5', 'obs', `당일 환율 캐시 없음 — 명시 환율 폴백: ${JSON.stringify(sel.json)}`);
       sel = await api(
         A,
         'POST',
         `/api/admin/pcb-projects/${String(specId)}/rfqs/${String(rfqId)}/select`,
-        { exchangeRate: 1400 },
+        { exchangeRate: 1400, finalPrice: 55_000 },
       );
     }
-    expect(sel.status, `선정: ${JSON.stringify(sel.json)}`).toBe(200);
-
-    const price = await api(A, 'PATCH', `/api/admin/pcb-projects/${String(specId)}/price`, {
-      finalPrice: 55_000,
-    });
-    expect(price.status, `확정가: ${JSON.stringify(price.json)}`).toBe(200);
+    expect(sel.status, `선정+확정가: ${JSON.stringify(sel.json)}`).toBe(200);
 
     const prisma = getPrisma();
     const spec = await prisma.spOrderSpec.findUnique({ where: { id: BigInt(specId) } });
-    expect(spec?.quoteStatus, '확정가 등록 후 상태').toBe('quoted');
+    expect(spec?.quoteStatus, '선정+확정가 후 상태').toBe('quoted');
+    expect(Number(spec?.finalPrice ?? 0), '확정가 반영').toBe(55_000);
     await shot(adminView, 'S05-admin-selected-priced');
   });
 

@@ -58,6 +58,7 @@ import {
   type CaseOrdererInput,
 } from '../lib/admin-case-customer';
 import { sendCompleteEstimate } from '../lib/alimtalk';
+import { confirmPcbFinalPrice } from '../lib/pcb-price';
 import { buildEstimateEmail } from '../lib/estimate-email';
 import { kstDateStr } from '../lib/kst';
 import { sendMail } from '../lib/mailer';
@@ -663,67 +664,22 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       },
     },
     async (request, reply) => {
-      const spec = await prisma.spOrderSpec.findFirst({
-        where: { id: BigInt(request.params.id) },
-      });
-      if (spec === null) return reply.notFound('프로젝트가 없습니다');
-      if (spec.status !== 'active') {
-        return reply.status(409).send({
-          error: 'NOT_ACTIVE',
-          message: '활성 상태의 견적이 아닙니다',
-        });
-      }
-      if (spec.ctId !== null) {
-        const state = (await getCartStates([spec.ctId])).get(spec.ctId);
-        if (state === 'cart') {
-          return reply.status(409).send({
-            error: 'IN_CART',
-            message: '장바구니에 담긴 견적은 확정할 수 없습니다',
-          });
-        }
-        if (state === 'ordered') {
-          return reply.status(409).send({
-            error: 'ALREADY_ORDERED',
-            message: '이미 주문된 견적입니다',
-          });
-        }
-        // cart 행이 사라진 유령 active — 쓰기 라우트이므로 사용자 lazy reconcile 과
-        // 동일하게 보관함으로 정리한 뒤 거부(유령 건에 확정하는 것 방지)
-        await prisma.spOrderSpec.update({
-          where: { id: spec.id },
-          data: { status: 'deleted' },
-        });
-        return reply.status(409).send({
-          error: 'NOT_ACTIVE',
-          message: '장바구니에서 삭제된 견적입니다 (보관함으로 이동됨)',
-        });
-      }
-
-      const pricedAt = new Date();
-      // 조건부 updateMany — 사용자 소프트 삭제와의 레이스 최소 방어(0건이면 409)
-      const updated = await prisma.spOrderSpec.updateMany({
-        where: { id: spec.id, status: 'active' },
-        data: {
-          finalPrice: request.body.finalPrice,
-          quoteStatus: 'quoted',
-          pricedBy: request.user.mbId,
-          pricedAt,
-        },
-      });
-      if (updated.count === 0) {
-        return reply.status(409).send({
-          error: 'NOT_ACTIVE',
-          message: '활성 상태의 견적이 아닙니다',
-        });
-      }
+      // 게이트·등록 코어는 lib/pcb-price.ts — "선정+확정가 한 번에"(admin-pcb-rfqs)와 공유.
+      const res = await confirmPcbFinalPrice(
+        BigInt(request.params.id),
+        request.body.finalPrice,
+        request.user.mbId,
+      );
+      if (res === null) return reply.notFound('프로젝트가 없습니다');
+      if (!res.ok) return reply.status(res.status).send({ error: res.error, message: res.message });
       return {
         result: true as const,
         data: {
-          projectId: Number(spec.id),
+          projectId: res.projectId,
           quoteStatus: 'quoted' as const,
-          finalPrice: request.body.finalPrice,
-          pricedBy: request.user.mbId,
-          pricedAt: pricedAt.toISOString(),
+          finalPrice: res.finalPrice,
+          pricedBy: res.pricedBy,
+          pricedAt: res.pricedAt.toISOString(),
         },
       };
     },

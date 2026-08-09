@@ -120,17 +120,29 @@ export const AdminPcbRfqReplyResponse = z.object({
 });
 export type AdminPcbRfqReplyResponseType = z.infer<typeof AdminPcbRfqReplyResponse>;
 
-// 관리자 선정 — 같은 트랙(parent=0) 1곳만. 외화 행은 exchangeRate 필수(결제통화→KRW
-// 박제, krwAmount 환산 — 프론트가 수출입은행 캐시로 prefill). KRW 행은 무시.
-// 판매가(고객 확정가)는 이 API 가 아니라 기존 PATCH /admin/pcb-projects/:id/price 로
-// 이어서 등록한다(§5.2 선확정 모델 — 선정과 확정의 조작 경로 분리).
+// 관리자 선정 — 같은 트랙(parent=0) 1곳만.
+// exchangeRate: 외화 행의 결제통화→KRW 박제 환율. **생략 시 당일 수출입은행 캐시를
+//   서버가 자동 적용**(회신 환산·MD 마진과 같은 의미론 — 캐시 미준비면 400). 명시값은
+//   오버라이드. KRW 행은 무시.
+// finalPrice: 판매가(고객 확정가, VAT 포함 KRW). 주면 선정과 **한 번에** 등록한다
+//   (레거시 선정 모달의 마진%↔판매가 통합 복원). 게이트는 확정가 PATCH 와 동일
+//   (미담김·미주문 — 판매가 불변)이며 선정 전에 선검사해 부분 성공을 막는다.
+//   생략 시 선정만(판매가는 기존 PATCH /admin/pcb-projects/:id/price 로 별도).
 export const AdminPcbRfqSelectBody = z.object({
   exchangeRate: z.number().positive().optional(),
+  finalPrice: z.number().int().positive().max(2_000_000_000).optional(),
 });
 export type AdminPcbRfqSelectBodyType = z.infer<typeof AdminPcbRfqSelectBody>;
 
 export const AdminPcbRfqActionResponse = z.object({ result: z.literal(true) });
 export type AdminPcbRfqActionResponseType = z.infer<typeof AdminPcbRfqActionResponse>;
+
+// 선정 모달 prefill 용 당일 환율(수출입은행 캐시) — 미준비면 data null(수동 입력 유도).
+export const AdminPcbExchangeRateResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ rate: z.number(), rateDate: z.string().nullable() }).nullable(),
+});
+export type AdminPcbExchangeRateResponseType = z.infer<typeof AdminPcbExchangeRateResponse>;
 
 // 매직링크 재발급 — 구 토큰 즉시 무효(회전 회수). [링크 복사]는 응답 토큰으로 즉시 조립.
 export const AdminPcbRfqMagicLinkResponse = z.object({

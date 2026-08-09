@@ -17,6 +17,7 @@ import { fmtKstDate, kstDateInput, kstDateOnly, kstToday } from '@sp/utils';
 import { downloadAdminFile, useAdminQuoteDetail, useConfirmPrice } from '../../admin/useAdminQuotes';
 import { useAdminPartnerList, type AdminPartnerFilters } from '../../admin/useAdminPartners';
 import {
+  fetchPcbSelectRate,
   pcbMagicReplyUrl,
   useAdminPcbRfqReply,
   useAdminPcbRfqs,
@@ -269,17 +270,74 @@ async function submitAdminReply(body: PcbRfqReplyBodyType): Promise<void> {
   }
 }
 
-// ── 선정/해제 — 외화는 적용 환율 입력(결제통화→KRW 박제) ─────────────────────
+// ── 선정/해제 — 외화 환율 자동 프리필(수출입은행 캐시, 수정 가능) + 판매가(확정가)
+// 동시 등록(레거시 선정 모달의 마진%↔판매가 복원). 판매가 게이트는 [확정가 등록]과
+// 동일(담김·주문 전) — 진행 중 주문(원가 소싱 모드)이면 섹션을 감추고 선정만 한다.
 const selectTarget = ref<AdminPcbRfqViewType | null>(null);
 const selectRate = ref('');
+const selectRateDate = ref<string | null>(null);
+const selectMargin = ref('');
+const selectFinal = ref('');
 const selectMut = useSelectPcbRfq();
 const unselectMut = useUnselectPcbRfq();
+const canPriceInSelect = computed(
+  () => detail.value?.cartState === 'none' && detail.value.status === 'active',
+);
+// 원가(KRW 환산) 미리보기 — 서버 박제식(priceOriginal×환율, KRW 반올림)과 동형
+const selectCostKrw = computed<number | null>(() => {
+  const row = selectTarget.value;
+  const price = row?.priceOriginal ?? null;
+  if (row === null || price === null) return null;
+  if (row.currency === 'KRW') return Math.round(price);
+  const rate = Number(selectRate.value.replaceAll(',', ''));
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  return Math.round(price * rate);
+});
+const selectFinalValid = computed(() => {
+  const value = Number(selectFinal.value.replaceAll(',', ''));
+  return Number.isFinite(value) && value > 0;
+});
+function syncFinalFromMargin(): void {
+  const cost = selectCostKrw.value;
+  const margin = Number(selectMargin.value.replaceAll(',', ''));
+  if (cost === null || selectMargin.value.trim() === '' || !Number.isFinite(margin)) return;
+  selectFinal.value = String(Math.round(cost * (1 + margin / 100) * 1.1));
+}
+function syncMarginFromFinal(): void {
+  const cost = selectCostKrw.value;
+  const final = Number(selectFinal.value.replaceAll(',', ''));
+  if (cost === null || cost <= 0 || !Number.isFinite(final) || final <= 0) {
+    selectMargin.value = '';
+    return;
+  }
+  selectMargin.value = (Math.round((final / 1.1 / cost - 1) * 1000) / 10).toFixed(1);
+}
+function onSelectRateInput(): void {
+  selectRateDate.value = null; // 손으로 고치면 고시 라벨 해제(수동값)
+  if (selectMargin.value.trim() !== '') syncFinalFromMargin();
+  else if (selectFinal.value.trim() !== '') syncMarginFromFinal();
+}
 function openSelect(row: AdminPcbRfqViewType): void {
   actionError.value = '';
   selectTarget.value = row;
   selectRate.value = '';
+  selectRateDate.value = null;
+  selectMargin.value = '';
+  const prefill = detail.value?.finalPrice ?? null; // 재선정 — 기존 확정가 유지 프리필
+  selectFinal.value = prefill === null ? '' : String(prefill);
+  if (row.currency !== 'USD' && row.currency !== 'CNY') {
+    syncMarginFromFinal(); // KRW — 원가 환산이 필요 없다
+    return;
+  }
+  void fetchPcbSelectRate(row.currency).then((r) => {
+    // 늦은 응답이 사용자의 입력·다른 행 모달을 덮지 않게 — 같은 행, 미입력일 때만 반영
+    if (selectTarget.value?.rfqId !== row.rfqId || selectRate.value !== '' || r === null) return;
+    selectRate.value = String(r.rate);
+    selectRateDate.value = r.rateDate;
+    if (selectFinal.value.trim() !== '') syncMarginFromFinal();
+  });
 }
-async function submitSelect(): Promise<void> {
+async function submitSelect(withPrice: boolean): Promise<void> {
   if (specId.value === null || selectTarget.value === null) return;
   const row = selectTarget.value;
   let exchangeRate: number | undefined;
@@ -290,12 +348,22 @@ async function submitSelect(): Promise<void> {
       return;
     }
   }
+  let finalPrice: number | undefined;
+  if (withPrice) {
+    const value = Number(selectFinal.value.replaceAll(',', ''));
+    if (!Number.isFinite(value) || value <= 0) {
+      actionError.value = '판매가(확정가, 원)를 입력해 주세요.';
+      return;
+    }
+    finalPrice = Math.round(value);
+  }
   actionError.value = '';
   try {
     await selectMut.mutateAsync({
       specId: specId.value,
       rfqId: row.rfqId,
       ...(exchangeRate === undefined ? {} : { exchangeRate }),
+      ...(finalPrice === undefined ? {} : { finalPrice }),
     });
     selectTarget.value = null;
   } catch (e) {
@@ -1692,7 +1760,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       </div>
     </div>
 
-    <!-- 선정 모달(외화 환율 입력) -->
+    <!-- 선정 모달 — 외화 환율 자동 프리필 + 판매가(확정가) 동시 등록 -->
     <div v-if="selectTarget !== null" class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="selectTarget = null">
       <div class="w-full max-w-sm rounded-xl bg-surface p-5 shadow-xl">
         <h3 class="text-sm font-bold text-gray-800">협력사 선정 — {{ selectTarget.partnerName }}</h3>
@@ -1702,13 +1770,39 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         </p>
         <label v-if="selectTarget.currency !== 'KRW'" class="mt-3 block">
           <span class="text-xs font-semibold text-gray-500">적용 환율 ({{ selectTarget.currency }} → KRW) *</span>
-          <input v-model="selectRate" type="text" inputmode="decimal" placeholder="예) 1444.19" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-violet-500 focus:outline-none">
-          <span class="mt-1 block text-[11px] text-gray-400">선정 시점에 박제되어 KRW 환산(원가 회계)에 쓰입니다.</span>
+          <input v-model="selectRate" type="text" inputmode="decimal" placeholder="예) 1444.19" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-violet-500 focus:outline-none" @input="onSelectRateInput">
+          <span v-if="selectRateDate !== null" class="mt-1 block text-[11px] text-emerald-600">수출입은행 {{ selectRateDate }} 고시(송금 기준) 자동 반영 — 수정 가능. 선정 시점에 박제됩니다.</span>
+          <span v-else class="mt-1 block text-[11px] text-gray-400">선정 시점에 박제되어 KRW 환산(원가 회계)에 쓰입니다.</span>
         </label>
-        <p class="mt-2 text-xs text-gray-400">선정하면 같은 트랙의 다른 회신은 '미선정'이 됩니다. 판매가는 [확정가 등록]에서 별도로 정합니다.</p>
+        <p v-if="selectCostKrw !== null" class="mt-2 text-xs text-gray-500">
+          원가(KRW 환산): <b class="tabular-nums">₩{{ selectCostKrw.toLocaleString() }}</b>
+        </p>
+        <div v-if="canPriceInSelect" class="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+          <p class="text-xs font-semibold text-gray-600">판매가(확정가) 함께 등록 — 고객 결제액의 기준</p>
+          <div class="mt-2 flex gap-2">
+            <label class="w-24 shrink-0">
+              <span class="text-[11px] font-semibold text-gray-500">마진 %</span>
+              <input v-model="selectMargin" type="text" inputmode="decimal" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-2 text-sm tabular-nums focus:border-emerald-500 focus:outline-none" @input="syncFinalFromMargin">
+            </label>
+            <label class="min-w-0 flex-1">
+              <span class="text-[11px] font-semibold text-gray-500">판매가 (VAT 포함, ₩)</span>
+              <input v-model="selectFinal" type="text" inputmode="numeric" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-emerald-500 focus:outline-none" @input="syncMarginFromFinal">
+            </label>
+          </div>
+          <p class="mt-1.5 text-[11px] leading-4 text-gray-400">
+            판매가 = 원가 KRW × (1+마진%) × 1.1(VAT). 비워 두고 [선정만] 하면 나중에 [확정가 등록]에서 정합니다.
+          </p>
+        </div>
+        <p class="mt-2 text-xs text-gray-400">
+          선정하면 같은 트랙의 다른 회신은 '미선정'이 됩니다.<template v-if="!canPriceInSelect"> 진행 중 주문 건 — 판매가 없이 원가 선정만 합니다.</template>
+        </p>
         <div class="mt-4 flex justify-end gap-2">
           <button type="button" class="rounded-md border border-gray-200 px-3 py-1.5 text-sm" @click="selectTarget = null">취소</button>
-          <button type="button" class="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40" :disabled="selectMut.isPending.value" @click="void submitSelect()">선정 확정</button>
+          <template v-if="canPriceInSelect">
+            <button type="button" class="rounded-md border border-violet-200 px-3 py-1.5 text-sm font-semibold text-violet-700 disabled:opacity-40" :disabled="selectMut.isPending.value" @click="void submitSelect(false)">선정만</button>
+            <button type="button" class="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40" :disabled="selectMut.isPending.value || !selectFinalValid" @click="void submitSelect(true)">선정 + 확정가 등록</button>
+          </template>
+          <button v-else type="button" class="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40" :disabled="selectMut.isPending.value" @click="void submitSelect(false)">선정 확정</button>
         </div>
       </div>
     </div>
