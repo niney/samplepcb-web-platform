@@ -53,6 +53,7 @@ specs/
   journey-gerber-rfq.e2e.test.ts       여정 1호 — 해외 협력사(USD·국제 선적 6단계)
   journey-domestic-partner.e2e.test.ts 여정 2호 — 국내 협력사(KRW·국내 3단계·EQ 반려 왕복)
   journey-batch-shipment.e2e.test.ts   여정 3호 — 묶음 발송(주문 2건 → 한 박스 → 각자 배송)
+  journey-md-relay.e2e.test.ts         여정 4호 — MD 경유 2단(2단 견적·EQ 위임·출고 게이팅)
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -63,14 +64,19 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 
 | 스크립트 | 대상 |
 | --- | --- |
-| `pnpm -F e2e journey` | 1~3호 연속(파일 직렬) |
+| `pnpm -F e2e journey` | 1~4호 연속(파일 직렬) |
 | `pnpm -F e2e journey:intl` | 1호만 — 해외 협력사 |
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
+| `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
 
 세 여정은 고객 조작(거버 제출·주문서 작성)과 관찰 규약을 `helpers/journey.ts` 로 공유한다.
 1·2호가 갈라지는 것은 협력사 축뿐이다: **선정 환율 유무(USD↔KRW)·선적 체인 길이(6단계 vs
 3단계)·Invoice 필수 여부**. 그래서 화면 마찰이 고쳐지면 양쪽이 함께 검증된다.
+
+4호는 **MD 경유 2단**을 세운다 — MD 는 진행 중 수주 발주가 없는 조직만 될 수 있어(전환 시 EQ
+주체가 위임으로 바뀐다) 발주가 비어 있는 조직을 MD 로 쓰고, 관계는 주행이 만들고 끝나면
+해제한다. 관계 해제는 문서가 종결돼야 되므로 그 순서 자체가 검증이다.
 
 3호만 할 수 있는 것은 **고객 축과 묶음의 접합**이다. 협력사 축의 묶음 메커니즘(합류·대표
 승계·게이팅·묶음 전이)은 `pcb-ship-board` 가 시드 발주로 이미 지키지만, 거기엔 주문이 없다.

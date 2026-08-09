@@ -12,6 +12,7 @@
     "journey:intl": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-gerber",
     "journey:domestic": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-domestic",
     "journey:batch": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-batch",
+    "journey:md": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-md",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
