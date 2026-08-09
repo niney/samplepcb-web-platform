@@ -33,6 +33,7 @@ import {
 import { fmtKstDate as dateOnly } from '@sp/utils';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
+import UiPromptModal from '../../components/ui/UiPromptModal.vue';
 
 // PCB 발주서 상세(협력사 포털, P2) — EQ 5단계 진행: 발주접수(EQ·Working 파일 업로드)
 // → EQ 승인요청 → (관리자 승인) → 생산 시작 → 생산 완료. 되돌리기는 직전 전이 주체만.
@@ -231,29 +232,40 @@ const eqRejection = computed<{ note: string | null; at: string } | null>(() => {
 
 const shipAdvance = usePartnerPcbShipmentAdvance(); // 받는측(MD) 전이 전용
 const shipReceive = usePartnerPcbShipmentReceive();
-// 받는측(MD) 전이 — 국내 '입고 완료', 국제 '선적'(AWB 트래킹) 이후 단계.
+// 받는측(MD) 전이 — 국제 '선적'(AWB 트래킹) 이후 단계. 값이 필요한 단계는 모달로 받는다
+// (prompt 는 취소·오타 수정이 안 되고 브라우저 설정 하나로 막힌다).
+const trackingPromptOpen = ref(false);
 async function runReceiverAdvance(): Promise<void> {
   if (poId.value === null || ship.value === null || shipNext.value === null) return;
-  let body: { trackingNumber?: string } = {};
   if (shipNext.value === 'shipped') {
-    const tn = window.prompt('트래킹 번호(AWB/BL)');
-    if (tn === null || tn.trim() === '') return;
-    body = { trackingNumber: tn.trim() };
+    trackingPromptOpen.value = true;
+    return;
   }
+  await submitReceiverAdvance({});
+}
+async function submitReceiverAdvance(values: Record<string, string>): Promise<void> {
+  if (poId.value === null) return;
+  const tn = values.trackingNumber ?? '';
   actionError.value = '';
   try {
-    await shipAdvance.mutateAsync({ poId: poId.value, body });
+    await shipAdvance.mutateAsync({
+      poId: poId.value,
+      body: tn === '' ? {} : { trackingNumber: tn },
+    });
+    trackingPromptOpen.value = false;
   } catch (e) {
     surfaceError(e, '진행에 실패했습니다.');
   }
 }
-async function runShipReceive(): Promise<void> {
+
+const receivePromptOpen = ref(false);
+async function submitShipReceive(values: Record<string, string>): Promise<void> {
   if (poId.value === null) return;
-  const note = window.prompt('입고 확인 메모(수량 부족·불량 등 — 없으면 비워두세요)');
-  if (note === null) return;
+  const note = values.note ?? '';
   actionError.value = '';
   try {
-    await shipReceive.mutateAsync({ poId: poId.value, note: note.trim() === '' ? null : note.trim() });
+    await shipReceive.mutateAsync({ poId: poId.value, note: note === '' ? null : note });
+    receivePromptOpen.value = false;
   } catch (e) {
     surfaceError(e, '입고 확인에 실패했습니다.');
   }
@@ -570,7 +582,7 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
               type="button"
               class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
               :disabled="shipReceive.isPending.value"
-              @click="void runShipReceive()"
+              @click="receivePromptOpen = true"
             >
               입고 확인(수령)
             </button>
@@ -686,6 +698,30 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
     <div v-else class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
       발주서를 찾을 수 없습니다.
     </div>
+
+    <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) -->
+    <UiPromptModal
+      :title="trackingPromptOpen ? '선적 진행' : null"
+      :fields="[{ name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true }]"
+      confirm-label="진행"
+      :busy="shipAdvance.isPending.value"
+      @close="trackingPromptOpen = false"
+      @confirm="(v) => void submitReceiverAdvance(v)"
+    />
+    <UiPromptModal
+      :title="receivePromptOpen ? '입고 확인(수령)' : null"
+      :fields="[{
+        name: 'note',
+        label: '검수 메모 (선택)',
+        type: 'textarea',
+        placeholder: '수량 부족·불량 등 특이사항이 있으면 적어 주세요.',
+      }]"
+      description="실물 검수를 기록합니다 — 하위 발송이 모두 확인되면 상위 출고가 열립니다."
+      confirm-label="입고 확인"
+      :busy="shipReceive.isPending.value"
+      @close="receivePromptOpen = false"
+      @confirm="(v) => void submitShipReceive(v)"
+    />
   </div>
 </template>
 

@@ -1026,6 +1026,30 @@ HTTP≥400·pageerror 0 · 생성물 정리 CLEAN.
   409 RECEIVE_REQUIRED** 를 어서션해 이번 결합의 회귀를 지킨다.
 - **검증**: typecheck·ESLint 0건 · vitest 737 green · 두 여정 연속 22/22 green · 정리 CLEAN.
 
+### P4.11 구현 기록 (2026-08-10 — 값을 받는 조작을 입력 모달로)
+
+관리자·협력사 화면에서 값을 받던 `window.prompt` 7곳을 공용 입력 모달
+(`components/ui/UiPromptModal.vue`)로 옮겼다. prompt 를 걷어낸 이유는 취향이 아니라
+**조작이 실제로 막히거나 값이 사라졌기 때문**이다.
+
+- 여러 값을 물으려면 창을 연달아 띄워야 했다 — 국내 발송의 택배사·송장번호가 그랬고,
+  **두 번째 창에서 취소하면 첫 입력이 통째로 사라졌다**.
+- 줄바꿈이 안 된다. EQ 반려 사유는 협력사에게 메일로 그대로 나가는 대외 문구인데
+  한 줄로만 쓸 수 있었고, 미리보기도 형식 검증도 없었다.
+- 브라우저의 "추가 대화상자 표시 안 함"을 한 번 체크하면 기능 자체가 죽는다. Case 화면엔
+  prompt·confirm 이 여섯 군데라 체크될 확률이 낮지 않다.
+
+모달은 필드 정의(`PromptField[]`)를 받아 한 화면에서 묻고, **필수값이 채워질 때까지 확인
+버튼을 잠근다**. Esc·배경 클릭으로 닫히고 여러 줄 입력 중에는 Enter 가 줄바꿈이라 확인은
+Ctrl/⌘+Enter 로 받는다. 옮긴 자리는 EQ 반려 사유(고객 반려 사유 프리필·"이 문장이 협력사에게
+메일로 갑니다" 안내), 선적 전이 3종(출고예정일 / 택배사+송장 / AWB 트래킹), 입고 확인 메모
+(관리자·MD 양쪽 — 국내는 "입고 완료까지 함께 닫힌다"를 설명에 밝힌다).
+
+검증은 `e2e/specs/prompt-modal.e2e.test.ts` 신설 — prompt 였다면 브라우저 대화상자라 DOM 에
+흔적이 없으므로, **모달 요소가 보인다는 것 자체가 교체의 증거**다. 사유 없이는 확인이 잠기는지,
+Esc 로 닫히는지, 입력이 서버까지 가 `eqHistory` 에 남는지까지 확인한다(3케이스).
+남은 prompt 는 BOM 패널의 클립보드 복사 실패 폴백 1곳뿐이고, 그건 입력이 아니라 표시 용도다.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

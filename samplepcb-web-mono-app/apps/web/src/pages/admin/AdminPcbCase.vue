@@ -9,6 +9,7 @@ import {
   bomShipmentStatusLabel,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
+  type BomShipmentStatusType,
   type PcbRfqReplyBodyType,
   type PcbShipmentAdvanceBodyType,
   type PcbShipmentViewType,
@@ -62,6 +63,7 @@ import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vu
 import PcbEqReviewPanel from '../../components/admin/pcb/PcbEqReviewPanel.vue';
 import PcbSpecEditModal from '../../components/admin/pcb/PcbSpecEditModal.vue';
 import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModal.vue';
+import UiPromptModal, { type PromptField } from '../../components/ui/UiPromptModal.vue';
 import MailLogList from '../../components/admin/MailLogList.vue';
 import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
 
@@ -642,15 +644,34 @@ async function approvePo(po: AdminPcbPoViewType): Promise<void> {
     surfaceError(e, 'EQ 승인에 실패했습니다.');
   }
 }
-async function rejectPo(po: AdminPcbPoViewType): Promise<void> {
-  if (specId.value === null) return;
-  // 고객이 반려했으면 그 사유가 곧 협력사에 전할 말이다 — 다시 타이핑하지 않게 채워 둔다.
-  const fromCustomer = po.eqReview?.status === 'rejected' ? (po.eqReview.decisionNote ?? '') : '';
-  const reason = window.prompt(`${po.partnerName} EQ 반려 사유를 입력하세요`, fromCustomer);
-  if (reason === null || reason.trim() === '') return;
+// EQ 반려 사유는 협력사에게 메일로 그대로 나가는 대외 문구다 — 줄바꿈도 안 되는 prompt 대신
+// 모달에서 받고, 고객이 반려한 건이면 그 사유를 채워 둔다(다시 타이핑하지 않게).
+const rejectTarget = ref<AdminPcbPoViewType | null>(null);
+const rejectFields = computed<PromptField[]>(() => {
+  const po = rejectTarget.value;
+  const fromCustomer = po?.eqReview?.status === 'rejected' ? (po.eqReview.decisionNote ?? '') : '';
+  return [
+    {
+      name: 'reason',
+      label: '반려 사유',
+      type: 'textarea',
+      required: true,
+      value: fromCustomer,
+      placeholder: '예) 실크 위치를 좌측으로 옮겨 주세요.',
+      hint:
+        fromCustomer === ''
+          ? '이 문장이 협력사에게 메일로 전달됩니다.'
+          : '고객이 남긴 사유를 채워 두었습니다 — 그대로 보내거나 다듬어 주세요.',
+    },
+  ];
+});
+async function submitReject(values: Record<string, string>): Promise<void> {
+  const po = rejectTarget.value;
+  if (specId.value === null || po === null) return;
   actionError.value = '';
   try {
-    await rejectEq.mutateAsync({ specId: specId.value, poId: po.poId, reason: reason.trim() });
+    await rejectEq.mutateAsync({ specId: specId.value, poId: po.poId, reason: values.reason ?? '' });
+    rejectTarget.value = null;
   } catch (e) {
     surfaceError(e, 'EQ 반려에 실패했습니다.');
   }
@@ -746,32 +767,68 @@ const canAdminReceive = (s: PcbShipmentViewType): boolean => {
     : bomShipmentNextStatus(s.mode, s.status) === null;
 };
 
-async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
-  if (specId.value === null) return;
-  const next = bomShipmentNextStatus(s.mode, s.status);
-  if (next === null) return;
-  let body: PcbShipmentAdvanceBodyType = {};
+// 선적 전이의 필수값은 단계마다 다르다 — 택배사·송장처럼 둘을 받아야 하는 단계는 prompt
+// 로는 창을 두 번 띄워야 했고 두 번째에서 취소하면 첫 입력이 사라졌다. 한 모달에서 받는다.
+const shipPromptFieldsOf = (next: BomShipmentStatusType): PromptField[] => {
   if (next === 'requested') {
-    const d = window.prompt('출고예정일 (YYYY-MM-DD) — Invoice 첨부도 필요합니다');
-    if (d === null || d.trim() === '') return;
-    body = { shipDate: d.trim() };
-  } else if (next === 'shipping') {
-    const carrier = window.prompt('택배사');
-    if (carrier === null || carrier.trim() === '') return;
-    const tn = window.prompt('송장번호');
-    if (tn === null || tn.trim() === '') return;
-    body = { carrier: carrier.trim(), trackingNumber: tn.trim() };
-  } else if (next === 'shipped') {
-    const tn = window.prompt('트래킹 번호(AWB/BL)');
-    if (tn === null || tn.trim() === '') return;
-    body = { trackingNumber: tn.trim() };
+    return [
+      {
+        name: 'shipDate',
+        label: '출고예정일',
+        type: 'date',
+        required: true,
+        hint: '선적 요청에는 Invoice 첨부도 필요합니다.',
+      },
+    ];
   }
+  if (next === 'shipping') {
+    return [
+      { name: 'carrier', label: '택배사', required: true, placeholder: '예) CJ대한통운' },
+      { name: 'trackingNumber', label: '송장번호', required: true },
+    ];
+  }
+  if (next === 'shipped') {
+    return [{ name: 'trackingNumber', label: '트래킹 번호(AWB/BL)', required: true }];
+  }
+  return [];
+};
+const shipPrompt = ref<{
+  poId: number;
+  next: BomShipmentStatusType;
+  mode: PcbShipmentViewType['mode'];
+} | null>(null);
+
+async function runShipAdvance(poId: number, body: PcbShipmentAdvanceBodyType): Promise<void> {
+  if (specId.value === null) return;
   actionError.value = '';
   try {
     await shipAdvanceAdmin.mutateAsync({ specId: specId.value, poId, body });
+    shipPrompt.value = null;
   } catch (e) {
     surfaceError(e, '선적 진행에 실패했습니다.');
   }
+}
+async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
+  const next = bomShipmentNextStatus(s.mode, s.status);
+  if (next === null) return;
+  // 입력이 필요 없는 단계(국내도착·통관·완료 등)는 그대로 진행한다.
+  if (shipPromptFieldsOf(next).length === 0) {
+    await runShipAdvance(poId, {});
+    return;
+  }
+  shipPrompt.value = { poId, next, mode: s.mode };
+}
+async function submitShipPrompt(values: Record<string, string>): Promise<void> {
+  const target = shipPrompt.value;
+  if (target === null) return;
+  const body: PcbShipmentAdvanceBodyType = {
+    ...(values.shipDate === undefined || values.shipDate === '' ? {} : { shipDate: values.shipDate }),
+    ...(values.carrier === undefined || values.carrier === '' ? {} : { carrier: values.carrier }),
+    ...(values.trackingNumber === undefined || values.trackingNumber === ''
+      ? {}
+      : { trackingNumber: values.trackingNumber }),
+  };
+  await runShipAdvance(target.poId, body);
 }
 async function adminShipRevert(poId: number): Promise<void> {
   if (specId.value === null) return;
@@ -796,17 +853,20 @@ async function adminShipCancel(poId: number, s: PcbShipmentViewType): Promise<vo
     surfaceError(e, '선적 취소에 실패했습니다.');
   }
 }
-async function adminShipReceive(poId: number): Promise<void> {
-  if (specId.value === null) return;
-  const note = window.prompt('입고 확인 메모(수량 부족·불량 등 — 없으면 비워두세요)');
-  if (note === null) return;
+// 입고 확인 — 국내는 이 조작이 상태(입고 완료)까지 닫으므로 무엇이 함께 일어나는지 밝힌다.
+const receivePrompt = ref<{ poId: number; domestic: boolean } | null>(null);
+async function submitReceive(values: Record<string, string>): Promise<void> {
+  const target = receivePrompt.value;
+  if (specId.value === null || target === null) return;
+  const note = values.note ?? '';
   actionError.value = '';
   try {
     await shipReceiveAdmin.mutateAsync({
       specId: specId.value,
-      poId,
-      note: note.trim() === '' ? null : note.trim(),
+      poId: target.poId,
+      note: note === '' ? null : note,
     });
+    receivePrompt.value = null;
   } catch (e) {
     surfaceError(e, '입고 확인에 실패했습니다.');
   }
@@ -1372,7 +1432,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       {{ eqReviewLabelOf(po) }}
                     </button>
                     <button type="button" class="mr-1 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(po)">EQ 승인</button>
-                    <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="void rejectPo(po)">반려</button>
+                    <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="rejectTarget = po">반려</button>
                   </template>
                   <!-- EQ 단계가 지나도 고객 확인 결과는 남긴다(승인의 근거) — 클릭하면 이력. -->
                   <button
@@ -1472,7 +1532,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       type="button"
                       class="rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700"
                       :title="s.mode === 'domestic' ? '실물 검수 후 누르면 입고 완료까지 함께 처리됩니다.' : undefined"
-                      @click="void adminShipReceive(po.poId)"
+                      @click="receivePrompt = { poId: po.poId, domestic: s.mode === 'domestic' }"
                     >
                       입고 확인
                     </button>
@@ -1533,7 +1593,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       </button>
                       <template v-if="child.status === 'eq_requested'">
                         <button type="button" class="rounded-md bg-emerald-600 px-2 py-0.5 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(child)">EQ 승인</button>
-                        <button type="button" class="rounded-md border border-red-300 px-2 py-0.5 font-semibold text-red-700 hover:bg-red-50" @click="void rejectPo(child)">반려</button>
+                        <button type="button" class="rounded-md border border-red-300 px-2 py-0.5 font-semibold text-red-700 hover:bg-red-50" @click="rejectTarget = child">반려</button>
                       </template>
                       <button
                         v-else-if="child.status === 'eq_done'"
@@ -1848,6 +1908,42 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       :od-id="customerShipOdId"
       :incomplete-receipt="!customerShipAllReceived"
       @close="customerShipOdId = null"
+    />
+
+    <!-- 값을 받아야 하는 조작들(예전엔 window.prompt) — 한 화면에서 받고 필수값을 잠근다 -->
+    <UiPromptModal
+      :title="rejectTarget === null ? null : `EQ 반려 — ${rejectTarget.partnerName}`"
+      :fields="rejectFields"
+      description="협력사에게 메일로 전달되고, 발주는 '발주접수'로 되돌아갑니다."
+      confirm-label="반려하고 알리기"
+      tone="danger"
+      :busy="rejectEq.isPending.value"
+      @close="rejectTarget = null"
+      @confirm="(v) => void submitReject(v)"
+    />
+    <UiPromptModal
+      :title="shipPrompt === null ? null : `${bomShipmentStatusLabel(shipPrompt.mode, shipPrompt.next)} 진행`"
+      :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next)"
+      confirm-label="진행"
+      :busy="shipAdvanceAdmin.isPending.value"
+      @close="shipPrompt = null"
+      @confirm="(v) => void submitShipPrompt(v)"
+    />
+    <UiPromptModal
+      :title="receivePrompt === null ? null : '입고 확인'"
+      :fields="[{
+        name: 'note',
+        label: '검수 메모 (선택)',
+        type: 'textarea',
+        placeholder: '수량 부족·불량 등 특이사항이 있으면 적어 주세요.',
+      }]"
+      :description="receivePrompt?.domestic === true
+        ? '실물 검수를 기록하고 발송을 입고 완료로 닫습니다 — 고객 배송 처리가 열립니다.'
+        : '실물 검수를 기록합니다 — 이후 고객 배송 처리가 열립니다.'"
+      confirm-label="입고 확인"
+      :busy="shipReceiveAdmin.isPending.value"
+      @close="receivePrompt = null"
+      @confirm="(v) => void submitReceive(v)"
     />
   </div>
 </template>
