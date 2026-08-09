@@ -9,7 +9,7 @@ import { useBomOrdersAwaitingCount, useBomPosAwaitingCount } from '../admin/useA
 import { useBomQuotesRequestedCount, useBomShipmentPendingCount } from '../admin/useAdminBomQuotes';
 import { usePcbRfqPendingCount } from '../admin/useAdminPcbRfqs';
 import { usePcbPoWorkCounts, usePcbShipmentPendingCount } from '../admin/useAdminPcbPos';
-import { usePcbOrdersAwaitingCount } from '../admin/useAdminPcbOrders';
+import { usePcbOrdersAwaitingCount, usePcbOrdersToShipCount } from '../admin/useAdminPcbOrders';
 import { usePcbRemittancePendingCount } from '../admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
 import { useTheme } from '../bom/useTheme';
@@ -83,6 +83,8 @@ const { data: pcbRfqPending } = usePcbRfqPendingCount(isAdminUser);
 const { eqPending: pcbEqPending, toShip: pcbToShip } = usePcbPoWorkCounts(isAdminUser);
 const { data: pcbShipmentPending } = usePcbShipmentPendingCount(isAdminUser);
 const { data: pcbOrdersAwaiting } = usePcbOrdersAwaitingCount(isAdminUser);
+// 고객 배송 대기(P4.6) — 입고확인이 끝났는데 od 가 배송 전인 주문(선적·배송 배지 합산분).
+const { data: pcbCustomerToShip } = usePcbOrdersToShipCount(isAdminUser);
 // 송금 대기 — 발주됐는데 한 푼도 안 나간 건(P3.11).
 const pcbRemittancePending = usePcbRemittancePendingCount(isAdminUser);
 // PCB 대기 큐 — 각 역할이 "아직 시작하지 않은" 수(요청 대기·발주 대기).
@@ -103,7 +105,7 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
             : badge === 'pcbPosPending'
               ? pcbTodoPo.value + pcbEqPending.value
               : badge === 'pcbShipmentPending'
-                ? pcbToShip.value + (pcbShipmentPending.value ?? 0)
+                ? pcbToShip.value + (pcbShipmentPending.value ?? 0) + (pcbCustomerToShip.value ?? 0)
                 : badge === 'pcbOrdersAwaiting'
                   ? pcbOrdersAwaiting.value
                   : badge === 'pcbRemittancePending'

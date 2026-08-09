@@ -28,10 +28,12 @@ const total = computed(() => list.data.value?.data.total ?? 0);
 const counts = computed(() => list.data.value?.data.counts ?? null);
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.value.pageSize)));
 
-const TABS: AdminPcbOrderTabType[] = ['awaiting', 'active', 'done', 'canceled', 'all'];
-const tabCount = (key: AdminPcbOrderTabType): number | null =>
+// 이 화면은 경리 관점 5탭만 — 고객 배송 탭(to_ship/shipping)은 선적·배송 화면 몫(P4.6).
+type ScreenTab = Exclude<AdminPcbOrderTabType, 'to_ship' | 'shipping'>;
+const TABS: ScreenTab[] = ['awaiting', 'active', 'done', 'canceled', 'all'];
+const tabCount = (key: ScreenTab): number | null =>
   counts.value === null ? null : counts.value[key];
-const setTab = (tab: AdminPcbOrderTabType): void => {
+const setTab = (tab: ScreenTab): void => {
   filters.value = { ...filters.value, tab, page: 1 };
 };
 const searchText = ref('');

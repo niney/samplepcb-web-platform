@@ -54,6 +54,7 @@ import InvoiceEditorModal from '../../components/smartbom/InvoiceEditorModal.vue
 import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vue';
 import PcbEqReviewPanel from '../../components/admin/pcb/PcbEqReviewPanel.vue';
 import PcbSpecEditModal from '../../components/admin/pcb/PcbSpecEditModal.vue';
+import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModal.vue';
 import MailLogList from '../../components/admin/MailLogList.vue';
 
 // PCB Case 상세 — docs/PCB_PARTNER_TRACK.md §5.4. 스펙 요약(기존 admin-pcb-projects
@@ -646,6 +647,21 @@ const axisMismatch = computed<'shipped-without-po' | 'received-not-delivered' | 
   if (anyReceived && !delivered) return 'received-not-delivered';
   return null;
 });
+
+// [배송 처리](P4.6) — '배송 처리 대기' 배지를 액션으로: 입고 끝난 주문의 고객 발송을
+// 이 자리에서 바로 연다(선적·배송 워크큐 고객 배송 탭과 같은 모달·같은 경로).
+const customerShipOdId = ref<string | null>(null);
+const customerShipAllReceived = computed(
+  () =>
+    adminPos.value.length > 0 &&
+    adminPos.value.every((p) => {
+      const s = shipmentByPo.value.get(p.poId);
+      return s?.receiverKind === 'admin' && s.receivedAt !== null;
+    }),
+);
+function openCustomerShip(): void {
+  customerShipOdId.value = detail.value?.order?.odId ?? null;
+}
 const shipReceiveAdmin = useAdminPcbShipmentReceive();
 
 async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
@@ -803,13 +819,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       >
         협력 발주 없이 진행된 주문
       </span>
-      <span
+      <button
         v-else-if="axisMismatch === 'received-not-delivered'"
-        class="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700"
-        title="입고가 끝났는데 고객 주문 상태가 아직 배송 전입니다 — 통합 관리 주문내역에서 배송 처리하세요"
+        type="button"
+        class="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 hover:bg-amber-200"
+        title="입고가 끝났는데 고객 주문 상태가 아직 배송 전입니다 — 운송장을 입력해 배송 처리하세요"
+        @click="openCustomerShip"
       >
-        배송 처리 대기
-      </span>
+        배송 처리 대기 · 배송 처리 →
+      </button>
       <!-- 영구 삭제 — 차단을 푸는 곳(발주 취소·선적 취소)이 바로 이 화면이라, 정리하고
            곧장 지울 수 있게 둔다. 모달·판정은 견적 관리와 같은 것을 쓴다(창구만 둘). -->
       <button
@@ -1712,6 +1730,13 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       :ids="[specId]"
       @close="deleteOpen = false"
       @deleted="onDeleted"
+    />
+
+    <!-- 고객 배송 처리(P4.6) — '배송 처리 대기' 배지의 액션. 워크큐와 공용 모달 -->
+    <PcbCustomerShipModal
+      :od-id="customerShipOdId"
+      :incomplete-receipt="!customerShipAllReceived"
+      @close="customerShipOdId = null"
     />
   </div>
 </template>

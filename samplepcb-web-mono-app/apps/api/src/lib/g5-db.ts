@@ -3171,7 +3171,14 @@ export async function setOrderForceStatus(
 // (BOM D19 방식)은 쓸 수 없다. sp_* 와 g5_* 는 같은 DB(공유 DB 규율)라 조인 가능.
 // 저장 없음 — od 상태·수납액은 표시용 파생일 뿐이다.
 
-export type PcbOrderTab = 'awaiting' | 'active' | 'done' | 'canceled' | 'all';
+export type PcbOrderTab =
+  | 'awaiting'
+  | 'active'
+  | 'done'
+  | 'canceled'
+  | 'all'
+  | 'to_ship'
+  | 'shipping';
 
 export interface PcbOrderSpecRow {
   specId: number;
@@ -3180,13 +3187,37 @@ export interface PcbOrderSpecRow {
   settleCase: string;
   receiptPrice: number;
   orderedAt: string | null;
+  deliveryCompany: string;
+  invoiceNo: string;
 }
+
+// 고객 배송 큐(P4.6) 신호 — 협력 축 입고확인이 정본이다. 관리자 직속 발주(parentPartnerId=0)
+// 를 선적 조인으로 따라가 관리자 수신(receiverKind='admin') 입고확인(receivedAt)을 스펙 단위로
+// 집계한다. 선적 묶음은 대표 스펙이 다른 스펙의 발주서를 실을 수 있어(cross-spec) sh.specId
+// 가 아니라 발주서 축으로 판정한다. 파생 테이블은 소량(선적 문서 수)이라 비용 무시 가능.
+const PCB_SHIP_JOIN = `LEFT JOIN (
+      SELECT p2.specId,
+             MAX(sh2.receiverKind = 'admin' AND sh2.receivedAt IS NOT NULL) AS admin_received,
+             COUNT(sp2.id) AS ship_link_cnt
+        FROM sp_pcb_po p2
+        JOIN sp_pcb_shipment_po sp2 ON sp2.poId = p2.id
+        JOIN sp_pcb_shipment sh2 ON sh2.id = sp2.shipmentId
+       WHERE p2.parentPartnerId = 0
+       GROUP BY p2.specId
+    ) sh ON sh.specId = s.id`;
+
+// 배송 처리 대기 = 결제됐고(주문 아님) 아직 배송 전인데 입고확인이 하나라도 끝난 주문.
+// 이관·수동 처리 건은 입고확인 자체가 없어 자연히 제외된다(D12 재촉 목록 원칙과 동일 효과).
+const PCB_TO_SHIP = `o.od_status NOT IN ('주문', '배송', '완료', '취소') AND COALESCE(sh.admin_received, 0) = 1`;
+const PCB_SHIPPING = `o.od_status = '배송' AND COALESCE(sh.ship_link_cnt, 0) > 0`;
 
 const PCB_ORDER_TAB_SQL: Record<Exclude<PcbOrderTab, 'all'>, string> = {
   awaiting: `o.od_status = '주문'`,
   active: `o.od_status NOT IN ('주문', '완료', '취소')`,
   done: `o.od_status = '완료'`,
   canceled: `o.od_status = '취소'`,
+  to_ship: PCB_TO_SHIP,
+  shipping: PCB_SHIPPING,
 };
 
 export async function listPcbOrderSpecs(params: {
@@ -3197,7 +3228,15 @@ export async function listPcbOrderSpecs(params: {
 }): Promise<{
   rows: PcbOrderSpecRow[];
   total: number;
-  counts: { awaiting: number; active: number; done: number; canceled: number; all: number };
+  counts: {
+    awaiting: number;
+    active: number;
+    done: number;
+    canceled: number;
+    all: number;
+    toShip: number;
+    shipping: number;
+  };
 }> {
   const pool = getG5Pool();
   const conds = [`s.status = 'active'`, `s.ctId IS NOT NULL`, `c.ct_status <> '쇼핑'`];
@@ -3211,6 +3250,7 @@ export async function listPcbOrderSpecs(params: {
   const base = `FROM sp_order_spec s
       JOIN g5_shop_cart c ON c.ct_id = s.ctId
       JOIN g5_shop_order o ON o.od_id = c.od_id
+      ${PCB_SHIP_JOIN}
      WHERE ${conds.join(' AND ')}`;
 
   // counts — 탭 미반영·검색 반영(견적 관리 counts 관례 동일). 탭별 total 로도 재사용.
@@ -3220,7 +3260,9 @@ export async function listPcbOrderSpecs(params: {
         COALESCE(SUM(o.od_status NOT IN ('주문', '완료', '취소')), 0) AS active,
         COALESCE(SUM(o.od_status = '완료'), 0) AS done,
         COALESCE(SUM(o.od_status = '취소'), 0) AS canceled,
-        COUNT(*) AS all_cnt
+        COUNT(*) AS all_cnt,
+        COALESCE(SUM(${PCB_TO_SHIP}), 0) AS to_ship_cnt,
+        COALESCE(SUM(${PCB_SHIPPING}), 0) AS shipping_cnt
       ${base}`,
     args,
   );
@@ -3231,11 +3273,23 @@ export async function listPcbOrderSpecs(params: {
     done: Number(count?.done ?? 0),
     canceled: Number(count?.canceled ?? 0),
     all: Number(count?.all_cnt ?? 0),
+    toShip: Number(count?.to_ship_cnt ?? 0),
+    shipping: Number(count?.shipping_cnt ?? 0),
+  };
+  const totalByTab: Record<PcbOrderTab, number> = {
+    awaiting: counts.awaiting,
+    active: counts.active,
+    done: counts.done,
+    canceled: counts.canceled,
+    all: counts.all,
+    to_ship: counts.toShip,
+    shipping: counts.shipping,
   };
 
   const tabCond = params.tab === 'all' ? '1=1' : PCB_ORDER_TAB_SQL[params.tab];
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT s.id AS spec_id, c.od_id, o.od_status, o.od_settle_case, o.od_receipt_price,
+            o.od_delivery_company, o.od_invoice,
             DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        ${base} AND ${tabCond}
       ORDER BY o.od_time DESC, s.id DESC
@@ -3252,9 +3306,11 @@ export async function listPcbOrderSpecs(params: {
         settleCase: String(row.od_settle_case ?? ''),
         receiptPrice: Number(row.od_receipt_price ?? 0),
         orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
+        deliveryCompany: String(row.od_delivery_company ?? ''),
+        invoiceNo: String(row.od_invoice ?? ''),
       };
     }),
-    total: counts[params.tab],
+    total: totalByTab[params.tab],
     counts,
   };
 }

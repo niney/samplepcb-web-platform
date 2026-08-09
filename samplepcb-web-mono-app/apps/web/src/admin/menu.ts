@@ -129,7 +129,7 @@ const pcbMenu: AdminMenuItem[] = [
     labelKey: 'admin.menu.pcbRemittances',
     badge: 'pcbRemittancePending',
   },
-  // 선적·배송 워크큐 — 발송 대기 + 관리자 차례(입고·수취 처리) 수 배지.
+  // 선적·배송 워크큐 — 발송 대기 + 관리자 차례(입고·수취 처리) + 고객 배송 대기 수 배지.
   {
     to: { name: 'admin-pcb-shipments' },
     labelKey: 'admin.menu.pcbShipments',
