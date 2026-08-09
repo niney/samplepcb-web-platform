@@ -719,6 +719,33 @@ export const loadPartnerPcbShipBoard = async (
   return { shelf, producing, boxes, active, doneCount };
 };
 
+/** 완료된 발송 아카이브(R2 — BOM done 분리 미러) — 최신순 페이지네이션. */
+export const loadPartnerPcbDoneShipments = async (
+  partnerId: bigint,
+  page: number,
+  pageSize: number,
+): Promise<{ items: PcbShipmentViewType[]; total: number; page: number; pageSize: number }> => {
+  const myPoIds = (
+    await prisma.spPcbPo.findMany({ where: { partnerId }, select: { id: true } })
+  ).map((p) => p.id);
+  const shipments = await prisma.spPcbShipment.findMany({
+    where: { poId: { in: myPoIds } },
+    orderBy: { id: 'desc' },
+  });
+  const done = shipments.filter((s) => {
+    const mode = asPcbShipmentMode(s.mode);
+    const status = asPcbShipmentStatus(mode, s.status);
+    return s.receivedAt !== null || bomShipmentNextStatus(mode, status) === null;
+  });
+  const slice = done.slice((page - 1) * pageSize, page * pageSize);
+  return {
+    items: await Promise.all(slice.map((s) => toPcbShipmentView(s))),
+    total: done.length,
+    page,
+    pageSize,
+  };
+};
+
 /** 받는측 차례 판정(목록 myTurn·워크큐 공용) — 다음 전이가 받는측이거나 최종·입고 미확인. */
 export const pcbShipmentReceiverTurn = (shipment: SpPcbShipment): boolean => {
   const mode = asPcbShipmentMode(shipment.mode);

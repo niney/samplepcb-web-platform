@@ -288,6 +288,10 @@ GET/POST/PUT /api/admin/partners(...)          파트너 CRUD·승인·계정 �
 
 ## 4. 협력사 포털 (같은 web 앱, 신규 라우트 그룹)
 
+> ⚠ **IA 개정(2026-08-10)**: 포털은 BOM/PCB **모듈 분리**로 재설계됐다 — 진입 규칙·
+> 라우트 맵·셸의 정본은 **[PARTNER_PORTAL.md](PARTNER_PORTAL.md)**. 아래 URL 은 당시
+> 설계 기록(현행은 `/partner/bom/...` 프리픽스).
+
 ```
 /partner            → 받은 견적요청 워크큐 (회신할 것 / 회신한 것 섹션)
 /partner/rfqs/:id   → 상세 회신 폼 (행별 단가·재고·D/C·납기·메모, KRW)

@@ -1,7 +1,17 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
-import { ApiError, PartnerPcbShipBoardResponse, PartnerPcbShipBoxBody } from '@sp/api-contract';
+import {
+  ApiError,
+  PartnerPcbShipBoardResponse,
+  PartnerPcbShipBoxBody,
+  PartnerPcbShipDoneQuery,
+  PartnerPcbShipDoneResponse,
+} from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
-import { ensurePcbShipment, loadPartnerPcbShipBoard } from '../lib/pcb-shipment';
+import {
+  ensurePcbShipment,
+  loadPartnerPcbDoneShipments,
+  loadPartnerPcbShipBoard,
+} from '../lib/pcb-shipment';
 
 // ── [📦 PCB 보내기] 보드(P3 재구성, requirePartner) — docs/PCB_PARTNER_TRACK.md §9 ──
 // BOM §6.11 두 칸 모델의 PCB 일반화: 받는 곳(관리자/직송/MD)이 갈릴 수 있어 박스는
@@ -30,6 +40,28 @@ export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opt
     async (request) => {
       const ctx = requireCtx(request);
       return { result: true as const, data: await loadPartnerPcbShipBoard(ctx.partnerId) };
+    },
+  );
+
+  // ── GET /api/partner/pcb-shipments/done — 완료 아카이브(R2, BOM done 미러) ──
+  fastify.get(
+    '/partner/pcb-shipments/done',
+    {
+      schema: {
+        querystring: PartnerPcbShipDoneQuery,
+        response: { 200: PartnerPcbShipDoneResponse },
+      },
+    },
+    async (request) => {
+      const ctx = requireCtx(request);
+      return {
+        result: true as const,
+        data: await loadPartnerPcbDoneShipments(
+          ctx.partnerId,
+          request.query.page,
+          request.query.pageSize,
+        ),
+      };
     },
   );
 

@@ -45,6 +45,8 @@ const shelf = computed(() => shipQuery.data.value?.data.shelf ?? []);
 const producing = computed(() => shipQuery.data.value?.data.producing ?? []);
 const boxes = computed(() => shipQuery.data.value?.data.boxes ?? []);
 const activeShipments = computed(() => shipQuery.data.value?.data.active ?? []);
+// 완료된 발송은 양이 누적되므로 별도 페이지 — 홈엔 건수 링크만(BOM §6.11 미러).
+const doneCount = computed(() => shipQuery.data.value?.data.doneCount ?? 0);
 
 const isLoading = computed(() => pcbQuery.isLoading.value);
 const fmtDate = fmtKstDate;
@@ -202,6 +204,15 @@ const rfqStatusCls = (s: string): string =>
           </RouterLink>
         </div>
       </details>
+
+      <!-- 보조: 완료된 발송 — 누적 목록은 별도 페이지(BOM §6.11 미러) -->
+      <RouterLink
+        v-if="doneCount > 0"
+        :to="{ name: 'partner-pcb-shipments-done' }"
+        class="block rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
+      >
+        완료된 발송 {{ doneCount }}건 보기 →
+      </RouterLink>
 
       <p
         v-if="pendingPcb.length === 0 && myTurnPcbPos.length === 0 && shelf.length === 0 && activeShipments.length === 0"

@@ -5,6 +5,7 @@ import {
   PartnerPcbPoListResponse,
   PartnerPcbRemittanceListResponse,
   PartnerPcbShipBoardResponse,
+  PartnerPcbShipDoneResponse,
   PcbInvoiceResponse,
   PcbPoActionResponse,
   apiRoutes,
@@ -205,6 +206,18 @@ export function usePartnerPcbShipBoard() {
   return useQuery({
     queryKey: ['partner', 'pcbShip', 'board'],
     queryFn: () => apiGet(apiRoutes.partnerPcbShipments, PartnerPcbShipBoardResponse),
+  });
+}
+
+// 완료된 발송 아카이브(R2 — BOM done 분리 미러) — 누적 목록, 페이지네이션.
+export function usePartnerPcbDoneShipments(page: Ref<number>, pageSize: number) {
+  return useQuery({
+    queryKey: ['partner', 'pcbShip', 'done', page],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.partnerPcbShipments}/done?page=${String(page.value)}&pageSize=${String(pageSize)}`,
+        PartnerPcbShipDoneResponse,
+      ),
   });
 }
 

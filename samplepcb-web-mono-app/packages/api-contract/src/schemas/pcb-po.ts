@@ -469,6 +469,25 @@ export type PartnerPcbShipBoardResponseType = z.infer<typeof PartnerPcbShipBoard
 export const PartnerPcbShipBoxBody = z.object({ poId: z.number().int().positive() });
 export type PartnerPcbShipBoxBodyType = z.infer<typeof PartnerPcbShipBoxBody>;
 
+// 완료된 발송 아카이브(포털 재설계 R2 — BOM §6.11 done 분리 미러) — 누적 목록이라
+// 보드가 아니라 별도 페이지+페이지네이션. 완료 = 최종 상태 도달 또는 입고 확인.
+export const PartnerPcbShipDoneQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(10),
+});
+export type PartnerPcbShipDoneQueryType = z.infer<typeof PartnerPcbShipDoneQuery>;
+
+export const PartnerPcbShipDoneResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    items: z.array(PcbShipmentView),
+    total: z.number(),
+    page: z.number(),
+    pageSize: z.number(),
+  }),
+});
+export type PartnerPcbShipDoneResponseType = z.infer<typeof PartnerPcbShipDoneResponse>;
+
 export const PcbShipmentReceiveBody = z.object({
   note: z.string().trim().max(2000).nullish(),
 });

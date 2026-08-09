@@ -137,6 +137,13 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/partner/PartnerPcbShip.vue'),
         meta: { requiresMember: true },
       },
+      {
+        // PCB 완료된 발송(R2 — BOM done 분리 미러) — 누적 아카이브, 페이지네이션
+        path: 'pcb/shipments/done',
+        name: 'partner-pcb-shipments-done',
+        component: () => import('./pages/partner/PartnerPcbShipmentsDone.vue'),
+        meta: { requiresMember: true },
+      },
       // ── 공통 영역(모듈 밖) ─────────────────────────────────────────────────
       {
         // 수금 현황(P3.11) — 모듈 소속이 본질이 아닌 돈 화면. 현재 데이터는 PCB 발주 대금

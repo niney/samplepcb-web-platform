@@ -846,8 +846,12 @@ dev DB 실데이터로 재현 판정 후, "전이 순간 일회성 묶기" 모�
 - **남은 것**: ① 관리자 Case '같이 보내기' UI(P3 후속 그대로 — 관리자 대행도 ensure 합류
   의미론은 이미 공유) ② 국제 묶음 E2E(Invoice 첨부 필수 경로) ③ 브라우저 실탐방 —
   협력사 계정(tester2) 로그인이 필요해 자동화 불가(자격증명 입력 금지), 수동 확인 1회:
-  /app/partner/pcb-ship 담기→카드 전개→국내 전이, 상세 요약·보드 링크, 홈 카드
+  /app/partner/pcb/ship 담기→카드 전개→국내 전이, 상세 요약·보드 링크, 홈 카드
   '생산 진행 중' 보조 표기.
+- **포털 재설계 편입(2026-08-10)**: 포털이 BOM/PCB 모듈로 분리되며 PCB 화면들은
+  `/partner/pcb/*` 로 이동, PCB 홈(트랙 어휘 카드 4장)·완료 발송 아카이브
+  (`GET /partner/pcb-shipments/done` + PartnerPcbShipmentsDone) 신설. IA·진입 규칙
+  정본은 **docs/PARTNER_PORTAL.md**. 검증은 E2E 기반으로 전환 중(HANDOFF_E2E_TEST.md).
 
 ## 10. 조사 자료 색인
 
