@@ -965,6 +965,33 @@ D16 축의 결함 2건. 어느 쪽도 **고객 결정이 EQ 를 전이시키지 
   bug 0 — 기본값이 전부 적용됐다는 뜻, 입금 배너·계좌 표시 육안 확인) · 생성물 정리 CLEAN.
   주행 중 S6 이 32초 → 2.6초로 줄었다(막히던 입력을 화면이 미리 채운 효과).
 
+### 완주 여정 2호 — 국내 협력사 (2026-08-10)
+
+1호(협력2·CN·USD·국제)와 같은 고객 흐름을 국내 협력사(협력1·KR·KRW)로 태운 두 번째 여정.
+협력사 축만 갈리므로 **고객 조작과 관찰 규약은 `e2e/helpers/journey.ts` 로 공유**한다
+(`createJourneyReport`·`submitGerberRfq`·`placeOrderFromQuotes`) — 주문서 마찰이 고쳐지면
+양쪽이 함께 검증된다. 1호도 같은 헬퍼를 쓰도록 정리했고 22케이스 연속 green 으로 회귀를 확인했다.
+
+국내에서 실제로 갈라지는 지점은 셋이고, 여정이 그것만 정조준한다.
+
+- **선정에 환율이 없다** — KRW 회신은 그대로 원가가 된다. `exchangeRate` 를 보내지 않고
+  `krwAmount = 회신가`·`exchangeRate = null` 을 어서션한다(P4.7 자동 환율의 KRW 분기).
+- **선적이 3단계다** — `preparing → shipping`(협력사: 택배사+송장) `→ delivered`(관리자).
+  국제의 `requested`(Invoice 필수)·`arrived`·`customs` 가 통째로 없고, **Invoice 첨부 없이**
+  발송이 진행돼야 한다. 모드 판정(`resolvePcbShipContext`: 발송자 KR = 받는측 KR)도 함께 못박는다.
+- **입고 완료와 입고확인은 다른 축이다** — `delivered` 전이는 관리자 advance 몫이고
+  `receivePcbShipment` 는 상태를 올리지 않고 `receivedAt`·메모만 남긴다(조기 확인 허용).
+  둘 다 밟아야 종점이라, 처음엔 receive 만 부르고 `shipping` 에 멈춰 주행이 실패했다.
+
+여기에 1호가 밟지 않은 축 하나를 더 검증한다 — **EQ 반려 왕복**: 고객 반려(사유 저장) →
+관리자가 그 사유로 협력사 반려 → **열린 고객 확인 요청이 닫혔는지**(P4.8 회귀 어서션) →
+파트너 보완 재요청 → 관리자 재확인 요청이 `ALREADY_OPEN` 없이 통과 → 고객 승인. P4.8 이
+없었다면 재요청이 409 로 막히고 고객 화면엔 죽은 폼이 남는다.
+
+협력사는 협력1을 쓰되 **기존 행은 건드리지 않는다** — 주행이 만든 새 견적에 붙는 RFQ·발주·
+선적만 생성하고 정리도 그것만 지운다. 검증: 2호 11/11 · 1호와 연속 22/22 green ·
+HTTP≥400·pageerror 0 · 생성물 정리 CLEAN.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

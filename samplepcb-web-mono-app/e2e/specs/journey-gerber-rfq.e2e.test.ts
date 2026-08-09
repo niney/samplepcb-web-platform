@@ -23,7 +23,6 @@
 // 실행(옵트인 2중 게이트): pnpm -F e2e journey  (PORTAL_E2E=1 + JOURNEY=1)
 // 사전 조건: nginx·API(3333)·웹(5173)·거버(8040)·Mailpit + e2e/.env.e2e 고객 자격.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
@@ -33,18 +32,18 @@ import {
   RUN,
   api,
   closeBrowser,
+  createJourneyReport,
   disconnectPrisma,
-  findLatestOrder,
   getPartner,
   getPrisma,
   monoRoot,
   newPhpSession,
   newSession,
   num,
-  outputDir,
+  placeOrderFromQuotes,
   requireCustomerCreds,
   signJwt,
-  snap,
+  submitGerberRfq,
   type E2eSession,
   type PartnerFixture,
   type PhpLoginResult,
@@ -53,20 +52,10 @@ import {
 const JOURNEY = process.env.JOURNEY === '1';
 const FIXTURE_ZIP = join(monoRoot, 'e2e', 'fixtures', 'arduino-uno.zip');
 
-interface Finding {
-  step: string;
-  kind: 'bug' | 'ux' | 'obs' | 'blocker';
-  note: string;
-}
-
 describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배송 완료(탐색 주행)', () => {
-  const findings: Finding[] = [];
-  const ledger: string[] = []; // 생성물 대장 — 완주 후 수동 정리 근거
-  const httpErrors: string[] = [];
-  const F = (step: string, kind: Finding['kind'], note: string): void => {
-    findings.push({ step, kind, note });
-    console.log(`  [${kind}] ${step}: ${note}`);
-  };
+  // 관찰 규약·고객 조작은 2호(국내)와 공유한다 — helpers/journey.ts
+  const rp = createJourneyReport('findings', '여정 1호 탐색 주행 리포트');
+  const { F, ledger, view, shot } = rp;
 
   let customer: PhpLoginResult; // 실로그인(PHP+거버 — 전 구간 단일 세션)
   let adminView: E2eSession; // 관리자 화면 관찰용(스텁)
@@ -81,36 +70,6 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
   let odId: string | null = null;
   let poId: number | null = null;
   let reviewId: number | null = null;
-
-  const watchHttp = (s: { page: any }, label: string): void => {
-    s.page.on('response', (res: any) => {
-      const st: number = res.status();
-      if (st >= 400) httpErrors.push(`${label} ${String(st)} ${res.url()}`);
-    });
-  };
-
-  const shot = async (s: { page: any }, name: string): Promise<void> => {
-    try {
-      await snap(s.page, `journey/${name}`);
-    } catch {
-      /* 스크린샷 실패는 여정을 막지 않는다 */
-    }
-  };
-
-  /**
-   * 관찰용 화면 재로드 — 단계 대부분이 API 로 진행되므로 열어 둔 페이지는 저절로 바뀌지 않는다.
-   * (이전 주행은 이걸 빠뜨려 관리자 스크린샷 3장이 전부 S3 시점 그대로였다 — 화면 검증이
-   * 사실상 없었다.) 목록·상세가 vue-query 로 늦게 채워지므로 networkidle 까지 기다린다.
-   */
-  const view = async (s: { page: any }, path: string, name: string): Promise<void> => {
-    try {
-      await s.page.goto(`${BASE_URL}${path}`, { waitUntil: 'domcontentloaded' });
-      await s.page.waitForLoadState('networkidle').catch(() => undefined);
-    } catch {
-      /* 관찰 실패는 여정을 막지 않는다 */
-    }
-    await shot(s, name);
-  };
 
   // multipart 업로드(EQ 파일·선적 첨부) — File 은 Node 20+ 글로벌
   const apiForm = async (
@@ -160,72 +119,30 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     P = signJwt({ mbId: partner2.mbId, ttlSec: 3600 });
 
     customer = await newPhpSession(creds);
-    watchHttp(customer, '고객');
+    rp.watchHttp(customer, '고객');
     adminView = await newSession({ mbId: 'e2e-admin', isAdmin: true });
-    watchHttp(adminView, '관리자');
+    rp.watchHttp(adminView, '관리자');
     partnerView = await newSession({ mbId: partner2.mbId }, { partnerModule: 'pcb' });
-    watchHttp(partnerView, '파트너');
+    rp.watchHttp(partnerView, '파트너');
   }, 180_000);
 
   afterAll(async () => {
-    mkdirSync(join(outputDir, 'journey'), { recursive: true });
-    const report = [
-      `# 여정 1호 탐색 주행 리포트 (${new Date().toISOString()})`,
-      '',
-      '## 생성물 대장 (수동 정리 대상 — 재고 앵커 주의)',
-      ...ledger.map((l) => `- ${l}`),
-      '',
-      '## 발견 사항',
-      ...findings.map((f) => `- [${f.kind}] **${f.step}** — ${f.note}`),
-      '',
-      '## HTTP ≥400 (고객·관리자·파트너 컨텍스트)',
-      ...(httpErrors.length === 0 ? ['- 없음'] : httpErrors.map((h) => `- ${h}`)),
-      '',
-      '## pageerror',
-      `- 고객: ${customer?.pageErrors.length ?? '?'}건 ${customer?.pageErrors.join(' | ') ?? ''}`,
-      `- 관리자: ${adminView?.pageErrors.length ?? '?'}건 ${adminView?.pageErrors.join(' | ') ?? ''}`,
-      `- 파트너: ${partnerView?.pageErrors.length ?? '?'}건 ${partnerView?.pageErrors.join(' | ') ?? ''}`,
-    ].join('\n');
-    writeFileSync(join(outputDir, 'journey', 'findings.md'), report, 'utf8');
-    console.log(`\n리포트: e2e/output/journey/findings.md\n${report}`);
+    rp.write({ 고객: customer, 관리자: adminView, 파트너: partnerView });
     await closeBrowser();
     await disconnectPrisma();
   }, 60_000);
 
   test('S1. 고객: 거버 업로드 → 견적요청 제출 → 견적관리 도착', async () => {
-    const page = customer.page;
-    await page.goto(GERBER_URL, { waitUntil: 'domcontentloaded' });
-    const input = page.locator('input[type=file]').first();
-    await input.waitFor({ state: 'attached', timeout: 15_000 });
-    await input.setInputFiles(FIXTURE_ZIP);
-    await page.waitForFunction(
-      () =>
-        /공급가격/.test(document.body.innerText) &&
-        /\d{1,3}(,\d{3})+원/.test(document.body.innerText),
-      undefined,
-      { timeout: 60_000 },
-    );
-    await shot(customer, 'S01-gerber-priced');
-
-    await page.getByText('견적요청', { exact: false }).last().click();
-    await page.locator('textarea').first().fill('[여정 1호] 거버 견적요청 완주 — 확인 후 정리 예정');
-    await page.getByText('확인', { exact: true }).click();
-    // dev 전송 오버레이 → [전송]
-    await page.getByText('[개발] 전송 내용 확인').waitFor({ timeout: 30_000 });
-    await shot(customer, 'S01-dev-overlay');
-    await page.getByRole('button', { name: '전송' }).click();
-    await page.waitForURL('**/shop/quotes*', { timeout: 60_000 });
-
-    const prisma = getPrisma();
-    const spec = await prisma.spOrderSpec.findFirst({
-      where: { mbId: customer.mbId, projectName: 'arduino-uno.zip' },
-      orderBy: { id: 'desc' },
+    specId = await submitGerberRfq(customer, rp, {
+      fixtureZip: FIXTURE_ZIP,
+      projectName: 'arduino-uno.zip',
+      memo: '[여정 1호] 거버 견적요청 완주 — 확인 후 정리 예정',
+      prefix: 'S01',
     });
-    expect(spec, '스펙 생성').not.toBeNull();
-    specId = num(spec.id);
     ledger.push(`sp_order_spec #${String(specId)} (mbId=${customer.mbId} — 거버 rfq 제출)`);
-    expect(spec.quoteStatus).toBe('rfq');
-    await shot(customer, 'S02-quotes-rfq-wait');
+    const prisma = getPrisma();
+    const spec = await prisma.spOrderSpec.findUnique({ where: { id: BigInt(specId) } });
+    expect(spec?.quoteStatus, '제출 직후 상태').toBe('rfq');
   }, 180_000);
 
   test('S3. 관리자: 협력사 견적요청 발송(협력2)', async (ctx) => {
@@ -285,114 +202,15 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
 
   test('S6. 고객: 견적관리 확정가 확인 → 바로 주문 → 무통장 주문 완료', async (ctx) => {
     if (specId === null) return ctx.skip();
-    const page = customer.page;
-    await page.goto(`${BASE_URL}/shop/quotes`, { waitUntil: 'domcontentloaded' });
-    // 목록은 JS 가 나중에 채운다 — 곧바로 찍으면 '불러오는 중…'만 남는다(이전 주행 관찰 실패).
-    await page
-      .locator(`label[for="sp-quotes-check-${String(specId)}"]`)
-      .waitFor({ state: 'visible', timeout: 30_000 })
-      .catch(() => F('S6', 'obs', '견적관리 목록 로딩 대기 시간 초과 — 캡처가 비어 있을 수 있음'));
-    await shot(customer, 'S06-quotes-priced');
-
-    // 방금 견적 체크 → [바로 주문] — 커스텀 체크박스(input 숨김, label 이 클릭 표면).
-    try {
-      const label = page.locator(`label[for="sp-quotes-check-${String(specId)}"]`);
-      if ((await label.count()) > 0) {
-        await label.click();
-      } else {
-        F('S6', 'obs', `견적 체크 라벨(#${String(specId)}) 미발견 — 첫 항목 강제 체크로 폴백`);
-        await page.locator('input.sp-quotes__check').first().check({ force: true });
-      }
-      await page.getByText('바로 주문', { exact: false }).first().click();
-      await page.waitForURL('**/shop/orderform*', { timeout: 30_000 });
-    } catch (e) {
-      F('S6', 'blocker', `견적관리→주문서 진입 실패: ${e instanceof Error ? e.message : String(e)}`);
-      await shot(customer, 'S06-quotes-order-fail');
-      throw e;
-    }
-    await shot(customer, 'S06-orderform-top');
-
-    // 주문서 — 그누보드 코어 필드명 규약으로 베스트에포트 채움(없으면 발견으로 기록).
-    const fill = async (sel: string, v: string): Promise<void> => {
-      const loc = page.locator(sel).first();
-      if ((await loc.count()) === 0) {
-        F('S6', 'obs', `주문서 필드 없음: ${sel}`);
-        return;
-      }
-      await loc.fill(v).catch(async () => {
-        await page.evaluate(
-          ([s, val]) => {
-            const el = document.querySelector(s as string) as HTMLInputElement | null;
-            if (el) el.value = val as string;
-          },
-          [sel, v],
-        );
-      });
-    };
-    await fill('input[name="od_name"]', 'e2e여정고객');
-    await fill('input[name="od_tel"]', '02-000-0000');
-    await fill('input[name="od_hp"]', '010-0000-0000');
-    await fill('input[name="od_zip"]', '06236');
-    await fill('input[name="od_addr1"]', '서울 강남구 테헤란로 1');
-    await fill('input[name="od_addr2"]', 'e2e');
-    // ── 아래 셋은 theme/sp-lite/js/orderform-defaults.js 가 채워 두는 값이다. 고객이 손대지
-    // 않아도 제출이 통과해야 하므로, 여기서는 **채워졌는지 확인**하고 비었을 때만 손으로
-    // 채운다(그 경우 findings 에 남아 기본값 회귀가 드러난다).
-    // '주문자와 동일'이 걸려 있으면 주문자 입력을 따라 받는분이 채워진다(디바운스 300ms).
-    await page.waitForTimeout(600);
-    const receiverName = page.locator('input[name="od_b_name"]');
-    if ((await receiverName.inputValue().catch(() => '')) === '') {
-      F('S6', 'bug', '받는분 기본값 미적용 — [주문자와 동일]을 수동 클릭해 진행');
-      await page
-        .getByText('주문자와 동일', { exact: true })
-        .first()
-        .click()
-        .catch(() => undefined);
-      await fill('input[name="od_b_name"]', 'e2e여정고객');
-      await fill('input[name="od_b_hp"]', '010-0000-0000');
-    }
-
-    const bankRadio = page.locator('input[name="od_settle_case"][value*="무통장"]');
-    if ((await bankRadio.count()) > 0 && !(await bankRadio.first().isChecked())) {
-      F('S6', 'bug', '결제수단 기본값 미적용 — 무통장입금을 수동 선택해 진행');
-      await bankRadio.first().check({ force: true }).catch(() => undefined);
-    }
-
-    // 계좌 select 는 기본값이 잡혀 있어야 한다(빈 옵션 제거 → 첫 계좌 선택).
-    const bankSelect = page.locator('select[name="od_bank_account"]');
-    if ((await bankSelect.count()) > 0) {
-      const picked = await bankSelect.first().inputValue().catch(() => '');
-      if (picked === '') {
-        F('S6', 'bug', '입금 계좌 기본값 미적용 — 첫 계좌를 수동 선택해 진행');
-        await bankSelect.first().selectOption({ index: 0 }).catch(() => undefined);
-      }
-    }
-    // 입금자명도 코어 click 핸들러가 주문자명으로 채운다 — 여정 표식이 필요해 덮어쓴다.
-    await fill('input[name="od_deposit_name"]', 'e2e여정고객');
-    // 동의 체크(있는 것 전부)
-    for (const cb of await page.locator('input[type=checkbox][name*="agree"]').all()) {
-      await cb.check().catch(() => undefined);
-    }
-    // 네이티브 alert/confirm 이 뜨면 메시지를 발견으로 기록하고 수락(검증 실패 침묵 방지)
-    page.on('dialog', (d) => {
-      F('S6', 'obs', `dialog: ${d.type()} — ${d.message()}`);
-      void d.accept();
+    const order = await placeOrderFromQuotes(customer, rp, {
+      specId,
+      step: 'S6',
+      prefix: 'S06',
+      buyerName: 'e2e여정고객',
     });
-    await shot(customer, 'S06-orderform-filled');
-
-    await page.getByText(/주문하기|결제하기/).last().click();
-    await page.waitForLoadState('domcontentloaded');
-    // 주문 생성은 서버 왕복 — od 행이 보일 때까지 짧게 폴링
-    let order = null as Awaited<ReturnType<typeof findLatestOrder>>;
-    for (let i = 0; i < 10 && order === null; i += 1) {
-      await page.waitForTimeout(1000);
-      order = await findLatestOrder(customer.mbId);
-    }
-    await shot(customer, 'S06-order-done');
-    expect(order, '주문 생성').not.toBeNull();
-    odId = order?.odId ?? null;
-    ledger.push(`g5_shop_order od_id=${String(odId)} + g5_shop_cart (${customer.mbId})`);
-    F('S6', 'obs', `주문 생성 od=${String(odId)} status=${order?.status ?? '?'}`);
+    odId = order.odId;
+    ledger.push(`g5_shop_order od_id=${odId} + g5_shop_cart (${customer.mbId})`);
+    F('S6', 'obs', `주문 생성 od=${odId} status=${order.status}`);
   }, 240_000);
 
   test('S7. 관리자: 입금 확인(실 UI 경로) → 발주서 발행(선정 프리필)', async (ctx) => {

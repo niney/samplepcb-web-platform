@@ -45,10 +45,33 @@ helpers/
   seed.ts      getPartner·pickFreeSpecs·createPcbPo·cleanupPcbPos·countPcbResidue
   browser.ts   newSession(identity, opts) — /spcb/api/me 스텁 로그인·localStorage 프리셋·snap
   mailpit.ts   목록/검색/본문/선택 삭제 (전체 삭제는 의도적으로 미제공)
+  php-login.ts newPhpSession(creds) — 그누보드 실로그인(거버·주문서 등 PHP 구간)
+  journey.ts   여정 공용부 — createJourneyReport(관찰 규약)·submitGerberRfq·placeOrderFromQuotes
 specs/
   harness.e2e.test.ts        하네스 자가 검증 — 새 시나리오의 복사 시작점
   pcb-ship-board.e2e.test.ts PCB 보내기 보드 §9 스토리(세션 스모크 28케이스 편입판)
+  journey-gerber-rfq.e2e.test.ts       여정 1호 — 해외 협력사(USD·국제 선적 6단계)
+  journey-domestic-partner.e2e.test.ts 여정 2호 — 국내 협력사(KRW·국내 3단계·EQ 반려 왕복)
 ```
+
+## 완주 여정 (탐색 주행)
+
+옵트인 2중 게이트(`PORTAL_E2E=1` + `JOURNEY=1`)로만 돈다. 사전 조건이 많다 —
+nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 자격.
+
+| 스크립트 | 대상 |
+| --- | --- |
+| `pnpm -F e2e journey` | 1호·2호 연속(파일 직렬) |
+| `pnpm -F e2e journey:intl` | 1호만 — 해외 협력사 |
+| `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
+
+두 여정은 고객 조작(거버 제출·주문서 작성)과 관찰 규약을 `helpers/journey.ts` 로 공유한다.
+갈라지는 것은 협력사 축뿐이다: **선정 환율 유무(USD↔KRW)·선적 체인 길이(6단계 vs 3단계)·
+Invoice 필수 여부**. 그래서 화면 마찰이 고쳐지면 양쪽이 함께 검증된다.
+
+**생성물은 자동 정리하지 않는다.** 완주 후 리포트(`output/journey/findings*.md`)의 생성물
+대장을 보고 손으로 지운다 — 순서는 ① 주문을 `force-status '주문'` 으로 내려 **재고 복원**
+② g5 cart+order ③ sp_* 역순(file→shipment_po→shipment→eq_review→po→rfq→file→spec).
 
 ## 핵심 설계
 
