@@ -23,15 +23,18 @@ import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModa
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 
-// PCB 선적·배송 워크큐(P3·P4.6) — 물류 담당의 화면. 큐 흐름(협력 축 → 주문 축):
-//   발송 대기(생산완료·미편성 — 발주서 축) → 입고·처리 대기(내 차례) → 이동 중 → 입고 완료
-//   → 고객 배송 대기(입고 끝난 주문 발송 — 주문 축) → 고객 배송 중(구매확정).
-// 첫 탭이 발주서 축인 이유: 발송 문서가 생기기 전 건은 선적 축 모수에 들어올 수 없어
-// "이제 보내야 할 것"이 이 화면에 없었다. 고객 배송 두 탭이 주문 축인 이유도 같다 —
-// 입고확인은 협력 축의 종점이라, 그 다음 일(고객 발송)은 od 를 모수로 잡아야 보인다.
-// 조작(전이/입고확인/송장)은 Case 상세, 고객 발송·구매확정만 여기서 바로 처리한다.
+// PCB 선적·배송 워크큐(P3·P4.6) — 물류 담당의 화면. SmartBOM 물류와 같은 두 섹션 골격
+// (D9 미러 — 흐름이 위→아래로 이어진다):
+//   ① 협력사 선적(협력사 → 자사·MD): 발송 대기(생산완료·미편성 — 발주서 축) →
+//      입고·처리 대기(내 차례) → 이동 중 → 입고 완료 — 선적 축.
+//   ② 고객 배송(자사 → 고객): 배송 처리 대기 → 배송 중 — 주문 축.
+// 축이 세 번 바뀌는 이유: 발송 문서가 생기기 전 건은 선적 축 모수에 없고(발주서 축),
+// 입고확인은 협력 축의 종점이라 그 다음 일(고객 발송)은 od 를 모수로 잡아야 보인다.
+// 방향이 뒤집히는 지점(자사 → 고객)만 섹션 경계다 — 두 상태를 동시에 조감해야
+// "들어오는 것"과 "나갈 것"이 한눈에 잡힌다. 협력 축 조작(전이/입고확인/송장)은
+// Case 상세, 고객 발송·구매확정만 여기서 바로 처리한다.
 
-type ShipTabKey = AdminPcbShipmentTabType | 'to_ship' | 'customer_to_ship' | 'customer_shipping';
+type ShipTabKey = AdminPcbShipmentTabType | 'to_ship';
 
 const router = useRouter();
 const tab = ref<ShipTabKey>('to_ship');
@@ -45,16 +48,6 @@ const toShipRows = computed(() => poQuery.data.value?.data.items ?? []);
 const toShipTotal = computed(() => poQuery.data.value?.data.total ?? 0);
 const toShipPages = computed(() => Math.max(1, Math.ceil(toShipTotal.value / poFilters.value.pageSize)));
 
-// 고객 배송 = 주문 축(P4.6) — 입고확인이 끝났는데 od 가 아직 배송 전인 주문(to_ship),
-// 배송 중(shipping). 판정·counts 는 서버(/admin/pcb-orders — 협력 축 입고 신호 기반).
-const orderFilters = ref<AdminPcbOrderFilters>({ page: 1, pageSize: 20, tab: 'to_ship', q: '' });
-const orderQuery = useAdminPcbOrderWork(orderFilters);
-const orderRows = computed(() => orderQuery.data.value?.data.items ?? []);
-const orderTotal = computed(() => orderQuery.data.value?.data.total ?? 0);
-const orderPages = computed(() =>
-  Math.max(1, Math.ceil(orderTotal.value / orderFilters.value.pageSize)),
-);
-
 const rows = computed(() => list.data.value?.data.items ?? []);
 const total = computed(() => list.data.value?.data.total ?? 0);
 const counts = computed(() => list.data.value?.data.counts ?? null);
@@ -65,36 +58,45 @@ const TABS: { key: ShipTabKey; label: string }[] = [
   { key: 'pending', label: '입고·처리 대기' },
   { key: 'active', label: '이동 중' },
   { key: 'received', label: '입고 완료' },
-  { key: 'customer_to_ship', label: '고객 배송 대기' },
-  { key: 'customer_shipping', label: '고객 배송 중' },
   { key: 'all', label: '전체' },
 ];
-const isCustomerTab = (key: ShipTabKey): key is 'customer_to_ship' | 'customer_shipping' =>
-  key === 'customer_to_ship' || key === 'customer_shipping';
 const tabCount = (key: ShipTabKey): number | null =>
   key === 'to_ship'
     ? (poQuery.data.value?.data.counts.to_ship ?? null)
-    : key === 'customer_to_ship'
-      ? (orderQuery.data.value?.data.counts.toShip ?? null)
-      : key === 'customer_shipping'
-        ? (orderQuery.data.value?.data.counts.shipping ?? null)
-        : counts.value === null
-          ? null
-          : counts.value[key];
+    : counts.value === null
+      ? null
+      : counts.value[key];
 const setTab = (key: ShipTabKey): void => {
   tab.value = key;
-  if (isCustomerTab(key)) {
-    orderFilters.value = {
-      ...orderFilters.value,
-      tab: key === 'customer_to_ship' ? 'to_ship' : 'shipping',
-      page: 1,
-    };
-  } else if (key !== 'to_ship') {
-    filters.value = { ...filters.value, tab: key, page: 1 };
-  }
+  if (key !== 'to_ship') filters.value = { ...filters.value, tab: key, page: 1 };
 };
 
-// ── 고객 배송 액션 — 배송 처리(공용 모달)·구매확정 ──────────────────────────
+// ── ② 고객 배송 — 주문 축(P4.6): 입고확인이 끝났는데 od 가 배송 전(to_ship)·배송 중.
+//    판정·counts 는 서버(/admin/pcb-orders — 협력 축 입고 신호 기반, 이관분 자연 제외).
+const orderFilters = ref<AdminPcbOrderFilters>({ page: 1, pageSize: 20, tab: 'to_ship', q: '' });
+const orderQuery = useAdminPcbOrderWork(orderFilters);
+const orderRows = computed(() => orderQuery.data.value?.data.items ?? []);
+const orderTotal = computed(() => orderQuery.data.value?.data.total ?? 0);
+const orderPages = computed(() =>
+  Math.max(1, Math.ceil(orderTotal.value / orderFilters.value.pageSize)),
+);
+
+const ORDER_TABS = [
+  { key: 'to_ship', label: '배송 처리 대기' },
+  { key: 'shipping', label: '배송 중' },
+] as const;
+type OrderTabKey = (typeof ORDER_TABS)[number]['key'];
+const orderTab = computed(() => orderFilters.value.tab);
+const orderTabCount = (key: OrderTabKey): number | null => {
+  const c = orderQuery.data.value?.data.counts ?? null;
+  if (c === null) return null;
+  return key === 'to_ship' ? c.toShip : c.shipping;
+};
+const setOrderTab = (key: OrderTabKey): void => {
+  orderFilters.value = { ...orderFilters.value, tab: key, page: 1 };
+};
+
+// 고객 배송 액션 — 배송 처리(공용 모달)·구매확정
 const allReceived = (item: AdminPcbOrderItemType): boolean =>
   item.poCount > 0 && item.receivedPoCount >= item.poCount;
 
@@ -138,119 +140,222 @@ function openCase(specId: number): void {
 </script>
 
 <template>
-  <div class="pcb-readable space-y-4">
+  <div class="pcb-readable space-y-6">
     <h1 class="text-xl font-bold">PCB 선적·배송</h1>
 
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200">
-      <div class="flex flex-wrap gap-1">
-        <button
-          v-for="entry in TABS"
-          :key="entry.key"
-          type="button"
-          class="-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium"
-          :class="tab === entry.key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:bg-gray-50'"
-          @click="setTab(entry.key)"
-        >
-          {{ entry.label }}
-          <span v-if="tabCount(entry.key) !== null" class="ml-0.5 text-xs opacity-60">{{ tabCount(entry.key) }}</span>
-        </button>
+    <!-- ① 협력사 선적 — 협력사 발송 → 자사·MD 입고(발주서 축 + 선적 축) -->
+    <section class="space-y-3">
+      <h2 class="text-sm font-bold text-gray-700">협력사 선적 — 협력사 발송 → 자사 입고</h2>
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200">
+        <div class="flex flex-wrap gap-1">
+          <button
+            v-for="entry in TABS"
+            :key="entry.key"
+            type="button"
+            class="-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium"
+            :class="tab === entry.key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:bg-gray-50'"
+            @click="setTab(entry.key)"
+          >
+            {{ entry.label }}
+            <span v-if="tabCount(entry.key) !== null" class="ml-0.5 text-xs opacity-60">{{ tabCount(entry.key) }}</span>
+          </button>
+        </div>
       </div>
-    </div>
 
-    <!-- 발송 대기 — 생산완료인데 발송 문서가 아직 없는 발주서(선적 축 밖의 모수) -->
-    <template v-if="tab === 'to_ship'">
-      <p class="text-sm text-gray-500">
-        생산이 끝났는데 아직 발송이 시작되지 않은 발주서입니다 — 발송 생성은 협력사 포털이
-        원칙이고, 관리자는 Case 상세에서 대행할 수 있습니다.
-      </p>
-      <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
-        <table class="min-w-full divide-y divide-gray-200 text-sm">
-          <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
-            <tr>
-              <th class="whitespace-nowrap px-4 py-2.5">발주</th>
-              <th class="px-4 py-2.5">프로젝트</th>
-              <th class="px-4 py-2.5">협력사</th>
-              <th class="whitespace-nowrap px-4 py-2.5">상태</th>
-              <th class="whitespace-nowrap px-4 py-2.5">납기</th>
-              <th class="px-4 py-2.5" />
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr
-              v-for="row in toShipRows"
-              :key="row.poId"
-              class="cursor-pointer bg-amber-50/40 hover:bg-amber-50"
-              @click="openCase(row.specId)"
+      <!-- 발송 대기 — 생산완료인데 발송 문서가 아직 없는 발주서(선적 축 밖의 모수) -->
+      <template v-if="tab === 'to_ship'">
+        <p class="text-sm text-gray-500">
+          생산이 끝났는데 아직 발송이 시작되지 않은 발주서입니다 — 발송 생성은 협력사 포털이
+          원칙이고, 관리자는 Case 상세에서 대행할 수 있습니다.
+        </p>
+        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
+          <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+              <tr>
+                <th class="whitespace-nowrap px-4 py-2.5">발주</th>
+                <th class="px-4 py-2.5">프로젝트</th>
+                <th class="px-4 py-2.5">협력사</th>
+                <th class="whitespace-nowrap px-4 py-2.5">상태</th>
+                <th class="whitespace-nowrap px-4 py-2.5">납기</th>
+                <th class="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr
+                v-for="row in toShipRows"
+                :key="row.poId"
+                class="cursor-pointer bg-amber-50/40 hover:bg-amber-50"
+                @click="openCase(row.specId)"
+              >
+                <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">PO-{{ row.poId }}</td>
+                <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
+                  <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
+                  {{ row.projectName }}
+                </td>
+                <td class="px-4 py-2.5 text-gray-600">
+                  {{ row.partnerName }}
+                  <span v-if="row.parentPartnerName !== null" class="ml-1 text-xs text-indigo-500">
+                    (MD {{ row.parentPartnerName }})
+                  </span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5">
+                  <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">
+                    {{ PCB_PO_STATUS_LABELS[row.status] }}
+                  </span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ fmtDate(row.deliveryDate) }}</td>
+                <td class="whitespace-nowrap px-4 py-2.5 text-right">
+                  <button
+                    type="button"
+                    class="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-700"
+                    @click.stop="openCase(row.specId)"
+                  >
+                    발송 관리 →
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="toShipRows.length === 0">
+                <td colspan="6" class="px-4 py-10 text-center text-sm text-gray-400">
+                  {{ poQuery.isFetching.value ? '불러오는 중…' : '발송 대기 발주서가 없습니다.' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="flex items-center justify-between text-sm">
+          <p class="text-gray-500">총 {{ toShipTotal }}건</p>
+          <div v-if="toShipPages > 1" class="flex items-center gap-2">
+            <button
+              type="button"
+              class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
+              :disabled="poFilters.page <= 1"
+              @click="poFilters = { ...poFilters, page: poFilters.page - 1 }"
             >
-              <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">PO-{{ row.poId }}</td>
-              <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
-                <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
-                {{ row.projectName }}
-              </td>
-              <td class="px-4 py-2.5 text-gray-600">
-                {{ row.partnerName }}
-                <span v-if="row.parentPartnerName !== null" class="ml-1 text-xs text-indigo-500">
-                  (MD {{ row.parentPartnerName }})
-                </span>
-              </td>
-              <td class="whitespace-nowrap px-4 py-2.5">
-                <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">
-                  {{ PCB_PO_STATUS_LABELS[row.status] }}
-                </span>
-              </td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ fmtDate(row.deliveryDate) }}</td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-right">
-                <button
-                  type="button"
-                  class="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-700"
-                  @click.stop="openCase(row.specId)"
-                >
-                  발송 관리 →
-                </button>
-              </td>
-            </tr>
-            <tr v-if="toShipRows.length === 0">
-              <td colspan="6" class="px-4 py-10 text-center text-sm text-gray-400">
-                {{ poQuery.isFetching.value ? '불러오는 중…' : '발송 대기 발주서가 없습니다.' }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="flex items-center justify-between text-sm">
-        <p class="text-gray-500">총 {{ toShipTotal }}건</p>
-        <div v-if="toShipPages > 1" class="flex items-center gap-2">
+              이전
+            </button>
+            <span class="text-gray-500">{{ poFilters.page }} / {{ toShipPages }}</span>
+            <button
+              type="button"
+              class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
+              :disabled="poFilters.page >= toShipPages"
+              @click="poFilters = { ...poFilters, page: poFilters.page + 1 }"
+            >
+              다음
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
+          <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+              <tr>
+                <th class="whitespace-nowrap px-4 py-2.5">발송</th>
+                <th class="px-4 py-2.5">프로젝트</th>
+                <th class="px-4 py-2.5">보내는 곳 → 받는 곳</th>
+                <th class="whitespace-nowrap px-4 py-2.5">구분</th>
+                <th class="whitespace-nowrap px-4 py-2.5">상태</th>
+                <th class="whitespace-nowrap px-4 py-2.5">입고</th>
+                <th class="whitespace-nowrap px-4 py-2.5">생성일</th>
+                <th class="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr
+                v-for="row in rows"
+                :key="row.shipmentId"
+                class="cursor-pointer hover:bg-blue-50/40"
+                :class="row.adminTurn ? 'bg-amber-50/50' : ''"
+                @click="openCase(row.specId)"
+              >
+                <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">
+                  SH-{{ row.shipmentId }}
+                  <span v-if="row.poCount > 1" class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-semibold text-indigo-700">묶음 {{ row.poCount }}</span>
+                </td>
+                <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
+                  <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
+                  {{ row.projectName }}
+                </td>
+                <td class="px-4 py-2.5 text-gray-600">
+                  {{ row.senderName }} → {{ row.receiverName }}
+                  <span v-if="row.receiverKind === 'md'" class="ml-1 text-xs text-indigo-500">(MD 입고)</span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
+                  {{ row.mode === 'domestic' ? '국내(택배)' : '국제' }}
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5">
+                  <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[row.status]">
+                    {{ bomShipmentStatusLabel(row.mode, row.status) }}
+                  </span>
+                  <span v-if="row.adminTurn" class="ml-1 rounded bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
+                    내 차례
+                  </span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5">
+                  <span v-if="row.receivedAt !== null" class="text-xs font-semibold text-emerald-600">{{ fmtDate(row.receivedAt) }}</span>
+                  <span v-else class="text-xs text-gray-300">—</span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(row.createdAt) }}</td>
+                <td class="whitespace-nowrap px-4 py-2.5 text-right">
+                  <button
+                    type="button"
+                    class="rounded-md border border-blue-200 px-2.5 py-[3px] text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                    @click.stop="openCase(row.specId)"
+                  >
+                    Case 열기 →
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="rows.length === 0">
+                <td colspan="8" class="px-4 py-10 text-center text-sm text-gray-400">
+                  해당 상태의 발송이 없습니다 — 발송은 협력사 포털(또는 Case 상세 대행)에서 시작합니다.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="totalPages > 1" class="flex items-center gap-2 text-sm">
           <button
             type="button"
             class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
-            :disabled="poFilters.page <= 1"
-            @click="poFilters = { ...poFilters, page: poFilters.page - 1 }"
+            :disabled="filters.page <= 1"
+            @click="filters = { ...filters, page: filters.page - 1 }"
           >
             이전
           </button>
-          <span class="text-gray-500">{{ poFilters.page }} / {{ toShipPages }}</span>
+          <span class="text-gray-500">{{ filters.page }} / {{ totalPages }}</span>
           <button
             type="button"
             class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
-            :disabled="poFilters.page >= toShipPages"
-            @click="poFilters = { ...poFilters, page: poFilters.page + 1 }"
+            :disabled="filters.page >= totalPages"
+            @click="filters = { ...filters, page: filters.page + 1 }"
           >
             다음
           </button>
         </div>
-      </div>
-    </template>
+      </template>
+    </section>
 
-    <!-- 고객 배송(P4.6) — 입고 끝난 주문을 고객에게 발송(주문 축). 판정은 협력 축
+    <!-- ② 고객 배송(P4.6) — 입고 끝난 주문을 고객에게 발송(주문 축). 판정은 협력 축
          입고확인(관리자 수신 선적 receivedAt)이라 이관·수동 처리 건은 여기 안 뜬다. -->
-    <template v-else-if="isCustomerTab(tab)">
-      <p class="text-sm text-gray-500">
-        {{
-          tab === 'customer_to_ship'
-            ? '협력사 물량 입고확인이 끝났는데 고객 주문이 아직 배송 전인 건입니다 — 운송장을 입력해 배송 처리하세요.'
-            : '고객에게 발송된 주문입니다 — 수령이 확인되면 구매확정(완료) 처리하세요.'
-        }}
-      </p>
+    <section class="space-y-3">
+      <h2 class="text-sm font-bold text-gray-700">고객 배송 — 입고 끝난 주문 발송</h2>
+      <div class="flex flex-wrap gap-1 border-b border-gray-200">
+        <button
+          v-for="entry in ORDER_TABS"
+          :key="entry.key"
+          type="button"
+          class="-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium"
+          :class="orderTab === entry.key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:bg-gray-50'"
+          @click="setOrderTab(entry.key)"
+        >
+          {{ entry.label }}
+          <span v-if="orderTabCount(entry.key) !== null" class="ml-0.5 text-xs opacity-60">{{ orderTabCount(entry.key) }}</span>
+        </button>
+      </div>
+
       <p v-if="actionError !== ''" class="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
         {{ actionError }}
       </p>
@@ -263,7 +368,7 @@ function openCase(specId: number): void {
               <th class="px-4 py-2.5">고객</th>
               <th class="whitespace-nowrap px-4 py-2.5">입고</th>
               <th class="whitespace-nowrap px-4 py-2.5 text-right">결제액</th>
-              <th class="px-4 py-2.5">{{ tab === 'customer_to_ship' ? '상태' : '운송장' }}</th>
+              <th class="px-4 py-2.5">{{ orderTab === 'to_ship' ? '상태' : '운송장' }}</th>
               <th class="px-4 py-2.5" />
             </tr>
           </thead>
@@ -272,7 +377,7 @@ function openCase(specId: number): void {
               v-for="item in orderRows"
               :key="item.odId"
               class="cursor-pointer hover:bg-blue-50/40"
-              :class="tab === 'customer_to_ship' ? 'bg-amber-50/40' : ''"
+              :class="orderTab === 'to_ship' ? 'bg-amber-50/40' : ''"
               @click="openCase(item.specId)"
             >
               <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-600">{{ item.odId }}</td>
@@ -296,7 +401,7 @@ function openCase(specId: number): void {
               </td>
               <td class="px-4 py-2.5">
                 <span
-                  v-if="tab === 'customer_to_ship'"
+                  v-if="orderTab === 'to_ship'"
                   class="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700"
                 >{{ item.odStatus }}</span>
                 <span v-else class="text-xs text-gray-600">
@@ -306,7 +411,7 @@ function openCase(specId: number): void {
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-right">
                 <button
-                  v-if="tab === 'customer_to_ship'"
+                  v-if="orderTab === 'to_ship'"
                   type="button"
                   class="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-700"
                   @click.stop="openShip(item)"
@@ -336,8 +441,8 @@ function openCase(specId: number): void {
                 {{
                   orderQuery.isFetching.value
                     ? '불러오는 중…'
-                    : tab === 'customer_to_ship'
-                      ? '고객 배송 대기 주문이 없습니다 — 입고확인이 끝나면 여기로 들어옵니다.'
+                    : orderTab === 'to_ship'
+                      ? '배송 처리 대기 주문이 없습니다 — 입고확인이 끝나면 여기로 들어옵니다.'
                       : '배송 중인 주문이 없습니다.'
                 }}
               </td>
@@ -367,98 +472,7 @@ function openCase(specId: number): void {
           </button>
         </div>
       </div>
-    </template>
-
-    <template v-else>
-      <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
-        <table class="min-w-full divide-y divide-gray-200 text-sm">
-          <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
-            <tr>
-              <th class="whitespace-nowrap px-4 py-2.5">발송</th>
-              <th class="px-4 py-2.5">프로젝트</th>
-              <th class="px-4 py-2.5">보내는 곳 → 받는 곳</th>
-              <th class="whitespace-nowrap px-4 py-2.5">구분</th>
-              <th class="whitespace-nowrap px-4 py-2.5">상태</th>
-              <th class="whitespace-nowrap px-4 py-2.5">입고</th>
-              <th class="whitespace-nowrap px-4 py-2.5">생성일</th>
-              <th class="px-4 py-2.5" />
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr
-              v-for="row in rows"
-              :key="row.shipmentId"
-              class="cursor-pointer hover:bg-blue-50/40"
-              :class="row.adminTurn ? 'bg-amber-50/50' : ''"
-              @click="openCase(row.specId)"
-            >
-              <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">
-                SH-{{ row.shipmentId }}
-                <span v-if="row.poCount > 1" class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-semibold text-indigo-700">묶음 {{ row.poCount }}</span>
-              </td>
-              <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
-                <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
-                {{ row.projectName }}
-              </td>
-              <td class="px-4 py-2.5 text-gray-600">
-                {{ row.senderName }} → {{ row.receiverName }}
-                <span v-if="row.receiverKind === 'md'" class="ml-1 text-xs text-indigo-500">(MD 입고)</span>
-              </td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
-                {{ row.mode === 'domestic' ? '국내(택배)' : '국제' }}
-              </td>
-              <td class="whitespace-nowrap px-4 py-2.5">
-                <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[row.status]">
-                  {{ bomShipmentStatusLabel(row.mode, row.status) }}
-                </span>
-                <span v-if="row.adminTurn" class="ml-1 rounded bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
-                  내 차례
-                </span>
-              </td>
-              <td class="whitespace-nowrap px-4 py-2.5">
-                <span v-if="row.receivedAt !== null" class="text-xs font-semibold text-emerald-600">{{ fmtDate(row.receivedAt) }}</span>
-                <span v-else class="text-xs text-gray-300">—</span>
-              </td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(row.createdAt) }}</td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-right">
-                <button
-                  type="button"
-                  class="rounded-md border border-blue-200 px-2.5 py-[3px] text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                  @click.stop="openCase(row.specId)"
-                >
-                  Case 열기 →
-                </button>
-              </td>
-            </tr>
-            <tr v-if="rows.length === 0">
-              <td colspan="8" class="px-4 py-10 text-center text-sm text-gray-400">
-                해당 상태의 발송이 없습니다 — 발송은 협력사 포털(또는 Case 상세 대행)에서 시작합니다.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="totalPages > 1" class="flex items-center gap-2 text-sm">
-        <button
-          type="button"
-          class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
-          :disabled="filters.page <= 1"
-          @click="filters = { ...filters, page: filters.page - 1 }"
-        >
-          이전
-        </button>
-        <span class="text-gray-500">{{ filters.page }} / {{ totalPages }}</span>
-        <button
-          type="button"
-          class="rounded-md border border-gray-300 bg-surface px-2.5 py-1 hover:bg-gray-50 disabled:opacity-40"
-          :disabled="filters.page >= totalPages"
-          @click="filters = { ...filters, page: filters.page + 1 }"
-        >
-          다음
-        </button>
-      </div>
-    </template>
+    </section>
 
     <PcbCustomerShipModal
       :od-id="shipOdId"
