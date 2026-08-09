@@ -97,6 +97,21 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     }
   };
 
+  /**
+   * 관찰용 화면 재로드 — 단계 대부분이 API 로 진행되므로 열어 둔 페이지는 저절로 바뀌지 않는다.
+   * (이전 주행은 이걸 빠뜨려 관리자 스크린샷 3장이 전부 S3 시점 그대로였다 — 화면 검증이
+   * 사실상 없었다.) 목록·상세가 vue-query 로 늦게 채워지므로 networkidle 까지 기다린다.
+   */
+  const view = async (s: { page: any }, path: string, name: string): Promise<void> => {
+    try {
+      await s.page.goto(`${BASE_URL}${path}`, { waitUntil: 'domcontentloaded' });
+      await s.page.waitForLoadState('networkidle').catch(() => undefined);
+    } catch {
+      /* 관찰 실패는 여정을 막지 않는다 */
+    }
+    await shot(s, name);
+  };
+
   // multipart 업로드(EQ 파일·선적 첨부) — File 은 Node 20+ 글로벌
   const apiForm = async (
     token: string,
@@ -224,17 +239,13 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     rfqId = row.rfqId;
     ledger.push(`sp_pcb_rfq #${String(rfqId)} (spec ${String(specId)} → 협력2)`);
 
-    await adminView.page.goto(`${BASE_URL}/app/admin/pcb/cases/${String(specId)}`);
-    await adminView.page.waitForLoadState('networkidle').catch(() => undefined);
-    await shot(adminView, 'S03-admin-case-rfq-sent');
+    await view(adminView, `/app/admin/pcb/cases/${String(specId)}`, 'S03-admin-case-rfq-sent');
   });
 
   test('S4. 파트너: 포털에서 회신(가격·납기)', async (ctx) => {
     if (rfqId === null) return ctx.skip();
     // 포털 화면 관찰(회신할 견적 노출) 후 API 로 회신 — 조작 UI 자체는 2차 회귀에서.
-    await partnerView.page.goto(`${BASE_URL}/app/partner/pcb/rfqs/${String(rfqId)}`);
-    await partnerView.page.waitForLoadState('networkidle').catch(() => undefined);
-    await shot(partnerView, 'S04-partner-rfq-detail');
+    await view(partnerView, `/app/partner/pcb/rfqs/${String(rfqId)}`, 'S04-partner-rfq-detail');
 
     const r = await api(P, 'PUT', `/api/partner/pcb-rfqs/${String(rfqId)}`, {
       price: 300,
@@ -269,13 +280,18 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     const spec = await prisma.spOrderSpec.findUnique({ where: { id: BigInt(specId) } });
     expect(spec?.quoteStatus, '선정+확정가 후 상태').toBe('quoted');
     expect(Number(spec?.finalPrice ?? 0), '확정가 반영').toBe(55_000);
-    await shot(adminView, 'S05-admin-selected-priced');
+    await view(adminView, `/app/admin/pcb/cases/${String(specId)}`, 'S05-admin-selected-priced');
   });
 
   test('S6. 고객: 견적관리 확정가 확인 → 바로 주문 → 무통장 주문 완료', async (ctx) => {
     if (specId === null) return ctx.skip();
     const page = customer.page;
     await page.goto(`${BASE_URL}/shop/quotes`, { waitUntil: 'domcontentloaded' });
+    // 목록은 JS 가 나중에 채운다 — 곧바로 찍으면 '불러오는 중…'만 남는다(이전 주행 관찰 실패).
+    await page
+      .locator(`label[for="sp-quotes-check-${String(specId)}"]`)
+      .waitFor({ state: 'visible', timeout: 30_000 })
+      .catch(() => F('S6', 'obs', '견적관리 목록 로딩 대기 시간 초과 — 캡처가 비어 있을 수 있음'));
     await shot(customer, 'S06-quotes-priced');
 
     // 방금 견적 체크 → [바로 주문] — 커스텀 체크박스(input 숨김, label 이 클릭 표면).
@@ -319,31 +335,40 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     await fill('input[name="od_zip"]', '06236');
     await fill('input[name="od_addr1"]', '서울 강남구 테헤란로 1');
     await fill('input[name="od_addr2"]', 'e2e');
-    await fill('input[name="od_deposit_name"]', 'e2e여정고객');
-    // 받으시는 분 — 테마는 [주문자와 동일] 버튼으로 od_b_* 복사(1차 주행 발견)
-    await page
-      .getByText('주문자와 동일', { exact: true })
-      .first()
-      .click()
-      .catch(() => F('S6', 'obs', '[주문자와 동일] 버튼 미발견 — od_b_* 직접 채움 시도'));
-    await fill('input[name="od_b_name"]', 'e2e여정고객');
-    await fill('input[name="od_b_hp"]', '010-0000-0000');
-    // 결제수단 — 테마는 버튼형(무통장입금/신용카드), 코어 라디오는 폴백(1차 주행 발견)
-    const bankBtn = page.getByText('무통장입금', { exact: true }).last();
-    if ((await bankBtn.count()) > 0) await bankBtn.click().catch(() => undefined);
-    const bank = page.locator('input[name="od_settle_case"][value*="무통장"]');
-    if ((await bank.count()) > 0) await bank.first().check({ force: true }).catch(() => undefined);
-    // 입금 은행 선택(3차 주행 발견 — '선택하십시오.' 기본값으로는 검증에 막힘)
+    // ── 아래 셋은 theme/sp-lite/js/orderform-defaults.js 가 채워 두는 값이다. 고객이 손대지
+    // 않아도 제출이 통과해야 하므로, 여기서는 **채워졌는지 확인**하고 비었을 때만 손으로
+    // 채운다(그 경우 findings 에 남아 기본값 회귀가 드러난다).
+    // '주문자와 동일'이 걸려 있으면 주문자 입력을 따라 받는분이 채워진다(디바운스 300ms).
+    await page.waitForTimeout(600);
+    const receiverName = page.locator('input[name="od_b_name"]');
+    if ((await receiverName.inputValue().catch(() => '')) === '') {
+      F('S6', 'bug', '받는분 기본값 미적용 — [주문자와 동일]을 수동 클릭해 진행');
+      await page
+        .getByText('주문자와 동일', { exact: true })
+        .first()
+        .click()
+        .catch(() => undefined);
+      await fill('input[name="od_b_name"]', 'e2e여정고객');
+      await fill('input[name="od_b_hp"]', '010-0000-0000');
+    }
+
+    const bankRadio = page.locator('input[name="od_settle_case"][value*="무통장"]');
+    if ((await bankRadio.count()) > 0 && !(await bankRadio.first().isChecked())) {
+      F('S6', 'bug', '결제수단 기본값 미적용 — 무통장입금을 수동 선택해 진행');
+      await bankRadio.first().check({ force: true }).catch(() => undefined);
+    }
+
+    // 계좌 select 는 기본값이 잡혀 있어야 한다(빈 옵션 제거 → 첫 계좌 선택).
     const bankSelect = page.locator('select[name="od_bank_account"]');
     if ((await bankSelect.count()) > 0) {
-      await bankSelect.first().selectOption({ index: 1 }).catch(() => undefined);
-    } else {
-      const anySelect = page.locator('select:visible').last();
-      if ((await anySelect.count()) > 0) {
-        F('S6', 'obs', 'od_bank_account 미발견 — 보이는 select 폴백으로 은행 선택');
-        await anySelect.selectOption({ index: 1 }).catch(() => undefined);
+      const picked = await bankSelect.first().inputValue().catch(() => '');
+      if (picked === '') {
+        F('S6', 'bug', '입금 계좌 기본값 미적용 — 첫 계좌를 수동 선택해 진행');
+        await bankSelect.first().selectOption({ index: 0 }).catch(() => undefined);
       }
     }
+    // 입금자명도 코어 click 핸들러가 주문자명으로 채운다 — 여정 표식이 필요해 덮어쓴다.
+    await fill('input[name="od_deposit_name"]', 'e2e여정고객');
     // 동의 체크(있는 것 전부)
     for (const cb of await page.locator('input[type=checkbox][name*="agree"]').all()) {
       await cb.check().catch(() => undefined);
@@ -370,21 +395,29 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     F('S6', 'obs', `주문 생성 od=${String(odId)} status=${order?.status ?? '?'}`);
   }, 240_000);
 
-  test('S7. 관리자: 입금 확인(수동 조정+상태) → 발주서 발행(선정 프리필)', async (ctx) => {
+  test('S7. 관리자: 입금 확인(실 UI 경로) → 발주서 발행(선정 프리필)', async (ctx) => {
     if (odId === null || specId === null) return ctx.skip();
-    // 무통장은 정상 경로가 2단계다(1차 주행 발견): ① receipt 로 입금액 조정(od_misu=0
-    // 재계산) → ② force-status '입금'. force-status 만 쓰면 상태만 오르고 미수금이 남아
-    // "완료인데 미결제" 로 보였다(그건 테스트가 정상 경로를 건너뛴 탓).
-    const receipt = await api(A, 'PATCH', `/api/admin/orders/${odId}/receipt`, {
-      receiptPrice: 55_000,
-      receiptTime: '2026-08-10 12:00:00',
-      depositName: 'e2e여정고객',
-    });
-    expect(receipt.status, `입금 조정: ${JSON.stringify(receipt.json)}`).toBe(200);
-    const paid = await api(A, 'PATCH', `/api/admin/orders/${odId}/force-status`, {
+    // 관리자 화면의 [입금확인]은 어느 화면이든 PATCH /orders/status 한 번이다
+    // (useAdminPcbOrders.useConfirmPcbOrderReceipt). 그 안에서 od_receipt_price=od_misu·
+    // od_misu=0 까지 처리하고 고객 입금 확인 메일도 보낸다. 이전 주행은 receipt+force-status
+    // 2단계를 썼는데 그건 실 UI 가 밟지 않는 경로였다 — 메일 발송까지 통째로 미검증이었다.
+    const paid = await api(A, 'PATCH', '/api/admin/orders/status', {
       target: '입금',
+      odIds: [odId],
+      sendMail: true,
+      sendSms: false,
     });
-    expect(paid.status, `입금 상태: ${JSON.stringify(paid.json)}`).toBe(200);
+    expect(paid.status, `입금확인: ${JSON.stringify(paid.json)}`).toBe(200);
+    expect(paid.json?.data?.skipped ?? [], `입금확인 스킵: ${JSON.stringify(paid.json)}`).toHaveLength(0);
+
+    // 수납이 함께 잡혔는지(미수금 0) — 상태만 오르는 회귀를 여기서 잡는다.
+    const prisma = getPrisma();
+    const paidRow: any[] = await prisma.$queryRawUnsafe(
+      `SELECT od_status, od_misu, od_receipt_price FROM g5_shop_order WHERE od_id = ?`,
+      odId,
+    );
+    expect(Number(paidRow[0]?.od_misu ?? -1), '입금확인 후 미수금').toBe(0);
+    F('S7', 'obs', `입금확인 반영 — status=${paidRow[0]?.od_status} 수납=${String(paidRow[0]?.od_receipt_price)}`);
 
     const issue = await api(A, 'POST', `/api/admin/pcb-projects/${String(specId)}/pos`, {
       partnerId: num(partner2.id),
@@ -395,7 +428,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     expect(po, '발주서 행').toBeTruthy();
     poId = po.poId;
     ledger.push(`sp_pcb_po #${String(poId)} (협력2)`);
-    await shot(adminView, 'S07-po-issued');
+    await view(adminView, `/app/admin/pcb/cases/${String(specId)}`, 'S07-po-issued');
   });
 
   test('S8. 파트너: EQ·Working 파일 업로드 → 승인요청', async (ctx) => {
@@ -415,9 +448,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     }
     const req = await api(P, 'POST', `/api/partner/pcb-pos/${String(poId)}/eq-request`, {});
     expect(req.status, JSON.stringify(req.json)).toBe(200);
-    await partnerView.page.goto(`${BASE_URL}/app/partner/pcb/pos/${String(poId)}`);
-    await partnerView.page.waitForLoadState('networkidle').catch(() => undefined);
-    await shot(partnerView, 'S08-eq-requested');
+    await view(partnerView, `/app/partner/pcb/pos/${String(poId)}`, 'S08-eq-requested');
   });
 
   test('S9. 관리자: EQ 고객확인 요청 → 고객: 주문내역에서 승인(PHP)', async (ctx) => {
@@ -482,9 +513,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     const box = await api(P, 'POST', '/api/partner/pcb-shipments/box', { poId });
     expect(box.status, `담기: ${JSON.stringify(box.json)}`).toBe(200);
     ledger.push(`sp_pcb_shipment (po ${String(poId)} 대표)`);
-    await partnerView.page.goto(`${BASE_URL}/app/partner/pcb/ship`);
-    await partnerView.page.waitForLoadState('networkidle').catch(() => undefined);
-    await shot(partnerView, 'S11-ship-board-boxed');
+    await view(partnerView, '/app/partner/pcb/ship', 'S11-ship-board-boxed');
 
     // 국제 requested 는 Invoice 첨부 필수 — 최소 PDF 를 invoice 슬롯에 업로드
     const pdf = new TextEncoder().encode('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n')
@@ -519,7 +548,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
         break;
       }
     }
-    await shot(partnerView, 'S11-shipment-final');
+    await view(partnerView, '/app/partner/pcb/ship', 'S11-shipment-final');
   });
 
   test('S12. 관리자: 입고확인 → 고객 배송(운송장) → 완료', async (ctx) => {
@@ -543,7 +572,8 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     if (ship.status !== 200) {
       F('S12', 'obs', `배송 전이 바디 확인 필요: ${JSON.stringify(ship.json)}`);
     }
-    await shot(adminView, 'S12-admin-shipping');
+    // 고객 배송 큐(P4.6)에서 이 주문이 어떻게 보이는지 — 미수 배지 회귀도 여기서 눈에 남는다.
+    await view(adminView, '/app/admin/pcb/orders?tab=shipping', 'S12-admin-shipping');
 
     const page = customer.page;
     await page.goto(`${BASE_URL}/shop/orderinquiryview.php?od_id=${odId}`, {
@@ -569,9 +599,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     if (misu === 0) F('S12', 'obs', `미수금 0 확인(정상 입금확인 반영) — status=${odRow[0]?.od_status}`);
     else F('S12', 'bug', `완료인데 미수금 ${String(misu)} 잔존 — 입금확인 경로 재확인`);
     expect(misu, '완주 후 미수금 0').toBe(0);
-    await partnerView.page.goto(`${BASE_URL}/app/partner/pcb/shipments/done`);
-    await partnerView.page.waitForLoadState('networkidle').catch(() => undefined);
-    await shot(partnerView, 'S13-partner-done-archive');
+    await view(partnerView, '/app/partner/pcb/shipments/done', 'S13-partner-done-archive');
     F('S12', 'obs', `완주 도달 — od=${odId} spec=${String(specId)} po=${String(poId)} review=${String(reviewId)}`);
   }, 120_000);
 });

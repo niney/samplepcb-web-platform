@@ -710,6 +710,7 @@ export const en = {
         apply: 'Apply',
         confirmTitle: 'Force change to {target}',
         confirmWarn: 'Force this order to {target}. Status only, no payment/notification (reverse allowed, any payment method).',
+        misuWarn: 'An unpaid balance of {misu} KRW will remain — the customer will keep seeing “unpaid”. If the money did arrive, adjust the received amount first.',
         deliveryIncluded: 'Invoice included',
         cancel: 'Cancel',
         confirm: 'Change',

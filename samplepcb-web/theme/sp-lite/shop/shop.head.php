@@ -60,6 +60,12 @@ if ($sp_cur_script === 'orderform.php') {
         '<script src="'.G5_THEME_JS_URL.'/order-vat-breakdown.js?ver='.G5_JS_VER.'" defer></script>',
         6
     );
+    // 주문서 기본값(배송지·결제수단·입금계좌)과 무통장 영역 표시 동기화 — 견적 주문에 한정하지
+    // 않는다. 마찰은 코어 주문서 자체에서 오고, 상품 종류와 무관하게 모든 고객이 겪는다.
+    add_javascript(
+        '<script src="'.G5_THEME_JS_URL.'/orderform-defaults.js?ver='.G5_JS_VER.'" defer></script>',
+        7
+    );
 }
 
 $sp_account_active = (!empty($member['mb_id']) && isset($sp_account_pages[$sp_cur_script])) ? $sp_account_pages[$sp_cur_script] : '';

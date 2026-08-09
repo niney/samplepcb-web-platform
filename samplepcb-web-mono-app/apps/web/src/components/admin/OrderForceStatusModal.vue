@@ -13,6 +13,8 @@ const props = defineProps<{
   target: OrderForceTarget;
   targetLabel: string;
   delivery: ForceDelivery | null;
+  /** 현재 잔여 미수금 — 강제 전이는 수납을 건드리지 않아 그대로 남는다(경고 판단용). */
+  misu?: number;
 }>();
 const emit = defineEmits<{ close: []; done: [] }>();
 const i18n = useI18n();
@@ -53,6 +55,14 @@ const errorMessage = computed<string | null>(() => {
   return t('admin.orders.error.UNKNOWN');
 });
 
+// 결제 이후 단계로 강제 이동하는데 미수가 남아 있으면 "완료인데 미결제" 주문이 만들어진다.
+// 그 상태는 고객 주문내역에도 미결제액으로 그대로 노출되므로 누르기 전에 알려 준다.
+const misuWarning = computed<number | null>(() => {
+  const misu = props.misu ?? 0;
+  if (misu <= 0) return null;
+  return ['입금', '준비', '배송', '완료'].includes(props.target) ? misu : null;
+});
+
 const onKeydown = (e: KeyboardEvent): void => {
   if (e.key === 'Escape') onClose();
 };
@@ -86,6 +96,12 @@ onBeforeUnmount(() => {
           <p v-if="props.delivery !== null" class="mt-2 break-words rounded-md bg-gray-50 p-2 text-xs text-gray-600">
             {{ t('admin.orders.force.deliveryIncluded') }}:
             {{ props.delivery.deliveryCompany }} / {{ props.delivery.invoiceNo }} / {{ props.delivery.invoiceTime }}
+          </p>
+          <p
+            v-if="misuWarning !== null"
+            class="mt-2 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"
+          >
+            {{ t('admin.orders.force.misuWarn', { misu: misuWarning.toLocaleString() }) }}
           </p>
           <p v-if="errorMessage !== null" class="mt-3 text-sm text-red-600">{{ errorMessage }}</p>
         </div>

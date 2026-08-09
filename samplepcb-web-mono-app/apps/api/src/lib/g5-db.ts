@@ -3217,6 +3217,8 @@ export interface PcbOrderSpecRow {
   odStatus: string;
   settleCase: string;
   receiptPrice: number;
+  /** 잔여 미수금. 상태만 올린 주문(force-status)은 수납이 안 잡혀 여기 남는다 — 화면 경고용. */
+  misu: number;
   orderedAt: string | null;
   deliveryCompany: string;
   invoiceNo: string;
@@ -3319,7 +3321,7 @@ export async function listPcbOrderSpecs(params: {
 
   const tabCond = params.tab === 'all' ? '1=1' : PCB_ORDER_TAB_SQL[params.tab];
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT s.id AS spec_id, c.od_id, o.od_status, o.od_settle_case, o.od_receipt_price,
+    `SELECT s.id AS spec_id, c.od_id, o.od_status, o.od_settle_case, o.od_receipt_price, o.od_misu,
             o.od_delivery_company, o.od_invoice,
             DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        ${base} AND ${tabCond}
@@ -3336,6 +3338,7 @@ export async function listPcbOrderSpecs(params: {
         odStatus: String(row.od_status ?? ''),
         settleCase: String(row.od_settle_case ?? ''),
         receiptPrice: Number(row.od_receipt_price ?? 0),
+        misu: Number(row.od_misu ?? 0),
         orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
         deliveryCompany: String(row.od_delivery_company ?? ''),
         invoiceNo: String(row.od_invoice ?? ''),

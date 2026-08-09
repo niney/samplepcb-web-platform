@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { PCB_PO_STATUS_LABELS, type AdminPcbPoTabType } from '@sp/api-contract';
+import {
+  PCB_PO_STATUS_LABELS,
+  type AdminPcbPoTabType,
+  type AdminPcbPoWorkItemType,
+} from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbPoWork, type AdminPcbPoWorkFilters } from '../../admin/useAdminPcbPos';
 import { useAdminPcbTodoCounts } from '../../admin/useAdminPcbCases';
 import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
 import { fmtPcbAmount, pcbKrwSuffix } from '../../lib/pcb-money';
+import {
+  PCB_EQ_REVIEW_BADGE_CLS,
+  pcbEqReviewBadgeLabel,
+  pcbEqReviewState,
+  pcbEqReviewTitle,
+} from '../../lib/pcb-eq-review';
 
 // PCB 발주·EQ 워크큐(P2) — 구매 담당의 화면. 큐 흐름:
 //   발주 대기(결제 완료+미발주 — 스펙 축) → EQ 승인 대기 → 생산 진행 → 생산완료.
@@ -45,6 +55,12 @@ const searchText = ref('');
 const applySearch = (): void => {
   filters.value = { ...filters.value, q: searchText.value, page: 1 };
 };
+
+// EQ 고객 확인 축(D16) — 'EQ 승인 대기' 탭의 행들은 발주 상태가 모두 eq_requested 라
+// 그것만으로는 "지금 승인하면 되는 건"과 "고객 답을 기다리는 건"이 섞인다. 그 갈림을
+// 배지가 말한다. 승인 대기가 아니어도 결정이 있으면 남긴다(승인의 근거 — Case 와 동형).
+const showEqReview = (row: AdminPcbPoWorkItemType): boolean =>
+  row.status === 'eq_requested' || row.eqReview !== null;
 
 const STATUS_CLS: Record<string, string> = {
   issued: 'bg-blue-100 text-blue-700',
@@ -146,6 +162,14 @@ function openCase(specId: number): void {
                 </span>
                 <span v-if="row.adminTurn" class="ml-1 rounded bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
                   내 차례
+                </span>
+                <span
+                  v-if="showEqReview(row)"
+                  class="ml-1 rounded px-1.5 py-0.5 text-[11px] font-semibold"
+                  :class="PCB_EQ_REVIEW_BADGE_CLS[pcbEqReviewState(row.eqReview)]"
+                  :title="pcbEqReviewTitle(row.eqReview)"
+                >
+                  {{ pcbEqReviewBadgeLabel(row.eqReview) }}
                 </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ fmtDate(row.deliveryDate) }}</td>

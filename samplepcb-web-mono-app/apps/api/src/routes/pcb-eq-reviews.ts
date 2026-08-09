@@ -78,10 +78,16 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         request.body.note ?? null,
       );
       if (!outcome.ok) {
-        if (outcome.error === 'ALREADY_DECIDED') {
-          return reply
-            .status(409)
-            .send({ error: 'ALREADY_DECIDED', message: '이미 처리된 확인 요청입니다.' });
+        // 답이 갈 곳을 잃은 두 경우 — 이미 답했거나(재제출), 그 사이 관리자가 EQ 를
+        // 움직여 요청이 닫혔다. 뒤엣것은 화면이 낡은 것이므로 새로고침까지 안내한다.
+        if (outcome.error === 'ALREADY_DECIDED' || outcome.error === 'NOT_EQ_REQUESTED') {
+          return reply.status(409).send({
+            error: outcome.error,
+            message:
+              outcome.error === 'NOT_EQ_REQUESTED'
+                ? '이미 처리된 확인 요청입니다 — 화면을 새로고침해 주세요.'
+                : '이미 처리된 확인 요청입니다.',
+          });
         }
         return reply.notFound('확인 요청을 찾을 수 없습니다');
       }

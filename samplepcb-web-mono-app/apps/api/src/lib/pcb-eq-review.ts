@@ -180,7 +180,11 @@ export const listCustomerEqReviews = async (
   });
 };
 
-export type EqDecisionError = 'REVIEW_NOT_FOUND' | 'NOT_OWNER' | 'ALREADY_DECIDED';
+export type EqDecisionError =
+  | 'REVIEW_NOT_FOUND'
+  | 'NOT_OWNER'
+  | 'ALREADY_DECIDED'
+  | 'NOT_EQ_REQUESTED';
 
 /** 고객 결정 — 상태만 기록한다. EQ 전이(eq_done)는 관리자가 별도로 누른다. */
 export const decideEqReview = async (
@@ -191,7 +195,7 @@ export const decideEqReview = async (
 ): Promise<{ ok: true; poId: bigint } | { ok: false; error: EqDecisionError }> => {
   const row = await prisma.spPcbEqReview.findUnique({
     where: { id: reviewId },
-    include: { po: { select: { specId: true } } },
+    include: { po: { select: { status: true } } },
   });
   if (row === null) return { ok: false, error: 'REVIEW_NOT_FOUND' };
   const spec = await prisma.spOrderSpec.findUnique({
@@ -200,6 +204,10 @@ export const decideEqReview = async (
   });
   if (spec?.mbId !== mbId) return { ok: false, error: 'NOT_OWNER' };
   if (row.status !== 'requested') return { ok: false, error: 'ALREADY_DECIDED' };
+  // 발주가 EQ 승인요청을 벗어났으면 물어본 전제가 사라진 뒤다(관리자가 승인·반려·되돌림).
+  // 전이가 열린 요청을 닫지만, 그 직전에 열려 있던 화면에서 눌린 결정까지 받으면 이미
+  // 지나간 EQ 에 답이 붙는다 — 생성 가드(NOT_EQ_REQUESTED)와 같은 이유·같은 코드다.
+  if (row.po.status !== 'eq_requested') return { ok: false, error: 'NOT_EQ_REQUESTED' };
 
   await prisma.spPcbEqReview.update({
     where: { id: reviewId },

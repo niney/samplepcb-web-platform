@@ -261,10 +261,14 @@ export const AdminPcbPoWorkItem = z.object({
   krwAmount: z.number().nullable(),
   deliveryDate: z.string().nullable(),
   issuedAt: z.string(),
-  /** 관리자 차례(EQ 승인 대기 — 미러 반영). */
+  /** 관리자 차례(EQ 승인 대기 — 미러 반영). 고객 확인(D16)을 보내 답을 기다리는 동안은
+   *  공이 고객에게 있어 false 이고, 회신 기한이 지나면 재촉이 관리자 몫이라 다시 true 다. */
   adminTurn: z.boolean(),
   /** 생산완료·발송 미편성 — 보내는측이 발송을 시작해야 하는 상태(to_ship 탭 표시용). */
   awaitingShipment: z.boolean(),
+  /** EQ 고객 확인 요약(Case 상세와 같은 요약) — 'EQ 승인 대기' 탭에서 지금 승인하면 되는
+   *  건(고객 승인)과 고객 확인중·고객 반려·미요청을 목록에서 가른다. null=미요청. */
+  eqReview: PcbPoEqReviewSummary.nullable(),
 });
 export type AdminPcbPoWorkItemType = z.infer<typeof AdminPcbPoWorkItem>;
 

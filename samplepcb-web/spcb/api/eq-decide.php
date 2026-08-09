@@ -59,8 +59,12 @@ $res = sp_pcb_node_call('POST', '/api/pcb-eq-reviews/' . $review_id . '/decide',
 if ($res === null) {
     sp_eq_back('처리에 실패했습니다. 잠시 후 다시 시도해 주세요.', 'danger');
 }
+// 409 = 답이 갈 곳을 잃은 요청(재제출 / 그 사이 관리자가 EQ 를 움직여 요청이 닫힘).
+// 어느 쪽인지는 sp-node 의 문구가 안다 — 되돌아간 주문내역은 목록을 다시 읽으므로
+// 폼도 함께 사라진다.
 if ($res['status'] === 409) {
-    sp_eq_back('이미 처리된 확인 요청입니다.', 'danger');
+    $msg = isset($res['json']['message']) ? $res['json']['message'] : '이미 처리된 확인 요청입니다.';
+    sp_eq_back($msg, 'danger');
 }
 if ($res['status'] !== 200) {
     $msg = isset($res['json']['message']) ? $res['json']['message'] : '처리에 실패했습니다.';

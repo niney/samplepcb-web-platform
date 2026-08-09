@@ -17,6 +17,73 @@ if($od['od_pg'] == 'lg') {
 <!-- 주문상세내역 시작 { -->
 <div id="sod_fin">
     <div id="sod_fin_no">주문번호 <strong><?php echo $od_id; ?></strong></div>
+
+    <?php
+    // 무통장 입금 안내 — 주문 직후 고객이 도착하는 화면이 여기다(orderformupdate.php 가 전용
+    // 완료 페이지 없이 이리로 보낸다). 그런데 정작 "얼마를 어디로" 는 페이지 한참 아래 결제정보
+    // 안에 흩어져 있고, 결제금액 칸은 미입금이면 '아직 입금되지 않았거나…' 로 뜬다. 선입금 후
+    // 제조인 PCB 에서 가장 비싼 마찰이라 상단에 못박는다. 계산식은 아래 결제정보 블록과 동일.
+    $sp_notice_misu = ($od['od_cart_price'] + $od['od_send_cost'] + $od['od_send_cost2']
+                        - $od['od_cart_coupon'] - $od['od_coupon'] - $od['od_send_coupon']
+                        - $od['od_cancel_price'])
+                    - ($od['od_receipt_price'] + $od['od_receipt_point']);
+    $sp_show_deposit_notice = ($od['od_settle_case'] === '무통장')
+                            && $sp_notice_misu > 0
+                            && !in_array($od['od_status'], array('취소', '반품', '품절'), true);
+    if ($sp_show_deposit_notice):
+    ?>
+    <div class="sp-deposit-notice">
+        <div class="sp-deposit-notice__head">
+            <b>입금 안내</b>
+            <span>아직 입금이 확인되지 않았습니다 — 아래 계좌로 입금해 주시면 제작이 시작됩니다.</span>
+        </div>
+        <dl class="sp-deposit-notice__list">
+            <div>
+                <dt>입금하실 금액</dt>
+                <dd class="sp-deposit-notice__amount"><?php echo display_price($sp_notice_misu); ?></dd>
+            </div>
+            <?php if ($od['od_bank_account']): ?>
+            <div>
+                <dt>입금 계좌</dt>
+                <dd>
+                    <span id="sp-deposit-account"><?php echo get_text($od['od_bank_account']); ?></span>
+                    <button type="button" class="sp-deposit-notice__copy" onclick="spCopyDepositAccount(this)">복사</button>
+                </dd>
+            </div>
+            <?php endif; ?>
+            <?php if ($od['od_deposit_name']): ?>
+            <div>
+                <dt>입금자명</dt>
+                <dd><?php echo get_text($od['od_deposit_name']); ?></dd>
+            </div>
+            <?php endif; ?>
+        </dl>
+        <p class="sp-deposit-notice__note">입금자명이 다르면 확인이 늦어질 수 있습니다. 입금이 확인되면 메일로 알려드립니다.</p>
+    </div>
+    <script>
+    function spCopyDepositAccount(btn) {
+        var el = document.getElementById('sp-deposit-account');
+        if (!el) return;
+        var text = el.textContent.trim();
+        var done = function () {
+            var prev = btn.textContent;
+            btn.textContent = '복사됨';
+            setTimeout(function () { btn.textContent = prev; }, 1500);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done, function () {});
+            return;
+        }
+        // 구형 브라우저·비 HTTPS 폴백
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+    }
+    </script>
+    <?php endif; ?>
     <section id="sod_fin_list">
         <h2>주문하신 상품</h2>
 

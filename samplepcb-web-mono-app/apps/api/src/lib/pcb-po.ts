@@ -1,4 +1,4 @@
-import type { SpFile, SpPartner, SpPcbPo } from '@prisma/client';
+import type { Prisma, SpFile, SpPartner, SpPcbPo } from '@prisma/client';
 import type {
   AdminPcbPoCreateBodyType,
   AdminPcbPoPatchBodyType,
@@ -534,19 +534,34 @@ const resolveEqRole = (po: SpPcbPo, actor: PcbEqActor): EqRoleResolution => {
   return { role: null, fallback: false, byRole: 'PARTNER' };
 };
 
-/** 하위 전이를 같은 회차 상위(관리자→MD) 발주서에 상태만 미러(레거시 mirrorToParent). */
-const mirrorToParent = async (po: SpPcbPo, toStatus: PcbPoStatusType): Promise<void> => {
-  if (po.parentPartnerId === 0n) return;
-  await prisma.spPcbPo.updateMany({
-    where: {
-      specId: po.specId,
-      partnerId: po.parentPartnerId,
-      parentPartnerId: 0n,
-      reorderRound: po.reorderRound,
-    },
-    data: { status: toStatus },
+/** 하위 전이를 같은 회차 상위(관리자→MD) 발주서에 상태만 미러(레거시 mirrorToParent).
+ *  전이와 **한 트랜잭션**에 실어야 하므로 실행하지 않고 연산만 돌려준다(상위 없으면 빈 배열). */
+const mirrorToParent = (
+  po: SpPcbPo,
+  toStatus: PcbPoStatusType,
+): Prisma.PrismaPromise<Prisma.BatchPayload>[] =>
+  po.parentPartnerId === 0n
+    ? []
+    : [
+        prisma.spPcbPo.updateMany({
+          where: {
+            specId: po.specId,
+            partnerId: po.parentPartnerId,
+            parentPartnerId: 0n,
+            reorderRound: po.reorderRound,
+          },
+          data: { status: toStatus },
+        }),
+      ];
+
+/** EQ 상태가 움직이면 열려 있던 고객 확인 요청(D16)은 물어볼 대상을 잃는다 — 닫지 않으면
+ *  고객 주문내역엔 답할 수 없는 승인/반려 폼이 계속 뜨고, 협력사가 보완 후 재요청할 때도
+ *  createEqReview 가 ALREADY_OPEN 으로 막힌다(관리자가 옛 요청을 손으로 취소해야 했다). */
+const closeOpenEqReviews = (poId: bigint): Prisma.PrismaPromise<Prisma.BatchPayload> =>
+  prisma.spPcbEqReview.updateMany({
+    where: { poId, status: 'requested' },
+    data: { status: 'canceled' },
   });
-};
 
 export type PcbEqTransitionError =
   | 'PO_NOT_FOUND'
@@ -587,19 +602,24 @@ export const advancePcbPoEq = async (
     if (!hasEq || !hasWorking) return { ok: false, error: 'MISSING_EQ_FILES' };
   }
 
-  await prisma.spPcbPo.update({
-    where: { id: po.id },
-    data: {
-      status: action.to,
-      eqHistory: appendEq(po.eqHistory, {
-        byRole,
-        fromStatus: po.status,
-        toStatus: action.to,
-        note: null,
-      }),
-    },
-  });
-  await mirrorToParent(po, action.to);
+  // 전이·미러·고객 확인 종료는 한 덩어리다 — 나뉘면 발주만 넘어가고 고객 화면엔 답할 수
+  // 없는 요청이 남는다.
+  await prisma.$transaction([
+    prisma.spPcbPo.update({
+      where: { id: po.id },
+      data: {
+        status: action.to,
+        eqHistory: appendEq(po.eqHistory, {
+          byRole,
+          fromStatus: po.status,
+          toStatus: action.to,
+          note: null,
+        }),
+      },
+    }),
+    closeOpenEqReviews(po.id),
+    ...mirrorToParent(po, action.to),
+  ]);
   return { ok: true, to: action.to };
 };
 
@@ -616,19 +636,22 @@ export const rejectPcbPoEq = async (
   if (action === null) return { ok: false, error: 'INVALID_STATUS' };
   if (action.rejectTo === undefined) return { ok: false, error: 'INVALID_STATUS' };
 
-  await prisma.spPcbPo.update({
-    where: { id: po.id },
-    data: {
-      status: action.rejectTo,
-      eqHistory: appendEq(po.eqHistory, {
-        byRole: 'ADMIN',
-        fromStatus: po.status,
-        toStatus: action.rejectTo,
-        note: reason,
-      }),
-    },
-  });
-  await mirrorToParent(po, action.rejectTo);
+  await prisma.$transaction([
+    prisma.spPcbPo.update({
+      where: { id: po.id },
+      data: {
+        status: action.rejectTo,
+        eqHistory: appendEq(po.eqHistory, {
+          byRole: 'ADMIN',
+          fromStatus: po.status,
+          toStatus: action.rejectTo,
+          note: reason,
+        }),
+      },
+    }),
+    closeOpenEqReviews(po.id),
+    ...mirrorToParent(po, action.rejectTo),
+  ]);
   return { ok: true };
 };
 
@@ -649,19 +672,22 @@ export const revertPcbPoEq = async (
   if (role !== revert.actor && actor.kind !== 'admin')
     return { ok: false, error: 'NOT_YOUR_TURN' };
 
-  await prisma.spPcbPo.update({
-    where: { id: po.id },
-    data: {
-      status: revert.to,
-      eqHistory: appendEq(po.eqHistory, {
-        byRole,
-        fromStatus: po.status,
-        toStatus: revert.to,
-        note: '되돌리기',
-      }),
-    },
-  });
-  await mirrorToParent(po, revert.to);
+  await prisma.$transaction([
+    prisma.spPcbPo.update({
+      where: { id: po.id },
+      data: {
+        status: revert.to,
+        eqHistory: appendEq(po.eqHistory, {
+          byRole,
+          fromStatus: po.status,
+          toStatus: revert.to,
+          note: '되돌리기',
+        }),
+      },
+    }),
+    closeOpenEqReviews(po.id),
+    ...mirrorToParent(po, revert.to),
+  ]);
   return { ok: true, to: revert.to };
 };
 
@@ -928,7 +954,7 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
     orderBy: { issuedAt: 'desc' },
   });
   const parentIds = [...new Set(rows.map((r) => r.parentPartnerId).filter((p) => p !== 0n))];
-  const [parents, shipmentLinks] = await Promise.all([
+  const [parents, shipmentLinks, reviewMap] = await Promise.all([
     parentIds.length === 0
       ? Promise.resolve([])
       : prisma.spPartner.findMany({ where: { id: { in: parentIds } } }),
@@ -936,6 +962,8 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
       where: { poId: { in: rows.map((r) => r.id) } },
       select: { poId: true },
     }),
+    // Case 상세와 같은 요약을 목록에도 싣는다(1쿼리) — 행을 열지 않아도 고객이 답했는지 안다.
+    loadEqReviewRowSummaries(rows.map((r) => r.id)),
   ]);
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
   const shippedPoIds = new Set(shipmentLinks.map((l) => l.poId.toString()));
@@ -946,6 +974,10 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
     if (delegation.delegatePoId !== null) continue; // 경유 상위 — 하위가 실작업 단위
     const status = asPcbPoStatus(po.status);
     const awaitingShipment = status === 'produced' && !shippedPoIds.has(po.id.toString());
+    const eqReview = reviewMap.get(po.id.toString()) ?? null;
+    // 고객에게 물어본 뒤에는 답이 올 때까지 공이 고객에게 있다 — 그 사이 "내 차례"로
+    // 세면 지금 승인해도 되는 건과 섞인다. 기한이 지나면 재촉이 관리자 몫이라 되돌아온다.
+    const awaitingCustomer = eqReview?.status === 'requested' && !eqReview.overdue;
     const tabs: AdminPcbPoTab[] = [];
     if (status === 'eq_requested') tabs.push('eq_pending');
     if (status === 'producing' || status === 'eq_done') tabs.push('producing');
@@ -968,8 +1000,9 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
         krwAmount: po.krwAmount,
         deliveryDate: iso(po.deliveryDate),
         issuedAt: po.issuedAt.toISOString(),
-        adminTurn: status === 'eq_requested' && !delegation.blocked,
+        adminTurn: status === 'eq_requested' && !delegation.blocked && !awaitingCustomer,
         awaitingShipment,
+        eqReview,
       },
       tabs,
     });

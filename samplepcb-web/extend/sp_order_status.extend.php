@@ -22,8 +22,14 @@ if (!function_exists('sp_order_status_customer')) {
             case 'A/S':      return array('label' => 'A/S',        'cls' => 'status_03');
             case '배송':     return array('label' => '상품배송',   'cls' => 'status_04');
             case '완료':     return array('label' => '배송완료',   'cls' => 'status_05');
-            // 취소/반품/품절 및 기타 — 목록 기존 정책대로 '주문취소'(status_06)로 뭉뚱그린다.
-            default:         return array('label' => '주문취소',   'cls' => 'status_06');
+            // 취소/반품/품절은 기존 정책대로 '주문취소'(status_06)로 뭉뚱그린다.
+            case '취소':
+            case '반품':
+            case '품절':     return array('label' => '주문취소',   'cls' => 'status_06');
+            // 그 밖의 값은 원문을 진행 중 색으로 노출한다 — 예전엔 여기도 '주문취소'였는데,
+            // 상태가 하나라도 늘면(코어 force-status 는 임의 문자열을 받는다) 정상 진행 중인
+            // 주문이 고객에게 '주문취소'로 보이는 사고가 된다. 모르는 값은 숨기지 말고 그대로.
+            default:         return array('label' => $status,      'cls' => 'status_03');
         }
     }
 }

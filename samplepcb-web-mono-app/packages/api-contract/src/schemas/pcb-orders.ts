@@ -49,6 +49,11 @@ export const AdminPcbOrderItem = z.object({
   isPaid: z.boolean(),
   settleCase: z.string(), // od_settle_case — 무통장만 관리자 수동 입금확인 대상(서버 가드 동일)
   receiptPrice: z.number(), // od_receipt_price 수납액(주문 헤더 단위)
+  /**
+   * od_misu 잔여 미수금. isPaid 는 od_status 파생이라 '상태만 올린' 주문(force-status)도
+   * 결제됨으로 보인다 — 그 어긋남을 화면에서 잡아내려면 이 값이 필요하다.
+   */
+  misu: z.number(),
   orderedAt: z.string().nullable(),
   poCount: z.number().int(), // 이 스펙의 협력사 발주서 수(전 회차)
   /** 관리자 수신 선적으로 입고확인이 끝난 발주서 수(입고 n/m 표시·미입고 발송 경고). */

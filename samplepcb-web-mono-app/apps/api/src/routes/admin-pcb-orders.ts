@@ -97,6 +97,7 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                 isPaid: row.odStatus !== '주문',
                 settleCase: row.settleCase,
                 receiptPrice: row.receiptPrice,
+                misu: row.misu,
                 orderedAt: row.orderedAt,
                 poCount: poCountBySpec.get(String(row.specId)) ?? 0,
                 receivedPoCount: receivedBySpec.get(String(row.specId)) ?? 0,

@@ -48,6 +48,12 @@ import {
 } from '../../admin/useAdminPcbPos';
 import { useConfirmPcbOrderReceipt } from '../../admin/useAdminPcbOrders';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
+import {
+  PCB_EQ_REVIEW_BTN_CLS,
+  pcbEqReviewState,
+  pcbEqReviewTitle,
+  type PcbEqReviewDisplay,
+} from '../../lib/pcb-eq-review';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
 import DeleteQuoteModal from '../../components/admin/DeleteQuoteModal.vue';
@@ -498,15 +504,11 @@ const remittancePoId = ref<number | null>(null);
 const eqReviewPo = ref<AdminPcbPoViewType | null>(null);
 
 // EQ 고객 확인 행 표시(P4.4) — 모달을 열지 않아도 "보냈는지·답했는지"가 보인다(사용자
-// 결정). 버튼/배지 하나가 상태를 입는다: 미요청 → 확인중(보냄) → 승인/반려.
-// 열람 여부는 다루지 않는다 — 메일 스캐너가 링크를 자동 GET 해 열람 신호는 오염된다(D16).
-type EqReviewDisplay = 'none' | 'pending' | 'overdue' | 'approved' | 'rejected';
-const eqReviewStateOf = (po: AdminPcbPoViewType): EqReviewDisplay => {
-  const r = po.eqReview;
-  if (r === null) return 'none';
-  if (r.status === 'requested') return r.overdue ? 'overdue' : 'pending';
-  return r.status === 'approved' ? 'approved' : 'rejected';
-};
+// 결정). 버튼 하나가 상태를 입는다: 미요청 → 확인중(보냄) → 승인/반려. 판정·팔레트는
+// lib/pcb-eq-review 공용(워크큐 배지와 같은 색으로 같은 상태를 말한다).
+const eqReviewStateOf = (po: AdminPcbPoViewType): PcbEqReviewDisplay =>
+  pcbEqReviewState(po.eqReview);
+/** 버튼 문구 — 목록 배지와 달리 결정 일자까지 싣는다(자리가 있다). */
 const eqReviewLabelOf = (po: AdminPcbPoViewType): string => {
   const r = po.eqReview;
   switch (eqReviewStateOf(po)) {
@@ -522,22 +524,7 @@ const eqReviewLabelOf = (po: AdminPcbPoViewType): string => {
       return '고객 확인';
   }
 };
-const EQ_REVIEW_BTN_CLS: Record<EqReviewDisplay, string> = {
-  none: 'border-sky-300 text-sky-700 hover:bg-sky-50',
-  pending: 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100',
-  overdue: 'border-red-400 bg-red-50 text-red-700 hover:bg-red-100',
-  approved: 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
-  rejected: 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100',
-};
-/** 툴팁 — 짧은 버튼이 못 담는 것(발송·기한·반려 사유)을 여기 싣는다. */
-const eqReviewTitleOf = (po: AdminPcbPoViewType): string => {
-  const r = po.eqReview;
-  if (r === null) return '고객에게 EQ 확인을 요청합니다';
-  const parts = [`요청 ${fmtKstDate(r.requestedAt)}`];
-  if (r.dueOn !== null) parts.push(`기한 ${fmtKstDate(r.dueOn)}`);
-  if (r.decisionNote !== null && r.decisionNote !== '') parts.push(`고객 의견: ${r.decisionNote}`);
-  return parts.join(' · ');
-};
+const eqReviewTitleOf = (po: AdminPcbPoViewType): string => pcbEqReviewTitle(po.eqReview);
 
 /** 제작 사양 수정(P4.2) — 저장하면 견적이 새로 발급되므로 상세를 다시 읽는다.
  *  타입 단언은 여기서 한다 — Vue 템플릿 안의 제네릭 `<...>` 은 파서가 태그로 오인한다. */
@@ -638,6 +625,16 @@ async function removeEqFileAdmin(po: AdminPcbPoViewType, fileId: number): Promis
 }
 async function approvePo(po: AdminPcbPoViewType): Promise<void> {
   if (specId.value === null) return;
+  // 고객 확인을 띄워 놓고도 답을 기다리지 않거나, 반려된 건을 그대로 승인해 버리는 사고를
+  // 막는다. 서버는 막지 않는다 — 관리자 만능 대행(D11)이 원칙이라 여기서 되묻기만 한다.
+  const state = eqReviewStateOf(po);
+  const ask =
+    state === 'rejected'
+      ? `고객이 반려한 건입니다${po.eqReview?.decisionNote === null || po.eqReview?.decisionNote === undefined ? '' : `\n사유: ${po.eqReview.decisionNote}`}\n\n그래도 EQ 승인할까요?`
+      : state === 'pending' || state === 'overdue'
+        ? '고객 회신을 기다리는 중입니다.\n\n답을 기다리지 않고 EQ 승인할까요?'
+        : null;
+  if (ask !== null && !window.confirm(ask)) return;
   actionError.value = '';
   try {
     await approveEq.mutateAsync({ specId: specId.value, poId: po.poId });
@@ -647,7 +644,9 @@ async function approvePo(po: AdminPcbPoViewType): Promise<void> {
 }
 async function rejectPo(po: AdminPcbPoViewType): Promise<void> {
   if (specId.value === null) return;
-  const reason = window.prompt(`${po.partnerName} EQ 반려 사유를 입력하세요`);
+  // 고객이 반려했으면 그 사유가 곧 협력사에 전할 말이다 — 다시 타이핑하지 않게 채워 둔다.
+  const fromCustomer = po.eqReview?.status === 'rejected' ? (po.eqReview.decisionNote ?? '') : '';
+  const reason = window.prompt(`${po.partnerName} EQ 반려 사유를 입력하세요`, fromCustomer);
   if (reason === null || reason.trim() === '') return;
   actionError.value = '';
   try {
@@ -1001,8 +1000,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           {{ detail.finalPrice === null ? '확정가 등록' : '확정가 수정' }}
         </button>
         <p v-if="detail.order === null" class="mt-1.5 text-[11px] leading-4 text-gray-400">
-          확정가를 등록해야 고객이 주문할 수 있습니다(견적 확정). 협력사 선정 시 KRW 환산가가
-          프리필됩니다 — 마진을 더해 확정하세요.
+          확정가를 등록해야 고객이 주문할 수 있습니다(견적 확정). 협력사 [선정] 모달에서
+          마진을 더해 함께 등록할 수 있고, 여기서는 등록된 확정가를 수정합니다.
         </p>
         <p v-else class="mt-1.5 text-[11px] leading-4 text-gray-400">
           주문이 성립된 건 — 판매가(확정가)는 변경하지 않습니다. 협력사 선정은 원가 회계에만
@@ -1266,7 +1265,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       </div>
       <p class="border-b border-gray-50 px-4 py-2 text-xs text-gray-400">
         발행은 고객 결제(입금 확인) 후에만 가능합니다. 진행:
-        발주접수(협력사 EQ·Working 업로드) → EQ 승인요청 → <b>EQ 승인(관리자)</b> → 생산시작 → 생산완료.
+        발주접수(협력사 EQ·Working 업로드) → EQ 승인요청 → (필요하면 <b>고객 확인</b>) →
+        <b>EQ 승인(관리자)</b> → 생산시작 → 생산완료.
       </p>
 
       <div class="overflow-x-auto">
@@ -1351,7 +1351,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     <button
                       type="button"
                       class="mr-1 rounded-md border px-2 py-1 font-semibold"
-                      :class="EQ_REVIEW_BTN_CLS[eqReviewStateOf(po)]"
+                      :class="PCB_EQ_REVIEW_BTN_CLS[eqReviewStateOf(po)]"
                       :title="eqReviewTitleOf(po)"
                       @click="eqReviewPo = po"
                     >
@@ -1365,7 +1365,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     v-else-if="po.eqReview !== null"
                     type="button"
                     class="mr-1 rounded-md border px-2 py-1 font-semibold"
-                    :class="EQ_REVIEW_BTN_CLS[eqReviewStateOf(po)]"
+                    :class="PCB_EQ_REVIEW_BTN_CLS[eqReviewStateOf(po)]"
                     :title="eqReviewTitleOf(po)"
                     @click="eqReviewPo = po"
                   >

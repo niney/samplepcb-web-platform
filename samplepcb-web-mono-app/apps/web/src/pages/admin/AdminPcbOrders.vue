@@ -162,6 +162,15 @@ function openCase(specId: number): void {
             <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">{{ row.settleCase || '—' }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">
               {{ fmtPcbAmount('KRW', row.receiptPrice) }}
+              <!-- 상태는 결제됨인데 미수가 남은 건 = 수납 없이 상태만 올린 주문(force-status).
+                   PCB 축은 상태로만 isPaid 를 파생해 그대로 두면 영영 드러나지 않는다. -->
+              <span
+                v-if="row.isPaid && row.misu > 0 && row.odStatus !== '취소'"
+                class="ml-1 rounded bg-rose-100 px-1.5 py-0.5 text-xs font-semibold text-rose-700"
+                :title="`수납액이 결제금액에 못 미칩니다 — 통합 주문내역의 [입금 조정]으로 맞춰 주세요.`"
+              >
+                미수 {{ fmtPcbAmount('KRW', row.misu) }}
+              </span>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5">
               <span v-if="row.poCount > 0" class="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700">

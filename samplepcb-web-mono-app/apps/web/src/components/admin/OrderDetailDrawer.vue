@@ -1325,6 +1325,7 @@ const inputClass =
     :target="forceConfirm.target"
     :target-label="statusLabel(forceConfirm.target)"
     :delivery="forceConfirm.delivery"
+    :misu="order.misu"
     @close="forceConfirm = null"
     @done="onForceDone"
   />

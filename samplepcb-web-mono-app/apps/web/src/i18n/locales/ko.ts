@@ -717,6 +717,7 @@ export const ko = {
         apply: '적용',
         confirmTitle: '{target}(으)로 강제 변경',
         confirmWarn: '이 주문을 {target} 상태로 강제 변경합니다. 수납·알림 없이 상태만 바뀝니다(역방향 가능, 결제수단 무관).',
+        misuWarn: '미수금 {misu}원이 그대로 남습니다 — 고객 주문내역에 “미결제”로 계속 보입니다. 실제 입금된 건이면 [입금 조정]으로 수납액을 먼저 맞춰 주세요.',
         deliveryIncluded: '운송장 동봉',
         cancel: '취소',
         confirm: '변경',

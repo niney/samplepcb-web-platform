@@ -251,6 +251,13 @@ foreach (array(
                     ? '<span class="sp-quotes__pending">견적 대기</span>'
                     : '<strong class="sp-cart-sum">' + fmtNum(payment.total) + '원</strong>' +
                       '<span class="sp-quotes__tax-detail">VAT 포함 · 공급가 ' + fmtNum(payment.supply) + '원 + 부가세 ' + fmtNum(payment.vat) + '원</span>') +
+                // rfq(견적요청) 행은 배지만 '견적 대기'인데 금액은 자동견적가가 그대로 떠서,
+                // 담당자 검토 결과인 줄 오해하기 쉽다. 지금 보이는 값의 정체와 다음 일을 밝힌다
+                // (BOM 행의 '확정가 안내 후 주문 가능' 과 같은 배려).
+                (it.quoteStatus === 'rfq'
+                    ? '<span class="sp-quotes__pending">담당자 검토 중 — 확정가는 메일로 안내드립니다' +
+                      (payment === null ? '' : '. 지금 보이는 금액은 자동견적가입니다') + '</span>'
+                    : '') +
             '</div>';
         li.querySelector('.sp-quotes__name').textContent = it.projectName; // XSS 안전 주입
         li.querySelector('.sp-quotes__cat').textContent = it.category;
