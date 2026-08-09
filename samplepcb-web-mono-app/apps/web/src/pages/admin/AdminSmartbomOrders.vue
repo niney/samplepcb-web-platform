@@ -10,6 +10,7 @@ import {
 } from '../../admin/useAdminBomOrders';
 import { smartbomFmtWon } from '../../admin/smartbom';
 import UiPagination from '../../components/ui/UiPagination.vue';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // 스마트 BOM 주문·결제(주문 축, D19 — 관리자 메뉴 재편으로 결제 관점만 남김) —
 // 경리/CS 의 화면: 입금 대기 → 입금확인. D17 배치 주문이면 한 주문에 Case 여러 개(칩).
@@ -77,9 +78,7 @@ const actionError = ref('');
 async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
   // 메일 없이 처리하는 예외 케이스는 통합 관리 주문내역(체크박스 게이트)에서 — 여기선 단순 1확인.
   if (
-    !window.confirm(
-      `주문 ${item.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`,
-    )
+    !(await confirmDialog(`주문 ${item.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`))
   ) {
     return;
   }

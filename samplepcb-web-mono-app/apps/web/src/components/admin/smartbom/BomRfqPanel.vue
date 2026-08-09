@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { BOM_RFQ_STATUS_LABELS, type AdminBomRfqViewType } from '@sp/api-contract';
 import { smartbomFmtDate } from '../../../admin/smartbom';
+import { confirmDialog } from '../../../lib/confirmDialog';
 import { fmtKstDate } from '@sp/utils';
 
 // Case 상세의 협력사 RFQ 현황 패널 — 발송·회신 현황 + 대리 입력 진입.
@@ -36,11 +37,13 @@ async function copyMagicLink(rfq: AdminBomRfqViewType): Promise<void> {
   }
 }
 
-function reissue(rfq: AdminBomRfqViewType): void {
+async function reissue(rfq: AdminBomRfqViewType): Promise<void> {
   if (
-    !window.confirm(
-      `${rfq.partnerName}의 회신 링크를 재발급할까요?\n기존에 보낸 링크는 즉시 무효가 됩니다.`,
-    )
+    !(await confirmDialog({
+      message: `${rfq.partnerName}의 회신 링크를 재발급할까요?\n기존에 보낸 링크는 즉시 무효가 됩니다.`,
+      confirmLabel: '재발급',
+      tone: 'danger',
+    }))
   ) {
     return;
   }
@@ -147,7 +150,7 @@ const fmtWon = (v: number | null): string => (v === null ? '—' : `${v.toLocale
                 class="ml-1 rounded border border-gray-300 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
                 :disabled="busy === true"
                 :title="rfq.magicToken === null ? '이 RFQ 는 링크 발급 전입니다 — 재발급으로 만들 수 있습니다' : '기존 링크를 무효화하고 새 링크를 만듭니다'"
-                @click="reissue(rfq)"
+                @click="void reissue(rfq)"
               >
                 재발급
               </button>

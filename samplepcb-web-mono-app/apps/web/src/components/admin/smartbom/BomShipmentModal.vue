@@ -31,6 +31,7 @@ import {
 import InvoiceEditorModal from '../../smartbom/InvoiceEditorModal.vue';
 import ShipmentPackingModal from '../../smartbom/ShipmentPackingModal.vue';
 import TradeDocumentModal from '../../smartbom/TradeDocumentModal.vue';
+import { confirmDialog } from '../../../lib/confirmDialog';
 import { fmtKstDate, kstDateInput } from '@sp/utils';
 
 // 선적 관리 모달(D21·D22) — 발주서당 1건. 모드는 협력사 국가에서 서버가 결정해 생성 시
@@ -53,7 +54,11 @@ const detach = useDetachBomShipmentPo();
 // 묶음 제외(§6.10) — 대표 불가·발송 준비 단계만(서버 재검증).
 async function detachGroupPo(poId: number, title: string): Promise<void> {
   if (
-    !window.confirm(`'${title}' 발주서를 묶음에서 제외할까요? 별도 선적으로 다시 진행하게 됩니다.`)
+    !(await confirmDialog({
+      message: `'${title}' 발주서를 묶음에서 제외할까요? 별도 선적으로 다시 진행하게 됩니다.`,
+      confirmLabel: '묶음 제외',
+      tone: 'danger',
+    }))
   ) {
     return;
   }
@@ -193,7 +198,15 @@ async function onFilePicked(kind: BomShipmentFileTypeType, event: Event): Promis
 async function removeFile(kind: BomShipmentFileTypeType): Promise<void> {
   const file = fileOf(kind);
   if (file === null || props.po === null) return;
-  if (!window.confirm(`${fileLabel(kind)} 파일을 삭제할까요?`)) return;
+  if (
+    !(await confirmDialog({
+      message: `${fileLabel(kind)} 파일을 삭제할까요?`,
+      confirmLabel: '삭제',
+      tone: 'danger',
+    }))
+  ) {
+    return;
+  }
   error.value = '';
   try {
     await deleteFile.mutateAsync({
@@ -268,7 +281,7 @@ async function advanceAsAdmin(): Promise<void> {
   if (
     savedNext.value === 'shipped' &&
     fileOf('airwaybill') === null &&
-    !window.confirm('AWB 파일이 아직 없습니다. 첨부 없이 선적 단계로 진행할까요?')
+    !(await confirmDialog('AWB 파일이 아직 없습니다. 첨부 없이 선적 단계로 진행할까요?'))
   ) {
     return;
   }
@@ -286,9 +299,9 @@ async function confirmReceive(): Promise<void> {
     ? `선적이 아직 '${existing.value === null ? '준비' : savedLabel(existing.value.status)}' 단계입니다. 시스템 밖으로 이미 수령한 경우에만 진행하세요.\n\n`
     : '';
   if (
-    !window.confirm(
+    !(await confirmDialog(
       `${warn}입고 확인 처리할까요? 선적이 최종 단계로 마감되고 검수 시점이 기록됩니다.`,
-    )
+    ))
   ) {
     return;
   }

@@ -23,6 +23,7 @@ import { nowLocalDateTime, toG5DateTime } from '../../admin/useAdminOrders';
 import { smartbomFmtWon } from '../../admin/smartbom';
 import UiPagination from '../../components/ui/UiPagination.vue';
 import BomShipmentModal from '../../components/admin/smartbom/BomShipmentModal.vue';
+import { confirmDialog } from '../../lib/confirmDialog';
 import { fmtKstDate } from '@sp/utils';
 
 // 선적·배송 워크큐(관리자 메뉴 재편) — 물류 담당의 화면. 흐름이 위→아래로 이어진다:
@@ -157,7 +158,7 @@ async function submitShip(): Promise<void> {
   }
   if (
     !allReceived(item) &&
-    !window.confirm('아직 입고 확인되지 않은 발주가 있습니다. 그래도 배송 처리할까요?')
+    !(await confirmDialog('아직 입고 확인되지 않은 발주가 있습니다. 그래도 배송 처리할까요?'))
   ) {
     return;
   }
@@ -177,7 +178,7 @@ async function submitShip(): Promise<void> {
 }
 
 async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
-  if (!window.confirm(`주문 ${item.odId} 을 구매확정(완료) 처리할까요?`)) return;
+  if (!(await confirmDialog(`주문 ${item.odId} 을 구매확정(완료) 처리할까요?`))) return;
   actionError.value = '';
   try {
     await completeMut.mutateAsync(item.odId);

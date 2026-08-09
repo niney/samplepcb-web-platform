@@ -69,6 +69,7 @@ import QuickMailComposer from '../../components/admin/smartbom/QuickMailComposer
 import MailLogList from '../../components/admin/MailLogList.vue';
 import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // 스마트 BOM Case 상세 — 고객 견적요청 1건의 운영 화면(docs/SMARTBOM_PARTNER_RFQ.md §3.4).
 // 데이터·검토 로직은 /api/admin/bom-quotes 그대로(BOM 견적요청 화면과 동일 계약).
@@ -836,7 +837,15 @@ const issueDisabledReason = computed(() => {
 
 async function removePo(po: { poId: number; partnerName: string }): Promise<void> {
   if (detailId.value === null) return;
-  if (!window.confirm(`'${po.partnerName}' 발주서 발행을 취소할까요? (미확인 발주서만 가능)`)) return;
+  if (
+    !(await confirmDialog({
+      message: `'${po.partnerName}' 발주서 발행을 취소할까요? (미확인 발주서만 가능)`,
+      confirmLabel: '발행 취소',
+      tone: 'danger',
+    }))
+  ) {
+    return;
+  }
   poError.value = '';
   try {
     await deletePo.mutateAsync({ quoteId: detailId.value, poId: po.poId });
@@ -847,7 +856,7 @@ async function removePo(po: { poId: number; partnerName: string }): Promise<void
 
 async function closePoRow(po: { poId: number; partnerName: string }): Promise<void> {
   if (detailId.value === null) return;
-  if (!window.confirm(`'${po.partnerName}' 발주서를 마감할까요?`)) return;
+  if (!(await confirmDialog(`'${po.partnerName}' 발주서를 마감할까요?`))) return;
   poError.value = '';
   try {
     await closePo.mutateAsync({ quoteId: detailId.value, poId: po.poId });

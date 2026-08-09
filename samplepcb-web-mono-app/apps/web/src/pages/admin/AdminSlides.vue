@@ -9,6 +9,7 @@ import {
   useReorderSlides,
   useUpdateSlide,
 } from '../../admin/useAdminSlides';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // 홈 최상단 메인 슬라이드 관리. 저장 백엔드는 영카트 배너관리(g5_shop_banner '메인')와
 // 동일 — 여기서 등록/수정/삭제/순서변경하면 홈 브릿지가 즉시 반영한다.
@@ -103,7 +104,7 @@ async function onSubmit(): Promise<void> {
 }
 
 async function onDelete(id: number): Promise<void> {
-  if (!window.confirm('이 슬라이드를 삭제할까요? 되돌릴 수 없습니다.')) return;
+  if (!(await confirmDialog({ message: '이 슬라이드를 삭제할까요? 되돌릴 수 없습니다.', confirmLabel: '삭제', tone: 'danger' }))) return;
   error.value = '';
   try {
     await remove.mutateAsync(id);

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import type { SeoRecordType, SeoScopeType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import { useAdminSeo, useDeleteSeo, useUpsertSeo } from '../../admin/useAdminSeo';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // 페이지별 SEO 메타 관리. 저장은 sp_seo((scope, refKey) upsert), 실제 <head> 출력은 sp-php
 // 테마 head.sub.php 가 이 테이블을 읽어 담당한다(정본 docs/SEO_MANAGEMENT.md).
@@ -92,7 +93,7 @@ async function onSubmit(): Promise<void> {
 }
 
 async function onDelete(r: SeoRecordType): Promise<void> {
-  if (!window.confirm('이 SEO 설정을 삭제할까요? 되돌릴 수 없습니다.')) return;
+  if (!(await confirmDialog({ message: '이 SEO 설정을 삭제할까요? 되돌릴 수 없습니다.', confirmLabel: '삭제', tone: 'danger' }))) return;
   error.value = '';
   try {
     await remove.mutateAsync(r.id);

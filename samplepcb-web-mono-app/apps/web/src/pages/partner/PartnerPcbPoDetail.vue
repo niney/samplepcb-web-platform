@@ -34,6 +34,7 @@ import { fmtKstDate as dateOnly } from '@sp/utils';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // PCB 발주서 상세(협력사 포털, P2) — EQ 5단계 진행: 발주접수(EQ·Working 파일 업로드)
 // → EQ 승인요청 → (관리자 승인) → 생산 시작 → 생산 완료. 되돌리기는 직전 전이 주체만.
@@ -158,7 +159,7 @@ async function runForward(): Promise<void> {
 }
 async function runRevert(): Promise<void> {
   if (poId.value === null || revert.value === null) return;
-  if (!window.confirm(`'${revert.value.label}' — 한 단계 되돌릴까요?`)) return;
+  if (!(await confirmDialog({ message: `'${revert.value.label}' — 한 단계 되돌릴까요?`, confirmLabel: '되돌리기', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await eqRevert.mutateAsync({ poId: poId.value });

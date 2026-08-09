@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import { usePcbShipCustomerOrder } from '../../../admin/useAdminPcbOrders';
 import { nowLocalDateTime, toG5DateTime } from '../../../admin/useAdminOrders';
+import { confirmDialog } from '../../../lib/confirmDialog';
 
 // 고객 배송 처리 모달(P4.6) — 입고확인 끝난 PCB 주문을 고객에게 발송한다.
 // 운송장 입력 → 코어 force-status '배송'(운송장 반영+재고 앵커, 조작 경로 단일).
@@ -42,7 +43,7 @@ async function submit(): Promise<void> {
   }
   if (
     props.incompleteReceipt &&
-    !window.confirm('아직 입고 확인되지 않은 발주가 있습니다. 그래도 배송 처리할까요?')
+    !(await confirmDialog('아직 입고 확인되지 않은 발주가 있습니다. 그래도 배송 처리할까요?'))
   ) {
     return;
   }

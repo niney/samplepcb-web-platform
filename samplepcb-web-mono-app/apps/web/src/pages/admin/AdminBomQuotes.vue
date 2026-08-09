@@ -11,6 +11,7 @@ import {
 } from '../../admin/useAdminBomQuotes';
 import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
 import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // 고객 BOM 견적요청 검토(1차 최소 화면) — 목록(상태 탭)·상세·상태 전이·확정가·메모·원본
 // 다운로드. 협력사 RFQ·발주·선적 풀 워크벤치는 이 데이터 모델 위에서 후속(docs/BOM_QUOTE.md).
@@ -120,18 +121,23 @@ async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
     const total = form.value.confirmedTotal;
     if (
       (typeof total !== 'number' || !Number.isFinite(total)) &&
-      !window.confirm(
-        '확정 총액 없이 고객 회신을 확정하면 [주문하기]를 사용할 수 없습니다.\n확정가 없이 회신을 확정할까요?',
-      )
+      !(await confirmDialog({
+        message:
+          '확정 총액 없이 고객 회신을 확정하면 [주문하기]를 사용할 수 없습니다.\n확정가 없이 회신을 확정할까요?',
+        confirmLabel: '그래도 확정',
+      }))
     ) {
       return;
     }
   }
   if (
     nextStatus === 'closed' &&
-    !window.confirm(
-      '이 견적을 마감하면 고객이 새 주문을 시작할 수 없습니다.\n더 진행하지 않는 견적을 마감할까요?',
-    )
+    !(await confirmDialog({
+      message:
+        '이 견적을 마감하면 고객이 새 주문을 시작할 수 없습니다.\n더 진행하지 않는 견적을 마감할까요?',
+      confirmLabel: '마감',
+      tone: 'danger',
+    }))
   ) {
     return;
   }

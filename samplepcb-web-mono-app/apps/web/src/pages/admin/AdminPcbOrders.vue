@@ -14,6 +14,7 @@ import {
 } from '../../admin/useAdminPcbOrders';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // PCB 주문·결제 워크큐(P3.5) — 경리 관점 조감: 입금 대기 → 진행 중 → 완료/취소.
 // 레거시 이관 주문 2만여 건이 이력 모수(서버 페이지네이션). od 상태 변경은 코어
@@ -62,9 +63,9 @@ const canConfirmReceipt = (item: AdminPcbOrderItemType): boolean =>
 
 async function confirmReceipt(item: AdminPcbOrderItemType): Promise<void> {
   if (
-    !window.confirm(
+    !(await confirmDialog(
       `주문 ${item.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`,
-    )
+    ))
   ) {
     return;
   }

@@ -10,6 +10,7 @@ import {
   type AdminBomPartPackageActionBodyType,
 } from '@sp/api-contract';
 import { useAdminBomPackage, useAdminBomPackageAction } from '../../admin/useAdminBomPos';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // QR 스캔 도착 화면(D24) — URL token 또는 라벨의 human code를 서버에서 조회한다.
 // token은 권한이 아니며 이 라우트와 API 모두 관리자 인증 뒤에만 접근 가능하다.
@@ -59,7 +60,7 @@ async function submit(action: AdminBomPartPackageActionBodyType['action']): Prom
   }
   if (
     action === 'issue' &&
-    !window.confirm(`${detail.value.labelCode} 포장을 자재 출고 처리할까요?`)
+    !(await confirmDialog(`${detail.value.labelCode} 포장을 자재 출고 처리할까요?`))
   ) {
     return;
   }

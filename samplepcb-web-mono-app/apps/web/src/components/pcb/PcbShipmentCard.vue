@@ -21,6 +21,7 @@ import {
 import InvoiceEditorModal from '../smartbom/InvoiceEditorModal.vue';
 import { fmtKstDate as dateOnly } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // PCB 발송 카드(보내는측 전용) — 스텝퍼·전이 폼·첨부·상업송장·되돌리기를 한 카드에.
 // [📦 PCB 보내기] 보드가 발송 조작의 단일 창구다(§9 재구성 후속 — BOM
@@ -95,7 +96,7 @@ async function runAdvance(): Promise<void> {
 }
 
 async function runRevert(): Promise<void> {
-  if (!window.confirm('발송을 한 단계 되돌릴까요?')) return;
+  if (!(await confirmDialog({ message: '발송을 한 단계 되돌릴까요?', confirmLabel: '되돌리기', tone: 'danger' }))) return;
   error.value = '';
   try {
     await revert.mutateAsync({ poId: repPoId.value });

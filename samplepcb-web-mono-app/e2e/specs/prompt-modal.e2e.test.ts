@@ -1,6 +1,7 @@
-// window.prompt 를 대신한 입력 모달(UiPromptModal)이 실제로 뜨는지 — 관리자 Case 의
-// EQ 반려·입고 확인 두 자리를 실 화면에서 연다. prompt 였다면 브라우저 대화상자라
-// DOM 에 흔적이 없다: 모달 요소가 보인다는 것 자체가 교체의 증거다.
+// 브라우저 대화상자(window.prompt·confirm)를 대신한 커스텀 모달이 실제로 뜨는지 —
+// 관리자 Case 에서 값을 받는 자리(UiPromptModal)와 확인만 받는 자리(UiConfirmHost)를
+// 실 화면에서 연다. 네이티브였다면 DOM 에 흔적이 없다: 모달 요소가 보인다는 것 자체가
+// 교체의 증거다(그리고 브라우저의 '대화상자 표시 안 함'에 막히지 않는다는 뜻이기도 하다).
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
@@ -19,17 +20,19 @@ import {
   type E2eSession,
 } from '../helpers';
 
-describe.skipIf(!RUN)('입력 모달(UiPromptModal) — prompt 대체', () => {
+describe.skipIf(!RUN)('커스텀 대화상자 — prompt·confirm 대체', () => {
   let admin: E2eSession;
   let poId: bigint | null = null;
   let specId: bigint | null = null;
+  /** 확인창 검증용 — 발주접수(issued) 상태여야 [발주 취소] 버튼이 뜬다. */
+  let issuedSpecId: bigint | null = null;
   const createdPoIds: bigint[] = [];
 
   beforeAll(async () => {
     admin = await newSession({ mbId: 'e2e-admin', isAdmin: true });
     const partner = await getPartner('협력2');
     // EQ 반려 버튼이 보이려면 발주가 eq_requested 여야 한다 — 시드로 그 상태를 만든다.
-    const [spec] = await pickFreeSpecs(1);
+    const [spec, spec2] = await pickFreeSpecs(2);
     const po = await createPcbPo({
       specId: spec.id,
       partnerId: partner.id,
@@ -38,6 +41,10 @@ describe.skipIf(!RUN)('입력 모달(UiPromptModal) — prompt 대체', () => {
     poId = po.id;
     specId = po.specId;
     createdPoIds.push(po.id);
+
+    const issued = await createPcbPo({ specId: spec2.id, partnerId: partner.id, status: 'issued' });
+    issuedSpecId = issued.specId;
+    createdPoIds.push(issued.id);
   }, 120_000);
 
   afterAll(async () => {
@@ -99,5 +106,30 @@ describe.skipIf(!RUN)('입력 모달(UiPromptModal) — prompt 대체', () => {
     expect(po?.status, '반려 후 발주 상태').toBe('issued');
     const history = Array.isArray(po?.eqHistory) ? (po.eqHistory as any[]) : [];
     expect(history.at(-1)?.note, '반려 사유 기록').toBe('[모달 검증] 실크 위치를 좌측으로');
+  }, 120_000);
+
+  test('확인만 받는 자리도 커스텀 모달이다 — [발주 취소] 취소 시 아무 일도 없다', async (ctx) => {
+    if (issuedSpecId === null) return ctx.skip();
+    const page = admin.page;
+    await gotoApp(page, `/admin/pcb/cases/${String(num(issuedSpecId))}`);
+    await page.waitForLoadState('networkidle').catch(() => undefined);
+
+    const cancelPo = page.getByRole('button', { name: '발주 취소', exact: true }).first();
+    await cancelPo.waitFor({ state: 'visible', timeout: 20_000 });
+    await cancelPo.click();
+
+    // window.confirm 이었다면 DOM 에 아무것도 안 생긴다 — alertdialog 가 곧 교체의 증거.
+    const dialog = page.locator('[role="alertdialog"]');
+    await dialog.waitFor({ state: 'visible', timeout: 10_000 });
+    expect(await dialog.getByText('발주서를 취소할까요?', { exact: false }).isVisible()).toBe(true);
+    await snap(page, 'prompt-modal/confirm-cancel-po');
+
+    await dialog.getByRole('button', { name: '취소', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden', timeout: 10_000 });
+
+    // 취소했으니 발주서는 그대로 남아 있어야 한다.
+    const prisma = getPrisma();
+    const remain = await prisma.spPcbPo.count({ where: { specId: issuedSpecId } });
+    expect(remain, '확인창에서 취소 → 발주서 유지').toBe(1);
   }, 120_000);
 });

@@ -63,6 +63,7 @@ import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vu
 import PcbEqReviewPanel from '../../components/admin/pcb/PcbEqReviewPanel.vue';
 import PcbSpecEditModal from '../../components/admin/pcb/PcbSpecEditModal.vue';
 import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModal.vue';
+import { confirmDialog } from '../../lib/confirmDialog';
 import UiPromptModal, { type PromptField } from '../../components/ui/UiPromptModal.vue';
 import MailLogList from '../../components/admin/MailLogList.vue';
 import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
@@ -170,7 +171,7 @@ const canConfirmReceipt = computed(() => {
 async function confirmReceipt(): Promise<void> {
   const order = detail.value?.order;
   if (order === null || order === undefined) return;
-  if (!window.confirm(`주문 ${order.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`)) {
+  if (!(await confirmDialog(`주문 ${order.odId} 입금확인 처리할까요?\n고객에게 입금 확인 메일이 발송됩니다.`))) {
     return;
   }
   actionError.value = '';
@@ -380,7 +381,7 @@ async function submitSelect(withPrice: boolean): Promise<void> {
 }
 async function submitUnselect(row: AdminPcbRfqViewType): Promise<void> {
   if (specId.value === null) return;
-  if (!window.confirm(`${row.partnerName} 선정을 해제할까요? 형제 회신은 다시 열립니다.`)) return;
+  if (!(await confirmDialog({ message: `${row.partnerName} 선정을 해제할까요? 형제 회신은 다시 열립니다.`, confirmLabel: '선정 해제', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await unselectMut.mutateAsync({ specId: specId.value, rfqId: row.rfqId });
@@ -402,7 +403,7 @@ async function copyMagicLink(row: AdminPcbRfqViewType): Promise<void> {
 }
 async function reissueMagicLink(row: AdminPcbRfqViewType): Promise<void> {
   if (specId.value === null) return;
-  if (!window.confirm('매직링크를 재발급할까요? 기존 링크는 즉시 무효화됩니다.')) return;
+  if (!(await confirmDialog({ message: '매직링크를 재발급할까요? 기존 링크는 즉시 무효화됩니다.', confirmLabel: '재발급', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await reissue.mutateAsync({ specId: specId.value, rfqId: row.rfqId });
@@ -586,7 +587,7 @@ async function runSubstitute(po: AdminPcbPoViewType): Promise<void> {
   if (specId.value === null) return;
   const action = substituteActionOf(po.status);
   if (action === null) return;
-  if (!window.confirm(`${po.partnerName} 대신 [${SUBSTITUTE_LABELS[action]}]을 진행할까요? (이력에 관리자 대행으로 남습니다)`)) return;
+  if (!(await confirmDialog(`${po.partnerName} 대신 [${SUBSTITUTE_LABELS[action]}]을 진행할까요? (이력에 관리자 대행으로 남습니다)`))) return;
   actionError.value = '';
   try {
     await eqSubstitute.mutateAsync({ specId: specId.value, poId: po.poId, action });
@@ -617,7 +618,7 @@ function pickEqFileAdmin(po: AdminPcbPoViewType, fileType: 'eq' | 'working'): vo
 }
 async function removeEqFileAdmin(po: AdminPcbPoViewType, fileId: number): Promise<void> {
   if (specId.value === null) return;
-  if (!window.confirm('이 EQ 첨부를 삭제할까요?')) return;
+  if (!(await confirmDialog({ message: '이 EQ 첨부를 삭제할까요?', confirmLabel: '삭제', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await deleteEqAdmin.mutateAsync({ specId: specId.value, poId: po.poId, fileId });
@@ -636,7 +637,7 @@ async function approvePo(po: AdminPcbPoViewType): Promise<void> {
       : state === 'pending' || state === 'overdue'
         ? '고객 회신을 기다리는 중입니다.\n\n답을 기다리지 않고 EQ 승인할까요?'
         : null;
-  if (ask !== null && !window.confirm(ask)) return;
+  if (ask !== null && !(await confirmDialog({ message: ask, confirmLabel: '그래도 승인', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await approveEq.mutateAsync({ specId: specId.value, poId: po.poId });
@@ -678,7 +679,7 @@ async function submitReject(values: Record<string, string>): Promise<void> {
 }
 async function revertPo(po: AdminPcbPoViewType): Promise<void> {
   if (specId.value === null) return;
-  if (!window.confirm('EQ 승인을 취소(한 단계 되돌리기)할까요?')) return;
+  if (!(await confirmDialog({ message: 'EQ 승인을 취소(한 단계 되돌리기)할까요?', confirmLabel: '되돌리기', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await revertEqAdmin.mutateAsync({ specId: specId.value, poId: po.poId });
@@ -688,7 +689,7 @@ async function revertPo(po: AdminPcbPoViewType): Promise<void> {
 }
 async function removePo(po: AdminPcbPoViewType): Promise<void> {
   if (specId.value === null) return;
-  if (!window.confirm(`${po.partnerName} 발주서를 취소할까요? (발주접수 상태만 가능)`)) return;
+  if (!(await confirmDialog({ message: `${po.partnerName} 발주서를 취소할까요? (발주접수 상태만 가능)`, confirmLabel: '발주 취소', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await deletePoMut.mutateAsync({ specId: specId.value, poId: po.poId });
@@ -832,7 +833,7 @@ async function submitShipPrompt(values: Record<string, string>): Promise<void> {
 }
 async function adminShipRevert(poId: number): Promise<void> {
   if (specId.value === null) return;
-  if (!window.confirm('선적을 한 단계 되돌릴까요?')) return;
+  if (!(await confirmDialog({ message: '선적을 한 단계 되돌릴까요?', confirmLabel: '되돌리기', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await shipRevertAdmin.mutateAsync({ specId: specId.value, poId });
@@ -845,7 +846,7 @@ async function adminShipCancel(poId: number, s: PcbShipmentViewType): Promise<vo
   if (specId.value === null) return;
   const extra =
     s.poIds.length > 1 ? `\n묶인 발주서 ${String(s.poIds.length)}건이 함께 취소됩니다.` : '';
-  if (!window.confirm(`선적을 취소(삭제)할까요? 첨부도 함께 지워집니다.${extra}`)) return;
+  if (!(await confirmDialog({ message: `선적을 취소(삭제)할까요? 첨부도 함께 지워집니다.${extra}`, confirmLabel: '선적 취소', tone: 'danger' }))) return;
   actionError.value = '';
   try {
     await shipCancelAdmin.mutateAsync({ specId: specId.value, poId });

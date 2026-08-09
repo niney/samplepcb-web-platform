@@ -22,6 +22,7 @@ import {
 import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModal.vue';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // PCB 선적·배송 워크큐(P3·P4.6) — 물류 담당의 화면. SmartBOM 물류와 같은 두 섹션 골격
 // (D9 미러 — 흐름이 위→아래로 이어진다):
@@ -110,7 +111,7 @@ function openShip(item: AdminPcbOrderItemType): void {
 const completeMut = usePcbCompleteCustomerOrder();
 const actionError = ref('');
 async function completeOrder(item: AdminPcbOrderItemType): Promise<void> {
-  if (!window.confirm(`주문 ${item.odId} 을 구매확정(완료) 처리할까요?`)) return;
+  if (!(await confirmDialog(`주문 ${item.odId} 을 구매확정(완료) 처리할까요?`))) return;
   actionError.value = '';
   try {
     await completeMut.mutateAsync(item.odId);

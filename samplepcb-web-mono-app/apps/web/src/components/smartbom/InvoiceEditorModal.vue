@@ -2,6 +2,7 @@
 import { reactive, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import type { BomInvoiceDataType, BomInvoiceItemType } from '@sp/api-contract';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // 상업송장(Commercial Invoice) 편집·생성 모달(D23) — 레거시 InvoiceEditorModal 이식.
 // 자동 초안(발주 스냅샷·사업자정보)을 편집(HS CODE·중량·주소는 직접 입력) 후
@@ -67,7 +68,15 @@ watch(
 
 // [발주 품목으로 다시 채우기] — 저장본이 자동 조립을 가리는 레거시 함정의 교정 버튼.
 async function refill(): Promise<void> {
-  if (!window.confirm('편집 중인 내용을 버리고 발주 데이터로 다시 채울까요?')) return;
+  if (
+    !(await confirmDialog({
+      message: '편집 중인 내용을 버리고 발주 데이터로 다시 채울까요?',
+      confirmLabel: '다시 채우기',
+      tone: 'danger',
+    }))
+  ) {
+    return;
+  }
   await load(true);
 }
 

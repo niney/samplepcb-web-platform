@@ -27,6 +27,7 @@ import {
 import InvoiceEditorModal from '../smartbom/InvoiceEditorModal.vue';
 import ShipmentPackingModal from '../smartbom/ShipmentPackingModal.vue';
 import TradeDocumentModal from '../smartbom/TradeDocumentModal.vue';
+import { confirmDialog } from '../../lib/confirmDialog';
 import { fmtKstDate } from '@sp/utils';
 
 // 발송(박스) 진행 카드(§6.11) — 담긴 발주서·단계 스텝·서류·내 차례 폼·되돌리기를
@@ -95,7 +96,15 @@ async function onFilePicked(kind: BomShipmentFileTypeType, event: Event): Promis
 async function removeFile(kind: BomShipmentFileTypeType): Promise<void> {
   const file = fileOf(kind);
   if (file === null) return;
-  if (!window.confirm(`${fileLabel(kind)} 파일을 삭제할까요?`)) return;
+  if (
+    !(await confirmDialog({
+      message: `${fileLabel(kind)} 파일을 삭제할까요?`,
+      confirmLabel: '삭제',
+      tone: 'danger',
+    }))
+  ) {
+    return;
+  }
   error.value = '';
   try {
     await deleteFileMut.mutateAsync({ poId: poId.value, fileId: file.fileId });
@@ -155,7 +164,15 @@ async function advance(): Promise<void> {
 }
 
 async function revert(): Promise<void> {
-  if (!window.confirm('이전 단계로 되돌릴까요? 입력값과 첨부는 유지됩니다.')) return;
+  if (
+    !(await confirmDialog({
+      message: '이전 단계로 되돌릴까요? 입력값과 첨부는 유지됩니다.',
+      confirmLabel: '되돌리기',
+      tone: 'danger',
+    }))
+  ) {
+    return;
+  }
   error.value = '';
   try {
     await revertMut.mutateAsync(poId.value);
