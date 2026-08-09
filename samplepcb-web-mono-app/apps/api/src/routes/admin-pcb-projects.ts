@@ -43,6 +43,7 @@ import {
   getMembersByIds,
   getNotifyConfig,
   getOrderHeadersLite,
+  getOrdererContactByOdId,
   getOrderInfoByCtId,
   getShopEstimateProfile,
   getTemplateItem,
@@ -51,6 +52,11 @@ import {
   deleteQuoteOption,
 } from '../lib/g5-db';
 import type { CartState, G5Member, OrderInfo } from '../lib/g5-db';
+import {
+  toAdminCaseCustomer,
+  trimmedOrNull,
+  type CaseOrdererInput,
+} from '../lib/admin-case-customer';
 import { sendCompleteEstimate } from '../lib/alimtalk';
 import { buildEstimateEmail } from '../lib/estimate-email';
 import { kstDateStr } from '../lib/kst';
@@ -386,6 +392,9 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         spec.ctId !== null ? (cartStates.get(spec.ctId) ?? 'none') : 'none';
       const price = spec.finalPrice ?? quote?.autoPrice ?? null;
       const priceAmounts = price !== null ? splitVatIncluded(price) : null;
+      const applicantMember = spec.mbId !== null ? members.get(spec.mbId) : undefined;
+      const applicant = toApplicant(spec.mbId, applicantMember);
+      const companyName = resolveCompanyName(spec.companyName, spec.mbId, memberProfile);
 
       // PCB RFQ 진행 요약(P3.5) — 목록 계약(ListItem.extend)과 동일 집계.
       const detailRfqRows = await prisma.spPcbRfq.findMany({
@@ -416,10 +425,19 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           taxFree: number;
         };
       } | null = null;
+      let orderer: CaseOrdererInput | null = null;
       if (spec.ctId !== null && cartState === 'ordered') {
         const link = (await getCartOrderLinks([spec.ctId])).get(spec.ctId);
         if (link?.ordered === true) {
-          const header = (await getOrderHeadersLite([link.odId])).get(link.odId);
+          const [headers, ordererContact, orderBizInfo] = await Promise.all([
+            getOrderHeadersLite([link.odId]),
+            getOrdererContactByOdId(link.odId),
+            prisma.spOrderBizInfo.findUnique({
+              where: { odId: link.odId },
+              select: { companyName: true },
+            }),
+          ]);
+          const header = headers.get(link.odId);
           if (header !== undefined) {
             order = {
               odId: header.odId,
@@ -435,9 +453,23 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
                 taxFree: header.freeMny,
               },
             };
+            if (ordererContact !== null) {
+              orderer = {
+                ...ordererContact,
+                companyName: trimmedOrNull(orderBizInfo?.companyName) ?? companyName,
+              };
+            }
           }
         }
       }
+      const customer = toAdminCaseCustomer({
+        applicant: {
+          mbId: spec.mbId,
+          companyName,
+          member: applicantMember,
+        },
+        orderer,
+      });
 
       return {
         result: true as const,
@@ -457,13 +489,11 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           status: asSpecStatus(spec.status),
           price,
           cartState,
-          applicant: toApplicant(
-            spec.mbId,
-            spec.mbId !== null ? members.get(spec.mbId) : undefined,
-          ),
+          applicant,
           createdAt: spec.createdAt.toISOString(),
           message: spec.message,
-          companyName: resolveCompanyName(spec.companyName, spec.mbId, memberProfile),
+          companyName,
+          customer,
           spec: toClientSpec(spec.specJson),
           finalPrice: spec.finalPrice,
           priceAmounts,

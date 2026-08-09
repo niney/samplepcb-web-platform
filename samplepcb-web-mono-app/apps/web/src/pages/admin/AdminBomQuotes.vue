@@ -9,6 +9,7 @@ import {
   useCompleteAdminBomQuote,
   usePatchAdminBomQuote,
 } from '../../admin/useAdminBomQuotes';
+import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
 import BomCandidateDrawer from '../../components/admin/bom/BomCandidateDrawer.vue';
 
 // 고객 BOM 견적요청 검토(1차 최소 화면) — 목록(상태 탭)·상세·상태 전이·확정가·메모·원본
@@ -223,6 +224,7 @@ async function downloadOriginal(): Promise<void> {
               <td colspan="6" class="bg-gray-50 px-4 py-4">
                 <p v-if="detailQuery.isLoading.value" class="text-sm text-gray-400">불러오는 중…</p>
                 <div v-else-if="detail !== null" class="grid gap-4 lg:grid-cols-[1fr_320px]">
+                  <AdminCaseCustomerCard class="lg:col-span-2" :customer="detail.customer" />
                   <!-- 라인 -->
                   <div class="space-y-2">
                     <div class="flex flex-wrap items-center gap-3 text-sm">

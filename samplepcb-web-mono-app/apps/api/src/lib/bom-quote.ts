@@ -67,7 +67,17 @@ import {
 } from '@sp/utils';
 import { prisma } from './prisma';
 import { engineFetch } from './engine-client';
-import { getCartStates, getMembersByIds, getOrderInfoByCtId } from './g5-db';
+import {
+  getCartStates,
+  getMembersByIds,
+  getOrdererContactByOdId,
+  getOrderInfoByCtId,
+} from './g5-db';
+import {
+  toAdminCaseCustomer,
+  trimmedOrNull,
+  type CaseOrdererInput,
+} from './admin-case-customer';
 import { buildEngineProcurementPolicy } from './bom-procurement-policy';
 import { resolveManufacturer } from './manufacturer-alias';
 import { SAMPLEPCB_SUPPLIER } from './parts-facts';
@@ -6504,12 +6514,55 @@ export async function toAdminDetailDto(
   fileUrl: string | null,
 ): Promise<AdminBomQuoteDetailType> {
   // 주문 헤더 파생(⑧ 결제 판정) — 담김 상태(주문 헤더 없음)면 getOrderInfoByCtId 가 null.
-  const [info, detail, members] = await Promise.all([
+  const [info, detail, members, memberProfile] = await Promise.all([
     quote.ctId === null ? Promise.resolve(null) : getOrderInfoByCtId(quote.ctId),
     toDetailDto(quote, items, sheets),
     getMembersByIds([quote.mbId]),
+    prisma.spMemberProfile.findUnique({
+      where: { mbId: quote.mbId },
+      select: { companyName: true },
+    }),
   ]);
-  const customerEmail = (members.get(quote.mbId)?.email ?? '').trim() || null;
+  const applicantMember = members.get(quote.mbId);
+  const applicantCompanyName = trimmedOrNull(memberProfile?.companyName);
+  const customerEmail = trimmedOrNull(applicantMember?.email);
+  let orderer: CaseOrdererInput | null = null;
+  if (info !== null) {
+    const [ordererContact, orderBizInfo] = await Promise.all([
+      getOrdererContactByOdId(info.odId),
+      prisma.spOrderBizInfo.findUnique({
+        where: { odId: info.odId },
+        select: { companyName: true },
+      }),
+    ]);
+    if (ordererContact !== null) {
+      const orderBizCompanyName = trimmedOrNull(orderBizInfo?.companyName);
+      const ordererProfile =
+        orderBizCompanyName === null &&
+        ordererContact.mbId !== '' &&
+        ordererContact.mbId !== quote.mbId
+          ? await prisma.spMemberProfile.findUnique({
+              where: { mbId: ordererContact.mbId },
+              select: { companyName: true },
+            })
+          : null;
+      orderer = {
+        ...ordererContact,
+        companyName:
+          orderBizCompanyName ??
+          trimmedOrNull(ordererProfile?.companyName) ??
+          applicantCompanyName,
+      };
+    }
+  }
+  const customer = toAdminCaseCustomer({
+    applicant: {
+      mbId: quote.mbId,
+      companyName: applicantCompanyName,
+      member: applicantMember,
+    },
+    orderer,
+  });
   const activeRows = filterActiveQuoteItems(items, sheets);
   const reviewStates = await loadBomQuoteItemReviewStates(activeRows, detail.items);
   return {
@@ -6531,6 +6584,7 @@ export async function toAdminDetailDto(
       },
     })),
     mbId: quote.mbId,
+    customer,
     customerEmail,
     adminMemo: quote.adminMemo,
     fileUrl,

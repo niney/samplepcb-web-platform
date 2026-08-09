@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AdminEstimateCompany } from './admin';
+import { AdminCaseCustomer, AdminEstimateCompany } from './admin';
 import { PartOfferKind } from './parts';
 
 // 고객 BOM 견적(스마트 BOM) — 업로드→파싱→매칭→검토→견적요청(RFQ) 계약.
@@ -1275,6 +1275,8 @@ export type AdminBomQuoteItemType = z.infer<typeof AdminBomQuoteItem>;
 export const AdminBomQuoteDetail = BomQuoteDetail.omit({ items: true }).extend({
   items: z.array(AdminBomQuoteItem),
   mbId: z.string(),
+  /** 관리자 Case 상단 공용 고객 카드. 주문 뒤에는 영카트 주문자 스냅샷이 우선한다. */
+  customer: AdminCaseCustomer.nullable(),
   /** 고객 회원정보의 기본 회신 이메일 — 관리자에게만 제공한다. */
   customerEmail: z.string().max(255).nullable(),
   /** 내부 메모 — 고객 응답에는 싣지 않는다. */

@@ -56,6 +56,7 @@ import PcbEqReviewPanel from '../../components/admin/pcb/PcbEqReviewPanel.vue';
 import PcbSpecEditModal from '../../components/admin/pcb/PcbSpecEditModal.vue';
 import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModal.vue';
 import MailLogList from '../../components/admin/MailLogList.vue';
+import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
 
 // PCB Case 상세 — docs/PCB_PARTNER_TRACK.md §5.4. 스펙 요약(기존 admin-pcb-projects
 // 상세 계약 재사용) + 협력사 RFQ 패널(배정 diff·대리 회신·선정/해제·매직링크).
@@ -844,6 +845,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       {{ actionError }}
     </p>
 
+    <AdminCaseCustomerCard v-if="detail !== null" :customer="detail.customer" />
+
     <div v-if="detail !== null" class="grid gap-4 lg:grid-cols-3">
       <!-- 스펙 요약 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4 lg:col-span-2">
@@ -861,9 +864,6 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         <p class="mt-1 text-sm text-gray-500">
           {{ detail.category }} · {{ detail.orderCategory === 'mass' ? '양산' : '샘플' }} ·
           {{ detail.qty }}매
-          <span v-if="detail.applicant !== null" class="ml-2 text-gray-400">
-            신청 {{ detail.applicant.name || detail.applicant.mbId }}
-          </span>
         </p>
         <p class="mt-1 text-xs text-gray-400">{{ detail.optionSummary }}</p>
         <div v-if="gerberFiles.length > 0" class="mt-3 flex flex-wrap gap-2">

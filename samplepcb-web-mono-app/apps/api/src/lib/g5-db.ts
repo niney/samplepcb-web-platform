@@ -35,6 +35,7 @@
 // 묶인 주문의 결제상태·수납액·PG거래·같은 주문의 다른 견적 파악: od_status·od_receipt_price·
 // od_receipt_point·od_cart_coupon·od_coupon·od_send_coupon·od_cart_price·od_settle_case·
 // od_tno·od_pg·od_misu·od_tax_mny·od_vat_mny·od_free_mny(`getOrderHeadersLite` 주문 세액 표시) +
+// od_name·od_email·od_tel·od_hp·mb_id(`getOrdererContactByOdId` PCB·BOM Case 주문자 표시) +
 // cart od_id/ct_status/it_id/it_name/io_id/io_price. 완전삭제 프리뷰에 한해 g5_shop_order_data·
 // g5_shop_coupon_log·g5_shop_coupon·g5_shop_personalpay·g5_shop_order_post_log·
 // g5_shop_inicis_log·g5_shop_order_delete·g5_point의 od_id/oid/de_key/주문 관계키별 건수도 읽는다).
@@ -446,6 +447,36 @@ export interface OrderHeaderLite {
   vatMny: number;
   freeMny: number;
   orderedAt: string | null; // od_time(zero-date → null)
+}
+
+// 관리자 PCB·SmartBOM Case 상세의 주문 시점 연락처. 현재 g5_member 와 섞지 않고
+// g5_shop_order 에 checkout 당시 저장된 od_* 만 최소 컬럼으로 읽는다. 주소·비밀번호·
+// 결제 인증정보는 이 조회의 범위가 아니다(접근 카탈로그 ⑩).
+export interface G5OrdererContact {
+  mbId: string;
+  name: string;
+  email: string;
+  tel: string;
+  hp: string;
+}
+
+export async function getOrdererContactByOdId(
+  odId: string,
+): Promise<G5OrdererContact | null> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT mb_id, od_name, od_email, od_tel, od_hp
+       FROM g5_shop_order WHERE od_id = ?`,
+    [odId],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    mbId: String(row.mb_id ?? ''),
+    name: String(row.od_name ?? ''),
+    email: String(row.od_email ?? ''),
+    tel: String(row.od_tel ?? ''),
+    hp: String(row.od_hp ?? ''),
+  };
 }
 
 export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, OrderHeaderLite>> {

@@ -67,6 +67,7 @@ import BomRfqPanel from '../../components/admin/smartbom/BomRfqPanel.vue';
 import BomRfqSendModal from '../../components/admin/smartbom/BomRfqSendModal.vue';
 import QuickMailComposer from '../../components/admin/smartbom/QuickMailComposer.vue';
 import MailLogList from '../../components/admin/MailLogList.vue';
+import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
 import RfqReplyForm, { type RfqReplyFormRow } from '../../components/smartbom/RfqReplyForm.vue';
 
 // 스마트 BOM Case 상세 — 고객 견적요청 1건의 운영 화면(docs/SMARTBOM_PARTNER_RFQ.md §3.4).
@@ -1773,9 +1774,10 @@ async function downloadOriginal(): Promise<void> {
         </ol>
       </div>
 
+      <AdminCaseCustomerCard :customer="detail.customer" />
+
       <!-- 요약 스트립 -->
       <div class="flex flex-wrap items-center gap-3 text-sm">
-        <span class="text-gray-600">고객 <b>{{ detail.mbId }}</b></span>
         <span class="text-gray-600">세트 {{ detail.setQty }} · 예비 {{ detail.spareQty }}</span>
         <span class="text-gray-600">부품 합계 <b class="tabular-nums">{{ smartbomFmtWon(detail.itemsTotal) }}</b></span>
         <span class="text-gray-600">

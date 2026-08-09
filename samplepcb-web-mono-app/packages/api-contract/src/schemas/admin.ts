@@ -113,10 +113,26 @@ export const AdminVatAmounts = z.object({
 });
 export type AdminVatAmountsType = z.infer<typeof AdminVatAmounts>;
 
+// PCB·SmartBOM Case 상세 공용 고객 표시값. Case 는 견적부터 주문 이후까지 이어지므로
+// 현재 회원정보와 주문 당시 스냅샷을 같은 "주문자"로 섞지 않는다. source 가
+// order_snapshot 이면 g5_shop_order 의 od_* 저장값, applicant 면 견적 신청 회원의
+// 현재 표시정보다. 어떤 값을 우선할지는 서버가 결정하고 FE 는 그대로 표시한다.
+export const AdminCaseCustomer = z.object({
+  source: z.enum(['applicant', 'order_snapshot']),
+  mbId: z.string().nullable(), // null = 비회원 주문
+  companyName: z.string().nullable(),
+  name: z.string(),
+  email: z.string(),
+  phone: z.string(), // 휴대폰 우선, 없으면 일반전화(서버 합성)
+});
+export type AdminCaseCustomerType = z.infer<typeof AdminCaseCustomer>;
+
 export const AdminQuoteDetail = AdminQuoteListItem.extend({
   message: z.string().nullable(),
   // 수신처 회사명 — 서버 해석 규칙 적용값(스냅샷 ?? 회원 프로필). 2층 구조.
   companyName: z.string().nullable(),
+  // 관리자 Case 상단 공용 고객 카드. 주문이 성립되면 주문 당시 od_* 스냅샷이 우선한다.
+  customer: AdminCaseCustomer.nullable(),
   spec: PcbProjectSpec, // specJson 원본 — 드로어 라벨링용
   finalPrice: z.number().nullable(),
   // 현재 고객 판매가(finalPrice ?? autoPrice)의 VAT 포함 역산값. 가격 미정이면 null.

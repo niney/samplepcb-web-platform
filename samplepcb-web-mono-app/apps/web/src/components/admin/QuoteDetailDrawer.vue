@@ -10,6 +10,7 @@ import {
 } from '../../admin/useAdminQuotes';
 import { formatBytes, formatDate, formatDateTime, formatKrw } from '../../lib/format';
 import UiBadge from '../ui/UiBadge.vue';
+import AdminCaseCustomerCard from './AdminCaseCustomerCard.vue';
 import DeleteQuoteModal from './DeleteQuoteModal.vue';
 import EstimateModal from './EstimateModal.vue';
 import EstimateSendControl from './EstimateSendControl.vue';
@@ -405,42 +406,14 @@ onBeforeUnmount(() => {
               <p class="mt-2 text-xs text-gray-400">{{ t('admin.quotes.drawer.orderTaxHint') }}</p>
             </section>
 
-            <!-- 신청자 -->
-            <section class="mt-5">
-              <h3 class="text-sm font-semibold text-gray-800">
-                {{ t('admin.quotes.drawer.applicant') }}
-              </h3>
-              <dl v-if="detail.applicant !== null" class="mt-2 space-y-1 text-sm">
-                <div class="flex gap-2">
-                  <dt class="w-20 shrink-0 text-gray-400">ID</dt>
-                  <dd class="text-gray-800">
-                    {{ detail.applicant.name !== '' ? detail.applicant.name : '-' }}
-                    ({{ detail.applicant.mbId }})
-                  </dd>
-                </div>
-                <div class="flex gap-2">
-                  <dt class="w-20 shrink-0 text-gray-400">
-                    {{ t('admin.quotes.drawer.contact') }}
-                  </dt>
-                  <dd class="text-gray-800">
-                    {{ detail.applicant.phone !== '' ? detail.applicant.phone : '-' }}
-                  </dd>
-                </div>
-                <div class="flex gap-2">
-                  <dt class="w-20 shrink-0 text-gray-400">
-                    {{ t('admin.quotes.drawer.email') }}
-                  </dt>
-                  <dd class="text-gray-800">
-                    {{ detail.applicant.email !== '' ? detail.applicant.email : '-' }}
-                  </dd>
-                </div>
-              </dl>
-              <p v-else class="mt-2 text-sm text-gray-400">
-                {{ t('admin.quotes.table.guest') }}
-              </p>
+            <!-- 고객 정보 — 주문 뒤에는 현재 회원정보가 아닌 주문 당시 od_* 가 우선한다. -->
+            <AdminCaseCustomerCard class="mt-5" :customer="detail.customer" />
 
+            <!-- 견적 수신처 회사명 편집 — 주문자 스냅샷과 별개인 문서 메타데이터. -->
+            <section class="mt-5">
+              <h3 class="text-sm font-semibold text-gray-800">견적서 수신처 회사명</h3>
               <!-- 회사명 (수신처 스냅샷 + 회원 프로필 2층) — 비회원도 스냅샷 저장 가능 -->
-              <div class="mt-3 border-t border-gray-100 pt-3">
+              <div class="mt-2">
                 <label class="text-xs text-gray-400">
                   {{ t('admin.quotes.drawer.companyName') }}
                 </label>
