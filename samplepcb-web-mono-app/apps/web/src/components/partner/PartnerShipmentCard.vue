@@ -6,6 +6,7 @@ import {
   BOM_SHIPMENT_FILE_TYPES,
   BOM_SHIPMENT_MODE_LABELS,
   bomShipmentActorOf,
+  bomShipmentDocumentsLocked,
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
   bomShipmentStatusesOf,
@@ -60,6 +61,9 @@ const status = computed(() => props.shipment.status);
 const stepChain = computed(() => bomShipmentStatusesOf(mode.value));
 const stepIndex = computed(() => stepChain.value.indexOf(status.value));
 const nextStatus = computed(() => bomShipmentNextStatus(mode.value, status.value));
+const documentsLocked = computed(() =>
+  bomShipmentDocumentsLocked(mode.value, status.value, props.shipment.receivedAt),
+);
 const isMyTurn = computed(() => props.shipment.myTurn);
 const canRevert = computed(
   () =>
@@ -84,7 +88,7 @@ async function onFilePicked(kind: BomShipmentFileTypeType, event: Event): Promis
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
-  if (file === undefined) return;
+  if (file === undefined || documentsLocked.value) return;
   error.value = '';
   try {
     await uploadMut.mutateAsync({ poId: poId.value, fileType: kind, file });
@@ -95,7 +99,7 @@ async function onFilePicked(kind: BomShipmentFileTypeType, event: Event): Promis
 
 async function removeFile(kind: BomShipmentFileTypeType): Promise<void> {
   const file = fileOf(kind);
-  if (file === null) return;
+  if (file === null || documentsLocked.value) return;
   if (
     !(await confirmDialog({
       message: `${fileLabel(kind)} 파일을 삭제할까요?`,
@@ -202,6 +206,7 @@ const loadQuotation = () => {
 };
 const loadStatement = () => loadPartnerShipmentStatement(props.shipment.shipmentId);
 async function attachInvoicePdf(file: File): Promise<void> {
+  if (documentsLocked.value) return;
   await uploadMut.mutateAsync({ poId: poId.value, fileType: 'invoice', file });
 }
 </script>
@@ -331,6 +336,12 @@ async function attachInvoicePdf(file: File): Promise<void> {
         </div>
       </div>
       <template v-if="mode === 'international'">
+        <p
+          v-if="documentsLocked"
+          class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600"
+        >
+          🔒 완료된 발송 · 문서 잠금 — Invoice와 AWB는 내려받기만 할 수 있습니다.
+        </p>
         <div
           v-for="kind in BOM_SHIPMENT_FILE_TYPES"
           :key="kind"
@@ -342,6 +353,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
               {{ fileOf(kind)?.name }}
             </button>
             <button
+              v-if="!documentsLocked"
               type="button"
               class="text-red-500 underline disabled:opacity-40"
               :disabled="busy"
@@ -352,7 +364,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
           </template>
           <span v-else class="text-gray-300">없음</span>
           <button
-            v-if="kind === 'invoice'"
+            v-if="kind === 'invoice' && !documentsLocked"
             type="button"
             class="ml-auto rounded border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
             :disabled="busy"
@@ -361,6 +373,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
             🧾 만들기
           </button>
           <label
+            v-if="!documentsLocked"
             class="cursor-pointer rounded border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             :class="kind === 'invoice' ? '' : 'ml-auto'"
           >
@@ -453,7 +466,7 @@ async function attachInvoicePdf(file: File): Promise<void> {
     <p v-if="error !== ''" class="mt-2 text-sm font-semibold text-red-600">{{ error }}</p>
 
     <InvoiceEditorModal
-      v-if="mode === 'international'"
+      v-if="mode === 'international' && !documentsLocked"
       :open="invoiceOpen"
       :load-draft="invoiceApi.loadDraft"
       :save-draft="invoiceApi.saveDraft"

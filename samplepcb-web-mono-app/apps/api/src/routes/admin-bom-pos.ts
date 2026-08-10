@@ -7,6 +7,8 @@ import {
   AdminBomPoCrossListResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
+  AdminBomShortageCandidatesResponse,
+  AdminBomShortageRecoverBody,
   AdminBomPartPackageActionBody,
   AdminBomPartPackageResponse,
   AdminBomShipmentCrossListQuery,
@@ -39,7 +41,9 @@ import {
   loadAdminPoCrossList,
   loadAdminPos,
   loadAdminShipmentCrossList,
+  loadShortageRecoveryCandidates,
   receiveShipment,
+  recoverPoShortage,
   saveShipmentFile,
   upsertShipment,
 } from '../lib/bom-po';
@@ -83,6 +87,7 @@ const PoFileParams = z.object({
   fileId: z.coerce.bigint(),
 });
 const ShipmentIdParams = z.object({ shipmentId: z.coerce.bigint() });
+const ShortageParams = z.object({ id: z.coerce.bigint(), shortageId: z.coerce.bigint() });
 const PackageCodeParams = z.object({ code: z.string().trim().min(1).max(100) });
 
 const CREATE_ERROR_MESSAGE: Record<string, string> = {
@@ -93,6 +98,23 @@ const CREATE_ERROR_MESSAGE: Record<string, string> = {
   ALREADY_ISSUED: '이미 발주서가 발행된 협력사가 포함되어 있습니다(재발행은 삭제 후).',
   PARTNER_COUNTRY_REQUIRED: '발주 전에 선택한 협력사의 국가를 등록해 주세요.',
 };
+
+const RECOVERY_ERROR_MESSAGE: Record<string, string> = {
+  SHORTAGE_NOT_FOUND: '공급 부족 기록을 찾을 수 없습니다.',
+  ALREADY_RECOVERED: '이미 대체발주가 연결된 공급 부족 기록입니다.',
+  ORDER_CLOSED: '취소되었거나 완료된 BOM 주문에는 대체발주할 수 없습니다.',
+  NOT_PAID: '결제 확인된 주문만 대체발주할 수 있습니다.',
+  RFQ_ITEM_NOT_FOUND: '선택한 협력사 회신을 찾을 수 없습니다.',
+  INVALID_CANDIDATE: '재고와 회신 수량이 확인된 다른 협력사를 선택해 주세요.',
+  TARGET_ALREADY_ISSUED: '이 Case에 이미 발주된 협력사에는 별도 대체발주할 수 없습니다.',
+  PARTNER_COUNTRY_REQUIRED: '대체 협력사의 국가 정보를 먼저 등록해 주세요.',
+};
+
+const DOCUMENT_ERROR_MESSAGE = {
+  SHIPMENT_NOT_FOUND: '발송을 찾을 수 없습니다.',
+  INTERNATIONAL_DOCUMENT_ONLY: 'Invoice와 AWB는 국외 발송에서만 사용합니다.',
+  SHIPMENT_DOCUMENTS_LOCKED: '입고·완료된 발송 문서는 수정하거나 삭제할 수 없습니다.',
+} as const;
 
 export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
@@ -133,6 +155,79 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
       if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
       return { result: true as const, data: { pos: await loadAdminPos(quote.id) } };
+    },
+  );
+
+  // 공급 부족의 대체 후보(D31) — 같은 견적 품목에 회신한 다른 협력사만 제시한다.
+  fastify.get(
+    '/bom-quotes/:id/shortages/:shortageId/candidates',
+    {
+      schema: {
+        params: ShortageParams,
+        response: { 200: AdminBomShortageCandidatesResponse },
+      },
+    },
+    async (request, reply) => {
+      const data = await loadShortageRecoveryCandidates(
+        request.params.id,
+        request.params.shortageId,
+      );
+      if (data === null) return reply.notFound('공급 부족 기록을 찾을 수 없습니다');
+      return { result: true as const, data };
+    },
+  );
+
+  // 잔량 대체발주(D31) — 고객 확정 견적은 그대로 두고 부족 수량만 새 PO로 박제한다.
+  fastify.post(
+    '/bom-quotes/:id/shortages/:shortageId/recover',
+    {
+      schema: {
+        params: ShortageParams,
+        body: AdminBomShortageRecoverBody,
+        response: { 200: AdminBomPoMutationResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const quote = await prisma.spBomQuote.findUnique({ where: { id: request.params.id } });
+      if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
+      const result = await recoverPoShortage(
+        quote.id,
+        request.params.shortageId,
+        request.body,
+      );
+      if (!result.ok) {
+        return reply.status(409).send({
+          error: result.error,
+          message: RECOVERY_ERROR_MESSAGE[result.error] ?? '대체발주 생성에 실패했습니다.',
+        });
+      }
+      const pos = await loadAdminPos(quote.id);
+      const po = pos.find((entry) => entry.poId === Number(result.poId));
+      if (po !== undefined && result.partner.type === 'partner') {
+        void sendBomRfqMail(
+          request.log,
+          result.partner.contactEmail,
+          buildBomPoIssuedEmail({
+            partnerName: result.partner.name,
+            quoteTitle: quote.title,
+            itemCount: po.itemCount,
+            totalAmount: po.totalAmount,
+          }),
+          {
+            kind: 'bom_po_issued',
+            refType: 'bom_quote',
+            refId: quote.id,
+            sentBy: request.user.mbId,
+            params: {
+              poId: po.poId,
+              partnerId: String(result.partner.id),
+              partnerName: result.partner.name,
+              recoveryShortageId: String(request.params.shortageId),
+            },
+          },
+        );
+      }
+      return { result: true as const, data: { pos } };
     },
   );
 
@@ -432,10 +527,13 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         });
       }
       const saved = await saveShipmentFile(ensured.shipment.id, kind.data, file, 'ADMIN');
-      if (!saved) {
+      if (!saved.ok) {
+        if (saved.error === 'SHIPMENT_NOT_FOUND') {
+          return reply.notFound(DOCUMENT_ERROR_MESSAGE[saved.error]);
+        }
         return reply.status(409).send({
-          error: 'INTERNATIONAL_DOCUMENT_ONLY',
-          message: 'Invoice와 AWB는 국외 발송에서만 사용합니다.',
+          error: saved.error,
+          message: DOCUMENT_ERROR_MESSAGE[saved.error],
         });
       }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
@@ -444,7 +542,12 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
 
   fastify.delete(
     '/bom-quotes/:id/pos/:poId/shipment/files/:fileId',
-    { schema: { params: PoFileParams, response: { 200: AdminBomPoMutationResponse } } },
+    {
+      schema: {
+        params: PoFileParams,
+        response: { 200: AdminBomPoMutationResponse, 409: ApiError },
+      },
+    },
     async (request, reply) => {
       const po = await prisma.spBomPo.findUnique({
         where: { id: request.params.poId },
@@ -454,7 +557,15 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         return reply.notFound('발주서를 찾을 수 없습니다');
       }
       const removed = await deleteShipmentFile(po.shipmentLink.shipmentId, request.params.fileId);
-      if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
+      if (!removed.ok) {
+        if (removed.error === 'SHIPMENT_NOT_FOUND') {
+          return reply.notFound('파일을 찾을 수 없습니다');
+        }
+        return reply.status(409).send({
+          error: removed.error,
+          message: DOCUMENT_ERROR_MESSAGE[removed.error],
+        });
+      }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
     },
   );
@@ -576,7 +687,16 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
         });
       }
-      await saveInvoiceData(ensured.shipment.id, request.body);
+      const saved = await saveInvoiceData(ensured.shipment.id, request.body);
+      if (!saved.ok) {
+        if (saved.error === 'SHIPMENT_NOT_FOUND') {
+          return reply.notFound(DOCUMENT_ERROR_MESSAGE[saved.error]);
+        }
+        return reply.status(409).send({
+          error: saved.error,
+          message: DOCUMENT_ERROR_MESSAGE[saved.error],
+        });
+      }
       return { result: true as const, data: request.body };
     },
   );
@@ -599,7 +719,16 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
         });
       }
-      await saveInvoiceData(ensured.shipment.id, request.body);
+      const saved = await saveInvoiceData(ensured.shipment.id, request.body);
+      if (!saved.ok) {
+        if (saved.error === 'SHIPMENT_NOT_FOUND') {
+          return reply.notFound(DOCUMENT_ERROR_MESSAGE[saved.error]);
+        }
+        return reply.status(409).send({
+          error: saved.error,
+          message: DOCUMENT_ERROR_MESSAGE[saved.error],
+        });
+      }
       const buffer = await renderInvoiceXlsx(request.body);
       const base = (request.body.invoiceNo || `invoice-${String(ensured.shipment.id)}`).replace(
         /[^\w.-]+/g,

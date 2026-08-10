@@ -83,6 +83,13 @@ const shipTabCount = (key: (typeof SHIP_TABS)[number]['key']): number | null => 
 
 // 선적 처리 = 기존 Case 상세의 선적 모달 재사용 — 대표 발주서(quoteId+poId)로 연다.
 const selected = ref<{ quoteId: string; poId: number } | null>(null);
+const shipmentTableScroll = ref<HTMLElement | null>(null);
+const orderTableScroll = ref<HTMLElement | null>(null);
+
+function moveTable(target: 'shipment' | 'order', direction: -1 | 1): void {
+  const element = target === 'shipment' ? shipmentTableScroll.value : orderTableScroll.value;
+  element?.scrollBy({ left: direction * 300, behavior: 'smooth' });
+}
 const selectedQuoteId = computed(() => selected.value?.quoteId ?? null);
 const selectedPoQuery = useAdminBomPos(selectedQuoteId);
 const selectedPo = computed(() => {
@@ -132,8 +139,15 @@ const activeOrderCases = (item: AdminBomOrderListItemType) =>
 const allReceived = (item: AdminBomOrderListItemType): boolean => {
   const cases = activeOrderCases(item);
   return cases.length > 0
-    && cases.every((entry) => entry.poCount > 0 && entry.poReceivedCount >= entry.poCount);
+    && cases.every(
+      (entry) =>
+        entry.poCount > 0
+        && entry.openShortageCount === 0
+        && entry.poReceivedCount >= entry.poCount,
+    );
 };
+const openShortageCount = (item: AdminBomOrderListItemType): number =>
+  activeOrderCases(item).reduce((sum, entry) => sum + entry.openShortageCount, 0);
 
 const actionError = ref('');
 
@@ -166,10 +180,8 @@ async function submitShip(): Promise<void> {
     shipError.value = '택배사와 송장번호를 입력해 주세요.';
     return;
   }
-  if (
-    !allReceived(item) &&
-    !(await confirmDialog('아직 입고 확인되지 않은 발주가 있습니다. 그래도 배송 처리할까요?'))
-  ) {
+  if (!allReceived(item)) {
+    shipError.value = '대체발주와 모든 발주서 입고를 완료한 뒤 배송 처리할 수 있습니다.';
     return;
   }
   try {
@@ -264,16 +276,21 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
         </button>
       </div>
 
-      <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
-        <table class="min-w-full divide-y divide-gray-200 text-sm">
+      <div ref="shipmentTableScroll" class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
+        <div class="sticky left-0 z-[1] flex items-center gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-1.5 text-[10px] font-medium text-blue-800 min-[1180px]:hidden">
+          <span class="min-w-0 flex-1">좌우로 이동해 출고예정·운송장·입고일과 처리 버튼을 확인하세요.</span>
+          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="협력사 선적 표 왼쪽으로 이동" @click="moveTable('shipment', -1)">←</button>
+          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="협력사 선적 표 오른쪽으로 이동" @click="moveTable('shipment', 1)">→</button>
+        </div>
+        <table class="min-w-[900px] divide-y divide-gray-200 text-sm">
           <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
             <tr>
-              <th class="px-4 py-2.5">협력사</th>
-              <th class="px-4 py-2.5">Case</th>
+              <th class="whitespace-nowrap px-4 py-2.5">협력사</th>
+              <th class="whitespace-nowrap px-4 py-2.5">Case</th>
               <th class="whitespace-nowrap px-4 py-2.5">구분</th>
-              <th class="px-4 py-2.5">상태</th>
+              <th class="whitespace-nowrap px-4 py-2.5">상태</th>
               <th class="whitespace-nowrap px-4 py-2.5">출고예정</th>
-              <th class="px-4 py-2.5">운송장</th>
+              <th class="whitespace-nowrap px-4 py-2.5">운송장</th>
               <th class="whitespace-nowrap px-4 py-2.5">입고일</th>
               <th class="px-4 py-2.5" />
             </tr>
@@ -370,16 +387,21 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
         {{ actionFeedback.text }}
       </p>
 
-      <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
-        <table class="min-w-full divide-y divide-gray-200 text-sm">
+      <div ref="orderTableScroll" class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
+        <div class="sticky left-0 z-[1] flex items-center gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-1.5 text-[10px] font-medium text-blue-800 min-[1180px]:hidden">
+          <span class="min-w-0 flex-1">좌우로 이동해 배송지·입고 상태·주문 금액과 작업 버튼을 확인하세요.</span>
+          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="고객 배송 표 왼쪽으로 이동" @click="moveTable('order', -1)">←</button>
+          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="고객 배송 표 오른쪽으로 이동" @click="moveTable('order', 1)">→</button>
+        </div>
+        <table class="min-w-[1120px] divide-y divide-gray-200 text-sm">
           <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
             <tr>
               <th class="whitespace-nowrap px-4 py-2.5">주문번호</th>
-              <th class="px-4 py-2.5">고객</th>
-              <th class="min-w-64 px-4 py-2.5">받는 분 · 배송지</th>
-              <th class="px-4 py-2.5">연결 Case · 입고</th>
+              <th class="whitespace-nowrap px-4 py-2.5">고객</th>
+              <th class="min-w-64 whitespace-nowrap px-4 py-2.5">받는 분 · 배송지</th>
+              <th class="whitespace-nowrap px-4 py-2.5">연결 Case · 입고</th>
               <th class="whitespace-nowrap px-4 py-2.5 text-right">주문 금액</th>
-              <th class="px-4 py-2.5">상태</th>
+              <th class="whitespace-nowrap px-4 py-2.5">상태</th>
               <th class="px-4 py-2.5" />
             </tr>
           </thead>
@@ -406,14 +428,15 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
                   @click="openCase(entry.quoteId)"
                 >
                   <span class="max-w-40 truncate align-middle">{{ entry.title }}</span>
-                  <span v-if="entry.poCount > 0 && entry.poReceivedCount >= entry.poCount" class="ml-1 rounded bg-emerald-100 px-1 text-[10px] font-bold text-emerald-700">입고 완료</span>
+                  <span v-if="entry.openShortageCount > 0" class="ml-1 rounded bg-red-100 px-1 text-[10px] font-bold text-red-700">대체발주 대기 {{ entry.openShortageCount }}</span>
+                  <span v-else-if="entry.poCount > 0 && entry.poReceivedCount >= entry.poCount" class="ml-1 rounded bg-emerald-100 px-1 text-[10px] font-bold text-emerald-700">입고 완료</span>
                   <span v-else class="ml-1 rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-700">입고 {{ entry.poReceivedCount }}/{{ entry.poCount }}</span>
                 </button>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{{ smartbomFmtWon(item.orderPrice) }}</td>
               <td class="px-4 py-2.5">
                 <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="item.odStatus === '배송' ? 'bg-blue-100 text-blue-700' : allReceived(item) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'">
-                  {{ item.odStatus === '배송' ? '배송 중' : allReceived(item) ? '발송 가능' : '입고 대기' }}
+                  {{ item.odStatus === '배송' ? '배송 중' : allReceived(item) ? '발송 가능' : openShortageCount(item) > 0 ? '조달 복구 대기' : '입고 대기' }}
                 </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-right">
@@ -476,7 +499,7 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
           <button type="button" class="text-gray-400 hover:text-gray-700" @click="shipTarget = null">✕</button>
         </div>
         <p v-if="!allReceived(shipTarget)" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-          입고 확인이 끝나지 않은 발주가 있습니다 — 검수 후 발송을 권장합니다.
+          조달 복구 또는 입고 확인이 끝나지 않아 배송 처리할 수 없습니다.
         </p>
         <div class="mt-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs leading-5 text-gray-700">
           <p class="font-bold text-gray-800">받는 분 {{ shipTarget.recipientName || '미입력' }}</p>
@@ -511,7 +534,7 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
           <button
             type="button"
             class="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
-            :disabled="shipMut.isPending.value"
+            :disabled="shipMut.isPending.value || !allReceived(shipTarget)"
             @click="submitShip"
           >
             {{ shipSendMail ? '배송 처리 · 메일 발송' : '배송 처리' }}

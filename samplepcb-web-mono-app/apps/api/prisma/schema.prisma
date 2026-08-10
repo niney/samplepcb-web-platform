@@ -1116,9 +1116,33 @@ model SpBomPoItem {
   createdAt        DateTime            @default(now())
   po               SpBomPo             @relation(fields: [poId], references: [id], onDelete: Cascade)
   shipmentItems    SpBomShipmentItem[]
+  shortage         SpBomPoShortage?     @relation("BomPoShortageSource")
+  recoverySource   SpBomPoShortage?     @relation("BomPoShortageRecovery")
 
   @@index([poId])
   @@map("sp_bom_po_item")
+}
+
+// 조달 차질·잔량 대체발주(D31) — 원 PO 품목의 수량·금액은 불변으로 두고, 협력사가
+// 공급하지 못하는 수량과 사유를 별도 감사 원장으로 남긴다. recoveryPoItemId 는 부족분을
+// 이어받은 새 PO 품목이며 삭제되면 다시 미복구 상태가 되도록 SetNull 한다.
+model SpBomPoShortage {
+  id               BigInt       @id @default(autoincrement())
+  sourcePoItemId   BigInt       @unique
+  shortageQty      Int
+  reason           String       @db.VarChar(32)
+  note             String?      @db.Text
+  reportedByMbId   String?      @db.VarChar(191)
+  reportedAt       DateTime     @default(now())
+  recoveryPoItemId BigInt?      @unique
+  recoveredAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  sourceItem       SpBomPoItem  @relation("BomPoShortageSource", fields: [sourcePoItemId], references: [id], onDelete: Cascade)
+  recoveryItem     SpBomPoItem? @relation("BomPoShortageRecovery", fields: [recoveryPoItemId], references: [id], onDelete: SetNull)
+
+  @@index([recoveryPoItemId])
+  @@map("sp_bom_po_shortage")
 }
 
 // 선적 리스트 품목 — 발주 품목의 물류 투영. 발주 품목은 박제 원본이고 이 행은 선적별

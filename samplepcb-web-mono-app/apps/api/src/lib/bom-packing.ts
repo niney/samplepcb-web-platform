@@ -65,7 +65,7 @@ const loadPackingSource = (db: PackingDb, shipmentId: bigint) =>
               id: true,
               quoteId: true,
               quote: { select: { title: true } },
-              items: { orderBy: { id: 'asc' } },
+              items: { include: { shortage: true }, orderBy: { id: 'asc' } },
             },
           },
         },
@@ -85,6 +85,11 @@ type PackingSource = NonNullable<Awaited<ReturnType<typeof loadPackingSource>>>;
 type PackingSourceItem = PackingSource['packingItems'][number];
 type PackingSourcePackage = PackingSourceItem['packages'][number];
 type PackingSourceEvent = PackingSourcePackage['events'][number];
+
+type PackingPoItem = PackingSource['pos'][number]['po']['items'][number];
+/** 원 PO 수량은 감사용으로 보존하고 실제 선적에는 협력사가 공급 가능한 잔량만 투영한다. */
+const shippableQty = (item: PackingPoItem): number =>
+  Math.max(0, item.qty - (item.shortage?.shortageQty ?? 0));
 
 const packageStatus = (value: string): BomPartPackageStatusType =>
   (BOM_PART_PACKAGE_STATUSES as readonly string[]).includes(value)
@@ -173,12 +178,18 @@ export const loadShipmentPackingList = async (
   if (source === null) return null;
 
   const sourcePoItems = source.pos.flatMap((link) =>
-    link.po.items.map((item) => ({
-      poId: link.po.id,
-      quoteId: link.po.quoteId,
-      quoteTitle: link.po.quote.title,
-      item,
-    })),
+    link.po.items.flatMap((item) =>
+      shippableQty(item) < 1
+        ? []
+        : [
+            {
+              poId: link.po.id,
+              quoteId: link.po.quoteId,
+              quoteTitle: link.po.quote.title,
+              item,
+            },
+          ],
+    ),
   );
   const quoteItemIds = sourcePoItems.map((entry) => entry.item.quoteItemId);
   const quoteItems =
@@ -207,8 +218,9 @@ export const loadShipmentPackingList = async (
       mpn: entry.item.mpn,
       manufacturerName: entry.item.manufacturerName,
       description: entry.item.description,
-      expectedQty: entry.item.qty,
-      packages: packages.length > 0 ? packages : [virtualPackage(entry.item.qty)],
+      expectedQty: shippableQty(entry.item),
+      packages:
+        packages.length > 0 ? packages : [virtualPackage(shippableQty(entry.item))],
     };
   });
   const allPackages = items.flatMap((item) => item.packages);
@@ -321,9 +333,14 @@ export const saveShipmentPackingList = async (
         throw new BomPackingError('PACKING_NOT_PREPARING');
       }
 
-      const sourcePoItems = source.pos.flatMap((link) => link.po.items);
+      const sourcePoItems = source.pos
+        .flatMap((link) => link.po.items)
+        .filter((item) => shippableQty(item) > 0);
       const validation = validatePackingSaveItems(
-        sourcePoItems.map((item) => ({ poItemId: Number(item.id), expectedQty: item.qty })),
+        sourcePoItems.map((item) => ({
+          poItemId: Number(item.id),
+          expectedQty: shippableQty(item),
+        })),
         body,
       );
       if (validation !== null) throw new BomPackingError(validation);
@@ -368,10 +385,10 @@ export const saveShipmentPackingList = async (
             shipmentId,
             poItemId: poItem.id,
             partId: partIdByQuoteItem.get(poItem.quoteItemId) ?? null,
-            expectedQty: poItem.qty,
+            expectedQty: shippableQty(poItem),
           },
           update: {
-            expectedQty: poItem.qty,
+            expectedQty: shippableQty(poItem),
           },
         });
         const oldActive = oldItem === undefined ? [] : activePackages(oldItem);
@@ -486,7 +503,9 @@ export const saveShipmentPackingList = async (
 export const shipmentPackingListIsComplete = async (shipmentId: bigint): Promise<boolean> => {
   const source = await loadPackingSource(prisma, shipmentId);
   if (source === null || source.packingRevision < 1) return false;
-  const sourceItems = source.pos.flatMap((link) => link.po.items);
+  const sourceItems = source.pos
+    .flatMap((link) => link.po.items)
+    .filter((item) => shippableQty(item) > 0);
   if (sourceItems.length === 0) return false;
   const savedByPoItem = new Map(source.packingItems.map((item) => [item.poItemId, item]));
   return sourceItems.every((poItem) => {
@@ -496,7 +515,7 @@ export const shipmentPackingListIsComplete = async (shipmentId: bigint): Promise
     return (
       packages.length > 0 &&
       packages.every((pkg) => packageStatus(pkg.status) === 'prepared') &&
-      packages.reduce((sum, pkg) => sum + pkg.quantity, 0) === poItem.qty
+      packages.reduce((sum, pkg) => sum + pkg.quantity, 0) === shippableQty(poItem)
     );
   });
 };

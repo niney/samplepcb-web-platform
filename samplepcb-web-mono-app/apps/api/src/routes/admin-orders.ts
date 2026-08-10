@@ -26,6 +26,7 @@ import type {
   AdminOrderDetailOrderType,
   PcbProjectPayloadType,
 } from '@sp/api-contract';
+import { loadBomOrderShippingReadiness } from '../lib/bom-order-shipping';
 import {
   deleteOrders,
   getCartRowsByOdId,
@@ -715,7 +716,8 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
   // ── PATCH /api/admin/orders/:odId/force-status — 임의 상태 변경 ─────────────
   // 레거시 orderformcartupdate.php 정상 상태 분기 이식. 활성 카트행 ct_status=target + od_status
   // =target(역방향 포함). 스톡 앵커: 배송/완료 진입 차감·주문 역방향 복원. 코어 정상 분기에 결제수단
-  // 가드·운송장 요구 없음(임의 변경 허용). delivery 는 target='배송' 제공 시만 운송장 반영. 미존재 404.
+  // 결제수단 가드·운송장 요구 없음(임의 변경 허용). 단, Smart BOM 배송은 조달 복구·전량 입고를
+  // 서버가 다시 확인한다. delivery 는 target='배송' 제공 시만 운송장 반영. 미존재 404.
   // SmartBOM·PCB 고객 배송 화면은 sendMail=true 로 기존 영카트 배송 메일 브리지를 선택 호출한다.
   // 포인트 딸린 활성 행(ct_point>0)은 409 HAS_POINT(PCB 미발생 안전판). 부분 갱신 응답 { odId }(FE refetch).
   fastify.patch(
@@ -733,6 +735,15 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (order === null) return reply.notFound('주문이 없습니다');
 
       const { target, delivery, sendMail, preserveCanceled } = request.body;
+      if (target === '배송') {
+        const readiness = await loadBomOrderShippingReadiness(odId);
+        if (readiness.hasBomCases && !readiness.ready) {
+          return reply.status(409).send({
+            error: 'BOM_FULFILLMENT_INCOMPLETE',
+            message: '공급 부족 대체발주와 모든 발주서 입고가 끝난 뒤 배송 처리할 수 있습니다.',
+          });
+        }
+      }
       const outcome = await setOrderForceStatus(
         odId,
         target,

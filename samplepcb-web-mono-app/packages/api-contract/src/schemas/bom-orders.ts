@@ -20,6 +20,8 @@ export const AdminBomOrderCase = z.object({
   isCanceled: z.boolean(),
   poCount: z.number().int(), // 발주서 수 — "발주 대기" 판정
   poReceivedCount: z.number().int(), // 입고 확인된 발주서 수(D21) — "입고 완료" 표시
+  /** 대체 발주가 아직 연결되지 않은 공급 부족 품목 수(D31) — 고객 배송 하드 게이트. */
+  openShortageCount: z.number().int().nonnegative(),
 });
 export type AdminBomOrderCaseType = z.infer<typeof AdminBomOrderCase>;
 

@@ -7,6 +7,8 @@ import {
   BomShipmentPackingListResponse,
   BomShipmentStatementResponse,
   PartnerPoDetailResponse,
+  type PartnerPoShortageCreateBodyType,
+  type PartnerPoShortageUpdateBodyType,
   PartnerPoListResponse,
   PartnerRfqDetailResponse,
   PartnerRfqListResponse,
@@ -81,6 +83,62 @@ export function usePartnerPoConfirm() {
   return useMutation({
     mutationFn: (poId: string) =>
       apiSend('POST', `${poBase}/${poId}/confirm`, undefined, PartnerPoDetailResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner'] });
+    },
+  });
+}
+
+export function usePartnerPoShortageReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      poId,
+      body,
+    }: {
+      poId: string;
+      body: PartnerPoShortageCreateBodyType;
+    }) => apiSend('POST', `${poBase}/${poId}/shortages`, body, PartnerPoDetailResponse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner'] });
+    },
+  });
+}
+
+export function usePartnerPoShortageUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      poId,
+      shortageId,
+      body,
+    }: {
+      poId: string;
+      shortageId: number;
+      body: PartnerPoShortageUpdateBodyType;
+    }) =>
+      apiSend(
+        'PATCH',
+        `${poBase}/${poId}/shortages/${String(shortageId)}`,
+        body,
+        PartnerPoDetailResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['partner'] });
+    },
+  });
+}
+
+export function usePartnerPoShortageCancel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, shortageId }: { poId: string; shortageId: number }) =>
+      apiSend(
+        'DELETE',
+        `${poBase}/${poId}/shortages/${String(shortageId)}`,
+        undefined,
+        PartnerPoDetailResponse,
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['partner'] });
     },

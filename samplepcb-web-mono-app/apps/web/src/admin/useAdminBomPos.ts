@@ -7,6 +7,8 @@ import {
   AdminBomPoCrossListResponse,
   AdminBomPoListResponse,
   AdminBomPoMutationResponse,
+  AdminBomShortageCandidatesResponse,
+  type AdminBomShortageRecoverBodyType,
   AdminBomShipmentCrossListResponse,
   BomInvoiceDraftResponse,
   BomPartnerQuotationResponse,
@@ -44,7 +46,53 @@ const invalidate = (qc: ReturnType<typeof useQueryClient>): void => {
   void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos'] });
   void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] }); // poCount 파생 갱신
   void qc.invalidateQueries({ queryKey: ['admin', 'bom-shipments'] }); // 횡단 워크큐 갱신
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] }); // 부족분·대체 PO 배송 게이트
 };
+
+export function useAdminBomShortageCandidates(
+  quoteId: Ref<string | null>,
+  shortageId: Ref<number | null>,
+) {
+  return useQuery({
+    queryKey: computed(() => [
+      'admin',
+      'bom-shortage-candidates',
+      quoteId.value,
+      shortageId.value,
+    ]),
+    queryFn: () =>
+      apiGet(
+        `${base}/${quoteId.value ?? ''}/shortages/${String(shortageId.value ?? '')}/candidates`,
+        AdminBomShortageCandidatesResponse,
+      ),
+    enabled: computed(() => quoteId.value !== null && shortageId.value !== null),
+    retry: false,
+  });
+}
+
+export function useRecoverBomShortage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      shortageId,
+      body,
+    }: {
+      quoteId: string;
+      shortageId: number;
+      body: AdminBomShortageRecoverBodyType;
+    }) =>
+      apiSend(
+        'POST',
+        `${base}/${quoteId}/shortages/${String(shortageId)}/recover`,
+        body,
+        AdminBomPoMutationResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
 
 // ── 횡단 워크큐(관리자 메뉴 재편) — 발주/선적·배송 메뉴 목록 ─────────────────
 

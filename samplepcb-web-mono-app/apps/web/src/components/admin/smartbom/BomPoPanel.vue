@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import {
   BOM_PO_STATUS_LABELS,
+  BOM_PO_SHORTAGE_REASON_LABELS,
   BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL,
   BOM_SHIPMENT_MODE_LABELS,
   BOM_SHIPMENT_STATUS_LABELS,
@@ -9,6 +10,7 @@ import {
   bomShipmentNextStatus,
   bomShipmentStatusLabel,
   type AdminBomPoViewType,
+  type BomPoItemViewType,
 } from '@sp/api-contract';
 import { smartbomFmtDate, smartbomFmtWon } from '../../../admin/smartbom';
 
@@ -28,6 +30,7 @@ const emit = defineEmits<{
   close: [po: AdminBomPoViewType];
   external: [po: AdminBomPoViewType]; // 외부 실행 재시도/재발급(D20)
   shipment: [po: AdminBomPoViewType]; // 선적 관리(D21)
+  recover: [po: AdminBomPoViewType, item: BomPoItemViewType]; // 부족분 대체발주(D31)
 }>();
 
 function openExternal(url: string): void {
@@ -62,6 +65,15 @@ function shipmentNextLabel(po: AdminBomPoViewType): string {
 const adminPendingCount = computed(
   () => props.pos.filter((po) => shipmentNextActor(po) === 'ADMIN').length,
 );
+const openShortageCount = computed(() =>
+  props.pos.reduce(
+    (count, po) =>
+      count + po.items.filter((item) => item.shortage !== null && item.shortage.recovery === null).length,
+    0,
+  ),
+);
+const procurementItems = (po: AdminBomPoViewType): BomPoItemViewType[] =>
+  po.items.filter((item) => item.shortage !== null || item.recoverySource !== null);
 
 const statusCls = (status: AdminBomPoViewType['status']): string =>
   status === 'confirmed'
@@ -85,6 +97,9 @@ function moveTable(direction: -1 | 1): void {
         확인 <b class="text-emerald-600">{{ pos.filter((p) => p.status !== 'issued').length }}</b>
         <template v-if="adminPendingCount > 0">
           · <b class="text-blue-700">선적 처리 필요 {{ adminPendingCount }}</b>
+        </template>
+        <template v-if="openShortageCount > 0">
+          · <b class="text-red-700">대체발주 대기 {{ openShortageCount }}</b>
         </template>
       </p>
       <button
@@ -114,7 +129,7 @@ function moveTable(direction: -1 | 1): void {
             <th class="whitespace-nowrap px-3 py-2">협력사</th>
             <th class="whitespace-nowrap px-3 py-2">상태</th>
             <th class="whitespace-nowrap px-3 py-2 text-right">품목</th>
-            <th class="whitespace-nowrap px-3 py-2 text-right">발주 합계(VAT 별도)</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">발주 문서 / 실제 공급(VAT 별도)</th>
             <th class="whitespace-nowrap px-3 py-2">선적·입고</th>
             <th class="whitespace-nowrap px-3 py-2">발행/확인</th>
             <th class="px-3 py-2" />
@@ -125,6 +140,38 @@ function moveTable(direction: -1 | 1): void {
             <td class="px-3 py-2 font-medium text-gray-900">
               {{ po.partnerName }}
               <span v-if="po.supplierCode !== null" class="ml-1 rounded bg-gray-100 px-1 py-0.5 font-mono text-[10px] text-gray-500">{{ po.supplierCode }}</span>
+              <div
+                v-for="item in procurementItems(po)"
+                :key="`procurement-${String(item.poItemId)}`"
+                class="mt-1.5 rounded border px-2 py-1.5 text-[10px] font-normal leading-4"
+                :class="item.shortage !== null ? 'border-red-200 bg-red-50 text-red-800' : 'border-indigo-200 bg-indigo-50 text-indigo-800'"
+              >
+                <template v-if="item.shortage !== null">
+                  <p class="font-bold">
+                    {{ item.mpn || '품번 미기재' }} · {{ BOM_PO_SHORTAGE_REASON_LABELS[item.shortage.reason] }}
+                    · 부족 {{ item.shortage.shortageQty.toLocaleString('ko-KR') }}개
+                  </p>
+                  <p>원 PO 공급 {{ item.shortage.suppliedQty.toLocaleString('ko-KR') }}/{{ item.qty.toLocaleString('ko-KR') }}개</p>
+                  <p class="font-semibold">실제 공급 금액 {{ smartbomFmtWon(item.shortage.suppliedAmount) }}</p>
+                  <p v-if="item.shortage.recovery !== null" class="font-semibold text-emerald-700">
+                    → {{ item.shortage.recovery.partnerName }} 대체 PO #{{ item.shortage.recovery.poId }}
+                    <template v-if="item.shortage.recovery.receivedAt !== null"> · 입고 완료</template>
+                  </p>
+                  <button
+                    v-else
+                    type="button"
+                    class="mt-1 rounded bg-red-600 px-2 py-0.5 font-bold text-white hover:bg-red-700 disabled:opacity-40"
+                    :disabled="busy"
+                    @click="emit('recover', po, item)"
+                  >
+                    잔량 대체발주
+                  </button>
+                </template>
+                <template v-else-if="item.recoverySource !== null">
+                  <b>{{ item.mpn || '품번 미기재' }} · 대체발주 {{ item.qty.toLocaleString('ko-KR') }}개</b>
+                  <p>{{ item.recoverySource.sourcePartnerName }} 공급 부족분 회복</p>
+                </template>
+              </div>
               <!-- 외부 실행 결과(D20) — 카트/리스트까지, 실결제는 공급사 사이트에서 -->
               <div v-if="po.externalRef !== null" class="mt-1 text-[11px] font-normal">
                 <template v-if="po.externalRef.state === 'ok' && po.externalRef.cartKey !== undefined">
@@ -151,13 +198,21 @@ function moveTable(direction: -1 | 1): void {
                 <span v-if="(po.externalRef.skippedNoSku ?? 0) > 0" class="ml-1 text-amber-700">SKU 없음 {{ po.externalRef.skippedNoSku }}행 제외</span>
               </div>
             </td>
-            <td class="px-3 py-2">
-              <span class="rounded px-1.5 py-0.5 font-semibold" :class="statusCls(po.status)">
+            <td class="whitespace-nowrap px-3 py-2">
+              <span class="whitespace-nowrap rounded px-1.5 py-0.5 font-semibold" :class="statusCls(po.status)">
                 {{ BOM_PO_STATUS_LABELS[po.status] }}
               </span>
             </td>
             <td class="px-3 py-2 text-right tabular-nums">{{ po.itemCount }}</td>
-            <td class="px-3 py-2 text-right tabular-nums">{{ smartbomFmtWon(po.totalAmount) }}</td>
+            <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+              <p>{{ smartbomFmtWon(po.totalAmount) }}</p>
+              <p
+                v-if="po.actualSupplyAmount !== po.totalAmount"
+                class="mt-0.5 text-[10px] font-bold text-amber-700"
+              >
+                실제 공급 {{ smartbomFmtWon(po.actualSupplyAmount) }}
+              </p>
+            </td>
             <!-- 선적(D21·D22) — 모드·상태·송장 + 차례 표시 + 입고 확인 -->
             <td class="whitespace-nowrap px-3 py-2">
               <span :class="po.shipment === null ? 'text-gray-300' : shipmentNextActor(po) === 'ADMIN' ? 'font-bold text-blue-700' : 'text-gray-700'">{{ shipmentLabel(po) }}</span>

@@ -94,6 +94,7 @@ specs/
   journey-bom-split.e2e.test.ts        BOM 여정 2호 — 단일검색→2개 부분 RFQ→국내·국제 분할 조달
   journey-bom-revision.e2e.test.ts     BOM 여정 3호 — 고객 회신→품목 정정→재회신→수정 주문
   journey-bom-reorder.e2e.test.ts      BOM 여정 4호 — 묶음 부분취소→재주문→이력 보존→조달 완료
+  journey-bom-shortage-recovery.e2e.test.ts BOM 여정 5호 — 결제 후 부분 부족→잔량 대체발주→분할 입고
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -102,7 +103,8 @@ specs/
 옵트인 2중 게이트(`PORTAL_E2E=1` + `JOURNEY=1`)로만 돈다. 공통 사전 조건은
 nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1~4호는
 **거버(8040)**, BOM 1~3호는 **sp-engine(8400)**이 추가로 필요하다. BOM 4호는 이미
-회신 완료된 거래 스냅샷부터 시작해 주문 하류만 검증하므로 엔진이 필요하지 않다.
+회신 완료된 거래 스냅샷부터 시작해 주문 하류만 검증하므로 엔진이 필요하지 않다. BOM 5호도
+회신 완료 스냅샷부터 시작하며 결제 이후 공급 차질 복구를 검증한다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -111,12 +113,13 @@ nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~4호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~5호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
 | `pnpm -F e2e journey:bom:4` | BOM 4호만 — 묶음 부분취소·재주문·조달 완료 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~4호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:5` | BOM 5호만 — 공급 부족·잔량 대체발주·분할 입고 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~5호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -327,6 +330,13 @@ BOM 4호는 저항·MLCC Case와 MCU·커넥터 Case를 확정 거래 스냅샷�
 Case를 각각 발주한 뒤 한 국내 발송으로 합쳐 입고·고객 배송을 완료하며, 배송·완료 전이도
 과거 취소행을 되살리지 않는지 끝에서 다시 확인한다.
 
+BOM 5호는 MCU·MLCC·커넥터·LED 4품목을 국내 협력사에 발주한 뒤 MLCC 20개 중 7개가
+부족해진 결제 후 차질을 만든다. 원 협력사는 포털에서 발송 전에 부족 수량·사유를 신고하고,
+관리자는 같은 견적 품목에 재고·단가를 회신한 다른 협력사를 골라 정확히 7개만 새 PO로
+발행한다. 원 PO와 고객 확정·결제 금액은 불변이며 국내 원 공급분 13개와 국제 대체분 7개의
+선적 리스트·Invoice가 실제 수량을 사용해야 한다. 배송 API는 미복구 부족분과 입고 1/2에서
+각각 409로 막히고, 2/2 입고 뒤에만 고객 배송 큐가 열린다.
+
 **생성물은 자동 정리하지 않는다.** 완주 후 리포트(`output/journey/findings*.md`)의 생성물
 대장을 보고 손으로 지운다 — 순서는 ① 주문을 `force-status '주문'` 으로 내려 **재고 복원**
 ② g5 cart+order ③ sp_* 역순(file→shipment_po→shipment→eq_review→po→rfq→file→spec).
@@ -362,7 +372,6 @@ Case를 각각 발주한 뒤 한 국내 발송으로 합쳐 입고·고객 배�
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
-
 
 
 

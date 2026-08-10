@@ -12,12 +12,15 @@ import {
   BOM_SHIPMENT_INTL_STATUSES,
   BomPoExternalRef,
   bomShipmentActorOf,
+  bomShipmentDocumentsLocked,
   bomShipmentNextStatus,
   bomShipmentPrevStatus,
 } from '@sp/api-contract';
 import type {
   AdminBomPoCrossItemType,
   AdminBomPoViewType,
+  AdminBomShortageCandidateType,
+  AdminBomShortageRecoverBodyType,
   AdminBomShipmentCrossItemType,
   AdminBomShipmentUpsertBodyType,
   BomPoItemViewType,
@@ -30,6 +33,8 @@ import type {
   BomShipmentViewType,
   PartnerPoDetailType,
   PartnerPoListItemType,
+  PartnerPoShortageCreateBodyType,
+  PartnerPoShortageUpdateBodyType,
   PartnerShipmentAdvanceBodyType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
@@ -70,7 +75,50 @@ type PoWithItems = SpBomPo & { items: SpBomPoItem[]; shipmentLink?: ShipmentLink
 const linkedShipment = (po: { shipmentLink?: ShipmentLink | null }): SpBomShipment | null =>
   po.shipmentLink?.shipment ?? null;
 
-const toItemView = (item: SpBomPoItem): BomPoItemViewType => ({
+/** 상세 화면의 조달 차질·회복 링크를 한 번에 직렬화하기 위한 공용 include. */
+export const BOM_PO_ITEM_PROCUREMENT_INCLUDE = {
+  shortage: {
+    include: {
+      recoveryItem: {
+        include: {
+          po: {
+            include: {
+              partner: true,
+              shipmentLink: { include: { shipment: true } },
+            },
+          },
+        },
+      },
+    },
+  },
+  recoverySource: {
+    include: {
+      sourceItem: { include: { po: { include: { partner: true } } } },
+    },
+  },
+} as const satisfies Prisma.SpBomPoItemInclude;
+
+type PoItemWithProcurement = Prisma.SpBomPoItemGetPayload<{
+  include: typeof BOM_PO_ITEM_PROCUREMENT_INCLUDE;
+}>;
+type PoWithProcurementItems = SpBomPo & {
+  items: PoItemWithProcurement[];
+  shipmentLink?: ShipmentLink | null;
+};
+
+const suppliedQtyOf = (item: PoItemWithProcurement): number =>
+  Math.max(0, item.qty - (item.shortage?.shortageQty ?? 0));
+
+const suppliedAmountOf = (item: PoItemWithProcurement): number =>
+  item.shortage === null
+    ? item.lineTotal
+    : Math.round(Number(item.unitPrice) * suppliedQtyOf(item));
+
+/** 박제 발주 합계와 별도로 보여줄 실제 공급 예정 합계 — 항상 서버가 계산한다. */
+export const actualSupplyAmountOf = (items: readonly PoItemWithProcurement[]): number =>
+  items.reduce((sum, item) => sum + suppliedAmountOf(item), 0);
+
+const toItemView = (item: PoItemWithProcurement): BomPoItemViewType => ({
   poItemId: Number(item.id),
   quoteItemId: String(item.quoteItemId),
   mpn: item.mpn,
@@ -80,6 +128,46 @@ const toItemView = (item: SpBomPoItem): BomPoItemViewType => ({
   qty: item.qty,
   unitPrice: Number(item.unitPrice),
   lineTotal: item.lineTotal,
+  shortage:
+    item.shortage === null
+      ? null
+      : {
+          shortageId: Number(item.shortage.id),
+          shortageQty: item.shortage.shortageQty,
+          suppliedQty: suppliedQtyOf(item),
+          suppliedAmount: suppliedAmountOf(item),
+          reason:
+            item.shortage.reason === 'out_of_stock' ||
+            item.shortage.reason === 'quality_issue' ||
+            item.shortage.reason === 'discontinued' ||
+            item.shortage.reason === 'other'
+              ? item.shortage.reason
+              : 'insufficient_stock',
+          note: item.shortage.note,
+          reportedAt: item.shortage.reportedAt.toISOString(),
+          recovery:
+            item.shortage.recoveryItem === null
+              ? null
+              : {
+                  poId: Number(item.shortage.recoveryItem.po.id),
+                  poItemId: Number(item.shortage.recoveryItem.id),
+                  partnerId: Number(item.shortage.recoveryItem.po.partnerId),
+                  partnerName: item.shortage.recoveryItem.po.partner.name,
+                  qty: item.shortage.recoveryItem.qty,
+                  receivedAt:
+                    item.shortage.recoveryItem.po.shipmentLink?.shipment.receivedAt?.toISOString() ??
+                    null,
+                },
+        },
+  recoverySource:
+    item.recoverySource === null
+      ? null
+      : {
+          shortageId: Number(item.recoverySource.id),
+          sourcePoId: Number(item.recoverySource.sourceItem.po.id),
+          sourcePartnerName: item.recoverySource.sourceItem.po.partner.name,
+          shortageQty: item.recoverySource.shortageQty,
+        },
 });
 
 const toExternalRefView = (value: unknown): AdminBomPoViewType['externalRef'] => {
@@ -185,7 +273,7 @@ export const loadShipmentGroupMap = async (
 };
 
 export const toAdminPoView = (
-  po: PoWithItems & { partner: SpPartner },
+  po: PoWithProcurementItems & { partner: SpPartner },
   shipmentFiles: BomShipmentFileMetaType[] = [],
   groupPos: BomShipmentGroupPoType[] = [],
 ): AdminBomPoViewType => {
@@ -203,6 +291,7 @@ export const toAdminPoView = (
       existingMode !== null && shipmentModeDiffersFromCountry(existingMode, po.partner.country),
     status: asBomPoStatus(po.status),
     totalAmount: po.totalAmount,
+    actualSupplyAmount: actualSupplyAmountOf(po.items),
     currency: po.currency,
     memo: po.memo,
     externalRef: toExternalRefView(po.externalRef),
@@ -220,7 +309,10 @@ export const loadAdminPos = async (quoteId: bigint): Promise<AdminBomPoViewType[
     where: { quoteId },
     include: {
       partner: true,
-      items: { orderBy: { id: 'asc' } },
+      items: {
+        include: BOM_PO_ITEM_PROCUREMENT_INCLUDE,
+        orderBy: { id: 'asc' },
+      },
       shipmentLink: { include: { shipment: true } },
     },
     orderBy: { id: 'asc' },
@@ -590,6 +682,469 @@ export const createBomPos = async (
     }
   });
   return { ok: true, partners };
+};
+
+// ── 조달 차질·잔량 대체발주(D31) ───────────────────────────────────────────
+// 원 PO/품목은 발행 시점 박제 문서이므로 qty·lineTotal 을 수정하지 않는다. 부족분은
+// 별도 원장에 기록하고, 관리자가 다른 협력사의 유효 회신을 골라 새 PO 품목으로 이어 붙인다.
+
+export type ReportPoShortageResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error:
+        | 'PO_NOT_FOUND'
+        | 'PO_NOT_CONFIRMED'
+        | 'SHIPMENT_ALREADY_STARTED'
+        | 'ITEM_NOT_FOUND'
+        | 'INVALID_QUANTITY'
+        | 'ALREADY_REPORTED'
+        | 'NO_SUPPLY_REMAINS';
+    };
+
+export const reportPoShortage = async (
+  poId: bigint,
+  partnerId: bigint,
+  actorMbId: string,
+  body: PartnerPoShortageCreateBodyType,
+): Promise<ReportPoShortageResult> => {
+  try {
+    return await prisma.$transaction(
+      async (tx): Promise<ReportPoShortageResult> => {
+        const po = await tx.spBomPo.findUnique({
+          where: { id: poId },
+          include: {
+            shipmentLink: true,
+            items: { include: { shortage: true } },
+          },
+        });
+        if (po?.partnerId !== partnerId) {
+          return { ok: false, error: 'PO_NOT_FOUND' };
+        }
+        if (po.status !== 'confirmed') return { ok: false, error: 'PO_NOT_CONFIRMED' };
+        if (po.shipmentLink !== null) {
+          return { ok: false, error: 'SHIPMENT_ALREADY_STARTED' };
+        }
+        const target = po.items.find((item) => item.id === BigInt(body.poItemId));
+        if (target === undefined) return { ok: false, error: 'ITEM_NOT_FOUND' };
+        if (target.shortage !== null) return { ok: false, error: 'ALREADY_REPORTED' };
+        if (body.shortageQty > target.qty) return { ok: false, error: 'INVALID_QUANTITY' };
+
+        const remainingQty = po.items.reduce(
+          (sum, item) =>
+            sum +
+            Math.max(
+              0,
+              item.qty -
+                (item.id === target.id ? body.shortageQty : (item.shortage?.shortageQty ?? 0)),
+            ),
+          0,
+        );
+        if (remainingQty < 1) return { ok: false, error: 'NO_SUPPLY_REMAINS' };
+
+        await tx.spBomPoShortage.create({
+          data: {
+            sourcePoItemId: target.id,
+            shortageQty: body.shortageQty,
+            reason: body.reason,
+            note: body.note ?? null,
+            reportedByMbId: actorMbId,
+          },
+        });
+        return { ok: true };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return { ok: false, error: 'ALREADY_REPORTED' };
+    }
+    throw error;
+  }
+};
+
+export type ChangePoShortageResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error:
+        | 'PO_NOT_FOUND'
+        | 'PO_NOT_CONFIRMED'
+        | 'SHIPMENT_ALREADY_STARTED'
+        | 'SHORTAGE_NOT_FOUND'
+        | 'INVALID_QUANTITY'
+        | 'ALREADY_RECOVERED'
+        | 'NO_SUPPLY_REMAINS';
+    };
+
+/** 대체발주·발송 전에 한해 신고 내용을 정정한다. 원 PO 스냅샷은 그대로 둔다. */
+export const updatePoShortage = async (
+  poId: bigint,
+  shortageId: bigint,
+  partnerId: bigint,
+  body: PartnerPoShortageUpdateBodyType,
+): Promise<ChangePoShortageResult> =>
+  prisma.$transaction(
+    async (tx): Promise<ChangePoShortageResult> => {
+      const po = await tx.spBomPo.findUnique({
+        where: { id: poId },
+        include: { shipmentLink: true, items: { include: { shortage: true } } },
+      });
+      if (po?.partnerId !== partnerId) return { ok: false, error: 'PO_NOT_FOUND' };
+      if (po.status !== 'confirmed') return { ok: false, error: 'PO_NOT_CONFIRMED' };
+      if (po.shipmentLink !== null) return { ok: false, error: 'SHIPMENT_ALREADY_STARTED' };
+
+      const target = po.items.find((item) => item.shortage?.id === shortageId);
+      if (target?.shortage === null || target === undefined) {
+        return { ok: false, error: 'SHORTAGE_NOT_FOUND' };
+      }
+      if (target.shortage.recoveryPoItemId !== null) {
+        return { ok: false, error: 'ALREADY_RECOVERED' };
+      }
+      if (body.shortageQty > target.qty) return { ok: false, error: 'INVALID_QUANTITY' };
+
+      const remainingQty = po.items.reduce(
+        (sum, item) =>
+          sum +
+          Math.max(
+            0,
+            item.qty -
+              (item.id === target.id
+                ? body.shortageQty
+                : (item.shortage?.shortageQty ?? 0)),
+          ),
+        0,
+      );
+      if (remainingQty < 1) return { ok: false, error: 'NO_SUPPLY_REMAINS' };
+
+      const updated = await tx.spBomPoShortage.updateMany({
+        where: { id: target.shortage.id, recoveryPoItemId: null },
+        data: {
+          shortageQty: body.shortageQty,
+          reason: body.reason,
+          note: body.note ?? null,
+        },
+      });
+      return updated.count === 1
+        ? { ok: true }
+        : { ok: false, error: 'ALREADY_RECOVERED' };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
+
+/** 잘못 등록한 신고를 대체발주·발송 전에 취소한다. */
+export const cancelPoShortage = async (
+  poId: bigint,
+  shortageId: bigint,
+  partnerId: bigint,
+): Promise<ChangePoShortageResult> =>
+  prisma.$transaction(
+    async (tx): Promise<ChangePoShortageResult> => {
+      const po = await tx.spBomPo.findUnique({
+        where: { id: poId },
+        include: { shipmentLink: true, items: { include: { shortage: true } } },
+      });
+      if (po?.partnerId !== partnerId) return { ok: false, error: 'PO_NOT_FOUND' };
+      if (po.status !== 'confirmed') return { ok: false, error: 'PO_NOT_CONFIRMED' };
+      if (po.shipmentLink !== null) return { ok: false, error: 'SHIPMENT_ALREADY_STARTED' };
+
+      const target = po.items.find((item) => item.shortage?.id === shortageId);
+      if (target?.shortage === null || target === undefined) {
+        return { ok: false, error: 'SHORTAGE_NOT_FOUND' };
+      }
+      if (target.shortage.recoveryPoItemId !== null) {
+        return { ok: false, error: 'ALREADY_RECOVERED' };
+      }
+      const deleted = await tx.spBomPoShortage.deleteMany({
+        where: { id: target.shortage.id, recoveryPoItemId: null },
+      });
+      return deleted.count === 1
+        ? { ok: true }
+        : { ok: false, error: 'ALREADY_RECOVERED' };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
+
+export interface BomShortageCandidatesData {
+  shortageId: number;
+  quoteItemId: string;
+  mpn: string;
+  shortageQty: number;
+  candidates: AdminBomShortageCandidateType[];
+}
+
+const recoveryCandidateBlockReason = (input: {
+  sourcePartnerId: bigint;
+  targetPartnerId: bigint;
+  targetStatus: string;
+  targetCountry: string | null;
+  unitPrice: number;
+  stock: number | null;
+  replyQty: number | null;
+  shortageQty: number;
+  alreadyIssued: boolean;
+  alreadyRecovered: boolean;
+}): string | null => {
+  if (input.alreadyRecovered) return '이미 대체발주가 연결되었습니다.';
+  if (input.sourcePartnerId === input.targetPartnerId) return '부족을 신고한 협력사입니다.';
+  if (input.targetStatus !== 'approved') return '현재 거래할 수 없는 협력사입니다.';
+  if (shipmentModeFromCountry(input.targetCountry) === null) {
+    return '협력사 국가 정보가 필요합니다.';
+  }
+  if (input.unitPrice <= 0) return '유효한 회신 단가가 없습니다.';
+  if (input.stock === null) return '회신 재고를 먼저 확인해야 합니다.';
+  if (input.stock < input.shortageQty) return '회신 재고가 부족 수량보다 적습니다.';
+  if (input.replyQty !== null && input.replyQty < input.shortageQty) {
+    return '회신 가능 수량이 부족 수량보다 적습니다.';
+  }
+  if (input.alreadyIssued) return '이 Case에 이미 발주된 협력사입니다.';
+  return null;
+};
+
+export const loadShortageRecoveryCandidates = async (
+  quoteId: bigint,
+  shortageId: bigint,
+): Promise<BomShortageCandidatesData | null> => {
+  const shortage = await prisma.spBomPoShortage.findUnique({
+    where: { id: shortageId },
+    include: { sourceItem: { include: { po: true } } },
+  });
+  if (shortage?.sourceItem.po.quoteId !== quoteId) return null;
+
+  const [rfqItems, existingPos] = await Promise.all([
+    prisma.spBomRfqItem.findMany({
+      where: {
+        quoteItemId: shortage.sourceItem.quoteItemId,
+        unitPrice: { not: null },
+        rfq: { quoteId, respondedAt: { not: null } },
+      },
+      include: { rfq: { include: { partner: true } } },
+      orderBy: [{ unitPrice: 'asc' }, { id: 'asc' }],
+    }),
+    prisma.spBomPo.findMany({ where: { quoteId }, select: { partnerId: true } }),
+  ]);
+  const issuedPartners = new Set(existingPos.map((po) => po.partnerId));
+  return {
+    shortageId: Number(shortage.id),
+    quoteItemId: String(shortage.sourceItem.quoteItemId),
+    mpn: shortage.sourceItem.mpn,
+    shortageQty: shortage.shortageQty,
+    candidates: rfqItems.map((item) => {
+      const unitPrice = Number(item.unitPrice ?? 0);
+      const ineligibleReason = recoveryCandidateBlockReason({
+        sourcePartnerId: shortage.sourceItem.po.partnerId,
+        targetPartnerId: item.rfq.partnerId,
+        targetStatus: item.rfq.partner.status,
+        targetCountry: item.rfq.partner.country,
+        unitPrice,
+        stock: item.stock,
+        replyQty: item.replyQty,
+        shortageQty: shortage.shortageQty,
+        alreadyIssued: issuedPartners.has(item.rfq.partnerId),
+        alreadyRecovered: shortage.recoveryPoItemId !== null,
+      });
+      return {
+        rfqItemId: Number(item.id),
+        partnerId: Number(item.rfq.partnerId),
+        partnerName: item.rfq.partner.name,
+        partnerCountry: item.rfq.partner.country,
+        shipmentMode: shipmentModeFromCountry(item.rfq.partner.country),
+        unitPrice,
+        stock: item.stock,
+        leadTime: item.leadTime,
+        dateCode: item.dateCode,
+        memo: item.memo,
+        eligible: ineligibleReason === null,
+        ineligibleReason,
+      };
+    }),
+  };
+};
+
+export type RecoverPoShortageResult =
+  | { ok: true; poId: bigint; partner: SpPartner }
+  | {
+      ok: false;
+      error:
+        | 'SHORTAGE_NOT_FOUND'
+        | 'ALREADY_RECOVERED'
+        | 'ORDER_CLOSED'
+        | 'NOT_PAID'
+        | 'RFQ_ITEM_NOT_FOUND'
+        | 'INVALID_CANDIDATE'
+        | 'TARGET_ALREADY_ISSUED'
+        | 'PARTNER_COUNTRY_REQUIRED';
+    };
+
+class BomShortageRecoveryRaceError extends Error {}
+
+export const recoverPoShortage = async (
+  quoteId: bigint,
+  shortageId: bigint,
+  body: AdminBomShortageRecoverBodyType,
+): Promise<RecoverPoShortageResult> => {
+  const preview = await loadShortageRecoveryCandidates(quoteId, shortageId);
+  if (preview === null) return { ok: false, error: 'SHORTAGE_NOT_FOUND' };
+  const selected = preview.candidates.find((item) => item.rfqItemId === body.rfqItemId);
+  if (selected === undefined) return { ok: false, error: 'RFQ_ITEM_NOT_FOUND' };
+  if (!selected.eligible) {
+    return {
+      ok: false,
+      error: selected.ineligibleReason?.includes('이미 발주')
+        ? 'TARGET_ALREADY_ISSUED'
+        : selected.ineligibleReason?.includes('국가')
+          ? 'PARTNER_COUNTRY_REQUIRED'
+          : selected.ineligibleReason?.includes('이미 대체발주')
+            ? 'ALREADY_RECOVERED'
+            : 'INVALID_CANDIDATE',
+    };
+  }
+
+  const shortageHeader = await prisma.spBomPoShortage.findUnique({
+    where: { id: shortageId },
+    include: { sourceItem: { include: { po: { include: { quote: true } } } } },
+  });
+  if (shortageHeader?.sourceItem.po.quoteId !== quoteId) {
+    return { ok: false, error: 'SHORTAGE_NOT_FOUND' };
+  }
+  const orderInfo =
+    shortageHeader.sourceItem.po.quote.ctId === null
+      ? null
+      : await getOrderInfoByCtId(shortageHeader.sourceItem.po.quote.ctId);
+  if (
+    orderInfo !== null &&
+    isBomOrderFulfillmentClosed(orderInfo.odStatus, orderInfo.rowCtStatus)
+  ) {
+    return { ok: false, error: 'ORDER_CLOSED' };
+  }
+  if (orderInfo === null || !isBomOrderLinePaid(orderInfo.rowCtStatus)) {
+    return { ok: false, error: 'NOT_PAID' };
+  }
+  const business =
+    shipmentModeFromCountry(selected.partnerCountry) === 'domestic'
+      ? await getBusinessInfo()
+      : null;
+
+  try {
+    return await prisma.$transaction(
+      async (tx): Promise<RecoverPoShortageResult> => {
+        const shortage = await tx.spBomPoShortage.findUnique({
+          where: { id: shortageId },
+          include: { sourceItem: { include: { po: { include: { quote: true } } } } },
+        });
+        if (shortage?.sourceItem.po.quoteId !== quoteId) {
+          return { ok: false, error: 'SHORTAGE_NOT_FOUND' };
+        }
+        if (shortage.recoveryPoItemId !== null) {
+          return { ok: false, error: 'ALREADY_RECOVERED' };
+        }
+        const rfqItem = await tx.spBomRfqItem.findUnique({
+          where: { id: BigInt(body.rfqItemId) },
+          include: { rfq: { include: { partner: true } } },
+        });
+        if (
+          rfqItem?.quoteItemId !== shortage.sourceItem.quoteItemId ||
+          rfqItem.rfq.quoteId !== quoteId ||
+          rfqItem.rfq.respondedAt === null ||
+          rfqItem.unitPrice === null
+        ) {
+          return { ok: false, error: 'RFQ_ITEM_NOT_FOUND' };
+        }
+        const existing = await tx.spBomPo.count({
+          where: { quoteId, partnerId: rfqItem.rfq.partnerId },
+        });
+        if (existing > 0) return { ok: false, error: 'TARGET_ALREADY_ISSUED' };
+        const blockReason = recoveryCandidateBlockReason({
+          sourcePartnerId: shortage.sourceItem.po.partnerId,
+          targetPartnerId: rfqItem.rfq.partnerId,
+          targetStatus: rfqItem.rfq.partner.status,
+          targetCountry: rfqItem.rfq.partner.country,
+          unitPrice: Number(rfqItem.unitPrice),
+          stock: rfqItem.stock,
+          replyQty: rfqItem.replyQty,
+          shortageQty: shortage.shortageQty,
+          alreadyIssued: false,
+          alreadyRecovered: false,
+        });
+        if (blockReason !== null) {
+          return {
+            ok: false,
+            error: blockReason.includes('국가')
+              ? 'PARTNER_COUNTRY_REQUIRED'
+              : 'INVALID_CANDIDATE',
+          };
+        }
+
+        const lineTotal = Math.round(Number(rfqItem.unitPrice) * shortage.shortageQty);
+        const po = await tx.spBomPo.create({
+          data: {
+            quoteId,
+            partnerId: rfqItem.rfq.partnerId,
+            status: 'issued',
+            totalAmount: lineTotal,
+            currency: 'KRW',
+            memo: body.memo ?? null,
+            quotationDeliveryDate: rfqItem.rfq.deliveryDate,
+            quotationMemo: rfqItem.rfq.memo,
+          },
+        });
+        const recoveryItem = await tx.spBomPoItem.create({
+          data: {
+            poId: po.id,
+            quoteItemId: shortage.sourceItem.quoteItemId,
+            rfqItemId: rfqItem.id,
+            mpn: shortage.sourceItem.mpn,
+            manufacturerName: shortage.sourceItem.manufacturerName,
+            description: shortage.sourceItem.description,
+            supplierSku: null,
+            qty: shortage.shortageQty,
+            unitPrice: rfqItem.unitPrice,
+            lineTotal,
+            moq: rfqItem.moq,
+            stock: rfqItem.stock,
+            dateCode: rfqItem.dateCode,
+            leadTime: rfqItem.leadTime,
+            quotationMemo: rfqItem.memo,
+          },
+        });
+        const linked = await tx.spBomPoShortage.updateMany({
+          where: { id: shortage.id, recoveryPoItemId: null },
+          data: { recoveryPoItemId: recoveryItem.id, recoveredAt: new Date() },
+        });
+        if (linked.count !== 1) throw new BomShortageRecoveryRaceError();
+
+        if (shipmentModeFromCountry(rfqItem.rfq.partner.country) === 'domestic') {
+          const quotation = buildPartnerQuotationDocument(
+            {
+              id: po.id,
+              quoteId,
+              quoteTitle: shortage.sourceItem.po.quote.title,
+              issuedAt: po.issuedAt,
+              currency: po.currency,
+              totalAmount: po.totalAmount,
+              quotationDeliveryDate: po.quotationDeliveryDate,
+              quotationMemo: po.quotationMemo,
+              partner: rfqItem.rfq.partner,
+              items: [recoveryItem],
+            },
+            business,
+            po.issuedAt,
+          );
+          await tx.spBomPo.update({ where: { id: po.id }, data: { quotationData: quotation } });
+        }
+        return { ok: true, poId: po.id, partner: rfqItem.rfq.partner };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (error instanceof BomShortageRecoveryRaceError) {
+      return { ok: false, error: 'ALREADY_RECOVERED' };
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return { ok: false, error: 'TARGET_ALREADY_ISSUED' };
+    }
+    throw error;
+  }
 };
 
 // ── 외부공급사 실행(D20) — 카트/리스트까지, 실결제는 구매담당이 공급사 사이트에서 ──
@@ -1047,52 +1602,107 @@ export const attachShipmentPo = async (
 // 순서 불변식: 업로드는 새 실파일 성공 후 구 파일 정리(실패 시 기존 유지), 삭제는
 // 실파일 먼저·성공 시에만 DB 행(고아 pathToken 방지 — lib/market.ts 관례).
 
+export type ShipmentDocumentMutationError =
+  | 'SHIPMENT_NOT_FOUND'
+  | 'INTERNATIONAL_DOCUMENT_ONLY'
+  | 'SHIPMENT_DOCUMENTS_LOCKED';
+export type ShipmentDocumentMutationResult =
+  | { ok: true }
+  | { ok: false; error: ShipmentDocumentMutationError };
+
+const shipmentDocumentMutationError = (
+  shipment: { mode: string; status: string; receivedAt: Date | null } | null,
+): ShipmentDocumentMutationError | null => {
+  if (shipment === null) return 'SHIPMENT_NOT_FOUND';
+  const mode = asShipmentMode(shipment.mode);
+  if (mode !== 'international') return 'INTERNATIONAL_DOCUMENT_ONLY';
+  const status = asShipmentStatus(mode, shipment.status);
+  return bomShipmentDocumentsLocked(mode, status, shipment.receivedAt)
+    ? 'SHIPMENT_DOCUMENTS_LOCKED'
+    : null;
+};
+
 export const saveShipmentFile = async (
   shipmentId: bigint,
   kind: BomShipmentFileTypeType,
   file: UploadTarget,
   uploadedBy: 'ADMIN' | 'PARTNER',
-): Promise<boolean> => {
-  const shipment = await prisma.spBomShipment.findUnique({
+): Promise<ShipmentDocumentMutationResult> => {
+  const beforeUpload = await prisma.spBomShipment.findUnique({
     where: { id: shipmentId },
-    select: { mode: true },
+    select: { mode: true, status: true, receivedAt: true },
   });
-  // Invoice/AWB 슬롯은 국제 발송 전용. 모드는 생성 후 불변이라 검사 뒤 경합이 없다.
-  if (shipment === null || asShipmentMode(shipment.mode) !== 'international') return false;
+  const initialError = shipmentDocumentMutationError(beforeUpload);
+  if (initialError !== null) return { ok: false, error: initialError };
+
   const [uploaded] = await uploadToFileServer([file], SHIPMENT_FILE_SERVICE_TYPE);
   if (uploaded === undefined) throw new Error('shipment file upload failed: empty result');
-  const existing = await prisma.spFile.findFirst({
-    where: { refType: SHIPMENT_FILE_REF_TYPE, refId: shipmentId, fileType: kind },
-  });
-  if (existing !== null) {
-    await deleteFromFileServer(existing.pathToken);
-    await prisma.spFile.delete({ where: { id: existing.id } });
+
+  try {
+    const result = await prisma.$transaction(
+      async (tx): Promise<ShipmentDocumentMutationResult> => {
+        const shipment = await tx.spBomShipment.findUnique({
+          where: { id: shipmentId },
+          select: { mode: true, status: true, receivedAt: true },
+        });
+        const error = shipmentDocumentMutationError(shipment);
+        if (error !== null) return { ok: false, error };
+
+        const existing = await tx.spFile.findFirst({
+          where: { refType: SHIPMENT_FILE_REF_TYPE, refId: shipmentId, fileType: kind },
+        });
+        if (existing !== null) {
+          await deleteFromFileServer(existing.pathToken);
+          await tx.spFile.delete({ where: { id: existing.id } });
+        }
+        await tx.spFile.create({
+          data: {
+            refType: SHIPMENT_FILE_REF_TYPE,
+            refId: shipmentId,
+            uploadFileName: uploaded.uploadFileName,
+            originFileName: uploaded.originFileName,
+            pathToken: uploaded.pathToken,
+            size: BigInt(uploaded.size),
+            writeDate: new Date(),
+            fileType: kind,
+            uploadedBy,
+          },
+        });
+        return { ok: true };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    if (!result.ok) await deleteFromFileServer(uploaded.pathToken);
+    return result;
+  } catch (error) {
+    await deleteFromFileServer(uploaded.pathToken);
+    throw error;
   }
-  await prisma.spFile.create({
-    data: {
-      refType: SHIPMENT_FILE_REF_TYPE,
-      refId: shipmentId,
-      uploadFileName: uploaded.uploadFileName,
-      originFileName: uploaded.originFileName,
-      pathToken: uploaded.pathToken,
-      size: BigInt(uploaded.size),
-      writeDate: new Date(),
-      fileType: kind,
-      uploadedBy,
-    },
-  });
-  return true;
 };
 
-export const deleteShipmentFile = async (shipmentId: bigint, fileId: bigint): Promise<boolean> => {
-  const file = await prisma.spFile.findFirst({
-    where: { id: fileId, refType: SHIPMENT_FILE_REF_TYPE, refId: shipmentId },
-  });
-  if (file === null) return false;
-  await deleteFromFileServer(file.pathToken);
-  await prisma.spFile.delete({ where: { id: file.id } });
-  return true;
-};
+export const deleteShipmentFile = async (
+  shipmentId: bigint,
+  fileId: bigint,
+): Promise<ShipmentDocumentMutationResult> =>
+  prisma.$transaction(
+    async (tx): Promise<ShipmentDocumentMutationResult> => {
+      const shipment = await tx.spBomShipment.findUnique({
+        where: { id: shipmentId },
+        select: { mode: true, status: true, receivedAt: true },
+      });
+      const error = shipmentDocumentMutationError(shipment);
+      if (error !== null) return { ok: false, error };
+
+      const file = await tx.spFile.findFirst({
+        where: { id: fileId, refType: SHIPMENT_FILE_REF_TYPE, refId: shipmentId },
+      });
+      if (file === null) return { ok: false, error: 'SHIPMENT_NOT_FOUND' };
+      await deleteFromFileServer(file.pathToken);
+      await tx.spFile.delete({ where: { id: file.id } });
+      return { ok: true };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
 
 export interface ShipmentFileDownload {
   originFileName: string;
@@ -1260,6 +1870,27 @@ export const loadReceivedPoCounts = async (quoteIds: bigint[]): Promise<Map<bigi
   return map;
 };
 
+/** 대체 PO 품목이 아직 연결되지 않은 공급 부족 수(quoteId별). 하나라도 열려 있으면
+ * PO 입고 개수와 무관하게 고객 배송을 막는다(D31). */
+export const loadOpenShortageCounts = async (
+  quoteIds: bigint[],
+): Promise<Map<bigint, number>> => {
+  const map = new Map<bigint, number>();
+  if (quoteIds.length === 0) return map;
+  const rows = await prisma.spBomPoShortage.findMany({
+    where: {
+      recoveryPoItemId: null,
+      sourceItem: { po: { quoteId: { in: quoteIds } } },
+    },
+    select: { sourceItem: { select: { po: { select: { quoteId: true } } } } },
+  });
+  for (const row of rows) {
+    const quoteId = row.sourceItem.po.quoteId;
+    map.set(quoteId, (map.get(quoteId) ?? 0) + 1);
+  }
+  return map;
+};
+
 // ── 협력사 포털 직렬화 ───────────────────────────────────────────────────────
 
 // 협력사 차례 판정(D22 인지 장치 — isShipmentAdminPending 의 협력사 미러).
@@ -1318,7 +1949,7 @@ export const toPartnerPoListItem = (
 });
 
 export const toPartnerPoDetail = (
-  po: PoWithItems & { quote: { title: string } },
+  po: PoWithProcurementItems & { quote: { title: string } },
   shipmentFiles: BomShipmentFileMetaType[] = [],
   groupPos: BomShipmentGroupPoType[] = [],
 ): PartnerPoDetailType => {
@@ -1329,6 +1960,7 @@ export const toPartnerPoDetail = (
     quoteTitle: po.quote.title,
     status: asBomPoStatus(po.status),
     totalAmount: po.totalAmount,
+    actualSupplyAmount: actualSupplyAmountOf(po.items),
     currency: po.currency,
     memo: po.memo,
     issuedAt: po.issuedAt.toISOString(),

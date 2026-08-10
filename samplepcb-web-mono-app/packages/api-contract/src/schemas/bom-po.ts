@@ -14,6 +14,59 @@ export const BOM_PO_STATUS_LABELS = {
   closed: '마감',
 } as const satisfies Record<BomPoStatusType, string>;
 
+// 조달 차질·잔량 대체발주(D31) — 원 발주서는 박제 문서로 보존하고 부족 수량만 별도
+// 감사 원장에 기록한다. recovery 는 부족분을 이어받은 새 발주 품목이며 고객 확정가는
+// 바꾸지 않는다.
+export const BOM_PO_SHORTAGE_REASONS = [
+  'out_of_stock',
+  'insufficient_stock',
+  'quality_issue',
+  'discontinued',
+  'other',
+] as const;
+export const BomPoShortageReason = z.enum(BOM_PO_SHORTAGE_REASONS);
+export type BomPoShortageReasonType = z.infer<typeof BomPoShortageReason>;
+
+export const BOM_PO_SHORTAGE_REASON_LABELS = {
+  out_of_stock: '재고 소진',
+  insufficient_stock: '수량 부족',
+  quality_issue: '품질 문제',
+  discontinued: '단종·공급 중단',
+  other: '기타',
+} as const satisfies Record<BomPoShortageReasonType, string>;
+
+export const BomPoShortageRecoveryView = z.object({
+  poId: z.number(),
+  poItemId: z.number(),
+  partnerId: z.number(),
+  partnerName: z.string(),
+  qty: z.number().int().positive(),
+  receivedAt: z.string().nullable(),
+});
+export type BomPoShortageRecoveryViewType = z.infer<typeof BomPoShortageRecoveryView>;
+
+export const BomPoShortageView = z.object({
+  shortageId: z.number(),
+  shortageQty: z.number().int().positive(),
+  /** 원 발주 수량 중 실제 공급하기로 남은 수량. */
+  suppliedQty: z.number().int().nonnegative(),
+  /** 원 발주 단가 × 실제 공급 수량(VAT 별도, 서버 계산). */
+  suppliedAmount: z.number().int().nonnegative(),
+  reason: BomPoShortageReason,
+  note: z.string().nullable(),
+  reportedAt: z.string(),
+  recovery: BomPoShortageRecoveryView.nullable(),
+});
+export type BomPoShortageViewType = z.infer<typeof BomPoShortageView>;
+
+export const BomPoRecoverySourceView = z.object({
+  shortageId: z.number(),
+  sourcePoId: z.number(),
+  sourcePartnerName: z.string(),
+  shortageQty: z.number().int().positive(),
+});
+export type BomPoRecoverySourceViewType = z.infer<typeof BomPoRecoverySourceView>;
+
 export const BomPoItemView = z.object({
   poItemId: z.number(),
   quoteItemId: z.string(),
@@ -25,6 +78,10 @@ export const BomPoItemView = z.object({
   qty: z.number().int(),
   unitPrice: z.number(), // 스냅샷 단가(VAT 별도)
   lineTotal: z.number().int(),
+  /** 이 원 발주 품목에 협력사가 신고한 공급 부족. */
+  shortage: BomPoShortageView.nullable(),
+  /** 이 품목이 어느 부족분을 회복하기 위해 추가 발주됐는지. */
+  recoverySource: BomPoRecoverySourceView.nullable(),
 });
 export type BomPoItemViewType = z.infer<typeof BomPoItemView>;
 
@@ -148,6 +205,13 @@ export const bomShipmentStatusLabel = (
   mode === 'domestic' && status === 'preparing'
     ? BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL
     : BOM_SHIPMENT_STATUS_LABELS[status];
+
+/** 입고 확인 또는 최종 단계 이후 Invoice/AWB 편집을 막는 공용 판정. */
+export const bomShipmentDocumentsLocked = (
+  mode: BomShipmentModeType,
+  status: BomShipmentStatusType,
+  receivedAt: string | Date | null,
+): boolean => receivedAt !== null || bomShipmentNextStatus(mode, status) === null;
 
 // ── 선적 첨부(D22) — sp_file(refType 'sp_bom_shipment'), 종류별 1건(재업로드=교체) ──
 
@@ -605,6 +669,8 @@ export const AdminBomPoView = z.object({
   shipmentModeMismatch: z.boolean(),
   status: BomPoStatus,
   totalAmount: z.number().int(), // KRW, VAT 별도
+  /** 공급 부족을 제외한 실제 공급 예정 합계(VAT 별도, 서버 계산). */
+  actualSupplyAmount: z.number().int().nonnegative(),
   currency: z.string(),
   memo: z.string().nullable(),
   /** 외부 실행 결과(D20) — 자동화 대상 공급사 발주에만. */
@@ -647,6 +713,43 @@ export const AdminBomPoMutationResponse = z.object({
   data: z.object({ pos: z.array(AdminBomPoView) }),
 });
 export type AdminBomPoMutationResponseType = z.infer<typeof AdminBomPoMutationResponse>;
+
+export const AdminBomShortageCandidate = z.object({
+  rfqItemId: z.number(),
+  partnerId: z.number(),
+  partnerName: z.string(),
+  partnerCountry: z.string().nullable(),
+  /** 국가에서 서버가 판정한 물류 방식. 국가 미등록 후보는 null. */
+  shipmentMode: BomShipmentMode.nullable(),
+  unitPrice: z.number(),
+  stock: z.number().int().nullable(),
+  leadTime: z.string().nullable(),
+  dateCode: z.string().nullable(),
+  memo: z.string().nullable(),
+  eligible: z.boolean(),
+  ineligibleReason: z.string().nullable(),
+});
+export type AdminBomShortageCandidateType = z.infer<typeof AdminBomShortageCandidate>;
+
+export const AdminBomShortageCandidatesResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    shortageId: z.number(),
+    quoteItemId: z.string(),
+    mpn: z.string(),
+    shortageQty: z.number().int().positive(),
+    candidates: z.array(AdminBomShortageCandidate),
+  }),
+});
+export type AdminBomShortageCandidatesResponseType = z.infer<
+  typeof AdminBomShortageCandidatesResponse
+>;
+
+export const AdminBomShortageRecoverBody = z.object({
+  rfqItemId: z.number().int().positive(),
+  memo: z.string().trim().max(2000).nullish(),
+});
+export type AdminBomShortageRecoverBodyType = z.infer<typeof AdminBomShortageRecoverBody>;
 
 // ── 발주 워크큐(/api/admin/bom-pos) — 전 Case 횡단 발주서 목록(관리자 메뉴 재편) ──
 // 발주 담당의 큐: 확인 대기(issued)→진행 중(confirmed)→마감(closed). "발주 대기"
@@ -784,6 +887,8 @@ export const PartnerPoDetail = z.object({
   quoteTitle: z.string(),
   status: BomPoStatus,
   totalAmount: z.number().int(),
+  /** 공급 부족을 제외한 실제 공급 예정 합계(VAT 별도, 서버 계산). */
+  actualSupplyAmount: z.number().int().nonnegative(),
   currency: z.string(),
   memo: z.string().nullable(),
   issuedAt: z.string(),
@@ -811,6 +916,17 @@ export const PartnerPoDetailResponse = z.object({
   data: PartnerPoDetail,
 });
 export type PartnerPoDetailResponseType = z.infer<typeof PartnerPoDetailResponse>;
+
+export const PartnerPoShortageCreateBody = z.object({
+  poItemId: z.number().int().positive(),
+  shortageQty: z.number().int().positive(),
+  reason: BomPoShortageReason,
+  note: z.string().trim().max(1000).nullish(),
+});
+export type PartnerPoShortageCreateBodyType = z.infer<typeof PartnerPoShortageCreateBody>;
+
+export const PartnerPoShortageUpdateBody = PartnerPoShortageCreateBody.omit({ poItemId: true });
+export type PartnerPoShortageUpdateBodyType = z.infer<typeof PartnerPoShortageUpdateBody>;
 
 // ── 발송(1급 개념, §6.11) — 포털의 "박스" 단위 뷰. 조작은 대표 발주서(primaryPoId)
 // 경유로 기존 poId 라우트를 재사용한다(신규 표면 최소화).

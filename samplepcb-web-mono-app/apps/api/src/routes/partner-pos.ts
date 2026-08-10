@@ -9,6 +9,8 @@ import {
   BomShipmentPackingListSaveBody,
   BomShipmentStatementResponse,
   BomShipmentFileType,
+  PartnerPoShortageCreateBody,
+  PartnerPoShortageUpdateBody,
   PartnerPoDetailResponse,
   PartnerPoListResponse,
   PartnerShipmentAdvanceBody,
@@ -28,7 +30,9 @@ import {
   advancePartnerShipment,
   asShipmentMode,
   asShipmentStatus,
+  BOM_PO_ITEM_PROCUREMENT_INCLUDE,
   attachShipmentPo,
+  cancelPoShortage,
   createPartnerShipment,
   deleteShipmentFile,
   detachShipmentPo,
@@ -41,6 +45,8 @@ import {
   toPartnerPoListItem,
   loadShipmentFilesMap,
   loadShipmentGroupMap,
+  reportPoShortage,
+  updatePoShortage,
   type PartnerShipmentError,
 } from '../lib/bom-po';
 import { collectMultipart } from '../lib/market';
@@ -72,6 +78,10 @@ import { shipmentModeFromCountry } from '../lib/bom-shipment-policy';
 
 const PoIdParams = z.object({ poId: z.coerce.bigint() });
 const PoFileParams = z.object({ poId: z.coerce.bigint(), fileId: z.coerce.bigint() });
+const PoShortageParams = z.object({
+  poId: z.coerce.bigint(),
+  shortageId: z.coerce.bigint(),
+});
 
 const ADVANCE_ERROR_MESSAGE: Record<PartnerShipmentError, string> = {
   PO_NOT_FOUND: '발주서를 찾을 수 없습니다.',
@@ -87,6 +97,24 @@ const ADVANCE_ERROR_MESSAGE: Record<PartnerShipmentError, string> = {
   PARTNER_COUNTRY_REQUIRED: '협력사 국가 정보가 없습니다. 샘플피씨비 담당자에게 문의해 주세요.',
 };
 
+const SHORTAGE_ERROR_MESSAGE: Record<string, string> = {
+  PO_NOT_FOUND: '발주서를 찾을 수 없습니다.',
+  PO_NOT_CONFIRMED: '발주 확인을 완료한 뒤 공급 부족을 신고할 수 있습니다.',
+  SHIPMENT_ALREADY_STARTED: '이미 발송에 담긴 발주서는 공급 부족으로 변경할 수 없습니다.',
+  ITEM_NOT_FOUND: '발주 품목을 찾을 수 없습니다.',
+  INVALID_QUANTITY: '부족 수량은 발주 수량 이하여야 합니다.',
+  ALREADY_REPORTED: '이미 공급 부족이 신고된 품목입니다.',
+  SHORTAGE_NOT_FOUND: '공급 부족 신고를 찾을 수 없습니다.',
+  ALREADY_RECOVERED: '이미 대체발주가 진행된 신고는 변경할 수 없습니다.',
+  NO_SUPPLY_REMAINS: '발주서 전체를 공급할 수 없는 경우 담당자에게 별도로 문의해 주세요.',
+};
+
+const DOCUMENT_ERROR_MESSAGE = {
+  SHIPMENT_NOT_FOUND: '발송을 찾을 수 없습니다.',
+  INTERNATIONAL_DOCUMENT_ONLY: 'Invoice와 AWB는 국외 발송에서만 사용합니다.',
+  SHIPMENT_DOCUMENTS_LOCKED: '입고·완료된 발송 문서는 수정하거나 삭제할 수 없습니다.',
+} as const;
+
 export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requirePartner);
 
@@ -94,7 +122,10 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
     const po = await prisma.spBomPo.findUnique({
       where: { id: poId },
       include: {
-        items: { orderBy: { id: 'asc' } },
+        items: {
+          include: BOM_PO_ITEM_PROCUREMENT_INCLUDE,
+          orderBy: { id: 'asc' },
+        },
         quote: { select: { title: true } },
         shipmentLink: { include: { shipment: true } },
       },
@@ -183,6 +214,96 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
     async (request, reply) => {
       const ctx = request.partnerContext;
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const detail = await loadDetail(request.params.poId, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  // 공급 부족 신고(D31) — 확인된 발주서가 아직 발송에 담기기 전, 품목별 1회.
+  // 원 발주 수량·금액은 수정하지 않고 별도 원장만 생성한다.
+  fastify.post(
+    '/partner/pos/:poId/shortages',
+    {
+      schema: {
+        params: PoIdParams,
+        body: PartnerPoShortageCreateBody,
+        response: { 200: PartnerPoDetailResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const result = await reportPoShortage(
+        request.params.poId,
+        ctx.partnerId,
+        request.user.mbId,
+        request.body,
+      );
+      if (!result.ok) {
+        return reply.status(409).send({
+          error: result.error,
+          message: SHORTAGE_ERROR_MESSAGE[result.error] ?? '공급 부족 신고에 실패했습니다.',
+        });
+      }
+      const detail = await loadDetail(request.params.poId, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  fastify.patch(
+    '/partner/pos/:poId/shortages/:shortageId',
+    {
+      schema: {
+        params: PoShortageParams,
+        body: PartnerPoShortageUpdateBody,
+        response: { 200: PartnerPoDetailResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const result = await updatePoShortage(
+        request.params.poId,
+        request.params.shortageId,
+        ctx.partnerId,
+        request.body,
+      );
+      if (!result.ok) {
+        return reply.status(409).send({
+          error: result.error,
+          message: SHORTAGE_ERROR_MESSAGE[result.error] ?? '공급 부족 신고 수정에 실패했습니다.',
+        });
+      }
+      const detail = await loadDetail(request.params.poId, ctx.partnerId);
+      if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      return { result: true as const, data: detail };
+    },
+  );
+
+  fastify.delete(
+    '/partner/pos/:poId/shortages/:shortageId',
+    {
+      schema: {
+        params: PoShortageParams,
+        response: { 200: PartnerPoDetailResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const ctx = request.partnerContext;
+      if (ctx === undefined) throw fastify.httpErrors.forbidden();
+      const result = await cancelPoShortage(
+        request.params.poId,
+        request.params.shortageId,
+        ctx.partnerId,
+      );
+      if (!result.ok) {
+        return reply.status(409).send({
+          error: result.error,
+          message: SHORTAGE_ERROR_MESSAGE[result.error] ?? '공급 부족 신고 취소에 실패했습니다.',
+        });
+      }
       const detail = await loadDetail(request.params.poId, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
       return { result: true as const, data: detail };
@@ -501,10 +622,13 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
       const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
       if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const saved = await saveShipmentFile(shipment.id, kind.data, file, 'PARTNER');
-      if (!saved) {
+      if (!saved.ok) {
+        if (saved.error === 'SHIPMENT_NOT_FOUND') {
+          return reply.notFound(DOCUMENT_ERROR_MESSAGE[saved.error]);
+        }
         return reply.status(409).send({
-          error: 'INTERNATIONAL_DOCUMENT_ONLY',
-          message: 'Invoice와 AWB는 국외 발송에서만 사용합니다.',
+          error: saved.error,
+          message: DOCUMENT_ERROR_MESSAGE[saved.error],
         });
       }
       const detail = await loadDetail(request.params.poId, ctx.partnerId);
@@ -515,14 +639,27 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
 
   fastify.delete(
     '/partner/pos/:poId/shipment/files/:fileId',
-    { schema: { params: PoFileParams, response: { 200: PartnerPoDetailResponse } } },
+    {
+      schema: {
+        params: PoFileParams,
+        response: { 200: PartnerPoDetailResponse, 409: ApiError },
+      },
+    },
     async (request, reply) => {
       const ctx = request.partnerContext;
       if (ctx === undefined) throw fastify.httpErrors.forbidden();
       const shipment = await ensurePartnerShipment(request.params.poId, ctx.partnerId);
       if (shipment === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const removed = await deleteShipmentFile(shipment.id, request.params.fileId);
-      if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
+      if (!removed.ok) {
+        if (removed.error === 'SHIPMENT_NOT_FOUND') {
+          return reply.notFound('파일을 찾을 수 없습니다');
+        }
+        return reply.status(409).send({
+          error: removed.error,
+          message: DOCUMENT_ERROR_MESSAGE[removed.error],
+        });
+      }
       const detail = await loadDetail(request.params.poId, ctx.partnerId);
       if (detail === null) return reply.notFound('발주서를 찾을 수 없습니다');
       return { result: true as const, data: detail };
@@ -619,7 +756,16 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
         });
       }
-      await saveInvoiceData(shipment.id, request.body);
+      const saved = await saveInvoiceData(shipment.id, request.body);
+      if (!saved.ok) {
+        if (saved.error === 'SHIPMENT_NOT_FOUND') {
+          return reply.notFound(DOCUMENT_ERROR_MESSAGE[saved.error]);
+        }
+        return reply.status(409).send({
+          error: saved.error,
+          message: DOCUMENT_ERROR_MESSAGE[saved.error],
+        });
+      }
       return { result: true as const, data: request.body };
     },
   );
@@ -639,7 +785,16 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
           message: 'Commercial Invoice는 국외 발송에서만 사용합니다.',
         });
       }
-      await saveInvoiceData(shipment.id, request.body);
+      const saved = await saveInvoiceData(shipment.id, request.body);
+      if (!saved.ok) {
+        if (saved.error === 'SHIPMENT_NOT_FOUND') {
+          return reply.notFound(DOCUMENT_ERROR_MESSAGE[saved.error]);
+        }
+        return reply.status(409).send({
+          error: saved.error,
+          message: DOCUMENT_ERROR_MESSAGE[saved.error],
+        });
+      }
       const buffer = await renderInvoiceXlsx(request.body);
       const base = (request.body.invoiceNo || `invoice-${String(shipment.id)}`).replace(
         /[^\w.-]+/g,

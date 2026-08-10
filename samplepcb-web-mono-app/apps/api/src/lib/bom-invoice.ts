@@ -2,11 +2,16 @@ import ExcelJS from 'exceljs';
 import type {
   SpBomPo,
   SpBomPoItem,
+  SpBomPoShortage,
   SpBomShipment,
   SpBomShipmentPo,
   SpPartner,
 } from '@prisma/client';
-import { BomInvoiceData } from '@sp/api-contract';
+import {
+  BomInvoiceData,
+  BomShipmentStatus,
+  bomShipmentDocumentsLocked,
+} from '@sp/api-contract';
 import type { BomInvoiceDataType, BomInvoiceItemType } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getBusinessInfo, getShopEstimateProfile } from './g5-db';
@@ -32,8 +37,9 @@ const countryName = (code: string | null): string =>
 const todayKst = (): string =>
   new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
 
+type InvoicePoItem = SpBomPoItem & { shortage: SpBomPoShortage | null };
 type PoForInvoice = SpBomPo & {
-  items: SpBomPoItem[];
+  items: InvoicePoItem[];
   partner: SpPartner;
   shipmentLink: (SpBomShipmentPo & { shipment: SpBomShipment }) | null;
 };
@@ -42,7 +48,7 @@ export const loadPoForInvoice = async (poId: bigint): Promise<PoForInvoice | nul
   prisma.spBomPo.findUnique({
     where: { id: poId },
     include: {
-      items: { orderBy: { id: 'asc' } },
+      items: { include: { shortage: true }, orderBy: { id: 'asc' } },
       partner: true,
       shipmentLink: { include: { shipment: true } },
     },
@@ -62,11 +68,17 @@ export const buildInvoiceDraft = async (
   // 품목 = 선적(박스) 단위(§6.10) — 묶음 소속 발주서 전체의 스냅샷 합산. D23 이
   // 선적 그룹보다 먼저 구현돼 발주 1건 단위 조립이 남아 묶음의 나머지 품목이
   // 통째로 빠지던 결함 교정(같은 협력사 묶음이라 발송인 정보는 po 기준 그대로).
-  let poRows: { currency: string; items: SpBomPoItem[] }[] = [po];
+  let poRows: { currency: string; items: InvoicePoItem[] }[] = [po];
   if (shipment !== null) {
     const links = await prisma.spBomShipmentPo.findMany({
       where: { shipmentId: shipment.id },
-      include: { po: { include: { items: { orderBy: { id: 'asc' } } } } },
+      include: {
+        po: {
+          include: {
+            items: { include: { shortage: true }, orderBy: { id: 'asc' } },
+          },
+        },
+      },
       orderBy: { id: 'asc' },
     });
     if (links.length > 0) poRows = links.map((link) => link.po);
@@ -74,17 +86,24 @@ export const buildInvoiceDraft = async (
 
   const [business, profile] = await Promise.all([getBusinessInfo(), getShopEstimateProfile()]);
   const items: BomInvoiceItemType[] = poRows.flatMap((row) =>
-    row.items.map((item) => ({
-      description:
-        item.manufacturerName === null || item.manufacturerName === ''
-          ? item.mpn
-          : `${item.mpn} (${item.manufacturerName})`,
-      hsCode: '',
-      qty: String(item.qty),
-      currency: row.currency,
-      unitValue: Number(item.unitPrice),
-      totalValue: item.lineTotal,
-    })),
+    row.items.flatMap((item) => {
+      const qty = Math.max(0, item.qty - (item.shortage?.shortageQty ?? 0));
+      return qty < 1
+        ? []
+        : [
+            {
+              description:
+                item.manufacturerName === null || item.manufacturerName === ''
+                  ? item.mpn
+                  : `${item.mpn} (${item.manufacturerName})`,
+              hsCode: '',
+              qty: String(qty),
+              currency: row.currency,
+              unitValue: Number(item.unitPrice),
+              totalValue: Math.round(Number(item.unitPrice) * qty),
+            },
+          ];
+    }),
   );
   return {
     companyName: po.partner.name,
@@ -110,15 +129,45 @@ export const buildInvoiceDraft = async (
   };
 };
 
+export type InvoiceDataSaveResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error:
+        | 'SHIPMENT_NOT_FOUND'
+        | 'INTERNATIONAL_DOCUMENT_ONLY'
+        | 'SHIPMENT_DOCUMENTS_LOCKED';
+    };
+
 export const saveInvoiceData = async (
   shipmentId: bigint,
   data: BomInvoiceDataType,
-): Promise<void> => {
+): Promise<InvoiceDataSaveResult> => {
+  const shipment = await prisma.spBomShipment.findUnique({
+    where: { id: shipmentId },
+    select: { mode: true, status: true, receivedAt: true },
+  });
+  if (shipment === null) return { ok: false, error: 'SHIPMENT_NOT_FOUND' };
+  if (shipment.mode !== 'international') {
+    return { ok: false, error: 'INTERNATIONAL_DOCUMENT_ONLY' };
+  }
+  const parsedStatus = BomShipmentStatus.safeParse(shipment.status);
+  const status = parsedStatus.success ? parsedStatus.data : 'preparing';
+  if (bomShipmentDocumentsLocked('international', status, shipment.receivedAt)) {
+    return { ok: false, error: 'SHIPMENT_DOCUMENTS_LOCKED' };
+  }
   const saved = await prisma.spBomShipment.updateMany({
-    where: { id: shipmentId, mode: 'international' },
+    where: {
+      id: shipmentId,
+      mode: 'international',
+      status: { not: 'done' },
+      receivedAt: null,
+    },
     data: { invoiceData: data },
   });
-  if (saved.count !== 1) throw new Error('Commercial Invoice is only available internationally');
+  return saved.count === 1
+    ? { ok: true }
+    : { ok: false, error: 'SHIPMENT_DOCUMENTS_LOCKED' };
 };
 
 // ── 엑셀 렌더 — 레거시 SpInvoiceXlsxRenderer(POI) 레이아웃의 exceljs 이식 ─────

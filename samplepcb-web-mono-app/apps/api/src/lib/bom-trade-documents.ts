@@ -187,7 +187,7 @@ export const loadShipmentStatementDocument = async (
         include: {
           partner: true,
           quote: { select: { title: true } },
-          items: { orderBy: { id: 'asc' } },
+          items: { include: { shortage: true }, orderBy: { id: 'asc' } },
         },
       },
       pos: {
@@ -197,7 +197,7 @@ export const loadShipmentStatementDocument = async (
             include: {
               partner: true,
               quote: { select: { title: true } },
-              items: { orderBy: { id: 'asc' } },
+              items: { include: { shortage: true }, orderBy: { id: 'asc' } },
             },
           },
         },
@@ -222,25 +222,32 @@ export const loadShipmentStatementDocument = async (
   );
   const pos = shipment.pos.length > 0 ? shipment.pos.map((link) => link.po) : [shipment.po];
   const items = pos.flatMap((po) =>
-    po.items.map((item) => {
+    po.items.flatMap((item) => {
       const packages = packingByPoItem.get(item.id) ?? [];
+      const availableQty = Math.max(0, item.qty - (item.shortage?.shortageQty ?? 0));
       const shippedQty =
-        packages.length > 0 ? packages.reduce((sum, pkg) => sum + pkg.quantity, 0) : item.qty;
-      return {
-        poId: Number(po.id),
-        quoteId: String(po.quoteId),
-        quoteTitle: po.quote.title,
-        poItemId: Number(item.id),
-        mpn: item.mpn,
-        manufacturerName: item.manufacturerName,
-        description: item.description,
-        orderedQty: item.qty,
-        shippedQty,
-        unitPrice: Number(item.unitPrice),
-        lineTotal: Math.round(Number(item.unitPrice) * shippedQty),
-        lotNos: uniqueTexts(packages.map((pkg) => pkg.lotNo)),
-        dateCodes: uniqueTexts(packages.map((pkg) => pkg.dateCode)),
-      };
+        packages.length > 0
+          ? packages.reduce((sum, pkg) => sum + pkg.quantity, 0)
+          : availableQty;
+      return shippedQty < 1
+        ? []
+        : [
+            {
+              poId: Number(po.id),
+              quoteId: String(po.quoteId),
+              quoteTitle: po.quote.title,
+              poItemId: Number(item.id),
+              mpn: item.mpn,
+              manufacturerName: item.manufacturerName,
+              description: item.description,
+              orderedQty: item.qty,
+              shippedQty,
+              unitPrice: Number(item.unitPrice),
+              lineTotal: Math.round(Number(item.unitPrice) * shippedQty),
+              lotNos: uniqueTexts(packages.map((pkg) => pkg.lotNo)),
+              dateCodes: uniqueTexts(packages.map((pkg) => pkg.dateCode)),
+            },
+          ];
     }),
   );
   const supplyAmount = items.reduce((sum, item) => sum + item.lineTotal, 0);

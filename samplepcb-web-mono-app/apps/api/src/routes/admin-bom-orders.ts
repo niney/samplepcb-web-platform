@@ -14,7 +14,7 @@ import type {
   AdminBomOrderListItemType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
-import { loadReceivedPoCounts } from '../lib/bom-po';
+import { loadOpenShortageCounts, loadReceivedPoCounts } from '../lib/bom-po';
 import { areAllBomOrderCasesReceived } from '../lib/bom-order-shipping';
 import {
   getCartOrderAttemptsByIoIds,
@@ -112,7 +112,7 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
       const quoteIds = quotes.map((quote) => quote.id);
       const ioIds = quotes.map((quote) => `bom-${String(quote.id)}`);
-      const [attemptsByIoId, poGroups, receivedCounts] = await Promise.all([
+      const [attemptsByIoId, poGroups, receivedCounts, openShortageCounts] = await Promise.all([
         getCartOrderAttemptsByIoIds(ioIds),
         prisma.spBomPo.groupBy({
           by: ['quoteId'],
@@ -121,6 +121,7 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         }),
         // 입고 발주서 수 — §6.10 조인 기반(묶음이 여러 Case 를 걸칠 수 있음)
         loadReceivedPoCounts(quoteIds),
+        loadOpenShortageCounts(quoteIds),
       ]);
       const poCounts = new Map(poGroups.map((group) => [group.quoteId, group._count._all]));
 
@@ -173,6 +174,9 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
               poCount: activeCurrent ? (poCounts.get(attempt.quote.id) ?? 0) : 0,
               poReceivedCount: activeCurrent
                 ? (receivedCounts.get(attempt.quote.id) ?? 0)
+                : 0,
+              openShortageCount: activeCurrent
+                ? (openShortageCounts.get(attempt.quote.id) ?? 0)
                 : 0,
             };
           })
