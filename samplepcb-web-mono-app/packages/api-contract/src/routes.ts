@@ -54,6 +54,7 @@ export const apiRoutes = {
   marketSettings: '/api/market/settings',
   ai: '/api/ai',
   rndAi: '/api/rnd/ai',
+  pcbPricing: '/api/pcb-pricing',
   adminMarketExperts: '/api/admin/market/experts',
   adminMarketProjects: '/api/admin/market/projects',
   adminMarketContracts: '/api/admin/market/contracts',

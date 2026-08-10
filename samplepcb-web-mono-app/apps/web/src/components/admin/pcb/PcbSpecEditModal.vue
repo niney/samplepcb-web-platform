@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import { ADMIN_SPEC_REVISE_BLOCK_TEXT, type AdminSpecReviseResponseType } from '@sp/api-contract';
-import { useReviseSpec } from '../../../admin/useAdminQuotes';
+import {
+  fetchPcbPricingPreview,
+  useReviseSpec,
+  type PcbPricingPreviewResult,
+} from '../../../admin/useAdminQuotes';
 import { fmtPcbAmount } from '../../../lib/pcb-money';
 import { SPEC_ROWS } from '../../../lib/pcb-spec';
 
@@ -44,6 +48,61 @@ const result = ref<AdminSpecReviseResponseType['data'] | null>(null);
 const error = ref('');
 
 const reviseMut = useReviseSpec();
+
+// ── 실시간 가격 변동 미리보기 (Preview) ─────────────────────────
+const previewData = ref<PcbPricingPreviewResult | null>(null);
+const previewLoading = ref(false);
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+const currentPrice = computed<number | null>(() => props.autoPrice ?? props.finalPrice);
+
+const priceDiff = computed<{
+  amount: number;
+  percent: number | null;
+  type: 'increase' | 'decrease' | 'same';
+} | null>(() => {
+  const current = currentPrice.value;
+  const next = previewData.value?.price ?? null;
+  if (current === null || next === null) return null;
+  const diff = next - current;
+  if (diff === 0) return { amount: 0, percent: 0, type: 'same' };
+  const pct = current > 0 ? (diff / current) * 100 : null;
+  return {
+    amount: diff,
+    percent: pct,
+    type: diff > 0 ? 'increase' : 'decrease',
+  };
+});
+
+const updatePreview = (): void => {
+  if (debounceTimer !== null) clearTimeout(debounceTimer);
+  const q = Number(qtyDraft.value);
+  if (!Number.isInteger(q) || q <= 0) {
+    previewData.value = null;
+    previewLoading.value = false;
+    return;
+  }
+  previewLoading.value = true;
+  debounceTimer = setTimeout(() => {
+    const cleanSpec: Record<string, string> = {};
+    for (const [k, v] of Object.entries(draft.value)) {
+      if (v.trim() !== '') cleanSpec[k] = v.trim();
+    }
+    void fetchPcbPricingPreview(props.category, q, cleanSpec)
+      .then((res) => {
+        previewData.value = res;
+      })
+      .finally(() => {
+        previewLoading.value = false;
+      });
+  }, 300);
+};
+
+watch([draft, qtyDraft], updatePreview, { deep: true, immediate: true });
+
+onBeforeUnmount(() => {
+  if (debounceTimer !== null) clearTimeout(debounceTimer);
+});
 
 const rows = computed(() => [
   ...SPEC_ROWS.map((r) => ({ key: r.key, label: r.label })),
@@ -108,7 +167,7 @@ async function save(): Promise<void> {
 
 <template>
   <div class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="emit('close')">
-    <div class="w-full max-w-3xl overflow-hidden rounded-xl bg-surface shadow-xl">
+    <div class="w-full max-w-5xl overflow-hidden rounded-xl bg-surface shadow-xl">
       <header class="border-b border-gray-200 px-5 py-4">
         <p class="text-[11px] font-bold uppercase tracking-wider text-blue-600">제작 사양 수정</p>
         <h3 class="mt-0.5 text-base font-bold text-gray-900">{{ category }} · Q{{ projectId }}</h3>
@@ -160,7 +219,7 @@ async function save(): Promise<void> {
             <input v-model="qtyDraft" type="number" min="1" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm tabular-nums focus:border-blue-500 focus:outline-none">
           </label>
 
-          <div class="mt-4 grid gap-x-4 gap-y-2 sm:grid-cols-2 md:grid-cols-3">
+          <div class="mt-4 grid gap-x-3.5 gap-y-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             <label
               v-for="row in rows"
               :key="row.key"
@@ -198,6 +257,65 @@ async function save(): Promise<void> {
                 <span v-if="c.gerber" class="ml-1 rounded bg-amber-100 px-1 text-[10px] font-bold">거버 파생</span>
               </li>
             </ul>
+          </div>
+
+          <!-- 실시간 예상 가격 미리보기 (Preview) -->
+          <div class="mt-2.5 rounded-lg border border-blue-200 bg-blue-50/70 p-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-extrabold text-blue-900">실시간 예상 가격 미리보기</span>
+                <span v-if="previewLoading" class="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600">
+                  <svg class="h-3 w-3 animate-spin text-blue-600" viewBox="0 0 24 24" fill="none">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  계산 중…
+                </span>
+              </div>
+              <span v-if="previewData?.eta" class="text-[11px] font-medium text-gray-500">
+                예상 납기: {{ previewData.eta }} ({{ previewData.buildTimeWithUnit }})
+              </span>
+            </div>
+
+            <div class="mt-1.5 flex flex-wrap items-baseline justify-between gap-2 border-t border-blue-100/80 pt-2 text-xs">
+              <div class="flex items-center gap-1.5">
+                <span class="text-gray-500">현재:</span>
+                <span class="font-bold text-gray-700 tabular-nums">
+                  {{ currentPrice !== null ? fmtPcbAmount('KRW', currentPrice) : '—' }}
+                </span>
+                <span class="text-gray-400">→</span>
+                <span class="text-gray-500">변경 예상:</span>
+                <b :class="previewData?.price === null ? 'text-amber-700' : 'text-gray-900'" class="text-sm tabular-nums">
+                  {{ previewData?.price === null || previewData === null
+                    ? (previewLoading ? '계산 중…' : '자동견적 불가 (RFQ)')
+                    : fmtPcbAmount('KRW', previewData.price) }}
+                </b>
+              </div>
+
+              <!-- 변동액 Badge -->
+              <div v-if="priceDiff !== null && !previewLoading" class="flex items-center">
+                <span
+                  v-if="priceDiff.type === 'increase'"
+                  class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-extrabold text-amber-800"
+                >
+                  ▲ +{{ fmtPcbAmount('KRW', priceDiff.amount) }}
+                  <span v-if="priceDiff.percent !== null">({{ priceDiff.percent > 0 ? '+' : '' }}{{ priceDiff.percent.toFixed(1) }}%)</span>
+                </span>
+                <span
+                  v-else-if="priceDiff.type === 'decrease'"
+                  class="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-extrabold text-emerald-800"
+                >
+                  ▼ {{ fmtPcbAmount('KRW', priceDiff.amount) }}
+                  <span v-if="priceDiff.percent !== null">({{ priceDiff.percent.toFixed(1) }}%)</span>
+                </span>
+                <span
+                  v-else-if="priceDiff.type === 'same'"
+                  class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-bold text-gray-600"
+                >
+                  변동 없음
+                </span>
+              </div>
+            </div>
           </div>
 
           <p v-if="touchedGerber" class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900">

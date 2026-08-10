@@ -166,3 +166,22 @@ export const PcbProjectCreateResponse = z.object({
   }),
 });
 export type PcbProjectCreateResponseType = z.infer<typeof PcbProjectCreateResponse>;
+
+// 레거시 호환 실시간 가격 API(POST /api/pcb-pricing) 응답
+export const PcbPricingResponse = z.discriminatedUnion('result', [
+  z.object({
+    result: z.literal(true),
+    data: z.object({
+      listPriceWithRate: z.string(),
+      weightWithUnit: z.string(),
+      buildTimeWithUnit: z.string(),
+      eta: z.string(),
+      placeOfOrigin: z.string(),
+    }),
+  }),
+  z.object({
+    result: z.literal(false),
+    message: z.string(),
+  }),
+]);
+export type PcbPricingResponseType = z.infer<typeof PcbPricingResponse>;

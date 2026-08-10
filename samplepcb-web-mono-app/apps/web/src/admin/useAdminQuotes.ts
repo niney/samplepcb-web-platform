@@ -15,6 +15,7 @@ import {
   AdminQuoteListResponse,
   AdminSendEstimateResponse,
   AdminSpecReviseResponse,
+  PcbPricingResponse,
   apiRoutes,
   type AdminSpecReviseBodyType,
 } from '@sp/api-contract';
@@ -241,4 +242,42 @@ export function useReviseSpec() {
       ]);
     },
   });
+}
+
+export interface PcbPricingPreviewResult {
+  price: number | null;
+  listPriceWithRate: string;
+  weightWithUnit: string;
+  buildTimeWithUnit: string;
+  eta: string;
+  placeOfOrigin: string;
+}
+
+// 실시간 가격 미리보기 — 노저장 계산 전용 라우트(POST /api/pcb-pricing) 호출
+export async function fetchPcbPricingPreview(
+  category: string,
+  qty: number,
+  spec: Record<string, string>,
+): Promise<PcbPricingPreviewResult | null> {
+  const payload: Record<string, unknown> = {
+    menu: category,
+    qty,
+    ...spec,
+  };
+  try {
+    const res = await apiSend('POST', apiRoutes.pcbPricing, payload, PcbPricingResponse);
+    if (!res.result) return null;
+    const priceDigits = res.data.listPriceWithRate.replace(/[^0-9]/g, '');
+    const priceNum = priceDigits === '' ? 0 : parseInt(priceDigits, 10);
+    return {
+      price: priceNum > 0 ? priceNum : null,
+      listPriceWithRate: res.data.listPriceWithRate,
+      weightWithUnit: res.data.weightWithUnit,
+      buildTimeWithUnit: res.data.buildTimeWithUnit,
+      eta: res.data.eta,
+      placeOfOrigin: res.data.placeOfOrigin,
+    };
+  } catch {
+    return null;
+  }
 }
