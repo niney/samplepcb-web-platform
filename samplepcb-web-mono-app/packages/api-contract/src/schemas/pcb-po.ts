@@ -394,6 +394,18 @@ export const PartnerPcbPoDetail = z.object({
   canShip: z.boolean(),
   /** P3 — MD 출고 게이팅에 걸림(하위 입고 미완료). */
   outboundBlocked: z.boolean(),
+  /** 같은 사양의 다른 A/S 회차 발주(내가 볼 수 있는 것만, 회차당 1건 — 원발주 상세의
+   *  회차 역링크 재점검 #16). MD 는 같은 회차의 상위·하위가 다 보이므로 수주(내 문서)
+   *  우선으로 하나만 고른다. */
+  asRounds: z
+    .array(
+      z.object({
+        poId: z.number(),
+        reorderRound: z.number().int(),
+        status: PcbPoStatus,
+      }),
+    )
+    .default([]),
 });
 export type PartnerPcbPoDetailType = z.infer<typeof PartnerPcbPoDetail>;
 

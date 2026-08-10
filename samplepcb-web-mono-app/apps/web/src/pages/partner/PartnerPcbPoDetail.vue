@@ -31,6 +31,7 @@ import {
   useUploadPartnerPcbEqFile,
 } from '../../partner/usePartnerPcbPos';
 import { fmtKstDate as dateOnly } from '@sp/utils';
+import { formatBytes } from '../../lib/format';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
@@ -47,6 +48,8 @@ const poId = computed(() => {
 });
 const detailQuery = usePartnerPcbPoDetail(poId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
+// A/S 회차 역링크(재점검 #16) — 같은 사양의 다른 회차 발주(내가 볼 수 있는 것만).
+const asRounds = computed(() => detail.value?.asRounds ?? []);
 
 const actionError = ref('');
 const surfaceError = (e: unknown, fallback: string): void => {
@@ -317,6 +320,24 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
         </span>
       </div>
 
+      <!-- A/S 회차 역링크(재점검 #16) — 같은 사양에 회차 발주가 생기면 원발주 상세에서도
+           존재를 알린다(내가 볼 수 있는 회차만, 서버 asRounds). -->
+      <p
+        v-if="asRounds.length > 0"
+        class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800"
+      >
+        🔧 이 사양의 A/S 회차 발주 {{ asRounds.length }}건 —
+        <template v-for="(r, i) in asRounds" :key="r.poId">
+          <template v-if="i > 0"> · </template>
+          <RouterLink
+            :to="{ name: 'partner-pcb-po', params: { id: String(r.poId) } }"
+            class="font-bold underline hover:text-rose-900"
+          >
+            {{ r.reorderRound }}차(PO-{{ r.poId }} · {{ PCB_PO_STATUS_LABELS[r.status] }}) 열기 →
+          </RouterLink>
+        </template>
+      </p>
+
       <p v-if="actionError !== ''" class="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{{ actionError }}</p>
 
       <!-- 발주 조건 -->
@@ -423,7 +444,8 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
                 <button type="button" class="truncate font-medium text-blue-700 hover:underline" @click="void downloadPartnerPcbEqFile(detail.poId, f.fileId, f.name)">
                   {{ f.name }}
                 </button>
-                <span class="text-gray-300">{{ (f.size / 1024).toFixed(0) }}KB</span>
+                <!-- 1KB 미만은 바이트로(재점검 #20 — toFixed(0) 나누기는 작은 파일이 '0KB') -->
+                <span class="text-gray-300">{{ formatBytes(f.size) }}</span>
                 <button
                   v-if="filesEditable && detail.eq.myRole === 'RECEIVER'"
                   type="button"
@@ -640,11 +662,13 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
                 </td>
                 <td class="whitespace-nowrap px-3 py-2 text-gray-500">{{ dateOnly(child.deliveryDate) }}</td>
                 <td class="whitespace-nowrap px-3 py-2 text-right">
+                  <!-- 라벨은 하위 상태를 입는다(재점검 #17) — 생산완료 뒤에도 'EQ 진행'이면
+                       아직 할 일이 남은 듯 읽힌다. -->
                   <RouterLink
                     :to="{ name: 'partner-pcb-po', params: { id: String(child.poId) } }"
                     class="rounded-md border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
                   >
-                    EQ 진행 →
+                    {{ child.status === 'produced' ? '생산 완료 — 보기' : 'EQ 진행 →' }}
                   </RouterLink>
                 </td>
               </tr>

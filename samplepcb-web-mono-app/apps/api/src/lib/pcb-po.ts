@@ -873,7 +873,7 @@ export const loadPartnerPcbPoDetail = async (
     po.partnerId === partnerId ? 'received' : po.parentPartnerId === partnerId ? 'issued' : null;
   if (direction === null) return null;
 
-  const [files, house, delegation, childrenRows, childRfqRows] = await Promise.all([
+  const [files, house, delegation, childrenRows, childRfqRows, roundRows] = await Promise.all([
     loadEqFilesMap([po.id]),
     loadHousePartnerName(),
     resolveEqDelegation(po),
@@ -892,7 +892,26 @@ export const loadPartnerPcbPoDetail = async (
       include: { partner: true },
       orderBy: { id: 'asc' },
     }),
+    // 같은 사양의 다른 A/S 회차 발주(#16 역링크) — 내가 볼 수 있는 것(수주·MD 발주)만.
+    prisma.spPcbPo.findMany({
+      where: {
+        specId: po.specId,
+        reorderRound: { gt: 0, not: po.reorderRound },
+        OR: [{ partnerId }, { parentPartnerId: partnerId }],
+      },
+      orderBy: [{ reorderRound: 'asc' }, { id: 'asc' }],
+      select: { id: true, reorderRound: true, status: true, partnerId: true },
+    }),
   ]);
+
+  // 회차당 1건 — MD 는 같은 회차의 상위(수주)·하위(발주)가 다 보이므로 내 수주 문서 우선.
+  const roundPick = new Map<number, (typeof roundRows)[number]>();
+  for (const row of roundRows) {
+    const cur = roundPick.get(row.reorderRound);
+    if (cur === undefined || (cur.partnerId !== partnerId && row.partnerId === partnerId)) {
+      roundPick.set(row.reorderRound, row);
+    }
+  }
 
   const requesterName =
     po.parentPartnerId === 0n
@@ -967,6 +986,11 @@ export const loadPartnerPcbPoDetail = async (
     },
     children: await serializeAdminPos(childrenRows),
     childRfqs: await serializeAdminPcbRfqRows(childRfqRows),
+    asRounds: [...roundPick.values()].map((row) => ({
+      poId: Number(row.id),
+      reorderRound: row.reorderRound,
+      status: asPcbPoStatus(row.status),
+    })),
     // ── P3 선적 — 소속 발송·같이 보낼 후보·발송 가능/게이팅 파생 ──
     ...(await (async () => {
       const shipmentRow = await findPcbShipmentByPo(po.id);

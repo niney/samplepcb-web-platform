@@ -291,6 +291,11 @@ export interface PcbEqDecisionEmailParams {
   reason: string | null; // 반려 사유
   /** 대상 발주 — 있으면 버튼이 발주 상세로 간다(없으면 포털 홈 폴백). */
   poId?: string;
+  /** false=조직에 연결 계정이 없다(재점검 #15) — 포털 CTA 는 실행 불가라 버튼·문구를
+   *  "담당자 대행 진행" 안내로 치환한다(메일 자체는 정보 가치가 있어 유지). 기본 true. */
+  hasPortalAccount?: boolean;
+  /** 대행 안내의 문의처(운영자 메일) — hasPortalAccount=false 일 때만 사용. */
+  inquiryEmail?: string | null;
 }
 
 /** EQ 승인/반려 → 수주 협력사 통지. */
@@ -298,26 +303,47 @@ export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
   subject: string;
   html: string;
 } {
-  const title = p.approved ? 'EQ가 승인되었습니다 — 생산을 시작해 주세요' : 'EQ가 반려되었습니다';
+  const noAccount = p.hasPortalAccount === false;
+  const title = p.approved
+    ? noAccount
+      ? 'EQ가 승인되었습니다 — 생산을 진행해 주세요'
+      : 'EQ가 승인되었습니다 — 생산을 시작해 주세요'
+    : 'EQ가 반려되었습니다';
   const lines = p.approved
     ? `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 EQ가 승인되었습니다.
-        포털에서 [생산 시작]을 진행해 주세요.</p>`
+        ${noAccount ? '생산을 진행해 주세요.' : '포털에서 [생산 시작]을 진행해 주세요.'}</p>`
     : `<p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 EQ가 반려되었습니다.
-        사유 확인 후 파일 보완 → 다시 승인요청해 주세요.</p>
+        ${
+          noAccount
+            ? '사유 확인 후 보완 파일을 샘플피씨비 담당자에게 전달해 주세요 — 재승인요청은 담당자가 대행합니다.'
+            : '사유 확인 후 파일 보완 → 다시 승인요청해 주세요.'
+        }</p>
       ${p.reason === null ? '' : `<p style="margin:0 0 12px;font-size:13px;color:#b91c1c;line-height:1.6;">반려 사유: <b>${esc(p.reason)}</b></p>`}`;
   const target = p.poId === undefined ? pcbPartnerPortalUrl() : pcbPartnerPoUrl(p.poId);
-  return {
-    subject: `[샘플피씨비] PCB EQ ${p.approved ? '승인' : '반려'} — ${p.projectName}`,
-    html: shell(
-      title,
-      `${lines}
+  // 계정 없는 조직 — 포털 버튼 대신 대행 안내(열어도 로그인 화면에서 막히는 CTA 를 없앤다).
+  const cta = noAccount
+    ? `
+      <div style="margin-top:16px;padding:12px 14px;background:#f8fafc;border-left:3px solid #64748b;font-size:13px;color:#334155;line-height:1.7;">
+        포털 진행(상태 처리)은 샘플피씨비 담당자가 대행합니다 — 진행 상황 회신·문의:
+        ${
+          p.inquiryEmail === null || p.inquiryEmail === undefined || p.inquiryEmail === ''
+            ? '이 메일에 회신해 주세요.'
+            : `<a href="mailto:${esc(p.inquiryEmail)}" style="color:#2563eb;">${esc(p.inquiryEmail)}</a>`
+        }
+      </div>`
+    : `
       <div style="padding-top:16px;">
         <a href="${esc(target)}"
            style="display:inline-block;background:${p.approved ? '#059669' : '#b91c1c'};color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
           ${p.poId === undefined ? '파트너 포털 열기' : '발주서 바로 열기'}</a>
-      </div>`,
+      </div>`;
+  return {
+    subject: `[샘플피씨비] PCB EQ ${p.approved ? '승인' : '반려'} — ${p.projectName}`,
+    html: shell(
+      title,
+      `${lines}${cta}`,
       '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
     ),
   };

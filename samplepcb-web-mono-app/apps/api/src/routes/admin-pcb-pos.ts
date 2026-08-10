@@ -60,6 +60,7 @@ import {
 } from '../lib/pcb-rfq-email';
 import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
+import { getShopEstimateProfile } from '../lib/g5-db';
 import { kstDateStr } from '../lib/kst';
 
 // ── PCB 발주서·EQ 관리자 라우트(P2) — docs/PCB_PARTNER_TRACK.md §5.4 ──────────
@@ -104,6 +105,22 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       prisma.spPcbPo.findMany({ where: { specId }, select: { id: true } }),
     ]);
     return { pos, shipments: await loadPcbShipmentsForPoIds(ids.map((r) => r.id)) };
+  };
+
+  // EQ 결정 메일의 포털 CTA 분기(재점검 #15) — 연결 계정 0인 조직에 "포털에서 진행"
+  // 버튼을 보내면 열어도 로그인에서 막히는 실행 불가 CTA 가 된다. 멤버 유무를 조회해
+  // 없으면 대행 안내(+운영자 문의처)로 치환한다. 조회 실패는 발송을 막지 않는다.
+  const resolvePortalCta = async (
+    partnerId: bigint,
+  ): Promise<{ hasPortalAccount: boolean; inquiryEmail: string | null }> => {
+    try {
+      const members = await prisma.spPartnerMember.count({ where: { partnerId } });
+      if (members > 0) return { hasPortalAccount: true, inquiryEmail: null };
+      const profile = await getShopEstimateProfile();
+      return { hasPortalAccount: false, inquiryEmail: profile?.managerEmail ?? null };
+    } catch {
+      return { hasPortalAccount: true, inquiryEmail: null };
+    }
   };
 
   // ── GET /pcb-pos — 횡단 워크큐(경유 상위 제외한 실작업 단위) ────────────────
@@ -288,7 +305,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
               : 'EQ 승인요청 상태에서만 승인할 수 있습니다.',
         });
 
-      const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
+      const [spec, portalCta] = await Promise.all([
+        prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
+        resolvePortalCta(po.partnerId),
+      ]);
       void sendPcbMail(
         request.log,
         po.partner.contactEmail,
@@ -298,6 +318,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           approved: true,
           reason: null,
           poId: String(po.id),
+          ...portalCta,
         }),
         {
           kind: 'pcb_eq_decision',
@@ -330,7 +351,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           .status(409)
           .send({ error: res.error, message: 'EQ 승인요청 상태에서만 반려할 수 있습니다.' });
 
-      const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
+      const [spec, portalCta] = await Promise.all([
+        prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
+        resolvePortalCta(po.partnerId),
+      ]);
       void sendPcbMail(
         request.log,
         po.partner.contactEmail,
@@ -340,6 +364,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           approved: false,
           reason: request.body.reason,
           poId: String(po.id),
+          ...portalCta,
         }),
         {
           kind: 'pcb_eq_decision',

@@ -27,6 +27,10 @@ const pendingAsCount = computed(() => {
   return data.cases.filter((c) => c.status === 'submitted' && c.targetPartnerId === data.partnerId)
     .length;
 });
+// A/S 이력 진입점(재점검 #14) — 회신 대기 배너는 submitted 에서만 떠서, proceeded·
+// rejected 이력은 URL 직접 입력 말고는 갈 길이 없었다. 케이스가 1건이라도 있으면
+// 작은 링크를 상시 노출한다(상시 메뉴 신설은 과함 — 완료된 발송 링크와 같은 결).
+const asCount = computed(() => asQuery.data.value?.data.cases.length ?? 0);
 
 onMounted(() => {
   rememberPartnerModule('pcb');
@@ -236,6 +240,15 @@ const rfqStatusCls = (s: string): string =>
         class="block rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
       >
         완료된 발송 {{ doneCount }}건 보기 →
+      </RouterLink>
+
+      <!-- 보조: A/S 이력 — 회신 대기 배너(submitted)가 없어도 케이스가 있으면 진입점 유지 -->
+      <RouterLink
+        v-if="asCount > 0"
+        :to="{ name: 'partner-pcb-as' }"
+        class="block rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
+      >
+        🔧 A/S 내역 {{ asCount }}건 보기 →
       </RouterLink>
 
       <p
