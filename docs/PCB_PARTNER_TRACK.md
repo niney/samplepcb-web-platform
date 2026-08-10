@@ -1315,6 +1315,23 @@ typecheck·lint 0건 · 정리 CLEAN(취소 주문도 force-status '주문' 복�
   화면 실측(Case A/S 패널·'1차' 배지·포털 'A/S 1차' 배지). 9/9 green · findings
   bug 0 · 정리 CLEAN(케이스는 스펙 FK cascade 소멸 확인).
 
+### P4.13 구현 기록 (2026-08-10 — 고객 주문 상세의 제작 진행 상황)
+
+od 는 '입금'에 머무는데 실제 제작은 EQ→생산→발송→입고로 움직인다 — 그 간극을 **od 무접촉**
+으로 메운다(D6 "od 동기 1차 수동" 결정 유지). 협력 트랙(sp 축)에서 진행 단계를 파생해 고객
+주문내역 상세에 보여줄 뿐, 주문 상태는 바꾸지 않는다.
+
+- **판정**(lib/pcb-customer-progress.ts, 유닛 4): 최상위 발주(parentPartnerId 0)의 **최신
+  회차** 기준 — issued·eq_requested·eq_done→'제조 확인(EQ) 진행 중' / producing→'생산
+  진행 중' / produced→발송 신호로 세분(없음·preparing→'발송 준비 중', 진행→'입고 운송 중',
+  receivedAt→'입고 완료 — 배송 준비 중'). 회차>0 이면 'A/S 재생산 — ' 접두. 발주 전이면
+  항목이 없어 섹션 미노출(이관 주문 무해). 협력사명·발주 정보 비노출(P4.1 관례).
+- **채널**: P4.1 EQ 고객확인과 같은 브리지 — sp-node `GET /api/pcb-progress?odId=`(회원
+  소유 판정) + PHP `sp_pcb_progress()`(sp_pcb_eq.extend.php) + 테마 orderinquiryview
+  '제작 진행 상황' 섹션(EQ 섹션 위) + default_shop.css(#sod_fin 스코프, G5_CSS_VER 26081002).
+- **실측**: 여정 1호 재주행 11/11 — S9 스크린샷에서 od '입금'(완불) 상태의 주문 상세에
+  "제조 확인(EQ) 진행 중 · arduino-uno.zip" 카드 렌더 확인. 정리 CLEAN.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

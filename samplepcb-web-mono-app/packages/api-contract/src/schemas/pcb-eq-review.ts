@@ -109,6 +109,28 @@ export const CustomerPcbEqReviewListResponse = z.object({
 });
 export type CustomerPcbEqReviewListResponseType = z.infer<typeof CustomerPcbEqReviewListResponse>;
 
+// ── 고객 주문 상세의 PCB 진행 단계(P4.13) — od 상태와 별개의 협력 트랙 파생 표시 ──
+// od 는 '입금'에 머물러도 실제 제작은 EQ→생산→입고로 움직인다(D6 1차 수동 유지 —
+// od 를 안 바꾸고 sp 축을 그대로 보여준다). 협력사명·발주 정보는 노출하지 않는다.
+// 라벨은 서버가 완성한다(PHP·화면은 그대로 출력).
+export const PCB_PROGRESS_STAGES = ['eq', 'producing', 'produced', 'shipping', 'received'] as const;
+export type PcbProgressStageType = (typeof PCB_PROGRESS_STAGES)[number];
+
+export const CustomerPcbProgressItem = z.object({
+  specId: z.number(),
+  projectName: z.string(),
+  reorderRound: z.number().int(), // 0=원주문, 1..=A/S 재생산 회차
+  stage: z.enum(PCB_PROGRESS_STAGES),
+  label: z.string(), // 예: '제조 확인(EQ) 진행 중' · 'A/S 재생산 — 생산 진행 중'
+});
+export type CustomerPcbProgressItemType = z.infer<typeof CustomerPcbProgressItem>;
+
+export const CustomerPcbProgressResponse = z.object({
+  result: z.literal(true),
+  data: z.object({ items: z.array(CustomerPcbProgressItem) }),
+});
+export type CustomerPcbProgressResponseType = z.infer<typeof CustomerPcbProgressResponse>;
+
 /** 고객 결정 — 반려는 사유가 있어야 협력사에 되돌릴 근거가 된다. */
 export const CustomerPcbEqDecisionBody = z
   .object({

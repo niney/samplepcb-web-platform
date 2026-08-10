@@ -2402,6 +2402,13 @@
 /* ── PCB 제조 확인 요청(P4.1) — 주문내역 상세 #sod_fin 스코프 ────────────────── */
 /* 협력사 EQ 를 고객에게 물어보는 섹션. 대기 중인 건은 눈에 띄어야 하고(파랑 강조),
    지난 건은 조용해야 한다. 협력사명은 어디에도 나오지 않는다. */
+/* PCB 제작 진행 상황(P4.13) — od 상태와 별개의 협력 트랙 파생 표시 */
+#sod_fin #sp_progress_wrap { margin: 20px 0; }
+#sod_fin #sp_progress_wrap h2 { font-size: 1.083em; font-weight: 700; margin: 0 0 6px; }
+#sod_fin .sp_progress_list { list-style: none; margin: 0; padding: 0; }
+#sod_fin .sp_progress_item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; background: #fff; }
+#sod_fin .sp_progress_proj { font-size: 0.958em; color: #111827; }
+
 #sod_fin #sp_eq_wrap { margin: 20px 0; }
 #sod_fin #sp_eq_wrap h2 { font-size: 1.083em; font-weight: 700; margin: 0 0 6px; }
 #sod_fin .sp_eq_intro { margin: 0 0 10px; font-size: 0.917em; color: #6b7280; }

@@ -208,6 +208,28 @@ if($od['od_pg'] == 'lg') {
         </div>
 
         <?php
+        // ── PCB 제작 진행 단계(P4.13) — od 상태('입금' 등)와 별개로 실제 제작이
+        // 어디까지 왔는지 보여준다(sp 축 파생, od 무접촉 — D6 수동 유지). 발주 전이면
+        // 항목이 없어 섹션 자체가 나오지 않는다.
+        $sp_progress = function_exists('sp_pcb_progress') ? sp_pcb_progress($od_id) : array();
+        if ($sp_progress):
+        ?>
+        <section id="sp_progress_wrap">
+            <h2>제작 진행 상황</h2>
+            <ul class="sp_progress_list">
+                <?php foreach ($sp_progress as $pg): ?>
+                <li class="sp_progress_item">
+                    <span class="sp_eq_badge <?php echo $pg['stage'] === 'received' ? 'sp_eq_ok' : 'sp_eq_wait'; ?>">
+                        <?php echo get_text($pg['label']); ?>
+                    </span>
+                    <strong class="sp_progress_proj"><?php echo get_text($pg['projectName']); ?></strong>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+        </section>
+        <?php endif; ?>
+
+        <?php
         // ── PCB 제조 확인 요청(P4.1, docs/PCB_PARTNER_TRACK.md D16) ──────────────
         // 협력사 EQ 를 관리자가 고객에게 물어본 건. 판정·저장은 sp-node 가 하고 여기서는
         // 화면만 그린다. 메일의 [주문내역에서 확인하기] 는 이 섹션(#eq-{id})으로 온다.

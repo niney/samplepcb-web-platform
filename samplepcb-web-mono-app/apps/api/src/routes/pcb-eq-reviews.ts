@@ -5,6 +5,7 @@ import {
   CustomerPcbEqDecisionResponse,
   CustomerPcbEqReviewListQuery,
   CustomerPcbEqReviewListResponse,
+  CustomerPcbProgressResponse,
 } from '@sp/api-contract';
 import { getCartRowsByOdId } from '../lib/g5-db';
 import {
@@ -12,6 +13,7 @@ import {
   getEqReviewFile,
   listCustomerEqReviews,
 } from '../lib/pcb-eq-review';
+import { listCustomerPcbProgress } from '../lib/pcb-customer-progress';
 import { downloadFromFileServer } from '../lib/file-server';
 import { sendPcbMail, buildPcbEqCustomerDecisionEmail } from '../lib/pcb-rfq-email';
 import { prisma } from '../lib/prisma';
@@ -56,6 +58,29 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       return {
         result: true as const,
         data: { reviews: await listCustomerEqReviews(ctIds, request.user.mbId) },
+      };
+    },
+  );
+
+  // ── GET /pcb-progress?odId= — 내 주문의 제작 진행 단계(P4.13, od 무접촉) ─────
+  fastify.get(
+    '/pcb-progress',
+    {
+      schema: {
+        querystring: CustomerPcbEqReviewListQuery,
+        response: { 200: CustomerPcbProgressResponse },
+      },
+    },
+    async (request) => {
+      const rows = await getCartRowsByOdId(request.query.odId);
+      return {
+        result: true as const,
+        data: {
+          items: await listCustomerPcbProgress(
+            rows.map((r) => r.ctId),
+            request.user.mbId,
+          ),
+        },
       };
     },
   );

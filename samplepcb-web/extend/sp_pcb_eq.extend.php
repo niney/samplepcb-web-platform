@@ -85,6 +85,18 @@ function sp_pcb_eq_reviews($od_id)
     return $res['json']['data']['reviews'];
 }
 
+/** PCB 제작 진행 단계(P4.13) — od 상태와 별개의 협력 트랙 파생. 라벨은 sp-node 가
+ *  완성해 내려주고 여기서는 그대로 출력한다(협력사·발주 정보 비노출). */
+function sp_pcb_progress($od_id)
+{
+    $res = sp_pcb_node_call('GET', '/api/pcb-progress?odId=' . rawurlencode((string) $od_id));
+    if ($res === null || $res['status'] !== 200) return array();
+    if (!isset($res['json']['data']['items']) || !is_array($res['json']['data']['items'])) {
+        return array();
+    }
+    return $res['json']['data']['items'];
+}
+
 /** 확인 요청 첨부 다운로드 URL — nginx 가 /api 를 sp-node 로 넘긴다(브라우저는 세션 쿠키가
  *  아니라 이 URL 을 그대로 열 수 없으므로, 다운로드는 eq-file.php 브리지를 거친다). */
 function sp_pcb_eq_file_url($review_id, $file_id)
