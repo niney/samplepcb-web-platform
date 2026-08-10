@@ -1,21 +1,18 @@
-// 재작업 프로브 — **서버가 막지 않음이 코드로 확정된 조합**을 실제로 재현해 무엇이
-// 어긋나는지 증거를 남긴다(findings-rework.md). 목적은 가드 신설 여부의 결정 근거다.
+// 재작업 가드 회귀 — 1단계 프로브가 실증한 무가드 조합(W2~W5·W7·W8)에 2단계에서 가드를
+// 신설했고, 이 스펙은 그 409 들을 지킨다. 각 가드의 "잠김 → 정리 → 열림" 순환까지 본다
+// (막기만 하고 출구가 없으면 실무가 멈춘다).
 //
-// ⚠ 여기의 200 어서션들은 "현재 동작의 기록"이지 바람직함의 승인이 아니다. 가드가
-//   생기면 이 스펙이 빨갛게 되는 것이 곧 신호이고, 그때 해당 어서션을 409 로 뒤집어
-//   회귀로 승격한다(계획 3단계).
-//
-// 재현하는 조합(전부 원본 코드로 확정 — docs/PCB_PARTNER_TRACK.md 재작업 조사):
-//   W2  선정 해제가 발주 존재를 안 본다(unselectPcbRfq 에 spPcbPo 참조 0건)
-//   W3  발주는 RFQ 상태를 안 본다(selected 불요) → PO 2장 공존 + 발주 후 회신가 수정
-//   W4  발주 취소가 송금 원장을 cascade 로 지운다(증빙 sp_file 은 잔존)
-//   W5  발주 취소가 선적 멤버십을 고아로 만든다(shipment_po.poId 에 FK 없음)
-//   W6  주문 완료 건 사양 수정 무가드(ordered 통과, 확정가 유지)
-//   W7  Invoice 를 선적요청 진입 후 삭제해도 다음 단계가 진행된다
-//   W8  선적 생성 후 destinationCountry 변경 — 박제된 선적과 어긋난다
+//   W2  선정 해제는 발주가 있으면 409 PO_ISSUED — 발주 취소가 먼저다
+//   W3  견적행 발주는 selected 만 — 미선정이면 409 RFQ_NOT_SELECTED (수동 발주 경로는 유지)
+//   W4  송금 기록이 있는 발주 취소 409 HAS_REMITTANCE — 원장을 정리해야 열린다
+//   W5  발송에 담긴 발주 취소 409 IN_SHIPMENT — detach 후에만(고아 멤버십 원천 차단)
+//   W6  ⚠ 주문 완료 건 사양 수정은 **아직 무가드(정책 보류)** — 현재 동작을 기록만 한다.
+//       주문 후 사양 협의(EQ 고객확인 반영) 창구를 서버가 막을지는 실무 판단이 필요하다.
+//   W7  발송 시작 후 첨부 삭제 409 DOC_LOCKED — 되돌리면 교체 가능, 재진입은 Invoice 재요구
+//   W8  발송에 담긴 발주의 직송지 변경 409 IN_SHIPMENT — detach 후에는 변경 가능
 //
 // 실행: pnpm -F e2e probe  (PORTAL_E2E=1 + JOURNEY=1 — 거버 8040 필요)
-// 생성물은 자동 정리하지 않는다(대장 → 수동). W7·W8 시드만 레지스트리로 정리.
+// 거버 체인 생성물은 자동 정리하지 않는다(대장 → cleanup-probe.mts). 시드는 레지스트리 정리.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -49,7 +46,7 @@ import {
 const JOURNEY = process.env.JOURNEY === '1';
 const FIXTURE_ZIP = join(monoRoot, 'e2e', 'fixtures', 'arduino-uno.zip');
 
-describe.skipIf(!RUN || !JOURNEY)('재작업 프로브 — 막지 않는 조합의 실증(탐색 주행)', () => {
+describe.skipIf(!RUN || !JOURNEY)('재작업 가드 회귀 — 잠김·정리·열림 순환', () => {
   const rp = createJourneyReport('findings-rework', '재작업 프로브 탐색 주행 리포트');
   const { F, ledger } = rp;
 
@@ -202,117 +199,76 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 프로브 — 막지 않는 조합�
     ledger.push(`sp_pcb_po #${String(po1)} (협력1 — A 체인)`);
   }, 480_000);
 
-  test('W2. 선정 해제가 발주 존재를 안 본다 — 해제 200, 발주는 그대로', async (ctx) => {
+  test('W2. 선정 해제는 발주가 있으면 409 — 선정이 계약의 근거로 남는다', async (ctx) => {
     if (specA === null || rfq1 === null || po1 === null) return ctx.skip();
-    // 코드 확정: unselectPcbRfq 는 RFQ 게이트만 본다(결제된 진행 중 주문은 통과, D10).
     const un = await api(
       A,
       'POST',
       `/api/admin/pcb-projects/${String(specA)}/rfqs/${String(rfq1)}/unselect`,
       {},
     );
-    expect(un.status, `발주 존재 중 선정 해제(현재 동작): ${JSON.stringify(un.json)}`).toBe(200);
+    expect(un.status, `발주 존재 중 선정 해제: ${JSON.stringify(un.json)}`).toBe(409);
+    expect(un.json?.error, '해제 가드').toBe('PO_ISSUED');
 
     const prisma = getPrisma();
-    const po = await prisma.spPcbPo.findUnique({ where: { id: BigInt(po1) } });
     const rfq = await prisma.spPcbRfq.findUnique({ where: { id: BigInt(rfq1) } });
-    F(
-      'W2',
-      'bug',
-      `선정 해제 후에도 발주 잔존 — po#${String(po1)}=${String(po?.status)} / rfq1=${String(rfq?.status)}(부활) — 발주 근거(선정)가 사라진 채 협력1 트랙 계속 가능`,
-    );
-    expect(po?.status, '발주 잔존').toBe('issued');
-    expect(rfq?.status, '해제된 행 부활').toBe('quoted');
+    expect(rfq?.status, '선정 유지(거절은 write 앞단)').toBe('selected');
+    F('W2', 'obs', '발주 존재 시 선정 해제 409 PO_ISSUED — 선정·발주 정합 가드 확인');
   });
 
-  test('W3. 발주는 RFQ 상태를 안 본다 — 미선정(quoted) 협력2 발주 → PO 2장 공존, 발주 후 회신가 수정', async (ctx) => {
+  test('W3. 견적행 발주는 selected 만 — 미선정이면 409, 발주서는 늘지 않는다', async (ctx) => {
     if (specA === null || rfq2 === null) return ctx.skip();
-    // 서버는 rfq 의 spec·parent·partner 일치만 본다 — status(selected) 검사가 없다.
-    // 외화는 환율만 별도로 요구한다(선정 박제가 없어서) — 그게 상태 검사를 대신하진 않는다.
-    // 1차 주행 실측: 환율 없이 400 EXCHANGE_RATE_REQUIRED, 환율을 주면 미선정 그대로 통과.
+    // 협력2 행은 협력1 선정 때 unselected 로 밀린 상태 — 견적행 발주의 근거가 못 된다.
     const issue = await api(A, 'POST', `/api/admin/pcb-projects/${String(specA)}/pos`, {
       partnerId: num(p2.id),
-      rfqId: rfq2, // status='quoted' — 선정된 적 없음
+      rfqId: rfq2,
       exchangeRate: 1400,
     });
-    expect(issue.status, `미선정 RFQ 로 발주(현재 동작): ${JSON.stringify(issue.json)}`).toBe(200);
-    po2 = (issue.json?.data?.pos ?? []).find((p: any) => p.partnerId === num(p2.id))?.poId ?? null;
-    expect(po2, '협력2 발주서').not.toBeNull();
-    ledger.push(`sp_pcb_po #${String(po2)} (협력2 — A 체인)`);
+    expect(issue.status, `미선정 RFQ 로 발주: ${JSON.stringify(issue.json)}`).toBe(409);
+    expect(issue.json?.error, '발주 가드').toBe('RFQ_NOT_SELECTED');
 
     const prisma = getPrisma();
     const count = await prisma.spPcbPo.count({ where: { specId: BigInt(specA) } });
-    F('W3', 'bug', `같은 견적에 발주서 ${String(count)}장 공존(협력1 해제됐는데 잔존 + 미선정 협력2 신규)`);
-    expect(count, 'PO 2장 공존').toBe(2);
-
-    // 발주에 연결된 RFQ 가 여전히 quoted 라 협력사가 회신가를 바꿀 수 있다(NOT_EDITABLE 은
-    // selected/unselected 만 막는다). 발주 스냅샷(priceOriginal)과 회신가가 갈라진다.
-    const edit = await api(P2, 'PUT', `/api/partner/pcb-rfqs/${String(rfq2)}`, {
-      price: 999,
-      quotedDeliveryDate: '2026-08-25',
-      memo: '[프로브] 발주 후 수정',
-    });
-    expect(edit.status, `발주 후 회신 수정(현재 동작): ${JSON.stringify(edit.json)}`).toBe(200);
-    const po = await prisma.spPcbPo.findUnique({ where: { id: BigInt(po2 ?? 0) } });
-    const rfq = await prisma.spPcbRfq.findUnique({ where: { id: BigInt(rfq2) } });
-    F(
-      'W3',
-      'bug',
-      `발주 후 회신가 수정됨 — 발주 스냅샷 ${String(Number(po?.priceOriginal))} vs 회신가 ${String(Number(rfq?.priceOriginal))} (어긋남)`,
-    );
+    expect(count, '발주서는 협력1 1장뿐').toBe(1);
+    F('W3', 'obs', '미선정 견적행 발주 409 RFQ_NOT_SELECTED — PO 2장 공존 경로 차단 확인');
   });
 
-  test('W4. 발주 취소가 송금 원장을 지운다 — cascade 소멸, 증빙 파일은 잔존', async (ctx) => {
-    if (specA === null || po2 === null) return ctx.skip();
-    // 송금 기록(issued 발주 — 상태 가드 없음 확정) + 증빙 업로드
-    const remit = await api(A, 'POST', `/api/admin/pcb-remittances/${String(po2)}`, {
+  test('W4. 송금 기록이 있는 발주 취소 409 — 원장을 정리해야 열린다', async (ctx) => {
+    if (specA === null || po1 === null) return ctx.skip();
+    void po2;
+    // 협력1 발주(issued)에 선지급 기록 — 송금 기록 자체는 상태 무관(정상 실무).
+    const remit = await api(A, 'POST', `/api/admin/pcb-remittances/${String(po1)}`, {
       remittedOn: '2026-08-10',
-      amount: 300,
-      exchangeRate: 1400,
+      amount: 40_000,
       memo: '[프로브] 선지급',
     });
     expect(remit.status, `송금 기록: ${JSON.stringify(remit.json)}`).toBe(200);
-
     const prisma = getPrisma();
     const row = await prisma.spPcbRemittance.findFirst({
-      where: { poId: BigInt(po2) },
+      where: { poId: BigInt(po1) },
       orderBy: { id: 'desc' },
     });
     expect(row, '송금 원장 행').not.toBeNull();
-    const up = await apiForm(
+
+    // 잠김 — 돈 기록이 함께 사라지는 삭제를 막는다.
+    const del = await api(A, 'DELETE', `/api/admin/pcb-projects/${String(specA)}/pos/${String(po1)}`);
+    expect(del.status, `송금 기록 있는 발주 취소: ${JSON.stringify(del.json)}`).toBe(409);
+    expect(del.json?.error, '취소 가드').toBe('HAS_REMITTANCE');
+    const remitKept = await prisma.spPcbRemittance.count({ where: { poId: BigInt(po1) } });
+    expect(remitKept, '원장 보존').toBe(1);
+
+    // 정리 → 열림 — 원장을 지우면(전용 라우트) 삭제 경로가 다시 열린다. 실제 삭제는
+    // W5 가 담기 가드 검증에 쓰므로 여기서는 원장 정리까지만.
+    const rmRemit = await api(
       A,
-      `/api/admin/pcb-remittances/${String(po2)}/${String(row?.id)}/files`,
-      {},
-      'receipt-probe.pdf',
-      new TextEncoder().encode('%PDF-1.4\n%%EOF\n').buffer as ArrayBuffer,
-      'application/pdf',
+      'DELETE',
+      `/api/admin/pcb-remittances/${String(po1)}/${String(row?.id)}`,
     );
-    expect(up.status, `증빙 업로드: ${JSON.stringify(up.json)}`).toBe(200);
-    const fileCount = await prisma.spFile.count({
-      where: { refType: 'sp_pcb_remittance', refId: row?.id ?? 0n },
-    });
-    expect(fileCount, '증빙 파일 행').toBe(1);
-    ledger.push(`sp_file(sp_pcb_remittance, ref #${String(row?.id)}) — W4 잔존 확인 대상`);
-
-    // 발주 취소(issued) — 송금 원장 존재를 보지 않는다(deletePcbPo 확정).
-    const del = await api(A, 'DELETE', `/api/admin/pcb-projects/${String(specA)}/pos/${String(po2)}`);
-    expect(del.status, `송금 기록 있는 발주 취소(현재 동작): ${JSON.stringify(del.json)}`).toBe(200);
-
-    const remitLeft = await prisma.spPcbRemittance.count({ where: { poId: BigInt(po2) } });
-    const fileLeft = await prisma.spFile.count({
-      where: { refType: 'sp_pcb_remittance', refId: row?.id ?? 0n },
-    });
-    F(
-      'W4',
-      'bug',
-      `발주 취소로 송금 원장 소멸(cascade): ${String(remitLeft)}건 잔존 — 돈 기록이 조용히 사라짐. 증빙 sp_file 은 ${String(fileLeft)}건 고아로 잔존`,
-    );
-    expect(remitLeft, '송금 원장 cascade 소멸').toBe(0);
-    expect(fileLeft, '증빙 파일 고아 잔존').toBe(1);
-    po2 = null; // 삭제됨 — 이후 정리 대장에서 제외
+    expect(rmRemit.status, `원장 정리: ${JSON.stringify(rmRemit.json)}`).toBe(200);
+    F('W4', 'obs', '송금 기록 발주 취소 409 HAS_REMITTANCE — 원장 정리 후에만 열림(순환 확인)');
   });
 
-  test('W5. 발주 취소가 선적 멤버십을 고아로 만든다 — FK 없음', async (ctx) => {
+  test('W5. 발송에 담긴 발주 취소 409 — detach 후에만 열린다(고아 원천 차단)', async (ctx) => {
     if (specA === null || po1 === null) return ctx.skip();
     // 협력1 발주를 EQ 완주 → produced → 담기(관리자행 국제 박스)
     const P1 = p1.mbId === null ? '' : signJwt({ mbId: p1.mbId, ttlSec: 3600 });
@@ -340,14 +296,8 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 프로브 — 막지 않는 조합�
     const box = await api(P1, 'POST', '/api/partner/pcb-shipments/box', { poId: po1 });
     expect(box.status, `담기: ${JSON.stringify(box.json)}`).toBe(200);
 
-    const prisma = getPrisma();
-    const shipment = await prisma.spPcbShipment.findFirst({
-      where: { pos: { some: { poId: BigInt(po1) } } },
-    });
-    expect(shipment, '선적 문서').not.toBeNull();
-    ledger.push(`sp_pcb_shipment #${String(shipment?.id)} (W5 고아 관찰 대상)`);
-
-    // 담긴 채 EQ 를 issued 까지 하강(revert 에 선적 멤버십 가드 없음 — 확정) → 발주 취소
+    // 담긴 채 EQ 를 issued 까지 하강해도(revert 는 선적을 안 본다 — 되돌리기 자체는 정당한
+    // 작업) 삭제는 멤버십 가드에 막힌다. 고아 멤버십이 생길 길이 없어진다.
     for (let i = 0; i < 4; i += 1) {
       const rv = await api(
         A,
@@ -357,26 +307,31 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 프로브 — 막지 않는 조합�
       );
       expect(rv.status, `revert ${String(i + 1)}: ${JSON.stringify(rv.json)}`).toBe(200);
     }
+    const blocked = await api(A, 'DELETE', `/api/admin/pcb-projects/${String(specA)}/pos/${String(po1)}`);
+    expect(blocked.status, `담긴 발주 취소: ${JSON.stringify(blocked.json)}`).toBe(409);
+    expect(blocked.json?.error, '취소 가드').toBe('IN_SHIPMENT');
+
+    const prisma = getPrisma();
+    const linkKept = await prisma.spPcbShipmentPo.count({ where: { poId: BigInt(po1) } });
+    expect(linkKept, '멤버십 보존(거절은 write 앞단)').toBe(1);
+
+    // 정리 → 열림 — detach(마지막 1건이라 박스 소멸)하면 삭제가 통과한다.
+    const detach = await api(P1, 'DELETE', `/api/partner/pcb-pos/${String(po1)}/shipment/membership`, {});
+    expect(detach.status, `detach: ${JSON.stringify(detach.json)}`).toBe(200);
     const del = await api(A, 'DELETE', `/api/admin/pcb-projects/${String(specA)}/pos/${String(po1)}`);
-    expect(del.status, `담긴 발주 취소(현재 동작): ${JSON.stringify(del.json)}`).toBe(200);
+    expect(del.status, `detach 후 발주 취소: ${JSON.stringify(del.json)}`).toBe(200);
 
     const orphanLinks = await prisma.spPcbShipmentPo.count({ where: { poId: BigInt(po1) } });
-    const shipLeft = await prisma.spPcbShipment.findUnique({ where: { id: shipment?.id ?? 0n } });
-    F(
-      'W5',
-      'bug',
-      `발주 취소 후 선적 멤버십 ${String(orphanLinks)}건 고아 잔존(FK 없음) — 선적 #${String(shipment?.id)} 대표 po=${String(shipLeft?.poId)} 는 삭제된 발주를 가리킴`,
-    );
-    expect(orphanLinks, '고아 멤버십').toBe(1);
-    expect(shipLeft, '대표 없는 선적 잔존').not.toBeNull();
-
-    // 화면·API 가 이 고아를 어떻게 견디는지 — 협력1 보드 응답(500 이면 watchHttp 에 잡힌다).
-    const boardAfter = await api(P1, 'GET', '/api/partner/pcb-shipments');
-    F('W5', 'obs', `고아 상태 협력1 보드 GET → ${String(boardAfter.status)}`);
-    po1 = null; // 삭제됨
+    expect(orphanLinks, '고아 멤버십 없음').toBe(0);
+    F('W5', 'obs', '담긴 발주 취소 409 IN_SHIPMENT → detach 후 200 — 고아 멤버십 원천 차단(순환 확인)');
+    po1 = null; // 정상 경로로 삭제됨
   }, 240_000);
 
-  test('W6. 주문 완료 건 사양 수정 무가드 — 200, 확정가·quoted 유지, 주문행은 옛값', async (ctx) => {
+  // ⚠ W6 은 가드 신설을 **보류**한 유일한 조합 — 주문 후 사양 협의(EQ 고객확인으로 합의한
+  // 변경을 관리자가 반영하는 흐름)가 실무에 있어, 서버가 막으면 그 창구가 사라진다. 아래
+  // 200 어서션은 현재 동작의 기록이며, 정책이 정해지면(차단 또는 주문행 동기·고객 통지)
+  // 그에 맞춰 뒤집는다. findings 의 bug 표기는 "미해결 결함 후보"라는 뜻으로 유지한다.
+  test('W6. [보류] 주문 완료 건 사양 수정 무가드 — 200, 확정가·quoted 유지, 주문행은 옛값', async (ctx) => {
     void ctx;
     specB = await submitGerberRfq(customer, rp, {
       fixtureZip: FIXTURE_ZIP,
@@ -447,7 +402,7 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 프로브 — 막지 않는 조합�
     expect(specChanged, '사양 변경 반영').toBe(true);
   }, 480_000);
 
-  test('W7. Invoice 를 선적요청 진입 후 삭제 — 다음 단계 진행됨', async (ctx) => {
+  test('W7. 발송 시작 후 첨부 삭제 409 — 되돌리면 교체 가능, 재진입은 Invoice 재요구', async (ctx) => {
     void ctx;
     const [seed] = await pickFreeSpecs(1);
     const po = await createPcbPo({ specId: seed.id, partnerId: p2.id, status: 'produced' });
@@ -474,25 +429,34 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 프로브 — 막지 않는 조합�
     });
     expect(reqd.status, `선적요청(Invoice 검사 통과): ${JSON.stringify(reqd.json)}`).toBe(200);
 
-    // 진입 후 삭제 — 삭제 라우트에 상태 가드 없음(확정). 이후 단계는 tracking 만 본다.
+    // 잠김 — 발송이 시작된 뒤에는 필수 서류를 뺄 수 없다.
+    const blocked = await api(
+      P2,
+      'DELETE',
+      `/api/partner/pcb-pos/${String(num(po.id))}/shipment/files/${String(fileId)}`,
+    );
+    expect(blocked.status, `진입 후 Invoice 삭제: ${JSON.stringify(blocked.json)}`).toBe(409);
+    expect(blocked.json?.error, '첨부 가드').toBe('DOC_LOCKED');
+
+    // 정리 → 열림 — 되돌려 준비 단계로 내리면 교체할 수 있고, 재진입은 Invoice 를 다시
+    // 요구한다(가드 순환 — 빠져나갈 길과 재검사가 함께 있어야 잠금이 실무를 안 막는다).
+    const revert = await api(P2, 'POST', `/api/partner/pcb-pos/${String(num(po.id))}/shipment/revert`, {});
+    expect(revert.status, `되돌리기: ${JSON.stringify(revert.json)}`).toBe(200);
     const del = await api(
       P2,
       'DELETE',
       `/api/partner/pcb-pos/${String(num(po.id))}/shipment/files/${String(fileId)}`,
     );
-    expect(del.status, `진입 후 Invoice 삭제(현재 동작): ${JSON.stringify(del.json)}`).toBe(200);
-    // 국제 requested 다음(shipped)은 받는측(관리자) 차례 — 진행은 A 토큰으로.
-    const shipped = await api(
-      A,
-      'POST',
-      `/api/admin/pcb-projects/${String(num(po.specId))}/pos/${String(num(po.id))}/shipment/advance`,
-      { trackingNumber: 'PROBE-AWB-1' },
-    );
-    expect(shipped.status, `Invoice 없이 선적 진행(현재 동작): ${JSON.stringify(shipped.json)}`).toBe(200);
-    F('W7', 'bug', 'Invoice 첨부를 선적요청 진입 후 삭제해도 선적(shipped) 진행됨 — 필수 서류 없는 국제 선적');
+    expect(del.status, `준비 단계 삭제: ${JSON.stringify(del.json)}`).toBe(200);
+    const reenter = await api(P2, 'POST', `/api/partner/pcb-pos/${String(num(po.id))}/shipment/advance`, {
+      shipDate: '2026-08-12',
+    });
+    expect(reenter.status, `Invoice 없이 재진입: ${JSON.stringify(reenter.json)}`).toBe(409);
+    expect(reenter.json?.error, '재진입 Invoice 재요구').toBe('MISSING_INVOICE_FILE');
+    F('W7', 'obs', '발송 시작 후 첨부 삭제 409 DOC_LOCKED → 되돌리면 교체 가능 → 재진입은 Invoice 재요구(순환 확인)');
   }, 120_000);
 
-  test('W8. 선적 생성 후 destinationCountry 변경 — 박제된 선적과 어긋남', async (ctx) => {
+  test('W8. 발송에 담긴 발주의 직송지 변경 409 — detach 후에는 변경 가능', async (ctx) => {
     void ctx;
     const [seed] = await pickFreeSpecs(1);
     const po = await createPcbPo({ specId: seed.id, partnerId: p2.id, status: 'produced' });
@@ -505,22 +469,37 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 프로브 — 막지 않는 조합�
       where: { pos: { some: { poId: po.id } } },
     });
     expect(before?.mode, '생성 시 국제(CN→관리자 KR)').toBe('international');
-    expect(before?.destinationCountry, '선적 박제 직송지').toBeNull();
 
-    // 발주 목적지 사후 변경 — patchPo 의 비가격 필드는 상태 무관(확정).
-    const patch = await api(A, 'PATCH', `/api/admin/pcb-projects/${String(num(po.specId))}/pos/${String(num(po.id))}`, {
-      destinationCountry: 'CN',
-    });
-    expect(patch.status, `선적 생성 후 목적지 변경(현재 동작): ${JSON.stringify(patch.json)}`).toBe(200);
-
-    const after = await prisma.spPcbShipment.findFirst({ where: { id: before?.id ?? 0n } });
-    const poAfter = await prisma.spPcbPo.findUnique({ where: { id: po.id } });
-    F(
-      'W8',
-      'bug',
-      `발주 목적지=CN(직송)인데 선적은 생성 시 박제 그대로(mode=${String(after?.mode)}, dest=${String(after?.destinationCountry)}) — 문서와 실물 경로 불일치`,
+    // 잠김 — 직송지는 발송 컨텍스트(모드·받는측·묶음)의 입력이라 발송이 있으면 못 바꾼다.
+    const blocked = await api(
+      A,
+      'PATCH',
+      `/api/admin/pcb-projects/${String(num(po.specId))}/pos/${String(num(po.id))}`,
+      { destinationCountry: 'CN' },
     );
-    expect(poAfter?.destinationCountry, '발주 목적지 변경됨').toBe('CN');
-    expect(after?.destinationCountry, '선적은 그대로').toBeNull();
+    expect(blocked.status, `담긴 발주 직송지 변경: ${JSON.stringify(blocked.json)}`).toBe(409);
+    expect(blocked.json?.error, '직송지 가드').toBe('IN_SHIPMENT');
+    const poKept = await prisma.spPcbPo.findUnique({ where: { id: po.id } });
+    expect(poKept?.destinationCountry, '직송지 보존').toBeNull();
+    // 같은 값 재전송·다른 필드(메모 등)는 발송이 있어도 통과해야 한다 — 잠금 범위 확인.
+    const memoOnly = await api(
+      A,
+      'PATCH',
+      `/api/admin/pcb-projects/${String(num(po.specId))}/pos/${String(num(po.id))}`,
+      { memo: '[프로브] 발송 중 메모 수정', destinationCountry: null },
+    );
+    expect(memoOnly.status, `값이 안 바뀌는 변경은 통과: ${JSON.stringify(memoOnly.json)}`).toBe(200);
+
+    // 정리 → 열림 — detach 하면(박스 소멸) 직송지를 바꿀 수 있다.
+    const detach = await api(P2, 'DELETE', `/api/partner/pcb-pos/${String(num(po.id))}/shipment/membership`, {});
+    expect(detach.status, `detach: ${JSON.stringify(detach.json)}`).toBe(200);
+    const patch = await api(
+      A,
+      'PATCH',
+      `/api/admin/pcb-projects/${String(num(po.specId))}/pos/${String(num(po.id))}`,
+      { destinationCountry: 'CN' },
+    );
+    expect(patch.status, `detach 후 직송지 변경: ${JSON.stringify(patch.json)}`).toBe(200);
+    F('W8', 'obs', '담긴 발주 직송지 변경 409 IN_SHIPMENT → detach 후 200 — 박제 불일치 차단(순환 확인)');
   }, 120_000);
 });

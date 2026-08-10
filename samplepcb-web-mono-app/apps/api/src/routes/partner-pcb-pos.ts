@@ -691,13 +691,21 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
 
   fastify.delete(
     '/partner/pcb-pos/:poId/shipment/files/:fileId',
-    { schema: { params: PoFileParams, response: { 200: PartnerPcbPoDetailResponse } } },
+    { schema: { params: PoFileParams, response: { 200: PartnerPcbPoDetailResponse, 409: ApiError } } },
     async (request, reply) => {
       const ctx = requireCtx(request);
       const po = await loadTouchablePo(request.params.poId, ctx.partnerId);
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const shipment = await findPcbShipmentByPo(po.id);
       if (shipment === null) return reply.notFound('발송이 없습니다');
+      // Invoice 는 선적요청 진입의 필수 서류 — 진입 후 삭제하면 서류 없는 국제 선적이
+      // 진행된다(프로브 W7). 되돌려 준비 단계로 내린 뒤에만 교체할 수 있다.
+      if (shipment.status !== 'preparing') {
+        return reply.status(409).send({
+          error: 'DOC_LOCKED',
+          message: '발송이 시작된 뒤에는 첨부를 바꿀 수 없습니다 — 되돌린 뒤 교체하세요.',
+        });
+      }
       const removed = await deletePcbShipmentFile(shipment.id, request.params.fileId);
       if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
       const detail = await loadPartnerPcbPoDetail(po.id, ctx.partnerId);

@@ -491,6 +491,7 @@ export type PcbRfqSelectError =
   | 'ALREADY_SELECTED'
   | 'EXCHANGE_RATE_REQUIRED'
   | 'NOT_SELECTED'
+  | 'PO_ISSUED'
   | PcbRfqSpecGate;
 
 export const selectPcbRfq = async (
@@ -561,6 +562,13 @@ export const unselectPcbRfq = async (
   // 주문·담김 이후 해제 금지 — 레거시 "입금 완료 시 unselect 금지"의 플랫폼 강화판.
   const gate = await checkPcbRfqSpecGate(rfq.spec);
   if (gate !== 'ok') return { ok: false, error: gate };
+
+  // 발주가 나간 선정은 계약의 근거다 — 해제하면 발주가 근거 없이 남고, 다른 협력사를
+  // 재선정해 같은 견적에 발주 2장이 성립한다(재작업 프로브 W2·W3 실증). 발주 취소가 먼저.
+  const poCount = await prisma.spPcbPo.count({
+    where: { specId: rfq.specId, parentPartnerId: 0n, reorderRound: rfq.reorderRound },
+  });
+  if (poCount > 0) return { ok: false, error: 'PO_ISSUED' };
 
   const revive = (row: Pick<SpPcbRfq, 'priceOriginal'>): PcbRfqStatusType =>
     row.priceOriginal === null ? 'requested' : 'quoted';

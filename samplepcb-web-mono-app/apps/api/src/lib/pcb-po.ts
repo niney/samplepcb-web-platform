@@ -286,6 +286,7 @@ export type CreatePcbPoError =
   | 'PARTNER_INVALID'
   | 'ALREADY_ISSUED'
   | 'RFQ_MISMATCH'
+  | 'RFQ_NOT_SELECTED'
   | 'PRICE_REQUIRED'
   | 'EXCHANGE_RATE_REQUIRED';
 
@@ -330,6 +331,11 @@ export const createAdminPcbPo = async (
       rfq.partnerId !== partner.id
     )
       return { ok: false, error: 'RFQ_MISMATCH' };
+    // 견적행을 근거로 발주하려면 그 행이 **선정**돼 있어야 한다 — quoted 로 발주하면
+    // 같은 견적에 발주 2장이 성립하고, 협력사가 발주 후에도 회신가를 바꿀 수 있다
+    // (NOT_EDITABLE 은 selected 만 잠근다 — 재작업 프로브 W3 실증). rfq 없이 조건을
+    // 직접 넣는 수동 발주 경로는 그대로 둔다.
+    if (rfq.status !== 'selected') return { ok: false, error: 'RFQ_NOT_SELECTED' };
   }
 
   const currency = rfq !== null ? asPcbCurrency(rfq.currency) : await resolveLinkCurrency(0n, partner);
@@ -463,7 +469,12 @@ export type PcbPoActor = { kind: 'admin' } | { kind: 'partner'; partnerId: bigin
 const isIssuer = (po: SpPcbPo, actor: PcbPoActor): boolean =>
   actor.kind === 'admin' ? po.parentPartnerId === 0n : po.parentPartnerId === actor.partnerId;
 
-export type PatchPcbPoError = 'PO_NOT_FOUND' | 'NOT_ISSUER' | 'PRICE_LOCKED' | 'EXCHANGE_RATE_REQUIRED';
+export type PatchPcbPoError =
+  | 'PO_NOT_FOUND'
+  | 'NOT_ISSUER'
+  | 'PRICE_LOCKED'
+  | 'EXCHANGE_RATE_REQUIRED'
+  | 'IN_SHIPMENT';
 
 export const patchPcbPo = async (
   poId: bigint,
@@ -476,6 +487,17 @@ export const patchPcbPo = async (
 
   const wantsPriceChange = body.priceOriginal !== undefined || body.exchangeRate !== undefined;
   if (wantsPriceChange && po.status !== 'issued') return { ok: false, error: 'PRICE_LOCKED' };
+
+  // 직송지는 발송 문서의 입력이다 — 모드·받는측·묶음 컨텍스트가 생성 시 박제되고, MD 출고
+  // 게이팅도 이 값으로 하위를 고른다. 발송이 이미 있으면 값이 바뀌는 변경을 막는다
+  // (문서와 실물 경로가 갈라진다 — 재작업 프로브 W8 실증). 발송을 취소·detach 한 뒤에만.
+  if (
+    body.destinationCountry !== undefined &&
+    (body.destinationCountry ?? null) !== po.destinationCountry
+  ) {
+    const memberships = await prisma.spPcbShipmentPo.count({ where: { poId: po.id } });
+    if (memberships > 0) return { ok: false, error: 'IN_SHIPMENT' };
+  }
 
   const currency = asPcbCurrency(po.currency);
   let priceFields: Record<string, unknown> = {};
@@ -513,7 +535,13 @@ export const patchPcbPo = async (
   return { ok: true };
 };
 
-export type DeletePcbPoError = 'PO_NOT_FOUND' | 'NOT_ISSUER' | 'NOT_ISSUED' | 'HAS_CHILDREN';
+export type DeletePcbPoError =
+  | 'PO_NOT_FOUND'
+  | 'NOT_ISSUER'
+  | 'NOT_ISSUED'
+  | 'HAS_CHILDREN'
+  | 'HAS_REMITTANCE'
+  | 'IN_SHIPMENT';
 
 export const deletePcbPo = async (
   poId: bigint,
@@ -528,6 +556,16 @@ export const deletePcbPo = async (
     where: { specId: po.specId, parentPartnerId: po.partnerId, reorderRound: po.reorderRound },
   });
   if (children > 0) return { ok: false, error: 'HAS_CHILDREN' };
+
+  // 돈 기록이 있는 발주는 지우지 않는다 — 원장은 cascade 라 발주와 함께 **조용히**
+  // 사라지고 증빙 파일만 고아로 남는다(재작업 프로브 W4 실증). 송금 기록을 먼저 정리해야
+  // 삭제가 열린다(leaf-first — 원장 삭제 라우트가 따로 있다).
+  const remittances = await prisma.spPcbRemittance.count({ where: { poId: po.id } });
+  if (remittances > 0) return { ok: false, error: 'HAS_REMITTANCE' };
+  // 박스에 담긴 발주도 마찬가지 — 멤버십에 FK 가 없어 지우면 대표 없는 선적이 남는다
+  // (프로브 W5 실증). 보드에서 꺼낸(detach) 뒤에만 삭제할 수 있다.
+  const memberships = await prisma.spPcbShipmentPo.count({ where: { poId: po.id } });
+  if (memberships > 0) return { ok: false, error: 'IN_SHIPMENT' };
 
   // 첨부 정리(파일서버 먼저) 후 행 삭제 — leaf-first(레거시 승계, 재시도 안전).
   const files = await prisma.spFile.findMany({ where: { refType: EQ_REF_TYPE, refId: po.id } });

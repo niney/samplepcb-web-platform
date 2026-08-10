@@ -86,6 +86,10 @@ const CREATE_ERROR_MESSAGES: Record<string, { code: 400 | 409; message: string }
   NOT_PAID: { code: 409, message: '결제(입금) 확인 전입니다 — 입금 확인 후 발주할 수 있습니다.' },
   ALREADY_ISSUED: { code: 409, message: '이 협력사에게 이미 발주서가 있습니다.' },
   RFQ_MISMATCH: { code: 400, message: '견적행이 이 스펙·협력사와 일치하지 않습니다.' },
+  RFQ_NOT_SELECTED: {
+    code: 409,
+    message: '선정되지 않은 회신입니다 — [선정] 후 발주하거나, 견적행 없이 조건을 직접 입력하세요.',
+  },
   PRICE_REQUIRED: { code: 400, message: '발주가를 입력해 주세요(회신 견적이 없는 직접 발주).' },
   EXCHANGE_RATE_REQUIRED: { code: 400, message: '외화 발주에는 KRW 회계 환율이 필요합니다.' },
 };
@@ -229,7 +233,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             .send({ error: res.error, message: '외화 발주에는 KRW 회계 환율이 필요합니다.' });
         return reply.status(409).send({
           error: res.error,
-          message: '발주가는 EQ 시작 전(발주접수)에만 수정할 수 있습니다.',
+          message:
+            res.error === 'IN_SHIPMENT'
+              ? '발송이 만들어진 발주는 직송지를 바꿀 수 없습니다 — 발송을 정리한 뒤 변경하세요.'
+              : '발주가는 EQ 시작 전(발주접수)에만 수정할 수 있습니다.',
         });
       }
       return { result: true as const, data: await loadPanel(request.params.id) };
@@ -248,10 +255,15 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (!res.ok) {
         if (res.error === 'PO_NOT_FOUND' || res.error === 'NOT_ISSUER')
           return reply.notFound('발주서를 찾을 수 없습니다');
+        const DELETE_MESSAGES: Record<string, string> = {
+          HAS_CHILDREN: '하위(MD) 발주서가 남아 있어 취소할 수 없습니다 — 하위부터 정리하세요.',
+          HAS_REMITTANCE:
+            '송금 기록이 있는 발주는 취소할 수 없습니다 — 송금 원장을 먼저 정리하세요(돈 기록이 함께 사라지는 것을 막습니다).',
+          IN_SHIPMENT: '발송에 담긴 발주는 취소할 수 없습니다 — 보드에서 꺼낸 뒤 취소하세요.',
+        };
         const message =
-          res.error === 'HAS_CHILDREN'
-            ? '하위(MD) 발주서가 남아 있어 취소할 수 없습니다 — 하위부터 정리하세요.'
-            : 'EQ 진행 중인 발주서는 되돌리기로 발주접수까지 낮춘 뒤 취소할 수 있습니다.';
+          DELETE_MESSAGES[res.error] ??
+          'EQ 진행 중인 발주서는 되돌리기로 발주접수까지 낮춘 뒤 취소할 수 있습니다.';
         return reply.status(409).send({ error: res.error, message });
       }
       return { result: true as const, data: await loadPanel(request.params.id) };
@@ -655,6 +667,14 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       const shipment = await findPcbShipmentByPo(po.id);
       if (shipment === null) return reply.notFound('발송이 없습니다');
+      // Invoice 는 선적요청 진입의 필수 서류다 — 진입 후 삭제를 허용하면 서류 없는 국제
+      // 선적이 그대로 진행된다(재작업 프로브 W7 실증). 되돌려 준비 단계로 내린 뒤에만.
+      if (shipment.status !== 'preparing') {
+        return reply.status(409).send({
+          error: 'DOC_LOCKED',
+          message: '발송이 시작된 뒤에는 첨부를 바꿀 수 없습니다 — 되돌린 뒤 교체하세요.',
+        });
+      }
       const removed = await deletePcbShipmentFile(shipment.id, request.params.fileId);
       if (!removed) return reply.notFound('파일을 찾을 수 없습니다');
       return { result: true as const, data: await loadPanel(request.params.id) };

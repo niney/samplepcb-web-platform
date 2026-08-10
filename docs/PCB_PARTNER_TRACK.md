@@ -1146,6 +1146,33 @@ W4(돈 기록 소실 — cascade 를 Restrict 로, 또는 취소 시 원장 이�
 막을지(409) 경고 강화일지 실무 판단, W5 는 FK 추가(스키마 변경이라 공유 DB 규율 확인),
 W7 은 첨부 삭제에 상태 가드, W8 은 선적 존재 시 목적지 잠금.
 
+### 재작업 검증 2단계 — 가드 신설·프로브의 회귀 승격 (2026-08-10)
+
+1단계가 실증한 무가드 조합에 가드를 넣고(전부 앱 가드 — 스키마 무변경, 공유 DB 규율),
+`rework-probe.e2e.test.ts` 를 409 회귀로 뒤집었다. 각 가드는 **잠김 → 정리 → 열림** 순환까지
+지킨다 — 막기만 하고 출구가 없으면 실무가 멈추기 때문이다.
+
+- **W2 `PO_ISSUED`**(unselectPcbRfq): 같은 트랙(관리자행·회차)에 발주가 있으면 선정 해제 409.
+  발주 취소가 먼저다.
+- **W3 `RFQ_NOT_SELECTED`**(createAdminPcbPo): 견적행을 근거로 발주하려면 그 행이 selected
+  여야 한다. rfq 없이 조건을 직접 넣는 수동 발주 경로는 그대로 — 잠근 것은 "미선정 회신을
+  근거로 삼는 것"이지 직접 발주가 아니다.
+- **W4 `HAS_REMITTANCE`**(deletePcbPo): 송금 기록이 있으면 취소 409 — cascade 로 돈 기록이
+  조용히 사라지는 것을 막는다. 원장 삭제 라우트로 정리하면 열린다(leaf-first).
+- **W5 `IN_SHIPMENT`**(deletePcbPo): 발송에 담긴 발주는 취소 409 — FK 없는 멤버십이 고아가
+  될 길을 원천 차단. detach(박스에서 꺼내기) 후에만. FK 추가는 스키마 변경이라 보류하고
+  앱 가드로 대신했다 — 가드가 있으면 고아 자체가 안 생긴다.
+- **W7 `DOC_LOCKED`**(첨부 삭제 라우트 2곳 — 관리자·협력사): 발송이 preparing 이 아니면
+  첨부 삭제 409. 되돌리면 교체 가능하고, **재진입은 Invoice 를 다시 요구**한다(순환 검증).
+- **W8 `IN_SHIPMENT`**(patchPcbPo): 발송이 있는 발주는 직송지가 **실제로 바뀌는** 변경만 409
+  — 같은 값 재전송·메모 등 다른 필드는 통과(잠금 범위를 좁게). detach 후에는 변경 가능.
+- **W6 은 보류** — 주문 후 사양 협의(EQ 고객확인으로 합의한 변경을 관리자가 반영)가 실무에
+  있어 서버 차단은 그 창구를 없앤다. 프로브는 현재 동작(200·주문행 옛값)을 계속 기록하며,
+  정책이 정해지면 뒤집는다. findings 의 bug 표기는 "미해결 결함 후보"라는 뜻으로 유지.
+
+검증: probe 8/8(신설 가드 6종 전부 409+순환) · **여정 4종 41/41**(가드가 정상 경로 무영향 —
+전부 selected 발주라 통과) · pcb-guards 8/2skip · vitest 737 · typecheck·lint 0건 · 정리 CLEAN.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
