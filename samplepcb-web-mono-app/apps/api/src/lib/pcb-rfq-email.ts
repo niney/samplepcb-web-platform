@@ -280,11 +280,17 @@ export function buildPcbEqRequestedEmail(p: PcbEqTurnEmailParams): {
   };
 }
 
+/** 포털 발주 상세 딥링크 — 반려 메일에서 홈이 아니라 그 발주로 바로(사용성 잔여 해소). */
+export const pcbPartnerPoUrl = (poId: string): string =>
+  `${WEB_BASE_URL}/app/partner/pcb/pos/${poId}`;
+
 export interface PcbEqDecisionEmailParams {
   partnerName: string; // 수주 협력사
   projectName: string;
   approved: boolean;
   reason: string | null; // 반려 사유
+  /** 대상 발주 — 있으면 버튼이 발주 상세로 간다(없으면 포털 홈 폴백). */
+  poId?: string;
 }
 
 /** EQ 승인/반려 → 수주 협력사 통지. */
@@ -301,15 +307,16 @@ export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
         ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 EQ가 반려되었습니다.
         사유 확인 후 파일 보완 → 다시 승인요청해 주세요.</p>
       ${p.reason === null ? '' : `<p style="margin:0 0 12px;font-size:13px;color:#b91c1c;line-height:1.6;">반려 사유: <b>${esc(p.reason)}</b></p>`}`;
+  const target = p.poId === undefined ? pcbPartnerPortalUrl() : pcbPartnerPoUrl(p.poId);
   return {
     subject: `[샘플피씨비] PCB EQ ${p.approved ? '승인' : '반려'} — ${p.projectName}`,
     html: shell(
       title,
       `${lines}
       <div style="padding-top:16px;">
-        <a href="${esc(pcbPartnerPortalUrl())}"
+        <a href="${esc(target)}"
            style="display:inline-block;background:${p.approved ? '#059669' : '#b91c1c'};color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
-          파트너 포털 열기</a>
+          ${p.poId === undefined ? '파트너 포털 열기' : '발주서 바로 열기'}</a>
       </div>`,
       '본 메일은 샘플피씨비 PCB EQ 알림입니다.',
     ),
