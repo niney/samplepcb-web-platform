@@ -259,6 +259,8 @@ export const AdminSpecReviseResponse = z.object({
     /** 이미 회신받은 협력사 견적 수 — 0보다 크면 재확인이 필요하다(차단은 아니다). */
     answeredRfqCount: z.number().int().nonnegative(),
     changedKeys: z.array(z.string()),
+    /** 주문된 건이라 주문행 사양 표기(ct_option)까지 함께 갱신됐다 — 결제 금액은 불변. */
+    orderRowSynced: z.boolean(),
   }),
 });
 export type AdminSpecReviseResponseType = z.infer<typeof AdminSpecReviseResponse>;

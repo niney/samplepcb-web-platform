@@ -1169,6 +1169,7 @@ W7 은 첨부 삭제에 상태 가드, W8 은 선적 존재 시 목적지 잠금
 - **W6 은 보류** — 주문 후 사양 협의(EQ 고객확인으로 합의한 변경을 관리자가 반영)가 실무에
   있어 서버 차단은 그 창구를 없앤다. 프로브는 현재 동작(200·주문행 옛값)을 계속 기록하며,
   정책이 정해지면 뒤집는다. findings 의 bug 표기는 "미해결 결함 후보"라는 뜻으로 유지.
+  → **08-10 사용자 결정: 허용(수정 가능 유지)** — 주문행 동기 구현으로 종결(아래 3단계 뒤 기록).
 
 검증: probe 8/8(신설 가드 6종 전부 409+순환) · **여정 4종 41/41**(가드가 정상 경로 무영향 —
 전부 selected 발주라 통과) · pcb-guards 8/2skip · vitest 737 · typecheck·lint 0건 · 정리 CLEAN.
@@ -1249,6 +1250,31 @@ mdtester 를 주인공으로 한 MD 시나리오 연작의 첫 편(`md-quote-loo
 
 검증: probe **9/9**(W9 순환 포함) · 여정 1호 11/11(ORDER_NOT_PAID 어서션 포함) · vitest 737 ·
 typecheck·lint 0건 · 정리 CLEAN(취소 주문도 force-status '주문' 복귀 후 삭제 정상).
+
+### 재작업 W6 종결 — 주문 후 사양 수정 허용, 주문행 표기 동기 (2026-08-10)
+
+2단계에서 보류했던 W6 을 사용자 결정("주문완료 되었어도 수정하게")으로 종결 — **차단하지
+않고 허용을 유지**하되, 프로브가 결함으로 박제했던 "주문행 옵션 옛값 불일치"를 동기로 없앤다.
+주문 후 사양 협의(EQ 고객확인으로 합의한 변경의 반영 창구)는 그대로 살아 있다.
+
+- **`updateOrderedCartOption`**(g5-db.ts): 주문된 행은 **ct_option(사양 표기)만** 갱신.
+  결제 검증 링크(io_id·io_price)·금액(ct_price)은 결제 당시 기록이라 불변 — 코어
+  before_check_cart_price 대조 축을 건드리지 않는다. od_mod_history 도 append 안 함
+  (코어 관례상 취소·수량변경 블록 전용, 사양 감사는 sp_quote revisedBy·reason·quoteId
+  체인이 정본).
+- **spec 라우트 분기 확장**(admin-pcb-projects.ts): 기존 `cart` 분기(io 교체 3단)에
+  `ordered` 분기 추가 — buildOptionSummary(새 사양, 수량)로 표기만 동기. 자동견적 불가
+  (rfq) 사양이어도 동기한다(결제는 끝났고 표시 정합이 목적이라 listPrice 무관). 실패 시
+  409 `ORDER_SYNC_FAILED`(같은 사양 재시도로 복구 가능). 발주 후는 여전히 `PO_ISSUED`.
+- **응답·화면**: AdminSpecReviseResponse 에 `orderRowSynced` 추가, PcbSpecEditModal 결과
+  화면에 "주문행 표기도 갱신됨 — 결제 금액 불변" 고지.
+- **probe W6 를 회귀로 승격**: [보류] 딱지 제거. **ct_option 요약(재질/층수/크기/수량)에
+  silkscreen 은 안 실리므로** 수량 변경(+100)을 함께 보내 `Npcs` 문자열 변화를 확정 증거로
+  삼는다(문자열에 안 드러나는 필드만 바꾸면 동기가 되어도 검증이 안 되는 함정). 어서션 =
+  orderRowSynced true · ct_option 새 수량 포함 · ct_price/io_id/io_price 불변 · 확정가
+  60,000 유지 · quoted 유지. findings bug → obs 전환.
+
+검증: probe 9/9 · vitest 737 · turbo typecheck 8/8 · lint 7/7 · 정리 CLEAN.
 
 ## 10. 조사 자료 색인
 

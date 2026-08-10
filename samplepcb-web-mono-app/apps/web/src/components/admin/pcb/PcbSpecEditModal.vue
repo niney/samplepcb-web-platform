@@ -137,6 +137,9 @@ async function save(): Promise<void> {
             </p>
           </div>
 
+          <p v-if="result.orderRowSynced" class="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-800">
+            주문된 건이라 주문행의 사양 표기도 함께 갱신했습니다 — 결제 금액은 바뀌지 않습니다.
+          </p>
           <p v-if="result.finalPriceStale" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
             ⚠ 확정가의 근거가 된 사양이 바뀌었습니다 — 확정가를 다시 매겨 주세요.
           </p>

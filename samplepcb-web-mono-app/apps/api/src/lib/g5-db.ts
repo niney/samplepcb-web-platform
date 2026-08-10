@@ -359,6 +359,15 @@ export async function updateCartQuoteRow(
   );
 }
 
+// 주문된 행의 사양 요약(ct_option)만 동기 — 결제 검증 링크(io_id·io_price)와 금액
+// (ct_price)은 결제 당시 기록이라 불변. 주문 후 사양 수정(W6, 사용자 결정: 허용)이
+// 고객 주문내역 표시를 실제 제작 사양과 일치시키는 데 쓴다. 감사는 sp_quote
+// (revisedBy·revisedReason·quoteId 체인)가 정본 — od_mod_history 는 코어 관례상
+// 취소·수량변경 블록 전용이라 여기서 append 하지 않는다.
+export async function updateOrderedCartOption(ctId: number, option: string): Promise<void> {
+  await getG5Pool().query(`UPDATE g5_shop_cart SET ct_option = ? WHERE ct_id = ?`, [option, ctId]);
+}
+
 // 장바구니에서 견적 행 한 건 제거 — ct_id 단위(코어 seldelete 는 it_id 단위라
 // 같은 템플릿의 다른 견적까지 함께 지운다). 옵션 행 삭제는 deleteQuoteOption 로 별도.
 export async function deleteCartRow(ctId: number): Promise<void> {

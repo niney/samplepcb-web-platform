@@ -49,6 +49,7 @@ import {
   getTemplateItem,
   insertQuoteOption,
   updateCartQuoteRow,
+  updateOrderedCartOption,
   deleteQuoteOption,
 } from '../lib/g5-db';
 import type { CartState, G5Member, OrderInfo } from '../lib/g5-db';
@@ -822,6 +823,25 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
         }
       }
 
+      // 주문된 건이면 주문행 표시(ct_option)만 새 사양으로 동기(사용자 결정 2026-08-10:
+      // 주문 후에도 수정 허용 — EQ 고객확인으로 합의한 변경을 반영하는 창구). 결제 링크
+      // (io_id·io_price)·금액(ct_price)은 결제 당시 기록이라 불변 — 고객 주문내역의 사양
+      // 표기와 실제 제작 사양의 불일치(프로브 W6 실증)만 없앤다. 자동견적 불가(rfq) 사양
+      // 이어도 동기한다 — 결제는 이미 끝났고 표시 정합이 목적이라 listPrice 와 무관.
+      let orderRowSynced = false;
+      if (cartState === 'ordered' && spec.ctId !== null) {
+        try {
+          await updateOrderedCartOption(spec.ctId, buildOptionSummary(nextSpec, qty));
+          orderRowSynced = true;
+        } catch (err) {
+          request.log.error({ err, projectId: Number(spec.id) }, '사양 수정 주문행 동기화 실패');
+          return reply.status(409).send({
+            error: 'ORDER_SYNC_FAILED',
+            message: '주문행 사양 표기 갱신에 실패했습니다. 같은 사양으로 다시 시도해 주세요.',
+          });
+        }
+      }
+
       // 이미 회신받은 협력사 견적 — 사양이 바뀌었으니 그 회신의 전제가 달라졌다(차단 아님).
       const answeredRfqCount = await prisma.spPcbRfq.count({
         where: { specId: spec.id, status: { in: ['quoted', 'selected'] } },
@@ -837,6 +857,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
           finalPriceStale: spec.finalPrice !== null && changedKeys.length > 0,
           answeredRfqCount,
           changedKeys,
+          orderRowSynced,
         },
       };
     },

@@ -6,8 +6,9 @@
 //   W3  견적행 발주는 selected 만 — 미선정이면 409 RFQ_NOT_SELECTED (수동 발주 경로는 유지)
 //   W4  송금 기록이 있는 발주 취소 409 HAS_REMITTANCE — 원장을 정리해야 열린다
 //   W5  발송에 담긴 발주 취소 409 IN_SHIPMENT — detach 후에만(고아 멤버십 원천 차단)
-//   W6  ⚠ 주문 완료 건 사양 수정은 **아직 무가드(정책 보류)** — 현재 동작을 기록만 한다.
-//       주문 후 사양 협의(EQ 고객확인 반영) 창구를 서버가 막을지는 실무 판단이 필요하다.
+//   W6  주문 완료 건 사양 수정 **허용**(사용자 결정 08-10 — EQ 고객확인으로 합의한 변경의
+//       반영 창구) — 주문행 표기(ct_option) 동기·결제 금액(ct_price) 불변을 지킨다.
+//       발주 후는 여전히 PO_ISSUED 로 차단(협력사와 합의된 사양).
 //   W7  발송 시작 후 첨부 삭제 409 DOC_LOCKED — 되돌리면 교체 가능, 재진입은 Invoice 재요구
 //   W8  발송에 담긴 발주의 직송지 변경 409 IN_SHIPMENT — detach 후에는 변경 가능
 //   W9  취소된 주문의 새 작업 시작 409 ORDER_CANCELED — EQ 전진·담기 차단, revert(정리)는 허용
@@ -347,7 +348,7 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 가드 회귀 — 잠김·정리·�
   // 변경을 관리자가 반영하는 흐름)가 실무에 있어, 서버가 막으면 그 창구가 사라진다. 아래
   // 200 어서션은 현재 동작의 기록이며, 정책이 정해지면(차단 또는 주문행 동기·고객 통지)
   // 그에 맞춰 뒤집는다. findings 의 bug 표기는 "미해결 결함 후보"라는 뜻으로 유지한다.
-  test('W6. [보류] 주문 완료 건 사양 수정 무가드 — 200, 확정가·quoted 유지, 주문행은 옛값', async (ctx) => {
+  test('W6. 주문 완료 건 사양 수정 허용 — 주문행 표기 동기, 결제 금액 불변', async (ctx) => {
     void ctx;
     specB = await submitGerberRfq(customer, rp, {
       fixtureZip: FIXTURE_ZIP,
@@ -382,40 +383,51 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 가드 회귀 — 잠김·정리·�
     const before = await prisma.spOrderSpec.findUnique({ where: { id: BigInt(specB) } });
     const beforeSpec = (before?.specJson ?? {}) as Record<string, unknown>;
     const cartBefore: any[] = await prisma.$queryRawUnsafe(
-      `SELECT ct_option, ct_price FROM g5_shop_cart WHERE ct_id = ?`,
+      `SELECT ct_option, ct_price, io_id, io_price FROM g5_shop_cart WHERE ct_id = ?`,
       before?.ctId,
     );
 
-    // 결제 완료 주문의 사양을 바꾼다 — 가드는 PO_ISSUED 뿐(발주 전이면 통과, 확정 코드).
+    // 결제 완료 주문의 사양을 바꾼다(사용자 결정: 허용) — 가드는 PO_ISSUED 뿐. 수량도
+    // 함께 바꾼다: ct_option 요약(재질/층수/크기/수량)에 silkscreen 은 안 실리므로,
+    // 문자열에 드러나는 수량(`Npcs`)이 주문행 동기의 확정 증거다.
+    const beforeQty = Number(before?.qty ?? 0);
     const revised = { ...beforeSpec, silkscreen: beforeSpec.silkscreen === 'white' ? 'black' : 'white' };
     const revise = await api(A, 'PATCH', `/api/admin/pcb-projects/${String(specB)}/spec`, {
       spec: revised,
+      qty: beforeQty + 100,
       reason: '[프로브] 주문 후 사양 변경',
     });
-    expect(revise.status, `주문 완료 건 사양 수정(현재 동작): ${JSON.stringify(revise.json)}`).toBe(200);
-    F(
-      'W6',
-      'bug',
-      `입금 완료 주문의 사양 수정 통과 — finalPriceStale=${String(revise.json?.data?.finalPriceStale)} changed=${JSON.stringify(revise.json?.data?.changedKeys)}`,
-    );
+    expect(revise.status, `주문 완료 건 사양 수정: ${JSON.stringify(revise.json)}`).toBe(200);
+    expect(revise.json?.data?.orderRowSynced, '주문행 동기 응답 표시').toBe(true);
 
     const after = await prisma.spOrderSpec.findUnique({ where: { id: BigInt(specB) } });
     const cartAfter: any[] = await prisma.$queryRawUnsafe(
-      `SELECT ct_option, ct_price FROM g5_shop_cart WHERE ct_id = ?`,
+      `SELECT ct_option, ct_price, io_id, io_price FROM g5_shop_cart WHERE ct_id = ?`,
       before?.ctId,
     );
     expect(Number(after?.finalPrice ?? 0), '확정가 유지(안 지움)').toBe(60_000);
     expect(after?.quoteStatus, 'quoted 유지').toBe('quoted');
-    const specChanged =
-      String((after?.specJson as any)?.silkscreen) !== String(beforeSpec.silkscreen);
-    const cartChanged = String(cartBefore[0]?.ct_option) !== String(cartAfter[0]?.ct_option);
+    expect(
+      String((after?.specJson as any)?.silkscreen),
+      '사양 변경 반영',
+    ).not.toBe(String(beforeSpec.silkscreen));
+    // 주문행: 표기는 새 사양(수량 포함), 결제 흔적(금액·결제 검증 링크)은 그대로.
+    expect(String(cartAfter[0]?.ct_option), '주문행 표기 동기(새 수량)').toContain(
+      `${String(beforeQty + 100)}pcs`,
+    );
+    expect(Number(cartAfter[0]?.ct_price), '결제 금액 불변').toBe(Number(cartBefore[0]?.ct_price));
+    expect(String(cartAfter[0]?.io_id), '결제 검증 링크(io_id) 불변').toBe(
+      String(cartBefore[0]?.io_id),
+    );
+    expect(Number(cartAfter[0]?.io_price), '결제 당시 견적가(io_price) 불변').toBe(
+      Number(cartBefore[0]?.io_price),
+    );
     F(
       'W6',
-      'bug',
-      `사양은 바뀌고(silkscreen ${String(beforeSpec.silkscreen)}→${String((after?.specJson as any)?.silkscreen)}) ` +
-        `주문행 옵션은 ${cartChanged ? '함께 갱신됨' : '옛값 그대로'} — 고객이 결제한 사양과 ${cartChanged ? '동기화' : '불일치'}`,
+      'obs',
+      `주문 후 사양 수정 허용 — 주문행 ct_option 동기(${String(cartBefore[0]?.ct_option)} → ` +
+        `${String(cartAfter[0]?.ct_option)}), ct_price 불변, finalPriceStale=${String(revise.json?.data?.finalPriceStale)}`,
     );
-    expect(specChanged, '사양 변경 반영').toBe(true);
   }, 480_000);
 
   test('W7. 발송 시작 후 첨부 삭제 409 — 되돌리면 교체 가능, 재진입은 Invoice 재요구', async (ctx) => {
