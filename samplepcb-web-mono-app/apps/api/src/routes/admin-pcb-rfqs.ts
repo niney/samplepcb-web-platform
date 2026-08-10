@@ -28,6 +28,7 @@ import {
   unselectPcbRfq,
 } from '../lib/pcb-rfq';
 import { buildPcbRfqRequestEmail, magicPcbReplyUrl, sendPcbMail } from '../lib/pcb-rfq-email';
+import { resolvePcbPortalCta } from '../lib/pcb-portal-cta';
 
 // ── PCB 파트너 RFQ 관리자 라우트 — docs/PCB_PARTNER_TRACK.md §5.4 ─────────────
 // 스펙별 현황·diff 배정·대리 회신·선정/해제·매직링크 + 횡단 워크큐(/pcb-rfqs).
@@ -138,6 +139,8 @@ export const adminPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         const requesterName = await loadHousePartnerName();
         for (const partner of diff.addedPartners) {
           const token = diff.addedTokens.get(partner.id.toString());
+          // 매직링크가 없을 때만 포털 폴백 CTA 가 실리므로 그때만 무계정 여부를 판정(재점검 #15).
+          const portalCta = token === undefined ? await resolvePcbPortalCta(partner.id) : null;
           void sendPcbMail(
             request.log,
             partner.contactEmail,
@@ -148,6 +151,7 @@ export const adminPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
               qty: spec.qty,
               suggestedDeliveryDate: request.body.suggestedDeliveryDate ?? null,
               magicUrl: token === undefined ? null : magicPcbReplyUrl(token),
+              ...(portalCta ?? {}),
             }),
             {
               kind: 'pcb_rfq_request',

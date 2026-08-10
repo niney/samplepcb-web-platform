@@ -59,6 +59,7 @@ import {
   pcbPriceText,
   sendPcbMail,
 } from '../lib/pcb-rfq-email';
+import { resolvePcbPortalCta } from '../lib/pcb-portal-cta';
 import { kstDateStr } from '../lib/kst';
 import type { MailLogMeta } from '../lib/mail-log';
 
@@ -455,7 +456,10 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         });
       }
 
-      const spec = await prisma.spOrderSpec.findUnique({ where: { id: created.po.specId } });
+      const [spec, portalCta] = await Promise.all([
+        prisma.spOrderSpec.findUnique({ where: { id: created.po.specId } }),
+        resolvePcbPortalCta(created.po.partnerId),
+      ]);
       if (spec !== null) {
         void sendPcbMail(
           request.log,
@@ -472,6 +476,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
               created.po.subPriceOriginal === null ? null : Number(created.po.subPriceOriginal),
             ),
             deliveryText: created.po.deliveryDate === null ? null : kstDateStr(created.po.deliveryDate),
+            ...portalCta,
           }),
           {
             kind: 'pcb_po_issued',
@@ -557,9 +562,12 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         params: { poId: String(po.id), partnerName: ctx.partnerName, status: res.to },
       };
       if (res.shipment.receiverKind === 'md') {
-        const md = await prisma.spPartner.findUnique({
-          where: { id: res.shipment.receiverPartnerId ?? 0n },
-        });
+        // 수신자가 MD 조직 — 무계정 조직이면 포털 버튼 대신 대행 안내(재점검 #15).
+        const receiverPartnerId = res.shipment.receiverPartnerId;
+        const [md, portalCta] = await Promise.all([
+          prisma.spPartner.findUnique({ where: { id: receiverPartnerId ?? 0n } }),
+          receiverPartnerId === null ? null : resolvePcbPortalCta(receiverPartnerId),
+        ]);
         void sendPcbMail(
           request.log,
           md?.contactEmail,
@@ -570,6 +578,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             nextLabel: null,
             targetUrl: pcbPartnerPortalUrl(),
             targetLabel: '파트너 포털 열기',
+            ...(portalCta ?? {}),
           }),
           turnMeta,
         );
@@ -631,6 +640,8 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       );
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
+      // 보내는측(하위 수주 조직) 통지 — 무계정이면 대행 안내(재점검 #15).
+      const portalCta = await resolvePcbPortalCta(po.partnerId);
       void sendPcbMail(
         request.log,
         po.partner.contactEmail,
@@ -638,6 +649,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           partnerName: po.partner.name,
           projectName: po.spec.projectName,
           note: request.body.note ?? null,
+          ...portalCta,
         }),
         {
           kind: 'pcb_shipment_received',

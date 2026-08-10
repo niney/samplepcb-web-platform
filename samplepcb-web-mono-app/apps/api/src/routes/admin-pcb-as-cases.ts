@@ -29,6 +29,7 @@ import {
 import { collectMultipart } from '../lib/market';
 import { downloadFromFileServer } from '../lib/file-server';
 import { buildPcbAsCaseSubmittedEmail, sendPcbMail } from '../lib/pcb-rfq-email';
+import { resolvePcbPortalCta } from '../lib/pcb-portal-cta';
 
 // ── PCB A/S 케이스 관리자 라우트(P4) — docs/PCB_PARTNER_TRACK.md §9 A/S ───────
 // 스펙(Case) 축에서 접수를 만들고, 협력사 회신을 받아 [재발주 진행]으로 회차
@@ -165,9 +166,10 @@ export const adminPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
           .status(409)
           .send({ error: r.error, message: '작성(초안) 상태만 접수 요청할 수 있습니다' });
       }
-      const [partner, spec] = await Promise.all([
+      const [partner, spec, portalCta] = await Promise.all([
         prisma.spPartner.findUnique({ where: { id: r.asCase.targetPartnerId } }),
         prisma.spOrderSpec.findUnique({ where: { id: r.asCase.specId } }),
+        resolvePcbPortalCta(r.asCase.targetPartnerId),
       ]);
       void sendPcbMail(
         request.log,
@@ -182,6 +184,7 @@ export const adminPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, d
             (PCB_AS_CHARGE_LABELS as Record<string, string>)[r.asCase.chargeType] ??
             r.asCase.chargeType,
           description: r.asCase.description,
+          ...portalCta,
         }),
         {
           kind: 'pcb_as_submitted',

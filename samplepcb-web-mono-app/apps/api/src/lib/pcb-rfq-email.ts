@@ -64,7 +64,31 @@ const infoRow = (label: string, value: string): string => `
           <td style="padding:7px 10px;color:#222;font-size:13px;border:1px solid #e1e6ea;">${value}</td>
         </tr>`;
 
-export interface PcbRfqRequestEmailParams {
+// ── 무계정 조직 대행 안내(재점검 #15) — 협력사향 포털 CTA 메일 공통 ───────────
+// 연결 계정 0인 조직에 포털 버튼은 열어도 로그인에서 막히는 실행 불가 CTA 다.
+// hasPortalAccount=false 면 각 빌더가 버튼을 이 대행 안내 박스로 치환한다(메일
+// 자체는 정보 가치가 있어 유지). 판정·문의처 조회는 lib/pcb-portal-cta.ts.
+
+/** 협력사향 포털 CTA 메일 공통 파라미터 — 기본 true(기존 호출부 무파손). */
+export interface PcbPortalCtaParams {
+  /** false=조직에 연결 계정이 없다 — 포털 CTA 를 대행 안내로 치환한다. */
+  hasPortalAccount?: boolean;
+  /** 대행 안내의 문의처(운영자 메일) — hasPortalAccount=false 일 때만 사용. */
+  inquiryEmail?: string | null;
+}
+
+/** 포털 버튼 자리에 넣는 대행 안내 박스 — lead 는 하드코딩 안내문(비 esc). */
+const proxyNoticeBox = (lead: string, inquiryEmail: string | null | undefined): string => `
+      <div style="margin-top:16px;padding:12px 14px;background:#f8fafc;border-left:3px solid #64748b;font-size:13px;color:#334155;line-height:1.7;">
+        ${lead}
+        ${
+          inquiryEmail === null || inquiryEmail === undefined || inquiryEmail === ''
+            ? '이 메일에 회신해 주세요.'
+            : `<a href="mailto:${esc(inquiryEmail)}" style="color:#2563eb;">${esc(inquiryEmail)}</a>`
+        }
+      </div>`;
+
+export interface PcbRfqRequestEmailParams extends PcbPortalCtaParams {
   partnerName: string;
   /** 발주처 표시 — 관리자 트랙=자사명, MD 하위 트랙=MD 조직명. */
   requesterName: string;
@@ -79,9 +103,16 @@ export function buildPcbRfqRequestEmail(p: PcbRfqRequestEmailParams): {
   html: string;
 } {
   const portalUrl = `${WEB_BASE_URL}/app/partner`;
+  // 매직링크는 무계정도 실행 가능한 CTA 다(로그인 불필요) — 무계정 대행 분기는
+  // 링크 없이 포털 폴백 버튼을 쓰던 경우에만 적용한다(재점검 #15).
   const cta =
     p.magicUrl === null
-      ? `
+      ? p.hasPortalAccount === false
+        ? proxyNoticeBox(
+            '견적 회신은 샘플피씨비 담당자가 대행 접수합니다 — 견적가·예상 배송일 회신·문의:',
+            p.inquiryEmail,
+          )
+        : `
       <div style="padding-top:20px;">
         <a href="${esc(portalUrl)}"
            style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
@@ -207,7 +238,7 @@ export async function sendPcbMail(
 
 // ── P2 발주·EQ 알림 — docs/PCB_PARTNER_TRACK.md §5.4 ─────────────────────────
 
-export interface PcbPoIssuedEmailParams {
+export interface PcbPoIssuedEmailParams extends PcbPortalCtaParams {
   partnerName: string;
   requesterName: string;
   projectName: string;
@@ -216,17 +247,32 @@ export interface PcbPoIssuedEmailParams {
   deliveryText: string | null;
 }
 
-/** 발주서 발행 → 수주 협력사 통지(확인·EQ 진행은 포털). */
+/** 발주서 발행 → 수주 협력사 통지(확인·EQ 진행은 포털 — 무계정이면 대행 안내). */
 export function buildPcbPoIssuedEmail(p: PcbPoIssuedEmailParams): {
   subject: string;
   html: string;
 } {
+  const noAccount = p.hasPortalAccount === false;
   const rows = [
     infoRow('발주 건', esc(p.projectName)),
     infoRow('수량', `${String(p.qty)} 매`),
     infoRow('발주가', `<b>${esc(p.priceText)}</b>`),
     ...(p.deliveryText === null ? [] : [infoRow('납기', esc(p.deliveryText))]),
   ].join('');
+  const guide = noAccount
+    ? '내용 확인 후 <b>EQ·Working 파일</b>을 샘플피씨비 담당자에게 전달해 주세요 — EQ 승인요청 등 포털 진행은 담당자가 대행합니다.'
+    : '포털에서 내용 확인 후 <b>EQ 승인요청(EQ·Working 파일 첨부)</b>부터 진행해 주세요.';
+  const cta = noAccount
+    ? proxyNoticeBox(
+        '포털 진행(EQ·생산 상태 처리)은 샘플피씨비 담당자가 대행합니다 — 파일 전달·문의:',
+        p.inquiryEmail,
+      )
+    : `
+      <div style="padding-top:20px;">
+        <a href="${esc(pcbPartnerPortalUrl())}"
+           style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털에서 확인하기</a>
+      </div>`;
   return {
     subject: `[샘플피씨비] PCB 발주서 도착 — ${p.projectName}`,
     html: shell(
@@ -234,15 +280,10 @@ export function buildPcbPoIssuedEmail(p: PcbPoIssuedEmailParams): {
       `
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.partnerName)} 담당자님, ${esc(p.requesterName)}에서 아래 건을 발주드립니다.
-        포털에서 내용 확인 후 <b>EQ 승인요청(EQ·Working 파일 첨부)</b>부터 진행해 주세요.
+        ${guide}
       </p>
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
-      </table>
-      <div style="padding-top:20px;">
-        <a href="${esc(pcbPartnerPortalUrl())}"
-           style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
-          파트너 포털에서 확인하기</a>
-      </div>`,
+      </table>${cta}`,
       '본 메일은 샘플피씨비 PCB 발주 알림입니다.',
     ),
   };
@@ -284,18 +325,13 @@ export function buildPcbEqRequestedEmail(p: PcbEqTurnEmailParams): {
 export const pcbPartnerPoUrl = (poId: string): string =>
   `${WEB_BASE_URL}/app/partner/pcb/pos/${poId}`;
 
-export interface PcbEqDecisionEmailParams {
+export interface PcbEqDecisionEmailParams extends PcbPortalCtaParams {
   partnerName: string; // 수주 협력사
   projectName: string;
   approved: boolean;
   reason: string | null; // 반려 사유
   /** 대상 발주 — 있으면 버튼이 발주 상세로 간다(없으면 포털 홈 폴백). */
   poId?: string;
-  /** false=조직에 연결 계정이 없다(재점검 #15) — 포털 CTA 는 실행 불가라 버튼·문구를
-   *  "담당자 대행 진행" 안내로 치환한다(메일 자체는 정보 가치가 있어 유지). 기본 true. */
-  hasPortalAccount?: boolean;
-  /** 대행 안내의 문의처(운영자 메일) — hasPortalAccount=false 일 때만 사용. */
-  inquiryEmail?: string | null;
 }
 
 /** EQ 승인/반려 → 수주 협력사 통지. */
@@ -324,15 +360,10 @@ export function buildPcbEqDecisionEmail(p: PcbEqDecisionEmailParams): {
   const target = p.poId === undefined ? pcbPartnerPortalUrl() : pcbPartnerPoUrl(p.poId);
   // 계정 없는 조직 — 포털 버튼 대신 대행 안내(열어도 로그인 화면에서 막히는 CTA 를 없앤다).
   const cta = noAccount
-    ? `
-      <div style="margin-top:16px;padding:12px 14px;background:#f8fafc;border-left:3px solid #64748b;font-size:13px;color:#334155;line-height:1.7;">
-        포털 진행(상태 처리)은 샘플피씨비 담당자가 대행합니다 — 진행 상황 회신·문의:
-        ${
-          p.inquiryEmail === null || p.inquiryEmail === undefined || p.inquiryEmail === ''
-            ? '이 메일에 회신해 주세요.'
-            : `<a href="mailto:${esc(p.inquiryEmail)}" style="color:#2563eb;">${esc(p.inquiryEmail)}</a>`
-        }
-      </div>`
+    ? proxyNoticeBox(
+        '포털 진행(상태 처리)은 샘플피씨비 담당자가 대행합니다 — 진행 상황 회신·문의:',
+        p.inquiryEmail,
+      )
     : `
       <div style="padding-top:16px;">
         <a href="${esc(target)}"
@@ -375,7 +406,7 @@ export function buildPcbProducedEmail(p: PcbEqTurnEmailParams): {
 
 // ── P3 선적 알림 — 상대 차례로 넘어갈 때(BOM D22 인지 장치 승계) ──────────────
 
-export interface PcbShipmentTurnEmailParams {
+export interface PcbShipmentTurnEmailParams extends PcbPortalCtaParams {
   recipientName: string;
   projectName: string;
   statusLabel: string; // 진입한 단계 라벨
@@ -384,10 +415,30 @@ export interface PcbShipmentTurnEmailParams {
   targetLabel: string;
 }
 
+/** 선적 상대 차례 통지 — 수신자가 협력사/MD 조직이고 무계정이면 대행 안내(관리자
+ *  수신분은 호출부가 분기 없이 기본값으로 보낸다). */
 export function buildPcbShipmentTurnEmail(p: PcbShipmentTurnEmailParams): {
   subject: string;
   html: string;
 } {
+  const noAccount = p.hasPortalAccount === false;
+  const nextLine =
+    p.nextLabel === null
+      ? '내용을 확인해 주세요.'
+      : noAccount
+        ? `다음 단계인 '<b>${esc(p.nextLabel)}</b>' 진행은 샘플피씨비 담당자가 대행합니다.`
+        : `다음 단계인 '<b>${esc(p.nextLabel)}</b>' 처리를 부탁드립니다.`;
+  const cta = noAccount
+    ? proxyNoticeBox(
+        '포털 진행(선적 상태 처리)은 샘플피씨비 담당자가 대행합니다 — 진행 상황 회신·문의:',
+        p.inquiryEmail,
+      )
+    : `
+      <div style="padding-top:16px;">
+        <a href="${esc(p.targetUrl)}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          ${esc(p.targetLabel)}</a>
+      </div>`;
   return {
     subject: `[샘플피씨비] PCB 선적 진행 — ${p.projectName} · ${p.statusLabel}`,
     html: shell(
@@ -396,25 +447,20 @@ export function buildPcbShipmentTurnEmail(p: PcbShipmentTurnEmailParams): {
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.recipientName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 발송이
         '${esc(p.statusLabel)}' 단계로 진행되었습니다.
-        ${p.nextLabel === null ? '내용을 확인해 주세요.' : `다음 단계인 '<b>${esc(p.nextLabel)}</b>' 처리를 부탁드립니다.`}
-      </p>
-      <div style="padding-top:16px;">
-        <a href="${esc(p.targetUrl)}"
-           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
-          ${esc(p.targetLabel)}</a>
-      </div>`,
+        ${nextLine}
+      </p>${cta}`,
       '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
     ),
   };
 }
 
-export interface PcbShipmentReceivedEmailParams {
+export interface PcbShipmentReceivedEmailParams extends PcbPortalCtaParams {
   partnerName: string; // 보내는측(수신자)
   projectName: string;
   note: string | null;
 }
 
-/** 입고확인(검수) → 보내는측 통지. */
+/** 입고확인(검수) → 보내는측 통지(무계정이면 포털 버튼 대신 대행 안내). */
 export function buildPcbShipmentReceivedEmail(p: PcbShipmentReceivedEmailParams): {
   subject: string;
   html: string;
@@ -423,6 +469,18 @@ export function buildPcbShipmentReceivedEmail(p: PcbShipmentReceivedEmailParams)
     p.note === null || p.note.trim() === ''
       ? ''
       : `<p style="margin:0 0 12px;font-size:13px;color:#b45309;line-height:1.6;">검수 메모: <b>${esc(p.note)}</b> — 확인 후 회신 부탁드립니다.</p>`;
+  const cta =
+    p.hasPortalAccount === false
+      ? proxyNoticeBox(
+          '포털 확인·후속 처리는 샘플피씨비 담당자가 대행합니다 — 회신·문의:',
+          p.inquiryEmail,
+        )
+      : `
+      <div style="padding-top:16px;">
+        <a href="${esc(pcbPartnerPortalUrl())}"
+           style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털 열기</a>
+      </div>`;
   return {
     subject: `[샘플피씨비] PCB 입고 확인 — ${p.projectName}`,
     html: shell(
@@ -431,12 +489,7 @@ export function buildPcbShipmentReceivedEmail(p: PcbShipmentReceivedEmailParams)
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 물품 입고 확인(검수)이
         완료되었습니다.
-      </p>${noteHtml}
-      <div style="padding-top:16px;">
-        <a href="${esc(pcbPartnerPortalUrl())}"
-           style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
-          파트너 포털 열기</a>
-      </div>`,
+      </p>${noteHtml}${cta}`,
       '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
     ),
   };
@@ -498,7 +551,7 @@ export function buildPcbEqCustomerRequestEmail(p: PcbEqCustomerRequestEmailParam
 
 // ── A/S 케이스(P4) — 접수 전송 → 재생산 협력사 통지 ─────────────────────────
 
-export interface PcbAsCaseSubmittedEmailParams {
+export interface PcbAsCaseSubmittedEmailParams extends PcbPortalCtaParams {
   partnerName: string;
   projectName: string;
   caseTypeLabel: string; // '관리자 실수' | '제품 불량'
@@ -506,10 +559,12 @@ export interface PcbAsCaseSubmittedEmailParams {
   description: string | null;
 }
 
+/** A/S 접수 전송 → 대상 협력사(무계정이면 "포털에서 회신" 대신 대행 회신 안내). */
 export function buildPcbAsCaseSubmittedEmail(p: PcbAsCaseSubmittedEmailParams): {
   subject: string;
   html: string;
 } {
+  const noAccount = p.hasPortalAccount === false;
   const rows = [
     infoRow('대상 건', esc(p.projectName)),
     infoRow('유형', esc(p.caseTypeLabel)),
@@ -519,6 +574,20 @@ export function buildPcbAsCaseSubmittedEmail(p: PcbAsCaseSubmittedEmailParams): 
     p.description === null || p.description.trim() === ''
       ? ''
       : `<div style="margin:12px 0 0;padding:12px 14px;background:#f8fafc;border-left:3px solid #f59e0b;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;">${esc(p.description)}</div>`;
+  const guide = noAccount
+    ? '내용 확인 후 <b>재생산 가능 / 재생산 불가</b> 여부를 회신해 주세요.'
+    : '포털에서 내용 확인 후 <b>재생산 가능 / 재생산 불가</b>를 회신해 주세요.';
+  const cta = noAccount
+    ? proxyNoticeBox(
+        '포털 회신은 관리자 대행 회신으로 처리됩니다 — 회신 내용(재생산 가능/불가와 사유)을 보내 주세요:',
+        p.inquiryEmail,
+      )
+    : `
+      <div style="padding-top:20px;">
+        <a href="${esc(pcbPartnerPortalUrl())}"
+           style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털에서 회신하기</a>
+      </div>`;
   return {
     subject: `[샘플피씨비] PCB A/S 재생산 검토 요청 — ${p.projectName}`,
     html: shell(
@@ -526,15 +595,10 @@ export function buildPcbAsCaseSubmittedEmail(p: PcbAsCaseSubmittedEmailParams): 
       `
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
         ${esc(p.partnerName)} 담당자님, 아래 건의 재생산(A/S) 가능 여부 검토를 요청드립니다.
-        포털에서 내용 확인 후 <b>재생산 가능 / 재생산 불가</b>를 회신해 주세요.
+        ${guide}
       </p>
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
-      </table>${descHtml}
-      <div style="padding-top:20px;">
-        <a href="${esc(pcbPartnerPortalUrl())}"
-           style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
-          파트너 포털에서 회신하기</a>
-      </div>`,
+      </table>${descHtml}${cta}`,
       '본 메일은 샘플피씨비 PCB A/S 알림입니다.',
     ),
   };

@@ -31,6 +31,7 @@ import {
 } from '../lib/pcb-rfq-email';
 import { downloadFromFileServer } from '../lib/file-server';
 import { getShopEstimateProfile } from '../lib/g5-db';
+import { resolvePcbPortalCta } from '../lib/pcb-portal-cta';
 import { kstDateStr } from '../lib/kst';
 import type { MailLogMeta } from '../lib/mail-log';
 
@@ -244,6 +245,8 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (diff.addedPartners.length > 0) {
         for (const partner of diff.addedPartners) {
           const token = diff.addedTokens.get(partner.id.toString());
+          // 매직링크가 없을 때만 포털 폴백 CTA 가 실리므로 그때만 무계정 여부를 판정(재점검 #15).
+          const portalCta = token === undefined ? await resolvePcbPortalCta(partner.id) : null;
           void sendPcbMail(
             request.log,
             partner.contactEmail,
@@ -254,6 +257,7 @@ export const partnerPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
               qty: rfq.spec.qty,
               suggestedDeliveryDate: suggested,
               magicUrl: token === undefined ? null : magicPcbReplyUrl(token),
+              ...(portalCta ?? {}),
             }),
             {
               kind: 'pcb_rfq_request',
