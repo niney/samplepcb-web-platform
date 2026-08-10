@@ -132,7 +132,36 @@ export async function submitGerberRfq(
   });
   if (spec === null) throw new Error('거버 제출 후 sp_order_spec 이 생성되지 않았습니다');
   await rp.shot(customer, `${opts.prefix}-quotes-rfq-wait`);
+
+  // 방금 만든 행이 곧 rfq 행이다 — 카드 우측 열에 긴 문장이 들어가면 사양 열이 0 폭으로
+  // 밀려 글자가 세로로 쪼개진다(2026-08-10 실측, §9). 사람 눈이 아니라 주행이 잡게 한다.
+  const collapsed = await measureQuotesRowWidths(page);
+  if (collapsed.length > 0) {
+    rp.F(
+      opts.prefix,
+      'bug',
+      `견적관리 사양 열 붕괴 ${String(collapsed.length)}행 — 우측 열의 긴 줄이 폭을 다 가져갔다: ${JSON.stringify(collapsed)}`,
+    );
+  }
   return Number(spec.id);
+}
+
+/**
+ * 견적관리 목록의 **사양 열 폭**을 잰다 — 0 인 행(= 우측 가격 열이 폭을 다 먹어 사양이
+ * 한 글자씩 세로로 쪼개진 상태)만 돌려준다. 여정 공용 가드이자 여정 1호의 어서션 근거.
+ */
+export async function measureQuotesRowWidths(
+  page: any,
+): Promise<{ i: number; infoW: number; calcW: number }[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('li.sp-quotes__item')]
+      .map((c, i) => ({
+        i,
+        infoW: (c.querySelector('.sp-cart-info') as HTMLElement | null)?.offsetWidth ?? -1,
+        calcW: (c.querySelector('.sp-cart-calc') as HTMLElement | null)?.offsetWidth ?? -1,
+      }))
+      .filter((r) => r.infoW === 0),
+  );
 }
 
 /**

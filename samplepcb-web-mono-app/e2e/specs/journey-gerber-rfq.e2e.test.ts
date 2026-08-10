@@ -43,6 +43,7 @@ import {
   placeOrderFromQuotes,
   requireCustomerCreds,
   signJwt,
+  measureQuotesRowWidths,
   submitGerberRfq,
   type E2eSession,
   type PartnerFixture,
@@ -143,6 +144,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     const prisma = getPrisma();
     const spec = await prisma.spOrderSpec.findUnique({ where: { id: BigInt(specId) } });
     expect(spec?.quoteStatus, '제출 직후 상태').toBe('rfq');
+    // 레이아웃 회귀 가드(§9) — rfq 행은 우측 열에 안내 문구가 붙는 자리라, 그 문구가 길면
+    // 사양 열이 0 폭으로 밀려 글자가 세로로 쪼개진다. 같은 열이 두 번 무너졌기에 굳힌다.
+    expect(await measureQuotesRowWidths(customer.page), '견적관리 사양 열 붕괴 행').toEqual([]);
   }, 180_000);
 
   test('S3. 관리자: 협력사 견적요청 발송(협력2)', async (ctx) => {
