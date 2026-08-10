@@ -14,6 +14,7 @@ import { prisma } from './prisma';
 
 const PCB_EQ_REF_TYPE = 'sp_pcb_po_eq';
 const PCB_SHIPMENT_REF_TYPE = 'sp_pcb_shipment';
+const PCB_AS_CASE_REF_TYPE = 'sp_pcb_as_case';
 
 export interface PcbTrackFacts {
   rfqs: number;
@@ -31,7 +32,7 @@ export const loadPcbTrackFacts = async (
   const empty = new Map<string, PcbTrackFacts>();
   if (specIds.length === 0) return empty;
   const ids = [...specIds];
-  const [rfqs, pos, shipments] = await Promise.all([
+  const [rfqs, pos, shipments, asCases] = await Promise.all([
     prisma.spPcbRfq.findMany({
       where: { specId: { in: ids } },
       select: { specId: true, magicToken: true },
@@ -41,10 +42,14 @@ export const loadPcbTrackFacts = async (
       where: { specId: { in: ids } },
       select: { id: true, specId: true },
     }),
+    prisma.spPcbAsCase.findMany({
+      where: { specId: { in: ids } },
+      select: { id: true, specId: true },
+    }),
   ]);
   // 첨부는 refType/refId 규약(FK 없음) — 원장 id 를 모아 한 번에 센다.
   const fileGroups =
-    pos.length === 0 && shipments.length === 0
+    pos.length === 0 && shipments.length === 0 && asCases.length === 0
       ? []
       : await prisma.spFile.findMany({
           where: {
@@ -55,12 +60,16 @@ export const loadPcbTrackFacts = async (
               ...(shipments.length > 0
                 ? [{ refType: PCB_SHIPMENT_REF_TYPE, refId: { in: shipments.map((s) => s.id) } }]
                 : []),
+              ...(asCases.length > 0
+                ? [{ refType: PCB_AS_CASE_REF_TYPE, refId: { in: asCases.map((c) => c.id) } }]
+                : []),
             ],
           },
           select: { refType: true, refId: true },
         });
   const specOfPo = new Map(pos.map((p) => [p.id.toString(), p.specId.toString()]));
   const specOfShipment = new Map(shipments.map((s) => [s.id.toString(), s.specId.toString()]));
+  const specOfAsCase = new Map(asCases.map((c) => [c.id.toString(), c.specId.toString()]));
 
   const get = (specId: string): PcbTrackFacts => {
     const cur = empty.get(specId) ?? { rfqs: 0, pos: 0, shipments: 0, attachments: 0, sentRfqs: 0 };
@@ -79,7 +88,9 @@ export const loadPcbTrackFacts = async (
     const specId =
       file.refType === PCB_EQ_REF_TYPE
         ? specOfPo.get(file.refId.toString())
-        : specOfShipment.get(file.refId.toString());
+        : file.refType === PCB_AS_CASE_REF_TYPE
+          ? specOfAsCase.get(file.refId.toString())
+          : specOfShipment.get(file.refId.toString());
     if (specId !== undefined) get(specId).attachments += 1;
   }
   return empty;

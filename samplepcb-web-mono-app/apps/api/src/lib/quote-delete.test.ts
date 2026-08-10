@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   fileDeleteMany: vi.fn(),
   poFindMany: vi.fn(),
   shipmentFindMany: vi.fn(),
+  asCaseFindMany: vi.fn(),
   quoteDeleteMany: vi.fn(),
   specDelete: vi.fn(),
   transaction: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('./prisma', () => ({
     spFile: { findMany: mocks.fileFindMany, deleteMany: mocks.fileDeleteMany },
     spPcbPo: { findMany: mocks.poFindMany },
     spPcbShipment: { findMany: mocks.shipmentFindMany },
+    spPcbAsCase: { findMany: mocks.asCaseFindMany },
     spQuote: { deleteMany: mocks.quoteDeleteMany },
     spOrderSpec: { delete: mocks.specDelete },
     $transaction: mocks.transaction,
@@ -50,6 +52,7 @@ beforeEach(() => {
   mocks.transaction.mockResolvedValue(undefined);
   mocks.poFindMany.mockResolvedValue([]);
   mocks.shipmentFindMany.mockResolvedValue([]);
+  mocks.asCaseFindMany.mockResolvedValue([]);
   mocks.fileFindMany.mockResolvedValue([]);
 });
 
@@ -83,6 +86,22 @@ describe('purgeQuoteData', () => {
     // 스펙 파일 · PCB 첨부 · sp_quote · spec = 4개 오퍼레이션
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.fileDeleteMany).toHaveBeenCalledWith({ where: { id: { in: [101n] } } });
+  });
+
+  it('A/S 케이스 첨부도 협력 트랙 첨부로 함께 걷는다(발주·선적이 없어도)', async () => {
+    mocks.asCaseFindMany.mockResolvedValue([{ id: 31n }]);
+    mocks.fileFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 301n, pathToken: 'as-photo' }]);
+
+    await purgeQuoteData(spec);
+
+    const query = mocks.fileFindMany.mock.calls[1]?.[0] as {
+      where: { OR: { refType: string }[] };
+    };
+    expect(query.where.OR.map((o) => o.refType)).toEqual(['sp_pcb_as_case']);
+    const tokens = mocks.deleteFromFileServer.mock.calls.map((c) => c[0] as string);
+    expect(tokens).toEqual(['as-photo']);
   });
 
   it('협력 트랙이 없으면 첨부 조회 자체를 건너뛴다(불필요한 쿼리 금지)', async () => {

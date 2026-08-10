@@ -23,14 +23,16 @@ export async function removeCartRow(spec: SpOrderSpec): Promise<void> {
 // cascade 로 사라지지만 sp_file 은 refType/refId 규약(FK 없음)이라 따라가지 않는다.
 const PCB_EQ_REF_TYPE = 'sp_pcb_po_eq';
 const PCB_SHIPMENT_REF_TYPE = 'sp_pcb_shipment';
+const PCB_AS_CASE_REF_TYPE = 'sp_pcb_as_case';
 
-/** 이 스펙에 딸린 PCB 협력 트랙 첨부(EQ·Working·상업송장·AWB) 전부. */
+/** 이 스펙에 딸린 PCB 협력 트랙 첨부(EQ·Working·상업송장·AWB·A/S 자료) 전부. */
 async function loadPcbTrackFiles(specId: bigint) {
-  const [poIds, shipmentIds] = await Promise.all([
+  const [poIds, shipmentIds, asCaseIds] = await Promise.all([
     prisma.spPcbPo.findMany({ where: { specId }, select: { id: true } }),
     prisma.spPcbShipment.findMany({ where: { specId }, select: { id: true } }),
+    prisma.spPcbAsCase.findMany({ where: { specId }, select: { id: true } }),
   ]);
-  if (poIds.length === 0 && shipmentIds.length === 0) return [];
+  if (poIds.length === 0 && shipmentIds.length === 0 && asCaseIds.length === 0) return [];
   return prisma.spFile.findMany({
     where: {
       OR: [
@@ -39,6 +41,9 @@ async function loadPcbTrackFiles(specId: bigint) {
           : []),
         ...(shipmentIds.length > 0
           ? [{ refType: PCB_SHIPMENT_REF_TYPE, refId: { in: shipmentIds.map((r) => r.id) } }]
+          : []),
+        ...(asCaseIds.length > 0
+          ? [{ refType: PCB_AS_CASE_REF_TYPE, refId: { in: asCaseIds.map((r) => r.id) } }]
           : []),
       ],
     },

@@ -68,6 +68,7 @@ model SpOrderSpec {
   pcbRfqs       SpPcbRfq[] // PCB 파트너 트랙(docs/PCB_PARTNER_TRACK.md) — 스펙 삭제 시 cascade
   pcbPos        SpPcbPo[]
   pcbShipments  SpPcbShipment[]
+  pcbAsCases    SpPcbAsCase[]
 
   @@index([mbId, status])
   @@index([quoteId])
@@ -938,6 +939,7 @@ model SpPartner {
   pos             SpBomPo[]
   pcbRfqs         SpPcbRfq[]
   pcbPos          SpPcbPo[]
+  pcbAsCases      SpPcbAsCase[] // 재생산 대상(target)으로서
   childRelations  SpPartnerRelation[] @relation("PartnerRelationParent")
   parentRelations SpPartnerRelation[] @relation("PartnerRelationChild")
 
@@ -1421,6 +1423,45 @@ model SpPcbRemittance {
   @@index([poId])
   @@index([remittedOn])
   @@map("sp_pcb_remittance")
+}
+
+// PCB A/S 케이스(P4) — 완료·출고된 발주의 재생산(회차 재발주) 접수 헤더. 정본
+// docs/PCB_PARTNER_TRACK.md §9 A/S. 레거시 sp_pcb_as_case 승계: 얇은 헤더로
+// 접수·회신만 돌고, **[재발주 진행] 시점에 회차(reorderRound)를 부여**하면서
+// 회차 발주서를 만든다(미전송 초안이 회차를 점유하지 않게 null 시작 — UK 는
+// 진행된 건만 회차 유일). 발주서 상태와 독립 — 케이스는 합의 기록, 생산은
+// 회차 발주서(sp_pcb_po reorderRound>0)가 기존 EQ·선적 파이프를 그대로 탄다.
+// 첨부는 sp_file refType 'sp_pcb_as_case'(uploadedBy 로 관리자/협력사 구분 —
+// 레거시는 회신 첨부가 관리자 첨부를 통째로 덮어쓰는 결함, 여기서 교정).
+model SpPcbAsCase {
+  id              BigInt      @id @default(autoincrement())
+  specId          BigInt
+  /** proceed 시 채번(같은 스펙 케이스 MAX+1, 1부터). null=미진행. */
+  reorderRound    Int?
+  caseType        String      @db.VarChar(16) // admin_fault|product_defect
+  /** 기본 규칙: admin_fault=paid / product_defect=free(관리자 변경 가능). 협력사
+   *  회신(수락/거절)이 곧 이 조건의 승인/반려다. 금액 컬럼은 두지 않는다 — 유상
+   *  금액은 회차 발주서의 발주 조건 수정(P3.10)으로 다룬다(레거시 동형). */
+  chargeType      String      @db.VarChar(8) // paid|free
+  description     String?     @db.Text // 관리자 접수 사유(불량 내용·잘못 보낸 정보)
+  status          String      @default("draft") @db.VarChar(16) // draft|submitted|accepted|rejected|proceeded
+  /** 재생산 협력사(회신 주체). 트랙은 이 협력사의 원주문(round 0) 발주에서 도출. */
+  targetPartnerId BigInt
+  parentPartnerId BigInt      @default(0) // 0=직거래, 그 외=MD 조직 id
+  replyReason     String?     @db.Text // 협력사 회신 사유(거절 시 권장)
+  createdBy       String      @db.VarChar(191) // 접수 관리자 mbId
+  submittedAt     DateTime?
+  repliedAt       DateTime?
+  proceededAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  spec            SpOrderSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  targetPartner   SpPartner   @relation(fields: [targetPartnerId], references: [id])
+
+  @@unique([specId, reorderRound])
+  @@index([targetPartnerId, status]) // 협력사 포털 회신 대기
+  @@index([parentPartnerId]) // MD 열람 격리
+  @@map("sp_pcb_as_case")
 }
 
 // PCB 선적(P3) — 발주서당 1건 생성 + 발송 시점 묶기(sp_pcb_shipment_po, BOM §6.10

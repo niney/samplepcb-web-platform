@@ -463,6 +463,86 @@ export function buildPcbEqCustomerRequestEmail(p: PcbEqCustomerRequestEmailParam
   };
 }
 
+// ── A/S 케이스(P4) — 접수 전송 → 재생산 협력사 통지 ─────────────────────────
+
+export interface PcbAsCaseSubmittedEmailParams {
+  partnerName: string;
+  projectName: string;
+  caseTypeLabel: string; // '관리자 실수' | '제품 불량'
+  chargeLabel: string; // '유상' | '무상'
+  description: string | null;
+}
+
+export function buildPcbAsCaseSubmittedEmail(p: PcbAsCaseSubmittedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const rows = [
+    infoRow('대상 건', esc(p.projectName)),
+    infoRow('유형', esc(p.caseTypeLabel)),
+    infoRow('비용 조건', `<b>${esc(p.chargeLabel)}</b>`),
+  ].join('');
+  const descHtml =
+    p.description === null || p.description.trim() === ''
+      ? ''
+      : `<div style="margin:12px 0 0;padding:12px 14px;background:#f8fafc;border-left:3px solid #f59e0b;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;">${esc(p.description)}</div>`;
+  return {
+    subject: `[샘플피씨비] PCB A/S 재생산 검토 요청 — ${p.projectName}`,
+    html: shell(
+      'A/S 재생산 검토 요청이 도착했습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, 아래 건의 재생산(A/S) 가능 여부 검토를 요청드립니다.
+        포털에서 내용 확인 후 <b>재생산 가능 / 재생산 불가</b>를 회신해 주세요.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
+      </table>${descHtml}
+      <div style="padding-top:20px;">
+        <a href="${esc(pcbPartnerPortalUrl())}"
+           style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털에서 회신하기</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB A/S 알림입니다.',
+    ),
+  };
+}
+
+export interface PcbAsCaseRepliedEmailParams {
+  partnerName: string; // 회신한 협력사
+  projectName: string;
+  accepted: boolean;
+  reason: string | null;
+  targetUrl: string; // Case 상세
+}
+
+/** 협력사가 A/S 재생산 가능/불가를 회신 → 관리자 통지(놓치면 진행이 멈춘다). */
+export function buildPcbAsCaseRepliedEmail(p: PcbAsCaseRepliedEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const noteHtml =
+    p.reason === null || p.reason.trim() === ''
+      ? ''
+      : `<p style="margin:0 0 12px;font-size:13px;color:${p.accepted ? '#334155' : '#b91c1c'};line-height:1.6;">회신 사유: <b>${esc(p.reason)}</b></p>`;
+  return {
+    subject: `[샘플피씨비] A/S ${p.accepted ? '재생산 가능' : '재생산 불가'} — ${p.projectName} · ${p.partnerName}`,
+    html: shell(
+      `협력사가 A/S 를 '${p.accepted ? '재생산 가능' : '재생산 불가'}'으로 회신했습니다`,
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 건의 A/S 접수에 회신했습니다.
+        ${p.accepted ? '[재발주 진행]으로 회차 발주서를 만들어 주세요.' : '사유 확인 후 조건을 조정해 다시 접수하거나 종결해 주세요.'}
+      </p>${noteHtml}
+      <div style="padding-top:16px;">
+        <a href="${esc(p.targetUrl)}"
+           style="display:inline-block;background:${p.accepted ? '#059669' : '#b91c1c'};color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          Case 상세 열기</a>
+      </div>`,
+      '본 메일은 샘플피씨비 PCB A/S 알림입니다.',
+    ),
+  };
+}
+
 export interface PcbEqCustomerDecisionEmailParams {
   projectName: string;
   approved: boolean;
