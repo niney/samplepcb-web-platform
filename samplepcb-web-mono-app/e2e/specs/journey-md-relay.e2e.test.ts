@@ -123,6 +123,25 @@ describe.skipIf(!RUN || !JOURNEY)('여정 4호 — MD 경유 2단(중개상이 �
     M = signJwt({ mbId: md.mbId, ttlSec: 3600 });
     C = signJwt({ mbId: child.mbId, ttlSec: 3600 });
 
+    // MD 전환 가드 박제 — 진행 중 수주 발주가 있는 조직은 MD 가 될 수 없다(전환 시 EQ
+    // 주체가 위임으로 뒤집히므로). 이 여정의 첫 주행이 실제로 여기 걸렸다. dev DB 에
+    // 협력1의 진행 발주가 있을 때만 확인하고, 없으면 기록만 남긴다(전제 의존 어서션).
+    const prisma = getPrisma();
+    const childActivePos = await prisma.spPcbPo.count({
+      where: { partnerId: child.id, status: { not: 'produced' } },
+    });
+    if (childActivePos > 0) {
+      const blocked = await api(A, 'POST', `/api/admin/partners/${String(num(child.id))}/relations`, {
+        childPartnerId: num(md.id),
+        settlementCurrency: 'USD',
+      });
+      expect(blocked.status, `진행 발주 보유 조직의 MD 전환: ${JSON.stringify(blocked.json)}`).toBe(409);
+      expect(blocked.json?.error, 'MD 전환 가드').toBe('PARENT_HAS_ACTIVE_POS');
+      F('R0', 'obs', `MD 전환 가드 확인 — ${CHILD_NAME} 진행 발주 ${String(childActivePos)}건이라 409`);
+    } else {
+      F('R0', 'obs', `${CHILD_NAME} 에 진행 발주가 없어 MD 전환 가드 확인 생략`);
+    }
+
     // MD 관계 시드 — 이게 있어야 조직이 MD 로 동작한다(플래그가 아니라 관계의 존재).
     const rel = await api(A, 'POST', `/api/admin/partners/${String(num(md.id))}/relations`, {
       childPartnerId: num(child.id),
