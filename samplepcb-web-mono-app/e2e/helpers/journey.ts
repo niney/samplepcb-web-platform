@@ -303,7 +303,13 @@ export async function placeOrderFromQuotes(
 export async function placeOrderFromBomQuote(
   customer: JourneySession,
   rp: JourneyReport,
-  opts: { quoteId: string; step: string; prefix: string; buyerName: string },
+  opts: {
+    quoteId: string;
+    step: string;
+    prefix: string;
+    buyerName: string;
+    expectedOrderAmount?: number;
+  },
 ): Promise<{ odId: string; status: string }> {
   const { page } = customer;
   const previousOdId = (await findLatestOrder(customer.mbId))?.odId ?? null;
@@ -323,6 +329,19 @@ export async function placeOrderFromBomQuote(
     );
     await rp.shot(customer, `${opts.prefix}-bom-order-fail`);
     throw e;
+  }
+
+  if (opts.expectedOrderAmount !== undefined) {
+    const bomRow = page.locator('#sod_list tbody tr').filter({ hasText: '부품 BOM 주문' }).first();
+    await bomRow.waitFor({ state: 'visible', timeout: 15_000 });
+    const cells = bomRow.locator('td');
+    const salePrice = Number((await cells.nth(2).innerText()).replace(/[^0-9-]/g, ''));
+    const subtotal = Number((await cells.nth(3).innerText()).replace(/[^0-9-]/g, ''));
+    if (salePrice !== opts.expectedOrderAmount || subtotal !== opts.expectedOrderAmount) {
+      throw new Error(
+        `BOM 주문서 금액 불일치 — 판매가 ${String(salePrice)}, 소계 ${String(subtotal)}, 기대 ${String(opts.expectedOrderAmount)}`,
+      );
+    }
   }
   await rp.shot(customer, `${opts.prefix}-orderform-top`);
 

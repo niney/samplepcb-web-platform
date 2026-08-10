@@ -104,10 +104,22 @@ async function submit(): Promise<void> {
 
 <template>
   <div v-if="open" class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="emit('close')">
-    <div class="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl">
+    <div
+      class="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bom-rfq-send-title"
+    >
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-bold">협력사 견적요청</h2>
-        <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>
+        <h2 id="bom-rfq-send-title" class="text-lg font-bold">협력사 견적요청</h2>
+        <button
+          type="button"
+          class="text-gray-400 hover:text-gray-700"
+          aria-label="협력사 견적요청 닫기"
+          @click="emit('close')"
+        >
+          ✕
+        </button>
       </div>
       <p class="mt-1 text-xs text-gray-500">
         요청 부품행

@@ -1003,6 +1003,8 @@ export const BomQuoteDetail = BomQuoteSummary.extend({
   confirmedShippingFee: z.number().nullable(),
   confirmedManagementFee: z.number().nullable(),
   confirmedTotal: z.number().nullable(),
+  /** 선정된 협력사 회신의 전체 납기. 여러 협력사면 가장 늦은 날짜이며 회신 확정 전에는 null. */
+  confirmedDeliveryDate: z.string().datetime().nullable(),
   /** 고객에게 보여줄 회신 메모(내부 adminMemo 와 분리). */
   answerNote: z.string().nullable(),
   items: z.array(BomQuoteItem),

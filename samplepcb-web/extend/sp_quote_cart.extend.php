@@ -21,9 +21,8 @@ if (!defined('G5_USE_SHOP') || !G5_USE_SHOP) return;
  *    orderform.php 진입 시(extend 는 _common.php 말미 로드 → 본문보다 먼저 실행)
  *    세션 카트(od_id) 소유 행에 한해 ct_select=0 으로 되돌린다.
  *
- * ③ 견적 템플릿 it_id 목록 — 장바구니(테마 cart.php)와 주문서(pc·mobile
- *    orderform.sub.php)가 같은 목록으로 "일반 상품 = it_id 집계 / 견적 = 건별
- *    (ct_id) 행" 이원 렌더를 하도록 여기서 공유한다.
+ * ③ 견적·계약 앵커 it_id 목록 — 주문서(pc·mobile orderform.sub.php)와 주문 메일이
+ *    "일반 상품 = it_id 집계 / 스냅샷 가격 행 = 건별(ct_id)" 이원 렌더를 하도록 공유한다.
  */
 
 // ③ 거버 견적 템플릿 상품 it_id — sp-node g5-db.ts TEMPLATE_ITEMS 와 동일하게 유지.
@@ -59,7 +58,22 @@ function sp_market_it_ids_in()
     }, sp_market_it_ids()));
 }
 
-// ⑥ 건별(ct_id) 렌더 대상 전체 = 거버 견적 ∪ 재능마켓 계약 — 주문서(pc·mobile
+// ⑦ 스마트 BOM 주문 앵커 상품 it_id — sp-node TEMPLATE_ITEMS.bom과 동일하게 유지.
+//    확정 견적 전체 금액은 io_price에 박제되고 ct_price=0·ct_qty=1이므로 일반상품
+//    판매가 칸을 쓰면 0원으로 보인다. 주문서·주문 메일에서는 건별 총액으로 렌더한다.
+function sp_bom_it_ids()
+{
+    return array('sp-bom-parts');
+}
+
+function sp_bom_it_ids_in()
+{
+    return implode(',', array_map(function ($x) {
+        return "'" . sql_real_escape_string($x) . "'";
+    }, sp_bom_it_ids()));
+}
+
+// ⑥⑦ 건별(ct_id) 렌더 대상 전체 = 거버 견적 ∪ 재능마켓 계약 ∪ 스마트 BOM — 주문서(pc·mobile
 //    orderform.sub.php)의 "일반 상품 = it_id 집계 / 커스텀 행 = 건별(ct_id)" 이원
 //    렌더에서 '커스텀 행 전체'를 가리키는 IN 문자열. 일반 루프의 제외 조건과 건별
 //    루프의 포함 조건이 반드시 이 같은 union 을 써야 이중 렌더/누락이 없다.
@@ -67,7 +81,7 @@ function sp_custom_row_it_ids_in()
 {
     return implode(',', array_map(function ($x) {
         return "'" . sql_real_escape_string($x) . "'";
-    }, array_merge(sp_quote_it_ids(), sp_market_it_ids())));
+    }, array_merge(sp_quote_it_ids(), sp_market_it_ids(), sp_bom_it_ids())));
 }
 
 // ④ 견적 행 거버 썸네일 서명 URL — sp-node lib/thumb-url.ts signedThumbUrl() 의 PHP 미러.

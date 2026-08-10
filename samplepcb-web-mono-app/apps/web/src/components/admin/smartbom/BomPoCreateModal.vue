@@ -197,10 +197,10 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
 
 <template>
   <div v-if="open" class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="emit('close')">
-    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-surface p-6 shadow-2xl">
+    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-surface p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="bom-po-create-title">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-bold">발주서 생성</h2>
-        <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>
+        <h2 id="bom-po-create-title" class="text-lg font-bold">발주서 생성</h2>
+        <button type="button" class="text-gray-400 hover:text-gray-700" aria-label="발주서 생성 닫기" @click="emit('close')">✕</button>
       </div>
       <p class="mt-1 text-xs text-gray-500">
         협력사 회신 선정 행과 공급사 구매 조건 선정 행을 조직별로 발주합니다 — 발주서는 생성 시점
@@ -273,7 +273,7 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
         <button
           type="button"
           class="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
-          :disabled="create.isPending.value || groups.length === 0"
+          :disabled="create.isPending.value || groups.length === 0 || selected.size === 0"
           @click="submit"
         >
           발주서 발행 ({{ selected.size }}곳)

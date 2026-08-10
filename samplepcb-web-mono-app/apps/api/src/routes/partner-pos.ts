@@ -285,7 +285,11 @@ export const partnerPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) 
 
   const buildShipmentListData = async (partnerId: bigint, query?: PartnerShipmentListQueryType) => {
     const all = await loadPartnerShipments(partnerId);
-    const dones = all.filter(isShipmentDoneForPartner);
+    // 완료 아카이브는 누적되므로 방금 끝낸 발송이 첫 페이지에 보여야 한다.
+    // shipmentId는 생성 순서를 보존하고, 완료/입고 시각이 없는 최종 상태도 함께 정렬한다.
+    const dones = all
+      .filter(isShipmentDoneForPartner)
+      .sort((left, right) => right.shipmentId - left.shipmentId);
     const actives = all.filter((s) => !isShipmentDoneForPartner(s));
     const tab = query?.tab ?? 'active';
     const page = query?.page ?? 1;

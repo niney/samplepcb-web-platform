@@ -23,6 +23,7 @@ import {
   filterActiveQuoteItems,
   isEngineManagedQuoteSelection,
   isManualQuoteItemRow,
+  latestBomQuoteDeliveryDate,
   loadLatestQuoteLocalCatalogTrace,
   loadSupplierSearchSummary,
   planManualCatalogRows,
@@ -47,6 +48,16 @@ describe('관리자 회신 상태 경계', () => {
     expect(canTransition('reviewing', 'answered')).toBe(true);
     expect(canTransition('reviewing', 'closed')).toBe(false);
     expect(canTransition('answered', 'closed')).toBe(true);
+  });
+
+  it('여러 협력사 선정 시 가장 늦은 납기를 전체 고객 납기로 사용한다', () => {
+    expect(latestBomQuoteDeliveryDate([
+      new Date('2026-08-12T15:00:00.000Z'),
+      null,
+      new Date('2026-08-14T15:00:00.000Z'),
+      new Date('2026-08-13T15:00:00.000Z'),
+    ])).toBe('2026-08-14T15:00:00.000Z');
+    expect(latestBomQuoteDeliveryDate([null])).toBeNull();
   });
 
   it('고객 회신 초안은 회신 완료 이후에만 공개한다', () => {

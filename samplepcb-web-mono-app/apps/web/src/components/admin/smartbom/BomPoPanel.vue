@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import {
   BOM_PO_STATUS_LABELS,
   BOM_SHIPMENT_DOMESTIC_PREPARING_LABEL,
@@ -69,6 +69,11 @@ const statusCls = (status: AdminBomPoViewType['status']): string =>
     : status === 'issued'
       ? 'bg-blue-100 text-blue-700'
       : 'bg-gray-200 text-gray-600';
+
+const tableScroll = ref<HTMLElement | null>(null);
+function moveTable(direction: -1 | 1): void {
+  tableScroll.value?.scrollBy({ left: direction * 280, behavior: 'smooth' });
+}
 </script>
 
 <template>
@@ -97,16 +102,21 @@ const statusCls = (status: AdminBomPoViewType['status']): string =>
     <p v-else-if="pos.length === 0" class="px-4 py-6 text-center text-xs text-gray-400">
       아직 발행한 발주서가 없습니다{{ canIssue ? '' : ` — ${issueDisabledReason}` }}.
     </p>
-    <div v-else class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-100 text-xs">
+    <div v-else ref="tableScroll" class="overflow-x-auto [scrollbar-color:theme(colors.emerald.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
+      <div class="sticky left-0 z-[1] flex items-center gap-2 border-b border-emerald-100 bg-emerald-50/95 px-3 py-1.5 text-[10px] font-medium text-emerald-800 min-[1280px]:hidden">
+        <span class="min-w-0 flex-1">좌우로 이동해 선적·입고 상태와 작업 버튼을 확인할 수 있습니다.</span>
+        <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-emerald-200 bg-white text-sm hover:bg-emerald-100" aria-label="발주 표 왼쪽으로 이동" @click="moveTable(-1)">←</button>
+        <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-emerald-200 bg-white text-sm hover:bg-emerald-100" aria-label="발주 표 오른쪽으로 이동" @click="moveTable(1)">→</button>
+      </div>
+      <table class="min-w-[960px] divide-y divide-gray-100 text-xs">
         <thead class="bg-gray-50 text-left text-gray-500">
           <tr>
-            <th class="px-3 py-2">협력사</th>
-            <th class="px-3 py-2">상태</th>
-            <th class="px-3 py-2 text-right">품목</th>
-            <th class="px-3 py-2 text-right">발주 합계(VAT 별도)</th>
-            <th class="px-3 py-2">선적·입고</th>
-            <th class="px-3 py-2">발행/확인</th>
+            <th class="whitespace-nowrap px-3 py-2">협력사</th>
+            <th class="whitespace-nowrap px-3 py-2">상태</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">품목</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">발주 합계(VAT 별도)</th>
+            <th class="whitespace-nowrap px-3 py-2">선적·입고</th>
+            <th class="whitespace-nowrap px-3 py-2">발행/확인</th>
             <th class="px-3 py-2" />
           </tr>
         </thead>

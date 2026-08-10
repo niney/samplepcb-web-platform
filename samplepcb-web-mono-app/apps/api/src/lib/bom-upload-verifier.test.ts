@@ -74,6 +74,7 @@ function quoteDetail(
     confirmedShippingFee: null,
     confirmedManagementFee: null,
     confirmedTotal: null,
+    confirmedDeliveryDate: null,
     answerNote: null,
     items: buildStatus === 'ready' ? [{
       id: '501',

@@ -18,6 +18,7 @@ import {
 } from '@sp/api-contract';
 import {
   bomQuoteItemMatchGroup,
+  fmtKstDate,
   neededQty,
   pickBreak,
   stampOrderQty,
@@ -2693,7 +2694,7 @@ function fmtAmount(v: number | null): string {
               </div>
               <div class="flex h-[19px] items-center justify-between pt-px">
                 <span class="font-noto text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-bom-panel-label">{{ confirmedQuoteVisible ? '납기' : '예상 납기' }}</span>
-                <span class="flex items-center gap-[6px] text-[11px] font-semibold text-bom-delivery"><span class="size-[6px] rounded-full bg-bom-delivery" />{{ confirmedQuoteVisible ? '담당자 확인 필요' : '확정 시 안내' }}</span>
+                <span class="flex items-center gap-[6px] text-[11px] font-semibold text-bom-delivery"><span class="size-[6px] rounded-full bg-bom-delivery" />{{ confirmedQuoteVisible ? fmtKstDate(detail?.confirmedDeliveryDate, '담당자 확인 필요') : '확정 시 안내' }}</span>
               </div>
             </div>
           </section>

@@ -1746,6 +1746,17 @@
 #sod_fin .tbl_head03 tbody td.td_numbig,
 #sod_fin .tbl_head03 tbody td.text_right { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* 좁은 2열 레이아웃에서도 최종 주문 상태가 가로 스크롤 밖으로 숨지 않게 고정한다. */
+#sod_fin .tbl_head03 thead th:last-child,
+#sod_fin .tbl_head03 tbody td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    box-shadow: -10px 0 12px -12px rgba(15, 23, 42, .5);
+}
+#sod_fin .tbl_head03 thead th:last-child { z-index: 3; background: var(--sp-bg-soft); }
+#sod_fin .tbl_head03 tbody td:last-child { background: var(--sp-bg); }
+
 #sod_fin .sod_img { float: left; width: 56px; margin-right: 12px; }
 #sod_fin .sod_img img {
     display: block; width: 56px; height: 56px; object-fit: cover;

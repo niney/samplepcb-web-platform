@@ -22,6 +22,8 @@ const props = withDefaults(defineProps<{
   usdKrwRate?: number | null;
   /** 열람 전용(단일 검색 화면) — 부품 변경 CTA 없이 구매 조건 비교만 제공한다. */
   browse?: boolean;
+  /** 확정 CTA의 업무 문맥. 기본은 기존 품목 변경이며 수동 행 모달에서는 추가로 표시한다. */
+  selectionAction?: 'change' | 'add';
   /** 관리자는 명시 검색마다 공급사 캐시/API 최신 확인까지 기본 수행한다. */
   autoSupplierCheck?: boolean;
 }>(), {
@@ -30,6 +32,7 @@ const props = withDefaults(defineProps<{
   needed: 1,
   usdKrwRate: null,
   browse: false,
+  selectionAction: 'change',
   autoSupplierCheck: true,
 });
 
@@ -298,6 +301,7 @@ function returnToResults(): void {
         :usd-krw-rate="usdKrwRate"
         :selecting="selecting || supplierChecking"
         :browse="browse"
+        :selection-action="selectionAction"
         :current-part-id="currentPartId"
         @select="(part, pick) => emit('select', part, pick)"
       />

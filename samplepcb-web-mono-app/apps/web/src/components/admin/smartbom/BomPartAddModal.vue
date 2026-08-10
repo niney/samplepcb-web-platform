@@ -94,6 +94,7 @@ function onSelect(part: PartHitType, pick: OfferPick | null): void {
           :usd-krw-rate="usdKrwRate"
           :selecting="selecting || !quantityValid"
           :browse="readOnly"
+          selection-action="add"
           @select="onSelect"
         />
       </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiGet, apiGetBlob } from '@sp/shared';
 import { AdminBomQuoteRecipientEmail, BomQuotePrintResponse, apiRoutes } from '@sp/api-contract';
@@ -187,6 +187,31 @@ const currentStep = computed(() => {
   if (detail.value.status !== 'reviewing' || rfqs.value.length === 0) return base;
   return rfqs.value.some((r) => r.status === 'quoted') ? 4 : 3;
 });
+
+const timelineScroll = ref<HTMLElement | null>(null);
+const adminItemsTableScroll = ref<HTMLElement | null>(null);
+
+function moveTimeline(direction: -1 | 1): void {
+  timelineScroll.value?.scrollBy({ left: direction * 260, behavior: 'smooth' });
+}
+
+function moveAdminItemsTable(direction: -1 | 1): void {
+  adminItemsTableScroll.value?.scrollBy({ left: direction * 320, behavior: 'smooth' });
+}
+
+// 작은 화면에서도 현재 단계가 첫 화면 밖에 숨지 않도록 진행 변화 때 중앙에 맞춘다.
+watch(currentStep, (step) => {
+  if (step <= 0) return;
+  void nextTick(() => {
+    const container = timelineScroll.value;
+    const target = container?.querySelector<HTMLElement>(`[data-smartbom-step="${String(step)}"]`);
+    if (container === null || target === undefined || target === null) return;
+    container.scrollTo({
+      left: Math.max(0, target.offsetLeft - (container.clientWidth - target.offsetWidth) / 2),
+      behavior: 'smooth',
+    });
+  });
+}, { immediate: true });
 
 // 요청 부품행 범위(서버 loadRfqScopeItems 와 동일 파생) — 시트 선택 + included.
 const scopeItems = computed(() => {
@@ -831,10 +856,18 @@ async function retryExternalPo(po: { poId: number; partnerName: string }): Promi
     poError.value = e instanceof ApiRequestError ? e.message : '외부 실행에 실패했습니다.';
   }
 }
-const canIssuePo = computed(() => detail.value?.orderInfo?.isPaid === true);
+const PO_TERMINAL_ORDER_STATUSES = new Set(['완료', '취소', '반품', '품절']);
+const canIssuePo = computed(() => {
+  const info = detail.value?.orderInfo;
+  return info?.isPaid === true && !PO_TERMINAL_ORDER_STATUSES.has(info.odStatus);
+});
 const issueDisabledReason = computed(() => {
   if (detail.value?.orderState !== 'ordered') return '고객 주문 후에 발주할 수 있습니다';
   if (detail.value.orderInfo?.isPaid !== true) return '결제 확인(입금) 후에 발주할 수 있습니다';
+  if (detail.value.orderInfo.odStatus === '완료') return '완료된 주문에는 발주서를 추가할 수 없습니다';
+  if (PO_TERMINAL_ORDER_STATUSES.has(detail.value.orderInfo.odStatus)) {
+    return `주문 상태가 ${detail.value.orderInfo.odStatus}이므로 발주서를 추가할 수 없습니다`;
+  }
   return '';
 });
 
@@ -1758,34 +1791,41 @@ async function downloadOriginal(): Promise<void> {
 
     <template v-else>
       <!-- 12단계 파생 타임라인 -->
-      <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface px-4 py-3">
-        <ol class="flex min-w-max items-center gap-1">
-          <li v-for="(step, idx) in SMARTBOM_STEPS" :key="step" class="flex items-center gap-1">
-            <div class="flex flex-col items-center gap-1">
+      <div class="overflow-hidden rounded-xl border border-gray-200 bg-surface">
+        <div class="flex items-center gap-2 border-b border-blue-100 bg-blue-50/70 px-3 py-1.5 text-[10px] font-medium text-blue-700 min-[1200px]:hidden">
+          <span class="min-w-0 flex-1">12단계 진행 현황 · 현재 단계가 자동으로 보이며 좌우로 전체 단계를 확인할 수 있습니다.</span>
+          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="진행 단계 왼쪽으로 이동" @click="moveTimeline(-1)">←</button>
+          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="진행 단계 오른쪽으로 이동" @click="moveTimeline(1)">→</button>
+        </div>
+        <div ref="timelineScroll" class="overflow-x-auto px-4 py-3 [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
+          <ol class="flex min-w-max items-center gap-1">
+            <li v-for="(step, idx) in SMARTBOM_STEPS" :key="step" class="flex items-center gap-1" :data-smartbom-step="idx + 1">
+              <div class="flex flex-col items-center gap-1">
+                <span
+                  class="grid size-5 place-items-center rounded-full text-[10px] font-bold"
+                  :class="idx + 1 === currentStep
+                    ? 'bg-blue-600 text-white'
+                    : idx + 1 < currentStep
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-gray-100 text-gray-400'"
+                >
+                  {{ idx + 1 }}
+                </span>
+                <span
+                  class="whitespace-nowrap text-[10px]"
+                  :class="idx + 1 === currentStep ? 'font-bold text-blue-700' : idx + 1 < currentStep ? 'text-gray-600' : 'text-gray-400'"
+                >
+                  {{ step }}
+                </span>
+              </div>
               <span
-                class="grid size-5 place-items-center rounded-full text-[10px] font-bold"
-                :class="idx + 1 === currentStep
-                  ? 'bg-blue-600 text-white'
-                  : idx + 1 < currentStep
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-400'"
-              >
-                {{ idx + 1 }}
-              </span>
-              <span
-                class="whitespace-nowrap text-[10px]"
-                :class="idx + 1 === currentStep ? 'font-bold text-blue-700' : idx + 1 < currentStep ? 'text-gray-600' : 'text-gray-400'"
-              >
-                {{ step }}
-              </span>
-            </div>
-            <span
-              v-if="idx < SMARTBOM_STEPS.length - 1"
-              class="mb-4 h-px w-4"
-              :class="idx + 1 < currentStep ? 'bg-blue-300' : 'bg-gray-200'"
-            />
-          </li>
-        </ol>
+                v-if="idx < SMARTBOM_STEPS.length - 1"
+                class="mb-4 h-px w-4"
+                :class="idx + 1 < currentStep ? 'bg-blue-300' : 'bg-gray-200'"
+              />
+            </li>
+          </ol>
+        </div>
       </div>
 
       <AdminCaseCustomerCard :customer="detail.customer" />
@@ -2038,10 +2078,12 @@ async function downloadOriginal(): Promise<void> {
           <p v-if="partRemoveError !== ''" class="border-b border-red-100 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700">
             {{ partRemoveError }}
           </p>
-          <p class="border-b border-blue-100 bg-blue-50/70 px-3 py-1.5 text-[10px] font-medium text-blue-700 min-[1760px]:hidden">
-            품목표는 좌우로 스크롤할 수 있습니다 · 오른쪽에 협력사 RFQ, 주문수량, 합계와 작업 버튼이 있습니다. →
-          </p>
-          <div class="overflow-x-auto [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
+          <div class="flex items-center gap-2 border-b border-blue-100 bg-blue-50/70 px-3 py-1.5 text-[10px] font-medium text-blue-700 min-[1760px]:hidden">
+            <span class="min-w-0 flex-1">좌우로 이동해 협력사 RFQ, 주문수량, 합계와 작업 버튼을 확인할 수 있습니다.</span>
+            <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="품목표 왼쪽으로 이동" @click="moveAdminItemsTable(-1)">←</button>
+            <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="품목표 오른쪽으로 이동" @click="moveAdminItemsTable(1)">→</button>
+          </div>
+          <div ref="adminItemsTableScroll" class="overflow-x-auto [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
             <table class="min-w-[1040px] divide-y divide-gray-100 text-xs">
               <thead class="bg-gray-50 text-left text-gray-500">
                 <tr>
@@ -2280,11 +2322,19 @@ async function downloadOriginal(): Promise<void> {
             >
               견적서 미리보기
             </button>
+            <span
+              v-if="detail.status === 'reviewing' && adminReviewPendingCount > 0"
+              class="self-center text-[11px] font-semibold text-amber-700"
+              role="status"
+            >
+              확인 필요 {{ adminReviewPendingCount }}건
+            </span>
             <button
               v-if="detail.status === 'reviewing'"
               type="button"
-              class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-              :disabled="patch.isPending.value || completeReview.isPending.value"
+              class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-45"
+              :disabled="patch.isPending.value || completeReview.isPending.value || adminReviewPendingCount > 0"
+              :title="adminReviewPendingCount > 0 ? `관리자 확인이 끝나지 않은 품목이 ${String(adminReviewPendingCount)}개 있습니다` : ''"
               @click="openCompletion"
             >
               고객 회신 확정

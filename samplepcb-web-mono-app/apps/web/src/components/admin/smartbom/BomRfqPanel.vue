@@ -62,6 +62,11 @@ const statusCls = (status: AdminBomRfqViewType['status']): string =>
       : 'bg-gray-200 text-gray-600';
 
 const fmtWon = (v: number | null): string => (v === null ? '—' : `${v.toLocaleString('ko-KR')}원`);
+
+const tableScroll = ref<HTMLElement | null>(null);
+function moveTable(direction: -1 | 1): void {
+  tableScroll.value?.scrollBy({ left: direction * 280, behavior: 'smooth' });
+}
 </script>
 
 <template>
@@ -99,17 +104,22 @@ const fmtWon = (v: number | null): string => (v === null ? '—' : `${v.toLocale
     <p v-else-if="rfqs.length === 0" class="px-4 py-6 text-center text-xs text-gray-400">
       아직 발송한 견적요청이 없습니다.
     </p>
-    <div v-else class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-100 text-xs">
+    <div v-else ref="tableScroll" class="overflow-x-auto [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
+      <div class="sticky left-0 z-[1] flex items-center gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-1.5 text-[10px] font-medium text-blue-700 min-[1280px]:hidden">
+        <span class="min-w-0 flex-1">좌우로 이동해 납기·요청일·작업 버튼을 확인할 수 있습니다.</span>
+        <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="RFQ 표 왼쪽으로 이동" @click="moveTable(-1)">←</button>
+        <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="RFQ 표 오른쪽으로 이동" @click="moveTable(1)">→</button>
+      </div>
+      <table class="min-w-[980px] divide-y divide-gray-100 text-xs">
         <thead class="bg-gray-50 text-left text-gray-500">
           <tr>
-            <th class="px-3 py-2">협력사</th>
-            <th class="px-3 py-2">상태</th>
-            <th class="px-3 py-2 text-right">회신 행</th>
-            <th class="px-3 py-2 text-right">회신 합계</th>
-            <th class="px-3 py-2">납기</th>
-            <th class="px-3 py-2">회신 메모</th>
-            <th class="px-3 py-2">요청/회신일</th>
+            <th class="whitespace-nowrap px-3 py-2">협력사</th>
+            <th class="whitespace-nowrap px-3 py-2">상태</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">회신 행</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">회신 합계</th>
+            <th class="whitespace-nowrap px-3 py-2">납기</th>
+            <th class="whitespace-nowrap px-3 py-2">회신 메모</th>
+            <th class="whitespace-nowrap px-3 py-2">요청/회신일</th>
             <th class="px-3 py-2" />
           </tr>
         </thead>

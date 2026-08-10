@@ -253,6 +253,21 @@ describe('BOM 견적 화면 표시 집계', () => {
     })).kind).toBe('technical');
   });
 
+  it('엔진이 검토 모드로 선정한 관리자 부품은 수동 선택 후에도 확인 대상으로 유지한다', () => {
+    expect(bomQuoteAdminAttention(item({
+      matchStatus: 'manual',
+      lineTotalKrw: 100,
+      selectionSource: 'admin',
+      matchEvidence: {
+        selectionMode: 'review',
+      } as BomQuoteItemType['matchEvidence'],
+    }))).toMatchObject({
+      kind: 'technical',
+      reasons: ['engine_review'],
+      reviewRequired: true,
+    });
+  });
+
   it('정상 산출 품목과 제외 품목은 관리자 확인 대상이 아니다', () => {
     expect(bomQuoteAdminAttention(item({
       matchStatus: 'auto',

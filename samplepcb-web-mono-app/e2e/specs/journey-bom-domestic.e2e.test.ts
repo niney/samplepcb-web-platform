@@ -510,7 +510,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 1호 — 다양한 BOM → 국내 
       adminView,
       `/app/admin/smartbom/cases/${quoteId}`,
       'B04-admin-rfq-sent',
-      [PARTNER_NAME, '미회신'],
+      [PARTNER_NAME, '회신 대기'],
     );
     await rp.assertView(
       partnerView,

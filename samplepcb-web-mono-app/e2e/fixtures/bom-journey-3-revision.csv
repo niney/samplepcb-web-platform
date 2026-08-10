@@ -1,0 +1,4 @@
+Type,Description,Value,Footprint,Quantity,Population,Reference,Manufacturer,Manufacturer Part Number
+Capacitor,Ceramic capacitor X7R 50V 10%,100nF,C_0402_1005Metric,2,Fitted,"C1, C2",Murata Electronics,GRM155R61H104KE14D
+LED,Green indicator LED,Green,LED_0603_1608Metric,3,Fitted,"LED1, LED2, LED3",Lite-On Inc.,LTST-C190KGKT
+Connector,2 pin wire-to-board connector 2.50mm pitch,,JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical,1,Fitted,J1,JST Sales America Inc.,B2B-XH-A

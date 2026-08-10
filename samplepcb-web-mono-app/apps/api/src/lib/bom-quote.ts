@@ -173,6 +173,17 @@ export function customerCanViewQuoteAnswer(status: string): boolean {
   return status === 'answered' || status === 'closed';
 }
 
+/** 선정 협력사가 여러 곳이면 전체 조달이 끝나는 가장 늦은 납기를 고객 납기로 사용한다. */
+export function latestBomQuoteDeliveryDate(
+  dates: readonly (Date | null)[],
+): string | null {
+  const latest = dates.reduce<Date | null>((current, date) => {
+    if (date === null || Number.isNaN(date.getTime())) return current;
+    return current === null || date.getTime() > current.getTime() ? date : current;
+  }, null);
+  return latest?.toISOString() ?? null;
+}
+
 // ── 엔진 파싱 결과 → 라인 초안 ───────────────────────────────────────────────
 const EngineComponentLoose = z
   .object({
@@ -6337,11 +6348,20 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
   const activeItems = filterActiveQuoteItems(items, sheets);
   const customerAnswerVisible = customerCanViewQuoteAnswer(quote.status);
   const itemSheetIndexes = new Set(items.flatMap((item) => item.sourceSheetIndex === null ? [] : [item.sourceSheetIndex]));
-  const [partMetaMap, candidateDisplayMeta, supplierSearchSummary, orderState] = await Promise.all([
+  const selectedRfqItemIds = activeItems.flatMap((item) =>
+    item.included && item.selectedRfqItemId !== null ? [item.selectedRfqItemId] : [],
+  );
+  const [partMetaMap, candidateDisplayMeta, supplierSearchSummary, orderState, selectedRfqItems] = await Promise.all([
     loadPartMetaMap(activeItems),
     loadCandidateDisplayMeta(quote.id, activeItems),
     loadSupplierSearchSummary(quote.activeSupplierSearchRunId, quote.enrichStatus),
     deriveQuoteOrderState(quote.ctId),
+    customerAnswerVisible && selectedRfqItemIds.length > 0
+      ? prisma.spBomRfqItem.findMany({
+          where: { id: { in: selectedRfqItemIds } },
+          select: { rfq: { select: { deliveryDate: true } } },
+        })
+      : Promise.resolve([]),
   ]);
   const itemDtos = [...activeItems]
     .sort((a, b) => a.rowIdx - b.rowIdx)
@@ -6420,6 +6440,9 @@ export async function toDetailDto(quote: QuoteRow, items: QuoteItemRow[], sheets
     confirmedShippingFee: customerAnswerVisible ? quote.confirmedShippingFee : null,
     confirmedManagementFee: customerAnswerVisible ? quote.confirmedManagementFee : null,
     confirmedTotal: customerAnswerVisible ? quote.confirmedTotal : null,
+    confirmedDeliveryDate: customerAnswerVisible
+      ? latestBomQuoteDeliveryDate(selectedRfqItems.map((item) => item.rfq.deliveryDate))
+      : null,
     answerNote: customerAnswerVisible ? quote.answerNote : null,
     orderState,
     items: itemDtos,

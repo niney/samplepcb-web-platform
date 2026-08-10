@@ -19,12 +19,14 @@ const props = withDefaults(defineProps<{
   usdKrwRate?: number | null;
   selecting?: boolean;
   browse?: boolean;
+  selectionAction?: 'change' | 'add';
   currentPartId?: string | null;
 }>(), {
   needed: 1,
   usdKrwRate: null,
   selecting: false,
   browse: false,
+  selectionAction: 'change',
   currentPartId: null,
 });
 
@@ -217,7 +219,11 @@ function fmtTotal(pick: OfferPick): string {
         </template>
       </div>
       <button v-if="!browse" type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting" @click="confirmSelection">
-        {{ selecting ? '적용 중…' : part.hasCatalogInquiryOffer ? '문의 견적으로 부품 선택' : '가격 없이 부품만 변경' }}
+        {{ selecting
+          ? '적용 중…'
+          : part.hasCatalogInquiryOffer
+            ? selectionAction === 'add' ? '문의 견적으로 부품 추가' : '문의 견적으로 부품 선택'
+            : selectionAction === 'add' ? '가격 없이 부품 추가' : '가격 없이 부품만 변경' }}
       </button>
     </div>
     <div v-else class="p-4">
@@ -288,7 +294,11 @@ function fmtTotal(pick: OfferPick): string {
         </div>
       </div>
       <button v-if="!browse" type="button" class="mt-3 h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting || selectedRow === null" @click="confirmSelection">
-        {{ selecting ? '적용 중…' : part.id === currentPartId ? '선택한 공급 포장으로 변경' : '선택한 구매 조건으로 부품 변경' }}
+        {{ selecting
+          ? '적용 중…'
+          : selectionAction === 'add'
+            ? '선택한 구매 조건으로 부품 추가'
+            : part.id === currentPartId ? '선택한 공급 포장으로 변경' : '선택한 구매 조건으로 부품 변경' }}
       </button>
     </div>
   </div>

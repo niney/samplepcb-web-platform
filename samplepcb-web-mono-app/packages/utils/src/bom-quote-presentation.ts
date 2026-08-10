@@ -191,6 +191,7 @@ export function bomQuoteAdminAttention(item: BomQuoteItemType): BomQuoteAdminAtt
   if (
     group === 'review'
     || isBomQuotePendingReview(item)
+    || evidence?.selectionMode === 'review'
     || lifecycleNeedsAdminAttention(item)
     || conflictCount > 0
     || missingRequirementCount > 0
