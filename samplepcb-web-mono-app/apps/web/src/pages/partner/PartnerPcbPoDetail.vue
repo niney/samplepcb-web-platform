@@ -37,7 +37,7 @@ import { pcbSpecEntries } from '../../lib/pcb-spec';
 import UiPromptModal from '../../components/ui/UiPromptModal.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
 
-// PCB 발주서 상세(협력사 포털, P2) — EQ 5단계 진행: 발주접수(EQ·Working 파일 업로드)
+// PCB 발주서 상세(협력사 포털, P2) — EQ 5단계 진행: 발주접수(EQ 선택·Working 권장)
 // → EQ 승인요청 → (관리자 승인) → 생산 시작 → 생산 완료. 되돌리기는 직전 전이 주체만.
 // MD 는 하위 발주(childRfqs 기반)로 트랙을 열고, 하위 수주자 대신 fallback 진행도 가능.
 
@@ -98,9 +98,6 @@ const canRevert = computed(
     revert.value.actor === 'RECEIVER' &&
     detail.value.eq.delegatePoId === null &&
     !detail.value.eq.blocked,
-);
-const hasEqFile = computed(
-  () => detail.value?.eq.files.some((f) => f.fileType === 'eq') ?? false,
 );
 const hasWorkingFile = computed(
   () => detail.value?.eq.files.some((f) => f.fileType === 'working') ?? false,
@@ -455,11 +452,18 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
 
         <!-- 파일 (발주접수 단계에서 편집) -->
         <div v-if="detail.eq.delegatePoId === null && !detail.eq.blocked" class="mt-4 grid gap-3 sm:grid-cols-2">
-          <div v-for="kind in (['eq', 'working'] as const)" :key="kind" class="rounded-lg border border-gray-100 p-3">
+          <div
+            v-for="kind in (['eq', 'working'] as const)"
+            :key="kind"
+            class="rounded-lg border p-3"
+            :class="kind === 'working' && !hasWorkingFile ? 'border-amber-200 bg-amber-50/40' : 'border-gray-100'"
+          >
             <div class="flex items-center justify-between">
               <p class="text-xs font-bold text-gray-600">
                 {{ kind === 'eq' ? 'EQ 파일 (질의서)' : 'Working 파일 (작업 데이터)' }}
-                <span v-if="(kind === 'eq' && !hasEqFile) || (kind === 'working' && !hasWorkingFile)" class="ml-1 font-semibold text-amber-600">필수</span>
+                <span v-if="kind === 'eq'" class="ml-1 font-semibold text-gray-400">선택</span>
+                <span v-else-if="!hasWorkingFile" class="ml-1 font-semibold text-amber-600">업로드 권장</span>
+                <span v-else class="ml-1 font-semibold text-emerald-600">업로드됨</span>
               </p>
               <button
                 v-if="filesEditable && detail.eq.myRole === 'RECEIVER'"
@@ -471,6 +475,9 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
                 ⬆ 업로드
               </button>
             </div>
+            <p class="mt-1.5 text-xs" :class="kind === 'working' && !hasWorkingFile ? 'text-amber-700' : 'text-gray-400'">
+              {{ kind === 'eq' ? '제조 확인 사항이 있을 때만 첨부해 주세요.' : '생산에 사용할 작업 데이터가 있으면 업로드를 권장합니다.' }}
+            </p>
             <ul class="mt-2 space-y-1">
               <li
                 v-for="f in detail.eq.files.filter((x) => x.fileType === kind)"
@@ -517,13 +524,13 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
             type="button"
             class="rounded-lg px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
             :class="detail.eq.fallback ? 'border border-indigo-300 bg-indigo-500 hover:bg-indigo-600' : 'bg-blue-600 hover:bg-blue-700'"
-            :disabled="busy || (detail.status === 'issued' && (!hasEqFile || !hasWorkingFile))"
+            :disabled="busy"
             @click="void runForward()"
           >
             {{ detail.eq.fallback ? `(MD 대행) ${forward.label}` : forward.label }}
           </button>
-          <p v-if="detail.status === 'issued' && (!hasEqFile || !hasWorkingFile)" class="text-xs text-amber-600">
-            EQ·Working 파일을 모두 올려야 승인요청할 수 있습니다.
+          <p v-if="detail.status === 'issued' && !hasWorkingFile" class="max-w-xl text-xs leading-5 text-amber-700">
+            Working 파일은 생산 작업에 사용하는 자료입니다. 승인요청 후에는 추가·교체할 수 없으므로 지금 업로드를 권장합니다. 파일 없이도 승인요청할 수 있습니다.
           </p>
           <p v-else-if="detail.status === 'eq_requested'" class="text-sm text-gray-500">
             샘플피씨비 관리자의 EQ 승인을 기다리고 있습니다.

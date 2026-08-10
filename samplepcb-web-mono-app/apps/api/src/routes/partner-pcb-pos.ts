@@ -288,7 +288,6 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
   const TRANSITION_MESSAGES: Record<string, string> = {
     DELEGATED: 'MD 경유 발주서입니다 — EQ 는 하위 발주서에서 진행됩니다.',
     NOT_YOUR_TURN: '지금은 상대 차례입니다.',
-    MISSING_EQ_FILES: 'EQ 파일과 Working 파일을 먼저 올려 주세요.',
     INVALID_STATUS: '현재 단계에서 실행할 수 없는 전이입니다.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     FINAL: '이미 마지막 단계입니다.',

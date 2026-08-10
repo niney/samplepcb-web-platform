@@ -705,7 +705,6 @@ export type PcbEqTransitionError =
   | 'DELEGATED'
   | 'FINAL'
   | 'NOT_YOUR_TURN'
-  | 'MISSING_EQ_FILES'
   | 'INVALID_STATUS'
   | 'NOTHING_TO_REVERT'
   | 'ORDER_CANCELED';
@@ -732,15 +731,6 @@ export const advancePcbPoEq = async (
   // 원칙. 이력 byRole 'ADMIN' 으로 대행 사실이 남는다.
   if (role !== action.actor && actor.kind !== 'admin')
     return { ok: false, error: 'NOT_YOUR_TURN' };
-
-  if (action.needsEqFiles === true) {
-    const files = await prisma.spFile.findMany({
-      where: { refType: EQ_REF_TYPE, refId: po.id },
-    });
-    const hasEq = files.some((f) => f.fileType === 'eq');
-    const hasWorking = files.some((f) => f.fileType === 'working');
-    if (!hasEq || !hasWorking) return { ok: false, error: 'MISSING_EQ_FILES' };
-  }
 
   // 전이·미러·고객 확인 종료는 한 덩어리다 — 나뉘면 발주만 넘어가고 고객 화면엔 답할 수
   // 없는 요청이 남는다.

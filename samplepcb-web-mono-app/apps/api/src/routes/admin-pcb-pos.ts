@@ -406,11 +406,9 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           return reply.status(409).send({
             error: res.error,
             message:
-              res.error === 'MISSING_EQ_FILES'
-                ? 'EQ 파일과 Working 파일을 먼저 올려 주세요(대행 업로드 가능).'
-                : res.error === 'ORDER_CANCELED'
-                  ? '취소된 주문입니다 — 재작업은 A/S 재발주로 진행하세요.'
-                  : `${step.label} 대행을 진행할 수 없는 상태입니다.`,
+              res.error === 'ORDER_CANCELED'
+                ? '취소된 주문입니다 — 재작업은 A/S 재발주로 진행하세요.'
+                : `${step.label} 대행을 진행할 수 없는 상태입니다.`,
           });
         return { result: true as const };
       },

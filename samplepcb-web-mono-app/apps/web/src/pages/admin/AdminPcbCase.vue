@@ -1411,7 +1411,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       </div>
       <p class="border-b border-gray-50 px-4 py-2 text-xs text-gray-400">
         발행은 고객 결제(입금 확인) 후에만 가능합니다. 진행:
-        발주접수(협력사 EQ·Working 업로드) → EQ 승인요청 → (필요하면 <b>고객 확인</b>) →
+        발주접수(EQ 선택·Working 업로드 권장) → EQ 승인요청 → (필요하면 <b>고객 확인</b>) →
         <b>EQ 승인(관리자)</b> → 생산시작 → 생산완료.
       </p>
 

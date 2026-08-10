@@ -260,8 +260,8 @@ export function buildPcbPoIssuedEmail(p: PcbPoIssuedEmailParams): {
     ...(p.deliveryText === null ? [] : [infoRow('납기', esc(p.deliveryText))]),
   ].join('');
   const guide = noAccount
-    ? '내용 확인 후 <b>EQ·Working 파일</b>을 샘플피씨비 담당자에게 전달해 주세요 — EQ 승인요청 등 포털 진행은 담당자가 대행합니다.'
-    : '포털에서 내용 확인 후 <b>EQ 승인요청(EQ·Working 파일 첨부)</b>부터 진행해 주세요.';
+    ? '내용 확인 후 생산용 <b>Working 파일이 있으면</b> 샘플피씨비 담당자에게 전달해 주세요. EQ 자료는 필요한 경우 함께 전달하면 됩니다 — EQ 승인요청 등 포털 진행은 담당자가 대행합니다.'
+    : '포털에서 내용을 확인하고 생산용 <b>Working 파일이 있으면 업로드를 권장</b>합니다. EQ 파일은 선택이며, 파일 없이도 EQ 승인요청을 진행할 수 있습니다.';
   const cta = noAccount
     ? proxyNoticeBox(
         '포털 진행(EQ·생산 상태 처리)은 샘플피씨비 담당자가 대행합니다 — 파일 전달·문의:',
@@ -308,8 +308,8 @@ export function buildPcbEqRequestedEmail(p: PcbEqTurnEmailParams): {
       'EQ 승인요청이 도착했습니다',
       `
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
-        ${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 발주 건의 EQ·Working 파일을
-        올리고 승인을 요청했습니다. 검토 후 승인 또는 반려해 주세요.
+        ${esc(p.partnerName)} 협력사가 <b>${esc(p.projectName)}</b> 발주 건의 EQ 승인을 요청했습니다.
+        첨부된 EQ·Working 파일이 있으면 함께 확인한 뒤 승인 또는 반려해 주세요.
       </p>
       <div style="padding-top:16px;">
         <a href="${esc(p.targetUrl)}"

@@ -44,15 +44,13 @@ export interface PcbEqForwardAction {
   actor: PcbEqRoleType;
   to: PcbPoStatusType;
   label: string;
-  /** eq-request 는 EQ·Working 파일이 먼저 올라와 있어야 한다(서버 검증). */
-  needsEqFiles?: boolean;
   /** 반려 지원(ORDERER) — 반려 시 복귀 상태. */
   rejectTo?: PcbPoStatusType;
 }
 
 /** 정방향 전이 사전 — 종점(produced)은 null. */
 export const PCB_EQ_FORWARD: Record<PcbPoStatusType, PcbEqForwardAction | null> = {
-  issued: { actor: 'RECEIVER', to: 'eq_requested', label: 'EQ 승인요청', needsEqFiles: true },
+  issued: { actor: 'RECEIVER', to: 'eq_requested', label: 'EQ 승인요청' },
   eq_requested: { actor: 'ORDERER', to: 'eq_done', label: 'EQ 승인', rejectTo: 'issued' },
   eq_done: { actor: 'RECEIVER', to: 'producing', label: '생산 시작' },
   producing: { actor: 'RECEIVER', to: 'produced', label: '생산 완료' },

@@ -72,7 +72,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
   let poId: number | null = null;
   let reviewId: number | null = null;
 
-  // multipart 업로드(EQ 파일·선적 첨부) — File 은 Node 20+ 글로벌
+  // multipart 업로드(선적 첨부) — File 은 Node 20+ 글로벌
   const apiForm = async (
     token: string,
     path: string,
@@ -262,23 +262,11 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     await view(adminView, `/app/admin/pcb/cases/${String(specId)}`, 'S07-po-issued');
   });
 
-  test('S8. 파트너: EQ·Working 파일 업로드 → 승인요청', async (ctx) => {
+  test('S8. 파트너: EQ·Working 첨부 없이 승인요청', async (ctx) => {
     if (poId === null) return ctx.skip();
-    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer; // 최소 zip 헤더(더미)
-    for (const fileType of ['eq', 'working'] as const) {
-      const up = await apiForm(
-        P,
-        `/api/partner/pcb-pos/${String(poId)}/eq-files`,
-        { fileType },
-        'file',
-        `${fileType}-dummy.zip`,
-        bytes,
-        'application/zip',
-      );
-      expect(up.status, `${fileType} 업로드: ${JSON.stringify(up.json)}`).toBe(200);
-    }
     const req = await api(P, 'POST', `/api/partner/pcb-pos/${String(poId)}/eq-request`, {});
     expect(req.status, JSON.stringify(req.json)).toBe(200);
+    F('S8', 'obs', 'EQ·Working 첨부 없이 EQ 승인요청 허용');
     await view(partnerView, `/app/partner/pcb/pos/${String(poId)}`, 'S08-eq-requested');
   });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPcbAsCaseSubmittedEmail,
   buildPcbEqDecisionEmail,
+  buildPcbEqRequestedEmail,
   buildPcbPoIssuedEmail,
   buildPcbRfqRequestEmail,
   buildPcbShipmentReceivedEmail,
@@ -74,7 +75,9 @@ describe('buildPcbPoIssuedEmail — 발주서 도착', () => {
     const mail = buildPcbPoIssuedEmail(base);
     expect(mail.html).toContain('/app/partner');
     expect(mail.html).toContain('파트너 포털에서 확인하기');
-    expect(mail.html).toContain('EQ 승인요청(EQ·Working 파일 첨부)');
+    expect(mail.html).toContain('Working 파일이 있으면 업로드를 권장');
+    expect(mail.html).toContain('EQ 파일은 선택');
+    expect(mail.html).toContain('파일 없이도 EQ 승인요청');
     expect(mail.html).not.toContain('대행');
   });
 
@@ -87,8 +90,26 @@ describe('buildPcbPoIssuedEmail — 발주서 도착', () => {
     expect(mail.html).not.toContain('/app/partner');
     expect(mail.html).not.toContain('파트너 포털에서 확인하기');
     expect(mail.html).toContain('담당자가 대행');
+    expect(mail.html).toContain('Working 파일이 있으면');
+    expect(mail.html).toContain('EQ 자료는 필요한 경우');
     expect(mail.html).toContain('샘플피씨비 담당자에게 전달');
     expect(mail.html).toContain('mailto:info@samplepcb.co.kr');
+  });
+});
+
+describe('buildPcbEqRequestedEmail — 선택 첨부 안내', () => {
+  it('파일 업로드를 단정하지 않고 첨부가 있을 때만 검토하도록 안내한다', () => {
+    const mail = buildPcbEqRequestedEmail({
+      partnerName: '협력2',
+      projectName: 'arduino-uno.zip',
+      statusLabel: 'EQ 승인요청',
+      targetUrl: 'https://example.com/app/admin/pcb/cases/1',
+      targetLabel: 'Case 상세 열기',
+    });
+
+    expect(mail.html).toContain('EQ 승인을 요청했습니다');
+    expect(mail.html).toContain('첨부된 EQ·Working 파일이 있으면');
+    expect(mail.html).not.toContain('파일을 올리고');
   });
 });
 
