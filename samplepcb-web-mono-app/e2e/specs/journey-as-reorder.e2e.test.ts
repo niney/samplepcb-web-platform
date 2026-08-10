@@ -450,4 +450,48 @@ describe.skipIf(!RUN || !JOURNEY)('여정 5호 — A/S 재발주 회차 완주(�
       `완주 도달 — case=${String(caseId)} roundPo=${String(roundPoId)} (회차 선적 shipped 에서 종료)`,
     );
   });
+
+  test('R8. 진행현황 판정(정책 확정 08-10) — A/S 진행 스펙의 진행 탭 편입 + A/S 배지', async (ctx) => {
+    if (specId === null) return ctx.skip();
+    // 원주문 od 는 완료(R1c)·회차 발송은 shipped(R6 — done/입고확인 전) = 최상위 발주의
+    // 최신 회차(1차)가 미종결. 판정 축이 원발주(round 0)면 이 스펙은 '완료·취소'에 묻히는데,
+    // 축이 최신 회차로 바뀌었으므로 '발주·생산'(진행) 탭에 서고 step 도 회차 기준이어야 한다.
+    const prod = await api(
+      A,
+      'GET',
+      `/api/admin/pcb-cases?tab=production&q=${String(specId)}&page=1&pageSize=20`,
+    );
+    expect(prod.status, JSON.stringify(prod.json)).toBe(200);
+    const prodRow = (prod.json?.data?.items ?? []).find((r: any) => r.specId === specId);
+    expect(prodRow, 'A/S 진행 스펙 — od 완료여도 진행(발주·생산) 탭 편입').toBeTruthy();
+    expect(prodRow?.asRound, '최신 회차 1').toBe(1);
+    expect(prodRow?.asOpen, '회차 미종결 신호(asOpen)').toBe(true);
+    expect(prodRow?.step, '판정 축=최신 회차: 회차 발송 shipped → 11(선적·입고)').toBe(11);
+    const closedQ = await api(
+      A,
+      'GET',
+      `/api/admin/pcb-cases?tab=closed&q=${String(specId)}&page=1&pageSize=20`,
+    );
+    expect(closedQ.status, JSON.stringify(closedQ.json)).toBe(200);
+    expect(
+      (closedQ.json?.data?.items ?? []).find((r: any) => r.specId === specId),
+      'od 완료여도 완료·취소 탭에서 제외(A/S 진행 중)',
+    ).toBeUndefined();
+
+    // 화면 — 기본 탭이 '발주·생산'이라 검색만으로 행이 서야 하고, 'A/S 1차 진행' 배지가 뜬다.
+    await view(adminView, '/app/admin/pcb/cases', 'R08-admin-cases-open');
+    await adminView.page.fill('input[type="search"]', String(specId));
+    await adminView.page.press('input[type="search"]', 'Enter');
+    await adminView.page.waitForLoadState('networkidle').catch(() => undefined);
+    await adminView.page.getByText(`Q${String(specId)}`).first().waitFor({ timeout: 15_000 });
+    const body: string = await adminView.page.evaluate(() => document.body.innerText);
+    expect(body, "진행현황 행 'A/S 1차 진행' 배지").toContain('A/S 1차 진행');
+    await rp.shot(adminView, 'R08-admin-cases-as-badge');
+    F(
+      'R8',
+      'obs',
+      `진행현황 — spec ${String(specId)} production 탭 편입(asRound=1·asOpen·step=11)·` +
+        `closed 제외·'A/S 1차 진행' 배지 확인`,
+    );
+  }, 120_000);
 });

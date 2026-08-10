@@ -1378,9 +1378,44 @@ sp_bom_rfq 만 검사 — PCB PO 보유 조직 삭제 시 FK P2003 **안내 없�
   — MD 경유 대상 협력사는 하위 회차 발주, 없으면 null) ⑩ 보드 완료 발송을 아카이브
   RouterLink 로 ⑪ Case 회차 접힘 카운트 명시+토글 라벨·위치 정제+A/S 접힘 바 진행 중 강조
 - **보류(정책)**: 직송 건의 고객 배송 큐 오판(od 종결 창구 대체 설계 필요)·국제 선적
-  어휘 전면·A/S 진행 스펙의 진행현황 탭 편입.
+  어휘 전면·A/S 진행 스펙의 진행현황 탭 편입 → **아래 절에서 3건 모두 확정 구현(08-10)**.
 - 검증: typecheck 8/8·lint 7/7·vitest 744·여정 as 9/9·direct 6/6(J5 를 409 로 뒤집고
   J6 신규 — 직송 어휘·카드 숨김 실화면)·md:cn 6/6·전부 CLEAN·실데이터 스모크 16 어서션.
+
+### 정책 보류 3건 확정 구현 (2026-08-10 — 직전 절 '보류(정책)' 해소, 스키마 무변경)
+
+- **① 직송 건의 고객 배송 큐 — 제거 대신 전용 종결 동선**: 직송 주문의 od 종결 창구가
+  이 큐뿐이므로 **남기되 구분**한다. `AdminPcbOrderItem.directShipCountry`(최상위
+  parentPartnerId=0·최신 회차 발주의 destinationCountry) 계약 확장 → 배송 큐 행
+  '직송 {국가}' 배지 + [배송 처리]→**[직송 완료]**: 운송장 입력 없이 confirmDialog
+  ("고객이 현지({국가})에서 수령…완료로 종결") 후 기존 코어 `PATCH /admin/orders/:odId/
+  force-status` target '완료' 재사용(신규 라우트 없음 — 재고 앵커는 완료 진입 차감이라
+  보존, 배송 필드 무접촉). Case 헤더 유도 배지도 직송이면 '직송 완료 대기 · 직송 완료 →'
+  (같은 동선). 큐 소속 판정(PCB_TO_SHIP)은 불변.
+- **② 직송 국제 선적 어휘 — BOM 코드사전 무접촉 표시층 치환**: `apps/web/src/lib/
+  pcb-shipment-label.ts` 래퍼 `pcbShipmentStatusLabel(mode, status, {directShip})` —
+  직송지가 비KR 인 **국제** 체인의 'arrived' 표시만 '국내도착'→'현지도착'(다음 단계
+  버튼 '[현지도착 진행]'·스텝퍼·프롬프트 제목 동일). 판정 헬퍼 `isPcbDirectShipIntl`
+  (destinationCountry ≠ null·≠ 'KR'). 소비처: AdminPcbCase 선적 행(하위 발주 포함)·
+  AdminPcbShipments 협력사 선적 큐·PcbShipmentCard(포털 보드·아카이브) — 셋 다
+  destinationCountry 를 이미 알아 계약 확장 불요. 상태 코드·전이 사전(bom-po.ts §D22)과
+  서버 발신 메일(pcb_shipment_turn statusLabel)은 현행 유지(범위 밖).
+- **③ 진행현황 step·구간 판정 축 = 최상위 발주의 최신 회차**: `apps/api/src/lib/
+  pcb-case-step.ts`(순수 함수 — pcbStepOf 이동+`resolvePcbAsRoundState`+`pcbCaseStepOf`)
+  + g5-db `PCB_AS_OPEN_JOIN`(SQL 면 — 탭 소속·counts). od 가 완료·취소여도 최신 회차
+  (round>0) 발주가 미종결(선적 done/delivered/입고확인 전)이면 '발주·생산' 탭에 서고
+  step 도 그 회차의 신호(EQ·생산·발송)로 계산한다(od 12 고정 해제 —
+  lib/pcb-customer-progress 고객 카드와 같은 축). 계약 `asRound`/`asOpen` 확장, 행 배지
+  'A/S N차 진행'(종결 회차는 'A/S N차'). **원발주-only(round 0 최신) 판정 불변** —
+  DB 전수(스펙 20,941) 구/신 판정식 카운트 비교로 이동분이 A/S 진행 스펙뿐임을 실측
+  (0건일 때 198/20,607 동일, A/S 1건 진행 중일 때 정확히 그 1건만 이동).
+- 검증: typecheck 8/8·lint 7/7·vitest 756(신규 pcb-case-step 12)·journey direct 6/6
+  (J3 오판 박제를 directShipCountry·큐 유지로 뒤집고 J6 를 [직송 완료] UI 실행으로 재구성
+  — confirmDialog 문구·완료 도달·운송장 불변·고객 카드 숨김, J2 에 현지도착 실화면 추가)·
+  journey as 10/10(R8 신규 — production 편입·closed 제외·step 11·'A/S 1차 진행' 배지)·
+  md:cn 6/6·cleanup-probe 각 CLEAN. 함정 메모: g5_shop_order.od_delivery_company 는
+  컬럼 기본값이 '0' — "운송장 없이"의 어서션은 빈 문자열 가정이 아니라 **불변 비교**여야
+  한다(J6 실측).
 
 ## 10. 조사 자료 색인
 

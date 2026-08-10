@@ -178,6 +178,18 @@ function openCase(specId: number): void {
               <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="stepCls(row.step)">
                 {{ stepLabel(row.step) }}
               </span>
+              <!-- A/S 회차(정책 확정 08-10) — 진행 중이면 od 완료여도 '발주·생산' 구간에
+                   선다(판정 축 = 최상위 발주의 최신 회차). 종결 회차는 이력 신호만. -->
+              <span
+                v-if="row.asRound > 0"
+                class="ml-1 rounded px-1.5 py-0.5 text-xs font-semibold"
+                :class="row.asOpen ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-500'"
+                :title="row.asOpen
+                  ? 'A/S 재생산 회차가 진행 중입니다 — 주문이 완료여도 진행 구간에 섭니다'
+                  : 'A/S 회차가 종결된 건입니다'"
+              >
+                A/S {{ row.asRound }}차{{ row.asOpen ? ' 진행' : '' }}
+              </span>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5">
               <span v-if="row.rfqTotal === 0" class="text-xs text-gray-300">—</span>

@@ -3398,11 +3398,35 @@ const NOT_ORDERED = `(c.ct_id IS NULL OR c.ct_status = '쇼핑')`;
 // 주문 헤더 소실은 유령과 동급으로 허용한다(게이트도 그렇게 판정).
 const RFQ_STARTABLE = `(c.ct_id IS NULL OR (c.ct_status <> '쇼핑' AND (o.od_id IS NULL OR ${OD_ACTIVE})))`;
 
+// A/S 회차 진행 신호(정책 확정 08-10) — 최상위 발주(parentPartnerId=0)의 **최신 회차**
+// (reorderRound max)가 회차(>0)인데 그 발주의 발송이 종결(done/delivered/입고확인) 전이면
+// 1. od 가 완료·취소여도 스펙은 '완료·취소' 구간에 묻히지 않고 진행(발주·생산)에 선다.
+// 원발주(round 0)뿐인 스펙은 as_open 이 항상 0 — 현행 구간 판정과 완전히 동일하다.
+// 판정 규칙은 lib/pcb-case-step(JS 면 — 행 step·배지)과 같은 사전의 SQL 면이다.
+// 발송 링크는 발주당 1건(sp_pcb_shipment_po.poId UNIQUE), 관리자 수신만 신호.
+const PCB_AS_OPEN_JOIN = `LEFT JOIN (
+      SELECT p.specId,
+             MAX(p.reorderRound > 0 AND NOT EXISTS (
+               SELECT 1
+                 FROM sp_pcb_shipment_po sp
+                 JOIN sp_pcb_shipment sh ON sh.id = sp.shipmentId
+                WHERE sp.poId = p.id
+                  AND sh.receiverKind = 'admin'
+                  AND (sh.receivedAt IS NOT NULL OR sh.status IN ('done', 'delivered'))
+             )) AS as_open
+        FROM sp_pcb_po p
+       WHERE p.parentPartnerId = 0
+         AND p.reorderRound = (SELECT MAX(p2.reorderRound) FROM sp_pcb_po p2
+                                WHERE p2.specId = p.specId AND p2.parentPartnerId = 0)
+       GROUP BY p.specId
+    ) asx ON asx.specId = s.id`;
+const AS_OPEN = `COALESCE(asx.as_open, 0) = 1`;
+
 const PCB_CASE_TAB_SQL: Record<Exclude<PcbCaseTab, 'all'>, string> = {
   quoting: NOT_ORDERED,
   unpaid: `c.ct_status <> '쇼핑' AND o.od_status = '주문'`,
-  production: `c.ct_status <> '쇼핑' AND ${OD_ACTIVE}`,
-  closed: `c.ct_status <> '쇼핑' AND o.od_status IN ('완료', '취소')`,
+  production: `c.ct_status <> '쇼핑' AND (${OD_ACTIVE} OR (o.od_status IN ('완료', '취소') AND ${AS_OPEN}))`,
+  closed: `c.ct_status <> '쇼핑' AND o.od_status IN ('완료', '취소') AND NOT (${AS_OPEN})`,
   todo_rfq: `${NOT_LEGACY} AND ${NO_RFQ} AND ${RFQ_STARTABLE}`,
   todo_po: `${NOT_LEGACY} AND ${NO_PO} AND c.ct_status <> '쇼핑' AND ${OD_ACTIVE}`,
 };
@@ -3436,9 +3460,11 @@ export async function listPcbCaseSpecs(params: {
     args.push(like, like, like, /^\d+$/.test(keyword) ? keyword : 0);
   }
   // cart/order 는 LEFT — 주문 전 스펙과 유령(cart 행 소실)까지 모수에 남긴다.
+  // asx(A/S 회차 진행)는 소량(협력 발주 문서 수) 파생 테이블 — 비용 무시 가능.
   const base = `FROM sp_order_spec s
       LEFT JOIN g5_shop_cart c ON c.ct_id = s.ctId
       LEFT JOIN g5_shop_order o ON o.od_id = c.od_id
+      ${PCB_AS_OPEN_JOIN}
      WHERE ${conds.join(' AND ')}`;
 
   const [countRows] = await pool.query<RowDataPacket[]>(

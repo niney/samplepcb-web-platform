@@ -6,11 +6,11 @@ import {
   BOM_SHIPMENT_MODE_LABELS,
   bomShipmentActorOf,
   bomShipmentNextStatus,
-  bomShipmentStatusLabel,
   bomShipmentStatusesOf,
   type BomShipmentFileTypeType,
   type PcbShipmentViewType,
 } from '@sp/api-contract';
+import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import {
   downloadPartnerPcbShipmentFile,
   partnerPcbInvoiceApi,
@@ -36,6 +36,10 @@ const props = withDefaults(
 
 const repPoId = computed(() => props.shipment.poId);
 const shipNext = computed(() => bomShipmentNextStatus(props.shipment.mode, props.shipment.status));
+// 직송 국제 체인 — 'arrived' 표시를 '국내도착'→'현지도착'으로 치환(실물이 KR 에 안 온다).
+const directShip = computed(() => isPcbDirectShipIntl(props.shipment.destinationCountry));
+const statusLabel = (status: PcbShipmentViewType['status']): string =>
+  pcbShipmentStatusLabel(props.shipment.mode, status, { directShip: directShip.value });
 const canAct = computed(
   () =>
     shipNext.value !== null &&
@@ -139,7 +143,7 @@ const STATUS_CLS: Record<string, string> = {
       → {{ shipment.receiverName }}
       <template v-if="shipment.destinationCountry !== null"> · 직송 {{ shipment.destinationCountry }}</template>
       <span class="ml-2 rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[shipment.status]">
-        {{ bomShipmentStatusLabel(shipment.mode, shipment.status) }}
+        {{ statusLabel(shipment.status) }}
       </span>
       <span class="ml-1 text-xs font-normal text-gray-400">
         {{ BOM_SHIPMENT_MODE_LABELS[shipment.mode] }}
@@ -153,7 +157,7 @@ const STATUS_CLS: Record<string, string> = {
           class="rounded-full px-2.5 py-1 text-xs font-semibold"
           :class="bomShipmentStatusesOf(shipment.mode).indexOf(shipment.status) > i ? 'bg-emerald-50 text-emerald-700' : bomShipmentStatusesOf(shipment.mode).indexOf(shipment.status) === i ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-400'"
         >
-          {{ bomShipmentStatusLabel(shipment.mode, step) }}
+          {{ statusLabel(step) }}
         </li>
         <span v-if="i < bomShipmentStatusesOf(shipment.mode).length - 1" class="text-gray-300">→</span>
       </template>
@@ -209,7 +213,7 @@ const STATUS_CLS: Record<string, string> = {
           :disabled="advance.isPending.value || advanceBlocked"
           @click="void runAdvance()"
         >
-          {{ bomShipmentStatusLabel(shipment.mode, shipNext) }} 진행
+          {{ statusLabel(shipNext) }} 진행
         </button>
       </div>
       <p v-else-if="shipNext !== null" class="mt-3 text-sm text-gray-500">

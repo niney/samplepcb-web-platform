@@ -9,8 +9,10 @@
 // 핵심 검증 셋:
 //   - 모드 = f(발송자국가, 직송지) 파생 실증(①②③이 세 조합을 나눠 밟는다)
 //   - 박스 contextKey 의 직송지 축 분리 — ①②는 같은 협력2인데 직송지가 달라 **다른 박스**
-//   - **직송 건의 고객 배송 큐(admin pcb-orders to_ship) 오판 실측** — 직송은 관리자가 실물을
-//     받지 않는데, 큐 판정(receiverKind='admin' ∧ receivedAt)이 직송지를 구분하는가
+//   - **직송 건의 고객 배송 큐(admin pcb-orders to_ship) 전용 종결 동선**(정책 확정 08-10) —
+//     직송은 od 종결 창구가 이 큐뿐이라 남기되 directShipCountry 로 구분: 행 '직송 {국가}'
+//     배지 + [직송 완료](운송장 없이 confirmDialog → force-status '완료') 실행까지(J3·J6)
+//   - **직송 국제 어휘** — pcbShipmentStatusLabel 표시층 치환('국내도착'→'현지도착', J2)
 //
 // e2e한국협력 은 idempotent 상설 조직으로 남긴다(연결 계정·관계 없음 — 관리자 대행 전용).
 // 근거는 J5 가 실측한다: 삭제 API(DELETE /api/admin/partners/:id)는 존재하나 살아 있는
@@ -350,10 +352,26 @@ describe.skipIf(!RUN || !JOURNEY)('여정 6호 — 직송 3종(직송지 축의 
       { carrier: 'DHL', trackingNumber: 'DIRECT-VN-AWB-0810' },
     );
     expect(shipped.status, `선적(AWB): ${JSON.stringify(shipped.json)}`).toBe(200);
-    F('J2', 'obs', 'CN→VN 국제 직송 — 다른 박스 분리·Invoice 요구·requested→shipped 2칸 확인');
+
+    // ── 직송 국제 어휘(정책 확정 08-10) — 표시층 치환(pcbShipmentStatusLabel) 실화면:
+    //    다음 전이가 arrived 인 지금이 관찰 적기다. 실물이 KR 에 안 오는 체인이라
+    //    '국내도착'이 아니라 '현지도착'이어야 한다(코드·전이 사전은 BOM 공유 그대로).
+    await rp.view(adminView, `/app/admin/pcb/cases/${String(spec2)}`, 'J02-case-vn-local-arrive');
+    const caseBody: string = await adminView.page.evaluate(() => document.body.innerText);
+    expect(caseBody, "Case 선적 행 다음 단계 버튼 = '현지도착 진행'").toContain('현지도착 진행');
+    expect(caseBody.includes('국내도착'), '직송 국제 체인에서 국내도착 어휘 소거').toBe(false);
+    await rp.view(partnerView, '/app/partner/pcb/ship', 'J02-portal-vn-local-arrive');
+    const boardBody: string = await partnerView.page.evaluate(() => document.body.innerText);
+    expect(boardBody, '포털 발송 카드 스텝퍼 직송 국제 어휘').toContain('현지도착');
+    expect(boardBody.includes('국내도착'), '포털에서 국내도착 어휘 소거').toBe(false);
+    F(
+      'J2',
+      'obs',
+      'CN→VN 국제 직송 — 다른 박스 분리·Invoice 요구·requested→shipped 2칸 + 현지도착 어휘(Case 버튼·포털 스텝퍼) 확인',
+    );
   }, 480_000);
 
-  test('J3. 직송 ① 국내 3단계 완주 → **고객 배송 큐 오판 실측**', async (ctx) => {
+  test('J3. 직송 ① 국내 3단계 완주 → **고객 배송 큐 유지+직송 구분**(정책 확정 08-10)', async (ctx) => {
     if (po1 === null || spec1 === null || od1 === null) return ctx.skip();
     // 국내 3단계: 배송 중(협력2·택배사+송장) → 입고확인이 종점(RECEIVE_REQUIRED 확인).
     const adv = await api(P2, 'POST', `/api/partner/pcb-pos/${String(po1)}/shipment/advance`, {
@@ -380,10 +398,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 6호 — 직송 3종(직송지 축의 
     const closed = await prisma.spPcbShipment.findFirst({ where: { id: ship1Id ?? 0n } });
     expect(closed?.status, '입고확인이 국내 종점을 닫음').toBe('delivered');
 
-    // ── 오판 실측 — 직송 건이 "배송 처리 대기"(관리자가 고객에게 보낼 물건)에 뜨는가 ──
-    // 실물은 직송지(CN)의 고객에게 이미 갔고 관리자는 받은 것이 없다. 판정 SQL
-    // (g5-db.ts PCB_SHIP_JOIN / PCB_TO_SHIP)은 receiverKind='admin' ∧ receivedAt 만 보고
-    // destinationCountry 를 구분하지 않으므로 노출이 예상된다 — 현재 동작의 기록(승인 아님).
+    // ── 정책 확정(08-10) — 직송 건은 od 종결 창구가 이 큐뿐이라 **남기되 구분**한다:
+    //    directShipCountry(최상위·최신 회차 발주의 직송지) 계약 확장이 행 배지('직송 CN')와
+    //    [배송 처리]→[직송 완료] 분기의 근거다. J5 까지의 오판 박제를 새 동작으로 뒤집는다.
     const queue = await api(
       A,
       'GET',
@@ -391,22 +408,18 @@ describe.skipIf(!RUN || !JOURNEY)('여정 6호 — 직송 3종(직송지 축의 
     );
     expect(queue.status, JSON.stringify(queue.json)).toBe(200);
     const row = (queue.json?.data?.items ?? []).find((r: any) => r.odId === od1);
-    if (row !== undefined) {
-      F(
-        'J3',
-        'bug',
-        `직송(CN→CN) 완료 건이 고객 배송 큐(to_ship)에 노출 — od=${od1} receivedPoCount=${String(row.receivedPoCount)}. ` +
-          `관리자는 실물을 받지 않았는데(직송지=고객) "배송 처리 대기"로 잡힌다. 판정(PCB_SHIP_JOIN·` +
-          `admin-pcb-orders receivedPoCount)이 shipment.destinationCountry 를 구분하지 않는 것이 원인. ` +
-          `단 직송 주문의 od 종결(배송/완료 전이) 경로가 이 큐뿐이라 "의도된 재촉"일 가능성도 있다 — ` +
-          `그 경우에도 운송장 재입력 요구·문구("배송 처리")는 직송과 안 맞는다. 서버 무수정, 보고만.`,
-      );
-    } else {
-      F('J3', 'obs', '직송 건이 고객 배송 큐에서 제외됨 — destinationCountry 구분 로직 존재(코드 재확인 필요)');
-    }
-    // 현재 동작 박제(재작업 프로브 관례) — 서버가 직송을 구분하게 되면 이 어서션이 신호가 된다.
-    expect(row, '직송 건 to_ship 노출(현재 동작 기록)').toBeTruthy();
+    expect(row, '직송 건 — 고객 배송 큐 유지(od 전용 종결 동선의 자리)').toBeTruthy();
+    expect(row?.directShipCountry, '직송지 노출(계약 최소 확장)').toBe('CN');
     await rp.view(adminView, '/app/admin/pcb/shipments', 'J03-admin-shipping-direct');
+    const queueBody: string = await adminView.page.evaluate(() => document.body.innerText);
+    expect(queueBody, "고객 배송 행 '직송 CN' 배지").toContain('직송 CN');
+    expect(queueBody, '[직송 완료] 버튼 노출(운송장 모달 대체)').toContain('직송 완료');
+    F(
+      'J3',
+      'obs',
+      `직송 건 고객 배송 큐 유지+구분 — od=${od1} directShipCountry=CN, ` +
+        `행 배지·[직송 완료] 동선 노출 확인(실행은 J6). 구 '오판' 박제를 정책 확정 동작으로 뒤집음.`,
+    );
     F('J3', 'obs', `직송 ① 국내 3단계 완주 — od=${od1} po=${String(po1)} (배송중→입고확인 종점)`);
   }, 240_000);
 
@@ -496,7 +509,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 6호 — 직송 3종(직송지 축의 
     void od3;
   }, 60_000);
 
-  test('J6. 고객 화면 — 직송 어휘(#6)·배송 전이 후 진행 카드 숨김(#4) 관찰', async (ctx) => {
+  test('J6. [직송 완료] 실행(정책 확정 08-10) — 운송장 없이 완료 종결 + 고객 카드 숨김(#4)', async (ctx) => {
     if (od1 === null) return ctx.skip();
     // 직송 ①(CN→CN)은 J3 에서 입고확인(직송 도착)까지 갔고 od 는 아직 배송 전 —
     // 진행 카드가 떠야 하고, 어휘는 '직송 배송 완료'(자사 입고 어휘 아님)여야 한다.
@@ -505,13 +518,59 @@ describe.skipIf(!RUN || !JOURNEY)('여정 6호 — 직송 3종(직송지 축의 
     expect(before, '진행 카드 직송 어휘(#6)').toContain('직송 배송 완료');
     expect(before.includes('입고 완료 — 배송 준비 중'), '자사 입고 어휘 미노출(#6)').toBe(false);
 
-    // 배송 전이 후에는 코어 배송정보가 정본 — 진행 카드 자체가 사라져야 한다(#4).
-    // force-status 는 임의 전이(재고 앵커: cleanup-probe 가 '주문' 복귀로 복원).
-    const toShip = await api(A, 'PATCH', `/api/admin/orders/${od1}/force-status`, { target: '배송' });
-    expect(toShip.status, `배송 전이: ${JSON.stringify(toShip.json)}`).toBe(200);
+    // ── [직송 완료] 실행 — 고객 배송 큐의 전용 종결 동선: 운송장 입력 없이 confirmDialog
+    //    → 코어 PATCH force-status '완료' 재사용(신규 라우트 없음, 재고 앵커는 완료 진입
+    //    차감이라 보존 — cleanup 은 '주문' 복귀로 복원, 구 J6 의 '배송' 임의 전이를 대체).
+    // 배송 필드 사전 스냅샷 — "운송장 없이"의 판정은 절대값이 아니라 **불변**이다
+    // (od_delivery_company 컬럼 기본값이 '0'인 레거시 스키마 — 빈 문자열 가정 금지).
+    const beforeQ = await api(
+      A,
+      'GET',
+      `/api/admin/pcb-orders?tab=to_ship&q=${encodeURIComponent(od1)}&page=1&pageSize=5`,
+    );
+    const beforeRow = (beforeQ.json?.data?.items ?? []).find((r: any) => r.odId === od1);
+    expect(beforeRow, '직송 완료 전 — to_ship 큐 재확인').toBeTruthy();
+    await rp.view(adminView, '/app/admin/pcb/shipments', 'J06-direct-complete-queue');
+    const rowLoc = adminView.page.locator('tr', { hasText: od1 }).first();
+    await rowLoc.getByRole('button', { name: '직송 완료' }).click();
+    const dialog = adminView.page.locator('[role="alertdialog"]');
+    await dialog.waitFor({ state: 'visible', timeout: 10_000 });
+    const dialogText: string = await dialog.innerText();
+    expect(dialogText, '직송 완료 확인 문구(현지 수령 안내)').toContain('현지(CN)에서 수령');
+    expect(dialogText, '완료 종결 안내').toContain('완료로 종결');
+    await rp.shot(adminView, 'J06-direct-complete-confirm');
+    await dialog.getByRole('button', { name: '확인' }).click();
+
+    // od 종결 폴링 — 완료 도달 + 운송장 없이(택배사·송장 빈 값) 닫혔는지까지 본다.
+    let odRow: any = null;
+    for (let i = 0; i < 20; i += 1) {
+      const q = await api(
+        A,
+        'GET',
+        `/api/admin/pcb-orders?tab=all&q=${encodeURIComponent(od1)}&page=1&pageSize=5`,
+      );
+      odRow = (q.json?.data?.items ?? []).find((r: any) => r.odId === od1);
+      if (odRow?.odStatus === '완료') break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    expect(odRow?.odStatus, '[직송 완료] → od 완료 종결').toBe('완료');
+    expect(String(odRow?.deliveryCompany ?? ''), '운송장 없이 종결(택배사 불변)').toBe(
+      String(beforeRow?.deliveryCompany ?? ''),
+    );
+    expect(String(odRow?.invoiceNo ?? ''), '운송장 없이 종결(송장 빈 값 유지)').toBe(
+      String(beforeRow?.invoiceNo ?? ''),
+    );
+    expect(String(odRow?.invoiceNo ?? ''), '송장번호 미기록').toBe('');
+
+    // 완료 전이 후에는 코어 배송정보가 정본 — 진행 카드 자체가 사라져야 한다(#4 —
+    // 배송·완료·취소 동일 규칙).
     await rp.view(customer, `/shop/orderinquiryview.php?od_id=${od1}`, 'J06-customer-card-hidden');
     const after: string = await customer.page.evaluate(() => document.body.innerText);
-    expect(after.includes('제작 진행 상황'), '배송 이후 진행 카드 숨김(#4)').toBe(false);
-    F('J6', 'obs', `고객 화면 — 직송 어휘·배송 후 카드 숨김 확인(od=${od1})`);
-  }, 120_000);
+    expect(after.includes('제작 진행 상황'), '완료 이후 진행 카드 숨김(#4)').toBe(false);
+    F(
+      'J6',
+      'obs',
+      `[직송 완료] 실행 — od=${od1} 운송장 없이 완료 종결(확인 문구·완료 도달·카드 숨김 관찰)`,
+    );
+  }, 180_000);
 });

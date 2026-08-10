@@ -6,7 +6,6 @@ import {
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
   bomShipmentNextStatus,
-  bomShipmentStatusLabel,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
   type BomShipmentStatusType,
@@ -47,8 +46,9 @@ import {
   useUploadAdminPcbEqFile,
   type AdminPcbEqSubstituteAction,
 } from '../../admin/useAdminPcbPos';
-import { useConfirmPcbOrderReceipt } from '../../admin/useAdminPcbOrders';
+import { useConfirmPcbOrderReceipt, usePcbCompleteCustomerOrder } from '../../admin/useAdminPcbOrders';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
+import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import {
   PCB_EQ_REVIEW_BTN_CLS,
   pcbEqReviewState,
@@ -759,6 +759,41 @@ const customerShipAllReceived = computed(
 function openCustomerShip(): void {
   customerShipOdId.value = detail.value?.order?.odId ?? null;
 }
+// 직송 Case(정책 확정 08-10) — 최상위·최신 회차 발주의 직송지(배송 큐 서버 판정
+// directShipCountry 와 같은 규칙). non-null 이면 관리자가 보낼 실물이 없으니 헤더
+// 유도 배지는 '직송 완료 대기'가 되고, 운송장 모달 대신 확인 후 완료 종결로 간다.
+const caseDirectShipCountry = computed<string | null>(() => {
+  let picked: AdminPcbPoViewType | null = null;
+  for (const po of adminPos.value) {
+    if (
+      picked === null ||
+      po.reorderRound > picked.reorderRound ||
+      (po.reorderRound === picked.reorderRound && po.poId > picked.poId)
+    ) {
+      picked = po;
+    }
+  }
+  return picked?.destinationCountry ?? null;
+});
+const completeCustomerOrder = usePcbCompleteCustomerOrder();
+async function completeDirectShip(): Promise<void> {
+  const odId = detail.value?.order?.odId ?? null;
+  const country = caseDirectShipCountry.value;
+  if (odId === null || country === null) return;
+  if (
+    !(await confirmDialog(
+      `직송 건 — 고객이 현지(${country})에서 수령했습니다. 주문을 완료로 종결합니다.`,
+    ))
+  ) {
+    return;
+  }
+  actionError.value = '';
+  try {
+    await completeCustomerOrder.mutateAsync(odId);
+  } catch (e) {
+    surfaceError(e, '직송 완료 처리에 실패했습니다.');
+  }
+}
 const shipReceiveAdmin = useAdminPcbShipmentReceive();
 
 // 국내 종점(delivered)은 [입고 확인]이 상태까지 닫는다(서버 pcb-shipment.receivePcbShipment).
@@ -766,7 +801,10 @@ const shipReceiveAdmin = useAdminPcbShipmentReceive();
 const adminShipAdvanceLabel = (s: PcbShipmentViewType): string | null => {
   const next = bomShipmentNextStatus(s.mode, s.status);
   if (next === null || (s.mode === 'domestic' && next === 'delivered')) return null;
-  return bomShipmentStatusLabel(s.mode, next);
+  // 직송 국제 체인은 '국내도착' 대신 '현지도착'(표시층 치환 — 상태 코드는 공유 그대로).
+  return pcbShipmentStatusLabel(s.mode, next, {
+    directShip: isPcbDirectShipIntl(s.destinationCountry),
+  });
 };
 const canAdminReceive = (s: PcbShipmentViewType): boolean => {
   if (s.receivedAt !== null || s.receiverKind !== 'admin') return false;
@@ -804,6 +842,8 @@ const shipPrompt = ref<{
   poId: number;
   next: BomShipmentStatusType;
   mode: PcbShipmentViewType['mode'];
+  /** 직송 국제 체인 — 모달 제목의 상태 라벨 치환('국내도착'→'현지도착'). */
+  directShip: boolean;
 } | null>(null);
 
 async function runShipAdvance(poId: number, body: PcbShipmentAdvanceBodyType): Promise<void> {
@@ -819,12 +859,17 @@ async function runShipAdvance(poId: number, body: PcbShipmentAdvanceBodyType): P
 async function adminShipAdvance(poId: number, s: PcbShipmentViewType): Promise<void> {
   const next = bomShipmentNextStatus(s.mode, s.status);
   if (next === null) return;
-  // 입력이 필요 없는 단계(국내도착·통관·완료 등)는 그대로 진행한다.
+  // 입력이 필요 없는 단계(국내도착/현지도착·통관·완료 등)는 그대로 진행한다.
   if (shipPromptFieldsOf(next).length === 0) {
     await runShipAdvance(poId, {});
     return;
   }
-  shipPrompt.value = { poId, next, mode: s.mode };
+  shipPrompt.value = {
+    poId,
+    next,
+    mode: s.mode,
+    directShip: isPcbDirectShipIntl(s.destinationCountry),
+  };
 }
 async function submitShipPrompt(values: Record<string, string>): Promise<void> {
   const target = shipPrompt.value;
@@ -969,6 +1014,17 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       >
         협력 발주 없이 진행된 주문
       </span>
+      <!-- 직송 건은 관리자가 보낼 실물이 없다 — 유도 문구·액션이 [직송 완료](운송장 없이
+           완료 종결)로 바뀐다(정책 확정 08-10). 판정은 최상위·최신 회차 발주의 직송지. -->
+      <button
+        v-else-if="axisMismatch === 'received-not-delivered' && caseDirectShipCountry !== null"
+        type="button"
+        class="rounded bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 hover:bg-teal-200"
+        :title="`직송(${caseDirectShipCountry}) 건 — 실물은 주문지로 직송됐습니다. 운송장 없이 완료로 종결하세요`"
+        @click="void completeDirectShip()"
+      >
+        직송 완료 대기 · 직송 완료 →
+      </button>
       <button
         v-else-if="axisMismatch === 'received-not-delivered'"
         type="button"
@@ -1505,7 +1561,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   <div class="flex flex-wrap items-center gap-2 text-xs">
                     <span class="font-bold text-teal-600">🚚 선적</span>
                     <span class="rounded px-1.5 py-0.5 font-semibold" :class="SHIP_STATUS_CLS[s.status]">
-                      {{ bomShipmentStatusLabel(s.mode, s.status) }}
+                      {{ pcbShipmentStatusLabel(s.mode, s.status, { directShip: isPcbDirectShipIntl(s.destinationCountry) }) }}
                     </span>
                     <span class="text-gray-500">
                       {{ s.mode === 'domestic' ? '국내(택배)' : '국제' }} · {{ s.senderName }} → {{ s.receiverName }}
@@ -1589,7 +1645,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       <span class="tabular-nums">{{ pcbMoneyWithSub(child.currency, child.priceOriginal, child.subCurrency, child.subPriceOriginal) }}</span>
                       <template v-for="cs in shipRowsOf(child.poId)" :key="`cship-${String(cs.shipmentId)}`">
                         <span class="rounded px-1.5 py-0.5 font-semibold" :class="SHIP_STATUS_CLS[cs.status]">
-                          🚚 {{ bomShipmentStatusLabel(cs.mode, cs.status) }}
+                          🚚 {{ pcbShipmentStatusLabel(cs.mode, cs.status, { directShip: isPcbDirectShipIntl(cs.destinationCountry) }) }}
                         </span>
                         <span v-if="cs.receivedAt !== null" class="font-semibold text-emerald-600">MD 입고완료</span>
                       </template>
@@ -1949,7 +2005,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       @confirm="(v) => void submitReject(v)"
     />
     <UiPromptModal
-      :title="shipPrompt === null ? null : `${bomShipmentStatusLabel(shipPrompt.mode, shipPrompt.next)} 진행`"
+      :title="shipPrompt === null ? null : `${pcbShipmentStatusLabel(shipPrompt.mode, shipPrompt.next, { directShip: shipPrompt.directShip })} 진행`"
       :fields="shipPrompt === null ? [] : shipPromptFieldsOf(shipPrompt.next)"
       confirm-label="진행"
       :busy="shipAdvanceAdmin.isPending.value"

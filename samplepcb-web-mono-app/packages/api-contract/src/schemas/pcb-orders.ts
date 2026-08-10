@@ -58,6 +58,12 @@ export const AdminPcbOrderItem = z.object({
   poCount: z.number().int(), // 이 스펙의 협력사 발주서 수(전 회차)
   /** 관리자 수신 선적으로 입고확인이 끝난 발주서 수(입고 n/m 표시·미입고 발송 경고). */
   receivedPoCount: z.number().int(),
+  /**
+   * 직송지(D5) — 최상위(parentPartnerId 0)·최신 회차 발주의 destinationCountry.
+   * non-null 이면 실물이 자사를 거치지 않고 이 나라의 고객에게 갔다 — 고객 배송 큐는
+   * 운송장 입력 대신 [직송 완료](force-status '완료')가 od 종결 창구다(정책 확정 08-10).
+   */
+  directShipCountry: z.string().nullable(),
   deliveryCompany: z.string(), // od_delivery_company — 배송 처리 후 표시(없으면 '')
   invoiceNo: z.string(), // od_invoice
 });

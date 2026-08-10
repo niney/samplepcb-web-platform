@@ -72,6 +72,14 @@ export const AdminPcbCaseItem = z.object({
   poCount: z.number().int(),
   /** 선적 문서 1건 이상 존재. */
   hasShipment: z.boolean(),
+  /** 최상위(parentPartnerId 0) 발주의 최신 회차 — 0=원발주만, 1..=A/S 재생산 회차. */
+  asRound: z.number().int(),
+  /**
+   * A/S 회차(>0) 진행 중 — 최신 회차 발주의 선적이 종결(done/delivered/입고확인) 전.
+   * true 면 od 가 완료·취소여도 구간은 '발주·생산'(진행)으로 선다(판정 축 = 최상위
+   * 발주의 최신 회차, 정책 확정 08-10 — lib/pcb-customer-progress 와 동일 규칙).
+   */
+  asOpen: z.boolean(),
   /** 파생 단계 1~12(PCB_STEPS 인덱스+1). 취소 주문은 단계 계산에서 제외되지 않는다. */
   step: z.number().int().min(1).max(12),
   createdAt: z.string(),

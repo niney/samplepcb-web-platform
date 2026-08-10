@@ -4,10 +4,10 @@ import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import {
   PCB_PO_STATUS_LABELS,
-  bomShipmentStatusLabel,
   type AdminPcbOrderItemType,
   type AdminPcbShipmentTabType,
 } from '@sp/api-contract';
+import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import {
   useAdminPcbPoWork,
   useAdminPcbShipmentWork,
@@ -117,6 +117,26 @@ async function completeOrder(item: AdminPcbOrderItemType): Promise<void> {
     await completeMut.mutateAsync(item.odId);
   } catch (e) {
     actionError.value = e instanceof ApiRequestError ? e.message : '구매확정에 실패했습니다.';
+  }
+}
+
+// [직송 완료](정책 확정 08-10) — 직송 건은 실물이 자사를 안 거쳐 관리자가 보낼 것이
+// 없는데, od 종결 창구는 이 큐뿐이다. 그래서 큐에 남기되 운송장 입력 없이 코어
+// force-status '완료'(구매확정과 같은 전이 — 재고 앵커는 완료 진입 차감이라 보존)로 닫는다.
+async function completeDirectOrder(item: AdminPcbOrderItemType): Promise<void> {
+  if (item.directShipCountry === null) return;
+  if (
+    !(await confirmDialog(
+      `직송 건 — 고객이 현지(${item.directShipCountry})에서 수령했습니다. 주문을 완료로 종결합니다.`,
+    ))
+  ) {
+    return;
+  }
+  actionError.value = '';
+  try {
+    await completeMut.mutateAsync(item.odId);
+  } catch (e) {
+    actionError.value = e instanceof ApiRequestError ? e.message : '직송 완료 처리에 실패했습니다.';
   }
 }
 
@@ -294,7 +314,7 @@ function openCase(specId: number): void {
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5">
                   <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[row.status]">
-                    {{ bomShipmentStatusLabel(row.mode, row.status) }}
+                    {{ pcbShipmentStatusLabel(row.mode, row.status, { directShip: isPcbDirectShipIntl(row.destinationCountry) }) }}
                   </span>
                   <span v-if="row.adminTurn" class="ml-1 rounded bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
                     내 차례
@@ -391,6 +411,12 @@ function openCase(specId: number): void {
               <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-600">{{ item.odId }}</td>
               <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
                 <span class="font-mono text-xs text-gray-400">Q{{ item.specId }}</span>
+                <!-- 직송(D5) — 실물이 자사를 안 거쳤다: 이 행의 종결은 [직송 완료]다 -->
+                <span
+                  v-if="item.directShipCountry !== null"
+                  class="mr-0.5 rounded bg-teal-100 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700"
+                  title="직송 — 실물은 자사 입고 없이 주문지로 갔습니다. 운송장 없이 [직송 완료]로 종결하세요."
+                >직송 {{ item.directShipCountry }}</span>
                 {{ item.projectName }}
               </td>
               <td class="px-4 py-2.5 text-gray-600">{{ item.mbId ?? '비회원' }}</td>
@@ -418,8 +444,18 @@ function openCase(specId: number): void {
                 </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-right">
+                <!-- 직송 건 — 보낼 실물이 없다: 운송장 모달 대신 확인 후 완료 종결 -->
                 <button
-                  v-if="orderTab === 'to_ship'"
+                  v-if="orderTab === 'to_ship' && item.directShipCountry !== null"
+                  type="button"
+                  class="rounded-md bg-teal-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-teal-700 disabled:opacity-40"
+                  :disabled="completeMut.isPending.value"
+                  @click.stop="completeDirectOrder(item)"
+                >
+                  직송 완료
+                </button>
+                <button
+                  v-else-if="orderTab === 'to_ship'"
                   type="button"
                   class="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-700"
                   @click.stop="openShip(item)"

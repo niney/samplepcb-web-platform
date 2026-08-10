@@ -1,6 +1,12 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { AdminPcbCaseListQuery, AdminPcbCaseListResponse } from '@sp/api-contract';
 import { listPcbCaseSpecs } from '../lib/g5-db';
+import {
+  PCB_EQ_DONE_STATUSES,
+  pcbCaseStepOf,
+  resolvePcbAsRoundState,
+  type PcbTopPoSignal,
+} from '../lib/pcb-case-step';
 import { prisma } from '../lib/prisma';
 
 // ── /api/admin/pcb-cases — PCB 진행현황 + 역할별 대기 큐 ─────────────────────
@@ -8,42 +14,11 @@ import { prisma } from '../lib/prisma';
 // 조감이고, todo_rfq·todo_po 는 각 워크큐의 "시작 전" 큐다(계약 주석 참조).
 // 모수가 이관 견적 2만여 건이라 목록·counts 는 SQL(한정 예외 ⑳)에서 페이지네이션하고,
 // 페이지 행만 RFQ·발주·선적으로 enrich 한다. read-only.
+// step·구간의 A/S 판정 축은 lib/pcb-case-step — SQL(PCB_AS_OPEN_JOIN)과 같은 규칙의
+// JS 면이다(행 배지·step 은 여기, 탭 소속·counts 는 SQL 이 계산).
 
 const asQuoteStatus = (v: string): 'priced' | 'rfq' | 'quoted' =>
   v === 'rfq' ? 'rfq' : v === 'quoted' ? 'quoted' : 'priced';
-
-// EQ 승인 이후로 본다 — issued·eq_requested 는 아직 ⑧발주 단계.
-const EQ_DONE_STATUSES = new Set(['eq_done', 'producing', 'produced']);
-
-interface StepInput {
-  rfqTotal: number;
-  rfqQuoted: number;
-  rfqSelected: boolean;
-  finalPrice: number | null;
-  cartState: 'none' | 'cart' | 'ordered';
-  isPaid: boolean;
-  poCount: number;
-  eqDone: boolean;
-  produced: boolean;
-  hasShipment: boolean;
-  odStatus: string | null;
-}
-
-/** 파생 단계(1~12) — 저장 상태가 아니라 표시 타임라인. 도달한 최대 단계를 쓴다. */
-const pcbStepOf = (input: StepInput): number => {
-  if (input.odStatus === '배송' || input.odStatus === '완료') return 12;
-  if (input.hasShipment) return 11;
-  if (input.produced) return 10;
-  if (input.eqDone) return 9;
-  if (input.poCount > 0) return 8;
-  if (input.isPaid) return 7;
-  if (input.cartState === 'ordered') return 6;
-  if (input.finalPrice !== null) return 5;
-  if (input.rfqSelected) return 4;
-  if (input.rfqQuoted > 0) return 3;
-  if (input.rfqTotal > 0) return 2;
-  return 1;
-};
 
 export const adminPcbCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
@@ -87,13 +62,33 @@ export const adminPcbCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         }),
         prisma.spPcbPo.findMany({
           where: { specId: { in: specIds }, parentPartnerId: 0n },
-          select: { specId: true, status: true },
+          select: { id: true, specId: true, status: true, reorderRound: true },
         }),
         prisma.spPcbShipment.findMany({
           where: { specId: { in: specIds } },
           select: { specId: true },
         }),
       ]);
+
+      // 발주별 발송 신호(A/S 축) — 링크는 발주당 1건(@unique poId), 관리자 수신만 신호다
+      // (MD 하위 입고는 다른 축 — pcb-customer-progress 와 같은 해석).
+      const shipmentByPoId = new Map<string, { status: string; receivedAt: Date | null }>();
+      if (poRows.length > 0) {
+        const links = await prisma.spPcbShipmentPo.findMany({
+          where: { poId: { in: poRows.map((po) => po.id) } },
+          select: {
+            poId: true,
+            shipment: { select: { status: true, receivedAt: true, receiverKind: true } },
+          },
+        });
+        for (const link of links) {
+          if (link.shipment.receiverKind !== 'admin') continue;
+          shipmentByPoId.set(link.poId.toString(), {
+            status: link.shipment.status,
+            receivedAt: link.shipment.receivedAt,
+          });
+        }
+      }
 
       const specById = new Map(specs.map((s) => [s.id.toString(), s]));
       const rfqBySpec = new Map<string, { total: number; quoted: number; selected: boolean }>();
@@ -106,13 +101,21 @@ export const adminPcbCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         rfqBySpec.set(key, agg);
       }
       const poBySpec = new Map<string, { count: number; eqDone: boolean; produced: boolean }>();
+      const topPosBySpec = new Map<string, PcbTopPoSignal[]>();
       for (const row of poRows) {
         const key = row.specId.toString();
         const agg = poBySpec.get(key) ?? { count: 0, eqDone: false, produced: false };
         agg.count += 1;
-        if (EQ_DONE_STATUSES.has(row.status)) agg.eqDone = true;
+        if (PCB_EQ_DONE_STATUSES.has(row.status)) agg.eqDone = true;
         if (row.status === 'produced') agg.produced = true;
         poBySpec.set(key, agg);
+        const signals = topPosBySpec.get(key) ?? [];
+        signals.push({
+          reorderRound: row.reorderRound,
+          status: row.status,
+          shipment: shipmentByPoId.get(row.id.toString()) ?? null,
+        });
+        topPosBySpec.set(key, signals);
       }
       const shippedSpecs = new Set(shipments.map((s) => s.specId.toString()));
 
@@ -129,6 +132,10 @@ export const adminPcbCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             const cartState: 'none' | 'cart' | 'ordered' =
               row.ctStatus === null ? 'none' : row.ctStatus === '쇼핑' ? 'cart' : 'ordered';
             const isPaid = row.odStatus !== null && row.odStatus !== '주문';
+            // A/S 축 — 최상위 발주 최신 회차가 진행 중이면 step 도 그 회차 기준으로 선다.
+            const topPos = topPosBySpec.get(key) ?? [];
+            const asState = resolvePcbAsRoundState(topPos);
+            const roundPos = topPos.filter((p) => p.reorderRound === asState.asRound);
             return [
               {
                 specId: row.specId,
@@ -149,19 +156,25 @@ export const adminPcbCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
                 rfqSelected: rfq.selected,
                 poCount: po.count,
                 hasShipment,
-                step: pcbStepOf({
-                  rfqTotal: rfq.total,
-                  rfqQuoted: rfq.quoted,
-                  rfqSelected: rfq.selected,
-                  finalPrice: spec.finalPrice,
-                  cartState,
-                  isPaid,
-                  poCount: po.count,
-                  eqDone: po.eqDone,
-                  produced: po.produced,
-                  hasShipment,
-                  odStatus: row.odStatus,
-                }),
+                asRound: asState.asRound,
+                asOpen: asState.asOpen,
+                step: pcbCaseStepOf(
+                  {
+                    rfqTotal: rfq.total,
+                    rfqQuoted: rfq.quoted,
+                    rfqSelected: rfq.selected,
+                    finalPrice: spec.finalPrice,
+                    cartState,
+                    isPaid,
+                    poCount: po.count,
+                    eqDone: po.eqDone,
+                    produced: po.produced,
+                    hasShipment,
+                    odStatus: row.odStatus,
+                  },
+                  asState,
+                  roundPos,
+                ),
                 createdAt: spec.createdAt.toISOString(),
               },
             ];

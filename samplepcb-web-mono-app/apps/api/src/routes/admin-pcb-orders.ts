@@ -49,14 +49,21 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         // 발주 연결 — 관리자 직속 발주만(하위는 MD 경유 실작업 문서라 이중 집계 방지).
         prisma.spPcbPo.findMany({
           where: { specId: { in: specIds }, parentPartnerId: 0n },
-          select: { id: true, specId: true },
+          select: { id: true, specId: true, reorderRound: true, destinationCountry: true },
         }),
       ]);
       const specById = new Map(specs.map((s) => [s.id.toString(), s]));
       const poCountBySpec = new Map<string, number>();
+      // 직송지(D5) — 최상위·최신 회차 발주의 destinationCountry(회차 동률은 최신 발행분).
+      // non-null 이면 실물이 자사를 안 거쳤다 — 배송 큐가 [배송 처리] 대신 [직송 완료]를 낸다.
+      const directShipPoBySpec = new Map<string, { id: bigint; round: number; country: string | null }>();
       for (const po of adminPos) {
         const key = po.specId.toString();
         poCountBySpec.set(key, (poCountBySpec.get(key) ?? 0) + 1);
+        const cur = directShipPoBySpec.get(key);
+        if (cur === undefined || po.reorderRound > cur.round || (po.reorderRound === cur.round && po.id > cur.id)) {
+          directShipPoBySpec.set(key, { id: po.id, round: po.reorderRound, country: po.destinationCountry });
+        }
       }
       // 입고확인 수 — 발주서 축으로 선적을 따라간다(묶음 선적의 대표 스펙이 다른 스펙일 수
       // 있어 shipment.specId 판정 금지 — 고객 배송 큐 SQL(PCB_SHIP_JOIN)과 같은 이유).
@@ -101,6 +108,7 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                 orderedAt: row.orderedAt,
                 poCount: poCountBySpec.get(String(row.specId)) ?? 0,
                 receivedPoCount: receivedBySpec.get(String(row.specId)) ?? 0,
+                directShipCountry: directShipPoBySpec.get(String(row.specId))?.country ?? null,
                 deliveryCompany: row.deliveryCompany,
                 invoiceNo: row.invoiceNo,
               },
