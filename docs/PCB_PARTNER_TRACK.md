@@ -1276,6 +1276,40 @@ typecheck·lint 0건 · 정리 CLEAN(취소 주문도 force-status '주문' 복�
 
 검증: probe 9/9 · vitest 737 · turbo typecheck 8/8 · lint 7/7 · 정리 CLEAN.
 
+### P4.12 구현 기록 (2026-08-10 — A/S 재발주 회차: 케이스·회차 발주·화면)
+
+레거시 sp_pcb_as_case(정본 sp-smartbom-web/doc/pcb-as-reorder.md — 백엔드·프론트 전수
+실측 후 이식)를 플랫폼으로 승계. **얇은 접수 헤더 + proceed 시 회차 채번 + 원발주 복사**
+모델. 케이스는 합의 기록이고 재생산은 회차 발주서(reorderRound>0)가 기존 EQ·선적
+파이프를 그대로 탄다 — MD 하위 발주(회차 상속)·선적 박스(contextKey 에 회차 편입)는
+이미 준비돼 있어 무변경.
+
+- **스키마**: `SpPcbAsCase`(마이그 20260810150000) — specId 앵커, UK(specId, reorderRound),
+  reorderRound **NULL 시작**(초안이 회차를 점유하지 않음 — proceed 시 케이스 축 MAX+1,
+  InnoDB tx 라 레거시 MyISAM 채번 경합 해소). 상태 draft→submitted→accepted|rejected→
+  proceeded(D4 영문). caseType admin_fault|product_defect, chargeType paid|free(기본:
+  실수=유상/불량=무상 — `defaultPcbAsCharge` 계약 공용).
+- **개시 가드**: 대상 협력사의 원주문(round 0) 발주 존재(NO_ORIGIN_PO) + **취소 주문
+  차단(ORDER_CANCELED — 사용자 결정: 결제가 사라진 주문의 재생산은 성립 안 함)**.
+  완료·선적 상태는 검증하지 않는다(레거시 동형 — 개시 시점은 관리자 재량).
+- **proceed**: 최상위 원발주(직거래=대상, MD=관리자→MD A) 복사 — 가격 일체·직송지·
+  지불조건·rfq 참조·memo 복사, status=issued·eqHistory=[]·송금 0. **납기는 비운다**
+  (레거시 stale 복사 함정 교정). MD 하위 B 는 MD 가 포털에서 발주(회차 자동 상속).
+- **레거시 갭 6종 교정**: ① proceed 응답 poId(딥링크) ② 접수 회수(submitted→draft)
+  ③ 협력사 회신 첨부 구현+uploadedBy 역할 분리(레거시는 회신이 관리자 첨부를 통째로
+  덮어씀) ④ 채번 tx ⑤ 납기 비움 ⑥ 알림(접수→협력사 메일, 회신→관리자 메일 —
+  레거시는 전무).
+- **화면**: Case 상세 'A/S 재발주' 패널(접수 모달·첨부·회수·대행 회신·진행 — 진행 중
+  건 있으면 자동 펼침) + 포털 `/partner/pcb/as`(회신 대기 카드·사진 첨부·이력·MD 중계
+  열람) + 홈 배너(회신 대기 있을 때만). 회차 배지 "A/S N차"는 포털 발주 목록·상세
+  계약에 reorderRound 추가로 완성(관리자 축은 P2~P3 선반영 확인).
+- **스펙 삭제 연동**: quote-delete·pcb-case-delete 가 A/S 첨부(sp_file
+  refType 'sp_pcb_as_case')까지 걷는다(실파일 먼저 → DB 불변식·프리뷰 카운트).
+- **검증**: 스모크 20/20(`e2e/output/smoke-as-case.mts` — 기본 비용 규칙·역할 격리·
+  전송 후 고정·회수 출구·거절 종결(삭제 409)·proceed 회차 발주 복사 필드·중복 진행
+  409·EQ 파이프 연결) · vitest 738 · typecheck 8/8 · lint 0건 · Mailpit 실수신.
+  남은 것=여정 5호(A/S 1회차 완주 E2E — 실 주문 문맥·회차 선적).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
