@@ -70,6 +70,7 @@ import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModa
 import PcbAsCasePanel from '../../components/admin/pcb/PcbAsCasePanel.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
 import UiPromptModal, { type PromptField } from '../../components/ui/UiPromptModal.vue';
+import PcbOrderCancelModal from '../../components/admin/pcb/PcbOrderCancelModal.vue';
 import MailLogList from '../../components/admin/MailLogList.vue';
 import AdminCaseCustomerCard from '../../components/admin/AdminCaseCustomerCard.vue';
 
@@ -154,6 +155,12 @@ const QUOTE_LABEL: Record<string, { label: string; cls: string }> = {
   priced: { label: '자동견적', cls: 'bg-sky-100 text-sky-700' },
   quoted: { label: '견적 확정', cls: 'bg-emerald-100 text-emerald-700' },
 };
+const CANCELED_ORDER_ITEM_STATUSES = new Set(['취소', '반품', '품절', '삭제']);
+const orderDisplayStatus = computed(() => {
+  const order = detail.value?.order;
+  if (order === null || order === undefined) return '';
+  return CANCELED_ORDER_ITEM_STATUSES.has(order.ctStatus) ? order.ctStatus : order.odStatus;
+});
 // D10(P3.5) — 주문됨은 더 이상 일괄 차단이 아니다: 진행 중 주문(입금~배송)은
 // 원가 소싱(RFQ) 허용, 판매가(확정가)만 불변. 게이트 정본은 서버 — 여기선 표시만.
 const rfqGate = computed<'ok' | 'cart' | 'unpaid' | 'closed'>(() => {
@@ -162,16 +169,24 @@ const rfqGate = computed<'ok' | 'cart' | 'unpaid' | 'closed'>(() => {
   if (d.cartState === 'cart') return 'cart';
   if (d.cartState !== 'ordered') return 'ok';
   if (d.order === null) return 'ok'; // 유령(주문 헤더 소실) — 서버 게이트가 허용
+  if (CANCELED_ORDER_ITEM_STATUSES.has(d.order.ctStatus) || d.order.odStatus === '완료' ||
+    d.order.odStatus === '취소') return 'closed';
   if (!d.order.isPaid) return 'unpaid';
-  if (d.order.odStatus === '완료' || d.order.odStatus === '취소') return 'closed';
   return 'ok'; // 진행 중 주문 — 원가 소싱 모드
 });
 // 입금확인 — 발주 패널이 바로 아래라(미결제면 NOT_PAID) 여기서 끊기지 않게 같은 화면에 둔다.
 // 조건·API 는 주문·결제 워크큐와 동일(코어 전이 재사용).
 const receipt = useConfirmPcbOrderReceipt();
+const cancelOrderOpen = ref(false);
+const canReviewOrderCancel = computed(() => {
+  const status = orderDisplayStatus.value;
+  return specId.value !== null && status !== '' && status !== '취소' && status !== '반품' &&
+    status !== '품절' && status !== '삭제' && status !== '완료';
+});
 const canConfirmReceipt = computed(() => {
   const order = detail.value?.order;
-  return order !== null && order !== undefined && !order.isPaid && order.settleCase.includes('무통장');
+  return order !== null && order !== undefined && orderDisplayStatus.value === '주문' &&
+    !order.isPaid && order.settleCase.includes('무통장');
 });
 async function confirmReceipt(): Promise<void> {
   const order = detail.value?.order;
@@ -470,6 +485,7 @@ const poCurrencyOf = (partnerId: number | null): string =>
   'KRW';
 
 function openPoModal(): void {
+  if (rfqGate.value === 'closed') return;
   const selected = selectedRow.value;
   poPartnerId.value = selected?.partnerId ?? assignCandidates.value[0]?.partnerId ?? null;
   poPrice.value = '';
@@ -1269,8 +1285,13 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             </div>
             <div class="flex justify-between">
               <dt class="text-gray-500">상태</dt>
-              <dd class="font-semibold" :class="detail.order.isPaid ? 'text-emerald-700' : 'text-amber-600'">
-                {{ detail.order.odStatus }}<span v-if="!detail.order.isPaid"> (입금 대기)</span>
+              <dd
+                class="font-semibold"
+                :class="CANCELED_ORDER_ITEM_STATUSES.has(detail.order.ctStatus) || detail.order.odStatus === '취소'
+                  ? 'text-gray-500'
+                  : detail.order.isPaid ? 'text-emerald-700' : 'text-amber-600'"
+              >
+                {{ orderDisplayStatus }}<span v-if="orderDisplayStatus === '주문'"> (입금 대기)</span>
               </dd>
             </div>
             <div class="flex justify-between">
@@ -1304,15 +1325,25 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             </div>
           </dl>
           <!-- 미입금이면 여기서 바로 처리 — 아래 발주 패널이 결제 게이트(NOT_PAID)로 막히기 때문. -->
-          <button
-            v-if="canConfirmReceipt"
-            type="button"
-            class="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
-            :disabled="receipt.isPending.value"
-            @click="void confirmReceipt()"
-          >
-            입금확인
-          </button>
+          <div v-if="canConfirmReceipt || canReviewOrderCancel" class="mt-3 flex gap-2">
+            <button
+              v-if="canConfirmReceipt"
+              type="button"
+              class="min-w-0 flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+              :disabled="receipt.isPending.value"
+              @click="void confirmReceipt()"
+            >
+              입금확인
+            </button>
+            <button
+              v-if="canReviewOrderCancel"
+              type="button"
+              class="min-w-0 flex-1 rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-600 hover:bg-red-50"
+              @click="cancelOrderOpen = true"
+            >
+              주문 취소
+            </button>
+          </div>
           <p v-else-if="!detail.order.isPaid" class="mt-2 text-[11px] leading-4 text-amber-600">
             미입금 주문입니다 — 무통장 외 결제수단은 통합 관리 주문내역에서 처리하세요.
           </p>
@@ -1513,7 +1544,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         </h2>
         <button
           type="button"
-          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700"
+          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+          :disabled="rfqGate === 'closed'"
+          :title="rfqGate === 'closed' ? '완료·취소된 PCB 주문에는 발주서를 발행할 수 없습니다.' : undefined"
           @click="openPoModal"
         >
           발주서 발행
@@ -2228,6 +2261,14 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       :busy="shipReceiveAdmin.isPending.value"
       @close="receivePrompt = null"
       @confirm="(v) => void submitReceive(v)"
+    />
+
+    <PcbOrderCancelModal
+      v-if="cancelOrderOpen && specId !== null"
+      :spec-id="specId"
+      @close="cancelOrderOpen = false"
+      @done="cancelOrderOpen = false"
+      @open-case="cancelOrderOpen = false"
     />
   </div>
 </template>

@@ -158,6 +158,7 @@ export const AdminQuoteDetail = AdminQuoteListItem.extend({
     .object({
       odId: z.string(),
       odStatus: z.string(), // '주문'(미입금)|'입금'|'준비'|…|'완료'|'취소'
+      ctStatus: z.string(), // 이 PCB 스펙의 카트행 상태 — 부분취소면 odStatus와 다를 수 있다.
       isPaid: z.boolean(), // od_status !== '주문'
       receiptPrice: z.number(),
       cartPrice: z.number(),

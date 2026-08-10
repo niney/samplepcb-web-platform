@@ -1,10 +1,17 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
+import { z } from 'zod';
 import {
+  AdminPcbOrderCancelPreviewResponse,
+  AdminPcbOrderCancelRequest,
+  AdminPcbOrderCancelResponse,
   AdminPcbOrderListQuery,
   AdminPcbOrderListResponse,
+  ApiError,
+  PCB_ORDER_CANCEL_BLOCK_LABELS,
   resolvePcbDirectShipCountry,
 } from '@sp/api-contract';
-import { listPcbOrderSpecs } from '../lib/g5-db';
+import { getOrderInfoByCtId, listPcbOrderSpecs, setOrderItemsStatus } from '../lib/g5-db';
+import { isActivePcbOrderLine, resolvePcbOrderCancelPolicy } from '../lib/pcb-order-cancel';
 import { prisma } from '../lib/prisma';
 
 // ── /api/admin/pcb-orders — PCB 주문·결제 워크큐(P3.5) + 고객 배송 큐(P4.6) ──
@@ -16,6 +23,56 @@ import { prisma } from '../lib/prisma';
 
 const asQuoteStatus = (v: string): 'priced' | 'rfq' | 'quoted' =>
   v === 'rfq' ? 'rfq' : v === 'quoted' ? 'quoted' : 'priced';
+
+const SpecIdParams = z.object({ specId: z.coerce.number().int().positive() });
+
+async function loadCancelPreview(specId: number) {
+  const spec = await prisma.spOrderSpec.findUnique({
+    where: { id: BigInt(specId) },
+    select: { id: true, projectName: true, status: true, ctId: true },
+  });
+  if (spec?.status !== 'active' || spec.ctId === null) return null;
+
+  const [order, poCount, rfqCount] = await Promise.all([
+    getOrderInfoByCtId(spec.ctId),
+    prisma.spPcbPo.count({ where: { specId: spec.id } }),
+    prisma.spPcbRfq.count({ where: { specId: spec.id } }),
+  ]);
+  if (order === null) return null;
+
+  const activeSiblingCount = order.siblingCarts.filter((row) =>
+    isActivePcbOrderLine(row.ctStatus),
+  ).length;
+  const policy = resolvePcbOrderCancelPolicy({
+    odStatus: order.odStatus,
+    ctStatus: order.rowCtStatus,
+    settleCase: order.settleCase,
+    receiptPrice: order.receiptPrice,
+    hasPgTransaction: order.hasPgTransaction,
+    poCount,
+  });
+
+  return {
+    specId,
+    ctId: spec.ctId,
+    data: {
+      specId,
+      projectName: spec.projectName,
+      odId: order.odId,
+      odStatus: order.odStatus,
+      ctStatus: order.rowCtStatus,
+      settleCase: order.settleCase,
+      receiptPrice: order.receiptPrice,
+      poCount,
+      rfqCount,
+      activeSiblingCount,
+      cancelsWholeOrder: activeSiblingCount === 0,
+      cancelable: policy.cancelable,
+      blockReason: policy.blockReason,
+      youngcartOrderUrl: `/adm/shop_admin/orderform.php?od_id=${encodeURIComponent(order.odId)}`,
+    },
+  };
+}
 
 export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
@@ -112,6 +169,7 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                 odId: row.odId,
                 odStatus: row.odStatus,
                 lineCanceled: row.lineCanceled,
+                ctStatus: row.ctStatus,
                 isPaid: row.odStatus !== '주문',
                 settleCase: row.settleCase,
                 receiptPrice: row.receiptPrice,
@@ -131,6 +189,75 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           page,
           pageSize,
           counts,
+        },
+      };
+    },
+  );
+
+  // 취소 미리보기 — 프런트는 결제·발주 상태를 조합하지 않고 서버 판정을 그대로 표시한다.
+  fastify.get(
+    '/pcb-orders/:specId/cancel-preview',
+    {
+      schema: {
+        params: SpecIdParams,
+        response: { 200: AdminPcbOrderCancelPreviewResponse },
+      },
+    },
+    async (request, reply) => {
+      const preview = await loadCancelPreview(request.params.specId);
+      if (preview === null) return reply.notFound('취소할 PCB 주문을 찾을 수 없습니다');
+      return { result: true as const, data: preview.data };
+    },
+  );
+
+  // 미입금·무통장·발주 전 PCB 카트행 취소. 정책을 다시 읽고 g5 UPDATE에도 동일 조건을
+  // 원자 가드해 입금확인과의 레이스에서 결제 주문을 로컬 취소하지 않는다.
+  fastify.post(
+    '/pcb-orders/:specId/cancel',
+    {
+      schema: {
+        params: SpecIdParams,
+        body: AdminPcbOrderCancelRequest,
+        response: { 200: AdminPcbOrderCancelResponse, 409: ApiError },
+      },
+    },
+    async (request, reply) => {
+      const preview = await loadCancelPreview(request.params.specId);
+      if (preview === null) return reply.notFound('취소할 PCB 주문을 찾을 수 없습니다');
+      if (!preview.data.cancelable) {
+        const blockReason = preview.data.blockReason ?? 'ORDER_STATE_CHANGED';
+        return reply.status(409).send({
+          error: blockReason,
+          message: PCB_ORDER_CANCEL_BLOCK_LABELS[blockReason],
+        });
+      }
+
+      const outcome = await setOrderItemsStatus(
+        preview.data.odId,
+        [preview.ctId],
+        '취소',
+        request.user.mbId,
+        request.ip,
+        {
+          requireUnpaidBankTransfer: true,
+          historyReason: request.body.reason,
+        },
+      );
+      if (!outcome.processed.includes(preview.ctId)) {
+        return reply.status(409).send({
+          error: 'ORDER_STATE_CHANGED',
+          message: PCB_ORDER_CANCEL_BLOCK_LABELS.ORDER_STATE_CHANGED,
+        });
+      }
+
+      return {
+        result: true as const,
+        data: {
+          specId: preview.specId,
+          ctId: preview.ctId,
+          odId: preview.data.odId,
+          odStatus: outcome.odStatus,
+          orderCancelled: outcome.orderCancelled,
         },
       };
     },

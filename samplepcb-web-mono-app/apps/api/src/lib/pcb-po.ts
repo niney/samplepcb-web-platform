@@ -23,6 +23,7 @@ import {
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getOrderInfoByCtId } from './g5-db';
+import { isPcbOrderFulfillmentClosed } from './pcb-order-cancel';
 import { roundPcbAmount } from './exchange-rate';
 import {
   asPcbCurrency,
@@ -340,6 +341,7 @@ export const loadAdminPcbPos = async (specId: bigint): Promise<AdminPcbPoViewTyp
 export type CreatePcbPoError =
   | 'SPEC_NOT_FOUND'
   | 'NOT_ORDERED'
+  | 'ORDER_CLOSED'
   | 'NOT_PAID'
   | 'PARTNER_INVALID'
   | 'ALREADY_ISSUED'
@@ -358,6 +360,10 @@ export const createAdminPcbPo = async (
   if (spec.ctId === null) return { ok: false, error: 'NOT_ORDERED' };
   const order = await getOrderInfoByCtId(spec.ctId);
   if (order === null) return { ok: false, error: 'NOT_ORDERED' };
+  // getOrderInfoByCtId.isPaid 는 영카트의 넓은 "주문 아님" 판정이라 취소 헤더도 true 다.
+  // 취소된 PCB 행/주문과 완료 주문은 발주 게이트에서 먼저 닫아 후속 발주를 막는다.
+  if (isPcbOrderFulfillmentClosed(order.odStatus, order.rowCtStatus))
+    return { ok: false, error: 'ORDER_CLOSED' };
   if (!order.isPaid) return { ok: false, error: 'NOT_PAID' };
 
   const { partners, error } = await validatePcbRfqPartners([body.partnerId]);
@@ -1261,4 +1267,3 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
 /** 발주서 삭제/미러 대상 상위 로드(라우트 편의). */
 export const loadPcbPoWithPartner = async (poId: bigint): Promise<PoWithPartner | null> =>
   prisma.spPcbPo.findUnique({ where: { id: poId }, include: { partner: true } });
-

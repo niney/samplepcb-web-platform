@@ -55,6 +55,7 @@ export const AdminPcbOrderItem = z.object({
    * "화면은 진행 중인데 서버는 409" 가 된다.
    */
   lineCanceled: z.boolean(),
+  ctStatus: z.string(), // 이 PCB 스펙의 카트행 상태 — 부분취소면 odStatus 와 다를 수 있다.
   isPaid: z.boolean(),
   settleCase: z.string(), // od_settle_case — 무통장만 관리자 수동 입금확인 대상(서버 가드 동일)
   receiptPrice: z.number(), // od_receipt_price 수납액(주문 헤더 단위)
@@ -100,3 +101,68 @@ export const AdminPcbOrderListResponse = z.object({
   }),
 });
 export type AdminPcbOrderListResponseType = z.infer<typeof AdminPcbOrderListResponse>;
+
+// ── PCB 주문 취소 ────────────────────────────────────────────────────────────
+// 영카트 orderformcartupdate.php 의 카트행 취소를 재사용하되, PCB 협력사 발주와 결제
+// 상태를 먼저 확인한다. 미입금·무통장·발주 전만 sp-vue 에서 즉시 취소하며, PG/수납
+// 주문은 원본 영카트의 승인취소·환불 경로로 보낸다.
+export const PCB_ORDER_CANCEL_BLOCK_REASONS = [
+  'ALREADY_CANCELED',
+  'ORDER_CLOSED',
+  'PARTNER_PROCESS_EXISTS',
+  'PAYMENT_RECEIVED',
+  'YOUNGCART_REQUIRED',
+  'ORDER_STATE_CHANGED',
+] as const;
+export const PcbOrderCancelBlockReason = z.enum(PCB_ORDER_CANCEL_BLOCK_REASONS);
+export type PcbOrderCancelBlockReasonType = z.infer<typeof PcbOrderCancelBlockReason>;
+
+export const PCB_ORDER_CANCEL_BLOCK_LABELS: Record<PcbOrderCancelBlockReasonType, string> = {
+  ALREADY_CANCELED: '이미 취소된 PCB 주문입니다.',
+  ORDER_CLOSED: '완료된 주문은 취소 대신 반품 또는 A/S로 처리해야 합니다.',
+  PARTNER_PROCESS_EXISTS: '협력사 발주가 있어 PCB Case에서 발주·선적을 먼저 정리해야 합니다.',
+  PAYMENT_RECEIVED: '입금 또는 수납 내역이 있어 환불 확인과 함께 취소해야 합니다.',
+  YOUNGCART_REQUIRED:
+    '무통장 외 결제는 결제사 승인 취소가 필요해 영카트 주문관리에서 처리해야 합니다.',
+  ORDER_STATE_CHANGED: '주문 상태가 바뀌었습니다. 최신 상태를 확인한 뒤 다시 시도해 주세요.',
+};
+
+export const AdminPcbOrderCancelPreviewResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    specId: z.number().int().positive(),
+    projectName: z.string(),
+    odId: z.string(),
+    odStatus: z.string(),
+    ctStatus: z.string(),
+    settleCase: z.string(),
+    receiptPrice: z.number(),
+    poCount: z.number().int(),
+    rfqCount: z.number().int(),
+    activeSiblingCount: z.number().int(),
+    cancelsWholeOrder: z.boolean(),
+    cancelable: z.boolean(),
+    blockReason: PcbOrderCancelBlockReason.nullable(),
+    youngcartOrderUrl: z.string(),
+  }),
+});
+export type AdminPcbOrderCancelPreviewResponseType = z.infer<
+  typeof AdminPcbOrderCancelPreviewResponse
+>;
+
+export const AdminPcbOrderCancelRequest = z.object({
+  reason: z.string().trim().min(2).max(500),
+});
+export type AdminPcbOrderCancelRequestType = z.infer<typeof AdminPcbOrderCancelRequest>;
+
+export const AdminPcbOrderCancelResponse = z.object({
+  result: z.literal(true),
+  data: z.object({
+    specId: z.number().int().positive(),
+    ctId: z.number().int().positive(),
+    odId: z.string(),
+    odStatus: z.string(),
+    orderCancelled: z.boolean(),
+  }),
+});
+export type AdminPcbOrderCancelResponseType = z.infer<typeof AdminPcbOrderCancelResponse>;

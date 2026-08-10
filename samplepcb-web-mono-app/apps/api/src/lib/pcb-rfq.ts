@@ -13,7 +13,8 @@ import type {
 import { PCB_CURRENCIES, PCB_RFQ_STATUSES } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getPcbExchangeRate, roundPcbAmount } from './exchange-rate';
-import { getCartOrderLinks, getOrderHeadersLite } from './g5-db';
+import { getCartOrderLinks, getOrderInfoByCtId } from './g5-db';
+import { isPcbOrderFulfillmentClosed } from './pcb-order-cancel';
 import { toCapabilities } from './partner';
 
 // ── PCB 파트너 트랙 RFQ 코어 — 설계 docs/PCB_PARTNER_TRACK.md §5 ─────────────
@@ -83,10 +84,11 @@ export const checkPcbRfqSpecGate = async (spec: SpOrderSpec): Promise<PcbRfqSpec
   // 유령 active(cart 행 소실)는 막지 않는다 — 확정가 등록 단계에서 정리·거부.
   if (link === undefined) return 'ok';
   if (!link.ordered) return 'IN_CART';
-  const header = (await getOrderHeadersLite([link.odId])).get(link.odId);
-  if (header === undefined) return 'ok'; // 주문 헤더 소실 — 유령과 동급
-  if (!header.isPaid) return 'ORDER_NOT_PAID';
-  if (header.odStatus === '완료' || header.odStatus === '취소') return 'ORDER_CLOSED';
+  const order = await getOrderInfoByCtId(spec.ctId);
+  if (order === null) return 'ok'; // 주문 헤더 소실 — 유령과 동급
+  // 부분취소에서는 od_status 가 다른 활성행을 따라갈 수 있으므로 이 스펙의 ct_status 를 우선한다.
+  if (isPcbOrderFulfillmentClosed(order.odStatus, order.rowCtStatus)) return 'ORDER_CLOSED';
+  if (!order.isPaid) return 'ORDER_NOT_PAID';
   return 'ok'; // 진행 중 주문 — 원가 소싱 모드(D10)
 };
 

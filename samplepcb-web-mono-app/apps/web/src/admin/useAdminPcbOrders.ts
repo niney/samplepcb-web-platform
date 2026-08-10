@@ -1,8 +1,10 @@
-import { type Ref } from 'vue';
+import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   AdminOrderActionResponse,
   AdminOrderEditResponse,
+  AdminPcbOrderCancelPreviewResponse,
+  AdminPcbOrderCancelResponse,
   AdminPcbOrderListResponse,
   apiRoutes,
   type AdminOrderForceStatusRequestType,
@@ -54,6 +56,40 @@ export function useConfirmPcbOrderReceipt() {
       void qc.invalidateQueries({ queryKey: ['admin', 'pcbOrder'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'pcbPo'] }); // 발주 가능 여부(paid 게이트) 파생
       void qc.invalidateQueries({ queryKey: ['admin', 'quotes'] }); // Case 상세의 주문 정보 카드
+    },
+  });
+}
+
+/** PCB 취소 미리보기 — 결제·발주·부분취소 범위 판정은 서버 단일 진실이다. */
+export function usePcbOrderCancelPreview(specId: Ref<number | null>) {
+  return useQuery({
+    queryKey: ['admin', 'pcbOrder', 'cancel-preview', specId],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.adminPcbOrders}/${String(specId.value)}/cancel-preview`,
+        AdminPcbOrderCancelPreviewResponse,
+      ),
+    enabled: computed(() => specId.value !== null),
+  });
+}
+
+/** 미입금·무통장·발주 전 PCB 카트행 취소. 실행 시 서버가 정책을 다시 검증한다. */
+export function useCancelPcbOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ specId, reason }: { specId: number; reason: string }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminPcbOrders}/${String(specId)}/cancel`,
+        { reason },
+        AdminPcbOrderCancelResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'pcbOrder'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'pcbCase'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'quotes'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'pcbRfq'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'pcbPo'] });
     },
   });
 }

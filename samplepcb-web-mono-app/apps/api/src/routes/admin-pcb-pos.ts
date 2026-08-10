@@ -86,6 +86,7 @@ const WorkListQuery = z.object({
 
 const CREATE_ERROR_MESSAGES: Record<string, { code: 400 | 409; message: string }> = {
   NOT_ORDERED: { code: 409, message: '고객 주문이 아직 없습니다 — 주문·결제 후 발주할 수 있습니다.' },
+  ORDER_CLOSED: { code: 409, message: '완료·취소된 PCB 주문에는 발주서를 발행할 수 없습니다.' },
   NOT_PAID: { code: 409, message: '결제(입금) 확인 전입니다 — 입금 확인 후 발주할 수 있습니다.' },
   ALREADY_ISSUED: { code: 409, message: '이 협력사에게 이미 발주서가 있습니다.' },
   RFQ_MISMATCH: { code: 400, message: '견적행이 이 스펙·협력사와 일치하지 않습니다.' },

@@ -15,6 +15,7 @@ import {
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
+import PcbOrderCancelModal from '../../components/admin/pcb/PcbOrderCancelModal.vue';
 
 // PCB 주문·결제 워크큐(P3.5) — 경리 관점 조감: 입금 대기 → 진행 중 → 완료/취소.
 // 레거시 이관 주문 2만여 건이 이력 모수(서버 페이지네이션). od 상태 변경은 코어
@@ -54,12 +55,23 @@ const OD_CLS: Record<string, string> = {
   완료: 'bg-emerald-100 text-emerald-700',
   취소: 'bg-gray-200 text-gray-500',
 };
+const CANCELED_ITEM_STATUSES = new Set(['취소', '반품', '품절', '삭제']);
+const displayStatus = (item: AdminPcbOrderItemType): string =>
+  CANCELED_ITEM_STATUSES.has(item.ctStatus) ? item.ctStatus : item.odStatus;
+const canReviewCancel = (item: AdminPcbOrderItemType): boolean =>
+  !CANCELED_ITEM_STATUSES.has(item.ctStatus) &&
+  item.odStatus !== '취소' &&
+  item.odStatus !== '완료';
+const cancelSpecId = ref<number | null>(null);
 
 // ── 입금확인 — 무통장 미입금만(서버 가드 동일). 그 외 전이는 통합 관리 주문내역이 전담. ──
 const receipt = useConfirmPcbOrderReceipt();
 const actionError = ref('');
 const canConfirmReceipt = (item: AdminPcbOrderItemType): boolean =>
-  !item.isPaid && item.settleCase.includes('무통장');
+  !CANCELED_ITEM_STATUSES.has(item.ctStatus) &&
+  item.odStatus === '주문' &&
+  !item.isPaid &&
+  item.settleCase.includes('무통장');
 
 async function confirmReceipt(item: AdminPcbOrderItemType): Promise<void> {
   if (
@@ -86,6 +98,12 @@ function openCase(specId: number): void {
     params: { id: String(specId) },
     query: { from: 'orders' },
   });
+}
+
+function openCancelCase(): void {
+  const id = cancelSpecId.value;
+  cancelSpecId.value = null;
+  if (id !== null) openCase(id);
 }
 </script>
 
@@ -145,7 +163,7 @@ function openCase(specId: number): void {
             v-for="row in rows"
             :key="`${String(row.specId)}-${row.odId}`"
             class="cursor-pointer hover:bg-blue-50/40"
-            :class="row.odStatus === '주문' ? 'bg-amber-50/50' : ''"
+            :class="displayStatus(row) === '주문' ? 'bg-amber-50/50' : ''"
             @click="openCase(row.specId)"
           >
             <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">
@@ -156,8 +174,8 @@ function openCase(specId: number): void {
             <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.mbId ?? '비회원' }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">{{ row.qty }}</td>
             <td class="whitespace-nowrap px-4 py-2.5">
-              <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="OD_CLS[row.odStatus] ?? 'bg-gray-100 text-gray-600'">
-                {{ row.odStatus }}
+              <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="OD_CLS[displayStatus(row)] ?? 'bg-gray-100 text-gray-600'">
+                {{ displayStatus(row) }}
               </span>
               <!-- 줄 축 — 영카트는 줄 단위로 취소하고 전량일 때만 od_status 를 내린다. 이 배지가
                    없으면 부분 취소된 줄이 살아 있는 줄과 똑같이 '입금'으로 보이고, 서버 가드는
@@ -213,6 +231,14 @@ function openCase(specId: number): void {
                 입금확인
               </button>
               <button
+                v-if="canReviewCancel(row)"
+                type="button"
+                class="mr-1 rounded-md border border-red-200 px-2.5 py-[3px] text-xs font-semibold text-red-600 hover:bg-red-50"
+                @click.stop="cancelSpecId = row.specId"
+              >
+                취소
+              </button>
+              <button
                 type="button"
                 class="rounded-md border border-blue-200 px-2.5 py-[3px] text-xs font-semibold text-blue-700 hover:bg-blue-50"
                 @click.stop="openCase(row.specId)"
@@ -249,6 +275,14 @@ function openCase(specId: number): void {
         다음
       </button>
     </div>
+
+    <PcbOrderCancelModal
+      v-if="cancelSpecId !== null"
+      :spec-id="cancelSpecId"
+      @close="cancelSpecId = null"
+      @done="cancelSpecId = null"
+      @open-case="openCancelCase"
+    />
   </div>
 </template>
 

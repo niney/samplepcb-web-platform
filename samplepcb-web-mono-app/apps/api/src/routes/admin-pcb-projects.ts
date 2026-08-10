@@ -416,6 +416,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       let order: {
         odId: string;
         odStatus: string;
+        ctStatus: string;
         isPaid: boolean;
         receiptPrice: number;
         cartPrice: number;
@@ -431,8 +432,9 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
       if (spec.ctId !== null && cartState === 'ordered') {
         const link = (await getCartOrderLinks([spec.ctId])).get(spec.ctId);
         if (link?.ordered === true) {
-          const [headers, ordererContact, orderBizInfo] = await Promise.all([
+          const [headers, lineOrderInfo, ordererContact, orderBizInfo] = await Promise.all([
             getOrderHeadersLite([link.odId]),
+            getOrderInfoByCtId(spec.ctId),
             getOrdererContactByOdId(link.odId),
             prisma.spOrderBizInfo.findUnique({
               where: { odId: link.odId },
@@ -444,6 +446,7 @@ export const adminPcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, 
             order = {
               odId: header.odId,
               odStatus: header.odStatus,
+              ctStatus: lineOrderInfo?.rowCtStatus ?? header.odStatus,
               isPaid: header.isPaid,
               receiptPrice: header.receiptPrice,
               cartPrice: header.cartPrice,
