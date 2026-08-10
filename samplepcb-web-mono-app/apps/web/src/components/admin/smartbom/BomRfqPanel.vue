@@ -13,6 +13,8 @@ const props = defineProps<{
   loading: boolean;
   canSend: boolean; // reviewing 에서만 발송·선정 가능
   busy?: boolean;
+  actionNotice?: string;
+  actionError?: string;
 }>();
 const emit = defineEmits<{
   send: [];
@@ -99,6 +101,21 @@ function moveTable(direction: -1 | 1): void {
         </button>
       </div>
     </div>
+
+    <p
+      v-if="actionNotice !== undefined && actionNotice !== ''"
+      role="status"
+      class="border-b border-emerald-100 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-800"
+    >
+      {{ actionNotice }}
+    </p>
+    <p
+      v-else-if="actionError !== undefined && actionError !== ''"
+      role="alert"
+      class="border-b border-red-100 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700"
+    >
+      {{ actionError }}
+    </p>
 
     <p v-if="loading && rfqs.length === 0" class="px-4 py-6 text-center text-xs text-gray-400">불러오는 중…</p>
     <p v-else-if="rfqs.length === 0" class="px-4 py-6 text-center text-xs text-gray-400">

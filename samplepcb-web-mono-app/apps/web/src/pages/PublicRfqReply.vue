@@ -24,23 +24,24 @@ const token = computed(() => {
 
 const data = ref<MagicRfqResponseType['data'] | null>(null);
 const loading = ref(false);
-const invalid = ref(false);
+const loadError = ref<'invalid' | 'temporary' | null>(null);
 const saveError = ref('');
 const saved = ref(false);
 const busy = ref(false);
 
 async function load(): Promise<void> {
   if (token.value === null) {
-    invalid.value = true;
+    loadError.value = 'invalid';
     return;
   }
   loading.value = true;
+  loadError.value = null;
   try {
     const res = await apiGet(`/api/rfq-reply/${token.value}`, MagicRfqResponse);
     data.value = res.data;
-    invalid.value = false;
-  } catch {
-    invalid.value = true;
+  } catch (e) {
+    loadError.value =
+      e instanceof ApiRequestError && e.status === 404 ? 'invalid' : 'temporary';
   } finally {
     loading.value = false;
   }
@@ -100,8 +101,23 @@ const statusCls = (s: string): string =>
     <main class="mx-auto max-w-7xl space-y-4 px-4 py-6">
       <p v-if="loading" class="text-sm text-gray-400">불러오는 중…</p>
 
-      <div v-else-if="invalid" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
+      <div v-else-if="loadError === 'invalid'" class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
         유효하지 않거나 만료된 링크입니다. 새 링크가 필요하면 샘플피씨비 담당자에게 요청해 주세요.
+      </div>
+
+      <div
+        v-else-if="loadError === 'temporary'"
+        role="alert"
+        class="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800"
+      >
+        <p>회신 정보를 일시적으로 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.</p>
+        <button
+          type="button"
+          class="mt-3 h-9 rounded-lg border border-red-300 bg-white px-4 text-xs font-bold hover:bg-red-100"
+          @click="load"
+        >
+          다시 불러오기
+        </button>
       </div>
 
       <template v-else-if="rfq !== null">

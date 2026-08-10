@@ -941,9 +941,21 @@ function openRfqReply(rfq: AdminBomRfqViewType): void {
 
 // 매직링크 재발급(§6.9) — 확인은 패널이 담당, 여기선 호출만.
 const reissueLink = useReissueRfqMagicLink();
-function reissueMagicLink(rfq: AdminBomRfqViewType): void {
+const rfqLinkNotice = ref('');
+const rfqLinkError = ref('');
+async function reissueMagicLink(rfq: AdminBomRfqViewType): Promise<void> {
   if (detailId.value === null) return;
-  void reissueLink.mutateAsync({ quoteId: detailId.value, rfqId: rfq.rfqId });
+  rfqLinkNotice.value = '';
+  rfqLinkError.value = '';
+  try {
+    await reissueLink.mutateAsync({ quoteId: detailId.value, rfqId: rfq.rfqId });
+    rfqLinkNotice.value = `${rfq.partnerName}의 새 회신 링크가 발급되었습니다. 기존 이메일의 링크는 무효입니다 — [링크 복사]로 협력사에게 전달하세요.`;
+  } catch (error) {
+    rfqLinkError.value =
+      error instanceof ApiRequestError
+        ? error.message
+        : '회신 링크 재발급에 실패했습니다.';
+  }
 }
 
 const replyRows = computed<RfqReplyFormRow[]>(() => {
@@ -1957,6 +1969,8 @@ async function downloadOriginal(): Promise<void> {
         :loading="rfqQuery.isLoading.value"
         :can-send="detail.status === 'reviewing'"
         :busy="reissueLink.isPending.value"
+        :action-notice="rfqLinkNotice"
+        :action-error="rfqLinkError"
         @send="sendOpen = true"
         @compare="compareOpen = true"
         @reply="openRfqReply"

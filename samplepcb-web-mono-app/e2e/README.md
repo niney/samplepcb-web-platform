@@ -95,6 +95,7 @@ specs/
   journey-bom-revision.e2e.test.ts     BOM 여정 3호 — 고객 회신→품목 정정→재회신→수정 주문
   journey-bom-reorder.e2e.test.ts      BOM 여정 4호 — 묶음 부분취소→재주문→이력 보존→조달 완료
   journey-bom-shortage-recovery.e2e.test.ts BOM 여정 5호 — 결제 후 부분 부족→잔량 대체발주→분할 입고
+  journey-bom-rfq-reassignment.e2e.test.ts BOM 여정 6호 — 미응답 RFQ 회수→재배정→매직링크 회신
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -104,7 +105,9 @@ specs/
 nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1~4호는
 **거버(8040)**, BOM 1~3호는 **sp-engine(8400)**이 추가로 필요하다. BOM 4호는 이미
 회신 완료된 거래 스냅샷부터 시작해 주문 하류만 검증하므로 엔진이 필요하지 않다. BOM 5호도
-회신 완료 스냅샷부터 시작하며 결제 이후 공급 차질 복구를 검증한다.
+회신 완료 스냅샷부터 시작하며 결제 이후 공급 차질 복구를 검증한다. BOM 6호는
+견적요청 스냅샷부터 시작해 미응답 RFQ 회수·재배정과 무로그인 회신을 검증하므로 엔진이
+필요하지 않다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -113,13 +116,14 @@ nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~5호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~6호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
 | `pnpm -F e2e journey:bom:4` | BOM 4호만 — 묶음 부분취소·재주문·조달 완료 |
 | `pnpm -F e2e journey:bom:5` | BOM 5호만 — 공급 부족·잔량 대체발주·분할 입고 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~5호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:6` | BOM 6호만 — RFQ 미응답 회수·재배정·매직링크 회신 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~6호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -337,6 +341,15 @@ BOM 5호는 MCU·MLCC·커넥터·LED 4품목을 국내 협력사에 발주한 �
 선적 리스트·Invoice가 실제 수량을 사용해야 한다. 배송 API는 미복구 부족분과 입고 1/2에서
 각각 409로 막히고, 2/2 입고 뒤에만 고객 배송 큐가 열린다.
 
+BOM 6호는 확정 전 3품목 Case를 1차 협력사에 발송했다가 미응답 RFQ를 회수한다.
+회수 즉시 포털 조회와 구 매직링크가 404로 끊기고, 다른 협력사에 재배정한 뒤
+링크 재발급이 구 토큰을 즉시 무효화하는지 본다. 새 링크에서 계정 없이 3품목을
+회신하고, 선정·고객 확정·국제 PO·Invoice/AWB·통관·입고·고객 배송을 완주한다.
+말미에 회수된 협력사 RFQ·PO가 0건이고 모든 선정 포인터가 재배정 협력사를 가리키는지,
+390px 무로그인 회신표의 가로 이동 안내·화살표와 품목·필드별 입력 접근성 이름을 검증한다.
+또한 일시적 503은 만료 링크와 구분해 재시도할 수 있어야 하며, 허용 범위를 벗어난 숫자는
+해당 품목·필드 안내와 포커스를 제공하고 API 요청 전에 차단되어야 한다.
+
 **생성물은 자동 정리하지 않는다.** 완주 후 리포트(`output/journey/findings*.md`)의 생성물
 대장을 보고 손으로 지운다 — 순서는 ① 주문을 `force-status '주문'` 으로 내려 **재고 복원**
 ② g5 cart+order ③ sp_* 역순(file→shipment_po→shipment→eq_review→po→rfq→file→spec).
@@ -372,7 +385,6 @@ BOM 5호는 MCU·MLCC·커넥터·LED 4품목을 국내 협력사에 발주한 �
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
-
 
 
 
