@@ -282,6 +282,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     INVALID_STATUS: '현재 단계에서 실행할 수 없는 전이입니다.',
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     FINAL: '이미 마지막 단계입니다.',
+    ORDER_CANCELED: '취소된 주문입니다 — 진행을 멈추고 샘플피씨비 담당자에게 문의해 주세요.',
   };
 
   const transitionMessage = (error: string): string =>
@@ -431,6 +432,11 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           return reply
             .status(409)
             .send({ error: created.error, message: '이 하위 협력사에게 이미 발주했습니다.' });
+        if (created.error === 'ORDER_CANCELED')
+          return reply.status(409).send({
+            error: created.error,
+            message: '취소된 주문입니다 — 하위 발주를 시작하지 말고 샘플피씨비 담당자에게 문의해 주세요.',
+          });
         return reply.status(400).send({
           error: created.error,
           message:
@@ -491,6 +497,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
     RECEIVE_REQUIRED: '입고 완료는 받는 쪽이 [입고 확인]으로 처리합니다.',
+    ORDER_CANCELED: '취소된 주문입니다 — 진행을 멈추고 샘플피씨비 담당자에게 문의해 주세요.',
     NOT_SHIPPED: '발송 시작 전에는 처리할 수 없습니다.',
     NOT_PREPARING: '발송 준비 단계에서만 뺄 수 있습니다.',
   };

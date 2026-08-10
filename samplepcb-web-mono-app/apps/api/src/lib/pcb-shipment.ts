@@ -22,7 +22,7 @@ import {
   type PcbPoStatusType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
-import { getBusinessInfo } from './g5-db';
+import { getBusinessInfo, getOrderInfoByCtId } from './g5-db';
 import { loadHousePartnerName } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 import { kstDateStr } from './kst';
@@ -163,10 +163,25 @@ const findPreparingPcbShipment = async (
   return null;
 };
 
+/**
+ * 취소된 주문인가 — 스펙의 주문 헤더가 '취소'면 협력 트랙의 **새 작업 시작**(EQ 전진·
+ * 하위 발주·담기)을 막는 판정에 쓴다. 주문 취소 후에도 PO·EQ·선적 라우트가 주문을 전혀
+ * 보지 않아 취소된 보드가 그대로 생산·발송되던 것(재작업 조사 실증)의 최소 방어다.
+ * 정리 작업(revert·detach·발주 취소)과 이미 시작된 발송의 전이·입고는 막지 않는다 —
+ * 실물이 움직인 기록은 남겨야 한다. '완료' 는 A/S 재발주(P4) 설계와 얽혀 여기서 안 본다.
+ */
+export const isPcbOrderCanceled = async (specId: bigint): Promise<boolean> => {
+  const spec = await prisma.spOrderSpec.findUnique({ where: { id: specId } });
+  if (spec?.ctId == null) return false;
+  const order = await getOrderInfoByCtId(spec.ctId);
+  return order?.odStatus === '취소';
+};
+
 export type EnsurePcbShipmentError =
   | 'NOT_PRODUCED'
   | 'PARTNER_COUNTRY_REQUIRED'
-  | 'OUTBOUND_BLOCKED';
+  | 'OUTBOUND_BLOCKED'
+  | 'ORDER_CANCELED';
 
 /** 담기(박스 확보) — 이미 소속이면 그 발송, **같은 컨텍스트의 preparing 박스가 있으면
  *  합류**, 없으면 생성(모드·받는측·목적지 박제). 합류 의미론이 기본값인 이유: 구
@@ -178,6 +193,7 @@ export const ensurePcbShipment = async (
   const existing = await findPcbShipmentByPo(po.id);
   if (existing !== null) return { ok: true, shipment: existing };
   if (po.status !== 'produced') return { ok: false, error: 'NOT_PRODUCED' };
+  if (await isPcbOrderCanceled(po.specId)) return { ok: false, error: 'ORDER_CANCELED' };
   if (await isPcbOutboundBlocked(po)) return { ok: false, error: 'OUTBOUND_BLOCKED' };
   const ctx = await resolvePcbShipContext(po);
   if (!ctx.ok) return { ok: false, error: ctx.error };
@@ -326,6 +342,7 @@ export type PcbShipmentTransitionError =
   | 'NOTHING_TO_REVERT'
   | 'RECEIVE_LOCKED'
   | 'RECEIVE_REQUIRED'
+  | 'ORDER_CANCELED'
   | 'NOT_SHIPPED';
 
 export const advancePcbShipment = async (

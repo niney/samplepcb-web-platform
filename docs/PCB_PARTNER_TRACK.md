@@ -1222,6 +1222,34 @@ mdtester 를 주인공으로 한 MD 시나리오 연작의 첫 편(`md-quote-loo
 
 5/5 · 2회 연속(픽스처 재사용 경로 포함). 정리는 생성 RFQ 만 삭제(스펙 무접촉).
 
+### 재작업 검증 3단계 — 취소 주문의 새 작업 차단 `ORDER_CANCELED` (2026-08-10)
+
+1단계 목록에서 "미확인이라 제외"했던 조합 — **주문을 취소한 뒤에도 협력 트랙이 계속 전진**
+— 을 실증하고 가드를 넣었다. 협력 트랙(sp_pcb_*)은 주문(od)을 전혀 참조하지 않아, 취소된
+주문의 발주가 EQ 승인·생산·발송까지 그대로 갈 수 있었다.
+
+- **판정 헬퍼 `isPcbOrderCanceled`**(pcb-shipment.ts): spec.ctId → 주문 od_status='취소' 여부.
+  '완료'는 제외 — 완료 후 재작업은 A/S 재발주(미구현) 설계와 얽혀 별도 결정.
+- **가드 3지점** — 새 작업(전진)만 막고 **정리는 연다**(잠김→정리→열림 원칙):
+  - `advancePcbPoEq`: EQ 전진(승인요청·승인·생산 전이) 409. **revert 는 통과** — 취소 뒷정리
+    (되돌린 뒤 발주 취소)가 막히면 안 된다.
+  - `createChildPcbPo`: MD 하위 발주 신설 409 — 취소된 주문 밑으로 새 계약이 자라는 것 차단.
+  - `ensurePcbShipment`: 발송 담기 409 — detach(정리)는 ensure 를 안 타므로 자연히 허용.
+- **주문 취소의 정식 경로**: force-status 의 target enum 에 '취소'가 없다(의도 — 스톡 앵커
+  체인과 별개). 취소는 `PATCH /orders/:odId/items/status`(카트행 취소, 무통장 한정, 재고
+  복원·전량이면 od_status='취소')가 정본 — W9 도 이 경로를 쓴다.
+- **probe W9**(rework-probe): 발주 → EQ 파일 2종 → 승인요청 → 카트행 전량 취소(orderCancelled
+  =true) → eq-approve 409 `ORDER_CANCELED` → revert 200(정리) → 발주 취소 200(순환 완주).
+- **여정 1호 S6 보강**: 주문 직후(입금 전) RFQ 재발송이 409 `ORDER_NOT_PAID` — pcb-guards
+  에서 실데이터가 없어 skip 이던 가드를 여정의 실상태로 어서션(발주 게이트의 앞단 확인).
+- **프로브 함정 교정**: W7·W8 시드가 `pickFreeSpecs`(PO 유무만 봄)로 뽑혀 **이 주행이 방금
+  만든 거버 스펙 B**(최신·PO 없음·주문 연결)를 선점 → W9 의 발주와 UK(ALREADY_ISSUED) 충돌.
+  시드 선택을 `ctId null`(주문 무관) 필터로 좁혀 해소(`pickSeedSpec`) — md-quote-loop 이
+  먼저 밟은 함정과 동형.
+
+검증: probe **9/9**(W9 순환 포함) · 여정 1호 11/11(ORDER_NOT_PAID 어서션 포함) · vitest 737 ·
+typecheck·lint 0건 · 정리 CLEAN(취소 주문도 force-status '주문' 복귀 후 삭제 정상).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

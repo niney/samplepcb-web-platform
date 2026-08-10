@@ -211,6 +211,15 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     odId = order.odId;
     ledger.push(`g5_shop_order od_id=${odId} + g5_shop_cart (${customer.mbId})`);
     F('S6', 'obs', `주문 생성 od=${odId} status=${order.status}`);
+
+    // 주문 직후·입금 전 = ORDER_NOT_PAID 게이트의 실상태 — 가드 스펙(pcb-guards)이
+    // 실데이터 부재로 스킵하는 케이스를 여정의 자연스러운 중간 상태에서 박제한다.
+    // 같은 partnerIds 재전송은 diff 무변화라 게이트 검사만 받고 부작용이 없다.
+    const gate = await api(A, 'POST', `/api/admin/pcb-projects/${String(specId)}/rfqs`, {
+      partnerIds: [num(partner2.id)],
+    });
+    expect(gate.status, `입금 전 배정 게이트: ${JSON.stringify(gate.json)}`).toBe(409);
+    expect(gate.json?.error, '미입금 주문 게이트').toBe('ORDER_NOT_PAID');
   }, 240_000);
 
   test('S7. 관리자: 입금 확인(실 UI 경로) → 발주서 발행(선정 프리필)', async (ctx) => {

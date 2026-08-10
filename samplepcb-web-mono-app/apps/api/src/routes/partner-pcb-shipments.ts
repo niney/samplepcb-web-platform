@@ -22,6 +22,7 @@ const BOX_ERROR_MESSAGES: Record<string, string> = {
   NOT_PRODUCED: '생산완료된 발주서만 담을 수 있습니다.',
   PARTNER_COUNTRY_REQUIRED: '조직 소재 국가가 없습니다 — 샘플피씨비 담당자에게 문의하세요.',
   OUTBOUND_BLOCKED: '하위 협력사 입고 확인이 끝나야 출고할 수 있습니다.',
+  ORDER_CANCELED: '취소된 주문입니다 — 발송을 시작하지 말고 샘플피씨비 담당자에게 문의해 주세요.',
 };
 
 export const partnerPcbShipmentRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {

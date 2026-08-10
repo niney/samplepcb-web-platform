@@ -280,9 +280,13 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await advancePcbPoEq(po.id, { kind: 'admin' }, 'eq_requested');
       if (!res.ok)
-        return reply
-          .status(409)
-          .send({ error: res.error, message: 'EQ 승인요청 상태에서만 승인할 수 있습니다.' });
+        return reply.status(409).send({
+          error: res.error,
+          message:
+            res.error === 'ORDER_CANCELED'
+              ? '취소된 주문입니다 — 재작업은 A/S 재발주(예정)로 진행하세요.'
+              : 'EQ 승인요청 상태에서만 승인할 수 있습니다.',
+        });
 
       const spec = await prisma.spOrderSpec.findUnique({ where: { id: po.specId } });
       void sendPcbMail(
@@ -386,7 +390,9 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
             message:
               res.error === 'MISSING_EQ_FILES'
                 ? 'EQ 파일과 Working 파일을 먼저 올려 주세요(대행 업로드 가능).'
-                : `${step.label} 대행을 진행할 수 없는 상태입니다.`,
+                : res.error === 'ORDER_CANCELED'
+                  ? '취소된 주문입니다 — 재작업은 A/S 재발주(예정)로 진행하세요.'
+                  : `${step.label} 대행을 진행할 수 없는 상태입니다.`,
           });
         return { result: true as const };
       },
@@ -476,6 +482,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     NOTHING_TO_REVERT: '되돌릴 단계가 없습니다.',
     RECEIVE_LOCKED: '입고확인된 발송은 되돌릴 수 없습니다.',
     RECEIVE_REQUIRED: '국내 입고 완료는 [입고 확인]으로 처리해 주세요 — 검수 시각이 함께 남습니다.',
+    ORDER_CANCELED: '취소된 주문입니다 — 재작업은 A/S 재발주(예정)로 진행하세요.',
     NOT_SHIPPED: '발송 시작 전에는 입고확인할 수 없습니다.',
     NOT_PREPARING: '발송이 시작된 선적은 취소할 수 없습니다 — 되돌리기로 준비 단계까지 내린 뒤 취소하세요.',
   };

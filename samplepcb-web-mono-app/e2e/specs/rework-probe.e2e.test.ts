@@ -10,6 +10,7 @@
 //       주문 후 사양 협의(EQ 고객확인 반영) 창구를 서버가 막을지는 실무 판단이 필요하다.
 //   W7  발송 시작 후 첨부 삭제 409 DOC_LOCKED — 되돌리면 교체 가능, 재진입은 Invoice 재요구
 //   W8  발송에 담긴 발주의 직송지 변경 409 IN_SHIPMENT — detach 후에는 변경 가능
+//   W9  취소된 주문의 새 작업 시작 409 ORDER_CANCELED — EQ 전진·담기 차단, revert(정리)는 허용
 //
 // 실행: pnpm -F e2e probe  (PORTAL_E2E=1 + JOURNEY=1 — 거버 8040 필요)
 // 거버 체인 생성물은 자동 정리하지 않는다(대장 → cleanup-probe.mts). 시드는 레지스트리 정리.
@@ -33,7 +34,6 @@ import {
   newPhpSession,
   newSession,
   num,
-  pickFreeSpecs,
   placeOrderFromQuotes,
   requireCustomerCreds,
   signJwt,
@@ -93,6 +93,22 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 가드 회귀 — 잠김·정리·�
       /* empty */
     }
     return { status: res.status, json };
+  };
+
+  // 시드용 자유 스펙 — pickFreeSpecs 는 PO 유무만 봐서 **이 주행이 방금 만든 거버 스펙**
+  // (최신·PO 없음)을 집어 온다. 그러면 W7 시드가 specB 에 붙어 W9 의 발주와 UK 충돌
+  // (실제로 그렇게 실패했다). 주문 연결이 없는(ctId null) 스펙으로 좁힌다.
+  const pickSeedSpec = async (): Promise<any> => {
+    const prisma = getPrisma();
+    const usedSpecIds = (await prisma.spPcbPo.findMany({ select: { specId: true } })).map(
+      (r: { specId: bigint }) => r.specId,
+    );
+    const spec = await prisma.spOrderSpec.findFirst({
+      where: { status: 'active', ctId: null, id: { notIn: usedSpecIds } },
+      orderBy: { id: 'desc' },
+    });
+    if (spec === null) throw new Error('시드용 자유 스펙이 없습니다');
+    return spec;
   };
 
   const mustReach = async (url: string, hint: string): Promise<void> => {
@@ -404,7 +420,7 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 가드 회귀 — 잠김·정리·�
 
   test('W7. 발송 시작 후 첨부 삭제 409 — 되돌리면 교체 가능, 재진입은 Invoice 재요구', async (ctx) => {
     void ctx;
-    const [seed] = await pickFreeSpecs(1);
+    const seed = await pickSeedSpec();
     const po = await createPcbPo({ specId: seed.id, partnerId: p2.id, status: 'produced' });
     createdPoIds.push(po.id);
 
@@ -456,9 +472,72 @@ describe.skipIf(!RUN || !JOURNEY)('재작업 가드 회귀 — 잠김·정리·�
     F('W7', 'obs', '발송 시작 후 첨부 삭제 409 DOC_LOCKED → 되돌리면 교체 가능 → 재진입은 Invoice 재요구(순환 확인)');
   }, 120_000);
 
+  test('W9. 취소된 주문의 새 작업 시작 409 — EQ 전진·담기 차단, 정리는 허용', async (ctx) => {
+    if (specB === null || odB === null) return ctx.skip();
+    // B 체인(주문·입금 완료, 발주 전)을 재사용 — 발주를 하나 열고 EQ 요청까지 간 뒤
+    // 주문을 강제 '취소'로 내리면, 이후의 전진이 전부 막혀야 한다.
+    const issue = await api(A, 'POST', `/api/admin/pcb-projects/${String(specB)}/pos`, {
+      partnerId: num(p2.id),
+      priceOriginal: 300,
+      exchangeRate: 1400,
+    });
+    expect(issue.status, `발주(수동 조건): ${JSON.stringify(issue.json)}`).toBe(200);
+    const poB =
+      (issue.json?.data?.pos ?? []).find((p: any) => p.partnerId === num(p2.id))?.poId ?? null;
+    expect(poB, 'B 발주서').not.toBeNull();
+    ledger.push(`sp_pcb_po #${String(poB)} (B 체인 — W9)`);
+
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer;
+    for (const fileType of ['eq', 'working'] as const) {
+      const up = await apiForm(
+        P2,
+        `/api/partner/pcb-pos/${String(poB)}/eq-files`,
+        { fileType },
+        `${fileType}-w9.zip`,
+        bytes,
+        'application/zip',
+      );
+      expect(up.status, `${fileType}: ${JSON.stringify(up.json)}`).toBe(200);
+    }
+    const req = await api(P2, 'POST', `/api/partner/pcb-pos/${String(poB)}/eq-request`, {});
+    expect(req.status, `승인요청: ${JSON.stringify(req.json)}`).toBe(200);
+
+    // 주문 취소 — 정식 경로는 카트행 취소(items/status). 전량 취소류가 되면 서버가
+    // od_status='취소' 로 내린다(force-status 의 target enum 에는 '취소'가 없다).
+    const specRow = await getPrisma().spOrderSpec.findUnique({ where: { id: BigInt(specB) } });
+    expect(specRow?.ctId, 'B 스펙의 카트행').not.toBeNull();
+    const cancel = await api(A, 'PATCH', `/api/admin/orders/${String(odB)}/items/status`, {
+      ctIds: [num(specRow?.ctId ?? 0n)],
+      target: '취소',
+    });
+    expect(cancel.status, `주문 취소: ${JSON.stringify(cancel.json)}`).toBe(200);
+    expect(cancel.json?.data?.orderCancelled, '전량 취소 → 주문 취소 전환').toBe(true);
+
+    const approve = await api(
+      A,
+      'POST',
+      `/api/admin/pcb-projects/${String(specB)}/pos/${String(poB)}/eq-approve`,
+      {},
+    );
+    expect(approve.status, `취소 주문 EQ 승인: ${JSON.stringify(approve.json)}`).toBe(409);
+    expect(approve.json?.error, 'EQ 전진 가드').toBe('ORDER_CANCELED');
+
+    // 정리(revert)는 허용 — 취소 뒷정리를 서버가 막으면 발주 취소 경로가 함께 죽는다.
+    const revert = await api(
+      A,
+      'POST',
+      `/api/admin/pcb-projects/${String(specB)}/pos/${String(poB)}/eq-revert`,
+      {},
+    );
+    expect(revert.status, `취소 주문 revert(정리 허용): ${JSON.stringify(revert.json)}`).toBe(200);
+    const del = await api(A, 'DELETE', `/api/admin/pcb-projects/${String(specB)}/pos/${String(poB)}`);
+    expect(del.status, `발주 취소(정리 완료): ${JSON.stringify(del.json)}`).toBe(200);
+    F('W9', 'obs', '취소 주문의 EQ 전진 409 ORDER_CANCELED — revert·발주 취소(정리)는 허용(순환 확인)');
+  }, 240_000);
+
   test('W8. 발송에 담긴 발주의 직송지 변경 409 — detach 후에는 변경 가능', async (ctx) => {
     void ctx;
-    const [seed] = await pickFreeSpecs(1);
+    const seed = await pickSeedSpec();
     const po = await createPcbPo({ specId: seed.id, partnerId: p2.id, status: 'produced' });
     createdPoIds.push(po.id);
 

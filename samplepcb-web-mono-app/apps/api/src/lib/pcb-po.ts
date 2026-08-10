@@ -32,6 +32,7 @@ import { loadEqReviewRowSummaries } from './pcb-eq-review';
 import { summarizePcbRemittances } from './pcb-remittance';
 import {
   findPcbShipmentByPo,
+  isPcbOrderCanceled,
   isPcbOutboundBlocked,
   pcbShipmentReceiverTurn,
   pcbShipmentSenderTurn,
@@ -392,7 +393,8 @@ export type CreateChildPcbPoError =
   | 'NOT_YOUR_PO'
   | 'CHILD_RFQ_MISMATCH'
   | 'CHILD_NOT_QUOTED'
-  | 'ALREADY_ISSUED';
+  | 'ALREADY_ISSUED'
+  | 'ORDER_CANCELED';
 
 export const createChildPcbPo = async (
   parentPoId: bigint,
@@ -405,6 +407,8 @@ export const createChildPcbPo = async (
   if (parentPo === null) return { ok: false, error: 'PO_NOT_FOUND' };
   if (parentPo.partnerId !== actorPartnerId || parentPo.parentPartnerId !== 0n)
     return { ok: false, error: 'NOT_YOUR_PO' };
+  // 취소된 주문에 새 하위 발주를 열지 않는다(EQ 전진 차단과 같은 원칙).
+  if (await isPcbOrderCanceled(parentPo.specId)) return { ok: false, error: 'ORDER_CANCELED' };
 
   const childRfq = await prisma.spPcbRfq.findUnique({
     where: { id: BigInt(body.childRfqId) },
@@ -631,7 +635,8 @@ export type PcbEqTransitionError =
   | 'NOT_YOUR_TURN'
   | 'MISSING_EQ_FILES'
   | 'INVALID_STATUS'
-  | 'NOTHING_TO_REVERT';
+  | 'NOTHING_TO_REVERT'
+  | 'ORDER_CANCELED';
 
 export const advancePcbPoEq = async (
   poId: bigint,
@@ -648,6 +653,8 @@ export const advancePcbPoEq = async (
 
   const action = PCB_EQ_FORWARD[asPcbPoStatus(po.status)];
   if (action === null) return { ok: false, error: 'FINAL' };
+  // 취소된 주문의 보드를 계속 만들지 않는다 — 전진만 막고 revert(정리)는 그대로 둔다.
+  if (await isPcbOrderCanceled(po.specId)) return { ok: false, error: 'ORDER_CANCELED' };
   const { role, byRole } = resolveEqRole(po, actor);
   // 관리자 만능 대행(D11) — 협력사 포털 미온보딩(레거시 진행분) 대비, 선적과 동일
   // 원칙. 이력 byRole 'ADMIN' 으로 대행 사실이 남는다.
