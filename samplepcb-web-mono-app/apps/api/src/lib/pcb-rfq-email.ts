@@ -413,7 +413,26 @@ export interface PcbShipmentTurnEmailParams extends PcbPortalCtaParams {
   nextLabel: string | null; // 상대에게 요청하는 다음 단계(null=확인만)
   targetUrl: string;
   targetLabel: string;
+  /** 묶음 구성 발주서 수(1=단건). 대표 프로젝트명만 적으면 함께 실린 건이 안 보인다. */
+  poCount?: number;
 }
+
+/**
+ * 묶음 발송의 제목 표기 — 대표 프로젝트명 하나만 쓰면 "내 다른 발주는 어디 갔나"가 된다.
+ * 동반 건의 **프로젝트명은 쓰지 않는다**: 발송은 고객(Case) 경계를 넘어 묶이므로
+ * 남의 건 이름이 될 수 있다(여정 9호). 건수만 밝히는 것이 안전하면서 충분하다.
+ */
+const batchLabel = (projectName: string, poCount: number | undefined): string =>
+  poCount !== undefined && poCount > 1
+    ? `${projectName} 외 ${String(poCount - 1)}건`
+    : projectName;
+
+const batchNoteHtml = (poCount: number | undefined): string =>
+  poCount !== undefined && poCount > 1
+    ? `<p style="margin:0 0 12px;font-size:13px;color:#4338ca;line-height:1.6;">
+        이 발송은 발주 <b>${String(poCount)}건</b>이 함께 담긴 묶음입니다 — 포털에서 구성을 확인해 주세요.
+      </p>`
+    : '';
 
 /** 선적 상대 차례 통지 — 수신자가 협력사/MD 조직이고 무계정이면 대행 안내(관리자
  *  수신분은 호출부가 분기 없이 기본값으로 보낸다). */
@@ -440,15 +459,15 @@ export function buildPcbShipmentTurnEmail(p: PcbShipmentTurnEmailParams): {
           ${esc(p.targetLabel)}</a>
       </div>`;
   return {
-    subject: `[샘플피씨비] PCB 선적 진행 — ${p.projectName} · ${p.statusLabel}`,
+    subject: `[샘플피씨비] PCB 선적 진행 — ${batchLabel(p.projectName, p.poCount)} · ${p.statusLabel}`,
     html: shell(
       `선적이 '${esc(p.statusLabel)}' 단계가 되었습니다`,
       `
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
-        ${esc(p.recipientName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 발송이
+        ${esc(p.recipientName)} 담당자님, <b>${esc(batchLabel(p.projectName, p.poCount))}</b> 건의 발송이
         '${esc(p.statusLabel)}' 단계로 진행되었습니다.
         ${nextLine}
-      </p>${cta}`,
+      </p>${batchNoteHtml(p.poCount)}${cta}`,
       '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
     ),
   };
@@ -458,6 +477,8 @@ export interface PcbShipmentReceivedEmailParams extends PcbPortalCtaParams {
   partnerName: string; // 보내는측(수신자)
   projectName: string;
   note: string | null;
+  /** 묶음 구성 발주서 수(1=단건) — 입고확인 1회가 여러 발주를 닫는다. */
+  poCount?: number;
 }
 
 /** 입고확인(검수) → 보내는측 통지(무계정이면 포털 버튼 대신 대행 안내). */
@@ -482,14 +503,14 @@ export function buildPcbShipmentReceivedEmail(p: PcbShipmentReceivedEmailParams)
           파트너 포털 열기</a>
       </div>`;
   return {
-    subject: `[샘플피씨비] PCB 입고 확인 — ${p.projectName}`,
+    subject: `[샘플피씨비] PCB 입고 확인 — ${batchLabel(p.projectName, p.poCount)}`,
     html: shell(
       '입고 확인이 완료되었습니다',
       `
       <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
-        ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 건의 물품 입고 확인(검수)이
+        ${esc(p.partnerName)} 담당자님, <b>${esc(batchLabel(p.projectName, p.poCount))}</b> 건의 물품 입고 확인(검수)이
         완료되었습니다.
-      </p>${noteHtml}${cta}`,
+      </p>${batchNoteHtml(p.poCount)}${noteHtml}${cta}`,
       '본 메일은 샘플피씨비 PCB 물류 알림입니다.',
     ),
   };

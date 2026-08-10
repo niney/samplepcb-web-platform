@@ -124,6 +124,16 @@ export const isPcbOutboundBlocked = async (po: SpPcbPo): Promise<boolean> => {
   return !children.every((c) => receivedPoIds.has(c.id.toString()));
 };
 
+/**
+ * 발송에 담긴 발주서 수 — 알림 문구가 "대표 하나"로 읽히지 않게 하는 값(여정 9호).
+ * 묶음이면 이 메일 한 통이 여러 발주(때로 여러 고객)를 가리킨다.
+ */
+export const countPcbShipmentPos = async (poId: bigint): Promise<number> => {
+  const link = await prisma.spPcbShipmentPo.findUnique({ where: { poId } });
+  if (link === null) return 1;
+  return prisma.spPcbShipmentPo.count({ where: { shipmentId: link.shipmentId } });
+};
+
 // ── 소속·생성 ────────────────────────────────────────────────────────────────
 export const findPcbShipmentByPo = async (poId: bigint): Promise<SpPcbShipment | null> => {
   const link = await prisma.spPcbShipmentPo.findUnique({
@@ -896,6 +906,13 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
       mode: BomShipmentModeType;
       status: BomShipmentStatusType;
       poCount: number;
+      /** 묶음 구성 전체 — 대표 하나만 실으면 동반 건(다른 고객)이 큐에서 사라진다(여정 9호). */
+      members: {
+        poId: number;
+        specId: number;
+        projectName: string;
+        mbId: string | null;
+      }[];
       receivedAt: string | null;
       destinationCountry: string | null;
       reorderRound: number;
@@ -922,6 +939,12 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
             await prisma.spPartner.findUnique({ where: { id: shipment.receiverPartnerId ?? 0n } })
           )?.name ?? '중개 조직')
         : house;
+    // 묶음 구성 — 대표 외 발주서는 다른 Case(다른 고객)일 수 있으므로 주인까지 싣는다.
+    const memberPos = await prisma.spPcbPo.findMany({
+      where: { id: { in: shipment.pos.map((p) => p.poId) } },
+      include: { spec: true },
+      orderBy: { id: 'asc' },
+    });
     const adminTurn = shipment.receiverKind !== 'md' && pcbShipmentReceiverTurn(shipment);
     const tab: AdminPcbShipmentTab =
       shipment.receivedAt !== null ? 'received' : adminTurn ? 'pending' : 'active';
@@ -937,6 +960,12 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
         mode: asPcbShipmentMode(shipment.mode),
         status: asPcbShipmentStatus(asPcbShipmentMode(shipment.mode), shipment.status),
         poCount: shipment.pos.length,
+        members: memberPos.map((p) => ({
+          poId: Number(p.id),
+          specId: Number(p.specId),
+          projectName: p.spec.projectName,
+          mbId: p.spec.mbId,
+        })),
         receivedAt: iso(shipment.receivedAt),
         // 큐 배지 — 직송(실물이 자사를 안 거침)·A/S 회차(대표 발주 기준)를 행에서 바로 읽게.
         destinationCountry: shipment.destinationCountry,

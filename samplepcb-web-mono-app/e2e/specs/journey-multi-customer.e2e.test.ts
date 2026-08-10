@@ -338,7 +338,10 @@ describe.skipIf(!RUN || !JOURNEY)('여정 9호 — 다중 고객 × 묶음 발�
     //    (B 는 자기 주문에 열린 요청이 없으므로, B 가 A 의 리뷰를 건드릴 길도 없어야 한다.)
     const create = await api(A, 'POST', `/api/admin/pcb-eq-reviews/${String(laneA().poId)}`, {
       message: '[여정 9호-A] 사양 확인 부탁드립니다',
-      dueDate: '2026-08-14',
+      // 계약 키는 dueOn 이다 — dueDate 로 보내면 조용히 버려져 회신 기한이 null 로
+      // 남는다(2026-08-10 실측). 기한 배지·'회신 기한 지남' 분기가 전 여정에서 한 번도
+      // 시험되지 않고 있었다.
+      dueOn: '2026-08-14',
       sharedFileIds: [],
     });
     expect(create.status, `A 고객확인 요청: ${JSON.stringify(create.json)}`).toBe(200);

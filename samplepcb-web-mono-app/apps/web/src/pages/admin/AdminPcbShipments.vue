@@ -6,6 +6,7 @@ import {
   PCB_PO_STATUS_LABELS,
   type AdminPcbOrderItemType,
   type AdminPcbShipmentTabType,
+  type AdminPcbShipmentWorkItemType,
 } from '@sp/api-contract';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import {
@@ -103,9 +104,15 @@ const allReceived = (item: AdminPcbOrderItemType): boolean =>
 
 const shipOdId = ref<string | null>(null);
 const shipIncomplete = ref(false);
+// 모달이 "어느 고객 건인지"를 말할 수 있게 행에서 같이 넘긴다(주문번호만으론 확인 불가).
+const shipCustomerLabel = ref('');
+const shipProjectName = ref('');
 function openShip(item: AdminPcbOrderItemType): void {
   shipOdId.value = item.odId;
   shipIncomplete.value = !allReceived(item);
+  shipCustomerLabel.value =
+    item.odName !== '' ? `${item.odName} (${item.mbId ?? '비회원'})` : (item.mbId ?? '비회원');
+  shipProjectName.value = item.projectName;
 }
 
 const completeMut = usePcbCompleteCustomerOrder();
@@ -150,6 +157,10 @@ const STATUS_CLS: Record<string, string> = {
   shipping: 'bg-indigo-100 text-indigo-700',
   delivered: 'bg-emerald-100 text-emerald-700',
 };
+
+/** 묶음 행의 '동반' 구성원(대표 제외) — 대표는 행 본문에 이미 있다. */
+const mateRowsOf = (row: AdminPcbShipmentWorkItemType): AdminPcbShipmentWorkItemType['members'] =>
+  row.members.filter((m) => m.poId !== row.poId);
 
 function openCase(specId: number): void {
   void router.push({
@@ -295,9 +306,24 @@ function openCase(specId: number): void {
                   <span v-if="row.poCount > 1" class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-semibold text-indigo-700">묶음 {{ row.poCount }}</span>
                   <span v-if="row.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 font-sans text-[11px] font-semibold text-rose-700">{{ row.reorderRound }}차</span>
                 </td>
-                <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
+                <td class="max-w-xs px-4 py-2.5 font-medium text-gray-900">
                   <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
                   {{ row.projectName }}
+                  <!-- 묶음은 고객 경계를 넘는다 — 대표만 보이면 동반 건(다른 고객)이
+                       어느 화면에서도 안 잡힌다. 구성원을 각자의 Case 로 열어 준다. -->
+                  <span v-if="row.poCount > 1" class="mt-0.5 block space-y-0.5">
+                    <button
+                      v-for="m in mateRowsOf(row)"
+                      :key="m.poId"
+                      type="button"
+                      class="block max-w-full truncate text-left text-xs text-indigo-600 hover:underline"
+                      :title="`PO-${m.poId} · 고객 ${m.mbId ?? '비회원'} — 이 발송에 함께 담겼습니다`"
+                      @click.stop="openCase(m.specId)"
+                    >
+                      + Q{{ m.specId }} {{ m.projectName }}
+                      <span class="text-gray-400">· {{ m.mbId ?? '비회원' }}</span>
+                    </button>
+                  </span>
                 </td>
                 <td class="px-4 py-2.5 text-gray-600">
                   {{ row.senderName }} → {{ row.receiverName }}
@@ -419,7 +445,13 @@ function openCase(specId: number): void {
                 >직송 {{ item.directShipCountry }}</span>
                 {{ item.projectName }}
               </td>
-              <td class="px-4 py-2.5 text-gray-600">{{ item.mbId ?? '비회원' }}</td>
+              <!-- 송장을 붙이는 사람이 읽는 열 — 로그인 아이디만으로는 누구 물건인지 모른다.
+                   묶음 발송이면 회원이 다른 두 주문이 나란히 서므로 주문자명이 정본이다. -->
+              <td class="px-4 py-2.5 text-gray-600">
+                <span v-if="item.odName !== ''" class="font-medium text-gray-800">{{ item.odName }}</span>
+                <span v-else class="text-gray-400">이름 없음</span>
+                <span class="ml-1 text-xs text-gray-400">{{ item.mbId ?? '비회원' }}</span>
+              </td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span
                   v-if="allReceived(item)"
@@ -521,6 +553,8 @@ function openCase(specId: number): void {
     <PcbCustomerShipModal
       :od-id="shipOdId"
       :incomplete-receipt="shipIncomplete"
+      :customer-label="shipCustomerLabel"
+      :project-name="shipProjectName"
       @close="shipOdId = null"
     />
   </div>

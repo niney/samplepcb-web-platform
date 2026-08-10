@@ -235,11 +235,25 @@ if($od['od_pg'] == 'lg') {
         // 화면만 그린다. 메일의 [주문내역에서 확인하기] 는 이 섹션(#eq-{id})으로 온다.
         // ⚠ 협력사명·발주서 정보는 노출하지 않는다 — 고객에게 공급망을 드러내지 않는다.
         $sp_eq_reviews = function_exists('sp_pcb_eq_reviews') ? sp_pcb_eq_reviews($od_id) : array();
+        // 열린(회신 대기) 요청이 하나라도 있는지 — 안내문을 무조건 "승인 또는 반려해
+        // 주세요"로 띄우면, 이미 끝났거나 취소된 이력만 남은 화면에서 없는 버튼을
+        // 찾게 된다(2026-08-10 실측: 관리자 EQ 승인이 열린 요청을 자동 취소한 뒤
+        // 완료된 주문에서도 이 문장이 그대로 떴다).
+        $sp_eq_has_open = false;
+        foreach ($sp_eq_reviews as $sp_eq_rv) {
+            if ($sp_eq_rv['status'] === 'requested') { $sp_eq_has_open = true; break; }
+        }
         if ($sp_eq_reviews):
         ?>
         <section id="sp_eq_wrap">
-            <h2>제조 확인 요청</h2>
-            <p class="sp_eq_intro">제조 전 확인이 필요한 사항입니다. 내용을 보시고 승인 또는 반려해 주세요.</p>
+            <h2><?php echo $sp_eq_has_open ? '제조 확인 요청' : '제조 확인 이력'; ?></h2>
+            <p class="sp_eq_intro">
+                <?php if ($sp_eq_has_open): ?>
+                    제조 전 확인이 필요한 사항입니다. 내용을 보시고 승인 또는 반려해 주세요.
+                <?php else: ?>
+                    지난 제조 확인 내역입니다 — 지금 회신하실 것은 없습니다.
+                <?php endif; ?>
+            </p>
 
             <?php foreach ($sp_eq_reviews as $rv):
                 $st  = sp_pcb_eq_status_label($rv['status']);
@@ -292,6 +306,10 @@ if($od['od_pg'] == 'lg') {
                     <?php echo $st['label']; ?>
                     <?php if (!empty($rv['decidedAt'])): ?>
                         · <?php echo date('Y-m-d', strtotime($rv['decidedAt'])); ?>
+                    <?php endif; ?>
+                    <?php if ($rv['status'] === 'canceled'): ?>
+                        <?php // 사유 없이 '요청 취소'만 뜨면 고객은 무슨 일이 있었는지 알 수 없다. ?>
+                        <span class="sp_eq_note">담당자가 확인을 마쳐 회신 요청이 취소되었습니다 — 따로 하실 일은 없습니다.</span>
                     <?php endif; ?>
                     <?php if (!empty($rv['decisionNote'])): ?>
                         <span class="sp_eq_note">의견: <?php echo get_text($rv['decisionNote']); ?></span>

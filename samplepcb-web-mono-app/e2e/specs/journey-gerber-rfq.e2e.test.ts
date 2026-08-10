@@ -274,7 +274,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 1호 — 거버 견적요청 → 배�
     if (poId === null || odId === null) return ctx.skip();
     const create = await api(A, 'POST', `/api/admin/pcb-eq-reviews/${String(poId)}`, {
       message: '[여정 1호] 사양 확인 부탁드립니다',
-      dueDate: '2026-08-14',
+      dueOn: '2026-08-14',
       sharedFileIds: [],
     });
     expect(create.status, `고객확인 요청: ${JSON.stringify(create.json)}`).toBe(200);

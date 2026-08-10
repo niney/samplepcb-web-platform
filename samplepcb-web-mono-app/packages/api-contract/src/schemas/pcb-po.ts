@@ -552,6 +552,18 @@ export const AdminPcbShipmentWorkItem = z.object({
   mode: BomShipmentMode,
   status: BomShipmentStatus,
   poCount: z.number().int(),
+  /**
+   * 묶음 구성 전체(대표 포함) — 묶음은 **고객(Case) 경계를 넘어** 합류하므로(박스 키에
+   * 고객 축이 없다), 대표 프로젝트만 실으면 동반 건이 큐에서 통째로 사라진다(여정 9호).
+   */
+  members: z.array(
+    z.object({
+      poId: z.number(),
+      specId: z.number(),
+      projectName: z.string(),
+      mbId: z.string().nullable(),
+    }),
+  ),
   receivedAt: z.string().nullable(),
   /** 직송지(D5) — non-null 이면 실물은 자사가 아니라 이 나라의 고객에게 간다(큐 배지). */
   destinationCountry: z.string().nullable(),

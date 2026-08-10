@@ -96,6 +96,7 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                 specId: row.specId,
                 projectName: spec.projectName,
                 mbId: spec.mbId,
+                odName: row.odName,
                 qty: spec.qty,
                 quoteStatus: asQuoteStatus(spec.quoteStatus),
                 finalPrice: spec.finalPrice,

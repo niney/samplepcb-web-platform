@@ -106,7 +106,10 @@ async function takeOut(poId: number): Promise<void> {
               class="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3"
             >
               <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-semibold text-gray-900">{{ po.projectName }}</p>
+                <p class="truncate text-sm font-semibold text-gray-900">
+                  <span class="mr-1 font-mono text-xs font-normal text-gray-400">PO-{{ po.poId }}</span>
+                  {{ po.projectName }}
+                </p>
                 <p class="text-sm text-gray-500">
                   {{ po.qty.toLocaleString('ko-KR') }}pcs · {{ fmtPcbAmount(po.currency, po.priceOriginal) }}
                   <span class="ml-1 rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700">
@@ -193,8 +196,14 @@ async function takeOut(poId: number): Promise<void> {
                 :key="po.poId"
                 class="flex items-center gap-3 rounded-lg border border-teal-100 px-3 py-2"
               >
+                <!-- 프로젝트명은 업로드 파일명이라 서로 다른 발주가 같은 이름일 수 있다
+                     (한 박스에 두 고객의 물건이 담기면 두 줄이 완전히 같아진다 — 여정 9호).
+                     발주번호가 유일한 식별자다. -->
                 <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-semibold text-gray-900">{{ po.projectName }}</p>
+                  <p class="truncate text-sm font-semibold text-gray-900">
+                    <span class="mr-1 font-mono text-xs font-normal text-gray-400">PO-{{ po.poId }}</span>
+                    {{ po.projectName }}
+                  </p>
                   <p class="text-xs text-gray-500">
                     {{ po.qty.toLocaleString('ko-KR') }}pcs · {{ fmtPcbAmount(po.currency, po.priceOriginal) }}
                   </p>

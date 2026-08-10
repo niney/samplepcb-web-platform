@@ -35,6 +35,7 @@ import {
 import {
   advancePcbShipment,
   buildPcbInvoiceDraft,
+  countPcbShipmentPos,
   deletePcbShipmentFile,
   detachPcbShipmentPo,
   findPcbShipmentByPo,
@@ -562,6 +563,8 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
       // 협력사 전이 → 받는측 통지(관리자=운영자 메일 / MD 입고=조직 메일).
+      // 묶음이면 이 한 통이 발주 여러 건을 가리킨다 — 건수를 문구에 싣는다(여정 9호).
+      const shipPoCount = await countPcbShipmentPos(po.id);
       const mode = res.shipment.mode === 'domestic' ? 'domestic' : 'international';
       const statusLabel = bomShipmentStatusLabel(mode, res.to);
       const turnMeta: MailLogMeta = {
@@ -588,6 +591,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             nextLabel: null,
             targetUrl: pcbPartnerPortalUrl(),
             targetLabel: '파트너 포털 열기',
+            poCount: shipPoCount,
             ...(portalCta ?? {}),
           }),
           turnMeta,
@@ -604,6 +608,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             nextLabel: null,
             targetUrl: pcbAdminCaseUrl(po.specId.toString()),
             targetLabel: 'Case 상세 열기',
+            poCount: shipPoCount,
           }),
           turnMeta,
         );
@@ -651,7 +656,10 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
       // 보내는측(하위 수주 조직) 통지 — 무계정이면 대행 안내(재점검 #15).
-      const portalCta = await resolvePcbPortalCta(po.partnerId);
+      const [portalCta, shipPoCount] = await Promise.all([
+        resolvePcbPortalCta(po.partnerId),
+        countPcbShipmentPos(po.id),
+      ]);
       void sendPcbMail(
         request.log,
         po.partner.contactEmail,
@@ -659,6 +667,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
           partnerName: po.partner.name,
           projectName: po.spec.projectName,
           note: request.body.note ?? null,
+          poCount: shipPoCount,
           ...portalCta,
         }),
         {

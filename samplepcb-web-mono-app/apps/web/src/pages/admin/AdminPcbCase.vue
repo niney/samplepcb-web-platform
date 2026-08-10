@@ -725,12 +725,39 @@ const shipmentByPo = computed(() => {
   for (const s of shipments.value) for (const pid of s.poIds) map.set(pid, s);
   return map;
 });
-// 서브행 v-for 용 — 대표 발주 행에만 1개(묶음은 대표 행 아래 한 번만 표시).
+/**
+ * 이 Case 안에서 발송 줄을 걸어 둘 발주서 — 원칙은 발송 대표(s.poId)다.
+ *
+ * 다만 묶음은 **고객(Case) 경계를 넘어** 합류한다(박스 키에 고객 축이 없다 —
+ * 여정 9호). 대표가 남의 Case 의 발주서면 이 Case 엔 대표 행이 없어 선적 줄이
+ * 통째로 사라졌다(2026-08-10 실측: 동반 건 Case 에 운송장·입고일·[입고 확인]이
+ * 하나도 안 떴다 — 서버는 shipments 를 정상적으로 내려주고 있었다).
+ * 그래서 대표가 이 Case 밖이면 **이 Case 가 가진 첫 구성원**이 대표를 대신 맡는다.
+ * 서버는 어차피 발송을 구성원 어느 poId 로도 찾으므로(findPcbShipmentByPo) 액션은
+ * 그대로 동작한다.
+ */
+const caseAnchorPoOf = (s: PcbShipmentViewType): number | null => {
+  if (allPos.value.some((p) => p.poId === s.poId)) return s.poId;
+  const mine = allPos.value.filter((p) => s.poIds.includes(p.poId));
+  if (mine.length === 0) return null;
+  // 최상위 발주를 먼저 고른다 — 하위(MD) 발주 행은 접힌 요약 줄이라 전이·입고 버튼이
+  // 걸릴 자리가 아니다. 최상위가 없을 때만 하위로 내려간다.
+  const top = mine.filter((p) => p.parentPartnerId === 0);
+  return Math.min(...(top.length > 0 ? top : mine).map((p) => p.poId));
+};
+// 서브행 v-for 용 — Case 당 발송 1줄(묶음이어도 한 번만).
 const shipRowsOf = (poId: number): PcbShipmentViewType[] => {
   const s = shipmentByPo.value.get(poId);
   if (s === undefined) return [];
-  return s.poId === poId ? [s] : [];
+  return caseAnchorPoOf(s) === poId ? [s] : [];
 };
+/** 묶음 구성 — 이 Case 것과 남의 Case 것을 갈라 보여준다(오조작 방지). */
+const shipMatesOf = (s: PcbShipmentViewType): { poId: number; projectName: string; mine: boolean }[] =>
+  s.groupPos.map((g) => ({
+    poId: g.poId,
+    projectName: g.projectName,
+    mine: allPos.value.some((p) => p.poId === g.poId),
+  }));
 
 const shipAdvanceAdmin = useAdminPcbShipmentAdvance();
 const shipRevertAdmin = useAdminPcbShipmentRevert();
@@ -912,7 +939,20 @@ async function adminShipCancel(poId: number, s: PcbShipmentViewType): Promise<vo
   }
 }
 // 입고 확인 — 국내는 이 조작이 상태(입고 완료)까지 닫으므로 무엇이 함께 일어나는지 밝힌다.
-const receivePrompt = ref<{ poId: number; domestic: boolean } | null>(null);
+const receivePrompt = ref<{ poId: number; domestic: boolean; mates: number } | null>(null);
+// 묶음 입고는 **한 번 눌러 여러 주문**이 배송 대기로 넘어간다(고객이 서로 달라도 —
+// 여정 9호). 되돌리기 쉬운 조작이 아니라, 파급 범위를 확인 문구에 적어 둔다.
+const receiveDescription = computed(() => {
+  const p = receivePrompt.value;
+  if (p === null) return '';
+  const base =
+    p.domestic
+      ? '실물 검수를 기록하고 발송을 입고 완료로 닫습니다 — 고객 배송 처리가 열립니다.'
+      : '실물 검수를 기록합니다 — 이후 고객 배송 처리가 열립니다.';
+  return p.mates > 1
+    ? `${base} 이 발송은 묶음 ${String(p.mates)}건이라, 함께 담긴 발주서의 주문(다른 고객일 수 있습니다)도 같이 배송 대기로 넘어갑니다.`
+    : base;
+});
 async function submitReceive(values: Record<string, string>): Promise<void> {
   const target = receivePrompt.value;
   if (specId.value === null || target === null) return;
@@ -1572,7 +1612,21 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       {{ s.mode === 'domestic' ? '국내(택배)' : '국제' }} · {{ s.senderName }} → {{ s.receiverName }}
                       <template v-if="s.destinationCountry !== null"> · 직송 {{ s.destinationCountry }}</template>
                     </span>
-                    <span v-if="s.poIds.length > 1" class="rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700">묶음 {{ s.poIds.length }}건</span>
+                    <!-- 묶음은 Case(고객) 경계를 넘는다 — 건수만 알려주면 "무엇이 함께
+                         움직이는지"를 알 수 없어, 구성원을 열거하고 남의 Case 것을 표시한다. -->
+                    <span
+                      v-if="s.poIds.length > 1"
+                      class="rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700"
+                    >묶음 {{ s.poIds.length }}건</span>
+                    <span
+                      v-for="m in (s.poIds.length > 1 ? shipMatesOf(s) : [])"
+                      :key="`mate-${String(m.poId)}`"
+                      class="rounded px-1.5 py-0.5"
+                      :class="m.mine ? 'bg-teal-100 font-semibold text-teal-800' : 'bg-gray-100 text-gray-500'"
+                      :title="m.mine ? '이 Case 의 발주서' : '다른 Case(다른 고객)의 발주서 — 함께 움직입니다'"
+                    >
+                      PO-{{ m.poId }} {{ m.projectName }}<template v-if="m.mine"> · 이 Case</template>
+                    </span>
                     <span v-if="s.shipDate !== null" class="text-gray-500">출고예정 {{ fmtKstDate(s.shipDate) }}</span>
                     <span v-if="s.trackingNumber !== null" class="tabular-nums text-gray-500">{{ s.carrier ?? '' }} {{ s.trackingNumber }}</span>
                     <span v-if="s.receivedAt !== null" class="font-semibold text-emerald-600">
@@ -1604,7 +1658,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       type="button"
                       class="rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700"
                       :title="s.mode === 'domestic' ? '실물 검수 후 누르면 입고 완료까지 함께 처리됩니다.' : undefined"
-                      @click="receivePrompt = { poId: po.poId, domestic: s.mode === 'domestic' }"
+                      @click="receivePrompt = { poId: po.poId, domestic: s.mode === 'domestic', mates: s.poIds.length }"
                     >
                       입고 확인
                     </button>
@@ -1995,6 +2049,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
     <PcbCustomerShipModal
       :od-id="customerShipOdId"
       :incomplete-receipt="!customerShipAllReceived"
+      :customer-label="detail?.customer?.name ?? ''"
+      :project-name="detail?.projectName ?? ''"
       @close="customerShipOdId = null"
     />
 
@@ -2025,9 +2081,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         type: 'textarea',
         placeholder: '수량 부족·불량 등 특이사항이 있으면 적어 주세요.',
       }]"
-      :description="receivePrompt?.domestic === true
-        ? '실물 검수를 기록하고 발송을 입고 완료로 닫습니다 — 고객 배송 처리가 열립니다.'
-        : '실물 검수를 기록합니다 — 이후 고객 배송 처리가 열립니다.'"
+      :description="receiveDescription"
       confirm-label="입고 확인"
       :busy="shipReceiveAdmin.isPending.value"
       @close="receivePrompt = null"

@@ -43,6 +43,7 @@ import {
   loadAdminPcbShipmentWorkItems,
   loadPcbShipmentsForPoIds,
   cancelPcbShipment,
+  countPcbShipmentPos,
   receivePcbShipment,
   revertPcbShipment,
   savePcbInvoiceData,
@@ -566,9 +567,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
       // 관리자 전이 → 협력사(보내는측) 통지 — 다음 협력사 차례가 있으면 안내.
-      const [spec, portalCta] = await Promise.all([
+      const [spec, portalCta, shipPoCount] = await Promise.all([
         prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
         resolvePcbPortalCta(po.partnerId),
+        countPcbShipmentPos(po.id),
       ]);
       void sendPcbMail(
         request.log,
@@ -580,6 +582,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           nextLabel: null,
           targetUrl: pcbPartnerPortalUrl(),
           targetLabel: '파트너 포털 열기',
+          poCount: shipPoCount,
           ...portalCta,
         }),
         {
@@ -644,9 +647,10 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const res = await receivePcbShipment(po, { kind: 'admin' }, request.body.note ?? null);
       if (!res.ok) return reply.status(409).send(shipError(res.error));
 
-      const [spec, portalCta] = await Promise.all([
+      const [spec, portalCta, shipPoCount] = await Promise.all([
         prisma.spOrderSpec.findUnique({ where: { id: po.specId } }),
         resolvePcbPortalCta(po.partnerId),
+        countPcbShipmentPos(po.id),
       ]);
       void sendPcbMail(
         request.log,
@@ -655,6 +659,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           partnerName: po.partner.name,
           projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
           note: request.body.note ?? null,
+          poCount: shipPoCount,
           ...portalCta,
         }),
         {

@@ -3220,9 +3220,17 @@ export type PcbOrderTab =
   | 'to_ship'
   | 'shipping';
 
+/** od_delivery_company 정규화 — 코어 기본값 '0' 은 미지정이라 빈 문자열로 접는다. */
+const normalizeDeliveryCompany = (raw: unknown): string => {
+  const v = typeof raw === 'string' ? raw.trim() : '';
+  return v === '0' ? '' : v;
+};
+
 export interface PcbOrderSpecRow {
   specId: number;
   odId: string;
+  /** od_name 주문자명 — 큐의 '고객' 열은 mb_id(로그인 아이디)만으로는 송장에 못 쓴다. */
+  odName: string;
   odStatus: string;
   settleCase: string;
   receiptPrice: number;
@@ -3330,7 +3338,7 @@ export async function listPcbOrderSpecs(params: {
 
   const tabCond = params.tab === 'all' ? '1=1' : PCB_ORDER_TAB_SQL[params.tab];
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT s.id AS spec_id, c.od_id, o.od_status, o.od_settle_case, o.od_receipt_price, o.od_misu,
+    `SELECT s.id AS spec_id, c.od_id, o.od_name, o.od_status, o.od_settle_case, o.od_receipt_price, o.od_misu,
             o.od_delivery_company, o.od_invoice,
             DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        ${base} AND ${tabCond}
@@ -3344,12 +3352,15 @@ export async function listPcbOrderSpecs(params: {
       return {
         specId: Number(row.spec_id),
         odId: String(row.od_id),
+        odName: String(row.od_name ?? ''),
         odStatus: String(row.od_status ?? ''),
         settleCase: String(row.od_settle_case ?? ''),
         receiptPrice: Number(row.od_receipt_price ?? 0),
         misu: Number(row.od_misu ?? 0),
         orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
-        deliveryCompany: String(row.od_delivery_company ?? ''),
+        // 코어 기본값 '0' 은 "택배사 미지정"이다 — 그대로 흘리면 화면에 택배사가 `0` 으로
+        // 찍힌다(2026-08-10 실측: 미배송 주문의 큐 응답이 deliveryCompany:"0").
+        deliveryCompany: normalizeDeliveryCompany(row.od_delivery_company),
         invoiceNo: String(row.od_invoice ?? ''),
       };
     }),

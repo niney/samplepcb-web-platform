@@ -255,7 +255,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 2호 — 국내 협력사 완주(KRW·
     // ① 관리자가 고객 확인을 건다
     const ask1 = await api(A, 'POST', `/api/admin/pcb-eq-reviews/${String(poId)}`, {
       message: '[여정 2호] 실크 위치를 확인해 주세요',
-      dueDate: '2026-08-14',
+      dueOn: '2026-08-14',
       sharedFileIds: [],
     });
     expect(ask1.status, `고객확인 요청: ${JSON.stringify(ask1.json)}`).toBe(200);
@@ -317,7 +317,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 2호 — 국내 협력사 완주(KRW·
     // ⑤ 관리자가 고객 확인을 다시 건다 — 옛 요청이 닫혔으니 ALREADY_OPEN 이 아니어야 한다
     const ask2 = await api(A, 'POST', `/api/admin/pcb-eq-reviews/${String(poId)}`, {
       message: '[여정 2호] 실크 위치 수정본입니다 — 재확인 부탁드립니다',
-      dueDate: '2026-08-15',
+      dueOn: '2026-08-15',
       sharedFileIds: [],
     });
     expect(ask2.status, `재확인 요청(ALREADY_OPEN 회귀): ${JSON.stringify(ask2.json)}`).toBe(200);

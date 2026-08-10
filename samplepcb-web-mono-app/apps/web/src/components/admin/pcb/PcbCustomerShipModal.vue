@@ -14,6 +14,13 @@ const props = defineProps<{
   odId: string | null;
   /** 입고확인이 끝나지 않은 발주가 남았는지 — 경고 + 제출 시 confirm. */
   incompleteReceipt: boolean;
+  /**
+   * 누구 것인지 — 주문번호 20자리만으로는 확인이 안 된다. 묶음 발송이면 회원이 다른
+   * 두 주문을 연달아 처리하게 되므로(여정 9호), 송장을 붙이기 전에 사람이 읽을 이름이
+   * 화면에 있어야 오배송이 안 난다.
+   */
+  customerLabel?: string;
+  projectName?: string;
 }>();
 const emit = defineEmits<{ close: [] }>();
 
@@ -71,9 +78,16 @@ async function submit(): Promise<void> {
   >
     <div class="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-2xl">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-bold">배송 처리 — {{ odId }}</h2>
+        <h2 class="text-lg font-bold">
+          배송 처리
+          <span v-if="customerLabel !== undefined && customerLabel !== ''"> — {{ customerLabel }}</span>
+        </h2>
         <button type="button" class="text-gray-400 hover:text-gray-700" @click="emit('close')">✕</button>
       </div>
+      <p class="mt-0.5 text-xs text-gray-500">
+        <span class="font-mono">{{ odId }}</span>
+        <template v-if="projectName !== undefined && projectName !== ''"> · {{ projectName }}</template>
+      </p>
       <p v-if="incompleteReceipt" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
         입고 확인이 끝나지 않은 발주가 있습니다 — 검수 후 발송을 권장합니다.
       </p>
@@ -88,7 +102,15 @@ async function submit(): Promise<void> {
           <input v-model="invoiceTime" type="datetime-local" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
         </label>
         <p class="text-[11px] text-gray-400">
-          알림 메일은 발송되지 않습니다 — 배송 안내가 필요하면 통합 주문내역에서 처리해 주세요.
+          알림 메일은 발송되지 않습니다 — 배송 안내가 필요하면
+          <RouterLink
+            :to="{ name: 'admin-orders' }"
+            target="_blank"
+            class="font-semibold text-blue-600 hover:underline"
+          >
+            통합 주문내역
+          </RouterLink>
+          에서 이 주문번호로 찾아 발송해 주세요.
         </p>
       </div>
       <div class="mt-4 flex justify-end gap-2">

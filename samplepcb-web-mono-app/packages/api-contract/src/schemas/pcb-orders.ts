@@ -41,6 +41,8 @@ export const AdminPcbOrderItem = z.object({
   specId: z.number(),
   projectName: z.string(),
   mbId: z.string().nullable(),
+  /** od_name 주문자명 — 큐의 '고객' 열 식별용(mb_id 는 로그인 아이디라 송장에 못 쓴다). */
+  odName: z.string(),
   qty: z.number(),
   quoteStatus: z.enum(['priced', 'rfq', 'quoted']),
   finalPrice: z.number().nullable(),

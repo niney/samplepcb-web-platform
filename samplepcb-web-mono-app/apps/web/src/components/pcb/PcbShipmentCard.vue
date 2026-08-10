@@ -140,6 +140,8 @@ const STATUS_CLS: Record<string, string> = {
 <template>
   <section class="rounded-xl border border-teal-200 bg-surface p-4">
     <h2 class="text-sm font-bold text-teal-700">
+      <!-- 발송번호 — 아카이브에 같은 모양의 카드가 쌓이면 무엇을 보는 중인지 알 수 없다. -->
+      <span class="mr-1 font-mono text-xs font-normal text-gray-400">SH-{{ shipment.shipmentId }}</span>
       → {{ shipment.receiverName }}
       <template v-if="shipment.destinationCountry !== null"> · 직송 {{ shipment.destinationCountry }}</template>
       <span class="ml-2 rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[shipment.status]">
@@ -177,6 +179,7 @@ const STATUS_CLS: Record<string, string> = {
           :to="{ name: 'partner-pcb-po', params: { id: String(g.poId) } }"
           class="min-w-0 flex-1 truncate font-medium text-gray-700 hover:text-teal-700 hover:underline"
         >
+          <span class="mr-1 font-mono text-[11px] font-normal text-gray-400">PO-{{ g.poId }}</span>
           {{ g.projectName }}
         </RouterLink>
         <span class="shrink-0 text-gray-400">
