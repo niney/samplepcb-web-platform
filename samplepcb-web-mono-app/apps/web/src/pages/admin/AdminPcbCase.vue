@@ -438,8 +438,13 @@ const latestPoCount = computed(
   () => adminPos.value.filter((p) => p.reorderRound === latestRound.value).length,
 );
 const olderRoundsCollapsed = computed(() => olderRoundCount.value > 0 && !roundsExpanded.value);
-const childPosOf = (partnerId: number): AdminPcbPoViewType[] =>
-  allPos.value.filter((p) => p.parentPartnerId === partnerId);
+// 상위 발주 행 밑의 하위 서브테이블은 **같은 회차**의 하위만 — 회차 무필터면 A/S 회차
+// 행(A′) 밑에 round 0 하위(B)가 그대로 붙어 회차가 섞인다(여정 7호 결함 ②, childCount
+// 서버 로직과 동일 규칙: parentPartnerId=상위 수주 조직 ∧ reorderRound 일치).
+const childPosOf = (row: AdminPcbPoViewType): AdminPcbPoViewType[] =>
+  allPos.value.filter(
+    (p) => p.parentPartnerId === row.partnerId && p.reorderRound === row.reorderRound,
+  );
 
 const poModalOpen = ref(false);
 const poPartnerId = ref<number | null>(null);
@@ -1633,11 +1638,11 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 </td>
               </tr>
               <!-- MD 하위 발주(EQ 실작업 문서) -->
-              <tr v-if="childPosOf(po.partnerId).length > 0">
+              <tr v-if="childPosOf(po).length > 0">
                 <td colspan="7" class="bg-indigo-50/30 px-8 py-2">
                   <p class="text-[11px] font-semibold text-indigo-500">하위 발주(MD {{ po.partnerName }} 경유 — 승인/반려는 여기서)</p>
                   <div class="mt-1 grid gap-1">
-                    <div v-for="child in childPosOf(po.partnerId)" :key="child.poId" class="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                    <div v-for="child in childPosOf(po)" :key="child.poId" class="flex flex-wrap items-center gap-2 text-xs text-gray-600">
                       <span class="rounded px-1.5 py-0.5 font-semibold" :class="PO_STATUS_CLS[child.status]">
                         {{ PCB_PO_STATUS_LABELS[child.status] }}
                       </span>

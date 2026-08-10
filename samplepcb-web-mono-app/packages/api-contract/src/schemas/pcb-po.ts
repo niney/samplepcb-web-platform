@@ -388,6 +388,22 @@ export const PartnerPcbPoDetail = z.object({
   children: z.array(AdminPcbPoView),
   /** MD 전용 — 하위 발주 프리필 후보(내 하위 트랙의 회신 견적행). */
   childRfqs: z.array(AdminPcbRfqView),
+  /** MD 전용·A/S 회차(수주 A′) — 원회차(round 0) 하위 발주 요약. 회차 하위 RFQ 가 없어도
+   *  [원발주 조건으로 하위 발주](childRfqId 없는 조건 복사 경로)의 대상 후보가 된다. */
+  originChildPos: z
+    .array(
+      z.object({
+        poId: z.number(),
+        partnerId: z.number(),
+        partnerName: z.string(),
+        currency: z.string(),
+        priceOriginal: z.number(),
+        subCurrency: z.string().nullable(),
+        subPriceOriginal: z.number().nullable(),
+        paymentTerms: z.string().nullable(),
+      }),
+    )
+    .default([]),
   /** P3 — 이 발주서가 소속된 발송(없으면 null). */
   shipment: PcbShipmentView.nullable(),
   /** P3 — 발송 시작 가능(produced·미배정·출고 게이팅 통과). */
@@ -416,8 +432,14 @@ export const PartnerPcbPoDetailResponse = z.object({
 export type PartnerPcbPoDetailResponseType = z.infer<typeof PartnerPcbPoDetailResponse>;
 
 // MD 하위 발주 — 하위 회신 견적행 기준(대상·통화·금액 유도, 수정 가능).
+// A/S 회차(parentPo.reorderRound>0)는 회차 하위 RFQ 를 만들 경로가 없으므로 childRfqId
+// 없이 발주할 수 있다 — 대신 partnerId(대상)를 주면 서버가 원회차(round 0)의 같은 대상
+// 하위 발주 조건을 복사한다(proceed 의 A′ 복사와 대칭·레거시 동형 — 회차는 하위 RFQ 없이
+// 직발주였다). 원발주(round 0)는 childRfqId 필수 규율 유지(서버 CHILD_RFQ_REQUIRED 400).
 export const PartnerPcbChildPoCreateBody = z.object({
-  childRfqId: z.number().int().positive(),
+  childRfqId: z.number().int().positive().optional(),
+  /** childRfqId 생략(회차 조건 복사) 시 대상 하위 협력사 — 원회차 하위 발주와 일치 검증. */
+  partnerId: z.number().int().positive().optional(),
   priceOriginal: z.number().positive().optional(),
   paymentTerms: z.string().trim().max(50).nullable().optional(),
   deliveryDate: z

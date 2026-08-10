@@ -391,6 +391,9 @@ export const createAdminPcbPo = async (
 export type CreateChildPcbPoError =
   | 'PO_NOT_FOUND'
   | 'NOT_YOUR_PO'
+  | 'CHILD_RFQ_REQUIRED'
+  | 'PARTNER_REQUIRED'
+  | 'NO_ORIGIN_CHILD_PO'
   | 'CHILD_RFQ_MISMATCH'
   | 'CHILD_NOT_QUOTED'
   | 'ALREADY_ISSUED'
@@ -409,6 +412,75 @@ export const createChildPcbPo = async (
     return { ok: false, error: 'NOT_YOUR_PO' };
   // 취소된 주문에 새 하위 발주를 열지 않는다(EQ 전진 차단과 같은 원칙).
   if (await isPcbOrderCanceled(parentPo.specId)) return { ok: false, error: 'ORDER_CANCELED' };
+
+  // ── A/S 회차(round>0) 하위 발주 — childRfqId 없이 원회차 조건 복사(여정 7호 교정) ──
+  // 회차 하위 RFQ 를 만들 경로가 없어 MD 경유 회차가 여기서 dead-end 였다. 레거시가
+  // 하위 RFQ 없이 reorderRound 직접 발주였듯, 원회차(round 0)의 같은 (spec, 대상,
+  // parentPartnerId=MD) 하위 발주 조건을 복사하고 납기는 비운다(proceed 의 A′ 복사와
+  // 대칭). 원발주(round 0)는 childRfqId 필수 규율 그대로 — 계약 완화가 규율을 약화하지
+  // 않게 서버가 CHILD_RFQ_REQUIRED 로 끊는다.
+  if (body.childRfqId === undefined) {
+    if (parentPo.reorderRound === 0) return { ok: false, error: 'CHILD_RFQ_REQUIRED' };
+    if (body.partnerId === undefined) return { ok: false, error: 'PARTNER_REQUIRED' };
+    const origin = await prisma.spPcbPo.findUnique({
+      where: {
+        specId_partnerId_parentPartnerId_reorderRound: {
+          specId: parentPo.specId,
+          partnerId: BigInt(body.partnerId),
+          parentPartnerId: actorPartnerId,
+          reorderRound: 0,
+        },
+      },
+      include: { partner: true },
+    });
+    if (origin === null) return { ok: false, error: 'NO_ORIGIN_CHILD_PO' };
+
+    const dup = await prisma.spPcbPo.findUnique({
+      where: {
+        specId_partnerId_parentPartnerId_reorderRound: {
+          specId: parentPo.specId,
+          partnerId: origin.partnerId,
+          parentPartnerId: actorPartnerId,
+          reorderRound: parentPo.reorderRound,
+        },
+      },
+    });
+    if (dup !== null) return { ok: false, error: 'ALREADY_ISSUED' };
+
+    const originCurrency = asPcbCurrency(origin.currency);
+    const copiedPrice = roundPcbAmount(
+      body.priceOriginal ?? Number(origin.priceOriginal),
+      originCurrency,
+    );
+    const po = await prisma.spPcbPo.create({
+      data: {
+        specId: parentPo.specId,
+        partnerId: origin.partnerId,
+        parentPartnerId: actorPartnerId,
+        reorderRound: parentPo.reorderRound, // 회차 상속(기존 경로와 동일)
+        rfqId: origin.rfqId, // 근거 회신 참조 승계(proceed 의 A′ 복사와 대칭)
+        status: 'issued',
+        currency: originCurrency,
+        priceOriginal: copiedPrice,
+        exchangeRate: null,
+        krwAmount: null, // MD→하위 발주는 KRW 회계 불필요(레거시 승계)
+        subCurrency: origin.subCurrency,
+        subPriceOriginal: origin.subPriceOriginal,
+        subExchangeRate: origin.subExchangeRate,
+        destinationCountry: origin.destinationCountry,
+        paymentTerms: body.paymentTerms === undefined ? origin.paymentTerms : body.paymentTerms,
+        remittedAt: null, // 원장이 정본(P3.11)
+        // 납기는 비운다 — 원회차 납기 복사는 stale(레거시 함정, proceed 교정과 동일).
+        deliveryDate:
+          body.deliveryDate === null || body.deliveryDate === undefined
+            ? null
+            : parseKstDate(body.deliveryDate),
+        memo: body.memo === undefined ? origin.memo : body.memo,
+        eqHistory: [],
+      },
+    });
+    return { ok: true, po, partner: origin.partner };
+  }
 
   const childRfq = await prisma.spPcbRfq.findUnique({
     where: { id: BigInt(body.childRfqId) },
@@ -873,7 +945,8 @@ export const loadPartnerPcbPoDetail = async (
     po.partnerId === partnerId ? 'received' : po.parentPartnerId === partnerId ? 'issued' : null;
   if (direction === null) return null;
 
-  const [files, house, delegation, childrenRows, childRfqRows, roundRows] = await Promise.all([
+  const [files, house, delegation, childrenRows, childRfqRows, roundRows, originChildRows] =
+    await Promise.all([
     loadEqFilesMap([po.id]),
     loadHousePartnerName(),
     resolveEqDelegation(po),
@@ -902,6 +975,15 @@ export const loadPartnerPcbPoDetail = async (
       orderBy: [{ reorderRound: 'asc' }, { id: 'asc' }],
       select: { id: true, reorderRound: true, status: true, partnerId: true },
     }),
+    // A/S 회차 수주(A′) 전용 — 원회차(round 0) 하위 발주. 회차 하위 RFQ 가 없어도
+    // [원발주 조건으로 하위 발주](childRfqId 없는 조건 복사)의 대상 후보가 된다.
+    direction === 'received' && po.reorderRound > 0
+      ? prisma.spPcbPo.findMany({
+          where: { specId: po.specId, parentPartnerId: po.partnerId, reorderRound: 0 },
+          include: { partner: true },
+          orderBy: { id: 'asc' },
+        })
+      : Promise.resolve([] as PoWithPartner[]),
   ]);
 
   // 회차당 1건 — MD 는 같은 회차의 상위(수주)·하위(발주)가 다 보이므로 내 수주 문서 우선.
@@ -986,6 +1068,16 @@ export const loadPartnerPcbPoDetail = async (
     },
     children: await serializeAdminPos(childrenRows),
     childRfqs: await serializeAdminPcbRfqRows(childRfqRows),
+    originChildPos: originChildRows.map((row) => ({
+      poId: Number(row.id),
+      partnerId: Number(row.partnerId),
+      partnerName: row.partner.name,
+      currency: row.currency,
+      priceOriginal: Number(row.priceOriginal),
+      subCurrency: row.subCurrency,
+      subPriceOriginal: decNum(row.subPriceOriginal),
+      paymentTerms: row.paymentTerms,
+    })),
     asRounds: [...roundPick.values()].map((row) => ({
       poId: Number(row.id),
       reorderRound: row.reorderRound,

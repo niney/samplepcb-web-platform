@@ -190,6 +190,42 @@ const selectableChildRfqs = computed(
   () => detail.value?.childRfqs.filter((r) => r.priceOriginal !== null) ?? [],
 );
 
+// A/S 회차(A′) 하위 발주 — 회차 하위 RFQ 는 만들 경로가 없으므로, 원회차(round 0) 하위
+// 발주 조건 복사(childRfqId 없이 partnerId 지정)로 발주한다. 이미 이 회차에 발주된
+// 대상은 제외 — "하위 발주를 진행해 주세요" 안내가 실행 가능해지는 버튼(여정 7호 교정).
+const originChildTargets = computed(() => {
+  const d = detail.value;
+  if (d?.direction !== 'received' || d.reorderRound === 0) return [];
+  return (d.originChildPos ?? []).filter(
+    (o) => !d.children.some((c) => c.partnerId === o.partnerId),
+  );
+});
+async function issueChildPoFromOrigin(target: {
+  partnerId: number;
+  partnerName: string;
+  currency: string;
+  priceOriginal: number;
+  subCurrency: string | null;
+  subPriceOriginal: number | null;
+}): Promise<void> {
+  if (poId.value === null || detail.value === null) return;
+  const ok = await confirmDialog({
+    title: '원발주 조건으로 하위 발주',
+    message:
+      `${target.partnerName}에게 A/S ${String(detail.value.reorderRound)}차 하위 발주를 발행합니다.\n` +
+      `원주문 하위 발주 조건 그대로 — 발주가 ${pcbMoneyWithSub(target.currency, target.priceOriginal, target.subCurrency, target.subPriceOriginal)}.\n` +
+      `납기는 비워집니다(협력사와 협의 후 입력).`,
+    confirmLabel: '하위 발주',
+  });
+  if (!ok) return;
+  actionError.value = '';
+  try {
+    await childPo.mutateAsync({ poId: poId.value, body: { partnerId: target.partnerId } });
+  } catch (e) {
+    surfaceError(e, '하위 발주에 실패했습니다.');
+  }
+}
+
 // ── P3 선적 — 발송 준비/핑퐁/입고확인/첨부/상업송장 ──────────────────────────
 const ship = computed(() => detail.value?.shipment ?? null);
 const shipMode = computed(() => ship.value?.mode ?? 'international');
@@ -633,7 +669,7 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
 
       <!-- MD — 하위 발주 -->
       <section
-        v-if="detail.direction === 'received' && (detail.children.length > 0 || selectableChildRfqs.length > 0)"
+        v-if="detail.direction === 'received' && (detail.children.length > 0 || selectableChildRfqs.length > 0 || originChildTargets.length > 0)"
         class="rounded-xl border border-indigo-200 bg-surface p-4"
       >
         <h2 class="text-sm font-bold text-indigo-700">하위 협력사 발주 (마스터딜러)</h2>
@@ -693,6 +729,35 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
             하위 발주
           </button>
           <span class="text-xs text-gray-400">선정(selected) 회신이 기본 후보입니다 — 발주 시 EQ가 하위에서 시작됩니다.</span>
+        </div>
+
+        <!-- A/S 회차(A′) — 회차 하위 RFQ 가 없어도 원회차(round 0) 하위 발주 조건을 복사해
+             발주할 수 있다(여정 7호 교정). 대상은 원회차 하위 발주 목록에서 온다. -->
+        <div v-else-if="originChildTargets.length > 0" class="mt-3 space-y-2">
+          <div
+            v-for="t in originChildTargets"
+            :key="t.partnerId"
+            class="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2"
+          >
+            <span class="text-sm font-medium text-gray-800">{{ t.partnerName }}</span>
+            <span class="text-sm tabular-nums text-gray-600">
+              {{ pcbMoneyWithSub(t.currency, t.priceOriginal, t.subCurrency, t.subPriceOriginal) }}
+            </span>
+            <span v-if="t.paymentTerms !== null" class="text-xs text-gray-400">{{ t.paymentTerms }}</span>
+            <span class="grow" />
+            <button
+              type="button"
+              class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-40"
+              :disabled="childPo.isPending.value"
+              @click="void issueChildPoFromOrigin(t)"
+            >
+              원발주 조건으로 하위 발주
+            </button>
+          </div>
+          <p class="text-xs text-gray-400">
+            A/S {{ detail.reorderRound }}차 — 원주문(round 0) 하위 발주 조건을 복사해 발주합니다.
+            납기는 비워지니 협력사와 협의 후 입력하세요. 발주하면 EQ가 하위에서 다시 시작됩니다.
+          </p>
         </div>
       </section>
 

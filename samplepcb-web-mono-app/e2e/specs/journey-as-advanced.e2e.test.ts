@@ -540,8 +540,14 @@ describe.skipIf(!RUN || !JOURNEY)('여정 7호 — A/S 심화(MD 경유·다회�
     );
   }, 120_000);
 
-  test('T2c. MD 하위 회차 발주 — 회차 상속(현재 동작 박제·경로 막히면 회차 RFQ 직삽입 우회)', async (ctx) => {
-    if (specId === null || case1Id === null || round1TopPoId === null || childRfqId === null) {
+  test('T2c. MD 하위 회차 발주 — childRfqId 없는 원발주 조건 복사(신경로)·가드 회귀·화면 버튼 실행', async (ctx) => {
+    if (
+      specId === null ||
+      case1Id === null ||
+      round1TopPoId === null ||
+      childRfqId === null ||
+      childPoId === null
+    ) {
       return ctx.skip();
     }
     const prisma = getPrisma();
@@ -550,67 +556,84 @@ describe.skipIf(!RUN || !JOURNEY)('여정 7호 — A/S 심화(MD 경유·다회�
     expect(before.status, JSON.stringify(before.json)).toBe(200);
     expect(before.json?.data?.eq?.blocked, '하위 발주 전 EQ 차단(MD 위임 대기)').toBe(true);
     expect(before.json?.data?.reorderRound, 'A′ 회차 배지 데이터').toBe(1);
-    const candidates = before.json?.data?.childRfqs ?? [];
+    // 회차 하위 RFQ 는 만들 경로가 없다(설계 유지) — 후보 childRfqs 는 비고, 대신
+    // 원회차(round 0) 하위 발주가 조건 복사 대상(originChildPos)으로 실린다.
+    expect(before.json?.data?.childRfqs ?? [], '회차 하위 RFQ 후보 없음').toHaveLength(0);
+    const targetIds = (before.json?.data?.originChildPos ?? []).map((t: any) => t.partnerId);
+    expect(targetIds, '원회차 하위 발주 대상 후보=협력2').toContain(num(child.id));
 
-    // ① 실제 포털 경로 그대로 — round 0 하위 회신으로 하위 발주 시도(현재 동작 박제).
-    const attempt = await api(M2, 'POST', `/api/partner/pcb-pos/${String(round1TopPoId)}/children`, {
+    // 가드 회귀 ① — childRfqId 를 주는 기존 경로는 회차 일치 규율 그대로(round 0 회신 유용 거부).
+    const mismatch = await api(M2, 'POST', `/api/partner/pcb-pos/${String(round1TopPoId)}/children`, {
       childRfqId,
     });
-    if (attempt.status === 200) {
-      F('T2', 'obs', '회차 하위 발주 — round 0 하위 회신으로도 발주 허용(회차 불일치 가드 없음)');
-    } else {
-      expect(attempt.json?.error, `하위 발주 거부 사유: ${JSON.stringify(attempt.json)}`).toBe(
-        'CHILD_RFQ_MISMATCH',
-      );
-      F(
-        'T2',
-        'bug',
-        `MD 경유 A/S 회차의 하위 발주가 포털에서 불가 — children 은 같은 회차(round 1)의 하위 ` +
-          `회신을 요구하는데(CHILD_RFQ_MISMATCH), 회차 하위 RFQ 를 만들 경로가 없다(하위 배정 ` +
-          `라우트는 관리자→MD round 0 행 앵커·상세 후보 childRfqs=${String(candidates.length)}건). ` +
-          `EQ 도 위임 대기(blocked)라 MD 경유 회차는 여기서 멈춘다 — 문서 §9 P4.12 "하위 발주는 ` +
-          `MD 가 포털에서 회차를 이어받아 발주(무변경)"와 어긋나는 지점(서버 무수정·박제).`,
-      );
-      // ② 회차 하위 RFQ 직삽입(우회 시드) — 경로 부재와 "상속 자체는 동작"을 분리 검증한다.
-      const r0 = await prisma.spPcbRfq.findUnique({ where: { id: BigInt(childRfqId) } });
-      const seeded = await prisma.spPcbRfq.create({
-        data: {
-          specId: BigInt(specId),
-          partnerId: child.id,
-          parentPartnerId: md2PartnerId ?? 0n,
-          reorderRound: 1,
-          status: 'quoted',
-          currency: r0.currency,
-          priceOriginal: r0.priceOriginal,
-          subCurrency: r0.subCurrency,
-          subPriceOriginal: r0.subPriceOriginal,
-          subExchangeRate: r0.subExchangeRate,
-          quotedDeliveryDate: r0.quotedDeliveryDate,
-          respondedAt: new Date(),
-          memo: '[여정7] 회차 하위 RFQ 직삽입 시드 — 생성 경로 부재 우회',
-        },
-      });
-      ledger.push(`sp_pcb_rfq #${String(num(seeded.id))} (MD2→협력2, round 1 — 직삽입 시드)`);
-      const retry = await api(M2, 'POST', `/api/partner/pcb-pos/${String(round1TopPoId)}/children`, {
-        childRfqId: num(seeded.id),
-      });
-      expect(retry.status, `회차 하위 발주(시드 후): ${JSON.stringify(retry.json)}`).toBe(200);
-    }
-
-    const childPo = await prisma.spPcbPo.findFirst({
-      where: { specId: BigInt(specId), partnerId: child.id, parentPartnerId: md2PartnerId ?? 0n, reorderRound: 1 },
-      orderBy: { id: 'desc' },
+    expect(mismatch.status, `round 0 회신 유용: ${JSON.stringify(mismatch.json)}`).toBe(400);
+    expect(mismatch.json?.error).toBe('CHILD_RFQ_MISMATCH');
+    // 가드 ② — childRfqId 도 partnerId 도 없으면 대상 불명.
+    const noTarget = await api(M2, 'POST', `/api/partner/pcb-pos/${String(round1TopPoId)}/children`, {});
+    expect(noTarget.status, JSON.stringify(noTarget.json)).toBe(400);
+    expect(noTarget.json?.error).toBe('PARTNER_REQUIRED');
+    // 가드 ③ — 원회차에 하위 발주가 없는 대상은 복사 원본 부재.
+    const wrongTarget = await api(M2, 'POST', `/api/partner/pcb-pos/${String(round1TopPoId)}/children`, {
+      partnerId: num(md2PartnerId ?? 0n), // MD 자신 — 원회차 하위 발주가 있을 리 없다
     });
-    expect(childPo, '회차 하위 발주 B′').toBeTruthy();
+    expect(wrongTarget.status, JSON.stringify(wrongTarget.json)).toBe(409);
+    expect(wrongTarget.json?.error).toBe('NO_ORIGIN_CHILD_PO');
+
+    // 실경로 — 포털 A′ 상세의 [원발주 조건으로 하위 발주] 버튼 + confirmDialog 로 발행.
+    await view(md2View, `/app/partner/pcb/pos/${String(round1TopPoId)}`, 'V07-md2-round1-before-child');
+    const issueBtn = md2View.page.getByRole('button', { name: '원발주 조건으로 하위 발주' });
+    await issueBtn.first().waitFor({ state: 'visible', timeout: 15_000 });
+    await issueBtn.first().click();
+    const dlg = md2View.page.locator('[role="alertdialog"]');
+    await dlg.waitFor({ state: 'visible', timeout: 10_000 });
+    await rp.shot(md2View, 'V07-md2-child-po-confirm');
+    await dlg.getByRole('button', { name: '하위 발주' }).click();
+
+    // 생성 확인은 DB 폴링(화면 리렌더와 무관) — 조건 복사·회차 상속을 전수 검증한다.
+    let childPo: any = null;
+    for (let i = 0; i < 30 && childPo === null; i += 1) {
+      await new Promise((r) => setTimeout(r, 500));
+      childPo = await prisma.spPcbPo.findFirst({
+        where: { specId: BigInt(specId), partnerId: child.id, parentPartnerId: md2PartnerId ?? 0n, reorderRound: 1 },
+        orderBy: { id: 'desc' },
+      });
+    }
+    expect(childPo, '회차 하위 발주 B′(화면 버튼 실행)').toBeTruthy();
     round1ChildPoId = num(childPo.id);
+    ledger.push(`sp_pcb_po #${String(round1ChildPoId)} (MD2→협력2, A/S round 1 — 원발주 조건 복사)`);
+    await rp.shot(md2View, 'V07-md2-round1-child-issued');
+
+    // 조건 복사 검증 — 원본은 원회차 하위 발주 B(레거시 동형 — 하위 RFQ 없이 직발주).
+    const originChild = await prisma.spPcbPo.findUnique({ where: { id: BigInt(childPoId) } });
     expect(childPo.reorderRound, 'parentPo.reorderRound 자동 상속=1').toBe(1);
     expect(childPo.status, 'B′ issued').toBe('issued');
-    ledger.push(`sp_pcb_po #${String(round1ChildPoId)} (MD2→협력2, A/S round 1)`);
+    expect(String(childPo.currency), '통화 원회차 하위(B) 복사').toBe(String(originChild?.currency));
+    expect(Number(childPo.priceOriginal), '가격 복사').toBe(Number(originChild?.priceOriginal));
+    expect(childPo.subCurrency, 'sub 통화 복사').toBe(originChild?.subCurrency ?? null);
+    expect(childPo.destinationCountry, '직송지 복사').toBe(originChild?.destinationCountry ?? null);
+    expect(childPo.paymentTerms, '지불조건 복사').toBe(originChild?.paymentTerms ?? null);
+    expect(childPo.deliveryDate, '납기 비움(proceed A′ 복사와 대칭)').toBeNull();
+    expect(String(childPo.rfqId), '근거 회신 참조 승계').toBe(String(originChild?.rfqId));
+    expect(JSON.stringify(childPo.eqHistory), 'EQ 이력 초기화').toBe('[]');
+
+    // 같은 회차 중복 발주 차단 — 조건 복사 경로도 ALREADY_ISSUED 규율 동일.
+    const dup = await api(M2, 'POST', `/api/partner/pcb-pos/${String(round1TopPoId)}/children`, {
+      partnerId: num(child.id),
+    });
+    expect(dup.status, JSON.stringify(dup.json)).toBe(409);
+    expect(dup.json?.error).toBe('ALREADY_ISSUED');
 
     // 하위가 생겼으니 A′ 의 EQ 위임이 B′ 로 연결된다.
     const after = await api(M2, 'GET', `/api/partner/pcb-pos/${String(round1TopPoId)}`);
     expect(after.json?.data?.eq?.delegatePoId, '회차 EQ 위임 대상=B′').toBe(round1ChildPoId);
-  }, 120_000);
+    F(
+      'T2',
+      'obs',
+      `회차 하위 발주 신경로 — [원발주 조건으로 하위 발주] 버튼으로 B′#${String(round1ChildPoId)} 발행` +
+        `(childRfqId 없음·조건 복사·납기 null) · 가드 회귀 CHILD_RFQ_MISMATCH/PARTNER_REQUIRED/` +
+        `NO_ORIGIN_CHILD_PO/ALREADY_ISSUED`,
+    );
+  }, 180_000);
 
   test('T2d. 회차 EQ — 하위 파일→승인요청 → EQ 고객확인(관리자 요청→고객 PHP 승인) → 승인→생산', async (ctx) => {
     if (specId === null || round1ChildPoId === null || odId === null) return ctx.skip();

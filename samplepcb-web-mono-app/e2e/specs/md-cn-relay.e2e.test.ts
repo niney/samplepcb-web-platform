@@ -327,6 +327,18 @@ describe.skipIf(!RUN || !JOURNEY)('MD 시나리오 5 — CN MD 완주(mdtester2�
     const before = await api(M2, 'GET', `/api/partner/pcb-pos/${String(topPoId)}`);
     expect(before.json?.data?.eq?.blocked, '하위 발주 전 EQ 시작 불가').toBe(true);
 
+    // 회귀 — 원발주(round 0)의 하위 발주는 childRfqId 필수 규율 유지. 회차 조건 복사
+    // 경로(여정 7호 교정)가 계약을 optional 로 완화했지만 round 0 은 서버가 끊는다
+    // (partnerId 를 줘도 마찬가지 — 복사 경로는 회차 전용).
+    const noRfq = await api(M2, 'POST', `/api/partner/pcb-pos/${String(topPoId)}/children`, {});
+    expect(noRfq.status, `round 0 childRfqId 생략: ${JSON.stringify(noRfq.json)}`).toBe(400);
+    expect(noRfq.json?.error, 'round 0 규율 — 하위 회신 필수').toBe('CHILD_RFQ_REQUIRED');
+    const noRfqWithPartner = await api(M2, 'POST', `/api/partner/pcb-pos/${String(topPoId)}/children`, {
+      partnerId: num(child.id),
+    });
+    expect(noRfqWithPartner.status, JSON.stringify(noRfqWithPartner.json)).toBe(400);
+    expect(noRfqWithPartner.json?.error, 'partnerId 로도 우회 불가').toBe('CHILD_RFQ_REQUIRED');
+
     const create = await api(M2, 'POST', `/api/partner/pcb-pos/${String(topPoId)}/children`, {
       childRfqId,
     });

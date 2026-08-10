@@ -447,12 +447,23 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
             error: created.error,
             message: '취소된 주문입니다 — 하위 발주를 시작하지 말고 샘플피씨비 담당자에게 문의해 주세요.',
           });
+        // 회차 조건 복사 경로 — 원회차에 대상 하위 발주가 없으면 복사할 원본이 없다(409).
+        if (created.error === 'NO_ORIGIN_CHILD_PO')
+          return reply.status(409).send({
+            error: created.error,
+            message:
+              '원주문(round 0)에 이 협력사로의 하위 발주가 없습니다 — 복사할 조건이 없어 회차 하위 발주를 만들 수 없습니다.',
+          });
+        const badRequestMessages: Record<string, string> = {
+          CHILD_NOT_QUOTED: '회신 완료된 하위 견적행만 발주할 수 있습니다.',
+          CHILD_RFQ_REQUIRED:
+            '원주문(round 0) 하위 발주는 회신 완료된 하위 견적행(childRfqId)이 필요합니다.',
+          PARTNER_REQUIRED: '회차 하위 발주는 대상 협력사(partnerId)를 지정해야 합니다.',
+        };
         return reply.status(400).send({
           error: created.error,
           message:
-            created.error === 'CHILD_NOT_QUOTED'
-              ? '회신 완료된 하위 견적행만 발주할 수 있습니다.'
-              : '하위 견적행이 이 발주 건과 일치하지 않습니다.',
+            badRequestMessages[created.error] ?? '하위 견적행이 이 발주 건과 일치하지 않습니다.',
         });
       }
 
