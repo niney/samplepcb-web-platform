@@ -1173,6 +1173,29 @@ W7 은 첨부 삭제에 상태 가드, W8 은 선적 존재 시 목적지 잠금
 검증: probe 8/8(신설 가드 6종 전부 409+순환) · **여정 4종 41/41**(가드가 정상 경로 무영향 —
 전부 selected 발주라 통과) · pcb-guards 8/2skip · vitest 737 · typecheck·lint 0건 · 정리 CLEAN.
 
+### MD 시나리오 1 — 2단 견적 루프, mdtester 상설 픽스처 (2026-08-10)
+
+mdtester 를 주인공으로 한 MD 시나리오 연작의 첫 편(`md-quote-loop.e2e.test.ts`). 가장 간단한
+것부터 — 주문·발주·물류 없이 **견적요청이 MD 를 거쳐 내려갔다 마진을 얹고 올라오는 루프**만
+본다. RUN 게이트만이라 거버·고객 자격 없이 도는 경량 스펙이다(기본 e2e 에 포함).
+
+- **상설 픽스처**: dev DB 의 mdtester 는 g5 회원(마스터딜러·level 2)만 있었고 조직·연결·관계가
+  없었다 — 스펙의 사전 준비가 **없으면 만들고 있으면 재사용**한다(idempotent):
+  조직 `마스터딜러상사`(KR·KRW·pcb_rfq) + sp_partner_member 연결 + 관계 →협력2(링크 USD).
+  여정 4호처럼 만들고 지우는 게 아니라 이후 MD 시나리오들이 공유할 무대로 남긴다.
+  관계 생성은 관리자 API 경유 — MD 전환 가드 검증을 겸한다.
+- **루프 검증**: 관리자→MD 배정(통화 KRW=조직 기본 박제) → MD 포털 목록 노출 → 하위 재배정
+  (통화 USD=**관계 박제 링크 통화** — 조직 기본과 별개) → 하위 회신 USD 200 → MD 선정+마진
+  15% → 상위 회신가 자동 산출(200 × 당일 환율 × 1.15 = 실측 ₩329,889)과 변환점 박제
+  (selectedChildRfqId·marginRate·source*) → 관리자 워크큐에 quoted 로 노출.
+- **화면 실측**: mdtester 스텁 로그인으로 포털 RFQ 상세 — '하위 협력사 견적 (마스터딜러)'
+  섹션에서 선정 라디오·마진 입력·"현재 회신가 ₩329,889" 자동 표기 확인(스크린샷).
+- **정리**: 주행이 만든 RFQ 행만 삭제(스펙 무접촉·잔재 0 어서션) — 픽스처는 남는다.
+  2회 연속 5/5(재사용 경로 포함).
+- **다음 편 후보**: 루프 이후를 주문에 연결(관리자 선정+확정가 → 고객 주문 → MD 발주 →
+  EQ 위임 — 여정 4호와 달리 상설 픽스처 기반), MD 하위 재선정(마진 변경·다른 하위로 교체),
+  하위 배정 회수.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
