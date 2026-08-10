@@ -42,7 +42,7 @@ import { neededQty, stampOrderQty } from '@sp/utils';
 import { prisma } from '../lib/prisma';
 import { bomOrderformUrl, orderBomQuote } from '../lib/bom-order';
 import {
-  getCartStates,
+  getBomCartStates,
   getMembersByIds,
   selectCartRows,
 } from '../lib/g5-db';
@@ -1191,7 +1191,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
     ]);
     // 주문 전환 파생 상태(D16) — ctId 있는 행만 g5 카트 batch 1회 조회.
     const ctIds = rows.flatMap((row) => (row.ctId === null ? [] : [row.ctId]));
-    const cartStates = await getCartStates(ctIds);
+    const cartStates = await getBomCartStates(ctIds);
     return {
       result: true as const,
       data: {

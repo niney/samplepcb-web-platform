@@ -1,8 +1,10 @@
-import type { Ref } from 'vue';
+import { computed, type Ref } from 'vue';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { apiGet, apiSend } from '@sp/shared';
 import {
   AdminBomOrderListResponse,
+  AdminBomOrderCancelPreviewResponse,
+  AdminBomOrderCancelResponse,
   AdminOrderActionResponse,
   AdminOrderEditResponse,
   apiRoutes,
@@ -75,6 +77,39 @@ export function useConfirmBomOrderReceipt() {
   });
 }
 
+/** BOM 취소 미리보기 — 결제·발주·부분취소 범위 판정은 서버 단일 진실이다. */
+export function useBomOrderCancelPreview(quoteId: Ref<string | null>) {
+  return useQuery({
+    queryKey: ['admin', 'bom-orders', 'cancel-preview', quoteId],
+    queryFn: () =>
+      apiGet(
+        `${apiRoutes.adminBomOrders}/${quoteId.value ?? ''}/cancel-preview`,
+        AdminBomOrderCancelPreviewResponse,
+      ),
+    enabled: computed(() => quoteId.value !== null),
+  });
+}
+
+/** 미입금·무통장·발주 전 BOM 카트행 취소. 실행 시 서버가 정책을 다시 검증한다. */
+export function useCancelBomOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, reason }: { quoteId: string; reason: string }) =>
+      apiSend(
+        'POST',
+        `${apiRoutes.adminBomOrders}/${encodeURIComponent(quoteId)}/cancel`,
+        { reason },
+        AdminBomOrderCancelResponse,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    },
+  });
+}
+
 // 전이 후 파생 갱신 — 주문 축 + 타임라인(⑪⑫) + 통합 주문내역까지 함께 무효화.
 function invalidateOrderDerived(qc: ReturnType<typeof useQueryClient>): void {
   void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
@@ -94,7 +129,7 @@ export function useShipBomOrder() {
       apiSend(
         'PATCH',
         `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/force-status`,
-        { target: '배송', delivery, sendMail },
+        { target: '배송', delivery, sendMail, preserveCanceled: true },
         AdminOrderEditResponse,
       ),
     onSuccess: () => {
@@ -111,7 +146,7 @@ export function useCompleteBomOrder() {
       apiSend(
         'PATCH',
         `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/force-status`,
-        { target: '완료' },
+        { target: '완료', preserveCanceled: true },
         AdminOrderEditResponse,
       ),
     onSuccess: () => {

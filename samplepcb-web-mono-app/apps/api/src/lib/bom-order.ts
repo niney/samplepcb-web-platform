@@ -4,7 +4,7 @@ import { prisma } from './prisma';
 import { filterActiveQuoteItems } from './bom-quote';
 import {
   deleteQuoteOption,
-  getCartStates,
+  getBomCartStates,
   getTemplateItem,
   insertCartRow,
   insertQuoteOption,
@@ -61,10 +61,10 @@ export async function orderBomQuote(
     (quote.spareQty > 0 ? ` · 예비 ${String(quote.spareQty)}` : '') +
     ' · VAT 포함';
 
-  // 기존 담김 상태 파생 — ordered 는 거부, cart 는 금액·요약 동기화 후 재사용(확정가
-  // 변경 대비: 코어 before_check_cart_price 가 옵션 행과 대조하므로 둘을 함께 갱신).
+  // 기존 담김 상태 파생 — ordered 는 거부, cart 는 금액·요약 동기화 후 재사용한다.
+  // canceled/none 은 과거 행을 감사 원장으로 보존하고 아래에서 새 ct 행으로 재주문한다.
   if (quote.ctId !== null) {
-    const state = (await getCartStates([quote.ctId])).get(quote.ctId) ?? 'none';
+    const state = (await getBomCartStates([quote.ctId])).get(quote.ctId) ?? 'none';
     if (state === 'ordered') return { ok: false, error: 'ALREADY_ORDERED' };
     if (state === 'cart') {
       await deleteQuoteOption(item.itId, ioId);
@@ -72,7 +72,7 @@ export async function orderBomQuote(
       await updateCartQuoteRow(quote.ctId, ioId, cartPrice, option);
       return { ok: true, ctId: quote.ctId, redirectUrl: bomOrderformUrl };
     }
-    // none(카트에서 삭제됨) → 아래 재담기
+    // canceled 또는 none(카트에서 삭제됨) → 아래 새 행으로 재담기
   }
 
   await deleteQuoteOption(item.itId, ioId); // 잔존 옵션 행 멱등 청소(거버 관례)

@@ -428,7 +428,17 @@ export async function deleteCartRowsByIoId(ioId: string): Promise<number> {
 //   여기서 걸러 내면 담기·주문·수량변경이 자연히 열리고, 응답 enum('none'|'cart'|'ordered')
 //   도 그대로 지켜진다. 목록이 "주문이 지워진 건"을 따로 알아야 할 때는
 //   loadOrderDeletedCartIds 를 쓴다(장바구니에서 뺀 것과 구별해야 하므로).
+//   BOM만 취소류를 재주문 가능 상태로 구분하므로 아래 BomCartState/getBomCartStates를 쓴다.
 export type CartState = 'none' | 'cart' | 'ordered';
+export type BomCartState = CartState | 'canceled';
+
+const CART_CANCELED_STATUSES = new Set(['취소', '반품', '품절', '삭제']);
+
+/** 영카트 카트행 원문을 고객 견적의 주문 상태로 투영한다. */
+export function cartStateFromStatus(status: string): Exclude<BomCartState, 'none'> {
+  if (status === '쇼핑') return 'cart';
+  return CART_CANCELED_STATUSES.has(status) ? 'canceled' : 'ordered';
+}
 
 const CART_STATUS_DELETED = '삭제';
 
@@ -463,6 +473,20 @@ export async function loadOrderDeletedCartIds(ctIds: number[]): Promise<Set<numb
   return new Set(rows.map((r) => Number(r.ct_id)));
 }
 
+/** BOM 주문 상태용 행 단위 투영. 취소 이력을 보존한 채 새 카트행으로 재주문할 수 있다. */
+export async function getBomCartStates(ctIds: number[]): Promise<Map<number, BomCartState>> {
+  const states = new Map<number, BomCartState>();
+  if (ctIds.length === 0) return states;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT ct_id, ct_status FROM g5_shop_cart WHERE ct_id IN (${ctIds.map(() => '?').join(',')})`,
+    ctIds,
+  );
+  for (const row of rows) {
+    states.set(Number(row.ct_id), cartStateFromStatus(String(row.ct_status)));
+  }
+  return states;
+}
+
 export interface CartOrderProgress {
   odStatus: string;
   isPaid: boolean;
@@ -475,7 +499,7 @@ export async function getCartOrderProgress(
   const progress = new Map<number, CartOrderProgress>();
   if (ctIds.length === 0) return progress;
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
-    `SELECT c.ct_id, o.od_status
+    `SELECT c.ct_id, c.ct_status, o.od_status
        FROM g5_shop_cart c
        INNER JOIN g5_shop_order o ON o.od_id = c.od_id
       WHERE c.ct_id IN (${ctIds.map(() => '?').join(',')})
@@ -484,9 +508,10 @@ export async function getCartOrderProgress(
   );
   for (const row of rows) {
     const odStatus = String(row.od_status ?? '');
+    const ctStatus = String(row.ct_status ?? '');
     progress.set(Number(row.ct_id), {
       odStatus,
-      isPaid: odStatus !== '주문',
+      isPaid: isPaidOrderLineStatus(ctStatus),
     });
   }
   return progress;
@@ -497,6 +522,7 @@ export async function getCartOrderProgress(
 
 export interface BomOrderLink {
   odId: string;
+  ctStatus: string;
   ordered: boolean; // ct_status ≠ '쇼핑' — 실주문 라인 여부
 }
 
@@ -510,10 +536,50 @@ export async function getCartOrderLinks(ctIds: number[]): Promise<Map<number, Bo
   for (const row of rows) {
     links.set(Number(row.ct_id), {
       odId: String(row.od_id),
+      ctStatus: String(row.ct_status),
       ordered: String(row.ct_status) !== '쇼핑',
     });
   }
   return links;
+}
+
+export interface CartOrderAttemptLink extends BomOrderLink {
+  ctId: number;
+  ioId: string;
+}
+
+/**
+ * 안정 io_id로 과거 주문 시도까지 읽는다.
+ *
+ * quote.ctId는 재주문 시 최신 행을 가리키지만 취소된 이전 영카트 행은 감사 원장으로 남는다.
+ * Smart BOM 주문 축은 이 조회로 이전 주문의 Case 연결도 잃지 않는다.
+ */
+export async function getCartOrderAttemptsByIoIds(
+  ioIds: string[],
+): Promise<Map<string, CartOrderAttemptLink[]>> {
+  const attempts = new Map<string, CartOrderAttemptLink[]>();
+  if (ioIds.length === 0) return attempts;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT ct_id, od_id, io_id, ct_status
+       FROM g5_shop_cart
+      WHERE io_id IN (${ioIds.map(() => '?').join(',')})
+      ORDER BY ct_id ASC`,
+    ioIds,
+  );
+  for (const row of rows) {
+    const ioId = String(row.io_id ?? '');
+    const ctStatus = String(row.ct_status ?? '');
+    const list = attempts.get(ioId) ?? [];
+    list.push({
+      ctId: Number(row.ct_id),
+      odId: String(row.od_id),
+      ioId,
+      ctStatus,
+      ordered: ctStatus !== '쇼핑',
+    });
+    attempts.set(ioId, list);
+  }
+  return attempts;
 }
 
 export interface OrderHeaderLite {
@@ -535,6 +601,7 @@ export interface OrderHeaderLite {
   isPaid: boolean; // od_status !== '주문'
   settleCase: string;
   cartPrice: number;
+  cancelPrice: number;
   sendCost: number;
   sendCost2: number;
   receiptPrice: number;
@@ -583,7 +650,7 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
     `SELECT od_id, mb_id, od_name, od_email, od_tel, od_hp,
             od_b_name, od_b_tel, od_b_hp, od_b_zip1, od_b_zip2, od_b_addr1, od_b_addr2, od_b_addr3,
-            od_status, od_settle_case, od_cart_price, od_send_cost, od_send_cost2,
+            od_status, od_settle_case, od_cart_price, od_cancel_price, od_send_cost, od_send_cost2,
             od_receipt_price, od_misu,
             od_tax_mny, od_vat_mny, od_free_mny,
             DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time
@@ -611,6 +678,7 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
       isPaid: String(row.od_status) !== '주문',
       settleCase: String(row.od_settle_case ?? ''),
       cartPrice: Number(row.od_cart_price ?? 0),
+      cancelPrice: Number(row.od_cancel_price ?? 0),
       sendCost: Number(row.od_send_cost ?? 0),
       sendCost2: Number(row.od_send_cost2 ?? 0),
       receiptPrice: Number(row.od_receipt_price ?? 0),
@@ -2002,6 +2070,9 @@ export const PAID_ORDER_STATUSES: readonly string[] = [
   '배송',
   '완료',
 ];
+export function isPaidOrderLineStatus(status: string): boolean {
+  return PAID_ORDER_STATUSES.includes(status);
+}
 // SQL IN(...) 리터럴 조립 — 값이 신뢰 가능한 내부 상수라 식별자 위치에 인라인해도 안전.
 const sqlStatusList = (arr: readonly string[]): string => arr.map((s) => `'${s}'`).join(', ');
 // '부분취소' 판정에 쓰는 진행상태 집합(코어 orderlist.php:50) — 제작 단계도 정상 진행이라 포함한다.
@@ -3009,7 +3080,7 @@ export type OrderItemSkipReason =
   | 'ORDER_CHANGED';
 
 export interface OrderItemStatusOptions {
-  /** PCB 즉시취소 안전판: 주문 헤더를 잠그고 주문='주문'·수납액=0·무통장일 때만 허용. */
+  /** 즉시취소 안전판: 주문 헤더를 잠그고 주문='주문'·수납액=0·무통장·PG 거래 없음일 때만 허용. */
   requireUnpaidBankTransfer?: boolean;
   /** 영카트 ct_history 형식은 유지하고 주문 헤더 변경이력에 별도 사유를 남긴다. */
   historyReason?: string;
@@ -3166,6 +3237,7 @@ export async function setOrderItemsStatus(
              AND o.od_status = '주문'
              AND o.od_receipt_price = 0
              AND o.od_settle_case = '무통장'
+             AND COALESCE(o.od_tno, '') = ''
         )`
     : '';
 
@@ -3175,7 +3247,7 @@ export async function setOrderItemsStatus(
       // 주문 헤더를 먼저 잠근 뒤 카트행·금액·헤더를 같은 연결에서 처리한다. 입금확인이나
       // PHP 영카트 상태 변경이 동시에 들어오면 둘 중 하나가 끝난 뒤 최신 상태로 판정된다.
       const [guardRows] = await connection.query<RowDataPacket[]>(
-        `SELECT od_status, od_receipt_price, od_settle_case
+        `SELECT od_status, od_receipt_price, od_settle_case, od_tno
            FROM g5_shop_order
           WHERE od_id = ?
           FOR UPDATE`,
@@ -3186,7 +3258,8 @@ export async function setOrderItemsStatus(
         guard === undefined ||
         String(guard.od_status ?? '') !== '주문' ||
         Number(guard.od_receipt_price ?? 0) !== 0 ||
-        String(guard.od_settle_case ?? '') !== '무통장'
+        String(guard.od_settle_case ?? '') !== '무통장' ||
+        String(guard.od_tno ?? '') !== ''
       ) {
         await connection.rollback();
         return {
@@ -3210,6 +3283,10 @@ export async function setOrderItemsStatus(
         continue;
       }
       const currentStatus = String(ct.ct_status ?? '');
+      if (options.requireUnpaidBankTransfer === true && currentStatus !== '주문') {
+        skipped.push({ ctId, reason: 'ORDER_CHANGED' });
+        continue;
+      }
       const skip = resolveItemCancelSkip(currentStatus, Number(ct.ct_point ?? 0));
       if (skip !== null) {
         skipped.push({ ctId, reason: skip });
@@ -3344,7 +3421,11 @@ export interface ForceStatusDelivery {
   invoiceTime: string;
 }
 
-export type ForceStatusOutcome = 'ok' | 'HAS_POINT' | 'NO_ACTIVE_LINES';
+export type ForceStatusOutcome =
+  | 'ok'
+  | 'HAS_POINT'
+  | 'NO_ACTIVE_LINES'
+  | 'NO_ACTIVE_ITEMS';
 
 // force-status 대상 라인 상태 집합(순수) — 쇼핑/삭제는 항상 제외하고, **취소류는 target 방향으로 갈린다**.
 //  • 역방향 '주문' : 취소류 **포함**. 취소류 행에 '주문'을 걸면 코어 정상 분기가 **un-cancel**(행 복귀)
@@ -3370,24 +3451,33 @@ export async function setOrderForceStatus(
   delivery: ForceStatusDelivery | undefined,
   actorMbId: string,
   ip: string,
+  options: { preserveCanceled?: boolean | undefined } = {},
 ): Promise<ForceStatusOutcome> {
   const pool = getG5Pool();
-  const lineIn = forceStatusLineIn(target);
+  // 통합 주문관리의 명시적 상태 복구는 취소행까지 대상으로 삼지만, Smart BOM 배송은
+  // 과거 부분취소 원장을 그대로 둔 채 현재 활성 행만 배송·완료로 전이해야 한다.
+  const lineStatusPredicate =
+    options.preserveCanceled === true
+      ? `ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)})`
+      : forceStatusLineIn(target);
 
   const [ptRows] = await pool.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS n FROM g5_shop_cart WHERE od_id = ? AND ${lineIn} AND ct_point > 0`,
+    `SELECT COUNT(*) AS n FROM g5_shop_cart WHERE od_id = ? AND ${lineStatusPredicate} AND ct_point > 0`,
     [odId],
   );
   if (Number(ptRows[0]?.n ?? 0) > 0) return 'HAS_POINT';
 
   const [lines] = await pool.query<RowDataPacket[]>(
     `SELECT ct_id, it_id, io_id, io_type, ct_qty, ct_status, ct_stock_use
-       FROM g5_shop_cart WHERE od_id = ? AND ${lineIn}`,
+       FROM g5_shop_cart WHERE od_id = ? AND ${lineStatusPredicate}`,
     [odId],
   );
-  // 전량 취소 주문에 전진 target — 카트행은 하나도 못 움직이면서 od_status 만 올라가면 화면과 원장이
-  // 서로 딴말을 한다. 쓰기 전에 끊고, 라우트가 "먼저 '주문'으로 되돌리라"고 안내한다.
-  if (lines.length === 0 && target !== '주문') return 'NO_ACTIVE_LINES';
+  if (lines.length === 0) {
+    if (options.preserveCanceled === true) return 'NO_ACTIVE_ITEMS';
+    // 전량 취소 주문에 전진 target을 거는 경우 카트행은 못 움직이고
+    // od_status만 올라가는 불일치를 쓰기 전에 막는다.
+    if (target !== '주문') return 'NO_ACTIVE_LINES';
+  }
   const now = kstDateTimeStr(new Date());
   const affectedItemIds = new Set<string>();
 

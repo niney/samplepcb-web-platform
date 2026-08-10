@@ -35,6 +35,7 @@ import type {
 import { prisma } from './prisma';
 import { filterActiveQuoteItems, toItemDto } from './bom-quote';
 import { getBusinessInfo, getOrderInfoByCtId } from './g5-db';
+import { isBomOrderFulfillmentClosed, isBomOrderLinePaid } from './bom-order-cancel';
 import { buildPartnerQuotationDocument } from './bom-trade-documents';
 import { digikeyThirdPartyList, mouserCartInsert } from './supplier-order';
 import {
@@ -452,6 +453,7 @@ export type CreatePosResult =
       ok: false;
       error:
         | 'QUOTE_NOT_FOUND'
+        | 'ORDER_CLOSED'
         | 'NOT_PAID'
         | 'NO_ELIGIBLE_ROWS'
         | 'ALREADY_ISSUED'
@@ -469,7 +471,15 @@ export const createBomPos = async (
 
   // D18-4 게이트 — 결제 확인(od isPaid) 후에만 발행.
   const orderInfo = quote.ctId === null ? null : await getOrderInfoByCtId(quote.ctId);
-  if (!orderInfo?.isPaid) return { ok: false, error: 'NOT_PAID' };
+  if (
+    orderInfo !== null
+    && isBomOrderFulfillmentClosed(orderInfo.odStatus, orderInfo.rowCtStatus)
+  ) {
+    return { ok: false, error: 'ORDER_CLOSED' };
+  }
+  if (orderInfo === null || !isBomOrderLinePaid(orderInfo.rowCtStatus)) {
+    return { ok: false, error: 'NOT_PAID' };
+  }
 
   const groups = await collectPoDraftGroups(quoteId);
   const wanted = partnerIds.map((id) => BigInt(id));

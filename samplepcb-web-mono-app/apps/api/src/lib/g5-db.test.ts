@@ -3,7 +3,9 @@ import {
   buildOrderBaseConds,
   buildOrderListWhere,
   buildOrderTabCond,
+  cartStateFromStatus,
   computeOrderMoney,
+  isPaidOrderLineStatus,
   matchDeliveryRows,
   orderTransitionGuard,
   phpRound,
@@ -39,6 +41,26 @@ const base = (over: Partial<SearchOrdersParams> = {}): SearchOrdersParams => ({
   page: 1,
   pageSize: 20,
   ...over,
+});
+
+describe('영카트 카트행 주문 상태 투영', () => {
+  it('쇼핑·주문 진행·취소류를 BOM 주문 상태로 구분한다', () => {
+    expect(cartStateFromStatus('쇼핑')).toBe('cart');
+    expect(cartStateFromStatus('주문')).toBe('ordered');
+    expect(cartStateFromStatus('입금')).toBe('ordered');
+    expect(cartStateFromStatus('완료')).toBe('ordered');
+    expect(cartStateFromStatus('취소')).toBe('canceled');
+    expect(cartStateFromStatus('반품')).toBe('canceled');
+    expect(cartStateFromStatus('품절')).toBe('canceled');
+    expect(cartStateFromStatus('삭제')).toBe('canceled');
+  });
+
+  it('행 단위 결제 완료 상태는 주문 헤더와 독립적으로 판정한다', () => {
+    expect(isPaidOrderLineStatus('주문')).toBe(false);
+    expect(isPaidOrderLineStatus('입금')).toBe(true);
+    expect(isPaidOrderLineStatus('완료')).toBe(true);
+    expect(isPaidOrderLineStatus('취소')).toBe(false);
+  });
 });
 
 describe('buildOrderTabCond — 탭 8종(배타 조건)', () => {

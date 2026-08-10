@@ -2516,15 +2516,25 @@ function fmtAmount(v: number | null): string {
               <span class="ml-1 text-[10px] text-emerald-700">주문내역에서 진행 상황을 확인하세요.</span>
             </div>
             <template v-else-if="canOrder">
+              <p
+                v-if="detail.orderState === 'canceled'"
+                class="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-semibold leading-[16px] text-amber-800"
+              >
+                이전 주문이 취소되었습니다. 확정 견적은 유지되어 다시 주문할 수 있습니다.
+              </p>
               <button
                 type="button"
                 class="mt-2 w-full rounded-[8px] bg-emerald-600 py-2 text-[12px] font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
                 :disabled="orderMut.isPending.value"
                 @click="orderNow"
               >
-                주문하기 (VAT 포함 {{ fmtWon(Math.round((detail.confirmedTotal ?? 0) * 1.1)) }})
+                {{ detail.orderState === 'canceled' ? '다시 주문하기' : '주문하기' }}
+                (VAT 포함 견적금액 {{ fmtWon(Math.round((detail.confirmedTotal ?? 0) * 1.1)) }})
               </button>
-              <p class="mt-1 text-center text-[10px] text-emerald-700">주문서에서 결제수단을 선택합니다.</p>
+              <p class="mt-1 text-center text-[10px] leading-[15px] text-emerald-700">
+                국내 배송비는 주문서에서 별도 계산됩니다.<br>
+                결제수단과 최종 결제금액을 확인해 주세요.
+              </p>
               <p v-if="orderError !== ''" class="mt-1 text-[10px] font-semibold text-red-600">{{ orderError }}</p>
             </template>
             <!-- 확정가 게이트(D16-1) 안내 — 버튼이 "왜 없는지"를 설명한다 -->

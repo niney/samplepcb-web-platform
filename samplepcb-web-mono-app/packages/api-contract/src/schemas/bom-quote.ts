@@ -932,8 +932,8 @@ export const BomQuoteSummary = z.object({
   answeredAt: z.string().nullable(),
   /** 관리자 확정 총액(VAT 별도) — 목록에서 주문 가능 판정(D16 게이트)용. */
   confirmedTotal: z.number().nullable(),
-  /** 영카트 주문 전환 파생 상태(D16) — 저장 아님, ct/od 조인 파생. */
-  orderState: z.enum(['none', 'cart', 'ordered']),
+  /** 영카트 주문 전환 파생 상태(D16·D30) — 저장 아님, 현재 ct 행에서 파생. */
+  orderState: z.enum(['none', 'cart', 'ordered', 'canceled']),
 });
 export type BomQuoteSummaryType = z.infer<typeof BomQuoteSummary>;
 
@@ -1259,7 +1259,10 @@ export type AdminBomQuoteSummaryType = z.infer<typeof AdminBomQuoteSummary>;
 export const AdminBomQuoteOrderInfo = z.object({
   odId: z.string(),
   odStatus: z.string(), // 영카트 od_status(주문|입금|준비|배송|완료|취소…)
-  isPaid: z.boolean(), // od_status !== '주문'
+  /** 이 BOM 카트행의 상태. 묶음 주문 부분취소에서는 주문 헤더보다 우선한다. */
+  ctStatus: z.string(),
+  /** 이 BOM 카트행이 실제 결제 이후 상태인지 여부. 주문 헤더만으로 판정하지 않는다. */
+  isPaid: z.boolean(),
   receiptPrice: z.number(),
   settleCase: z.string(), // 결제수단
 });

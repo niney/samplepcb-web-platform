@@ -370,7 +370,9 @@ if($is_kakaopay_use) {
 
                  </div>
             </td>
-            <td class="td_num"><?php echo number_format($row['ct_qty']); ?></td>
+            <td class="td_num"><?php echo function_exists('sp_custom_order_quantity_html')
+                ? sp_custom_order_quantity_html($row['it_id'], $row['ct_option'], $row['ct_qty'])
+                : number_format($row['ct_qty']); ?></td>
             <td class="td_numbig  text_right"><?php echo number_format($sell_price); ?></td>
             <td class="td_numbig  text_right"><span class="total_price"><?php echo number_format($sell_price); ?></span></td>
             <td class="td_numbig  text_right"><?php echo number_format($point); ?></td>

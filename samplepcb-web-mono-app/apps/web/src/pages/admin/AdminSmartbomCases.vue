@@ -273,11 +273,17 @@ function openMail(q: CaseRow): void {
                       v-for="(_, idx) in SMARTBOM_STEPS"
                       :key="idx"
                       class="h-1.5 w-1.5 rounded-full"
-                      :class="idx < stepOf(q) ? 'bg-blue-500' : 'bg-gray-200'"
+                      :class="q.orderState === 'canceled' && idx === stepOf(q) - 1
+                        ? 'bg-red-500'
+                        : idx < stepOf(q) ? 'bg-blue-500' : 'bg-gray-200'"
                     />
                   </div>
                   <span class="text-xs text-gray-600">
-                    {{ stepOf(q) === 0 ? '—' : `${stepOf(q)}/12 ${SMARTBOM_STEPS[stepOf(q) - 1] ?? ''}` }}
+                    {{ stepOf(q) === 0
+                      ? '—'
+                      : q.orderState === 'canceled'
+                        ? `${stepOf(q)}/12 주문 취소 · 재주문 대기`
+                        : `${stepOf(q)}/12 ${SMARTBOM_STEPS[stepOf(q) - 1] ?? ''}` }}
                   </span>
                 </div>
               </template>
@@ -301,6 +307,13 @@ function openMail(q: CaseRow): void {
                 title="확정 총액을 등록해야 고객이 주문할 수 있습니다"
               >
                 확정가 미등록
+              </span>
+              <span
+                v-else-if="q.orderState === 'canceled'"
+                class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700"
+                title="이전 주문이 취소되어 고객이 확정 견적으로 다시 주문할 수 있습니다"
+              >
+                주문 취소 · 재주문 대기
               </span>
               <!-- 주문은 됐는데 발주서가 없는 건 — 결제 확인 후 발주가 다음 액션(D18) -->
               <span

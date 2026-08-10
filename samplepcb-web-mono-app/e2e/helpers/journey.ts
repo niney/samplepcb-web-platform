@@ -275,7 +275,7 @@ export async function placeOrderFromQuotes(
       }
       await more.click();
     }
-    await page.getByText('바로 주문', { exact: false }).first().click();
+    await page.locator('.js-sp-quotes-direct:visible').first().click();
     await page.waitForURL('**/shop/orderform*', { timeout: 30_000 });
   } catch (e) {
     rp.F(
@@ -309,12 +309,13 @@ export async function placeOrderFromBomQuote(
     prefix: string;
     buyerName: string;
     expectedOrderAmount?: number;
+    expectedAppliedSetQty?: number;
   },
 ): Promise<{ odId: string; status: string }> {
   const { page } = customer;
   const previousOdId = (await findLatestOrder(customer.mbId))?.odId ?? null;
   await page.goto(`${BASE_URL}/app/bom/${opts.quoteId}`, { waitUntil: 'domcontentloaded' });
-  const orderButton = page.getByRole('button', { name: /^주문하기/ }).first();
+  const orderButton = page.getByRole('button', { name: /^(?:다시 )?주문하기/ }).first();
   await orderButton.waitFor({ state: 'visible', timeout: 30_000 });
   await rp.shot(customer, `${opts.prefix}-bom-answered`);
 
@@ -331,15 +332,94 @@ export async function placeOrderFromBomQuote(
     throw e;
   }
 
-  if (opts.expectedOrderAmount !== undefined) {
+  if (opts.expectedOrderAmount !== undefined || opts.expectedAppliedSetQty !== undefined) {
     const bomRow = page.locator('#sod_list tbody tr').filter({ hasText: '부품 BOM 주문' }).first();
     await bomRow.waitFor({ state: 'visible', timeout: 15_000 });
     const cells = bomRow.locator('td');
+    if (opts.expectedOrderAmount !== undefined) {
+      const salePrice = Number((await cells.nth(2).innerText()).replace(/[^0-9-]/g, ''));
+      const subtotal = Number((await cells.nth(3).innerText()).replace(/[^0-9-]/g, ''));
+      if (salePrice !== opts.expectedOrderAmount || subtotal !== opts.expectedOrderAmount) {
+        throw new Error(
+          `BOM 주문서 금액 불일치 — 판매가 ${String(salePrice)}, 소계 ${String(subtotal)}, 기대 ${String(opts.expectedOrderAmount)}`,
+        );
+      }
+    }
+    if (opts.expectedAppliedSetQty !== undefined) {
+      const qtyText = await cells.nth(1).innerText();
+      if (!qtyText.includes(`적용 ${String(opts.expectedAppliedSetQty)}세트`)) {
+        throw new Error(
+          `BOM 주문서 적용 수량 불일치 — 표시 "${qtyText}", 기대 ${String(opts.expectedAppliedSetQty)}세트`,
+        );
+      }
+    }
+  }
+  await rp.shot(customer, `${opts.prefix}-orderform-top`);
+
+  return completeBankTransferOrder(customer, rp, {
+    step: opts.step,
+    prefix: opts.prefix,
+    buyerName: opts.buyerName,
+    previousOdId,
+  });
+}
+
+/**
+ * 고객: 통합 견적관리에서 확정 Smart BOM 여러 건을 선택해 한 영카트 주문으로 만든다.
+ * 부분취소 여정처럼 주문:Case=1:N 자체가 검증 대상일 때 단건 상세 헬퍼 대신 사용한다.
+ */
+export async function placeBatchOrderFromBomQuotes(
+  customer: JourneySession,
+  rp: JourneyReport,
+  opts: {
+    quotes: {
+      quoteId: string;
+      title: string;
+      expectedOrderAmount: number;
+      expectedAppliedSetQty: number;
+    }[];
+    step: string;
+    prefix: string;
+    buyerName: string;
+  },
+): Promise<{ odId: string; status: string }> {
+  const { page } = customer;
+  const previousOdId = (await findLatestOrder(customer.mbId))?.odId ?? null;
+  if (opts.quotes.length < 2) throw new Error('BOM 배치 주문은 견적 2건 이상이 필요합니다');
+
+  await page.goto(`${BASE_URL}/shop/quotes#bom`, { waitUntil: 'domcontentloaded' });
+  for (const quote of opts.quotes) {
+    const checkbox = page.locator(`#sp-bom-check-${quote.quoteId}`);
+    await checkbox.waitFor({ state: 'attached', timeout: 30_000 });
+    if (await checkbox.isDisabled()) {
+      throw new Error(`BOM 견적 #${quote.quoteId}가 배치 주문 가능 상태가 아닙니다`);
+    }
+    await checkbox.check({ force: true });
+  }
+  await page.waitForFunction(
+    (count: number) => document.querySelector('#sp-quotes-count')?.textContent?.includes(`${String(count)}건`) === true,
+    opts.quotes.length,
+    { timeout: 10_000 },
+  );
+  await rp.shot(customer, `${opts.prefix}-quotes-selected`);
+
+  await page.locator('.js-sp-quotes-direct:visible').first().click();
+  await page.waitForURL('**/shop/orderform*', { timeout: 30_000 });
+  for (const quote of opts.quotes) {
+    const row = page.locator('#sod_list tbody tr').filter({ hasText: quote.title }).first();
+    await row.waitFor({ state: 'visible', timeout: 15_000 });
+    const cells = row.locator('td');
     const salePrice = Number((await cells.nth(2).innerText()).replace(/[^0-9-]/g, ''));
     const subtotal = Number((await cells.nth(3).innerText()).replace(/[^0-9-]/g, ''));
-    if (salePrice !== opts.expectedOrderAmount || subtotal !== opts.expectedOrderAmount) {
+    if (salePrice !== quote.expectedOrderAmount || subtotal !== quote.expectedOrderAmount) {
       throw new Error(
-        `BOM 주문서 금액 불일치 — 판매가 ${String(salePrice)}, 소계 ${String(subtotal)}, 기대 ${String(opts.expectedOrderAmount)}`,
+        `BOM #${quote.quoteId} 주문서 금액 불일치 — 판매가 ${String(salePrice)}, 소계 ${String(subtotal)}, 기대 ${String(quote.expectedOrderAmount)}`,
+      );
+    }
+    const qtyText = await cells.nth(1).innerText();
+    if (!qtyText.includes(`적용 ${String(quote.expectedAppliedSetQty)}세트`)) {
+      throw new Error(
+        `BOM #${quote.quoteId} 주문서 적용 수량 불일치 — 표시 "${qtyText}", 기대 ${String(quote.expectedAppliedSetQty)}세트`,
       );
     }
   }

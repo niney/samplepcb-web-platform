@@ -482,5 +482,7 @@ export const AdminOrderForceStatusRequest = z.object({
     .optional(),
   /** 배송 진입 시 영카트 주문 메일 템플릿으로 안내한다. 기존 호출은 기본 미발송. */
   sendMail: z.boolean().optional(),
+  /** 부분취소 주문의 이행 화면에서 취소·반품·품절 행을 되살리지 않고 활성 행만 전이한다. */
+  preserveCanceled: z.boolean().optional(),
 });
 export type AdminOrderForceStatusRequestType = z.infer<typeof AdminOrderForceStatusRequest>;

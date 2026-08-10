@@ -52,7 +52,7 @@ import {
   loadShipmentAdminPending,
 } from '../lib/bom-po';
 import {
-  getCartStates,
+  getBomCartStates,
   getCartOrderProgress,
   getMembersByIds,
   getNotifyConfig,
@@ -234,7 +234,7 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       shipmentQuotes,
       rfqGroups,
     ] = await Promise.all([
-      getCartStates(ctIds),
+      getBomCartStates(ctIds),
       getCartOrderProgress(ctIds),
       prisma.spBomPo.groupBy({
         by: ['quoteId'],

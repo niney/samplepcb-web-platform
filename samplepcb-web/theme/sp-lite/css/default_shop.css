@@ -412,6 +412,27 @@
 .sp-cart-act .btn_submit { font-size: 16px; min-height: 52px; }
 .sp-cart-act .cart-naverpay { text-align: center; }
 
+.sp-quotes-mobile-order { display: none; }
+
+#sod_list .sp-bom-order-qty {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    white-space: nowrap;
+}
+
+#sod_list .sp-bom-order-qty strong {
+    color: var(--sp-primary);
+    font-size: 14px;
+}
+
+#sod_list .sp-bom-order-qty small {
+    color: var(--sp-muted);
+    font-size: 10px;
+    font-weight: 500;
+}
+
 /* --- 빈 장바구니 --- */
 .sp-cart-empty {
     display: flex;
@@ -624,6 +645,48 @@
     .sp-cart-body { grid-template-columns: minmax(0, 1fr); }
 
     .sp-cart-side { position: static; }
+
+    .sp-quotes-mobile-order {
+        position: sticky;
+        top: calc(var(--sp-header-h) + 8px);
+        z-index: 8;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 12px 0;
+        padding: 10px 12px;
+        border: 1px solid color-mix(in srgb, var(--sp-primary) 24%, var(--sp-line));
+        border-radius: var(--sp-radius);
+        background: color-mix(in srgb, var(--sp-bg) 96%, transparent);
+        box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
+        backdrop-filter: blur(10px);
+    }
+
+    .sp-quotes-mobile-order p {
+        min-width: 0;
+        margin: 0;
+        color: var(--sp-ink);
+        font-size: 13px;
+        line-height: 1.35;
+    }
+
+    .sp-quotes-mobile-order strong { color: var(--sp-primary); }
+
+    .sp-quotes-mobile-order small {
+        display: block;
+        margin-top: 2px;
+        color: var(--sp-muted);
+        font-size: 10px;
+    }
+
+    .sp-quotes-mobile-order .sp-btn {
+        width: auto;
+        min-width: 108px;
+        min-height: 44px;
+        flex: 0 0 auto;
+        padding-inline: 14px;
+    }
 }
 
 @media (max-width: 640px) {
@@ -655,6 +718,8 @@
     }
 
     .sp-cart-toolbar { padding: 12px 16px; }
+
+    .sp-quotes-mobile-order { top: calc(var(--sp-header-h) + 4px); }
 }
 
 /* ==========================================================================

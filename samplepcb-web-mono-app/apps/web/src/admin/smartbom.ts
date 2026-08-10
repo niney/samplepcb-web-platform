@@ -27,7 +27,7 @@ export const SMARTBOM_STEPS = [
 /** 파생 입력 — 전부 선택적: 모르는 값은 생략하면 그 단계까지만 계산된다(목록 vs 상세).
  * `| undefined` 명시는 exactOptionalPropertyTypes 에서 `a ?? undefined` 전달을 허용하기 위함. */
 export interface SmartbomDerived {
-  orderState?: 'none' | 'cart' | 'ordered' | undefined;
+  orderState?: 'none' | 'cart' | 'ordered' | 'canceled' | undefined;
   isPaid?: boolean | undefined;
   poCount?: number | undefined;
   poReceivedCount?: number | undefined;
@@ -45,6 +45,9 @@ export const smartbomStepOf = (
   status: BomQuoteStatusType,
   derived: SmartbomDerived = {},
 ): number => {
+  // 결제 전 주문 취소는 견적 회신(⑤)으로 되돌아간 상태가 아니라, 주문서 접수(⑥)까지
+  // 도달한 뒤 재주문을 기다리는 별도 업무 상태다. 화면에서 ⑥을 취소 색상/문구로 덮어쓴다.
+  if (derived.orderState === 'canceled') return 6;
   if (derived.orderState === 'ordered') {
     if (derived.odStatus === '완료') return 12;
     if (derived.odStatus === '배송') return 11;

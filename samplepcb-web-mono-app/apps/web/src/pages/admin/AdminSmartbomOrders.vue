@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
-import type { AdminBomOrderListItemType } from '@sp/api-contract';
+import type { AdminBomOrderCaseType, AdminBomOrderListItemType } from '@sp/api-contract';
 import {
   useAdminBomOrders,
   useConfirmBomOrderReceipt,
@@ -10,12 +10,14 @@ import {
 } from '../../admin/useAdminBomOrders';
 import { smartbomFmtWon } from '../../admin/smartbom';
 import UiPagination from '../../components/ui/UiPagination.vue';
+import BomOrderCancelModal from '../../components/admin/smartbom/BomOrderCancelModal.vue';
 import { confirmDialog } from '../../lib/confirmDialog';
 
 // 스마트 BOM 주문·결제(주문 축, D19 — 관리자 메뉴 재편으로 결제 관점만 남김) —
 // 경리/CS 의 화면: 입금 대기 → 입금확인. D17 배치 주문이면 한 주문에 Case 여러 개(칩).
 // 발주 대기 큐는 [발주] 메뉴, 배송 처리·구매확정은 [선적·배송] 메뉴가 담당한다.
-// 주문 편집·취소는 통합 관리 주문내역 위임.
+// 미입금 무통장·발주 전 BOM 행은 이 화면에서 안전 취소한다. 결제 승인 취소·환불처럼
+// 영카트 원장이 필요한 복잡한 처리는 통합 주문내역으로 안내한다.
 
 const router = useRouter();
 const filters = ref<AdminBomOrderFilters>({ page: 1, pageSize: 20, tab: 'all' });
@@ -53,11 +55,45 @@ function openCase(quoteId: string): void {
 }
 
 const statusCls = (item: AdminBomOrderListItemType): string =>
-  !item.isPaid
-    ? 'bg-amber-100 text-amber-700'
-    : item.odStatus === '취소'
-      ? 'bg-red-100 text-red-600'
-      : 'bg-emerald-100 text-emerald-700';
+  item.odStatus === '취소'
+    ? 'bg-red-100 text-red-600'
+    : item.cancelPrice > 0
+      ? 'bg-amber-100 text-amber-800'
+      : !item.isPaid
+        ? 'bg-amber-100 text-amber-700'
+        : 'bg-emerald-100 text-emerald-700';
+
+const statusLabel = (item: AdminBomOrderListItemType): string =>
+  item.odStatus === '취소'
+    ? '취소'
+    : item.cancelPrice > 0
+      ? `부분취소 · ${item.odStatus}`
+      : item.isPaid ? item.odStatus : '입금 대기';
+
+const canConfirmReceipt = (item: AdminBomOrderListItemType): boolean =>
+  item.odStatus === '주문'
+  && item.settleCase.includes('무통장')
+  && item.cases.some(
+    (entry) => entry.isCurrentAttempt && !entry.isCanceled && entry.ctStatus === '주문',
+  );
+
+const cancelTarget = ref<AdminBomOrderCaseType | null>(null);
+function openCancel(entry: AdminBomOrderCaseType): void {
+  cancelTarget.value = entry;
+}
+function closeCancel(): void {
+  cancelTarget.value = null;
+}
+function openCancelCase(): void {
+  const quoteId = cancelTarget.value?.quoteId;
+  cancelTarget.value = null;
+  if (quoteId !== undefined) openCase(quoteId);
+}
+
+const ordersTableScroll = ref<HTMLElement | null>(null);
+function moveOrdersTable(direction: -1 | 1): void {
+  ordersTableScroll.value?.scrollBy({ left: direction * 360, behavior: 'smooth' });
+}
 
 // 주문일시 — 한국 스타일("2026. 7. 30. 오후 6:32"). 서버 값은 'YYYY-MM-DD HH:mm:ss'.
 const fmtDate = (v: string | null): string =>
@@ -111,7 +147,7 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
         <RouterLink
           :to="{ name: 'admin-orders' }"
           class="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-          title="주문 편집·취소는 통합 관리 주문내역에서"
+          title="결제 승인 취소·환불과 주문 상세 편집은 통합 관리 주문내역에서"
         >
           통합 주문내역 →
         </RouterLink>
@@ -136,7 +172,29 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
     <p v-if="actionError !== ''" class="text-xs font-semibold text-red-600">{{ actionError }}</p>
 
     <!-- 주문 목록(주문 축 — 배치 주문이면 Case 칩 여러 개) -->
-    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
+    <div class="flex items-center gap-2 rounded-t-xl border border-b-0 border-blue-100 bg-blue-50/80 px-3 py-1.5 text-[11px] font-medium text-blue-800 min-[1536px]:hidden">
+      <span class="min-w-0 flex-1">진행·작업은 오른쪽에 고정되어 있습니다. 화살표로 주문 상세 열을 확인할 수 있습니다.</span>
+      <button
+        type="button"
+        class="grid size-7 shrink-0 place-items-center rounded-md border border-blue-200 bg-white text-base hover:bg-blue-100"
+        aria-label="BOM 주문표 왼쪽으로 이동"
+        @click="moveOrdersTable(-1)"
+      >
+        ←
+      </button>
+      <button
+        type="button"
+        class="grid size-7 shrink-0 place-items-center rounded-md border border-blue-200 bg-white text-base hover:bg-blue-100"
+        aria-label="BOM 주문표 오른쪽으로 이동"
+        @click="moveOrdersTable(1)"
+      >
+        →
+      </button>
+    </div>
+    <div
+      ref="ordersTableScroll"
+      class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin] max-[1535px]:rounded-t-none"
+    >
       <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
           <tr>
@@ -147,32 +205,55 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
             <th class="whitespace-nowrap px-4 py-2.5">결제수단</th>
             <th class="whitespace-nowrap px-4 py-2.5 text-right">주문 합계</th>
             <th class="whitespace-nowrap px-4 py-2.5 text-right">수납 / 미수</th>
-            <th class="px-4 py-2.5">상태</th>
-            <th class="px-4 py-2.5" />
+            <th class="sticky right-0 z-[2] w-32 min-w-32 border-l border-gray-200 bg-gray-50 px-3 py-2.5 text-center normal-case shadow-[-10px_0_16px_-16px_rgba(15,23,42,0.65)]">
+              진행 / 작업
+            </th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-          <tr v-for="item in items" :key="item.odId" class="hover:bg-blue-50/30">
+          <tr v-for="item in items" :key="item.odId" class="group hover:bg-blue-50/30">
             <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-600">{{ item.odId }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(item.orderedAt) }}</td>
             <td class="px-4 py-2.5 text-gray-600">{{ item.mbId }}</td>
             <td class="px-4 py-2.5">
-              <button
+              <div
                 v-for="entry in item.cases"
-                :key="entry.quoteId"
-                type="button"
-                class="mb-0.5 mr-1 rounded-full border border-blue-200 px-2 py-0.5 text-xs text-blue-700 hover:bg-blue-50"
-                :title="entry.title"
-                @click="openCase(entry.quoteId)"
+                :key="`${entry.quoteId}-${String(entry.ctId)}`"
+                class="mb-1 flex max-w-72 items-center gap-1 rounded-lg border px-1.5 py-1 text-xs"
+                :class="entry.isCanceled || !entry.isCurrentAttempt ? 'border-gray-200 bg-gray-50 text-gray-500' : 'border-blue-200 bg-blue-50/40 text-blue-700'"
               >
-                <span class="max-w-40 truncate align-middle">{{ entry.title }}</span>
-              </button>
+                <button
+                  type="button"
+                  class="min-w-0 flex-1 truncate text-left hover:underline"
+                  :title="entry.title"
+                  @click="openCase(entry.quoteId)"
+                >
+                  {{ entry.title }}
+                </button>
+                <span
+                  class="shrink-0 rounded px-1 py-0.5 text-[10px] font-bold"
+                  :class="entry.isCanceled ? 'bg-red-100 text-red-700' : !entry.isCurrentAttempt ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-700'"
+                >
+                  {{ entry.isCanceled
+                    ? (entry.isCurrentAttempt ? '주문 취소' : '이전 주문 · 취소')
+                    : !entry.isCurrentAttempt ? '이전 주문' : entry.ctStatus }}
+                </span>
+                <button
+                  v-if="entry.isCurrentAttempt && !entry.isCanceled && entry.ctStatus === '주문'"
+                  type="button"
+                  class="shrink-0 rounded border border-red-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-red-600 hover:bg-red-50"
+                  :aria-label="`${entry.title} 주문 취소`"
+                  @click="openCancel(entry)"
+                >
+                  취소
+                </button>
+              </div>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-600">{{ item.settleCase || '—' }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">
               <p class="font-semibold text-gray-900">{{ smartbomFmtWon(item.orderPrice) }}</p>
               <p class="mt-0.5 text-[11px] text-gray-400">
-                상품 {{ smartbomFmtWon(item.cartPrice) }}<template v-if="item.shippingPrice > 0"> + 배송 {{ smartbomFmtWon(item.shippingPrice) }}</template>
+                상품 {{ smartbomFmtWon(item.cartPrice) }}<template v-if="item.cancelPrice > 0"> − 취소 {{ smartbomFmtWon(item.cancelPrice) }}</template><template v-if="item.shippingPrice > 0"> + 배송 {{ smartbomFmtWon(item.shippingPrice) }}</template>
               </p>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-xs">
@@ -181,16 +262,14 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
               <!-- 음수는 돌려줄 돈 — 표시하지 않으면 과입금 주문이 정상 건과 구분되지 않는다. -->
               <span v-else-if="item.misu < 0" class="text-amber-600"> / 과입금 {{ smartbomFmtWon(-item.misu) }}</span>
             </td>
-            <td class="px-4 py-2.5">
-              <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(item)">
-                {{ item.isPaid ? item.odStatus : '입금 대기' }}
+            <td class="sticky right-0 z-[1] w-32 min-w-32 border-l border-gray-100 bg-surface px-3 py-2.5 text-center shadow-[-10px_0_16px_-16px_rgba(15,23,42,0.65)] group-hover:bg-blue-50">
+              <span class="inline-block rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(item)">
+                {{ statusLabel(item) }}
               </span>
-            </td>
-            <td class="whitespace-nowrap px-4 py-2.5 text-right">
               <button
-                v-if="!item.isPaid && item.settleCase.includes('무통장')"
+                v-if="canConfirmReceipt(item)"
                 type="button"
-                class="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                class="mx-auto mt-1.5 block rounded-md bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
                 :disabled="receipt.isPending.value"
                 @click="confirmReceipt(item)"
               >
@@ -199,7 +278,7 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
             </td>
           </tr>
           <tr v-if="items.length === 0">
-            <td colspan="9" class="px-4 py-10 text-center text-sm text-gray-400">
+            <td colspan="8" class="px-4 py-10 text-center text-sm text-gray-400">
               {{ isFetching ? '불러오는 중…' : '해당 상태의 주문이 없습니다.' }}
             </td>
           </tr>
@@ -216,5 +295,13 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
         @update:page="(p) => (filters = { ...filters, page: p })"
       />
     </div>
+
+    <BomOrderCancelModal
+      v-if="cancelTarget !== null"
+      :quote-id="cancelTarget.quoteId"
+      @close="closeCancel"
+      @done="closeCancel"
+      @open-case="openCancelCase"
+    />
   </div>
 </template>

@@ -96,6 +96,15 @@ foreach (array(
                     </div>
                 </div>
 
+                <div class="sp-quotes-mobile-order" aria-label="모바일 주문 요약">
+                    <p>
+                        <span id="sp-quotes-mobile-count">0건</span> 선택 ·
+                        <strong><span id="sp-quotes-mobile-total">0</span>원</strong>
+                        <small>국내 배송비는 주문서에서 별도 계산</small>
+                    </p>
+                    <button type="button" class="sp-btn sp-btn-primary btn_submit js-sp-quotes-direct">바로 주문</button>
+                </div>
+
                 <ul class="sp-cart-items" id="sp-quotes-rows"></ul>
             </section>
 
@@ -113,13 +122,14 @@ foreach (array(
                     </dl>
                     <p class="sp-cart-summary-note">
                         표시·합계 금액은 모두 부가세 포함 결제예상액입니다.
+                        국내 배송비는 주문서에서 별도로 계산됩니다.
                         PCB 견적과 부품 BOM 견적은 각각 별도 주문으로 진행됩니다(같은 유형끼리 선택).
                         PCB 수량을 바꾸면 서버가 다시 견적합니다(확정·담김 상태 제외).
                     </p>
                 </div>
 
                 <div class="sp-cart-act">
-                    <button type="button" class="sp-btn sp-btn-primary btn_submit" id="sp-quotes-direct">바로 주문</button>
+                    <button type="button" class="sp-btn sp-btn-primary btn_submit js-sp-quotes-direct" id="sp-quotes-direct">바로 주문</button>
                 </div>
             </aside>
 
@@ -144,7 +154,10 @@ foreach (array(
     var THUMBS = <?php echo json_encode(array_map('strval', $sp_quote_thumbs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
 
     var QUOTE_LABEL = { rfq: '견적 대기', priced: '자동견적', quoted: '견적 확정' };
-    var CART_LABEL = { none: '', cart: '장바구니 담김', ordered: '주문됨' };
+    var CART_LABEL = {
+        none: '', cart: '장바구니 담김', ordered: '주문됨',
+        canceled: '주문 취소 · 재주문 가능'
+    };
     var BOM_STATUS_LABEL = {
         draft: '작성 중', requested: '견적요청', reviewing: '검토 중',
         answered: '회신 완료', closed: '종료', canceled: '취소'
@@ -301,6 +314,8 @@ foreach (array(
                       '<span class="sp-quotes__tax-detail">VAT 포함 · ' + (q.confirmedTotal !== null ? '확정' : '예상') + ' 공급가 ' + fmtNum(payment.supply) + '원 + 부가세 ' + fmtNum(payment.vat) + '원</span>'
                     : '<span class="sp-quotes__pending">금액 산정 전</span>') +
                 '<div class="sp-bom__acts">' +
+                    (q.orderState === 'canceled'
+                        ? '<span class="sp-quotes__pending">이전 주문 취소 — 다시 주문할 수 있습니다</span>' : '') +
                     // 회신 완료인데 확정가가 없으면 체크가 잠긴 이유를 보여준다(D16-1 게이트)
                     (q.status === 'answered' && q.confirmedTotal === null && q.orderState !== 'ordered'
                         ? '<span class="sp-quotes__pending">확정가 안내 후 주문 가능</span>' : '') +
@@ -377,9 +392,12 @@ foreach (array(
             }
         });
 
-        document.getElementById('sp-quotes-count').textContent =
-            checked.length + '건' + (orderableCnt < checked.length ? ' (주문 가능 ' + orderableCnt + '건)' : '');
-        document.getElementById('sp-quotes-total').textContent = fmtNum(total);
+        var countText = checked.length + '건' + (orderableCnt < checked.length ? ' (주문 가능 ' + orderableCnt + '건)' : '');
+        var totalText = fmtNum(total);
+        document.getElementById('sp-quotes-count').textContent = countText;
+        document.getElementById('sp-quotes-total').textContent = totalText;
+        document.getElementById('sp-quotes-mobile-count').textContent = countText;
+        document.getElementById('sp-quotes-mobile-total').textContent = totalText;
         document.getElementById('sp_sel_cnt').textContent = checked.length + '/' + all.length;
         document.getElementById('sp-quotes-check-all').checked = all.length > 0 && all.length === checked.length;
     }
@@ -501,7 +519,7 @@ foreach (array(
 
     // ── 바로 주문 — 같은 유형끼리만(D17: PCB+BOM 혼합 결제 금지) ────────────────
     // PCB: 배치 담기 + ct_select → 주문서. BOM: 배치 담기(각 견적 = 통째 1행) → 주문서.
-    document.getElementById('sp-quotes-direct').addEventListener('click', function () {
+    function orderSelectedQuotes() {
         var pcbChecked = visibleChecks('.sp-quotes__check:checked');
         var bomChecked = visibleChecks('.sp-bom__check:checked');
         if (pcbChecked.length === 0 && bomChecked.length === 0) {
@@ -558,6 +576,9 @@ foreach (array(
             }
             location.href = r.json.data.redirectUrl;
         });
+    }
+    document.querySelectorAll('.js-sp-quotes-direct').forEach(function (button) {
+        button.addEventListener('click', orderSelectedQuotes);
     });
 
     if (location.hash === '#bom') { currentFilter = 'bom'; applyFilter('bom'); }

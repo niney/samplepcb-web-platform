@@ -732,13 +732,14 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const order = await getOrderRow(odId);
       if (order === null) return reply.notFound('주문이 없습니다');
 
-      const { target, delivery, sendMail } = request.body;
+      const { target, delivery, sendMail, preserveCanceled } = request.body;
       const outcome = await setOrderForceStatus(
         odId,
         target,
         delivery,
         request.user.mbId,
         request.ip,
+        { preserveCanceled },
       );
       if (outcome === 'HAS_POINT') {
         return reply.status(409).send({
@@ -752,6 +753,12 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           error: 'NO_ACTIVE_LINES',
           message:
             '취소된 주문입니다 — 진행할 상품이 없습니다. 되살리려면 상태를 [주문]으로 되돌린 뒤 다시 진행하세요',
+        });
+      }
+      if (outcome === 'NO_ACTIVE_ITEMS') {
+        return reply.status(409).send({
+          error: 'NO_ACTIVE_ITEMS',
+          message: '진행할 활성 주문 품목이 없습니다',
         });
       }
       if (target === '배송' && sendMail) {

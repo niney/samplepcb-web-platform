@@ -87,6 +87,7 @@ const PackageCodeParams = z.object({ code: z.string().trim().min(1).max(100) });
 
 const CREATE_ERROR_MESSAGE: Record<string, string> = {
   QUOTE_NOT_FOUND: '견적을 찾을 수 없습니다.',
+  ORDER_CLOSED: '취소되었거나 완료된 BOM 주문에는 발주서를 추가할 수 없습니다.',
   NOT_PAID: '결제 확인(입금) 후에 발주할 수 있습니다.',
   NO_ELIGIBLE_ROWS: '협력사 회신으로 선정된 부품행이 없는 협력사가 포함되어 있습니다.',
   ALREADY_ISSUED: '이미 발주서가 발행된 협력사가 포함되어 있습니다(재발행은 삭제 후).',

@@ -125,9 +125,15 @@ const orderTabCount = (key: (typeof ORDER_TABS)[number]['key']): number | null =
   return key === 'to_ship' ? counts.toShip : counts.shipping;
 };
 
-// 연결 Case 전 발주 입고 완료 여부 — 미입고 배송 시 확인 경고에 사용.
-const allReceived = (item: AdminBomOrderListItemType): boolean =>
-  item.cases.every((c) => c.poCount > 0 && c.poReceivedCount >= c.poCount);
+// 재주문 전의 취소 이력은 배송 대상이 아니다. 현재 활성 Case만 표시·판정하고, 빈 배열의
+// every=true 때문에 발송 가능으로 오인하지 않도록 하나 이상 존재하는지도 확인한다.
+const activeOrderCases = (item: AdminBomOrderListItemType) =>
+  item.cases.filter((entry) => entry.isCurrentAttempt && !entry.isCanceled);
+const allReceived = (item: AdminBomOrderListItemType): boolean => {
+  const cases = activeOrderCases(item);
+  return cases.length > 0
+    && cases.every((entry) => entry.poCount > 0 && entry.poReceivedCount >= entry.poCount);
+};
 
 const actionError = ref('');
 
@@ -392,8 +398,8 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
               </td>
               <td class="px-4 py-2.5">
                 <button
-                  v-for="entry in item.cases"
-                  :key="entry.quoteId"
+                  v-for="entry in activeOrderCases(item)"
+                  :key="`${entry.quoteId}-${String(entry.ctId)}`"
                   type="button"
                   class="mb-0.5 mr-1 rounded-full border border-blue-200 px-2 py-0.5 text-xs text-blue-700 hover:bg-blue-50"
                   :title="entry.title"
@@ -404,7 +410,7 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
                   <span v-else class="ml-1 rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-700">입고 {{ entry.poReceivedCount }}/{{ entry.poCount }}</span>
                 </button>
               </td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{{ smartbomFmtWon(item.cartPrice) }}</td>
+              <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{{ smartbomFmtWon(item.orderPrice) }}</td>
               <td class="px-4 py-2.5">
                 <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="item.odStatus === '배송' ? 'bg-blue-100 text-blue-700' : allReceived(item) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'">
                   {{ item.odStatus === '배송' ? '배송 중' : allReceived(item) ? '발송 가능' : '입고 대기' }}

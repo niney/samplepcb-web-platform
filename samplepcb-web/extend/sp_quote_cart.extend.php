@@ -73,6 +73,38 @@ function sp_bom_it_ids_in()
     }, sp_bom_it_ids()));
 }
 
+// 스마트 BOM 주문서 수량 표시 — 영카트 안에서는 "확정 견적 1건" 스냅샷이라
+// ct_qty=1을 유지해야 금액·재고·PG 계산이 맞다. 고객에게는 ct_option에 박제된
+// 제작+예비 수량을 "적용 N세트"로 표시하고, 내부 견적 건수는 보조 문구로만 남긴다.
+function sp_custom_order_quantity_html($it_id, $ct_option, $ct_qty)
+{
+    if (!in_array((string) $it_id, sp_bom_it_ids(), true)) {
+        return number_format((int) $ct_qty);
+    }
+
+    $set_qty = 0;
+    $spare_qty = 0;
+    if (preg_match('/세트\s*([0-9,]+)/u', (string) $ct_option, $set_match)) {
+        $set_qty = (int) str_replace(',', '', $set_match[1]);
+    }
+    if (preg_match('/예비\s*([0-9,]+)/u', (string) $ct_option, $spare_match)) {
+        $spare_qty = (int) str_replace(',', '', $spare_match[1]);
+    }
+    if ($set_qty <= 0) {
+        return number_format((int) $ct_qty);
+    }
+
+    $applied_qty = $set_qty + max(0, $spare_qty);
+    $detail = '제작 '.number_format($set_qty);
+    if ($spare_qty > 0) $detail .= ' + 예비 '.number_format($spare_qty);
+    $detail .= ' · 견적 '.number_format((int) $ct_qty).'건';
+
+    return '<span class="sp-bom-order-qty" title="'.$detail.'">'
+        .'<strong>적용 '.number_format($applied_qty).'세트</strong>'
+        .'<small>'.$detail.'</small>'
+        .'</span>';
+}
+
 // ⑥⑦ 건별(ct_id) 렌더 대상 전체 = 거버 견적 ∪ 재능마켓 계약 ∪ 스마트 BOM — 주문서(pc·mobile
 //    orderform.sub.php)의 "일반 상품 = it_id 집계 / 커스텀 행 = 건별(ct_id)" 이원
 //    렌더에서 '커스텀 행 전체'를 가리키는 IN 문자열. 일반 루프의 제외 조건과 건별

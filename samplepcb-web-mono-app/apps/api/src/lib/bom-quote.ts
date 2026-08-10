@@ -68,10 +68,11 @@ import {
 import { prisma } from './prisma';
 import { engineFetch } from './engine-client';
 import {
-  getCartStates,
+  getBomCartStates,
   getMembersByIds,
   getOrdererContactByOdId,
   getOrderInfoByCtId,
+  isPaidOrderLineStatus,
 } from './g5-db';
 import {
   toAdminCaseCustomer,
@@ -6454,7 +6455,7 @@ export async function deriveQuoteOrderState(
   ctId: number | null,
 ): Promise<BomQuoteDetailType['orderState']> {
   if (ctId === null) return 'none';
-  return (await getCartStates([ctId])).get(ctId) ?? 'none';
+  return (await getBomCartStates([ctId])).get(ctId) ?? 'none';
 }
 
 export function toAdminSummaryDto(
@@ -6623,7 +6624,8 @@ export async function toAdminDetailDto(
         : {
             odId: info.odId,
             odStatus: info.odStatus,
-            isPaid: info.isPaid,
+            ctStatus: info.rowCtStatus,
+            isPaid: isPaidOrderLineStatus(info.rowCtStatus),
             receiptPrice: info.receiptPrice,
             settleCase: info.settleCase,
           },

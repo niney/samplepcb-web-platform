@@ -93,6 +93,7 @@ specs/
   journey-bom-domestic.e2e.test.ts     BOM 여정 1호 — 혼합 BOM→RFQ→주문→국내 배송 완료
   journey-bom-split.e2e.test.ts        BOM 여정 2호 — 단일검색→2개 부분 RFQ→국내·국제 분할 조달
   journey-bom-revision.e2e.test.ts     BOM 여정 3호 — 고객 회신→품목 정정→재회신→수정 주문
+  journey-bom-reorder.e2e.test.ts      BOM 여정 4호 — 묶음 부분취소→재주문→이력 보존→조달 완료
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -100,7 +101,8 @@ specs/
 
 옵트인 2중 게이트(`PORTAL_E2E=1` + `JOURNEY=1`)로만 돈다. 공통 사전 조건은
 nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1~4호는
-**거버(8040)**, BOM 1~3호는 **sp-engine(8400)**이 추가로 필요하다.
+**거버(8040)**, BOM 1~3호는 **sp-engine(8400)**이 추가로 필요하다. BOM 4호는 이미
+회신 완료된 거래 스냅샷부터 시작해 주문 하류만 검증하므로 엔진이 필요하지 않다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -109,11 +111,12 @@ nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~3호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~4호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~3호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:4` | BOM 4호만 — 묶음 부분취소·재주문·조달 완료 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~4호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -317,6 +320,13 @@ BOM 3호는 작은 원본 CSV를 고객이 요청하고 협력사 회신·고객
 검증한다. 동일 RFQ ID에서 수정 품목을 재회신받고 새 주문·PO·배송에는 수정 스냅샷만
 들어가는지 확인하며, 최초 고객 메일과 선택 이력은 감사 원장에 그대로 보존한다.
 
+BOM 4호는 저항·MLCC Case와 MCU·커넥터 Case를 확정 거래 스냅샷으로 준비하고 두 건을 한
+영카트 주문으로 묶는다. 미입금 상태에서 A만 취소해 주문 헤더·미수금·세액이 B 기준으로
+재계산되는지, 헤더가 이후 `입금`이어도 취소 A의 발주는 막히는지 검증한다. 고객이 A를 다시
+주문하면 새 `ct_id`·새 주문을 만들되 옛 취소행과 원주문 Case 연결을 보존해야 한다. 두 현재
+Case를 각각 발주한 뒤 한 국내 발송으로 합쳐 입고·고객 배송을 완료하며, 배송·완료 전이도
+과거 취소행을 되살리지 않는지 끝에서 다시 확인한다.
+
 **생성물은 자동 정리하지 않는다.** 완주 후 리포트(`output/journey/findings*.md`)의 생성물
 대장을 보고 손으로 지운다 — 순서는 ① 주문을 `force-status '주문'` 으로 내려 **재고 복원**
 ② g5 cart+order ③ sp_* 역순(file→shipment_po→shipment→eq_review→po→rfq→file→spec).
@@ -352,7 +362,6 @@ BOM 3호는 작은 원본 CSV를 고객이 요청하고 협력사 회신·고객
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
-
 
 
 

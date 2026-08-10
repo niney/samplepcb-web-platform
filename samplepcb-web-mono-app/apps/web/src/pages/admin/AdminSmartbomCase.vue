@@ -187,6 +187,7 @@ const currentStep = computed(() => {
   if (detail.value.status !== 'reviewing' || rfqs.value.length === 0) return base;
   return rfqs.value.some((r) => r.status === 'quoted') ? 4 : 3;
 });
+const orderCanceled = computed(() => detail.value?.orderState === 'canceled');
 
 const timelineScroll = ref<HTMLElement | null>(null);
 const adminItemsTableScroll = ref<HTMLElement | null>(null);
@@ -857,12 +858,21 @@ async function retryExternalPo(po: { poId: number; partnerName: string }): Promi
   }
 }
 const PO_TERMINAL_ORDER_STATUSES = new Set(['완료', '취소', '반품', '품절']);
+const PO_TERMINAL_LINE_STATUSES = new Set(['완료', '취소', '반품', '품절', '삭제']);
 const canIssuePo = computed(() => {
   const info = detail.value?.orderInfo;
-  return info?.isPaid === true && !PO_TERMINAL_ORDER_STATUSES.has(info.odStatus);
+  return info?.isPaid === true
+    && !PO_TERMINAL_ORDER_STATUSES.has(info.odStatus)
+    && !PO_TERMINAL_LINE_STATUSES.has(info.ctStatus);
 });
 const issueDisabledReason = computed(() => {
+  if (detail.value?.orderState === 'canceled') {
+    return '취소된 주문입니다. 고객이 다시 주문하고 입금된 뒤 발주할 수 있습니다';
+  }
   if (detail.value?.orderState !== 'ordered') return '고객 주문 후에 발주할 수 있습니다';
+  if (detail.value.orderInfo !== null && PO_TERMINAL_LINE_STATUSES.has(detail.value.orderInfo.ctStatus)) {
+    return `BOM 주문 항목 상태가 ${detail.value.orderInfo.ctStatus}이므로 발주서를 추가할 수 없습니다`;
+  }
   if (detail.value.orderInfo?.isPaid !== true) return '결제 확인(입금) 후에 발주할 수 있습니다';
   if (detail.value.orderInfo.odStatus === '완료') return '완료된 주문에는 발주서를 추가할 수 없습니다';
   if (PO_TERMINAL_ORDER_STATUSES.has(detail.value.orderInfo.odStatus)) {
@@ -1792,6 +1802,14 @@ async function downloadOriginal(): Promise<void> {
     <template v-else>
       <!-- 12단계 파생 타임라인 -->
       <div class="overflow-hidden rounded-xl border border-gray-200 bg-surface">
+        <div
+          v-if="orderCanceled"
+          class="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700"
+          role="status"
+        >
+          <span class="grid size-5 shrink-0 place-items-center rounded-full bg-red-600 text-[11px] text-white" aria-hidden="true">×</span>
+          <span>주문 취소 · 확정 견적 유지 · 고객 재주문 대기</span>
+        </div>
         <div class="flex items-center gap-2 border-b border-blue-100 bg-blue-50/70 px-3 py-1.5 text-[10px] font-medium text-blue-700 min-[1200px]:hidden">
           <span class="min-w-0 flex-1">12단계 진행 현황 · 현재 단계가 자동으로 보이며 좌우로 전체 단계를 확인할 수 있습니다.</span>
           <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="진행 단계 왼쪽으로 이동" @click="moveTimeline(-1)">←</button>
@@ -1803,25 +1821,31 @@ async function downloadOriginal(): Promise<void> {
               <div class="flex flex-col items-center gap-1">
                 <span
                   class="grid size-5 place-items-center rounded-full text-[10px] font-bold"
-                  :class="idx + 1 === currentStep
-                    ? 'bg-blue-600 text-white'
-                    : idx + 1 < currentStep
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-gray-100 text-gray-400'"
+                  :class="idx + 1 === currentStep && orderCanceled
+                    ? 'bg-red-600 text-white'
+                    : idx + 1 === currentStep
+                      ? 'bg-blue-600 text-white'
+                      : idx + 1 < currentStep
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-100 text-gray-400'"
                 >
                   {{ idx + 1 }}
                 </span>
                 <span
                   class="whitespace-nowrap text-[10px]"
-                  :class="idx + 1 === currentStep ? 'font-bold text-blue-700' : idx + 1 < currentStep ? 'text-gray-600' : 'text-gray-400'"
+                  :class="idx + 1 === currentStep && orderCanceled
+                    ? 'font-bold text-red-700'
+                    : idx + 1 === currentStep
+                      ? 'font-bold text-blue-700'
+                      : idx + 1 < currentStep ? 'text-gray-600' : 'text-gray-400'"
                 >
-                  {{ step }}
+                  {{ idx + 1 === currentStep && orderCanceled ? '주문 취소 · 재주문 대기' : step }}
                 </span>
               </div>
               <span
                 v-if="idx < SMARTBOM_STEPS.length - 1"
                 class="mb-4 h-px w-4"
-                :class="idx + 1 < currentStep ? 'bg-blue-300' : 'bg-gray-200'"
+                :class="idx + 1 < currentStep ? (orderCanceled && idx + 2 === currentStep ? 'bg-red-300' : 'bg-blue-300') : 'bg-gray-200'"
               />
             </li>
           </ol>
@@ -1848,10 +1872,19 @@ async function downloadOriginal(): Promise<void> {
         <span
           v-if="detail.orderInfo !== null"
           class="rounded px-1.5 py-0.5 text-xs font-semibold"
-          :class="detail.orderInfo.isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'"
+          :class="detail.orderState === 'canceled'
+            ? 'bg-red-100 text-red-700'
+            : detail.orderInfo.isPaid
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-blue-100 text-blue-700'"
         >
-          주문 {{ detail.orderInfo.odId }} · {{ detail.orderInfo.odStatus }}
-          <template v-if="detail.orderInfo.isPaid"> · 수납 {{ smartbomFmtWon(detail.orderInfo.receiptPrice) }}</template>
+          <template v-if="detail.orderState === 'canceled'">
+            이전 주문 {{ detail.orderInfo.odId }} · {{ detail.orderInfo.ctStatus }} · 고객 재주문 가능
+          </template>
+          <template v-else>
+            주문 {{ detail.orderInfo.odId }} · {{ detail.orderInfo.odStatus }}
+            <template v-if="detail.orderInfo.isPaid"> · 수납 {{ smartbomFmtWon(detail.orderInfo.receiptPrice) }}</template>
+          </template>
         </span>
         <span v-else-if="detail.orderState === 'cart'" class="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
           고객 장바구니 담김
