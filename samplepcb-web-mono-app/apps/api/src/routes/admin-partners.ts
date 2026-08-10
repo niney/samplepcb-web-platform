@@ -55,6 +55,9 @@ const PartnerRelationParams = z.object({
 const isUniqueViolation = (e: unknown): boolean =>
   e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
 
+const isForeignKeyViolation = (e: unknown): boolean =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003';
+
 const detailOf = async (id: bigint): Promise<AdminPartnerDetailType | null> => {
   const partner = await prisma.spPartner.findUnique({
     where: { id },
@@ -514,7 +517,10 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
   );
 
   // ── DELETE /api/admin/partners/:id — 삭제(오기 정리용) ──────────────────────
-  // RFQ 이력이 있으면 거부(FK RESTRICT 와 동일 정책의 선제 안내) — 운영 배제는 suspended.
+  // 문서 이력이 있으면 거부(FK RESTRICT 와 동일 정책의 선제 안내) — 운영 배제는 suspended.
+  // BOM 축(sp_bom_rfq)에 더해 PCB 축(sp_pcb_rfq·sp_pcb_po)도 선제 가드한다 — 가드 없이는
+  // FK P2003 이 안내 없는 500 으로 죽었다(여정 6호 J5 실측). 그 밖의 참조가 남는 경우도
+  // P2003 을 잡아 같은 409 안내로 돌려준다(Prisma 원문이 화면에 새지 않게).
   fastify.delete(
     '/partners/:id',
     {
@@ -527,14 +533,36 @@ export const adminPartnerRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const id = BigInt(request.params.id);
       const partner = await prisma.spPartner.findUnique({ where: { id } });
       if (partner === null) return reply.notFound('파트너가 없습니다');
-      const rfqCount = await prisma.spBomRfq.count({ where: { partnerId: id } });
+      const [rfqCount, pcbRfqCount, pcbPoCount] = await Promise.all([
+        prisma.spBomRfq.count({ where: { partnerId: id } }),
+        prisma.spPcbRfq.count({ where: { partnerId: id } }),
+        prisma.spPcbPo.count({ where: { partnerId: id } }),
+      ]);
       if (rfqCount > 0) {
         return reply.status(409).send({
           error: 'PARTNER_HAS_RFQS',
           message: 'RFQ 이력이 있는 파트너는 삭제할 수 없습니다. 정지(suspended)로 배제하세요.',
         });
       }
-      await prisma.spPartner.delete({ where: { id } });
+      if (pcbRfqCount > 0 || pcbPoCount > 0) {
+        return reply.status(409).send({
+          error: 'PARTNER_HAS_PCB_DOCS',
+          message:
+            'PCB 견적요청/발주 이력이 있어 삭제할 수 없습니다 — 정지 상태로 전환해 사용을 막으세요.',
+        });
+      }
+      try {
+        await prisma.spPartner.delete({ where: { id } });
+      } catch (e) {
+        if (isForeignKeyViolation(e)) {
+          return reply.status(409).send({
+            error: 'PARTNER_HAS_PCB_DOCS',
+            message:
+              'PCB 견적요청/발주 이력이 있어 삭제할 수 없습니다 — 정지 상태로 전환해 사용을 막으세요.',
+          });
+        }
+        throw e;
+      }
       return { result: true as const };
     },
   );

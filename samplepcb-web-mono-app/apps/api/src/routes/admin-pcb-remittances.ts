@@ -20,7 +20,9 @@ import {
   deletePcbRemittance,
   deleteRemittanceFile,
   getRemittanceFileDownload,
+  isFreeAsPo,
   listPcbRemittances,
+  loadFreeAsRoundKeys,
   loadRemittanceSummaries,
   patchPcbRemittance,
   summarizePcbRemittances,
@@ -31,11 +33,14 @@ import { downloadFromFileServer } from '../lib/file-server';
 
 // ── 관리자 송금 워크큐(P3.11) — docs/PCB_PARTNER_TRACK.md D15 ────────────────
 // 역할별 워크큐 교리(D12) 그대로: 첫 탭 = 이 역할(경리·재무)이 시작해야 할 대기 큐 =
-// **발주됐는데 한 푼도 안 나간 건**. 배지도 그 수다.
+// **발주됐는데 한 푼도 안 나간 건**. 배지도 그 수다(같은 endpoint counts.pending).
 //
-// 모수는 '실작업 발주서' — MD 경유 상위 발주서(자체 EQ 를 진행하지 않는 미러)도 돈은
-// 우리가 MD 에게 보내므로 포함한다. 발주 축과 달리 여기서는 **누구에게 돈이 나가는가**가
-// 기준이라, 상위·하위 모두 각자의 지급 대상이다.
+// 모수는 **관리자 지급분(parentPartnerId=0)만** — MD 하위 발주의 지급 주체는 MD 다
+// (재점검 확정 08-10: 하위 발주를 함께 세우면 관리자에게 이중 지급을 유도한다).
+// 하위 발주의 송금 원장 기록·열람(상세 라우트)은 대행 창구로 그대로 남는다.
+//
+// 무상(free) A/S 회차 발주는 잔액 0 취급 — 대기·부분 탭 어디에도 서지 않고 '전체'에서
+// '무상 A/S' 배지로만 보인다(proceed 의 원가 복사는 회계 참고일 뿐 지급 대상이 아니다).
 
 const PoParams = z.object({ poId: z.coerce.bigint() });
 const RemittanceParams = PoParams.extend({ remittanceId: z.coerce.bigint() });
@@ -59,6 +64,7 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
     const q = filters.q?.trim() ?? '';
     const pos = await prisma.spPcbPo.findMany({
       where: {
+        parentPartnerId: 0n, // 관리자 지급분만 — 하위 발주 지급 주체는 MD(이중 지급 방지)
         ...(filters.partnerId === undefined ? {} : { partnerId: BigInt(filters.partnerId) }),
         ...(q === ''
           ? {}
@@ -76,32 +82,44 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
       },
       orderBy: { issuedAt: 'desc' },
     });
-    const summaries = await loadRemittanceSummaries(pos);
-    return pos.map((po) => ({
-      poId: Number(po.id),
-      specId: Number(po.specId),
-      projectName: po.spec.projectName,
-      partnerId: Number(po.partnerId),
-      partnerName: po.partner.name,
-      poStatus: asPcbPoStatus(po.status),
-      paymentTerms: po.paymentTerms,
-      issuedAt: po.issuedAt.toISOString(),
-      deliveryDate: po.deliveryDate === null ? null : po.deliveryDate.toISOString(),
-      isLegacy: isLegacySpec(po.spec.specJson),
-      summary:
+    const [summaries, freeKeys] = await Promise.all([
+      loadRemittanceSummaries(pos),
+      loadFreeAsRoundKeys(pos),
+    ]);
+    return pos.map((po) => {
+      const isFreeAs = isFreeAsPo(freeKeys, po);
+      const summary =
         summaries.get(po.id.toString()) ??
-        summarizePcbRemittances({ currency: po.currency, priceOriginal: po.priceOriginal }, []),
-    }));
+        summarizePcbRemittances({ currency: po.currency, priceOriginal: po.priceOriginal }, []);
+      return {
+        poId: Number(po.id),
+        specId: Number(po.specId),
+        projectName: po.spec.projectName,
+        partnerId: Number(po.partnerId),
+        partnerName: po.partner.name,
+        poStatus: asPcbPoStatus(po.status),
+        paymentTerms: po.paymentTerms,
+        issuedAt: po.issuedAt.toISOString(),
+        deliveryDate: po.deliveryDate === null ? null : po.deliveryDate.toISOString(),
+        isLegacy: isLegacySpec(po.spec.specJson),
+        isFreeAs,
+        // 무상 A/S — 지급할 것이 없다: 잔액만 0 으로 눕힌다(발주가·기왕의 송금액은 사실 그대로).
+        summary: isFreeAs ? { ...summary, balance: 0 } : summary,
+      };
+    });
   };
 
-  const inTab = (status: PcbRemittanceStatusType, tab: string): boolean =>
-    tab === 'all'
-      ? true
-      : tab === 'pending'
-        ? status === 'unpaid'
-        : tab === 'partial'
-          ? status === 'partial'
-          : status === 'paid' || status === 'over';
+  // 무상 A/S 행은 지급 대기 축(pending/partial/done) 어디에도 서지 않는다 — '전체' 전용.
+  const inTab = (row: AdminPcbRemittanceItemType, tab: string): boolean => {
+    if (tab === 'all') return true;
+    if (row.isFreeAs) return false;
+    const status: PcbRemittanceStatusType = row.summary.status;
+    return tab === 'pending'
+      ? status === 'unpaid'
+      : tab === 'partial'
+        ? status === 'partial'
+        : status === 'paid' || status === 'over';
+  };
 
   // ── GET /pcb-remittances — 워크큐 목록 ──────────────────────────────────────
   fastify.get(
@@ -114,12 +132,12 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         ...(request.query.partnerId === undefined ? {} : { partnerId: request.query.partnerId }),
       });
       const counts = {
-        pending: rows.filter((r) => r.summary.status === 'unpaid').length,
-        partial: rows.filter((r) => r.summary.status === 'partial').length,
-        done: rows.filter((r) => r.summary.status === 'paid' || r.summary.status === 'over').length,
+        pending: rows.filter((r) => inTab(r, 'pending')).length,
+        partial: rows.filter((r) => inTab(r, 'partial')).length,
+        done: rows.filter((r) => inTab(r, 'done')).length,
         all: rows.length,
       };
-      const filtered = rows.filter((r) => inTab(r.summary.status, tab));
+      const filtered = rows.filter((r) => inTab(r, tab));
       const start = (page - 1) * pageSize;
       return {
         result: true as const,
@@ -130,13 +148,17 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
 
   // ── GET /pcb-remittances/partners — 협력사별 집계 ───────────────────────────
   // "이 협력사에 줄 돈이 남았나"를 한 줄로. 통화는 뭉치지 않고 통화별로 나눠 낸다.
+  // 목록과 같은 모수 규율: 관리자 지급분(parentPartnerId=0)만, 무상 A/S 회차는 제외.
   fastify.get(
     '/pcb-remittances/partners',
     { schema: { response: { 200: AdminPcbRemittancePartnerResponse } } },
     async () => {
-      const pos = await prisma.spPcbPo.findMany({
+      const allPos = await prisma.spPcbPo.findMany({
+        where: { parentPartnerId: 0n },
         include: { partner: { select: { id: true, name: true, country: true } } },
       });
+      const freeKeys = await loadFreeAsRoundKeys(allPos);
+      const pos = allPos.filter((po) => !isFreeAsPo(freeKeys, po));
       const summaries = await loadRemittanceSummaries(pos);
 
       const byPartner = new Map<

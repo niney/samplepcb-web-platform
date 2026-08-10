@@ -178,7 +178,13 @@ const openCase = (specId: number): void => {
                 {{ fmtPcbAmount(row.summary.currency, row.summary.balance) }}
               </td>
               <td class="whitespace-nowrap px-4 py-2.5">
-                <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[row.summary.status]">
+                <!-- 무상 A/S 회차 — 지급 대상이 아니다(잔액 0 취급). 지급 상태 대신 배지로. -->
+                <span
+                  v-if="row.isFreeAs"
+                  class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700"
+                  title="무상 A/S 재생산 — 지급 대상이 아닙니다(발주가는 원가 참고)"
+                >무상 A/S</span>
+                <span v-else class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[row.summary.status]">
                   {{ PCB_REMITTANCE_STATUS_LABELS[row.summary.status] }}
                 </span>
               </td>

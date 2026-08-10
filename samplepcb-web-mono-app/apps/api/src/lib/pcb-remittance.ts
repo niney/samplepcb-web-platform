@@ -265,6 +265,36 @@ export const getRemittanceFileDownload = async (
   return { pathToken: row.pathToken, originFileName: row.originFileName };
 };
 
+// ── 무상(free) A/S 회차 — 지급·수금 집계 제외 판정 ───────────────────────────
+// proceed 는 원발주를 그대로 복사한다(원가 회계) — 돈이 실제로 오가는지는 케이스의
+// chargeType 이 정한다. 무상이면 그 회차 발주(reorderRound>0)는 잔액 0 취급이고,
+// 유상(paid)은 현행 그대로다. 케이스와 발주는 (specId, reorderRound)로 만난다
+// (회차는 스펙 단위 채번이라 이 쌍이 케이스를 유일하게 짚는다).
+
+/** 무상 A/S 회차 키 집합 — `${specId}:${reorderRound}`. */
+export const loadFreeAsRoundKeys = async (
+  pos: readonly { specId: bigint; reorderRound: number }[],
+): Promise<Set<string>> => {
+  const rounds = pos.filter((p) => p.reorderRound > 0);
+  if (rounds.length === 0) return new Set();
+  const cases = await prisma.spPcbAsCase.findMany({
+    where: {
+      chargeType: 'free',
+      reorderRound: { not: null },
+      specId: { in: [...new Set(rounds.map((p) => p.specId.toString()))].map((v) => BigInt(v)) },
+    },
+    select: { specId: true, reorderRound: true },
+  });
+  return new Set(cases.map((c) => `${c.specId.toString()}:${String(c.reorderRound)}`));
+};
+
+/** 이 발주가 무상 A/S 회차인가 — loadFreeAsRoundKeys 결과로 판정. */
+export const isFreeAsPo = (
+  freeKeys: ReadonlySet<string>,
+  po: { specId: bigint; reorderRound: number },
+): boolean =>
+  po.reorderRound > 0 && freeKeys.has(`${po.specId.toString()}:${String(po.reorderRound)}`);
+
 /** 발주서 여러 건의 지급 요약을 한 번에(목록·집계의 N+1 회피). */
 export const loadRemittanceSummaries = async (
   pos: readonly { id: bigint; currency: string; priceOriginal: unknown }[],

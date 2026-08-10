@@ -205,8 +205,17 @@ const STATUS_CLS: Record<string, string> = {
               </td>
               <td class="max-w-[280px] px-4 py-2.5 text-xs text-gray-600">
                 <p v-if="c.replyReason !== null" class="whitespace-pre-wrap">{{ c.replyReason }}</p>
+                <!-- proceeded 딥링크 — 내가 열 수 있는 회차 발주서로 바로(서버 roundPoId).
+                     MD 경유 대상 협력사는 하위 발주가 아직 없으면 문구로 폴백. -->
                 <p v-if="c.status === 'proceeded'" class="mt-0.5 text-indigo-600">
-                  회차 발주서가 발행되었습니다 — 발주 목록에서 진행하세요.
+                  <RouterLink
+                    v-if="c.roundPoId !== null"
+                    :to="{ name: 'partner-pcb-po', params: { id: String(c.roundPoId) } }"
+                    class="font-semibold underline hover:text-indigo-800"
+                  >
+                    회차 발주서(PO-{{ c.roundPoId }}) 열기 →
+                  </RouterLink>
+                  <template v-else>회차 발주서가 발행되었습니다 — 발주 목록에서 진행하세요.</template>
                 </p>
               </td>
             </tr>

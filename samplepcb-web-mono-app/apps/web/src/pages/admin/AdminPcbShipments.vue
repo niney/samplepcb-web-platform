@@ -273,6 +273,7 @@ function openCase(specId: number): void {
                 <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">
                   SH-{{ row.shipmentId }}
                   <span v-if="row.poCount > 1" class="ml-1 rounded bg-indigo-100 px-1 text-[11px] font-semibold text-indigo-700">묶음 {{ row.poCount }}</span>
+                  <span v-if="row.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 font-sans text-[11px] font-semibold text-rose-700">{{ row.reorderRound }}차</span>
                 </td>
                 <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
                   <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
@@ -281,6 +282,12 @@ function openCase(specId: number): void {
                 <td class="px-4 py-2.5 text-gray-600">
                   {{ row.senderName }} → {{ row.receiverName }}
                   <span v-if="row.receiverKind === 'md'" class="ml-1 text-xs text-indigo-500">(MD 입고)</span>
+                  <!-- 직송(D5) — 받는 곳이 자사여도 실물은 이 나라의 고객에게 간다 -->
+                  <span
+                    v-if="row.destinationCountry !== null"
+                    class="ml-1 rounded bg-teal-100 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700"
+                    title="직송 — 실물은 자사 입고 없이 주문지로 갑니다"
+                  >직송 {{ row.destinationCountry }}</span>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">
                   {{ row.mode === 'domestic' ? '국내(택배)' : '국제' }}

@@ -27,11 +27,33 @@ describe('resolvePcbProgressStage', () => {
       resolvePcbProgressStage('produced', { status: 'delivered', receivedAt: new Date() }),
     ).toBe('received');
   });
+
+  it('선적요청(requested)은 아직 발송 준비 중 — 운송(shipping)은 shipped 부터다', () => {
+    expect(resolvePcbProgressStage('produced', { status: 'requested', receivedAt: null })).toBe(
+      'produced',
+    );
+    // 국내 발송 시작(shipping)은 실물이 움직였다 — 운송 취급 그대로.
+    expect(resolvePcbProgressStage('produced', { status: 'shipping', receivedAt: null })).toBe(
+      'shipping',
+    );
+  });
 });
 
 describe('pcbProgressLabel', () => {
   it('회차>0 이면 A/S 재생산 접두가 붙는다', () => {
     expect(pcbProgressLabel('producing', 0)).toBe('생산 진행 중');
     expect(pcbProgressLabel('producing', 1)).toBe('A/S 재생산 — 생산 진행 중');
+  });
+
+  it('직송이면 운송·도착 어휘가 직송으로 바뀐다 — 자사 입고 어휘는 거짓말이 된다', () => {
+    expect(pcbProgressLabel('shipping', 0, true)).toBe('주문지로 직송 배송 중');
+    expect(pcbProgressLabel('received', 0, true)).toBe('직송 배송 완료');
+    // 직송이어도 운송 전 단계 라벨은 그대로다(치환은 두 단계만).
+    expect(pcbProgressLabel('produced', 0, true)).toBe('생산 완료 — 발송 준비 중');
+    // 회차 접두와도 겹친다.
+    expect(pcbProgressLabel('shipping', 2, true)).toBe('A/S 재생산 — 주문지로 직송 배송 중');
+    // 직송 아님(기본값) — 기존 어휘 유지.
+    expect(pcbProgressLabel('shipping', 0)).toBe('입고 운송 중');
+    expect(pcbProgressLabel('received', 0, false)).toBe('입고 완료 — 배송 준비 중');
   });
 });

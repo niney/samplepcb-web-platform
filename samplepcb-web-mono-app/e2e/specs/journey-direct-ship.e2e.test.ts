@@ -474,25 +474,44 @@ describe.skipIf(!RUN || !JOURNEY)('여정 6호 — 직송 3종(직송지 축의 
     F('J4', 'obs', 'KR→CN 직송 국제 — 관리자 대행(EQ·발송)으로 requested 도달, 모드·직송지 박제 확인');
   }, 480_000);
 
-  test('J5. e2e한국협력 삭제 API 실측 — 살아 있는 PCB 문서에 막힌다 → 상설 유지 근거', async (ctx) => {
+  test('J5. e2e한국협력 삭제 API — PCB 축 선제 가드 409 안내(교정 반영) → 상설 유지 근거', async (ctx) => {
     if (krOrgId === null || po3 === null) return ctx.skip();
-    // DELETE /api/admin/partners/:id 는 존재하지만 가드는 BOM RFQ 이력만 센다
-    // (admin-partners.ts PARTNER_HAS_RFQS). PCB 발주가 살아 있는 지금은 FK(RESTRICT,
-    // sp_pcb_po.partnerId)에 걸려 실패해야 정상 — 성공하면 고아 발주가 남는 결함이다.
+    // (교정 08-10) 가드가 BOM RFQ 만 세던 결함 — PCB 축(sp_pcb_rfq·sp_pcb_po)도 선제
+    // 409 PARTNER_HAS_PCB_DOCS 로 안내하고, 남는 FK P2003 도 같은 409 로 감싼다.
+    // 살아 있는 PCB 발주 보유 조직은 이 안내로 막혀야 정상 — 성공하면 고아 발주 결함이다.
     const del = await api(A, 'DELETE', `/api/admin/partners/${String(num(krOrgId ?? 0n))}`);
-    expect(del.status, `살아 있는 PCB 문서 보유 조직 삭제: ${JSON.stringify(del.json)}`).not.toBe(200);
+    expect(del.status, `살아 있는 PCB 문서 보유 조직 삭제: ${JSON.stringify(del.json)}`).toBe(409);
+    expect(del.json?.error, 'PCB 축 선제 가드').toBe('PARTNER_HAS_PCB_DOCS');
+    expect(String(del.json?.message ?? ''), '정지 전환 안내 문구').toContain('정지');
     const prisma = getPrisma();
     const alive = await prisma.spPartner.count({ where: { id: krOrgId } });
     expect(alive, '조직 보존').toBe(1);
     F(
       'J5',
-      del.status === 500 ? 'bug' : 'obs',
-      `조직 삭제 실측 — HTTP ${String(del.status)} ${JSON.stringify(del.json)}. 삭제 API 는 존재하나 ` +
-        `가드가 sp_bom_rfq 만 검사해 PCB 문서(RFQ/PO) 보유 조직은 안내 없는 FK 오류(P2003→500)로 죽는다 — ` +
-        `PARTNER_HAS_RFQS 급의 선제 409 안내가 PCB 축에도 필요(결함 후보, 보고만). ` +
+      'obs',
+      `조직 삭제 가드 — HTTP 409 PARTNER_HAS_PCB_DOCS(선제 안내, P2003 500 결함 교정 확인). ` +
         `여정 관례상 afterAll 시점엔 문서가 남아 삭제 경로가 성립하지 않으므로 ${KR_ORG_NAME} 은 상설 유지.`,
     );
     void od2;
     void od3;
   }, 60_000);
+
+  test('J6. 고객 화면 — 직송 어휘(#6)·배송 전이 후 진행 카드 숨김(#4) 관찰', async (ctx) => {
+    if (od1 === null) return ctx.skip();
+    // 직송 ①(CN→CN)은 J3 에서 입고확인(직송 도착)까지 갔고 od 는 아직 배송 전 —
+    // 진행 카드가 떠야 하고, 어휘는 '직송 배송 완료'(자사 입고 어휘 아님)여야 한다.
+    await rp.view(customer, `/shop/orderinquiryview.php?od_id=${od1}`, 'J06-customer-direct-received');
+    const before: string = await customer.page.evaluate(() => document.body.innerText);
+    expect(before, '진행 카드 직송 어휘(#6)').toContain('직송 배송 완료');
+    expect(before.includes('입고 완료 — 배송 준비 중'), '자사 입고 어휘 미노출(#6)').toBe(false);
+
+    // 배송 전이 후에는 코어 배송정보가 정본 — 진행 카드 자체가 사라져야 한다(#4).
+    // force-status 는 임의 전이(재고 앵커: cleanup-probe 가 '주문' 복귀로 복원).
+    const toShip = await api(A, 'PATCH', `/api/admin/orders/${od1}/force-status`, { target: '배송' });
+    expect(toShip.status, `배송 전이: ${JSON.stringify(toShip.json)}`).toBe(200);
+    await rp.view(customer, `/shop/orderinquiryview.php?od_id=${od1}`, 'J06-customer-card-hidden');
+    const after: string = await customer.page.evaluate(() => document.body.innerText);
+    expect(after.includes('제작 진행 상황'), '배송 이후 진행 카드 숨김(#4)').toBe(false);
+    F('J6', 'obs', `고객 화면 — 직송 어휘·배송 후 카드 숨김 확인(od=${od1})`);
+  }, 120_000);
 });

@@ -44,9 +44,9 @@ export const partnerPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts,
     return c;
   };
 
-  const serializeOne = async (caseId: bigint) => {
+  const serializeOne = async (caseId: bigint, viewerPartnerId: bigint) => {
     const row = await prisma.spPcbAsCase.findUniqueOrThrow({ where: { id: caseId } });
-    const [view] = await serializePartnerAsCases([row]);
+    const [view] = await serializePartnerAsCases([row], viewerPartnerId);
     if (view === undefined) throw new Error('직렬화 실패');
     return view;
   };
@@ -66,7 +66,7 @@ export const partnerPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts,
       return {
         result: true as const,
         data: {
-          cases: await serializePartnerAsCases(rows),
+          cases: await serializePartnerAsCases(rows, ctx.partnerId),
           partnerId: Number(ctx.partnerId),
           partnerName: ctx.partnerName,
         },
@@ -86,7 +86,7 @@ export const partnerPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts,
       const ctx = requireCtx(request);
       const c = await loadVisible(request.params.caseId, ctx.partnerId);
       if (c === null) return reply.notFound('A/S 케이스가 없습니다');
-      return { result: true as const, data: { asCase: await serializeOne(c.id) } };
+      return { result: true as const, data: { asCase: await serializeOne(c.id, ctx.partnerId) } };
     },
   );
 
@@ -162,7 +162,7 @@ export const partnerPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts,
           .status(409)
           .send({ error: r.error, message: '접수(회신 대기) 상태에서만 회신할 수 있습니다' });
       }
-      return { result: true as const, data: { asCase: await serializeOne(r.asCase.id) } };
+      return { result: true as const, data: { asCase: await serializeOne(r.asCase.id, ctx.partnerId) } };
     },
   );
 
@@ -190,7 +190,7 @@ export const partnerPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts,
           .status(409)
           .send({ error: r.error, message: '접수(회신 대기) 상태에서만 회신할 수 있습니다' });
       }
-      return { result: true as const, data: { asCase: await serializeOne(r.asCase.id) } };
+      return { result: true as const, data: { asCase: await serializeOne(r.asCase.id, ctx.partnerId) } };
     },
   );
 
@@ -232,7 +232,7 @@ export const partnerPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts,
         return reply.status(400).send({ error: 'FILE_REQUIRED', message: '파일을 첨부해 주세요' });
       }
       await uploadPcbAsCaseFile(c.id, file, 'PARTNER');
-      return { result: true as const, data: { asCase: await serializeOne(c.id) } };
+      return { result: true as const, data: { asCase: await serializeOne(c.id, ctx.partnerId) } };
     },
   );
 
@@ -261,7 +261,7 @@ export const partnerPcbAsCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts,
       }
       const done_ = await deletePcbAsCaseFile(c.id, request.params.fileId, 'PARTNER');
       if (!done_) return reply.notFound('파일이 없습니다(내가 올린 파일만 삭제할 수 있습니다)');
-      return { result: true as const, data: { asCase: await serializeOne(c.id) } };
+      return { result: true as const, data: { asCase: await serializeOne(c.id, ctx.partnerId) } };
     },
   );
 

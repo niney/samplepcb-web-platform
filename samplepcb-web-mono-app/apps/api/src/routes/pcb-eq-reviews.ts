@@ -7,7 +7,7 @@ import {
   CustomerPcbEqReviewListResponse,
   CustomerPcbProgressResponse,
 } from '@sp/api-contract';
-import { getCartRowsByOdId } from '../lib/g5-db';
+import { getCartRowsByOdId, getOrderRow } from '../lib/g5-db';
 import {
   decideEqReview,
   getEqReviewFile,
@@ -63,6 +63,9 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
   );
 
   // ── GET /pcb-progress?odId= — 내 주문의 제작 진행 단계(P4.13, od 무접촉) ─────
+  // 주문이 배송·완료·취소면 항목을 내지 않는다 — 그 상태에선 코어 배송정보(운송장)가
+  // 정본이라, 협력 축 파생 카드가 남아 있으면 두 상태가 서로 딴말을 한다(재점검 08-10).
+  const PROGRESS_CLOSED_OD = new Set(['배송', '완료', '취소']);
   fastify.get(
     '/pcb-progress',
     {
@@ -72,14 +75,20 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       },
     },
     async (request) => {
-      const rows = await getCartRowsByOdId(request.query.odId);
+      const [rows, order] = await Promise.all([
+        getCartRowsByOdId(request.query.odId),
+        getOrderRow(request.query.odId),
+      ]);
+      const closed = order !== null && PROGRESS_CLOSED_OD.has(order.status);
       return {
         result: true as const,
         data: {
-          items: await listCustomerPcbProgress(
-            rows.map((r) => r.ctId),
-            request.user.mbId,
-          ),
+          items: closed
+            ? []
+            : await listCustomerPcbProgress(
+                rows.map((r) => r.ctId),
+                request.user.mbId,
+              ),
         },
       };
     },

@@ -113,8 +113,44 @@ export const serializeAdminAsCases = async (
   return out;
 };
 
+/** proceeded 케이스의 포털 딥링크 — **보는 조직이 열 수 있는** 회차 발주만 안내한다
+ *  (관리자 roundPoId 의 미러 — 레거시는 이 id 를 못 내려줘 "발주 목록에서 찾으세요"로
+ *  사용자가 길을 잃던 갭). 최상위 수주자(직거래 대상·MD)는 최상위 회차 발주(A),
+ *  MD 경유의 대상 협력사는 MD 가 이어받아 발행한 하위 회차 발주 — 아직 없으면 null. */
+const partnerRoundPoIdOf = async (
+  c: SpPcbAsCase,
+  viewerPartnerId: bigint,
+): Promise<number | null> => {
+  if (c.status !== 'proceeded' || c.reorderRound === null) return null;
+  const top = topPartnerIdOf(c);
+  const po =
+    viewerPartnerId === top
+      ? await prisma.spPcbPo.findUnique({
+          where: {
+            specId_partnerId_parentPartnerId_reorderRound: {
+              specId: c.specId,
+              partnerId: top,
+              parentPartnerId: 0n,
+              reorderRound: c.reorderRound,
+            },
+          },
+          select: { id: true },
+        })
+      : await prisma.spPcbPo.findFirst({
+          where: {
+            specId: c.specId,
+            partnerId: viewerPartnerId,
+            parentPartnerId: c.parentPartnerId,
+            reorderRound: c.reorderRound,
+          },
+          select: { id: true },
+        });
+  return po === null ? null : num(po.id);
+};
+
 export const serializePartnerAsCases = async (
   rows: SpPcbAsCase[],
+  viewerPartnerId: bigint,
 ): Promise<PartnerPcbAsCaseViewType[]> => {
   const names = await loadPartnerNames(rows.map((r) => r.targetPartnerId));
   const filesMap = await loadAsCaseFilesMap(rows.map((r) => r.id));
@@ -123,24 +159,30 @@ export const serializePartnerAsCases = async (
     select: { id: true, projectName: true },
   });
   const specNames = new Map(specs.map((s) => [s.id.toString(), s.projectName]));
-  return rows.map((r) => ({
-    id: num(r.id),
-    specId: num(r.specId),
-    projectName: specNames.get(r.specId.toString()) ?? `Q${r.specId.toString()}`,
-    reorderRound: r.reorderRound,
-    caseType: r.caseType as PartnerPcbAsCaseViewType['caseType'],
-    chargeType: r.chargeType as PartnerPcbAsCaseViewType['chargeType'],
-    description: r.description,
-    status: r.status as PartnerPcbAsCaseViewType['status'],
-    targetPartnerId: num(r.targetPartnerId),
-    targetPartnerName: names.get(r.targetPartnerId.toString()) ?? `#${r.targetPartnerId.toString()}`,
-    parentPartnerId: num(r.parentPartnerId),
-    replyReason: r.replyReason,
-    submittedAt: iso(r.submittedAt),
-    repliedAt: iso(r.repliedAt),
-    proceededAt: iso(r.proceededAt),
-    files: filesMap.get(r.id.toString()) ?? [],
-  }));
+  const out: PartnerPcbAsCaseViewType[] = [];
+  for (const r of rows) {
+    out.push({
+      id: num(r.id),
+      specId: num(r.specId),
+      projectName: specNames.get(r.specId.toString()) ?? `Q${r.specId.toString()}`,
+      reorderRound: r.reorderRound,
+      caseType: r.caseType as PartnerPcbAsCaseViewType['caseType'],
+      chargeType: r.chargeType as PartnerPcbAsCaseViewType['chargeType'],
+      description: r.description,
+      status: r.status as PartnerPcbAsCaseViewType['status'],
+      targetPartnerId: num(r.targetPartnerId),
+      targetPartnerName:
+        names.get(r.targetPartnerId.toString()) ?? `#${r.targetPartnerId.toString()}`,
+      parentPartnerId: num(r.parentPartnerId),
+      replyReason: r.replyReason,
+      submittedAt: iso(r.submittedAt),
+      repliedAt: iso(r.repliedAt),
+      proceededAt: iso(r.proceededAt),
+      roundPoId: await partnerRoundPoIdOf(r, viewerPartnerId),
+      files: filesMap.get(r.id.toString()) ?? [],
+    });
+  }
+  return out;
 };
 
 // ── 대상 후보 — 이 스펙의 원주문(round 0) 발주 중 **생산 주체(leaf)** 만 ─────────

@@ -121,7 +121,13 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
                 {{ fmtPcbAmount(it.summary.currency, it.summary.balance) }}
               </td>
               <td class="whitespace-nowrap px-4 py-2.5">
-                <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[it.summary.status]">
+                <!-- 무상 A/S 회차 — 수금 대상이 아니다(미수금 0 취급·총계 제외). -->
+                <span
+                  v-if="it.isFreeAs"
+                  class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700"
+                  title="무상 A/S 재생산 — 수금 대상이 아닙니다"
+                >무상 A/S</span>
+                <span v-else class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[it.summary.status]">
                   {{ STATUS_TEXT[it.summary.status] }}
                 </span>
               </td>

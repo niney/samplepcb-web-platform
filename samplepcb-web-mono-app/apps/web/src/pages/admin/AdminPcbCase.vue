@@ -432,6 +432,12 @@ const olderRoundCount = computed(
     adminRows.value.filter((r) => r.reorderRound !== latestRound.value).length +
     adminPos.value.filter((p) => p.reorderRound !== latestRound.value).length,
 );
+// 헤더 "N건"의 N 은 전 회차 합산이라, 접힘 중엔 표에 보이는 수와 달라 오해를 산다 —
+// 현재 회차 수를 병기해 신호를 정제한다(합산 카운트 자체는 유지).
+const latestPoCount = computed(
+  () => adminPos.value.filter((p) => p.reorderRound === latestRound.value).length,
+);
+const olderRoundsCollapsed = computed(() => olderRoundCount.value > 0 && !roundsExpanded.value);
 const childPosOf = (partnerId: number): AdminPcbPoViewType[] =>
   allPos.value.filter((p) => p.parentPartnerId === partnerId);
 
@@ -1298,7 +1304,8 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 아직 배정된 협력사가 없습니다 — [협력사 견적요청 보내기]로 시작하세요.
               </td>
             </tr>
-            <!-- 이전 회차(A/S 재발주) — 지나간 흔적은 지우지 않고 접어 둔다 -->
+            <!-- 이전 회차(A/S 재발주) — 지나간 흔적은 지우지 않고 접어 둔다.
+                 카운트는 발주·견적 합산이라 라벨에 축을 명시한다(발주서 섹션에도 같은 토글). -->
             <tr v-if="olderRoundCount > 0">
               <td colspan="7" class="px-4 py-2">
                 <button
@@ -1306,7 +1313,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   class="text-xs font-semibold text-gray-400 hover:text-gray-700"
                   @click="roundsExpanded = !roundsExpanded"
                 >
-                  {{ roundsExpanded ? '▾ 이전 회차 접기' : `▸ 이전 회차 ${String(olderRoundCount)}건 보기` }}
+                  {{ roundsExpanded ? '▾ 이전 회차 접기' : `▸ 이전 회차 발주·견적 ${String(olderRoundCount)}건 보기` }}
                 </button>
               </td>
             </tr>
@@ -1329,7 +1336,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
         <h2 class="text-sm font-bold text-gray-700">
           발주서 · EQ
-          <span class="ml-1 text-xs font-normal text-gray-400">{{ adminPos.length }}건</span>
+          <span class="ml-1 text-xs font-normal text-gray-400">
+            {{ adminPos.length }}건<template v-if="olderRoundsCollapsed"> (현재 회차 {{ latestPoCount }}건 · 이전 회차 접힘)</template>
+          </span>
         </h2>
         <button
           type="button"
@@ -1613,6 +1622,19 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             <tr v-if="adminPos.length === 0">
               <td colspan="7" class="px-4 py-8 text-center text-sm text-gray-400">
                 발주서가 없습니다 — 선정 후 결제가 확인되면 [발주서 발행]으로 시작하세요.
+              </td>
+            </tr>
+            <!-- 이전 회차 토글 — RFQ 섹션과 같은 상태를 접고 편다(카운트는 발주·견적 합산).
+                 토글이 RFQ 표 하단에만 있으면 발주 쪽 접힘의 출구가 안 보인다(재점검 08-10). -->
+            <tr v-if="olderRoundCount > 0">
+              <td colspan="7" class="px-4 py-2">
+                <button
+                  type="button"
+                  class="text-xs font-semibold text-gray-400 hover:text-gray-700"
+                  @click="roundsExpanded = !roundsExpanded"
+                >
+                  {{ roundsExpanded ? '▾ 이전 회차 접기' : `▸ 이전 회차 발주·견적 ${String(olderRoundCount)}건 보기` }}
+                </button>
               </td>
             </tr>
           </tbody>

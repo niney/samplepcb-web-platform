@@ -146,7 +146,7 @@ function openCase(specId: number): void {
                 <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
                 {{ row.projectName }}
               </td>
-              <td class="px-4 py-2.5 text-gray-600">
+              <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">
                 {{ row.partnerName }}
                 <span v-if="row.parentPartnerName !== null" class="ml-1 text-xs text-indigo-500">
                   (MD {{ row.parentPartnerName }})

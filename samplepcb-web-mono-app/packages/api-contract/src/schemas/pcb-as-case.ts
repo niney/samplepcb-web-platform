@@ -112,6 +112,10 @@ export const PartnerPcbAsCaseView = z.object({
   submittedAt: z.string().nullable(),
   repliedAt: z.string().nullable(),
   proceededAt: z.string().nullable(),
+  /** proceeded 후 **보는 조직이 열 수 있는** 회차 발주서 id(포털 딥링크) — 최상위 수주자
+   *  (직거래 대상·MD)는 최상위 회차 발주, MD 경유의 대상 협력사는 MD 가 발행한 하위 회차
+   *  발주(아직 없으면 null — 화면은 문구로 폴백). 관리자 뷰 roundPoId 의 포털 미러. */
+  roundPoId: z.number().nullable(),
   files: z.array(PcbAsCaseFileView),
 });
 export type PartnerPcbAsCaseViewType = z.infer<typeof PartnerPcbAsCaseView>;

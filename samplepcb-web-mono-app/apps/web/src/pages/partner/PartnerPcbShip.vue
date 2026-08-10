@@ -234,9 +234,14 @@ async function takeOut(poId: number): Promise<void> {
         </div>
       </section>
 
-      <p v-if="board.doneCount > 0" class="text-xs text-gray-400">
-        완료된 발송 {{ board.doneCount }}건 — 발주서 상세에서 확인할 수 있습니다.
-      </p>
+      <!-- 완료 아카이브 진입 — 홈과 같은 관례(별도 페이지, BOM §6.11 미러) -->
+      <RouterLink
+        v-if="board.doneCount > 0"
+        :to="{ name: 'partner-pcb-shipments-done' }"
+        class="block rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
+      >
+        완료된 발송 {{ board.doneCount }}건 보기 →
+      </RouterLink>
     </template>
   </div>
 </template>

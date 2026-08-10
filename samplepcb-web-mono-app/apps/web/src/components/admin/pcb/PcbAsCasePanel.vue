@@ -39,6 +39,11 @@ const specIdRef = computed(() => props.specId);
 
 const listQuery = useAdminPcbAsCases(specIdRef);
 const cases = computed(() => listQuery.data.value?.data.cases ?? []);
+// 진행 중(회신 대기·진행 대기) 수 — 접힘 바 강조용. proceeded 는 케이스 축에선 종결이라
+// 여기 안 센다(회차 발주의 진행은 발주서·EQ 섹션 몫 — 자동 펼침 조건도 현행 유지).
+const activeCount = computed(
+  () => cases.value.filter((c) => c.status === 'submitted' || c.status === 'accepted').length,
+);
 // 진행 중(회신 대기·진행 대기)이 있으면 펼쳐서 신호를 준다 — 없으면 접힘 시작.
 const collapsed = ref(true);
 let autoOpened = false;
@@ -238,7 +243,9 @@ const trackLabel = (c: AdminPcbAsCaseViewType): string =>
     class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
     @click="collapsed = false"
   >
-    <span>▸ A/S 재발주 ({{ cases.length }}건)</span>
+    <span>
+      ▸ A/S 재발주 ({{ cases.length }}건<template v-if="activeCount > 0"> · <b class="text-amber-600">진행 중 {{ activeCount }}건</b></template>)
+    </span>
     <span class="text-xs text-gray-400">펼치기</span>
   </button>
   <section v-else class="rounded-xl border border-gray-200 bg-surface">

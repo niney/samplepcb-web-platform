@@ -30,6 +30,7 @@ import {
   type AdminPartnerFilters,
 } from '../../admin/useAdminPartners';
 import UiPagination from '../../components/ui/UiPagination.vue';
+import { confirmDialog } from '../../lib/confirmDialog';
 
 // 통합 관리의 공용 파트너(조직) 기준정보 — 목록(상태 탭×유형 필터, counts)·상세 드로어·
 // 생성/수정·승인/정지·계정 연결. BOM·PCB·부품 판매 트랙이 같은 조직 원장을 사용한다.
@@ -363,12 +364,26 @@ const deleteMut = useDeletePartner();
 
 async function removePartner(): Promise<void> {
   if (selectedId.value === null) return;
+  if (
+    !(await confirmDialog({
+      message: `${detail.value?.name ?? '이 조직'}을(를) 삭제할까요?\n오기 정리용입니다 — 되돌릴 수 없습니다.`,
+      confirmLabel: '삭제',
+      tone: 'danger',
+    }))
+  ) {
+    return;
+  }
   statusError.value = '';
   try {
     await deleteMut.mutateAsync(selectedId.value);
     selectedId.value = null;
   } catch (e) {
-    statusError.value = e instanceof ApiRequestError ? e.message : '삭제에 실패했습니다.';
+    // 서버 안내문(payload.message)만 보여준다 — Prisma 원문 등 내부 오류 문자열을 그대로
+    // 렌더하지 않는다(가드 밖 실패는 일반 문구).
+    statusError.value =
+      e instanceof ApiRequestError
+        ? (e.payload?.message ?? '삭제에 실패했습니다.')
+        : '삭제에 실패했습니다.';
   }
 }
 

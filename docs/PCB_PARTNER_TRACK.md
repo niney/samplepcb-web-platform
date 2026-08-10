@@ -1360,6 +1360,28 @@ shipment.destinationCountry 를 구분 안 함) — 관리자가 실물을 안 �
 sp_bom_rfq 만 검사 — PCB PO 보유 조직 삭제 시 FK P2003 **안내 없는 500**(BOM 처럼
 409 안내 필요).
 
+### 재점검 확정 결함 11건 수정 (2026-08-10 — 신규 시나리오 4종 화면 전수 재점검의 산출)
+
+여정 5·6호+MD 4·5편을 화면 관찰 중심으로 재주행(발견 20건 리스트업)한 뒤, 원인이 특정된
+확실 항목만 엄선 수정. 스키마 무변경(전부 앱 층).
+
+- **돈 축**: ① 무상(free) A/S 회차 발주를 송금·수금 **집계에서 제외**(잔액 0)+'무상 A/S'
+  배지(isFreeAs 계약 추가 — proceed 의 조건 복사는 원가 회계용 유지, 유상은 현행) ② 관리자
+  송금 워크큐에서 MD 하위 발주 제외(parentPartnerId=0 — 지급 주체는 MD, 이중 지급 유도 차단)
+- **안전**: ③ 조직 삭제 — sp_pcb_rfq·po 선제 409 PARTNER_HAS_PCB_DOCS+P2003 catch,
+  confirmDialog 선행, Prisma 오류 원문 렌더 제거
+- **고객 카드**: ④ od 배송·완료·취소면 진행 카드 숨김(코어 배송정보가 정본) ⑤ 선적요청
+  (requested)은 '발송 준비 중'(운송은 shipped 부터) ⑥ 직송 건 어휘 치환('주문지로 직송
+  배송 중'/'직송 배송 완료' — '입고' 거짓말 해소)
+- **화면**: ⑦ 발주 큐 협력사 셀 nowrap ⑧ 선적 큐에 '직송 {국가}'·'N차' 배지(워크아이템
+  계약 확장) ⑨ 포털 A/S proceeded 안내를 회차 발주 딥링크로(**뷰어가 열 수 있는 발주만**
+  — MD 경유 대상 협력사는 하위 회차 발주, 없으면 null) ⑩ 보드 완료 발송을 아카이브
+  RouterLink 로 ⑪ Case 회차 접힘 카운트 명시+토글 라벨·위치 정제+A/S 접힘 바 진행 중 강조
+- **보류(정책)**: 직송 건의 고객 배송 큐 오판(od 종결 창구 대체 설계 필요)·국제 선적
+  어휘 전면·A/S 진행 스펙의 진행현황 탭 편입.
+- 검증: typecheck 8/8·lint 7/7·vitest 744·여정 as 9/9·direct 6/6(J5 를 409 로 뒤집고
+  J6 신규 — 직송 어휘·카드 숨김 실화면)·md:cn 6/6·전부 CLEAN·실데이터 스모크 16 어서션.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

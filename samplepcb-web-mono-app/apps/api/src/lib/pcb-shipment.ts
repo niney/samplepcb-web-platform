@@ -897,6 +897,8 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
       status: BomShipmentStatusType;
       poCount: number;
       receivedAt: string | null;
+      destinationCountry: string | null;
+      reorderRound: number;
       adminTurn: boolean;
       createdAt: string;
     };
@@ -936,6 +938,9 @@ export const loadAdminPcbShipmentWorkItems = async (): Promise<
         status: asPcbShipmentStatus(asPcbShipmentMode(shipment.mode), shipment.status),
         poCount: shipment.pos.length,
         receivedAt: iso(shipment.receivedAt),
+        // 큐 배지 — 직송(실물이 자사를 안 거침)·A/S 회차(대표 발주 기준)를 행에서 바로 읽게.
+        destinationCountry: shipment.destinationCountry,
+        reorderRound: rep?.reorderRound ?? 0,
         adminTurn,
         createdAt: shipment.createdAt.toISOString(),
       },

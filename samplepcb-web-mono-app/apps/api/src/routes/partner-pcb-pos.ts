@@ -17,7 +17,7 @@ import {
   type PartnerPcbRemittanceTotalType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
-import { summarizePcbRemittances } from '../lib/pcb-remittance';
+import { isFreeAsPo, loadFreeAsRoundKeys, summarizePcbRemittances } from '../lib/pcb-remittance';
 import { loadHousePartnerName } from '../lib/pcb-rfq';
 import {
   advancePcbPoEq,
@@ -106,6 +106,8 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
   // 내 조직이 **수주한** 발주서만(parentPartnerId 무관 — 받는 쪽이 나면 다 내 수금).
   // 완료된 발주서는 포털 홈의 '진행할 발주'에 안 떠서 상세로 갈 길이 없었다 —
   // 이 목록이 그 진입점이다(2026-08-06 사용자 지적).
+  // 무상(free) A/S 회차는 수금 대상이 아니다 — 미수금 0 취급·통화 총계 제외, 행은
+  // '무상 A/S' 배지로 남긴다(관리자 송금 큐와 같은 규율, 유상 A/S 는 현행 유지).
   fastify.get(
     '/partner/pcb-remittances',
     { schema: { response: { 200: PartnerPcbRemittanceListResponse } } },
@@ -119,6 +121,7 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         },
         orderBy: { issuedAt: 'desc' },
       });
+      const freeKeys = await loadFreeAsRoundKeys(pos);
       // 발주처 이름 — parentPartnerId 0 = 우리(하우스), 그 외 = 상위 MD 조직.
       const parentIds = [...new Set(pos.map((p) => p.parentPartnerId).filter((id) => id !== 0n))];
       const parents =
@@ -131,27 +134,33 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
       const parentName = new Map(parents.map((p) => [p.id.toString(), p.name]));
       const houseName = await loadHousePartnerName();
 
-      const items = pos.map((po) => ({
-        poId: Number(po.id),
-        projectName: po.spec.projectName,
-        ordererName:
-          po.parentPartnerId === 0n
-            ? houseName
-            : (parentName.get(po.parentPartnerId.toString()) ?? '중개 조직'),
-        poStatus: asPcbPoStatus(po.status),
-        issuedAt: po.issuedAt.toISOString(),
-        summary: summarizePcbRemittances(po, po.remittances),
-        remittances: po.remittances.map((r) => ({
-          id: Number(r.id),
-          remittedOn: r.remittedOn.toISOString(),
-          currency: r.currency,
-          amount: Number(r.amount),
-          memo: r.memo,
-        })),
-      }));
+      const items = pos.map((po) => {
+        const isFreeAs = isFreeAsPo(freeKeys, po);
+        const summary = summarizePcbRemittances(po, po.remittances);
+        return {
+          poId: Number(po.id),
+          projectName: po.spec.projectName,
+          ordererName:
+            po.parentPartnerId === 0n
+              ? houseName
+              : (parentName.get(po.parentPartnerId.toString()) ?? '중개 조직'),
+          poStatus: asPcbPoStatus(po.status),
+          issuedAt: po.issuedAt.toISOString(),
+          isFreeAs,
+          summary: isFreeAs ? { ...summary, balance: 0 } : summary,
+          remittances: po.remittances.map((r) => ({
+            id: Number(r.id),
+            remittedOn: r.remittedOn.toISOString(),
+            currency: r.currency,
+            amount: Number(r.amount),
+            memo: r.memo,
+          })),
+        };
+      });
 
       const byCurrency = new Map<string, PartnerPcbRemittanceTotalType>();
       for (const it of items) {
+        if (it.isFreeAs) continue; // 무상 A/S — 총계에 섞으면 미수금이 거짓말을 한다
         const cur = byCurrency.get(it.summary.currency) ?? {
           currency: it.summary.currency,
           poAmount: 0,

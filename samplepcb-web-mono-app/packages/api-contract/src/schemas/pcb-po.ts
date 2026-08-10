@@ -521,6 +521,10 @@ export const AdminPcbShipmentWorkItem = z.object({
   status: BomShipmentStatus,
   poCount: z.number().int(),
   receivedAt: z.string().nullable(),
+  /** 직송지(D5) — non-null 이면 실물은 자사가 아니라 이 나라의 고객에게 간다(큐 배지). */
+  destinationCountry: z.string().nullable(),
+  /** 대표 발주의 A/S 회차 — 0=원주문, 1..=재생산 회차(큐 배지). */
+  reorderRound: z.number().int(),
   /** 관리자 차례 — 받는측이 관리자이고 다음 전이 주체가 받는측이거나, 최종인데 입고 미확인. */
   adminTurn: z.boolean(),
   createdAt: z.string(),

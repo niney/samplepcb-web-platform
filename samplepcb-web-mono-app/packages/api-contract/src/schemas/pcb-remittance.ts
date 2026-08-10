@@ -82,6 +82,9 @@ export const AdminPcbRemittanceItem = z.object({
   deliveryDate: z.string().nullable(),
   /** 레거시 이관 견적 표시 — 대기 큐에서 제외되는 건과 같은 신호(D12). */
   isLegacy: z.boolean(),
+  /** 무상(free) A/S 회차 발주 — 지급 대상이 아니다(잔액 0 취급·대기 큐 제외, 발주가는
+   *  원가 회계 참고). 판정은 sp_pcb_as_case(chargeType=free)를 (specId, reorderRound)로 join. */
+  isFreeAs: z.boolean(),
   summary: PcbRemittanceSummary,
 });
 export type AdminPcbRemittanceItemType = z.infer<typeof AdminPcbRemittanceItem>;
@@ -197,6 +200,8 @@ export const PartnerPcbRemittanceItem = z.object({
   ordererName: z.string(),
   poStatus: PcbPoStatus,
   issuedAt: z.string(),
+  /** 무상(free) A/S 회차 발주 — 수금 대상이 아니다(미수금 0 취급·총계 제외). */
+  isFreeAs: z.boolean(),
   summary: PcbRemittanceSummary,
   /** 입금 건별 내역 — 증빙 파일은 내부 자료라 싣지 않는다. */
   remittances: z.array(

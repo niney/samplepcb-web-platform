@@ -12,7 +12,9 @@ interface ShipmentSignal {
   receivedAt: Date | null;
 }
 
-/** 순수 판정 — 발주 상태+관리자향 발송 신호 → 고객 단계. 발주 전(null 발주)은 카드 없음. */
+/** 순수 판정 — 발주 상태+관리자향 발송 신호 → 고객 단계. 발주 전(null 발주)은 카드 없음.
+ *  선적요청(requested)은 아직 실물이 안 움직인 서류 단계라 '발송 준비 중'으로 묶는다 —
+ *  운송(shipping)은 shipped 부터다(재점검 확정 08-10). */
 export const resolvePcbProgressStage = (
   poStatus: string,
   shipment: ShipmentSignal | null,
@@ -20,7 +22,9 @@ export const resolvePcbProgressStage = (
   if (poStatus !== 'produced') {
     return poStatus === 'producing' ? 'producing' : 'eq';
   }
-  if (shipment === null || shipment.status === 'preparing') return 'produced';
+  if (shipment === null || shipment.status === 'preparing' || shipment.status === 'requested') {
+    return 'produced';
+  }
   if (shipment.receivedAt !== null) return 'received';
   return 'shipping';
 };
@@ -33,8 +37,20 @@ const STAGE_LABELS: Record<PcbProgressStageType, string> = {
   received: '입고 완료 — 배송 준비 중',
 };
 
-export const pcbProgressLabel = (stage: PcbProgressStageType, reorderRound: number): string =>
-  (reorderRound > 0 ? 'A/S 재생산 — ' : '') + STAGE_LABELS[stage];
+/** 직송(발주 destinationCountry non-null) — 실물이 자사를 거치지 않으므로 '입고' 어휘가
+ *  거짓말이 된다: 운송·도착 두 단계만 직송 어휘로 치환한다(재점검 확정 08-10). */
+const DIRECT_SHIP_LABELS: Partial<Record<PcbProgressStageType, string>> = {
+  shipping: '주문지로 직송 배송 중',
+  received: '직송 배송 완료',
+};
+
+export const pcbProgressLabel = (
+  stage: PcbProgressStageType,
+  reorderRound: number,
+  directShip = false,
+): string =>
+  (reorderRound > 0 ? 'A/S 재생산 — ' : '') +
+  ((directShip ? DIRECT_SHIP_LABELS[stage] : undefined) ?? STAGE_LABELS[stage]);
 
 /** 주문의 카트행들 → 소유 스펙별 진행 카드. 발주(최상위) 없는 스펙은 항목을 내지 않는다. */
 export const listCustomerPcbProgress = async (
@@ -73,7 +89,7 @@ export const listCustomerPcbProgress = async (
       projectName: spec.projectName,
       reorderRound: po.reorderRound,
       stage,
-      label: pcbProgressLabel(stage, po.reorderRound),
+      label: pcbProgressLabel(stage, po.reorderRound, po.destinationCountry !== null),
     });
   }
   return out;
