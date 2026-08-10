@@ -1332,6 +1332,34 @@ od 는 '입금'에 머무는데 실제 제작은 EQ→생산→발송→입고�
 - **실측**: 여정 1호 재주행 11/11 — S9 스크린샷에서 od '입금'(완불) 상태의 주문 상세에
   "제조 확인(EQ) 진행 중 · arduino-uno.zip" 카드 렌더 확인. 정리 CLEAN.
 
+### 국가×물류모드 매트릭스 완성 — MD 4·5편 + 여정 6호 (2026-08-10)
+
+관리자=KR 고정에서 모드는 "발송자국가=수신국가 → 국내 / 다르면 국제"의 이진 파생이라,
+실질 등가류는 MD 2×2 + 직송 축뿐이다. 남은 칸 전부를 3편으로 채웠다(17케이스 green,
+매 주행 cleanup-probe CLEAN).
+
+- **MD 4편 `md-domestic-relay`(`md:domestic`, 6/6)**: 전 구간 국내(KR MD) — 하위(협력1
+  KR)→MD(KR) **receiverKind md 의 domestic 최초**(MD receive 가 delivered 종점을 닫음,
+  Invoice 불요), 출고 게이팅이 국내 leg 에서도 동작(담기 전+배송 중 2지점 409 — 해제
+  열쇠는 모드가 아니라 receivedAt), MD→관리자 국내(RECEIVE_REQUIRED→입고확인 종점).
+- **MD 5편 `md-cn-relay`(`md:cn`, 6/6×2회)**: **상설 픽스처 신설** — 조직 #8
+  `mdtester2상사`(CN/USD)+계정 mdtester2(g5_member 미러 INSERT — 연결이
+  MEMBER_NOT_FOUND 를 검증함을 실측)+관계 #8→협력2(USD, **다중 상위 공존 실증**).
+  협력2(CN)→mdtester2상사(CN) **비KR domestic 최초** + CN→KR 국제 6단계 완주.
+- **여정 6호 `journey-direct-ship`(`journey:direct`, 5/5×2회)**: 직송 3종 — CN→직송
+  CN(비KR 국내)·CN→직송 VN(양끝 비KR 국제)·신규 조직 #9 `e2e한국협력`(KR)→직송
+  CN(국제). 같은 협력2인데 직송지 축으로 **다른 박스**(contextKey admin:0:CN vs VN),
+  Invoice 요구는 모드 파생을 따름(국제만 MISSING_INVOICE_FILE).
+
+**발견 결함 2건(서버 무수정 — 스펙은 현재 동작 박제, 후속 수정 대상)**:
+① **직송 배송 큐 오판**: 직송(CN→CN) 완료 건이 관리자 고객 배송 큐 to_ship 에 노출
+(g5-db.ts PCB_SHIP_JOIN/PCB_TO_SHIP 이 receiverKind='admin'∧receivedAt 만 보고
+shipment.destinationCountry 를 구분 안 함) — 관리자가 실물을 안 받았는데 운송장 입력을
+요구받는다. 단 직송 주문의 od 종결 경로가 현재 이 큐뿐이라 정책 판단 병기.
+② **조직 삭제 API 의 PCB 축 가드 공백**: DELETE /admin/partners/:id 선제 가드가
+sp_bom_rfq 만 검사 — PCB PO 보유 조직 삭제 시 FK P2003 **안내 없는 500**(BOM 처럼
+409 안내 필요).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
