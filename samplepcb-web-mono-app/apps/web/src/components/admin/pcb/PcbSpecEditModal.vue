@@ -167,8 +167,8 @@ async function save(): Promise<void> {
 
 <template>
   <div class="fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" @click.self="emit('close')">
-    <div class="w-full max-w-5xl overflow-hidden rounded-xl bg-surface shadow-xl">
-      <header class="border-b border-gray-200 px-5 py-4">
+    <div class="flex max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-surface shadow-xl">
+      <header class="shrink-0 border-b border-gray-200 px-5 py-4">
         <p class="text-[11px] font-bold uppercase tracking-wider text-blue-600">제작 사양 수정</p>
         <h3 class="mt-0.5 text-base font-bold text-gray-900">{{ category }} · Q{{ projectId }}</h3>
         <p class="mt-1 text-xs text-gray-500">
@@ -179,7 +179,7 @@ async function save(): Promise<void> {
 
       <!-- ③ 결과 -->
       <template v-if="result !== null">
-        <div class="max-h-[70vh] space-y-3 overflow-y-auto px-5 py-4">
+        <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
           <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
             <p class="font-extrabold">사양을 수정했습니다 — {{ result.changedKeys.length }}개 항목</p>
             <p class="mt-1 text-xs">새 견적 {{ result.quoteId.slice(0, 8) }}… 발급</p>
@@ -206,14 +206,14 @@ async function save(): Promise<void> {
             ⚠ 이미 회신받은 협력사 견적이 {{ result.answeredRfqCount }}건 있습니다 — 바뀐 사양으로 재확인이 필요합니다.
           </p>
         </div>
-        <footer class="flex justify-end border-t border-gray-200 px-5 py-3">
+        <footer class="flex shrink-0 justify-end border-t border-gray-200 px-5 py-3">
           <button type="button" class="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-bold text-white hover:bg-black" @click="emit('close')">닫기</button>
         </footer>
       </template>
 
       <!-- ① 편집 -->
       <template v-else>
-        <div class="max-h-[62vh] overflow-y-auto px-5 py-4">
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           <label class="block max-w-[200px]">
             <span class="text-[11px] font-semibold text-gray-500">수량 (매)</span>
             <input v-model="qtyDraft" type="number" min="1" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm tabular-nums focus:border-blue-500 focus:outline-none">
@@ -241,7 +241,7 @@ async function save(): Promise<void> {
           </div>
         </div>
 
-        <div class="border-t border-gray-200 px-5 py-4">
+        <div class="max-h-[60dvh] shrink-0 overflow-y-auto overscroll-contain border-t border-gray-200 px-5 py-4">
           <!-- 변경 요약 — 사양은 값이 많아 무엇을 건드렸는지 놓치기 쉽다 -->
           <div v-if="changed.length > 0 || qtyChanged" class="rounded-lg border border-blue-200 bg-blue-50/60 p-3">
             <p class="text-xs font-bold text-blue-800">
