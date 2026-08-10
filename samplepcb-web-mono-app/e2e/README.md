@@ -56,6 +56,7 @@ specs/
   journey-md-relay.e2e.test.ts         여정 4호 — MD 경유 2단(2단 견적·EQ 위임·출고 게이팅)
   journey-as-reorder.e2e.test.ts       여정 5호 — A/S 재발주 회차(접수→회신→proceed→회차 생산·발송 분리)
   journey-direct-ship.e2e.test.ts      여정 6호 — 직송 3종(직송지 축 모드 파생·박스 분리·배송 큐 실측)
+  journey-as-advanced.e2e.test.ts      여정 7호 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐 대조)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -71,13 +72,14 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 
 | 스크립트 | 대상 |
 | --- | --- |
-| `pnpm -F e2e journey` | 1~6호 연속(파일 직렬) |
+| `pnpm -F e2e journey` | 1~7호 연속(파일 직렬) |
 | `pnpm -F e2e journey:intl` | 1호만 — 해외 협력사 |
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
+| `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
