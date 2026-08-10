@@ -135,6 +135,9 @@ export const PartnerPcbAsCaseReplyBody = z.object({
 });
 export type PartnerPcbAsCaseReplyBodyType = z.infer<typeof PartnerPcbAsCaseReplyBody>;
 
+export const PcbAsCaseOkResponse = z.object({ result: z.literal(true) });
+export type PcbAsCaseOkResponseType = z.infer<typeof PcbAsCaseOkResponse>;
+
 export const AdminPcbAsCaseListResponse = z.object({
   result: z.literal(true),
   data: z.object({ cases: z.array(AdminPcbAsCaseView) }),

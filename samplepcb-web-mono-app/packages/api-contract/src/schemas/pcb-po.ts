@@ -295,6 +295,7 @@ export const PartnerPcbPoListItem = z.object({
   poId: z.number(),
   projectName: z.string(),
   qty: z.number().int(),
+  reorderRound: z.number().int(), // 0=원발주, 1..=A/S 회차(화면 배지)
   status: PcbPoStatus,
   /** received=내 조직이 수주 / issued=내 조직(MD)이 하위에 발주. */
   direction: z.enum(['received', 'issued']),
@@ -320,6 +321,7 @@ export type PartnerPcbPoListResponseType = z.infer<typeof PartnerPcbPoListRespon
 export const PartnerPcbPoDetail = z.object({
   poId: z.number(),
   specId: z.number(),
+  reorderRound: z.number().int(), // 0=원발주, 1..=A/S 회차
   status: PcbPoStatus,
   direction: z.enum(['received', 'issued']),
   requesterName: z.string(),

@@ -812,6 +812,7 @@ export const loadPartnerPcbPos = async (
       poId: Number(po.id),
       projectName: po.spec.projectName,
       qty: po.spec.qty,
+      reorderRound: po.reorderRound,
       status: asPcbPoStatus(po.status),
       direction: 'received',
       counterpartyName:
@@ -840,6 +841,7 @@ export const loadPartnerPcbPos = async (
       poId: Number(po.id),
       projectName: po.spec.projectName,
       qty: po.spec.qty,
+      reorderRound: po.reorderRound,
       status: asPcbPoStatus(po.status),
       direction: 'issued',
       counterpartyName: po.partner.name,
@@ -915,6 +917,7 @@ export const loadPartnerPcbPoDetail = async (
   return {
     poId: Number(po.id),
     specId: Number(po.specId),
+    reorderRound: po.reorderRound,
     status: asPcbPoStatus(po.status),
     direction,
     requesterName,

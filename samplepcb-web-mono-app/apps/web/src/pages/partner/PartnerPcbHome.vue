@@ -4,6 +4,7 @@ import { ApiRequestError } from '@sp/shared';
 import { PCB_RFQ_STATUS_LABELS } from '@sp/api-contract';
 import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
 import { usePartnerPcbPos, usePartnerPcbShipBoard } from '../../partner/usePartnerPcbPos';
+import { usePartnerPcbAsCases } from '../../partner/usePartnerPcbAsCases';
 import { usePartnerAccess } from '../../partner/usePartnerAccess';
 import { rememberPartnerModule } from '../../partner/partnerModule';
 import { pcbMoneyWithSub } from '../../lib/pcb-money';
@@ -16,7 +17,16 @@ import { fmtKstDate } from '@sp/utils';
 const pcbQuery = usePartnerPcbRfqs();
 const pcbPoQuery = usePartnerPcbPos();
 const shipQuery = usePartnerPcbShipBoard();
+const asQuery = usePartnerPcbAsCases();
 const accessQuery = usePartnerAccess();
+
+// A/S 회신 대기(내가 회신 주체인 접수 건) — 있을 때만 배너.
+const pendingAsCount = computed(() => {
+  const data = asQuery.data.value?.data;
+  if (data === undefined) return 0;
+  return data.cases.filter((c) => c.status === 'submitted' && c.targetPartnerId === data.partnerId)
+    .length;
+});
 
 onMounted(() => {
   rememberPartnerModule('pcb');
@@ -80,6 +90,15 @@ const rfqStatusCls = (s: string): string =>
     <p v-else-if="isLoading" class="text-sm text-gray-400">불러오는 중…</p>
 
     <template v-else>
+      <!-- A/S 회신 대기 — 드문 이벤트라 상시 카드 대신 있을 때만 배너로 -->
+      <RouterLink
+        v-if="pendingAsCount > 0"
+        :to="{ name: 'partner-pcb-as' }"
+        class="block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+      >
+        🔧 A/S 재생산 검토 요청 {{ pendingAsCount }}건 — 재생산 가능/불가를 회신해 주세요 →
+      </RouterLink>
+
       <!-- 오늘 할 일 — 카드 4개 -->
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <a
@@ -171,7 +190,12 @@ const rfqStatusCls = (s: string): string =>
             class="flex items-center gap-3 rounded-xl border border-teal-200 bg-surface px-4 py-3 hover:border-teal-300 hover:bg-teal-50/40"
           >
             <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold text-gray-900">{{ po.projectName }}</p>
+              <p class="truncate text-sm font-semibold text-gray-900">
+                {{ po.projectName }}
+                <span v-if="po.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-700">
+                  A/S {{ po.reorderRound }}차
+                </span>
+              </p>
               <p class="mt-0.5 text-sm text-gray-500">
                 {{ po.qty }}매 · {{ po.counterpartyName }} ·
                 {{ po.priceOriginal.toLocaleString('en-US') }} {{ po.currency }}

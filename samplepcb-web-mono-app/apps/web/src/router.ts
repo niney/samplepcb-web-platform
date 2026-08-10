@@ -131,6 +131,13 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresMember: true },
       },
       {
+        // PCB A/S(P4) — 재생산 검토 요청 회신(가능/불가+사유·첨부), MD 중계 열람
+        path: 'pcb/as',
+        name: 'partner-pcb-as',
+        component: () => import('./pages/partner/PartnerPcbAs.vue'),
+        meta: { requiresMember: true },
+      },
+      {
         // [📦 PCB 보내기](PCB §9 묶음 재구성) — 받는 곳별 박스에 담아 묶어 발송
         path: 'pcb/ship',
         name: 'partner-pcb-ship',

@@ -304,6 +304,11 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
     <template v-else-if="detail !== null">
       <div class="flex flex-wrap items-center gap-3">
         <h1 class="text-xl font-bold">{{ detail.spec.projectName }}</h1>
+        <span
+          v-if="detail.reorderRound > 0"
+          class="rounded bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700"
+          title="A/S 재생산 회차 발주 — EQ부터 다시 진행합니다"
+        >A/S {{ detail.reorderRound }}차</span>
         <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="STATUS_CLS[detail.status]">
           {{ PCB_PO_STATUS_LABELS[detail.status] }}
         </span>
