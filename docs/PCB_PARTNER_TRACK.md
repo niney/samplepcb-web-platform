@@ -1308,7 +1308,12 @@ typecheck·lint 0건 · 정리 CLEAN(취소 주문도 force-status '주문' 복�
 - **검증**: 스모크 20/20(`e2e/output/smoke-as-case.mts` — 기본 비용 규칙·역할 격리·
   전송 후 고정·회수 출구·거절 종결(삭제 409)·proceed 회차 발주 복사 필드·중복 진행
   409·EQ 파이프 연결) · vitest 738 · typecheck 8/8 · lint 0건 · Mailpit 실수신.
-  남은 것=여정 5호(A/S 1회차 완주 E2E — 실 주문 문맥·회차 선적).
+- **여정 5호 완주(`journey-as-reorder.e2e.test.ts`, `pnpm -F e2e journey:as`)**: 원주문
+  압축 완주(주문 '완료'까지) → 접수(불량=무상 기본) → 협력2 수락 → proceed(poId 342 ·
+  round 1 · 조건 복사 · 납기 null 실측) → 회차 EQ~생산 재진행 → **회차 발송 분리**
+  (원발주 선적과 별개 발송 생성 · 원발주 done 무간섭 — contextKey 회차 편입 실증) →
+  화면 실측(Case A/S 패널·'1차' 배지·포털 'A/S 1차' 배지). 9/9 green · findings
+  bug 0 · 정리 CLEAN(케이스는 스펙 FK cascade 소멸 확인).
 
 ## 10. 조사 자료 색인
 
