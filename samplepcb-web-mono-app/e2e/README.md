@@ -57,6 +57,7 @@ specs/
   journey-as-reorder.e2e.test.ts       여정 5호 — A/S 재발주 회차(접수→회신→proceed→회차 생산·발송 분리)
   journey-direct-ship.e2e.test.ts      여정 6호 — 직송 3종(직송지 축 모드 파생·박스 분리·배송 큐 실측)
   journey-as-advanced.e2e.test.ts      여정 7호 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐 대조)
+  journey-remittance.e2e.test.ts       여정 8호 — 송금 원장 완주(돈 축: 부분 송금·증빙·환차·무상 A/S 제외·가드 순환)
   journey-multi-customer.e2e.test.ts   여정 9호 — 다중 고객 × 묶음 발송(한 박스 두 주인·정보 격리·cross-member 큐)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
@@ -75,7 +76,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 
 | 스크립트 | 대상 |
 | --- | --- |
-| `pnpm -F e2e journey` | 1~7호 연속(파일 직렬) |
+| `pnpm -F e2e journey` | 전 여정 연속(파일 직렬 — journey-*) |
 | `pnpm -F e2e journey:intl` | 1호만 — 해외 협력사 |
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
@@ -83,6 +84,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
+| `pnpm -F e2e journey:money` | 8호만 — 송금 원장 완주(돈 축: 부분 송금·증빙·환차·무상 A/S 제외·HAS_REMITTANCE 순환) |
 | `pnpm -F e2e journey:multi` | 9호만 — 다중 고객 × 묶음(고객 2인 동시 세션·한 박스 두 주인·정보 격리·cross-member 배송 큐) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
@@ -112,6 +114,21 @@ API(`pcb-progress`·`pcb-eq-reviews`·EQ decide)의 **정보 격리**를 자기 
 1번 고객 회원 행을 통째로 복제해 만들어(비밀번호 해시까지 동일 → 자격은 아이디만 다르고
 `.env` 에 원문이 늘지 않는다) 주행 뒤에도 남긴다. `newPhpSession` 은 호출마다 새
 BrowserContext 라 두 고객 세션이 동시에 살아 있어도 쿠키가 섞이지 않는다.
+
+8호가 지키는 것은 **돈이 발주와 따로 흐른다**는 사실 하나다. 다른 여정은 발주가 서면 그
+금액을 그대로 "낼 돈"으로 보지만, 실제로는 발주 뒤에 **여러 번 나뉘어·다른 환율로** 나가고
+증빙이 붙는다. 그래서 8호는 협력2(CN·USD)로만 성립한다 — 외화라야 ① 발주 회계 환율,
+② 1차 송금 실환율, ③ 잔금 실환율이 **셋 다 다를 수 있고**, 그때 `원장 KRW 합계 ≠ 발주
+krwAmount`(= 환차손익)라는 부등식이 참이 된다. 이 여정은 그 부등식을 수치로 못 박아
+"KRW 환산을 발주 환율로 뭉개는" 회귀를 막는다(실측 ₩412,500 vs ₩414,000 = ₩−1,500).
+그 위에서 ① 잔액·상태(unpaid→partial→paid)와 워크큐 탭·counts 가 같은 계산기에서 나오는지,
+② `sp_pcb_po.remittedAt` 이 원장 파생 캐시로 KST 앵커를 지키며 따라오는지(마지막 송금일,
+원장이 비면 null 복귀), ③ 관리자 집계·**협력사 포털**·Case 패널 세 화면의 금액이 갈라지지
+않는지(창구는 여럿, 원장은 하나), ④ 무상 A/S 회차가 **양쪽 모수 모두**에서 빠지는지를
+스냅샷 델타로 확인한다(7호 T3d 는 송금 0원 상태의 큐 소속만 봤고 포털은 안 봤다). 마지막
+M7 은 `HAS_REMITTANCE` 순환을 **끝까지** 돈다 — 잠김(409) → 원장·증빙 정리 → 취소 200
+(`rework-probe` W4 는 원장 정리에서 멈춘다). 그래서 이 여정만은 스크린샷(M8)을 가드
+순환보다 **먼저** 찍는다: 순환의 종착이 원장과 발주의 소멸이라 순서를 지키면 빈 화면이 남는다.
 
 6호와 MD 4·5편은 **국가×물류모드 매트릭스**의 남은 칸을 채운다 — 모드는 국적이 아니라
 "발송자국가=수신국가" 파생임을 조합으로 실증한다(4편 KR MD 전 구간 국내 · 5편 CN MD 의
