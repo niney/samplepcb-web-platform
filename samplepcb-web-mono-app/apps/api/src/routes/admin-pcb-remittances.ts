@@ -11,6 +11,7 @@ import {
   type AdminPcbRemittanceItemType,
   type AdminPcbRemittancePartnerCurrencyType,
   type AdminPcbRemittancePartnerRowType,
+  type PcbRemittanceCurrencyTotalType,
   type PcbRemittanceStatusType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
@@ -23,6 +24,7 @@ import {
   isFreeAsPo,
   listPcbRemittances,
   loadFreeAsRoundKeys,
+  loadRemittanceKrwPaid,
   loadRemittanceSummaries,
   patchPcbRemittance,
   summarizePcbRemittances,
@@ -51,6 +53,34 @@ const ApiError = z.object({ error: z.string(), message: z.string() });
 const isLegacySpec = (specJson: unknown): boolean =>
   typeof specJson === 'object' && specJson !== null && '_legacy' in specJson;
 
+/** 검색어가 견적번호면 그 specId — 화면 표기 'Q21145' 와 숫자 '21145' 를 둘 다 받는다. */
+const specIdOf = (q: string): bigint | null => {
+  const m = /^[Qq]?(\d+)$/.exec(q);
+  return m?.[1] === undefined ? null : BigInt(m[1]);
+};
+
+/** 통화별 소계 — 목록(탭·검색 전체 모수)과 협력사별 집계가 같은 방식으로 센다. */
+const sumByCurrency = (
+  rows: readonly { summary: { currency: string; poAmount: number; paidAmount: number; balance: number } }[],
+): PcbRemittanceCurrencyTotalType[] => {
+  const map = new Map<string, PcbRemittanceCurrencyTotalType>();
+  for (const r of rows) {
+    const cur = map.get(r.summary.currency) ?? {
+      currency: r.summary.currency,
+      poAmount: 0,
+      paidAmount: 0,
+      balance: 0,
+      poCount: 0,
+    };
+    cur.poAmount += r.summary.poAmount;
+    cur.paidAmount += r.summary.paidAmount;
+    cur.balance += r.summary.balance;
+    cur.poCount += 1;
+    map.set(r.summary.currency, cur);
+  }
+  return [...map.values()].sort((a, b) => a.currency.localeCompare(b.currency));
+};
+
 export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
 
@@ -62,6 +92,7 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
     partnerId?: number;
   }): Promise<AdminPcbRemittanceItemType[]> => {
     const q = filters.q?.trim() ?? '';
+    const qSpecId = specIdOf(q);
     const pos = await prisma.spPcbPo.findMany({
       where: {
         parentPartnerId: 0n, // 관리자 지급분만 — 하위 발주 지급 주체는 MD(이중 지급 방지)
@@ -72,7 +103,9 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
               OR: [
                 { spec: { projectName: { contains: q } } },
                 { partner: { name: { contains: q } } },
-                ...(/^\d+$/.test(q) ? [{ specId: BigInt(q) }] : []),
+                // 화면이 견적을 'Q21145' 로 찍으므로 **보이는 그대로 붙여 넣어도** 찾혀야 한다
+                // (숫자만 받던 탓에 화면의 문자열로 검색하면 0건이었다 — 재점검 08-11 #12).
+                ...(qSpecId === null ? [] : [{ specId: qSpecId }]),
               ],
             }),
       },
@@ -101,6 +134,7 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         paymentTerms: po.paymentTerms,
         issuedAt: po.issuedAt.toISOString(),
         deliveryDate: po.deliveryDate === null ? null : po.deliveryDate.toISOString(),
+        reorderRound: po.reorderRound,
         isLegacy: isLegacySpec(po.spec.specJson),
         isFreeAs,
         // 무상 A/S — 지급할 것이 없다: 잔액만 0 으로 눕힌다(발주가·기왕의 송금액은 사실 그대로).
@@ -141,7 +175,14 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
       const start = (page - 1) * pageSize;
       return {
         result: true as const,
-        data: { items: filtered.slice(start, start + pageSize), total: filtered.length, counts },
+        data: {
+          items: filtered.slice(start, start + pageSize),
+          total: filtered.length,
+          // 소계는 **페이지가 아니라 조건 전체**를 센다(페이지 합계는 아무 뜻이 없다).
+          // 무상 A/S 는 지급 축이 아니므로 '전체' 탭에서도 소계에 넣지 않는다.
+          byCurrency: sumByCurrency(filtered.filter((r) => !r.isFreeAs)),
+          counts,
+        },
       };
     },
   );
@@ -159,7 +200,10 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
       });
       const freeKeys = await loadFreeAsRoundKeys(allPos);
       const pos = allPos.filter((po) => !isFreeAsPo(freeKeys, po));
-      const summaries = await loadRemittanceSummaries(pos);
+      const [summaries, krwPaidMap] = await Promise.all([
+        loadRemittanceSummaries(pos),
+        loadRemittanceKrwPaid(pos),
+      ]);
 
       const byPartner = new Map<
         string,
@@ -178,8 +222,10 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
             byCurrency: [],
             krwPoAmount: 0,
             krwPaidAmount: 0,
+            krwPaidRateMissing: false,
             krwBalance: 0,
             unpaidPoCount: 0,
+            openPoCount: 0,
             lastRemittedOn: null,
           },
           currencies: new Map<string, AdminPcbRemittancePartnerCurrencyType>(),
@@ -201,15 +247,25 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         cur.poCount += 1;
         entry.currencies.set(s.currency, cur);
 
-        // KRW 환산은 발주서의 회계 박제(krwAmount)를 쓴다 — 없으면(외화 MD 하위 발주)
-        // 환산 총계에서 빠진다. 통화별 값이 정본이고 이 총계는 참고다.
+        // 발주가·잔액의 KRW 환산은 발주서의 회계 박제(krwAmount)를 쓴다 — 없으면(외화 MD
+        // 하위 발주) 환산 총계에서 빠진다. 통화별 값이 정본이고 이 총계는 참고다.
         const krwPo = po.krwAmount ?? (po.currency === 'KRW' ? s.poAmount : 0);
-        const krwPaidRatio = s.poAmount === 0 ? 0 : s.paidAmount / s.poAmount;
+        const krwBalance = s.poAmount === 0 ? 0 : Math.round(krwPo * (s.balance / s.poAmount));
         entry.row.krwPoAmount += krwPo;
-        entry.row.krwPaidAmount += Math.round(krwPo * krwPaidRatio);
-        entry.row.krwBalance += krwPo - Math.round(krwPo * krwPaidRatio);
+        entry.row.krwBalance += krwBalance;
+
+        // ⚠ **지급액만은 원장 실합**이다(비례배분 추정 폐기 — 재점검 08-11 확정 #8).
+        // 비례배분은 "발주 회계 환율로 다 줬다"고 말해 환차를 화면에서 지운다:
+        // 같은 USD 300 이 회계로는 ₩414,000 인데 실제로 나간 돈은 ₩412,500 이었다.
+        // 그래서 krwPoAmount ≠ krwPaidAmount + krwBalance 가 정상이고, 그 차이가 환차다.
+        const paid = krwPaidMap.get(po.id.toString());
+        entry.row.krwPaidAmount += paid?.krwPaid ?? 0;
+        if ((paid?.rateMissingCount ?? 0) > 0) entry.row.krwPaidRateMissing = true;
 
         if (s.status === 'unpaid') entry.row.unpaidPoCount += 1;
+        // 잔액이 남은 건 = 아직 줄 돈이 있는 건(미착수 + 부분 송금). '미착수 0인데 잔액이
+        // 있다'는 모순으로 읽히던 화면의 짝(재점검 08-11 확정 #5).
+        if (s.balance > 0) entry.row.openPoCount += 1;
         if (
           s.lastRemittedOn !== null &&
           (entry.row.lastRemittedOn === null || s.lastRemittedOn > entry.row.lastRemittedOn)
@@ -246,6 +302,11 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         where: { poId: po.id },
         select: { amount: true, remittedOn: true },
       });
+      // 목록과 **같은 판정**을 상세도 한다 — 여기서 빠뜨린 탓에 무상 A/S 회차의 상세가
+      // 잔액 전액을 주고 패널이 그 금액을 입력칸에 프리필했다(재점검 08-11 확정 #1).
+      const freeKeys = await loadFreeAsRoundKeys([po]);
+      const isFreeAs = isFreeAsPo(freeKeys, po);
+      const summary = summarizePcbRemittances(po, rows);
       return {
         result: true as const,
         data: {
@@ -253,7 +314,9 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
           specId: Number(po.specId),
           projectName: po.spec.projectName,
           partnerName: po.partner.name,
-          summary: summarizePcbRemittances(po, rows),
+          isFreeAs,
+          poKrwAmount: po.krwAmount,
+          summary: isFreeAs ? { ...summary, balance: 0 } : summary,
           remittances: await listPcbRemittances(po.id),
         },
       };

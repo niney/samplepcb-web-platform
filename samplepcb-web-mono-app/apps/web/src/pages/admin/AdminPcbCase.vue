@@ -997,6 +997,18 @@ const STATUS_CLS: Record<string, string> = {
   unselected: 'bg-gray-200 text-gray-500',
 };
 const dateOnly = (iso: string | null): string => fmtKstDate(iso);
+/** 환산 시점 꼬리표 — 같은 외화 금액이 한 화면에 **서로 다른 KRW** 로 두 번 뜬다
+ *  (선정 ₩420,000 @1400 / 발주 ₩414,000 @1380). 박제 시점이 다르기 때문인데 그 말이
+ *  없으면 "어느 게 맞느냐"가 매번 질문이 된다(재점검 08-11 확정 #16). */
+const rateNote = (
+  currency: string,
+  krwAmount: number | null,
+  exchangeRate: number | null,
+  when: string,
+): string =>
+  currency !== 'KRW' && krwAmount !== null && exchangeRate !== null
+    ? ` @${String(exchangeRate)} ${when}`
+    : '';
 // 납기 신호(레거시 승계) — 제시≠회신이면 '변경', 회신일이 과거면 경고.
 // 비교도 KST 날짜로 — UTC 슬라이스는 KST 00~09시에 '지난 날짜'를 오판한다.
 const deliverySignal = (row: AdminPcbRfqViewType): { label: string; cls: string } | null => {
@@ -1168,7 +1180,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           <div v-if="selectedRow !== null" class="flex justify-between">
             <dt class="text-gray-500">선정 원가</dt>
             <dd class="tabular-nums text-gray-700">
-              {{ pcbMoneyWithSub(selectedRow.currency, selectedRow.priceOriginal, selectedRow.subCurrency, selectedRow.subPriceOriginal) }}{{ pcbKrwSuffix(selectedRow.currency, selectedRow.krwAmount) }}
+              {{ pcbMoneyWithSub(selectedRow.currency, selectedRow.priceOriginal, selectedRow.subCurrency, selectedRow.subPriceOriginal) }}{{ pcbKrwSuffix(selectedRow.currency, selectedRow.krwAmount) }}<span class="text-[11px] text-gray-400">{{ rateNote(selectedRow.currency, selectedRow.krwAmount, selectedRow.exchangeRate, '선정 시점') }}</span>
             </dd>
           </div>
         </dl>
@@ -1317,7 +1329,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 tabular-nums">
                   {{ pcbMoneyWithSub(row.currency, row.priceOriginal, row.subCurrency, row.subPriceOriginal) }}
-                  <span class="text-xs text-gray-400">{{ pcbKrwSuffix(row.currency, row.krwAmount) }}</span>
+                  <span class="text-xs text-gray-400">
+                    {{ pcbKrwSuffix(row.currency, row.krwAmount) }}{{ rateNote(row.currency, row.krwAmount, row.exchangeRate, '선정 시점') }}
+                  </span>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">
                   {{ dateOnly(row.suggestedDeliveryDate) }} → {{ dateOnly(row.quotedDeliveryDate) }}
@@ -1471,7 +1485,9 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
           <tbody class="divide-y divide-gray-50">
             <template v-for="po in adminPos.filter(inLatestRound)" :key="po.poId">
               <tr :class="po.status === 'eq_requested' ? 'bg-amber-50/40' : ''">
-                <td class="px-4 py-2.5">
+                <!-- 협력사 이름은 줄바꿈 금지 — 옆 칸의 긴 결제조건 문자열이 폭을 다 가져가
+                     이 칸이 0폭으로 붕괴하면(한 글자씩 세로) 누구에게 주는 발주인지 못 읽는다 -->
+                <td class="whitespace-nowrap px-4 py-2.5">
                   <p class="font-medium text-gray-900">
                     {{ po.partnerName }}
                     <span v-if="po.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[11px] font-semibold text-rose-700">
@@ -1488,15 +1504,31 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 tabular-nums">
                   {{ pcbMoneyWithSub(po.currency, po.priceOriginal, po.subCurrency, po.subPriceOriginal) }}
-                  <span class="text-xs text-gray-400">{{ pcbKrwSuffix(po.currency, po.krwAmount) }}</span>
+                  <span class="text-xs text-gray-400">
+                    {{ pcbKrwSuffix(po.currency, po.krwAmount) }}{{ rateNote(po.currency, po.krwAmount, po.exchangeRate, '발주 시점') }}
+                  </span>
                 </td>
-                <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-600">
-                  {{ po.paymentTerms ?? '—' }}
-                  <span
-                    v-if="po.remittedAt !== null"
-                    class="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[11px] font-semibold text-emerald-700"
-                  >송금 {{ dateOnly(po.remittedAt) }}</span>
-                  <span v-else class="ml-1 text-[11px] text-gray-400">송금 전</span>
+                <!-- 조건 문자열은 길다(예: '50% PRE-PAID / 50% BEFORE SHIPMENT') — 잘라서
+                     제목으로 넘기고 폭을 고정한다. 안 그러면 왼쪽 협력사 칸을 밀어낸다. -->
+                <td class="max-w-[14rem] px-4 py-2.5 text-xs text-gray-600">
+                  <p class="truncate" :title="po.paymentTerms ?? ''">{{ po.paymentTerms ?? '—' }}</p>
+                  <!-- 초록 배지 하나로는 부분 송금과 완납이 같아 보인다 — 금액으로 말한다 -->
+                  <p v-if="po.remittance.count > 0" class="mt-0.5">
+                    <span
+                      class="truncate rounded px-1 py-0.5 text-[11px] font-semibold"
+                      :class="po.remittance.balance > 0.005 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'"
+                      :title="`최근 송금 ${dateOnly(po.remittedAt)} · ${String(po.remittance.count)}회`"
+                    >
+                      송금 {{ fmtPcbAmount(po.currency, po.remittance.paidAmount) }}/{{ fmtPcbAmount(po.currency, po.priceOriginal) }}
+                      <template v-if="po.remittance.balance > 0.005">
+                        · 잔액 {{ fmtPcbAmount(po.currency, po.remittance.balance) }}
+                      </template>
+                      <template v-else-if="po.remittance.balance < -0.005">
+                        · 과지급 {{ fmtPcbAmount(po.currency, -po.remittance.balance) }}
+                      </template>
+                    </span>
+                  </p>
+                  <p v-else class="mt-0.5 text-[11px] text-gray-400">송금 전</p>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ dateOnly(po.deliveryDate) }}</td>
                 <td class="px-4 py-2.5">

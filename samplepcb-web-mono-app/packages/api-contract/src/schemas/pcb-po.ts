@@ -169,6 +169,15 @@ export const AdminPcbPoView = z.object({
   destinationCountry: z.string().nullable(),
   paymentTerms: z.string().nullable(),
   remittedAt: z.string().nullable(),
+  /** 송금 원장 파생 요약(P3.11 — 원장이 정본, remittedAt 은 마지막 송금일 캐시일 뿐).
+   *  날짜만으로는 **부분 송금과 완납이 같은 초록 배지**가 되어 반쯤 나간 돈을 다 준 것처럼
+   *  읽힌다(재점검 08-11 확정 #7). 금액은 발주 통화(currency) 기준이다.
+   *  ※ 형태를 pcb-remittance.ts 에서 import 하지 않는 건 순환 참조 회피 — 위 remittances 와 같은 이유. */
+  remittance: z.object({
+    paidAmount: z.number(),
+    balance: z.number(),
+    count: z.number().int().nonnegative(),
+  }),
   deliveryDate: z.string().nullable(),
   memo: z.string().nullable(),
   issuedAt: z.string(),

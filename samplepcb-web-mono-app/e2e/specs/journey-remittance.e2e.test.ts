@@ -40,6 +40,7 @@ import {
   disconnectPrisma,
   getPartner,
   getPrisma,
+  measurePoRowPartnerWidths,
   monoRoot,
   newPhpSession,
   newSession,
@@ -99,18 +100,23 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
   const remitPath = (id?: number | null): string =>
     `/api/admin/pcb-remittances/${String(poId)}${id === undefined || id === null ? '' : `/${String(id)}`}`;
 
-  /** 워크큐(스펙 스코프) — q=specId 라 counts 가 이 스펙의 발주만 센다(서버가 필터 후 집계). */
-  const queue = async (tab: string): Promise<{ items: any[]; counts: any; total: number }> => {
+  /** 워크큐(스펙 스코프) — q=specId 라 counts 가 이 스펙의 발주만 센다(서버가 필터 후 집계).
+   *  q 는 화면 표기 그대로(Q21195)도 받는다 — 기본은 숫자, 'Q' 접두 경로는 M1c 가 대조한다. */
+  const queue = async (
+    tab: string,
+    q?: string,
+  ): Promise<{ items: any[]; counts: any; total: number; byCurrency: any[] }> => {
     const r = await api(
       A,
       'GET',
-      `/api/admin/pcb-remittances?tab=${tab}&q=${String(specId)}&page=1&pageSize=50`,
+      `/api/admin/pcb-remittances?tab=${tab}&q=${q ?? String(specId)}&page=1&pageSize=50`,
     );
     expect(r.status, `송금 워크큐(${tab}): ${JSON.stringify(r.json)}`).toBe(200);
     return {
       items: r.json?.data?.items ?? [],
       counts: r.json?.data?.counts ?? {},
       total: r.json?.data?.total ?? 0,
+      byCurrency: r.json?.data?.byCurrency ?? [],
     };
   };
 
@@ -304,13 +310,23 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     expect(mine.summary.status, '송금 전 상태').toBe('unpaid');
     expect(mine.summary.count, '송금 건수 0').toBe(0);
     expect(mine.isFreeAs, '원발주는 무상 A/S 가 아니다').toBe(false);
+    expect(mine.reorderRound, '원발주 회차 0 — 목록 배지의 근거(재점검 #6)').toBe(0);
     expect(mine.paymentTerms, '큐 행에도 결제조건이 실린다').toBe(PAYMENT_TERMS);
+    expect(mine.issuedAt, '발주일(경과일 표시의 근거)').toBeTruthy();
     expect(q.counts, '스펙 스코프 counts(송금 전)').toEqual({
       pending: 1,
       partial: 0,
       done: 0,
       all: 1,
     });
+    // 통화별 소계(재점검 #14) — 한 열에 ₩·$가 섞이므로 합계는 서버가 통화별로 낸다.
+    expect(q.byCurrency, 'USD 소계 1종').toEqual([
+      { currency: 'USD', poAmount: PO_USD, paidAmount: 0, balance: PO_USD, poCount: 1 },
+    ]);
+    // 화면은 견적을 'Q21195' 로 찍는다 — 보이는 그대로 붙여 넣어도 같은 결과라야 한다(#12).
+    const byQ = await queue('pending', `Q${String(specId)}`);
+    expect(byQ.items.map((x: any) => x.poId), "'Q' 접두 검색도 같은 행").toContain(poId);
+    expect(byQ.total, "'Q' 접두 검색 건수 = 숫자 검색 건수").toBe(q.total);
 
     aggAfterIssue = await partnerAgg();
     expect(aggAfterIssue.usd, '협력2 USD 집계 행').toBeTruthy();
@@ -400,6 +416,8 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     const detail = await api(A, 'GET', remitPath());
     expect(detail.status, JSON.stringify(detail.json)).toBe(200);
     expect(detail.json?.data?.partnerName, '상세 협력사명').toBe('협력2');
+    expect(detail.json?.data?.isFreeAs, '유상 원발주 — 상세도 지급 대상 판정을 싣는다').toBe(false);
+    expect(detail.json?.data?.poKrwAmount, '상세에 발주 KRW 회계 박제(환차 표시의 기준)').toBe(PO_KRW);
     const dRow = (detail.json?.data?.remittances ?? []).find((x: any) => x.id === remit1Id);
     expect(dRow?.files?.[0]?.fileId, '상세 증빙 노출').toBe(receiptFileId);
 
@@ -496,23 +514,40 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     expect(aggAfterPaid.usd.balance - aggAfterIssue.usd.balance, '집계 잔액 델타').toBe(-PO_USD);
     expect(aggAfterPaid.usd.poCount - aggAfterIssue.usd.poCount, '발주 수 불변').toBe(0);
 
-    // ⚠ 현행 동작 박제 — 협력사별 집계의 **KRW 환산은 원장이 아니라 비례배분**이다
-    //   (admin-pcb-remittances.ts: krwPo × paidAmount/poAmount). 그래서 이 화면의
-    //   '지급 ₩'는 실제로 나간 ₩412,500 이 아니라 발주 회계 ₩414,000 을 그대로 되쓴다 —
-    //   즉 **환차가 이 화면에서는 보이지 않는다**(정본 문서 P3.11 '남은 것' 그대로).
-    //   통화별 값(USD)이 정본이라 실무 지장은 없으나, 회계 리포트는 원장 krwAmount 합으로
-    //   다시 세야 한다. 고치지 않고 못 박는다 — 바뀌면 이 어서션이 먼저 깨진다.
+    // ✅ 08-11 교정(재점검 확정 #8) — 협력사별 집계의 **KRW 지급액은 원장 실합**이다.
+    //   종전엔 발주 회계 × 지급비율(비례배분)이라 화면이 늘 ₩414,000 을 되불러, 실제로
+    //   나간 ₩412,500 과 그 차이(환차)가 집계에서 사라졌다. 이제 두 기준을 나눠 낸다:
+    //   지급 = 원장 실지급, 잔액 = 발주 회계 환율 환산. 그래서 krwPo ≠ krwPaid + krwBalance
+    //   가 **정상**이고 그 차이가 곧 환차다(화면 캡션이 이 사실을 말한다).
     expect(
       aggAfterPaid.row.krwPaidAmount - aggAfterIssue.row.krwPaidAmount,
-      'KRW 환산 지급 델타 = 발주 회계 비례배분(원장 실지급 아님)',
-    ).toBe(PO_KRW);
+      'KRW 지급 델타 = 원장 실지급 합(비례배분 아님)',
+    ).toBe(LEDGER_KRW);
     expect(
       aggAfterPaid.row.krwPaidAmount - aggAfterIssue.row.krwPaidAmount,
-      '원장 KRW 합계와는 다르다(환차가 집계 화면에 안 드러난다)',
-    ).not.toBe(LEDGER_KRW);
+      '발주 회계 박제와는 다르다 — 그 차이가 환차',
+    ).not.toBe(PO_KRW);
+    expect(aggAfterPaid.row.krwPaidRateMissing, '이 주행의 두 건은 환율을 다 적었다').toBe(false);
     expect(aggAfterPaid.row.krwBalance - aggAfterIssue.row.krwBalance, 'KRW 환산 잔액 델타').toBe(
       -PO_KRW,
     );
+    // 잔여 발주(잔액>0) — '미착수 0인데 잔액이 있다'는 모순을 없앤 짝(재점검 #5·가드 ③).
+    expect(aggAfterIssue.row.openPoCount, '발주 직후엔 잔여 발주가 최소 1건(이 주행분)').toBeGreaterThan(0);
+    expect(
+      aggAfterPaid.row.openPoCount - aggAfterIssue.row.openPoCount,
+      '완납하면 잔여 발주에서 빠진다(−1)',
+    ).toBe(-1);
+    expect(
+      aggAfterPaid.row.unpaidPoCount - aggAfterIssue.row.unpaidPoCount,
+      '미착수 발주도 −1(첫 송금에 이미 빠졌다)',
+    ).toBe(-1);
+    // 가드 ③ — '잔여 발주 0' 과 '통화별 잔액>0' 은 동시에 성립할 수 없다.
+    if (aggAfterPaid.row.openPoCount === 0) {
+      expect(
+        (aggAfterPaid.row.byCurrency ?? []).filter((c: any) => c.balance > 0),
+        '잔여 발주가 0이면 잔액이 남은 통화도 없다',
+      ).toEqual([]);
+    }
 
     const p = await portal();
     portalUsdAfterPaid = p.totals.find((t: any) => t.currency === 'USD');
@@ -542,7 +577,8 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
       'M5',
       'obs',
       `집계 델타 +$${String(PO_USD)} 지급/−$${String(PO_USD)} 잔액 · 포털 발주처 '${String(mine.ordererName)}' 미수 0` +
-        ` — 단 협력사별 KRW 환산은 비례배분이라 지급 ₩${PO_KRW.toLocaleString()}(발주 회계)로 뜬다(실지급 ₩${LEDGER_KRW.toLocaleString()} ≠ 화면)`,
+        ` — 협력사별 KRW 지급은 **원장 실지급** ₩${LEDGER_KRW.toLocaleString()}(비례배분 ₩${PO_KRW.toLocaleString()} 폐기, 08-11 교정)` +
+        ` · 잔여 발주 −1 · 잔액 환산은 발주 회계 기준이라 두 값의 차 ₩${FX_DIFF.toLocaleString()} 가 환차로 남는다`,
     );
   });
 
@@ -583,8 +619,22 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     const freeRow = all.items.find((x: any) => x.poId === freePoId);
     expect(freeRow, "'전체' 탭엔 회차 행이 보인다").toBeTruthy();
     expect(freeRow.isFreeAs, '무상 A/S 배지').toBe(true);
+    expect(freeRow.reorderRound, '회차 표기 1차').toBe(1);
     expect(freeRow.summary.poAmount, '발주가는 사실 그대로').toBe(PO_USD);
     expect(freeRow.summary.balance, '무상 회차 잔액 0(지급 대상 아님)').toBe(0);
+    // 소계는 지급 축이므로 무상 회차를 빼고 센다 — 안 빼면 '줄 돈'이 두 배로 보인다.
+    expect(all.byCurrency, "'전체' 탭 소계에도 무상 회차는 안 들어간다").toEqual([
+      { currency: 'USD', poAmount: PO_USD, paidAmount: PO_USD, balance: 0, poCount: 1 },
+    ]);
+
+    // ★ 가드 ① — **상세도 목록과 같은 판정**을 해야 한다. 여기가 갈라졌던 탓에 패널이
+    //   무상 회차에 잔액 $300 을 프리필해 "안 줘도 될 돈"을 한 번에 보낼 뻔했다(#1).
+    const freeDetail = await api(A, 'GET', `/api/admin/pcb-remittances/${String(freePoId)}`);
+    expect(freeDetail.status, `무상 회차 상세: ${JSON.stringify(freeDetail.json)}`).toBe(200);
+    expect(freeDetail.json?.data?.isFreeAs, '상세 isFreeAs').toBe(true);
+    expect(freeDetail.json?.data?.summary?.balance, '상세 잔액 0(목록과 일치)').toBe(0);
+    expect(freeDetail.json?.data?.summary?.poAmount, '발주가는 원가 회계 그대로').toBe(PO_USD);
+    expect(freeDetail.json?.data?.remittances, '무상 회차엔 원장이 없다').toEqual([]);
     expect(all.counts, "무상 회차는 'all' 에만 선다").toEqual({
       pending: 0,
       partial: 0,
@@ -614,6 +664,11 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     const freeItem = p.items.find((x: any) => x.poId === freePoId);
     expect(freeItem, '포털에 회차 행이 보인다').toBeTruthy();
     expect(freeItem.isFreeAs, '포털 무상 A/S 배지').toBe(true);
+    expect(freeItem.reorderRound, '포털에도 회차 표기(같은 프로젝트 두 줄 구분)').toBe(1);
+    expect(
+      p.items.find((x: any) => x.poId === poId)?.reorderRound,
+      '원발주는 0차',
+    ).toBe(0);
     expect(freeItem.summary.balance, '포털 미수 0').toBe(0);
     expect(freeItem.remittances, '무상 회차엔 입금 내역이 없다').toEqual([]);
     const usdTotal = p.totals.find((t: any) => t.currency === 'USD');
@@ -664,17 +719,44 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     const queueText: string = await page.evaluate(() => document.body.innerText);
     expect(queueText, '워크큐에 무상 A/S 배지').toContain('무상 A/S');
     expect(queueText, '워크큐에 송금 완료 배지').toContain('송금 완료');
+    expect(queueText, '워크큐에 A/S 회차 배지(#6)').toContain('1차');
+    expect(queueText, '워크큐에 결제조건 열(#13)').toContain(PAYMENT_TERMS);
+    expect(queueText, '워크큐에 통화별 소계(#14)').toContain('통화별 소계');
+
+    // ★ 화면 확증 #1 — 무상 A/S 행의 패널: 프리필 없음 · 배너 · [기록] 기본 잠금.
+    const freeAsRow = page.locator('tbody tr').filter({ hasText: '무상 A/S' }).first();
+    await freeAsRow.getByRole('button', { name: '송금 기록' }).first().click();
+    await page.getByText('송금 원장').first().waitFor({ timeout: 15_000 });
+    await settled(adminView);
+    await shot(adminView, 'M08-admin-remit-freeas-panel');
+    const freePanelText: string = await page.evaluate(() => document.body.innerText);
+    expect(freePanelText, '무상 A/S 배너').toContain('지급 대상이 아님');
+    expect(
+      await page.locator('input[inputmode="decimal"]').first().inputValue(),
+      '무상 회차엔 금액 프리필 금지(이 값이 곧 오지급 버튼이었다)',
+    ).toBe('');
+    expect(
+      await page.getByRole('button', { name: '기록', exact: true }).first().isDisabled(),
+      '[기록] 기본 비활성(명시 해제 시에만 활성)',
+    ).toBe(true);
+    await page.getByRole('button', { name: '닫기' }).first().click();
+    await settled(adminView);
 
     await page.getByRole('button', { name: '협력사별' }).first().click();
     await settled(adminView);
     await shot(adminView, 'M08-admin-remit-partners');
     const partnersText: string = await page.evaluate(() => document.body.innerText);
     expect(partnersText, '협력사별 탭에 협력2').toContain('협력2');
+    expect(partnersText, "'미송금'→'미착수'로 정정 + 잔여 발주 열(#5)").toContain('미착수 발주');
+    expect(partnersText, '잔여 발주 열').toContain('잔여 발주');
+    expect(partnersText, '실지급은 원장 실합(#8②)').toContain('실지급');
+    expect(partnersText, '무상 A/S 제외 규율 문구(#10)').toContain('무상 A/S 회차는 모수에서 제외');
 
     // ② Case 발주 패널의 송금 섹션 — 같은 패널 컴포넌트(창구는 여럿, 원장은 하나).
     // ⚠ A/S 회차가 생기면 상세는 **최신 회차만 펼치고 원발주를 접는다** — 돈이 걸린
     //   원발주의 원장은 그 접힘 아래에 있다(첫 [송금] 버튼은 무상 회차의 것이다).
-    //   접힘을 열고 '송금 {날짜}' 배지가 붙은 행(=원장이 있는 발주)을 짚는다.
+    //   접힘을 열고 금액 배지('송금 $300.00/$300.00')가 붙은 행을 짚는다 — 08-11 이전엔
+    //   날짜 배지('송금 2026-08-11')였으나 부분/완납이 구분되지 않아 금액으로 바꿨다(#7).
     await view(adminView, `/app/admin/pcb/cases/${String(specId)}`, 'M08-admin-case-top');
     const expand = page.getByRole('button', { name: /이전 회차 발주·견적/ }).first();
     if ((await expand.count()) > 0) {
@@ -682,7 +764,21 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
       await page.waitForLoadState('networkidle').catch(() => undefined);
       F('M8', 'obs', 'A/S 회차 발생 후 원발주 송금 패널은 [이전 회차 … 보기] 접힘 아래에 있다');
     }
-    const paidRow = page.locator('tbody tr').filter({ hasText: `송금 ${R2.on}` }).first();
+
+    // ★ 가드 ② — 발주 표 협력사 열이 0폭으로 붕괴하지 않는다(결제조건 문자열이 폭을
+    //   다 가져가던 결함 #2 의 회귀 가드 — 견적관리 measureQuotesRowWidths 의 미러).
+    const poRowWidths = await measurePoRowPartnerWidths(page);
+    expect(poRowWidths.length, '발주 표 행을 실제로 쟀다').toBeGreaterThan(0);
+    expect(
+      poRowWidths.filter((w) => w.partnerW <= 0),
+      `협력사 열 붕괴 행(0폭): ${JSON.stringify(poRowWidths)}`,
+    ).toEqual([]);
+    const caseText: string = await page.evaluate(() => document.body.innerText);
+    expect(caseText, 'Case 발주 행이 송금 금액을 말한다(부분/완납 구분)').toContain('송금 $300.00/$300.00');
+    expect(caseText, '환산 시점 꼬리표 — 발주 시점').toContain(`@${String(PO_RATE)} 발주 시점`);
+    expect(caseText, '환산 시점 꼬리표 — 선정 시점').toContain(`@${String(SELECT_RATE)} 선정 시점`);
+
+    const paidRow = page.locator('tbody tr').filter({ hasText: /송금 \$/ }).first();
     await paidRow.waitFor({ state: 'visible', timeout: 20_000 });
     const remitBtn = paidRow.getByRole('button', { name: '송금', exact: true }).first();
     await remitBtn.waitFor({ state: 'visible', timeout: 20_000 });
@@ -696,8 +792,28 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     expect(panelText, '증빙 파일명').toContain(RECEIPT_NAME);
     expect(panelText, '두 송금일이 다 보인다').toContain(R1.on);
     expect(panelText, '두 송금일이 다 보인다').toContain(R2.on);
+    // 외화 패널의 KRW 한 줄(재점검 #8①) — 3칸이 전부 USD 라 통장에서 나간 원화가 없었다.
+    expect(panelText, '원장 실지급 KRW').toContain(`원장 실지급 ₩${LEDGER_KRW.toLocaleString()}`);
+    expect(panelText, '환차 표기(발주 회계 대비)').toContain(
+      `환차 -₩${Math.abs(FX_DIFF).toLocaleString()}`,
+    );
 
-    // ③ 협력사 포털 수금 현황 — 같은 두 건이 협력사 눈으로 어떻게 보이는가.
+    // ③ 협력사 포털 — 홈이 '받을 돈'을 먼저 알리는가(P3.11 이 약속한 홈 요약 카드, #17).
+    //    협력2 는 다른 주행의 발주도 갖고 있어 절대 수를 못 박을 수 없다 — API 의
+    //    unpaidCount 와 화면이 **일치하는지**로 본다(카드 유무 자체가 규율).
+    await view(partnerView, '/app/partner/pcb', 'M08-partner-home');
+    await settled(partnerView);
+    const homeText: string = await partnerView.page.evaluate(() => document.body.innerText);
+    const portalNow = await portal();
+    if (portalNow.unpaidCount > 0) {
+      expect(homeText, '미수금이 있으면 홈 카드가 그 수를 말한다').toContain(
+        `미수금 ${String(portalNow.unpaidCount)}건`,
+      );
+    } else {
+      expect(homeText, '미수금이 없으면 홈에 카드도 없다').not.toContain('미수금 ');
+    }
+
+    // ④ 협력사 포털 수금 현황 — 같은 두 건이 협력사 눈으로 어떻게 보이는가.
     await view(partnerView, '/app/partner/remittances', 'M08-partner-remittances-open');
     await settled(partnerView);
     await shot(partnerView, 'M08-partner-remittances');
@@ -705,6 +821,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 8호 — 송금 원장 완주(돈 축�
     expect(portalText, '포털 수금 화면 도달').toMatch(/수금|미수/);
     expect(portalText, '포털에도 무상 A/S 배지').toContain('무상 A/S');
     expect(portalText, '포털 입금 완료 배지').toContain('입금 완료');
+    expect(portalText, '포털에도 A/S 회차 표기(#6)').toContain('A/S 1차');
+    expect(portalText, '총계 제외 규율을 표에서도 말한다(#10)').toContain('총계 제외');
+    expect(portalText, '총계 캡션의 무상 제외 문구(#10)').toContain('무상 A/S 재생산 건을 제외');
     F('M8', 'obs', '화면 실측 — 워크큐 4탭+협력사별·Case 송금 패널(2회·증빙)·포털 수금 캡처');
   }, 180_000);
 

@@ -36,11 +36,13 @@ export function usePartnerPcbPoDetail(poId: Ref<number | null>) {
   });
 }
 
-/** 수금 현황(P3.11) — 완료된 발주서는 홈의 '진행할 발주'에 안 떠서 진입 경로가 없었다. */
-export function usePartnerPcbRemittances() {
+/** 수금 현황(P3.11) — 완료된 발주서는 홈의 '진행할 발주'에 안 떠서 진입 경로가 없었다.
+ *  홈 카드·셸 배지도 같은 응답을 쓴다(unpaidCount) — enabled 로 PCB 트랙에서만 조회한다. */
+export function usePartnerPcbRemittances(enabled?: Ref<boolean>) {
   return useQuery({
     queryKey: ['partner', 'pcbRemittances'],
     queryFn: () => apiGet(apiRoutes.partnerPcbRemittances, PartnerPcbRemittanceListResponse),
+    ...(enabled === undefined ? {} : { enabled }),
   });
 }
 

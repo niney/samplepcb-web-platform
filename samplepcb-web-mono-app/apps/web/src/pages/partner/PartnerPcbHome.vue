@@ -3,11 +3,15 @@ import { computed, onMounted } from 'vue';
 import { ApiRequestError } from '@sp/shared';
 import { PCB_RFQ_STATUS_LABELS } from '@sp/api-contract';
 import { usePartnerPcbRfqs } from '../../partner/usePartnerPcbRfqs';
-import { usePartnerPcbPos, usePartnerPcbShipBoard } from '../../partner/usePartnerPcbPos';
+import {
+  usePartnerPcbPos,
+  usePartnerPcbRemittances,
+  usePartnerPcbShipBoard,
+} from '../../partner/usePartnerPcbPos';
 import { usePartnerPcbAsCases } from '../../partner/usePartnerPcbAsCases';
 import { usePartnerAccess } from '../../partner/usePartnerAccess';
 import { rememberPartnerModule } from '../../partner/partnerModule';
-import { pcbMoneyWithSub } from '../../lib/pcb-money';
+import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { fmtKstDate } from '@sp/utils';
 
 // PCB 제작 모듈 홈(포털 재설계 R1) — "오늘 할 일" 중심: ① 회신할 견적 ② 진행할
@@ -19,6 +23,7 @@ const pcbPoQuery = usePartnerPcbPos();
 const shipQuery = usePartnerPcbShipBoard();
 const asQuery = usePartnerPcbAsCases();
 const accessQuery = usePartnerAccess();
+const remitQuery = usePartnerPcbRemittances();
 
 // A/S 회신 대기(내가 회신 주체인 접수 건) — 있을 때만 배너.
 const pendingAsCount = computed(() => {
@@ -62,6 +67,14 @@ const activeShipments = computed(() => shipQuery.data.value?.data.active ?? []);
 // 완료된 발송은 양이 누적되므로 별도 페이지 — 홈엔 건수 링크만(BOM §6.11 미러).
 const doneCount = computed(() => shipQuery.data.value?.data.doneCount ?? 0);
 
+// ── 미수금 — "받을 돈"을 홈이 먼저 알린다(P3.11 문서가 약속한 '포털 홈 요약 카드') ──
+// 수금 화면은 셸 탭에만 있어서, 홈만 보는 협력사는 미수금이 있다는 사실 자체를 몰랐다.
+// 총계는 무상 A/S 를 제외한 통화별 미수(서버 계산)이며 여기선 남은 통화만 보여 준다.
+const unpaidCount = computed(() => remitQuery.data.value?.data.unpaidCount ?? 0);
+const unpaidTotals = computed(() =>
+  (remitQuery.data.value?.data.totals ?? []).filter((t) => t.balance > 0),
+);
+
 const isLoading = computed(() => pcbQuery.isLoading.value);
 const fmtDate = fmtKstDate;
 
@@ -101,6 +114,23 @@ const rfqStatusCls = (s: string): string =>
         class="block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
       >
         🔧 A/S 재생산 검토 요청 {{ pendingAsCount }}건 — 재생산 가능/불가를 회신해 주세요 →
+      </RouterLink>
+
+      <!-- 미수금 — 돈은 '오늘 할 일'이 아니라 '받을 것'이라 카드 줄 위에 따로 선다 -->
+      <RouterLink
+        v-if="unpaidCount > 0"
+        :to="{ name: 'partner-remittances' }"
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 hover:bg-amber-100"
+      >
+        <span class="text-sm font-bold text-amber-800">💰 미수금 {{ unpaidCount }}건</span>
+        <span
+          v-for="t in unpaidTotals"
+          :key="t.currency"
+          class="text-sm font-extrabold tabular-nums text-amber-900"
+        >
+          {{ fmtPcbAmount(t.currency, t.balance) }}
+        </span>
+        <span class="ml-auto text-xs font-semibold text-amber-700">수금 현황 보기 →</span>
       </RouterLink>
 
       <!-- 오늘 할 일 — 카드 4개 -->

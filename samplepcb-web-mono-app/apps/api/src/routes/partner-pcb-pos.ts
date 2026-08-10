@@ -148,6 +148,9 @@ export const partnerPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
               : (parentName.get(po.parentPartnerId.toString()) ?? '중개 조직'),
           poStatus: asPcbPoStatus(po.status),
           issuedAt: po.issuedAt.toISOString(),
+          // A/S 회차 표기 — 같은 프로젝트가 두 줄로 서면 협력사도 어느 것이 새 회차인지
+          // 알 수 없다(유상 회차면 둘 다 받을 돈이다 — 재점검 08-11 확정 #6).
+          reorderRound: po.reorderRound,
           isFreeAs,
           summary: isFreeAs ? { ...summary, balance: 0 } : summary,
           remittances: po.remittances.map((r) => ({

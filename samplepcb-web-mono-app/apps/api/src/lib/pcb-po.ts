@@ -29,7 +29,7 @@ import {
 } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 import { loadEqReviewRowSummaries } from './pcb-eq-review';
-import { summarizePcbRemittances } from './pcb-remittance';
+import { loadRemittanceSummaries, summarizePcbRemittances } from './pcb-remittance';
 import {
   findPcbShipmentByPo,
   isPcbOrderCanceled,
@@ -202,6 +202,8 @@ interface AdminPoExtras {
   eqBlocked: boolean;
   childCount: number;
   eqReview: PcbPoEqReviewSummaryType | null;
+  /** 송금 원장 파생(P3.11) — 행 배지가 부분/완납을 구분하려면 날짜만으론 부족하다. */
+  remittance: { paidAmount: number; balance: number; count: number };
 }
 
 export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): AdminPcbPoViewType => ({
@@ -224,6 +226,7 @@ export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): Admi
   destinationCountry: po.destinationCountry,
   paymentTerms: po.paymentTerms,
   remittedAt: iso(po.remittedAt),
+  remittance: extras.remittance,
   deliveryDate: iso(po.deliveryDate),
   memo: po.memo,
   issuedAt: po.issuedAt.toISOString(),
@@ -247,12 +250,17 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
     rows.map((r) => r.id),
     eqRoundStartMap(rows),
   );
+  // 송금 요약은 원장(sp_pcb_remittance)이 정본 — 한 번에 모아 온다(행마다 조회하면 N+1).
+  const remitMap = await loadRemittanceSummaries(rows);
   const out: AdminPcbPoViewType[] = [];
   for (const row of rows) {
     const delegation = await resolveEqDelegation(row);
     const childCount = rows.filter(
       (r) => r.parentPartnerId === row.partnerId && r.reorderRound === row.reorderRound,
     ).length;
+    const remit =
+      remitMap.get(row.id.toString()) ??
+      summarizePcbRemittances({ currency: row.currency, priceOriginal: row.priceOriginal }, []);
     out.push(
       toAdminPcbPoView(row, {
         parentPartnerName:
@@ -264,6 +272,11 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
         eqBlocked: delegation.blocked,
         childCount,
         eqReview: reviewMap.get(row.id.toString()) ?? null,
+        remittance: {
+          paidAmount: remit.paidAmount,
+          balance: remit.balance,
+          count: remit.count,
+        },
       }),
     );
   }

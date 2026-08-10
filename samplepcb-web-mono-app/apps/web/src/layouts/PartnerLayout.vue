@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import { useTheme } from '../bom/useTheme';
 import { usePartnerAccess } from '../partner/usePartnerAccess';
+import { usePartnerPcbRemittances } from '../partner/usePartnerPcbPos';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 
@@ -28,6 +29,11 @@ const activeModule = computed(() => {
   return null;
 });
 const isRemittances = computed(() => route.name === 'partner-remittances');
+
+// 수금 탭 배지 — 관리자가 송금해도 협력사에겐 아무 신호가 없었다(통지 0건). 메일을 늘리는
+// 대신 **셸이 항상 이고 다니는 숫자**로 알린다(홈 카드와 같은 응답 unpaidCount).
+const remit = usePartnerPcbRemittances(computed(() => tracks.value.pcb));
+const unpaidCount = computed(() => remit.data.value?.data.unpaidCount ?? 0);
 </script>
 
 <template>
@@ -65,6 +71,12 @@ const isRemittances = computed(() => route.name === 'partner-remittances');
               :class="isRemittances ? 'bg-amber-500 text-white' : 'text-gray-600 hover:bg-gray-100'"
             >
               수금 현황
+              <span
+                v-if="unpaidCount > 0"
+                class="ml-1 rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums"
+                :class="isRemittances ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-800'"
+                title="미수금이 남은 발주 수"
+              >{{ unpaidCount }}</span>
             </RouterLink>
           </nav>
         </div>

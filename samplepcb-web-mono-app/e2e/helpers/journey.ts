@@ -165,6 +165,34 @@ export async function measureQuotesRowWidths(
 }
 
 /**
+ * Case 상세 **발주 표의 첫 열(협력사) 폭**을 잰다 — 위 견적관리 가드의 미러.
+ * 같은 병(옆 칸의 긴 문자열이 폭을 다 가져가 이름 칸이 0폭으로 붕괴)이 여기서도 났다:
+ * 결제조건 '50% PRE-PAID / 50% BEFORE SHIPMENT' 가 협력사 이름을 한 글자씩 세로로 눕혔다
+ * (여정 8호 재점검 확정 #2). 표는 헤더의 '조건/송금' 으로 찾는다(그 화면에서 유일).
+ * 반환: 측정된 모든 행(붕괴 판정은 호출부가 partnerW>0 으로).
+ */
+export async function measurePoRowPartnerWidths(
+  page: any,
+): Promise<{ i: number; partnerW: number; text: string }[]> {
+  return page.evaluate(() => {
+    const table = [...document.querySelectorAll('table')].find((t) =>
+      (t.querySelector('thead')?.textContent ?? '').includes('조건/송금'),
+    );
+    if (table === undefined) return [];
+    return [...(table.querySelector('tbody')?.rows ?? [])]
+      .map((tr, i) => {
+        const cell = tr.cells[0] as HTMLElement | undefined;
+        return {
+          i,
+          partnerW: cell?.offsetWidth ?? -1,
+          text: (cell?.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40),
+        };
+      })
+      .filter((r) => r.text !== '');
+  });
+}
+
+/**
  * 고객: 견적관리에서 해당 견적 체크 → [바로 주문] → 주문서 작성 → 무통장 주문 완료.
  * 배송지·결제수단·입금계좌는 theme/sp-lite/js/orderform-defaults.js 가 채워 두는 값이라
  * **채웠는지 확인만** 한다 — 비어 있으면 findings 에 bug 로 남아 기본값 회귀가 드러난다.

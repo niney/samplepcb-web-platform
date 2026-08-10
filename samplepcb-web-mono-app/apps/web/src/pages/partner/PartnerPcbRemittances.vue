@@ -55,6 +55,10 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
     </header>
 
     <!-- 통화별 미수금 총계 — 이 화면의 결론 -->
+    <p v-if="totals.length > 0" class="text-xs text-gray-500">
+      아래 총계는 <b class="text-gray-700">무상 A/S 재생산 건을 제외</b>한 금액입니다 —
+      표에는 그 건도 보이지만 받을 돈이 아니라 총계에 넣지 않습니다.
+    </p>
     <section v-if="totals.length > 0" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
       <div
         v-for="t in totals"
@@ -100,7 +104,13 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
         <tbody class="divide-y divide-gray-100">
           <template v-for="it in visible" :key="it.poId">
             <tr class="cursor-pointer hover:bg-gray-50" @click="toggle(it.poId)">
-              <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">{{ it.projectName }}</td>
+              <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900" :title="it.projectName">
+                {{ it.projectName }}
+                <!-- A/S 회차 — 같은 프로젝트가 두 줄로 서면 어느 것이 새 회차인지 알 수 없다 -->
+                <span v-if="it.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[10px] font-semibold text-rose-700">
+                  A/S {{ it.reorderRound }}차
+                </span>
+              </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ it.ordererName }}</td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
@@ -127,6 +137,7 @@ const STATUS_TEXT: Record<PcbRemittanceStatusType, string> = {
                   class="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700"
                   title="무상 A/S 재생산 — 수금 대상이 아닙니다"
                 >무상 A/S</span>
+                <span v-if="it.isFreeAs" class="ml-1 text-[10px] text-gray-400">총계 제외</span>
                 <span v-else class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[it.summary.status]">
                   {{ STATUS_TEXT[it.summary.status] }}
                 </span>

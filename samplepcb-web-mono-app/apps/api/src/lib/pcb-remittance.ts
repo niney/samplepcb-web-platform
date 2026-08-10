@@ -295,6 +295,30 @@ export const isFreeAsPo = (
 ): boolean =>
   po.reorderRound > 0 && freeKeys.has(`${po.specId.toString()}:${String(po.reorderRound)}`);
 
+/** 원장의 **실지급 KRW**(송금 건 krwAmount 합)와 환율 미기입 건수를 발주서별로.
+ *  협력사별 집계가 쓰던 '발주 회계 × 지급비율' 비례배분은 추정치라 환차가 사라진다 —
+ *  같은 USD 300 이 화면에선 ₩414,000(발주 회계)인데 실제로 나간 돈은 ₩412,500 이었다.
+ *  환율을 안 적은 건은 krwAmount 가 null 이라 합계에서 빠지므로 그 건수도 함께 센다
+ *  (화면이 "일부 환율 미기입"을 밝히지 않으면 합계가 조용히 작아진다). */
+export const loadRemittanceKrwPaid = async (
+  pos: readonly { id: bigint }[],
+): Promise<Map<string, { krwPaid: number; rateMissingCount: number }>> => {
+  const map = new Map<string, { krwPaid: number; rateMissingCount: number }>();
+  if (pos.length === 0) return map;
+  const rows = await prisma.spPcbRemittance.findMany({
+    where: { poId: { in: pos.map((p) => p.id) } },
+    select: { poId: true, krwAmount: true },
+  });
+  for (const r of rows) {
+    const key = r.poId.toString();
+    const acc = map.get(key) ?? { krwPaid: 0, rateMissingCount: 0 };
+    if (r.krwAmount === null) acc.rateMissingCount += 1;
+    else acc.krwPaid += r.krwAmount;
+    map.set(key, acc);
+  }
+  return map;
+};
+
 /** 발주서 여러 건의 지급 요약을 한 번에(목록·집계의 N+1 회피). */
 export const loadRemittanceSummaries = async (
   pos: readonly { id: bigint; currency: string; priceOriginal: unknown }[],

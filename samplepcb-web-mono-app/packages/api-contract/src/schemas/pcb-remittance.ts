@@ -69,6 +69,17 @@ export const ADMIN_PCB_REMITTANCE_TAB_LABELS = {
   all: '전체',
 } as const satisfies Record<AdminPcbRemittanceTabType, string>;
 
+/** 통화별 소계 — 목록 하단 합계와 협력사별 집계가 같은 모양을 쓴다.
+ *  통화를 한 열에 섞어 놓으면 ₩와 $가 나란히 서서 합계를 읽을 수 없다(D15 ③). */
+export const PcbRemittanceCurrencyTotal = z.object({
+  currency: z.string(),
+  poAmount: z.number(),
+  paidAmount: z.number(),
+  balance: z.number(),
+  poCount: z.number().int().nonnegative(),
+});
+export type PcbRemittanceCurrencyTotalType = z.infer<typeof PcbRemittanceCurrencyTotal>;
+
 /** 목록 행 — 발주서 1건 = 1행. 개별 송금 내역은 상세 조회로 따로 받는다(목록 경량화). */
 export const AdminPcbRemittanceItem = z.object({
   poId: z.number(),
@@ -80,6 +91,9 @@ export const AdminPcbRemittanceItem = z.object({
   paymentTerms: z.string().nullable(),
   issuedAt: z.string(),
   deliveryDate: z.string().nullable(),
+  /** 0=원발주, 1..=A/S 회차. 같은 프로젝트가 회차만큼 여러 줄로 서므로 이 값이 없으면
+   *  유상 회차와 원발주를 구분할 수 없다(둘 다 돈이 걸린다) — Case·파트너 홈과 같은 배지. */
+  reorderRound: z.number().int(),
   /** 레거시 이관 견적 표시 — 대기 큐에서 제외되는 건과 같은 신호(D12). */
   isLegacy: z.boolean(),
   /** 무상(free) A/S 회차 발주 — 지급 대상이 아니다(잔액 0 취급·대기 큐 제외, 발주가는
@@ -103,6 +117,9 @@ export const AdminPcbRemittanceListResponse = z.object({
   data: z.object({
     items: z.array(AdminPcbRemittanceItem),
     total: z.number().int().nonnegative(),
+    /** 현재 탭·검색 조건 **전체**(페이지가 아니라)의 통화별 소계 — 화면 한 열에 ₩와 $가
+     *  섞여 서므로 합계는 서버가 통화별로 나눠 낸다. 무상 A/S 회차는 빠진다. */
+    byCurrency: z.array(PcbRemittanceCurrencyTotal),
     counts: z.object({
       pending: z.number().int().nonnegative(),
       partial: z.number().int().nonnegative(),
@@ -116,13 +133,7 @@ export type AdminPcbRemittanceListResponseType = z.infer<typeof AdminPcbRemittan
 // ── 협력사별 집계 — "이 협력사에 줄 돈이 남았나" 한 줄 ────────────────────────
 // 통화는 **뭉치지 않는다**. 협력사마다 KRW/USD/CNY 가 섞이므로 통화별로 나눠 내고
 // KRW 환산 합계를 따로 병기한다(집계에서 통화를 섞으면 숫자가 거짓말을 한다).
-export const AdminPcbRemittancePartnerCurrency = z.object({
-  currency: z.string(),
-  poAmount: z.number(),
-  paidAmount: z.number(),
-  balance: z.number(),
-  poCount: z.number().int().nonnegative(),
-});
+export const AdminPcbRemittancePartnerCurrency = PcbRemittanceCurrencyTotal;
 export type AdminPcbRemittancePartnerCurrencyType = z.infer<
   typeof AdminPcbRemittancePartnerCurrency
 >;
@@ -132,11 +143,19 @@ export const AdminPcbRemittancePartnerRow = z.object({
   partnerName: z.string(),
   country: z.string().nullable(),
   byCurrency: z.array(AdminPcbRemittancePartnerCurrency),
-  /** KRW 환산 합계(회계 박제 기준) — 통화별 값의 참고 총계일 뿐 정본이 아니다. */
+  /** KRW 환산 합계(발주서 회계 박제 krwAmount 기준) — 통화별 값의 참고 총계일 뿐 정본이 아니다. */
   krwPoAmount: z.number(),
+  /** **원장 실지급 KRW 합**(송금 건별 krwAmount) — 발주 회계의 비례배분 추정이 아니다.
+   *  그래서 `krwPoAmount ≠ krwPaidAmount + krwBalance` 가 정상이며 그 차이가 환차손익이다. */
   krwPaidAmount: z.number(),
+  /** 환율 미기입 송금이 섞여 실지급 합에서 빠진 건이 있음 — 캡션이 이 사실을 밝혀야 한다. */
+  krwPaidRateMissing: z.boolean(),
+  /** 잔액을 발주 회계 환율로 환산한 값(줄 돈) — 실지급과 기준이 다르다. */
   krwBalance: z.number(),
+  /** **미착수** 발주 수(한 푼도 안 나간 건) — 부분 송금 건은 여기 없다. */
   unpaidPoCount: z.number().int().nonnegative(),
+  /** **잔여** 발주 수(잔액>0 — 미착수 + 부분 송금) — "아직 줄 돈이 남은 건". */
+  openPoCount: z.number().int().nonnegative(),
   lastRemittedOn: z.string().nullable(),
 });
 export type AdminPcbRemittancePartnerRowType = z.infer<typeof AdminPcbRemittancePartnerRow>;
@@ -157,6 +176,13 @@ export const AdminPcbRemittanceDetailResponse = z.object({
     specId: z.number(),
     projectName: z.string(),
     partnerName: z.string(),
+    /** 무상(free) A/S 회차 — **지급 대상이 아니다**. 목록과 같은 판정을 상세도 해야 한다:
+     *  이 값이 없어 상세만 잔액을 그대로 주던 탓에 패널이 무상 회차에 금액을 프리필했다
+     *  (재점검 08-11 확정 #1 — 돈 사고 직전까지 간 결함). true 면 summary.balance=0. */
+    isFreeAs: z.boolean(),
+    /** 발주서의 KRW 회계 박제(발주 시점 환율) — 원장 실지급 KRW 와 나란히 놓아야
+     *  환차가 보인다. 외화 발주인데 환산이 없으면(MD 하위) null. */
+    poKrwAmount: z.number().nullable(),
     summary: PcbRemittanceSummary,
     remittances: z.array(PcbRemittanceView),
   }),
@@ -200,6 +226,9 @@ export const PartnerPcbRemittanceItem = z.object({
   ordererName: z.string(),
   poStatus: PcbPoStatus,
   issuedAt: z.string(),
+  /** 0=원발주, 1..=A/S 회차 — 같은 프로젝트가 두 줄로 서므로 회차 표기가 없으면
+   *  협력사가 "이미 받은 그 건"과 새 회차를 구분할 수 없다(유상 회차면 둘 다 돈이다). */
+  reorderRound: z.number().int(),
   /** 무상(free) A/S 회차 발주 — 수금 대상이 아니다(미수금 0 취급·총계 제외). */
   isFreeAs: z.boolean(),
   summary: PcbRemittanceSummary,
