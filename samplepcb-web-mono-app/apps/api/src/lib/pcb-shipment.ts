@@ -838,7 +838,10 @@ export const buildPcbInvoiceDraft = async (
     const total = Number(po.priceOriginal);
     const qty = po.spec.qty;
     return {
-      description: po.spec.projectName,
+      // 프로젝트명은 업로드 파일명이라 서로 다른 발주가 같은 이름일 수 있다 — 묶음 송장은
+      // **다른 고객의 건까지** 한 장에 담기므로(여정 9호) 품목 두 줄이 통관 서류에서 구별이
+      // 안 될 수 있다. 발주번호를 앞에 세워 각 줄을 유일하게 만든다(초안값 — 협력사가 수정 가능).
+      description: `PO-${po.id.toString()} ${po.spec.projectName}`,
       hsCode: '',
       qty: `${String(qty)}PCS`,
       currency,

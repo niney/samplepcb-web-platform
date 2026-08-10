@@ -46,7 +46,12 @@ import {
 
 const JOURNEY = process.env.JOURNEY === '1';
 const FIXTURE_ZIP = join(monoRoot, 'e2e', 'fixtures', 'arduino-uno.zip');
-const MD_NAME = '협력2'; // 진행 중 수주 발주가 없어야 MD 로 전환된다
+// MD 는 **자신이 남의 하위가 아닌** 해외 조직이어야 한다(2단 제한). 협력2 를 쓰던 것을
+// mdtester2상사로 옮긴다 — MD 1·5편이 협력2 를 두 MD 의 하위로 만들어 두면서(상설 픽스처)
+// 협력2 는 더 이상 상위가 될 수 없어졌다(2026-08-10 실측: 관계 생성이 PARENT_IS_CHILD 400).
+// mdtester2상사는 이미 하위(협력2)를 거느린 CN 조직이라 이 여정의 KR 하위를 하나 더 붙여도
+// 2단 제한에 걸리지 않는다. 조합(하위 KR → MD CN → 관리자 KR, 양쪽 국제)은 그대로다.
+const MD_NAME = 'mdtester2상사';
 const CHILD_NAME = '협력1';
 const MARGIN_RATE = 20; // MD 마진 %
 
@@ -126,20 +131,36 @@ describe.skipIf(!RUN || !JOURNEY)('여정 4호 — MD 경유 2단(중개상이 �
     // MD 전환 가드 박제 — 진행 중 수주 발주가 있는 조직은 MD 가 될 수 없다(전환 시 EQ
     // 주체가 위임으로 뒤집히므로). 이 여정의 첫 주행이 실제로 여기 걸렸다. dev DB 에
     // 협력1의 진행 발주가 있을 때만 확인하고, 없으면 기록만 남긴다(전제 의존 어서션).
+    // 역방향(하위를 상위로 뒤집기)은 반드시 막혀야 한다. **어느 가드가 막는지는 픽스처
+    // 상태에 달렸으므로**(상설 관계가 늘면 순서가 바뀐다 — 2026-08-10 드리프트로 이 어서션이
+    // 깨졌었다) 서버의 판정 순서를 그대로 계산해 기대값을 세운다. 순서 자체가 계약이다:
+    //   CHILD_IS_MD(400) → PARENT_IS_CHILD(400) → 첫 하위일 때만 PARENT_HAS_ACTIVE_POS(409)
     const prisma = getPrisma();
-    const childActivePos = await prisma.spPcbPo.count({
-      where: { partnerId: child.id, status: { not: 'produced' } },
-    });
-    if (childActivePos > 0) {
+    const [mdHasChildren, childHasParent, childActivePos] = await Promise.all([
+      prisma.spPartnerRelation.count({ where: { parentPartnerId: md.id } }),
+      prisma.spPartnerRelation.count({ where: { childPartnerId: child.id } }),
+      prisma.spPcbPo.count({
+        where: { partnerId: child.id, parentPartnerId: 0n, status: { not: 'produced' } },
+      }),
+    ]);
+    const expected =
+      mdHasChildren > 0
+        ? { status: 400, error: 'CHILD_IS_MD' }
+        : childHasParent > 0
+          ? { status: 400, error: 'PARENT_IS_CHILD' }
+          : childActivePos > 0
+            ? { status: 409, error: 'PARENT_HAS_ACTIVE_POS' }
+            : null;
+    if (expected !== null) {
       const blocked = await api(A, 'POST', `/api/admin/partners/${String(num(child.id))}/relations`, {
         childPartnerId: num(md.id),
         settlementCurrency: 'USD',
       });
-      expect(blocked.status, `진행 발주 보유 조직의 MD 전환: ${JSON.stringify(blocked.json)}`).toBe(409);
-      expect(blocked.json?.error, 'MD 전환 가드').toBe('PARENT_HAS_ACTIVE_POS');
-      F('R0', 'obs', `MD 전환 가드 확인 — ${CHILD_NAME} 진행 발주 ${String(childActivePos)}건이라 409`);
+      expect(blocked.status, `MD 역전 전환 차단: ${JSON.stringify(blocked.json)}`).toBe(expected.status);
+      expect(blocked.json?.error, 'MD 전환 가드').toBe(expected.error);
+      F('R0', 'obs', `MD 전환 가드 확인 — ${expected.error}(${String(expected.status)})`);
     } else {
-      F('R0', 'obs', `${CHILD_NAME} 에 진행 발주가 없어 MD 전환 가드 확인 생략`);
+      F('R0', 'obs', '차단 전제가 없어(관계·진행 발주 모두 0) MD 전환 가드 확인 생략');
     }
 
     // MD 관계 시드 — 이게 있어야 조직이 MD 로 동작한다(플래그가 아니라 관계의 존재).
