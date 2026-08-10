@@ -788,10 +788,16 @@
     font-weight: 600;
 }
 
-/* 가격 자리 — rfq(가격 없음)는 금액 대신 대기 문구 */
+/* 가격 자리 — rfq(가격 없음)는 금액 대신 대기 문구.
+   ⚠ 우측 열(.sp-cart-calc)은 flex: 0 0 auto 라 **줄 하나가 길면 그 줄의 max-content
+   만큼 열이 통째로 넓어지고**, 남은 폭을 받는 사양 열(.sp-cart-info)이 0 까지 밀려
+   글자가 한 자씩 세로로 쪼개진다(2026-08-10 실측: rfq 안내 문구 474px → 열 490px →
+   사양 열 0px). 이 열에 들어가는 문장은 tax-detail 과 같은 폭으로 묶어 둔다. */
 .sp-quotes__pending {
+    max-width: 280px;
     font-size: 14px;
     font-weight: 600;
+    line-height: 1.45;
     color: #b45309;
 }
 
