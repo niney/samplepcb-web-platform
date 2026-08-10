@@ -20,6 +20,7 @@
     "md:domestic": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-domestic-relay",
     "md:cn": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-cn-relay",
     "journey:direct": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-direct-ship",
+    "journey:multi": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-multi-customer",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

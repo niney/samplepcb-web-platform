@@ -4,6 +4,57 @@
 // ⚠ 협력1 에는 진행 중 실데이터가 있다(HANDOFF §5) — 쓰기 시드는 협력2 또는 신규로.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getPrisma } from './db';
+// 2번 고객 아이디는 requireCustomerCreds(2) 가 SECOND_CUSTOMER_ID 로 폴백해 돌려준다.
+import { requireCustomerCreds } from './env';
+
+/**
+ * 다중 사용자 여정용 2번째 고객 — 1번 고객의 **회원 행을 통째로 복제**해 만든다
+ * (idempotent: 있으면 그대로 쓴다). 상설 픽스처라 주행 뒤에도 남긴다.
+ *
+ * 행 복제인 이유가 둘이다. ① 비밀번호 해시를 그대로 가져오므로 **원문이 코드·문서·
+ * .env 어디에도 늘지 않는다**(자격은 1번과 동일). ② 주소·회원등급·수신동의까지 같아
+ * 주문서 자동 채움 조건이 1번 고객과 100% 같다 — 두 고객의 차이가 '누구냐' 하나로
+ * 좁혀져야 격리 검증의 대조가 성립한다. 같은 방식이 g5 mdtester2 에 선례가 있다.
+ */
+export async function ensureSecondCustomer(): Promise<{ mbId: string; created: boolean }> {
+  const prisma = getPrisma();
+  const primary = requireCustomerCreds(1).id;
+  const mbId = requireCustomerCreds(2).id;
+  const found: any[] = await prisma.$queryRawUnsafe(
+    `SELECT mb_id FROM g5_member WHERE mb_id = ?`,
+    mbId,
+  );
+  if (found.length > 0) return { mbId, created: false };
+
+  const src: any[] = await prisma.$queryRawUnsafe(
+    `SELECT mb_id FROM g5_member WHERE mb_id = ?`,
+    primary,
+  );
+  if (src.length === 0) {
+    throw new Error(`1번 고객(${primary}) 회원이 없어 복제할 수 없습니다 — .env.e2e 확인`);
+  }
+  // 컬럼 목록을 스키마에서 읽어 그대로 복사한다(코어가 컬럼을 늘려도 따라간다).
+  // mb_no 는 auto_increment 라 제외하고, 신원 4가지만 갈아끼운다.
+  const cols: any[] = await prisma.$queryRawUnsafe(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'g5_member' AND COLUMN_NAME <> 'mb_no'`,
+  );
+  const overrides: Record<string, string> = {
+    mb_id: `'${mbId}'`,
+    mb_name: `'e2e고객2'`,
+    mb_nick: `'e2e고객2'`,
+    mb_email: `'${mbId}@test.local'`,
+    mb_datetime: 'NOW()',
+  };
+  const names = cols.map((c) => String(c.COLUMN_NAME));
+  const insertList = names.map((n) => `\`${n}\``).join(', ');
+  const selectList = names.map((n) => overrides[n] ?? `\`${n}\``).join(', ');
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO g5_member (${insertList}) SELECT ${selectList} FROM g5_member WHERE mb_id = ?`,
+    primary,
+  );
+  return { mbId, created: true };
+}
 
 export interface PartnerFixture {
   id: bigint;

@@ -42,7 +42,7 @@ helpers/
   jwt.ts       signJwt(identity) — me.php 동형 클레임 HS256 로컬 서명
   api.ts       api(token, method, path, body?) — 스모크 call 미러(FST empty-json 함정 처리)
   db.ts        getPrisma()/disconnectPrisma()/num() — apps/api 생성 클라이언트 재사용
-  seed.ts      getPartner·pickFreeSpecs·createPcbPo·cleanupPcbPos·countPcbResidue
+  seed.ts      getPartner·pickFreeSpecs·createPcbPo·cleanupPcbPos·countPcbResidue·ensureSecondCustomer
   browser.ts   newSession(identity, opts) — /spcb/api/me 스텁 로그인·localStorage 프리셋·snap
   mailpit.ts   목록/검색/본문/선택 삭제 (전체 삭제는 의도적으로 미제공)
   php-login.ts newPhpSession(creds) — 그누보드 실로그인(거버·주문서 등 PHP 구간)
@@ -57,6 +57,7 @@ specs/
   journey-as-reorder.e2e.test.ts       여정 5호 — A/S 재발주 회차(접수→회신→proceed→회차 생산·발송 분리)
   journey-direct-ship.e2e.test.ts      여정 6호 — 직송 3종(직송지 축 모드 파생·박스 분리·배송 큐 실측)
   journey-as-advanced.e2e.test.ts      여정 7호 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐 대조)
+  journey-multi-customer.e2e.test.ts   여정 9호 — 다중 고객 × 묶음 발송(한 박스 두 주인·정보 격리·cross-member 큐)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -82,6 +83,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
+| `pnpm -F e2e journey:multi` | 9호만 — 다중 고객 × 묶음(고객 2인 동시 세션·한 박스 두 주인·정보 격리·cross-member 배송 큐) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
@@ -99,6 +101,17 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 3호는 서로 다른 주문 두 건을 한 박스로 보내고 입고 뒤 **두 주문이 모두** 고객 배송 대기 큐에
 오르는지 본다 — 선적 문서의 specId 는 대표 한 건뿐이라 그걸로 판정하면 동반 주문이 큐에서
 사라지기 때문이다(서버는 발주서 축으로 조인한다).
+
+9호는 3호를 **고객 축**으로 한 칸 넓힌다 — 그 전까지 모든 여정은 고객이 하나였고, 주문이
+둘이어도 주인이 같아 "남의 것이 안 보인다"가 한 번도 시험되지 않았다. 9호는 ① 박스
+contextKey(받는측:조직:직송지:회차)에 **고객 축이 없다**는 설계를 두 주인의 발주가 한 박스에
+합류하는 것으로 실증하고, ② 화면(주문내역·상세·진행 카드·남의 상세 직접 접근)과
+API(`pcb-progress`·`pcb-eq-reviews`·EQ decide)의 **정보 격리**를 자기 것 양성 대조와 함께
+확인하며, ③ **회원이 다른** 두 주문이 한 입고로 함께 `to_ship` 큐에 오르는지(3호는 같은
+회원이었다) 본다. 2번 고객은 **상설 픽스처** `e2e-customer2` — `ensureSecondCustomer()` 가
+1번 고객 회원 행을 통째로 복제해 만들어(비밀번호 해시까지 동일 → 자격은 아이디만 다르고
+`.env` 에 원문이 늘지 않는다) 주행 뒤에도 남긴다. `newPhpSession` 은 호출마다 새
+BrowserContext 라 두 고객 세션이 동시에 살아 있어도 쿠키가 섞이지 않는다.
 
 6호와 MD 4·5편은 **국가×물류모드 매트릭스**의 남은 칸을 채운다 — 모드는 국적이 아니라
 "발송자국가=수신국가" 파생임을 조합으로 실증한다(4편 KR MD 전 구간 국내 · 5편 CN MD 의

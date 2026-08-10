@@ -58,8 +58,18 @@ export interface CustomerCreds {
   pw: string;
 }
 
-/** PHP 실로그인용 고객 계정 — 없으면 안내와 함께 중단(여정 스펙의 사전 조건). */
-export function requireCustomerCreds(): CustomerCreds {
+/**
+ * 2번째 고객(다중 사용자 여정) 아이디 — 1번 고객 회원 행을 **복제**해 만드는 상설
+ * 픽스처라 비밀번호(해시)가 같다. 그래서 자격은 아이디만 갈아끼우면 되고 .env 에
+ * 새 비밀번호를 두지 않는다(원문이 어디에도 늘지 않는다). 생성은 ensureSecondCustomer().
+ */
+export const SECOND_CUSTOMER_ID = 'e2e-customer2';
+
+/**
+ * PHP 실로그인용 고객 계정 — 없으면 안내와 함께 중단(여정 스펙의 사전 조건).
+ * slot 2 = 다중 사용자 여정의 상대 고객(같은 비밀번호, 다른 아이디).
+ */
+export function requireCustomerCreds(slot: 1 | 2 = 1): CustomerCreds {
   const id = process.env.E2E_CUSTOMER_ID ?? e2eEnv['E2E_CUSTOMER_ID'];
   const pw = process.env.E2E_CUSTOMER_PW ?? e2eEnv['E2E_CUSTOMER_PW'];
   if (id === undefined || id === '' || pw === undefined || pw === '') {
@@ -68,7 +78,10 @@ export function requireCustomerCreds(): CustomerCreds {
         '로컬 전용 테스트 회원(e2e-customer) 가입 후. 운영 실계정 금지(HANDOFF §5).',
     );
   }
-  return { id, pw };
+  if (slot === 1) return { id, pw };
+  const id2 =
+    process.env.E2E_CUSTOMER2_ID ?? e2eEnv['E2E_CUSTOMER2_ID'] ?? SECOND_CUSTOMER_ID;
+  return { id: id2, pw };
 }
 
 /** HS256 로컬 서명용 시크릿 — me.php(SPCB_JWT_SECRET)·Fastify 검증과 동일 값(로컬 dev). */
