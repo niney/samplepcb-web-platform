@@ -297,6 +297,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
           approved: true,
           reason: null,
+          poId: String(po.id),
         }),
         {
           kind: 'pcb_eq_decision',
@@ -338,6 +339,7 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           projectName: spec?.projectName ?? `Q${po.specId.toString()}`,
           approved: false,
           reason: request.body.reason,
+          poId: String(po.id),
         }),
         {
           kind: 'pcb_eq_decision',
