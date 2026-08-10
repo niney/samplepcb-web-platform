@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@sp/shared';
 import type { RouteLocationRaw } from 'vue-router';
@@ -18,6 +18,7 @@ import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
 
 const auth = useAuthStore();
 const route = useRoute();
+const mobileMenuOpen = ref(false);
 const contentFlush = computed(() => route.meta.adminContentFlush === true);
 const currentRouteName = computed(() => (typeof route.name === 'string' ? route.name : ''));
 
@@ -68,6 +69,12 @@ watch(activeModuleKey, (key) => {
     /* 프라이빗 모드 등 저장 불가 환경 무시 */
   }
 });
+watch(
+  () => route.fullPath,
+  () => {
+    mobileMenuOpen.value = false;
+  },
+);
 
 // 메뉴 뱃지 데이터 — 관리자로 로그인했을 때만 조회. 역할별 메뉴마다 "지금 움직여야
 // 하는 수" 하나: rfqCount=거버 견적 대기, bomQuotesRequested=BOM 검토 대기(견적관리),
@@ -115,18 +122,36 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
 
 <template>
   <div
-    class="flex bg-gray-50 text-gray-900"
+    class="relative flex bg-gray-50 text-gray-900"
     :class="contentFlush ? 'h-screen overflow-hidden' : 'min-h-screen'"
   >
+    <button
+      v-if="mobileMenuOpen"
+      type="button"
+      class="fixed inset-0 z-40 bg-slate-950/40 lg:hidden"
+      aria-label="관리자 메뉴 닫기"
+      @click="mobileMenuOpen = false"
+    />
     <!-- 좌측 사이드바 -->
-    <aside class="flex w-60 shrink-0 flex-col border-r border-gray-200 bg-surface">
+    <aside
+      :class="mobileMenuOpen ? 'flex' : 'hidden lg:flex'"
+      class="fixed inset-y-0 left-0 z-50 w-60 shrink-0 flex-col border-r border-gray-200 bg-surface shadow-2xl lg:static lg:z-auto lg:shadow-none"
+    >
       <div class="border-b border-gray-200 px-5 py-4">
         <div class="flex items-center justify-between gap-2">
           <RouterLink to="/" class="text-lg font-bold text-blue-600">{{ $t('app.name') }}</RouterLink>
+          <button
+            type="button"
+            class="grid size-8 place-items-center rounded-md text-lg text-gray-500 hover:bg-gray-100 lg:hidden"
+            aria-label="관리자 메뉴 닫기"
+            @click="mobileMenuOpen = false"
+          >
+            ×
+          </button>
         </div>
         <p class="mt-0.5 text-xs text-gray-400">{{ $t('admin.title') }}</p>
       </div>
-      <nav class="flex-1 space-y-1 p-3">
+      <nav class="flex-1 space-y-1 overflow-y-auto p-3">
         <!-- exact-active 사용: 대시보드는 /admin 의 빈 경로 자식이라 기본(포함) 매칭으로는
              /admin/* 어디서나 활성 처리된다. 상세 형제 라우트는 activeRouteNames 로 보완. -->
         <RouterLink
@@ -151,11 +176,22 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
     <!-- 우측 콘텐츠 -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <header
-        class="flex items-center justify-between border-b border-gray-200 bg-surface px-6 py-3 text-sm"
+        class="flex min-w-0 items-center gap-2 border-b border-gray-200 bg-surface px-3 py-3 text-sm sm:px-6"
       >
+        <button
+          type="button"
+          class="grid size-9 shrink-0 place-items-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 lg:hidden"
+          aria-label="관리자 메뉴 열기"
+          :aria-expanded="mobileMenuOpen"
+          @click="mobileMenuOpen = true"
+        >
+          <svg viewBox="0 0 20 20" class="size-5" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+            <path d="M3 5h14M3 10h14M3 15h14" stroke-linecap="round" />
+          </svg>
+        </button>
         <!-- 모듈 스위처 — 활성 모듈은 라우트에서 파생(클릭 = 모듈 홈 이동).
              확장 자리(PCB주문·PCBA주문·기술개발)는 모듈이 실제로 생길 때 추가. -->
-        <nav class="flex rounded-lg border border-gray-200 bg-surface-sunken p-0.5 text-xs font-semibold">
+        <nav class="flex min-w-0 overflow-x-auto rounded-lg border border-gray-200 bg-surface-sunken p-0.5 text-xs font-semibold [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <RouterLink
             v-for="mod in adminModules"
             :key="mod.key"
@@ -169,7 +205,7 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
           </RouterLink>
         </nav>
         <!-- 테마 전환 — BOM 셸과 같은 상태를 공유한다(useTheme 싱글턴) -->
-        <div class="ml-auto flex items-center gap-2">
+        <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
           <button
             type="button"
             class="grid size-[30px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand"
@@ -194,7 +230,7 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
           <RouterView />
         </div>
       </main>
-      <main v-else class="flex-1 p-6">
+      <main v-else class="min-w-0 flex-1 p-3 sm:p-6">
         <RouterView />
       </main>
     </div>

@@ -36,6 +36,8 @@
 // od_receipt_point·od_cart_coupon·od_coupon·od_send_coupon·od_cart_price·od_settle_case·
 // od_tno·od_pg·od_misu·od_tax_mny·od_vat_mny·od_free_mny(`getOrderHeadersLite` 주문 세액 표시) +
 // od_name·od_email·od_tel·od_hp·mb_id(`getOrdererContactByOdId` PCB·BOM Case 주문자 표시) +
+// od_b_name·od_b_tel·od_b_hp·od_b_zip1/2·od_b_addr1~3(`getOrderHeadersLite` SmartBOM
+// 고객 배송 워크큐의 주문 시점 수령인·배송지·배송 메일 수신처 표시) +
 // cart od_id/ct_status/it_id/it_name/io_id/io_price. 완전삭제 프리뷰에 한해 g5_shop_order_data·
 // g5_shop_coupon_log·g5_shop_coupon·g5_shop_personalpay·g5_shop_order_post_log·
 // g5_shop_inicis_log·g5_shop_order_delete·g5_point의 od_id/oid/de_key/주문 관계키별 건수도 읽는다).
@@ -488,6 +490,18 @@ export async function getCartOrderLinks(ctIds: number[]): Promise<Map<number, Bo
 export interface OrderHeaderLite {
   odId: string;
   mbId: string;
+  customerName: string;
+  customerEmail: string;
+  customerTel: string;
+  customerHp: string;
+  recipientName: string;
+  recipientTel: string;
+  recipientHp: string;
+  recipientZip1: string;
+  recipientZip2: string;
+  recipientAddr1: string;
+  recipientAddr2: string;
+  recipientAddr3: string;
   odStatus: string;
   isPaid: boolean; // od_status !== '주문'
   settleCase: string;
@@ -536,7 +550,9 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
   // od_time 은 DATE_FORMAT 필수 — raw 로 받으면 mysql2 가 JS Date 로 돌려주고
   // String() 결과("Wed Jul 30 …")가 정렬·표시를 모두 깨뜨린다(다른 쿼리 관례 동일).
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
-    `SELECT od_id, mb_id, od_status, od_settle_case, od_cart_price, od_receipt_price, od_misu,
+    `SELECT od_id, mb_id, od_name, od_email, od_tel, od_hp,
+            od_b_name, od_b_tel, od_b_hp, od_b_zip1, od_b_zip2, od_b_addr1, od_b_addr2, od_b_addr3,
+            od_status, od_settle_case, od_cart_price, od_receipt_price, od_misu,
             od_tax_mny, od_vat_mny, od_free_mny,
             DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        FROM g5_shop_order WHERE od_id IN (${odIds.map(() => '?').join(',')})`,
@@ -547,6 +563,18 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
     headers.set(String(row.od_id), {
       odId: String(row.od_id),
       mbId: String(row.mb_id ?? ''),
+      customerName: String(row.od_name ?? ''),
+      customerEmail: String(row.od_email ?? ''),
+      customerTel: String(row.od_tel ?? ''),
+      customerHp: String(row.od_hp ?? ''),
+      recipientName: String(row.od_b_name ?? ''),
+      recipientTel: String(row.od_b_tel ?? ''),
+      recipientHp: String(row.od_b_hp ?? ''),
+      recipientZip1: String(row.od_b_zip1 ?? ''),
+      recipientZip2: String(row.od_b_zip2 ?? ''),
+      recipientAddr1: String(row.od_b_addr1 ?? ''),
+      recipientAddr2: String(row.od_b_addr2 ?? ''),
+      recipientAddr3: String(row.od_b_addr3 ?? ''),
       odStatus: String(row.od_status ?? ''),
       isPaid: String(row.od_status) !== '주문',
       settleCase: String(row.od_settle_case ?? ''),

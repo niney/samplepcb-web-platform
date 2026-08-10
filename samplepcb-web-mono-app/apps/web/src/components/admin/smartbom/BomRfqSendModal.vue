@@ -38,6 +38,18 @@ const selected = ref<Set<number>>(new Set());
 const quotedPartnerIds = computed(
   () => new Set(props.rfqs.filter((r) => r.status !== 'requested').map((r) => r.partnerId)),
 );
+const pendingRfqCount = computed(() => props.rfqs.filter((rfq) => rfq.status === 'requested').length);
+const emptySelectionBlocked = computed(() => selected.value.size === 0 && pendingRfqCount.value === 0);
+const selectedWithoutEmailCount = computed(() => {
+  const selectedIds = selected.value;
+  return candidates.value.filter(
+    (partner) => selectedIds.has(partner.partnerId) && partner.contactEmail === null,
+  ).length;
+});
+const submitLabel = computed(() => {
+  if (selected.value.size > 0) return `발송 (${String(selected.value.size)}곳)`;
+  return pendingRfqCount.value > 0 ? '미회신 요청 회수' : '협력사를 선택해 주세요';
+});
 
 // 부분 행 선택(§6.13) — 품목 테이블 체크가 진실. 빈 배열=전체(itemIds 생략).
 const partialSelection = computed(
@@ -67,6 +79,10 @@ const error = ref('');
 
 async function submit(): Promise<void> {
   error.value = '';
+  if (emptySelectionBlocked.value) {
+    error.value = '견적요청을 보낼 협력사를 한 곳 이상 선택해 주세요.';
+    return;
+  }
   // 0곳 발송 = 미회신 요청 전부 회수(diff 수렴) — 버튼 라벨("미회신 요청 회수")이
   // 의미를 이미 말하므로 별도 confirm 없이 진행한다(사용자 결정).
   try {
@@ -133,6 +149,10 @@ async function submit(): Promise<void> {
         </label>
       </div>
 
+      <p v-if="selectedWithoutEmailCount > 0" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+        메일이 없는 협력사 {{ selectedWithoutEmailCount }}곳은 포털 요청과 회신 링크만 생성되며 이메일은 발송되지 않습니다.
+      </p>
+
       <p v-if="error !== ''" class="mt-3 text-xs font-semibold text-red-600">{{ error }}</p>
       <div class="mt-4 flex justify-end gap-2">
         <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-xs font-bold hover:bg-gray-50" @click="emit('close')">
@@ -141,10 +161,10 @@ async function submit(): Promise<void> {
         <button
           type="button"
           class="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-40"
-          :disabled="send.isPending.value"
+          :disabled="send.isPending.value || emptySelectionBlocked"
           @click="submit"
         >
-          {{ selected.size === 0 ? '미회신 요청 회수' : `발송 (${String(selected.size)}곳)` }}
+          {{ submitLabel }}
         </button>
       </div>
     </div>

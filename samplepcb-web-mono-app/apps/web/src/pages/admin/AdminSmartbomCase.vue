@@ -1557,6 +1557,10 @@ async function downloadOriginal(): Promise<void> {
           </div>
         </dl>
 
+        <p v-if="detail.uncostedCount > 0" class="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs font-semibold leading-5 text-amber-900">
+          금액 미산정 품목 {{ detail.uncostedCount }}건은 확정 견적과 고객 주문 금액에 포함되지 않습니다. 회신 메모에도 조달 범위를 안내해 주세요.
+        </p>
+
         <div class="mt-3 flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5">
           <p class="text-xs leading-5 text-blue-800">고객에게 보일 견적서를 가안 상태로 먼저 확인할 수 있습니다.</p>
           <button
@@ -1824,6 +1828,29 @@ async function downloadOriginal(): Promise<void> {
         고객 메모: {{ detail.customerMemo }}
       </p>
 
+      <!-- requested 상태의 첫 행동을 긴 품목표보다 앞에 둔다. 이후 RFQ·품목 검토가 열리는
+           순서를 화면에서도 서버 상태 머신(requested→reviewing)과 같게 보장한다. -->
+      <section
+        v-if="detail.status === 'requested'"
+        class="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3"
+        aria-label="다음 작업"
+      >
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-bold text-amber-900">다음 작업 · 검토 시작</p>
+          <p class="mt-0.5 text-[11px] leading-5 text-amber-800">
+            검토를 시작하면 품목 확인과 협력사 견적요청을 순서대로 진행할 수 있습니다.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="patch.isPending.value"
+          @click="saveReview('reviewing')"
+        >
+          {{ patch.isPending.value ? '시작 중…' : '검토 시작' }}
+        </button>
+      </section>
+
       <!-- 협력사 RFQ 현황 — 무관 파트 진입 시 한 줄 접힘(§6.12) -->
       <button
         v-if="collapsed.has('rfq')"
@@ -1838,7 +1865,7 @@ async function downloadOriginal(): Promise<void> {
         v-else
         :rfqs="rfqs"
         :loading="rfqQuery.isLoading.value"
-        :can-send="detail.status === 'requested' || detail.status === 'reviewing'"
+        :can-send="detail.status === 'reviewing'"
         :busy="reissueLink.isPending.value"
         @send="sendOpen = true"
         @compare="compareOpen = true"
@@ -1881,9 +1908,9 @@ async function downloadOriginal(): Promise<void> {
         <span>▸ 품목·검토 ({{ detail.items.length }}행)</span>
         <span class="text-xs text-gray-400">펼치기</span>
       </button>
-      <div v-else class="grid gap-4 xl:grid-cols-[1fr_340px]">
+      <div v-else class="grid gap-4 min-[1760px]:grid-cols-[minmax(0,1fr)_340px]">
         <!-- 품목 -->
-        <div class="overflow-hidden rounded-xl border border-gray-200 bg-surface">
+        <div class="order-2 min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-surface min-[1760px]:order-1">
           <!-- 관리자 확인 대기열 — 엔진 판정은 그대로 두고 업무 우선순위·완료 이력만 투영한다. -->
           <div class="space-y-2 border-b border-gray-200 bg-slate-50/80 px-3 py-2.5">
             <div class="flex flex-wrap items-center gap-2">
@@ -2010,165 +2037,170 @@ async function downloadOriginal(): Promise<void> {
           <p v-if="partRemoveError !== ''" class="border-b border-red-100 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700">
             {{ partRemoveError }}
           </p>
-          <table class="min-w-full divide-y divide-gray-100 text-xs">
-            <thead class="bg-gray-50 text-left text-gray-500">
-              <tr>
-                <th class="px-2 py-2 text-center text-[10px] font-semibold" title="다음 협력사 RFQ에 포함할 품목 선택">
-                  <span class="sr-only">RFQ 전체 선택</span>
-                  <input
-                    type="checkbox"
-                    class="size-3.5 align-middle"
-                    title="다음 RFQ 발송 행 전체 선택/해제"
-                    :checked="allRfqRowsSelected"
-                    @change="toggleAllRfqRows"
-                  >
-                  <span class="mt-0.5 block">RFQ</span>
-                </th>
-                <th class="min-w-28 px-3 py-2">검토 상태</th>
-                <th class="px-3 py-2">Excel 위치</th>
-                <th class="px-3 py-2">부품</th>
-                <th class="px-3 py-2">선정 구매 조건</th>
-                <th class="px-3 py-2">협력사 RFQ</th>
-                <th class="px-3 py-2 text-right">주문수량</th>
-                <th class="px-3 py-2 text-right">합계</th>
-                <th class="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-              <tr
-                v-for="view in visibleAdminItemViews"
-                :key="view.item.id"
-                :class="adminAttentionRowClass(view)"
-              >
-                <td class="px-2 py-2">
-                  <input
-                    v-if="rfqSelectable(view.item)"
-                    type="checkbox"
-                    class="size-3.5 align-middle"
-                    :checked="rfqItemSelection.has(view.item.id)"
-                    :aria-label="`${itemLabel(view.item)} RFQ 포함`"
-                    @change="toggleRfqRow(view.item.id)"
-                  >
-                </td>
-                <td class="min-w-28 px-3 py-2 align-top">
-                  <span
-                    class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold"
-                    :class="view.attention.reviewRequired && view.item.adminReview.completed
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : ADMIN_ATTENTION_META[view.attention.kind].badgeClass"
-                    :title="adminAttentionTitle(view)"
-                  >
-                    <template v-if="view.attention.reviewRequired && view.item.adminReview.completed">✓ 확인 완료</template>
-                    <template v-else-if="view.item.adminReview.stale">재확인 필요</template>
-                    <template v-else>{{ ADMIN_ATTENTION_META[view.attention.kind].label }}</template>
-                  </span>
-                  <p
-                    v-if="view.attention.reasons.length > 0"
-                    class="mt-1 max-w-32 text-[9px] leading-3 text-gray-500"
-                    :title="adminAttentionTitle(view)"
-                  >
-                    {{ adminAttentionReasonSummary(view) }}
-                  </p>
-                </td>
-                <td class="whitespace-nowrap px-3 py-2 text-gray-500">{{ itemLocation(view.item) }}</td>
-                <td class="px-3 py-2">
-                  <div class="flex flex-wrap items-center gap-1">
-                    <span class="font-medium">{{ itemLabel(view.item) }}</span>
+          <p class="border-b border-blue-100 bg-blue-50/70 px-3 py-1.5 text-[10px] font-medium text-blue-700 min-[1760px]:hidden">
+            품목표는 좌우로 스크롤할 수 있습니다 · 오른쪽에 협력사 RFQ, 주문수량, 합계와 작업 버튼이 있습니다. →
+          </p>
+          <div class="overflow-x-auto [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
+            <table class="min-w-[1040px] divide-y divide-gray-100 text-xs">
+              <thead class="bg-gray-50 text-left text-gray-500">
+                <tr>
+                  <th class="px-2 py-2 text-center text-[10px] font-semibold" title="다음 협력사 RFQ에 포함할 품목 선택">
+                    <span class="sr-only">RFQ 전체 선택</span>
+                    <input
+                      type="checkbox"
+                      class="size-3.5 align-middle"
+                      title="다음 RFQ 발송 행 전체 선택/해제"
+                      :checked="allRfqRowsSelected"
+                      @change="toggleAllRfqRows"
+                    >
+                    <span class="mt-0.5 block">RFQ</span>
+                  </th>
+                  <th class="min-w-28 px-3 py-2">검토 상태</th>
+                  <th class="px-3 py-2">Excel 위치</th>
+                  <th class="px-3 py-2">부품</th>
+                  <th class="px-3 py-2">선정 구매 조건</th>
+                  <th class="px-3 py-2">협력사 RFQ</th>
+                  <th class="px-3 py-2 text-right">주문수량</th>
+                  <th class="px-3 py-2 text-right">합계</th>
+                  <th class="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-50">
+                <tr
+                  v-for="view in visibleAdminItemViews"
+                  :key="view.item.id"
+                  :class="adminAttentionRowClass(view)"
+                >
+                  <td class="px-2 py-2">
+                    <input
+                      v-if="rfqSelectable(view.item)"
+                      type="checkbox"
+                      class="size-3.5 align-middle"
+                      :checked="rfqItemSelection.has(view.item.id)"
+                      :aria-label="`${itemLabel(view.item)} RFQ 포함`"
+                      @change="toggleRfqRow(view.item.id)"
+                    >
+                  </td>
+                  <td class="min-w-28 px-3 py-2 align-top">
                     <span
-                      v-if="rfqEngineComponentType(view.item) === 'resistor'"
-                      class="rounded border border-orange-200 bg-orange-50 px-1 py-0.5 text-[9px] font-semibold text-orange-700"
-                      title="sp-engine 분류"
-                    >저항</span>
-                    <span
-                      v-else-if="rfqEngineComponentType(view.item) === 'capacitor'"
-                      class="rounded border border-cyan-200 bg-cyan-50 px-1 py-0.5 text-[9px] font-semibold text-cyan-700"
-                      title="sp-engine 분류"
-                    >캐패시터</span>
-                  </div>
-                  <div class="text-gray-400">{{ view.item.manufacturerName }}</div>
-                </td>
-                <td class="px-3 py-2">
-                  <template v-if="view.item.selectedOffer !== null">
-                    {{ view.item.selectedOffer.supplier }} · {{ view.item.selectedOffer.unitPrice }} {{ view.item.selectedOffer.currency }} @{{ view.item.selectedOffer.breakQty }}+
-                  </template>
-                  <span v-else class="text-amber-600">{{ view.item.matchStatus === 'none' ? '미매칭' : '구매 조건 없음' }}</span>
-                </td>
-                <td class="min-w-52 px-3 py-2">
-                  <div v-if="rfqBadgesFor(view.item.id).length > 0" class="flex flex-wrap gap-1">
-                    <button
-                      v-for="badge in rfqBadgesFor(view.item.id)"
-                      :key="badge.rfq.rfqId"
-                      type="button"
-                      class="inline-flex max-w-48 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold"
-                      :class="ITEM_RFQ_BADGE_CLASSES[badge.tone]"
-                      :title="itemRfqBadgeTitle(badge)"
-                      @click="openRfqReply(badge.rfq)"
+                      class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold"
+                      :class="view.attention.reviewRequired && view.item.adminReview.completed
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : ADMIN_ATTENTION_META[view.attention.kind].badgeClass"
+                      :title="adminAttentionTitle(view)"
                     >
-                      <span class="truncate">{{ badge.rfq.partnerName }}</span>
-                      <span class="shrink-0">· {{ badge.label }}</span>
-                    </button>
-                  </div>
-                  <span v-else-if="rfqSelectable(view.item)" class="text-[11px] text-gray-300">미요청</span>
-                  <span v-else class="text-gray-200">—</span>
-                </td>
-                <td class="px-3 py-2 text-right tabular-nums">{{ view.item.orderQty.toLocaleString('ko-KR') }}</td>
-                <td class="px-3 py-2 text-right tabular-nums">
-                  {{ view.item.lineTotalKrw === null ? '—' : smartbomFmtWon(Math.round(view.item.lineTotalKrw)) }}
-                </td>
-                <td class="px-3 py-2 text-right">
-                  <div class="flex flex-col items-end gap-1">
-                    <button
-                      v-if="view.attention.reviewRequired && canUpdateItemReview"
-                      type="button"
-                      class="rounded border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
-                      :class="view.item.adminReview.completed
-                        ? 'border-gray-200 bg-surface text-gray-500 hover:bg-gray-50'
-                        : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
-                      :disabled="!canUpdateItemReview || reviewingItemIds.has(view.item.id)"
-                      :title="view.item.adminReview.completed ? '품목을 다시 확인 대상으로 돌립니다' : adminAttentionTitle(view)"
-                      @click="updateItemReviews([view.item.id], !view.item.adminReview.completed)"
+                      <template v-if="view.attention.reviewRequired && view.item.adminReview.completed">✓ 확인 완료</template>
+                      <template v-else-if="view.item.adminReview.stale">재확인 필요</template>
+                      <template v-else>{{ ADMIN_ATTENTION_META[view.attention.kind].label }}</template>
+                    </span>
+                    <p
+                      v-if="view.attention.reasons.length > 0"
+                      class="mt-1 max-w-32 text-[9px] leading-3 text-gray-500"
+                      :title="adminAttentionTitle(view)"
                     >
-                      {{ view.item.adminReview.completed ? '재검토' : '확인 완료' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
-                      @click="openPartSelection(view.item, 'candidates')"
-                    >
-                      {{ view.pending ? '검토하기' : '후보·근거' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded border border-violet-200 px-2 py-1 font-semibold text-violet-700 hover:bg-violet-50"
-                      :title="partChangeButtonTitle(view.item)"
-                      @click="openPartSelection(view.item, 'search')"
-                    >
-                      부품 검색·변경
-                    </button>
-                    <button
-                      v-if="isManualQuoteItem(view.item)"
-                      type="button"
-                      class="rounded border border-red-200 px-2 py-1 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                      :disabled="partRemove.isPending.value || partMutationUnavailableReason() !== null"
-                      :title="partMutationUnavailableReason() ?? '관리자가 수동 추가한 이 품목을 견적에서 제거합니다'"
-                      @click="requestPartRemove(view.item)"
-                    >
-                      수동 행 제거
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="visibleAdminItemViews.length === 0">
-                <td colspan="9" class="px-4 py-10 text-center text-xs text-gray-400">
-                  검색·필터 조건에 맞는 품목이 없습니다.
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                      {{ adminAttentionReasonSummary(view) }}
+                    </p>
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-2 text-gray-500">{{ itemLocation(view.item) }}</td>
+                  <td class="px-3 py-2">
+                    <div class="flex flex-wrap items-center gap-1">
+                      <span class="font-medium">{{ itemLabel(view.item) }}</span>
+                      <span
+                        v-if="rfqEngineComponentType(view.item) === 'resistor'"
+                        class="rounded border border-orange-200 bg-orange-50 px-1 py-0.5 text-[9px] font-semibold text-orange-700"
+                        title="sp-engine 분류"
+                      >저항</span>
+                      <span
+                        v-else-if="rfqEngineComponentType(view.item) === 'capacitor'"
+                        class="rounded border border-cyan-200 bg-cyan-50 px-1 py-0.5 text-[9px] font-semibold text-cyan-700"
+                        title="sp-engine 분류"
+                      >캐패시터</span>
+                    </div>
+                    <div class="text-gray-400">{{ view.item.manufacturerName }}</div>
+                  </td>
+                  <td class="px-3 py-2">
+                    <template v-if="view.item.selectedOffer !== null">
+                      {{ view.item.selectedOffer.supplier }} · {{ view.item.selectedOffer.unitPrice }} {{ view.item.selectedOffer.currency }} @{{ view.item.selectedOffer.breakQty }}+
+                    </template>
+                    <span v-else class="text-amber-600">{{ view.item.matchStatus === 'none' ? '미매칭' : '구매 조건 없음' }}</span>
+                  </td>
+                  <td class="min-w-52 px-3 py-2">
+                    <div v-if="rfqBadgesFor(view.item.id).length > 0" class="flex flex-wrap gap-1">
+                      <button
+                        v-for="badge in rfqBadgesFor(view.item.id)"
+                        :key="badge.rfq.rfqId"
+                        type="button"
+                        class="inline-flex max-w-48 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold"
+                        :class="ITEM_RFQ_BADGE_CLASSES[badge.tone]"
+                        :title="itemRfqBadgeTitle(badge)"
+                        @click="openRfqReply(badge.rfq)"
+                      >
+                        <span class="truncate">{{ badge.rfq.partnerName }}</span>
+                        <span class="shrink-0">· {{ badge.label }}</span>
+                      </button>
+                    </div>
+                    <span v-else-if="rfqSelectable(view.item)" class="text-[11px] text-gray-300">미요청</span>
+                    <span v-else class="text-gray-200">—</span>
+                  </td>
+                  <td class="px-3 py-2 text-right tabular-nums">{{ view.item.orderQty.toLocaleString('ko-KR') }}</td>
+                  <td class="px-3 py-2 text-right tabular-nums">
+                    {{ view.item.lineTotalKrw === null ? '—' : smartbomFmtWon(Math.round(view.item.lineTotalKrw)) }}
+                  </td>
+                  <td class="px-3 py-2 text-right">
+                    <div class="flex flex-col items-end gap-1">
+                      <button
+                        v-if="view.attention.reviewRequired && canUpdateItemReview"
+                        type="button"
+                        class="rounded border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                        :class="view.item.adminReview.completed
+                          ? 'border-gray-200 bg-surface text-gray-500 hover:bg-gray-50'
+                          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                        :disabled="!canUpdateItemReview || reviewingItemIds.has(view.item.id)"
+                        :title="view.item.adminReview.completed ? '품목을 다시 확인 대상으로 돌립니다' : adminAttentionTitle(view)"
+                        @click="updateItemReviews([view.item.id], !view.item.adminReview.completed)"
+                      >
+                        {{ view.item.adminReview.completed ? '재검토' : '확인 완료' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
+                        @click="openPartSelection(view.item, 'candidates')"
+                      >
+                        {{ view.pending ? '검토하기' : '후보·근거' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded border border-violet-200 px-2 py-1 font-semibold text-violet-700 hover:bg-violet-50"
+                        :title="partChangeButtonTitle(view.item)"
+                        @click="openPartSelection(view.item, 'search')"
+                      >
+                        부품 검색·변경
+                      </button>
+                      <button
+                        v-if="isManualQuoteItem(view.item)"
+                        type="button"
+                        class="rounded border border-red-200 px-2 py-1 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        :disabled="partRemove.isPending.value || partMutationUnavailableReason() !== null"
+                        :title="partMutationUnavailableReason() ?? '관리자가 수동 추가한 이 품목을 견적에서 제거합니다'"
+                        @click="requestPartRemove(view.item)"
+                      >
+                        수동 행 제거
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="visibleAdminItemViews.length === 0">
+                  <td colspan="9" class="px-4 py-10 text-center text-xs text-gray-400">
+                    검색·필터 조건에 맞는 품목이 없습니다.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- 검토 폼 -->
-        <div class="h-fit space-y-3 rounded-xl border border-gray-200 bg-surface p-4 text-sm">
+        <div class="order-1 h-fit space-y-3 rounded-xl border border-gray-200 bg-surface p-4 text-sm min-[1760px]:order-2">
           <p class="text-xs font-bold text-gray-700">검토·고객 회신</p>
           <!-- 비용 — 기본은 예상(자동: 부품 합계 + 설정 기본 운송료·관리비) 읽기 전용 표시.
                확정가는 토글을 켠 경우에만 입력(D9 수동 확정 — 관리자 혼동 방지 UX) -->
@@ -2236,15 +2268,6 @@ async function downloadOriginal(): Promise<void> {
               @click="saveReview()"
             >
               저장
-            </button>
-            <button
-              v-if="detail.status === 'requested'"
-              type="button"
-              class="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
-              :disabled="patch.isPending.value"
-              @click="saveReview('reviewing')"
-            >
-              검토 시작
             </button>
             <button
               v-if="detail.status === 'reviewing'"

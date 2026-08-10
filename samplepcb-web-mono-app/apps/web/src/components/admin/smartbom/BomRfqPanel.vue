@@ -11,7 +11,7 @@ import { fmtKstDate } from '@sp/utils';
 const props = defineProps<{
   rfqs: AdminBomRfqViewType[];
   loading: boolean;
-  canSend: boolean; // requested|reviewing 에서만 발송 가능
+  canSend: boolean; // reviewing 에서만 발송·선정 가능
   busy?: boolean;
 }>();
 const emit = defineEmits<{

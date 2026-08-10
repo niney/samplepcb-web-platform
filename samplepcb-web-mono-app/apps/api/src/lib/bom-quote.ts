@@ -6478,6 +6478,7 @@ export async function toBomQuotePrintDto(
     answeredAt: quote.answeredAt?.toISOString() ?? null,
     customerName,
     seller,
+    uncostedCount: quote.uncostedCount,
     items: activeRows.map((row) => {
       const dto = toItemDto(row);
       const partMeta = row.partId === null ? null : (partMetaMap.get(row.partId) ?? null);

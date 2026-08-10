@@ -138,14 +138,18 @@ const shipTarget = ref<AdminBomOrderListItemType | null>(null);
 const shipCompany = ref('');
 const shipInvoiceNo = ref('');
 const shipInvoiceTime = ref('');
+const shipSendMail = ref(true);
 const shipError = ref('');
+const actionFeedback = ref<{ tone: 'success' | 'warning'; text: string } | null>(null);
 
 function openShip(item: AdminBomOrderListItemType): void {
   shipTarget.value = item;
   shipCompany.value = '';
   shipInvoiceNo.value = '';
   shipInvoiceTime.value = nowLocalDateTime();
+  shipSendMail.value = item.customerEmail.trim() !== '';
   shipError.value = '';
+  actionFeedback.value = null;
 }
 
 async function submitShip(): Promise<void> {
@@ -163,14 +167,31 @@ async function submitShip(): Promise<void> {
     return;
   }
   try {
-    await shipMut.mutateAsync({
+    const response = await shipMut.mutateAsync({
       odId: item.odId,
       delivery: {
         deliveryCompany: shipCompany.value.trim(),
         invoiceNo: shipInvoiceNo.value.trim(),
         invoiceTime: toG5DateTime(shipInvoiceTime.value),
       },
+      sendMail: shipSendMail.value,
     });
+    if (shipSendMail.value) {
+      const mailStatus = response.data.notify?.mail;
+      actionFeedback.value = mailStatus === 'sent'
+        ? { tone: 'success', text: `${item.customerEmail}로 배송 안내 이메일을 발송했습니다.` }
+        : {
+            tone: 'warning',
+            text: `${item.customerEmail}로 배송 안내를 요청했지만 메일 설정 또는 발송 상태를 확인해야 합니다. 주문 상태와 운송장은 정상 반영됐습니다.`,
+          };
+    } else {
+      actionFeedback.value = {
+        tone: 'warning',
+        text: item.customerEmail.trim() === ''
+          ? '주문 이메일이 없어 배송 안내 메일은 보내지 않고 운송장만 반영했습니다.'
+          : '배송 안내 메일을 보내지 않고 운송장만 반영했습니다.',
+      };
+    }
     shipTarget.value = null;
   } catch (e) {
     shipError.value = e instanceof ApiRequestError ? e.message : '배송 처리에 실패했습니다.';
@@ -335,6 +356,13 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
       </div>
 
       <p v-if="actionError !== ''" class="text-xs font-semibold text-red-600">{{ actionError }}</p>
+      <p
+        v-if="actionFeedback !== null"
+        class="rounded-lg border px-3 py-2 text-xs font-semibold"
+        :class="actionFeedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'"
+      >
+        {{ actionFeedback.text }}
+      </p>
 
       <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
         <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -342,6 +370,7 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
             <tr>
               <th class="whitespace-nowrap px-4 py-2.5">주문번호</th>
               <th class="px-4 py-2.5">고객</th>
+              <th class="min-w-64 px-4 py-2.5">받는 분 · 배송지</th>
               <th class="px-4 py-2.5">연결 Case · 입고</th>
               <th class="whitespace-nowrap px-4 py-2.5 text-right">주문 금액</th>
               <th class="px-4 py-2.5">상태</th>
@@ -351,7 +380,16 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
           <tbody class="divide-y divide-gray-100">
             <tr v-for="item in orderItems" :key="item.odId" class="hover:bg-blue-50/30">
               <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-600">{{ item.odId }}</td>
-              <td class="px-4 py-2.5 text-gray-600">{{ item.mbId }}</td>
+              <td class="px-4 py-2.5 text-gray-600">
+                <p class="font-medium text-gray-800">{{ item.customerName || item.mbId }}</p>
+                <p class="text-[11px] text-gray-400">{{ item.customerEmail || '이메일 없음' }}</p>
+              </td>
+              <td class="min-w-64 px-4 py-2.5 text-xs text-gray-600">
+                <p class="font-semibold text-gray-800">{{ item.recipientName || '받는 분 미입력' }} · {{ item.recipientPhone || '연락처 없음' }}</p>
+                <p class="mt-0.5 max-w-80 truncate text-[11px] text-gray-500" :title="`${item.recipientZip === '' ? '' : `[${item.recipientZip}] `}${item.recipientAddress}`">
+                  <template v-if="item.recipientZip !== ''">[{{ item.recipientZip }}] </template>{{ item.recipientAddress || '배송지 미입력' }}
+                </p>
+              </td>
               <td class="px-4 py-2.5">
                 <button
                   v-for="entry in item.cases"
@@ -394,7 +432,7 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
               </td>
             </tr>
             <tr v-if="orderItems.length === 0">
-              <td colspan="6" class="px-4 py-10 text-center text-sm text-gray-400">
+              <td colspan="7" class="px-4 py-10 text-center text-sm text-gray-400">
                 {{ orderQuery.isFetching.value ? '불러오는 중…' : '해당 상태의 주문이 없습니다.' }}
               </td>
             </tr>
@@ -434,6 +472,14 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
         <p v-if="!allReceived(shipTarget)" class="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
           입고 확인이 끝나지 않은 발주가 있습니다 — 검수 후 발송을 권장합니다.
         </p>
+        <div class="mt-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs leading-5 text-gray-700">
+          <p class="font-bold text-gray-800">받는 분 {{ shipTarget.recipientName || '미입력' }}</p>
+          <p>{{ shipTarget.recipientPhone || '연락처 없음' }}</p>
+          <p class="break-words">
+            <template v-if="shipTarget.recipientZip !== ''">[{{ shipTarget.recipientZip }}] </template>{{ shipTarget.recipientAddress || '배송지 미입력' }}
+          </p>
+          <p class="mt-1 border-t border-gray-200 pt-1 text-gray-500">배송 안내 이메일 · <b class="text-gray-800">{{ shipTarget.customerEmail || '없음' }}</b></p>
+        </div>
         <div class="mt-3 grid gap-2 text-xs">
           <label class="text-gray-500">택배사
             <input v-model="shipCompany" type="text" maxlength="50" placeholder="예: CJ대한통운" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
@@ -444,9 +490,13 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
           <label class="text-gray-500">발송일시
             <input v-model="shipInvoiceTime" type="datetime-local" class="mt-1 h-8 w-full rounded-md border border-gray-300 px-2">
           </label>
-          <p class="text-[11px] text-gray-400">
-            알림 메일은 발송되지 않습니다 — 배송 안내가 필요하면 통합 주문내역에서 처리해 주세요.
-          </p>
+          <label class="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] leading-5 text-blue-800" :class="shipTarget.customerEmail === '' ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'">
+            <input v-model="shipSendMail" type="checkbox" class="mt-0.5 size-4" :disabled="shipTarget.customerEmail === ''">
+            <span>
+              <b>배송 안내 이메일 발송</b>
+              <span class="block">기존 영카트 주문 메일 양식으로 {{ shipTarget.customerEmail || '주문 이메일 없음' }}에 보냅니다.</span>
+            </span>
+          </label>
         </div>
         <div class="mt-4 flex justify-end gap-2">
           <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-xs font-bold hover:bg-gray-50" @click="shipTarget = null">
@@ -458,7 +508,7 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
             :disabled="shipMut.isPending.value"
             @click="submitShip"
           >
-            배송 처리
+            {{ shipSendMail ? '배송 처리 · 메일 발송' : '배송 처리' }}
           </button>
         </div>
         <p v-if="shipError !== ''" class="mt-2 text-xs font-semibold text-red-600">{{ shipError }}</p>

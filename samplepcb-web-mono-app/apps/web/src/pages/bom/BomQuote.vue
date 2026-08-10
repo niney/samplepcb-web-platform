@@ -563,8 +563,33 @@ const hasPassiveDefaultsOpportunity = computed(() => (
 
 const itemsTotal = computed(() => quoteStats.value.itemsTotal);
 const finalTotal = computed(() => itemsTotal.value + (detail.value?.shippingFee ?? 0) + (detail.value?.managementFee ?? 0));
-const averageSetUnitPrice = computed(() =>
-  Math.round(itemsTotal.value / Math.max(1, setQty.value + spareQty.value)),
+const confirmedQuoteVisible = computed(() => (
+  detail.value !== null
+  && (detail.value.status === 'answered' || detail.value.status === 'closed')
+  && detail.value.confirmedTotal !== null
+));
+const displayedShippingFee = computed(() => (
+  confirmedQuoteVisible.value
+    ? (detail.value?.confirmedShippingFee ?? detail.value?.shippingFee ?? 0)
+    : (detail.value?.shippingFee ?? 0)
+));
+const displayedManagementFee = computed(() => (
+  confirmedQuoteVisible.value
+    ? (detail.value?.confirmedManagementFee ?? detail.value?.managementFee ?? 0)
+    : (detail.value?.managementFee ?? 0)
+));
+const displayedFinalTotal = computed(() => (
+  confirmedQuoteVisible.value
+    ? (detail.value?.confirmedTotal ?? finalTotal.value)
+    : finalTotal.value
+));
+const displayedItemsTotal = computed(() => (
+  confirmedQuoteVisible.value
+    ? Math.max(0, displayedFinalTotal.value - displayedShippingFee.value - displayedManagementFee.value)
+    : itemsTotal.value
+));
+const displayedAverageSetUnitPrice = computed(() =>
+  Math.round(displayedItemsTotal.value / Math.max(1, setQty.value + spareQty.value)),
 );
 
 // ── 조용한 자동 보강 상태 — 서버 영속 enrichStatus 가 단일 진실 ─────────────────
@@ -2470,6 +2495,9 @@ function fmtAmount(v: number | null): string {
               확정 견적: <b class="tabular-nums">{{ fmtWon(detail.confirmedTotal) }}</b>
               <span v-if="detail.confirmedShippingFee !== null" class="mt-1 block text-[10px] text-emerald-700">(운송료 {{ fmtWon(detail.confirmedShippingFee) }} · 관리비 {{ fmtWon(detail.confirmedManagementFee) }})</span>
             </p>
+            <p v-if="detail.confirmedTotal !== null && detail.uncostedCount > 0" class="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] font-semibold leading-[16px] text-amber-900">
+              금액 미산정 품목 {{ detail.uncostedCount }}건은 확정 견적과 주문 금액에 포함되지 않습니다.
+            </p>
             <!-- 견적서(§6.8) — 확정 회신을 서식 문서로 열람·인쇄(브라우저에서 PDF 저장 가능) -->
             <button
               v-if="canViewEstimate"
@@ -2662,17 +2690,17 @@ function fmtAmount(v: number | null): string {
                 </div>
               </div>
               <div class="flex h-[19px] items-center justify-between pt-px">
-                <span class="font-noto text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-bom-panel-label">예상 납기</span>
-                <span class="flex items-center gap-[6px] text-[11px] font-semibold text-bom-delivery"><span class="size-[6px] rounded-full bg-bom-delivery" />확정 시 안내</span>
+                <span class="font-noto text-[12px] font-normal leading-[14px] tracking-[-0.48px] text-bom-panel-label">{{ confirmedQuoteVisible ? '납기' : '예상 납기' }}</span>
+                <span class="flex items-center gap-[6px] text-[11px] font-semibold text-bom-delivery"><span class="size-[6px] rounded-full bg-bom-delivery" />{{ confirmedQuoteVisible ? '담당자 확인 필요' : '확정 시 안내' }}</span>
               </div>
             </div>
           </section>
 
-          <!-- 예상 견적 (93:23573) -->
+          <!-- 예상/확정 견적 (93:23573) -->
           <section class="mt-[18px]" :aria-busy="pricingPending">
             <h2 class="flex h-[16px] items-center gap-[6px] font-noto text-[12px] font-bold leading-[14px] text-bom-panel-heading">
               <img :src="icPanelQuote" alt="" class="bom-panel-icon size-[16px] shrink-0">
-              예상 견적
+              {{ confirmedQuoteVisible ? '확정 견적' : '예상 견적' }}
               <span v-if="showResultSheetTabs" class="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">전체 견적</span>
             </h2>
             <div v-if="pricingPending" class="mt-[10px] rounded-[8px] border border-line-brand bg-surface-brand-soft px-3 py-4 text-center" aria-live="polite">
@@ -2682,16 +2710,20 @@ function fmtAmount(v: number | null): string {
             </div>
             <div v-else class="mt-[9px]">
               <div class="h-[129px] space-y-[13px] rounded-[8px] border border-bom-panel-card-border bg-bom-panel-card px-[11px] pb-[13px] pt-[15px] text-[12px] leading-[14px] [&>:last-child]:-translate-y-px">
-                <div class="flex items-baseline justify-between" title="부품 합계를 세트 수량과 예비 수량의 합으로 나눈 평균 단가입니다."><span class="font-noto tracking-[-0.48px] text-bom-panel-label">단가</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(averageSetUnitPrice) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">합계</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(itemsTotal) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">운송료</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(detail.shippingFee) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
-                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">관리비</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(detail.managementFee) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
+                <div class="flex items-baseline justify-between" title="부품 합계를 세트 수량과 예비 수량의 합으로 나눈 평균 단가입니다."><span class="font-noto tracking-[-0.48px] text-bom-panel-label">단가</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(displayedAverageSetUnitPrice) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">부품 합계</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(displayedItemsTotal) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">운송료</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(displayedShippingFee) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
+                <div class="flex items-baseline justify-between"><span class="font-noto tracking-[-0.48px] text-bom-panel-label">관리비</span><span class="text-[13px] font-bold tabular-nums text-bom-panel-value">{{ fmtAmount(displayedManagementFee) }} <small class="text-[10px] font-normal text-bom-panel-unit">원</small></span></div>
               </div>
               <div class="relative mt-[12px] h-[74px] rounded-[8px] border border-bom-panel-total-border bg-bom-panel-total px-[11px] py-[11px]">
                 <span class="font-noto text-[12px] font-medium leading-[14px] text-bom-panel-heading">최종합계 <span class="text-[10px] font-normal text-bom-panel-vat">(VAT 별도)</span></span>
-                <span class="absolute bottom-[12px] right-[11px] text-[19px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtAmount(finalTotal) }}<small class="ml-[3px] text-[12px] font-normal">원</small></span>
+                <span class="absolute bottom-[12px] right-[11px] text-[19px] font-bold leading-[22px] tabular-nums text-brand">{{ fmtAmount(displayedFinalTotal) }}<small class="ml-[3px] text-[12px] font-normal">원</small></span>
               </div>
-              <ul class="mt-[11px] list-disc pl-[14px] text-[11px] leading-[16px] text-bom-estimate-notice">
+              <ul v-if="confirmedQuoteVisible" class="mt-[11px] list-disc pl-[14px] text-[11px] leading-[16px] text-bom-estimate-notice">
+                <li>담당자가 확정한 공급가액입니다.</li>
+                <li v-if="detail.uncostedCount > 0" class="font-semibold text-amber-700">미산정 품목 {{ detail.uncostedCount }}건은 금액에 포함되지 않습니다.</li>
+              </ul>
+              <ul v-else class="mt-[11px] list-disc pl-[14px] text-[11px] leading-[16px] text-bom-estimate-notice">
                 <li>AI로 산출한 가견적입니다.</li>
                 <li>정확한 가격은 담당자 확정 시 안내드립니다.</li>
               </ul>

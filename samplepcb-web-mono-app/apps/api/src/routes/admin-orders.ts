@@ -716,6 +716,7 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
   // 레거시 orderformcartupdate.php 정상 상태 분기 이식. 활성 카트행 ct_status=target + od_status
   // =target(역방향 포함). 스톡 앵커: 배송/완료 진입 차감·주문 역방향 복원. 코어 정상 분기에 결제수단
   // 가드·운송장 요구 없음(임의 변경 허용). delivery 는 target='배송' 제공 시만 운송장 반영. 미존재 404.
+  // SmartBOM·PCB 고객 배송 화면은 sendMail=true 로 기존 영카트 배송 메일 브리지를 선택 호출한다.
   // 포인트 딸린 활성 행(ct_point>0)은 409 HAS_POINT(PCB 미발생 안전판). 부분 갱신 응답 { odId }(FE refetch).
   fastify.patch(
     '/orders/:odId/force-status',
@@ -731,7 +732,7 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       const order = await getOrderRow(odId);
       if (order === null) return reply.notFound('주문이 없습니다');
 
-      const { target, delivery } = request.body;
+      const { target, delivery, sendMail } = request.body;
       const outcome = await setOrderForceStatus(
         odId,
         target,
@@ -752,6 +753,22 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message:
             '취소된 주문입니다 — 진행할 상품이 없습니다. 되살리려면 상태를 [주문]으로 되돌린 뒤 다시 진행하세요',
         });
+      }
+      if (target === '배송' && sendMail) {
+        const token = fastify.jwt.sign({ svc: 'sp-node' }, { expiresIn: '60s' });
+        const deliveryResult = await notifyOrderEventLogged(
+          request.log,
+          { odId, event: '배송', mail: true, sms: false },
+          token,
+          request.user.mbId,
+        );
+        return {
+          result: true as const,
+          data: {
+            odId,
+            notify: { mail: deliveryResult.mail ?? 'failed' },
+          },
+        };
       }
       return { result: true as const, data: { odId } };
     },

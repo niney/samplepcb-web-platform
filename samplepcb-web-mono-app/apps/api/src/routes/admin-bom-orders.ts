@@ -17,6 +17,12 @@ import { getCartOrderLinks, getOrderHeadersLite } from '../lib/g5-db';
 // 규모가 작아(월 수십 건) 전체 파생 후 메모리 페이지네이션 — 커지면 커서 재설계.
 // 입금확인 등 전이 액션은 기존 PATCH /api/admin/orders/status 재사용(조작 경로 단일).
 
+const firstNonEmpty = (...values: string[]): string =>
+  values.map((value) => value.trim()).find((value) => value !== '') ?? '';
+
+const joinNonEmpty = (values: string[], separator: string): string =>
+  values.map((value) => value.trim()).filter((value) => value !== '').join(separator);
+
 export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.addHook('preHandler', fastify.requireAdmin);
 
@@ -71,6 +77,16 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           odId,
           orderedAt: header.orderedAt,
           mbId: header.mbId,
+          customerName: header.customerName,
+          customerEmail: header.customerEmail,
+          customerPhone: firstNonEmpty(header.customerHp, header.customerTel),
+          recipientName: header.recipientName,
+          recipientPhone: firstNonEmpty(header.recipientHp, header.recipientTel),
+          recipientZip: joinNonEmpty([header.recipientZip1, header.recipientZip2], '-'),
+          recipientAddress: joinNonEmpty(
+            [header.recipientAddr1, header.recipientAddr2, header.recipientAddr3],
+            ' ',
+          ),
           odStatus: header.odStatus,
           isPaid: header.isPaid,
           settleCase: header.settleCase,

@@ -402,7 +402,15 @@ export type AdminOrderRefundBodyType = z.infer<typeof AdminOrderRefundBody>;
 // 부분 편집 공통 응답 — 에코 대신 { odId }(FE refetch). 회원 ⑨-b 관례 미러.
 export const AdminOrderEditResponse = z.object({
   result: z.literal(true),
-  data: z.object({ odId: z.string() }),
+  data: z.object({
+    odId: z.string(),
+    /** force-status 배송 처리에서 요청한 주문 알림 결과. 일반 편집 응답에는 없다. */
+    notify: z
+      .object({
+        mail: AdminOrderNotifyStatus.optional(),
+      })
+      .optional(),
+  }),
 });
 export type AdminOrderEditResponseType = z.infer<typeof AdminOrderEditResponse>;
 
@@ -472,5 +480,7 @@ export const AdminOrderForceStatusRequest = z.object({
       invoiceTime: z.string().min(1),
     })
     .optional(),
+  /** 배송 진입 시 영카트 주문 메일 템플릿으로 안내한다. 기존 호출은 기본 미발송. */
+  sendMail: z.boolean().optional(),
 });
 export type AdminOrderForceStatusRequestType = z.infer<typeof AdminOrderForceStatusRequest>;

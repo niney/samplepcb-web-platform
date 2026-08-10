@@ -20,6 +20,15 @@ export const AdminBomOrderListItem = z.object({
   odId: z.string(),
   orderedAt: z.string().nullable(),
   mbId: z.string(),
+  /** 주문 시점 주문자 정보 — 배송 안내 메일 수신처를 관리자에게 명시한다. */
+  customerName: z.string(),
+  customerEmail: z.string(),
+  customerPhone: z.string(),
+  /** 주문 시점 받는 분·배송지 스냅샷(g5_shop_order od_b_*). */
+  recipientName: z.string(),
+  recipientPhone: z.string(),
+  recipientZip: z.string(),
+  recipientAddress: z.string(),
   odStatus: z.string(), // 영카트 od_status 원문(주문|입금|준비|…)
   isPaid: z.boolean(),
   settleCase: z.string(),

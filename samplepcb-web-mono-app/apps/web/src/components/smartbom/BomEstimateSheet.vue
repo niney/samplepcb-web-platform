@@ -188,6 +188,9 @@ function markImageFailed(imageUrl: string | null): void {
     </table>
 
     <div class="footer-notes">
+      <p v-if="props.data.uncostedCount > 0" class="uncosted-note">
+        중요: 금액 미산정 품목 {{ props.data.uncostedCount }}건은 이 견적 금액과 주문 금액에 포함되지 않습니다.
+      </p>
       <p v-if="props.data.answerNote !== null && props.data.answerNote !== ''">
         회신 메모: {{ props.data.answerNote }}
       </p>
@@ -226,6 +229,10 @@ function markImageFailed(imageUrl: string | null): void {
   color: #b45309;
   font-weight: 700;
   font-size: 10pt;
+}
+.uncosted-note {
+  color: #92400e;
+  font-weight: 700;
 }
 .meta {
   display: flex;

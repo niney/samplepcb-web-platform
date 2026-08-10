@@ -86,15 +86,15 @@ export type BomOrderDelivery = NonNullable<AdminOrderForceStatusRequestType['del
 
 // [배송 처리](D21-3) — 부품 주문은 제작 7단계(가격확인~생산완료)를 밟지 않으므로 선형 전이
 // 대신 임의 상태 변경(force-status, 코어 정상 분기 미러)으로 배송 진입: 운송장 반영 + 재고
-// 앵커 포함. 코어 관례상 이 경로는 알림 미발송(알림은 선형 전이 전용 — 통합 주문내역).
+// 앵커 포함. sendMail=true 이면 같은 영카트 주문 메일 브리지를 호출해 배송 안내도 함께 보낸다.
 export function useShipBomOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ odId, delivery }: { odId: string; delivery: BomOrderDelivery }) =>
+    mutationFn: ({ odId, delivery, sendMail }: { odId: string; delivery: BomOrderDelivery; sendMail: boolean }) =>
       apiSend(
         'PATCH',
         `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/force-status`,
-        { target: '배송', delivery },
+        { target: '배송', delivery, sendMail },
         AdminOrderEditResponse,
       ),
     onSuccess: () => {

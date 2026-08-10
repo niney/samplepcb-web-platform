@@ -1069,6 +1069,8 @@ export const BomQuotePrint = z.object({
   /** 발신처 — 영카트 기본환경설정 재사용(주문서 인쇄와 동일 스키마). */
   seller: AdminEstimateCompany,
   items: z.array(BomQuotePrintItem),
+  /** included 이지만 단가·금액이 없는 품목 수 — 확정 금액 제외 사실을 문서에도 명시한다. */
+  uncostedCount: z.number().int().nonnegative(),
   /** 부품 합계(included, 서버 스냅샷 — 고객 화면과 동일 값). */
   itemsTotal: z.number(),
   /** 예상 수수료·합계(확정 전 가안 표시용). */
