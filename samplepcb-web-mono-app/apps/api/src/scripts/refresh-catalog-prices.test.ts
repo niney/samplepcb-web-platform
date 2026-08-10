@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   YEONHO_PRICE_SNAPSHOT_DEFINITION,
@@ -214,7 +215,7 @@ describe('Walsin 전체 가격 스냅샷 옵션', () => {
     });
     expect(options.sourceFile).toContain('yeonho-connectors-2026-07-17');
     expect(options.stateFile).toContain(
-      'yeonho-connectors-2026-07-17\\prepared-prices\\work-state.json',
+      join('yeonho-connectors-2026-07-17', 'prepared-prices', 'work-state.json'),
     );
     expect(options.snapshotFile).toContain(
       'yeonho-price-snapshot-v1.json.gz',

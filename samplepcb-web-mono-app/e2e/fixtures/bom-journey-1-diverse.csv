@@ -1,0 +1,13 @@
+Type,Description,Value,Footprint,Quantity,Population,Reference,Manufacturer,Manufacturer Part Number
+MCU,32-bit Cortex-M0 microcontroller,,TSSOP-20,1,Fitted,U1,STMicroelectronics,STM32F030F4P6
+Resistor,Thick film resistor 1%,10k,R_0603_1608Metric,2,Fitted,"R1, R2",Yageo,RC0603FR-0710KL
+Capacitor,Ceramic capacitor X7R 25V 10%,100nF,C_0603_1608Metric,2,Fitted,"C1, C2",Samsung Electro-Mechanics,CL10B104KA8NNNC
+Diode,High speed switching diode,,SOD-123,1,Fitted,D1,Nexperia,1N4148W
+Inductor,Shielded power inductor 20%,10uH,L_1210_3225Metric,1,Fitted,L1,Murata,LQH32PN100MN0L
+LED,Green indicator LED,Green,LED_0603_1608Metric,1,Fitted,LED1,Lite-On,LTST-C190KGKT
+Connector,2 pin wire-to-board connector 2.50mm pitch,,JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical,1,Fitted,J1,JST,B2B-XH-A(LF)(SN)
+MOSFET,N-channel 60V transistor,,SOT-23,1,Fitted,Q1,Nexperia,2N7002
+Resistor,Parametric fallback without MPN 1%,4.7k,R_0805_2012Metric,1,Fitted,R3,,
+Capacitor,Electrolytic capacitor 50V,100uF,CP_Elec_8x10.2mm,1,Fitted,C3,Panasonic,EEU-FR1H101
+Ferrite Bead,Ferrite bead 600 Ohm at 100MHz,600R,FB_0603_1608Metric,0,DNP,FB1,Murata,BLM18AG601SN1D
+Testpoint,PCB test point,TEST POINT,TestPoint_Loop_D2.00mm_Drill1.00mm,1,Fitted,TP1,,

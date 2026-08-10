@@ -22,13 +22,14 @@ pnpm -F e2e test         # 게이트 없이 실행 → 전부 skip (turbo test/C
 옵트인 게이트는 `PORTAL_E2E=1`(apps/api 의 `PARTS_IT=1` 관례 미러) — 모든 스펙은
 `describe.skipIf(!RUN)` 로 감싼다.
 
-| env | 기본 | 용도 |
-|---|---|---|
-| `PORTAL_E2E` | (없음) | `1` 일 때만 실행 |
-| `E2E_BASE_URL` | `https://local-web.samplepcb.co.kr` | SPA 오리진(nginx 통합 도메인 — 실환경 동형, /bbs 포함 전 경로). nginx 없이는 `http://127.0.0.1:5173`(vite 가 /api·/spcb 프록시, /bbs 는 불가) |
-| `E2E_API_URL` | `http://127.0.0.1:3333` | API 레벨 호출 대상 |
-| `E2E_MAILPIT_URL` | `http://127.0.0.1:8025` | Mailpit REST |
-| `E2E_HEADED` | (없음) | `1` 이면 창 표시 |
+| env                  | 기본                                | 용도                                                                                                                                          |
+| -------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORTAL_E2E`         | (없음)                              | `1` 일 때만 실행                                                                                                                              |
+| `E2E_BASE_URL`       | `https://local-web.samplepcb.co.kr` | SPA 오리진(nginx 통합 도메인 — 실환경 동형, /bbs 포함 전 경로). nginx 없이는 `http://127.0.0.1:5173`(vite 가 /api·/spcb 프록시, /bbs 는 불가) |
+| `E2E_API_URL`        | `http://127.0.0.1:3333`             | API 레벨 호출 대상                                                                                                                            |
+| `E2E_BOM_ENGINE_URL` | `http://127.0.0.1:8400`             | Smart BOM 추출·공급사 검색 엔진(BOM 여정 사전 점검)                                                                                           |
+| `E2E_MAILPIT_URL`    | `http://127.0.0.1:8025`             | Mailpit REST                                                                                                                                  |
+| `E2E_HEADED`         | (없음)                              | `1` 이면 창 표시                                                                                                                              |
 
 `JWT_SECRET`·`DATABASE_URL` 은 `apps/api/.env` 에서 자동으로 읽는다(별도 설정 불요).
 https 인증서는 mkcert — 브라우저는 시스템 신뢰로 통과하고, Node 측 fetch 는 e2e
@@ -46,7 +47,7 @@ helpers/
   browser.ts   newSession(identity, opts) — /spcb/api/me 스텁 로그인·localStorage 프리셋·snap
   mailpit.ts   목록/검색/본문/선택 삭제 (전체 삭제는 의도적으로 미제공)
   php-login.ts newPhpSession(creds) — 그누보드 실로그인(거버·주문서 등 PHP 구간)
-  journey.ts   여정 공용부 — createJourneyReport(관찰 규약)·submitGerberRfq·placeOrderFromQuotes
+  journey.ts   여정 공용부 — 리포트·거버 제출·PCB/BOM 영카트 주문
 specs/
   harness.e2e.test.ts        하네스 자가 검증 — 새 시나리오의 복사 시작점
   pcb-ship-board.e2e.test.ts PCB 보내기 보드 §9 스토리(세션 스모크 28케이스 편입판)
@@ -89,13 +90,15 @@ specs/
   md-cn-relay.e2e.test.ts              MD 5편 — CN MD(mdtester2상사: 비KR domestic + CN→KR 국제)
   pcb-guards.e2e.test.ts               확정 409 가드 박제(PO_ISSUED·EQ_LOCKED·RECEIVE_LOCKED 등 10종)
   rework-probe.e2e.test.ts             재작업 가드 회귀 — 잠김→정리→열림 순환(W2~W9, 스크립트 probe)
+  journey-bom-domestic.e2e.test.ts     BOM 여정 1호 — 혼합 BOM→RFQ→주문→국내 배송 완료
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
 ## 완주 여정 (탐색 주행)
 
-옵트인 2중 게이트(`PORTAL_E2E=1` + `JOURNEY=1`)로만 돈다. 사전 조건이 많다 —
-nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 자격.
+옵트인 2중 게이트(`PORTAL_E2E=1` + `JOURNEY=1`)로만 돈다. 공통 사전 조건은
+nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1~4호는
+**거버(8040)**, BOM 1호는 **sp-engine(8400)**이 추가로 필요하다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -104,6 +107,8 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
+| `pnpm -F e2e journey:bom` | BOM 1호만 — 다양한 BOM·국내 협력사 완주 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -288,6 +293,11 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
 해제하므로 이 편들에 쓰면 안 된다 — 정리는 `cleanup-probe.mts`(e2e-customer 스펙 축 훑기·상설
 무접촉)로만.
 
+BOM 1호는 `fixtures/bom-journey-1-diverse.csv`를 실제 고객 세션으로 업로드한다. 엔진이
+활성화한 행을 런타임에 읽어 RFQ 회신·선정·발주·QR 포장까지 같은 품목 집합으로 연결하므로,
+픽스처에 예시 행이 늘어나도 시나리오의 품목 개수 상수를 수정할 필요가 없다. 관리자 회신은
+기본 고객 이메일 노출과 일회성 변경 주소 발송·재발송을 함께 검증한다.
+
 **생성물은 자동 정리하지 않는다.** 완주 후 리포트(`output/journey/findings*.md`)의 생성물
 대장을 보고 손으로 지운다 — 순서는 ① 주문을 `force-status '주문'` 으로 내려 **재고 복원**
 ② g5 cart+order ③ sp_* 역순(file→shipment_po→shipment→eq_review→po→rfq→file→spec).
@@ -298,7 +308,8 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
   브리지로 세션→JWT 교환을 하므로, Playwright 라우트 인터셉트로 로컬 서명 JWT 를
   반환하면 **비밀번호·PHP 세션 없이** 임의 계정(파트너/관리자)으로 실 Vue + 실
   Node API 풀스택이 돈다. 그누보드 실로그인 왕복 자체를 검증해야 할 때만 실계정
-  자격증명이 필요하다(현재 스펙엔 없음 — 익명 가드의 URL 왕복 검증까지는 무자격 가능).
+  자격증명이 필요하다(완주 여정은 `e2e/.env.e2e`의 로컬 테스트 회원을 사용하고,
+  익명 가드의 URL 왕복 검증까지는 무자격으로 가능).
 - **playwright-core + 시스템 Chrome/Edge channel** — 브라우저 다운로드 없음.
 - **파일 간 직렬 실행**(`fileParallelism: false`) — 공유 DB(sp_* = 그누보드 동거)에서
   시드·정리 교차를 막는다. 파일 안 test 도 정의 순서대로 순차.
@@ -322,9 +333,6 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
-
-
-
 
 
 

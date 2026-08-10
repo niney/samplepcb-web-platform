@@ -65,6 +65,36 @@ export function createJourneyReport(fileName: string, title: string) {
     await shot(s, name);
   };
 
+  /**
+   * 회귀 검증용 화면 이동 — 탐색용 view 와 달리 이동·필수 문구·스크린샷 중 하나라도
+   * 실패하면 테스트를 세운다. API 전이 성공만으로 깨진 화면이 통과하지 못하게 한다.
+   */
+  const assertView = async (
+    s: { page: any },
+    path: string,
+    name: string,
+    requiredTexts: string[] = [],
+  ): Promise<void> => {
+    const response = await s.page.goto(`${BASE_URL}${path}`, { waitUntil: 'domcontentloaded' });
+    if (response !== null && response.status() >= 400) {
+      throw new Error(`${path} 화면 이동 실패 — HTTP ${String(response.status())}`);
+    }
+    await s.page.locator('body').waitFor({ state: 'visible', timeout: 30_000 });
+    for (const requiredText of requiredTexts) {
+      try {
+        await s.page.waitForFunction(
+          (text: string) => document.body.innerText.includes(text),
+          requiredText,
+          { timeout: 30_000 },
+        );
+      } catch {
+        await shot(s, `${name}-missing-text`);
+        throw new Error(`${path} 화면 필수 문구 없음 — ${requiredText}`);
+      }
+    }
+    await snap(s.page, `journey/${name}`);
+  };
+
   // 리포트는 pageErrors 만 읽는다 — 고객(PhpLoginResult)·관리자/파트너(E2eSession)를 함께 받는다.
   const write = (sessions: Record<string, { pageErrors: string[] } | undefined>): string => {
     mkdirSync(join(outputDir, 'journey'), { recursive: true });
@@ -82,7 +112,8 @@ export function createJourneyReport(fileName: string, title: string) {
       '',
       '## pageerror',
       ...Object.entries(sessions).map(
-        ([label, s]) => `- ${label}: ${s?.pageErrors.length ?? '?'}건 ${s?.pageErrors.join(' | ') ?? ''}`,
+        ([label, s]) =>
+          `- ${label}: ${s?.pageErrors.length ?? '?'}건 ${s?.pageErrors.join(' | ') ?? ''}`,
       ),
     ].join('\n');
     writeFileSync(join(outputDir, 'journey', `${fileName}.md`), report, 'utf8');
@@ -90,7 +121,7 @@ export function createJourneyReport(fileName: string, title: string) {
     return report;
   };
 
-  return { findings, ledger, httpErrors, F, watchHttp, shot, view, write };
+  return { findings, ledger, httpErrors, F, watchHttp, shot, view, assertView, write };
 }
 
 export type JourneyReport = ReturnType<typeof createJourneyReport>;
@@ -112,7 +143,8 @@ export async function submitGerberRfq(
   await input.setInputFiles(opts.fixtureZip);
   await page.waitForFunction(
     () =>
-      /공급가격/.test(document.body.innerText) && /\d{1,3}(,\d{3})+원/.test(document.body.innerText),
+      /공급가격/.test(document.body.innerText) &&
+      /\d{1,3}(,\d{3})+원/.test(document.body.innerText),
     undefined,
     { timeout: 60_000 },
   );
@@ -216,6 +248,7 @@ export async function placeOrderFromQuotes(
 ): Promise<{ odId: string; status: string }> {
   const { page } = customer;
   const { step } = opts;
+  const previousOdId = (await findLatestOrder(customer.mbId))?.odId ?? null;
   await page.goto(`${BASE_URL}/shop/quotes`, { waitUntil: 'domcontentloaded' });
   const label = page.locator(`label[for="sp-quotes-check-${String(opts.specId)}"]`);
   await label
@@ -227,7 +260,11 @@ export async function placeOrderFromQuotes(
     if ((await label.count()) > 0) {
       await label.click();
     } else {
-      rp.F(step, 'obs', `견적 체크 라벨(#${String(opts.specId)}) 미발견 — 첫 항목 강제 체크로 폴백`);
+      rp.F(
+        step,
+        'obs',
+        `견적 체크 라벨(#${String(opts.specId)}) 미발견 — 첫 항목 강제 체크로 폴백`,
+      );
       await page.locator('input.sp-quotes__check').first().check({ force: true });
     }
     for (const extra of opts.alsoSpecIds ?? []) {
@@ -241,11 +278,75 @@ export async function placeOrderFromQuotes(
     await page.getByText('바로 주문', { exact: false }).first().click();
     await page.waitForURL('**/shop/orderform*', { timeout: 30_000 });
   } catch (e) {
-    rp.F(step, 'blocker', `견적관리→주문서 진입 실패: ${e instanceof Error ? e.message : String(e)}`);
+    rp.F(
+      step,
+      'blocker',
+      `견적관리→주문서 진입 실패: ${e instanceof Error ? e.message : String(e)}`,
+    );
     await rp.shot(customer, `${opts.prefix}-quotes-order-fail`);
     throw e;
   }
   await rp.shot(customer, `${opts.prefix}-orderform-top`);
+
+  return completeBankTransferOrder(customer, rp, {
+    step,
+    prefix: opts.prefix,
+    buyerName: opts.buyerName,
+    previousOdId,
+  });
+}
+
+/**
+ * 고객: Smart BOM 상세의 확정 견적에서 [주문하기] → 영카트 주문서 진입.
+ * 이후 폼 조작은 PCB 여정과 같은 함수로 합쳐 두 트랙이 실제 결제 기본값을 함께 검증한다.
+ */
+export async function placeOrderFromBomQuote(
+  customer: JourneySession,
+  rp: JourneyReport,
+  opts: { quoteId: string; step: string; prefix: string; buyerName: string },
+): Promise<{ odId: string; status: string }> {
+  const { page } = customer;
+  const previousOdId = (await findLatestOrder(customer.mbId))?.odId ?? null;
+  await page.goto(`${BASE_URL}/app/bom/${opts.quoteId}`, { waitUntil: 'domcontentloaded' });
+  const orderButton = page.getByRole('button', { name: /^주문하기/ }).first();
+  await orderButton.waitFor({ state: 'visible', timeout: 30_000 });
+  await rp.shot(customer, `${opts.prefix}-bom-answered`);
+
+  try {
+    await orderButton.click();
+    await page.waitForURL('**/shop/orderform*', { timeout: 30_000 });
+  } catch (e) {
+    rp.F(
+      opts.step,
+      'blocker',
+      `BOM 상세→주문서 진입 실패: ${e instanceof Error ? e.message : String(e)}`,
+    );
+    await rp.shot(customer, `${opts.prefix}-bom-order-fail`);
+    throw e;
+  }
+  await rp.shot(customer, `${opts.prefix}-orderform-top`);
+
+  return completeBankTransferOrder(customer, rp, {
+    step: opts.step,
+    prefix: opts.prefix,
+    buyerName: opts.buyerName,
+    previousOdId,
+  });
+}
+
+/** 주문서 진입 이후의 공통 무통장 주문 조작. */
+async function completeBankTransferOrder(
+  customer: JourneySession,
+  rp: JourneyReport,
+  opts: {
+    step: string;
+    prefix: string;
+    buyerName: string;
+    previousOdId: string | null;
+  },
+): Promise<{ odId: string; status: string }> {
+  const { page } = customer;
+  const { step } = opts;
 
   const fill = async (sel: string, v: string): Promise<void> => {
     const loc = page.locator(sel).first();
@@ -275,7 +376,11 @@ export async function placeOrderFromQuotes(
   const receiverName = page.locator('input[name="od_b_name"]');
   if ((await receiverName.inputValue().catch(() => '')) === '') {
     rp.F(step, 'bug', '받는분 기본값 미적용 — [주문자와 동일]을 수동 클릭해 진행');
-    await page.getByText('주문자와 동일', { exact: true }).first().click().catch(() => undefined);
+    await page
+      .getByText('주문자와 동일', { exact: true })
+      .first()
+      .click()
+      .catch(() => undefined);
     await fill('input[name="od_b_name"]', opts.buyerName);
     await fill('input[name="od_b_hp"]', '010-0000-0000');
   }
@@ -283,15 +388,24 @@ export async function placeOrderFromQuotes(
   const bankRadio = page.locator('input[name="od_settle_case"][value*="무통장"]');
   if ((await bankRadio.count()) > 0 && !(await bankRadio.first().isChecked())) {
     rp.F(step, 'bug', '결제수단 기본값 미적용 — 무통장입금을 수동 선택해 진행');
-    await bankRadio.first().check({ force: true }).catch(() => undefined);
+    await bankRadio
+      .first()
+      .check({ force: true })
+      .catch(() => undefined);
   }
 
   const bankSelect = page.locator('select[name="od_bank_account"]');
   if ((await bankSelect.count()) > 0) {
-    const picked = await bankSelect.first().inputValue().catch(() => '');
+    const picked = await bankSelect
+      .first()
+      .inputValue()
+      .catch(() => '');
     if (picked === '') {
       rp.F(step, 'bug', '입금 계좌 기본값 미적용 — 첫 계좌를 수동 선택해 진행');
-      await bankSelect.first().selectOption({ index: 0 }).catch(() => undefined);
+      await bankSelect
+        .first()
+        .selectOption({ index: 0 })
+        .catch(() => undefined);
     }
   }
   // 입금자명은 코어 click 핸들러가 주문자명으로 채운다 — 여정 표식이 필요해 덮어쓴다.
@@ -305,14 +419,20 @@ export async function placeOrderFromQuotes(
   });
   await rp.shot(customer, `${opts.prefix}-orderform-filled`);
 
-  await page.getByText(/주문하기|결제하기/).last().click();
+  await page
+    .getByText(/주문하기|결제하기/)
+    .last()
+    .click();
   await page.waitForLoadState('domcontentloaded');
   let order = null as Awaited<ReturnType<typeof findLatestOrder>>;
   for (let i = 0; i < 10 && order === null; i += 1) {
     await page.waitForTimeout(1000);
-    order = await findLatestOrder(customer.mbId);
+    const latest = await findLatestOrder(customer.mbId);
+    if (latest !== null && latest.odId !== opts.previousOdId) order = latest;
   }
   await rp.shot(customer, `${opts.prefix}-order-done`);
-  if (order === null) throw new Error('주문이 생성되지 않았습니다(주문서 제출이 막힌 상태)');
+  if (order === null) {
+    throw new Error('새 주문이 생성되지 않았습니다(주문서 제출이 막혔거나 기존 주문만 조회됨)');
+  }
   return order;
 }

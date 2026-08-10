@@ -28,6 +28,8 @@ export const GERBER_URL = process.env.E2E_GERBER_URL ?? 'https://local-gerber.sa
 export const BASE_URL = process.env.E2E_BASE_URL ?? 'https://local-web.samplepcb.co.kr';
 /** Fastify API 직결(브라우저를 안 끼는 API 레벨 검증용) */
 export const API_URL = process.env.E2E_API_URL ?? 'http://127.0.0.1:3333';
+/** Smart BOM 추출·공급사 검색 엔진 직결(업로드 여정 사전 점검용). */
+export const BOM_ENGINE_URL = process.env.E2E_BOM_ENGINE_URL ?? 'http://127.0.0.1:8400';
 /** Mailpit REST(docs/LOCAL_MAIL_TESTING.md — SMTP 25 캡처, UI/API 8025) */
 export const MAILPIT_URL = process.env.E2E_MAILPIT_URL ?? 'http://127.0.0.1:8025';
 /** 브라우저 창을 띄워 관찰(E2E_HEADED=1) — 기본 headless */

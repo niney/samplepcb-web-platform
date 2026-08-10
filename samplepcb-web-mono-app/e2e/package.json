@@ -16,6 +16,8 @@
     "journey:as": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-as-reorder",
     "journey:as2": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-as-advanced",
     "journey:money": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-remittance",
+    "journey:bom": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-bom",
+    "journey:bom:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run journey-bom",
     "probe": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run rework-probe",
     "md": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-order-relay",
     "md:domestic": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-domestic-relay",
@@ -66,7 +68,6 @@
     "vitest": "^3.0.0"
   }
 }
-
 
 
 

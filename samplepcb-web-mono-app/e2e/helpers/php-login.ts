@@ -26,7 +26,10 @@ export async function newPhpSession(creds: { id: string; pw: string }): Promise<
   await page.locator('input[name="mb_id"]').first().fill(creds.id);
   await page.locator('input[name="mb_password"]').first().fill(creds.pw);
   await Promise.all([
-    page.waitForLoadState('domcontentloaded'),
+    // 현재 로그인 문서는 이미 domcontentloaded 상태이므로 waitForLoadState만 쓰면 즉시
+    // 풀리고 POST/리다이렉트 전에 아래 실패 판정이 실행된다. Enter가 일으키는 실제
+    // 내비게이션 완료를 기다려 로그인 성공/실패를 확정한다.
+    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
     page.locator('input[name="mb_password"]').first().press('Enter'),
   ]);
 
