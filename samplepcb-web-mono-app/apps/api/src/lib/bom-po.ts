@@ -1223,6 +1223,16 @@ export const loadShipmentAdminPending = async (): Promise<{
   return { byQuote, total };
 };
 
+/** 현재 목록 Case의 선적 문서 존재 여부 — 완료 선적도 ⑨ 이후 단계 파생 근거로 보존한다. */
+export const loadQuoteShipmentPresence = async (quoteIds: bigint[]): Promise<Set<string>> => {
+  if (quoteIds.length === 0) return new Set();
+  const links = await prisma.spBomShipmentPo.findMany({
+    where: { po: { quoteId: { in: quoteIds } } },
+    select: { po: { select: { quoteId: true } } },
+  });
+  return new Set(links.map((link) => link.po.quoteId.toString()));
+};
+
 /** 입고 확인된 발주서 수(quoteId별, §6.10 조인 기반) — quote 목록·주문 축 poReceivedCount. */
 export const loadReceivedPoCounts = async (quoteIds: bigint[]): Promise<Map<bigint, number>> => {
   const map = new Map<bigint, number>();

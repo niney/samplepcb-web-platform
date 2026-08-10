@@ -463,6 +463,35 @@ export async function loadOrderDeletedCartIds(ctIds: number[]): Promise<Set<numb
   return new Set(rows.map((r) => Number(r.ct_id)));
 }
 
+export interface CartOrderProgress {
+  odStatus: string;
+  isPaid: boolean;
+}
+
+/** 견적 목록의 주문 진행 단계 파생 — 주문된 cart 행만 주문 헤더에 연결한다. */
+export async function getCartOrderProgress(
+  ctIds: number[],
+): Promise<Map<number, CartOrderProgress>> {
+  const progress = new Map<number, CartOrderProgress>();
+  if (ctIds.length === 0) return progress;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT c.ct_id, o.od_status
+       FROM g5_shop_cart c
+       INNER JOIN g5_shop_order o ON o.od_id = c.od_id
+      WHERE c.ct_id IN (${ctIds.map(() => '?').join(',')})
+        AND c.ct_status <> '쇼핑'`,
+    ctIds,
+  );
+  for (const row of rows) {
+    const odStatus = String(row.od_status ?? '');
+    progress.set(Number(row.ct_id), {
+      odStatus,
+      isPaid: odStatus !== '주문',
+    });
+  }
+  return progress;
+}
+
 // ── 스마트 BOM 주문·결제 목록용 batch 조회 (D19 — read-only, ⑫의 연장) ───────
 // BOM 주문 축 파생: sp_bom_quote.ctId → cart(od_id) → od 헤더. 저장 없음.
 
@@ -506,6 +535,8 @@ export interface OrderHeaderLite {
   isPaid: boolean; // od_status !== '주문'
   settleCase: string;
   cartPrice: number;
+  sendCost: number;
+  sendCost2: number;
   receiptPrice: number;
   misu: number;
   taxMny: number;
@@ -552,7 +583,8 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
     `SELECT od_id, mb_id, od_name, od_email, od_tel, od_hp,
             od_b_name, od_b_tel, od_b_hp, od_b_zip1, od_b_zip2, od_b_addr1, od_b_addr2, od_b_addr3,
-            od_status, od_settle_case, od_cart_price, od_receipt_price, od_misu,
+            od_status, od_settle_case, od_cart_price, od_send_cost, od_send_cost2,
+            od_receipt_price, od_misu,
             od_tax_mny, od_vat_mny, od_free_mny,
             DATE_FORMAT(od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        FROM g5_shop_order WHERE od_id IN (${odIds.map(() => '?').join(',')})`,
@@ -579,6 +611,8 @@ export async function getOrderHeadersLite(odIds: string[]): Promise<Map<string, 
       isPaid: String(row.od_status) !== '주문',
       settleCase: String(row.od_settle_case ?? ''),
       cartPrice: Number(row.od_cart_price ?? 0),
+      sendCost: Number(row.od_send_cost ?? 0),
+      sendCost2: Number(row.od_send_cost2 ?? 0),
       receiptPrice: Number(row.od_receipt_price ?? 0),
       misu: Number(row.od_misu ?? 0),
       taxMny: Number(row.od_tax_mny ?? 0),

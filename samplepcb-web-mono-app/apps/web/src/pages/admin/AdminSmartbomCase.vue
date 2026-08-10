@@ -84,6 +84,9 @@ const detailId = computed(() => {
 
 const detailQuery = useAdminBomQuote(detailId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
+const reviewEditable = computed(() =>
+  detail.value?.status === 'requested' || detail.value?.status === 'reviewing',
+);
 const detailNotFound = computed(() => {
   const reason = detailQuery.error.value;
   return reason instanceof ApiRequestError && reason.status === 404;
@@ -987,6 +990,7 @@ watch(detail, (d) => {
 });
 
 function toggleConfirmedOverride(): void {
+  if (!reviewEditable.value) return;
   confirmedOverride.value = !confirmedOverride.value;
   const d = detail.value;
   if (!confirmedOverride.value || d === null) return;
@@ -1442,10 +1446,7 @@ async function submitQuoteClosing(): Promise<void> {
   try {
     await patch.mutateAsync({
       quoteId: detailId.value,
-      body: {
-        status: 'closed',
-        ...reviewFields(),
-      },
+      body: { status: 'closed' },
     });
     quoteClosingOpen.value = false;
   } catch (error) {
@@ -2228,8 +2229,8 @@ async function downloadOriginal(): Promise<void> {
 
           <!-- 확정가 = 고객 주문 게이트(D16-1). "선택적 커스텀"이 아니라 필수 단계임이
                보이도록, 미등록 상태를 경고 톤으로 상시 표시한다(사용자 피드백 반영) -->
-          <label class="flex cursor-pointer items-start gap-2 text-xs font-bold text-gray-800">
-            <input type="checkbox" class="mt-0.5 size-3.5 shrink-0" :checked="confirmedOverride" @change="toggleConfirmedOverride">
+          <label class="flex items-start gap-2 text-xs font-bold text-gray-800" :class="reviewEditable ? 'cursor-pointer' : 'cursor-not-allowed'">
+            <input type="checkbox" class="mt-0.5 size-3.5 shrink-0" :checked="confirmedOverride" :disabled="!reviewEditable" @change="toggleConfirmedOverride">
             <span class="shrink-0 whitespace-nowrap">확정가 등록</span>
             <span class="font-medium text-amber-700">— 등록 시 고객 주문 가능</span>
           </label>
@@ -2240,14 +2241,14 @@ async function downloadOriginal(): Promise<void> {
           <template v-else>
             <div class="grid grid-cols-2 gap-2">
               <label class="text-xs text-gray-500">확정 운송료
-                <input v-model.number="form.confirmedShippingFee" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
+                <input v-model.number="form.confirmedShippingFee" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
               </label>
               <label class="text-xs text-gray-500">확정 관리비
-                <input v-model.number="form.confirmedManagementFee" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
+                <input v-model.number="form.confirmedManagementFee" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
               </label>
             </div>
             <label class="block text-xs text-gray-500">확정 총액(VAT 별도)
-              <input v-model.number="form.confirmedTotal" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
+              <input v-model.number="form.confirmedTotal" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
             </label>
             <p class="text-[11px] text-gray-400">
               참고: VAT 포함 시 {{ confirmedTotalVat }} — 부가세는 저장하지 않습니다(전 금액 VAT 별도).
@@ -2255,13 +2256,14 @@ async function downloadOriginal(): Promise<void> {
             </p>
           </template>
           <label class="block text-xs text-gray-500">고객 회신 메모(고객에게 표시)
-            <textarea v-model="form.answerNote" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1" />
+            <textarea v-model="form.answerNote" rows="3" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 disabled:bg-gray-100 disabled:text-gray-500" />
           </label>
           <label class="block text-xs text-gray-500">내부 메모(고객 미노출)
-            <textarea v-model="form.adminMemo" rows="2" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1" />
+            <textarea v-model="form.adminMemo" rows="2" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 disabled:bg-gray-100 disabled:text-gray-500" />
           </label>
           <div class="flex flex-wrap gap-2 border-t border-gray-100 pt-2">
             <button
+              v-if="reviewEditable"
               type="button"
               class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50"
               :disabled="patch.isPending.value"
@@ -2315,6 +2317,10 @@ async function downloadOriginal(): Promise<void> {
               </div>
             </details>
           </div>
+          <p v-if="!reviewEditable" class="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-[11px] leading-4 text-gray-600">
+            현재 견적 상태에서는 금액과 회신 내용을 변경할 수 없습니다.
+            <template v-if="detail.status === 'answered' || detail.status === 'closed'"> 이메일은 확정된 내용으로 다시 보낼 수 있습니다.</template>
+          </p>
           <p v-if="actionError !== ''" class="text-xs text-red-600">{{ actionError }}</p>
           <p
             v-if="emailActionFeedback !== null"
@@ -2434,7 +2440,7 @@ async function downloadOriginal(): Promise<void> {
                 </li>
                 <li v-if="pendingPartAdd.impact.hasOrderSnapshot">기존 장바구니·주문은 당시 품목·금액 스냅샷을 유지하므로 변경 견적과 다를 수 있습니다.</li>
                 <li v-if="pendingPartAdd.impact.poCount > 0">기존 발주서 {{ pendingPartAdd.impact.poCount }}건은 발행 당시 품목·금액 스냅샷을 그대로 보존합니다.</li>
-                <li v-if="pendingPartAdd.impact.reopensQuote">고객 확인 대기·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
+                <li v-if="pendingPartAdd.impact.reopensQuote">회신 완료·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
               </ul>
               <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">
                 <input v-model="forcePartAddConfirmed" type="checkbox" class="mt-0.5 size-4 accent-rose-700">
@@ -2489,7 +2495,7 @@ async function downloadOriginal(): Promise<void> {
                 <li v-if="pendingPartRemove.impact.invalidatedReplyCount > 0">이 부품의 기존 협력사 회신 {{ pendingPartRemove.impact.invalidatedReplyCount }}건도 함께 삭제됩니다.</li>
                 <li v-if="pendingPartRemove.impact.hasOrderSnapshot">기존 장바구니·주문은 당시 품목·금액 스냅샷을 유지합니다.</li>
                 <li v-if="pendingPartRemove.impact.poCount > 0">기존 발주서 {{ pendingPartRemove.impact.poCount }}건은 발행 당시 품목·금액 스냅샷을 유지합니다.</li>
-                <li v-if="pendingPartRemove.impact.reopensQuote">고객 확인 대기·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
+                <li v-if="pendingPartRemove.impact.reopensQuote">회신 완료·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.</li>
               </ul>
               <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">
                 <input v-model="forcePartRemoveConfirmed" type="checkbox" class="mt-0.5 size-4 accent-rose-700">
@@ -2597,7 +2603,7 @@ async function downloadOriginal(): Promise<void> {
                   기존 발주서 {{ pendingPartSelection.impact.poCount }}건은 발행 당시 부품·금액 스냅샷을 그대로 보존합니다.
                 </li>
                 <li v-if="pendingPartSelection.impact.reopensQuote">
-                  고객 확인 대기·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.
+                  회신 완료·마감 상태는 검토 중으로 되돌리고 기존 고객 회신 문구를 해제합니다.
                 </li>
               </ul>
               <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-surface px-3 py-2 font-bold">
@@ -2669,12 +2675,14 @@ async function downloadOriginal(): Promise<void> {
       <div class="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-surface p-6 shadow-2xl">
         <div class="flex items-center justify-between">
           <h2 class="text-lg font-bold">
-            {{ replyRfq.partnerName }} — 회신 {{ replyRfq.status === 'quoted' ? '수정' : '대리 입력' }}
+            {{ replyRfq.partnerName }} — {{ replyRfq.status === 'closed' ? '회신 보기' : replyRfq.status === 'quoted' ? '회신 수정' : '회신 대리 입력' }}
           </h2>
           <button type="button" class="text-gray-400 hover:text-gray-700" @click="replyRfq = null">✕</button>
         </div>
         <p class="mt-1 text-xs text-gray-500">
-          전화·메일로 받은 회신을 기록합니다 — 협력사 포털 회신과 같은 저장 경로(source=manual)입니다.
+          {{ replyRfq.status === 'closed'
+            ? '마감된 RFQ의 최종 회신 내용입니다. 기록 보존을 위해 읽기 전용으로 표시합니다.'
+            : '전화·메일로 받은 회신을 기록합니다 — 협력사 포털 회신과 같은 저장 경로(source=manual)입니다.' }}
         </p>
         <div class="mt-4">
           <RfqReplyForm
@@ -2683,6 +2691,7 @@ async function downloadOriginal(): Promise<void> {
             :delivery-date="replyRfq.deliveryDate"
             :memo="replyRfq.memo"
             :busy="rfqReply.isPending.value"
+            :read-only="replyRfq.status === 'closed'"
             @submit="submitReply"
           />
         </div>

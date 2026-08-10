@@ -20,7 +20,7 @@ const STATUS_TABS: { key: BomQuoteStatusType | null; label: string }[] = [
   { key: null, label: '전체' },
   { key: 'requested', label: '견적요청' },
   { key: 'reviewing', label: '검토 중' },
-  { key: 'answered', label: '고객 확인 대기' },
+  { key: 'answered', label: '회신 완료' },
   { key: 'closed', label: '마감' },
   { key: 'canceled', label: '취소' },
 ];
@@ -29,7 +29,7 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   draft: { label: '작성 중', cls: 'bg-gray-100 text-gray-600' },
   requested: { label: '견적요청', cls: 'bg-blue-100 text-blue-700' },
   reviewing: { label: '검토 중', cls: 'bg-amber-100 text-amber-700' },
-  answered: { label: '고객 확인 대기', cls: 'bg-emerald-100 text-emerald-700' },
+  answered: { label: '회신 완료', cls: 'bg-emerald-100 text-emerald-700' },
   closed: { label: '마감', cls: 'bg-gray-200 text-gray-600' },
   canceled: { label: '취소', cls: 'bg-red-100 text-red-600' },
 };
@@ -45,6 +45,9 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / 20)));
 
 const detailQuery = useAdminBomQuote(detailId);
 const detail = computed(() => detailQuery.data.value?.data ?? null);
+const reviewEditable = computed(() =>
+  detail.value?.status === 'requested' || detail.value?.status === 'reviewing',
+);
 const patch = usePatchAdminBomQuote();
 const completeReview = useCompleteAdminBomQuote();
 const candidateItemId = ref<string | null>(null);
@@ -154,6 +157,11 @@ async function saveReview(nextStatus?: BomQuoteStatusType): Promise<void> {
       await completeReview.mutateAsync({
         quoteId: detailId.value,
         body: { ...fields, sendEmail: true },
+      });
+    } else if (nextStatus === 'closed') {
+      await patch.mutateAsync({
+        quoteId: detailId.value,
+        body: { status: 'closed' },
       });
     } else {
       await patch.mutateAsync({
@@ -274,27 +282,30 @@ async function downloadOriginal(): Promise<void> {
                   <div class="space-y-3 rounded-lg border border-gray-200 bg-surface p-3 text-sm">
                     <div class="grid grid-cols-2 gap-2">
                       <label class="text-xs text-gray-500">확정 운송료
-                        <input v-model.number="form.confirmedShippingFee" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
+                        <input v-model.number="form.confirmedShippingFee" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
                       </label>
                       <label class="text-xs text-gray-500">확정 관리비
-                        <input v-model.number="form.confirmedManagementFee" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
+                        <input v-model.number="form.confirmedManagementFee" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
                       </label>
                     </div>
                     <label class="block text-xs text-gray-500">확정 총액(VAT 별도) <span class="text-amber-700">— 등록해야 고객 [주문하기]가 열립니다</span>
-                      <input v-model.number="form.confirmedTotal" type="number" min="0" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums">
+                      <input v-model.number="form.confirmedTotal" type="number" min="0" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500">
                     </label>
                     <label class="block text-xs text-gray-500">고객 회신 메모(고객에게 표시)
-                      <textarea v-model="form.answerNote" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1" />
+                      <textarea v-model="form.answerNote" rows="3" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 disabled:bg-gray-100 disabled:text-gray-500" />
                     </label>
                     <label class="block text-xs text-gray-500">내부 메모(고객 미노출)
-                      <textarea v-model="form.adminMemo" rows="2" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1" />
+                      <textarea v-model="form.adminMemo" rows="2" :disabled="!reviewEditable" class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 disabled:bg-gray-100 disabled:text-gray-500" />
                     </label>
                     <div class="flex flex-wrap gap-2 border-t border-gray-100 pt-2">
-                      <button type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview()">저장</button>
+                      <button v-if="reviewEditable" type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview()">저장</button>
                       <button v-if="detail.status === 'requested'" type="button" class="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600" :disabled="patch.isPending.value" @click="saveReview('reviewing')">검토 시작</button>
                       <button v-if="detail.status === 'reviewing'" type="button" class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700" :disabled="patch.isPending.value || completeReview.isPending.value" @click="saveReview('answered')">고객 회신 확정</button>
                       <button v-if="detail.status === 'answered'" type="button" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="patch.isPending.value" @click="saveReview('closed')">견적 마감</button>
                     </div>
+                    <p v-if="!reviewEditable" class="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-[11px] text-gray-600">
+                      현재 견적 상태에서는 금액과 회신 내용을 변경할 수 없습니다.
+                    </p>
                     <p v-if="actionError !== ''" class="text-xs text-red-600">{{ actionError }}</p>
                   </div>
                 </div>

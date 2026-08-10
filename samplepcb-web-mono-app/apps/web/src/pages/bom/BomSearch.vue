@@ -131,8 +131,8 @@ async function requestCartQuote(): Promise<void> {
 </script>
 
 <template>
-  <div v-if="q === ''" class="relative flex h-full flex-col items-center overflow-y-auto px-6 pb-[60px] font-noto">
-    <RouterLink :to="{ name: 'bom' }" class="absolute right-[26px] top-[16px] z-20 flex h-[36px] items-center justify-center gap-1 rounded-[6px] bg-brand-strong px-[20px] text-[13px] font-medium text-white transition hover:bg-blue-700">
+  <div v-if="q === ''" class="relative flex h-full flex-col items-center overflow-y-auto px-4 pb-[60px] font-noto sm:px-6">
+    <RouterLink :to="{ name: 'bom' }" class="absolute right-[26px] top-[16px] z-20 hidden h-[36px] items-center justify-center gap-1 rounded-[6px] bg-brand-strong px-[20px] text-[13px] font-medium text-white transition hover:bg-blue-700 sm:flex">
       <span class="text-[15px] leading-none">+</span> BOM
     </RouterLink>
 
@@ -140,14 +140,14 @@ async function requestCartQuote(): Promise<void> {
 
     <!-- search card (2282:61416) — 배경은 텍스트 없는 공용 베이크, 로고·타이틀은 실 DOM
          (BomLandingCard 참조). BOM 분석 탭과 텍스트 위치를 공유하고 검색 폼만 겹친다. -->
-    <section class="relative mt-[50px] h-[524px] w-[640px] shrink-0 overflow-hidden rounded-[8px]" aria-label="부품 단일 검색">
+    <section class="relative mt-[32px] h-[524px] w-full max-w-[640px] shrink-0 overflow-hidden rounded-[8px] sm:mt-[50px]" aria-label="부품 단일 검색">
       <BomLandingCard title="Search for parts" subtitle="Enter the MPN or part name, and you can start right away" />
-      <form class="absolute left-1/2 top-[226px] z-10 flex h-[48px] w-[426px] -translate-x-1/2" role="search" @submit.prevent="submitLanding">
-        <label class="flex min-w-0 w-[340px] flex-1 items-center gap-[8px] rounded-l-[8px] bg-[#fdfdff] pl-[20px] pr-[16px]">
+      <form class="absolute left-[16px] right-[16px] top-[226px] z-10 flex h-[48px] sm:left-1/2 sm:right-auto sm:w-[426px] sm:-translate-x-1/2" role="search" @submit.prevent="submitLanding">
+        <label class="flex min-w-0 flex-1 items-center gap-[8px] rounded-l-[8px] bg-[#fdfdff] pl-[12px] pr-[10px] sm:w-[340px] sm:pl-[20px] sm:pr-[16px]">
           <img :src="searchIcon" alt="" class="size-[20px] shrink-0">
           <input v-model="landingInput" type="search" aria-label="부품 검색어" placeholder="예: GRM155R71C104KA88, 100nF..." class="min-w-0 flex-1 bg-transparent text-[14px] font-normal leading-[24px] text-[#061023] outline-none placeholder:text-[#5b6a7e]">
         </label>
-        <button type="submit" class="flex h-[48px] w-[86px] shrink-0 items-center justify-center rounded-r-[8px] bg-[#1e64fd] text-[16px] font-bold leading-[24px] text-white transition hover:bg-blue-700">검색</button>
+        <button type="submit" class="flex h-[48px] w-[72px] shrink-0 items-center justify-center rounded-r-[8px] bg-[#1e64fd] text-[15px] font-bold leading-[24px] text-white transition hover:bg-blue-700 sm:w-[86px] sm:text-[16px]">검색</button>
       </form>
     </section>
 

@@ -145,7 +145,7 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
             <th class="px-4 py-2.5">고객</th>
             <th class="px-4 py-2.5">연결 Case</th>
             <th class="whitespace-nowrap px-4 py-2.5">결제수단</th>
-            <th class="whitespace-nowrap px-4 py-2.5 text-right">주문 금액</th>
+            <th class="whitespace-nowrap px-4 py-2.5 text-right">주문 합계</th>
             <th class="whitespace-nowrap px-4 py-2.5 text-right">수납 / 미수</th>
             <th class="px-4 py-2.5">상태</th>
             <th class="px-4 py-2.5" />
@@ -169,7 +169,12 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
               </button>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-600">{{ item.settleCase || '—' }}</td>
-            <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{{ smartbomFmtWon(item.cartPrice) }}</td>
+            <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">
+              <p class="font-semibold text-gray-900">{{ smartbomFmtWon(item.orderPrice) }}</p>
+              <p class="mt-0.5 text-[11px] text-gray-400">
+                상품 {{ smartbomFmtWon(item.cartPrice) }}<template v-if="item.shippingPrice > 0"> + 배송 {{ smartbomFmtWon(item.shippingPrice) }}</template>
+              </p>
+            </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-xs">
               {{ smartbomFmtWon(item.receiptPrice) }}
               <span v-if="item.misu > 0" class="text-red-600"> / 미수 {{ smartbomFmtWon(item.misu) }}</span>

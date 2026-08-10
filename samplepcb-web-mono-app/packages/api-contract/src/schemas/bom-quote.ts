@@ -1235,15 +1235,20 @@ export type BomQuoteComparisonResponseType = z.infer<typeof BomQuoteComparisonRe
 
 export const AdminBomQuoteSummary = BomQuoteSummary.extend({
   mbId: z.string(),
+  /** 주문 헤더 파생 — 주문 전 null. 목록 ⑦·⑪·⑫ 단계 계산에 사용한다. */
+  orderIsPaid: z.boolean().nullable(),
+  orderStatus: z.string().nullable(),
   /** 발주서 수(D18) — 진행현황의 "발주 전" 표시·타임라인 ⑧ 판정용 파생. */
   poCount: z.number().int(),
   /** 입고 확인된 발주서 수(D21) — 타임라인 ⑩(검수) 판정용 파생. */
   poReceivedCount: z.number().int(),
+  /** 연결 선적 문서 존재 여부 — 진행현황 ⑨ 단계 파생. */
+  hasShipment: z.boolean(),
   /** 선적 중 다음 단계가 관리자 차례인 건 존재(D22) — 목록 "선적 처리 필요" 칩. */
   shipmentAdminPending: z.boolean(),
   /** 발송한 RFQ 수 — 견적관리 목록의 RFQ 실황(0=미발송 강조). */
   rfqTotal: z.number().int(),
-  /** 회신 완료(quoted) RFQ 수 — "회신 m/n" 표시. */
+  /** 실제 회신 시각이 있는 RFQ 수 — 이후 closed 상태가 되어도 "회신 m/n"에 포함한다. */
   rfqReplied: z.number().int(),
 });
 export type AdminBomQuoteSummaryType = z.infer<typeof AdminBomQuoteSummary>;
@@ -1331,7 +1336,7 @@ export const AdminBomQuoteReviewFields = z.object({
   confirmedTotal: z.number().int().min(0).nullable().optional(),
 });
 
-/** 관리자 검토 — 일반 저장과 requested→reviewing, answered→closed 상태 전이. */
+/** 관리자 검토 — 내용은 requested/reviewing에서만 저장하고 answered→closed는 상태만 전이한다. */
 export const AdminBomQuotePatchBody = AdminBomQuoteReviewFields.extend({
   status: BomQuoteStatus.optional(),
 });

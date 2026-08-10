@@ -1423,7 +1423,7 @@ const STATUS_LABEL: Record<string, string> = {
   draft: '작성 중',
   requested: '견적요청 접수',
   reviewing: '담당자 검토 중',
-  answered: '고객 확인 대기',
+  answered: '회신 완료',
   closed: '마감',
   canceled: '취소됨',
 };

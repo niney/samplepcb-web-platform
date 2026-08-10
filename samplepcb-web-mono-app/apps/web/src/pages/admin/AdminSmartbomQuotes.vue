@@ -41,7 +41,7 @@ const someRowsSelected = computed(() =>
 const TABS: { key: BomQuoteStatusType | null; label: string }[] = [
   { key: 'requested', label: '검토 대기' },
   { key: 'reviewing', label: 'RFQ 진행' },
-  { key: 'answered', label: '고객 확인 대기' },
+  { key: 'answered', label: '회신 완료' },
   { key: 'closed', label: '마감' },
   { key: null, label: '전체' },
 ];
@@ -210,7 +210,7 @@ function openMail(q: AdminBomQuoteSummaryType): void {
             <th class="whitespace-nowrap px-4 py-2.5">RFQ</th>
             <th class="whitespace-nowrap px-4 py-2.5">예상 합계</th>
             <th class="whitespace-nowrap px-4 py-2.5">요청일</th>
-            <th class="px-4 py-2.5">상태</th>
+            <th class="px-4 py-2.5">견적 상태</th>
             <th class="px-4 py-2.5" />
           </tr>
         </thead>

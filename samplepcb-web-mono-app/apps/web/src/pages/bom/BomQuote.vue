@@ -2086,7 +2086,9 @@ function fmtAmount(v: number | null): string {
               <span class="truncate">전체 {{ stats.total }} · 검토 {{ stats.review }} · 미매칭 {{ stats.unmatched }}</span>
             </div>
             <p class="mt-0.5 truncate text-[12px] font-bold tabular-nums text-brand">
-              {{ pricingPending ? '가격 확인 중…' : `예상 ${fmtAmount(finalTotal)}원` }}
+              {{ pricingPending
+                ? '가격 확인 중…'
+                : `${confirmedQuoteVisible ? '확정' : '예상'} ${fmtAmount(displayedFinalTotal)}원` }}
             </p>
           </div>
           <button

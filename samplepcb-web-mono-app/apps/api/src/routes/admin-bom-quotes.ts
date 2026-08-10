@@ -27,6 +27,10 @@ import type {
   AdminBomQuoteEmailDeliveryType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
+import {
+  canEditBomQuoteReview,
+  hasBomQuoteReviewChanges,
+} from '../lib/bom-quote-review';
 import { downloadFromFileServer } from '../lib/file-server';
 import {
   addAdminQuoteItem,
@@ -42,9 +46,14 @@ import {
   toBomQuotePrintDto,
 } from '../lib/bom-quote';
 import { closeRfqsForQuote } from '../lib/bom-rfq';
-import { loadReceivedPoCounts, loadShipmentAdminPending } from '../lib/bom-po';
+import {
+  loadQuoteShipmentPresence,
+  loadReceivedPoCounts,
+  loadShipmentAdminPending,
+} from '../lib/bom-po';
 import {
   getCartStates,
+  getCartOrderProgress,
   getMembersByIds,
   getNotifyConfig,
 } from '../lib/g5-db';
@@ -213,11 +222,20 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       if (key.data !== 'draft') counts.all += g._count._all;
     }
     // 주문(D16)·발주(D18)·입고(D21·§6.10 조인 기반)·관리자 차례 선적(D22)·RFQ 실황
-    // (견적관리 메뉴) 파생 — batch 5회.
+    // (견적관리 메뉴) 파생 — batch 조회.
     const ctIds = rows.flatMap((row) => (row.ctId === null ? [] : [row.ctId]));
     const quoteIds = rows.map((row) => row.id);
-    const [cartStates, poGroups, receivedCounts, shipmentPending, rfqGroups] = await Promise.all([
+    const [
+      cartStates,
+      orderProgress,
+      poGroups,
+      receivedCounts,
+      shipmentPending,
+      shipmentQuotes,
+      rfqGroups,
+    ] = await Promise.all([
       getCartStates(ctIds),
+      getCartOrderProgress(ctIds),
       prisma.spBomPo.groupBy({
         by: ['quoteId'],
         where: { quoteId: { in: quoteIds } },
@@ -225,20 +243,20 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       }),
       loadReceivedPoCounts(quoteIds),
       loadShipmentAdminPending(),
-      prisma.spBomRfq.groupBy({
-        by: ['quoteId', 'status'],
+      loadQuoteShipmentPresence(quoteIds),
+      prisma.spBomRfq.findMany({
         where: { quoteId: { in: quoteIds } },
-        _count: { _all: true },
+        select: { quoteId: true, respondedAt: true },
       }),
     ]);
     const poCounts = new Map(poGroups.map((g) => [g.quoteId, g._count._all]));
     counts.shipmentPending = shipmentPending.total;
     const rfqCounts = new Map<bigint, { total: number; replied: number }>();
-    for (const g of rfqGroups) {
-      const entry = rfqCounts.get(g.quoteId) ?? { total: 0, replied: 0 };
-      entry.total += g._count._all;
-      if (g.status === 'quoted') entry.replied += g._count._all;
-      rfqCounts.set(g.quoteId, entry);
+    for (const rfq of rfqGroups) {
+      const entry = rfqCounts.get(rfq.quoteId) ?? { total: 0, replied: 0 };
+      entry.total += 1;
+      if (rfq.respondedAt !== null) entry.replied += 1;
+      rfqCounts.set(rfq.quoteId, entry);
     }
     return {
       result: true as const,
@@ -252,6 +270,8 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
             receivedCounts.get(row.id) ?? 0,
             shipmentPending.byQuote.has(row.id.toString()),
             rfqCounts.get(row.id) ?? { total: 0, replied: 0 },
+            row.ctId === null ? null : (orderProgress.get(row.ctId) ?? null),
+            shipmentQuotes.has(row.id.toString()),
           ),
         ),
         total,
@@ -868,6 +888,12 @@ export const adminBomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
     if (quote === null) return reply.notFound('견적을 찾을 수 없습니다');
 
     const body = request.body;
+    if (!canEditBomQuoteReview(quote.status) && hasBomQuoteReviewChanges(body)) {
+      return reply.status(409).send({
+        error: 'BOM_QUOTE_FINALIZED',
+        message: '현재 견적 상태에서는 금액과 회신 내용을 변경할 수 없습니다.',
+      });
+    }
     if (body.status === 'answered') {
       return reply.status(409).send({
         error: 'BOM_COMPLETE_ACTION_REQUIRED',

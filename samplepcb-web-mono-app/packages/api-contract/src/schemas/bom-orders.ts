@@ -32,7 +32,12 @@ export const AdminBomOrderListItem = z.object({
   odStatus: z.string(), // 영카트 od_status 원문(주문|입금|준비|…)
   isPaid: z.boolean(),
   settleCase: z.string(),
-  cartPrice: z.number(), // 주문 금액(VAT 포함 — 카트 전환 시 확정가×1.1)
+  /** 상품 합계(od_cart_price). 배송비를 포함한 실제 주문 합계가 아니다. */
+  cartPrice: z.number(),
+  /** 기본·추가 배송비 합계(od_send_cost + od_send_cost2). */
+  shippingPrice: z.number(),
+  /** 실제 주문 합계(상품 합계 + 기본·추가 배송비). */
+  orderPrice: z.number(),
   receiptPrice: z.number(),
   misu: z.number(),
   cases: z.array(AdminBomOrderCase), // 연결 Case(배치 주문이면 여러 개)

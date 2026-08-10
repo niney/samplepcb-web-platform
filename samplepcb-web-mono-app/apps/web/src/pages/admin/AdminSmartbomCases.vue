@@ -44,7 +44,7 @@ const TABS: { key: BomQuoteStatusType | null; label: string }[] = [
   { key: null, label: '전체' },
   { key: 'requested', label: '견적요청' },
   { key: 'reviewing', label: '검토 중' },
-  { key: 'answered', label: '고객 확인 대기' },
+  { key: 'answered', label: '회신 완료' },
   { key: 'closed', label: '마감' },
   { key: 'canceled', label: '취소' },
 ];
@@ -58,7 +58,7 @@ const SUMMARY_CARDS: { key: 'all' | 'requested' | 'reviewing' | 'answered'; labe
   { key: 'all', label: '전체 Case', hint: '요청 이후 전체' },
   { key: 'requested', label: '견적요청', hint: '검토 대기' },
   { key: 'reviewing', label: '검토 중', hint: '견적 작업 중' },
-  { key: 'answered', label: '고객 확인 대기', hint: '견적 회신 확정됨' },
+  { key: 'answered', label: '회신 완료', hint: '고객 견적 발송 완료' },
 ];
 
 function openCase(id: string): void {
@@ -116,14 +116,16 @@ watch([statusFilter, page], () => {
   clearSelection();
 });
 
-// 행 단계 — 주문(⑥)·발주(⑧)·검수(⑩) 파생 반영. ⑦결제·⑨선적·⑪⑫는 od/선적 상세가
-// 필요해 Case 상세에서만 정확(목록은 아는 만큼만 계산 — SmartbomDerived 선택 입력).
+// 행 단계 — 주문·결제·발주·선적·검수·배송·완료 파생을 상세와 같은 입력으로 계산한다.
 type CaseRow = (typeof rows.value)[number];
 const stepOf = (q: CaseRow): number =>
   smartbomStepOf(q.status, {
     orderState: q.orderState,
+    isPaid: q.orderIsPaid ?? undefined,
     poCount: q.poCount,
     poReceivedCount: q.poReceivedCount,
+    hasShipment: q.hasShipment,
+    odStatus: q.orderStatus ?? undefined,
   });
 
 // 인라인 다음 액션 — requested 는 목록에서 바로 검토 시작(시안 채택), 이후엔 Case 진입.
@@ -228,7 +230,7 @@ function openMail(q: CaseRow): void {
             <th class="whitespace-nowrap px-4 py-2.5">품목(선정)</th>
             <th class="whitespace-nowrap px-4 py-2.5">예상 합계</th>
             <th class="whitespace-nowrap px-4 py-2.5">현재 단계</th>
-            <th class="px-4 py-2.5">상태</th>
+            <th class="px-4 py-2.5">견적 상태</th>
             <th class="whitespace-nowrap px-4 py-2.5">요청일</th>
             <th class="px-4 py-2.5" />
           </tr>

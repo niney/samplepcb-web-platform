@@ -50,7 +50,8 @@ async function reissue(rfq: AdminBomRfqViewType): Promise<void> {
   emit('reissueLink', rfq);
 }
 
-const quotedCount = computed(() => props.rfqs.filter((r) => r.status === 'quoted').length);
+const activeQuotedCount = computed(() => props.rfqs.filter((r) => r.status === 'quoted').length);
+const repliedCount = computed(() => props.rfqs.filter((r) => r.respondedAt !== null).length);
 const pendingCount = computed(() => props.rfqs.filter((r) => r.status === 'requested').length);
 
 const statusCls = (status: AdminBomRfqViewType['status']): string =>
@@ -68,12 +69,12 @@ const fmtWon = (v: number | null): string => (v === null ? '—' : `${v.toLocale
     <div class="flex flex-wrap items-center gap-3 border-b border-gray-100 px-4 py-3">
       <p class="text-sm font-bold text-gray-800">협력사 견적요청 (RFQ)</p>
       <p v-if="rfqs.length > 0" class="text-xs text-gray-500">
-        협력사 <b>{{ rfqs.length }}</b> · 회신 <b class="text-emerald-600">{{ quotedCount }}</b> ·
-        미회신 <b class="text-blue-600">{{ pendingCount }}</b>
+        협력사 <b>{{ rfqs.length }}</b> · 회신 <b class="text-emerald-600">{{ repliedCount }}</b> ·
+        회신 대기 <b class="text-blue-600">{{ pendingCount }}</b>
       </p>
       <div class="ml-auto flex gap-2">
         <button
-          v-if="quotedCount > 0"
+          v-if="activeQuotedCount > 0"
           type="button"
           class="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
           :disabled="!canSend"
@@ -159,7 +160,7 @@ const fmtWon = (v: number | null): string => (v === null ? '—' : `${v.toLocale
                 class="ml-1 rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
                 @click="emit('reply', rfq)"
               >
-                {{ rfq.status === 'quoted' ? '회신 보기·수정' : '대리 입력' }}
+                {{ rfq.status === 'closed' ? '회신 보기' : rfq.status === 'quoted' ? '회신 보기·수정' : '대리 입력' }}
               </button>
             </td>
           </tr>

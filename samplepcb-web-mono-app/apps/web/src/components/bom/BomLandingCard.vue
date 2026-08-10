@@ -12,9 +12,9 @@ defineProps<{ title: string; subtitle: string }>();
 
 <template>
   <img :src="cardBg" alt="" class="pointer-events-none absolute inset-0 size-full">
-  <img :src="cardLogo" alt="Parts Eyes" class="pointer-events-none absolute left-1/2 top-[68px] w-[290px] -translate-x-1/2">
-  <div class="pointer-events-none absolute inset-x-0 top-[134px] flex flex-col items-center gap-[6px] text-center font-noto text-[#fdfdff]">
+  <img :src="cardLogo" alt="Parts Eyes" class="pointer-events-none absolute left-1/2 top-[68px] w-[240px] -translate-x-1/2 sm:w-[290px]">
+  <div class="pointer-events-none absolute inset-x-0 top-[134px] flex flex-col items-center gap-[6px] px-4 text-center font-noto text-[#fdfdff]">
     <p class="text-[20px] font-medium leading-[32px]">{{ title }}</p>
-    <p class="text-[16px] font-normal leading-[24px] opacity-70">{{ subtitle }}</p>
+    <p class="max-w-full text-[13px] font-normal leading-[20px] opacity-70 sm:text-[16px] sm:leading-[24px]">{{ subtitle }}</p>
   </div>
 </template>

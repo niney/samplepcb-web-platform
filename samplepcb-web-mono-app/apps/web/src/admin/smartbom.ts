@@ -72,7 +72,7 @@ export const SMARTBOM_STATUS_META: Record<BomQuoteStatusType, { label: string; c
   draft: { label: '작성 중', cls: 'bg-gray-100 text-gray-600' },
   requested: { label: '견적요청', cls: 'bg-blue-100 text-blue-700' },
   reviewing: { label: '검토 중', cls: 'bg-amber-100 text-amber-700' },
-  answered: { label: '고객 확인 대기', cls: 'bg-emerald-100 text-emerald-700' },
+  answered: { label: '회신 완료', cls: 'bg-emerald-100 text-emerald-700' },
   closed: { label: '마감', cls: 'bg-gray-200 text-gray-600' },
   canceled: { label: '취소', cls: 'bg-red-100 text-red-600' },
 };

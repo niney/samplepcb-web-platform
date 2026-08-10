@@ -90,6 +90,11 @@ const PRINT_CSS = `
     background: none !important;
     display: block !important;
   }
+  .sp-bom-estimate-shell {
+    height: auto !important;
+    padding: 0 !important;
+    display: block !important;
+  }
   .sp-bom-estimate-scroll {
     position: static !important;
     overflow: visible !important;
@@ -122,10 +127,10 @@ onBeforeUnmount(() => {
     <div v-if="open" class="sp-bom-estimate-host fixed inset-0 z-[60]">
       <div class="no-print absolute inset-0 bg-black/40" @click="emit('close')" />
       <div
-        class="sp-bom-estimate-scroll relative flex h-full flex-col items-center overflow-auto p-6"
+        class="sp-bom-estimate-shell relative flex h-full min-h-0 flex-col p-3 sm:p-6"
         @click.self="emit('close')"
       >
-        <div class="no-print mb-4 flex flex-wrap items-center justify-center gap-2">
+        <div class="no-print mb-3 flex shrink-0 flex-wrap items-center justify-center gap-2 sm:mb-4">
           <label
             v-if="hasImages"
             class="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow"
@@ -150,10 +155,17 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <p v-if="loading" class="no-print py-12 text-sm text-white">불러오는 중…</p>
-        <p v-else-if="error !== ''" class="no-print py-12 text-sm font-semibold text-red-300">{{ error }}</p>
-        <div v-else-if="data !== null" ref="sheetHost" class="shadow-2xl" @click.stop>
-          <BomEstimateSheet :data="data" :show-images="includeImages" />
+        <div class="sp-bom-estimate-scroll min-h-0 flex-1 overflow-auto" @click.self="emit('close')">
+          <p v-if="loading" class="no-print py-12 text-center text-sm text-white">불러오는 중…</p>
+          <p v-else-if="error !== ''" class="no-print py-12 text-center text-sm font-semibold text-red-300">{{ error }}</p>
+          <template v-else-if="data !== null">
+            <p class="no-print sticky left-0 mb-2 text-center text-xs font-medium text-white min-[840px]:hidden">
+              견적서를 좌우로 이동해 전체 내용을 확인할 수 있습니다.
+            </p>
+            <div ref="sheetHost" class="w-max shadow-2xl min-[840px]:mx-auto" @click.stop>
+              <BomEstimateSheet :data="data" :show-images="includeImages" />
+            </div>
+          </template>
         </div>
       </div>
     </div>

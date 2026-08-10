@@ -6442,14 +6442,19 @@ export function toAdminSummaryDto(
   poReceivedCount = 0,
   shipmentAdminPending = false,
   rfq: { total: number; replied: number } = { total: 0, replied: 0 },
+  orderProgress: { isPaid: boolean; odStatus: string } | null = null,
+  hasShipment = false,
 ): AdminBomQuoteSummaryType {
   return {
     ...toSummaryDto(quote, summaryCounts(items), orderState),
     // 관리자 목록에는 검토 중 저장한 확정가 초안도 그대로 보여 준다.
     confirmedTotal: quote.confirmedTotal,
     mbId: quote.mbId,
+    orderIsPaid: orderProgress?.isPaid ?? null,
+    orderStatus: orderProgress?.odStatus ?? null,
     poCount,
     poReceivedCount,
+    hasShipment,
     shipmentAdminPending,
     rfqTotal: rfq.total,
     rfqReplied: rfq.replied,

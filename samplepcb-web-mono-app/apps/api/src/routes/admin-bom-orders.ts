@@ -9,6 +9,7 @@ import type {
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
 import { loadReceivedPoCounts } from '../lib/bom-po';
+import { areAllBomOrderCasesReceived } from '../lib/bom-order-shipping';
 import { getCartOrderLinks, getOrderHeadersLite } from '../lib/g5-db';
 
 // ── /api/admin/bom-orders — 스마트 BOM 주문·결제(주문 축) 파생 목록 (D19) ────
@@ -91,6 +92,8 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           isPaid: header.isPaid,
           settleCase: header.settleCase,
           cartPrice: header.cartPrice,
+          shippingPrice: header.sendCost + header.sendCost2,
+          orderPrice: header.cartPrice + header.sendCost + header.sendCost2,
           receiptPrice: header.receiptPrice,
           misu: header.misu,
           cases: grouped.map((quote) => ({
@@ -111,14 +114,17 @@ export const adminBomOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
       });
 
       // 탭 판정 — 역할별 메뉴가 나눠 쓴다: 주문·결제(awaiting_payment|paid|completed),
-      // 발주(paid_unissued), 선적·배송 고객 배송 큐(to_ship|shipping).
+      // 발주(paid_unissued), 선적·배송 고객 배송 큐(to_ship=전 Case 전 발주 입고 완료,
+      // shipping=고객 배송 중).
       const isAwaiting = (item: AdminBomOrderListItemType): boolean => !item.isPaid;
       const isPaid = (item: AdminBomOrderListItemType): boolean =>
         item.isPaid && item.odStatus !== '취소';
       const isPaidUnissued = (item: AdminBomOrderListItemType): boolean =>
         item.isPaid && item.cases.some((entry) => entry.poCount === 0);
       const isToShip = (item: AdminBomOrderListItemType): boolean =>
-        item.isPaid && (item.odStatus === '입금' || item.odStatus === '준비');
+        item.isPaid &&
+        (item.odStatus === '입금' || item.odStatus === '준비') &&
+        areAllBomOrderCasesReceived(item.cases);
       const isShipping = (item: AdminBomOrderListItemType): boolean => item.odStatus === '배송';
       const isCompleted = (item: AdminBomOrderListItemType): boolean => item.odStatus === '완료';
       const counts: AdminBomOrderCountsType = {

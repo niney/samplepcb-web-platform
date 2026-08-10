@@ -183,8 +183,8 @@ watch(() => route.fullPath, () => {
   <div class="bom-app flex h-screen flex-col overflow-hidden bg-bom-chrome text-ink-strong [font-family:Pretendard,'Noto_Sans_KR',system-ui,sans-serif]">
     <!-- top (87:9560) — 시안 다크 → 라이트 치환 -->
     <header class="relative z-10 flex h-[58px] shrink-0 items-center border-b border-bom-chrome-border bg-bom-chrome">
-      <!-- 로고 블록은 시안처럼 사이드바 폭(220px)과 정렬 — 구분선이 경계에 온다 -->
-      <div class="flex w-[220px] shrink-0 items-center pl-[24px]">
+      <!-- 작은 화면에서는 프로필까지 한 줄에 남기고, sm 이상에서 시안의 220px 정렬을 복원한다. -->
+      <div class="flex w-[176px] shrink-0 items-center pl-[12px] sm:w-[220px] sm:pl-[24px]">
         <RouterLink :to="{ name: 'bom' }" class="relative top-[1.5px] block h-[26px] w-[150px] shrink-0">
           <img :src="logoPartseyes" alt="Parts Eyes" class="size-full">
         </RouterLink>
@@ -204,7 +204,7 @@ watch(() => route.fullPath, () => {
       <button
         type="button"
         role="switch"
-        class="relative ml-[26px] h-[36px] w-[111px] shrink-0 rounded-[48px] border border-bom-mode-border bg-bom-mode-bg font-noto disabled:cursor-not-allowed disabled:opacity-50"
+        class="relative ml-[26px] hidden h-[36px] w-[111px] shrink-0 rounded-[48px] border border-bom-mode-border bg-bom-mode-bg font-noto disabled:cursor-not-allowed disabled:opacity-50 sm:block"
         :aria-label="procurementMode === 'sample' ? '샘플' : '양산'"
         :aria-checked="procurementMode === 'mass'"
         :disabled="procurementModeDisabled"
@@ -233,11 +233,11 @@ watch(() => route.fullPath, () => {
         AI 기반 전자부품 검색 엔진
       </p>
 
-      <div class="ml-auto flex items-center gap-[12px] pr-[18px]">
+      <div class="ml-auto flex items-center gap-[8px] pr-[8px] sm:gap-[12px] sm:pr-[18px]">
         <!-- 테마 전환 — 고르기 전까지는 OS 설정을 따르고, 한 번 고르면 그 선택이 유지된다 -->
         <button
           type="button"
-          class="grid size-[32px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand"
+          class="hidden size-[32px] place-items-center rounded-md text-ink-muted hover:bg-gray-100 hover:text-brand sm:grid"
           :aria-label="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
           :title="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
           @click="toggleTheme"
@@ -254,7 +254,7 @@ watch(() => route.fullPath, () => {
         <AppProfileMenu :show-admin="auth.me?.isAdmin === true" />
         <button
           type="button"
-          class="grid size-[26px] place-items-center rounded-md hover:bg-gray-100"
+          class="hidden size-[26px] place-items-center rounded-md hover:bg-gray-100 min-[1280px]:grid"
           :title="effectiveRightOpen ? '패널 접기' : '패널 펼치기'"
           :aria-expanded="effectiveRightOpen"
           @click="toggleRightPanel"
@@ -291,6 +291,19 @@ watch(() => route.fullPath, () => {
           @click="closeCompactLeftPanel"
         >
           ×
+        </button>
+        <button
+          type="button"
+          role="switch"
+          class="mx-[12px] mb-4 flex h-10 w-[196px] shrink-0 items-center justify-between rounded-lg border border-bom-mode-border bg-bom-mode-bg px-3 text-xs text-bom-mode-inactive disabled:cursor-not-allowed disabled:opacity-50 sm:hidden"
+          :aria-label="`조달 모드: ${procurementMode === 'sample' ? '샘플' : '양산'}`"
+          :aria-checked="procurementMode === 'mass'"
+          :disabled="procurementModeDisabled"
+          @click="toggleProcurementMode"
+        >
+          <span>조달 모드</span>
+          <strong class="rounded-full bg-bom-mode-active px-3 py-1 text-white">{{ procurementMode === 'sample' ? '샘플' : '양산' }}</strong>
+          <span class="text-[10px]">전환</span>
         </button>
         <RouterLink :to="{ name: 'bom' }" class="relative mx-[12px] flex h-[45px] w-[196px] items-center rounded-[6px] pl-[12px] pr-[16px]" :class="onBomPrimary ? 'bg-bom-nav-active-bg' : 'hover:bg-surface-raised'">
           <span class="relative size-[18px] shrink-0" aria-hidden="true">
