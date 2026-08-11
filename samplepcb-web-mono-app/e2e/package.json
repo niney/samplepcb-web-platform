@@ -36,6 +36,7 @@
     "journey:files": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-files",
     "journey:counts": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-counts",
     "journey:search": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-search",
+    "journey:authz": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-authz",
     "journey:rewind": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-rewind",
     "typecheck": "tsc --noEmit"
   },
@@ -47,6 +48,7 @@
     "vitest": "^3.0.0"
   }
 }
+
 
 
 
