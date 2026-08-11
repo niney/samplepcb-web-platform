@@ -8,6 +8,7 @@ import {
   PcbProjectOrderRequest,
   PcbProjectPayload,
   PcbProjectQtyPatch,
+  clampPcbProjectName,
 } from '@sp/api-contract';
 import type { PcbProjectPayloadType } from '@sp/api-contract';
 import { calculateQuote } from '../pricing/engine';
@@ -202,7 +203,9 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         data: {
           mbId,
           quoteId: q.id,
-          projectName: payload.projectName,
+          // 파일명이 컬럼 한계를 넘으면 **우리가 명시적으로** 자른다(여정 36호) — DB 에
+          // 맡기면 환경에 따라 조용히 잘리거나 500 으로 터진다.
+          projectName: clampPcbProjectName(payload.projectName),
           category: payload.category,
           orderCategory: payload.orderCategory,
           qty: payload.qty,

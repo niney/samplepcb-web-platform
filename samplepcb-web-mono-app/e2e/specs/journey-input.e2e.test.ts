@@ -167,8 +167,11 @@ describe.skipIf(!RUN || !JOURNEY)('여정 36호 — 입력 경계', () => {
     // 태그·따옴표·백슬래시·이모지는 무손실이다(utf8mb4 + 파라미터 바인딩).
     expect(tricky?.projectName, '특수문자·이모지 무손실').toBe(TRICKY_NAME);
 
-    // ⚠ 길이는 다르다 — 컬럼 한계에서 **조용히 잘린다**(에러도 경고도 없다).
-    //   MySQL 이 strict mode 가 아니면 초과분을 버리고 성공으로 답한다.
+    // ⚠ 길이는 컬럼 한계(VARCHAR 191)에서 잘린다. **이 편은 DB 에 직접 넣으므로 업로드
+    //   경로의 절단(계약 clampPcbProjectName)을 우회한다** — 여기서 잘리는 것은 MySQL 의
+    //   동작이지 제품 경로의 결함이 아니다. 제품 경로는 저장 전에 우리가 자르고 말줄임표를
+    //   붙이며(단위 5케이스가 지킨다), 이 편이 긴 이름을 밀어 넣는 목적은 **화면이 그 길이를
+    //   견디는가**를 보기 위함이다(아래 I3~I7).
     savedLongName = long?.projectName ?? '';
     const truncated = savedLongName.length < LONG_NAME.length;
 
@@ -180,14 +183,15 @@ describe.skipIf(!RUN || !JOURNEY)('여정 36호 — 입력 경계', () => {
 
     F(
       'I2',
-      truncated ? 'bug' : 'obs',
-      truncated
-        ? `**긴 이름이 조용히 잘린다** — ${String(LONG_NAME.length)}자로 넣었는데 ` +
-          `${String(savedLongName.length)}자만 저장됐다(컬럼 한계). 에러도 경고도 없어 ` +
-          `업로드한 사람은 이름이 바뀐 줄 모른다 — 거버 파일명이 곧 프로젝트명이라 ` +
-          `고객이 자기 파일과 화면의 이름을 못 맞춘다. 특수문자·이모지는 무손실.`
-        : `저장·응답 무손실 실측 — ${String(savedLongName.length)}자 유지 · 이모지·따옴표·` +
-          `백슬래시 보존 · 검색 'D36-' 로 ${String(names.length)}건 회수`,
+      'obs',
+      `저장 실측 — 특수문자·따옴표·백슬래시·이모지 **무손실** · 검색 'D36-' 로 ` +
+        `${String(names.length)}건 회수 · 응답이 저장값과 일치. ` +
+        (truncated
+          ? `긴 이름은 ${String(LONG_NAME.length)}→${String(savedLongName.length)}자로 잘렸는데, ` +
+            `이는 **DB 직접 주입이라 업로드 경로의 절단을 우회**한 결과다(제품 경로는 저장 전에 ` +
+            `clampPcbProjectName 이 자르고 말줄임표를 붙인다 — 단위 5케이스). 아래 화면 검증은 ` +
+            `이 ${String(savedLongName.length)}자를 그대로 쓴다.`
+          : `길이 ${String(savedLongName.length)}자 유지.`),
     );
   }, 300_000);
 

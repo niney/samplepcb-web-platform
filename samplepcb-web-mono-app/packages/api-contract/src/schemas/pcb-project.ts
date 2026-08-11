@@ -61,6 +61,26 @@ export const PcbProjectSpec = z
   .catchall(SpecValue);
 export type PcbProjectSpecType = z.infer<typeof PcbProjectSpec>;
 
+/**
+ * 프로젝트명 저장 한계(여정 36호) — `sp_order_spec.project_name` 은 VARCHAR(191)이다
+ * (Prisma `String` 기본값 · utf8mb4 인덱스 제한에서 온 수치).
+ *
+ * 프로젝트명은 **고객이 올린 거버 파일명**이라 길이를 우리가 정할 수 없다. 그런데 MySQL 이
+ * strict mode 가 아니면 초과분을 **조용히 버리고 성공으로 답한다** — 올린 사람은 이름이
+ * 바뀐 줄 모르고, 자기 파일과 화면의 이름을 못 맞춘다. 게다가 운영 DB 가 strict mode 라면
+ * 같은 입력이 **500 으로 터진다**(환경에 따라 동작이 갈리는 것 자체가 위험이다).
+ *
+ * 그래서 저장 전에 **우리가 명시적으로** 자르고, 잘렸다는 사실이 보이도록 말줄임표를 붙인다.
+ * 업로드를 거부하지는 않는다 — 파일명이 길다고 견적을 못 내게 하는 것은 과하다.
+ */
+export const PCB_PROJECT_NAME_MAX = 191;
+
+export const clampPcbProjectName = (raw: string): string =>
+  raw.length <= PCB_PROJECT_NAME_MAX
+    ? raw
+    : // '…'(U+2026)는 한 글자다 — 190 + 1 = 191 로 한계에 딱 맞춘다.
+      `${raw.slice(0, PCB_PROJECT_NAME_MAX - 1)}…`;
+
 // multipart 의 payload 파트(JSON 문자열) 계약.
 // category = 제품군(구 state.menu), orderCategory = 샘플/양산(구 state.category) — 스왑 주의.
 export const PcbProjectPayload = z.object({
