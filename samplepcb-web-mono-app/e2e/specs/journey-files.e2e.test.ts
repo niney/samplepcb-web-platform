@@ -272,7 +272,11 @@ describe.skipIf(!RUN || !JOURNEY)('여정 22호 — 파일·첨부 권한 축', 
     );
   }, 300_000);
 
-  test('V3. 같은 종류를 다시 올리면 교체된다 — 누적되지 않는다', async (ctx) => {
+  // 이 편이 처음 잡았을 때는 "누적되는데 화면이 나열만 한다 → 옛 도면으로 승인한다"가 결함
+  // 이었다. 결정(2026-08-11): **누적은 유지**하고(다층 보드처럼 여러 장 올리는 실무를 막지
+  // 않는다·덮어쓰기는 되돌릴 수 없다) 대신 **최신을 갈라 보여 준다**. 그래서 지금 이 테스트가
+  // 지키는 명세는 둘이다 — 파일은 남는다, 그리고 최신이 표시된다.
+  test('V3. 같은 종류를 다시 올려도 남는다 — 대신 최신이 갈린다', async (ctx) => {
     if (poId === null) return ctx.skip();
     const prisma = getPrisma();
 
@@ -292,22 +296,26 @@ describe.skipIf(!RUN || !JOURNEY)('여정 22호 — 파일·첨부 권한 축', 
       orderBy: { id: 'asc' },
     });
     const eqOnes = after.filter((f: any) => String(f.fileType) === 'eq');
-    // 현재 동작 박제 — EQ 첨부는 **누적**된다(uploadPcbEqFile 이 create 만 한다).
-    expect(after.length, 'EQ 첨부는 누적된다(현재 동작)').toBe(before + 1);
+    expect(after.length, 'EQ 첨부는 누적된다(결정: 지우지 않는다)').toBe(before + 1);
     expect(eqOnes.length, '같은 종류가 여러 건 공존').toBeGreaterThan(1);
     eqFileId = Number(eqOnes[eqOnes.length - 1]?.id);
 
+    // 협력사 포털이 보는 응답 — 최신 판정이 여기 실려야 화면이 갈라 그린다.
+    const detail = await api(P, 'GET', `/api/partner/pcb-pos/${String(poId)}`);
+    expect(detail.status, `포털 상세: ${JSON.stringify(detail.json)}`).toBe(200);
+    const files: any[] = detail.json?.data?.eq?.files ?? [];
+    const latestEq = files.filter((f) => f.fileType === 'eq' && f.isLatest === true);
+    expect(latestEq.length, 'eq 종류의 최신은 하나').toBe(1);
+    expect(String(latestEq[0]?.name), '나중에 올린 것이 최신').toBe('eq-v2.zip');
+    expect(files[0]?.isLatest, '최신이 목록 앞에 선다').toBe(true);
+
     F(
       'V3',
-      'bug',
-      `**EQ 첨부는 같은 종류를 다시 올려도 이전 것이 남는다**(누적) — 재업로드 후 eq 종류가 ` +
-        `${String(eqOnes.length)}건 공존한다(${eqOnes.map((f: any) => String(f.originFileName)).join(', ')}). ` +
-        `선적 첨부(invoice/airwaybill)는 **종류별 1건 교체**인데 EQ 만 규칙이 다르다. 협력사가 ` +
-        `잘못 올린 파일을 지우지 않고 새로 올리면 둘 다 남고, 관리자 화면은 나열만 하므로 ` +
-        `**옛 도면을 보고 승인**할 수 있다 — 그러면 잘못된 도면으로 생산이 진행된다. ` +
-        `다만 다층 보드처럼 도면을 여러 장 올려야 하는 실무가 있을 수 있어, 교체로 바꾸면 그 ` +
-        `경로를 막는다(정책 판단 필요 — 최소안은 화면에서 '최신'을 구분해 주는 것). ` +
-        `uploadPcbEqFile(lib/pcb-po.ts)이 create 만 한다.`,
+      'obs',
+      `EQ 첨부 누적 + 최신 판정 실측(22호 결함의 결정판) — eq 종류 ${String(eqOnes.length)}건 공존` +
+        `(${eqOnes.map((f: any) => String(f.originFileName)).join(', ')})하되 isLatest 는 ` +
+        `'${String(latestEq[0]?.name)}' 하나뿐이고 목록 맨 앞에 선다. 파일을 지우지 않으므로 여러 장 ` +
+        `올리는 실무가 살아 있고, 관리자·협력사 화면은 최신만 펼쳐 보여 옛 도면 오승인을 막는다.`,
     );
   }, 300_000);
 

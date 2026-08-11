@@ -45,6 +45,7 @@
     "journey:notify": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-notify-gate",
     "journey:screens": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-screens",
     "journey:rewind": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-rewind",
+    "journey:decisions": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-decisions",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
