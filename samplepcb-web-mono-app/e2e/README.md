@@ -110,6 +110,7 @@ specs/
   journey-bom-candidate-selection.e2e.test.ts BOM 여정 18호 — 후보 비교→검토 선택·차단·제외 복원
   journey-bom-comparison-workspace.e2e.test.ts BOM 여정 19호 — 전체 BOM 비교→필터·페이지·오류·모바일 열 탐색
   journey-bom-admin-comparison-workspace.e2e.test.ts BOM 여정 20호 — 관리자 전체 비교→가림·페이지·복구·모바일 감사
+  journey-bom-admin-workbook-recovery.e2e.test.ts BOM 여정 21호 — 관리자 실제 XLSX→분석·시트 오류 복구·모바일 감사
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -117,7 +118,7 @@ specs/
 
 옵트인 2중 게이트(`PORTAL_E2E=1` + `JOURNEY=1`)로만 돈다. 공통 사전 조건은
 nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1–4호는
-**거버(8040)**, BOM 1–3호·14호는 **sp-engine(8400)**이 추가로 필요하다. BOM 4호는 이미
+**거버(8040)**, BOM 1–3호·14호·21호는 **sp-engine(8400)**이 추가로 필요하다. BOM 4호는 이미
 회신 완료된 거래 스냅샷부터 시작해 주문 하류만 검증하므로 엔진이 필요하지 않다. BOM 5호도
 회신 완료 스냅샷부터 시작하며 결제 이후 공급 차질 복구를 검증한다. BOM 6호는
 견적요청 스냅샷부터 시작해 미응답 RFQ 회수·재배정과 무로그인 회신을 검증하므로 엔진이
@@ -171,6 +172,10 @@ BOM 20호는 별도 가상 관리자 소유의 업로드형 작성 중 견적 1�
 가리지 않는지부터 전체화면 포커스·2페이지 유지·필터 이름·503 재시도·재진입 쿼리 초기화를
 확인한다. 390px에서는 Excel 원본 열을 지나 최우측 공급사 결과까지 키보드와 좌우 스크롤로
 실제로 탐색할 수 있는지 확인하며 엔진 잡을 다시 호출하지 않고 종료 후 fixture를 회수한다.
+BOM 21호는 관리자 독립 업로드 화면에서 실제 다중 시트 XLSX와 유효 BOM이 없는 XLSX를 올린다.
+업로드 503 알림, prepare 502 뒤 완료된 같은 엔진 잡 재사용, 시트 변경 503 재시도와 제외·복원,
+DB 분석 스냅샷 계산을 검증한다. 업로드 카드와 시트 관리 모달의 키보드·포커스·배경 스크롤,
+390px 실패 화면의 전체 시트명까지 확인하고 테스트 견적·원본 파일·엔진 잡을 모두 회수한다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -179,7 +184,7 @@ BOM 20호는 별도 가상 관리자 소유의 업로드형 작성 중 견적 1�
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~20호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~21호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
@@ -200,7 +205,8 @@ BOM 20호는 별도 가상 관리자 소유의 업로드형 작성 중 견적 1�
 | `pnpm -F e2e journey:bom:18` | BOM 18호만 — 후보 비교·검토 선택·차단·제외 복원 |
 | `pnpm -F e2e journey:bom:19` | BOM 19호만 — 전체 비교·필터·페이지·오류 복구 |
 | `pnpm -F e2e journey:bom:20` | BOM 20호만 — 관리자 비교·패널 가림·모바일 감사 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~20호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:21` | BOM 21호만 — 관리자 XLSX 분석·오류 복구·모바일 감사 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~21호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -471,7 +477,7 @@ Recent file에도 제목이 노출되면 안 된다. 숫자가 아닌 깨진 주
 
 **생성물은 원칙적으로 자동 정리하지 않는다.** 단, 9·10호의 삭제 성공 표본은 제품 삭제
 경로 검증 자체가 정리이며 stale 표본도 reset 경로로 정리하고 공유 주문 차단 표본만 남긴다.
-12~20호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안·수량·수동 추가·후보 선택·고객·관리자 전체 비교 검증 뒤 하네스가 직접 정리한다.
+12~21호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안·수량·수동 추가·후보 선택·고객·관리자 전체 비교와 관리자 업로드 검증 뒤 하네스가 직접 정리한다.
 그 밖의 생성물은 완주 후 리포트
 (`output/journey/findings*.md`) 대장을 보고 손으로 지운다 — 순서는 ① 주문을
 `force-status '주문'` 으로 내려 **재고 복원** ② g5 cart+order ③ sp_* 역순

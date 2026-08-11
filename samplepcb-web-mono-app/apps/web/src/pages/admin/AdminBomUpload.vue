@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { nextTick, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import { useCreateAdminBomQuote } from '../../admin/useAdminBomQuoteUpload';
@@ -19,6 +19,7 @@ const router = useRouter();
 const dragOver = ref(false);
 const error = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
+const errorPanel = ref<HTMLParagraphElement | null>(null);
 const create = useCreateAdminBomQuote();
 
 const SUPPLIER_LOGOS = [
@@ -65,43 +66,67 @@ function onDrop(event: DragEvent): void {
   const file = event.dataTransfer?.files[0];
   if (file !== undefined) void submit(file);
 }
+
+watch(error, (message) => {
+  if (message !== '') void nextTick(() => errorPanel.value?.focus());
+});
 </script>
 
 <template>
   <div class="flex h-full flex-col items-center overflow-y-auto bg-surface px-6 pb-[60px]">
     <div
-      class="relative mt-[46px] h-[524px] w-[640px] max-w-full cursor-pointer overflow-hidden rounded-[8px] transition"
+      class="relative mt-[46px] h-[524px] w-[640px] max-w-full overflow-hidden rounded-[8px] transition"
       :class="dragOver ? 'ring-4 ring-brand-strong/40' : ''"
-      role="button"
-      tabindex="0"
-      @click="fileInput?.click()"
-      @keydown.enter="fileInput?.click()"
       @dragenter.prevent="dragOver = true"
       @dragover.prevent
       @dragleave.prevent="dragOver = false"
       @drop.prevent="onDrop"
     >
-      <img :src="uploadCard" alt="Drag & drop BOM file — xlsx, xls, csv, tsv, bom formats, up to 50 MB" class="absolute inset-0 size-full">
+      <img
+        :src="uploadCard"
+        alt="Drag & drop BOM file — xlsx, xls, csv, tsv, bom formats, up to 50 MB"
+        class="absolute inset-0 size-full"
+      />
       <button
         type="button"
-        class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] transition hover:bg-white/25"
-        :class="create.isPending.value ? 'bg-surface shadow-sm' : ''"
+        class="group absolute inset-0 rounded-[8px] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-white/80"
         :disabled="create.isPending.value"
-        aria-label="Select file"
-        @click.stop="fileInput?.click()"
+        aria-label="BOM 파일 업로드"
+        @click="fileInput?.click()"
       >
-        <template v-if="create.isPending.value">
-          <img :src="icUpload" alt="" class="size-[20px]">
+        <span
+          v-if="create.isPending.value"
+          class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] bg-surface shadow-sm"
+        >
+          <img :src="icUpload" alt="" class="size-[20px]" />
           <span class="text-[16px] font-bold leading-[24px] text-brand-strong">Uploading…</span>
-        </template>
+        </span>
       </button>
     </div>
-    <input ref="fileInput" type="file" :accept="FILE_ACCEPT" class="hidden" @change="onFileChange">
+    <input
+      ref="fileInput"
+      type="file"
+      :accept="FILE_ACCEPT"
+      class="hidden"
+      @change="onFileChange"
+    />
 
-    <p v-if="error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{{ error }}</p>
+    <p
+      v-if="error"
+      ref="errorPanel"
+      role="alert"
+      tabindex="-1"
+      class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 outline-none focus:ring-2 focus:ring-red-200"
+    >
+      {{ error }}
+    </p>
 
-    <h2 class="mt-[50px] text-center text-[26px] font-bold leading-[32px] text-ink-strong">전자부품 2,000만+ 다양한 제조사</h2>
-    <p class="mt-[8px] text-center text-[18px] leading-[32px] text-ink-neutral">공인 유통사의 견적 정보를 최적의 조건으로, 빠르게 받아 비교하세요</p>
+    <h2 class="mt-[50px] text-center text-[26px] font-bold leading-[32px] text-ink-strong">
+      전자부품 2,000만+ 다양한 제조사
+    </h2>
+    <p class="mt-[8px] text-center text-[18px] leading-[32px] text-ink-neutral">
+      공인 유통사의 견적 정보를 최적의 조건으로, 빠르게 받아 비교하세요
+    </p>
     <div class="mt-[22px] flex flex-wrap items-center justify-center gap-[12px]">
       <img
         v-for="logo in SUPPLIER_LOGOS"
@@ -109,7 +134,7 @@ function onDrop(event: DragEvent): void {
         :src="logo.src"
         :alt="logo.name"
         class="h-[66px] w-[148px]"
-      >
+      />
     </div>
   </div>
 </template>
