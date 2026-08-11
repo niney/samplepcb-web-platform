@@ -103,6 +103,10 @@ export async function getPartner(name: string): Promise<PartnerFixture> {
 /**
  * sp_pcb_po 에 아직 안 쓰인 sp_order_spec 을 최신순으로 n건 고른다 — 발주서 UK
  * (specId, partnerId, parentPartnerId, reorderRound) 충돌 함정 회피(HANDOFF §5).
+ *
+ * ⚠ **status='active' 만** 고른다(2026-08-11 추가). PO 유무만 보던 시절엔 삭제·만료된
+ * 스펙이 섞여 RFQ 배정이 409 `NOT_ACTIVE` 로 튕겼다(여정 20·21호가 연달아 걸렸다).
+ * 비활성 스펙에 견적요청·발주를 붙이는 것은 어차피 의미가 없으므로 여기서 거른다.
  */
 export async function pickFreeSpecs(count: number): Promise<any[]> {
   const prisma = getPrisma();
@@ -110,7 +114,7 @@ export async function pickFreeSpecs(count: number): Promise<any[]> {
     (r: any) => r.specId,
   );
   const specs = await prisma.spOrderSpec.findMany({
-    where: { id: { notIn: used } },
+    where: { id: { notIn: used }, status: 'active' },
     orderBy: { id: 'desc' },
     take: count,
   });

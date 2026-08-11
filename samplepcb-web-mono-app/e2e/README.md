@@ -70,6 +70,7 @@ specs/
   journey-customer-loop.e2e.test.ts    여정 18호 — 고객 축 셀프 루프(주문 뒤 사양 수정·발주 후 잠금·EQ 반려 2회차 격리·견적 삭제 차단)
   journey-bulk-box.e2e.test.ts         여정 19호 — 대량 묶음(한 박스 5건: 합류·송장 5줄·전이 파급·입고 1회 종결, 시드 발주)
   journey-currency.e2e.test.ts         여정 20호 — 환율·통화 축(KRW null·회신엔 환율 없음·선정 박제·조직 통화 흔들어도 발주 불변)
+  journey-md-multi.e2e.test.ts         여정 21호 — MD 다중 상위·단수 제한(한 하위 두 상위·관계별 배정·2단 강제, 관계 무접촉)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -108,6 +109,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:customer` | 18호만 — 고객 셀프 루프(W6 동기+결제 기록 불변 · PO_ISSUED 경계 · 반려 왕복 2회차 사유 격리 · ALREADY_ORDERED) |
 | `pnpm -F e2e journey:bulk` | 19호만 — 대량 묶음(개수가 코드 경로를 가르는 자리: 송장 품목 5줄·비대표도 같은 박스·입고 1회 파급) |
 | `pnpm -F e2e journey:currency` | 20호만 — 환율이 언제 굳는가(회신 아닌 선정에서 · 수동 발주 환율 필수 · 조직 통화 변경에도 발주 박제) |
+| `pnpm -F e2e journey:mdmulti` | 21호만 — MD 다중 상위(관계별 통화 박제 · 400=구조 불가/409=지금만 충돌 구분 · 거절 후 관계 불변) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
@@ -298,6 +300,7 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
+
 
 
 
