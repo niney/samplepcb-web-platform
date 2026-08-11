@@ -26,6 +26,7 @@ import {
   loadFreeAsRoundKeys,
   loadRemittanceKrwPaid,
   loadRemittanceSummaries,
+  notifyPcbRemittanceSettled,
   patchPcbRemittance,
   summarizePcbRemittances,
   uploadRemittanceFile,
@@ -356,6 +357,9 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         request.user.mbId,
       );
       if (!outcome.ok) return reply.notFound('발주서를 찾을 수 없습니다');
+      // 이 송금으로 잔액이 0 이 됐으면 협력사에 1회 알린다(여정 8호 결정 — 회차마다가
+      // 아니라 완납만). 비차단: 메일 사정으로 송금 기록이 흔들리면 안 된다.
+      void notifyPcbRemittanceSettled(request.log, request.params.poId, request.user.mbId);
       return mutationResult(request.params.poId);
     },
   );
@@ -377,6 +381,8 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         request.body,
       );
       if (!outcome.ok) return reply.notFound('송금 기록을 찾을 수 없습니다');
+      // 금액 정정으로 비로소 완납이 되는 경우도 있다 — 생성과 같은 규칙(1회)이 적용된다.
+      void notifyPcbRemittanceSettled(request.log, request.params.poId, request.user.mbId);
       return mutationResult(request.params.poId);
     },
   );

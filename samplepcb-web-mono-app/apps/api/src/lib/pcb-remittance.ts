@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from 'fastify';
 import type { SpFile, SpPcbRemittance } from '@prisma/client';
 import type {
   PcbRemittanceCreateBodyType,
@@ -11,6 +12,9 @@ import { prisma } from './prisma';
 import { roundPcbAmount } from './exchange-rate';
 import { asPcbCurrency } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
+import { buildPcbRemittanceSettledEmail, pcbPriceText, sendPcbMail } from './pcb-rfq-email';
+import { resolvePcbPortalCta } from './pcb-portal-cta';
+import { kstDateStr } from './kst';
 
 // ── PCB 송금 원장 코어(P3.11) — docs/PCB_PARTNER_TRACK.md D15 ────────────────
 // 발주서 1:N 송금. 이 파일이 **잔액 계산의 단일 진실**이다 — 목록·상세·협력사별 집계·
@@ -263,6 +267,92 @@ export const getRemittanceFileDownload = async (
   if (row === null) return null;
   if (row.refType !== REMITTANCE_REF_TYPE || row.refId !== remittanceId) return null;
   return { pathToken: row.pathToken, originFileName: row.originFileName };
+};
+
+// ── 완납 통지(여정 8호 결정) ─────────────────────────────────────────────────
+// 관리자가 송금해도 협력사에는 포털 배지 말고 신호가 없었다. 그렇다고 **회차마다**
+// 알리면 알림이 사실보다 앞선다 — 원장은 정정·삭제되는 기록이다(여정 30호 실측:
+// 100→50 정정, 행 삭제까지). 그래서 **잔액이 0 이 된 순간 1회만** 보낸다. 잔액 0 은
+// 워크큐를 가르는 경계이고, 협력사가 실제로 알고 싶은 지점도 그 하나다.
+//
+// "1회"는 **발주서당 1회**다 — 원장(sp_mail_log)에 발송 기록이 있으면 다시 보내지
+// 않는다. 그래서 완납 뒤 정정으로 잔액이 되살아나고 다시 0 이 되어도 재통지하지 않는다:
+// 이미 나간 메일은 되돌릴 수 없고 같은 문구를 두 번 보내면 협력사는 두 번 받았다고
+// 여긴다. 그런 정정은 사람이 직접 알리는 편이 정확하다.
+
+const SETTLED_MAIL_KIND = 'pcb_remit_settled';
+const SETTLED_MAIL_REF_TYPE = 'pcb_po';
+
+/**
+ * 이 발주서가 방금 완납됐으면 수주 협력사에 1회 통지한다(아니면 아무것도 하지 않는다).
+ * ⚠ 실패해도 throw 하지 않는다 — 원장이 정본이고 메일은 부수다. 송금 기록이 메일 때문에
+ *   무산되면 안 된다.
+ */
+export const notifyPcbRemittanceSettled = async (
+  log: FastifyBaseLogger,
+  poId: bigint,
+  actorMbId: string,
+): Promise<void> => {
+  try {
+    const po = await prisma.spPcbPo.findUnique({
+      where: { id: poId },
+      include: { spec: { select: { projectName: true } }, partner: true },
+    });
+    if (po === null) return;
+
+    const rows = await prisma.spPcbRemittance.findMany({
+      where: { poId },
+      select: { amount: true, remittedOn: true },
+    });
+    const summary = summarizePcbRemittances(po, rows);
+    // 한 푼도 안 나갔으면 완납이 아니다 — 이 조건이 무상 A/S 회차(잔액을 0 으로 눕히는
+    // 표시 규칙)가 완납 통지로 새는 것도 함께 막는다.
+    if (summary.count === 0) return;
+    if (summary.status !== 'paid' && summary.status !== 'over') return;
+
+    // 이미 보냈으면 끝. 'sent' 만 센다 — 실패·스킵은 다시 시도할 여지를 남긴다.
+    // ⚠ 확인-후-발송 사이의 레이스는 막지 않는다: 송금 기록은 사람이 한 건씩 하는 작업이라
+    //   같은 발주서에 동시 두 요청이 들어올 일이 실질적으로 없다.
+    const alreadySent = await prisma.spMailLog.count({
+      where: {
+        kind: SETTLED_MAIL_KIND,
+        refType: SETTLED_MAIL_REF_TYPE,
+        refId: poId.toString(),
+        status: 'sent',
+      },
+    });
+    if (alreadySent > 0) return;
+
+    const portalCta = await resolvePcbPortalCta(po.partnerId);
+    await sendPcbMail(
+      log,
+      po.partner.contactEmail,
+      buildPcbRemittanceSettledEmail({
+        partnerName: po.partner.name,
+        projectName: po.spec.projectName,
+        // 발주가가 아니라 **실제로 보낸 금액**이다(과지급이면 발주가보다 크다).
+        amountText: pcbPriceText(summary.currency, summary.paidAmount, null, null),
+        lastRemittedText:
+          summary.lastRemittedOn === null ? null : kstDateStr(new Date(summary.lastRemittedOn)),
+        count: summary.count,
+        ...portalCta,
+      }),
+      {
+        kind: SETTLED_MAIL_KIND,
+        refType: SETTLED_MAIL_REF_TYPE,
+        refId: poId,
+        sentBy: actorMbId,
+        params: {
+          partnerName: po.partner.name,
+          currency: summary.currency,
+          paidAmount: summary.paidAmount,
+          count: summary.count,
+        },
+      },
+    );
+  } catch (err) {
+    log.error({ err, poId: poId.toString() }, 'pcb remittance settled notice failed');
+  }
 };
 
 // ── 무상(free) A/S 회차 — 지급·수금 집계 제외 판정 ───────────────────────────

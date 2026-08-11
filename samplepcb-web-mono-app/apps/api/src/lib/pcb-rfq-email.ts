@@ -289,6 +289,58 @@ export function buildPcbPoIssuedEmail(p: PcbPoIssuedEmailParams): {
   };
 }
 
+// ── 송금 완납 통지(P3.11 · 여정 8호 결정) ────────────────────────────────────
+// ⚠ **회차마다 보내지 않는다.** 송금 원장은 정정·삭제되는 기록이라(여정 30호 실측:
+//   100→50 정정, 행 삭제까지) 부분 송금마다 알리면 알림이 사실보다 앞서 나간다.
+//   잔액 0 은 큐를 가르는 명확한 경계이고, 협력사가 실제로 알고 싶은 것도 그 지점이다.
+
+export interface PcbRemittanceSettledEmailParams extends PcbPortalCtaParams {
+  partnerName: string;
+  projectName: string;
+  amountText: string; // 총 지급액 — pcbPriceText 조립
+  lastRemittedText: string | null; // 마지막 송금일 YYYY-MM-DD
+  count: number; // 송금 회차 수(1=한 번에)
+}
+
+/** 발주 대금 완납 → 수주 협력사 통지(무계정이면 포털 버튼 대신 대행 안내). */
+export function buildPcbRemittanceSettledEmail(p: PcbRemittanceSettledEmailParams): {
+  subject: string;
+  html: string;
+} {
+  const rows = [
+    infoRow('발주 건', esc(p.projectName)),
+    infoRow('지급 총액', `<b>${esc(p.amountText)}</b>`),
+    ...(p.count > 1 ? [infoRow('송금 횟수', `${String(p.count)}회 분할`)] : []),
+    ...(p.lastRemittedText === null ? [] : [infoRow('마지막 송금일', esc(p.lastRemittedText))]),
+  ].join('');
+  const cta =
+    p.hasPortalAccount === false
+      ? proxyNoticeBox('입금 확인·정산 문의는 샘플피씨비 담당자에게 주세요:', p.inquiryEmail)
+      : `
+      <div style="padding-top:16px;">
+        <a href="${esc(pcbPartnerPortalUrl())}"
+           style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">
+          파트너 포털에서 확인하기</a>
+      </div>`;
+  return {
+    subject: `[샘플피씨비] PCB 대금 지급 완료 — ${p.projectName}`,
+    html: shell(
+      '발주 대금 지급이 완료되었습니다',
+      `
+      <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.6;">
+        ${esc(p.partnerName)} 담당자님, <b>${esc(p.projectName)}</b> 발주 건의 대금을 전액 송금했습니다.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}
+      </table>
+      <p style="margin:12px 0 0;font-size:12px;color:#8593ab;line-height:1.6;">
+        은행 처리 사정에 따라 실제 입금까지 시차가 있을 수 있습니다.
+        입금 내역이 다르면 회신해 주세요.
+      </p>${cta}`,
+      '본 메일은 샘플피씨비 PCB 대금 지급 알림입니다.',
+    ),
+  };
+}
+
 export interface PcbEqTurnEmailParams {
   partnerName: string; // 전이한 협력사(또는 수신 협력사)
   projectName: string;
