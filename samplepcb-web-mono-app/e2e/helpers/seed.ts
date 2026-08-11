@@ -61,7 +61,9 @@ export interface PartnerFixture {
   name: string;
   country: string | null;
   capabilities: unknown;
-  /** 첫 연결 계정(mb_id) — 없으면 null */
+  /** 알림 메일 수신처 — Mailpit 검증(포털 CTA·대행 안내 대조)의 검색 키 */
+  contactEmail: string | null;
+  /** 첫 연결 계정(mb_id) — 없으면 null. **null = 포털 토큰을 만들 수 없는 조직**(대행 전용) */
   mbId: string | null;
 }
 
@@ -80,6 +82,7 @@ export async function getPartner(name: string): Promise<PartnerFixture> {
     name: p.name,
     country: p.country ?? null,
     capabilities: p.capabilities,
+    contactEmail: p.contactEmail ?? null,
     mbId: p.members[0]?.mbId ?? null,
   };
 }

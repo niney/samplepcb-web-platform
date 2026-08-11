@@ -1791,6 +1791,38 @@ apps/api vitest 777 · 정리 CLEAN(spec=0 고아=0, 상설 픽스처 무접촉)
 `X07-portal-three-boxes.png`(박스 셋의 헤더가 각각 다르다) · `X09-order-ship-kept-row.png`
 (회차 직송 지정 후에도 [배송 처리]) · `X09-direct-round-received-row.png`(직송 입고 건만 [직송 완료]).
 
+### 여정 12호 — 관리자 대행 완주(포털 없는 협력사) (2026-08-11)
+
+앞의 열한 편은 전부 **협력사 토큰으로 포털을 두드렸다**. 그런데 실무 협력사 상당수는 포털 계정이
+없다 — 메일과 전화로 일한다. 그래서 D11 이 "관리자 만능 대행"을, 재점검 #15 가 무계정 조직용
+**대행 안내 메일**을 두었는데 **대행만으로 완주한 여정은 하나도 없었다**. 주인공은 상설 픽스처
+`e2e한국협력`(#9·KR/KRW·**연결 계정 0**)이고, 계정이 없으니 협력사 토큰을 만들 방법 자체가
+없다(`getPartner().mbId === null` 이 전제이자 첫 어서션). 전 구간을 관리자 토큰 하나로만 민다
+(`journey:proxy`, 8케이스).
+
+- **대행 이력이 남는다(DB 실측 둘)**: 대행 업로드 `sp_file.uploadedBy='ADMIN'`(eq·working 2/2) ·
+  대행 전이 `sp_pcb_po.eqHistory[].byRole='ADMIN'`(`issued→eq_requested→eq_done→producing→
+  produced` **4/4, PARTNER 0건**). 누가 밀었는지가 회차 전체에 박제된다.
+- **대행이라고 규율이 느슨해지지 않는다**: 승인요청 뒤 첨부 교체는 포털과 같은 409 `EQ_LOCKED`,
+  국내 종점은 같은 409 `RECEIVE_REQUIRED` → [입고 확인] 1회로 `delivered`+`receivedAt`.
+- **메일이 조직마다 갈린다**: **같은 스펙·같은 순간에 발주서를 두 장 발행**해 무계정 조직과
+  협력2(계정 有)를 나란히 세웠다. 무계정 4종(발주서 도착·EQ 결정·선적 차례·입고 확인) 전부
+  `담당자가 대행합니다`+`mailto:` 를 담고 `/app/partner` 링크가 **0개** · 대조군은 포털 버튼 유지.
+  **예외까지 박제한다** — 견적요청 메일만은 무계정에도 매직링크(`가입 없이 바로 회신하기`)가
+  그대로 간다. 로그인 없이 실행되는 CTA 라 대행 치환 대상이 아니기 때문이다.
+- 고객 축은 대행 여부를 알 필요가 없다 — 진행 카드가 EQ→생산→생산완료→운송→입고로 그대로 따라온다.
+
+**발견 1건(첫 주행은 무수정 — 현재 동작 박제)**: **무계정 조직의 발송을 화면만으로 시작할 수
+없다.** 선적 큐 발송 대기 탭은 "관리자는 Case 상세에서 대행할 수 있습니다"
+(`AdminPcbShipments.vue:200`)라고 보내지만, Case 상세의 선적 줄은 **발송 문서가 이미 있을 때만**
+렌더된다(`AdminPcbCase.vue:1635` `shipRowsOf`). 담기(박스 생성) 라우트는 협력사 전용
+(`POST /api/partner/pcb-shipments/box`)뿐이고 관리자는 `shipment/advance` 가 겸하는
+`ensurePcbShipment` 로만 열 수 있어, **계정이 영영 없는 조직은 UI 로 발송을 시작할 수 없다**
+(D11 "만능 대행" 약속의 구멍). P5 가 "Case 상세의 발송 시작 버튼 = 0개"로 현재 동작을 박제한다.
+
+8/8 green · HTTP ≥400 0건 · pageerror 0건 · 정리 CLEAN(상설 픽스처 5조직 무접촉, Mailpit 은
+이번 주행분 6통만 삭제). 스크린샷 21장(접두사 `P` — 여정 공용 폴더라 편마다 글자를 전용한다).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

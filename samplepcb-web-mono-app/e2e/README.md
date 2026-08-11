@@ -61,6 +61,7 @@ specs/
   journey-multi-customer.e2e.test.ts   여정 9호 — 다중 고객 × 묶음 발송(한 박스 두 주인·정보 격리·cross-member 큐)
   journey-order-cancel.e2e.test.ts     여정 10호 — 주문 취소·부분 취소(한 주문서 두 줄·부분/전량 취소 가드 대조)
   journey-combo-stress.e2e.test.ts     여정 11호 — 조합 스트레스(묶음 × A/S 회차 × 직송: 박스 키 두 축의 분리·합류 교차)
+  journey-admin-proxy.e2e.test.ts      여정 12호 — 관리자 대행 완주(포털 없는 협력사: 대리 회신·EQ/선적 대행·대행 안내 메일 대조)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -90,6 +91,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:multi` | 9호만 — 다중 고객 × 묶음(고객 2인 동시 세션·한 박스 두 주인·정보 격리·cross-member 배송 큐) |
 | `pnpm -F e2e journey:cancel` | 10호만 — 주문 취소·부분 취소(한 주문서 두 줄·부분 취소 대 전량 취소 가드 대조) |
 | `pnpm -F e2e journey:combo` | 11호만 — 조합 스트레스(묶음 × A/S 회차 × 직송: 박스 키의 회차·직송지 두 축 교차, W8 순환·대표 승계·돈 축 교차) |
+| `pnpm -F e2e journey:proxy` | 12호만 — 관리자 대행 완주(포털 계정 없는 협력사: 대리 회신·EQ/생산/선적 대행·무계정 대행 안내 메일 4종 대조, `e2e한국협력` 상설 픽스처) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
@@ -203,13 +205,44 @@ M7 은 `HAS_REMITTANCE` 순환을 **끝까지** 돈다 — 잠김(409) → 원�
   교정 후 헤더에 `A/S N차` 배지가 선다(계약 `PcbShipmentView.reorderRound` — 같은 카드를 쓰는
   `PcbShipmentCard.vue` 진행 중 발송도 함께).
 
+12호가 지키는 것은 **협력사가 포털을 쓰지 않아도 트랙이 끝까지 간다**는 사실이다. 앞의 열한 편은
+전부 협력사 토큰으로 포털을 두드렸지만, 실무 협력사 상당수는 **계정이 없다**(메일과 전화로 일한다).
+그래서 D11 이 "관리자 만능 대행"을, 재점검 #15 가 무계정 조직용 **대행 안내 메일**을 두었는데 —
+**대행만으로 완주한 여정은 하나도 없었다**. 주인공은 상설 픽스처 `e2e한국협력`(#9·KR/KRW·**연결
+계정 0**)이고, 계정이 없으니 협력사 토큰을 만들 방법 자체가 없다(`getPartner().mbId === null` 이
+첫 어서션이다). RFQ 대리 회신(`PUT admin …/rfqs/:id/reply`) → EQ·Working **대행 업로드** →
+`eq-request`·`production-start`·`production-complete` **대행 전이** → 선적 담기·전이·입고 확인까지
+**관리자 토큰 하나**로만 민다. 포털은 한 번도 열지 않는다 — 그게 이 편의 전제다.
+
+증거는 **DB 실측 둘**이다: 대행 업로드의 `sp_file.uploadedBy='ADMIN'`(2/2)과 대행 전이의
+`sp_pcb_po.eqHistory[].byRole='ADMIN'`(4/4 — 회차 전체에 PARTNER 가 한 칸도 없다). 대행이라고
+규율이 느슨해지지도 않는다: 승인요청 후 첨부 교체는 포털과 같은 `EQ_LOCKED` 로 막히고, 국내
+종점은 같은 `RECEIVE_REQUIRED` 로 [입고 확인]에 묶인다.
+
+셋째 축은 **메일 대조**다. 무계정 조직엔 포털 버튼 대신 대행 안내(+운영자 문의처 mailto)가 가야
+하고, 계정 있는 협력2 는 버튼을 유지해야 한다 — 그래서 **같은 스펙·같은 순간에 발주서를 두 장
+발행해** 같은 종류의 메일을 나란히 세운다(대조군 발주서는 대조 직후 취소한다). 4종(발주서 도착·
+EQ 결정·선적 차례·입고 확인) 모두에서 무계정본은 `담당자가 대행합니다` + `mailto:` 를 담고
+`/app/partner` 링크가 **한 개도 없다**. 예외는 **견적요청 메일** 하나인데, 매직링크는 로그인 없이
+실행되는 CTA 라 대행 치환 대상이 아니다(무계정에도 `가입 없이 바로 회신하기` 가 그대로 간다) —
+이 편은 그 예외까지 함께 박제한다.
+
+첫 주행이 박제한 결함 하나: **무계정 조직의 발송을 화면만으로는 시작할 수 없다**. 선적 큐의
+발송 대기 탭은 "발송 생성은 협력사 포털이 원칙이고, 관리자는 Case 상세에서 대행할 수 있습니다"
+(`AdminPcbShipments.vue:200`)라고 안내하지만, Case 상세의 선적 줄은 **발송 문서가 이미 있을 때만**
+렌더된다(`AdminPcbCase.vue:1635` `shipRowsOf`). 담기(박스 생성) 라우트는 협력사 전용
+(`POST /api/partner/pcb-shipments/box`)뿐이고 관리자는 `shipment/advance` 가 겸하는 `ensure` 로만
+시작할 수 있어, **계정이 영영 없는 조직은 UI 로 발송을 열 수 없다**(P5 가 "Case 상세의 발송 시작
+버튼 = 0개"로 현재 동작을 박제한다 — 고치면 그 어서션부터 뒤집으면 된다).
+
 6호와 MD 4·5편은 **국가×물류모드 매트릭스**의 남은 칸을 채운다 — 모드는 국적이 아니라
 "발송자국가=수신국가" 파생임을 조합으로 실증한다(4편 KR MD 전 구간 국내 · 5편 CN MD 의
 CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR→CN 국제). MD 편은 **상설
 픽스처**를 쓴다: `마스터딜러상사`(KR/KRW·mdtester — 관계 협력1 KRW·협력2 USD),
-`mdtester2상사`(CN/USD·mdtester2 — 관계 협력2 USD·다중 상위), 6호의 `e2e한국협력`(KR/KRW·
-연결 계정 없음 — 관리자 대행 전용). ⚠ `cleanup-md.mts` 는 관계를 해제하므로 이 편들에 쓰면
-안 된다 — 정리는 `cleanup-probe.mts`(e2e-customer 스펙 축 훑기·상설 무접촉)로만.
+`mdtester2상사`(CN/USD·mdtester2 — 관계 협력2 USD·다중 상위), `e2e한국협력`(KR/KRW·**연결 계정
+없음** — 6호가 세우고 **12호가 주인공으로 쓴다**: 관리자 대행 전용). ⚠ `cleanup-md.mts` 는 관계를
+해제하므로 이 편들에 쓰면 안 된다 — 정리는 `cleanup-probe.mts`(e2e-customer 스펙 축 훑기·상설
+무접촉)로만.
 
 **생성물은 자동 정리하지 않는다.** 완주 후 리포트(`output/journey/findings*.md`)의 생성물
 대장을 보고 손으로 지운다 — 순서는 ① 주문을 `force-status '주문'` 으로 내려 **재고 복원**
@@ -240,4 +273,8 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
 - 기본 도메인은 nginx 통합(`https://local-web.samplepcb.co.kr`) — nginx(Windows
   서비스)가 꺼져 있으면 beforeAll 에서 중단된다. `E2E_BASE_URL=http://127.0.0.1:5173`
   (vite 직결)로 우회 가능하나 `/bbs`(그누보드 화면) 검증은 불가.
-- Mailpit 은 사용자 관찰용이기도 하다 — 시드가 유발한 메일만 `mailpitDelete(ids)`.
+- Mailpit 은 사용자 관찰용이기도 하다 — 시드가 유발한 메일만 `mailpitDelete(ids)`. 같은 제목이
+  주행마다 반복되므로(프로젝트명이 픽스처 파일명이다) **발송 전에 기준선(최신 1통 ID)을 잡고**
+  그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
+- 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
+  전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
