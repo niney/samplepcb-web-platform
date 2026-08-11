@@ -177,6 +177,10 @@ export const AdminPcbPoView = z.object({
   specId: z.number(),
   partnerId: z.number(),
   partnerName: z.string(),
+  /** 이 조직에 연결 계정이 있는가(false = 포털 토큰을 만들 수 없다 → 발주 이후 전 단계가
+   *  관리자 대행 몫). RFQ 회신은 매직링크라 계정이 없어도 협력사가 직접 하므로, 이 값이
+   *  가르는 것은 **발주 이후**(EQ·생산·선적)다 — 기다려도 오지 않는 건을 구분한다. */
+  partnerHasPortal: z.boolean(),
   parentPartnerId: z.number(),
   parentPartnerName: z.string().nullable(),
   reorderRound: z.number().int(),
@@ -283,6 +287,8 @@ export const AdminPcbPoWorkItem = z.object({
   specId: z.number(),
   projectName: z.string(),
   partnerName: z.string(),
+  /** 연결 계정 없음 = 이 줄은 협력사가 스스로 진행할 수 없다(대행 대기). */
+  partnerHasPortal: z.boolean(),
   parentPartnerName: z.string().nullable(),
   reorderRound: z.number().int(),
   status: PcbPoStatus,

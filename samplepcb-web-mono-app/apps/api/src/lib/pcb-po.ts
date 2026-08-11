@@ -195,8 +195,23 @@ export const getPcbEqFileDownload = async (
 };
 
 // ── 직렬화 ───────────────────────────────────────────────────────────────────
+/** 연결 계정이 하나라도 있는 조직 id 집합 — 발주 줄이 "협력사가 스스로 할 수 있는 건지"를
+ *  가르는 데 쓴다(행마다 세면 N+1이라 한 번에 모은다). 조직 축이라 발주 수와 무관하다. */
+const loadPartnersWithPortal = async (partnerIds: bigint[]): Promise<Set<string>> => {
+  const ids = [...new Set(partnerIds)];
+  if (ids.length === 0) return new Set();
+  const members = await prisma.spPartnerMember.findMany({
+    where: { partnerId: { in: ids } },
+    select: { partnerId: true },
+    distinct: ['partnerId'],
+  });
+  return new Set(members.map((m) => m.partnerId.toString()));
+};
+
 interface AdminPoExtras {
   parentPartnerName: string | null;
+  /** 연결 계정 유무 — false 면 발주 이후 전 단계가 관리자 대행 몫이다. */
+  partnerHasPortal: boolean;
   eqFiles: PcbEqFileViewType[];
   eqDelegatePoId: bigint | null;
   eqBlocked: boolean;
@@ -211,6 +226,7 @@ export const toAdminPcbPoView = (po: PoWithPartner, extras: AdminPoExtras): Admi
   specId: Number(po.specId),
   partnerId: Number(po.partnerId),
   partnerName: po.partner.name,
+  partnerHasPortal: extras.partnerHasPortal,
   parentPartnerId: Number(po.parentPartnerId),
   parentPartnerName: extras.parentPartnerName,
   reorderRound: po.reorderRound,
@@ -252,6 +268,7 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
   );
   // 송금 요약은 원장(sp_pcb_remittance)이 정본 — 한 번에 모아 온다(행마다 조회하면 N+1).
   const remitMap = await loadRemittanceSummaries(rows);
+  const portalSet = await loadPartnersWithPortal(rows.map((r) => r.partnerId));
   const out: AdminPcbPoViewType[] = [];
   for (const row of rows) {
     const delegation = await resolveEqDelegation(row);
@@ -267,6 +284,7 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
           row.parentPartnerId === 0n
             ? null
             : (parentNames.get(row.parentPartnerId.toString()) ?? null),
+        partnerHasPortal: portalSet.has(row.partnerId.toString()),
         eqFiles: filesMap.get(row.id.toString()) ?? [],
         eqDelegatePoId: delegation.delegatePoId,
         eqBlocked: delegation.blocked,
@@ -1160,6 +1178,7 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
   ]);
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
   const shippedPoIds = new Set(shipmentLinks.map((l) => l.poId.toString()));
+  const portalSet = await loadPartnersWithPortal(rows.map((r) => r.partnerId));
 
   const out: { item: AdminPcbPoWorkItemType; tabs: AdminPcbPoTab[] }[] = [];
   for (const po of rows) {
@@ -1182,6 +1201,7 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
         specId: Number(po.specId),
         projectName: po.spec.projectName,
         partnerName: po.partner.name,
+        partnerHasPortal: portalSet.has(po.partnerId.toString()),
         parentPartnerName:
           po.parentPartnerId === 0n
             ? null

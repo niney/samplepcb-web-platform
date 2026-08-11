@@ -191,7 +191,7 @@ async function confirmReceipt(): Promise<void> {
 const RFQ_GATE_NOTES: Record<string, string> = {
   cart: '고객 장바구니에 담김 — 담김 해제 후 견적요청을 보낼 수 있습니다.',
   unpaid: '입금 확인 전 주문 — 결제 확인 후 소싱을 시작하세요.',
-  closed: '완료·취소된 주문 — 재작업은 A/S 재발주(예정)로 진행합니다.',
+  closed: '완료·취소된 주문 — 재작업은 아래 [A/S 재발주] 섹션에서 회차를 열어 진행합니다.',
 };
 
 // ── 확정가 등록(기존 PATCH 재사용 — 선정행 KRW 환산을 프리필) ────────────────
@@ -1520,6 +1520,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   </p>
                   <p v-if="po.eqDelegatePoId !== null" class="text-[11px] text-indigo-600">MD 경유 — EQ는 하위에서 진행(자동 반영)</p>
                   <p v-else-if="po.eqBlocked" class="text-[11px] text-amber-600">MD 하위 발주 대기 — 발주되면 EQ 시작</p>
+                  <!-- 계정 없는 조직 — 기다려도 오지 않는다. 대행이 필요하다는 신호를
+                       버튼 옆이 아니라 이름 밑에 둔다(어느 줄이 대행 몫인지부터 읽혀야 한다). -->
+                  <p
+                    v-if="!po.partnerHasPortal"
+                    class="text-[11px] font-semibold text-teal-600"
+                    title="이 조직에는 포털 연결 계정이 없습니다 — EQ·생산·선적을 관리자가 대행해야 진행됩니다(견적 회신은 매직링크로 협력사가 직접 합니다)."
+                  >
+                    포털 계정 없음 — 대행 필요
+                  </p>
                 </td>
                 <td class="whitespace-nowrap px-4 py-2.5">
                   <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="PO_STATUS_CLS[po.status]">

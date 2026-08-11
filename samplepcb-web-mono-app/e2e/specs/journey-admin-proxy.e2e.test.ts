@@ -384,6 +384,10 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
     expect(caseBody, 'Case — EQ 대행 업로드 버튼(working)').toContain('⬆ working');
     expect(caseBody, 'Case — 전이 대행 버튼').toContain('EQ 요청 대행');
     expect(caseBody, 'Case — 대행 대상 조직 표기').toContain(PROXY_ORG);
+    // 대행 버튼은 어느 조직에나 뜬다(D11 — 담당자 부재 등 어떤 사정이든 대신 민다). 그래서
+    // **눌러야만 진행되는 줄**을 따로 알려 주지 않으면, 계정 없는 조직 건을 "협력사가
+    // 하겠지" 하고 기다리게 된다 — 그 건은 영영 오지 않는다(재점검 교정).
+    expect(caseBody, 'Case — 계정 없는 조직 신호').toContain('포털 계정 없음 — 대행 필요');
 
     // ── 대행 전이 ①(협력사 몫) — 서버는 관리자를 막지 않되 이력에 ADMIN 을 남긴다.
     const req = await api(A, 'POST', `${base}/eq-request`, {});
@@ -416,6 +420,14 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
     expect(mine, 'EQ 승인 대기 큐 진입').toBeTruthy();
     expect(mine?.partnerName, '큐 협력사명').toBe(PROXY_ORG);
     expect(mine?.adminTurn, '관리자 차례').toBe(true);
+    // 관리자가 매일 보는 화면이라 "이 줄은 기다려도 안 온다"가 여기서 읽혀야 한다(재점검 교정).
+    expect(mine?.partnerHasPortal, '큐 — 계정 없는 조직 파생').toBe(false);
+    // 화면의 기본 탭은 '발주 대기'(결제됐는데 발주서가 없는 건 — 다른 모수)라 이 발주가 거기
+    // 없다. 탭을 옮겨야 협력사 열이 뜨고 배지를 볼 수 있다.
+    await adminView.page.getByRole('button', { name: /^EQ 승인 대기/ }).click();
+    await adminView.page.getByText('대행 필요').first().waitFor({ timeout: 15_000 });
+    await rp.shot(adminView, 'P04-po-queue-eq-pending');
+    expect(await bodyTextOf(adminView), '큐 화면 — 대행 필요 배지').toContain('대행 필요');
 
     // ── 메일 ② EQ 결정 — 무계정이면 "[생산 시작]을 포털에서" 가 아니라 "생산을 진행해 주세요".
     const eqBase = await mailBaseline(proxyEmail, 'PCB EQ 승인');

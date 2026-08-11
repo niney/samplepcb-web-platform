@@ -1844,6 +1844,36 @@ pcb-shipments/box` 의 대응물). Case 상세 발주 행에는 생산완료·�
 검증: `journey:proxy` 8/8 green · 회귀 `journey:combo` 9/9 · `journey:direct` 6/6 ·
 `journey:batch` 10/10 · `pnpm -r typecheck`(8/8)·`lint`(6/6) · apps/api vitest 777 · 정리 CLEAN.
 
+#### 재점검 — 대행이 필요한 줄을 화면에서 가르다 (2026-08-11)
+
+12호가 대행 동선을 완성하자 곧바로 따라오는 물음이 있었다 — **관리자가 "이 줄은 대행해야
+한다"를 어디서 아는가.** 화면 관찰(`obs-screens.mts proxy-recheck`)이 답을 확증했다: 연결 계정
+수는 **파트너 관리 목록에만** 있고(`AdminPartners.vue` '계정' 열 — `e2e한국협력`=0), Case 상세와
+발주·EQ 큐에는 오지 않는다.
+
+방향을 뒤집어 잡는 것이 중요했다. **대행 버튼이 모든 조직에 뜨는 것 자체는 결함이 아니다**
+(D11 — 담당자 부재 등 어떤 사정이든 대신 밀 수 있어야 한다). 위험한 쪽은 반대다: 계정이 없는
+조직 건을 "협력사가 하겠지" 하고 큐에 두면 **그 건은 영영 오지 않는다**. 12호 이전엔 발송을 아예
+시작할 수 없어 드러나지 않던 문제다.
+
+계약 `AdminPcbPoView`·`AdminPcbPoWorkItem` 에 `partnerHasPortal` 파생을 더했다(직렬화는
+`loadPartnersWithPortal` 배치 조회 — 조직 축이라 발주 수와 무관하게 1쿼리). 화면은 Case 상세
+협력사명 아래 `포털 계정 없음 — 대행 필요`, 발주·EQ 큐 협력사 열에 `대행 필요` 배지.
+
+**적용 범위를 발주 이후로 한정한 것이 요점이다.** 견적 회신은 매직링크라 계정이 없어도 협력사가
+직접 한다(12호가 박제한 예외) — RFQ 표까지 배지를 붙였다면 "대행해야 한다"는 **거짓 신호**가
+됐을 것이다. 이 배지가 가르는 것은 포털이 있어야만 굴러가는 EQ·생산·선적이다.
+
+함께 고친 것: Case 상세 RFQ 게이트 문구 `closed` 가 **"재작업은 A/S 재발주(예정)로 진행합니다"**
+로 남아 있었다(`AdminPcbCase.vue`). A/S 재발주는 P4.12 에서 구현을 끝냈고 **같은 화면 아래
+[A/S 재발주] 섹션이 실제로 뜬다** — "(예정)"은 관리자를 우회로로 보내는 stale 문구였다. "아래
+[A/S 재발주] 섹션에서 회차를 열어 진행합니다"로 바꿔 목적지를 가리키게 했다.
+
+P3·P4 가 두 배지를 어서션으로 물어 회귀선이 됐다. ⚠ 큐 화면 검증의 함정: `/app/admin/pcb/pos`
+**기본 탭은 '발주 대기'**(결제됐는데 발주서가 없는 건 = 다른 모수)라 진행 중 발주는 거기 없다 —
+탭을 옮기지 않고 배지를 찾으면 실패한다(첫 시도가 이 함정에 걸렸고, P4 가 멈추면서 그 아래
+승인·생산 전이가 실행되지 않아 P5·P6·P8 이 연쇄로 무너졌다).
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

@@ -151,6 +151,14 @@ function openCase(specId: number): void {
                 <span v-if="row.parentPartnerName !== null" class="ml-1 text-xs text-indigo-500">
                   (MD {{ row.parentPartnerName }})
                 </span>
+                <!-- 이 줄은 협력사가 스스로 진행할 수 없다 — 큐에서 기다리면 영영 안 온다. -->
+                <span
+                  v-if="!row.partnerHasPortal"
+                  class="ml-1 rounded bg-teal-100 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700"
+                  title="포털 연결 계정이 없는 조직입니다 — 이 단계는 관리자 대행으로만 진행됩니다."
+                >
+                  대행 필요
+                </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 tabular-nums">
                 {{ fmtPcbAmount(row.currency, row.priceOriginal) }}
