@@ -796,6 +796,8 @@ export const ko = {
         cancelPrice: '취소액',
         refund: '환불액',
         misu: '미수금',
+        // 음수 미수는 받을 돈이 아니라 돌려줄 돈이다 — 부호만 바꿔 '미수금'으로 부르면 반대로 읽힌다.
+        overpaid: '과입금(환불 대상)',
         tax: '과세',
         taxMny: '과세',
         vatMny: '부가세',

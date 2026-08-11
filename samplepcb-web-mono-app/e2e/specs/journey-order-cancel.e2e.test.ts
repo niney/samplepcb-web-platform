@@ -526,8 +526,32 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
         `부분 취소로 od_misu=${String(misu)}(음수 = 과입금 ${String(-misu)}원 환불 대상)인데 ` +
           `od_refund_price 는 0 그대로다 — 환불 원장·환불 처리 경로가 없어 "돌려줄 돈"이 ` +
           `음수 미수로만 남는다(g5-db.ts:2490 computeOrderMoney·2954 recomputeOrderMoneyOnItemChange). ` +
-          `관리자 화면의 미수 경고는 양수 기준이라 이 건은 재촉 목록에도 안 뜬다.`,
+          `※ 표기는 교정됨(08-11) — 목록·상세가 '미수금 -N'이 아니라 '과입금'으로 갈라 보인다. ` +
+          `남은 것은 환불 **실행** 경로로, 결제수단·회계가 걸린 PG 도메인 별건이다.`,
       );
+    }
+    // 과입금이 실제로 살아 있는 유일한 국면이다 — 표기 교정(08-11)을 여기서 못 박는다.
+    // ⚠ 기본 탭은 '입금 대기'(0건)이고 이 주문은 '진행 중'에 있다. 탭을 옮기고 주문번호로
+    //   좁혀야 배지가 화면에 잡힌다(12호 P4 와 같은 탭 함정) — 한 건만 세우면 페이지네이션에
+    //   밀릴 일도 없어 어서션을 걸 수 있다.
+    await rp.view(adminView, '/app/admin/pcb/orders', 'X05-admin-orders-overpaid');
+    await adminView.page.getByRole('button', { name: /^진행 중/ }).click();
+    await adminView.page.getByPlaceholder('프로젝트·회원ID·주문번호 검색').fill(od1);
+    await adminView.page.keyboard.press('Enter');
+    await adminView.page.getByText(od1).first().waitFor({ timeout: 15_000 });
+    await rp.shot(adminView, 'X05-admin-orders-overpaid');
+    // 취소된 A 줄이 살아 있는 B 줄과 갈려 보이는가(08-11 교정) — 검색으로 이 주문만 세웠으므로
+    // 화면에 뜬 두 행이 곧 A·B 다.
+    expect(
+      await adminView.page.getByText('줄 취소').count(),
+      '주문 큐 — 줄 취소 배지',
+    ).toBeGreaterThan(0);
+    if (misu < 0) {
+      // 돌려줄 돈이 목록에서 보여야 한다 — `> 0` 가드만 있던 시절엔 정상 건과 구분되지 않았다.
+      expect(
+        await adminView.page.getByText('과입금').count(),
+        '주문 큐 — 과입금 배지(표기 교정 08-11)',
+      ).toBeGreaterThan(0);
     }
     F('X5', 'obs', `부분 취소 확정 — od=${od1} status=${String(od.od_status)} cancel=${String(od.od_cancel_price)} misu=${String(misu)}`);
   }, 120_000);
@@ -677,11 +701,16 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
       F(
         'X7',
         'obs',
-        `관리자 주문·결제 큐는 줄 단위 취소를 표시하지 않는다 — 취소된 줄의 행도 ` +
-          `odStatus='${String(qA.odStatus)}'(활성 탭)로 선다. 탭 SQL 은 o.od_status 만 보고 ` +
-          `c.ct_status 는 '쇼핑' 제외에만 쓴다(g5-db.ts:3264-3271 PCB_ORDER_TAB_SQL·3292 conds).`,
+        `관리자 주문·결제 큐가 줄 축을 안다(08-11 교정) — **탭**은 여전히 o.od_status 축이라 ` +
+          `취소된 줄도 활성 탭(odStatus='${String(qA.odStatus)}')에 서지만, 행에 ` +
+          `lineCanceled=${String(qA.lineCanceled)} 가 실려 '줄 취소' 배지로 갈린다. ` +
+          `탭 분류까지 줄 축으로 바꾸는 것은 별건(모수 정의가 바뀐다).`,
       );
     }
+    // 서버 가드와 고객 화면은 이미 줄 축을 본다 — 관리자 목록만 못 보면 "화면은 진행 중인데
+    // 서버는 409" 가 된다. 두 줄이 갈리는지를 함께 못 박는다(한쪽만 보면 상수 반환도 통과한다).
+    expect(qA?.lineCanceled, '취소된 줄 — 목록이 줄 축을 안다').toBe(true);
+    expect(qB?.lineCanceled, '살아 있는 줄은 그대로').toBe(false);
     const canceledTab = await api(A, 'GET', `/api/admin/pcb-orders?tab=canceled&page=1&pageSize=100&q=${String(od1)}`);
     expect(
       (canceledTab.json?.data?.items ?? []).length,

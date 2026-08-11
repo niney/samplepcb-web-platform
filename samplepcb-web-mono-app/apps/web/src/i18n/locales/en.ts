@@ -789,6 +789,7 @@ export const en = {
         cancelPrice: 'Cancelled',
         refund: 'Refund',
         misu: 'Unpaid',
+        overpaid: 'Overpaid (refund due)',
         tax: 'Tax',
         taxMny: 'Taxable',
         vatMny: 'VAT',

@@ -1162,9 +1162,17 @@ const inputClass =
                       <dt class="text-gray-500">{{ t('admin.orders.drawer.refund') }}</dt>
                       <dd class="tabular-nums text-red-600">{{ formatKrw(order.amounts.refundPrice) }}</dd>
                     </div>
-                    <div v-if="order.misu !== 0" class="flex justify-between py-1">
+                    <div v-if="order.misu > 0" class="flex justify-between py-1">
                       <dt class="text-gray-500">{{ t('admin.orders.drawer.misu') }}</dt>
                       <dd class="tabular-nums font-medium text-red-600">{{ formatKrw(order.misu) }}</dd>
+                    </div>
+                    <!-- 음수 미수 = 받을 돈이 아니라 **돌려줄 돈**이다(부분 취소 후 흔히 남는다).
+                         같은 이름에 부호만 달리 붙이면 "미수금 -55,000원"이 되어 정확히 반대로
+                         읽힌다 — 이름을 갈라 절댓값으로 보인다. 환불 실행은 PG 도메인이라
+                         여기서는 표시만 한다(주문 관리/결제사에서 처리). -->
+                    <div v-else-if="order.misu < 0" class="flex justify-between py-1">
+                      <dt class="text-gray-500">{{ t('admin.orders.drawer.overpaid') }}</dt>
+                      <dd class="tabular-nums font-medium text-amber-600">{{ formatKrw(-order.misu) }}</dd>
                     </div>
                     <div class="flex justify-between py-1 text-xs text-gray-400">
                       <dt>{{ t('admin.orders.drawer.tax') }}</dt>

@@ -3267,6 +3267,13 @@ export interface PcbOrderSpecRow {
   orderedAt: string | null;
   deliveryCompany: string;
   invoiceNo: string;
+  /**
+   * 이 스펙의 **주문 줄**이 취소류(취소·반품·품절)인가. 영카트는 줄 단위로 취소하고 전량일
+   * 때만 od_status 를 '취소'로 내리므로, 부분 취소된 줄은 od 축(odStatus)으로는 살아 있는
+   * 줄과 구별되지 않는다 — 서버 가드(isPcbOrderLineCanceled)와 고객 화면은 줄 축을 보는데
+   * 관리자 목록만 못 보면, 화면은 진행 중이라 말하고 서버는 막는 어긋남이 생긴다.
+   */
+  lineCanceled: boolean;
 }
 
 // 고객 배송 큐(P4.6) 신호 — 협력 축 입고확인이 정본이다. 관리자 직속 발주(parentPartnerId=0)
@@ -3366,7 +3373,7 @@ export async function listPcbOrderSpecs(params: {
 
   const tabCond = params.tab === 'all' ? '1=1' : PCB_ORDER_TAB_SQL[params.tab];
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT s.id AS spec_id, c.od_id, o.od_name, o.od_status, o.od_settle_case, o.od_receipt_price, o.od_misu,
+    `SELECT s.id AS spec_id, c.od_id, c.ct_status, o.od_name, o.od_status, o.od_settle_case, o.od_receipt_price, o.od_misu,
             o.od_delivery_company, o.od_invoice,
             DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        ${base} AND ${tabCond}
@@ -3390,6 +3397,8 @@ export async function listPcbOrderSpecs(params: {
         // 찍힌다(2026-08-10 실측: 미배송 주문의 큐 응답이 deliveryCompany:"0").
         deliveryCompany: normalizeDeliveryCompany(row.od_delivery_company),
         invoiceNo: String(row.od_invoice ?? ''),
+        // 줄 축 — 가드(isPcbOrderLineCanceled)와 같은 사전을 쓴다.
+        lineCanceled: isCanceledCartStatus(String(row.ct_status ?? '')),
       };
     }),
     total: totalByTab[params.tab],

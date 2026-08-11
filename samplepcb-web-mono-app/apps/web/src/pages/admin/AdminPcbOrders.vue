@@ -159,6 +159,16 @@ function openCase(specId: number): void {
               <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="OD_CLS[row.odStatus] ?? 'bg-gray-100 text-gray-600'">
                 {{ row.odStatus }}
               </span>
+              <!-- 줄 축 — 영카트는 줄 단위로 취소하고 전량일 때만 od_status 를 내린다. 이 배지가
+                   없으면 부분 취소된 줄이 살아 있는 줄과 똑같이 '입금'으로 보이고, 서버 가드는
+                   막는데 화면은 진행 중이라 말한다(od 가 통째로 취소면 위 배지와 겹치니 제외). -->
+              <span
+                v-if="row.lineCanceled && row.odStatus !== '취소'"
+                class="ml-1 rounded bg-gray-200 px-1.5 py-0.5 text-xs font-semibold text-gray-600"
+                title="이 주문 줄만 취소됐습니다(주문서의 다른 줄은 살아 있습니다) — 협력 트랙 진행은 서버가 막습니다."
+              >
+                줄 취소
+              </span>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 text-xs text-gray-500">{{ row.settleCase || '—' }}</td>
             <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">
@@ -171,6 +181,15 @@ function openCase(specId: number): void {
                 :title="`수납액이 결제금액에 못 미칩니다 — 통합 주문내역의 [입금 조정]으로 맞춰 주세요.`"
               >
                 미수 {{ fmtPcbAmount('KRW', row.misu) }}
+              </span>
+              <!-- 반대 방향 — 돌려줄 돈. `> 0` 가드만 두면 과입금 주문이 목록에서 아무 표시도
+                   없어 정상 건과 구분되지 않는다. 취소 주문에도 남으므로 상태로 거르지 않는다. -->
+              <span
+                v-else-if="row.misu < 0"
+                class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700"
+                :title="`수납액이 결제금액을 넘습니다 — 돌려줄 돈이 남아 있습니다(환불 실행은 주문 관리·결제사에서).`"
+              >
+                과입금 {{ fmtPcbAmount('KRW', -row.misu) }}
               </span>
             </td>
             <td class="whitespace-nowrap px-4 py-2.5">

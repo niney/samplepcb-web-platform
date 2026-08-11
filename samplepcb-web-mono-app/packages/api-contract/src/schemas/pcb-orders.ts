@@ -48,6 +48,13 @@ export const AdminPcbOrderItem = z.object({
   finalPrice: z.number().nullable(),
   odId: z.string(),
   odStatus: z.string(), // '주문'(미입금)|'입금'|'준비'|'파일검사'|'생산중'|…|'완료'|'취소'
+  /**
+   * 이 스펙의 **주문 줄**이 취소류인가(줄 축 — od_status 와 다르다). 영카트는 줄 단위로
+   * 취소하고 전량일 때만 od_status='취소' 라, 부분 취소된 줄은 odStatus 로는 살아 있는 줄과
+   * 똑같이 보인다. 서버 가드와 고객 화면은 이미 줄 축을 보므로(08-11) 관리자 목록만 못 보면
+   * "화면은 진행 중인데 서버는 409" 가 된다.
+   */
+  lineCanceled: z.boolean(),
   isPaid: z.boolean(),
   settleCase: z.string(), // od_settle_case — 무통장만 관리자 수동 입금확인 대상(서버 가드 동일)
   receiptPrice: z.number(), // od_receipt_price 수납액(주문 헤더 단위)

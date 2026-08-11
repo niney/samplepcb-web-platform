@@ -111,6 +111,7 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                 finalPrice: spec.finalPrice,
                 odId: row.odId,
                 odStatus: row.odStatus,
+                lineCanceled: row.lineCanceled,
                 isPaid: row.odStatus !== '주문',
                 settleCase: row.settleCase,
                 receiptPrice: row.receiptPrice,

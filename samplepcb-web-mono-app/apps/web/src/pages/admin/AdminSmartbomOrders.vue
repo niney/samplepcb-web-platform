@@ -173,6 +173,8 @@ async function confirmReceipt(item: AdminBomOrderListItemType): Promise<void> {
             <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-xs">
               {{ smartbomFmtWon(item.receiptPrice) }}
               <span v-if="item.misu > 0" class="text-red-600"> / 미수 {{ smartbomFmtWon(item.misu) }}</span>
+              <!-- 음수는 돌려줄 돈 — 표시하지 않으면 과입금 주문이 정상 건과 구분되지 않는다. -->
+              <span v-else-if="item.misu < 0" class="text-amber-600"> / 과입금 {{ smartbomFmtWon(-item.misu) }}</span>
             </td>
             <td class="px-4 py-2.5">
               <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(item)">
