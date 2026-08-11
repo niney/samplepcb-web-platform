@@ -2435,6 +2435,25 @@ SMS 는 icode 가 아니라 false) · **요청이 끄면 기록조차 없다**(`
 **순차 주행 전제**다 — 병렬이면 다른 편의 메일을 막는다.
 
 5/5 green · 전역 설정 원복 확인.
+### 여정 32호 — 화면 렌더 회귀 (2026-08-11)
+
+앞의 서른한 편은 각자 **필요한 화면만** 열었다. 그래서 "어느 여정도 열지 않는 화면"이 남고
+(부품 검색·발송 이력·회원 관리 등), 거기가 깨지면 **아무 테스트도 빨개지지 않은 채** 관리자가
+클릭한 순간에야 발견된다. 계약 필드를 늘리거나 라우트를 손볼 때 가장 조용히 무너지는 자리다.
+
+**넓고 얕게** 본다 — 세 역할 16화면에서 `pageerror 0` · `5xx 0` · **내용이 있는가**만.
+각 화면의 의미는 해당 여정이 지키므로 여기서는 "열리는가"만 확인한다(`journey:screens`,
+4케이스, **read-only**).
+
+실측(결함 0건): 관리자 10화면 평균 1,288자 · 협력사 포털 5화면 · 고객 주문내역 1화면 —
+**전수 pageerror 0 · 5xx 0**.
+
+설계 두 가지에 13호 교훈을 반영했다: ① 포털 경로는 **실재하는 것만**(`pcb/pos` 목록은 없다 —
+없는 URL 은 흰 화면이 되어 결함처럼 보인다) ② **빈 껍데기 검사**(라우트 매칭 실패가 정확히 그렇게
+나타난다). 그리고 **실패해도 계속 돌아 전수 목록을 만든다** — 첫 실패에서 멈추면 나머지 화면
+상태를 모르고 고칠 순서를 못 정한다.
+
+4/4 green · 쓰기 0.
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
@@ -2442,6 +2461,7 @@ SMS 는 icode 가 아니라 false) · **요청이 끄면 기록조차 없다**(`
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
+
 
 
 
