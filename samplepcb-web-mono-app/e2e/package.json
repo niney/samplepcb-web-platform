@@ -28,6 +28,7 @@
     "journey:suspend": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-partner-suspend",
     "journey:overdue": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-overdue",
     "journey:concurrency": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-concurrency",
+    "journey:legacy": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-legacy",
     "journey:rewind": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-rewind",
     "typecheck": "tsc --noEmit"
   },
@@ -39,4 +40,5 @@
     "vitest": "^3.0.0"
   }
 }
+
 
