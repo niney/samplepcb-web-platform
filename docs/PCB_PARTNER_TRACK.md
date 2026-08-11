@@ -2225,6 +2225,35 @@ EQ 만 규칙이 다르다. 협력사가 잘못 올린 파일을 지우지 않�
 
 6/6 green · 정리 CLEAN.
 
+### 여정 23호 — 집계·카운트 정합 (2026-08-11)
+
+관리자가 **매일 처음 보는 것**이 사이드바 배지 숫자다. 그런데 네 큐 모두 응답에 `counts`(탭별
+합계)와 `total`(현재 탭 합계)이 **따로** 오고 서로 다른 SQL 로 계산된다 — 어긋날 수 있는
+구조다. 한 번이라도 "3건이라는데 열면 없다"를 겪으면 **화면 전체를 믿지 않게 된다**
+(`journey:counts`, 6케이스, **read-only**).
+
+**대규모 실데이터에서 정합이 확인됐다**(시드로는 못 얻는 결과 — 이관분이 있어야 20건 경계가
+실제로 생긴다):
+
+| 큐 | 모수 | 결과 |
+|---|---|---|
+| Case | **20,942** | `all` = 부분 합(137+0+198+20,607) |
+| 주문·결제 | **20,805** | `all` = 부분 합(0+198+19,665+942) |
+| 발주·EQ | 8 | 전수 일치 |
+| 선적 | 4 | 전수 일치 |
+
+탭마다 `total == counts[tab]`, 첫 페이지 건수 = `min(total, 20)`, **페이지 경계에서 빠지거나
+겹치는 건 없음**(3페이지까지 훑어 id 중복 0·중간 페이지 채움 확인), 부분 탭이 전체를 **정확히
+분할**(같은 건이 여러 탭에 중복 계상되지 않는다). 고객 배송 탭(`to_ship`·`shipping`)은 진행 중
+주문의 부분집합이라 합에 들지 않고 전체를 넘지만 않으면 된다.
+
+⚠ **counts 키 규약이 큐마다 다르다**: PO 는 탭 이름 그대로 snake_case(`eq_pending`·`to_ship`),
+Case 는 camelCase(`todoRfq`·`todoPo`), Order 는 `toShip`. 계약 타입이 화면 오타는 컴파일에서
+막아 주므로 제품 결함은 아니지만, **큐를 오가며 코드를 쓰는 쪽은 매번 확인해야 한다**(이 편의
+첫 주행이 그것에 걸렸다).
+
+6/6 green · 쓰기 0 · 정리 불필요.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

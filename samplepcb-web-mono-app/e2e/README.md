@@ -72,6 +72,7 @@ specs/
   journey-currency.e2e.test.ts         여정 20호 — 환율·통화 축(KRW null·회신엔 환율 없음·선정 박제·조직 통화 흔들어도 발주 불변)
   journey-md-multi.e2e.test.ts         여정 21호 — MD 다중 상위·단수 제한(한 하위 두 상위·관계별 배정·2단 강제, 관계 무접촉)
   journey-files.e2e.test.ts            여정 22호 — 파일·첨부 권한(남의 첨부는 URL 알아도 404·잠금·공유 목록이 경계)
+  journey-counts.e2e.test.ts           여정 23호 — 집계·카운트 정합(read-only: 배지=목록·페이지 경계·부분 합=전체, 실데이터 2만 건)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -112,6 +113,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:currency` | 20호만 — 환율이 언제 굳는가(회신 아닌 선정에서 · 수동 발주 환율 필수 · 조직 통화 변경에도 발주 박제) |
 | `pnpm -F e2e journey:mdmulti` | 21호만 — MD 다중 상위(관계별 통화 박제 · 400=구조 불가/409=지금만 충돌 구분 · 거절 후 관계 불변) |
 | `pnpm -F e2e journey:files` | 22호만 — 파일 권한(다운로드 경계 직접 두드리기 · EQ_LOCKED · sharedFileIds 밖은 고객도 404) |
+| `pnpm -F e2e journey:counts` | 23호만 — 집계 정합(네 큐 전 탭 total==counts · 페이지 중복 0 · 부분 합==전체, 쓰기 0) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
@@ -302,6 +304,7 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
+
 
 
 
