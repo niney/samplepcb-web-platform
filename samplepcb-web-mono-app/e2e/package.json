@@ -16,8 +16,8 @@
     "journey:as": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-as-reorder",
     "journey:as2": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-as-advanced",
     "journey:money": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-remittance",
-    "journey:bom": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run --no-file-parallelism specs/journey-bom-domestic.e2e.test.ts specs/journey-bom-split.e2e.test.ts specs/journey-bom-revision.e2e.test.ts specs/journey-bom-reorder.e2e.test.ts specs/journey-bom-shortage-recovery.e2e.test.ts specs/journey-bom-rfq-reassignment.e2e.test.ts specs/journey-bom-supplier-procurement.e2e.test.ts",
-    "journey:bom:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run --no-file-parallelism specs/journey-bom-domestic.e2e.test.ts specs/journey-bom-split.e2e.test.ts specs/journey-bom-revision.e2e.test.ts specs/journey-bom-reorder.e2e.test.ts specs/journey-bom-shortage-recovery.e2e.test.ts specs/journey-bom-rfq-reassignment.e2e.test.ts specs/journey-bom-supplier-procurement.e2e.test.ts",
+    "journey:bom": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run --no-file-parallelism specs/journey-bom-domestic.e2e.test.ts specs/journey-bom-split.e2e.test.ts specs/journey-bom-revision.e2e.test.ts specs/journey-bom-reorder.e2e.test.ts specs/journey-bom-shortage-recovery.e2e.test.ts specs/journey-bom-rfq-reassignment.e2e.test.ts specs/journey-bom-supplier-procurement.e2e.test.ts specs/journey-bom-trade-documents.e2e.test.ts",
+    "journey:bom:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run --no-file-parallelism specs/journey-bom-domestic.e2e.test.ts specs/journey-bom-split.e2e.test.ts specs/journey-bom-revision.e2e.test.ts specs/journey-bom-reorder.e2e.test.ts specs/journey-bom-shortage-recovery.e2e.test.ts specs/journey-bom-rfq-reassignment.e2e.test.ts specs/journey-bom-supplier-procurement.e2e.test.ts specs/journey-bom-trade-documents.e2e.test.ts",
     "journey:bom:1": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-domestic.e2e.test.ts",
     "journey:bom:1:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-domestic.e2e.test.ts",
     "journey:bom:2": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-split.e2e.test.ts",
@@ -32,6 +32,8 @@
     "journey:bom:6:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-rfq-reassignment.e2e.test.ts",
     "journey:bom:7": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-supplier-procurement.e2e.test.ts",
     "journey:bom:7:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-supplier-procurement.e2e.test.ts",
+    "journey:bom:8": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-trade-documents.e2e.test.ts",
+    "journey:bom:8:headed": "cross-env PORTAL_E2E=1 JOURNEY=1 E2E_HEADED=1 NODE_OPTIONS=--use-system-ca vitest run specs/journey-bom-trade-documents.e2e.test.ts",
     "probe": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run rework-probe",
     "md": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-order-relay",
     "md:domestic": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run md-domestic-relay",
@@ -82,7 +84,6 @@
     "vitest": "^3.0.0"
   }
 }
-
 
 
 

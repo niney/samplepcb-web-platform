@@ -607,6 +607,7 @@ async function confirmReceive(): Promise<void> {
       <TradeDocumentModal
         v-if="mode === 'domestic'"
         :open="quotationPoId !== null"
+        label="협력사 견적서"
         :load="loadQuotation"
         @close="quotationPoId = null"
       />
@@ -614,6 +615,7 @@ async function confirmReceive(): Promise<void> {
       <TradeDocumentModal
         v-if="mode === 'domestic'"
         :open="statementOpen"
+        label="거래명세서"
         :load="loadStatement"
         @close="statementOpen = false"
       />
