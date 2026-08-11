@@ -20,8 +20,9 @@
 //   - A/S proceed 는 원발주 조건을 **복사**하고 납기만 비운다 — 직송지도 복사되므로(§P4.12,
 //     `pcb-as-case.ts` proceedPcbAsCase `destinationCountry: origin.destinationCountry`)
 //     "직송 회차"는 **복사 후 수정**으로만 만들 수 있다.
-//   - 원발주의 직송지가 아니라 **최상위·최신 회차 발주**의 직송지가 고객 배송 큐의 종결
-//     동선을 정한다(`routes/admin-pcb-orders.ts` directShipPoBySpec) — X9 가 그 교차를 박제한다.
+//   - 고객 배송 큐의 종결 동선([배송 처리] vs [직송 완료])은 **입고된 발주**(관리자 수신
+//     선적의 receivedAt)의 직송지가 정한다 — 회차의 직송지만으로는 안 뒤집힌다(교정 08-11.
+//     구 축은 '최상위·최신 회차 발주'였고 그게 X9 가 잡은 결함이다). X9 가 두 갈래를 어서션한다.
 //
 // 실행(옵트인 2중 게이트): pnpm -F e2e journey:combo  (PORTAL_E2E=1 + JOURNEY=1)
 // 사전 조건: nginx·API(3333)·웹(5173)·거버(GERBER_URL)·Mailpit + e2e/.env.e2e 고객 자격.
@@ -623,19 +624,19 @@ describe.skipIf(!RUN || !JOURNEY)('여정 11호 — 조합 스트레스(묶음 �
     expect(boardBody, 'r0 묶음 박스 구성 표기').toContain('2건 담김');
     expect((await myBoxes()).length, '포털 보드 내 박스 3개').toBe(3);
 
-    // ⚠ 현재 동작 박제(고치지 않는다) — 박스 헤더는 받는곳·모드·건수만 낸다. 직송지는
-    //   실리지만(`· 직송 CN`) **회차는 안 실린다**: r0 박스와 r1 박스의 헤더가
-    //   '→ SamplePCB · 국외 발송' 으로 글자까지 같아, 협력사는 화면만 보고 "왜 두 박스로
-    //   갈렸는지" 알 수 없다. 회차 배지('A/S N회차')는 선반 항목에만 있고 박스 안에는 없다
-    //   (apps/web/src/pages/partner/PartnerPcbShip.vue:118 선반 vs 185~200 박스).
-    //   지금은 선반이 비어 있으므로 보드 전체에 'A/S' 문자열이 없는 것이 그 증거다.
-    expect(boardBody.includes('A/S'), '포털 박스에 회차 표기 없음(현재 동작 박제)').toBe(false);
+    // (교정 08-11 — 구 박제를 뒤집었다) 박스 헤더가 회차를 싣는다. 이전엔 받는곳·모드·건수만
+    //   내서 r0 박스와 r1 박스의 헤더가 '→ SamplePCB · 국외 발송' 으로 글자까지 같았고, 협력사는
+    //   화면만 보고 "왜 두 박스로 갈렸는지" 알 수 없었다(회차 배지는 선반 항목에만).
+    //   지금은 헤더에 'A/S 1차' 가 서고, 그 근거값은 계약(PcbShipmentView.reorderRound = 대표
+    //   발주 회차)에서 온다. 이 주행 시점의 박스 셋 중 둘이 r1 이므로 보드에 반드시 뜬다.
+    expect(boardBody, '포털 박스 헤더 회차 배지(교정 후)').toContain('A/S 1차');
+    // 선반은 비어 있는 상태(전부 담겼다) — 즉 이 문자열의 출처는 박스 헤더뿐이다.
+    expect((await myBoxes()).filter((b: any) => b.reorderRound === 1).length, 'r1 박스 2개').toBe(2);
     F(
       'X7',
-      'ux',
-      '포털 보드 — r0 박스와 r1 박스의 헤더가 동일("→ SamplePCB · 국외 발송")해 회차로 갈린 ' +
-        '이유가 화면에 없다. 직송지는 헤더에 실리는데(`· 직송 CN`) 회차는 선반 배지에만 있다 ' +
-        '(PartnerPcbShip.vue:118 vs 185~200). 관찰만 하고 고치지 않음.',
+      'obs',
+      '포털 보드 — 박스 헤더가 받는곳·직송지에 더해 회차까지 낸다(r1 두 박스에 A/S 1차 배지). ' +
+        'r0 박스와 헤더 글자가 달라져 "왜 갈렸는지"가 화면에서 읽힌다(PartnerPcbShip.vue 박스 헤더).',
     );
     F('X7', 'obs', '선적 큐에 묶음·회차·직송 배지 동시 표기 · 포털 3박스 확인');
   }, 240_000);
@@ -716,21 +717,31 @@ describe.skipIf(!RUN || !JOURNEY)('여정 11호 — 조합 스트레스(묶음 �
     );
   }, 300_000);
 
-  test('X9. 교차의 잔상(박제) — 회차 발주의 직송지가 원주문의 종결 동선을 뒤집는다', async (ctx) => {
-    if (box0Id === null) return ctx.skip();
+  test('X9. 종결 동선은 **입고된 발주**의 직송지로 갈린다(교정 08-11) — 회차 직송지는 원주문을 못 뒤집는다', async (ctx) => {
+    if (box0Id === null || box2Id === null || poCPrime === null) return ctx.skip();
     const specB = lane('B').specId ?? 0;
     const odB = lane('B').odId ?? '';
+    const specC = lane('C').specId ?? 0;
+    const odC = lane('C').odId ?? '';
 
-    // 전제 확인 — B 는 원발주가 KR 로 실제 입고됐고(X8), 지금은 정상 배송 동선이다.
-    const before = await api(
-      A,
-      'GET',
-      `/api/admin/pcb-orders?tab=to_ship&q=${encodeURIComponent(odB)}&page=1&pageSize=5`,
-    );
-    const beforeRow = (before.json?.data?.items ?? []).find((x: any) => x.odId === odB);
-    expect(beforeRow?.directShipCountry, '입고 직후 — 직송 아님(정상 [배송 처리])').toBeNull();
+    /** 고객 배송 큐(배송 처리 대기)의 그 주문 행 — 큐 소속·직송 판정을 한 자리에서 읽는다. */
+    const rowOf = async (odId: string): Promise<any> => {
+      const r = await api(
+        A,
+        'GET',
+        `/api/admin/pcb-orders?tab=to_ship&q=${encodeURIComponent(odId)}&page=1&pageSize=10`,
+      );
+      expect(r.status, `배송 큐(${odId}): ${JSON.stringify(r.json)}`).toBe(200);
+      return (r.json?.data?.items ?? []).find((x: any) => x.odId === odId) ?? null;
+    };
 
-    // B 에 A/S 회차를 세우고 그 회차에만 직송지를 준다(담기 전이라 가드 없이 200).
+    // ── ① 전제 — B 는 원발주(round 0)가 KR 로 실제 입고됐고(X8) 정상 배송 동선이다.
+    expect((await rowOf(odB))?.directShipCountry, '입고 직후 — 직송 아님([배송 처리])').toBeNull();
+
+    // ── ② 회차에만 직송지를 준다(담기 전이라 가드 없이 200). **교정 전에는** 이 PATCH 한 번으로
+    //    판정 축('최상위·최신 회차 발주')이 뒤집혀 원주문 행이 '직송 CN' 이 되고 종결 버튼이
+    //    [배송 처리]→[직송 완료](운송장 없이 종결)로 바뀌었다 — 실물은 자사 창고에 있는데
+    //    "현지에서 수령했다"로 닫히는 경로. 지금 축은 **입고 신호를 만든 발주**다.
     const as = await runAsCase(specB, 'admin_fault', 'paid', 'B');
     const patch = await api(
       A,
@@ -740,42 +751,76 @@ describe.skipIf(!RUN || !JOURNEY)('여정 11호 — 조합 스트레스(묶음 �
     );
     expect(patch.status, `회차 발주 직송지 지정: ${JSON.stringify(patch.json)}`).toBe(200);
 
-    const after = await api(
-      A,
-      'GET',
-      `/api/admin/pcb-orders?tab=to_ship&q=${encodeURIComponent(odB)}&page=1&pageSize=5`,
-    );
-    const afterRow = (after.json?.data?.items ?? []).find((x: any) => x.odId === odB);
+    const afterRow = await rowOf(odB);
     expect(afterRow, 'B 주문 배송 대기 유지').toBeTruthy();
+    expect(afterRow.directShipCountry, '회차 직송지는 원주문 종결 동선을 못 뒤집는다').toBeNull();
+    expect(afterRow.poCount, 'B 발주 수(원발주+회차)').toBe(2);
+    expect(afterRow.receivedPoCount, 'B 입고 수(원발주만)').toBe(1);
 
-    // ⚠ 현재 동작 박제 — 고치지 않는다(관찰 전용).
-    //   판정 축이 '최상위·**최신 회차** 발주의 직송지'(routes/admin-pcb-orders.ts
-    //   directShipPoBySpec)라, 원발주가 KR 로 입고된 주문인데도 회차의 직송지가 행을
-    //   '직송 CN' 으로 뒤집고 종결 버튼이 [배송 처리] → [직송 완료](운송장 없이 완료)로 바뀐다.
-    //   실물은 자사 창고에 있는데 "현지에서 수령했다"로 닫히는 경로가 열린다.
-    if (afterRow?.directShipCountry === 'CN') {
-      F(
-        'X9',
-        'bug',
-        `회차 직송지가 원주문 종결 동선을 뒤집는다 — od=${odB} 는 원발주(round 0)가 ` +
-          `KR 입고 완료인데, 회차 발주 #${String(as.poId)} 에 직송 CN 을 주자 배송 큐 행이 ` +
-          `directShipCountry='CN' 으로 바뀌었다. 화면은 [직송 완료](운송장 없이 완료 종결)를 낸다. ` +
-          `판정 축: apps/api/src/routes/admin-pcb-orders.ts:56-66 (directShipPoBySpec — 최신 회차 우선). ` +
-          `실물은 자사 입고 상태라 오종결 경로. 관찰만 하고 고치지 않음(현재 동작 박제).`,
-      );
-      await view(adminView, '/app/admin/pcb/shipments', 'X09-order-direct-flip');
-      const body: string = await adminView.page.evaluate(() => document.body.innerText);
-      if (/직송 완료/.test(body)) F('X9', 'obs', '화면에서도 [직송 완료] 버튼으로 바뀐 것 확인');
-      await shot(adminView, 'X09-order-direct-flip-shot');
-    } else {
-      F(
-        'X9',
-        'obs',
-        `회차 직송지가 원주문 배송 큐에 전파되지 않음(directShipCountry=` +
-          `${String(afterRow?.directShipCountry)}) — 교차 오판 없음`,
-      );
-    }
-    expect(afterRow.directShipCountry, '현재 동작 박제(교정 시 이 줄이 먼저 깨진다)').toBe('CN');
+    // 화면 — 같은 행에서 [배송 처리](운송장 입력 동선)가 유지된다.
+    await view(adminView, '/app/admin/pcb/shipments', 'X09-order-ship-kept');
+    const rowBLoc = adminView.page.locator('tr', { hasText: odB }).first();
+    await rowBLoc.waitFor({ timeout: 20_000 });
+    const rowBText: string = await rowBLoc.innerText();
+    expect(rowBText, 'B 행 [배송 처리] 유지').toContain('배송 처리');
+    expect(rowBText.includes('직송'), 'B 행에 직송 배지·[직송 완료] 없음').toBe(false);
+    await shot(adminView, 'X09-order-ship-kept-row');
+
+    // ── ③ 갈리는 반대편 — **회차 발주 자체가 직송으로 입고되면** 그 주문의 종결은
+    //    [직송 완료]가 맞다. C 는 원발주가 발송을 안 탔고 회차 C′ 만 직송 CN 박스로 나갔다.
+    const recvC = await api(
+      A,
+      'POST',
+      `/api/admin/pcb-projects/${String(specC)}/pos/${String(poCPrime)}/shipment/receive`,
+      { note: '[여정 11호] 직송 CN 현지 도착' },
+    );
+    expect(recvC.status, `직송 박스 입고확인: ${JSON.stringify(recvC.json)}`).toBe(200);
+    const rowC = await rowOf(odC);
+    expect(rowC, 'C 주문 배송 대기 진입(직송 입고 신호)').toBeTruthy();
+    expect(rowC.directShipCountry, '입고된 발주가 직송(CN) — [직송 완료]가 맞다').toBe('CN');
+
+    await view(adminView, '/app/admin/pcb/shipments', 'X09-direct-round-received');
+    const rowCLoc = adminView.page.locator('tr', { hasText: odC }).first();
+    await rowCLoc.waitFor({ timeout: 20_000 });
+    const rowCText: string = await rowCLoc.innerText();
+    expect(rowCText, 'C 행 직송 배지').toContain('직송 CN');
+    expect(rowCText, 'C 행 [직송 완료]').toContain('직송 완료');
+    await shot(adminView, 'X09-direct-round-received-row');
+
+    // ── ④ 혼재 — B′(회차·직송 CN)까지 입고되면 B 의 입고분은 KR(원발주)과 CN(회차)로 섞인다.
+    //    이때는 **보수적으로 '직송 아님'**: 운송장 없이 닫는 것보다 [배송 처리]로 한 번 더
+    //    확인받는 쪽이 안전하다(resolvePcbDirectShipCountry 규칙).
+    await runEqToProduced(specB, as.poId, 'r1-B');
+    const boxB = await api(P, 'POST', '/api/partner/pcb-shipments/box', { poId: as.poId });
+    expect(boxB.status, `B′ 담기: ${JSON.stringify(boxB.json)}`).toBe(200);
+    const bBox = await boxOf(as.poId);
+    expect(bBox.dest, 'B′ 박스 직송지').toBe('CN');
+    expect(bBox.id, 'C′ 박스는 이미 발송돼 preparing 이 아니다 — 새 박스').not.toBe(box2Id);
+    ledger.push(`sp_pcb_shipment #${bBox.id} (r1 직송 CN — B′)`);
+    const advB = await api(P, 'POST', `/api/partner/pcb-pos/${String(as.poId)}/shipment/advance`, {
+      carrier: 'SF Express',
+      trackingNumber: 'COMBO-CN-B-0811',
+    });
+    expect(advB.status, `B′ 박스 전이: ${JSON.stringify(advB.json)}`).toBe(200);
+    const recvB = await api(
+      A,
+      'POST',
+      `/api/admin/pcb-projects/${String(specB)}/pos/${String(as.poId)}/shipment/receive`,
+      { note: '[여정 11호] B 회차 직송 CN 현지 도착' },
+    );
+    expect(recvB.status, `B′ 입고확인: ${JSON.stringify(recvB.json)}`).toBe(200);
+
+    const mixedRow = await rowOf(odB);
+    expect(mixedRow.receivedPoCount, 'B 입고 수 2/2(원발주 KR + 회차 CN)').toBe(2);
+    expect(mixedRow.directShipCountry, '직송지 혼재 — 보수적으로 직송 아님').toBeNull();
+    F(
+      'X9',
+      'obs',
+      `종결 동선 판정 축 = **입고된 발주**의 직송지(교정 08-11) — ` +
+        `B(원발주 KR 입고 + 회차 직송 CN 미입고)=null([배송 처리] 유지) · ` +
+        `C(회차 C′ 가 직송 CN 으로 입고)='CN'([직송 완료]) · ` +
+        `B 혼재(KR·CN 둘 다 입고)=null(보수적). 회차 직송지만으로는 원주문이 뒤집히지 않는다.`,
+    );
     F('X9', 'obs', `케이스 요약 — caseA=${String(caseAId)} caseC=${String(caseCId)} caseB=${String(as.caseId)}`);
-  }, 180_000);
+  }, 420_000);
 });

@@ -1,5 +1,9 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
-import { AdminPcbOrderListQuery, AdminPcbOrderListResponse } from '@sp/api-contract';
+import {
+  AdminPcbOrderListQuery,
+  AdminPcbOrderListResponse,
+  resolvePcbDirectShipCountry,
+} from '@sp/api-contract';
 import { listPcbOrderSpecs } from '../lib/g5-db';
 import { prisma } from '../lib/prisma';
 
@@ -49,21 +53,14 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
         // 발주 연결 — 관리자 직속 발주만(하위는 MD 경유 실작업 문서라 이중 집계 방지).
         prisma.spPcbPo.findMany({
           where: { specId: { in: specIds }, parentPartnerId: 0n },
-          select: { id: true, specId: true, reorderRound: true, destinationCountry: true },
+          select: { id: true, specId: true, destinationCountry: true },
         }),
       ]);
       const specById = new Map(specs.map((s) => [s.id.toString(), s]));
       const poCountBySpec = new Map<string, number>();
-      // 직송지(D5) — 최상위·최신 회차 발주의 destinationCountry(회차 동률은 최신 발행분).
-      // non-null 이면 실물이 자사를 안 거쳤다 — 배송 큐가 [배송 처리] 대신 [직송 완료]를 낸다.
-      const directShipPoBySpec = new Map<string, { id: bigint; round: number; country: string | null }>();
       for (const po of adminPos) {
         const key = po.specId.toString();
         poCountBySpec.set(key, (poCountBySpec.get(key) ?? 0) + 1);
-        const cur = directShipPoBySpec.get(key);
-        if (cur === undefined || po.reorderRound > cur.round || (po.reorderRound === cur.round && po.id > cur.id)) {
-          directShipPoBySpec.set(key, { id: po.id, round: po.reorderRound, country: po.destinationCountry });
-        }
       }
       // 입고확인 수 — 발주서 축으로 선적을 따라간다(묶음 선적의 대표 스펙이 다른 스펙일 수
       // 있어 shipment.specId 판정 금지 — 고객 배송 큐 SQL(PCB_SHIP_JOIN)과 같은 이유).
@@ -77,12 +74,24 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
               },
               select: { poId: true },
             });
-      const specByPoId = new Map(adminPos.map((po) => [po.id.toString(), po.specId.toString()]));
+      const poById = new Map(adminPos.map((po) => [po.id.toString(), po]));
       const receivedBySpec = new Map<string, number>();
+      // 직송지(D5) — 판정 근거는 **입고 신호를 만든 그 발주**의 destinationCountry 다
+      // (위 receivedLinks 와 같은 축 = 큐 소속 판정 PCB_SHIP_JOIN/PCB_TO_SHIP 과 같은 조인).
+      // 이 큐의 종결 대상이 곧 그 발주이기 때문 — '최신 회차 발주' 축으로 보면 원발주가 KR 로
+      // 입고 완료된 주문도 뒤에 선 A/S 회차의 직송지에 뒤집혀, 실물이 자사 창고에 있는데
+      // 운송장 없이 [직송 완료]로 닫히는 경로가 열렸다(여정 11호 X9). 혼재 처리(보수적으로
+      // '직송 아님')는 resolvePcbDirectShipCountry 주석 참조.
+      const receivedDestBySpec = new Map<string, (string | null)[]>();
       for (const link of receivedLinks) {
-        const key = specByPoId.get(link.poId.toString());
-        if (key === undefined) continue;
+        const po = poById.get(link.poId.toString());
+        if (po === undefined) continue;
+        const key = po.specId.toString();
         receivedBySpec.set(key, (receivedBySpec.get(key) ?? 0) + 1);
+        receivedDestBySpec.set(key, [
+          ...(receivedDestBySpec.get(key) ?? []),
+          po.destinationCountry,
+        ]);
       }
 
       return {
@@ -109,7 +118,9 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                 orderedAt: row.orderedAt,
                 poCount: poCountBySpec.get(String(row.specId)) ?? 0,
                 receivedPoCount: receivedBySpec.get(String(row.specId)) ?? 0,
-                directShipCountry: directShipPoBySpec.get(String(row.specId))?.country ?? null,
+                directShipCountry: resolvePcbDirectShipCountry(
+                  receivedDestBySpec.get(String(row.specId)) ?? [],
+                ),
                 deliveryCompany: row.deliveryCompany,
                 invoiceNo: row.invoiceNo,
               },

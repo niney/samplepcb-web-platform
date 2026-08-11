@@ -6,6 +6,7 @@ import {
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
   bomShipmentNextStatus,
+  resolvePcbDirectShipCountry,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
   type BomShipmentStatusType,
@@ -791,22 +792,20 @@ const customerShipAllReceived = computed(
 function openCustomerShip(): void {
   customerShipOdId.value = detail.value?.order?.odId ?? null;
 }
-// 직송 Case(정책 확정 08-10) — 최상위·최신 회차 발주의 직송지(배송 큐 서버 판정
-// directShipCountry 와 같은 규칙). non-null 이면 관리자가 보낼 실물이 없으니 헤더
-// 유도 배지는 '직송 완료 대기'가 되고, 운송장 모달 대신 확인 후 완료 종결로 간다.
-const caseDirectShipCountry = computed<string | null>(() => {
-  let picked: AdminPcbPoViewType | null = null;
-  for (const po of adminPos.value) {
-    if (
-      picked === null ||
-      po.reorderRound > picked.reorderRound ||
-      (po.reorderRound === picked.reorderRound && po.poId > picked.poId)
-    ) {
-      picked = po;
-    }
-  }
-  return picked?.destinationCountry ?? null;
-});
+// 직송 Case(정책 확정 08-10 · 판정 축 교정 08-11) — **입고된 발주**의 직송지다(배송 큐
+// 서버 판정 directShipCountry 와 같은 규칙·같은 순수 함수). 이 배지가 여는 종결이 곧 그
+// 입고 건의 종결이라 축이 같아야 한다 — 구 '최신 회차' 축은 원발주가 KR 로 입고 완료인
+// Case 도 뒤에 선 A/S 회차의 직송지로 뒤집었다(여정 11호 X9). non-null 이면 관리자가 보낼
+// 실물이 없으니 유도 배지는 '직송 완료 대기'가 되고, 운송장 모달 대신 완료 종결로 간다.
+const caseDirectShipCountry = computed<string | null>(() =>
+  resolvePcbDirectShipCountry(
+    adminPos.value.flatMap((po) => {
+      const s = shipmentByPo.value.get(po.poId);
+      if (s?.receiverKind !== 'admin' || s.receivedAt === null) return [];
+      return [po.destinationCountry];
+    }),
+  ),
+);
 const completeCustomerOrder = usePcbCompleteCustomerOrder();
 async function completeDirectShip(): Promise<void> {
   const odId = detail.value?.order?.odId ?? null;
@@ -1072,7 +1071,7 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
         협력 발주 없이 진행된 주문
       </span>
       <!-- 직송 건은 관리자가 보낼 실물이 없다 — 유도 문구·액션이 [직송 완료](운송장 없이
-           완료 종결)로 바뀐다(정책 확정 08-10). 판정은 최상위·최신 회차 발주의 직송지. -->
+           완료 종결)로 바뀐다(정책 확정 08-10). 판정은 **입고된 발주**의 직송지(교정 08-11). -->
       <button
         v-else-if="axisMismatch === 'received-not-delivered' && caseDirectShipCountry !== null"
         type="button"

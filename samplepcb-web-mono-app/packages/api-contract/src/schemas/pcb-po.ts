@@ -117,6 +117,10 @@ export const PcbShipmentView = z.object({
   shipmentId: z.number(),
   poId: z.number(), // 대표(생성) 발주서
   specId: z.number(),
+  /** 대표 발주의 A/S 회차 — 0=원발주, 1..=재생산 회차. 박스 합류 키의 한 축이라
+   *  (contextKey `받는측:조직:직송지:회차`) 화면이 이걸 못 실으면 회차로 갈린 두 박스의
+   *  헤더가 글자까지 같아진다(여정 11호 X7). 관리자 선적 큐 배지와 같은 값이다. */
+  reorderRound: z.number().int(),
   mode: BomShipmentMode,
   status: BomShipmentStatus,
   receiverKind: z.enum(PCB_SHIPMENT_RECEIVER_KINDS),
@@ -147,6 +151,25 @@ export const PcbShipmentView = z.object({
   files: z.array(PcbShipmentFileView),
 });
 export type PcbShipmentViewType = z.infer<typeof PcbShipmentView>;
+
+/**
+ * 직송 판정(D5 · 판정 축 교정 08-11 — 여정 11호 X9) — **입고된 발주들의 직송지**만 받아
+ * "이 주문의 종결이 [직송 완료]인가"를 답한다. 종결 대상이 곧 입고 신호를 만든 발주이므로
+ * 직송 여부도 같은 발주를 봐야 한다: 구 규칙('최상위·최신 회차 발주')은 원발주가 KR 로
+ * 실제 입고 완료된 주문도 뒤에 선 A/S 회차의 직송지로 뒤집어, 실물이 자사 창고에 있는데
+ * 운송장 없이 "현지에서 수령했다"로 닫는 경로를 열었다.
+ *
+ * 혼재(입고된 발주가 여럿인데 직송지가 서로 다름 — 예: 원발주 KR 입고 + 회차 직송 CN 입고)면
+ * **보수적으로 '직송 아님'(null)** 이다: [배송 처리]로 보내 운송장을 한 번 더 확인받는 쪽이
+ * 잘못 종결하는 것보다 안전하다. 입고분이 없으면(빈 배열) 판정 근거 자체가 없으므로 null.
+ */
+export const resolvePcbDirectShipCountry = (
+  receivedDestinations: readonly (string | null)[],
+): string | null => {
+  const distinct = new Set(receivedDestinations);
+  if (distinct.size !== 1) return null; // 0=근거 없음 · 2+=혼재(보수적으로 직송 아님)
+  return distinct.values().next().value ?? null;
+};
 
 // ── 공용 뷰(관리자·MD 하위 표시) ─────────────────────────────────────────────
 export const AdminPcbPoView = z.object({

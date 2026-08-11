@@ -621,6 +621,9 @@ export const toPcbShipmentView = async (
     shipmentId: Number(shipment.id),
     poId: Number(shipment.poId),
     specId: Number(shipment.specId),
+    // 대표 발주의 회차 — 박스 합류 키의 한 축(같은 회차끼리만 합류)이라 화면 헤더가
+    // "왜 이 박스가 따로 섰는지"를 말하려면 필요하다(여정 11호 X7).
+    reorderRound: rep?.reorderRound ?? 0,
     mode: asPcbShipmentMode(shipment.mode),
     status: asPcbShipmentStatus(asPcbShipmentMode(shipment.mode), shipment.status),
     receiverKind: shipment.receiverKind === 'md' ? 'md' : 'admin',
@@ -750,16 +753,17 @@ export const loadPartnerPcbShipBoard = async (
     const mode = asPcbShipmentMode(shipment.mode);
     const status = asPcbShipmentStatus(mode, shipment.status);
     if (status === 'preparing') {
-      const rep = await prisma.spPcbPo.findUnique({ where: { id: shipment.poId } });
+      // 회차는 뷰가 이미 대표 발주에서 실어 온다(구 별도 조회 제거 — 같은 값 두 번 읽던 자리).
+      const view = await toPcbShipmentView(shipment);
       boxes.push({
-        ...(await toPcbShipmentView(shipment)),
+        ...view,
         contextKey: pcbShipContextKey(
           {
             receiverKind: shipment.receiverKind === 'md' ? 'md' : 'admin',
             receiverPartnerId: shipment.receiverPartnerId,
             destinationCountry: shipment.destinationCountry,
           },
-          rep?.reorderRound ?? 0,
+          view.reorderRound,
         ),
       });
     } else if (shipment.receivedAt !== null || bomShipmentNextStatus(mode, status) === null) {

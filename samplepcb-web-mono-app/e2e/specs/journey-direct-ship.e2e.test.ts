@@ -361,9 +361,20 @@ describe.skipIf(!RUN || !JOURNEY)('여정 6호 — 직송 3종(직송지 축의 
     expect(caseBody, "Case 선적 행 다음 단계 버튼 = '현지도착 진행'").toContain('현지도착 진행');
     expect(caseBody.includes('국내도착'), '직송 국제 체인에서 국내도착 어휘 소거').toBe(false);
     await rp.view(partnerView, '/app/partner/pcb/ship', 'J02-portal-vn-local-arrive');
-    const boardBody: string = await partnerView.page.evaluate(() => document.body.innerText);
-    expect(boardBody, '포털 발송 카드 스텝퍼 직송 국제 어휘').toContain('현지도착');
-    expect(boardBody.includes('국내도착'), '포털에서 국내도착 어휘 소거').toBe(false);
+    // 어휘 검사는 **이 박스 카드 안**으로 좁힌다 — 보드는 이 협력사의 박스를 전부 그리므로,
+    // 페이지 전체 텍스트를 훑으면 직송이 아닌 남의 박스(정상적으로 '국내도착'을 쓴다)를
+    // 잡아 거짓 실패가 난다(2026-08-11 실측: 앞선 여정의 잔재 박스가 걸렸다).
+    const vnCard: string = await partnerView.page.evaluate(() => {
+      const card = [...document.querySelectorAll('section, article, div')].find(
+        (el) =>
+          el.textContent?.includes('직송 VN') === true &&
+          el.querySelectorAll('section, article').length === 0,
+      );
+      return card?.textContent ?? '';
+    });
+    expect(vnCard, '직송 VN 박스 카드를 찾지 못함').toContain('직송 VN');
+    expect(vnCard, '포털 발송 카드 스텝퍼 직송 국제 어휘').toContain('현지도착');
+    expect(vnCard.includes('국내도착'), '포털 직송 카드에서 국내도착 어휘 소거').toBe(false);
     F(
       'J2',
       'obs',

@@ -144,6 +144,12 @@ const STATUS_CLS: Record<string, string> = {
       <span class="mr-1 font-mono text-xs font-normal text-gray-400">SH-{{ shipment.shipmentId }}</span>
       → {{ shipment.receiverName }}
       <template v-if="shipment.destinationCountry !== null"> · 직송 {{ shipment.destinationCountry }}</template>
+      <!-- 회차 — 보드 박스 헤더와 같은 규칙(진행 중 발송이 여러 건 쌓이면 받는곳·직송지가
+           같은 카드끼리 회차로만 갈린다. 회차 발주는 원발주 발송에 합류하지 않는다). -->
+      <span
+        v-if="shipment.reorderRound > 0"
+        class="ml-1 rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700"
+      >A/S {{ shipment.reorderRound }}차</span>
       <span class="ml-2 rounded px-1.5 py-0.5 text-xs font-semibold" :class="STATUS_CLS[shipment.status]">
         {{ statusLabel(shipment.status) }}
       </span>

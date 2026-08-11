@@ -115,7 +115,8 @@ async function takeOut(poId: number): Promise<void> {
                   <span class="ml-1 rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700">
                     → {{ po.receiverLabel }}
                   </span>
-                  <span v-if="po.reorderRound > 0" class="ml-1 text-[11px] text-gray-400">A/S {{ po.reorderRound }}회차</span>
+                  <!-- 어휘는 박스 헤더·포털 전반과 같은 'A/S N차'(구 'N회차' 혼용 정리) -->
+                  <span v-if="po.reorderRound > 0" class="ml-1 text-[11px] text-gray-400">A/S {{ po.reorderRound }}차</span>
                 </p>
                 <p v-if="!po.countryReady" class="mt-0.5 text-xs font-semibold text-red-600">
                   국가 정보 필요 — 샘플피씨비 담당자에게 문의해 주세요.
@@ -182,9 +183,16 @@ async function takeOut(poId: number): Promise<void> {
           </p>
 
           <div v-for="box in boxes" :key="box.shipmentId" class="mt-2 rounded-xl border border-teal-200 bg-surface p-3">
+            <!-- 헤더는 "왜 이 박스가 따로 섰는지"를 말해야 한다 — 박스는 받는곳·직송지·
+                 **회차**가 같은 것끼리만 합류한다(contextKey). 회차가 빠지면 r0 박스와 r1
+                 박스의 헤더가 글자까지 같아 갈린 이유를 읽을 수 없다(여정 11호 X7). -->
             <p class="text-xs font-bold text-teal-800">
               → {{ box.receiverName }}
               <template v-if="box.destinationCountry !== null"> · 직송 {{ box.destinationCountry }}</template>
+              <span
+                v-if="box.reorderRound > 0"
+                class="ml-1 rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700"
+              >A/S {{ box.reorderRound }}차</span>
               <span class="ml-1 rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-semibold text-teal-700">
                 {{ BOM_SHIPMENT_MODE_LABELS[box.mode] }}
               </span>
