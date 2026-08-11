@@ -284,11 +284,48 @@ const SETTLED_MAIL_KIND = 'pcb_remit_settled';
 const SETTLED_MAIL_REF_TYPE = 'pcb_po';
 
 /**
+ * 발주서별 통지 직렬화(여정 41호 교정).
+ *
+ * 중복 방지는 원장 조회("이미 sent 가 있나")로 하는데, **조회와 발송 사이**가 벌어지면 두
+ * 요청이 나란히 "없다"를 보고 둘 다 보낸다 — 잔액을 0 으로 만드는 송금 두 건이 동시에 오면
+ * 실제로 그렇게 됐다(협력사가 같은 안내를 두 번 받았다). 경리가 버튼을 두 번 누르는 일은
+ * 드물지 않다.
+ *
+ * 같은 발주서의 통지 시도를 프로세스 안에서 한 줄로 세워 그 틈을 없앤다. 앞선 시도가 메일을
+ * 보내고 원장에 남긴 뒤에야 다음 시도가 조회하므로 두 번째는 "이미 보냈다"를 본다.
+ *
+ * ⚠ 한계: **한 프로세스 안에서만** 유효하다. API 를 여러 인스턴스로 띄우면 인스턴스 간에는
+ *   같은 틈이 남는다. 근본책은 원자적 claim(예: sp_pcb_po 에 통지 시각 컬럼을 두고
+ *   `UPDATE ... WHERE id=? AND col IS NULL` 로 한 쪽만 이기게 하는 것)이고, 스키마 변경이
+ *   따르므로 이월한다. 지금 구조(단일 API 프로세스)에서는 이 직렬화로 충분하다.
+ */
+const settleNoticeChain = new Map<string, Promise<void>>();
+
+/**
  * 이 발주서가 방금 완납됐으면 수주 협력사에 1회 통지한다(아니면 아무것도 하지 않는다).
  * ⚠ 실패해도 throw 하지 않는다 — 원장이 정본이고 메일은 부수다. 송금 기록이 메일 때문에
  *   무산되면 안 된다.
  */
 export const notifyPcbRemittanceSettled = async (
+  log: FastifyBaseLogger,
+  poId: bigint,
+  actorMbId: string,
+): Promise<void> => {
+  // 같은 발주서의 시도를 한 줄로 세운다(위 주석 참조). 앞 시도의 실패가 뒤를 막지 않도록
+  // 체인은 항상 이어 붙이고, 끝나면 자기 자리를 비운다.
+  const key = poId.toString();
+  const prev = settleNoticeChain.get(key) ?? Promise.resolve();
+  const mine = prev
+    .catch(() => undefined)
+    .then(() => runSettledNotice(log, poId, actorMbId));
+  settleNoticeChain.set(key, mine);
+  void mine.finally(() => {
+    if (settleNoticeChain.get(key) === mine) settleNoticeChain.delete(key);
+  });
+  return mine;
+};
+
+const runSettledNotice = async (
   log: FastifyBaseLogger,
   poId: bigint,
   actorMbId: string,
