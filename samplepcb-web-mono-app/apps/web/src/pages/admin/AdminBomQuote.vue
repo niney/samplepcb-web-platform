@@ -741,6 +741,14 @@ function onComparisonQueryChange(query: {
   comparisonStatus.value = query.status;
   comparisonSheet.value = query.sheet;
 }
+
+function openComparison(): void {
+  comparisonPage.value = 1;
+  comparisonSearch.value = '';
+  comparisonStatus.value = 'all';
+  comparisonSheet.value = 'all';
+  compareOpen.value = true;
+}
 // 검색은 끝났고 서버가 결과를 견적에 반영(인제스트→재매칭)하는 중
 const applying = computed(() => enriching.value && supplierStatus.data.value?.data.status === 'completed');
 const enrichProgress = computed(() => (applying.value ? 100 : (supplierStatus.data.value?.data.progress ?? 3)));
@@ -1533,7 +1541,7 @@ function fmtAmount(v: number | null): string {
     <!-- 워크벤치 — 시안(87:12875): 좌 매칭 결과 테이블(내부 스크롤) + 우 정보 패널(고정) -->
     <div v-else-if="detail && detail.buildStatus === 'ready'" class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 bomwide:flex-row bomwide:overflow-visible">
       <!-- 좌: 파일명·액션(고정) + 테이블(내부 스크롤) -->
-      <section class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <section class="flex min-h-[640px] min-w-0 flex-none flex-col bomwide:min-h-0 bomwide:flex-1">
         <!-- file name + 액션 (87:13178~) -->
         <div class="flex flex-wrap items-start justify-between gap-3 px-1">
           <div>
@@ -1580,9 +1588,9 @@ function fmtAmount(v: number | null): string {
               type="button"
               class="flex h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-surface px-4 text-[14px] font-semibold text-ink-soft hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
               title="Excel 원본과 공급사 검색 결과 비교"
-              @click="compareOpen = true"
+              @click="openComparison"
             >
-              <span>◫</span> BOM 비교
+              <span aria-hidden="true">◫</span> BOM 비교
             </button>
             <!-- 사용자 화면에서는 숨기되 재활성화를 위해 누락조건 적용 흐름은 유지한다. -->
             <button

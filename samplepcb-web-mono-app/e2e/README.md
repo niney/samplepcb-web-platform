@@ -109,6 +109,7 @@ specs/
   journey-bom-manual-part-workspace.e2e.test.ts BOM 여정 17호 — 고객 수동 부품 검색→추가·변경·실패 복구
   journey-bom-candidate-selection.e2e.test.ts BOM 여정 18호 — 후보 비교→검토 선택·차단·제외 복원
   journey-bom-comparison-workspace.e2e.test.ts BOM 여정 19호 — 전체 BOM 비교→필터·페이지·오류·모바일 열 탐색
+  journey-bom-admin-comparison-workspace.e2e.test.ts BOM 여정 20호 — 관리자 전체 비교→가림·페이지·복구·모바일 감사
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -165,6 +166,11 @@ BOM 19호는 별도 가상 고객의 업로드형 작성 중 견적 1건에 영�
 않고도 비교 요약·2페이지·검색·판정·시트 필터를 복원하는지 확인하고, 비교 GET 503 재시도와
 닫기·재열기의 쿼리 초기화, 전체화면 키보드 경계를 검증한다. 390px에서는 Excel 원본 열이
 공급사 후보를 덮지 않고 좌우 탐색 이름·안내·최우측 공급사명이 실제로 보이는지 확인한다.
+BOM 20호는 별도 가상 관리자 소유의 업로드형 작성 중 견적 1건에 19호와 같은 영속 비교 원장을
+구성해 독립 스냅샷인 관리자 워크벤치를 검증한다. 적층 레이아웃의 분석 패널이 상단 비교 버튼을
+가리지 않는지부터 전체화면 포커스·2페이지 유지·필터 이름·503 재시도·재진입 쿼리 초기화를
+확인한다. 390px에서는 Excel 원본 열을 지나 최우측 공급사 결과까지 키보드와 좌우 스크롤로
+실제로 탐색할 수 있는지 확인하며 엔진 잡을 다시 호출하지 않고 종료 후 fixture를 회수한다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -173,7 +179,7 @@ BOM 19호는 별도 가상 고객의 업로드형 작성 중 견적 1건에 영�
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~19호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~20호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
@@ -193,7 +199,8 @@ BOM 19호는 별도 가상 고객의 업로드형 작성 중 견적 1건에 영�
 | `pnpm -F e2e journey:bom:17` | BOM 17호만 — 수동 부품 검색·추가·변경·실패 복구 |
 | `pnpm -F e2e journey:bom:18` | BOM 18호만 — 후보 비교·검토 선택·차단·제외 복원 |
 | `pnpm -F e2e journey:bom:19` | BOM 19호만 — 전체 비교·필터·페이지·오류 복구 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~19호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:20` | BOM 20호만 — 관리자 비교·패널 가림·모바일 감사 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~20호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -225,7 +232,6 @@ BOM 19호는 별도 가상 고객의 업로드형 작성 중 견적 1건에 영�
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
-
 여정들은 고객 조작(거버 제출·주문서 작성)과 관찰 규약을 `helpers/journey.ts` 로 공유한다.
 주문서를 채우는 손놀림이 갈라지면 한쪽만 고쳐지고 다른 쪽은 묵기 때문이다 — 10호가 필요로 한
 **한 주문서 여러 줄**도 새 함수가 아니라 `placeOrderFromQuotes({ alsoSpecIds })` 로 체크만 늘려
@@ -465,7 +471,7 @@ Recent file에도 제목이 노출되면 안 된다. 숫자가 아닌 깨진 주
 
 **생성물은 원칙적으로 자동 정리하지 않는다.** 단, 9·10호의 삭제 성공 표본은 제품 삭제
 경로 검증 자체가 정리이며 stale 표본도 reset 경로로 정리하고 공유 주문 차단 표본만 남긴다.
-12~19호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안·수량·수동 추가·후보 선택·전체 비교 검증 뒤 하네스가 직접 정리한다.
+12~20호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안·수량·수동 추가·후보 선택·고객·관리자 전체 비교 검증 뒤 하네스가 직접 정리한다.
 그 밖의 생성물은 완주 후 리포트
 (`output/journey/findings*.md`) 대장을 보고 손으로 지운다 — 순서는 ① 주문을
 `force-status '주문'` 으로 내려 **재고 복원** ② g5 cart+order ③ sp_* 역순
