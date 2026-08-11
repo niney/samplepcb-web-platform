@@ -50,6 +50,8 @@ import {
 } from '../../bom/useBom';
 import { useBomPanels } from '../../bom/usePanels';
 import { bomQuoteItemSelection, bomQuoteItemSelectionKey } from '../../bom/search-selection';
+import { appPath, loginUrl } from '../../lib/auth-urls';
+import { isPositiveBigIntId } from '../../lib/route-ids';
 import BomCandidateDrawer from '../../components/bom/BomCandidateDrawer.vue';
 import BomCompareModal from '../../components/bom/BomCompareModal.vue';
 import BomOfferModal from '../../components/bom/BomOfferModal.vue';
@@ -82,6 +84,10 @@ const route = useRoute();
 const router = useRouter();
 const qc = useQueryClient();
 const quoteId = computed(() => String(route.params.id ?? ''));
+const quoteRequestId = computed(() => (
+  isPositiveBigIntId(quoteId.value) ? quoteId.value : null
+));
+const invalidQuoteId = computed(() => quoteId.value !== '' && quoteRequestId.value === null);
 // 상단바 우측 접기 버튼과 공유 — 이 페이지의 우측 패널(AI 분석결과·주문 정보·예상 견적)
 const { rightOpen, compactLeftOpen, compactRightOpen } = useBomPanels();
 const compactPanelCloseButton = ref<HTMLButtonElement | null>(null);
@@ -135,10 +141,62 @@ watch(compactRightOpen, (active) => {
 // 도착하므로(서버가 한 저장으로 커밋) 링거·타임아웃 휴리스틱이 필요 없다
 const quotePolling = ref(false);
 const quote = useBomQuote(
-  computed(() => (quoteId.value === '' ? null : quoteId.value)),
+  quoteRequestId,
   computed(() => (quotePolling.value ? 3_000 : false)),
 );
 const detail = computed(() => quote.data.value?.data ?? null);
+type QuoteLoadErrorKind = 'invalid' | 'not-found' | 'unauthorized' | 'forbidden' | 'temporary';
+const quoteLoadErrorPanel = ref<HTMLElement | null>(null);
+const hasBlockingQuoteLoadError = computed(() => (
+  invalidQuoteId.value || (quote.isError.value && detail.value === null)
+));
+const quoteLoadErrorKind = computed<QuoteLoadErrorKind>(() => {
+  if (invalidQuoteId.value) return 'invalid';
+  const reason = quote.error.value;
+  if (!(reason instanceof ApiRequestError)) return 'temporary';
+  if (reason.status === 404) return 'not-found';
+  if (reason.status === 401) return 'unauthorized';
+  if (reason.status === 403) return 'forbidden';
+  return 'temporary';
+});
+const quoteLoadErrorTitle = computed(() => {
+  if (quoteLoadErrorKind.value === 'invalid') return 'BOM 견적 주소가 올바르지 않습니다';
+  if (quoteLoadErrorKind.value === 'not-found') return 'BOM 견적을 찾을 수 없습니다';
+  if (quoteLoadErrorKind.value === 'unauthorized') return '로그인이 필요합니다';
+  if (quoteLoadErrorKind.value === 'forbidden') return 'BOM 견적에 접근할 수 없습니다';
+  return 'BOM 견적을 불러오지 못했습니다';
+});
+const quoteLoadErrorMessage = computed(() => {
+  if (quoteLoadErrorKind.value === 'invalid') {
+    return '주소를 다시 확인하거나 내 BOM 내역에서 접근 가능한 견적을 선택해 주세요.';
+  }
+  if (quoteLoadErrorKind.value === 'not-found') {
+    return '요청한 견적이 없거나 이 계정에서 접근할 수 없습니다. 주소를 확인하거나 내 BOM 내역에서 다시 선택해 주세요.';
+  }
+  if (quoteLoadErrorKind.value === 'unauthorized') {
+    return '로그인 정보가 만료되었습니다. 다시 로그인하면 현재 BOM 주소로 돌아옵니다.';
+  }
+  if (quoteLoadErrorKind.value === 'forbidden') {
+    return '현재 계정으로 이 견적을 볼 수 없습니다. 내 BOM 내역에서 접근 가능한 견적을 확인해 주세요.';
+  }
+  return '서버와 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+});
+
+function retryQuoteLoad(): void {
+  void quote.refetch();
+}
+
+function returnToLogin(): void {
+  window.location.href = loginUrl(appPath(route.fullPath));
+}
+
+watch(
+  hasBlockingQuoteLoadError,
+  (active) => {
+    if (active) void nextTick(() => quoteLoadErrorPanel.value?.focus());
+  },
+  { immediate: true },
+);
 const isDraft = computed(() => detail.value?.status === 'draft');
 const canDeleteQuote = computed(() => (
   detail.value?.status === 'draft' || detail.value?.status === 'canceled'
@@ -1855,6 +1913,62 @@ function fmtAmount(v: number | null): string {
 <template>
   <div class="h-full">
     <p v-if="quote.isLoading.value" class="py-16 text-center text-sm text-gray-400">불러오는 중…</p>
+
+    <section
+      v-else-if="hasBlockingQuoteLoadError"
+      ref="quoteLoadErrorPanel"
+      role="alert"
+      aria-labelledby="bom-quote-load-error-title"
+      tabindex="-1"
+      class="m-4 flex min-h-[min(420px,calc(100%-2rem))] items-center justify-center rounded-2xl border border-gray-200 bg-surface px-5 py-10 text-center shadow-sm outline-none sm:m-6 sm:min-h-[min(460px,calc(100%-3rem))] sm:px-8"
+    >
+      <div class="w-full max-w-[520px]">
+        <span class="mx-auto grid size-12 place-items-center rounded-full bg-slate-100 text-xl font-bold text-slate-500" aria-hidden="true">!</span>
+        <p class="mt-5 text-[11px] font-bold uppercase tracking-[0.16em] text-blue-600">BOM access</p>
+        <h1 id="bom-quote-load-error-title" class="mt-2 text-xl font-bold text-gray-950 sm:text-2xl">
+          {{ quoteLoadErrorTitle }}
+        </h1>
+        <p class="mx-auto mt-3 max-w-[440px] text-sm leading-6 text-gray-500">
+          {{ quoteLoadErrorMessage }}
+        </p>
+        <div class="mt-7 flex flex-col justify-center gap-2 sm:flex-row sm:flex-wrap">
+          <button
+            v-if="quoteLoadErrorKind === 'temporary'"
+            type="button"
+            class="min-h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-300"
+            :disabled="quote.isFetching.value"
+            @click="retryQuoteLoad"
+          >
+            {{ quote.isFetching.value ? '다시 불러오는 중…' : '다시 시도' }}
+          </button>
+          <button
+            v-else-if="quoteLoadErrorKind === 'unauthorized'"
+            type="button"
+            class="min-h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700"
+            @click="returnToLogin"
+          >
+            다시 로그인
+          </button>
+          <button
+            type="button"
+            class="min-h-11 rounded-xl px-5 text-sm font-semibold"
+            :class="quoteLoadErrorKind === 'invalid' || quoteLoadErrorKind === 'not-found' || quoteLoadErrorKind === 'forbidden'
+              ? 'bg-blue-600 font-bold text-white hover:bg-blue-700'
+              : 'border border-gray-300 bg-surface text-gray-700 hover:bg-gray-50'"
+            @click="router.push({ name: 'bom-history' })"
+          >
+            내 BOM 내역
+          </button>
+          <button
+            type="button"
+            class="min-h-11 rounded-xl border border-gray-300 bg-surface px-5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            @click="router.push({ name: 'bom' })"
+          >
+            새 BOM 업로드
+          </button>
+        </div>
+      </div>
+    </section>
 
     <!-- 전체 워크북 파싱 — 이 단계에서는 계산·공급사 검색을 시작하지 않는다 -->
     <section v-else-if="isParsing" class="m-6 rounded-2xl border border-gray-200 bg-surface p-10 text-center shadow-sm">

@@ -13,17 +13,33 @@ export interface JwtIdentity {
   level?: number;
   /** 관리자 API(requireAdmin)·/app/admin 가드 통과용 */
   isAdmin?: boolean;
+  /** 영카트 장바구니 버킷 — BOM 주문 경계까지 검증할 때만 지정한다. */
+  cartId?: string;
   /** 기본 30분 — 시나리오 중 만료를 피한다(me.php 는 10분) */
   ttlSec?: number;
 }
 
 export function signJwt(identity: JwtIdentity): string {
   const isAdmin = identity.isAdmin ?? false;
-  const { mbId, mbNick = mbId, level = isAdmin ? 10 : 2, ttlSec = 1800 } = identity;
+  const {
+    mbId,
+    mbNick = mbId,
+    level = isAdmin ? 10 : 2,
+    cartId,
+    ttlSec = 1800,
+  } = identity;
   const b64u = (s: string): string => Buffer.from(s).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const head = b64u(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const body = b64u(JSON.stringify({ mbId, mbNick, level, isAdmin, iat: now, exp: now + ttlSec }));
+  const body = b64u(JSON.stringify({
+    mbId,
+    mbNick,
+    level,
+    isAdmin,
+    ...(cartId === undefined ? {} : { cartId }),
+    iat: now,
+    exp: now + ttlSec,
+  }));
   const sig = createHmac('sha256', requireJwtSecret()).update(`${head}.${body}`).digest('base64url');
   return `${head}.${body}.${sig}`;
 }

@@ -8,6 +8,7 @@ import { useBomPanels } from '../bom/usePanels';
 import { useTheme } from '../bom/useTheme';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
+import { isPositiveBigIntId } from '../lib/route-ids';
 import logoPartseyes from '../assets/bom/logo-partseyes.svg';
 import icFold from '../assets/bom/ic-fold.svg';
 import icMenuBomActive from '../assets/bom/ic-menu-bom.svg';
@@ -83,7 +84,9 @@ onBeforeUnmount(() => {
   recentResizeObserver?.disconnect();
 });
 
-const currentQuoteId = computed(() => (typeof route.params.id === 'string' ? route.params.id : null));
+const currentQuoteId = computed(() => (
+  isPositiveBigIntId(route.params.id) ? route.params.id : null
+));
 const currentQuote = useBomQuote(currentQuoteId);
 const patchQuote = usePatchBomQuote();
 const { preferredMode, setPreferredMode } = useBomProcurementMode();
