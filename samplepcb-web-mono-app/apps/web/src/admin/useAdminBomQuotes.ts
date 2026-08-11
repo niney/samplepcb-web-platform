@@ -61,14 +61,17 @@ export interface AdminBomCaseBulkDeleteResult {
   failed: { quoteId: string; message: string }[];
 }
 
-const invalidateBomCaseQueries = (qc: QueryClient): void => {
-  void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
-  void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs'] });
-  void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos'] });
-  void qc.invalidateQueries({ queryKey: ['admin', 'bom-shipments'] });
-  void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'] });
-  void qc.invalidateQueries({ queryKey: ['bom'] });
-  void qc.invalidateQueries({ queryKey: ['partner'] });
+const invalidateBomCaseQueries = (
+  qc: QueryClient,
+  refetchType: 'active' | 'inactive' = 'active',
+): void => {
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'], refetchType });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-rfqs'], refetchType });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-pos'], refetchType });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-shipments'], refetchType });
+  void qc.invalidateQueries({ queryKey: ['admin', 'bom-orders'], refetchType });
+  void qc.invalidateQueries({ queryKey: ['bom'], refetchType });
+  void qc.invalidateQueries({ queryKey: ['partner'], refetchType });
 };
 
 const deleteErrorMessage = (error: unknown): string => {
@@ -343,7 +346,10 @@ export function useDeleteAdminBomCase() {
         AdminBomCaseDeleteResponse,
       ),
     onSuccess: () => {
-      invalidateBomCaseQueries(qc);
+      // 삭제 결과 레이어를 확인하는 동안 상세/RFQ/PO observer가 아직 살아 있다.
+      // 이들을 즉시 재조회하면 정상 삭제 직후 404가 연속 발생하므로, 캐시만 stale로
+      // 만들고 비활성 목록을 갱신한다. 결과 확인 뒤 목록이 mount되면 최신 값을 읽는다.
+      invalidateBomCaseQueries(qc, 'inactive');
     },
   });
 }

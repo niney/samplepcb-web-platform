@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { AdminBomCaseDeleteResponseType } from '@sp/api-contract';
 import { ApiRequestError } from '@sp/shared';
 import {
@@ -30,6 +30,9 @@ const reason = ref('');
 const acknowledgeIrreversible = ref(false);
 const result = ref<AdminBomCaseDeleteResponseType['data'] | null>(null);
 const localError = ref('');
+const dialogEl = ref<HTMLElement | null>(null);
+let previousFocus: HTMLElement | null = null;
+let previousBodyOverflow = '';
 
 const paidOrderForceAvailable = computed(() => {
   const data = preview.value;
@@ -57,6 +60,28 @@ const mutationError = computed(() => {
 });
 
 const combinedError = computed(() => localError.value || mutationError.value);
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function focusableElements(): HTMLElement[] {
+  const dialog = dialogEl.value;
+  if (dialog === null) return [];
+  return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => element.getClientRects().length > 0,
+  );
+}
+
+async function focusCurrentDialog(): Promise<void> {
+  await nextTick();
+  dialogEl.value?.focus();
+}
 
 function openConfirm(): void {
   if (!canContinue.value) return;
@@ -86,6 +111,12 @@ function toggleForcePaidOrder(): void {
   acknowledgeIrreversible.value = false;
   localError.value = '';
   deleteCase.reset();
+}
+
+async function retryPreview(): Promise<void> {
+  localError.value = '';
+  deleteCase.reset();
+  await previewQuery.refetch();
 }
 
 async function submitDelete(): Promise<void> {
@@ -136,14 +167,48 @@ function close(): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') close();
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    close();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const dialog = dialogEl.value;
+  if (dialog === null) return;
+  const focusable = focusableElements();
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (first === undefined || last === undefined) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !dialog.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
-onMounted(() => {
+watch(step, () => {
+  void focusCurrentDialog();
+});
+
+onMounted(async () => {
+  previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  previousBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
   window.addEventListener('keydown', onKeydown);
+  await focusCurrentDialog();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
+  document.body.style.overflow = previousBodyOverflow;
+  previousFocus?.focus();
+  previousFocus = null;
 });
 </script>
 
@@ -155,10 +220,12 @@ onBeforeUnmount(() => {
       <!-- 1차 레이어: 실제 관계를 서버가 계산한 삭제 영향 -->
       <section
         v-if="step === 'impact'"
+        ref="dialogEl"
         class="relative max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-surface shadow-2xl"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="bom-case-delete-impact-title"
+        tabindex="-1"
       >
         <header class="border-b border-red-100 bg-red-50 px-6 py-4">
           <p class="text-[11px] font-bold uppercase tracking-wider text-red-500">1차 경고 · 삭제 영향 확인</p>
@@ -171,8 +238,20 @@ onBeforeUnmount(() => {
           <p v-if="previewQuery.isLoading.value" class="py-12 text-center text-sm text-gray-400">
             주문·발주·선적·파일 관계를 확인하는 중…
           </p>
-          <div v-else-if="previewQuery.isError.value || preview === null" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            삭제 영향을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+          <div
+            v-else-if="previewQuery.isError.value || preview === null"
+            role="alert"
+            class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          >
+            <p>삭제 영향을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>
+            <button
+              type="button"
+              class="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100 disabled:cursor-wait disabled:opacity-50"
+              :disabled="previewQuery.isFetching.value"
+              @click="retryPreview"
+            >
+              {{ previewQuery.isFetching.value ? '삭제 영향 확인 중…' : '삭제 영향 다시 확인' }}
+            </button>
           </div>
           <template v-else>
             <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
@@ -272,10 +351,12 @@ onBeforeUnmount(() => {
       <!-- 2차 레이어: 삭제 기록 모드 + 복구 불가 최종 확인 -->
       <section
         v-else-if="step === 'confirm' && preview !== null"
+        ref="dialogEl"
         class="relative max-h-[90vh] w-full max-w-xl overflow-hidden rounded-2xl bg-surface shadow-2xl"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="bom-case-delete-confirm-title"
+        tabindex="-1"
       >
         <header class="border-b border-red-200 bg-red-700 px-6 py-4 text-white">
           <p class="text-[11px] font-bold uppercase tracking-wider text-red-100">2차 경고 · 최종 확인</p>
@@ -359,12 +440,15 @@ onBeforeUnmount(() => {
       <!-- 완료 결과도 레이어 안에서 확인한 뒤 목록으로 이동 -->
       <section
         v-else-if="step === 'result' && result !== null"
+        ref="dialogEl"
         class="relative w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl"
         role="dialog"
         aria-modal="true"
+        aria-labelledby="bom-case-delete-result-title"
+        tabindex="-1"
       >
         <p class="text-xs font-bold uppercase tracking-wider text-emerald-600">삭제 완료</p>
-        <h2 class="mt-1 text-lg font-extrabold text-gray-900">SmartBOM Case가 영구 삭제되었습니다</h2>
+        <h2 id="bom-case-delete-result-title" class="mt-1 text-lg font-extrabold text-gray-900">SmartBOM Case가 영구 삭제되었습니다</h2>
         <p class="mt-3 text-sm text-gray-600">
           품목 {{ result.deleted.quoteItems }}건 · RFQ {{ result.deleted.rfqs }}건 · 발주 {{ result.deleted.pos }}건 · 엔진 잡 {{ result.engineJobsDeleted }}건 · 파일 {{ result.filesDeleted }}건을 정리했습니다.
         </p>

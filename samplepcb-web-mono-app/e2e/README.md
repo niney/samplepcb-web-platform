@@ -98,6 +98,7 @@ specs/
   journey-bom-rfq-reassignment.e2e.test.ts BOM 여정 6호 — 미응답 RFQ 회수→재배정→매직링크 회신
   journey-bom-supplier-procurement.e2e.test.ts BOM 여정 7호 — 공급사 자동실행 실패→수동 구매→국제 조달
   journey-bom-trade-documents.e2e.test.ts BOM 여정 8호 — 국내 PO별 견적서→묶음 거래명세서→배송 완료
+  journey-bom-case-deletion.e2e.test.ts BOM 여정 9호 — Case audited/reset 삭제→주문·공유·경합 보호
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -114,6 +115,9 @@ nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1
 호출하지 않고도 자동 실행 실패와 수동 구매 복구를 검증하므로 엔진도 필요하지 않다.
 BOM 8호는 회신 완료된 국내 거래 스냅샷 2건부터 시작하고 전용 표준 파트너를 스스로
 준비해 PO별 견적서와 묶음 거래명세서의 불변성을 검증하므로 엔진이 필요하지 않다.
+BOM 9호는 실행 중 만든 회신 완료 Case만 삭제 대상으로 사용한다. 일반·미입금·결제 Case는
+제품 삭제 경로로 정리하고, 공유 주문 2건은 차단 결과를 확인하기 위해 생성물 대장에 남긴다.
+서버 프리뷰·영카트 주문·감사 원장을 직접 대조하므로 엔진과 협력사 계정은 필요하지 않다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -122,7 +126,7 @@ BOM 8호는 회신 완료된 국내 거래 스냅샷 2건부터 시작하고 전
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~8호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~9호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
@@ -131,7 +135,8 @@ BOM 8호는 회신 완료된 국내 거래 스냅샷 2건부터 시작하고 전
 | `pnpm -F e2e journey:bom:6` | BOM 6호만 — RFQ 미응답 회수·재배정·매직링크 회신 |
 | `pnpm -F e2e journey:bom:7` | BOM 7호만 — 공급사 자동실행 실패·수동 구매·국제 조달 |
 | `pnpm -F e2e journey:bom:8` | BOM 8호만 — 국내 견적서·묶음 거래명세서·인쇄 UX |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~8호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:9` | BOM 9호만 — Case 삭제·초기화 안전 경계 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~9호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -372,9 +377,19 @@ Date Code·VAT를 합산해야 한다. 관리자와 협력사 API·화면이 같
 파트너 기준정보 변경과 입고·고객 완료가 문서를 소급 변경하지 않는지 검증한다. 390px
 문서 레이어의 대화상자 의미·포커스 트랩/복귀·좌우 이동·잘못된 응답 뒤 재시도도 포함한다.
 
-**생성물은 자동 정리하지 않는다.** 완주 후 리포트(`output/journey/findings*.md`)의 생성물
-대장을 보고 손으로 지운다 — 순서는 ① 주문을 `force-status '주문'` 으로 내려 **재고 복원**
-② g5 cart+order ③ sp_* 역순(file→shipment_po→shipment→eq_review→po→rfq→file→spec).
+BOM 9호는 관리자가 Case 상세 위험 구역에서 보는 삭제 영향을 서버 프리뷰와 대조한 뒤,
+일반 Case의 사유 포함 감사 삭제와 단독 미입금 주문의 기록 없는 초기화를 각각 실제 UI로
+완주한다. 단독 결제 주문은 별도 강제 체크와 복구 불가 재확인 뒤에만 주문·cart를 지우고
+SmartBOM 감사행과 영카트 주문 백업을 남겨야 한다. 두 Case가 공유하는 주문은 결제 강제
+플래그로도 삭제할 수 없고, 프리뷰 뒤 Case가 바뀌면 오래된 토큰은 거부돼야 한다. 삭제
+레이어의 3단계 접근성 이름·포커스 트랩/복귀·배경 스크롤 잠금, 390px 가로 넘침, 영향 조회
+실패 뒤 명시적 재시도와 정상 삭제 직후 불필요한 상세 404가 없는지도 함께 검증한다.
+
+**생성물은 원칙적으로 자동 정리하지 않는다.** 단, 9호의 삭제 성공 표본은 제품 삭제 경로
+검증 자체가 정리이며 공유 주문 차단 표본만 남긴다. 그 밖의 생성물은 완주 후 리포트
+(`output/journey/findings*.md`) 대장을 보고 손으로 지운다 — 순서는 ① 주문을
+`force-status '주문'` 으로 내려 **재고 복원** ② g5 cart+order ③ sp_* 역순
+(file→shipment_po→shipment→eq_review→po→rfq→file→spec).
 
 ## 핵심 설계
 
@@ -407,7 +422,6 @@ Date Code·VAT를 합산해야 한다. 관리자와 협력사 API·화면이 같
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
-
 
 
 
