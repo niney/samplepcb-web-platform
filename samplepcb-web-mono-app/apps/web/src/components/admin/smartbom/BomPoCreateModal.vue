@@ -210,7 +210,7 @@ const fmt = (v: number): string => v.toLocaleString('ko-KR');
 
       <div class="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto">
         <p v-if="groups.length === 0" class="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-400">
-          협력사 회신으로 선정된 부품행이 없습니다 — 비교·선정에서 협력사 회신을 선정하면 발주 대상이 됩니다.
+          발주 가능한 선정 구매조건이 없습니다 — 협력사 회신 또는 공급사 구매조건을 선정하면 발주 대상이 됩니다.
         </p>
         <label
           v-for="group in groups"

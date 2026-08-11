@@ -174,6 +174,23 @@ export function useCloseBomPo() {
   });
 }
 
+// 공급사 조직은 포털 로그인 주체가 없으므로 구매담당이 실제 외부 주문 완료를 확인한다.
+export function useConfirmSupplierBomPo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, poId }: { quoteId: string; poId: number }) =>
+      apiSend(
+        'POST',
+        `${base}/${quoteId}/pos/${String(poId)}/confirm`,
+        undefined,
+        AdminBomPoMutationResponse,
+      ),
+    onSuccess: () => {
+      invalidate(qc);
+    },
+  });
+}
+
 // 선적 등록/수정(D21) — 발주서당 1건, mode 는 생성 시 박제.
 export function useUpsertBomShipment() {
   const qc = useQueryClient();

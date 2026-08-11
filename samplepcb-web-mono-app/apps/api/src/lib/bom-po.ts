@@ -1174,7 +1174,21 @@ export const executeExternalPo = async (poId: bigint): Promise<ExecuteExternalRe
       ? []
       : [{ sku: item.supplierSku, qty: item.qty }],
   );
-  if (lines.length === 0) return { ok: false, error: 'NO_SKU_LINES' };
+  if (lines.length === 0) {
+    await prisma.spBomPo.update({
+      where: { id: po.id },
+      data: {
+        externalRef: {
+          state: 'failed',
+          supplier: supplierCode,
+          executedAt: new Date().toISOString(),
+          skippedNoSku: po.items.length,
+          error: '실행할 공급사 SKU가 없습니다. 공급사 사이트에서 품번으로 수동 주문해 주세요.',
+        },
+      },
+    });
+    return { ok: false, error: 'NO_SKU_LINES' };
+  }
 
   const result =
     supplierCode === 'mouser' ? await mouserCartInsert(lines) : await digikeyThirdPartyList(lines);
@@ -1216,6 +1230,7 @@ export type ShipmentUpsertResult =
       ok: false;
       error:
         | 'PO_NOT_FOUND'
+        | 'PO_NOT_CONFIRMED'
         | 'INVALID_STATUS'
         | 'PARTNER_COUNTRY_REQUIRED'
         | 'MISSING_PACKING_LIST'
@@ -1239,6 +1254,7 @@ export const upsertShipment = async (
     include: { partner: true, shipmentLink: { include: { shipment: true } } },
   });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  if (po.status === 'issued') return { ok: false, error: 'PO_NOT_CONFIRMED' };
   const existing = linkedShipment(po);
 
   // mode: 기존 박제 우선 → 신규는 협력사 국가만. 국가 미입력을 국제로 추측하지 않는다.
@@ -1333,6 +1349,7 @@ export const receiveShipment = async (
     include: { partner: true, shipmentLink: { include: { shipment: true } } },
   });
   if (po === null) return { ok: false, error: 'PO_NOT_FOUND' };
+  if (po.status === 'issued') return { ok: false, error: 'PO_NOT_CONFIRMED' };
   const existing = linkedShipment(po);
   const mode =
     existing !== null ? asShipmentMode(existing.mode) : shipmentModeFromCountry(po.partner.country);

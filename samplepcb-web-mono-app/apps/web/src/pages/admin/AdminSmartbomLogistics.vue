@@ -27,7 +27,7 @@ import { confirmDialog } from '../../lib/confirmDialog';
 import { fmtKstDate } from '@sp/utils';
 
 // 선적·배송 워크큐(관리자 메뉴 재편) — 물류 담당의 화면. 흐름이 위→아래로 이어진다:
-// ① 협력사 선적(내 차례→진행 중→입고 완료, D22 핑퐁) → ② 입고 끝난 주문을 고객에게
+// ① 조달 선적(내 차례→진행 중→입고 완료, D22 핑퐁) → ② 입고 끝난 주문을 고객에게
 // 발송(배송 처리·구매확정 — 주문·결제 화면에서 이동해 온 D21-3 액션).
 
 const router = useRouter();
@@ -59,7 +59,7 @@ function openPackageScan(): void {
   void router.push({ name: 'admin-smartbom-package', params: { code } });
 }
 
-// ── ① 협력사 선적 — 횡단 목록 + BomShipmentModal(대표 발주서 경유) ───────────
+// ── ① 조달 선적 — 횡단 목록 + BomShipmentModal(대표 발주서 경유) ─────────────
 const shipFilters = ref<AdminBomShipmentCrossFilters>({ page: 1, pageSize: 20, tab: 'admin_pending' });
 const shipQuery = useAdminBomShipmentCross(shipFilters);
 const shipItems = computed(() => shipQuery.data.value?.data.items ?? []);
@@ -259,9 +259,9 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
       </p>
     </section>
 
-    <!-- ① 협력사 선적 -->
+    <!-- ① 조달 선적 -->
     <section class="space-y-3">
-      <h2 class="text-sm font-bold text-gray-700">협력사 선적 — 입고까지</h2>
+      <h2 class="text-sm font-bold text-gray-700">조달 선적 — 입고까지</h2>
       <div class="flex flex-wrap gap-1 border-b border-gray-200">
         <button
           v-for="entry in SHIP_TABS"
@@ -279,13 +279,13 @@ async function completeOrder(item: AdminBomOrderListItemType): Promise<void> {
       <div ref="shipmentTableScroll" class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm [scrollbar-color:theme(colors.blue.300)_theme(colors.gray.100)] [scrollbar-width:thin]">
         <div class="sticky left-0 z-[1] flex items-center gap-2 border-b border-blue-100 bg-blue-50/95 px-3 py-1.5 text-[10px] font-medium text-blue-800 min-[1180px]:hidden">
           <span class="min-w-0 flex-1">좌우로 이동해 출고예정·운송장·입고일과 처리 버튼을 확인하세요.</span>
-          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="협력사 선적 표 왼쪽으로 이동" @click="moveTable('shipment', -1)">←</button>
-          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="협력사 선적 표 오른쪽으로 이동" @click="moveTable('shipment', 1)">→</button>
+          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="조달 선적 표 왼쪽으로 이동" @click="moveTable('shipment', -1)">←</button>
+          <button type="button" class="grid size-6 shrink-0 place-items-center rounded border border-blue-200 bg-white text-sm hover:bg-blue-100" aria-label="조달 선적 표 오른쪽으로 이동" @click="moveTable('shipment', 1)">→</button>
         </div>
         <table class="min-w-[900px] divide-y divide-gray-200 text-sm">
           <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
             <tr>
-              <th class="whitespace-nowrap px-4 py-2.5">협력사</th>
+              <th class="whitespace-nowrap px-4 py-2.5">구매처</th>
               <th class="whitespace-nowrap px-4 py-2.5">Case</th>
               <th class="whitespace-nowrap px-4 py-2.5">구분</th>
               <th class="whitespace-nowrap px-4 py-2.5">상태</th>

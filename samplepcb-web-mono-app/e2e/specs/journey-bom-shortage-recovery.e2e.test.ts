@@ -1091,7 +1091,7 @@ describe.skipIf(!RUN || !JOURNEY)('BOM 여정 5호 — 공급 차질 → 잔량 
     expect(await orderScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
     const mobileHeader = page.getByRole('columnheader', { name: '협력사', exact: true }).first();
     expect(await mobileHeader.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
-    await page.getByRole('button', { name: '협력사 선적 표 오른쪽으로 이동' }).click();
+    await page.getByRole('button', { name: '조달 선적 표 오른쪽으로 이동' }).click();
     await expect.poll(() => shipmentScroll.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
     await page.setViewportSize({ width: 1440, height: 1000 });
   }, 120_000);

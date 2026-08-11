@@ -94,8 +94,8 @@ const CREATE_ERROR_MESSAGE: Record<string, string> = {
   QUOTE_NOT_FOUND: '견적을 찾을 수 없습니다.',
   ORDER_CLOSED: '취소되었거나 완료된 BOM 주문에는 발주서를 추가할 수 없습니다.',
   NOT_PAID: '결제 확인(입금) 후에 발주할 수 있습니다.',
-  NO_ELIGIBLE_ROWS: '협력사 회신으로 선정된 부품행이 없는 협력사가 포함되어 있습니다.',
-  ALREADY_ISSUED: '이미 발주서가 발행된 협력사가 포함되어 있습니다(재발행은 삭제 후).',
+  NO_ELIGIBLE_ROWS: '선정 구매조건이 없는 구매처가 포함되어 있습니다.',
+  ALREADY_ISSUED: '이미 발주서가 발행된 구매처가 포함되어 있습니다(재발행은 삭제 후).',
   PARTNER_COUNTRY_REQUIRED: '발주 전에 선택한 협력사의 국가를 등록해 주세요.',
 };
 
@@ -125,13 +125,14 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     poId: bigint,
   ): Promise<
     | { ok: true; shipment: Awaited<ReturnType<typeof prisma.spBomShipment.create>> }
-    | { ok: false; error: 'PO_NOT_FOUND' | 'PARTNER_COUNTRY_REQUIRED' }
+    | { ok: false; error: 'PO_NOT_FOUND' | 'PO_NOT_CONFIRMED' | 'PARTNER_COUNTRY_REQUIRED' }
   > => {
     const po = await prisma.spBomPo.findUnique({
       where: { id: poId },
       include: { shipmentLink: { include: { shipment: true } }, partner: true },
     });
     if (po?.quoteId !== quoteId) return { ok: false, error: 'PO_NOT_FOUND' };
+    if (po.status === 'issued') return { ok: false, error: 'PO_NOT_CONFIRMED' };
     if (po.shipmentLink !== null) return { ok: true, shipment: po.shipmentLink.shipment };
     const mode = shipmentModeFromCountry(po.partner.country);
     if (mode === null) return { ok: false, error: 'PARTNER_COUNTRY_REQUIRED' };
@@ -346,6 +347,41 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
     },
   );
 
+  // 공급사 PO는 로그인 주체가 없으므로 구매담당이 실제 주문·결제 완료를 내부 확인한다.
+  // 사람 협력사의 [발주 확인]과 같은 issued → confirmed 전이지만 관리자·supplier 전용이다.
+  fastify.post(
+    '/bom-quotes/:id/pos/:poId/confirm',
+    {
+      schema: { params: PoParams, response: { 200: AdminBomPoMutationResponse, 409: ApiError } },
+    },
+    async (request, reply) => {
+      const po = await prisma.spBomPo.findUnique({
+        where: { id: request.params.poId },
+        include: { partner: true },
+      });
+      if (po?.quoteId !== request.params.id) {
+        return reply.notFound('발주서를 찾을 수 없습니다');
+      }
+      if (po.partner.type !== 'supplier') {
+        return reply.status(409).send({
+          error: 'SUPPLIER_PO_REQUIRED',
+          message: '사람 협력사 발주서는 협력사 포털에서 확인해야 합니다.',
+        });
+      }
+      const updated = await prisma.spBomPo.updateMany({
+        where: { id: po.id, status: 'issued' },
+        data: { status: 'confirmed', confirmedAt: new Date() },
+      });
+      if (updated.count === 0) {
+        return reply.status(409).send({
+          error: 'PO_NOT_CONFIRMABLE',
+          message: '이미 구매 완료 처리되었거나 마감된 발주서입니다.',
+        });
+      }
+      return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
+    },
+  );
+
   // ── DELETE — 발행 취소(issued 만 — confirmed 는 협력사가 이미 본 문서) ──────
   fastify.delete(
     '/bom-quotes/:id/pos/:poId',
@@ -363,7 +399,7 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (removed.count === 0) {
         return reply.status(409).send({
           error: 'PO_NOT_DELETABLE',
-          message: '협력사가 확인한 발주서는 삭제할 수 없습니다.',
+          message: '확인 완료된 발주서는 삭제할 수 없습니다.',
         });
       }
       return { result: true as const, data: { pos: await loadAdminPos(request.params.id) } };
@@ -398,6 +434,7 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (!result.ok) {
         const messages: Record<typeof result.error, string> = {
           PO_NOT_FOUND: '발주서를 찾을 수 없습니다.',
+          PO_NOT_CONFIRMED: '발주 확인 또는 공급사 구매 완료 처리 후 선적을 시작해 주세요.',
           INVALID_STATUS: '발송 구분에 맞지 않는 상태입니다.',
           PARTNER_COUNTRY_REQUIRED: '협력사 관리에서 국가를 먼저 등록해 주세요.',
           MISSING_PACKING_LIST: '선적 리스트와 QR 라벨을 먼저 저장해 주세요.',
@@ -471,9 +508,11 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           .send({
             error: result.error,
             message:
-              result.error === 'PARTNER_COUNTRY_REQUIRED'
-                ? '협력사 관리에서 국가를 먼저 등록해 주세요.'
-                : '입고 확인에 실패했습니다.',
+              result.error === 'PO_NOT_CONFIRMED'
+                ? '발주 확인 또는 공급사 구매 완료 처리 후 입고를 확인해 주세요.'
+                : result.error === 'PARTNER_COUNTRY_REQUIRED'
+                  ? '협력사 관리에서 국가를 먼저 등록해 주세요.'
+                  : '입고 확인에 실패했습니다.',
           });
       }
       if (po.partner.type === 'partner') {
@@ -523,7 +562,10 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         if (ensured.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
         return reply.status(409).send({
           error: ensured.error,
-          message: '협력사 관리에서 국가를 먼저 등록해 주세요.',
+          message:
+            ensured.error === 'PO_NOT_CONFIRMED'
+              ? '발주 확인 또는 공급사 구매 완료 처리 후 선적 문서를 등록해 주세요.'
+              : '협력사 관리에서 국가를 먼저 등록해 주세요.',
         });
       }
       const saved = await saveShipmentFile(ensured.shipment.id, kind.data, file, 'ADMIN');
@@ -678,7 +720,10 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         if (ensured.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
         return reply.status(409).send({
           error: ensured.error,
-          message: '협력사 관리에서 국가를 먼저 등록해 주세요.',
+          message:
+            ensured.error === 'PO_NOT_CONFIRMED'
+              ? '발주 확인 또는 공급사 구매 완료 처리 후 Invoice를 작성해 주세요.'
+              : '협력사 관리에서 국가를 먼저 등록해 주세요.',
         });
       }
       if (asShipmentMode(ensured.shipment.mode) !== 'international') {
@@ -710,7 +755,10 @@ export const adminBomPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
         if (ensured.error === 'PO_NOT_FOUND') return reply.notFound('발주서를 찾을 수 없습니다');
         return reply.status(409).send({
           error: ensured.error,
-          message: '협력사 관리에서 국가를 먼저 등록해 주세요.',
+          message:
+            ensured.error === 'PO_NOT_CONFIRMED'
+              ? '발주 확인 또는 공급사 구매 완료 처리 후 Invoice를 생성해 주세요.'
+              : '협력사 관리에서 국가를 먼저 등록해 주세요.',
         });
       }
       if (asShipmentMode(ensured.shipment.mode) !== 'international') {

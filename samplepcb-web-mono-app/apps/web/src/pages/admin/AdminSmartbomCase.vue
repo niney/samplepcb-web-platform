@@ -48,6 +48,7 @@ import {
 import {
   useAdminBomPos,
   useCloseBomPo,
+  useConfirmSupplierBomPo,
   useCreateBomPos,
   useDeleteBomPo,
   useExecuteExternalPo,
@@ -855,12 +856,14 @@ const shortageRecoveryTarget = ref<{
 const createPos = useCreateBomPos();
 const deletePo = useDeleteBomPo();
 const closePo = useCloseBomPo();
+const confirmSupplierPo = useConfirmSupplierBomPo();
 const executeExternal = useExecuteExternalPo();
 const poBusy = computed(
   () =>
     createPos.isPending.value ||
     deletePo.isPending.value ||
     closePo.isPending.value ||
+    confirmSupplierPo.isPending.value ||
     executeExternal.isPending.value,
 );
 
@@ -871,6 +874,31 @@ async function retryExternalPo(po: { poId: number; partnerName: string }): Promi
     await executeExternal.mutateAsync({ quoteId: detailId.value, poId: po.poId });
   } catch (e) {
     poError.value = e instanceof ApiRequestError ? e.message : '외부 실행에 실패했습니다.';
+  }
+}
+
+async function confirmSupplierPurchase(po: AdminBomPoViewType): Promise<void> {
+  if (detailId.value === null) return;
+  const fallbackNotice =
+    po.externalRef?.state === 'failed'
+      ? '\n\n자동 실행에 실패했습니다. 공급사 사이트에서 수동 주문을 완료한 경우에만 진행해 주세요.'
+      : '';
+  if (
+    !(await confirmDialog({
+      title: '구매 완료 처리',
+      message: `공급사 사이트에서 실제 주문·결제를 완료했나요?${fallbackNotice}\n\n완료 처리하면 발주 확인 시각이 기록되고 선적 업무가 열립니다.`,
+      confirmLabel: '구매 완료',
+    }))
+  ) {
+    return;
+  }
+  poError.value = '';
+  try {
+    await confirmSupplierPo.mutateAsync({ quoteId: detailId.value, poId: po.poId });
+  } catch (error) {
+    poError.value = error instanceof ApiRequestError
+      ? error.message
+      : '공급사 구매 완료 처리에 실패했습니다.';
   }
 }
 const PO_TERMINAL_ORDER_STATUSES = new Set(['완료', '취소', '반품', '품절']);
@@ -1984,7 +2012,7 @@ async function downloadOriginal(): Promise<void> {
         class="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-surface px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
         @click="expandSection('po')"
       >
-        <span>▸ 협력사 발주 ({{ pos.length }}건)</span>
+        <span>▸ 조달 발주 ({{ pos.length }}건)</span>
         <span class="text-xs text-gray-400">펼치기</span>
       </button>
       <BomPoPanel
@@ -1996,12 +2024,13 @@ async function downloadOriginal(): Promise<void> {
         :busy="poBusy"
         @create="poCreateOpen = true; poError = '';"
         @remove="removePo"
+        @confirm-supplier="confirmSupplierPurchase"
         @close="closePoRow"
         @external="retryExternalPo"
         @shipment="(po) => { shipmentPo = po; }"
         @recover="(po, item) => { shortageRecoveryTarget = { po, item }; }"
       />
-      <p v-if="poError !== ''" class="text-xs font-semibold text-red-600">{{ poError }}</p>
+      <p v-if="poError !== ''" role="alert" class="text-xs font-semibold text-red-600">{{ poError }}</p>
 
       <!-- 품목 표+검토 — 견적 담당 외 진입에선 접힘(가장 큰 몸통, §6.12) -->
       <button

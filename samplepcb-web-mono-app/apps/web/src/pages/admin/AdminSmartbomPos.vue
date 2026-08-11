@@ -74,6 +74,13 @@ const statusCls = (status: AdminBomPoCrossItemType['status']): string =>
       ? 'bg-emerald-100 text-emerald-700'
       : 'bg-gray-200 text-gray-600';
 
+const statusLabel = (item: AdminBomPoCrossItemType): string => {
+  if (item.supplierCode === null) return BOM_PO_STATUS_LABELS[item.status];
+  if (item.status === 'issued') return '구매 확인 대기';
+  if (item.status === 'confirmed') return '구매 완료';
+  return BOM_PO_STATUS_LABELS[item.status];
+};
+
 const shipmentBadge = (item: AdminBomPoCrossItemType): string | null => {
   if (item.shipment === null) return null;
   if (item.shipment.receivedAt !== null) return '입고 완료';
@@ -170,7 +177,7 @@ const shipmentBadge = (item: AdminBomPoCrossItemType): string | null => {
             <tr>
               <th class="whitespace-nowrap px-4 py-2.5">발주번호</th>
               <th class="px-4 py-2.5">Case</th>
-              <th class="px-4 py-2.5">협력사</th>
+              <th class="px-4 py-2.5">구매처</th>
               <th class="whitespace-nowrap px-4 py-2.5 text-right">품목</th>
               <th class="whitespace-nowrap px-4 py-2.5 text-right">발주 금액</th>
               <th class="whitespace-nowrap px-4 py-2.5">발행일</th>
@@ -198,7 +205,7 @@ const shipmentBadge = (item: AdminBomPoCrossItemType): string | null => {
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(item.confirmedAt) }}</td>
               <td class="px-4 py-2.5">
                 <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="statusCls(item.status)">
-                  {{ BOM_PO_STATUS_LABELS[item.status] }}
+                  {{ statusLabel(item) }}
                 </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5">

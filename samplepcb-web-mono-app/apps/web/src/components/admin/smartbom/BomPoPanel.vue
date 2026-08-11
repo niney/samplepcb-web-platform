@@ -27,6 +27,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   create: [];
   remove: [po: AdminBomPoViewType];
+  confirmSupplier: [po: AdminBomPoViewType];
   close: [po: AdminBomPoViewType];
   external: [po: AdminBomPoViewType]; // 외부 실행 재시도/재발급(D20)
   shipment: [po: AdminBomPoViewType]; // 선적 관리(D21)
@@ -82,6 +83,21 @@ const statusCls = (status: AdminBomPoViewType['status']): string =>
       ? 'bg-blue-100 text-blue-700'
       : 'bg-gray-200 text-gray-600';
 
+const statusLabel = (po: AdminBomPoViewType): string => {
+  if (po.supplierCode === null) return BOM_PO_STATUS_LABELS[po.status];
+  if (po.status === 'issued') return '구매 확인 대기';
+  if (po.status === 'confirmed') return '구매 완료';
+  return BOM_PO_STATUS_LABELS[po.status];
+};
+
+const externalFailureResolved = (po: AdminBomPoViewType): boolean =>
+  po.externalRef?.state === 'failed' && po.status !== 'issued';
+
+const externalFailureRetryable = (po: AdminBomPoViewType): boolean =>
+  po.externalRef?.state === 'failed'
+  && po.status === 'issued'
+  && (po.externalRef.skippedNoSku ?? 0) < po.itemCount;
+
 const tableScroll = ref<HTMLElement | null>(null);
 function moveTable(direction: -1 | 1): void {
   tableScroll.value?.scrollBy({ left: direction * 280, behavior: 'smooth' });
@@ -91,7 +107,7 @@ function moveTable(direction: -1 | 1): void {
 <template>
   <div class="rounded-xl border border-gray-200 bg-surface">
     <div class="flex flex-wrap items-center gap-3 border-b border-gray-100 px-4 py-3">
-      <p class="text-sm font-bold text-gray-800">협력사 발주 (PO)</p>
+      <p class="text-sm font-bold text-gray-800">조달 발주 (PO)</p>
       <p v-if="pos.length > 0" class="text-xs text-gray-500">
         발주서 <b>{{ pos.length }}</b> ·
         확인 <b class="text-emerald-600">{{ pos.filter((p) => p.status !== 'issued').length }}</b>
@@ -126,7 +142,7 @@ function moveTable(direction: -1 | 1): void {
       <table class="min-w-[960px] divide-y divide-gray-100 text-xs">
         <thead class="bg-gray-50 text-left text-gray-500">
           <tr>
-            <th class="whitespace-nowrap px-3 py-2">협력사</th>
+            <th class="whitespace-nowrap px-3 py-2">구매처</th>
             <th class="whitespace-nowrap px-3 py-2">상태</th>
             <th class="whitespace-nowrap px-3 py-2 text-right">품목</th>
             <th class="whitespace-nowrap px-3 py-2 text-right">발주 문서 / 실제 공급(VAT 별도)</th>
@@ -192,15 +208,37 @@ function moveTable(direction: -1 | 1): void {
                   <button type="button" class="ml-1 text-gray-500 underline" :disabled="busy" @click="emit('external', po)">재발급</button>
                 </template>
                 <template v-else>
-                  <span class="text-red-600" :title="po.externalRef.error">실행 실패: {{ (po.externalRef.error ?? '').slice(0, 40) }}</span>
-                  <button type="button" class="ml-1 text-blue-600 underline" :disabled="busy" @click="emit('external', po)">재시도</button>
+                  <div
+                    class="mt-1 rounded border px-2 py-1.5 leading-4"
+                    :class="externalFailureResolved(po)
+                      ? 'border-amber-200 bg-amber-50 text-amber-800'
+                      : 'border-red-200 bg-red-50 text-red-700'"
+                  >
+                    <p class="font-bold">
+                      {{ externalFailureResolved(po)
+                        ? '자동 실행 실패 · 수동 구매 완료'
+                        : '자동 실행 실패 · 수동 주문 필요' }}
+                    </p>
+                    <p class="break-words text-[10px]" :title="po.externalRef.error">
+                      {{ po.externalRef.error ?? '공급사 자동 실행을 완료하지 못했습니다.' }}
+                    </p>
+                    <button
+                      v-if="externalFailureRetryable(po)"
+                      type="button"
+                      class="mt-0.5 font-semibold text-blue-700 underline"
+                      :disabled="busy"
+                      @click="emit('external', po)"
+                    >
+                      자동 실행 재시도
+                    </button>
+                  </div>
                 </template>
                 <span v-if="(po.externalRef.skippedNoSku ?? 0) > 0" class="ml-1 text-amber-700">SKU 없음 {{ po.externalRef.skippedNoSku }}행 제외</span>
               </div>
             </td>
             <td class="whitespace-nowrap px-3 py-2">
               <span class="whitespace-nowrap rounded px-1.5 py-0.5 font-semibold" :class="statusCls(po.status)">
-                {{ BOM_PO_STATUS_LABELS[po.status] }}
+                {{ statusLabel(po) }}
               </span>
             </td>
             <td class="px-3 py-2 text-right tabular-nums">{{ po.itemCount }}</td>
@@ -254,10 +292,24 @@ function moveTable(direction: -1 | 1): void {
                 type="button"
                 class="rounded px-2 py-1 font-semibold disabled:opacity-40"
                 :class="shipmentNextActor(po) === 'ADMIN' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-blue-200 text-blue-700 hover:bg-blue-50'"
-                :disabled="busy"
+                :disabled="busy || po.status === 'issued'"
+                :title="po.status === 'issued'
+                  ? po.supplierCode !== null
+                    ? '공급사 구매 완료 처리 후 선적을 진행할 수 있습니다'
+                    : '협력사가 발주 확인을 완료한 뒤 선적을 진행할 수 있습니다'
+                  : ''"
                 @click="emit('shipment', po)"
               >
                 선적 관리
+              </button>
+              <button
+                v-if="po.supplierCode !== null && po.status === 'issued'"
+                type="button"
+                class="ml-1 rounded bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+                :disabled="busy"
+                @click="emit('confirmSupplier', po)"
+              >
+                구매 완료 처리
               </button>
               <button
                 v-if="po.status === 'issued'"

@@ -1013,7 +1013,7 @@ describe.skipIf(!RUN || !JOURNEY)(
         adminView,
         `/app/admin/smartbom/cases/${quoteId}`,
         'D08-admin-po-issued',
-        ['협력사 발주 (PO)', '발주서 생성'],
+        ['조달 발주 (PO)', '발주서 생성'],
       );
       await adminView.page.getByRole('button', { name: '발주서 생성', exact: true }).click();
       const zeroPoButton = adminView.page.getByRole('button', { name: '발주서 발행 (0곳)' });
