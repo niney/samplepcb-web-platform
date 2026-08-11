@@ -161,7 +161,7 @@ const rfqStatusCls = (s: string): string =>
             v-for="rfq in pendingRfqs"
             :key="rfq.rfqId"
             :to="{ name: 'partner-bom-rfq', params: { id: String(rfq.rfqId) } }"
-            class="flex items-center gap-3 rounded-xl border border-gray-200 bg-surface px-4 py-3 hover:border-blue-300 hover:bg-blue-50/40"
+            class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200 bg-surface px-4 py-3 hover:border-blue-300 hover:bg-blue-50/40"
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.quoteTitle }}</p>
@@ -182,7 +182,7 @@ const rfqStatusCls = (s: string): string =>
             v-for="po in toConfirm"
             :key="po.poId"
             :to="{ name: 'partner-bom-po', params: { id: String(po.poId) } }"
-            class="flex items-center gap-3 rounded-xl border border-emerald-200 bg-surface px-4 py-3 hover:bg-emerald-50/40"
+            class="flex min-w-0 items-center gap-3 rounded-xl border border-emerald-200 bg-surface px-4 py-3 hover:bg-emerald-50/40"
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ po.quoteTitle }}</p>

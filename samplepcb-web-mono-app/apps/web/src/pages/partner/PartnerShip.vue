@@ -103,7 +103,7 @@ async function takeOut(poId: number): Promise<void> {
           <div
             v-for="po in shelf"
             :key="po.poId"
-            class="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3"
+            class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200 px-4 py-3"
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ po.quoteTitle }}</p>
@@ -145,7 +145,7 @@ async function takeOut(poId: number): Promise<void> {
           <div
             v-for="entry in box?.groupPos ?? []"
             :key="entry.poId"
-            class="flex items-center gap-3 rounded-xl border border-indigo-200 bg-surface px-4 py-3"
+            class="flex min-w-0 items-center gap-3 rounded-xl border border-indigo-200 bg-surface px-4 py-3"
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ entry.quoteTitle }}</p>

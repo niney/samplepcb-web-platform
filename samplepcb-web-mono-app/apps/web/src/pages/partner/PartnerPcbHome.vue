@@ -190,6 +190,11 @@ const rfqStatusCls = (s: string): string =>
       </div>
 
       <!-- ① 회신할 견적 -->
+      <!-- ⚠ 카드에 `min-w-0` 이 필요하다(여정 36호). 프로젝트명은 **고객이 올린 파일명**이라
+           우리가 길이를 정할 수 없는데, grid item 은 기본 `min-width:auto` 라 긴 이름이
+           카드를 컨테이너 밖까지 밀어낸다. 안쪽 `min-w-0 flex-1` 은 flex 컨텍스트 안에서만
+           들어서 truncate 는 걸려도 카드 자체가 넓어진다(295자 이름으로 1503px>1440px 실측).
+           같은 이유로 이 파일·BOM 홈·발송 화면의 같은 카드 전부에 붙였다. -->
       <section v-if="pendingPcb.length > 0" id="reply">
         <h2 class="text-sm font-bold text-gray-700">회신할 견적 ({{ pendingPcb.length }})</h2>
         <div class="mt-2 grid gap-2">
@@ -197,7 +202,7 @@ const rfqStatusCls = (s: string): string =>
             v-for="rfq in pendingPcb"
             :key="rfq.rfqId"
             :to="{ name: 'partner-pcb-rfq', params: { id: String(rfq.rfqId) } }"
-            class="flex items-center gap-3 rounded-xl border border-cyan-200 bg-surface px-4 py-3 hover:border-cyan-300 hover:bg-cyan-50/40"
+            class="flex min-w-0 items-center gap-3 rounded-xl border border-cyan-200 bg-surface px-4 py-3 hover:border-cyan-300 hover:bg-cyan-50/40"
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">{{ rfq.projectName }}</p>
@@ -221,7 +226,7 @@ const rfqStatusCls = (s: string): string =>
             v-for="po in myTurnPcbPos"
             :key="po.poId"
             :to="{ name: 'partner-pcb-po', params: { id: String(po.poId) } }"
-            class="flex items-center gap-3 rounded-xl border border-teal-200 bg-surface px-4 py-3 hover:border-teal-300 hover:bg-teal-50/40"
+            class="flex min-w-0 items-center gap-3 rounded-xl border border-teal-200 bg-surface px-4 py-3 hover:border-teal-300 hover:bg-teal-50/40"
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-gray-900">
