@@ -308,7 +308,7 @@ const shipmentInvalidate = (qc: ReturnType<typeof useQueryClient>): void => {
 
 const shipmentAction = (
   qc: ReturnType<typeof useQueryClient>,
-  action: 'advance' | 'revert',
+  action: 'advance' | 'box' | 'revert',
 ) =>
   useMutation({
     mutationFn: ({
@@ -333,6 +333,11 @@ const shipmentAction = (
 
 export function useAdminPcbShipmentAdvance() {
   return shipmentAction(useQueryClient(), 'advance');
+}
+/** 담기(박스만 확보) — 관리자 대행의 발송 시작점. 협력사 포털의 [담기]와 같은 일을 한다.
+ *  담고 나면 선적 줄이 서고, 이후 전이는 기존 [~ 진행]이 모드에 맞는 입력을 묻는다. */
+export function useAdminPcbShipmentBox() {
+  return shipmentAction(useQueryClient(), 'box');
 }
 export function useAdminPcbShipmentRevert() {
   return shipmentAction(useQueryClient(), 'revert');

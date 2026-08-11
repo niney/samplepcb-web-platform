@@ -38,6 +38,7 @@ import {
   advancePcbShipment,
   buildPcbInvoiceDraft,
   deletePcbShipmentFile,
+  ensurePcbShipment,
   findPcbShipmentByPo,
   getPcbShipmentFileDownload,
   loadAdminPcbShipmentWorkItems,
@@ -593,6 +594,25 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           params: { poId: String(po.id), partnerName: po.partner.name, status: res.to },
         },
       );
+      return { result: true as const, data: await loadPanel(request.params.id) };
+    },
+  );
+
+  // 담기(박스 확보만) — 관리자 대행의 **발송 시작점**. advance 가 담기+첫 전이를 겸하지만
+  // 첫 전이의 필수값은 모드마다 다르고(국내=운송장 / 국제=출고예정일·Invoice), 그 모드는
+  // 담아 봐야 정해진다(발송자국가 vs 수신국가 파생). 그래서 담기를 떼어 둔다 — 담고 나면
+  // 선적 줄이 서고, 그 다음은 기존 [~ 진행] 이 모드를 알고 정확한 입력을 묻는다.
+  // 협력사에는 같은 일을 하는 /partner/pcb-shipments/box 가 있지만, **연결 계정이 0인
+  // 조직은 그 라우트를 부를 주체 자체가 없어** 관리자에게 대응물이 없으면 화면만으로는
+  // 발송을 영영 시작할 수 없었다(여정 12호 P5 — D11 "만능 대행"의 구멍).
+  fastify.post(
+    '/pcb-projects/:id/pos/:poId/shipment/box',
+    { schema: { params: PoParams, response: { 200: AdminPcbPoListResponse, 409: ApiError } } },
+    async (request, reply) => {
+      const po = await loadPoChecked(request.params.id, request.params.poId);
+      if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
+      const res = await ensurePcbShipment(po);
+      if (!res.ok) return reply.status(409).send(shipError(res.error));
       return { result: true as const, data: await loadPanel(request.params.id) };
     },
   );

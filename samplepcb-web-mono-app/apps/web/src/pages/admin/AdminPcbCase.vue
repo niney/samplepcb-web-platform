@@ -34,6 +34,7 @@ import {
   useAdminPcbEqSubstitute,
   useAdminPcbPos,
   useAdminPcbShipmentAdvance,
+  useAdminPcbShipmentBox,
   useAdminPcbShipmentCancel,
   useAdminPcbShipmentReceive,
   useAdminPcbShipmentRevert,
@@ -761,6 +762,7 @@ const shipMatesOf = (s: PcbShipmentViewType): { poId: number; projectName: strin
   }));
 
 const shipAdvanceAdmin = useAdminPcbShipmentAdvance();
+const shipBoxAdmin = useAdminPcbShipmentBox();
 const shipRevertAdmin = useAdminPcbShipmentRevert();
 const shipCancelAdmin = useAdminPcbShipmentCancel();
 
@@ -837,6 +839,29 @@ const adminShipAdvanceLabel = (s: PcbShipmentViewType): string | null => {
     directShip: isPcbDirectShipIntl(s.destinationCountry),
   });
 };
+// 발송 시작(담기) — 생산완료인데 아직 어느 박스에도 안 담긴 발주. 원칙은 협력사 포털의
+// [담기]지만, **연결 계정이 0인 조직은 누를 사람이 없다** — 그 발주는 관리자가 여기서
+// 열어 주지 않으면 화면상 영영 시작되지 않는다(여정 12호 P5). 담기까지만 하고 멈추는
+// 이유는 다음 단계의 필수값이 모드마다 다르고, 모드는 담아 봐야 정해지기 때문이다.
+const canStartShipment = (po: AdminPcbPoViewType): boolean =>
+  po.status === 'produced' && shipmentByPo.value.get(po.poId) === undefined;
+
+async function startShipment(po: AdminPcbPoViewType): Promise<void> {
+  if (specId.value === null) return;
+  if (
+    !(await confirmDialog(
+      `${po.partnerName}의 발송을 시작할까요? 박스를 열어 두면 아래 선적 줄에서 다음 단계를 진행할 수 있습니다.`,
+    ))
+  )
+    return;
+  actionError.value = '';
+  try {
+    await shipBoxAdmin.mutateAsync({ specId: specId.value, poId: po.poId });
+  } catch (e) {
+    surfaceError(e, '발송을 시작하지 못했습니다.');
+  }
+}
+
 const canAdminReceive = (s: PcbShipmentViewType): boolean => {
   if (s.receivedAt !== null || s.receiverKind !== 'admin') return false;
   return s.mode === 'domestic'
@@ -1604,6 +1629,16 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     @click="void runSubstitute(po)"
                   >
                     {{ SUBSTITUTE_LABELS[substituteActionOf(po.status) ?? 'eq-request'] }}
+                  </button>
+                  <!-- 발송 시작(담기) 대행 — 계정 없는 조직은 포털에서 누를 사람이 없다 -->
+                  <button
+                    v-if="canStartShipment(po)"
+                    type="button"
+                    class="mr-1 rounded-md border border-teal-300 px-2 py-1 font-semibold text-teal-700 hover:bg-teal-50"
+                    title="협력사 포털의 [담기]와 같습니다 — 박스를 열면 아래 선적 줄에서 진행할 수 있습니다."
+                    @click="void startShipment(po)"
+                  >
+                    발송 시작
                   </button>
                   <!-- 송금 원장(P3.11) — 부분 송금·증빙까지 여기서 다룬다 -->
                   <button

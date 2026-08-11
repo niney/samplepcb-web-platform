@@ -487,22 +487,31 @@ describe.skipIf(!RUN || !JOURNEY)('여정 12호 — 관리자 대행 완주(포�
     await rp.view(adminView, `/app/admin/pcb/cases/${String(specId)}`, 'P05-case-before-box');
     const caseBeforeBox = await bodyTextOf(adminView);
     expect(caseBeforeBox.includes('🚚 선적'), '발송 문서 전 — 선적 줄 없음').toBe(false);
-    // 발송을 **시작할** 버튼(담기/발송 준비/발송 시작)이 Case 상세에 있는가.
-    const startButtons = await adminView.page
-      .getByRole('button', { name: /담기|발송 준비|발송 시작|보내기/ })
-      .count();
-    expect(startButtons, '현재 동작 박제 — Case 상세의 발송 시작 버튼 수').toBe(0);
+    // ── 발송 시작(담기)을 **화면만으로** — 첫 주행이 박제한 결함을 닫은 자리다.
+    //    계정 0 조직은 포털 [담기]를 누를 사람이 아예 없으므로, 관리자 Case 상세에 같은 일을
+    //    하는 [발송 시작]이 있어야 한다(없으면 이 조직의 발송은 API 없이 영영 시작 불가).
+    //    담기까지만 하고 멈추는 것이 정상이다 — 다음 단계의 필수값은 모드마다 다르고
+    //    (국내=운송장 / 국제=출고예정일·Invoice), 그 모드는 담아 봐야 정해진다.
+    const startBtn = adminView.page.getByRole('button', { name: '발송 시작' });
+    expect(await startBtn.count(), 'Case 상세의 발송 시작 버튼').toBeGreaterThan(0);
+    await startBtn.first().click();
+    await adminView.page.getByRole('alertdialog').getByRole('button', { name: '확인' }).click();
+    await adminView.page.getByText('🚚 선적').first().waitFor({ timeout: 15_000 });
+    await rp.shot(adminView, 'P05-case-box-opened');
+    const opened = await prisma.spPcbShipment.findFirst({
+      where: { pos: { some: { poId: BigInt(poId) } } },
+      orderBy: { id: 'desc' },
+    });
+    expect(opened?.status, '화면 [발송 시작] — 박스만 열린다(전이는 아직)').toBe('preparing');
+    expect(opened?.mode, '담기 시점에 모드가 정해진다(KR 조직 → 관리자 KR)').toBe('domestic');
     F(
       'P5',
-      'bug',
-      '무계정 조직의 **발송 시작 동선이 화면에 없다** — 선적 큐 안내문은 "관리자는 Case 상세에서 ' +
-        '대행할 수 있습니다"(AdminPcbShipments.vue:200)라고 보내지만, Case 상세의 선적 줄은 ' +
-        '발송 문서가 이미 있을 때만 렌더된다(AdminPcbCase.vue:1635 shipRowsOf). 담기(박스 생성) ' +
-        '라우트는 협력사 전용(POST /api/partner/pcb-shipments/box)뿐이고, 관리자는 ' +
-        'shipment/advance 가 겸하는 ensure 로만 시작할 수 있어 **API 없이는 불가**. 박제만 하고 고치지 않음.',
+      'obs',
+      '발송 시작 대행 — Case 상세 [발송 시작] 1회로 박스 개설(preparing·domestic). ' +
+        '포털 무접촉 · 협력사 [담기]와 같은 ensurePcbShipment 경로.',
     );
 
-    // ── 실제 대행 — advance 한 번이 담기(ensurePcbShipment)와 첫 전이를 겸한다.
+    // ── 전이 — 담긴 박스를 배송 중으로 민다.
     //    국내라 Invoice 첨부 없이 진행돼야 하고, 택배사·송장이 필수값이다.
     //    (기준선은 전이 **전에** 잡는다 — 이 조직엔 여정 6호가 보낸 같은 제목의 선적 메일이
     //     Mailpit 에 남아 있을 수 있어, 기준선 없이 최신 1통을 집으면 옛 메일을 잡는다.)

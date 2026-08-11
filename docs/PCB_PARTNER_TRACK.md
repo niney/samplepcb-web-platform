@@ -1823,6 +1823,27 @@ apps/api vitest 777 · 정리 CLEAN(spec=0 고아=0, 상설 픽스처 무접촉)
 8/8 green · HTTP ≥400 0건 · pageerror 0건 · 정리 CLEAN(상설 픽스처 5조직 무접촉, Mailpit 은
 이번 주행분 6통만 삭제). 스크린샷 21장(접두사 `P` — 여정 공용 폴더라 편마다 글자를 전용한다).
 
+#### 교정 — 대행에 발송 시작점을 주다 (2026-08-11)
+
+**담기(박스 확보)만 하는 관리자 라우트를 신설했다** — `POST /pcb-projects/:id/pos/:poId/
+shipment/box`(`admin-pcb-pos.ts`, `ensurePcbShipment` 직결 · 협력사 `POST /partner/
+pcb-shipments/box` 의 대응물). Case 상세 발주 행에는 생산완료·미편성일 때만 서는 **[발송 시작]**
+을 달았다(`AdminPcbCase.vue` `canStartShipment`/`startShipment` — D11 대행 버튼 옆, 확인 대화
+포함). 화면 훅은 기존 `shipmentAction` 에 `'box'` 를 더해 재사용한다(`useAdminPcbShipmentBox`).
+
+**담기까지만 하고 멈추는 것이 설계의 핵심이다.** 첫 전이의 필수값은 모드마다 다른데(국내=운송장 ·
+국제=출고예정일+Invoice) 그 **모드는 담아 봐야 정해진다**(발송자국가 vs 수신국가 파생 —
+`resolvePcbShipContext`). 그래서 박스를 먼저 열고, 이후 전이는 **기존 [~ 진행]** 이 모드를 알고
+정확한 입력을 묻는 자리로 넘긴다. 화면이 모드를 미리 추측할 필요가 없어진다.
+
+이로써 선적 큐의 안내문("관리자는 Case 상세에서 대행할 수 있습니다" — `AdminPcbShipments.vue:200`)
+이 **참이 됐다**. **P5 는 어서션이 뒤집혀 회귀선이 됐다** — "발송 시작 버튼 = 0개"에서 "버튼을
+눌러(확인 대화 승인) 선적 줄이 서고 박스가 `preparing`·`domestic` 으로 열린다"로. 화면 클릭만으로
+발송이 시작되는지를 DB 실측까지 이어 본다.
+
+검증: `journey:proxy` 8/8 green · 회귀 `journey:combo` 9/9 · `journey:direct` 6/6 ·
+`journey:batch` 10/10 · `pnpm -r typecheck`(8/8)·`lint`(6/6) · apps/api vitest 777 · 정리 CLEAN.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
