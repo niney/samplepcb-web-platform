@@ -17,6 +17,7 @@ import {
   type AdminPcbRemittanceFilters,
 } from '../../admin/useAdminPcbRemittances';
 import { fmtPcbAmount } from '../../lib/pcb-money';
+import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbRemittancePanel from '../../components/admin/pcb/PcbRemittancePanel.vue';
 
 // PCB 송금 워크큐(P3.11) — 경리·재무 역할 화면. 역할별 워크큐 교리(D12) 그대로
@@ -127,7 +128,7 @@ const openCase = (specId: number): void => {
         <input
           v-model="searchText"
           type="search"
-          placeholder="프로젝트·협력사·견적번호"
+          placeholder="프로젝트·협력사·고객명·견적번호"
           class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
         >
       </form>
@@ -168,6 +169,7 @@ const openCase = (specId: number): void => {
             <tr>
               <th class="whitespace-nowrap px-4 py-2.5">견적</th>
               <th class="px-4 py-2.5">프로젝트</th>
+              <th class="px-4 py-2.5">고객명</th>
               <th class="px-4 py-2.5">협력사</th>
               <th class="whitespace-nowrap px-4 py-2.5">발주 상태</th>
               <th class="whitespace-nowrap px-4 py-2.5">결제조건</th>
@@ -197,6 +199,9 @@ const openCase = (specId: number): void => {
                 <span v-if="row.reorderRound > 0" class="ml-1 rounded bg-rose-100 px-1 text-[10px] font-semibold text-rose-700">
                   {{ row.reorderRound }}차
                 </span>
+              </td>
+              <td class="px-4 py-2.5 text-gray-600">
+                <PcbCustomerCell :name="row.customerName" :mb-id="row.mbId" />
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.partnerName }}</td>
               <td class="whitespace-nowrap px-4 py-2.5">
@@ -257,7 +262,7 @@ const openCase = (specId: number): void => {
               </td>
             </tr>
             <tr v-if="rows.length === 0">
-              <td colspan="12" class="px-4 py-10 text-center text-sm text-gray-400">
+              <td colspan="13" class="px-4 py-10 text-center text-sm text-gray-400">
                 {{ list.isFetching.value ? '불러오는 중…' : '해당하는 발주가 없습니다.' }}
               </td>
             </tr>

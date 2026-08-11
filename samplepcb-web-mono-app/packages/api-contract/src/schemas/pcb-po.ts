@@ -383,6 +383,10 @@ export const AdminPcbPoWorkItem = z.object({
   poId: z.number(),
   specId: z.number(),
   projectName: z.string(),
+  /** 이 발주가 누구 물건인가 — 협력사 축 목록이라도 운영자는 고객으로 건을 기억한다.
+   *  이름 해석은 lib/pcb-customer 단일 사전(od_name > mb_name), 비회원이면 mbId=null. */
+  mbId: z.string().nullable(),
+  customerName: z.string(),
   partnerName: z.string(),
   /** 연결 계정 없음 = 이 줄은 협력사가 스스로 진행할 수 없다(대행 대기). */
   partnerHasPortal: z.boolean(),

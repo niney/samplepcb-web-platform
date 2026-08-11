@@ -23,6 +23,7 @@ import {
 } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getOrderInfoByCtId } from './g5-db';
+import { loadPcbCustomerNames } from './pcb-customer';
 import { isPcbOrderFulfillmentClosed } from './pcb-order-cancel';
 import { roundPcbAmount } from './exchange-rate';
 import {
@@ -1203,7 +1204,7 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
     orderBy: { issuedAt: 'desc' },
   });
   const parentIds = [...new Set(rows.map((r) => r.parentPartnerId).filter((p) => p !== 0n))];
-  const [parents, shipmentLinks, reviewMap] = await Promise.all([
+  const [parents, shipmentLinks, reviewMap, customerNames] = await Promise.all([
     parentIds.length === 0
       ? Promise.resolve([])
       : prisma.spPartner.findMany({ where: { id: { in: parentIds } } }),
@@ -1215,6 +1216,11 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
     loadEqReviewRowSummaries(
       rows.map((r) => r.id),
       eqRoundStartMap(rows),
+    ),
+    // 고객명 — 협력사 축 목록이라도 운영자는 "누구 건"으로 발주를 기억한다. 스펙 단위로
+    // 한 벌만 뽑는다(회원 1쿼리 + 주문 1쿼리 — 행마다 부르면 N+1).
+    loadPcbCustomerNames(
+      rows.map((r) => ({ specId: r.specId, mbId: r.spec.mbId, ctId: r.spec.ctId })),
     ),
   ]);
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
@@ -1241,6 +1247,8 @@ export const loadAdminPcbPoWorkItems = async (): Promise<
         poId: Number(po.id),
         specId: Number(po.specId),
         projectName: po.spec.projectName,
+        mbId: po.spec.mbId,
+        customerName: customerNames.get(po.specId.toString()) ?? '',
         partnerName: po.partner.name,
         partnerHasPortal: portalSet.has(po.partnerId.toString()),
         parentPartnerName:

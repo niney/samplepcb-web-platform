@@ -15,6 +15,7 @@ import {
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
 import { confirmDialog } from '../../lib/confirmDialog';
+import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbOrderCancelModal from '../../components/admin/pcb/PcbOrderCancelModal.vue';
 
 // PCB 주문·결제 워크큐(P3.5) — 경리 관점 조감: 입금 대기 → 진행 중 → 완료/취소.
@@ -136,7 +137,7 @@ function openCancelCase(): void {
         <input
           v-model="searchText"
           type="search"
-          placeholder="프로젝트·회원ID·주문번호 검색"
+          placeholder="프로젝트·고객명·아이디·주문번호 검색"
           class="w-64 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
         >
       </form>
@@ -148,7 +149,7 @@ function openCancelCase(): void {
           <tr>
             <th class="whitespace-nowrap px-4 py-2.5">주문번호</th>
             <th class="px-4 py-2.5">프로젝트</th>
-            <th class="px-4 py-2.5">회원</th>
+            <th class="px-4 py-2.5">고객명</th>
             <th class="whitespace-nowrap px-4 py-2.5">수량</th>
             <th class="whitespace-nowrap px-4 py-2.5">주문 상태</th>
             <th class="whitespace-nowrap px-4 py-2.5">결제수단</th>
@@ -171,7 +172,9 @@ function openCancelCase(): void {
               <span class="ml-1 text-gray-300">Q{{ row.specId }}</span>
             </td>
             <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">{{ row.projectName }}</td>
-            <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.mbId ?? '비회원' }}</td>
+            <td class="px-4 py-2.5 text-gray-600">
+              <PcbCustomerCell :name="row.customerName" :mb-id="row.mbId" />
+            </td>
             <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">{{ row.qty }}</td>
             <td class="whitespace-nowrap px-4 py-2.5">
               <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="OD_CLS[displayStatus(row)] ?? 'bg-gray-100 text-gray-600'">

@@ -10,6 +10,7 @@ import {
 import { fmtKstDate as fmtDate, kstDateOnly, kstToday } from '@sp/utils';
 import { useAdminPcbPoWork, type AdminPcbPoWorkFilters } from '../../admin/useAdminPcbPos';
 import { useAdminPcbTodoCounts } from '../../admin/useAdminPcbCases';
+import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
 import { fmtPcbAmount, pcbKrwSuffix } from '../../lib/pcb-money';
 import {
@@ -107,7 +108,7 @@ function openCase(specId: number): void {
         <input
           v-model="searchText"
           type="search"
-          placeholder="프로젝트·협력사 검색"
+          placeholder="프로젝트·협력사·고객명 검색"
           class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
         >
       </form>
@@ -129,6 +130,7 @@ function openCase(specId: number): void {
             <tr>
               <th class="whitespace-nowrap px-4 py-2.5">발주</th>
               <th class="px-4 py-2.5">프로젝트</th>
+              <th class="px-4 py-2.5">고객명</th>
               <th class="px-4 py-2.5">협력사</th>
               <th class="whitespace-nowrap px-4 py-2.5">발주가</th>
               <th class="whitespace-nowrap px-4 py-2.5">상태</th>
@@ -151,6 +153,9 @@ function openCase(specId: number): void {
               <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
                 <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
                 {{ row.projectName }}
+              </td>
+              <td class="px-4 py-2.5 text-gray-600">
+                <PcbCustomerCell :name="row.customerName" :mb-id="row.mbId" />
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">
                 {{ row.partnerName }}
@@ -213,7 +218,7 @@ function openCase(specId: number): void {
               </td>
             </tr>
             <tr v-if="rows.length === 0">
-              <td colspan="8" class="px-4 py-10 text-center text-sm text-gray-400">
+              <td colspan="9" class="px-4 py-10 text-center text-sm text-gray-400">
                 해당 상태의 발주서가 없습니다 — 발행은 [발주 대기] 탭에서 시작합니다.
               </td>
             </tr>

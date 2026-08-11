@@ -20,6 +20,7 @@ import {
   usePcbCompleteCustomerOrder,
   type AdminPcbOrderFilters,
 } from '../../admin/useAdminPcbOrders';
+import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbCustomerShipModal from '../../components/admin/pcb/PcbCustomerShipModal.vue';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { fmtPcbAmount } from '../../lib/pcb-money';
@@ -111,7 +112,9 @@ function openShip(item: AdminPcbOrderItemType): void {
   shipOdId.value = item.odId;
   shipIncomplete.value = !allReceived(item);
   shipCustomerLabel.value =
-    item.odName !== '' ? `${item.odName} (${item.mbId ?? '비회원'})` : (item.mbId ?? '비회원');
+    item.customerName !== ''
+      ? `${item.customerName} (${item.mbId ?? '비회원'})`
+      : (item.mbId ?? '비회원');
   shipProjectName.value = item.projectName;
 }
 
@@ -206,6 +209,7 @@ function openCase(specId: number): void {
               <tr>
                 <th class="whitespace-nowrap px-4 py-2.5">발주</th>
                 <th class="px-4 py-2.5">프로젝트</th>
+                <th class="px-4 py-2.5">고객명</th>
                 <th class="px-4 py-2.5">협력사</th>
                 <th class="whitespace-nowrap px-4 py-2.5">상태</th>
                 <th class="whitespace-nowrap px-4 py-2.5">납기</th>
@@ -223,6 +227,9 @@ function openCase(specId: number): void {
                 <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">
                   <span class="font-mono text-xs text-gray-400">Q{{ row.specId }}</span>
                   {{ row.projectName }}
+                </td>
+                <td class="px-4 py-2.5 text-gray-600">
+                  <PcbCustomerCell :name="row.customerName" :mb-id="row.mbId" />
                 </td>
                 <td class="px-4 py-2.5 text-gray-600">
                   {{ row.partnerName }}
@@ -247,7 +254,7 @@ function openCase(specId: number): void {
                 </td>
               </tr>
               <tr v-if="toShipRows.length === 0">
-                <td colspan="6" class="px-4 py-10 text-center text-sm text-gray-400">
+                <td colspan="7" class="px-4 py-10 text-center text-sm text-gray-400">
                   {{ poQuery.isFetching.value ? '불러오는 중…' : '발송 대기 발주서가 없습니다.' }}
                 </td>
               </tr>
@@ -419,7 +426,7 @@ function openCase(specId: number): void {
             <tr>
               <th class="whitespace-nowrap px-4 py-2.5">주문번호</th>
               <th class="px-4 py-2.5">프로젝트</th>
-              <th class="px-4 py-2.5">고객</th>
+              <th class="px-4 py-2.5">고객명</th>
               <th class="whitespace-nowrap px-4 py-2.5">입고</th>
               <th class="whitespace-nowrap px-4 py-2.5 text-right">결제액</th>
               <th class="px-4 py-2.5">{{ orderTab === 'to_ship' ? '상태' : '운송장' }}</th>
@@ -446,11 +453,10 @@ function openCase(specId: number): void {
                 {{ item.projectName }}
               </td>
               <!-- 송장을 붙이는 사람이 읽는 열 — 로그인 아이디만으로는 누구 물건인지 모른다.
-                   묶음 발송이면 회원이 다른 두 주문이 나란히 서므로 주문자명이 정본이다. -->
+                   묶음 발송이면 회원이 다른 두 주문이 나란히 서므로 주문자명이 정본이다
+                   (주문자명이 비면 회원 이름으로 메운다 — 서버 lib/pcb-customer). -->
               <td class="px-4 py-2.5 text-gray-600">
-                <span v-if="item.odName !== ''" class="font-medium text-gray-800">{{ item.odName }}</span>
-                <span v-else class="text-gray-400">이름 없음</span>
-                <span class="ml-1 text-xs text-gray-400">{{ item.mbId ?? '비회원' }}</span>
+                <PcbCustomerCell :name="item.customerName" :mb-id="item.mbId" />
               </td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span

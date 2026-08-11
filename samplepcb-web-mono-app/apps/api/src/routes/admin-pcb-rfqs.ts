@@ -68,6 +68,7 @@ export const adminPcbRfqRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
         ({ item }) =>
           q === '' ||
           item.projectName.toLowerCase().includes(q) ||
+          item.customerName.toLowerCase().includes(q) ||
           (item.mbId ?? '').toLowerCase().includes(q),
       );
       const counts = {

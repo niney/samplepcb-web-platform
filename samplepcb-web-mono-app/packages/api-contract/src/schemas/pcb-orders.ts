@@ -43,6 +43,9 @@ export const AdminPcbOrderItem = z.object({
   mbId: z.string().nullable(),
   /** od_name 주문자명 — 큐의 '고객' 열 식별용(mb_id 는 로그인 아이디라 송장에 못 쓴다). */
   odName: z.string(),
+  /** 고객 표시명 — od_name 이 비면 회원 mb_name 으로 메운다(lib/pcb-customer 단일 사전).
+   *  '고객명' 열은 PCB 목록 전부가 이 필드 하나만 읽는다(odName 은 모달 라벨 등 기존 소비처). */
+  customerName: z.string(),
   qty: z.number(),
   quoteStatus: z.enum(['priced', 'rfq', 'quoted']),
   finalPrice: z.number().nullable(),

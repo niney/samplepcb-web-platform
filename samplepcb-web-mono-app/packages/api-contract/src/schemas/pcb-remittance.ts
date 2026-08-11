@@ -85,6 +85,9 @@ export const AdminPcbRemittanceItem = z.object({
   poId: z.number(),
   specId: z.number(),
   projectName: z.string(),
+  /** 이 지급이 누구 건인가 — 돈을 보내기 전 건을 특정하는 축(lib/pcb-customer 단일 사전). */
+  mbId: z.string().nullable(),
+  customerName: z.string(),
   partnerId: z.number(),
   partnerName: z.string(),
   poStatus: PcbPoStatus,

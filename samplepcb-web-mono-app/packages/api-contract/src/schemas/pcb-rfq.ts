@@ -168,6 +168,8 @@ export const AdminPcbRfqCaseItem = z.object({
   specId: z.number(),
   projectName: z.string(),
   mbId: z.string().nullable(),
+  /** 고객 표시명 — 주문 시점 od_name > 회원 mb_name(lib/pcb-customer 단일 사전), 없으면 ''. */
+  customerName: z.string(),
   category: z.string(),
   orderCategory: z.string(),
   qty: z.number().int(),

@@ -6,6 +6,7 @@ import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbRfqCases, type AdminPcbRfqCaseFilters } from '../../admin/useAdminPcbRfqs';
 import { useAdminPcbTodoCounts } from '../../admin/useAdminPcbCases';
 import DeleteQuoteModal from '../../components/admin/DeleteQuoteModal.vue';
+import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbSelectionBar from '../../components/admin/pcb/PcbSelectionBar.vue';
 import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
 import { useRowSelection } from '../../admin/useRowSelection';
@@ -109,7 +110,7 @@ function openCase(specId: number): void {
         <input
           v-model="searchText"
           type="search"
-          placeholder="프로젝트명·회원ID 검색"
+          placeholder="프로젝트명·고객명·아이디 검색"
           class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
         >
       </form>
@@ -127,7 +128,7 @@ function openCase(specId: number): void {
     <template v-else>
       <PcbSelectionBar
         :count="selection.selectedIds.value.length"
-        @delete="deleteIds = [...selection.selectedIds.value]"
+        @delete="deleteIds = [...selection.selectedIds.value]"
       />
       <div class="mt-4 overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
         <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -146,7 +147,7 @@ function openCase(specId: number): void {
               </th>
               <th class="whitespace-nowrap px-4 py-2.5">견적</th>
               <th class="px-4 py-2.5">프로젝트</th>
-              <th class="px-4 py-2.5">고객</th>
+              <th class="px-4 py-2.5">고객명</th>
               <th class="whitespace-nowrap px-4 py-2.5">분류/수량</th>
               <th class="whitespace-nowrap px-4 py-2.5">고객 견적</th>
               <th class="whitespace-nowrap px-4 py-2.5">협력사 RFQ</th>
@@ -174,7 +175,9 @@ function openCase(specId: number): void {
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">Q{{ row.specId }}</td>
               <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">{{ row.projectName }}</td>
-              <td class="px-4 py-2.5 text-gray-600">{{ row.mbId ?? '비회원' }}</td>
+              <td class="px-4 py-2.5 text-gray-600">
+                <PcbCustomerCell :name="row.customerName" :mb-id="row.mbId" />
+              </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.category }} · {{ row.qty }}매</td>
               <td class="whitespace-nowrap px-4 py-2.5">
                 <span

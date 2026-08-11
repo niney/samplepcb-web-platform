@@ -15,6 +15,7 @@ import {
   type PcbRemittanceStatusType,
 } from '@sp/api-contract';
 import { prisma } from '../lib/prisma';
+import { loadPcbCustomerNames } from '../lib/pcb-customer';
 import { asPcbPoStatus } from '../lib/pcb-po';
 import {
   createPcbRemittance,
@@ -60,6 +61,21 @@ const specIdOf = (q: string): bigint | null => {
   return m?.[1] === undefined ? null : BigInt(m[1]);
 };
 
+/** 목록 검색 — 프로젝트·협력사·고객명·아이디·견적번호. 고객명은 g5 파생이라 DB where 로
+ *  거를 수 없어(prisma 는 sp 스키마만 안다) 행을 만든 뒤 여기서 판정한다. 이 라우트는
+ *  검색이 없을 때도 전량을 로드하므로(위 loadRows 주석) 모수 비용은 그대로다. */
+const matchesRemittanceQuery = (row: AdminPcbRemittanceItemType, q: string): boolean => {
+  const needle = q.toLowerCase();
+  const specId = specIdOf(q);
+  return (
+    row.projectName.toLowerCase().includes(needle) ||
+    row.partnerName.toLowerCase().includes(needle) ||
+    row.customerName.toLowerCase().includes(needle) ||
+    (row.mbId ?? '').toLowerCase().includes(needle) ||
+    (specId !== null && BigInt(row.specId) === specId)
+  );
+};
+
 /** 통화별 소계 — 목록(탭·검색 전체 모수)과 협력사별 집계가 같은 방식으로 센다. */
 const sumByCurrency = (
   rows: readonly { summary: { currency: string; poAmount: number; paidAmount: number; balance: number } }[],
@@ -93,34 +109,25 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
     partnerId?: number;
   }): Promise<AdminPcbRemittanceItemType[]> => {
     const q = filters.q?.trim() ?? '';
-    const qSpecId = specIdOf(q);
     const pos = await prisma.spPcbPo.findMany({
       where: {
         parentPartnerId: 0n, // 관리자 지급분만 — 하위 발주 지급 주체는 MD(이중 지급 방지)
         ...(filters.partnerId === undefined ? {} : { partnerId: BigInt(filters.partnerId) }),
-        ...(q === ''
-          ? {}
-          : {
-              OR: [
-                { spec: { projectName: { contains: q } } },
-                { partner: { name: { contains: q } } },
-                // 화면이 견적을 'Q21145' 로 찍으므로 **보이는 그대로 붙여 넣어도** 찾혀야 한다
-                // (숫자만 받던 탓에 화면의 문자열로 검색하면 0건이었다 — 재점검 08-11 #12).
-                ...(qSpecId === null ? [] : [{ specId: qSpecId }]),
-              ],
-            }),
       },
       include: {
-        spec: { select: { id: true, projectName: true, specJson: true } },
+        spec: { select: { id: true, projectName: true, specJson: true, mbId: true, ctId: true } },
         partner: { select: { id: true, name: true } },
       },
       orderBy: { issuedAt: 'desc' },
     });
-    const [summaries, freeKeys] = await Promise.all([
+    const [summaries, freeKeys, customerNames] = await Promise.all([
       loadRemittanceSummaries(pos),
       loadFreeAsRoundKeys(pos),
+      loadPcbCustomerNames(
+        pos.map((po) => ({ specId: po.specId, mbId: po.spec.mbId, ctId: po.spec.ctId })),
+      ),
     ]);
-    return pos.map((po) => {
+    const rows = pos.map((po) => {
       const isFreeAs = isFreeAsPo(freeKeys, po);
       const summary =
         summaries.get(po.id.toString()) ??
@@ -129,6 +136,8 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         poId: Number(po.id),
         specId: Number(po.specId),
         projectName: po.spec.projectName,
+        mbId: po.spec.mbId,
+        customerName: customerNames.get(po.specId.toString()) ?? '',
         partnerId: Number(po.partnerId),
         partnerName: po.partner.name,
         poStatus: asPcbPoStatus(po.status),
@@ -142,6 +151,7 @@ export const adminPcbRemittanceRoutes: FastifyPluginCallbackZod = (fastify, _opt
         summary: isFreeAs ? { ...summary, balance: 0 } : summary,
       };
     });
+    return q === '' ? rows : rows.filter((row) => matchesRemittanceQuery(row, q));
   };
 
   // 무상 A/S 행은 지급 대기 축(pending/partial/done) 어디에도 서지 않는다 — '전체' 전용.

@@ -10,7 +10,13 @@ import {
   PCB_ORDER_CANCEL_BLOCK_LABELS,
   resolvePcbDirectShipCountry,
 } from '@sp/api-contract';
-import { getOrderInfoByCtId, listPcbOrderSpecs, setOrderItemsStatus } from '../lib/g5-db';
+import {
+  getMembersByIds,
+  getOrderInfoByCtId,
+  listPcbOrderSpecs,
+  setOrderItemsStatus,
+} from '../lib/g5-db';
+import { resolvePcbCustomerName } from '../lib/pcb-customer';
 import { isActivePcbOrderLine, resolvePcbOrderCancelPolicy } from '../lib/pcb-order-cancel';
 import { prisma } from '../lib/prisma';
 
@@ -113,6 +119,11 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
           select: { id: true, specId: true, destinationCountry: true },
         }),
       ]);
+      // 고객명 fallback — 주문자명(od_name)이 비어 있는 주문(대행 등록 등)은 회원 이름으로
+      // 메운다(한정 예외 ⑤ · lib/pcb-customer 단일 사전).
+      const members = await getMembersByIds(
+        specs.map((s) => s.mbId).filter((id): id is string => id !== null),
+      );
       const specById = new Map(specs.map((s) => [s.id.toString(), s]));
       const poCountBySpec = new Map<string, number>();
       for (const po of adminPos) {
@@ -163,6 +174,10 @@ export const adminPcbOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, do
                 projectName: spec.projectName,
                 mbId: spec.mbId,
                 odName: row.odName,
+                customerName: resolvePcbCustomerName(
+                  row.odName,
+                  spec.mbId === null ? '' : members.get(spec.mbId)?.name,
+                ),
                 qty: spec.qty,
                 quoteStatus: asQuoteStatus(spec.quoteStatus),
                 finalPrice: spec.finalPrice,

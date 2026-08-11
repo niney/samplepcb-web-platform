@@ -7,6 +7,7 @@ import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../../admin/useAd
 import { fmtPcbAmount } from '../../../lib/pcb-money';
 import { useRowSelection } from '../../../admin/useRowSelection';
 import DeleteQuoteModal from '../DeleteQuoteModal.vue';
+import PcbCustomerCell from './PcbCustomerCell.vue';
 import PcbSelectionBar from './PcbSelectionBar.vue';
 
 // PCB 대기 큐(= 그 역할이 아직 시작하지 않은 일) — 견적요청·발주·EQ 화면의 첫 탭이
@@ -72,7 +73,7 @@ function openCase(specId: number): void {
         <input
           v-model="searchText"
           type="search"
-          placeholder="프로젝트·회원ID·주문번호"
+          placeholder="프로젝트·고객명·아이디·주문번호"
           class="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
         >
       </form>
@@ -80,7 +81,7 @@ function openCase(specId: number): void {
 
     <PcbSelectionBar
       :count="selection.selectedIds.value.length"
-      @delete="deleteIds = [...selection.selectedIds.value]"
+      @delete="deleteIds = [...selection.selectedIds.value]"
     />
 
     <div class="overflow-x-auto rounded-xl border border-gray-200 bg-surface shadow-sm">
@@ -100,7 +101,7 @@ function openCase(specId: number): void {
             </th>
             <th class="whitespace-nowrap px-4 py-2.5">견적</th>
             <th class="px-4 py-2.5">프로젝트</th>
-            <th class="px-4 py-2.5">신청자</th>
+            <th class="px-4 py-2.5">고객명</th>
             <th class="whitespace-nowrap px-4 py-2.5">수량</th>
             <th class="whitespace-nowrap px-4 py-2.5">주문</th>
             <th class="whitespace-nowrap px-4 py-2.5">확정가</th>
@@ -127,7 +128,9 @@ function openCase(specId: number): void {
             </td>
             <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-gray-500">Q{{ row.specId }}</td>
             <td class="max-w-xs truncate px-4 py-2.5 font-medium text-gray-900">{{ row.projectName }}</td>
-            <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">{{ row.mbId ?? '비회원' }}</td>
+            <td class="px-4 py-2.5 text-gray-600">
+              <PcbCustomerCell :name="row.customerName" :mb-id="row.mbId" />
+            </td>
             <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">{{ row.qty }}</td>
             <td class="whitespace-nowrap px-4 py-2.5">
               <template v-if="row.odId === null">

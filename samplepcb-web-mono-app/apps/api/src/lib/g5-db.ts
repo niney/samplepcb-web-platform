@@ -1353,6 +1353,31 @@ export async function getMembersByIds(mbIds: string[]): Promise<Map<string, G5Me
   return map;
 }
 
+// ── 주문자명 배치 조회 (한정 예외 ⑤ 연장) ───────────────────────────────────
+// 관리자 PCB 목록의 '고객명' 열은 주문 시점 스냅샷(od_name)을 현재 회원 이름보다
+// 우선한다 — Case 상세 카드(toAdminCaseCustomer)와 같은 규칙의 목록 면이다.
+// 목록은 한 페이지에 스펙 수십 건을 그리므로 ct_id 를 모아 한 쿼리로 받는다.
+// ⚠ 장바구니 행(ct_status='쇼핑')은 주문 전이다 — od_id 컬럼이 있어도 주문자명으로
+//   쓰지 않는다(listPcbCaseSpecs 의 '주문됨' 판정과 같은 사전).
+export async function getOrderNamesByCtIds(ctIds: number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  const ids = [...new Set(ctIds)];
+  if (ids.length === 0) return map;
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT c.ct_id, o.od_name
+       FROM g5_shop_cart c
+       JOIN g5_shop_order o ON o.od_id = c.od_id
+      WHERE c.ct_id IN (${ids.map(() => '?').join(',')})
+        AND c.ct_status <> '쇼핑'`,
+    ids,
+  );
+  for (const row of rows) {
+    const name = String(row.od_name ?? '').trim();
+    if (name !== '') map.set(Number(row.ct_id), name);
+  }
+  return map;
+}
+
 // ── 발신처(쇼핑몰) 견적 프로필 SELECT (한정 예외 ⑦) ─────────────────────────
 // 관리자 견적서(A4)의 발신(공급자) 정보. 하드코딩 대신 영카트 기본환경설정
 // (g5_shop_default)을 재사용한다 — read-only, 아래 컬럼만. 쓰기 절대 금지.
@@ -3582,6 +3607,25 @@ export interface PcbOrderSpecRow {
 // 를 선적 조인으로 따라가 관리자 수신(receiverKind='admin') 입고확인(receivedAt)을 스펙 단위로
 // 집계한다. 선적 묶음은 대표 스펙이 다른 스펙의 발주서를 실을 수 있어(cross-spec) sh.specId
 // 가 아니라 발주서 축으로 판정한다. 파생 테이블은 소량(선적 문서 수)이라 비용 무시 가능.
+// ── 고객명 검색 보조 (한정 예외 ⑤ 연장) ────────────────────────────────────
+// 화면의 '고객명' 열은 주문자명(od_name)과 회원 이름(mb_name)에서 오므로 검색도 둘을
+// 받아야 한다. 그런데 회원 이름을 **목록 SQL 에 조인**해서 걸러 오면(LEFT JOIN g5_member
+// … OR m.mb_name LIKE ?) 옵티마이저가 A/S 파생 테이블과 함께 폭발한다 — 로컬 실측
+// 2026-08-12: 검색 counts 가 37ms → **82초**. 그래서 회원 테이블을 먼저 훑어 mb_id 로
+// 바꾼 뒤 IN 으로 넘긴다: 같은 결과(4,249건)에 선조회 3ms + counts 64ms.
+// g5_member 는 6천 행대라 전체 스캔이 싸고, 매칭 전량을 넘기므로 잘림도 없다.
+async function memberIdsByName(keyword: string): Promise<string[]> {
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT mb_id FROM g5_member WHERE mb_name LIKE ?`,
+    [`%${escapeLike(keyword)}%`],
+  );
+  return rows.map((r) => String(r.mb_id));
+}
+
+/** 위 mb_id 목록을 검색 OR 절에 붙인다(빈 목록이면 조건 자체를 만들지 않는다). */
+const memberIdsCond = (ids: readonly string[]): string =>
+  ids.length === 0 ? '' : ` OR s.mbId IN (${ids.map(() => '?').join(',')})`;
+
 const PCB_SHIP_JOIN = `LEFT JOIN (
       SELECT p2.specId,
              MAX(sh2.receiverKind = 'admin' AND sh2.receivedAt IS NOT NULL) AS admin_received,
@@ -3635,9 +3679,13 @@ export async function listPcbOrderSpecs(params: {
     // ⚠ escapeLike 필수(여정 24호) — 안 하면 `%` 한 글자가 **전체를 반환**하고(검색이 아무
     //   일도 안 한 것과 같은데 화면은 "검색 결과"로 보여준다), `_` 는 임의의 한 글자가 된다.
     //   이 트랙의 projectName 은 **업로드 파일명**이라 `_` 가 흔하다(DDC_ESP32.zip 등).
-    conds.push(`(s.projectName LIKE ? OR s.mbId LIKE ? OR c.od_id LIKE ?)`);
+    // 화면이 '고객명'(주문자명 우선)을 보여주므로 **보이는 이름으로도** 찾혀야 한다.
     const like = `%${escapeLike(keyword)}%`;
-    args.push(like, like, like);
+    const memberIds = await memberIdsByName(keyword);
+    conds.push(
+      `(s.projectName LIKE ? OR s.mbId LIKE ? OR c.od_id LIKE ? OR o.od_name LIKE ?${memberIdsCond(memberIds)})`,
+    );
+    args.push(like, like, like, like, ...memberIds);
   }
   const base = `FROM sp_order_spec s
       JOIN g5_shop_cart c ON c.ct_id = s.ctId
@@ -3741,6 +3789,8 @@ export interface PcbCaseSpecRow {
   odStatus: string | null;
   ctStatus: string | null;
   orderedAt: string | null;
+  /** 주문 시점 주문자명(od_name) — 주문 전·장바구니 행이면 ''(고객명 해석의 1순위 재료). */
+  odName: string;
 }
 
 // 주문 진행 중 = 결제됐고 완료·취소가 아님(D10 원가 소싱 허용 구간과 같은 정의).
@@ -3812,9 +3862,13 @@ export async function listPcbCaseSpecs(params: {
   if (keyword !== '') {
     // 화면이 Q{specId} 를 앞세우므로 견적번호 정확일치도 받는다(숫자 입력 시).
     // ⚠ escapeLike 필수 — 위 listPcbOrderSpecs 와 같은 이유(여정 24호).
-    conds.push(`(s.projectName LIKE ? OR s.mbId LIKE ? OR c.od_id LIKE ? OR s.id = ?)`);
+    // 고객명(주문자명 우선)도 같은 축 — 화면에 보이는 이름으로 찾을 수 있어야 한다.
     const like = `%${escapeLike(keyword)}%`;
-    args.push(like, like, like, /^\d+$/.test(keyword) ? keyword : 0);
+    const memberIds = await memberIdsByName(keyword);
+    conds.push(
+      `(s.projectName LIKE ? OR s.mbId LIKE ? OR c.od_id LIKE ? OR o.od_name LIKE ?${memberIdsCond(memberIds)} OR s.id = ?)`,
+    );
+    args.push(like, like, like, like, ...memberIds, /^\d+$/.test(keyword) ? keyword : 0);
   }
   // cart/order 는 LEFT — 주문 전 스펙과 유령(cart 행 소실)까지 모수에 남긴다.
   // asx(A/S 회차 진행)는 소량(협력 발주 문서 수) 파생 테이블 — 비용 무시 가능.
@@ -3851,7 +3905,7 @@ export async function listPcbCaseSpecs(params: {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT s.id AS spec_id,
             JSON_EXTRACT(s.specJson, '$._legacy') IS NOT NULL AS is_legacy,
-            c.od_id, c.ct_status, o.od_status,
+            c.od_id, c.ct_status, o.od_status, o.od_name,
             DATE_FORMAT(o.od_time, '%Y-%m-%d %H:%i:%s') AS od_time
        ${base} AND (${tabCond})
       ORDER BY s.id DESC
@@ -3880,6 +3934,8 @@ export async function listPcbCaseSpecs(params: {
         odStatus: ordered && row.od_status !== null ? String(row.od_status ?? '') : null,
         ctStatus,
         orderedAt: odTime.startsWith('0000') || odTime === '' ? null : odTime,
+        // 주문 전(담김·유령)은 주문자명이 아직 없다 — odId 와 같은 판정으로 막는다.
+        odName: ordered ? String(row.od_name ?? '').trim() : '',
       };
     }),
     total: totalByTab[params.tab],

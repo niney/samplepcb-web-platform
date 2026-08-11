@@ -14,6 +14,7 @@ import { PCB_CURRENCIES, PCB_RFQ_STATUSES } from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getPcbExchangeRate, roundPcbAmount } from './exchange-rate';
 import { getCartOrderLinks, getOrderInfoByCtId } from './g5-db';
+import { loadPcbCustomerNames } from './pcb-customer';
 import { isPcbOrderFulfillmentClosed } from './pcb-order-cancel';
 import { toCapabilities } from './partner';
 
@@ -795,6 +796,15 @@ export const loadAdminPcbRfqCases = async (): Promise<
     list.push(row);
     bySpec.set(key, list);
   }
+  // 고객명 — 스펙당 한 벌(회원 1쿼리 + 주문 1쿼리, 행마다 부르면 N+1).
+  const customerNames = await loadPcbCustomerNames(
+    [...bySpec.values()].flatMap((list) => {
+      const head = list[0];
+      return head === undefined
+        ? []
+        : [{ specId: head.spec.id, mbId: head.spec.mbId, ctId: head.spec.ctId }];
+    }),
+  );
   const result: { item: AdminPcbRfqCaseItemType; tab: AdminPcbRfqCaseTab }[] = [];
   for (const list of bySpec.values()) {
     const first = list[0];
@@ -810,6 +820,7 @@ export const loadAdminPcbRfqCases = async (): Promise<
         specId: Number(spec.id),
         projectName: spec.projectName,
         mbId: spec.mbId,
+        customerName: customerNames.get(spec.id.toString()) ?? '',
         category: spec.category,
         orderCategory: spec.orderCategory,
         qty: spec.qty,

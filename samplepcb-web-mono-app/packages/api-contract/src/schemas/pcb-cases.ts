@@ -53,6 +53,9 @@ export const AdminPcbCaseItem = z.object({
   specId: z.number(),
   projectName: z.string(),
   mbId: z.string().nullable(),
+  /** 고객 표시명 — 주문 시점 od_name > 회원 mb_name, 둘 다 없으면 ''(화면이 '이름 없음'을
+   *  대신 쓴다). 해석은 lib/pcb-customer.resolvePcbCustomerName 단일 사전. */
+  customerName: z.string(),
   category: z.string(),
   qty: z.number().int(),
   quoteStatus: z.enum(['priced', 'rfq', 'quoted']),

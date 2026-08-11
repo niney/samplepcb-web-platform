@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import { AdminPcbCaseListQuery, AdminPcbCaseListResponse } from '@sp/api-contract';
-import { listPcbCaseSpecs } from '../lib/g5-db';
+import { getMembersByIds, listPcbCaseSpecs } from '../lib/g5-db';
+import { resolvePcbCustomerName } from '../lib/pcb-customer';
 import {
   PCB_EQ_DONE_STATUSES,
   pcbCaseStepOf,
@@ -90,6 +91,12 @@ export const adminPcbCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
         }
       }
 
+      // 고객명 — 주문된 건은 SQL 이 실어 온 주문자명(od_name)이 1순위, 주문 전이면 회원
+      // 이름을 표시 시점에 조인한다(한정 예외 ⑤ · lib/pcb-customer 단일 사전).
+      const members = await getMembersByIds(
+        specs.map((s) => s.mbId).filter((id): id is string => id !== null),
+      );
+
       const specById = new Map(specs.map((s) => [s.id.toString(), s]));
       const rfqBySpec = new Map<string, { total: number; quoted: number; selected: boolean }>();
       for (const row of rfqRows) {
@@ -141,6 +148,10 @@ export const adminPcbCaseRoutes: FastifyPluginCallbackZod = (fastify, _opts, don
                 specId: row.specId,
                 projectName: spec.projectName,
                 mbId: spec.mbId,
+                customerName: resolvePcbCustomerName(
+                  row.odName,
+                  spec.mbId === null ? '' : members.get(spec.mbId)?.name,
+                ),
                 category: spec.category,
                 qty: spec.qty,
                 quoteStatus: asQuoteStatus(spec.quoteStatus),
