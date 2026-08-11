@@ -1431,18 +1431,27 @@ const candidateRowSearchProgress = computed(() => {
 
 const addWorkspaceOpen = ref(false);
 const addWorkspaceOpening = ref(false);
+const addWorkspaceTrigger = ref<HTMLButtonElement | null>(null);
 const manualItemUpsert = useUpsertBomQuoteManualItem();
 const manualItemRemove = useRemoveBomQuoteManualItem();
 const manualPendingKey = ref<string | null>(null);
 const manualPendingItemId = ref<string | null>(null);
 const manualRemovingItemId = ref<string | null>(null);
 const manualItemError = ref<string | null>(null);
+const manualItemErrorTarget = ref<'search' | 'panel' | null>(null);
+const manualSearchError = computed(() =>
+  manualItemErrorTarget.value === 'search' ? manualItemError.value : null,
+);
+const manualPanelError = computed(() =>
+  manualItemErrorTarget.value === 'panel' ? manualItemError.value : null,
+);
 
 watch(quoteId, () => {
   passiveDefaultsOpen.value = false;
   passiveDefaultsError.value = '';
   addWorkspaceOpen.value = false;
   manualItemError.value = null;
+  manualItemErrorTarget.value = null;
   clearRowSearchState();
 });
 
@@ -1515,6 +1524,7 @@ async function openAddWorkspace(): Promise<void> {
   if (editingLocked.value || addWorkspaceOpening.value) return;
   addWorkspaceOpening.value = true;
   manualItemError.value = null;
+  manualItemErrorTarget.value = null;
   try {
     if (dirty.value) {
       await saveNow();
@@ -1529,6 +1539,13 @@ async function openAddWorkspace(): Promise<void> {
   }
 }
 
+function closeAddWorkspace(): void {
+  addWorkspaceOpen.value = false;
+  manualItemError.value = null;
+  manualItemErrorTarget.value = null;
+  void nextTick(() => addWorkspaceTrigger.value?.focus());
+}
+
 async function upsertManualItem(
   body: BomSearchCartAddBodyType,
   key: string | null,
@@ -1538,11 +1555,13 @@ async function upsertManualItem(
   manualPendingKey.value = key;
   manualPendingItemId.value = itemId;
   manualItemError.value = null;
+  manualItemErrorTarget.value = null;
   try {
     const saved = await manualItemUpsert.mutateAsync({ quoteId: quoteId.value, body });
     dirty.value = false;
     applyServerDetail(saved.data);
   } catch (error: unknown) {
+    manualItemErrorTarget.value = itemId === null ? 'search' : 'panel';
     manualItemError.value = manualItemMutationMessage(error);
   } finally {
     manualPendingKey.value = null;
@@ -1550,15 +1569,20 @@ async function upsertManualItem(
   }
 }
 
-async function removeManualItem(item: BomQuoteItemType): Promise<void> {
+async function removeManualItem(
+  item: BomQuoteItemType,
+  errorTarget: 'search' | 'panel' = 'panel',
+): Promise<void> {
   if (editingLocked.value || manualItemRemove.isPending.value || !/^\d+$/.test(item.id)) return;
   manualRemovingItemId.value = item.id;
   manualItemError.value = null;
+  manualItemErrorTarget.value = null;
   try {
     const saved = await manualItemRemove.mutateAsync({ quoteId: quoteId.value, itemId: item.id });
     dirty.value = false;
     applyServerDetail(saved.data);
   } catch (error: unknown) {
+    manualItemErrorTarget.value = errorTarget;
     manualItemError.value = manualItemMutationMessage(error);
   } finally {
     manualRemovingItemId.value = null;
@@ -1570,7 +1594,7 @@ async function removeManualSelection(partId: string, key: string): Promise<void>
     candidate.manualEntry === true
     && candidate.partId === partId
     && bomQuoteItemSelectionKey(candidate) === key);
-  if (item !== undefined) await removeManualItem(item);
+  if (item !== undefined) await removeManualItem(item, 'search');
 }
 
 function updateManualItemQuantity(item: BomQuoteItemType, quantity: number): void {
@@ -2560,6 +2584,7 @@ function fmtAmount(v: number | null): string {
             </button>
             <button
               v-if="isDraft"
+              ref="addWorkspaceTrigger"
               type="button"
               class="flex h-[42px] w-[88px] items-center justify-center gap-[6px] rounded-[6px] bg-brand-strong px-0 font-noto text-[16px] font-bold leading-6 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 disabled:hover:bg-blue-300"
               :disabled="editingLocked || addWorkspaceOpening"
@@ -3591,12 +3616,13 @@ function fmtAmount(v: number | null): string {
       :pending-key="manualPendingKey"
       :pending-item-id="manualPendingItemId"
       :removing-item-id="manualRemovingItemId"
-      :action-error="manualItemError"
+      :action-error="manualSearchError"
+      :panel-action-error="manualPanelError"
       @add="(body, key) => upsertManualItem(body, key)"
       @remove-selection="removeManualSelection"
       @remove-item="removeManualItem"
       @quantity="updateManualItemQuantity"
-      @close="addWorkspaceOpen = false"
+      @close="closeAddWorkspace"
     />
     <BomCompareModal
       v-if="compareOpen && detail !== null"

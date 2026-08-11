@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type {
   BomPartHitType,
   BomPartOfferOptionType,
@@ -43,6 +43,8 @@ const emit = defineEmits<{
   queryChange: [query: string];
 }>();
 
+const searchInput = ref<HTMLInputElement | null>(null);
+const actionErrorElement = ref<HTMLElement | null>(null);
 const input = ref(props.initialQuery);
 const q = ref(props.initialQuery.trim());
 const safeSupplementNeeded = computed(() => {
@@ -95,6 +97,21 @@ watch(safeSupplementNeeded, () => {
   supplierResult.value = null;
   supplierSearchState.value = q.value === '' ? 'idle' : 'searching';
 });
+
+watch(
+  () => props.actionError,
+  async (value) => {
+    if (value === null) return;
+    await nextTick();
+    actionErrorElement.value?.focus();
+  },
+);
+
+function focusSearch(): void {
+  searchInput.value?.focus();
+}
+
+defineExpose({ focusSearch });
 
 function submit(): void {
   const nextQuery = input.value.trim();
@@ -154,7 +171,7 @@ function failSupplierSearch(): void {
 
     <form class="mt-[31px] flex h-[48px] w-full gap-[10px]" role="search" @submit.prevent="submit">
       <label class="flex min-w-0 flex-1 items-center rounded-[8px] border border-search-input bg-search-input px-[20px] shadow-sm">
-        <input v-model="input" type="search" placeholder="MPN, 사양 또는 패키지로 검색" class="min-w-0 flex-1 bg-transparent font-noto text-[14px] font-normal leading-[20px] text-ink outline-none placeholder:text-ink-faint">
+        <input ref="searchInput" v-model="input" type="search" aria-label="부품 검색어" placeholder="MPN, 사양 또는 패키지로 검색" class="min-w-0 flex-1 bg-transparent font-noto text-[14px] font-normal leading-[20px] text-ink outline-none placeholder:text-ink-faint">
       </label>
       <button type="submit" class="flex h-full w-[94px] shrink-0 items-center justify-center gap-[8px] rounded-[8px] bg-brand px-[14px] font-sans text-[16px] font-bold text-white transition hover:bg-brand-strong">
         <img :src="searchIcon" alt="" class="size-[18px] brightness-0 invert">
@@ -162,7 +179,7 @@ function failSupplierSearch(): void {
       </button>
     </form>
 
-    <p v-if="actionError !== null" class="mt-[8px] rounded-[5px] border border-red-200 bg-red-50 px-[10px] py-[7px] font-noto text-[11px] leading-[16px] text-red-700" role="alert">{{ actionError }}</p>
+    <p v-if="actionError !== null" ref="actionErrorElement" class="mt-[8px] rounded-[5px] border border-red-200 bg-red-50 px-[10px] py-[7px] font-noto text-[11px] leading-[16px] text-red-700 outline-none focus:ring-2 focus:ring-red-300" role="alert" tabindex="-1">{{ actionError }}</p>
     <div v-if="q === ''" class="mt-[12px] rounded-[8px] border border-dashed border-line-strong bg-surface px-4 py-12 text-center font-noto text-[12px] text-ink-subtle">{{ emptyPrompt }}</div>
     <div v-else-if="search.isError.value && search.data.value === undefined" class="mt-[12px] rounded-[8px] border border-red-200 bg-red-50 px-4 py-6 text-center font-noto text-[12px] text-red-700">검색 결과를 불러오지 못했습니다. 잠시 후 다시 검색해 주세요.</div>
     <div v-else-if="resultsPending" class="mt-[12px] flex h-[94px] items-center justify-center gap-2 rounded-[8px] border border-line-strong bg-surface font-noto text-[12px] font-medium text-brand" aria-live="polite">

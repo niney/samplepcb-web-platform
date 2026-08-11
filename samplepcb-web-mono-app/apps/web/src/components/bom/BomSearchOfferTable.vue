@@ -200,7 +200,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
         </h3>
       </div>
       <div class="overflow-x-auto">
-        <table class="w-full min-w-[1140px] table-fixed border-collapse">
+        <table class="w-full min-w-[900px] table-fixed border-collapse 2xl:min-w-[1140px]">
           <colgroup>
             <col class="w-[3%]">
             <col class="w-[24%]">
@@ -208,8 +208,8 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
             <col class="w-[11%]">
             <col class="w-[10%]">
             <col class="w-[12%]">
-            <col class="w-[9%]">
-            <col class="w-[7%]">
+            <col class="w-[96px]">
+            <col class="w-[80px]">
           </colgroup>
           <thead>
             <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[10px] font-normal uppercase leading-[24px] text-ink-subtle">
@@ -220,7 +220,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               <th class="px-[8px]">Stock</th>
               <th class="px-[8px]">Quantity</th>
               <th class="px-[8px] text-center"><span class="sr-only">{{ actionContext === 'quote' ? 'BOM 수량' : '구매 수량' }}</span></th>
-              <th class="px-[8px] text-center"><span class="sr-only">카트</span></th>
+              <th class="sticky right-0 z-[2] bg-search-head px-[8px] text-center shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.45)] lg:static lg:shadow-none"><span class="sr-only">카트</span></th>
             </tr>
           </thead>
           <tbody>
@@ -280,7 +280,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                   @blur="restoreQuantity(row, $event)"
                 >
               </td>
-              <td class="px-[8px] text-center">
+              <td class="sticky right-0 z-[1] bg-search-row px-[8px] text-center shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.45)] lg:static lg:shadow-none">
                 <button
                   type="button"
                   class="h-[24px] min-w-[70px] rounded-[4px] bg-search-apply px-[8px] font-sans text-[13px] font-medium text-white transition hover:opacity-85 disabled:cursor-wait disabled:opacity-50"
@@ -310,15 +310,15 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
         </h3>
       </div>
       <div class="overflow-x-auto">
-        <table class="w-full min-w-[1140px] table-fixed border-collapse">
+        <table class="w-full min-w-[900px] table-fixed border-collapse 2xl:min-w-[1140px]">
           <colgroup>
             <col class="w-[3%]">
             <col class="w-[24%]">
             <col class="w-[31%]">
             <col class="w-[14%]">
             <col class="w-[11%]">
-            <col class="w-[10%]">
-            <col class="w-[7%]">
+            <col class="w-[96px]">
+            <col class="w-[80px]">
           </colgroup>
           <thead>
             <tr class="h-[40px] border-b border-line-soft bg-search-head text-left text-[10px] font-normal uppercase leading-[24px] text-ink-subtle">
@@ -328,7 +328,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
               <th class="px-[8px]">Quantity / Stock</th>
               <th class="px-[8px]">Response</th>
               <th class="px-[8px] text-center"><span class="sr-only">{{ actionContext === 'quote' ? 'BOM 수량' : '견적 수량' }}</span></th>
-              <th class="px-[8px] text-center"><span class="sr-only">견적 담기</span></th>
+              <th class="sticky right-0 z-[2] bg-search-head px-[8px] text-center shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.45)] lg:static lg:shadow-none"><span class="sr-only">견적 담기</span></th>
             </tr>
           </thead>
           <tbody>
@@ -370,7 +370,7 @@ function actionLabel(row: SearchOfferRow, inquiry = false): string {
                   @blur="restoreQuantity(row, $event)"
                 >
               </td>
-              <td class="px-[8px] text-center">
+              <td class="sticky right-0 z-[1] bg-search-row px-[8px] text-center shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.45)] lg:static lg:shadow-none">
                 <button type="button" class="h-[24px] min-w-[70px] rounded-[4px] border border-line-strong bg-search-row px-[7px] font-sans text-[12px] font-medium text-ink-neutral hover:border-brand-soft hover:text-brand-soft disabled:cursor-wait disabled:opacity-50" :disabled="pendingKey !== null || cartBusy" @click="add(row)">
                   {{ actionLabel(row, true) }}
                 </button>

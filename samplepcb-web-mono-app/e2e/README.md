@@ -106,6 +106,7 @@ specs/
   journey-bom-workbook-recovery.e2e.test.ts BOM 여정 14호 — 다중 시트 분석 영속→오류 복구·시트 복원
   journey-bom-draft-save-recovery.e2e.test.ts BOM 여정 15호 — 초안 자동저장 경쟁→503·이탈·요청 복구
   journey-bom-quantity-boundaries.e2e.test.ts BOM 여정 16호 — 수량 직접 입력→경계 보정·요청 안전성
+  journey-bom-manual-part-workspace.e2e.test.ts BOM 여정 17호 — 고객 수동 부품 검색→추가·변경·실패 복구
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -148,6 +149,10 @@ BOM 16호는 별도 가상 고객의 작성 중 견적 6건으로 세트·예비
 소수, 상한 초과를 직접 입력해 정수 범위 보정과 안내를 검증한다. 키보드 증감·최솟값의 무변경
 저장 생략, DB 정수 상한의 API 400, 상한 보정 직후 견적요청 동결, 390px 표시까지 확인하고
 종료 훅이 모든 견적을 회수한다.
+BOM 17호는 별도 가상 고객의 업로드형 작성 중 견적 4건에서 미저장 수량을 먼저 저장하고
+전체화면 부품 추가 작업공간을 여는 흐름부터 실제 색인 MPN 검색, Mouser 추가와 Digikey 변경의
+동일 행 upsert, 추가·수량·삭제 503 복구를 검증한다. 검색 작업공간의 초점·스크롤·키보드 경계와
+390px 결과 액션·추가 목록·완료 동선도 확인하고 종료 훅이 모든 견적을 회수한다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -156,7 +161,7 @@ BOM 16호는 별도 가상 고객의 작성 중 견적 6건으로 세트·예비
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~16호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~17호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
@@ -173,7 +178,8 @@ BOM 16호는 별도 가상 고객의 작성 중 견적 6건으로 세트·예비
 | `pnpm -F e2e journey:bom:14` | BOM 14호만 — 다중 시트 분석 영속·복구 |
 | `pnpm -F e2e journey:bom:15` | BOM 15호만 — 초안 자동저장·이탈 복구 |
 | `pnpm -F e2e journey:bom:16` | BOM 16호만 — 수량 직접 입력·경계 보정 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~16호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:17` | BOM 17호만 — 수동 부품 검색·추가·변경·실패 복구 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~17호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -446,7 +452,7 @@ Recent file에도 제목이 노출되면 안 된다. 숫자가 아닌 깨진 주
 
 **생성물은 원칙적으로 자동 정리하지 않는다.** 단, 9·10호의 삭제 성공 표본은 제품 삭제
 경로 검증 자체가 정리이며 stale 표본도 reset 경로로 정리하고 공유 주문 차단 표본만 남긴다.
-12~16호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안·수량 경계 검증 뒤 하네스가 직접 정리한다.
+12~17호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안·수량·수동 추가 검증 뒤 하네스가 직접 정리한다.
 그 밖의 생성물은 완주 후 리포트
 (`output/journey/findings*.md`) 대장을 보고 손으로 지운다 — 순서는 ① 주문을
 `force-status '주문'` 으로 내려 **재고 복원** ② g5 cart+order ③ sp_* 역순

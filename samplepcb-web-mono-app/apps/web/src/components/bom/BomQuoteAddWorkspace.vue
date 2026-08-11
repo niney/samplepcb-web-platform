@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type {
   BomPartHitType,
   BomPartOfferOptionType,
@@ -19,6 +19,7 @@ const props = defineProps<{
   pendingItemId: string | null;
   removingItemId: string | null;
   actionError: string | null;
+  panelActionError: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -35,6 +36,12 @@ const emit = defineEmits<{
 }>();
 
 const mobilePanelOpen = ref(false);
+const dialogElement = ref<HTMLElement | null>(null);
+const searchWorkspace = ref<{ focusSearch: () => void } | null>(null);
+const mobilePanelElement = ref<HTMLElement | null>(null);
+const mobilePanelTrigger = ref<HTMLButtonElement | null>(null);
+const mobilePanelCloseButton = ref<HTMLButtonElement | null>(null);
+let previousBodyOverflow = '';
 const manualItems = computed(() => props.items.filter((item) =>
   item.manualEntry === true
   && item.selectionSource === 'catalog'
@@ -60,24 +67,67 @@ function close(): void {
   emit('close');
 }
 
+function openMobilePanel(): void {
+  mobilePanelOpen.value = true;
+  void nextTick(() => mobilePanelCloseButton.value?.focus());
+}
+
+function closeMobilePanel(): void {
+  mobilePanelOpen.value = false;
+  void nextTick(() => mobilePanelTrigger.value?.focus());
+}
+
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Escape') return;
-  event.preventDefault();
-  close();
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    if (mobilePanelOpen.value) {
+      closeMobilePanel();
+      return;
+    }
+    close();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const dialog = mobilePanelOpen.value ? mobilePanelElement.value : dialogElement.value;
+  if (dialog === null) return;
+  const focusable = [...dialog.querySelectorAll<HTMLElement>(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => {
+    const style = window.getComputedStyle(element);
+    return element.getClientRects().length > 0
+      && style.visibility !== 'hidden'
+      && style.display !== 'none';
+  });
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (first === undefined || last === undefined) return;
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !dialog.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 onMounted(() => {
+  previousBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
   window.addEventListener('keydown', onKeydown);
+  void nextTick(() => searchWorkspace.value?.focusSearch());
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
+  document.body.style.overflow = previousBodyOverflow;
 });
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="fixed inset-0 z-[90] flex min-h-0 bg-surface-sunken" role="dialog" aria-modal="true" aria-label="BOM에 부품 추가">
+    <div ref="dialogElement" class="fixed inset-0 z-[90] flex min-h-0 bg-surface-sunken" role="dialog" aria-modal="true" aria-label="BOM에 부품 추가">
       <BomPartSearchWorkspace
+        ref="searchWorkspace"
         title="BOM에 부품 추가"
         empty-prompt="추가할 부품의 MPN, 규격 또는 패키지를 검색해 주세요. 여러 부품을 연속으로 추가할 수 있습니다."
         :supplement-needed="quantityMultiplier"
@@ -102,29 +152,32 @@ onBeforeUnmount(() => {
         :items="manualItems"
         :pending-item-id="pendingItemId"
         :removing-item-id="removingItemId"
+        :action-error="panelActionError"
         @quantity="(item, quantity) => emit('quantity', item, quantity)"
         @remove="(item) => emit('removeItem', item)"
         @complete="close"
       />
 
       <button
+        ref="mobilePanelTrigger"
         type="button"
         class="fixed bottom-[18px] right-[18px] z-[95] flex h-[44px] items-center gap-[7px] rounded-full bg-action-primary px-[16px] font-noto text-[12px] font-bold text-white shadow-lg transition hover:bg-action-primary-hover xl:hidden"
         aria-label="추가 부품 목록 열기"
-        @click="mobilePanelOpen = true"
+        @click="openMobilePanel"
       >
         추가 부품
         <span class="grid min-w-[20px] place-items-center rounded-full bg-white/20 px-[5px] py-[1px] text-[11px] tabular-nums">{{ manualItems.length }}</span>
       </button>
 
       <div v-if="mobilePanelOpen" class="fixed inset-0 z-[100] xl:hidden">
-        <button type="button" class="absolute inset-0 size-full bg-black/45" aria-label="추가 부품 목록 닫기" @click="mobilePanelOpen = false" />
-        <div class="absolute inset-x-0 bottom-0 h-[82dvh] min-h-0 overflow-hidden rounded-t-[14px] border-t border-line bg-search-cart shadow-2xl">
-          <button type="button" class="absolute right-[8px] top-[8px] z-10 grid size-[30px] place-items-center rounded-full text-[20px] leading-none text-ink-muted hover:bg-surface-raised" aria-label="추가 부품 목록 닫기" @click="mobilePanelOpen = false">×</button>
+        <button type="button" class="absolute inset-0 size-full bg-black/45" aria-label="추가 부품 목록 닫기" @click="closeMobilePanel" />
+        <div ref="mobilePanelElement" class="absolute inset-x-0 bottom-0 h-[82dvh] min-h-0 overflow-hidden rounded-t-[14px] border-t border-line bg-search-cart shadow-2xl" role="dialog" aria-modal="true" aria-label="추가 부품 목록">
+          <button ref="mobilePanelCloseButton" type="button" class="absolute right-[8px] top-[8px] z-10 grid size-[30px] place-items-center rounded-full text-[20px] leading-none text-ink-muted hover:bg-surface-raised" aria-label="추가 부품 목록 닫기" @click="closeMobilePanel">×</button>
           <BomQuoteAddPanel
             :items="manualItems"
             :pending-item-id="pendingItemId"
             :removing-item-id="removingItemId"
+            :action-error="panelActionError"
             @quantity="(item, quantity) => emit('quantity', item, quantity)"
             @remove="(item) => emit('removeItem', item)"
             @complete="close"

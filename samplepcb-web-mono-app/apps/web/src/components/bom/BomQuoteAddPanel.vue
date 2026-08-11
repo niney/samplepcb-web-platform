@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type { BomQuoteItemType } from '@sp/api-contract';
 import { SUPPLIER_META } from '../../bom/supplier-meta';
 import PartImage from '../ui/PartImage.vue';
@@ -8,6 +8,7 @@ const props = defineProps<{
   items: BomQuoteItemType[];
   pendingItemId: string | null;
   removingItemId: string | null;
+  actionError: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -17,12 +18,24 @@ const emit = defineEmits<{
 }>();
 
 const quantities = ref<Record<string, number>>({});
+const actionErrorElement = ref<HTMLElement | null>(null);
+function syncQuantities(): void {
+  quantities.value = Object.fromEntries(props.items.map((item) => [item.id, item.bomQty]));
+}
+
 watch(
   () => props.items.map((item) => `${item.id}:${String(item.bomQty)}`).join(','),
-  () => {
-    quantities.value = Object.fromEntries(props.items.map((item) => [item.id, item.bomQty]));
-  },
+  syncQuantities,
   { immediate: true },
+);
+watch(
+  () => props.actionError,
+  async (value) => {
+    if (value === null) return;
+    syncQuantities();
+    await nextTick();
+    actionErrorElement.value?.focus();
+  },
 );
 
 const pricedTotal = computed(() => props.items.reduce(
@@ -65,6 +78,8 @@ function money(value: number | null): string {
         <span class="grid min-w-[24px] place-items-center rounded-full bg-brand px-[6px] py-[2px] text-[11px] font-bold text-white">{{ items.length }}</span>
       </div>
     </div>
+
+    <p v-if="actionError !== null" ref="actionErrorElement" class="mx-[16px] mt-[10px] rounded-[6px] border border-red-200 bg-red-50 px-[10px] py-[7px] text-[11px] leading-[16px] text-red-700 outline-none focus:ring-2 focus:ring-red-300" role="alert" tabindex="-1">{{ actionError }}</p>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-[16px] py-[10px]">
       <div v-if="items.length === 0" class="rounded-[8px] border border-dashed border-line-strong bg-search-row px-3 py-10 text-center text-[11px] leading-[18px] text-ink-subtle">
