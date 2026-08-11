@@ -197,6 +197,10 @@ export const isPcbOrderLineCanceled = async (specId: bigint): Promise<boolean> =
   return order.odStatus === '취소' || isCanceledCartStatus(order.rowCtStatus);
 };
 
+/** 유니크 위반(P2002) — 동시 요청이 겹쳤다는 신호. 실패가 아니라 "남이 먼저 했다"다. */
+export const isPcbUniqueViolation = (e: unknown): boolean =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
+
 export type EnsurePcbShipmentError =
   | 'NOT_PRODUCED'
   | 'PARTNER_COUNTRY_REQUIRED'
@@ -218,9 +222,26 @@ export const ensurePcbShipment = async (
   const ctx = await resolvePcbShipContext(po);
   if (!ctx.ok) return { ok: false, error: ctx.error };
 
+  // 동시 담기(여정 16호 C3) — 조회와 생성 사이가 경합 창이다. 협력사 포털 [담기]와 관리자
+  // [발송 시작]이 같은 순간 눌리면 둘 다 "박스 없음"을 보고 각자 만들려 든다. 데이터는
+  // `sp_pcb_shipment_po.poId` UNIQUE 가 지켜 주지만, 그 P2002 를 그냥 두면 **안내 없는 500**
+  // 이 된다. 합류 의미론에서 "이미 담겼다"는 실패가 아니라 **성공**이므로, 진 쪽은 이긴 쪽의
+  // 박스를 재조회해 돌려준다(호출자에겐 순서만 다를 뿐 결과가 같다).
+  const joined = async (): Promise<{ ok: true; shipment: SpPcbShipment } | null> => {
+    const existing = await findPcbShipmentByPo(po.id);
+    return existing === null ? null : { ok: true, shipment: existing };
+  };
+
   const box = await findPreparingPcbShipment(po, ctx.ctx);
   if (box !== null) {
-    await prisma.spPcbShipmentPo.create({ data: { shipmentId: box.id, poId: po.id } });
+    try {
+      await prisma.spPcbShipmentPo.create({ data: { shipmentId: box.id, poId: po.id } });
+    } catch (e) {
+      if (!isPcbUniqueViolation(e)) throw e;
+      const raced = await joined();
+      if (raced !== null) return raced;
+      throw e;
+    }
     // 구성 변경 — 저장된 상업송장 편집본은 품목이 달라져 무효(품목 누락 송장 방지).
     await prisma.spPcbShipment.update({
       where: { id: box.id },
@@ -229,19 +250,26 @@ export const ensurePcbShipment = async (
     return { ok: true, shipment: box };
   }
 
-  const shipment = await prisma.spPcbShipment.create({
-    data: {
-      poId: po.id,
-      specId: po.specId,
-      mode: ctx.ctx.mode,
-      status: 'preparing',
-      receiverKind: ctx.ctx.receiverKind,
-      receiverPartnerId: ctx.ctx.receiverPartnerId,
-      destinationCountry: ctx.ctx.destinationCountry,
-      pos: { create: { poId: po.id } },
-    },
-  });
-  return { ok: true, shipment };
+  try {
+    const shipment = await prisma.spPcbShipment.create({
+      data: {
+        poId: po.id,
+        specId: po.specId,
+        mode: ctx.ctx.mode,
+        status: 'preparing',
+        receiverKind: ctx.ctx.receiverKind,
+        receiverPartnerId: ctx.ctx.receiverPartnerId,
+        destinationCountry: ctx.ctx.destinationCountry,
+        pos: { create: { poId: po.id } },
+      },
+    });
+    return { ok: true, shipment };
+  } catch (e) {
+    if (!isPcbUniqueViolation(e)) throw e;
+    const raced = await joined();
+    if (raced !== null) return raced;
+    throw e;
+  }
 };
 
 // ── 첨부(invoice/airwaybill — 종류별 1건 교체, BOM D22 동형) ──────────────────

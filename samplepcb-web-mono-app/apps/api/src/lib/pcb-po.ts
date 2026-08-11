@@ -34,6 +34,7 @@ import {
   findPcbShipmentByPo,
   isPcbOrderLineCanceled,
   isPcbOutboundBlocked,
+  isPcbUniqueViolation,
   pcbShipmentReceiverTurn,
   pcbShipmentSenderTurn,
   resolvePcbShipContext,
@@ -391,7 +392,12 @@ export const createAdminPcbPo = async (
     stampRate = rate;
   }
 
-  const po = await prisma.spPcbPo.create({
+  // 동시 발행(여정 16호 C1) — 위의 ALREADY_ISSUED 사전 검사는 두 요청이 **같은 순간**
+  // 통과할 수 있다. 데이터는 UK(specId+partnerId+parentPartnerId+reorderRound)가 한 장으로
+  // 막아 주지만, 그 P2002 를 그냥 두면 진 쪽이 **안내 없는 500**을 본다(두 창을 연 관리자가
+  // 겪는다). 사전 검사와 같은 코드로 되돌려 "이미 발행됐다"고 말한다.
+  try {
+    const po = await prisma.spPcbPo.create({
     data: {
       specId,
       partnerId: partner.id,
@@ -417,8 +423,12 @@ export const createAdminPcbPo = async (
       memo: body.memo ?? null,
       eqHistory: [],
     },
-  });
-  return { ok: true, po, partner };
+    });
+    return { ok: true, po, partner };
+  } catch (e) {
+    if (!isPcbUniqueViolation(e)) throw e;
+    return { ok: false, error: 'ALREADY_ISSUED' };
+  }
 };
 
 // ── MD 하위 발주(포털) — 하위 회신 견적행 기준, KRW 회계 없음(레거시 승계) ────

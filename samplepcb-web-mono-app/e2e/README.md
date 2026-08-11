@@ -65,6 +65,7 @@ specs/
   journey-partner-suspend.e2e.test.ts  여정 13호 — 협력사 정지 중의 진행 건(배제 후 매직링크 경계·메일 CTA·대행 완주·복귀)
   journey-overdue.e2e.test.ts          여정 14호 — 기한 초과(납기 경과·EQ 확인 기한·매직링크 TTL — DB 날짜를 과거로 밀어 검증)
   journey-rewind.e2e.test.ts           여정 15호 — 되돌리기 전 구간 순환(주체 비대칭·체인 되돌림·재진행·선적 왕복·선정 해제 순환)
+  journey-concurrency.e2e.test.ts      여정 16호 — 동시 조작 경합(같은 요청을 둘이 동시에 — 불변식으로 판정: 상태 한 칸·박스 1개·수납 1회)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -98,6 +99,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:suspend` | 13호만 — 협력사 정지(운영 배제) 중의 진행 건(포털 즉시 403·매직링크 경계·메일 CTA·관리자 대행 완주·해제 복귀, `e2e정지협력` 전용 상설 픽스처) |
 | `pnpm -F e2e journey:overdue` | 14호만 — 기한 초과(한 Case 에 납기 어제↔+30일 두 발주 대조 · EQ 확인 기한 왕복 · 매직링크 30일 TTL) |
 | `pnpm -F e2e journey:rewind` | 15호만 — 되돌리기 순환(관리자 만능 되돌림 ↔ 협력사 자기 차례만 · 첨부 유지 · 선적 취소→재담기 · 선정 해제→재선정) |
+| `pnpm -F e2e journey:concurrency` | 16호만 — 동시 조작(동시 선정·입금확인·발행·전이·담기 — 유니크 위반이 500 이 아니라 도메인 응답으로 나오는지) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
