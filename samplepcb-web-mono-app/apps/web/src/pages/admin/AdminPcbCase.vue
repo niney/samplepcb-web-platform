@@ -6,6 +6,7 @@ import {
   PCB_PO_STATUS_LABELS,
   PCB_RFQ_STATUS_LABELS,
   bomShipmentNextStatus,
+  isPcbDeliveryOverdue,
   resolvePcbDirectShipCountry,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
@@ -862,6 +863,11 @@ async function startShipment(po: AdminPcbPoViewType): Promise<void> {
   }
 }
 
+// 납기 경과 — 발주 큐(AdminPcbPos)와 **같은 순수 함수**를 쓴다. KST 날짜로 넘겨야 한다:
+// 납기는 KST 자정 앵커라 ISO 를 그냥 자르면 하루 앞당겨진다(utils kst-date 회귀).
+const isPoOverdue = (po: AdminPcbPoViewType): boolean =>
+  isPcbDeliveryOverdue(po.status, kstDateOnly(po.deliveryDate), kstToday());
+
 const canAdminReceive = (s: PcbShipmentViewType): boolean => {
   if (s.receivedAt !== null || s.receiverKind !== 'admin') return false;
   return s.mode === 'domestic'
@@ -1563,7 +1569,20 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   </p>
                   <p v-else class="mt-0.5 text-[11px] text-gray-400">송금 전</p>
                 </td>
-                <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ dateOnly(po.deliveryDate) }}</td>
+                <!-- 납기 경과는 큐와 같은 규칙(계약 isPcbDeliveryOverdue)으로 말한다 -->
+                <td
+                  class="whitespace-nowrap px-4 py-2.5"
+                  :class="isPoOverdue(po) ? 'font-semibold text-red-600' : 'text-gray-500'"
+                >
+                  {{ dateOnly(po.deliveryDate) }}
+                  <span
+                    v-if="isPoOverdue(po)"
+                    class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700"
+                    title="납기일이 지났는데 아직 생산완료가 아닙니다."
+                  >
+                    납기 초과
+                  </span>
+                </td>
                 <td class="px-4 py-2.5">
                   <span v-for="f in po.eqFiles" :key="f.fileId" class="mr-1 inline-flex items-center">
                     <button

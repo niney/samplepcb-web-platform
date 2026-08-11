@@ -26,6 +26,7 @@
     "journey:combo": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-combo",
     "journey:proxy": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-admin-proxy",
     "journey:suspend": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-partner-suspend",
+    "journey:overdue": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-overdue",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

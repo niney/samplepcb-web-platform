@@ -3,10 +3,11 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   PCB_PO_STATUS_LABELS,
+  isPcbDeliveryOverdue,
   type AdminPcbPoTabType,
   type AdminPcbPoWorkItemType,
 } from '@sp/api-contract';
-import { fmtKstDate as fmtDate } from '@sp/utils';
+import { fmtKstDate as fmtDate, kstDateOnly, kstToday } from '@sp/utils';
 import { useAdminPcbPoWork, type AdminPcbPoWorkFilters } from '../../admin/useAdminPcbPos';
 import { useAdminPcbTodoCounts } from '../../admin/useAdminPcbCases';
 import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
@@ -45,6 +46,11 @@ const TABS: { key: PosTabKey; label: string }[] = [
   { key: 'produced', label: '생산완료' },
   { key: 'all', label: '전체' },
 ];
+// 납기 경과 — 판정은 계약의 순수 함수(Case 상세와 같은 규칙). KST 날짜로 넘겨야 한다:
+// 납기는 KST 자정 앵커라 ISO 를 그냥 자르면 하루 앞당겨진다.
+const isOverdueRow = (row: AdminPcbPoWorkItemType): boolean =>
+  isPcbDeliveryOverdue(row.status, kstDateOnly(row.deliveryDate), kstToday());
+
 const tabCount = (key: PosTabKey): number | null =>
   key === 'awaiting' ? todoPo.value : counts.value === null ? null : counts.value[key];
 const setTab = (key: PosTabKey): void => {
@@ -180,7 +186,21 @@ function openCase(specId: number): void {
                   {{ pcbEqReviewBadgeLabel(row.eqReview) }}
                 </span>
               </td>
-              <td class="whitespace-nowrap px-4 py-2.5 text-gray-500">{{ fmtDate(row.deliveryDate) }}</td>
+              <!-- 납기가 지났으면 그렇게 말한다(여정 14호) — 날짜만 회색으로 찍으면 관리자가
+                   목록에서 오늘과 하나하나 비교해야 하고, 탭이 수십 건이면 넘긴 건이 묻힌다. -->
+              <td
+                class="whitespace-nowrap px-4 py-2.5"
+                :class="isOverdueRow(row) ? 'font-semibold text-red-600' : 'text-gray-500'"
+              >
+                {{ fmtDate(row.deliveryDate) }}
+                <span
+                  v-if="isOverdueRow(row)"
+                  class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700"
+                  title="납기일이 지났는데 아직 생산완료가 아닙니다."
+                >
+                  납기 초과
+                </span>
+              </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(row.issuedAt) }}</td>
               <td class="whitespace-nowrap px-4 py-2.5 text-right">
                 <button

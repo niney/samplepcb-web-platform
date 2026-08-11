@@ -153,6 +153,30 @@ export const PcbShipmentView = z.object({
 export type PcbShipmentViewType = z.infer<typeof PcbShipmentView>;
 
 /**
+ * 납기 경과 판정(여정 14호 T2) — 화면이 "이 발주가 납기를 넘겼는가"를 같은 규칙으로 말하게
+ * 하는 순수 함수. Case 상세와 발주 큐가 각자 날짜를 비교하면 규칙이 갈라지므로 여기 하나에 둔다.
+ *
+ * **생산완료(produced)부터는 지연이 아니다** — 납기는 "물건을 언제까지 만드는가"의 약속이고,
+ * 그 뒤(발송·입고)는 선적 축이 따로 기한을 가진다. 만들어 놓은 건을 계속 빨간 줄로 두면
+ * 진짜 늦은 건이 묻힌다. 납기 미지정(null)도 지연이 아니다(약속 자체가 없다).
+ *
+ * 날짜만 비교한다(시분 무시) — 납기는 "그날까지"라 당일은 아직 지난 것이 아니다.
+ *
+ * ⚠ 두 인자 모두 **KST 'YYYY-MM-DD'** 여야 한다(`kstDateOnly`·`kstToday`). 납기는 KST 자정에
+ *   앵커해 저장되므로 ISO 문자열을 그냥 잘라 쓰면 하루 앞당겨진다(packages/utils
+ *   kst-date.test.ts 의 실측 회귀 — 2026-08-20 납기가 '2026-08-19' 로 보였다).
+ */
+export const isPcbDeliveryOverdue = (
+  status: string,
+  deliveryYmd: string | null,
+  todayYmd: string,
+): boolean => {
+  if (deliveryYmd === null || deliveryYmd === '') return false;
+  if (status === 'produced') return false;
+  return deliveryYmd < todayYmd;
+};
+
+/**
  * 직송 판정(D5 · 판정 축 교정 08-11 — 여정 11호 X9) — **입고된 발주들의 직송지**만 받아
  * "이 주문의 종결이 [직송 완료]인가"를 답한다. 종결 대상이 곧 입고 신호를 만든 발주이므로
  * 직송 여부도 같은 발주를 봐야 한다: 구 규칙('최상위·최신 회차 발주')은 원발주가 KR 로

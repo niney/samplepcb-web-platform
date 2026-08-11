@@ -1954,6 +1954,44 @@ suspended"** 라고 못 박는다 — 정지가 **정식 배제 경로**다. 계
 9/9 green · HTTP ≥400 0건 · 정리 CLEAN · 회귀 `journey:proxy` 8/8 · `journey:intl` 11/11 ·
 apps/api vitest 777.
 
+### 여정 14호 — 기한 초과(납기·EQ 확인·매직링크 TTL) (2026-08-11)
+
+앞의 열세 편은 전부 "제때 진행되는 건"을 밟았다. 실무에서 손이 가는 쪽은 **멈춰 있는 건**이다 —
+고객이 EQ 확인을 안 하고, 협력사가 납기를 넘기고, 메일 링크는 만료된다. 시계를 뒤로 돌려(DB 의
+날짜 필드를 과거로 밀어) 그 셋이 판정·화면에서 어떻게 드러나는지 본다(`journey:overdue`,
+5케이스). 대조는 **한 Case 안에** 세운다 — 같은 스펙에 발주 두 장(납기 어제 / +30일)을 나란히
+두면 상태가 같고 납기만 다르므로, 갈리는 신호가 있다면 그건 납기 축뿐이다.
+
+**발견 1건 — 납기가 지났는지 아무도 말해 주지 않는다.** 발주 뷰 계약의 날짜 키가
+`deliveryDate` 하나뿐이고, Case 상세·발주 큐 모두 납기를 **회색 날짜로만** 찍었다. 관리자는
+목록에서 날짜를 하나하나 오늘과 비교해야 하고, 생산 진행 탭이 수십 건이면 넘긴 건이 묻힌다.
+
+#### 교정 — 납기 경과를 두 화면이 같은 규칙으로 말한다
+
+계약에 순수 함수 `isPcbDeliveryOverdue(status, deliveryYmd, todayYmd)` 를 두고 Case 상세·발주
+큐가 함께 쓴다(11호 `resolvePcbDirectShipCountry` 와 같은 SSOT 방식). 판단 둘:
+
+- **생산완료(produced)부터는 지연이 아니다** — 납기는 "언제까지 만드는가"의 약속이고 그 뒤
+  (발송·입고)는 선적 축이 따로 기한을 가진다. 만들어 놓은 건을 계속 빨간 줄로 두면 **진짜 늦은
+  건이 묻힌다**. 납기 미지정(null)도 지연이 아니다(약속 자체가 없다).
+- **서버 파생을 늘리지 않았다** — 상태·납기 둘 다 이미 응답에 있어 계산이 곧 규칙이다.
+
+⚠ **KST 함정**: 납기는 KST 자정에 앵커해 저장되므로 ISO 를 그냥 자르면 **하루 앞당겨진다**
+(`packages/utils/kst-date.test.ts` 의 실측 회귀 — 2026-08-20 납기가 '2026-08-19' 로 보였다).
+호출부는 반드시 `kstDateOnly`·`kstToday` 를 거친다. 유닛 6케이스가 경계 하루를 잠근다
+(`pcb-delivery-overdue.test.ts`).
+
+**설계가 이미 옳았던 둘(검증만)**: ① **EQ 기한 초과 왕복** — `dueOn` 을 -2일로 밀면
+`overdue=true` 가 되고 `awaitingCustomer` 가 풀려 발주가 **관리자 차례로 복귀**한다("답이 올
+때까지 공은 고객에게, 기한이 지나면 재촉은 관리자 몫" — `pcb-po.ts` 주석이 판정으로 구현돼
+있다). 화면 배지도 '고객 기한초과'(P4.4 팔레트 red)로 선다. ② **매직링크 TTL(30일)** — 만료는
+404(링크 없음 취급)라 13호의 정지 차단(409 `PARTNER_SUSPENDED`)과 **응답이 갈린다** — 협력사가
+"만료"와 "배제"를 구분해 문의할 수 있다.
+
+T2 는 **대조군 오염까지** 센다(초과 표기가 정확히 1건). 한쪽만 보면 "전부 빨갛게"도 통과한다.
+
+5/5 green · 정리 CLEAN · apps/api vitest **783**(+6) · typecheck 9/9 · lint.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
