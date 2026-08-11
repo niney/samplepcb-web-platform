@@ -196,11 +196,23 @@ export async function measurePoRowPartnerWidths(
  * 고객: 견적관리에서 해당 견적 체크 → [바로 주문] → 주문서 작성 → 무통장 주문 완료.
  * 배송지·결제수단·입금계좌는 theme/sp-lite/js/orderform-defaults.js 가 채워 두는 값이라
  * **채웠는지 확인만** 한다 — 비어 있으면 findings 에 bug 로 남아 기본값 회귀가 드러난다.
+ *
+ * `alsoSpecIds` 는 **한 주문서에 여러 줄**을 만드는 축이다(여정 10호 신설). 견적관리의
+ * [바로 주문]은 체크된 견적을 모두 담고 한 번에 ct_select 하므로(quotes.php — POST
+ * /api/pcb-projects/order 에 ids 배열), 체크만 늘리면 단일 od 에 카트 n 줄이 선다.
+ * 주문서를 채우는 손놀림은 갈라지지 않아야 하므로 그 부분은 그대로 공유한다.
  */
 export async function placeOrderFromQuotes(
   customer: JourneySession,
   rp: JourneyReport,
-  opts: { specId: number; step: string; prefix: string; buyerName: string },
+  opts: {
+    specId: number;
+    step: string;
+    prefix: string;
+    buyerName: string;
+    /** 함께 체크할 추가 견적 — 지정하면 한 주문서에 여러 줄이 선다. */
+    alsoSpecIds?: number[];
+  },
 ): Promise<{ odId: string; status: string }> {
   const { page } = customer;
   const { step } = opts;
@@ -217,6 +229,14 @@ export async function placeOrderFromQuotes(
     } else {
       rp.F(step, 'obs', `견적 체크 라벨(#${String(opts.specId)}) 미발견 — 첫 항목 강제 체크로 폴백`);
       await page.locator('input.sp-quotes__check').first().check({ force: true });
+    }
+    for (const extra of opts.alsoSpecIds ?? []) {
+      const more = page.locator(`label[for="sp-quotes-check-${String(extra)}"]`);
+      if ((await more.count()) === 0) {
+        rp.F(step, 'blocker', `동반 견적 체크 라벨(#${String(extra)}) 미발견 — 다중 줄 주문 불가`);
+        throw new Error(`견적 #${String(extra)} 체크 라벨을 찾지 못했습니다`);
+      }
+      await more.click();
     }
     await page.getByText('바로 주문', { exact: false }).first().click();
     await page.waitForURL('**/shop/orderform*', { timeout: 30_000 });
