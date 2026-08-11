@@ -2369,6 +2369,27 @@ Mailpit 으로 "도착했다"는 여러 번 봤지만 그건 개발 환경의 �
 단정하지 않는다(다음에 이 자리를 볼 때의 출발점).
 
 5/5 green · 정리 CLEAN.
+### 여정 29호 — A/S 다회차(3차까지) (2026-08-11)
+
+5호가 1차를, 7호가 2차(거절→재접수 포함)를 밟았다. **회차가 더 늘면**? 재발주는 실무에서 두세
+번이 흔하고, 회차는 **박스 합류 키의 한 축**(`받는측:조직:직송지:회차`)이라 채번이 어긋나면
+**3차 물건이 1차 박스에 섞이고 1차 송장에 실린다**(`journey:asrounds`, 4케이스 · 시드 발주).
+
+실측(결함 0건):
+
+- **채번이 MAX+1 로 이어진다** — 1 → 2 → 3(건너뜀·겹침 없음).
+- **회차마다 발주가 따로 서고 공존한다** — 같은 스펙·같은 조직인데 UK 에 `reorderRound` 가 있어
+  `#740(r0) · #741(r1) · #742(r2) · #743(r3)` 네 건이 함께 산다.
+- **원발주는 그대로다** — 회차를 아무리 쌓아도 round 0 의 id·상태가 불변.
+- **박스가 회차로 갈린다** — 세 회차를 각각 담으면 **박스 3개**, 대표 회차 1·2·3, **각 박스 구성원
+  1건**(합류 0).
+
+⚠ **검증 함정**: 회차는 **발주에 있는 값**이고 `sp_pcb_shipment` 에는 저장되지 않는다(계약 뷰의
+`reorderRound` 는 대표 발주에서 파생). 첫 주행이 없는 필드를 읽어 `-1·-1·-1` 을 찍었는데
+**어서션은 통과했다** — "박스가 갈렸다"는 알지만 "회차대로 갈렸다"는 증명하지 못한 상태였다.
+없는 필드는 조용히 기본값이 되므로 **리포트 문자열을 눈으로 확인**해야 잡힌다.
+
+4/4 green · 시드 정리 잔재 0.
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
@@ -2376,4 +2397,5 @@ Mailpit 으로 "도착했다"는 여러 번 봤지만 그건 개발 환경의 �
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
+
 
