@@ -100,6 +100,7 @@ specs/
   journey-bom-trade-documents.e2e.test.ts BOM 여정 8호 — 국내 PO별 견적서→묶음 거래명세서→배송 완료
   journey-bom-case-deletion.e2e.test.ts BOM 여정 9호 — Case audited/reset 삭제→주문·공유·경합 보호
   journey-bom-bulk-deletion.e2e.test.ts BOM 여정 10호 — 혼합 일괄 삭제→부분 성공·보호·선택 유지
+  journey-bom-claims.e2e.test.ts       BOM 여정 11호 — 배송 후 문제 접수→관리자 검토·해결→주문 불변
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -122,6 +123,9 @@ BOM 9호는 실행 중 만든 회신 완료 Case만 삭제 대상으로 사용�
 BOM 10호는 일반·결제·실행 직전 변경·공유 주문 Case를 한 목록 선택에 섞어 일괄 삭제한다.
 성공 3건만 선택과 원장에서 제거되고 실패·보호 2건은 선택된 채 남는지 확인하며, 엔진과
 협력사 계정은 필요하지 않다. 성공·stale 표본은 제품 경로로 정리하고 공유 주문 2건만 남긴다.
+BOM 11호는 회신 완료 Case를 고객 주문·입금한 뒤 선행 조달·입고 fixture로 배송 경계를 만든다.
+배송 전 접수 차단부터 완료 주문의 복수 품목 접수, 활성 접수 중복·Case 삭제 보호, 관리자
+검토·낙관적 잠금·해결, 고객 답변과 주문 불변을 검증하며 엔진과 협력사 계정은 필요하지 않다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -130,7 +134,7 @@ BOM 10호는 일반·결제·실행 직전 변경·공유 주문 Case를 한 목
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~10호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~11호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
@@ -141,7 +145,8 @@ BOM 10호는 일반·결제·실행 직전 변경·공유 주문 Case를 한 목
 | `pnpm -F e2e journey:bom:8` | BOM 8호만 — 국내 견적서·묶음 거래명세서·인쇄 UX |
 | `pnpm -F e2e journey:bom:9` | BOM 9호만 — Case 삭제·초기화 안전 경계 |
 | `pnpm -F e2e journey:bom:10` | BOM 10호만 — 혼합 일괄 삭제·부분 성공 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~10호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:11` | BOM 11호만 — 배송 후 접수·검토·해결 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~11호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -398,6 +403,13 @@ Case를 함께 선택한다. Case별 영향 조회 한 건이 깨져도 같은 �
 빠지고 실패·보호 ID는 남아야 하며, SmartBOM 감사행·영카트 결제 주문 백업·공유 주문 원장을
 교차 검증한다. 3단계 이름·포커스 트랩/복귀·배경 스크롤 잠금과 390px 표시도 함께 확인한다.
 
+BOM 11호는 완료된 주문의 부품 누락·파손·오배송을 주문 취소나 환불과 분리된 서비스 원장으로
+접수한다. 배송 전에는 화면과 API가 접수를 막고, 배송·완료 뒤 고객은 정확한 부품과 문제 수량,
+상세 내용, 자동 환불이 아님을 확인해야 한다. 활성 접수는 중복 생성과 Case 영구 삭제를 막으며,
+관리자는 `접수됨 → 검토 중 → 해결 완료/처리 불가` 순서와 version 경합 방어를 거쳐 답변한다.
+390px에서 숨은 오른쪽 패널을 `주문·문제 접수`로 발견할 수 있는지, 중첩 Escape와 포커스 복귀,
+부품 표 내부 가로 이동, 해결 뒤 다음 접수 자격과 영카트 주문·결제 불변까지 교차 검증한다.
+
 **생성물은 원칙적으로 자동 정리하지 않는다.** 단, 9·10호의 삭제 성공 표본은 제품 삭제
 경로 검증 자체가 정리이며 stale 표본도 reset 경로로 정리하고 공유 주문 차단 표본만 남긴다.
 그 밖의 생성물은 완주 후 리포트
@@ -436,7 +448,6 @@ Case를 함께 선택한다. Case별 영향 조회 한 건이 깨져도 같은 �
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
-
 
 
 

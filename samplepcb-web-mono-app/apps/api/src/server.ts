@@ -29,6 +29,8 @@ import { adminBomQuoteRoutes } from './routes/admin-bom-quotes';
 import { adminBomRfqRoutes } from './routes/admin-bom-rfqs';
 import { adminBomPoRoutes } from './routes/admin-bom-pos';
 import { adminBomOrderRoutes } from './routes/admin-bom-orders';
+import { bomClaimRoutes } from './routes/bom-claims';
+import { adminBomClaimRoutes } from './routes/admin-bom-claims';
 import { adminMailRoutes } from './routes/admin-mail';
 import { adminPartnerRoutes } from './routes/admin-partners';
 import { partnerRfqRoutes } from './routes/partner-rfqs';
@@ -112,6 +114,7 @@ await app.register(adminSeoRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — BOM 추출 + 공급사 검색 (sp-engine Python 프록시)
 await app.register(bomRoutes, { prefix: '/api' });
 await app.register(bomQuoteRoutes, { prefix: '/api' });
+await app.register(bomClaimRoutes, { prefix: '/api' });
 await app.register(adminBomRoutes, { prefix: '/api/admin' });
 await app.register(adminBomQuoteRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 협력사 RFQ 발송·현황·대리 입력 (docs/SMARTBOM_PARTNER_RFQ.md)
@@ -120,6 +123,8 @@ await app.register(adminBomRfqRoutes, { prefix: '/api/admin' });
 await app.register(adminBomPoRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 스마트 BOM 주문·결제(주문 축 파생, D19)
 await app.register(adminBomOrderRoutes, { prefix: '/api/admin' });
+// 배송·완료 후 고객 문제 접수와 관리자 완료·클레임 워크큐(D37)
+await app.register(adminBomClaimRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 빠른 메일(§6.15): 템플릿 + Case 컨텍스트 발송·이력
 await app.register(adminMailRoutes, { prefix: '/api/admin' });
 // 관리자 전용(requireAdmin) — 공용 파트너(조직) 관리

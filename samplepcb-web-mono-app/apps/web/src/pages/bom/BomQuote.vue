@@ -57,6 +57,7 @@ import BomQuoteAddWorkspace from '../../components/bom/BomQuoteAddWorkspace.vue'
 import BomQuoteCheckbox from '../../components/bom/BomQuoteCheckbox.vue';
 import BomQuoteOfferModal from '../../components/bom/BomQuoteOfferModal.vue';
 import BomQuoteRow from '../../components/bom/BomQuoteRow.vue';
+import BomClaimPanel from '../../components/bom/BomClaimPanel.vue';
 import BomEstimateModal from '../../components/smartbom/BomEstimateModal.vue';
 import icBomCompareEye from '../../assets/bom/ic-bom-compare-eye.svg';
 import icDownloadOutline from '../../assets/bom/ic-download-outline.svg';
@@ -113,6 +114,13 @@ function closeCompactRightPanel(): void {
 
 function onCompactPanelKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape' || !compactRightOpen.value) return;
+  // 패널 안에서 연 문제 접수·견적서 등 상위 모달이 Escape를 먼저 처리해야 한다.
+  // 바깥 패널까지 함께 닫히면 모달의 포커스 복귀 대상이 DOM에서 사라진다.
+  const target = event.target instanceof Element ? event.target : null;
+  const activeModal = target?.closest<HTMLElement>('[role="dialog"][aria-modal="true"]');
+  if (activeModal !== null && activeModal !== undefined && activeModal.id !== 'bom-quote-side-panel') {
+    return;
+  }
   event.preventDefault();
   closeCompactRightPanel();
 }
@@ -606,10 +614,16 @@ const compactPanelAttentionCount = computed(() => (
 const compactPanelAttentionBadge = computed(() => (
   compactPanelAttentionCount.value > 99 ? '99+' : String(compactPanelAttentionCount.value)
 ));
+const orderedSupportVisible = computed(() => detail.value?.orderState === 'ordered');
 const compactPanelOpenLabel = computed(() => (
-  compactPanelAttentionCount.value === 0
+  orderedSupportVisible.value
+    ? '주문 및 배송 후 지원 패널 열기'
+    : compactPanelAttentionCount.value === 0
     ? '분석 및 견적 패널 열기'
     : `분석 및 견적 패널 열기, 검토 필요 ${String(compactPanelAttentionCount.value)}개`
+));
+const compactPanelButtonText = computed(() => (
+  orderedSupportVisible.value ? '주문·문제 접수' : '분석·견적 상세'
 ));
 const partDataPreparing = computed(() => detail.value?.partDataStatus === 'preparing');
 // 중간 공급사 결과로 계산된 금액은 최종 합계처럼 오인될 수 있으므로 완료 전에는 숨긴다.
@@ -2083,13 +2097,15 @@ function fmtAmount(v: number | null): string {
         >
           <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2 text-[11px] font-semibold text-bom-panel-label">
-              <span class="shrink-0 text-bom-panel-heading">AI 분석</span>
-              <span class="truncate">전체 {{ stats.total }} · 검토 {{ stats.review }} · 미매칭 {{ stats.unmatched }}</span>
+              <span class="shrink-0 text-bom-panel-heading">{{ orderedSupportVisible ? '주문·배송 지원' : 'AI 분석' }}</span>
+              <span class="truncate">{{ orderedSupportVisible ? '문제 접수와 담당자 답변을 확인하세요' : `전체 ${String(stats.total)} · 검토 ${String(stats.review)} · 미매칭 ${String(stats.unmatched)}` }}</span>
             </div>
             <p class="mt-0.5 truncate text-[12px] font-bold tabular-nums text-brand">
-              {{ pricingPending
-                ? '가격 확인 중…'
-                : `${confirmedQuoteVisible ? '확정' : '예상'} ${fmtAmount(displayedFinalTotal)}원` }}
+              {{ orderedSupportVisible
+                ? '배송 후 문제 접수 · 처리 이력'
+                : pricingPending
+                  ? '가격 확인 중…'
+                  : `${confirmedQuoteVisible ? '확정' : '예상'} ${fmtAmount(displayedFinalTotal)}원` }}
             </p>
           </div>
           <button
@@ -2099,7 +2115,7 @@ function fmtAmount(v: number | null): string {
             aria-controls="bom-quote-side-panel"
             @click="openCompactRightPanel"
           >
-            분석·견적 상세
+            {{ compactPanelButtonText }}
           </button>
         </div>
 
@@ -2431,7 +2447,7 @@ function fmtAmount(v: number | null): string {
           aria-hidden="true"
         >{{ compactPanelAttentionBadge }}</span>
         <span v-else class="grid size-6 place-items-center rounded-full bg-white/15 text-[10px] font-bold" aria-hidden="true">AI</span>
-        <span class="text-center text-[11px] font-extrabold leading-[16px]" aria-hidden="true">분석<br>견적</span>
+        <span class="whitespace-pre-line text-center text-[11px] font-extrabold leading-[16px]" aria-hidden="true">{{ orderedSupportVisible ? '주문\n지원' : '분석\n견적' }}</span>
         <span class="text-[19px] font-bold leading-none" aria-hidden="true">‹</span>
       </button>
 
@@ -2450,8 +2466,8 @@ function fmtAmount(v: number | null): string {
         >
           ×
         </button>
-        <p class="pr-6 text-[13px] font-extrabold text-ink-strong">오른쪽에 분석·견적 패널이 있습니다</p>
-        <p class="mt-1 text-[11px] leading-[17px] text-ink-muted">AI 분석 결과, 주문 수량과 예상 견적을 확인할 수 있습니다.</p>
+        <p class="pr-6 text-[13px] font-extrabold text-ink-strong">오른쪽에 {{ orderedSupportVisible ? '주문·배송 지원' : '분석·견적' }} 패널이 있습니다</p>
+        <p class="mt-1 text-[11px] leading-[17px] text-ink-muted">{{ orderedSupportVisible ? '배송 후 문제 접수와 담당자 답변을 확인할 수 있습니다.' : 'AI 분석 결과, 주문 수량과 예상 견적을 확인할 수 있습니다.' }}</p>
         <button
           type="button"
           class="mt-2.5 h-8 rounded-lg bg-brand-strong px-3 text-[11px] font-bold text-white hover:bg-blue-700"
@@ -2479,7 +2495,7 @@ function fmtAmount(v: number | null): string {
         class="bom-quote-responsive-panel fixed inset-x-0 bottom-0 z-50 h-[85dvh] max-h-[720px] min-h-0 w-full shrink-0 overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line-strong [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[6px] md:inset-x-auto md:right-0 md:top-[58px] md:h-auto md:max-h-none md:w-[360px] xl:static xl:-mt-[14px] xl:h-[calc(100%+28px)] xl:min-h-0 xl:w-[260px] xl:z-auto xl:overflow-y-auto"
         :role="compactRightOpen ? 'dialog' : 'complementary'"
         :aria-modal="compactRightOpen ? 'true' : undefined"
-        aria-label="BOM 분석 및 예상 견적"
+        :aria-label="orderedSupportVisible ? 'BOM 주문 및 배송 후 지원' : 'BOM 분석 및 예상 견적'"
       >
         <button
           ref="compactPanelCloseButton"
@@ -2542,6 +2558,12 @@ function fmtAmount(v: number | null): string {
               확정 금액 산정 중입니다 — 담당자가 확정가를 안내하면 여기에 [주문하기] 버튼이 표시됩니다.
             </p>
           </div>
+
+          <BomClaimPanel
+            v-if="detail.orderState === 'ordered'"
+            :quote-id="detail.id"
+            :items="detail.items"
+          />
 
           <BomEstimateModal :open="estimateOpen" :load="loadEstimatePrint" @close="estimateOpen = false" />
 

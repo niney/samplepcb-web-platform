@@ -16,6 +16,8 @@ import {
   BomPartSearchResponse,
   BomPartSearchSupplementResponse,
   BomSearchCartResponse,
+  BomClaimListResponse,
+  BomClaimCreateResponse,
   PartDetailResponse,
   apiRoutes,
   type BomQuoteBuildBodyType,
@@ -32,6 +34,7 @@ import {
   type BomSearchCartAddBodyType,
   type BomSearchCartItemPatchBodyType,
   type BomSearchCartResponseType,
+  type BomClaimCreateRequestType,
 } from '@sp/api-contract';
 
 // 고객 스마트 BOM — /api/bom (회원). 잡 폴링·견적 CRUD·카탈로그 검색 vue-query 훅.
@@ -74,6 +77,30 @@ export function useBomQuote(quoteId: Ref<string | null>, refetchInterval?: Ref<n
     enabled: computed(() => quoteId.value !== null),
     retry: false,
     ...(refetchInterval === undefined ? {} : { refetchInterval }),
+  });
+}
+
+/** 배송·완료 주문의 문제 접수 자격과 과거 처리 이력(D37). */
+export function useBomClaims(quoteId: Ref<string | null>, enabled: Ref<boolean>) {
+  return useQuery({
+    queryKey: computed(() => ['bom', 'claims', quoteId.value]),
+    queryFn: () => apiGet(`${base}/quotes/${quoteId.value ?? ''}/claims`, BomClaimListResponse),
+    enabled: computed(() => enabled.value && quoteId.value !== null),
+    retry: false,
+  });
+}
+
+export function useCreateBomClaim() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, body }: { quoteId: string; body: BomClaimCreateRequestType }) =>
+      apiSend('POST', `${base}/quotes/${quoteId}/claims`, body, BomClaimCreateResponse),
+    onSuccess: (_response, variables) => {
+      void qc.invalidateQueries({ queryKey: ['bom', 'claims', variables.quoteId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-claims'] });
+      // 처리 중 클레임은 Case 삭제 차단 사실이므로 관리자 프리뷰도 즉시 stale 처리한다.
+      void qc.invalidateQueries({ queryKey: ['admin', 'bom-quotes'] });
+    },
   });
 }
 

@@ -12,6 +12,7 @@ import { usePcbPoWorkCounts, usePcbShipmentPendingCount } from '../admin/useAdmi
 import { usePcbOrdersAwaitingCount, usePcbOrdersToShipCount } from '../admin/useAdminPcbOrders';
 import { usePcbRemittancePendingCount } from '../admin/useAdminPcbRemittances';
 import { useAdminPcbTodoCounts } from '../admin/useAdminPcbCases';
+import { useBomClaimsPendingCount } from '../admin/useAdminBomClaims';
 import { useTheme } from '../bom/useTheme';
 import AppProfileMenu from '../components/AppProfileMenu.vue';
 import AppSiteHomeButton from '../components/AppSiteHomeButton.vue';
@@ -32,6 +33,7 @@ const CASE_FROM_MENU: Record<string, Record<string, string>> = {
     orders: 'admin-smartbom-orders',
     pos: 'admin-smartbom-pos',
     logistics: 'admin-smartbom-logistics',
+    claims: 'admin-smartbom-claims',
   },
   'admin-pcb-case': {
     cases: 'admin-pcb-cases',
@@ -86,6 +88,7 @@ const { data: bomQuotesRequested } = useBomQuotesRequestedCount(isAdminUser);
 const { data: bomOrdersAwaiting } = useBomOrdersAwaitingCount(isAdminUser);
 const { data: bomPosAwaiting } = useBomPosAwaitingCount(isAdminUser);
 const { data: bomShipmentPending } = useBomShipmentPendingCount(isAdminUser);
+const { data: bomClaimsPending } = useBomClaimsPendingCount(isAdminUser);
 const { data: pcbRfqPending } = usePcbRfqPendingCount(isAdminUser);
 const { eqPending: pcbEqPending, toShip: pcbToShip } = usePcbPoWorkCounts(isAdminUser);
 const { data: pcbShipmentPending } = usePcbShipmentPendingCount(isAdminUser);
@@ -107,6 +110,8 @@ const badgeValue = (badge: NonNullable<AdminMenuItem['badge']>): number | undefi
         ? bomOrdersAwaiting.value
         : badge === 'bomPosAwaiting'
           ? bomPosAwaiting.value
+          : badge === 'bomClaimsPending'
+            ? bomClaimsPending.value
           : badge === 'pcbRfqPending'
             ? pcbTodoRfq.value + (pcbRfqPending.value ?? 0)
             : badge === 'pcbPosPending'

@@ -98,6 +98,7 @@ export const en = {
       smartbomOrders: 'Orders & payment',
       smartbomPos: 'Purchase orders',
       smartbomLogistics: 'Shipping & delivery',
+      smartbomClaims: 'Completion & claims',
       pcbCases: 'Cases',
       pcbRfqs: 'RFQs',
       pcbOrders: 'Orders & Payments',

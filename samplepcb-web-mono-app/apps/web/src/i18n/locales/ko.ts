@@ -98,6 +98,7 @@ export const ko = {
       smartbomOrders: '주문·결제',
       smartbomPos: '발주',
       smartbomLogistics: '선적·배송',
+      smartbomClaims: '완료·클레임',
       pcbCases: '진행현황',
       pcbRfqs: '견적요청',
       pcbOrders: '주문·결제',

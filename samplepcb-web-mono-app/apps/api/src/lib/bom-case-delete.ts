@@ -104,6 +104,7 @@ export interface BomCaseDeletePolicyInput {
   orderExists: boolean;
   paidOrder: boolean;
   orderSiblingCount: number;
+  openClaimCount: number;
   orderLinkInconsistent: boolean;
   engineJobInProgress: boolean;
   shipmentLinkInconsistent: boolean;
@@ -118,6 +119,7 @@ export function deriveBomCaseDeletePolicy(input: BomCaseDeletePolicyInput): {
   if (input.orderExists && input.orderSiblingCount > 0) {
     pushUnique(blockers, 'SHARED_ORDER');
   }
+  if (input.openClaimCount > 0) pushUnique(blockers, 'OPEN_CLAIM');
   if (input.orderLinkInconsistent) pushUnique(blockers, 'ORDER_LINK_INCONSISTENT');
   if (input.engineJobInProgress) pushUnique(blockers, 'ENGINE_JOB_IN_PROGRESS');
   if (input.shipmentLinkInconsistent) pushUnique(blockers, 'SHIPMENT_LINK_INCONSISTENT');
@@ -198,6 +200,7 @@ export async function loadBomCaseDeletePlan(
     packingRows,
     cartRow,
     orderInfo,
+    activeClaims,
   ] = await Promise.all([
     prisma.spBomQuoteItem.count({ where: { quoteId } }),
     prisma.spBomQuoteSheet.count({ where: { quoteId } }),
@@ -255,6 +258,11 @@ export async function loadBomCaseDeletePlan(
     }),
     quote.ctId === null ? Promise.resolve<CartRowInfo | null>(null) : getCartRowByCtId(quote.ctId),
     quote.ctId === null ? Promise.resolve(null) : getOrderDeletionInfoByCtId(quote.ctId),
+    prisma.spBomClaim.findMany({
+      where: { quoteId, status: { in: ['open', 'reviewing'] } },
+      select: { id: true, status: true, version: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    }),
   ]);
 
   const shipmentTargets: BomCaseDeleteShipmentTarget[] = [];
@@ -369,6 +377,7 @@ export async function loadBomCaseDeletePlan(
     orderExists: orderInfo !== null,
     paidOrder: paymentProtected,
     orderSiblingCount: orderInfo?.siblingCarts.length ?? 0,
+    openClaimCount: activeClaims.length,
     orderLinkInconsistent,
     engineJobInProgress,
     shipmentLinkInconsistent,
@@ -451,6 +460,12 @@ export async function loadBomCaseDeletePlan(
     supplierSearchStatuses: supplierSearchRuns.map((run) => ({
       status: run.status,
       artifactStatus: run.resultArtifact?.status ?? null,
+    })),
+    activeClaims: activeClaims.map((claim) => ({
+      id: String(claim.id),
+      status: claim.status,
+      version: claim.version,
+      updatedAt: claim.updatedAt.toISOString(),
     })),
     pos: quote.pos.map((po) => ({
       id: String(po.id),

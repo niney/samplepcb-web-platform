@@ -1449,6 +1449,7 @@ export type AdminBomCaseDeleteModeType = z.infer<typeof AdminBomCaseDeleteMode>;
 export const AdminBomCaseDeleteBlocker = z.enum([
   'PAID_ORDER',
   'SHARED_ORDER',
+  'OPEN_CLAIM',
   'ORDER_LINK_INCONSISTENT',
   'ENGINE_JOB_IN_PROGRESS',
   'SHIPMENT_LINK_INCONSISTENT',

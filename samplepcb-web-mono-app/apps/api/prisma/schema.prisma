@@ -570,6 +570,78 @@ model SpBomQuote {
   @@map("sp_bom_quote")
 }
 
+// 배송·완료 후 고객 문제 접수 원장(D37). 영카트 주문/카트 상태를 되돌리지 않고
+// 누락·파손·오배송·품질 문제의 운영 대응만 별도 생명주기로 관리한다. quoteId/ctId는
+// 의도적으로 느슨한 참조다. Case를 강제 삭제해도 이미 접수된 고객 대응 기록과 주문
+// 스냅샷은 보존하며, activeKey unique가 같은 주문행의 미처리 중복 접수를 막는다.
+model SpBomClaim {
+  id              BigInt            @id @default(autoincrement())
+  quoteId         BigInt
+  quoteTitle      String            @db.VarChar(191)
+  mbId            String            @db.VarChar(60)
+  odId            String            @db.VarChar(64)
+  ctId            Int
+  activeKey       String?           @unique @db.VarChar(96)
+  status          String            @default("open") @db.VarChar(16) // open|reviewing|resolved|rejected
+  kind            String            @db.VarChar(24) // missing|damaged|wrong_part|quality|other
+  subject         String            @db.VarChar(191)
+  description     String            @db.Text
+  orderSnapshot   Json
+  version         Int               @default(1)
+  adminMbId       String?           @db.VarChar(191)
+  adminResponse   String?           @db.Text
+  resolutionKind  String?           @db.VarChar(24) // replacement|refund_coordination|credit|guidance
+  submittedAt     DateTime          @default(now())
+  reviewStartedAt DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  items           SpBomClaimItem[]
+  events          SpBomClaimEvent[]
+
+  @@index([quoteId, submittedAt])
+  @@index([mbId, submittedAt])
+  @@index([status, submittedAt])
+  @@map("sp_bom_claim")
+}
+
+// 접수 시점의 MPN·제조사·주문수량을 박제한다. 원 견적 품목은 이후 Case 삭제와 무관하게
+// 느슨한 quoteItemId로만 추적하고, 화면·감사에는 아래 스냅샷을 사용한다.
+model SpBomClaimItem {
+  id               BigInt     @id @default(autoincrement())
+  claimId          BigInt
+  quoteItemId      BigInt
+  mpn              String     @db.VarChar(191)
+  manufacturerName String?    @db.VarChar(191)
+  description      String?    @db.Text
+  orderedQty       Int
+  affectedQty      Int
+  createdAt        DateTime   @default(now())
+  claim            SpBomClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, quoteItemId])
+  @@index([quoteItemId])
+  @@map("sp_bom_claim_item")
+}
+
+// 클레임 상태 전이 append-only 감사 이력. 현재 상태는 claim.status가 조회 정본이고,
+// 이 원장은 누가 언제 어떤 답변으로 전이했는지 재구성하는 근거다.
+model SpBomClaimEvent {
+  id         BigInt     @id @default(autoincrement())
+  claimId    BigInt
+  action     String     @db.VarChar(24) // submitted|review_started|resolved|rejected
+  actorRole  String     @db.VarChar(12) // customer|admin
+  actorMbId  String     @db.VarChar(191)
+  fromStatus String?    @db.VarChar(16)
+  toStatus   String     @db.VarChar(16)
+  note       String?    @db.Text
+  createdAt  DateTime   @default(now())
+  claim      SpBomClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId, createdAt])
+  @@map("sp_bom_claim_event")
+}
+
 // 관리자 Case 영구 삭제의 최소 감사 원장. 삭제 대상과 FK를 맺으면 cascade로 함께
 // 사라지므로 quoteId는 의도적으로 느슨한 참조다. "감사기록 없이 초기화" 모드는
 // 이 행을 만들지 않는다(서버/DB 백업·외부 메일 흔적까지 없음을 뜻하지는 않음).

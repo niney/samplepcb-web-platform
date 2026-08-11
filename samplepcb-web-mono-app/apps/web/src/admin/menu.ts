@@ -11,6 +11,7 @@ export interface AdminMenuItem {
     | 'rfqCount'
     | 'bomOrdersAwaiting'
     | 'bomShipmentPending'
+    | 'bomClaimsPending'
     | 'bomQuotesRequested'
     | 'bomPosAwaiting'
     | 'pcbRfqPending'
@@ -92,6 +93,12 @@ const smartbomMenu: AdminMenuItem[] = [
     to: { name: 'admin-smartbom-logistics' },
     labelKey: 'admin.menu.smartbomLogistics',
     badge: 'bomShipmentPending',
+  },
+  // 배송 이후 고객 대응 — 새 접수+검토 중 건수 배지.
+  {
+    to: { name: 'admin-smartbom-claims' },
+    labelKey: 'admin.menu.smartbomClaims',
+    badge: 'bomClaimsPending',
   },
 ];
 

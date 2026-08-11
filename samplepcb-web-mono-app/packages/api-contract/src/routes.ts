@@ -21,6 +21,8 @@ export const apiRoutes = {
   adminPartners: '/api/admin/partners',
   // 스마트 BOM 주문·결제(주문 축 파생 목록, D19)
   adminBomOrders: '/api/admin/bom-orders',
+  // 배송·완료 후 고객 문제 접수와 관리자 완료·클레임 워크큐(D37)
+  adminBomClaims: '/api/admin/bom-claims',
   // 발주·선적 횡단 워크큐(관리자 메뉴 재편 — 발주/선적·배송 메뉴)
   adminBomPos: '/api/admin/bom-pos',
   adminBomShipments: '/api/admin/bom-shipments',

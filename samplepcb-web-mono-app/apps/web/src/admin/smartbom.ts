@@ -84,6 +84,7 @@ export const SMARTBOM_STATUS_META: Record<BomQuoteStatusType, { label: string; c
 export const SMARTBOM_DELETE_BLOCKER_TEXT: Record<AdminBomCaseDeleteBlockerType, string> = {
   PAID_ORDER: '결제 이력이 있는 주문입니다. 별도 강제 삭제 확인 시 로컬 주문·결제 기록까지 삭제할 수 있습니다.',
   SHARED_ORDER: '같은 주문에 다른 품목 또는 Case가 함께 있어 단건 삭제할 수 없습니다.',
+  OPEN_CLAIM: '고객 문제 접수가 처리 중입니다. 해결 또는 반려로 닫은 뒤 다시 확인해 주세요.',
   ORDER_LINK_INCONSISTENT: 'Case와 영카트 품목의 연결 정보가 일치하지 않습니다. 주문 연결을 먼저 점검해 주세요.',
   ENGINE_JOB_IN_PROGRESS: 'BOM 분석 또는 공급사 검색이 진행 중입니다. 완료·실패 상태가 된 뒤 다시 확인해 주세요.',
   SHIPMENT_LINK_INCONSISTENT: '선적 대표 발주서와 소속 정보가 일치하지 않습니다. 물류 연결을 먼저 점검해 주세요.',

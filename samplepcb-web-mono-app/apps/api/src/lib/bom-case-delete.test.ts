@@ -68,6 +68,7 @@ describe('SmartBOM Case 영구 삭제 정책', () => {
       orderExists: true,
       paidOrder: true,
       orderSiblingCount: 0,
+      openClaimCount: 0,
       orderLinkInconsistent: false,
       engineJobInProgress: false,
       shipmentLinkInconsistent: false,
@@ -81,6 +82,7 @@ describe('SmartBOM Case 영구 삭제 정책', () => {
       orderExists: true,
       paidOrder: false,
       orderSiblingCount: 2,
+      openClaimCount: 0,
       orderLinkInconsistent: false,
       engineJobInProgress: false,
       shipmentLinkInconsistent: false,
@@ -94,6 +96,7 @@ describe('SmartBOM Case 영구 삭제 정책', () => {
       orderExists: false,
       paidOrder: false,
       orderSiblingCount: 0,
+      openClaimCount: 0,
       orderLinkInconsistent: false,
       engineJobInProgress: false,
       shipmentLinkInconsistent: false,
@@ -107,6 +110,7 @@ describe('SmartBOM Case 영구 삭제 정책', () => {
       orderExists: false,
       paidOrder: false,
       orderSiblingCount: 0,
+      openClaimCount: 0,
       orderLinkInconsistent: false,
       engineJobInProgress: true,
       shipmentLinkInconsistent: false,
@@ -120,12 +124,27 @@ describe('SmartBOM Case 영구 삭제 정책', () => {
       orderExists: false,
       paidOrder: false,
       orderSiblingCount: 0,
+      openClaimCount: 0,
       orderLinkInconsistent: true,
       engineJobInProgress: false,
       shipmentLinkInconsistent: false,
     });
 
     expect(policy.blockers).toEqual(['ORDER_LINK_INCONSISTENT']);
+  });
+
+  it('처리 중인 고객 클레임은 결제 강제 플래그로도 삭제할 수 없게 차단한다', () => {
+    const policy = deriveBomCaseDeletePolicy({
+      orderExists: true,
+      paidOrder: true,
+      orderSiblingCount: 0,
+      openClaimCount: 1,
+      orderLinkInconsistent: false,
+      engineJobInProgress: false,
+      shipmentLinkInconsistent: false,
+    });
+
+    expect(policy.blockers).toEqual(['PAID_ORDER', 'OPEN_CLAIM']);
   });
 
   it('실행은 최신 프리뷰와 선택한 기록 모드의 허용 여부를 요구한다', () => {
