@@ -42,6 +42,7 @@
     "journey:maillog": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-maillog",
     "journey:asrounds": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-as-rounds",
     "journey:remitmulti": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-remit-multi",
+    "journey:notify": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-notify-gate",
     "journey:rewind": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-rewind",
     "typecheck": "tsc --noEmit"
   },
@@ -53,6 +54,7 @@
     "vitest": "^3.0.0"
   }
 }
+
 
 
 

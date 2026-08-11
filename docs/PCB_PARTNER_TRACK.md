@@ -2411,6 +2411,30 @@ Mailpit 으로 "도착했다"는 여러 번 봤지만 그건 개발 환경의 �
 무의미해지므로, **아예 안 받는 것**이 그걸 구조적으로 막는다. 응답은 `{summary, remittances}`.
 
 5/5 green · 시드 정리 잔재 0.
+### 여정 31호 — 알림 게이트 (2026-08-11)
+
+28호가 "보낸 것이 원장에 남는가"였다면 이 편은 그 앞 — **보낼지 말지를 무엇이 정하는가**다.
+설정이 무시되면 **고객에게 원치 않는 알림이 나가고**, 반대면 "연락을 못 받았다"가 된다. 둘 다
+되돌릴 수 없다(`journey:notify`, 5케이스).
+
+게이트는 두 층(`getNotifyConfig`) 위에 요청 스위치(`sendMail`/`sendSms`)가 얹힌다:
+**메일**=`cf_email_use` · **SMS**=`cf_sms_use='icode'` **그리고** 전이별 `de_sms_use4`(입금)/
+`de_sms_use5`(배송). SMS 조건이 코어 상세(truthy)보다 좁은 것은 **실발송 조건과 같게 맞춘**
+것이다 — 관리자가 체크박스를 눌렀는데 안 나가면 헛수고이기 때문(노출-발송 정합).
+
+실측(결함 0건): API `notify-config` 가 DB 실값과 일치(`mailAvailable=true`/`cf_email_use=1`,
+SMS 는 icode 가 아니라 false) · **요청이 끄면 기록조차 없다**(`sendMail:false` → 0건, 시도 자체가
+없다) · **설정이 상위다**(`cf_email_use=0` 에서 `sendMail:true` 로 전이해도 `sent` 0건) ·
+되돌리면 게이트가 즉시 따라온다.
+
+어서션을 "기록이 없어야 한다"가 아니라 **"`sent` 가 없어야 한다"** 로 잡았다 — `skipped` 로 남는
+것은 오히려 좋다(**왜 안 갔는지가 남는다**).
+
+⚠ 이 편은 **전역 설정**을 잠깐 끈다. `afterAll` 에서 반드시 되돌리고 원복을 리포트에 남긴다
+(안 되돌리면 이후 모든 주행의 메일이 막힌다). 주행 후 DB 직접 확인: `cf_email_use=1` 원복 완료.
+**순차 주행 전제**다 — 병렬이면 다른 편의 메일을 막는다.
+
+5/5 green · 전역 설정 원복 확인.
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
@@ -2418,6 +2442,7 @@ Mailpit 으로 "도착했다"는 여러 번 봤지만 그건 개발 환경의 �
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
+
 
 
 

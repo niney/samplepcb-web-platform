@@ -80,6 +80,7 @@ specs/
   journey-maillog.e2e.test.ts          여정 28호 — 발송 이력 원장(종류·주체·수신처·컨텍스트 연결 = 보냈다는 증거)
   journey-as-rounds.e2e.test.ts        여정 29호 — A/S 다회차(채번 1→2→3·회차 공존·박스가 회차로 갈림)
   journey-remit-multi.e2e.test.ts      여정 30호 — 송금 다회·증빙(3회 분할 잔액·완납 큐 이동·증빙 회차별·정정 반영)
+  journey-notify-gate.e2e.test.ts      여정 31호 — 알림 게이트(요청 스위치·설정 우선·노출-발송 정합, 전역 설정 원복 필수)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -128,6 +129,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:maillog` | 28호만 — 발송 이력(sp_mail_log 에 종류·sentBy·recipient 가 남고 Case 상세에서 되찾히는가) |
 | `pnpm -F e2e journey:asrounds` | 29호만 — A/S 3차까지(회차 채번·원발주 불변·박스 3개 분리, 시드 발주) |
 | `pnpm -F e2e journey:remitmulti` | 30호만 — 송금 다회(100+100+100 잔액 정확 · 완납이 큐를 가름 · 정정·삭제 즉시 반영) |
+| `pnpm -F e2e journey:notify` | 31호만 — 알림 게이트(설정이 실제로 발송을 막는가 · 전역 cf_email_use 를 잠깐 끄므로 순차 주행 전제) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
@@ -318,6 +320,7 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
+
 
 
 
