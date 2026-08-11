@@ -75,6 +75,7 @@ specs/
   journey-counts.e2e.test.ts           여정 23호 — 집계·카운트 정합(read-only: 배지=목록·페이지 경계·부분 합=전체, 실데이터 2만 건)
   journey-search.e2e.test.ts           여정 24호 — 검색 정확성(read-only: 세 키 적중·와일드카드 escape·검색×탭 교집합)
   journey-authz.e2e.test.ts            여정 25호 — 역할 경계 매트릭스(read-only: 무인증401·회원403·협력사403·관리자200, 양성 대조 포함)
+  journey-stock.e2e.test.ts            여정 26호 — 재고 축(배송에서 차감·주문 복귀에서 복원·이중 복원 없음 = 정리 관례의 근거)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -118,6 +119,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:counts` | 23호만 — 집계 정합(네 큐 전 탭 total==counts · 페이지 중복 0 · 부분 합==전체, 쓰기 0) |
 | `pnpm -F e2e journey:search` | 24호만 — 검색 정확성(% 한 글자가 전체를 반환하던 LIKE escape 누락 회귀선, 쓰기 0) |
 | `pnpm -F e2e journey:authz` | 25호만 — 역할 경계(네 주체 × 열 경로 · 남의 문서 id 직접 접근 차단 · 양성 대조, 쓰기 0) |
+| `pnpm -F e2e journey:stock` | 26호만 — 재고 축(모든 여정의 정리가 기대는 force-status '주문' 복원이 실제로 맞는지) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
@@ -308,6 +310,7 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
+
 
 
 
