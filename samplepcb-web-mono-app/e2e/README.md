@@ -104,6 +104,7 @@ specs/
   journey-bom-access-control.e2e.test.ts BOM 여정 12호 — 고객 소유권→직접 URL 은닉·오류 복구
   journey-bom-history-management.e2e.test.ts BOM 여정 13호 — 내역 검색→보호·삭제 실패 복구·모바일 탐색
   journey-bom-workbook-recovery.e2e.test.ts BOM 여정 14호 — 다중 시트 분석 영속→오류 복구·시트 복원
+  journey-bom-draft-save-recovery.e2e.test.ts BOM 여정 15호 — 초안 자동저장 경쟁→503·이탈·요청 복구
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -138,6 +139,10 @@ BOM 13호는 별도 가상 고객에게 상태 6종·26건을 만들어 검색·
 BOM 14호는 실제 다중 시트 XLSX와 유효 BOM이 없는 XLSX를 업로드해 시트 판별, prepare 502
 재시도, 엔진 잡 삭제 후 DB 분석 스냅샷 계산, 시트 변경 503 재시도·제외·동일 라인 복원,
 390px 업로드·실패 화면과 키보드 모달 경계를 검증하고 Case·엔진 잡을 모두 회수한다.
+BOM 15호는 별도 가상 고객의 작성 중 견적 2건으로 저장 중 후속 편집 직렬화, PATCH 503 뒤
+로컬 변경 보존·명시적 재시도, 실패 중 견적 이동 차단, 디바운스 이탈 전 저장, 실제
+beforeunload 경고, 견적요청 전 저장 게이트와 키보드 모달을 검증한다. 390px에서 오류·비교·추가
+버튼과 요청 모달이 화면 안에 완전히 표시되는지도 확인하고 종료 훅이 두 견적을 모두 회수한다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -146,7 +151,7 @@ BOM 14호는 실제 다중 시트 XLSX와 유효 BOM이 없는 XLSX를 업로드
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~14호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~15호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
@@ -161,7 +166,8 @@ BOM 14호는 실제 다중 시트 XLSX와 유효 BOM이 없는 XLSX를 업로드
 | `pnpm -F e2e journey:bom:12` | BOM 12호만 — 고객 소유권·직접 URL·오류 복구 |
 | `pnpm -F e2e journey:bom:13` | BOM 13호만 — 내역 검색·보호·삭제 복구 |
 | `pnpm -F e2e journey:bom:14` | BOM 14호만 — 다중 시트 분석 영속·복구 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~14호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:15` | BOM 15호만 — 초안 자동저장·이탈 복구 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~15호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -434,7 +440,7 @@ Recent file에도 제목이 노출되면 안 된다. 숫자가 아닌 깨진 주
 
 **생성물은 원칙적으로 자동 정리하지 않는다.** 단, 9·10호의 삭제 성공 표본은 제품 삭제
 경로 검증 자체가 정리이며 stale 표본도 reset 경로로 정리하고 공유 주문 차단 표본만 남긴다.
-12호의 거래 관계가 없는 소유권 전용 fixture는 모든 역할의 DB 불변 검증 뒤 하네스가 직접 정리한다.
+12~15호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안 저장 검증 뒤 하네스가 직접 정리한다.
 그 밖의 생성물은 완주 후 리포트
 (`output/journey/findings*.md`) 대장을 보고 손으로 지운다 — 순서는 ① 주문을
 `force-status '주문'` 으로 내려 **재고 복원** ② g5 cart+order ③ sp_* 역순

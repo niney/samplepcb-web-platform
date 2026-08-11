@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useVirtualizer } from '@tanstack/vue-virtual';
 import { ApiRequestError, apiGet, apiGetBlob } from '@sp/shared';
@@ -354,6 +354,16 @@ watch(
 );
 
 watch(quoteId, () => {
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = null;
+  saveInFlight = null;
+  editRevision = 0;
+  dirty.value = false;
+  saveState.value = 'idle';
+  items.value = [];
+  setQty.value = 1;
+  spareQty.value = 0;
+  if (requestModal.value) finishRequestModalClose(false);
   autoBuildAttempted.value = false;
   selectedSheetIndexes.value = [];
   buildError.value = '';
@@ -468,17 +478,23 @@ function confirmQuantity(item: BomQuoteItemType, qty: number): void {
 const patch = usePatchBomQuote();
 const saveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let editRevision = 0;
+let saveInFlight: Promise<boolean> | null = null;
 
 function markDirty(): void {
   if (!isDraft.value || editingLocked.value) return;
+  editRevision += 1;
   dirty.value = true;
   if (saveTimer !== null) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void saveNow(), 1_000);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void saveNow();
+  }, 1_000);
 }
 
-async function saveNow(): Promise<void> {
-  if (!isDraft.value || !dirty.value) return;
+async function persistCurrentDraft(): Promise<boolean> {
   const id = quoteId.value;
+  const revision = editRevision;
   saveState.value = 'saving';
   try {
     const saved = await patch.mutateAsync({
@@ -507,6 +523,9 @@ async function saveNow(): Promise<void> {
         })),
       },
     });
+    // 요청을 보낸 뒤 사용자가 다시 편집했다면 이 응답은 서버의 중간 상태다. 로컬의
+    // 더 최신 값을 덮지 않고 dirty 를 유지해 바로 다음 PATCH로 직렬화한다.
+    if (quoteId.value !== id || editRevision !== revision) return true;
     dirty.value = false;
     saveState.value = 'saved';
     // 저장 응답(raw)은 전 항목이 새 참조라, 이 응답을 그대로 적용하면 행 단위 재렌더
@@ -515,13 +534,54 @@ async function saveNow(): Promise<void> {
     // observer(quote.data) 반영은 notifyManager 배치라 resolve 시점에 보장되지 않으므로
     // getQueryData 로 직접 조회한다. 저장 중 다른 견적으로 이동했다면 이전 응답으로 새
     // 화면의 items 를 덮지 않도록 건너뛴다.
-    if (quoteId.value !== id) return;
     const cached = qc.getQueryData<BomQuoteDetailResponseType>(['bom', 'quote', id]);
     applyServerDetail(cached?.data ?? saved.data);
+    return true;
   } catch {
-    saveState.value = 'error';
+    if (quoteId.value === id) saveState.value = 'error';
+    return false;
   }
 }
+
+async function saveNow(): Promise<boolean> {
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!isDraft.value) return true;
+
+  for (;;) {
+    if (!dirty.value) return true;
+    if (saveInFlight !== null) {
+      const completed = await saveInFlight;
+      if (!completed) return false;
+      continue;
+    }
+    const pending = persistCurrentDraft();
+    saveInFlight = pending;
+    const completed = await pending;
+    if (saveInFlight === pending) saveInFlight = null;
+    if (!completed) return false;
+  }
+}
+
+async function retryDraftSave(): Promise<void> {
+  await saveNow();
+}
+
+async function saveBeforeNavigation(): Promise<boolean> {
+  if (!dirty.value && saveInFlight === null) return true;
+  const saved = await saveNow();
+  return saved && !dirty.value;
+}
+
+function onBeforeWindowUnload(event: BeforeUnloadEvent): void {
+  if (!dirty.value && saveInFlight === null) return;
+  event.preventDefault();
+}
+
+onBeforeRouteLeave(() => saveBeforeNavigation());
+onBeforeRouteUpdate((to, from) => (
+  to.params.id === from.params.id ? true : saveBeforeNavigation()
+));
 
 // ── 결과 시트 탭·통계·합계(로컬 표시 — 저장 시 서버가 재계산해 동기화) ───────
 
@@ -1521,12 +1581,17 @@ function onPartDataPreparationKeydown(event: KeyboardEvent): void {
 onMounted(() => {
   window.addEventListener('keydown', onCompactPanelKeydown);
   window.addEventListener('keydown', onPartDataPreparationKeydown);
+  window.addEventListener('beforeunload', onBeforeWindowUnload);
 });
 onBeforeUnmount(() => {
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = null;
   compactRightOpen.value = false;
   if (sheetManagerOpen.value) finishSheetManagerClose(false);
+  if (requestModal.value) finishRequestModalClose(false);
   window.removeEventListener('keydown', onCompactPanelKeydown);
   window.removeEventListener('keydown', onPartDataPreparationKeydown);
+  window.removeEventListener('beforeunload', onBeforeWindowUnload);
   resultsScrollResizeObserver?.disconnect();
   cancelRowSearchNoticeTimer();
 });
@@ -1930,29 +1995,114 @@ const loadEstimatePrint = async () => {
 const requestModal = ref(false);
 const requestTitle = ref('');
 const requestError = ref('');
+const requestSubmitting = ref(false);
+const requestDialog = ref<HTMLElement | null>(null);
+const requestTitleInput = ref<HTMLInputElement | null>(null);
+const requestErrorPanel = ref<HTMLParagraphElement | null>(null);
+let requestModalTriggerElement: HTMLElement | null = null;
+let requestModalBodyOverflow: string | null = null;
 
-function openRequestModal(): void {
+async function openRequestModal(): Promise<void> {
   if (editingLocked.value) return;
   requestTitle.value = detail.value?.title ?? '';
   requestError.value = '';
+  requestModalTriggerElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  requestModalBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
   requestModal.value = true;
+  await nextTick();
+  requestTitleInput.value?.focus();
+  requestTitleInput.value?.select();
+}
+
+function finishRequestModalClose(restoreFocus: boolean): void {
+  requestModal.value = false;
+  if (requestModalBodyOverflow !== null) {
+    document.body.style.overflow = requestModalBodyOverflow;
+  }
+  requestModalBodyOverflow = null;
+  const trigger = requestModalTriggerElement;
+  requestModalTriggerElement = null;
+  if (restoreFocus && trigger?.isConnected === true) {
+    void nextTick(() => {
+      trigger.focus();
+    });
+  }
+}
+
+function closeRequestModal(): void {
+  if (!requestSubmitting.value) finishRequestModalClose(true);
+}
+
+function requestModalFocusableElements(): HTMLElement[] {
+  const dialog = requestDialog.value;
+  if (dialog === null) return [];
+  return [
+    ...dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter((element) => element.getClientRects().length > 0);
+}
+
+function onRequestModalKeydown(event: KeyboardEvent): void {
+  if (!requestModal.value) return;
+  if (event.key === 'Escape') {
+    if (!requestSubmitting.value) {
+      event.preventDefault();
+      event.stopPropagation();
+      finishRequestModalClose(true);
+    }
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = requestModalFocusableElements();
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (first === undefined || last === undefined) {
+    event.preventDefault();
+    requestDialog.value?.focus();
+    return;
+  }
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || requestDialog.value?.contains(active) !== true)) {
+    event.preventDefault();
+    last.focus();
+  } else if (
+    !event.shiftKey
+    && (active === last || requestDialog.value?.contains(active) !== true)
+  ) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 async function submitRequest(): Promise<void> {
+  if (requestSubmitting.value) return;
   if (editingLocked.value) {
-    requestModal.value = false;
+    finishRequestModalClose(false);
     return;
   }
   if (requestTitle.value.trim() === '') {
     requestError.value = '견적명을 입력해 주세요.';
+    void nextTick(() => requestErrorPanel.value?.focus());
     return;
   }
-  await saveNow(); // 마지막 편집 반영 후 요청
+  requestSubmitting.value = true;
   try {
+    const saved = await saveNow(); // 마지막 편집 반영 후 요청
+    if (!saved || dirty.value) {
+      requestError.value = '변경사항을 저장하지 못했습니다. 다시 시도하면 저장 후 견적요청을 이어갑니다.';
+      void nextTick(() => requestErrorPanel.value?.focus());
+      return;
+    }
     await request.mutateAsync({ quoteId: quoteId.value, title: requestTitle.value.trim() });
-    requestModal.value = false;
+    finishRequestModalClose(false);
   } catch {
     requestError.value = '견적요청에 실패했습니다. 포함된 라인이 있는지 확인해 주세요.';
+    void nextTick(() => requestErrorPanel.value?.focus());
+  } finally {
+    requestSubmitting.value = false;
   }
 }
 
@@ -2310,11 +2460,26 @@ function fmtAmount(v: number | null): string {
               </template>
             </div>
           </div>
-          <div class="flex items-center gap-[12px]">
-            <span v-if="isDraft" class="mr-1 text-xs text-gray-400">
+          <div class="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-[12px]">
+            <div
+              v-if="isDraft && saveState === 'error' && !requestModal"
+              class="mr-1 flex shrink-0 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700"
+              role="alert"
+            >
+              <span>변경사항 저장 실패 · 화면에 유지 중</span>
+              <button
+                type="button"
+                class="rounded-md border border-red-300 bg-white px-2 py-1 font-bold text-red-700 hover:bg-red-100 disabled:cursor-wait disabled:opacity-60"
+                :disabled="patch.isPending.value"
+                aria-label="변경사항 다시 저장"
+                @click="retryDraftSave"
+              >
+                {{ patch.isPending.value ? '저장 중' : '다시 저장' }}
+              </button>
+            </div>
+            <span v-else-if="isDraft" class="mr-1 text-xs text-gray-400" role="status" aria-live="polite">
               <template v-if="saveState === 'saving'">저장 중…</template>
               <template v-else-if="saveState === 'saved' && !dirty">자동 저장됨</template>
-              <template v-else-if="saveState === 'error'"><span class="text-red-500">저장 실패</span></template>
             </span>
             <button
               v-if="isDraft && manageableResultSheets.length > 1"
@@ -3263,16 +3428,24 @@ function fmtAmount(v: number | null): string {
     </div>
 
     <!-- 견적명 모달 -->
-    <div v-if="requestModal && !editingLocked" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="requestModal = false">
-      <div class="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl">
-        <h3 class="text-base font-semibold text-gray-900">견적요청</h3>
+    <div v-if="requestModal && !editingLocked" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="closeRequestModal">
+      <div
+        ref="requestDialog"
+        class="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl outline-none"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bom-request-title"
+        tabindex="-1"
+        @keydown="onRequestModalKeydown"
+      >
+        <h3 id="bom-request-title" class="text-base font-semibold text-gray-900">견적요청</h3>
         <p class="mt-1 text-xs text-gray-500">요청 후에는 내용이 동결되고 담당자가 확정 견적으로 회신합니다.</p>
-        <input v-model="requestTitle" type="text" placeholder="견적명" class="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
-        <p v-if="requestError !== ''" class="mt-2 text-xs text-red-600">{{ requestError }}</p>
+        <input ref="requestTitleInput" v-model="requestTitle" type="text" placeholder="견적명" aria-label="견적명" class="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" @input="requestError = ''">
+        <p v-if="requestError !== ''" ref="requestErrorPanel" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 outline-none" role="alert" tabindex="-1">{{ requestError }}</p>
         <div class="mt-4 flex justify-end gap-2">
-          <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50" @click="requestModal = false">취소</button>
-          <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" :disabled="request.isPending.value" @click="submitRequest">
-            {{ request.isPending.value ? '요청 중…' : '견적요청 보내기' }}
+          <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50" :disabled="requestSubmitting" @click="closeRequestModal">취소</button>
+          <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-50" :disabled="requestSubmitting" @click="submitRequest">
+            {{ requestSubmitting ? '요청 중…' : '견적요청 보내기' }}
           </button>
         </div>
       </div>
