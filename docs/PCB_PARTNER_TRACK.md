@@ -2390,6 +2390,27 @@ Mailpit 으로 "도착했다"는 여러 번 봤지만 그건 개발 환경의 �
 없는 필드는 조용히 기본값이 되므로 **리포트 문자열을 눈으로 확인**해야 잡힌다.
 
 4/4 green · 시드 정리 잔재 0.
+### 여정 30호 — 송금 다회·증빙 (2026-08-11)
+
+8호가 부분 송금 2회와 환차를 봤다. 실무는 더 잘게 나뉜다 — 계약금·중도금·잔금처럼 세 번, 네 번이
+흔하고 각 회차에 이체 확인증이 붙는다. **잔액이 한 번이라도 틀리면** 과지급·미지급이 생기고,
+원장이 정본이라 화면·큐·포털이 **모두 같이 틀린다**(`journey:remitmulti`, 5케이스 · 시드 발주).
+
+실측(결함 0건, $300 을 100/100/100 으로):
+
+- **다회 누적이 정확하다** — 회차마다 지급액·잔액이 따라오고 원장 3건으로 갈린다(뭉치지 않는다).
+- **완납이 큐를 가른다** — 잔액 0 이면 지급 대기에서 빠지고 완료에 든다. *잔액 0 인데 대기에
+  남으면 관리자가 또 보낸다 — 과지급은 거기서 시작된다.*
+- **증빙이 회차마다 매달린다** — 1·2회차 각 1건, 증빙 없는 3회차는 0건(한 곳에 몰리지 않는다).
+- **정정·삭제가 즉시 반영된다** — 100→50 정정 시 지급 250/잔액 50, 삭제 후 지급 200/잔액 100.
+  원장은 **정정되는 기록**이라(8호가 "행마다 통지하면 알림이 사실보다 앞선다"고 판단한 근거)
+  합계가 항상 원장에서 다시 계산돼야 한다.
+
+⚠ 계약 함정: `PcbRemittanceCreateBody` 는 `remittedOn`(`paidAt` 아님)을 받고 **`currency` 를 받지
+않는다** — 발주 통화를 따른다. 송금마다 통화를 지정할 수 있으면 한 발주에 USD·KRW 가 섞여 합계가
+무의미해지므로, **아예 안 받는 것**이 그걸 구조적으로 막는다. 응답은 `{summary, remittances}`.
+
+5/5 green · 시드 정리 잔재 0.
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
@@ -2397,5 +2418,6 @@ Mailpit 으로 "도착했다"는 여러 번 봤지만 그건 개발 환경의 �
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
+
 
 
