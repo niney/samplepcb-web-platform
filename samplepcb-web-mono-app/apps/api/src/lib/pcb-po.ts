@@ -14,7 +14,12 @@ import type {
   PcbPoEqReviewSummaryType,
   PcbPoStatusType,
 } from '@sp/api-contract';
-import { PCB_EQ_FORWARD, PCB_EQ_REVERT, PCB_PO_STATUSES } from '@sp/api-contract';
+import {
+  PCB_EQ_FORWARD,
+  PCB_EQ_REVERT,
+  PCB_PO_STATUSES,
+  orderPcbEqFiles,
+} from '@sp/api-contract';
 import { prisma } from './prisma';
 import { getOrderInfoByCtId } from './g5-db';
 import { roundPcbAmount } from './exchange-rate';
@@ -126,7 +131,8 @@ const resolveEqDelegation = async (po: SpPcbPo): Promise<EqDelegation> => {
 };
 
 // ── EQ 첨부(sp_file refType 'sp_pcb_po_eq') ──────────────────────────────────
-const toEqFileView = (f: SpFile): PcbEqFileViewType => ({
+// isLatest 는 **목록 전체를 봐야** 정해지므로 여기서는 붙이지 않는다(orderPcbEqFiles 몫).
+const toEqFileView = (f: SpFile): Omit<PcbEqFileViewType, 'isLatest'> => ({
   fileId: Number(f.id),
   name: f.originFileName,
   size: Number(f.size),
@@ -141,14 +147,15 @@ const loadEqFilesMap = async (poIds: bigint[]): Promise<Map<string, PcbEqFileVie
     where: { refType: EQ_REF_TYPE, refId: { in: poIds } },
     orderBy: { id: 'asc' },
   });
-  const map = new Map<string, PcbEqFileViewType[]>();
+  const map = new Map<string, Omit<PcbEqFileViewType, 'isLatest'>[]>();
   for (const row of rows) {
     const key = row.refId.toString();
     const list = map.get(key) ?? [];
     list.push(toEqFileView(row));
     map.set(key, list);
   }
-  return map;
+  // 최신 판정·정렬은 계약의 순수 함수 하나로 — 화면마다 각자 정렬하면 규칙이 갈라진다.
+  return new Map([...map].map(([key, list]) => [key, orderPcbEqFiles(list)]));
 };
 
 export const uploadPcbEqFile = async (
@@ -172,7 +179,8 @@ export const uploadPcbEqFile = async (
       uploadedBy,
     },
   });
-  return toEqFileView(row);
+  // 방금 올린 것이라 그 종류의 최신이 확정이다(id 가 가장 크다).
+  return { ...toEqFileView(row), isLatest: true };
 };
 
 export const deletePcbEqFile = async (poId: bigint, fileId: bigint): Promise<boolean> => {

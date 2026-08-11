@@ -478,15 +478,28 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
             <p class="mt-1.5 text-xs" :class="kind === 'working' && !hasWorkingFile ? 'text-amber-700' : 'text-gray-400'">
               {{ kind === 'eq' ? '제조 확인 사항이 있을 때만 첨부해 주세요.' : '생산에 사용할 작업 데이터가 있으면 업로드를 권장합니다.' }}
             </p>
+            <!-- 다시 올려도 **이전 파일은 지워지지 않는다**(여러 장 올리는 경우를 위해).
+                 그래서 어느 것이 최신인지 밝히고, 쓰지 않을 파일은 지우라고 알린다 —
+                 남아 있으면 관리자가 그것을 보고 승인할 수 있다(여정 22호). -->
             <ul class="mt-2 space-y-1">
               <li
                 v-for="f in detail.eq.files.filter((x) => x.fileType === kind)"
                 :key="f.fileId"
-                class="flex items-center gap-2 text-xs text-gray-600"
+                class="flex items-center gap-2 text-xs"
+                :class="f.isLatest ? 'text-gray-600' : 'text-gray-400'"
               >
-                <button type="button" class="truncate font-medium text-blue-700 hover:underline" @click="void downloadPartnerPcbEqFile(detail.poId, f.fileId, f.name)">
+                <button type="button" class="truncate font-medium hover:underline" :class="f.isLatest ? 'text-blue-700' : 'text-gray-500'" @click="void downloadPartnerPcbEqFile(detail.poId, f.fileId, f.name)">
                   {{ f.name }}
                 </button>
+                <span
+                  v-if="!f.isLatest"
+                  class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700"
+                >
+                  이전
+                </span>
+                <span v-else-if="detail.eq.files.filter((x) => x.fileType === kind).length > 1" class="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-700">
+                  최신
+                </span>
                 <!-- 1KB 미만은 바이트로(재점검 #20 — toFixed(0) 나누기는 작은 파일이 '0KB') -->
                 <span class="text-gray-300">{{ formatBytes(f.size) }}</span>
                 <button
@@ -503,6 +516,13 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
                 아직 없음
               </li>
             </ul>
+            <p
+              v-if="detail.eq.files.filter((x) => x.fileType === kind && !x.isLatest).length > 0"
+              class="mt-1.5 text-[11px] text-amber-700"
+            >
+              이전 파일도 그대로 남아 담당자에게 보입니다 —
+              {{ filesEditable && detail.eq.myRole === 'RECEIVER' ? '쓰지 않을 파일은 ✕ 로 지워 주세요.' : '잘못 올린 것이 있으면 담당자에게 알려 주세요.' }}
+            </p>
           </div>
         </div>
 

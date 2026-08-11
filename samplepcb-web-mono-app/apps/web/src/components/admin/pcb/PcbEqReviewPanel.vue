@@ -158,12 +158,14 @@ const STATUS_CLS: Record<PcbEqReviewStatusType, string> = {
               고객에게 공개할 첨부
               <span class="font-normal text-amber-700">— 협력사명이 든 파일은 빼세요</span>
             </p>
+            <!-- 목록은 최신이 먼저 온다(서버 정렬). 이전 회차를 고객에게 보내면 고객이 옛
+                 도면을 보고 승인하므로 눈에 띄게 표시한다(여정 22호). -->
             <div class="mt-1 space-y-1">
               <label
                 v-for="f in po.eqFiles"
                 :key="f.fileId"
-                class="flex cursor-pointer items-center gap-2 rounded border border-gray-200 px-2 py-1.5 text-xs"
-                :class="picked.includes(f.fileId) ? 'border-sky-300 bg-sky-50' : ''"
+                class="flex cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-xs"
+                :class="picked.includes(f.fileId) ? 'border-sky-300 bg-sky-50' : f.isLatest ? 'border-gray-200' : 'border-dashed border-amber-300'"
               >
                 <input
                   type="checkbox"
@@ -173,6 +175,13 @@ const STATUS_CLS: Record<PcbEqReviewStatusType, string> = {
                 >
                 <span class="font-semibold uppercase text-gray-400">{{ f.fileType }}</span>
                 <span class="min-w-0 flex-1 truncate text-gray-700">{{ f.name }}</span>
+                <span
+                  v-if="!f.isLatest"
+                  class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700"
+                  title="같은 종류로 더 최근 파일이 올라와 있습니다."
+                >
+                  이전
+                </span>
               </label>
             </div>
           </div>

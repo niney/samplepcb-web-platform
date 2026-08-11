@@ -84,8 +84,40 @@ export const PcbEqFileView = z.object({
   fileType: PcbEqFileType,
   uploadedBy: z.string().nullable(), // ADMIN|PARTNER|MASTER_DEALER
   uploadedAt: z.string(),
+  /** 같은 종류(eq/working) 중 가장 나중에 올라온 1건 — 여정 22호. orderPcbEqFiles 가 정한다. */
+  isLatest: z.boolean(),
 });
 export type PcbEqFileViewType = z.infer<typeof PcbEqFileView>;
+
+/**
+ * EQ 첨부를 **최신 우선**으로 정리한다(여정 22호 교정).
+ *
+ * 협력사가 같은 종류를 다시 올려도 이전 파일은 지우지 않는다 — 다층 보드처럼 여러 장을
+ * 올리는 실무가 있고, 덮어쓰기는 되돌릴 수 없다(선적 첨부와 규칙이 다른 이유). 대신
+ * **어느 것이 최신인지**를 여기서 한 번 정해 관리자 Case·고객확인 패널·협력사 포털이 같은
+ * 답을 하게 한다. 그러지 않으면 관리자가 늘어선 버튼 중 **맨 앞(=가장 오래된 것)**을 눌러
+ * 옛 도면을 보고 승인한다 — EQ 는 생산의 근거 서류라 그대로 만들어진다.
+ *
+ * '가장 나중'은 fileId 로 정한다 — writeDate 는 같은 초에 두 건이 들어오면 갈리지 않는다.
+ */
+export const orderPcbEqFiles = <T extends { fileId: number; fileType: string }>(
+  files: readonly T[],
+): (T & { isLatest: boolean })[] => {
+  const latestId = new Map<string, number>();
+  for (const f of files) {
+    const cur = latestId.get(f.fileType);
+    if (cur === undefined || f.fileId > cur) latestId.set(f.fileType, f.fileId);
+  }
+  return files
+    .map((f) => ({ ...f, isLatest: latestId.get(f.fileType) === f.fileId }))
+    .sort(
+      (a, b) =>
+        // 최신이 앞 → 종류 순(eq, working) → 이전 것들끼리는 최근 순
+        Number(b.isLatest) - Number(a.isLatest) ||
+        a.fileType.localeCompare(b.fileType) ||
+        b.fileId - a.fileId,
+    );
+};
 
 export const PcbEqEvent = z.object({
   at: z.string(),

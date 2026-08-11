@@ -868,6 +868,22 @@ async function startShipment(po: AdminPcbPoViewType): Promise<void> {
 const isPoOverdue = (po: AdminPcbPoViewType): boolean =>
   isPcbDeliveryOverdue(po.status, kstDateOnly(po.deliveryDate), kstToday());
 
+// EQ 첨부는 **누적**이다 — 협력사가 같은 종류를 다시 올려도 이전 파일을 지우지 않는다
+// (다층 보드처럼 여러 장 올리는 실무가 있고, 덮어쓰기는 되돌릴 수 없다). 그래서 기본은
+// 종류별 최신만 펼쳐 두고 이전 회차는 접는다: 전부 늘어놓으면 관리자가 맨 앞 버튼
+// (= 가장 오래된 것)을 눌러 **옛 도면을 보고 승인**한다(여정 22호). 최신 판정·정렬은
+// 서버가 계약(orderPcbEqFiles)으로 이미 해서 내려 준다.
+const eqHistoryOpen = ref<number[]>([]);
+const toggleEqHistory = (poId: number): void => {
+  eqHistoryOpen.value = eqHistoryOpen.value.includes(poId)
+    ? eqHistoryOpen.value.filter((id) => id !== poId)
+    : [...eqHistoryOpen.value, poId];
+};
+const eqFilesShown = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
+  eqHistoryOpen.value.includes(po.poId) ? po.eqFiles : po.eqFiles.filter((f) => f.isLatest);
+const eqOlderCount = (po: AdminPcbPoViewType): number =>
+  po.eqFiles.filter((f) => !f.isLatest).length;
+
 const canAdminReceive = (s: PcbShipmentViewType): boolean => {
   if (s.receivedAt !== null || s.receiverKind !== 'admin') return false;
   return s.mode === 'domestic'
@@ -1584,14 +1600,16 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                   </span>
                 </td>
                 <td class="px-4 py-2.5">
-                  <span v-for="f in po.eqFiles" :key="f.fileId" class="mr-1 inline-flex items-center">
+                  <!-- 최신만 펼쳐 둔다 — 이전 회차는 [이전 N]을 눌러야 나온다(여정 22호) -->
+                  <span v-for="f in eqFilesShown(po)" :key="f.fileId" class="mr-1 inline-flex items-center">
                     <button
                       type="button"
-                      class="rounded-l border border-gray-200 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-50"
-                      :title="`${f.fileType.toUpperCase()} · ${f.name}`"
+                      class="rounded-l border px-1.5 py-0.5 text-[11px] font-semibold hover:bg-gray-50"
+                      :class="f.isLatest ? 'border-gray-200 text-gray-500' : 'border-dashed border-amber-300 text-amber-600'"
+                      :title="`${f.fileType.toUpperCase()} · ${f.name}${f.isLatest ? ' (최신)' : ' — 이전 업로드입니다. 승인 근거로 쓰지 마세요.'}`"
                       @click="specId !== null && void downloadAdminPcbEqFile(specId, po.poId, f.fileId, f.name)"
                     >
-                      ⬇ {{ f.fileType }}
+                      ⬇ {{ f.fileType }}<template v-if="!f.isLatest"> · 이전</template>
                     </button>
                     <button
                       v-if="po.status === 'issued'"
@@ -1603,6 +1621,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                       ✕
                     </button>
                   </span>
+                  <button
+                    v-if="eqOlderCount(po) > 0"
+                    type="button"
+                    class="mr-1 rounded border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-400 hover:bg-gray-50"
+                    title="같은 종류로 다시 올라온 이전 파일입니다 — 승인 근거는 최신으로 보세요."
+                    @click="toggleEqHistory(po.poId)"
+                  >
+                    {{ eqHistoryOpen.includes(po.poId) ? '이전 숨기기' : `이전 ${eqOlderCount(po)}` }}
+                  </button>
                   <!-- D11 대행 업로드 — 발주접수(잠금 전)에서만, 협력사 대신 첨부 -->
                   <template v-if="po.status === 'issued'">
                     <button type="button" class="mr-1 rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:bg-gray-50" @click="pickEqFileAdmin(po, 'eq')">
@@ -1802,11 +1829,13 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                         </span>
                         <span v-if="cs.receivedAt !== null" class="font-semibold text-emerald-600">MD 입고완료</span>
                       </template>
+                      <!-- 한 줄 요약이라 **최신만** — 여기서도 승인/반려를 누를 수 있다(여정 22호) -->
                       <button
-                        v-for="f in child.eqFiles"
+                        v-for="f in child.eqFiles.filter((x) => x.isLatest)"
                         :key="f.fileId"
                         type="button"
                         class="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-50"
+                        :title="`${f.fileType.toUpperCase()} · ${f.name} (최신)`"
                         @click="specId !== null && void downloadAdminPcbEqFile(specId, child.poId, f.fileId, f.name)"
                       >
                         ⬇ {{ f.fileType }}
