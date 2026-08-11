@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { nextTick, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiRequestError } from '@sp/shared';
 import { useCreateBomQuote } from '../../bom/useBom';
@@ -20,6 +20,7 @@ const router = useRouter();
 const dragOver = ref(false);
 const error = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
+const errorPanel = ref<HTMLParagraphElement | null>(null);
 const create = useCreateBomQuote();
 const { preferredMode } = useBomProcurementMode();
 
@@ -64,41 +65,65 @@ function onDrop(event: DragEvent): void {
   const file = event.dataTransfer?.files[0];
   if (file !== undefined) void submit(file);
 }
+
+watch(error, (message) => {
+  if (message !== '') void nextTick(() => errorPanel.value?.focus());
+});
 </script>
 
 <template>
-  <div class="flex h-full flex-col items-center overflow-y-auto px-6 pb-[60px]">
+  <div class="flex h-full flex-col items-center overflow-y-auto px-4 pb-[60px] sm:px-6">
     <!-- togle btn (87:9712) -->
     <BomLandingToggle active="bom" />
 
     <!-- drag & drop (87:9040·2282:60957) — 배경은 텍스트 없는 공용 베이크, 로고·타이틀·
          버튼은 실 DOM(BomLandingCard 참조). 단일 검색 탭과 텍스트 위치를 공유한다. -->
     <div
-      class="relative mt-[50px] h-[524px] w-[640px] shrink-0 cursor-pointer overflow-hidden rounded-[8px] transition"
+      class="relative mt-[50px] h-[524px] w-full max-w-[640px] shrink-0 overflow-hidden rounded-[8px] transition"
       :class="dragOver ? 'ring-4 ring-brand-strong/40' : ''"
-      role="button"
-      tabindex="0"
-      @click="fileInput?.click()"
-      @keydown.enter="fileInput?.click()"
       @dragenter.prevent="dragOver = true"
       @dragover.prevent
       @dragleave.prevent="dragOver = false"
       @drop.prevent="onDrop"
     >
-      <BomLandingCard title="Drag & drop Bom File" subtitle="(xlsx, xls, csv formats, up to 50 MB)" />
+      <BomLandingCard
+        title="Drag & drop Bom File"
+        subtitle="(xlsx, xls, csv formats, up to 50 MB)"
+      />
       <button
         type="button"
-        class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] bg-[#fdfdff] font-noto transition hover:bg-white"
+        class="group absolute inset-0 rounded-[8px] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-white/80"
         :disabled="create.isPending.value"
-        @click.stop="fileInput?.click()"
+        aria-label="BOM 파일 업로드"
+        @click="fileInput?.click()"
       >
-        <img :src="icUpload" alt="" class="size-[20px]">
-        <span class="text-[16px] font-bold leading-[24px] text-[#0e6efd]">{{ create.isPending.value ? 'Uploading…' : 'Select file' }}</span>
+        <span
+          class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] bg-[#fdfdff] font-noto transition group-hover:bg-white"
+        >
+          <img :src="icUpload" alt="" class="size-[20px]">
+          <span class="text-[16px] font-bold leading-[24px] text-[#0e6efd]">{{
+            create.isPending.value ? 'Uploading…' : 'Select file'
+          }}</span>
+        </span>
       </button>
     </div>
-    <input ref="fileInput" type="file" accept=".xlsx,.xlsm,.xls,.csv,.tsv,.bom" class="hidden" @change="onFileChange">
+    <input
+      ref="fileInput"
+      type="file"
+      accept=".xlsx,.xlsm,.xls,.csv,.tsv,.bom"
+      class="hidden"
+      @change="onFileChange"
+    >
 
-    <p v-if="error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{{ error }}</p>
+    <p
+      v-if="error"
+      ref="errorPanel"
+      role="alert"
+      tabindex="-1"
+      class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 outline-none focus:ring-2 focus:ring-red-200"
+    >
+      {{ error }}
+    </p>
 
     <!-- contents (87:9722) -->
     <BomLandingIntro />

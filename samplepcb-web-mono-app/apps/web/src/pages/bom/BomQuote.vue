@@ -215,6 +215,9 @@ const prepareSheets = usePrepareBomQuoteSheets();
 const build = useBuildBomQuote();
 const updateSheets = useUpdateBomQuoteSheets();
 const buildError = ref('');
+const parsingFailureKind = ref<'none' | 'temporary' | 'terminal'>('none');
+const parsingErrorPanel = ref<HTMLElement | null>(null);
+const buildFailurePanel = ref<HTMLElement | null>(null);
 const selectedSheetIndexes = ref<number[]>([]);
 const autoBuildAttempted = ref(false);
 
@@ -228,11 +231,44 @@ const selectedComponentCount = computed(() => {
 
 function sheetErrorMessage(reason: unknown): string {
   const code = reason instanceof ApiRequestError ? reason.payload?.error : undefined;
-  if (code === 'NO_COMPONENTS_IN_SELECTED_SHEETS') return '선택한 시트에서 부품 행을 찾지 못했습니다. 다른 시트를 선택해 주세요.';
-  if (code === 'SELECTED_SHEETS_ITEM_LIMIT') return '선택한 시트의 부품이 2,000개를 초과합니다. 시트 수를 줄여 주세요.';
-  if (code === 'INVALID_SHEET_SELECTION') return '선택할 수 없는 시트가 포함되어 있습니다. 시트 상태를 다시 확인해 주세요.';
-  if (code === 'ENGINE_JOB_GONE') return '분석 작업이 만료되었습니다. 새 BOM으로 다시 업로드해 주세요.';
+  if (code === 'NO_COMPONENTS_IN_SELECTED_SHEETS')
+    return '선택한 시트에서 부품 행을 찾지 못했습니다. 다른 시트를 선택해 주세요.';
+  if (code === 'SELECTED_SHEETS_ITEM_LIMIT')
+    return '선택한 시트의 부품이 2,000개를 초과합니다. 시트 수를 줄여 주세요.';
+  if (code === 'INVALID_SHEET_SELECTION')
+    return '선택할 수 없는 시트가 포함되어 있습니다. 시트 상태를 다시 확인해 주세요.';
+  if (code === 'ENGINE_JOB_GONE')
+    return '분석 작업이 만료되었습니다. 새 BOM으로 다시 업로드해 주세요.';
+  if (code === 'BOM_ENGINE_UNREACHABLE')
+    return '분석 엔진에 연결할 수 없습니다. 완료된 분석 결과를 다시 불러와 주세요.';
   return '시트 분석 결과를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+}
+
+function prepareFailureKind(reason: unknown): 'temporary' | 'terminal' {
+  if (!(reason instanceof ApiRequestError)) return 'temporary';
+  const code = reason.payload?.error;
+  if (code === 'ENGINE_JOB_GONE' || code === 'INVALID_ENGINE_RESULT') return 'terminal';
+  return reason.status >= 500 ? 'temporary' : 'terminal';
+}
+
+function focusParsingError(): void {
+  void nextTick(() => {
+    parsingErrorPanel.value?.focus();
+  });
+}
+
+async function prepareCompletedAnalysis(): Promise<void> {
+  if (prepareSheets.isPending.value || detail.value?.buildStatus !== 'parsing') return;
+  buildError.value = '';
+  parsingFailureKind.value = 'none';
+  try {
+    await prepareSheets.mutateAsync(quoteId.value);
+  } catch (reason) {
+    buildError.value = sheetErrorMessage(reason);
+    parsingFailureKind.value = prepareFailureKind(reason);
+    await quote.refetch();
+    focusParsingError();
+  }
 }
 
 async function submitSheetSelection(indexes = selectedSheetIndexes.value): Promise<void> {
@@ -269,12 +305,13 @@ watch(
   [() => job.data.value?.data.status, () => detail.value?.buildStatus],
   ([status, buildStatus]) => {
     if (status === 'completed' && buildStatus === 'parsing' && !prepareSheets.isPending.value) {
-      prepareSheets.mutateAsync(quoteId.value).catch((reason: unknown) => {
-        buildError.value = sheetErrorMessage(reason);
-        void quote.refetch();
-      });
+      void prepareCompletedAnalysis();
     }
-    if (status === 'failed') buildError.value = job.data.value?.data.error ?? 'BOM 분석에 실패했습니다.';
+    if (status === 'failed') {
+      buildError.value = job.data.value?.data.error ?? 'BOM 분석에 실패했습니다.';
+      parsingFailureKind.value = 'terminal';
+      focusParsingError();
+    }
   },
   { immediate: true },
 );
@@ -282,9 +319,20 @@ watch(
   () => job.error.value,
   (err) => {
     if (err !== null && isParsing.value) {
-      buildError.value = '분석 잡을 찾을 수 없습니다(서버 재시작 등). 새 BOM으로 다시 업로드해 주세요.';
+      buildError.value =
+        '분석 잡을 찾을 수 없습니다(서버 재시작 등). 새 BOM으로 다시 업로드해 주세요.';
+      parsingFailureKind.value = 'terminal';
+      focusParsingError();
     }
   },
+);
+
+watch(
+  isBuildFailed,
+  (failed) => {
+    if (failed) void nextTick(() => buildFailurePanel.value?.focus());
+  },
+  { immediate: true },
 );
 
 watch(
@@ -309,6 +357,7 @@ watch(quoteId, () => {
   autoBuildAttempted.value = false;
   selectedSheetIndexes.value = [];
   buildError.value = '';
+  parsingFailureKind.value = 'none';
   lastServerItems = new Map();
 });
 
@@ -488,8 +537,13 @@ const activeResultSheet = ref<ResultSheetFilter>('all');
 const selectedResultSheets = computed(() => detail.value?.sheets.filter((sheet) => sheet.selected) ?? []);
 const manageableResultSheets = computed(() => detail.value?.sheets.filter((sheet) => sheet.hasItems) ?? []);
 const sheetManagerOpen = ref(false);
+const sheetManagerDialog = ref<HTMLElement | null>(null);
+const sheetManagerCloseButton = ref<HTMLButtonElement | null>(null);
+const sheetManagerError = ref<HTMLParagraphElement | null>(null);
 const managedSheetIndexes = ref<number[]>([]);
 const sheetSelectionError = ref('');
+let sheetManagerTriggerElement: HTMLElement | null = null;
+let sheetManagerBodyOverflow: string | null = null;
 const managedComponentCount = computed(() => {
   const selected = new Set(managedSheetIndexes.value);
   return manageableResultSheets.value
@@ -517,7 +571,12 @@ function openSheetManager(): void {
     .filter((sheet) => sheet.selected)
     .map((sheet) => sheet.sheetIndex);
   sheetSelectionError.value = '';
+  sheetManagerTriggerElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  sheetManagerBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
   sheetManagerOpen.value = true;
+  void nextTick(() => (sheetManagerCloseButton.value ?? sheetManagerDialog.value)?.focus());
 }
 
 function toggleManagedSheet(sheetIndex: number): void {
@@ -528,8 +587,63 @@ function toggleManagedSheet(sheetIndex: number): void {
   sheetSelectionError.value = '';
 }
 
+function finishSheetManagerClose(restoreFocus: boolean): void {
+  sheetManagerOpen.value = false;
+  if (sheetManagerBodyOverflow !== null) document.body.style.overflow = sheetManagerBodyOverflow;
+  sheetManagerBodyOverflow = null;
+  const trigger = sheetManagerTriggerElement;
+  sheetManagerTriggerElement = null;
+  if (restoreFocus && trigger?.isConnected === true) {
+    void nextTick(() => {
+      trigger.focus();
+    });
+  }
+}
+
 function closeSheetManager(): void {
-  if (!updateSheets.isPending.value) sheetManagerOpen.value = false;
+  if (!updateSheets.isPending.value) finishSheetManagerClose(true);
+}
+
+function sheetManagerFocusableElements(): HTMLElement[] {
+  const dialog = sheetManagerDialog.value;
+  if (dialog === null) return [];
+  return [
+    ...dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter((element) => element.getClientRects().length > 0);
+}
+
+function onSheetManagerKeydown(event: KeyboardEvent): void {
+  if (!sheetManagerOpen.value) return;
+  if (event.key === 'Escape') {
+    if (!updateSheets.isPending.value) {
+      event.preventDefault();
+      event.stopPropagation();
+      finishSheetManagerClose(true);
+    }
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = sheetManagerFocusableElements();
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (first === undefined || last === undefined) {
+    event.preventDefault();
+    sheetManagerDialog.value?.focus();
+    return;
+  }
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || sheetManagerDialog.value?.contains(active) !== true)) {
+    event.preventDefault();
+    last.focus();
+  } else if (
+    !event.shiftKey &&
+    (active === last || sheetManagerDialog.value?.contains(active) !== true)
+  ) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 async function applyManagedSheets(): Promise<void> {
@@ -560,12 +674,14 @@ async function applyManagedSheets(): Promise<void> {
     applyServerDetail(cached?.data ?? saved.data);
     activeResultSheet.value = 'all';
     clearResultFilters();
-    sheetManagerOpen.value = false;
+    finishSheetManagerClose(true);
   } catch (reason) {
     const code = reason instanceof ApiRequestError ? reason.payload?.error : undefined;
-    sheetSelectionError.value = code === 'INVALID_SHEET_SELECTION'
-      ? '현재 견적에서 제외하거나 복원할 수 없는 시트가 포함되어 있습니다.'
-      : '시트 구성을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    sheetSelectionError.value =
+      code === 'INVALID_SHEET_SELECTION'
+        ? '현재 견적에서 제외하거나 복원할 수 없는 시트가 포함되어 있습니다.'
+        : '시트 구성을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    void nextTick(() => sheetManagerError.value?.focus());
   }
 }
 const resultSheetCounts = computed(() => {
@@ -611,7 +727,7 @@ watch(
 watch(quoteId, () => {
   compactRightOpen.value = false;
   activeResultSheet.value = 'all';
-  sheetManagerOpen.value = false;
+  if (sheetManagerOpen.value) finishSheetManagerClose(false);
   managedSheetIndexes.value = [];
   sheetSelectionError.value = '';
 });
@@ -1408,6 +1524,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   compactRightOpen.value = false;
+  if (sheetManagerOpen.value) finishSheetManagerClose(false);
   window.removeEventListener('keydown', onCompactPanelKeydown);
   window.removeEventListener('keydown', onPartDataPreparationKeydown);
   resultsScrollResizeObserver?.disconnect();
@@ -1981,9 +2098,41 @@ function fmtAmount(v: number | null): string {
         <p v-if="prepareSheets.isPending.value" class="mt-4 text-sm text-blue-600">시트별 분석 결과를 정리하고 있습니다…</p>
       </template>
       <template v-else>
-        <p class="text-lg font-semibold text-red-600">분석 실패</p>
-        <p class="mt-2 text-sm text-gray-500">{{ buildError }}</p>
-        <button type="button" class="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" @click="router.push({ name: 'bom' })">새 BOM 업로드</button>
+        <div
+          ref="parsingErrorPanel"
+          role="alert"
+          aria-labelledby="bom-parsing-error-title"
+          tabindex="-1"
+          class="outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+        >
+          <p id="bom-parsing-error-title" class="text-lg font-semibold text-red-600">
+            BOM 분석 결과를 불러오지 못했습니다
+          </p>
+          <p class="mt-2 text-sm text-gray-500">{{ buildError }}</p>
+          <div class="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+            <button
+              v-if="parsingFailureKind === 'temporary'"
+              type="button"
+              class="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-300"
+              :disabled="prepareSheets.isPending.value"
+              @click="prepareCompletedAnalysis"
+            >
+              {{ prepareSheets.isPending.value ? '다시 불러오는 중…' : '분석 결과 다시 불러오기' }}
+            </button>
+            <button
+              type="button"
+              class="min-h-11 rounded-lg px-4 text-sm font-semibold"
+              :class="
+                parsingFailureKind === 'temporary'
+                  ? 'border border-gray-300 bg-surface text-gray-700 hover:bg-gray-50'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              "
+              @click="router.push({ name: 'bom' })"
+            >
+              새 BOM 업로드
+            </button>
+          </div>
+        </div>
       </template>
     </section>
 
@@ -2047,13 +2196,24 @@ function fmtAmount(v: number | null): string {
       <p class="mt-2 text-sm text-gray-500">라인과 주문수량 계산이 끝나면 결과가 표시되고 공급사 검색이 이어집니다.</p>
     </section>
 
-    <section v-else-if="isBuildFailed && detail" class="m-6 rounded-2xl border border-red-100 bg-surface p-8 shadow-sm">
-      <h1 class="text-lg font-bold text-red-700">계산할 수 있는 BOM 시트를 찾지 못했습니다</h1>
-      <p class="mt-2 text-sm text-gray-500">시트별 분석 결과를 확인한 후, 헤더에 품번과 수량이 포함된 파일을 다시 업로드해 주세요.</p>
+    <section
+      v-else-if="isBuildFailed && detail"
+      ref="buildFailurePanel"
+      role="alert"
+      aria-labelledby="bom-build-failed-title"
+      tabindex="-1"
+      class="m-6 rounded-2xl border border-red-100 bg-surface p-8 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+    >
+      <h1 id="bom-build-failed-title" class="text-lg font-bold text-red-700">
+        계산할 수 있는 BOM 시트를 찾지 못했습니다
+      </h1>
+      <p class="mt-2 text-sm text-gray-500">
+        시트별 분석 결과를 확인한 후, 헤더에 품번과 수량이 포함된 파일을 다시 업로드해 주세요.
+      </p>
       <ul class="mt-5 divide-y divide-gray-100 rounded-xl border border-gray-200">
-        <li v-for="sheet in detail.sheets" :key="sheet.sheetIndex" class="flex items-center justify-between gap-4 px-4 py-3 text-sm">
-          <span class="truncate font-semibold text-gray-800">{{ sheet.sheetName }}</span>
-          <span class="text-right text-xs text-gray-500">{{ sheetStatusLabel(sheet.status) }}<span v-if="sheet.failureReason"> · {{ sheetFailureLabel(sheet.failureReason) }}</span></span>
+        <li v-for="sheet in detail.sheets" :key="sheet.sheetIndex" class="flex flex-col items-start gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <span class="w-full font-semibold text-gray-800 sm:w-auto sm:truncate">{{ sheet.sheetName }}</span>
+          <span class="text-left text-xs text-gray-500 sm:text-right">{{ sheetStatusLabel(sheet.status) }}<span v-if="sheet.failureReason"> · {{ sheetFailureLabel(sheet.failureReason) }}</span></span>
         </li>
       </ul>
       <button type="button" class="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" @click="router.push({ name: 'bom' })">새 BOM 업로드</button>
@@ -3004,8 +3164,16 @@ function fmtAmount(v: number | null): string {
       v-if="sheetManagerOpen && detail !== null"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       @click.self="closeSheetManager"
+      @keydown="onSheetManagerKeydown"
     >
-      <div class="w-full max-w-lg overflow-hidden rounded-2xl bg-surface shadow-xl" role="dialog" aria-modal="true" aria-labelledby="sheet-manager-title">
+      <div
+        ref="sheetManagerDialog"
+        class="w-full max-w-lg overflow-hidden rounded-2xl bg-surface shadow-xl outline-none"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sheet-manager-title"
+        tabindex="-1"
+      >
         <div class="border-b border-gray-100 px-5 py-4">
           <div class="flex items-start justify-between gap-3">
             <div>
@@ -3013,6 +3181,7 @@ function fmtAmount(v: number | null): string {
               <p class="mt-1 text-xs leading-5 text-gray-500">제외한 시트는 견적·합계에서만 빠지며, 원본과 후보 선택 이력은 유지됩니다.</p>
             </div>
             <button
+              ref="sheetManagerCloseButton"
               type="button"
               class="grid size-8 shrink-0 place-items-center rounded-lg text-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40"
               :disabled="updateSheets.isPending.value"
@@ -3059,7 +3228,15 @@ function fmtAmount(v: number | null): string {
           <p v-else-if="restoredSheetCount > 0" class="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
             {{ restoredSheetCount }}개 시트를 다시 포함하고 현재 수량·가격 기준으로 합계를 갱신합니다.
           </p>
-          <p v-if="sheetSelectionError !== ''" class="mb-3 text-xs text-red-600">{{ sheetSelectionError }}</p>
+          <p
+            v-if="sheetSelectionError !== ''"
+            ref="sheetManagerError"
+            role="alert"
+            tabindex="-1"
+            class="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+          >
+            {{ sheetSelectionError }}
+          </p>
           <div class="flex flex-wrap items-center justify-between gap-3">
             <span class="text-xs text-gray-500">{{ managedSheetIndexes.length }}개 시트 · {{ managedComponentCount }}개 부품 포함</span>
             <div class="flex gap-2">

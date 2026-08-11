@@ -103,6 +103,7 @@ specs/
   journey-bom-claims.e2e.test.ts       BOM 여정 11호 — 배송 후 문제 접수→관리자 검토·해결→주문 불변
   journey-bom-access-control.e2e.test.ts BOM 여정 12호 — 고객 소유권→직접 URL 은닉·오류 복구
   journey-bom-history-management.e2e.test.ts BOM 여정 13호 — 내역 검색→보호·삭제 실패 복구·모바일 탐색
+  journey-bom-workbook-recovery.e2e.test.ts BOM 여정 14호 — 다중 시트 분석 영속→오류 복구·시트 복원
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -110,7 +111,7 @@ specs/
 
 옵트인 2중 게이트(`PORTAL_E2E=1` + `JOURNEY=1`)로만 돈다. 공통 사전 조건은
 nginx·API(3333)·웹(5173)·Mailpit + `e2e/.env.e2e` 고객 자격이다. PCB 1–4호는
-**거버(8040)**, BOM 1–3호는 **sp-engine(8400)**이 추가로 필요하다. BOM 4호는 이미
+**거버(8040)**, BOM 1–3호·14호는 **sp-engine(8400)**이 추가로 필요하다. BOM 4호는 이미
 회신 완료된 거래 스냅샷부터 시작해 주문 하류만 검증하므로 엔진이 필요하지 않다. BOM 5호도
 회신 완료 스냅샷부터 시작하며 결제 이후 공급 차질 복구를 검증한다. BOM 6호는
 견적요청 스냅샷부터 시작해 미응답 RFQ 회수·재배정과 무로그인 회신을 검증하므로 엔진이
@@ -134,6 +135,9 @@ BOM 12호는 소유자·타 회원·관리자·익명 세션을 한 Case에 교�
 BOM 13호는 별도 가상 고객에게 상태 6종·26건을 만들어 검색·필터·페이지 선택 범위, 목록·삭제
 503 복구, 단건·선택·전역 삭제, 삭제 직전 상태 경합, 느슨한 파일 참조 정리와 390px 표 탐색을
 검증한다. 테스트 소유 데이터만 제품 경로로 삭제하고 종료 훅이 나머지를 전부 회수한다.
+BOM 14호는 실제 다중 시트 XLSX와 유효 BOM이 없는 XLSX를 업로드해 시트 판별, prepare 502
+재시도, 엔진 잡 삭제 후 DB 분석 스냅샷 계산, 시트 변경 503 재시도·제외·동일 라인 복원,
+390px 업로드·실패 화면과 키보드 모달 경계를 검증하고 Case·엔진 잡을 모두 회수한다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -142,7 +146,7 @@ BOM 13호는 별도 가상 고객에게 상태 6종·26건을 만들어 검색·
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~13호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~14호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
@@ -156,7 +160,8 @@ BOM 13호는 별도 가상 고객에게 상태 6종·26건을 만들어 검색·
 | `pnpm -F e2e journey:bom:11` | BOM 11호만 — 배송 후 접수·검토·해결 |
 | `pnpm -F e2e journey:bom:12` | BOM 12호만 — 고객 소유권·직접 URL·오류 복구 |
 | `pnpm -F e2e journey:bom:13` | BOM 13호만 — 내역 검색·보호·삭제 복구 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~13호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:14` | BOM 14호만 — 다중 시트 분석 영속·복구 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~14호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -466,5 +471,3 @@ Recent file에도 제목이 노출되면 안 된다. 숫자가 아닌 깨진 주
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
-
-
