@@ -68,6 +68,7 @@ specs/
   journey-concurrency.e2e.test.ts      여정 16호 — 동시 조작 경합(같은 요청을 둘이 동시에 — 불변식으로 판정: 상태 한 칸·박스 1개·수납 1회)
   journey-legacy.e2e.test.ts           여정 17호 — 레거시 이관분 접합(read-only: _legacy 메타 방어·대기 큐 제외·조감 노출·Case 렌더)
   journey-customer-loop.e2e.test.ts    여정 18호 — 고객 축 셀프 루프(주문 뒤 사양 수정·발주 후 잠금·EQ 반려 2회차 격리·견적 삭제 차단)
+  journey-bulk-box.e2e.test.ts         여정 19호 — 대량 묶음(한 박스 5건: 합류·송장 5줄·전이 파급·입고 1회 종결, 시드 발주)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -104,6 +105,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:concurrency` | 16호만 — 동시 조작(동시 선정·입금확인·발행·전이·담기 — 유니크 위반이 500 이 아니라 도메인 응답으로 나오는지) |
 | `pnpm -F e2e journey:legacy` | 17호만 — 레거시 이관분(read-only, 쓰기 0 — 실데이터 위에서 _legacy 소거·NOT_LEGACY 큐 제외 확인) |
 | `pnpm -F e2e journey:customer` | 18호만 — 고객 셀프 루프(W6 동기+결제 기록 불변 · PO_ISSUED 경계 · 반려 왕복 2회차 사유 격리 · ALREADY_ORDERED) |
+| `pnpm -F e2e journey:bulk` | 19호만 — 대량 묶음(개수가 코드 경로를 가르는 자리: 송장 품목 5줄·비대표도 같은 박스·입고 1회 파급) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
@@ -294,5 +296,6 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
+
 
 
