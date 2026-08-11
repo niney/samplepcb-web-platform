@@ -1992,6 +1992,42 @@ T2 는 **대조군 오염까지** 센다(초과 표기가 정확히 1건). 한�
 
 5/5 green · 정리 CLEAN · apps/api vitest **783**(+6) · typecheck 9/9 · lint.
 
+### 여정 15호 — 되돌리기 전 구간 순환 (2026-08-11)
+
+가드 체계는 **"못 하게 막는"** 절반만 검증돼 왔다(`pcb-guards`·`rework-probe` 의 409 목록).
+반대편이 이 편이다 — 오조작은 반드시 생기고 **출구 없는 잠금은 일을 멈춘다**. 재작업 2단계가
+가드를 세울 때 "잠김 → 정리 → 열림"을 함께 못 박았지만, **한 주행에서 끝까지 되돌렸다가 다시
+진행하는** 경로는 아무도 밟지 않았다(`journey:rewind`, 8케이스). 협력2(CN·계정 있음)를 쓴다 —
+협력사와 관리자가 **번갈아 밀어야** 주체 규칙이 시험되고, 국제 체인이라 선적 단계도 길다.
+
+- **주체 규칙은 비대칭이다**: 관리자는 협력사가 민 전이도 되돌린다(`revertPcbPoEq` 의
+  `actor.kind !== 'admin'` 예외 = D11 만능 대행이 advance 와 똑같이 걸려 있다 — 협력사가 연락이
+  끊긴 채 잘못 밀어 놓은 건을 못 물리면 트랙이 멈춘다). 반대로 **협력사는 관리자의 EQ 승인을
+  못 되돌린다**(409) — 이 방향이 열리면 관리자 결정을 조용히 물릴 수 있다.
+- **체인 되돌리기**: `produced → producing → eq_done → eq_requested → issued` 완주, **EQ 첨부
+  2건 유지**. 되돌린 뒤 첨부 교체가 다시 열리고(EQ_LOCKED 는 승인요청 뒤 규칙) 같은 길로
+  `produced` 재도달.
+- **이력은 누적된다**: 앞 4칸 + 되돌림 4칸 + 재진행 4칸 = **12칸**, 되돌림은 `note='되돌리기'`
+  로 구별. 왕복이 통째로 남아야 "왜 두 번 만들었나"를 나중에 설명할 수 있다.
+- **선적 왕복**: `preparing → requested → (revert) preparing → requested`. **Invoice·출고예정일이
+  유지된다** — 되돌린 뒤 다시 올리라고 하면 아무도 되돌리기를 쓰지 않는다(되돌리기의 값어치가
+  여기서 판가름 난다). 첨부 없이 선적 요청은 `MISSING_INVOICE_FILE` 로 막힌다.
+- **선적 취소는 막다른 길이 아니다**: 진행 중 409 `NOT_PREPARING` → 되돌리기 → 취소 200(문서
+  소멸) → **재담기**.
+- **선정 해제 순환 완주**: `PO_ISSUED` 409 → (EQ 를 issued 까지 되돌림) → `IN_SHIPMENT` 409 →
+  선적 취소 → 발주 취소 → `unselect` 200(quoted) → **재선정** 200(selected).
+
+⚠ **잠금은 겹겹이고 검사 순서가 곧 명세다** — 발주 취소는 상태(`NOT_ISSUED`)를 선적 소속
+(`IN_SHIPMENT`)보다 **먼저** 본다. EQ 를 발주접수까지 되돌려야 비로소 "담겨 있어서 못 지운다"는
+진짜 이유가 드러난다(첫 주행이 순서를 뒤집어 걸렸다).
+
+**발견 1건 — 안내가 일어날 수 없는 이유를 댄다.** `eq-revert`(관리자) 라우트가 409 마다
+"되돌릴 단계가 없거나 **관리자 차례의 전이가 아닙니다**"를 붙였는데, 관리자는 차례와 무관하므로
+**뒤쪽 이유는 발생할 수 없다** — 진짜 원인(`NOTHING_TO_REVERT` = 이미 첫 단계 · `DELEGATED` =
+MD 경유라 하위에서 진행)이 가려졌다. 코드별 문구로 갈랐다.
+
+8/8 green · HTTP ≥400 0건 · 정리 CLEAN · typecheck 9/9 · lint · apps/api vitest 783.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

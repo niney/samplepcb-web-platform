@@ -27,6 +27,7 @@
     "journey:proxy": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-admin-proxy",
     "journey:suspend": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-partner-suspend",
     "journey:overdue": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-overdue",
+    "journey:rewind": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-rewind",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

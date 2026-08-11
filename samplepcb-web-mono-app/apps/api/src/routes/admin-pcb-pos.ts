@@ -379,11 +379,20 @@ export const adminPcbPoRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
       if (po === null) return reply.notFound('발주서를 찾을 수 없습니다');
       if (po.specId !== request.params.id) return reply.notFound('발주서를 찾을 수 없습니다');
       const res = await revertPcbPoEq(po.id, { kind: 'admin' });
-      if (!res.ok)
+      if (!res.ok) {
+        // 관리자는 **차례와 무관하게** 되돌린다(D11 만능 대행 — revertPcbPoEq 의
+        // `actor.kind !== 'admin'` 예외). 그래서 "관리자 차례가 아니다"는 안내는 실제로
+        // 일어날 수 없는 이유였고, 진짜 원인(되돌릴 단계 없음 · MD 위임 중)을 가렸다.
+        const REVERT_ERROR: Record<string, string> = {
+          NOTHING_TO_REVERT: '되돌릴 단계가 없습니다 — 이미 첫 단계(발주접수)입니다.',
+          DELEGATED: 'MD 경유 발주입니다 — EQ 진행·되돌리기는 하위 발주에서 합니다.',
+          PO_NOT_FOUND: '발주서를 찾을 수 없습니다.',
+        };
         return reply.status(409).send({
           error: res.error,
-          message: '되돌릴 단계가 없거나 관리자 차례의 전이가 아닙니다.',
+          message: REVERT_ERROR[res.error] ?? '되돌릴 수 없습니다.',
         });
+      }
       return { result: true as const };
     },
   );
