@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { BomQuoteItemType } from '@sp/api-contract';
+import { BOM_QUOTE_MAX_ITEM_QTY, type BomQuoteItemType } from '@sp/api-contract';
 import {
   isBomQuoteAlternativePendingReview,
   isBomQuotePendingReview,
@@ -44,6 +44,7 @@ const emit = defineEmits<{
 }>();
 
 const quantityDraft = ref(props.item.bomQty);
+const quantityAdjustmentMessage = ref('');
 
 watch(
   () => props.item.bomQty,
@@ -528,13 +529,22 @@ const selectedReplacementTitle = computed(() => {
 });
 
 function onQtyInput(event: Event): void {
-  const raw = Number((event.target as HTMLInputElement).value);
-  if (!Number.isFinite(raw)) return; // 빈 값·비정상 입력은 무시(다음 동기화가 복원)
-  const qty = Math.max(1, Math.round(raw));
+  const input = event.target as HTMLInputElement;
+  const raw = input.value;
+  const parsed = raw.trim() === '' ? 1 : Number(raw);
+  const qty = Number.isFinite(parsed)
+    ? Math.min(BOM_QUOTE_MAX_ITEM_QTY, Math.max(1, Math.round(parsed)))
+    : 1;
+  input.value = String(qty);
+  const label = quantityMissing.value ? 'BOM 수량' : '주문 수량';
+  quantityAdjustmentMessage.value = raw.trim() === String(qty)
+    ? ''
+    : `${label} 조정: ${qty.toLocaleString('ko-KR')}`;
   if (quantityMissing.value) {
     quantityDraft.value = qty;
     return;
   }
+  if (props.item.orderQty === qty) return;
   emit('qty-change', qty);
 }
 </script>
@@ -663,14 +673,28 @@ function onQtyInput(event: Event): void {
           :value="quantityMissing ? quantityDraft : item.orderQty"
           type="number"
           min="1"
+          :max="BOM_QUOTE_MAX_ITEM_QTY"
+          step="1"
+          inputmode="numeric"
           class="w-[70px] bg-transparent px-2 text-right text-[16px] font-bold tabular-nums text-bom-row-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="!isDraft || editingLocked || (!quantityMissing && item.selectedOffer === null)"
           :title="editingLocked ? EDIT_LOCK_TITLE : undefined"
+          :aria-label="quantityMissing ? `${partLabel} BOM 수량` : `${partLabel} 주문 수량`"
+          :aria-describedby="quantityAdjustmentMessage !== '' ? `bom-row-quantity-adjustment-${item.id}` : undefined"
           @input="quantityMissing && onQtyInput($event)"
           @change="!quantityMissing && onQtyInput($event)"
         >
         <span class="text-[11px] text-ink-subtle">/ {{ quantityMissing ? 'BOM 수량' : catalogInquiry ? '확인' : (item.selectedOffer?.stock?.toLocaleString('ko-KR') ?? '—') }}</span>
       </div>
+      <p
+        v-if="quantityAdjustmentMessage !== ''"
+        :id="`bom-row-quantity-adjustment-${item.id}`"
+        class="mt-1 w-[150px] break-words text-right text-[10px] font-semibold leading-4 text-amber-700"
+        :title="`허용 범위 1~${BOM_QUOTE_MAX_ITEM_QTY.toLocaleString('ko-KR')}`"
+        role="status"
+      >
+        {{ quantityAdjustmentMessage }}
+      </p>
       <button
         v-if="quantityMissing"
         type="button"

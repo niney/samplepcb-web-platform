@@ -6,6 +6,11 @@ import { PartOfferKind } from './parts';
 // 설계: docs/BOM_QUOTE.md. 수량·금액의 단일 진실은 저장된 orderQty·selectedOffer
 // 스냅샷이며(레거시 '박제' 원칙 보존), 합계는 항상 서버가 재계산한다(클라 금액 불신).
 
+/** 고객이 직접 편집할 수 있는 세트·예비 수량의 업무 상한. */
+export const BOM_QUOTE_MAX_SET_OR_SPARE_QTY = 100_000;
+/** MariaDB/Prisma Int 열에 손실 없이 저장할 수 있는 주문·BOM 수량 상한. */
+export const BOM_QUOTE_MAX_ITEM_QTY = 2_147_483_647;
+
 export const BomQuoteStatus = z.enum(['draft', 'requested', 'reviewing', 'answered', 'closed', 'canceled']);
 export type BomQuoteStatusType = z.infer<typeof BomQuoteStatus>;
 
@@ -901,9 +906,9 @@ export type BomQuoteCatalogSelectionType = z.infer<typeof BomQuoteCatalogSelecti
 export const BomQuoteItemEdit = z.object({
   id: z.string().regex(/^\d+$/).nullable(),
   included: z.boolean(),
-  orderQty: z.number().int().min(0),
+  orderQty: z.number().int().min(0).max(BOM_QUOTE_MAX_ITEM_QTY),
   /** 원본 수량 누락 행의 명시적 사용자 확인. 단순 자동저장과 구분한다. */
-  confirmedBomQty: z.number().int().min(1).optional(),
+  confirmedBomQty: z.number().int().min(1).max(BOM_QUOTE_MAX_ITEM_QTY).optional(),
   catalogSelection: BomQuoteCatalogSelection.optional(),
 }).superRefine((item, ctx) => {
   if (item.id === null && item.catalogSelection === undefined) {
@@ -1140,8 +1145,8 @@ export type BomQuoteOrderBatchErrorType = z.infer<typeof BomQuoteOrderBatchError
 export const BomQuotePatchBody = z.object({
   title: z.string().trim().min(1).max(191).optional(),
   procurementMode: BomQuoteProcurementMode.optional(),
-  setQty: z.number().int().min(1).max(100000).optional(),
-  spareQty: z.number().int().min(0).max(100000).optional(),
+  setQty: z.number().int().min(1).max(BOM_QUOTE_MAX_SET_OR_SPARE_QTY).optional(),
+  spareQty: z.number().int().min(0).max(BOM_QUOTE_MAX_SET_OR_SPARE_QTY).optional(),
   customerMemo: z.string().max(2000).nullable().optional(),
   items: z.array(BomQuoteItemEdit).max(2000).optional(),
 });

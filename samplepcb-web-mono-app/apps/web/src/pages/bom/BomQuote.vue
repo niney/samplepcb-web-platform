@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { useVirtualizer } from '@tanstack/vue-virtual';
 import { ApiRequestError, apiGet, apiGetBlob } from '@sp/shared';
 import {
+  BOM_QUOTE_MAX_SET_OR_SPARE_QTY,
   BomQuotePrintResponse,
   apiRoutes,
   type BomQuoteDetailResponseType,
@@ -363,6 +364,7 @@ watch(quoteId, () => {
   items.value = [];
   setQty.value = 1;
   spareQty.value = 0;
+  quantityAdjustmentMessage.value = '';
   if (requestModal.value) finishRequestModalClose(false);
   autoBuildAttempted.value = false;
   selectedSheetIndexes.value = [];
@@ -375,6 +377,7 @@ watch(quoteId, () => {
 const items = ref<BomQuoteItemType[]>([]);
 const setQty = ref(1);
 const spareQty = ref(0);
+const quantityAdjustmentMessage = ref('');
 const dirty = ref(false);
 
 // 서버 항목 참조 추적 — vue-query structural sharing 은 내용이 안 바뀐 항목을
@@ -437,15 +440,55 @@ function restampAll(): void {
   markDirty();
 }
 
+function normalizedPanelQuantity(raw: string, minimum: number): number {
+  const parsed = raw.trim() === '' ? minimum : Number(raw);
+  if (!Number.isFinite(parsed)) return minimum;
+  return Math.min(
+    BOM_QUOTE_MAX_SET_OR_SPARE_QTY,
+    Math.max(minimum, Math.round(parsed)),
+  );
+}
+
+function onPanelQuantityChange(kind: 'set' | 'spare', event: Event): void {
+  if (!isDraft.value || editingLocked.value) return;
+  const input = event.target as HTMLInputElement;
+  const raw = input.value;
+  const minimum = kind === 'set' ? 1 : 0;
+  const normalized = normalizedPanelQuantity(raw, minimum);
+  const label = kind === 'set' ? '세트 수량' : '예비 수량';
+  input.value = String(normalized);
+  quantityAdjustmentMessage.value = raw.trim() === String(normalized)
+    ? ''
+    : `${label} 조정: ${normalized.toLocaleString('ko-KR')} · 허용 ${minimum.toLocaleString('ko-KR')}~${BOM_QUOTE_MAX_SET_OR_SPARE_QTY.toLocaleString('ko-KR')}`;
+
+  const current = kind === 'set' ? setQty.value : spareQty.value;
+  if (current === normalized) return;
+  if (kind === 'set') setQty.value = normalized;
+  else spareQty.value = normalized;
+  restampAll();
+}
+
 function stepSet(delta: number): void {
   if (!isDraft.value || editingLocked.value) return;
-  setQty.value = Math.max(1, setQty.value + delta);
+  const next = Math.min(
+    BOM_QUOTE_MAX_SET_OR_SPARE_QTY,
+    Math.max(1, setQty.value + delta),
+  );
+  if (next === setQty.value) return;
+  setQty.value = next;
+  quantityAdjustmentMessage.value = '';
   restampAll();
 }
 
 function stepSpare(delta: number): void {
   if (!isDraft.value || editingLocked.value) return;
-  spareQty.value = Math.max(0, spareQty.value + delta);
+  const next = Math.min(
+    BOM_QUOTE_MAX_SET_OR_SPARE_QTY,
+    Math.max(0, spareQty.value + delta),
+  );
+  if (next === spareQty.value) return;
+  spareQty.value = next;
+  quantityAdjustmentMessage.value = '';
   restampAll();
 }
 
@@ -3146,7 +3189,7 @@ function fmtAmount(v: number | null): string {
                 <div class="flex items-center gap-[7px]">
                   <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-bom-panel-control-border bg-bom-panel-control focus-within:border-brand-soft focus-within:ring-2 focus-within:ring-brand-soft/15">
                     <button type="button" class="w-[27px] shrink-0 border-r border-bom-panel-control-divider bg-transparent text-[14px] text-bom-panel-control-action transition hover:text-brand-soft disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 줄이기" @click="stepSet(-1)">−</button>
-                    <input v-model.number="setQty" type="number" min="1" class="min-w-0 flex-1 appearance-none bg-transparent text-center text-[14px] font-semibold tabular-nums text-bom-panel-heading outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:text-bom-panel-control-action [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량" @change="restampAll">
+                    <input :value="setQty" type="number" min="1" :max="BOM_QUOTE_MAX_SET_OR_SPARE_QTY" step="1" inputmode="numeric" class="min-w-0 flex-1 appearance-none bg-transparent text-center text-[14px] font-semibold tabular-nums text-bom-panel-heading outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:text-bom-panel-control-action [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량" :aria-describedby="quantityAdjustmentMessage !== '' ? 'bom-quantity-adjustment' : undefined" @change="onPanelQuantityChange('set', $event)">
                     <button type="button" class="w-[27px] shrink-0 border-l border-bom-panel-control-divider bg-transparent text-[14px] text-bom-panel-control-action transition hover:text-brand-soft disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="세트 수량 늘리기" @click="stepSet(1)">+</button>
                   </div>
                   <span class="w-[18px] text-[10px] font-semibold text-bom-panel-set">Set</span>
@@ -3157,7 +3200,7 @@ function fmtAmount(v: number | null): string {
                 <div class="flex items-center gap-[7px]">
                   <div class="flex h-[32px] w-[124px] overflow-hidden rounded-[5px] border border-bom-panel-control-border bg-bom-panel-control focus-within:border-brand-soft focus-within:ring-2 focus-within:ring-brand-soft/15">
                     <button type="button" class="w-[27px] shrink-0 border-r border-bom-panel-control-divider bg-transparent text-[14px] text-bom-panel-control-action transition hover:text-brand-soft disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 줄이기" @click="stepSpare(-1)">−</button>
-                    <input v-model.number="spareQty" type="number" min="0" class="min-w-0 flex-1 appearance-none bg-transparent text-center text-[14px] font-semibold tabular-nums text-bom-panel-heading outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:text-bom-panel-control-action [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량" @change="restampAll">
+                    <input :value="spareQty" type="number" min="0" :max="BOM_QUOTE_MAX_SET_OR_SPARE_QTY" step="1" inputmode="numeric" class="min-w-0 flex-1 appearance-none bg-transparent text-center text-[14px] font-semibold tabular-nums text-bom-panel-heading outline-none [appearance:textfield] disabled:cursor-not-allowed disabled:text-bom-panel-control-action [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량" :aria-describedby="quantityAdjustmentMessage !== '' ? 'bom-quantity-adjustment' : undefined" @change="onPanelQuantityChange('spare', $event)">
                     <button type="button" class="w-[27px] shrink-0 border-l border-bom-panel-control-divider bg-transparent text-[14px] text-bom-panel-control-action transition hover:text-brand-soft disabled:cursor-not-allowed disabled:opacity-35" :disabled="!isDraft || editingLocked" :title="editingLocked ? EDIT_LOCK_TITLE : undefined" aria-label="예비 수량 늘리기" @click="stepSpare(1)">+</button>
                   </div>
                   <span class="w-[18px] text-[10px] font-semibold text-bom-panel-set">Set</span>
@@ -3168,6 +3211,15 @@ function fmtAmount(v: number | null): string {
                 <span class="flex items-center gap-[6px] text-[11px] font-semibold text-bom-delivery"><span class="size-[6px] rounded-full bg-bom-delivery" />{{ confirmedQuoteVisible ? fmtKstDate(detail?.confirmedDeliveryDate, '담당자 확인 필요') : '확정 시 안내' }}</span>
               </div>
             </div>
+            <p
+              id="bom-quantity-adjustment"
+              class="mt-2 flex h-[50px] items-center rounded-md border px-2.5 py-2 text-[10px] font-semibold leading-4"
+              :class="quantityAdjustmentMessage !== '' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-bom-panel-card-border bg-bom-panel-card text-bom-panel-label'"
+              role="status"
+              aria-live="polite"
+            >
+              {{ quantityAdjustmentMessage || '직접 입력: 세트 수량 1~100,000 · 예비 수량 0~100,000' }}
+            </p>
           </section>
 
           <!-- 예상/확정 견적 (93:23573) -->
