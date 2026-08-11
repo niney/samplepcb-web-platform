@@ -77,6 +77,7 @@ specs/
   journey-authz.e2e.test.ts            여정 25호 — 역할 경계 매트릭스(read-only: 무인증401·회원403·협력사403·관리자200, 양성 대조 포함)
   journey-stock.e2e.test.ts            여정 26호 — 재고 축(배송에서 차감·주문 복귀에서 복원·이중 복원 없음 = 정리 관례의 근거)
   journey-delete.e2e.test.ts           여정 27호 — 삭제의 위계(보관함 2단계·PARTNER_TRACK_ACTIVE·정리 후 열림·고아 0)
+  journey-maillog.e2e.test.ts          여정 28호 — 발송 이력 원장(종류·주체·수신처·컨텍스트 연결 = 보냈다는 증거)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -122,6 +123,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:authz` | 25호만 — 역할 경계(네 주체 × 열 경로 · 남의 문서 id 직접 접근 차단 · 양성 대조, 쓰기 0) |
 | `pnpm -F e2e journey:stock` | 26호만 — 재고 축(모든 여정의 정리가 기대는 force-status '주문' 복원이 실제로 맞는지) |
 | `pnpm -F e2e journey:delete` | 27호만 — 삭제 위계(1단계 보관함/2단계 영구 · 협력 트랙 가드 · 조직은 정지로 배제) |
+| `pnpm -F e2e journey:maillog` | 28호만 — 발송 이력(sp_mail_log 에 종류·sentBy·recipient 가 남고 Case 상세에서 되찾히는가) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |
@@ -312,6 +314,7 @@ CN→CN 비KR 국내 + CN→KR 국제 · 6호 직송 CN→CN 국내/CN→VN·KR�
   그 뒤 신착만 본다 — 안 그러면 지난 주행 메일을 잡는다.
 - 스크린샷은 `e2e/output/journey/` **공용 폴더**에 쌓인다 — 여정마다 접두사 글자를 하나씩
   전용으로 쓴다(D=2호·J=6호·M/T/W·X=11호·P=12호…). 겹치면 다른 편의 캡처를 조용히 덮어쓴다.
+
 
 
 

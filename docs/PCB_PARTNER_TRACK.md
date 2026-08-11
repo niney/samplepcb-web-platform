@@ -2348,6 +2348,27 @@ Case 는 camelCase(`todoRfq`·`todoPo`), Order 는 `toShip`. 계약 타입이 �
 
 5/5 green · 자기가 만든 스펙만 다루고 직접 지운다(실데이터 무접촉).
 
+### 여정 28호 — 발송 이력 원장 (2026-08-11)
+
+스물일곱 편이 메일을 보내는 동안 그 발송이 **`sp_mail_log` 에 남는지**는 검증된 적이 없었다.
+Mailpit 으로 "도착했다"는 여러 번 봤지만 그건 개발 환경의 수신함이고, **운영에서 유일한 증거는
+원장**이다 — 협력사가 "못 받았다"고 할 때 관리자가 댈 근거가 이것뿐이다(`journey:maillog`, 5케이스).
+
+실측(결함 0건): 견적요청·발주서 발행·EQ 결정이 각각 기록되고 **종류가 갈린다**
+(`pcb_rfq_request` · `pcb_po_issued` · `pcb_eq_decision`) · `status` 전부 `sent`(비정상 0) ·
+`recipient` 기록(수신처 없으면 증거로 못 쓴다) · **`sentBy=e2e-admin`**(관리자가 눌러 나간 메일과
+시스템 자동이 구별된다).
+
+**컨텍스트가 이 편의 핵심이다** — `refType='pcb_spec'`/`refId` 가 그 건을 가리켜야 Case 상세에서
+되찾을 수 있고, 틀리면 **원장에는 있는데 아무 화면에서도 안 보인다**(있으나 마나). API
+(`/admin/mail-logs?refType=&refId=`)와 Case 상세 '보낸 메일' 섹션 양쪽에서 연결을 확인했다.
+
+⚠ 관찰: EQ **승인요청**과 **승인**을 각각 했는데 기록은 `pcb_eq_decision` 하나였다. 승인요청은
+협력사→관리자 방향이라 대행 시 자기에게 보내는 셈이 되어 스킵됐을 수 있고, 애초에 메일을 안
+보내는 설계일 수도 있다 — **"기록이 없다"가 아니라 "발송 자체가 없다"** 일 가능성이 있어 결함으로
+단정하지 않는다(다음에 이 자리를 볼 때의 출발점).
+
+5/5 green · 정리 CLEAN.
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).
@@ -2355,3 +2376,4 @@ Case 는 camelCase(`todoRfq`·`todoPo`), Order 는 `toShip`. 계약 타입이 �
 - 레거시 문서: `sp-smartbom-web/doc/` — pcb-as-reorder(06-24)·pcb-delivery-date(06-23)·pcb-destination-shipping(06-22)·master-dealer-pcb-estimate(06-18)·shipment-group·invoice-generator(06-20). + **docs/legacy-smartbom/**(회수본 3종).
 - 플랫폼 근거: `apps/api/src/routes/admin-pcb-projects.ts`(확정가 409 가드), `apps/api/src/lib/g5-db.ts`(주문 체인·force-status), `apps/api/prisma/schema.prisma`(48모델), BOM 트랙 lib/routes 일습, `apps/web/src/admin/menu.ts`(모듈 스위처), docs/GERBER_ORDER_FLOW.md·GERBER_PRICE_MODE.md·SMARTBOM_PARTNER_RFQ.md.
 - DB 실측: 플랫폼 `samplepcb`(sp_pcb_* 없음·앵커 상품 6종·spec/quote 20,537) vs `samplepcb_legacy_full`(PCB 상품 38,766·워크플로 데이터 소량) — DDL 덤프 `docs/legacy-smartbom/legacy-pcb-ddl.sql`.
+
