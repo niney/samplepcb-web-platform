@@ -172,11 +172,69 @@ const rowCount = ref('');
 const contactForm = ref('');
 const mountStyle = ref<'' | 'smd' | 'through-hole'>('');
 const pendingReviewSelection = ref<PendingReviewSelection | null>(null);
+const drawerDialogRef = ref<HTMLElement | null>(null);
+const drawerCloseButtonRef = ref<HTMLButtonElement | null>(null);
+const selectionErrorRef = ref<HTMLElement | null>(null);
+const reviewDialogRef = ref<HTMLElement | null>(null);
+const reviewCloseButtonRef = ref<HTMLButtonElement | null>(null);
 const requirementTooltipCandidateKey = ref<string | null>(null);
 const requirementTooltipPosition = ref<RequirementTooltipPosition>({ top: 0, left: 0, width: 440 });
 const requirementTooltipRef = ref<HTMLElement | null>(null);
 const requirementTooltipTrigger = ref<HTMLElement | null>(null);
 let requirementTooltipCloseTimer: ReturnType<typeof setTimeout> | null = null;
+let drawerTriggerElement: HTMLElement | null = null;
+let reviewTriggerElement: HTMLElement | null = null;
+let drawerBodyOverflow: string | null = null;
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function focusableElements(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
+    .filter((element) => element.getClientRects().length > 0);
+}
+
+function trapDialogFocus(event: KeyboardEvent, root: HTMLElement | null): void {
+  if (event.key !== 'Tab' || root === null) return;
+  const focusable = focusableElements(root);
+  const first = focusable[0] ?? root;
+  const last = focusable.at(-1) ?? root;
+  const active = document.activeElement;
+  if (event.shiftKey) {
+    if (active !== first && root.contains(active)) return;
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+  if (active !== last && root.contains(active)) return;
+  event.preventDefault();
+  first.focus();
+}
+
+function restoreDrawerEnvironment(): void {
+  if (drawerBodyOverflow !== null) {
+    document.body.style.overflow = drawerBodyOverflow;
+    drawerBodyOverflow = null;
+  }
+}
+
+function closePendingReviewSelection(restoreFocus = true): void {
+  if (pendingReviewSelection.value === null) return;
+  pendingReviewSelection.value = null;
+  const trigger = reviewTriggerElement;
+  reviewTriggerElement = null;
+  if (restoreFocus) {
+    void nextTick(() => {
+      if (trigger?.isConnected === true) trigger.focus();
+    });
+  }
+}
 
 const requirementTooltipCandidate = computed(() =>
   props.context?.candidates.find((candidate) =>
@@ -277,13 +335,36 @@ watch(
 
 watch(
   () => props.open,
-  (open) => {
+  (open, wasOpen) => {
     if (open) {
+      drawerTriggerElement = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      drawerBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
       view.value = props.initialView;
       resetCandidatePresentation();
       originalDetailsExpanded.value = false;
       searchTraceExpanded.value = false;
+      void nextTick(() => (drawerCloseButtonRef.value ?? drawerDialogRef.value)?.focus());
+      return;
     }
+    if (!wasOpen) return;
+    restoreDrawerEnvironment();
+    reviewTriggerElement = null;
+    const trigger = drawerTriggerElement;
+    drawerTriggerElement = null;
+    void nextTick(() => {
+      if (trigger?.isConnected === true) trigger.focus();
+    });
+  },
+);
+
+watch(
+  () => props.selectionError,
+  (message) => {
+    if (!props.open || message === '') return;
+    void nextTick(() => selectionErrorRef.value?.focus());
   },
 );
 
@@ -2030,7 +2111,11 @@ const pendingReviewOffer = computed(() => {
 function requestSelection(candidate: BomQuoteCandidateType, offerKey: string | null): void {
   if (props.interactionLocked) return;
   if (candidate.selectionEligibility === 'manual_review') {
+    reviewTriggerElement = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     pendingReviewSelection.value = { candidate, offerKey };
+    void nextTick(() => (reviewCloseButtonRef.value ?? reviewDialogRef.value)?.focus());
     return;
   }
   emit('select', candidate.candidateKey, offerKey);
@@ -2074,7 +2159,8 @@ function selectOffer(candidate: BomQuoteCandidateType, offer: BomQuoteCandidateO
 function confirmPendingReviewSelection(): void {
   const pending = pendingReviewSelection.value;
   if (pending === null || props.selecting || props.interactionLocked) return;
-  pendingReviewSelection.value = null;
+  closePendingReviewSelection(false);
+  void nextTick(() => drawerDialogRef.value?.focus());
   emit('select', pending.candidate.candidateKey, pending.offerKey);
 }
 
@@ -2084,15 +2170,25 @@ function selectCatalogPart(part: PartHitType, pick: OfferPick | null): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (!props.open || event.key !== 'Escape') return;
+  if (!props.open) return;
+  if (event.key === 'Tab') {
+    trapDialogFocus(
+      event,
+      pendingReviewSelection.value === null ? drawerDialogRef.value : reviewDialogRef.value,
+    );
+    return;
+  }
+  if (event.key !== 'Escape') return;
   if (requirementTooltipCandidateKey.value !== null) {
     hideRequirementTooltipNow();
     return;
   }
   if (pendingReviewSelection.value !== null) {
-    pendingReviewSelection.value = null;
+    event.preventDefault();
+    closePendingReviewSelection();
     return;
   }
+  event.preventDefault();
   emit('close');
 }
 
@@ -2106,13 +2202,14 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', hideRequirementTooltipNow);
   document.removeEventListener('pointerdown', onDocumentPointerDown);
   cancelRequirementTooltipClose();
+  restoreDrawerEnvironment();
 });
 </script>
 
 <template>
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-[70] flex justify-end bg-slate-950/50" role="presentation" @mousedown.self="emit('close')">
-      <aside class="flex h-full w-full max-w-4xl flex-col bg-surface-raised shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="candidate-drawer-title">
+      <aside ref="drawerDialogRef" class="flex h-full w-full max-w-4xl flex-col bg-surface-raised shadow-2xl outline-none" role="dialog" aria-modal="true" aria-labelledby="candidate-drawer-title" tabindex="-1">
         <header class="shrink-0 border-b border-slate-200 bg-surface px-5 py-2.5 sm:px-6">
           <div class="flex items-center justify-between gap-4">
             <div class="min-w-0">
@@ -2125,7 +2222,7 @@ onBeforeUnmount(() => {
               </p>
               <p v-else-if="searchInitialQuery !== ''" class="mt-0.5 truncate text-sm text-slate-500">현재 품번 {{ searchInitialQuery }}</p>
             </div>
-            <button type="button" class="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-surface text-xl text-slate-500 hover:bg-slate-100" aria-label="후보 패널 닫기" @click="emit('close')">×</button>
+            <button ref="drawerCloseButtonRef" type="button" class="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-surface text-xl text-slate-500 hover:bg-slate-100" aria-label="후보 패널 닫기" @click="emit('close')">×</button>
           </div>
         </header>
 
@@ -2153,7 +2250,7 @@ onBeforeUnmount(() => {
 
         <div class="min-h-0 flex-1 overflow-y-auto" @scroll="hideRequirementTooltipNow">
           <div v-if="view === 'search'" class="space-y-4 p-4 sm:p-6">
-            <div v-if="selectionError !== ''" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ selectionError }}</div>
+            <div v-if="selectionError !== ''" ref="selectionErrorRef" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800 outline-none" role="alert" aria-live="assertive" tabindex="-1">{{ selectionError }}</div>
             <section class="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 sm:p-5">
               <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -2192,7 +2289,7 @@ onBeforeUnmount(() => {
           </div>
           <template v-else-if="context !== null">
             <div class="space-y-2.5 p-3">
-              <div v-if="selectionError !== ''" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ selectionError }}</div>
+              <div v-if="selectionError !== ''" ref="selectionErrorRef" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800 outline-none" role="alert" aria-live="assertive" tabindex="-1">{{ selectionError }}</div>
               <div
                 v-if="requirementsProgress !== ''"
                 class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm"
@@ -3135,13 +3232,15 @@ onBeforeUnmount(() => {
         v-if="pendingReviewSelection !== null"
         class="fixed inset-0 z-[90] grid place-items-center bg-slate-950/55 p-4"
         role="presentation"
-        @mousedown.self="pendingReviewSelection = null"
+        @mousedown.self="closePendingReviewSelection()"
       >
         <section
-          class="w-full max-w-lg overflow-hidden rounded-2xl border border-amber-200 bg-surface shadow-2xl"
+          ref="reviewDialogRef"
+          class="w-full max-w-lg overflow-hidden rounded-2xl border border-amber-200 bg-surface shadow-2xl outline-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="review-selection-title"
+          tabindex="-1"
         >
           <header class="border-b border-amber-200 bg-amber-50 px-5 py-4">
             <div class="flex items-start justify-between gap-4">
@@ -3150,7 +3249,7 @@ onBeforeUnmount(() => {
                 <h3 id="review-selection-title" class="mt-1 text-lg font-bold text-slate-950">검토 후보를 선택할까요?</h3>
                 <p class="mt-1 text-xs leading-5 text-amber-900">자동 선정 조건을 충족하지 않은 후보입니다. 아래 근거와 구매 조건을 확인해 주세요.</p>
               </div>
-              <button type="button" class="grid size-8 shrink-0 place-items-center rounded-lg text-lg text-slate-500 hover:bg-amber-100" aria-label="선택 확인창 닫기" @click="pendingReviewSelection = null">×</button>
+              <button ref="reviewCloseButtonRef" type="button" class="grid size-8 shrink-0 place-items-center rounded-lg text-lg text-slate-500 hover:bg-amber-100" aria-label="선택 확인창 닫기" @click="closePendingReviewSelection()">×</button>
             </div>
           </header>
 
@@ -3186,7 +3285,7 @@ onBeforeUnmount(() => {
           </div>
 
           <footer class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
-            <button type="button" class="h-10 rounded-lg border border-slate-300 bg-surface px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" @click="pendingReviewSelection = null">취소</button>
+            <button type="button" class="h-10 rounded-lg border border-slate-300 bg-surface px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100" @click="closePendingReviewSelection()">취소</button>
             <button type="button" class="h-10 rounded-lg bg-amber-600 px-5 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300" :disabled="selecting || interactionLocked" @click="confirmPendingReviewSelection">
               {{ pendingReviewSelection.candidate.selected && provisionalSelectionPending ? '검토 완료' : '확인 후 선택' }}
             </button>

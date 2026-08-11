@@ -1976,6 +1976,7 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
           if (current.quantityState !== 'missing' && current.quantityState !== 'confirmed') {
             return reply.badRequest('수량 확인 대상이 아닌 견적 행입니다');
           }
+          const confirmingMissingQuantity = current.quantityState === 'missing';
           if (
             quote.activeSupplierSearchRunId === null
             && current.matchStatus === 'none'
@@ -1983,7 +1984,9 @@ export const bomQuoteRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) =
             confirmedQuantityNeedsInitialSearch = true;
           }
           current.bomQty = edit.confirmedBomQty;
-          current.included = true;
+          // 최초 누락 수량 확인만 자동 포함한다. 이미 확인된 행의 후속 저장에서는 사용자가
+          // 선택한 제외·복원 값을 존중해야 `제외`가 다음 PATCH 응답에서 되돌아가지 않는다.
+          current.included = confirmingMissingQuantity ? true : edit.included;
           current.sourceRow = {
             ...(current.sourceRow ?? {}),
             quantityConfirmed: true,
