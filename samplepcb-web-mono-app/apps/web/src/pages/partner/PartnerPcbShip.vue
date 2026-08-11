@@ -95,7 +95,7 @@ async function takeOut(poId: number): Promise<void> {
       <!-- 두 칸: 선반 ↔ 박스 -->
       <div v-else class="grid gap-4 lg:grid-cols-2">
         <!-- 선반 -->
-        <section class="rounded-xl border border-gray-200 bg-surface p-4">
+        <section class="min-w-0 rounded-xl border border-gray-200 bg-surface p-4">
           <h2 class="text-sm font-bold text-gray-700">
             보낼 물건 <span class="font-normal text-gray-400">({{ shelf.length }}건)</span>
           </h2>
@@ -167,7 +167,7 @@ async function takeOut(poId: number): Promise<void> {
 
         <!-- 박스(컨텍스트당 1개) -->
         <section
-          class="rounded-xl border-2 border-dashed p-4"
+          class="min-w-0 rounded-xl border-2 border-dashed p-4"
           :class="boxes.length === 0 ? 'border-gray-200 bg-gray-50/50' : 'border-teal-300 bg-teal-50/40'"
         >
           <h2 class="text-sm font-bold" :class="boxes.length === 0 ? 'text-gray-500' : 'text-teal-800'">
