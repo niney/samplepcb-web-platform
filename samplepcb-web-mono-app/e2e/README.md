@@ -108,6 +108,7 @@ specs/
   journey-bom-quantity-boundaries.e2e.test.ts BOM 여정 16호 — 수량 직접 입력→경계 보정·요청 안전성
   journey-bom-manual-part-workspace.e2e.test.ts BOM 여정 17호 — 고객 수동 부품 검색→추가·변경·실패 복구
   journey-bom-candidate-selection.e2e.test.ts BOM 여정 18호 — 후보 비교→검토 선택·차단·제외 복원
+  journey-bom-comparison-workspace.e2e.test.ts BOM 여정 19호 — 전체 BOM 비교→필터·페이지·오류·모바일 열 탐색
   prompt-modal.e2e.test.ts             커스텀 대화상자(prompt·confirm 대체)가 실제로 뜨는지
 ```
 
@@ -159,6 +160,11 @@ sp-engine의 자동 선정·검토 필요·차단 후보 판정을 그대로 표
 중첩 확인·고객 선택 이력, 선택 503 뒤 원장 보존과 재시도, 차단 후보 API 409, 수량 확인 행의
 제외·복원과 후보 정체성 보존을 교차 확인한다. 후보 드로어의 초점·스크롤·키보드 경계와
 390px 행 액션·후보 카드·검토 확인창도 확인하고 종료 훅이 모든 견적을 회수한다.
+BOM 19호는 별도 가상 고객의 업로드형 작성 중 견적 1건에 영속 분석 원문과 정상 4·검토 2·
+미검색 2개 활성 행, 선택 제외 시트 1개와 직접 추가 행을 구성한다. 만료된 엔진 잡을 호출하지
+않고도 비교 요약·2페이지·검색·판정·시트 필터를 복원하는지 확인하고, 비교 GET 503 재시도와
+닫기·재열기의 쿼리 초기화, 전체화면 키보드 경계를 검증한다. 390px에서는 Excel 원본 열이
+공급사 후보를 덮지 않고 좌우 탐색 이름·안내·최우측 공급사명이 실제로 보이는지 확인한다.
 
 | 스크립트 | 대상 |
 | --- | --- |
@@ -167,7 +173,7 @@ sp-engine의 자동 선정·검토 필요·차단 후보 판정을 그대로 표
 | `pnpm -F e2e journey:domestic` | 2호만 — 국내 협력사 |
 | `pnpm -F e2e journey:batch` | 3호만 — 묶음 발송 |
 | `pnpm -F e2e journey:md` | 4호만 — MD 경유 2단 |
-| `pnpm -F e2e journey:bom` | BOM 1~18호 연속(파일 직렬) |
+| `pnpm -F e2e journey:bom` | BOM 1~19호 연속(파일 직렬) |
 | `pnpm -F e2e journey:bom:1` | BOM 1호만 — 파일 BOM·국내 단일 조달 |
 | `pnpm -F e2e journey:bom:2` | BOM 2호만 — 단일검색·분할 RFQ·복합 물류 |
 | `pnpm -F e2e journey:bom:3` | BOM 3호만 — 회신 후 품목 정정·재견적 |
@@ -186,7 +192,8 @@ sp-engine의 자동 선정·검토 필요·차단 후보 판정을 그대로 표
 | `pnpm -F e2e journey:bom:16` | BOM 16호만 — 수량 직접 입력·경계 보정 |
 | `pnpm -F e2e journey:bom:17` | BOM 17호만 — 수동 부품 검색·추가·변경·실패 복구 |
 | `pnpm -F e2e journey:bom:18` | BOM 18호만 — 후보 비교·검토 선택·차단·제외 복원 |
-| `pnpm -F e2e journey:bom:headed` | BOM 1~18호 브라우저 관찰 모드 |
+| `pnpm -F e2e journey:bom:19` | BOM 19호만 — 전체 비교·필터·페이지·오류 복구 |
+| `pnpm -F e2e journey:bom:headed` | BOM 1~19호 브라우저 관찰 모드 |
 | `pnpm -F e2e journey:as` | 5호만 — A/S 재발주 회차 |
 | `pnpm -F e2e journey:direct` | 6호만 — 직송 3종(CN→CN 국내·CN→VN 국제·KR→CN 국제) |
 | `pnpm -F e2e journey:as2` | 7호만 — A/S 심화(MD 경유 회차·거절→재접수→2회차·유상 송금 큐, mdtester2상사 상설 픽스처) |
@@ -223,7 +230,6 @@ sp-engine의 자동 선정·검토 필요·차단 후보 판정을 그대로 표
 주문서를 채우는 손놀림이 갈라지면 한쪽만 고쳐지고 다른 쪽은 묵기 때문이다 — 10호가 필요로 한
 **한 주문서 여러 줄**도 새 함수가 아니라 `placeOrderFromQuotes({ alsoSpecIds })` 로 체크만 늘려
 같은 손놀림을 그대로 쓴다(생략하면 기존 호출과 완전히 동일하다).
-
 1·2호가 갈라지는 것은 협력사 축뿐이다: **선정 환율 유무(USD↔KRW)·선적 체인 길이(6단계 vs
 3단계)·Invoice 필수 여부**. 그래서 화면 마찰이 고쳐지면 양쪽이 함께 검증된다.
 
@@ -459,7 +465,7 @@ Recent file에도 제목이 노출되면 안 된다. 숫자가 아닌 깨진 주
 
 **생성물은 원칙적으로 자동 정리하지 않는다.** 단, 9·10호의 삭제 성공 표본은 제품 삭제
 경로 검증 자체가 정리이며 stale 표본도 reset 경로로 정리하고 공유 주문 차단 표본만 남긴다.
-12~18호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안·수량·수동 추가·후보 선택 검증 뒤 하네스가 직접 정리한다.
+12~19호의 거래 관계가 없는 격리 fixture는 소유권·목록·분석·초안·수량·수동 추가·후보 선택·전체 비교 검증 뒤 하네스가 직접 정리한다.
 그 밖의 생성물은 완주 후 리포트
 (`output/journey/findings*.md`) 대장을 보고 손으로 지운다 — 순서는 ① 주문을
 `force-status '주문'` 으로 내려 **재고 복원** ② g5 cart+order ③ sp_* 역순

@@ -1417,7 +1417,13 @@ export async function loadQuoteComparisonPage(
 ): Promise<BomQuoteComparisonType | null> {
   const quote = await prisma.spBomQuote.findUnique({
     where: { id: quoteId },
-    select: { id: true, sheets: { select: { sheetIndex: true, selected: true } } },
+    select: {
+      id: true,
+      sheets: {
+        orderBy: { sheetIndex: 'asc' },
+        select: { sheetIndex: true, sheetName: true, selected: true },
+      },
+    },
   });
   if (quote === null) return null;
   const search = query.search?.trim() ?? '';
@@ -1499,7 +1505,9 @@ export async function loadQuoteComparisonPage(
     total,
     totalPages,
     summary: { matched: summary.matched, attention: summary.attention, notFound: summary.not_found },
-    sheets: [...new Set(itemRows.flatMap((item) => item.sourceSheetName === null ? [] : [item.sourceSheetName]))],
+    sheets: [...new Set(
+      quote.sheets.filter((sheet) => sheet.selected).map((sheet) => sheet.sheetName),
+    )],
     rows: buildQuoteComparisonRows(
       candidateRows.map((row) => ({ itemId: String(row.quoteItemId), payload: row.payload })),
       sources,

@@ -48,11 +48,47 @@ const emit = defineEmits<{
 }>();
 
 const closeButton = ref<HTMLButtonElement | null>(null);
+const modalRef = ref<HTMLElement | null>(null);
+const errorPanelRef = ref<HTMLElement | null>(null);
 let previousBodyOverflow = '';
 let previousFocus: HTMLElement | null = null;
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function trapFocus(event: KeyboardEvent): void {
+  const root = modalRef.value;
+  if (root === null) return;
+  const focusable = [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
+    .filter((element) => element.getClientRects().length > 0);
+  const first = focusable[0] ?? root;
+  const last = focusable.at(-1) ?? root;
+  const active = document.activeElement;
+  if (event.shiftKey) {
+    if (active !== first && root.contains(active)) return;
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+  if (active !== last && root.contains(active)) return;
+  event.preventDefault();
+  first.focus();
+}
+
 function onWindowKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') emit('close');
+  if (event.key === 'Tab') {
+    trapFocus(event);
+    return;
+  }
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  emit('close');
 }
 
 function unlockPage(): void {
@@ -60,13 +96,22 @@ function unlockPage(): void {
   window.removeEventListener('keydown', onWindowKeydown);
 }
 
+function restorePreviousFocus(): void {
+  const target = previousFocus;
+  previousFocus = null;
+  if (target?.isConnected === true) target.focus();
+}
+
+function closeEnvironment(): void {
+  unlockPage();
+  restorePreviousFocus();
+}
+
 watch(
   () => props.open,
   async (open) => {
     if (!open) {
-      unlockPage();
-      previousFocus?.focus();
-      previousFocus = null;
+      closeEnvironment();
       return;
     }
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -79,7 +124,16 @@ watch(
   { immediate: true },
 );
 
-onBeforeUnmount(unlockPage);
+watch(
+  () => props.failed,
+  async (failed) => {
+    if (!failed || !props.open) return;
+    await nextTick();
+    errorPanelRef.value?.focus();
+  },
+);
+
+onBeforeUnmount(closeEnvironment);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -218,8 +272,8 @@ watch(page, (next, previous) => {
 watch(() => props.comparison?.page, (serverPage) => {
   if (serverPage !== undefined && page.value !== serverPage) page.value = serverPage;
 });
-watch(pageCount, (count) => {
-  if (page.value > count) page.value = count;
+watch(() => props.comparison?.totalPages, (count) => {
+  if (count !== undefined && page.value > count) page.value = count;
 });
 watch(suppliers, (values) => {
   if (supplierFilter.value !== 'all' && !values.includes(supplierFilter.value)) supplierFilter.value = 'all';
@@ -570,10 +624,12 @@ function statusLabel(item: ComparisonItem): string {
   <Teleport to="body">
     <section
       v-if="open"
+      ref="modalRef"
       class="compare-modal"
       role="dialog"
       aria-modal="true"
       aria-labelledby="bom-compare-title"
+      tabindex="-1"
     >
       <header class="compare-header">
         <div class="compare-heading">
@@ -590,19 +646,19 @@ function statusLabel(item: ComparisonItem): string {
         <section class="summary-strip" aria-label="BOM 비교 요약">
           <article>
             <span>전체 부품</span>
-            <strong>{{ totalCount }}</strong>
+            <strong>{{ comparison === null ? '—' : totalCount }}</strong>
           </article>
           <article class="matched">
             <span>검증·호환</span>
-            <strong>{{ matchedCount }}</strong>
+            <strong>{{ comparison === null ? '—' : matchedCount }}</strong>
           </article>
           <article class="attention">
             <span>확인 필요</span>
-            <strong>{{ attentionCount }}</strong>
+            <strong>{{ comparison === null ? '—' : attentionCount }}</strong>
           </article>
           <article class="not-found">
             <span>검색 결과 없음</span>
-            <strong>{{ notFoundCount }}</strong>
+            <strong>{{ comparison === null ? '—' : notFoundCount }}</strong>
           </article>
         </section>
       </header>
@@ -652,7 +708,14 @@ function statusLabel(item: ComparisonItem): string {
           <strong>BOM 비교 데이터를 불러오는 중입니다.</strong>
         </div>
 
-        <div v-else-if="failed" class="state-panel error" role="alert">
+        <div
+          v-else-if="failed"
+          ref="errorPanelRef"
+          class="state-panel error"
+          role="alert"
+          aria-live="assertive"
+          tabindex="-1"
+        >
           <strong>저장된 BOM 비교 데이터를 불러오지 못했습니다.</strong>
           <p>잠시 후 다시 시도해 주세요.</p>
           <button type="button" class="primary-button" @click="emit('retry')">다시 불러오기</button>
@@ -677,7 +740,13 @@ function statusLabel(item: ComparisonItem): string {
                 <span class="item-meta" :title="`${itemMeta(item)} · ${itemRefs(item)}`">{{ itemMeta(item) }}</span>
               </header>
 
-              <div class="comparison-scroll">
+              <p class="comparison-scroll-hint">좌우로 밀어 Excel 원본과 공급사 결과를 확인하세요.</p>
+              <div
+                class="comparison-scroll"
+                role="region"
+                :aria-label="`${itemTitle(item)} 공급사 비교표, 좌우로 스크롤`"
+                tabindex="0"
+              >
                 <div class="comparison-grid" :style="gridStyle">
                   <div class="column-head field-column">항목</div>
                   <div class="column-head source-column">Excel 원본</div>
@@ -1044,6 +1113,13 @@ function statusLabel(item: ComparisonItem): string {
   overflow-x: auto;
   border-top: 1px solid #c3c4c6;
 }
+.comparison-scroll-hint {
+  display: none;
+}
+.comparison-scroll:focus-visible {
+  outline: 2px solid #4798ff;
+  outline-offset: 2px;
+}
 .comparison-grid {
   display: grid;
   align-items: stretch;
@@ -1288,6 +1364,30 @@ function statusLabel(item: ComparisonItem): string {
   }
   .item-meta {
     max-width: 100%;
+  }
+  .source-column {
+    position: static;
+    left: auto;
+    box-shadow: none;
+  }
+  .column-head.source-column {
+    z-index: 1;
+  }
+  .column-head:not(.field-column):not(.source-column) {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  .comparison-scroll-hint {
+    min-height: 34px;
+    margin: 0;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    border-top: 1px solid #d6dce5;
+    color: #366eb5;
+    background: #f2f7fc;
+    font-size: 11px;
+    font-weight: 700;
   }
 }
 </style>

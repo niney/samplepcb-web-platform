@@ -1332,6 +1332,14 @@ function onComparisonQueryChange(query: {
   comparisonStatus.value = query.status;
   comparisonSheet.value = query.sheet;
 }
+
+function openComparison(): void {
+  comparisonPage.value = 1;
+  comparisonSearch.value = '';
+  comparisonStatus.value = 'all';
+  comparisonSheet.value = 'all';
+  compareOpen.value = true;
+}
 // 검색은 끝났고 서버가 결과를 견적에 반영(인제스트→재매칭)하는 중
 const applying = computed(() => enriching.value && supplierStatus.data.value?.data.status === 'completed');
 const enrichProgress = computed(() => (applying.value ? 100 : (supplierStatus.data.value?.data.progress ?? 3)));
@@ -2563,7 +2571,7 @@ function fmtAmount(v: number | null): string {
               type="button"
               class="flex h-[42px] w-[123px] items-center justify-center gap-[5px] rounded-[6px] border border-bom-button-quiet-border bg-bom-button-quiet px-0 font-noto text-[16px] font-bold leading-[24px] text-bom-button-quiet-text transition-colors hover:border-brand-soft hover:bg-surface-raised hover:text-brand-soft"
               title="Excel 원본과 공급사 검색 결과 비교"
-              @click="compareOpen = true"
+              @click="openComparison"
             >
               <span class="flex size-[18px] shrink-0 items-center justify-center" aria-hidden="true">
                 <img :src="icBomCompareEye" alt="" class="bom-compare-icon shrink-0">
