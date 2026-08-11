@@ -20,6 +20,7 @@ import {
   TEMPLATE_ITEMS,
   deleteQuoteOption,
   getCartStates,
+  loadOrderDeletedCartIds,
   getTemplateItem,
   insertCartRow,
   insertQuoteOption,
@@ -340,16 +341,36 @@ export const pcbProjectRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
 
       let visible = specs;
       if (request.query.status === 'active') {
+        // 주문이 통째로 지워진 건(ct_status='삭제') → **견적으로 되돌린다**(여정 34호).
+        // 장바구니에서 뺀 것(행 자체가 사라짐)과 구별해야 한다: 그건 "이 견적 안 살래"라
+        // 보관함이 맞지만, 이건 거래만 취소된 것이고 견적은 여전히 유효하다. 앵커(ctId)를
+        // 비워야 견적관리에 다시 서고 담기·주문도 열린다 — 안 그러면 견적이 목록 어디에도
+        // 없이 사라져 고객은 거버 업로드부터 전부 다시 해야 한다.
+        const orderDeleted = await loadOrderDeletedCartIds(
+          specs.map((s) => s.ctId).filter((id): id is number => id !== null),
+        );
+        const revived = specs.filter((s) => s.ctId !== null && orderDeleted.has(s.ctId));
+        if (revived.length > 0) {
+          await prisma.spOrderSpec.updateMany({
+            where: { id: { in: revived.map((s) => s.id) } },
+            data: { ctId: null },
+          });
+        }
+        const revivedIds = new Set(revived.map((s) => s.id.toString()));
+
         // 장바구니에서 삭제된 건 → 보관함으로 지연 반영 (ctId 는 이력으로 보존)
-        const removedFromCart = specs.filter((s) => s.ctId !== null && !cartStates.has(s.ctId));
+        const removedFromCart = specs.filter(
+          (s) => s.ctId !== null && !cartStates.has(s.ctId) && !revivedIds.has(s.id.toString()),
+        );
         if (removedFromCart.length > 0) {
           await prisma.spOrderSpec.updateMany({
             where: { id: { in: removedFromCart.map((s) => s.id) } },
             data: { status: 'deleted' },
           });
         }
-        // 견적관리에는 순수 견적(ctId 없음)만 — 담김/주문됨은 장바구니·주문내역에서
-        visible = specs.filter((s) => s.ctId === null);
+        // 견적관리에는 순수 견적(ctId 없음)만 — 담김/주문됨은 장바구니·주문내역에서.
+        // 방금 되살린 건은 메모리상 ctId 가 옛값이라 함께 세운다.
+        visible = specs.filter((s) => s.ctId === null || revivedIds.has(s.id.toString()));
       }
 
       const quotes = await prisma.spQuote.findMany({

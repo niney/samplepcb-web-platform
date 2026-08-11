@@ -415,19 +415,47 @@ export async function deleteCartRowsByIoId(ioId: string): Promise<number> {
 // HANDOFF 3장: cart 관계는 저장하지 않고 ct_id 조인으로 파생.
 //   '쇼핑' = 담김(cart) · 그 외 상태 행 존재 = 주문됨(ordered) · 행 없음 = 견적 보관(none)
 //   ※ 운영 커스텀 ct_status(생산완료 등) 매핑은 나중 결정(기록됨) — 현재는 ≠'쇼핑' → ordered.
+//
+// ⚠ **'삭제' 행은 없는 것으로 본다**(여정 34호). 관리자가 미입금 주문을 지우면 주문 헤더
+//   (g5_shop_order)만 사라지고 카트 행은 `ct_status='삭제'` 로 **남는다** — 코어의 이력
+//   보존 방식이다. 그 행을 'ordered' 로 세면 주문이 없는데 "주문됨"이 되어 견적이 목록
+//   어디에도 안 뜨고 담기도 ALREADY_ORDERED 로 막힌다(= 고객은 거버부터 다시 올려야 한다).
+//   여기서 걸러 내면 담기·주문·수량변경이 자연히 열리고, 응답 enum('none'|'cart'|'ordered')
+//   도 그대로 지켜진다. 목록이 "주문이 지워진 건"을 따로 알아야 할 때는
+//   loadOrderDeletedCartIds 를 쓴다(장바구니에서 뺀 것과 구별해야 하므로).
 export type CartState = 'none' | 'cart' | 'ordered';
+
+const CART_STATUS_DELETED = '삭제';
 
 export async function getCartStates(ctIds: number[]): Promise<Map<number, CartState>> {
   const states = new Map<number, CartState>();
   if (ctIds.length === 0) return states;
   const [rows] = await getG5Pool().query<RowDataPacket[]>(
-    `SELECT ct_id, ct_status FROM g5_shop_cart WHERE ct_id IN (${ctIds.map(() => '?').join(',')})`,
-    ctIds,
+    `SELECT ct_id, ct_status FROM g5_shop_cart
+      WHERE ct_id IN (${ctIds.map(() => '?').join(',')}) AND ct_status <> ?`,
+    [...ctIds, CART_STATUS_DELETED],
   );
   for (const row of rows) {
     states.set(Number(row.ct_id), String(row.ct_status) === '쇼핑' ? 'cart' : 'ordered');
   }
   return states;
+}
+
+/**
+ * 주문이 통째로 지워진 카트 행(ct_status='삭제')의 ct_id 집합(여정 34호).
+ *
+ * "행이 아예 없다"(사용자가 장바구니에서 뺐다)와 **의미가 다르다**: 전자는 "이 견적 안
+ * 살래"라 보관함이 맞지만, 이건 거래만 취소된 것이고 **견적 자체는 여전히 유효**하다.
+ * 견적 목록이 둘을 갈라 처리하려면 이 조회가 필요하다.
+ */
+export async function loadOrderDeletedCartIds(ctIds: number[]): Promise<Set<number>> {
+  if (ctIds.length === 0) return new Set();
+  const [rows] = await getG5Pool().query<RowDataPacket[]>(
+    `SELECT ct_id FROM g5_shop_cart
+      WHERE ct_id IN (${ctIds.map(() => '?').join(',')}) AND ct_status = ?`,
+    [...ctIds, CART_STATUS_DELETED],
+  );
+  return new Set(rows.map((r) => Number(r.ct_id)));
 }
 
 // ── 스마트 BOM 주문·결제 목록용 batch 조회 (D19 — read-only, ⑫의 연장) ───────
