@@ -461,7 +461,9 @@ function finishSheetManagerClose(restoreFocus: boolean): void {
   const trigger = sheetManagerTriggerElement;
   sheetManagerTriggerElement = null;
   if (restoreFocus && trigger?.isConnected === true) {
-    void nextTick(() => trigger.focus());
+    void nextTick(() => {
+      trigger.focus();
+    });
   }
 }
 

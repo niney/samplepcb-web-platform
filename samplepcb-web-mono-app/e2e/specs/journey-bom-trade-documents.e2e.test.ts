@@ -242,6 +242,7 @@ async function ensureTradePartner(): Promise<PartnerFixture> {
     country: partner.country,
     capabilities: partner.capabilities,
     mbId: partner.members.find((entry: { mbId: string }) => entry.mbId === PARTNER_MB_ID)?.mbId ?? null,
+    contactEmail: partner.contactEmail,
   };
 }
 

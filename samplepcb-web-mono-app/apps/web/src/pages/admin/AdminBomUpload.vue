@@ -86,7 +86,7 @@ watch(error, (message) => {
         :src="uploadCard"
         alt="Drag & drop BOM file — xlsx, xls, csv, tsv, bom formats, up to 50 MB"
         class="absolute inset-0 size-full"
-      />
+      >
       <button
         type="button"
         class="group absolute inset-0 rounded-[8px] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-white/80"
@@ -98,7 +98,7 @@ watch(error, (message) => {
           v-if="create.isPending.value"
           class="absolute left-1/2 top-[226px] flex h-[48px] w-[172px] -translate-x-1/2 items-center justify-center gap-[6px] rounded-[8px] bg-surface shadow-sm"
         >
-          <img :src="icUpload" alt="" class="size-[20px]" />
+          <img :src="icUpload" alt="" class="size-[20px]">
           <span class="text-[16px] font-bold leading-[24px] text-brand-strong">Uploading…</span>
         </span>
       </button>
@@ -109,7 +109,7 @@ watch(error, (message) => {
       :accept="FILE_ACCEPT"
       class="hidden"
       @change="onFileChange"
-    />
+    >
 
     <p
       v-if="error"
@@ -134,7 +134,7 @@ watch(error, (message) => {
         :src="logo.src"
         :alt="logo.name"
         class="h-[66px] w-[148px]"
-      />
+      >
     </div>
   </div>
 </template>

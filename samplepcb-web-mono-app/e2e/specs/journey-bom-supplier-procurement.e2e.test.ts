@@ -286,6 +286,7 @@ async function ensureMouserSupplier(): Promise<PartnerFixture> {
     country: row.country,
     capabilities: row.capabilities,
     mbId: row.members[0]?.mbId ?? null,
+    contactEmail: row.contactEmail,
   };
 }
 
