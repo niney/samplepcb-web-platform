@@ -33,6 +33,7 @@
     "journey:bulk": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-bulk-box",
     "journey:currency": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-currency",
     "journey:mdmulti": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-md-multi",
+    "journey:files": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-files",
     "journey:rewind": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-rewind",
     "typecheck": "tsc --noEmit"
   },
@@ -44,6 +45,7 @@
     "vitest": "^3.0.0"
   }
 }
+
 
 
 
