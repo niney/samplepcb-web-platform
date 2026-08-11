@@ -62,6 +62,7 @@ specs/
   journey-order-cancel.e2e.test.ts     여정 10호 — 주문 취소·부분 취소(한 주문서 두 줄·부분/전량 취소 가드 대조)
   journey-combo-stress.e2e.test.ts     여정 11호 — 조합 스트레스(묶음 × A/S 회차 × 직송: 박스 키 두 축의 분리·합류 교차)
   journey-admin-proxy.e2e.test.ts      여정 12호 — 관리자 대행 완주(포털 없는 협력사: 대리 회신·EQ/선적 대행·대행 안내 메일 대조)
+  journey-partner-suspend.e2e.test.ts  여정 13호 — 협력사 정지 중의 진행 건(배제 후 매직링크 경계·메일 CTA·대행 완주·복귀)
   md-quote-loop.e2e.test.ts            MD 1편 — 2단 견적 루프(mdtester 상설 픽스처, RUN 게이트만)
   md-quote-rework.e2e.test.ts          MD 3편 — 하위 재선정·배정 회수(RUN 게이트만)
   md-order-relay.e2e.test.ts           MD 2편 — 주문 연결 완주(국내 MD: 하위 국제 + 관리자행 국내)
@@ -92,6 +93,7 @@ nginx·API(3333)·웹(5173)·**거버(8040)**·Mailpit + `e2e/.env.e2e` 고객 �
 | `pnpm -F e2e journey:cancel` | 10호만 — 주문 취소·부분 취소(한 주문서 두 줄·부분 취소 대 전량 취소 가드 대조) |
 | `pnpm -F e2e journey:combo` | 11호만 — 조합 스트레스(묶음 × A/S 회차 × 직송: 박스 키의 회차·직송지 두 축 교차, W8 순환·대표 승계·돈 축 교차) |
 | `pnpm -F e2e journey:proxy` | 12호만 — 관리자 대행 완주(포털 계정 없는 협력사: 대리 회신·EQ/생산/선적 대행·무계정 대행 안내 메일 4종 대조, `e2e한국협력` 상설 픽스처) |
+| `pnpm -F e2e journey:suspend` | 13호만 — 협력사 정지(운영 배제) 중의 진행 건(포털 즉시 403·매직링크 경계·메일 CTA·관리자 대행 완주·해제 복귀, `e2e정지협력` 전용 상설 픽스처) |
 | `pnpm -F e2e md` | MD 2편 — 주문 연결 완주(국내 MD·상설 픽스처) |
 | `pnpm -F e2e md:domestic` | MD 4편 — 전 구간 국내(KR MD, 협력1 KRW 링크) |
 | `pnpm -F e2e md:cn` | MD 5편 — CN MD(mdtester2상사·비KR domestic 최초) |

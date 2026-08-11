@@ -195,13 +195,16 @@ export const getPcbEqFileDownload = async (
 };
 
 // ── 직렬화 ───────────────────────────────────────────────────────────────────
-/** 연결 계정이 하나라도 있는 조직 id 집합 — 발주 줄이 "협력사가 스스로 할 수 있는 건지"를
- *  가르는 데 쓴다(행마다 세면 N+1이라 한 번에 모은다). 조직 축이라 발주 수와 무관하다. */
+/** 포털을 **실제로 쓸 수 있는** 조직 id 집합 — 발주 줄이 "협력사가 스스로 할 수 있는 건지"를
+ *  가르는 데 쓴다(행마다 세면 N+1이라 한 번에 모은다). 조직 축이라 발주 수와 무관하다.
+ *  조건은 **멤버 존재 ∧ 조직 승인**(여정 13호 교정) — requirePartner 가 정지 조직을 403 으로
+ *  막으므로, 멤버만 보면 배제된 조직이 "협력사가 진행한다"로 잘못 읽힌다. 메일 CTA 판정
+ *  (resolvePcbPortalCta)과 같은 규칙을 쓴다. */
 const loadPartnersWithPortal = async (partnerIds: bigint[]): Promise<Set<string>> => {
   const ids = [...new Set(partnerIds)];
   if (ids.length === 0) return new Set();
   const members = await prisma.spPartnerMember.findMany({
-    where: { partnerId: { in: ids } },
+    where: { partnerId: { in: ids }, partner: { status: 'approved' } },
     select: { partnerId: true },
     distinct: ['partnerId'],
   });

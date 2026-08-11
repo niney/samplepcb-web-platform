@@ -25,6 +25,7 @@
     "journey:cancel": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-order-cancel",
     "journey:combo": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-combo",
     "journey:proxy": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-admin-proxy",
+    "journey:suspend": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-partner-suspend",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

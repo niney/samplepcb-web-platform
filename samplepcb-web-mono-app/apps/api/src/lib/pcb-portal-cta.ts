@@ -14,10 +14,16 @@ export interface PcbPortalCta {
   inquiryEmail: string | null;
 }
 
+// ⚠ 판정은 **멤버 존재 ∧ 조직 승인**이다(여정 13호 교정). 멤버만 보면 정지(suspended)
+//   조직이 빠져나간다 — requirePartner 는 status!=='approved' 를 403 으로 막으므로,
+//   정지 조직에 포털 버튼을 보내면 "누르면 막히는 CTA"라는 같은 결함이 된다. 계정이
+//   없어서 못 쓰는 것과 배제돼서 못 쓰는 것은 협력사가 보는 결과가 동일하다.
 export const resolvePcbPortalCta = async (partnerId: bigint): Promise<PcbPortalCta> => {
   try {
-    const members = await prisma.spPartnerMember.count({ where: { partnerId } });
-    if (members > 0) return { hasPortalAccount: true, inquiryEmail: null };
+    const usable = await prisma.spPartnerMember.count({
+      where: { partnerId, partner: { status: 'approved' } },
+    });
+    if (usable > 0) return { hasPortalAccount: true, inquiryEmail: null };
     const profile = await getShopEstimateProfile();
     return { hasPortalAccount: false, inquiryEmail: profile?.managerEmail ?? null };
   } catch {

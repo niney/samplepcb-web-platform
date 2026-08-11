@@ -17,9 +17,22 @@ import { requireCustomerCreds } from './env';
  * 좁혀져야 격리 검증의 대조가 성립한다. 같은 방식이 g5 mdtester2 에 선례가 있다.
  */
 export async function ensureSecondCustomer(): Promise<{ mbId: string; created: boolean }> {
+  return cloneG5Member(requireCustomerCreds(2).id, 'e2e고객2');
+}
+
+/**
+ * g5 회원을 **1번 고객 행의 복제로** 만든다(idempotent). 협력사 계정처럼 "로그인은 되어야
+ * 하는데 자격을 새로 만들 수는 없는" 자리에 쓴다 — [[ensureSecondCustomer]] 와 같은 이유로
+ * 행 복제다: 비밀번호 해시를 그대로 가져오므로 **원문이 코드·문서·.env 어디에도 늘지 않고**
+ * (자격은 1번 고객과 동일), 회원등급·수신동의가 같아 메일 수신 조건이 흔들리지 않는다.
+ * 조직 연결은 별개다 — 관리자 API `POST /partners/:id/members` 로 붙인다.
+ */
+export async function cloneG5Member(
+  mbId: string,
+  name: string,
+): Promise<{ mbId: string; created: boolean }> {
   const prisma = getPrisma();
   const primary = requireCustomerCreds(1).id;
-  const mbId = requireCustomerCreds(2).id;
   const found: any[] = await prisma.$queryRawUnsafe(
     `SELECT mb_id FROM g5_member WHERE mb_id = ?`,
     mbId,
@@ -41,8 +54,8 @@ export async function ensureSecondCustomer(): Promise<{ mbId: string; created: b
   );
   const overrides: Record<string, string> = {
     mb_id: `'${mbId}'`,
-    mb_name: `'e2e고객2'`,
-    mb_nick: `'e2e고객2'`,
+    mb_name: `'${name}'`,
+    mb_nick: `'${name}'`,
     mb_email: `'${mbId}@test.local'`,
     mb_datetime: 'NOW()',
   };

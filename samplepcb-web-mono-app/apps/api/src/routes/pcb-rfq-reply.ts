@@ -24,13 +24,25 @@ import type { MailLogMeta } from '../lib/mail-log';
 
 const TokenParams = z.object({ token: z.string().regex(/^[0-9a-f]{64}$/) });
 
+// 배제(suspended)된 조직의 링크는 닫는다 — 여정 13호 S5.
+// 포털은 requirePartner 가 403 으로 막고 신규 배정도 INVALID_PARTNER 로 막는데, **이미
+// 메일함에 나가 있는 링크만** 그 판정을 타지 않았다. 토큰은 회수할 수 없으므로(메일은
+// 되돌릴 수 없다) 링크를 쓰는 순간 조직 상태를 보는 수밖에 없다. 열람(GET)도 함께 막는 건
+// 이 링크가 고객 도면·사양까지 여는 통로이기 때문 — 배제한 조직에 정보가 계속 열려 있으면
+// 배제가 아니다. 404('유효하지 않은 링크')로 뭉개지 않고 이유를 밝혀 문의로 유도한다.
+const SUSPENDED_ERROR = {
+  error: 'PARTNER_SUSPENDED',
+  message: '현재 거래가 중지된 상태입니다 — 샘플피씨비 담당자에게 문의해 주세요.',
+};
+
 export const pcbRfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done) => {
   fastify.get(
     '/pcb-rfq-reply/:token',
-    { schema: { params: TokenParams, response: { 200: MagicPcbRfqResponse } } },
+    { schema: { params: TokenParams, response: { 200: MagicPcbRfqResponse, 409: ApiError } } },
     async (request, reply) => {
       const rfq = await loadPcbRfqByMagicToken(request.params.token);
       if (rfq === null) return reply.notFound('유효하지 않은 링크입니다');
+      if (rfq.partner.status !== 'approved') return reply.status(409).send(SUSPENDED_ERROR);
       const detail = await loadPartnerPcbRfqDetail(rfq.id, null);
       if (detail === null) return reply.notFound('유효하지 않은 링크입니다');
       // 매직링크는 단순 회신 전용 — MD 확장(children/배정 후보)은 응답 스키마(omit)가
@@ -54,6 +66,7 @@ export const pcbRfqReplyRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
     async (request, reply) => {
       const rfq = await loadPcbRfqByMagicToken(request.params.token);
       if (rfq === null) return reply.notFound('유효하지 않은 링크입니다');
+      if (rfq.partner.status !== 'approved') return reply.status(409).send(SUSPENDED_ERROR);
 
       const saved = await savePcbRfqReply(rfq.id, request.body);
       if (!saved.ok) {

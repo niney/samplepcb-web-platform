@@ -1898,6 +1898,62 @@ P3·P4 가 두 배지를 어서션으로 물어 회귀선이 됐다. ⚠ 큐 화
 반환도 통과한다). 화면 실측 `X05-admin-orders-overpaid.png` — A 줄에만 '줄 취소', 양쪽에
 '과입금 ₩51,000'. 검증: `journey:cancel` 12/12 · typecheck 9/9 · lint · 정리 CLEAN.
 
+### 여정 13호 — 협력사 정지(운영 배제) 중의 진행 건 (2026-08-11)
+
+12호가 "포털 계정이 **없는** 조직"이었다면 이 편은 "계정이 **있었는데 막힌** 조직"이다. 조직
+삭제는 문서 이력이 있으면 거부되고(`PARTNER_HAS_PCB_DOCS`) 라우트 주석이 **"운영 배제는
+suspended"** 라고 못 박는다 — 정지가 **정식 배제 경로**다. 계약 종료·분쟁·휴업처럼 흔한 일인데
+**정지 시점에 진행 중이던 발주가 어떻게 마무리되는지**는 검증된 적이 없었다(`journey:suspend`,
+9케이스). 주인공은 **이 편 전용 상설 조직** `e2e정지협력`(KR/KRW)+계정 `e2e-partner-susp` —
+협력2 를 정지시켰다가 복구에 실패하면 다른 여정이 전부 깨지므로 절대 쓰지 않는다(afterAll·다음
+주행 beforeAll 양쪽에서 승인 복구).
+
+- **정지는 진행 건을 가로막지 않는다**: 발주 #N 이 진행 중이어도 정지 200(삭제는 같은 조건에서
+  409). 사유는 필수(계약 refine — 감사 기록이 목적).
+- **포털은 즉시 닫힌다**: 같은 토큰으로 4경로+쓰기 전부 403(`requirePartner` 가 요청마다 상태를
+  조회하므로 토큰 재발급이 필요 없다). 해제하면 같은 토큰이 다시 통한다.
+- **일은 관리자 대행으로 끝난다**: 생산·발송(12호가 연 `shipment/box`)·입고까지 완주,
+  `eqHistory` 전 구간 `ADMIN`.
+
+**발견 3건 — 뿌리가 하나였다.** 12호가 세운 판정 축 **'멤버 존재'**(`resolvePcbPortalCta`·
+`loadPartnersWithPortal`)가 "포털을 쓸 수 있는가"를 대변하지 못한다. `requirePartner` 는
+**승인된 조직**의 멤버만 통과시키므로 정지 조직은 멤버가 있어도 403 이다 — **계정이 없어서 못
+쓰는 것과 배제돼서 못 쓰는 것은 협력사가 보는 결과가 같다.**
+
+1. **매직링크 우회(권한 경계)** — 정지 **전에** 나간 링크로 견적 회신이 성공했다(PUT 200 →
+   `quoted`). 신규 배정은 `INVALID_PARTNER`, 포털은 403 인데 **이미 메일함에 있는 링크만** 그
+   판정을 타지 않았다(`pcb-rfq-reply` 는 무인증 토큰 경로). 배제한 조직의 견적이 관리자 화면에
+   정상 회신으로 서고 선정까지 갈 수 있었다.
+2. **포털 CTA 메일** — 정지 조직에 `/app/partner` 링크가 계속 나갔다(누르면 403).
+3. **Case 화면 정지 미표시** — `partnerHasPortal=true` 라 12호의 '대행 필요' 배지가 안 서서,
+   관리자는 협력사를 기다리게 된다(영영 오지 않는다).
+
+#### 교정 — 판정 축을 '승인된 조직의 멤버'로 옮기다
+
+- `resolvePcbPortalCta`·`loadPartnersWithPortal` 이 **`멤버 존재 ∧ partner.status='approved'`**
+  로 판정한다(둘 다 같은 규칙). 정지 조직도 무계정과 같은 대행 안내·'대행 필요' 배지를 받는다.
+- `pcb-rfq-reply` **GET·PUT 모두** 조직 승인을 확인해 409 `PARTNER_SUSPENDED`. 토큰은 회수할 수
+  없으니(메일은 되돌릴 수 없다) 쓰는 순간 보는 수밖에 없다. **열람까지 막는 이유**는 이 링크가
+  고객 도면·사양을 여는 통로이기 때문 — 배제한 조직에 정보가 열려 있으면 배제가 아니다.
+  404('유효하지 않은 링크')로 뭉개지 않고 사유를 밝혀 문의로 유도한다.
+- `PartnerLayout` 이 미승인·배제 계정에는 **어느 경로로 들어와도** 사유를 그린다. 안내가
+  `/partner` 진입 리졸버에만 있어서, 메일 딥링크로 하위 화면(발주 상세·A/S)에 바로 온 협력사는
+  셸만 뜬 화면을 봤다.
+
+이제 세 경로(포털 `requirePartner` 403 · 신규 배정 `INVALID_PARTNER` · 매직링크
+`PARTNER_SUSPENDED`)가 **같은 판정**을 쓴다. S4~S7 이 어서션으로 회귀선이 됐다.
+
+⚠ **검증 함정 3종(이 편에서 실제로 걸린 것)**: ① 포털에는 `pcb/pos`(목록) 라우트가 **없다**
+(상세 `pcb/pos/:id`·홈 `pcb` 뿐 — `/admin/pcb/pos` 는 관리자 쪽). 없는 경로는 Vue Router 가
+아무것도 안 그려 **빈 화면**이 되는데 이는 정지와 무관한 404 다(첫 주행이 이를 결함으로 오독).
+② **픽스처 이름·시드 메모에 검사 키워드를 쓰면 자기가 심은 글자를 자기가 찾는다** — 조직명
+`e2e정지협력`과 메모 "협력사 정지 검증"이 화면 '정지' 검사에 걸려 두 번 연속 오탐이었다(실제
+화면엔 표시가 없었고 스크린샷으로 갈렸다). ③ 포털 회신은 `PUT /partner/pcb-rfqs/:rfqId`(`/reply`
+없음), 보드는 `/partner/pcb-shipments`(`/board` 없음).
+
+9/9 green · HTTP ≥400 0건 · 정리 CLEAN · 회귀 `journey:proxy` 8/8 · `journey:intl` 11/11 ·
+apps/api vitest 777.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

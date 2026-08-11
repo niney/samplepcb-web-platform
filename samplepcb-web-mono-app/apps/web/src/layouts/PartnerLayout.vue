@@ -104,7 +104,21 @@ const unpaidCount = computed(() => remit.data.value?.data.unpaidCount ?? 0);
       </div>
     </header>
     <main class="mx-auto max-w-7xl px-4 py-6">
-      <RouterView />
+      <!-- 배제·미승인 계정은 **어느 경로로 들어와도** 이유를 본다(여정 13호 S4).
+           안내는 /partner 진입 리졸버에만 있어서, 메일 딥링크로 하위 화면(발주 상세·
+           A/S 등)에 바로 들어온 협력사는 셸만 뜬 빈 화면을 봤다 — 서버는 403 을 주는데
+           화면에는 아무 설명이 없어 "무엇이 잘못됐는지" 알 길이 없었다. -->
+      <div
+        v-if="access !== null && !access.isPartner"
+        class="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800"
+      >
+        <p class="font-semibold">포털을 이용할 수 없는 계정입니다.</p>
+        <p class="mt-1">
+          거래가 중지되었거나 아직 승인되지 않은 조직입니다 — 진행 중인 건은 샘플피씨비
+          담당자가 대신 처리합니다. 문의는 담당자에게 부탁드립니다.
+        </p>
+      </div>
+      <RouterView v-else />
     </main>
   </div>
 </template>
