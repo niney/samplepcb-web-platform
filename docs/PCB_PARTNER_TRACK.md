@@ -2254,6 +2254,28 @@ Case 는 camelCase(`todoRfq`·`todoPo`), Order 는 `toShip`. 계약 타입이 �
 
 6/6 green · 쓰기 0 · 정리 불필요.
 
+### 여정 24호 — 검색 정확성 + LIKE escape 누락 교정 (2026-08-11)
+
+23호가 "숫자가 맞는가"였다면 이 편은 **"검색이 맞는 것을 찾는가"**다. 관리자가 주문번호로
+검색했는데 안 나오면 그 건을 영영 못 찾고, 엉뚱한 게 섞이면 목록을 믿을 수 없다
+(`journey:search`, 4케이스, **read-only** — 실데이터 2만여 건 위에서만 의미가 있다).
+
+**발견 1건 — 검색창에 `%` 한 글자를 넣으면 전체 20,805건이 나왔다.** `g5-db.ts` 안에
+`escapeLike` 가 있고 회원·주문 검색은 쓰는데 **PCB 큐 검색 두 곳만 빠져 있었다**
+(`listPcbOrderSpecs`·`listPcbCaseSpecs`). 검색이 아무 일도 하지 않은 것과 같은데 화면은 "검색
+결과"로 보여주므로 관리자는 **필터가 걸린 줄 알고** 목록을 읽는다.
+
+`_` 쪽이 더 조용히 틀린다: 이 트랙의 `projectName` 은 **업로드 파일명**이라 `_` 가 흔하고
+(표본으로 잡힌 것도 `DDC_ESP32.zip`), escape 하지 않으면 "임의의 한 글자"가 되어 엉뚱한 건이
+섞이는데 **결과가 나오므로 틀린 줄도 모른다**. 교정 후 실측: `%`=13건 · `_`=16,577건(전체
+20,805 대비 — `_` 가 파일명에 그만큼 흔하다는 증거이기도 하다).
+
+함께 확인된 것: 세 키(프로젝트명·회원ID·주문번호) 모두 적중하고 전체보다 좁다 · 없는 검색어는
+0건(조용히 전체를 돌려주지 않는다) · **검색 × 탭은 교집합**(탭 결과가 전부 검색어와 맞고,
+탭별 합 == 전체 탭 결과 — 중복 계상 없음).
+
+4/4 green · 쓰기 0.
+
 ## 10. 조사 자료 색인
 
 - 레거시 백엔드 근거: `samplepcb_xpse/src/main/java/kr/co/samplepcb/xpse/` — resource 7종(SpPcbPartnerOrder/Doc/AsCase/ShipmentGroup/Shipment/ShipmentInvoice/PcbMyTurn) · service 동명 + ExchangeRate 3종 · `resources/db/migration/*.sql` 12종(수동 적용, DDL 헤더 주석이 설계 정본).

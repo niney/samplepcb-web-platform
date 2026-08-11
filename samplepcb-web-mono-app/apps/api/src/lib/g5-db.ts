@@ -3328,8 +3328,11 @@ export async function listPcbOrderSpecs(params: {
   const args: unknown[] = [];
   const keyword = params.q.trim();
   if (keyword !== '') {
+    // ⚠ escapeLike 필수(여정 24호) — 안 하면 `%` 한 글자가 **전체를 반환**하고(검색이 아무
+    //   일도 안 한 것과 같은데 화면은 "검색 결과"로 보여준다), `_` 는 임의의 한 글자가 된다.
+    //   이 트랙의 projectName 은 **업로드 파일명**이라 `_` 가 흔하다(DDC_ESP32.zip 등).
     conds.push(`(s.projectName LIKE ? OR s.mbId LIKE ? OR c.od_id LIKE ?)`);
-    const like = `%${keyword}%`;
+    const like = `%${escapeLike(keyword)}%`;
     args.push(like, like, like);
   }
   const base = `FROM sp_order_spec s
@@ -3503,8 +3506,9 @@ export async function listPcbCaseSpecs(params: {
   const keyword = params.q.trim();
   if (keyword !== '') {
     // 화면이 Q{specId} 를 앞세우므로 견적번호 정확일치도 받는다(숫자 입력 시).
+    // ⚠ escapeLike 필수 — 위 listPcbOrderSpecs 와 같은 이유(여정 24호).
     conds.push(`(s.projectName LIKE ? OR s.mbId LIKE ? OR c.od_id LIKE ? OR s.id = ?)`);
-    const like = `%${keyword}%`;
+    const like = `%${escapeLike(keyword)}%`;
     args.push(like, like, like, /^\d+$/.test(keyword) ? keyword : 0);
   }
   // cart/order 는 LEFT — 주문 전 스펙과 유령(cart 행 소실)까지 모수에 남긴다.
