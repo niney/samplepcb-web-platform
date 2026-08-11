@@ -23,6 +23,7 @@
     "journey:direct": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-direct-ship",
     "journey:multi": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-multi-customer",
     "journey:cancel": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-order-cancel",
+    "journey:combo": "cross-env PORTAL_E2E=1 JOURNEY=1 NODE_OPTIONS=--use-system-ca vitest run journey-combo",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
