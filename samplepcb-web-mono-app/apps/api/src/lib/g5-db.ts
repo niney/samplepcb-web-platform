@@ -93,6 +93,11 @@
 //   • updateOrderReceipt — 무통장 입금 조정 od_receipt_price·od_receipt_time·od_deposit_name
 //       (원자 가드 WHERE od_settle_case='무통장') + recomputeOrderMoney. 코어 receiptupdate 의
 //       배송/에스크로/재고/상태전이/메일 부수효과는 스코프 밖(WP3 전이·배송이 담당 — 갭 기록).
+//   • updateOrderRefund — 환불 처리 **기록**(여정 10호) od_refund_price(누계) + od_mod_history
+//       append("{KST} {actor} 환불 {금액}원 기록") + recomputeOrderMoney. 컬럼·의미는 코어
+//       orderform.php '결제취소/환불 금액' 입력란과 동일(/adm 과 같은 값을 본다). 결제수단
+//       가드 없음 — 과입금은 수단을 가리지 않고 생기고, 여기 쓰는 것은 PG 취소 실행이 아니라
+//       사실 기록이다. **돈을 보내지 않는다**(실행은 결제사·계좌에서 사람이 한다).
 //   • 인쇄(GET .../print)는 읽기 전용 — getOrderRow(⑫)+getShopEstimateProfile(⑦) 조합, 신규 쓰기 없음.
 // ⑮ 카트행 단위 취소/반품/품절(관리자 — adm/shop_admin/orderformcartupdate.php 이식, 무통장 한정).
 // setOrderItemsStatus(odId, ctIds, target, actor, ip) — ct 단위 독립 처리. 컬럼·부수효과:
@@ -2861,6 +2866,39 @@ export async function updateOrderReceipt(
         SET od_receipt_price = ?, od_receipt_time = ?, od_deposit_name = ?
       WHERE od_id = ? AND od_settle_case = '무통장'`,
     [receiptPrice, receiptTime, depositName, odId],
+  );
+  if (res.affectedRows > 0) await recomputeOrderMoney(odId);
+  return res.affectedRows;
+}
+
+// 환불 처리 기록(여정 10호) — od_refund_price 갱신 + 이력 append + 미수 재계산.
+//
+// 부분 취소로 이미 받은 돈이 남으면 od_misu 가 **음수**(= 돌려줄 돈)가 된다. 그런데 그것을
+// 실제로 돌려줬는지 시스템이 알 길이 없어, 같은 건을 두 번 돌려주거나 영영 안 돌려준다.
+// od_refund_price 는 computeOrderMoney 산식에 이미 들어 있으므로(- (receipt + point - refund))
+// 여기 적는 순간 음수 미수가 그만큼 0 으로 수렴한다 — 그것이 "정리됨"의 표시다.
+//
+// ⚠ **돈을 보내지 않는다**. 실제 환불은 결제사·계좌에서 사람이 하고 여기엔 사실만 남는다.
+// ⚠ 결제수단 가드 없음 — 입금 조정(updateOrderReceipt)은 무통장 한정이지만, 과입금은
+//   결제수단을 가리지 않고 생기고 여기 적는 것은 PG 취소 실행이 아니라 **기록**이다.
+//   컬럼·의미는 코어 orderform.php '결제취소/환불 금액' 입력란과 같아 /adm 에서도 보인다.
+// ⚠ 금액은 누계다(코어 동일) — 두 번째 환불이면 호출측이 이전 값을 더해 보낸다.
+export async function updateOrderRefund(
+  odId: string,
+  refundPrice: number,
+  actorMbId: string,
+  note?: string,
+): Promise<number> {
+  // 이력은 ⑮ 취소 블록의 관례를 그대로 — 금액만 바뀌고 누가·언제가 사라지면 "두 번 줬나"를
+  // 되짚을 수 없다(od_refund_price 는 마지막 값 하나만 남는 누계라서 더 그렇다).
+  const now = kstDateTimeStr(new Date());
+  const noteText = note === undefined || note.trim() === '' ? '' : ` (${note.trim()})`;
+  const modHistory = `${now} ${actorMbId} 환불 ${refundPrice.toLocaleString('en-US')}원 기록${noteText}\n`;
+  const [res] = await getG5Pool().query<ResultSetHeader>(
+    `UPDATE g5_shop_order
+        SET od_refund_price = ?, od_mod_history = CONCAT(od_mod_history, ?)
+      WHERE od_id = ?`,
+    [refundPrice, modHistory, odId],
   );
   if (res.affectedRows > 0) await recomputeOrderMoney(odId);
   return res.affectedRows;

@@ -839,6 +839,16 @@ export const en = {
           saving: 'Saving…',
           cancel: 'Cancel',
         },
+        refundAction: {
+          record: 'Record refund',
+          hint: 'Issue the actual refund through the payment provider or bank — this only records that it was returned. Saving reduces the overpayment accordingly.',
+          price: 'Refunded total',
+          priceHint: 'Cumulative, including earlier refunds.',
+          note: 'Note (method, receipt no., …)',
+          save: 'Record',
+          saving: 'Recording…',
+          cancel: 'Cancel',
+        },
       },
       error: {
         NOT_FOUND: 'Order not found. Refresh the list.',

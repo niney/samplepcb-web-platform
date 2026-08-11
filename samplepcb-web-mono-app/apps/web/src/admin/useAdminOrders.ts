@@ -16,6 +16,7 @@ import type {
   AdminOrderInfoBodyType,
   AdminOrderItemStatusRequestType,
   AdminOrderReceiptBodyType,
+  AdminOrderRefundBodyType,
   AdminOrderStatusRequestType,
   AdminOrderTabType,
 } from '@sp/api-contract';
@@ -343,6 +344,25 @@ export function useOrderReceiptMutation() {
       apiSend(
         'PATCH',
         `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/receipt`,
+        body,
+        AdminOrderEditResponse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    },
+  });
+}
+
+// 환불 처리 기록(여정 10호) — 돈을 보내는 것이 아니라 **돌려줬다는 사실**을 남긴다.
+// od_refund_price 가 미수 산식에 들어 있어 저장 즉시 과입금이 그만큼 0 으로 수렴하므로
+// 상세·목록 모두 refetch 한다. 결제수단 가드 없음(입금 조정과 다른 지점).
+export function useOrderRefundMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ odId, ...body }: { odId: string } & AdminOrderRefundBodyType) =>
+      apiSend(
+        'PATCH',
+        `${apiRoutes.adminOrders}/${encodeURIComponent(odId)}/refund`,
         body,
         AdminOrderEditResponse,
       ),

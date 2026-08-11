@@ -383,6 +383,22 @@ export const AdminOrderReceiptBody = z.object({
 });
 export type AdminOrderReceiptBodyType = z.infer<typeof AdminOrderReceiptBody>;
 
+// 환불 처리 기록(여정 10호) — od_refund_price 는 **미수 산식에 이미 들어 있다**
+// (computeOrderMoney: - (receiptPrice + receiptPoint - refundPrice)). 그래서 돌려준 금액을
+// 여기 적는 순간 과입금(음수 미수)이 그만큼 0 으로 수렴한다.
+//
+// ⚠ 이 API 는 **돈을 보내지 않는다**. 실제 환불은 결제사·계좌에서 사람이 하고, 여기에는
+//    "돌려줬다"는 사실만 남긴다. 기록이 없으면 시스템은 같은 건을 두 번 돌려주거나
+//    영영 안 돌려준다 — 그것을 막는 것이 이 창구의 전부다.
+// ⚠ 금액은 **누계**다(코어 orderform.php '결제취소/환불 금액' 입력란과 같은 필드·같은 뜻).
+//    두 번째 환불이면 이전 금액을 더한 값을 적는다 — 화면이 그렇게 프리필한다.
+export const AdminOrderRefundBody = z.object({
+  refundPrice: z.number().int().min(0),
+  /** 이력(od_mod_history)에 함께 남길 한 줄 — 수단·전표번호 등. */
+  note: z.string().max(255).optional(),
+});
+export type AdminOrderRefundBodyType = z.infer<typeof AdminOrderRefundBody>;
+
 // 부분 편집 공통 응답 — 에코 대신 { odId }(FE refetch). 회원 ⑨-b 관례 미러.
 export const AdminOrderEditResponse = z.object({
   result: z.literal(true),

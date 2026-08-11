@@ -16,6 +16,7 @@ import {
   AdminOrderMemoBody,
   AdminOrderPrintResponse,
   AdminOrderReceiptBody,
+  AdminOrderRefundBody,
   AdminOrderStatusRequest,
   ApiError,
 } from '@sp/api-contract';
@@ -43,6 +44,7 @@ import {
   setOrdersStage,
   updateOrderInfo,
   updateOrderReceipt,
+  updateOrderRefund,
   updateOrderShopMemo,
 } from '../lib/g5-db';
 import type { OrderActionResult, OrderDetailRow, OrderListRow } from '../lib/g5-db';
@@ -608,6 +610,31 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
 
       const { receiptPrice, receiptTime, depositName } = request.body;
       await updateOrderReceipt(odId, receiptPrice, receiptTime, depositName);
+      return { result: true as const, data: { odId } };
+    },
+  );
+
+  // ── PATCH /api/admin/orders/:odId/refund — 환불 처리 기록 ───────────────────
+  // 부분 취소로 od_misu 가 음수(= 돌려줄 돈)가 됐을 때, 실제로 돌려준 사실을 남기는 창구.
+  // **돈을 보내지 않는다** — 실제 환불은 결제사·계좌에서 사람이 한다. 기록이 없으면
+  // 시스템은 두 번 돌려주거나 영영 안 돌려준다(여정 10호 X5).
+  // 결제수단 가드 없음(입금 조정과 다른 지점 — 위 updateOrderRefund 주석 참조). 404 만.
+  fastify.patch(
+    '/orders/:odId/refund',
+    {
+      schema: {
+        params: OdIdParams,
+        body: AdminOrderRefundBody,
+        response: { 200: AdminOrderEditResponse },
+      },
+    },
+    async (request, reply) => {
+      const { odId } = request.params;
+      const order = await getOrderRow(odId);
+      if (order === null) return reply.notFound('주문이 없습니다');
+
+      const { refundPrice, note } = request.body;
+      await updateOrderRefund(odId, refundPrice, request.user.mbId, note);
       return { result: true as const, data: { odId } };
     },
   );

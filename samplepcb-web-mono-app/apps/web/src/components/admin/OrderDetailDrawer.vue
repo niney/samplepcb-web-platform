@@ -27,6 +27,7 @@ import {
   useOrderInfoMutation,
   useOrderMemoMutation,
   useOrderReceiptMutation,
+  useOrderRefundMutation,
   useOrderStatusMutation,
   type CancelItemTarget,
   type DeliveryInput,
@@ -150,6 +151,8 @@ const receiptEditing = ref(false);
 const receiptForm = ref<ReceiptForm>({ receiptPrice: 0, receiptTime: '', depositName: '' });
 const receiptFull = ref(false);
 const receiptPrevPrice = ref(0);
+const refundEditing = ref(false);
+const refundForm = ref<{ refundPrice: number; note: string }>({ refundPrice: 0, note: '' });
 const printOpen = ref<string | null>(null);
 // 카트행 취소/반품/품절 대상(확인 모달). null = 닫힘.
 const itemAction = ref<{ ctId: number; target: CancelItemTarget; label: string } | null>(null);
@@ -178,6 +181,8 @@ const {
 } = useOrderMemoMutation();
 const { mutate: saveReceipt, isPending: receiptPending, error: receiptErr, reset: resetReceipt } =
   useOrderReceiptMutation();
+const { mutate: saveRefund, isPending: refundPending, error: refundErr, reset: resetRefund } =
+  useOrderRefundMutation();
 const {
   mutate: processStatus,
   data: statusData,
@@ -220,6 +225,8 @@ watch(order, (o) => {
     resetInfo();
     resetMemo();
     resetReceipt();
+    refundEditing.value = false;
+    resetRefund();
     resetStatus();
   }
 });
@@ -448,6 +455,42 @@ const submitReceipt = (): void => {
   );
 };
 
+// ── 환불 처리 기록(여정 10호) ────────────────────────────────────────────────
+// 이 창구는 **돈을 보내지 않는다** — 실제 환불은 결제사·계좌에서 사람이 하고, 여기엔
+// "돌려줬다"는 사실만 남는다. 기록이 없으면 시스템은 같은 건을 두 번 돌려주거나 영영
+// 안 돌려준다. od_refund_price 는 미수 산식에 들어 있어 저장 즉시 과입금이 0 으로 준다.
+// ⚠ 금액은 **누계**다(코어 orderform.php 입력란과 같은 필드) — 기존 환불액에 이번 금액을
+//   더해 보낸다. 프리필은 "과입금 전액을 지금 돌려준다"에 해당하는 값이다.
+const refundFullAmount = computed<number>(() => {
+  const o = order.value;
+  return o === null ? 0 : o.amounts.refundPrice + Math.max(0, -o.misu);
+});
+const startRefundEdit = (): void => {
+  if (order.value === null) return;
+  refundForm.value = { refundPrice: refundFullAmount.value, note: '' };
+  resetRefund();
+  refundEditing.value = true;
+};
+const submitRefund = (): void => {
+  const o = order.value;
+  if (o === null) return;
+  const f = refundForm.value;
+  if (!Number.isFinite(f.refundPrice) || f.refundPrice < 0) return;
+  resetRefund();
+  saveRefund(
+    {
+      odId: o.odId,
+      refundPrice: Math.trunc(f.refundPrice),
+      ...(f.note.trim() === '' ? {} : { note: f.note.trim() }),
+    },
+    {
+      onSuccess: () => {
+        refundEditing.value = false;
+      },
+    },
+  );
+};
+
 // ── 다음 단계 상태 처리 ──────────────────────────────────────────────────────
 // 현재 상태 → 다음 전이(선형 체인). notify(메일/SMS) 는 target ∈ {입금,배송} 만. 입금 처리는 무통장
 // 한정(그 외 결제는 PG 입금이 자동). 생산완료→배송은 delivery 필수. 취소/완료/A/S 등은 처리 없음.
@@ -562,6 +605,7 @@ const mapError = (err: unknown): string | null => {
 };
 const infoError = computed<string | null>(() => mapError(infoErr.value));
 const receiptError = computed<string | null>(() => mapError(receiptErr.value));
+const refundError = computed<string | null>(() => mapError(refundErr.value));
 
 // 카트행 표시 금액 — 개별 io 가격(ioPrice>0)이 있으면 그것, 없으면 품목가(ctPrice).
 const linePrice = (it: AdminOrderCartItemType): number => (it.ioPrice > 0 ? it.ioPrice : it.ctPrice);
@@ -1158,9 +1202,22 @@ const inputClass =
                       <dt class="text-gray-500">{{ t('admin.orders.drawer.cancelPrice') }}</dt>
                       <dd class="tabular-nums font-medium text-red-600">{{ formatKrw(order.cancelPrice) }}</dd>
                     </div>
-                    <div v-if="order.amounts.refundPrice !== 0" class="flex justify-between py-1">
+                    <!-- 이미 기록된 환불액 — 여기서도 고칠 수 있어야 한다(과입금이 0 이 되면
+                         아래 [환불 처리 기록] 버튼이 사라지므로, 잘못 적은 값을 고칠 길이
+                         이 행뿐이다). -->
+                    <div v-if="order.amounts.refundPrice !== 0" class="flex items-center justify-between py-1">
                       <dt class="text-gray-500">{{ t('admin.orders.drawer.refund') }}</dt>
-                      <dd class="tabular-nums text-red-600">{{ formatKrw(order.amounts.refundPrice) }}</dd>
+                      <dd class="flex items-center gap-2">
+                        <span class="tabular-nums text-red-600">{{ formatKrw(order.amounts.refundPrice) }}</span>
+                        <button
+                          v-if="!refundEditing"
+                          type="button"
+                          class="rounded-md border border-gray-300 px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-50"
+                          @click="startRefundEdit"
+                        >
+                          {{ t('admin.orders.drawer.refundAction.record') }}
+                        </button>
+                      </dd>
                     </div>
                     <div v-if="order.misu > 0" class="flex justify-between py-1">
                       <dt class="text-gray-500">{{ t('admin.orders.drawer.misu') }}</dt>
@@ -1168,11 +1225,21 @@ const inputClass =
                     </div>
                     <!-- 음수 미수 = 받을 돈이 아니라 **돌려줄 돈**이다(부분 취소 후 흔히 남는다).
                          같은 이름에 부호만 달리 붙이면 "미수금 -55,000원"이 되어 정확히 반대로
-                         읽힌다 — 이름을 갈라 절댓값으로 보인다. 환불 실행은 PG 도메인이라
-                         여기서는 표시만 한다(주문 관리/결제사에서 처리). -->
-                    <div v-else-if="order.misu < 0" class="flex justify-between py-1">
+                         읽힌다 — 이름을 갈라 절댓값으로 보인다. 환불 **실행**은 결제사·계좌에서
+                         사람이 하고, [환불 처리 기록]은 그 사실만 남긴다(여정 10호). -->
+                    <div v-else-if="order.misu < 0" class="flex items-center justify-between py-1">
                       <dt class="text-gray-500">{{ t('admin.orders.drawer.overpaid') }}</dt>
-                      <dd class="tabular-nums font-medium text-amber-600">{{ formatKrw(-order.misu) }}</dd>
+                      <dd class="flex items-center gap-2">
+                        <span class="tabular-nums font-medium text-amber-600">{{ formatKrw(-order.misu) }}</span>
+                        <button
+                          v-if="!refundEditing"
+                          type="button"
+                          class="rounded-md border border-amber-300 px-2 py-0.5 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                          @click="startRefundEdit"
+                        >
+                          {{ t('admin.orders.drawer.refundAction.record') }}
+                        </button>
+                      </dd>
                     </div>
                     <div class="flex justify-between py-1 text-xs text-gray-400">
                       <dt>{{ t('admin.orders.drawer.tax') }}</dt>
@@ -1213,6 +1280,31 @@ const inputClass =
                         {{ t('admin.orders.drawer.receipt.cancel') }}
                       </button>
                       <span v-if="receiptError !== null" class="text-xs text-red-600">{{ receiptError }}</span>
+                    </div>
+                  </div>
+
+                  <!-- 환불 처리 기록(여정 10호) — 돈을 보내지 않는다는 것을 문구가 먼저 말한다 -->
+                  <div v-if="refundEditing" class="mt-2 rounded-md border border-amber-200 bg-amber-50/60 p-3">
+                    <p class="text-xs text-amber-800">{{ t('admin.orders.drawer.refundAction.hint') }}</p>
+                    <div class="mt-2 grid grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="text-xs text-gray-500">{{ t('admin.orders.drawer.refundAction.price') }}</span>
+                        <input v-model.number="refundForm.refundPrice" type="number" min="0" step="1" :class="inputClass">
+                        <span class="mt-0.5 block text-[11px] text-gray-400">{{ t('admin.orders.drawer.refundAction.priceHint') }}</span>
+                      </label>
+                      <label class="block">
+                        <span class="text-xs text-gray-500">{{ t('admin.orders.drawer.refundAction.note') }}</span>
+                        <input v-model="refundForm.note" type="text" maxlength="255" :class="inputClass">
+                      </label>
+                    </div>
+                    <div class="mt-2 flex items-center gap-2">
+                      <button type="button" class="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50" :disabled="refundPending" @click="submitRefund">
+                        {{ refundPending ? t('admin.orders.drawer.refundAction.saving') : t('admin.orders.drawer.refundAction.save') }}
+                      </button>
+                      <button type="button" class="rounded-md px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" @click="refundEditing = false">
+                        {{ t('admin.orders.drawer.refundAction.cancel') }}
+                      </button>
+                      <span v-if="refundError !== null" class="text-xs text-red-600">{{ refundError }}</span>
                     </div>
                   </div>
                 </section>
