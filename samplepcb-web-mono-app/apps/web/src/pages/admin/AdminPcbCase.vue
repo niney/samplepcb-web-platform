@@ -7,6 +7,7 @@ import {
   PCB_RFQ_STATUS_LABELS,
   bomShipmentNextStatus,
   isPcbDeliveryOverdue,
+  lastPcbEqRejectedAt,
   resolvePcbDirectShipCountry,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
@@ -884,6 +885,15 @@ const eqFilesShown = (po: AdminPcbPoViewType): AdminPcbPoViewType['eqFiles'] =>
 const eqOlderCount = (po: AdminPcbPoViewType): number =>
   po.eqFiles.filter((f) => !f.isLatest).length;
 
+// 반려 뒤 보완 — 첨부는 승인요청 뒤 잠기므로(EQ_LOCKED) 보완 파일은 반드시 반려와 재요청
+// **사이**에 올라온다. 그 구간이 비어 있는데 다시 승인요청이 와 있으면 협력사가 **같은
+// 도면으로 재요청**한 것이다. 승인 버튼 옆에서 말해 주지 않으면 관리자는 "보완됐겠지" 하고
+// 누른다 — 반려 사유가 반영되지 않은 채 생산으로 넘어간다.
+const eqUnfixedAfterReject = (po: AdminPcbPoViewType): boolean =>
+  po.status === 'eq_requested' &&
+  lastPcbEqRejectedAt(po.eqHistory) !== null &&
+  !po.eqFiles.some((f) => f.afterReject);
+
 const canAdminReceive = (s: PcbShipmentViewType): boolean => {
   if (s.receivedAt !== null || s.receiverKind !== 'admin') return false;
   return s.mode === 'domestic'
@@ -1605,11 +1615,11 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     <button
                       type="button"
                       class="rounded-l border px-1.5 py-0.5 text-[11px] font-semibold hover:bg-gray-50"
-                      :class="f.isLatest ? 'border-gray-200 text-gray-500' : 'border-dashed border-amber-300 text-amber-600'"
-                      :title="`${f.fileType.toUpperCase()} · ${f.name}${f.isLatest ? ' (최신)' : ' — 이전 업로드입니다. 승인 근거로 쓰지 마세요.'}`"
+                      :class="!f.isLatest ? 'border-dashed border-amber-300 text-amber-600' : f.afterReject ? 'border-emerald-300 text-emerald-700' : 'border-gray-200 text-gray-500'"
+                      :title="`${f.fileType.toUpperCase()} · ${f.name}${f.isLatest ? ' (최신)' : ' — 이전 업로드입니다. 승인 근거로 쓰지 마세요.'}${f.afterReject ? ' · 반려 뒤 새로 올라온 보완분입니다.' : ''}`"
                       @click="specId !== null && void downloadAdminPcbEqFile(specId, po.poId, f.fileId, f.name)"
                     >
-                      ⬇ {{ f.fileType }}<template v-if="!f.isLatest"> · 이전</template>
+                      ⬇ {{ f.fileType }}<template v-if="!f.isLatest"> · 이전</template><template v-else-if="f.afterReject"> · 보완</template>
                     </button>
                     <button
                       v-if="po.status === 'issued'"
@@ -1654,6 +1664,15 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
                     >
                       {{ eqReviewLabelOf(po) }}
                     </button>
+                    <!-- 반려했는데 그 뒤로 올라온 파일이 없다 = 같은 도면으로 온 재요청.
+                         승인 버튼 옆이 아니면 볼 이유가 없는 정보다. -->
+                    <span
+                      v-if="eqUnfixedAfterReject(po)"
+                      class="mr-1 rounded bg-red-100 px-1.5 py-1 font-semibold text-red-700"
+                      title="직전 반려 이후 새로 올라온 EQ 첨부가 없습니다 — 같은 도면으로 다시 승인요청됐을 수 있습니다."
+                    >
+                      반려 후 새 파일 없음
+                    </span>
                     <button type="button" class="mr-1 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700" @click="void approvePo(po)">EQ 승인</button>
                     <button type="button" class="mr-1 rounded-md border border-red-300 px-2 py-1 font-semibold text-red-700 hover:bg-red-50" @click="rejectTarget = po">반려</button>
                   </template>

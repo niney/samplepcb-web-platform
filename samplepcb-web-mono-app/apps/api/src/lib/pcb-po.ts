@@ -18,6 +18,7 @@ import {
   PCB_EQ_FORWARD,
   PCB_EQ_REVERT,
   PCB_PO_STATUSES,
+  lastPcbEqRejectedAt,
   orderPcbEqFiles,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
@@ -131,8 +132,11 @@ const resolveEqDelegation = async (po: SpPcbPo): Promise<EqDelegation> => {
 };
 
 // ── EQ 첨부(sp_file refType 'sp_pcb_po_eq') ──────────────────────────────────
-// isLatest 는 **목록 전체를 봐야** 정해지므로 여기서는 붙이지 않는다(orderPcbEqFiles 몫).
-const toEqFileView = (f: SpFile): Omit<PcbEqFileViewType, 'isLatest'> => ({
+// isLatest·afterReject 는 **목록 전체와 EQ 이력을 봐야** 정해지므로 여기서는 붙이지 않는다
+// (orderPcbEqFiles 몫).
+type EqFileBase = Omit<PcbEqFileViewType, 'isLatest' | 'afterReject'>;
+
+const toEqFileView = (f: SpFile): EqFileBase => ({
   fileId: Number(f.id),
   name: f.originFileName,
   size: Number(f.size),
@@ -141,13 +145,16 @@ const toEqFileView = (f: SpFile): Omit<PcbEqFileViewType, 'isLatest'> => ({
   uploadedAt: f.writeDate.toISOString(),
 });
 
-const loadEqFilesMap = async (poIds: bigint[]): Promise<Map<string, PcbEqFileViewType[]>> => {
-  if (poIds.length === 0) return new Map();
+/** 발주서를 통째로 받는다 — 반려 시각(eqHistory)이 있어야 '보완분'을 가를 수 있다. */
+const loadEqFilesMap = async (
+  pos: readonly SpPcbPo[],
+): Promise<Map<string, PcbEqFileViewType[]>> => {
+  if (pos.length === 0) return new Map();
   const rows = await prisma.spFile.findMany({
-    where: { refType: EQ_REF_TYPE, refId: { in: poIds } },
+    where: { refType: EQ_REF_TYPE, refId: { in: pos.map((p) => p.id) } },
     orderBy: { id: 'asc' },
   });
-  const map = new Map<string, Omit<PcbEqFileViewType, 'isLatest'>[]>();
+  const map = new Map<string, EqFileBase[]>();
   for (const row of rows) {
     const key = row.refId.toString();
     const list = map.get(key) ?? [];
@@ -155,7 +162,13 @@ const loadEqFilesMap = async (poIds: bigint[]): Promise<Map<string, PcbEqFileVie
     map.set(key, list);
   }
   // 최신 판정·정렬은 계약의 순수 함수 하나로 — 화면마다 각자 정렬하면 규칙이 갈라진다.
-  return new Map([...map].map(([key, list]) => [key, orderPcbEqFiles(list)]));
+  const out = new Map<string, PcbEqFileViewType[]>();
+  for (const po of pos) {
+    const key = po.id.toString();
+    const rejectedAt = lastPcbEqRejectedAt(parseEqHistory(po.eqHistory));
+    out.set(key, orderPcbEqFiles(map.get(key) ?? [], rejectedAt));
+  }
+  return out;
 };
 
 export const uploadPcbEqFile = async (
@@ -163,10 +176,13 @@ export const uploadPcbEqFile = async (
   file: UploadTarget,
   fileType: PcbEqFileTypeType,
   uploadedBy: 'ADMIN' | 'PARTNER' | 'MASTER_DEALER',
-): Promise<PcbEqFileViewType> => {
+  // 호출부(관리자·협력사 라우트)는 둘 다 업로드 뒤 **상세를 다시 조회해** 응답한다 —
+  // 여기서 뷰를 만들어 돌려줘도 아무도 쓰지 않는다(isLatest·afterReject 는 목록 전체와
+  // EQ 이력을 봐야 정해지므로 그 재조회가 정답이기도 하다).
+): Promise<void> => {
   const [uploaded] = await uploadToFileServer([file], EQ_UPLOAD_SERVICE_TYPE);
   if (uploaded === undefined) throw new Error('EQ 파일 업로드에 실패했습니다');
-  const row = await prisma.spFile.create({
+  await prisma.spFile.create({
     data: {
       refType: EQ_REF_TYPE,
       refId: poId,
@@ -179,8 +195,6 @@ export const uploadPcbEqFile = async (
       uploadedBy,
     },
   });
-  // 방금 올린 것이라 그 종류의 최신이 확정이다(id 가 가장 크다).
-  return { ...toEqFileView(row), isLatest: true };
 };
 
 export const deletePcbEqFile = async (poId: bigint, fileId: bigint): Promise<boolean> => {
@@ -273,7 +287,7 @@ const serializeAdminPos = async (rows: PoWithPartner[]): Promise<AdminPcbPoViewT
       ? []
       : await prisma.spPartner.findMany({ where: { id: { in: parentIds } } });
   const parentNames = new Map(parents.map((p) => [p.id.toString(), p.name]));
-  const filesMap = await loadEqFilesMap(rows.map((r) => r.id));
+  const filesMap = await loadEqFilesMap(rows);
   const reviewMap = await loadEqReviewRowSummaries(
     rows.map((r) => r.id),
     eqRoundStartMap(rows),
@@ -989,7 +1003,7 @@ export const loadPartnerPcbPoDetail = async (
 
   const [files, house, delegation, childrenRows, childRfqRows, roundRows, originChildRows] =
     await Promise.all([
-    loadEqFilesMap([po.id]),
+    loadEqFilesMap([po]),
     loadHousePartnerName(),
     resolveEqDelegation(po),
     prisma.spPcbPo.findMany({

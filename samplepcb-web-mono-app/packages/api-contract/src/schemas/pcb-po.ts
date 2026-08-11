@@ -86,6 +86,8 @@ export const PcbEqFileView = z.object({
   uploadedAt: z.string(),
   /** 같은 종류(eq/working) 중 가장 나중에 올라온 1건 — 여정 22호. orderPcbEqFiles 가 정한다. */
   isLatest: z.boolean(),
+  /** 직전 EQ 반려 뒤에 올라온 파일(=보완분). 반려 이력이 없으면 전부 false. */
+  afterReject: z.boolean(),
 });
 export type PcbEqFileViewType = z.infer<typeof PcbEqFileView>;
 
@@ -100,16 +102,25 @@ export type PcbEqFileViewType = z.infer<typeof PcbEqFileView>;
  *
  * '가장 나중'은 fileId 로 정한다 — writeDate 는 같은 초에 두 건이 들어오면 갈리지 않는다.
  */
-export const orderPcbEqFiles = <T extends { fileId: number; fileType: string }>(
+export const orderPcbEqFiles = <
+  T extends { fileId: number; fileType: string; uploadedAt: string },
+>(
   files: readonly T[],
-): (T & { isLatest: boolean })[] => {
+  /** 직전 EQ 반려 시각(ISO) — lastPcbEqRejectedAt 결과. null=반려 이력 없음. */
+  rejectedAt: string | null = null,
+): (T & { isLatest: boolean; afterReject: boolean })[] => {
   const latestId = new Map<string, number>();
   for (const f of files) {
     const cur = latestId.get(f.fileType);
     if (cur === undefined || f.fileId > cur) latestId.set(f.fileType, f.fileId);
   }
   return files
-    .map((f) => ({ ...f, isLatest: latestId.get(f.fileType) === f.fileId }))
+    .map((f) => ({
+      ...f,
+      isLatest: latestId.get(f.fileType) === f.fileId,
+      // 둘 다 toISOString() 이라 사전식 비교가 곧 시각 비교다.
+      afterReject: rejectedAt !== null && f.uploadedAt > rejectedAt,
+    }))
     .sort(
       (a, b) =>
         // 최신이 앞 → 종류 순(eq, working) → 이전 것들끼리는 최근 순
@@ -117,6 +128,36 @@ export const orderPcbEqFiles = <T extends { fileId: number; fileType: string }>(
         a.fileType.localeCompare(b.fileType) ||
         b.fileId - a.fileId,
     );
+};
+
+/**
+ * 가장 최근 EQ **반려** 시각(ISO) — 없으면 null.
+ *
+ * 반려와 '요청 취소'는 둘 다 `eq_requested → issued` 로 같은 모양이다. 가르는 것은
+ * **사유(note)** 다 — 전진·되돌리기는 note 를 남기지 않고 반려만 남긴다. 역할로는 갈리지
+ * 않는다: 관리자 대행(D11)이 협력사 몫의 요청 취소를 하면 byRole 도 ADMIN 이다.
+ *
+ * 쓰임 — "반려했는데 **새 파일이 올라오긴 했나**". EQ 첨부는 승인요청 뒤 잠기므로(EQ_LOCKED)
+ * 보완 파일은 반드시 반려와 재요청 **사이**에 올라온다. 그 구간에 아무것도 없으면 협력사가
+ * 같은 도면으로 다시 승인을 요청한 것이고, 관리자는 그것을 모른 채 승인하게 된다.
+ */
+export const lastPcbEqRejectedAt = (
+  history: readonly { at: string; fromStatus: string; toStatus: string; note: string | null }[],
+): string | null => {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const e = history[i];
+    if (e === undefined) continue;
+    if (
+      e.fromStatus === 'eq_requested' &&
+      e.toStatus === 'issued' &&
+      e.note !== null &&
+      e.note !== '' &&
+      e.at !== ''
+    ) {
+      return e.at;
+    }
+  }
+  return null;
 };
 
 export const PcbEqEvent = z.object({

@@ -312,6 +312,90 @@ describe.skipIf(!RUN || !JOURNEY)('여정 33호 — 미결 판단 3건 구현 �
     );
   }, 300_000);
 
+  // ── ①-b EQ 반려 뒤 보완 표시(회차 표기 이월분) ──────────────────────────────
+  test('D5b. 반려 뒤 보완 없이 다시 요청하면 관리자에게 그렇게 보인다', async (ctx) => {
+    if (lineB.poId === null || lineB.specId === null) return ctx.skip();
+    const rejectPath = `/api/admin/pcb-projects/${String(lineB.specId)}/pos/${String(lineB.poId)}/eq-reject`;
+    const requestPath = `/api/partner/pcb-pos/${String(lineB.poId)}/eq-request`;
+
+    // 1차: 승인요청 → 반려(사유가 있어야 '반려'다 — 요청 취소와 상태 전이가 같다).
+    expect((await api(P, 'POST', requestPath, {})).status, '1차 승인요청').toBe(200);
+    const rej = await api(A, 'POST', rejectPath, { reason: '[여정 33호] 홀 지름이 규격 밖입니다' });
+    expect(rej.status, `1차 반려: ${JSON.stringify(rej.json)}`).toBe(200);
+
+    // 2차: **보완 파일 없이** 그대로 재요청 — 실무에서 실제로 일어나는 일이다.
+    expect((await api(P, 'POST', requestPath, {})).status, '보완 없이 재요청').toBe(200);
+
+    const po = await poView(lineB.specId, lineB.poId);
+    expect(po.status, 'EQ 승인요청 상태').toBe('eq_requested');
+    // 첨부는 승인요청 뒤 잠기므로(EQ_LOCKED) 보완분은 반려와 재요청 **사이**에만 생긴다.
+    expect(
+      (po.eqFiles ?? []).some((f: any) => f.afterReject === true),
+      '반려 뒤 올라온 파일이 없다',
+    ).toBe(false);
+
+    // 화면 — 승인 버튼 옆에서 말해 주지 않으면 관리자는 "보완됐겠지" 하고 누른다.
+    await rp.view(adminView, `/app/admin/pcb/cases/${String(lineB.specId)}`, 'D05b-case-unfixed');
+    const warn = adminView.page.getByText('반려 후 새 파일 없음');
+    await warn.first().waitFor({ timeout: 20_000 });
+    await rp.shot(adminView, 'D05b-case-unfixed');
+    F(
+      'D5b',
+      'obs',
+      `반려 뒤 무보완 재요청 실측 — afterReject 파일 0건이고 관리자 화면 승인 버튼 옆에 ` +
+        `'반려 후 새 파일 없음' 경고가 선다(반려 사유가 반영되지 않은 채 승인되는 것을 막는다).`,
+    );
+  }, 300_000);
+
+  test('D5c. 보완 파일을 올리면 보완분으로 갈리고 경고가 걷힌다', async (ctx) => {
+    if (lineB.poId === null || lineB.specId === null) return ctx.skip();
+    const rejectPath = `/api/admin/pcb-projects/${String(lineB.specId)}/pos/${String(lineB.poId)}/eq-reject`;
+
+    // 파일을 올리려면 잠금이 풀려야 한다 — 2차도 반려한다(관리자가 실제로 할 일이다).
+    const rej2 = await api(A, 'POST', rejectPath, { reason: '[여정 33호] 보완 파일이 없습니다' });
+    expect(rej2.status, `2차 반려: ${JSON.stringify(rej2.json)}`).toBe(200);
+
+    const fix = await uploadEq(lineB.poId, 'eq', 'eq-fixed.zip');
+    expect(fix.status, `보완 업로드: ${JSON.stringify(fix.json)}`).toBe(200);
+    // 업로드 응답은 발주 상세 전체다(라우트가 다시 조회해 준다) — 협력사 화면이 그대로 쓴다.
+    const portalFiles: any[] = fix.json?.data?.eq?.files ?? [];
+    expect(
+      portalFiles.find((f) => f.name === 'eq-fixed.zip')?.afterReject,
+      '포털 응답이 곧바로 보완분으로 답한다',
+    ).toBe(true);
+
+    expect(
+      (await api(P, 'POST', `/api/partner/pcb-pos/${String(lineB.poId)}/eq-request`, {})).status,
+      '보완 후 재요청',
+    ).toBe(200);
+
+    const po = await poView(lineB.specId, lineB.poId);
+    const files: any[] = po.eqFiles ?? [];
+    const fixed = files.filter((f) => f.afterReject === true);
+    expect(fixed.length, '보완분 1건').toBe(1);
+    expect(String(fixed[0]?.name), '보완분은 반려 뒤 올린 그 파일').toBe('eq-fixed.zip');
+    expect(fixed[0]?.isLatest, '보완분이 곧 최신').toBe(true);
+    // 반려 전 파일은 보완분이 아니다 — 그것이 문제가 된 도면이다.
+    expect(
+      files.filter((f) => !f.afterReject).length,
+      '반려 전 파일들은 그대로 남되 보완분이 아니다',
+    ).toBe(3);
+
+    await rp.view(adminView, `/app/admin/pcb/cases/${String(lineB.specId)}`, 'D05c-case-fixed');
+    await adminView.page.getByText('· 보완').first().waitFor({ timeout: 20_000 });
+    expect(
+      await adminView.page.getByText('반려 후 새 파일 없음').count(),
+      '보완 뒤에는 경고가 걷힌다',
+    ).toBe(0);
+    await rp.shot(adminView, 'D05c-case-fixed');
+    F(
+      'D5c',
+      'obs',
+      `보완 실측 — 반려 뒤 올린 'eq-fixed.zip' 만 afterReject=true(이전 3건은 false, 지워지지 ` +
+        `않는다) · 화면은 '· 보완' 배지로 갈리고 경고는 사라진다.`,
+    );
+  }, 300_000);
+
   // ── ③ 송금 완납 통지(8호 결정) ──────────────────────────────────────────────
   test('D6. 부분 송금은 알리지 않는다 — 원장은 아직 확정이 아니다', async (ctx) => {
     if (lineB.poId === null) return ctx.skip();

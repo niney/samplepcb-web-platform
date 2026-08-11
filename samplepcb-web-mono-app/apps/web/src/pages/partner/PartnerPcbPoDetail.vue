@@ -266,6 +266,11 @@ const eqRejection = computed<{ note: string | null; at: string } | null>(() => {
   if (last?.fromStatus !== 'eq_requested' || last.toStatus !== 'issued') return null;
   return { note: last.note, at: last.at };
 });
+// 반려 뒤 보완 파일을 실제로 올렸는가 — 서버가 파일마다 afterReject 를 찍어 준다.
+// 안 올린 채 재요청하면 관리자에게 "같은 도면"으로 보이고 다시 반려된다.
+const hasFixAfterReject = computed<boolean>(
+  () => detail.value?.eq.files.some((f) => f.afterReject) ?? false,
+);
 
 const shipAdvance = usePartnerPcbShipmentAdvance(); // 받는측(MD) 전이 전용
 const shipReceive = usePartnerPcbShipmentReceive();
@@ -535,6 +540,16 @@ const specEntries = computed(() => pcbSpecEntries((detail.value?.spec.specJson ?
           </p>
           <p v-else class="mt-1 text-sm text-red-800">사유가 기록되지 않았습니다 — 담당자에게 문의해 주세요.</p>
           <p class="mt-1.5 text-xs text-red-500">{{ eqRejection.at.slice(0, 16).replace('T', ' ') }}</p>
+          <!-- 보완 파일을 올렸는지 여기서 알려 준다. 파일 없이 재요청하면 관리자에게는
+               "같은 도면"으로 보여 다시 반려된다 — 왕복이 한 번 더 늘 뿐이다. -->
+          <p
+            class="mt-2 rounded px-2 py-1 text-xs font-semibold"
+            :class="hasFixAfterReject ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-red-700'"
+          >
+            {{ hasFixAfterReject
+              ? '반려 후 새 파일을 올렸습니다 — 승인요청을 진행해 주세요.'
+              : '아직 반려 후 새로 올린 파일이 없습니다. 파일 없이 다시 요청하면 같은 사유로 반려될 수 있습니다.' }}
+          </p>
         </div>
 
         <!-- 액션 -->
