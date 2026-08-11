@@ -6,14 +6,17 @@
 //      함께 체크해 **한 주문서에 카트 n 줄**을 만드는 경로(quotes.php → POST /api/pcb-projects/
 //      order 의 ids 배열 → 한 번의 ct_select)는 한 번도 안 밟혔다. 부분 취소는 그 조합이
 //      있어야만 성립하므로 이 여정이 그 길을 처음 낸다.
-//   ② **부분 취소가 협력 트랙에 어떻게 비치는가** — `isPcbOrderCanceled`(lib/pcb-shipment.ts:183)
-//      는 **od_status='취소'** 하나만 본다. 부분 취소면 od 는 '취소'가 아니다. 그러면 취소된
-//      라인의 발주는 계속 전진할 수 있는가? 이 물음이 이 여정의 핵심(X6)이며, 답을 고치는 것이
-//      아니라 **현재 동작을 그대로 박제**하는 것이 이 스펙의 일이다.
+//   ② **부분 취소가 협력 트랙에 어떻게 비치는가** — 첫 주행(08-11)의 답은 "전혀 비치지 않는다"
+//      였다: 가드가 **od_status='취소'** 하나만 봐서, 부분 취소(od 는 '입금')면 담기·EQ 전진·
+//      A/S 접수가 모두 200 으로 통과했다. 취소된 보드가 계속 생산돼 박스에 담길 수 있었다는 뜻이다.
+//      **교정 후(같은 날)** 판정 축이 둘이 됐다 — 주문 헤더 '취소' **또는** 그 줄 ct_status 가
+//      취소류(isPcbOrderLineCanceled, lib/pcb-shipment.ts). 이 스펙은 이제 그 가드의 회귀선이다:
+//      X6 이 다시 200 이 되면 부분 취소가 새어 나간 것이다.
 //
 // 대조 구조가 이 여정의 골격이다: **같은 3종 프로브**(EQ 전진 · 발송 담기 · A/S 접수)를
-// **부분 취소(X6)** 와 **전량 취소(X11)** 에 각각 쳐서, ORDER_CANCELED 가드가 어느 쪽에서
-// 서는지를 나란히 세운다. 가드가 od 단위라는 설계가 실제로 무엇을 열어 두는지가 그 차이다.
+// **부분 취소(X6)** 와 **전량 취소(X11)** 에 각각 쳐서, ORDER_CANCELED 가드가 양쪽에서
+// 똑같이 서는지를 나란히 세운다. 정리 경로(EQ 되돌리기)는 양쪽 모두 200 이어야 한다 —
+// 가드가 정리까지 막으면 취소 뒷정리(발주 취소·재고 해제)가 통째로 죽는다.
 //
 // 실행: pnpm -F e2e journey:cancel  (PORTAL_E2E=1 + JOURNEY=1 — 거버 필요)
 // 사전 조건: nginx·API(3333)·웹(5173)·거버(GERBER_URL)·Mailpit + e2e/.env.e2e 고객 자격.
@@ -305,9 +308,10 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
   /**
    * 협력 트랙 3종 프로브 — **취소된 라인의 발주가 계속 갈 수 있는가**를 실제로 시도해 본다.
    * 순서가 곧 전제 조건이다: ① 담기(produced 여야 성립) → ② EQ 되돌리기(정리는 취소 주문에서도
-   * 허용되어야 한다 — pcb-po.ts:801 revert 에는 ORDER_CANCELED 가드가 없다) → ③ EQ 전진
-   * (여기가 pcb-po.ts:741 가드의 사정권) → ④ A/S 접수(pcb-as-case.ts:237 가드).
-   * 부작용은 이 함수가 되돌린다 — 담긴 박스는 detach, A/S 초안은 삭제.
+   * 허용되어야 한다 — revert 에는 ORDER_CANCELED 가드가 없다) → ③ EQ 전진(여기가 EQ 가드의
+   * 사정권) → ④ A/S 접수(createPcbAsCase 가드).
+   * 부작용은 이 함수가 되돌린다 — 담긴 박스는 detach, A/S 초안은 삭제. 가드가 서면 담기·A/S 는
+   * 애초에 아무것도 안 만들고, 전진만 막힌 발주는 되돌린 자리(producing)에 남는다.
    */
   const probeCollabTrack = async (line: Line, step: string): Promise<TrackProbe> => {
     const before = await poStatus(line.poId ?? 0);
@@ -538,38 +542,44 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
       eq: probe.eqAdvance.error === 'ORDER_CANCELED',
       as: probe.asCase.error === 'ORDER_CANCELED',
     };
-    const anyBlocked = blocked.box || blocked.eq || blocked.as;
+    const allBlocked = blocked.box && blocked.eq && blocked.as;
 
-    if (!anyBlocked) {
+    if (!allBlocked) {
       F(
         'X6',
         'bug',
-        `**부분 취소는 협력 트랙을 전혀 막지 않는다.** 고객 주문의 그 줄은 '취소'인데 ` +
+        `**부분 취소가 협력 트랙으로 새어 나갔다.** 고객 주문의 그 줄은 '취소'인데 ` +
           `발송 담기(${String(probe.box.status)})·EQ 전진(${String(probe.eqAdvance.status)})·` +
-          `A/S 접수(${String(probe.asCase.status)})가 모두 통과했다. 원인은 판정 축이 ` +
-          `**주문 헤더**뿐이라는 것이다 — isPcbOrderCanceled(lib/pcb-shipment.ts:183-188)는 ` +
-          `spec.ctId → getOrderInfoByCtId(ctId).odStatus === '취소' 만 보고 ct_status 를 ` +
-          `보지 않는다. 부분 취소면 od_status 는 '입금'이라 가드가 통째로 비활성이다. ` +
-          `결과: 취소된 보드가 계속 생산되고, 박스에 담겨 실제로 발송될 수 있다 ` +
-          `(가드 소비처 4곳 — pcb-shipment.ts:206 담기 · pcb-po.ts:741 EQ 전진 · ` +
-          `pcb-po.ts:427 하위 발주 · pcb-as-case.ts:237/379 A/S). ` +
-          `**서버 수정 금지 지침에 따라 현재 동작을 그대로 박제한다.**`,
+          `A/S 접수(${String(probe.asCase.status)})가 전부 409 로 서지 않았다. 판정 축이 ` +
+          `**주문 헤더로만** 되돌아갔는지 보라 — isPcbOrderLineCanceled(lib/pcb-shipment.ts)는 ` +
+          `od_status='취소' **또는** 그 줄 ct_status 가 취소류일 때 참이어야 한다. ` +
+          `od 단위로만 보면 부분 취소는 od 가 '입금'이라 가드가 통째로 비활성이 되고, ` +
+          `취소된 보드가 계속 생산돼 박스에 담겨 나간다(가드 소비처 4곳 — 담기 · EQ 전진 · ` +
+          `하위 발주 · A/S 접수/진행).`,
       );
     } else {
-      F('X6', 'obs', `부분 취소가 일부를 막았다 — box=${String(blocked.box)} eq=${String(blocked.eq)} as=${String(blocked.as)}`);
+      F(
+        'X6',
+        'obs',
+        `부분 취소도 3종 모두 ORDER_CANCELED 로 선다(줄 축 가드 정상) — 정리 경로(EQ 되돌리기)는 ` +
+          `${String(probe.eqRevert.status)} 로 열려 있다.`,
+      );
     }
 
-    // ── 현재 동작 박제(회귀 감지선) — 바뀌면 여기가 먼저 빨개진다 ──────────────
-    expect(probe.box.status, 'X6 담기 — 부분 취소 현재 동작').toBe(200);
+    // ── 회귀 감지선 — 줄 축 가드가 빠지면 여기가 먼저 빨개진다 ────────────────
+    expect(probe.box.status, 'X6 담기 — 취소 줄 차단').toBe(409);
+    expect(probe.box.error, 'X6 담기 거절 코드').toBe('ORDER_CANCELED');
     expect(probe.eqRevert.status, 'X6 EQ 되돌리기(정리는 항상 허용)').toBe(200);
-    expect(probe.eqAdvance.status, 'X6 EQ 전진 — 부분 취소 현재 동작').toBe(200);
-    expect(probe.asCase.status, 'X6 A/S 접수 — 부분 취소 현재 동작').toBe(200);
-    // 프로브가 상태를 되돌려 놨는지(형제 줄 완주의 전제)
-    expect(await poStatus(lineA.poId), 'A 발주 상태 복귀').toBe('produced');
+    expect(probe.eqAdvance.status, 'X6 EQ 전진 — 취소 줄 차단').toBe(409);
+    expect(probe.eqAdvance.error, 'X6 EQ 전진 거절 코드').toBe('ORDER_CANCELED');
+    expect(probe.asCase.status, 'X6 A/S 접수 — 취소 줄 차단').toBe(409);
+    expect(probe.asCase.error, 'X6 A/S 거절 코드').toBe('ORDER_CANCELED');
+    // 전진이 막혔으니 발주는 되돌린 자리(producing)에 남는다 — 정리 대상 상태로 기록.
+    expect(await poStatus(lineA.poId), '차단 후 A 발주 상태').toBe('producing');
     const link = await getPrisma().spPcbShipmentPo.findUnique({
       where: { poId: BigInt(lineA.poId) },
     });
-    expect(link, 'A 발주 박스 소속 해제됨(프로브 부작용 정리)').toBeNull();
+    expect(link, 'A 발주는 박스에 담기지 않았다').toBeNull();
   }, 180_000);
 
   test('X7. 화면 실측 — 부분 취소가 세 창구에 어떻게 비치는가', async (ctx) => {
@@ -597,20 +607,21 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
     F('X7', 'obs', `상품 표 실측 — wrapRight=${String(table?.wrapRight)} overflowX=${String(table?.overflowX)} ${lines.map((r) => `[${r.name} | ${r.status} | right=${String(r.statusRight)}]`).join(' ')}`);
 
     // ① 두 줄이 같은 이름으로 찍히면 어느 줄이 취소됐는지 고객이 알 수 없다.
+    //    표의 이름은 **줄(ct_id)별** it_name 이어야 한다(그룹 행 이름을 찍으면 PCB 견적은
+    //    모두 같은 템플릿 상품이라 한 주문서의 모든 줄이 한 이름으로 뭉갠다).
     const names = new Set(lines.map((r) => r.name));
     if (names.size < lines.length) {
       F(
         'X7',
         'bug',
-        `한 주문서 두 줄이 **같은 상품명**으로 표시된다 — 표의 각 줄은 그룹(it_id) 행의 ` +
-          `it_name 을 찍는데(theme/sp-lite/shop/orderinquiryview.php:182 \`$row['it_name']\`), ` +
-          `PCB 견적은 모두 같은 템플릿 상품이라 그룹이 하나로 묶인다. 줄별 이름은 이미 ` +
-          `조회돼 있으면서도(:120 inner SELECT it_name → \`$opt['it_name']\`) 쓰이지 않는다. ` +
-          `결과: 취소 줄과 살아 있는 줄이 이름·사양 요약까지 똑같이 보여 **고객은 무엇이 ` +
-          `취소됐는지 화면에서 구별할 수 없다**(실측 이름: ${[...names].join(' / ')}). ` +
-          `1주문 1스펙이던 지금까지의 여정에선 드러날 수 없던 결함이다.`,
+        `한 주문서 두 줄이 **같은 상품명**으로 표시된다 — 표가 줄별 이름 대신 그룹(it_id) 행의 ` +
+          `it_name 을 찍고 있다(theme/sp-lite/shop/orderinquiryview.php 의 \`$opt['it_name']\` ` +
+          `→ \`$row['it_name']\` 회귀). 결과: 취소 줄과 살아 있는 줄이 이름·사양 요약까지 ` +
+          `똑같이 보여 **고객은 무엇이 취소됐는지 화면에서 구별할 수 없다**(실측 이름: ` +
+          `${[...names].join(' / ')}).`,
       );
     }
+    expect(names.size, 'X7 줄별 상품명 — 두 줄이 서로 다른 이름으로 구별된다').toBe(lines.length);
 
     // ② 상태 칸이 컨테이너 밖으로 밀리면 '주문취소' 글자는 DOM 에만 있고 화면엔 없다.
     const clipped = lines.filter(
@@ -627,6 +638,7 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
           `취소를 알리는 유일한 줄 단위 표기가 잘린 셈이다.`,
       );
     }
+    expect(clipped.length, 'X7 상태 칸이 표 영역 안에 들어온다(가로 스크롤 없이 보인다)').toBe(0);
 
     // 제작 진행 카드(P4.13) — od 가 배송/완료/취소가 아니면 카드가 뜬다. 취소된 줄까지 뜨는가?
     const progress = await api(await customerToken(), 'GET', `/api/pcb-progress?odId=${od1}`);
@@ -638,12 +650,19 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
         'X7',
         'bug',
         `취소된 줄(${lineA.projectName})이 고객 상세의 **제작 진행 상황** 카드에 그대로 남는다 ` +
-          `— '${String(cardA.label)}'. listCustomerPcbProgress(lib/pcb-customer-progress.ts:56-96)는 ` +
-          `ctId 로 스펙만 찾고 **ct_status 를 보지 않는다**. 라우트(routes/pcb-eq-reviews.ts:68) 도 ` +
-          `od_status 가 배송·완료·취소일 때만 카드를 접으므로 부분 취소는 어느 층에서도 안 걸러진다. ` +
-          `고객은 "주문취소"라고 쓰인 줄이 동시에 "생산 완료 — 발송 준비 중"으로 진행되는 화면을 본다.`,
+          `— '${String(cardA.label)}'. listCustomerPcbProgress(lib/pcb-customer-progress.ts)가 ` +
+          `**ct_status 를 안 보는 상태로 되돌아갔다**. 라우트(routes/pcb-eq-reviews.ts)는 ` +
+          `od_status 가 배송·완료·취소일 때만 카드를 접으므로 부분 취소는 lib 이 안 거르면 ` +
+          `어느 층에서도 안 걸러진다. 고객은 "주문취소"라고 쓰인 줄이 동시에 "생산 완료 — ` +
+          `발송 준비 중"으로 진행되는 화면을 본다.`,
       );
     }
+    expect(cardA, 'X7 취소된 줄은 제작 진행 카드를 내지 않는다').toBeUndefined();
+    // 살아 있는 줄은 그대로 — 필터가 과하게 걷어내면 여기가 빨개진다.
+    expect(
+      items.map((i) => Number(i.specId)),
+      'X7 살아 있는 줄의 카드는 유지',
+    ).toContain(lineB.specId);
     F('X7', 'obs', `고객 상세 진행 카드 ${String(items.length)}장: ${items.map((i) => `${String(i.projectName)}=${String(i.stage)}`).join(', ')}`);
 
     // ② 관리자 주문·결제 큐 — 부분 취소 주문이 어느 탭에 서는가(탭 축은 od_status 뿐)
@@ -683,7 +702,8 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
         'obs',
         `협력사 포털에는 취소된 줄의 발주(#${String(lineA.poId)})가 아무 표식 없이 그대로 보인다 ` +
           `— 발주 목록·상세는 주문 축을 싣지 않는다(공급망 반대 방향 비노출 원칙의 이면). ` +
-          `취소를 알리는 유일한 통로가 서버 가드인데 부분 취소에선 그 가드가 안 선다(X6).`,
+          `취소를 알리는 통로는 서버 가드뿐이라(X6 에서 409 로 선다) 협력사는 **다음 동작을 ` +
+          `시도해야** 취소를 안다 — 목록에 표식을 다는 것은 별건(주문 축 노출 정책).`,
       );
     }
     await rp.view(partnerView, '/app/partner/pcb/ship', 'X07-partner-ship-board');
@@ -847,23 +867,31 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
           `[배송 처리]를 누르면(PCB 고객 배송의 유일한 경로 = force-status '배송') 취소된 줄도 ` +
           `'${String(afterA?.ct_status)}'로 함께 올라가고 od_cancel_price 가 ` +
           `${String(od.od_cancel_price)}(취소 전 ${String(lineA.price)})로 재계산된다. ` +
-          `대상 집합이 **취소류를 포함**하기 때문이다(g5-db.ts:3128 FORCE_STATUS_LINE_IN — ` +
-          `"취소류 행에 정상 상태를 걸면 un-cancel"이 의도된 코어 미러). 관리자 드로어의 ` +
-          `단일 주문 임의 전이에는 그 의도가 맞지만, **부분 취소가 있는 주문의 배송 처리**에는 ` +
-          `줄 선택이 없어 취소 이력이 조용히 사라진다. 취소분 재고·금액·고객 화면이 한꺼번에 되돌아간다.`,
+          `전진 target 의 대상 집합에 **취소류가 다시 들어갔다**(g5-db.ts ` +
+          `resolveForceStatusLineStatuses — 취소류 포함은 역방향 '주문'(=un-cancel, 정리 경로) ` +
+          `한 곳만이어야 한다). 그 화면엔 줄 선택이 없어 취소 이력·금액·재고가 한꺼번에 되돌아간다.`,
       );
     } else {
       F('X10', 'obs', `force-status '배송'이 취소 줄을 건드리지 않았다 — A 줄 ${String(afterA?.ct_status)} 유지`);
     }
-    // 현재 동작 박제(회귀 감지선) — 줄 선택이 생기거나 취소류가 대상에서 빠지면 여기가 빨개진다.
-    expect(String(afterA?.ct_status), 'X10 취소 줄 — 배송 전이 현재 동작').toBe('배송');
-    expect(Number(od.od_cancel_price), 'X10 취소 금액 소멸 — 현재 동작').toBe(0);
+    // 회귀 감지선 — 전진 target 이 취소류를 다시 삼키면 여기가 빨개진다.
+    expect(String(afterA?.ct_status), 'X10 취소 줄은 배송 전이에도 취소 유지').toBe('취소');
+    expect(Number(od.od_cancel_price), 'X10 취소 금액 보존').toBe(lineA.price);
 
     const fin = await api(A, 'PATCH', `/api/admin/orders/${od1}/force-status`, { target: '완료' });
     expect(fin.status, `완료 전이: ${JSON.stringify(fin.json)}`).toBe(200);
     const odFin = await orderRow(od1);
     expect(String(odFin.od_status), '최종 주문 상태').toBe('완료');
     expect(String(odFin.od_invoice), '운송장').toBe(`J10-${RUN_TAG}`);
+    const finRows = await cartRows(od1);
+    expect(
+      String(finRows.find((r) => Number(r.ct_id) === lineA.ctId)?.ct_status),
+      'X10 완료 전이도 취소 줄을 건드리지 않는다',
+    ).toBe('취소');
+    expect(
+      String(finRows.find((r) => Number(r.ct_id) === lineB.ctId)?.ct_status),
+      'B 줄 완료',
+    ).toBe('완료');
 
     await customer.page.goto(`${BASE_URL}/shop/orderinquiryview.php?od_id=${od1}`, {
       waitUntil: 'domcontentloaded',
@@ -873,8 +901,18 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
       'X10',
       'obs',
       `완주 — od=${od1} status=${String(odFin.od_status)} cancel=${String(odFin.od_cancel_price)} ` +
-        `misu=${String(odFin.od_misu)} 줄상태=[${after.map((r) => String(r.ct_status)).join(', ')}]`,
+        `misu=${String(odFin.od_misu)} 줄상태=[${finRows.map((r) => String(r.ct_status)).join(', ')}]`,
     );
+    // 과입금(음수 미수)은 배송·완료 뒤에도 그대로 남는다 — 환불 원장·경로가 없다(정책 보고 사안).
+    if (Number(odFin.od_misu) < 0) {
+      F(
+        'X10',
+        'obs',
+        `완주 후에도 od_misu=${String(odFin.od_misu)}(과입금 ${String(-Number(odFin.od_misu))}원) · ` +
+          `od_cancel_price=${String(odFin.od_cancel_price)} — 취소 이력·금액은 보존되지만 ` +
+          `환불 처리 경로는 여전히 없다(X5 와 같은 사안, 정책 결정 대기).`,
+      );
+    }
   }, 180_000);
 
   test('X11. 대조군 — 별도 주문 2줄 전량 취소 → ORDER_CANCELED 가드가 서는가', async () => {
@@ -930,6 +968,31 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
     expect(Number(od.od_cancel_price), '취소 금액 = 두 줄 합계').toBe(lineC.price + lineD.price);
     expect(String(od.od_mod_history ?? ''), '취소 이력 append').toContain('주문취소 처리');
 
+    // 전량 취소 주문에 **전진** target 을 실수로 걸면 — 움직일 줄이 하나도 없다. 상태만 올라가
+    // 카트행과 어긋나는 대신 409 로 끊고 되돌리는 법(=target '주문')을 안내해야 한다.
+    const wrongWay = await api(A, 'PATCH', `/api/admin/orders/${od2}/force-status`, {
+      target: '배송',
+      delivery: {
+        deliveryCompany: 'CJ대한통운',
+        invoiceNo: `J10-X11-${RUN_TAG}`,
+        invoiceTime: '2026-08-11 18:00:00',
+      },
+    });
+    expect(wrongWay.status, `전량 취소 주문 배송 시도: ${JSON.stringify(wrongWay.json)}`).toBe(409);
+    expect(String(wrongWay.json?.error), '거절 코드').toBe('NO_ACTIVE_LINES');
+    expect(String(wrongWay.json?.message ?? ''), '되돌리는 법 안내').toContain('주문');
+    const odAfterWrong = await orderRow(od2);
+    expect(String(odAfterWrong.od_status), '거절됐으니 헤더 불변').toBe('취소');
+    expect(
+      (await cartRows(od2)).map((r) => String(r.ct_status)),
+      '거절됐으니 줄도 불변',
+    ).toEqual(['취소', '취소']);
+    F(
+      'X11',
+      'obs',
+      `전량 취소 주문의 전진 전이는 409 NO_ACTIVE_LINES — "${String(wrongWay.json?.message ?? '')}"`,
+    );
+
     // 같은 3종 프로브 — 이번엔 막혀야 한다.
     const probe = await probeCollabTrack(lineC, 'X11');
     expect(probe.box.status, '전량 취소 담기 차단').toBe(409);
@@ -945,9 +1008,10 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
     F(
       'X11',
       'obs',
-      `대조 확정 — **전량 취소는 3종 모두 ORDER_CANCELED 로 막고, 부분 취소는 3종 모두 통과한다.** ` +
-        `가드의 판정 축이 od_status 하나뿐이라(isPcbOrderCanceled, lib/pcb-shipment.ts:183) ` +
-        `줄 단위 취소는 협력 트랙에 전혀 전달되지 않는다.`,
+      `대조 확정 — **전량 취소와 부분 취소가 3종 모두 같은 ORDER_CANCELED 로 선다.** ` +
+        `가드의 판정 축이 둘이라(isPcbOrderLineCanceled, lib/pcb-shipment.ts — od_status='취소' ` +
+        `또는 그 줄 ct_status 취소류) 줄 단위 취소도 협력 트랙에 그대로 전달된다. ` +
+        `정리 경로(EQ 되돌리기)는 양쪽 모두 200 으로 열려 있다.`,
     );
     await rp.view(adminView, `/app/admin/pcb/cases/${String(lineC.specId)}`, 'X11-admin-case-fully-canceled');
     await rp.view(adminView, '/app/admin/pcb/orders', 'X11-admin-orders-canceled-tab');
@@ -971,8 +1035,9 @@ describe.skipIf(!RUN || !JOURNEY)('여정 10호 — 주문 취소·부분 취소
     F(
       'X12',
       'obs',
-      `취소·부분 취소 주문 모두 force-status '주문' 으로 되돌아온다 — ` +
-        `FORCE_STATUS_LINE_IN 이 취소류를 포함하기 때문이다(g5-db.ts:3128). ` +
+      `취소·부분 취소 주문 모두 force-status '주문' 으로 되돌아온다 — 역방향 '주문' 만은 ` +
+        `대상 집합이 취소류를 포함하기 때문이다(g5-db.ts resolveForceStatusLineStatuses). ` +
+        `전진 target 에서 취소류를 뺀 교정(X10)이 이 정리 경로를 건드리지 않음을 여기서 확인한다 — ` +
         `cleanup-probe.mts 는 보강 없이 그대로 쓸 수 있다.`,
     );
   }, 120_000);

@@ -115,10 +115,16 @@
 //       g5_point 원장 캐스케이드 포트는 미이식 — ct_point>0 행은 HAS_POINT 로 skip(구주문 유입 안전판,
 //       PHP 관리자로 위임). PG 취소 분기(코어 190-336)는 무통장 guard(라우트 409)로 제외.
 // ⑯ 주문 임의 상태 변경(관리자 드로어 — orderformcartupdate.php 정상 상태 분기 이식, ⑮ 취소류의 짝).
-// setOrderForceStatus(odId, target, delivery?, actor, ip) — 주문 라인(쇼핑/삭제 제외, **취소류 포함**)
-// ct_status=target + od_status=target. 취소류 행 → 정상 상태 = **un-cancel**(코어 정상 분기가 담당 —
-// 취소류를 빼면 전량취소 주문에 걸 때 od_status/카트행 불일치). 스톡 앵커(resolveForceStatusStock 순수
-// 판정): 배송/완료 진입 시 미차감 행 차감(취소 행은 WP6 가 ct_stock_use=0 복원해둠 → 진입 시 차감)
+// setOrderForceStatus(odId, target, delivery?, actor, ip) — 주문 라인(쇼핑/삭제 제외)
+// ct_status=target + od_status=target. 대상 라인 집합은 **target 방향으로 갈린다**(여정 10호 X10 교정,
+// resolveForceStatusLineStatuses 순수 판정): 역방향 '주문' 은 **취소류 포함** — 취소류 행 → '주문' 이
+// **un-cancel**(코어 정상 분기가 담당)이라 전량취소 주문 되살리기·재고 점유 해제(정리 경로)가 이걸 쓴다.
+// 전진(입금·준비·제작·배송·완료)은 **취소류 제외** — 부분 취소 주문의 [배송 처리] 한 번에 취소 줄까지
+// '배송'이 되어 od_cancel_price 가 0 으로 소멸하던 것을 막는다(그 화면엔 줄 선택이 없어 서버가 가른다).
+// 전진 target 인데 대상 라인이 하나도 없으면(=전량 취소 주문) 아무것도 쓰지 않고 NO_ACTIVE_LINES 반환
+// (od_status 만 올라가 카트행과 어긋나는 것을 막는다 — 되살리려면 '주문' 으로 먼저 되돌린다).
+// 스톡 앵커(resolveForceStatusStock 순수 판정): 배송/완료 진입 시 미차감 행 차감(취소 행은 이제
+// 전진 대상이 아니라 애초에 안 건드린다 — 차감·복원이 양쪽 다 없어 대칭)
 // (adjustStock -ct_qty)·주문 역방향 시 차감 행 복원(+ct_qty)·그 외 무변화. it_sum_qty 는 코어 조건의
 // 정상 부분집합 {주문,완료} 만 재계산. 금액은 recomputeOrderMoneyOnItemChange(⑮) 재사용. od_mod_history
 // append 없음(코어 정상 분기 미기록). **결제수단 가드·운송장 요구 없음**(코어 정상 분기 무검사 —
@@ -2866,7 +2872,14 @@ export async function updateOrderReceipt(
 export type OrderItemCancelTarget = '취소' | '반품' | '품절';
 export type OrderItemSkipReason = 'NOT_IN_ORDER' | 'ALREADY_CANCELLED' | 'HAS_POINT';
 
-const CANCEL_STATUSES = ['취소', '반품', '품절'];
+// 취소류 라인 상태 — ⑮ 취소/반품/품절의 SSOT. 줄 단위 취소 판정이 필요한 곳(⑯ force-status 대상
+// 집합·협력 트랙 ORDER_CANCELED 가드·고객 진행 카드)은 리터럴을 다시 쓰지 말고 이걸 참조한다.
+export const CANCEL_STATUSES: readonly string[] = ['취소', '반품', '품절'];
+
+/** 카트행이 취소류인가 — 주문 헤더가 아니라 **그 줄**의 상태 판정(부분 취소는 od 가 '입금' 이다). */
+export function isCanceledCartStatus(ctStatus: string): boolean {
+  return CANCEL_STATUSES.includes(ctStatus);
+}
 // 카트 라인 금액식(get_order_info 미러) — 상수 SQL 조각(사용자 입력 없음, 컬럼만).
 const CART_LINE_VALUE_SQL = `IF(io_type = 1, (io_price * ct_qty), ((ct_price + io_price) * ct_qty))`;
 
@@ -2878,7 +2891,7 @@ export function resolveItemCancelSkip(
   ctPoint: number,
 ): OrderItemSkipReason | null {
   if (ctPoint > 0) return 'HAS_POINT';
-  if (CANCEL_STATUSES.includes(currentStatus)) return 'ALREADY_CANCELLED';
+  if (isCanceledCartStatus(currentStatus)) return 'ALREADY_CANCELLED';
   return null;
 }
 
@@ -2925,7 +2938,7 @@ async function recomputeOrderMoneyOnItemChange(odId: string): Promise<void> {
         SUM(IF(ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)}), cp_price, 0)) AS active_coupon,
         SUM(IF(ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)}) AND ct_notax = 0, ${CART_LINE_VALUE_SQL} - cp_price, 0)) AS tax_mny,
         SUM(IF(ct_status IN (${sqlStatusList(ACTIVE_ORDER_STATUSES)}) AND ct_notax = 1, ${CART_LINE_VALUE_SQL} - cp_price, 0)) AS free_mny,
-        SUM(IF(ct_status IN ('취소','반품','품절'), ${CART_LINE_VALUE_SQL}, 0)) AS cancel_price
+        SUM(IF(ct_status IN (${sqlStatusList(CANCEL_STATUSES)}), ${CART_LINE_VALUE_SQL}, 0)) AS cancel_price
        FROM g5_shop_cart WHERE od_id = ?`,
     [odId],
   );
@@ -3120,15 +3133,26 @@ export interface ForceStatusDelivery {
   invoiceTime: string;
 }
 
-export type ForceStatusOutcome = 'ok' | 'HAS_POINT';
+export type ForceStatusOutcome = 'ok' | 'HAS_POINT' | 'NO_ACTIVE_LINES';
 
-// force-status 대상 라인 상태 집합 — 쇼핑/삭제만 제외(취소류 포함). 취소류 행에 정상 상태를 걸면
-// 코어 정상 분기가 **un-cancel**(행 복귀) 역할을 한다(관리자가 취소 행 체크 + '주문' 선택). 취소류를
-// 빼면 전량취소 주문에 force-status 시 od_status 만 바뀌고 카트행은 취소로 남는 불일치가 생긴다.
-const FORCE_STATUS_LINE_IN = `ct_status IN (${sqlStatusList([...ACTIVE_ORDER_STATUSES, '취소', '반품', '품절'])})`;
+// force-status 대상 라인 상태 집합(순수) — 쇼핑/삭제는 항상 제외하고, **취소류는 target 방향으로 갈린다**.
+//  • 역방향 '주문' : 취소류 **포함**. 취소류 행에 '주문'을 걸면 코어 정상 분기가 **un-cancel**(행 복귀)
+//    역할을 한다 — 전량취소 주문을 되살리고 재고 점유를 푸는 정리 경로(cleanup-probe·여정 10호 X12)의
+//    정확한 동작이다. 빼면 od_status 만 '주문'이 되고 카트행은 취소로 남는 불일치가 생긴다.
+//  • 전진(입금·준비·제작 8단계·배송·완료) : 취소류 **제외**. PCB 고객 배송은 이 경로 하나뿐인데(줄 선택
+//    UI 가 없다) 취소류를 포함하면 살아 있는 줄을 배송하려 누른 [배송 처리] 한 번에 취소 줄까지 '배송'이
+//    되고 od_cancel_price 가 0 으로 재계산돼 **취소 이력·금액이 조용히 사라진다**(여정 10호 X10 실증).
+//    관리자가 취소를 정말 되돌리려면 '주문'으로 내렸다가(=un-cancel) 다시 올리는 명시 2단계를 밟는다.
+export function resolveForceStatusLineStatuses(target: OrderForceStatusTarget): readonly string[] {
+  return target === '주문' ? [...ACTIVE_ORDER_STATUSES, ...CANCEL_STATUSES] : ACTIVE_ORDER_STATUSES;
+}
+
+const forceStatusLineIn = (target: OrderForceStatusTarget): string =>
+  `ct_status IN (${sqlStatusList(resolveForceStatusLineStatuses(target))})`;
 
 // 주문 라인(쇼핑/삭제 제외)을 target 으로 일괄 전이 + od_status=target. HAS_POINT(포인트 딸린 행)면
-// 전체 거부(PCB ct_point=0 이라 미발생 — 구주문 유입 안전판, PHP 관리자 위임). 미존재 404 는 라우트가 처리.
+// 전체 거부(PCB ct_point=0 이라 미발생 — 구주문 유입 안전판, PHP 관리자 위임). 전진 target 인데 대상
+// 라인이 0이면(전량 취소 주문) 아무것도 쓰지 않고 NO_ACTIVE_LINES. 미존재 404 는 라우트가 처리.
 export async function setOrderForceStatus(
   odId: string,
   target: OrderForceStatusTarget,
@@ -3137,18 +3161,22 @@ export async function setOrderForceStatus(
   ip: string,
 ): Promise<ForceStatusOutcome> {
   const pool = getG5Pool();
+  const lineIn = forceStatusLineIn(target);
 
   const [ptRows] = await pool.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS n FROM g5_shop_cart WHERE od_id = ? AND ${FORCE_STATUS_LINE_IN} AND ct_point > 0`,
+    `SELECT COUNT(*) AS n FROM g5_shop_cart WHERE od_id = ? AND ${lineIn} AND ct_point > 0`,
     [odId],
   );
   if (Number(ptRows[0]?.n ?? 0) > 0) return 'HAS_POINT';
 
   const [lines] = await pool.query<RowDataPacket[]>(
     `SELECT ct_id, it_id, io_id, io_type, ct_qty, ct_status, ct_stock_use
-       FROM g5_shop_cart WHERE od_id = ? AND ${FORCE_STATUS_LINE_IN}`,
+       FROM g5_shop_cart WHERE od_id = ? AND ${lineIn}`,
     [odId],
   );
+  // 전량 취소 주문에 전진 target — 카트행은 하나도 못 움직이면서 od_status 만 올라가면 화면과 원장이
+  // 서로 딴말을 한다. 쓰기 전에 끊고, 라우트가 "먼저 '주문'으로 되돌리라"고 안내한다.
+  if (lines.length === 0 && target !== '주문') return 'NO_ACTIVE_LINES';
   const now = kstDateTimeStr(new Date());
   const affectedItemIds = new Set<string>();
 

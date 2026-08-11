@@ -718,6 +718,14 @@ export const adminOrderRoutes: FastifyPluginCallbackZod = (fastify, _opts, done)
           message: '포인트가 부여된 주문은 이 화면에서 상태를 변경할 수 없습니다',
         });
       }
+      // 전량 취소(모든 줄이 취소류)인데 전진 상태를 걸었다 — 상태만 올리면 카트행과 어긋난다.
+      if (outcome === 'NO_ACTIVE_LINES') {
+        return reply.status(409).send({
+          error: 'NO_ACTIVE_LINES',
+          message:
+            '취소된 주문입니다 — 진행할 상품이 없습니다. 되살리려면 상태를 [주문]으로 되돌린 뒤 다시 진행하세요',
+        });
+      }
       return { result: true as const, data: { odId } };
     },
   );

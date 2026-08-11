@@ -32,7 +32,7 @@ import { loadEqReviewRowSummaries } from './pcb-eq-review';
 import { loadRemittanceSummaries, summarizePcbRemittances } from './pcb-remittance';
 import {
   findPcbShipmentByPo,
-  isPcbOrderCanceled,
+  isPcbOrderLineCanceled,
   isPcbOutboundBlocked,
   pcbShipmentReceiverTurn,
   pcbShipmentSenderTurn,
@@ -424,7 +424,7 @@ export const createChildPcbPo = async (
   if (parentPo.partnerId !== actorPartnerId || parentPo.parentPartnerId !== 0n)
     return { ok: false, error: 'NOT_YOUR_PO' };
   // 취소된 주문에 새 하위 발주를 열지 않는다(EQ 전진 차단과 같은 원칙).
-  if (await isPcbOrderCanceled(parentPo.specId)) return { ok: false, error: 'ORDER_CANCELED' };
+  if (await isPcbOrderLineCanceled(parentPo.specId)) return { ok: false, error: 'ORDER_CANCELED' };
 
   // ── A/S 회차(round>0) 하위 발주 — childRfqId 없이 원회차 조건 복사(여정 7호 교정) ──
   // 회차 하위 RFQ 를 만들 경로가 없어 MD 경유 회차가 여기서 dead-end 였다. 레거시가
@@ -738,7 +738,7 @@ export const advancePcbPoEq = async (
   const action = PCB_EQ_FORWARD[asPcbPoStatus(po.status)];
   if (action === null) return { ok: false, error: 'FINAL' };
   // 취소된 주문의 보드를 계속 만들지 않는다 — 전진만 막고 revert(정리)는 그대로 둔다.
-  if (await isPcbOrderCanceled(po.specId)) return { ok: false, error: 'ORDER_CANCELED' };
+  if (await isPcbOrderLineCanceled(po.specId)) return { ok: false, error: 'ORDER_CANCELED' };
   const { role, byRole } = resolveEqRole(po, actor);
   // 관리자 만능 대행(D11) — 협력사 포털 미온보딩(레거시 진행분) 대비, 선적과 동일
   // 원칙. 이력 byRole 'ADMIN' 으로 대행 사실이 남는다.

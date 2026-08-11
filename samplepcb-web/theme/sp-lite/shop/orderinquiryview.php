@@ -167,9 +167,15 @@ if($od['od_pg'] == 'lg') {
                     // 견적 행: 거버 썸네일 우선(서버 서명 URL), 없으면 위 템플릿 이미지 폴백.
                     // extend/sp_quote_cart.extend.php sp_quote_thumb_url() ④ 참조. 주문완료 후에도
                     // 카트 행(ct_id)이 od_id=주문번호로 살아있어 그대로 해석된다.
+                    // 이름은 **줄(ct_id)별**로 찍는다 — 위 그룹 SELECT 는 it_id 로 묶여 있어
+                    // $row['it_name'] 은 그룹 대표 하나뿐이다. PCB 견적은 전부 같은 템플릿
+                    // 상품이라 한 주문서의 여러 줄이 통째로 같은 이름으로 보였다(여정 10호 X7):
+                    // 어느 줄이 취소됐는지 고객이 화면에서 구별할 수 없었다. 줄별 이름은 이미
+                    // 안쪽 SELECT 가 가져와 있다(it_name → $opt['it_name']).
+                    $opt_it_name = isset($opt['it_name']) ? $opt['it_name'] : $row['it_name'];
                     $thumb = function_exists('sp_quote_thumb_url') ? sp_quote_thumb_url($opt['ct_id']) : '';
                     $row_image = $thumb !== ''
-                        ? '<img src="'.$thumb.'" alt="'.get_text($row['it_name']).'" width="55" height="55">'
+                        ? '<img src="'.$thumb.'" alt="'.get_text($opt_it_name).'" width="55" height="55">'
                         : $image;
 	
 	                    if($k == 0) {
@@ -179,7 +185,7 @@ if($od['od_pg'] == 'lg') {
 	                <td headers="th_itopt" class="td_prd">
 	                	<div class="sod_img"><?php echo $row_image; ?></div>
 	                	<div class="sod_name">
-		                	<a href="<?php echo shop_item_url($row['it_id']); ?>"><?php echo $row['it_name']; ?></a><br>
+		                	<a href="<?php echo shop_item_url($row['it_id']); ?>"><?php echo get_text($opt_it_name); ?></a><br>
 		                	<div class="sod_opt"><?php echo get_text($opt['ct_option']); ?></div>
 	                	</div>
 	                </td>

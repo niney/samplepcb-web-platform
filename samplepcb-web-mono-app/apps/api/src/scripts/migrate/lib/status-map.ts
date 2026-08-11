@@ -1,7 +1,8 @@
 // 주문/카트 상태 정규화 — 레거시 22종(lib/common.lib.php get_order_status_list) 중
-// 신규 세트 밖 상태를 매핑한다. 신규 세트의 SSOT 는 lib/g5-db.ts(PRODUCTION_STATUSES 는 export,
-// ACTIVE_ORDER_STATUSES(:1049)·CANCEL_STATUSES(:2018) 는 비공개라 여기 미러 — 값 변경 시 동기 필수).
-import { PRODUCTION_STATUSES } from '../../../lib/g5-db';
+// 신규 세트 밖 상태를 매핑한다. 신규 세트의 SSOT 는 lib/g5-db.ts(PRODUCTION_STATUSES·
+// CANCEL_STATUSES 는 export 라 그대로 재사용, ACTIVE_ORDER_STATUSES 만 비공개라 여기 미러 —
+// 값 변경 시 동기 필수).
+import { CANCEL_STATUSES, PRODUCTION_STATUSES } from '../../../lib/g5-db';
 
 export const ACTIVE_ORDER_STATUSES: readonly string[] = [
   '주문',
@@ -11,7 +12,7 @@ export const ACTIVE_ORDER_STATUSES: readonly string[] = [
   '배송',
   '완료',
 ]; // g5-db.ts:1049 미러
-export const CANCEL_STATUSES: readonly string[] = ['취소', '반품', '품절']; // g5-db.ts:2018 미러
+export { CANCEL_STATUSES };
 
 /** 신규 세트로의 명시 매핑(레거시 전용 상태). 여기 없고 신규 세트에도 없으면 "미지 상태" → 게이트 중단. */
 const LEGACY_STATUS_MAP: Record<string, string> = {

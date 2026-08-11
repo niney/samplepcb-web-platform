@@ -1642,13 +1642,16 @@
    장바구니·주문서와 같은 시각 문법: 상품표 전폭 + 좌(정보)·우(합계/결제 sticky)
    #sod_frm 문법을 #sod_fin 로 이식.
    ========================================================================== */
+/* 상품표는 #sod_frm 과 같이 **전폭**이다(prd prd). 좁은 좌측 열(1fr − 340) 안에 두면 7열 표가
+   컨테이너를 넘겨 마지막 '상태' 칸이 가로 스크롤 밖으로 밀렸다 — 부분 취소를 알리는 유일한 줄
+   단위 표기('주문취소')가 화면에서 사라지는 결함(여정 10호 X7 실측: 상태 칸 right 1028 > 표 971). */
 #sod_fin {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 340px;
     grid-template-areas:
         "no     no"
         "notice notice"
-        "prd    right"
+        "prd    prd"
         "left   right";
     gap: 24px;
     align-items: start;
@@ -1716,7 +1719,7 @@
 #sod_fin .tbl_head03 { overflow-x: auto; }
 #sod_fin .tbl_head03 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 #sod_fin .tbl_head03 thead th {
-    padding: 12px 14px;
+    padding: 12px 10px;
     background: var(--sp-bg-soft);
     border-top: 1px solid var(--sp-line);
     border-bottom: 1px solid var(--sp-line);
@@ -1728,7 +1731,7 @@
 }
 #sod_fin .tbl_head03 thead th:first-child { text-align: left; }
 #sod_fin .tbl_head03 tbody td {
-    padding: 14px;
+    padding: 14px 10px;
     border-bottom: 1px solid var(--sp-line);
     text-align: center;
     vertical-align: middle;
@@ -1736,7 +1739,9 @@
     white-space: nowrap;
 }
 #sod_fin .tbl_head03 tbody tr:last-child td { border-bottom: 0; }
-#sod_fin .tbl_head03 .td_prd { text-align: left; white-space: normal; min-width: 240px; }
+/* 상품명 칸이 표의 최소 폭을 좌우한다 — 나머지 6열은 nowrap 이라 못 줄어드므로, 여기서 남는
+   폭을 확보해야 '상태' 칸이 표 안에 들어온다. 사양 요약의 긴 토큰(68.580x53.340mm)은 끊어 쓴다. */
+#sod_fin .tbl_head03 .td_prd { text-align: left; white-space: normal; min-width: 200px; }
 #sod_fin .tbl_head03 .td_prd::after { content: ""; display: block; clear: both; }
 #sod_fin .tbl_head03 tbody td.td_numbig,
 #sod_fin .tbl_head03 tbody td.text_right { text-align: right; font-variant-numeric: tabular-nums; }
@@ -1746,7 +1751,7 @@
     display: block; width: 56px; height: 56px; object-fit: cover;
     border: 1px solid var(--sp-line); border-radius: 6px; background: var(--sp-bg-soft);
 }
-#sod_fin .sod_name { overflow: hidden; padding-top: 2px; font-weight: 600; line-height: 1.5; color: var(--sp-ink); }
+#sod_fin .sod_name { overflow: hidden; overflow-wrap: anywhere; padding-top: 2px; font-weight: 600; line-height: 1.5; color: var(--sp-ink); }
 #sod_fin .sod_name a { color: inherit; }
 #sod_fin .sod_name .sod_opt { margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--sp-muted); }
 #sod_fin .td_dvr { color: var(--sp-muted); }

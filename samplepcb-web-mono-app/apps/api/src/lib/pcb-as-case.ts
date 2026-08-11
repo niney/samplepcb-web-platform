@@ -8,7 +8,7 @@ import type {
 } from '@sp/api-contract';
 import { defaultPcbAsCharge } from '@sp/api-contract';
 import { prisma } from './prisma';
-import { isPcbOrderCanceled } from './pcb-shipment';
+import { isPcbOrderLineCanceled } from './pcb-shipment';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 
 // ── PCB A/S 케이스(P4) — 재생산(회차 재발주) 접수·회신·진행 ──────────────────
@@ -234,7 +234,7 @@ export const createPcbAsCase = async (
   });
   if (spec === null) return { ok: false, error: 'SPEC_NOT_FOUND' };
   // 취소된 주문의 재생산은 성립하지 않는다(결제가 사라진 주문 — 사용자 결정 08-10).
-  if (await isPcbOrderCanceled(specId)) return { ok: false, error: 'ORDER_CANCELED' };
+  if (await isPcbOrderLineCanceled(specId)) return { ok: false, error: 'ORDER_CANCELED' };
   const origin = await findTargetOriginPo(specId, BigInt(body.targetPartnerId));
   if (origin === null) return { ok: false, error: 'NO_ORIGIN_PO' };
   const asCase = await prisma.spPcbAsCase.create({
@@ -376,7 +376,7 @@ export const proceedPcbAsCase = async (
   const c = await prisma.spPcbAsCase.findUnique({ where: { id } });
   if (c === null) return { ok: false, error: 'CASE_NOT_FOUND' };
   if (c.status !== 'accepted') return { ok: false, error: 'NOT_ACCEPTED' };
-  if (await isPcbOrderCanceled(c.specId)) return { ok: false, error: 'ORDER_CANCELED' };
+  if (await isPcbOrderLineCanceled(c.specId)) return { ok: false, error: 'ORDER_CANCELED' };
   const topPartnerId = topPartnerIdOf(c);
   const origin = await prisma.spPcbPo.findUnique({
     where: {

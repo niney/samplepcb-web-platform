@@ -842,6 +842,9 @@ export const en = {
       error: {
         NOT_FOUND: 'Order not found. Refresh the list.',
         NOT_BANK_TRANSFER: 'Only bank-transfer orders can have their deposit adjusted.',
+        HAS_POINT: 'Orders with points granted cannot change status here.',
+        NO_ACTIVE_LINES:
+          'This order is canceled — no items to process. To revive it, set the status back to [주문] first.',
         UNKNOWN: 'Request failed. Try again shortly.',
       },
       print: {

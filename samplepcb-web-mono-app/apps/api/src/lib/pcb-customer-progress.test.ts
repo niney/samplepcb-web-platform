@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { pcbProgressLabel, resolvePcbProgressStage } from './pcb-customer-progress';
+import {
+  pcbProgressLabel,
+  progressTargetCtIds,
+  resolvePcbProgressStage,
+} from './pcb-customer-progress';
 
 // 고객 진행 단계 판정(P4.13) — 발주 상태·발송 신호의 조합 전수.
 
@@ -36,6 +40,25 @@ describe('resolvePcbProgressStage', () => {
     expect(resolvePcbProgressStage('produced', { status: 'shipping', receivedAt: null })).toBe(
       'shipping',
     );
+  });
+});
+
+describe('progressTargetCtIds', () => {
+  it('취소류(취소·반품·품절) 줄은 카드 대상에서 빠진다 — 부분 취소는 od 가 활성이라 여기서만 걸린다', () => {
+    expect(
+      progressTargetCtIds([
+        { ctId: 1, ctStatus: '입금' },
+        { ctId: 2, ctStatus: '취소' },
+        { ctId: 3, ctStatus: '반품' },
+        { ctId: 4, ctStatus: '품절' },
+        { ctId: 5, ctStatus: '배송' },
+      ]),
+    ).toEqual([1, 5]);
+  });
+
+  it('전량 취소면 남는 대상이 없다(라우트의 od 단위 접힘과 같은 결과)', () => {
+    expect(progressTargetCtIds([{ ctId: 1, ctStatus: '취소' }])).toEqual([]);
+    expect(progressTargetCtIds([])).toEqual([]);
   });
 });
 

@@ -1,5 +1,6 @@
 import type { CustomerPcbProgressItemType, PcbProgressStageType } from '@sp/api-contract';
 import { prisma } from './prisma';
+import { isCanceledCartStatus } from './g5-db';
 
 // ── 고객 주문 상세의 PCB 진행 단계(P4.13) — 협력 트랙 파생, od 무접촉 ─────────
 // od 상태는 D6(1차 수동) 결정대로 두고, 실제 제작 진행(EQ→생산→발송→입고)을 sp 축
@@ -52,11 +53,19 @@ export const pcbProgressLabel = (
   (reorderRound > 0 ? 'A/S 재생산 — ' : '') +
   ((directShip ? DIRECT_SHIP_LABELS[stage] : undefined) ?? STAGE_LABELS[stage]);
 
-/** 주문의 카트행들 → 소유 스펙별 진행 카드. 발주(최상위) 없는 스펙은 항목을 내지 않는다. */
+/** 진행 카드를 낼 카트행 — **취소류(취소·반품·품절) 줄은 뺀다**(여정 10호 X7 교정). 부분 취소면
+ *  주문 헤더는 '입금' 그대로라 라우트의 od 단위 접힘(PROGRESS_CLOSED_OD)에 안 걸린다. 걸러 내지
+ *  않으면 고객 상세에 "주문취소"라고 쓰인 줄이 동시에 "생산 완료 — 발송 준비 중"으로 진행된다. */
+export const progressTargetCtIds = (
+  lines: readonly { ctId: number; ctStatus: string }[],
+): number[] => lines.filter((l) => !isCanceledCartStatus(l.ctStatus)).map((l) => l.ctId);
+
+/** 주문의 카트행들 → 소유 스펙별 진행 카드. 발주(최상위) 없는 스펙·취소된 줄은 항목을 내지 않는다. */
 export const listCustomerPcbProgress = async (
-  ctIds: number[],
+  lines: readonly { ctId: number; ctStatus: string }[],
   mbId: string,
 ): Promise<CustomerPcbProgressItemType[]> => {
+  const ctIds = progressTargetCtIds(lines);
   if (ctIds.length === 0) return [];
   const specs = await prisma.spOrderSpec.findMany({
     where: { ctId: { in: ctIds }, mbId, status: 'active' },

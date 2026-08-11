@@ -83,12 +83,8 @@ export const pcbEqReviewRoutes: FastifyPluginCallbackZod = (fastify, _opts, done
       return {
         result: true as const,
         data: {
-          items: closed
-            ? []
-            : await listCustomerPcbProgress(
-                rows.map((r) => r.ctId),
-                request.user.mbId,
-              ),
+          // 줄 단위 취소(부분 취소)는 여기서 안 걸린다 — lib 이 ct_status 로 거른다.
+          items: closed ? [] : await listCustomerPcbProgress(rows, request.user.mbId),
         },
       };
     },

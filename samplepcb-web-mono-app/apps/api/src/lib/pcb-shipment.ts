@@ -22,7 +22,7 @@ import {
   type PcbPoStatusType,
 } from '@sp/api-contract';
 import { prisma } from './prisma';
-import { getBusinessInfo, getOrderInfoByCtId } from './g5-db';
+import { getBusinessInfo, getOrderInfoByCtId, isCanceledCartStatus } from './g5-db';
 import { loadHousePartnerName } from './pcb-rfq';
 import { deleteFromFileServer, uploadToFileServer, type UploadTarget } from './file-server';
 import { kstDateStr } from './kst';
@@ -174,17 +174,27 @@ const findPreparingPcbShipment = async (
 };
 
 /**
- * 취소된 주문인가 — 스펙의 주문 헤더가 '취소'면 협력 트랙의 **새 작업 시작**(EQ 전진·
- * 하위 발주·담기)을 막는 판정에 쓴다. 주문 취소 후에도 PO·EQ·선적 라우트가 주문을 전혀
+ * 이 스펙의 **주문 또는 그 줄**이 취소됐는가 — 협력 트랙의 **새 작업 시작**(EQ 전진·하위
+ * 발주·담기·A/S 접수)을 막는 판정에 쓴다. 주문 취소 후에도 PO·EQ·선적 라우트가 주문을 전혀
  * 보지 않아 취소된 보드가 그대로 생산·발송되던 것(재작업 조사 실증)의 최소 방어다.
+ *
+ * 판정 축은 **둘**이다(여정 10호 교정 — 둘 중 하나면 취소):
+ *   ① 주문 헤더 od_status='취소'(전량 취소)
+ *   ② 그 스펙의 카트행 ct_status 가 취소류(취소·반품·품절)
+ * ②가 없으면 **부분 취소가 통째로 새어 나간다** — 영카트는 줄 단위로 취소하고 전량일 때만
+ * od 를 '취소'로 내리므로, 한 주문서의 한 줄만 취소하면 od 는 '입금' 그대로다. 여정 10호는
+ * 그 상태에서 담기·EQ 전진·A/S 접수가 모두 200 으로 통과해 취소된 보드가 박스에 담기는 것을
+ * 실증했다. 줄 상태는 getOrderInfoByCtId 가 이미 rowCtStatus 로 함께 돌려준다(카탈로그 ⑲).
+ *
  * 정리 작업(revert·detach·발주 취소)과 이미 시작된 발송의 전이·입고는 막지 않는다 —
  * 실물이 움직인 기록은 남겨야 한다. '완료' 는 A/S 재발주(P4) 설계와 얽혀 여기서 안 본다.
  */
-export const isPcbOrderCanceled = async (specId: bigint): Promise<boolean> => {
+export const isPcbOrderLineCanceled = async (specId: bigint): Promise<boolean> => {
   const spec = await prisma.spOrderSpec.findUnique({ where: { id: specId } });
   if (spec?.ctId == null) return false;
   const order = await getOrderInfoByCtId(spec.ctId);
-  return order?.odStatus === '취소';
+  if (order === null) return false;
+  return order.odStatus === '취소' || isCanceledCartStatus(order.rowCtStatus);
 };
 
 export type EnsurePcbShipmentError =
@@ -203,7 +213,7 @@ export const ensurePcbShipment = async (
   const existing = await findPcbShipmentByPo(po.id);
   if (existing !== null) return { ok: true, shipment: existing };
   if (po.status !== 'produced') return { ok: false, error: 'NOT_PRODUCED' };
-  if (await isPcbOrderCanceled(po.specId)) return { ok: false, error: 'ORDER_CANCELED' };
+  if (await isPcbOrderLineCanceled(po.specId)) return { ok: false, error: 'ORDER_CANCELED' };
   if (await isPcbOutboundBlocked(po)) return { ok: false, error: 'OUTBOUND_BLOCKED' };
   const ctx = await resolvePcbShipContext(po);
   if (!ctx.ok) return { ok: false, error: ctx.error };
