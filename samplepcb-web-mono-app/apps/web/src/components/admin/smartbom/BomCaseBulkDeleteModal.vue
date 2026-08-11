@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type {
   AdminBomCaseDeleteImpactType,
   AdminBomCaseDeleteWarningType,
@@ -53,6 +53,9 @@ const acknowledgeIrreversible = ref(false);
 const deleteCases = useDeleteAdminBomCases();
 const result = ref<AdminBomCaseBulkDeleteResult | null>(null);
 const localError = ref('');
+const dialogEl = ref<HTMLElement | null>(null);
+let previousFocus: HTMLElement | null = null;
+let previousBodyOverflow = '';
 const candidateItems = computed(() => [...deletableItems.value, ...paidOrderForceItems.value]);
 const executionItems = computed(() => [
   ...deletableItems.value,
@@ -159,6 +162,28 @@ const mutationError = computed(() => {
 });
 const combinedError = computed(() => localError.value || mutationError.value);
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function focusableElements(): HTMLElement[] {
+  const dialog = dialogEl.value;
+  if (dialog === null) return [];
+  return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => element.getClientRects().length > 0,
+  );
+}
+
+async function focusCurrentDialog(): Promise<void> {
+  await nextTick();
+  dialogEl.value?.focus();
+}
+
 function openConfirm(): void {
   if (!canContinue.value) return;
   step.value = 'confirm';
@@ -187,6 +212,12 @@ function toggleForcePaidOrder(): void {
   acknowledgeIrreversible.value = false;
   localError.value = '';
   deleteCases.reset();
+}
+
+async function retryPreviews(): Promise<void> {
+  localError.value = '';
+  deleteCases.reset();
+  await previewQuery.refetch();
 }
 
 async function submitDelete(): Promise<void> {
@@ -231,14 +262,48 @@ function close(): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') close();
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    close();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const dialog = dialogEl.value;
+  if (dialog === null) return;
+  const focusable = focusableElements();
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (first === undefined || last === undefined) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !dialog.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
-onMounted(() => {
+watch(step, () => {
+  void focusCurrentDialog();
+});
+
+onMounted(async () => {
+  previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  previousBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
   window.addEventListener('keydown', onKeydown);
+  await focusCurrentDialog();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
+  document.body.style.overflow = previousBodyOverflow;
+  previousFocus?.focus();
+  previousFocus = null;
 });
 </script>
 
@@ -250,10 +315,12 @@ onBeforeUnmount(() => {
       <!-- 1차 레이어: 선택한 모든 Case의 최신 삭제 영향과 차단 사유 -->
       <section
         v-if="step === 'impact'"
+        ref="dialogEl"
         class="relative max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-surface shadow-2xl"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="bom-case-bulk-delete-impact-title"
+        tabindex="-1"
       >
         <header class="border-b border-red-100 bg-red-50 px-6 py-4">
           <p class="text-[11px] font-bold uppercase tracking-wider text-red-500">1차 경고 · 일괄 삭제 영향 확인</p>
@@ -266,8 +333,20 @@ onBeforeUnmount(() => {
           <p v-if="previewQuery.isLoading.value" class="py-14 text-center text-sm text-gray-400">
             주문·발주·선적·파일 관계를 Case별로 확인하는 중…
           </p>
-          <div v-else-if="previewQuery.isError.value" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            삭제 영향을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+          <div
+            v-else-if="previewQuery.isError.value"
+            role="alert"
+            class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          >
+            <p>삭제 영향을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>
+            <button
+              type="button"
+              class="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100 disabled:cursor-wait disabled:opacity-50"
+              :disabled="previewQuery.isFetching.value"
+              @click="retryPreviews"
+            >
+              {{ previewQuery.isFetching.value ? '삭제 영향 확인 중…' : '삭제 영향 다시 확인' }}
+            </button>
           </div>
           <template v-else>
             <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -366,9 +445,23 @@ onBeforeUnmount(() => {
               <li v-for="warning in warnings" :key="warning">⚠ {{ SMARTBOM_DELETE_WARNING_TEXT[warning] }}</li>
             </ul>
 
-            <p v-if="protectedItems.length + previewFailedItems.length > 0" class="mt-3 text-xs font-semibold text-red-700">
-              보호되거나 조회하지 못한 {{ protectedItems.length + previewFailedItems.length }}건은 삭제하지 않고 목록에 남깁니다.
-            </p>
+            <div
+              v-if="protectedItems.length + previewFailedItems.length > 0"
+              class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2"
+            >
+              <p class="text-xs font-semibold text-red-700">
+                보호되거나 조회하지 못한 {{ protectedItems.length + previewFailedItems.length }}건은 삭제하지 않고 목록에 남깁니다.
+              </p>
+              <button
+                v-if="previewFailedItems.length > 0"
+                type="button"
+                class="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 disabled:cursor-wait disabled:opacity-50"
+                :disabled="previewQuery.isFetching.value"
+                @click="retryPreviews"
+              >
+                {{ previewQuery.isFetching.value ? '삭제 영향 확인 중…' : '삭제 영향 다시 확인' }}
+              </button>
+            </div>
             <p v-if="combinedError !== ''" class="mt-3 text-sm font-semibold text-red-600">{{ combinedError }}</p>
           </template>
         </div>
@@ -389,10 +482,12 @@ onBeforeUnmount(() => {
       <!-- 2차 레이어: 공통 기록 모드와 복구 불가 최종 확인 -->
       <section
         v-else-if="step === 'confirm'"
+        ref="dialogEl"
         class="relative max-h-[92vh] w-full max-w-xl overflow-hidden rounded-2xl bg-surface shadow-2xl"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="bom-case-bulk-delete-confirm-title"
+        tabindex="-1"
       >
         <header class="border-b border-red-200 bg-red-700 px-6 py-4 text-white">
           <p class="text-[11px] font-bold uppercase tracking-wider text-red-100">2차 경고 · 최종 확인</p>
@@ -477,10 +572,12 @@ onBeforeUnmount(() => {
       <!-- 완료·부분 실패를 한 화면에서 확인 -->
       <section
         v-else-if="step === 'result' && result !== null"
+        ref="dialogEl"
         class="relative max-h-[90vh] w-full max-w-lg overflow-hidden rounded-2xl bg-surface shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="bom-case-bulk-delete-result-title"
+        tabindex="-1"
       >
         <div class="max-h-[75vh] overflow-y-auto p-6">
           <p class="text-xs font-bold uppercase tracking-wider text-emerald-600">일괄 삭제 결과</p>
