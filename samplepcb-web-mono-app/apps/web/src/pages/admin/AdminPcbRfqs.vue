@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import type { AdminPcbRfqTabType } from '@sp/api-contract';
+import type { AdminPcbRfqCaseItemType, AdminPcbRfqTabType } from '@sp/api-contract';
+import { pcbMarginPercent } from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbRfqCases, type AdminPcbRfqCaseFilters } from '../../admin/useAdminPcbRfqs';
 import { useAdminPcbTodoCounts } from '../../admin/useAdminPcbCases';
@@ -10,7 +11,7 @@ import PcbCustomerCell from '../../components/admin/pcb/PcbCustomerCell.vue';
 import PcbSelectionBar from '../../components/admin/pcb/PcbSelectionBar.vue';
 import PcbTodoQueue from '../../components/admin/pcb/PcbTodoQueue.vue';
 import { useRowSelection } from '../../admin/useRowSelection';
-import { fmtPcbAmount } from '../../lib/pcb-money';
+import { fmtPcbAmount, pcbKrwSuffix } from '../../lib/pcb-money';
 
 // PCB 견적요청(RFQ) 워크큐 — docs/PCB_PARTNER_TRACK.md §5.4. 큐 흐름:
 //   요청 대기(RFQ 미발송 — 스펙 축) → 회신 대기 → 선정 대기(내 차례) → 선정 완료.
@@ -69,6 +70,15 @@ const QUOTE_LABEL: Record<string, { label: string; cls: string }> = {
   priced: { label: '자동견적', cls: 'bg-sky-100 text-sky-700' },
   quoted: { label: '견적 확정', cls: 'bg-emerald-100 text-emerald-700' },
 };
+
+// 마진 — 옆 열의 '고객 견적'(확정가)은 **VAT 포함 판매가**고 선정가는 원가라, 두 수의
+// 차액을 눈으로 빼면 마진이 10%p 가까이 부풀어 보인다. 계약의 순수 함수가 VAT 를 걷어낸
+// 뒤 나눈다(선정 모달이 쓰는 식과 같은 것 — 거기서 입력한 마진%가 여기 그대로 나온다).
+// 확정가 전이거나 KRW 환산이 없으면 계산하지 않는다(선정만 하고 가격 미확정인 구간).
+const marginOf = (row: AdminPcbRfqCaseItemType): number | null =>
+  row.finalPrice === null || row.selectedKrwAmount === null
+    ? null
+    : pcbMarginPercent(row.finalPrice, row.selectedKrwAmount);
 
 const rfqBadge = (row: { rfqTotal: number; rfqQuoted: number }): { label: string; cls: string } => ({
   label: `회신 ${String(row.rfqQuoted)}/${String(row.rfqTotal)}`,
@@ -196,9 +206,25 @@ function openCase(specId: number): void {
                 </span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5">
-                <span v-if="row.selectedPartnerName !== null" class="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-semibold text-violet-700">
-                  {{ row.selectedPartnerName }}
-                </span>
+                <template v-if="row.selectedPartnerName !== null">
+                  <span class="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-semibold text-violet-700">
+                    {{ row.selectedPartnerName }}
+                  </span>
+                  <!-- 선정가(우리 원가) — 확정가를 매기러 행을 열지 않아도 목록에서 판단이
+                       서게 한다. 값은 선정 시점 박제라 오늘 환율로 흔들리지 않는다. -->
+                  <span v-if="row.selectedPrice !== null" class="mt-0.5 block text-xs tabular-nums text-gray-600">
+                    {{ fmtPcbAmount(row.selectedCurrency ?? 'KRW', row.selectedPrice) }}
+                    <span class="text-gray-400">{{ pcbKrwSuffix(row.selectedCurrency ?? 'KRW', row.selectedKrwAmount) }}</span>
+                    <span
+                      v-if="marginOf(row) !== null"
+                      class="ml-1 rounded px-1 py-0.5 text-[11px] font-semibold"
+                      :class="(marginOf(row) ?? 0) < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'"
+                      title="확정가에서 VAT 를 걷어낸 뒤 선정가와 비교한 값입니다 — 선정 모달의 마진%와 같은 식."
+                    >
+                      마진 {{ marginOf(row) }}%
+                    </span>
+                  </span>
+                </template>
                 <span v-else class="text-xs text-gray-300">—</span>
               </td>
               <td class="whitespace-nowrap px-4 py-2.5 text-gray-400">{{ fmtDate(row.latestRequestedAt) }}</td>

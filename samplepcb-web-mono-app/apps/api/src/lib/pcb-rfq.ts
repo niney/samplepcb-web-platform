@@ -829,6 +829,10 @@ export const loadAdminPcbRfqCases = async (): Promise<
         rfqTotal: list.length,
         rfqQuoted: list.filter((r) => hasReply(r)).length,
         selectedPartnerName: selected?.partner.name ?? null,
+        // 선정가는 선정 행에 이미 박제돼 있다(추가 조회 없음) — 원값·환산 모두 그날 값.
+        selectedCurrency: selected?.currency ?? null,
+        selectedPrice: selected === undefined ? null : decNum(selected.priceOriginal),
+        selectedKrwAmount: selected?.krwAmount ?? null,
         latestRequestedAt: new Date(latest).toISOString(),
         specCreatedAt: spec.createdAt.toISOString(),
       },

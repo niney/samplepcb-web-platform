@@ -8,6 +8,8 @@ import {
   bomShipmentNextStatus,
   isPcbDeliveryOverdue,
   lastPcbEqRejectedAt,
+  pcbMarginPercent,
+  pcbSellingPrice,
   resolvePcbDirectShipCountry,
   type AdminPcbPoViewType,
   type AdminPcbRfqViewType,
@@ -326,20 +328,20 @@ const selectFinalValid = computed(() => {
   const value = Number(selectFinal.value.replaceAll(',', ''));
   return Number.isFinite(value) && value > 0;
 });
+// 마진↔판매가 환산식은 계약이 정본(pcbSellingPrice/pcbMarginPercent) — RFQ 워크큐의
+// '마진' 배지가 같은 함수를 쓴다. 여기 식만 손대면 두 화면이 다른 마진을 말한다.
 function syncFinalFromMargin(): void {
   const cost = selectCostKrw.value;
   const margin = Number(selectMargin.value.replaceAll(',', ''));
   if (cost === null || selectMargin.value.trim() === '' || !Number.isFinite(margin)) return;
-  selectFinal.value = String(Math.round(cost * (1 + margin / 100) * 1.1));
+  selectFinal.value = String(pcbSellingPrice(cost, margin));
 }
 function syncMarginFromFinal(): void {
   const cost = selectCostKrw.value;
   const final = Number(selectFinal.value.replaceAll(',', ''));
-  if (cost === null || cost <= 0 || !Number.isFinite(final) || final <= 0) {
-    selectMargin.value = '';
-    return;
-  }
-  selectMargin.value = (Math.round((final / 1.1 / cost - 1) * 1000) / 10).toFixed(1);
+  const margin =
+    cost === null || !Number.isFinite(final) || final <= 0 ? null : pcbMarginPercent(final, cost);
+  selectMargin.value = margin === null ? '' : margin.toFixed(1);
 }
 function onSelectRateInput(): void {
   selectRateDate.value = null; // 손으로 고치면 고시 라벨 해제(수동값)

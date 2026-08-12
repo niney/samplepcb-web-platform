@@ -160,6 +160,24 @@ export const PcbRfqChildSelectBody = z.object({
 });
 export type PcbRfqChildSelectBodyType = z.infer<typeof PcbRfqChildSelectBody>;
 
+// ── 원가 ↔ 판매가(마진) 환산 — 레거시 선정 모달 공식이 정본 ──────────────────
+// 판매가 = 원가KRW × (1+마진%) × 1.1(VAT). 두 방향을 한 자리에 둔다: 선정 모달은
+// 정방향(마진 입력 → 판매가), 목록은 역산(확정가 → 마진 배지)을 쓰는데, 각자 계산하면
+// **같은 건이 화면마다 다른 마진을 말한다**. 특히 VAT 를 빠뜨린 역산은 마진을 10%p 가까이
+// 부풀려 보고하므로(확정가는 VAT 포함 판매가) 이 나눗셈은 반드시 여기를 거쳐야 한다.
+export const PCB_VAT_RATE = 1.1;
+
+/** 원가 KRW + 마진% → 판매가(VAT 포함, 원 단위 반올림). */
+export const pcbSellingPrice = (costKrw: number, marginPercent: number): number =>
+  Math.round(costKrw * (1 + marginPercent / 100) * PCB_VAT_RATE);
+
+/**
+ * 판매가(VAT 포함) + 원가 KRW → 마진%(소수 첫째 자리). 원가가 0 이하면 나눌 수 없어 null.
+ * 음수도 그대로 돌려준다 — 원가보다 싸게 판 건은 감출 게 아니라 보여야 할 신호다.
+ */
+export const pcbMarginPercent = (sellingPrice: number, costKrw: number): number | null =>
+  costKrw <= 0 ? null : Math.round((sellingPrice / PCB_VAT_RATE / costKrw - 1) * 1000) / 10;
+
 // ── 관리자: 횡단 워크큐 (/api/admin/pcb-rfqs) — 스펙(견적건) 단위 그룹 ────────
 export const ADMIN_PCB_RFQ_TABS = ['pending', 'quoted', 'selected', 'all'] as const;
 export type AdminPcbRfqTabType = (typeof ADMIN_PCB_RFQ_TABS)[number];
@@ -178,6 +196,12 @@ export const AdminPcbRfqCaseItem = z.object({
   rfqTotal: z.number().int(), // 직속(parent=0) 트랙 행 수
   rfqQuoted: z.number().int(), // 그중 회신 완료 수(quoted+selected)
   selectedPartnerName: z.string().nullable(),
+  /** 선정가(우리 원가) — 선정 시점에 행에 박제된 값 그대로다: 결제통화 원값 + 그때 환율의
+   *  KRW 환산. 오늘 환율로 다시 계산하지 않는다(선정 후 환율이 움직여도 원가는 그날 값).
+   *  선정 전이면 셋 다 null. KRW 결제면 krwAmount 는 원값과 같다. */
+  selectedCurrency: z.string().nullable(),
+  selectedPrice: z.number().nullable(),
+  selectedKrwAmount: z.number().nullable(),
   latestRequestedAt: z.string(),
   specCreatedAt: z.string(),
 });
