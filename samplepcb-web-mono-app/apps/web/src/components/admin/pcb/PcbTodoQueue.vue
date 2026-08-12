@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import type { AdminPcbCaseTabType } from '@sp/api-contract';
 import { fmtKstDate as fmtDate } from '@sp/utils';
 import { useAdminPcbCases, type AdminPcbCaseFilters } from '../../../admin/useAdminPcbCases';
+import { pcbCategoryBadge } from '../../../lib/pcb-category';
 import { fmtPcbAmount } from '../../../lib/pcb-money';
 import { useRowSelection } from '../../../admin/useRowSelection';
 import DeleteQuoteModal from '../DeleteQuoteModal.vue';
@@ -102,7 +103,7 @@ function openCase(specId: number): void {
             <th class="whitespace-nowrap px-4 py-2.5">견적</th>
             <th class="px-4 py-2.5">프로젝트</th>
             <th class="px-4 py-2.5">고객명</th>
-            <th class="whitespace-nowrap px-4 py-2.5">수량</th>
+            <th class="whitespace-nowrap px-4 py-2.5">분류/수량</th>
             <th class="whitespace-nowrap px-4 py-2.5">주문</th>
             <th class="whitespace-nowrap px-4 py-2.5">확정가</th>
             <th class="whitespace-nowrap px-4 py-2.5">신청일</th>
@@ -131,7 +132,17 @@ function openCase(specId: number): void {
             <td class="px-4 py-2.5 text-gray-600">
               <PcbCustomerCell :name="row.customerName" :mb-id="row.mbId" />
             </td>
-            <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">{{ row.qty }}</td>
+            <!-- 분류는 배지로 — 목록(RFQ 워크큐)과 같은 사전이다. 요청 대기 큐는 "무엇을
+                 협력사에 물어볼지" 고르는 자리라, 물건 종류가 오히려 여기서 더 필요하다. -->
+            <td class="whitespace-nowrap px-4 py-2.5 text-gray-600">
+              <span
+                class="rounded px-1.5 py-0.5 text-xs font-semibold"
+                :class="pcbCategoryBadge(row.category).cls"
+              >
+                {{ pcbCategoryBadge(row.category).label }}
+              </span>
+              <span class="ml-1 tabular-nums">{{ row.qty }}매</span>
+            </td>
             <td class="whitespace-nowrap px-4 py-2.5">
               <template v-if="row.odId === null">
                 <span class="text-xs text-gray-400">주문 전</span>

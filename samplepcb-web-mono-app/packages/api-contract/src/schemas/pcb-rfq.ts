@@ -217,7 +217,7 @@ export const AdminPcbRfqCaseListResponse = z.object({
     counts: z.object({
       pending: z.number().int(), // 회신 대기 행이 남은 스펙 수
       quoted: z.number().int(), // 회신은 모였고 선정 전(내 차례)
-      selected: z.number().int(), // 선정 완료(확정가 등록 대기 포함)
+      selected: z.number().int(), // 선정 완료 = 화면의 '견적 완료' 탭(확정가 등록 대기 포함)
       all: z.number().int(),
     }),
   }),

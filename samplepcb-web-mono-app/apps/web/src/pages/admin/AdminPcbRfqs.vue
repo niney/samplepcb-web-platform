@@ -15,7 +15,7 @@ import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix } from '../../lib/pcb-money';
 
 // PCB 견적요청(RFQ) 워크큐 — docs/PCB_PARTNER_TRACK.md §5.4. 큐 흐름:
-//   요청 대기(RFQ 미발송 — 스펙 축) → 회신 대기 → 선정 대기(내 차례) → 선정 완료.
+//   요청 대기(RFQ 미발송 — 스펙 축) → 회신 대기 → 견적 대기(내 차례 = 선정) → 견적 완료.
 // 첫 탭이 스펙 축인 이유: RFQ 행이 없는 건은 RFQ 축 모수에 들어올 수 없어 "요청해야
 // 할 건"이 이 화면에 없었다. 배정·비교·선정 조작은 Case 상세(RFQ 패널)가 전담.
 
@@ -36,8 +36,11 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.va
 const TABS: { key: RfqTabKey; label: string }[] = [
   { key: 'todo', label: '요청 대기' },
   { key: 'pending', label: '회신 대기' },
-  { key: 'quoted', label: '선정 대기' },
-  { key: 'selected', label: '선정 완료' },
+  // 탭 이름은 '견적' 축으로 부른다(사용자 결정 2026-08-12) — 이 화면에서 관리자가 하는
+  // 일이 곧 견적을 받아 확정하는 것이라, 내부 용어(선정)보다 업무 이름이 맞다.
+  // ⚠ 키(quoted/selected)는 서버 counts·필터의 축이라 그대로다 — 라벨만 바뀐다.
+  { key: 'quoted', label: '견적 대기' },
+  { key: 'selected', label: '견적 완료' },
   { key: 'all', label: '전체' },
 ];
 const tabCount = (key: RfqTabKey): number | null =>

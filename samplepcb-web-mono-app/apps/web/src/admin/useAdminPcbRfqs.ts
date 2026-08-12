@@ -53,7 +53,7 @@ export function useAdminPcbRfqCases(filters: Ref<AdminPcbRfqCaseFilters>) {
   });
 }
 
-// 사이드바 'PCB 견적요청' 배지 — 지금 움직여야 하는 수 = 회신 완료·선정 대기(quoted).
+// 사이드바 'PCB 견적요청' 배지 — 지금 움직여야 하는 수 = 회신 완료·견적 대기(quoted 탭).
 export function usePcbRfqPendingCount(enabled: Ref<boolean>) {
   return useQuery({
     queryKey: ['admin', 'pcbRfq', 'pending-count'],

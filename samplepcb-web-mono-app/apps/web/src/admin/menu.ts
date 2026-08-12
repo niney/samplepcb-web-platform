@@ -111,7 +111,7 @@ const pcbMenu: AdminMenuItem[] = [
     labelKey: 'admin.menu.pcbCases',
     activeRouteNames: ['admin-pcb-case'],
   },
-  // 견적요청(RFQ) 워크큐 — 요청 대기 + 선정 대기 수 배지.
+  // 견적요청(RFQ) 워크큐 — 요청 대기 + 견적 대기(회신이 모여 선정할 차례) 수 배지.
   {
     to: { name: 'admin-pcb-rfqs' },
     labelKey: 'admin.menu.pcbRfqs',
