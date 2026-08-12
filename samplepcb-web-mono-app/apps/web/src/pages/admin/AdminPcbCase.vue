@@ -53,6 +53,7 @@ import {
   type AdminPcbEqSubstituteAction,
 } from '../../admin/useAdminPcbPos';
 import { useConfirmPcbOrderReceipt, usePcbCompleteCustomerOrder } from '../../admin/useAdminPcbOrders';
+import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbKrwSuffix, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { isPcbDirectShipIntl, pcbShipmentStatusLabel } from '../../lib/pcb-shipment-label';
 import {
@@ -1197,9 +1198,17 @@ const editableRow = (row: AdminPcbRfqViewType): boolean =>
             사양 수정
           </button>
         </div>
+        <!-- 제품군은 배지로 — 뒤의 샘플/양산과 나란히 회색 텍스트로 흘리면 둘 다 "분류"로
+             읽혀 갈리지 않는다. 두 값은 축이 다르다: 앞은 제품 종류(공정·단가), 뒤는 주문
+             성격(양산은 자동가를 내지 않는다). 사전은 목록(RFQ 워크큐)과 같은 것. -->
         <p class="mt-1 text-sm text-gray-500">
-          {{ detail.category }} · {{ detail.orderCategory === 'mass' ? '양산' : '샘플' }} ·
-          {{ detail.qty }}매
+          <span
+            class="mr-1 rounded px-1.5 py-0.5 text-xs font-semibold"
+            :class="pcbCategoryBadge(detail.category).cls"
+          >
+            {{ pcbCategoryBadge(detail.category).label }}
+          </span>
+          {{ detail.orderCategory === 'mass' ? '양산' : '샘플' }} · {{ detail.qty }}매
         </p>
         <p class="mt-1 text-xs text-gray-400">{{ detail.optionSummary }}</p>
         <div v-if="gerberFiles.length > 0" class="mt-3 flex flex-wrap gap-2">

@@ -11,6 +11,7 @@ import {
   usePartnerPcbRfqReply,
 } from '../../partner/usePartnerPcbRfqs';
 import { fmtKstDate as dateOnly } from '@sp/utils';
+import { pcbCategoryBadge } from '../../lib/pcb-category';
 import { fmtPcbAmount, pcbMoneyWithSub } from '../../lib/pcb-money';
 import { pcbSpecEntries } from '../../lib/pcb-spec';
 import PcbRfqReplyForm from '../../components/pcb/PcbRfqReplyForm.vue';
@@ -161,8 +162,15 @@ const STATUS_CLS: Record<string, string> = {
       <!-- 제작 사양 -->
       <section class="rounded-xl border border-gray-200 bg-surface p-4">
         <h2 class="text-sm font-bold text-gray-700">제작 사양</h2>
+        <!-- 제품군 배지 — 관리자 Case 상세와 같은 사전(공정·단가가 다른 물건을 갈라 준다). -->
         <p class="mt-1 text-sm text-gray-500">
-          {{ detail.spec.category }} · {{ detail.spec.orderCategory === 'mass' ? '양산' : '샘플' }} · {{ detail.spec.qty }}매
+          <span
+            class="mr-1 rounded px-1.5 py-0.5 text-xs font-semibold"
+            :class="pcbCategoryBadge(detail.spec.category).cls"
+          >
+            {{ pcbCategoryBadge(detail.spec.category).label }}
+          </span>
+          {{ detail.spec.orderCategory === 'mass' ? '양산' : '샘플' }} · {{ detail.spec.qty }}매
           <template v-if="detail.suggestedDeliveryDate !== null">
             · 희망 납기 {{ dateOnly(detail.suggestedDeliveryDate) }}
           </template>
